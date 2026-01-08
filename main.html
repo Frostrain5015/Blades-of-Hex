@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blades of Hex</title>
+    <style>
+        /* 重置默认样式 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* 页面整体：古战场背景+居中布局 */
+        body {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-image: url("bg.jpg");
+            background-repeat: no-repeat;
+            background-size: cover;
+            background-attachment: fixed;
+            font-family: "Arial", serif; 
+            gap: 80px;
+            overflow: hidden;
+        }
+
+        .game-title {
+            font-size: 80px;
+            font-weight: bold;
+            letter-spacing: 10px;
+            background: linear-gradient(45deg, #c82818, #d4a017, #c82818);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 3px 8px rgba(88, 20, 5, 0.6),
+                         0 0 20px rgba(212, 160, 23, 0.2);
+            /* 移动端适配 */
+            @media (max-width: 768px) {
+                font-size: 50px;
+                letter-spacing: 5px;
+            }
+            /* 标题动效：轻微呼吸，模拟战旗飘动 */
+            animation: breath 3s ease-in-out infinite;
+        }
+
+        /* 呼吸动效 */
+        @keyframes breath {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        /* 兵符/令牌样式按钮：古代战争风核心 */
+        .start-btn {
+            padding: 25px 70px;
+            font-size: 28px;
+            letter-spacing: 5px;
+            color: #f8e9d1; /* 宣纸色文字 */
+            /* 令牌底色：暗红檀木+纹理 */
+            background: linear-gradient(135deg, #6b2010, #4a180b);
+            /* 令牌边框：鎏金效果 */
+            border: 3px solid #d4a017;
+            border-radius: 12px;
+            /* 浮雕效果，模拟令牌凹凸质感 */
+            box-shadow: 0 8px 0 #3a180a,
+                        0 12px 20px rgba(0, 0, 0, 0.5),
+                        inset 0 2px 3px rgba(255, 240, 220, 0.2);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        /* 令牌按钮悬浮：模拟拿起兵符的质感 */
+        .start-btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 0 #3a180a,
+                        0 16px 25px rgba(0, 0, 0, 0.6),
+                        inset 0 2px 3px rgba(255, 240, 220, 0.3);
+            background: linear-gradient(135deg, #7c2512, #5a1f0d);
+        }
+
+        /* 按钮点击：模拟按下令牌 */
+        .start-btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 4px 0 #3a180a,
+                        0 8px 15px rgba(0, 0, 0, 0.5),
+                        inset 0 2px 3px rgba(255, 240, 220, 0.1);
+        }
+
+        /* 令牌装饰 */
+        .start-btn::before {
+            content: "";
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            right: 5px;
+            bottom: 5px;
+            border: 1px dashed rgba(212, 160, 23, 0.4);
+            border-radius: 8px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <h1 class="game-title">海克斯之剑</h1>
+    <button class="start-btn" id="startGameBtn">开始游戏</button>
+
+    <script>
+        const startBtn = document.getElementById('startGameBtn');
+        
+        const gameHtmlPath = 'index.html'; 
+
+        // 点击跳转
+        startBtn.addEventListener('click', function() {
+            window.location.href = gameHtmlPath;
+        });
+    </script>
+</body>
+</html>
