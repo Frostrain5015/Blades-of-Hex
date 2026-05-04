@@ -215,23 +215,27 @@
         const HEX_HEIGHT = 2 * HEX_SIZE;
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        // 绘制六边形轮廓函数
-        function drawHexagonOutline(ctx, centerX, centerY, size, strokeStyle, lineWidth) {
-            ctx.save(); // 保存当前上下文状态
+
+        // 在当前 ctx 上构建一个六边形路径（不描边/填充，由调用方决定）
+        function hexPath(ctx, cx, cy, size) {
             ctx.beginPath();
             for (let i = 0; i < 6; i++) {
                 const angle = 2 * Math.PI / 6 * (i + 0.5);
-                const x = centerX + size * Math.cos(angle);
-                const y = centerY + size * Math.sin(angle);
+                const x = cx + size * Math.cos(angle);
+                const y = cy + size * Math.sin(angle);
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
             ctx.closePath();
+        }
 
+        // 绘制六边形轮廓
+        function drawHexagonOutline(ctx, centerX, centerY, size, strokeStyle, lineWidth) {
+            ctx.save();
+            hexPath(ctx, centerX, centerY, size);
             ctx.strokeStyle = strokeStyle;
             ctx.lineWidth = lineWidth;
             ctx.stroke();
-
-            ctx.restore(); // 恢复上下文状态
+            ctx.restore();
         }
         // 兵种配置（键：类型，值：属性）
         const UNIT_CONFIG = {
@@ -267,8 +271,9 @@
                 this.unit = null; // 地块上的部队（null为空）
 
                 // 颜色渐变核心属性
-                this.targetColor = this.camp.color; // 渐变目标色
-                this.currentColor = this.camp.color; // 当前显示色（渐变中动态更新）
+                this.startColor = this.camp.color;   // 本次渐变起点色（开始时快照，渐变期间不变）
+                this.targetColor = this.camp.color;  // 渐变目标色
+                this.currentColor = this.camp.color; // 当前显示色（每帧插值后更新）
                 this.fadeDuration = 1500; // 渐变时长（毫秒）
                 this.fadeStartTime = null; // 渐变开始时间戳（null=无渐变）
                 
@@ -279,38 +284,30 @@
 
             // 带渐变的阵营设置方法
             setCampWithFade(newCamp) {
-                this.camp = newCamp; // 更新阵营
-                this.targetColor = newCamp.color; // 设置渐变目标色
-                this.fadeStartTime = Date.now(); // 记录渐变开始时间
+                if (this.camp === newCamp && this.targetColor === newCamp.color) return;
+                this.camp = newCamp;
+                this.startColor = this.currentColor;  // 快照当前显示色作为渐变起点
+                this.targetColor = newCamp.color;
+                this.fadeStartTime = Date.now();
             }
 
             // 每帧更新渐变颜色（渲染前调用）
+            // 修复：使用快照的 startColor 作为插值起点，保证线性过渡
             updateFadeColor() {
-                if (!this.fadeStartTime) return; // 无渐变，直接返回
+                if (!this.fadeStartTime) return;
 
-                const now = Date.now(); // 当前时间戳
-                const elapsed = now - this.fadeStartTime; // 已流逝时间
-                const progress = Math.min(elapsed / this.fadeDuration, 1); // 渐变进度（0~1）
+                const elapsed = Date.now() - this.fadeStartTime;
+                const progress = Math.min(elapsed / this.fadeDuration, 1);
 
-                // 解析当前色和目标色的RGB
-                const startRgb = hexToRgb(this.currentColor);
+                const startRgb = hexToRgb(this.startColor);
                 const targetRgb = hexToRgb(this.targetColor);
 
-                // RGB三通道插值，逐帧计算中间色
-                const interpolatedRgb = {
-                    r: startRgb.r + (targetRgb.r - startRgb.r) * progress,
-                    g: startRgb.g + (targetRgb.g - startRgb.g) * progress,
-                    b: startRgb.b + (targetRgb.b - startRgb.b) * progress
-                };
-
-                // 更新当前显示色（取整避免无效值）
                 this.currentColor = rgbToHex(
-                    Math.round(interpolatedRgb.r),
-                    Math.round(interpolatedRgb.g),
-                    Math.round(interpolatedRgb.b)
+                    Math.round(startRgb.r + (targetRgb.r - startRgb.r) * progress),
+                    Math.round(startRgb.g + (targetRgb.g - startRgb.g) * progress),
+                    Math.round(startRgb.b + (targetRgb.b - startRgb.b) * progress)
                 );
 
-                // 渐变完成：清空开始时间，结束插值
                 if (progress >= 1) {
                     this.fadeStartTime = null;
                 }
@@ -318,35 +315,32 @@
 
             // 绘制六边形地块
             draw() {
-                // 绘制六边形轮廓
-                drawHexagonOutline(ctx, this.x, this.y, HEX_SIZE, 'transparent', 0);
-
                 // 填充行政区颜色
+                hexPath(ctx, this.x, this.y, HEX_SIZE);
                 ctx.fillStyle = this.currentColor;
                 ctx.fill();
 
-                if (gameState.hoveredTile === this ) {
+                if (gameState.hoveredTile === this) {
                     // 悬停时加一层半透明高亮（不覆盖原有颜色）
+                    hexPath(ctx, this.x, this.y, HEX_SIZE);
                     ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
                     ctx.fill();
-                    // 悬停边框加粗+高亮色
                     drawHexagonOutline(ctx, this.x, this.y, HEX_SIZE, '#ffff00', 2);
                 }
 
-                // 绘制行政区边界
-                const borderColor = '#fff';
-                const borderWidth = this.isCity ? 3 : 1;
-                drawHexagonOutline(ctx, this.x, this.y, HEX_SIZE, borderColor, borderWidth);
+                // 绘制行政区边界（城市加粗）
+                drawHexagonOutline(ctx, this.x, this.y, HEX_SIZE, '#fff', this.isCity ? 3 : 1);
 
                 // 绘制城市星标
                 if (this.isCity) {
+                    ctx.save();
                     ctx.fillStyle = '#fff';
                     ctx.font = '30px Arial';
                     ctx.textAlign = 'center';
-                    ctx.fillText('★', this.x, this.y+10);
+                    ctx.fillText('★', this.x, this.y + 10);
+                    ctx.restore();
                 }
 
-                // 绘制地块上的部队
                 if (this.unit) this.unit.draw(this.x, this.y);
             }
         }
@@ -369,6 +363,8 @@
 
             // 绘制部队（标识、血条、阵营旗帜、可行动星标，按顺序绘制避免遮挡）
             draw(tileX, tileY) {
+                ctx.save();
+                ctx.textAlign = 'center';
 
                 // 1. 兵种标识
                 ctx.fillStyle = this.config.color;
@@ -378,37 +374,32 @@
                 // 2. 血条
                 const hpWidth = HEX_SIZE * 1.5;
                 const hpHeight = 5;
-                // 血条背景
                 ctx.fillStyle = '#333';
                 ctx.fillRect(tileX - hpWidth/2, tileY + HEX_SIZE/2, hpWidth, hpHeight);
-                // 血条前景（绿色/红色）
                 const hpRatio = this.hp / this.maxHp;
                 ctx.fillStyle = hpRatio > 0.3 ? '#4CAF50' : '#f44336';
                 ctx.fillRect(tileX - hpWidth/2, tileY + HEX_SIZE/2, hpWidth * hpRatio, hpHeight);
-                // 生命值文字
                 ctx.fillStyle = '#fff';
                 ctx.font = '10px Arial';
                 ctx.fillText(Math.round(this.hp), tileX, tileY + HEX_SIZE/2 + 12);
 
                 // 3. 阵营旗帜
                 ctx.font = '16px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(this.camp.flag, tileX - HEX_SIZE/2 -4 , tileY + HEX_SIZE/2 + 8);
-                ctx.restore(); // 恢复上下文状态，重置textAlign等属性
+                ctx.fillText(this.camp.flag, tileX - HEX_SIZE/2 - 4, tileY + HEX_SIZE/2 + 8);
+
+                ctx.restore();
 
                 // 4. 可行动闪烁黄色光圈
                 if (this.canAct && this.camp === gameState.currentCamp && !this.isNewRecruit) {
-                    // 计算闪烁透明度：正弦函数实现 0.3~0.8 透明度循环，周期1秒
                     const time = Date.now() / 1000;
                     const alpha = 0.3 + (Math.sin(time * 2 * Math.PI) + 1) / 2 * 0.5;
-                    // 绘制闪烁的黄色六边形光圈
                     drawHexagonOutline(
-                        ctx, 
-                        tileX, 
-                        tileY, 
-                        HEX_SIZE + 2, 
-                        `rgba(255, 215, 0, ${alpha})`, // 金黄色带透明度
-                        3 // 光圈线条宽度
+                        ctx,
+                        tileX,
+                        tileY,
+                        HEX_SIZE + 2,
+                        `rgba(255, 215, 0, ${alpha})`,
+                        3
                     );
                 }
             }
@@ -507,22 +498,19 @@
                 if (this.type === 'archer' && ['infantry', 'cavalry'].includes(attackerUnit.type)) {
                     finalDmg = dmg * 1.33;
                 }
-                
+
                 // 步兵特性：处于城市地块时受到伤害-33%
                 if (this.type === 'infantry' && this.tile.isCity) {
                     finalDmg = dmg * 0.67;
                 }
-                
+
                 this.hp = Math.max(0, this.hp - finalDmg);
-                // 如果生命值为0，从地块移除
                 if (this.hp <= 0) {
-                    attackerUnit.canAct = false; // 攻击后标记为已行动
-                    gameState.attackableTiles = [];
                     this.tile.unit = null;
                     logMessage(`${this.camp.name}的1支${this.config.name}兵被消灭`);
-                    return true; // 已死亡
+                    return true;
                 }
-                return false; // 存活
+                return false;
             }
 
             // 治疗生命值
@@ -738,85 +726,33 @@
             }
         }
 
-        // 3. 绘制游戏画面
+        // 3. 绘制游戏画面（仅做绘制，不再触发 UI 更新或胜利检测）
         function renderGame() {
-            // 清空画布
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // 更新所有地块的渐变颜色
             gameState.tiles.forEach(tile => tile.updateFadeColor());
-            // 绘制所有地块
             gameState.tiles.forEach(tile => tile.draw());
-            // 绘制可移动/攻击范围光圈
             drawRangeApertures();
-            // 绘制伤害文本
             drawDamageTexts();
-            // 绘制治疗文本
             drawHealTexts();
-            // 绘制金币获取文本
             drawGoldTexts();
-            // 绘制克制/被克提示文字
             drawCounterText();
             
             if (gameState.selectedCityTile) {
                 const tile = gameState.selectedCityTile;
-                // 绘制半透明黄色填充
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.fillStyle = 'rgba(255, 255, 0, 0.3)'; // 黄色半透明
+                hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+                ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
                 ctx.fill();
-                
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.strokeStyle = '#ffff00'; // 黄色高亮
-                ctx.lineWidth = 3;
-                ctx.stroke();
+                drawHexagonOutline(ctx, tile.x, tile.y, HEX_SIZE, '#ffff00', 3);
             }
 
-            // ========== 选中部队地块的黄色半透明高亮 ==========
+            // 选中部队地块的黄色半透明高亮
             if (gameState.selectedUnit) {
                 const tile = gameState.selectedUnit.tile;
-                // 1. 绘制半透明黄色填充
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.fillStyle = 'rgba(255, 255, 0, 0.3)'; // 黄色半透明
+                hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+                ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
                 ctx.fill();
-        
-                // 2. 绘制黄色高亮边框（与选中城市样式一致）
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + (HEX_SIZE + 4) * Math.cos(angle);
-                    const y = tile.y + (HEX_SIZE + 4) * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.strokeStyle = '#ffff00'; // 黄色边框
-                ctx.lineWidth = 3;
-                ctx.stroke();
+                drawHexagonOutline(ctx, tile.x, tile.y, HEX_SIZE + 4, '#ffff00', 3);
             }
-
-            // 刷新UI
-            updateUI();
-            // 检测胜利条件
-            checkVictory();
-
         }
 
         // 4(1).绘制克制/被克提示文字
@@ -853,66 +789,28 @@
         }
 
         // 4(2). 绘制可移动/攻击范围光圈 + 高亮
+        function drawRangeHighlight(tile, fillStyle, strokeStyle) {
+            hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+            ctx.fillStyle = fillStyle;
+            ctx.fill();
+            hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+            ctx.strokeStyle = strokeStyle;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
         function drawRangeApertures() {
             if (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit) return;
-    
-            // 可移动地块：青蓝色高亮 + 醒目光圈
-            if (!gameState.selectedUnit.movedThisTurn) {
-                gameState.movableTiles.forEach(tile => {
-                    // 1. 绘制半透明高亮填充
-                    ctx.beginPath();
-                    for (let i = 0; i < 6; i++) {
-                        const angle = 2 * Math.PI / 6 * (i + 0.5);
-                        const x = tile.x + HEX_SIZE * Math.cos(angle);
-                        const y = tile.y + HEX_SIZE * Math.sin(angle);
-                        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                    }
-                    ctx.closePath();
-                    ctx.fillStyle =  'rgba(0, 255, 255, 0.2)'; // 青蓝色半透明高亮
-                    ctx.fill();
 
-                    // 2. 绘制更醒目的可移动光圈
-                    ctx.beginPath();
-                    for (let i = 0; i < 6; i++) {
-                        const angle = 2 * Math.PI / 6 * (i + 0.5);
-                        const x = tile.x + HEX_SIZE * Math.cos(angle);
-                        const y = tile.y + HEX_SIZE * Math.sin(angle);
-                        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                    }
-                    ctx.closePath();
-                    ctx.strokeStyle = '#00ffffcc'; // 提高不透明度，更清晰
-                    ctx.lineWidth = 2; // 加粗线条
-                    ctx.stroke();
-                });
+            if (!gameState.selectedUnit.movedThisTurn) {
+                gameState.movableTiles.forEach(tile =>
+                    drawRangeHighlight(tile, 'rgba(0, 255, 255, 0.2)', '#00ffffcc')
+                );
             }
 
-            // 可攻击地块：红色高亮 + 醒目光圈
-            gameState.attackableTiles.forEach(tile => {
-                // 1. 绘制半透明高亮填充
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.2)'; // 红色半透明高亮
-                ctx.fill();
-
-                // 2. 绘制更醒目的可攻击光圈
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.strokeStyle = '#ff0000cc'; // 提高不透明度，更清晰
-                ctx.lineWidth = 2; // 加粗线条
-                ctx.stroke();
-            });
+            gameState.attackableTiles.forEach(tile =>
+                drawRangeHighlight(tile, 'rgba(255, 0, 0, 0.2)', '#ff0000cc')
+            );
         }
 
         // 4(3).绘制伤害文本
@@ -993,28 +891,25 @@
         }
 
         // 6. 日志输出
+        const LOG_LIMIT = 20;
         let logHistory = [];
 
         function logMessage(msg) {
-            // 1. 添加新日志到数组头部/尾部，控制最多20条
-                logHistory.push(msg);
-                if (logHistory.length > 20) {
-                    logHistory.shift(); // 移除最旧的日志
-                }
+            logHistory.push(msg);
+            if (logHistory.length > LOG_LIMIT) logHistory.shift();
 
-                // 2. 渲染日志列表（新日志在底部，旧的向上滚）
-                const logList = document.getElementById('logList');
-                logList.innerHTML = ''; // 清空原有内容
-                // 倒序渲染（保证新日志在对话框底部）
-                logHistory.slice().reverse().forEach(line => {
-                    const logItem = document.createElement('div');
-                    logItem.className = 'log-item';
-                    logItem.textContent = line;
-                    logList.appendChild(logItem);
-                });
+            const logList = document.getElementById('logList');
+            // logList 使用 flex-direction: column-reverse，新日志插入在 DOM 头部即视觉底部
+            const logItem = document.createElement('div');
+            logItem.className = 'log-item';
+            logItem.textContent = msg;
+            logList.insertBefore(logItem, logList.firstChild);
 
-                // 3. 控制台保留日志
-                console.log(msg);
+            while (logList.children.length > LOG_LIMIT) {
+                logList.removeChild(logList.lastChild);
+            }
+
+            console.log(msg);
         }
 
         // 7. 结束回合逻辑
@@ -1065,8 +960,6 @@
             gameState.selectedUnit = null;
             gameState.movableTiles = [];
             gameState.attackableTiles = [];
-
-            renderGame();
         }
 
         // 8. 招募部队
@@ -1104,17 +997,18 @@
             gameState.playerGold[currentPlayerKey] -= config.cost;
             new Unit(type, gameState.currentCamp, selectedCityTile, true);
             logMessage(`${gameState.currentCamp.name}成功招募1${config.name}兵，金币-${config.cost}`);
-            gameState.selectedCityTile = null; // 招募后取消选中城市
+            gameState.selectedCityTile = null;
 
             gameState.goldTexts.push({
-            x: selectedCityTile.x,
-            y: selectedCityTile.y,
-            value: config.cost,
-            prefix: '-',
-            color: '#cccccc', // 浅灰色
-            timeLeft: 1000, // 持续1秒
-            lastUpdate: Date.now()
+                x: selectedCityTile.x,
+                y: selectedCityTile.y,
+                value: config.cost,
+                prefix: '-',
+                color: '#cccccc',
+                timeLeft: 1000,
+                lastUpdate: Date.now()
             });
+            updateUI();
         }
 
         // 9.胜利条件检测函数
@@ -1170,69 +1064,84 @@
 
         // 11. 攻占城市核心函数
         function updateDistrictColor(cityTile, camp) {
-            // 触发条件1：必须是城市地块
             if (!cityTile.isCity) return;
-            // 触发条件2：该城市所属行政区当前颜色不是己方阵营色
-            if (cityTile.camp.color === camp.color) return;
+            if (cityTile.camp === camp) return;
 
-            // 记录原阵营（用于掠夺逻辑）
             const oldCamp = cityTile.camp;
-            // 更新城市自身的阵营
+            const cityUniqueKey = `${cityTile.q}-${cityTile.r}`;
+            const attackerGoldKey = camp === CAMP.player1 ? 'player1' : 'player2';
+
+            // 在变更阵营前，基于「原守城方」计算掠夺金额（避免变更后自我掠夺）
+            let plunderGold = 0;
+            let defenderGoldKey = null;
+            if (oldCamp === CAMP.player1 || oldCamp === CAMP.player2) {
+                defenderGoldKey = oldCamp === CAMP.player1 ? 'player1' : 'player2';
+                const defenderCityCount = gameState.tiles.filter(t => t.isCity && t.camp === oldCamp).length;
+                if (defenderCityCount > 0) {
+                    plunderGold = Math.floor((1 / defenderCityCount) * 0.5 * gameState.playerGold[defenderGoldKey]);
+                }
+            }
+
+            // 变更城市阵营
             cityTile.setCampWithFade(camp);
 
-            // ===== 中立城市占领奖励机制  =====
-            // 判断是否是「初始中立城市」且未领取过奖励
-            const isNeutralCity = oldCamp === CAMP.neutral;
-            const cityUniqueKey = `${cityTile.q}-${cityTile.r}`; // 城市唯一标识（坐标）
-            if (isNeutralCity && !gameState.capturedNeutralCities.has(cityUniqueKey)) {
-                // 奖励15金币给占领方
-                const attackerGoldKey = camp === CAMP.player1 ? 'player1' : 'player2';
-                gameState.playerGold[attackerGoldKey] += 15;
-                // 标记该中立城市已领取奖励，避免重复触发
-                gameState.capturedNeutralCities.add(cityUniqueKey);
-            }
-            // 日志提示奖励信息
-            logMessage(`${camp.name}占领中立城市(${cityTile.q},${cityTile.r})，金币+15`);
-
-            // ===== 掠夺机制  =====
-            // 守城方（原城市控制方）
-            const defenderCamp = cityTile.camp;
-            // 区分玩家1/玩家2的金币键名
-            const defenderGoldKey = defenderCamp === CAMP.player1 ? 'player1' : 'player2';
-            const attackerGoldKey = camp === CAMP.player1 ? 'player1' : 'player2';
-            // 计算守城方原控制的城市总数
-            const defenderOriginalCityCount = gameState.tiles.filter(t => t.isCity && t.camp === defenderCamp).length;
-            if (defenderOriginalCityCount > 0) {
-                // 掠夺公式：(1/守城方原城市数)*50%*守城方当前金币，取整
-                const plunderGold = Math.floor((1 / defenderOriginalCityCount) * 0.5 * gameState.playerGold[defenderGoldKey]);
+            if (oldCamp === CAMP.neutral) {
+                // 中立城市首次占领：+15g 一次性奖励
+                if (!gameState.capturedNeutralCities.has(cityUniqueKey)) {
+                    gameState.playerGold[attackerGoldKey] += 15;
+                    gameState.capturedNeutralCities.add(cityUniqueKey);
+                    logMessage(`${camp.name}占领中立城市(${cityTile.q},${cityTile.r})，金币+15`);
+                    gameState.goldTexts.push({
+                        x: cityTile.x, y: cityTile.y,
+                        value: 15, prefix: '+', color: '#ffff00',
+                        timeLeft: 1000, lastUpdate: Date.now()
+                    });
+                } else {
+                    logMessage(`${camp.name}重新占领中立城市(${cityTile.q},${cityTile.r})`);
+                }
+            } else {
+                // 敌方城市：执行掠夺
                 if (plunderGold > 0) {
-                    // 攻城方增加金币，守城方减少金币
                     gameState.playerGold[attackerGoldKey] += plunderGold;
                     gameState.playerGold[defenderGoldKey] -= plunderGold;
-                    // 日志提示掠夺信息
-                    logMessage(`${camp.name}攻占了城市(${cityTile.q},${cityTile.r})，掠夺${defenderCamp.name}${plunderGold}金币`);
-
+                    logMessage(`${camp.name}攻占了城市(${cityTile.q},${cityTile.r})，掠夺${oldCamp.name}${plunderGold}金币`);
                     gameState.goldTexts.push({
-                    x: cityTile.x,
-                    y: cityTile.y,
-                    value: plunderGold,
-                    prefix: '+',
-                    color: '#ffff00', // 黄色
-                    timeLeft: 1000, // 持续1秒
-                    lastUpdate: Date.now()
+                        x: cityTile.x, y: cityTile.y,
+                        value: plunderGold, prefix: '+', color: '#ffff00',
+                        timeLeft: 1000, lastUpdate: Date.now()
                     });
-                }}
+                } else {
+                    logMessage(`${camp.name}攻占了${oldCamp.name}的城市(${cityTile.q},${cityTile.r})`);
+                }
+            }
 
-            // ===== 更新整个行政区的地块阵营/颜色 =====
+            // 更新整个行政区的地块阵营/颜色
             const districtId = cityTile.districtId;
             gameState.tiles.forEach(tile => {
                 if (tile.districtId === districtId) {
-                    tile.setCampWithFade(camp);; // 更新该行政区所有地块的阵营
+                    tile.setCampWithFade(camp);
                 }
             });
 
-            logMessage(`${camp.name}占领了${cityTile.q},${cityTile.r}城市，所属行政区已归属${camp.name}`);
-            renderGame();
+            logMessage(`${camp.name}占领的(${cityTile.q},${cityTile.r})城市所属行政区已归属${camp.name}`);
+            checkVictory();
+        }
+
+        // 像素坐标 → 最近的六边形地块（基于「最近中心」+ 圆周距离上限）
+        // 解决了原 find 实现中圆形碰撞重叠以及空白点击 undefined 的问题
+        function getTileAtPixel(px, py) {
+            let result = null;
+            let minDistSq = HEX_SIZE * HEX_SIZE;
+            for (const tile of gameState.tiles) {
+                const dx = px - tile.x;
+                const dy = py - tile.y;
+                const distSq = dx * dx + dy * dy;
+                if (distSq < minDistSq) {
+                    minDistSq = distSq;
+                    result = tile;
+                }
+            }
+            return result;
         }
 
         // 12. 初始化输入事件
@@ -1242,18 +1151,14 @@
                 const clickX = e.clientX - rect.left;
                 const clickY = e.clientY - rect.top;
 
-                // 找到点击的地块
-                const clickedTile = gameState.tiles.find(tile => {
-                    // 六边形点击检测
-                    const dx = clickX - tile.x;
-                    const dy = clickY - tile.y;
-                    const distance = Math.sqrt(dx*dx + dy*dy);
-                    return distance <= HEX_SIZE;
-                });
+                const clickedTile = getTileAtPixel(clickX, clickY);
+                if (!clickedTile) {
+                    clearselection();
+                    return;
+                }
 
                 // 判断是否点击己方空城市地块（未选中部队时）
                 if (clickedTile.isCity && clickedTile.camp === gameState.currentCamp && !clickedTile.unit && !gameState.selectedUnit) {
-                    // 选中该城市地块,同时清空部队选中状态
                     gameState.selectedUnit = null;
                     gameState.movableTiles = [];
                     gameState.attackableTiles = [];
@@ -1261,15 +1166,13 @@
                     return;
                 }
 
-                // 点击有己方可行动部队的地块 → 选中部队，显示可移动/攻击范围
+                // 点击有己方可行动部队的地块 → 选中部队
                 else if (clickedTile.unit && clickedTile.unit.camp === gameState.currentCamp && clickedTile.unit.canAct && !clickedTile.unit.isNewRecruit) {
-                    gameState.selectedCityTile = null; // 取消选中城市
+                    gameState.selectedCityTile = null;
                     gameState.selectedUnit = clickedTile.unit;
-                    // 计算可移动范围
                     gameState.movableTiles = getMovableTiles(clickedTile.unit);
-                    // 计算可攻击范围
                     gameState.attackableTiles = getAttackableTiles(clickedTile.unit);
-                } 
+                }
                 // 选中部队后，点击可移动地块 → 移动部队
                 else if (gameState.selectedUnit && gameState.movableTiles.includes(clickedTile) && !clickedTile.unit) {
                     moveUnit(gameState.selectedUnit, clickedTile);
@@ -1280,28 +1183,15 @@
                     clearselection();
                 }
                 else {
-                    // 除此之外：清空所有选中状态
                     clearselection();
-                    renderGame();
-                    return;
                 }
-
-            renderGame(); // 实时刷新
-            
             });
 
             canvas.addEventListener('mousemove', (e) => {
                 const rect = canvas.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
-
-                // 找到鼠标悬停的地块
-                gameState.hoveredTile = gameState.tiles.find(tile => {
-                    const dx = mouseX - tile.x;
-                    const dy = mouseY - tile.y;
-                    const distance = Math.sqrt(dx*dx + dy*dy);
-                    return distance <= HEX_SIZE;
-                });
+                gameState.hoveredTile = getTileAtPixel(mouseX, mouseY);
             });
 
             // 绑定按钮事件
@@ -1376,27 +1266,26 @@
                 return;
             }
 
-            // 攻击者造成伤害
             const attackResult = attackerUnit.calculateDamage(targetUnit);
             const isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
             logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（暴击）' : ''}`);
 
-            // 目标未死亡则判定反击机制
             if (!isTargetDead) {
+                // 目标存活 → 判定反击
                 const counterResult = targetUnit.calculateCounterDamage(attackerUnit);
                 if (counterResult.dmg > 0) attackerUnit.takeDamage(counterResult.dmg, targetUnit);
             } else {
+                // 目标阵亡 → 步/骑兵进占目标地块（炮兵不前进）
                 const targetTile = targetUnit.tile;
                 if (attackerUnit.type !== 'archer') {
                     attackerUnit.tile.unit = null;
                     attackerUnit.tile = targetTile;
                     targetTile.unit = attackerUnit;
-                    attackerUnit.canAct = false;
-                    gameState.attackableTiles = [];
-                } // 步/骑兵消灭敌方部队后移动到目标地块且无法再次行动
+                }
                 if (targetTile.isCity) updateDistrictColor(targetTile, attackerUnit.camp);
             }
-            attackerUnit.canAct = false; // 攻击后标记为已行动
+
+            attackerUnit.canAct = false;
             gameState.attackableTiles = [];
         }
 
@@ -1422,22 +1311,25 @@
             updateButtonColors();
         }
 
-        // 18. 清空选中状态函数
+        // 18. 清空选中状态函数（rAF 循环会自动反映状态变化，无需主动重绘）
         function clearselection() {
             gameState.selectedUnit = null;
             gameState.selectedCityTile = null;
             gameState.movableTiles = [];
             gameState.attackableTiles = [];
-            renderGame();
         }
 
         // 游戏初始化
         initMap();
         initInput();
-        renderGame();
-        
-        // 循环渲染
-        setInterval(renderGame, 30);
+        updateUI();
+
+        // 渲染主循环：使用 requestAnimationFrame 与浏览器刷新率同步
+        function gameLoop() {
+            renderGame();
+            requestAnimationFrame(gameLoop);
+        }
+        requestAnimationFrame(gameLoop);
 
     </script>
 </body>

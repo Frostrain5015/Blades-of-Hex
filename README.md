@@ -65,7 +65,7 @@ The unit's movement range is determined by the unit's "speed" attribute (Infantr
 The unit's attack range is determined by the unit's "range" attribute (Infantry/Cavalry: 1 grid, Artillery: 2 grids); only enemy units within the attackable range can be attacked. Before the attack, a "Counter/Be Countered" prompt is displayed (green "Counter ↑", red "Be Countered ↓"); the attacker is marked as "Actuated" after the attack, and cannot perform movement/attack operations again.
 
 #### 4.2.4 Recruitment Rules
-Units can only be recruited on own city tiles. Before recruitment, select an own city tile (displays yellow semi-transparent highlight); recruitment consumes corresponding gold coins (Infantry: 30g, Cavalry: 40g, Artillery: 35g). Recruitment is not possible if gold coins are insufficient.
+Units can only be recruited on own city tiles. Before recruitment, select an own city tile (displays yellow semi-transparent highlight); recruitment consumes corresponding gold coins (Infantry: 25g, Cavalry: 40g, Artillery: 35g). Recruitment is not possible if gold coins are insufficient.
 
 Newly recruited units are generated on the selected city tile and cannot act in the current turn.
 
@@ -77,7 +77,7 @@ Click the "End Turn" button to end the current faction's turn and switch to the 
 Basic Damage Formula: Final Damage = Base Attack Power × Unit Counter Coefficient × Critical Strike Multiplier × Unit Trait Multiplier;
 
 - Base Attack Power: Infantry 35, Cavalry 45, Artillery 60;
-- Base Health: Infantry 120, Cavalry 100, Artillery 75;
+- Base Health: Infantry 120, Cavalry 95, Artillery 75;
 - Unit Counter Coefficients:
 
 | Attacker/Defender | Infantry | Cavalry | Artillery |
@@ -93,7 +93,7 @@ Basic Damage Formula: Final Damage = Base Attack Power × Unit Counter Coefficie
 
 - Unit Trait Multipliers:
   - Cavalry [Hunting]: +10% damage dealt in the current turn after moving; additional +10% damage when on non-own administrative region tiles (additive);
-  - Infantry [Fortitude]: -33% damage taken when on city tiles; counterattack critical strike rate increased to 66%; restores 20% maximum health at the end of each turn;
+  - Infantry [Fortitude]: -33% damage taken when on city tiles; counterattack critical strike rate increased to 66%; restores 10% maximum health at the end of each turn;
   - Artillery [Fragile]: +30% damage taken when attacked in melee by Infantry/Cavalry; targets cannot counterattack when attacked;
 
 #### 4.3.2 Counterattack Rules
@@ -104,7 +104,7 @@ Counterattacks can only be triggered during melee attacks. Each unit can counter
 #### 4.3.3 Elimination and Survival
 A unit is judged as eliminated when its health ≤ 0 and is removed from the tile.
 
-Units can restore health through healing mechanisms (only passive healing mechanism is available in the current version: when any faction's Infantry unit is on a city tile, it restores 20% of maximum health in total per turn). Health cannot exceed its upper limit.
+Units can restore health through healing mechanisms (only passive healing mechanism is available in the current version: when any faction's Infantry unit is on a city tile, it restores 10% of maximum health in total per turn). Health cannot exceed its upper limit.
 
 ### 4.4 Economic Rules
 #### 4.4.1 Initial Gold and Earnings
