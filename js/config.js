@@ -140,9 +140,9 @@ export const HEX_NEIGHBORS = [
 
 // ==== 兵种配置 ====================
 export const UNIT_CONFIG = {
-    infantry: { name: '步', hp: 100, attack: 30, speed: 2, range: 1, cost: 25, color: '#0a0a0a' },
-    cavalry:  { name: '骑', hp: 90,  attack: 55, speed: 3, range: 1, cost: 40, color: '#0a0a0a' },
-    archer:   { name: '炮', hp: 70,  attack: 55, speed: 1, range: 2, cost: 35, color: '#0a0a0a' }
+    infantry: { name: '步', hp: 100, attack: 30, speed: 5, range: 1, cost: 25, color: '#0a0a0a' },
+    cavalry:  { name: '骑', hp: 90,  attack: 55, speed: 8, range: 1, cost: 40, color: '#0a0a0a' },
+    archer:   { name: '炮', hp: 70,  attack: 55, speed: 3, range: 2, cost: 35, color: '#0a0a0a' }
 };
 
 // ==== 阵营配置 ====================
@@ -168,9 +168,9 @@ export const COUNTER_RELATION = {
 
 // ==== 地形配置 ====================
 export const TERRAIN_CONFIG = {
-    plains:   { name: '平原', defenseBonus: 0,    stepCost: 1, icon: '',   iconFont: '' },
-    forest:   { name: '森林', defenseBonus: 0.15, stepCost: 1, icon: '🌲', iconFont: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' },
-    mountain: { name: '山地', defenseBonus: 0.25, stepCost: 2, icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
+    plains:   { name: '平原', defenseBonus: 0,    stepCost: 2, moveDesc: '',          icon: '',   iconFont: '' },
+    forest:   { name: '森林', defenseBonus: 0.15, stepCost: 3, moveDesc: '部队移动较慢', icon: '🌲', iconFont: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' },
+    mountain: { name: '山地', defenseBonus: 0.25, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
 };
 
 // ==== 士气配置 ====================

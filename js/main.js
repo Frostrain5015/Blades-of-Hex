@@ -1,4 +1,4 @@
-import { loadSettings, settings, initCanvas } from './config.js';
+import { loadSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H } from './config.js';
 import { gameState, updateUI, logMessage, applyRemoteState, initLogToggle } from './state.js';
 import { setGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRefForUnit } from './Unit.js';
@@ -25,48 +25,45 @@ setLogMessageRef(logMessage);
 setGameStateRefForUnit(gameState);
 initLogToggle();
 
-// ==== 移动端横屏自适应 ===================
-const GAME_BASE_W = 1260; // canvas 1000 + panel 256 + gaps ~12
-const GAME_BASE_H = 810;  // canvas 750 + topbar ~48 + gaps
-
-function fitToViewport() {
-    const wrapper = document.getElementById('gameWrapper');
-    const lobby = document.getElementById('lobbyOverlay');
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    // Only scale on small screens
-    if (vw >= GAME_BASE_W && vh >= GAME_BASE_H) {
-        wrapper.style.transform = '';
-        lobby.style.transform = '';
-        return;
-    }
-
-    const scaleX = vw / GAME_BASE_W;
-    const scaleY = vh / GAME_BASE_H;
-    const scale = Math.min(scaleX, scaleY, 1);
-
-    wrapper.style.transform = `scale(${scale})`;
-    wrapper.style.transformOrigin = 'top left';
-    // Center vertically if height-constrained
-    if (scaleY < scaleX) {
-        const offsetX = (vw - GAME_BASE_W * scale) / 2;
-        wrapper.style.marginLeft = offsetX + 'px';
-    } else {
-        wrapper.style.marginLeft = '0';
-    }
-
-    lobby.style.transform = `scale(${Math.min(vw / 400, vh / 560, 1)})`;
-    lobby.style.transformOrigin = 'center center';
+// ==== 自适应布局 ====
+function fitCanvas() {
+    const wrapper = document.getElementById('canvasWrapper');
+    const cw = wrapper.clientWidth;
+    const ch = wrapper.clientHeight;
+    const scale = Math.min(cw / LOGICAL_W, ch / LOGICAL_H);
+    canvas.style.width  = Math.floor(LOGICAL_W * scale) + 'px';
+    canvas.style.height = Math.floor(LOGICAL_H * scale) + 'px';
 }
 
-window.addEventListener('resize', fitToViewport);
-window.addEventListener('orientationchange', () => setTimeout(fitToViewport, 200));
-fitToViewport();
+window.addEventListener('resize', fitCanvas);
+window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 200));
+// Initial fit is called in startGame after gameWrapper becomes visible
 
 // ==== 游戏循环（始终运行，画布隐藏时无开销） ===================
 function gameLoop() {
     renderGame();
+
+    // Animate tooltip speed display (with move cost preview)
+    const ttip = document.getElementById('unitTooltip');
+    if (ttip.classList.contains('visible') && gameState.selectedTile && gameState.selectedTile.unit) {
+        const spdEl = document.getElementById('tooltipSpd');
+        const u = gameState.selectedTile.unit;
+        const mpRemaining = Math.round(u.displaySpeed);
+        let cost = 0;
+        if (gameState.selectedUnit === u && gameState.hoveredTile && gameState.moveParents) {
+            const entry = gameState.moveParents.get(gameState.hoveredTile);
+            if (entry && gameState.movableTiles.includes(gameState.hoveredTile) && !gameState.hoveredTile.unit) {
+                const afterMove = entry.remaining;
+                cost = mpRemaining - afterMove;
+            }
+        }
+        if (spdEl) {
+            spdEl.innerHTML = cost > 0
+                ? `<span style="color:#6cf;">⚡ ${mpRemaining}(-${cost})/${u.config.speed}</span>`
+                : `<span style="color:#6cf;">⚡ ${mpRemaining}/${u.config.speed}</span>`;
+        }
+    }
+
     requestAnimationFrame(gameLoop);
 }
 requestAnimationFrame(gameLoop);
@@ -135,6 +132,7 @@ function startGame(networkRole) {
     lobbyOverlay.style.display = 'none';
     document.getElementById('gameWrapper').style.display = '';
 
+    fitCanvas();
     initMap();
     initInput();
     initKeyboard();

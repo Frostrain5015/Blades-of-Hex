@@ -286,6 +286,7 @@ export async function endTurn() {
             tile.unit.canAct = true;
             tile.unit.movedThisTurn = false;
             tile.unit.counterAttackCount = 0;
+            tile.unit.remainingMP = tile.unit.config.speed;
             tile.unit.isNewRecruit = false;
 
             if (tile.unit.type === 'infantry' && tile.isCity && tile.unit.camp === gameState.currentCamp) {
@@ -403,7 +404,7 @@ function _isInEnemyZoC(tile, friendlyCamp) {
 export function getMovableTiles(unit) {
     if (unit.morale === 'chaos') return [];
 
-    const speed = unit.config.speed;
+    const speed = unit.remainingMP;
     const startTile = unit.tile;
     const friendlyCamp = unit.camp;
     const map = gameState.tileMap;
@@ -425,8 +426,8 @@ export function getMovableTiles(unit) {
             if (neighbor.unit) continue; // occupied → impassable
 
             const stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
-            let newRem = curRem - stepCost;
-            if (newRem < 0) continue;
+            if (curRem < 1) continue;
+            let newRem = curRem >= stepCost ? curRem - stepCost : 0;
 
             // Zone of Control: entering a ZoC tile costs all remaining MP (must stop)
             const neighborInZoC = _isInEnemyZoC(neighbor, friendlyCamp);
@@ -491,13 +492,17 @@ export function moveUnit(unit, targetTile) {
     unit.movedThisTurn = true;
     unit.startMovePath(path);
 
-    gameState.movableTiles = [];
+    const mpEntry = gameState.moveParents.get(targetTile);
+    if (mpEntry) unit.remainingMP = mpEntry.remaining;
 
-    const newAttackableTiles = getAttackableTiles(unit);
-    if (newAttackableTiles.length > 0) {
-        gameState.attackableTiles = newAttackableTiles;
+    gameState.movableTiles = [];
+    gameState.attackableTiles = getAttackableTiles(unit);
+
+    if (unit.remainingMP > 0) {
+        // Can move again — recalculate movable range with remaining MP
+        gameState.movableTiles = getMovableTiles(unit);
         gameState.selectionTime = Date.now();
-    } else {
+    } else if (gameState.attackableTiles.length === 0) {
         unit.canAct = false;
         clearselection();
     }
