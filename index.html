@@ -2,1443 +2,268 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Blades of Hex</title>
-    <style>
-        body {  margin: 0; 
-                padding: 0;
-                min-height: 100vh;
-                height:100vh;
-                overflow: hidden;
-                background-image: url("bg.jpg");
-                background-repeat: no-repeat;
-                background-size: cover;
-                background-attachment: fixed;
-        }
-        #gameCanvas { background: transparent; 
-            display: block; 
-            margin: 20px auto 20px 250px;
-        }
-        #gameUI { 
-            color: white; 
-            font-family: Arial; 
-            padding: 10px 20px; 
-            position: absolute;
-        }
-
-        .turn-display {
-            font-size: 36px;
-            top: 230px;
-            left: 150px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #ffd700;
-            text-shadow: 0 0 8px #000;
-        }
-        .turn-display #currentTurn {
-            font-size: 40px;
-        }
-
-        .btn { 
-            padding: 12px 24px; 
-            margin: 0 10px 10px 0;
-            transition: background-color 1.5s ease, border-color 1.5s ease; 
-            cursor: pointer;
-            border: none;
-            border-radius: 6px;
-            color: white;
-            min-width: 150px; /* 固定最小宽度，排列更整齐 */
-        }
-
-        #goldDisplay {
-        position: absolute;
-        bottom: -600px;
-        left: 100px;
-        font-family: Arial;
-        font-size: 24px;
-        color: #ffffff;
-        z-index: 99;
-        line-height: 1.5;
-        text-shadow: 0 0 8px #000; 
-        }
-        #goldDisplay span {
-        color: #ffff00;
-        font-size: 28px;
-        font-weight: bold;
-        text-shadow: 0 0 8px #000; 
-        }
-
-        /* 日志对话框样式：移到右侧置顶，适配尺寸 */
-        #logContainer {
-            position: absolute;
-            top: 20px; 
-            right: -1250px; 
-            width: 320px; 
-            height: 500px; 
-            background: #482608ba;
-            border: 4px solid #ffffff;
-            border-radius: 8px;
-            padding: 10px;
-            overflow: hidden; 
-        }
-
-        /* 按钮容器 */
-        #btnContainer {
-            position: absolute;
-            top: 750px; 
-            right: -750px;
-            width: 600px;
-            display: flex;
-            gap: 8px; /* 按钮间距 */
-            justify-content: center; /* 居中排列 */
-        }
-
-        #logList {
-            line-height: 24px; /* 略调高行高，提升可读性 */
-            max-height: 100%;
-            display: flex;
-            flex-direction: column-reverse; /* 新日志在底部，旧的向上滚 */
-            overflow-y: auto; /* 日志过多时显示滚动条 */
-            scrollbar-width: thin;
-            scrollbar-color: #ffd700 #482608;
-        }
-
-        /* 日志单行样式 */
-        .log-item {
-            color: #eee;
-            font-size: 14px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis; /* 超长日志省略 */
-            padding: 2px 0; /* 增加内边距，避免日志挤在一起 */
-        } 
-
-        /* 投降按钮容器 */
-        #surrenderBtnContainer {
-            position: absolute;
-            top: 700px; /* 日志栏高度500px + 20px内边距 + 20px间距 */
-            right: -1235px; /* 与日志栏右偏移一致 */
-            width: 320px; /* 与日志栏宽度一致 */
-            display: flex;
-            justify-content: center; /* 按钮居中 */
-        }
-
-        /* 修复：自定义滚动条样式（webkit内核） */
-        #logList::-webkit-scrollbar {
-            width: 6px;
-        }
-        #logList::-webkit-scrollbar-track {
-            background: #482608;
-            border-radius: 3px;
-        }
-        #logList::-webkit-scrollbar-thumb {
-            background: #ffd700;
-            border-radius: 3px;
-        }
-
-        #victoryOverlay {
-            position: fixed; /* 固定定位，覆盖整个视口 */
-            top: 0;
-            left: 0;
-            width: 100vw; /* 视口宽度100% */
-            height: 100vh; /* 视口高度100% */
-            pointer-events: none; /* 初始不拦截点击，胜利后改为auto */
-            opacity: 0; /* 初始透明 */
-            transition: opacity 2s ease; /* 2秒渐变动画 */
-            z-index: 9999; /* 最高层级，覆盖所有元素 */
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-
-    </style>
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div id="gameUI">
-        <div class="turn-display">当前回合：<span id="currentTurn">红军</span></div>
-        <div id="goldDisplay">
-            <div>红军金币：<span id="player1Gold">25</span></div>
-            <div>蓝军金币：<span id="player2Gold">25</span></div>
-    </div>
 
-        <div id="btnContainer">
-            <button class="btn" id="recruitInfantry">招募1步兵(25g)</button>
-            <button class="btn" id="recruitCavalry">招募1骑兵(40g)</button>
-            <button class="btn" id="recruitArcher">招募1炮兵(35g)</button>
-            <button class="btn" id="endTurnBtn">结束回合</button>
+<!-- 竖屏提示 -->
+<div id="portraitWarning">
+    <span>📱</span>
+    <span>请将设备横屏使用</span>
+</div>
+
+<!-- ===== 大厅（默认显示） ===== -->
+<div id="lobbyOverlay">
+    <div class="lobby-box">
+        <div class="lobby-header">
+            <h1 class="lobby-title">海克斯之剑</h1>
+            <p class="lobby-subtitle">BLADES OF HEX</p>
         </div>
 
-        <div id="surrenderBtnContainer">
-            <button class="btn" id="surrenderBtn">投降</button>
+        <div id="lobbyModes" class="lobby-modes">
+            <button class="lobby-btn" id="localModeBtn">
+                <span class="lbtn-icon">⚔</span>
+                <span class="lbtn-body">
+                    <span class="lbtn-name">本地双人对战</span>
+                    <span class="lbtn-desc">同一台电脑，轮流操作</span>
+                </span>
+            </button>
+            <button class="lobby-btn" id="hostModeBtn">
+                <span class="lbtn-icon">🏠</span>
+                <span class="lbtn-body">
+                    <span class="lbtn-name">创建联网对战</span>
+                    <span class="lbtn-desc">在局域网内开放房间</span>
+                </span>
+            </button>
+            <button class="lobby-btn" id="joinModeBtn">
+                <span class="lbtn-icon">🔗</span>
+                <span class="lbtn-body">
+                    <span class="lbtn-name">加入联网对战</span>
+                    <span class="lbtn-desc">输入主机 IP 地址加入</span>
+                </span>
+            </button>
         </div>
 
-        <div id="logContainer">
-            <div id="logList"></div>
+        <div id="joinForm" class="join-form" style="display:none">
+            <div id="joinModeChoice">
+                <button class="lobby-btn" id="autoScanBtn">
+                    <span class="lbtn-icon">🔍</span>
+                    <span class="lbtn-body">
+                        <span class="lbtn-name">自动扫描</span>
+                        <span class="lbtn-desc">扫描局域网，自动连接第一个主机</span>
+                    </span>
+                </button>
+                <button class="lobby-btn" id="manualConnectBtn">
+                    <span class="lbtn-icon">⌨</span>
+                    <span class="lbtn-body">
+                        <span class="lbtn-name">手动连接</span>
+                        <span class="lbtn-desc">手动输入主机 IP 地址</span>
+                    </span>
+                </button>
+                <button class="lobby-btn compact secondary" id="backBtn" style="margin-top:8px;">返回</button>
+            </div>
+            <div id="manualForm" style="display:none">
+                <label class="join-label">主机 IP 地址</label>
+                <input type="text" id="serverIpInput" class="ip-input" placeholder="192.168.x.x" autocomplete="off" spellcheck="false">
+                <div class="join-btns" style="margin-top:10px;">
+                    <button class="lobby-btn compact" id="connectBtn" disabled>连接</button>
+                    <button class="lobby-btn compact secondary" id="backToChoiceBtn">返回</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="lobbyStatus" class="lobby-status"></div>
+    </div>
+</div>
+
+<!-- ===== 游戏主体（开始后显示） ===== -->
+<div id="gameWrapper" style="display:none">
+
+    <div id="gameMain">
+
+        <!-- 顶部信息条 -->
+        <div id="topBar">
+
+            <!-- 红军信息卡 -->
+            <div class="camp-card" id="campCard1">
+                <div class="camp-emblem" style="background:rgba(176,48,32,0.9);">红</div>
+                <div class="camp-info">
+                    <div class="camp-label">红军</div>
+                    <div class="camp-treasury">
+                        <span id="player1Gold">25</span>
+                        <span class="treasury-unit">金</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 回合指示器 -->
+            <div class="turn-hub">
+                <span class="turn-label">当前回合</span>
+                <span id="currentTurn" class="turn-name">红军</span>
+            </div>
+
+            <!-- 蓝军信息卡 -->
+            <div class="camp-card align-right" id="campCard2">
+                <div class="camp-info align-right">
+                    <div class="camp-label">蓝军</div>
+                    <div class="camp-treasury">
+                        <span id="player2Gold">25</span>
+                        <span class="treasury-unit">金</span>
+                    </div>
+                </div>
+                <div class="camp-emblem" style="background:rgba(28,100,160,0.9);">蓝</div>
+            </div>
+
+            <!-- 工具栏 -->
+            <div class="topbar-tools">
+                <div id="networkIndicator">
+                    <span>🌐</span>
+                    <span id="networkRoleText"></span>
+                </div>
+                <button class="tool-btn" id="logToggleBtn" title="战斗日志">📜</button>
+                <button class="tool-btn" id="saveGameBtn" title="存档 (Ctrl+S)">💾</button>
+                <button class="tool-btn" id="loadGameBtn" title="读档 (Ctrl+L)">📂</button>
+                <button class="tool-btn" id="settingsBtn" title="设置">⚙</button>
+            </div>
+
+        </div>
+
+        <!-- 棋盘 -->
+        <div id="canvasWrapper">
+            <canvas id="gameCanvas" width="1000" height="750"></canvas>
+            <div id="opponentTurnBanner">
+                <span>⏳</span><span>等待对手行动...</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 右侧指挥面板 -->
+    <div id="rightPanel">
+
+        <div id="commandPanel" data-camp="p1">
+
+            <!-- 招募区 -->
+            <div class="cmd-section">
+                <div class="section-label">招募部队</div>
+                <div class="recruit-grid">
+                    <button class="recruit-btn btn" id="recruitInfantry">
+                        <span class="unit-glyph">步</span>
+                        <span class="unit-type">步兵</span>
+                        <span class="unit-cost">25<small>g</small></span>
+                    </button>
+                    <button class="recruit-btn btn" id="recruitCavalry">
+                        <span class="unit-glyph">骑</span>
+                        <span class="unit-type">骑兵</span>
+                        <span class="unit-cost">40<small>g</small></span>
+                    </button>
+                    <button class="recruit-btn btn" id="recruitArcher">
+                        <span class="unit-glyph">炮</span>
+                        <span class="unit-type">炮兵</span>
+                        <span class="unit-cost">35<small>g</small></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 指令区 -->
+            <div class="cmd-section">
+                <button class="cmd-btn btn" id="endTurnBtn">结束回合</button>
+                <button class="cmd-btn btn danger" id="surrenderBtn">投降</button>
+            </div>
+
+        </div>
+
+    </div>
+</div>
+
+<!-- 战斗日志浮窗 -->
+<div id="logOverlay">
+    <div id="logContainer">
+        <div id="logHeader">
+            <span>战斗日志</span>
+            <button id="logCloseBtn" class="log-close-btn">✕</button>
+        </div>
+        <div id="logList"></div>
+    </div>
+</div>
+
+<!-- 胜利覆盖 -->
+<div id="victoryOverlay">
+    <div id="gameOverText"></div>
+    <div id="victoryCampText"></div>
+</div>
+
+<!-- 单位悬浮提示 -->
+<div id="unitTooltip">
+    <div id="tooltipHeader"></div>
+    <div id="tooltipHpBar"><div id="tooltipHpFill"></div><span id="tooltipHpText"></span></div>
+    <div id="tooltipStats">
+        <span class="tooltip-stat" id="tooltipAtk"></span>
+        <span class="tooltip-stat" id="tooltipSpd"></span>
+        <span class="tooltip-stat" id="tooltipRng"></span>
+    </div>
+    <div id="tooltipStatus"></div>
+    <div id="tooltipPassive"></div>
+    <div id="tooltipMorale"></div>
+</div>
+
+<!-- 设置面板 -->
+<div id="settingsOverlay">
+    <div id="settingsPanel">
+        <h3>游戏设置</h3>
+        <div class="setting-row">
+            <label>动画速度</label>
+            <input type="range" id="animSpeed" min="0.5" max="2.0" step="0.1" value="1.0">
+            <span class="setting-value" id="animSpeedVal">1.0x</span>
+        </div>
+        <div class="setting-row">
+            <label>粒子密度</label>
+            <input type="range" id="particleDensity" min="0" max="100" step="5" value="100">
+            <span class="setting-value" id="particleDensityVal">100%</span>
+        </div>
+        <div class="setting-row">
+            <label>屏幕震动</label>
+            <input type="checkbox" id="screenShake" checked>
+        </div>
+        <div class="setting-row">
+            <label>回合闪光</label>
+            <input type="checkbox" id="turnFlash" checked>
+        </div>
+        <div class="setting-row">
+            <label>音效</label>
+            <input type="checkbox" id="soundEnabled" checked>
+        </div>
+        <button id="settingsClose">完成</button>
+    </div>
+</div>
+
+<!-- 阵营揭示遮罩 -->
+<div id="factionReveal">
+    <div id="factionRevealInner">
+        <div id="factionRevealDice">🎲</div>
+        <div id="factionRevealText"></div>
+    </div>
+</div>
+
+<!-- 二次确认弹窗 -->
+<div id="confirmOverlay">
+    <div id="confirmPanel">
+        <p id="confirmMessage"></p>
+        <div class="confirm-btns">
+            <button id="confirmYes" class="lobby-btn compact">确认</button>
+            <button id="confirmNo" class="lobby-btn compact secondary">取消</button>
         </div>
     </div>
-
-    <canvas id="gameCanvas" width="1000" height="750"></canvas>
-
-    <div id="victoryOverlay">
-        <div id="gameOverText" style="color: #fff; font-size: 72px; font-weight: bold; text-shadow: 0 0 10px #000; margin-bottom: 20px;"></div>
-        <div id="victoryCampText" style="color: #fff; font-size: 48px; font-weight: bold; text-shadow: 0 0 8px #000;"></div>
-    </div>
-    <script>
-        // ==================== 工具函数 =================
-        function hexToRgb(hex) {
-        // 兼容简写（#faa → #ffaaaa）
-        const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
-        hex = hex.replace(shorthandRegex, (m, r, g, b) => r + r + g + g + b + b);
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result 
-            ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) }
-            : { r: 0, g: 0, b: 0 }; // 容错默认值
-        }
-
-        // RGB值转十六进制颜色（如 255,170,170 → #ffaaaa）
-        function rgbToHex(r, g, b) {
-            return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-        }
-
-        function getDarkCampColor(camp) {
-        const rgb = hexToRgb(camp.color);
-        // 调深处理：各通道值×0.7
-        const darkR = Math.max(0, Math.round(rgb.r * 0.7));
-        const darkG = Math.max(0, Math.round(rgb.g * 0.7));
-        const darkB = Math.max(0, Math.round(rgb.b * 0.7));
-        return rgbToHex(darkR, darkG, darkB);
-}
-
-        // ===================== 核心配置与常量 =====================
-        const HEX_SIZE = 30; // 六边形边长
-        const HEX_WIDTH = Math.sqrt(3) * HEX_SIZE;
-        const HEX_HEIGHT = 2 * HEX_SIZE;
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        // 绘制六边形轮廓函数
-        function drawHexagonOutline(ctx, centerX, centerY, size, strokeStyle, lineWidth) {
-            ctx.save(); // 保存当前上下文状态
-            ctx.beginPath();
-            for (let i = 0; i < 6; i++) {
-                const angle = 2 * Math.PI / 6 * (i + 0.5);
-                const x = centerX + size * Math.cos(angle);
-                const y = centerY + size * Math.sin(angle);
-                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-            }
-            ctx.closePath();
-
-            ctx.strokeStyle = strokeStyle;
-            ctx.lineWidth = lineWidth;
-            ctx.stroke();
-
-            ctx.restore(); // 恢复上下文状态
-        }
-        // 兵种配置（键：类型，值：属性）
-        const UNIT_CONFIG = {
-            infantry: { name: '步', hp: 120, attack: 35, speed: 2, range: 1, cost: 25, color: '#0a0a0a' },
-            cavalry: { name: '骑', hp: 95, attack: 45, speed: 3, range: 1, cost: 40, color: '#0a0a0a' },
-            archer: { name: '炮', hp: 75, attack: 60, speed: 1, range: 2, cost: 35, color: '#0a0a0a' }
-        };
-
-        // 阵营配置
-        const CAMP = {
-            player1: { name: '红军', color: '#ffaaaa', flag: '🔴' },
-            player2: { name: '蓝军', color: '#aaaaff', flag: '🔵' },
-            neutral: { name: '中立', color: '#c0c0c0', flag: '⚫' }
-        };
-
-        // 克制关系（攻击方类型 => 被攻击方类型 => 伤害系数）
-        const COUNTER_RELATION = {
-            infantry: { archer: 0.75, cavalry: 1.25, infantry: 1 },
-            archer: { cavalry: 0.75, infantry: 1.25, archer: 1 },
-            cavalry: { infantry: 0.75, archer: 1.25, cavalry: 1 }
-        };
-
-        // ===================== 核心数据结构 =====================
-        // 1. 地块类
-        class HexTile {
-            constructor(q, r) {
-                this.q = q; // 轴向坐标q
-                this.r = r; // 轴向坐标r
-                this.s = -q - r; // 轴向坐标s（q + r + s = 0）
-                this.camp = CAMP.neutral; // 所属行政区阵营（初始中立）
-                this.isCity = false; // 是否为城市地块
-                this.districtId = 0; // 所属行政区ID（0:中立区，1:红军区，2:蓝军区，3:上中立区，4:下中立区）
-                this.unit = null; // 地块上的部队（null为空）
-
-                // 颜色渐变核心属性
-                this.targetColor = this.camp.color; // 渐变目标色
-                this.currentColor = this.camp.color; // 当前显示色（渐变中动态更新）
-                this.fadeDuration = 1500; // 渐变时长（毫秒）
-                this.fadeStartTime = null; // 渐变开始时间戳（null=无渐变）
-                
-                // 轴向坐标转屏幕坐标公式
-                this.x = (canvas.width / 2 ) + HEX_WIDTH * (q + r * 0.5);
-                this.y = canvas.height / 2 + (3/2 * HEX_SIZE) * r;
-            }
-
-            // 带渐变的阵营设置方法
-            setCampWithFade(newCamp) {
-                this.camp = newCamp; // 更新阵营
-                this.targetColor = newCamp.color; // 设置渐变目标色
-                this.fadeStartTime = Date.now(); // 记录渐变开始时间
-            }
-
-            // 每帧更新渐变颜色（渲染前调用）
-            updateFadeColor() {
-                if (!this.fadeStartTime) return; // 无渐变，直接返回
-
-                const now = Date.now(); // 当前时间戳
-                const elapsed = now - this.fadeStartTime; // 已流逝时间
-                const progress = Math.min(elapsed / this.fadeDuration, 1); // 渐变进度（0~1）
-
-                // 解析当前色和目标色的RGB
-                const startRgb = hexToRgb(this.currentColor);
-                const targetRgb = hexToRgb(this.targetColor);
-
-                // RGB三通道插值，逐帧计算中间色
-                const interpolatedRgb = {
-                    r: startRgb.r + (targetRgb.r - startRgb.r) * progress,
-                    g: startRgb.g + (targetRgb.g - startRgb.g) * progress,
-                    b: startRgb.b + (targetRgb.b - startRgb.b) * progress
-                };
-
-                // 更新当前显示色（取整避免无效值）
-                this.currentColor = rgbToHex(
-                    Math.round(interpolatedRgb.r),
-                    Math.round(interpolatedRgb.g),
-                    Math.round(interpolatedRgb.b)
-                );
-
-                // 渐变完成：清空开始时间，结束插值
-                if (progress >= 1) {
-                    this.fadeStartTime = null;
-                }
-            }
-
-            // 绘制六边形地块
-            draw() {
-                // 绘制六边形轮廓
-                drawHexagonOutline(ctx, this.x, this.y, HEX_SIZE, 'transparent', 0);
-
-                // 填充行政区颜色
-                ctx.fillStyle = this.currentColor;
-                ctx.fill();
-
-                if (gameState.hoveredTile === this ) {
-                    // 悬停时加一层半透明高亮（不覆盖原有颜色）
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-                    ctx.fill();
-                    // 悬停边框加粗+高亮色
-                    drawHexagonOutline(ctx, this.x, this.y, HEX_SIZE, '#ffff00', 2);
-                }
-
-                // 绘制行政区边界
-                const borderColor = '#fff';
-                const borderWidth = this.isCity ? 3 : 1;
-                drawHexagonOutline(ctx, this.x, this.y, HEX_SIZE, borderColor, borderWidth);
-
-                // 绘制城市星标
-                if (this.isCity) {
-                    ctx.fillStyle = '#fff';
-                    ctx.font = '30px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.fillText('★', this.x, this.y+10);
-                }
-
-                // 绘制地块上的部队
-                if (this.unit) this.unit.draw(this.x, this.y);
-            }
-        }
-
-        // 2. 部队类
-        class Unit {
-            constructor(type, camp, tile, isNewRecruit = false) {
-                this.type = type; // 兵种类型（infantry步兵/cavalry骑兵/archer炮兵）
-                this.config = UNIT_CONFIG[type];
-                this.camp = camp; // 所属阵营
-                this.hp = this.config.hp; // 当前生命值
-                this.maxHp = this.config.hp; // 最大生命值
-                this.canAct = true; // 是否可行动（每回合重置）
-                this.tile = tile; // 所在地块
-                this.movedThisTurn = false; // 标记本回合是否移动过（骑兵特性用）
-                this.counterAttackCount = 0; // 反击次数计数（最多1次）
-                this.isNewRecruit = isNewRecruit; // 是否为新招募单位（新招募单位当回合不可行动）
-                tile.unit = this; // 绑定到地块
-            }
-
-            // 绘制部队（标识、血条、阵营旗帜、可行动星标，按顺序绘制避免遮挡）
-            draw(tileX, tileY) {
-
-                // 1. 兵种标识
-                ctx.fillStyle = this.config.color;
-                ctx.font = '20px Arial';
-                ctx.fillText(this.config.name, tileX, tileY + 5);
-
-                // 2. 血条
-                const hpWidth = HEX_SIZE * 1.5;
-                const hpHeight = 5;
-                // 血条背景
-                ctx.fillStyle = '#333';
-                ctx.fillRect(tileX - hpWidth/2, tileY + HEX_SIZE/2, hpWidth, hpHeight);
-                // 血条前景（绿色/红色）
-                const hpRatio = this.hp / this.maxHp;
-                ctx.fillStyle = hpRatio > 0.3 ? '#4CAF50' : '#f44336';
-                ctx.fillRect(tileX - hpWidth/2, tileY + HEX_SIZE/2, hpWidth * hpRatio, hpHeight);
-                // 生命值文字
-                ctx.fillStyle = '#fff';
-                ctx.font = '10px Arial';
-                ctx.fillText(Math.round(this.hp), tileX, tileY + HEX_SIZE/2 + 12);
-
-                // 3. 阵营旗帜
-                ctx.font = '16px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(this.camp.flag, tileX - HEX_SIZE/2 -4 , tileY + HEX_SIZE/2 + 8);
-                ctx.restore(); // 恢复上下文状态，重置textAlign等属性
-
-                // 4. 可行动闪烁黄色光圈
-                if (this.canAct && this.camp === gameState.currentCamp && !this.isNewRecruit) {
-                    // 计算闪烁透明度：正弦函数实现 0.3~0.8 透明度循环，周期1秒
-                    const time = Date.now() / 1000;
-                    const alpha = 0.3 + (Math.sin(time * 2 * Math.PI) + 1) / 2 * 0.5;
-                    // 绘制闪烁的黄色六边形光圈
-                    drawHexagonOutline(
-                        ctx, 
-                        tileX, 
-                        tileY, 
-                        HEX_SIZE + 2, 
-                        `rgba(255, 215, 0, ${alpha})`, // 金黄色带透明度
-                        3 // 光圈线条宽度
-                    );
-                }
-            }
-
-            // 计算攻击伤害
-            calculateDamage(targetUnit) {
-                // 基础伤害 = 攻击力 * 克制系数
-                const counterCoeff = COUNTER_RELATION[this.type][targetUnit.type];
-                let baseDmg = this.config.attack * counterCoeff;
-                
-                // 克制关系对应的暴击率调整
-                let critRate = 0.2; // 默认20%
-                if (counterCoeff > 1) { // 克制目标
-                    critRate = 0.4; // 暴击率提高至40%
-                } else if (counterCoeff < 1) { // 被目标克制
-                    critRate = 0.05; // 暴击率降低至5%
-                }
-                
-                // 暴击判定
-                const isCrit = Math.random() < critRate;
-                const critMulti = isCrit ? 1.5 : 1; // 暴击伤害1.5倍
-                
-                // 骑兵特性：移动后攻击伤害+10%，不处于我方行政区时额外+10%
-                let moveMulti = 1;
-                if (this.type === 'cavalry') {
-                    if (this.movedThisTurn) {
-                        moveMulti += 0.1;
-                    }
-                    const isOwnDistrict = (this.tile.districtId === 1 && this.camp === CAMP.player1) || 
-                                          (this.tile.districtId === 2 && this.camp === CAMP.player2);
-                    if (!isOwnDistrict) {
-                        moveMulti += 0.1;
-                    }
-                }
-                
-                // 最终伤害计算
-                const finalDmg = baseDmg * critMulti * moveMulti;
-
-                // 添加伤害文本到数组
-                gameState.damageTexts.push({
-                    x: targetUnit.tile.x,
-                    y: targetUnit.tile.y,
-                    value: finalDmg,
-                    isCrit: isCrit,
-                    timeLeft: 900,
-                    lastUpdate: Date.now()
-                });
-                return { dmg: finalDmg, isCrit };
-            }
-
-            // 计算反击伤害
-            calculateCounterDamage(attackerUnit) {
-                // 每回合最多触发1次反击，超过则无伤害
-                if (this.counterAttackCount >= 1 || attackerUnit.type === 'archer') {
-                    return { dmg: 0, isCrit: false };
-                }
-                
-                // 反击基础伤害 = 攻击力 * 0.75 * 克制系数
-                const counterCoeff = COUNTER_RELATION[this.type][attackerUnit.type];
-                let baseDmg = this.config.attack * 0.75 * counterCoeff;
-                
-                // 步兵特性：处于城市地块上时反击暴击率提升至66%
-                let critRate = 0.33; // 默认33%
-                if (this.type === 'infantry' && this.tile.isCity) {
-                    critRate = 0.66; // 城市地块步兵反击暴击率66%
-                }
-                critRate = this.counterAttackCount === 0 ? critRate : 0;
-                
-                const isCrit = Math.random() < critRate;
-                const critMulti = isCrit ? 1.8 : 1;
-                
-                // 最终反击伤害
-                let finalDmg = baseDmg * critMulti;
-
-                if (this.hp > 0) { // 只有存活时才反击
-                    this.counterAttackCount++; // 反击计数+1，该回合内不可再次触发反击
-                    logMessage(`${this.camp.name}的${this.config.name}兵反击造成${Math.round(finalDmg)}伤害${isCrit ? '，反击暴击！': ''}`);
-        
-                    // 添加反击伤害文本到数组
-                    gameState.damageTexts.push({
-                        x: attackerUnit.tile.x,
-                        y: attackerUnit.tile.y,
-                        value: finalDmg,
-                        isCrit: isCrit,
-                        timeLeft: 750,
-                        lastUpdate: Date.now()
-                    });
-                }
-                return { dmg: finalDmg, isCrit };
-            }
-
-            // 受到伤害
-            takeDamage(dmg, attackerUnit) {
-                // 炮兵特性：被步兵/骑兵近战攻击时受到伤害+33%
-                let finalDmg = dmg;
-                if (this.type === 'archer' && ['infantry', 'cavalry'].includes(attackerUnit.type)) {
-                    finalDmg = dmg * 1.33;
-                }
-                
-                // 步兵特性：处于城市地块时受到伤害-33%
-                if (this.type === 'infantry' && this.tile.isCity) {
-                    finalDmg = dmg * 0.67;
-                }
-                
-                this.hp = Math.max(0, this.hp - finalDmg);
-                // 如果生命值为0，从地块移除
-                if (this.hp <= 0) {
-                    attackerUnit.canAct = false; // 攻击后标记为已行动
-                    gameState.attackableTiles = [];
-                    this.tile.unit = null;
-                    logMessage(`${this.camp.name}的1支${this.config.name}兵被消灭`);
-                    return true; // 已死亡
-                }
-                return false; // 存活
-            }
-
-            // 治疗生命值
-            heal(amount) {
-                const oldHp = this.hp;
-                this.hp = Math.min(this.maxHp, this.hp + amount);
-                const actualHeal = this.hp - oldHp;
-                
-                if (actualHeal > 0) {
-                    // 添加治疗文本到数组
-                    gameState.healTexts.push({
-                        x: this.tile.x,
-                        y: this.tile.y,
-                        value: actualHeal,
-                        timeLeft: 1000, // 1秒显示时间
-                        lastUpdate: Date.now()
-                    });
-                    return actualHeal;
-                }
-                return 0;
-            }
-        }
-
-        // ===================== 游戏核心逻辑 =====================
-        let gameState = {
-            tiles: [], // 所有地块
-            currentCamp: CAMP.player1, // 当前行动阵营
-            playerGold: { player1: 25, player2: 25 }, // 玩家金币
-            selectedUnit: null, // 选中的部队
-            movableTiles: [], // 可移动地块
-            attackableTiles: [], // 可攻击地块
-            damageTexts: [], // 存储伤害文本
-            healTexts: [], // 存储治疗文本
-            selectedCityTile: null, // 选中的招募城市地块
-            capturedNeutralCities: new Set(), // 记录已领取奖励的中立城市
-            goldTexts: [],// 存储金币获取文本
-            hoveredTile: null, // 记录鼠标悬停的地块
-            gameOver: false, // 标记游戏是否结束
-            victoryCamp: null, // 胜利的阵营
-        };
-
-        function updateButtonColors() {
-            const darkCampColor = getDarkCampColor(gameState.currentCamp);
-            const originalCampColor = gameState.currentCamp.color;
-            // 获取5个目标按钮
-            const targetButtons = [
-                document.getElementById('endTurnBtn'),
-                document.getElementById('recruitInfantry'),
-                document.getElementById('recruitCavalry'),
-                document.getElementById('recruitArcher'),
-                document.getElementById('surrenderBtn')
-            ];
-            // 遍历设置按钮样式
-            targetButtons.forEach(btn => {
-                if (btn) {
-                    btn.style.backgroundColor = darkCampColor; // 深色背景（比地块深）
-                    btn.style.color = '#ffffff'; // 白色文字确保对比
-                    btn.style.border = `2px solid ${originalCampColor}`; // 原阵营色边框增强视觉关联
-                    btn.style.outline = 'none';
-                }
-            });
-        }
-
-        // 1. 初始化地图
-        function initMap() {
-            gameState.tiles = [];
-            // 生成5个行政区的六边形网格
-            const districtTiles = {
-                1: [], // 玩家1行政区（左侧）
-                2: [], // 玩家2行政区（右侧）
-                0: [], // 中立行政区（中间）
-                3: [], // 上方中立行政区
-                4: []  // 下方中立行政区
-            };
-
-            for (let q = -7; q <= 7; q++) {
-                for (let r = -7; r <= 7; r++) {
-                    if (Math.abs(q + r) <= 7) { // 同步缩小范围限制
-                        const tile = new HexTile(q, r);
-                        // 分配行政区
-                        if (q < -2) { // 左侧：红军区
-                            tile.districtId = 1;
-                            tile.camp = CAMP.player1;
-                            tile.currentColor = CAMP.player1.color;
-                            tile.targetColor = CAMP.player1.color;
-                            districtTiles[1].push(tile);
-                        } else if (q > 2) { // 右侧：蓝军区
-                            tile.districtId = 2;
-                            tile.camp = CAMP.player2;
-                            tile.currentColor = CAMP.player2.color;
-                            tile.targetColor = CAMP.player2.color;
-                            districtTiles[2].push(tile);
-                        } else if (r < -3) { // 上方：中立区3
-                            tile.districtId = 3;
-                            tile.camp = CAMP.neutral;
-                            tile.currentColor = CAMP.neutral.color;
-                            tile.targetColor = CAMP.neutral.color;
-                            districtTiles[3].push(tile);
-                        } else if (r > 3) { // 下方：中立区4
-                            tile.districtId = 4;
-                            tile.camp = CAMP.neutral;
-                            tile.currentColor = CAMP.neutral.color;
-                            tile.targetColor = CAMP.neutral.color;
-                            districtTiles[4].push(tile);
-                        } else { // 中间：中立区0
-                            tile.districtId = 0;
-                            tile.camp = CAMP.neutral;
-                            tile.currentColor = CAMP.neutral.color;
-                            tile.targetColor = CAMP.neutral.color;
-                            districtTiles[0].push(tile);
-                        }
-                        gameState.tiles.push(tile);
-                    }
-                }
-            }
-
-            updateButtonColors();
-            // 设置5座城市
-            // 玩家1城市（左侧）
-            const city1 = gameState.tiles.find(t => t.q === -5 && t.r === 0);
-            if (city1) {
-                city1.isCity = true;
-                city1.camp = CAMP.player1;
-            }
-            // 玩家2城市（右侧）
-            const city2 = gameState.tiles.find(t => t.q === 5 && t.r === 0);
-            if (city2) {
-                city2.isCity = true;
-                city2.camp = CAMP.player2;
-            }
-            // 中立城市（中间）
-            const cityNeutral = gameState.tiles.find(t => t.q === 0 && t.r === 0);
-            if (cityNeutral) {
-                cityNeutral.isCity = true;
-                cityNeutral.camp = CAMP.neutral;
-            }
-            // 上方中立城市
-            const cityNeutral3 = gameState.tiles.find(t => t.q === 0 && t.r === -5);
-            if (cityNeutral3) {
-                cityNeutral3.isCity = true;
-                cityNeutral3.camp = CAMP.neutral;
-            }
-            // 下方中立城市
-            const cityNeutral4 = gameState.tiles.find(t => t.q === 0 && t.r === 5);
-            if (cityNeutral4) {
-                cityNeutral4.isCity = true;
-                cityNeutral4.camp = CAMP.neutral;
-            }
-
-            // 初始化初始部队
-            initInitialUnits();
-
-            // 初始化日志
-            logMessage('游戏开始，红军先手');
-            
-            // 绑定投降按钮事件
-            const surrenderBtn = document.getElementById('surrenderBtn');
-            if (surrenderBtn) {
-                surrenderBtn.addEventListener('click', handleSurrender);
-            }
-        }
-
-        // 2. 初始化初始部队
-        function initInitialUnits() {
-            // 玩家1初始部队（城市周围：步兵、骑兵、炮兵）
-            const p1City = gameState.tiles.find(t => t.isCity && t.camp === CAMP.player1);
-            if (p1City) {
-                // 城市地块：步兵
-                new Unit('infantry', CAMP.player1, p1City, false);
-                // 周围地块：骑兵（q=-5, r=-1）
-                const cavTile1 = gameState.tiles.find(t => t.q === -5 && t.r === -1);
-                if (cavTile1) new Unit('cavalry', CAMP.player1, cavTile1, false);
-                // 周围地块：炮兵（q=-5, r=1）
-                const archTile1 = gameState.tiles.find(t => t.q === -5 && t.r === 1);
-                if (archTile1) new Unit('archer', CAMP.player1, archTile1, false);
-            }
-
-            // 玩家2初始部队
-            const p2City = gameState.tiles.find(t => t.isCity && t.camp === CAMP.player2);
-            if (p2City) {
-                new Unit('infantry', CAMP.player2, p2City, false);
-                const cavTile2 = gameState.tiles.find(t => t.q === 5 && t.r === -1);
-                if (cavTile2) new Unit('cavalry', CAMP.player2, cavTile2, false);
-                const archTile2 = gameState.tiles.find(t => t.q === 5 && t.r === 1);
-                if (archTile2) new Unit('archer', CAMP.player2, archTile2, false);
-            }
-
-            // 中间中立城市周围2支步兵
-            const neutralCity = gameState.tiles.find(t => t.isCity && t.camp === CAMP.neutral && t.districtId === 0);
-            if (neutralCity) {
-                const infTile1 = gameState.tiles.find(t => t.q === 0 && t.r === 0);
-                if (infTile1) new Unit('infantry', CAMP.neutral, infTile1, false);
-                const infTile2 = gameState.tiles.find(t => t.q === 0 && t.r === 1);
-                if (infTile2) new Unit('infantry', CAMP.neutral, infTile2, false);
-            }
-
-            // 上方中立城市周围2支步兵
-            const neutralCity3 = gameState.tiles.find(t => t.isCity && t.districtId === 3);
-            if (neutralCity3) {
-                const infTile3_1 = gameState.tiles.find(t => t.q === 0 && t.r === -5);
-                if (infTile3_1) new Unit('infantry', CAMP.neutral, infTile3_1, false);
-                const infTile3_2 = gameState.tiles.find(t => t.q === 0 && t.r === -6);
-                if (infTile3_2) new Unit('infantry', CAMP.neutral, infTile3_2, false);
-            }
-
-            // 下方中立城市周围2支步兵
-            const neutralCity4 = gameState.tiles.find(t => t.isCity && t.districtId === 4);
-            if (neutralCity4) {
-                const infTile4_1 = gameState.tiles.find(t => t.q === 0 && t.r === 5);
-                if (infTile4_1) new Unit('infantry', CAMP.neutral, infTile4_1, false);
-                const infTile4_2 = gameState.tiles.find(t => t.q === 0 && t.r === 6);
-                if (infTile4_2) new Unit('infantry', CAMP.neutral, infTile4_2, false);
-            }
-        }
-
-        // 3. 绘制游戏画面
-        function renderGame() {
-            // 清空画布
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // 更新所有地块的渐变颜色
-            gameState.tiles.forEach(tile => tile.updateFadeColor());
-            // 绘制所有地块
-            gameState.tiles.forEach(tile => tile.draw());
-            // 绘制可移动/攻击范围光圈
-            drawRangeApertures();
-            // 绘制伤害文本
-            drawDamageTexts();
-            // 绘制治疗文本
-            drawHealTexts();
-            // 绘制金币获取文本
-            drawGoldTexts();
-            // 绘制克制/被克提示文字
-            drawCounterText();
-            
-            if (gameState.selectedCityTile) {
-                const tile = gameState.selectedCityTile;
-                // 绘制半透明黄色填充
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.fillStyle = 'rgba(255, 255, 0, 0.3)'; // 黄色半透明
-                ctx.fill();
-                
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.strokeStyle = '#ffff00'; // 黄色高亮
-                ctx.lineWidth = 3;
-                ctx.stroke();
-            }
-
-            // ========== 选中部队地块的黄色半透明高亮 ==========
-            if (gameState.selectedUnit) {
-                const tile = gameState.selectedUnit.tile;
-                // 1. 绘制半透明黄色填充
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.fillStyle = 'rgba(255, 255, 0, 0.3)'; // 黄色半透明
-                ctx.fill();
-        
-                // 2. 绘制黄色高亮边框（与选中城市样式一致）
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + (HEX_SIZE + 4) * Math.cos(angle);
-                    const y = tile.y + (HEX_SIZE + 4) * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.strokeStyle = '#ffff00'; // 黄色边框
-                ctx.lineWidth = 3;
-                ctx.stroke();
-            }
-
-            // 刷新UI
-            updateUI();
-            // 检测胜利条件
-            checkVictory();
-
-        }
-
-        // 4(1).绘制克制/被克提示文字
-        function drawCounterText() {
-            if (!gameState.selectedUnit || !gameState.selectedUnit.canAct) return;
-            
-            gameState.attackableTiles.forEach(tile => {
-                const targetUnit = tile.unit;
-                if (!targetUnit) return;
-                
-                const counterCoeff = COUNTER_RELATION[gameState.selectedUnit.type][targetUnit.type];
-                let text = '';
-                let color = '';
-                
-                if (counterCoeff > 1) {
-                    text = '克制⬆';
-                    color = '#00ff00';
-                } else if (counterCoeff < 1) {
-                    text = '被克⬇';
-                    color = '#ff0000';
-                } else {
-                    return; // 无克制关系不显示
-                }
-                
-                // 绘制提示文字
-                ctx.fillStyle = color;
-                ctx.font = '16px Arial bold';
-                ctx.textAlign = 'center';
-                ctx.shadowColor = '#000';
-                ctx.shadowBlur = 2;
-                ctx.fillText(text, tile.x, tile.y - HEX_SIZE - 6);
-                ctx.shadowBlur = 0;
-            });
-        }
-
-        // 4(2). 绘制可移动/攻击范围光圈 + 高亮
-        function drawRangeApertures() {
-            if (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit) return;
-    
-            // 可移动地块：青蓝色高亮 + 醒目光圈
-            if (!gameState.selectedUnit.movedThisTurn) {
-                gameState.movableTiles.forEach(tile => {
-                    // 1. 绘制半透明高亮填充
-                    ctx.beginPath();
-                    for (let i = 0; i < 6; i++) {
-                        const angle = 2 * Math.PI / 6 * (i + 0.5);
-                        const x = tile.x + HEX_SIZE * Math.cos(angle);
-                        const y = tile.y + HEX_SIZE * Math.sin(angle);
-                        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                    }
-                    ctx.closePath();
-                    ctx.fillStyle =  'rgba(0, 255, 255, 0.2)'; // 青蓝色半透明高亮
-                    ctx.fill();
-
-                    // 2. 绘制更醒目的可移动光圈
-                    ctx.beginPath();
-                    for (let i = 0; i < 6; i++) {
-                        const angle = 2 * Math.PI / 6 * (i + 0.5);
-                        const x = tile.x + HEX_SIZE * Math.cos(angle);
-                        const y = tile.y + HEX_SIZE * Math.sin(angle);
-                        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                    }
-                    ctx.closePath();
-                    ctx.strokeStyle = '#00ffffcc'; // 提高不透明度，更清晰
-                    ctx.lineWidth = 2; // 加粗线条
-                    ctx.stroke();
-                });
-            }
-
-            // 可攻击地块：红色高亮 + 醒目光圈
-            gameState.attackableTiles.forEach(tile => {
-                // 1. 绘制半透明高亮填充
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.2)'; // 红色半透明高亮
-                ctx.fill();
-
-                // 2. 绘制更醒目的可攻击光圈
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = 2 * Math.PI / 6 * (i + 0.5);
-                    const x = tile.x + HEX_SIZE * Math.cos(angle);
-                    const y = tile.y + HEX_SIZE * Math.sin(angle);
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.closePath();
-                ctx.strokeStyle = '#ff0000cc'; // 提高不透明度，更清晰
-                ctx.lineWidth = 2; // 加粗线条
-                ctx.stroke();
-            });
-        }
-
-        // 4(3).绘制伤害文本
-        function drawDamageTexts() {
-            const currentTime = Date.now();
-            // 过滤掉已超时的文本，同时更新剩余时间
-            gameState.damageTexts = gameState.damageTexts.filter(text => {
-                text.timeLeft -= currentTime - text.lastUpdate;
-                text.lastUpdate = currentTime;
-                if (text.timeLeft <= 0) return false;
-
-                // 绘制伤害文本
-                ctx.fillStyle = text.isCrit ? '#ff3333' : '#ffffff'; // 暴击红色，普通白色
-                ctx.font = '18px Arial bold';
-                ctx.textAlign = 'center';
-                ctx.shadowColor = '#000';
-                ctx.shadowBlur = 3;
-                // 文本内容：-数值 + 暴击感叹号
-                const textContent = `-${Math.round(text.value)}${text.isCrit ? '！' : ''}`;
-                ctx.fillText(textContent, text.x, text.y - 20); // 绘制在部队上方20px
-                ctx.shadowBlur = 0; // 重置阴影
-                return true;
-            });
-        }
-
-        // 4(4).绘制治疗文本
-        function drawHealTexts() {
-            const currentTime = Date.now();
-            // 过滤掉已超时的文本，同时更新剩余时间
-            gameState.healTexts = gameState.healTexts.filter(text => {
-                text.timeLeft -= currentTime - text.lastUpdate;
-                text.lastUpdate = currentTime;
-                if (text.timeLeft <= 0) return false;
-
-                // 绘制治疗文本
-                ctx.fillStyle = '#00ff00'; // 绿色治疗文字
-                ctx.font = '18px Arial bold';
-                ctx.textAlign = 'center';
-                ctx.shadowColor = '#000';
-                ctx.shadowBlur = 3;
-                // 文本内容：+数值
-                const textContent = `+${Math.round(text.value)}`;
-                ctx.fillText(textContent, text.x, text.y - 20); // 绘制在部队上方20px
-                ctx.shadowBlur = 0; // 重置阴影
-                return true;
-            });
-        }
-
-        function drawGoldTexts() {
-            const currentTime = Date.now();
-            // 过滤掉已超时的文本，同时更新剩余时间
-            gameState.goldTexts = gameState.goldTexts.filter(text => {
-                text.timeLeft -= currentTime - text.lastUpdate;
-                text.lastUpdate = currentTime;
-                if (text.timeLeft <= 0) return false;
-
-                // 绘制金币文本
-                ctx.fillStyle = text.color; // 根据类型设置颜色
-                ctx.font = '18px Arial bold';
-                ctx.textAlign = 'center';
-                ctx.shadowColor = '#000';
-                ctx.shadowBlur = 3;
-                // 文本内容：±数值g（如+15g、-30g）
-                const textContent = `${text.prefix}${Math.round(text.value)}g`;
-                ctx.fillText(textContent, text.x, text.y - 20); // 绘制在城市/部队上方20px
-                ctx.shadowBlur = 0; // 重置阴影
-                return true;
-            });
-        }
-
-
-        // 5. 更新UI（金币、回合、日志）
-        function updateUI() {
-            document.getElementById('currentTurn').textContent = gameState.currentCamp.name;
-            document.getElementById('currentTurn').style.color = gameState.currentCamp.color;
-            document.getElementById('player1Gold').textContent = gameState.playerGold.player1;
-            document.getElementById('player2Gold').textContent = gameState.playerGold.player2;
-        }
-
-        // 6. 日志输出
-        let logHistory = [];
-
-        function logMessage(msg) {
-            // 1. 添加新日志到数组头部/尾部，控制最多20条
-                logHistory.push(msg);
-                if (logHistory.length > 20) {
-                    logHistory.shift(); // 移除最旧的日志
-                }
-
-                // 2. 渲染日志列表（新日志在底部，旧的向上滚）
-                const logList = document.getElementById('logList');
-                logList.innerHTML = ''; // 清空原有内容
-                // 倒序渲染（保证新日志在对话框底部）
-                logHistory.slice().reverse().forEach(line => {
-                    const logItem = document.createElement('div');
-                    logItem.className = 'log-item';
-                    logItem.textContent = line;
-                    logList.appendChild(logItem);
-                });
-
-                // 3. 控制台保留日志
-                console.log(msg);
-        }
-
-        // 7. 结束回合逻辑
-        function endTurn() {
-            // 1. 重置所有部队的可行动状态 + 步兵守城回血
-            gameState.tiles.forEach(tile => {
-                if (tile.unit) {
-                    // 重置所有部队的行动状态（无论阵营）
-                    tile.unit.canAct = true;
-                    tile.unit.movedThisTurn = false; // 重置移动标记
-                    tile.unit.counterAttackCount = 0; // 重置反击次数
-                    tile.unit.isNewRecruit = false; // 新招募单位下一回合可行动
-                    
-                    // 步兵守城回血（所有阵营的步兵都生效）
-                    if (tile.unit.type === 'infantry' && tile.isCity) {
-                        const healAmount = tile.unit.maxHp * 0.1; // 回复10%
-                        const actualHeal = tile.unit.heal(healAmount);
-                        if (actualHeal > 0) {
-                            logMessage(`${tile.unit.camp.name}的步兵驻守城市回复${Math.round(actualHeal)}生命值`);
-                        }
-                    }
-                }
-            });
-
-            // 2. 城市产出金币（每回合初15）
-            const currentPlayerKey = gameState.currentCamp === CAMP.player1 ? 'player1' : 'player2';
-            const currentCampCities = gameState.tiles.filter(t => t.isCity && t.camp === gameState.currentCamp);
-            const cityCount = currentCampCities.length;
-            gameState.playerGold[currentPlayerKey] += cityCount * 15;
-            logMessage(`${gameState.currentCamp.name}回合结束，本回合${gameState.currentCamp.name}城市产出共计${cityCount * 15}金币`);
-            // 遍历所有城市地块添加金币获取文本
-            currentCampCities.forEach(cityTile => {
-                gameState.goldTexts.push({
-                    x: cityTile.x,
-                    y: cityTile.y,
-                    value: 15,
-                    prefix: '+',
-                    color: '#ffff00', // 黄色
-                    timeLeft: 1000, // 持续1秒
-                    lastUpdate: Date.now()
-                });
-            });
-            // 3. 切换阵营
-            gameState.currentCamp = gameState.currentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
-            updateUI();
-            logMessage(`轮到${gameState.currentCamp.name}行动`);
-            updateButtonColors();
-            gameState.selectedUnit = null;
-            gameState.movableTiles = [];
-            gameState.attackableTiles = [];
-
-            renderGame();
-        }
-
-        // 8. 招募部队
-        function recruitUnit(type) {
-            const config = UNIT_CONFIG[type];
-            const currentPlayerKey = gameState.currentCamp === CAMP.player1 ? 'player1' : 'player2';
-            
-            // 检查是否选中了城市
-            if (!gameState.selectedCityTile) {
-                logMessage('错误：请点击己方控制的空城市地块进行招募');
-                return;
-            }
-            // 校验选中的城市是否合法（己方、空、城市）
-            const selectedCityTile = gameState.selectedCityTile;
-            if (selectedCityTile.camp !== gameState.currentCamp) {
-                logMessage('错误：选中的城市不属于当前阵营，无法招募');
-                return;
-            }
-            if (selectedCityTile.unit) {
-                logMessage('错误：选中的城市地块已有部队驻守，无法招募');
-                return;
-            }
-            if (!selectedCityTile.isCity) {
-                logMessage('错误：选中的地块不是城市，无法招募');
-                return;
-            }
-
-            // 检查金币是否足够
-            if (gameState.playerGold[currentPlayerKey] < config.cost) {
-                logMessage(`错误：金币不足`);
-                return;
-            }
-
-            // 直接使用选中的城市地块生成部队（新招募单位当回合不可行动）
-            gameState.playerGold[currentPlayerKey] -= config.cost;
-            new Unit(type, gameState.currentCamp, selectedCityTile, true);
-            logMessage(`${gameState.currentCamp.name}成功招募1${config.name}兵，金币-${config.cost}`);
-            gameState.selectedCityTile = null; // 招募后取消选中城市
-
-            gameState.goldTexts.push({
-            x: selectedCityTile.x,
-            y: selectedCityTile.y,
-            value: config.cost,
-            prefix: '-',
-            color: '#cccccc', // 浅灰色
-            timeLeft: 1000, // 持续1秒
-            lastUpdate: Date.now()
-            });
-        }
-
-        // 9.胜利条件检测函数
-        function checkVictory() {
-            if (gameState.gameOver) return;
-
-            const player1Districts = new Set();
-            const player2Districts = new Set();
-  
-            gameState.tiles.forEach(tile => {
-                if (tile.camp === CAMP.player1) {
-                player1Districts.add(tile.districtId);
-                } else if (tile.camp === CAMP.player2) {
-                player2Districts.add(tile.districtId);
-                }
-            });
-
-            // 胜利条件：一方行政区数为0
-            if (player1Districts.size === 0) {
-                gameState.gameOver = true;
-                gameState.victoryCamp = CAMP.player2; // 蓝军胜利
-                triggerVictoryEffect(); // 触发全屏胜利效果
-                logMessage('蓝军胜利！红军已无可控行政区');
-            } else if (player2Districts.size === 0) {
-                gameState.gameOver = true;
-                gameState.victoryCamp = CAMP.player1; // 红军胜利
-                triggerVictoryEffect(); // 触发全屏胜利效果
-                logMessage('红军胜利！蓝军已无可控行政区');
-            }
-            }
-
-        // 10. 全屏胜利效果触发函数
-        function triggerVictoryEffect() {
-            const overlay = document.getElementById('victoryOverlay');
-            const gameOverText = document.getElementById('gameOverText');
-            const victoryCampText = document.getElementById('victoryCampText');
-
-            // 1. 禁用整个页面的点击（包括canvas、按钮等所有元素）
-            document.body.style.pointerEvents = 'none';
-  
-            // 2. 设置遮罩背景色为胜利阵营色（半透明）
-            const victoryRgb = hexToRgb(gameState.victoryCamp.color);
-            overlay.style.backgroundColor = `rgba(${victoryRgb.r}, ${victoryRgb.g}, ${victoryRgb.b}, 0.8)`;
-  
-            // 3. 设置文字内容
-            gameOverText.textContent = '游戏结束';
-            victoryCampText.textContent = `${gameState.victoryCamp.name}胜利！`;
-  
-            // 4. 触发渐变显示（opacity从0→1，2秒完成）
-            overlay.style.opacity = 1;
-            overlay.style.pointerEvents = 'auto'; // 遮罩层拦截点击
-        }
-
-        // 11. 攻占城市核心函数
-        function updateDistrictColor(cityTile, camp) {
-            // 触发条件1：必须是城市地块
-            if (!cityTile.isCity) return;
-            // 触发条件2：该城市所属行政区当前颜色不是己方阵营色
-            if (cityTile.camp.color === camp.color) return;
-
-            // 记录原阵营（用于掠夺逻辑）
-            const oldCamp = cityTile.camp;
-            // 更新城市自身的阵营
-            cityTile.setCampWithFade(camp);
-
-            // ===== 中立城市占领奖励机制  =====
-            // 判断是否是「初始中立城市」且未领取过奖励
-            const isNeutralCity = oldCamp === CAMP.neutral;
-            const cityUniqueKey = `${cityTile.q}-${cityTile.r}`; // 城市唯一标识（坐标）
-            if (isNeutralCity && !gameState.capturedNeutralCities.has(cityUniqueKey)) {
-                // 奖励15金币给占领方
-                const attackerGoldKey = camp === CAMP.player1 ? 'player1' : 'player2';
-                gameState.playerGold[attackerGoldKey] += 15;
-                // 标记该中立城市已领取奖励，避免重复触发
-                gameState.capturedNeutralCities.add(cityUniqueKey);
-            }
-            // 日志提示奖励信息
-            logMessage(`${camp.name}占领中立城市(${cityTile.q},${cityTile.r})，金币+15`);
-
-            // ===== 掠夺机制  =====
-            // 守城方（原城市控制方）
-            const defenderCamp = cityTile.camp;
-            // 区分玩家1/玩家2的金币键名
-            const defenderGoldKey = defenderCamp === CAMP.player1 ? 'player1' : 'player2';
-            const attackerGoldKey = camp === CAMP.player1 ? 'player1' : 'player2';
-            // 计算守城方原控制的城市总数
-            const defenderOriginalCityCount = gameState.tiles.filter(t => t.isCity && t.camp === defenderCamp).length;
-            if (defenderOriginalCityCount > 0) {
-                // 掠夺公式：(1/守城方原城市数)*50%*守城方当前金币，取整
-                const plunderGold = Math.floor((1 / defenderOriginalCityCount) * 0.5 * gameState.playerGold[defenderGoldKey]);
-                if (plunderGold > 0) {
-                    // 攻城方增加金币，守城方减少金币
-                    gameState.playerGold[attackerGoldKey] += plunderGold;
-                    gameState.playerGold[defenderGoldKey] -= plunderGold;
-                    // 日志提示掠夺信息
-                    logMessage(`${camp.name}攻占了城市(${cityTile.q},${cityTile.r})，掠夺${defenderCamp.name}${plunderGold}金币`);
-
-                    gameState.goldTexts.push({
-                    x: cityTile.x,
-                    y: cityTile.y,
-                    value: plunderGold,
-                    prefix: '+',
-                    color: '#ffff00', // 黄色
-                    timeLeft: 1000, // 持续1秒
-                    lastUpdate: Date.now()
-                    });
-                }}
-
-            // ===== 更新整个行政区的地块阵营/颜色 =====
-            const districtId = cityTile.districtId;
-            gameState.tiles.forEach(tile => {
-                if (tile.districtId === districtId) {
-                    tile.setCampWithFade(camp);; // 更新该行政区所有地块的阵营
-                }
-            });
-
-            logMessage(`${camp.name}占领了${cityTile.q},${cityTile.r}城市，所属行政区已归属${camp.name}`);
-            renderGame();
-        }
-
-        // 12. 初始化输入事件
-        function initInput() {
-            canvas.addEventListener('click', (e) => {
-                const rect = canvas.getBoundingClientRect();
-                const clickX = e.clientX - rect.left;
-                const clickY = e.clientY - rect.top;
-
-                // 找到点击的地块
-                const clickedTile = gameState.tiles.find(tile => {
-                    // 六边形点击检测
-                    const dx = clickX - tile.x;
-                    const dy = clickY - tile.y;
-                    const distance = Math.sqrt(dx*dx + dy*dy);
-                    return distance <= HEX_SIZE;
-                });
-
-                // 判断是否点击己方空城市地块（未选中部队时）
-                if (clickedTile.isCity && clickedTile.camp === gameState.currentCamp && !clickedTile.unit && !gameState.selectedUnit) {
-                    // 选中该城市地块,同时清空部队选中状态
-                    gameState.selectedUnit = null;
-                    gameState.movableTiles = [];
-                    gameState.attackableTiles = [];
-                    gameState.selectedCityTile = clickedTile;
-                    return;
-                }
-
-                // 点击有己方可行动部队的地块 → 选中部队，显示可移动/攻击范围
-                else if (clickedTile.unit && clickedTile.unit.camp === gameState.currentCamp && clickedTile.unit.canAct && !clickedTile.unit.isNewRecruit) {
-                    gameState.selectedCityTile = null; // 取消选中城市
-                    gameState.selectedUnit = clickedTile.unit;
-                    // 计算可移动范围
-                    gameState.movableTiles = getMovableTiles(clickedTile.unit);
-                    // 计算可攻击范围
-                    gameState.attackableTiles = getAttackableTiles(clickedTile.unit);
-                } 
-                // 选中部队后，点击可移动地块 → 移动部队
-                else if (gameState.selectedUnit && gameState.movableTiles.includes(clickedTile) && !clickedTile.unit) {
-                    moveUnit(gameState.selectedUnit, clickedTile);
-                }
-                // 选中部队后，点击可攻击地块 → 攻击敌人
-                else if (gameState.selectedUnit && gameState.attackableTiles.includes(clickedTile) && clickedTile.unit) {
-                    attackUnit(gameState.selectedUnit, clickedTile.unit);
-                    clearselection();
-                }
-                else {
-                    // 除此之外：清空所有选中状态
-                    clearselection();
-                    renderGame();
-                    return;
-                }
-
-            renderGame(); // 实时刷新
-            
-            });
-
-            canvas.addEventListener('mousemove', (e) => {
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-
-                // 找到鼠标悬停的地块
-                gameState.hoveredTile = gameState.tiles.find(tile => {
-                    const dx = mouseX - tile.x;
-                    const dy = mouseY - tile.y;
-                    const distance = Math.sqrt(dx*dx + dy*dy);
-                    return distance <= HEX_SIZE;
-                });
-            });
-
-            // 绑定按钮事件
-            document.getElementById('endTurnBtn').addEventListener('click', endTurn);
-            document.getElementById('recruitInfantry').addEventListener('click', () => recruitUnit('infantry'));
-            document.getElementById('recruitCavalry').addEventListener('click', () => recruitUnit('cavalry'));
-            document.getElementById('recruitArcher').addEventListener('click', () => recruitUnit('archer'));
-        }
-
-        // 13. 计算可移动地块函数
-        function getMovableTiles(unit) {
-            const speed = unit.config.speed;
-            const startTile = unit.tile;
-            // 返回周围speed格内的空地块
-            return gameState.tiles.filter(tile => {
-                // 计算六边形距离（轴向坐标距离公式）
-                const distance = (Math.abs(tile.q - startTile.q) + Math.abs(tile.r - startTile.r) + Math.abs(tile.s - startTile.s)) / 2;
-                return distance <= speed && !tile.unit;
-            });
-        }
-
-        // 14. 计算可攻击地块函数
-        function getAttackableTiles(unit) {
-            const range = unit.config.range;
-            const startTile = unit.tile;
-            // 返回攻击范围内的敌方部队地块
-            return gameState.tiles.filter(tile => {
-                const distance = (Math.abs(tile.q - startTile.q) + Math.abs(tile.r - startTile.r) + Math.abs(tile.s - startTile.s)) / 2;
-                return distance <= range && tile.unit && tile.unit.camp !== unit.camp;
-            });
-        }
-
-        // 15. 移动部队
-        function moveUnit(unit, targetTile) {
-            // 新招募单位无法移动
-            if (unit.isNewRecruit || !unit.canAct || !gameState.movableTiles.includes(targetTile) || targetTile.unit) {
-                logMessage('错误：该部队本回合无法移动');
-                return;
-            }
-            
-            // 清空原地块的部队
-            unit.tile.unit = null;
-            // 移动到新地块
-            unit.tile = targetTile;
-            targetTile.unit = unit;
-            unit.movedThisTurn = true; // 标记本回合移动过
-
-            // 移动后清空可移动地块列表
-            gameState.movableTiles = [];
-            
-            // 移动后不立即锁定行动，先检查是否有可攻击目标
-            const newAttackableTiles = getAttackableTiles(unit);
-            if (newAttackableTiles.length > 0) {
-                // 有可攻击目标，保留行动能力，更新可攻击范围
-                gameState.attackableTiles = newAttackableTiles;
-            } else {
-                // 无攻击目标，锁定行动并取消选中，提升体验
-                unit.canAct = false;
-                clearselection();
-            }
-
-            // 移动到城市地块且非己方阵营 → 触发占领
-            if (targetTile.isCity && targetTile.camp !== unit.camp) {
-                updateDistrictColor(targetTile, unit.camp);
-            }
-        }
-
-        // 16.攻击函数
-        function attackUnit(attackerUnit, targetUnit) {
-            if (!attackerUnit.canAct || !gameState.attackableTiles.includes(targetUnit.tile)) {
-                logMessage('无法攻击：超出范围或部队已行动');
-                return;
-            }
-
-            // 攻击者造成伤害
-            const attackResult = attackerUnit.calculateDamage(targetUnit);
-            const isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
-            logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（暴击）' : ''}`);
-
-            // 目标未死亡则判定反击机制
-            if (!isTargetDead) {
-                const counterResult = targetUnit.calculateCounterDamage(attackerUnit);
-                if (counterResult.dmg > 0) attackerUnit.takeDamage(counterResult.dmg, targetUnit);
-            } else {
-                const targetTile = targetUnit.tile;
-                if (attackerUnit.type !== 'archer') {
-                    attackerUnit.tile.unit = null;
-                    attackerUnit.tile = targetTile;
-                    targetTile.unit = attackerUnit;
-                    attackerUnit.canAct = false;
-                    gameState.attackableTiles = [];
-                } // 步/骑兵消灭敌方部队后移动到目标地块且无法再次行动
-                if (targetTile.isCity) updateDistrictColor(targetTile, attackerUnit.camp);
-            }
-            attackerUnit.canAct = false; // 攻击后标记为已行动
-            gameState.attackableTiles = [];
-        }
-
-        // 17. 处理投降逻辑
-        function handleSurrender() {
-            if (gameState.gameOver) return; // 游戏已结束则不响应
-
-            // 1. 判定投降方和胜利方
-            const surrenderCamp = gameState.currentCamp; // 当前回合阵营=投降方
-            const victoryCamp = surrenderCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1; // 另一方=胜利方
-
-            // 2. 记录投降日志
-            logMessage(`${surrenderCamp.name}选择投降，${victoryCamp.name}获得最终胜利！`);
-
-            // 3. 更新游戏状态
-            gameState.gameOver = true;
-            gameState.victoryCamp = victoryCamp;
-
-            // 4. 显示胜利弹窗
-            triggerVictoryEffect();
-
-            // 5. 更新按钮样式（禁用所有按钮）
-            updateButtonColors();
-        }
-
-        // 18. 清空选中状态函数
-        function clearselection() {
-            gameState.selectedUnit = null;
-            gameState.selectedCityTile = null;
-            gameState.movableTiles = [];
-            gameState.attackableTiles = [];
-            renderGame();
-        }
-
-        // 游戏初始化
-        initMap();
-        initInput();
-        renderGame();
-        
-        // 循环渲染
-        setInterval(renderGame, 30);
-
-    </script>
+</div>
+
+<!-- 作弊控制台 -->
+<div id="cheatConsole" style="display:none">
+    <input type="text" id="cheatInput" placeholder="输入命令（/help 查看列表）" autocomplete="off" spellcheck="false">
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script type="module" src="js/main.js"></script>
 </body>
 </html>
