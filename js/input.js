@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP } from './config.js';
+import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H } from './config.js';
 import { gameState, clearselection, updateRecruitButtonStates, saveGame, loadGame } from './state.js';
 import { isMyTurn, isNetworkGame } from './network.js';
 import {
@@ -59,14 +59,12 @@ function showTooltipForTile(tile) {
         tooltipHpBar.style.display = '';
 
         tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${unit.config.attack}</span>`;
-        tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${unit.config.speed}</span>`;
+        tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${Math.round(unit.displaySpeed)}/${unit.config.speed}</span>`;
         tooltipRng.innerHTML = `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
         tooltipStats.style.display = '';
 
         const statusParts = [];
-        if (!unit.canAct) statusParts.push('已行动');
         if (unit.isNewRecruit) statusParts.push('新招募');
-        if (unit.movedThisTurn) statusParts.push('已移动');
         tooltipStatus.textContent = statusParts.join(' | ');
 
         const def = PASSIVE_DEFS[unit.type];
@@ -106,8 +104,8 @@ function showTooltipForTile(tile) {
             const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : '中立';
             terrainDesc = `由${ownerName}控制`;
         } else {
-            terrainDesc = `驻守部队防御+${Math.round(tc.defenseBonus * 100)}%`;
-            if (tc.stepCost > 1) terrainDesc += `，移动消耗${tc.stepCost}`;
+            terrainDesc = `防御+${Math.round(tc.defenseBonus * 100)}%`;
+            if (tc.moveDesc) terrainDesc += `，${tc.moveDesc}`;
         }
         const terrainLine = `<span style="color:#fff;">【${terrainName}】${terrainDesc}</span>`;
         if (unit) {
@@ -123,15 +121,19 @@ function showTooltipForTile(tile) {
     }
     tooltipEl.classList.add('visible');
 
-    // Position: avoid mouse cursor
+    // Position: avoid mouse cursor (convert logical coords to CSS pixels)
     const rect = canvas.getBoundingClientRect();
-    const toRight = _mouseX < rect.left + tile.x;
+    const sx = rect.width / LOGICAL_W;
+    const sy = rect.height / LOGICAL_H;
+    const cssX = rect.left + tile.x * sx;
+    const cssY = rect.top + tile.y * sy;
+    const toRight = _mouseX < cssX;
     let left = toRight
-        ? rect.left + tile.x + HEX_SIZE + 12
-        : rect.left + tile.x - 210 - HEX_SIZE - 8;
+        ? cssX + HEX_SIZE * sx + 12
+        : cssX - 210 - HEX_SIZE * sx - 8;
     if (left < 0) left = 8;
     if (left + 210 > window.innerWidth) left = window.innerWidth - 210 - 8;
-    let top = rect.top + tile.y - 40;
+    let top = cssY - 40;
     if (top < 0) top = 8;
     if (top + 200 > window.innerHeight) top = window.innerHeight - 200;
     tooltipEl.style.left = left + 'px';
@@ -160,12 +162,18 @@ function getTileAtPixel(px, py) {
 
 // ==== 鼠标输入 =====================
 export function initInput() {
+    function toLogical(e) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: (e.clientX - rect.left) * (LOGICAL_W / rect.width),
+            y: (e.clientY - rect.top) * (LOGICAL_H / rect.height)
+        };
+    }
+
     canvas.addEventListener('click', (e) => {
         if (gameState.gameOver) return;
         if (!isMyTurn(gameState.currentCamp)) return;
-        const rect = canvas.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const clickY = e.clientY - rect.top;
+        const { x: clickX, y: clickY } = toLogical(e);
         _mouseX = e.clientX;
         _mouseY = e.clientY;
 
@@ -222,18 +230,20 @@ export function initInput() {
     canvas.addEventListener('mousemove', (e) => {
         _mouseX = e.clientX;
         _mouseY = e.clientY;
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+        const { x: mouseX, y: mouseY } = toLogical(e);
         gameState.hoveredTile = getTileAtPixel(mouseX, mouseY);
 
         // Reposition tooltip if visible
         if (tooltipEl.classList.contains('visible') && gameState.selectedTile) {
             const tile = gameState.selectedTile;
-            const toRight = _mouseX < rect.left + tile.x;
+            const rect2 = canvas.getBoundingClientRect();
+            const sx2 = rect2.width / LOGICAL_W;
+            const sy2 = rect2.height / LOGICAL_H;
+            const cssX2 = rect2.left + tile.x * sx2;
+            const toRight = _mouseX < cssX2;
             let left = toRight
-                ? rect.left + tile.x + HEX_SIZE + 12
-                : rect.left + tile.x - 210 - HEX_SIZE - 8;
+                ? cssX2 + HEX_SIZE * sx2 + 12
+                : cssX2 - 210 - HEX_SIZE * sx2 - 8;
             if (left < 0) left = 8;
             if (left + 210 > window.innerWidth) left = window.innerWidth - 210 - 8;
             tooltipEl.style.left = left + 'px';

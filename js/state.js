@@ -287,7 +287,8 @@ export function serializeState() {
             counterAttackCount: t.unit.counterAttackCount,
             isNewRecruit: t.unit.isNewRecruit,
             morale: t.unit.morale,
-            moraleBoostUntil: t.unit.moraleBoostUntil
+            moraleBoostUntil: t.unit.moraleBoostUntil,
+            remainingMP: t.unit.remainingMP
         } : null
     }));
 
@@ -344,6 +345,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit.counterAttackCount = td.unit.counterAttackCount;
             unit.morale = td.unit.morale || 'normal';
             unit.moraleBoostUntil = td.unit.moraleBoostUntil || 0;
+            unit.remainingMP = td.unit.remainingMP ?? unit.config.speed;
             const prev = oldDisplayHp.get(unit.id);
             if (prev && prev.hp === unit.hp) unit.displayHp = prev.displayHp;
             tile.unit = unit;

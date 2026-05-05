@@ -256,7 +256,7 @@ function drawRangeApertures(now) {
     const pulse = (Math.sin(now / 300) + 1) / 2;
     const startTile = gameState.selectedUnit.tile;
 
-    const moveTiles = !gameState.selectedUnit.movedThisTurn ? gameState.movableTiles : [];
+    const moveTiles = gameState.selectedUnit.remainingMP > 0 ? gameState.movableTiles : [];
     const atkTiles = gameState.attackableTiles;
 
     function getHexProgress(tile) {

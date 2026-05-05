@@ -24,6 +24,8 @@ export class Unit {
         this.morale = 'normal';
         this.moraleBoostUntil = 0;
         this.godMode = false;
+        this.remainingMP = this.config.speed;
+        this.displaySpeed = this.config.speed;
         // 移动动画状态（瞬时，不参与序列化）
         this.movePath = null;       // [{x, y}, ...] waypoints
         this.movePathIdx = 0;
@@ -178,8 +180,10 @@ export class Unit {
         // Smooth interpolation toward actual HP
         const lerpFactor = 0.18;
         this.displayHp += (this.hp - this.displayHp) * lerpFactor;
-        // Snap when very close to avoid floating-point drift
         if (Math.abs(this.hp - this.displayHp) < 0.3) this.displayHp = this.hp;
+
+        this.displaySpeed += (this.remainingMP - this.displaySpeed) * lerpFactor;
+        if (Math.abs(this.remainingMP - this.displaySpeed) < 0.3) this.displaySpeed = this.remainingMP;
 
         ctx.save();
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
