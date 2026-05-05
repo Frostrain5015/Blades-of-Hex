@@ -29,9 +29,13 @@
 
 ## 服务器部署
 
+双击 `start.bat` 即可一键安装依赖并启动服务器。
+
+或手动执行：
+
 ```bash
 npm install
-node server.js
+npm start
 ```
 
 - HTTP 页面端口：`3000`
