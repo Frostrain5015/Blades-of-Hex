@@ -1,5 +1,5 @@
-import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE } from './config.js';
-import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify } from './state.js';
+import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, COMMANDER_CONFIG } from './config.js';
+import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, getCommanderForCamp } from './state.js';
 import { isNetworkGame, sendAction } from './network.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
@@ -8,7 +8,7 @@ import {
     triggerAttackFlash, triggerHealFlash, triggerRecruitFlash, triggerScreenShake,
     spawnSlashMarks, spawnMeleeSlash,
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
-    spawnMoraleEffect
+    spawnMoraleEffect, spawnCommanderSkillEffect
 } from './effects.js';
 import { playSound } from './audio.js';
 
@@ -21,6 +21,12 @@ function broadcastAction(actionType, effectData = null) {
 
 // ===== 二次确认弹窗 =====================
 let _confirmActive = false;
+let _cityCapturedInAttack = false;
+let _moraleFxUnitId = null;
+let _cmdSkillFxX = null, _cmdSkillFxY = null;
+let _attackDmg = 0, _attackIsCrit = false;
+let _counterDmg = 0, _counterX = 0, _counterY = 0;
+let _healAmtRemote = 0, _healX = 0, _healY = 0;
 
 function showConfirm(message) {
     if (_confirmActive) return Promise.resolve(false);
@@ -299,7 +305,7 @@ function _updateWeather() {
 async function _doEndTurnPhase() {
     const camp = gameState.currentCamp;
 
-    // Unit reset + infantry city heal
+    // Unit reset + infantry city heal + 将领回合开始效果
     gameState.tiles.forEach(tile => {
         if (tile.unit) {
             tile.unit.canAct = true;
@@ -307,8 +313,15 @@ async function _doEndTurnPhase() {
             tile.unit.moveDistance = 0;
             tile.unit.counterAttackCount = 0;
             tile.unit.remainingMP = tile.unit.config.speed;
+            // SPD bonus re-apply from commander
+            if (tile.unit.commander) {
+                const cmdCfg = COMMANDER_CONFIG[tile.unit.commander];
+                if (cmdCfg && cmdCfg.spdBonus) tile.unit.remainingMP += cmdCfg.spdBonus;
+            }
             tile.unit.isNewRecruit = false;
             tile.unit._flankedApplied = false;
+            // 百夫长标记重置
+            tile.unit._centurionTriggered = false;
 
             if (tile.unit.type === 'infantry' && tile.isCity && tile.unit.camp === camp) {
                 const healPct = (gameState.weather === 'rain') ? 0.20 : 0.10;
@@ -316,6 +329,17 @@ async function _doEndTurnPhase() {
                 const actualHeal = tile.unit.heal(healAmount);
                 if (actualHeal > 0) {
                     logMessage(`${tile.unit.camp.name}的步兵驻守城市回复${Math.round(actualHeal)}生命值`);
+                }
+            }
+
+            // 铁卫【守护】：每回合开始时回复40%已损失生命值
+            if (tile.unit.commander === 'ironGuard' && tile.unit.camp === camp && tile.unit.hp < tile.unit.maxHp) {
+                const lostHp = tile.unit.maxHp - tile.unit.hp;
+                const healAmt = Math.round(lostHp * 0.4);
+                const actualHeal = tile.unit.heal(healAmt);
+                if (actualHeal > 0) {
+                    spawnCommanderSkillEffect(tile.x, tile.y);
+                    logMessage(`铁卫【守护】回复${Math.round(actualHeal)}生命值`);
                 }
             }
         }
@@ -327,6 +351,11 @@ async function _doEndTurnPhase() {
     const cityCount = cities.length;
     const income = camp === CAMP.neutral ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
     gameState.playerGold[key] += income;
+    // 尚书【屯田】：每回合金币+10
+    if (getCommanderForCamp(camp) === 'minister' && camp !== CAMP.neutral) {
+        gameState.playerGold[key] += 10;
+        logMessage(`尚书【屯田】产出10金币`);
+    }
     if (income > 0) {
         logMessage(`${camp.name}回合结束，城市产出共计${income}金币`);
         cities.forEach((cityTile, i) => {
@@ -432,24 +461,29 @@ export function recruitUnit(type) {
         notify('该地块不是城市，无法招募', 'error');
         return;
     }
-    if (gameState.playerGold[currentPlayerKey] < config.cost) {
+    let effectiveCost = config.cost;
+    // 尚书【屯田】：招募费用−20%
+    if (getCommanderForCamp(gameState.currentCamp) === 'minister') {
+        effectiveCost = Math.floor(config.cost * 0.8);
+    }
+    if (gameState.playerGold[currentPlayerKey] < effectiveCost) {
         notify('金币不足', 'error');
         return;
     }
 
     pushUndo();
-    gameState.playerGold[currentPlayerKey] -= config.cost;
+    gameState.playerGold[currentPlayerKey] -= effectiveCost;
     new Unit(type, gameState.currentCamp, selectedCityTile, true);
     playSound('recruit');
     triggerRecruitFlash(selectedCityTile.x, selectedCityTile.y);
     spawnRecruitEffect(selectedCityTile.x, selectedCityTile.y);
     notify(`招募成功`);
-    logMessage(`${gameState.currentCamp.name}成功招募${config.name}兵，金币-${config.cost}`);
+    logMessage(`${gameState.currentCamp.name}成功招募${config.name}兵，金币-${effectiveCost}`);
     gameState.selectedCityTile = null;
 
     gameState.goldTexts.push({
         x: selectedCityTile.x, y: selectedCityTile.y,
-        value: config.cost, prefix: '-', color: '#cccccc',
+        value: effectiveCost, prefix: '-', color: '#cccccc',
         timeLeft: 1000, lastUpdate: Date.now()
     });
     spawnGoldParticles(selectedCityTile.x, selectedCityTile.y);
@@ -458,6 +492,21 @@ export function recruitUnit(type) {
 }
 
 // ===== 移动范围计算 =====================
+
+// Check if a tile is in 停滞者缚足 zone (staller + adjacent 6)
+function _isInStallerZone(tile, friendlyCamp) {
+    // Check staller on tile itself
+    if (tile.unit && tile.unit.commander === 'staller' && tile.unit.camp !== friendlyCamp) return true;
+    // Check adjacent tiles for enemy staller
+    const map = gameState.tileMap;
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+        const neighbor = map.get(`${tile.q + dq},${tile.r + dr}`);
+        if (neighbor && neighbor.unit && neighbor.unit.commander === 'staller' && neighbor.unit.camp !== friendlyCamp) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // Check if a tile is in enemy Zone of Control (adjacent to hostile unit)
 function _isInEnemyZoC(tile, friendlyCamp) {
@@ -498,6 +547,8 @@ export function getMovableTiles(unit) {
 
             let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
             if (gameState.weather === 'rain' && unit.type === 'cavalry') stepCost += 1;
+            // 停滞者【缚足】：自身及相邻6格敌军移动消耗+3
+            if (_isInStallerZone(neighbor, friendlyCamp)) stepCost += 3;
             if (curRem < 1) continue;
             let newRem = curRem >= stepCost ? curRem - stepCost : 0;
 
@@ -601,6 +652,7 @@ export function attackUnit(attackerUnit, targetUnit) {
 
     pushUndo();
     const attackResult = attackerUnit.calculateDamage(targetUnit);
+    _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
     const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
     playSound(attackResult.isCrit ? 'crit' : 'attack');
@@ -615,9 +667,43 @@ export function attackUnit(attackerUnit, targetUnit) {
     const isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
     logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（暴击）' : ''}`);
 
+    // 吸血鬼【嗜血】：攻击造成伤害时回复伤害值20%生命值
+    if (attackerUnit.commander === 'vampire' && attackResult.dmg > 0) {
+        const healAmt = Math.round(attackResult.dmg * 0.2);
+        const actualHeal = attackerUnit.heal(healAmt);
+        if (actualHeal > 0) {
+            spawnCommanderSkillEffect(attackerUnit.tile.x, attackerUnit.tile.y);
+            _cmdSkillFxX = attackerUnit.tile.x; _cmdSkillFxY = attackerUnit.tile.y;
+            _healAmtRemote = actualHeal; _healX = attackerUnit.tile.x; _healY = attackerUnit.tile.y;
+        }
+    }
+
     if (!isTargetDead) {
         const counterResult = targetUnit.calculateCounterDamage(attackerUnit);
-        if (counterResult.dmg > 0) attackerUnit.takeDamage(counterResult.dmg, targetUnit);
+        _counterDmg = counterResult.dmg;
+        _counterX = attackerUnit.tile.x; _counterY = attackerUnit.tile.y;
+        if (counterResult.dmg > 0) {
+            attackerUnit.takeDamage(counterResult.dmg, targetUnit);
+            // 吸血鬼【嗜血】：反击造成伤害时同样触发
+            if (targetUnit.commander === 'vampire') {
+                const healAmt = Math.round(counterResult.dmg * 0.2);
+                const actualHeal = targetUnit.heal(healAmt);
+                if (actualHeal > 0) spawnCommanderSkillEffect(targetUnit.tile.x, targetUnit.tile.y);
+            }
+        }
+
+        // 谋士【攻心】：攻击时50%概率使对方士气下降1级
+        if (attackerUnit.commander === 'advisor' && targetUnit.hp > 0 && targetUnit.morale > 1) {
+            if (Math.random() < 0.5) {
+                targetUnit.morale = Math.max(1, targetUnit.morale - 1);
+                spawnMoraleEffect(targetUnit);
+                spawnCommanderSkillEffect(targetUnit.tile.x, targetUnit.tile.y);
+                _moraleFxUnitId = targetUnit.id;
+                _cmdSkillFxX = targetUnit.tile.x; _cmdSkillFxY = targetUnit.tile.y;
+                logMessage(`谋士【攻心】触发：${targetUnit.camp.name}${targetUnit.config.name}兵士气下降`);
+            }
+        }
+        attackerUnit.canAct = false;
     } else {
         const targetTile = targetUnit.tile;
         if (attackerUnit.type !== 'archer') {
@@ -628,24 +714,48 @@ export function attackUnit(attackerUnit, targetUnit) {
             attackerUnit.moveDistance++;
             attackerUnit.startMovePath([{ x: fromX, y: fromY }, { x: toX, y: toY }]);
             // Only occupy city when actually moving in (melee)
-            if (targetTile.isCity) updateDistrictColor(targetTile, attackerUnit.camp);
+            if (targetTile.isCity) { updateDistrictColor(targetTile, attackerUnit.camp); _cityCapturedInAttack = true; }
         }
         if (attackerUnit.morale !== 0) {
             attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
             if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 4;
             spawnMoraleEffect(attackerUnit);
+            _moraleFxUnitId = attackerUnit.id;
+        }
+
+        // 百夫长【乘胜追击】：消灭敌人时MP+3且可再攻击，每回合1次
+        if (attackerUnit.commander === 'centurion' && !attackerUnit._centurionTriggered) {
+            attackerUnit.canAct = true;
+            attackerUnit.remainingMP = Math.min(attackerUnit.config.speed, attackerUnit.remainingMP + 3);
+            attackerUnit._centurionTriggered = true;
+            spawnCommanderSkillEffect(attackerUnit.tile.x, attackerUnit.tile.y);
+            _cmdSkillFxX = attackerUnit.tile.x; _cmdSkillFxY = attackerUnit.tile.y;
+            logMessage(`百夫长【乘胜追击】触发：${attackerUnit.camp.name}${attackerUnit.config.name}兵 MP+3，可再行动`);
+        } else {
+            attackerUnit.canAct = false;
         }
     }
 
-    attackerUnit.canAct = false;
     gameState.attackableTiles = [];
     applyFlankingMorale();
     broadcastAction('attack', {
         x: toX, y: toY,
         fromX, fromY,
         isCrit: attackResult.isCrit,
-        killed: isTargetDead
+        killed: isTargetDead,
+        cityCaptured: _cityCapturedInAttack || false,
+        moraleFxUnitId: _moraleFxUnitId || null,
+        cmdSkillFxX: _cmdSkillFxX || null,
+        cmdSkillFxY: _cmdSkillFxY || null,
+        attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
+        counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
+        healAmt: _healAmtRemote, healX: _healX, healY: _healY
     });
+    _cityCapturedInAttack = false;
+    _moraleFxUnitId = null;
+    _cmdSkillFxX = null; _cmdSkillFxY = null;
+    _attackDmg = 0; _attackIsCrit = false;
+    _counterDmg = 0; _healAmtRemote = 0;
 }
 
 // ===== 城市占领 =====================

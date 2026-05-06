@@ -1,11 +1,13 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP } from './config.js';
 import { gameState } from './state.js';
+import { isNetworkGame, getMyRole } from './network.js';
 import { drawAllBorders } from './HexTile.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
     VisualParticle, moraleEffects, drawMeleeSlashes,
-    rainParticles, splashParticles, fogBlobs, windStreaks, spawnWeatherParticles
+    rainParticles, splashParticles, fogBlobs, windStreaks, spawnWeatherParticles,
+    commanderSkillEffects
 } from './effects.js';
 
 let lastTime = Date.now();
@@ -44,6 +46,8 @@ export function renderGame() {
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     // Overlays (hover/selection)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
+    // 缚足色层（停滞者）—— 在单位之前绘制，避免单位变暗
+    drawStallerZone();
     // Units
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
     // Flag finials + cloth (after units, overlays the badge)
@@ -52,11 +56,17 @@ export function renderGame() {
     // 士气变化动画
     drawMoraleEffects(now);
 
+    // 将领技能触发特效
+    drawCommanderSkillEffects(now);
+
     // 士气状态持续标识（▲/▼）
     drawMoraleIndicators();
 
     // 范围光圈
     drawRangeApertures(now);
+
+    // 铁卫灵光
+    drawIronGuardAura(now);
 
     // 文字特效
     drawDamageTexts(now);
@@ -77,6 +87,35 @@ export function renderGame() {
         vignetteGrad.addColorStop(1, 'rgba(0,0,0,0.4)');
         ctx.fillStyle = vignetteGrad;
         ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
+    }
+
+    // 部署阶段横幅 / 部署完成后一次性UI重置
+    if (gameState.commanderPhase === 'deployment') {
+        const alpha = 0.55 + Math.sin(now / 600) * 0.08;
+        // 联机模式以玩家自身阵营为准
+        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+        const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
+        ctx.save();
+        // 逐格暗色蒙层：跳过己方可部署单位（已部署则全屏暗色）
+        for (const tile of gameState.tiles) {
+            const u = tile.unit;
+            if (!iAmDeployed && u && u.camp === myCamp) continue;
+            hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+            ctx.fillStyle = 'rgba(0,0,0,0.35)';
+            ctx.fill();
+        }
+        // 横幅文字
+        ctx.fillStyle = `rgba(255,215,0,${alpha})`;
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 8;
+        if (iAmDeployed) {
+            ctx.fillText('⏳ 已部署，等待对方...', LOGICAL_W / 2, 36);
+        } else {
+            ctx.fillText('⚑ 部署阶段 — 点击己方单位挂载将领', LOGICAL_W / 2, 36);
+        }
+        ctx.restore();
     }
 
     // 回合切换闪光
@@ -337,10 +376,25 @@ function drawSelectionHighlights() {
         cx = pos.x; cy = pos.y;
     }
 
-    hexPath(ctx, cx, cy, HEX_SIZE);
-    ctx.fillStyle = 'rgba(255,215,0,0.15)';
-    ctx.fill();
-    drawHexagonOutline(ctx, cx, cy, HEX_SIZE + 2, 'rgba(200,160,20,0.55)', 2);
+    const isDeploy = gameState.commanderPhase === 'deployment';
+
+    if (isDeploy) {
+        // 部署阶段预选中：仅当前阵营可见辉光脉冲
+        const selUnit = gameState.selectedUnit;
+        if (!selUnit || selUnit.camp !== gameState.currentCamp) return;
+        const pulse = (Math.sin(frameInfo.now / 350) + 1) / 2;
+        const glowAlpha = 0.25 + pulse * 0.3;
+        hexPath(ctx, cx, cy, HEX_SIZE);
+        ctx.fillStyle = `rgba(255,215,0,${glowAlpha})`;
+        ctx.fill();
+        drawHexagonOutline(ctx, cx, cy, HEX_SIZE + 1, `rgba(255,215,0,${0.5 + pulse * 0.4})`, 2.5);
+        drawHexagonOutline(ctx, cx, cy, HEX_SIZE + 5, `rgba(255,255,200,${0.15 + pulse * 0.2})`, 2);
+    } else {
+        hexPath(ctx, cx, cy, HEX_SIZE);
+        ctx.fillStyle = 'rgba(255,215,0,0.15)';
+        ctx.fill();
+        drawHexagonOutline(ctx, cx, cy, HEX_SIZE + 2, 'rgba(200,160,20,0.55)', 2);
+    }
 }
 
 // ===== 克制/被克提示文字 =====================
@@ -356,18 +410,14 @@ function drawCounterText() {
         let text = '';
         let color = '';
         let icon = '';
-        let desc = '';
-
         if (counterCoeff > 1) {
             icon = '⬆';
             text = '克制';
             color = '#44ff44';
-            desc = '造成伤害+25%';
         } else if (counterCoeff < 1) {
             icon = '⬇';
             text = '被克';
             color = '#ff4444';
-            desc = '造成伤害−25%';
         } else {
             return;
         }
@@ -396,41 +446,194 @@ function drawCounterText() {
         ctx.textBaseline = 'middle';
         ctx.fillText(labelText, tile.x, labelY + labelH / 2);
         ctx.shadowBlur = 0;
-
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.font = '10px Arial';
-        ctx.textBaseline = 'top';
-        ctx.fillText(desc, tile.x, labelY + labelH + 2);
         ctx.restore();
     });
+}
+
+// ===== 将领技能触发特效（金五角星） =====================
+function drawCommanderSkillEffects(now) {
+    for (let i = commanderSkillEffects.length - 1; i >= 0; i--) {
+        const fx = commanderSkillEffects[i];
+        const elapsed = now - fx.startTime;
+        if (elapsed > fx.duration) { commanderSkillEffects.splice(i, 1); continue; }
+
+        const t = elapsed / fx.duration;
+        const isShield = fx.glyph === '🛡';
+
+        if (isShield) {
+            // 护盾：原地变大淡出，凸显抵挡感
+            const scale = 0.4 + t * 1.8;  // 0.4 → 2.2
+            const alpha = t < 0.3 ? 1 : Math.max(0, 1 - (t - 0.3) / 0.7);
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#e0e8ff';
+            ctx.font = `bold ${Math.round(32 * scale)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#aaccff';
+            ctx.shadowBlur = 18 + t * 10;
+            ctx.fillText('🛡', fx.x, fx.y);
+            ctx.restore();
+        } else {
+            const scale = 0.5 + t * 1.0; // 0.5 → 1.5
+            const alpha = Math.max(0, 1 - t); // 1 → 0
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#ffd700';
+            ctx.font = `bold ${Math.round(24 * scale)}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#ffd700';
+            ctx.shadowBlur = 16 + t * 12;
+            ctx.fillText(fx.glyph || '★', fx.x, fx.y - 10 * t);
+            ctx.restore();
+        }
+    }
+}
+
+// ===== 铁卫灵光（7格集群外边界） =====================
+function drawIronGuardAura(now) {
+    if (gameState.selectedUnit && gameState.selectedUnit.commander === 'ironGuard') return;
+
+    const pulse = (Math.sin(now / 400) + 1) / 2;
+    const alpha = 0.45 + pulse * 0.30;
+    const fillAlpha = 0.04 + pulse * 0.04;
+
+    for (const tile of gameState.tiles) {
+        const u = tile.unit;
+        if (!u || u.commander !== 'ironGuard' || u.hp <= 0) continue;
+        const isP1 = u.camp.name === '红军';
+        const clr = isP1 ? `rgba(255,80,80,${alpha})` : `rgba(80,80,255,${alpha})`;
+
+        // 收集自身+6邻格的所有六边形顶点，筛选外边界
+        const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+        const vertCount = new Map(); // key: "x,y" → count
+        for (const [dq, dr] of dirs) {
+            const ht = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+            if (!ht) continue;
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 180) * (60 * i - 30);
+                const vx = ht.x + HEX_SIZE * Math.cos(angle);
+                const vy = ht.y + HEX_SIZE * Math.sin(angle);
+                const vk = `${vx.toFixed(1)},${vy.toFixed(1)}`;
+                vertCount.set(vk, (vertCount.get(vk) || 0) + 1);
+            }
+        }
+        // 外边界顶点：出现1~2次（排除被中心+2邻格共享的内部点cnt=3）
+        const outer = [];
+        for (const [vk, cnt] of vertCount) {
+            if (cnt < 3) {
+                const [vx, vy] = vk.split(',').map(Number);
+                outer.push({ x: vx, y: vy });
+            }
+        }
+        if (outer.length < 6) continue;
+        // 按角度排序
+        const gx = tile.x, gy = tile.y;
+        outer.sort((a, b) => Math.atan2(a.y - gy, a.x - gx) - Math.atan2(b.y - gy, b.x - gx));
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(outer[0].x, outer[0].y);
+        for (let i = 1; i < outer.length; i++) ctx.lineTo(outer[i].x, outer[i].y);
+        ctx.closePath();
+        // 半透明填充
+        ctx.fillStyle = clr.replace(/[\d.]+\)$/, `${fillAlpha})`);
+        ctx.fill();
+        // 外发光宽描边
+        ctx.strokeStyle = clr;
+        ctx.lineWidth = 3.5;
+        ctx.shadowColor = clr;
+        ctx.shadowBlur = 14 + pulse * 6;
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+// ===== 缚足色层（停滞者） =====================
+function drawStallerZone() {
+    const affectedTiles = new Set();
+    const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+
+    for (const tile of gameState.tiles) {
+        const u = tile.unit;
+        if (!u || u.commander !== 'staller' || u.hp <= 0) continue;
+        // 跟随停滞者视觉位置（移动动画期间平滑过渡）
+        const vp = u.getVisualPos();
+        let centerTile = tile;
+        let minDist = Infinity;
+        for (const t of gameState.tiles) {
+            const dx = t.x - vp.x, dy = t.y - vp.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < minDist) { minDist = d2; centerTile = t; }
+        }
+        for (const [dq, dr] of dirs) {
+            const neighbor = gameState.tileMap.get(`${centerTile.q + dq},${centerTile.r + dr}`);
+            if (neighbor) affectedTiles.add(neighbor);
+        }
+    }
+
+    for (const tile of affectedTiles) {
+        ctx.save();
+        hexPath(ctx, tile.x, tile.y, HEX_SIZE - 1);
+        ctx.fillStyle = 'rgba(139,90,43,0.25)';
+        ctx.fill();
+        ctx.restore();
+    }
 }
 
 // ===== 范围涟漪展开 =====================
 function drawRangeApertures(now) {
     if (gameState.aiActing) return;
-    if (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit) return;
 
-    const elapsed = now - gameState.selectionTime;
+    const deselecting = gameState.deselecting;
+    if (!deselecting && (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit)) return;
+
+    const pulse = (Math.sin(now / 300) + 1) / 2;
+    const ease = p => 1 + 2.70158 * Math.pow(p - 1, 3) + 1.70158 * Math.pow(p - 1, 2);
+
     const stepDelay = 70;
     const hexExpandDuration = 100;
-    const pulse = (Math.sin(now / 300) + 1) / 2;
-    const startTile = gameState.selectedUnit.tile;
+    const elapsed = now - gameState.selectionTime;
 
-    const moveTiles = gameState.selectedUnit.remainingMP > 0 ? gameState.movableTiles : [];
-    const atkTiles = gameState.attackableTiles;
+    let startTile, moveTiles, atkTiles;
+    let shrinkP = 0;
+
+    if (deselecting) {
+        const shrinkDuration = 350;
+        shrinkP = Math.min(1, (now - gameState.deselectionTime) / shrinkDuration);
+        if (shrinkP >= 1) {
+            gameState.deselecting = false;
+            gameState.deselectMoveTiles = [];
+            gameState.deselectAtkTiles = [];
+            gameState.deselectOrigin = null;
+            return;
+        }
+        startTile = gameState.deselectOrigin;
+        moveTiles = gameState.deselectMoveTiles;
+        atkTiles = gameState.deselectAtkTiles;
+    } else {
+        startTile = gameState.selectedUnit.tile;
+        moveTiles = gameState.selectedUnit.remainingMP > 0 ? gameState.movableTiles : [];
+        atkTiles = gameState.attackableTiles;
+    }
 
     function getHexProgress(tile) {
         const dist = (Math.abs(tile.q - startTile.q) + Math.abs(tile.r - startTile.r) + Math.abs(tile.s - startTile.s)) / 2;
+        if (deselecting) return 1;
         const delay = dist * stepDelay;
         const raw = (elapsed - delay) / hexExpandDuration;
         return Math.max(0, Math.min(raw, 1));
     }
 
     function drawExpandingHex(tile, r, g, b, baseAlpha) {
-        const p = getHexProgress(tile);
+        let p = getHexProgress(tile);
         if (p <= 0) return;
 
-        const ep = (1 + 2.70158 * Math.pow(p - 1, 3) + 1.70158 * Math.pow(p - 1, 2));
+        let ep = ease(p);
+        if (deselecting) ep *= (1 - ease(shrinkP));
+        if (ep <= 0.001) return;
+
         const currentSize = HEX_SIZE * ep;
         const fillA = baseAlpha * 0.25 * ep;
         const strokeA = baseAlpha * (0.3 + 0.7 * ep);
@@ -465,7 +668,8 @@ function drawRangeApertures(now) {
         if (tile.unit) {
             const p = getHexProgress(tile);
             if (p > 0) {
-                const ep = (1 + 2.70158 * Math.pow(p - 1, 3) + 1.70158 * Math.pow(p - 1, 2));
+                const ep = ease(p) * (deselecting ? (1 - ease(shrinkP)) : 1);
+                if (ep <= 0.001) continue;
                 const xAlpha = 0.2 + 0.4 * ep;
                 ctx.save();
                 ctx.strokeStyle = `rgba(255, 0, 0, ${xAlpha})`;
@@ -509,7 +713,9 @@ function drawDamageTexts(now) {
             ctx.shadowBlur = 14;
             ctx.fillText(`💥 -${Math.round(text.value)}！`, 0, 0);
         } else {
-            ctx.fillStyle = '#ff6666';
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#000';
+            ctx.shadowBlur = 5;
             ctx.fillText(`-${Math.round(text.value)}`, 0, 0);
         }
         ctx.restore();
