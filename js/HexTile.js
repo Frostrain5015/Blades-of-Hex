@@ -148,6 +148,24 @@ export class HexTile {
         ctx.lineWidth = 0.8;
         ctx.stroke();
 
+        // 将领星标（城内有将领单位时，跟随旗帜飘动+扭曲）
+        if (this.unit && this.unit.commander) {
+            ctx.save();
+            const starX = p.flagLeft + 9;
+            const starY = p.flagTop + 9 + wave * 0.5;
+            ctx.translate(starX, starY);
+            const waveTilt = Math.cos(time * 5 * windMult + this.id * 0.7) * 0.14;
+            ctx.rotate(waveTilt);
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#ffd700';
+            ctx.shadowBlur = 6;
+            ctx.fillText('★', 0, 0);
+            ctx.restore();
+        }
+
         ctx.restore();
     }
 

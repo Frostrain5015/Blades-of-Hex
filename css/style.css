@@ -517,17 +517,19 @@ body {
     border: 1px solid var(--gold-border);
     border-radius: var(--radius-md);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-    padding: 10px 13px;
+    padding: 8px 10px;
     min-height: 60px;
     display: flex;
     align-items: center;
+    overflow: hidden;
 }
 
 #statsContent {
     width: 100%;
-    font-size: 14px;
-    line-height: 1.8;
+    font-size: 13px;
+    line-height: 1.6;
     color: var(--text-body);
+    overflow: hidden;
 }
 
 #statsContent .stat-turn-label {
@@ -550,14 +552,16 @@ body {
 #statsContent .stat-row {
     display: flex;
     justify-content: space-between;
-    font-size: 14px;
+    font-size: 13px;
+    white-space: nowrap;
+    gap: 4px;
     font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
 }
 
 #statsContent .stat-p1 { color: #ff6666; font-weight: bold; }
 #statsContent .stat-p2 { color: #6688ff; font-weight: bold; }
 #statsContent .stat-n  { color: #999; font-weight: bold; }
-#statsContent .stat-val  { color: var(--text-body); }
+#statsContent .stat-val  { color: var(--text-body); white-space: nowrap; }
 
 /* =============================================================
    VICTORY OVERLAY
@@ -893,6 +897,103 @@ body {
 #factionRevealText.show {
     opacity: 1;
     transform: translateY(0);
+}
+
+/* =============================================================
+   COMMANDER SELECTION OVERLAY
+   ============================================================= */
+
+#commanderOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.82);
+    z-index: 21000;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+#commanderOverlay.show { display: flex; }
+
+.commander-panel {
+    background: rgba(14, 7, 3, 0.97);
+    border: 1px solid var(--gold-border);
+    border-radius: var(--radius-md);
+    padding: 24px 28px;
+    min-width: 500px;
+    max-width: 620px;
+    text-align: center;
+    box-shadow: 0 0 48px rgba(0, 0, 0, 0.85);
+}
+
+#commanderTitle {
+    color: #ffd700;
+    font-size: 20px;
+    margin: 0 0 16px 0;
+    letter-spacing: 2px;
+}
+
+.commander-cards {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.commander-card {
+    background: rgba(30, 20, 10, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    width: 150px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+    text-align: center;
+}
+.commander-card:hover {
+    border-color: rgba(255, 215, 0, 0.5);
+    background: rgba(40, 30, 10, 0.95);
+}
+.commander-card.selected {
+    border-color: #ffd700;
+    background: rgba(50, 40, 10, 0.95);
+    box-shadow: 0 0 16px rgba(255, 215, 0, 0.3);
+}
+.commander-card.confirmed {
+    border-color: #4CAF50;
+    background: rgba(10, 40, 20, 0.95);
+    box-shadow: 0 0 12px rgba(76, 175, 80, 0.35);
+    pointer-events: none;
+}
+
+.commander-card-name {
+    color: #ffd700;
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+.commander-card-skill {
+    color: #ff9944;
+    font-size: 13px;
+    margin-bottom: 6px;
+}
+.commander-card-bonus {
+    color: #aaa;
+    font-size: 11px;
+    margin-bottom: 6px;
+}
+.commander-card-desc {
+    color: #ccc;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.commander-status {
+    color: #888;
+    font-size: 13px;
+    margin-top: 8px;
 }
 
 @keyframes diceRoll {

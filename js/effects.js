@@ -1,4 +1,4 @@
-import { HEX_SIZE, hexToRgb, rgbToHex, settings } from './config.js';
+import { HEX_SIZE, hexToRgb, settings } from './config.js';
 
 // ===== 粒子系统 =====================
 export const particles = [];
@@ -341,6 +341,18 @@ export function drawConfetti(ctx2d) {
         ctx2d.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
         ctx2d.restore();
     }
+}
+
+// ===== 将领技能触发特效 =====================
+export const commanderSkillEffects = [];
+
+export function spawnCommanderSkillEffect(x, y, glyph = '★') {
+    commanderSkillEffects.push({
+        x, y,
+        glyph,
+        startTime: Date.now(),
+        duration: 600
+    });
 }
 
 // ===== 士气变化动画 =====================

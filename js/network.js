@@ -46,6 +46,7 @@ export function connectToServer(url) {
                 case 'opponentJoined':  _myRole = msg.role; _cb.onOpponentJoined?.(msg.role); break;
                 case 'opponentLeft':    _cb.onOpponentLeft?.(); break;
                 case 'rematchPending': _cb.onRematchPending?.(); break;
+                case 'commanderSync':  _cb.onCommanderSync?.(msg); break;
             }
         };
 
@@ -63,4 +64,20 @@ export function sendAction(actionType, serializedState, effectData = null) {
 export function sendMessage(msg) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
     _ws.send(JSON.stringify(msg));
+}
+
+export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase) {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+    _ws.send(JSON.stringify({
+        type: 'commanderSync',
+        commanderPoolP1: poolP1,
+        commanderPoolP2: poolP2,
+        commanderP1: cmdP1,
+        commanderP2: cmdP2,
+        commanderP1Confirmed: p1Confirmed,
+        commanderP2Confirmed: p2Confirmed,
+        commanderP1Deployed: p1Deployed,
+        commanderP2Deployed: p2Deployed,
+        commanderPhase: phase
+    }));
 }

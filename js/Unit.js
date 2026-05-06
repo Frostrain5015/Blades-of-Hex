@@ -1,6 +1,6 @@
-import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG } from './config.js';
+import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, COMMANDER_CONFIG, roundRectPath } from './config.js';
 import { nextId } from './state.js';
-import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects } from './effects.js';
+import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect } from './effects.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -9,13 +9,21 @@ export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setGameStateRef(ref) { _gameState = ref; }
 
 export class Unit {
-    constructor(type, camp, tile, isNewRecruit = false, idOverride = null) {
+    constructor(type, camp, tile, isNewRecruit = false, idOverride = null, commander = null) {
         this.id = idOverride ?? nextId();
         this.type = type;
         this.config = UNIT_CONFIG[type];
         this.camp = camp;
-        this.hp = this.config.hp;
-        this.maxHp = this.config.hp;
+        this.commander = commander;
+        this._centurionTriggered = false;
+        // 应用将领属性加成
+        const cmdCfg = commander ? COMMANDER_CONFIG[commander] : null;
+        const hpBonus = cmdCfg ? cmdCfg.hpBonus : 0;
+        const atkBonus = cmdCfg ? cmdCfg.atkBonus : 0;
+        const spdBonus = cmdCfg ? cmdCfg.spdBonus : 0;
+        this.hp = this.config.hp + hpBonus;
+        this.maxHp = this.config.hp + hpBonus;
+        this._atkBonus = atkBonus;
         this.canAct = true;
         this.tile = tile;
         this.movedThisTurn = false;
@@ -25,8 +33,8 @@ export class Unit {
         this.morale = 2;
         this.moraleBoostUntil = 0;
         this.godMode = false;
-        this.remainingMP = this.config.speed;
-        this.displaySpeed = this.config.speed;
+        this.remainingMP = this.config.speed + spdBonus;
+        this.displaySpeed = this.config.speed + spdBonus;
         // 移动动画状态（瞬时，不参与序列化）
         this.movePath = null;       // [{x, y}, ...] waypoints
         this.movePathStart = 0;
@@ -138,6 +146,22 @@ export class Unit {
             ctx.strokeStyle = 'rgba(255,255,255,0.2)';
             ctx.lineWidth = 0.6;
             ctx.stroke();
+
+            // 将领星标（跟随旗帜飘动+扭曲）
+            if (this.commander) {
+                ctx.save();
+                ctx.translate(flagLeft + 5, flagTop + 5 + wave * 0.5);
+                const waveTilt = Math.cos(time * 7 + this.id * 1.3) * 0.14;
+                ctx.rotate(waveTilt);
+                ctx.fillStyle = '#ffd700';
+                ctx.font = 'bold 9px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = '#ffd700';
+                ctx.shadowBlur = 5;
+                ctx.fillText('★', 0, 0);
+                ctx.restore();
+            }
         }
 
         // ── Badge ──
@@ -226,7 +250,7 @@ export class Unit {
         ctx.restore();
 
         // ── Actionable glow ──
-        if (this.canAct && gs && this.camp === gs.currentCamp && !this.isNewRecruit) {
+        if (this.canAct && gs && this.camp === gs.currentCamp && !this.isNewRecruit && gs.commanderPhase !== 'deployment') {
             ctx.save();
             const pulse = (Math.sin(time * 3.2 * Math.PI) + 1) / 2;
             const alpha1 = 0.18 + pulse * 0.45;
@@ -247,10 +271,40 @@ export class Unit {
             ctx.fillText('NEW', visualX, visualY - badgeR - 2);
             ctx.restore();
         }
+
+        // ── Commander name badge ──
+        if (this.commander) {
+            const cmdCfg = COMMANDER_CONFIG[this.commander];
+            if (cmdCfg) {
+                const cx = visualX - HEX_SIZE * 0.40;
+                const cy = visualY + HEX_SIZE * 0.22;
+                const text = cmdCfg.name;
+                ctx.save();
+                ctx.font = 'bold 7.5px Arial';
+                const m = ctx.measureText(text);
+                const bw = m.width + 8;
+                const bh = 13;
+                const bx = cx - bw / 2;
+                const by = cy;
+                ctx.fillStyle = 'rgba(0,0,0,0.78)';
+                roundRectPath(ctx, bx, by, bw, bh, 3);
+                ctx.fill();
+                ctx.strokeStyle = cc.main;
+                ctx.lineWidth = 1.2;
+                roundRectPath(ctx, bx, by, bw, bh, 3);
+                ctx.stroke();
+                ctx.fillStyle = cc.main;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, cx, cy + bh / 2);
+                ctx.restore();
+            }
+        }
     }
 
     getEffectiveAttack() {
-        return Math.round(this.config.attack * MORALE_CONFIG[this.morale].dmgMulti);
+        const baseAtk = this.config.attack + (this._atkBonus || 0);
+        return Math.round(baseAtk * MORALE_CONFIG[this.morale].dmgMulti);
     }
 
     // Shared damage resolution: attacker → defender
@@ -333,13 +387,48 @@ export class Unit {
         return result;
     }
 
-    takeDamage(dmg, attackerUnit) {
+    takeDamage(dmg, attackerUnit, _skipAura = false) {
         const log = _logMessage;
 
         if (this.godMode) return false;
 
-        this.hp = Math.round(Math.max(0, this.hp - dmg));
+        let actualDmg = dmg;
+
+        // 铁卫自身：受到伤害−30%
+        if (this.commander === 'ironGuard') {
+            actualDmg = Math.round(dmg * 0.7);
+        }
+
+        // 铁卫灵光：相邻友军受伤−20%，50%转由铁卫承担
+        if (!_skipAura && this.commander !== 'ironGuard' && _gameState) {
+            const ironGuard = this._findAdjacentFriendlyIronGuard();
+            if (ironGuard && ironGuard.hp > 0) {
+                actualDmg = Math.round(dmg * 0.8);
+                const transferred = Math.round(actualDmg * 0.5);
+                actualDmg -= transferred;
+                ironGuard.takeDamage(transferred, attackerUnit, true);
+                // 铁卫承担伤害的反馈
+                _gameState.damageTexts.push({
+                    x: ironGuard.tile.x,
+                    y: ironGuard.tile.y,
+                    value: transferred,
+                    isCrit: false,
+                    timeLeft: 800,
+                    lastUpdate: Date.now()
+                });
+                // 触发铁卫技能护盾特效
+                spawnCommanderSkillEffect(ironGuard.tile.x, ironGuard.tile.y, '🛡');
+            }
+        }
+
+        this.hp = Math.round(Math.max(0, this.hp - actualDmg));
         if (this.hp <= 0) {
+            // 将领死亡：清除所有效果
+            if (this.commander) {
+                if (this.camp === CAMP.player1) _gameState.commanderP1 = null;
+                else if (this.camp === CAMP.player2) _gameState.commanderP2 = null;
+                log(`${this.camp.name}将领【${COMMANDER_CONFIG[this.commander]?.name || this.commander}】阵亡，效果消失`);
+            }
             this.tile.unit = null;
             log(`${this.camp.name} ${this.config.name}兵被消灭`);
             if (attackerUnit) {
@@ -352,6 +441,20 @@ export class Unit {
             return true;
         }
         return false;
+    }
+
+    // 查找相邻6格内己方铁卫
+    _findAdjacentFriendlyIronGuard() {
+        if (!this.tile || !_gameState) return null;
+        const tileMap = _gameState.tileMap;
+        const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+        for (const [dq, dr] of dirs) {
+            const neighbor = tileMap.get(`${this.tile.q + dq},${this.tile.r + dr}`);
+            if (neighbor && neighbor.unit && neighbor.unit.commander === 'ironGuard' && neighbor.unit.camp === this.camp && neighbor.unit.hp > 0) {
+                return neighbor.unit;
+            }
+        }
+        return null;
     }
 
     heal(amount) {

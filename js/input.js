@@ -1,11 +1,11 @@
-import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG } from './config.js';
-import { gameState, clearselection, updateRecruitButtonStates, saveGame, loadGame } from './state.js';
-import { isMyTurn, isNetworkGame } from './network.js';
+import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, COMMANDER_CONFIG } from './config.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, updateStatsPanel, updateRecruitCostDisplay, serializeState, finalizeDeployment } from './state.js';
+import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn, undoLastAction
 } from './gameLogic.js';
-import { clearTransientEffects } from './effects.js';
+import { clearTransientEffects, spawnCommanderSkillEffect } from './effects.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
 
@@ -20,8 +20,6 @@ const tooltipRng = document.getElementById('tooltipRng');
 const tooltipStatus = document.getElementById('tooltipStatus');
 const tooltipPassive = document.getElementById('tooltipPassive');
 const tooltipMorale = document.getElementById('tooltipMorale');
-
-let _mouseX = 0, _mouseY = 0;
 
 const PASSIVE_DEFS = {
     infantry: {
@@ -48,14 +46,17 @@ function showTooltipForTile(tile) {
 
     if (unit) {
         const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵' };
-        tooltipHeader.textContent = `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}`;
-        tooltipHeader.style.color = unit.camp.color;
+        const deployHint = (gameState.commanderPhase === 'deployment' && unit.camp === gameState.currentCamp) ? ' — 点击挂载将领' : '';
+        tooltipHeader.textContent = `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}${deployHint}`;
+        tooltipHeader.style.color = gameState.commanderPhase === 'deployment' ? '#ffd700' : unit.camp.color;
 
         const hpRatio = unit.hp / unit.maxHp;
         const hpColor = hpRatio > 0.5 ? '#4CAF50' : hpRatio > 0.25 ? '#FF9800' : '#f44336';
         tooltipHpFill.style.width = (hpRatio * 100) + '%';
         tooltipHpFill.style.backgroundColor = hpColor;
-        tooltipHpText.textContent = `❤ ${Math.round(unit.hp)}/${unit.maxHp}`;
+        const cmdHpBonus = (unit.commander && COMMANDER_CONFIG[unit.commander]) ? COMMANDER_CONFIG[unit.commander].hpBonus : 0;
+        const hpBonusStr = cmdHpBonus > 0 ? `<span style="font-size:9px;color:#ffd700;"> (+${cmdHpBonus})</span>` : '';
+        tooltipHpText.innerHTML = `❤ ${Math.round(unit.hp)}/${unit.maxHp}${hpBonusStr}`;
         tooltipHpBar.style.display = '';
 
         const effAtk = unit.getEffectiveAttack();
@@ -149,6 +150,43 @@ function showTooltipForTile(tile) {
         target.innerHTML += (target.innerHTML ? '<br>' : '') + weatherLine;
     }
 
+    // Commander info
+    if (unit && unit.commander) {
+        const cmdCfg = COMMANDER_CONFIG[unit.commander];
+        if (cmdCfg) {
+            const cmdLine = `<span style="color:#ffd700;">★【${cmdCfg.name}】${cmdCfg.skill}：${cmdCfg.desc}</span>`;
+            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + cmdLine;
+        }
+    }
+
+    // 铁卫灵光buff（所有友军，不含铁卫自身）
+    if (unit && unit.commander !== 'ironGuard' && unit._findAdjacentFriendlyIronGuard && unit._findAdjacentFriendlyIronGuard()) {
+        const auraLine = `<span style="color:#ff9966;">【守护灵光】受伤−20%，50%转由铁卫承担</span>`;
+        tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
+    }
+
+    // 停滞者缚足debuff（范围内敌军）
+    if (unit && unit.commander !== 'staller') {
+        let inStallerZone = false;
+        if (unit.tile) {
+            const tile = unit.tile;
+            if (tile.unit && tile.unit.commander === 'staller' && tile.unit.camp !== unit.camp) inStallerZone = true;
+            else {
+                const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+                for (const [dq, dr] of dirs) {
+                    const n = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+                    if (n && n.unit && n.unit.commander === 'staller' && n.unit.camp !== unit.camp) {
+                        inStallerZone = true; break;
+                    }
+                }
+            }
+        }
+        if (inStallerZone) {
+            const snareLine = `<span style="color:#b08050;">🪤 缚足：移动消耗+3</span>`;
+            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + snareLine;
+        }
+    }
+
     if (!unit && !showTerrain) {
         tooltipEl.classList.remove('visible');
         return;
@@ -198,13 +236,109 @@ export function initInput() {
     canvas.addEventListener('click', (e) => {
         if (gameState.gameOver) return;
         const { x: clickX, y: clickY } = toLogical(e);
-        _mouseX = e.clientX;
-        _mouseY = e.clientY;
 
         const clickedTile = getTileAtPixel(clickX, clickY);
         if (!clickedTile) {
             clearselection();
             hideTooltip();
+            return;
+        }
+
+        // 部署阶段：将领挂载到单位
+        if (gameState.commanderPhase === 'deployment') {
+            const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+            // 已部署则锁定画布
+            const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
+            if (iAmDeployed) return;
+            const isOwn = clickedTile.unit && clickedTile.unit.camp === myCamp;
+            if (!isOwn) return;
+            if (gameState.selectedUnit === clickedTile.unit) {
+                // 二次点击确认部署
+                const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+                const cmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : gameState.commanderP2;
+                clickedTile.unit.commander = cmdKey;
+                // 重新应用将领属性加成
+                const cmdCfg = COMMANDER_CONFIG[cmdKey];
+                if (cmdCfg) {
+                    clickedTile.unit.hp += cmdCfg.hpBonus;
+                    clickedTile.unit.maxHp += cmdCfg.hpBonus;
+                    clickedTile.unit.displayHp = clickedTile.unit.hp;
+                    clickedTile.unit._atkBonus = cmdCfg.atkBonus;
+                    clickedTile.unit.remainingMP += cmdCfg.spdBonus;
+                    clickedTile.unit.displaySpeed += cmdCfg.spdBonus;
+                }
+                spawnCommanderSkillEffect(clickedTile.x, clickedTile.y);
+                if (isNetworkGame()) {
+                    // 联机：各自部署，同步给对方
+                    const myRole = getMyRole();
+                    if (myRole === 'player1') {
+                        gameState.commanderP1Deployed = true;
+                    } else {
+                        gameState.commanderP2Deployed = true;
+                    }
+                    notify(`将领已部署到${clickedTile.unit.config.name}兵`);
+                    // 同步部署状态
+                    syncCommanderState(
+                        gameState.commanderPoolP1, gameState.commanderPoolP2,
+                        gameState.commanderP1, gameState.commanderP2,
+                        gameState.commanderP1Confirmed, gameState.commanderP2Confirmed,
+                        gameState.commanderP1Deployed, gameState.commanderP2Deployed,
+                        gameState.commanderPhase
+                    );
+                } else {
+                    if (gameState.currentCamp === CAMP.player1) {
+                        gameState.commanderP1Deployed = true;
+                        notify(`红军将领已部署到${clickedTile.unit.config.name}兵`);
+                        gameState.currentCamp = CAMP.player2;
+                        updateButtonColors();
+                        updateUI();
+                        notify('请蓝军选择目标单位部署将领（选中后二次点击确认）');
+                    } else {
+                        gameState.commanderP2Deployed = true;
+                        notify(`蓝军将领已部署到${clickedTile.unit.config.name}兵`);
+                    }
+                }
+                clearselection();
+                hideTooltip();
+                gameState.selectedTile = null;
+                // 检查双方是否都已部署
+                if (gameState.commanderP1Deployed && gameState.commanderP2Deployed) {
+                    // 必须先设phase再广播，否则对方收到deployment状态
+                    gameState.commanderPhase = 'done';
+                    if (isNetworkGame()) sendAction('deployDone', serializeState());
+                    gameState.currentCamp = CAMP.player1;
+                    for (const tile of gameState.tiles) {
+                        if (tile.unit && tile.unit.commander) {
+                            tile.unit.canAct = true;
+                            tile.unit.remainingMP = tile.unit.config.speed;
+                        }
+                    }
+                    ['endTurnBtn', 'surrenderBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher'].forEach(id => {
+                        const btn = document.getElementById(id);
+                        if (btn) btn.disabled = false;
+                    });
+                    // 强制UI刷新
+                    const turnEl = document.getElementById('currentTurn');
+                    if (turnEl) { turnEl.textContent = '红军'; turnEl.style.color = '#ffaaaa'; }
+                    updateButtonColors();
+                    updateUI();
+                    notify('双方将领已部署，战斗开始！');
+                }
+                return;
+            } else {
+                // 首次点击：预选目标单位
+                gameState.selectedUnit = clickedTile.unit;
+                gameState.selectedTile = clickedTile;
+                showTooltipForTile(clickedTile);
+                return;
+            }
+        }
+
+        // 点选已选中单位/地块 → 取消选中（己方可操作单位有光圈倒放动画）
+        if (gameState.selectedTile === clickedTile) {
+            if (gameState.selectedUnit) deselectUnit(); else clearselection();
+            hideTooltip();
+            gameState.selectedTile = null;
             return;
         }
 
@@ -259,8 +393,6 @@ export function initInput() {
     });
 
     canvas.addEventListener('mousemove', (e) => {
-        _mouseX = e.clientX;
-        _mouseY = e.clientY;
         const { x: mouseX, y: mouseY } = toLogical(e);
         gameState.hoveredTile = getTileAtPixel(mouseX, mouseY);
 
@@ -306,7 +438,9 @@ export function initKeyboard() {
 
         if (e.key === 'Escape') {
             e.preventDefault();
-            clearselection();
+            if (gameState.selectedUnit) deselectUnit(); else clearselection();
+            hideTooltip();
+            gameState.selectedTile = null;
             return;
         }
 

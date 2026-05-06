@@ -9,8 +9,9 @@ export const ctx = canvas.getContext('2d');
 export const LOGICAL_W = 1000;
 export const LOGICAL_H = 750;
 
-export let dpr = 1;
-export let HEX_WIDTH, HEX_HEIGHT;
+let dpr = 1;
+export let HEX_WIDTH;
+let HEX_HEIGHT;
 
 export function initCanvas() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -43,14 +44,6 @@ export function hexToRgb(hex) {
 
 export function rgbToHex(r, g, b) {
     return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-}
-
-export function getDarkCampColor(camp) {
-    const rgb = hexToRgb(camp.color);
-    const darkR = Math.max(0, Math.round(rgb.r * 0.7));
-    const darkG = Math.max(0, Math.round(rgb.g * 0.7));
-    const darkB = Math.max(0, Math.round(rgb.b * 0.7));
-    return rgbToHex(darkR, darkG, darkB);
 }
 
 // Precomputed unit-hex vertex offsets (normalized, multiplied by size at call site)
@@ -167,6 +160,34 @@ export const MORALE_CONFIG = {
     1: { name: '士气下降', dmgMulti: 0.80, icon: '▼', color: '#b080e8', desc: '攻击力−20%' },
     0: { name: '混乱',     dmgMulti: 0,    icon: '？', color: '#999',    desc: '无法操控' }
 };
+
+// ==== 将领配置 ====================
+export const COMMANDER_CONFIG = {
+    advisor:   { name: '谋士',   skill: '攻心',     hpBonus: 15, atkBonus: 5,  spdBonus: 0,
+                 desc: '攻击时有50%概率使对方士气下降1级' },
+    ironGuard: { name: '铁卫',   skill: '守护',     hpBonus: 30, atkBonus: 0,  spdBonus: 0,
+                 desc: '自身受伤−30% 每回合回复40%已损生命；相邻友军受伤−20%且50%转由铁卫承担' },
+    vampire:   { name: '吸血鬼', skill: '嗜血',     hpBonus: 0,  atkBonus: 10, spdBonus: 0,
+                 desc: '攻击造成伤害时回复伤害值20%的生命值' },
+    staller:   { name: '停滞者', skill: '缚足',     hpBonus: 15, atkBonus: 5,  spdBonus: 0,
+                 desc: '自身及相邻6格敌军移动消耗+3' },
+    centurion: { name: '百夫长', skill: '乘胜追击', hpBonus: 0,  atkBonus: 5,  spdBonus: 0,
+                 desc: '消灭敌人时MP+3且可再攻击，每回合最多1次' },
+    minister:  { name: '尚书',   skill: '屯田',     hpBonus: 10, atkBonus: 0,  spdBonus: 0,
+                 desc: '每回合+10金币，招募费用−20%' }
+};
+
+export function shuffleAndSplitPool() {
+    const keys = Object.keys(COMMANDER_CONFIG);
+    for (let i = keys.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [keys[i], keys[j]] = [keys[j], keys[i]];
+    }
+    return {
+        p1: keys.slice(0, 3),
+        p2: keys.slice(3, 6)
+    };
+}
 
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {
