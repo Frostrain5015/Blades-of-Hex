@@ -92,7 +92,7 @@
                 <div class="camp-info">
                     <div class="camp-label">红军</div>
                     <div class="camp-treasury">
-                        <span id="player1Gold">25</span>
+                        <span id="player1Gold">40</span>
                         <span class="treasury-unit">金</span>
                     </div>
                 </div>
@@ -109,7 +109,7 @@
                 <div class="camp-info align-right">
                     <div class="camp-label">蓝军</div>
                     <div class="camp-treasury">
-                        <span id="player2Gold">25</span>
+                        <span id="player2Gold">40</span>
                         <span class="treasury-unit">金</span>
                     </div>
                 </div>
@@ -122,7 +122,6 @@
                     <span>🌐</span>
                     <span id="networkRoleText"></span>
                 </div>
-                <button class="tool-btn" id="logToggleBtn" title="战斗日志">📜</button>
                 <button class="tool-btn" id="saveGameBtn" title="存档 (Ctrl+S)">💾</button>
                 <button class="tool-btn" id="loadGameBtn" title="读档 (Ctrl+L)">📂</button>
                 <button class="tool-btn" id="settingsBtn" title="设置">⚙</button>
@@ -175,17 +174,11 @@
 
         </div>
 
-    </div>
-</div>
-
-<!-- 战斗日志浮窗 -->
-<div id="logOverlay">
-    <div id="logContainer">
-        <div id="logHeader">
-            <span>战斗日志</span>
-            <button id="logCloseBtn" class="log-close-btn">✕</button>
+        <!-- 战局统计 -->
+        <div id="statsPanel">
+            <div id="statsContent"></div>
         </div>
-        <div id="logList"></div>
+
     </div>
 </div>
 

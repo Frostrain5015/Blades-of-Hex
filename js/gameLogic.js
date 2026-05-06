@@ -301,13 +301,17 @@ export async function endTurn() {
     const currentPlayerKey = gameState.currentCamp === CAMP.player1 ? 'player1' : 'player2';
     const currentCampCities = gameState.tiles.filter(t => t.isCity && t.camp === gameState.currentCamp);
     const cityCount = currentCampCities.length;
-    gameState.playerGold[currentPlayerKey] += cityCount * 15;
-    logMessage(`${gameState.currentCamp.name}回合结束，本回合${gameState.currentCamp.name}城市产出共计${cityCount * 15}金币`);
+    const income = cityCount >= 3 ? 20 + 15 + (cityCount - 2) * 10
+                 : cityCount === 2 ? 20 + 15
+                 : cityCount === 1 ? 20 : 0;
+    gameState.playerGold[currentPlayerKey] += income;
+    logMessage(`${gameState.currentCamp.name}回合结束，本回合${gameState.currentCamp.name}城市产出共计${income}金币`);
 
-    currentCampCities.forEach(cityTile => {
+    currentCampCities.forEach((cityTile, i) => {
+        const cityValue = i === 0 ? 20 : i === 1 ? 15 : 10;
         gameState.goldTexts.push({
             x: cityTile.x, y: cityTile.y,
-            value: 15, prefix: '+', color: '#ffff00',
+            value: cityValue, prefix: '+', color: '#ffff00',
             timeLeft: 1000, lastUpdate: Date.now()
         });
         spawnGoldParticles(cityTile.x, cityTile.y);
@@ -555,7 +559,7 @@ export function attackUnit(attackerUnit, targetUnit) {
         }
         if (attackerUnit.morale !== 0) {
             attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
-            if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 2;
+            if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 4;
             spawnMoraleEffect(attackerUnit);
         }
     }

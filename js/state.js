@@ -6,7 +6,7 @@ export const gameState = {
     tiles: [],
     tileMap: new Map(),
     currentCamp: CAMP.player1,
-    playerGold: { player1: 25, player2: 25 },
+    playerGold: { player1: 40, player2: 40 },
     selectedUnit: null,
     movableTiles: [],
     moveParents: new Map(),
@@ -24,7 +24,8 @@ export const gameState = {
     previousGold: { player1: 25, player2: 25 },
     undoStack: [],
     turnCounter: 0,
-    logHistory: []
+    logHistory: [],
+    killCount: { player1: 0, player2: 0, neutral: 0 }
 };
 
 export function rebuildTileMap() {
@@ -121,133 +122,34 @@ export function updateUI() {
     }
 
     updateRecruitButtonStates();
+    updateStatsPanel();
 }
 
 // ===== 日志 =====================
-function _colorizeFactions(text) {
-    return text
-        .replace(/红军/g, '<span style="color:#ff6666;font-weight:bold;">红军</span>')
-        .replace(/蓝军/g, '<span style="color:#6688ff;font-weight:bold;">蓝军</span>');
-}
-
 export function logMessage(msg) {
     gameState.logHistory.push(msg);
     if (gameState.logHistory.length > LOG_LIMIT) gameState.logHistory.shift();
-
-    const logList = document.getElementById('logList');
-    const logItem = document.createElement('div');
-    logItem.className = 'log-item';
-    logItem.innerHTML = _colorizeFactions(msg);
-    logList.appendChild(logItem);
-    logList.scrollTop = logList.scrollHeight;
-
-    while (logList.children.length > LOG_LIMIT) {
-        logList.removeChild(logList.firstChild);
-    }
-
     console.log(msg);
 }
 
+export function updateStatsPanel() {
+    const content = document.getElementById('statsContent');
+    if (!content) return;
+    const p1c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player1).length;
+    const p2c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player2).length;
+    const p1i = p1c >= 3 ? 20+15+(p1c-2)*10 : p1c === 2 ? 35 : p1c === 1 ? 20 : 0;
+    const p2i = p2c >= 3 ? 20+15+(p2c-2)*10 : p2c === 2 ? 35 : p2c === 1 ? 20 : 0;
+    content.innerHTML = `
+        <div class="stat-turn-label">回合</div>
+        <div class="stat-turn-num">${Math.floor(gameState.turnCounter / 2) + 1}</div>
+        <div class="stat-row"><span class="stat-p1">红军</span><span class="stat-val">⚔${gameState.killCount.player1} 🏰${p1c} ⚱${p1i}</span></div>
+        <div class="stat-row"><span class="stat-p2">蓝军</span><span class="stat-val">⚔${gameState.killCount.player2} 🏰${p2c} ⚱${p2i}</span></div>
+        <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">⚔${gameState.killCount.neutral} 🏰${gameState.tiles.filter(t => t.isCity && t.camp === CAMP.neutral).length}</span></div>
+    `;
+}
+
 export function rebuildLogDOM() {
-    const logList = document.getElementById('logList');
-    logList.innerHTML = '';
-    gameState.logHistory.forEach(msg => {
-        const logItem = document.createElement('div');
-        logItem.className = 'log-item';
-        logItem.innerHTML = _colorizeFactions(msg);
-        logList.appendChild(logItem);
-    });
-    logList.scrollTop = logList.scrollHeight;
-}
-
-// ===== 日志窗口切换 =====================
-function _showLog(overlay, container, btn) {
-    overlay.classList.add('show');
-    btn.classList.add('active');
-    // Reset to default bottom-right position
-    container.style.left = '';
-    container.style.top = '';
-    container.style.right = '16px';
-    container.style.bottom = '16px';
-}
-
-function _hideLog(overlay, btn) {
-    overlay.classList.remove('show');
-    btn.classList.remove('active');
-}
-
-export function initLogToggle() {
-    const toggleBtn = document.getElementById('logToggleBtn');
-    const overlay = document.getElementById('logOverlay');
-    const container = document.getElementById('logContainer');
-    const header = document.getElementById('logHeader');
-    const closeBtn = document.getElementById('logCloseBtn');
-    if (!toggleBtn || !overlay || !container) return;
-
-    toggleBtn.addEventListener('click', () => {
-        if (overlay.classList.contains('show')) {
-            _hideLog(overlay, toggleBtn);
-        } else {
-            _showLog(overlay, container, toggleBtn);
-        }
-    });
-
-    if (closeBtn) {
-        closeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            _hideLog(overlay, toggleBtn);
-        });
-    }
-
-    // 点击浮窗外侧区域关闭
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-            _hideLog(overlay, toggleBtn);
-        }
-    });
-
-    // Escape 键关闭
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && overlay.classList.contains('show')) {
-            _hideLog(overlay, toggleBtn);
-        }
-    });
-
-    // 拖动
-    if (header) {
-        let dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
-
-        header.addEventListener('mousedown', (e) => {
-            if (e.target === closeBtn) return;
-            dragging = true;
-            const rect = container.getBoundingClientRect();
-            // Switch from right/bottom to left/top
-            container.style.right = 'auto';
-            container.style.bottom = 'auto';
-            container.style.left = rect.left + 'px';
-            container.style.top = rect.top + 'px';
-            container.classList.add('dragging');
-            startX = e.clientX;
-            startY = e.clientY;
-            origLeft = rect.left;
-            origTop = rect.top;
-            e.preventDefault();
-        });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!dragging) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            container.style.left = Math.max(0, Math.min(window.innerWidth - container.offsetWidth, origLeft + dx)) + 'px';
-            container.style.top = Math.max(0, Math.min(window.innerHeight - 40, origTop + dy)) + 'px';
-        });
-
-        window.addEventListener('mouseup', () => {
-            if (!dragging) return;
-            dragging = false;
-            container.classList.remove('dragging');
-        });
-    }
+    updateStatsPanel();
 }
 
 // ===== 选中清除 =====================

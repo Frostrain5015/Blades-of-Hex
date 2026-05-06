@@ -273,10 +273,11 @@ body {
 
 #commandPanel {
     background: var(--surface);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-radius: var(--radius-md);
-    border: 1px solid var(--border);
+    border: 1px solid var(--gold-border);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
     overflow: hidden;
 }
 
@@ -485,114 +486,57 @@ body {
 }
 
 /* =============================================================
-   LOG OVERLAY (floating window, hidden by default)
+   STATS PANEL
    ============================================================= */
 
-#logOverlay {
-    position: fixed;
-    inset: 0;
-    z-index: 17000;
-    pointer-events: none;
-    display: none;
-}
-#logOverlay.show {
-    display: block;
-    pointer-events: auto;
-}
-
-#logContainer {
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    width: 320px;
-    max-height: 70vh;
-    background: rgba(12, 6, 2, 0.96);
+#statsPanel {
+    background: var(--surface);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--gold-border);
     border-radius: var(--radius-md);
-    padding: 14px 16px;
-    overflow: hidden;
-    box-shadow:
-        0 0 32px rgba(0, 0, 0, 0.75),
-        0 0 60px rgba(0, 0, 0, 0.40);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    padding: 10px 13px;
+    min-height: 60px;
     display: flex;
-    flex-direction: column;
-    z-index: 17001;
+    align-items: center;
 }
 
-#logContainer.dragging {
-    transition: none;
+#statsContent {
+    width: 100%;
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--text-body);
 }
 
-#logHeader {
+#statsContent .stat-turn-label {
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 3px;
+    text-align: center;
+    text-transform: uppercase;
+}
+#statsContent .stat-turn-num {
+    font-size: 40px;
+    font-weight: bold;
+    color: var(--gold);
+    text-align: center;
+    line-height: 1;
+    margin-bottom: 8px;
+    text-shadow: 0 0 12px rgba(255,215,0,0.35);
+}
+
+#statsContent .stat-row {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    font-size: 9px;
-    letter-spacing: 3px;
-    color: var(--gold);
-    font-weight: bold;
-    padding-bottom: 8px;
-    margin-bottom: 6px;
-    border-bottom: 1px solid var(--gold-border);
-    text-transform: uppercase;
-    flex-shrink: 0;
-    cursor: grab;
-    user-select: none;
-}
-#logHeader:active {
-    cursor: grabbing;
+    font-size: 14px;
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
 }
 
-.log-close-btn {
-    background: none;
-    border: 1px solid transparent;
-    border-radius: 4px;
-    color: var(--text-dim);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 0 5px;
-    line-height: 1;
-    transition: color 0.15s, background 0.15s;
-}
-.log-close-btn:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.08);
-}
-
-#logList {
-    flex: 1;
-    line-height: 22px;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--gold-dim) transparent;
-}
-#logList::-webkit-scrollbar { width: 3px; }
-#logList::-webkit-scrollbar-track { background: transparent; }
-#logList::-webkit-scrollbar-thumb {
-    background: var(--gold-dim);
-    border-radius: 2px;
-}
-
-.log-item {
-    color: var(--text-body);
-    font-size: 12px;
-    white-space: normal;
-    word-break: break-word;
-    display: block;
-    padding: 2px 2px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    line-height: 1.5;
-}
-.log-item:last-child { border-bottom: none; }
-
-/* Log toggle button active indicator */
-#logToggleBtn.active {
-    color: var(--gold);
-    background: rgba(255, 215, 0, 0.10);
-    border-color: var(--gold-border);
-}
+#statsContent .stat-p1 { color: #ff6666; font-weight: bold; }
+#statsContent .stat-p2 { color: #6688ff; font-weight: bold; }
+#statsContent .stat-n  { color: #999; font-weight: bold; }
+#statsContent .stat-val  { color: var(--text-body); }
 
 /* =============================================================
    VICTORY OVERLAY
@@ -638,29 +582,31 @@ body {
     pointer-events: none;
     z-index: 9998;
     display: none;
-    background: rgba(8, 4, 2, 0.96);
-    border: 2px solid #888;
-    border-radius: var(--radius-sm);
-    padding: 10px 14px;
-    width: 210px;
-    box-shadow: 0 0 22px rgba(0, 0, 0, 0.75), inset 0 0 4px rgba(255, 255, 255, 0.02);
-    transform: translate(12px, -12px);
+    background: var(--surface);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--gold-border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+    width: clamp(180px, 22vw, 260px);
 }
 #unitTooltip.visible { display: block; }
 
 #tooltipHeader {
     color: #fff;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: bold;
-    margin-bottom: 8px;
+    letter-spacing: 1px;
+    padding: 10px 13px 6px;
 }
 #tooltipHpBar {
     position: relative;
-    height: 12px;
-    background: rgba(255, 255, 255, 0.10);
+    height: 15px;
+    background: rgba(255, 255, 255, 0.08);
     border-radius: 3px;
-    margin-bottom: 8px;
     overflow: hidden;
+    margin: 0 13px;
 }
 #tooltipHpFill {
     height: 100%;
@@ -671,30 +617,39 @@ body {
     position: absolute;
     inset: 0;
     text-align: center;
-    font-size: 9px;
+    font-size: 11px;
+    font-weight: bold;
     color: #fff;
-    line-height: 12px;
-    text-shadow: 0 0 3px rgba(0, 0, 0, 0.85);
+    line-height: 15px;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.85);
 }
 #tooltipStats {
     display: flex;
     gap: 12px;
     font-size: 12px;
-    margin-bottom: 4px;
+    padding: 8px 13px;
+    border-bottom: 1px solid var(--border);
 }
 .tooltip-stat { font-weight: bold; }
 #tooltipStatus {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-dim);
     text-align: center;
+    padding: 6px 13px;
+    border-bottom: 1px solid var(--border);
+}
+#tooltipStatus:empty {
+    display: none;
 }
 #tooltipPassive {
-    margin-top: 6px;
-    padding-top: 6px;
-    border-top: 1px solid rgba(255,255,255,0.08);
     font-size: 11px;
     line-height: 1.5;
     text-align: left;
+    padding: 8px 13px;
+    border-bottom: 1px solid var(--border);
+}
+#tooltipPassive:empty {
+    display: none;
 }
 .tooltip-passive-active {
     color: #6f6;
@@ -703,16 +658,13 @@ body {
     color: #555;
 }
 #tooltipMorale {
-    margin-top: 4px;
     font-size: 11px;
     line-height: 1.5;
     text-align: left;
+    padding: 8px 13px;
 }
-.tooltip-morale-high {
-    color: #ffd700;
-}
-.tooltip-morale-debuff {
-    color: #c8a0ff;
+#tooltipMorale:empty {
+    display: none;
 }
 
 /* =============================================================
