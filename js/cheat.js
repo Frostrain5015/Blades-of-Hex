@@ -13,10 +13,10 @@ const COMMANDS = [
     { cmd: '/kill',     desc: '击杀选中单位', subs: null },
     { cmd: '/heal',     desc: '选中单位血量回满', subs: null },
     { cmd: '/morale',   desc: '设置士气', subs: [
-        { cmd: 'high',   desc: '士气上升 (3)' },
-        { cmd: 'normal', desc: '正常 (2)' },
-        { cmd: 'low',    desc: '士气下降 (1)' },
-        { cmd: 'chaos',  desc: '混乱 (0)' },
+        { cmd: 'high',   desc: '士气上升' },
+        { cmd: 'normal', desc: '正常' },
+        { cmd: 'low',    desc: '士气下降' },
+        { cmd: 'chaos',  desc: '混乱' },
     ]},
     { cmd: '/god',      desc: '切换无敌状态', subs: null },
     { cmd: '/gold',     desc: '加金币 <数量>', subs: null },
@@ -133,7 +133,6 @@ function exec(cmd) {
                 notify(`${unit.camp.name} ${unit.config.name}兵 士气设为 ${MORALE_CONFIG[unit.morale].name}`);
             }
             break;
-            break;
 
         case '/god':
             if (!unit) { notify('请先选中一个单位', 'error'); break; }
@@ -168,7 +167,7 @@ function exec(cmd) {
 document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === '`') {
         e.preventDefault();
-        if (isNetworkGame()) { notify('作弊控制台仅在单机模式下可用', 'error'); return; }
+        if (isNetworkGame()) { notify('联机模式下不可用', 'error'); return; }
         toggle();
         return;
     }

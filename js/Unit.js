@@ -2,11 +2,11 @@ import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION,
 import { nextId } from './state.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects } from './effects.js';
 
-// 延迟引用，由游戏逻辑设置
+// 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
 let _gameState = null;
 export function setLogMessageRef(fn) { _logMessage = fn; }
-export function setGameStateRefForUnit(ref) { _gameState = ref; }
+export function setGameStateRef(ref) { _gameState = ref; }
 
 export class Unit {
     constructor(type, camp, tile, isNewRecruit = false, idOverride = null) {
@@ -253,36 +253,44 @@ export class Unit {
         return Math.round(this.config.attack * MORALE_CONFIG[this.morale].dmgMulti);
     }
 
+    // Shared damage resolution: attacker → defender
+    _resolveDamage(attacker, defender, critRate, critMultiCrit, baseMulti = 1, extraBonus = 0) {
+        const counterCoeff = COUNTER_RELATION[attacker.type][defender.type];
+
+        let dmgBonus = counterCoeff - 1 + extraBonus;
+        dmgBonus -= TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
+        if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.30;
+        const dmgMulti = Math.max(0.1, 1 + dmgBonus);
+
+        const isCrit = Math.random() < critRate;
+        const critM = isCrit ? critMultiCrit : 1;
+
+        return {
+            dmg: attacker.getEffectiveAttack() * baseMulti * dmgMulti * critM,
+            isCrit
+        };
+    }
+
     calculateDamage(targetUnit) {
         const gs = _gameState;
         const counterCoeff = COUNTER_RELATION[this.type][targetUnit.type];
 
-        // 增伤乘区（加算）
-        let dmgBonus = counterCoeff - 1;
-        if (this.type === 'cavalry' && this.moveDistance >= 2) dmgBonus += 0.25;
-        dmgBonus -= TERRAIN_CONFIG[targetUnit.tile.terrain].defenseBonus;
-        if (targetUnit.type === 'infantry' && targetUnit.tile.isCity) dmgBonus -= 0.30;
-        const dmgMulti = Math.max(0.1, 1 + dmgBonus);
-
-        // 暴击（独立乘区）
         let critRate = 0.2;
         if (counterCoeff > 1) critRate = 0.4;
         else if (counterCoeff < 1) critRate = 0.05;
 
-        const isCrit = Math.random() < critRate;
-        const critMulti = isCrit ? 1.5 : 1;
-
-        const finalDmg = this.getEffectiveAttack() * dmgMulti * critMulti;
+        const cavBonus = (this.type === 'cavalry' && this.moveDistance >= 2) ? 0.25 : 0;
+        const result = this._resolveDamage(this, targetUnit, critRate, 1.5, 1, cavBonus);
 
         gs.damageTexts.push({
             x: targetUnit.tile.x,
             y: targetUnit.tile.y,
-            value: finalDmg,
-            isCrit: isCrit,
+            value: result.dmg,
+            isCrit: result.isCrit,
             timeLeft: 900,
             lastUpdate: Date.now()
         });
-        return { dmg: finalDmg, isCrit };
+        return result;
     }
 
     calculateCounterDamage(attackerUnit) {
@@ -293,37 +301,25 @@ export class Unit {
             return { dmg: 0, isCrit: false };
         }
 
-        const counterCoeff = COUNTER_RELATION[this.type][attackerUnit.type];
-
-        // 增伤乘区（加算）
-        let dmgBonus = counterCoeff - 1;
-        dmgBonus -= TERRAIN_CONFIG[attackerUnit.tile.terrain].defenseBonus;
-        if (attackerUnit.type === 'infantry' && attackerUnit.tile.isCity) dmgBonus -= 0.30;
-        const dmgMulti = Math.max(0.1, 1 + dmgBonus);
-
         let critRate = 0.33;
         if (this.type === 'infantry' && this.tile.isCity) critRate = 0.50;
-        critRate = this.counterAttackCount === 0 ? critRate : 0;
 
-        const isCrit = Math.random() < critRate;
-        const critMulti = isCrit ? 1.8 : 1;
-
-        const finalDmg = this.getEffectiveAttack() * 0.75 * dmgMulti * critMulti;
+        const result = this._resolveDamage(this, attackerUnit, critRate, 1.8, 0.75);
 
         if (this.hp > 0) {
             this.counterAttackCount++;
-            log(`${this.camp.name} ${this.config.name}兵反击造成${Math.round(finalDmg)}伤害${isCrit ? '，反击暴击！' : ''}`);
+            log(`${this.camp.name} ${this.config.name}兵反击造成${Math.round(result.dmg)}伤害${result.isCrit ? '，反击暴击！' : ''}`);
 
             gs.damageTexts.push({
                 x: attackerUnit.tile.x,
                 y: attackerUnit.tile.y,
-                value: finalDmg,
-                isCrit: isCrit,
+                value: result.dmg,
+                isCrit: result.isCrit,
                 timeLeft: 750,
                 lastUpdate: Date.now()
             });
         }
-        return { dmg: finalDmg, isCrit };
+        return result;
     }
 
     takeDamage(dmg, attackerUnit) {

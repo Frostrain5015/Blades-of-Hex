@@ -12,8 +12,6 @@ export const LOGICAL_H = 750;
 export let dpr = 1;
 export let HEX_WIDTH, HEX_HEIGHT;
 
-export let boardCanvas, boardCtx;
-
 export function initCanvas() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width  = LOGICAL_W * dpr;
@@ -21,12 +19,6 @@ export function initCanvas() {
     canvas.style.width  = LOGICAL_W + 'px';
     canvas.style.height = LOGICAL_H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    boardCanvas = document.createElement('canvas');
-    boardCanvas.width  = LOGICAL_W * dpr;
-    boardCanvas.height = LOGICAL_H * dpr;
-    boardCtx = boardCanvas.getContext('2d');
-    boardCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     HEX_WIDTH  = Math.sqrt(3) * HEX_SIZE;
     HEX_HEIGHT = 2 * HEX_SIZE;
@@ -37,21 +29,6 @@ export function invalidateBoard() { boardDirty = true; }
 
 // Shared frame timestamp so we don't call Date.now() dozens of times per frame
 export const frameInfo = { now: Date.now() };
-
-// Board cache utilities (available for future use, not currently used in render loop)
-export function renderBoardToCache(tiles, tileMap) {
-    boardCtx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
-    for (const tile of tiles) tile.drawBase(boardCtx, tileMap);
-    boardDirty = false;
-}
-
-export function blitCachedBoard(targetCtx) {
-    targetCtx.drawImage(
-        boardCanvas,
-        0, 0, LOGICAL_W * dpr, LOGICAL_H * dpr,
-        0, 0, LOGICAL_W, LOGICAL_H
-    );
-}
 
 // ==== 工具函数 ====================
 
@@ -172,6 +149,15 @@ export const TERRAIN_CONFIG = {
     forest:   { name: '森林', defenseBonus: 0.15, stepCost: 3, moveDesc: '部队移动较慢', icon: '🌲', iconFont: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' },
     mountain: { name: '山地', defenseBonus: 0.25, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
 };
+
+// ==== 经济 ====================
+// 收入公式：1城=20, 2城=20+15, 3城+=20+15+10+10*(n-3)
+export function calcIncome(cityCount) {
+    if (cityCount >= 3) return 20 + 15 + (cityCount - 2) * 10;
+    if (cityCount === 2) return 35;
+    if (cityCount === 1) return 20;
+    return 0;
+}
 
 // ==== 士气配置 ====================
 // 士气等级: 3=上升 2=正常 1=下降 0=混乱
