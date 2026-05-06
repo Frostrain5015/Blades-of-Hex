@@ -117,7 +117,7 @@ export const HEX_NEIGHBORS = [
 
 // ==== 兵种配置 ====================
 export const UNIT_CONFIG = {
-    infantry: { name: '步', hp: 100, attack: 30, speed: 5, range: 1, cost: 25, color: '#0a0a0a' },
+    infantry: { name: '步', hp: 100, attack: 30, speed: 5, range: 1, cost: 30, color: '#0a0a0a' },
     cavalry:  { name: '骑', hp: 90,  attack: 55, speed: 8, range: 1, cost: 40, color: '#0a0a0a' },
     archer:   { name: '炮', hp: 70,  attack: 55, speed: 3, range: 2, cost: 35, color: '#0a0a0a' }
 };

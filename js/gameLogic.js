@@ -135,14 +135,17 @@ function applyFlankingMorale() {
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
         const u = tile.unit;
+        if (u._flankedApplied) return;
         const prev = u.morale;
         if (isSurrounded(u, gameState.tileMap)) {
             u.morale = 0;
             u.canAct = false;
+            u._flankedApplied = true;
         } else if (isFlanked(u, gameState.tileMap)) {
             u.morale = Math.max(1, u.morale - 1);
+            u._flankedApplied = true;
         }
-        if (u.morale !== prev && u.morale !== 2) {
+        if (u.morale !== prev) {
             spawnMoraleEffect(u);
         }
     });
@@ -224,61 +227,59 @@ export function initMap() {
 }
 
 function initInitialUnits() {
-    // Player 1 — left pole (district 1)
+    const map = gameState.tileMap;
+    function spawn(type, camp, q, r) {
+        const tile = map.get(`${q},${r}`);
+        if (tile && !tile.unit) new Unit(type, camp, tile, false);
+    }
+
+    // ── 玩家阵型（镜像对称，各 3步 2骑 1炮） ──
+    const formation = [
+        ['infantry', 0, 0],    // 城市驻军
+        ['cavalry',  1, 0],    // 前锋
+        ['archer',   0, 1],    // 右翼火力
+        ['infantry', -1, 1],   // 右翼后卫
+        ['cavalry',  2, -1],   // 游击斥候
+        ['infantry', 0, -1],   // 左翼步兵
+    ];
+
     const p1City = gameState.tiles.find(t => t.isCity && t.districtId === 1);
-    if (p1City) {
-        new Unit('infantry', CAMP.player1, p1City, false);
-        const cavTile = gameState.tiles.find(t => t.q === -5 && t.r === 0);
-        if (cavTile) new Unit('cavalry', CAMP.player1, cavTile, false);
-        const archTile = gameState.tiles.find(t => t.q === -6 && t.r === 1);
-        if (archTile) new Unit('archer', CAMP.player1, archTile, false);
-    }
-
-    // Player 2 — right pole (district 2)
     const p2City = gameState.tiles.find(t => t.isCity && t.districtId === 2);
-    if (p2City) {
-        new Unit('infantry', CAMP.player2, p2City, false);
-        const cavTile = gameState.tiles.find(t => t.q === 5 && t.r === 0);
-        if (cavTile) new Unit('cavalry', CAMP.player2, cavTile, false);
-        const archTile = gameState.tiles.find(t => t.q === 6 && t.r === -1);
-        if (archTile) new Unit('archer', CAMP.player2, archTile, false);
+
+    for (const [type, dq, dr] of formation) {
+        if (p1City) spawn(type, CAMP.player1, p1City.q + dq, p1City.r + dr);
+        if (p2City) spawn(type, CAMP.player2, p2City.q - dq, p2City.r - dr);
     }
 
-    // Neutral — center (district 5)
+    // ── 中立·中央（district 5）── 重兵把守
     const centerCity = gameState.tiles.find(t => t.isCity && t.districtId === 5);
-    if (centerCity) {
-        new Unit('infantry', CAMP.neutral, centerCity, false);
-        const adjTile = gameState.tiles.find(t => t.q === 0 && t.r === 1);
-        if (adjTile) new Unit('infantry', CAMP.neutral, adjTile, false);
-    }
+    if (centerCity) new Unit('infantry', CAMP.neutral, centerCity, false);
+    spawn('infantry', CAMP.neutral, -1, 1);
+    spawn('infantry', CAMP.neutral, 1, 0);
+    spawn('archer',   CAMP.neutral, 0, 2);      // 中央炮台
 
-    // Neutral — top (district 3)
+    // ── 中立·上（district 3）
     const topCity = gameState.tiles.find(t => t.isCity && t.districtId === 3);
-    if (topCity) {
-        new Unit('infantry', CAMP.neutral, topCity, false);
-    }
+    if (topCity) new Unit('infantry', CAMP.neutral, topCity, false);
+    spawn('archer', CAMP.neutral, 1, -5);
 
-    // Neutral — bottom (district 4)
+    // ── 中立·下（district 4）
     const bottomCity = gameState.tiles.find(t => t.isCity && t.districtId === 4);
-    if (bottomCity) {
-        new Unit('infantry', CAMP.neutral, bottomCity, false);
-    }
+    if (bottomCity) new Unit('infantry', CAMP.neutral, bottomCity, false);
+    spawn('archer', CAMP.neutral, -1, 5);
 }
 
 // ===== 回合管理 =====================
-export async function endTurn() {
-    if (gameState.gameOver) return;
+let _turnProcessing = false;
 
-    const hasActionable = gameState.tiles.some(t =>
-        t.unit && t.unit.camp === gameState.currentCamp && t.unit.canAct && !t.unit.isNewRecruit
-    );
-    if (hasActionable) {
-        const confirmed = await showConfirm(
-            `你仍有未行动的部队。\n确定要跳过行动，结束当前回合吗？`
-        );
-        if (!confirmed) return;
-    }
+function _campKey(camp) {
+    return camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : 'neutral';
+}
 
+async function _doEndTurnPhase() {
+    const camp = gameState.currentCamp;
+
+    // Unit reset + infantry city heal
     gameState.tiles.forEach(tile => {
         if (tile.unit) {
             tile.unit.canAct = true;
@@ -287,8 +288,9 @@ export async function endTurn() {
             tile.unit.counterAttackCount = 0;
             tile.unit.remainingMP = tile.unit.config.speed;
             tile.unit.isNewRecruit = false;
+            tile.unit._flankedApplied = false;
 
-            if (tile.unit.type === 'infantry' && tile.isCity && tile.unit.camp === gameState.currentCamp) {
+            if (tile.unit.type === 'infantry' && tile.isCity && tile.unit.camp === camp) {
                 const healAmount = tile.unit.maxHp * 0.1;
                 const actualHeal = tile.unit.heal(healAmount);
                 if (actualHeal > 0) {
@@ -298,36 +300,45 @@ export async function endTurn() {
         }
     });
 
-    const currentPlayerKey = gameState.currentCamp === CAMP.player1 ? 'player1' : 'player2';
-    const currentCampCities = gameState.tiles.filter(t => t.isCity && t.camp === gameState.currentCamp);
-    const cityCount = currentCampCities.length;
-    const income = calcIncome(cityCount);
-    gameState.playerGold[currentPlayerKey] += income;
-    logMessage(`${gameState.currentCamp.name}回合结束，本回合${gameState.currentCamp.name}城市产出共计${income}金币`);
-
-    currentCampCities.forEach((cityTile, i) => {
-        const cityValue = i === 0 ? 20 : i === 1 ? 15 : 10;
-        gameState.goldTexts.push({
-            x: cityTile.x, y: cityTile.y,
-            value: cityValue, prefix: '+', color: '#ffff00',
-            timeLeft: 1000, lastUpdate: Date.now()
+    // Income（中立减半，仅作象征性抵抗）
+    const key = _campKey(camp);
+    const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp);
+    const cityCount = cities.length;
+    const income = camp === CAMP.neutral ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
+    gameState.playerGold[key] += income;
+    if (income > 0) {
+        logMessage(`${camp.name}回合结束，城市产出共计${income}金币`);
+        cities.forEach((cityTile, i) => {
+            const cityValue = i === 0 ? 20 : i === 1 ? 15 : 10;
+            gameState.goldTexts.push({
+                x: cityTile.x, y: cityTile.y,
+                value: cityValue, prefix: '+', color: '#ffff00',
+                timeLeft: 1000, lastUpdate: Date.now()
+            });
+            spawnGoldParticles(cityTile.x, cityTile.y);
         });
-        spawnGoldParticles(cityTile.x, cityTile.y);
-    });
+    }
 
-    gameState.currentCamp = gameState.currentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
-    gameState.turnCounter++;
-
-    // Morale boost expiry
+    // Morale upkeep
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
-        const u = tile.unit;
-        if (u.morale === 3 && u.moraleBoostUntil <= gameState.turnCounter) {
-            u.morale = 2;
+        if (tile.unit.morale === 3 && tile.unit.moraleBoostUntil <= gameState.turnCounter) {
+            tile.unit.morale = 2;
         }
     });
     applyFlankingMorale();
 
+    // Three-way toggle
+    if (camp === CAMP.player1) {
+        gameState.currentCamp = CAMP.player2;
+    } else if (camp === CAMP.player2) {
+        gameState.currentCamp = CAMP.neutral;
+    } else {
+        gameState.currentCamp = CAMP.player1;
+    }
+    gameState.turnCounter++;
+
+    // Common end-phase effects
     playSound('turnEnd');
     triggerTurnFlash(gameState.currentCamp.color);
     updateUI();
@@ -339,11 +350,46 @@ export async function endTurn() {
     broadcastAction('endTurn');
 }
 
+export async function endTurn() {
+    if (gameState.gameOver || _turnProcessing) return;
+    _turnProcessing = true;
+
+    try {
+        const hasActionable = gameState.tiles.some(t =>
+            t.unit && t.unit.camp === gameState.currentCamp && t.unit.canAct && !t.unit.isNewRecruit
+        );
+        if (hasActionable && gameState.currentCamp !== CAMP.neutral) {
+            const confirmed = await showConfirm(
+                `你仍有未行动的部队。\n确定要跳过行动，结束当前回合吗？`
+            );
+            if (!confirmed) return;
+        }
+
+        await _doEndTurnPhase();
+
+        // Neutral AI turn
+        if (gameState.currentCamp === CAMP.neutral && !gameState.gameOver) {
+            const { processNeutralTurn } = await import('./ai.js');
+            // Only host runs AI in network mode
+            const { isNetworkGame, getMyRole } = await import('./network.js');
+            if (!isNetworkGame() || getMyRole() === 'player1') {
+                await processNeutralTurn();
+            }
+            // Auto-end neutral → P1
+            if (!gameState.gameOver) {
+                await _doEndTurnPhase();
+            }
+        }
+    } finally {
+        _turnProcessing = false;
+    }
+}
+
 // ===== 招募 =====================
 export function recruitUnit(type) {
     if (gameState.gameOver) return;
     const config = UNIT_CONFIG[type];
-    const currentPlayerKey = gameState.currentCamp === CAMP.player1 ? 'player1' : 'player2';
+    const currentPlayerKey = _campKey(gameState.currentCamp);
 
     if (!gameState.selectedCityTile) {
         notify('请先选中己方控制的空城市', 'error');
@@ -493,6 +539,7 @@ export function moveUnit(unit, targetTile) {
     unit.movedThisTurn = true;
     unit.moveDistance += path.length - 1;
     unit.startMovePath(path);
+    playSound('move');
 
     const mpEntry = gameState.moveParents.get(targetTile);
     if (mpEntry) unit.remainingMP = mpEntry.remaining;
@@ -579,49 +626,29 @@ function updateDistrictColor(cityTile, camp) {
     if (cityTile.camp === camp) return;
 
     const oldCamp = cityTile.camp;
-    const cityUniqueKey = `${cityTile.q}-${cityTile.r}`;
-    const attackerGoldKey = camp === CAMP.player1 ? 'player1' : 'player2';
+    const attackerGoldKey = _campKey(camp);
+    const defenderGoldKey = _campKey(oldCamp);
 
-    let plunderGold = 0;
-    let defenderGoldKey = null;
-    if (oldCamp === CAMP.player1 || oldCamp === CAMP.player2) {
-        defenderGoldKey = oldCamp === CAMP.player1 ? 'player1' : 'player2';
-        const defenderCityCount = gameState.tiles.filter(t => t.isCity && t.camp === oldCamp).length;
-        if (defenderCityCount > 0) {
-            plunderGold = Math.floor((1 / defenderCityCount) * 0.5 * gameState.playerGold[defenderGoldKey]);
-        }
-    }
+    // 统一掠夺公式：按守方剩余城市数均摊其50%金币
+    const defenderCityCount = gameState.tiles.filter(t => t.isCity && t.camp === oldCamp).length;
+    const plunderGold = defenderCityCount > 0
+        ? Math.floor((1 / defenderCityCount) * 0.5 * gameState.playerGold[defenderGoldKey])
+        : 0;
 
     cityTile.setCampWithFade(camp);
 
-    if (oldCamp === CAMP.neutral) {
-        if (!gameState.capturedNeutralCities.has(cityUniqueKey)) {
-            gameState.playerGold[attackerGoldKey] += 15;
-            gameState.capturedNeutralCities.add(cityUniqueKey);
-            logMessage(`${camp.name}占领中立城市(${cityTile.q},${cityTile.r})，金币+15`);
-            gameState.goldTexts.push({
-                x: cityTile.x, y: cityTile.y,
-                value: 15, prefix: '+', color: '#ffff00',
-                timeLeft: 1000, lastUpdate: Date.now()
-            });
-            spawnGoldParticles(cityTile.x, cityTile.y);
-        } else {
-            logMessage(`${camp.name}重新占领中立城市(${cityTile.q},${cityTile.r})`);
-        }
+    if (plunderGold > 0) {
+        gameState.playerGold[attackerGoldKey] += plunderGold;
+        gameState.playerGold[defenderGoldKey] -= plunderGold;
+        logMessage(`${camp.name}攻占${oldCamp.name}城市(${cityTile.q},${cityTile.r})，掠夺${plunderGold}金币`);
+        gameState.goldTexts.push({
+            x: cityTile.x, y: cityTile.y,
+            value: plunderGold, prefix: '+', color: '#ffff00',
+            timeLeft: 1000, lastUpdate: Date.now()
+        });
+        spawnGoldParticles(cityTile.x, cityTile.y);
     } else {
-        if (plunderGold > 0) {
-            gameState.playerGold[attackerGoldKey] += plunderGold;
-            gameState.playerGold[defenderGoldKey] -= plunderGold;
-            logMessage(`${camp.name}攻占了城市(${cityTile.q},${cityTile.r})，掠夺${oldCamp.name}${plunderGold}金币`);
-            gameState.goldTexts.push({
-                x: cityTile.x, y: cityTile.y,
-                value: plunderGold, prefix: '+', color: '#ffff00',
-                timeLeft: 1000, lastUpdate: Date.now()
-            });
-            spawnGoldParticles(cityTile.x, cityTile.y);
-        } else {
-            logMessage(`${camp.name}攻占了${oldCamp.name}的城市(${cityTile.q},${cityTile.r})`);
-        }
+        logMessage(`${camp.name}攻占了${oldCamp.name}的城市(${cityTile.q},${cityTile.r})`);
     }
 
     const districtId = cityTile.districtId;

@@ -49,6 +49,9 @@ export function renderGame() {
     // 士气变化动画
     drawMoraleEffects(now);
 
+    // 士气状态持续标识（▲/▼）
+    drawMoraleIndicators();
+
     // 范围光圈
     drawRangeApertures(now);
 
@@ -174,6 +177,34 @@ function drawMoraleEffects(now) {
     }
 }
 
+function drawMoraleIndicators() {
+    const tiles = gameState.tiles;
+    for (let i = 0, len = tiles.length; i < len; i++) {
+        const unit = tiles[i].unit;
+        if (!unit || unit.morale === 2 || unit.morale === 0) continue;
+
+        // 如果正在播放动画，跳过（动画已包含该标识）
+        if (moraleEffects.some(fx => fx.unitId === unit.id)) continue;
+
+        const mc = MORALE_CONFIG[unit.morale];
+        const cornerX = unit.tile.x + HEX_SIZE * 0.55;
+        const cornerY = unit.tile.y - HEX_SIZE * 0.35;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.beginPath();
+        ctx.arc(cornerX, cornerY, 9, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = mc.color;
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(mc.icon, cornerX, cornerY);
+        ctx.restore();
+    }
+}
+
 function drawSelectionHighlights() {
     const highlightTile = gameState.selectedTile;
     if (!highlightTile) return;
@@ -193,6 +224,7 @@ function drawSelectionHighlights() {
 
 // ===== 克制/被克提示文字 =====================
 function drawCounterText() {
+    if (gameState.aiActing) return;
     if (!gameState.selectedUnit || !gameState.selectedUnit.canAct) return;
 
     gameState.attackableTiles.forEach(tile => {
@@ -254,6 +286,7 @@ function drawCounterText() {
 
 // ===== 范围涟漪展开 =====================
 function drawRangeApertures(now) {
+    if (gameState.aiActing) return;
     if (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit) return;
 
     const elapsed = now - gameState.selectionTime;
