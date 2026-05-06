@@ -1,5 +1,5 @@
-import { loadSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H } from './config.js';
-import { gameState, updateUI, logMessage, applyRemoteState, initLogToggle } from './state.js';
+import { loadSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE } from './config.js';
+import { gameState, updateUI, logMessage, applyRemoteState } from './state.js';
 import { setGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRefForUnit } from './Unit.js';
 import { initMap, triggerVictoryEffect } from './gameLogic.js';
@@ -23,7 +23,6 @@ initCanvas();
 setGameStateRef(gameState);
 setLogMessageRef(logMessage);
 setGameStateRefForUnit(gameState);
-initLogToggle();
 
 // ==== 自适应布局 ====
 function fitCanvas() {
@@ -68,12 +67,13 @@ function gameLoop() {
             const atkDelta = effAtk - u.config.attack;
             if (atkDelta !== 0) {
                 const sign = atkDelta > 0 ? '+' : '';
-                const deltaColor = atkDelta > 0 ? '#ffd700' : '#ff8800';
+                const deltaColor = atkDelta > 0 ? '#ffd700' : '#b080e8';
                 atkEl.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}<span style="font-size:10px;color:${deltaColor};">(${sign}${atkDelta})</span></span>`;
             } else {
                 atkEl.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}</span>`;
             }
         }
+
     }
 
     requestAnimationFrame(gameLoop);

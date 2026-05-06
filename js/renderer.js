@@ -178,7 +178,13 @@ function drawSelectionHighlights() {
     const highlightTile = gameState.selectedTile;
     if (!highlightTile) return;
 
-    const cx = highlightTile.x, cy = highlightTile.y;
+    // Follow visual position during movement animation
+    let cx = highlightTile.x, cy = highlightTile.y;
+    if (gameState.selectedUnit === highlightTile.unit && highlightTile.unit) {
+        const pos = highlightTile.unit.getVisualPos();
+        cx = pos.x; cy = pos.y;
+    }
+
     hexPath(ctx, cx, cy, HEX_SIZE);
     ctx.fillStyle = 'rgba(255,215,0,0.15)';
     ctx.fill();

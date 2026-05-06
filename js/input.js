@@ -63,7 +63,7 @@ function showTooltipForTile(tile) {
         const atkDelta = effAtk - baseAtk;
         if (atkDelta !== 0) {
             const sign = atkDelta > 0 ? '+' : '';
-            const deltaColor = atkDelta > 0 ? '#ffd700' : '#ff8800';
+            const deltaColor = atkDelta > 0 ? '#ffd700' : '#b080e8';
             tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}<span style="font-size:10px;color:${deltaColor};">(${sign}${atkDelta})</span></span>`;
         } else {
             tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}</span>`;
@@ -130,23 +130,14 @@ function showTooltipForTile(tile) {
     }
     tooltipEl.classList.add('visible');
 
-    // Position: avoid mouse cursor (convert logical coords to CSS pixels)
-    const rect = canvas.getBoundingClientRect();
-    const sx = rect.width / LOGICAL_W;
-    const sy = rect.height / LOGICAL_H;
-    const cssX = rect.left + tile.x * sx;
-    const cssY = rect.top + tile.y * sy;
-    const toRight = _mouseX < cssX;
-    let left = toRight
-        ? cssX + HEX_SIZE * sx + 12
-        : cssX - 210 - HEX_SIZE * sx - 8;
-    if (left < 0) left = 8;
-    if (left + 210 > window.innerWidth) left = window.innerWidth - 210 - 8;
-    let top = cssY - 40;
-    if (top < 0) top = 8;
-    if (top + 200 > window.innerHeight) top = window.innerHeight - 200;
-    tooltipEl.style.left = left + 'px';
-    tooltipEl.style.top = top + 'px';
+    // Position: below stats panel
+    const statsPanel = document.getElementById('statsPanel');
+    if (statsPanel) {
+        const rect = statsPanel.getBoundingClientRect();
+        const ttipW = tooltipEl.offsetWidth || 210;
+        tooltipEl.style.left = (rect.left + rect.width / 2 - ttipW / 2) + 'px';
+        tooltipEl.style.top = (rect.bottom + 10) + 'px';
+    }
 }
 
 function hideTooltip() {
@@ -241,22 +232,6 @@ export function initInput() {
         _mouseY = e.clientY;
         const { x: mouseX, y: mouseY } = toLogical(e);
         gameState.hoveredTile = getTileAtPixel(mouseX, mouseY);
-
-        // Reposition tooltip if visible
-        if (tooltipEl.classList.contains('visible') && gameState.selectedTile) {
-            const tile = gameState.selectedTile;
-            const rect2 = canvas.getBoundingClientRect();
-            const sx2 = rect2.width / LOGICAL_W;
-            const sy2 = rect2.height / LOGICAL_H;
-            const cssX2 = rect2.left + tile.x * sx2;
-            const toRight = _mouseX < cssX2;
-            let left = toRight
-                ? cssX2 + HEX_SIZE * sx2 + 12
-                : cssX2 - 210 - HEX_SIZE * sx2 - 8;
-            if (left < 0) left = 8;
-            if (left + 210 > window.innerWidth) left = window.innerWidth - 210 - 8;
-            tooltipEl.style.left = left + 'px';
-        }
 
         const hovered = gameState.hoveredTile;
         if (hovered) {

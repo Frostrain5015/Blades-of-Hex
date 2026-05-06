@@ -29,45 +29,64 @@ export class Unit {
         this.displaySpeed = this.config.speed;
         // 移动动画状态（瞬时，不参与序列化）
         this.movePath = null;       // [{x, y}, ...] waypoints
-        this.movePathIdx = 0;
-        this.moveStepStart = 0;
-        this.moveStepDuration = 0;
+        this.movePathStart = 0;
+        this.movePathDuration = 0;
         // HP 显示平滑过渡
         this.displayHp = this.hp;
         tile.unit = this;
     }
 
+    getVisualPos() {
+        if (!this.movePath) return { x: this.tile.x, y: this.tile.y };
+        const path = this.movePath;
+        const elapsed = frameInfo.now - this.movePathStart;
+        if (elapsed >= this.movePathDuration) return { x: path[path.length - 1].x, y: path[path.length - 1].y };
+
+        const segs = [];
+        let totalLen = 0;
+        for (let i = 1; i < path.length; i++) {
+            const dx = path[i].x - path[i-1].x;
+            const dy = path[i].y - path[i-1].y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            segs.push({ from: path[i-1], to: path[i], len, acc: totalLen });
+            totalLen += len;
+        }
+        if (totalLen === 0) return { x: this.tile.x, y: this.tile.y };
+
+        const tTotal = elapsed / this.movePathDuration;
+        const target = tTotal * totalLen;
+
+        for (const seg of segs) {
+            if (target <= seg.acc + seg.len) {
+                const t = Math.max(0, Math.min(1, (target - seg.acc) / seg.len));
+                const eased = 1 - Math.pow(1 - t, 3);
+                return {
+                    x: seg.from.x + (seg.to.x - seg.from.x) * eased,
+                    y: seg.from.y + (seg.to.y - seg.from.y) * eased
+                };
+            }
+        }
+        return { x: this.tile.x, y: this.tile.y };
+    }
+
     startMovePath(path) {
         if (!path || path.length < 2) return;
         this.movePath = path;
-        this.movePathIdx = 0;
-        this.moveStepStart = frameInfo.now;
-        this.moveStepDuration = 130 / (settings.animationSpeed || 1);
+        this.movePathStart = frameInfo.now;
+        this.movePathDuration = (path.length - 1) * 220 / (settings.animationSpeed || 1);
     }
 
     draw(tileX, tileY) {
         const now = frameInfo.now;
-        // Path-based movement animation
         let visualX = tileX, visualY = tileY;
         if (this.movePath) {
-            const idx = this.movePathIdx;
-            const path = this.movePath;
-            if (idx >= path.length - 1) {
+            const elapsed = now - this.movePathStart;
+            if (elapsed >= this.movePathDuration) {
                 this.movePath = null;
             } else {
-                const from = path[idx];
-                const to = path[idx + 1];
-                const t = Math.min((now - this.moveStepStart) / this.moveStepDuration, 1);
-                const eased = 1 - Math.pow(1 - t, 2);
-                visualX = from.x + (to.x - from.x) * eased;
-                visualY = from.y + (to.y - from.y) * eased;
-                if (t >= 1) {
-                    this.movePathIdx++;
-                    this.moveStepStart = now;
-                    if (this.movePathIdx >= path.length - 1) {
-                        this.movePath = null;
-                    }
-                }
+                const pos = this.getVisualPos();
+                visualX = pos.x;
+                visualY = pos.y;
             }
         }
 
@@ -316,6 +335,10 @@ export class Unit {
         if (this.hp <= 0) {
             this.tile.unit = null;
             log(`${this.camp.name} ${this.config.name}兵被消灭`);
+            if (attackerUnit) {
+                const key = attackerUnit.camp === CAMP.player1 ? 'player1' : attackerUnit.camp === CAMP.player2 ? 'player2' : 'neutral';
+                _gameState.killCount[key]++;
+            }
             spawnExplosionParticles(this.tile.x, this.tile.y, '#ff2200', 30);
             spawnExplosionParticles(this.tile.x, this.tile.y, '#ffaa00', 15);
             triggerScreenShake(4, 150);
