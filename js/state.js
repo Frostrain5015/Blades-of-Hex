@@ -1,4 +1,4 @@
-import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, calcIncome } from './config.js';
+import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, calcIncome, WEATHER_CONFIG } from './config.js';
 import { isNetworkGame, isMyTurn } from './network.js';
 
 // ===== 游戏核心状态 =====================
@@ -25,7 +25,9 @@ export const gameState = {
     turnCounter: 0,
     logHistory: [],
     killCount: { player1: 0, player2: 0, neutral: 0 },
-    aiActing: false
+    aiActing: false,
+    weather: 'clear',
+    lastWeather: null
 };
 
 export function rebuildTileMap() {
@@ -126,6 +128,27 @@ export function updateUI() {
 
     updateRecruitButtonStates();
     updateStatsPanel();
+    _updateWeatherUI();
+}
+
+let _prevWeather = 'clear';
+function _updateWeatherUI() {
+    const cfg = WEATHER_CONFIG[gameState.weather];
+    const badge = document.getElementById('weatherBadge');
+    const iconEl = document.getElementById('weatherIcon');
+    const labelEl = document.getElementById('weatherLabel');
+    if (!badge || !iconEl || !labelEl) return;
+
+    iconEl.textContent = '';
+    labelEl.textContent = cfg.icon + cfg.name;
+    badge.style.background = `rgba(0,0,0,0.35)`;
+    badge.style.boxShadow = `0 0 12px ${cfg.color}33`;
+
+    if (gameState.weather !== _prevWeather) {
+        _prevWeather = gameState.weather;
+        badge.classList.add('switching');
+        setTimeout(() => badge.classList.remove('switching'), 300);
+    }
 }
 
 // ===== 日志 =====================
@@ -157,6 +180,7 @@ export function updateStatsPanel() {
 export function clearselection() {
     gameState.selectedUnit = null;
     gameState.selectedCityTile = null;
+    gameState.selectedTile = null;
     gameState.movableTiles = [];
     gameState.attackableTiles = [];
     gameState.selectionTime = 0;
@@ -202,9 +226,12 @@ export function serializeState() {
         previousGold: { ...gameState.previousGold },
         turnCounter: gameState.turnCounter,
         gameOver: gameState.gameOver,
-        victoryCampKey: gameState.victoryCamp ? (gameState.victoryCamp === CAMP.player1 ? 'p1' : 'p2') : null,
+        victoryCampKey: gameState.victoryCamp ? (gameState.victoryCamp === CAMP.player1 ? 'p1' : gameState.victoryCamp === CAMP.player2 ? 'p2' : 'neutral') : null,
         logHistory: [...gameState.logHistory],
-        idCounter: idCounter
+        idCounter: idCounter,
+        weather: gameState.weather,
+        lastWeather: gameState.lastWeather,
+        killCount: { ...gameState.killCount }
     };
 }
 
@@ -219,6 +246,9 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.previousGold = { player1: 25, player2: 25, neutral: 25, ...data.previousGold };
     gameState.turnCounter = data.turnCounter;
     gameState.logHistory = [...data.logHistory];
+    gameState.weather = data.weather || 'clear';
+    gameState.lastWeather = data.lastWeather || null;
+    if (data.killCount) gameState.killCount = { player1: 0, player2: 0, neutral: 0, ...data.killCount };
 
     // Preserve displayHp for units whose HP hasn't changed (prevents visual flicker on remote state sync)
     const oldDisplayHp = new Map();
@@ -346,4 +376,10 @@ export function loadGame(HexTileClass, UnitClass) {
 // ===== 远程状态同步（联机模式收到对手操作时调用） =====================
 export function applyRemoteState(data, HexTileClass, UnitClass) {
     deserializeState(data, HexTileClass, UnitClass);
+    // 远端状态同步后清除本地选中，避免对手回合残留光圈
+    gameState.selectedUnit = null;
+    gameState.selectedCityTile = null;
+    gameState.selectedTile = null;
+    gameState.movableTiles = [];
+    gameState.attackableTiles = [];
 }

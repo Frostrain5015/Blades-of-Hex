@@ -4,7 +4,8 @@ import { drawAllBorders } from './HexTile.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
-    VisualParticle, moraleEffects, drawMeleeSlashes
+    VisualParticle, moraleEffects, drawMeleeSlashes,
+    rainParticles, splashParticles, fogBlobs, windStreaks, spawnWeatherParticles
 } from './effects.js';
 
 let lastTime = Date.now();
@@ -39,12 +40,14 @@ export function renderGame() {
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawBase(ctx);
     // Borders — standalone per-edge pass
     drawAllBorders(ctx, tiles, gameState.tileMap);
-    // City flags (animated, above hex bases)
-    for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawCityFlag();
+    // Flag poles (before units)
+    for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     // Overlays (hover/selection)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
     // Units
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
+    // Flag finials + cloth (after units, overlays the badge)
+    for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagFinialAndCloth();
 
     // 士气变化动画
     drawMoraleEffects(now);
@@ -64,15 +67,17 @@ export function renderGame() {
     // 选中高亮
     drawSelectionHighlights();
 
-    // 暗角
-    const vignetteGrad = ctx.createRadialGradient(
-        LOGICAL_W / 2, LOGICAL_H / 2, LOGICAL_H * 0.3,
-        LOGICAL_W / 2, LOGICAL_H / 2, LOGICAL_H * 0.8
-    );
-    vignetteGrad.addColorStop(0, 'rgba(0,0,0,0)');
-    vignetteGrad.addColorStop(1, 'rgba(0,0,0,0.4)');
-    ctx.fillStyle = vignetteGrad;
-    ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
+    // 暗角 — 仅雨天生效
+    if (gameState.weather === 'rain') {
+        const vignetteGrad = ctx.createRadialGradient(
+            LOGICAL_W / 2, LOGICAL_H / 2, LOGICAL_H * 0.3,
+            LOGICAL_W / 2, LOGICAL_H / 2, LOGICAL_H * 0.8
+        );
+        vignetteGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        vignetteGrad.addColorStop(1, 'rgba(0,0,0,0.4)');
+        ctx.fillStyle = vignetteGrad;
+        ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
+    }
 
     // 回合切换闪光
     if (turnFlash.alpha > 0) {
@@ -84,8 +89,8 @@ export function renderGame() {
         turnFlash.alpha = Math.max(0, turnFlash.alpha - 0.008);
     }
 
-    // 环境粒子 — throttle to ~3/sec
-    if (now - _lastParticleSpawn > 330 && particles.length < 60) {
+    // 环境粒子 — throttle to ~3/sec（非雨天）
+    if (gameState.weather !== 'rain' && now - _lastParticleSpawn > 330 && particles.length < 60) {
         _lastParticleSpawn = now;
         particles.push(new VisualParticle(
             Math.random() * LOGICAL_W, LOGICAL_H + 5,
@@ -96,11 +101,127 @@ export function renderGame() {
         ));
     }
 
+    // 天气粒子生成
+    spawnWeatherParticles(now, gameState.weather, LOGICAL_W, LOGICAL_H);
+
     // 粒子
     for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         if (!p.update(dt)) { particles.splice(i, 1); continue; }
         p.draw(ctx);
+    }
+
+    // ── 雨天渲染 ──
+    if (gameState.weather === 'rain') {
+        // 雨滴更新与绘制
+        for (let i = rainParticles.length - 1; i >= 0; i--) {
+            const r = rainParticles[i];
+            r.x += r.vx * dt; r.y += r.vy * dt;
+            if (r.y > LOGICAL_H + 20) {
+                // 落地溅射
+                if (splashParticles.length < 80) {
+                    for (let s = 0; s < 3; s++) {
+                        splashParticles.push({
+                            x: r.x, y: LOGICAL_H,
+                            vx: -20 + Math.random() * 40,
+                            vy: -(30 + Math.random() * 50),
+                            life: 0.3 + Math.random() * 0.2,
+                            maxLife: 0.5,
+                            size: 2 + Math.random() * 2
+                        });
+                    }
+                }
+                rainParticles.splice(i, 1); continue;
+            }
+            ctx.save();
+            ctx.globalAlpha = r.alpha;
+            ctx.strokeStyle = '#b4c8f0';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(r.x, r.y);
+            ctx.lineTo(r.x, r.y + r.length);
+            ctx.stroke();
+            ctx.restore();
+        }
+        // 溅射粒子
+        for (let i = splashParticles.length - 1; i >= 0; i--) {
+            const s = splashParticles[i];
+            s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 200 * dt;
+            s.life -= dt;
+            if (s.life <= 0) { splashParticles.splice(i, 1); continue; }
+            const alpha = s.life / s.maxLife;
+            ctx.save();
+            ctx.globalAlpha = alpha * 0.6;
+            ctx.fillStyle = '#78a0ff';
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // ── 雾天渲染 ──
+    if (gameState.weather === 'fog') {
+        // 底层薄雾（呼吸）
+        const t = now / 1000;
+        const baseAlpha = 0.16 + Math.sin(t * 0.3) * 0.05;
+        ctx.save();
+        ctx.fillStyle = `rgba(200,210,220,${baseAlpha})`;
+        ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
+        ctx.restore();
+        // 雾团
+        for (let i = fogBlobs.length - 1; i >= 0; i--) {
+            const b = fogBlobs[i];
+            b.x += b.vx * dt; b.y += b.vy * dt;
+            const elapsed = (now - b.born) / 1000;
+            if (elapsed > b.maxLife) { fogBlobs.splice(i, 1); continue; }
+            let a = b.alpha;
+            if (elapsed < 1.5) a *= elapsed / 1.5;
+            else if (elapsed > b.maxLife - 1.5) a *= (b.maxLife - elapsed) / 1.5;
+            if (a <= 0) continue;
+            ctx.save();
+            // 用多个错位柔光斑拼出不规则雾团
+            const seed = b.born;
+            const n = 3 + Math.floor(((seed * 7) % 100) / 25);  // 3-5 个斑
+            for (let k = 0; k < n; k++) {
+                const kx = (seed * (13 + k * 7)) % 100 / 100;
+                const ky = (seed * (17 + k * 11)) % 100 / 100;
+                const kr = 0.45 + ((seed * (23 + k * 3)) % 100) / 200;  // 0.45-0.95
+                const cx = b.x + (kx - 0.5) * b.rx * 1.2;
+                const cy = b.y + (ky - 0.5) * b.ry * 1.2;
+                const cr = b.rx * kr;
+                const spotGrad = ctx.createRadialGradient(cx, cy, cr * 0.1, cx, cy, cr);
+                spotGrad.addColorStop(0, `rgba(210,220,230,${a * 0.7})`);
+                spotGrad.addColorStop(0.3, `rgba(210,220,230,${a * 0.4})`);
+                spotGrad.addColorStop(0.6, `rgba(210,220,230,${a * 0.1})`);
+                spotGrad.addColorStop(1, 'rgba(210,220,230,0)');
+                ctx.fillStyle = spotGrad;
+                ctx.beginPath();
+                ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+    }
+
+    // ── 风天渲染 ──
+    if (gameState.weather === 'wind') {
+        for (let i = windStreaks.length - 1; i >= 0; i--) {
+            const w = windStreaks[i];
+            w.x += w.speed * dt; w.y += w.vy * dt;
+            w.life -= dt;
+            if (w.life <= 0 || w.x > LOGICAL_W + 60) { windStreaks.splice(i, 1); continue; }
+            const alpha = (w.life / w.maxLife) * w.alpha;
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.strokeStyle = '#c8dcc8';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(w.x, w.y);
+            ctx.lineTo(w.x + w.length, w.y + w.vy * 0.02);
+            ctx.stroke();
+            ctx.restore();
+        }
     }
 
     // 攻击闪光

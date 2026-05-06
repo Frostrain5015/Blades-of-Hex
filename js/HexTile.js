@@ -86,55 +86,62 @@ export class HexTile {
     }
 
     // Per-frame: animated city flag drawn AFTER all hex bases (avoids being covered)
-    drawCityFlag() {
-        if (!this.isCity) return;
-        const now = frameInfo.now;
-        const time = now / 1000;
+    _flagParams() {
+        if (!this.isCity) return null;
         const cx = this.x, cy = this.y;
-
-        // Position: upper-left of tile center
         const flagCx = cx - HEX_SIZE * 0.55;
         const flagCy = cy - HEX_SIZE * 0.50;
         const isP1 = this.camp === CAMP.player1;
         const isP2 = this.camp === CAMP.player2;
         const campKey = isP1 ? 'p1' : isP2 ? 'p2' : 'neu';
-        const fc = CAMP_FLAG_COLORS[campKey];
+        return {
+            poleX: flagCx, poleTop: flagCy - 16, poleBottom: flagCy + 10,
+            fc: CAMP_FLAG_COLORS[campKey],
+            flagLeft: flagCx + 1.5, flagRight: flagCx + 1.5 + 18,
+            flagTop: flagCy - 16 + 3, flagMid: flagCy - 16 + 3 + 7, flagBot: flagCy - 16 + 3 + 16
+        };
+    }
 
+    drawFlagPole() {
+        const p = this._flagParams();
+        if (!p) return;
         ctx.save();
-
-        // Flagpole
-        const poleX = flagCx;
-        const poleTop = flagCy - 16;
-        const poleBottom = flagCy + 10;
         ctx.beginPath();
-        ctx.moveTo(poleX, poleTop);
-        ctx.lineTo(poleX, poleBottom);
+        ctx.moveTo(p.poleX, p.poleTop);
+        ctx.lineTo(p.poleX, p.poleBottom);
         ctx.strokeStyle = 'rgba(255,255,255,0.7)';
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.stroke();
+        ctx.restore();
+    }
+
+    drawFlagFinialAndCloth() {
+        const p = this._flagParams();
+        if (!p) return;
+        const gs = _gameState;
+        const now = frameInfo.now;
+        const time = now / 1000;
+        ctx.save();
+
         // Pole finial
         ctx.beginPath();
-        ctx.arc(poleX, poleTop, 2.5, 0, Math.PI * 2);
+        ctx.arc(p.poleX, p.poleTop, 2.5, 0, Math.PI * 2);
         ctx.fillStyle = '#ffd700';
         ctx.fill();
 
         // Waving flag (animated)
-        const wave = Math.sin(time * 5 + this.id * 0.7) * 2.5;
-        const flagLeft = poleX + 1.5;
-        const flagRight = flagLeft + 18;
-        const flagTop = poleTop + 3;
-        const flagMid = flagTop + 7;
-        const flagBot = flagTop + 16;
+        const windMult = (gs && gs.weather === 'wind') ? 2.5 : 1.0;
+        const wave = Math.sin(time * 5 * windMult + this.id * 0.7) * 2.5;
         ctx.beginPath();
-        ctx.moveTo(flagLeft, flagTop);
-        ctx.quadraticCurveTo(flagLeft + 6, flagMid - 3 + wave, flagRight, flagMid + wave);
-        ctx.lineTo(flagRight, flagBot + wave * 0.6);
-        ctx.quadraticCurveTo(flagLeft + 6, flagMid + 3 + wave * 0.6, flagLeft, flagBot);
+        ctx.moveTo(p.flagLeft, p.flagTop);
+        ctx.quadraticCurveTo(p.flagLeft + 6, p.flagMid - 3 + wave, p.flagRight, p.flagMid + wave);
+        ctx.lineTo(p.flagRight, p.flagBot + wave * 0.6);
+        ctx.quadraticCurveTo(p.flagLeft + 6, p.flagMid + 3 + wave * 0.6, p.flagLeft, p.flagBot);
         ctx.closePath();
-        const flagGrad = ctx.createLinearGradient(flagLeft, 0, flagRight, 0);
-        flagGrad.addColorStop(0, fc.main);
-        flagGrad.addColorStop(1, fc.dark);
+        const flagGrad = ctx.createLinearGradient(p.flagLeft, 0, p.flagRight, 0);
+        flagGrad.addColorStop(0, p.fc.main);
+        flagGrad.addColorStop(1, p.fc.dark);
         ctx.fillStyle = flagGrad;
         ctx.fill();
         ctx.strokeStyle = 'rgba(255,255,255,0.25)';

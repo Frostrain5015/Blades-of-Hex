@@ -78,16 +78,38 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'waiting' }));
         console.log('[房间] 玩家已连接，等待对手加入...');
     } else {
+        // 双方到齐，分配阵营但不自动开始——等双方都点准备
         const roleA = Math.random() < 0.5 ? 'player1' : 'player2';
         const roleB = roleA === 'player1' ? 'player2' : 'player1';
         room.players[0].role = roleA;
         room.players[1].role = roleB;
-        room.players[0].send(JSON.stringify({ type: 'start', role: roleA }));
-        room.players[1].send(JSON.stringify({ type: 'start', role: roleB }));
-        console.log(`[房间] 双方已连接（随机分配阵营），游戏开始！`);
+        room.players[0].send(JSON.stringify({ type: 'opponentJoined', role: roleA }));
+        room.players[1].send(JSON.stringify({ type: 'opponentJoined', role: roleB }));
+        console.log(`[房间] 双方已连接（等待准备确认）`);
     }
 
     ws.on('message', (data) => {
+        let msg;
+        try { msg = JSON.parse(data); } catch { return; }
+        // 再来一局
+        if (msg.type === 'rematch') {
+            ws._rematchReady = true;
+            const other = ws.room.players.find(p => p !== ws);
+            if (other) other.send(JSON.stringify({ type: 'rematchPending' }));
+            if (ws._rematchReady && other && other._rematchReady) {
+                ws._rematchReady = false;
+                other._rematchReady = false;
+                const roleA = Math.random() < 0.5 ? 'player1' : 'player2';
+                const roleB = roleA === 'player1' ? 'player2' : 'player1';
+                ws.room.players[0].role = roleA;
+                ws.room.players[1].role = roleB;
+                ws.room.players[0].send(JSON.stringify({ type: 'start', role: roleA }));
+                ws.room.players[1].send(JSON.stringify({ type: 'start', role: roleB }));
+                console.log('[房间] 双方再来一局，游戏开始！');
+            }
+            return;
+        }
+        // 普通游戏动作转发
         const other = ws.room.players.find(p => p !== ws);
         if (other && other.readyState === WebSocket.OPEN) {
             other.send(data.toString());

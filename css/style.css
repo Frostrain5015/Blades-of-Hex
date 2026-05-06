@@ -229,6 +229,27 @@ body {
     transition: color 0.30s ease;
 }
 
+/* ----- Weather Badge ----- */
+.weather-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(0,0,0,0.35);
+    border-radius: 8px;
+    padding: 2px 10px;
+    font-size: 13px;
+    color: #ddd;
+    letter-spacing: 1px;
+    margin-top: 2px;
+    transition: background 0.6s ease, transform 0.25s ease, box-shadow 0.6s ease;
+}
+.weather-badge #weatherIcon {
+    font-size: 16px;
+}
+.weather-badge.switching {
+    transform: scale(1.12);
+}
+
 /* ----- Topbar Tools ----- */
 .topbar-tools {
     display: flex;
@@ -571,6 +592,37 @@ body {
     0%   { opacity: 0; transform: scale(0.5); }
     60%  { transform: scale(1.1); }
     100% { opacity: 1; transform: scale(1); }
+}
+
+.rematch-btn {
+    margin-top: 30px;
+    padding: 12px 40px;
+    font-size: 22px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    color: #fff;
+    background: rgba(255,255,255,0.12);
+    border: 2px solid rgba(255,255,255,0.35);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.15s;
+    z-index: 10;
+}
+.rematch-btn:hover {
+    background: rgba(255,255,255,0.22);
+    border-color: rgba(255,255,255,0.6);
+    transform: scale(1.05);
+}
+.rematch-btn:active {
+    transform: scale(0.97);
+}
+
+.rematch-status {
+    margin-top: 14px;
+    font-size: 16px;
+    color: rgba(255,255,255,0.6);
+    letter-spacing: 2px;
+    min-height: 22px;
 }
 
 /* =============================================================
@@ -1078,6 +1130,46 @@ body {
     color: #ffdd88;
     margin-top: 16px;
     letter-spacing: 0.5px;
+}
+
+.lobby-faction {
+    font-size: 22px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+.lobby-ready-btn {
+    display: block;
+    margin: 0 auto;
+    padding: 14px 50px;
+    font-size: 24px;
+    font-weight: bold;
+    letter-spacing: 6px;
+    color: #fff;
+    background: rgba(255,255,255,0.10);
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 14px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.15s;
+}
+.lobby-ready-btn:hover {
+    background: rgba(255,255,255,0.22);
+    border-color: rgba(255,215,0,0.6);
+    transform: scale(1.06);
+}
+.lobby-ready-btn:active {
+    transform: scale(0.96);
+}
+
+.lobby-ready-status {
+    min-height: 20px;
+    font-size: 14px;
+    color: #ffdd88;
+    margin-top: 12px;
+    text-align: center;
+    letter-spacing: 1px;
 }
 
 /* =============================================================

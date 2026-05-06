@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H } from './config.js';
+import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG } from './config.js';
 import { gameState, clearselection, updateRecruitButtonStates, saveGame, loadGame } from './state.js';
 import { isMyTurn, isNetworkGame } from './network.js';
 import {
@@ -124,6 +124,31 @@ function showTooltipForTile(tile) {
         }
     }
 
+    // Weather info — shown when not clear
+    const wc = WEATHER_CONFIG[gameState.weather];
+    if (gameState.weather !== 'clear' && wc) {
+        let weatherDesc = wc.desc;
+        // Narrow to unit-specific effects if a unit is selected
+        if (unit) {
+            const effects = [];
+            if (gameState.weather === 'rain') {
+                if (unit.type === 'cavalry')  effects.push('每步行动力消耗+1');
+                if (unit.type === 'infantry') effects.push('守城回血20%');
+            } else if (gameState.weather === 'fog') {
+                if (unit.type === 'archer')   effects.push('伤害−25%', '射程−1');
+                if (unit.type === 'cavalry')  effects.push('冲锋1格生效 伤害+30%');
+            } else if (gameState.weather === 'wind') {
+                if (unit.type === 'archer')   effects.push('射程+1', '伤害+15%');
+                if (unit.type === 'infantry') effects.push('暴击率≤5%');
+            }
+            if (effects.length > 0) weatherDesc = effects.join('，');
+            else weatherDesc = '无直接影响';
+        }
+        const weatherLine = `<span style="color:${wc.color};">${wc.icon}【${wc.name}】${weatherDesc}</span>`;
+        const target = unit ? tooltipMorale : tooltipPassive;
+        target.innerHTML += (target.innerHTML ? '<br>' : '') + weatherLine;
+    }
+
     if (!unit && !showTerrain) {
         tooltipEl.classList.remove('visible');
         return;
@@ -172,7 +197,6 @@ export function initInput() {
 
     canvas.addEventListener('click', (e) => {
         if (gameState.gameOver) return;
-        if (!isMyTurn(gameState.currentCamp)) return;
         const { x: clickX, y: clickY } = toLogical(e);
         _mouseX = e.clientX;
         _mouseY = e.clientY;
@@ -180,8 +204,15 @@ export function initInput() {
         const clickedTile = getTileAtPixel(clickX, clickY);
         if (!clickedTile) {
             clearselection();
-            gameState.selectedTile = null;
             hideTooltip();
+            return;
+        }
+
+        // 对手回合 / AI 回合：只允许查看，不允许操作
+        if (!isMyTurn(gameState.currentCamp)) {
+            clearselection();
+            gameState.selectedTile = clickedTile;
+            showTooltipForTile(clickedTile);
             return;
         }
 

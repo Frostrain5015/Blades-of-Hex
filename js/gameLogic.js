@@ -1,4 +1,4 @@
-import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome } from './config.js';
+import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify } from './state.js';
 import { isNetworkGame, sendAction } from './network.js';
 import { HexTile } from './HexTile.js';
@@ -276,6 +276,26 @@ function _campKey(camp) {
     return camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : 'neutral';
 }
 
+function _updateWeather() {
+    const round = Math.floor(gameState.turnCounter / 3);  // 0-indexed full round
+    if (round < WEATHER_CYCLE.warmupRounds) {
+        gameState.weather = 'clear';
+        return;
+    }
+    const cycleRound = round - WEATHER_CYCLE.warmupRounds;
+    const cycleLen = WEATHER_CYCLE.weatherDuration + WEATHER_CYCLE.clearDuration;  // 3
+    const position = cycleRound % cycleLen;  // 0,1,2
+    if (position === 0) {
+        const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
+        gameState.lastWeather = pool[Math.floor(Math.random() * pool.length)];
+    }
+    if (position < WEATHER_CYCLE.weatherDuration) {
+        gameState.weather = gameState.lastWeather;
+    } else {
+        gameState.weather = 'clear';
+    }
+}
+
 async function _doEndTurnPhase() {
     const camp = gameState.currentCamp;
 
@@ -291,7 +311,8 @@ async function _doEndTurnPhase() {
             tile.unit._flankedApplied = false;
 
             if (tile.unit.type === 'infantry' && tile.isCity && tile.unit.camp === camp) {
-                const healAmount = tile.unit.maxHp * 0.1;
+                const healPct = (gameState.weather === 'rain') ? 0.20 : 0.10;
+                const healAmount = tile.unit.maxHp * healPct;
                 const actualHeal = tile.unit.heal(healAmount);
                 if (actualHeal > 0) {
                     logMessage(`${tile.unit.camp.name}的步兵驻守城市回复${Math.round(actualHeal)}生命值`);
@@ -337,6 +358,10 @@ async function _doEndTurnPhase() {
         gameState.currentCamp = CAMP.player1;
     }
     gameState.turnCounter++;
+    // 天气在新回合开始时更新（切回 P1 时）
+    if (gameState.currentCamp === CAMP.player1) {
+        _updateWeather();
+    }
 
     // Common end-phase effects
     playSound('turnEnd');
@@ -370,14 +395,13 @@ export async function endTurn() {
         // Neutral AI turn
         if (gameState.currentCamp === CAMP.neutral && !gameState.gameOver) {
             const { processNeutralTurn } = await import('./ai.js');
-            // Only host runs AI in network mode
             const { isNetworkGame, getMyRole } = await import('./network.js');
             if (!isNetworkGame() || getMyRole() === 'player1') {
                 await processNeutralTurn();
-            }
-            // Auto-end neutral → P1
-            if (!gameState.gameOver) {
-                await _doEndTurnPhase();
+                // Auto-end neutral → P1（仅主机执行）
+                if (!gameState.gameOver) {
+                    await _doEndTurnPhase();
+                }
             }
         }
     } finally {
@@ -472,7 +496,8 @@ export function getMovableTiles(unit) {
             if (!neighbor) continue;
             if (neighbor.unit) continue; // occupied → impassable
 
-            const stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
+            let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
+            if (gameState.weather === 'rain' && unit.type === 'cavalry') stepCost += 1;
             if (curRem < 1) continue;
             let newRem = curRem >= stepCost ? curRem - stepCost : 0;
 
@@ -498,7 +523,10 @@ export function getMovableTiles(unit) {
 }
 
 export function getAttackableTiles(unit) {
-    const range = unit.config.range;
+    let range = unit.config.range;
+    if (gameState.weather === 'fog'  && unit.type === 'archer') range -= 1;
+    if (gameState.weather === 'wind' && unit.type === 'archer') range += 1;
+    range = Math.max(1, Math.min(4, range));
     const startTile = unit.tile;
     return gameState.tiles.filter(tile => {
         return hexDistance(tile, startTile) <= range && tile.unit && tile.unit.camp !== unit.camp;
@@ -560,7 +588,7 @@ export function moveUnit(unit, targetTile) {
         updateDistrictColor(targetTile, unit.camp);
     }
     applyFlankingMorale();
-    broadcastAction('move', { unitId: unit.id, fromX, fromY });
+    broadcastAction('move', { unitId: unit.id, fromX, fromY, path });
 }
 
 // ===== 攻击 =====================

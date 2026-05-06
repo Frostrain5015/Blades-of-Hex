@@ -74,6 +74,11 @@
             </div>
         </div>
 
+        <div id="lobbyReady" style="display:none">
+            <div id="lobbyFaction" class="lobby-faction"></div>
+            <button id="lobbyReadyBtn" class="lobby-ready-btn">准备</button>
+            <div id="lobbyReadyStatus" class="lobby-ready-status"></div>
+        </div>
         <div id="lobbyStatus" class="lobby-status"></div>
     </div>
 </div>
@@ -102,6 +107,10 @@
             <div class="turn-hub">
                 <span class="turn-label">当前回合</span>
                 <span id="currentTurn" class="turn-name">红军</span>
+                <div id="weatherBadge" class="weather-badge">
+                    <span id="weatherIcon">☀️</span>
+                    <span id="weatherLabel">晴天</span>
+                </div>
             </div>
 
             <!-- 蓝军信息卡 -->
@@ -186,6 +195,8 @@
 <div id="victoryOverlay">
     <div id="gameOverText"></div>
     <div id="victoryCampText"></div>
+    <button id="rematchBtn" class="rematch-btn">再来一局</button>
+    <div id="rematchStatus" class="rematch-status"></div>
 </div>
 
 <!-- 单位悬浮提示 -->

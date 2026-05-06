@@ -1,6 +1,6 @@
-import { gameState, notify } from './state.js';
+import { gameState, notify, updateUI } from './state.js';
 import { isNetworkGame } from './network.js';
-import { CAMP, MORALE_CONFIG } from './config.js';
+import { CAMP, MORALE_CONFIG, WEATHER_CONFIG } from './config.js';
 import { Unit } from './Unit.js';
 import { spawnMoraleEffect } from './effects.js';
 
@@ -24,6 +24,12 @@ const COMMANDS = [
         { cmd: '步', desc: '步兵' },
         { cmd: '骑', desc: '骑兵' },
         { cmd: '炮', desc: '炮兵' },
+    ]},
+    { cmd: '/weather',  desc: '切换天气', subs: [
+        { cmd: 'clear', desc: '晴天' },
+        { cmd: 'rain',  desc: '雨天' },
+        { cmd: 'fog',   desc: '雾天' },
+        { cmd: 'wind',  desc: '风天' },
     ]},
 ];
 
@@ -144,6 +150,17 @@ function exec(cmd) {
             if (!args[1] || isNaN(args[1])) { notify('用法: /gold <数量>', 'error'); break; }
             gameState.playerGold[campKey] += parseInt(args[1]);
             notify(`金币 +${args[1]}，现有 ${gameState.playerGold[campKey]}`);
+            break;
+
+        case '/weather':
+            if (!args[1] || !WEATHER_CONFIG[args[1]]) {
+                notify('用法: /weather <clear|rain|fog|wind>', 'error');
+                break;
+            }
+            gameState.weather = args[1];
+            gameState.lastWeather = args[1] === 'clear' ? gameState.lastWeather : args[1];
+            updateUI();
+            notify(`天气已切换为 ${WEATHER_CONFIG[args[1]].icon} ${WEATHER_CONFIG[args[1]].name}`);
             break;
 
         case '/spawn':

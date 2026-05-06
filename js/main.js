@@ -5,7 +5,7 @@ import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { initMap, triggerVictoryEffect } from './gameLogic.js';
 import { renderGame } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
-import { connectToServer, setNetworkCallbacks, getMyRole } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame } from './network.js';
 import { CAMP } from './config.js';
 import {
     clearTransientEffects, triggerTurnFlash,
@@ -74,7 +74,8 @@ function gameLoop() {
                 atkEl.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}</span>`;
             }
         }
-
+    } else if (ttip.classList.contains('visible') && !gameState.selectedTile) {
+        ttip.classList.remove('visible');
     }
 
     requestAnimationFrame(gameLoop);
@@ -144,6 +145,15 @@ function showFactionReveal(role) {
 function startGame(networkRole) {
     lobbyOverlay.style.display = 'none';
     document.getElementById('gameWrapper').style.display = '';
+    document.getElementById('lobbyReady').style.display = 'none';
+    document.getElementById('lobbyReadyBtn').disabled = false;
+    document.getElementById('lobbyReadyBtn').textContent = '准备';
+
+    // 重置胜利/断线残留状态
+    document.body.style.pointerEvents = '';
+    document.getElementById('victoryOverlay').classList.remove('show');
+    document.getElementById('opponentTurnBanner').style.display = 'none';
+    document.getElementById('rematchStatus').textContent = '';
 
     fitCanvas();
     initMap();
@@ -170,6 +180,28 @@ function startGame(networkRole) {
         }
     }
 }
+
+// ==== 准备按钮 ----
+document.getElementById('lobbyReadyBtn').addEventListener('click', () => {
+    sendMessage({ type: 'rematch' });
+    document.getElementById('lobbyReadyBtn').disabled = true;
+    document.getElementById('lobbyReadyBtn').textContent = '已准备';
+    document.getElementById('lobbyReadyStatus').textContent = '等待对手准备...';
+});
+
+// ==== 再来一局 ----
+document.getElementById('rematchBtn').addEventListener('click', () => {
+    const statusEl = document.getElementById('rematchStatus');
+    if (isNetworkGame()) {
+        sendMessage({ type: 'rematch' });
+        statusEl.textContent = '等待对手确认...';
+    } else {
+        // 本地模式直接重开
+        document.getElementById('victoryOverlay').classList.remove('show');
+        document.body.style.pointerEvents = '';
+        startGame(null);
+    }
+});
 
 // ==== 本地模式 ----
 localModeBtn.addEventListener('click', () => startGame(null));
@@ -305,6 +337,15 @@ function setupNetworkAndConnect(url) {
                 banner.style.color = '#ff8888';
             }
             logMessage('⚠ 对手已断开连接');
+        },
+        onRematchPending: () => {
+            document.getElementById('lobbyReadyStatus').textContent = '对手已准备！';
+        },
+        onOpponentJoined: (role) => {
+            hideModes();
+            document.getElementById('lobbyReady').style.display = '';
+            document.getElementById('lobbyReadyStatus').textContent = '';
+            setStatus('对手已连接，点击准备开始对局');
         }
     });
 
@@ -345,7 +386,9 @@ async function handleRemoteAction(msg) {
             if (e) {
                 const movedUnit = gameState.tiles.reduce((found, t) =>
                     found || (t.unit?.id === e.unitId ? t.unit : null), null);
-                if (movedUnit) movedUnit.startMovePath([{ x: e.fromX, y: e.fromY }, { x: movedUnit.tile.x, y: movedUnit.tile.y }]);
+                if (movedUnit && e.path) {
+                    movedUnit.startMovePath(e.path);
+                }
             }
             break;
         case 'endTurn':
