@@ -26,13 +26,13 @@ let _mouseX = 0, _mouseY = 0;
 const PASSIVE_DEFS = {
     infantry: {
         name: '坚守',
-        desc: '位于城市时：每回合回复10%生命值，受到伤害−33%，反击暴击率66%',
+        desc: '位于城市时：每回合回复10%生命值，受到伤害−30%，反击暴击率提高至50%',
         active: (u) => u.tile.isCity
     },
     cavalry: {
         name: '冲锋',
-        desc: '本回合移动后，攻击伤害+30%',
-        active: (u) => u.movedThisTurn
+        desc: '本回合移动至少2格后，造成伤害+25%',
+        active: (u) => u.moveDistance >= 2
     },
     archer: {
         name: '远射',
@@ -58,7 +58,16 @@ function showTooltipForTile(tile) {
         tooltipHpText.textContent = `❤ ${Math.round(unit.hp)}/${unit.maxHp}`;
         tooltipHpBar.style.display = '';
 
-        tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${unit.config.attack}</span>`;
+        const effAtk = unit.getEffectiveAttack();
+        const baseAtk = unit.config.attack;
+        const atkDelta = effAtk - baseAtk;
+        if (atkDelta !== 0) {
+            const sign = atkDelta > 0 ? '+' : '';
+            const deltaColor = atkDelta > 0 ? '#ffd700' : '#ff8800';
+            tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}<span style="font-size:10px;color:${deltaColor};">(${sign}${atkDelta})</span></span>`;
+        } else {
+            tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}</span>`;
+        }
         tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${Math.round(unit.displaySpeed)}/${unit.config.speed}</span>`;
         tooltipRng.innerHTML = `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
         tooltipStats.style.display = '';
@@ -75,9 +84,9 @@ function showTooltipForTile(tile) {
             tooltipPassive.innerHTML = '';
         }
 
-        if (unit.morale !== 'normal') {
+        if (unit.morale !== 2) {
             const mc = MORALE_CONFIG[unit.morale];
-            const cls = unit.morale === 'high' ? 'tooltip-morale-high' : 'tooltip-morale-debuff';
+            const cls = unit.morale === 3 ? 'tooltip-morale-high' : 'tooltip-morale-debuff';
             tooltipMorale.innerHTML = `<span class="${cls}">【${mc.name}】${mc.desc}</span>`;
         } else {
             tooltipMorale.innerHTML = '';
@@ -104,7 +113,7 @@ function showTooltipForTile(tile) {
             const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : '中立';
             terrainDesc = `由${ownerName}控制`;
         } else {
-            terrainDesc = `防御+${Math.round(tc.defenseBonus * 100)}%`;
+            terrainDesc = `受到伤害−${Math.round(tc.defenseBonus * 100)}%`;
             if (tc.moveDesc) terrainDesc += `，${tc.moveDesc}`;
         }
         const terrainLine = `<span style="color:#fff;">【${terrainName}】${terrainDesc}</span>`;

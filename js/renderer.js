@@ -127,7 +127,7 @@ function drawMoraleEffects(now) {
 
         const mc = MORALE_CONFIG[fx.morale];
         const phase1 = elapsed < fx.phaseDuration;
-        const cornerX = fx.x + HEX_SIZE * 0.55 + (fx.morale === 'chaos' ? 2 : 0);
+        const cornerX = fx.x + HEX_SIZE * 0.55 + (fx.morale === 0 ? 2 : 0);
         const cornerY = fx.y - HEX_SIZE * 0.35;
 
         if (phase1) {
@@ -203,12 +203,12 @@ function drawCounterText() {
             icon = '⬆';
             text = '克制';
             color = '#44ff44';
-            desc = '伤害x1.25';
+            desc = '造成伤害+25%';
         } else if (counterCoeff < 1) {
             icon = '⬇';
             text = '被克';
             color = '#ff4444';
-            desc = '伤害x0.75';
+            desc = '造成伤害−25%';
         } else {
             return;
         }

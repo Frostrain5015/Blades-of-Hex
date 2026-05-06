@@ -343,7 +343,12 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit.canAct = td.unit.canAct;
             unit.movedThisTurn = td.unit.movedThisTurn;
             unit.counterAttackCount = td.unit.counterAttackCount;
-            unit.morale = td.unit.morale || 'normal';
+            const rawMorale = td.unit.morale;
+            if (typeof rawMorale === 'number') unit.morale = rawMorale;
+            else if (rawMorale === 'high') unit.morale = 3;
+            else if (rawMorale === 'low') unit.morale = 1;
+            else if (rawMorale === 'chaos') unit.morale = 0;
+            else unit.morale = 2;
             unit.moraleBoostUntil = td.unit.moraleBoostUntil || 0;
             unit.remainingMP = td.unit.remainingMP ?? unit.config.speed;
             const prev = oldDisplayHp.get(unit.id);

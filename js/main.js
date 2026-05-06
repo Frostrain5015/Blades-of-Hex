@@ -43,10 +43,11 @@ window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 200));
 function gameLoop() {
     renderGame();
 
-    // Animate tooltip speed display (with move cost preview)
+    // Animate tooltip speed and ATK display
     const ttip = document.getElementById('unitTooltip');
     if (ttip.classList.contains('visible') && gameState.selectedTile && gameState.selectedTile.unit) {
         const spdEl = document.getElementById('tooltipSpd');
+        const atkEl = document.getElementById('tooltipAtk');
         const u = gameState.selectedTile.unit;
         const mpRemaining = Math.round(u.displaySpeed);
         let cost = 0;
@@ -61,6 +62,17 @@ function gameLoop() {
             spdEl.innerHTML = cost > 0
                 ? `<span style="color:#6cf;">⚡ ${mpRemaining}(-${cost})/${u.config.speed}</span>`
                 : `<span style="color:#6cf;">⚡ ${mpRemaining}/${u.config.speed}</span>`;
+        }
+        if (atkEl) {
+            const effAtk = u.getEffectiveAttack();
+            const atkDelta = effAtk - u.config.attack;
+            if (atkDelta !== 0) {
+                const sign = atkDelta > 0 ? '+' : '';
+                const deltaColor = atkDelta > 0 ? '#ffd700' : '#ff8800';
+                atkEl.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}<span style="font-size:10px;color:${deltaColor};">(${sign}${atkDelta})</span></span>`;
+            } else {
+                atkEl.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}</span>`;
+            }
         }
     }
 

@@ -1265,6 +1265,30 @@ body {
     color: rgba(0,255,0,0.3);
 }
 
+#cheatSuggest {
+    padding: 6px 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.cheat-suggest-item {
+    padding: 3px 10px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 3px;
+    color: #aaa;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+}
+
+.cheat-suggest-item:hover {
+    background: rgba(255,255,255,0.14);
+    color: #fff;
+}
+
 /* Tight screens: slightly reduce padding and font sizes */
 @media (max-height: 540px) {
     #portraitWarning { display: none !important; }

@@ -174,11 +174,12 @@ export const TERRAIN_CONFIG = {
 };
 
 // ==== 士气配置 ====================
+// 士气等级: 3=上升 2=正常 1=下降 0=混乱
 export const MORALE_CONFIG = {
-    high:  { name: '士气上升', dmgMulti: 1.15, icon: '▲', color: '#ffd700', desc: '伤害+15%' },
-    normal:{ name: '正常',     dmgMulti: 1.00, icon: '',   color: '#aaa',    desc: '' },
-    low:   { name: '士气下降', dmgMulti: 0.80, icon: '▼', color: '#ff8800', desc: '伤害−20%' },
-    chaos: { name: '混乱',     dmgMulti: 0,    icon: '？', color: '#999',    desc: '无法操控' }
+    3: { name: '士气上升', dmgMulti: 1.15, icon: '▲', color: '#ffd700', desc: '攻击力+15%' },
+    2: { name: '正常',     dmgMulti: 1.00, icon: '',   color: '#aaa',    desc: '' },
+    1: { name: '士气下降', dmgMulti: 0.80, icon: '▼', color: '#ff8800', desc: '攻击力−20%' },
+    0: { name: '混乱',     dmgMulti: 0,    icon: '？', color: '#999',    desc: '无法操控' }
 };
 
 // ==== 设置（通过 localStorage 持久化） ====================

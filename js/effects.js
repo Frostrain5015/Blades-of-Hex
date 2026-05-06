@@ -347,7 +347,7 @@ export function drawConfetti(ctx2d) {
 export const moraleEffects = [];
 
 export function spawnMoraleEffect(unit) {
-    if (unit.morale === 'normal') return;
+    if (unit.morale === 2) return;
     moraleEffects.push({
         unitId: unit.id,
         x: unit.tile.x,
