@@ -137,14 +137,12 @@ function applyFlankingMorale() {
         const u = tile.unit;
         const prev = u.morale;
         if (isSurrounded(u, gameState.tileMap)) {
-            u.morale = 'chaos';
+            u.morale = 0;
             u.canAct = false;
         } else if (isFlanked(u, gameState.tileMap)) {
-            if (u.morale !== 'high') u.morale = 'low';
-        } else if (u.morale !== 'high') {
-            u.morale = 'normal';
+            u.morale = Math.max(1, u.morale - 1);
         }
-        if (u.morale !== prev && u.morale !== 'normal') {
+        if (u.morale !== prev && u.morale !== 2) {
             spawnMoraleEffect(u);
         }
     });
@@ -285,6 +283,7 @@ export async function endTurn() {
         if (tile.unit) {
             tile.unit.canAct = true;
             tile.unit.movedThisTurn = false;
+            tile.unit.moveDistance = 0;
             tile.unit.counterAttackCount = 0;
             tile.unit.remainingMP = tile.unit.config.speed;
             tile.unit.isNewRecruit = false;
@@ -321,8 +320,8 @@ export async function endTurn() {
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
         const u = tile.unit;
-        if (u.morale === 'high' && u.moraleBoostUntil <= gameState.turnCounter) {
-            u.morale = 'normal';
+        if (u.morale === 3 && u.moraleBoostUntil <= gameState.turnCounter) {
+            u.morale = 2;
         }
     });
     applyFlankingMorale();
@@ -402,7 +401,7 @@ function _isInEnemyZoC(tile, friendlyCamp) {
 
 // BFS pathfinding: returns tiles reachable without passing through enemy lines
 export function getMovableTiles(unit) {
-    if (unit.morale === 'chaos') return [];
+    if (unit.morale === 0) return [];
 
     const speed = unit.remainingMP;
     const startTile = unit.tile;
@@ -490,6 +489,7 @@ export function moveUnit(unit, targetTile) {
     unit.tile = targetTile;
     targetTile.unit = unit;
     unit.movedThisTurn = true;
+    unit.moveDistance += path.length - 1;
     unit.startMovePath(path);
 
     const mpEntry = gameState.moveParents.get(targetTile);
@@ -548,13 +548,14 @@ export function attackUnit(attackerUnit, targetUnit) {
             attackerUnit.tile = targetTile;
             targetTile.unit = attackerUnit;
             // Animate the kill-move step
+            attackerUnit.moveDistance++;
             attackerUnit.startMovePath([{ x: fromX, y: fromY }, { x: toX, y: toY }]);
             // Only occupy city when actually moving in (melee)
             if (targetTile.isCity) updateDistrictColor(targetTile, attackerUnit.camp);
         }
-        if (attackerUnit.morale !== 'chaos') {
-            attackerUnit.morale = 'high';
-            attackerUnit.moraleBoostUntil = gameState.turnCounter + 2;
+        if (attackerUnit.morale !== 0) {
+            attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
+            if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 2;
             spawnMoraleEffect(attackerUnit);
         }
     }

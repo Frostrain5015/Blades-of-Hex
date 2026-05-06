@@ -19,9 +19,10 @@ export class Unit {
         this.canAct = true;
         this.tile = tile;
         this.movedThisTurn = false;
+        this.moveDistance = 0;
         this.counterAttackCount = 0;
         this.isNewRecruit = isNewRecruit;
-        this.morale = 'normal';
+        this.morale = 2;
         this.moraleBoostUntil = 0;
         this.godMode = false;
         this.remainingMP = this.config.speed;
@@ -81,11 +82,11 @@ export class Unit {
         ctx.save();
         ctx.translate(visualX, visualY);
 
-        // ── Flag (hidden when unit is on a city — city has its own flag) ──
+        // ── Flag (below badge and ring) ──
         if (!this.tile.isCity) {
-            const poleX = -9;
-            const poleTop = -24;
-            const poleBottom = 8;
+            const poleX = -13;
+            const poleTop = -30;
+            const poleBottom = 2;
             ctx.beginPath();
             ctx.moveTo(poleX, poleTop);
             ctx.lineTo(poleX, poleBottom);
@@ -93,13 +94,11 @@ export class Unit {
             ctx.lineWidth = 1.5;
             ctx.lineCap = 'round';
             ctx.stroke();
-            // Pole finial
             ctx.beginPath();
             ctx.arc(poleX, poleTop, 1.5, 0, Math.PI * 2);
             ctx.fillStyle = '#ffd700';
             ctx.fill();
 
-            // Waving flag
             const wave = Math.sin(time * 7 + this.id * 1.3) * 2.0;
             const flagLeft = poleX + 1;
             const flagRight = flagLeft + 10;
@@ -123,7 +122,7 @@ export class Unit {
         }
 
         // ── Badge ──
-        const badgeR = 12;
+        const badgeR = 15;
         const badgeY = 1;
         ctx.beginPath();
         ctx.arc(0, badgeY, badgeR, 0, Math.PI * 2);
@@ -138,21 +137,21 @@ export class Unit {
 
         // ── Unit type character ──
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 14px "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC", sans-serif';
+        ctx.font = 'bold 15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 2;
-        const glyphs = { infantry: '步', cavalry: '骑', archer: '炮' };
-        ctx.fillText(glyphs[this.type] || '?', 0, badgeY);
+        const glyphs = { infantry: '⚔️', cavalry: '🐎', archer: '💣' };
+        ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
 
         // Morale marker — hex corner badge (top-right)
         const hasMoraleAnim = moraleEffects.some(fx => fx.unitId === this.id);
-        if (this.morale !== 'normal' && !hasMoraleAnim) {
+        if (this.morale !== 2 && !hasMoraleAnim) {
             const mc = MORALE_CONFIG[this.morale];
-            const mx = HEX_SIZE * 0.55 + (this.morale === 'chaos' ? 2 : 0);
+            const mx = HEX_SIZE * 0.55 + (this.morale === 0 ? 2 : 0);
             const my = -HEX_SIZE * 0.35;
             ctx.fillStyle = 'rgba(0,0,0,0.55)';
             ctx.beginPath();
@@ -169,15 +168,7 @@ export class Unit {
             ctx.shadowBlur = 0;
         }
 
-        ctx.restore();
-
-        // ── HP bar (smooth animated) ──
-        const hpWidth = HEX_SIZE * 1.6;
-        const hpHeight = 5;
-        const hpX = visualX - hpWidth / 2;
-        const hpY = visualY + HEX_SIZE / 2 - 3.5;
-
-        // Smooth interpolation toward actual HP
+        // ── Ring HP bar ──
         const lerpFactor = 0.18;
         this.displayHp += (this.hp - this.displayHp) * lerpFactor;
         if (Math.abs(this.hp - this.displayHp) < 0.3) this.displayHp = this.hp;
@@ -185,29 +176,34 @@ export class Unit {
         this.displaySpeed += (this.remainingMP - this.displaySpeed) * lerpFactor;
         if (Math.abs(this.remainingMP - this.displaySpeed) < 0.3) this.displaySpeed = this.remainingMP;
 
-        ctx.save();
-        ctx.fillStyle = 'rgba(0,0,0,0.65)';
-        ctx.beginPath();
-        ctx.roundRect(hpX - 1, hpY - 1, hpWidth + 2, hpHeight + 2, 2.5);
-        ctx.fill();
+        const hpRatio = this.displayHp / this.maxHp;
+        const ringR = badgeR;
+        const ringW = 3.5;
+        const startAngle = -Math.PI / 2;
+        const sweepAngle = hpRatio * Math.PI * 2;
 
-        const displayRatio = this.displayHp / this.maxHp;
-        if (displayRatio > 0.005) {
-            if (displayRatio > 0.5) ctx.fillStyle = '#4CAF50';
-            else if (displayRatio > 0.25) ctx.fillStyle = '#FF9800';
-            else ctx.fillStyle = '#f44336';
+        // Background ring
+        ctx.beginPath();
+        ctx.arc(0, badgeY, ringR, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = ringW;
+        ctx.stroke();
+
+        // HP arc
+        if (hpRatio > 0.005) {
+            let hpColor;
+            if (hpRatio > 0.7) hpColor = '#4CAF50';
+            else if (hpRatio > 0.35) hpColor = '#FFC107';
+            else hpColor = '#f44336';
+
             ctx.beginPath();
-            ctx.roundRect(hpX, hpY, hpWidth * displayRatio, hpHeight, 1.5);
-            ctx.fill();
+            ctx.arc(0, badgeY, ringR, startAngle, startAngle + sweepAngle);
+            ctx.strokeStyle = hpColor;
+            ctx.lineWidth = ringW;
+            ctx.lineCap = 'round';
+            ctx.stroke();
         }
 
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 10px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,0.7)';
-        ctx.shadowBlur = 2;
-        ctx.fillText(Math.round(this.displayHp), visualX, hpY + hpHeight / 2);
         ctx.restore();
 
         // ── Actionable glow ──
@@ -234,28 +230,30 @@ export class Unit {
         }
     }
 
+    getEffectiveAttack() {
+        return Math.round(this.config.attack * MORALE_CONFIG[this.morale].dmgMulti);
+    }
+
     calculateDamage(targetUnit) {
         const gs = _gameState;
         const counterCoeff = COUNTER_RELATION[this.type][targetUnit.type];
-        let baseDmg = this.config.attack * counterCoeff;
 
+        // 增伤乘区（加算）
+        let dmgBonus = counterCoeff - 1;
+        if (this.type === 'cavalry' && this.moveDistance >= 2) dmgBonus += 0.25;
+        dmgBonus -= TERRAIN_CONFIG[targetUnit.tile.terrain].defenseBonus;
+        if (targetUnit.type === 'infantry' && targetUnit.tile.isCity) dmgBonus -= 0.30;
+        const dmgMulti = Math.max(0.1, 1 + dmgBonus);
+
+        // 暴击（独立乘区）
         let critRate = 0.2;
-        if (counterCoeff > 1) {
-            critRate = 0.4;
-        } else if (counterCoeff < 1) {
-            critRate = 0.05;
-        }
+        if (counterCoeff > 1) critRate = 0.4;
+        else if (counterCoeff < 1) critRate = 0.05;
 
         const isCrit = Math.random() < critRate;
         const critMulti = isCrit ? 1.5 : 1;
 
-        let moveMulti = 1;
-        if (this.type === 'cavalry' && this.movedThisTurn) {
-            moveMulti += 0.3;
-        }
-
-        const moraleMulti = MORALE_CONFIG[this.morale].dmgMulti;
-        const finalDmg = baseDmg * critMulti * moveMulti * moraleMulti;
+        const finalDmg = this.getEffectiveAttack() * dmgMulti * critMulti;
 
         gs.damageTexts.push({
             x: targetUnit.tile.x,
@@ -272,27 +270,30 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.counterAttackCount >= 1 || attackerUnit.type === 'archer' || this.morale === 'chaos') {
+        if (this.counterAttackCount >= 1 || attackerUnit.type === 'archer' || this.morale === 0) {
             return { dmg: 0, isCrit: false };
         }
 
         const counterCoeff = COUNTER_RELATION[this.type][attackerUnit.type];
-        let baseDmg = this.config.attack * 0.75 * counterCoeff;
+
+        // 增伤乘区（加算）
+        let dmgBonus = counterCoeff - 1;
+        dmgBonus -= TERRAIN_CONFIG[attackerUnit.tile.terrain].defenseBonus;
+        if (attackerUnit.type === 'infantry' && attackerUnit.tile.isCity) dmgBonus -= 0.30;
+        const dmgMulti = Math.max(0.1, 1 + dmgBonus);
 
         let critRate = 0.33;
-        if (this.type === 'infantry' && this.tile.isCity) {
-            critRate = 0.66;
-        }
+        if (this.type === 'infantry' && this.tile.isCity) critRate = 0.50;
         critRate = this.counterAttackCount === 0 ? critRate : 0;
 
         const isCrit = Math.random() < critRate;
         const critMulti = isCrit ? 1.8 : 1;
 
-        let finalDmg = baseDmg * critMulti;
+        const finalDmg = this.getEffectiveAttack() * 0.75 * dmgMulti * critMulti;
 
         if (this.hp > 0) {
             this.counterAttackCount++;
-            log(`${this.camp.name}的${this.config.name}兵反击造成${Math.round(finalDmg)}伤害${isCrit ? '，反击暴击！' : ''}`);
+            log(`${this.camp.name} ${this.config.name}兵反击造成${Math.round(finalDmg)}伤害${isCrit ? '，反击暴击！' : ''}`);
 
             gs.damageTexts.push({
                 x: attackerUnit.tile.x,
@@ -311,16 +312,7 @@ export class Unit {
 
         if (this.godMode) return false;
 
-        let finalDmg = dmg;
-
-        const cityBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.33 : 0;
-        const terrainBonus = TERRAIN_CONFIG[this.tile.terrain].defenseBonus;
-        const defense = cityBonus + terrainBonus;
-        if (defense > 0) {
-            finalDmg = dmg * (1 - defense);
-        }
-
-        this.hp = Math.round(Math.max(0, this.hp - finalDmg));
+        this.hp = Math.round(Math.max(0, this.hp - dmg));
         if (this.hp <= 0) {
             this.tile.unit = null;
             log(`${this.camp.name} ${this.config.name}兵被消灭`);

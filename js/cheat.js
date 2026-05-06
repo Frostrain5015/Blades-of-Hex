@@ -1,20 +1,103 @@
-import { gameState, logMessage, notify } from './state.js';
+import { gameState, notify } from './state.js';
 import { isNetworkGame } from './network.js';
-import { CAMP } from './config.js';
+import { CAMP, MORALE_CONFIG } from './config.js';
 import { Unit } from './Unit.js';
+import { spawnMoraleEffect } from './effects.js';
 
 const consoleEl = document.getElementById('cheatConsole');
 const inputEl = document.getElementById('cheatInput');
+const suggestEl = document.getElementById('cheatSuggest');
 let active = false;
+
+const COMMANDS = [
+    { cmd: '/kill',     desc: '击杀选中单位', subs: null },
+    { cmd: '/heal',     desc: '选中单位血量回满', subs: null },
+    { cmd: '/morale',   desc: '设置士气', subs: [
+        { cmd: 'high',   desc: '士气上升 (3)' },
+        { cmd: 'normal', desc: '正常 (2)' },
+        { cmd: 'low',    desc: '士气下降 (1)' },
+        { cmd: 'chaos',  desc: '混乱 (0)' },
+    ]},
+    { cmd: '/god',      desc: '切换无敌状态', subs: null },
+    { cmd: '/gold',     desc: '加金币 <数量>', subs: null },
+    { cmd: '/spawn',    desc: '招募单位', subs: [
+        { cmd: '步', desc: '步兵' },
+        { cmd: '骑', desc: '骑兵' },
+        { cmd: '炮', desc: '炮兵' },
+    ]},
+];
 
 function toggle() {
     active = !active;
     consoleEl.style.display = active ? 'block' : 'none';
+    suggestEl.style.display = 'none';
     if (active) {
         inputEl.value = '';
         inputEl.focus();
     }
 }
+
+function showSuggestions(filter) {
+    const parts = filter.trim().split(/\s+/);
+    const prefix = parts[0].toLowerCase();
+    const hasSpace = filter.endsWith(' ') || parts.length > 1;
+
+    // Check if we should show sub-options
+    if (hasSpace && parts.length >= 1) {
+        const parent = COMMANDS.find(c => c.cmd === prefix);
+        if (parent && parent.subs) {
+            const rest = parts.slice(1).join(' ').toLowerCase();
+            const matches = rest
+                ? parent.subs.filter(s => s.cmd.startsWith(rest) || s.desc.includes(rest))
+                : parent.subs;
+            if (matches.length > 0) {
+                suggestEl.style.display = 'flex';
+                suggestEl.innerHTML = matches.map(s =>
+                    `<span class="cheat-suggest-item" data-cmd="${parent.cmd} ${s.cmd}">${s.cmd} — ${s.desc}</span>`
+                ).join('');
+                suggestEl.querySelectorAll('.cheat-suggest-item').forEach(el => {
+                    el.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        inputEl.value = el.dataset.cmd + ' ';
+                        suggestEl.style.display = 'none';
+                        inputEl.focus();
+                    });
+                });
+                return;
+            }
+        }
+    }
+
+    // Show top-level command suggestions
+    const matches = prefix
+        ? COMMANDS.filter(c => c.cmd.startsWith(prefix))
+        : COMMANDS;
+    if (matches.length === 0) {
+        suggestEl.style.display = 'none';
+        return;
+    }
+    suggestEl.style.display = 'flex';
+    suggestEl.innerHTML = matches.map(c =>
+        `<span class="cheat-suggest-item" data-cmd="${c.cmd}">${c.cmd} — ${c.desc}</span>`
+    ).join('');
+    suggestEl.querySelectorAll('.cheat-suggest-item').forEach(el => {
+        el.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            inputEl.value = el.dataset.cmd + ' ';
+            suggestEl.style.display = 'none';
+            inputEl.focus();
+        });
+    });
+}
+
+inputEl.addEventListener('input', () => {
+    const val = inputEl.value;
+    if (val.startsWith('/')) {
+        showSuggestions(val);
+    } else {
+        suggestEl.style.display = 'none';
+    }
+});
 
 function exec(cmd) {
     const args = cmd.trim().split(/\s+/);
@@ -23,62 +106,62 @@ function exec(cmd) {
     const campKey = gameState.currentCamp === CAMP.player1 ? 'player1' : 'player2';
 
     switch (op) {
-        case '/help':
-            logMessage('/kill 击杀选中单位 | /heal 回满血量 | /morale <high|normal|low|chaos> 设置士气');
-            logMessage('/god 无敌切换 | /gold <数量> 加金币 | /spawn <步|骑|炮> 在当前选中格招募单位');
-            break;
-
         case '/kill':
-            if (!unit) { logMessage('请先选中一个单位'); break; }
+            if (!unit) { notify('请先选中一个单位', 'error'); break; }
             unit.hp = 0;
             unit.tile.unit = null;
-            logMessage(`已击杀 ${unit.camp.name} ${unit.config.name}兵`);
+            notify(`已击杀 ${unit.camp.name} ${unit.config.name}兵`);
             break;
 
         case '/heal':
-            if (!unit) { logMessage('请先选中一个单位'); break; }
+            if (!unit) { notify('请先选中一个单位', 'error'); break; }
             unit.hp = unit.maxHp;
-            logMessage(`${unit.camp.name} ${unit.config.name}兵 血量已回满`);
+            notify(`${unit.camp.name} ${unit.config.name}兵 血量已回满`);
             break;
 
         case '/morale':
-            if (!unit) { logMessage('请先选中一个单位'); break; }
-            if (!args[1] || !['high','normal','low','chaos'].includes(args[1])) {
-                logMessage('用法: /morale <high|normal|low|chaos>');
-                break;
+            if (!unit) { notify('请先选中一个单位', 'error'); break; }
+            {
+                const map = { high: 3, normal: 2, low: 1, chaos: 0, '3': 3, '2': 2, '1': 1, '0': 0 };
+                if (!args[1] || !(args[1] in map)) {
+                    notify('用法: /morale <high|normal|low|chaos>', 'error');
+                    break;
+                }
+                unit.morale = map[args[1]];
+                if (unit.morale === 0) unit.canAct = false;
+                spawnMoraleEffect(unit);
+                notify(`${unit.camp.name} ${unit.config.name}兵 士气设为 ${MORALE_CONFIG[unit.morale].name}`);
             }
-            unit.morale = args[1];
-            if (args[1] === 'chaos') unit.canAct = false;
-            logMessage(`${unit.camp.name} ${unit.config.name}兵 士气设为 ${args[1]}`);
+            break;
             break;
 
         case '/god':
-            if (!unit) { logMessage('请先选中一个单位'); break; }
+            if (!unit) { notify('请先选中一个单位', 'error'); break; }
             unit.godMode = !unit.godMode;
-            logMessage(`${unit.camp.name} ${unit.config.name}兵 无敌模式: ${unit.godMode ? '开启' : '关闭'}`);
+            notify(`${unit.camp.name} ${unit.config.name}兵 无敌: ${unit.godMode ? 'ON' : 'OFF'}`);
             break;
 
         case '/gold':
-            if (!args[1] || isNaN(args[1])) { logMessage('用法: /gold <数量>'); break; }
+            if (!args[1] || isNaN(args[1])) { notify('用法: /gold <数量>', 'error'); break; }
             gameState.playerGold[campKey] += parseInt(args[1]);
-            logMessage(`当前阵营金币 +${args[1]}，现有 ${gameState.playerGold[campKey]}`);
+            notify(`金币 +${args[1]}，现有 ${gameState.playerGold[campKey]}`);
             break;
 
         case '/spawn':
             if (!args[1] || !{'步':'infantry','骑':'cavalry','炮':'archer'}[args[1]]) {
-                logMessage('用法: /spawn <步|骑|炮>');
+                notify('用法: /spawn <步|骑|炮>', 'error');
                 break;
             }
             { const tile = gameState.selectedCityTile || unit?.tile;
-            if (!tile) { logMessage('请先选中一个单位或城市'); break; }
-            if (tile.unit) { logMessage('目标地块已有单位'); break; }
+            if (!tile) { notify('请先选中一个单位或城市', 'error'); break; }
+            if (tile.unit) { notify('目标地块已有单位', 'error'); break; }
             const type = {'步':'infantry','骑':'cavalry','炮':'archer'}[args[1]];
             new Unit(type, gameState.currentCamp, tile, true);
-            logMessage(`已在 (${tile.q},${tile.r}) 招募 ${args[1]}兵`); }
+            notify(`已招募 ${args[1]}兵`); }
             break;
 
         default:
-            logMessage(`未知命令: ${op}，输入 /help 查看列表`);
+            notify(`未知命令: ${op}`, 'error');
     }
 }
 
@@ -96,10 +179,8 @@ document.addEventListener('keydown', (e) => {
     }
     if (e.key === 'Enter') {
         const cmd = inputEl.value.trim();
-        if (cmd) {
-            logMessage(`> ${cmd}`);
-            exec(cmd);
-        }
+        if (cmd) exec(cmd);
         inputEl.value = '';
+        suggestEl.style.display = 'none';
     }
 });
