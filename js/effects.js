@@ -359,6 +359,57 @@ export function spawnMoraleEffect(unit) {
     });
 }
 
+// ===== 天气粒子 =====================
+export const rainParticles = [];
+export const splashParticles = [];
+export const fogBlobs = [];
+export const windStreaks = [];
+
+export function spawnWeatherParticles(now, weather, logicalW, logicalH) {
+    if (weather === 'rain') {
+        // 雨滴
+        if (rainParticles.length < 120) {
+            rainParticles.push({
+                x: Math.random() * logicalW,
+                y: -10,
+                vx: 0,
+                vy: 500 + Math.random() * 200,
+                length: 15 + Math.random() * 8,
+                alpha: 0.25 + Math.random() * 0.1
+            });
+        }
+        // 溅射粒子上次生成以来经过的时间
+    } else if (weather === 'fog') {
+        if (fogBlobs.length < 45 && Math.random() < 0.5) {
+            fogBlobs.push({
+                x: -60 + Math.random() * (logicalW + 120),
+                y: Math.random() * logicalH,
+                rx: 50 + Math.random() * 80,
+                ry: 25 + Math.random() * 40,
+                vx: 35 + Math.random() * 35,
+                vy: -10 + Math.random() * 20,
+                life: 8 + Math.random() * 4,
+                maxLife: 12,
+                alpha: 0.25 + Math.random() * 0.20,
+                born: now
+            });
+        }
+    } else if (weather === 'wind') {
+        if (windStreaks.length < 12 && Math.random() < 0.5) {
+            windStreaks.push({
+                x: -40,
+                y: Math.random() * logicalH,
+                length: 30 + Math.random() * 20,
+                vy: -5 + Math.random() * 10,
+                life: 0.4 + Math.random() * 0.4,
+                maxLife: 0.8,
+                alpha: 0.25 + Math.random() * 0.15,
+                speed: 500 + Math.random() * 200
+            });
+        }
+    }
+}
+
 // ===== 清除所有瞬时效果（用于撤销/读档） =====================
 export function clearTransientEffects() {
     particles.length = 0;
@@ -368,6 +419,10 @@ export function clearTransientEffects() {
     softFlashes.length = 0;
     slashMarks.length = 0;
     confettiPieces.length = 0;
+    rainParticles.length = 0;
+    splashParticles.length = 0;
+    fogBlobs.length = 0;
+    windStreaks.length = 0;
     screenShake.time = 0;
     screenShake.x = 0;
     screenShake.y = 0;

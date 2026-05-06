@@ -43,7 +43,9 @@ export function connectToServer(url) {
                 case 'waiting':      _cb.onWaiting?.(); break;
                 case 'start':        _myRole = msg.role; _cb.onStart?.(msg.role); break;
                 case 'action':       _cb.onRemoteAction?.(msg); break;
-                case 'opponentLeft': _cb.onOpponentLeft?.(); break;
+                case 'opponentJoined':  _myRole = msg.role; _cb.onOpponentJoined?.(msg.role); break;
+                case 'opponentLeft':    _cb.onOpponentLeft?.(); break;
+                case 'rematchPending': _cb.onRematchPending?.(); break;
             }
         };
 
@@ -55,5 +57,10 @@ export function sendAction(actionType, serializedState, effectData = null) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
     const msg = { type: 'action', actionType, state: serializedState };
     if (effectData) msg.effects = effectData;
+    _ws.send(JSON.stringify(msg));
+}
+
+export function sendMessage(msg) {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
     _ws.send(JSON.stringify(msg));
 }

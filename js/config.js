@@ -168,6 +168,20 @@ export const MORALE_CONFIG = {
     0: { name: '混乱',     dmgMulti: 0,    icon: '？', color: '#999',    desc: '无法操控' }
 };
 
+// ==== 天气配置 ====================
+export const WEATHER_CONFIG = {
+    clear: { name: '晴天', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
+    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城回血20%' },
+    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵伤害−25% 射程−1 · 骑兵冲锋1格生效 伤害+30%' },
+    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 伤害+15% · 步兵暴击率硬上限5%' }
+};
+
+export const WEATHER_CYCLE = {
+    warmupRounds:   2,
+    weatherDuration: 2,
+    clearDuration:   1
+};
+
 // ==== 设置（通过 localStorage 持久化） ====================
 const SETTINGS_KEY = 'bladesOfHex_settings';
 

@@ -13,7 +13,7 @@ function delay(ms) {
     return new Promise(r => setTimeout(r, ms));
 }
 
-const helpers = { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG };
+const helpers = { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, weather: gameState.weather };
 
 function resolveUnit(id) {
     for (const tile of gameState.tiles) {

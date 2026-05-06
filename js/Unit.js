@@ -279,8 +279,19 @@ export class Unit {
         if (counterCoeff > 1) critRate = 0.4;
         else if (counterCoeff < 1) critRate = 0.05;
 
-        const cavBonus = (this.type === 'cavalry' && this.moveDistance >= 2) ? 0.25 : 0;
-        const result = this._resolveDamage(this, targetUnit, critRate, 1.5, 1, cavBonus);
+        if (gs.weather === 'wind' && this.type === 'infantry') {
+            critRate = Math.min(critRate, 0.05);
+        }
+
+        const chargeThreshold = gs.weather === 'fog' ? 1 : 2;
+        const chargeAmount    = gs.weather === 'fog' ? 0.30 : 0.25;
+        const cavBonus = (this.type === 'cavalry' && this.moveDistance >= chargeThreshold) ? chargeAmount : 0;
+
+        let weatherAtkBonus = 0;
+        if (gs.weather === 'fog'  && this.type === 'archer') weatherAtkBonus = -0.25;
+        if (gs.weather === 'wind' && this.type === 'archer') weatherAtkBonus = +0.15;
+
+        const result = this._resolveDamage(this, targetUnit, critRate, 1.5, 1, cavBonus + weatherAtkBonus);
 
         gs.damageTexts.push({
             x: targetUnit.tile.x,
