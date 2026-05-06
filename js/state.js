@@ -1,4 +1,4 @@
-import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard } from './config.js';
+import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, calcIncome } from './config.js';
 import { isNetworkGame, isMyTurn } from './network.js';
 
 // ===== 游戏核心状态 =====================
@@ -137,8 +137,8 @@ export function updateStatsPanel() {
     if (!content) return;
     const p1c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player1).length;
     const p2c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player2).length;
-    const p1i = p1c >= 3 ? 20+15+(p1c-2)*10 : p1c === 2 ? 35 : p1c === 1 ? 20 : 0;
-    const p2i = p2c >= 3 ? 20+15+(p2c-2)*10 : p2c === 2 ? 35 : p2c === 1 ? 20 : 0;
+    const p1i = calcIncome(p1c);
+    const p2i = calcIncome(p2c);
     content.innerHTML = `
         <div class="stat-turn-label">回合</div>
         <div class="stat-turn-num">${Math.floor(gameState.turnCounter / 2) + 1}</div>
@@ -146,10 +146,6 @@ export function updateStatsPanel() {
         <div class="stat-row"><span class="stat-p2">蓝军</span><span class="stat-val">⚔${gameState.killCount.player2} 🏰${p2c} ⚱${p2i}</span></div>
         <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">⚔${gameState.killCount.neutral} 🏰${gameState.tiles.filter(t => t.isCity && t.camp === CAMP.neutral).length}</span></div>
     `;
-}
-
-export function rebuildLogDOM() {
-    updateStatsPanel();
 }
 
 // ===== 选中清除 =====================
@@ -262,21 +258,10 @@ export function deserializeState(data, HexTileClass, UnitClass) {
 
     rebuildTileMap();
     clearselection();
-    rebuildLogDOM();
+    updateStatsPanel();
     updateUI();
     updateButtonColors();
     invalidateBoard();
-}
-
-export function snapshotState() {
-    return serializeState();
-}
-
-export function restoreState(snapshot, HexTileClass, UnitClass) {
-    // Clear transient effects so visuals don't linger from the undone action
-    const effects = document.querySelector('script[data-effects]');
-    // We use a dynamic import approach below — but for simplicity just import inline
-    deserializeState(snapshot, HexTileClass, UnitClass);
 }
 
 // ==== Toast 胶囊提示 ====

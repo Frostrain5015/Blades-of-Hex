@@ -1,7 +1,7 @@
-import { loadSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE } from './config.js';
+import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE } from './config.js';
 import { gameState, updateUI, logMessage, applyRemoteState } from './state.js';
-import { setGameStateRef } from './HexTile.js';
-import { setLogMessageRef, setGameStateRefForUnit } from './Unit.js';
+import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
+import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { initMap, triggerVictoryEffect } from './gameLogic.js';
 import { renderGame } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
@@ -20,9 +20,9 @@ import './cheat.js';
 
 loadSettings();
 initCanvas();
-setGameStateRef(gameState);
+setHexTileGameStateRef(gameState);
 setLogMessageRef(logMessage);
-setGameStateRefForUnit(gameState);
+setGameStateRef(gameState);
 
 // ==== 自适应布局 ====
 function fitCanvas() {

@@ -1,5 +1,5 @@
-import { HEX_SIZE, canvas, ctx, hexPath, drawHexagonOutline, hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG } from './config.js';
-import { gameState, updateButtonColors, updateUI, logMessage, clearselection, snapshotState, restoreState, saveGame, loadGame, serializeState, rebuildTileMap, notify } from './state.js';
+import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome } from './config.js';
+import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify } from './state.js';
 import { isNetworkGame, sendAction } from './network.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
@@ -301,9 +301,7 @@ export async function endTurn() {
     const currentPlayerKey = gameState.currentCamp === CAMP.player1 ? 'player1' : 'player2';
     const currentCampCities = gameState.tiles.filter(t => t.isCity && t.camp === gameState.currentCamp);
     const cityCount = currentCampCities.length;
-    const income = cityCount >= 3 ? 20 + 15 + (cityCount - 2) * 10
-                 : cityCount === 2 ? 20 + 15
-                 : cityCount === 1 ? 20 : 0;
+    const income = calcIncome(cityCount);
     gameState.playerGold[currentPlayerKey] += income;
     logMessage(`${gameState.currentCamp.name}回合结束，本回合${gameState.currentCamp.name}城市产出共计${income}金币`);
 
@@ -736,7 +734,7 @@ async function handleSurrender() {
 
 // ===== 撤销系统 =====================
 function pushUndo() {
-    gameState.undoStack.push(snapshotState());
+    gameState.undoStack.push(serializeState());
     if (gameState.undoStack.length > 5) gameState.undoStack.shift();
 }
 
@@ -751,7 +749,7 @@ export function undoLastAction() {
         return;
     }
     const snapshot = gameState.undoStack.pop();
-    restoreState(snapshot, HexTile, Unit);
+    deserializeState(snapshot, HexTile, Unit);
     clearTransientEffects();
     logMessage('已撤销上一步操作');
 }
