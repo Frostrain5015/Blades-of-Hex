@@ -6,7 +6,7 @@ export const gameState = {
     tiles: [],
     tileMap: new Map(),
     currentCamp: CAMP.player1,
-    playerGold: { player1: 40, player2: 40 },
+    playerGold: { player1: 40, player2: 40, neutral: 20 },
     selectedUnit: null,
     movableTiles: [],
     moveParents: new Map(),
@@ -15,17 +15,17 @@ export const gameState = {
     healTexts: [],
     selectedCityTile: null,
     selectedTile: null,
-    capturedNeutralCities: new Set(),
     goldTexts: [],
     hoveredTile: null,
     selectionTime: 0,
     gameOver: false,
     victoryCamp: null,
-    previousGold: { player1: 25, player2: 25 },
+    previousGold: { player1: 25, player2: 25, neutral: 25 },
     undoStack: [],
     turnCounter: 0,
     logHistory: [],
-    killCount: { player1: 0, player2: 0, neutral: 0 }
+    killCount: { player1: 0, player2: 0, neutral: 0 },
+    aiActing: false
 };
 
 export function rebuildTileMap() {
@@ -58,7 +58,8 @@ export function updateRecruitButtonStates() {
     };
 
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
-    if (opponentTurn || gameState.gameOver) {
+    const isNeutralTurn = gameState.currentCamp === CAMP.neutral;
+    if (opponentTurn || isNeutralTurn || gameState.gameOver) {
         for (const btn of Object.values(btns)) {
             if (btn) { btn.disabled = true; btn.classList.remove('available'); }
         }
@@ -67,7 +68,7 @@ export function updateRecruitButtonStates() {
 
     const city = gameState.selectedCityTile;
     const canRecruit = city && city.isCity && city.camp === gameState.currentCamp && !city.unit;
-    const currentKey = gameState.currentCamp === CAMP.player1 ? 'player1' : 'player2';
+    const currentKey = gameState.currentCamp === CAMP.player1 ? 'player1' : gameState.currentCamp === CAMP.player2 ? 'player2' : 'neutral';
     const gold = gameState.playerGold[currentKey];
 
     for (const [type, btn] of Object.entries(btns)) {
@@ -95,14 +96,16 @@ export function updateUI() {
     const gold2El = document.getElementById('player2Gold');
     const newGold1 = gameState.playerGold.player1;
     const newGold2 = gameState.playerGold.player2;
-    // 联机：非己方回合时禁用操作按钮、显示提示条
+    // 联机/中立回合：禁用操作按钮、显示提示条
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
+    const isNeutralTurn = gameState.currentCamp === CAMP.neutral;
+    const disableBtns = opponentTurn || isNeutralTurn || gameState.gameOver;
     ['endTurnBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher', 'surrenderBtn'].forEach(id => {
         const btn = document.getElementById(id);
-        if (btn) btn.disabled = opponentTurn;
+        if (btn) btn.disabled = disableBtns;
     });
     const banner = document.getElementById('opponentTurnBanner');
-    if (banner) banner.style.display = opponentTurn ? 'flex' : 'none';
+    if (banner) banner.style.display = (opponentTurn || isNeutralTurn) ? 'flex' : 'none';
 
     if (newGold1 !== gameState.previousGold.player1) {
         gold1El.textContent = newGold1;
@@ -137,14 +140,16 @@ export function updateStatsPanel() {
     if (!content) return;
     const p1c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player1).length;
     const p2c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player2).length;
+    const nc  = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.neutral).length;
     const p1i = calcIncome(p1c);
     const p2i = calcIncome(p2c);
+    const ni  = calcIncome(nc);
     content.innerHTML = `
         <div class="stat-turn-label">回合</div>
-        <div class="stat-turn-num">${Math.floor(gameState.turnCounter / 2) + 1}</div>
+        <div class="stat-turn-num">${Math.floor(gameState.turnCounter / 3) + 1}</div>
         <div class="stat-row"><span class="stat-p1">红军</span><span class="stat-val">⚔${gameState.killCount.player1} 🏰${p1c} ⚱${p1i}</span></div>
         <div class="stat-row"><span class="stat-p2">蓝军</span><span class="stat-val">⚔${gameState.killCount.player2} 🏰${p2c} ⚱${p2i}</span></div>
-        <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">⚔${gameState.killCount.neutral} 🏰${gameState.tiles.filter(t => t.isCity && t.camp === CAMP.neutral).length}</span></div>
+        <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">⚔${gameState.killCount.neutral} 🏰${nc} ⚱${ni}</span></div>
     `;
 }
 
@@ -192,10 +197,9 @@ export function serializeState() {
 
     return {
         tiles: tilesData,
-        currentCampKey: gameState.currentCamp === CAMP.player1 ? 'p1' : 'p2',
+        currentCampKey: gameState.currentCamp === CAMP.player1 ? 'p1' : gameState.currentCamp === CAMP.player2 ? 'p2' : 'neutral',
         playerGold: { ...gameState.playerGold },
         previousGold: { ...gameState.previousGold },
-        capturedNeutralCities: [...gameState.capturedNeutralCities],
         turnCounter: gameState.turnCounter,
         gameOver: gameState.gameOver,
         victoryCampKey: gameState.victoryCamp ? (gameState.victoryCamp === CAMP.player1 ? 'p1' : 'p2') : null,
@@ -205,17 +209,16 @@ export function serializeState() {
 }
 
 export function deserializeState(data, HexTileClass, UnitClass) {
+    const campMap = { p1: CAMP.player1, p2: CAMP.player2, neutral: CAMP.neutral };
+
     idCounter = data.idCounter;
     gameState.gameOver = data.gameOver;
-    gameState.victoryCamp = data.victoryCampKey ? (data.victoryCampKey === 'p1' ? CAMP.player1 : CAMP.player2) : null;
-    gameState.currentCamp = data.currentCampKey === 'p1' ? CAMP.player1 : CAMP.player2;
-    gameState.playerGold = { ...data.playerGold };
-    gameState.previousGold = { ...data.previousGold };
-    gameState.capturedNeutralCities = new Set(data.capturedNeutralCities);
+    gameState.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
+    gameState.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
+    gameState.playerGold = { player1: 40, player2: 40, neutral: 20, ...data.playerGold };
+    gameState.previousGold = { player1: 25, player2: 25, neutral: 25, ...data.previousGold };
     gameState.turnCounter = data.turnCounter;
     gameState.logHistory = [...data.logHistory];
-
-    const campMap = { p1: CAMP.player1, p2: CAMP.player2, neutral: CAMP.neutral };
 
     // Preserve displayHp for units whose HP hasn't changed (prevents visual flicker on remote state sync)
     const oldDisplayHp = new Map();
@@ -300,6 +303,7 @@ function showToast(icon, text, accentColor) {
 }
 
 export function notify(text, type = 'info') {
+    if (gameState.aiActing && type === 'error') return;
     const cfg = { success: ['✓', '#6fcf7a'], error: ['!', '#e8a840'], info: ['i', '#aac8e0'] };
     const [icon, color] = cfg[type] || cfg.info;
     showToast(icon, text, color);

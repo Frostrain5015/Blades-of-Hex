@@ -73,7 +73,7 @@ export class Unit {
         if (!path || path.length < 2) return;
         this.movePath = path;
         this.movePathStart = frameInfo.now;
-        this.movePathDuration = (path.length - 1) * 220 / (settings.animationSpeed || 1);
+        this.movePathDuration = (path.length - 1) * 120 / (settings.animationSpeed || 1);
     }
 
     draw(tileX, tileY) {

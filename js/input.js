@@ -282,7 +282,7 @@ export function initKeyboard() {
         if (!gameState.gameOver) {
             if (e.key === 'e' || e.key === 'Enter') {
                 e.preventDefault();
-                endTurn();
+                if (gameState.currentCamp !== CAMP.neutral) endTurn();
                 return;
             }
 

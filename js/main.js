@@ -5,7 +5,8 @@ import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { initMap, triggerVictoryEffect } from './gameLogic.js';
 import { renderGame } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
-import { connectToServer, setNetworkCallbacks } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole } from './network.js';
+import { CAMP } from './config.js';
 import {
     clearTransientEffects, triggerTurnFlash,
     triggerAttackFlash, triggerRecruitFlash,
@@ -315,19 +316,32 @@ function setupNetworkAndConnect(url) {
 }
 
 // ==== 处理对手发来的操作 ----
-function handleRemoteAction(msg) {
+async function handleRemoteAction(msg) {
     const wasGameOver = gameState.gameOver;
     applyRemoteState(msg.state, HexTile, Unit);
-    // 不清除特效，让旧特效自然淡出，新特效叠加上去
 
     if (gameState.gameOver && !wasGameOver) {
         triggerVictoryEffect();
         return;
     }
 
+    // 联机：主机收到 P2 的 endTurn 后，若状态切换为中立，执行 AI 回合
+    if (msg.actionType === 'endTurn' && gameState.currentCamp === CAMP.neutral && !gameState.gameOver) {
+        if (getMyRole() === 'player1') {
+            const { processNeutralTurn } = await import('./ai.js');
+            await processNeutralTurn();
+            if (!gameState.gameOver) {
+                const { endTurn } = await import('./gameLogic.js');
+                await endTurn(); // 自动结束中立 → P1，广播
+            }
+        }
+        return;
+    }
+
     const e = msg.effects;
     switch (msg.actionType) {
         case 'move':
+            playSound('move');
             if (e) {
                 const movedUnit = gameState.tiles.reduce((found, t) =>
                     found || (t.unit?.id === e.unitId ? t.unit : null), null);

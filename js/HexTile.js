@@ -148,7 +148,7 @@ export class HexTile {
     drawOverlay() {
         const gs = _gameState;
         const cx = this.x, cy = this.y;
-        const isSelected = gs && gs.selectedUnit && gs.selectedUnit.tile === this;
+        const isSelected = gs && !gs.aiActing && gs.selectedUnit && gs.selectedUnit.tile === this;
         const isHovered = gs && gs.hoveredTile === this;
         if (!isHovered && !isSelected) return;
 
