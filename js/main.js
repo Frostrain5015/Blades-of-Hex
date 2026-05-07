@@ -14,7 +14,7 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles,
     spawnRecruitEffect, spawnSlashMarks,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect,
-    spawnProjectile, triggerRecoil
+    spawnProjectile, triggerRecoil, triggerCharge
 } from './effects.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
@@ -625,6 +625,7 @@ async function handleRemoteAction(msg) {
                 } else {
                     spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 22 : 10);
                     spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
+                    if (!e.killed) triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                 }
                 triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                 if (e.killed) {

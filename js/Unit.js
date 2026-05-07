@@ -1,7 +1,7 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage } from './commanderInterface.js';
 import { nextId } from './state.js';
-import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, getRecoilOffset } from './effects.js';
+import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, getRecoilOffset, getChargeOffset } from './effects.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -93,6 +93,13 @@ export class Unit {
             vy += recoil.y;
         }
 
+        // 近战突进偏移（撞击目标）
+        const charge = getChargeOffset(this.id, frameInfo.now);
+        if (charge) {
+            vx += charge.x;
+            vy += charge.y;
+        }
+
         return { x: vx, y: vy };
     }
 
@@ -105,15 +112,11 @@ export class Unit {
 
     draw(tileX, tileY) {
         const now = frameInfo.now;
-        let visualX = tileX, visualY = tileY;
+        const pos = this.getVisualPos();
+        let visualX = pos.x, visualY = pos.y;
         if (this.movePath) {
-            const elapsed = now - this.movePathStart;
-            if (elapsed >= this.movePathDuration) {
+            if (now - this.movePathStart >= this.movePathDuration) {
                 this.movePath = null;
-            } else {
-                const pos = this.getVisualPos();
-                visualX = pos.x;
-                visualY = pos.y;
             }
         }
 

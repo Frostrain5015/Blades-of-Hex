@@ -11,7 +11,7 @@ import {
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
-    spawnProjectile, triggerRecoil
+    spawnProjectile, triggerRecoil, triggerCharge
 } from './effects.js';
 import { playSound } from './audio.js';
 
@@ -699,6 +699,10 @@ export function attackUnit(attackerUnit, targetUnit) {
     }
     triggerScreenShake(attackResult.isCrit ? 6 : 3, attackResult.isCrit ? 200 : 120);
     const isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
+    // 近战突进特效（击杀时由 movePath 处理位移，不重复触发）
+    if (attackerUnit.type !== 'archer' && !isTargetDead) {
+        triggerCharge(attackerUnit.id, fromX, fromY, toX, toY);
+    }
     logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（强击）' : ''}`);
 
     // 将领攻击效果（吸血鬼嗜血、谋士攻心等）
@@ -800,6 +804,7 @@ export function attackUnit(attackerUnit, targetUnit) {
     broadcastAction('attack', {
         x: toX, y: toY,
         fromX, fromY,
+        attackerUnitId: attackerUnit.id,
         attackerType: attackerUnit.type,
         isCrit: attackResult.isCrit,
         killed: isTargetDead,
