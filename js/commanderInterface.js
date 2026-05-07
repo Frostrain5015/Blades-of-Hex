@@ -159,9 +159,13 @@ export function getCommanderAllyAuraDamage(ally, actualDmg, ironGuardUnit) {
 
 // ---- 停滞者缚足 ----
 
+export function getStallerSnareLayers(tile, friendlyCamp, tileMap) {
+  if (!tileMap) return 0;
+  return stallerDef.getSnareLayers(tile, friendlyCamp, tileMap);
+}
+
 export function isInStallerZone(tile, friendlyCamp, tileMap) {
-  if (!tileMap) return false;
-  return stallerDef.isInSnareZone(tile, friendlyCamp, tileMap);
+  return getStallerSnareLayers(tile, friendlyCamp, tileMap) > 0;
 }
 
 // ---- 通用：改变单位阵营（感化/招降，供将领钩子调用） ----

@@ -1,25 +1,47 @@
 // 停滞者 —— 缚足
 const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 
+const RANGE2 = (() => {
+    const set = new Set(HEX_NEIGHBORS.map(([q, r]) => `${q},${r}`));
+    for (const [q1, r1] of HEX_NEIGHBORS) {
+        for (const [q2, r2] of HEX_NEIGHBORS) {
+            const q = q1 + q2, r = r1 + r2;
+            if (q === 0 && r === 0) continue;
+            set.add(`${q},${r}`);
+        }
+    }
+    return Array.from(set).map(s => s.split(',').map(Number));
+})();
+
+// 距离环：[0]=自身, [1]=相邻6格, [2]=距离2共12格
+const RINGS = [[[0, 0]], HEX_NEIGHBORS, RANGE2];
+
 export default {
   id: 'staller',
   name: '停滞者',
   skill: '缚足',
-  hpBonus: 15, atkBonus: 5, spdBonus: 0,
-  desc: '自身及相邻6格范围内非己方单位行动力消耗+3',
+  hpBonus: 50, atkBonus: 15, spdBonus: 0,
+  desc: '距0/1/2格的非己方单位各获3/2/1层【缚足】，每层行动消耗+1.5',
 
-  // 判定某地块对friendlyCamp的友军是否处于缚足区域
-  isInSnareZone(tile, friendlyCamp, tileMap) {
-    if (tile.unit && tile.unit.commander === 'staller' && tile.unit.camp !== friendlyCamp) return true;
-    for (const [dq, dr] of HEX_NEIGHBORS) {
-      const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-      if (nb && nb.unit && nb.unit.commander === 'staller' && nb.unit.camp !== friendlyCamp) return true;
+  // 返回该地块对friendlyCamp的缚足层数（0=无效果）
+  getSnareLayers(tile, friendlyCamp, tileMap) {
+    if (!tileMap) return 0;
+    let best = 0;
+    for (let d = 0; d <= 2; d++) {
+      for (const [dq, dr] of RINGS[d]) {
+        const nb = tileMap.get(`${tile.q - dq},${tile.r - dr}`);
+        if (nb && nb.unit && nb.unit.commander === 'staller' &&
+            nb.unit.camp !== friendlyCamp && nb.unit.hp > 0) {
+          best = Math.max(best, 3 - d);
+        }
+      }
+      if (best > 0) break; // 最近距离优先
     }
-    return false;
+    return best;
   },
 
-  getMoveCostModifier(unit, tile) {
-    // This is checked per-tile during move cost calculation
-    return 3; // additional cost per step
+  // 兼容旧接口
+  isInSnareZone(tile, friendlyCamp, tileMap) {
+    return this.getSnareLayers(tile, friendlyCamp, tileMap) > 0;
   }
 };

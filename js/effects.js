@@ -622,6 +622,194 @@ export function getChargeOffset(unitId, now) {
     return null;
 }
 
+// ===== 吸血鬼嗜血：红色粒子流 =====================
+export const bloodDrains = [];
+
+export function spawnBloodDrain(fromX, fromY, toX, toY) {
+    const count = Math.round(28 * settings.particleDensity);
+    for (let i = 0; i < count; i++) {
+        const orbitAngle = Math.random() * Math.PI * 2;
+        const orbitRadius = 22 + Math.random() * 40;
+        const orbitSpeed = 0.7 + Math.random() * 1.3;
+        const peakHeight = 25 + Math.random() * 45;
+        const delay = Math.random() * 0.25;
+        bloodDrains.push({
+            x: fromX, y: fromY,
+            fromX, fromY, toX, toY,
+            life: 1.1 + Math.random() * 0.6,
+            maxLife: 1.7,
+            size: 1.2 + Math.random() * 1.8,
+            orbitAngle, orbitRadius, orbitSpeed, peakHeight,
+            delay,
+            trail: []
+        });
+    }
+}
+
+export function updateBloodDrains(dt) {
+    for (let i = bloodDrains.length - 1; i >= 0; i--) {
+        const b = bloodDrains[i];
+        b.life -= dt;
+        if (b.life <= 0) { bloodDrains.splice(i, 1); continue; }
+        const rawT = 1 - b.life / b.maxLife;
+        if (rawT < b.delay) continue;
+        const t = (rawT - b.delay) / (1 - b.delay);
+        const spiralFactor = Math.sin(t * Math.PI);
+        const spiralAngle = b.orbitAngle + t * b.orbitSpeed * Math.PI * 2;
+        const spiralX = Math.cos(spiralAngle) * b.orbitRadius * spiralFactor;
+        const spiralY = Math.sin(spiralAngle) * b.orbitRadius * spiralFactor * 0.6;
+        const baseX = b.fromX + (b.toX - b.fromX) * t;
+        const baseY = b.fromY + (b.toY - b.fromY) * t - Math.sin(t * Math.PI) * b.peakHeight;
+        b.x = baseX + spiralX;
+        b.y = baseY + spiralY;
+        b.trail.push({ x: b.x, y: b.y, life: 0.2 });
+        for (let j = b.trail.length - 1; j >= 0; j--) {
+            b.trail[j].life -= dt;
+            if (b.trail[j].life <= 0) b.trail.splice(j, 1);
+        }
+        if (b.trail.length > 6) b.trail.splice(0, b.trail.length - 6);
+    }
+}
+
+// ===== 谋士攻心：紫色闪电 =====================
+export const lightningBolts = [];
+
+export function spawnPurpleLightning(x, y) {
+    const segments = [];
+    let sx = x + (Math.random() - 0.5) * 14;
+    let sy = y - 55;
+    for (let i = 0; i < 6; i++) {
+        const ex = sx + (Math.random() - 0.5) * 16;
+        const ey = sy + 9 + Math.random() * 6;
+        segments.push({ x1: sx, y1: sy, x2: ex, y2: ey });
+        sx = ex; sy = ey;
+    }
+    segments.push({ x1: sx, y1: sy, x2: x, y2: y });
+    lightningBolts.push({
+        x, y,
+        segments,
+        startTime: Date.now(),
+        duration: 320
+    });
+}
+
+export function updateLightningBolts(now) {
+    for (let i = lightningBolts.length - 1; i >= 0; i--) {
+        if (now - lightningBolts[i].startTime > lightningBolts[i].duration) {
+            lightningBolts.splice(i, 1);
+        }
+    }
+}
+
+export function drawLightningBolts(ctx2d, now) {
+    for (const b of lightningBolts) {
+        const elapsed = now - b.startTime;
+        const alpha = elapsed < 60 ? elapsed / 60 : Math.max(0, 1 - (elapsed - 60) / (b.duration - 60));
+        ctx2d.save();
+        ctx2d.globalAlpha = alpha;
+        // 外层辉光
+        ctx2d.strokeStyle = '#c080ff';
+        ctx2d.lineWidth = 4;
+        ctx2d.shadowColor = '#d0a0ff';
+        ctx2d.shadowBlur = 12;
+        ctx2d.beginPath();
+        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+        ctx2d.stroke();
+        // 核心亮线
+        ctx2d.strokeStyle = '#f0e0ff';
+        ctx2d.lineWidth = 1.5;
+        ctx2d.shadowBlur = 0;
+        ctx2d.beginPath();
+        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+        ctx2d.stroke();
+        ctx2d.restore();
+    }
+}
+
+// ===== 百夫长乘胜：金焰粒子 + 胜利涟漪 =====================
+export function spawnGoldenFlame(x, y) {
+    const n = Math.round(10 * settings.particleDensity);
+    for (let i = 0; i < n; i++) {
+        particles.push(new VisualParticle(
+            x + (Math.random() - 0.5) * 10,
+            y + (Math.random() - 0.5) * 4,
+            (Math.random() - 0.5) * 30,
+            -(60 + Math.random() * 80),
+            Math.random() < 0.3 ? '#ffffff' : (Math.random() < 0.5 ? '#ffdd44' : '#ffaa00'),
+            2 + Math.random() * 3.5,
+            0.4 + Math.random() * 0.5,
+            -60
+        ));
+    }
+}
+
+// 百夫长涟漪复用 softFlashes，直接调用 triggerHealFlash 风格即可
+export function spawnVictoryRipple(x, y) {
+    softFlashes.push({
+        x, y,
+        startTime: Date.now(),
+        duration: 420,
+        maxRadius: HEX_SIZE * 1.8,
+        color: '#ffcc44'
+    });
+}
+
+// ===== 尚书屯田：金币雨 =====================
+export const coinParticles = [];
+
+export function spawnCoinRain(x, y) {
+    const n = Math.round(8 * settings.particleDensity);
+    for (let i = 0; i < n; i++) {
+        coinParticles.push({
+            x: x + (Math.random() - 0.5) * 20,
+            y: y - 35 - Math.random() * 20,
+            vy: 60 + Math.random() * 70,
+            vx: (Math.random() - 0.5) * 20,
+            size: 3 + Math.random() * 2.5,
+            life: 0.7 + Math.random() * 0.5,
+            maxLife: 1.2,
+            bounceY: y,
+            bounced: false
+        });
+    }
+}
+
+export function updateCoinParticles(dt) {
+    for (let i = coinParticles.length - 1; i >= 0; i--) {
+        const c = coinParticles[i];
+        c.life -= dt;
+        if (c.life <= 0) { coinParticles.splice(i, 1); continue; }
+        c.y += c.vy * dt;
+        c.x += c.vx * dt;
+        c.vy += 300 * dt;
+        if (!c.bounced && c.y >= c.bounceY) {
+            c.y = c.bounceY;
+            c.vy = -(c.vy * 0.3);
+            c.vx *= 0.5;
+            if (Math.abs(c.vy) < 15) c.vy = 0;
+            c.bounced = Math.abs(c.vy) < 5 ? true : c.bounced;
+        }
+    }
+}
+
+export function drawCoinParticles(ctx2d) {
+    for (const c of coinParticles) {
+        const progress = 1 - c.life / c.maxLife;
+        const alpha = Math.max(0, 1 - progress * 0.7);
+        ctx2d.save();
+        ctx2d.globalAlpha = alpha;
+        ctx2d.fillStyle = '#ffd700';
+        ctx2d.shadowColor = '#cc9900';
+        ctx2d.shadowBlur = 3;
+        ctx2d.beginPath();
+        ctx2d.ellipse(c.x, c.y, c.size, c.size * 0.5, 0, 0, Math.PI * 2);
+        ctx2d.fill();
+        ctx2d.restore();
+    }
+}
+
 // ===== 清除所有瞬时效果（用于撤销/读档） =====================
 export function clearTransientEffects() {
     particles.length = 0;
@@ -638,6 +826,9 @@ export function clearTransientEffects() {
     projectiles.length = 0;
     recoils.length = 0;
     charges.length = 0;
+    bloodDrains.length = 0;
+    lightningBolts.length = 0;
+    coinParticles.length = 0;
     screenShake.time = 0;
     screenShake.x = 0;
     screenShake.y = 0;

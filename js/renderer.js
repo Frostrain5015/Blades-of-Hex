@@ -9,7 +9,10 @@ import {
     rainParticles, splashParticles, fogBlobs, windStreaks, spawnWeatherParticles,
     commanderSkillEffects, commanderFlash,
     factionMoraleFlash,
-    drawProjectiles, updateProjectiles
+    drawProjectiles, updateProjectiles,
+    bloodDrains, updateBloodDrains,
+    lightningBolts, updateLightningBolts, drawLightningBolts,
+    coinParticles, updateCoinParticles, drawCoinParticles
 } from './effects.js';
 
 let lastTime = Date.now();
@@ -312,6 +315,71 @@ export function renderGame() {
     // 治疗 / 招募光环
     drawSoftFlashes(ctx, now);
 
+    // 吸血鬼血流粒子
+    if (bloodDrains.length > 0) {
+        for (const b of bloodDrains) {
+            const rawT = 1 - b.life / b.maxLife;
+            if (rawT < b.delay) continue;
+            const t = (rawT - b.delay) / (1 - b.delay);
+            const alpha = t < 0.15 ? t / 0.15 : Math.max(0, 1 - (t - 0.8) / 0.2);
+            if (alpha <= 0) continue;
+            // 拖尾
+            if (b.trail.length > 1) {
+                for (let j = 1; j < b.trail.length; j++) {
+                    const trailAlpha = alpha * 0.3 * (j / b.trail.length);
+                    ctx.save();
+                    ctx.globalAlpha = trailAlpha;
+                    ctx.strokeStyle = '#ff4444';
+                    ctx.lineWidth = b.size * 0.6 * (j / b.trail.length);
+                    ctx.shadowColor = '#cc1111';
+                    ctx.shadowBlur = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(b.trail[j - 1].x, b.trail[j - 1].y);
+                    ctx.lineTo(b.trail[j].x, b.trail[j].y);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+            // 外层辉光
+            ctx.save();
+            ctx.globalAlpha = alpha * 0.5;
+            ctx.fillStyle = '#ff2222';
+            ctx.shadowColor = '#ff4444';
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.size * 1.6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            // 核心亮点
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#ff8888';
+            ctx.shadowBlur = 6;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.size * 0.45, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            // 粒子本体
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#ff3333';
+            ctx.shadowColor = '#cc0000';
+            ctx.shadowBlur = 4;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.size * 0.85, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // 谋士闪电
+    updateLightningBolts(now);
+    drawLightningBolts(ctx, now);
+
+    // 尚书金币
+    if (coinParticles.length > 0) drawCoinParticles(ctx);
+
     ctx.restore();
 
     // 彩纸（不跟随震动）
@@ -319,6 +387,10 @@ export function renderGame() {
         updateConfetti(dt);
         drawConfetti(ctx);
     }
+
+    // 不跟随震动的粒子更新
+    if (bloodDrains.length > 0) updateBloodDrains(dt);
+    if (coinParticles.length > 0) updateCoinParticles(dt);
 }
 
 function drawMoraleEffects(now) {
@@ -353,23 +425,14 @@ function drawMoraleEffects(now) {
             const size = 34 - 23 * t;
             const alpha = 0.75 * (1 - t * 0.5);
 
-            const dotAlpha = t * 0.55;
-            ctx.save();
-            ctx.globalAlpha = dotAlpha;
-            ctx.fillStyle = 'rgba(0,0,0,0.55)';
-            ctx.beginPath();
-            ctx.arc(cornerX, cornerY, 9, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-
             ctx.save();
             ctx.globalAlpha = alpha;
             ctx.fillStyle = mc.color;
             ctx.font = `bold ${size}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.shadowColor = mc.color;
-            ctx.shadowBlur = 8 * (1 - t);
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            ctx.shadowBlur = 4 + 4 * (1 - t);
             ctx.fillText(mc.icon, x, y + 1);
             ctx.restore();
         }
@@ -390,15 +453,12 @@ function drawMoraleIndicators() {
         const cornerY = unit.tile.y - HEX_SIZE * 0.35;
 
         ctx.save();
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.beginPath();
-        ctx.arc(cornerX, cornerY, 9, 0, Math.PI * 2);
-        ctx.fill();
-
         ctx.fillStyle = mc.color;
         ctx.font = 'bold 16px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 4;
         ctx.fillText(mc.icon, cornerX, cornerY);
         ctx.restore();
     }
@@ -620,13 +680,16 @@ function drawIronGuardAura(now) {
 
 // ===== 缚足色层（停滞者） =====================
 function drawStallerZone(now) {
-    const affectedTiles = new Set();
-    const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    const ring1 = new Set(); // 距离 0-1
+    const ring2 = new Set(); // 距离 2
+    const stallerData = [];
+    const dirs1 = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    // 距离2偏移（不含距离0/1）
+    const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
 
     for (const tile of gameState.tiles) {
         const u = tile.unit;
         if (!u || u.commander !== 'staller' || u.hp <= 0) continue;
-        // 跟随停滞者视觉位置（移动动画期间平滑过渡）
         const vp = u.getVisualPos();
         let centerTile = tile;
         let minDist = Infinity;
@@ -635,28 +698,98 @@ function drawStallerZone(now) {
             const d2 = dx * dx + dy * dy;
             if (d2 < minDist) { minDist = d2; centerTile = t; }
         }
-        for (const [dq, dr] of dirs) {
-            const neighbor = gameState.tileMap.get(`${centerTile.q + dq},${centerTile.r + dr}`);
-            if (neighbor) affectedTiles.add(neighbor);
+        stallerData.push({ vp, centerTile });
+        for (const [dq, dr] of dirs1) {
+            const nb = gameState.tileMap.get(`${centerTile.q + dq},${centerTile.r + dr}`);
+            if (nb) ring1.add(nb);
+        }
+        for (const [dq, dr] of dirs2) {
+            const nb = gameState.tileMap.get(`${centerTile.q + dq},${centerTile.r + dr}`);
+            if (nb) ring2.add(nb);
         }
     }
+    // ring2 中去掉已被 ring1 覆盖的
+    for (const t of ring1) ring2.delete(t);
 
     const breathe = 0.5 + 0.5 * Math.sin(now / 1200 * Math.PI * 2);
-    const alpha = 0.12 + breathe * 0.12;
-    for (const tile of affectedTiles) {
+
+    // ── 第1圈：荆棘边框 + 底色 ──
+    const a1 = 0.22 + breathe * 0.12;
+    for (const tile of ring1) {
         ctx.save();
-        // 荆棘边框
         hexPath(ctx, tile.x, tile.y, HEX_SIZE - 2);
-        ctx.strokeStyle = `rgba(139,90,43,${alpha + 0.06})`;
+        ctx.strokeStyle = `rgba(139,90,43,${a1 + 0.08})`;
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
         ctx.lineDashOffset = now / 80;
         ctx.stroke();
-        // 微弱底色
         hexPath(ctx, tile.x, tile.y, HEX_SIZE - 2);
-        ctx.fillStyle = `rgba(139,90,43,${alpha * 0.5})`;
+        ctx.fillStyle = `rgba(139,90,43,${a1 * 0.85})`;
         ctx.fill();
         ctx.restore();
+    }
+
+    // ── 第2圈：较淡的锁链边框 + 浅底色 ──
+    const a2 = 0.12 + breathe * 0.08;
+    for (const tile of ring2) {
+        ctx.save();
+        hexPath(ctx, tile.x, tile.y, HEX_SIZE - 2);
+        ctx.fillStyle = `rgba(139,90,43,${a2 * 0.45})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(139,90,43,${a2 + 0.06})`;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 6]);
+        ctx.lineDashOffset = now / 80 + 2.5;
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // ── 停滞者光环 + 触须（仅第1圈邻格） ──
+    for (const sd of stallerData) {
+        const sx = sd.vp.x, sy = sd.vp.y;
+
+        const ringAlpha = 0.15 + breathe * 0.22;
+        ctx.save();
+        ctx.strokeStyle = `rgba(180,120,60,${ringAlpha})`;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = `rgba(180,120,60,${ringAlpha * 0.7})`;
+        ctx.shadowBlur = 8;
+        hexPath(ctx, sx, sy, HEX_SIZE + 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+
+        const tendrilAlpha = 0.20 + breathe * 0.14;
+        for (const [dq, dr] of [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
+            const neighbor = gameState.tileMap.get(`${sd.centerTile.q + dq},${sd.centerTile.r + dr}`);
+            if (!neighbor) continue;
+            const ex = neighbor.x, ey = neighbor.y;
+            const dx = ex - sx, dy = ey - sy;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            // 触须末端超出邻格中心 12%
+            const overX = ex + dx / dist * HEX_SIZE * 0.40;
+            const overY = ey + dy / dist * HEX_SIZE * 0.40;
+            const mx = (sx + overX) / 2, my = (sy + overY) / 2;
+            const perpX = -dy / dist * 2.5, perpY = dx / dist * 2.5;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.quadraticCurveTo(mx + perpX, my + perpY, overX, overY);
+            ctx.strokeStyle = `rgba(160,100,50,${tendrilAlpha})`;
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 5]);
+            ctx.lineDashOffset = now / 90;
+            ctx.stroke();
+
+            const tipX = sx + (overX - sx) * 0.78 + perpX * 0.4;
+            const tipY = sy + (overY - sy) * 0.78 + perpY * 0.4;
+            ctx.beginPath();
+            ctx.arc(tipX, tipY, 2, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(180,120,60,${tendrilAlpha + 0.08})`;
+            ctx.fill();
+            ctx.restore();
+        }
     }
 }
 

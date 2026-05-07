@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "setup": "npm install && node server.js"
+    "setup": "npm install && node server.js",
+    "generate-cert": "node generate-cert.js",
+    "setup-https": "node generate-cert.js && node server.js"
   },
   "dependencies": {
     "ws": "^8.17.0"
