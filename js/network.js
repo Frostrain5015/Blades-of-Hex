@@ -109,8 +109,6 @@ export function connectToServer(url) {
                     _cb.onOpponentReconnected?.();
                     break;
                 case 'start':
-                    // 防止对局中途角色被意外重新分配
-                    if (_myRole) break;
                     _myRole = msg.role;
                     _cb.onStart?.(msg.role);
                     break;

@@ -507,10 +507,12 @@ let _isReady = false;
 document.getElementById('readyBtn').addEventListener('click', () => {
     _isReady = !_isReady;
     if (_isReady) {
-        readyBtn.textContent = '已准备 · 点击取消';
+        readyBtn.textContent = '取消准备';
+        readyBtn.style.background = '#c0392b';
         sendReady();
     } else {
         readyBtn.textContent = '准备';
+        readyBtn.style.background = '#27ae60';
         sendUnready();
     }
 });
@@ -531,12 +533,14 @@ function registerNetworkCallbacks() {
             showRoomWaiting(roomId);
             _isReady = false;
             readyBtn.textContent = '准备';
+            readyBtn.style.background = '#27ae60';
         },
 
         onRoomJoined: (roomId, role) => {
             showRoomWaiting(roomId);
             _isReady = false;
             readyBtn.textContent = '准备';
+            readyBtn.style.background = '#27ae60';
         },
 
         onRoomList: (list) => renderRoomList(list),
@@ -544,12 +548,12 @@ function registerNetworkCallbacks() {
         onRoomLeft: () => {},
 
         onOpponentJoined: (role) => {
-            roomWaitingText.textContent = '对手已加入！';
+            roomWaitingText.textContent = '对手已加入';
             readyBtn.disabled = false;
         },
 
         onOpponentReady: () => {
-            document.getElementById('lobbyReadyStatus').textContent = '对手已准备！';
+            document.getElementById('lobbyReadyStatus').textContent = '对手已准备';
         },
 
         onOpponentUnready: () => {
@@ -605,6 +609,7 @@ function registerNetworkCallbacks() {
             roomWaitingText.textContent = '对手已离开，等待新对手...';
             readyBtn.disabled = true;
             readyBtn.textContent = '准备';
+            readyBtn.style.background = '#27ae60';
             _isReady = false;
         },
 
@@ -620,6 +625,7 @@ function registerNetworkCallbacks() {
         onReconnected: (role) => {
             _isReady = false;
             readyBtn.textContent = '准备';
+            readyBtn.style.background = '#27ae60';
             // 清除各种遮罩残留
             document.getElementById('roomWaiting').style.display = 'none';
             document.getElementById('victoryOverlay').classList.remove('show');
@@ -648,7 +654,7 @@ function registerNetworkCallbacks() {
         },
 
         onRematchPending: () => {
-            document.getElementById('lobbyReadyStatus').textContent = '对手已准备！';
+            document.getElementById('lobbyReadyStatus').textContent = '对手已准备';
         },
 
         onCommanderSync: (msg) => {
