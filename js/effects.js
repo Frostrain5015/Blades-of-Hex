@@ -52,17 +52,21 @@ export function spawnExplosionParticles(x, y, color, count = 18) {
 }
 
 export function spawnHealParticles(x, y) {
-    const n = particleCount(14);
+    const n = particleCount(18);
+    // 绿色十字星粒子 + 金色微光
     for (let i = 0; i < n; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 30 + Math.random() * 60;
+        const isSparkle = Math.random() < 0.35;
         particles.push(new VisualParticle(
-            x + (Math.random() - 0.5) * 18,
-            y + (Math.random() - 0.5) * 6,
-            (Math.random() - 0.5) * 25,
-            -(25 + Math.random() * 45),
-            Math.random() < 0.6 ? '#66ffaa' : '#aaffdd',
-            1.5 + Math.random() * 3.5,
-            0.7 + Math.random() * 0.7,
-            -25  // gentle anti-gravity: float upward, decelerating
+            x + (Math.random() - 0.5) * 22,
+            y + (Math.random() - 0.5) * 8,
+            Math.cos(angle) * speed * 0.4 + (Math.random() - 0.5) * 20,
+            -(35 + Math.random() * 55),
+            isSparkle ? '#ffeebb' : (Math.random() < 0.5 ? '#66ffaa' : '#88ffcc'),
+            isSparkle ? 2.5 + Math.random() * 3 : 1.5 + Math.random() * 3,
+            0.8 + Math.random() * 0.9,
+            -20
         ));
     }
 }
@@ -437,6 +441,106 @@ export function spawnWeatherParticles(now, weather, logicalW, logicalH) {
     }
 }
 
+// ===== 炮弹飞行特效（炮兵远程攻击） =====================
+export const projectiles = [];
+
+export function spawnProjectile(fromX, fromY, toX, toY, isCrit) {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const duration = Math.min(350, 180 + dist * 0.6);
+    projectiles.push({
+        fromX, fromY,
+        toX, toY,
+        dist,
+        startTime: Date.now(),
+        duration,
+        isCrit
+    });
+}
+
+export function updateProjectiles(now) {
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        if (now - projectiles[i].startTime > projectiles[i].duration + 120) {
+            projectiles.splice(i, 1);
+        }
+    }
+}
+
+export function drawProjectiles(ctx2d, now) {
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        const elapsed = now - p.startTime;
+        const t = Math.min(1, Math.max(0, elapsed / p.duration));
+        // ease-out
+        const eased = 1 - Math.pow(1 - t, 2.5);
+
+        const curX = p.fromX + (p.toX - p.fromX) * eased;
+        const curY = p.fromY + (p.toY - p.fromY) * eased - Math.sin(t * Math.PI) * p.dist * 0.15;
+
+        // 尾焰粒子
+        const trailCount = p.isCrit ? 3 : 2;
+        for (let j = 0; j < trailCount; j++) {
+            const backT = Math.max(0, t - (0.03 + j * 0.04));
+            const backEased = 1 - Math.pow(1 - backT, 2.5);
+            const tx = p.fromX + (p.toX - p.fromX) * backEased;
+            const ty = p.fromY + (p.toY - p.fromY) * backEased - Math.sin(backT * Math.PI) * p.dist * 0.15;
+            ctx2d.save();
+            ctx2d.globalAlpha = 0.25 + 0.15 * j;
+            ctx2d.fillStyle = j === 0 ? '#fff' : (p.isCrit ? '#ffaa00' : '#ff8844');
+            ctx2d.shadowColor = p.isCrit ? '#ffaa00' : '#ff6600';
+            ctx2d.shadowBlur = p.isCrit ? 6 : 4;
+            ctx2d.beginPath();
+            ctx2d.arc(tx, ty, p.isCrit ? 3.5 - j * 0.6 : 2.5 - j * 0.4, 0, Math.PI * 2);
+            ctx2d.fill();
+            ctx2d.restore();
+        }
+
+        // 炮弹本体
+        ctx2d.save();
+        ctx2d.fillStyle = '#fff';
+        ctx2d.shadowColor = p.isCrit ? '#ff4400' : '#ff8844';
+        ctx2d.shadowBlur = p.isCrit ? 10 : 6;
+        ctx2d.beginPath();
+        ctx2d.arc(curX, curY, p.isCrit ? 4 : 3, 0, Math.PI * 2);
+        ctx2d.fill();
+        ctx2d.restore();
+    }
+}
+
+// ===== 单位后坐力（炮兵开火时向后微振） =====================
+export const recoils = [];
+
+export function triggerRecoil(x, y, targetX, targetY) {
+    const dx = x - targetX;
+    const dy = y - targetY;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    recoils.push({
+        x, y,
+        ox: (dx / dist) * 4,
+        oy: (dy / dist) * 4,
+        startTime: Date.now(),
+        duration: 180
+    });
+}
+
+export function getRecoilOffset(x, y, now) {
+    for (let i = recoils.length - 1; i >= 0; i--) {
+        const r = recoils[i];
+        const dx2 = x - r.x;
+        const dy2 = y - r.y;
+        if (Math.abs(dx2) < 3 && Math.abs(dy2) < 3) {
+            const elapsed = now - r.startTime;
+            if (elapsed >= r.duration) { recoils.splice(i, 1); return null; }
+            const p = elapsed / r.duration;
+            // 快速弹出，缓慢回位
+            const force = Math.sin(p * Math.PI) * (1 - p);
+            return { x: r.ox * force, y: r.oy * force };
+        }
+    }
+    return null;
+}
+
 // ===== 清除所有瞬时效果（用于撤销/读档） =====================
 export function clearTransientEffects() {
     particles.length = 0;
@@ -450,6 +554,8 @@ export function clearTransientEffects() {
     splashParticles.length = 0;
     fogBlobs.length = 0;
     windStreaks.length = 0;
+    projectiles.length = 0;
+    recoils.length = 0;
     screenShake.time = 0;
     screenShake.x = 0;
     screenShake.y = 0;

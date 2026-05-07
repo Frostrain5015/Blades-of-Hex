@@ -8,7 +8,8 @@ import {
     VisualParticle, moraleEffects, drawMeleeSlashes,
     rainParticles, splashParticles, fogBlobs, windStreaks, spawnWeatherParticles,
     commanderSkillEffects, commanderFlash,
-    factionMoraleFlash
+    factionMoraleFlash,
+    drawProjectiles, updateProjectiles
 } from './effects.js';
 
 let lastTime = Date.now();
@@ -299,6 +300,10 @@ export function renderGame() {
 
     // 攻击闪光
     drawAttackFlashes(ctx, now);
+
+    // 炮弹飞行特效
+    updateProjectiles(now);
+    drawProjectiles(ctx, now);
 
     // 斩击标记
     drawSlashMarks(ctx, now);
@@ -749,7 +754,7 @@ function drawRangeApertures(now) {
     }
 }
 
-// ===== 伤害文本（增强版：弹跳+暴击特效） =====================
+// ===== 伤害文本（弹跳+强击特效） =====================
 function drawDamageTexts(now) {
     gameState.damageTexts = gameState.damageTexts.filter(text => {
         text.timeLeft -= now - text.lastUpdate;
@@ -774,7 +779,7 @@ function drawDamageTexts(now) {
             ctx.fillStyle = '#ff4400';
             ctx.shadowColor = '#ff4400';
             ctx.shadowBlur = 14;
-            ctx.fillText(`💥 -${Math.round(text.value)}！`, 0, 0);
+            ctx.fillText(`-${Math.round(text.value)}`, 0, 0);
         } else {
             ctx.fillStyle = '#ffffff';
             ctx.shadowColor = '#000';

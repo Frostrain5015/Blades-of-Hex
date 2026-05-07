@@ -1,7 +1,7 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage } from './commanderInterface.js';
 import { nextId } from './state.js';
-import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect } from './effects.js';
+import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, getRecoilOffset } from './effects.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -46,36 +46,54 @@ export class Unit {
     }
 
     getVisualPos() {
-        if (!this.movePath) return { x: this.tile.x, y: this.tile.y };
-        const path = this.movePath;
-        const elapsed = frameInfo.now - this.movePathStart;
-        if (elapsed >= this.movePathDuration) return { x: path[path.length - 1].x, y: path[path.length - 1].y };
+        const baseX = this.tile.x, baseY = this.tile.y;
+        let vx = baseX, vy = baseY;
 
-        const segs = [];
-        let totalLen = 0;
-        for (let i = 1; i < path.length; i++) {
-            const dx = path[i].x - path[i-1].x;
-            const dy = path[i].y - path[i-1].y;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            segs.push({ from: path[i-1], to: path[i], len, acc: totalLen });
-            totalLen += len;
-        }
-        if (totalLen === 0) return { x: this.tile.x, y: this.tile.y };
-
-        const tTotal = elapsed / this.movePathDuration;
-        const target = tTotal * totalLen;
-
-        for (const seg of segs) {
-            if (target <= seg.acc + seg.len) {
-                const t = Math.max(0, Math.min(1, (target - seg.acc) / seg.len));
-                const eased = 1 - Math.pow(1 - t, 3);
-                return {
-                    x: seg.from.x + (seg.to.x - seg.from.x) * eased,
-                    y: seg.from.y + (seg.to.y - seg.from.y) * eased
-                };
+        if (this.movePath) {
+            const path = this.movePath;
+            const elapsed = frameInfo.now - this.movePathStart;
+            if (elapsed >= this.movePathDuration) {
+                vx = path[path.length - 1].x;
+                vy = path[path.length - 1].y;
+            } else {
+                const segs = [];
+                let totalLen = 0;
+                for (let i = 1; i < path.length; i++) {
+                    const dx = path[i].x - path[i-1].x;
+                    const dy = path[i].y - path[i-1].y;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    segs.push({ from: path[i-1], to: path[i], len, acc: totalLen });
+                    totalLen += len;
+                }
+                if (totalLen === 0) {
+                    vx = baseX; vy = baseY;
+                } else {
+                    const tTotal = elapsed / this.movePathDuration;
+                    const target = tTotal * totalLen;
+                    let found = false;
+                    for (const seg of segs) {
+                        if (target <= seg.acc + seg.len) {
+                            const t = Math.max(0, Math.min(1, (target - seg.acc) / seg.len));
+                            const eased = 1 - Math.pow(1 - t, 3);
+                            vx = seg.from.x + (seg.to.x - seg.from.x) * eased;
+                            vy = seg.from.y + (seg.to.y - seg.from.y) * eased;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) { vx = baseX; vy = baseY; }
+                }
             }
         }
-        return { x: this.tile.x, y: this.tile.y };
+
+        // 后坐力偏移（炮兵开火时）
+        const recoil = getRecoilOffset(baseX, baseY, frameInfo.now);
+        if (recoil) {
+            vx += recoil.x;
+            vy += recoil.y;
+        }
+
+        return { x: vx, y: vy };
     }
 
     startMovePath(path) {
@@ -308,8 +326,32 @@ export class Unit {
         return Math.round(baseAtk * MORALE_CONFIG[this.morale].atkMulti);
     }
 
+    // 伤害浮动倍率（替代 critRate + critMulti 二值系统）
+    _calcFloat(counterCoeff, isCounter = false, isCityCounter = false) {
+        const gs = _gameState;
+        let lo, hi;
+
+        if (isCounter) {
+            lo = isCityCounter ? 1.05 : 0.90;
+            hi = isCityCounter ? 1.85 : 1.70;
+        } else if (counterCoeff > 1) {
+            lo = 0.90; hi = 1.50;
+        } else if (counterCoeff < 1) {
+            lo = 0.85; hi = 1.20;
+        } else {
+            lo = 0.85; hi = 1.35;
+        }
+
+        if (gs && gs.weather === 'wind' && this.type === 'infantry' && !isCounter) {
+            hi = Math.min(hi, 1.05);
+        }
+
+        return lo + Math.random() * (hi - lo);
+    }
+
     // Shared damage resolution: attacker → defender
-    _resolveDamage(attacker, defender, critRate, critMultiCrit, baseMulti = 1, extraBonus = 0) {
+    _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
+                   isCounter = false, isCityCounter = false) {
         const counterCoeff = COUNTER_RELATION[attacker.type][defender.type];
 
         let dmgBonus = counterCoeff - 1 + extraBonus;
@@ -319,29 +361,20 @@ export class Unit {
         dmgBonus -= MORALE_CONFIG[defender.morale].defBonus;
         dmgBonus -= getCommanderDefenseBonus(defender);
         dmgBonus -= getCommanderAuraDefenseBonus(defender);
-        if (attacker.type === 'archer') dmgBonus += 0.10;
+        if (attacker.type === 'archer' && attacker.tile.terrain === 'mountain') dmgBonus += 0.05;
         const dmgMulti = Math.max(0.1, 1 + dmgBonus);
 
-        const isCrit = Math.random() < critRate;
-        const critM = isCrit ? critMultiCrit : 1;
+        const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter);
+        const isCrit = floatMult > (isCounter ? 1.50 : 1.30);
 
         return {
-            dmg: attacker.getEffectiveAttack() * baseMulti * dmgMulti * critM,
+            dmg: attacker.getEffectiveAttack() * baseMulti * dmgMulti * floatMult,
             isCrit
         };
     }
 
     calculateDamage(targetUnit) {
         const gs = _gameState;
-        const counterCoeff = COUNTER_RELATION[this.type][targetUnit.type];
-
-        let critRate = 0.2;
-        if (counterCoeff > 1) critRate = 0.4;
-        else if (counterCoeff < 1) critRate = 0.05;
-
-        if (gs.weather === 'wind' && this.type === 'infantry') {
-            critRate = Math.min(critRate, 0.05);
-        }
 
         const chargeThreshold = gs.weather === 'fog' ? 1 : 2;
         const chargeAmount    = gs.weather === 'fog' ? 0.30 : 0.25;
@@ -351,7 +384,7 @@ export class Unit {
         if (gs.weather === 'fog'  && this.type === 'archer') weatherAtkBonus = -0.25;
         if (gs.weather === 'wind' && this.type === 'archer') weatherAtkBonus = +0.15;
 
-        const result = this._resolveDamage(this, targetUnit, critRate, 1.5, 1, cavBonus + weatherAtkBonus);
+        const result = this._resolveDamage(this, targetUnit, 1, cavBonus + weatherAtkBonus);
 
         gs.damageTexts.push({
             x: targetUnit.tile.x,
@@ -372,14 +405,13 @@ export class Unit {
             return { dmg: 0, isCrit: false };
         }
 
-        let critRate = 0.33;
-        if (this.type === 'infantry' && this.tile.isCity) critRate = 0.50;
+        const isCityCounter = this.type === 'infantry' && this.tile.isCity;
 
-        const result = this._resolveDamage(this, attackerUnit, critRate, 1.8, 0.75);
+        const result = this._resolveDamage(this, attackerUnit, 0.75, 0, true, isCityCounter);
 
         if (this.hp > 0) {
             this.counterAttackCount++;
-            log(`${this.camp.name} ${this.config.name}兵反击造成${Math.round(result.dmg)}伤害${result.isCrit ? '，反击暴击！' : ''}`);
+            log(`${this.camp.name} ${this.config.name}兵反击造成${Math.round(result.dmg)}伤害${result.isCrit ? '，反击强击！' : ''}`);
 
             gs.damageTexts.push({
                 x: attackerUnit.tile.x,

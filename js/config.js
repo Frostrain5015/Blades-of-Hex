@@ -110,8 +110,8 @@ export const HEX_NEIGHBORS = [
 
 // ==== 兵种配置 ====================
 export const UNIT_CONFIG = {
-    infantry: { name: '步', hp: 100, attack: 30, defense: 0.10, speed: 5, range: 1, cost: 30, color: '#0a0a0a' },
-    cavalry:  { name: '骑', hp: 90,  attack: 55, defense: 0.05, speed: 8, range: 1, cost: 40, color: '#0a0a0a' },
+    infantry: { name: '步', hp: 110, attack: 35, defense: 0.10, speed: 5, range: 1, cost: 30, color: '#0a0a0a' },
+    cavalry:  { name: '骑', hp: 75,  attack: 55, defense: 0.05, speed: 8, range: 1, cost: 40, color: '#0a0a0a' },
     archer:   { name: '炮', hp: 70,  attack: 55, defense: 0,    speed: 3, range: 2, cost: 35, color: '#0a0a0a' }
 };
 
@@ -172,7 +172,7 @@ export const WEATHER_CONFIG = {
     clear: { name: '晴天', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
     rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城回血20%' },
     fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵伤害−25% 射程−1 · 骑兵冲锋1格生效 伤害+30%' },
-    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 伤害+15% · 步兵暴击率硬上限5%' }
+    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 伤害+15% · 步兵伤害浮动极小' }
 };
 
 export const WEATHER_CYCLE = {

@@ -26,7 +26,7 @@ const tooltipMorale = document.getElementById('tooltipMorale');
 const PASSIVE_DEFS = {
     infantry: {
         name: '坚守',
-        desc: '位于城市时：每回合回复10%生命值，防御+20%，反击暴击率提高至50%',
+        desc: '位于城市时：每回合回复10%生命值，防御+20%，反击伤害大幅提高',
         active: (u) => u.tile.isCity
     },
     cavalry: {
@@ -36,8 +36,8 @@ const PASSIVE_DEFS = {
     },
     archer: {
         name: '远射',
-        desc: '攻击不触发反击；山地射程+1（不与风天叠加）；无视敌方10%防御力',
-        active: () => true
+        desc: '攻击不触发反击；山地射程+1（不与风天叠加）；山地时无视敌方5%防御力',
+        active: (u) => u.tile.terrain === 'mountain'
     }
 };
 
@@ -204,7 +204,7 @@ function showTooltipForTile(tile) {
                 if (unit.type === 'cavalry')  effects.push('冲锋1格生效 伤害+30%');
             } else if (gameState.weather === 'wind') {
                 if (unit.type === 'archer')   effects.push('射程+1', '伤害+15%');
-                if (unit.type === 'infantry') effects.push('暴击率≤5%');
+                if (unit.type === 'infantry') effects.push('步兵伤害稳定');
             }
             if (effects.length > 0) weatherDesc = effects.join('，');
             else weatherDesc = '无直接影响';

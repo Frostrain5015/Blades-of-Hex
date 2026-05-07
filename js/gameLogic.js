@@ -10,7 +10,8 @@ import {
     spawnSlashMarks, spawnMeleeSlash,
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
-    triggerFactionMoraleFlash
+    triggerFactionMoraleFlash,
+    spawnProjectile, triggerRecoil
 } from './effects.js';
 import { playSound } from './audio.js';
 
@@ -690,14 +691,15 @@ export function attackUnit(attackerUnit, targetUnit) {
     playSound(attackResult.isCrit ? 'crit' : 'attack');
     triggerAttackFlash(toX, toY, attackResult.isCrit);
     if (attackerUnit.type === 'archer') {
-        spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', attackResult.isCrit ? 22 : 10);
-        spawnSlashMarks(toX, toY, fromX, fromY, attackResult.isCrit);
+        spawnProjectile(fromX, fromY, toX, toY, attackResult.isCrit);
+        triggerRecoil(fromX, fromY, toX, toY);
+        spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', attackResult.isCrit ? 8 : 4);
     } else {
         spawnMeleeSlash(toX, toY, fromX, fromY, attackResult.isCrit);
     }
     triggerScreenShake(attackResult.isCrit ? 6 : 3, attackResult.isCrit ? 200 : 120);
     const isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
-    logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（暴击）' : ''}`);
+    logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（强击）' : ''}`);
 
     // 将领攻击效果（吸血鬼嗜血、谋士攻心等）
     _atkCmdFxCapture = null;
@@ -798,6 +800,7 @@ export function attackUnit(attackerUnit, targetUnit) {
     broadcastAction('attack', {
         x: toX, y: toY,
         fromX, fromY,
+        attackerType: attackerUnit.type,
         isCrit: attackResult.isCrit,
         killed: isTargetDead,
         cityCaptured: _cityCapturedInAttack || false,
