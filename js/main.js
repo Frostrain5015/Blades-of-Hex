@@ -706,6 +706,7 @@ function registerNetworkCallbacks() {
 }
 
 // ==== 处理对手发来的操作 ----
+let _remoteAiRunning = false;  // 防止远程AI重入
 async function handleRemoteAction(msg) {
     const wasGameOver = gameState.gameOver;
 
@@ -717,6 +718,7 @@ async function handleRemoteAction(msg) {
 
     applyRemoteState(msg.state, HexTile, Unit);
     updateUI(); // 远程状态同步后刷新UI（金币、统计面板、招募费用等）
+    renderGame(); // 强制立即重绘画布，不等下一帧
 
     if (gameState.gameOver && !wasGameOver) {
         triggerVictoryEffect();
@@ -725,12 +727,31 @@ async function handleRemoteAction(msg) {
 
     // 联机：主机收到 P2 的 endTurn 后，若状态切换为中立，执行 AI 回合
     if (msg.actionType === 'endTurn' && gameState.currentCamp === CAMP.neutral && !gameState.gameOver) {
-        if (getMyRole() === 'player1') {
-            const { processNeutralTurn } = await import('./ai.js');
-            await processNeutralTurn();
-            if (!gameState.gameOver) {
-                const { endTurn } = await import('./gameLogic.js');
-                await endTurn(); // 自动结束中立 → P1，广播
+        if (getMyRole() === 'player1' && !_remoteAiRunning) {
+            _remoteAiRunning = true;
+            try {
+                const { processNeutralTurn } = await import('./ai.js');
+                try {
+                    await Promise.race([
+                        processNeutralTurn(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
+                    ]);
+                } catch (e) {
+                    if (e && e.message === 'AI_TIMEOUT') {
+                        logMessage('中立AI超时，强制结束回合');
+                    } else {
+                        logMessage('中立AI执行出错，跳过回合');
+                    }
+                    console.warn('Neutral AI error (remote):', e);
+                } finally {
+                    gameState.aiActing = false;
+                }
+                if (!gameState.gameOver) {
+                    const { endTurn } = await import('./gameLogic.js');
+                    await endTurn(); // 自动结束中立 → P1，广播
+                }
+            } finally {
+                _remoteAiRunning = false;
             }
         }
         return;
@@ -762,71 +783,75 @@ async function handleRemoteAction(msg) {
             }
             break;
         case 'attack':
-            playSound(e?.isCrit ? 'crit' : 'attack');
-            if (e) {
-                triggerAttackFlash(e.x, e.y, e.isCrit);
-                if (e.attackerType === 'archer') {
-                    spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
-                    triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
-                    spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
-                } else {
-                    spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 22 : 10);
-                    spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
-                    if (!e.killed) triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
+            try {
+                playSound(e?.isCrit ? 'crit' : 'attack');
+                if (e) {
+                    triggerAttackFlash(e.x, e.y, e.isCrit);
+                    if (e.attackerType === 'archer') {
+                        spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                        triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
+                        spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
+                    } else {
+                        spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 22 : 10);
+                        spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
+                        if (!e.killed) triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
+                    }
+                    triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
+                    if (e.killed) {
+                        spawnExplosionParticles(e.x, e.y, '#ff2200', 30);
+                        spawnExplosionParticles(e.x, e.y, '#ffaa00', 15);
+                        triggerScreenShake(4, 150);
+                    }
+                    if (e.cityCaptured) {
+                        spawnExplosionParticles(e.x, e.y, '#ffd700', 12);
+                    }
+                    if (e.cmdFxData) {
+                        spawnCommanderSkillEffect(e.cmdFxData.x, e.cmdFxData.y, e.cmdFxData.glyph, e.cmdFxData.label);
+                    }
+                    if (e.ctrCmdFxData) {
+                        spawnCommanderSkillEffect(e.ctrCmdFxData.x, e.ctrCmdFxData.y, e.ctrCmdFxData.glyph, e.ctrCmdFxData.label);
+                    }
+                    if (e.cmdFxExtra) {
+                        spawnCommanderSkillEffect(e.cmdFxExtra.x, e.cmdFxExtra.y, e.cmdFxExtra.glyph, e.cmdFxExtra.label);
+                    }
+                    // 将领专属特效
+                    if (e.bloodDrain) {
+                        spawnBloodDrain(e.bloodDrain.toX, e.bloodDrain.toY, e.bloodDrain.fromX, e.bloodDrain.fromY);
+                    }
+                    if (e.purpleLightning) {
+                        spawnPurpleLightning(e.purpleLightning.x, e.purpleLightning.y);
+                    }
+                    if (e.ctrBloodDrain) {
+                        spawnBloodDrain(e.ctrBloodDrain.toX, e.ctrBloodDrain.toY, e.ctrBloodDrain.fromX, e.ctrBloodDrain.fromY);
+                    }
+                    if (e.moraleFxUnitId) {
+                        const moraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.moraleFxUnitId ? t.unit : null), null);
+                        if (moraleUnit) spawnMoraleEffect(moraleUnit);
+                    }
+                    // 伤害数字
+                    if (e.attackDmg > 0) {
+                        gameState.damageTexts.push({
+                            x: e.x, y: e.y, value: e.attackDmg, isCrit: e.attackIsCrit,
+                            timeLeft: 900, lastUpdate: Date.now()
+                        });
+                    }
+                    // 反击伤害数字
+                    if (e.counterDmg > 0) {
+                        gameState.damageTexts.push({
+                            x: e.counterX, y: e.counterY, value: e.counterDmg, isCrit: false,
+                            timeLeft: 750, lastUpdate: Date.now()
+                        });
+                    }
+                    // 治疗数字
+                    if (e.healAmt > 0) {
+                        gameState.healTexts.push({
+                            x: e.healX, y: e.healY, value: e.healAmt,
+                            timeLeft: 1000, lastUpdate: Date.now()
+                        });
+                    }
                 }
-                triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
-                if (e.killed) {
-                    spawnExplosionParticles(e.x, e.y, '#ff2200', 30);
-                    spawnExplosionParticles(e.x, e.y, '#ffaa00', 15);
-                    triggerScreenShake(4, 150);
-                }
-                if (e.cityCaptured) {
-                    spawnExplosionParticles(e.x, e.y, '#ffd700', 12);
-                }
-                if (e.cmdFxData) {
-                    spawnCommanderSkillEffect(e.cmdFxData.x, e.cmdFxData.y, e.cmdFxData.glyph, e.cmdFxData.label);
-                }
-                if (e.ctrCmdFxData) {
-                    spawnCommanderSkillEffect(e.ctrCmdFxData.x, e.ctrCmdFxData.y, e.ctrCmdFxData.glyph, e.ctrCmdFxData.label);
-                }
-                if (e.cmdFxExtra) {
-                    spawnCommanderSkillEffect(e.cmdFxExtra.x, e.cmdFxExtra.y, e.cmdFxExtra.glyph, e.cmdFxExtra.label);
-                }
-                // 将领专属特效
-                if (e.bloodDrain) {
-                    spawnBloodDrain(e.bloodDrain.toX, e.bloodDrain.toY, e.bloodDrain.fromX, e.bloodDrain.fromY);
-                }
-                if (e.purpleLightning) {
-                    spawnPurpleLightning(e.purpleLightning.x, e.purpleLightning.y);
-                }
-                if (e.ctrBloodDrain) {
-                    spawnBloodDrain(e.ctrBloodDrain.toX, e.ctrBloodDrain.toY, e.ctrBloodDrain.fromX, e.ctrBloodDrain.fromY);
-                }
-                if (e.moraleFxUnitId) {
-                    const moraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.moraleFxUnitId ? t.unit : null), null);
-                    if (moraleUnit) spawnMoraleEffect(moraleUnit);
-                }
-                // 伤害数字
-                if (e.attackDmg > 0) {
-                    gameState.damageTexts.push({
-                        x: e.x, y: e.y, value: e.attackDmg, isCrit: e.attackIsCrit,
-                        timeLeft: 900, lastUpdate: Date.now()
-                    });
-                }
-                // 反击伤害数字
-                if (e.counterDmg > 0) {
-                    gameState.damageTexts.push({
-                        x: e.counterX, y: e.counterY, value: e.counterDmg, isCrit: false,
-                        timeLeft: 750, lastUpdate: Date.now()
-                    });
-                }
-                // 治疗数字
-                if (e.healAmt > 0) {
-                    gameState.healTexts.push({
-                        x: e.healX, y: e.healY, value: e.healAmt,
-                        timeLeft: 1000, lastUpdate: Date.now()
-                    });
-                }
+            } catch (err) {
+                console.warn('Remote attack effects error:', err);
             }
             break;
         case 'recruit':

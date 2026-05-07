@@ -11,6 +11,27 @@ let _reconnectAttempts = 0;
 let _intentionalClose = false;
 let _lastRoomId = null; // 断线前所在房间
 
+// 远程消息队列：防止并发处理导致的状态不一致
+let _actionQueue = [];
+let _processingQueue = false;
+async function _drainActionQueue() {
+    if (_processingQueue) return;
+    _processingQueue = true;
+    while (_actionQueue.length > 0) {
+        const msg = _actionQueue.shift();
+        try {
+            await _cb.onRemoteAction?.(msg);
+        } catch (e) {
+            console.warn('Remote action handler error:', e);
+        }
+    }
+    _processingQueue = false;
+}
+function _enqueueRemoteAction(msg) {
+    _actionQueue.push(msg);
+    _drainActionQueue();
+}
+
 // 客户端唯一标识（隧道场景下区分不同用户）
 const CLIENT_ID_KEY = 'bladesOfHex_clientId';
 let _clientId = localStorage.getItem(CLIENT_ID_KEY);
@@ -126,7 +147,7 @@ export function connectToServer(url) {
                     _cb.onBanned?.(msg.message);
                     break;
                 case 'action':
-                    _cb.onRemoteAction?.(msg);
+                    _enqueueRemoteAction(msg);
                     break;
                 case 'rematchPending':
                     _cb.onRematchPending?.();
@@ -228,10 +249,17 @@ export function sendUnready() {
 // ==== 游戏操作 ====
 
 export function sendAction(actionType, serializedState, effectData = null) {
-    if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) {
+        console.warn(`[WS] sendAction(${actionType}) skipped: socket not open (readyState=${_ws ? _ws.readyState : 'null'})`);
+        return;
+    }
     const msg = { type: 'action', actionType, state: serializedState };
     if (effectData) msg.effects = effectData;
-    _ws.send(JSON.stringify(msg));
+    try {
+        _ws.send(JSON.stringify(msg));
+    } catch (e) {
+        console.warn(`[WS] sendAction(${actionType}) failed:`, e.message);
+    }
 }
 
 export function sendMessage(msg) {

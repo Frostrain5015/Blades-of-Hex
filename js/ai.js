@@ -8,9 +8,17 @@ import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG } from './config.js';
 import * as personality from '../.ai/claude.js';
 
 const AI_DELAY = 2500;
+const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
 
 function delay(ms) {
     return new Promise(r => setTimeout(r, ms));
+}
+
+function withTimeout(promise, ms, label) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`AI_ACTION_TIMEOUT: ${label}`)), ms))
+    ]);
 }
 
 const helpers = { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, weather: gameState.weather };
@@ -29,6 +37,24 @@ function resolveTile(q, r) {
 async function executeAction(action) {
     if (gameState.gameOver) return;
 
+    const label = `${action.type}${action.unitId ? ' ' + action.unitId : ''}`;
+    try {
+        await withTimeout(_executeActionInner(action), ACTION_TIMEOUT, label);
+    } catch (e) {
+        if (e && e.message && e.message.startsWith('AI_ACTION_TIMEOUT')) {
+            console.warn(`AI action timed out: ${label}`);
+        } else {
+            console.warn(`AI action failed: ${label}`, e);
+        }
+    } finally {
+        clearselection();
+        gameState.selectedCityTile = null;
+    }
+}
+
+async function _executeActionInner(action) {
+    if (gameState.gameOver) return;
+
     switch (action.type) {
         case 'attack': {
             const unit = resolveUnit(action.unitId);
@@ -40,7 +66,6 @@ async function executeAction(action) {
                 await delay(AI_DELAY);
                 attackUnit(unit, target);
             }
-            clearselection();
             break;
         }
         case 'move': {
@@ -52,10 +77,8 @@ async function executeAction(action) {
             if (gameState.movableTiles.includes(targetTile)) {
                 await delay(AI_DELAY);
                 moveUnit(unit, targetTile);
-                // 移动后补刀：检查是否有境内可攻击目标
                 if (unit.canAct && unit.tile && unit.hp > 0) {
                     const atkTiles = getAttackableTiles(unit);
-                    // 小克只攻击境内敌人
                     const MY_DISTRICTS = new Set([3, 4, 5]);
                     const inTurf = atkTiles.filter(t => MY_DISTRICTS.has(t.districtId));
                     if (inTurf.length > 0 && unit.remainingMP === 0) {
@@ -66,7 +89,6 @@ async function executeAction(action) {
                     }
                 }
             }
-            clearselection();
             break;
         }
         case 'recruit': {
@@ -77,7 +99,6 @@ async function executeAction(action) {
             gameState.selectedCityTile = cityTile;
             await delay(AI_DELAY);
             recruitUnit(action.unitType);
-            gameState.selectedCityTile = null;
             break;
         }
     }
@@ -86,18 +107,21 @@ async function executeAction(action) {
 export async function processNeutralTurn() {
     if (gameState.gameOver) return;
 
-    notify('AI正在行动...', 'info');
     gameState.aiActing = true;
+    try {
+        notify('AI正在行动...', 'info');
 
-    const actions = personality.planActions(gameState, helpers);
+        const actions = personality.planActions(gameState, helpers);
 
-    for (let i = 0; i < actions.length; i++) {
-        if (gameState.gameOver) break;
-        await executeAction(actions[i]);
+        for (let i = 0; i < actions.length; i++) {
+            if (gameState.gameOver) break;
+            await executeAction(actions[i]);
+        }
+
+        await delay(500);
+        notify('AI行动完毕 即将切换回合...', 'info');
+        await delay(3000);
+    } finally {
+        gameState.aiActing = false;
     }
-
-    await delay(500);
-    notify('AI行动完毕 即将切换回合...', 'info');
-    await delay(3000);
-    gameState.aiActing = false;
 }
