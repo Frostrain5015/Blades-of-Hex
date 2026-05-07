@@ -830,7 +830,11 @@ export function attackUnit(attackerUnit, targetUnit) {
         attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
         counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
         healAmt: _healAmtRemote, healX: _healX, healY: _healY,
-        cmdFxExtra: _cmdFxExtra || null
+        cmdFxExtra: _cmdFxExtra || null,
+        // 将领专属特效标记
+        bloodDrain: attackerUnit.commander === 'vampire' ? { toX, toY, fromX, fromY } : null,
+        purpleLightning: atkCmdResult?.moraleDropped ? { x: toX, y: toY } : null,
+        ctrBloodDrain: (ctrCmdResult && targetUnit.commander === 'vampire') ? { toX: attackerUnit.tile.x, toY: attackerUnit.tile.y, fromX: targetUnit.tile.x, fromY: targetUnit.tile.y } : null
     });
     _cityCapturedInAttack = false;
     _moraleFxUnitId = null;

@@ -560,21 +560,31 @@ function registerNetworkCallbacks() {
         onReconnected: (role) => {
             _isReady = false;
             readyBtn.textContent = '准备';
+            // 清除各种遮罩残留
             document.getElementById('roomWaiting').style.display = 'none';
-            const vo = document.getElementById('victoryOverlay');
-            vo.classList.remove('show');
-            vo.style.opacity = '';
-            vo.style.backgroundColor = '';
-            document.body.style.pointerEvents = '';
+            document.getElementById('victoryOverlay').classList.remove('show');
             document.getElementById('factionReveal').classList.remove('show');
+            document.getElementById('commanderOverlay').classList.remove('show');
+            document.body.style.pointerEvents = '';
+            // 初始化棋盘（stateSync 到达后会覆盖，但先有底板避免空画布）
+            resetGameState();
+            // 显示游戏界面
             document.getElementById('lobbyOverlay').style.display = 'none';
             document.getElementById('gameWrapper').style.display = '';
             document.getElementById('opponentTurnBanner').style.display = '';
-            // 显示网络标识
-            const ni = document.getElementById('networkIndicator');
-            ni.style.display = 'flex';
+            document.getElementById('networkIndicator').style.display = 'flex';
             document.getElementById('networkRoleText').textContent =
                 role === 'player1' ? '红军' : '蓝军';
+            // 触发画布自适应
+            setTimeout(() => {
+                const wrapper = document.getElementById('canvasWrapper');
+                const cw = wrapper.clientWidth;
+                const ch = wrapper.clientHeight;
+                const scale = Math.min(cw / 1000, ch / 750);
+                const canvas = document.getElementById('gameCanvas');
+                canvas.style.width  = Math.floor(1000 * scale) + 'px';
+                canvas.style.height = Math.floor(750 * scale) + 'px';
+            }, 100);
         },
 
         onRematchPending: () => {
@@ -707,10 +717,6 @@ async function handleRemoteAction(msg) {
                 if (e.cityCaptured) {
                     spawnExplosionParticles(e.x, e.y, '#ffd700', 12);
                 }
-                if (e.moraleFxUnitId) {
-                    const moraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.moraleFxUnitId ? t.unit : null), null);
-                    if (moraleUnit) spawnMoraleEffect(moraleUnit);
-                }
                 if (e.cmdFxData) {
                     spawnCommanderSkillEffect(e.cmdFxData.x, e.cmdFxData.y, e.cmdFxData.glyph, e.cmdFxData.label);
                 }
@@ -719,6 +725,20 @@ async function handleRemoteAction(msg) {
                 }
                 if (e.cmdFxExtra) {
                     spawnCommanderSkillEffect(e.cmdFxExtra.x, e.cmdFxExtra.y, e.cmdFxExtra.glyph, e.cmdFxExtra.label);
+                }
+                // 将领专属特效
+                if (e.bloodDrain) {
+                    spawnBloodDrain(e.bloodDrain.toX, e.bloodDrain.toY, e.bloodDrain.fromX, e.bloodDrain.fromY);
+                }
+                if (e.purpleLightning) {
+                    spawnPurpleLightning(e.purpleLightning.x, e.purpleLightning.y);
+                }
+                if (e.ctrBloodDrain) {
+                    spawnBloodDrain(e.ctrBloodDrain.toX, e.ctrBloodDrain.toY, e.ctrBloodDrain.fromX, e.ctrBloodDrain.fromY);
+                }
+                if (e.moraleFxUnitId) {
+                    const moraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.moraleFxUnitId ? t.unit : null), null);
+                    if (moraleUnit) spawnMoraleEffect(moraleUnit);
                 }
                 // 伤害数字
                 if (e.attackDmg > 0) {
