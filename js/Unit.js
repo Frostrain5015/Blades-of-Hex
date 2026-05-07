@@ -1,4 +1,5 @@
-import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, COMMANDER_CONFIG, roundRectPath } from './config.js';
+import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath } from './config.js';
+import { getCommander, getCommanderSelfDamageMod, getCommanderAllyAuraDamage } from './commanderInterface.js';
 import { nextId } from './state.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect } from './effects.js';
 
@@ -17,7 +18,7 @@ export class Unit {
         this.commander = commander;
         this._centurionTriggered = false;
         // 应用将领属性加成
-        const cmdCfg = commander ? COMMANDER_CONFIG[commander] : null;
+        const cmdCfg = commander ? getCommander(commander) : null;
         const hpBonus = cmdCfg ? cmdCfg.hpBonus : 0;
         const atkBonus = cmdCfg ? cmdCfg.atkBonus : 0;
         const spdBonus = cmdCfg ? cmdCfg.spdBonus : 0;
@@ -185,7 +186,7 @@ export class Unit {
         ctx.textBaseline = 'middle';
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 2;
-        const glyphs = { infantry: '⚔️', cavalry: '🐎', archer: '💣' };
+        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '💣' };
         ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
@@ -274,7 +275,7 @@ export class Unit {
 
         // ── Commander name badge ──
         if (this.commander) {
-            const cmdCfg = COMMANDER_CONFIG[this.commander];
+            const cmdCfg = getCommander(this.commander);
             if (cmdCfg) {
                 const cx = visualX - HEX_SIZE * 0.40;
                 const cy = visualY + HEX_SIZE * 0.22;
@@ -395,29 +396,13 @@ export class Unit {
         let actualDmg = dmg;
 
         // 铁卫自身：受到伤害−30%
-        if (this.commander === 'ironGuard') {
-            actualDmg = Math.round(dmg * 0.7);
-        }
+        actualDmg = getCommanderSelfDamageMod(this, actualDmg);
 
         // 铁卫灵光：相邻友军受伤−20%，50%转由铁卫承担
         if (!_skipAura && this.commander !== 'ironGuard' && _gameState) {
             const ironGuard = this._findAdjacentFriendlyIronGuard();
             if (ironGuard && ironGuard.hp > 0) {
-                actualDmg = Math.round(dmg * 0.8);
-                const transferred = Math.round(actualDmg * 0.5);
-                actualDmg -= transferred;
-                ironGuard.takeDamage(transferred, attackerUnit, true);
-                // 铁卫承担伤害的反馈
-                _gameState.damageTexts.push({
-                    x: ironGuard.tile.x,
-                    y: ironGuard.tile.y,
-                    value: transferred,
-                    isCrit: false,
-                    timeLeft: 800,
-                    lastUpdate: Date.now()
-                });
-                // 触发铁卫技能护盾特效
-                spawnCommanderSkillEffect(ironGuard.tile.x, ironGuard.tile.y, '🛡');
+                actualDmg = getCommanderAllyAuraDamage(this, actualDmg, ironGuard);
             }
         }
 
@@ -427,7 +412,8 @@ export class Unit {
             if (this.commander) {
                 if (this.camp === CAMP.player1) _gameState.commanderP1 = null;
                 else if (this.camp === CAMP.player2) _gameState.commanderP2 = null;
-                log(`${this.camp.name}将领【${COMMANDER_CONFIG[this.commander]?.name || this.commander}】阵亡，效果消失`);
+                const cmdInfo = getCommander(this.commander);
+                log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
             }
             this.tile.unit = null;
             log(`${this.camp.name} ${this.config.name}兵被消灭`);

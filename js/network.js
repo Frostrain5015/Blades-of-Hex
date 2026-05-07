@@ -66,7 +66,7 @@ export function sendMessage(msg) {
     _ws.send(JSON.stringify(msg));
 }
 
-export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase) {
+export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase, deployedUnitP1 = null, deployedUnitP2 = null) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
     _ws.send(JSON.stringify({
         type: 'commanderSync',
@@ -78,6 +78,8 @@ export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2
         commanderP2Confirmed: p2Confirmed,
         commanderP1Deployed: p1Deployed,
         commanderP2Deployed: p2Deployed,
-        commanderPhase: phase
+        commanderPhase: phase,
+        deployedUnitP1: deployedUnitP1,
+        deployedUnitP2: deployedUnitP2
     }));
 }

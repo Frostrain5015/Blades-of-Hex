@@ -1,5 +1,25 @@
-import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, calcIncome, WEATHER_CONFIG, COMMANDER_CONFIG } from './config.js';
-import { isNetworkGame, isMyTurn, getMyRole } from './network.js';
+import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, calcIncome, WEATHER_CONFIG } from './config.js';
+import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
+import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
+
+// ===== 计数器滚动动画工具 =====================
+const _counterStore = {};
+
+function animateCounter(el, newVal, fmtFn, key) {
+    const k = key || el.id || 'default';
+    const prev = _counterStore[k] != null ? _counterStore[k] : newVal;
+    if (prev === newVal) { el.textContent = fmtFn(newVal); return; }
+    _counterStore[k] = newVal;
+    const start = performance.now();
+    const duration = 350;
+    function tick(now) {
+        const t = Math.min((now - start) / duration, 1);
+        const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
+        el.textContent = fmtFn(Math.round(prev + (newVal - prev) * ease));
+        if (t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+}
 
 // ===== 游戏核心状态 =====================
 export const gameState = {
@@ -45,6 +65,51 @@ export const gameState = {
     commanderPhase: 'done'  // 'selection' | 'deployment' | 'done'
 };
 
+// ===== 重置游戏状态（再来一局时调用） =====================
+export function resetGameState() {
+    gameState.tiles = [];
+    gameState.tileMap = new Map();
+    gameState.currentCamp = CAMP.player1;
+    gameState.playerGold = { player1: 40, player2: 40, neutral: 20 };
+    gameState.selectedUnit = null;
+    gameState.movableTiles = [];
+    gameState.moveParents = new Map();
+    gameState.attackableTiles = [];
+    gameState.damageTexts = [];
+    gameState.healTexts = [];
+    gameState.selectedCityTile = null;
+    gameState.selectedTile = null;
+    gameState.goldTexts = [];
+    gameState.hoveredTile = null;
+    gameState.selectionTime = 0;
+    gameState.gameOver = false;
+    gameState.victoryCamp = null;
+    gameState.previousGold = { player1: 25, player2: 25, neutral: 25 };
+    gameState.undoStack = [];
+    gameState.turnCounter = 0;
+    gameState.logHistory = [];
+    gameState.killCount = { player1: 0, player2: 0, neutral: 0 };
+    gameState.aiActing = false;
+    gameState.weather = 'clear';
+    gameState.lastWeather = null;
+    gameState.deselecting = false;
+    gameState.deselectionTime = 0;
+    gameState.deselectMoveTiles = [];
+    gameState.deselectAtkTiles = [];
+    gameState.deselectOrigin = null;
+    gameState.commanderPoolP1 = [];
+    gameState.commanderPoolP2 = [];
+    gameState.commanderP1 = null;
+    gameState.commanderP2 = null;
+    gameState.commanderP1Confirmed = false;
+    gameState.commanderP2Confirmed = false;
+    gameState.commanderP1Deployed = false;
+    gameState.commanderP2Deployed = false;
+    gameState.commanderPhase = 'done';
+    // 清除计数器动画记忆
+    for (const k of Object.keys(_counterStore)) delete _counterStore[k];
+}
+
 export function rebuildTileMap() {
     gameState.tileMap = new Map();
     for (const tile of gameState.tiles) {
@@ -79,10 +144,8 @@ function _getMyCamp() {
 function _getRecruitCost(type) {
     const baseCost = UNIT_CONFIG[type].cost;
     const myCamp = _getMyCamp();
-    const commander = myCamp === CAMP.player1 ? gameState.commanderP1
-        : myCamp === CAMP.player2 ? gameState.commanderP2 : null;
-    if (commander === 'minister') return Math.floor(baseCost * 0.8);
-    return baseCost;
+    // 通过将领接口获取实际招募费用（尚书需驻扎城市才打折）
+    return getCommanderRecruitCost(baseCost, gameState, myCamp);
 }
 
 export function updateRecruitCostDisplay() {
@@ -93,12 +156,12 @@ export function updateRecruitCostDisplay() {
         if (!btn) continue;
         const costSpan = btn.querySelector('.unit-cost');
         if (!costSpan) continue;
+        const baseCost = UNIT_CONFIG[types[i]].cost;
         const cost = _getRecruitCost(types[i]);
-        const myCamp = _getMyCamp();
-        const commander = myCamp === CAMP.player1 ? gameState.commanderP1
-            : myCamp === CAMP.player2 ? gameState.commanderP2 : null;
-        const discountSuffix = commander === 'minister' ? '<small> (-20%)</small>' : '';
-        costSpan.innerHTML = `${cost}<small>g</small>${discountSuffix}`;
+        const discountSuffix = cost < baseCost ? '<small> (-20%)</small>' : '';
+        costSpan.innerHTML = `<span class="unit-cost-num">${cost}</span><small>g</small>${discountSuffix}`;
+        const numEl = costSpan.querySelector('.unit-cost-num');
+        if (numEl) animateCounter(numEl, cost, n => String(n), `cost_${types[i]}`);
     }
 }
 
@@ -160,25 +223,28 @@ export function updateUI() {
     const isNeutralTurn = gameState.currentCamp === CAMP.neutral;
     const inCommanderSetup = gameState.commanderPhase === 'selection' || gameState.commanderPhase === 'deployment';
     const disableBtns = opponentTurn || isNeutralTurn || gameState.gameOver || inCommanderSetup;
-    ['endTurnBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher', 'surrenderBtn'].forEach(id => {
+    ['endTurnBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = disableBtns;
     });
+    // 投降按钮在非己方回合亦可使用，仅在选将/部署/游戏结束时禁用
+    const surrenderBtn = document.getElementById('surrenderBtn');
+    if (surrenderBtn) surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
     const banner = document.getElementById('opponentTurnBanner');
     if (banner) banner.style.display = (opponentTurn || isNeutralTurn) ? 'flex' : 'none';
 
     if (newGold1 !== gameState.previousGold.player1) {
-        gold1El.textContent = newGold1;
+        animateCounter(gold1El, newGold1, n => String(n));
         if (typeof gsap !== 'undefined') {
-            gsap.fromTo(gold1El, { scale: 0.7, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
+            gsap.fromTo(gold1El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
                 { scale: 1, textShadow: '0 0 0px rgba(255,215,0,0)', duration: 0.45, ease: 'back.out(1.7)' });
         }
         gameState.previousGold.player1 = newGold1;
     }
     if (newGold2 !== gameState.previousGold.player2) {
-        gold2El.textContent = newGold2;
+        animateCounter(gold2El, newGold2, n => String(n));
         if (typeof gsap !== 'undefined') {
-            gsap.fromTo(gold2El, { scale: 0.7, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
+            gsap.fromTo(gold2El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
                 { scale: 1, textShadow: '0 0 0px rgba(255,215,0,0)', duration: 0.45, ease: 'back.out(1.7)' });
         }
         gameState.previousGold.player2 = newGold2;
@@ -236,30 +302,30 @@ export function updateStatsPanel() {
             <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">🏰${nc}</span></div>
         `;
     } else {
+        const turnNum = Math.floor(gameState.turnCounter / 3) + 1;
         content.innerHTML = `
             <div class="stat-turn-label">回合</div>
-            <div class="stat-turn-num">${Math.floor(gameState.turnCounter / 3) + 1}</div>
+            <div class="stat-turn-num">${turnNum}</div>
             <div class="stat-row"><span class="stat-p1">红军</span><span class="stat-val">⚔${gameState.killCount.player1} 🏰${p1c} ⚱${p1i}</span></div>
             <div class="stat-row"><span class="stat-p2">蓝军</span><span class="stat-val">⚔${gameState.killCount.player2} 🏰${p2c} ⚱${p2i}</span></div>
             <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">⚔${gameState.killCount.neutral} 🏰${nc} ⚱${ni}</span></div>
         `;
+        const turnEl = content.querySelector('.stat-turn-num');
+        if (turnEl) animateCounter(turnEl, turnNum, n => String(n), 'turnNum');
     }
 }
 
-export function getCommanderForCamp(camp) {
-    if (camp === CAMP.player1) return gameState.commanderP1;
-    if (camp === CAMP.player2) return gameState.commanderP2;
-    return null;
-}
-
-// ===== 部署完成收尾 =====================
+// ===== 部署完成收尾（单机/联机统一入口） =====================
 export function finalizeDeployment() {
+    if (gameState.commanderPhase === 'done') return; // 防止重复调用
     gameState.commanderPhase = 'done';
+    // 联机：广播部署完成
+    if (isNetworkGame()) sendAction('deployDone', serializeState());
     gameState.currentCamp = CAMP.player1;
     for (const tile of gameState.tiles) {
         if (tile.unit && tile.unit.commander) {
             tile.unit.canAct = true;
-            tile.unit.remainingMP = tile.unit.config.speed + (COMMANDER_CONFIG[tile.unit.commander]?.spdBonus || 0);
+            tile.unit.remainingMP = tile.unit.config.speed + (getCommander(tile.unit.commander)?.spdBonus || 0);
         }
     }
     // 启用按钮（同步，避免移动端setTimeout延迟）
@@ -267,6 +333,11 @@ export function finalizeDeployment() {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = false;
     });
+    // 强制UI刷新
+    const turnEl = document.getElementById('currentTurn');
+    if (turnEl) { turnEl.textContent = '红军'; turnEl.style.color = '#ffaaaa'; }
+    updateButtonColors();
+    updateUI();
     notify('双方将领已部署，战斗开始！');
 }
 
@@ -336,7 +407,6 @@ export function serializeState() {
         tiles: tilesData,
         currentCampKey: gameState.currentCamp === CAMP.player1 ? 'p1' : gameState.currentCamp === CAMP.player2 ? 'p2' : 'neutral',
         playerGold: { ...gameState.playerGold },
-        previousGold: { ...gameState.previousGold },
         turnCounter: gameState.turnCounter,
         gameOver: gameState.gameOver,
         victoryCampKey: gameState.victoryCamp ? (gameState.victoryCamp === CAMP.player1 ? 'p1' : gameState.victoryCamp === CAMP.player2 ? 'p2' : 'neutral') : null,
@@ -365,7 +435,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
     gameState.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
     gameState.playerGold = { player1: 40, player2: 40, neutral: 20, ...data.playerGold };
-    gameState.previousGold = { player1: 25, player2: 25, neutral: 25, ...data.previousGold };
+    // previousGold 不参与同步，保持本地值用于计数器动画
     gameState.turnCounter = data.turnCounter;
     gameState.logHistory = [...data.logHistory];
     gameState.weather = data.weather || 'clear';
@@ -507,15 +577,15 @@ export function notify(text, type = 'info', persistent = false) {
     showToast(icon, text, color, persistent);
 }
 
-export function saveGame() {
+export function saveGame(silent = false) {
     try {
         const data = serializeState();
         localStorage.setItem('bladesOfHex_save', JSON.stringify(data));
-        notify('存档成功', 'success');
+        if (!silent) notify('存档成功', 'success');
         logMessage('游戏已存档');
         return true;
     } catch (e) {
-        notify('存档失败', 'error');
+        if (!silent) notify('存档失败', 'error');
         logMessage('存档失败');
         return false;
     }

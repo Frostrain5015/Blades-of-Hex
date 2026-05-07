@@ -1,11 +1,12 @@
 import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE, COMMANDER_CONFIG, shuffleAndSplitPool } from './config.js';
-import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, updateStatsPanel, updateRecruitCostDisplay, serializeState, finalizeDeployment } from './state.js';
+import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, finalizeDeployment, resetGameState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
+import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef } from './commanderInterface.js';
 import { initMap, triggerVictoryEffect } from './gameLogic.js';
 import { renderGame } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
-import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, sendAction } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState } from './network.js';
 import { CAMP } from './config.js';
 import {
     clearTransientEffects, triggerTurnFlash,
@@ -24,6 +25,9 @@ initCanvas();
 setHexTileGameStateRef(gameState);
 setLogMessageRef(logMessage);
 setGameStateRef(gameState);
+setCiLogRef(logMessage);
+setCiGameRef(() => gameState);
+setSpawnFxRef(spawnCommanderSkillEffect);
 
 // ==== 自适应布局 ====
 function fitCanvas() {
@@ -113,6 +117,13 @@ function hideModes() {
 
 // ==== 阵营揭示动画（联机模式开局前） ----
 function showFactionReveal(role) {
+    // 清除胜利遮罩残留（GSAP inline style）
+    const vo = document.getElementById('victoryOverlay');
+    vo.classList.remove('show');
+    vo.style.opacity = '';
+    vo.style.backgroundColor = '';
+    document.body.style.pointerEvents = '';
+
     const overlay = document.getElementById('factionReveal');
     const dice = document.getElementById('factionRevealDice');
     const text = document.getElementById('factionRevealText');
@@ -140,51 +151,9 @@ function showFactionReveal(role) {
         if (isNetworkGame()) {
             beginNetworkCommanderFlow(role);
         } else {
-            startGame(role);
+            beginCommanderPhase();
         }
     }, 2500);
-}
-
-// ==== 开始游戏（本地或联机均调用此函数） ----
-function startGame(networkRole) {
-    lobbyOverlay.style.display = 'none';
-    document.getElementById('gameWrapper').style.display = '';
-    document.getElementById('lobbyReady').style.display = 'none';
-    document.getElementById('lobbyReadyBtn').disabled = false;
-    document.getElementById('lobbyReadyBtn').textContent = '准备';
-
-    // 重置胜利/断线残留状态
-    document.body.style.pointerEvents = '';
-    document.getElementById('victoryOverlay').classList.remove('show');
-    document.getElementById('rematchStatus').textContent = '';
-    dismissToast();
-
-    fitCanvas();
-    initMap();
-    initInput();
-    initKeyboard();
-    initSettingsPanel();
-    updateUI();
-    // 跳过将领流程（直接开始或联机模式）
-    gameState.commanderPhase = 'done';
-
-    if (networkRole) {
-        const isRed = networkRole === 'player1';
-        const roleLabel = isRed ? '🔴 红军' : '🔵 蓝军';
-        const indicator = document.getElementById('networkIndicator');
-        indicator.style.display = 'flex';
-        document.getElementById('networkRoleText').textContent = `联机 | 你是 ${roleLabel}`;
-
-        // 联机模式隐藏存档/读档按钮（防止状态不同步）
-        document.getElementById('saveGameBtn').style.display = 'none';
-        document.getElementById('loadGameBtn').style.display = 'none';
-
-        logMessage(`联网对战开始 — 你控制${roleLabel}`);
-        if (!isRed) {
-            // 蓝军等待红军先手
-            logMessage('等待红军玩家操作...');
-        }
-    }
 }
 
 // ==== 准备按钮 ----
@@ -197,15 +166,17 @@ document.getElementById('lobbyReadyBtn').addEventListener('click', () => {
 
 // ==== 再来一局 ----
 document.getElementById('rematchBtn').addEventListener('click', () => {
-    const statusEl = document.getElementById('rematchStatus');
     if (isNetworkGame()) {
+        document.getElementById('rematchStatus').textContent = '等待对手确认...';
         sendMessage({ type: 'rematch' });
-        statusEl.textContent = '等待对手确认...';
     } else {
-        // 本地模式直接重开
-        document.getElementById('victoryOverlay').classList.remove('show');
+        // 本地模式：清除胜利遮罩，重新走骰子→选将→部署→对局
+        const overlay = document.getElementById('victoryOverlay');
+        overlay.classList.remove('show');
+        overlay.style.opacity = '';
+        overlay.style.backgroundColor = '';
         document.body.style.pointerEvents = '';
-        startGame(null);
+        showFactionReveal('player1');
     }
 });
 
@@ -221,27 +192,21 @@ let _commanderTransitioning = false; // 防止移动端双击重复触发
 
 function beginCommanderPhase() {
     document.getElementById('lobbyOverlay').style.display = 'none';
+    // 清除上一局所有遗留状态
+    resetGameState();
+    _commanderTransitioning = false;
     const pool = shuffleAndSplitPool();
     gameState.commanderPoolP1 = pool.p1;
     gameState.commanderPoolP2 = pool.p2;
-    gameState.commanderP1 = null;
-    gameState.commanderP2 = null;
-    gameState.commanderP1Confirmed = false;
-    gameState.commanderP2Confirmed = false;
-    gameState.commanderP1Deployed = false;
-    gameState.commanderP2Deployed = false;
     gameState.commanderPhase = 'selection';
     _showCommanderSelection('player1');
 }
 
 function beginNetworkCommanderFlow(role) {
     document.getElementById('lobbyOverlay').style.display = 'none';
-    gameState.commanderP1 = null;
-    gameState.commanderP2 = null;
-    gameState.commanderP1Confirmed = false;
-    gameState.commanderP2Confirmed = false;
-    gameState.commanderP1Deployed = false;
-    gameState.commanderP2Deployed = false;
+    // 清除上一局所有遗留状态
+    resetGameState();
+    _commanderTransitioning = false;
     gameState.commanderPhase = 'selection';
 
     const myRole = getMyRole();
@@ -379,7 +344,10 @@ function startGameDeployment() {
     document.getElementById('lobbyReadyBtn').disabled = false;
     document.getElementById('lobbyReadyBtn').textContent = '准备';
     document.body.style.pointerEvents = '';
-    document.getElementById('victoryOverlay').classList.remove('show');
+    const vo = document.getElementById('victoryOverlay');
+    vo.classList.remove('show');
+    vo.style.opacity = '';
+    vo.style.backgroundColor = '';
     document.getElementById('rematchStatus').textContent = '';
     dismissToast();
     fitCanvas();
@@ -542,6 +510,29 @@ function setupNetworkAndConnect(url) {
             gameState.commanderP1Deployed = msg.commanderP1Deployed || false;
             gameState.commanderP2Deployed = msg.commanderP2Deployed || false;
             gameState.commanderPhase = msg.commanderPhase || 'selection';
+            // 接收对方部署的将领挂载单位
+            if (msg.deployedUnitP1 || msg.deployedUnitP2) {
+                const myRole = getMyRole();
+                const targetUnitId = myRole === 'player1' ? msg.deployedUnitP2 : msg.deployedUnitP1;
+                const targetCmdId = myRole === 'player1' ? gameState.commanderP2 : gameState.commanderP1;
+                if (targetUnitId && targetCmdId) {
+                    for (const tile of gameState.tiles) {
+                        if (tile.unit && tile.unit.id === targetUnitId) {
+                            tile.unit.commander = targetCmdId;
+                            const cmdCfg = COMMANDER_CONFIG[targetCmdId];
+                            if (cmdCfg) {
+                                tile.unit.hp += cmdCfg.hpBonus;
+                                tile.unit.maxHp += cmdCfg.hpBonus;
+                                tile.unit.displayHp = tile.unit.hp;
+                                tile.unit._atkBonus = cmdCfg.atkBonus;
+                                tile.unit.remainingMP += cmdCfg.spdBonus;
+                                tile.unit.displaySpeed += cmdCfg.spdBonus;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
             // 客机收到将池后显示选将界面
             if (!hadPool && gameState.commanderPoolP2.length > 0 && gameState.commanderPhase === 'selection') {
                 const myRole = getMyRole();
@@ -551,27 +542,10 @@ function setupNetworkAndConnect(url) {
             if (gameState.commanderPhase === 'selection') {
                 _checkBothConfirmed();
             }
-            // 对方部署后检查是否双方都部署完毕（仅在deployment阶段，避免覆盖deployDone同步）
+            // 对方部署后检查是否双方都部署完毕（仅在deployment阶段）
             if (gameState.commanderPhase === 'deployment' &&
                 gameState.commanderP1Deployed && gameState.commanderP2Deployed) {
-                gameState.commanderPhase = 'done';
-                gameState.currentCamp = CAMP.player1;
-                if (isNetworkGame()) sendAction('deployDone', serializeState());
-                for (const tile of gameState.tiles) {
-                    if (tile.unit && tile.unit.commander) {
-                        tile.unit.canAct = true;
-                        tile.unit.remainingMP = tile.unit.config.speed;
-                    }
-                }
-                ['endTurnBtn', 'surrenderBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher'].forEach(id => {
-                    const btn = document.getElementById(id);
-                    if (btn) btn.disabled = false;
-                });
-                const turnEl = document.getElementById('currentTurn');
-                if (turnEl) { turnEl.textContent = '红军'; turnEl.style.color = '#ffaaaa'; }
-                updateButtonColors();
-                updateUI();
-                notify('双方将领已部署，战斗开始！');
+                finalizeDeployment();
             }
         }
     });
@@ -586,7 +560,15 @@ function setupNetworkAndConnect(url) {
 // ==== 处理对手发来的操作 ----
 async function handleRemoteAction(msg) {
     const wasGameOver = gameState.gameOver;
+
+    // deployDone 不需要完整状态重建（已通过 syncCommanderState 同步），避免地形重绘
+    if (msg.actionType === 'deployDone') {
+        finalizeDeployment();
+        return;
+    }
+
     applyRemoteState(msg.state, HexTile, Unit);
+    updateUI(); // 远程状态同步后刷新UI（金币、统计面板、招募费用等）
 
     if (gameState.gameOver && !wasGameOver) {
         triggerVictoryEffect();
@@ -616,11 +598,20 @@ async function handleRemoteAction(msg) {
                 if (movedUnit && e.path) {
                     movedUnit.startMovePath(e.path);
                 }
+                if (e.cmdFx) {
+                    spawnCommanderSkillEffect(e.cmdFx.x, e.cmdFx.y, e.cmdFx.glyph, e.cmdFx.label);
+                }
             }
             break;
         case 'endTurn':
             playSound('turnEnd');
             triggerTurnFlash(gameState.currentCamp.color);
+            // 重放回合将领特效（铁卫治疗、尚书屯田等）
+            if (e && e.cmdFxList) {
+                for (const fx of e.cmdFxList) {
+                    spawnCommanderSkillEffect(fx.x, fx.y, fx.glyph, fx.label);
+                }
+            }
             break;
         case 'attack':
             playSound(e?.isCrit ? 'crit' : 'attack');
@@ -641,8 +632,14 @@ async function handleRemoteAction(msg) {
                     const moraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.moraleFxUnitId ? t.unit : null), null);
                     if (moraleUnit) spawnMoraleEffect(moraleUnit);
                 }
-                if (e.cmdSkillFxX != null) {
-                    spawnCommanderSkillEffect(e.cmdSkillFxX, e.cmdSkillFxY);
+                if (e.cmdFxData) {
+                    spawnCommanderSkillEffect(e.cmdFxData.x, e.cmdFxData.y, e.cmdFxData.glyph, e.cmdFxData.label);
+                }
+                if (e.ctrCmdFxData) {
+                    spawnCommanderSkillEffect(e.ctrCmdFxData.x, e.ctrCmdFxData.y, e.ctrCmdFxData.glyph, e.ctrCmdFxData.label);
+                }
+                if (e.cmdFxExtra) {
+                    spawnCommanderSkillEffect(e.cmdFxExtra.x, e.cmdFxExtra.y, e.cmdFxExtra.glyph, e.cmdFxExtra.label);
                 }
                 // 伤害数字
                 if (e.attackDmg > 0) {

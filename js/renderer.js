@@ -7,7 +7,7 @@ import {
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
     VisualParticle, moraleEffects, drawMeleeSlashes,
     rainParticles, splashParticles, fogBlobs, windStreaks, spawnWeatherParticles,
-    commanderSkillEffects
+    commanderSkillEffects, commanderFlash
 } from './effects.js';
 
 let lastTime = Date.now();
@@ -126,6 +126,16 @@ export function renderGame() {
         ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
         ctx.restore();
         turnFlash.alpha = Math.max(0, turnFlash.alpha - 0.008);
+    }
+
+    // 将领技能金色微闪
+    if (commanderFlash.alpha > 0.001) {
+        ctx.save();
+        ctx.fillStyle = '#ffd700';
+        ctx.globalAlpha = commanderFlash.alpha;
+        ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
+        ctx.restore();
+        commanderFlash.alpha *= 0.85; // 快速衰减
     }
 
     // 环境粒子 — throttle to ~3/sec（非雨天）
@@ -462,7 +472,7 @@ function drawCommanderSkillEffects(now) {
 
         if (isShield) {
             // 护盾：原地变大淡出，凸显抵挡感
-            const scale = 0.4 + t * 1.8;  // 0.4 → 2.2
+            const scale = 0.4 + t * 1.8;
             const alpha = t < 0.3 ? 1 : Math.max(0, 1 - (t - 0.3) / 0.7);
             ctx.save();
             ctx.globalAlpha = alpha;
@@ -475,17 +485,46 @@ function drawCommanderSkillEffects(now) {
             ctx.fillText('🛡', fx.x, fx.y);
             ctx.restore();
         } else {
-            const scale = 0.5 + t * 1.0; // 0.5 → 1.5
-            const alpha = Math.max(0, 1 - t); // 1 → 0
+            const ease = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85; // 快速弹出 → 缓慢衰减
+            const scale = 0.3 + ease * 1.6;  // 0.3 → 1.9 → 0.3
+            const alpha = t < 0.2 ? t / 0.2 : Math.max(0, 1 - (t - 0.2) / 0.8);
+
             ctx.save();
             ctx.globalAlpha = alpha;
+
+            // Layer 1: 扩散光环
+            const ringR = HEX_SIZE * (0.4 + t * 1.4);
+            const ringAlpha = alpha * (1 - t);
+            ctx.beginPath();
+            ctx.arc(fx.x, fx.y, ringR, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255,215,0,${ringAlpha})`;
+            ctx.lineWidth = 2.5 * (1 - t);
+            ctx.stroke();
+
+            // Layer 2: 中心星标
             ctx.fillStyle = '#ffd700';
-            ctx.font = `bold ${Math.round(24 * scale)}px Arial`;
+            ctx.font = `bold ${Math.round(28 * scale)}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.shadowColor = '#ffd700';
-            ctx.shadowBlur = 16 + t * 12;
-            ctx.fillText(fx.glyph || '★', fx.x, fx.y - 10 * t);
+            ctx.shadowBlur = 20 + ease * 16;
+            ctx.fillText(fx.glyph || '★', fx.x, fx.y);
+
+            // Layer 3: 技能名文字上浮
+            if (fx.label) {
+                const labelY = fx.y - 16 - t * 30;
+                const labelAlpha = t < 0.12 ? t / 0.12 : Math.max(0, 1 - (t - 0.25) / 0.75);
+                ctx.fillStyle = `rgba(255,220,80,${labelAlpha})`;
+                ctx.font = 'bold 13px Arial';
+                ctx.shadowColor = 'rgba(0,0,0,0.75)';
+                ctx.shadowBlur = 4;
+                // 文字描边增强可读性
+                ctx.strokeStyle = `rgba(0,0,0,${labelAlpha * 0.6})`;
+                ctx.lineWidth = 2.5;
+                ctx.strokeText(fx.label, fx.x, labelY);
+                ctx.fillText(fx.label, fx.x, labelY);
+            }
+
             ctx.restore();
         }
     }
