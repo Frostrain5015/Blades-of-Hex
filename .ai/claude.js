@@ -112,7 +112,7 @@ export function planActions(gameState, helpers) {
             let bestScore = -1;
             for (const tile of inTurf) {
                 const distScore = 1 - hexDistance(tile, nearestEnemy) / maxDist;
-                const defenseScore = tile.terrain === 'forest' ? 0.15 : tile.terrain === 'mountain' ? 0.25 : 0;
+                const defenseScore = tile.terrain === 'forest' ? 0.10 : tile.terrain === 'mountain' ? 0.20 : 0;
                 const cityBonus = isAdjacentToMyCity(tile) ? 0.25 : 0;
                 const score = distScore * 0.5 + defenseScore * 0.25 + cityBonus;
                 if (score > bestScore) { bestScore = score; bestTile = tile; }

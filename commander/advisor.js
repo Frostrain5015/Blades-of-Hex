@@ -4,7 +4,7 @@ export default {
   name: '谋士',
   skill: '攻心',
   hpBonus: 15, atkBonus: 5, spdBonus: 0,
-  desc: '攻击时有75%概率使对方士气下降一个等级，若此时目标已陷入混乱，则被感化为己方单位（将领单位无法被感化）',
+  desc: '攻击时有75%概率使对方士气下降，若此时目标已陷入混乱，则被感化为己方单位（将领单位无法被感化）',
 
   onAttack(attacker, target, dmg, helpers) {
     if (dmg <= 0 || target.hp <= 0) return null;
@@ -16,7 +16,7 @@ export default {
       if (!gs) return null;
       helpers.changeUnitCamp(target, attacker.camp, gs.tiles);
       target.morale = 2; // 感化后士气恢复为正常
-      target.canAct = false; // 当回合不可行动（类似新招募）
+      target.canAct = false; // 当回合不可行动
       helpers.spawnFx(target.tile.x, target.tile.y);
       helpers.logMessage(`谋士【攻心】感化：${target.config.name}兵转为${attacker.camp.name}阵营`);
       return { moraleDropped: false, converted: true };

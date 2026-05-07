@@ -7,11 +7,27 @@ import {
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
     VisualParticle, moraleEffects, drawMeleeSlashes,
     rainParticles, splashParticles, fogBlobs, windStreaks, spawnWeatherParticles,
-    commanderSkillEffects, commanderFlash
+    commanderSkillEffects, commanderFlash,
+    factionMoraleFlash
 } from './effects.js';
 
 let lastTime = Date.now();
 let _lastParticleSpawn = 0;
+
+function _drawBorderGlow(ctx, color, bw, w, h) {
+    const gTop = ctx.createLinearGradient(0, 0, 0, bw);
+    gTop.addColorStop(0, color); gTop.addColorStop(1, 'transparent');
+    ctx.fillStyle = gTop; ctx.fillRect(0, 0, w, bw);
+    const gBot = ctx.createLinearGradient(0, h, 0, h - bw);
+    gBot.addColorStop(0, color); gBot.addColorStop(1, 'transparent');
+    ctx.fillStyle = gBot; ctx.fillRect(0, h - bw, w, bw);
+    const gL = ctx.createLinearGradient(0, 0, bw, 0);
+    gL.addColorStop(0, color); gL.addColorStop(1, 'transparent');
+    ctx.fillStyle = gL; ctx.fillRect(0, 0, bw, h);
+    const gR = ctx.createLinearGradient(w, 0, w - bw, 0);
+    gR.addColorStop(0, color); gR.addColorStop(1, 'transparent');
+    ctx.fillStyle = gR; ctx.fillRect(w - bw, 0, bw, h);
+}
 
 export function renderGame() {
     const now = Date.now();
@@ -128,14 +144,22 @@ export function renderGame() {
         turnFlash.alpha = Math.max(0, turnFlash.alpha - 0.008);
     }
 
-    // 将领技能金色微闪
+    // 将领技能金色辉光（画布四周边框向内闪烁）
     if (commanderFlash.alpha > 0.001) {
         ctx.save();
-        ctx.fillStyle = '#ffd700';
         ctx.globalAlpha = commanderFlash.alpha;
-        ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
+        _drawBorderGlow(ctx, '#ffd700', 55, LOGICAL_W, LOGICAL_H);
         ctx.restore();
-        commanderFlash.alpha *= 0.85; // 快速衰减
+        commanderFlash.alpha *= 0.97;
+    }
+
+    // 斩杀将领全军士气辉光
+    if (factionMoraleFlash.alpha > 0.001) {
+        ctx.save();
+        ctx.globalAlpha = factionMoraleFlash.alpha;
+        _drawBorderGlow(ctx, '#ffd700', 65, LOGICAL_W, LOGICAL_H);
+        ctx.restore();
+        factionMoraleFlash.alpha *= 0.96;
     }
 
     // 环境粒子 — throttle to ~3/sec（非雨天）

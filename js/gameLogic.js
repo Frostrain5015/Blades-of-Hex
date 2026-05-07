@@ -9,7 +9,8 @@ import {
     triggerAttackFlash, triggerHealFlash, triggerRecruitFlash, triggerScreenShake,
     spawnSlashMarks, spawnMeleeSlash,
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
-    spawnMoraleEffect, spawnCommanderSkillEffect
+    spawnMoraleEffect, spawnCommanderSkillEffect,
+    triggerFactionMoraleFlash
 } from './effects.js';
 import { playSound } from './audio.js';
 
@@ -586,8 +587,13 @@ export function getMovableTiles(unit) {
 
 export function getAttackableTiles(unit) {
     let range = unit.config.range;
-    if (gameState.weather === 'fog'  && unit.type === 'archer') range -= 1;
-    if (gameState.weather === 'wind' && unit.type === 'archer') range += 1;
+    if (gameState.weather === 'fog' && unit.type === 'archer') range -= 1;
+    if (unit.type === 'archer') {
+        let bonus = 0;
+        if (unit.tile.terrain === 'mountain') bonus = 1;
+        if (gameState.weather === 'wind') bonus = Math.max(bonus, 1);
+        range += bonus;
+    }
     range = Math.max(1, Math.min(4, range));
     const startTile = unit.tile;
     return gameState.tiles.filter(tile => {
@@ -736,6 +742,24 @@ export function attackUnit(attackerUnit, targetUnit) {
                 _cmdFxExtra = { x: targetTile.x, y: targetTile.y, glyph: '★', label: '屯田' };
             }
         }
+        // 斩杀将领：全军士气+1
+        if (targetUnit.commander) {
+            const killerKey = attackerUnit.camp === CAMP.player1 ? 'player1' :
+                              attackerUnit.camp === CAMP.player2 ? 'player2' : 'neutral';
+            if (killerKey !== 'neutral') {
+                gameState.factionMoraleBoost[killerKey] = gameState.turnCounter + 6;
+                for (const tile of gameState.tiles) {
+                    const u = tile.unit;
+                    if (u && u.camp === attackerUnit.camp && u.morale !== 0 && u.morale < 3) {
+                        u.morale = Math.min(3, u.morale + 1);
+                        if (u.morale === 3) u.moraleBoostUntil = gameState.turnCounter + 6;
+                    }
+                }
+                triggerFactionMoraleFlash('#ffd700');
+                logMessage(`⚔ ${attackerUnit.camp.name}斩杀敌方将领，全军士气+1！`);
+            }
+        }
+
         if (attackerUnit.morale !== 0) {
             attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
             if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 4;
