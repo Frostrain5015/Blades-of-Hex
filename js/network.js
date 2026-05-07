@@ -4,6 +4,22 @@ let _ws = null;
 let _myRole = null;   // 'player1' | 'player2' | null
 let _myRoomId = null;
 
+// 自动重连
+let _reconnectUrl = null;
+let _reconnectTimer = null;
+let _reconnectAttempts = 0;
+let _intentionalClose = false;
+let _lastRoomId = null; // 断线前所在房间
+
+// 客户端唯一标识（隧道场景下区分不同用户）
+const CLIENT_ID_KEY = 'bladesOfHex_clientId';
+let _clientId = localStorage.getItem(CLIENT_ID_KEY);
+if (!_clientId) {
+    _clientId = 'u' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem(CLIENT_ID_KEY, _clientId);
+}
+export function getClientId() { return _clientId; }
+
 const _cb = {};
 
 export function setNetworkCallbacks(callbacks) {
@@ -22,6 +38,8 @@ export function isMyTurn(currentCamp) {
 }
 
 export function connectToServer(url) {
+    _intentionalClose = false;
+    _reconnectUrl = url;
     return new Promise((resolve, reject) => {
         try {
             _ws = new WebSocket(url);
@@ -36,6 +54,8 @@ export function connectToServer(url) {
 
         _ws.onopen = () => {
             clearTimeout(timer);
+            // 向服务器注册客户端ID
+            _ws.send(JSON.stringify({ type: 'hello', clientId: _clientId }));
             _cb.onConnected?.();
             resolve();
         };
@@ -97,6 +117,16 @@ export function connectToServer(url) {
                 case 'error':
                     _cb.onError?.(msg.message);
                     break;
+                case 'roomClosed':
+                    _myRole = null;
+                    _myRoomId = null;
+                    _cb.onRoomClosed?.(msg.reason);
+                    break;
+                case 'banned':
+                    _myRole = null;
+                    _myRoomId = null;
+                    _cb.onBanned?.(msg.message);
+                    break;
                 case 'action':
                     _cb.onRemoteAction?.(msg);
                     break;
@@ -111,11 +141,58 @@ export function connectToServer(url) {
 
         _ws.onclose = () => {
             if (_myRole) _cb.onOpponentLeft?.();
+            _lastRoomId = _myRoomId;
             _myRole = null;
             _myRoomId = null;
             _cb.onDisconnected?.();
+            // 非主动断开 → 自动重连
+            if (!_intentionalClose && _reconnectUrl) {
+                _startAutoReconnect();
+            }
         };
     });
+}
+
+function _startAutoReconnect() {
+    _clearReconnectTimer();
+    _reconnectAttempts++;
+    _cb.onReconnecting?.(_reconnectAttempts);
+    if (_reconnectAttempts > 2) {
+        _cb.onReconnectFailed?.();
+        return;
+    }
+    _reconnectTimer = setTimeout(() => {
+        connectToServer(_reconnectUrl).then(() => {
+            _reconnectAttempts = 0;
+            _cb.onReconnected?.();
+        }).catch(() => {});
+    }, 5000);
+}
+
+function _clearReconnectTimer() {
+    if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+}
+
+export function manualReconnect() {
+    _clearReconnectTimer();
+    _reconnectAttempts = 0;
+    if (_reconnectUrl) {
+        connectToServer(_reconnectUrl).then(() => {
+            _cb.onReconnected?.();
+        }).catch(() => {
+            _startAutoReconnect();
+        });
+    }
+}
+
+export function disconnect() {
+    _intentionalClose = true;
+    _clearReconnectTimer();
+    _reconnectAttempts = 0;
+    _reconnectUrl = null;
+    _myRole = null;
+    _myRoomId = null;
+    if (_ws) { try { _ws.close(); } catch(e) {}; _ws = null; }
 }
 
 // ==== 房间操作 ====

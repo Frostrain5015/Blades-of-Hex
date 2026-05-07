@@ -81,6 +81,7 @@
         <div id="connectionBar" class="connection-bar">
             <span class="connection-dot"></span>
             <span id="connectionLabel" class="connection-label">未连接</span>
+            <button id="reconnectBtn" class="reconnect-btn" style="display:none" title="手动重连">重连</button>
         </div>
         <div id="lobbyStatus" class="lobby-status"></div>
     </div>
@@ -227,27 +228,22 @@
         <h3>游戏设置</h3>
         <div class="setting-row">
             <label>动画速度</label>
-            <input type="range" id="animSpeed" min="0.5" max="2.0" step="0.1" value="1.0">
-            <span class="setting-value" id="animSpeedVal">1.0x</span>
-        </div>
-        <div class="setting-row">
-            <label>粒子密度</label>
-            <input type="range" id="particleDensity" min="0" max="100" step="5" value="100">
-            <span class="setting-value" id="particleDensityVal">100%</span>
+            <div class="speed-btns">
+                <button class="speed-btn" data-speed="0.6">慢</button>
+                <button class="speed-btn active" data-speed="1.0">正常</button>
+                <button class="speed-btn" data-speed="1.8">快</button>
+            </div>
         </div>
         <div class="setting-row">
             <label>屏幕震动</label>
             <input type="checkbox" id="screenShake" checked>
         </div>
         <div class="setting-row">
-            <label>回合闪光</label>
-            <input type="checkbox" id="turnFlash" checked>
-        </div>
-        <div class="setting-row">
             <label>音效</label>
             <input type="checkbox" id="soundEnabled" checked>
         </div>
         <button id="settingsClose">完成</button>
+        <button id="settingsExit" class="settings-exit-btn" style="display:none">退出</button>
     </div>
 </div>
 
@@ -286,6 +282,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script type="module" src="js/main.js?v=12"></script>
+<script type="module" src="js/main.js?v=20"></script>
 </body>
 </html>

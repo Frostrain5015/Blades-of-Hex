@@ -843,6 +843,29 @@ body {
 }
 #settingsClose:hover { background: rgba(255, 215, 0, 0.24); }
 
+.speed-btns { display: flex; gap: 6px; }
+.speed-btn {
+    padding: 6px 14px; font-size: 11px; font-weight: bold; letter-spacing: 1px;
+    background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: var(--radius-sm); color: var(--text-dim); cursor: pointer;
+    font-family: inherit; transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+.speed-btn:hover { background: rgba(255, 255, 255, 0.10); color: var(--text-body); }
+.speed-btn.active {
+    background: rgba(255, 215, 0, 0.18); border-color: var(--gold-border); color: var(--gold);
+}
+
+.settings-exit-btn {
+    display: block; margin: 14px auto 0;
+    padding: 7px 24px; font-size: 11px; font-weight: bold; letter-spacing: 2px;
+    background: rgba(55, 12, 10, 0.88); border: 1px solid rgba(145, 35, 28, 0.42);
+    border-radius: var(--radius-sm); color: #b06060; cursor: pointer;
+    font-family: inherit; transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+.settings-exit-btn:hover {
+    background: rgba(78, 18, 14, 0.92); border-color: rgba(185, 50, 40, 0.65); color: #e08888;
+}
+
 /* =============================================================
    TOAST CAPSULE (iOS / Ant Design style)
    ============================================================= */
@@ -1613,6 +1636,17 @@ body {
 .connection-bar.connected .connection-label { color: #8c8; }
 .connection-bar.connecting .connection-label { color: #ca8; }
 .connection-bar.disconnected .connection-label { color: #a88; }
+
+.reconnect-btn {
+    padding: 3px 10px; font-size: 10px; font-weight: bold; letter-spacing: 1.5px;
+    color: #d4b860; cursor: pointer; font-family: inherit;
+    background: rgba(180, 150, 50, 0.12); border: 1px solid rgba(200, 160, 60, 0.30);
+    border-radius: var(--radius-sm); margin-left: 8px;
+    transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+.reconnect-btn:hover {
+    background: rgba(200, 160, 60, 0.25); border-color: rgba(220, 180, 80, 0.50); color: #e8d080;
+}
 
 .lobby-status {
     min-height: 18px;

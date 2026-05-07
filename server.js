@@ -8,6 +8,25 @@ const WebSocket = require('ws');
 
 const HTTP_PORT  = process.env.HTTP_PORT  || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+const ADMIN_TOKEN = 'blades-of-hex-admin-v2';
+
+// 黑名单与用户追踪
+let blacklist = new Set();
+const clients = new Map();       // clientId → { ip, roomId, role, connectTime }
+const adminIPs = new Set();      // 管理后台连接的 IP
+try {
+    const adminConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'admin-config.json'), 'utf-8'));
+    if (adminConfig.blacklist) blacklist = new Set(adminConfig.blacklist);
+} catch(e) { /* admin-config.json 不存在时忽略 */ }
+
+function saveBlacklist() {
+    try {
+        const configPath = path.join(__dirname, 'admin-config.json');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        config.blacklist = [...blacklist];
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    } catch(e) { /* 写入失败静默忽略 */ }
+}
 
 // ====
 //  静态文件服务
@@ -156,7 +175,24 @@ function handleMessage(ws, rawData) {
     let msg;
     try { msg = JSON.parse(rawData); } catch { return; }
 
+    // admin 消息标记（管理后台自身连接不计入用户列表）
+    if (msg.type && msg.type.startsWith('admin')) {
+        ws._isAdmin = true;
+        adminIPs.add(ws._ip);
+    } else if (msg.type && !msg.type.startsWith('admin')) {
+        // 非 admin 消息 → 真实玩家，从 adminIPs 移除
+        adminIPs.delete(ws._ip);
+    }
+
     switch (msg.type) {
+
+        case 'hello': {
+            if (msg.clientId) {
+                ws._clientId = msg.clientId;
+                clients.set(msg.clientId, { ip: ws._ip, roomId: null, role: null, connectTime: Date.now() });
+            }
+            break;
+        }
 
         case 'createRoom': {
             leaveCurrentRoom(ws);
@@ -170,6 +206,7 @@ function handleMessage(ws, rawData) {
             rooms.set(roomId, room);
             ws._room = room;
             ws._ready = false;
+            if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
             sendJson(ws, { type: 'roomCreated', roomId, role: 'player1' });
             console.log(`[房间 ${roomId}] 已创建 (player1)`);
             break;
@@ -196,6 +233,7 @@ function handleMessage(ws, rawData) {
                 room.players.set(ws, { role });
                 ws._room = room;
                 ws._ready = false;
+                if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
                 sendJson(ws, { type: 'reconnected', roomId, role });
                 // 告诉对手玩家重连了，需要同步状态
                 const other = [...room.players.keys()].find(p => p !== ws);
@@ -221,6 +259,7 @@ function handleMessage(ws, rawData) {
             room.players.set(ws, { role });
             ws._room = room;
             ws._ready = false;
+            if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
             sendJson(ws, { type: 'roomJoined', roomId, role });
             const other = [...room.players.keys()].find(p => p !== ws);
             if (other) {
@@ -308,6 +347,125 @@ function handleMessage(ws, rawData) {
             break;
         }
 
+        // ==== 管理后台消息 ====
+        case 'adminListAll': {
+            if (msg.token !== ADMIN_TOKEN) break;
+            const allRooms = [];
+            for (const [id, room] of rooms) {
+                const playerList = [];
+                for (const [pws, pinfo] of room.players) {
+                    playerList.push({ role: pinfo.role, ready: pws._ready || false, ip: pws._ip || 'unknown' });
+                }
+                allRooms.push({
+                    roomId: id, playerCount: room.players.size,
+                    gameStarted: room.gameStarted, players: playerList,
+                    zombieSince: room._zombieSince || null
+                });
+            }
+            sendJson(ws, { type: 'adminRoomList', rooms: allRooms });
+            break;
+        }
+
+        case 'adminCloseRoom': {
+            if (msg.token !== ADMIN_TOKEN) break;
+            const roomId = msg.roomId;
+            const room = rooms.get(roomId);
+            if (!room) { sendJson(ws, { type: 'adminCloseResult', roomId, ok: false, reason: '房间不存在' }); break; }
+            broadcastRoom(room, { type: 'roomClosed', reason: '管理员关闭了房间' });
+            for (const pws of room.players.keys()) {
+                pws._room = null;
+                try { pws.close(); } catch(e) {}
+            }
+            room.players.clear();
+            clearZombieTimer(room);
+            releaseRoomId(roomId);
+            rooms.delete(roomId);
+            console.log(`[房间 ${roomId}] 已被管理员强制关闭`);
+            sendJson(ws, { type: 'adminCloseResult', roomId, ok: true });
+            break;
+        }
+
+        case 'adminListUsers': {
+            if (msg.token !== ADMIN_TOKEN) break;
+            const users = [];
+            for (const [clientId, info] of clients) {
+                // 管理后台自身的连接不显示
+                if (adminIPs.has(info.ip) && !info.roomId) continue;
+                users.push({ ip: info.ip, clientId, roomId: info.roomId, role: info.role, connectTime: info.connectTime, banned: blacklist.has(info.ip) });
+            }
+            sendJson(ws, { type: 'adminUserList', users, blacklist: [...blacklist] });
+            break;
+        }
+
+        case 'adminBanUser': {
+            if (msg.token !== ADMIN_TOKEN) break;
+            const banIp = msg.ip;
+            if (!banIp) break;
+            blacklist.add(banIp);
+            saveBlacklist();
+            // 踢掉该 IP 的所有连接
+            for (const [id, room] of rooms) {
+                for (const pws of room.players.keys()) {
+                    if (pws._ip === banIp) {
+                        sendJson(pws, { type: 'banned', message: '你已被管理员封禁' });
+                        pws._room = null;
+                        try { pws.close(); } catch(e) {}
+                    }
+                }
+            }
+            // 清理被踢玩家的房间状态和客户端记录
+            for (const [id, room] of rooms) {
+                let changed = false;
+                for (const pws of room.players.keys()) {
+                    if (pws._ip === banIp) { room.players.delete(pws); changed = true; }
+                }
+                if (changed && room.players.size === 0) startZombieTimer(room);
+            }
+            for (const [clientId, info] of clients) {
+                if (info.ip === banIp) clients.delete(clientId);
+            }
+            console.log(`[管理] IP ${banIp} 已被封禁`);
+            sendJson(ws, { type: 'adminBanResult', ip: banIp, ok: true });
+            break;
+        }
+
+        case 'adminUnbanUser': {
+            if (msg.token !== ADMIN_TOKEN) break;
+            const unbanIp = msg.ip;
+            if (!unbanIp) break;
+            blacklist.delete(unbanIp);
+            saveBlacklist();
+            console.log(`[管理] IP ${unbanIp} 已解除封禁`);
+            sendJson(ws, { type: 'adminUnbanResult', ip: unbanIp, ok: true });
+            break;
+        }
+
+        case 'adminFlushRooms': {
+            if (msg.token !== ADMIN_TOKEN) break;
+            let count = 0;
+            for (const [id, room] of rooms) {
+                broadcastRoom(room, { type: 'roomClosed', reason: '管理员清空了所有房间' });
+                for (const pws of room.players.keys()) {
+                    pws._room = null;
+                    try { pws.close(); } catch(e) {}
+                }
+                room.players.clear();
+                clearZombieTimer(room);
+                releaseRoomId(id);
+                count++;
+            }
+            rooms.clear();
+            console.log(`[管理] 已清空所有房间（共 ${count} 个）`);
+            sendJson(ws, { type: 'adminFlushResult', count, ok: true });
+            break;
+        }
+
+        case 'adminPing': {
+            if (msg.token !== ADMIN_TOKEN) break;
+            sendJson(ws, { type: 'adminPong', uptime: process.uptime() });
+            break;
+        }
+
         default:
             break;
     }
@@ -316,16 +474,30 @@ function handleMessage(ws, rawData) {
 function attachWebSocket(httpServer) {
     const wss = new WebSocket.Server({ server: httpServer });
 
-    wss.on('connection', (ws) => {
+    wss.on('connection', (ws, req) => {
+        const ip = (req?.socket?.remoteAddress || ws._socket?.remoteAddress || 'unknown').replace(/^::ffff:/, '');
+        ws._ip = ip;
+
+        // 黑名单检查
+        if (blacklist.has(ip)) {
+            sendJson(ws, { type: 'banned', message: '你的IP已被管理员封禁' });
+            ws.close();
+            return;
+        }
+
         ws._room = null;
         ws._ready = false;
         ws._rematchReady = false;
+        ws._isAdmin = false;
+        ws._clientId = null;
 
         ws.on('message', (data) => handleMessage(ws, data));
 
         ws.on('close', () => {
+            const hadRoom = !!ws._room;
             leaveCurrentRoom(ws);
-            console.log(`[连接] 玩家断线，当前房间数: ${rooms.size}`);
+            if (ws._clientId) clients.delete(ws._clientId);
+            if (hadRoom) console.log(`[连接] 玩家断线，当前房间数: ${rooms.size}`);
         });
 
         ws.on('error', () => {});

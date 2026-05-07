@@ -444,7 +444,7 @@ export function spawnWeatherParticles(now, weather, logicalW, logicalH) {
 // ===== 炮弹飞行特效（炮兵远程攻击） =====================
 export const projectiles = [];
 
-export function spawnProjectile(fromX, fromY, toX, toY, isCrit) {
+export function spawnProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
     const dx = toX - fromX;
     const dy = toY - fromY;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -456,13 +456,21 @@ export function spawnProjectile(fromX, fromY, toX, toY, isCrit) {
         startTime: Date.now(),
         duration,
         isCrit,
-        impactSpawned: false
+        impactSpawned: false,
+        onImpact: onImpact || null
     });
 }
 
 export function updateProjectiles(now) {
     for (let i = projectiles.length - 1; i >= 0; i--) {
-        if (now - projectiles[i].startTime > projectiles[i].duration + 250) {
+        const p = projectiles[i];
+        const elapsed = now - p.startTime;
+        // 炮弹到达目标 → 触发爆炸特效
+        if (!p.impactSpawned && elapsed >= p.duration) {
+            p.impactSpawned = true;
+            if (p.onImpact) p.onImpact();
+        }
+        if (elapsed > p.duration + 400) {
             projectiles.splice(i, 1);
         }
     }

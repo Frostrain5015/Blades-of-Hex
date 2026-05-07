@@ -498,16 +498,22 @@ export function initSettingsPanel() {
 
     if (!settingsBtn || !settingsOverlay || !settingsClose) return;
 
+    const speedBtns = document.querySelectorAll('.speed-btn');
+    const exitBtn = document.getElementById('settingsExit');
+
+    function updateSpeedBtns() {
+        speedBtns.forEach(b => {
+            b.classList.toggle('active', Math.abs(parseFloat(b.dataset.speed) - settings.animationSpeed) < 0.01);
+        });
+    }
+
     settingsBtn.addEventListener('click', () => {
         settingsOverlay.classList.add('show');
-        // 同步控件值
-        document.getElementById('animSpeed').value = settings.animationSpeed;
-        document.getElementById('animSpeedVal').textContent = settings.animationSpeed.toFixed(1) + 'x';
-        document.getElementById('particleDensity').value = settings.particleDensity;
-        document.getElementById('particleDensityVal').textContent = Math.round(settings.particleDensity * 100) + '%';
+        updateSpeedBtns();
         document.getElementById('screenShake').checked = settings.screenShake;
-        document.getElementById('turnFlash').checked = settings.turnFlash;
         document.getElementById('soundEnabled').checked = settings.soundEnabled;
+        // 单人模式显示退出按钮
+        exitBtn.style.display = isNetworkGame() ? 'none' : '';
     });
 
     settingsClose.addEventListener('click', () => {
@@ -520,16 +526,12 @@ export function initSettingsPanel() {
         }
     });
 
-    document.getElementById('animSpeed').addEventListener('input', (e) => {
-        settings.animationSpeed = parseFloat(e.target.value);
-        document.getElementById('animSpeedVal').textContent = settings.animationSpeed.toFixed(1) + 'x';
-        saveSettings();
-    });
-
-    document.getElementById('particleDensity').addEventListener('input', (e) => {
-        settings.particleDensity = parseFloat(e.target.value) / 100;
-        document.getElementById('particleDensityVal').textContent = e.target.value + '%';
-        saveSettings();
+    speedBtns.forEach(b => {
+        b.addEventListener('click', () => {
+            settings.animationSpeed = parseFloat(b.dataset.speed);
+            updateSpeedBtns();
+            saveSettings();
+        });
     });
 
     document.getElementById('screenShake').addEventListener('change', (e) => {
@@ -537,13 +539,13 @@ export function initSettingsPanel() {
         saveSettings();
     });
 
-    document.getElementById('turnFlash').addEventListener('change', (e) => {
-        settings.turnFlash = e.target.checked;
-        saveSettings();
-    });
-
     document.getElementById('soundEnabled').addEventListener('change', (e) => {
         settings.soundEnabled = e.target.checked;
         saveSettings();
+    });
+
+    exitBtn.addEventListener('click', () => {
+        settingsOverlay.classList.remove('show');
+        window.location.reload();
     });
 }
