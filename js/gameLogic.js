@@ -20,8 +20,12 @@ import { playSound } from './audio.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
-    if (isNetworkGame()) {
-        sendAction(actionType, serializeState(), effectData);
+    if (!isNetworkGame()) return;
+    try {
+        const state = serializeState();
+        sendAction(actionType, state, effectData);
+    } catch (e) {
+        console.warn(`broadcastAction(${actionType}) failed:`, e);
     }
 }
 
@@ -444,26 +448,29 @@ export async function endTurn() {
                 _neutralAiLock = true;
                 gameState.aiActing = true;
                 try {
-                    const { processNeutralTurn } = await import('./ai.js');
-                    // 超时保护：15秒内必须完成，防止移动端异步挂起
-                    await Promise.race([
-                        processNeutralTurn(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
-                    ]);
-                } catch (e) {
-                    if (e && e.message === 'AI_TIMEOUT') {
-                        logMessage('中立AI超时，强制结束回合');
-                    } else {
-                        logMessage('中立AI执行出错，跳过回合');
+                    try {
+                        const { processNeutralTurn } = await import('./ai.js');
+                        // 超时保护：15秒内必须完成，防止移动端异步挂起
+                        await Promise.race([
+                            processNeutralTurn(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
+                        ]);
+                    } catch (e) {
+                        if (e && e.message === 'AI_TIMEOUT') {
+                            logMessage('中立AI超时，强制结束回合');
+                        } else {
+                            logMessage('中立AI执行出错，跳过回合');
+                        }
+                        console.warn('Neutral AI error:', e);
                     }
-                    console.warn('Neutral AI error:', e);
+                    // Auto-end neutral → P1（仅主机执行）
+                    if (!gameState.gameOver) {
+                        await _doEndTurnPhase();
+                    }
+                } finally {
+                    gameState.aiActing = false;
+                    _neutralAiLock = false;
                 }
-                // Auto-end neutral → P1（仅主机执行）
-                if (!gameState.gameOver) {
-                    await _doEndTurnPhase();
-                }
-                gameState.aiActing = false;
-                _neutralAiLock = false;
             }
         }
     } finally {
@@ -697,166 +704,161 @@ export function attackUnit(attackerUnit, targetUnit) {
     const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
     playSound(attackResult.isCrit ? 'crit' : 'attack');
     const isCrit = attackResult.isCrit;
-    if (attackerUnit.type === 'archer') {
-        // 炮兵：炮弹飞行途中先不播放爆炸特效，到达后再触发
-        spawnProjectile(fromX, fromY, toX, toY, isCrit, () => {
-            triggerAttackFlash(toX, toY, isCrit);
-            triggerRecoil(fromX, fromY, toX, toY);
-            spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
-            triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
-        });
-    } else {
-        triggerAttackFlash(toX, toY, isCrit);
-        spawnMeleeSlash(toX, toY, fromX, fromY, isCrit);
-        triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
-    }
+
+    // 核心状态修改：扣血、击杀判定（先于视觉效果，保证广播时状态正确）
     const isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
-    // 近战突进特效（击杀时由 movePath 处理位移，不重复触发）
-    if (attackerUnit.type !== 'archer' && !isTargetDead) {
-        triggerCharge(attackerUnit.id, fromX, fromY, toX, toY);
-    }
-    logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（强击）' : ''}`);
 
-    // 将领攻击效果（吸血鬼嗜血、谋士攻心等）
-    _atkCmdFxCapture = null;
-    const atkCmdResult = triggerCommanderOnAttack(attackerUnit, targetUnit, attackResult.dmg);
-    if (atkCmdResult) {
-        if (atkCmdResult.healAmt) {
-            _healAmtRemote = atkCmdResult.healAmt; _healX = attackerUnit.tile.x; _healY = attackerUnit.tile.y;
+    let atkCmdResult = null, ctrCmdResult = null;
+    try {
+        if (attackerUnit.type === 'archer') {
+            spawnProjectile(fromX, fromY, toX, toY, isCrit, () => {
+                triggerAttackFlash(toX, toY, isCrit);
+                triggerRecoil(fromX, fromY, toX, toY);
+                spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
+                triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
+            });
+        } else {
+            triggerAttackFlash(toX, toY, isCrit);
+            spawnMeleeSlash(toX, toY, fromX, fromY, isCrit);
+            triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
         }
-        if (attackerUnit.commander === 'vampire') {
-            // 击杀后吸血鬼移动到目标格，血粒子应以目标格为终点
-            const bloodDestX = (isTargetDead && attackerUnit.type !== 'archer') ? toX : fromX;
-            const bloodDestY = (isTargetDead && attackerUnit.type !== 'archer') ? toY : fromY;
-            spawnBloodDrain(toX, toY, bloodDestX, bloodDestY);
+        // 近战突进特效（击杀时由 movePath 处理位移，不重复触发）
+        if (attackerUnit.type !== 'archer' && !isTargetDead) {
+            triggerCharge(attackerUnit.id, fromX, fromY, toX, toY);
         }
-        if (atkCmdResult.moraleDropped) {
-            if (attackerUnit.commander === 'advisor') spawnPurpleLightning(toX, toY);
-            spawnMoraleEffect(targetUnit);
-            _moraleFxUnitId = targetUnit.id;
-        }
-    }
-    _cmdFxData = _atkCmdFxCapture; // 攻击将领特效（含glyph+label）
+        logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（强击）' : ''}`);
 
-    if (!isTargetDead) {
-        const counterResult = targetUnit.calculateCounterDamage(attackerUnit);
-        _counterDmg = counterResult.dmg;
-        _counterX = attackerUnit.tile.x; _counterY = attackerUnit.tile.y;
-        if (counterResult.dmg > 0) {
-            attackerUnit.takeDamage(counterResult.dmg, targetUnit);
-            // 反击将领效果（吸血鬼嗜血等）
-            _atkCmdFxCapture = null;
-            const ctrCmdResult = triggerCommanderOnCounterAttack(attackerUnit, targetUnit, counterResult.dmg);
-            if (ctrCmdResult && targetUnit.commander === 'vampire') {
-                spawnBloodDrain(attackerUnit.tile.x, attackerUnit.tile.y, targetUnit.tile.x, targetUnit.tile.y);
-            }
-            _ctrCmdFxData = _atkCmdFxCapture; // 反击将领特效（含glyph+label）
-        }
-        attackerUnit.canAct = false;
-    } else {
-        const targetTile = targetUnit.tile;
-        if (attackerUnit.type !== 'archer') {
-            attackerUnit.tile.unit = null;
-            attackerUnit.tile = targetTile;
-            targetTile.unit = attackerUnit;
-            // Animate the kill-move step
-            attackerUnit.moveDistance++;
-            attackerUnit.startMovePath([{ x: fromX, y: fromY }, { x: toX, y: toY }]);
-            // Only occupy city when actually moving in (melee)
-            if (targetTile.isCity) { updateDistrictColor(targetTile, attackerUnit.camp); _cityCapturedInAttack = true; }
-            // 尚书通过近战击杀进驻城市：触发技能特效
-            if (targetTile.isCity && attackerUnit.commander === 'minister') {
-                spawnCommanderSkillEffect(targetTile.x, targetTile.y, '★', '屯田');
-                _cmdFxExtra = { x: targetTile.x, y: targetTile.y, glyph: '★', label: '屯田' };
-            }
-        }
-        // 斩杀将领：全军士气+1
-        if (targetUnit.commander) {
-            const killerKey = attackerUnit.camp === CAMP.player1 ? 'player1' :
-                              attackerUnit.camp === CAMP.player2 ? 'player2' : 'neutral';
-            if (killerKey !== 'neutral') {
-                gameState.factionMoraleBoost[killerKey] = gameState.turnCounter + 6;
-                for (const tile of gameState.tiles) {
-                    const u = tile.unit;
-                    if (u && u.camp === attackerUnit.camp && u.morale !== 0 && u.morale < 3) {
-                        u.morale = Math.min(3, u.morale + 1);
-                        if (u.morale === 3) u.moraleBoostUntil = gameState.turnCounter + 6;
-                    }
-                }
-                triggerFactionMoraleFlash('#ffd700');
-                logMessage(`⚔ ${attackerUnit.camp.name}斩杀敌方将领，全军士气+1！`);
-            }
-        }
-
-        if (attackerUnit.morale !== 0) {
-            attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
-            if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 4;
-            _killedThisAttack = attackerUnit; // 延迟到夹击判定后播放士气动画
-        }
-
-        // 将领击杀效果（百夫长乘胜追击等）
+        // 将领攻击效果（吸血鬼嗜血、谋士攻心等）
         _atkCmdFxCapture = null;
-        const killResult = triggerCommanderOnKill(attackerUnit, targetUnit);
-        if (!killResult || !killResult.canActAgain) {
+        atkCmdResult = triggerCommanderOnAttack(attackerUnit, targetUnit, attackResult.dmg);
+        if (atkCmdResult) {
+            if (atkCmdResult.healAmt) {
+                _healAmtRemote = atkCmdResult.healAmt; _healX = attackerUnit.tile.x; _healY = attackerUnit.tile.y;
+            }
+            if (attackerUnit.commander === 'vampire') {
+                const bloodDestX = (isTargetDead && attackerUnit.type !== 'archer') ? toX : fromX;
+                const bloodDestY = (isTargetDead && attackerUnit.type !== 'archer') ? toY : fromY;
+                spawnBloodDrain(toX, toY, bloodDestX, bloodDestY);
+            }
+            if (atkCmdResult.moraleDropped) {
+                if (attackerUnit.commander === 'advisor') spawnPurpleLightning(toX, toY);
+                spawnMoraleEffect(targetUnit);
+                _moraleFxUnitId = targetUnit.id;
+            }
+        }
+        _cmdFxData = _atkCmdFxCapture;
+
+        if (!isTargetDead) {
+            const counterResult = targetUnit.calculateCounterDamage(attackerUnit);
+            _counterDmg = counterResult.dmg;
+            _counterX = attackerUnit.tile.x; _counterY = attackerUnit.tile.y;
+            if (counterResult.dmg > 0) {
+                attackerUnit.takeDamage(counterResult.dmg, targetUnit);
+                _atkCmdFxCapture = null;
+                ctrCmdResult = triggerCommanderOnCounterAttack(attackerUnit, targetUnit, counterResult.dmg);
+                if (ctrCmdResult && targetUnit.commander === 'vampire') {
+                    spawnBloodDrain(attackerUnit.tile.x, attackerUnit.tile.y, targetUnit.tile.x, targetUnit.tile.y);
+                }
+                _ctrCmdFxData = _atkCmdFxCapture;
+            }
             attackerUnit.canAct = false;
         } else {
-            spawnGoldenFlame(fromX, fromY);
-            spawnVictoryRipple(fromX, fromY);
+            const targetTile = targetUnit.tile;
+            if (attackerUnit.type !== 'archer') {
+                attackerUnit.tile.unit = null;
+                attackerUnit.tile = targetTile;
+                targetTile.unit = attackerUnit;
+                attackerUnit.moveDistance++;
+                attackerUnit.startMovePath([{ x: fromX, y: fromY }, { x: toX, y: toY }]);
+                if (targetTile.isCity) { updateDistrictColor(targetTile, attackerUnit.camp); _cityCapturedInAttack = true; }
+                if (targetTile.isCity && attackerUnit.commander === 'minister') {
+                    spawnCommanderSkillEffect(targetTile.x, targetTile.y, '★', '屯田');
+                    _cmdFxExtra = { x: targetTile.x, y: targetTile.y, glyph: '★', label: '屯田' };
+                }
+            }
+            if (targetUnit.commander) {
+                const killerKey = attackerUnit.camp === CAMP.player1 ? 'player1' :
+                                  attackerUnit.camp === CAMP.player2 ? 'player2' : 'neutral';
+                if (killerKey !== 'neutral') {
+                    gameState.factionMoraleBoost[killerKey] = gameState.turnCounter + 6;
+                    for (const tile of gameState.tiles) {
+                        const u = tile.unit;
+                        if (u && u.camp === attackerUnit.camp && u.morale !== 0 && u.morale < 3) {
+                            u.morale = Math.min(3, u.morale + 1);
+                            if (u.morale === 3) u.moraleBoostUntil = gameState.turnCounter + 6;
+                        }
+                    }
+                    triggerFactionMoraleFlash('#ffd700');
+                    logMessage(`⚔ ${attackerUnit.camp.name}斩杀敌方将领，全军士气+1！`);
+                }
+            }
+            if (attackerUnit.morale !== 0) {
+                attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
+                if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 4;
+                _killedThisAttack = attackerUnit;
+            }
+            _atkCmdFxCapture = null;
+            const killResult = triggerCommanderOnKill(attackerUnit, targetUnit);
+            if (!killResult || !killResult.canActAgain) {
+                attackerUnit.canAct = false;
+            } else {
+                spawnGoldenFlame(fromX, fromY);
+                spawnVictoryRipple(fromX, fromY);
+            }
+            if (_atkCmdFxCapture && !_cmdFxData) _cmdFxData = _atkCmdFxCapture;
         }
-        if (_atkCmdFxCapture && !_cmdFxData) _cmdFxData = _atkCmdFxCapture;
-    }
 
-    // 恢复 spawnFx 引用
-    setSpawnFxRef(_atkOrigSpawn);
+        // 恢复 spawnFx 引用
+        setSpawnFxRef(_atkOrigSpawn);
 
-    // 百夫长触发后：立即刷新攻击范围（无需取消重选）
-    if (attackerUnit.canAct && attackerUnit.remainingMP > 0) {
-        gameState.attackableTiles = getAttackableTiles(attackerUnit);
-        gameState.movableTiles = getMovableTiles(attackerUnit);
-        gameState.selectionTime = Date.now();
-    } else {
-        gameState.attackableTiles = [];
+        if (attackerUnit.canAct && attackerUnit.remainingMP > 0) {
+            gameState.attackableTiles = getAttackableTiles(attackerUnit);
+            gameState.movableTiles = getMovableTiles(attackerUnit);
+            gameState.selectionTime = Date.now();
+        } else {
+            gameState.attackableTiles = [];
+        }
+        const _preFlankMorale = _killedThisAttack ? _killedThisAttack.morale : null;
+        applyFlankingMorale();
+        if (_killedThisAttack && _killedThisAttack.morale === _preFlankMorale) {
+            spawnMoraleEffect(_killedThisAttack);
+            _moraleFxUnitId = _killedThisAttack.id;
+        }
+        _killedThisAttack = null;
+        updateRecruitCostDisplay();
+    } finally {
+        // 无论视觉效果是否出错，确保联机同步一定执行
+        broadcastAction('attack', {
+            x: toX, y: toY,
+            fromX, fromY,
+            attackerUnitId: attackerUnit.id,
+            attackerType: attackerUnit.type,
+            isCrit: attackResult.isCrit,
+            killed: isTargetDead,
+            cityCaptured: _cityCapturedInAttack || false,
+            moraleFxUnitId: _moraleFxUnitId || null,
+            cmdFxData: _cmdFxData || null,
+            ctrCmdFxData: _ctrCmdFxData || null,
+            attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
+            counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
+            healAmt: _healAmtRemote, healX: _healX, healY: _healY,
+            cmdFxExtra: _cmdFxExtra || null,
+            bloodDrain: attackerUnit.commander === 'vampire' ? {
+                toX, toY,
+                fromX: (isTargetDead && attackerUnit.type !== 'archer') ? toX : fromX,
+                fromY: (isTargetDead && attackerUnit.type !== 'archer') ? toY : fromY
+            } : null,
+            purpleLightning: atkCmdResult?.moraleDropped ? { x: toX, y: toY } : null,
+            ctrBloodDrain: (ctrCmdResult && targetUnit.commander === 'vampire') ? { toX: attackerUnit.tile.x, toY: attackerUnit.tile.y, fromX: targetUnit.tile.x, fromY: targetUnit.tile.y } : null
+        });
+        _cityCapturedInAttack = false;
+        _moraleFxUnitId = null;
+        _cmdFxData = null;
+        _ctrCmdFxData = null;
+        _cmdFxExtra = null;
+        _attackDmg = 0; _attackIsCrit = false;
+        _counterDmg = 0; _healAmtRemote = 0;
     }
-    // 夹击判定在士气提升之后，随后统一播放士气动画，确保动画反映最终士气值
-    const _preFlankMorale = _killedThisAttack ? _killedThisAttack.morale : null;
-    applyFlankingMorale();
-    if (_killedThisAttack && _killedThisAttack.morale === _preFlankMorale) {
-        spawnMoraleEffect(_killedThisAttack);
-        _moraleFxUnitId = _killedThisAttack.id;
-    }
-    _killedThisAttack = null;
-    updateRecruitCostDisplay();
-    broadcastAction('attack', {
-        x: toX, y: toY,
-        fromX, fromY,
-        attackerUnitId: attackerUnit.id,
-        attackerType: attackerUnit.type,
-        isCrit: attackResult.isCrit,
-        killed: isTargetDead,
-        cityCaptured: _cityCapturedInAttack || false,
-        moraleFxUnitId: _moraleFxUnitId || null,
-        cmdFxData: _cmdFxData || null,
-        ctrCmdFxData: _ctrCmdFxData || null,
-        attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
-        counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
-        healAmt: _healAmtRemote, healX: _healX, healY: _healY,
-        cmdFxExtra: _cmdFxExtra || null,
-        // 将领专属特效标记
-        bloodDrain: attackerUnit.commander === 'vampire' ? {
-            toX, toY,
-            fromX: (isTargetDead && attackerUnit.type !== 'archer') ? toX : fromX,
-            fromY: (isTargetDead && attackerUnit.type !== 'archer') ? toY : fromY
-        } : null,
-        purpleLightning: atkCmdResult?.moraleDropped ? { x: toX, y: toY } : null,
-        ctrBloodDrain: (ctrCmdResult && targetUnit.commander === 'vampire') ? { toX: attackerUnit.tile.x, toY: attackerUnit.tile.y, fromX: targetUnit.tile.x, fromY: targetUnit.tile.y } : null
-    });
-    _cityCapturedInAttack = false;
-    _moraleFxUnitId = null;
-    _cmdFxData = null;
-    _ctrCmdFxData = null;
-    _cmdFxExtra = null;
-    _attackDmg = 0; _attackIsCrit = false;
-    _counterDmg = 0; _healAmtRemote = 0;
 }
 
 // ===== 城市占领 =====================
