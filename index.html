@@ -22,62 +22,65 @@
             <p class="lobby-subtitle">BLADES OF HEX</p>
         </div>
 
-        <div id="lobbyModes" class="lobby-modes">
-            <button class="lobby-btn" id="localModeBtn">
+        <!-- 首页：两个大按钮 -->
+        <div id="lobbyHome" class="lobby-modes">
+            <button class="lobby-btn" id="localGameBtn">
                 <span class="lbtn-icon">⚔</span>
                 <span class="lbtn-body">
-                    <span class="lbtn-name">本地双人对战</span>
-                    <span class="lbtn-desc">同一台电脑，轮流操作</span>
+                    <span class="lbtn-name">单人游戏</span>
+                    <span class="lbtn-desc">本地双人对战，轮流操作</span>
                 </span>
             </button>
-            <button class="lobby-btn" id="hostModeBtn">
-                <span class="lbtn-icon">🏠</span>
+            <button class="lobby-btn" id="multiplayerBtn">
+                <span class="lbtn-icon">🌐</span>
                 <span class="lbtn-body">
-                    <span class="lbtn-name">创建联网对战</span>
-                    <span class="lbtn-desc">在局域网内开放房间</span>
-                </span>
-            </button>
-            <button class="lobby-btn" id="joinModeBtn">
-                <span class="lbtn-icon">🔗</span>
-                <span class="lbtn-body">
-                    <span class="lbtn-name">加入联网对战</span>
-                    <span class="lbtn-desc">输入主机 IP 地址加入</span>
+                    <span class="lbtn-name">多人游戏</span>
+                    <span class="lbtn-desc">创建或加入在线房间</span>
                 </span>
             </button>
         </div>
 
-        <div id="joinForm" class="join-form" style="display:none">
-            <div id="joinModeChoice">
-                <button class="lobby-btn" id="autoScanBtn">
-                    <span class="lbtn-icon">🔍</span>
-                    <span class="lbtn-body">
-                        <span class="lbtn-name">自动扫描</span>
-                        <span class="lbtn-desc">扫描局域网，自动连接第一个主机</span>
-                    </span>
-                </button>
-                <button class="lobby-btn" id="manualConnectBtn">
-                    <span class="lbtn-icon">⌨</span>
-                    <span class="lbtn-body">
-                        <span class="lbtn-name">手动连接</span>
-                        <span class="lbtn-desc">手动输入主机 IP 地址</span>
-                    </span>
-                </button>
-                <button class="lobby-btn compact secondary" id="backBtn" style="margin-top:8px;">返回</button>
+        <!-- 多人游戏大厅 -->
+        <div id="multiplayerLobby" style="display:none">
+            <div id="lobbyTopBar" class="lobby-topbar">
+                <button id="backToHomeBtn" class="lobby-nav-btn" title="返回首页">← 返回</button>
+                <span class="lobby-topbar-title">在线房间</span>
+                <button id="refreshRoomsBtn" class="lobby-nav-btn" title="刷新列表">↻ 刷新</button>
             </div>
-            <div id="manualForm" style="display:none">
-                <label class="join-label">主机 IP 地址</label>
-                <input type="text" id="serverIpInput" class="ip-input" placeholder="192.168.x.x" autocomplete="off" spellcheck="false">
-                <div class="join-btns" style="margin-top:10px;">
-                    <button class="lobby-btn compact" id="connectBtn" disabled>连接</button>
-                    <button class="lobby-btn compact secondary" id="backToChoiceBtn">返回</button>
-                </div>
+            <div id="roomListSection">
+                <div id="roomList" class="room-grid"></div>
+                <div id="roomListEmpty" class="room-list-empty">暂无可用房间，请创建一个</div>
+            </div>
+            <div id="roomActions">
+                <button id="createRoomBtn" class="lobby-btn compact">创建房间</button>
             </div>
         </div>
 
+        <!-- 房间等待 -->
+        <div id="roomWaiting" style="display:none">
+            <div id="roomIdDisplay" class="room-id-display">
+                <span class="room-id-label">房间号</span>
+                <span id="roomIdValue" class="room-id-value"></span>
+            </div>
+            <div id="roomWaitingStatus" class="room-waiting-status">
+                <span class="waiting-dot"></span>
+                <span id="roomWaitingText">等待对手加入...</span>
+            </div>
+            <div class="room-waiting-actions">
+                <button id="readyBtn" class="room-ready-btn" disabled>准备</button>
+                <button id="leaveRoomBtn" class="room-leave-btn">离开房间</button>
+            </div>
+        </div>
+
+        <!-- 阵营揭示 + 准备确认（联机开局前，兼容旧逻辑） -->
         <div id="lobbyReady" style="display:none">
             <div id="lobbyFaction" class="lobby-faction"></div>
             <button id="lobbyReadyBtn" class="lobby-ready-btn">准备</button>
             <div id="lobbyReadyStatus" class="lobby-ready-status"></div>
+        </div>
+        <div id="connectionBar" class="connection-bar">
+            <span class="connection-dot"></span>
+            <span id="connectionLabel" class="connection-label">未连接</span>
         </div>
         <div id="lobbyStatus" class="lobby-status"></div>
     </div>
@@ -193,10 +196,14 @@
 
 <!-- 胜利覆盖 -->
 <div id="victoryOverlay">
-    <div id="gameOverText"></div>
-    <div id="victoryCampText"></div>
-    <button id="rematchBtn" class="rematch-btn">再来一局</button>
-    <div id="rematchStatus" class="rematch-status"></div>
+    <div id="victoryPanel">
+        <p id="gameOverSub" class="victory-sub">对局结束</p>
+        <div id="gameOverText" class="victory-title"></div>
+        <div id="victoryCampText" class="victory-camp"></div>
+        <div class="victory-divider"></div>
+        <button id="rematchBtn" class="victory-rematch-btn">再来一局</button>
+        <div id="rematchStatus" class="rematch-status"></div>
+    </div>
 </div>
 
 <!-- 单位悬浮提示 -->
@@ -279,6 +286,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script type="module" src="js/main.js"></script>
+<script type="module" src="js/main.js?v=10"></script>
 </body>
 </html>

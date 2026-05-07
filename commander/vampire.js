@@ -3,7 +3,7 @@ export default {
   id: 'vampire',
   name: '吸血鬼',
   skill: '嗜血',
-  hpBonus: 0, atkBonus: 10, spdBonus: 0,
+  hpBonus: 25, atkBonus: 25, spdBonus: 0,
   desc: '攻击造成伤害时随机回复伤害值25%~75%的生命值',
 
   _getHeal(dmg) {

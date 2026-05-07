@@ -3,8 +3,8 @@ export default {
   id: 'ironGuard',
   name: '铁卫',
   skill: '守护',
-  hpBonus: 30, atkBonus: 0, spdBonus: 0,
-  desc: '防御力+20%，每回合回复40%已损失的生命值；相邻友军获得【守护灵光】：防御+10%，所受伤害的50%转由铁卫承担',
+  hpBonus: 65, atkBonus: 10, defBonus: 20, spdBonus: 0,
+  desc: '每回合回复40%已损失的生命值；相邻友军获得【守护灵光】：防御+10%，所受伤害的50%转由铁卫承担',
 
   onTurnStart(gameState, camp, helpers) {
     const { logMessage, spawnFx } = helpers;

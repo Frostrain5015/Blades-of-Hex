@@ -1,7 +1,7 @@
 import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay } from './state.js';
 import { isNetworkGame, sendAction, getMyRole } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, isInStallerZone, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef } from './commanderInterface.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
 import {
@@ -11,7 +11,10 @@ import {
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
-    spawnProjectile, triggerRecoil, triggerCharge
+    spawnProjectile, triggerRecoil, triggerCharge,
+    spawnBloodDrain, spawnPurpleLightning,
+    spawnGoldenFlame, spawnVictoryRipple,
+    spawnCoinRain
 } from './effects.js';
 import { playSound } from './audio.js';
 
@@ -365,6 +368,9 @@ async function _doEndTurnPhase() {
     gameState.playerGold[key] += income;
     // 将领回合结束效果（尚书屯田等）
     triggerCommanderTurnEnd(gameState, camp, key);
+    // 尚书屯田金币雨
+    const ministerUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'minister' && t.unit.camp === camp ? t.unit : null), null);
+    if (ministerUnit && ministerUnit.tile.isCity) spawnCoinRain(ministerUnit.tile.x, ministerUnit.tile.y);
     if (income > 0) {
         logMessage(`${camp.name}回合结束，城市产出共计${income}金币`);
         cities.forEach((cityTile, i) => {
@@ -516,9 +522,9 @@ export function recruitUnit(type) {
 
 // ===== 移动范围计算 =====================
 
-// Check if a tile is in 停滞者缚足 zone (staller + adjacent 6)
-function _isInStallerZone(tile, friendlyCamp) {
-    return isInStallerZone(tile, friendlyCamp, gameState.tileMap);
+// 停滞者缚足层数（0/1/2/3），每层行动消耗+1.5（向下取整）
+function _getStallerSnareLayers(tile, friendlyCamp) {
+    return getStallerSnareLayers(tile, friendlyCamp, gameState.tileMap);
 }
 
 // Check if a tile is in enemy Zone of Control (adjacent to hostile unit)
@@ -560,8 +566,9 @@ export function getMovableTiles(unit) {
 
             let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
             if (gameState.weather === 'rain' && unit.type === 'cavalry') stepCost += 1;
-            // 停滞者【缚足】：自身及相邻6格敌军移动消耗+3
-            if (_isInStallerZone(neighbor, friendlyCamp)) stepCost += 3;
+            // 停滞者【缚足】：每层行动消耗+1.5（向下取整）
+            const snareLayers = _getStallerSnareLayers(neighbor, friendlyCamp);
+            if (snareLayers > 0) stepCost += Math.floor(snareLayers * 1.5);
             if (curRem < 1) continue;
             let newRem = curRem >= stepCost ? curRem - stepCost : 0;
 
@@ -712,7 +719,9 @@ export function attackUnit(attackerUnit, targetUnit) {
         if (atkCmdResult.healAmt) {
             _healAmtRemote = atkCmdResult.healAmt; _healX = attackerUnit.tile.x; _healY = attackerUnit.tile.y;
         }
+        if (attackerUnit.commander === 'vampire') spawnBloodDrain(toX, toY, fromX, fromY);
         if (atkCmdResult.moraleDropped) {
+            if (attackerUnit.commander === 'advisor') spawnPurpleLightning(toX, toY);
             spawnMoraleEffect(targetUnit);
             _moraleFxUnitId = targetUnit.id;
         }
@@ -727,7 +736,10 @@ export function attackUnit(attackerUnit, targetUnit) {
             attackerUnit.takeDamage(counterResult.dmg, targetUnit);
             // 反击将领效果（吸血鬼嗜血等）
             _atkCmdFxCapture = null;
-            triggerCommanderOnCounterAttack(attackerUnit, targetUnit, counterResult.dmg);
+            const ctrCmdResult = triggerCommanderOnCounterAttack(attackerUnit, targetUnit, counterResult.dmg);
+            if (ctrCmdResult && targetUnit.commander === 'vampire') {
+                spawnBloodDrain(attackerUnit.tile.x, attackerUnit.tile.y, targetUnit.tile.x, targetUnit.tile.y);
+            }
             _ctrCmdFxData = _atkCmdFxCapture; // 反击将领特效（含glyph+label）
         }
         attackerUnit.canAct = false;
@@ -777,6 +789,9 @@ export function attackUnit(attackerUnit, targetUnit) {
         const killResult = triggerCommanderOnKill(attackerUnit, targetUnit);
         if (!killResult || !killResult.canActAgain) {
             attackerUnit.canAct = false;
+        } else {
+            spawnGoldenFlame(fromX, fromY);
+            spawnVictoryRipple(fromX, fromY);
         }
         if (_atkCmdFxCapture && !_cmdFxData) _cmdFxData = _atkCmdFxCapture;
     }
@@ -899,6 +914,7 @@ function checkVictory() {
 
 export function triggerVictoryEffect() {
     const overlay = document.getElementById('victoryOverlay');
+    const panel = document.getElementById('victoryPanel');
     const gameOverText = document.getElementById('gameOverText');
     const victoryCampText = document.getElementById('victoryCampText');
 
@@ -907,38 +923,27 @@ export function triggerVictoryEffect() {
 
     document.body.style.pointerEvents = 'none';
 
-    const victoryRgb = hexToRgb(gameState.victoryCamp.color);
-    overlay.style.backgroundColor = `rgba(${victoryRgb.r}, ${victoryRgb.g}, ${victoryRgb.b}, 0.85)`;
-
-    gameOverText.textContent = '⚔ 游戏结束 ⚔';
-    victoryCampText.textContent = `${gameState.victoryCamp.flag} ${gameState.victoryCamp.name}胜利！`;
+    const campColor = gameState.victoryCamp.color; // '#ffaaaa' or '#aaaaff'
+    gameOverText.textContent = gameState.victoryCamp.name + '胜利';
+    victoryCampText.textContent = gameState.victoryCamp === CAMP.player1 ? '红军' : '蓝军';
+    victoryCampText.style.color = gameState.victoryCamp === CAMP.player1 ? '#ff7777' : '#7799ff';
+    victoryCampText.style.textShadow = gameState.victoryCamp === CAMP.player1
+        ? '0 0 24px rgba(255,120,120,0.55), 0 0 50px rgba(220,80,80,0.25)'
+        : '0 0 24px rgba(120,140,255,0.55), 0 0 50px rgba(80,100,220,0.25)';
 
     if (typeof gsap !== 'undefined') {
         const tl = gsap.timeline();
-        tl.set(gameOverText, { opacity: 0, y: 30, fontSize: '72px', fontWeight: 'bold',
-            color: '#fff', textShadow: '0 0 20px rgba(255,215,0,0.6), 0 0 40px rgba(255,215,0,0.3)' });
-        tl.set(victoryCampText, { opacity: 0, scale: 0.5, fontSize: '56px', fontWeight: 'bold',
-            color: '#ffd700', textShadow: '0 0 30px rgba(255,215,0,0.8), 0 0 60px rgba(255,215,0,0.4)' });
-        tl.set(overlay, { opacity: 0 });
+        tl.set(panel, { opacity: 0, scale: 0.9, y: 20 });
+        tl.set(gameOverText, { opacity: 0, y: 16 });
+        tl.set(victoryCampText, { opacity: 0, y: 12 });
         overlay.classList.add('show');
-        tl.to(overlay, { opacity: 1, duration: 0.6 });
-        tl.to(gameOverText, { opacity: 1, y: 0, duration: 0.8, ease: 'power2.out' });
-        tl.to(victoryCampText, { opacity: 1, scale: 1, duration: 0.7, ease: 'back.out(1.5)' }, '-=0.25');
-        tl.to(gameOverText, { scale: 1.05, textShadow: '0 0 35px rgba(255,215,0,0.8), 0 0 70px rgba(255,215,0,0.4)', duration: 0.6, yoyo: true, repeat: -1, ease: 'sine.inOut' }, '+=0.1');
+        tl.to(panel, { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: 'power2.out' });
+        tl.to(gameOverText, { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, '-=0.2');
+        tl.to(victoryCampText, { opacity: 1, y: 0, duration: 0.5, ease: 'back.out(1.4)' }, '-=0.15');
     } else {
-        // Fallback to CSS animations
-        gameOverText.style.animation = 'victoryTitleGlow 1.5s ease forwards';
-        gameOverText.style.color = '#fff';
-        gameOverText.style.fontSize = '72px';
-        gameOverText.style.fontWeight = 'bold';
-        gameOverText.style.textShadow = '0 0 20px rgba(255,215,0,0.6), 0 0 40px rgba(255,215,0,0.3)';
-        gameOverText.style.marginBottom = '20px';
-        victoryCampText.style.animation = 'victoryCampGlow 1s ease 0.5s forwards';
-        victoryCampText.style.opacity = '0';
-        victoryCampText.style.color = '#ffd700';
-        victoryCampText.style.fontSize = '56px';
-        victoryCampText.style.fontWeight = 'bold';
-        victoryCampText.style.textShadow = '0 0 30px rgba(255,215,0,0.8), 0 0 60px rgba(255,215,0,0.4)';
+        gameOverText.style.color = '#e6c560';
+        gameOverText.style.fontSize = '52px';
+        victoryCampText.style.fontSize = '40px';
         overlay.classList.add('show');
     }
 }

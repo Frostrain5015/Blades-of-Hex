@@ -1,5 +1,5 @@
 import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG } from './config.js';
-import { getCommander, getCommanderDefenseBonus } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, updateStatsPanel, updateRecruitCostDisplay, finalizeDeployment } from './state.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState } from './network.js';
 import {
@@ -149,23 +149,11 @@ function showTooltipForTile(tile) {
     }
 
     // 停滞者缚足debuff（范围内敌军）
-    if (unit && unit.commander !== 'staller') {
-        let inStallerZone = false;
-        if (unit.tile) {
-            const tile = unit.tile;
-            if (tile.unit && tile.unit.commander === 'staller' && tile.unit.camp !== unit.camp) inStallerZone = true;
-            else {
-                const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-                for (const [dq, dr] of dirs) {
-                    const n = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-                    if (n && n.unit && n.unit.commander === 'staller' && n.unit.camp !== unit.camp) {
-                        inStallerZone = true; break;
-                    }
-                }
-            }
-        }
-        if (inStallerZone) {
-            const snareLine = `<span style="color:#c08050;">【缚足】每步移动消耗+3</span>`;
+    if (unit && unit.commander !== 'staller' && unit.tile) {
+        const layers = getStallerSnareLayers(unit.tile, unit.camp, gameState.tileMap);
+        if (layers > 0) {
+            const cost = Math.floor(layers * 1.5);
+            const snareLine = `<span style="color:#c08050;">【缚足】${layers}层 每步消耗+${cost}</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + snareLine;
         }
     }
@@ -375,10 +363,18 @@ export function initInput() {
 
         // Action: friendly unit selected, clicking an attackable tile → attack
         if (gameState.selectedUnit && gameState.attackableTiles.includes(clickedTile) && clickedTile.unit) {
-            attackUnit(gameState.selectedUnit, clickedTile.unit);
-            clearselection();
-            gameState.selectedTile = clickedTile;
-            showTooltipForTile(clickedTile);
+            const attacker = gameState.selectedUnit;
+            attackUnit(attacker, clickedTile.unit);
+            // 百夫长乘胜：技能触发后 canAct 仍为 true，保持选中让玩家继续行动
+            if (attacker.canAct) {
+                gameState.selectedUnit = attacker;
+                gameState.selectedTile = attacker.tile;
+                showTooltipForTile(attacker.tile);
+            } else {
+                clearselection();
+                gameState.selectedTile = clickedTile;
+                showTooltipForTile(clickedTile);
+            }
             return;
         }
 

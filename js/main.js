@@ -1,12 +1,12 @@
 import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE, COMMANDER_CONFIG, shuffleAndSplitPool } from './config.js';
-import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, finalizeDeployment, resetGameState } from './state.js';
+import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, finalizeDeployment, resetGameState, serializeState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef } from './commanderInterface.js';
 import { initMap, triggerVictoryEffect } from './gameLogic.js';
 import { renderGame } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
-import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready } from './network.js';
 import { CAMP } from './config.js';
 import {
     clearTransientEffects, triggerTurnFlash,
@@ -14,7 +14,9 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles,
     spawnRecruitEffect, spawnSlashMarks,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect,
-    spawnProjectile, triggerRecoil, triggerCharge
+    spawnProjectile, triggerRecoil, triggerCharge,
+    spawnBloodDrain, spawnPurpleLightning,
+    spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain
 } from './effects.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
@@ -88,32 +90,65 @@ function gameLoop() {
 requestAnimationFrame(gameLoop);
 
 // ==== 大厅 UI ===================
-const lobbyOverlay   = document.getElementById('lobbyOverlay');
-const localModeBtn   = document.getElementById('localModeBtn');
-const hostModeBtn    = document.getElementById('hostModeBtn');
-const joinModeBtn    = document.getElementById('joinModeBtn');
-const joinForm       = document.getElementById('joinForm');
-const connectBtn     = document.getElementById('connectBtn');
-const backBtn        = document.getElementById('backBtn');
-const serverIpInput  = document.getElementById('serverIpInput');
-const lobbyStatus    = document.getElementById('lobbyStatus');
+const lobbyOverlay      = document.getElementById('lobbyOverlay');
+const lobbyHome         = document.getElementById('lobbyHome');
+const multiplayerLobby  = document.getElementById('multiplayerLobby');
+const roomWaiting       = document.getElementById('roomWaiting');
+const roomIdValue       = document.getElementById('roomIdValue');
+const roomWaitingStatus = document.getElementById('roomWaitingStatus');
+const roomWaitingText   = document.getElementById('roomWaitingText');
+const roomList          = document.getElementById('roomList');
+const roomListEmpty     = document.getElementById('roomListEmpty');
+const readyBtn          = document.getElementById('readyBtn');
+const lobbyStatus       = document.getElementById('lobbyStatus');
+const connectionBar     = document.getElementById('connectionBar');
+const connectionLabel   = document.getElementById('connectionLabel');
+const connectionDot     = connectionBar.querySelector('.connection-dot');
+
+function setConnectionState(state) {
+    // state: 'disconnected' | 'connecting' | 'connected'
+    connectionDot.className = 'connection-dot ' + state;
+    connectionBar.className = 'connection-bar visible ' + state;
+    switch (state) {
+        case 'connecting': connectionLabel.textContent = '连接中...'; break;
+        case 'connected':  connectionLabel.textContent = '服务器已连接'; break;
+        default:           connectionLabel.textContent = '未连接'; break;
+    }
+}
 
 function setStatus(msg, isError = false) {
     lobbyStatus.textContent = msg;
     lobbyStatus.style.color = isError ? '#ff6666' : '#ffdd88';
 }
 
-function showModes() {
-    localModeBtn.style.display = '';
-    hostModeBtn.style.display  = '';
-    joinModeBtn.style.display  = '';
-    joinForm.style.display = 'none';
+function showHome(msg) {
+    lobbyHome.style.display = '';
+    multiplayerLobby.style.display = 'none';
+    roomWaiting.style.display = 'none';
+    document.getElementById('lobbyReady').style.display = 'none';
+    connectionBar.classList.remove('visible');
+    if (msg) setStatus(msg, true);
 }
 
-function hideModes() {
-    localModeBtn.style.display = 'none';
-    hostModeBtn.style.display  = 'none';
-    joinModeBtn.style.display  = 'none';
+function showMultiplayerLobby() {
+    lobbyHome.style.display = 'none';
+    multiplayerLobby.style.display = '';
+    roomWaiting.style.display = 'none';
+    document.getElementById('lobbyReady').style.display = 'none';
+    connectionBar.classList.add('visible');
+    setStatus('');
+}
+
+function showRoomWaiting(roomId) {
+    lobbyHome.style.display = 'none';
+    multiplayerLobby.style.display = 'none';
+    roomWaiting.style.display = '';
+    document.getElementById('lobbyReady').style.display = 'none';
+    connectionBar.classList.add('visible');
+    roomIdValue.textContent = roomId;
+    roomWaitingText.textContent = '等待对手加入...';
+    readyBtn.disabled = true;
+    setStatus('');
 }
 
 // ==== 阵营揭示动画（联机模式开局前） ----
@@ -181,9 +216,9 @@ document.getElementById('rematchBtn').addEventListener('click', () => {
     }
 });
 
-// ==== 本地模式 ----
-localModeBtn.addEventListener('click', () => {
-    hideModes();
+// ==== 单人游戏 ----
+document.getElementById('localGameBtn').addEventListener('click', () => {
+    showHome(); // 把首页藏起来（实际上 beginCommanderPhase 会隐藏整个 lobbyOverlay）
     beginCommanderPhase();
 });
 
@@ -255,13 +290,14 @@ function _showCommanderSelection(forPlayer) {
         card.className = 'commander-card';
         card.id = `cmd-card-${key}`;
         const bonusParts = [];
-        if (cfg.hpBonus) bonusParts.push(`HP+${cfg.hpBonus}`);
-        if (cfg.atkBonus) bonusParts.push(`ATK+${cfg.atkBonus}`);
-        if (cfg.spdBonus) bonusParts.push(`SPD+${cfg.spdBonus}`);
+        if (cfg.hpBonus)  bonusParts.push(`生命值 +${cfg.hpBonus}`);
+        if (cfg.atkBonus) bonusParts.push(`攻击力 +${cfg.atkBonus}`);
+        if (cfg.defBonus) bonusParts.push(`防御力 +${cfg.defBonus}%`);
+        if (cfg.spdBonus) bonusParts.push(`行动力 +${cfg.spdBonus}`);
         card.innerHTML = `
             <div class="commander-card-name">★ ${cfg.name}</div>
             <div class="commander-card-skill">【${cfg.skill}】</div>
-            <div class="commander-card-bonus">${bonusParts.join(' ')}</div>
+            <div class="commander-card-bonus">${bonusParts.join('<br>')}</div>
             <div class="commander-card-desc">${cfg.desc}</div>
         `;
         card.addEventListener('click', () => {
@@ -363,143 +399,188 @@ function startGameDeployment() {
     notify('请红军选择目标单位部署将领（选中后二次点击确认）');
 }
 
-// ==== 创建联网对战（主机） ----
-hostModeBtn.addEventListener('click', () => {
-    hideModes();
-    setStatus('正在连接本机服务器...');
-    setupNetworkAndConnect('ws://localhost:8080');
-});
-
-// ==== 加入联网对战 ----
-const LAST_IP_KEY = 'bladesOfHex_lastIp';
-const joinModeChoice = document.getElementById('joinModeChoice');
-const manualForm = document.getElementById('manualForm');
-const autoScanBtn = document.getElementById('autoScanBtn');
-const manualConnectBtn = document.getElementById('manualConnectBtn');
-const backToChoiceBtn = document.getElementById('backToChoiceBtn');
-
-joinModeBtn.addEventListener('click', () => {
-    hideModes();
-    joinForm.style.display = 'flex';
-    joinModeChoice.style.display = '';
-    manualForm.style.display = 'none';
-    setStatus('');
-});
-
-function getSubnetFromIp(ip) {
-    const parts = ip.split('.');
-    if (parts.length !== 4) return null;
-    return `${parts[0]}.${parts[1]}.${parts[2]}`;
+// 根据当前页面协议和端口推导 WebSocket 地址
+function wsUrl(host) {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const hostHasPort = host.includes(':');
+    if (hostHasPort) return `${proto}://${host}`;
+    return location.port ? `${proto}://${host}:${location.port}` : `${proto}://${host}`;
 }
 
-async function discoverLAN() {
-    const lastIp = localStorage.getItem(LAST_IP_KEY);
-    const subnet = lastIp ? getSubnetFromIp(lastIp) : null;
-    const subnetsToScan = subnet ? [subnet] : ['192.168.1', '192.168.0', '192.168.31', '10.0.0'];
-    const promises = [];
-    for (const subnet of subnetsToScan) {
-        for (let i = 1; i <= 254; i++) {
-            const ip = `${subnet}.${i}`;
-            const ctrl = new AbortController();
-            const t = setTimeout(() => ctrl.abort(), 600);
-            promises.push(
-                fetch(`http://${ip}:3000/discover`, { signal: ctrl.signal })
-                    .then(r => r.json())
-                    .then(data => { clearTimeout(t); if (data.server === 'BladesOfHex') return ip; })
-                    .catch(() => { clearTimeout(t); return null; })
-            );
-        }
-    }
-    const results = await Promise.all(promises);
-    return results.filter(Boolean);
-}
+// ==== 多人游戏大厅 ===================
 
-// 自动扫描 → 连第一个
-autoScanBtn.addEventListener('click', async () => {
-    joinModeChoice.style.display = 'none';
-    setStatus('正在扫描局域网...');
-    const hosts = await discoverLAN();
-    if (hosts.length === 0) {
-        setStatus('未发现局域网主机，请尝试手动连接', true);
-        joinModeChoice.style.display = '';
+function renderRoomList(list) {
+    roomList.innerHTML = '';
+    if (!list || list.length === 0) {
+        roomListEmpty.style.display = '';
+        roomList.style.display = 'none';
         return;
     }
-    const ip = hosts[0];
-    localStorage.setItem(LAST_IP_KEY, ip);
-    joinForm.style.display = 'none';
-    setStatus(`自动连接 ${ip}...`);
-    setupNetworkAndConnect(`ws://${ip}:8080`);
-});
-
-function isValidIPv4(ip) {
-    if (!ip) return false;
-    if (/[^\d.]/.test(ip)) return false;
-    const parts = ip.split('.');
-    if (parts.length !== 4) return false;
-    return parts.every(p => {
-        if (p === '' || (p.length > 1 && p[0] === '0')) return false;
-        const n = parseInt(p, 10);
-        return n >= 0 && n <= 255;
+    roomListEmpty.style.display = 'none';
+    roomList.style.display = '';
+    list.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'room-card';
+        card.innerHTML = `<span class="room-card-id">${r.roomId}</span><span class="room-card-count">${r.playerCount}/2</span>`;
+        if (r.playerCount >= 2) {
+            card.classList.add('full');
+            card.title = '房间已满';
+        } else {
+            card.addEventListener('click', () => {
+                joinRoom(r.roomId);
+                setStatus(`正在加入房间 ${r.roomId}...`);
+            });
+        }
+        roomList.appendChild(card);
     });
 }
 
-function updateConnectBtnState() {
-    connectBtn.disabled = !isValidIPv4(serverIpInput.value.trim());
-}
-
-// 手动连接 → 展开填写区域
-manualConnectBtn.addEventListener('click', () => {
-    joinModeChoice.style.display = 'none';
-    manualForm.style.display = '';
-    const lastIp = localStorage.getItem(LAST_IP_KEY);
-    if (lastIp) serverIpInput.value = lastIp;
-    updateConnectBtnState();
+// 多人游戏 → 连接服务器
+document.getElementById('multiplayerBtn').addEventListener('click', () => {
+    setConnectionState('connecting');
+    lobbyHome.style.display = 'none';
+    registerNetworkCallbacks();
+    connectToServer(wsUrl(location.host)).then(() => {
+        setConnectionState('connected');
+        showMultiplayerLobby();
+        listRooms();
+    }).catch(err => {
+        setConnectionState('disconnected');
+        console.error('WebSocket 连接失败:', err, 'URL:', wsUrl(location.host));
+        showHome(`连接失败：${err.message}（请确认服务器已启动，并刷新页面）`);
+    });
 });
 
-serverIpInput.addEventListener('input', updateConnectBtnState);
-
-connectBtn.addEventListener('click', () => {
-    const ip = serverIpInput.value.trim();
-    localStorage.setItem(LAST_IP_KEY, ip);
-    joinForm.style.display = 'none';
-    setStatus(`正在连接 ${ip}...`);
-    setupNetworkAndConnect(`ws://${ip}:8080`);
+// 创建房间
+document.getElementById('createRoomBtn').addEventListener('click', () => {
+    setStatus('正在创建房间...');
+    createRoom();
 });
 
-backBtn.addEventListener('click', () => {
-    showModes();
+// 刷新房间列表
+document.getElementById('refreshRoomsBtn').addEventListener('click', () => {
+    listRooms();
+});
+
+// 返回首页
+document.getElementById('backToHomeBtn').addEventListener('click', () => {
+    leaveRoom();
     setStatus('');
+    showHome();
 });
 
-backToChoiceBtn.addEventListener('click', () => {
-    manualForm.style.display = 'none';
-    joinModeChoice.style.display = '';
-    setStatus('');
+// 准备 / 取消准备
+let _isReady = false;
+document.getElementById('readyBtn').addEventListener('click', () => {
+    _isReady = !_isReady;
+    if (_isReady) {
+        readyBtn.textContent = '已准备 · 点击取消';
+        sendReady();
+    } else {
+        readyBtn.textContent = '准备';
+        sendUnready();
+    }
 });
 
-// ==== 建立网络连接并注册回调 ----
-function setupNetworkAndConnect(url) {
+// 离开房间
+document.getElementById('leaveRoomBtn').addEventListener('click', () => {
+    leaveRoom();
+    showMultiplayerLobby();
+    listRooms();
+});
+
+// ==== 网络回调注册（多人模式专用）====
+function registerNetworkCallbacks() {
     setNetworkCallbacks({
-        onAssigned: () => {
-            setStatus('已连接到房间，等待阵营分配...');
+        onConnected: () => {},
+
+        onRoomCreated: (roomId, role) => {
+            showRoomWaiting(roomId);
+            _isReady = false;
+            readyBtn.textContent = '准备';
         },
-        onWaiting: () => setStatus('等待对手加入...'),
-        onStart: (role) => showFactionReveal(role),
+
+        onRoomJoined: (roomId, role) => {
+            showRoomWaiting(roomId);
+            _isReady = false;
+            readyBtn.textContent = '准备';
+        },
+
+        onRoomList: (list) => renderRoomList(list),
+
+        onRoomLeft: () => {},
+
+        onOpponentJoined: (role) => {
+            roomWaitingText.textContent = '对手已加入！';
+            readyBtn.disabled = false;
+        },
+
+        onOpponentReady: () => {
+            document.getElementById('lobbyReadyStatus').textContent = '对手已准备！';
+        },
+
+        onOpponentUnready: () => {
+            document.getElementById('lobbyReadyStatus').textContent = '';
+        },
+
+        onError: (message) => {
+            setStatus(message, true);
+        },
+
+        onDisconnected: () => {
+            setConnectionState('disconnected');
+            showHome('已断开连接');
+        },
+
+        onStart: (role) => {
+            roomWaiting.style.display = 'none';
+            showFactionReveal(role);
+        },
+
         onRemoteAction: handleRemoteAction,
+
         onOpponentLeft: () => {
             notify('对手已断开连接', 'warn', true);
             logMessage('⚠ 对手已断开连接');
+            roomWaitingText.textContent = '对手已离开，等待新对手...';
+            readyBtn.disabled = true;
+            readyBtn.textContent = '准备';
+            _isReady = false;
         },
+
+        // 对手重连 → 发送当前完整状态
+        onOpponentReconnected: () => {
+            const state = serializeState();
+            sendAction('stateSync', state);
+            notify('对手已重连', '', false);
+            logMessage('🔗 对手已重连');
+        },
+
+        // 自己重连 → 跳过揭示动画，直接进入对局
+        onReconnected: (role) => {
+            _isReady = false;
+            readyBtn.textContent = '准备';
+            document.getElementById('roomWaiting').style.display = 'none';
+            const vo = document.getElementById('victoryOverlay');
+            vo.classList.remove('show');
+            vo.style.opacity = '';
+            vo.style.backgroundColor = '';
+            document.body.style.pointerEvents = '';
+            document.getElementById('factionReveal').classList.remove('show');
+            document.getElementById('lobbyOverlay').style.display = 'none';
+            document.getElementById('gameWrapper').style.display = '';
+            document.getElementById('opponentTurnBanner').style.display = '';
+            // 显示网络标识
+            const ni = document.getElementById('networkIndicator');
+            ni.style.display = 'flex';
+            document.getElementById('networkRoleText').textContent =
+                role === 'player1' ? '红军' : '蓝军';
+        },
+
         onRematchPending: () => {
             document.getElementById('lobbyReadyStatus').textContent = '对手已准备！';
         },
-        onOpponentJoined: (role) => {
-            dismissToast();
-            hideModes();
-            document.getElementById('lobbyReady').style.display = '';
-            document.getElementById('lobbyReadyStatus').textContent = '';
-            setStatus('对手已连接，点击准备开始对局');
-        },
+
         onCommanderSync: (msg) => {
             const hadPool = gameState.commanderPoolP1.length > 0;
             gameState.commanderPoolP1 = msg.commanderPoolP1 || [];
@@ -511,7 +592,6 @@ function setupNetworkAndConnect(url) {
             gameState.commanderP1Deployed = msg.commanderP1Deployed || false;
             gameState.commanderP2Deployed = msg.commanderP2Deployed || false;
             gameState.commanderPhase = msg.commanderPhase || 'selection';
-            // 接收对方部署的将领挂载单位
             if (msg.deployedUnitP1 || msg.deployedUnitP2) {
                 const myRole = getMyRole();
                 const targetUnitId = myRole === 'player1' ? msg.deployedUnitP2 : msg.deployedUnitP1;
@@ -534,27 +614,18 @@ function setupNetworkAndConnect(url) {
                     }
                 }
             }
-            // 客机收到将池后显示选将界面
             if (!hadPool && gameState.commanderPoolP2.length > 0 && gameState.commanderPhase === 'selection') {
                 const myRole = getMyRole();
                 _showCommanderSelection(myRole);
             }
-            // 对方确认后检查是否双方都确认（仅在selection阶段）
             if (gameState.commanderPhase === 'selection') {
                 _checkBothConfirmed();
             }
-            // 对方部署后检查是否双方都部署完毕（仅在deployment阶段）
             if (gameState.commanderPhase === 'deployment' &&
                 gameState.commanderP1Deployed && gameState.commanderP2Deployed) {
                 finalizeDeployment();
             }
         }
-    });
-
-    connectToServer(url).catch(err => {
-        setStatus(`连接失败：${err.message}`, true);
-        showModes();
-        joinForm.style.display = url.includes('localhost') ? 'none' : 'flex';
     });
 }
 
@@ -681,3 +752,4 @@ async function handleRemoteAction(msg) {
             break;
     }
 }
+

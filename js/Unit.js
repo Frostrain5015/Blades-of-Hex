@@ -218,15 +218,11 @@ export class Unit {
             const mc = MORALE_CONFIG[this.morale];
             const mx = HEX_SIZE * 0.55 + (this.morale === 0 ? 2 : 0);
             const my = -HEX_SIZE * 0.35;
-            ctx.fillStyle = 'rgba(0,0,0,0.55)';
-            ctx.beginPath();
-            ctx.arc(mx, my, 9, 0, Math.PI * 2);
-            ctx.fill();
             ctx.fillStyle = mc.color;
             ctx.font = 'bold 11px Arial';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.shadowColor = mc.color;
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
             ctx.shadowBlur = 3;
             ctx.fillText(mc.icon, mx, my + 1);
             ctx.shadowColor = 'transparent';
