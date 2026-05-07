@@ -162,32 +162,10 @@ export const MORALE_CONFIG = {
 };
 
 // ==== 将领配置 ====================
-export const COMMANDER_CONFIG = {
-    advisor:   { name: '谋士',   skill: '攻心',     hpBonus: 15, atkBonus: 5,  spdBonus: 0,
-                 desc: '攻击时有50%概率使对方士气下降1级' },
-    ironGuard: { name: '铁卫',   skill: '守护',     hpBonus: 30, atkBonus: 0,  spdBonus: 0,
-                 desc: '自身受伤−30% 每回合回复40%已损生命；相邻友军受伤−20%且50%转由铁卫承担' },
-    vampire:   { name: '吸血鬼', skill: '嗜血',     hpBonus: 0,  atkBonus: 10, spdBonus: 0,
-                 desc: '攻击造成伤害时回复伤害值20%的生命值' },
-    staller:   { name: '停滞者', skill: '缚足',     hpBonus: 15, atkBonus: 5,  spdBonus: 0,
-                 desc: '自身及相邻6格敌军移动消耗+3' },
-    centurion: { name: '百夫长', skill: '乘胜追击', hpBonus: 0,  atkBonus: 5,  spdBonus: 0,
-                 desc: '消灭敌人时MP+3且可再攻击，每回合最多1次' },
-    minister:  { name: '尚书',   skill: '屯田',     hpBonus: 10, atkBonus: 0,  spdBonus: 0,
-                 desc: '每回合+10金币，招募费用−20%' }
-};
-
-export function shuffleAndSplitPool() {
-    const keys = Object.keys(COMMANDER_CONFIG);
-    for (let i = keys.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [keys[i], keys[j]] = [keys[j], keys[i]];
-    }
-    return {
-        p1: keys.slice(0, 3),
-        p2: keys.slice(3, 6)
-    };
-}
+// 将领数据已剥离至 commander/ 文件夹，通过 commander/index.js 统一导出
+// 保留重导出以兼容旧引用
+export { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../commander/index.js';
+export { getCommander } from '../commander/index.js';
 
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {

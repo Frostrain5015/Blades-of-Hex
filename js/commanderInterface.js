@@ -1,0 +1,167 @@
+// 将领通用接口 —— 游戏主体通过此模块调用将领钩子
+import { getCommander } from '../commander/index.js';
+import { HEX_NEIGHBORS, CAMP } from './config.js';
+import stallerDef from '../commander/staller.js';
+
+// 延迟引用，由 main.js 初始化（避免循环依赖）
+let _gameState = null;
+let _logMessage = null;
+let _spawnFx = null;
+
+export function setGameStateRef(fn) { _gameState = fn; }
+export function setLogMessageRef(fn) { _logMessage = fn; }
+export function setSpawnFxRef(fn) { _spawnFx = fn; }
+
+// ---- 内部辅助 ----
+
+function _findCommanderUnit(camp, commanderId) {
+  const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
+  if (!gs) return null;
+  for (const tile of gs.tiles) {
+    if (tile.unit && tile.unit.commander === commanderId && tile.unit.camp === camp) {
+      return tile.unit;
+    }
+  }
+  return null;
+}
+
+function _getCommanderIdForCamp(camp) {
+  const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
+  if (!gs) return null;
+  if (camp === CAMP.player1) return gs.commanderP1;
+  if (camp === CAMP.player2) return gs.commanderP2;
+  return null;
+}
+
+function _helpers(cmdId) {
+  const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
+  const cmd = cmdId ? getCommander(cmdId) : null;
+  const label = cmd ? cmd.skill : '';
+  return {
+    gameState: gs,
+    logMessage: _logMessage || ((m) => console.log(m)),
+    spawnFx: (x, y, glyph) => {
+      const fn = _spawnFx || ((x, y, g, l) => {});
+      fn(x, y, glyph || '★', label);
+    },
+    findCommanderUnit: _findCommanderUnit,
+    changeUnitCamp
+  };
+}
+
+// ---- 回合钩子 ----
+
+export function triggerCommanderTurnStart(gameState, camp) {
+  const seen = new Set();
+  for (const tile of gameState.tiles) {
+    if (!tile.unit || !tile.unit.commander) continue;
+    const cid = tile.unit.commander;
+    if (seen.has(cid)) continue;
+    seen.add(cid);
+    const cmd = getCommander(cid);
+    if (cmd && cmd.onTurnStart) {
+      cmd.onTurnStart(gameState, camp, _helpers(cid));
+    }
+  }
+}
+
+export function triggerCommanderTurnEnd(gameState, camp, campKey) {
+  const cmdId = _getCommanderIdForCamp(camp);
+  if (!cmdId) return;
+  const cmd = getCommander(cmdId);
+  if (cmd && cmd.onTurnEnd) {
+    const h = _helpers(cmdId);
+    h.campKey = campKey;
+    h.addGold = (amount) => { gameState.playerGold[campKey] += amount; };
+    cmd.onTurnEnd(gameState, camp, h);
+  }
+}
+
+// ---- 招募费用 ----
+
+export function getCommanderRecruitCost(baseCost, gameState, camp) {
+  const cmdId = _getCommanderIdForCamp(camp);
+  if (!cmdId) return baseCost;
+  const cmd = getCommander(cmdId);
+  if (cmd && cmd.getRecruitCost) {
+    return cmd.getRecruitCost(baseCost, gameState, camp, _helpers(cmdId));
+  }
+  return baseCost;
+}
+
+// ---- 攻击钩子 ----
+
+export function triggerCommanderOnAttack(attacker, target, dmg) {
+  if (!attacker.commander) return null;
+  const cmd = getCommander(attacker.commander);
+  if (cmd && cmd.onAttack) {
+    return cmd.onAttack(attacker, target, dmg, _helpers(attacker.commander));
+  }
+  return null;
+}
+
+export function triggerCommanderOnCounterAttack(attacker, target, dmg) {
+  if (!target.commander) return null;
+  const cmd = getCommander(target.commander);
+  if (cmd && cmd.onCounterAttack) {
+    return cmd.onCounterAttack(attacker, target, dmg, _helpers(target.commander));
+  }
+  return null;
+}
+
+// ---- 击杀钩子 ----
+
+export function triggerCommanderOnKill(killer, victim) {
+  if (!killer.commander) return null;
+  const cmd = getCommander(killer.commander);
+  if (cmd && cmd.onKill) {
+    return cmd.onKill(killer, victim, _helpers(killer.commander));
+  }
+  return null;
+}
+
+// ---- 伤害修正（铁卫） ----
+
+export function getCommanderSelfDamageMod(unit, rawDmg) {
+  if (unit.commander !== 'ironGuard') return rawDmg;
+  const cmd = getCommander('ironGuard');
+  if (cmd && cmd.onDamageTakenSelf) {
+    return cmd.onDamageTakenSelf(unit, rawDmg, null, _helpers('ironGuard'));
+  }
+  return rawDmg;
+}
+
+export function getCommanderAllyAuraDamage(ally, rawDmg, ironGuardUnit) {
+  const cmd = getCommander('ironGuard');
+  if (cmd && cmd.onDamageTakenAlly) {
+    return cmd.onDamageTakenAlly(ally, rawDmg, ironGuardUnit, _helpers('ironGuard'));
+  }
+  return rawDmg;
+}
+
+// ---- 停滞者缚足 ----
+
+export function isInStallerZone(tile, friendlyCamp, tileMap) {
+  if (!tileMap) return false;
+  return stallerDef.isInSnareZone(tile, friendlyCamp, tileMap);
+}
+
+// ---- 通用：改变单位阵营（感化/招降，供将领钩子调用） ----
+export function changeUnitCamp(unit, newCamp, tileList) {
+  if (!unit || !unit.tile) return false;
+  const oldCamp = unit.camp;
+  if (oldCamp === newCamp) return false;
+  unit.camp = newCamp;
+  // 若单位在城市上，同步更改城市及整个行政区归属
+  if (unit.tile.isCity && tileList) {
+    const districtId = unit.tile.districtId;
+    for (const tile of tileList) {
+      if (tile.districtId === districtId && tile.camp === oldCamp) {
+        tile.setCampWithFade(newCamp);
+      }
+    }
+  }
+  return true;
+}
+
+export { getCommander };

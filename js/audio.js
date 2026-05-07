@@ -134,6 +134,16 @@ export function playSound(sound) {
             }
             break;
         }
+        case 'commanderSkill': {
+            // 将领技能触发音效 — 短促升调琶音，类强化提示音
+            const t = ctx.currentTime;
+            [0, 80, 160].forEach((delay, i) => {
+                const freq = 660 + i * 220;
+                setTimeout(() => playTone(freq, 0.35, 'sine', 0.10), delay);
+                setTimeout(() => playTone(freq * 1.5, 0.25, 'sine', 0.06), delay + 40);
+            });
+            break;
+        }
         case 'victory': {
             const notes = [523, 659, 784, 1047];
             notes.forEach((freq, i) => {

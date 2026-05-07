@@ -1,4 +1,5 @@
 import { HEX_SIZE, hexToRgb, settings } from './config.js';
+import { playSound } from './audio.js';
 
 // ===== 粒子系统 =====================
 export const particles = [];
@@ -345,14 +346,20 @@ export function drawConfetti(ctx2d) {
 
 // ===== 将领技能触发特效 =====================
 export const commanderSkillEffects = [];
+export const commanderFlash = { alpha: 0 };
 
-export function spawnCommanderSkillEffect(x, y, glyph = '★') {
+export function spawnCommanderSkillEffect(x, y, glyph = '★', label = '') {
     commanderSkillEffects.push({
         x, y,
         glyph,
+        label,
         startTime: Date.now(),
-        duration: 600
+        duration: 900
     });
+    // 画布金色微闪
+    commanderFlash.alpha = 0.18;
+    // 提示音
+    playSound('commanderSkill');
 }
 
 // ===== 士气变化动画 =====================
