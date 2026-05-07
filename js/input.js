@@ -1,5 +1,5 @@
 import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG } from './config.js';
-import { getCommander } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, updateStatsPanel, updateRecruitCostDisplay, finalizeDeployment } from './state.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState } from './network.js';
 import {
@@ -16,6 +16,7 @@ const tooltipHeader = document.getElementById('tooltipHeader');
 const tooltipHpFill = document.getElementById('tooltipHpFill');
 const tooltipHpText = document.getElementById('tooltipHpText');
 const tooltipAtk = document.getElementById('tooltipAtk');
+const tooltipDef = document.getElementById('tooltipDef');
 const tooltipSpd = document.getElementById('tooltipSpd');
 const tooltipRng = document.getElementById('tooltipRng');
 const tooltipStatus = document.getElementById('tooltipStatus');
@@ -25,7 +26,7 @@ const tooltipMorale = document.getElementById('tooltipMorale');
 const PASSIVE_DEFS = {
     infantry: {
         name: '坚守',
-        desc: '位于城市时：每回合回复10%生命值，受到伤害−30%，反击暴击率提高至50%',
+        desc: '位于城市时：每回合回复10%生命值，防御+20%，反击暴击率提高至50%',
         active: (u) => u.tile.isCity
     },
     cavalry: {
@@ -35,7 +36,7 @@ const PASSIVE_DEFS = {
     },
     archer: {
         name: '远射',
-        desc: '攻击时不会触发敌方反击',
+        desc: '攻击不触发反击；山地射程+1（不与风天叠加）；无视敌方10%防御力',
         active: () => true
     }
 };
@@ -48,7 +49,12 @@ function showTooltipForTile(tile) {
     if (unit) {
         const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵' };
         const deployHint = (gameState.commanderPhase === 'deployment' && unit.camp === gameState.currentCamp) ? ' — 点击挂载将领' : '';
-        tooltipHeader.textContent = `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}${deployHint}`;
+        let headerText = `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}`;
+        if (unit.commander) {
+            const cmdCfgHdr = getCommander(unit.commander);
+            if (cmdCfgHdr) headerText += ` ${cmdCfgHdr.name}`;
+        }
+        tooltipHeader.textContent = headerText + deployHint;
         tooltipHeader.style.color = gameState.commanderPhase === 'deployment' ? '#ffd700' : unit.camp.color;
 
         const hpRatio = unit.hp / unit.maxHp;
@@ -71,6 +77,20 @@ function showTooltipForTile(tile) {
         } else {
             tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}</span>`;
         }
+        const moraleDefBonus = MORALE_CONFIG[unit.morale].defBonus;
+        let auraDefBonus = 0;
+        if (unit.commander !== 'ironGuard' && unit._findAdjacentFriendlyIronGuard && unit._findAdjacentFriendlyIronGuard()) {
+            auraDefBonus = 0.10;
+        }
+        const cmdDefBonus = getCommanderDefenseBonus(unit);
+        const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + auraDefBonus + cmdDefBonus) * 100);
+        if (totalDefPct > 0) {
+            tooltipDef.innerHTML = `<span style="color:#8fc;">🛡 ${totalDefPct}%</span>`;
+        } else if (totalDefPct < 0) {
+            tooltipDef.innerHTML = `<span style="color:#f66;">🛡 ${totalDefPct}%</span>`;
+        } else {
+            tooltipDef.innerHTML = `<span style="color:#888;">🛡 0%</span>`;
+        }
         tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${Math.round(unit.displaySpeed)}/${unit.config.speed}</span>`;
         tooltipRng.innerHTML = `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
         tooltipStats.style.display = '';
@@ -79,18 +99,33 @@ function showTooltipForTile(tile) {
         if (unit.isNewRecruit) statusParts.push('新招募');
         tooltipStatus.textContent = statusParts.join(' | ');
 
+        // ==== 技能区 ====
+        let skillHtml = '';
         const def = PASSIVE_DEFS[unit.type];
         if (def) {
             const isActive = def.active(unit);
-            tooltipPassive.innerHTML = `<span class="${isActive ? 'tooltip-passive-active' : 'tooltip-passive-inactive'}">【${def.name}】${def.desc}</span>`;
-        } else {
-            tooltipPassive.innerHTML = '';
+            skillHtml = `<span class="${isActive ? 'tooltip-passive-active' : 'tooltip-passive-inactive'}">【${def.name}】${def.desc}</span>`;
         }
+        if (unit.commander) {
+            const cmdCfg2 = getCommander(unit.commander);
+            if (cmdCfg2) {
+                let active = true;
+                let statusNote = '';
+                if (unit.commander === 'minister') {
+                    active = !!(unit.tile && unit.tile.isCity);
+                    statusNote = active ? '（生效中）' : '（未驻扎城市，未生效）';
+                }
+                const color = active ? '#ffd700' : '#888';
+                const cmdLine = `<span style="color:${color};">【☆${cmdCfg2.skill}】${cmdCfg2.desc}${statusNote}</span>`;
+                skillHtml += (skillHtml ? '<br>' : '') + cmdLine;
+            }
+        }
+        tooltipPassive.innerHTML = skillHtml;
 
+        // ==== 效果区 ====
         if (unit.morale !== 2) {
             const mc = MORALE_CONFIG[unit.morale];
-            const cls = unit.morale === 3 ? 'tooltip-morale-high' : 'tooltip-morale-debuff';
-            tooltipMorale.innerHTML = `<span class="${cls}">【${mc.name}】${mc.desc}</span>`;
+            tooltipMorale.innerHTML = `<span style="color:${mc.color};">【${mc.name}】${mc.desc}</span>`;
         } else {
             tooltipMorale.innerHTML = '';
         }
@@ -107,71 +142,9 @@ function showTooltipForTile(tile) {
         tooltipEl.style.borderColor = 'rgba(255,255,255,0.15)';
     }
 
-    // Terrain info — same 【】 style as skills; plains shown only for cities
-    const showTerrain = isCity || tile.terrain !== 'plains';
-    if (showTerrain) {
-        const terrainName = isCity ? '城市' : tc.name;
-        let terrainDesc = '';
-        if (isCity) {
-            const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : '中立';
-            terrainDesc = `由${ownerName}控制`;
-        } else {
-            terrainDesc = `受到伤害−${Math.round(tc.defenseBonus * 100)}%`;
-            if (tc.moveDesc) terrainDesc += `，${tc.moveDesc}`;
-        }
-        const terrainLine = `<span style="color:#fff;">【${terrainName}】${terrainDesc}</span>`;
-        if (unit) {
-            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + terrainLine;
-        } else {
-            tooltipPassive.innerHTML = terrainLine;
-        }
-    }
-
-    // Weather info — shown when not clear
-    const wc = WEATHER_CONFIG[gameState.weather];
-    if (gameState.weather !== 'clear' && wc) {
-        let weatherDesc = wc.desc;
-        // Narrow to unit-specific effects if a unit is selected
-        if (unit) {
-            const effects = [];
-            if (gameState.weather === 'rain') {
-                if (unit.type === 'cavalry')  effects.push('每步行动力消耗+1');
-                if (unit.type === 'infantry') effects.push('守城回血20%');
-            } else if (gameState.weather === 'fog') {
-                if (unit.type === 'archer')   effects.push('伤害−25%', '射程−1');
-                if (unit.type === 'cavalry')  effects.push('冲锋1格生效 伤害+30%');
-            } else if (gameState.weather === 'wind') {
-                if (unit.type === 'archer')   effects.push('射程+1', '伤害+15%');
-                if (unit.type === 'infantry') effects.push('暴击率≤5%');
-            }
-            if (effects.length > 0) weatherDesc = effects.join('，');
-            else weatherDesc = '无直接影响';
-        }
-        const weatherLine = `<span style="color:${wc.color};">${wc.icon}【${wc.name}】${weatherDesc}</span>`;
-        const target = unit ? tooltipMorale : tooltipPassive;
-        target.innerHTML += (target.innerHTML ? '<br>' : '') + weatherLine;
-    }
-
-    // Commander info
-    if (unit && unit.commander) {
-        const cmdCfg2 = getCommander(unit.commander);
-        if (cmdCfg2) {
-            let active = true;
-            let statusNote = '';
-            // 尚书：需要驻扎城市才生效
-            if (unit.commander === 'minister') {
-                active = !!(unit.tile && unit.tile.isCity);
-                statusNote = active ? '（生效中）' : '（未驻扎城市，未生效）';
-            }
-            const color = active ? '#ffd700' : '#888';
-            const cmdLine = `<span style="color:${color};">★【${cmdCfg2.name}】${cmdCfg2.skill}：${cmdCfg2.desc}${statusNote}</span>`;
-            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + cmdLine;
-        }
-    }
-
     // 铁卫灵光buff（所有友军，不含铁卫自身）
     if (unit && unit.commander !== 'ironGuard' && unit._findAdjacentFriendlyIronGuard && unit._findAdjacentFriendlyIronGuard()) {
-        const auraLine = `<span style="color:#ff9966;">【守护灵光】受伤−20%，50%转由铁卫承担</span>`;
+        const auraLine = `<span style="color:#7eb8ff;">【守护灵光】防御+10%，50%伤害转由铁卫承担</span>`;
         tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
     }
 
@@ -195,6 +168,50 @@ function showTooltipForTile(tile) {
             const snareLine = `<span style="color:#b08050;">🪤 缚足：移动消耗+3</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + snareLine;
         }
+    }
+
+    // Terrain info — shown last
+    const showTerrain = isCity || tile.terrain !== 'plains';
+    if (showTerrain) {
+        const terrainName = isCity ? '城市' : tc.name;
+        let terrainDesc = '';
+        if (isCity) {
+            const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : '中立';
+            terrainDesc = `由${ownerName}控制`;
+        } else {
+            terrainDesc = `防御+${Math.round(tc.defenseBonus * 100)}%`;
+            if (tc.moveDesc) terrainDesc += `，${tc.moveDesc}`;
+        }
+        const terrainLine = `<span style="color:#fff;">【${terrainName}】${terrainDesc}</span>`;
+        if (unit) {
+            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + terrainLine;
+        } else {
+            tooltipPassive.innerHTML = terrainLine;
+        }
+    }
+
+    // Weather info — shown last after terrain
+    const wc = WEATHER_CONFIG[gameState.weather];
+    if (gameState.weather !== 'clear' && wc) {
+        let weatherDesc = wc.desc;
+        if (unit) {
+            const effects = [];
+            if (gameState.weather === 'rain') {
+                if (unit.type === 'cavalry')  effects.push('每步行动力消耗+1');
+                if (unit.type === 'infantry') effects.push('守城回血20%');
+            } else if (gameState.weather === 'fog') {
+                if (unit.type === 'archer')   effects.push('伤害−25%', '射程−1');
+                if (unit.type === 'cavalry')  effects.push('冲锋1格生效 伤害+30%');
+            } else if (gameState.weather === 'wind') {
+                if (unit.type === 'archer')   effects.push('射程+1', '伤害+15%');
+                if (unit.type === 'infantry') effects.push('暴击率≤5%');
+            }
+            if (effects.length > 0) weatherDesc = effects.join('，');
+            else weatherDesc = '无直接影响';
+        }
+        const weatherLine = `<span style="color:${wc.color};">${wc.icon}【${wc.name}】${weatherDesc}</span>`;
+        const target = unit ? tooltipMorale : tooltipPassive;
+        target.innerHTML += (target.innerHTML ? '<br>' : '') + weatherLine;
     }
 
     if (!unit && !showTerrain) {

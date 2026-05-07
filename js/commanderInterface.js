@@ -120,23 +120,41 @@ export function triggerCommanderOnKill(killer, victim) {
   return null;
 }
 
-// ---- 伤害修正（铁卫） ----
+// ---- 防御加成（铁卫等） ----
 
-export function getCommanderSelfDamageMod(unit, rawDmg) {
-  if (unit.commander !== 'ironGuard') return rawDmg;
-  const cmd = getCommander('ironGuard');
-  if (cmd && cmd.onDamageTakenSelf) {
-    return cmd.onDamageTakenSelf(unit, rawDmg, null, _helpers('ironGuard'));
+export function getCommanderDefenseBonus(unit) {
+  if (!unit.commander) return 0;
+  const cmd = getCommander(unit.commander);
+  if (cmd && cmd.getDefenseBonus) {
+    return cmd.getDefenseBonus(unit);
   }
-  return rawDmg;
+  return 0;
 }
 
-export function getCommanderAllyAuraDamage(ally, rawDmg, ironGuardUnit) {
+export function getCommanderAuraDefenseBonus(unit) {
+  if (!unit.tile || unit.commander === 'ironGuard') return 0;
+  const tileMap = _gameState && (typeof _gameState === 'function' ? _gameState() : _gameState).tileMap;
+  if (!tileMap) return 0;
+  for (const [dq, dr] of HEX_NEIGHBORS) {
+    const nb = tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
+    if (nb && nb.unit && nb.unit.commander === 'ironGuard' && nb.unit.camp === unit.camp && nb.unit.hp > 0) {
+      const igCmd = getCommander('ironGuard');
+      if (igCmd && igCmd.getAuraDefenseBonus) {
+        return igCmd.getAuraDefenseBonus(unit);
+      }
+    }
+  }
+  return 0;
+}
+
+// ---- 伤害转移（铁卫灵光） ----
+
+export function getCommanderAllyAuraDamage(ally, actualDmg, ironGuardUnit) {
   const cmd = getCommander('ironGuard');
   if (cmd && cmd.onDamageTakenAlly) {
-    return cmd.onDamageTakenAlly(ally, rawDmg, ironGuardUnit, _helpers('ironGuard'));
+    return cmd.onDamageTakenAlly(ally, actualDmg, ironGuardUnit, _helpers('ironGuard'));
   }
-  return rawDmg;
+  return actualDmg;
 }
 
 // ---- 停滞者缚足 ----

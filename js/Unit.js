@@ -1,5 +1,5 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath } from './config.js';
-import { getCommander, getCommanderSelfDamageMod, getCommanderAllyAuraDamage } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage } from './commanderInterface.js';
 import { nextId } from './state.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect } from './effects.js';
 
@@ -305,7 +305,7 @@ export class Unit {
 
     getEffectiveAttack() {
         const baseAtk = this.config.attack + (this._atkBonus || 0);
-        return Math.round(baseAtk * MORALE_CONFIG[this.morale].dmgMulti);
+        return Math.round(baseAtk * MORALE_CONFIG[this.morale].atkMulti);
     }
 
     // Shared damage resolution: attacker → defender
@@ -314,7 +314,12 @@ export class Unit {
 
         let dmgBonus = counterCoeff - 1 + extraBonus;
         dmgBonus -= TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
-        if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.30;
+        if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.20;
+        dmgBonus -= (defender.config.defense || 0);
+        dmgBonus -= MORALE_CONFIG[defender.morale].defBonus;
+        dmgBonus -= getCommanderDefenseBonus(defender);
+        dmgBonus -= getCommanderAuraDefenseBonus(defender);
+        if (attacker.type === 'archer') dmgBonus += 0.10;
         const dmgMulti = Math.max(0.1, 1 + dmgBonus);
 
         const isCrit = Math.random() < critRate;
@@ -395,10 +400,7 @@ export class Unit {
 
         let actualDmg = dmg;
 
-        // 铁卫自身：受到伤害−30%
-        actualDmg = getCommanderSelfDamageMod(this, actualDmg);
-
-        // 铁卫灵光：相邻友军受伤−20%，50%转由铁卫承担
+        // 铁卫灵光：相邻友军所受伤害50%转由铁卫承担
         if (!_skipAura && this.commander !== 'ironGuard' && _gameState) {
             const ironGuard = this._findAdjacentFriendlyIronGuard();
             if (ironGuard && ironGuard.hp > 0) {

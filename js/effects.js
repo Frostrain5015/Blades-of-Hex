@@ -292,10 +292,18 @@ export function triggerScreenShake(intensity, duration) {
 // ===== 回合切换闪光 =====================
 export const turnFlash = { alpha: 0, color: '' };
 
+export const factionMoraleFlash = { alpha: 0, color: '', startTime: 0 };
+
 export function triggerTurnFlash(campColor) {
     if (!settings.turnFlash) return;
     turnFlash.alpha = 0.4;
     turnFlash.color = campColor;
+}
+
+export function triggerFactionMoraleFlash(campColor) {
+    factionMoraleFlash.alpha = 0.90;
+    factionMoraleFlash.color = campColor;
+    factionMoraleFlash.startTime = Date.now();
 }
 
 // ===== 胜利彩纸 =====================
@@ -356,8 +364,8 @@ export function spawnCommanderSkillEffect(x, y, glyph = '★', label = '') {
         startTime: Date.now(),
         duration: 900
     });
-    // 画布金色微闪
-    commanderFlash.alpha = 0.18;
+    // 画布边框辉光
+    commanderFlash.alpha = 0.90;
     // 提示音
     playSound('commanderSkill');
 }
@@ -446,4 +454,6 @@ export function clearTransientEffects() {
     screenShake.x = 0;
     screenShake.y = 0;
     turnFlash.alpha = 0;
+    factionMoraleFlash.alpha = 0;
+    factionMoraleFlash.startTime = 0;
 }

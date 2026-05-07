@@ -6,7 +6,7 @@ export default {
   name: '停滞者',
   skill: '缚足',
   hpBonus: 15, atkBonus: 5, spdBonus: 0,
-  desc: '自身及相邻6格敌军移动消耗+3',
+  desc: '自身及相邻6格范围内非己方单位行动力消耗+3',
 
   // 判定某地块对friendlyCamp的友军是否处于缚足区域
   isInSnareZone(tile, friendlyCamp, tileMap) {

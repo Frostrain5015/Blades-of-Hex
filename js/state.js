@@ -62,7 +62,8 @@ export const gameState = {
     commanderP2Confirmed: false,
     commanderP1Deployed: false,
     commanderP2Deployed: false,
-    commanderPhase: 'done'  // 'selection' | 'deployment' | 'done'
+    commanderPhase: 'done',  // 'selection' | 'deployment' | 'done'
+    factionMoraleBoost: { player1: 0, player2: 0 }
 };
 
 // ===== 重置游戏状态（再来一局时调用） =====================
@@ -106,6 +107,7 @@ export function resetGameState() {
     gameState.commanderP1Deployed = false;
     gameState.commanderP2Deployed = false;
     gameState.commanderPhase = 'done';
+    gameState.factionMoraleBoost = { player1: 0, player2: 0 };
     // 清除计数器动画记忆
     for (const k of Object.keys(_counterStore)) delete _counterStore[k];
 }
@@ -423,7 +425,8 @@ export function serializeState() {
         commanderP2Confirmed: gameState.commanderP2Confirmed,
         commanderP1Deployed: gameState.commanderP1Deployed,
         commanderP2Deployed: gameState.commanderP2Deployed,
-        commanderPhase: gameState.commanderPhase
+        commanderPhase: gameState.commanderPhase,
+        factionMoraleBoost: { ...gameState.factionMoraleBoost }
     };
 }
 
@@ -450,6 +453,11 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.commanderP1Deployed = data.commanderP1Deployed || false;
     gameState.commanderP2Deployed = data.commanderP2Deployed || false;
     gameState.commanderPhase = data.commanderPhase || 'done';
+    if (data.factionMoraleBoost) {
+        gameState.factionMoraleBoost = { player1: 0, player2: 0, ...data.factionMoraleBoost };
+    } else {
+        gameState.factionMoraleBoost = { player1: 0, player2: 0 };
+    }
 
     // Preserve displayHp & commander for units (prevents flicker & commander loss on sync)
     const oldDisplayHp = new Map();

@@ -4,7 +4,7 @@ export default {
   name: '铁卫',
   skill: '守护',
   hpBonus: 30, atkBonus: 0, spdBonus: 0,
-  desc: '自身受伤−30% 每回合回复40%已损生命；相邻友军受伤−20%且50%转由铁卫承担',
+  desc: '防御力+20%，每回合回复40%已损失的生命值；相邻友军获得【守护灵光】：防御+10%，所受伤害的50%转由铁卫承担',
 
   onTurnStart(gameState, camp, helpers) {
     const { logMessage, spawnFx } = helpers;
@@ -23,29 +23,28 @@ export default {
     }
   },
 
-  // 自身受到伤害时修正
-  onDamageTakenSelf(unit, rawDmg, sourceUnit, helpers) {
-    return Math.round(rawDmg * 0.7);
+  // 自身防御加成（在防御乘区加算）
+  getDefenseBonus(unit) {
+    return 0.20;
   },
 
-  // 灵光buff：相邻友军受伤−20%，50%转由铁卫承担
-  // 返回 { reducedDmg, transferred }，由调用方处理铁卫扣血
-  onDamageTakenAlly(allyUnit, rawDmg, ironGuardUnit, helpers) {
-    const reduced = Math.round(rawDmg * 0.8);
-    const transferred = Math.round(reduced * 0.5);
-    const finalDmg = reduced - transferred;
-    // 铁卫承担转移伤害
-    if (transferred > 0 && ironGuardUnit.hp > 0) {
-      ironGuardUnit.takeDamage(transferred, null, true);
-      // 伤害数字反馈到铁卫
-      const gs = helpers.gameState;
-      gs.damageTexts.push({
-        x: ironGuardUnit.tile.x, y: ironGuardUnit.tile.y,
-        value: transferred, isCrit: false,
-        timeLeft: 800, lastUpdate: Date.now()
-      });
-      helpers.spawnFx(ironGuardUnit.tile.x, ironGuardUnit.tile.y, '🛡');
-    }
-    return finalDmg;
+  // 灵光：相邻友军防御+10%（在防御乘区加算）
+  getAuraDefenseBonus(allyUnit) {
+    return 0.10;
+  },
+
+  // 灵光转移：相邻友军所受最终伤害的50%转由铁卫承担
+  onDamageTakenAlly(allyUnit, actualDmg, ironGuardUnit, helpers) {
+    const transferred = Math.round(actualDmg * 0.5);
+    if (transferred <= 0 || ironGuardUnit.hp <= 0) return actualDmg;
+    ironGuardUnit.takeDamage(transferred, null, true);
+    const gs = helpers.gameState;
+    gs.damageTexts.push({
+      x: ironGuardUnit.tile.x, y: ironGuardUnit.tile.y,
+      value: transferred, isCrit: false,
+      timeLeft: 800, lastUpdate: Date.now()
+    });
+    helpers.spawnFx(ironGuardUnit.tile.x, ironGuardUnit.tile.y, '🛡');
+    return actualDmg - transferred;
   }
 };

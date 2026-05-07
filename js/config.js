@@ -110,9 +110,9 @@ export const HEX_NEIGHBORS = [
 
 // ==== 兵种配置 ====================
 export const UNIT_CONFIG = {
-    infantry: { name: '步', hp: 100, attack: 30, speed: 5, range: 1, cost: 30, color: '#0a0a0a' },
-    cavalry:  { name: '骑', hp: 90,  attack: 55, speed: 8, range: 1, cost: 40, color: '#0a0a0a' },
-    archer:   { name: '炮', hp: 70,  attack: 55, speed: 3, range: 2, cost: 35, color: '#0a0a0a' }
+    infantry: { name: '步', hp: 100, attack: 30, defense: 0.10, speed: 5, range: 1, cost: 30, color: '#0a0a0a' },
+    cavalry:  { name: '骑', hp: 90,  attack: 55, defense: 0.05, speed: 8, range: 1, cost: 40, color: '#0a0a0a' },
+    archer:   { name: '炮', hp: 70,  attack: 55, defense: 0,    speed: 3, range: 2, cost: 35, color: '#0a0a0a' }
 };
 
 // ==== 阵营配置 ====================
@@ -139,8 +139,8 @@ export const COUNTER_RELATION = {
 // ==== 地形配置 ====================
 export const TERRAIN_CONFIG = {
     plains:   { name: '平原', defenseBonus: 0,    stepCost: 2, moveDesc: '',          icon: '',   iconFont: '' },
-    forest:   { name: '森林', defenseBonus: 0.15, stepCost: 3, moveDesc: '部队移动较慢', icon: '🌲', iconFont: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' },
-    mountain: { name: '山地', defenseBonus: 0.25, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
+    forest:   { name: '森林', defenseBonus: 0.10, stepCost: 3, moveDesc: '部队移动较慢', icon: '🌲', iconFont: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' },
+    mountain: { name: '山地', defenseBonus: 0.20, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
 };
 
 // ==== 经济 ====================
@@ -155,10 +155,10 @@ export function calcIncome(cityCount) {
 // ==== 士气配置 ====================
 // 士气等级: 3=上升 2=正常 1=下降 0=混乱
 export const MORALE_CONFIG = {
-    3: { name: '士气上升', dmgMulti: 1.15, icon: '▲', color: '#ffd700', desc: '攻击力+15%' },
-    2: { name: '正常',     dmgMulti: 1.00, icon: '',   color: '#aaa',    desc: '' },
-    1: { name: '士气下降', dmgMulti: 0.80, icon: '▼', color: '#b080e8', desc: '攻击力−20%' },
-    0: { name: '混乱',     dmgMulti: 0,    icon: '？', color: '#999',    desc: '无法操控' }
+    3: { name: '士气上升', atkMulti: 1.15, defBonus: 0.05,  icon: '▲', color: '#ffd700', desc: '攻击力+15%，防御+5%' },
+    2: { name: '正常',     atkMulti: 1.00, defBonus: 0,     icon: '',   color: '#aaa',    desc: '' },
+    1: { name: '士气下降', atkMulti: 0.80, defBonus: -0.05, icon: '▼', color: '#b080e8', desc: '攻击力−20%，防御−5%' },
+    0: { name: '混乱',     atkMulti: 0,    defBonus: -0.15, icon: '？', color: '#999',    desc: '无法操控，防御−15%' }
 };
 
 // ==== 将领配置 ====================
