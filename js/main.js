@@ -13,7 +13,8 @@ import {
     triggerAttackFlash, triggerRecruitFlash,
     spawnExplosionParticles, spawnDirectionalParticles,
     spawnRecruitEffect, spawnSlashMarks,
-    triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect
+    triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect,
+    spawnProjectile, triggerRecoil
 } from './effects.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
@@ -617,8 +618,14 @@ async function handleRemoteAction(msg) {
             playSound(e?.isCrit ? 'crit' : 'attack');
             if (e) {
                 triggerAttackFlash(e.x, e.y, e.isCrit);
-                spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 22 : 10);
-                spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
+                if (e.attackerType === 'archer') {
+                    spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                    triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
+                    spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
+                } else {
+                    spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 22 : 10);
+                    spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
+                }
                 triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                 if (e.killed) {
                     spawnExplosionParticles(e.x, e.y, '#ff2200', 30);
