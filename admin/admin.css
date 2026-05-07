@@ -1,0 +1,221 @@
+/* ============================================================
+   BLADES OF HEX — ADMIN PANEL
+   ============================================================ */
+
+:root {
+    --gold:          #ffd700;
+    --gold-border:   rgba(255, 215, 0, 0.26);
+    --gold-glow:     rgba(255, 215, 0, 0.40);
+    --red-bg:        rgba(116, 26, 20, 0.90);
+    --surface:       rgba(13, 7, 3, 0.90);
+    --border:        rgba(255, 255, 255, 0.07);
+    --text-faint:    #5a5550;
+    --text-dim:      #8a8480;
+    --text-body:     #c0b8ac;
+    --text-bright:   #ede6d4;
+    --radius-sm:     6px;
+    --radius-md:     10px;
+    --radius-lg:     14px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    height: 100vh; overflow-y: auto;
+    background-image: url("../bg.jpg");
+    background-size: cover; background-attachment: fixed;
+    font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
+    color: var(--text-body); position: relative;
+}
+body::before {
+    content: ''; position: fixed; inset: 0;
+    background: radial-gradient(ellipse at 50% 30%, rgba(30,15,5,0.55) 0%, rgba(4,2,0,0.88) 100%);
+    pointer-events: none; z-index: 0;
+}
+body::after {
+    content: ''; position: fixed; inset: 0;
+    border: 1px solid rgba(180,125,14,0.10);
+    box-shadow: inset 0 0 120px rgba(0,0,0,0.60), inset 0 0 30px rgba(0,0,0,0.40);
+    pointer-events: none; z-index: 0;
+}
+#adminRoot { position: relative; z-index: 1; }
+
+/* ---- Login ---- */
+.login-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.84);
+    backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; z-index: 1000;
+}
+.login-card {
+    background: rgba(12,6,2,0.98); border: 2px solid rgba(205,150,18,0.42);
+    border-radius: var(--radius-lg); padding: 42px 46px; width: 360px; text-align: center;
+    box-shadow: 0 0 80px rgba(0,0,0,0.92), 0 0 40px rgba(205,150,18,0.06);
+}
+.login-header { margin-bottom: 24px; }
+.login-title {
+    font-size: 36px; font-weight: bold;
+    background: linear-gradient(135deg, #c82818 20%, #d4a017 52%, #c82818 80%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; letter-spacing: 7px; margin-bottom: 7px;
+}
+.login-subtitle { font-size: 11px; color: var(--text-faint); letter-spacing: 6px; text-transform: uppercase; }
+.login-divider { width: 50px; height: 2px; background: rgba(205,150,18,0.35); margin: 0 auto 24px; }
+.login-input {
+    width: 100%; padding: 12px 14px; background: rgba(0,0,0,0.40);
+    border: 1px solid rgba(180,125,14,0.30); border-radius: var(--radius-sm);
+    color: var(--gold); font-size: 16px; font-family: 'Consolas','Courier New',monospace;
+    letter-spacing: 3px; text-align: center; outline: none; margin-bottom: 16px;
+    transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
+}
+.login-input:focus { border-color: var(--gold-glow); background: rgba(0,0,0,0.55); box-shadow: 0 0 12px rgba(255,215,0,0.12); }
+.login-input::placeholder { color: var(--text-faint); letter-spacing: 2px; font-size: 13px; }
+.login-error { min-height: 18px; font-size: 12px; color: #b06060; margin-top: 10px; letter-spacing: 1px; }
+
+/* ---- Buttons ---- */
+.admin-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: inherit; cursor: pointer; outline: none;
+    padding: 13px 24px; font-size: 14px; font-weight: bold; letter-spacing: 2px;
+    color: var(--text-bright);
+    background: linear-gradient(135deg, rgba(95,22,11,0.88), rgba(62,12,5,0.92));
+    border: 1px solid rgba(195,140,16,0.40); border-radius: var(--radius-md);
+    box-shadow: 0 3px 0 rgba(35,6,2,0.85), 0 5px 14px rgba(0,0,0,0.42);
+    transition: background 0.20s, border-color 0.20s, transform 0.16s, box-shadow 0.20s;
+    position: relative; overflow: hidden; text-shadow: 0 1px 3px rgba(0,0,0,0.45);
+}
+.admin-btn::before {
+    content: ''; position: absolute; inset: 0 0 60% 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.055) 0%, transparent 100%); pointer-events: none;
+}
+.admin-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(115,28,14,0.92), rgba(76,16,7,0.94));
+    border-color: rgba(215,162,22,0.58); transform: translateY(-2px);
+    box-shadow: 0 5px 0 rgba(35,6,2,0.85), 0 10px 22px rgba(0,0,0,0.52);
+}
+.admin-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 2px 0 rgba(35,6,2,0.85); }
+.admin-btn:disabled { opacity: 0.35; cursor: not-allowed; filter: grayscale(0.3); transform: none !important; }
+.admin-btn.danger { background: rgba(55,12,10,0.88); border-color: rgba(145,35,28,0.42); color: #b06060; }
+.admin-btn.danger:hover:not(:disabled) { background: rgba(78,18,14,0.92); border-color: rgba(185,50,40,0.65); color: #e08888; }
+.admin-btn.secondary { background: rgba(18,9,4,0.92); border-color: rgba(110,72,22,0.32); color: var(--text-dim); box-shadow: none; }
+.admin-btn.secondary:hover:not(:disabled) { background: rgba(30,14,6,0.94); border-color: rgba(150,100,30,0.48); color: var(--text-body); box-shadow: none; }
+.admin-btn.primary { border-color: rgba(215,162,22,0.55); }
+.admin-btn.tiny { padding: 5px 12px; font-size: 11px; letter-spacing: 1px; border-radius: var(--radius-sm); }
+.admin-btn.full { width: 100%; }
+
+/* ---- Dashboard ---- */
+#dashboard { display: flex; flex-direction: column; height: 100vh; padding: 14px; gap: 12px; overflow: hidden; }
+
+.dash-topbar {
+    display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+    background: rgba(13,7,3,0.82); backdrop-filter: blur(12px);
+    border: 1px solid rgba(180,125,14,0.22); border-radius: var(--radius-md);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5); flex-shrink: 0;
+}
+.dash-topbar-title { font-size: 11px; letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; flex: 1; }
+
+.status-badge { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: bold; letter-spacing: 2px; }
+.status-dot {
+    width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+    transition: background 0.6s ease, box-shadow 0.6s ease, transform 0.4s ease;
+    position: relative;
+}
+.status-dot::after {
+    content: ''; position: absolute; inset: -4px; border-radius: 50%;
+    border: 2px solid transparent; transition: border-color 0.6s ease, opacity 0.6s ease;
+    opacity: 0; animation: none;
+}
+.status-badge.running .status-dot { background: #5c5; box-shadow: 0 0 12px rgba(80,200,80,0.6), 0 0 24px rgba(80,200,80,0.25); animation: connPulse 2.5s ease-in-out infinite; }
+.status-badge.running .status-dot::after { border-color: rgba(80,200,80,0.35); opacity: 1; animation: statusRing 2.5s ease-in-out infinite; }
+.status-badge.starting .status-dot { background: #da3; box-shadow: 0 0 12px rgba(220,170,50,0.6), 0 0 24px rgba(220,170,50,0.25); animation: connPulse 0.8s ease-in-out infinite; }
+.status-badge.starting .status-dot::after { border-color: rgba(220,170,50,0.35); opacity: 1; animation: statusRing 1.5s ease-in-out infinite; }
+.status-badge.stopped .status-dot { background: #a55; box-shadow: 0 0 8px rgba(170,80,80,0.4); }
+.status-badge.running { color: #8c8; } .status-badge.starting { color: #ca8; } .status-badge.stopped { color: #a88; }
+.status-badge.transition { animation: badgeFlash 0.5s ease; }
+@keyframes connPulse { 0%,100%{transform:scale(1);opacity:0.9} 50%{transform:scale(1.3);opacity:1} }
+@keyframes statusRing { 0%,100%{transform:scale(1);opacity:0.6} 50%{transform:scale(1.5);opacity:0} }
+@keyframes badgeFlash { 0%{filter:brightness(1.8)} 100%{filter:brightness(1)} }
+.uptime-text { font-size: 11px; color: var(--text-faint); letter-spacing: 1px; }
+
+/* ---- Main ---- */
+.dash-main { display: grid; grid-template-columns: 280px 1fr; gap: 12px; flex: 1; min-height: 0; }
+
+.dash-left { display: flex; flex-direction: column; gap: 12px; }
+
+.admin-panel {
+    background: rgba(13,7,3,0.82); backdrop-filter: blur(12px);
+    border: 1px solid rgba(180,125,14,0.22); border-radius: var(--radius-md);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5); padding: 18px 20px;
+}
+.panel-label {
+    font-size: 9px; letter-spacing: 3px; color: var(--text-faint);
+    text-transform: uppercase; margin-bottom: 12px; font-weight: 600;
+}
+.panel-divider { height: 1px; background: rgba(205,150,18,0.12); margin: 14px 0; }
+
+.btn-row { display: flex; gap: 8px; }
+.btn-row .admin-btn { flex: 1; }
+.btn-col { display: flex; flex-direction: column; gap: 8px; }
+
+.port-row { display: flex; gap: 10px; align-items: center; }
+.port-label { font-size: 11px; letter-spacing: 1.5px; color: var(--text-dim); display: flex; gap: 6px; align-items: center; }
+.port-input {
+    width: 68px; padding: 5px 6px; background: rgba(0,0,0,0.40);
+    border: 1px solid rgba(180,125,14,0.30); border-radius: var(--radius-sm);
+    color: #fff; font-size: 13px; font-family: 'Consolas','Courier New',monospace; text-align: center; outline: none;
+}
+.port-input:focus { border-color: var(--gold-glow); }
+
+.dash-right { display: flex; flex-direction: column; min-height: 0; }
+.room-panel { flex: 0 1 auto; display: flex; flex-direction: column; max-height: 340px; }
+
+.admin-empty { text-align: center; padding: 40px 0; color: var(--text-faint); font-size: 12px; letter-spacing: 1px; }
+
+/* ---- Room List ---- */
+.admin-room-grid { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; }
+.admin-room-grid:empty { display: none; }
+
+.admin-room-card {
+    display: flex; align-items: center; gap: 18px;
+    padding: 14px 18px;
+    background: linear-gradient(135deg, rgba(40,22,8,0.78), rgba(24,10,3,0.88));
+    border: 1px solid rgba(180,125,14,0.25); border-radius: var(--radius-md);
+    box-shadow: 0 2px 0 rgba(20,5,1,0.70), 0 5px 12px rgba(0,0,0,0.38);
+    position: relative; overflow: hidden;
+}
+.admin-room-card::before {
+    content: ''; position: absolute; inset: 0 0 60% 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%); pointer-events: none;
+}
+.admin-room-card.in-progress { border-color: rgba(200,80,60,0.35); box-shadow: 0 2px 0 rgba(20,5,1,0.70), 0 5px 12px rgba(0,0,0,0.38), 0 0 14px rgba(200,80,60,0.12); }
+.admin-room-card-id { font-size: 30px; font-weight: bold; color: var(--gold); font-family: 'Consolas','Courier New',monospace; min-width: 40px; text-align: center; text-shadow: 0 0 14px rgba(255,215,0,0.30); }
+.admin-room-card-body { flex: 1; min-width: 0; }
+.admin-room-card-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.admin-room-card-row + .admin-room-card-row { margin-top: 5px; }
+.admin-room-card-count { color: var(--text-body); font-weight: bold; background: rgba(0,0,0,0.35); padding: 3px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); font-size: 11px; }
+.admin-room-card-status { font-size: 11px; letter-spacing: 1.5px; font-weight: bold; padding: 3px 10px; border-radius: 8px; }
+.admin-room-card-status.waiting { color: #b8a050; background: rgba(180,150,50,0.12); }
+.admin-room-card-status.playing { color: #c87060; background: rgba(200,100,80,0.12); }
+.admin-room-card-status.zombie  { color: var(--text-faint); background: rgba(255,255,255,0.04); }
+.admin-room-card-ips { font-size: 10px; color: var(--text-dim); font-family: 'Consolas','Courier New',monospace; }
+.admin-room-card-close { flex-shrink: 0; }
+
+/* ---- Log ---- */
+.log-panel { flex-shrink: 0; display: flex; flex-direction: column; height: 180px; }
+.log-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.log-tools { display: flex; gap: 10px; align-items: center; }
+.auto-scroll-label { font-size: 10px; color: var(--text-faint); letter-spacing: 1px; display: flex; gap: 4px; align-items: center; cursor: pointer; }
+.log-terminal {
+    flex: 1; min-height: 90px; max-height: 180px; overflow-y: auto;
+    background: rgba(0,0,0,0.88); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-sm); padding: 10px 14px;
+    font-family: 'Consolas','Courier New',monospace; font-size: 12px; line-height: 1.6;
+}
+.log-terminal::-webkit-scrollbar { width: 4px; }
+.log-terminal::-webkit-scrollbar-track { background: transparent; }
+.log-terminal::-webkit-scrollbar-thumb { background: rgba(205,150,18,0.25); border-radius: 2px; }
+.log-line { white-space: pre-wrap; word-break: break-all; }
+.log-stdout { color: #a0a0a0; } .log-stderr { color: #d47878; } .log-admin { color: #d4b860; }
+
+@media (max-width: 800px) {
+    .dash-main { grid-template-columns: 1fr; }
+    .login-card { width: 90vw; padding: 30px 24px; }
+}

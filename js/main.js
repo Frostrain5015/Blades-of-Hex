@@ -6,7 +6,7 @@ import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSp
 import { initMap, triggerVictoryEffect } from './gameLogic.js';
 import { renderGame } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
-import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, disconnect } from './network.js';
 import { CAMP } from './config.js';
 import {
     clearTransientEffects, triggerTurnFlash,
@@ -104,6 +104,7 @@ const lobbyStatus       = document.getElementById('lobbyStatus');
 const connectionBar     = document.getElementById('connectionBar');
 const connectionLabel   = document.getElementById('connectionLabel');
 const connectionDot     = connectionBar.querySelector('.connection-dot');
+const reconnectBtn      = document.getElementById('reconnectBtn');
 
 function setConnectionState(state) {
     // state: 'disconnected' | 'connecting' | 'connected'
@@ -114,7 +115,32 @@ function setConnectionState(state) {
         case 'connected':  connectionLabel.textContent = '服务器已连接'; break;
         default:           connectionLabel.textContent = '未连接'; break;
     }
+    // 重连成功后隐藏按钮
+    if (state === 'connected') reconnectBtn.style.display = 'none';
 }
+
+// 首页常驻连接状态（页面加载时自动检测服务器）
+connectionBar.classList.add('visible');
+setConnectionState('connecting');
+connectToServer(wsUrl(location.host)).then(() => {
+    setConnectionState('connected');
+    // 首页连接成功后注册回调（不进入房间，仅保持连接）
+    setNetworkCallbacks({
+        onDisconnected: () => setConnectionState('disconnected'),
+        onReconnecting: (n) => { setConnectionState('connecting'); connectionLabel.textContent = '重连中 (' + n + '/2)...'; },
+        onReconnectFailed: () => { setConnectionState('disconnected'); connectionLabel.textContent = '连接失败'; reconnectBtn.style.display = ''; },
+        onReconnected: () => setConnectionState('connected')
+    });
+}).catch(() => {
+    setConnectionState('disconnected');
+});
+
+// 手动重连按钮
+reconnectBtn.addEventListener('click', () => {
+    reconnectBtn.style.display = 'none';
+    setConnectionState('connecting');
+    manualReconnect();
+});
 
 function setStatus(msg, isError = false) {
     lobbyStatus.textContent = msg;
@@ -126,7 +152,7 @@ function showHome(msg) {
     multiplayerLobby.style.display = 'none';
     roomWaiting.style.display = 'none';
     document.getElementById('lobbyReady').style.display = 'none';
-    connectionBar.classList.remove('visible');
+    connectionBar.classList.add('visible'); // 首页也显示连接状态
     if (msg) setStatus(msg, true);
 }
 
@@ -435,10 +461,17 @@ function renderRoomList(list) {
     });
 }
 
-// 多人游戏 → 连接服务器
+// 多人游戏 → 连接服务器（若已连接则直接进入大厅）
 document.getElementById('multiplayerBtn').addEventListener('click', () => {
-    setConnectionState('connecting');
     lobbyHome.style.display = 'none';
+    if (isNetworkGame() || connectionDot.classList.contains('connected')) {
+        // 已有活跃连接，直接进大厅
+        registerNetworkCallbacks();
+        showMultiplayerLobby();
+        listRooms();
+        return;
+    }
+    setConnectionState('connecting');
     registerNetworkCallbacks();
     connectToServer(wsUrl(location.host)).then(() => {
         setConnectionState('connected');
@@ -462,7 +495,7 @@ document.getElementById('refreshRoomsBtn').addEventListener('click', () => {
     listRooms();
 });
 
-// 返回首页
+// 返回首页（保持连接以便指示灯常驻）
 document.getElementById('backToHomeBtn').addEventListener('click', () => {
     leaveRoom();
     setStatus('');
@@ -527,9 +560,36 @@ function registerNetworkCallbacks() {
             setStatus(message, true);
         },
 
+        onRoomClosed: (reason) => {
+            notify(reason || '房间已被关闭', 'warn', true);
+            showHome();
+        },
+
+        onBanned: (message) => {
+            alert(message || '你已被管理员封禁');
+            showHome();
+        },
+
         onDisconnected: () => {
             setConnectionState('disconnected');
-            showHome('已断开连接');
+            if (isNetworkGame()) showHome('已断开连接，正在尝试重连...');
+        },
+
+        onReconnecting: (attempt) => {
+            setConnectionState('connecting');
+            connectionLabel.textContent = '重连中 (' + attempt + '/2)...';
+        },
+
+        onReconnectFailed: () => {
+            setConnectionState('disconnected');
+            connectionLabel.textContent = '连接失败';
+            reconnectBtn.style.display = '';
+        },
+
+        onReconnected: () => {
+            setConnectionState('connected');
+            // WebSocket 重连成功 → 重新获取房间列表
+            listRooms();
         },
 
         onStart: (role) => {

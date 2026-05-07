@@ -1,0 +1,10 @@
+{
+  "adminPort": 3099,
+  "gameHttpPort": 3000,
+  "gameHttpsPort": 3443,
+  "password": "admin",
+  "blacklist": [],
+  "notes": {
+    "::1": "潘涵宇[PC]"
+  }
+}

@@ -696,15 +696,20 @@ export function attackUnit(attackerUnit, targetUnit) {
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
     const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
     playSound(attackResult.isCrit ? 'crit' : 'attack');
-    triggerAttackFlash(toX, toY, attackResult.isCrit);
+    const isCrit = attackResult.isCrit;
     if (attackerUnit.type === 'archer') {
-        spawnProjectile(fromX, fromY, toX, toY, attackResult.isCrit);
-        triggerRecoil(fromX, fromY, toX, toY);
-        spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', attackResult.isCrit ? 8 : 4);
+        // 炮兵：炮弹飞行途中先不播放爆炸特效，到达后再触发
+        spawnProjectile(fromX, fromY, toX, toY, isCrit, () => {
+            triggerAttackFlash(toX, toY, isCrit);
+            triggerRecoil(fromX, fromY, toX, toY);
+            spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
+            triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
+        });
     } else {
-        spawnMeleeSlash(toX, toY, fromX, fromY, attackResult.isCrit);
+        triggerAttackFlash(toX, toY, isCrit);
+        spawnMeleeSlash(toX, toY, fromX, fromY, isCrit);
+        triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
     }
-    triggerScreenShake(attackResult.isCrit ? 6 : 3, attackResult.isCrit ? 200 : 120);
     const isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
     // 近战突进特效（击杀时由 movePath 处理位移，不重复触发）
     if (attackerUnit.type !== 'archer' && !isTargetDead) {
@@ -719,7 +724,12 @@ export function attackUnit(attackerUnit, targetUnit) {
         if (atkCmdResult.healAmt) {
             _healAmtRemote = atkCmdResult.healAmt; _healX = attackerUnit.tile.x; _healY = attackerUnit.tile.y;
         }
-        if (attackerUnit.commander === 'vampire') spawnBloodDrain(toX, toY, fromX, fromY);
+        if (attackerUnit.commander === 'vampire') {
+            // 击杀后吸血鬼移动到目标格，血粒子应以目标格为终点
+            const bloodDestX = (isTargetDead && attackerUnit.type !== 'archer') ? toX : fromX;
+            const bloodDestY = (isTargetDead && attackerUnit.type !== 'archer') ? toY : fromY;
+            spawnBloodDrain(toX, toY, bloodDestX, bloodDestY);
+        }
         if (atkCmdResult.moraleDropped) {
             if (attackerUnit.commander === 'advisor') spawnPurpleLightning(toX, toY);
             spawnMoraleEffect(targetUnit);
@@ -832,7 +842,11 @@ export function attackUnit(attackerUnit, targetUnit) {
         healAmt: _healAmtRemote, healX: _healX, healY: _healY,
         cmdFxExtra: _cmdFxExtra || null,
         // 将领专属特效标记
-        bloodDrain: attackerUnit.commander === 'vampire' ? { toX, toY, fromX, fromY } : null,
+        bloodDrain: attackerUnit.commander === 'vampire' ? {
+            toX, toY,
+            fromX: (isTargetDead && attackerUnit.type !== 'archer') ? toX : fromX,
+            fromY: (isTargetDead && attackerUnit.type !== 'archer') ? toY : fromY
+        } : null,
         purpleLightning: atkCmdResult?.moraleDropped ? { x: toX, y: toY } : null,
         ctrBloodDrain: (ctrCmdResult && targetUnit.commander === 'vampire') ? { toX: attackerUnit.tile.x, toY: attackerUnit.tile.y, fromX: targetUnit.tile.x, fromY: targetUnit.tile.y } : null
     });
