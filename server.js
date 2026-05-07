@@ -98,6 +98,9 @@ function broadcastRoom(room, obj, exclude = null) {
 function startZombieTimer(room) {
     if (room._zombieTimer) return;
     room._zombieSince = Date.now();
+    // 对局作废，清除重连标记
+    room.gameStarted = false;
+    room._disconnectedRole = null;
     room._zombieTimer = setTimeout(() => {
         if (room.players.size === 0) {
             releaseRoomId(room.id);
