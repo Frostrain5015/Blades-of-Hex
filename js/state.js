@@ -407,6 +407,7 @@ export function serializeState() {
 
     return {
         tiles: tilesData,
+        serializedAt: Date.now(),
         currentCampKey: gameState.currentCamp === CAMP.player1 ? 'p1' : gameState.currentCamp === CAMP.player2 ? 'p2' : 'neutral',
         playerGold: { ...gameState.playerGold },
         turnCounter: gameState.turnCounter,
@@ -475,6 +476,9 @@ export function deserializeState(data, HexTileClass, UnitClass) {
         }
     }
 
+    // 校准渐变动画时间戳，补偿网络延迟
+    const timeDelta = data.serializedAt ? Date.now() - data.serializedAt : 0;
+
     gameState.tiles = data.tiles.map(td => {
         const tile = new HexTileClass(td.q, td.r, td.id);
         tile.s = td.s;
@@ -485,7 +489,19 @@ export function deserializeState(data, HexTileClass, UnitClass) {
         tile.startColor = td.startColor;
         tile.targetColor = td.targetColor;
         tile.currentColor = td.currentColor;
-        tile.fadeStartTime = td.fadeStartTime;
+        // 将主机时间戳校准为本地时间，若动画已过期则直接应用目标色
+        if (td.fadeStartTime) {
+            const adjustedStart = td.fadeStartTime + timeDelta;
+            if (Date.now() - adjustedStart >= tile.fadeDuration) {
+                tile.fadeStartTime = null;
+                tile.currentColor = tile.targetColor;
+                tile.startColor = tile.targetColor;
+            } else {
+                tile.fadeStartTime = adjustedStart;
+            }
+        } else {
+            tile.fadeStartTime = null;
+        }
         if (td.unit) {
             const unit = new UnitClass(td.unit.type, campMap[td.unit.campKey], tile, td.unit.isNewRecruit, td.unit.id);
             unit.hp = td.unit.hp;

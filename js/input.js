@@ -36,7 +36,7 @@ const PASSIVE_DEFS = {
     },
     archer: {
         name: '远射',
-        desc: '攻击不触发反击；山地射程+1（不与风天叠加）；山地时无视敌方5%防御力',
+        desc: '山地射程+1（不与风天叠加）；山地时无视敌方5%防御力',
         active: (u) => u.tile.terrain === 'mountain'
     }
 };
@@ -165,7 +165,7 @@ function showTooltipForTile(tile) {
             }
         }
         if (inStallerZone) {
-            const snareLine = `<span style="color:#b08050;">🪤 缚足：移动消耗+3</span>`;
+            const snareLine = `<span style="color:#c08050;">【缚足】每步移动消耗+3</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + snareLine;
         }
     }

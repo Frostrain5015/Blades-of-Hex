@@ -448,20 +448,21 @@ export function spawnProjectile(fromX, fromY, toX, toY, isCrit) {
     const dx = toX - fromX;
     const dy = toY - fromY;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const duration = Math.min(350, 180 + dist * 0.6);
+    const duration = Math.min(380, 200 + dist * 0.6);
     projectiles.push({
         fromX, fromY,
         toX, toY,
         dist,
         startTime: Date.now(),
         duration,
-        isCrit
+        isCrit,
+        impactSpawned: false
     });
 }
 
 export function updateProjectiles(now) {
     for (let i = projectiles.length - 1; i >= 0; i--) {
-        if (now - projectiles[i].startTime > projectiles[i].duration + 120) {
+        if (now - projectiles[i].startTime > projectiles[i].duration + 250) {
             projectiles.splice(i, 1);
         }
     }
@@ -472,26 +473,29 @@ export function drawProjectiles(ctx2d, now) {
         const p = projectiles[i];
         const elapsed = now - p.startTime;
         const t = Math.min(1, Math.max(0, elapsed / p.duration));
-        // ease-out
         const eased = 1 - Math.pow(1 - t, 2.5);
 
         const curX = p.fromX + (p.toX - p.fromX) * eased;
-        const curY = p.fromY + (p.toY - p.fromY) * eased - Math.sin(t * Math.PI) * p.dist * 0.15;
+        const curY = p.fromY + (p.toY - p.fromY) * eased - Math.sin(t * Math.PI) * p.dist * 0.18;
 
-        // 尾焰粒子
-        const trailCount = p.isCrit ? 3 : 2;
+        // 尾焰拖尾 — 长尾巴，大粒子
+        const trailCount = p.isCrit ? 10 : 7;
         for (let j = 0; j < trailCount; j++) {
-            const backT = Math.max(0, t - (0.03 + j * 0.04));
+            const backT = Math.max(0, t - (0.015 + j * 0.035));
             const backEased = 1 - Math.pow(1 - backT, 2.5);
             const tx = p.fromX + (p.toX - p.fromX) * backEased;
-            const ty = p.fromY + (p.toY - p.fromY) * backEased - Math.sin(backT * Math.PI) * p.dist * 0.15;
+            const ty = p.fromY + (p.toY - p.fromY) * backEased - Math.sin(backT * Math.PI) * p.dist * 0.18;
+            const trailAlpha = 0.6 - j * 0.06;
+            if (trailAlpha <= 0) continue;
             ctx2d.save();
-            ctx2d.globalAlpha = 0.25 + 0.15 * j;
-            ctx2d.fillStyle = j === 0 ? '#fff' : (p.isCrit ? '#ffaa00' : '#ff8844');
-            ctx2d.shadowColor = p.isCrit ? '#ffaa00' : '#ff6600';
-            ctx2d.shadowBlur = p.isCrit ? 6 : 4;
+            ctx2d.globalAlpha = trailAlpha;
+            const r = (p.isCrit ? 5 : 3.5) - j * 0.3;
+            if (r <= 0) { ctx2d.restore(); continue; }
+            ctx2d.fillStyle = j <= 1 ? '#fff' : (p.isCrit ? '#ffaa00' : '#ff6622');
+            ctx2d.shadowColor = p.isCrit ? '#ff6600' : '#cc4400';
+            ctx2d.shadowBlur = p.isCrit ? 8 : 5;
             ctx2d.beginPath();
-            ctx2d.arc(tx, ty, p.isCrit ? 3.5 - j * 0.6 : 2.5 - j * 0.4, 0, Math.PI * 2);
+            ctx2d.arc(tx, ty, r, 0, Math.PI * 2);
             ctx2d.fill();
             ctx2d.restore();
         }
@@ -499,12 +503,56 @@ export function drawProjectiles(ctx2d, now) {
         // 炮弹本体
         ctx2d.save();
         ctx2d.fillStyle = '#fff';
-        ctx2d.shadowColor = p.isCrit ? '#ff4400' : '#ff8844';
-        ctx2d.shadowBlur = p.isCrit ? 10 : 6;
+        ctx2d.shadowColor = p.isCrit ? '#ff4400' : '#ff6622';
+        ctx2d.shadowBlur = p.isCrit ? 14 : 9;
         ctx2d.beginPath();
-        ctx2d.arc(curX, curY, p.isCrit ? 4 : 3, 0, Math.PI * 2);
+        ctx2d.arc(curX, curY, p.isCrit ? 6 : 4.5, 0, Math.PI * 2);
+        ctx2d.fill();
+        // 内层高亮
+        ctx2d.fillStyle = '#ffe8cc';
+        ctx2d.shadowBlur = 0;
+        ctx2d.beginPath();
+        ctx2d.arc(curX, curY, p.isCrit ? 2.5 : 2, 0, Math.PI * 2);
         ctx2d.fill();
         ctx2d.restore();
+
+        // 命中后触发轰炸爆炸
+        if (t >= 0.92 && !p.impactSpawned) {
+            p.impactSpawned = true;
+            spawnCannonImpact(p.toX, p.toY, p.isCrit);
+        }
+    }
+}
+
+// 炮弹命中轰炸爆炸
+function spawnCannonImpact(x, y, isCrit) {
+    const n = particleCount(isCrit ? 35 : 22);
+    for (let i = 0; i < n; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 100 + Math.random() * 300;
+        const isSmoke = Math.random() < 0.3;
+        particles.push(new VisualParticle(
+            x + (Math.random() - 0.5) * 10,
+            y + (Math.random() - 0.5) * 6,
+            Math.cos(angle) * speed,
+            Math.sin(angle) * speed * 0.7 - 20 - Math.random() * 40,
+            isSmoke ? '#887766' : (Math.random() < 0.5 ? '#ff6600' : '#ffaa00'),
+            isSmoke ? 4 + Math.random() * 6 : 2.5 + Math.random() * 4,
+            isSmoke ? 0.5 + Math.random() * 0.6 : 0.3 + Math.random() * 0.5,
+            isSmoke ? 30 + Math.random() * 40 : 180 + Math.random() * 150
+        ));
+    }
+    // 火花四溅
+    const sparkN = particleCount(isCrit ? 12 : 6);
+    for (let i = 0; i < sparkN; i++) {
+        const a = Math.random() * Math.PI * 2;
+        particles.push(new VisualParticle(
+            x, y,
+            Math.cos(a) * (200 + Math.random() * 350),
+            Math.sin(a) * (200 + Math.random() * 350),
+            '#ffedaa', 1.5 + Math.random() * 2, 0.15 + Math.random() * 0.25,
+            200 + Math.random() * 200
+        ));
     }
 }
 
@@ -533,10 +581,43 @@ export function getRecoilOffset(x, y, now) {
             const elapsed = now - r.startTime;
             if (elapsed >= r.duration) { recoils.splice(i, 1); return null; }
             const p = elapsed / r.duration;
-            // 快速弹出，缓慢回位
             const force = Math.sin(p * Math.PI) * (1 - p);
             return { x: r.ox * force, y: r.oy * force };
         }
+    }
+    return null;
+}
+
+// ===== 近战突进特效（徽章撞向目标后弹回） =====================
+export const charges = [];
+
+export function triggerCharge(unitId, unitX, unitY, targetX, targetY) {
+    const dx = targetX - unitX;
+    const dy = targetY - unitY;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const maxDist = Math.min(dist * 0.62, HEX_SIZE * 1.6);
+    charges.push({
+        unitId,
+        ox: (dx / dist) * maxDist,
+        oy: (dy / dist) * maxDist,
+        startTime: Date.now(),
+        duration: 160
+    });
+}
+
+export function getChargeOffset(unitId, now) {
+    for (let i = charges.length - 1; i >= 0; i--) {
+        const c = charges[i];
+        if (c.unitId !== unitId) continue;
+        const elapsed = now - c.startTime;
+        if (elapsed >= c.duration) { charges.splice(i, 1); return null; }
+        const p = elapsed / c.duration;
+        // 快出 → 微过冲 → 急回
+        let force;
+        if (p < 0.22) force = p / 0.22;
+        else if (p < 0.38) force = 1 - (p - 0.22) / 0.16 * 0.15;
+        else force = 0.85 * (1 - (p - 0.38) / 0.62);
+        return { x: c.ox * force, y: c.oy * force };
     }
     return null;
 }
@@ -556,6 +637,7 @@ export function clearTransientEffects() {
     windStreaks.length = 0;
     projectiles.length = 0;
     recoils.length = 0;
+    charges.length = 0;
     screenShake.time = 0;
     screenShake.x = 0;
     screenShake.y = 0;

@@ -64,7 +64,7 @@ export function renderGame() {
     // Overlays (hover/selection)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
     // 缚足色层（停滞者）—— 在单位之前绘制，避免单位变暗
-    drawStallerZone();
+    drawStallerZone(now);
     // Units
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
     // Flag finials + cloth (after units, overlays the badge)
@@ -619,7 +619,7 @@ function drawIronGuardAura(now) {
 }
 
 // ===== 缚足色层（停滞者） =====================
-function drawStallerZone() {
+function drawStallerZone(now) {
     const affectedTiles = new Set();
     const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
 
@@ -641,10 +641,20 @@ function drawStallerZone() {
         }
     }
 
+    const breathe = 0.5 + 0.5 * Math.sin(now / 1200 * Math.PI * 2);
+    const alpha = 0.12 + breathe * 0.12;
     for (const tile of affectedTiles) {
         ctx.save();
-        hexPath(ctx, tile.x, tile.y, HEX_SIZE - 1);
-        ctx.fillStyle = 'rgba(139,90,43,0.25)';
+        // 荆棘边框
+        hexPath(ctx, tile.x, tile.y, HEX_SIZE - 2);
+        ctx.strokeStyle = `rgba(139,90,43,${alpha + 0.06})`;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.lineDashOffset = now / 80;
+        ctx.stroke();
+        // 微弱底色
+        hexPath(ctx, tile.x, tile.y, HEX_SIZE - 2);
+        ctx.fillStyle = `rgba(139,90,43,${alpha * 0.5})`;
         ctx.fill();
         ctx.restore();
     }
