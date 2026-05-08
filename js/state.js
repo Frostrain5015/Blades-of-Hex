@@ -26,7 +26,7 @@ export const gameState = {
     tiles: [],
     tileMap: new Map(),
     currentCamp: CAMP.player1,
-    playerGold: { player1: 40, player2: 40, neutral: 20 },
+    playerGold: { player1: 40, player2: 40, neutral: 40 },
     selectedUnit: null,
     movableTiles: [],
     moveParents: new Map(),
@@ -40,7 +40,7 @@ export const gameState = {
     selectionTime: 0,
     gameOver: false,
     victoryCamp: null,
-    previousGold: { player1: 25, player2: 25, neutral: 25 },
+    previousGold: { player1: 40, player2: 40, neutral: 40 },
     undoStack: [],
     turnCounter: 0,
     logHistory: [],
@@ -71,7 +71,7 @@ export function resetGameState() {
     gameState.tiles = [];
     gameState.tileMap = new Map();
     gameState.currentCamp = CAMP.player1;
-    gameState.playerGold = { player1: 40, player2: 40, neutral: 20 };
+    gameState.playerGold = { player1: 40, player2: 40, neutral: 40 };
     gameState.selectedUnit = null;
     gameState.movableTiles = [];
     gameState.moveParents = new Map();
@@ -85,7 +85,7 @@ export function resetGameState() {
     gameState.selectionTime = 0;
     gameState.gameOver = false;
     gameState.victoryCamp = null;
-    gameState.previousGold = { player1: 25, player2: 25, neutral: 25 };
+    gameState.previousGold = { player1: 40, player2: 40, neutral: 40 };
     gameState.undoStack = [];
     gameState.turnCounter = 0;
     gameState.logHistory = [];
@@ -310,7 +310,7 @@ export function updateStatsPanel() {
     const nc  = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.neutral).length;
     const p1i = calcIncome(p1c);
     const p2i = calcIncome(p2c);
-    const ni  = calcIncome(nc);
+    const ni  = Math.floor(calcIncome(nc) / 2);
 
     if (gameState.commanderPhase === 'deployment') {
         content.innerHTML = `
@@ -461,7 +461,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.gameOver = data.gameOver;
     gameState.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
     gameState.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
-    gameState.playerGold = { player1: 40, player2: 40, neutral: 20, ...data.playerGold };
+    gameState.playerGold = { player1: 40, player2: 40, neutral: 40, ...data.playerGold };
     // previousGold 不参与同步，保持本地值用于计数器动画
     gameState.turnCounter = data.turnCounter;
     gameState.logHistory = [...data.logHistory];
