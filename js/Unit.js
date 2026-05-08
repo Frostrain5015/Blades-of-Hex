@@ -39,6 +39,7 @@ export class Unit {
         this._xp = 0;
         this._rank = 0;
         this._fallen = false;
+        this._gongxinStacks = 0;
         this._shieldPulseUntil = 0;
         this.activeSkillCD = 0;
         this.activeSkillDur = 0;
@@ -74,6 +75,16 @@ export class Unit {
                 desc: MORALE_CONFIG[3].desc,
                 color: MORALE_CONFIG[3].color,
                 remaining: remainingRounds
+            });
+        }
+
+        // 攻心持续效果（永久叠加式士气压制）
+        if (this._gongxinStacks > 0) {
+            effects.push({
+                label: '攻心',
+                desc: `士气上限↓${this._gongxinStacks > 1 ? ` ×${this._gongxinStacks}` : ''}`,
+                color: '#cc44ff',
+                remaining: '永久'
             });
         }
 

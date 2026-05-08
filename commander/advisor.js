@@ -26,6 +26,7 @@ export default {
     if (Math.random() >= 0.75) return null;
     target.morale = Math.max(0, target.morale - 1);
     if (target.morale === 0) target.canAct = false;
+    target._gongxinStacks = (target._gongxinStacks || 0) + 1;
     helpers.spawnFx(target.tile.x, target.tile.y);
     return { moraleDropped: true };
   }
