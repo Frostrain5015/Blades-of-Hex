@@ -434,10 +434,12 @@ async function _doEndTurnPhase() {
 
         const surrounded = isSurrounded(u, gameState.tileMap);
         const flanked = !surrounded && isFlanked(u, gameState.tileMap);
+        // 攻心叠层使士气恢复上限降为1（有层数时不能自然恢复至正常）
+        const maxRecovery = (u._gongxinStacks || 0) > 0 ? 1 : 2;
         if (u.morale === 0 && !surrounded) {
-            u.morale = flanked ? 1 : 2;
-            u.canAct = true;
-        } else if (u.morale === 1 && !flanked && !surrounded) {
+            u.morale = Math.min(flanked ? 1 : maxRecovery, maxRecovery);
+            if (u.morale > 0) u.canAct = true;
+        } else if (u.morale === 1 && !flanked && !surrounded && maxRecovery >= 2) {
             u.morale = 2;
         }
 

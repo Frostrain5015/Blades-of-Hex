@@ -423,7 +423,8 @@ export function serializeState() {
             rank: t.unit._rank,
             fallen: t.unit._fallen || false,
             activeSkillCD: t.unit.activeSkillCD,
-            activeSkillDur: t.unit.activeSkillDur
+            activeSkillDur: t.unit.activeSkillDur,
+            gongxinStacks: t.unit._gongxinStacks || 0
         } : null
     }));
 
@@ -548,6 +549,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._fallen = td.unit.fallen || false;
             unit.activeSkillCD = td.unit.activeSkillCD || 0;
             unit.activeSkillDur = td.unit.activeSkillDur || 0;
+            unit._gongxinStacks = td.unit.gongxinStacks || 0;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {
                 const saved = oldCommander.get(unit.id);
