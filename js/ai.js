@@ -79,15 +79,37 @@ async function _executeActionInner(action) {
             if (gameState.movableTiles.includes(targetTile)) {
                 await delay(AI_DELAY);
                 moveUnit(unit, targetTile);
-                if (unit.canAct && unit.tile && unit.hp > 0) {
+                if (unit.canAct && unit.tile && unit.hp > 0 && unit.remainingMP === 0) {
                     const atkTiles = getAttackableTiles(unit);
                     const MY_DISTRICTS = new Set([3, 4, 5]);
-                    const inTurf = atkTiles.filter(t => MY_DISTRICTS.has(t.districtId));
-                    if (inTurf.length > 0 && unit.remainingMP === 0) {
+                    let inTurf = atkTiles.filter(t => t.unit && t.unit.camp !== CAMP.neutral && MY_DISTRICTS.has(t.districtId));
+                    if (inTurf.length === 0) {
+                        inTurf = atkTiles.filter(t => t.unit && t.unit.camp !== CAMP.neutral);
+                    }
+                    if (inTurf.length > 0) {
+                        // 选最优目标：斩杀 > 残血 > 顺克
+                        const COUNTER = { infantry: { archer: 0.75, cavalry: 1.25 }, archer: { cavalry: 0.75, infantry: 1.25 }, cavalry: { infantry: 0.75, archer: 1.25 } };
+                        const TERRAIN_DEF = { plains: 0, forest: 0.10, mountain: 0.20 };
+                        let best = inTurf[0];
+                        let bestScore = -Infinity;
+                        for (const t of inTurf) {
+                            const target = t.unit;
+                            const c = (COUNTER[unit.type] && COUNTER[unit.type][target.type]) || 1;
+                            const tDef = TERRAIN_DEF[target.tile.terrain] || 0;
+                            const cityDef = (target.type === 'infantry' && target.tile.isCity) ? 0.20 : 0;
+                            const unitDef = target.config.defense || 0;
+                            const estDmg = unit.getEffectiveAttack() * Math.max(0.1, 1 + c - 1 - tDef - cityDef - unitDef);
+                            let score = 0;
+                            if (estDmg >= target.hp) score += 200;
+                            score += (1 - target.hp / target.maxHp) * 60;
+                            if (c >= 1.25) score += 30;
+                            if (target.hp <= 25) score += 40;
+                            if (score > bestScore) { bestScore = score; best = t; }
+                        }
                         await delay(AI_DELAY);
                         gameState.selectedUnit = unit;
                         gameState.attackableTiles = atkTiles;
-                        attackUnit(unit, inTurf[0].unit);
+                        attackUnit(unit, best.unit);
                     }
                 }
             }
@@ -120,6 +142,20 @@ export async function processNeutralTurn() {
         for (let i = 0; i < actions.length; i++) {
             if (gameState.gameOver || gameState.currentCamp !== CAMP.neutral || !gameState.aiActing) break;
             await executeAction(actions[i]);
+        }
+
+        // ── 最终兜底：补满所有空城，强制步兵驻守 ──
+        const MY_DISTRICTS = new Set([3, 4, 5]);
+        const emptyCities = gameState.tiles.filter(t =>
+            t.isCity && !t.unit &&
+            MY_DISTRICTS.has(t.districtId) &&
+            t.camp === CAMP.neutral
+        );
+        for (const city of emptyCities) {
+            if (gameState.gameOver || gameState.currentCamp !== CAMP.neutral || !gameState.aiActing) break;
+            if (gameState.playerGold.neutral >= UNIT_CONFIG.infantry.cost) {
+                await executeAction({ type: 'recruit', unitType: 'infantry', tileQ: city.q, tileR: city.r });
+            }
         }
     } finally {
         gameState.aiActing = false;
