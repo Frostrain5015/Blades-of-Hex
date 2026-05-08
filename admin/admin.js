@@ -50,7 +50,14 @@ function connect() {
     ws.onclose = () => { authenticated = false; };
 }
 
-function send(msg) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
+function send(msg) {
+	    if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify(msg)); return; }
+	    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+	        loginError.textContent = '连接已断开，请刷新页面重试';
+	        document.getElementById('passwordInput').disabled = true;
+	        document.getElementById('loginBtn').disabled = true;
+	    }
+	}
 
 function updateServerStatus(status, uptime) {
     const prev = statusBadge.className.replace('status-badge ', '').replace(' transition', '');

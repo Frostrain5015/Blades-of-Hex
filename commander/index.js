@@ -6,13 +6,18 @@ import staller   from './staller.js';
 import centurion from './centurion.js';
 import minister  from './minister.js';
 
+import berserker   from './berserker.js';
+import fallenAngel from './fallenAngel.js';
+
 const allCommanders = {
   advisor,
   ironGuard,
   vampire,
   staller,
   centurion,
-  minister
+  minister,
+  berserker,
+  fallenAngel
 };
 
 export { allCommanders };
@@ -32,7 +37,7 @@ export function shuffleAndSplitPool() {
     [keys[i], keys[j]] = [keys[j], keys[i]];
   }
   return {
-    p1: keys.slice(0, 3),
-    p2: keys.slice(3, 6)
+    p1: keys.slice(0, 4),
+    p2: keys.slice(4, 8)
   };
 }

@@ -75,6 +75,9 @@ export function connectToServer(url) {
 
         _ws.onopen = () => {
             clearTimeout(timer);
+            // 清除上一次连接的残留队列
+            _actionQueue = [];
+            _processingQueue = false;
             // 向服务器注册客户端ID
             _ws.send(JSON.stringify({ type: 'hello', clientId: _clientId }));
             _cb.onConnected?.();
@@ -127,6 +130,7 @@ export function connectToServer(url) {
                     _cb.onReconnected?.(msg.role);
                     break;
                 case 'opponentReconnected':
+                    if (msg.role) _myRole = msg.role;
                     _cb.onOpponentReconnected?.();
                     break;
                 case 'start':
@@ -154,6 +158,9 @@ export function connectToServer(url) {
                     break;
                 case 'commanderSync':
                     _cb.onCommanderSync?.(msg);
+                    break;
+                case 'toast':
+                    _cb.onToast?.(msg.text, msg.toastType);
                     break;
             }
         };
@@ -183,7 +190,12 @@ function _startAutoReconnect() {
     _reconnectTimer = setTimeout(() => {
         connectToServer(_reconnectUrl).then(() => {
             _reconnectAttempts = 0;
-            _cb.onReconnected?.();
+            _cb.onSocketReconnected?.();
+            // 若之前在对局中，自动重加入房间
+            if (_lastRoomId) {
+                sendMessage({ type: 'joinRoom', roomId: _lastRoomId });
+                _lastRoomId = null;
+            }
         }).catch(() => {});
     }, 5000);
 }
@@ -197,7 +209,7 @@ export function manualReconnect() {
     _reconnectAttempts = 0;
     if (_reconnectUrl) {
         connectToServer(_reconnectUrl).then(() => {
-            _cb.onReconnected?.();
+            _cb.onSocketReconnected?.();
         }).catch(() => {
             _startAutoReconnect();
         });

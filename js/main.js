@@ -2,11 +2,11 @@ import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE, COMMA
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, finalizeDeployment, resetGameState, serializeState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
-import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef } from './commanderInterface.js';
+import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, getCommander } from './commanderInterface.js';
 import { initMap, triggerVictoryEffect } from './gameLogic.js';
 import { renderGame } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
-import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, disconnect } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, disconnect, sendAction } from './network.js';
 import { CAMP } from './config.js';
 import {
     clearTransientEffects, triggerTurnFlash,
@@ -129,7 +129,7 @@ connectToServer(wsUrl(location.host)).then(() => {
         onDisconnected: () => setConnectionState('disconnected'),
         onReconnecting: (n) => { setConnectionState('connecting'); connectionLabel.textContent = '重连中 (' + n + '/2)...'; },
         onReconnectFailed: () => { setConnectionState('disconnected'); connectionLabel.textContent = '连接失败'; reconnectBtn.style.display = ''; },
-        onReconnected: () => setConnectionState('connected')
+        onSocketReconnected: () => setConnectionState('connected')
     });
 }).catch(() => {
     setConnectionState('disconnected');
@@ -255,6 +255,7 @@ let _commanderTransitioning = false; // 防止移动端双击重复触发
 function beginCommanderPhase() {
     document.getElementById('lobbyOverlay').style.display = 'none';
     // 清除上一局所有遗留状态
+    _deploymentStarted = false;
     resetGameState();
     _commanderTransitioning = false;
     const pool = shuffleAndSplitPool();
@@ -267,6 +268,7 @@ function beginCommanderPhase() {
 function beginNetworkCommanderFlow(role) {
     document.getElementById('lobbyOverlay').style.display = 'none';
     // 清除上一局所有遗留状态
+    _deploymentStarted = false;
     resetGameState();
     _commanderTransitioning = false;
     gameState.commanderPhase = 'selection';
@@ -324,7 +326,7 @@ function _showCommanderSelection(forPlayer) {
             <div class="commander-card-name">★ ${cfg.name}</div>
             <div class="commander-card-skill">【${cfg.skill}】</div>
             <div class="commander-card-bonus">${bonusParts.join('<br>')}</div>
-            <div class="commander-card-desc">${cfg.desc}</div>
+            <div class="commander-card-desc">${cfg.desc.replace(/\n/g, '<br>')}</div>
         `;
         card.addEventListener('click', () => {
             if (card.classList.contains('confirmed')) return;
@@ -390,7 +392,7 @@ function _onCommanderSelected(forPlayer) {
 }
 
 function _checkBothConfirmed() {
-    if (gameState.commanderP1Confirmed && gameState.commanderP2Confirmed) {
+    if (gameState.commanderP1Confirmed && gameState.commanderP2Confirmed && !_deploymentStarted) {
         setTimeout(() => {
             document.getElementById('commanderOverlay').classList.remove('show');
             gameState.commanderPhase = 'deployment';
@@ -399,7 +401,11 @@ function _checkBothConfirmed() {
     }
 }
 
+let _deploymentStarted = false;
+
 function startGameDeployment() {
+    if (_deploymentStarted) return;
+    _deploymentStarted = true;
     const lobbyOverlay = document.getElementById('lobbyOverlay');
     lobbyOverlay.style.display = 'none';
     document.getElementById('gameWrapper').style.display = '';
@@ -419,10 +425,14 @@ function startGameDeployment() {
     initKeyboard();
     initSettingsPanel();
     updateUI();
-    // 禁止操作直到双方部署完毕
     gameState.currentCamp = CAMP.player1;
     updateButtonColors();
-    notify('请红军选择目标单位部署将领（选中后二次点击确认）');
+    if (isNetworkGame()) {
+        const myCampName = getMyRole() === 'player1' ? '红军' : '蓝军';
+        notify(`请${myCampName}选择目标单位部署将领（选中后二次点击确认）`);
+    } else {
+        notify('请红军选择目标单位部署将领（选中后二次点击确认）');
+    }
 }
 
 // 根据当前页面协议和端口推导 WebSocket 地址
@@ -579,6 +589,10 @@ function registerNetworkCallbacks() {
             if (isNetworkGame()) showHome('已断开连接，正在尝试重连...');
         },
 
+        onSocketReconnected: () => {
+            setConnectionState('connected');
+        },
+
         onReconnecting: (attempt) => {
             setConnectionState('connecting');
             connectionLabel.textContent = '重连中 (' + attempt + '/2)...';
@@ -606,17 +620,20 @@ function registerNetworkCallbacks() {
         onOpponentLeft: () => {
             notify('对手已断开连接', 'warn', true);
             logMessage('⚠ 对手已断开连接');
-            roomWaitingText.textContent = '对手已离开，等待新对手...';
+            // 对局中：立即存下全量状态到服务器
+            if (gameState.commanderPhase === 'done') {
+                sendMessage({ type: 'saveState', state: serializeState() });
+                logMessage('📦 已暂存对局状态到服务器');
+            }
+            roomWaitingText.textContent = '对手已离开，等待重连...';
             readyBtn.disabled = true;
             readyBtn.textContent = '准备';
             readyBtn.style.background = '#27ae60';
             _isReady = false;
         },
 
-        // 对手重连 → 发送当前完整状态
+        // 对手重连 → 服务器会同步暂存状态，仅通知
         onOpponentReconnected: () => {
-            const state = serializeState();
-            sendAction('stateSync', state);
             notify('对手已重连', '', false);
             logMessage('🔗 对手已重连');
         },
@@ -678,12 +695,12 @@ function registerNetworkCallbacks() {
                             tile.unit.commander = targetCmdId;
                             const cmdCfg = COMMANDER_CONFIG[targetCmdId];
                             if (cmdCfg) {
-                                tile.unit.hp += cmdCfg.hpBonus;
-                                tile.unit.maxHp += cmdCfg.hpBonus;
+                                tile.unit.hp += cmdCfg.hpBonus || 0;
+                                tile.unit.maxHp += cmdCfg.hpBonus || 0;
                                 tile.unit.displayHp = tile.unit.hp;
-                                tile.unit._atkBonus = cmdCfg.atkBonus;
-                                tile.unit.remainingMP += cmdCfg.spdBonus;
-                                tile.unit.displaySpeed += cmdCfg.spdBonus;
+                                tile.unit._atkBonus = cmdCfg.atkBonus || 0;
+                                tile.unit.remainingMP += cmdCfg.spdBonus || 0;
+                                tile.unit.displaySpeed += cmdCfg.spdBonus || 0;
                             }
                             break;
                         }
@@ -701,6 +718,14 @@ function registerNetworkCallbacks() {
                 gameState.commanderP1Deployed && gameState.commanderP2Deployed) {
                 finalizeDeployment();
             }
+            if (gameState.commanderPhase === 'deployment') {
+                updateButtonColors();
+                updateUI();
+            }
+        },
+
+        onToast: (text, toastType) => {
+            notify(text, toastType || 'info');
         }
     });
 }
@@ -713,6 +738,21 @@ async function handleRemoteAction(msg) {
     // deployDone 不需要完整状态重建（已通过 syncCommanderState 同步），避免地形重绘
     if (msg.actionType === 'deployDone') {
         finalizeDeployment();
+        return;
+    }
+
+    // 服务器下发的暂存状态：无条件显示游戏界面并恢复
+    if (msg.actionType === 'stateSync') {
+        document.getElementById('lobbyOverlay').style.display = 'none';
+        document.getElementById('gameWrapper').style.display = '';
+        document.getElementById('roomWaiting').style.display = 'none';
+        document.getElementById('opponentTurnBanner').style.display = '';
+        document.getElementById('networkIndicator').style.display = 'flex';
+        document.body.style.pointerEvents = '';
+        _deploymentStarted = true;
+        applyRemoteState(msg.state, HexTile, Unit);
+        updateUI();
+        renderGame();
         return;
     }
 
@@ -746,9 +786,20 @@ async function handleRemoteAction(msg) {
                 } finally {
                     gameState.aiActing = false;
                 }
+                // 通知 + 延迟 → 切换回合
+                notify('AI行动完毕 即将切换回合...', 'info');
+                logMessage('AI行动完毕 即将切换回合...');
+                sendMessage({ type: 'toast', text: 'AI行动完毕 即将切换回合...', toastType: 'info' });
+                await new Promise(r => setTimeout(r, 2500));
+                // 调用 endTurn() 前手动锁定 aiActing，防止 endTurn 再次检测中立并触发二次 AI
                 if (!gameState.gameOver) {
-                    const { endTurn } = await import('./gameLogic.js');
-                    await endTurn(); // 自动结束中立 → P1，广播
+                    gameState.aiActing = true;
+                    try {
+                        const { endTurn } = await import('./gameLogic.js');
+                        await endTurn();
+                    } finally {
+                        gameState.aiActing = false;
+                    }
                 }
             } finally {
                 _remoteAiRunning = false;
@@ -861,6 +912,30 @@ async function handleRemoteAction(msg) {
                 spawnRecruitEffect(e.x, e.y);
             }
             break;
+        case 'activateSkill': {
+            if (e && e.unitId) {
+                const skillUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.unitId ? t.unit : null), null);
+                if (skillUnit && skillUnit.commander) {
+                    const cmdCfg = getCommander(skillUnit.commander);
+                    if (cmdCfg && cmdCfg.activeSkill) {
+                        cmdCfg.activeSkill.onActivate(skillUnit, {
+                            gameState, logMessage, spawnFx: spawnCommanderSkillEffect
+                        });
+                        skillUnit.activeSkillDur = cmdCfg.activeSkill.duration;
+                        skillUnit.activeSkillCD = cmdCfg.activeSkill.cooldown;
+                    }
+                }
+            }
+            break;
+        }
+    }
+    // 重放晋升特效
+    if (msg.actionType === 'attack' || msg.actionType === 'move') {
+        if (e && e.rankUps) {
+            for (const ru of e.rankUps) {
+                spawnCommanderSkillEffect(ru.x, ru.y, '▲', '晋升');
+            }
+        }
     }
 }
 

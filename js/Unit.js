@@ -1,11 +1,13 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderDamageMultiplier, triggerCommanderOnMoraleChange } from './commanderInterface.js';
 import { nextId } from './state.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, getRecoilOffset, getChargeOffset } from './effects.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
 let _gameState = null;
+// 晋升事件收集（供联机同步，每轮 action 前清空）
+export let _pendingRankUps = [];
 export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setGameStateRef(ref) { _gameState = ref; }
 
@@ -19,9 +21,9 @@ export class Unit {
         this._centurionTriggered = false;
         // 应用将领属性加成
         const cmdCfg = commander ? getCommander(commander) : null;
-        const hpBonus = cmdCfg ? cmdCfg.hpBonus : 0;
-        const atkBonus = cmdCfg ? cmdCfg.atkBonus : 0;
-        const spdBonus = cmdCfg ? cmdCfg.spdBonus : 0;
+        const hpBonus = cmdCfg ? (cmdCfg.hpBonus || 0) : 0;
+        const atkBonus = cmdCfg ? (cmdCfg.atkBonus || 0) : 0;
+        const spdBonus = cmdCfg ? (cmdCfg.spdBonus || 0) : 0;
         this.hp = this.config.hp + hpBonus;
         this.maxHp = this.config.hp + hpBonus;
         this._atkBonus = atkBonus;
@@ -31,9 +33,15 @@ export class Unit {
         this.moveDistance = 0;
         this.counterAttackCount = 0;
         this.isNewRecruit = isNewRecruit;
-        this.morale = 2;
+        this._morale = 2;
         this.moraleBoostUntil = 0;
         this.godMode = false;
+        this._xp = 0;
+        this._rank = 0;
+        this._fallen = false;
+        this._shieldPulseUntil = 0;
+        this.activeSkillCD = 0;
+        this.activeSkillDur = 0;
         this.remainingMP = this.config.speed + spdBonus;
         this.displaySpeed = this.config.speed + spdBonus;
         // 移动动画状态（瞬时，不参与序列化）
@@ -43,6 +51,57 @@ export class Unit {
         // HP 显示平滑过渡
         this.displayHp = this.hp;
         tile.unit = this;
+    }
+
+    get morale() { return this._morale; }
+    set morale(v) {
+        const old = this._morale;
+        this._morale = v;
+        if (old !== v) triggerCommanderOnMoraleChange(this, old, v);
+    }
+
+    // 返回当前限时效果列表（供 tooltip / UI 展示）
+    // 格式：{ label, desc, color, remaining }
+    getTimedEffects(gameState) {
+        const effects = [];
+        const currentTurn = gameState ? gameState.turnCounter : 0;
+
+        // 击杀士气上升
+        if (this.morale === 3 && this.moraleBoostUntil > currentTurn) {
+            const remainingRounds = Math.ceil((this.moraleBoostUntil - currentTurn) / 3);
+            effects.push({
+                label: MORALE_CONFIG[3].name,
+                desc: MORALE_CONFIG[3].desc,
+                color: MORALE_CONFIG[3].color,
+                remaining: remainingRounds
+            });
+        }
+
+        // 主动技能持续中
+        if (this.activeSkillDur > 0 && this.commander) {
+            const cmdCfg = getCommander(this.commander);
+            if (cmdCfg && cmdCfg.activeSkill) {
+                const buffParts = [];
+                if (cmdCfg.activeSkill.buffs) {
+                    const b = cmdCfg.activeSkill.buffs;
+                    if (b.atk) buffParts.push(`攻击力+${b.atk}`);
+                    if (b.def) buffParts.push(`防御力+${Math.round(b.def * 100)}%`);
+                }
+                effects.push({
+                    label: cmdCfg.activeSkill.name,
+                    desc: buffParts.length ? buffParts.join('，') : '',
+                    color: '#ff8844',
+                    remaining: this.activeSkillDur
+                });
+            }
+        }
+
+        return effects;
+    }
+
+    // 返回主动技能冷却剩余轮数（供 tooltip 属性栏展示）
+    getCooldownRounds() {
+        return this.activeSkillCD > 0 ? this.activeSkillCD : 0;
     }
 
     getVisualPos() {
@@ -280,6 +339,89 @@ export class Unit {
             ctx.restore();
         }
 
+        // ── Berserker rage glow ──
+        if (this.activeSkillDur > 0 && this.commander === 'berserker') {
+            ctx.save();
+            const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
+            const rageAlpha = 0.25 + ragePulse * 0.35;
+            const rageR = HEX_SIZE + 3 + ragePulse * 5;
+            drawHexagonOutline(ctx, visualX, visualY, rageR, `rgba(255,40,0,${rageAlpha})`, 3);
+            drawHexagonOutline(ctx, visualX, visualY, rageR + 3, `rgba(255,100,40,${rageAlpha * 0.5})`, 1.5);
+            // ⚡ glyph
+            ctx.fillStyle = `rgba(255,80,20,${0.6 + ragePulse * 0.4})`;
+            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 6;
+            ctx.fillText('💢', visualX, visualY - HEX_SIZE * 0.55);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
+        // ── Iron Guard shield marker (above flag, same layer as berserker rage) ──
+        if (this.commander === 'ironGuard') {
+            ctx.save();
+            const shieldPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
+            const shieldY = visualY - HEX_SIZE * 0.82;
+            const inFlash = Date.now() < this._shieldPulseUntil;
+            const flashT = inFlash ? 1 - (this._shieldPulseUntil - Date.now()) / 800 : 0;
+
+            // 承伤扩散环（呼吸灯式向外扩散）
+            if (inFlash) {
+                const ringR = HEX_SIZE * 0.2 + flashT * HEX_SIZE * 1.5;
+                const ringAlpha = (1 - flashT) * 0.7;
+                ctx.beginPath();
+                ctx.arc(visualX, shieldY, ringR, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(140,200,255,${ringAlpha})`;
+                ctx.lineWidth = 3 * (1 - flashT) + 1;
+                ctx.stroke();
+                const ring2R = ringR + HEX_SIZE * 0.25;
+                const ring2Alpha = (1 - flashT) * 0.35;
+                ctx.beginPath();
+                ctx.arc(visualX, shieldY, ring2R, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(180,220,255,${ring2Alpha})`;
+                ctx.lineWidth = 2 * (1 - flashT);
+                ctx.stroke();
+            }
+
+            // base glow ring
+            const baseAlpha = inFlash ? 0.25 + flashT * 0.3 : 0.12 + shieldPulse * 0.12;
+            drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 2,
+                `rgba(100,160,220,${baseAlpha})`, 2);
+
+            // shield glyph — brighter during flash
+            const glyphAlpha = inFlash ? 0.9 + flashT * 0.1 : 0.7 + shieldPulse * 0.3;
+            ctx.fillStyle = `rgba(130,200,255,${glyphAlpha})`;
+            const glyphSize = inFlash ? 13 + flashT * 4 : 13;
+            ctx.font = `bold ${Math.round(glyphSize)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = inFlash ? '#aaddff' : '#5599cc';
+            ctx.shadowBlur = inFlash ? 8 + flashT * 8 : 5;
+            ctx.fillText('🛡', visualX, shieldY);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
+        // ── Fallen Angel form glow ──
+        if (this.commander === 'fallenAngel') {
+            ctx.save();
+            if (this._fallen) {
+                // 黑形态：暗色柔光紧贴地块边缘向外晕染
+                const pulse = (Math.sin(time * 4 * Math.PI) + 1) / 2;
+                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 1, `rgba(40,25,30,${0.40 + pulse * 0.15})`, 3);
+                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 6, `rgba(50,30,40,${0.22 + pulse * 0.18})`, 2);
+                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 12, `rgba(35,20,30,${0.08 + pulse * 0.12})`, 1.5);
+            } else {
+                // 白形态：白色辉光紧贴地块边缘向外散发
+                const pulse = (Math.sin(time * 3.5 * Math.PI) + 1) / 2;
+                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 1, `rgba(200,215,255,${0.50 + pulse * 0.20})`, 4);
+                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 5, `rgba(170,195,255,${0.30 + pulse * 0.25})`, 3);
+                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 10, `rgba(140,175,255,${0.12 + pulse * 0.20})`, 2);
+            }
+            ctx.restore();
+        }
+
         // ── New recruit label ──
         if (this.isNewRecruit) {
             ctx.save();
@@ -287,6 +429,29 @@ export class Unit {
             ctx.font = 'bold 9px Arial';
             ctx.textAlign = 'center';
             ctx.fillText('NEW', visualX, visualY - badgeR - 2);
+            ctx.restore();
+        }
+
+        // ── Rank chevrons ──
+        if (this._rank > 0) {
+            ctx.save();
+            const chX = visualX + HEX_SIZE * 0.48, chY = visualY + HEX_SIZE * 0.38;
+            ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            for (let lv = 0; lv < this._rank; lv++) {
+                const dy = lv * 5;
+                ctx.beginPath();
+                ctx.moveTo(chX - 5.5, chY + 2 + dy);
+                ctx.lineTo(chX,       chY - 2 + dy);
+                ctx.lineTo(chX + 5.5, chY + 2 + dy);
+                // 内阴影：稍暗的描边
+                ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 1;
+                ctx.stroke();
+                // 发光外描边
+                ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5; ctx.shadowOffsetY = 0;
+                ctx.stroke();
+            }
+            ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
             ctx.restore();
         }
 
@@ -366,8 +531,9 @@ export class Unit {
         const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter);
         const isCrit = floatMult > (isCounter ? 1.50 : 1.30);
 
+        const cmdDmgMult = getCommanderDamageMultiplier(attacker);
         return {
-            dmg: attacker.getEffectiveAttack() * baseMulti * dmgMulti * floatMult,
+            dmg: attacker.getEffectiveAttack() * baseMulti * dmgMulti * floatMult * cmdDmgMult,
             isCrit
         };
     }
@@ -495,5 +661,34 @@ export class Unit {
             return actualHeal;
         }
         return 0;
+    }
+
+    addXP(amount) {
+        if (this._rank >= 3 || amount <= 0) return;
+        this._xp += amount;
+        this._checkRankUp();
+    }
+
+    _checkRankUp() {
+        const thresholds = [10, 25, 50];
+        while (this._rank < 3 && this._xp >= thresholds[this._rank]) {
+            this._rank++;
+            this._applyRankBonus(this._rank);
+            _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
+            spawnCommanderSkillEffect(this.tile.x, this.tile.y, '▲', '晋升');
+            // 即时刷新 tooltip 等级显示：触发 input.js 重新渲染 tooltip
+            if (_gameState && _gameState.hoveredTile === this.tile) {
+                const evt = new CustomEvent('rankUpTooltipRefresh', { detail: { tile: this.tile } });
+                document.dispatchEvent(evt);
+            }
+        }
+    }
+
+    _applyRankBonus(rank) {
+        switch (rank) {
+            case 1: this.maxHp += 10; this.hp += 10; break;
+            case 2: this._atkBonus += 5; break;
+            case 3: break;
+        }
     }
 }

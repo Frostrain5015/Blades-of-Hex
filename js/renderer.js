@@ -592,7 +592,7 @@ function drawCommanderSkillEffects(now) {
 
             // Layer 2: 中心星标
             ctx.fillStyle = '#ffd700';
-            ctx.font = `bold ${Math.round(28 * scale)}px Arial`;
+            ctx.font = `bold ${Math.round(28 * scale)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", Arial, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.shadowColor = '#ffd700';
@@ -604,7 +604,7 @@ function drawCommanderSkillEffects(now) {
                 const labelY = fx.y - 16 - t * 30;
                 const labelAlpha = t < 0.12 ? t / 0.12 : Math.max(0, 1 - (t - 0.25) / 0.75);
                 ctx.fillStyle = `rgba(255,220,80,${labelAlpha})`;
-                ctx.font = 'bold 13px Arial';
+                ctx.font = 'bold 13px "Microsoft YaHei", Arial, sans-serif';
                 ctx.shadowColor = 'rgba(0,0,0,0.75)';
                 ctx.shadowBlur = 4;
                 // 文字描边增强可读性
@@ -621,8 +621,6 @@ function drawCommanderSkillEffects(now) {
 
 // ===== 铁卫灵光（7格集群外边界） =====================
 function drawIronGuardAura(now) {
-    if (gameState.selectedUnit && gameState.selectedUnit.commander === 'ironGuard') return;
-
     const pulse = (Math.sin(now / 400) + 1) / 2;
     const alpha = 0.45 + pulse * 0.30;
     const fillAlpha = 0.04 + pulse * 0.04;
