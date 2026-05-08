@@ -1,9 +1,9 @@
 import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay } from './state.js';
-import { isNetworkGame, sendAction, getMyRole } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef } from './commanderInterface.js';
+import { isNetworkGame, sendAction, getMyRole, sendMessage } from './network.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef } from './commanderInterface.js';
 import { HexTile } from './HexTile.js';
-import { Unit } from './Unit.js';
+import { Unit, _pendingRankUps } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
     triggerAttackFlash, triggerHealFlash, triggerRecruitFlash, triggerScreenShake,
@@ -41,6 +41,7 @@ let _attackDmg = 0, _attackIsCrit = false;
 let _counterDmg = 0, _counterX = 0, _counterY = 0;
 let _healAmtRemote = 0, _healX = 0, _healY = 0;
 let _killedThisAttack = null; // 击杀后延迟播放士气动画用
+let _killerMoraleChanged = false;
 
 function showConfirm(message) {
     if (_confirmActive) return Promise.resolve(false);
@@ -155,15 +156,16 @@ function applyFlankingMorale() {
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
         const u = tile.unit;
-        if (u._flankedApplied) return;
         const prev = u.morale;
         if (isSurrounded(u, gameState.tileMap)) {
-            u.morale = 0;
-            u.canAct = false;
-            u._flankedApplied = true;
+            if (u.morale > 0) {
+                u.morale = 0;
+                u.canAct = false;
+            }
         } else if (isFlanked(u, gameState.tileMap)) {
-            u.morale = Math.max(1, u.morale - 1);
-            u._flankedApplied = true;
+            if (u.morale > 1) {
+                u.morale = Math.max(1, u.morale - 1);
+            }
         }
         if (u.morale !== prev) {
             spawnMoraleEffect(u);
@@ -321,6 +323,38 @@ function _updateWeather() {
     }
 }
 
+// 限时效果到期检查（每轮 P1 开始时调用一次）
+function _expireTimedEffects() {
+    gameState.tiles.forEach(tile => {
+        if (!tile.unit) return;
+        const u = tile.unit;
+
+        // 击杀士气上升到期 → 恢复正常
+        if (u.morale === 3 && u.moraleBoostUntil <= gameState.turnCounter) {
+            u.morale = 2; // setter 自动 triggerCommanderOnMoraleChange
+            spawnMoraleEffect(u);
+        }
+
+        // 主动技能持续倒计时（每轮减1）
+        if (u.activeSkillDur > 0) {
+            u.activeSkillDur--;
+            if (u.activeSkillDur <= 0) {
+                const cmdCfg = getCommander(u.commander);
+                if (cmdCfg && cmdCfg.activeSkill && cmdCfg.activeSkill.onExpire) {
+                    cmdCfg.activeSkill.onExpire(u, {
+                        gameState, logMessage, spawnFx: spawnCommanderSkillEffect
+                    });
+                }
+            }
+        }
+
+        // 主动技能冷却倒计时（每轮减1）
+        if (u.activeSkillCD > 0) {
+            u.activeSkillCD--;
+        }
+    });
+}
+
 async function _doEndTurnPhase() {
     const camp = gameState.currentCamp;
     _endTurnCmdFxList = []; // 本回合将领特效收集
@@ -346,7 +380,6 @@ async function _doEndTurnPhase() {
                 if (cmdCfg && cmdCfg.spdBonus) tile.unit.remainingMP += cmdCfg.spdBonus;
             }
             tile.unit.isNewRecruit = false;
-            tile.unit._flankedApplied = false;
             // 百夫长标记重置
             tile.unit._centurionTriggered = false;
 
@@ -358,6 +391,11 @@ async function _doEndTurnPhase() {
                     logMessage(`${tile.unit.camp.name}的步兵驻守城市回复${Math.round(actualHeal)}生命值`);
                 }
             }
+            // Rank 3 每回合 5% 回血（无视觉特效）
+            if (tile.unit._rank >= 3 && tile.unit.hp < tile.unit.maxHp) {
+                tile.unit.hp = Math.min(tile.unit.maxHp, tile.unit.hp + Math.round(tile.unit.maxHp * 0.05));
+            }
+            // 主动技能持续/冷却倒计时 → 移至回合开始时统一处理
         }
     });
 
@@ -388,11 +426,23 @@ async function _doEndTurnPhase() {
         });
     }
 
-    // Morale upkeep
+    // 夹击脱离恢复（每回合都检查，保证位置变化后及时恢复）
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
-        if (tile.unit.morale === 3 && tile.unit.moraleBoostUntil <= gameState.turnCounter) {
-            tile.unit.morale = 2;
+        const u = tile.unit;
+        const prev = u.morale;
+
+        const surrounded = isSurrounded(u, gameState.tileMap);
+        const flanked = !surrounded && isFlanked(u, gameState.tileMap);
+        if (u.morale === 0 && !surrounded) {
+            u.morale = flanked ? 1 : 2;
+            u.canAct = true;
+        } else if (u.morale === 1 && !flanked && !surrounded) {
+            u.morale = 2;
+        }
+
+        if (u.morale !== prev) {
+            spawnMoraleEffect(u);
         }
     });
     // Three-way toggle
@@ -404,10 +454,11 @@ async function _doEndTurnPhase() {
         gameState.currentCamp = CAMP.player1;
     }
     gameState.turnCounter++;
-    // 夹击仅在移动/攻击后判定，回合切换时不重复判定
-    // 天气在新回合开始时更新（切回 P1 时）
+    // 新回合（P1开始）→ 限时效果到期检查
+    // 天气在新回合开始时更新
     if (gameState.currentCamp === CAMP.player1) {
         _updateWeather();
+        _expireTimedEffects();
     }
 
     // 恢复 commanderInterface 的 spawnFx 引用
@@ -443,7 +494,7 @@ export async function endTurn() {
         await _doEndTurnPhase();
 
         // Neutral AI turn（延迟引用避免与 ai.js 循环依赖）
-        if (gameState.currentCamp === CAMP.neutral && !gameState.gameOver && !_neutralAiLock) {
+        if (gameState.currentCamp === CAMP.neutral && !gameState.gameOver && !_neutralAiLock && !gameState.aiActing) {
             if (!isNetworkGame() || getMyRole() === 'player1') {
                 _neutralAiLock = true;
                 gameState.aiActing = true;
@@ -463,7 +514,12 @@ export async function endTurn() {
                         }
                         console.warn('Neutral AI error:', e);
                     }
-                    // Auto-end neutral → P1（仅主机执行）
+                    // 通知 + 延迟 → 切换回合
+                    notify('AI行动完毕 即将切换回合...', 'info');
+                    logMessage('AI行动完毕 即将切换回合...');
+                    if (isNetworkGame()) sendMessage({ type: 'toast', text: 'AI行动完毕 即将切换回合...', toastType: 'info' });
+                    await new Promise(r => setTimeout(r, 2500));
+                    // Auto-end neutral → P1
                     if (!gameState.gameOver) {
                         await _doEndTurnPhase();
                     }
@@ -633,6 +689,7 @@ function _reconstructPath(parents, startTile, targetTile) {
 
 export function moveUnit(unit, targetTile) {
     if (gameState.gameOver) return;
+    if (unit.camp !== gameState.currentCamp) return;
     if (unit.isNewRecruit || !unit.canAct || !gameState.movableTiles.includes(targetTile) || targetTile.unit) {
         notify('该单位本回合无法移动', 'error');
         return;
@@ -668,7 +725,7 @@ export function moveUnit(unit, targetTile) {
     }
 
     if (targetTile.isCity && targetTile.camp !== unit.camp) {
-        updateDistrictColor(targetTile, unit.camp);
+        updateDistrictColor(targetTile, unit.camp, unit);
     }
     // 尚书进驻城市：触发技能特效
     let _cmdFxForMove = null;
@@ -678,12 +735,14 @@ export function moveUnit(unit, targetTile) {
     }
     applyFlankingMorale();
     updateRecruitCostDisplay(); // 尚书驻扎城市时及时刷新折扣
-    broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove });
+    const rankUpsMove = _pendingRankUps.splice(0);
+    broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null });
 }
 
 // ===== 攻击 =====================
 export function attackUnit(attackerUnit, targetUnit) {
     if (gameState.gameOver) return;
+    if (attackerUnit.camp !== gameState.currentCamp) return;
     if (!attackerUnit.canAct || !gameState.attackableTiles.includes(targetUnit.tile)) {
         notify('无法攻击：超出射程或单位已行动', 'error');
         return;
@@ -698,8 +757,10 @@ export function attackUnit(attackerUnit, targetUnit) {
     });
 
     pushUndo();
+    _killerMoraleChanged = false;
     const attackResult = attackerUnit.calculateDamage(targetUnit);
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
+    if (attackResult.isCrit) attackerUnit.addXP(2);
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
     const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
     playSound(attackResult.isCrit ? 'crit' : 'attack');
@@ -753,6 +814,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             _counterDmg = counterResult.dmg;
             _counterX = attackerUnit.tile.x; _counterY = attackerUnit.tile.y;
             if (counterResult.dmg > 0) {
+                if (counterResult.isCrit) targetUnit.addXP(2);
                 attackerUnit.takeDamage(counterResult.dmg, targetUnit);
                 _atkCmdFxCapture = null;
                 ctrCmdResult = triggerCommanderOnCounterAttack(attackerUnit, targetUnit, counterResult.dmg);
@@ -770,7 +832,7 @@ export function attackUnit(attackerUnit, targetUnit) {
                 targetTile.unit = attackerUnit;
                 attackerUnit.moveDistance++;
                 attackerUnit.startMovePath([{ x: fromX, y: fromY }, { x: toX, y: toY }]);
-                if (targetTile.isCity) { updateDistrictColor(targetTile, attackerUnit.camp); _cityCapturedInAttack = true; }
+                if (targetTile.isCity) { updateDistrictColor(targetTile, attackerUnit.camp, attackerUnit); _cityCapturedInAttack = true; }
                 if (targetTile.isCity && attackerUnit.commander === 'minister') {
                     spawnCommanderSkillEffect(targetTile.x, targetTile.y, '★', '屯田');
                     _cmdFxExtra = { x: targetTile.x, y: targetTile.y, glyph: '★', label: '屯田' };
@@ -784,8 +846,12 @@ export function attackUnit(attackerUnit, targetUnit) {
                     for (const tile of gameState.tiles) {
                         const u = tile.unit;
                         if (u && u.camp === attackerUnit.camp && u.morale !== 0 && u.morale < 3) {
+                            const oldM = u.morale;
                             u.morale = Math.min(3, u.morale + 1);
                             if (u.morale === 3) u.moraleBoostUntil = gameState.turnCounter + 6;
+                            if (u.morale !== oldM) {
+                                spawnMoraleEffect(u);
+                            }
                         }
                     }
                     triggerFactionMoraleFlash('#ffd700');
@@ -793,9 +859,12 @@ export function attackUnit(attackerUnit, targetUnit) {
                 }
             }
             if (attackerUnit.morale !== 0) {
+                const oldKillerM = attackerUnit.morale;
                 attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
-                if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 4;
+                if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 6;
+                // morale setter 自动 triggerCommanderOnMoraleChange
                 _killedThisAttack = attackerUnit;
+                _killerMoraleChanged = attackerUnit.morale !== oldKillerM;
             }
             _atkCmdFxCapture = null;
             const killResult = triggerCommanderOnKill(attackerUnit, targetUnit);
@@ -806,6 +875,9 @@ export function attackUnit(attackerUnit, targetUnit) {
                 spawnVictoryRipple(fromX, fromY);
             }
             if (_atkCmdFxCapture && !_cmdFxData) _cmdFxData = _atkCmdFxCapture;
+            const killXp = 5;
+            const bonusXp = targetUnit.commander ? 10 : 0;
+            attackerUnit.addXP(killXp + bonusXp);
         }
 
         // 恢复 spawnFx 引用
@@ -818,16 +890,17 @@ export function attackUnit(attackerUnit, targetUnit) {
         } else {
             gameState.attackableTiles = [];
         }
-        const _preFlankMorale = _killedThisAttack ? _killedThisAttack.morale : null;
         applyFlankingMorale();
-        if (_killedThisAttack && _killedThisAttack.morale === _preFlankMorale) {
+        if (_killedThisAttack && _killerMoraleChanged) {
             spawnMoraleEffect(_killedThisAttack);
+            _killerMoraleChanged = false;
             _moraleFxUnitId = _killedThisAttack.id;
         }
         _killedThisAttack = null;
         updateRecruitCostDisplay();
     } finally {
         // 无论视觉效果是否出错，确保联机同步一定执行
+        const rankUps = _pendingRankUps.splice(0);
         broadcastAction('attack', {
             x: toX, y: toY,
             fromX, fromY,
@@ -843,6 +916,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
             healAmt: _healAmtRemote, healX: _healX, healY: _healY,
             cmdFxExtra: _cmdFxExtra || null,
+            rankUps: rankUps.length ? rankUps : null,
             bloodDrain: attackerUnit.commander === 'vampire' ? {
                 toX, toY,
                 fromX: (isTargetDead && attackerUnit.type !== 'archer') ? toX : fromX,
@@ -862,7 +936,7 @@ export function attackUnit(attackerUnit, targetUnit) {
 }
 
 // ===== 城市占领 =====================
-function updateDistrictColor(cityTile, camp) {
+function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     if (!cityTile.isCity) return;
     if (cityTile.camp === camp) return;
 
@@ -900,6 +974,7 @@ function updateDistrictColor(cityTile, camp) {
     });
 
     logMessage(`${camp.name}占领的(${cityTile.q},${cityTile.r})城市所属行政区已归属${camp.name}`);
+    if (attackerUnit) attackerUnit.addXP(5);
     invalidateBoard();
     checkVictory();
 }
@@ -944,8 +1019,8 @@ export function triggerVictoryEffect() {
     document.body.style.pointerEvents = 'none';
 
     const campColor = gameState.victoryCamp.color; // '#ffaaaa' or '#aaaaff'
-    gameOverText.textContent = gameState.victoryCamp.name + '胜利';
-    victoryCampText.textContent = gameState.victoryCamp === CAMP.player1 ? '红军' : '蓝军';
+    gameOverText.textContent = '游戏结束';
+    victoryCampText.textContent = (gameState.victoryCamp === CAMP.player1 ? '红军' : '蓝军') + '胜利';
     victoryCampText.style.color = gameState.victoryCamp === CAMP.player1 ? '#ff7777' : '#7799ff';
     victoryCampText.style.textShadow = gameState.victoryCamp === CAMP.player1
         ? '0 0 24px rgba(255,120,120,0.55), 0 0 50px rgba(220,80,80,0.25)'
@@ -972,13 +1047,16 @@ export function triggerVictoryEffect() {
 async function handleSurrender() {
     if (gameState.gameOver) return;
 
+    // 联机：根据角色判断投降方；本地：根据当前回合判断
+    const surrenderCamp = isNetworkGame()
+        ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2)
+        : gameState.currentCamp;
+    const victoryCamp = surrenderCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
+
     const confirmed = await showConfirm(
-        `确定要投降吗？\n当前回合的${gameState.currentCamp.name}将立即战败，对手获得胜利。`
+        `确定要投降吗？\n${surrenderCamp.name}将立即战败，${victoryCamp.name}获得胜利。`
     );
     if (!confirmed) return;
-
-    const surrenderCamp = gameState.currentCamp;
-    const victoryCamp = surrenderCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
 
     logMessage(`${surrenderCamp.name}选择投降，${victoryCamp.name}获得最终胜利！`);
 

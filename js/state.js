@@ -233,7 +233,24 @@ export function updateUI() {
     const surrenderBtn = document.getElementById('surrenderBtn');
     if (surrenderBtn) surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
     const banner = document.getElementById('opponentTurnBanner');
-    if (banner) banner.style.display = (opponentTurn || isNeutralTurn) ? 'flex' : 'none';
+    if (gameState.commanderPhase === 'deployment') {
+        // 部署阶段：自己已部署且对方未部署时才显示等待横幅
+        const myRoleDeployed = isNetworkGame()
+            ? (getMyRole() === 'player1' ? gameState.commanderP1Deployed : gameState.commanderP2Deployed)
+            : (gameState.currentCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed);
+        const bothDeployed = gameState.commanderP1Deployed && gameState.commanderP2Deployed;
+        if (banner) {
+            if (myRoleDeployed && !bothDeployed) {
+                banner.innerHTML = '<span>⏳</span><span>等待对手部署...</span>';
+                banner.style.display = 'flex';
+            } else {
+                banner.style.display = 'none';
+            }
+        }
+    } else if (banner) {
+        banner.innerHTML = '<span>⏳</span><span>等待对手行动...</span>';
+        banner.style.display = (opponentTurn || isNeutralTurn) ? 'flex' : 'none';
+    }
 
     if (newGold1 !== gameState.previousGold.player1) {
         animateCounter(gold1El, newGold1, n => String(n));
@@ -401,7 +418,12 @@ export function serializeState() {
             commander: t.unit.commander,
             _centurionTriggered: t.unit._centurionTriggered,
             _atkBonus: t.unit._atkBonus,
-            displaySpeed: t.unit.displaySpeed
+            displaySpeed: t.unit.displaySpeed,
+            xp: t.unit._xp,
+            rank: t.unit._rank,
+            fallen: t.unit._fallen || false,
+            activeSkillCD: t.unit.activeSkillCD,
+            activeSkillDur: t.unit.activeSkillDur
         } : null
     }));
 
@@ -521,6 +543,11 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._centurionTriggered = td.unit._centurionTriggered || false;
             unit._atkBonus = td.unit._atkBonus || 0;
             unit.displaySpeed = td.unit.displaySpeed ?? unit.config.speed;
+            unit._xp = td.unit.xp || 0;
+            unit._rank = td.unit.rank || 0;
+            unit._fallen = td.unit.fallen || false;
+            unit.activeSkillCD = td.unit.activeSkillCD || 0;
+            unit.activeSkillDur = td.unit.activeSkillDur || 0;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {
                 const saved = oldCommander.get(unit.id);

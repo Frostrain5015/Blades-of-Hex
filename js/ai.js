@@ -1,10 +1,11 @@
 // AI 调度器 — 加载人格文件，管理执行与延迟
 
-import { gameState, clearselection, notify } from './state.js';
+import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit
 } from './gameLogic.js';
 import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG } from './config.js';
+import { isNetworkGame, sendMessage } from './network.js';
 import * as personality from '../.ai/claude.js';
 
 const AI_DELAY = 2500;
@@ -36,6 +37,7 @@ function resolveTile(q, r) {
 
 async function executeAction(action) {
     if (gameState.gameOver) return;
+    if (!gameState.aiActing || gameState.currentCamp !== CAMP.neutral) return;
 
     const label = `${action.type}${action.unitId ? ' ' + action.unitId : ''}`;
     try {
@@ -110,17 +112,15 @@ export async function processNeutralTurn() {
     gameState.aiActing = true;
     try {
         notify('AI正在行动...', 'info');
+        logMessage('AI正在行动...');
+        if (isNetworkGame()) sendMessage({ type: 'toast', text: 'AI正在行动...', toastType: 'info' });
 
         const actions = personality.planActions(gameState, helpers);
 
         for (let i = 0; i < actions.length; i++) {
-            if (gameState.gameOver) break;
+            if (gameState.gameOver || gameState.currentCamp !== CAMP.neutral || !gameState.aiActing) break;
             await executeAction(actions[i]);
         }
-
-        await delay(500);
-        notify('AI行动完毕 即将切换回合...', 'info');
-        await delay(3000);
     } finally {
         gameState.aiActing = false;
     }

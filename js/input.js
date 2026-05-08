@@ -1,7 +1,7 @@
 import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
-import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, updateStatsPanel, updateRecruitCostDisplay, finalizeDeployment } from './state.js';
-import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState } from './network.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, updateStatsPanel, updateRecruitCostDisplay, finalizeDeployment, logMessage, serializeState } from './state.js';
+import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn, undoLastAction
@@ -19,9 +19,51 @@ const tooltipAtk = document.getElementById('tooltipAtk');
 const tooltipDef = document.getElementById('tooltipDef');
 const tooltipSpd = document.getElementById('tooltipSpd');
 const tooltipRng = document.getElementById('tooltipRng');
+const tooltipCD = document.getElementById('tooltipCD');
+const tooltipSkillInfo = document.getElementById('tooltipSkillInfo');
 const tooltipStatus = document.getElementById('tooltipStatus');
 const tooltipPassive = document.getElementById('tooltipPassive');
 const tooltipMorale = document.getElementById('tooltipMorale');
+
+// 军衔折形图标 canvas（惰性创建，复用）
+// 折形比例与部队右下角完全一致：hw=5.5 hh=1.5(略压扁) dy=4 lineWidth=2
+let _rankCanvas = null;
+function _getOrCreateRankCanvas() {
+    if (!_rankCanvas) {
+        _rankCanvas = document.createElement('canvas');
+        _rankCanvas.style.flexShrink = '0';
+        _rankCanvas.style.marginLeft = '4px';
+    }
+    return _rankCanvas;
+}
+function _drawRankChevrons(cv, rank) {
+    const hw = 5.5, hh = 1.5, sp = 4; // width-half, height-half(压扁), vertical spacing
+    const pad = 2;
+    const cw = Math.ceil(hw * 2 + pad * 2);
+    const ch = Math.ceil((rank - 1) * sp + hh * 2 + pad * 2 + 2);
+    cv.width = cw;
+    cv.height = ch;
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const chX = cw / 2;
+    const chY = pad + hh;
+    for (let lv = 0; lv < rank; lv++) {
+        const oy = lv * sp;
+        ctx.beginPath();
+        ctx.moveTo(chX - hw, chY + hh + oy);
+        ctx.lineTo(chX,      chY - hh + oy);
+        ctx.lineTo(chX + hw, chY + hh + oy);
+        ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetY = 1;
+        ctx.stroke();
+        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5; ctx.shadowOffsetY = 0;
+        ctx.stroke();
+    }
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+}
 
 const PASSIVE_DEFS = {
     infantry: {
@@ -54,8 +96,17 @@ function showTooltipForTile(tile) {
             const cmdCfgHdr = getCommander(unit.commander);
             if (cmdCfgHdr) headerText += ` ${cmdCfgHdr.name}`;
         }
-        tooltipHeader.textContent = headerText + deployHint;
-        tooltipHeader.style.color = gameState.commanderPhase === 'deployment' ? '#ffd700' : unit.camp.color;
+        const headerColor = gameState.commanderPhase === 'deployment' ? '#ffd700' : unit.camp.color;
+        tooltipHeader.style.color = headerColor;
+        tooltipHeader.style.display = 'flex';
+        tooltipHeader.style.alignItems = 'center';
+        while (tooltipHeader.firstChild) tooltipHeader.removeChild(tooltipHeader.firstChild);
+        tooltipHeader.appendChild(document.createTextNode(headerText + deployHint));
+        if (unit._rank > 0) {
+            const rc = _getOrCreateRankCanvas();
+            _drawRankChevrons(rc, unit._rank);
+            tooltipHeader.appendChild(rc);
+        }
 
         const hpRatio = unit.hp / unit.maxHp;
         const hpColor = hpRatio > 0.5 ? '#4CAF50' : hpRatio > 0.25 ? '#FF9800' : '#f44336';
@@ -78,12 +129,10 @@ function showTooltipForTile(tile) {
             tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}</span>`;
         }
         const moraleDefBonus = MORALE_CONFIG[unit.morale].defBonus;
-        let auraDefBonus = 0;
-        if (unit.commander !== 'ironGuard' && unit._findAdjacentFriendlyIronGuard && unit._findAdjacentFriendlyIronGuard()) {
-            auraDefBonus = 0.10;
-        }
+        const auraDefBonus = getCommanderAuraDefenseBonus(unit);
         const cmdDefBonus = getCommanderDefenseBonus(unit);
-        const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + auraDefBonus + cmdDefBonus) * 100);
+        const cityDefBonus = (unit.type === 'infantry' && isCity) ? 0.20 : 0;
+        const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + auraDefBonus + cmdDefBonus + cityDefBonus) * 100);
         if (totalDefPct > 0) {
             tooltipDef.innerHTML = `<span style="color:#8fc;">🛡 ${totalDefPct}%</span>`;
         } else if (totalDefPct < 0) {
@@ -93,7 +142,33 @@ function showTooltipForTile(tile) {
         }
         tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${Math.round(unit.displaySpeed)}/${unit.config.speed}</span>`;
         tooltipRng.innerHTML = `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
+        // 主动技能冷却剩余 → ⌛ 在属性栏
+        const cdRounds = unit.getCooldownRounds();
+        if (cdRounds > 0) {
+            tooltipCD.innerHTML = `<span style="color:#aac8e0;">⌛ ${cdRounds}</span>`;
+            tooltipCD.style.display = '';
+        } else {
+            tooltipCD.innerHTML = '';
+            tooltipCD.style.display = 'none';
+        }
         tooltipStats.style.display = '';
+
+        // ==== 主动技能信息（独立行） ====
+        // 狂战士等已在技能区显示（⏰N⌛N），此处仅对其他将领显示可用提示
+        if (unit.commander && unit.commander !== 'berserker') {
+            const cmdSk = getCommander(unit.commander);
+            if (cmdSk && cmdSk.activeSkill) {
+                if (unit.activeSkillDur <= 0 && unit.activeSkillCD <= 0) {
+                    tooltipSkillInfo.innerHTML = `<span style="color:#cf9;">⏱&nbsp;${cmdSk.activeSkill.duration}轮 — 可用</span>`;
+                } else {
+                    tooltipSkillInfo.innerHTML = '';
+                }
+            } else {
+                tooltipSkillInfo.innerHTML = '';
+            }
+        } else {
+            tooltipSkillInfo.innerHTML = '';
+        }
 
         const statusParts = [];
         if (unit.isNewRecruit) statusParts.push('新招募');
@@ -111,41 +186,87 @@ function showTooltipForTile(tile) {
             if (cmdCfg2) {
                 let active = true;
                 let statusNote = '';
-                if (unit.commander === 'minister') {
+                let cmdDesc = cmdCfg2.tooltipDesc || cmdCfg2.desc;
+                let cmdColor = '#ffd700';
+
+                if (unit.commander === 'fallenAngel') {
+                    if (unit._fallen) {
+                        cmdColor = '#ff6644';
+                        cmdDesc = '每回合流失当前生命值的20%，造成的伤害+75%，士气恢复正常时切换至【☆堕天使·白】';
+                        statusNote = '【★堕天使·黑】';
+                    } else {
+                        cmdColor = '#6688ff';
+                        cmdDesc = '每回合回复已损失生命值的20%，士气上升或下降时切换至【★堕天使·黑】';
+                        statusNote = '【☆堕天使·白】';
+                    }
+                } else if (unit.commander === 'minister') {
                     active = !!(unit.tile && unit.tile.isCity);
                     statusNote = active ? '（生效中）' : '（未驻扎城市，未生效）';
+                } else if (unit.commander === 'berserker') {
+                    if (unit.activeSkillDur > 0) {
+                        // 激活中 → 限时效果区显示 buff 详情，此处仅标识
+                        cmdDesc = '主动技能已生效';
+                    } else if (cmdCfg2.activeSkill) {
+                        const sk = cmdCfg2.activeSkill;
+                        const bufParts = [];
+                        if (sk.buffs) {
+                            const b = sk.buffs;
+                            if (b.atk) bufParts.push(`攻击力+${b.atk}`);
+                            if (b.def) bufParts.push(`防御力+${Math.round(b.def * 100)}%`);
+                        }
+                        cmdDesc = bufParts.join('，') + `（⏰${sk.duration}⌛${sk.cooldown}）`;
+                    }
                 }
-                const color = active ? '#ffd700' : '#888';
-                const cmdLine = `<span style="color:${color};">【☆${cmdCfg2.skill}】${cmdCfg2.desc}${statusNote}</span>`;
+
+                const color = active ? cmdColor : '#888';
+                const tag = (cmdCfg2.activeSkill && active && unit.activeSkillDur <= 0) ? '（主动技能）' : '';
+                const prefix = (unit.commander === 'fallenAngel') ? '' : `【☆${cmdCfg2.skill}】`;
+                const cmdLine = `<span style="color:${color};">${prefix}${statusNote}${tag}${cmdDesc}</span>`;
                 skillHtml += (skillHtml ? '<br>' : '') + cmdLine;
             }
         }
         tooltipPassive.innerHTML = skillHtml;
 
         // ==== 效果区 ====
-        if (unit.morale !== 2) {
+        const timedEffects = unit.getTimedEffects(gameState);
+        const hasMoraleTimed = timedEffects.some(fx => fx.label === MORALE_CONFIG[3].name);
+
+        tooltipMorale.innerHTML = '';
+        // 基础士气（仅在非限时效果时显示，避免与限时效果重复）
+        if (unit.morale !== 2 && !hasMoraleTimed) {
             const mc = MORALE_CONFIG[unit.morale];
             tooltipMorale.innerHTML = `<span style="color:${mc.color};">【${mc.name}】${mc.desc}</span>`;
-        } else {
-            tooltipMorale.innerHTML = '';
+        }
+
+        // 限时效果 → 格式：【名称】效果描述（⏰剩余轮数）
+        for (const fx of timedEffects) {
+            const descSuffix = fx.desc ? `${fx.desc}` : '';
+            const line = `<span style="color:${fx.color};">【${fx.label}】${descSuffix}（⏰${fx.remaining}）</span>`;
+            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + line;
+        }
+
+        // 铁卫灵光buff（铁卫自身 + 相邻友军）
+        if (auraDefBonus > 0) {
+            const auraLine = unit.commander === 'ironGuard'
+                ? `<span style="color:#7eb8ff;">【守护灵光】防御力+10%</span>`
+                : `<span style="color:#7eb8ff;">【守护灵光】防御力+10%，50%伤害转由铁卫承担</span>`;
+            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
         }
 
         tooltipEl.style.borderColor = unit.camp.color;
     } else {
-        tooltipHeader.textContent = '';
+        while (tooltipHeader.firstChild) tooltipHeader.removeChild(tooltipHeader.firstChild);
         tooltipHeader.style.color = '';
+        tooltipHeader.style.display = '';
         tooltipHpBar.style.display = 'none';
         tooltipStats.style.display = 'none';
+        tooltipCD.innerHTML = '';
+        tooltipCD.style.display = 'none';
         tooltipStatus.textContent = '';
         tooltipPassive.innerHTML = '';
         tooltipMorale.innerHTML = '';
+        tooltipSkillInfo.innerHTML = '';
         tooltipEl.style.borderColor = 'rgba(255,255,255,0.15)';
-    }
-
-    // 铁卫灵光buff（所有友军，不含铁卫自身）
-    if (unit && unit.commander !== 'ironGuard' && unit._findAdjacentFriendlyIronGuard && unit._findAdjacentFriendlyIronGuard()) {
-        const auraLine = `<span style="color:#7eb8ff;">【守护灵光】防御+10%，50%伤害转由铁卫承担</span>`;
-        tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
     }
 
     // 停滞者缚足debuff（范围内敌军）
@@ -200,6 +321,27 @@ function showTooltipForTile(tile) {
         const weatherLine = `<span style="color:${wc.color};">${wc.icon}【${wc.name}】${weatherDesc}</span>`;
         const target = unit ? tooltipMorale : tooltipPassive;
         target.innerHTML += (target.innerHTML ? '<br>' : '') + weatherLine;
+    }
+
+    // ==== 主动技能按钮 ====
+    const skillBtn = document.getElementById('tooltipActiveSkill');
+    if (unit && unit.commander && unit.camp === gameState.currentCamp) {
+        const cmdCfgS = getCommander(unit.commander);
+        if (cmdCfgS && cmdCfgS.activeSkill) {
+            const skill = cmdCfgS.activeSkill;
+            const onCD = unit.activeSkillCD > 0;
+            const isActive = unit.activeSkillDur > 0;
+            const canUse = !onCD && !isActive && unit.canAct && !unit.isNewRecruit;
+            skillBtn.textContent = skill.name;
+            skillBtn.style.display = 'block';
+            skillBtn.disabled = !canUse;
+            skillBtn.className = 'tooltip-skill-btn' + (onCD ? ' on-cooldown' : '');
+            skillBtn.dataset.unitId = unit.id;
+        } else {
+            skillBtn.style.display = 'none';
+        }
+    } else {
+        skillBtn.style.display = 'none';
     }
 
     if (!unit && !showTerrain) {
@@ -286,12 +428,12 @@ export function initInput() {
                 clickedTile.unit.commander = cmdKey;
                 const cmdCfg = getCommander(cmdKey);
                 if (cmdCfg) {
-                    clickedTile.unit.hp += cmdCfg.hpBonus;
-                    clickedTile.unit.maxHp += cmdCfg.hpBonus;
+                    clickedTile.unit.hp += cmdCfg.hpBonus || 0;
+                    clickedTile.unit.maxHp += cmdCfg.hpBonus || 0;
                     clickedTile.unit.displayHp = clickedTile.unit.hp;
-                    clickedTile.unit._atkBonus = cmdCfg.atkBonus;
-                    clickedTile.unit.remainingMP += cmdCfg.spdBonus;
-                    clickedTile.unit.displaySpeed += cmdCfg.spdBonus;
+                    clickedTile.unit._atkBonus = cmdCfg.atkBonus || 0;
+                    clickedTile.unit.remainingMP += cmdCfg.spdBonus || 0;
+                    clickedTile.unit.displaySpeed += cmdCfg.spdBonus || 0;
                 }
                 spawnCommanderSkillEffect(clickedTile.x, clickedTile.y);
                 // 标记当前阵营已部署
@@ -404,6 +546,12 @@ export function initInput() {
     canvas.addEventListener('mouseleave', () => {
         gameState.hoveredTile = null;
         canvas.style.cursor = 'default';
+    });
+
+    document.addEventListener('rankUpTooltipRefresh', (e) => {
+        if (gameState.hoveredTile === e.detail.tile) {
+            showTooltipForTile(gameState.hoveredTile);
+        }
     });
 
     canvas.addEventListener('mousemove', (e) => {
@@ -548,4 +696,27 @@ export function initSettingsPanel() {
         settingsOverlay.classList.remove('show');
         window.location.reload();
     });
+
+    // 主动技能按钮
+    const activeSkillBtn = document.getElementById('tooltipActiveSkill');
+    if (activeSkillBtn && !activeSkillBtn._bound) {
+        activeSkillBtn._bound = true;
+        activeSkillBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const unitId = parseInt(activeSkillBtn.dataset.unitId);
+            if (!unitId || isNaN(unitId)) return;
+            const unit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === unitId ? t.unit : null), null);
+            if (!unit || !unit.commander || unit.activeSkillCD > 0 || unit.activeSkillDur > 0) return;
+            const cmdCfg = getCommander(unit.commander);
+            if (!cmdCfg || !cmdCfg.activeSkill) return;
+            const skill = cmdCfg.activeSkill;
+            skill.onActivate(unit, {
+                gameState, logMessage, spawnFx: spawnCommanderSkillEffect
+            });
+            unit.activeSkillDur = skill.duration;
+            unit.activeSkillCD = skill.cooldown;
+            showTooltipForTile(unit.tile);
+            if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
+        });
+    }
 }

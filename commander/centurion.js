@@ -3,7 +3,7 @@ export default {
   id: 'centurion',
   name: '百夫长',
   skill: '乘胜',
-  hpBonus: 40, atkBonus: 20, spdBonus: 1,
+  hpBonus: 0, atkBonus: 25, spdBonus: 1,
   desc: '消灭敌人时恢复3点行动力（该效果每回合最多触发1次）',
 
   onKill(killer, victim, helpers) {

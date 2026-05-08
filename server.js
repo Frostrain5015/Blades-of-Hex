@@ -95,7 +95,7 @@ function roomList() {
     const list = [];
     for (const [id, room] of rooms) {
         // 未开始的对局，或对局中有玩家断线（可重连）
-        if (!room.gameStarted || room._disconnectedRole) {
+        if (!room.gameStarted || room._disconnectedRole || (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0)) {
             list.push({ roomId: id, playerCount: room.players.size });
         }
     }
@@ -117,17 +117,18 @@ function broadcastRoom(room, obj, exclude = null) {
 function startZombieTimer(room) {
     if (room._zombieTimer) return;
     room._zombieSince = Date.now();
-    // 对局作废，清除重连标记
-    room.gameStarted = false;
-    room._disconnectedRole = null;
+    // 保留 gameStarted / _disconnectedRoles / _savedState 以便双方重连恢复
     room._zombieTimer = setTimeout(() => {
         if (room.players.size === 0) {
+            delete room._savedState;
+            delete room._disconnectedRoles;
+            room._disconnectedRole = null;
             releaseRoomId(room.id);
             rooms.delete(room.id);
             console.log(`[房间 ${room.id}] 僵尸超时，已释放`);
         }
     }, ZOMBIE_TIMEOUT);
-    console.log(`[房间 ${room.id}] 双方断开，15 分钟后释放`);
+    console.log(`[房间 ${room.id}] 双方断开，15 分钟后释放（可重连恢复）`);
 }
 
 function clearZombieTimer(room) {
@@ -148,9 +149,13 @@ function reviveRoom(room, ws) {
 function leaveCurrentRoom(ws) {
     const room = ws._room;
     if (!room) return;
-    // 对局中断线，记住角色以便重连
+    // 对局中断线，记住角色以便重连（按 clientId 映射，支持双方先后断线）
     if (room.gameStarted) {
-        room._disconnectedRole = room.players.get(ws)?.role || null;
+        const role = room.players.get(ws)?.role || null;
+        if (role) {
+            if (!room._disconnectedRoles) room._disconnectedRoles = {};
+            room._disconnectedRoles[role] = ws._clientId || null;
+        }
     }
     room.players.delete(ws);
     ws._room = null;
@@ -220,25 +225,53 @@ function handleMessage(ws, rawData) {
             }
             const room = rooms.get(roomId);
 
-            // 对局中重连
-            if (room.gameStarted && room._disconnectedRole) {
+            // 对局中重连（支持新旧两种断线记录格式）
+            const hasDisconnected = room._disconnectedRole ||
+                (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0);
+            if (room.gameStarted && hasDisconnected) {
                 if (room.players.size >= 2) {
                     sendJson(ws, { type: 'error', message: '房间已满' });
                     break;
                 }
                 leaveCurrentRoom(ws);
                 if (room.players.size === 0) clearZombieTimer(room);
-                const role = room._disconnectedRole;
-                room._disconnectedRole = null;
+
+                // 按 clientId 找回断线前的角色
+                const cid = ws._clientId;
+                let role = null;
+                if (cid && room._disconnectedRoles) {
+                    for (const [r, id] of Object.entries(room._disconnectedRoles)) {
+                        if (id === cid) { role = r; delete room._disconnectedRoles[r]; break; }
+                    }
+                    if (Object.keys(room._disconnectedRoles).length === 0) delete room._disconnectedRoles;
+                }
+                // 兼容旧格式
+                if (!role && room._disconnectedRole) {
+                    role = room._disconnectedRole;
+                    room._disconnectedRole = null;
+                }
+                if (!role) {
+                    sendJson(ws, { type: 'error', message: '无法确定你的角色，请重新创建房间' });
+                    break;
+                }
+
                 room.players.set(ws, { role });
                 ws._room = room;
                 ws._ready = false;
                 if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
                 sendJson(ws, { type: 'reconnected', roomId, role });
-                // 告诉对手玩家重连了，需要同步状态
+                // 告诉对手玩家重连了，并告知对方的角色以便恢复 _myRole
                 const other = [...room.players.keys()].find(p => p !== ws);
                 if (other) {
-                    sendJson(other, { type: 'opponentReconnected' });
+                    const otherRole = room.players.get(other)?.role || null;
+                    sendJson(other, { type: 'opponentReconnected', role: otherRole });
+                }
+                // 向双方同步暂存的对局状态
+                if (room._savedState) {
+                    const syncMsg = { type: 'action', actionType: 'stateSync', state: room._savedState };
+                    sendJson(ws, syncMsg);
+                    if (other) sendJson(other, syncMsg);
+                    console.log(`[房间 ${roomId}] 双方重连，已同步暂存状态`);
                 }
                 console.log(`[房间 ${roomId}] 玩家重连为 ${role}，对局恢复`);
                 break;
@@ -337,6 +370,15 @@ function handleMessage(ws, rawData) {
             break;
         }
 
+        case 'saveState': {
+            const room = ws._room;
+            if (!room || !room.gameStarted) break;
+            room._savedState = msg.state;
+            console.log(`[房间 ${room.id}] 已暂存游戏状态`);
+            break;
+        }
+
+        case 'toast':
         case 'commanderSync':
         case 'action': {
             // 游戏动作转发给房间内另一人

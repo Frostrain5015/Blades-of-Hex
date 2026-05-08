@@ -1,10 +1,13 @@
 // 铁卫 —— 守护
+import { HEX_SIZE } from '../js/config.js';
+
 export default {
   id: 'ironGuard',
   name: '铁卫',
   skill: '守护',
-  hpBonus: 65, atkBonus: 10, defBonus: 20, spdBonus: 0,
-  desc: '每回合回复40%已损失的生命值；相邻友军获得【守护灵光】：防御+10%，所受伤害的50%转由铁卫承担',
+  hpBonus: 60, spdBonus: 0,
+  desc: '每回合回复40%已损失的生命值；自身及相邻友军获得【守护灵光】：防御力+10%，友军所受伤害的50%转由铁卫承担',
+  tooltipDesc: '每回合回复40%已损失的生命值；自身及相邻友军获得【守护灵光】',
 
   onTurnStart(gameState, camp, helpers) {
     const { logMessage, spawnFx } = helpers;
@@ -16,19 +19,16 @@ export default {
         const healAmt = Math.round(lostHp * 0.4);
         const actualHeal = u.heal(healAmt);
         if (actualHeal > 0) {
-          spawnFx(tile.x, tile.y, '🛡');
+          const shieldY = tile.y - HEX_SIZE * 0.82;
+          u._shieldPulseUntil = Date.now() + 800;
+          spawnFx(tile.x, shieldY, '🛡');
           logMessage(`铁卫【守护】回复${Math.round(actualHeal)}生命值`);
         }
       }
     }
   },
 
-  // 自身防御加成（在防御乘区加算）
-  getDefenseBonus(unit) {
-    return 0.20;
-  },
-
-  // 灵光：相邻友军防御+10%（在防御乘区加算）
+  // 灵光：自身及相邻友军防御+10%（在防御乘区加算）
   getAuraDefenseBonus(allyUnit) {
     return 0.10;
   },
@@ -44,7 +44,8 @@ export default {
       value: transferred, isCrit: false,
       timeLeft: 800, lastUpdate: Date.now()
     });
-    helpers.spawnFx(ironGuardUnit.tile.x, ironGuardUnit.tile.y, '🛡');
+    ironGuardUnit._shieldPulseUntil = Date.now() + 800;
+    helpers.spawnFx(ironGuardUnit.tile.x, ironGuardUnit.tile.y - HEX_SIZE * 0.82, '🛡');
     return actualDmg - transferred;
   }
 };

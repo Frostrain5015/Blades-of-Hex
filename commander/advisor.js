@@ -3,7 +3,7 @@ export default {
   id: 'advisor',
   name: '谋士',
   skill: '攻心',
-  hpBonus: 50, atkBonus: 15, spdBonus: 0,
+  hpBonus: 60, atkBonus: 15, spdBonus: 0,
   desc: '攻击时有75%概率使对方士气下降，若此时目标已陷入混乱，则被感化为己方单位（将领单位无法被感化）',
 
   onAttack(attacker, target, dmg, helpers) {

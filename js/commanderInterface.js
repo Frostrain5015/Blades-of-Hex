@@ -131,17 +131,30 @@ export function getCommanderDefenseBonus(unit) {
   return 0;
 }
 
+// ---- 攻击加成（堕天使等） ----
+
+export function getCommanderAttackBonus(unit) {
+  if (!unit.commander) return 0;
+  const cmd = getCommander(unit.commander);
+  if (cmd && cmd.getAttackBonus) return cmd.getAttackBonus(unit);
+  return 0;
+}
+
 export function getCommanderAuraDefenseBonus(unit) {
-  if (!unit.tile || unit.commander === 'ironGuard') return 0;
+  if (!unit.tile) return 0;
+  const igCmd = getCommander('ironGuard');
+  if (!igCmd || !igCmd.getAuraDefenseBonus) return 0;
+  // 铁卫自身也受灵光保护
+  if (unit.commander === 'ironGuard' && unit.hp > 0) {
+    return igCmd.getAuraDefenseBonus(unit);
+  }
+  // 相邻友军
   const tileMap = _gameState && (typeof _gameState === 'function' ? _gameState() : _gameState).tileMap;
   if (!tileMap) return 0;
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nb = tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
     if (nb && nb.unit && nb.unit.commander === 'ironGuard' && nb.unit.camp === unit.camp && nb.unit.hp > 0) {
-      const igCmd = getCommander('ironGuard');
-      if (igCmd && igCmd.getAuraDefenseBonus) {
-        return igCmd.getAuraDefenseBonus(unit);
-      }
+      return igCmd.getAuraDefenseBonus(unit);
     }
   }
   return 0;
@@ -155,6 +168,25 @@ export function getCommanderAllyAuraDamage(ally, actualDmg, ironGuardUnit) {
     return cmd.onDamageTakenAlly(ally, actualDmg, ironGuardUnit, _helpers('ironGuard'));
   }
   return actualDmg;
+}
+
+// ---- 伤害倍率（堕天使黑形态等） ----
+
+export function getCommanderDamageMultiplier(unit) {
+  if (!unit.commander) return 1.0;
+  const cmd = getCommander(unit.commander);
+  if (cmd && cmd.getDamageMultiplier) return cmd.getDamageMultiplier(unit);
+  return 1.0;
+}
+
+// ---- 士气变化钩子（堕天使等） ----
+
+export function triggerCommanderOnMoraleChange(unit, oldMorale, newMorale) {
+  if (!unit.commander) return;
+  const cmd = getCommander(unit.commander);
+  if (cmd && cmd.onMoraleChange) {
+    cmd.onMoraleChange(unit, oldMorale, newMorale, _helpers(unit.commander));
+  }
 }
 
 // ---- 停滞者缚足 ----

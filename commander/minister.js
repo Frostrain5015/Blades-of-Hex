@@ -3,7 +3,7 @@ export default {
   id: 'minister',
   name: '尚书',
   skill: '屯田',
-  hpBonus: 45, atkBonus: 8, spdBonus: 0,
+  hpBonus: 80, spdBonus: 0,
   desc: '驻扎于城市时每回合金币产出+10，招募费用−20%',
 
   onTurnEnd(gameState, camp, helpers) {
