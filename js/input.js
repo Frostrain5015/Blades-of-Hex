@@ -5,7 +5,7 @@ import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } fr
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn, undoLastAction,
-    executeTacticalCard, cancelCardTargeting
+    executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale
 } from './gameLogic.js';
 import { clearTransientEffects, spawnCommanderSkillEffect } from './effects.js';
 import { HexTile } from './HexTile.js';
@@ -759,6 +759,7 @@ export function initSettingsPanel() {
             });
             unit.activeSkillDur = skill.duration;
             unit.activeSkillCD = skill.cooldown;
+            recalcAllFlankingMorale();
             showTooltipForTile(unit.tile);
             if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
         });

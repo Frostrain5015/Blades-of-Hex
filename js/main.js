@@ -13,9 +13,9 @@ import {
     triggerAttackFlash, triggerRecruitFlash,
     spawnExplosionParticles, spawnDirectionalParticles,
     spawnRecruitEffect, spawnSlashMarks,
-    triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect,
+    triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
     spawnProjectile, triggerRecoil, triggerCharge,
-    spawnBloodDrain, spawnPurpleLightning, spawnLightningStrike,
+    spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain
 } from './effects.js';
 import { HexTile } from './HexTile.js';
@@ -1109,7 +1109,7 @@ async function handleRemoteAction(msg) {
                         spawnBloodDrain(e.bloodDrain.toX, e.bloodDrain.toY, e.bloodDrain.fromX, e.bloodDrain.fromY);
                     }
                     if (e.purpleLightning) {
-                        spawnPurpleLightning(e.purpleLightning.x, e.purpleLightning.y);
+                        spawnGongxinRipple(e.purpleLightning.x, e.purpleLightning.y, false);
                     }
                     if (e.ctrBloodDrain) {
                         spawnBloodDrain(e.ctrBloodDrain.toX, e.ctrBloodDrain.toY, e.ctrBloodDrain.fromX, e.ctrBloodDrain.fromY);
@@ -1172,7 +1172,7 @@ async function handleRemoteAction(msg) {
     if (msg.actionType === 'attack' || msg.actionType === 'move') {
         if (e && e.rankUps) {
             for (const ru of e.rankUps) {
-                spawnCommanderSkillEffect(ru.x, ru.y, '▲', '晋升');
+                spawnRankUpEffect(ru.x, ru.y, ru.rank || 1);
             }
         }
     }

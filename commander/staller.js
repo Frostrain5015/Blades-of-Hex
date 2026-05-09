@@ -21,7 +21,7 @@ export default {
   name: '停滞者',
   skill: '缚足',
   hpBonus: 60, atkBonus: 15, spdBonus: 0,
-  desc: '距0/1/2格的地块各具3/2/1层【缚足】，敌方经过时每层额外消耗1.5行动力',
+  desc: '距0/1/2格的地块各具3/2/1层【缚足】，每层额外消耗2行动力 · 免疫炮兵攻击',
 
   // 返回该地块对friendlyCamp的缚足层数（0=无效果）
   getSnareLayers(tile, friendlyCamp, tileMap) {

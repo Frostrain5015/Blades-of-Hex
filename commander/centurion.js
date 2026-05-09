@@ -4,7 +4,7 @@ export default {
   name: '百夫长',
   skill: '乘胜',
   hpBonus: 0, atkBonus: 25, spdBonus: 1,
-  desc: '消灭敌人时恢复3点行动力（该效果每回合最多触发1次）',
+  desc: '消灭敌人时恢复3点行动力（每回合最多1次）· 常驻获取经验速度+50%',
 
   onKill(killer, victim, helpers) {
     if (killer._centurionTriggered) return null;

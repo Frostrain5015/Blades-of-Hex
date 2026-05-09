@@ -5,13 +5,14 @@ import { drawAllBorders } from './HexTile.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
-    VisualParticle, moraleEffects, drawMeleeSlashes,
+    VisualParticle, moraleEffects, rankUpEffects, drawMeleeSlashes,
     rainParticles, splashParticles, fogBlobs, windStreaks, spawnWeatherParticles,
     commanderSkillEffects, commanderFlash,
     factionMoraleFlash,
     drawProjectiles, updateProjectiles,
     bloodDrains, updateBloodDrains,
     lightningBolts, updateLightningBolts, drawLightningBolts,
+    gongxinRipples, updateGongxinRipples, drawGongxinRipples,
     coinParticles, updateCoinParticles, drawCoinParticles
 } from './effects.js';
 
@@ -75,6 +76,8 @@ export function renderGame() {
 
     // 士气变化动画
     drawMoraleEffects(now);
+    // 晋升动画
+    drawRankUpEffects(now);
 
     // 将领技能触发特效
     drawCommanderSkillEffects(now);
@@ -376,6 +379,9 @@ export function renderGame() {
     // 谋士闪电
     updateLightningBolts(now);
     drawLightningBolts(ctx, now);
+    // 攻心波纹
+    updateGongxinRipples(now);
+    drawGongxinRipples(ctx, now);
 
     // 尚书金币
     if (coinParticles.length > 0) drawCoinParticles(ctx);
@@ -437,6 +443,79 @@ function drawMoraleEffects(now) {
             ctx.restore();
         }
     }
+}
+
+function drawRankUpEffects(now) {
+    for (let i = rankUpEffects.length - 1; i >= 0; i--) {
+        const fx = rankUpEffects[i];
+        const elapsed = now - fx.startTime;
+        if (elapsed > fx.duration) { rankUpEffects.splice(i, 1); continue; }
+
+        const phase1 = elapsed < fx.phaseDuration;
+        const cornerX = fx.x + HEX_SIZE * 0.48;
+        const cornerY = fx.y + HEX_SIZE * 0.38;
+
+        if (phase1) {
+            const t = elapsed / fx.phaseDuration;
+            const alpha = Math.min(1, t * 4) * 0.85;
+            if (fx.rank >= 4) {
+                const size = 28 + t * 6;
+                _drawRankStar(fx.x, fx.y, size, alpha, '#ffd700', 14 + t * 8);
+            } else {
+                const scale = 2.5 + t * 1.0;
+                _drawChevrons(fx.x, fx.y, fx.rank, scale, alpha, '#ffd700', 14 + t * 8);
+            }
+        } else {
+            const t = (elapsed - fx.phaseDuration) / (fx.duration - fx.phaseDuration);
+            const x = fx.x + (cornerX - fx.x) * t;
+            const y = fx.y + (cornerY - fx.y) * t;
+            const alpha = 0.85 * (1 - t * 0.5);
+            if (fx.rank >= 4) {
+                const size = 32 - 22 * t;
+                _drawRankStar(x, y, size, alpha, '#ffd700', 4 + 4 * (1 - t));
+            } else {
+                const scale = 3.5 - 2.5 * t;
+                _drawChevrons(x, y, fx.rank, scale, alpha, '#ffd700', 4 + 4 * (1 - t));
+            }
+        }
+    }
+}
+
+function _drawChevrons(cx, cy, rank, scale, alpha, color, glow) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2.2 * scale;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = glow;
+    const halfW = 5.5 * scale;
+    const h = 3.5 * scale;
+    const gap = 5 * scale;
+    const totalH = (rank - 1) * gap;
+    for (let lv = 0; lv < rank; lv++) {
+        const dy = lv * gap - totalH / 2;
+        ctx.beginPath();
+        ctx.moveTo(cx - halfW, cy + h * 0.5 + dy);
+        ctx.lineTo(cx,          cy - h + dy);
+        ctx.lineTo(cx + halfW, cy + h * 0.5 + dy);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function _drawRankStar(cx, cy, size, alpha, color, glow) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.font = `bold ${size}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = glow;
+    ctx.fillText('★', cx, cy);
+    ctx.restore();
 }
 
 function drawMoraleIndicators() {
@@ -561,7 +640,7 @@ function drawCounterText() {
     });
 }
 
-// ===== 将领技能触发特效（金五角星） =====================
+// ===== 将领技能触发特效（军功章） =====================
 function drawCommanderSkillEffects(now) {
     for (let i = commanderSkillEffects.length - 1; i >= 0; i--) {
         const fx = commanderSkillEffects[i];
@@ -609,7 +688,7 @@ function drawCommanderSkillEffects(now) {
             ctx.textBaseline = 'middle';
             ctx.shadowColor = '#ffd700';
             ctx.shadowBlur = 20 + ease * 16;
-            ctx.fillText(fx.glyph || '★', fx.x, fx.y);
+            ctx.fillText(fx.glyph || '🎖️', fx.x, fx.y);
 
             // Layer 3: 技能名文字上浮
             if (fx.label) {

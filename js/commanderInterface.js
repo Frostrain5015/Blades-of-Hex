@@ -42,7 +42,7 @@ function _helpers(cmdId) {
     logMessage: _logMessage || ((m) => console.log(m)),
     spawnFx: (x, y, glyph) => {
       const fn = _spawnFx || ((x, y, g, l) => {});
-      fn(x, y, glyph || '★', label);
+      fn(x, y, glyph || '🎖️', label);
     },
     findCommanderUnit: _findCommanderUnit,
     changeUnitCamp
