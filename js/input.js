@@ -445,7 +445,10 @@ export function initInput() {
         }
 
         // 对手回合 / AI 回合：只允许查看，不允许操作
-        if (!isMyTurn(gameState.currentCamp)) {
+        // 联机对手 → isMyTurn；PVE AI 对手 / 中立 → 独立检查
+        const isAIOpponentTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
+        const isNeutralLocal = !isNetworkGame() && gameState.currentCamp === CAMP.neutral;
+        if (!isMyTurn(gameState.currentCamp) || isAIOpponentTurn || isNeutralLocal) {
             clearselection();
             gameState.selectedTile = clickedTile;
             showTooltipForTile(clickedTile);
@@ -539,8 +542,9 @@ export function initInput() {
         }
 
         // 非可操作状态（部署/中立/结束/对手回合）忽略点击，但先清理残留选择
-        const isMyTurn = !isNetworkGame() || (isNetworkGame() && getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === CAMP.player2);
-        if (gameState.gameOver || gameState.commanderPhase !== 'done' || gameState.currentCamp === CAMP.neutral || !isMyTurn) {
+        const isAIOpponentTurn2 = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
+        const isNeutralLocal2 = !isNetworkGame() && gameState.currentCamp === CAMP.neutral;
+        if (gameState.gameOver || gameState.commanderPhase !== 'done' || !isMyTurn(gameState.currentCamp) || isAIOpponentTurn2 || isNeutralLocal2) {
             if (gameState.cardTargeting) cancelCardTargeting();
             return;
         }

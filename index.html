@@ -22,19 +22,26 @@
             <p class="lobby-subtitle">BLADES OF HEX</p>
         </div>
 
-        <!-- 首页：两个大按钮 -->
+        <!-- 首页：三个模式按钮 -->
         <div id="lobbyHome" class="lobby-modes">
-            <button class="lobby-btn" id="localGameBtn">
-                <span class="lbtn-icon">⚔</span>
+            <button class="lobby-btn" id="pveGameBtn">
+                <span class="lbtn-icon">🤖</span>
                 <span class="lbtn-body">
-                    <span class="lbtn-name">单人游戏</span>
-                    <span class="lbtn-desc">本地双人对战，轮流操作</span>
+                    <span class="lbtn-name">单人PVE模式</span>
+                    <span class="lbtn-desc">一位玩家对战AI敌人</span>
+                </span>
+            </button>
+            <button class="lobby-btn" id="localGameBtn">
+                <span class="lbtn-icon">⚔️</span>
+                <span class="lbtn-body">
+                    <span class="lbtn-name">本地双人模式</span>
+                    <span class="lbtn-desc">两位玩家轮流操作</span>
                 </span>
             </button>
             <button class="lobby-btn" id="multiplayerBtn">
                 <span class="lbtn-icon">🌐</span>
                 <span class="lbtn-body">
-                    <span class="lbtn-name">多人游戏</span>
+                    <span class="lbtn-name">联网对战模式</span>
                     <span class="lbtn-desc">创建或加入在线房间</span>
                 </span>
             </button>
@@ -152,6 +159,9 @@
                 <div id="cardTargetingBanner" class="top-banner">
                     <span>🎯</span><span>请选择目标</span>
                 </div>
+                <div id="notificationBanner" class="top-banner notify-banner">
+                    <span></span><span></span>
+                </div>
                 <div id="tacticalCardArea"></div>
                 <div id="cardTooltip"></div>
             </div>
@@ -210,6 +220,7 @@
         <div id="victoryCampText" class="victory-camp"></div>
         <div class="victory-divider"></div>
         <button id="rematchBtn" class="victory-rematch-btn">再来一局</button>
+        <button id="exitToLobbyBtn" class="victory-exit-btn">退出</button>
         <div id="rematchStatus" class="rematch-status"></div>
     </div>
 </div>
