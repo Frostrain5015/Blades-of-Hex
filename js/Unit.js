@@ -283,23 +283,6 @@ export class Unit {
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
 
-        // Morale marker — hex corner badge (top-right)
-        const hasMoraleAnim = moraleEffects.some(fx => fx.unitId === this.id);
-        if (this.morale !== 2 && !hasMoraleAnim) {
-            const mc = MORALE_CONFIG[this.morale];
-            const mx = HEX_SIZE * 0.55 + (this.morale === 0 ? 2 : 0);
-            const my = -HEX_SIZE * 0.35;
-            ctx.fillStyle = mc.color;
-            ctx.font = 'bold 11px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(0,0,0,0.6)';
-            ctx.shadowBlur = 3;
-            ctx.fillText(mc.icon, mx, my + 1);
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-        }
-
         // ── Ring HP bar ──
         const lerpFactor = 0.18;
         this.displayHp += (this.hp - this.displayHp) * lerpFactor;
@@ -334,6 +317,23 @@ export class Unit {
             ctx.lineWidth = ringW;
             ctx.lineCap = 'round';
             ctx.stroke();
+        }
+
+        // Morale marker — hex corner badge (top-right), rendered after badge/ring to avoid occlusion
+        const hasMoraleAnim = moraleEffects.some(fx => fx.unitId === this.id);
+        if (this.morale !== 2 && !hasMoraleAnim) {
+            const mc = MORALE_CONFIG[this.morale];
+            const mx = HEX_SIZE * 0.55 + (this.morale === 0 ? 2 : 0);
+            const my = -HEX_SIZE * 0.35;
+            ctx.fillStyle = mc.color;
+            ctx.font = this.morale === 0 ? 'bold 14px Arial' : 'bold 11px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            ctx.shadowBlur = 3;
+            ctx.fillText(mc.icon, mx, my + 1);
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
         }
 
         ctx.restore();

@@ -158,7 +158,7 @@ export const MORALE_CONFIG = {
     3: { name: '士气上升', atkMulti: 1.15, defBonus: 0.05,  icon: '▲', color: '#ffd700', desc: '攻击力+15%，防御+5%' },
     2: { name: '正常',     atkMulti: 1.00, defBonus: 0,     icon: '',   color: '#aaa',    desc: '' },
     1: { name: '士气下降', atkMulti: 0.80, defBonus: -0.05, icon: '▼', color: '#b080e8', desc: '攻击力−20%，防御−5%' },
-    0: { name: '混乱',     atkMulti: 0,    defBonus: -0.15, icon: '？', color: '#999',    desc: '无法操控，防御−15%' }
+    0: { name: '混乱',     atkMulti: 0,    defBonus: -0.15, icon: '？', color: '#666',    desc: '无法操控，防御−15%' }
 };
 
 // ==== 将领配置 ====================
