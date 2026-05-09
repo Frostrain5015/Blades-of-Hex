@@ -144,9 +144,16 @@
 
         <!-- 棋盘 -->
         <div id="canvasWrapper">
-            <canvas id="gameCanvas" width="1000" height="750"></canvas>
-            <div id="opponentTurnBanner">
-                <span>⏳</span><span>等待对手行动...</span>
+            <div id="canvasStage">
+                <canvas id="gameCanvas" width="1000" height="750"></canvas>
+                <div id="opponentTurnBanner" class="top-banner">
+                    <span>⏳</span><span>等待对手行动...</span>
+                </div>
+                <div id="cardTargetingBanner" class="top-banner">
+                    <span>🎯</span><span>请选择目标</span>
+                </div>
+                <div id="tacticalCardArea"></div>
+                <div id="cardTooltip"></div>
             </div>
         </div>
 

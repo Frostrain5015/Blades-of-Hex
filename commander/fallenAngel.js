@@ -4,14 +4,14 @@ export default {
   name: '堕天使',
   skill: '堕落',
   hpBonus: 70, atkBonus: 0, spdBonus: 0,
-  desc: '【☆堕天使·白】每回合回复已损失生命值的20%，士气上升或下降时切换至【★堕天使·黑】\n【★堕天使·黑】每回合流失当前生命值的20%，攻击伤害×1.75，士气恢复正常时切换至【☆堕天使·白】',
+  desc: '【☆堕天使·白】每回合回复已损失生命值的20%，士气上升或下降时切换至【★堕天使·黑】\n【★堕天使·黑】每回合流失当前生命值的20%，攻击力+25、暴击率100%，士气恢复正常时切换至【☆堕天使·白】',
 
   onMoraleChange(unit, oldMorale, newMorale, helpers) {
     const { logMessage, spawnFx } = helpers;
     if (!unit._fallen && (newMorale === 1 || newMorale === 3)) {
       unit._fallen = true;
       spawnFx(unit.tile.x, unit.tile.y, '😈', '堕落');
-      logMessage(`堕天使【堕落】：${unit.camp.name}${unit.config.name}兵进入黑形态，伤害+75%`);
+      logMessage(`堕天使【堕落】：${unit.camp.name}${unit.config.name}兵进入黑形态，攻击力+25、暴击率100%`);
     } else if (unit._fallen && newMorale === 2) {
       unit._fallen = false;
       spawnFx(unit.tile.x, unit.tile.y, '😇', '净化');
@@ -42,7 +42,11 @@ export default {
     }
   },
 
-  getDamageMultiplier(unit) {
-    return unit._fallen ? 1.75 : 1.0;
+  getAttackBonus(unit) {
+    return unit._fallen ? 25 : 0;
+  },
+
+  guaranteesCrit(unit) {
+    return unit._fallen === true;
   }
 };

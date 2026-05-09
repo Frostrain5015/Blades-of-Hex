@@ -1,5 +1,5 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderDamageMultiplier, triggerCommanderOnMoraleChange } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange } from './commanderInterface.js';
 import { nextId } from './state.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, getRecoilOffset, getChargeOffset } from './effects.js';
 
@@ -38,6 +38,7 @@ export class Unit {
         this.godMode = false;
         this._xp = 0;
         this._rank = 0;
+        this._rankDefBonus = 0;
         this._fallen = false;
         this._gongxinStacks = 0;
         this._shieldPulseUntil = 0;
@@ -338,7 +339,7 @@ export class Unit {
         ctx.restore();
 
         // ── Actionable glow ──
-        if (this.canAct && gs && this.camp === gs.currentCamp && !this.isNewRecruit && gs.commanderPhase !== 'deployment') {
+        if (this.canAct && gs && this.camp === gs.currentCamp && !this.isNewRecruit) {
             ctx.save();
             const pulse = (Math.sin(time * 3.2 * Math.PI) + 1) / 2;
             const alpha1 = 0.18 + pulse * 0.45;
@@ -497,12 +498,12 @@ export class Unit {
     }
 
     getEffectiveAttack() {
-        const baseAtk = this.config.attack + (this._atkBonus || 0);
+        const baseAtk = this.config.attack + (this._atkBonus || 0) + getCommanderAttackBonus(this);
         return Math.round(baseAtk * MORALE_CONFIG[this.morale].atkMulti);
     }
 
     // 伤害浮动倍率（替代 critRate + critMulti 二值系统）
-    _calcFloat(counterCoeff, isCounter = false, isCityCounter = false) {
+    _calcFloat(counterCoeff, isCounter = false, isCityCounter = false, guaranteedCrit = false) {
         const gs = _gameState;
         let lo, hi;
 
@@ -521,6 +522,13 @@ export class Unit {
             hi = Math.min(hi, 1.05);
         }
 
+        if (guaranteedCrit) {
+            const threshold = isCounter ? 1.50 : 1.30;
+            const width = hi - lo;
+            lo = threshold + 0.001;
+            hi = lo + width;
+        }
+
         return lo + Math.random() * (hi - lo);
     }
 
@@ -533,18 +541,19 @@ export class Unit {
         dmgBonus -= TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
         if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.20;
         dmgBonus -= (defender.config.defense || 0);
+        dmgBonus -= (defender._rankDefBonus || 0);
         dmgBonus -= MORALE_CONFIG[defender.morale].defBonus;
         dmgBonus -= getCommanderDefenseBonus(defender);
         dmgBonus -= getCommanderAuraDefenseBonus(defender);
         if (attacker.type === 'archer' && attacker.tile.terrain === 'mountain') dmgBonus += 0.05;
         const dmgMulti = Math.max(0.1, 1 + dmgBonus);
 
-        const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter);
+        const guaranteedCrit = isCommanderGuaranteedCrit(attacker);
+        const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter, guaranteedCrit);
         const isCrit = floatMult > (isCounter ? 1.50 : 1.30);
 
-        const cmdDmgMult = getCommanderDamageMultiplier(attacker);
         return {
-            dmg: attacker.getEffectiveAttack() * baseMulti * dmgMulti * floatMult * cmdDmgMult,
+            dmg: attacker.getEffectiveAttack() * baseMulti * dmgMulti * floatMult,
             isCrit
         };
     }
@@ -681,13 +690,17 @@ export class Unit {
     }
 
     _checkRankUp() {
-        const thresholds = [10, 25, 50];
+        const thresholds = [8, 18, 30];
         while (this._rank < 3 && this._xp >= thresholds[this._rank]) {
             this._rank++;
             this._applyRankBonus(this._rank);
+            // 晋升时恢复已损失生命值的30%
+            const lostHp = this.maxHp - this.hp;
+            if (lostHp > 0) {
+                this.hp = Math.min(this.maxHp, this.hp + Math.round(lostHp * 0.30));
+            }
             _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
             spawnCommanderSkillEffect(this.tile.x, this.tile.y, '▲', '晋升');
-            // 即时刷新 tooltip 等级显示：触发 input.js 重新渲染 tooltip
             if (_gameState && _gameState.hoveredTile === this.tile) {
                 const evt = new CustomEvent('rankUpTooltipRefresh', { detail: { tile: this.tile } });
                 document.dispatchEvent(evt);
@@ -697,9 +710,9 @@ export class Unit {
 
     _applyRankBonus(rank) {
         switch (rank) {
-            case 1: this.maxHp += 10; this.hp += 10; break;
-            case 2: this._atkBonus += 5; break;
-            case 3: break;
+            case 1: this.maxHp += 20; this.hp += 20; break;
+            case 2: this._atkBonus += 10; break;
+            case 3: this._rankDefBonus = 0.10; break;
         }
     }
 }

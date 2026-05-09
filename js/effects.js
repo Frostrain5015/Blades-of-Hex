@@ -701,6 +701,85 @@ export function spawnPurpleLightning(x, y) {
     });
 }
 
+export function spawnLightningStrike(x, y) {
+    const mainSegments = [];
+    let sx = x + (Math.random() - 0.5) * 16;
+    let sy = y - 300;
+    const steps = 10;
+    const stepY = 300 / steps;
+    const branchPoints = []; // fork points for branches
+    for (let i = 0; i < steps; i++) {
+        const prog = (i + 1) / steps;
+        const driftToTarget = (x - sx) * 0.25;
+        const jitter = (Math.random() - 0.5) * 22 * (1 - prog * 0.6);
+        const ex = sx + driftToTarget + jitter;
+        const ey = sy + stepY;
+        mainSegments.push({ x1: sx, y1: sy, x2: ex, y2: ey });
+        // 中段有概率分叉
+        if (i >= 2 && i <= 7 && Math.random() < 0.35) {
+            branchPoints.push({ bx: sx, by: sy, prog });
+        }
+        sx = ex; sy = ey;
+    }
+    mainSegments.push({ x1: sx, y1: sy, x2: x, y2: y });
+
+    // 分叉短枝
+    const branches = [];
+    for (const bp of branchPoints) {
+        const bSegs = [];
+        let bx = bp.bx, by = bp.by;
+        const bSteps = 2 + Math.floor(Math.random() * 2);
+        const bLen = 40 + Math.random() * 50;
+        const bAngle = (Math.random() - 0.5) * 1.2;
+        for (let j = 0; j < bSteps; j++) {
+            const bp2 = (j + 1) / bSteps;
+            const ex2 = bx + Math.cos(bAngle) * (bLen / bSteps) + (Math.random() - 0.5) * 14;
+            const ey2 = by + (bLen / bSteps) * 0.6 + Math.random() * 8;
+            bSegs.push({ x1: bx, y1: by, x2: ex2, y2: ey2 });
+            bx = ex2; by = ey2;
+        }
+        branches.push(bSegs);
+    }
+
+    lightningBolts.push({
+        x, y,
+        segments: mainSegments,
+        branches,
+        startTime: Date.now(),
+        duration: 500,
+        isStrike: true
+    });
+
+    // 落点电能扩散火花
+    const sparkCount = Math.round(24 * settings.particleDensity);
+    for (let i = 0; i < sparkCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 80 + Math.random() * 220;
+        particles.push(new VisualParticle(
+            x, y,
+            Math.cos(angle) * speed,
+            Math.sin(angle) * speed,
+            Math.random() < 0.35 ? '#ffffff' : '#88ccff',
+            1.5 + Math.random() * 3.5,
+            0.2 + Math.random() * 0.45,
+            0
+        ));
+    }
+    // 地面小冲击波粒子（暖色）
+    for (let i = 0; i < 8; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        particles.push(new VisualParticle(
+            x, y,
+            Math.cos(angle) * 30,
+            Math.sin(angle) * 30,
+            '#ffcc66',
+            2 + Math.random() * 2,
+            0.15 + Math.random() * 0.2,
+            0
+        ));
+    }
+}
+
 export function updateLightningBolts(now) {
     for (let i = lightningBolts.length - 1; i >= 0; i--) {
         if (now - lightningBolts[i].startTime > lightningBolts[i].duration) {
@@ -713,25 +792,68 @@ export function drawLightningBolts(ctx2d, now) {
     for (const b of lightningBolts) {
         const elapsed = now - b.startTime;
         const alpha = elapsed < 60 ? elapsed / 60 : Math.max(0, 1 - (elapsed - 60) / (b.duration - 60));
+        const isStrike = b.isStrike;
         ctx2d.save();
         ctx2d.globalAlpha = alpha;
-        // 外层辉光
-        ctx2d.strokeStyle = '#c080ff';
-        ctx2d.lineWidth = 4;
-        ctx2d.shadowColor = '#d0a0ff';
-        ctx2d.shadowBlur = 12;
-        ctx2d.beginPath();
-        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-        ctx2d.stroke();
-        // 核心亮线
-        ctx2d.strokeStyle = '#f0e0ff';
-        ctx2d.lineWidth = 1.5;
-        ctx2d.shadowBlur = 0;
-        ctx2d.beginPath();
-        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-        ctx2d.stroke();
+        if (isStrike) {
+            // 外层粗辉光（白色）
+            ctx2d.strokeStyle = '#ffffff';
+            ctx2d.lineWidth = 6;
+            ctx2d.shadowColor = '#ffffff';
+            ctx2d.shadowBlur = 20;
+            ctx2d.beginPath();
+            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+            ctx2d.stroke();
+            // 中层亮蓝
+            ctx2d.strokeStyle = '#a0d0ff';
+            ctx2d.lineWidth = 3;
+            ctx2d.shadowColor = '#88bbff';
+            ctx2d.shadowBlur = 10;
+            ctx2d.beginPath();
+            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+            ctx2d.stroke();
+            // 核心亮白
+            ctx2d.strokeStyle = '#ffffff';
+            ctx2d.lineWidth = 1.5;
+            ctx2d.shadowBlur = 0;
+            ctx2d.beginPath();
+            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+            ctx2d.stroke();
+            // 分叉短枝（细线）
+            if (b.branches) {
+                ctx2d.strokeStyle = '#a0d0ff';
+                ctx2d.lineWidth = 1.2;
+                ctx2d.shadowColor = '#88bbff';
+                ctx2d.shadowBlur = 6;
+                for (const br of b.branches) {
+                    ctx2d.beginPath();
+                    ctx2d.moveTo(br[0].x1, br[0].y1);
+                    for (const seg of br) ctx2d.lineTo(seg.x2, seg.y2);
+                    ctx2d.stroke();
+                }
+            }
+        } else {
+            // 外层辉光
+            ctx2d.strokeStyle = '#c080ff';
+            ctx2d.lineWidth = 4;
+            ctx2d.shadowColor = '#d0a0ff';
+            ctx2d.shadowBlur = 12;
+            ctx2d.beginPath();
+            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+            ctx2d.stroke();
+            // 核心亮线
+            ctx2d.strokeStyle = '#f0e0ff';
+            ctx2d.lineWidth = 1.5;
+            ctx2d.shadowBlur = 0;
+            ctx2d.beginPath();
+            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+            ctx2d.stroke();
+        }
         ctx2d.restore();
     }
 }

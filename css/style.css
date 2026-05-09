@@ -85,14 +85,21 @@ body {
     min-height: 0;
 }
 
-#gameCanvas {
+#canvasStage {
+    position: relative;
     display: block;
+    overflow: hidden;
     border-radius: var(--radius-md);
     box-shadow:
         0 0 32px rgba(0, 0, 0, 0.85),
         0 0 64px rgba(0, 0, 0, 0.40),
         inset 0 0 28px rgba(0, 0, 0, 0.30);
     border: 1px solid var(--border);
+}
+
+#gameCanvas {
+    display: block;
+    border-radius: 0;
 }
 
 /* =============================================================
@@ -805,6 +812,144 @@ body {
     background: linear-gradient(135deg, #333, #222);
     border-color: #555;
     color: #888;
+}
+
+/* =============================================================
+   TACTICAL CARD AREA
+   ============================================================= */
+
+#tacticalCardArea {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    display: flex;
+    gap: 8px;
+    z-index: 15;
+}
+
+.tactical-card {
+    width: 64px;
+    height: 56px;
+    background: linear-gradient(145deg, #2a1a0a, #1a0f05);
+    border: 2px solid #5a4020;
+    border-radius: 8px;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    pointer-events: auto;
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+    user-select: none;
+}
+
+.tactical-card:hover {
+    transform: scale(1.05);
+    border-color: #b89030;
+    box-shadow: 0 4px 16px rgba(180, 120, 30, 0.40);
+}
+
+.tactical-card.targeting {
+    border-color: #ff4444;
+    box-shadow: 0 0 18px rgba(255, 60, 60, 0.7);
+    animation: cardTargetPulse 0.8s ease-in-out infinite;
+}
+
+.tactical-card.deploy-card {
+    background: linear-gradient(145deg, #3a2a06, #1a0f02);
+    border-color: #b89030;
+}
+.tactical-card.deploy-card:hover {
+    border-color: #e0b840;
+    box-shadow: 0 4px 16px rgba(200, 160, 40, 0.45);
+}
+.tactical-card.deploy-card .tactical-card-icon {
+    text-shadow: 0 0 6px rgba(255, 200, 40, 0.6);
+}
+.tactical-card.deploy-card .tactical-card-name {
+    color: #ffd700;
+}
+
+@keyframes cardTargetPulse {
+    0%, 100% { box-shadow: 0 0 18px rgba(255, 60, 60, 0.7); }
+    50%      { box-shadow: 0 0 30px rgba(255, 60, 60, 1.0); }
+}
+
+.tactical-card-icon {
+    font-size: 32px;
+    line-height: 1;
+}
+
+.tactical-card-name {
+    font-size: 14px;
+    color: #dcc090;
+    font-weight: bold;
+}
+
+.tactical-card-cost {
+    font-size: 11px;
+    color: #ffd700;
+    background: rgba(0,0,0,0.5);
+    padding: 1px 6px;
+    border-radius: 10px;
+}
+
+.tactical-card-cost.unaffordable {
+    color: #cc4444;
+}
+
+.tactical-card-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.25s ease;
+}
+
+.tactical-card-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.tactical-card-cooldown {
+    color: #ccc;
+    font-size: 22px;
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(255,255,255,0.4);
+}
+
+/* 对策卡悬浮提示 */
+#cardTooltip {
+    position: absolute;
+    bottom: 80px;
+    right: 0;
+    transform: translateX(105%);
+    opacity: 0;
+    background: rgba(4, 2, 0, 0.92);
+    color: #c8b898;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 8px 14px 8px 18px;
+    border-radius: 14px 0 0 14px;
+    border: 1px solid rgba(180, 140, 80, 0.35);
+    max-width: 260px;
+    z-index: 20;
+    pointer-events: none;
+    white-space: pre-line;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+    transition: transform 0.25s cubic-bezier(0.22, 0.61, 0.36, 1),
+                opacity 0.20s ease;
+}
+#cardTooltip.visible {
+    transform: translateX(0);
+    opacity: 1;
 }
 
 /* =============================================================
@@ -1755,28 +1900,48 @@ body {
     white-space: nowrap;
 }
 
-#opponentTurnBanner {
-    display: none;
+.top-banner {
+    display: flex;
     position: absolute;
     top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(8, 4, 0, 0.80);
-    color: #ffdd88;
-    font-size: 13px;
+    right: 0;
+    transform: translateX(105%);
+    opacity: 0;
+    background: rgba(8, 4, 0, 0.85);
+    font-size: 15px;
     font-weight: bold;
-    padding: 5px 18px;
-    border-radius: 20px;
-    border: 1px solid rgba(255, 200, 100, 0.26);
+    line-height: 1.4;
+    padding: 8px 22px 8px 26px;
+    border-radius: 22px 0 0 22px;
     align-items: center;
     gap: 8px;
     z-index: 10;
     pointer-events: none;
-    text-shadow: 0 0 8px rgba(255, 200, 100, 0.38);
     letter-spacing: 1px;
     white-space: nowrap;
     backdrop-filter: blur(4px);
+    transition: transform 0.28s cubic-bezier(0.55, 0, 1, 0.45),
+                opacity 0.20s ease-in;
 }
+.top-banner.visible {
+    transform: translateX(0);
+    opacity: 1;
+    transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1),
+                opacity 0.18s ease-out;
+}
+
+#opponentTurnBanner {
+    color: #ffdd88;
+    border: 1px solid rgba(255, 200, 100, 0.26);
+    text-shadow: 0 0 8px rgba(255, 200, 100, 0.38);
+}
+
+#cardTargetingBanner {
+    color: #88bbff;
+    border: 1px solid rgba(100, 160, 255, 0.35);
+    text-shadow: 0 0 8px rgba(100, 150, 255, 0.40);
+}
+
 
 /* ============================================================
    PORTRAIT WARNING & MOBILE LANDSCAPE

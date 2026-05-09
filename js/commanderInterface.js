@@ -170,13 +170,13 @@ export function getCommanderAllyAuraDamage(ally, actualDmg, ironGuardUnit) {
   return actualDmg;
 }
 
-// ---- 伤害倍率（堕天使黑形态等） ----
+// ---- 必定暴击（堕天使黑形态等） ----
 
-export function getCommanderDamageMultiplier(unit) {
-  if (!unit.commander) return 1.0;
+export function isCommanderGuaranteedCrit(unit) {
+  if (!unit.commander) return false;
   const cmd = getCommander(unit.commander);
-  if (cmd && cmd.getDamageMultiplier) return cmd.getDamageMultiplier(unit);
-  return 1.0;
+  if (cmd && cmd.guaranteesCrit) return cmd.guaranteesCrit(unit);
+  return false;
 }
 
 // ---- 士气变化钩子（堕天使等） ----
