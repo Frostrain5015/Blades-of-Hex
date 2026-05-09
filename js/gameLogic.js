@@ -456,9 +456,10 @@ async function _doEndTurnPhase() {
         gameState.currentCamp = CAMP.player1;
     }
     gameState.turnCounter++;
-    // 对策卡冷却递减
-    for (const campKey of ['player1', 'player2']) {
-        const cards = gameState.tacticalCards[campKey];
+    // 对策卡冷却递减：仅减少刚结束回合的阵营（冷却按"己方回合数"计）
+    const endingCampKey = _campKey(camp);
+    if (endingCampKey !== 'neutral') {
+        const cards = gameState.tacticalCards[endingCampKey];
         for (const cardId of Object.keys(cards)) {
             if (cards[cardId] > 0) cards[cardId]--;
         }

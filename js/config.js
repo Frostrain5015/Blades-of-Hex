@@ -181,9 +181,9 @@ export const TACTICAL_CARD_CONFIG = {
         id: 'lightning',
         name: '雷击',
         icon: '⚡',
-        cost: 30,
+        cost: 45,
         cooldown: 3,
-        desc: '【雷击】30g / ⏳3\n对地图上任意非己方单位降下雷电，造成 40~60 点真实伤害',
+        desc: '【雷击】45g / ⏳3\n对地图上任意非己方单位降下雷电，造成 40~60 点真实伤害',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const dmg = 40 + Math.floor(Math.random() * 21);
