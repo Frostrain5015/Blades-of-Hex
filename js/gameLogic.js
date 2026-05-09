@@ -369,7 +369,7 @@ async function _doEndTurnPhase() {
     // Unit reset + infantry city heal + 将领回合开始效果
     gameState.tiles.forEach(tile => {
         if (tile.unit) {
-            tile.unit.canAct = true;
+            tile.unit.canAct = tile.unit.morale !== 0;
             tile.unit.movedThisTurn = false;
             tile.unit.moveDistance = 0;
             tile.unit.counterAttackCount = 0;
@@ -434,8 +434,9 @@ async function _doEndTurnPhase() {
 
         const surrounded = isSurrounded(u, gameState.tileMap);
         const flanked = !surrounded && isFlanked(u, gameState.tileMap);
-        // 攻心叠层使士气恢复上限降为1（有层数时不能自然恢复至正常）
-        const maxRecovery = (u._gongxinStacks || 0) > 0 ? 1 : 2;
+        // 攻心叠层控制士气恢复上限：1层→1，2层→0（无法恢复），3层触发感化时已在advisor中清零
+        const gs = u._gongxinStacks || 0;
+        const maxRecovery = gs >= 2 ? 0 : gs >= 1 ? 1 : 2;
         if (u.morale === 0 && !surrounded) {
             u.morale = Math.min(flanked ? 1 : maxRecovery, maxRecovery);
             if (u.morale > 0) u.canAct = true;
@@ -699,6 +700,7 @@ export function getMovableTiles(unit) {
 }
 
 export function getAttackableTiles(unit) {
+    if (unit.morale === 0) return [];
     let range = unit.config.range;
     if (gameState.weather === 'fog' && unit.type === 'archer') range -= 1;
     if (unit.type === 'archer') {
@@ -803,6 +805,7 @@ export function attackUnit(attackerUnit, targetUnit) {
     const attackResult = attackerUnit.calculateDamage(targetUnit);
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
     if (attackResult.isCrit) attackerUnit.addXP(2);
+    if (attackResult.dmg > 0) attackerUnit.addXP(0.5);
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
     const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
     playSound(attackResult.isCrit ? 'crit' : 'attack');
@@ -856,6 +859,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             _counterDmg = counterResult.dmg;
             _counterX = attackerUnit.tile.x; _counterY = attackerUnit.tile.y;
             if (counterResult.dmg > 0) {
+                targetUnit.addXP(0.5);
                 if (counterResult.isCrit) targetUnit.addXP(2);
                 attackerUnit.takeDamage(counterResult.dmg, targetUnit);
                 _atkCmdFxCapture = null;
