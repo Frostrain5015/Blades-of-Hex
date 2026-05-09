@@ -137,6 +137,7 @@ export function planActions(gameState, helpers, myCamp) {
         .filter(t => t.unit && t.unit.camp === myCamp && t.unit.canAct && !t.unit.isNewRecruit)
         .map(t => t.unit);
 
+    // 初始排序：先按兵种（炮>骑>步），primaryObjective 确定后再按距离重排
     const units = [...allUnits].sort((a, b) => {
         const order = { archer: 0, cavalry: 1, infantry: 2 };
         return order[a.type] - order[b.type];
@@ -243,6 +244,18 @@ export function planActions(gameState, helpers, myCamp) {
         }
     }
 
+    // 确定主攻目标后，按离目标由近到远重新排序全军
+    // 近者先动 → 清障后远方单位不会被己方挡住去路
+    if (primaryObjective) {
+        const typeOrder = { archer: 0, cavalry: 1, infantry: 2 };
+        units.sort((a, b) => {
+            const da = hexDistance(a.tile, primaryObjective);
+            const db = hexDistance(b.tile, primaryObjective);
+            if (da !== db) return da - db;
+            return typeOrder[a.type] - typeOrder[b.type];
+        });
+    }
+
     // ═══════════════════════════════════════════
     // 第零轮：对策卡 — 部署将领、雷击
     // ═══════════════════════════════════════════
@@ -281,7 +294,7 @@ export function planActions(gameState, helpers, myCamp) {
 
     // 雷击：优先打击主攻目标上的守军 + 残血将领
     const lightningCD = cards['lightning'] || 0;
-    if (gold >= 30 && lightningCD === 0) {
+    if (gold >= 45 && lightningCD === 0) {
         let bestTarget = null;
         let bestScore = 0;
         for (const tile of gameState.tiles) {
