@@ -63,7 +63,10 @@ export const gameState = {
     commanderP1Deployed: false,
     commanderP2Deployed: false,
     commanderPhase: 'done',  // 'selection' | 'deployment' | 'done'
-    factionMoraleBoost: { player1: 0, player2: 0 }
+    factionMoraleBoost: { player1: 0, player2: 0 },
+    // 对策卡系统
+    tacticalCards: { player1: {}, player2: {} },
+    cardTargeting: null
 };
 
 // ===== 重置游戏状态（再来一局时调用） =====================
@@ -108,6 +111,8 @@ export function resetGameState() {
     gameState.commanderP2Deployed = false;
     gameState.commanderPhase = 'done';
     gameState.factionMoraleBoost = { player1: 0, player2: 0 };
+    gameState.tacticalCards = { player1: {}, player2: {} };
+    gameState.cardTargeting = null;
     // 清除计数器动画记忆
     for (const k of Object.keys(_counterStore)) delete _counterStore[k];
 }
@@ -176,7 +181,7 @@ export function updateRecruitButtonStates() {
 
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
     const isNeutralTurn = gameState.currentCamp === CAMP.neutral;
-    const inCommanderSetup = gameState.commanderPhase === 'selection' || gameState.commanderPhase === 'deployment';
+    const inCommanderSetup = gameState.commanderPhase === 'selection';
     if (opponentTurn || isNeutralTurn || gameState.gameOver || inCommanderSetup) {
         for (const btn of Object.values(btns)) {
             if (btn) { btn.disabled = true; btn.classList.remove('available'); }
@@ -205,16 +210,11 @@ export function updateRecruitButtonStates() {
 
 export function updateUI() {
     const turnEl = document.getElementById('currentTurn');
-    if (gameState.commanderPhase === 'deployment') {
-        turnEl.textContent = '⚑ 部署';
-        turnEl.style.color = '#ffd700';
+    turnEl.textContent = gameState.currentCamp.name;
+    if (typeof gsap !== 'undefined') {
+        gsap.to(turnEl, { color: gameState.currentCamp.color, duration: 0.35 });
     } else {
-        turnEl.textContent = gameState.currentCamp.name;
-        if (typeof gsap !== 'undefined') {
-            gsap.to(turnEl, { color: gameState.currentCamp.color, duration: 0.35 });
-        } else {
-            turnEl.style.color = gameState.currentCamp.color;
-        }
+        turnEl.style.color = gameState.currentCamp.color;
     }
     const gold1El = document.getElementById('player1Gold');
     const gold2El = document.getElementById('player2Gold');
@@ -223,7 +223,7 @@ export function updateUI() {
     // 联机/中立回合：禁用操作按钮、显示提示条
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
     const isNeutralTurn = gameState.currentCamp === CAMP.neutral;
-    const inCommanderSetup = gameState.commanderPhase === 'selection' || gameState.commanderPhase === 'deployment';
+    const inCommanderSetup = gameState.commanderPhase === 'selection';
     const disableBtns = opponentTurn || isNeutralTurn || gameState.gameOver || inCommanderSetup;
     ['endTurnBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher'].forEach(id => {
         const btn = document.getElementById(id);
@@ -233,23 +233,13 @@ export function updateUI() {
     const surrenderBtn = document.getElementById('surrenderBtn');
     if (surrenderBtn) surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
     const banner = document.getElementById('opponentTurnBanner');
-    if (gameState.commanderPhase === 'deployment') {
-        // 部署阶段：自己已部署且对方未部署时才显示等待横幅
-        const myRoleDeployed = isNetworkGame()
-            ? (getMyRole() === 'player1' ? gameState.commanderP1Deployed : gameState.commanderP2Deployed)
-            : (gameState.currentCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed);
-        const bothDeployed = gameState.commanderP1Deployed && gameState.commanderP2Deployed;
-        if (banner) {
-            if (myRoleDeployed && !bothDeployed) {
-                banner.innerHTML = '<span>⏳</span><span>等待对手部署...</span>';
-                banner.style.display = 'flex';
-            } else {
-                banner.style.display = 'none';
-            }
-        }
-    } else if (banner) {
+    if (banner) {
         banner.innerHTML = '<span>⏳</span><span>等待对手行动...</span>';
-        banner.style.display = (opponentTurn || isNeutralTurn) ? 'flex' : 'none';
+        if (opponentTurn || isNeutralTurn) {
+            banner.classList.add('visible');
+        } else {
+            banner.classList.remove('visible');
+        }
     }
 
     if (newGold1 !== gameState.previousGold.player1) {
@@ -312,26 +302,16 @@ export function updateStatsPanel() {
     const p2i = calcIncome(p2c);
     const ni  = Math.floor(calcIncome(nc) / 2);
 
-    if (gameState.commanderPhase === 'deployment') {
-        content.innerHTML = `
-            <div class="stat-turn-label">阶段</div>
-            <div class="stat-turn-num" style="font-size:22px;color:#ffd700;">部署</div>
-            <div class="stat-row"><span class="stat-p1">红军</span><span class="stat-val">🏰${p1c}</span></div>
-            <div class="stat-row"><span class="stat-p2">蓝军</span><span class="stat-val">🏰${p2c}</span></div>
-            <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">🏰${nc}</span></div>
-        `;
-    } else {
-        const turnNum = Math.floor(gameState.turnCounter / 3) + 1;
-        content.innerHTML = `
-            <div class="stat-turn-label">回合</div>
-            <div class="stat-turn-num">${turnNum}</div>
-            <div class="stat-row"><span class="stat-p1">红军</span><span class="stat-val">⚔${gameState.killCount.player1} 🏰${p1c} ⚱${p1i}</span></div>
-            <div class="stat-row"><span class="stat-p2">蓝军</span><span class="stat-val">⚔${gameState.killCount.player2} 🏰${p2c} ⚱${p2i}</span></div>
-            <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">⚔${gameState.killCount.neutral} 🏰${nc} ⚱${ni}</span></div>
-        `;
-        const turnEl = content.querySelector('.stat-turn-num');
-        if (turnEl) animateCounter(turnEl, turnNum, n => String(n), 'turnNum');
-    }
+    const turnNum = Math.floor(gameState.turnCounter / 3) + 1;
+    content.innerHTML = `
+        <div class="stat-turn-label">回合</div>
+        <div class="stat-turn-num">${turnNum}</div>
+        <div class="stat-row"><span class="stat-p1">红军</span><span class="stat-val">⚔${gameState.killCount.player1} 🏰${p1c} ⚱${p1i}</span></div>
+        <div class="stat-row"><span class="stat-p2">蓝军</span><span class="stat-val">⚔${gameState.killCount.player2} 🏰${p2c} ⚱${p2i}</span></div>
+        <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">⚔${gameState.killCount.neutral} 🏰${nc} ⚱${ni}</span></div>
+    `;
+    const turnEl = content.querySelector('.stat-turn-num');
+    if (turnEl) animateCounter(turnEl, turnNum, n => String(n), 'turnNum');
 }
 
 // ===== 部署完成收尾（单机/联机统一入口） =====================
@@ -418,6 +398,7 @@ export function serializeState() {
             commander: t.unit.commander,
             _centurionTriggered: t.unit._centurionTriggered,
             _atkBonus: t.unit._atkBonus,
+            _rankDefBonus: t.unit._rankDefBonus || 0,
             displaySpeed: t.unit.displaySpeed,
             xp: t.unit._xp,
             rank: t.unit._rank,
@@ -450,7 +431,8 @@ export function serializeState() {
         commanderP1Deployed: gameState.commanderP1Deployed,
         commanderP2Deployed: gameState.commanderP2Deployed,
         commanderPhase: gameState.commanderPhase,
-        factionMoraleBoost: { ...gameState.factionMoraleBoost }
+        factionMoraleBoost: { ...gameState.factionMoraleBoost },
+        tacticalCards: { player1: { ...gameState.tacticalCards.player1 }, player2: { ...gameState.tacticalCards.player2 } }
     };
 }
 
@@ -481,6 +463,9 @@ export function deserializeState(data, HexTileClass, UnitClass) {
         gameState.factionMoraleBoost = { player1: 0, player2: 0, ...data.factionMoraleBoost };
     } else {
         gameState.factionMoraleBoost = { player1: 0, player2: 0 };
+    }
+    if (data.tacticalCards) {
+        gameState.tacticalCards = { player1: { ...data.tacticalCards.player1 }, player2: { ...data.tacticalCards.player2 } };
     }
 
     // Preserve displayHp & commander for units (prevents flicker & commander loss on sync)
@@ -543,6 +528,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit.commander = td.unit.commander || null;
             unit._centurionTriggered = td.unit._centurionTriggered || false;
             unit._atkBonus = td.unit._atkBonus || 0;
+            unit._rankDefBonus = td.unit._rankDefBonus || 0;
             unit.displaySpeed = td.unit.displaySpeed ?? unit.config.speed;
             unit._xp = td.unit.xp || 0;
             unit._rank = td.unit.rank || 0;
@@ -628,6 +614,21 @@ export function notify(text, type = 'info', persistent = false) {
     const cfg = { success: ['✓', '#6fcf7a'], error: ['!', '#e8a840'], info: ['i', '#aac8e0'], warn: ['⚠', '#e8a840'] };
     const [icon, color] = cfg[type] || cfg.info;
     showToast(icon, text, color, persistent);
+}
+
+// ==== 对策卡选择目标横幅 ====
+export function showTargetingBanner(text, hint = '') {
+    const el = document.getElementById('cardTargetingBanner');
+    if (!el) return;
+    el.children[0].textContent = '🎯';
+    el.children[1].textContent = text;
+    el.classList.add('visible');
+}
+
+export function hideTargetingBanner() {
+    const el = document.getElementById('cardTargetingBanner');
+    if (!el) return;
+    el.classList.remove('visible');
 }
 
 export function saveGame(silent = false) {

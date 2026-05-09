@@ -16,7 +16,7 @@ const COUNTER = {
     cavalry:  { infantry: 0.75, archer: 1.25, cavalry: 1 }
 };
 
-const TERRAIN_DEF = { plains: 0, forest: 0.10, mountain: 0.20 };
+const TERRAIN_DEF = { plains: 0, forest: 0.10, mountain: 0.10 };
 
 export function planActions(gameState, helpers) {
     const { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG } = helpers;

@@ -1,6 +1,6 @@
-import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE } from './config.js';
-import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay } from './state.js';
-import { isNetworkGame, sendAction, getMyRole, sendMessage } from './network.js';
+import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG } from './config.js';
+import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner } from './state.js';
+import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef } from './commanderInterface.js';
 import { HexTile } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
@@ -12,7 +12,7 @@ import {
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
     spawnProjectile, triggerRecoil, triggerCharge,
-    spawnBloodDrain, spawnPurpleLightning,
+    spawnBloodDrain, spawnPurpleLightning, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain
 } from './effects.js';
@@ -456,6 +456,13 @@ async function _doEndTurnPhase() {
         gameState.currentCamp = CAMP.player1;
     }
     gameState.turnCounter++;
+    // 对策卡冷却递减
+    for (const campKey of ['player1', 'player2']) {
+        const cards = gameState.tacticalCards[campKey];
+        for (const cardId of Object.keys(cards)) {
+            if (cards[cardId] > 0) cards[cardId]--;
+        }
+    }
     // 新回合（P1开始）→ 限时效果到期检查
     // 天气在新回合开始时更新
     if (gameState.currentCamp === CAMP.player1) {
@@ -472,6 +479,7 @@ async function _doEndTurnPhase() {
     updateUI();
     logMessage(`轮到${gameState.currentCamp.name}行动`);
     updateButtonColors();
+    if (gameState.cardTargeting) { gameState.cardTargeting = null; hideTargetingBanner(); }
     clearselection();
     gameState.undoStack = [];
     if (!isNetworkGame()) saveGame(true); // 自动存档静默，不弹提示
@@ -1090,4 +1098,89 @@ export function undoLastAction() {
     deserializeState(snapshot, HexTile, Unit);
     clearTransientEffects();
     logMessage('已撤销上一步操作');
+}
+
+// ==== 对策卡系统 =====================
+
+export function cancelCardTargeting() {
+    gameState.cardTargeting = null;
+    hideTargetingBanner();
+}
+
+export function executeTacticalCard(cardId, targetTile) {
+    const cfg = TACTICAL_CARD_CONFIG[cardId];
+    if (!cfg) return;
+    if (!targetTile || !targetTile.unit) return;
+
+    const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+    const campKey = myCamp === CAMP.player1 ? 'player1' : 'player2';
+
+    // 再次校验冷却和金币
+    const cards = gameState.tacticalCards[campKey] || {};
+    if ((cards[cardId] || 0) > 0) { notify('该对策卡冷却中'); return; }
+    if (gameState.playerGold[campKey] < cfg.cost) { notify('金币不足'); return; }
+
+    // 扣费
+    gameState.playerGold[campKey] -= cfg.cost;
+
+    // 执行卡片效果
+    const helpers = { getCommander };
+    const result = cfg.execute(targetTile, gameState, helpers);
+    gameState.cardTargeting = null;
+    hideTargetingBanner();
+
+    // 冷却（无冷却的卡不记录）
+    if (cfg.cooldown > 0) {
+        if (!gameState.tacticalCards[campKey]) gameState.tacticalCards[campKey] = {};
+        gameState.tacticalCards[campKey][cardId] = cfg.cooldown;
+    }
+
+    if (cardId === 'lightning') {
+        // 伤害文本
+        if (result.dmg) {
+            if (!gameState.damageTexts) gameState.damageTexts = [];
+            gameState.damageTexts.push({
+                x: targetTile.x, y: targetTile.y,
+                value: result.dmg, isTrueDmg: true,
+                timeLeft: 1000, lastUpdate: Date.now()
+            });
+        }
+        spawnLightningStrike(targetTile.x, targetTile.y);
+        triggerScreenShake(10, 350);
+        playSound('attack');
+        logMessage(`⚡【雷击】对${targetTile.unit.camp.name}${targetTile.unit.config.name}兵造成${result.dmg}真实伤害`);
+        // 检查击杀
+        if (targetTile.unit.hp <= 0) {
+            const deadCamp = targetTile.unit.camp;
+            const deadName = targetTile.unit.config.name;
+            const deadCampKey = deadCamp === CAMP.player1 ? 'player1' : deadCamp === CAMP.player2 ? 'player2' : 'neutral';
+            gameState.killCount[deadCampKey]++;
+            // 死亡爆炸特效（不调 clearTransientEffects，保留闪电动画）
+            spawnExplosionParticles(targetTile.x, targetTile.y, '#ff4400', 28);
+            spawnExplosionParticles(targetTile.x, targetTile.y, '#ffaa00', 14);
+            triggerScreenShake(4, 150);
+            targetTile.unit = null;
+            logMessage(`${deadCamp.name}${deadName}兵被雷击消灭`);
+        }
+    } else if (cardId === 'commanderDeploy') {
+        spawnCommanderSkillEffect(targetTile.x, targetTile.y);
+        playSound('recruit');
+        const cmdCfg = getCommander(result.commander);
+        logMessage(`${myCamp.name}【${cmdCfg?.name || result.commander}】部署到${targetTile.unit.config.name}兵`);
+        // 联机同步
+        if (isNetworkGame()) {
+            syncCommanderState(
+                gameState.commanderPoolP1, gameState.commanderPoolP2,
+                gameState.commanderP1, gameState.commanderP2,
+                gameState.commanderP1Confirmed, gameState.commanderP2Confirmed,
+                gameState.commanderP1Deployed, gameState.commanderP2Deployed,
+                gameState.commanderPhase,
+                myCamp === CAMP.player1 ? targetTile.unit.id : null,
+                myCamp === CAMP.player2 ? targetTile.unit.id : null
+            );
+        }
+    }
+
+    updateUI();
+    broadcastAction('tacticalCard', { cardId, x: targetTile.x, y: targetTile.y, dmg: result.dmg, deployed: result.deployed, commander: result.commander });
 }

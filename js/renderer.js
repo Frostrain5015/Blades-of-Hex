@@ -796,7 +796,7 @@ function drawRangeApertures(now) {
     if (gameState.aiActing) return;
 
     const deselecting = gameState.deselecting;
-    if (!deselecting && (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit)) return;
+    if (!deselecting && !gameState.cardTargeting && (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit)) return;
 
     const pulse = (Math.sin(now / 300) + 1) / 2;
     const ease = p => 1 + 2.70158 * Math.pow(p - 1, 3) + 1.70158 * Math.pow(p - 1, 2);
@@ -804,6 +804,57 @@ function drawRangeApertures(now) {
     const stepDelay = 70;
     const hexExpandDuration = 100;
     const elapsed = now - gameState.selectionTime;
+
+    // 对策卡选择目标高亮 — 复用攻击目标渲染（无克制标签）
+    if (gameState.cardTargeting) {
+        const pulse = (Math.sin(now / 280) + 1) / 2;
+        const baseAlpha = 0.35 + pulse * 0.55;
+        const ct = gameState.cardTargeting;
+        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+        const isFriendly = ct.targeting === 'friendlyAlive';
+        for (const tile of gameState.tiles) {
+            if (ct.targeting === 'enemyGlobal') {
+                if (!tile.unit) continue;
+                if (tile.unit.camp === myCamp) continue;
+            } else if (ct.targeting === 'friendlyAlive') {
+                if (!tile.unit || !tile.unit.canAct || tile.unit.camp !== myCamp) continue;
+            } else { continue; }
+
+            const r = isFriendly ? 255 : 255;
+            const g = isFriendly ? 200 : 50;
+            const b = isFriendly ? 50 : 50;
+            const fillA = baseAlpha * 0.25;
+            const strokeA = baseAlpha * (0.3 + 0.7);
+            ctx.save();
+            hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${fillA})`;
+            ctx.fill();
+            hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+            ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeA})`;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            hexPath(ctx, tile.x, tile.y, HEX_SIZE + 3);
+            ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeA * 0.3})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            // X 标记仅敌方目标
+            if (!isFriendly) {
+                const xA = 0.2 + pulse * 0.55;
+                ctx.strokeStyle = `rgba(255, 0, 0, ${xA})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(tile.x - 8, tile.y - 8);
+                ctx.lineTo(tile.x + 8, tile.y + 8);
+                ctx.moveTo(tile.x + 8, tile.y - 8);
+                ctx.lineTo(tile.x - 8, tile.y + 8);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+    }
+
+    // 无选中单位 → 跳过正常范围涟漪
+    if (!gameState.selectedUnit) return;
 
     let startTile, moveTiles, atkTiles;
     let shrinkP = 0;
@@ -893,6 +944,7 @@ function drawRangeApertures(now) {
             }
         }
     }
+
 }
 
 // ===== 伤害文本（弹跳+强击特效） =====================
@@ -905,18 +957,27 @@ function drawDamageTexts(now) {
         const progress = 1 - text.timeLeft / 900;
         const bounce = Math.sin(progress * Math.PI) * 12;
         const alpha = Math.max(0, 1 - progress * 0.6);
-        const scale = text.isCrit ? 1 + (1 - progress) * 0.5 : 1;
+        const isBig = text.isCrit || text.isTrueDmg;
+        const scale = isBig ? 1 + (1 - progress) * 0.5 : 1;
 
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.translate(text.x, text.y - 30 - bounce);
         ctx.scale(scale, scale);
         ctx.textAlign = 'center';
-        ctx.font = text.isCrit ? 'bold 24px Arial' : 'bold 18px Arial';
+        ctx.font = isBig ? 'bold 24px Arial' : 'bold 18px Arial';
         ctx.shadowColor = '#000';
-        ctx.shadowBlur = text.isCrit ? 8 : 4;
+        ctx.shadowBlur = isBig ? 8 : 4;
 
-        if (text.isCrit) {
+        if (text.isTrueDmg) {
+            ctx.fillStyle = '#e8f0ff';
+            ctx.shadowColor = '#4499ff';
+            ctx.shadowBlur = 16;
+            ctx.fillText(`-${Math.round(text.value)}`, 0, 0);
+            // 二次绘制强化电光感
+            ctx.shadowBlur = 6;
+            ctx.fillText(`-${Math.round(text.value)}`, 0, 0);
+        } else if (text.isCrit) {
             ctx.fillStyle = '#ff4400';
             ctx.shadowColor = '#ff4400';
             ctx.shadowBlur = 14;

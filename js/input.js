@@ -1,10 +1,11 @@
-import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG } from './config.js';
+import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
-import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, updateStatsPanel, updateRecruitCostDisplay, finalizeDeployment, logMessage, serializeState } from './state.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, updateStatsPanel, updateRecruitCostDisplay, logMessage, serializeState, showTargetingBanner, hideTargetingBanner } from './state.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
     getMovableTiles, getAttackableTiles,
-    moveUnit, attackUnit, recruitUnit, endTurn, undoLastAction
+    moveUnit, attackUnit, recruitUnit, endTurn, undoLastAction,
+    executeTacticalCard, cancelCardTargeting
 } from './gameLogic.js';
 import { clearTransientEffects, spawnCommanderSkillEffect } from './effects.js';
 import { HexTile } from './HexTile.js';
@@ -90,18 +91,17 @@ function showTooltipForTile(tile) {
 
     if (unit) {
         const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵' };
-        const deployHint = (gameState.commanderPhase === 'deployment' && unit.camp === gameState.currentCamp) ? ' — 点击挂载将领' : '';
         let headerText = `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}`;
         if (unit.commander) {
             const cmdCfgHdr = getCommander(unit.commander);
             if (cmdCfgHdr) headerText += ` ${cmdCfgHdr.name}`;
         }
-        const headerColor = gameState.commanderPhase === 'deployment' ? '#ffd700' : unit.camp.color;
+        const headerColor = unit.camp.color;
         tooltipHeader.style.color = headerColor;
         tooltipHeader.style.display = 'flex';
         tooltipHeader.style.alignItems = 'center';
         while (tooltipHeader.firstChild) tooltipHeader.removeChild(tooltipHeader.firstChild);
-        tooltipHeader.appendChild(document.createTextNode(headerText + deployHint));
+        tooltipHeader.appendChild(document.createTextNode(headerText));
         if (unit._rank > 0) {
             const rc = _getOrCreateRankCanvas();
             _drawRankChevrons(rc, unit._rank);
@@ -132,7 +132,9 @@ function showTooltipForTile(tile) {
         const auraDefBonus = getCommanderAuraDefenseBonus(unit);
         const cmdDefBonus = getCommanderDefenseBonus(unit);
         const cityDefBonus = (unit.type === 'infantry' && isCity) ? 0.20 : 0;
-        const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + auraDefBonus + cmdDefBonus + cityDefBonus) * 100);
+        const terrainDefBonus = TERRAIN_CONFIG[tile.terrain].defenseBonus;
+        const rankDefBonus = unit._rankDefBonus || 0;
+        const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus + rankDefBonus + auraDefBonus + cmdDefBonus + cityDefBonus) * 100);
         if (totalDefPct > 0) {
             tooltipDef.innerHTML = `<span style="color:#8fc;">🛡 ${totalDefPct}%</span>`;
         } else if (totalDefPct < 0) {
@@ -313,7 +315,7 @@ function showTooltipForTile(tile) {
                 if (unit.type === 'cavalry')  effects.push('冲锋1格生效 伤害+30%');
             } else if (gameState.weather === 'wind') {
                 if (unit.type === 'archer')   effects.push('射程+1', '伤害+15%');
-                if (unit.type === 'infantry') effects.push('步兵伤害稳定');
+                if (unit.type === 'infantry') effects.push('步兵无法暴击');
             }
             if (effects.length > 0) weatherDesc = effects.join('，');
             else weatherDesc = '无直接影响';
@@ -408,75 +410,30 @@ export function initInput() {
 
         const clickedTile = getTileAtPixel(clickX, clickY);
         if (!clickedTile) {
+            if (gameState.cardTargeting) { cancelCardTargeting(); return; }
             clearselection();
             hideTooltip();
             return;
         }
 
-        // 部署阶段：将领挂载到单位
-        if (gameState.commanderPhase === 'deployment') {
+        // 对策卡选择目标模式
+        if (gameState.cardTargeting) {
+            const ct = gameState.cardTargeting;
+            const cfg = TACTICAL_CARD_CONFIG[ct.cardId];
+            if (!cfg) { cancelCardTargeting(); return; }
+
             const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
-            // 已部署则锁定画布
-            const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
-            if (iAmDeployed) return;
-            const isOwn = clickedTile.unit && clickedTile.unit.camp === myCamp;
-            if (!isOwn) return;
-            if (gameState.selectedUnit === clickedTile.unit) {
-                // 二次点击确认部署（统一单机/联机处理）
-                const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
-                const cmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : gameState.commanderP2;
-                clickedTile.unit.commander = cmdKey;
-                const cmdCfg = getCommander(cmdKey);
-                if (cmdCfg) {
-                    clickedTile.unit.hp += cmdCfg.hpBonus || 0;
-                    clickedTile.unit.maxHp += cmdCfg.hpBonus || 0;
-                    clickedTile.unit.displayHp = clickedTile.unit.hp;
-                    clickedTile.unit._atkBonus = cmdCfg.atkBonus || 0;
-                    clickedTile.unit.remainingMP += cmdCfg.spdBonus || 0;
-                    clickedTile.unit.displaySpeed += cmdCfg.spdBonus || 0;
-                }
-                spawnCommanderSkillEffect(clickedTile.x, clickedTile.y);
-                // 标记当前阵营已部署
-                if (myCamp === CAMP.player1) {
-                    gameState.commanderP1Deployed = true;
-                } else {
-                    gameState.commanderP2Deployed = true;
-                }
-                notify(`${myCamp.name}将领已部署到${clickedTile.unit.config.name}兵`);
-                // 单机模式：切换到对方部署
-                if (!isNetworkGame() && !(gameState.commanderP1Deployed && gameState.commanderP2Deployed)) {
-                    gameState.currentCamp = (myCamp === CAMP.player1) ? CAMP.player2 : CAMP.player1;
-                    updateButtonColors();
-                    updateUI();
-                    notify(`请${gameState.currentCamp.name}选择目标单位部署将领（选中后二次点击确认）`);
-                } else if (isNetworkGame()) {
-                    // 联机：同步部署状态（含将领挂载的单位ID，对方需要知道）
-                    const depUnitP1 = myCamp === CAMP.player1 ? clickedTile.unit.id : null;
-                    const depUnitP2 = myCamp === CAMP.player2 ? clickedTile.unit.id : null;
-                    syncCommanderState(
-                        gameState.commanderPoolP1, gameState.commanderPoolP2,
-                        gameState.commanderP1, gameState.commanderP2,
-                        gameState.commanderP1Confirmed, gameState.commanderP2Confirmed,
-                        gameState.commanderP1Deployed, gameState.commanderP2Deployed,
-                        gameState.commanderPhase,
-                        depUnitP1, depUnitP2
-                    );
-                }
-                clearselection();
-                hideTooltip();
-                gameState.selectedTile = null;
-                // 双方都已部署 → 统一收尾
-                if (gameState.commanderP1Deployed && gameState.commanderP2Deployed) {
-                    finalizeDeployment();
-                }
-                return;
-            } else {
-                // 首次点击：预选目标单位
-                gameState.selectedUnit = clickedTile.unit;
-                gameState.selectedTile = clickedTile;
-                showTooltipForTile(clickedTile);
-                return;
+            let isValid = false;
+            if (ct.targeting === 'enemyGlobal') {
+                isValid = clickedTile.unit && clickedTile.unit.camp !== myCamp;
+            } else if (ct.targeting === 'friendlyAlive') {
+                isValid = clickedTile.unit && clickedTile.unit.camp === myCamp && clickedTile.unit.canAct;
             }
+
+            if (isValid) {
+                executeTacticalCard(ct.cardId, clickedTile);
+            }
+            return;
         }
 
         // 点选已选中单位/地块 → 取消选中（己方可操作单位有光圈倒放动画）
@@ -554,6 +511,82 @@ export function initInput() {
         }
     });
 
+    // 对策卡点击（事件委托）
+    document.getElementById('tacticalCardArea').addEventListener('click', (e) => {
+        const cardEl = e.target.closest('.tactical-card');
+        if (!cardEl) return;
+        const cardId = cardEl.dataset.cardId;
+        if (!cardId) return;
+
+        const cfg = TACTICAL_CARD_CONFIG[cardId];
+        if (!cfg) return;
+
+        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+        const campKey = myCamp === CAMP.player1 ? 'player1' : 'player2';
+        const cards = gameState.tacticalCards[campKey] || {};
+        const cd = cards[cardId] || 0;
+
+        // 若已在此卡片的选择目标模式，再次点击取消
+        if (gameState.cardTargeting && gameState.cardTargeting.cardId === cardId) {
+            cancelCardTargeting();
+            return;
+        }
+
+        // 若已在此卡片的选择目标模式，再次点击取消
+        if (gameState.cardTargeting && gameState.cardTargeting.cardId === cardId) {
+            cancelCardTargeting();
+            return;
+        }
+
+        // 非可操作状态（部署/中立/结束/对手回合）忽略点击，但先清理残留选择
+        const isMyTurn = !isNetworkGame() || (isNetworkGame() && getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === CAMP.player2);
+        if (gameState.gameOver || gameState.commanderPhase !== 'done' || gameState.currentCamp === CAMP.neutral || !isMyTurn) {
+            if (gameState.cardTargeting) cancelCardTargeting();
+            return;
+        }
+
+        // 部署将领卡已使用过则忽略
+        if (cardId === 'commanderDeploy') {
+            const alreadyDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
+            if (alreadyDeployed) return;
+        }
+
+        // 冷却中或金币不足，不进入选择模式
+        if (cd > 0) { notify('该对策卡冷却中'); return; }
+        if (gameState.playerGold[campKey] < cfg.cost) { notify('金币不足'); return; }
+
+        // 先取消当前选中单位（带倒放动画）
+        if (gameState.selectedUnit) deselectUnit(); else clearselection();
+        hideTooltip();
+        gameState.selectedTile = null;
+
+        // 进入选择目标模式
+        gameState.cardTargeting = { cardId, targeting: cfg.targeting };
+        showTargetingBanner(`选择【${cfg.name}】目标`, '再次点击卡片或按 Esc 取消');
+    });
+
+    // 对策卡悬浮提示 — 从右侧边界滑出
+    const cardTooltip = document.getElementById('cardTooltip');
+    document.getElementById('tacticalCardArea').addEventListener('mouseover', (e) => {
+        const cardEl = e.target.closest('.tactical-card');
+        if (!cardEl || !cardTooltip) return;
+        const desc = cardEl.dataset.cardDesc;
+        if (!desc) return;
+        cardTooltip.textContent = desc;
+        cardTooltip.classList.add('visible');
+    });
+    document.getElementById('tacticalCardArea').addEventListener('mouseleave', () => {
+        if (cardTooltip) cardTooltip.classList.remove('visible');
+    });
+
+    // 右键取消对策卡选择
+    canvas.addEventListener('contextmenu', (e) => {
+        if (gameState.cardTargeting) {
+            e.preventDefault();
+            cancelCardTargeting();
+        }
+    });
+
     canvas.addEventListener('mousemove', (e) => {
         const { x: mouseX, y: mouseY } = toLogical(e);
         gameState.hoveredTile = getTileAtPixel(mouseX, mouseY);
@@ -582,6 +615,13 @@ export function initKeyboard() {
     document.addEventListener('keydown', (e) => {
         // 不拦截输入框的按键
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        // ESC 取消对策卡选择
+        if (e.key === 'Escape' && gameState.cardTargeting) {
+            e.preventDefault();
+            cancelCardTargeting();
+            return;
+        }
 
         if (e.ctrlKey && e.key === 'z') {
             e.preventDefault();

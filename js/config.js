@@ -140,7 +140,7 @@ export const COUNTER_RELATION = {
 export const TERRAIN_CONFIG = {
     plains:   { name: '平原', defenseBonus: 0,    stepCost: 2, moveDesc: '',          icon: '',   iconFont: '' },
     forest:   { name: '森林', defenseBonus: 0.10, stepCost: 3, moveDesc: '部队移动较慢', icon: '🌲', iconFont: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' },
-    mountain: { name: '山地', defenseBonus: 0.20, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
+    mountain: { name: '山地', defenseBonus: 0.10, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
 };
 
 // ==== 经济 ====================
@@ -172,7 +172,54 @@ export const WEATHER_CONFIG = {
     clear: { name: '晴天', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
     rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城回血20%' },
     fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵伤害−25% 射程−1 · 骑兵冲锋1格生效 伤害+30%' },
-    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 伤害+15% · 步兵伤害浮动极小' }
+    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 伤害+15% · 步兵无法暴击' }
+};
+
+// ==== 对策卡配置 ====================
+export const TACTICAL_CARD_CONFIG = {
+    lightning: {
+        id: 'lightning',
+        name: '雷击',
+        icon: '⚡',
+        cost: 30,
+        cooldown: 3,
+        desc: '【雷击】30g / ⏳3\n对地图上任意非己方单位降下雷电，造成 40~60 点真实伤害',
+        targeting: 'enemyGlobal',
+        execute(targetTile, gameState, helpers) {
+            const dmg = 40 + Math.floor(Math.random() * 21);
+            targetTile.unit.hp = Math.max(0, targetTile.unit.hp - dmg);
+            return { dmg, targetTile };
+        }
+    },
+    commanderDeploy: {
+        id: 'commanderDeploy',
+        name: '部署将领',
+        icon: '🎖️',
+        cost: 0,
+        cooldown: 0,
+        desc: '【部署将领】0g / ⏳∞\n将所选将领挂载到指定己方单位上',
+        targeting: 'friendlyAlive',
+        execute(targetTile, gameState, helpers) {
+            const unitCamp = targetTile.unit.camp;
+            const cmdKey = unitCamp === CAMP.player1 ? gameState.commanderP1 : gameState.commanderP2;
+            targetTile.unit.commander = cmdKey;
+            const cmdCfg = helpers.getCommander(cmdKey);
+            if (cmdCfg) {
+                targetTile.unit.hp += cmdCfg.hpBonus || 0;
+                targetTile.unit.maxHp += cmdCfg.hpBonus || 0;
+                targetTile.unit.displayHp = targetTile.unit.hp;
+                targetTile.unit._atkBonus = (targetTile.unit._atkBonus || 0) + (cmdCfg.atkBonus || 0);
+                targetTile.unit.remainingMP += cmdCfg.spdBonus || 0;
+                targetTile.unit.displaySpeed += cmdCfg.spdBonus || 0;
+            }
+            if (unitCamp === CAMP.player1) {
+                gameState.commanderP1Deployed = true;
+            } else {
+                gameState.commanderP2Deployed = true;
+            }
+            return { deployed: true, commander: cmdKey };
+        }
+    }
 };
 
 export const WEATHER_CYCLE = {

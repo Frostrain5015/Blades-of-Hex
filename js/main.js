@@ -1,5 +1,5 @@
-import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE, COMMANDER_CONFIG, shuffleAndSplitPool } from './config.js';
-import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, finalizeDeployment, resetGameState, serializeState } from './state.js';
+import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE, COMMANDER_CONFIG, shuffleAndSplitPool, TACTICAL_CARD_CONFIG } from './config.js';
+import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, getCommander } from './commanderInterface.js';
@@ -15,7 +15,7 @@ import {
     spawnRecruitEffect, spawnSlashMarks,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect,
     spawnProjectile, triggerRecoil, triggerCharge,
-    spawnBloodDrain, spawnPurpleLightning,
+    spawnBloodDrain, spawnPurpleLightning, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain
 } from './effects.js';
 import { HexTile } from './HexTile.js';
@@ -45,6 +45,68 @@ function fitCanvas() {
 window.addEventListener('resize', fitCanvas);
 window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 200));
 // Initial fit is called in startGame after gameWrapper becomes visible
+
+// ==== 对策卡 UI 渲染 ===================
+let _cardStateCache = '';
+function renderTacticalCards() {
+    const area = document.getElementById('tacticalCardArea');
+    if (!area) return;
+    const wrapper = document.getElementById('gameWrapper');
+    if (!wrapper || wrapper.style.display === 'none') {
+        if (_cardStateCache !== 'hidden') { area.innerHTML = ''; _cardStateCache = 'hidden'; }
+        return;
+    }
+
+    const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+    const isMyTurn = !isNetworkGame() || (isNetworkGame() && getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === CAMP.player2);
+    const isDisabled = gameState.gameOver || gameState.commanderPhase !== 'done' || gameState.currentCamp === CAMP.neutral || (!isMyTurn && isNetworkGame());
+    if (isDisabled && gameState.cardTargeting) gameState.cardTargeting = null;
+
+    const campKey = myCamp === CAMP.player1 ? 'player1' : 'player2';
+    const gold = gameState.playerGold[campKey];
+    const cards = gameState.tacticalCards[campKey] || {};
+
+    // 是否已部署将领
+    const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
+
+    // 计算状态指纹，仅在变化时重新渲染（避免每帧 innerHTML 打断点击事件）
+    let stateFp = `${isDisabled}|${gold}|deployed:${iAmDeployed}`;
+    for (const [cardId] of Object.entries(TACTICAL_CARD_CONFIG)) {
+        stateFp += `|${cardId}:${cards[cardId] || 0}`;
+    }
+    stateFp += `|tgt:${gameState.cardTargeting ? gameState.cardTargeting.cardId : 'null'}`;
+
+    if (stateFp === _cardStateCache) return;
+    _cardStateCache = stateFp;
+
+    let html = '';
+    // 部署将领卡永远排第一
+    const sortedCards = Object.entries(TACTICAL_CARD_CONFIG).sort(([a], [b]) => {
+        if (a === 'commanderDeploy') return -1;
+        if (b === 'commanderDeploy') return 1;
+        return 0;
+    });
+    for (const [cardId, cfg] of sortedCards) {
+        // 挂将卡：选将阶段隐藏，已部署后保持暗色禁用
+        if (cardId === 'commanderDeploy' && gameState.commanderPhase === 'selection') continue;
+        const alreadyDeployed = cardId === 'commanderDeploy' && iAmDeployed;
+
+        const cd = cards[cardId] || 0;
+        const onCooldown = cd > 0 || isDisabled || alreadyDeployed;
+        const affordable = gold >= cfg.cost && !isDisabled && !alreadyDeployed;
+        const isTargeting = gameState.cardTargeting && gameState.cardTargeting.cardId === cardId;
+        const isDeploy = cardId === 'commanderDeploy';
+        const tooltipTitle = cardId === 'commanderDeploy' ? `【部署将领】0g / ⏳∞` : `【${cfg.name}】${cfg.cost}g / ⏳${cfg.cooldown}`;
+        html += `<div class="tactical-card${isTargeting ? ' targeting' : ''}${isDeploy ? ' deploy-card' : ''}"
+            data-card-id="${cardId}" data-card-desc="${cfg.desc.replace(/"/g, '&quot;')}">
+            <span class="tactical-card-icon">${cfg.icon}</span>
+            <div class="tactical-card-overlay${!onCooldown ? ' hidden' : ''}">
+                <span class="tactical-card-cooldown">${(alreadyDeployed || cd === 0) ? '' : cd}</span>
+            </div>
+        </div>`;
+    }
+    area.innerHTML = html;
+}
 
 // ==== 游戏循环（始终运行，画布隐藏时无开销） ===================
 function gameLoop() {
@@ -84,6 +146,8 @@ function gameLoop() {
     } else if (ttip.classList.contains('visible') && !gameState.selectedTile) {
         ttip.classList.remove('visible');
     }
+
+    renderTacticalCards();
 
     requestAnimationFrame(gameLoop);
 }
@@ -384,8 +448,8 @@ function _onCommanderSelected(forPlayer) {
     } else {
         setTimeout(() => {
             document.getElementById('commanderOverlay').classList.remove('show');
-            gameState.commanderPhase = 'deployment';
-            startGameDeployment();
+            gameState.commanderPhase = 'done';
+            startGame();
             _commanderTransitioning = false;
         }, 800);
     }
@@ -395,15 +459,15 @@ function _checkBothConfirmed() {
     if (gameState.commanderP1Confirmed && gameState.commanderP2Confirmed && !_deploymentStarted) {
         setTimeout(() => {
             document.getElementById('commanderOverlay').classList.remove('show');
-            gameState.commanderPhase = 'deployment';
-            startGameDeployment();
+            gameState.commanderPhase = 'done';
+            startGame();
         }, 800);
     }
 }
 
 let _deploymentStarted = false;
 
-function startGameDeployment() {
+function startGame() {
     if (_deploymentStarted) return;
     _deploymentStarted = true;
     const lobbyOverlay = document.getElementById('lobbyOverlay');
@@ -427,12 +491,6 @@ function startGameDeployment() {
     updateUI();
     gameState.currentCamp = CAMP.player1;
     updateButtonColors();
-    if (isNetworkGame()) {
-        const myCampName = getMyRole() === 'player1' ? '红军' : '蓝军';
-        notify(`请${myCampName}选择目标单位部署将领（选中后二次点击确认）`);
-    } else {
-        notify('请红军选择目标单位部署将领（选中后二次点击确认）');
-    }
 }
 
 // 根据当前页面协议和端口推导 WebSocket 地址
@@ -714,14 +772,6 @@ function registerNetworkCallbacks() {
             if (gameState.commanderPhase === 'selection') {
                 _checkBothConfirmed();
             }
-            if (gameState.commanderPhase === 'deployment' &&
-                gameState.commanderP1Deployed && gameState.commanderP2Deployed) {
-                finalizeDeployment();
-            }
-            if (gameState.commanderPhase === 'deployment') {
-                updateButtonColors();
-                updateUI();
-            }
         },
 
         onToast: (text, toastType) => {
@@ -734,12 +784,6 @@ function registerNetworkCallbacks() {
 let _remoteAiRunning = false;  // 防止远程AI重入
 async function handleRemoteAction(msg) {
     const wasGameOver = gameState.gameOver;
-
-    // deployDone 不需要完整状态重建（已通过 syncCommanderState 同步），避免地形重绘
-    if (msg.actionType === 'deployDone') {
-        finalizeDeployment();
-        return;
-    }
 
     // 服务器下发的暂存状态：无条件显示游戏界面并恢复
     if (msg.actionType === 'stateSync') {
@@ -830,6 +874,24 @@ async function handleRemoteAction(msg) {
             if (e && e.cmdFxList) {
                 for (const fx of e.cmdFxList) {
                     spawnCommanderSkillEffect(fx.x, fx.y, fx.glyph, fx.label);
+                }
+            }
+            break;
+        case 'tacticalCard':
+            if (e) {
+                if (e.cardId === 'lightning') {
+                    playSound('attack');
+                    spawnLightningStrike(e.x, e.y);
+                    triggerScreenShake(10, 350);
+                    if (e.dmg && !gameState.damageTexts) gameState.damageTexts = [];
+                    if (e.dmg) gameState.damageTexts.push({
+                        x: e.x, y: e.y,
+                        value: e.dmg, isTrueDmg: true,
+                        timeLeft: 1000, lastUpdate: Date.now()
+                    });
+                } else if (e.cardId === 'commanderDeploy') {
+                    playSound('recruit');
+                    spawnCommanderSkillEffect(e.x, e.y);
                 }
             }
             break;
