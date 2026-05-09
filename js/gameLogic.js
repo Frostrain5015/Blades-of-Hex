@@ -1,5 +1,5 @@
 import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG } from './config.js';
-import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner } from './state.js';
+import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef } from './commanderInterface.js';
 import { HexTile } from './HexTile.js';
@@ -491,10 +491,12 @@ export async function endTurn() {
     _turnProcessing = true;
 
     try {
+        const isAITurn = gameState.currentCamp === CAMP.neutral ||
+            (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp);
         const hasActionable = gameState.tiles.some(t =>
             t.unit && t.unit.camp === gameState.currentCamp && t.unit.canAct && !t.unit.isNewRecruit
         );
-        if (hasActionable && gameState.currentCamp !== CAMP.neutral) {
+        if (hasActionable && !isAITurn) {
             const confirmed = await showConfirm(
                 `你仍有未行动的部队。\n确定要跳过行动，结束当前回合吗？`
             );
@@ -503,40 +505,70 @@ export async function endTurn() {
 
         await _doEndTurnPhase();
 
-        // Neutral AI turn（延迟引用避免与 ai.js 循环依赖）
-        if (gameState.currentCamp === CAMP.neutral && !gameState.gameOver && !_neutralAiLock && !gameState.aiActing) {
-            if (!isNetworkGame() || getMyRole() === 'player1') {
+        // 链式处理 AI 回合（对手 AI → 中立 AI），直到人类回合
+        for (let i = 0; i < 3; i++) {
+            if (gameState.gameOver) break;
+
+            const isAIOpponent = gameState.gameMode === 'pve' &&
+                gameState.currentCamp === gameState.aiOpponentCamp &&
+                !gameState.aiActing;
+            const isNeutral = gameState.currentCamp === CAMP.neutral &&
+                !gameState.aiActing && !_neutralAiLock &&
+                (!isNetworkGame() || getMyRole() === 'player1');
+
+            if (isAIOpponent) {
+                // PVE 对手 AI（Grok 进攻型人格）
+                gameState.aiActing = true;
+                try {
+                    const { processOpponentTurn } = await import('./ai.js');
+                    await Promise.race([
+                        processOpponentTurn(gameState.aiOpponentCamp),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
+                    ]);
+                } catch (e) {
+                    if (e && e.message === 'AI_TIMEOUT') {
+                        logMessage('AI对手超时，强制结束回合');
+                    } else {
+                        logMessage('AI对手执行出错，跳过回合');
+                    }
+                    console.warn('AI opponent error:', e);
+                } finally {
+                    gameState.aiActing = false;
+                }
+                notify('AI对手行动完毕', 'info');
+                logMessage('AI对手行动完毕，即将切换回合...');
+                await new Promise(r => setTimeout(r, 2500));
+                if (!gameState.gameOver) await _doEndTurnPhase();
+
+            } else if (isNeutral) {
+                // 中立 AI（Claude 防御型人格）
                 _neutralAiLock = true;
                 gameState.aiActing = true;
                 try {
-                    try {
-                        const { processNeutralTurn } = await import('./ai.js');
-                        // 超时保护：15秒内必须完成，防止移动端异步挂起
-                        await Promise.race([
-                            processNeutralTurn(),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
-                        ]);
-                    } catch (e) {
-                        if (e && e.message === 'AI_TIMEOUT') {
-                            logMessage('中立AI超时，强制结束回合');
-                        } else {
-                            logMessage('中立AI执行出错，跳过回合');
-                        }
-                        console.warn('Neutral AI error:', e);
+                    const { processNeutralTurn } = await import('./ai.js');
+                    await Promise.race([
+                        processNeutralTurn(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
+                    ]);
+                } catch (e) {
+                    if (e && e.message === 'AI_TIMEOUT') {
+                        logMessage('中立AI超时，强制结束回合');
+                    } else {
+                        logMessage('中立AI执行出错，跳过回合');
                     }
-                    // 通知 + 延迟 → 切换回合
-                    notify('AI行动完毕 即将切换回合...', 'info');
-                    logMessage('AI行动完毕 即将切换回合...');
-                    if (isNetworkGame()) sendMessage({ type: 'toast', text: 'AI行动完毕 即将切换回合...', toastType: 'info' });
-                    await new Promise(r => setTimeout(r, 2500));
-                    // Auto-end neutral → P1
-                    if (!gameState.gameOver) {
-                        await _doEndTurnPhase();
-                    }
+                    console.warn('Neutral AI error:', e);
                 } finally {
                     gameState.aiActing = false;
                     _neutralAiLock = false;
                 }
+                notify('AI行动完毕 即将切换回合...', 'info');
+                logMessage('AI行动完毕 即将切换回合...');
+                if (isNetworkGame()) sendMessage({ type: 'toast', text: 'AI行动完毕 即将切换回合...', toastType: 'info' });
+                await new Promise(r => setTimeout(r, 2500));
+                if (!gameState.gameOver) await _doEndTurnPhase();
+
+            } else {
+                break; // 人类回合
             }
         }
     } finally {
@@ -579,7 +611,6 @@ export function recruitUnit(type) {
     playSound('recruit');
     triggerRecruitFlash(selectedCityTile.x, selectedCityTile.y);
     spawnRecruitEffect(selectedCityTile.x, selectedCityTile.y);
-    notify(`招募成功`);
     logMessage(`${gameState.currentCamp.name}成功招募${config.name}兵，金币-${effectiveCost}`);
     gameState.selectedCityTile = null;
 
@@ -1053,9 +1084,25 @@ export function triggerVictoryEffect() {
     }
 }
 
-// ===== 投降 =====================
+// ===== 投降 / 退出（PVE） =====================
 async function handleSurrender() {
     if (gameState.gameOver) return;
+
+    // PVE 模式：退出回到大厅
+    if (gameState.gameMode === 'pve') {
+        const confirmed = await showConfirm('确定要退出当前游戏吗？\n进度将不会保存。');
+        if (!confirmed) return;
+        gameState.gameOver = true;
+        resetGameState();
+        document.getElementById('gameWrapper').style.display = 'none';
+        const lobby = document.getElementById('lobbyOverlay');
+        lobby.style.display = '';
+        document.getElementById('lobbyHome').style.display = '';
+        document.getElementById('multiplayerLobby').style.display = 'none';
+        document.getElementById('roomWaiting').style.display = 'none';
+        document.getElementById('lobbyReady').style.display = 'none';
+        return;
+    }
 
     // 联机：根据角色判断投降方；本地：根据当前回合判断
     const surrenderCamp = isNetworkGame()
@@ -1088,6 +1135,10 @@ export function undoLastAction() {
     if (gameState.gameOver) return;
     if (isNetworkGame()) {
         notify('联机模式下无法撤销', 'error');
+        return;
+    }
+    if (gameState.gameMode === 'pve') {
+        notify('PVE模式下无法撤销', 'error');
         return;
     }
     if (gameState.undoStack.length === 0) {

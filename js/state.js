@@ -46,6 +46,8 @@ export const gameState = {
     logHistory: [],
     killCount: { player1: 0, player2: 0, neutral: 0 },
     aiActing: false,
+    gameMode: 'local',      // 'local' | 'pve' | 'network'
+    aiOpponentCamp: null,   // PVE 模式下 AI 对手的阵营（CAMP.player1 或 CAMP.player2）
     weather: 'clear',
     lastWeather: null,
     deselecting: false,
@@ -94,6 +96,8 @@ export function resetGameState() {
     gameState.logHistory = [];
     gameState.killCount = { player1: 0, player2: 0, neutral: 0 };
     gameState.aiActing = false;
+    gameState.gameMode = 'local';
+    gameState.aiOpponentCamp = null;
     gameState.weather = 'clear';
     gameState.lastWeather = null;
     gameState.deselecting = false;
@@ -130,7 +134,7 @@ export function nextId() { return ++idCounter; }
 // ===== UI 更新 =====================
 export function updateButtonColors() {
     const myCamp = _getMyCamp();
-    const displayCamp = isNetworkGame() ? myCamp : gameState.currentCamp;
+    const displayCamp = isNetworkGame() ? myCamp : (gameState.gameMode === 'pve' ? _getHumanCamp() : gameState.currentCamp);
     const panel = document.getElementById('commandPanel');
     if (panel) {
         panel.setAttribute('data-camp', displayCamp === CAMP.player1 ? 'p1' : 'p2');
@@ -144,6 +148,16 @@ export function updateButtonColors() {
 function _getMyCamp() {
     if (isNetworkGame()) {
         return getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2;
+    }
+    if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
+        return gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
+    }
+    return gameState.currentCamp;
+}
+
+function _getHumanCamp() {
+    if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
+        return gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
     }
     return gameState.currentCamp;
 }
@@ -220,22 +234,31 @@ export function updateUI() {
     const gold2El = document.getElementById('player2Gold');
     const newGold1 = gameState.playerGold.player1;
     const newGold2 = gameState.playerGold.player2;
-    // 联机/中立回合：禁用操作按钮、显示提示条
+    // 联机/中立/AI对手回合：禁用操作按钮、显示提示条
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
     const isNeutralTurn = gameState.currentCamp === CAMP.neutral;
+    const isAIOpponentTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
     const inCommanderSetup = gameState.commanderPhase === 'selection';
-    const disableBtns = opponentTurn || isNeutralTurn || gameState.gameOver || inCommanderSetup;
+    const disableBtns = opponentTurn || isNeutralTurn || isAIOpponentTurn || gameState.gameOver || inCommanderSetup;
     ['endTurnBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = disableBtns;
     });
-    // 投降按钮在非己方回合亦可使用，仅在选将/部署/游戏结束时禁用
+    // 投降/退出：PVE 模式下按钮改为"退出"，始终可用（AI 回合也可退出）
     const surrenderBtn = document.getElementById('surrenderBtn');
-    if (surrenderBtn) surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
+    if (surrenderBtn) {
+        surrenderBtn.textContent = gameState.gameMode === 'pve' ? '退出' : '投降';
+        if (gameState.gameMode === 'pve') {
+            surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
+        } else {
+            const humanCanAct = gameState.currentCamp === _getHumanCamp() && !gameState.aiActing;
+            surrenderBtn.disabled = gameState.gameOver || inCommanderSetup || !humanCanAct;
+        }
+    }
     const banner = document.getElementById('opponentTurnBanner');
     if (banner) {
         banner.innerHTML = '<span>⏳</span><span>等待对手行动...</span>';
-        if (opponentTurn || isNeutralTurn) {
+        if (opponentTurn || isNeutralTurn || isAIOpponentTurn) {
             banner.classList.add('visible');
         } else {
             banner.classList.remove('visible');
@@ -432,7 +455,9 @@ export function serializeState() {
         commanderP2Deployed: gameState.commanderP2Deployed,
         commanderPhase: gameState.commanderPhase,
         factionMoraleBoost: { ...gameState.factionMoraleBoost },
-        tacticalCards: { player1: { ...gameState.tacticalCards.player1 }, player2: { ...gameState.tacticalCards.player2 } }
+        tacticalCards: { player1: { ...gameState.tacticalCards.player1 }, player2: { ...gameState.tacticalCards.player2 } },
+        gameMode: gameState.gameMode || 'local',
+        aiOpponentCampKey: gameState.aiOpponentCamp ? (gameState.aiOpponentCamp === CAMP.player1 ? 'p1' : 'p2') : null
     };
 }
 
@@ -467,6 +492,8 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     if (data.tacticalCards) {
         gameState.tacticalCards = { player1: { ...data.tacticalCards.player1 }, player2: { ...data.tacticalCards.player2 } };
     }
+    gameState.gameMode = data.gameMode || 'local';
+    gameState.aiOpponentCamp = data.aiOpponentCampKey ? campMap[data.aiOpponentCampKey] : null;
 
     // Preserve displayHp & commander for units (prevents flicker & commander loss on sync)
     const oldDisplayHp = new Map();
@@ -560,60 +587,45 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     invalidateBoard();
 }
 
-// ==== Toast 胶囊提示 ====
-let _toastTimer = null;
-let _toastPersistent = false;
-function showToast(icon, text, accentColor, persistent = false) {
-    let el = document.getElementById('toast');
-    if (!el) {
-        el = document.createElement('div');
-        el.id = 'toast';
-        el.innerHTML = '<span class="toast-icon"></span><span class="toast-text"></span>';
-        document.body.appendChild(el);
-    }
-    el.querySelector('.toast-icon').textContent = icon;
-    el.querySelector('.toast-icon').style.color = accentColor;
-    el.querySelector('.toast-text').textContent = text;
+// ==== 即时通知横幅 ====
+let _notifyTimer = null;
+let _notifyPersistent = false;
 
-    if (_toastTimer) clearTimeout(_toastTimer);
-    _toastPersistent = persistent;
-    if (typeof gsap !== 'undefined') {
-        gsap.killTweensOf(el);
-        gsap.set(el, { clearProps: 'all' });
-        gsap.fromTo(el, { y: -60, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: 'back.out(1.4)' });
-    } else {
-        el.classList.remove('hide');
-        void el.offsetWidth;
-        el.classList.add('show');
-    }
+function _showNotifyBanner(icon, text, type, persistent = false) {
+    const el = document.getElementById('notificationBanner');
+    if (!el) return;
+    if (_notifyTimer) clearTimeout(_notifyTimer);
 
+    // 清除旧类型样式
+    el.classList.remove('notify-info', 'notify-success', 'notify-warn', 'notify-error');
+
+    el.children[0].textContent = icon;
+    el.children[1].textContent = text;
+    el.classList.add('visible', `notify-${type}`);
+
+    _notifyPersistent = persistent;
     if (!persistent) {
-        _toastTimer = setTimeout(() => _dismissToast(), 2000);
+        _notifyTimer = setTimeout(() => _dismissNotifyBanner(), 2500);
     }
 }
 
-function _dismissToast() {
-    const el = document.getElementById('toast');
+function _dismissNotifyBanner() {
+    const el = document.getElementById('notificationBanner');
     if (!el) return;
-    _toastPersistent = false;
-    if (_toastTimer) clearTimeout(_toastTimer);
-    if (typeof gsap !== 'undefined') {
-        gsap.to(el, { y: -16, opacity: 0, duration: 0.22, ease: 'power2.in' });
-    } else {
-        el.classList.remove('show');
-        el.classList.add('hide');
-    }
+    _notifyPersistent = false;
+    if (_notifyTimer) clearTimeout(_notifyTimer);
+    el.classList.remove('visible');
 }
 
 export function dismissToast() {
-    _dismissToast();
+    _dismissNotifyBanner();
 }
 
 export function notify(text, type = 'info', persistent = false) {
     if (gameState.aiActing && type === 'error') return;
-    const cfg = { success: ['✓', '#6fcf7a'], error: ['!', '#e8a840'], info: ['i', '#aac8e0'], warn: ['⚠', '#e8a840'] };
-    const [icon, color] = cfg[type] || cfg.info;
-    showToast(icon, text, color, persistent);
+    const cfg = { success: ['✓', 'success'], error: ['!', 'error'], info: ['i', 'info'], warn: ['⚠', 'warn'] };
+    const [icon, cssType] = cfg[type] || cfg.info;
+    _showNotifyBanner(icon, text, cssType, persistent);
 }
 
 // ==== 对策卡选择目标横幅 ====

@@ -464,7 +464,19 @@ function drawMoraleIndicators() {
     }
 }
 
+// 判断当前回合是否为人类玩家（用于隐藏 AI/中立回合的光圈等）
+function _isHumanTurn() {
+    if (isNetworkGame()) {
+        return getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === CAMP.player2;
+    }
+    if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
+        return gameState.currentCamp !== CAMP.neutral && gameState.currentCamp !== gameState.aiOpponentCamp;
+    }
+    return gameState.currentCamp !== CAMP.neutral;
+}
+
 function drawSelectionHighlights() {
+    if (!_isHumanTurn() && gameState.commanderPhase !== 'deployment') return;
     const highlightTile = gameState.selectedTile;
     if (!highlightTile) return;
 
@@ -498,7 +510,7 @@ function drawSelectionHighlights() {
 
 // ===== 克制/被克提示文字 =====================
 function drawCounterText() {
-    if (gameState.aiActing) return;
+    if (gameState.aiActing || !_isHumanTurn()) return;
     if (!gameState.selectedUnit || !gameState.selectedUnit.canAct) return;
 
     gameState.attackableTiles.forEach(tile => {
@@ -793,7 +805,7 @@ function drawStallerZone(now) {
 
 // ===== 范围涟漪展开 =====================
 function drawRangeApertures(now) {
-    if (gameState.aiActing) return;
+    if (gameState.aiActing || !_isHumanTurn()) return;
 
     const deselecting = gameState.deselecting;
     if (!deselecting && !gameState.cardTargeting && (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit)) return;

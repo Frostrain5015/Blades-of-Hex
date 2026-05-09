@@ -685,6 +685,38 @@ body {
     box-shadow: 0 1px 0 rgba(50, 14, 1, 0.78);
 }
 
+.victory-exit-btn {
+    display: inline-block;
+    margin-left: 16px;
+    padding: 12px 32px;
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    color: #b0a090;
+    cursor: pointer;
+    font-family: inherit;
+    background: rgba(60, 50, 40, 0.45);
+    border: 1px solid rgba(140, 120, 90, 0.35);
+    border-radius: var(--radius-md);
+    box-shadow: 0 2px 0 rgba(30, 20, 10, 0.60), 0 4px 12px rgba(0, 0, 0, 0.35);
+    transition: background 0.20s, border-color 0.20s, color 0.20s, transform 0.15s;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.50);
+    position: relative;
+    z-index: 10;
+}
+
+.victory-exit-btn:hover {
+    color: #d0c0b0;
+    background: rgba(80, 60, 40, 0.55);
+    border-color: rgba(180, 140, 100, 0.50);
+    transform: translateY(-1px);
+}
+
+.victory-exit-btn:active {
+    transform: translateY(1px);
+    box-shadow: 0 1px 0 rgba(30, 20, 10, 0.60);
+}
+
 .rematch-status {
     margin-top: 16px;
     font-size: 13px;
@@ -1051,59 +1083,6 @@ body {
 /* =============================================================
    TOAST CAPSULE (iOS / Ant Design style)
    ============================================================= */
-
-#toast {
-    position: fixed;
-    top: 28px;
-    left: 50%;
-    transform: translateX(-50%) translateY(-120px);
-    z-index: 18000;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 22px;
-    background: rgba(40, 36, 32, 0.78);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 24px;
-    box-shadow:
-        0 2px 8px rgba(0, 0, 0, 0.20),
-        0 8px 32px rgba(0, 0, 0, 0.28),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04);
-    pointer-events: none;
-    opacity: 0;
-    transition:
-        transform 0.40s cubic-bezier(0.22, 0.61, 0.36, 1),
-        opacity    0.28s ease;
-}
-
-#toast.show {
-    transform: translateX(-50%) translateY(0);
-    opacity: 1;
-}
-
-#toast.hide {
-    transform: translateX(-50%) translateY(-16px);
-    opacity: 0;
-    transition:
-        transform 0.22s ease-in,
-        opacity    0.18s ease-in;
-}
-
-.toast-icon {
-    font-size: 17px;
-    line-height: 1;
-    flex-shrink: 0;
-}
-
-.toast-text {
-    font-size: 14px;
-    font-weight: 500;
-    color: #f0f0f0;
-    letter-spacing: 0.3px;
-    white-space: nowrap;
-}
 
 /* =============================================================
    FACTION REVEAL OVERLAY
@@ -1941,6 +1920,18 @@ body {
     border: 1px solid rgba(100, 160, 255, 0.35);
     text-shadow: 0 0 8px rgba(100, 150, 255, 0.40);
 }
+
+/* --- 即时通知横幅（位于持续提示下方） --- */
+#notificationBanner {
+    top: 50px;
+    border-radius: 22px 0 0 22px;
+    border: 1px solid rgba(200, 200, 200, 0.18);
+    text-shadow: 0 0 6px rgba(200, 200, 200, 0.25);
+}
+#notificationBanner.notify-info  { color: #aac8e0; border-color: rgba(160, 200, 224, 0.30); text-shadow: 0 0 6px rgba(160, 200, 224, 0.30); }
+#notificationBanner.notify-success { color: #6fcf7a; border-color: rgba(111, 207, 122, 0.35); text-shadow: 0 0 6px rgba(111, 207, 122, 0.30); }
+#notificationBanner.notify-warn  { color: #e8a840; border-color: rgba(232, 168, 64, 0.35);  text-shadow: 0 0 6px rgba(232, 168, 64, 0.30); }
+#notificationBanner.notify-error { color: #e8a840; border-color: rgba(232, 168, 64, 0.40);  text-shadow: 0 0 6px rgba(232, 168, 64, 0.35); }
 
 
 /* ============================================================

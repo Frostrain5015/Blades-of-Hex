@@ -58,8 +58,9 @@ function renderTacticalCards() {
     }
 
     const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
-    const isMyTurn = !isNetworkGame() || (isNetworkGame() && getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === CAMP.player2);
-    const isDisabled = gameState.gameOver || gameState.commanderPhase !== 'done' || gameState.currentCamp === CAMP.neutral || (!isMyTurn && isNetworkGame());
+    const isAIOpponentTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
+    const isNetworkOpponentTurn = isNetworkGame() && !(getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === CAMP.player2);
+    const isDisabled = gameState.gameOver || gameState.commanderPhase !== 'done' || gameState.currentCamp === CAMP.neutral || isAIOpponentTurn || isNetworkOpponentTurn;
     if (isDisabled && gameState.cardTargeting) gameState.cardTargeting = null;
 
     const campKey = myCamp === CAMP.player1 ? 'player1' : 'player2';
@@ -276,6 +277,8 @@ function showFactionReveal(role) {
         overlay.classList.remove('show');
         if (isNetworkGame()) {
             beginNetworkCommanderFlow(role);
+        } else if (gameState.gameMode === 'pve') {
+            beginPVECommanderPhase(role);
         } else {
             beginCommanderPhase();
         }
@@ -295,6 +298,15 @@ document.getElementById('rematchBtn').addEventListener('click', () => {
     if (isNetworkGame()) {
         document.getElementById('rematchStatus').textContent = '等待对手确认...';
         sendMessage({ type: 'rematch' });
+    } else if (gameState.gameMode === 'pve') {
+        // PVE 模式：清除胜利遮罩，强制人类为红军→选将→对局
+        const overlay = document.getElementById('victoryOverlay');
+        overlay.classList.remove('show');
+        overlay.style.opacity = '';
+        overlay.style.backgroundColor = '';
+        document.body.style.pointerEvents = '';
+        gameState.aiOpponentCamp = CAMP.player2;
+        beginPVECommanderPhase('player1');
     } else {
         // 本地模式：清除胜利遮罩，重新走骰子→选将→部署→对局
         const overlay = document.getElementById('victoryOverlay');
@@ -306,9 +318,33 @@ document.getElementById('rematchBtn').addEventListener('click', () => {
     }
 });
 
-// ==== 单人游戏 ----
+// ==== 胜利界面退出 ----
+document.getElementById('exitToLobbyBtn').addEventListener('click', () => {
+    const vo = document.getElementById('victoryOverlay');
+    vo.classList.remove('show');
+    vo.style.opacity = '';
+    vo.style.backgroundColor = '';
+    document.body.style.pointerEvents = '';
+    resetGameState();
+    document.getElementById('gameWrapper').style.display = 'none';
+    const lobby = document.getElementById('lobbyOverlay');
+    lobby.style.display = '';
+    showHome();
+});
+
+// ==== PVE 模式 — 强制玩家为红军，跳过投骰 ====
+document.getElementById('pveGameBtn').addEventListener('click', () => {
+    showHome();
+    gameState.gameMode = 'pve';
+    gameState.aiOpponentCamp = CAMP.player2; // 蓝军固定为 AI（Grok）
+    beginPVECommanderPhase('player1');        // 人类固定为红军
+});
+
+// ==== 单人游戏（本地双人） ----
 document.getElementById('localGameBtn').addEventListener('click', () => {
-    showHome(); // 把首页藏起来（实际上 beginCommanderPhase 会隐藏整个 lobbyOverlay）
+    showHome();
+    gameState.gameMode = 'local';
+    gameState.aiOpponentCamp = null;
     beginCommanderPhase();
 });
 
@@ -327,6 +363,56 @@ function beginCommanderPhase() {
     gameState.commanderPoolP2 = pool.p2;
     gameState.commanderPhase = 'selection';
     _showCommanderSelection('player1');
+}
+
+// PVE 模式将领选择：人类与 AI 轮流选将
+function beginPVECommanderPhase(humanRole) {
+    document.getElementById('lobbyOverlay').style.display = 'none';
+    _deploymentStarted = false;
+    resetGameState();
+    // 保持 PVE 模式状态（resetGameState 会清掉，重新设置）
+    gameState.gameMode = 'pve';
+    gameState.aiOpponentCamp = humanRole === 'player1' ? CAMP.player2 : CAMP.player1;
+    _commanderTransitioning = false;
+    const pool = shuffleAndSplitPool();
+    gameState.commanderPoolP1 = pool.p1;
+    gameState.commanderPoolP2 = pool.p2;
+    gameState.commanderPhase = 'selection';
+
+    if (humanRole === 'player1') {
+        // 人类是 P1：人类先选 → AI 后选
+        _pveHumanRole = 'player1';
+        _showCommanderSelection('player1');
+    } else {
+        // 人类是 P2：AI 先选 → 人类后选（立刻显示遮罩避免闪屏）
+        _pveHumanRole = 'player2';
+        _showCommanderWaiting('player2');
+        _pveAIQuickPick('player1');
+        setTimeout(() => {
+            _showCommanderSelection('player2');
+            _commanderTransitioning = false;
+        }, 600);
+    }
+}
+
+let _pveHumanRole = null;
+
+// AI 快速选将：从池中按进攻偏好选择（Grok 选将偏好）
+const _GROK_PREF = ['centurion', 'berserker', 'vampire', 'fallenAngel', 'ironGuard', 'staller', 'advisor', 'minister'];
+function _pveAIQuickPick(forPlayer) {
+    const pool = forPlayer === 'player1' ? gameState.commanderPoolP1 : gameState.commanderPoolP2;
+    // Grok 选将偏好（与 .ai/grok.js COMMANDER_PREFERENCE 同步）
+    let picked = pool[0];
+    for (const pref of _GROK_PREF) {
+        if (pool.includes(pref)) { picked = pref; break; }
+    }
+    if (forPlayer === 'player1') {
+        gameState.commanderP1 = picked;
+        gameState.commanderP1Confirmed = true;
+    } else {
+        gameState.commanderP2 = picked;
+        gameState.commanderP2Confirmed = true;
+    }
 }
 
 function beginNetworkCommanderFlow(role) {
@@ -358,6 +444,23 @@ function _waitForNetworkPool(forPlayer) {
     } else {
         setTimeout(() => _waitForNetworkPool(forPlayer), 200);
     }
+}
+
+function _showCommanderWaiting(forPlayer) {
+    const overlay = document.getElementById('commanderOverlay');
+    const title = document.getElementById('commanderTitle');
+    const cardsDiv = document.getElementById('commanderCards');
+    const statusDiv = document.getElementById('commanderStatus');
+    const campName = forPlayer === 'player1' ? '红军' : '蓝军';
+    const campColor = forPlayer === 'player1' ? '#ffaaaa' : '#aaaaff';
+
+    _commanderPending = null;
+    title.textContent = `${campName} — 选择将领`;
+    title.style.color = campColor;
+    statusDiv.textContent = 'AI 正在选择将领...';
+    statusDiv.style.color = '#aaa';
+    cardsDiv.innerHTML = '';
+    overlay.classList.add('show');
 }
 
 function _showCommanderSelection(forPlayer) {
@@ -443,6 +546,28 @@ function _onCommanderSelected(forPlayer) {
     _commanderTransitioning = true;
     if (isNetworkGame()) {
         _checkBothConfirmed();
+    } else if (gameState.gameMode === 'pve') {
+        // PVE 模式：人类选完后 AI 自动选
+        if (_pveHumanRole === 'player1' && forPlayer === 'player1') {
+            // 人类 P1 选完，AI 选 P2
+            _pveAIQuickPick('player2');
+            setTimeout(() => {
+                document.getElementById('commanderOverlay').classList.remove('show');
+                gameState.commanderPhase = 'done';
+                startGame();
+                _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
+                _commanderTransitioning = false;
+            }, 800);
+        } else if (_pveHumanRole === 'player2' && forPlayer === 'player2') {
+            // 人类 P2 选完（AI P1 已选），开始游戏 + AI 先手
+            setTimeout(() => {
+                document.getElementById('commanderOverlay').classList.remove('show');
+                gameState.commanderPhase = 'done';
+                startGame();
+                _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
+                _commanderTransitioning = false;
+            }, 800);
+        }
     } else if (forPlayer === 'player1') {
         setTimeout(() => { _showCommanderSelection('player2'); _commanderTransitioning = false; }, 800);
     } else {
@@ -452,6 +577,58 @@ function _onCommanderSelected(forPlayer) {
             startGame();
             _commanderTransitioning = false;
         }, 800);
+    }
+}
+
+// PVE 模式：开局时若 AI 先手则触发 AI 回合
+// 先执行 AI 行动，再通过 endTurn 旋转阵营并链式处理中立
+async function _triggerInitialAITurn() {
+    try {
+        if (gameState.gameMode !== 'pve' || !gameState.aiOpponentCamp) return;
+        if (gameState.currentCamp !== gameState.aiOpponentCamp) return;
+
+        logMessage(`PVE 开局：${gameState.aiOpponentCamp.name} AI 先手，准备行动...`);
+        await new Promise(r => setTimeout(r, 1500));
+        if (gameState.gameOver) return;
+
+        gameState.aiActing = true;
+        try {
+            const { processOpponentTurn } = await import('./ai.js');
+            await Promise.race([
+                processOpponentTurn(gameState.aiOpponentCamp),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
+            ]);
+        } catch (e) {
+            if (e && e.message === 'AI_TIMEOUT') {
+                logMessage('AI对手超时，跳过回合');
+            } else {
+                logMessage('AI对手执行出错，跳过回合');
+            }
+            console.warn('AI opponent error:', e);
+        } finally {
+            gameState.aiActing = false;
+        }
+
+        notify('AI对手行动完毕', 'info');
+        await new Promise(r => setTimeout(r, 2500));
+
+        // 结束 AI 回合，旋转阵营并链式处理中立 AI
+        if (!gameState.gameOver) {
+            const { endTurn } = await import('./gameLogic.js');
+            await endTurn();
+        }
+    } catch (fatalError) {
+        console.error('_triggerInitialAITurn 致命错误:', fatalError);
+        gameState.aiActing = false;
+        // 保证回合能前进，不被卡住
+        if (!gameState.gameOver) {
+            try {
+                const { endTurn } = await import('./gameLogic.js');
+                await endTurn();
+            } catch (e2) {
+                console.error('endTurn 也失败了:', e2);
+            }
+        }
     }
 }
 
