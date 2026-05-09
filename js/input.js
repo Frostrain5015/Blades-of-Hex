@@ -38,13 +38,27 @@ function _getOrCreateRankCanvas() {
     return _rankCanvas;
 }
 function _drawRankChevrons(cv, rank) {
-    const hw = 5.5, hh = 1.5, sp = 4; // width-half, height-half(压扁), vertical spacing
     const pad = 2;
+    const ctx = cv.getContext('2d');
+    if (rank >= 4) {
+        const size = 14;
+        cv.width = size + pad * 2;
+        cv.height = size + pad * 2;
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        ctx.fillStyle = '#ffd700';
+        ctx.font = `bold ${size}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5;
+        ctx.fillText('★', cv.width / 2, cv.height / 2);
+        ctx.shadowBlur = 0;
+        return;
+    }
+    const hw = 5.5, hh = 1.5, sp = 4; // width-half, height-half(压扁), vertical spacing
     const cw = Math.ceil(hw * 2 + pad * 2);
     const ch = Math.ceil((rank - 1) * sp + hh * 2 + pad * 2 + 2);
     cv.width = cw;
     cv.height = ch;
-    const ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, cw, ch);
     ctx.strokeStyle = '#ffd700';
     ctx.lineWidth = 2;

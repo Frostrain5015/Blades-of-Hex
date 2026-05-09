@@ -356,6 +356,10 @@ function _expireTimedEffects() {
         if (u.activeSkillCD > 0) {
             u.activeSkillCD--;
         }
+        // Rank 4 每轮 15% 回血
+        if (u._rankRegenPct > 0 && u.hp < u.maxHp) {
+            u.heal(Math.round(u.maxHp * u._rankRegenPct));
+        }
     });
 }
 
@@ -395,10 +399,6 @@ async function _doEndTurnPhase() {
                 if (actualHeal > 0) {
                     logMessage(`${tile.unit.camp.name}的步兵驻守城市回复${Math.round(actualHeal)}生命值`);
                 }
-            }
-            // Rank 4 每回合 15% 回血
-            if (tile.unit._rankRegenPct > 0 && tile.unit.hp < tile.unit.maxHp) {
-                tile.unit.hp = Math.min(tile.unit.maxHp, tile.unit.hp + Math.round(tile.unit.maxHp * tile.unit._rankRegenPct));
             }
             // 主动技能持续/冷却倒计时 → 移至回合开始时统一处理
         }
