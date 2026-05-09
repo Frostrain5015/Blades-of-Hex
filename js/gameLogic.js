@@ -12,7 +12,7 @@ import {
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
     spawnProjectile, triggerRecoil, triggerCharge,
-    spawnBloodDrain, spawnPurpleLightning, spawnLightningStrike,
+    spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain
 } from './effects.js';
@@ -152,21 +152,25 @@ function isSurrounded(unit, tileMap) {
     return countAdjacentNonFriendlies(unit, tileMap) >= 6;
 }
 
-function applyFlankingMorale() {
+export function recalcAllFlankingMorale() {
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
         const u = tile.unit;
         const prev = u.morale;
-        if (isSurrounded(u, gameState.tileMap)) {
-            if (u.morale > 0) {
-                u.morale = 0;
-                u.canAct = false;
-            }
-        } else if (isFlanked(u, gameState.tileMap)) {
-            if (u.morale > 1) {
-                u.morale = Math.max(1, u.morale - 1);
-            }
+
+        const surrounded = isSurrounded(u, gameState.tileMap);
+        const flanked = !surrounded && isFlanked(u, gameState.tileMap);
+
+        // 夹击/包围仅向下压制士气（不覆写，保留击杀加成等提升）
+        if (surrounded) {
+            if (u.morale > 0) u.morale = 0;
+        } else if (flanked) {
+            if (u.morale > 1) u.morale = 1;
         }
+
+        // 仅在士气归零时禁用行动（不主动恢复，由回合开始管理）
+        if (u.morale === 0) u.canAct = false;
+
         if (u.morale !== prev) {
             spawnMoraleEffect(u);
         }
@@ -362,7 +366,7 @@ async function _doEndTurnPhase() {
     // 包装 spawnFx 引用以收集特效坐标（不直接覆写 import binding）
     const origSpawn = spawnCommanderSkillEffect;
     setSpawnFxRef((x, y, glyph, label) => {
-        _endTurnCmdFxList.push({ x, y, glyph: glyph || '★', label: label || '' });
+        _endTurnCmdFxList.push({ x, y, glyph: glyph || '🎖️', label: label || '' });
         origSpawn(x, y, glyph, label);
     });
 
@@ -373,6 +377,7 @@ async function _doEndTurnPhase() {
             tile.unit.movedThisTurn = false;
             tile.unit.moveDistance = 0;
             tile.unit.counterAttackCount = 0;
+            tile.unit._timesAttackedThisTurn = 0;
             tile.unit.remainingMP = tile.unit.config.speed;
             // SPD bonus re-apply from commander
             if (tile.unit.commander) {
@@ -391,9 +396,9 @@ async function _doEndTurnPhase() {
                     logMessage(`${tile.unit.camp.name}的步兵驻守城市回复${Math.round(actualHeal)}生命值`);
                 }
             }
-            // Rank 3 每回合 5% 回血（无视觉特效）
-            if (tile.unit._rank >= 3 && tile.unit.hp < tile.unit.maxHp) {
-                tile.unit.hp = Math.min(tile.unit.maxHp, tile.unit.hp + Math.round(tile.unit.maxHp * 0.05));
+            // Rank 4 每回合 15% 回血
+            if (tile.unit._rankRegenPct > 0 && tile.unit.hp < tile.unit.maxHp) {
+                tile.unit.hp = Math.min(tile.unit.maxHp, tile.unit.hp + Math.round(tile.unit.maxHp * tile.unit._rankRegenPct));
             }
             // 主动技能持续/冷却倒计时 → 移至回合开始时统一处理
         }
@@ -426,28 +431,6 @@ async function _doEndTurnPhase() {
         });
     }
 
-    // 夹击脱离恢复（每回合都检查，保证位置变化后及时恢复）
-    gameState.tiles.forEach(tile => {
-        if (!tile.unit) return;
-        const u = tile.unit;
-        const prev = u.morale;
-
-        const surrounded = isSurrounded(u, gameState.tileMap);
-        const flanked = !surrounded && isFlanked(u, gameState.tileMap);
-        // 攻心叠层控制士气恢复上限：1层→1，2层→0（无法恢复），3层触发感化时已在advisor中清零
-        const gs = u._gongxinStacks || 0;
-        const maxRecovery = gs >= 2 ? 0 : gs >= 1 ? 1 : 2;
-        if (u.morale === 0 && !surrounded) {
-            u.morale = Math.min(flanked ? 1 : maxRecovery, maxRecovery);
-            if (u.morale > 0) u.canAct = true;
-        } else if (u.morale === 1 && !flanked && !surrounded && maxRecovery >= 2) {
-            u.morale = 2;
-        }
-
-        if (u.morale !== prev) {
-            spawnMoraleEffect(u);
-        }
-    });
     // Three-way toggle
     if (camp === CAMP.player1) {
         gameState.currentCamp = CAMP.player2;
@@ -622,13 +605,14 @@ export function recruitUnit(type) {
         timeLeft: 1000, lastUpdate: Date.now()
     });
     spawnGoldParticles(selectedCityTile.x, selectedCityTile.y);
+    recalcAllFlankingMorale();
     updateUI();
     broadcastAction('recruit', { x: selectedCityTile.x, y: selectedCityTile.y });
 }
 
 // ===== 移动范围计算 =====================
 
-// 停滞者缚足层数（0/1/2/3），每层行动消耗+1.5（向下取整）
+// 停滞者缚足层数（0/1/2/3），每层行动消耗+2
 function _getStallerSnareLayers(tile, friendlyCamp) {
     return getStallerSnareLayers(tile, friendlyCamp, gameState.tileMap);
 }
@@ -672,9 +656,9 @@ export function getMovableTiles(unit) {
 
             let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
             if (gameState.weather === 'rain' && unit.type === 'cavalry') stepCost += 1;
-            // 停滞者【缚足】：每层行动消耗+1.5（向下取整）
+            // 停滞者【缚足】：每层行动消耗+2
             const snareLayers = _getStallerSnareLayers(neighbor, friendlyCamp);
-            if (snareLayers > 0) stepCost += Math.floor(snareLayers * 1.5);
+            if (snareLayers > 0) stepCost += snareLayers * 2;
             if (curRem < 1) continue;
             let newRem = curRem >= stepCost ? curRem - stepCost : 0;
 
@@ -712,7 +696,10 @@ export function getAttackableTiles(unit) {
     range = Math.max(1, Math.min(4, range));
     const startTile = unit.tile;
     return gameState.tiles.filter(tile => {
-        return hexDistance(tile, startTile) <= range && tile.unit && tile.unit.camp !== unit.camp;
+        if (!(hexDistance(tile, startTile) <= range && tile.unit && tile.unit.camp !== unit.camp)) return false;
+        // 停滞者免疫炮兵攻击
+        if (unit.type === 'archer' && tile.unit.commander === 'staller') return false;
+        return true;
     });
 }
 
@@ -774,10 +761,10 @@ export function moveUnit(unit, targetTile) {
     // 尚书进驻城市：触发技能特效
     let _cmdFxForMove = null;
     if (targetTile.isCity && unit.commander === 'minister') {
-        spawnCommanderSkillEffect(targetTile.x, targetTile.y, '★', '屯田');
-        _cmdFxForMove = { x: targetTile.x, y: targetTile.y, glyph: '★', label: '屯田' };
+        spawnCommanderSkillEffect(targetTile.x, targetTile.y, '🎖️', '屯田');
+        _cmdFxForMove = { x: targetTile.x, y: targetTile.y, glyph: '🎖️', label: '屯田' };
     }
-    applyFlankingMorale();
+    recalcAllFlankingMorale();
     updateRecruitCostDisplay(); // 尚书驻扎城市时及时刷新折扣
     const rankUpsMove = _pendingRankUps.splice(0);
     broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null });
@@ -796,7 +783,7 @@ export function attackUnit(attackerUnit, targetUnit) {
     const _atkOrigSpawn = spawnCommanderSkillEffect;
     let _atkCmdFxCapture = null;
     setSpawnFxRef((x, y, glyph, label) => {
-        _atkCmdFxCapture = { x, y, glyph: glyph || '★', label: label || '' };
+        _atkCmdFxCapture = { x, y, glyph: glyph || '🎖️', label: label || '' };
         _atkOrigSpawn(x, y, glyph, label);
     });
 
@@ -805,7 +792,7 @@ export function attackUnit(attackerUnit, targetUnit) {
     const attackResult = attackerUnit.calculateDamage(targetUnit);
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
     if (attackResult.isCrit) attackerUnit.addXP(2);
-    if (attackResult.dmg > 0) attackerUnit.addXP(0.5);
+    if (attackResult.dmg > 0) attackerUnit.addXP(1);
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
     const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
     playSound(attackResult.isCrit ? 'crit' : 'attack');
@@ -847,19 +834,27 @@ export function attackUnit(attackerUnit, targetUnit) {
                 spawnBloodDrain(toX, toY, bloodDestX, bloodDestY);
             }
             if (atkCmdResult.moraleDropped) {
-                if (attackerUnit.commander === 'advisor') spawnPurpleLightning(toX, toY);
+                if (attackerUnit.commander === 'advisor') spawnGongxinRipple(toX, toY, false);
                 spawnMoraleEffect(targetUnit);
                 _moraleFxUnitId = targetUnit.id;
+            }
+            if (atkCmdResult.converted) {
+                if (attackerUnit.commander === 'advisor') spawnGongxinRipple(toX, toY, true);
             }
         }
         _cmdFxData = _atkCmdFxCapture;
 
         if (!isTargetDead) {
+            // 连续承受攻击经验：第x次受击奖励(x-1)点经验
+            targetUnit._timesAttackedThisTurn = (targetUnit._timesAttackedThisTurn || 0) + 1;
+            const enduranceXp = targetUnit._timesAttackedThisTurn - 1;
+            if (enduranceXp > 0) targetUnit.addXP(enduranceXp);
+
             const counterResult = targetUnit.calculateCounterDamage(attackerUnit);
             _counterDmg = counterResult.dmg;
             _counterX = attackerUnit.tile.x; _counterY = attackerUnit.tile.y;
             if (counterResult.dmg > 0) {
-                targetUnit.addXP(0.5);
+                targetUnit.addXP(1);
                 if (counterResult.isCrit) targetUnit.addXP(2);
                 attackerUnit.takeDamage(counterResult.dmg, targetUnit);
                 _atkCmdFxCapture = null;
@@ -880,8 +875,8 @@ export function attackUnit(attackerUnit, targetUnit) {
                 attackerUnit.startMovePath([{ x: fromX, y: fromY }, { x: toX, y: toY }]);
                 if (targetTile.isCity) { updateDistrictColor(targetTile, attackerUnit.camp, attackerUnit); _cityCapturedInAttack = true; }
                 if (targetTile.isCity && attackerUnit.commander === 'minister') {
-                    spawnCommanderSkillEffect(targetTile.x, targetTile.y, '★', '屯田');
-                    _cmdFxExtra = { x: targetTile.x, y: targetTile.y, glyph: '★', label: '屯田' };
+                    spawnCommanderSkillEffect(targetTile.x, targetTile.y, '🎖️', '屯田');
+                    _cmdFxExtra = { x: targetTile.x, y: targetTile.y, glyph: '🎖️', label: '屯田' };
                 }
             }
             if (targetUnit.commander) {
@@ -921,7 +916,8 @@ export function attackUnit(attackerUnit, targetUnit) {
                 spawnVictoryRipple(fromX, fromY);
             }
             if (_atkCmdFxCapture && !_cmdFxData) _cmdFxData = _atkCmdFxCapture;
-            const killXp = 5;
+            const rankExtra = [0, 2, 5, 12];
+            const killXp = 3 + (rankExtra[targetUnit._rank] || 0);
             const bonusXp = targetUnit.commander ? 10 : 0;
             attackerUnit.addXP(killXp + bonusXp);
         }
@@ -936,7 +932,7 @@ export function attackUnit(attackerUnit, targetUnit) {
         } else {
             gameState.attackableTiles = [];
         }
-        applyFlankingMorale();
+        recalcAllFlankingMorale();
         if (_killedThisAttack && _killerMoraleChanged) {
             spawnMoraleEffect(_killedThisAttack);
             _killerMoraleChanged = false;
@@ -1237,6 +1233,7 @@ export function executeTacticalCard(cardId, targetTile) {
         }
     }
 
+    recalcAllFlankingMorale();
     updateUI();
     broadcastAction('tacticalCard', { cardId, x: targetTile.x, y: targetTile.y, dmg: result.dmg, deployed: result.deployed, commander: result.commander });
 }

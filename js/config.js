@@ -170,8 +170,8 @@ export { getCommander } from '../commander/index.js';
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {
     clear: { name: '晴天', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
-    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城回血20%' },
-    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵伤害−25% 射程−1 · 骑兵冲锋1格生效 伤害+30%' },
+    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城回血20% · 雷击伤害翻倍' },
+    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵冲锋1格生效 伤害+30%' },
     wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 伤害+15% · 步兵无法暴击' }
 };
 
@@ -186,7 +186,8 @@ export const TACTICAL_CARD_CONFIG = {
         desc: '【雷击】45g / ⏳3\n对地图上任意非己方单位降下雷电，造成 40~60 点真实伤害',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
-            const dmg = 40 + Math.floor(Math.random() * 21);
+            let dmg = 40 + Math.floor(Math.random() * 21);
+            if (gameState.weather === 'rain') dmg *= 2;
             targetTile.unit.hp = Math.max(0, targetTile.unit.hp - dmg);
             return { dmg, targetTile };
         }

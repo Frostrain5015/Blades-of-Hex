@@ -360,7 +360,7 @@ export function drawConfetti(ctx2d) {
 export const commanderSkillEffects = [];
 export const commanderFlash = { alpha: 0 };
 
-export function spawnCommanderSkillEffect(x, y, glyph = '★', label = '') {
+export function spawnCommanderSkillEffect(x, y, glyph = '🎖️', label = '') {
     commanderSkillEffects.push({
         x, y,
         glyph,
@@ -384,6 +384,18 @@ export function spawnMoraleEffect(unit) {
         x: unit.tile.x,
         y: unit.tile.y,
         morale: unit.morale,
+        startTime: Date.now(),
+        duration: 1500,
+        phaseDuration: 800
+    });
+}
+
+// ===== 晋升动画（无辉光，无音效，类似士气动画） =====================
+export const rankUpEffects = [];
+
+export function spawnRankUpEffect(x, y, rank) {
+    rankUpEffects.push({
+        x, y, rank,
         startTime: Date.now(),
         duration: 1500,
         phaseDuration: 800
@@ -679,26 +691,78 @@ export function updateBloodDrains(dt) {
     }
 }
 
-// ===== 谋士攻心：紫色闪电 =====================
+// ===== 谋士攻心：紫色波纹扩散 + 暗色粒子 =====================
 export const lightningBolts = [];
 
 export function spawnPurpleLightning(x, y) {
-    const segments = [];
-    let sx = x + (Math.random() - 0.5) * 14;
-    let sy = y - 55;
-    for (let i = 0; i < 6; i++) {
-        const ex = sx + (Math.random() - 0.5) * 16;
-        const ey = sy + 9 + Math.random() * 6;
-        segments.push({ x1: sx, y1: sy, x2: ex, y2: ey });
-        sx = ex; sy = ey;
+    // 保留旧接口兼容联机回放，重定向到新效果
+    spawnGongxinRipple(x, y, false);
+}
+
+export const gongxinRipples = [];
+
+export function spawnGongxinRipple(x, y, intense = false) {
+    const rings = [];
+    const ringCount = intense ? 3 : 2;
+    for (let i = 0; i < ringCount; i++) {
+        rings.push({
+            maxR: HEX_SIZE * (0.8 + i * 0.55),
+            delay: i * 0.12
+        });
     }
-    segments.push({ x1: sx, y1: sy, x2: x, y2: y });
-    lightningBolts.push({
-        x, y,
-        segments,
+    // 暗色上升粒子
+    const pCount = intense ? Math.round(22 * settings.particleDensity) : Math.round(12 * settings.particleDensity);
+    for (let i = 0; i < pCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 3 + Math.random() * 18;
+        particles.push(new VisualParticle(
+            x + Math.cos(angle) * dist,
+            y + Math.sin(angle) * dist,
+            (Math.random() - 0.5) * 25,
+            -(30 + Math.random() * 55),
+            Math.random() < 0.3 ? '#bb88ff' : (Math.random() < 0.5 ? '#6644aa' : '#331166'),
+            2 + Math.random() * 3,
+            0.7 + Math.random() * 0.7,
+            -8
+        ));
+    }
+    gongxinRipples.push({
+        x, y, rings,
+        intense,
         startTime: Date.now(),
-        duration: 320
+        duration: intense ? 1000 : 700
     });
+}
+
+export function updateGongxinRipples(now) {
+    for (let i = gongxinRipples.length - 1; i >= 0; i--) {
+        if (now - gongxinRipples[i].startTime > gongxinRipples[i].duration) {
+            gongxinRipples.splice(i, 1);
+        }
+    }
+}
+
+export function drawGongxinRipples(ctx2d, now) {
+    for (const r of gongxinRipples) {
+        const elapsed = now - r.startTime;
+        const alpha = Math.max(0, 1 - elapsed / r.duration);
+        for (const ring of r.rings) {
+            const localT = Math.max(0, Math.min(1, (elapsed - ring.delay * r.duration) / (r.duration * 0.7)));
+            if (localT <= 0 || localT >= 1) continue;
+            const radius = ring.maxR * localT;
+            const ringAlpha = alpha * (1 - localT) * 0.7;
+            ctx2d.save();
+            ctx2d.globalAlpha = ringAlpha;
+            ctx2d.beginPath();
+            ctx2d.arc(r.x, r.y, radius, 0, Math.PI * 2);
+            ctx2d.strokeStyle = r.intense ? '#cc88ff' : '#9966cc';
+            ctx2d.lineWidth = 2.5 * (1 - localT);
+            ctx2d.shadowColor = r.intense ? '#cc88ff' : '#8855bb';
+            ctx2d.shadowBlur = 10 * (1 - localT);
+            ctx2d.stroke();
+            ctx2d.restore();
+        }
+    }
 }
 
 export function spawnLightningStrike(x, y) {
@@ -944,6 +1008,7 @@ export function drawCoinParticles(ctx2d) {
 export function clearTransientEffects() {
     particles.length = 0;
     moraleEffects.length = 0;
+    rankUpEffects.length = 0;
     meleeSlashes.length = 0;
     attackFlashes.length = 0;
     softFlashes.length = 0;
@@ -958,6 +1023,7 @@ export function clearTransientEffects() {
     charges.length = 0;
     bloodDrains.length = 0;
     lightningBolts.length = 0;
+    gongxinRipples.length = 0;
     coinParticles.length = 0;
     screenShake.time = 0;
     screenShake.x = 0;

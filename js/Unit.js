@@ -1,7 +1,7 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange } from './commanderInterface.js';
 import { nextId } from './state.js';
-import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, getRecoilOffset, getChargeOffset } from './effects.js';
+import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset } from './effects.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -32,6 +32,7 @@ export class Unit {
         this.movedThisTurn = false;
         this.moveDistance = 0;
         this.counterAttackCount = 0;
+        this._timesAttackedThisTurn = 0;
         this.isNewRecruit = isNewRecruit;
         this._morale = 2;
         this.moraleBoostUntil = 0;
@@ -39,6 +40,8 @@ export class Unit {
         this._xp = 0;
         this._rank = 0;
         this._rankDefBonus = 0;
+        this._rankCritBonus = 0;
+        this._rankRegenPct = 0;
         this._fallen = false;
         this._gongxinStacks = 0;
         this._shieldPulseUntil = 0;
@@ -79,11 +82,11 @@ export class Unit {
             });
         }
 
-        // 攻心持续效果（永久叠加式士气压制）
+        // 攻心持续效果（永久士气debuff）
         if (this._gongxinStacks > 0) {
             effects.push({
                 label: '攻心',
-                desc: `士气上限↓${this._gongxinStacks > 1 ? ` ×${this._gongxinStacks}` : ''}`,
+                desc: `士气-${this._gongxinStacks}`,
                 color: '#cc44ff',
                 remaining: '永久'
             });
@@ -247,7 +250,7 @@ export class Unit {
                 const waveTilt = Math.cos(time * 7 + this.id * 1.3) * 0.14;
                 ctx.rotate(waveTilt);
                 ctx.fillStyle = '#ffd700';
-                ctx.font = 'bold 9px Arial';
+                ctx.font = 'bold 9px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.shadowColor = '#ffd700';
@@ -444,24 +447,31 @@ export class Unit {
             ctx.restore();
         }
 
-        // ── Rank chevrons ──
+        // ── Rank insignia ──
         if (this._rank > 0) {
             ctx.save();
             const chX = visualX + HEX_SIZE * 0.48, chY = visualY + HEX_SIZE * 0.38;
-            ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
-            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-            for (let lv = 0; lv < this._rank; lv++) {
-                const dy = lv * 5;
-                ctx.beginPath();
-                ctx.moveTo(chX - 5.5, chY + 2 + dy);
-                ctx.lineTo(chX,       chY - 2 + dy);
-                ctx.lineTo(chX + 5.5, chY + 2 + dy);
-                // 内阴影：稍暗的描边
-                ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 1;
-                ctx.stroke();
-                // 发光外描边
-                ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5; ctx.shadowOffsetY = 0;
-                ctx.stroke();
+            if (this._rank >= 4) {
+                ctx.fillStyle = '#ffd700';
+                ctx.font = 'bold 14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 3;
+                ctx.fillText('★', chX, chY);
+            } else {
+                ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                for (let lv = 0; lv < this._rank; lv++) {
+                    const dy = lv * 5;
+                    ctx.beginPath();
+                    ctx.moveTo(chX - 5.5, chY + 2 + dy);
+                    ctx.lineTo(chX,       chY - 2 + dy);
+                    ctx.lineTo(chX + 5.5, chY + 2 + dy);
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 1;
+                    ctx.stroke();
+                    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5; ctx.shadowOffsetY = 0;
+                    ctx.stroke();
+                }
             }
             ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
             ctx.restore();
@@ -548,7 +558,8 @@ export class Unit {
         if (attacker.type === 'archer' && attacker.tile.terrain === 'mountain') dmgBonus += 0.05;
         const dmgMulti = Math.max(0.1, 1 + dmgBonus);
 
-        const guaranteedCrit = isCommanderGuaranteedCrit(attacker);
+        const rankCrit = attacker._rankCritBonus || 0;
+        const guaranteedCrit = isCommanderGuaranteedCrit(attacker) || (rankCrit > 0 && Math.random() < rankCrit);
         const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter, guaranteedCrit);
         const isCrit = floatMult > (isCounter ? 1.50 : 1.30);
 
@@ -559,6 +570,9 @@ export class Unit {
     }
 
     calculateDamage(targetUnit) {
+        if (this.type === 'archer' && targetUnit.commander === 'staller') {
+            return { dmg: 0, isCrit: false };
+        }
         const gs = _gameState;
 
         const chargeThreshold = gs.weather === 'fog' ? 1 : 2;
@@ -566,7 +580,6 @@ export class Unit {
         const cavBonus = (this.type === 'cavalry' && this.moveDistance >= chargeThreshold) ? chargeAmount : 0;
 
         let weatherAtkBonus = 0;
-        if (gs.weather === 'fog'  && this.type === 'archer') weatherAtkBonus = -0.25;
         if (gs.weather === 'wind' && this.type === 'archer') weatherAtkBonus = +0.15;
 
         const result = this._resolveDamage(this, targetUnit, 1, cavBonus + weatherAtkBonus);
@@ -684,14 +697,15 @@ export class Unit {
     }
 
     addXP(amount) {
-        if (this._rank >= 3 || amount <= 0) return;
+        if (this._rank >= 4 || amount <= 0) return;
+        if (this.commander === 'centurion') amount *= 1.5;
         this._xp += amount;
         this._checkRankUp();
     }
 
     _checkRankUp() {
-        const thresholds = [8, 18, 30];
-        while (this._rank < 3 && this._xp >= thresholds[this._rank]) {
+        const thresholds = [8, 18, 30, 48];
+        while (this._rank < 4 && this._xp >= thresholds[this._rank]) {
             this._rank++;
             this._applyRankBonus(this._rank);
             // 晋升时恢复已损失生命值的30%
@@ -700,7 +714,7 @@ export class Unit {
                 this.hp = Math.min(this.maxHp, this.hp + Math.round(lostHp * 0.30));
             }
             _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
-            spawnCommanderSkillEffect(this.tile.x, this.tile.y, '▲', '晋升');
+            spawnRankUpEffect(this.tile.x, this.tile.y, this._rank);
             if (_gameState && _gameState.hoveredTile === this.tile) {
                 const evt = new CustomEvent('rankUpTooltipRefresh', { detail: { tile: this.tile } });
                 document.dispatchEvent(evt);
@@ -712,7 +726,8 @@ export class Unit {
         switch (rank) {
             case 1: this.maxHp += 20; this.hp += 20; break;
             case 2: this._atkBonus += 10; break;
-            case 3: this._rankDefBonus = 0.10; break;
+            case 3: this._rankDefBonus = 0.10; this._rankCritBonus = 0.33; break;
+            case 4: this._rankRegenPct = 0.15; break;
         }
     }
 }

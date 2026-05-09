@@ -4,7 +4,7 @@
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit,
-    executeTacticalCard
+    executeTacticalCard, recalcAllFlankingMorale
 } from './gameLogic.js';
 import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG } from './config.js';
 import { isNetworkGame, sendMessage } from './network.js';
@@ -195,6 +195,7 @@ async function _executeActionInner(action, aiCamp) {
             });
             unit.activeSkillDur = skill.duration;
             unit.activeSkillCD = skill.cooldown;
+            recalcAllFlankingMorale();
             logMessage(`${aiCamp.name} AI【${cmdCfg.name}】激活主动技能【${skill.name}】`);
             spawnCommanderSkillEffect(unit.tile.x, unit.tile.y);
             await delay(AI_DELAY);

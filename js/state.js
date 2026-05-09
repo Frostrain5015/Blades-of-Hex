@@ -422,13 +422,16 @@ export function serializeState() {
             _centurionTriggered: t.unit._centurionTriggered,
             _atkBonus: t.unit._atkBonus,
             _rankDefBonus: t.unit._rankDefBonus || 0,
+            _rankCritBonus: t.unit._rankCritBonus || 0,
+            _rankRegenPct: t.unit._rankRegenPct || 0,
             displaySpeed: t.unit.displaySpeed,
             xp: t.unit._xp,
             rank: t.unit._rank,
             fallen: t.unit._fallen || false,
             activeSkillCD: t.unit.activeSkillCD,
             activeSkillDur: t.unit.activeSkillDur,
-            gongxinStacks: t.unit._gongxinStacks || 0
+            gongxinStacks: t.unit._gongxinStacks || 0,
+            gongxinCampKey: t.unit._gongxinCamp ? (t.unit._gongxinCamp === CAMP.player1 ? 'p1' : t.unit._gongxinCamp === CAMP.player2 ? 'p2' : 'neutral') : null
         } : null
     }));
 
@@ -556,6 +559,8 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._centurionTriggered = td.unit._centurionTriggered || false;
             unit._atkBonus = td.unit._atkBonus || 0;
             unit._rankDefBonus = td.unit._rankDefBonus || 0;
+            unit._rankCritBonus = td.unit._rankCritBonus || 0;
+            unit._rankRegenPct = td.unit._rankRegenPct || 0;
             unit.displaySpeed = td.unit.displaySpeed ?? unit.config.speed;
             unit._xp = td.unit.xp || 0;
             unit._rank = td.unit.rank || 0;
@@ -563,6 +568,9 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit.activeSkillCD = td.unit.activeSkillCD || 0;
             unit.activeSkillDur = td.unit.activeSkillDur || 0;
             unit._gongxinStacks = td.unit.gongxinStacks || 0;
+            if (td.unit.gongxinCampKey) {
+                unit._gongxinCamp = td.unit.gongxinCampKey === 'p1' ? CAMP.player1 : td.unit.gongxinCampKey === 'p2' ? CAMP.player2 : CAMP.neutral;
+            }
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {
                 const saved = oldCommander.get(unit.id);

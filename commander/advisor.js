@@ -4,18 +4,11 @@ export default {
   name: '谋士',
   skill: '攻心',
   hpBonus: 75, atkBonus: 0, spdBonus: 1,
-  desc: '攻击或反击时有75%概率使对方士气下降，叠至第2层目标混乱，叠至第3层感化为己方单位（将领单位无法被感化）',
+  desc: '攻击或反击时有75%概率使对方永久士气-1；若目标士气已为0则直接感化为己方单位（将领单位无法被感化）',
 
   _gongxin(source, enemy, helpers) {
-    // 75%概率触发（第3层感化无需概率判定）
-    const currentStacks = enemy._gongxinStacks || 0;
-    if (currentStacks < 2 && Math.random() >= 0.75) return null;
-
-    enemy._gongxinStacks = currentStacks + 1;
-    const stacks = enemy._gongxinStacks;
-
-    // 第3层：感化招降
-    if (stacks >= 3) {
+    // 士气已为0 → 攻心使其降至负数，直接感化招降
+    if (enemy.morale === 0) {
       if (enemy.commander) return null;
       const gs = helpers.gameState;
       if (!gs) return null;
@@ -28,14 +21,15 @@ export default {
       return { moraleDropped: false, converted: true };
     }
 
-    // 第2层：士气强制为0（混乱）
-    if (stacks >= 2) {
-      enemy.morale = 0;
-      enemy.canAct = false;
-    } else {
-      // 第1层：士气降到1
-      enemy.morale = Math.max(1, enemy.morale - 1);
-    }
+    // 75%概率触发叠层
+    if (Math.random() >= 0.75) return null;
+
+    const currentStacks = (enemy._gongxinStacks || 0) + 1;
+    enemy._gongxinStacks = currentStacks;
+    enemy._gongxinCamp = source.camp;
+
+    // 每层当前士气-1（混乱由士气=0自然决定，与攻心无关）
+    enemy.morale = Math.max(0, enemy.morale - 1);
 
     helpers.spawnFx(enemy.tile.x, enemy.tile.y);
     return { moraleDropped: true };
