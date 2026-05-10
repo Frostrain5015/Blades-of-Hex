@@ -149,7 +149,7 @@ export function getCommanderAuraDefenseBonus(unit) {
   const igCmd = getCommander('ironGuard');
   if (!igCmd || !igCmd.getAuraDefenseBonus) return 0;
   // 铁卫自身也受灵光保护
-  if (unit.commander === 'ironGuard' && unit.hp > 0) {
+  if (unit.commander === 'ironGuard' && unit._shield > 0) {
     return igCmd.getAuraDefenseBonus(unit);
   }
   // 相邻友军
@@ -157,7 +157,7 @@ export function getCommanderAuraDefenseBonus(unit) {
   if (!tileMap) return 0;
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nb = tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
-    if (nb && nb.unit && nb.unit.commander === 'ironGuard' && nb.unit.camp === unit.camp && nb.unit.hp > 0) {
+    if (nb && nb.unit && nb.unit.commander === 'ironGuard' && nb.unit.camp === unit.camp && nb.unit._shield > 0) {
       return igCmd.getAuraDefenseBonus(unit);
     }
   }

@@ -173,6 +173,9 @@ async function _executeActionInner(action, aiCamp) {
             unit._atkBonus = (unit._atkBonus || 0) + (cmdCfg.atkBonus || 0);
             unit.remainingMP += cmdCfg.spdBonus || 0;
             unit.displaySpeed += cmdCfg.spdBonus || 0;
+            if (cmdCfg.onDeploy) {
+                cmdCfg.onDeploy(unit, gameState, { getCommander });
+            }
             if (myCamp === CAMP.player1) {
                 gameState.commanderP1Deployed = true;
             } else {

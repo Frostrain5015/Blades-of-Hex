@@ -117,8 +117,8 @@ export class Unit {
             }
         }
 
-        // 禁锢 / 不可移动
-        if (this._shield > 0) {
+        // 护盾（铁卫永久护盾不在效果区显示，已在HP条中体现）
+        if (this._shield > 0 && !(this.commander === 'ironGuard' && this._shieldTurns >= 999)) {
             effects.push({ label: '护盾', desc: `${Math.round(this._shield)}/${this._shieldMax}（${this._shieldTurns}回合）`, color: '#66bbff' });
         }
         if (this._imprisoned) {
@@ -429,43 +429,44 @@ export class Unit {
         // ── Iron Guard shield marker (above flag, same layer as berserker rage) ──
         if (this.commander === 'ironGuard') {
             ctx.save();
+            const shieldRatio = Math.min(1, this._shield / Math.max(this._shieldMax, 1));
             const shieldPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
             const shieldY = visualY - HEX_SIZE * 0.82;
             const inFlash = Date.now() < this._shieldPulseUntil;
             const flashT = inFlash ? 1 - (this._shieldPulseUntil - Date.now()) / 800 : 0;
 
-            // 承伤扩散环（呼吸灯式向外扩散）
+            // 承伤扩散环（呼吸灯式向外扩散）— 强度随护盾比例
             if (inFlash) {
                 const ringR = HEX_SIZE * 0.2 + flashT * HEX_SIZE * 1.5;
-                const ringAlpha = (1 - flashT) * 0.7;
+                const ringAlpha = (1 - flashT) * 0.7 * shieldRatio;
                 ctx.beginPath();
                 ctx.arc(visualX, shieldY, ringR, 0, Math.PI * 2);
                 ctx.strokeStyle = `rgba(140,200,255,${ringAlpha})`;
-                ctx.lineWidth = 3 * (1 - flashT) + 1;
+                ctx.lineWidth = (3 * (1 - flashT) + 1) * shieldRatio;
                 ctx.stroke();
                 const ring2R = ringR + HEX_SIZE * 0.25;
-                const ring2Alpha = (1 - flashT) * 0.35;
+                const ring2Alpha = (1 - flashT) * 0.35 * shieldRatio;
                 ctx.beginPath();
                 ctx.arc(visualX, shieldY, ring2R, 0, Math.PI * 2);
                 ctx.strokeStyle = `rgba(180,220,255,${ring2Alpha})`;
-                ctx.lineWidth = 2 * (1 - flashT);
+                ctx.lineWidth = (2 * (1 - flashT)) * shieldRatio;
                 ctx.stroke();
             }
 
-            // base glow ring
-            const baseAlpha = inFlash ? 0.25 + flashT * 0.3 : 0.12 + shieldPulse * 0.12;
+            // base glow ring — 强度随护盾比例
+            const baseAlpha = shieldRatio * (inFlash ? 0.25 + flashT * 0.3 : 0.12 + shieldPulse * 0.12);
             drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 2,
-                `rgba(100,160,220,${baseAlpha})`, 2);
+                `rgba(100,160,220,${baseAlpha})`, 1 + shieldRatio);
 
-            // shield glyph — brighter during flash
-            const glyphAlpha = inFlash ? 0.9 + flashT * 0.1 : 0.7 + shieldPulse * 0.3;
+            // shield glyph — 强度随护盾比例
+            const glyphAlpha = shieldRatio * (inFlash ? 0.9 + flashT * 0.1 : 0.7 + shieldPulse * 0.3);
             ctx.fillStyle = `rgba(130,200,255,${glyphAlpha})`;
-            const glyphSize = inFlash ? 13 + flashT * 4 : 13;
+            const glyphSize = 13 * (0.6 + 0.4 * shieldRatio);
             ctx.font = `bold ${Math.round(glyphSize)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.shadowColor = inFlash ? '#aaddff' : '#5599cc';
-            ctx.shadowBlur = inFlash ? 8 + flashT * 8 : 5;
+            ctx.shadowBlur = shieldRatio * (inFlash ? 8 + flashT * 8 : 5);
             ctx.fillText('🛡', visualX, shieldY);
             ctx.shadowBlur = 0;
             ctx.restore();
@@ -700,11 +701,20 @@ export class Unit {
             if (actualDmg <= 0) return false;
         }
 
-        // 铁卫灵光：相邻友军所受伤害50%转由铁卫承担
+        // 铁卫灵光：相邻友军所受伤害由铁卫护盾承担
         if (!_skipAura && this.commander !== 'ironGuard' && _gameState) {
             const ironGuard = this._findAdjacentFriendlyIronGuard();
-            if (ironGuard && ironGuard.hp > 0) {
-                actualDmg = getCommanderAllyAuraDamage(this, actualDmg, ironGuard);
+            if (ironGuard && ironGuard._shield > 0) {
+                getCommanderAllyAuraDamage(this, actualDmg, ironGuard);
+                // 移除友军头顶伤害数字（伤害已由铁卫护盾吸收）
+                const dts = _gameState.damageTexts;
+                for (let i = dts.length - 1; i >= 0; i--) {
+                    if (dts[i].x === this.tile.x && dts[i].y === this.tile.y) {
+                        dts.splice(i, 1);
+                        break;
+                    }
+                }
+                actualDmg = 0;
             }
         }
 
@@ -754,7 +764,7 @@ export class Unit {
         const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
         for (const [dq, dr] of dirs) {
             const neighbor = tileMap.get(`${this.tile.q + dq},${this.tile.r + dr}`);
-            if (neighbor && neighbor.unit && neighbor.unit.commander === 'ironGuard' && neighbor.unit.camp === this.camp && neighbor.unit.hp > 0) {
+            if (neighbor && neighbor.unit && neighbor.unit.commander === 'ironGuard' && neighbor.unit.camp === this.camp && neighbor.unit._shield > 0) {
                 return neighbor.unit;
             }
         }

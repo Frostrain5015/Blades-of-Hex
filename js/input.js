@@ -248,17 +248,16 @@ function showTooltipForTile(tile) {
             tooltipHeader.appendChild(rc);
         }
 
-        const hpRatio = unit.hp / unit.maxHp;
-        const shieldRatio = unit._shield > 0 ? unit._shield / unit.maxHp : 0;
-        const hpColor = hpRatio > 0.5 ? '#4CAF50' : hpRatio > 0.25 ? '#FF9800' : '#f44336';
-        const totalRatio = hpRatio + shieldRatio;
+        const totalBase = unit.maxHp + (unit._shield > 0 ? unit._shield : 0);
+        const hpRatio = unit.hp / totalBase;
+        const shieldRatio = unit._shield > 0 ? unit._shield / totalBase : 0;
+        const hpColor = (unit.hp / unit.maxHp) > 0.5 ? '#4CAF50' : (unit.hp / unit.maxHp) > 0.25 ? '#FF9800' : '#f44336';
         // HP+shield combined bar: green=HP, blue=shield
-        tooltipHpFill.style.width = (totalRatio * 100) + '%';
+        tooltipHpFill.style.width = ((hpRatio + shieldRatio) * 100) + '%';
         if (shieldRatio > 0) {
-            tooltipHpFill.style.background = `linear-gradient(to right, ${hpColor} ${(hpRatio/totalRatio*100)}%, #66bbff ${(hpRatio/totalRatio*100)}%)`;
+            tooltipHpFill.style.background = `linear-gradient(to right, ${hpColor} ${(hpRatio/(hpRatio+shieldRatio)*100)}%, #66bbff ${(hpRatio/(hpRatio+shieldRatio)*100)}%)`;
         } else {
-            tooltipHpFill.style.backgroundColor = hpColor;
-            tooltipHpFill.style.background = '';
+            tooltipHpFill.style.background = hpColor;
         }
         const cmdCfgHp = unit.commander ? getCommander(unit.commander) : null;
         const cmdHpBonus = cmdCfgHp ? cmdCfgHp.hpBonus : 0;
@@ -407,7 +406,7 @@ function showTooltipForTile(tile) {
         if (auraDefBonus > 0) {
             const auraLine = unit.commander === 'ironGuard'
                 ? `<span style="color:#7eb8ff;">【守护灵光】防御力+10%</span>`
-                : `<span style="color:#7eb8ff;">【守护灵光】防御力+10%，50%伤害转由铁卫承担</span>`;
+                : `<span style="color:#7eb8ff;">【守护灵光】防御力+10%，伤害由铁卫护盾承担</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
         }
 
@@ -445,7 +444,7 @@ function showTooltipForTile(tile) {
         if (isCity) {
             const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : tile.camp === CAMP.player3 ? '绿军' : '中立';
             terrainDesc = `由${ownerName}控制`;
-            if (tile._cityDisabledUntil >= gameState.turnCounter) {
+            if (tile._cityDisabledUntil > 0 && tile._cityDisabledUntil >= gameState.turnCounter) {
                 terrainDesc += ' 🚫 遭到空袭，本回合无法产金或招募';
             }
         } else {
