@@ -1184,8 +1184,8 @@ async function handleRemoteAction(msg) {
                         case 'shield': {
                             const st = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
                             if (st && st.unit) {
-                                st.unit._shield = 50;
-                                st.unit._shieldMax = 50;
+                                st.unit._shield += 50;
+                                st.unit._shieldMax = Math.max(st.unit._shieldMax, st.unit._shield);
                                 st.unit._shieldTurns = 3;
                             }
                             playSound('recruit');
@@ -1250,8 +1250,7 @@ async function handleRemoteAction(msg) {
                             break;
                         }
                         case 'landmine':
-                            playSound('recruit');
-                            spawnCommanderSkillEffect(e.x, e.y, '💣', '地雷');
+                            // deploy VFX only for releaser; explosion broadcast via mineTrigger in move
                             break;
                         case 'commanderDeploy':
                             playSound('recruit');

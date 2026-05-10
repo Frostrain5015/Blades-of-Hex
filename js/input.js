@@ -249,13 +249,22 @@ function showTooltipForTile(tile) {
         }
 
         const hpRatio = unit.hp / unit.maxHp;
+        const shieldRatio = unit._shield > 0 ? unit._shield / unit.maxHp : 0;
         const hpColor = hpRatio > 0.5 ? '#4CAF50' : hpRatio > 0.25 ? '#FF9800' : '#f44336';
-        tooltipHpFill.style.width = (hpRatio * 100) + '%';
-        tooltipHpFill.style.backgroundColor = hpColor;
+        const totalRatio = hpRatio + shieldRatio;
+        // HP+shield combined bar: green=HP, blue=shield
+        tooltipHpFill.style.width = (totalRatio * 100) + '%';
+        if (shieldRatio > 0) {
+            tooltipHpFill.style.background = `linear-gradient(to right, ${hpColor} ${(hpRatio/totalRatio*100)}%, #66bbff ${(hpRatio/totalRatio*100)}%)`;
+        } else {
+            tooltipHpFill.style.backgroundColor = hpColor;
+            tooltipHpFill.style.background = '';
+        }
         const cmdCfgHp = unit.commander ? getCommander(unit.commander) : null;
         const cmdHpBonus = cmdCfgHp ? cmdCfgHp.hpBonus : 0;
         const hpBonusStr = cmdHpBonus > 0 ? `<span style="font-size:9px;color:#ffd700;"> (+${cmdHpBonus})</span>` : '';
-        tooltipHpText.innerHTML = `❤ ${Math.round(unit.hp)}/${unit.maxHp}${hpBonusStr}`;
+        const shieldStr = unit._shield > 0 ? `<span style="color:#66bbff;">+🛡${Math.round(unit._shield)}</span>` : '';
+        tooltipHpText.innerHTML = `❤ ${Math.round(unit.hp)}/${unit.maxHp}${hpBonusStr}${shieldStr}`;
         tooltipHpBar.style.display = '';
 
         const effAtk = unit.getEffectiveAttack();

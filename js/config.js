@@ -176,7 +176,7 @@ export { getCommander } from '../commander/index.js';
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {
     clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
-    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城回血20% · 雷击伤害翻倍' },
+    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城回血20% · 雷击伤害1.5倍' },
     fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵冲锋1格生效 伤害+30%' },
     wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 伤害+15% · 步兵无法暴击' }
 };
@@ -201,7 +201,7 @@ export const TACTICAL_CARD_CONFIG = {
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             let dmg = 40 + Math.floor(Math.random() * 21);
-            if (gameState.weather === 'rain') dmg *= 2;
+            if (gameState.weather === 'rain') dmg = Math.floor(dmg * 1.5);
             targetTile.unit.hp = Math.max(0, targetTile.unit.hp - dmg);
             return { dmg, targetTile };
         }
@@ -266,7 +266,14 @@ export const TACTICAL_CARD_CONFIG = {
                 const isCity = ht === targetTile;
                 const dmg = isCity ? dmgBase * 2 : dmgBase;
                 if (ht.unit) {
-                    ht.unit.hp = Math.max(0, ht.unit.hp - dmg);
+                    // shield absorbs first, then HP
+                    let remaining = dmg;
+                    if (ht.unit._shield > 0) {
+                        const absorbed = Math.min(ht.unit._shield, remaining);
+                        ht.unit._shield -= absorbed;
+                        remaining -= absorbed;
+                    }
+                    ht.unit.hp = Math.max(0, ht.unit.hp - remaining);
                     results.push({ q: ht.q, r: ht.r, dmg, killed: ht.unit.hp <= 0 });
                 }
                 if (isCity) {
@@ -281,8 +288,8 @@ export const TACTICAL_CARD_CONFIG = {
         desc: '【护盾】\n对任意单位释放，获得50点护盾，持续3回合（优先吸收伤害）',
         targeting: 'shieldTarget',
         execute(targetTile, gameState, helpers) {
-            targetTile.unit._shield = 50;
-            targetTile.unit._shieldMax = 50;
+            targetTile.unit._shield += 50;
+            targetTile.unit._shieldMax = Math.max(targetTile.unit._shieldMax, targetTile.unit._shield);
             targetTile.unit._shieldTurns = 3;
             return { shielded: true, targetTile };
         }
@@ -300,7 +307,7 @@ export const TACTICAL_CARD_CONFIG = {
     commanderDeploy: {
         id: 'commanderDeploy', name: '部署将领', icon: '🎖️',
         desc: '【部署将领】\n将所选将领挂载到指定己方单位上\n',
-        targeting: 'friendlyAlive',
+        targeting: 'friendlyAny',
         execute(targetTile, gameState, helpers) {
             const unitCamp = targetTile.unit.camp;
             const cmdKey = unitCamp === CAMP.player1 ? gameState.commanderP1 : unitCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;

@@ -364,7 +364,6 @@ export function planActions(gameState, helpers, myCamp) {
                 }
             }
         } else if (cardId === 'airdrop') {
-            // 在主攻目标附近的空地空降
             if (primaryObjective) {
                 const nearEmpty = gameState.tiles.filter(t =>
                     !t.unit && hexDistance(t, primaryObjective) <= 2);
@@ -373,6 +372,51 @@ export function planActions(gameState, helpers, myCamp) {
                     actions.push({ type: 'tacticalCard', cardId: 'airdrop', targetId: nearEmpty[0].id });
                     cardUses++;
                 }
+            }
+        } else if (cardId === 'airstrike') {
+            // target strongest enemy city near primary objective
+            const enemyCities = gameState.tiles.filter(t =>
+                t.isCity && t.camp !== myCamp);
+            if (enemyCities.length > 0) {
+                enemyCities.sort((a, b) => {
+                    const da = primaryObjective ? hexDistance(a, primaryObjective) : 50;
+                    const db = primaryObjective ? hexDistance(b, primaryObjective) : 50;
+                    return da - db;
+                });
+                actions.push({ type: 'tacticalCard', cardId: 'airstrike', targetId: enemyCities[0].id });
+                cardUses++;
+            }
+        } else if (cardId === 'shield') {
+            // shield the unit with highest attack stat or commander
+            let best = null, bestScore = 0;
+            for (const u of allUnits) {
+                let s = u.config.attack * 2 + u.hp * 0.3;
+                if (u.commander) s += 50;
+                if (s > bestScore) { bestScore = s; best = u; }
+            }
+            if (bestScore >= 40) {
+                actions.push({ type: 'tacticalCard', cardId: 'shield', targetId: best.id });
+                cardUses++;
+            }
+        } else if (cardId === 'landmine') {
+            // place mine on empty friendly tile near primary objective or own city
+            if (primaryObjective) {
+                const mineSpots = gameState.tiles.filter(t =>
+                    !t.unit && !t.isCity && t.camp === myCamp
+                    && hexDistance(t, primaryObjective) <= 4);
+                if (mineSpots.length > 0) {
+                    mineSpots.sort((a, b) => hexDistance(a, primaryObjective) - hexDistance(b, primaryObjective));
+                    actions.push({ type: 'tacticalCard', cardId: 'landmine', targetId: mineSpots[0].id });
+                    cardUses++;
+                }
+            }
+        } else if (cardId === 'forceMarch') {
+            // use on a unit that already acted, to give it a second action
+            const exhausted = allUnits.filter(u => !u.canAct && u.commander);
+            if (exhausted.length > 0) {
+                exhausted.sort((a, b) => (b.config.attack || 0) - (a.config.attack || 0));
+                actions.push({ type: 'tacticalCard', cardId: 'forceMarch', targetId: exhausted[0].id });
+                cardUses++;
             }
         }
     }
