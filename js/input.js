@@ -62,8 +62,8 @@ function _handleCardCanvasClick(e) {
         _localDrawArmed = false;
         const drawn = drawCard(myCamp);
         if (drawn) {
-            // new top card always lands at leftmost position: cxBase + cardW/2 = W/2
-            const endX = W / 2;
+            // new top card lands at leftmost stack position
+            const endX = 8 + cardW / 2;
             const endY = H - 120 + cardH / 2;
             triggerFlyingCard(drawn, pileX + pileW / 2, pileY + pileH / 2, endX, endY);
         }
@@ -75,7 +75,7 @@ function _handleCardCanvasClick(e) {
     const n = hand.length;
     if (n === 0) return;
 
-    const cxBase2 = W / 2 - cardW / 2;
+    const cxBase2 = 8;
     const cyBase2 = H - 120;
 
     // search from top card down
@@ -565,7 +565,7 @@ export function initInput() {
             const n2 = hand2.length;
             if (n2 === 0) return;
             const cardW2 = 90, cardH2 = 130, peekW2 = 40;
-            const cxBase2 = W / 2 - cardW2 / 2;
+            const cxBase2 = 8;
             const cyBase2 = H - 120;
 
             // search from top card (highest index) downward

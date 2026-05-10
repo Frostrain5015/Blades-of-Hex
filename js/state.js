@@ -488,6 +488,7 @@ export function serializeState() {
             gongxinCampKey: t.unit._gongxinCamp ? _campToKey(t.unit._gongxinCamp) : null,
             imprisoned: t.unit._imprisoned || false,
             isImmobile: t.unit._isImmobile || false,
+            airdropWaiting: t.unit._airdropWaiting || false,
             shield: t.unit._shield || 0,
             shieldMax: t.unit._shieldMax || 0,
             shieldTurns: t.unit._shieldTurns || 0
@@ -660,6 +661,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             }
             unit._imprisoned = td.unit.imprisoned || false;
             unit._isImmobile = td.unit.isImmobile || false;
+            unit._airdropWaiting = td.unit.airdropWaiting || false;
             unit._shield = td.unit.shield || 0;
             unit._shieldMax = td.unit.shieldMax || 0;
             unit._shieldTurns = td.unit.shieldTurns || 0;

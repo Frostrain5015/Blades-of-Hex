@@ -11,7 +11,7 @@ import { CAMP } from './config.js';
 import {
     clearTransientEffects, triggerTurnFlash,
     triggerAttackFlash, triggerRecruitFlash,
-    spawnExplosionParticles, spawnDirectionalParticles,
+    spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect, spawnSlashMarks,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
     spawnProjectile, triggerRecoil, triggerCharge,
@@ -1053,7 +1053,7 @@ async function handleRemoteAction(msg) {
     _checkSpectatorBanner();
 
     if (gameState.gameOver && !wasGameOver) {
-        triggerVictoryEffect();
+        setTimeout(() => triggerVictoryEffect(), 1500);
         return;
     }
 
@@ -1113,6 +1113,18 @@ async function handleRemoteAction(msg) {
                 if (e.cmdFx) {
                     spawnCommanderSkillEffect(e.cmdFx.x, e.cmdFx.y, e.cmdFx.glyph, e.cmdFx.label);
                 }
+                if (e.mineTrigger) {
+                    spawnDirectionalParticles(e.mineTrigger.x, e.mineTrigger.y + 10, e.mineTrigger.x, e.mineTrigger.y - 50, '#ff4400', 20);
+                    spawnDirectionalParticles(e.mineTrigger.x, e.mineTrigger.y + 10, e.mineTrigger.x, e.mineTrigger.y - 50, '#ffaa00', 12);
+                    spawnExplosionParticles(e.mineTrigger.x, e.mineTrigger.y, '#664400', 8);
+                    triggerScreenShake(6, 250);
+                    playSound('attack');
+                    gameState.damageTexts.push({
+                        x: e.mineTrigger.x, y: e.mineTrigger.y,
+                        value: e.mineTrigger.dmg, isCrit: true,
+                        timeLeft: 900, lastUpdate: Date.now()
+                    });
+                }
             }
             break;
         case 'endTurn':
@@ -1133,33 +1145,71 @@ async function handleRemoteAction(msg) {
                 const cardType = e.cardId;
                 setTimeout(() => {
                     switch (cardType) {
-                        case 'lightning':
+                        case 'lightning': {
+                            const lt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
+                            if (lt && lt.unit && e.dmg) {
+                                lt.unit.hp = Math.max(0, lt.unit.hp - e.dmg);
+                                if (lt.unit.hp <= 0) {
+                                    const dc = lt.unit.camp;
+                                    const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                                    gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                    lt.unit = null;
+                                    spawnExplosionParticles(e.x, e.y, '#ff4400', 28);
+                                    spawnExplosionParticles(e.x, e.y, '#ffaa00', 14);
+                                    triggerScreenShake(4, 150);
+                                }
+                            }
                             playSound('attack');
                             spawnLightningStrike(e.x, e.y);
                             triggerScreenShake(10, 350);
-                            if (e.dmg && !gameState.damageTexts) gameState.damageTexts = [];
                             if (e.dmg) gameState.damageTexts.push({
-                                x: e.x, y: e.y,
-                                value: e.dmg, isTrueDmg: true,
+                                x: e.x, y: e.y, value: e.dmg, isTrueDmg: true,
                                 timeLeft: 1000, lastUpdate: Date.now()
                             });
                             break;
-                        case 'heal':
+                        }
+                        case 'heal': {
+                            const ht = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
+                            if (ht && ht.unit && e.healAmt) {
+                                ht.unit.hp = Math.min(ht.unit.maxHp, ht.unit.hp + e.healAmt);
+                                gameState.healTexts.push({
+                                    x: e.x, y: e.y, value: e.healAmt,
+                                    timeLeft: 1000, lastUpdate: Date.now()
+                                });
+                                spawnHealParticles(e.x, e.y);
+                                playSound('recruit');
+                            }
+                            break;
+                        }
+                        case 'shield': {
+                            const st = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
+                            if (st && st.unit) {
+                                st.unit._shield = 50;
+                                st.unit._shieldMax = 50;
+                                st.unit._shieldTurns = 3;
+                            }
                             playSound('recruit');
-                            spawnHealParticles(e.x, e.y);
-                            if (e.actual && !gameState.healTexts) gameState.healTexts = [];
-                            if (e.actual) gameState.healTexts.push({
-                                x: e.x, y: e.y, value: e.actual,
-                                timeLeft: 1000, lastUpdate: Date.now()
-                            });
+                            spawnCommanderSkillEffect(e.x, e.y, '🛡️', '护盾');
                             break;
-                        case 'mgNest':
+                        }
+                        case 'mgNest': {
+                            const mgTile = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
+                            if (mgTile && mgTile.unit) mgTile.unit._airdropWaiting = false;
                             playSound('recruit');
                             spawnRecruitEffect(e.x, e.y);
                             break;
+                        }
                         case 'airdrop':
                             spawnAirstrikeEffect(e.x, e.y, [], 'airdrop');
                             setTimeout(() => {
+                                const adTile = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
+                                if (adTile && adTile.unit) {
+                                    adTile.unit._airdropWaiting = false;
+                                    if (adTile.isCity && adTile.unit.camp !== adTile.camp) {
+                                        spawnExplosionParticles(e.x, e.y, '#ffd700', 12);
+                                        spawnGoldParticles(e.x, e.y);
+                                    }
+                                }
                                 playSound('recruit');
                                 spawnRecruitEffect(e.x, e.y);
                             }, 1600);
@@ -1168,11 +1218,29 @@ async function handleRemoteAction(msg) {
                             playSound('recruit');
                             spawnCommanderSkillEffect(e.x, e.y, '🔗', '禁锢');
                             break;
-                        case 'forceMarch':
+                        case 'forceMarch': {
+                            const fm = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
+                            if (fm && fm.unit) {
+                                fm.unit.canAct = true;
+                                fm.unit.remainingMP += 2;
+                            }
                             playSound('recruit');
                             spawnCommanderSkillEffect(e.x, e.y, '🏃', '强行军');
                             break;
-                        case 'airstrike':
+                        }
+                        case 'airstrike': {
+                            // re-apply kills on remote
+                            if (e.killedTiles) {
+                                for (const kt of e.killedTiles) {
+                                    const tile = gameState.tileMap.get(`${kt.q},${kt.r}`);
+                                    if (tile && tile.unit) {
+                                        const dc = tile.unit.camp;
+                                        const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                                        gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                        tile.unit = null;
+                                    }
+                                }
+                            }
                             spawnAirstrikeEffect(e.x, e.y, []);
                             setTimeout(() => {
                                 playSound('attack');
@@ -1180,10 +1248,7 @@ async function handleRemoteAction(msg) {
                                 triggerScreenShake(6, 300);
                             }, 1600);
                             break;
-                        case 'shield':
-                            playSound('recruit');
-                            spawnCommanderSkillEffect(e.x, e.y, '🛡️', '护盾');
-                            break;
+                        }
                         case 'landmine':
                             playSound('recruit');
                             spawnCommanderSkillEffect(e.x, e.y, '💣', '地雷');
