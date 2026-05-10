@@ -85,6 +85,19 @@ export function renderGame() {
             ctx.restore();
         }
     }
+    // City disabled indicator (same layer as Iron Guard shield)
+    for (let i = 0, len = tiles.length; i < len; i++) {
+        const tile = tiles[i];
+        if (!tile.isCity || !tile._cityDisabledUntil || tile._cityDisabledUntil < gameState.turnCounter) continue;
+        const pulse = (Math.sin(now / 400) + 1) / 2;
+        ctx.save();
+        ctx.font = '18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = `rgba(255,80,80,${0.6 + pulse * 0.4})`;
+        ctx.fillText('🚫', tile.x, tile.y - HEX_SIZE - 16);
+        ctx.restore();
+    }
     // Flag finials + cloth (after units, overlays the badge)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagFinialAndCloth();
 
@@ -739,12 +752,13 @@ function drawCommanderSkillEffects(now) {
 // ===== 铁卫灵光（7格集群外边界） =====================
 function drawIronGuardAura(now) {
     const pulse = (Math.sin(now / 400) + 1) / 2;
-    const alpha = 0.45 + pulse * 0.30;
-    const fillAlpha = 0.04 + pulse * 0.04;
 
     for (const tile of gameState.tiles) {
         const u = tile.unit;
-        if (!u || u.commander !== 'ironGuard' || u.hp <= 0) continue;
+        if (!u || u.commander !== 'ironGuard' || u._shield <= 0) continue;
+        const shieldRatio = Math.min(1, u._shield / Math.max(u._shieldMax, 1));
+        const alpha = (0.45 + pulse * 0.30) * shieldRatio;
+        const fillAlpha = (0.04 + pulse * 0.04) * shieldRatio;
         const campName = u.camp.name;
         const clr = campName === '红军' ? `rgba(255,80,80,${alpha})`
                   : campName === '绿军' ? `rgba(80,255,80,${alpha})`
@@ -793,9 +807,9 @@ function drawIronGuardAura(now) {
         ctx.fill();
         // 外发光宽描边
         ctx.strokeStyle = clr;
-        ctx.lineWidth = 3.5;
+        ctx.lineWidth = 1 + shieldRatio * 2.5;
         ctx.shadowColor = clr;
-        ctx.shadowBlur = 14 + pulse * 6;
+        ctx.shadowBlur = (14 + pulse * 6) * shieldRatio;
         ctx.stroke();
         ctx.restore();
     }
@@ -1687,16 +1701,4 @@ function drawAirstrikeEffects(now) {
         }
     }
 
-    // city disabled indicator
-    for (const tile of gameState.tiles) {
-        if (!tile.isCity || !tile._cityDisabledUntil || tile._cityDisabledUntil < gameState.turnCounter) continue;
-        const pulse = (Math.sin(now / 400) + 1) / 2;
-        ctx.save();
-        ctx.font = '18px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = `rgba(255,80,80,${0.6 + pulse * 0.4})`;
-        ctx.fillText('🚫', tile.x, tile.y - HEX_SIZE - 16);
-        ctx.restore();
-    }
 }

@@ -254,10 +254,10 @@ export const TACTICAL_CARD_CONFIG = {
     },
     airstrike: {
         id: 'airstrike', name: '空袭', icon: '✈️',
-        desc: '【空袭】\n对敌方城市释放，城市及周边6格造成10~15伤害（城市翻倍），1回合内该城市无法产金或招募',
+        desc: '【空袭】\n对敌方城市释放，城市及周边6格造成20~30伤害（城市翻倍），2回合内该城市无法产金或招募',
         targeting: 'enemyCity',
         execute(targetTile, gameState, helpers) {
-            const dmgBase = 10 + Math.floor(Math.random() * 6);
+            const dmgBase = 20 + Math.floor(Math.random() * 11);
             const results = [];
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             for (const [dq, dr] of dirs) {
@@ -277,7 +277,7 @@ export const TACTICAL_CARD_CONFIG = {
                     results.push({ q: ht.q, r: ht.r, dmg, killed: ht.unit.hp <= 0 });
                 }
                 if (isCity) {
-                    ht._cityDisabledUntil = (gameState.turnCounter || 0) + 2;
+                    ht._cityDisabledUntil = (gameState.turnCounter || 0) + 1;
                 }
             }
             return { airstrike: true, targetTile, results, dmgBase };
@@ -320,6 +320,9 @@ export const TACTICAL_CARD_CONFIG = {
                 targetTile.unit._atkBonus = (targetTile.unit._atkBonus || 0) + (cmdCfg.atkBonus || 0);
                 targetTile.unit.remainingMP += cmdCfg.spdBonus || 0;
                 targetTile.unit.displaySpeed += cmdCfg.spdBonus || 0;
+            }
+            if (cmdCfg && cmdCfg.onDeploy) {
+                cmdCfg.onDeploy(targetTile.unit, gameState, helpers);
             }
             if (unitCamp === CAMP.player1) gameState.commanderP1Deployed = true;
             else if (unitCamp === CAMP.player2) gameState.commanderP2Deployed = true;

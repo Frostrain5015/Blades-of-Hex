@@ -544,7 +544,7 @@ async function _doEndTurnPhase() {
 
     // Income（中立减半，仅作象征性抵抗）
     const key = _campKey(camp);
-    const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp && !(t._cityDisabledUntil >= gameState.turnCounter));
+    const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp && !(t._cityDisabledUntil > 0 && t._cityDisabledUntil >= gameState.turnCounter));
     const cityCount = cities.length;
     const income = camp === CAMP.neutral ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
     gameState.playerGold[key] += income;
@@ -727,7 +727,7 @@ export function recruitUnit(type) {
         notify('该城市不属于当前阵营，无法招募', 'error');
         return;
     }
-    if (selectedCityTile._cityDisabledUntil >= gameState.turnCounter) {
+    if (selectedCityTile._cityDisabledUntil > 0 && selectedCityTile._cityDisabledUntil >= gameState.turnCounter) {
         notify('该城市遭到空袭，本回合无法招募', 'error');
         return;
     }
@@ -1526,6 +1526,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     let _savedHPs = null;
     let _mgNestSaved = null;
     let _shieldSaved = null;
+    let _cityDisabledSaved = null;
     if (isDelayedCard) {
         _savedHPs = [];
         if (cardId === 'lightning' && targetTile.unit) {
@@ -1536,6 +1537,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
                 if (ht && ht.unit) _savedHPs.push({ tile: ht, hp: ht.unit.hp, shield: ht.unit._shield });
             }
+            _cityDisabledSaved = targetTile._cityDisabledUntil;
         } else if (cardId === 'mgNest') {
             _mgNestSaved = targetTile.unit;
         } else if (cardId === 'shield' && targetTile.unit) {
@@ -1560,6 +1562,10 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         _shieldSaved.unit._shield = _shieldSaved.shield;
         _shieldSaved.unit._shieldMax = _shieldSaved.shieldMax;
         _shieldSaved.unit._shieldTurns = _shieldSaved.shieldTurns;
+    }
+    // undo visual: restore city disabled state (re-applied after burn)
+    if (_cityDisabledSaved !== null) {
+        targetTile._cityDisabledUntil = _cityDisabledSaved;
     }
     // restore HP/shield for damage cards — re-apply in setTimeout
     if (_savedHPs) {
@@ -1698,6 +1704,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         });
                     }
                 }
+                // re-apply city disabled after burn
+                targetTile._cityDisabledUntil = (gameState.turnCounter || 0) + 1;
                 triggerScreenShake(6, 300);
                 playSound('attack');
             }, BURN_MS);
