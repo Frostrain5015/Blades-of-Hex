@@ -21,6 +21,9 @@ export class HexTile {
         this.currentColor = this.camp.color;
         this.fadeDuration = 1500;
         this.fadeStartTime = null;
+        this._minePlanted = false;
+        this._mineCampKey = null;
+        this._cityDisabledUntil = 0;
 
         this.x = (LOGICAL_W / 2) + HEX_WIDTH * (q + r * 0.5);
         this.y = LOGICAL_H / 2 + (3 / 2 * HEX_SIZE) * r;
