@@ -1029,19 +1029,21 @@ let _remoteAiRunning = false;  // 防止远程AI重入
 async function handleRemoteAction(msg) {
     const wasGameOver = gameState.gameOver;
 
-    // 服务器下发的暂存状态：无条件显示游戏界面并恢复
+    // 服务器下发的暂存状态：仅在尚未开始对局时恢复（防止对战中途地形重绘）
     if (msg.actionType === 'stateSync') {
-        document.getElementById('lobbyOverlay').style.display = 'none';
-        document.getElementById('gameWrapper').style.display = '';
-        document.getElementById('roomWaiting').style.display = 'none';
-        document.getElementById('opponentTurnBanner').style.display = '';
-        document.getElementById('networkIndicator').style.display = 'flex';
-        document.body.style.pointerEvents = '';
-        _deploymentStarted = true;
-        applyRemoteState(msg.state, HexTile, Unit);
-        updateUI();
-        renderGame();
-        _checkSpectatorBanner();
+        if (!_deploymentStarted) {
+            document.getElementById('lobbyOverlay').style.display = 'none';
+            document.getElementById('gameWrapper').style.display = '';
+            document.getElementById('roomWaiting').style.display = 'none';
+            document.getElementById('opponentTurnBanner').style.display = '';
+            document.getElementById('networkIndicator').style.display = 'flex';
+            document.body.style.pointerEvents = '';
+            _deploymentStarted = true;
+            applyRemoteState(msg.state, HexTile, Unit);
+            updateUI();
+            renderGame();
+            _checkSpectatorBanner();
+        }
         return;
     }
 
