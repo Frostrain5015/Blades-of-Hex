@@ -5,6 +5,7 @@ import vampire   from './vampire.js';
 import staller   from './staller.js';
 import centurion from './centurion.js';
 import minister  from './minister.js';
+import martyr    from './martyr.js';
 
 import berserker   from './berserker.js';
 import fallenAngel from './fallenAngel.js';
@@ -16,6 +17,7 @@ const allCommanders = {
   staller,
   centurion,
   minister,
+  martyr,
   berserker,
   fallenAngel
 };
@@ -30,14 +32,24 @@ export function getAllCommanderIds() {
   return Object.keys(allCommanders);
 }
 
-export function shuffleAndSplitPool() {
+export function shuffleAndSplitPool(isThreePlayer = false) {
   const keys = Object.keys(allCommanders);
   for (let i = keys.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [keys[i], keys[j]] = [keys[j], keys[i]];
   }
+  if (isThreePlayer) {
+    // 9个将领平均分3池
+    return {
+      p1: keys.slice(0, 3),
+      p2: keys.slice(3, 6),
+      p3: keys.slice(6, 9)
+    };
+  }
+  // 双人模式：9选6后对半分，每人3选1
+  const pool = keys.slice(0, 6);
   return {
-    p1: keys.slice(0, 4),
-    p2: keys.slice(4, 8)
+    p1: pool.slice(0, 3),
+    p2: pool.slice(3, 6)
   };
 }

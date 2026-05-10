@@ -8,6 +8,17 @@ import {
     executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale
 } from './gameLogic.js';
 import { clearTransientEffects, spawnCommanderSkillEffect } from './effects.js';
+
+function _getMyCampInput() {
+    if (isNetworkGame()) {
+        const role = getMyRole();
+        if (role === 'player1') return CAMP.player1;
+        if (role === 'player2') return CAMP.player2;
+        if (role === 'player3') return CAMP.player3;
+        return CAMP.player1;
+    }
+    return gameState.currentCamp;
+}
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
 
@@ -218,6 +229,12 @@ function showTooltipForTile(tile) {
                 } else if (unit.commander === 'minister') {
                     active = !!(unit.tile && unit.tile.isCity);
                     statusNote = active ? '（生效中）' : '（未驻扎城市，未生效）';
+                } else if (unit.commander === 'martyr') {
+                    if (unit._martyrPrimed) {
+                        cmdColor = '#ff3300';
+                        statusNote = '【★殉道】技能已激活，';
+                        cmdDesc = '下回合开始时对2格范围内所有非己方单位造成大量范围伤害';
+                    }
                 } else if (unit.commander === 'berserker') {
                     if (unit.activeSkillDur > 0) {
                         // 激活中 → 限时效果区显示 buff 详情，此处仅标识
@@ -236,7 +253,7 @@ function showTooltipForTile(tile) {
 
                 const color = active ? cmdColor : '#888';
                 const tag = (cmdCfg2.activeSkill && active && unit.activeSkillDur <= 0) ? '（主动技能）' : '';
-                const prefix = (unit.commander === 'fallenAngel') ? '' : `【☆${cmdCfg2.skill}】`;
+                const prefix = (unit.commander === 'fallenAngel' || (unit.commander === 'martyr' && unit._martyrPrimed)) ? '' : `【☆${cmdCfg2.skill}】`;
                 const cmdLine = `<span style="color:${color};">${prefix}${statusNote}${tag}${cmdDesc}</span>`;
                 skillHtml += (skillHtml ? '<br>' : '') + cmdLine;
             }
@@ -301,7 +318,7 @@ function showTooltipForTile(tile) {
         const terrainName = isCity ? '城市' : tc.name;
         let terrainDesc = '';
         if (isCity) {
-            const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : '中立';
+            const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : tile.camp === CAMP.player3 ? '绿军' : '中立';
             terrainDesc = `由${ownerName}控制`;
         } else {
             terrainDesc = `防御+${Math.round(tc.defenseBonus * 100)}%`;
@@ -436,7 +453,7 @@ export function initInput() {
             const cfg = TACTICAL_CARD_CONFIG[ct.cardId];
             if (!cfg) { cancelCardTargeting(); return; }
 
-            const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+            const myCamp = _getMyCampInput();
             let isValid = false;
             if (ct.targeting === 'enemyGlobal') {
                 isValid = clickedTile.unit && clickedTile.unit.camp !== myCamp;
@@ -538,8 +555,8 @@ export function initInput() {
         const cfg = TACTICAL_CARD_CONFIG[cardId];
         if (!cfg) return;
 
-        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
-        const campKey = myCamp === CAMP.player1 ? 'player1' : 'player2';
+        const myCamp = _getMyCampInput();
+        const campKey = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
         const cards = gameState.tacticalCards[campKey] || {};
         const cd = cards[cardId] || 0;
 
@@ -565,7 +582,7 @@ export function initInput() {
 
         // 部署将领卡已使用过则忽略
         if (cardId === 'commanderDeploy') {
-            const alreadyDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
+            const alreadyDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed;
             if (alreadyDeployed) return;
         }
 

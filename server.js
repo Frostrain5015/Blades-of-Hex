@@ -96,7 +96,7 @@ function roomList() {
     for (const [id, room] of rooms) {
         // 未开始的对局，或对局中有玩家断线（可重连）
         if (!room.gameStarted || room._disconnectedRole || (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0)) {
-            list.push({ roomId: id, playerCount: room.players.size });
+            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2 });
         }
     }
     return list;
@@ -206,14 +206,15 @@ function handleMessage(ws, rawData) {
                 sendJson(ws, { type: 'error', message: '服务器房间已满（最多 9 个），请稍后再试' });
                 break;
             }
-            const room = { id: roomId, players: new Map(), gameStarted: false };
+            const maxPlayers = msg.maxPlayers || 2; // 默认双人，可选3人
+            const room = { id: roomId, players: new Map(), gameStarted: false, maxPlayers };
             room.players.set(ws, { role: 'player1' });
             rooms.set(roomId, room);
             ws._room = room;
             ws._ready = false;
             if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
-            sendJson(ws, { type: 'roomCreated', roomId, role: 'player1' });
-            console.log(`[房间 ${roomId}] 已创建 (player1)`);
+            sendJson(ws, { type: 'roomCreated', roomId, role: 'player1', maxPlayers, playerCount: 1 });
+            console.log(`[房间 ${roomId}] 已创建 (player1, ${maxPlayers}P)`);
             break;
         }
 
@@ -229,7 +230,7 @@ function handleMessage(ws, rawData) {
             const hasDisconnected = room._disconnectedRole ||
                 (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0);
             if (room.gameStarted && hasDisconnected) {
-                if (room.players.size >= 2) {
+                if (room.players.size >= room.maxPlayers) {
                     sendJson(ws, { type: 'error', message: '房间已满' });
                     break;
                 }
@@ -278,31 +279,32 @@ function handleMessage(ws, rawData) {
             }
 
             // 正常加入流程
-            if (room.gameStarted && room.players.size >= 2) {
+            if (room.gameStarted && room.players.size >= room.maxPlayers) {
                 sendJson(ws, { type: 'error', message: '房间对局已开始' });
                 break;
             }
-            if (room.players.size >= 2) {
+            if (room.players.size >= room.maxPlayers) {
                 sendJson(ws, { type: 'error', message: '房间已满' });
                 break;
             }
             leaveCurrentRoom(ws);
             if (room.players.size === 0) reviveRoom(room, ws);
-            const role = room.players.size === 0 ? 'player1' : 'player2';
+            const nextIdx = room.players.size;
+            const role = nextIdx === 0 ? 'player1' : nextIdx === 1 ? 'player2' : 'player3';
             room.players.set(ws, { role });
             ws._room = room;
             ws._ready = false;
             if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
-            sendJson(ws, { type: 'roomJoined', roomId, role });
-            const other = [...room.players.keys()].find(p => p !== ws);
-            if (other) {
-                const otherRole = role === 'player1' ? 'player2' : 'player1';
-                sendJson(other, { type: 'opponentJoined', role: otherRole });
-                sendJson(ws, { type: 'opponentJoined', role: role === 'player1' ? 'player2' : 'player1' });
-                console.log(`[房间 ${roomId}] 双方到齐`);
-            } else {
-                console.log(`[房间 ${roomId}] 玩家加入（等待对手）`);
+            sendJson(ws, { type: 'roomJoined', roomId, role, maxPlayers: room.maxPlayers || 2, playerCount: room.players.size });
+            // 通知房间内所有其他玩家（有人加入）
+            for (const [playerWs, playerData] of room.players) {
+                if (playerWs !== ws && playerWs.readyState === WebSocket.OPEN) {
+                    sendJson(playerWs, { type: 'opponentJoined', role: playerData.role });
+                }
             }
+            const total = room.players.size;
+            const maxP = room.maxPlayers || 2;
+            console.log(`[房间 ${roomId}] 玩家加入 (${total}/${maxP})`);
             break;
         }
 
@@ -328,21 +330,27 @@ function handleMessage(ws, rawData) {
 
         case 'ready': {
             const room = ws._room;
-            if (!room || room.players.size < 2) break;
+            if (!room || room.players.size < room.maxPlayers) break;
             ws._ready = true;
-            const other = [...room.players.keys()].find(p => p !== ws);
-            if (other) sendJson(other, { type: 'opponentReady' });
-            if (ws._ready && other && other._ready) {
-                // 双方都准备 → 开始对局
+            const others = [...room.players.keys()].filter(p => p !== ws);
+            for (const o of others) sendJson(o, { type: 'opponentReady' });
+            const allReady = ws._ready && others.every(o => o._ready);
+            if (allReady) {
                 room.gameStarted = true;
                 const players = [...room.players.keys()];
-                const roleA = Math.random() < 0.5 ? 'player1' : 'player2';
-                const roleB = roleA === 'player1' ? 'player2' : 'player1';
-                room.players.set(players[0], { ...room.players.get(players[0]), role: roleA });
-                room.players.set(players[1], { ...room.players.get(players[1]), role: roleB });
-                sendJson(players[0], { type: 'start', role: roleA });
-                sendJson(players[1], { type: 'start', role: roleB });
-                console.log(`[房间 ${room.id}] 双方准备完毕，游戏开始`);
+                const roles = room.maxPlayers === 3
+                    ? ['player1', 'player2', 'player3']
+                    : ['player1', 'player2'];
+                // 随机打乱角色
+                for (let i = roles.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [roles[i], roles[j]] = [roles[j], roles[i]];
+                }
+                for (let i = 0; i < players.length; i++) {
+                    room.players.set(players[i], { ...room.players.get(players[i]), role: roles[i] });
+                    sendJson(players[i], { type: 'start', role: roles[i], isThreePlayer: room.maxPlayers === 3 });
+                }
+                console.log(`[房间 ${room.id}] ${room.maxPlayers}人准备完毕，游戏开始`);
             }
             break;
         }
@@ -381,11 +389,14 @@ function handleMessage(ws, rawData) {
         case 'toast':
         case 'commanderSync':
         case 'action': {
-            // 游戏动作转发给房间内另一人
+            // 游戏动作转发给房间内其他人
             const room = ws._room;
             if (!room) break;
-            const other = [...room.players.keys()].find(p => p !== ws);
-            if (other) sendJson(other, msg);
+            for (const [playerWs] of room.players) {
+                if (playerWs !== ws && playerWs.readyState === WebSocket.OPEN) {
+                    sendJson(playerWs, msg);
+                }
+            }
             break;
         }
 

@@ -119,6 +119,7 @@ export const UNIT_CONFIG = {
 export const CAMP = {
     player1: { name: '红军', color: '#ffaaaa', flag: '🔴' },
     player2: { name: '蓝军', color: '#aaaaff', flag: '🔵' },
+    player3: { name: '绿军', color: '#aaffaa', flag: '🟢' },
     neutral: { name: '中立', color: '#c0c0c0', flag: '⚫' }
 };
 
@@ -126,6 +127,7 @@ export const CAMP = {
 export const CAMP_FLAG_COLORS = {
     p1: { main: '#d44040', dark: '#8b1a1a', light: '#f06060' },
     p2: { main: '#4060d0', dark: '#1a2a80', light: '#6080f0' },
+    p3: { main: '#40a040', dark: '#1a601a', light: '#60d060' },
     neu: { main: '#777', dark: '#444', light: '#999' }
 };
 
@@ -169,7 +171,7 @@ export { getCommander } from '../commander/index.js';
 
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {
-    clear: { name: '晴天', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
+    clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
     rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城回血20% · 雷击伤害翻倍' },
     fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵冲锋1格生效 伤害+30%' },
     wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 伤害+15% · 步兵无法暴击' }
@@ -202,7 +204,7 @@ export const TACTICAL_CARD_CONFIG = {
         targeting: 'friendlyAlive',
         execute(targetTile, gameState, helpers) {
             const unitCamp = targetTile.unit.camp;
-            const cmdKey = unitCamp === CAMP.player1 ? gameState.commanderP1 : gameState.commanderP2;
+            const cmdKey = unitCamp === CAMP.player1 ? gameState.commanderP1 : unitCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
             targetTile.unit.commander = cmdKey;
             const cmdCfg = helpers.getCommander(cmdKey);
             if (cmdCfg) {
@@ -215,8 +217,10 @@ export const TACTICAL_CARD_CONFIG = {
             }
             if (unitCamp === CAMP.player1) {
                 gameState.commanderP1Deployed = true;
-            } else {
+            } else if (unitCamp === CAMP.player2) {
                 gameState.commanderP2Deployed = true;
+            } else {
+                gameState.commanderP3Deployed = true;
             }
             return { deployed: true, commander: cmdKey };
         }

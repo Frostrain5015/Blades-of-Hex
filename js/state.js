@@ -26,7 +26,7 @@ export const gameState = {
     tiles: [],
     tileMap: new Map(),
     currentCamp: CAMP.player1,
-    playerGold: { player1: 40, player2: 40, neutral: 40 },
+    playerGold: { player1: 40, player2: 40, player3: 40, neutral: 40 },
     selectedUnit: null,
     movableTiles: [],
     moveParents: new Map(),
@@ -40,14 +40,16 @@ export const gameState = {
     selectionTime: 0,
     gameOver: false,
     victoryCamp: null,
-    previousGold: { player1: 40, player2: 40, neutral: 40 },
+    previousGold: { player1: 40, player2: 40, player3: 40, neutral: 40 },
     undoStack: [],
     turnCounter: 0,
     logHistory: [],
-    killCount: { player1: 0, player2: 0, neutral: 0 },
+    killCount: { player1: 0, player2: 0, player3: 0, neutral: 0 },
     aiActing: false,
     gameMode: 'local',      // 'local' | 'pve' | 'network'
     aiOpponentCamp: null,   // PVE 模式下 AI 对手的阵营（CAMP.player1 或 CAMP.player2）
+    isThreePlayer: false,   // 三人模式
+    surrenderedCamps: [],   // 三人模式中已投降的阵营
     weather: 'clear',
     lastWeather: null,
     deselecting: false,
@@ -58,16 +60,20 @@ export const gameState = {
     // 将领系统
     commanderPoolP1: [],
     commanderPoolP2: [],
+    commanderPoolP3: [],
     commanderP1: null,
     commanderP2: null,
+    commanderP3: null,
     commanderP1Confirmed: false,
     commanderP2Confirmed: false,
+    commanderP3Confirmed: false,
     commanderP1Deployed: false,
     commanderP2Deployed: false,
+    commanderP3Deployed: false,
     commanderPhase: 'done',  // 'selection' | 'deployment' | 'done'
-    factionMoraleBoost: { player1: 0, player2: 0 },
+    factionMoraleBoost: { player1: 0, player2: 0, player3: 0 },
     // 对策卡系统
-    tacticalCards: { player1: {}, player2: {} },
+    tacticalCards: { player1: {}, player2: {}, player3: {} },
     cardTargeting: null
 };
 
@@ -76,7 +82,7 @@ export function resetGameState() {
     gameState.tiles = [];
     gameState.tileMap = new Map();
     gameState.currentCamp = CAMP.player1;
-    gameState.playerGold = { player1: 40, player2: 40, neutral: 40 };
+    gameState.playerGold = { player1: 40, player2: 40, player3: 40, neutral: 40 };
     gameState.selectedUnit = null;
     gameState.movableTiles = [];
     gameState.moveParents = new Map();
@@ -90,14 +96,16 @@ export function resetGameState() {
     gameState.selectionTime = 0;
     gameState.gameOver = false;
     gameState.victoryCamp = null;
-    gameState.previousGold = { player1: 40, player2: 40, neutral: 40 };
+    gameState.previousGold = { player1: 40, player2: 40, player3: 40, neutral: 40 };
     gameState.undoStack = [];
     gameState.turnCounter = 0;
     gameState.logHistory = [];
-    gameState.killCount = { player1: 0, player2: 0, neutral: 0 };
+    gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0 };
     gameState.aiActing = false;
     gameState.gameMode = 'local';
     gameState.aiOpponentCamp = null;
+    gameState.isThreePlayer = false;
+    gameState.surrenderedCamps = [];
     gameState.weather = 'clear';
     gameState.lastWeather = null;
     gameState.deselecting = false;
@@ -107,15 +115,19 @@ export function resetGameState() {
     gameState.deselectOrigin = null;
     gameState.commanderPoolP1 = [];
     gameState.commanderPoolP2 = [];
+    gameState.commanderPoolP3 = [];
     gameState.commanderP1 = null;
     gameState.commanderP2 = null;
+    gameState.commanderP3 = null;
     gameState.commanderP1Confirmed = false;
     gameState.commanderP2Confirmed = false;
+    gameState.commanderP3Confirmed = false;
     gameState.commanderP1Deployed = false;
     gameState.commanderP2Deployed = false;
+    gameState.commanderP3Deployed = false;
     gameState.commanderPhase = 'done';
-    gameState.factionMoraleBoost = { player1: 0, player2: 0 };
-    gameState.tacticalCards = { player1: {}, player2: {} };
+    gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0 };
+    gameState.tacticalCards = { player1: {}, player2: {}, player3: {} };
     gameState.cardTargeting = null;
     // 清除计数器动画记忆
     for (const k of Object.keys(_counterStore)) delete _counterStore[k];
@@ -131,23 +143,36 @@ export function rebuildTileMap() {
 let idCounter = 0;
 export function nextId() { return ++idCounter; }
 
+function _campKeyStr(camp) {
+    if (camp === CAMP.player1) return 'player1';
+    if (camp === CAMP.player2) return 'player2';
+    if (camp === CAMP.player3) return 'player3';
+    return 'neutral';
+}
+
 // ===== UI 更新 =====================
 export function updateButtonColors() {
     const myCamp = _getMyCamp();
     const displayCamp = isNetworkGame() ? myCamp : (gameState.gameMode === 'pve' ? _getHumanCamp() : gameState.currentCamp);
     const panel = document.getElementById('commandPanel');
     if (panel) {
-        panel.setAttribute('data-camp', displayCamp === CAMP.player1 ? 'p1' : 'p2');
+        panel.setAttribute('data-camp', displayCamp === CAMP.player1 ? 'p1' : displayCamp === CAMP.player2 ? 'p2' : 'p3');
     }
     const card1 = document.getElementById('campCard1');
     const card2 = document.getElementById('campCard2');
+    const card3 = document.getElementById('campCard3');
     if (card1) card1.classList.toggle('active', displayCamp === CAMP.player1);
     if (card2) card2.classList.toggle('active', displayCamp === CAMP.player2);
+    if (card3) card3.classList.toggle('active', displayCamp === CAMP.player3);
 }
 
 function _getMyCamp() {
     if (isNetworkGame()) {
-        return getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2;
+        const role = getMyRole();
+        if (role === 'player1') return CAMP.player1;
+        if (role === 'player2') return CAMP.player2;
+        if (role === 'player3') return CAMP.player3;
+        return CAMP.player1;
     }
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
         return gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
@@ -179,7 +204,8 @@ export function updateRecruitCostDisplay() {
         if (!costSpan) continue;
         const baseCost = UNIT_CONFIG[types[i]].cost;
         const cost = _getRecruitCost(types[i]);
-        const discountSuffix = cost < baseCost ? '<small> (-20%)</small>' : '';
+        const discountPct = cost < baseCost ? Math.round((1 - cost / baseCost) * 100) : 0;
+        const discountSuffix = discountPct > 0 ? `<small> (-${discountPct}%)</small>` : '';
         costSpan.innerHTML = `<span class="unit-cost-num">${cost}</span><small>g</small>${discountSuffix}`;
         const numEl = costSpan.querySelector('.unit-cost-num');
         if (numEl) animateCounter(numEl, cost, n => String(n), `cost_${types[i]}`);
@@ -205,7 +231,7 @@ export function updateRecruitButtonStates() {
 
     const city = gameState.selectedCityTile;
     const canRecruit = city && city.isCity && city.camp === gameState.currentCamp && !city.unit;
-    const currentKey = gameState.currentCamp === CAMP.player1 ? 'player1' : gameState.currentCamp === CAMP.player2 ? 'player2' : 'neutral';
+    const currentKey = _campKeyStr(gameState.currentCamp);
     const gold = gameState.playerGold[currentKey];
 
     for (const [type, btn] of Object.entries(btns)) {
@@ -232,8 +258,10 @@ export function updateUI() {
     }
     const gold1El = document.getElementById('player1Gold');
     const gold2El = document.getElementById('player2Gold');
+    const gold3El = document.getElementById('player3Gold');
     const newGold1 = gameState.playerGold.player1;
     const newGold2 = gameState.playerGold.player2;
+    const newGold3 = gameState.playerGold.player3;
     // 联机/中立/AI对手回合：禁用操作按钮、显示提示条
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
     const isNeutralTurn = gameState.currentCamp === CAMP.neutral;
@@ -247,39 +275,60 @@ export function updateUI() {
     // 投降/退出：PVE 模式下按钮改为"退出"，始终可用（AI 回合也可退出）
     const surrenderBtn = document.getElementById('surrenderBtn');
     if (surrenderBtn) {
-        surrenderBtn.textContent = gameState.gameMode === 'pve' ? '退出' : '投降';
-        if (gameState.gameMode === 'pve') {
+        const myCamp = _getMyCamp();
+        const alreadySurrendered = gameState.isThreePlayer && gameState.surrenderedCamps.includes(myCamp);
+        if (alreadySurrendered) {
+            surrenderBtn.textContent = '退出';
+            surrenderBtn.disabled = false;
+        } else if (gameState.gameMode === 'pve') {
+            surrenderBtn.textContent = '退出';
             surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
         } else {
-            const humanCanAct = gameState.currentCamp === _getHumanCamp() && !gameState.aiActing;
-            surrenderBtn.disabled = gameState.gameOver || inCommanderSetup || !humanCanAct;
+            surrenderBtn.textContent = '投降';
+            // 只要没有投降过，就始终开放投降按钮（不限回合）
+            surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
         }
     }
     const banner = document.getElementById('opponentTurnBanner');
     if (banner) {
-        banner.innerHTML = '<span>⏳</span><span>等待对手行动...</span>';
-        if (opponentTurn || isNeutralTurn || isAIOpponentTurn) {
+        const myCamp = _getMyCamp();
+        const isSpectator = gameState.isThreePlayer && gameState.surrenderedCamps.includes(myCamp);
+        if (isSpectator) {
+            banner.innerHTML = '<span>👁</span><span>您已战败，观战中</span>';
             banner.classList.add('visible');
         } else {
-            banner.classList.remove('visible');
+            banner.innerHTML = '<span>⏳</span><span>等待对手行动...</span>';
+            if (opponentTurn || isNeutralTurn || isAIOpponentTurn) {
+                banner.classList.add('visible');
+            } else {
+                banner.classList.remove('visible');
+            }
         }
     }
 
     if (newGold1 !== gameState.previousGold.player1) {
-        animateCounter(gold1El, newGold1, n => String(n));
-        if (typeof gsap !== 'undefined') {
+        if (gold1El) animateCounter(gold1El, newGold1, n => String(n));
+        if (gold1El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold1El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
                 { scale: 1, textShadow: '0 0 0px rgba(255,215,0,0)', duration: 0.45, ease: 'back.out(1.7)' });
         }
         gameState.previousGold.player1 = newGold1;
     }
     if (newGold2 !== gameState.previousGold.player2) {
-        animateCounter(gold2El, newGold2, n => String(n));
-        if (typeof gsap !== 'undefined') {
+        if (gold2El) animateCounter(gold2El, newGold2, n => String(n));
+        if (gold2El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold2El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
                 { scale: 1, textShadow: '0 0 0px rgba(255,215,0,0)', duration: 0.45, ease: 'back.out(1.7)' });
         }
         gameState.previousGold.player2 = newGold2;
+    }
+    if (newGold3 !== gameState.previousGold.player3) {
+        if (gold3El) animateCounter(gold3El, newGold3, n => String(n));
+        if (gold3El && typeof gsap !== 'undefined') {
+            gsap.fromTo(gold3El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
+                { scale: 1, textShadow: '0 0 0px rgba(255,215,0,0)', duration: 0.45, ease: 'back.out(1.7)' });
+        }
+        gameState.previousGold.player3 = newGold3;
     }
 
     updateRecruitButtonStates();
@@ -320,17 +369,24 @@ export function updateStatsPanel() {
     if (!content) return;
     const p1c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player1).length;
     const p2c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player2).length;
+    const p3c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player3).length;
     const nc  = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.neutral).length;
     const p1i = calcIncome(p1c);
     const p2i = calcIncome(p2c);
+    const p3i = calcIncome(p3c);
     const ni  = Math.floor(calcIncome(nc) / 2);
 
-    const turnNum = Math.floor(gameState.turnCounter / 3) + 1;
+    const factionCount = gameState.isThreePlayer ? 4 : 3;
+    const turnNum = Math.floor(gameState.turnCounter / factionCount) + 1;
+    const p3Row = gameState.isThreePlayer
+        ? `<div class="stat-row"><span class="stat-p3">绿军</span><span class="stat-val">⚔${gameState.killCount.player3} 🏰${p3c} ⚱${p3i}</span></div>`
+        : '';
     content.innerHTML = `
         <div class="stat-turn-label">回合</div>
         <div class="stat-turn-num">${turnNum}</div>
         <div class="stat-row"><span class="stat-p1">红军</span><span class="stat-val">⚔${gameState.killCount.player1} 🏰${p1c} ⚱${p1i}</span></div>
         <div class="stat-row"><span class="stat-p2">蓝军</span><span class="stat-val">⚔${gameState.killCount.player2} 🏰${p2c} ⚱${p2i}</span></div>
+        ${p3Row}
         <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">⚔${gameState.killCount.neutral} 🏰${nc} ⚱${ni}</span></div>
     `;
     const turnEl = content.querySelector('.stat-turn-num');
@@ -394,10 +450,11 @@ export function serializeState() {
     const tileIndex = new Map();
     gameState.tiles.forEach((t, i) => tileIndex.set(t, i));
 
+    function _campToKey(c) { return c === CAMP.player1 ? 'p1' : c === CAMP.player2 ? 'p2' : c === CAMP.player3 ? 'p3' : 'neutral'; }
     const tilesData = gameState.tiles.map(t => ({
         id: t.id,
         q: t.q, r: t.r, s: t.s,
-        campKey: t.camp === CAMP.player1 ? 'p1' : t.camp === CAMP.player2 ? 'p2' : 'neutral',
+        campKey: _campToKey(t.camp),
         isCity: t.isCity,
         districtId: t.districtId,
         terrain: t.terrain,
@@ -408,7 +465,7 @@ export function serializeState() {
         unit: t.unit ? {
             id: t.unit.id,
             type: t.unit.type,
-            campKey: t.unit.camp === CAMP.player1 ? 'p1' : t.unit.camp === CAMP.player2 ? 'p2' : 'neutral',
+            campKey: _campToKey(t.unit.camp),
             hp: t.unit.hp,
             maxHp: t.unit.maxHp,
             canAct: t.unit.canAct,
@@ -431,18 +488,18 @@ export function serializeState() {
             activeSkillCD: t.unit.activeSkillCD,
             activeSkillDur: t.unit.activeSkillDur,
             gongxinStacks: t.unit._gongxinStacks || 0,
-            gongxinCampKey: t.unit._gongxinCamp ? (t.unit._gongxinCamp === CAMP.player1 ? 'p1' : t.unit._gongxinCamp === CAMP.player2 ? 'p2' : 'neutral') : null
+            gongxinCampKey: t.unit._gongxinCamp ? _campToKey(t.unit._gongxinCamp) : null
         } : null
     }));
 
     return {
         tiles: tilesData,
         serializedAt: Date.now(),
-        currentCampKey: gameState.currentCamp === CAMP.player1 ? 'p1' : gameState.currentCamp === CAMP.player2 ? 'p2' : 'neutral',
+        currentCampKey: _campToKey(gameState.currentCamp),
         playerGold: { ...gameState.playerGold },
         turnCounter: gameState.turnCounter,
         gameOver: gameState.gameOver,
-        victoryCampKey: gameState.victoryCamp ? (gameState.victoryCamp === CAMP.player1 ? 'p1' : gameState.victoryCamp === CAMP.player2 ? 'p2' : 'neutral') : null,
+        victoryCampKey: gameState.victoryCamp ? _campToKey(gameState.victoryCamp) : null,
         logHistory: [...gameState.logHistory],
         idCounter: idCounter,
         weather: gameState.weather,
@@ -450,53 +507,65 @@ export function serializeState() {
         killCount: { ...gameState.killCount },
         commanderPoolP1: [...gameState.commanderPoolP1],
         commanderPoolP2: [...gameState.commanderPoolP2],
+        commanderPoolP3: [...gameState.commanderPoolP3],
         commanderP1: gameState.commanderP1,
         commanderP2: gameState.commanderP2,
+        commanderP3: gameState.commanderP3,
         commanderP1Confirmed: gameState.commanderP1Confirmed,
         commanderP2Confirmed: gameState.commanderP2Confirmed,
+        commanderP3Confirmed: gameState.commanderP3Confirmed,
         commanderP1Deployed: gameState.commanderP1Deployed,
         commanderP2Deployed: gameState.commanderP2Deployed,
+        commanderP3Deployed: gameState.commanderP3Deployed,
         commanderPhase: gameState.commanderPhase,
         factionMoraleBoost: { ...gameState.factionMoraleBoost },
-        tacticalCards: { player1: { ...gameState.tacticalCards.player1 }, player2: { ...gameState.tacticalCards.player2 } },
+        tacticalCards: { player1: { ...gameState.tacticalCards.player1 }, player2: { ...gameState.tacticalCards.player2 }, player3: { ...gameState.tacticalCards.player3 } },
         gameMode: gameState.gameMode || 'local',
-        aiOpponentCampKey: gameState.aiOpponentCamp ? (gameState.aiOpponentCamp === CAMP.player1 ? 'p1' : 'p2') : null
+        isThreePlayer: gameState.isThreePlayer || false,
+        aiOpponentCampKey: gameState.aiOpponentCamp ? _campToKey(gameState.aiOpponentCamp) : null,
+        surrenderedCampKeys: gameState.surrenderedCamps.map(c => _campToKey(c))
     };
 }
 
 export function deserializeState(data, HexTileClass, UnitClass) {
-    const campMap = { p1: CAMP.player1, p2: CAMP.player2, neutral: CAMP.neutral };
+    const campMap = { p1: CAMP.player1, p2: CAMP.player2, p3: CAMP.player3, neutral: CAMP.neutral };
 
     idCounter = data.idCounter;
     gameState.gameOver = data.gameOver;
     gameState.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
     gameState.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
-    gameState.playerGold = { player1: 40, player2: 40, neutral: 40, ...data.playerGold };
+    gameState.playerGold = { player1: 40, player2: 40, player3: 40, neutral: 40, ...data.playerGold };
     // previousGold 不参与同步，保持本地值用于计数器动画
     gameState.turnCounter = data.turnCounter;
     gameState.logHistory = [...data.logHistory];
     gameState.weather = data.weather || 'clear';
     gameState.lastWeather = data.lastWeather || null;
-    if (data.killCount) gameState.killCount = { player1: 0, player2: 0, neutral: 0, ...data.killCount };
+    if (data.killCount) gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0, ...data.killCount };
     gameState.commanderPoolP1 = data.commanderPoolP1 || [];
     gameState.commanderPoolP2 = data.commanderPoolP2 || [];
+    gameState.commanderPoolP3 = data.commanderPoolP3 || [];
     gameState.commanderP1 = data.commanderP1 || null;
     gameState.commanderP2 = data.commanderP2 || null;
+    gameState.commanderP3 = data.commanderP3 || null;
     gameState.commanderP1Confirmed = data.commanderP1Confirmed || false;
     gameState.commanderP2Confirmed = data.commanderP2Confirmed || false;
+    gameState.commanderP3Confirmed = data.commanderP3Confirmed || false;
     gameState.commanderP1Deployed = data.commanderP1Deployed || false;
     gameState.commanderP2Deployed = data.commanderP2Deployed || false;
+    gameState.commanderP3Deployed = data.commanderP3Deployed || false;
     gameState.commanderPhase = data.commanderPhase || 'done';
     if (data.factionMoraleBoost) {
-        gameState.factionMoraleBoost = { player1: 0, player2: 0, ...data.factionMoraleBoost };
+        gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0, ...data.factionMoraleBoost };
     } else {
-        gameState.factionMoraleBoost = { player1: 0, player2: 0 };
+        gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0 };
     }
     if (data.tacticalCards) {
-        gameState.tacticalCards = { player1: { ...data.tacticalCards.player1 }, player2: { ...data.tacticalCards.player2 } };
+        gameState.tacticalCards = { player1: { ...data.tacticalCards.player1 }, player2: { ...data.tacticalCards.player2 }, player3: { ...(data.tacticalCards.player3 || {}) } };
     }
     gameState.gameMode = data.gameMode || 'local';
+    gameState.isThreePlayer = data.isThreePlayer || false;
     gameState.aiOpponentCamp = data.aiOpponentCampKey ? campMap[data.aiOpponentCampKey] : null;
+    gameState.surrenderedCamps = (data.surrenderedCampKeys || []).map(k => campMap[k]).filter(Boolean);
 
     // Preserve displayHp & commander for units (prevents flicker & commander loss on sync)
     const oldDisplayHp = new Map();
@@ -569,7 +638,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit.activeSkillDur = td.unit.activeSkillDur || 0;
             unit._gongxinStacks = td.unit.gongxinStacks || 0;
             if (td.unit.gongxinCampKey) {
-                unit._gongxinCamp = td.unit.gongxinCampKey === 'p1' ? CAMP.player1 : td.unit.gongxinCampKey === 'p2' ? CAMP.player2 : CAMP.neutral;
+                unit._gongxinCamp = campMap[td.unit.gongxinCampKey] || CAMP.neutral;
             }
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {

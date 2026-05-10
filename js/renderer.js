@@ -13,6 +13,7 @@ import {
     bloodDrains, updateBloodDrains,
     lightningBolts, updateLightningBolts, drawLightningBolts,
     gongxinRipples, updateGongxinRipples, drawGongxinRipples,
+    ministerRings, updateMinisterRings, drawMinisterRings,
     coinParticles, updateCoinParticles, drawCoinParticles
 } from './effects.js';
 
@@ -116,8 +117,8 @@ export function renderGame() {
     if (gameState.commanderPhase === 'deployment') {
         const alpha = 0.55 + Math.sin(now / 600) * 0.08;
         // 联机模式以玩家自身阵营为准
-        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
-        const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
+        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
+        const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed;
         ctx.save();
         // 逐格暗色蒙层：跳过己方可部署单位（已部署则全屏暗色）
         for (const tile of gameState.tiles) {
@@ -382,6 +383,9 @@ export function renderGame() {
     // 攻心波纹
     updateGongxinRipples(now);
     drawGongxinRipples(ctx, now);
+    // 尚书统御光环
+    updateMinisterRings(now);
+    drawMinisterRings(ctx, now);
 
     // 尚书金币
     if (coinParticles.length > 0) drawCoinParticles(ctx);
@@ -546,7 +550,11 @@ function drawMoraleIndicators() {
 // 判断当前回合是否为人类玩家（用于隐藏 AI/中立回合的光圈等）
 function _isHumanTurn() {
     if (isNetworkGame()) {
-        return getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === CAMP.player2;
+        const role = getMyRole();
+        if (role === 'player1') return gameState.currentCamp === CAMP.player1;
+        if (role === 'player2') return gameState.currentCamp === CAMP.player2;
+        if (role === 'player3') return gameState.currentCamp === CAMP.player3;
+        return false;
     }
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
         return gameState.currentCamp !== CAMP.neutral && gameState.currentCamp !== gameState.aiOpponentCamp;
@@ -880,6 +888,46 @@ function drawStallerZone(now) {
             ctx.restore();
         }
     }
+
+    // ── 殉道者自爆预警光环（2格范围） ──
+    for (const tile of gameState.tiles) {
+        if (!tile.unit || !tile.unit._martyrPrimed || tile.unit.hp <= 0) continue;
+        const mx = tile.x, my = tile.y;
+        const pulse = (Math.sin(now / 200) + 1) / 2;
+
+        // 2格危险范围
+        ctx.save();
+        ctx.globalAlpha = 0.08 + pulse * 0.06;
+        ctx.fillStyle = '#ff4400';
+        for (let dq = -2; dq <= 2; dq++) {
+            for (let dr = Math.max(-2, -dq - 2); dr <= Math.min(2, -dq + 2); dr++) {
+                const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+                if (nb) {
+                    hexPath(ctx, nb.x, nb.y, HEX_SIZE + 1);
+                    ctx.fill();
+                }
+            }
+        }
+        ctx.restore();
+
+        // 醒目光环
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,60,0,${0.5 + pulse * 0.4})`;
+        ctx.lineWidth = 3 + pulse * 2;
+        ctx.shadowColor = '#ff2200';
+        ctx.shadowBlur = 10 + pulse * 8;
+        hexPath(ctx, mx, my, HEX_SIZE + 3);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // 倒计时文字
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('💥', mx, my - HEX_SIZE * 0.7);
+        ctx.restore();
+    }
 }
 
 // ===== 范围涟漪展开 =====================
@@ -901,7 +949,7 @@ function drawRangeApertures(now) {
         const pulse = (Math.sin(now / 280) + 1) / 2;
         const baseAlpha = 0.35 + pulse * 0.55;
         const ct = gameState.cardTargeting;
-        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
         const isFriendly = ct.targeting === 'friendlyAlive';
         for (const tile of gameState.tiles) {
             if (ct.targeting === 'enemyGlobal') {

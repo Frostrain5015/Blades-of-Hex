@@ -19,6 +19,10 @@
     --blue-border:   rgba(42, 85, 180, 0.62);
     --blue-glow:     rgba(45, 90, 195, 0.28);
 
+    --green-bg:      rgba(20, 100, 40, 0.90);
+    --green-border:  rgba(42, 160, 70, 0.62);
+    --green-glow:    rgba(45, 170, 80, 0.28);
+
     --surface:       rgba(13, 7, 3, 0.90);
     --surface-hi:    rgba(22, 11, 5, 0.95);
     --border:        rgba(255, 255, 255, 0.07);
@@ -145,6 +149,11 @@ body {
     border-color: var(--blue-border);
     box-shadow: 0 0 12px var(--blue-glow);
 }
+#campCard3.active {
+    background: rgba(20, 100, 20, 0.20);
+    border-color: rgba(40, 180, 40, 0.50);
+    box-shadow: 0 0 12px rgba(40, 180, 40, 0.30);
+}
 
 .camp-emblem {
     flex-shrink: 0;
@@ -189,7 +198,8 @@ body {
 }
 
 #player1Gold,
-#player2Gold {
+#player2Gold,
+#player3Gold {
     font-size: 22px;
     font-weight: bold;
     color: var(--gold);
@@ -197,7 +207,8 @@ body {
     transition: text-shadow 0.30s ease;
 }
 #player1Gold.flash,
-#player2Gold.flash {
+#player2Gold.flash,
+#player3Gold.flash {
     text-shadow: 0 0 14px var(--gold-glow), 0 0 30px rgba(255, 215, 0, 0.25);
 }
 
@@ -215,7 +226,6 @@ body {
     gap: 1px;
     flex-shrink: 0;
     padding: 0 20px;
-    border-left: 1px solid var(--border);
     border-right: 1px solid var(--border);
 }
 
@@ -425,6 +435,26 @@ body {
     box-shadow: 0 4px 14px var(--blue-glow);
 }
 
+#commandPanel[data-camp="p3"] .recruit-btn {
+    background: rgba(20, 70, 30, 0.22);
+    border-color: rgba(40, 140, 60, 0.28);
+}
+#commandPanel[data-camp="p3"] .recruit-btn:hover:not(:disabled) {
+    background: rgba(25, 90, 38, 0.42);
+    border-color: var(--green-border);
+    box-shadow: 0 0 10px var(--green-glow);
+    transform: translateY(-1px);
+}
+#commandPanel[data-camp="p3"] .recruit-btn.available {
+    background: var(--green-bg);
+    border-color: var(--green-border);
+    box-shadow: 0 0 10px var(--green-glow);
+}
+#commandPanel[data-camp="p3"] .recruit-btn.available:hover:not(:disabled) {
+    filter: brightness(1.22);
+    box-shadow: 0 4px 14px var(--green-glow);
+}
+
 /* ----- Command Buttons ----- */
 .cmd-btn {
     display: block;
@@ -472,6 +502,15 @@ body {
     box-shadow: 0 4px 14px var(--blue-glow);
     transform: translateY(-1px);
 }
+#commandPanel[data-camp="p3"] .cmd-btn:not(.danger) {
+    background: var(--green-bg);
+    border-color: var(--green-border);
+}
+#commandPanel[data-camp="p3"] .cmd-btn:not(.danger):hover:not(:disabled) {
+    filter: brightness(1.22);
+    box-shadow: 0 4px 14px var(--green-glow);
+    transform: translateY(-1px);
+}
 
 /* Surrender — per-camp danger coloring */
 #commandPanel[data-camp="p1"] .cmd-btn.danger {
@@ -497,6 +536,19 @@ body {
     border-color: rgba(40, 80, 185, 0.65);
     color: #88a8e0;
     box-shadow: 0 4px 14px rgba(28, 55, 165, 0.32);
+    transform: translateY(-1px);
+}
+
+#commandPanel[data-camp="p3"] .cmd-btn.danger {
+    background: rgba(10, 45, 18, 0.88);
+    border-color: rgba(28, 130, 50, 0.42);
+    color: #60a060;
+}
+#commandPanel[data-camp="p3"] .cmd-btn.danger:hover:not(:disabled) {
+    background: rgba(14, 60, 24, 0.92);
+    border-color: rgba(40, 160, 65, 0.65);
+    color: #88d088;
+    box-shadow: 0 4px 14px rgba(28, 140, 55, 0.32);
     transform: translateY(-1px);
 }
 
@@ -565,6 +617,7 @@ body {
 
 #statsContent .stat-p1 { color: #ff6666; font-weight: bold; }
 #statsContent .stat-p2 { color: #6688ff; font-weight: bold; }
+#statsContent .stat-p3 { color: #66cc66; font-weight: bold; }
 #statsContent .stat-n  { color: #999; font-weight: bold; }
 #statsContent .stat-val  { color: var(--text-body); white-space: nowrap; }
 
@@ -1606,6 +1659,39 @@ body {
     padding-top: 14px;
 }
 
+.room-mode-select {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+.room-mode-btn {
+    padding: 8px 24px;
+    border: 1px solid rgba(205, 150, 18, 0.3);
+    border-radius: 6px;
+    background: transparent;
+    color: #ccb870;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    transition: all 0.2s;
+}
+.room-mode-btn.active {
+    background: rgba(205, 150, 18, 0.2);
+    border-color: var(--gold);
+    color: var(--gold);
+}
+.room-mode-btn:hover {
+    border-color: var(--gold);
+    background: rgba(205, 150, 18, 0.1);
+}
+
+.room-waiting-count {
+    font-size: 13px;
+    color: var(--gold);
+    margin-left: 8px;
+    opacity: 0.8;
+}
+
 /* ---- Room Waiting Screen ---- */
 
 .room-id-display {
@@ -2025,7 +2111,7 @@ body {
     #topBar { padding: 4px 8px; gap: 4px; }
     .camp-emblem { width: 28px; height: 28px; font-size: 13px; }
     .camp-label { font-size: 8px; letter-spacing: 1px; }
-    #player1Gold, #player2Gold { font-size: 17px; }
+    #player1Gold, #player2Gold, #player3Gold { font-size: 17px; }
     .turn-label { font-size: 7px; }
     .turn-name  { font-size: 15px; }
     .tool-btn { font-size: 14px; padding: 3px 5px; }
