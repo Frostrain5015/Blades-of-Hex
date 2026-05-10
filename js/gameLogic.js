@@ -1534,7 +1534,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             for (const [dq, dr] of dirs) {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
-                if (ht && ht.unit) _savedHPs.push({ tile: ht, hp: ht.unit.hp });
+                if (ht && ht.unit) _savedHPs.push({ tile: ht, hp: ht.unit.hp, shield: ht.unit._shield });
             }
         } else if (cardId === 'mgNest') {
             _mgNestSaved = targetTile.unit;
@@ -1561,10 +1561,13 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         _shieldSaved.unit._shieldMax = _shieldSaved.shieldMax;
         _shieldSaved.unit._shieldTurns = _shieldSaved.shieldTurns;
     }
-    // restore HP for damage cards — re-apply in setTimeout
+    // restore HP/shield for damage cards — re-apply in setTimeout
     if (_savedHPs) {
         for (const s of _savedHPs) {
-            if (s.tile.unit) s.tile.unit.hp = s.hp;
+            if (s.tile.unit) {
+                s.tile.unit.hp = s.hp;
+                if (s.shield !== undefined) s.tile.unit._shield = s.shield;
+            }
         }
     }
 
@@ -1669,11 +1672,19 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`✈️【空袭】对${targetTile.camp.name}城市(${targetTile.q},${targetTile.r})及周边造成轰炸伤害`);
             spawnAirstrikeEffect(x, y, results);
             setTimeout(() => {
-                // re-apply damage after burn
+                // re-apply damage after burn (shield-first)
                 if (_savedHPs) {
                     for (const s of _savedHPs) {
                         const r = results.find(rr => rr.q === s.tile.q && rr.r === s.tile.r);
-                        if (s.tile.unit && r) s.tile.unit.hp = Math.max(0, s.hp - r.dmg);
+                        if (s.tile.unit && r) {
+                            let remaining = r.dmg;
+                            if (s.tile.unit._shield > 0) {
+                                const absorbed = Math.min(s.tile.unit._shield, remaining);
+                                s.tile.unit._shield -= absorbed;
+                                remaining -= absorbed;
+                            }
+                            s.tile.unit.hp = Math.max(0, s.hp - remaining);
+                        }
                     }
                 }
                 for (const r of results) {
@@ -1712,8 +1723,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`🛡️【护盾】${targetTile.unit.camp.name}${targetTile.unit.config.name}兵获得50点护盾（3回合）`);
             setTimeout(() => {
                 if (_shieldSaved && _shieldSaved.unit) {
-                    _shieldSaved.unit._shield = 50;
-                    _shieldSaved.unit._shieldMax = 50;
+                    _shieldSaved.unit._shield += 50;
+                    _shieldSaved.unit._shieldMax = Math.max(_shieldSaved.unit._shieldMax, _shieldSaved.unit._shield);
                     _shieldSaved.unit._shieldTurns = 3;
                 }
                 spawnCommanderSkillEffect(x, y, '🛡️', '护盾');

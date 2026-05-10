@@ -280,6 +280,12 @@ export class Unit {
         }
 
         // ── Badge ──
+        // ── Floating shadow for entire badge+ring group ──
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.3)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 2;
+
         const badgeR = 15;
         const badgeY = 1;
         ctx.beginPath();
@@ -298,12 +304,8 @@ export class Unit {
         ctx.font = 'bold 15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 2;
         const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '💣', mgNest: '🏰' };
         ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
 
         // ── Ring HP bar ──
         const lerpFactor = 0.18;
@@ -326,7 +328,7 @@ export class Unit {
         // Background ring
         ctx.beginPath();
         ctx.arc(0, badgeY, ringR, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
         ctx.lineWidth = ringW;
         ctx.stroke();
 
@@ -357,6 +359,8 @@ export class Unit {
             ctx.lineCap = 'round';
             ctx.stroke();
         }
+
+        ctx.restore(); // end floating shadow group
 
         // Morale marker — hex corner badge (top-right)
         const hasMoraleAnim = moraleEffects.some(fx => fx.unitId === this.id);
