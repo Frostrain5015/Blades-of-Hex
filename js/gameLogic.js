@@ -933,8 +933,11 @@ export function moveUnit(unit, targetTile) {
         }
     }
 
-    if (targetTile.isCity && targetTile.camp !== unit.camp) {
-        updateDistrictColor(targetTile, unit.camp, unit);
+    if (targetTile.isCity) {
+        unit.remainingMP = 0; // entering city ends movement
+        if (targetTile.camp !== unit.camp) {
+            updateDistrictColor(targetTile, unit.camp, unit);
+        }
     }
     // 尚书进驻城市：触发技能特效
     let _cmdFxForMove = null;
@@ -1054,7 +1057,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             attackerUnit.canAct = false;
         } else {
             const targetTile = targetUnit.tile;
-            if (attackerUnit.type !== 'archer') {
+            if (attackerUnit.type !== 'archer' && !attackerUnit._imprisoned && !attackerUnit._isImmobile) {
                 attackerUnit.tile.unit = null;
                 attackerUnit.tile = targetTile;
                 targetTile.unit = attackerUnit;
@@ -1624,7 +1627,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             break;
         }
         case 'mgNest': {
-            logMessage(`${myCamp.name}在(${targetTile.q},${targetTile.r})部署了机枪堡`);
+            logMessage(`${myCamp.name}在(${targetTile.q},${targetTile.r})部署了要塞`);
             setTimeout(() => {
                 if (_mgNestSaved) _mgNestSaved._airdropWaiting = false;
                 spawnRecruitEffect(x, y);

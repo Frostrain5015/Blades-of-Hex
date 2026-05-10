@@ -436,6 +436,9 @@ function showTooltipForTile(tile) {
         if (isCity) {
             const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : tile.camp === CAMP.player3 ? '绿军' : '中立';
             terrainDesc = `由${ownerName}控制`;
+            if (tile._cityDisabledUntil >= gameState.turnCounter) {
+                terrainDesc += ' 🚫 遭到空袭，本回合无法产金或招募';
+            }
         } else {
             terrainDesc = `防御+${Math.round(tc.defenseBonus * 100)}%`;
             if (tc.moveDesc) terrainDesc += `，${tc.moveDesc}`;
