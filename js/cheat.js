@@ -1,6 +1,6 @@
 import { gameState, notify, updateUI } from './state.js';
 import { isNetworkGame } from './network.js';
-import { CAMP, MORALE_CONFIG, WEATHER_CONFIG } from './config.js';
+import { CAMP, MORALE_CONFIG, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG } from './config.js';
 import { Unit } from './Unit.js';
 import { spawnMoraleEffect } from './effects.js';
 
@@ -24,6 +24,25 @@ const COMMANDS = [
         { cmd: '步', desc: '步兵' },
         { cmd: '骑', desc: '骑兵' },
         { cmd: '炮', desc: '炮兵' },
+    ]},
+    { cmd: '/rank',     desc: '设置选中单位军衔', subs: [
+        { cmd: '0', desc: '新兵' },
+        { cmd: '1', desc: '老兵' },
+        { cmd: '2', desc: '精英' },
+        { cmd: '3', desc: '王牌' },
+        { cmd: '4', desc: '传说 ★' },
+    ]},
+    { cmd: '/card',     desc: '给当前阵营一张对策卡', subs: [
+        { cmd: 'heal',      desc: '疗愈' },
+        { cmd: 'lightning', desc: '雷击' },
+        { cmd: 'airstrike', desc: '空袭' },
+        { cmd: 'airdrop',   desc: '空降' },
+        { cmd: 'mgNest',    desc: '机枪堡' },
+        { cmd: 'shield',    desc: '护盾' },
+        { cmd: 'landmine',  desc: '地雷' },
+        { cmd: 'imprison',  desc: '禁锢' },
+        { cmd: 'forceMarch',desc: '强行军' },
+        { cmd: 'commanderDeploy', desc: '部署将领' },
     ]},
     { cmd: '/weather',  desc: '切换天气', subs: [
         { cmd: 'clear', desc: '晴天' },
@@ -150,6 +169,40 @@ function exec(cmd) {
             if (!args[1] || isNaN(args[1])) { notify('用法: /gold <数量>', 'error'); break; }
             gameState.playerGold[campKey] += parseInt(args[1]);
             notify(`金币 +${args[1]}，现有 ${gameState.playerGold[campKey]}`);
+            break;
+
+        case '/rank':
+            if (!unit) { notify('请先选中一个单位', 'error'); break; }
+            {
+                const targetRank = parseInt(args[1]);
+                if (isNaN(targetRank) || targetRank < 0 || targetRank > 4) {
+                    notify('用法: /rank <0|1|2|3|4>', 'error');
+                    break;
+                }
+                if (targetRank <= unit._rank) {
+                    notify(`单位当前军衔为 ${unit._rank}，只能晋升到更高军衔`, 'error');
+                    break;
+                }
+                const thresholds = [8, 18, 30, 48];
+                unit._xp = thresholds[targetRank - 1];
+                unit._checkRankUp();
+                notify(`${unit.camp.name} ${unit.config.name}兵 军衔 → ${targetRank}`);
+            }
+            break;
+
+        case '/card':
+            if (!args[1] || !TACTICAL_CARD_CONFIG[args[1]]) {
+                notify('用法: /card <heal|lightning|airstrike|airdrop|mgNest|shield|landmine|imprison|forceMarch|commanderDeploy>', 'error');
+                break;
+            }
+            {
+                const hand = gameState.playerHands[campKey];
+                if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize) {
+                    notify('手牌已满', 'error'); break;
+                }
+                hand.push(args[1]);
+                notify(`获得【${TACTICAL_CARD_CONFIG[args[1]].name}】`);
+            }
             break;
 
         case '/weather':

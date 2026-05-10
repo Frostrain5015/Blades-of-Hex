@@ -1,4 +1,4 @@
-import { HEX_SIZE, hexToRgb, settings } from './config.js';
+import { HEX_SIZE, hexToRgb, settings, TACTICAL_CARD_CONFIG } from './config.js';
 import { playSound } from './audio.js';
 
 // ===== 粒子系统 =====================
@@ -1043,6 +1043,33 @@ export function drawCoinParticles(ctx2d) {
     }
 }
 
+// ===== 烧牌动画（对策卡使用广播） =====================
+export const cardUseEffects = [];
+
+// isLocal: true=释放者(从手牌位置飞入), false=观战者(中央直接出现)
+export function spawnCardUseEffect(cardId, x, y, isLocal = false, fromX = 0, fromY = 0) {
+    const cfg = TACTICAL_CARD_CONFIG[cardId];
+    cardUseEffects.push({
+        cardId, icon: cfg ? cfg.icon : '🃏', name: cfg ? cfg.name : cardId,
+        x, y, fromX, fromY, isLocal,
+        startTime: Date.now(),
+        duration: 1600,
+        phaseDuration: 600,
+        pauseDuration: 500
+    });
+}
+
+// ===== 空袭特效 =====================
+export const airstrikeEffects = [];
+
+export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike') {
+    airstrikeEffects.push({
+        x: cx, y: cy, results, type,
+        startTime: Date.now(),
+        duration: 2000
+    });
+}
+
 // ===== 清除所有瞬时效果（用于撤销/读档） =====================
 export function clearTransientEffects() {
     particles.length = 0;
@@ -1066,6 +1093,8 @@ export function clearTransientEffects() {
     ministerRings.length = 0;
     coinParticles.length = 0;
     screenShake.time = 0;
+    cardUseEffects.length = 0;
+    airstrikeEffects.length = 0;
     screenShake.x = 0;
     screenShake.y = 0;
     turnFlash.alpha = 0;

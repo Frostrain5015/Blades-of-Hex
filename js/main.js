@@ -4,7 +4,7 @@ import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, getCommander } from './commanderInterface.js';
 import { initMap, triggerVictoryEffect } from './gameLogic.js';
-import { renderGame } from './renderer.js';
+import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, disconnect, sendAction } from './network.js';
 import { CAMP } from './config.js';
@@ -16,7 +16,8 @@ import {
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
     spawnProjectile, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
-    spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain
+    spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain,
+    spawnCardUseEffect, spawnHealParticles, spawnAirstrikeEffect
 } from './effects.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
@@ -47,71 +48,16 @@ window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 200));
 // Initial fit is called in startGame after gameWrapper becomes visible
 
 // ==== 对策卡 UI 渲染 ===================
-let _cardStateCache = '';
-function renderTacticalCards() {
-    const area = document.getElementById('tacticalCardArea');
-    if (!area) return;
-    const wrapper = document.getElementById('gameWrapper');
-    if (!wrapper || wrapper.style.display === 'none') {
-        if (_cardStateCache !== 'hidden') { area.innerHTML = ''; _cardStateCache = 'hidden'; }
-        return;
-    }
-
-    const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
-    const isAIOpponentTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
-    const isNetworkOpponentTurn = isNetworkGame() && !(getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3);
-    const isDisabled = gameState.gameOver || gameState.commanderPhase !== 'done' || gameState.currentCamp === CAMP.neutral || isAIOpponentTurn || isNetworkOpponentTurn;
-    if (isDisabled && gameState.cardTargeting) gameState.cardTargeting = null;
-
-    const campKey = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
-    const gold = gameState.playerGold[campKey];
-    const cards = gameState.tacticalCards[campKey] || {};
-
-    // 是否已部署将领
-    const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed;
-
-    // 计算状态指纹，仅在变化时重新渲染（避免每帧 innerHTML 打断点击事件）
-    let stateFp = `${isDisabled}|${gold}|deployed:${iAmDeployed}`;
-    for (const [cardId] of Object.entries(TACTICAL_CARD_CONFIG)) {
-        stateFp += `|${cardId}:${cards[cardId] || 0}`;
-    }
-    stateFp += `|tgt:${gameState.cardTargeting ? gameState.cardTargeting.cardId : 'null'}`;
-
-    if (stateFp === _cardStateCache) return;
-    _cardStateCache = stateFp;
-
-    let html = '';
-    // 部署将领卡永远排第一
-    const sortedCards = Object.entries(TACTICAL_CARD_CONFIG).sort(([a], [b]) => {
-        if (a === 'commanderDeploy') return -1;
-        if (b === 'commanderDeploy') return 1;
-        return 0;
-    });
-    for (const [cardId, cfg] of sortedCards) {
-        // 挂将卡：选将阶段隐藏，已部署后保持暗色禁用
-        if (cardId === 'commanderDeploy' && gameState.commanderPhase === 'selection') continue;
-        const alreadyDeployed = cardId === 'commanderDeploy' && iAmDeployed;
-
-        const cd = cards[cardId] || 0;
-        const onCooldown = cd > 0 || isDisabled || alreadyDeployed;
-        const affordable = gold >= cfg.cost && !isDisabled && !alreadyDeployed;
-        const isTargeting = gameState.cardTargeting && gameState.cardTargeting.cardId === cardId;
-        const isDeploy = cardId === 'commanderDeploy';
-        const tooltipTitle = cardId === 'commanderDeploy' ? `【部署将领】0g / ⏳∞` : `【${cfg.name}】${cfg.cost}g / ⏳${cfg.cooldown}`;
-        html += `<div class="tactical-card${isTargeting ? ' targeting' : ''}${isDeploy ? ' deploy-card' : ''}"
-            data-card-id="${cardId}" data-card-desc="${cfg.desc.replace(/"/g, '&quot;')}">
-            <span class="tactical-card-icon">${cfg.icon}</span>
-            <div class="tactical-card-overlay${!onCooldown ? ' hidden' : ''}">
-                <span class="tactical-card-cooldown">${(alreadyDeployed || cd === 0) ? '' : cd}</span>
-            </div>
-        </div>`;
-    }
-    area.innerHTML = html;
-}
+// 对策卡已改为 canvas 渲染，不再使用 DOM 区域
+function renderTacticalCards() {}
 
 // ==== 游戏循环（始终运行，画布隐藏时无开销） ===================
 function gameLoop() {
+    const now = performance.now();
     renderGame();
+
+    // 对策卡手牌独立画布
+    drawCardCanvas(now);
 
     // Animate tooltip speed and ATK display
     const ttip = document.getElementById('unitTooltip');
@@ -679,7 +625,6 @@ async function _triggerInitialAITurn() {
             gameState.aiActing = false;
         }
 
-        notify('AI对手行动完毕', 'info');
         await new Promise(r => setTimeout(r, 2500));
 
         // 结束 AI 回合，旋转阵营并链式处理中立 AI
@@ -1134,9 +1079,9 @@ async function handleRemoteAction(msg) {
                     gameState.aiActing = false;
                 }
                 // 通知 + 延迟 → 切换回合
-                notify('AI行动完毕 即将切换回合...', 'info');
-                logMessage('AI行动完毕 即将切换回合...');
-                sendMessage({ type: 'toast', text: 'AI行动完毕 即将切换回合...', toastType: 'info' });
+                notify('本轮行动完毕 即将进入下一轮...', 'info');
+                logMessage('本轮行动完毕 即将进入下一轮...');
+                sendMessage({ type: 'toast', text: '本轮行动完毕 即将进入下一轮...', toastType: 'info' });
                 await new Promise(r => setTimeout(r, 2500));
                 // 调用 endTurn() 前手动锁定 aiActing，防止 endTurn 再次检测中立并触发二次 AI
                 if (!gameState.gameOver) {
@@ -1182,20 +1127,73 @@ async function handleRemoteAction(msg) {
             break;
         case 'tacticalCard':
             if (e) {
-                if (e.cardId === 'lightning') {
-                    playSound('attack');
-                    spawnLightningStrike(e.x, e.y);
-                    triggerScreenShake(10, 350);
-                    if (e.dmg && !gameState.damageTexts) gameState.damageTexts = [];
-                    if (e.dmg) gameState.damageTexts.push({
-                        x: e.x, y: e.y,
-                        value: e.dmg, isTrueDmg: true,
-                        timeLeft: 1000, lastUpdate: Date.now()
-                    });
-                } else if (e.cardId === 'commanderDeploy') {
-                    playSound('recruit');
-                    spawnCommanderSkillEffect(e.x, e.y);
-                }
+                // 烧牌动画（观战者：中央淡入+燃烧）
+                spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false);
+                // 具体特效延迟 1.2s 后播放
+                const cardType = e.cardId;
+                setTimeout(() => {
+                    switch (cardType) {
+                        case 'lightning':
+                            playSound('attack');
+                            spawnLightningStrike(e.x, e.y);
+                            triggerScreenShake(10, 350);
+                            if (e.dmg && !gameState.damageTexts) gameState.damageTexts = [];
+                            if (e.dmg) gameState.damageTexts.push({
+                                x: e.x, y: e.y,
+                                value: e.dmg, isTrueDmg: true,
+                                timeLeft: 1000, lastUpdate: Date.now()
+                            });
+                            break;
+                        case 'heal':
+                            playSound('recruit');
+                            spawnHealParticles(e.x, e.y);
+                            if (e.actual && !gameState.healTexts) gameState.healTexts = [];
+                            if (e.actual) gameState.healTexts.push({
+                                x: e.x, y: e.y, value: e.actual,
+                                timeLeft: 1000, lastUpdate: Date.now()
+                            });
+                            break;
+                        case 'mgNest':
+                            playSound('recruit');
+                            spawnRecruitEffect(e.x, e.y);
+                            break;
+                        case 'airdrop':
+                            spawnAirstrikeEffect(e.x, e.y, [], 'airdrop');
+                            setTimeout(() => {
+                                playSound('recruit');
+                                spawnRecruitEffect(e.x, e.y);
+                            }, 1600);
+                            break;
+                        case 'imprison':
+                            playSound('recruit');
+                            spawnCommanderSkillEffect(e.x, e.y, '🔗', '禁锢');
+                            break;
+                        case 'forceMarch':
+                            playSound('recruit');
+                            spawnCommanderSkillEffect(e.x, e.y, '🏃', '强行军');
+                            break;
+                        case 'airstrike':
+                            spawnAirstrikeEffect(e.x, e.y, []);
+                            setTimeout(() => {
+                                playSound('attack');
+                                spawnExplosionParticles(e.x, e.y, '#ff8800', 18);
+                                triggerScreenShake(6, 300);
+                            }, 1600);
+                            break;
+                        case 'shield':
+                            playSound('recruit');
+                            spawnCommanderSkillEffect(e.x, e.y, '🛡️', '护盾');
+                            break;
+                        case 'landmine':
+                            playSound('recruit');
+                            spawnCommanderSkillEffect(e.x, e.y, '💣', '地雷');
+                            break;
+                        case 'commanderDeploy':
+                            playSound('recruit');
+                            spawnCommanderSkillEffect(e.x, e.y);
+                            break;
+                    }
+                }, 1600);
             }
             break;
         case 'attack':
@@ -1235,7 +1233,7 @@ async function handleRemoteAction(msg) {
                         spawnBloodDrain(e.bloodDrain.toX, e.bloodDrain.toY, e.bloodDrain.fromX, e.bloodDrain.fromY);
                     }
                     if (e.purpleLightning) {
-                        spawnGongxinRipple(e.purpleLightning.x, e.purpleLightning.y, false);
+                        spawnGongxinRipple(e.purpleLightning.x, e.purpleLightning.y, e.purpleLightning.converted || false);
                     }
                     if (e.ctrBloodDrain) {
                         spawnBloodDrain(e.ctrBloodDrain.toX, e.ctrBloodDrain.toY, e.ctrBloodDrain.fromX, e.ctrBloodDrain.fromY);
@@ -1243,6 +1241,10 @@ async function handleRemoteAction(msg) {
                     if (e.moraleFxUnitId) {
                         const moraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.moraleFxUnitId ? t.unit : null), null);
                         if (moraleUnit) spawnMoraleEffect(moraleUnit);
+                    }
+                    if (e.ctrMoraleFxUnitId) {
+                        const ctrMoraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.ctrMoraleFxUnitId ? t.unit : null), null);
+                        if (ctrMoraleUnit) spawnMoraleEffect(ctrMoraleUnit);
                     }
                     // 伤害数字
                     if (e.attackDmg > 0) {

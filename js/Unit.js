@@ -47,6 +47,11 @@ export class Unit {
         this._shieldPulseUntil = 0;
         this.activeSkillCD = 0;
         this.activeSkillDur = 0;
+        this._imprisoned = false;
+        this._isImmobile = false;
+        this._shield = 0;
+        this._shieldMax = 0;
+        this._shieldTurns = 0;
         this.remainingMP = this.config.speed + spdBonus;
         this.displaySpeed = this.config.speed + spdBonus;
         // 移动动画状态（瞬时，不参与序列化）
@@ -109,6 +114,17 @@ export class Unit {
                     remaining: this.activeSkillDur
                 });
             }
+        }
+
+        // 禁锢 / 不可移动
+        if (this._shield > 0) {
+            effects.push({ label: '护盾', desc: `${Math.round(this._shield)}/${this._shieldMax}（${this._shieldTurns}回合）`, color: '#66bbff' });
+        }
+        if (this._imprisoned) {
+            effects.push({ label: '禁锢', desc: '本回合无法移动', color: '#ff8844' });
+        }
+        if (this._isImmobile) {
+            effects.push({ label: '不可移动', desc: '永久无法移动', color: '#888' });
         }
 
         return effects;
@@ -282,7 +298,7 @@ export class Unit {
         ctx.textBaseline = 'middle';
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 2;
-        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '💣' };
+        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '💣', mgNest: '🏰' };
         ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
@@ -323,7 +339,20 @@ export class Unit {
             ctx.stroke();
         }
 
-        // Morale marker — hex corner badge (top-right), rendered after badge/ring to avoid occlusion
+        // Shield overlay arc
+        const shieldRatio = this._shield > 0 ? this._shield / this.maxHp : 0;
+        if (shieldRatio > 0.003) {
+            const shieldSweep = shieldRatio * Math.PI * 2;
+            const shieldStart = startAngle + sweepAngle;
+            ctx.beginPath();
+            ctx.arc(0, badgeY, ringR, shieldStart, shieldStart + shieldSweep);
+            ctx.strokeStyle = '#66bbff';
+            ctx.lineWidth = ringW;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+        }
+
+        // Morale marker — hex corner badge (top-right)
         const hasMoraleAnim = moraleEffects.some(fx => fx.unitId === this.id);
         if (this.morale !== 2 && !hasMoraleAnim) {
             const mc = MORALE_CONFIG[this.morale];
@@ -336,6 +365,19 @@ export class Unit {
             ctx.shadowColor = 'rgba(0,0,0,0.6)';
             ctx.shadowBlur = 3;
             ctx.fillText(mc.icon, mx, my + 1);
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+        }
+
+        // Imprisoned lock — same position as Iron Guard shield
+        if (this._imprisoned) {
+            ctx.fillStyle = '#ff8844';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            ctx.shadowBlur = 3;
+            ctx.fillText('🔒', 0, -HEX_SIZE * 0.82);
             ctx.shadowColor = 'transparent';
             ctx.shadowBlur = 0;
         }
@@ -453,12 +495,21 @@ export class Unit {
             ctx.save();
             const chX = visualX + HEX_SIZE * 0.48, chY = visualY + HEX_SIZE * 0.38;
             if (this._rank >= 4) {
+                const outerR = 7, innerR = outerR * 0.382;
+                ctx.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    const aOut = -Math.PI / 2 + i * 2 * Math.PI / 5;
+                    const aIn = aOut + Math.PI / 5;
+                    if (i === 0) ctx.moveTo(chX + outerR * Math.cos(aOut), chY + outerR * Math.sin(aOut));
+                    else ctx.lineTo(chX + outerR * Math.cos(aOut), chY + outerR * Math.sin(aOut));
+                    ctx.lineTo(chX + innerR * Math.cos(aIn), chY + innerR * Math.sin(aIn));
+                }
+                ctx.closePath();
                 ctx.fillStyle = '#ffd700';
-                ctx.font = 'bold 14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 3;
-                ctx.fillText('★', chX, chY);
+                ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetY = 1;
+                ctx.fill();
+                ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 0;
+                ctx.fill();
             } else {
                 ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
                 ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -550,7 +601,7 @@ export class Unit {
 
         let dmgBonus = counterCoeff - 1 + extraBonus;
         dmgBonus -= TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
-        if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.20;
+        if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.05;
         dmgBonus -= (defender.config.defense || 0);
         dmgBonus -= (defender._rankDefBonus || 0);
         dmgBonus -= MORALE_CONFIG[defender.morale].defBonus;
@@ -630,6 +681,14 @@ export class Unit {
         if (this.godMode) return false;
 
         let actualDmg = dmg;
+
+        // 护盾优先吸收伤害
+        if (this._shield > 0 && actualDmg > 0) {
+            const absorbed = Math.min(this._shield, actualDmg);
+            this._shield -= absorbed;
+            actualDmg -= absorbed;
+            if (actualDmg <= 0) return false;
+        }
 
         // 铁卫灵光：相邻友军所受伤害50%转由铁卫承担
         if (!_skipAura && this.commander !== 'ironGuard' && _gameState) {

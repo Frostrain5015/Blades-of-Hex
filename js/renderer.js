@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG } from './config.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { drawAllBorders } from './HexTile.js';
@@ -14,7 +14,8 @@ import {
     lightningBolts, updateLightningBolts, drawLightningBolts,
     gongxinRipples, updateGongxinRipples, drawGongxinRipples,
     ministerRings, updateMinisterRings, drawMinisterRings,
-    coinParticles, updateCoinParticles, drawCoinParticles
+    coinParticles, updateCoinParticles, drawCoinParticles,
+    cardUseEffects, airstrikeEffects
 } from './effects.js';
 
 let lastTime = Date.now();
@@ -72,6 +73,18 @@ export function renderGame() {
     drawStallerZone(now);
     // Units
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
+    // Imprisoned ring
+    for (let i = 0, len = tiles.length; i < len; i++) {
+        if (tiles[i].unit && tiles[i].unit._imprisoned) {
+            ctx.save();
+            const pulse = (Math.sin(now / 300) + 1) / 2;
+            ctx.strokeStyle = `rgba(255,136,68,${0.4 + pulse * 0.4})`;
+            ctx.lineWidth = 3;
+            hexPath(ctx, tiles[i].x, tiles[i].y, HEX_SIZE + 4);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
     // Flag finials + cloth (after units, overlays the badge)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagFinialAndCloth();
 
@@ -82,6 +95,12 @@ export function renderGame() {
 
     // 将领技能触发特效
     drawCommanderSkillEffects(now);
+
+    // 烧牌动画（对策卡使用广播）
+    drawCardUseAnimation(now);
+
+    // 空袭特效
+    drawAirstrikeEffects(now);
 
     // 士气状态持续标识（▲/▼）
     drawMoraleIndicators();
@@ -101,6 +120,7 @@ export function renderGame() {
     // 选中高亮
     drawSelectionHighlights();
 
+    // 对策卡手牌 — 独立 canvas 渲染（见 drawCardCanvas）
     // 暗角 — 仅雨天生效
     if (gameState.weather === 'rain') {
         const vignetteGrad = ctx.createRadialGradient(
@@ -727,8 +747,16 @@ function drawIronGuardAura(now) {
     for (const tile of gameState.tiles) {
         const u = tile.unit;
         if (!u || u.commander !== 'ironGuard' || u.hp <= 0) continue;
-        const isP1 = u.camp.name === '红军';
-        const clr = isP1 ? `rgba(255,80,80,${alpha})` : `rgba(80,80,255,${alpha})`;
+        const campName = u.camp.name;
+        const clr = campName === '红军' ? `rgba(255,80,80,${alpha})`
+                  : campName === '绿军' ? `rgba(80,255,80,${alpha})`
+                  : `rgba(80,80,255,${alpha})`;
+
+        // use visual position for smooth movement transition
+        const vp = u.getVisualPos();
+        const auraX = vp.x, auraY = vp.y;
+        const offX = auraX - tile.x;
+        const offY = auraY - tile.y;
 
         // 收集自身+6邻格的所有六边形顶点，筛选外边界
         const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
@@ -738,8 +766,8 @@ function drawIronGuardAura(now) {
             if (!ht) continue;
             for (let i = 0; i < 6; i++) {
                 const angle = (Math.PI / 180) * (60 * i - 30);
-                const vx = ht.x + HEX_SIZE * Math.cos(angle);
-                const vy = ht.y + HEX_SIZE * Math.sin(angle);
+                const vx = ht.x + offX + HEX_SIZE * Math.cos(angle);
+                const vy = ht.y + offY + HEX_SIZE * Math.sin(angle);
                 const vk = `${vx.toFixed(1)},${vy.toFixed(1)}`;
                 vertCount.set(vk, (vertCount.get(vk) || 0) + 1);
             }
@@ -944,24 +972,44 @@ function drawRangeApertures(now) {
     const hexExpandDuration = 100;
     const elapsed = now - gameState.selectionTime;
 
-    // 对策卡选择目标高亮 — 复用攻击目标渲染（无克制标签）
+    // 对策卡选择目标高亮
     if (gameState.cardTargeting) {
         const pulse = (Math.sin(now / 280) + 1) / 2;
         const baseAlpha = 0.35 + pulse * 0.55;
         const ct = gameState.cardTargeting;
         const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
-        const isFriendly = ct.targeting === 'friendlyAlive';
+        const isHeal = ct.targeting === 'friendlyAny';
+        const isShield = ct.targeting === 'shieldTarget';
+        const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain' || ct.targeting === 'emptyFriendlyLandmine';
+        const isFriendly = ct.targeting === 'friendlyAlive' || ct.targeting === 'friendlyAny' || isShield;
         for (const tile of gameState.tiles) {
             if (ct.targeting === 'enemyGlobal') {
                 if (!tile.unit) continue;
                 if (tile.unit.camp === myCamp) continue;
+            } else if (ct.targeting === 'enemyCity') {
+                if (!tile.isCity || tile.camp === myCamp) continue;
             } else if (ct.targeting === 'friendlyAlive') {
                 if (!tile.unit || !tile.unit.canAct || tile.unit.camp !== myCamp) continue;
+            } else if (ct.targeting === 'friendlyAny') {
+                if (!tile.unit || tile.unit.camp !== myCamp) continue;
+            } else if (ct.targeting === 'shieldTarget') {
+                if (!tile.unit) continue;
+            } else if (ct.targeting === 'emptyTile') {
+                if (tile.unit) continue;
+            } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
+                if (tile.unit || tile.isCity || tile.terrain === 'mountain' || tile.camp !== myCamp) continue;
+            } else if (ct.targeting === 'emptyFriendlyLandmine') {
+                if (tile.unit || tile.isCity || tile.camp !== myCamp) continue;
             } else { continue; }
 
-            const r = isFriendly ? 255 : 255;
-            const g = isFriendly ? 200 : 50;
-            const b = isFriendly ? 50 : 50;
+            let r, g, b;
+            if (isHeal)       { r = 80;  g = 255; b = 100; }
+            else if (isShield) { r = 100; g = 180; b = 255; } // light blue for shield
+            else if (ct.targeting === 'enemyCity') { r = 255; g = 120; b = 30; } // orange for airstrike
+            else if (isEmpty) { r = 100; g = 200; b = 255; } // blue for deploy/landmine
+            else if (isFriendly) { r = 255; g = 200; b = 50; } // gold for friendly
+            else              { r = 255; g = 50;  b = 50; } // red for enemy
+
             const fillA = baseAlpha * 0.25;
             const strokeA = baseAlpha * (0.3 + 0.7);
             ctx.save();
@@ -976,16 +1024,32 @@ function drawRangeApertures(now) {
             ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeA * 0.3})`;
             ctx.lineWidth = 2;
             ctx.stroke();
-            // X 标记仅敌方目标
-            if (!isFriendly) {
-                const xA = 0.2 + pulse * 0.55;
-                ctx.strokeStyle = `rgba(255, 0, 0, ${xA})`;
+            // X / + marker
+            if (!isFriendly && !isEmpty) {
+                const mA = 0.2 + pulse * 0.55;
+                ctx.strokeStyle = `rgba(255, 0, 0, ${mA})`;
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.moveTo(tile.x - 8, tile.y - 8);
                 ctx.lineTo(tile.x + 8, tile.y + 8);
                 ctx.moveTo(tile.x + 8, tile.y - 8);
                 ctx.lineTo(tile.x - 8, tile.y + 8);
+                ctx.stroke();
+            } else if (isEmpty) {
+                const pA = 0.2 + pulse * 0.55;
+                ctx.strokeStyle = `rgba(100, 200, 255, ${pA})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(tile.x - 8, tile.y); ctx.lineTo(tile.x + 8, tile.y);
+                ctx.moveTo(tile.x, tile.y - 8); ctx.lineTo(tile.x, tile.y + 8);
+                ctx.stroke();
+            } else if (isHeal) {
+                const pA = 0.2 + pulse * 0.55;
+                ctx.strokeStyle = `rgba(80, 255, 100, ${pA})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(tile.x - 8, tile.y); ctx.lineTo(tile.x + 8, tile.y);
+                ctx.moveTo(tile.x, tile.y - 8); ctx.lineTo(tile.x, tile.y + 8);
                 ctx.stroke();
             }
             ctx.restore();
@@ -1178,4 +1242,463 @@ function drawGoldTexts(now) {
         ctx.restore();
         return true;
     });
+}
+
+// ===== 对策卡手牌（独立 Canvas，横向叠放，hover 抽出 + 抽牌堆动画） =====================
+let _slideTargets = [];   // per-card target: 0=collapsed, 1=slid out
+let _slideCurrent = [];   // per-card current visual
+const SLIDE_SPEED = 0.12; // lerp speed per frame (~60fps → completes in ~400ms)
+
+// draw pile state
+let _drawPileArmed = false;
+let _drawPileArmTime = 0;
+const DRAW_ARM_TIMEOUT = 3000;
+let _flyingCard = null;
+let _prevHandLen = 0;
+let _shiftOffset = 0;  // lerps to 0: negative when card added, positive when removed
+
+function _getMyCampForUI() {
+    if (isNetworkGame()) {
+        const role = getMyRole();
+        return role === 'player1' ? CAMP.player1 : role === 'player2' ? CAMP.player2 : role === 'player3' ? CAMP.player3 : null;
+    }
+    if (gameState.gameMode === 'pve') return CAMP.player1;
+    return gameState.currentCamp;
+}
+
+export function setCardHoveredIndex(idx) {
+    // set all targets: 1 for the hovered card, 0 for others
+    for (let i = 0; i < _slideTargets.length; i++) {
+        _slideTargets[i] = (i === idx) ? 1 : 0;
+    }
+}
+
+export function armDrawPile() { _drawPileArmed = true; _drawPileArmTime = performance.now(); }
+export function disarmDrawPile() { _drawPileArmed = false; }
+export function triggerFlyingCard(cardId, sx, sy, ex, ey) {
+    _flyingCard = { cardId, startX: sx, startY: sy, endX: ex, endY: ey, t0: performance.now(), dur: 400 };
+}
+
+export function getCardSlideCurrent(i) {
+    return _slideCurrent[i] || 0;
+}
+
+function _ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
+    const { disabled, isTargeting, isDeploy, alreadyDeployed, isHovered, alpha } = opts;
+    cctx.save();
+    if (alpha !== undefined) cctx.globalAlpha = alpha;
+    cctx.translate(cx, cy);
+
+    cctx.shadowColor = 'rgba(0,0,0,0.5)';
+    cctx.shadowBlur = isHovered ? 10 : 6;
+    cctx.shadowOffsetX = 2; cctx.shadowOffsetY = 3;
+
+    cctx.fillStyle = disabled ? 'rgba(30,25,20,0.7)' : (isDeploy ? '#1a1208' : '#14100a');
+    cctx.strokeStyle = isTargeting ? '#ff5555' : (isDeploy ? '#e0b840' : (isHovered ? '#d0a030' : '#b09050'));
+    cctx.lineWidth = isTargeting ? 3 : 2;
+    cctx.beginPath();
+    cctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 10);
+    cctx.fill();
+
+    cctx.shadowColor = 'transparent'; cctx.shadowBlur = 0; cctx.shadowOffsetX = 0; cctx.shadowOffsetY = 0;
+    cctx.strokeStyle = isTargeting ? '#ff5555' : (isDeploy ? '#c09830' : '#8a6a38');
+    cctx.lineWidth = 1;
+    cctx.beginPath();
+    cctx.roundRect(-cardW / 2 + 5, -cardH / 2 + 5, cardW - 10, cardH - 10, 6);
+    cctx.stroke();
+
+    cctx.strokeStyle = isTargeting ? '#ff5555' : (isDeploy ? '#e0b840' : (isHovered ? '#d0a030' : '#b09050'));
+    cctx.lineWidth = isTargeting ? 3 : 2;
+    cctx.beginPath();
+    cctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 10);
+    cctx.stroke();
+
+    cctx.fillStyle = disabled ? '#666' : '#ffd700';
+    cctx.font = '36px sans-serif';
+    cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
+    cctx.fillText(cfg.icon, 0, -12);
+
+    cctx.fillStyle = disabled ? '#777' : '#eee';
+    cctx.font = 'bold 13px sans-serif';
+    cctx.fillText(cfg.name, 0, 28);
+
+    if (isDeploy && alreadyDeployed) {
+        cctx.fillStyle = '#ffd700';
+        cctx.font = 'bold 16px sans-serif';
+        cctx.fillText('✓', 0, 48);
+    }
+    cctx.restore();
+}
+
+export function drawCardCanvas(now) {
+    if (!cardCanvas || !cardCtx) return;
+    const myCamp = _getMyCampForUI();
+    if (!myCamp) { cardCanvas.style.display = 'none'; return; }
+    if (gameState.commanderPhase !== 'done' || gameState.gameOver) { cardCanvas.style.display = 'none'; return; }
+
+    const campKey = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
+    const hand = gameState.playerHands[campKey] || [];
+    const isNeutralTurn = gameState.currentCamp === CAMP.neutral && !isNetworkGame();
+
+    // ---- per-card slide animation (lerp toward target each frame) ----
+    const n = hand.length;
+    while (_slideTargets.length < n) { _slideTargets.push(0); _slideCurrent.push(0); }
+    while (_slideTargets.length > n) { _slideTargets.pop(); _slideCurrent.pop(); }
+    for (let i = 0; i < n; i++) {
+        _slideCurrent[i] += (_slideTargets[i] - _slideCurrent[i]) * SLIDE_SPEED;
+        if (Math.abs(_slideCurrent[i] - _slideTargets[i]) < 0.001) _slideCurrent[i] = _slideTargets[i];
+    }
+
+    // ---- draw pile auto-disarm ----
+    if (_drawPileArmed && now - _drawPileArmTime > DRAW_ARM_TIMEOUT) {
+        _drawPileArmed = false;
+    }
+
+    // ---- DPR ----
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cssW = cardCanvas.clientWidth || 360;
+    const cssH = cardCanvas.clientHeight || 620;
+    if (cardCanvas.width !== cssW * dpr || cardCanvas.height !== cssH * dpr) {
+        cardCanvas.width = cssW * dpr; cardCanvas.height = cssH * dpr;
+    }
+    const cctx = cardCtx;
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cctx.clearRect(0, 0, cssW, cssH);
+    const W = cssW, H = cssH;
+    cardCanvas.style.display = 'block';
+
+    const cardW = 90, cardH = 130, peekW = 40;
+    const liftAmount = 25; // how far hovered card rises upward
+
+    const isMyTurn = isNetworkGame()
+        ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
+        : (gameState.gameMode === 'pve'
+            ? (gameState.currentCamp === CAMP.player1 && !isNeutralTurn)
+            : (gameState.currentCamp === myCamp && !isNeutralTurn));
+    const canDraw = isMyTurn && !gameState.cardTargeting
+        && hand.length < CARD_SYSTEM_CONFIG.maxHandSize
+        && gameState.playerDrawsThisTurn[campKey] < CARD_SYSTEM_CONFIG.maxDrawsPerTurn
+        && gameState.playerGold[campKey] >= CARD_SYSTEM_CONFIG.drawCost;
+
+    // ---- draw pile (top-right, same size/style as hand cards) ----
+    const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
+    const pileCount = gameState.cardDrawPile.length;
+    const pileActive = (isMyTurn || isNeutralTurn) && canDraw && !gameState.cardTargeting;
+
+    const pileDepth = Math.min(pileCount, 5);
+    for (let d = pileDepth - 1; d >= 0; d--) {
+        const ox = pileX - d * 2, oy = pileY + d * 2;
+        const isArmed = _drawPileArmed && pileActive;
+        cctx.fillStyle = pileActive ? '#14100a' : '#151515';
+        cctx.strokeStyle = isArmed ? '#ffd700' : (pileActive ? '#b09050' : '#444');
+        cctx.lineWidth = isArmed ? 2.5 : 2;
+        cctx.beginPath();
+        cctx.roundRect(ox, oy, pileW, pileH, 10);
+        cctx.fill();
+        cctx.stroke();
+        if (d === 0) {
+            cctx.strokeStyle = isArmed ? '#ffd700' : (pileActive ? '#8a6a38' : '#333');
+            cctx.lineWidth = 1;
+            cctx.beginPath();
+            cctx.roundRect(ox + 5, oy + 5, pileW - 10, pileH - 10, 6);
+            cctx.stroke();
+            cctx.strokeStyle = isArmed ? '#ffd70066' : (pileActive ? '#8a6a3833' : '#222');
+            cctx.lineWidth = 1;
+            const cxP = ox + pileW / 2, cyP = oy + pileH / 2;
+            cctx.beginPath();
+            cctx.moveTo(cxP, oy + 8); cctx.lineTo(cxP, oy + pileH - 8);
+            cctx.moveTo(ox + 8, cyP); cctx.lineTo(ox + pileW - 8, cyP);
+            cctx.stroke();
+            const dSize = 15;
+            cctx.beginPath();
+            cctx.moveTo(cxP, cyP - dSize); cctx.lineTo(cxP + dSize * 0.6, cyP);
+            cctx.lineTo(cxP, cyP + dSize); cctx.lineTo(cxP - dSize * 0.6, cyP);
+            cctx.closePath();
+            cctx.stroke();
+        }
+    }
+
+    if (_drawPileArmed && pileActive) {
+        // armed indicator: golden borders already applied above
+    }
+
+    if (n === 0) return;
+
+    const usesUsed = gameState.playerUsesThisTurn[campKey] || 0;
+    const canUse = usesUsed < CARD_SYSTEM_CONFIG.maxUsesPerTurn && !gameState.cardTargeting && !isNeutralTurn;
+
+    const cxBase = W / 2 - cardW / 2;
+    const cyBase = H - 120;
+
+    // smooth shift when hand size changes
+    if (n > _prevHandLen) {
+        _shiftOffset = -peekW; // existing cards start at old positions, lerp right
+    } else if (n < _prevHandLen) {
+        _shiftOffset = peekW;  // existing cards start too far right, lerp left
+    }
+    _prevHandLen = n;
+    if (Math.abs(_shiftOffset) > 0.5) {
+        _shiftOffset += (0 - _shiftOffset) * 0.12;
+        if (Math.abs(_shiftOffset) < 0.5) _shiftOffset = 0;
+    }
+
+    for (let i = 0; i < n; i++) {
+        if (_flyingCard && i === n - 1 && hand[i] === _flyingCard.cardId) continue;
+        const cfg = TACTICAL_CARD_CONFIG[hand[i]];
+        if (!cfg) continue;
+        const baseX = cxBase + (n - 1 - i) * peekW + _shiftOffset;
+        const lift = (_slideCurrent[i] || 0) * liftAmount;
+        const x = baseX + cardW / 2;
+        const y = cyBase - lift + cardH / 2;
+
+        const isTargeting = gameState.cardTargeting && gameState.cardTargeting.cardId === hand[i];
+        const isDeploy = hand[i] === 'commanderDeploy';
+        const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
+        const disabled = !canUse || (isDeploy && alreadyDeployed);
+        const isHovered = _slideCurrent[i] > 0.3;
+
+        _drawPokerCard(cctx, x, y, cardW, cardH, cfg, { disabled, isTargeting, isDeploy, alreadyDeployed, isHovered });
+    }
+
+    // ---- flying card animation ----
+    if (_flyingCard) {
+        const fc = _flyingCard;
+        const elapsed = now - fc.t0;
+        const t = Math.min(1, elapsed / fc.dur);
+        if (t >= 1) { _flyingCard = null; }
+        else {
+            const eased = _ease(t);
+            const fx = fc.startX + (fc.endX - fc.startX) * eased;
+            const fy = fc.startY + (fc.endY - fc.startY) * eased;
+            const cfg = TACTICAL_CARD_CONFIG[fc.cardId];
+            if (cfg) {
+                cctx.save();
+                cctx.globalAlpha = 1 - t * 0.2;
+                _drawPokerCard(cctx, fx, fy, cardW, cardH, cfg, {});
+                cctx.restore();
+            }
+        }
+    }
+}
+
+// ===== 烧牌动画 =====================
+function drawCardUseAnimation(now) {
+    const cardW = 90, cardH = 130;
+    for (let i = cardUseEffects.length - 1; i >= 0; i--) {
+        const fx = cardUseEffects[i];
+        const elapsed = now - fx.startTime;
+        if (elapsed > fx.duration) { cardUseEffects.splice(i, 1); continue; }
+
+        const entEnd = fx.phaseDuration;
+        const pauseEnd = entEnd + (fx.pauseDuration || 500);
+        const burnStart = pauseEnd;
+        const burnDur = fx.duration - burnStart;
+        const phase = elapsed < entEnd ? 0 : (elapsed < burnStart ? 1 : 2);
+        const phaseT = phase === 0 ? Math.min(1, elapsed / entEnd) : (phase === 2 ? Math.min(1, (elapsed - burnStart) / burnDur) : 0);
+        const easedEntrance = _ease(phaseT);
+
+        let cx, cy, scale;
+        if (phase === 0) {
+            if (fx.isLocal) {
+                cx = fx.fromX + (fx.x - fx.fromX) * easedEntrance;
+                cy = fx.fromY + (fx.y - fx.fromY) * easedEntrance;
+                scale = 0.4 + easedEntrance * 0.9;
+            } else {
+                cx = fx.x; cy = fx.y;
+                scale = easedEntrance * 1.3;
+            }
+        } else {
+            cx = fx.x; cy = fx.y; scale = 1.3;
+        }
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+
+        const isDeploy = fx.cardId === 'commanderDeploy';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = phase === 2 ? 6 : 8;
+        ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 3;
+
+        if (phase !== 2) {
+            // Phase 0 (entrance) + Phase 1 (pause): intact card
+            // Entrance phase: card intact
+            ctx.fillStyle = isDeploy ? '#1a1208' : '#14100a';
+            ctx.beginPath();
+            ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 10);
+            ctx.fill();
+
+            ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+            ctx.strokeStyle = isDeploy ? '#c09830' : '#8a6a38';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(-cardW / 2 + 5, -cardH / 2 + 5, cardW - 10, cardH - 10, 6);
+            ctx.stroke();
+
+            ctx.strokeStyle = '#ffd700';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 10);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffd700';
+            ctx.font = '36px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(fx.icon, 0, -12);
+
+            ctx.fillStyle = '#eee';
+            ctx.font = 'bold 13px sans-serif';
+            ctx.fillText(fx.name, 0, 28);
+        } else {
+            // Phase 2: fire at bottom, burns upward (faster)
+            const burnT = (elapsed - burnStart) / burnDur;
+            const burnLine = cardH / 2 - burnT * cardH * 1.05; // moves topward from bottom
+
+            // --- card below burn line is visible; above = gone ---
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(-cardW / 2 - 1, -cardH / 2 - 1, cardW + 2, burnLine - (-cardH / 2) + 1);
+            ctx.clip();
+
+            // card body (only visible portion remains above burn line)
+            ctx.fillStyle = isDeploy ? '#1a1208' : '#14100a';
+            ctx.beginPath();
+            ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 10);
+            ctx.fill();
+
+            // inner border
+            ctx.strokeStyle = isDeploy ? '#c09830' : '#8a6a38';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(-cardW / 2 + 5, -cardH / 2 + 5, cardW - 10, cardH - 10, 6);
+            ctx.stroke();
+
+            // outer border
+            ctx.strokeStyle = isDeploy ? '#e0b840' : '#b09050';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 10);
+            ctx.stroke();
+
+            // icon + name
+            ctx.fillStyle = '#ffd700';
+            ctx.font = '36px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(fx.icon, 0, -12);
+
+            ctx.fillStyle = '#eee';
+            ctx.font = 'bold 13px sans-serif';
+            ctx.fillText(fx.name, 0, 28);
+
+            ctx.restore();
+
+            // --- scorch mark just above burn line ---
+            const scorchH = 6;
+            const scorchGrad = ctx.createLinearGradient(0, burnLine - scorchH, 0, burnLine + scorchH);
+            scorchGrad.addColorStop(0, 'rgba(20,10,5,0)');
+            scorchGrad.addColorStop(0.5, 'rgba(30,10,0,0.7)');
+            scorchGrad.addColorStop(1, 'rgba(255,100,0,0)');
+            ctx.fillStyle = scorchGrad;
+            ctx.fillRect(-cardW / 2, burnLine - scorchH, cardW, scorchH * 2);
+
+            // --- flame tongues ---
+            for (let f = 0; f < 7; f++) {
+                const fxP = -cardW / 2 + 5 + (f / 6) * (cardW - 10);
+                const fh = 14 + Math.sin(f * 3.7 + burnT * 12) * 10 + burnT * 22;
+                const fw = 7 + Math.sin(f * 5.1 + burnT * 8) * 4;
+
+                const flGrad = ctx.createLinearGradient(fxP, burnLine + fh, fxP, burnLine);
+                flGrad.addColorStop(0, `rgba(255,220,30,${0.9 - burnT * 0.4})`);
+                flGrad.addColorStop(0.3, `rgba(255,150,0,${0.85 - burnT * 0.3})`);
+                flGrad.addColorStop(0.7, `rgba(255,40,0,${0.7 - burnT * 0.4})`);
+                flGrad.addColorStop(1, 'rgba(40,5,0,0.95)');
+                ctx.fillStyle = flGrad;
+                ctx.beginPath();
+                ctx.moveTo(fxP - fw, burnLine);
+                ctx.quadraticCurveTo(fxP - fw * 0.3, burnLine + fh * 0.5, fxP, burnLine + fh);
+                ctx.quadraticCurveTo(fxP + fw * 0.3, burnLine + fh * 0.5, fxP + fw, burnLine);
+                ctx.fill();
+            }
+
+            // --- embers rising ---
+            for (let p = 0; p < 14; p++) {
+                const px = -cardW / 2 + Math.random() * cardW;
+                const py = burnLine - Math.random() * 50 - burnT * 30;
+                const size = 1 + Math.random() * 2.5;
+                ctx.fillStyle = `rgba(255,${180 + Math.random() * 75},${Math.random() * 40},${0.8 - burnT * 0.5})`;
+                ctx.beginPath();
+                ctx.arc(px, py, size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        ctx.restore();
+    }
+}
+
+// ===== 空袭 / 空降飞机特效 =====================
+function drawAirstrikeEffects(now) {
+    for (let i = airstrikeEffects.length - 1; i >= 0; i--) {
+        const fx = airstrikeEffects[i];
+        const elapsed = now - fx.startTime;
+        if (elapsed > fx.duration) { airstrikeEffects.splice(i, 1); continue; }
+
+        const t = elapsed / fx.duration;
+        const cx = fx.x, cy = fx.y;
+        const isAirdrop = fx.type === 'airdrop';
+
+        // plane flies left→right in straight line
+        const planeX = cx - 300 + t * 600;
+        const planeY = cy - 80;
+
+        ctx.save();
+        ctx.translate(planeX, planeY);
+        ctx.rotate(Math.PI / 4); // 45° upward pitch
+        ctx.font = '38px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('✈️', 0, 0);
+        ctx.restore();
+
+        // sequential drops (airdrop: 1 drop; airstrike: 3 drops)
+        const dropEmoji = isAirdrop ? '🪂' : '💣';
+        const dropTimes = isAirdrop ? [0.45] : [0.35, 0.45, 0.55];
+        for (let d = 0; d < 3; d++) {
+            const dt = dropTimes[d];
+            if (t < dt) continue;
+            const dropT = (t - dt) / 0.3;
+            if (dropT > 1) continue;
+            const dropX = cx - 300 + dt * 600 + dropT * 20;
+            const dropY = cy - 80 + dropT * 70;
+            ctx.font = '14px sans-serif';
+            ctx.fillText(dropEmoji, dropX, Math.min(cy + 10, dropY));
+
+            if (!isAirdrop && dropT > 0.7) {
+                const exT = (dropT - 0.7) / 0.3;
+                for (let p = 0; p < 5; p++) {
+                    const angle = (p / 5) * Math.PI * 2;
+                    const dist = exT * 25;
+                    ctx.fillStyle = `rgba(255,${150 + Math.random() * 105},0,${1 - exT})`;
+                    ctx.beginPath();
+                    ctx.arc(dropX + Math.cos(angle) * dist, cy + 10 + Math.sin(angle) * dist, 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+    }
+
+    // city disabled indicator
+    for (const tile of gameState.tiles) {
+        if (!tile.isCity || !tile._cityDisabledUntil || tile._cityDisabledUntil < gameState.turnCounter) continue;
+        const pulse = (Math.sin(now / 400) + 1) / 2;
+        ctx.save();
+        ctx.font = '18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = `rgba(255,80,80,${0.6 + pulse * 0.4})`;
+        ctx.fillText('🚫', tile.x, tile.y - HEX_SIZE - 16);
+        ctx.restore();
+    }
 }

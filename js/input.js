@@ -1,13 +1,14 @@
-import { HEX_SIZE, canvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, updateStatsPanel, updateRecruitCostDisplay, logMessage, serializeState, showTargetingBanner, hideTargetingBanner } from './state.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn, undoLastAction,
-    executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale
+    executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
 import { clearTransientEffects, spawnCommanderSkillEffect } from './effects.js';
+import { setCardHoveredIndex, armDrawPile, disarmDrawPile, triggerFlyingCard } from './renderer.js';
 
 function _getMyCampInput() {
     if (isNetworkGame()) {
@@ -19,6 +20,110 @@ function _getMyCampInput() {
     }
     return gameState.currentCamp;
 }
+
+// Canvas 卡牌堆叠区域点击处理
+let _localDrawArmed = false;
+let _cardFromX = 500, _cardFromY = 375;
+function _handleCardCanvasClick(e) {
+    if (!cardCanvas) return;
+    const rect = cardCanvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const W = cardCanvas.clientWidth, H = cardCanvas.clientHeight;
+
+    const myCamp = _getMyCampInput();
+    if (!myCamp) return;
+    const campKey = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
+    const hand = gameState.playerHands[campKey] || [];
+    const isNeutralTurn = !isNetworkGame() && gameState.currentCamp === CAMP.neutral;
+    if (isNeutralTurn) return;
+
+    const cardW = 90, cardH = 130, peekW = 40;
+    const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
+
+    // draw pile check (top-right corner)
+    if (cx >= pileX - 4 && cx <= pileX + pileW + 4 && cy >= pileY - 4 && cy <= pileY + pileH + 4) {
+        const isMyTurnLocal = isNetworkGame()
+            ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
+            : (gameState.gameMode === 'pve' ? gameState.currentCamp === CAMP.player1 : true);
+        if (!isMyTurnLocal || gameState.cardTargeting ||
+            hand.length >= CARD_SYSTEM_CONFIG.maxHandSize ||
+            gameState.playerGold[campKey] < CARD_SYSTEM_CONFIG.drawCost ||
+            gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
+            disarmDrawPile();
+            return;
+        }
+
+        if (!_localDrawArmed) {
+            armDrawPile();
+            _localDrawArmed = true;
+            return;
+        }
+        disarmDrawPile();
+        _localDrawArmed = false;
+        const drawn = drawCard(myCamp);
+        if (drawn) {
+            // new top card always lands at leftmost position: cxBase + cardW/2 = W/2
+            const endX = W / 2;
+            const endY = H - 120 + cardH / 2;
+            triggerFlyingCard(drawn, pileX + pileW / 2, pileY + pileH / 2, endX, endY);
+        }
+        return;
+    }
+
+    if (_localDrawArmed) { disarmDrawPile(); _localDrawArmed = false; }
+
+    const n = hand.length;
+    if (n === 0) return;
+
+    const cxBase2 = W / 2 - cardW / 2;
+    const cyBase2 = H - 120;
+
+    // search from top card down
+    for (let i = n - 1; i >= 0; i--) {
+        const cfg = TACTICAL_CARD_CONFIG[hand[i]];
+        if (!cfg) continue;
+        const bx = cxBase2 + (n - 1 - i) * peekW;
+        const by = cyBase2;
+        if (cx >= bx && cx <= bx + cardW && cy >= by && cy <= by + cardH) {
+            const cardId = hand[i];
+            const isDeploy = cardId === 'commanderDeploy';
+            const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
+            if (isDeploy && alreadyDeployed) return;
+
+            // only allow during own turn (network safety)
+            const isMyTurnCheck = isNetworkGame()
+                ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
+                : (gameState.gameMode === 'pve' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === myCamp);
+            if (!isMyTurnCheck) return;
+
+            if (gameState.cardTargeting && gameState.cardTargeting.cardId === cardId) {
+                cancelCardTargeting();
+                return;
+            }
+            if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn) {
+                notify('本回合已达到使用上限（2次）', 'error'); return;
+            }
+            if (gameState.selectedUnit) deselectUnit(); else clearselection();
+            hideTooltip();
+            gameState.selectedTile = null;
+            // capture card hand position in game logical coords for burn animation
+            {
+                const cardRect = cardCanvas.getBoundingClientRect();
+                const gameRect = canvas.getBoundingClientRect();
+                const scaleX = LOGICAL_W / gameRect.width;
+                const scaleY = LOGICAL_H / gameRect.height;
+                const screenX = cardRect.left + bx + cardW / 2;
+                const screenY = cardRect.top + by + cardH / 2;
+                _cardFromX = (screenX - gameRect.left) * scaleX;
+                _cardFromY = (screenY - gameRect.top) * scaleY;
+            }
+            gameState.cardTargeting = { cardId, targeting: cfg.targeting };
+            showTargetingBanner(`选择【${cfg.name}】目标`, '再次点击卡片或按 Esc 取消');
+            return;
+        }
+    }
+}
+
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
 
@@ -52,17 +157,27 @@ function _drawRankChevrons(cv, rank) {
     const pad = 2;
     const ctx = cv.getContext('2d');
     if (rank >= 4) {
-        const size = 14;
-        cv.width = size + pad * 2;
-        cv.height = size + pad * 2;
+        const outerR = 7, innerR = outerR * 0.382;
+        const extra = 4;
+        cv.width = Math.ceil(outerR * 2 + pad * 2 + extra * 2);
+        cv.height = cv.width;
         ctx.clearRect(0, 0, cv.width, cv.height);
+        const cx = cv.width / 2, cy = cv.height / 2;
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+            const aOut = -Math.PI / 2 + i * 2 * Math.PI / 5;
+            const aIn = aOut + Math.PI / 5;
+            if (i === 0) ctx.moveTo(cx + outerR * Math.cos(aOut), cy + outerR * Math.sin(aOut));
+            else ctx.lineTo(cx + outerR * Math.cos(aOut), cy + outerR * Math.sin(aOut));
+            ctx.lineTo(cx + innerR * Math.cos(aIn), cy + innerR * Math.sin(aIn));
+        }
+        ctx.closePath();
         ctx.fillStyle = '#ffd700';
-        ctx.font = `bold ${size}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5;
-        ctx.fillText('★', cv.width / 2, cv.height / 2);
-        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetY = 1;
+        ctx.fill();
+        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5; ctx.shadowOffsetY = 0;
+        ctx.fill();
+        ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
         return;
     }
     const hw = 5.5, hh = 1.5, sp = 4; // width-half, height-half(压扁), vertical spacing
@@ -94,7 +209,7 @@ function _drawRankChevrons(cv, rank) {
 const PASSIVE_DEFS = {
     infantry: {
         name: '坚守',
-        desc: '位于城市时：每回合回复10%生命值，防御+20%，反击伤害大幅提高',
+        desc: '位于城市时：每回合回复10%生命值，防御+5%，反击伤害大幅提高',
         active: (u) => u.tile.isCity
     },
     cavalry: {
@@ -156,7 +271,7 @@ function showTooltipForTile(tile) {
         const moraleDefBonus = MORALE_CONFIG[unit.morale].defBonus;
         const auraDefBonus = getCommanderAuraDefenseBonus(unit);
         const cmdDefBonus = getCommanderDefenseBonus(unit);
-        const cityDefBonus = (unit.type === 'infantry' && isCity) ? 0.20 : 0;
+        const cityDefBonus = (unit.type === 'infantry' && isCity) ? 0.05 : 0;
         const terrainDefBonus = TERRAIN_CONFIG[tile.terrain].defenseBonus;
         const rankDefBonus = unit._rankDefBonus || 0;
         const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus + rankDefBonus + auraDefBonus + cmdDefBonus + cityDefBonus) * 100);
@@ -274,7 +389,8 @@ function showTooltipForTile(tile) {
         // 限时效果 → 格式：【名称】效果描述（⏰剩余轮数）
         for (const fx of timedEffects) {
             const descSuffix = fx.desc ? `${fx.desc}` : '';
-            const line = `<span style="color:${fx.color};">【${fx.label}】${descSuffix}（⏰${fx.remaining}）</span>`;
+            const clockSuffix = (fx.remaining != null && fx.remaining !== '永久') ? `（⏰${fx.remaining}）` : '';
+            const line = `<span style="color:${fx.color};">【${fx.label}】${descSuffix}${clockSuffix}</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + line;
         }
 
@@ -435,6 +551,43 @@ export function initInput() {
         };
     }
 
+    // 对策卡手牌独立画布交互
+    if (cardCanvas) {
+        cardCanvas.addEventListener('mousemove', (e) => {
+            if (gameState.gameOver) return;
+            const rect = cardCanvas.getBoundingClientRect();
+            const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+            const W = cardCanvas.clientWidth, H = cardCanvas.clientHeight;
+            const myCamp2 = _getMyCampInput();
+            if (!myCamp2) return;
+            const ck = myCamp2 === CAMP.player1 ? 'player1' : myCamp2 === CAMP.player2 ? 'player2' : 'player3';
+            const hand2 = gameState.playerHands[ck] || [];
+            const n2 = hand2.length;
+            if (n2 === 0) return;
+            const cardW2 = 90, cardH2 = 130, peekW2 = 40;
+            const cxBase2 = W / 2 - cardW2 / 2;
+            const cyBase2 = H - 120;
+
+            // search from top card (highest index) downward
+            let found = -1;
+            for (let i = n2 - 1; i >= 0; i--) {
+                const bx = cxBase2 + (n2 - 1 - i) * peekW2;
+                const by = cyBase2;
+                if (cx >= bx && cx <= bx + cardW2 && cy >= by && cy <= by + cardH2) {
+                    found = i; break;
+                }
+            }
+            setCardHoveredIndex(found);
+        });
+        cardCanvas.addEventListener('mouseleave', () => {
+            setCardHoveredIndex(-1);
+        });
+        cardCanvas.addEventListener('click', (e) => {
+            if (gameState.gameOver) return;
+            _handleCardCanvasClick(e);
+        });
+    }
+
     canvas.addEventListener('click', (e) => {
         if (gameState.gameOver) return;
         const { x: clickX, y: clickY } = toLogical(e);
@@ -442,6 +595,7 @@ export function initInput() {
         const clickedTile = getTileAtPixel(clickX, clickY);
         if (!clickedTile) {
             if (gameState.cardTargeting) { cancelCardTargeting(); return; }
+            if (gameState.cardStackExpanded) { gameState.cardStackExpanded = false; return; }
             clearselection();
             hideTooltip();
             return;
@@ -459,10 +613,23 @@ export function initInput() {
                 isValid = clickedTile.unit && clickedTile.unit.camp !== myCamp;
             } else if (ct.targeting === 'friendlyAlive') {
                 isValid = clickedTile.unit && clickedTile.unit.camp === myCamp && clickedTile.unit.canAct;
+            } else if (ct.targeting === 'friendlyAny') {
+                isValid = clickedTile.unit && clickedTile.unit.camp === myCamp;
+            } else if (ct.targeting === 'emptyTile') {
+                isValid = !clickedTile.unit;
+            } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
+                isValid = !clickedTile.unit && !clickedTile.isCity
+                    && clickedTile.terrain !== 'mountain' && clickedTile.camp === myCamp;
+            } else if (ct.targeting === 'emptyFriendlyLandmine') {
+                isValid = !clickedTile.unit && !clickedTile.isCity && clickedTile.camp === myCamp;
+            } else if (ct.targeting === 'enemyCity') {
+                isValid = clickedTile.isCity && clickedTile.camp !== myCamp;
+            } else if (ct.targeting === 'shieldTarget') {
+                isValid = clickedTile.unit != null;
             }
 
             if (isValid) {
-                executeTacticalCard(ct.cardId, clickedTile);
+                executeTacticalCard(ct.cardId, clickedTile, _cardFromX, _cardFromY);
             }
             return;
         }
@@ -545,60 +712,7 @@ export function initInput() {
         }
     });
 
-    // 对策卡点击（事件委托）
-    document.getElementById('tacticalCardArea').addEventListener('click', (e) => {
-        const cardEl = e.target.closest('.tactical-card');
-        if (!cardEl) return;
-        const cardId = cardEl.dataset.cardId;
-        if (!cardId) return;
-
-        const cfg = TACTICAL_CARD_CONFIG[cardId];
-        if (!cfg) return;
-
-        const myCamp = _getMyCampInput();
-        const campKey = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
-        const cards = gameState.tacticalCards[campKey] || {};
-        const cd = cards[cardId] || 0;
-
-        // 若已在此卡片的选择目标模式，再次点击取消
-        if (gameState.cardTargeting && gameState.cardTargeting.cardId === cardId) {
-            cancelCardTargeting();
-            return;
-        }
-
-        // 若已在此卡片的选择目标模式，再次点击取消
-        if (gameState.cardTargeting && gameState.cardTargeting.cardId === cardId) {
-            cancelCardTargeting();
-            return;
-        }
-
-        // 非可操作状态（部署/中立/结束/对手回合）忽略点击，但先清理残留选择
-        const isAIOpponentTurn2 = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
-        const isNeutralLocal2 = !isNetworkGame() && gameState.currentCamp === CAMP.neutral;
-        if (gameState.gameOver || gameState.commanderPhase !== 'done' || !isMyTurn(gameState.currentCamp) || isAIOpponentTurn2 || isNeutralLocal2) {
-            if (gameState.cardTargeting) cancelCardTargeting();
-            return;
-        }
-
-        // 部署将领卡已使用过则忽略
-        if (cardId === 'commanderDeploy') {
-            const alreadyDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed;
-            if (alreadyDeployed) return;
-        }
-
-        // 冷却中或金币不足，不进入选择模式
-        if (cd > 0) { notify('该对策卡冷却中'); return; }
-        if (gameState.playerGold[campKey] < cfg.cost) { notify('金币不足'); return; }
-
-        // 先取消当前选中单位（带倒放动画）
-        if (gameState.selectedUnit) deselectUnit(); else clearselection();
-        hideTooltip();
-        gameState.selectedTile = null;
-
-        // 进入选择目标模式
-        gameState.cardTargeting = { cardId, targeting: cfg.targeting };
-        showTargetingBanner(`选择【${cfg.name}】目标`, '再次点击卡片或按 Esc 取消');
-    });
+    // 对策卡交互已改为 canvas 渲染，不再使用 DOM 事件
 
     // 对策卡悬浮提示 — 从右侧边界滑出
     const cardTooltip = document.getElementById('cardTooltip');

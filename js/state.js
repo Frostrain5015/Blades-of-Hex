@@ -72,8 +72,13 @@ export const gameState = {
     commanderP3Deployed: false,
     commanderPhase: 'done',  // 'selection' | 'deployment' | 'done'
     factionMoraleBoost: { player1: 0, player2: 0, player3: 0 },
-    // 对策卡系统
-    tacticalCards: { player1: {}, player2: {}, player3: {} },
+    // 对策卡系统 v2
+    cardDrawPile: [],
+    cardDiscardPile: [],
+    playerHands: { player1: [], player2: [], player3: [] },
+    playerDrawsThisTurn: { player1: 0, player2: 0, player3: 0 },
+    playerUsesThisTurn: { player1: 0, player2: 0, player3: 0 },
+    cardStackExpanded: false,
     cardTargeting: null
 };
 
@@ -127,7 +132,12 @@ export function resetGameState() {
     gameState.commanderP3Deployed = false;
     gameState.commanderPhase = 'done';
     gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0 };
-    gameState.tacticalCards = { player1: {}, player2: {}, player3: {} };
+    gameState.cardDrawPile = [];
+    gameState.cardDiscardPile = [];
+    gameState.playerHands = { player1: [], player2: [], player3: [] };
+    gameState.playerDrawsThisTurn = { player1: 0, player2: 0, player3: 0 };
+    gameState.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0 };
+    gameState.cardStackExpanded = false;
     gameState.cardTargeting = null;
     // 清除计数器动画记忆
     for (const k of Object.keys(_counterStore)) delete _counterStore[k];
@@ -367,27 +377,11 @@ export function logMessage(msg) {
 export function updateStatsPanel() {
     const content = document.getElementById('statsContent');
     if (!content) return;
-    const p1c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player1).length;
-    const p2c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player2).length;
-    const p3c = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.player3).length;
-    const nc  = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.neutral).length;
-    const p1i = calcIncome(p1c);
-    const p2i = calcIncome(p2c);
-    const p3i = calcIncome(p3c);
-    const ni  = Math.floor(calcIncome(nc) / 2);
-
     const factionCount = gameState.isThreePlayer ? 4 : 3;
     const turnNum = Math.floor(gameState.turnCounter / factionCount) + 1;
-    const p3Row = gameState.isThreePlayer
-        ? `<div class="stat-row"><span class="stat-p3">绿军</span><span class="stat-val">⚔${gameState.killCount.player3} 🏰${p3c} ⚱${p3i}</span></div>`
-        : '';
     content.innerHTML = `
-        <div class="stat-turn-label">回合</div>
-        <div class="stat-turn-num">${turnNum}</div>
-        <div class="stat-row"><span class="stat-p1">红军</span><span class="stat-val">⚔${gameState.killCount.player1} 🏰${p1c} ⚱${p1i}</span></div>
-        <div class="stat-row"><span class="stat-p2">蓝军</span><span class="stat-val">⚔${gameState.killCount.player2} 🏰${p2c} ⚱${p2i}</span></div>
-        ${p3Row}
-        <div class="stat-row"><span class="stat-n">中立</span><span class="stat-val">⚔${gameState.killCount.neutral} 🏰${nc} ⚱${ni}</span></div>
+        <div class="stat-turn-num" style="font-size:48px;font-weight:bold;text-align:center;line-height:1.2;">${turnNum}</div>
+        <div class="stat-turn-label" style="text-align:center;">回合</div>
     `;
     const turnEl = content.querySelector('.stat-turn-num');
     if (turnEl) animateCounter(turnEl, turnNum, n => String(n), 'turnNum');
@@ -462,6 +456,9 @@ export function serializeState() {
         targetColor: t.targetColor,
         currentColor: t.currentColor,
         fadeStartTime: t.fadeStartTime,
+        minePlanted: t._minePlanted || false,
+        mineCampKey: t._mineCampKey || null,
+        cityDisabledUntil: t._cityDisabledUntil || 0,
         unit: t.unit ? {
             id: t.unit.id,
             type: t.unit.type,
@@ -488,7 +485,12 @@ export function serializeState() {
             activeSkillCD: t.unit.activeSkillCD,
             activeSkillDur: t.unit.activeSkillDur,
             gongxinStacks: t.unit._gongxinStacks || 0,
-            gongxinCampKey: t.unit._gongxinCamp ? _campToKey(t.unit._gongxinCamp) : null
+            gongxinCampKey: t.unit._gongxinCamp ? _campToKey(t.unit._gongxinCamp) : null,
+            imprisoned: t.unit._imprisoned || false,
+            isImmobile: t.unit._isImmobile || false,
+            shield: t.unit._shield || 0,
+            shieldMax: t.unit._shieldMax || 0,
+            shieldTurns: t.unit._shieldTurns || 0
         } : null
     }));
 
@@ -519,7 +521,11 @@ export function serializeState() {
         commanderP3Deployed: gameState.commanderP3Deployed,
         commanderPhase: gameState.commanderPhase,
         factionMoraleBoost: { ...gameState.factionMoraleBoost },
-        tacticalCards: { player1: { ...gameState.tacticalCards.player1 }, player2: { ...gameState.tacticalCards.player2 }, player3: { ...gameState.tacticalCards.player3 } },
+        cardDrawPile: [...gameState.cardDrawPile],
+        cardDiscardPile: [...gameState.cardDiscardPile],
+        playerHands: { player1: [...gameState.playerHands.player1], player2: [...gameState.playerHands.player2], player3: [...gameState.playerHands.player3] },
+        playerDrawsThisTurn: { ...gameState.playerDrawsThisTurn },
+        playerUsesThisTurn: { ...gameState.playerUsesThisTurn },
         gameMode: gameState.gameMode || 'local',
         isThreePlayer: gameState.isThreePlayer || false,
         aiOpponentCampKey: gameState.aiOpponentCamp ? _campToKey(gameState.aiOpponentCamp) : null,
@@ -559,9 +565,18 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     } else {
         gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0 };
     }
-    if (data.tacticalCards) {
-        gameState.tacticalCards = { player1: { ...data.tacticalCards.player1 }, player2: { ...data.tacticalCards.player2 }, player3: { ...(data.tacticalCards.player3 || {}) } };
+    if (data.cardDrawPile) gameState.cardDrawPile = [...data.cardDrawPile];
+    if (data.cardDiscardPile) gameState.cardDiscardPile = [...data.cardDiscardPile];
+    if (data.playerHands) {
+        gameState.playerHands = {
+            player1: [...(data.playerHands.player1 || [])],
+            player2: [...(data.playerHands.player2 || [])],
+            player3: [...(data.playerHands.player3 || [])]
+        };
     }
+    if (data.playerDrawsThisTurn) gameState.playerDrawsThisTurn = { player1: 0, player2: 0, player3: 0, ...data.playerDrawsThisTurn };
+    if (data.playerUsesThisTurn) gameState.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0, ...data.playerUsesThisTurn };
+    gameState.cardStackExpanded = false;
     gameState.gameMode = data.gameMode || 'local';
     gameState.isThreePlayer = data.isThreePlayer || false;
     gameState.aiOpponentCamp = data.aiOpponentCampKey ? campMap[data.aiOpponentCampKey] : null;
@@ -609,6 +624,9 @@ export function deserializeState(data, HexTileClass, UnitClass) {
         } else {
             tile.fadeStartTime = null;
         }
+        tile._minePlanted = td.minePlanted || false;
+        tile._mineCampKey = td.mineCampKey || null;
+        tile._cityDisabledUntil = td.cityDisabledUntil || 0;
         if (td.unit) {
             const unit = new UnitClass(td.unit.type, campMap[td.unit.campKey], tile, td.unit.isNewRecruit, td.unit.id);
             unit.hp = td.unit.hp;
@@ -640,6 +658,11 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             if (td.unit.gongxinCampKey) {
                 unit._gongxinCamp = campMap[td.unit.gongxinCampKey] || CAMP.neutral;
             }
+            unit._imprisoned = td.unit.imprisoned || false;
+            unit._isImmobile = td.unit.isImmobile || false;
+            unit._shield = td.unit.shield || 0;
+            unit._shieldMax = td.unit.shieldMax || 0;
+            unit._shieldTurns = td.unit.shieldTurns || 0;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {
                 const saved = oldCommander.get(unit.id);

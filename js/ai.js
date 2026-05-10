@@ -4,9 +4,9 @@
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit,
-    executeTacticalCard, recalcAllFlankingMorale
+    executeTacticalCard, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
-import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG } from './config.js';
+import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG } from './config.js';
 import { isNetworkGame, sendMessage } from './network.js';
 import { getCommander } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
@@ -93,7 +93,7 @@ async function _executeActionInner(action, aiCamp) {
             const target = t.unit;
             const c = (COUNTER[unit.type] && COUNTER[unit.type][target.type]) || 1;
             const tDef = TERRAIN_DEF[target.tile.terrain] || 0;
-            const cityDef = (target.type === 'infantry' && target.tile.isCity) ? 0.20 : 0;
+            const cityDef = (target.type === 'infantry' && target.tile.isCity) ? 0.05 : 0;
             const unitDef = target.config.defense || 0;
             const estDmg = unit.getEffectiveAttack() * Math.max(0.1, 1 + c - 1 - tDef - cityDef - unitDef);
             let score = 0;
@@ -201,19 +201,24 @@ async function _executeActionInner(action, aiCamp) {
             await delay(AI_DELAY);
             break;
         }
+        case 'drawCard': {
+            if (gameState.playerGold[campKey] < CARD_SYSTEM_CONFIG.drawCost) return;
+            if (gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) return;
+            if (gameState.playerHands[campKey].length >= CARD_SYSTEM_CONFIG.maxHandSize) return;
+            gameState.currentCamp = aiCamp;
+            try { drawCard(aiCamp); } finally { gameState.currentCamp = aiCamp; }
+            await delay(AI_DELAY * 0.5);
+            break;
+        }
         case 'tacticalCard': {
             const target = resolveUnit(action.targetId);
             if (!target || !target.tile) return;
             const cardId = action.cardId;
             if (!cardId) return;
-            // 校验冷却和金币
-            const cards = gameState.tacticalCards[campKey] || {};
-            if ((cards[cardId] || 0) > 0) return;
-            const cfg = TACTICAL_CARD_CONFIG[cardId];
-            if (!cfg) return;
-            if (gameState.playerGold[campKey] < cfg.cost) return;
-            // 执行战术卡
-            gameState.currentCamp = aiCamp; // 确保 executeTacticalCard 识别正确阵营
+            const hand = gameState.playerHands[campKey] || [];
+            if (!hand.includes(cardId)) return;
+            if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn) return;
+            gameState.currentCamp = aiCamp;
             try {
                 executeTacticalCard(cardId, target.tile);
             } finally {
@@ -235,8 +240,6 @@ export async function processNeutralTurn() {
     gameState.aiActing = true;
     const aiCamp = CAMP.neutral;
     try {
-        logMessage('AI正在行动...');
-        if (isNetworkGame()) sendMessage({ type: 'toast', text: 'AI正在行动...', toastType: 'info' });
 
         const helpers = makeHelpers();
         const actions = claudePersonality.planActions(gameState, helpers);
@@ -277,8 +280,6 @@ export async function processOpponentTurn(aiCamp) {
 
     gameState.aiActing = true;
     try {
-        logMessage('AI对手正在行动...');
-        if (isNetworkGame()) sendMessage({ type: 'toast', text: 'AI对手正在行动...', toastType: 'info' });
 
         const helpers = makeHelpers();
         const actions = grokPersonality.planActions(gameState, helpers, aiCamp);

@@ -258,13 +258,23 @@ export function planActions(gameState, helpers, myCamp) {
     }
 
     // ═══════════════════════════════════════════
-    // 第零轮：对策卡 — 部署将领、雷击
+    // 第零轮：对策卡 — 抽牌 + 使用
     // ═══════════════════════════════════════════
 
     const isDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
-    const cards = gameState.tacticalCards[campKey] || {};
+    const hand = gameState.playerHands[campKey] || [];
+    let cardUses = gameState.playerUsesThisTurn[campKey] || 0;
+    let drawsUsed = gameState.playerDrawsThisTurn[campKey] || 0;
 
-    if (!isDeployed) {
+    // 抽牌（Grok 激进，有金就抽）
+    if (gold >= 30 && drawsUsed < 1 && hand.length < 3
+        && (gameState.cardDrawPile.length > 0 || gameState.cardDiscardPile.length > 0)) {
+        actions.push({ type: 'drawCard' });
+        gold -= 30; drawsUsed++;
+    }
+
+    // 部署将领（via hand card）
+    if (!isDeployed && hand.includes('commanderDeploy')) {
         const myCmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : gameState.commanderP2;
         const cmdStrat = COMMANDER_STRATEGY[myCmdKey] || {};
         if (myCmdKey) {
@@ -273,7 +283,6 @@ export function planActions(gameState, helpers, myCamp) {
             const carrierPref = cmdStrat.carrierPref || ['cavalry', 'infantry', 'archer'];
             for (const unit of allUnits) {
                 let score = unit.hp / unit.maxHp * 50;
-                // 按将领偏好加权兵种
                 const typeIdx = carrierPref.indexOf(unit.type);
                 if (typeIdx >= 0) score += (2 - typeIdx) * 20;
                 const nearEnemies = allEnemyUnits.filter(e => hexDistance(unit.tile, e) <= 5).length;
@@ -281,43 +290,90 @@ export function planActions(gameState, helpers, myCamp) {
                 if (primaryObjective) {
                     score += Math.max(0, 60 - hexDistance(unit.tile, primaryObjective) * 5);
                 }
-                // 铁卫/尚书优先驻扎城市的单位
                 if ((cmdStrat.holdCity || cmdStrat.economyFirst) && unit.tile.isCity) score += 40;
                 if (unit.commander) score = -Infinity;
                 if (score > bestCarrierScore) { bestCarrierScore = score; bestCarrier = unit; }
             }
             if (bestCarrier) {
-                actions.push({ type: 'deployCommander', unitId: bestCarrier.id });
-                processed.add(bestCarrier.id);
+                actions.push({ type: 'tacticalCard', cardId: 'commanderDeploy', targetId: bestCarrier.id });
+                processed.add(bestCarrier.id); cardUses++;
             }
         }
     }
 
-    // 雷击：优先打击主攻目标上的守军 + 残血将领
-    const lightningCD = cards['lightning'] || 0;
-    if (gold >= 45 && lightningCD === 0) {
-        let bestTarget = null;
-        let bestScore = 0;
-        for (const tile of gameState.tiles) {
-            const target = tile.unit;
-            if (!target || target.camp === myCamp) continue;
-            // 阶段1允许雷击中立单位，加速夺城；阶段2跳过中立
-            if (target.camp === CAMP.neutral && ownsNeutralCity) continue;
-            let score = 0;
-            if (target.commander) score += 100;
-            if (target.hp <= 25) score += 100;  // 雷击收割
-            if (primaryObjective && target.tile === primaryObjective) score += 120;
-            if (target.tile.isCity && target.camp === enemyCamp) score += 50;
-            if (target.hp <= 50) score += 70;
-            if (target.morale >= 3) score += 40;
-            if (target.type === 'archer') score += 20;
-            // 阶段1：鼓励雷击中立守军
-            if (!ownsNeutralCity && target.camp === CAMP.neutral) score += 90;
-            if (score > bestScore) { bestScore = score; bestTarget = target; }
-        }
-        if (bestScore >= 40) {
-            actions.push({ type: 'tacticalCard', cardId: 'lightning', targetId: bestTarget.id });
-            gold -= 30;
+    // 遍历手牌使用（最多 2 张）
+    for (const cardId of hand) {
+        if (cardUses >= 2) break;
+        if (cardId === 'commanderDeploy') continue;
+
+        if (cardId === 'lightning') {
+            let bestTarget = null, bestScore = 0;
+            for (const tile of gameState.tiles) {
+                const target = tile.unit;
+                if (!target || target.camp === myCamp) continue;
+                if (target.camp === CAMP.neutral && ownsNeutralCity) continue;
+                let score = 0;
+                if (target.commander) score += 100;
+                if (target.hp <= 25) score += 100;
+                if (primaryObjective && target.tile === primaryObjective) score += 120;
+                if (target.tile.isCity && target.camp === enemyCamp) score += 50;
+                if (target.hp <= 50) score += 70;
+                if (target.morale >= 3) score += 40;
+                if (target.type === 'archer') score += 20;
+                if (!ownsNeutralCity && target.camp === CAMP.neutral) score += 90;
+                if (score > bestScore) { bestScore = score; bestTarget = target; }
+            }
+            if (bestScore >= 40) {
+                actions.push({ type: 'tacticalCard', cardId: 'lightning', targetId: bestTarget.id });
+                cardUses++;
+            }
+        } else if (cardId === 'heal') {
+            const healable = allUnits
+                .filter(u => u.hp < u.maxHp * 0.4)
+                .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+            if (healable.length > 0) {
+                actions.push({ type: 'tacticalCard', cardId: 'heal', targetId: healable[0].id });
+                cardUses++;
+            }
+        } else if (cardId === 'imprison') {
+            // 禁锢最强的敌方单位
+            let bestTarget = null, bestScore = 0;
+            for (const tile of gameState.tiles) {
+                const target = tile.unit;
+                if (!target || target.camp === myCamp) continue;
+                let score = target.hp + target.config.attack * 2;
+                if (target.commander) score += 80;
+                if (primaryObjective && target.tile === primaryObjective) score += 100;
+                if (score > bestScore) { bestScore = score; bestTarget = target; }
+            }
+            if (bestScore >= 40) {
+                actions.push({ type: 'tacticalCard', cardId: 'imprison', targetId: bestTarget.id });
+                cardUses++;
+            }
+        } else if (cardId === 'mgNest') {
+            // 在主攻目标附近的己方空地部署机枪堡
+            if (primaryObjective) {
+                const nearbyTiles = gameState.tiles.filter(t =>
+                    !t.unit && !t.isCity && t.terrain !== 'mountain'
+                    && t.camp === myCamp
+                    && hexDistance(t, primaryObjective) <= 3);
+                if (nearbyTiles.length > 0) {
+                    nearbyTiles.sort((a, b) => hexDistance(a, primaryObjective) - hexDistance(b, primaryObjective));
+                    actions.push({ type: 'tacticalCard', cardId: 'mgNest', targetId: nearbyTiles[0].id });
+                    cardUses++;
+                }
+            }
+        } else if (cardId === 'airdrop') {
+            // 在主攻目标附近的空地空降
+            if (primaryObjective) {
+                const nearEmpty = gameState.tiles.filter(t =>
+                    !t.unit && hexDistance(t, primaryObjective) <= 2);
+                if (nearEmpty.length > 0) {
+                    nearEmpty.sort((a, b) => hexDistance(a, primaryObjective) - hexDistance(b, primaryObjective));
+                    actions.push({ type: 'tacticalCard', cardId: 'airdrop', targetId: nearEmpty[0].id });
+                    cardUses++;
+                }
+            }
         }
     }
 

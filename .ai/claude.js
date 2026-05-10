@@ -122,6 +122,65 @@ export function planActions(gameState, helpers) {
     let gold = gameState.playerGold.neutral;
 
     // ═══════════════════════════════════════════
+    // ══ 第零轮：对策卡 — 抽牌 + 使用 ══
+    const allUnitsN = [];
+    for (const tile of gameState.tiles) {
+        if (tile.unit && tile.unit.camp === CAMP.neutral) allUnitsN.push(tile.unit);
+    }
+    const campKeyNeutral = 'neutral';
+    const handN = gameState.playerHands[campKeyNeutral] || [];
+    let cardUsesN = gameState.playerUsesThisTurn[campKeyNeutral] || 0;
+    const goldN = gameState.playerGold[campKeyNeutral];
+
+    // Claude 保守抽牌：有足够余钱时才抽
+    if (goldN >= 50 && handN.length < 3
+        && gameState.playerDrawsThisTurn[campKeyNeutral] < 1
+        && (gameState.cardDrawPile.length > 0 || gameState.cardDiscardPile.length > 0)) {
+        actions.push({ type: 'drawCard' });
+    }
+
+    for (const cardId of handN) {
+        if (cardUsesN >= 2) break;
+        if (cardId === 'commanderDeploy') continue;
+
+        if (cardId === 'heal') {
+            const wounded = allUnitsN
+                .filter(u => u.hp < u.maxHp * 0.4)
+                .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+            if (wounded.length > 0) {
+                actions.push({ type: 'tacticalCard', cardId: 'heal', targetId: wounded[0].id });
+                cardUsesN++;
+            }
+        } else if (cardId === 'lightning') {
+            let best = null, bestS = 0;
+            for (const tile of gameState.tiles) {
+                const t = tile.unit;
+                if (!t || t.camp === CAMP.neutral) continue;
+                let s = t.hp * 0.5 + t.config.attack;
+                if (t.commander) s += 80;
+                if (tile.isCity && t.camp !== CAMP.neutral) s += 60;
+                if (tile.terrain === 'mountain') s += 30;
+                if (s > bestS) { bestS = s; best = t; }
+            }
+            if (bestS >= 60) {
+                actions.push({ type: 'tacticalCard', cardId: 'lightning', targetId: best.id });
+                cardUsesN++;
+            }
+        } else if (cardId === 'imprison') {
+            let best = null, bestS = 0;
+            for (const tile of gameState.tiles) {
+                const t = tile.unit;
+                if (!t || t.camp === CAMP.neutral) continue;
+                let s = t.config.attack * 2 + t.hp * 0.3;
+                if (t.commander) s += 60;
+                if (s > bestS) { bestS = s; best = t; }
+            }
+            if (bestS >= 30) {
+                actions.push({ type: 'tacticalCard', cardId: 'imprison', targetId: best.id });
+                cardUsesN++;
+            }
+        }
+    }
     // 第一轮：攻击 — 优先击杀、顺克、保护城市
     // ═══════════════════════════════════════════
 
