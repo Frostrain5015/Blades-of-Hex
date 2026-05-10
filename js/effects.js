@@ -950,11 +950,50 @@ export function spawnVictoryRipple(x, y) {
     });
 }
 
+// ===== 尚书统御光环：金色波纹全图扩散 =====================
+export const ministerRings = [];
+
+export function spawnMinisterDominionRing(x, y) {
+    ministerRings.push({
+        x, y,
+        startTime: Date.now(),
+        duration: 1800,
+        maxRadius: HEX_SIZE * 22
+    });
+}
+
+export function updateMinisterRings(now) {
+    for (let i = ministerRings.length - 1; i >= 0; i--) {
+        if (now - ministerRings[i].startTime > ministerRings[i].duration) {
+            ministerRings.splice(i, 1);
+        }
+    }
+}
+
+export function drawMinisterRings(ctx2d, now) {
+    for (const r of ministerRings) {
+        const elapsed = now - r.startTime;
+        const progress = Math.max(0, Math.min(1, elapsed / r.duration));
+        const radius = r.maxRadius * progress;
+        const alpha = (1 - progress) * 0.55;
+        ctx2d.save();
+        ctx2d.globalAlpha = alpha;
+        ctx2d.beginPath();
+        ctx2d.arc(r.x, r.y, radius, 0, Math.PI * 2);
+        ctx2d.strokeStyle = '#ffd700';
+        ctx2d.lineWidth = 3.5 * (1 - progress);
+        ctx2d.shadowColor = '#ffd700';
+        ctx2d.shadowBlur = 14 * (1 - progress);
+        ctx2d.stroke();
+        ctx2d.restore();
+    }
+}
+
 // ===== 尚书屯田：金币雨 =====================
 export const coinParticles = [];
 
-export function spawnCoinRain(x, y) {
-    const n = Math.round(8 * settings.particleDensity);
+export function spawnCoinRain(x, y, countMult = 1) {
+    const n = Math.round(8 * settings.particleDensity * countMult);
     for (let i = 0; i < n; i++) {
         coinParticles.push({
             x: x + (Math.random() - 0.5) * 20,
@@ -1024,6 +1063,7 @@ export function clearTransientEffects() {
     bloodDrains.length = 0;
     lightningBolts.length = 0;
     gongxinRipples.length = 0;
+    ministerRings.length = 0;
     coinParticles.length = 0;
     screenShake.time = 0;
     screenShake.x = 0;

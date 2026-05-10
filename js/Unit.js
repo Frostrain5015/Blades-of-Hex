@@ -199,7 +199,8 @@ export class Unit {
 
         const isP1 = this.camp === CAMP.player1;
         const isP2 = this.camp === CAMP.player2;
-        const campKey = isP1 ? 'p1' : isP2 ? 'p2' : 'neu';
+        const isP3 = this.camp === CAMP.player3;
+        const campKey = isP1 ? 'p1' : isP2 ? 'p2' : isP3 ? 'p3' : 'neu';
         const cc = CAMP_FLAG_COLORS[campKey];
 
         ctx.save();
@@ -639,18 +640,34 @@ export class Unit {
         }
 
         this.hp = Math.round(Math.max(0, this.hp - actualDmg));
+        // 殉道者：HP≤1时进入自爆倒计时（包括致死伤害）
+        if (this.commander === 'martyr' && !this._martyrPrimed && this.hp <= 1) {
+            this._martyrPrimed = true;
+            this.hp = 1;
+            this.canAct = false;
+            this.remainingMP = 0;
+            log(`${this.camp.name}殉道者【${this.config.name}兵】生命垂危，进入殉道倒计时！`);
+            spawnCommanderSkillEffect(this.tile.x, this.tile.y, '💥', '殉道倒计时');
+            return false;
+        }
+        // 殉道者已进入倒计时后再次受伤：血量锁死在1，不会死亡
+        if (this.commander === 'martyr' && this._martyrPrimed && this.hp <= 0) {
+            this.hp = 1;
+            return false;
+        }
         if (this.hp <= 0) {
             // 将领死亡：清除所有效果
             if (this.commander) {
                 if (this.camp === CAMP.player1) _gameState.commanderP1 = null;
                 else if (this.camp === CAMP.player2) _gameState.commanderP2 = null;
+                else if (this.camp === CAMP.player3) _gameState.commanderP3 = null;
                 const cmdInfo = getCommander(this.commander);
                 log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
             }
             this.tile.unit = null;
             log(`${this.camp.name} ${this.config.name}兵被消灭`);
             if (attackerUnit) {
-                const key = attackerUnit.camp === CAMP.player1 ? 'player1' : attackerUnit.camp === CAMP.player2 ? 'player2' : 'neutral';
+                const key = attackerUnit.camp === CAMP.player1 ? 'player1' : attackerUnit.camp === CAMP.player2 ? 'player2' : attackerUnit.camp === CAMP.player3 ? 'player3' : 'neutral';
                 _gameState.killCount[key]++;
             }
             spawnExplosionParticles(this.tile.x, this.tile.y, '#ff2200', 30);
@@ -676,6 +693,8 @@ export class Unit {
     }
 
     heal(amount) {
+        // 殉道者进入倒计时后强制锁死hp=1，拒绝一切治疗
+        if (this.commander === 'martyr' && this._martyrPrimed) return 0;
         const gs = _gameState;
         const oldHp = this.hp;
         this.hp = Math.min(this.maxHp, this.hp + amount);
@@ -708,10 +727,12 @@ export class Unit {
         while (this._rank < 4 && this._xp >= thresholds[this._rank]) {
             this._rank++;
             this._applyRankBonus(this._rank);
-            // 晋升时恢复已损失生命值的30%
-            const lostHp = this.maxHp - this.hp;
-            if (lostHp > 0) {
-                this.hp = Math.min(this.maxHp, this.hp + Math.round(lostHp * 0.30));
+            // 晋升时恢复已损失生命值的30%（殉道者倒计时中不回复）
+            if (!(this.commander === 'martyr' && this._martyrPrimed)) {
+                const lostHp = this.maxHp - this.hp;
+                if (lostHp > 0) {
+                    this.hp = Math.min(this.maxHp, this.hp + Math.round(lostHp * 0.30));
+                }
             }
             _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
             spawnRankUpEffect(this.tile.x, this.tile.y, this._rank);
@@ -724,7 +745,7 @@ export class Unit {
 
     _applyRankBonus(rank) {
         switch (rank) {
-            case 1: this.maxHp += 20; this.hp += 20; break;
+            case 1: this.maxHp += 20; if (!(this.commander === 'martyr' && this._martyrPrimed)) this.hp += 20; break;
             case 2: this._atkBonus += 10; break;
             case 3: this._rankDefBonus = 0.10; this._rankCritBonus = 0.33; break;
             case 4: this._rankRegenPct = 0.15; break;

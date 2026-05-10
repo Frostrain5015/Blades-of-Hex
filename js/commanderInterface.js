@@ -2,6 +2,7 @@
 import { getCommander } from '../commander/index.js';
 import { HEX_NEIGHBORS, CAMP } from './config.js';
 import stallerDef from '../commander/staller.js';
+import { spawnExplosionParticles } from './effects.js';
 
 // 延迟引用，由 main.js 初始化（避免循环依赖）
 let _gameState = null;
@@ -43,6 +44,9 @@ function _helpers(cmdId) {
     spawnFx: (x, y, glyph) => {
       const fn = _spawnFx || ((x, y, g, l) => {});
       fn(x, y, glyph || '🎖️', label);
+    },
+    spawnExplosion: (x, y, color, count = 18) => {
+      spawnExplosionParticles(x, y, color, count);
     },
     findCommanderUnit: _findCommanderUnit,
     changeUnitCamp

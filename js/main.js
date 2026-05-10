@@ -57,18 +57,18 @@ function renderTacticalCards() {
         return;
     }
 
-    const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : CAMP.player2) : gameState.currentCamp;
+    const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
     const isAIOpponentTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
-    const isNetworkOpponentTurn = isNetworkGame() && !(getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === CAMP.player2);
+    const isNetworkOpponentTurn = isNetworkGame() && !(getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3);
     const isDisabled = gameState.gameOver || gameState.commanderPhase !== 'done' || gameState.currentCamp === CAMP.neutral || isAIOpponentTurn || isNetworkOpponentTurn;
     if (isDisabled && gameState.cardTargeting) gameState.cardTargeting = null;
 
-    const campKey = myCamp === CAMP.player1 ? 'player1' : 'player2';
+    const campKey = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
     const gold = gameState.playerGold[campKey];
     const cards = gameState.tacticalCards[campKey] || {};
 
     // 是否已部署将领
-    const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
+    const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed;
 
     // 计算状态指纹，仅在变化时重新渲染（避免每帧 innerHTML 打断点击事件）
     let stateFp = `${isDisabled}|${gold}|deployed:${iAmDeployed}`;
@@ -230,16 +230,52 @@ function showMultiplayerLobby() {
     setStatus('');
 }
 
-function showRoomWaiting(roomId) {
+function showRoomWaiting(roomId, maxPlayers = 2, playerCount = 1) {
     lobbyHome.style.display = 'none';
     multiplayerLobby.style.display = 'none';
     roomWaiting.style.display = '';
     document.getElementById('lobbyReady').style.display = 'none';
     connectionBar.classList.add('visible');
     roomIdValue.textContent = roomId;
-    roomWaitingText.textContent = '等待对手加入...';
-    readyBtn.disabled = true;
+    const maxP = maxPlayers || 2;
+    const cur = playerCount || 1;
+    const countEl = document.getElementById('roomWaitingCount');
+    if (countEl) countEl.textContent = '';
+    _opponentCount = cur - 1;
+    _readyCount = 0;
+    // 房间已满则直接允许准备
+    readyBtn.disabled = (cur < maxP);
+    _updateRoomWaitingCount();
     setStatus('');
+}
+
+function _updateRoomWaitingCount() {
+    const total = (_opponentCount || 0) + 1;
+    const maxP = gameState.isThreePlayer ? 3 : 2;
+    const countEl = document.getElementById('roomWaitingCount');
+    if (countEl) countEl.textContent = '';
+    if (total >= maxP) {
+        roomWaitingText.textContent = `房间满(${_readyCount}/${maxP}人已准备)`;
+        readyBtn.disabled = false;
+    } else {
+        roomWaitingText.textContent = `等待对手加入...(${total}/${maxP})`;
+        readyBtn.disabled = total === 1;
+    }
+}
+
+// 三人模式：检查本地玩家是否已投降，显示观战横幅
+function _checkSpectatorBanner() {
+    if (!gameState.isThreePlayer || !isNetworkGame()) return;
+    const role = getMyRole();
+    if (!role) return;
+    const myCamp = role === 'player1' ? CAMP.player1 : role === 'player2' ? CAMP.player2 : role === 'player3' ? CAMP.player3 : null;
+    if (!myCamp) return;
+    const banner = document.getElementById('opponentTurnBanner');
+    if (!banner) return;
+    if (gameState.surrenderedCamps.includes(myCamp)) {
+        banner.innerHTML = '<span>👁</span><span>您已战败，观战中</span>';
+        banner.classList.add('visible');
+    }
 }
 
 // ==== 阵营揭示动画（联机模式开局前） ----
@@ -254,9 +290,9 @@ function showFactionReveal(role) {
     const overlay = document.getElementById('factionReveal');
     const dice = document.getElementById('factionRevealDice');
     const text = document.getElementById('factionRevealText');
-    const isRed = role === 'player1';
-    const campName = isRed ? '红军' : '蓝军';
-    const campColor = isRed ? '#ffaaaa' : '#aaaaff';
+    const ci = _forPlayerCampName(role);
+    const campName = ci.name;
+    const campColor = ci.color;
 
     overlay.classList.add('show');
     dice.classList.remove('landed');
@@ -415,30 +451,46 @@ function _pveAIQuickPick(forPlayer) {
     }
 }
 
+function _forPlayerCampName(forPlayer) {
+    if (forPlayer === 'player1') return { name: '红军', color: '#ffaaaa' };
+    if (forPlayer === 'player2') return { name: '蓝军', color: '#aaaaff' };
+    return { name: '绿军', color: '#aaffaa' };
+}
+function _forPlayerPool(forPlayer) {
+    if (forPlayer === 'player1') return gameState.commanderPoolP1;
+    if (forPlayer === 'player2') return gameState.commanderPoolP2;
+    return gameState.commanderPoolP3;
+}
+
 function beginNetworkCommanderFlow(role) {
     document.getElementById('lobbyOverlay').style.display = 'none';
-    // 清除上一局所有遗留状态
     _deploymentStarted = false;
+    const wasThreePlayer = gameState.isThreePlayer;
     resetGameState();
+    gameState.isThreePlayer = wasThreePlayer;
     _commanderTransitioning = false;
     gameState.commanderPhase = 'selection';
 
     const myRole = getMyRole();
     if (myRole === 'player1') {
-        // 主机生成将池并同步
-        const pool = shuffleAndSplitPool();
+        const is3P = gameState.isThreePlayer;
+        const pool = shuffleAndSplitPool(is3P);
         gameState.commanderPoolP1 = pool.p1;
         gameState.commanderPoolP2 = pool.p2;
-        syncCommanderState(pool.p1, pool.p2, null, null, false, false, false, false, 'selection');
+        if (is3P) gameState.commanderPoolP3 = pool.p3 || [];
+        syncCommanderState(
+            pool.p1, pool.p2, null, null, false, false, false, false, 'selection',
+            null, null,
+            pool.p3 || [], null, false, false, null
+        );
         _showCommanderSelection('player1');
     } else {
-        // 客机等待主机同步将池
-        _waitForNetworkPool('player2');
+        _waitForNetworkPool(myRole);
     }
 }
 
 function _waitForNetworkPool(forPlayer) {
-    const pool = forPlayer === 'player1' ? gameState.commanderPoolP1 : gameState.commanderPoolP2;
+    const pool = _forPlayerPool(forPlayer);
     if (pool && pool.length > 0) {
         _showCommanderSelection(forPlayer);
     } else {
@@ -451,12 +503,11 @@ function _showCommanderWaiting(forPlayer) {
     const title = document.getElementById('commanderTitle');
     const cardsDiv = document.getElementById('commanderCards');
     const statusDiv = document.getElementById('commanderStatus');
-    const campName = forPlayer === 'player1' ? '红军' : '蓝军';
-    const campColor = forPlayer === 'player1' ? '#ffaaaa' : '#aaaaff';
+    const ci = _forPlayerCampName(forPlayer);
 
     _commanderPending = null;
-    title.textContent = `${campName} — 选择将领`;
-    title.style.color = campColor;
+    title.textContent = `${ci.name} — 选择将领`;
+    title.style.color = ci.color;
     statusDiv.textContent = 'AI 正在选择将领...';
     statusDiv.style.color = '#aaa';
     cardsDiv.innerHTML = '';
@@ -468,13 +519,12 @@ function _showCommanderSelection(forPlayer) {
     const title = document.getElementById('commanderTitle');
     const cardsDiv = document.getElementById('commanderCards');
     const statusDiv = document.getElementById('commanderStatus');
-    const pool = forPlayer === 'player1' ? gameState.commanderPoolP1 : gameState.commanderPoolP2;
-    const campName = forPlayer === 'player1' ? '红军' : '蓝军';
-    const campColor = forPlayer === 'player1' ? '#ffaaaa' : '#aaaaff';
+    const pool = _forPlayerPool(forPlayer);
+    const ci = _forPlayerCampName(forPlayer);
 
     _commanderPending = null;
-    title.textContent = `${campName} — 选择将领`;
-    title.style.color = campColor;
+    title.textContent = `${ci.name} — 选择将领`;
+    title.style.color = ci.color;
     statusDiv.textContent = '点击将领预选，再次点击确认';
     statusDiv.style.color = '#888';
     cardsDiv.innerHTML = '';
@@ -504,9 +554,12 @@ function _showCommanderSelection(forPlayer) {
                 if (forPlayer === 'player1') {
                     gameState.commanderP1 = key;
                     gameState.commanderP1Confirmed = true;
-                } else {
+                } else if (forPlayer === 'player2') {
                     gameState.commanderP2 = key;
                     gameState.commanderP2Confirmed = true;
+                } else {
+                    gameState.commanderP3 = key;
+                    gameState.commanderP3Confirmed = true;
                 }
                 statusDiv.textContent = '已确认 ✓';
                 statusDiv.style.color = '#4CAF50';
@@ -522,7 +575,10 @@ function _showCommanderSelection(forPlayer) {
                         gameState.commanderP1, gameState.commanderP2,
                         gameState.commanderP1Confirmed, gameState.commanderP2Confirmed,
                         gameState.commanderP1Deployed, gameState.commanderP2Deployed,
-                        gameState.commanderPhase
+                        gameState.commanderPhase,
+                        null, null,
+                        gameState.commanderPoolP3, gameState.commanderP3,
+                        gameState.commanderP3Confirmed, gameState.commanderP3Deployed, null
                     );
                 }
                 _onCommanderSelected(forPlayer);
@@ -565,6 +621,20 @@ function _onCommanderSelected(forPlayer) {
                 gameState.commanderPhase = 'done';
                 startGame();
                 _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
+                _commanderTransitioning = false;
+            }, 800);
+        }
+    } else if (gameState.isThreePlayer) {
+        // 三人本地模式
+        if (forPlayer === 'player1') {
+            setTimeout(() => { _showCommanderSelection('player2'); _commanderTransitioning = false; }, 800);
+        } else if (forPlayer === 'player2') {
+            setTimeout(() => { _showCommanderSelection('player3'); _commanderTransitioning = false; }, 800);
+        } else {
+            setTimeout(() => {
+                document.getElementById('commanderOverlay').classList.remove('show');
+                gameState.commanderPhase = 'done';
+                startGame();
                 _commanderTransitioning = false;
             }, 800);
         }
@@ -633,7 +703,10 @@ async function _triggerInitialAITurn() {
 }
 
 function _checkBothConfirmed() {
-    if (gameState.commanderP1Confirmed && gameState.commanderP2Confirmed && !_deploymentStarted) {
+    const allConfirmed = gameState.isThreePlayer
+        ? gameState.commanderP1Confirmed && gameState.commanderP2Confirmed && gameState.commanderP3Confirmed
+        : gameState.commanderP1Confirmed && gameState.commanderP2Confirmed;
+    if (allConfirmed && !_deploymentStarted) {
         setTimeout(() => {
             document.getElementById('commanderOverlay').classList.remove('show');
             gameState.commanderPhase = 'done';
@@ -643,6 +716,7 @@ function _checkBothConfirmed() {
 }
 
 let _deploymentStarted = false;
+let _opponentCount = 0;
 
 function startGame() {
     if (_deploymentStarted) return;
@@ -653,6 +727,21 @@ function startGame() {
     document.getElementById('lobbyReady').style.display = 'none';
     document.getElementById('lobbyReadyBtn').disabled = false;
     document.getElementById('lobbyReadyBtn').textContent = '准备';
+    // 三人模式：显示绿军面板，蓝军卡统一左对齐
+    const camp3 = document.getElementById('campCard3');
+    if (camp3) camp3.style.display = gameState.isThreePlayer ? '' : 'none';
+    const camp2 = document.getElementById('campCard2');
+    if (camp2) {
+        if (gameState.isThreePlayer) {
+            camp2.classList.remove('align-right');
+            const info = camp2.querySelector('.camp-info');
+            if (info) info.classList.remove('align-right');
+        } else {
+            camp2.classList.add('align-right');
+            const info = camp2.querySelector('.camp-info');
+            if (info) info.classList.add('align-right');
+        }
+    }
     document.body.style.pointerEvents = '';
     const vo = document.getElementById('victoryOverlay');
     vo.classList.remove('show');
@@ -692,8 +781,9 @@ function renderRoomList(list) {
     list.forEach(r => {
         const card = document.createElement('div');
         card.className = 'room-card';
-        card.innerHTML = `<span class="room-card-id">${r.roomId}</span><span class="room-card-count">${r.playerCount}/2</span>`;
-        if (r.playerCount >= 2) {
+        const maxP = r.maxPlayers || 2;
+        card.innerHTML = `<span class="room-card-id">${r.roomId}</span><span class="room-card-count">${r.playerCount}/${maxP}</span>`;
+        if (r.playerCount >= maxP) {
             card.classList.add('full');
             card.title = '房间已满';
         } else {
@@ -729,10 +819,20 @@ document.getElementById('multiplayerBtn').addEventListener('click', () => {
     });
 });
 
+// 房间模式切换（2P/3P）
+let _roomMode = 2;
+document.querySelectorAll('.room-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        _roomMode = parseInt(btn.dataset.mode);
+        document.querySelectorAll('.room-mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    });
+});
+
 // 创建房间
 document.getElementById('createRoomBtn').addEventListener('click', () => {
-    setStatus('正在创建房间...');
-    createRoom();
+    setStatus(`正在创建${_roomMode}人房间...`);
+    createRoom(_roomMode);
 });
 
 // 刷新房间列表
@@ -749,17 +849,21 @@ document.getElementById('backToHomeBtn').addEventListener('click', () => {
 
 // 准备 / 取消准备
 let _isReady = false;
+let _readyCount = 0;
 document.getElementById('readyBtn').addEventListener('click', () => {
     _isReady = !_isReady;
     if (_isReady) {
         readyBtn.textContent = '取消准备';
         readyBtn.style.background = '#c0392b';
+        _readyCount++;
         sendReady();
     } else {
         readyBtn.textContent = '准备';
         readyBtn.style.background = '#27ae60';
+        _readyCount--;
         sendUnready();
     }
+    _updateRoomWaitingCount();
 });
 
 // 离开房间
@@ -774,15 +878,17 @@ function registerNetworkCallbacks() {
     setNetworkCallbacks({
         onConnected: () => {},
 
-        onRoomCreated: (roomId, role) => {
-            showRoomWaiting(roomId);
+        onRoomCreated: (roomId, role, maxPlayers, playerCount) => {
+            gameState.isThreePlayer = maxPlayers === 3;
+            showRoomWaiting(roomId, maxPlayers, playerCount || 1);
             _isReady = false;
             readyBtn.textContent = '准备';
             readyBtn.style.background = '#27ae60';
         },
 
-        onRoomJoined: (roomId, role) => {
-            showRoomWaiting(roomId);
+        onRoomJoined: (roomId, role, maxPlayers, playerCount) => {
+            gameState.isThreePlayer = maxPlayers === 3;
+            showRoomWaiting(roomId, maxPlayers, playerCount || 2);
             _isReady = false;
             readyBtn.textContent = '准备';
             readyBtn.style.background = '#27ae60';
@@ -793,15 +899,20 @@ function registerNetworkCallbacks() {
         onRoomLeft: () => {},
 
         onOpponentJoined: (role) => {
-            roomWaitingText.textContent = '对手已加入';
+            _opponentCount = (_opponentCount || 0) + 1;
+            _updateRoomWaitingCount();
             readyBtn.disabled = false;
         },
 
         onOpponentReady: () => {
+            _readyCount++;
+            _updateRoomWaitingCount();
             document.getElementById('lobbyReadyStatus').textContent = '对手已准备';
         },
 
         onOpponentUnready: () => {
+            _readyCount--;
+            _updateRoomWaitingCount();
             document.getElementById('lobbyReadyStatus').textContent = '';
         },
 
@@ -845,7 +956,8 @@ function registerNetworkCallbacks() {
             listRooms();
         },
 
-        onStart: (role) => {
+        onStart: (role, isThreePlayer) => {
+            if (isThreePlayer !== undefined) gameState.isThreePlayer = isThreePlayer;
             roomWaiting.style.display = 'none';
             showFactionReveal(role);
         },
@@ -913,31 +1025,41 @@ function registerNetworkCallbacks() {
             const hadPool = gameState.commanderPoolP1.length > 0;
             gameState.commanderPoolP1 = msg.commanderPoolP1 || [];
             gameState.commanderPoolP2 = msg.commanderPoolP2 || [];
+            gameState.commanderPoolP3 = msg.commanderPoolP3 || [];
             gameState.commanderP1 = msg.commanderP1 || null;
             gameState.commanderP2 = msg.commanderP2 || null;
+            gameState.commanderP3 = msg.commanderP3 || null;
             gameState.commanderP1Confirmed = msg.commanderP1Confirmed || false;
             gameState.commanderP2Confirmed = msg.commanderP2Confirmed || false;
+            gameState.commanderP3Confirmed = msg.commanderP3Confirmed || false;
             gameState.commanderP1Deployed = msg.commanderP1Deployed || false;
             gameState.commanderP2Deployed = msg.commanderP2Deployed || false;
+            gameState.commanderP3Deployed = msg.commanderP3Deployed || false;
             gameState.commanderPhase = msg.commanderPhase || 'selection';
-            if (msg.deployedUnitP1 || msg.deployedUnitP2) {
+            if (msg.deployedUnitP1 || msg.deployedUnitP2 || msg.deployedUnitP3) {
                 const myRole = getMyRole();
-                const targetUnitId = myRole === 'player1' ? msg.deployedUnitP2 : msg.deployedUnitP1;
-                const targetCmdId = myRole === 'player1' ? gameState.commanderP2 : gameState.commanderP1;
-                if (targetUnitId && targetCmdId) {
-                    for (const tile of gameState.tiles) {
-                        if (tile.unit && tile.unit.id === targetUnitId) {
-                            tile.unit.commander = targetCmdId;
-                            const cmdCfg = COMMANDER_CONFIG[targetCmdId];
-                            if (cmdCfg) {
-                                tile.unit.hp += cmdCfg.hpBonus || 0;
-                                tile.unit.maxHp += cmdCfg.hpBonus || 0;
-                                tile.unit.displayHp = tile.unit.hp;
-                                tile.unit._atkBonus = cmdCfg.atkBonus || 0;
-                                tile.unit.remainingMP += cmdCfg.spdBonus || 0;
-                                tile.unit.displaySpeed += cmdCfg.spdBonus || 0;
+                const getOtherDeploy = (role) => {
+                    if (role === 'player1') return { unitId: msg.deployedUnitP2, cmdId: gameState.commanderP2, unitId2: msg.deployedUnitP3, cmdId2: gameState.commanderP3 };
+                    if (role === 'player2') return { unitId: msg.deployedUnitP1, cmdId: gameState.commanderP1, unitId2: msg.deployedUnitP3, cmdId2: gameState.commanderP3 };
+                    return { unitId: msg.deployedUnitP1, cmdId: gameState.commanderP1, unitId2: msg.deployedUnitP2, cmdId2: gameState.commanderP2 };
+                };
+                const deploy = getOtherDeploy(myRole);
+                for (const { unitId, cmdId } of [{ unitId: deploy.unitId, cmdId: deploy.cmdId }, { unitId: deploy.unitId2, cmdId: deploy.cmdId2 }]) {
+                    if (unitId && cmdId) {
+                        for (const tile of gameState.tiles) {
+                            if (tile.unit && tile.unit.id === unitId) {
+                                tile.unit.commander = cmdId;
+                                const cmdCfg = getCommander(cmdId);
+                                if (cmdCfg) {
+                                    tile.unit.hp += cmdCfg.hpBonus || 0;
+                                    tile.unit.maxHp += cmdCfg.hpBonus || 0;
+                                    tile.unit.displayHp = tile.unit.hp;
+                                    tile.unit._atkBonus = (tile.unit._atkBonus || 0) + (cmdCfg.atkBonus || 0);
+                                    tile.unit.remainingMP += cmdCfg.spdBonus || 0;
+                                    tile.unit.displaySpeed += cmdCfg.spdBonus || 0;
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
                 }
@@ -974,12 +1096,16 @@ async function handleRemoteAction(msg) {
         applyRemoteState(msg.state, HexTile, Unit);
         updateUI();
         renderGame();
+        _checkSpectatorBanner();
         return;
     }
 
     applyRemoteState(msg.state, HexTile, Unit);
     updateUI(); // 远程状态同步后刷新UI（金币、统计面板、招募费用等）
     renderGame(); // 强制立即重绘画布，不等下一帧
+
+    // 三人模式：检查本地玩家是否已投降，显示观战横幅
+    _checkSpectatorBanner();
 
     if (gameState.gameOver && !wasGameOver) {
         triggerVictoryEffect();

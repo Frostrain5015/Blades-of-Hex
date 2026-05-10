@@ -15,7 +15,7 @@ export const meta = {
     description: '进攻型AI v4，将领特化策略——部署→破城→合围，每个将领独有打法'
 };
 
-const COMMANDER_PREFERENCE = ['centurion', 'berserker', 'vampire', 'fallenAngel', 'ironGuard', 'staller', 'advisor', 'minister'];
+const COMMANDER_PREFERENCE = ['vampire', 'advisor', 'berserker', 'ironGuard', 'minister', 'centurion', 'fallenAngel', 'staller'];
 
 // 各将领打法偏好权重（用于攻击/移动/招募决策修饰）
 const COMMANDER_STRATEGY = {
@@ -184,17 +184,18 @@ export function planActions(gameState, helpers, myCamp) {
             }
         }
 
-        // 如果没有敌方占据的中立城，选 Claude 的中立城
+        // 如果没有敌方占据的中立城，选 Claude 的中立城（随机性：top 2 中随机选）
         if (!primaryObjective && neutralCities.length > 0) {
+            const candidates = [];
             for (const nc of neutralCities) {
                 const defense = evaluateCityDefense(nc, CAMP.neutral);
                 const avgDist = avgDistanceFromMyForces(nc);
                 const score = avgDist * 2 + defense * 0.01;
-                if (score < bestScore) {
-                    bestScore = score;
-                    primaryObjective = nc;
-                }
+                candidates.push({ city: nc, score });
             }
+            candidates.sort((a, b) => a.score - b.score);
+            const topN = Math.min(2, candidates.length);
+            primaryObjective = candidates[Math.floor(Math.random() * topN)].city;
         }
 
         // 如果没有任何中立城可夺（极端情况），转为阶段2

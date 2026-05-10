@@ -1,7 +1,7 @@
 import { CAMP } from './config.js';
 
 let _ws = null;
-let _myRole = null;   // 'player1' | 'player2' | null
+let _myRole = null;   // 'player1' | 'player2' | 'player3' | null
 let _myRoomId = null;
 
 // 自动重连
@@ -53,9 +53,10 @@ export function isNetworkGame() { return _myRole !== null; }
 
 export function isMyTurn(currentCamp) {
     if (!isNetworkGame()) return true;
-    return _myRole === 'player1'
-        ? currentCamp === CAMP.player1
-        : currentCamp === CAMP.player2;
+    if (_myRole === 'player1') return currentCamp === CAMP.player1;
+    if (_myRole === 'player2') return currentCamp === CAMP.player2;
+    if (_myRole === 'player3') return currentCamp === CAMP.player3;
+    return false;
 }
 
 export function connectToServer(url) {
@@ -96,12 +97,12 @@ export function connectToServer(url) {
                 case 'roomCreated':
                     _myRoomId = msg.roomId;
                     _myRole = msg.role;
-                    _cb.onRoomCreated?.(msg.roomId, msg.role);
+                    _cb.onRoomCreated?.(msg.roomId, msg.role, msg.maxPlayers || 2, msg.playerCount || 1);
                     break;
                 case 'roomJoined':
                     _myRoomId = msg.roomId;
                     _myRole = msg.role;
-                    _cb.onRoomJoined?.(msg.roomId, msg.role);
+                    _cb.onRoomJoined?.(msg.roomId, msg.role, msg.maxPlayers || 2, msg.playerCount || 2);
                     break;
                 case 'roomList':
                     _cb.onRoomList?.(msg.rooms);
@@ -135,7 +136,7 @@ export function connectToServer(url) {
                     break;
                 case 'start':
                     _myRole = msg.role;
-                    _cb.onStart?.(msg.role);
+                    _cb.onStart?.(msg.role, msg.isThreePlayer);
                     break;
                 case 'error':
                     _cb.onError?.(msg.message);
@@ -228,9 +229,9 @@ export function disconnect() {
 
 // ==== 房间操作 ====
 
-export function createRoom() {
+export function createRoom(maxPlayers = 2) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
-    _ws.send(JSON.stringify({ type: 'createRoom' }));
+    _ws.send(JSON.stringify({ type: 'createRoom', maxPlayers }));
 }
 
 export function joinRoom(roomId) {
@@ -279,20 +280,25 @@ export function sendMessage(msg) {
     _ws.send(JSON.stringify(msg));
 }
 
-export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase, deployedUnitP1 = null, deployedUnitP2 = null) {
+export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase, deployedUnitP1 = null, deployedUnitP2 = null, poolP3 = [], cmdP3 = null, p3Confirmed = false, p3Deployed = false, deployedUnitP3 = null) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
     _ws.send(JSON.stringify({
         type: 'commanderSync',
         commanderPoolP1: poolP1,
         commanderPoolP2: poolP2,
+        commanderPoolP3: poolP3,
         commanderP1: cmdP1,
         commanderP2: cmdP2,
+        commanderP3: cmdP3,
         commanderP1Confirmed: p1Confirmed,
         commanderP2Confirmed: p2Confirmed,
+        commanderP3Confirmed: p3Confirmed,
         commanderP1Deployed: p1Deployed,
         commanderP2Deployed: p2Deployed,
+        commanderP3Deployed: p3Deployed,
         commanderPhase: phase,
         deployedUnitP1: deployedUnitP1,
-        deployedUnitP2: deployedUnitP2
+        deployedUnitP2: deployedUnitP2,
+        deployedUnitP3: deployedUnitP3
     }));
 }

@@ -93,7 +93,8 @@ export class HexTile {
         const flagCy = cy - HEX_SIZE * 0.50;
         const isP1 = this.camp === CAMP.player1;
         const isP2 = this.camp === CAMP.player2;
-        const campKey = isP1 ? 'p1' : isP2 ? 'p2' : 'neu';
+        const isP3 = this.camp === CAMP.player3;
+        const campKey = isP1 ? 'p1' : isP2 ? 'p2' : isP3 ? 'p3' : 'neu';
         return {
             poleX: flagCx, poleTop: flagCy - 16, poleBottom: flagCy + 10,
             fc: CAMP_FLAG_COLORS[campKey],
