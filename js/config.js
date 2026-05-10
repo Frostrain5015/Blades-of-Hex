@@ -115,7 +115,7 @@ export const UNIT_CONFIG = {
     infantry: { name: '步', hp: 200, attack: 40, defense: 0.05, speed: 5, range: 1, cost: 40, color: '#0a0a0a' },
     cavalry:  { name: '骑', hp: 125, attack: 50, defense: 0.05, speed: 8, range: 1, cost: 50, color: '#0a0a0a' },
     archer:   { name: '炮', hp: 100, attack: 60, defense: 0,    speed: 3, range: 2, cost: 50, color: '#0a0a0a' },
-    mgNest:   { name: '堡', hp: 200, attack: 25, defense: 0.05, speed: 0, range: 1, cost: 0,  color: '#8B7355' }
+    mgNest:   { name: '要塞', hp: 200, attack: 30, defense: 0.05, speed: 0, range: 2, cost: 0, color: '#8B7355' }
 };
 
 // ==== 阵营配置 ====================
@@ -207,8 +207,8 @@ export const TACTICAL_CARD_CONFIG = {
         }
     },
     mgNest: {
-        id: 'mgNest', name: '机枪堡', icon: '🏰',
-        desc: '【机枪堡】\n在己方领土空地部署一座机枪堡\nHP=200 ATK=25 射程=1 不可移动\n（不能部署在城市或山地）',
+        id: 'mgNest', name: '要塞', icon: '🏰',
+        desc: '【要塞】\n在己方领土空地部署一座要塞\nHP=200 ATK=30 射程=2 不可移动\n（不能部署在城市或山地）',
         targeting: 'emptyFriendlyNonCityNonMountain',
         execute(targetTile, gameState, helpers) {
             const myCamp = helpers.getMyCamp();
@@ -216,6 +216,7 @@ export const TACTICAL_CARD_CONFIG = {
             const nest = new UnitClass('mgNest', myCamp, targetTile, false);
             nest.hp = 200; nest.maxHp = 200; nest.displayHp = 200;
             nest._isImmobile = true;
+            nest.canAct = false; // cannot act on deploy turn
             return { deployed: true, tileQ: targetTile.q, tileR: targetTile.r };
         }
     },
@@ -228,6 +229,7 @@ export const TACTICAL_CARD_CONFIG = {
             const UnitClass = helpers.Unit;
             const inf = new UnitClass('infantry', myCamp, targetTile, false);
             inf.hp = 100; inf.maxHp = 100; inf.displayHp = 100;
+            inf.canAct = false; // cannot act on drop turn
             return { deployed: true, tileQ: targetTile.q, tileR: targetTile.r };
         }
     },

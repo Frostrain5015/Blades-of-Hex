@@ -391,6 +391,7 @@ export function updateStatsPanel() {
 export function finalizeDeployment() {
     if (gameState.commanderPhase === 'done') return; // 防止重复调用
     gameState.commanderPhase = 'done';
+    notify('游戏开始', 'info');
     // 联机：广播部署完成
     if (isNetworkGame()) sendAction('deployDone', serializeState());
     gameState.currentCamp = CAMP.player1;
