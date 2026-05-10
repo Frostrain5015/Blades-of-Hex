@@ -190,8 +190,9 @@ export const TACTICAL_CARD_CONFIG = {
         execute(targetTile, gameState, helpers) {
             const unit = targetTile.unit;
             const healAmt = Math.round(unit.maxHp * 0.5);
-            const actual = unit.heal(healAmt);
-            return { actual, targetTile };
+            const oldHp = unit.hp;
+            const maxHeal = Math.min(unit.maxHp - oldHp, healAmt);
+            return { healAmt: maxHeal, targetTile };
         }
     },
     lightning: {
@@ -267,7 +268,7 @@ export const TACTICAL_CARD_CONFIG = {
                     results.push({ q: ht.q, r: ht.r, dmg, killed: ht.unit.hp <= 0 });
                 }
                 if (isCity) {
-                    ht._cityDisabledUntil = (gameState.turnCounter || 0) + 1;
+                    ht._cityDisabledUntil = (gameState.turnCounter || 0) + 2;
                 }
             }
             return { airstrike: true, targetTile, results, dmgBase };

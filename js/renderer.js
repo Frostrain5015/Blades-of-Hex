@@ -96,12 +96,6 @@ export function renderGame() {
     // 将领技能触发特效
     drawCommanderSkillEffects(now);
 
-    // 烧牌动画（对策卡使用广播）
-    drawCardUseAnimation(now);
-
-    // 空袭特效
-    drawAirstrikeEffects(now);
-
     // 士气状态持续标识（▲/▼）
     drawMoraleIndicators();
 
@@ -417,6 +411,10 @@ export function renderGame() {
         updateConfetti(dt);
         drawConfetti(ctx);
     }
+
+    // 烧牌动画 + 空袭特效 — 最高图层
+    drawCardUseAnimation(now);
+    drawAirstrikeEffects(now);
 
     // 不跟随震动的粒子更新
     if (bloodDrains.length > 0) updateBloodDrains(dt);
@@ -1429,7 +1427,7 @@ export function drawCardCanvas(now) {
     const usesUsed = gameState.playerUsesThisTurn[campKey] || 0;
     const canUse = usesUsed < CARD_SYSTEM_CONFIG.maxUsesPerTurn && !gameState.cardTargeting && !isNeutralTurn;
 
-    const cxBase = W / 2 - cardW / 2;
+    const cxBase = 8; // left-aligned stack
     const cyBase = H - 120;
 
     // smooth shift when hand size changes

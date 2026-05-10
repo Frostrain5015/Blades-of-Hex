@@ -910,20 +910,24 @@ export function moveUnit(unit, targetTile) {
         clearselection();
     }
 
-    // 地雷触发（仅本地播放特效，远端通过状态同步感知）
+    // 地雷触发（特效对所有玩家广播）
+    let _mineTrigger = null;
     if (targetTile._minePlanted) {
         const mineCampKey = targetTile._mineCampKey;
         const unitCampKey = unit.camp === CAMP.player1 ? 'p1' : unit.camp === CAMP.player2 ? 'p2' : unit.camp === CAMP.player3 ? 'p3' : 'neutral';
         if (mineCampKey !== unitCampKey) {
             const mineDmg = unit.takeDamage(100, null) ? 100 : 0;
-            if (!isNetworkGame() || isMyTurn(unit.camp)) {
-                spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ff4400', 20);
-                spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ffaa00', 12);
-                spawnExplosionParticles(targetTile.x, targetTile.y, '#664400', 8);
-                triggerScreenShake(6, 250);
-                playSound('attack');
-            }
+            gameState.damageTexts.push({
+                x: targetTile.x, y: targetTile.y, value: mineDmg, isCrit: true,
+                timeLeft: 900, lastUpdate: Date.now()
+            });
+            spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ff4400', 20);
+            spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ffaa00', 12);
+            spawnExplosionParticles(targetTile.x, targetTile.y, '#664400', 8);
+            triggerScreenShake(6, 250);
+            playSound('attack');
             logMessage(`💣 地雷触发！${unit.camp.name}${unit.config.name}兵受到${mineDmg}伤害`);
+            _mineTrigger = { x: targetTile.x, y: targetTile.y, dmg: mineDmg };
             targetTile._minePlanted = false;
             targetTile._mineCampKey = null;
         }
@@ -942,7 +946,7 @@ export function moveUnit(unit, targetTile) {
     recalcAllFlankingMorale();
     updateRecruitCostDisplay(); // 尚书驻扎城市时及时刷新折扣
     const rankUpsMove = _pendingRankUps.splice(0);
-    broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null });
+    broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger });
 }
 
 // ===== 攻击 =====================
@@ -1261,21 +1265,21 @@ function checkVictory() {
         if (alive.length <= 1) {
             gameState.gameOver = true;
             gameState.victoryCamp = alive.length === 1 ? alive[0] : CAMP.neutral;
-            triggerVictoryEffect();
             const winnerName = alive.length === 1 ? alive[0].name : '中立';
             logMessage(`${winnerName}获得最终胜利`);
+            setTimeout(() => triggerVictoryEffect(), 1500);
         }
     } else {
         if (player1Districts.size === 0) {
             gameState.gameOver = true;
             gameState.victoryCamp = CAMP.player2;
-            triggerVictoryEffect();
             logMessage('红军失去所有行政区，蓝军胜利');
+            setTimeout(() => triggerVictoryEffect(), 1500);
         } else if (player2Districts.size === 0) {
             gameState.gameOver = true;
             gameState.victoryCamp = CAMP.player1;
-            triggerVictoryEffect();
             logMessage('蓝军失去所有行政区，红军胜利');
+            setTimeout(() => triggerVictoryEffect(), 1500);
         }
     }
 }
@@ -1433,7 +1437,7 @@ async function handleSurrender() {
     gameState.gameOver = true;
     gameState.victoryCamp = victoryCamp;
 
-    triggerVictoryEffect();
+    setTimeout(() => triggerVictoryEffect(), 1500);
     updateButtonColors();
     broadcastAction('surrender');
 }
@@ -1514,11 +1518,52 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         notify('本回合已达到使用上限（2次）', 'error'); return;
     }
 
+    // for damage/spawn/shield cards: save state, undo visual, re-apply after burn
+    const isDelayedCard = cardId === 'lightning' || cardId === 'airstrike' || cardId === 'mgNest' || cardId === 'shield';
+    let _savedHPs = null;
+    let _mgNestSaved = null;
+    let _shieldSaved = null;
+    if (isDelayedCard) {
+        _savedHPs = [];
+        if (cardId === 'lightning' && targetTile.unit) {
+            _savedHPs.push({ tile: targetTile, hp: targetTile.unit.hp });
+        } else if (cardId === 'airstrike') {
+            const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+            for (const [dq, dr] of dirs) {
+                const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
+                if (ht && ht.unit) _savedHPs.push({ tile: ht, hp: ht.unit.hp });
+            }
+        } else if (cardId === 'mgNest') {
+            _mgNestSaved = targetTile.unit;
+        } else if (cardId === 'shield' && targetTile.unit) {
+            const u = targetTile.unit;
+            _shieldSaved = { unit: u, shield: u._shield, shieldMax: u._shieldMax, shieldTurns: u._shieldTurns };
+        }
+    }
+
     // execute
     const helpers = { getCommander, Unit, getMyCamp: () => myCamp };
     const result = cfg.execute(targetTile, gameState, helpers);
     gameState.cardTargeting = null;
     hideTargetingBanner();
+
+    // undo visual: save mgNest after execute, then hide
+    if (cardId === 'mgNest' && targetTile.unit) {
+        _mgNestSaved = targetTile.unit;
+        targetTile.unit._airdropWaiting = true;
+    }
+    // undo visual: restore shield to pre-execute values
+    if (_shieldSaved && _shieldSaved.unit) {
+        _shieldSaved.unit._shield = _shieldSaved.shield;
+        _shieldSaved.unit._shieldMax = _shieldSaved.shieldMax;
+        _shieldSaved.unit._shieldTurns = _shieldSaved.shieldTurns;
+    }
+    // restore HP for damage cards — re-apply in setTimeout
+    if (_savedHPs) {
+        for (const s of _savedHPs) {
+            if (s.tile.unit) s.tile.unit.hp = s.hp;
+        }
+    }
 
     // remove from hand, discard (except commanderDeploy)
     hand.splice(idx, 1);
@@ -1533,10 +1578,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const BURN_MS = 1600;
     switch (cardId) {
         case 'heal': {
-            const healAmt = result.actual;
+            const healAmt = result.healAmt;
             logMessage(`💚【疗愈】${targetTile.unit.camp.name}${targetTile.unit.config.name}兵回复${healAmt}生命值`);
             setTimeout(() => {
-                if (healAmt > 0) {
+                if (healAmt > 0 && targetTile.unit) {
+                    targetTile.unit.hp = Math.min(targetTile.unit.maxHp, targetTile.unit.hp + healAmt);
                     gameState.healTexts.push({
                         x, y, value: healAmt,
                         timeLeft: 1000, lastUpdate: Date.now()
@@ -1551,16 +1597,22 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'lightning': {
             const dmg = result.dmg;
             logMessage(`⚡【雷击】对${targetTile.unit.camp.name}${targetTile.unit.config.name}兵造成${dmg}真实伤害`);
-            const killed = targetTile.unit.hp <= 0;
-            if (killed) {
-                const deadCamp = targetTile.unit.camp;
-                const deadName = targetTile.unit.config.name;
-                const deadCampKey = deadCamp === CAMP.player1 ? 'player1' : deadCamp === CAMP.player2 ? 'player2' : deadCamp === CAMP.player3 ? 'player3' : 'neutral';
-                gameState.killCount[deadCampKey]++;
-                logMessage(`${deadCamp.name}${deadName}兵被雷击消灭`);
-                targetTile.unit = null;
-            }
             setTimeout(() => {
+                let hpAfter = 0;
+                if (_savedHPs && _savedHPs[0] && _savedHPs[0].tile.unit) {
+                    hpAfter = Math.max(0, _savedHPs[0].hp - dmg);
+                    _savedHPs[0].tile.unit.hp = hpAfter;
+                }
+                if (hpAfter <= 0 && targetTile.unit) {
+                    const dc = targetTile.unit.camp;
+                    const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                    gameState.killCount[dck]++;
+                    logMessage(`${dc.name}${targetTile.unit.config.name}兵被雷击消灭`);
+                    targetTile.unit = null;
+                    spawnExplosionParticles(x, y, '#ff4400', 28);
+                    spawnExplosionParticles(x, y, '#ffaa00', 14);
+                    triggerScreenShake(4, 150);
+                }
                 gameState.damageTexts.push({
                     x, y, value: dmg, isTrueDmg: true,
                     timeLeft: 1000, lastUpdate: Date.now()
@@ -1568,17 +1620,13 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 spawnLightningStrike(x, y);
                 triggerScreenShake(10, 350);
                 playSound('attack');
-                if (killed) {
-                    spawnExplosionParticles(x, y, '#ff4400', 28);
-                    spawnExplosionParticles(x, y, '#ffaa00', 14);
-                    triggerScreenShake(4, 150);
-                }
             }, BURN_MS);
             break;
         }
         case 'mgNest': {
             logMessage(`${myCamp.name}在(${targetTile.q},${targetTile.r})部署了机枪堡`);
             setTimeout(() => {
+                if (_mgNestSaved) _mgNestSaved._airdropWaiting = false;
                 spawnRecruitEffect(x, y);
                 triggerRecruitFlash(x, y);
                 playSound('recruit');
@@ -1603,6 +1651,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
         case 'airstrike': {
             const results = result.results || [];
+            const killedTiles = results.filter(r => r.killed).map(r => ({ q: r.q, r: r.r }));
+            result.killedTiles = killedTiles;
             for (const r of results) {
                 if (r.killed) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
@@ -1610,16 +1660,23 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         const dc = tile.unit.camp;
                         const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
                         gameState.killCount[dck]++;
-                        tile.unit = null;
                     }
                 }
             }
             logMessage(`✈️【空袭】对${targetTile.camp.name}城市(${targetTile.q},${targetTile.r})及周边造成轰炸伤害`);
             spawnAirstrikeEffect(x, y, results);
             setTimeout(() => {
+                // re-apply damage after burn
+                if (_savedHPs) {
+                    for (const s of _savedHPs) {
+                        const r = results.find(rr => rr.q === s.tile.q && rr.r === s.tile.r);
+                        if (s.tile.unit && r) s.tile.unit.hp = Math.max(0, s.hp - r.dmg);
+                    }
+                }
                 for (const r of results) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                     if (tile) {
+                        if (r.killed && tile.unit) tile.unit = null;
                         spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
                         gameState.damageTexts.push({
                             x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
@@ -1634,12 +1691,14 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
         case 'airdrop': {
             logMessage(`🪂【空降】${myCamp.name}在(${targetTile.q},${targetTile.r})空降了步兵`);
-            // city capture if airdropping onto enemy/neutral city
-            if (targetTile.isCity && targetTile.camp !== myCamp) {
-                updateDistrictColor(targetTile, myCamp, targetTile.unit);
-            }
+            // hide unit until parachute lands
+            targetTile.unit._airdropWaiting = true;
             spawnAirstrikeEffect(x, y, [], 'airdrop');
             setTimeout(() => {
+                targetTile.unit._airdropWaiting = false;
+                if (targetTile.isCity && targetTile.camp !== myCamp) {
+                    updateDistrictColor(targetTile, myCamp, targetTile.unit);
+                }
                 spawnRecruitEffect(x, y);
                 triggerRecruitFlash(x, y);
                 playSound('recruit');
@@ -1649,6 +1708,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'shield': {
             logMessage(`🛡️【护盾】${targetTile.unit.camp.name}${targetTile.unit.config.name}兵获得50点护盾（3回合）`);
             setTimeout(() => {
+                if (_shieldSaved && _shieldSaved.unit) {
+                    _shieldSaved.unit._shield = 50;
+                    _shieldSaved.unit._shieldMax = 50;
+                    _shieldSaved.unit._shieldTurns = 3;
+                }
                 spawnCommanderSkillEffect(x, y, '🛡️', '护盾');
                 playSound('recruit');
             }, BURN_MS);
@@ -1697,5 +1761,5 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const isAI = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
     const isHumanLocal = !isAI && gameState.currentCamp !== CAMP.neutral;
     spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600);
-    broadcastAction('tacticalCard', { cardId, x, y, dmg: result.dmg, deployed: result.deployed, commander: result.commander, actual: result.actual, imprisoned: result.imprisoned });
+    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrike: result.airstrike });
 }

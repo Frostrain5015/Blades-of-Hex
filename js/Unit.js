@@ -52,6 +52,7 @@ export class Unit {
         this._shield = 0;
         this._shieldMax = 0;
         this._shieldTurns = 0;
+        this._displayShield = 0;
         this.remainingMP = this.config.speed + spdBonus;
         this.displaySpeed = this.config.speed + spdBonus;
         // 移动动画状态（瞬时，不参与序列化）
@@ -201,6 +202,7 @@ export class Unit {
     }
 
     draw(tileX, tileY) {
+        if (this._airdropWaiting) return; // invisible until parachute lands
         const now = frameInfo.now;
         const pos = this.getVisualPos();
         let visualX = pos.x, visualY = pos.y;
@@ -307,6 +309,10 @@ export class Unit {
         const lerpFactor = 0.18;
         this.displayHp += (this.hp - this.displayHp) * lerpFactor;
         if (Math.abs(this.hp - this.displayHp) < 0.3) this.displayHp = this.hp;
+        this._displayShield += (this._shield - this._displayShield) * lerpFactor;
+        if (Math.abs(this._shield - this._displayShield) < 0.3) this._displayShield = this._shield;
+        this._displayShield += (this._shield - this._displayShield) * lerpFactor;
+        if (Math.abs(this._shield - this._displayShield) < 0.3) this._displayShield = this._shield;
 
         this.displaySpeed += (this.remainingMP - this.displaySpeed) * lerpFactor;
         if (Math.abs(this.remainingMP - this.displaySpeed) < 0.3) this.displaySpeed = this.remainingMP;
@@ -340,7 +346,7 @@ export class Unit {
         }
 
         // Shield overlay arc
-        const shieldRatio = this._shield > 0 ? this._shield / this.maxHp : 0;
+        const shieldRatio = this._displayShield > 0.5 ? this._displayShield / this.maxHp : 0;
         if (shieldRatio > 0.003) {
             const shieldSweep = shieldRatio * Math.PI * 2;
             const shieldStart = startAngle + sweepAngle;
