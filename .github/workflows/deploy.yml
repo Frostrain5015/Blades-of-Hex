@@ -1,0 +1,23 @@
+name: Deploy to Alibaba Cloud ECS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # 允许手动触发
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /opt/blades-of-hex
+            git pull origin main
+            npm install --production
+            systemctl restart blades-of-hex
+            echo "Deploy done — $(date)"
