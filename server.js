@@ -6,7 +6,7 @@ const os    = require('os');
 const crypto = require('crypto');
 const WebSocket = require('ws');
 
-const HTTP_PORT  = process.env.HTTP_PORT  || 3000;
+const HTTP_PORT  = process.env.PORT || process.env.HTTP_PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 const ADMIN_TOKEN = 'blades-of-hex-admin-v2';
 
