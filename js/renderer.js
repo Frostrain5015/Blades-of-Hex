@@ -21,6 +21,15 @@ import {
 let lastTime = Date.now();
 let _lastParticleSpawn = 0;
 
+function _lerpColor(aHex, bHex, t) {
+    const ar = parseInt(aHex.slice(1, 3), 16), ag = parseInt(aHex.slice(3, 5), 16), ab = parseInt(aHex.slice(5, 7), 16);
+    const br = parseInt(bHex.slice(1, 3), 16), bg = parseInt(bHex.slice(3, 5), 16), bb = parseInt(bHex.slice(5, 7), 16);
+    const r = Math.round(ar + (br - ar) * t);
+    const g = Math.round(ag + (bg - ag) * t);
+    const b = Math.round(ab + (bb - ab) * t);
+    return '#' + r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0');
+}
+
 function _drawBorderGlow(ctx, color, bw, w, h) {
     const gTop = ctx.createLinearGradient(0, 0, 0, bw);
     gTop.addColorStop(0, color); gTop.addColorStop(1, 'transparent');
@@ -1268,6 +1277,7 @@ const DRAW_ARM_TIMEOUT = 3000;
 let _flyingCard = null;
 let _prevHandLen = 0;
 let _shiftOffset = 0;  // lerps to 0: negative when card added, positive when removed
+let _lastTurnCounter = -1;  // guard: detect turn change to reset draw pile UI
 
 function _getMyCampForUI() {
     if (isNetworkGame()) {
@@ -1381,6 +1391,12 @@ export function drawCardCanvas(now) {
     const W = cssW, H = cssH;
     cardCanvas.style.display = 'block';
 
+    // guard: reset draw pile state on turn change to prevent stale UI
+    if (gameState.turnCounter !== _lastTurnCounter) {
+        _lastTurnCounter = gameState.turnCounter;
+        _drawPileArmed = false;
+    }
+
     const cardW = 90, cardH = 130, peekW = 40;
     const liftAmount = 25; // how far hovered card rises upward
 
@@ -1400,23 +1416,46 @@ export function drawCardCanvas(now) {
     const pileActive = (isMyTurn || isNeutralTurn) && canDraw && !gameState.cardTargeting;
 
     const pileDepth = Math.min(pileCount, 5);
+    const isArmed = _drawPileArmed && pileActive;
+    // Blink factor: pulses 0→1 when active (gold充足+己方回合) and not yet armed
+    const blinkT = (pileActive && !isArmed) ? 0.5 + 0.5 * Math.sin(now * 0.006) : 0;
+
     for (let d = pileDepth - 1; d >= 0; d--) {
         const ox = pileX - d * 2, oy = pileY + d * 2;
-        const isArmed = _drawPileArmed && pileActive;
-        cctx.fillStyle = pileActive ? '#14100a' : '#151515';
-        cctx.strokeStyle = isArmed ? '#ffd700' : (pileActive ? '#b09050' : '#444');
+
+        let fillCol, borderCol, innerCol, crossCol;
+        if (isArmed) {
+            fillCol = '#14100a';
+            borderCol = '#ffd700';
+            innerCol = '#ffd700';
+            crossCol = '#ffd70066';
+        } else if (pileActive) {
+            fillCol = '#14100a';
+            borderCol = _lerpColor('#b09050', '#ffd700', blinkT);
+            innerCol = _lerpColor('#8a6a38', '#ffd700', blinkT);
+            crossCol = _lerpColor('#8a6a3833', '#ffd70066', blinkT);
+        } else {
+            // 不可用状态使用旧可用样式
+            fillCol = '#14100a';
+            borderCol = '#b09050';
+            innerCol = '#8a6a38';
+            crossCol = '#8a6a3833';
+        }
+
+        cctx.fillStyle = fillCol;
+        cctx.strokeStyle = borderCol;
         cctx.lineWidth = isArmed ? 2.5 : 2;
         cctx.beginPath();
         cctx.roundRect(ox, oy, pileW, pileH, 10);
         cctx.fill();
         cctx.stroke();
         if (d === 0) {
-            cctx.strokeStyle = isArmed ? '#ffd700' : (pileActive ? '#8a6a38' : '#333');
+            cctx.strokeStyle = innerCol;
             cctx.lineWidth = 1;
             cctx.beginPath();
             cctx.roundRect(ox + 5, oy + 5, pileW - 10, pileH - 10, 6);
             cctx.stroke();
-            cctx.strokeStyle = isArmed ? '#ffd70066' : (pileActive ? '#8a6a3833' : '#222');
+            cctx.strokeStyle = crossCol;
             cctx.lineWidth = 1;
             const cxP = ox + pileW / 2, cyP = oy + pileH / 2;
             cctx.beginPath();
@@ -1432,8 +1471,23 @@ export function drawCardCanvas(now) {
         }
     }
 
-    if (_drawPileArmed && pileActive) {
-        // armed indicator: golden borders already applied above
+    // price tag
+    cctx.fillStyle = '#ffd700';
+    cctx.font = 'bold 13px sans-serif';
+    cctx.textAlign = 'center';
+    cctx.fillText(`${CARD_SYSTEM_CONFIG.drawCost}g`, pileX + pileW / 2, pileY + pileH + 20);
+
+    // guard: when draw pile is empty, render a faint placeholder outline so the area is never invisible
+    if (pileCount === 0) {
+        cctx.save();
+        cctx.strokeStyle = 'rgba(68,68,68,0.35)';
+        cctx.lineWidth = 1;
+        cctx.setLineDash([3, 5]);
+        cctx.beginPath();
+        cctx.roundRect(pileX, pileY, pileW, pileH, 10);
+        cctx.stroke();
+        cctx.setLineDash([]);
+        cctx.restore();
     }
 
     if (n === 0) return;
@@ -1661,30 +1715,36 @@ function drawAirstrikeEffects(now) {
         const cx = fx.x, cy = fx.y;
         const isAirdrop = fx.type === 'airdrop';
 
-        // plane flies left→right in straight line
-        const planeX = cx - 300 + t * 600;
+        // plane always flies from off-screen left to off-screen right
+        const flyStartX = -120;
+        const flyEndX = LOGICAL_W + 120;
+        const totalFlyDist = flyEndX - flyStartX;
+        const planeX = flyStartX + t * totalFlyDist;
         const planeY = cy - 80;
 
         ctx.save();
         ctx.translate(planeX, planeY);
         ctx.rotate(Math.PI / 4); // 45° upward pitch
-        ctx.font = '38px sans-serif';
+        ctx.font = '48px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('✈️', 0, 0);
         ctx.restore();
 
-        // sequential drops (airdrop: 1 drop; airstrike: 3 drops)
+        // sequential drops: release times relative to when plane passes over target
+        const tTarget = (cx - flyStartX) / totalFlyDist;
+        const dropOffsets = isAirdrop ? [0] : [-0.06, 0, 0.06];
         const dropEmoji = isAirdrop ? '🪂' : '💣';
-        const dropTimes = isAirdrop ? [0.45] : [0.35, 0.45, 0.55];
-        for (let d = 0; d < 3; d++) {
-            const dt = dropTimes[d];
-            if (t < dt) continue;
+        const dropCount = isAirdrop ? 1 : 3;
+        for (let d = 0; d < dropCount; d++) {
+            const dt = dropOffsets[d] != null ? tTarget + dropOffsets[d] : -1;
+            if (dt < 0 || t < dt) continue;
             const dropT = (t - dt) / 0.3;
             if (dropT > 1) continue;
-            const dropX = cx - 300 + dt * 600 + dropT * 20;
+            const dropReleaseX = flyStartX + dt * totalFlyDist;
+            const dropX = dropReleaseX + dropT * 20;
             const dropY = cy - 80 + dropT * 70;
-            ctx.font = '14px sans-serif';
+            ctx.font = '16px sans-serif';
             ctx.fillText(dropEmoji, dropX, Math.min(cy + 10, dropY));
 
             if (!isAirdrop && dropT > 0.7) {

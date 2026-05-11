@@ -8,7 +8,7 @@ import {
     executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
 import { clearTransientEffects, spawnCommanderSkillEffect } from './effects.js';
-import { setCardHoveredIndex, armDrawPile, disarmDrawPile, triggerFlyingCard } from './renderer.js';
+import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 
 function _getMyCampInput() {
     if (isNetworkGame()) {
@@ -22,7 +22,6 @@ function _getMyCampInput() {
 }
 
 // Canvas 卡牌堆叠区域点击处理
-let _localDrawArmed = false;
 let _cardFromX = 500, _cardFromY = 375;
 function _handleCardCanvasClick(e) {
     if (!cardCanvas) return;
@@ -40,7 +39,7 @@ function _handleCardCanvasClick(e) {
     const cardW = 90, cardH = 130, peekW = 40;
     const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
 
-    // draw pile check (top-right corner)
+    // draw pile check (top-right corner) — single click to draw
     if (cx >= pileX - 4 && cx <= pileX + pileW + 4 && cy >= pileY - 4 && cy <= pileY + pileH + 4) {
         const isMyTurnLocal = isNetworkGame()
             ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
@@ -49,28 +48,17 @@ function _handleCardCanvasClick(e) {
             hand.length >= CARD_SYSTEM_CONFIG.maxHandSize ||
             gameState.playerGold[campKey] < CARD_SYSTEM_CONFIG.drawCost ||
             gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
-            disarmDrawPile();
             return;
         }
 
-        if (!_localDrawArmed) {
-            armDrawPile();
-            _localDrawArmed = true;
-            return;
-        }
-        disarmDrawPile();
-        _localDrawArmed = false;
         const drawn = drawCard(myCamp);
         if (drawn) {
-            // new top card lands at leftmost stack position
             const endX = 8 + cardW / 2;
             const endY = H - 120 + cardH / 2;
             triggerFlyingCard(drawn, pileX + pileW / 2, pileY + pileH / 2, endX, endY);
         }
         return;
     }
-
-    if (_localDrawArmed) { disarmDrawPile(); _localDrawArmed = false; }
 
     const n = hand.length;
     if (n === 0) return;

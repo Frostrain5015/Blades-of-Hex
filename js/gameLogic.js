@@ -1676,38 +1676,40 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 }
             }
             logMessage(`✈️【空袭】对${targetTile.camp.name}城市(${targetTile.q},${targetTile.r})及周边造成轰炸伤害`);
-            spawnAirstrikeEffect(x, y, results);
             setTimeout(() => {
-                // re-apply damage after burn (shield-first)
-                if (_savedHPs) {
-                    for (const s of _savedHPs) {
-                        const r = results.find(rr => rr.q === s.tile.q && rr.r === s.tile.r);
-                        if (s.tile.unit && r) {
-                            let remaining = r.dmg;
-                            if (s.tile.unit._shield > 0) {
-                                const absorbed = Math.min(s.tile.unit._shield, remaining);
-                                s.tile.unit._shield -= absorbed;
-                                remaining -= absorbed;
+                // airstrike visual AFTER card burn animation
+                spawnAirstrikeEffect(x, y, results);
+                // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
+                setTimeout(() => {
+                    if (_savedHPs) {
+                        for (const s of _savedHPs) {
+                            const r = results.find(rr => rr.q === s.tile.q && rr.r === s.tile.r);
+                            if (s.tile.unit && r) {
+                                let remaining = r.dmg;
+                                if (s.tile.unit._shield > 0) {
+                                    const absorbed = Math.min(s.tile.unit._shield, remaining);
+                                    s.tile.unit._shield -= absorbed;
+                                    remaining -= absorbed;
+                                }
+                                s.tile.unit.hp = Math.max(0, s.hp - remaining);
                             }
-                            s.tile.unit.hp = Math.max(0, s.hp - remaining);
                         }
                     }
-                }
-                for (const r of results) {
-                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                    if (tile) {
-                        if (r.killed && tile.unit) tile.unit = null;
-                        spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
-                        gameState.damageTexts.push({
-                            x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
-                            timeLeft: 900, lastUpdate: Date.now()
-                        });
+                    for (const r of results) {
+                        const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                        if (tile) {
+                            if (r.killed && tile.unit) tile.unit = null;
+                            spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                            gameState.damageTexts.push({
+                                x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
+                                timeLeft: 900, lastUpdate: Date.now()
+                            });
+                        }
                     }
-                }
-                // re-apply city disabled after burn
-                targetTile._cityDisabledUntil = (gameState.turnCounter || 0) + 1;
-                triggerScreenShake(6, 300);
-                playSound('attack');
+                    targetTile._cityDisabledUntil = (gameState.turnCounter || 0) + 1;
+                    triggerScreenShake(6, 300);
+                    playSound('attack');
+                }, 1200);
             }, BURN_MS);
             break;
         }
@@ -1715,15 +1717,19 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`🪂【空降】${myCamp.name}在(${targetTile.q},${targetTile.r})空降了步兵`);
             // hide unit until parachute lands
             targetTile.unit._airdropWaiting = true;
-            spawnAirstrikeEffect(x, y, [], 'airdrop');
             setTimeout(() => {
-                targetTile.unit._airdropWaiting = false;
-                if (targetTile.isCity && targetTile.camp !== myCamp) {
-                    updateDistrictColor(targetTile, myCamp, targetTile.unit);
-                }
-                spawnRecruitEffect(x, y);
-                triggerRecruitFlash(x, y);
-                playSound('recruit');
+                // airdrop visual AFTER card burn animation
+                spawnAirstrikeEffect(x, y, [], 'airdrop');
+                // reveal unit & recruit effect delayed to match parachute landing (~1500ms into flight)
+                setTimeout(() => {
+                    targetTile.unit._airdropWaiting = false;
+                    if (targetTile.isCity && targetTile.camp !== myCamp) {
+                        updateDistrictColor(targetTile, myCamp, targetTile.unit);
+                    }
+                    spawnRecruitEffect(x, y);
+                    triggerRecruitFlash(x, y);
+                    playSound('recruit');
+                }, 1500);
             }, BURN_MS);
             break;
         }

@@ -1231,24 +1231,24 @@ async function handleRemoteAction(msg) {
                             break;
                         }
                         case 'airstrike': {
-                            // re-apply kills on remote
-                            if (e.killedTiles) {
-                                for (const kt of e.killedTiles) {
-                                    const tile = gameState.tileMap.get(`${kt.q},${kt.r}`);
-                                    if (tile && tile.unit) {
-                                        const dc = tile.unit.camp;
-                                        const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
-                                        gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
-                                        tile.unit = null;
+                            spawnAirstrikeEffect(e.x, e.y, []);
+                            // kills/explosions delayed to match bomb impact timing
+                            setTimeout(() => {
+                                if (e.killedTiles) {
+                                    for (const kt of e.killedTiles) {
+                                        const tile = gameState.tileMap.get(`${kt.q},${kt.r}`);
+                                        if (tile && tile.unit) {
+                                            const dc = tile.unit.camp;
+                                            const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                                            gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                            tile.unit = null;
+                                        }
                                     }
                                 }
-                            }
-                            spawnAirstrikeEffect(e.x, e.y, []);
-                            setTimeout(() => {
                                 playSound('attack');
                                 spawnExplosionParticles(e.x, e.y, '#ff8800', 18);
                                 triggerScreenShake(6, 300);
-                            }, 1600);
+                            }, 1200);
                             break;
                         }
                         case 'landmine':

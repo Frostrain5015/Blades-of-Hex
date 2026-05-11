@@ -1,3 +1,5 @@
 node_modules/
 .claude/
 certs/
+commander_avatar_prompts.md
+start-admin-silent.vbs
