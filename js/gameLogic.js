@@ -77,6 +77,40 @@ function showConfirm(message) {
     });
 }
 
+export function showInfo(message) {
+    if (_confirmActive) return Promise.resolve();
+    _confirmActive = true;
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('confirmOverlay');
+        const msgEl = document.getElementById('confirmMessage');
+        const yesBtn = document.getElementById('confirmYes');
+        const noBtn = document.getElementById('confirmNo');
+
+        msgEl.textContent = message;
+        noBtn.style.display = 'none';
+        yesBtn.textContent = '知道了';
+        overlay.classList.add('show');
+
+        function cleanup() {
+            overlay.classList.remove('show');
+            yesBtn.removeEventListener('click', onOk);
+            document.removeEventListener('keydown', onKey);
+            noBtn.style.display = '';
+            yesBtn.textContent = '确认';
+            _confirmActive = false;
+            resolve();
+        }
+
+        function onOk() { cleanup(); }
+        function onKey(e) {
+            if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); onOk(); }
+        }
+
+        yesBtn.addEventListener('click', onOk);
+        document.addEventListener('keydown', onKey);
+    });
+}
+
 // ===== 地图初始化 =====================
 
 // Axial hex axes: each pair are opposite directions on the same axis
@@ -589,6 +623,8 @@ async function _doEndTurnPhase() {
     // 新回合（P1开始）→ 限时效果到期检查
     // 天气在新回合开始时更新
     if (gameState.currentCamp === CAMP.player1) {
+        checkTurnLimitVictory();
+        if (gameState.gameOver) return;
         _updateWeather();
         _expireTimedEffects();
         // every 5 rounds: free card for all players
@@ -916,7 +952,9 @@ export function moveUnit(unit, targetTile) {
         const mineCampKey = targetTile._mineCampKey;
         const unitCampKey = unit.camp === CAMP.player1 ? 'p1' : unit.camp === CAMP.player2 ? 'p2' : unit.camp === CAMP.player3 ? 'p3' : 'neutral';
         if (mineCampKey !== unitCampKey) {
-            const mineDmg = unit.takeDamage(100, null) ? 100 : 0;
+            const oldHp = unit.hp;
+            unit.takeDamage(100, null);
+            const mineDmg = unit.hp !== oldHp ? 100 : 0;
             gameState.damageTexts.push({
                 x: targetTile.x, y: targetTile.y, value: mineDmg, isCrit: true,
                 timeLeft: 900, lastUpdate: Date.now()
@@ -1176,7 +1214,7 @@ export function attackUnit(attackerUnit, targetUnit) {
 }
 
 // ===== 城市占领 =====================
-function updateDistrictColor(cityTile, camp, attackerUnit = null) {
+export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     if (!cityTile.isCity) return;
     if (cityTile.camp === camp) return;
 
@@ -1287,6 +1325,45 @@ function checkVictory() {
     }
 }
 
+// ===== 回合限制胜利检测 =====================
+function checkTurnLimitVictory() {
+    if (gameState.gameOver) return;
+
+    const factionCount = gameState.isThreePlayer ? 4 : 3;
+    const roundNum = Math.floor(gameState.turnCounter / factionCount) + 1;
+    const limitRound = gameState.isThreePlayer ? 26 : 19;
+    if (roundNum < limitRound) return;
+
+    // 统计各非中立阵营控制的城市数
+    const cityCounts = {};
+    for (const tile of gameState.tiles) {
+        if (tile.isCity && tile.camp !== CAMP.neutral) {
+            const key = _campKey(tile.camp);
+            cityCounts[key] = (cityCounts[key] || 0) + 1;
+        }
+    }
+
+    const players = gameState.isThreePlayer
+        ? [CAMP.player1, CAMP.player2, CAMP.player3].filter(c => !gameState.surrenderedCamps.includes(c))
+        : [CAMP.player1, CAMP.player2];
+
+    const maxCities = Math.max(...players.map(c => cityCounts[_campKey(c)] || 0));
+    const leaders = players.filter(c => (cityCounts[_campKey(c)] || 0) === maxCities);
+
+    if (leaders.length === 1) {
+        gameState.gameOver = true;
+        gameState.victoryCamp = leaders[0];
+        logMessage(`回合限制到达（第${roundNum}回合）！${leaders[0].name}控制最多城市（${maxCities}座），获得胜利`);
+        setTimeout(() => triggerVictoryEffect(), 1500);
+    } else {
+        gameState.gameOver = true;
+        gameState.victoryCamp = 'draw';
+        const tieCounts = leaders.map(c => `${c.name}${cityCounts[_campKey(c)] || 0}座`).join('、');
+        logMessage(`回合限制到达（第${roundNum}回合）！${tieCounts}，平局`);
+        setTimeout(() => triggerVictoryEffect(), 1500);
+    }
+}
+
 export function triggerVictoryEffect() {
     const overlay = document.getElementById('victoryOverlay');
     const panel = document.getElementById('victoryPanel');
@@ -1299,9 +1376,12 @@ export function triggerVictoryEffect() {
     document.body.style.pointerEvents = 'none';
 
     const vc = gameState.victoryCamp;
-    const campColor = vc.color;
     gameOverText.textContent = '游戏结束';
-    if (vc === CAMP.player1) {
+    if (vc === 'draw') {
+        victoryCampText.textContent = '平局';
+        victoryCampText.style.color = '#e6c560';
+        victoryCampText.style.textShadow = '0 0 24px rgba(230,197,96,0.55), 0 0 50px rgba(200,160,60,0.25)';
+    } else if (vc === CAMP.player1) {
         victoryCampText.textContent = '红军胜利';
         victoryCampText.style.color = '#ff7777';
         victoryCampText.style.textShadow = '0 0 24px rgba(255,120,120,0.55), 0 0 50px rgba(220,80,80,0.25)';
