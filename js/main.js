@@ -3,7 +3,7 @@ import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, getCommander } from './commanderInterface.js';
-import { initMap, triggerVictoryEffect } from './gameLogic.js';
+import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, disconnect, sendAction } from './network.js';
@@ -702,6 +702,10 @@ function startGame() {
     updateUI();
     gameState.currentCamp = CAMP.player1;
     updateButtonColors();
+
+    const limitRound = gameState.isThreePlayer ? 25 : 18;
+    const factionName = gameState.isThreePlayer ? '三方' : '双人';
+    showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得胜利！`);
 }
 
 // 根据当前页面协议和端口推导 WebSocket 地址
@@ -1043,6 +1047,9 @@ async function handleRemoteAction(msg) {
             updateUI();
             renderGame();
             _checkSpectatorBanner();
+            const limitRound = gameState.isThreePlayer ? 25 : 18;
+            const factionName = gameState.isThreePlayer ? '三方' : '双人';
+            showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得胜利！`);
         }
         return;
     }
@@ -1208,6 +1215,7 @@ async function handleRemoteAction(msg) {
                                 if (adTile && adTile.unit) {
                                     adTile.unit._airdropWaiting = false;
                                     if (adTile.isCity && adTile.unit.camp !== adTile.camp) {
+                                        updateDistrictColor(adTile, adTile.unit.camp, adTile.unit);
                                         spawnExplosionParticles(e.x, e.y, '#ffd700', 12);
                                         spawnGoldParticles(e.x, e.y);
                                     }
