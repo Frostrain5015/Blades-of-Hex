@@ -456,7 +456,9 @@ function _showCommanderWaiting(forPlayer) {
     title.style.color = ci.color;
     statusDiv.textContent = 'AI 正在选择将领...';
     statusDiv.style.color = '#aaa';
-    cardsDiv.innerHTML = '';
+    cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
+    const deckEl = document.getElementById('commanderDeck');
+    if (deckEl) { deckEl.style.display = 'none'; gsap.set(deckEl, { clearProps: 'transform,opacity' }); }
     overlay.classList.add('show');
 }
 
@@ -465,6 +467,7 @@ function _showCommanderSelection(forPlayer) {
     const title = document.getElementById('commanderTitle');
     const cardsDiv = document.getElementById('commanderCards');
     const statusDiv = document.getElementById('commanderStatus');
+    const deckEl = document.getElementById('commanderDeck');
     const pool = _forPlayerPool(forPlayer);
     const ci = _forPlayerCampName(forPlayer);
 
@@ -473,74 +476,180 @@ function _showCommanderSelection(forPlayer) {
     title.style.color = ci.color;
     statusDiv.textContent = '点击将领预选，再次点击确认';
     statusDiv.style.color = '#888';
-    cardsDiv.innerHTML = '';
+    statusDiv.style.opacity = '0';
+    cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
 
+    // 创建卡片（双面结构）
+    const cardDatas = [];
     for (const key of pool) {
         const cfg = COMMANDER_CONFIG[key];
-        const card = document.createElement('div');
-        card.className = 'commander-card';
-        card.id = `cmd-card-${key}`;
         const bonusParts = [];
         if (cfg.hpBonus)  bonusParts.push(`生命值 +${cfg.hpBonus}`);
         if (cfg.atkBonus) bonusParts.push(`攻击力 +${cfg.atkBonus}`);
         if (cfg.defBonus) bonusParts.push(`防御力 +${cfg.defBonus}%`);
         if (cfg.spdBonus) bonusParts.push(`行动力 +${cfg.spdBonus}`);
-        card.innerHTML = `
-            <div class="commander-card-name">★ ${cfg.name}</div>
-            <div class="commander-card-skill">【${cfg.skill}】</div>
-            <div class="commander-card-bonus">${bonusParts.join('<br>')}</div>
-            <div class="commander-card-desc">${cfg.desc.replace(/\n/g, '<br>')}</div>
-        `;
-        card.addEventListener('click', () => {
-            if (card.classList.contains('confirmed')) return;
-            if (_commanderPending === key) {
-                // 确认
-                card.classList.remove('selected');
-                card.classList.add('confirmed');
-                if (forPlayer === 'player1') {
-                    gameState.commanderP1 = key;
-                    gameState.commanderP1Confirmed = true;
-                } else if (forPlayer === 'player2') {
-                    gameState.commanderP2 = key;
-                    gameState.commanderP2Confirmed = true;
-                } else {
-                    gameState.commanderP3 = key;
-                    gameState.commanderP3Confirmed = true;
-                }
-                statusDiv.textContent = '已确认 ✓';
-                statusDiv.style.color = '#4CAF50';
-                // 禁用其他卡片
-                cardsDiv.querySelectorAll('.commander-card').forEach(c => {
-                    if (!c.classList.contains('confirmed')) c.style.pointerEvents = 'none';
-                });
-                _commanderPending = null;
-                // 联机模式同步选将
-                if (isNetworkGame()) {
-                    syncCommanderState(
-                        gameState.commanderPoolP1, gameState.commanderPoolP2,
-                        gameState.commanderP1, gameState.commanderP2,
-                        gameState.commanderP1Confirmed, gameState.commanderP2Confirmed,
-                        gameState.commanderP1Deployed, gameState.commanderP2Deployed,
-                        gameState.commanderPhase,
-                        null, null,
-                        gameState.commanderPoolP3, gameState.commanderP3,
-                        gameState.commanderP3Confirmed, gameState.commanderP3Deployed, null
-                    );
-                }
-                _onCommanderSelected(forPlayer);
-            } else {
-                // 预选
-                cardsDiv.querySelectorAll('.commander-card').forEach(c => c.classList.remove('selected'));
-                card.classList.add('selected');
-                _commanderPending = key;
-                statusDiv.textContent = `已预选【${cfg.name}】，再次点击确认`;
-                statusDiv.style.color = '#ffd700';
-            }
-        });
+
+        const card = document.createElement('div');
+        card.className = 'commander-card animating';
+        card.id = `cmd-card-${key}`;
+        card.innerHTML =
+            `<div class="commander-card-inner">` +
+                `<div class="commander-card-back"></div>` +
+                `<div class="commander-card-front">` +
+                    `<div class="commander-card-name">★ ${cfg.name}</div>` +
+                    `<div class="commander-card-skill">【${cfg.skill}】</div>` +
+                    `<div class="commander-card-bonus">${bonusParts.join('<br>')}</div>` +
+                    `<div class="commander-card-desc">${cfg.desc.replace(/\n/g, '<br>')}</div>` +
+                `</div>` +
+            `</div>`;
         cardsDiv.appendChild(card);
+        cardDatas.push({ el: card, key, cfg });
     }
 
+    // 显示牌堆
+    deckEl.style.display = 'block';
+    deckEl.style.opacity = '0';
+    deckEl.style.transform = 'translate(-50%, -50%) scale(0.8)';
     overlay.classList.add('show');
+
+    requestAnimationFrame(() => {
+        const cardsRect = cardsDiv.getBoundingClientRect();
+        const deckRect = deckEl.getBoundingClientRect();
+        const deckCX = deckRect.left + deckRect.width / 2 - cardsRect.left;
+        const deckCY = deckRect.top + deckRect.height / 2 - cardsRect.top;
+
+        const targets = cardDatas.map(({ el }) => {
+            const r = el.getBoundingClientRect();
+            return {
+                left: r.left - cardsRect.left,
+                top: r.top - cardsRect.top,
+                w: r.width, h: r.height,
+                cx: r.left + r.width / 2 - cardsRect.left,
+                cy: r.top + r.height / 2 - cardsRect.top,
+            };
+        });
+
+        const maxH = Math.max(...targets.map(t => t.h));
+
+        cardDatas.forEach(({ el }, i) => {
+            const t = targets[i];
+            el.style.position = 'absolute';
+            el.style.left = (deckCX - t.w / 2) + 'px';
+            el.style.top = (deckCY - maxH / 2) + 'px';
+            el.style.width = t.w + 'px';
+            el.style.height = maxH + 'px';
+        });
+
+        const tl = gsap.timeline();
+
+        // 阶段 1：牌堆出现
+        tl.to(deckEl, { opacity: 1, scale: 1, duration: 0.45, ease: 'back.out(1.6)' }, 0);
+
+        // 阶段 2：发牌
+        const dealStagger = 0.26;
+        const dealBase = 0.42;
+        cardDatas.forEach(({ el }, i) => {
+            const t = targets[i];
+            const dx = t.cx - deckCX;
+            const dy = t.cy - deckCY;
+            const st = dealBase + i * dealStagger;
+            tl.fromTo(el,
+                { x: 0, y: 0, opacity: 0 },
+                { x: dx * 0.35, y: dy - 22, opacity: 0.85, duration: 0.16, ease: 'power2.out' },
+                st
+            );
+            tl.to(el,
+                { x: dx, y: dy, opacity: 1, duration: 0.34, ease: 'back.out(1.2)' },
+                st + 0.16
+            );
+        });
+
+        const lastDealEnd = dealBase + (cardDatas.length - 1) * dealStagger + 0.16 + 0.34;
+
+        // 牌堆消失
+        tl.set(deckEl, { display: 'none' }, lastDealEnd - 0.05);
+
+        // 阶段 3：翻牌 + 状态文字淡入
+        const flipBase = lastDealEnd + 0.12;
+        const flipStagger = 0.24;
+        tl.to(statusDiv, { opacity: 1, duration: 0.4, ease: 'power2.out' }, flipBase);
+
+        cardDatas.forEach(({ el }, i) => {
+            const inner = el.querySelector('.commander-card-inner');
+            const back = inner.querySelector('.commander-card-back');
+            const front = inner.querySelector('.commander-card-front');
+            const st = flipBase + i * flipStagger;
+            tl.to(inner, { scaleX: 0.01, duration: 0.15, ease: 'power2.in' }, st);
+            tl.call(() => { back.style.display = 'none'; front.style.display = 'block'; }, null, st + 0.15);
+            tl.to(inner, { scaleX: 1, duration: 0.22, ease: 'back.out(1.3)' }, st + 0.16);
+        });
+
+        const lastFlipEnd = flipBase + (cardDatas.length - 1) * flipStagger + 0.16 + 0.22;
+
+        // 阶段 4：清理恢复
+        tl.call(() => {
+            cardDatas.forEach(({ el }) => {
+                gsap.set(el, { clearProps: 'transform,opacity' });
+                const inner = el.querySelector('.commander-card-inner');
+                gsap.set(inner, { clearProps: 'transform' });
+                el.style.position = '';
+                el.style.left = '';
+                el.style.top = '';
+                el.style.width = '';
+                el.style.height = '';
+                el.classList.remove('animating');
+            });
+        }, null, lastFlipEnd + 0.05);
+
+        // 绑定点击事件
+        tl.call(() => {
+            for (let i = 0; i < cardDatas.length; i++) {
+                const { el, key, cfg } = cardDatas[i];
+                el.addEventListener('click', function handler() {
+                    if (el.classList.contains('confirmed')) return;
+                    if (_commanderPending === key) {
+                        el.classList.remove('selected');
+                        el.classList.add('confirmed');
+                        if (forPlayer === 'player1') {
+                            gameState.commanderP1 = key;
+                            gameState.commanderP1Confirmed = true;
+                        } else if (forPlayer === 'player2') {
+                            gameState.commanderP2 = key;
+                            gameState.commanderP2Confirmed = true;
+                        } else {
+                            gameState.commanderP3 = key;
+                            gameState.commanderP3Confirmed = true;
+                        }
+                        statusDiv.textContent = '已确认 ✓';
+                        statusDiv.style.color = '#4CAF50';
+                        cardsDiv.querySelectorAll('.commander-card').forEach(c => {
+                            if (!c.classList.contains('confirmed')) c.style.pointerEvents = 'none';
+                        });
+                        _commanderPending = null;
+                        if (isNetworkGame()) {
+                            syncCommanderState(
+                                gameState.commanderPoolP1, gameState.commanderPoolP2,
+                                gameState.commanderP1, gameState.commanderP2,
+                                gameState.commanderP1Confirmed, gameState.commanderP2Confirmed,
+                                gameState.commanderP1Deployed, gameState.commanderP2Deployed,
+                                gameState.commanderPhase,
+                                null, null,
+                                gameState.commanderPoolP3, gameState.commanderP3,
+                                gameState.commanderP3Confirmed, gameState.commanderP3Deployed, null
+                            );
+                        }
+                        _onCommanderSelected(forPlayer);
+                    } else {
+                        cardsDiv.querySelectorAll('.commander-card').forEach(c => c.classList.remove('selected'));
+                        el.classList.add('selected');
+                        _commanderPending = key;
+                        statusDiv.textContent = `已预选【${cfg.name}】，再次点击确认`;
+                        statusDiv.style.color = '#ffd700';
+                    }
+                });
+            }
+        }, null, lastFlipEnd + 0.05);
+    });
 }
 
 function _onCommanderSelected(forPlayer) {

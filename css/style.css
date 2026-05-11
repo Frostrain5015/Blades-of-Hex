@@ -1233,32 +1233,92 @@ body {
     justify-content: center;
     flex-wrap: wrap;
     margin-bottom: 12px;
+    position: relative;
+    min-height: 260px;
 }
 
+/* ---- 牌堆（单张） ---- */
+.commander-deck {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 150px; height: 260px;
+    z-index: 10;
+    pointer-events: none;
+    display: none;
+}
+.commander-deck-card {
+    position: absolute; inset: 0;
+    border-radius: 8px;
+    background: #14100a;
+    border: 2px solid #b09050;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 42px;
+}
+.commander-deck-card::after { content: '⚔️'; }
+
+/* ---- 将领卡片（双面结构）---- */
 .commander-card {
+    width: 150px;
+    height: 260px;
+    cursor: pointer;
+    text-align: center;
+    background: none;
+    border: none;
+    padding: 0;
+    transition: none;
+}
+.commander-card-inner {
+    position: relative;
+    width: 100%; height: 100%;
+}
+.commander-card-back,
+.commander-card-front {
+    border-radius: var(--radius-sm);
+}
+.commander-card-back {
+    position: absolute; inset: 0;
+    background: #14100a;
+    border: 2px solid #b09050;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 42px;
+    box-shadow: inset 0 0 0 3px rgba(176,144,80,0.25), 0 2px 8px rgba(0,0,0,0.4);
+    z-index: 1;
+}
+.commander-card-back::after { content: '⚔️'; }
+.commander-card-front {
+    position: relative;
+    height: 100%;
     background: rgba(30, 20, 10, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: var(--radius-sm);
     padding: 14px;
-    width: 150px;
-    cursor: pointer;
+    box-sizing: border-box;
+    overflow-y: auto;
+    display: none;
     transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
-    text-align: center;
 }
-.commander-card:hover {
+
+/* hover / 选中 / 确认 状态作用于正面 */
+.commander-card:not(.animating):hover .commander-card-front {
     border-color: rgba(255, 215, 0, 0.5);
     background: rgba(40, 30, 10, 0.95);
 }
-.commander-card.selected {
+.commander-card:not(.animating).selected .commander-card-front {
     border-color: #ffd700;
     background: rgba(50, 40, 10, 0.95);
     box-shadow: 0 0 16px rgba(255, 215, 0, 0.3);
 }
-.commander-card.confirmed {
+.commander-card:not(.animating).confirmed .commander-card-front {
     border-color: #4CAF50;
     background: rgba(10, 40, 20, 0.95);
     box-shadow: 0 0 12px rgba(76, 175, 80, 0.35);
+}
+
+/* 动画期间禁止交互 */
+.commander-card.animating {
     pointer-events: none;
+    opacity: 0;
 }
 
 .commander-card-name {
@@ -1290,6 +1350,7 @@ body {
     color: #888;
     font-size: 13px;
     margin-top: 8px;
+    min-height: 20px;
 }
 
 @keyframes diceRoll {
