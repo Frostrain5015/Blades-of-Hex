@@ -51,9 +51,9 @@ export default {
     gs.damageTexts.push({
       x: ironGuardUnit.tile.x, y: ironGuardUnit.tile.y,
       value: absorbed, isCrit: false,
-      timeLeft: 800, lastUpdate: Date.now()
+      timeLeft: 800, lastUpdate: performance.now()
     });
-    ironGuardUnit._shieldPulseUntil = Date.now() + 800;
+    ironGuardUnit._shieldPulseUntil = performance.now() + 800;
     helpers.spawnFx(ironGuardUnit.tile.x, ironGuardUnit.tile.y - HEX_SIZE * 0.82, '🛡');
     return actualDmg - absorbed;
   }

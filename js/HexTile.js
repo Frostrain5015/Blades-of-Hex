@@ -35,10 +35,10 @@ export class HexTile {
         this.startColor = this.currentColor;
         this.targetColor = newCamp.color;
         this.fadeDuration = 1500 / settings.animationSpeed;
-        this.fadeStartTime = Date.now();
+        this.fadeStartTime = performance.now();
     }
 
-    updateFadeColor(now = Date.now()) {
+    updateFadeColor(now = performance.now()) {
         if (!this.fadeStartTime) return;
         const elapsed = now - this.fadeStartTime;
         const progress = Math.min(elapsed / this.fadeDuration, 1);

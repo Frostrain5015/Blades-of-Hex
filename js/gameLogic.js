@@ -1,6 +1,6 @@
 import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
-import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn } from './network.js';
+import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef } from './commanderInterface.js';
 import { HexTile } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
@@ -38,6 +38,7 @@ let _cmdFxData = null;     // 攻击将领特效 { x, y, glyph, label }
 let _ctrCmdFxData = null;  // 反击将领特效 { x, y, glyph, label }
 let _cmdFxExtra = null;    // 额外的将领特效（如尚书进驻城市）
 let _endTurnCmdFxList = null; // 回合结束时的将领特效列表（联机同步用）
+let _endTurnDmgTexts = null;  // 回合结束时的伤害数字列表（联机同步用）
 let _attackDmg = 0, _attackIsCrit = false;
 let _counterDmg = 0, _counterX = 0, _counterY = 0;
 let _healAmtRemote = 0, _healX = 0, _healY = 0;
@@ -120,16 +121,39 @@ const HEX_AXES = [
     [[1, -1], [-1, 1]]
 ];
 
+// 可播种的伪随机数生成器（mulberry32），保证联机时各地形/牌库一致
+let _terrainSeed = 0;
+function _createRNG(seed) {
+    let s = seed | 0;
+    return function () {
+        s |= 0; s = s + 0x6D2B79F5 | 0;
+        let t = Math.imul(s ^ s >>> 15, 1 | s);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+}
+
 function generateTerrain(tiles) {
     const nonCityTiles = tiles.filter(t => !t.isCity);
     const total = nonCityTiles.length;
     if (total === 0) return;
 
+    // 联机模式使用房间号作为种子，保证所有客户端地形一致
+    let rand;
+    if (isNetworkGame()) {
+        const roomId = getMyRoomId() || '0';
+        _terrainSeed = 0;
+        for (let i = 0; i < roomId.length; i++) _terrainSeed = (_terrainSeed * 31 + roomId.charCodeAt(i)) | 0;
+        rand = _createRNG(_terrainSeed);
+    } else {
+        rand = Math.random;
+    }
+
     const forestSeeds   = Math.floor(total * 0.08);
     const mountainSeeds = Math.floor(total * 0.04);
 
     for (let i = nonCityTiles.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(rand() * (i + 1));
         [nonCityTiles[i], nonCityTiles[j]] = [nonCityTiles[j], nonCityTiles[i]];
     }
 
@@ -154,9 +178,9 @@ function generateTerrain(tiles) {
             tile.terrain = 'forest';
         } else if (mCount >= 2) {
             tile.terrain = 'mountain';
-        } else if (fCount === 1 && Math.random() < 0.30) {
+        } else if (fCount === 1 && rand() < 0.30) {
             tile.terrain = 'forest';
-        } else if (mCount === 1 && Math.random() < 0.20) {
+        } else if (mCount === 1 && rand() < 0.20) {
             tile.terrain = 'mountain';
         }
     }
@@ -299,8 +323,10 @@ export function initMap() {
 
 export function initCardDeck() {
     const deck = [...DECK_COMPOSITION];
+    // 联机模式使用与地形相同的种子，保证所有客户端初始牌库一致
+    const rand = isNetworkGame() ? _createRNG(_terrainSeed) : Math.random;
     for (let i = deck.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(rand() * (i + 1));
         [deck[i], deck[j]] = [deck[j], deck[i]];
     }
     gameState.cardDrawPile = deck;
@@ -597,7 +623,7 @@ async function _doEndTurnPhase() {
             gameState.goldTexts.push({
                 x: cityTile.x, y: cityTile.y,
                 value: cityValue, prefix: '+', color: '#ffff00',
-                timeLeft: 1000, lastUpdate: Date.now()
+                timeLeft: 1000, lastUpdate: performance.now()
             });
             spawnCoinRain(cityTile.x, cityTile.y, 2);
         });
@@ -607,7 +633,10 @@ async function _doEndTurnPhase() {
     gameState.currentCamp = _nextActiveCamp(camp);
     gameState.turnCounter++;
     // 将领回合开始效果（铁卫治疗、殉道者自爆等）—— 为新阵营在新回合开始时触发
+    const dmgTextsBefore = gameState.damageTexts.length;
     triggerCommanderTurnStart(gameState, gameState.currentCamp);
+    // 收集殉道者等将领产生的伤害数字，供远端重放
+    _endTurnDmgTexts = gameState.damageTexts.slice(dmgTextsBefore);
     // 对策卡系统 v2：重置结束回合方的抽牌/用牌计数 + 清除禁锢
     const endingCampKey = _campKey(camp);
     if (endingCampKey !== 'neutral') {
@@ -657,7 +686,10 @@ async function _doEndTurnPhase() {
     clearselection();
     gameState.undoStack = [];
     if (!isNetworkGame()) saveGame(true); // 自动存档静默，不弹提示
-    broadcastAction('endTurn', { cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null });
+    broadcastAction('endTurn', {
+        cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
+        dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null
+    });
 }
 
 export async function endTurn() {
@@ -714,29 +746,34 @@ export async function endTurn() {
 
             } else if (isNeutral) {
                 // 中立 AI（Claude 防御型人格）
-                _neutralAiLock = true;
-                gameState.aiActing = true;
-                try {
-                    const { processNeutralTurn } = await import('./ai.js');
-                    await Promise.race([
-                        processNeutralTurn(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
-                    ]);
-                } catch (e) {
-                    if (e && e.message === 'AI_TIMEOUT') {
-                        logMessage('中立AI超时，强制结束回合');
-                    } else {
-                        logMessage('中立AI执行出错，跳过回合');
+                const hasNeutralUnits = gameState.tiles.some(t => t.unit && t.unit.camp === CAMP.neutral && t.unit.canAct);
+                const hasNeutralCities = gameState.tiles.some(t => t.isCity && t.camp === CAMP.neutral && !t.unit);
+                if (hasNeutralUnits || hasNeutralCities) {
+                    _neutralAiLock = true;
+                    gameState.aiActing = true;
+                    try {
+                        const { processNeutralTurn } = await import('./ai.js');
+                        await Promise.race([
+                            processNeutralTurn(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
+                        ]);
+                    } catch (e) {
+                        if (e && e.message === 'AI_TIMEOUT') {
+                            logMessage('中立AI超时，强制结束回合');
+                        } else {
+                            logMessage('中立AI执行出错，跳过回合');
+                        }
+                        console.warn('Neutral AI error:', e);
+                    } finally {
+                        gameState.aiActing = false;
+                        _neutralAiLock = false;
                     }
-                    console.warn('Neutral AI error:', e);
-                } finally {
-                    gameState.aiActing = false;
-                    _neutralAiLock = false;
+                    notify('本轮行动完毕 即将进入下一轮...', 'info');
+                    logMessage('本轮行动完毕 即将进入下一轮...');
+                    if (isNetworkGame()) sendMessage({ type: 'toast', text: '本轮行动完毕 即将进入下一轮...', toastType: 'info' });
+                    await new Promise(r => setTimeout(r, 2500));
                 }
-                notify('本轮行动完毕 即将进入下一轮...', 'info');
-                logMessage('本轮行动完毕 即将进入下一轮...');
-                if (isNetworkGame()) sendMessage({ type: 'toast', text: '本轮行动完毕 即将进入下一轮...', toastType: 'info' });
-                await new Promise(r => setTimeout(r, 2500));
+                // 无论如何都要推进回合
                 if (!gameState.gameOver) await _doEndTurnPhase();
 
             } else {
@@ -793,7 +830,7 @@ export function recruitUnit(type) {
     gameState.goldTexts.push({
         x: selectedCityTile.x, y: selectedCityTile.y,
         value: effectiveCost, prefix: '-', color: '#cccccc',
-        timeLeft: 1000, lastUpdate: Date.now()
+        timeLeft: 1000, lastUpdate: performance.now()
     });
     spawnGoldParticles(selectedCityTile.x, selectedCityTile.y);
     recalcAllFlankingMorale();
@@ -940,7 +977,7 @@ export function moveUnit(unit, targetTile) {
     if (unit.remainingMP > 0) {
         // Can move again — recalculate movable range with remaining MP
         gameState.movableTiles = getMovableTiles(unit);
-        gameState.selectionTime = Date.now();
+        gameState.selectionTime = performance.now();
     } else if (gameState.attackableTiles.length === 0) {
         unit.canAct = false;
         clearselection();
@@ -957,7 +994,7 @@ export function moveUnit(unit, targetTile) {
             const mineDmg = unit.hp !== oldHp ? 100 : 0;
             gameState.damageTexts.push({
                 x: targetTile.x, y: targetTile.y, value: mineDmg, isCrit: true,
-                timeLeft: 900, lastUpdate: Date.now()
+                timeLeft: 900, lastUpdate: performance.now()
             });
             spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ff4400', 20);
             spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ffaa00', 12);
@@ -1023,7 +1060,7 @@ export function attackUnit(attackerUnit, targetUnit) {
 
     let atkCmdResult = null, ctrCmdResult = null;
     try {
-        if (attackerUnit.type === 'archer') {
+        if (attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') {
             spawnProjectile(fromX, fromY, toX, toY, isCrit, () => {
                 triggerAttackFlash(toX, toY, isCrit);
                 triggerRecoil(fromX, fromY, toX, toY);
@@ -1035,8 +1072,8 @@ export function attackUnit(attackerUnit, targetUnit) {
             spawnMeleeSlash(toX, toY, fromX, fromY, isCrit);
             triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
         }
-        // 近战突进特效（击杀时由 movePath 处理位移，不重复触发）
-        if (attackerUnit.type !== 'archer' && !isTargetDead) {
+        // 近战突进特效（击杀时由 movePath 处理位移，不重复触发；要塞不可移动，无突进）
+        if (attackerUnit.type !== 'archer' && attackerUnit.type !== 'mgNest' && !isTargetDead) {
             triggerCharge(attackerUnit.id, fromX, fromY, toX, toY);
         }
         logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（强击）' : ''}`);
@@ -1157,7 +1194,7 @@ export function attackUnit(attackerUnit, targetUnit) {
         if (attackerUnit.canAct && attackerUnit.remainingMP > 0) {
             gameState.attackableTiles = getAttackableTiles(attackerUnit);
             gameState.movableTiles = getMovableTiles(attackerUnit);
-            gameState.selectionTime = Date.now();
+            gameState.selectionTime = performance.now();
         } else {
             gameState.attackableTiles = [];
         }
@@ -1237,7 +1274,7 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
         gameState.goldTexts.push({
             x: cityTile.x, y: cityTile.y,
             value: plunderGold, prefix: '+', color: '#ffff00',
-            timeLeft: 1000, lastUpdate: Date.now()
+            timeLeft: 1000, lastUpdate: performance.now()
         });
         spawnGoldParticles(cityTile.x, cityTile.y);
     } else {
@@ -1277,14 +1314,14 @@ function checkVictory() {
 
     if (gameState.isThreePlayer) {
         // 三人模式：失去所有行政区即淘汰
-        const districtMap = {
-            [CAMP.player1]: player1Districts,
-            [CAMP.player2]: player2Districts,
-            [CAMP.player3]: player3Districts
-        };
+        const districtMap = new Map([
+            [CAMP.player1, player1Districts],
+            [CAMP.player2, player2Districts],
+            [CAMP.player3, player3Districts]
+        ]);
         // 检测新被淘汰的玩家（尚未在 surrenderedCamps 中）
         for (const camp of [CAMP.player1, CAMP.player2, CAMP.player3]) {
-            if (districtMap[camp].size === 0 && !gameState.surrenderedCamps.includes(camp)) {
+            if (districtMap.get(camp).size === 0 && !gameState.surrenderedCamps.includes(camp)) {
                 gameState.surrenderedCamps.push(camp);
                 // 剩余部队移交中立AI
                 let remainingUnits = 0;
@@ -1677,7 +1714,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     targetTile.unit.hp = Math.min(targetTile.unit.maxHp, targetTile.unit.hp + healAmt);
                     gameState.healTexts.push({
                         x, y, value: healAmt,
-                        timeLeft: 1000, lastUpdate: Date.now()
+                        timeLeft: 1000, lastUpdate: performance.now()
                     });
                     spawnHealParticles(x, y);
                     triggerHealFlash(x, y);
@@ -1707,7 +1744,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 }
                 gameState.damageTexts.push({
                     x, y, value: dmg, isTrueDmg: true,
-                    timeLeft: 1000, lastUpdate: Date.now()
+                    timeLeft: 1000, lastUpdate: performance.now()
                 });
                 spawnLightningStrike(x, y);
                 triggerScreenShake(10, 350);
@@ -1782,11 +1819,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                             spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
                             gameState.damageTexts.push({
                                 x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
-                                timeLeft: 900, lastUpdate: Date.now()
+                                timeLeft: 900, lastUpdate: performance.now()
                             });
                         }
                     }
-                    targetTile._cityDisabledUntil = (gameState.turnCounter || 0) + 1;
+                    targetTile._cityDisabledUntil = (gameState.turnCounter || 0) + (gameState.isThreePlayer ? 3 : 2);
                     triggerScreenShake(6, 300);
                     playSound('attack');
                 }, 1200);
@@ -1805,6 +1842,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     targetTile.unit._airdropWaiting = false;
                     if (targetTile.isCity && targetTile.camp !== myCamp) {
                         updateDistrictColor(targetTile, myCamp, targetTile.unit);
+                        spawnExplosionParticles(x, y, '#ffd700', 12);
+                        spawnGoldParticles(x, y);
                     }
                     spawnRecruitEffect(x, y);
                     triggerRecruitFlash(x, y);
@@ -1869,5 +1908,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const isAI = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
     const isHumanLocal = !isAI && gameState.currentCamp !== CAMP.neutral;
     spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600);
-    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrike: result.airstrike });
+    const airstrikeResults = (cardId === 'airstrike') ? (result.results || []) : null;
+    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults });
 }

@@ -431,7 +431,7 @@ export function deselectUnit() {
     gameState.deselectAtkTiles = [...gameState.attackableTiles];
     gameState.deselectOrigin = gameState.selectedUnit ? gameState.selectedUnit.tile : null;
     gameState.deselecting = true;
-    gameState.deselectionTime = Date.now();
+    gameState.deselectionTime = performance.now();
     gameState.selectedUnit = null;
     gameState.selectedCityTile = null;
     gameState.movableTiles = [];
@@ -490,6 +490,7 @@ export function serializeState() {
             imprisoned: t.unit._imprisoned || false,
             isImmobile: t.unit._isImmobile || false,
             airdropWaiting: t.unit._airdropWaiting || false,
+            martyrPrimed: t.unit._martyrPrimed || false,
             shield: t.unit._shield || 0,
             shieldMax: t.unit._shieldMax || 0,
             shieldTurns: t.unit._shieldTurns || 0
@@ -663,6 +664,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._imprisoned = td.unit.imprisoned || false;
             unit._isImmobile = td.unit.isImmobile || false;
             unit._airdropWaiting = td.unit.airdropWaiting || false;
+            unit._martyrPrimed = td.unit.martyrPrimed || false;
             unit._shield = td.unit.shield || 0;
             unit._shieldMax = td.unit.shieldMax || 0;
             unit._shieldTurns = td.unit.shieldTurns || 0;

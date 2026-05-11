@@ -30,7 +30,7 @@ export default {
         if (gameState.damageTexts) {
           gameState.damageTexts.push({
             x: tile.x, y: tile.y, value: burn, isCrit: false,
-            timeLeft: 800, lastUpdate: Date.now()
+            timeLeft: 800, lastUpdate: performance.now()
           });
         }
       } else {

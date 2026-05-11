@@ -18,10 +18,11 @@ export default {
 
       const x = unit.tile.x, y = unit.tile.y;
 
-      // 大范围爆炸特效
+      // 大范围爆炸特效（本地粒子 + 网络同步）
       helpers.spawnExplosion(x, y, '#ff4400', 45);
       helpers.spawnExplosion(x, y, '#ffaa00', 30);
       helpers.spawnExplosion(x, y, '#ffff00', 15);
+      helpers.spawnFx(x, y, '💥');
 
       helpers.logMessage(`殉道者【${unit.config.name}兵】殉道牺牲，造成范围伤害！`);
 
@@ -39,7 +40,7 @@ export default {
           gameState.damageTexts.push({
             x: tile.x, y: tile.y,
             value: dmg, isCrit: true,
-            timeLeft: 900, lastUpdate: Date.now()
+            timeLeft: 900, lastUpdate: performance.now()
           });
           if (tile.unit.hp <= 0) {
             helpers.logMessage(`殉道者自爆击杀${tile.unit.camp.name}${tile.unit.config.name}兵（${dmg}伤害）`);

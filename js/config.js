@@ -31,7 +31,7 @@ export let boardDirty = true;
 export function invalidateBoard() { boardDirty = true; }
 
 // Shared frame timestamp so we don't call Date.now() dozens of times per frame
-export const frameInfo = { now: Date.now() };
+export const frameInfo = { now: performance.now() };
 
 // ==== 工具函数 ====================
 
@@ -277,7 +277,7 @@ export const TACTICAL_CARD_CONFIG = {
                     results.push({ q: ht.q, r: ht.r, dmg, killed: ht.unit.hp <= 0 });
                 }
                 if (isCity) {
-                    ht._cityDisabledUntil = (gameState.turnCounter || 0) + 1;
+                    ht._cityDisabledUntil = (gameState.turnCounter || 0) + (gameState.isThreePlayer ? 3 : 2);
                 }
             }
             return { airstrike: true, targetTile, results, dmgBase };

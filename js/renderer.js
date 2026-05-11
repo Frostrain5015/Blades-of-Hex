@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG } from './config.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { drawAllBorders } from './HexTile.js';
@@ -18,7 +18,7 @@ import {
     cardUseEffects, airstrikeEffects
 } from './effects.js';
 
-let lastTime = Date.now();
+let lastTime = performance.now();
 let _lastParticleSpawn = 0;
 
 function _lerpColor(aHex, bHex, t) {
@@ -46,7 +46,7 @@ function _drawBorderGlow(ctx, color, bw, w, h) {
 }
 
 export function renderGame() {
-    const now = Date.now();
+    const now = performance.now();
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
     frameInfo.now = now;
@@ -1369,6 +1369,12 @@ export function drawCardCanvas(now) {
     while (_slideTargets.length < n) { _slideTargets.push(0); _slideCurrent.push(0); }
     while (_slideTargets.length > n) { _slideTargets.pop(); _slideCurrent.pop(); }
     for (let i = 0; i < n; i++) {
+        // 选中的目标手牌锁定在抽出状态
+        if (gameState.cardTargeting && gameState.cardTargeting.cardId === hand[i]) {
+            _slideTargets[i] = 1;
+            _slideCurrent[i] = 1;
+            continue;
+        }
         _slideCurrent[i] += (_slideTargets[i] - _slideCurrent[i]) * SLIDE_SPEED;
         if (Math.abs(_slideCurrent[i] - _slideTargets[i]) < 0.001) _slideCurrent[i] = _slideTargets[i];
     }
@@ -1397,7 +1403,7 @@ export function drawCardCanvas(now) {
         _drawPileArmed = false;
     }
 
-    const cardW = 90, cardH = 130, peekW = 40;
+    const cardW = 90, cardH = 130, peekW = 72;
     const liftAmount = 25; // how far hovered card rises upward
 
     const isMyTurn = isNetworkGame()
@@ -1510,10 +1516,18 @@ export function drawCardCanvas(now) {
         if (Math.abs(_shiftOffset) < 0.5) _shiftOffset = 0;
     }
 
+    let targetCardData = null; // 选中目标的手牌，最后渲染（顶层）
+
     for (let i = 0; i < n; i++) {
         if (_flyingCard && i === n - 1 && hand[i] === _flyingCard.cardId) continue;
-        const cfg = TACTICAL_CARD_CONFIG[hand[i]];
+        let cfg = TACTICAL_CARD_CONFIG[hand[i]];
         if (!cfg) continue;
+        // 部署将领显示所选将领名
+        if (hand[i] === 'commanderDeploy') {
+            const cmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : myCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
+            const cmdCfg = COMMANDER_CONFIG[cmdKey];
+            if (cmdCfg) cfg = { ...cfg, name: cmdCfg.name };
+        }
         const baseX = cxBase + (n - 1 - i) * peekW + _shiftOffset;
         const lift = (_slideCurrent[i] || 0) * liftAmount;
         const x = baseX + cardW / 2;
@@ -1522,10 +1536,22 @@ export function drawCardCanvas(now) {
         const isTargeting = gameState.cardTargeting && gameState.cardTargeting.cardId === hand[i];
         const isDeploy = hand[i] === 'commanderDeploy';
         const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
-        const disabled = !canUse || (isDeploy && alreadyDeployed);
         const isHovered = _slideCurrent[i] > 0.3;
 
-        _drawPokerCard(cctx, x, y, cardW, cardH, cfg, { disabled, isTargeting, isDeploy, alreadyDeployed, isHovered });
+        if (isTargeting) {
+            // 选中卡片不半透明，延后渲染到顶层
+            targetCardData = { x, y, cfg, isDeploy, alreadyDeployed, isHovered };
+            continue;
+        }
+
+        const disabled = !canUse || (isDeploy && alreadyDeployed);
+        _drawPokerCard(cctx, x, y, cardW, cardH, cfg, { disabled, isTargeting: false, isDeploy, alreadyDeployed, isHovered });
+    }
+
+    // 顶层渲染选中的目标卡片
+    if (targetCardData) {
+        const { x, y, cfg, isDeploy, alreadyDeployed, isHovered } = targetCardData;
+        _drawPokerCard(cctx, x, y, cardW, cardH, cfg, { disabled: false, isTargeting: true, isDeploy, alreadyDeployed, isHovered });
     }
 
     // ---- flying card animation ----
@@ -1723,6 +1749,7 @@ function drawAirstrikeEffects(now) {
         const planeY = cy - 80;
 
         ctx.save();
+        ctx.globalAlpha = 1;
         ctx.translate(planeX, planeY);
         ctx.rotate(Math.PI / 4); // 45° upward pitch
         ctx.font = '48px sans-serif';
@@ -1742,10 +1769,13 @@ function drawAirstrikeEffects(now) {
             const dropT = (t - dt) / 0.3;
             if (dropT > 1) continue;
             const dropReleaseX = flyStartX + dt * totalFlyDist;
-            const dropX = dropReleaseX + dropT * 20;
-            const dropY = cy - 80 + dropT * 70;
+            // 空降降落伞直落到地块中心，与单位出生点完全重合
+            const fallDist = isAirdrop ? 80 : 70;
+            const landY = isAirdrop ? cy : cy + 10;
+            const dropX = isAirdrop ? cx : dropReleaseX + dropT * 20;
+            const dropY = cy - 80 + dropT * fallDist;
             ctx.font = '16px sans-serif';
-            ctx.fillText(dropEmoji, dropX, Math.min(cy + 10, dropY));
+            ctx.fillText(dropEmoji, dropX, Math.min(landY, dropY));
 
             if (!isAirdrop && dropT > 0.7) {
                 const exT = (dropT - 0.7) / 0.3;
