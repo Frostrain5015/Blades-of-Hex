@@ -126,7 +126,7 @@ export const attackFlashes = [];
 export function triggerAttackFlash(targetX, targetY, isCrit) {
     attackFlashes.push({
         x: targetX, y: targetY,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: isCrit ? 400 : 280,
         maxRadius: isCrit ? HEX_SIZE * 2 : HEX_SIZE * 1.5,
         isCrit: isCrit
@@ -172,7 +172,7 @@ export function spawnMeleeSlash(x, y, fromX, fromY, isCrit) {
         meleeSlashes.push({
             x, y,
             angle: baseAngle + angleOff + (Math.random() - 0.5) * 0.25,
-            startTime: Date.now(),
+            startTime: performance.now(),
             duration: isCrit ? 350 : 240,
             len: HEX_SIZE * 1.6,
             isCrit
@@ -220,7 +220,7 @@ export function spawnSlashMarks(x, y, fromX, fromY, isCrit) {
             x: x + (Math.random() - 0.5) * 8,
             y: y + (Math.random() - 0.5) * 8,
             angle: baseAngle + (Math.random() - 0.5) * 0.7,
-            startTime: Date.now(),
+            startTime: performance.now(),
             duration: isCrit ? 420 : 300,
             length: isCrit ? 12 + Math.random() * 8 : 6 + Math.random() * 6
         });
@@ -255,11 +255,11 @@ export function drawSlashMarks(ctx2d, now) {
 export const softFlashes = [];
 
 export function triggerHealFlash(x, y) {
-    softFlashes.push({ x, y, startTime: Date.now(), duration: 550, maxRadius: HEX_SIZE * 1.2, color: '#66ffaa' });
+    softFlashes.push({ x, y, startTime: performance.now(), duration: 550, maxRadius: HEX_SIZE * 1.2, color: '#66ffaa' });
 }
 
 export function triggerRecruitFlash(x, y) {
-    softFlashes.push({ x, y, startTime: Date.now(), duration: 420, maxRadius: HEX_SIZE * 1.3, color: '#aac8ff' });
+    softFlashes.push({ x, y, startTime: performance.now(), duration: 420, maxRadius: HEX_SIZE * 1.3, color: '#aac8ff' });
 }
 
 export function drawSoftFlashes(ctx2d, now) {
@@ -307,7 +307,7 @@ export function triggerTurnFlash(campColor) {
 export function triggerFactionMoraleFlash(campColor) {
     factionMoraleFlash.alpha = 0.90;
     factionMoraleFlash.color = campColor;
-    factionMoraleFlash.startTime = Date.now();
+    factionMoraleFlash.startTime = performance.now();
 }
 
 // ===== 胜利彩纸 =====================
@@ -365,7 +365,7 @@ export function spawnCommanderSkillEffect(x, y, glyph = '🎖️', label = '') {
         x, y,
         glyph,
         label,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 900
     });
     // 画布边框辉光
@@ -384,7 +384,7 @@ export function spawnMoraleEffect(unit) {
         x: unit.tile.x,
         y: unit.tile.y,
         morale: unit.morale,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 1500,
         phaseDuration: 800
     });
@@ -396,7 +396,7 @@ export const rankUpEffects = [];
 export function spawnRankUpEffect(x, y, rank) {
     rankUpEffects.push({
         x, y, rank,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 1500,
         phaseDuration: 800
     });
@@ -465,7 +465,7 @@ export function spawnProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
         fromX, fromY,
         toX, toY,
         dist,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration,
         isCrit,
         impactSpawned: false,
@@ -587,7 +587,7 @@ export function triggerRecoil(x, y, targetX, targetY) {
         x, y,
         ox: (dx / dist) * 4,
         oy: (dy / dist) * 4,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 180
     });
 }
@@ -620,7 +620,7 @@ export function triggerCharge(unitId, unitX, unitY, targetX, targetY) {
         unitId,
         ox: (dx / dist) * maxDist,
         oy: (dy / dist) * maxDist,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 160
     });
 }
@@ -729,7 +729,7 @@ export function spawnGongxinRipple(x, y, intense = false) {
     gongxinRipples.push({
         x, y, rings,
         intense,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: intense ? 1000 : 700
     });
 }
@@ -809,7 +809,7 @@ export function spawnLightningStrike(x, y) {
         x, y,
         segments: mainSegments,
         branches,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 500,
         isStrike: true
     });
@@ -943,7 +943,7 @@ export function spawnGoldenFlame(x, y) {
 export function spawnVictoryRipple(x, y) {
     softFlashes.push({
         x, y,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 420,
         maxRadius: HEX_SIZE * 1.8,
         color: '#ffcc44'
@@ -956,7 +956,7 @@ export const ministerRings = [];
 export function spawnMinisterDominionRing(x, y) {
     ministerRings.push({
         x, y,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 1800,
         maxRadius: HEX_SIZE * 22
     });
@@ -1052,7 +1052,7 @@ export function spawnCardUseEffect(cardId, x, y, isLocal = false, fromX = 0, fro
     cardUseEffects.push({
         cardId, icon: cfg ? cfg.icon : '🃏', name: cfg ? cfg.name : cardId,
         x, y, fromX, fromY, isLocal,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 1600,
         phaseDuration: 600,
         pauseDuration: 500
@@ -1065,7 +1065,7 @@ export const airstrikeEffects = [];
 export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike') {
     airstrikeEffects.push({
         x: cx, y: cy, results, type,
-        startTime: Date.now(),
+        startTime: performance.now(),
         duration: 2000
     });
 }

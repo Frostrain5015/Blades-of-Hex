@@ -10,13 +10,13 @@ import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetwork
 import { CAMP } from './config.js';
 import {
     clearTransientEffects, triggerTurnFlash,
-    triggerAttackFlash, triggerRecruitFlash,
+    triggerAttackFlash, triggerRecruitFlash, triggerHealFlash,
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect, spawnSlashMarks,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
     spawnProjectile, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
-    spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain,
+    spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain, spawnMinisterDominionRing,
     spawnCardUseEffect, spawnHealParticles, spawnAirstrikeEffect
 } from './effects.js';
 import { HexTile } from './HexTile.js';
@@ -1240,7 +1240,7 @@ async function handleRemoteAction(msg) {
                     gameState.damageTexts.push({
                         x: e.mineTrigger.x, y: e.mineTrigger.y,
                         value: e.mineTrigger.dmg, isCrit: true,
-                        timeLeft: 900, lastUpdate: Date.now()
+                        timeLeft: 900, lastUpdate: performance.now()
                     });
                 }
             }
@@ -1252,6 +1252,12 @@ async function handleRemoteAction(msg) {
             if (e && e.cmdFxList) {
                 for (const fx of e.cmdFxList) {
                     spawnCommanderSkillEffect(fx.x, fx.y, fx.glyph, fx.label);
+                }
+            }
+            // 重放殉道者爆炸等将领产生的伤害数字
+            if (e && e.dmgTexts) {
+                for (const dt of e.dmgTexts) {
+                    gameState.damageTexts.push({ ...dt, lastUpdate: performance.now() });
                 }
             }
             break;
@@ -1282,7 +1288,7 @@ async function handleRemoteAction(msg) {
                             triggerScreenShake(10, 350);
                             if (e.dmg) gameState.damageTexts.push({
                                 x: e.x, y: e.y, value: e.dmg, isTrueDmg: true,
-                                timeLeft: 1000, lastUpdate: Date.now()
+                                timeLeft: 1000, lastUpdate: performance.now()
                             });
                             break;
                         }
@@ -1292,9 +1298,10 @@ async function handleRemoteAction(msg) {
                                 ht.unit.hp = Math.min(ht.unit.maxHp, ht.unit.hp + e.healAmt);
                                 gameState.healTexts.push({
                                     x: e.x, y: e.y, value: e.healAmt,
-                                    timeLeft: 1000, lastUpdate: Date.now()
+                                    timeLeft: 1000, lastUpdate: performance.now()
                                 });
                                 spawnHealParticles(e.x, e.y);
+                                triggerHealFlash(e.x, e.y);
                                 playSound('recruit');
                             }
                             break;
@@ -1315,6 +1322,7 @@ async function handleRemoteAction(msg) {
                             if (mgTile && mgTile.unit) mgTile.unit._airdropWaiting = false;
                             playSound('recruit');
                             spawnRecruitEffect(e.x, e.y);
+                            triggerRecruitFlash(e.x, e.y);
                             break;
                         }
                         case 'airdrop':
@@ -1325,13 +1333,22 @@ async function handleRemoteAction(msg) {
                                     adTile.unit._airdropWaiting = false;
                                     if (adTile.isCity && adTile.unit.camp !== adTile.camp) {
                                         updateDistrictColor(adTile, adTile.unit.camp, adTile.unit);
+                                    } else if (adTile.isCity && adTile.unit.camp === adTile.camp) {
+                                        // 状态同步已更新camp，手动触发行政区渐变色以匹配本地视觉效果
+                                        const did = adTile.districtId;
+                                        for (const t of gameState.tiles) {
+                                            if (t.districtId === did) t.setCampWithFade(adTile.unit.camp);
+                                        }
+                                    }
+                                    if (adTile.isCity) {
                                         spawnExplosionParticles(e.x, e.y, '#ffd700', 12);
                                         spawnGoldParticles(e.x, e.y);
                                     }
                                 }
                                 playSound('recruit');
                                 spawnRecruitEffect(e.x, e.y);
-                            }, 1600);
+                                triggerRecruitFlash(e.x, e.y);
+                            }, 1500);
                             break;
                         case 'imprison':
                             playSound('recruit');
@@ -1348,32 +1365,53 @@ async function handleRemoteAction(msg) {
                             break;
                         }
                         case 'airstrike': {
-                            spawnAirstrikeEffect(e.x, e.y, []);
-                            // kills/explosions delayed to match bomb impact timing
+                            const airstrikeResults = e.airstrikeResults || [];
+                            spawnAirstrikeEffect(e.x, e.y, airstrikeResults);
+                            // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
                             setTimeout(() => {
-                                if (e.killedTiles) {
-                                    for (const kt of e.killedTiles) {
-                                        const tile = gameState.tileMap.get(`${kt.q},${kt.r}`);
-                                        if (tile && tile.unit) {
+                                for (const r of airstrikeResults) {
+                                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                                    if (!tile) continue;
+                                    if (tile.unit) {
+                                        let remaining = r.dmg;
+                                        if (tile.unit._shield > 0) {
+                                            const absorbed = Math.min(tile.unit._shield, remaining);
+                                            tile.unit._shield -= absorbed;
+                                            remaining -= absorbed;
+                                        }
+                                        tile.unit.hp = Math.max(0, tile.unit.hp - remaining);
+                                        if (tile.unit.hp <= 0) {
                                             const dc = tile.unit.camp;
                                             const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
                                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
                                             tile.unit = null;
                                         }
                                     }
+                                    spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                                    gameState.damageTexts.push({
+                                        x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
+                                        timeLeft: 900, lastUpdate: performance.now()
+                                    });
+                                }
+                                if (e.q != null) {
+                                    const tgtTile = gameState.tileMap.get(`${e.q},${e.r}`);
+                                    if (tgtTile) tgtTile._cityDisabledUntil = (gameState.turnCounter || 0) + (gameState.isThreePlayer ? 3 : 2);
                                 }
                                 playSound('attack');
-                                spawnExplosionParticles(e.x, e.y, '#ff8800', 18);
                                 triggerScreenShake(6, 300);
                             }, 1200);
                             break;
                         }
                         case 'landmine':
-                            // deploy VFX only for releaser; explosion broadcast via mineTrigger in move
+                            // 地雷位置不能暴露给对手；爆炸由 mineTrigger 在 move 中广播
                             break;
                         case 'commanderDeploy':
                             playSound('recruit');
                             spawnCommanderSkillEffect(e.x, e.y);
+                            if (e.commander === 'minister') {
+                                const cmdTile = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : null;
+                                if (cmdTile && cmdTile.isCity) spawnMinisterDominionRing(e.x, e.y);
+                            }
                             break;
                     }
                 }, 1600);
@@ -1384,14 +1422,14 @@ async function handleRemoteAction(msg) {
                 playSound(e?.isCrit ? 'crit' : 'attack');
                 if (e) {
                     triggerAttackFlash(e.x, e.y, e.isCrit);
-                    if (e.attackerType === 'archer') {
+                    if (e.attackerType === 'archer' || e.attackerType === 'mgNest') {
                         spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                         triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                     } else {
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 22 : 10);
                         spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
-                        if (!e.killed) triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
+                        if (!e.killed && e.attackerType !== 'mgNest') triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                     }
                     triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                     if (e.killed) {
@@ -1433,21 +1471,21 @@ async function handleRemoteAction(msg) {
                     if (e.attackDmg > 0) {
                         gameState.damageTexts.push({
                             x: e.x, y: e.y, value: e.attackDmg, isCrit: e.attackIsCrit,
-                            timeLeft: 900, lastUpdate: Date.now()
+                            timeLeft: 900, lastUpdate: performance.now()
                         });
                     }
                     // 反击伤害数字
                     if (e.counterDmg > 0) {
                         gameState.damageTexts.push({
                             x: e.counterX, y: e.counterY, value: e.counterDmg, isCrit: false,
-                            timeLeft: 750, lastUpdate: Date.now()
+                            timeLeft: 750, lastUpdate: performance.now()
                         });
                     }
                     // 治疗数字
                     if (e.healAmt > 0) {
                         gameState.healTexts.push({
                             x: e.healX, y: e.healY, value: e.healAmt,
-                            timeLeft: 1000, lastUpdate: Date.now()
+                            timeLeft: 1000, lastUpdate: performance.now()
                         });
                     }
                 }

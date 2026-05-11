@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, updateStatsPanel, updateRecruitCostDisplay, logMessage, serializeState, showTargetingBanner, hideTargetingBanner } from './state.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
@@ -36,7 +36,7 @@ function _handleCardCanvasClick(e) {
     const isNeutralTurn = !isNetworkGame() && gameState.currentCamp === CAMP.neutral;
     if (isNeutralTurn) return;
 
-    const cardW = 90, cardH = 130, peekW = 40;
+    const cardW = 90, cardH = 130, peekW = 72;
     const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
 
     // draw pile check (top-right corner) — single click to draw
@@ -106,7 +106,17 @@ function _handleCardCanvasClick(e) {
                 _cardFromY = (screenY - gameRect.top) * scaleY;
             }
             gameState.cardTargeting = { cardId, targeting: cfg.targeting };
-            showTargetingBanner(`选择【${cfg.name}】目标`, '再次点击卡片或按 Esc 取消');
+            if (cardId === 'commanderDeploy') {
+                const cmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : myCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
+                const cmdCfg = COMMANDER_CONFIG[cmdKey];
+                if (cmdCfg) {
+                    showTargetingBanner(`选择单位部署【${cmdCfg.name}】`, '再次点击卡片或按 Esc 取消');
+                } else {
+                    showTargetingBanner(`选择【${cfg.name}】目标`, '再次点击卡片或按 Esc 取消');
+                }
+            } else {
+                showTargetingBanner(`选择【${cfg.name}】目标`, '再次点击卡片或按 Esc 取消');
+            }
             return;
         }
     }
@@ -563,7 +573,7 @@ export function initInput() {
             const hand2 = gameState.playerHands[ck] || [];
             const n2 = hand2.length;
             if (n2 === 0) return;
-            const cardW2 = 90, cardH2 = 130, peekW2 = 40;
+            const cardW2 = 90, cardH2 = 130, peekW2 = 72;
             const cxBase2 = 8;
             const cyBase2 = H - 120;
 
@@ -688,7 +698,13 @@ export function initInput() {
             gameState.selectedUnit = clickedTile.unit;
             gameState.movableTiles = getMovableTiles(clickedTile.unit);
             gameState.attackableTiles = getAttackableTiles(clickedTile.unit);
-            gameState.selectionTime = Date.now();
+            // 要塞等不可移动单位：若无攻击目标则直接标记为不可行动
+            if (gameState.movableTiles.length === 0 && gameState.attackableTiles.length === 0) {
+                clickedTile.unit.canAct = false;
+                gameState.selectedUnit = null;
+                return;
+            }
+            gameState.selectionTime = performance.now();
         } else if (ownEmptyCity) {
             gameState.selectedCityTile = clickedTile;
         } else if (clickedTile.unit) {

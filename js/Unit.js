@@ -432,8 +432,8 @@ export class Unit {
             const shieldRatio = Math.min(1, this._shield / Math.max(this._shieldMax, 1));
             const shieldPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
             const shieldY = visualY - HEX_SIZE * 0.82;
-            const inFlash = Date.now() < this._shieldPulseUntil;
-            const flashT = inFlash ? 1 - (this._shieldPulseUntil - Date.now()) / 800 : 0;
+            const inFlash = performance.now() < this._shieldPulseUntil;
+            const flashT = inFlash ? 1 - (this._shieldPulseUntil - performance.now()) / 800 : 0;
 
             // 承伤扩散环（呼吸灯式向外扩散）— 强度随护盾比例
             if (inFlash) {
@@ -653,7 +653,7 @@ export class Unit {
             value: result.dmg,
             isCrit: result.isCrit,
             timeLeft: 900,
-            lastUpdate: Date.now()
+            lastUpdate: performance.now()
         });
         return result;
     }
@@ -680,7 +680,7 @@ export class Unit {
                 value: result.dmg,
                 isCrit: result.isCrit,
                 timeLeft: 750,
-                lastUpdate: Date.now()
+                lastUpdate: performance.now()
             });
         }
         return result;
@@ -785,7 +785,7 @@ export class Unit {
                 y: this.tile.y,
                 value: actualHeal,
                 timeLeft: 1000,
-                lastUpdate: Date.now()
+                lastUpdate: performance.now()
             });
             triggerHealFlash(this.tile.x, this.tile.y);
             spawnHealParticles(this.tile.x, this.tile.y);
