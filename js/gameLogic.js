@@ -764,8 +764,7 @@ export async function endTurn() {
                 gameState.currentCamp === gameState.aiOpponentCamp &&
                 !gameState.aiActing;
             const isNeutral = gameState.currentCamp === CAMP.neutral &&
-                !isNetworkGame() && !gameState.aiActing && !_neutralAiLock &&
-                (!isNetworkGame() || getMyRole() === 'player1');
+                !gameState.aiActing && !_neutralAiLock;
 
             if (isAIOpponent) {
                 // PVE 对手 AI（Grok 进攻型人格）
@@ -819,10 +818,6 @@ export async function endTurn() {
                     await new Promise(r => setTimeout(r, 2500));
                 }
                 // 无论如何都要推进回合
-                if (!gameState.gameOver) await _doEndTurnPhase();
-
-            } else if (gameState.currentCamp === CAMP.neutral && isNetworkGame()) {
-                // 联机模式自动跳过中立AI，直接推进到下一阵营
                 if (!gameState.gameOver) await _doEndTurnPhase();
 
             } else {
