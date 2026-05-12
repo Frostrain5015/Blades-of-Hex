@@ -7,7 +7,7 @@ import {
     moveUnit, attackUnit, recruitUnit, endTurn, undoLastAction,
     executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
-import { clearTransientEffects, spawnCommanderSkillEffect } from './effects.js';
+import { clearTransientEffects, spawnCommanderSkillEffect, spawnPaladinOrbitBeams } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 
 function _getMyCampInput() {
@@ -502,8 +502,16 @@ function showTooltipForTile(tile) {
             const skill = cmdCfgS.activeSkill;
             const onCD = unit.activeSkillCD > 0;
             const isActive = unit.activeSkillDur > 0;
-            const canUse = !onCD && !isActive && unit.canAct && !unit.isNewRecruit;
-            skillBtn.textContent = skill.name;
+            const noFaith = unit.commander === 'paladin' && unit._faith < 1 && !unit._smiteReady;
+            const noFaithUpgrade = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged && unit._faith < 1;
+            const smiteFull = unit.commander === 'paladin' && unit._smiteReady && unit._smiteCharged;
+            const canUse = !onCD && !isActive && unit.canAct && !unit.isNewRecruit && !noFaith && !noFaithUpgrade && !smiteFull;
+            // 按钮文字：已蓄1层时显示「至圣斩·誓约」引导玩家升级
+            if (unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged) {
+                skillBtn.textContent = '至圣斩·誓约';
+            } else {
+                skillBtn.textContent = skill.name;
+            }
             skillBtn.style.display = 'block';
             skillBtn.disabled = !canUse;
             skillBtn.className = 'tooltip-skill-btn' + (onCD ? ' on-cooldown' : '');
@@ -930,7 +938,9 @@ export function initSettingsPanel() {
             if (!cmdCfg || !cmdCfg.activeSkill) return;
             const skill = cmdCfg.activeSkill;
             skill.onActivate(unit, {
-                gameState, logMessage, spawnFx: spawnCommanderSkillEffect
+                gameState, logMessage,
+                spawnFx: spawnCommanderSkillEffect,
+                spawnOrbitBeams: spawnPaladinOrbitBeams
             });
             unit.activeSkillDur = skill.duration;
             unit.activeSkillCD = skill.cooldown;

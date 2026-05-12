@@ -1,7 +1,7 @@
-import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, COMMANDER_CONFIG } from './config.js';
+﻿import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, COMMANDER_CONFIG } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
@@ -15,7 +15,8 @@ import {
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing, spawnCardUseEffect, spawnAirstrikeEffect,
-    spawnGoldenBeam, spawnPaladinBeamProjectiles
+    spawnGoldenBeam, spawnPaladinBeamProjectiles, clearPaladinOrbitBeams,
+    spawnHealingChain
 } from './effects.js';
 import { playSound } from './audio.js';
 
@@ -571,7 +572,7 @@ function _expireTimedEffects(camp) {
         }
         // 牧师治愈灵光
         if (u._healingAura > 0) {
-            u.heal(Math.round(u.maxHp * 0.125));
+            u.heal(Math.round(u.maxHp * 0.15));
             u._healingAura--;
         }
     });
@@ -580,12 +581,20 @@ function _expireTimedEffects(camp) {
 async function _doEndTurnPhase() {
     const camp = gameState.currentCamp;
     _endTurnCmdFxList = []; // 本回合将领特效收集
+    const _healingChainDatas = []; // 牧师圣链特效收集
 
     // 包装 spawnFx 引用以收集特效坐标（不直接覆写 import binding）
     const origSpawn = spawnCommanderSkillEffect;
     setSpawnFxRef((x, y, glyph, label) => {
         _endTurnCmdFxList.push({ x, y, glyph: glyph || '🎖️', label: label || '' });
         origSpawn(x, y, glyph, label);
+    });
+
+    // 包装 spawnHealingChain 引用以收集治疗链特效
+    const origHealingChain = spawnHealingChain;
+    setSpawnHealingChainRef((fromX, fromY, toX, toY) => {
+        _healingChainDatas.push({ fromX, fromY, toX, toY });
+        origHealingChain(fromX, fromY, toX, toY);
     });
 
     // Unit reset + infantry city heal + 将领回合开始效果
@@ -610,6 +619,14 @@ async function _doEndTurnPhase() {
             tile.unit.isNewRecruit = false;
             // 百夫长标记重置
             tile.unit._centurionTriggered = false;
+            // 圣骑士至圣斩蓄力跨回合清除并返还誓言
+            if (tile.unit.commander === 'paladin' && tile.unit._smiteReady) {
+                const refund = tile.unit._smiteCharged ? 2 : 1;
+                tile.unit._faith = Math.min(3, tile.unit._faith + refund);
+                tile.unit._smiteReady = false;
+                tile.unit._smiteCharged = false;
+                clearPaladinOrbitBeams(tile.unit.id);
+            }
 
             if (tile.unit.type === 'infantry' && tile.isCity && tile.unit.camp === camp) {
                 const healPct = (gameState.weather === 'rain') ? 0.20 : 0.10;
@@ -697,8 +714,9 @@ async function _doEndTurnPhase() {
         }
     }
 
-    // 恢复 commanderInterface 的 spawnFx 引用
+    // 恢复 commanderInterface 引用
     setSpawnFxRef(origSpawn);
+    setSpawnHealingChainRef(origHealingChain);
 
     // Common end-phase effects
     playSound('turnEnd');
@@ -712,7 +730,8 @@ async function _doEndTurnPhase() {
     if (!isNetworkGame()) saveGame(true); // 自动存档静默，不弹提示
     broadcastAction('endTurn', {
         cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
-        dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null
+        dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null,
+        healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null
     });
 }
 
@@ -745,7 +764,7 @@ export async function endTurn() {
                 gameState.currentCamp === gameState.aiOpponentCamp &&
                 !gameState.aiActing;
             const isNeutral = gameState.currentCamp === CAMP.neutral &&
-                !gameState.aiActing && !_neutralAiLock &&
+                !isNetworkGame() && !gameState.aiActing && !_neutralAiLock &&
                 (!isNetworkGame() || getMyRole() === 'player1');
 
             if (isAIOpponent) {
@@ -800,6 +819,10 @@ export async function endTurn() {
                     await new Promise(r => setTimeout(r, 2500));
                 }
                 // 无论如何都要推进回合
+                if (!gameState.gameOver) await _doEndTurnPhase();
+
+            } else if (gameState.currentCamp === CAMP.neutral && isNetworkGame()) {
+                // 联机模式自动跳过中立AI，直接推进到下一阵营
                 if (!gameState.gameOver) await _doEndTurnPhase();
 
             } else {
@@ -1149,7 +1172,13 @@ export function attackUnit(attackerUnit, targetUnit) {
                 });
                 triggerAttackFlash(toX, toY, true);
                 _smiteDmgRemote = atkCmdResult.smiteDmg;
-                if (targetUnit.hp <= 0) isTargetDead = true;
+                // 至圣斩真伤绕过护盾走 takeDamage，完整处理击杀/殉道/计数等
+                const savedShield = targetUnit._shield;
+                targetUnit._shield = 0;
+                const smiteKilled = targetUnit.takeDamage(atkCmdResult.smiteDmg, attackerUnit, true);
+                targetUnit._shield = savedShield;
+                targetUnit.displayHp = targetUnit.hp;
+                if (smiteKilled) isTargetDead = true;
             }
         }
         _cmdFxData = _atkCmdFxCapture;

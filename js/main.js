@@ -2,7 +2,7 @@ import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE, COMMA
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
-import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, getCommander } from './commanderInterface.js';
+import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, getCommander } from './commanderInterface.js';
 import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
@@ -19,7 +19,8 @@ import {
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain, spawnMinisterDominionRing,
     spawnCardUseEffect, spawnHealParticles, spawnAirstrikeEffect,
-    spawnGoldenBeam, spawnPaladinOrbitBeams, clearPaladinOrbitBeams, spawnPaladinBeamProjectiles
+    spawnGoldenBeam, spawnPaladinOrbitBeams, clearPaladinOrbitBeams, spawnPaladinBeamProjectiles,
+    spawnHealingChain
 } from './effects.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
@@ -38,6 +39,7 @@ setSpawnGoldenBeamRef(spawnGoldenBeam);
 setSpawnOrbitBeamsRef(spawnPaladinOrbitBeams);
 setClearOrbitBeamsRef(clearPaladinOrbitBeams);
 setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
+setSpawnHealingChainRef(spawnHealingChain);
 
 // ==== 自适应布局 ====
 function fitCanvas() {
@@ -1236,41 +1238,18 @@ async function handleRemoteAction(msg) {
         return;
     }
 
-    // 联机：主机收到 P2 的 endTurn 后，若状态切换为中立，执行 AI 回合
+    // 联机：主机收到 P2 的 endTurn 后，若状态切换为中立，自动推进回合
+    // （中立AI已暂时禁用以修复联机回合切换bug，后续恢复时需重写此段）
     if (msg.actionType === 'endTurn' && gameState.currentCamp === CAMP.neutral && !gameState.gameOver) {
         if (getMyRole() === 'player1' && !_remoteAiRunning) {
             _remoteAiRunning = true;
             try {
-                const { processNeutralTurn } = await import('./ai.js');
+                gameState.aiActing = true;
                 try {
-                    await Promise.race([
-                        processNeutralTurn(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
-                    ]);
-                } catch (e) {
-                    if (e && e.message === 'AI_TIMEOUT') {
-                        logMessage('中立AI超时，强制结束回合');
-                    } else {
-                        logMessage('中立AI执行出错，跳过回合');
-                    }
-                    console.warn('Neutral AI error (remote):', e);
+                    const { endTurn } = await import('./gameLogic.js');
+                    await endTurn();
                 } finally {
                     gameState.aiActing = false;
-                }
-                // 通知 + 延迟 → 切换回合
-                notify('本轮行动完毕 即将进入下一轮...', 'info');
-                logMessage('本轮行动完毕 即将进入下一轮...');
-                sendMessage({ type: 'toast', text: '本轮行动完毕 即将进入下一轮...', toastType: 'info' });
-                await new Promise(r => setTimeout(r, 2500));
-                // 调用 endTurn() 前手动锁定 aiActing，防止 endTurn 再次检测中立并触发二次 AI
-                if (!gameState.gameOver) {
-                    gameState.aiActing = true;
-                    try {
-                        const { endTurn } = await import('./gameLogic.js');
-                        await endTurn();
-                    } finally {
-                        gameState.aiActing = false;
-                    }
                 }
             } finally {
                 _remoteAiRunning = false;
@@ -1327,6 +1306,12 @@ async function handleRemoteAction(msg) {
             if (e && e.dmgTexts) {
                 for (const dt of e.dmgTexts) {
                     gameState.damageTexts.push({ ...dt, lastUpdate: performance.now() });
+                }
+            }
+            // 重放牧师圣链治疗特效
+            if (e && e.healingChains) {
+                for (const hc of e.healingChains) {
+                    spawnHealingChain(hc.fromX, hc.fromY, hc.toX, hc.toY);
                 }
             }
             break;
@@ -1605,7 +1590,9 @@ async function handleRemoteAction(msg) {
                     const cmdCfg = getCommander(skillUnit.commander);
                     if (cmdCfg && cmdCfg.activeSkill) {
                         cmdCfg.activeSkill.onActivate(skillUnit, {
-                            gameState, logMessage, spawnFx: spawnCommanderSkillEffect
+                            gameState, logMessage,
+                            spawnFx: spawnCommanderSkillEffect,
+                            spawnOrbitBeams: spawnPaladinOrbitBeams
                         });
                         skillUnit.activeSkillDur = cmdCfg.activeSkill.duration;
                         skillUnit.activeSkillCD = cmdCfg.activeSkill.cooldown;

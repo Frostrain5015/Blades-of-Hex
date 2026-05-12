@@ -129,13 +129,29 @@ export class Unit {
             effects.push({ label: '不可移动', desc: '该单位无法移动', color: '#888' });
         }
 
-        // 圣骑士誓言
+        // 圣骑士誓言 + 勇气灵光
         if (this.commander === 'paladin') {
             effects.push({ label: '誓言', desc: `${this._faith}/3`, color: '#ffd700' });
+            effects.push({ label: '勇气灵光', desc: '自身及相邻友军攻击+10%，士气保护', color: '#ffd700' });
         }
         if (this._smiteReady) {
             const smiteLabel = this._smiteCharged ? '至圣斩·誓约' : '至圣斩';
             effects.push({ label: smiteLabel, desc: '每层下次攻击附加伤害', color: '#ffd700' });
+        }
+
+        // 勇气灵光 — 受相邻圣骑士影响
+        if (this.commander !== 'paladin' && gameState && gameState.tileMap && this.tile) {
+            let hasPaladinAura = false;
+            for (const [dq, dr] of [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
+                const nb = gameState.tileMap.get(`${this.tile.q + dq},${this.tile.r + dr}`);
+                if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === this.camp) {
+                    hasPaladinAura = true;
+                    break;
+                }
+            }
+            if (hasPaladinAura) {
+                effects.push({ label: '勇气灵光', desc: '攻击力+10%，士气保护', color: '#ffd700' });
+            }
         }
 
         // 牧师治愈灵光

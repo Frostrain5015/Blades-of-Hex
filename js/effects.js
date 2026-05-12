@@ -1162,9 +1162,9 @@ export function spawnPaladinOrbitBeams(unitId, x, y, count) {
         paladinOrbitBeams.push({
             unitId, x, y,
             angle: (i / count) * Math.PI * 2,
-            orbitRadius: HEX_SIZE * 0.72,
+            orbitRadius: HEX_SIZE * 0.88,
             orbitSpeed: 2.8 + i * 0.4,
-            size: 22 + i * 4,
+            size: 28 + i * 5,
             startTime: performance.now()
         });
     }
@@ -1198,25 +1198,26 @@ export function drawPaladinOrbitBeams(ctx2d, now) {
         const beamAngle = b.angle + Math.PI / 2;
 
         ctx2d.save();
+        ctx2d.globalAlpha = 1;
         ctx2d.translate(cx, cy);
         ctx2d.rotate(beamAngle);
 
         // 外层辉光
         const grad = ctx2d.createLinearGradient(-b.size / 2, 0, b.size / 2, 0);
         grad.addColorStop(0, 'rgba(255,215,0,0)');
-        grad.addColorStop(0.3, 'rgba(255,235,120,0.9)');
+        grad.addColorStop(0.3, 'rgba(255,235,120,0.95)');
         grad.addColorStop(0.5, 'rgba(255,255,255,1)');
-        grad.addColorStop(0.7, 'rgba(255,235,120,0.9)');
+        grad.addColorStop(0.7, 'rgba(255,235,120,0.95)');
         grad.addColorStop(1, 'rgba(255,215,0,0)');
         ctx2d.fillStyle = grad;
         ctx2d.shadowColor = '#ffd700';
-        ctx2d.shadowBlur = 10;
-        ctx2d.fillRect(-b.size / 2, -1.5, b.size, 3);
+        ctx2d.shadowBlur = 12;
+        ctx2d.fillRect(-b.size / 2, -2, b.size, 4);
         ctx2d.shadowBlur = 0;
 
         // 核心亮线
         ctx2d.fillStyle = '#ffffff';
-        ctx2d.fillRect(-b.size / 2, -0.5, b.size, 1);
+        ctx2d.fillRect(-b.size / 2, -0.5, b.size, 1.5);
 
         ctx2d.restore();
     }
@@ -1333,6 +1334,79 @@ export function drawPaladinBeamProjectiles(ctx2d, now) {
     }
 }
 
+// ===== 牧师圣链治疗特效 =====
+export const healingChains = [];
+
+export function spawnHealingChain(fromX, fromY, toX, toY) {
+    healingChains.push({
+        fromX, fromY, toX, toY,
+        startTime: performance.now(),
+        duration: 600
+    });
+    // 起点绿色粒子
+    for (let i = 0; i < 8; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 30 + Math.random() * 50;
+        particles.push(new VisualParticle(
+            fromX, fromY,
+            Math.cos(angle) * speed,
+            Math.sin(angle) * speed - 20,
+            '#88ffcc', 2 + Math.random() * 2.5, 0.4 + Math.random() * 0.4, -10
+        ));
+    }
+    // 终点绿色粒子
+    for (let i = 0; i < 8; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 30 + Math.random() * 50;
+        particles.push(new VisualParticle(
+            toX, toY,
+            Math.cos(angle) * speed,
+            Math.sin(angle) * speed - 20,
+            '#66ffaa', 2 + Math.random() * 2.5, 0.4 + Math.random() * 0.4, -10
+        ));
+    }
+}
+
+export function updateHealingChains(now) {
+    for (let i = healingChains.length - 1; i >= 0; i--) {
+        if (now - healingChains[i].startTime > healingChains[i].duration) {
+            healingChains.splice(i, 1);
+        }
+    }
+}
+
+export function drawHealingChains(ctx2d, now) {
+    for (const c of healingChains) {
+        const elapsed = now - c.startTime;
+        const progress = Math.min(1, elapsed / c.duration);
+        const alpha = progress < 0.2 ? progress / 0.2 : Math.max(0, 1 - (progress - 0.2) / 0.8);
+
+        ctx2d.save();
+        ctx2d.globalAlpha = alpha;
+
+        // 绿色光束
+        ctx2d.strokeStyle = '#66ffaa';
+        ctx2d.lineWidth = 3;
+        ctx2d.shadowColor = '#44dd88';
+        ctx2d.shadowBlur = 12;
+        ctx2d.beginPath();
+        ctx2d.moveTo(c.fromX, c.fromY);
+        ctx2d.lineTo(c.toX, c.toY);
+        ctx2d.stroke();
+
+        // 核心亮线
+        ctx2d.strokeStyle = '#bbffdd';
+        ctx2d.lineWidth = 1.2;
+        ctx2d.shadowBlur = 0;
+        ctx2d.beginPath();
+        ctx2d.moveTo(c.fromX, c.fromY);
+        ctx2d.lineTo(c.toX, c.toY);
+        ctx2d.stroke();
+
+        ctx2d.restore();
+    }
+}
+
 // ===== 清除所有瞬时效果（用于撤销/读档） =====================
 export function clearTransientEffects() {
     particles.length = 0;
@@ -1358,6 +1432,7 @@ export function clearTransientEffects() {
     goldenBeams.length = 0;
     paladinOrbitBeams.length = 0;
     paladinBeamProjectiles.length = 0;
+    healingChains.length = 0;
     screenShake.time = 0;
     cardUseEffects.length = 0;
     airstrikeEffects.length = 0;

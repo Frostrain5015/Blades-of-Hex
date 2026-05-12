@@ -18,6 +18,7 @@ import {
     coinParticles, updateCoinParticles, drawCoinParticles,
     cardUseEffects, airstrikeEffects,
     goldenBeams, updateGoldenBeams, drawGoldenBeams,
+    healingChains, updateHealingChains, drawHealingChains,
     paladinOrbitBeams, updatePaladinOrbitBeams, drawPaladinOrbitBeams,
     paladinBeamProjectiles, updatePaladinBeamProjectiles, drawPaladinBeamProjectiles
 } from './effects.js';
@@ -88,14 +89,6 @@ export function renderGame() {
     drawIronGuardAura(now);
     // 单位六边形辉光（堕天使/铁卫/狂暴/禁锢/圣骑士/治愈灵光）—— 在立绘之前
     drawUnitHexAuras(now);
-    // 圣骑士至圣斩环绕光束
-    updatePaladinOrbitBeams(now, (unitId) => {
-        for (const tile of gameState.tiles) {
-            if (tile.unit && tile.unit.id === unitId) return { x: tile.x, y: tile.y };
-        }
-        return null;
-    });
-    drawPaladinOrbitBeams(ctx, now);
     // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
     drawCommanderPennants();
     // Units
@@ -123,6 +116,15 @@ export function renderGame() {
 
     // 将领技能触发特效
     drawCommanderSkillEffects(now);
+
+    // 圣骑士至圣斩环绕光束
+    updatePaladinOrbitBeams(now, (unitId) => {
+        for (const tile of gameState.tiles) {
+            if (tile.unit && tile.unit.id === unitId) return { x: tile.x, y: tile.y };
+        }
+        return null;
+    });
+    drawPaladinOrbitBeams(ctx, now);
 
     // 士气状态持续标识（▲/▼）
     drawMoraleIndicators();
@@ -426,6 +428,9 @@ export function renderGame() {
     // 圣骑士誓言金色光束
     updateGoldenBeams(now);
     drawGoldenBeams(ctx, now);
+    // 牧师圣链治疗特效
+    updateHealingChains(now);
+    drawHealingChains(ctx, now);
     // 攻心波纹
     updateGongxinRipples(now);
     drawGongxinRipples(ctx, now);
@@ -892,17 +897,24 @@ function drawUnitHexAuras(now) {
             ctx.restore();
         }
 
-        // 圣骑士勇气灵光 — 金色六边形光环（自身及相邻友军）
+        // 圣骑士勇气灵光 — 金色六边形光环 + 地面辉光（自身及相邻友军）
         if (u.commander === 'paladin') {
             ctx.save();
             const couragePulse = (Math.sin(now / 400) + 1) / 2;
-            const courageAlpha = 0.15 + couragePulse * 0.25;
+            // 地面辉光填充
+            const glow = ctx.createRadialGradient(vx, vy, HEX_SIZE * 0.15, vx, vy, HEX_SIZE);
+            glow.addColorStop(0, 'rgba(255,215,0,0)');
+            glow.addColorStop(0.5, `rgba(255,215,0,${0.03 + couragePulse * 0.05})`);
+            glow.addColorStop(1, `rgba(255,215,0,${0.12 + couragePulse * 0.14})`);
+            ctx.fillStyle = glow;
+            hexPath(ctx, vx, vy, HEX_SIZE);
+            ctx.fill();
+            // 金色光环
+            const courageAlpha = 0.30 + couragePulse * 0.40;
+            ctx.shadowColor = `rgba(255,215,0,${courageAlpha * 0.8})`;
+            ctx.shadowBlur = 16;
             drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 2,
-                `rgba(255,215,0,${courageAlpha})`, 2.5);
-            ctx.shadowColor = `rgba(255,215,0,${courageAlpha * 0.7})`;
-            ctx.shadowBlur = 10;
-            hexPath(ctx, vx, vy, HEX_SIZE + 2);
-            ctx.stroke();
+                `rgba(255,215,0,${courageAlpha})`, 3.5);
             ctx.restore();
         } else if (u.camp && gameState.tileMap) {
             // 相邻友军受勇气灵光影响
@@ -917,24 +929,34 @@ function drawUnitHexAuras(now) {
             if (hasPaladinNeighbor) {
                 ctx.save();
                 const couragePulse = (Math.sin(now / 400) + 1) / 2;
-                const courageAlpha = 0.10 + couragePulse * 0.18;
+                const courageAlpha = 0.22 + couragePulse * 0.30;
+                ctx.shadowColor = `rgba(255,215,0,${courageAlpha * 0.6})`;
+                ctx.shadowBlur = 10;
                 drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 1,
-                    `rgba(255,215,0,${courageAlpha})`, 1.5);
+                    `rgba(255,215,0,${courageAlpha})`, 2.5);
                 ctx.restore();
             }
         }
 
-        // 牧师治愈灵光 — 绿色六边形光环（单格）
+        // 牧师治愈灵光 — 绿色六边形光环 + 向内辐射辉光（单格）
         if (u._healingAura > 0) {
             ctx.save();
             const healPulse = (Math.sin(now / 300) + 1) / 2;
-            const healAlpha = 0.20 + healPulse * 0.30;
+            const healAlpha = 0.35 + healPulse * 0.45;
+            // 向内辐射：径向渐变，边缘亮、中心透明
+            const innerGlow = ctx.createRadialGradient(vx, vy, HEX_SIZE * 0.15, vx, vy, HEX_SIZE);
+            innerGlow.addColorStop(0, 'rgba(144,255,180,0)');
+            innerGlow.addColorStop(0.45, 'rgba(144,255,180,0.06)');
+            innerGlow.addColorStop(0.75, `rgba(144,255,180,${0.12 + healPulse * 0.10})`);
+            innerGlow.addColorStop(1, `rgba(144,255,180,${0.25 + healPulse * 0.15})`);
+            ctx.fillStyle = innerGlow;
+            hexPath(ctx, vx, vy, HEX_SIZE);
+            ctx.fill();
+            // 外光环：浅亮绿色
+            ctx.shadowColor = `rgba(144,255,180,${healAlpha * 0.7})`;
+            ctx.shadowBlur = 14;
             drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 1,
-                `rgba(68,221,136,${healAlpha})`, 2.5);
-            ctx.shadowColor = `rgba(68,221,136,${healAlpha * 0.6})`;
-            ctx.shadowBlur = 8;
-            hexPath(ctx, vx, vy, HEX_SIZE + 1);
-            ctx.stroke();
+                `rgba(144,255,200,${healAlpha})`, 3);
             ctx.restore();
         }
     }
