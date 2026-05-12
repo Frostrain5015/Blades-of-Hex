@@ -46,6 +46,7 @@ const MIME = {
 function staticHandler(req, res) {
     let urlPath = req.url === '/' ? '/index.html' : req.url;
     urlPath = urlPath.split('?')[0];
+    try { urlPath = decodeURIComponent(urlPath); } catch (_) { /* malformed URI, use as-is */ }
 
     if (urlPath === '/discover') {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

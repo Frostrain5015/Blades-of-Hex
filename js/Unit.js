@@ -1,5 +1,6 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange } from './commanderInterface.js';
+import { getPortrait } from './portraitLoader.js';
 import { nextId } from './state.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset } from './effects.js';
 
@@ -566,6 +567,7 @@ export class Unit {
                 ctx.textBaseline = 'middle';
                 ctx.fillText(text, cx, cy + bh / 2);
                 ctx.restore();
+
             }
         }
     }

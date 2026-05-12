@@ -1047,10 +1047,10 @@ export function drawCoinParticles(ctx2d) {
 export const cardUseEffects = [];
 
 // isLocal: true=释放者(从手牌位置飞入), false=观战者(中央直接出现)
-export function spawnCardUseEffect(cardId, x, y, isLocal = false, fromX = 0, fromY = 0) {
+export function spawnCardUseEffect(cardId, x, y, isLocal = false, fromX = 0, fromY = 0, displayName = null) {
     const cfg = TACTICAL_CARD_CONFIG[cardId];
     cardUseEffects.push({
-        cardId, icon: cfg ? cfg.icon : '🃏', name: cfg ? cfg.name : cardId,
+        cardId, icon: cfg ? cfg.icon : '🃏', name: displayName || (cfg ? cfg.name : cardId),
         x, y, fromX, fromY, isLocal,
         startTime: performance.now(),
         duration: 1600,

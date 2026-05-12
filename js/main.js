@@ -8,6 +8,7 @@ import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, disconnect, sendAction } from './network.js';
 import { CAMP } from './config.js';
+import { preloadPortraits } from './portraitLoader.js';
 import {
     clearTransientEffects, triggerTurnFlash,
     triggerAttackFlash, triggerRecruitFlash, triggerHealFlash,
@@ -494,12 +495,18 @@ function _showCommanderSelection(forPlayer) {
         card.id = `cmd-card-${key}`;
         card.innerHTML =
             `<div class="commander-card-inner">` +
-                `<div class="commander-card-back"></div>` +
-                `<div class="commander-card-front">` +
-                    `<div class="commander-card-name">★ ${cfg.name}</div>` +
-                    `<div class="commander-card-skill">【${cfg.skill}】</div>` +
-                    `<div class="commander-card-bonus">${bonusParts.join('<br>')}</div>` +
-                    `<div class="commander-card-desc">${cfg.desc.replace(/\n/g, '<br>')}</div>` +
+                `<div class="cmdr-reveal-back"></div>` +
+                `<div class="cmdr-persistent" style="display:none">` +
+                    `<div class="cmdr-face-portrait">` +
+                        `<img src="img/commander/${cfg.name}.jpg" class="cmdr-portrait-full" />` +
+                        `<div class="cmdr-portrait-label">${cfg.name}</div>` +
+                    `</div>` +
+                    `<div class="cmdr-face-details">` +
+                        `<div class="cmdr-detail-name">${cfg.name}</div>` +
+                        `<div class="cmdr-detail-bonus">${bonusParts.join('<br>')}</div>` +
+                        `<div class="cmdr-detail-skill">【${cfg.skill}】</div>` +
+                        `<div class="cmdr-detail-desc">${cfg.desc.replace(/\n/g, '<br>')}</div>` +
+                    `</div>` +
                 `</div>` +
             `</div>`;
         cardsDiv.appendChild(card);
@@ -512,40 +519,30 @@ function _showCommanderSelection(forPlayer) {
     deckEl.style.transform = 'translate(-50%, -50%) scale(0.8)';
     overlay.classList.add('show');
 
+    // 固定卡片尺寸（与 CSS .commander-card 保持一致）
+    const CARD_W = 180;
+    const CARD_H = 260;
+
     requestAnimationFrame(() => {
-        const cardsRect = cardsDiv.getBoundingClientRect();
-        const deckRect = deckEl.getBoundingClientRect();
-        const deckCX = deckRect.left + deckRect.width / 2 - cardsRect.left;
-        const deckCY = deckRect.top + deckRect.height / 2 - cardsRect.top;
+        const containerW = cardsDiv.clientWidth;
+        const containerH = Math.max(cardsDiv.clientHeight, CARD_H);
 
-        const targets = cardDatas.map(({ el }) => {
-            const r = el.getBoundingClientRect();
-            return {
-                left: r.left - cardsRect.left,
-                top: r.top - cardsRect.top,
-                w: r.width, h: r.height,
-                cx: r.left + r.width / 2 - cardsRect.left,
-                cy: r.top + r.height / 2 - cardsRect.top,
-            };
-        });
+        // 牌堆中心即容器中心（deck 由 CSS left:50%/top:50% + translate(-50%,-50%) 居中）
+        const deckCX = containerW / 2;
+        const deckCY = containerH / 2;
 
-        const maxH = Math.max(...targets.map(t => t.h));
-
-        cardDatas.forEach(({ el }, i) => {
-            const t = targets[i];
-            el.style.position = 'absolute';
-            el.style.left = (deckCX - t.w / 2) + 'px';
-            el.style.top = (deckCY - maxH / 2) + 'px';
-            el.style.width = t.w + 'px';
-            el.style.height = maxH + 'px';
-        });
+        // 从 flex 布局读取每张卡的实际终点位置（offsetLeft/Top 相对 cardsDiv）
+        const targets = cardDatas.map(({ el }) => ({
+            cx: el.offsetLeft + CARD_W / 2,
+            cy: el.offsetTop + CARD_H / 2,
+        }));
 
         const tl = gsap.timeline();
 
         // 阶段 1：牌堆出现
         tl.to(deckEl, { opacity: 1, scale: 1, duration: 0.45, ease: 'back.out(1.6)' }, 0);
 
-        // 阶段 2：发牌
+        // 阶段 2：发牌（卡片不脱离文档流，用 GSAP 变换从牌堆中心飞向 flex 自然位置）
         const dealStagger = 0.26;
         const dealBase = 0.42;
         cardDatas.forEach(({ el }, i) => {
@@ -553,13 +550,14 @@ function _showCommanderSelection(forPlayer) {
             const dx = t.cx - deckCX;
             const dy = t.cy - deckCY;
             const st = dealBase + i * dealStagger;
+            // 卡片在自然位置；x:-dx,y:-dy 将其拉回牌堆中心
             tl.fromTo(el,
-                { x: 0, y: 0, opacity: 0 },
-                { x: dx * 0.35, y: dy - 22, opacity: 0.85, duration: 0.16, ease: 'power2.out' },
+                { x: -dx, y: -dy, opacity: 0 },
+                { x: -dx * 0.65, y: -22, opacity: 0.85, duration: 0.16, ease: 'power2.out' },
                 st
             );
             tl.to(el,
-                { x: dx, y: dy, opacity: 1, duration: 0.34, ease: 'back.out(1.2)' },
+                { x: 0, y: 0, opacity: 1, duration: 0.34, ease: 'back.out(1.2)' },
                 st + 0.16
             );
         });
@@ -576,35 +574,42 @@ function _showCommanderSelection(forPlayer) {
 
         cardDatas.forEach(({ el }, i) => {
             const inner = el.querySelector('.commander-card-inner');
-            const back = inner.querySelector('.commander-card-back');
-            const front = inner.querySelector('.commander-card-front');
+            const revealBack = inner.querySelector('.cmdr-reveal-back');
+            const persistent = inner.querySelector('.cmdr-persistent');
             const st = flipBase + i * flipStagger;
             tl.to(inner, { scaleX: 0.01, duration: 0.15, ease: 'power2.in' }, st);
-            tl.call(() => { back.style.display = 'none'; front.style.display = 'block'; }, null, st + 0.15);
+            tl.call(() => { revealBack.style.display = 'none'; persistent.style.display = ''; }, null, st + 0.15);
             tl.to(inner, { scaleX: 1, duration: 0.22, ease: 'back.out(1.3)' }, st + 0.16);
         });
 
         const lastFlipEnd = flipBase + (cardDatas.length - 1) * flipStagger + 0.16 + 0.22;
 
-        // 阶段 4：清理恢复
+        // 阶段 4：清理恢复（卡片保持在文档流中，仅清除 GSAP 变换）
         tl.call(() => {
             cardDatas.forEach(({ el }) => {
                 gsap.set(el, { clearProps: 'transform,opacity' });
                 const inner = el.querySelector('.commander-card-inner');
                 gsap.set(inner, { clearProps: 'transform' });
-                el.style.position = '';
-                el.style.left = '';
-                el.style.top = '';
-                el.style.width = '';
-                el.style.height = '';
                 el.classList.remove('animating');
             });
         }, null, lastFlipEnd + 0.05);
 
-        // 绑定点击事件
+        // 绑定点击事件 + GSAP hover 翻转
         tl.call(() => {
             for (let i = 0; i < cardDatas.length; i++) {
                 const { el, key, cfg } = cardDatas[i];
+                const persistent = el.querySelector('.cmdr-persistent');
+
+                // GSAP hover 翻转
+                el.addEventListener('mouseenter', () => {
+                    if (el.classList.contains('animating')) return;
+                    gsap.to(persistent, { rotateY: 180, duration: 0.45, ease: 'power2.out', overwrite: true });
+                });
+                el.addEventListener('mouseleave', () => {
+                    if (el.classList.contains('animating')) return;
+                    gsap.to(persistent, { rotateY: 0, duration: 0.45, ease: 'power2.out', overwrite: true });
+                });
+
                 el.addEventListener('click', function handler() {
                     if (el.classList.contains('confirmed')) return;
                     if (_commanderPending === key) {
@@ -804,6 +809,7 @@ function startGame() {
     document.getElementById('rematchStatus').textContent = '';
     dismissToast();
     fitCanvas();
+    preloadPortraits();
     initMap();
     initInput();
     initKeyboard();
@@ -1264,7 +1270,7 @@ async function handleRemoteAction(msg) {
         case 'tacticalCard':
             if (e) {
                 // 烧牌动画（观战者：中央淡入+燃烧）
-                spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false);
+                spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, e.burnDisplayName || null);
                 // 具体特效延迟 1.2s 后播放
                 const cardType = e.cardId;
                 setTimeout(() => {
