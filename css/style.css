@@ -1214,8 +1214,8 @@ body {
     border: 1px solid var(--gold-border);
     border-radius: var(--radius-md);
     padding: 24px 28px;
-    min-width: 560px;
-    max-width: 780px;
+    min-width: 500px;
+    max-width: 860px;
     text-align: center;
     box-shadow: 0 0 48px rgba(0, 0, 0, 0.85);
 }
@@ -1242,7 +1242,7 @@ body {
     position: absolute;
     left: 50%; top: 50%;
     transform: translate(-50%, -50%);
-    width: 150px; height: 260px;
+    width: 180px; height: 260px;
     z-index: 10;
     pointer-events: none;
     display: none;
@@ -1260,7 +1260,7 @@ body {
 
 /* ---- 将领卡片（双面结构）---- */
 .commander-card {
-    width: 150px;
+    width: 180px;
     height: 260px;
     cursor: pointer;
     text-align: center;
@@ -1268,82 +1268,118 @@ body {
     border: none;
     padding: 0;
     transition: none;
+    border-radius: var(--radius-sm);
 }
+.commander-card:not(.animating).selected {
+    box-shadow:
+        inset 0 0 14px rgba(255, 215, 0, 0.5),
+        0 0 0 2px #ffd700,
+        0 0 22px rgba(255, 215, 0, 0.28);
+}
+.commander-card:not(.animating).confirmed {
+    box-shadow: 0 0 0 2px #4CAF50, 0 0 12px rgba(76, 175, 80, 0.4);
+}
+
 .commander-card-inner {
     position: relative;
     width: 100%; height: 100%;
 }
-.commander-card-back,
-.commander-card-front {
-    border-radius: var(--radius-sm);
-}
-.commander-card-back {
+
+/* 揭示背（动画专用） */
+.cmdr-reveal-back {
     position: absolute; inset: 0;
     background: #14100a;
     border: 2px solid #b09050;
+    border-radius: var(--radius-sm);
     display: flex; align-items: center; justify-content: center;
     font-size: 42px;
     box-shadow: inset 0 0 0 3px rgba(176,144,80,0.25), 0 2px 8px rgba(0,0,0,0.4);
     z-index: 1;
 }
-.commander-card-back::after { content: '⚔️'; }
-.commander-card-front {
-    position: relative;
-    height: 100%;
-    background: rgba(30, 20, 10, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    padding: 14px;
-    box-sizing: border-box;
-    overflow-y: auto;
-    display: none;
-    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+.cmdr-reveal-back::after { content: '⚔️'; }
+
+/* 3D 翻转容器 */
+.cmdr-persistent {
+    position: absolute; inset: 0;
+    transform-style: preserve-3d;
 }
 
-/* hover / 选中 / 确认 状态作用于正面 */
-.commander-card:not(.animating):hover .commander-card-front {
-    border-color: rgba(255, 215, 0, 0.5);
-    background: rgba(40, 30, 10, 0.95);
+/* ── 正面：全幅将领立绘 ── */
+.cmdr-face-portrait {
+    position: absolute; inset: 0;
+    backface-visibility: hidden;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: #1a1008;
+    border: 2px solid #b09050;
 }
-.commander-card:not(.animating).selected .commander-card-front {
-    border-color: #ffd700;
-    background: rgba(50, 40, 10, 0.95);
-    box-shadow: 0 0 16px rgba(255, 215, 0, 0.3);
+.cmdr-portrait-full {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    object-position: center top;
+    display: block;
+    pointer-events: none;
 }
-.commander-card:not(.animating).confirmed .commander-card-front {
-    border-color: #4CAF50;
-    background: rgba(10, 40, 20, 0.95);
-    box-shadow: 0 0 12px rgba(76, 175, 80, 0.35);
+.cmdr-portrait-label {
+    position: absolute;
+    bottom: 6px; left: 6px; right: 6px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: bold;
+    text-align: center;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6);
+    border-radius: 3px;
+    padding: 3px 0;
+    pointer-events: none;
+}
+
+/* ── 背面：技能详情 ── */
+.cmdr-face-details {
+    position: absolute; inset: 0;
+    backface-visibility: hidden;
+    transform: rotateY(180deg);
+    border-radius: var(--radius-sm);
+    background: rgba(30, 20, 10, 0.95);
+    border: 2px solid #b09050;
+    padding: 14px;
+    padding-top: 12px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.cmdr-detail-name {
+    color: #ffd700;
+    font-size: 15px;
+    font-weight: bold;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+}
+.cmdr-detail-skill {
+    color: #ff9944;
+    font-size: 13px;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+.cmdr-detail-bonus {
+    color: #c8b46a;
+    font-size: 11px;
+    line-height: 1.8;
+    margin-bottom: 8px;
+    text-align: center;
+    flex-shrink: 0;
+}
+.cmdr-detail-desc {
+    color: #ccc;
+    font-size: 11px;
+    line-height: 1.5;
+    flex: 1;
 }
 
 /* 动画期间禁止交互 */
 .commander-card.animating {
     pointer-events: none;
     opacity: 0;
-}
-
-.commander-card-name {
-    color: #ffd700;
-    font-size: 16px;
-    font-weight: bold;
-    margin-bottom: 4px;
-}
-.commander-card-skill {
-    color: #ff9944;
-    font-size: 13px;
-    margin-bottom: 6px;
-}
-.commander-card-bonus {
-    color: #c8b46a;
-    font-size: 11px;
-    line-height: 1.8;
-    margin-bottom: 6px;
-    text-align: left;
-    display: inline-block;
-}
-.commander-card-desc {
-    color: #ccc;
-    font-size: 11px;
-    line-height: 1.4;
 }
 
 .commander-status {

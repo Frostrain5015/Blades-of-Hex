@@ -1,4 +1,4 @@
-import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION } from './config.js';
+import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, COMMANDER_CONFIG } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef } from './commanderInterface.js';
@@ -1907,7 +1907,10 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // 烧牌动画 — 人类玩家从手牌飞到中央；AI/中立/远端在中央直接出现
     const isAI = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
     const isHumanLocal = !isAI && gameState.currentCamp !== CAMP.neutral;
-    spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600);
+    // 部署将领的烧牌动画显示所选将领名
+    const burnDisplayName = (cardId === 'commanderDeploy' && result.commander)
+        ? (COMMANDER_CONFIG[result.commander]?.name || null) : null;
+    spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600, burnDisplayName);
     const airstrikeResults = (cardId === 'airstrike') ? (result.results || []) : null;
-    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults });
+    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, burnDisplayName });
 }

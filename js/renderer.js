@@ -1,4 +1,5 @@
 import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG } from './config.js';
+import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { drawAllBorders } from './HexTile.js';
@@ -82,6 +83,8 @@ export function renderGame() {
     drawStallerZone(now);
     // Units
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
+    // 将领透明底立绘（先锋旗）— 在效果层之下，避免遮挡护盾/禁锢/士气标识
+    drawCommanderPennants();
     // Imprisoned ring
     for (let i = 0, len = tiles.length; i < len; i++) {
         if (tiles[i].unit && tiles[i].unit._imprisoned) {
@@ -1337,13 +1340,38 @@ function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
     cctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 10);
     cctx.stroke();
 
-    cctx.fillStyle = disabled ? '#666' : '#ffd700';
-    cctx.font = '36px sans-serif';
-    cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
-    cctx.fillText(cfg.icon, 0, -12);
+    const deployPortrait = (isDeploy && opts.commanderId) ? getPortrait(opts.commanderId) : null;
+
+    if (deployPortrait) {
+        // 圆形将领头像替代 emoji 图标
+        cctx.save();
+        cctx.imageSmoothingQuality = 'high';
+        cctx.beginPath();
+        cctx.arc(0, -14, 26, 0, Math.PI * 2);
+        cctx.clip();
+        // 裁切原图顶部正方形区域（头部聚焦），等比缩放
+        const iw = deployPortrait.naturalWidth;
+        const ih = deployPortrait.naturalHeight;
+        const cropSize = ih * 0.42;
+        const sx = (iw - cropSize) / 2;
+        cctx.drawImage(deployPortrait, sx, 0, cropSize, cropSize, -26, -40, 52, 52);
+        cctx.restore();
+        // 圆形金色边框
+        cctx.strokeStyle = disabled ? '#666' : '#e0b840';
+        cctx.lineWidth = 2;
+        cctx.beginPath();
+        cctx.arc(0, -14, 26, 0, Math.PI * 2);
+        cctx.stroke();
+    } else {
+        cctx.fillStyle = disabled ? '#666' : '#ffd700';
+        cctx.font = '36px sans-serif';
+        cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
+        cctx.fillText(cfg.icon, 0, -12);
+    }
 
     cctx.fillStyle = disabled ? '#777' : '#eee';
     cctx.font = 'bold 13px sans-serif';
+    cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
     cctx.fillText(cfg.name, 0, 28);
 
     if (isDeploy && alreadyDeployed) {
@@ -1522,10 +1550,11 @@ export function drawCardCanvas(now) {
         if (_flyingCard && i === n - 1 && hand[i] === _flyingCard.cardId) continue;
         let cfg = TACTICAL_CARD_CONFIG[hand[i]];
         if (!cfg) continue;
-        // 部署将领显示所选将领名
+        // 部署将领显示所选将领名 + 头像
+        let deployCmdId = null;
         if (hand[i] === 'commanderDeploy') {
-            const cmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : myCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
-            const cmdCfg = COMMANDER_CONFIG[cmdKey];
+            deployCmdId = myCamp === CAMP.player1 ? gameState.commanderP1 : myCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
+            const cmdCfg = COMMANDER_CONFIG[deployCmdId];
             if (cmdCfg) cfg = { ...cfg, name: cmdCfg.name };
         }
         const baseX = cxBase + (n - 1 - i) * peekW + _shiftOffset;
@@ -1537,21 +1566,22 @@ export function drawCardCanvas(now) {
         const isDeploy = hand[i] === 'commanderDeploy';
         const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
         const isHovered = _slideCurrent[i] > 0.3;
+        const drawOpts = { disabled: false, isTargeting: false, isDeploy, alreadyDeployed, isHovered, commanderId: deployCmdId };
 
         if (isTargeting) {
-            // 选中卡片不半透明，延后渲染到顶层
-            targetCardData = { x, y, cfg, isDeploy, alreadyDeployed, isHovered };
+            targetCardData = { x, y, cfg, drawOpts: { ...drawOpts, isTargeting: true } };
             continue;
         }
 
         const disabled = !canUse || (isDeploy && alreadyDeployed);
-        _drawPokerCard(cctx, x, y, cardW, cardH, cfg, { disabled, isTargeting: false, isDeploy, alreadyDeployed, isHovered });
+        drawOpts.disabled = disabled;
+        _drawPokerCard(cctx, x, y, cardW, cardH, cfg, drawOpts);
     }
 
     // 顶层渲染选中的目标卡片
     if (targetCardData) {
-        const { x, y, cfg, isDeploy, alreadyDeployed, isHovered } = targetCardData;
-        _drawPokerCard(cctx, x, y, cardW, cardH, cfg, { disabled: false, isTargeting: true, isDeploy, alreadyDeployed, isHovered });
+        const { x, y, cfg, drawOpts } = targetCardData;
+        _drawPokerCard(cctx, x, y, cardW, cardH, cfg, drawOpts);
     }
 
     // ---- flying card animation ----
@@ -1731,6 +1761,46 @@ function drawCardUseAnimation(now) {
 }
 
 // ===== 空袭 / 空降飞机特效 =====================
+// ===== 将领透明底立绘（先锋旗） =====================
+function drawCommanderPennants() {
+    for (const tile of gameState.tiles) {
+        const unit = tile.unit;
+        if (!unit || !unit.commander) continue;
+        const portrait = getTransparentPortrait(unit.commander);
+        if (!portrait) continue;
+
+        const pos = unit.getVisualPos();
+        const vx = pos.x, vy = pos.y;
+        const pw = 40;
+        const ph = pw * (portrait.naturalHeight / portrait.naturalWidth);
+        const cutIn = 14;
+        const pointExtend = 6;
+        const pX = vx - pw / 2;
+        const pY = vy - ph - 14;
+
+        ctx.save();
+        ctx.imageSmoothingQuality = 'high';
+        ctx.beginPath();
+        ctx.moveTo(pX, pY);
+        ctx.lineTo(pX + pw, pY);
+        ctx.lineTo(pX + pw, pY + ph - cutIn);
+        ctx.lineTo(pX + pw / 2, pY + ph + pointExtend);
+        ctx.lineTo(pX, pY + ph - cutIn);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(portrait, pX, pY, pw, ph);
+        ctx.restore();
+
+        ctx.strokeStyle = '#e0b840';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(pX, pY + ph - cutIn);
+        ctx.lineTo(pX + pw / 2, pY + ph + pointExtend);
+        ctx.lineTo(pX + pw, pY + ph - cutIn);
+        ctx.stroke();
+    }
+}
+
 function drawAirstrikeEffects(now) {
     for (let i = airstrikeEffects.length - 1; i >= 0; i--) {
         const fx = airstrikeEffects[i];
