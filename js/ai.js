@@ -167,6 +167,7 @@ async function _executeActionInner(action, aiCamp) {
             if (!cmdCfg) return;
             // 直接应用将领效果（绕过 UI 流程）
             unit.commander = cmdKey;
+            unit._cmdrAssignedAt = performance.now();
             unit.hp += cmdCfg.hpBonus || 0;
             unit.maxHp += cmdCfg.hpBonus || 0;
             unit.displayHp = unit.hp;

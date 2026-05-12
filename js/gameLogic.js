@@ -32,6 +32,7 @@ function broadcastAction(actionType, effectData = null) {
 // ===== 二次确认弹窗 =====================
 let _confirmActive = false;
 let _cityCapturedInAttack = false;
+let _capturedCityOnMove = null;
 let _moraleFxUnitId = null;
 let _ctrMoraleFxUnitId = null; // 反击攻心目标士气特效
 let _cmdFxData = null;     // 攻击将领特效 { x, y, glyph, label }
@@ -694,6 +695,8 @@ async function _doEndTurnPhase() {
 
 export async function endTurn() {
     if (gameState.gameOver || _turnProcessing) return;
+    // 网络游戏中仅当前回合方可结束回合
+    if (isNetworkGame() && !isMyTurn(gameState.currentCamp)) return;
     _turnProcessing = true;
 
     try {
@@ -888,6 +891,8 @@ export function getMovableTiles(unit) {
             const snareLayers = _getStallerSnareLayers(neighbor, friendlyCamp);
             if (snareLayers > 0) stepCost += snareLayers * 2;
             if (curRem < 1) continue;
+            // 停滞者【缚足】：层数>0时，行动力不足以全额支付则无法到达（末位豁免失效）
+            if (snareLayers > 0 && curRem < stepCost && cur !== startTile) continue;
             let newRem = curRem >= stepCost ? curRem - stepCost : 0;
 
             // Zone of Control: entering a ZoC tile costs all remaining MP (must stop)
@@ -925,8 +930,6 @@ export function getAttackableTiles(unit) {
     const startTile = unit.tile;
     return gameState.tiles.filter(tile => {
         if (!(hexDistance(tile, startTile) <= range && tile.unit && tile.unit.camp !== unit.camp)) return false;
-        // 停滞者免疫炮兵攻击
-        if (unit.type === 'archer' && tile.unit.commander === 'staller') return false;
         return true;
     });
 }
@@ -1012,6 +1015,7 @@ export function moveUnit(unit, targetTile) {
         unit.remainingMP = 0; // entering city ends movement
         if (targetTile.camp !== unit.camp) {
             updateDistrictColor(targetTile, unit.camp, unit);
+            _capturedCityOnMove = { q: targetTile.q, r: targetTile.r, campKey: _campKey(unit.camp) };
         }
     }
     // 尚书进驻城市：触发技能特效
@@ -1024,7 +1028,8 @@ export function moveUnit(unit, targetTile) {
     recalcAllFlankingMorale();
     updateRecruitCostDisplay(); // 尚书驻扎城市时及时刷新折扣
     const rankUpsMove = _pendingRankUps.splice(0);
-    broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger });
+    broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger, capturedCity: _capturedCityOnMove });
+    _capturedCityOnMove = null;
 }
 
 // ===== 攻击 =====================
@@ -1211,6 +1216,7 @@ export function attackUnit(attackerUnit, targetUnit) {
         const rankUps = _pendingRankUps.splice(0);
         broadcastAction('attack', {
             x: toX, y: toY,
+            q: targetUnit.tile.q, r: targetUnit.tile.r,
             fromX, fromY,
             attackerUnitId: attackerUnit.id,
             attackerType: attackerUnit.type,
@@ -1251,6 +1257,20 @@ export function attackUnit(attackerUnit, targetUnit) {
 }
 
 // ===== 城市占领 =====================
+// 强制播放行政区渐变动画（用于远端同步，跳过 camp 相等检查）
+export function forceDistrictFade(cityTile, camp) {
+    if (!cityTile || !cityTile.isCity) return;
+    const districtId = cityTile.districtId;
+    gameState.tiles.forEach(tile => {
+        if (tile.districtId === districtId && tile.camp === camp) {
+            tile.startColor = tile.currentColor;
+            tile.targetColor = camp.color;
+            tile.fadeDuration = 1500;
+            tile.fadeStartTime = performance.now();
+        }
+    });
+}
+
 export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     if (!cityTile.isCity) return;
     if (cityTile.camp === camp) return;

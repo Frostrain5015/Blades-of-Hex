@@ -1,4 +1,4 @@
-import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath } from './config.js';
+import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './state.js';
@@ -412,11 +412,7 @@ export class Unit {
         if (this.activeSkillDur > 0 && this.commander === 'berserker') {
             ctx.save();
             const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
-            const rageAlpha = 0.25 + ragePulse * 0.35;
-            const rageR = HEX_SIZE + 3 + ragePulse * 5;
-            drawHexagonOutline(ctx, visualX, visualY, rageR, `rgba(255,40,0,${rageAlpha})`, 3);
-            drawHexagonOutline(ctx, visualX, visualY, rageR + 3, `rgba(255,100,40,${rageAlpha * 0.5})`, 1.5);
-            // ⚡ glyph
+            // 💢 glyph
             ctx.fillStyle = `rgba(255,80,20,${0.6 + ragePulse * 0.4})`;
             ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
             ctx.textAlign = 'center';
@@ -454,11 +450,6 @@ export class Unit {
                 ctx.stroke();
             }
 
-            // base glow ring — 强度随护盾比例
-            const baseAlpha = shieldRatio * (inFlash ? 0.25 + flashT * 0.3 : 0.12 + shieldPulse * 0.12);
-            drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 2,
-                `rgba(100,160,220,${baseAlpha})`, 1 + shieldRatio);
-
             // shield glyph — 强度随护盾比例
             const glyphAlpha = shieldRatio * (inFlash ? 0.9 + flashT * 0.1 : 0.7 + shieldPulse * 0.3);
             ctx.fillStyle = `rgba(130,200,255,${glyphAlpha})`;
@@ -470,25 +461,6 @@ export class Unit {
             ctx.shadowBlur = shieldRatio * (inFlash ? 8 + flashT * 8 : 5);
             ctx.fillText('🛡', visualX, shieldY);
             ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── Fallen Angel form glow ──
-        if (this.commander === 'fallenAngel') {
-            ctx.save();
-            if (this._fallen) {
-                // 黑形态：暗色柔光紧贴地块边缘向外晕染
-                const pulse = (Math.sin(time * 4 * Math.PI) + 1) / 2;
-                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 1, `rgba(40,25,30,${0.40 + pulse * 0.15})`, 3);
-                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 6, `rgba(50,30,40,${0.22 + pulse * 0.18})`, 2);
-                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 12, `rgba(35,20,30,${0.08 + pulse * 0.12})`, 1.5);
-            } else {
-                // 白形态：白色辉光紧贴地块边缘向外散发
-                const pulse = (Math.sin(time * 3.5 * Math.PI) + 1) / 2;
-                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 1, `rgba(200,215,255,${0.50 + pulse * 0.20})`, 4);
-                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 5, `rgba(170,195,255,${0.30 + pulse * 0.25})`, 3);
-                drawHexagonOutline(ctx, visualX, visualY, HEX_SIZE + 10, `rgba(140,175,255,${0.12 + pulse * 0.20})`, 2);
-            }
             ctx.restore();
         }
 
@@ -619,6 +591,7 @@ export class Unit {
         dmgBonus -= (defender._rankDefBonus || 0);
         dmgBonus -= MORALE_CONFIG[defender.morale].defBonus;
         dmgBonus -= getCommanderDefenseBonus(defender);
+        if (defender.commander === 'staller' && attacker.type === 'archer') dmgBonus -= 0.50;
         dmgBonus -= getCommanderAuraDefenseBonus(defender);
         if (attacker.type === 'archer' && attacker.tile.terrain === 'mountain') dmgBonus += 0.05;
         const dmgMulti = Math.max(0.1, 1 + dmgBonus);
@@ -635,9 +608,6 @@ export class Unit {
     }
 
     calculateDamage(targetUnit) {
-        if (this.type === 'archer' && targetUnit.commander === 'staller') {
-            return { dmg: 0, isCrit: false };
-        }
         const gs = _gameState;
 
         const chargeThreshold = gs.weather === 'fog' ? 1 : 2;
@@ -664,7 +634,11 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.counterAttackCount >= 1 || attackerUnit.type === 'archer' || this.morale === 0) {
+        if (this.counterAttackCount >= 1 || this.type === 'archer' || this.morale === 0) {
+            return { dmg: 0, isCrit: false };
+        }
+        // 炮兵远程攻击（距离>1）时，被攻击方无法反击
+        if (attackerUnit.type === 'archer' && hexDistance(attackerUnit.tile, this.tile) > 1) {
             return { dmg: 0, isCrit: false };
         }
 
@@ -798,7 +772,7 @@ export class Unit {
 
     addXP(amount) {
         if (this._rank >= 4 || amount <= 0) return;
-        if (this.commander === 'centurion') amount *= 1.5;
+        if (this.commander === 'centurion') amount *= 2.0;
         this._xp += amount;
         this._checkRankUp();
     }

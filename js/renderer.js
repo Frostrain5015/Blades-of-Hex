@@ -81,22 +81,14 @@ export function renderGame() {
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
     // 缚足色层（停滞者）—— 在单位之前绘制，避免单位变暗
     drawStallerZone(now);
+    // 铁卫灵光（7格集群外边界）—— 地块六边形特效，在立绘之前
+    drawIronGuardAura(now);
+    // 单位六边形辉光（堕天使/铁卫/狂暴/禁锢）—— 在立绘之前
+    drawUnitHexAuras(now);
+    // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
+    drawCommanderPennants();
     // Units
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
-    // 将领透明底立绘（先锋旗）— 在效果层之下，避免遮挡护盾/禁锢/士气标识
-    drawCommanderPennants();
-    // Imprisoned ring
-    for (let i = 0, len = tiles.length; i < len; i++) {
-        if (tiles[i].unit && tiles[i].unit._imprisoned) {
-            ctx.save();
-            const pulse = (Math.sin(now / 300) + 1) / 2;
-            ctx.strokeStyle = `rgba(255,136,68,${0.4 + pulse * 0.4})`;
-            ctx.lineWidth = 3;
-            hexPath(ctx, tiles[i].x, tiles[i].y, HEX_SIZE + 4);
-            ctx.stroke();
-            ctx.restore();
-        }
-    }
     // City disabled indicator (same layer as Iron Guard shield)
     for (let i = 0, len = tiles.length; i < len; i++) {
         const tile = tiles[i];
@@ -126,9 +118,6 @@ export function renderGame() {
 
     // 范围光圈
     drawRangeApertures(now);
-
-    // 铁卫灵光
-    drawIronGuardAura(now);
 
     // 文字特效
     drawDamageTexts(now);
@@ -827,6 +816,69 @@ function drawIronGuardAura(now) {
     }
 }
 
+// ===== 单位六边形辉光（堕天使/铁卫/狂暴/禁锢）—— 立绘之前 =====================
+function drawUnitHexAuras(now) {
+    const time = now / 1000;
+    for (const tile of gameState.tiles) {
+        const u = tile.unit;
+        if (!u) continue;
+        const pos = u.getVisualPos();
+        const vx = pos.x, vy = pos.y;
+
+        // 禁锢光环
+        if (u._imprisoned) {
+            ctx.save();
+            const pulse = (Math.sin(now / 300) + 1) / 2;
+            ctx.strokeStyle = `rgba(255,136,68,${0.4 + pulse * 0.4})`;
+            ctx.lineWidth = 3;
+            hexPath(ctx, vx, vy, HEX_SIZE + 4);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // 堕天使形态辉光（仅六边形外轮廓）
+        if (u.commander === 'fallenAngel') {
+            ctx.save();
+            if (u._fallen) {
+                const pulse = (Math.sin(time * 4 * Math.PI) + 1) / 2;
+                drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 1, `rgba(40,25,30,${0.40 + pulse * 0.15})`, 3);
+                drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 6, `rgba(50,30,40,${0.22 + pulse * 0.18})`, 2);
+                drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 12, `rgba(35,20,30,${0.08 + pulse * 0.12})`, 1.5);
+            } else {
+                const pulse = (Math.sin(time * 3.5 * Math.PI) + 1) / 2;
+                drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 1, `rgba(200,215,255,${0.50 + pulse * 0.20})`, 4);
+                drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 8, `rgba(220,230,255,${0.25 + pulse * 0.25})`, 2.5);
+                drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 16, `rgba(200,215,255,${0.08 + pulse * 0.15})`, 1.5);
+            }
+            ctx.restore();
+        }
+
+        // 狂战士狂暴辉光（仅六边形外轮廓）
+        if (u.activeSkillDur > 0 && u.commander === 'berserker') {
+            ctx.save();
+            const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
+            const rageAlpha = 0.25 + ragePulse * 0.35;
+            const rageR = HEX_SIZE + 3 + ragePulse * 5;
+            drawHexagonOutline(ctx, vx, vy, rageR, `rgba(255,40,0,${rageAlpha})`, 3);
+            drawHexagonOutline(ctx, vx, vy, rageR + 3, `rgba(255,100,40,${rageAlpha * 0.5})`, 1.5);
+            ctx.restore();
+        }
+
+        // 铁卫护盾基底环（仅六边形外轮廓，glyph 保留在 Unit.draw 中）
+        if (u.commander === 'ironGuard' && u._shield > 0) {
+            ctx.save();
+            const shieldRatio = Math.min(1, u._shield / Math.max(u._shieldMax, 1));
+            const shieldPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
+            const inFlash = performance.now() < u._shieldPulseUntil;
+            const flashT = inFlash ? 1 - (u._shieldPulseUntil - performance.now()) / 800 : 0;
+            const baseAlpha = shieldRatio * (inFlash ? 0.25 + flashT * 0.3 : 0.12 + shieldPulse * 0.12);
+            drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 2,
+                `rgba(100,160,220,${baseAlpha})`, 1 + shieldRatio);
+            ctx.restore();
+        }
+    }
+}
+
 // ===== 缚足色层（停滞者） =====================
 function drawStallerZone(now) {
     const ring1 = new Set(); // 距离 0-1
@@ -1197,12 +1249,12 @@ function drawDamageTexts(now) {
         ctx.shadowBlur = isBig ? 8 : 4;
 
         if (text.isTrueDmg) {
-            ctx.fillStyle = '#e8f0ff';
-            ctx.shadowColor = '#4499ff';
-            ctx.shadowBlur = 16;
+            ctx.fillStyle = '#ffe850';
+            ctx.shadowColor = '#ffaa00';
+            ctx.shadowBlur = 18;
             ctx.fillText(`-${Math.round(text.value)}`, 0, 0);
-            // 二次绘制强化电光感
-            ctx.shadowBlur = 6;
+            // 二次绘制强化灼烧感
+            ctx.shadowBlur = 8;
             ctx.fillText(`-${Math.round(text.value)}`, 0, 0);
         } else if (text.isCrit) {
             ctx.fillStyle = '#ff4400';
@@ -1352,9 +1404,10 @@ function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
         // 裁切原图顶部正方形区域（头部聚焦），等比缩放
         const iw = deployPortrait.naturalWidth;
         const ih = deployPortrait.naturalHeight;
-        const cropSize = ih * 0.42;
+        const cropSize = ih * 0.40;
         const sx = (iw - cropSize) / 2;
-        cctx.drawImage(deployPortrait, sx, 0, cropSize, cropSize, -26, -40, 52, 52);
+        const sy = ih * 0.03;
+        cctx.drawImage(deployPortrait, sx, sy, cropSize, cropSize, -26, -40, 52, 52);
         cctx.restore();
         // 圆形金色边框
         cctx.strokeStyle = disabled ? '#666' : '#e0b840';
@@ -1769,16 +1822,44 @@ function drawCommanderPennants() {
         const portrait = getTransparentPortrait(unit.commander);
         if (!portrait) continue;
 
+        // 部署过渡动画：1600ms 内淡入+缩放
+        const now = performance.now();
+        const assignedAt = unit._cmdrAssignedAt || 0;
+        const elapsed = now - assignedAt;
+        const TRANSITION_MS = 1600;
+        const appearT = assignedAt > 0 ? Math.min(1, elapsed / TRANSITION_MS) : 1;
+        if (appearT <= 0) continue;
+
         const pos = unit.getVisualPos();
         const vx = pos.x, vy = pos.y;
-        const pw = 40;
-        const ph = pw * (portrait.naturalHeight / portrait.naturalWidth);
-        const cutIn = 14;
-        const pointExtend = 6;
+        // 铁卫头部占比小，放大比例
+        const scale = unit.commander === 'ironGuard' ? 1.25 : 1.0;
+        const pw = 55 * scale;
+        const iw = portrait.naturalWidth;
+        const ih = portrait.naturalHeight;
+        const ph = pw * (ih / iw);
+        const cutIn = 16 * scale;
+        const pointExtend = 7 * scale;
         const pX = vx - pw / 2;
         const pY = vy - ph - 14;
 
+        // 裁剪源图顶部方形区域（折中：头肩半身），60%高度裁为正方形
+        const cropH = ih * 0.60;
+        const cropW = cropH; // square crop for square headshot
+        const sx = (iw - cropW) / 2;
+        const sy = 0;
+
+        // 部署过渡：从底部尖端缩放展开 + 淡入
+        const anchorX = pX + pw / 2;
+        const anchorY = pY + ph + pointExtend;
+        const easeT = 1 - Math.pow(1 - appearT, 3); // ease-out cubic
+        const drawScale = 0.6 + 0.4 * easeT;
+
         ctx.save();
+        ctx.globalAlpha = easeT;
+        ctx.translate(anchorX, anchorY);
+        ctx.scale(drawScale, drawScale);
+        ctx.translate(-anchorX, -anchorY);
         ctx.imageSmoothingQuality = 'high';
         ctx.beginPath();
         ctx.moveTo(pX, pY);
@@ -1788,9 +1869,11 @@ function drawCommanderPennants() {
         ctx.lineTo(pX, pY + ph - cutIn);
         ctx.closePath();
         ctx.clip();
-        ctx.drawImage(portrait, pX, pY, pw, ph);
+        ctx.drawImage(portrait, sx, sy, cropW, cropH, pX, pY, pw, ph);
         ctx.restore();
 
+        ctx.save();
+        ctx.globalAlpha = easeT;
         ctx.strokeStyle = '#e0b840';
         ctx.lineWidth = 0.8;
         ctx.beginPath();
@@ -1798,6 +1881,7 @@ function drawCommanderPennants() {
         ctx.lineTo(pX + pw / 2, pY + ph + pointExtend);
         ctx.lineTo(pX + pw, pY + ph - cutIn);
         ctx.stroke();
+        ctx.restore();
     }
 }
 

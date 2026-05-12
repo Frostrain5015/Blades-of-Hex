@@ -157,9 +157,9 @@ body {
 
 .camp-emblem {
     flex-shrink: 0;
-    width: 38px;
-    height: 38px;
-    border-radius: 7px;
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -168,7 +168,28 @@ body {
     color: #fff;
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
     border: 1px solid rgba(255, 255, 255, 0.14);
+    position: relative;
+    overflow: hidden;
 }
+.camp-emblem-portrait {
+    position: absolute;
+    inset: -15%;
+    width: 130%;
+    height: 130%;
+    max-width: none;
+    object-fit: cover;
+    object-position: center -6%;
+    display: none;
+}
+/* 铁卫头部占比较小，聚焦位置单独调整 */
+.camp-emblem-portrait.iron-guard-crop {
+    width: 155%;
+    height: 155%;
+    inset: -25%;
+    object-position: center -8%;
+}
+.camp-emblem.has-portrait .camp-emblem-portrait { display: block; }
+.camp-emblem.has-portrait .camp-emblem-text { display: none; }
 
 .camp-info {
     display: flex;
@@ -2216,6 +2237,7 @@ body {
     #commandPanel .cmd-section { padding: 6px 8px; }
     #topBar { padding: 4px 8px; gap: 4px; }
     .camp-emblem { width: 28px; height: 28px; font-size: 13px; }
+    .camp-emblem-portrait { width: 28px; height: 28px; }
     .camp-label { font-size: 8px; letter-spacing: 1px; }
     #player1Gold, #player2Gold, #player3Gold { font-size: 17px; }
     .turn-label { font-size: 7px; }

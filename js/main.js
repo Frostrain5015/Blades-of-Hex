@@ -3,7 +3,7 @@ import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, getCommander } from './commanderInterface.js';
-import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor } from './gameLogic.js';
+import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, disconnect, sendAction } from './network.js';
@@ -657,9 +657,37 @@ function _showCommanderSelection(forPlayer) {
     });
 }
 
+// 更新上方信息卡阵营徽章为将领透明底立绘
+function updateCampEmblems() {
+    const camps = [
+        { id: 'emblemP1', cmdKey: gameState.commanderP1 },
+        { id: 'emblemP2', cmdKey: gameState.commanderP2 },
+        { id: 'emblemP3', cmdKey: gameState.commanderP3 },
+    ];
+    for (const { id, cmdKey } of camps) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const emblem = el.closest('.camp-emblem');
+        if (!emblem) continue;
+        if (cmdKey) {
+            const cfg = COMMANDER_CONFIG[cmdKey];
+            if (cfg) {
+                el.src = `img/commander_tr/${cfg.name}.png`;
+                emblem.classList.add('has-portrait');
+                el.classList.toggle('iron-guard-crop', cmdKey === 'ironGuard');
+                continue;
+            }
+        }
+        el.src = '';
+        el.classList.remove('iron-guard-crop');
+        emblem.classList.remove('has-portrait');
+    }
+}
+
 function _onCommanderSelected(forPlayer) {
     if (_commanderTransitioning) return;
     _commanderTransitioning = true;
+    updateCampEmblems();
     if (isNetworkGame()) {
         _checkBothConfirmed();
     } else if (gameState.gameMode === 'pve') {
@@ -814,6 +842,7 @@ function startGame() {
     initInput();
     initKeyboard();
     initSettingsPanel();
+    updateCampEmblems();
     updateUI();
     gameState.currentCamp = CAMP.player1;
     updateButtonColors();
@@ -1113,6 +1142,7 @@ function registerNetworkCallbacks() {
                         for (const tile of gameState.tiles) {
                             if (tile.unit && tile.unit.id === unitId) {
                                 tile.unit.commander = cmdId;
+                                tile.unit._cmdrAssignedAt = performance.now();
                                 const cmdCfg = getCommander(cmdId);
                                 if (cmdCfg) {
                                     tile.unit.hp += cmdCfg.hpBonus || 0;
@@ -1128,6 +1158,7 @@ function registerNetworkCallbacks() {
                     }
                 }
             }
+            updateCampEmblems();
             if (!hadPool && gameState.commanderPoolP2.length > 0 && gameState.commanderPhase === 'selection') {
                 const myRole = getMyRole();
                 _showCommanderSelection(myRole);
@@ -1234,6 +1265,14 @@ async function handleRemoteAction(msg) {
                 if (movedUnit && e.path) {
                     movedUnit.startMovePath(e.path);
                 }
+                if (e.capturedCity) {
+                    const cc = e.capturedCity;
+                    const cityTile = gameState.tileMap.get(`${cc.q},${cc.r}`);
+                    if (cityTile && cc.campKey) {
+                        const campMap = { p1: CAMP.player1, p2: CAMP.player2, p3: CAMP.player3 };
+                        forceDistrictFade(cityTile, campMap[cc.campKey] || cityTile.camp);
+                    }
+                }
                 if (e.cmdFx) {
                     spawnCommanderSkillEffect(e.cmdFx.x, e.cmdFx.y, e.cmdFx.glyph, e.cmdFx.label);
                 }
@@ -1271,7 +1310,11 @@ async function handleRemoteAction(msg) {
             if (e) {
                 // 烧牌动画（观战者：中央淡入+燃烧）
                 spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, e.burnDisplayName || null);
-                // 具体特效延迟 1.2s 后播放
+                // 飞机动画提前启动，与烧牌重叠播放
+                if (e.cardId === 'airdrop' || e.cardId === 'airstrike') {
+                    spawnAirstrikeEffect(e.x, e.y, e.airstrikeResults || [], e.cardId === 'airdrop' ? 'airdrop' : 'airstrike');
+                }
+                // 具体特效延迟 1.6s 后播放（与烧牌结束对齐）
                 const cardType = e.cardId;
                 setTimeout(() => {
                     switch (cardType) {
@@ -1332,7 +1375,6 @@ async function handleRemoteAction(msg) {
                             break;
                         }
                         case 'airdrop':
-                            spawnAirstrikeEffect(e.x, e.y, [], 'airdrop');
                             setTimeout(() => {
                                 const adTile = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
                                 if (adTile && adTile.unit) {
@@ -1372,7 +1414,6 @@ async function handleRemoteAction(msg) {
                         }
                         case 'airstrike': {
                             const airstrikeResults = e.airstrikeResults || [];
-                            spawnAirstrikeEffect(e.x, e.y, airstrikeResults);
                             // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
                             setTimeout(() => {
                                 for (const r of airstrikeResults) {
@@ -1445,6 +1486,14 @@ async function handleRemoteAction(msg) {
                     }
                     if (e.cityCaptured) {
                         spawnExplosionParticles(e.x, e.y, '#ffd700', 12);
+                        // 远端强制播放行政区渐变动画
+                        const capturedTile = (e.q != null && e.r != null)
+                            ? gameState.tileMap.get(`${e.q},${e.r}`) : null;
+                        if (capturedTile) {
+                            const attackerCamp = gameState.tiles.reduce((c, t) =>
+                                c || (t.unit?.id === e.attackerUnitId ? t.unit.camp : null), null);
+                            if (attackerCamp) forceDistrictFade(capturedTile, attackerCamp);
+                        }
                     }
                     if (e.cmdFxData) {
                         spawnCommanderSkillEffect(e.cmdFxData.x, e.cmdFxData.y, e.cmdFxData.glyph, e.cmdFxData.label);

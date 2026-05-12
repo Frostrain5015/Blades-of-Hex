@@ -36,10 +36,10 @@ export default {
           const baseDmg = unit.getEffectiveAttack ? unit.getEffectiveAttack() : 40;
           const dmg = Math.round(baseDmg * dmgMult);
           tile.unit.hp -= dmg;
-          // 爆炸伤害数字（暴击红色样式）
+          // 爆炸伤害数字（真实伤害黄色样式）
           gameState.damageTexts.push({
             x: tile.x, y: tile.y,
-            value: dmg, isCrit: true,
+            value: dmg, isTrueDmg: true,
             timeLeft: 900, lastUpdate: performance.now()
           });
           if (tile.unit.hp <= 0) {
