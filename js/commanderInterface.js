@@ -12,6 +12,7 @@ let _spawnGoldenBeam = null;
 let _spawnOrbitBeams = null;
 let _clearOrbitBeams = null;
 let _spawnBeamProjectiles = null;
+let _spawnHealingChain = null;
 
 export function setGameStateRef(fn) { _gameState = fn; }
 export function setLogMessageRef(fn) { _logMessage = fn; }
@@ -20,6 +21,7 @@ export function setSpawnGoldenBeamRef(fn) { _spawnGoldenBeam = fn; }
 export function setSpawnOrbitBeamsRef(fn) { _spawnOrbitBeams = fn; }
 export function setClearOrbitBeamsRef(fn) { _clearOrbitBeams = fn; }
 export function setSpawnBeamProjectilesRef(fn) { _spawnBeamProjectiles = fn; }
+export function setSpawnHealingChainRef(fn) { _spawnHealingChain = fn; }
 
 // ---- 内部辅助 ----
 
@@ -51,7 +53,7 @@ function _helpers(cmdId) {
     logMessage: _logMessage || ((m) => console.log(m)),
     spawnFx: (x, y, glyph) => {
       const fn = _spawnFx || ((x, y, g, l) => {});
-      fn(x, y, glyph || '🎖️', label);
+      fn(x, y, glyph || '\u{1F3C5}', label);
     },
     spawnGoldenBeam: (x, y) => {
       const fn = _spawnGoldenBeam || ((a, b) => {});
@@ -68,6 +70,10 @@ function _helpers(cmdId) {
     spawnBeamProjectiles: (fromX, fromY, toX, toY, count) => {
       const fn = _spawnBeamProjectiles || ((fx, fy, tx, ty, c) => {});
       fn(fromX, fromY, toX, toY, count);
+    },
+    spawnHealingChain: (fromX, fromY, toX, toY) => {
+      const fn = _spawnHealingChain || ((fx, fy, tx, ty) => {});
+      fn(fromX, fromY, toX, toY);
     },
     spawnExplosion: (x, y, color, count = 18) => {
       spawnExplosionParticles(x, y, color, count);
@@ -212,13 +218,18 @@ export function triggerCommanderAllyDamage(unit, actualDmg) {
   if (!unit.tile || actualDmg <= 0) return;
   const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
   if (!gs || !gs.tileMap) return;
+  const palCmd = getCommander('paladin');
+  if (!palCmd || !palCmd.onAllyDamage) return;
+  // 受击单位自身是圣骑士
+  if (unit.commander === 'paladin') {
+    palCmd.onAllyDamage(unit, actualDmg, unit, _helpers('paladin'));
+    return;
+  }
+  // 受击单位相邻6格有圣骑士
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
     if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === unit.camp) {
-      const palCmd = getCommander('paladin');
-      if (palCmd && palCmd.onAllyDamage) {
-        palCmd.onAllyDamage(unit, actualDmg, nb.unit, _helpers('paladin'));
-      }
+      palCmd.onAllyDamage(unit, actualDmg, nb.unit, _helpers('paladin'));
       return;
     }
   }

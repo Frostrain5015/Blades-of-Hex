@@ -185,11 +185,11 @@ export const WEATHER_CONFIG = {
 export const TACTICAL_CARD_CONFIG = {
     heal: {
         id: 'heal', name: '疗愈', icon: '💚',
-        desc: '【疗愈】\n对地图上任意单位释放，立即恢复其50%生命值',
+        desc: '【疗愈】\n对地图上任意单位释放，立即恢复其40%生命值',
         targeting: 'anyUnit',
         execute(targetTile, gameState, helpers) {
             const unit = targetTile.unit;
-            const healAmt = Math.round(unit.maxHp * 0.5);
+            const healAmt = Math.round(unit.maxHp * 0.4);
             const oldHp = unit.hp;
             const maxHeal = Math.min(unit.maxHp - oldHp, healAmt);
             return { healAmt: maxHeal, targetTile };
