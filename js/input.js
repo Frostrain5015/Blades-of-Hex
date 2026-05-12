@@ -288,7 +288,7 @@ function showTooltipForTile(tile) {
         } else {
             tooltipDef.innerHTML = `<span style="color:#888;">🛡 0%</span>`;
         }
-        tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${Math.round(unit.displaySpeed)}/${unit.config.speed}</span>`;
+        tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${unit.remainingMP}/${unit.config.speed}</span>`;
         tooltipRng.innerHTML = `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
         // 主动技能冷却剩余 → ⌛ 在属性栏
         const cdRounds = unit.getCooldownRounds();
@@ -816,7 +816,7 @@ export function initKeyboard() {
         if (!gameState.gameOver) {
             if (e.key === 'e' || e.key === 'Enter') {
                 e.preventDefault();
-                if (gameState.currentCamp !== CAMP.neutral) endTurn();
+                if (gameState.currentCamp !== CAMP.neutral && isMyTurn(gameState.currentCamp)) endTurn();
                 return;
             }
 
