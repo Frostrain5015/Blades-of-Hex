@@ -4,7 +4,7 @@ export default {
   name: '狂战士',
   skill: '狂暴',
   hpBonus: 35, atkBonus: 15, spdBonus: 0,
-  desc: '主动技能【狂暴】：攻击力+20，防御力+25%，持续2回合。（冷却3回合）',
+  desc: '攻击力+20，防御力+25%（⏱2 ⏳3）',
 
   activeSkill: {
     name: '狂暴',

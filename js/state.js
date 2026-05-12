@@ -493,7 +493,11 @@ export function serializeState() {
             martyrPrimed: t.unit._martyrPrimed || false,
             shield: t.unit._shield || 0,
             shieldMax: t.unit._shieldMax || 0,
-            shieldTurns: t.unit._shieldTurns || 0
+            shieldTurns: t.unit._shieldTurns || 0,
+            faith: t.unit._faith || 0,
+            smiteReady: t.unit._smiteReady || false,
+            smiteCharged: t.unit._smiteCharged || false,
+            healingAura: t.unit._healingAura || 0
         } : null
     }));
 
@@ -668,6 +672,10 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._shield = td.unit.shield || 0;
             unit._shieldMax = td.unit.shieldMax || 0;
             unit._shieldTurns = td.unit.shieldTurns || 0;
+            unit._faith = td.unit.faith || 0;
+            unit._smiteReady = td.unit.smiteReady || false;
+            unit._smiteCharged = td.unit.smiteCharged || false;
+            unit._healingAura = td.unit.healingAura || 0;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {
                 const saved = oldCommander.get(unit.id);

@@ -10,6 +10,10 @@ import martyr    from './martyr.js';
 import berserker   from './berserker.js';
 import fallenAngel from './fallenAngel.js';
 
+import magician from './magician.js';
+import paladin  from './paladin.js';
+import priest   from './priest.js';
+
 const allCommanders = {
   advisor,
   ironGuard,
@@ -19,7 +23,10 @@ const allCommanders = {
   minister,
   martyr,
   berserker,
-  fallenAngel
+  fallenAngel,
+  magician,
+  paladin,
+  priest
 };
 
 export { allCommanders };
@@ -39,14 +46,14 @@ export function shuffleAndSplitPool(isThreePlayer = false) {
     [keys[i], keys[j]] = [keys[j], keys[i]];
   }
   if (isThreePlayer) {
-    // 9个将领平均分3池
+    // 12个将领平均分3池
     return {
-      p1: keys.slice(0, 3),
-      p2: keys.slice(3, 6),
-      p3: keys.slice(6, 9)
+      p1: keys.slice(0, 4),
+      p2: keys.slice(4, 8),
+      p3: keys.slice(8, 12)
     };
   }
-  // 双人模式：9选6后对半分，每人3选1
+  // 双人模式：12选6后对半分，每人3选1
   const pool = keys.slice(0, 6);
   return {
     p1: pool.slice(0, 3),

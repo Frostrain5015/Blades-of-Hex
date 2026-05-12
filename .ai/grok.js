@@ -15,7 +15,7 @@ export const meta = {
     description: '进攻型AI v4，将领特化策略——部署→破城→合围，每个将领独有打法'
 };
 
-const COMMANDER_PREFERENCE = ['vampire', 'advisor', 'berserker', 'ironGuard', 'minister', 'centurion', 'fallenAngel', 'staller'];
+const COMMANDER_PREFERENCE = ['vampire', 'paladin', 'advisor', 'berserker', 'ironGuard', 'minister', 'centurion', 'magician', 'fallenAngel', 'priest', 'staller'];
 
 // 各将领打法偏好权重（用于攻击/移动/招募决策修饰）
 const COMMANDER_STRATEGY = {
@@ -26,7 +26,10 @@ const COMMANDER_STRATEGY = {
     ironGuard:    { aggression: 0.7, carrierPref: ['infantry', 'cavalry', 'archer'], pushWeight: 0.6, killBonus: 0.8, recruitPref: ['infantry', 'archer', 'cavalry'], holdCity: true },
     staller:      { aggression: 0.6, carrierPref: ['infantry', 'archer', 'cavalry'], pushWeight: 0.5, killBonus: 0.7, recruitPref: ['infantry', 'archer', 'cavalry'], zoneControl: true },
     advisor:      { aggression: 1.0, carrierPref: ['archer', 'cavalry', 'infantry'], pushWeight: 0.9, killBonus: 1.0, recruitPref: ['archer', 'cavalry', 'infantry'], preferConvert: true },
-    minister:     { aggression: 0.8, carrierPref: ['infantry', 'archer', 'cavalry'], pushWeight: 0.7, killBonus: 0.9, recruitPref: ['infantry', 'cavalry', 'archer'], economyFirst: true }
+    minister:     { aggression: 0.8, carrierPref: ['infantry', 'archer', 'cavalry'], pushWeight: 0.7, killBonus: 0.9, recruitPref: ['infantry', 'cavalry', 'archer'], economyFirst: true },
+    magician:     { aggression: 1.2, carrierPref: ['cavalry', 'infantry', 'archer'], pushWeight: 1.1, killBonus: 1.4, recruitPref: ['cavalry', 'infantry', 'archer'], preferCounterKill: true },
+    paladin:      { aggression: 1.3, carrierPref: ['cavalry', 'infantry', 'archer'], pushWeight: 1.2, killBonus: 1.2, recruitPref: ['cavalry', 'infantry', 'archer'], useActiveSkill: true },
+    priest:       { aggression: 0.6, carrierPref: ['infantry', 'archer', 'cavalry'], pushWeight: 0.5, killBonus: 0.6, recruitPref: ['infantry', 'archer', 'cavalry'], holdCity: true, useActiveSkill: true }
 };
 
 const COUNTER = {

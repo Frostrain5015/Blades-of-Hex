@@ -4,7 +4,8 @@ export default {
   name: '殉道者',
   skill: '殉道',
   hpBonus: 60, spdBonus: 0,
-  desc: '生命≤1时锁定并进入殉道倒计时，下回合开始时对2格内非己方造成AOE伤害（越近越高），殉道时攻击力+40',
+  desc: '生命≤1时锁定并进入殉道倒计时，下回合开始时对2格内所有非己方单位造成大量真实伤害，殉道时攻击力+40',
+  tooltipDesc: '生命≤1时锁定并进入殉道倒计时，下回合对2格内敌军造成大量真实伤害，殉道后攻击力+40',
 
   // 殉道状态标记
   onTurnStart(gameState, camp, helpers) {

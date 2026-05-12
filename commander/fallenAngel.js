@@ -2,9 +2,11 @@
 export default {
   id: 'fallenAngel',
   name: '堕天使',
-  skill: '堕落',
   hpBonus: 70, atkBonus: 0, spdBonus: 0,
-  desc: '【☆堕天使·白】每回合回复已损失生命值的20%，士气上升或下降时切换至【★堕天使·黑】\n【★堕天使·黑】每回合流失当前生命值的20%，攻击力+25、暴击率100%，士气恢复正常时切换至【☆堕天使·白】',
+  skills: [
+      { name: '堕落', desc: '士气正常时切换至【堕天使·白】，每回合回复已损失生命值的20%', type: 'passive' },
+      { name: '净化', desc: '士气上升或下降时切换至【堕天使·黑】，攻击力+25、暴击率+100%，每回合流失当前生命值20%', type: 'passive' }
+  ],
 
   onMoraleChange(unit, oldMorale, newMorale, helpers) {
     const { logMessage, spawnFx } = helpers;

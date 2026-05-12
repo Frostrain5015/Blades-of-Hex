@@ -2,9 +2,11 @@
 export default {
   id: 'centurion',
   name: '百夫长',
-  skill: '乘胜',
+  skills: [
+      { name: '老兵', desc: '晋升的速度+100%', type: 'passive' },
+      { name: '乘胜', desc: '攻击时有30%概率行动力+3，击杀时必定触发（每回合最多1次）', type: 'passive' }
+  ],
   hpBonus: 0, atkBonus: 25, spdBonus: 1,
-  desc: '攻击时30%概率行动力+3并可再行动，击杀必定触发（每回合最多1次）· 常驻获取经验速度+100%',
 
   onAttack(attacker, target, dmg, helpers) {
     if (attacker._centurionTriggered) return null;
