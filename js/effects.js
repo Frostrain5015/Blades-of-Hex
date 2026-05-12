@@ -1070,6 +1070,269 @@ export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike') {
     });
 }
 
+// ===== 圣骑士誓言金色光束（从天而降） =====================
+export const goldenBeams = [];
+
+export function spawnGoldenBeam(x, y) {
+    const segments = [];
+    const startY = y - 280;
+    const steps = 8;
+    for (let i = 0; i < steps; i++) {
+        const prog = (i + 1) / steps;
+        const sx = x + (Math.random() - 0.5) * 6 * (1 - prog);
+        const sy = startY + (280 / steps) * i;
+        const ex = x + (Math.random() - 0.5) * 6 * (1 - prog);
+        const ey = startY + (280 / steps) * (i + 1);
+        segments.push({ x1: sx, y1: sy, x2: ex, y2: ey });
+    }
+    goldenBeams.push({
+        x, y,
+        segments,
+        startTime: performance.now(),
+        duration: 700
+    });
+    // 落地金色粒子
+    const n = Math.round(20 * settings.particleDensity);
+    for (let i = 0; i < n; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 30 + Math.random() * 100;
+        particles.push(new VisualParticle(
+            x + (Math.random() - 0.5) * 12,
+            y,
+            Math.cos(angle) * speed,
+            Math.sin(angle) * speed * 0.6 - 30 - Math.random() * 50,
+            Math.random() < 0.3 ? '#ffffff' : (Math.random() < 0.5 ? '#ffedaa' : '#ffd700'),
+            2 + Math.random() * 3.5,
+            0.3 + Math.random() * 0.5,
+            60 + Math.random() * 100
+        ));
+    }
+}
+
+export function updateGoldenBeams(now) {
+    for (let i = goldenBeams.length - 1; i >= 0; i--) {
+        if (now - goldenBeams[i].startTime > goldenBeams[i].duration) {
+            goldenBeams.splice(i, 1);
+        }
+    }
+}
+
+export function drawGoldenBeams(ctx2d, now) {
+    for (const b of goldenBeams) {
+        const elapsed = now - b.startTime;
+        const alpha = elapsed < 80 ? elapsed / 80 : Math.max(0, 1 - (elapsed - 80) / (b.duration - 80));
+        ctx2d.save();
+        ctx2d.globalAlpha = alpha;
+        // 外层金色辉光
+        ctx2d.strokeStyle = '#ffd700';
+        ctx2d.lineWidth = 5;
+        ctx2d.shadowColor = '#ffd700';
+        ctx2d.shadowBlur = 18;
+        ctx2d.beginPath();
+        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+        ctx2d.stroke();
+        // 中层亮金
+        ctx2d.strokeStyle = '#ffee88';
+        ctx2d.lineWidth = 2.5;
+        ctx2d.shadowColor = '#ffee88';
+        ctx2d.shadowBlur = 8;
+        ctx2d.beginPath();
+        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+        ctx2d.stroke();
+        // 核心白线
+        ctx2d.strokeStyle = '#ffffff';
+        ctx2d.lineWidth = 1.2;
+        ctx2d.shadowBlur = 0;
+        ctx2d.beginPath();
+        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+        ctx2d.stroke();
+        ctx2d.restore();
+    }
+}
+
+// ===== 圣骑士至圣斩环绕光束 =====
+export const paladinOrbitBeams = [];
+
+export function spawnPaladinOrbitBeams(unitId, x, y, count) {
+    clearPaladinOrbitBeams(unitId);
+    for (let i = 0; i < count; i++) {
+        paladinOrbitBeams.push({
+            unitId, x, y,
+            angle: (i / count) * Math.PI * 2,
+            orbitRadius: HEX_SIZE * 0.72,
+            orbitSpeed: 2.8 + i * 0.4,
+            size: 22 + i * 4,
+            startTime: performance.now()
+        });
+    }
+}
+
+export function clearPaladinOrbitBeams(unitId) {
+    for (let i = paladinOrbitBeams.length - 1; i >= 0; i--) {
+        if (paladinOrbitBeams[i].unitId === unitId) {
+            paladinOrbitBeams.splice(i, 1);
+        }
+    }
+}
+
+export function updatePaladinOrbitBeams(now, getUnitPos) {
+    for (let i = paladinOrbitBeams.length - 1; i >= 0; i--) {
+        const b = paladinOrbitBeams[i];
+        const pos = getUnitPos ? getUnitPos(b.unitId) : null;
+        if (pos) {
+            b.x = pos.x;
+            b.y = pos.y;
+        }
+        b.angle += b.orbitSpeed * 0.016;
+    }
+}
+
+export function drawPaladinOrbitBeams(ctx2d, now) {
+    for (const b of paladinOrbitBeams) {
+        const elapsed = (now - b.startTime) / 1000;
+        const cx = b.x + Math.cos(b.angle) * b.orbitRadius;
+        const cy = b.y + Math.sin(b.angle) * b.orbitRadius * 0.5 - Math.sin(elapsed * 1.8) * 6;
+        const beamAngle = b.angle + Math.PI / 2;
+
+        ctx2d.save();
+        ctx2d.translate(cx, cy);
+        ctx2d.rotate(beamAngle);
+
+        // 外层辉光
+        const grad = ctx2d.createLinearGradient(-b.size / 2, 0, b.size / 2, 0);
+        grad.addColorStop(0, 'rgba(255,215,0,0)');
+        grad.addColorStop(0.3, 'rgba(255,235,120,0.9)');
+        grad.addColorStop(0.5, 'rgba(255,255,255,1)');
+        grad.addColorStop(0.7, 'rgba(255,235,120,0.9)');
+        grad.addColorStop(1, 'rgba(255,215,0,0)');
+        ctx2d.fillStyle = grad;
+        ctx2d.shadowColor = '#ffd700';
+        ctx2d.shadowBlur = 10;
+        ctx2d.fillRect(-b.size / 2, -1.5, b.size, 3);
+        ctx2d.shadowBlur = 0;
+
+        // 核心亮线
+        ctx2d.fillStyle = '#ffffff';
+        ctx2d.fillRect(-b.size / 2, -0.5, b.size, 1);
+
+        ctx2d.restore();
+    }
+}
+
+// ===== 圣骑士至圣斩光束弹射 =====
+export const paladinBeamProjectiles = [];
+
+export function spawnPaladinBeamProjectiles(fromX, fromY, toX, toY, count) {
+    for (let i = 0; i < count; i++) {
+        const angleOff = (i - (count - 1) / 2) * 0.35;
+        paladinBeamProjectiles.push({
+            fromX, fromY, toX, toY,
+            angleOff,
+            startTime: performance.now(),
+            duration: 280,
+            impactSpawned: false
+        });
+    }
+}
+
+export function updatePaladinBeamProjectiles(now) {
+    for (let i = paladinBeamProjectiles.length - 1; i >= 0; i--) {
+        const p = paladinBeamProjectiles[i];
+        const elapsed = now - p.startTime;
+        if (elapsed > p.duration + 300) {
+            paladinBeamProjectiles.splice(i, 1);
+        }
+    }
+}
+
+export function drawPaladinBeamProjectiles(ctx2d, now) {
+    for (const p of paladinBeamProjectiles) {
+        const elapsed = now - p.startTime;
+        const t = Math.min(1, Math.max(0, elapsed / p.duration));
+        const eased = 1 - Math.pow(1 - t, 2);
+
+        const dx = p.toX - p.fromX;
+        const dy = p.toY - p.fromY;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const baseAngle = Math.atan2(dy, dx);
+        const flightAngle = baseAngle + p.angleOff * (1 - t);
+
+        const curX = p.fromX + dx * eased;
+        const curY = p.fromY + dy * eased - Math.sin(t * Math.PI) * dist * 0.12;
+
+        // 尾迹粒子
+        const trailLen = 6;
+        for (let j = 0; j < trailLen; j++) {
+            const backT = Math.max(0, t - (0.015 + j * 0.04));
+            if (backT <= 0) continue;
+            const backEased = 1 - Math.pow(1 - backT, 2);
+            const tx = p.fromX + dx * backEased;
+            const ty = p.fromY + dy * backEased - Math.sin(backT * Math.PI) * dist * 0.12;
+            const trailAlpha = 0.5 - j * 0.07;
+            if (trailAlpha <= 0) continue;
+            ctx2d.save();
+            ctx2d.globalAlpha = trailAlpha;
+            ctx2d.fillStyle = j <= 1 ? '#ffffff' : '#ffd700';
+            ctx2d.shadowColor = '#ffd700';
+            ctx2d.shadowBlur = 6;
+            ctx2d.beginPath();
+            ctx2d.arc(tx, ty, 2.5 - j * 0.25, 0, Math.PI * 2);
+            ctx2d.fill();
+            ctx2d.restore();
+        }
+
+        // 光束本体 - 旋转的椭圆
+        ctx2d.save();
+        ctx2d.translate(curX, curY);
+        ctx2d.rotate(flightAngle);
+        const len = 28;
+        const grad2 = ctx2d.createLinearGradient(-len / 2, 0, len / 2, 0);
+        grad2.addColorStop(0, 'rgba(255,215,0,0)');
+        grad2.addColorStop(0.3, 'rgba(255,235,120,0.95)');
+        grad2.addColorStop(0.5, 'rgba(255,255,255,1)');
+        grad2.addColorStop(0.7, 'rgba(255,235,120,0.95)');
+        grad2.addColorStop(1, 'rgba(255,215,0,0)');
+        ctx2d.fillStyle = grad2;
+        ctx2d.shadowColor = '#ffd700';
+        ctx2d.shadowBlur = 14;
+        ctx2d.fillRect(-len / 2, -2, len, 4);
+        ctx2d.shadowBlur = 0;
+        ctx2d.fillStyle = '#ffffff';
+        ctx2d.fillRect(-len / 2, -0.5, len, 1);
+        ctx2d.restore();
+
+        // 命中目标
+        if (t >= 0.88 && !p.impactSpawned) {
+            p.impactSpawned = true;
+            const n = Math.round(14 * settings.particleDensity);
+            for (let k = 0; k < n; k++) {
+                const a = Math.random() * Math.PI * 2;
+                const spd = 60 + Math.random() * 180;
+                particles.push(new VisualParticle(
+                    p.toX, p.toY,
+                    Math.cos(a) * spd,
+                    Math.sin(a) * spd * 0.7 - 30 - Math.random() * 40,
+                    Math.random() < 0.3 ? '#ffffff' : '#ffd700',
+                    1.5 + Math.random() * 3,
+                    0.2 + Math.random() * 0.4,
+                    80 + Math.random() * 120
+                ));
+            }
+            // 小闪光
+            attackFlashes.push({
+                x: p.toX, y: p.toY,
+                startTime: performance.now(),
+                duration: 200,
+                maxRadius: HEX_SIZE * 1.1,
+                isCrit: false
+            });
+        }
+    }
+}
+
 // ===== 清除所有瞬时效果（用于撤销/读档） =====================
 export function clearTransientEffects() {
     particles.length = 0;
@@ -1092,6 +1355,9 @@ export function clearTransientEffects() {
     gongxinRipples.length = 0;
     ministerRings.length = 0;
     coinParticles.length = 0;
+    goldenBeams.length = 0;
+    paladinOrbitBeams.length = 0;
+    paladinBeamProjectiles.length = 0;
     screenShake.time = 0;
     cardUseEffects.length = 0;
     airstrikeEffects.length = 0;

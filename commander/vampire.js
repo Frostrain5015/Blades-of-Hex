@@ -5,6 +5,7 @@ export default {
   skill: '嗜血',
   hpBonus: 30, atkBonus: 25, spdBonus: 0,
   desc: '攻击造成伤害时随机回复伤害值30%~60%的生命值',
+  tooltipDesc: '攻击造成伤害时回复伤害值30%~60%的生命值',
 
   _getHeal(dmg) {
     const ratio = 0.30 + Math.random() * 0.30; // 30% ~ 60%

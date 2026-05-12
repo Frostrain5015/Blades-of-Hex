@@ -1,5 +1,5 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './state.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset } from './effects.js';
@@ -126,7 +126,21 @@ export class Unit {
             effects.push({ label: '禁锢', desc: '本回合无法移动', color: '#ff8844' });
         }
         if (this._isImmobile) {
-            effects.push({ label: '不可移动', desc: '永久无法移动', color: '#888' });
+            effects.push({ label: '不可移动', desc: '该单位无法移动', color: '#888' });
+        }
+
+        // 圣骑士誓言
+        if (this.commander === 'paladin') {
+            effects.push({ label: '誓言', desc: `${this._faith}/3`, color: '#ffd700' });
+        }
+        if (this._smiteReady) {
+            const smiteLabel = this._smiteCharged ? '至圣斩·誓约' : '至圣斩';
+            effects.push({ label: smiteLabel, desc: '每层下次攻击附加伤害', color: '#ffd700' });
+        }
+
+        // 牧师治愈灵光
+        if (this._healingAura > 0) {
+            effects.push({ label: '治愈灵光', desc: `每回合回复12.5%最大生命值`, color: '#44dd88', remaining: this._healingAura });
         }
 
         return effects;
@@ -464,6 +478,36 @@ export class Unit {
             ctx.restore();
         }
 
+        // ── Paladin smite ready marker ──
+        if (this._smiteReady) {
+            ctx.save();
+            const smitePulse = (Math.sin(time * 5 * Math.PI) + 1) / 2;
+            const smiteY = visualY - HEX_SIZE * 0.55;
+            ctx.fillStyle = `rgba(255,215,0,${0.7 + smitePulse * 0.3})`;
+            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6;
+            ctx.fillText('✗', visualX, smiteY);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
+        // ── Priest healing aura glow ──
+        if (this._healingAura > 0) {
+            ctx.save();
+            const healPulse = (Math.sin(time * 4 * Math.PI) + 1) / 2;
+            const healY = visualY - HEX_SIZE * 0.55;
+            ctx.fillStyle = `rgba(68,221,136,${0.5 + healPulse * 0.3})`;
+            ctx.font = 'bold 11px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#44dd88'; ctx.shadowBlur = 5;
+            ctx.fillText('\u{1F54A}\u{FE0F}', visualX, healY);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
         // ── New recruit label ──
         if (this.isNewRecruit) {
             ctx.save();
@@ -546,7 +590,8 @@ export class Unit {
 
     getEffectiveAttack() {
         const baseAtk = this.config.attack + (this._atkBonus || 0) + getCommanderAttackBonus(this);
-        return Math.round(baseAtk * MORALE_CONFIG[this.morale].atkMulti);
+        const auraAtk = getCommanderAuraAttackBonus(this);
+        return Math.round(baseAtk * (1 + auraAtk) * MORALE_CONFIG[this.morale].atkMulti);
     }
 
     // 伤害浮动倍率（替代 critRate + critMulti 二值系统）
@@ -584,7 +629,16 @@ export class Unit {
                    isCounter = false, isCityCounter = false) {
         const counterCoeff = COUNTER_RELATION[attacker.type][defender.type];
 
-        let dmgBonus = counterCoeff - 1 + extraBonus;
+        // 魔术师：克制精通
+        let effectiveCounterCoeff = counterCoeff;
+        if (attacker.commander === 'magician') {
+            if (counterCoeff === 1.25) effectiveCounterCoeff = 1.5;
+            else if (counterCoeff === 0.75) effectiveCounterCoeff = 0.6;
+        } else if (defender.commander === 'magician' && counterCoeff === 1.25) {
+            effectiveCounterCoeff = 1.5;
+        }
+
+        let dmgBonus = effectiveCounterCoeff - 1 + extraBonus;
         dmgBonus -= TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
         if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.05;
         dmgBonus -= (defender.config.defense || 0);
@@ -692,6 +746,11 @@ export class Unit {
                 }
                 actualDmg = 0;
             }
+        }
+
+        // 圣骑士誓言：友军受击概率获得誓言
+        if (!_skipAura && actualDmg > 0) {
+            triggerCommanderAllyDamage(this, actualDmg);
         }
 
         this.hp = Math.round(Math.max(0, this.hp - actualDmg));

@@ -332,51 +332,64 @@ function showTooltipForTile(tile) {
         if (unit.commander) {
             const cmdCfg2 = getCommander(unit.commander);
             if (cmdCfg2) {
-                let active = true;
-                let statusNote = '';
-                let cmdDesc = cmdCfg2.tooltipDesc || cmdCfg2.desc;
-                let cmdColor = '#ffd700';
-
+                // 堕天使使用动态形态显示（保留特殊逻辑）
                 if (unit.commander === 'fallenAngel') {
+                    let faColor, faStatus, faDesc;
                     if (unit._fallen) {
-                        cmdColor = '#ff6644';
-                        cmdDesc = '每回合流失当前生命值的20%，造成的伤害+75%，士气恢复正常时切换至【☆堕天使·白】';
-                        statusNote = '【★堕天使·黑】';
+                        faColor = '#ff6644';
+                        faDesc = '每回合流失当前生命值的20%，攻击力+25、暴击率100%，士气恢复正常时切换至【☆堕天使·白】';
+                        faStatus = '【★堕天使·黑】';
                     } else {
-                        cmdColor = '#6688ff';
-                        cmdDesc = '每回合回复已损失生命值的20%，士气上升或下降时切换至【★堕天使·黑】';
-                        statusNote = '【☆堕天使·白】';
+                        faColor = '#6688ff';
+                        faDesc = '每回合回复已损失生命值的20%，士气上升或下降时切换至【★堕天使·黑】';
+                        faStatus = '【☆堕天使·白】';
                     }
-                } else if (unit.commander === 'minister') {
-                    active = !!(unit.tile && unit.tile.isCity);
-                    statusNote = active ? '（生效中）' : '（未驻扎城市，未生效）';
-                } else if (unit.commander === 'martyr') {
-                    if (unit._martyrPrimed) {
-                        cmdColor = '#ff3300';
-                        statusNote = '【★殉道】技能已激活，';
-                        cmdDesc = '下回合开始时对2格范围内所有非己方单位造成大量范围伤害';
+                    const faLine = `<span style="color:${faColor};">${faStatus}${faDesc}</span>`;
+                    skillHtml += (skillHtml ? '<br>' : '') + faLine;
+                } else if (cmdCfg2.skills && cmdCfg2.skills.length) {
+                    // 新多技能分段显示
+                    for (const sk of cmdCfg2.skills) {
+                        const skColor = sk.type === 'active' ? '#ff9944' : '#88ccff';
+                        const skLine = `<span style="color:${skColor};">【${sk.name}】${sk.desc}</span>`;
+                        skillHtml += (skillHtml ? '<br>' : '') + skLine;
                     }
-                } else if (unit.commander === 'berserker') {
-                    if (unit.activeSkillDur > 0) {
-                        // 激活中 → 限时效果区显示 buff 详情，此处仅标识
-                        cmdDesc = '主动技能已生效';
-                    } else if (cmdCfg2.activeSkill) {
-                        const sk = cmdCfg2.activeSkill;
-                        const bufParts = [];
-                        if (sk.buffs) {
-                            const b = sk.buffs;
-                            if (b.atk) bufParts.push(`攻击力+${b.atk}`);
-                            if (b.def) bufParts.push(`防御力+${Math.round(b.def * 100)}%`);
-                        }
-                        cmdDesc = bufParts.join('，') + `（⏰${sk.duration}⌛${sk.cooldown}）`;
-                    }
-                }
+                } else {
+                    // 旧版单技能格式
+                    let active = true;
+                    let statusNote = '';
+                    let cmdDesc = cmdCfg2.tooltipDesc || cmdCfg2.desc;
+                    let cmdColor = '#ffd700';
 
-                const color = active ? cmdColor : '#888';
-                const tag = (cmdCfg2.activeSkill && active && unit.activeSkillDur <= 0) ? '（主动技能）' : '';
-                const prefix = (unit.commander === 'fallenAngel' || (unit.commander === 'martyr' && unit._martyrPrimed)) ? '' : `【☆${cmdCfg2.skill}】`;
-                const cmdLine = `<span style="color:${color};">${prefix}${statusNote}${tag}${cmdDesc}</span>`;
-                skillHtml += (skillHtml ? '<br>' : '') + cmdLine;
+                    if (unit.commander === 'minister') {
+                        active = !!(unit.tile && unit.tile.isCity);
+                        statusNote = active ? '（生效中）' : '（未驻扎城市，未生效）';
+                    } else if (unit.commander === 'martyr') {
+                        if (unit._martyrPrimed) {
+                            cmdColor = '#ff3300';
+                            statusNote = '【★殉道】技能已激活，';
+                            cmdDesc = '下回合开始时对2格范围内所有非己方单位造成大量范围伤害';
+                        }
+                    } else if (unit.commander === 'berserker') {
+                        if (unit.activeSkillDur > 0) {
+                            cmdDesc = '主动技能已生效';
+                        } else if (cmdCfg2.activeSkill) {
+                            const sk = cmdCfg2.activeSkill;
+                            const bufParts = [];
+                            if (sk.buffs) {
+                                const b = sk.buffs;
+                                if (b.atk) bufParts.push(`攻击力+${b.atk}`);
+                                if (b.def) bufParts.push(`防御力+${Math.round(b.def * 100)}%`);
+                            }
+                            cmdDesc = bufParts.join('，') + `（⏰${sk.duration}⌛${sk.cooldown}）`;
+                        }
+                    }
+
+                    const color = active ? cmdColor : '#888';
+                    const tag = (cmdCfg2.activeSkill && active && unit.activeSkillDur <= 0) ? '（主动技能）' : '';
+                    const prefix = (unit.commander === 'martyr' && unit._martyrPrimed) ? '' : `【☆${cmdCfg2.skill}】`;
+                    const cmdLine = `<span style="color:${color};">${prefix}${statusNote}${tag}${cmdDesc}</span>`;
+                    skillHtml += (skillHtml ? '<br>' : '') + cmdLine;
+                }
             }
         }
         tooltipPassive.innerHTML = skillHtml;
@@ -634,6 +647,8 @@ export function initInput() {
             } else if (ct.targeting === 'enemyCity') {
                 isValid = clickedTile.isCity && clickedTile.camp !== myCamp;
             } else if (ct.targeting === 'shieldTarget') {
+                isValid = clickedTile.unit != null;
+            } else if (ct.targeting === 'anyUnit') {
                 isValid = clickedTile.unit != null;
             }
 

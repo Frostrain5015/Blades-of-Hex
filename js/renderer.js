@@ -16,7 +16,10 @@ import {
     gongxinRipples, updateGongxinRipples, drawGongxinRipples,
     ministerRings, updateMinisterRings, drawMinisterRings,
     coinParticles, updateCoinParticles, drawCoinParticles,
-    cardUseEffects, airstrikeEffects
+    cardUseEffects, airstrikeEffects,
+    goldenBeams, updateGoldenBeams, drawGoldenBeams,
+    paladinOrbitBeams, updatePaladinOrbitBeams, drawPaladinOrbitBeams,
+    paladinBeamProjectiles, updatePaladinBeamProjectiles, drawPaladinBeamProjectiles
 } from './effects.js';
 
 let lastTime = performance.now();
@@ -83,8 +86,16 @@ export function renderGame() {
     drawStallerZone(now);
     // 铁卫灵光（7格集群外边界）—— 地块六边形特效，在立绘之前
     drawIronGuardAura(now);
-    // 单位六边形辉光（堕天使/铁卫/狂暴/禁锢）—— 在立绘之前
+    // 单位六边形辉光（堕天使/铁卫/狂暴/禁锢/圣骑士/治愈灵光）—— 在立绘之前
     drawUnitHexAuras(now);
+    // 圣骑士至圣斩环绕光束
+    updatePaladinOrbitBeams(now, (unitId) => {
+        for (const tile of gameState.tiles) {
+            if (tile.unit && tile.unit.id === unitId) return { x: tile.x, y: tile.y };
+        }
+        return null;
+    });
+    drawPaladinOrbitBeams(ctx, now);
     // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
     drawCommanderPennants();
     // Units
@@ -340,6 +351,10 @@ export function renderGame() {
     updateProjectiles(now);
     drawProjectiles(ctx, now);
 
+    // 圣骑士至圣斩光束弹射
+    updatePaladinBeamProjectiles(now);
+    drawPaladinBeamProjectiles(ctx, now);
+
     // 斩击标记
     drawSlashMarks(ctx, now);
     drawMeleeSlashes(ctx, now);
@@ -408,6 +423,9 @@ export function renderGame() {
     // 谋士闪电
     updateLightningBolts(now);
     drawLightningBolts(ctx, now);
+    // 圣骑士誓言金色光束
+    updateGoldenBeams(now);
+    drawGoldenBeams(ctx, now);
     // 攻心波纹
     updateGongxinRipples(now);
     drawGongxinRipples(ctx, now);
@@ -760,10 +778,7 @@ function drawIronGuardAura(now) {
         const shieldRatio = Math.min(1, u._shield / Math.max(u._shieldMax, 1));
         const alpha = (0.45 + pulse * 0.30) * shieldRatio;
         const fillAlpha = (0.04 + pulse * 0.04) * shieldRatio;
-        const campName = u.camp.name;
-        const clr = campName === '红军' ? `rgba(255,80,80,${alpha})`
-                  : campName === '绿军' ? `rgba(80,255,80,${alpha})`
-                  : `rgba(80,80,255,${alpha})`;
+        const clr = `rgba(100,180,255,${alpha})`;
 
         // use visual position for smooth movement transition
         const vp = u.getVisualPos();
@@ -874,6 +889,52 @@ function drawUnitHexAuras(now) {
             const baseAlpha = shieldRatio * (inFlash ? 0.25 + flashT * 0.3 : 0.12 + shieldPulse * 0.12);
             drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 2,
                 `rgba(100,160,220,${baseAlpha})`, 1 + shieldRatio);
+            ctx.restore();
+        }
+
+        // 圣骑士勇气灵光 — 金色六边形光环（自身及相邻友军）
+        if (u.commander === 'paladin') {
+            ctx.save();
+            const couragePulse = (Math.sin(now / 400) + 1) / 2;
+            const courageAlpha = 0.15 + couragePulse * 0.25;
+            drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 2,
+                `rgba(255,215,0,${courageAlpha})`, 2.5);
+            ctx.shadowColor = `rgba(255,215,0,${courageAlpha * 0.7})`;
+            ctx.shadowBlur = 10;
+            hexPath(ctx, vx, vy, HEX_SIZE + 2);
+            ctx.stroke();
+            ctx.restore();
+        } else if (u.camp && gameState.tileMap) {
+            // 相邻友军受勇气灵光影响
+            let hasPaladinNeighbor = false;
+            for (const [dq, dr] of [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
+                const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+                if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === u.camp) {
+                    hasPaladinNeighbor = true;
+                    break;
+                }
+            }
+            if (hasPaladinNeighbor) {
+                ctx.save();
+                const couragePulse = (Math.sin(now / 400) + 1) / 2;
+                const courageAlpha = 0.10 + couragePulse * 0.18;
+                drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 1,
+                    `rgba(255,215,0,${courageAlpha})`, 1.5);
+                ctx.restore();
+            }
+        }
+
+        // 牧师治愈灵光 — 绿色六边形光环（单格）
+        if (u._healingAura > 0) {
+            ctx.save();
+            const healPulse = (Math.sin(now / 300) + 1) / 2;
+            const healAlpha = 0.20 + healPulse * 0.30;
+            drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 1,
+                `rgba(68,221,136,${healAlpha})`, 2.5);
+            ctx.shadowColor = `rgba(68,221,136,${healAlpha * 0.6})`;
+            ctx.shadowBlur = 8;
+            hexPath(ctx, vx, vy, HEX_SIZE + 1);
+            ctx.stroke();
             ctx.restore();
         }
     }
@@ -1054,7 +1115,7 @@ function drawRangeApertures(now) {
         const baseAlpha = 0.35 + pulse * 0.55;
         const ct = gameState.cardTargeting;
         const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
-        const isHeal = ct.targeting === 'friendlyAny';
+        const isHeal = ct.targeting === 'friendlyAny' || ct.targeting === 'anyUnit';
         const isShield = ct.targeting === 'shieldTarget';
         const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain' || ct.targeting === 'emptyFriendlyLandmine';
         const isFriendly = ct.targeting === 'friendlyAlive' || ct.targeting === 'friendlyAny' || isShield;
@@ -1068,6 +1129,8 @@ function drawRangeApertures(now) {
                 if (!tile.unit || !tile.unit.canAct || tile.unit.camp !== myCamp) continue;
             } else if (ct.targeting === 'friendlyAny') {
                 if (!tile.unit || tile.unit.camp !== myCamp) continue;
+            } else if (ct.targeting === 'anyUnit') {
+                if (!tile.unit) continue;
             } else if (ct.targeting === 'shieldTarget') {
                 if (!tile.unit) continue;
             } else if (ct.targeting === 'emptyTile') {

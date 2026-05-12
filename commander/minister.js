@@ -4,7 +4,8 @@ export default {
   name: '尚书',
   skill: '屯田',
   hpBonus: 80, spdBonus: 0,
-  desc: '驻扎于城市时每回合产出4×当前回合数的金币',
+  desc: '驻扎于城市时，每回合额外产出4×当前回合数的金币',
+  tooltipDesc: '驻扎于城市时，每回合产出4×当前回合数的金币',
 
   onTurnEnd(gameState, camp, helpers) {
     if (camp.name === '中立') return;

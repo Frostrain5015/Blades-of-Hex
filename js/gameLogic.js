@@ -1,7 +1,7 @@
 import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, COMMANDER_CONFIG } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef } from './commanderInterface.js';
 import { HexTile } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
@@ -14,7 +14,8 @@ import {
     spawnProjectile, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
-    spawnCoinRain, spawnMinisterDominionRing, spawnCardUseEffect, spawnAirstrikeEffect
+    spawnCoinRain, spawnMinisterDominionRing, spawnCardUseEffect, spawnAirstrikeEffect,
+    spawnGoldenBeam, spawnPaladinBeamProjectiles
 } from './effects.js';
 import { playSound } from './audio.js';
 
@@ -43,6 +44,7 @@ let _endTurnDmgTexts = null;  // 回合结束时的伤害数字列表（联机�
 let _attackDmg = 0, _attackIsCrit = false;
 let _counterDmg = 0, _counterX = 0, _counterY = 0;
 let _healAmtRemote = 0, _healX = 0, _healY = 0;
+let _smiteDmgRemote = 0;
 let _killedThisAttack = null; // 击杀后延迟播放士气动画用
 let _killerMoraleChanged = false;
 
@@ -235,6 +237,19 @@ export function recalcAllFlankingMorale() {
             spawnMoraleEffect(u);
         }
     });
+
+    // 圣骑士勇气灵光：范围内友军士气≥2
+    const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    for (const tile of gameState.tiles) {
+        if (!tile.unit || tile.unit.morale >= 2) continue;
+        for (const [dq, dr] of dirs) {
+            const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+            if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === tile.unit.camp) {
+                tile.unit.morale = 2;
+                break;
+            }
+        }
+    }
 }
 
 export function initMap() {
@@ -512,18 +527,21 @@ function _updateWeather() {
 }
 
 // 限时效果到期检查（每轮 P1 开始时调用一次）
-function _expireTimedEffects() {
+function _expireTimedEffects(camp) {
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
         const u = tile.unit;
 
-        // 击杀士气上升到期 → 恢复正常
+        // 击杀士气上升到期 → 恢复正常（全局处理）
         if (u.morale === 3 && u.moraleBoostUntil <= gameState.turnCounter) {
             u.morale = 2; // setter 自动 triggerCommanderOnMoraleChange
             spawnMoraleEffect(u);
         }
 
-        // 主动技能持续倒计时（每轮减1）
+        // 以下效果仅当前阵营的单位触发（每轮1次）
+        if (u.camp !== camp) return;
+
+        // 主动技能持续倒计时
         if (u._shieldTurns > 0) {
             u._shieldTurns--;
             if (u._shieldTurns <= 0 && u._shield > 0) {
@@ -543,13 +561,18 @@ function _expireTimedEffects() {
             }
         }
 
-        // 主动技能冷却倒计时（每轮减1）
+        // 主动技能冷却倒计时
         if (u.activeSkillCD > 0) {
             u.activeSkillCD--;
         }
-        // Rank 4 每轮 15% 回血
+        // Rank 4 15% 回血
         if (u._rankRegenPct > 0 && u.hp < u.maxHp) {
             u.heal(Math.round(u.maxHp * u._rankRegenPct));
+        }
+        // 牧师治愈灵光
+        if (u._healingAura > 0) {
+            u.heal(Math.round(u.maxHp * 0.125));
+            u._healingAura--;
         }
     });
 }
@@ -656,7 +679,7 @@ async function _doEndTurnPhase() {
         checkTurnLimitVictory();
         if (gameState.gameOver) return;
         _updateWeather();
-        _expireTimedEffects();
+        _expireTimedEffects(camp);
         // every 5 rounds: free card for all players
         const factionCount = gameState.isThreePlayer ? 4 : 3;
         const roundNum = Math.floor(gameState.turnCounter / factionCount);
@@ -1049,6 +1072,21 @@ export function attackUnit(attackerUnit, targetUnit) {
         _atkOrigSpawn(x, y, glyph, label);
     });
 
+    // 捕获至圣斩特效数据用于联机广播
+    const _atkOrigGoldenBeam = spawnGoldenBeam;
+    const _goldenBeamDatas = [];
+    setSpawnGoldenBeamRef((x, y) => {
+        _goldenBeamDatas.push({ x, y });
+        _atkOrigGoldenBeam(x, y);
+    });
+
+    const _atkOrigBeamProjectiles = spawnPaladinBeamProjectiles;
+    let _paladinProjectileData = null;
+    setSpawnBeamProjectilesRef((fromX, fromY, toX, toY, count) => {
+        _paladinProjectileData = { fromX, fromY, toX, toY, count };
+        _atkOrigBeamProjectiles(fromX, fromY, toX, toY, count);
+    });
+
     pushUndo();
     _killerMoraleChanged = false;
     const attackResult = attackerUnit.calculateDamage(targetUnit);
@@ -1085,7 +1123,7 @@ export function attackUnit(attackerUnit, targetUnit) {
 
         // 将领攻击效果（吸血鬼嗜血、谋士攻心等）
         _atkCmdFxCapture = null;
-        atkCmdResult = triggerCommanderOnAttack(attackerUnit, targetUnit, attackResult.dmg);
+        atkCmdResult = triggerCommanderOnAttack(attackerUnit, targetUnit, attackResult.dmg, attackResult.isCrit);
         if (atkCmdResult) {
             if (atkCmdResult.healAmt) {
                 _healAmtRemote = atkCmdResult.healAmt; _healX = attackerUnit.tile.x; _healY = attackerUnit.tile.y;
@@ -1102,6 +1140,16 @@ export function attackUnit(attackerUnit, targetUnit) {
             }
             if (atkCmdResult.converted) {
                 if (attackerUnit.commander === 'advisor') spawnGongxinRipple(toX, toY, true);
+            }
+            if (atkCmdResult.smiteDmg) {
+                // 至圣斩真伤数字（金色真实伤害样式）
+                gameState.damageTexts.push({
+                    x: toX, y: toY, value: atkCmdResult.smiteDmg, isTrueDmg: true,
+                    timeLeft: 900, lastUpdate: performance.now()
+                });
+                triggerAttackFlash(toX, toY, true);
+                _smiteDmgRemote = atkCmdResult.smiteDmg;
+                if (targetUnit.hp <= 0) isTargetDead = true;
             }
         }
         _cmdFxData = _atkCmdFxCapture;
@@ -1193,8 +1241,10 @@ export function attackUnit(attackerUnit, targetUnit) {
             attackerUnit.addXP(killXp + bonusXp);
         }
 
-        // 恢复 spawnFx 引用
+        // 恢复所有捕获引用
         setSpawnFxRef(_atkOrigSpawn);
+        setSpawnGoldenBeamRef(_atkOrigGoldenBeam);
+        setSpawnBeamProjectilesRef(_atkOrigBeamProjectiles);
 
         if (attackerUnit.canAct && attackerUnit.remainingMP > 0) {
             gameState.attackableTiles = getAttackableTiles(attackerUnit);
@@ -1229,6 +1279,9 @@ export function attackUnit(attackerUnit, targetUnit) {
             attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
             counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
             healAmt: _healAmtRemote, healX: _healX, healY: _healY,
+            smiteDmg: _smiteDmgRemote,
+            goldenBeamDatas: _goldenBeamDatas.length ? _goldenBeamDatas : null,
+            paladinProjectileData: _paladinProjectileData || null,
             cmdFxExtra: _cmdFxExtra || null,
             rankUps: rankUps.length ? rankUps : null,
             bloodDrain: attackerUnit.commander === 'vampire' ? {
@@ -1252,7 +1305,7 @@ export function attackUnit(attackerUnit, targetUnit) {
         _ctrCmdFxData = null;
         _cmdFxExtra = null;
         _attackDmg = 0; _attackIsCrit = false;
-        _counterDmg = 0; _healAmtRemote = 0;
+        _counterDmg = 0; _healAmtRemote = 0; _smiteDmgRemote = 0;
     }
 }
 
@@ -1643,6 +1696,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (!targetTile || !targetTile.isCity || targetTile.camp === myCamp)
             { notify('请选择敌方城市'); return; }
     } else if (tg === 'shieldTarget') {
+        if (!targetTile || !targetTile.unit) { notify('请选择单位'); return; }
+    } else if (tg === 'anyUnit') {
         if (!targetTile || !targetTile.unit) { notify('请选择单位'); return; }
     }
 

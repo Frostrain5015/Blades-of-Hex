@@ -2,7 +2,7 @@ import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE, COMMA
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
-import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, getCommander } from './commanderInterface.js';
+import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, getCommander } from './commanderInterface.js';
 import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
@@ -18,7 +18,8 @@ import {
     spawnProjectile, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain, spawnMinisterDominionRing,
-    spawnCardUseEffect, spawnHealParticles, spawnAirstrikeEffect
+    spawnCardUseEffect, spawnHealParticles, spawnAirstrikeEffect,
+    spawnGoldenBeam, spawnPaladinOrbitBeams, clearPaladinOrbitBeams, spawnPaladinBeamProjectiles
 } from './effects.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
@@ -33,6 +34,10 @@ setGameStateRef(gameState);
 setCiLogRef(logMessage);
 setCiGameRef(() => gameState);
 setSpawnFxRef(spawnCommanderSkillEffect);
+setSpawnGoldenBeamRef(spawnGoldenBeam);
+setSpawnOrbitBeamsRef(spawnPaladinOrbitBeams);
+setClearOrbitBeamsRef(clearPaladinOrbitBeams);
+setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
 
 // ==== 自适应布局 ====
 function fitCanvas() {
@@ -463,6 +468,26 @@ function _showCommanderWaiting(forPlayer) {
     overlay.classList.add('show');
 }
 
+function _buildSkillHTML(cfg) {
+    if (cfg.skills && cfg.skills.length) {
+        return cfg.skills.map(s => {
+            const typeTag = s.type === 'active'
+                ? '<span class="cmdr-skill-type cmdr-skill-active">主动</span>'
+                : '<span class="cmdr-skill-type cmdr-skill-passive">被动</span>';
+            return `<div class="cmdr-skill-block">` +
+                `<div class="cmdr-detail-skill">${typeTag}【${s.name}】</div>` +
+                `<div class="cmdr-detail-desc">${s.desc.replace(/\n/g, '<br>')}</div>` +
+            `</div>`;
+        }).join('');
+    }
+    const isActive = !!cfg.activeSkill;
+    const typeTag = isActive
+        ? '<span class="cmdr-skill-type cmdr-skill-active">主动</span>'
+        : '<span class="cmdr-skill-type cmdr-skill-passive">被动</span>';
+    return `<div class="cmdr-detail-skill">${typeTag}【${cfg.skill}】</div>` +
+        `<div class="cmdr-detail-desc">${cfg.desc.replace(/\n/g, '<br>')}</div>`;
+}
+
 function _showCommanderSelection(forPlayer) {
     const overlay = document.getElementById('commanderOverlay');
     const title = document.getElementById('commanderTitle');
@@ -504,8 +529,7 @@ function _showCommanderSelection(forPlayer) {
                     `<div class="cmdr-face-details">` +
                         `<div class="cmdr-detail-name">${cfg.name}</div>` +
                         `<div class="cmdr-detail-bonus">${bonusParts.join('<br>')}</div>` +
-                        `<div class="cmdr-detail-skill">【${cfg.skill}】</div>` +
-                        `<div class="cmdr-detail-desc">${cfg.desc.replace(/\n/g, '<br>')}</div>` +
+                        _buildSkillHTML(cfg) +
                     `</div>` +
                 `</div>` +
             `</div>`;
@@ -1535,6 +1559,25 @@ async function handleRemoteAction(msg) {
                             x: e.counterX, y: e.counterY, value: e.counterDmg, isCrit: false,
                             timeLeft: 750, lastUpdate: performance.now()
                         });
+                    }
+                    // 至圣斩真伤数字（金色真实伤害样式）
+                    if (e.smiteDmg > 0) {
+                        gameState.damageTexts.push({
+                            x: e.x, y: e.y, value: e.smiteDmg, isTrueDmg: true,
+                            timeLeft: 900, lastUpdate: performance.now()
+                        });
+                        triggerAttackFlash(e.x, e.y, true);
+                    }
+                    // 圣骑士誓言金色光束
+                    if (e.goldenBeamDatas) {
+                        for (const gb of e.goldenBeamDatas) {
+                            spawnGoldenBeam(gb.x, gb.y);
+                        }
+                    }
+                    // 圣骑士至圣斩光束弹射
+                    if (e.paladinProjectileData) {
+                        const pd = e.paladinProjectileData;
+                        spawnPaladinBeamProjectiles(pd.fromX, pd.fromY, pd.toX, pd.toY, pd.count);
                     }
                     // 治疗数字
                     if (e.healAmt > 0) {

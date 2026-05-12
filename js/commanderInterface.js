@@ -8,10 +8,18 @@ import { spawnExplosionParticles } from './effects.js';
 let _gameState = null;
 let _logMessage = null;
 let _spawnFx = null;
+let _spawnGoldenBeam = null;
+let _spawnOrbitBeams = null;
+let _clearOrbitBeams = null;
+let _spawnBeamProjectiles = null;
 
 export function setGameStateRef(fn) { _gameState = fn; }
 export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setSpawnFxRef(fn) { _spawnFx = fn; }
+export function setSpawnGoldenBeamRef(fn) { _spawnGoldenBeam = fn; }
+export function setSpawnOrbitBeamsRef(fn) { _spawnOrbitBeams = fn; }
+export function setClearOrbitBeamsRef(fn) { _clearOrbitBeams = fn; }
+export function setSpawnBeamProjectilesRef(fn) { _spawnBeamProjectiles = fn; }
 
 // ---- 内部辅助 ----
 
@@ -44,6 +52,22 @@ function _helpers(cmdId) {
     spawnFx: (x, y, glyph) => {
       const fn = _spawnFx || ((x, y, g, l) => {});
       fn(x, y, glyph || '🎖️', label);
+    },
+    spawnGoldenBeam: (x, y) => {
+      const fn = _spawnGoldenBeam || ((a, b) => {});
+      fn(x, y);
+    },
+    spawnOrbitBeams: (unitId, x, y, count) => {
+      const fn = _spawnOrbitBeams || ((uid, px, py, c) => {});
+      fn(unitId, x, y, count);
+    },
+    clearOrbitBeams: (unitId) => {
+      const fn = _clearOrbitBeams || ((uid) => {});
+      fn(unitId);
+    },
+    spawnBeamProjectiles: (fromX, fromY, toX, toY, count) => {
+      const fn = _spawnBeamProjectiles || ((fx, fy, tx, ty, c) => {});
+      fn(fromX, fromY, toX, toY, count);
     },
     spawnExplosion: (x, y, color, count = 18) => {
       spawnExplosionParticles(x, y, color, count);
@@ -95,11 +119,13 @@ export function getCommanderRecruitCost(baseCost, gameState, camp) {
 
 // ---- 攻击钩子 ----
 
-export function triggerCommanderOnAttack(attacker, target, dmg) {
+export function triggerCommanderOnAttack(attacker, target, dmg, isCrit = false) {
   if (!attacker.commander) return null;
   const cmd = getCommander(attacker.commander);
   if (cmd && cmd.onAttack) {
-    return cmd.onAttack(attacker, target, dmg, _helpers(attacker.commander));
+    const h = _helpers(attacker.commander);
+    h.isCrit = isCrit;
+    return cmd.onAttack(attacker, target, dmg, h);
   }
   return null;
 }
@@ -162,6 +188,40 @@ export function getCommanderAuraDefenseBonus(unit) {
     }
   }
   return 0;
+}
+
+// ---- 攻击灵光（圣骑士等） ----
+
+export function getCommanderAuraAttackBonus(unit) {
+  if (!unit.tile) return 0;
+  const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
+  if (!gs || !gs.tileMap) return 0;
+  for (const [dq, dr] of HEX_NEIGHBORS) {
+    const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
+    if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === unit.camp) {
+      return 0.10;
+    }
+  }
+  if (unit.commander === 'paladin') return 0.10;
+  return 0;
+}
+
+// ---- 友军受击钩子（圣骑士誓言等） ----
+
+export function triggerCommanderAllyDamage(unit, actualDmg) {
+  if (!unit.tile || actualDmg <= 0) return;
+  const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
+  if (!gs || !gs.tileMap) return;
+  for (const [dq, dr] of HEX_NEIGHBORS) {
+    const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
+    if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === unit.camp) {
+      const palCmd = getCommander('paladin');
+      if (palCmd && palCmd.onAllyDamage) {
+        palCmd.onAllyDamage(unit, actualDmg, nb.unit, _helpers('paladin'));
+      }
+      return;
+    }
+  }
 }
 
 // ---- 伤害转移（铁卫灵光） ----
