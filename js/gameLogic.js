@@ -1206,7 +1206,9 @@ export function attackUnit(attackerUnit, targetUnit) {
                 }
                 _ctrCmdFxData = _atkCmdFxCapture;
             }
-            attackerUnit.canAct = false;
+            if (!atkCmdResult || !atkCmdResult.canActAgain) {
+                attackerUnit.canAct = false;
+            }
         } else {
             const targetTile = targetUnit.tile;
             if (attackerUnit.type !== 'archer' && !attackerUnit._imprisoned && !attackerUnit._isImmobile) {
