@@ -1,7 +1,7 @@
 ﻿import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, COMMANDER_CONFIG } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
@@ -15,7 +15,7 @@ import {
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing, spawnCardUseEffect, spawnAirstrikeEffect,
-    spawnGoldenBeam, spawnPaladinBeamProjectiles, clearPaladinOrbitBeams,
+    spawnGoldenBeam, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords, spawnPaladinOrbitBeams,
     spawnHealingChain
 } from './effects.js';
 import { playSound } from './audio.js';
@@ -625,7 +625,7 @@ async function _doEndTurnPhase() {
                 tile.unit._faith = Math.min(3, tile.unit._faith + refund);
                 tile.unit._smiteReady = false;
                 tile.unit._smiteCharged = false;
-                clearPaladinOrbitBeams(tile.unit.id);
+                spawnPaladinOrbitBeams(tile.unit.id, tile.x, tile.y, tile.unit._faith);
             }
 
             if (tile.unit.type === 'infantry' && tile.isCity && tile.unit.camp === camp) {
@@ -773,7 +773,7 @@ export async function endTurn() {
                     const { processOpponentTurn } = await import('./ai.js');
                     await Promise.race([
                         processOpponentTurn(gameState.aiOpponentCamp),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 18000))
                     ]);
                 } catch (e) {
                     if (e && e.message === 'AI_TIMEOUT') {
@@ -799,7 +799,7 @@ export async function endTurn() {
                         const { processNeutralTurn } = await import('./ai.js');
                         await Promise.race([
                             processNeutralTurn(),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 18000))
                         ]);
                     } catch (e) {
                         if (e && e.message === 'AI_TIMEOUT') {
@@ -1082,6 +1082,13 @@ export function attackUnit(attackerUnit, targetUnit) {
         return;
     }
 
+    const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
+    const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
+    const _hasSmite = attackerUnit._smiteReady;
+    const _smiteLabel = _hasSmite ? (attackerUnit._smiteCharged ? '至圣斩·誓约' : '至圣斩') : '';
+
+    const _executeAttack = () => {
+
     // 包装 spawnFx 引用以捕获将领特效的 glyph/label
     const _atkOrigSpawn = spawnCommanderSkillEffect;
     let _atkCmdFxCapture = null;
@@ -1099,10 +1106,15 @@ export function attackUnit(attackerUnit, targetUnit) {
     });
 
     const _atkOrigBeamProjectiles = spawnPaladinBeamProjectiles;
-    let _paladinProjectileData = null;
+    let _paladinProjectileDatas = null;
     setSpawnBeamProjectilesRef((fromX, fromY, toX, toY, count) => {
-        _paladinProjectileData = { fromX, fromY, toX, toY, count };
         _atkOrigBeamProjectiles(fromX, fromY, toX, toY, count);
+    });
+    const _atkOrigLaunchOrbitSwords = launchPaladinOrbitSwords;
+    setLaunchOrbitSwordsRef((unitId, targetX, targetY, count) => {
+        const datas = _atkOrigLaunchOrbitSwords(unitId, targetX, targetY, count);
+        _paladinProjectileDatas = datas;
+        return datas;
     });
 
     pushUndo();
@@ -1111,8 +1123,6 @@ export function attackUnit(attackerUnit, targetUnit) {
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
     if (attackResult.isCrit) attackerUnit.addXP(2);
     if (attackResult.dmg > 0) attackerUnit.addXP(1);
-    const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
-    const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
     playSound(attackResult.isCrit ? 'crit' : 'attack');
     const isCrit = attackResult.isCrit;
 
@@ -1166,6 +1176,8 @@ export function attackUnit(attackerUnit, targetUnit) {
                     timeLeft: 900, lastUpdate: performance.now()
                 });
                 triggerAttackFlash(toX, toY, true);
+                spawnCommanderSkillEffect(toX, toY, '✝️', '至圣斩');
+                triggerScreenShake(_smiteLabel === '至圣斩·誓约' ? 10 : 8, 350);
                 _smiteDmgRemote = atkCmdResult.smiteDmg;
                 // 至圣斩真伤绕过护盾走 takeDamage，完整处理击杀/殉道/计数等
                 const savedShield = targetUnit._shield;
@@ -1206,7 +1218,9 @@ export function attackUnit(attackerUnit, targetUnit) {
                 }
                 _ctrCmdFxData = _atkCmdFxCapture;
             }
-            attackerUnit.canAct = false;
+            if (!atkCmdResult || !atkCmdResult.canActAgain) {
+                attackerUnit.canAct = false;
+            }
         } else {
             const targetTile = targetUnit.tile;
             if (attackerUnit.type !== 'archer' && !attackerUnit._imprisoned && !attackerUnit._isImmobile) {
@@ -1252,7 +1266,8 @@ export function attackUnit(attackerUnit, targetUnit) {
             }
             _atkCmdFxCapture = null;
             const killResult = triggerCommanderOnKill(attackerUnit, targetUnit);
-            if (!killResult || !killResult.canActAgain) {
+            const canActAgain = (killResult && killResult.canActAgain) || (atkCmdResult && atkCmdResult.canActAgain);
+            if (!canActAgain) {
                 attackerUnit.canAct = false;
             } else {
                 spawnGoldenFlame(fromX, fromY);
@@ -1305,7 +1320,8 @@ export function attackUnit(attackerUnit, targetUnit) {
             healAmt: _healAmtRemote, healX: _healX, healY: _healY,
             smiteDmg: _smiteDmgRemote,
             goldenBeamDatas: _goldenBeamDatas.length ? _goldenBeamDatas : null,
-            paladinProjectileData: _paladinProjectileData || null,
+            paladinProjectileDatas: _paladinProjectileDatas || null,
+            smiteLabel: _smiteLabel || null,
             cmdFxExtra: _cmdFxExtra || null,
             rankUps: rankUps.length ? rankUps : null,
             bloodDrain: attackerUnit.commander === 'vampire' ? {
@@ -1330,6 +1346,15 @@ export function attackUnit(attackerUnit, targetUnit) {
         _cmdFxExtra = null;
         _attackDmg = 0; _attackIsCrit = false;
         _counterDmg = 0; _healAmtRemote = 0; _smiteDmgRemote = 0;
+    }
+    };
+
+    if (_hasSmite) {
+        spawnCommanderSkillEffect(fromX, fromY, '✝️', _smiteLabel);
+        attackerUnit.canAct = false;
+        setTimeout(_executeAttack, 500);
+    } else {
+        _executeAttack();
     }
 }
 
@@ -1763,7 +1788,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     }
 
     // execute
-    const helpers = { getCommander, Unit, getMyCamp: () => myCamp };
+    const helpers = { getCommander, Unit, getMyCamp: () => myCamp, spawnOrbitBeams: spawnPaladinOrbitBeams };
     const result = cfg.execute(targetTile, gameState, helpers);
     gameState.cardTargeting = null;
     hideTargetingBanner();

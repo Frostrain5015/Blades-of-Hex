@@ -8,10 +8,22 @@ export default {
   tooltipDesc: '攻击/反击时75%概率使对方士气-1，士气为0时感化为己方（将领除外）',
 
   _gongxin(source, enemy, helpers) {
+    // 勇气灵光保护：相邻6格内有己方圣骑士时，士气不会下降
+    const gs = helpers.gameState;
+    if (gs && gs.tileMap && enemy.tile) {
+      const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+      for (const [dq, dr] of dirs) {
+        const nb = gs.tileMap.get(`${enemy.tile.q + dq},${enemy.tile.r + dr}`);
+        if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === enemy.camp) {
+          helpers.logMessage(`勇气灵光护体，${enemy.config.name}兵免疫攻心`);
+          return null;
+        }
+      }
+    }
+
     // 士气已为0 → 攻心使其降至负数，直接感化招降
     if (enemy.morale === 0) {
       if (enemy.commander) return null;
-      const gs = helpers.gameState;
       if (!gs) return null;
       helpers.changeUnitCamp(enemy, source.camp, gs.tiles);
       enemy.morale = 2;

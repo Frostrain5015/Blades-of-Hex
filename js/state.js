@@ -485,6 +485,7 @@ export function serializeState() {
             fallen: t.unit._fallen || false,
             activeSkillCD: t.unit.activeSkillCD,
             activeSkillDur: t.unit.activeSkillDur,
+            phantomStacks: t.unit._phantomStacks || 0,
             gongxinStacks: t.unit._gongxinStacks || 0,
             gongxinCampKey: t.unit._gongxinCamp ? _campToKey(t.unit._gongxinCamp) : null,
             imprisoned: t.unit._imprisoned || false,
@@ -661,6 +662,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._fallen = td.unit.fallen || false;
             unit.activeSkillCD = td.unit.activeSkillCD || 0;
             unit.activeSkillDur = td.unit.activeSkillDur || 0;
+            unit._phantomStacks = td.unit.phantomStacks || 0;
             unit._gongxinStacks = td.unit.gongxinStacks || 0;
             if (td.unit.gongxinCampKey) {
                 unit._gongxinCamp = campMap[td.unit.gongxinCampKey] || CAMP.neutral;

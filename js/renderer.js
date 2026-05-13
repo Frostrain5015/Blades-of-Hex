@@ -19,7 +19,7 @@ import {
     cardUseEffects, airstrikeEffects,
     goldenBeams, updateGoldenBeams, drawGoldenBeams,
     healingChains, updateHealingChains, drawHealingChains,
-    paladinOrbitBeams, updatePaladinOrbitBeams, drawPaladinOrbitBeams,
+    paladinOrbitBeams, updatePaladinOrbitBeams, drawPaladinOrbitBeamsBack, drawPaladinOrbitBeamsFront,
     paladinBeamProjectiles, updatePaladinBeamProjectiles, drawPaladinBeamProjectiles
 } from './effects.js';
 
@@ -91,6 +91,14 @@ export function renderGame() {
     drawUnitHexAuras(now);
     // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
     drawCommanderPennants();
+    // 圣骑士誓言剑环绕 — 更新位置 + 后半圈（被徽章遮挡）
+    updatePaladinOrbitBeams(now, (unitId) => {
+        for (const tile of gameState.tiles) {
+            if (tile.unit && tile.unit.id === unitId) return { x: tile.x, y: tile.y };
+        }
+        return null;
+    });
+    drawPaladinOrbitBeamsBack(ctx, now);
     // Units
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
     // City disabled indicator (same layer as Iron Guard shield)
@@ -117,14 +125,8 @@ export function renderGame() {
     // 将领技能触发特效
     drawCommanderSkillEffects(now);
 
-    // 圣骑士至圣斩环绕光束
-    updatePaladinOrbitBeams(now, (unitId) => {
-        for (const tile of gameState.tiles) {
-            if (tile.unit && tile.unit.id === unitId) return { x: tile.x, y: tile.y };
-        }
-        return null;
-    });
-    drawPaladinOrbitBeams(ctx, now);
+    // 圣骑士誓言剑环绕 — 前半圈（遮挡徽章）
+    drawPaladinOrbitBeamsFront(ctx, now);
 
     // 士气状态持续标识（▲/▼）
     drawMoraleIndicators();

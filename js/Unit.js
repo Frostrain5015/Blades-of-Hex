@@ -50,6 +50,7 @@ export class Unit {
         this.activeSkillDur = 0;
         this._imprisoned = false;
         this._isImmobile = false;
+        this._phantomStacks = 0;
         this._shield = 0;
         this._shieldMax = 0;
         this._shieldTurns = 0;
@@ -666,7 +667,8 @@ export class Unit {
         if (attacker.type === 'archer' && attacker.tile.terrain === 'mountain') dmgBonus += 0.05;
         const dmgMulti = Math.max(0.1, 1 + dmgBonus);
 
-        const rankCrit = attacker._rankCritBonus || 0;
+        const phantomCrit = (attacker._phantomStacks || 0) * 0.05;
+        const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit;
         const guaranteedCrit = isCommanderGuaranteedCrit(attacker) || (rankCrit > 0 && Math.random() < rankCrit);
         const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter, guaranteedCrit);
         const isCrit = floatMult > (isCounter ? 1.50 : 1.30);

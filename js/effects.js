@@ -1163,8 +1163,8 @@ export function spawnPaladinOrbitBeams(unitId, x, y, count) {
             unitId, x, y,
             angle: (i / count) * Math.PI * 2,
             orbitRadius: HEX_SIZE * 0.88,
-            orbitSpeed: 2.8 + i * 0.4,
-            size: 28 + i * 5,
+            orbitSpeed: 3.0,
+            size: 32,
             startTime: performance.now()
         });
     }
@@ -1190,37 +1190,80 @@ export function updatePaladinOrbitBeams(now, getUnitPos) {
     }
 }
 
-export function drawPaladinOrbitBeams(ctx2d, now) {
+function _drawOrbitSword(ctx2d, b, now) {
+    const elapsed = (now - b.startTime) / 1000;
+    const cx = b.x + Math.cos(b.angle) * b.orbitRadius;
+    const cy = b.y + Math.sin(b.angle) * b.orbitRadius * 0.5 - Math.sin(elapsed * 1.8) * 6;
+    const hw = b.size * 0.16;
+    const bladeLen = b.size * 0.85;
+    const tipY = cy + bladeLen * 0.55;
+    const guardY = cy - bladeLen * 0.15;
+    const pommelY = cy - bladeLen * 0.45;
+
+    ctx2d.save();
+    ctx2d.shadowColor = '#ffd700';
+    ctx2d.shadowBlur = 10;
+
+    // blade — tapered polygon pointing down
+    ctx2d.fillStyle = '#ffd700';
+    ctx2d.beginPath();
+    ctx2d.moveTo(cx, tipY);
+    ctx2d.lineTo(cx + hw, guardY + hw * 0.4);
+    ctx2d.lineTo(cx + hw * 0.5, guardY);
+    ctx2d.lineTo(cx + hw * 0.3, pommelY);
+    ctx2d.lineTo(cx - hw * 0.3, pommelY);
+    ctx2d.lineTo(cx - hw * 0.5, guardY);
+    ctx2d.lineTo(cx - hw, guardY + hw * 0.4);
+    ctx2d.closePath();
+    ctx2d.fill();
+
+    // crossguard
+    ctx2d.fillStyle = '#ffe055';
+    ctx2d.fillRect(cx - hw * 1.4, guardY - hw * 0.25, hw * 2.8, hw * 0.5);
+
+    ctx2d.shadowBlur = 0;
+
+    // core bright line (no shadow)
+    ctx2d.fillStyle = '#ffffff';
+    ctx2d.beginPath();
+    ctx2d.moveTo(cx, tipY - hw * 0.3);
+    ctx2d.lineTo(cx + hw * 0.12, guardY + hw * 0.15);
+    ctx2d.lineTo(cx, guardY - hw * 0.1);
+    ctx2d.lineTo(cx - hw * 0.12, guardY + hw * 0.15);
+    ctx2d.closePath();
+    ctx2d.fill();
+
+    // pommel
+    ctx2d.beginPath();
+    ctx2d.arc(cx, pommelY, hw * 0.5, 0, Math.PI * 2);
+    ctx2d.fill();
+
+    ctx2d.restore();
+    return { cx, cy, unitY: b.y };
+}
+
+function _drawOrbitSwordsPass(ctx2d, now, pass) {
     for (const b of paladinOrbitBeams) {
         const elapsed = (now - b.startTime) / 1000;
-        const cx = b.x + Math.cos(b.angle) * b.orbitRadius;
         const cy = b.y + Math.sin(b.angle) * b.orbitRadius * 0.5 - Math.sin(elapsed * 1.8) * 6;
-        const beamAngle = b.angle + Math.PI / 2;
-
-        ctx2d.save();
-        ctx2d.globalAlpha = 1;
-        ctx2d.translate(cx, cy);
-        ctx2d.rotate(beamAngle);
-
-        // 外层辉光
-        const grad = ctx2d.createLinearGradient(-b.size / 2, 0, b.size / 2, 0);
-        grad.addColorStop(0, 'rgba(255,215,0,0)');
-        grad.addColorStop(0.3, 'rgba(255,235,120,0.95)');
-        grad.addColorStop(0.5, 'rgba(255,255,255,1)');
-        grad.addColorStop(0.7, 'rgba(255,235,120,0.95)');
-        grad.addColorStop(1, 'rgba(255,215,0,0)');
-        ctx2d.fillStyle = grad;
-        ctx2d.shadowColor = '#ffd700';
-        ctx2d.shadowBlur = 12;
-        ctx2d.fillRect(-b.size / 2, -2, b.size, 4);
-        ctx2d.shadowBlur = 0;
-
-        // 核心亮线
-        ctx2d.fillStyle = '#ffffff';
-        ctx2d.fillRect(-b.size / 2, -0.5, b.size, 1.5);
-
-        ctx2d.restore();
+        // back pass: sword center above unit center (behind badge)
+        // front pass: sword center at or below unit center (in front of badge)
+        const isFront = cy >= b.y;
+        if ((pass === 'front') !== isFront) continue;
+        _drawOrbitSword(ctx2d, b, now);
     }
+}
+
+export function drawPaladinOrbitBeamsBack(ctx2d, now) {
+    _drawOrbitSwordsPass(ctx2d, now, 'back');
+}
+
+export function drawPaladinOrbitBeamsFront(ctx2d, now) {
+    _drawOrbitSwordsPass(ctx2d, now, 'front');
+}
+
+export function drawPaladinOrbitBeams(ctx2d, now) {
+    _drawOrbitSwordsPass(ctx2d, now, 'front');
 }
 
 // ===== 圣骑士至圣斩光束弹射 =====
@@ -1237,6 +1280,36 @@ export function spawnPaladinBeamProjectiles(fromX, fromY, toX, toY, count) {
             impactSpawned: false
         });
     }
+}
+
+// 将环绕剑从轨道位置发射到目标（返回每把剑的位置数据用于联机同步）
+export function launchPaladinOrbitSwords(unitId, targetX, targetY, count) {
+    const datas = [];
+    for (let i = paladinOrbitBeams.length - 1; i >= 0 && datas.length < count; i--) {
+        if (paladinOrbitBeams[i].unitId === unitId) {
+            const b = paladinOrbitBeams[i];
+            const n = performance.now();
+            const elapsed = (n - b.startTime) / 1000;
+            const cx = b.x + Math.cos(b.angle) * b.orbitRadius;
+            const cy = b.y + Math.sin(b.angle) * b.orbitRadius * 0.5 - Math.sin(elapsed * 1.8) * 6;
+            datas.push({ fromX: cx, fromY: cy, toX: targetX, toY: targetY });
+            paladinOrbitBeams.splice(i, 1);
+        }
+    }
+    // 生成弹射剑
+    for (let i = 0; i < datas.length; i++) {
+        const d = datas[i];
+        const angleOff = (i - (datas.length - 1) / 2) * 0.35;
+        paladinBeamProjectiles.push({
+            fromX: d.fromX, fromY: d.fromY,
+            toX: d.toX, toY: d.toY,
+            angleOff,
+            startTime: performance.now(),
+            duration: 280,
+            impactSpawned: false
+        });
+    }
+    return datas;
 }
 
 export function updatePaladinBeamProjectiles(now) {
@@ -1263,6 +1336,7 @@ export function drawPaladinBeamProjectiles(ctx2d, now) {
 
         const curX = p.fromX + dx * eased;
         const curY = p.fromY + dy * eased - Math.sin(t * Math.PI) * dist * 0.12;
+        const s = 26; // sword size
 
         // 尾迹粒子
         const trailLen = 6;
@@ -1285,24 +1359,51 @@ export function drawPaladinBeamProjectiles(ctx2d, now) {
             ctx2d.restore();
         }
 
-        // 光束本体 - 旋转的椭圆
+        // 飞行剑 — 剑尖朝向目标
         ctx2d.save();
         ctx2d.translate(curX, curY);
         ctx2d.rotate(flightAngle);
-        const len = 28;
-        const grad2 = ctx2d.createLinearGradient(-len / 2, 0, len / 2, 0);
-        grad2.addColorStop(0, 'rgba(255,215,0,0)');
-        grad2.addColorStop(0.3, 'rgba(255,235,120,0.95)');
-        grad2.addColorStop(0.5, 'rgba(255,255,255,1)');
-        grad2.addColorStop(0.7, 'rgba(255,235,120,0.95)');
-        grad2.addColorStop(1, 'rgba(255,215,0,0)');
-        ctx2d.fillStyle = grad2;
+        const hw = s * 0.16;
+        const bladeLen = s * 0.85;
+        const tipX = bladeLen * 0.55;
+        const guardX = -bladeLen * 0.15;
+        const pommelX = -bladeLen * 0.45;
+
         ctx2d.shadowColor = '#ffd700';
-        ctx2d.shadowBlur = 14;
-        ctx2d.fillRect(-len / 2, -2, len, 4);
+        ctx2d.shadowBlur = 10;
+        ctx2d.fillStyle = '#ffd700';
+        ctx2d.beginPath();
+        ctx2d.moveTo(tipX, 0);
+        ctx2d.lineTo(guardX + hw * 0.4, -hw);
+        ctx2d.lineTo(guardX, -hw * 0.5);
+        ctx2d.lineTo(pommelX, -hw * 0.3);
+        ctx2d.lineTo(pommelX, hw * 0.3);
+        ctx2d.lineTo(guardX, hw * 0.5);
+        ctx2d.lineTo(guardX + hw * 0.4, hw);
+        ctx2d.closePath();
+        ctx2d.fill();
+
+        // crossguard
+        ctx2d.fillStyle = '#ffe055';
+        ctx2d.fillRect(guardX - hw * 0.25, -hw * 1.4, hw * 0.5, hw * 2.8);
+
         ctx2d.shadowBlur = 0;
+
+        // core line (no shadow)
         ctx2d.fillStyle = '#ffffff';
-        ctx2d.fillRect(-len / 2, -0.5, len, 1);
+        ctx2d.beginPath();
+        ctx2d.moveTo(tipX - hw * 0.3, 0);
+        ctx2d.lineTo(guardX + hw * 0.15, -hw * 0.15);
+        ctx2d.lineTo(guardX - hw * 0.1, 0);
+        ctx2d.lineTo(guardX + hw * 0.15, hw * 0.15);
+        ctx2d.closePath();
+        ctx2d.fill();
+
+        // pommel (same fillStyle white, no extra shadow)
+        ctx2d.beginPath();
+        ctx2d.arc(pommelX, 0, hw * 0.5, 0, Math.PI * 2);
+        ctx2d.fill();
+
         ctx2d.restore();
 
         // 命中目标

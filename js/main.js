@@ -1,8 +1,8 @@
 import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE, COMMANDER_CONFIG, shuffleAndSplitPool, TACTICAL_CARD_CONFIG } from './config.js';
-import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState } from './state.js';
+import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
-import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, getCommander } from './commanderInterface.js';
+import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, getCommander } from './commanderInterface.js';
 import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
@@ -19,7 +19,7 @@ import {
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain, spawnMinisterDominionRing,
     spawnCardUseEffect, spawnHealParticles, spawnAirstrikeEffect,
-    spawnGoldenBeam, spawnPaladinOrbitBeams, clearPaladinOrbitBeams, spawnPaladinBeamProjectiles,
+    spawnGoldenBeam, spawnPaladinOrbitBeams, clearPaladinOrbitBeams, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords,
     spawnHealingChain
 } from './effects.js';
 import { HexTile } from './HexTile.js';
@@ -39,6 +39,7 @@ setSpawnGoldenBeamRef(spawnGoldenBeam);
 setSpawnOrbitBeamsRef(spawnPaladinOrbitBeams);
 setClearOrbitBeamsRef(clearPaladinOrbitBeams);
 setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
+setLaunchOrbitSwordsRef(launchPaladinOrbitSwords);
 setSpawnHealingChainRef(spawnHealingChain);
 
 // ==== 自适应布局 ====
@@ -1216,6 +1217,14 @@ async function handleRemoteAction(msg) {
             document.body.style.pointerEvents = '';
             _deploymentStarted = true;
             applyRemoteState(msg.state, HexTile, Unit);
+            // 初始同步时创建圣骑士环绕剑
+            for (const tile of gameState.tiles) {
+                if (tile.unit && tile.unit.commander === 'paladin') {
+                    let count = tile.unit._faith || 0;
+                    if (tile.unit._smiteReady) count += tile.unit._smiteCharged ? 2 : 1;
+                    spawnPaladinOrbitBeams(tile.unit.id, tile.x, tile.y, count);
+                }
+            }
             updateUI();
             renderGame();
             _checkSpectatorBanner();
@@ -1475,6 +1484,12 @@ async function handleRemoteAction(msg) {
             break;
         case 'attack':
             try {
+                const _rmSmite = e?.smiteDmg > 0;
+                const _rmSmiteLabel = e?.smiteLabel || '至圣斩';
+                const _rmFromX = e?.fromX ?? e?.x;
+                const _rmFromY = e?.fromY ?? e?.y;
+
+                const _execAttackFx = () => {
                 playSound(e?.isCrit ? 'crit' : 'attack');
                 if (e) {
                     triggerAttackFlash(e.x, e.y, e.isCrit);
@@ -1552,6 +1567,8 @@ async function handleRemoteAction(msg) {
                             timeLeft: 900, lastUpdate: performance.now()
                         });
                         triggerAttackFlash(e.x, e.y, true);
+                        spawnCommanderSkillEffect(e.x, e.y, '✝️', '至圣斩');
+                        triggerScreenShake(_rmSmiteLabel === '至圣斩·誓约' ? 10 : 8, 350);
                     }
                     // 圣骑士誓言金色光束
                     if (e.goldenBeamDatas) {
@@ -1559,10 +1576,12 @@ async function handleRemoteAction(msg) {
                             spawnGoldenBeam(gb.x, gb.y);
                         }
                     }
-                    // 圣骑士至圣斩光束弹射
-                    if (e.paladinProjectileData) {
-                        const pd = e.paladinProjectileData;
-                        spawnPaladinBeamProjectiles(pd.fromX, pd.fromY, pd.toX, pd.toY, pd.count);
+                    // 圣骑士至圣斩剑弹射（每把剑从各自轨道位置飞出）
+                    // 注：环绕剑在 applyRemoteState 中已按 _faith 同步，此处仅播放弹射特效
+                    if (e.paladinProjectileDatas && e.paladinProjectileDatas.length) {
+                        for (const d of e.paladinProjectileDatas) {
+                            spawnPaladinBeamProjectiles(d.fromX, d.fromY, d.toX, d.toY, 1);
+                        }
                     }
                     // 治疗数字
                     if (e.healAmt > 0) {
@@ -1571,6 +1590,14 @@ async function handleRemoteAction(msg) {
                             timeLeft: 1000, lastUpdate: performance.now()
                         });
                     }
+                }
+                }; // _execAttackFx
+
+                if (_rmSmite) {
+                    spawnCommanderSkillEffect(_rmFromX, _rmFromY, '✝️', _rmSmiteLabel);
+                    setTimeout(_execAttackFx, 500);
+                } else {
+                    _execAttackFx();
                 }
             } catch (err) {
                 console.warn('Remote attack effects error:', err);
@@ -1592,7 +1619,8 @@ async function handleRemoteAction(msg) {
                         cmdCfg.activeSkill.onActivate(skillUnit, {
                             gameState, logMessage,
                             spawnFx: spawnCommanderSkillEffect,
-                            spawnOrbitBeams: spawnPaladinOrbitBeams
+                            spawnOrbitBeams: spawnPaladinOrbitBeams,
+                            isReplay: true
                         });
                         skillUnit.activeSkillDur = cmdCfg.activeSkill.duration;
                         skillUnit.activeSkillCD = cmdCfg.activeSkill.cooldown;
@@ -1608,6 +1636,14 @@ async function handleRemoteAction(msg) {
             for (const ru of e.rankUps) {
                 spawnRankUpEffect(ru.x, ru.y, ru.rank || 1);
             }
+        }
+    }
+    // 远端同步圣骑士环绕剑（paladinOrbitBeams 不参与序列化，在所有特效播放后同步）
+    for (const tile of gameState.tiles) {
+        if (tile.unit && tile.unit.commander === 'paladin') {
+            let count = tile.unit._faith || 0;
+            if (tile.unit._smiteReady) count += tile.unit._smiteCharged ? 2 : 1;
+            spawnPaladinOrbitBeams(tile.unit.id, tile.x, tile.y, count);
         }
     }
 }

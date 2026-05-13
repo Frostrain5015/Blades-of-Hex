@@ -12,6 +12,7 @@ let _spawnGoldenBeam = null;
 let _spawnOrbitBeams = null;
 let _clearOrbitBeams = null;
 let _spawnBeamProjectiles = null;
+let _launchOrbitSwords = null;
 let _spawnHealingChain = null;
 
 export function setGameStateRef(fn) { _gameState = fn; }
@@ -21,6 +22,7 @@ export function setSpawnGoldenBeamRef(fn) { _spawnGoldenBeam = fn; }
 export function setSpawnOrbitBeamsRef(fn) { _spawnOrbitBeams = fn; }
 export function setClearOrbitBeamsRef(fn) { _clearOrbitBeams = fn; }
 export function setSpawnBeamProjectilesRef(fn) { _spawnBeamProjectiles = fn; }
+export function setLaunchOrbitSwordsRef(fn) { _launchOrbitSwords = fn; }
 export function setSpawnHealingChainRef(fn) { _spawnHealingChain = fn; }
 
 // ---- 内部辅助 ----
@@ -70,6 +72,10 @@ function _helpers(cmdId) {
     spawnBeamProjectiles: (fromX, fromY, toX, toY, count) => {
       const fn = _spawnBeamProjectiles || ((fx, fy, tx, ty, c) => {});
       fn(fromX, fromY, toX, toY, count);
+    },
+    launchOrbitSwords: (unitId, targetX, targetY, count) => {
+      const fn = _launchOrbitSwords || ((uid, tx, ty, c) => []);
+      return fn(unitId, targetX, targetY, count);
     },
     spawnHealingChain: (fromX, fromY, toX, toY) => {
       const fn = _spawnHealingChain || ((fx, fy, tx, ty) => {});
