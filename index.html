@@ -23,29 +23,43 @@
             <p class="lobby-subtitle">BLADES OF HEX</p>
         </div>
 
-        <!-- 首页：三个模式按钮 -->
+        <!-- 首页：两个模式按钮 -->
         <div id="lobbyHome" class="lobby-modes">
-            <button class="lobby-btn" id="pveGameBtn">
-                <span class="lbtn-icon">🤖</span>
-                <span class="lbtn-body">
-                    <span class="lbtn-name">单人PVE模式</span>
-                    <span class="lbtn-desc">一位玩家对战AI敌人</span>
-                </span>
-            </button>
-            <button class="lobby-btn" id="localGameBtn">
+            <button class="lobby-btn" id="soloGameBtn">
                 <span class="lbtn-icon">⚔️</span>
                 <span class="lbtn-body">
-                    <span class="lbtn-name">本地双人模式</span>
-                    <span class="lbtn-desc">两位玩家轮流操作</span>
+                    <span class="lbtn-name">本地游戏</span>
                 </span>
             </button>
             <button class="lobby-btn" id="multiplayerBtn">
                 <span class="lbtn-icon">🌐</span>
                 <span class="lbtn-body">
-                    <span class="lbtn-name">联网对战模式</span>
-                    <span class="lbtn-desc">创建或加入在线房间</span>
+                    <span class="lbtn-name">联网对战</span>
                 </span>
             </button>
+        </div>
+
+        <!-- 准备弹窗 -->
+        <div id="prepOverlay" class="prep-overlay">
+            <div class="prep-panel">
+                <h2 id="prepTitle">选择模式</h2>
+                <div class="prep-section">
+                    <div class="prep-section-label" id="prepLabel1">对战类型</div>
+                    <div class="prep-options" id="prepOptions1"></div>
+                </div>
+                <div class="prep-section" id="prepSectionDiff" style="display:none">
+                    <div class="prep-section-label" id="prepLabelDiff">AI 难度</div>
+                    <div class="prep-options" id="prepOptionsDiff"></div>
+                </div>
+                <div class="prep-section">
+                    <div class="prep-section-label" id="prepLabel2">对战模式</div>
+                    <div class="prep-options" id="prepOptions2"></div>
+                </div>
+                <div class="prep-btns">
+                    <button id="prepConfirm" class="lobby-btn compact">确认</button>
+                    <button id="prepCancel" class="lobby-btn compact secondary">返回</button>
+                </div>
+            </div>
         </div>
 
         <!-- 多人游戏大厅 -->
@@ -57,13 +71,9 @@
             </div>
             <div id="roomListSection">
                 <div id="roomList" class="room-grid"></div>
-                <div id="roomListEmpty" class="room-list-empty">暂无可用房间，请创建一个</div>
+                <div id="roomListEmpty" class="room-list-empty">可用房间为空</div>
             </div>
             <div id="roomActions">
-                <div id="roomModeSelect" class="room-mode-select">
-                    <button class="room-mode-btn active" data-mode="2">双人</button>
-                    <button class="room-mode-btn" data-mode="3">三人</button>
-                </div>
                 <button id="createRoomBtn" class="lobby-btn compact">创建房间</button>
             </div>
         </div>
@@ -328,6 +338,12 @@
             <button id="confirmNo" class="lobby-btn compact secondary">取消</button>
         </div>
     </div>
+</div>
+
+<!-- 遭遇战模式回合过渡遮罩 -->
+<div id="turnTransitionOverlay" class="turn-transition-overlay">
+    <div class="turn-transition-text" id="turnTransitionText"></div>
+    <div class="turn-transition-sub">点击继续</div>
 </div>
 
 <!-- 作弊控制台 -->

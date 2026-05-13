@@ -259,6 +259,14 @@ export const TACTICAL_CARD_CONFIG = {
             return { forceMarch: true, targetTile };
         }
     },
+    scout: {
+        id: 'scout', name: '侦察', icon: '🔭',
+        desc: '【侦察】\n对全图任意位置释放，\n揭示目标及其周围6格，持续1回合。\n对手无从得知侦察位置。',
+        targeting: 'anyTileGlobal',
+        execute(targetTile, gameState, helpers) {
+            return { scoutQ: targetTile.q, scoutR: targetTile.r };
+        }
+    },
     airstrike: {
         id: 'airstrike', name: '空袭', icon: '✈️',
         desc: '【空袭】\n对敌方城市释放，城市及周边6格造成20~30伤害（城市翻倍），2回合内该城市无法产金或招募',
@@ -352,6 +360,9 @@ export const DECK_COMPOSITION = [
     'imprison', 'imprison',
     'forceMarch', 'forceMarch'
 ];
+
+// 遭遇战模式专用卡
+export const SKIRMISH_EXTRAS = ['scout', 'scout', 'scout', 'scout', 'scout'];
 
 // ==== 对策卡系统参数 ====================
 export const CARD_SYSTEM_CONFIG = {

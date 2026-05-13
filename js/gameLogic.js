@@ -1,4 +1,4 @@
-﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, COMMANDER_CONFIG } from './config.js';
+﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
@@ -19,6 +19,7 @@ import {
     spawnHealingChain
 } from './effects.js';
 import { playSound } from './audio.js';
+import { updateFogOfWar, isTileVisible, applyScoutReveal, expireScoutReveals } from './fogOfWar.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
@@ -221,23 +222,37 @@ function isSurrounded(unit, tileMap) {
 }
 
 export function recalcAllFlankingMorale() {
+    // 圣骑士勇气灵光：范围内友军免疫夹击/包围士气下降
+    function hasCourageAura(u) {
+        for (const [dq, dr] of HEX_NEIGHBORS) {
+            const nb = gameState.tileMap.get(`${u.tile.q + dq},${u.tile.r + dr}`);
+            if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === u.camp) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
         const u = tile.unit;
         const prev = u.morale;
 
-        const surrounded = isSurrounded(u, gameState.tileMap);
-        const flanked = !surrounded && isFlanked(u, gameState.tileMap);
+        // 勇气灵光保护下免疫夹击/包围士气压制
+        if (!hasCourageAura(u)) {
+            const surrounded = isSurrounded(u, gameState.tileMap);
+            const flanked = !surrounded && isFlanked(u, gameState.tileMap);
 
-        // 夹击/包围仅向下压制士气（不覆写，保留击杀加成等提升）
-        if (surrounded) {
-            if (u.morale > 0) u.morale = 0;
-        } else if (flanked) {
-            if (u.morale > 1) u.morale = 1;
+            // 夹击/包围仅向下压制士气（不覆写，保留击杀加成等提升）
+            if (surrounded) {
+                if (u.morale > 0) u.morale = 0;
+            } else if (flanked) {
+                if (u.morale > 1) u.morale = 1;
+            }
+
+            // 仅在士气归零时禁用行动（不主动恢复，由回合开始管理）
+            if (u.morale === 0) u.canAct = false;
         }
-
-        // 仅在士气归零时禁用行动（不主动恢复，由回合开始管理）
-        if (u.morale === 0) u.canAct = false;
 
         if (u.morale !== prev) {
             spawnMoraleEffect(u);
@@ -315,6 +330,16 @@ export function initMap() {
     generateTerrain(gameState.tiles);
     initInitialUnits();
 
+    // 遭遇战迷雾：初始化（支持 skirmish 模式和 PVE 遭遇战）
+    console.log('[FOG DEBUG] initMap: skirmishFog=' + gameState.skirmishFog + ', gameMode=' + gameState.gameMode + ', is3P=' + is3P);
+    if (gameState.skirmishFog) {
+        console.log('[FOG DEBUG] initMap: initializing fog for all camps...');
+        updateFogOfWar(gameState, CAMP.player1);
+        updateFogOfWar(gameState, CAMP.player2);
+        if (is3P) updateFogOfWar(gameState, CAMP.player3);
+        console.log('[FOG DEBUG] initMap: P1 visible count=' + gameState.visibleTiles.player1.size + ', P2 visible count=' + gameState.visibleTiles.player2.size);
+    }
+
     logMessage(is3P ? '三人模式开始，红军先手' : '游戏开始，红军先手');
 
     // 绑定按钮事件（仅首次，避免重开时重复绑定）
@@ -370,6 +395,8 @@ function _resetEventsBound() {
 
 function initCardDeck() {
     const deck = [...DECK_COMPOSITION];
+    // 遭遇战模式：额外加入 5 张侦察卡
+    if (gameState.skirmishFog) deck.push(...SKIRMISH_EXTRAS);
     // 联机模式使用与地形相同的种子，保证所有客户端初始牌库一致
     const rand = isNetworkGame() ? _createRNG(_terrainSeed) : Math.random;
     for (let i = deck.length - 1; i > 0; i--) {
@@ -496,6 +523,29 @@ let _neutralAiLock = false; // 防止AI在非中立回合异常触发
 
 function _campKey(camp) {
     return camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : camp === CAMP.player3 ? 'player3' : 'neutral';
+}
+
+function _updateSkirmishFogAll() {
+    updateFogOfWar(gameState, CAMP.player1);
+    updateFogOfWar(gameState, CAMP.player2);
+    if (gameState.isThreePlayer) updateFogOfWar(gameState, CAMP.player3);
+}
+
+function _showTurnTransition(camp) {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('turnTransitionOverlay');
+        const text = document.getElementById('turnTransitionText');
+        const name = camp === CAMP.player1 ? '红军' : camp === CAMP.player2 ? '蓝军' : '绿军';
+        const color = camp === CAMP.player1 ? '#ffaaaa' : camp === CAMP.player2 ? '#aaaaff' : '#aaffaa';
+        text.textContent = `${name} 的回合`;
+        text.style.color = color;
+        overlay.classList.add('show');
+        overlay.onclick = () => {
+            overlay.classList.remove('show');
+            overlay.onclick = null;
+            resolve();
+        };
+    });
 }
 
 function _factionCount() { return gameState.isThreePlayer ? 4 : 3; }
@@ -677,7 +727,11 @@ async function _doEndTurnPhase() {
     const key = _campKey(camp);
     const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp && !(t._cityDisabledUntil > 0 && t._cityDisabledUntil >= gameState.turnCounter));
     const cityCount = cities.length;
-    const income = camp === CAMP.neutral ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
+    let income = camp === CAMP.neutral ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
+    // PVE 难度倍率：仅对对手 AI 生效，不影响中立 AI
+    if (gameState.gameMode === 'pve' && camp === gameState.aiOpponentCamp) {
+        income = Math.floor(income * gameState.aiDifficulty);
+    }
     gameState.playerGold[key] += income;
     // 将领回合结束效果（尚书屯田等）
     triggerCommanderTurnEnd(gameState, camp, key);
@@ -703,11 +757,19 @@ async function _doEndTurnPhase() {
     // Turn toggle（三人模式自动跳过已投降阵营）
     gameState.currentCamp = _nextActiveCamp(camp);
     gameState.turnCounter++;
-    // 将领回合开始效果（铁卫治疗、殉道者自爆等）—— 为新阵营在新回合开始时触发
+    // 将领回合开始效果（铁卫治疗、殉道者自爆等）—— 必须先于迷雾更新执行
+    // 殉道者自爆等效果会击杀单位（改变视野源），必须在视野计算之前结算
     const dmgTextsBefore = gameState.damageTexts.length;
     triggerCommanderTurnStart(gameState, gameState.currentCamp);
     // 收集殉道者等将领产生的伤害数字，供远端重放
     _endTurnDmgTexts = gameState.damageTexts.slice(dmgTextsBefore);
+    // 遭遇战迷雾：过期侦察揭示，然后更新全阵营视野
+    // 必须在 turnStart 效果（殉道者自爆等）之后，因为殉道者可能击杀任意阵营单位
+    if (gameState.skirmishFog) {
+        expireScoutReveals(gameState, camp);
+        _updateSkirmishFogAll();
+    }
+
     // 对策卡系统 v2：重置结束回合方的抽牌/用牌计数 + 清除禁锢
     const endingCampKey = _campKey(camp);
     if (endingCampKey !== 'neutral') {
@@ -786,6 +848,15 @@ export async function endTurn() {
 
         await _doEndTurnPhase();
 
+        // 遭遇战热座模式：切换玩家时显示过渡遮罩
+        const isLocalSkirmish = gameState.skirmishFog && !isNetworkGame() && gameState.gameMode !== 'pve';
+        if (isLocalSkirmish) {
+            const nextCamp = gameState.currentCamp;
+            if (nextCamp !== CAMP.neutral) {
+                await _showTurnTransition(nextCamp);
+            }
+        }
+
         // 链式处理 AI 回合（对手 AI → 中立 AI），直到人类回合
         for (let i = 0; i < 3; i++) {
             if (gameState.gameOver) break;
@@ -823,6 +894,16 @@ export async function endTurn() {
                 const hasNeutralUnits = gameState.tiles.some(t => t.unit && t.unit.camp === CAMP.neutral && t.unit.canAct);
                 const hasNeutralCities = gameState.tiles.some(t => t.isCity && t.camp === CAMP.neutral && !t.unit);
                 if (hasNeutralUnits || hasNeutralCities) {
+                    // 遭遇战热座：中立 AI 回合也遮罩，防止两边玩家偷看
+                    let neutralOverlay = null;
+                    if (isLocalSkirmish) {
+                        const overlay = document.getElementById('turnTransitionOverlay');
+                        const text = document.getElementById('turnTransitionText');
+                        text.textContent = '中立回合';
+                        text.style.color = '#888';
+                        overlay.classList.add('show');
+                        neutralOverlay = overlay;
+                    }
                     _neutralAiLock = true;
                     gameState.aiActing = true;
                     try {
@@ -841,6 +922,7 @@ export async function endTurn() {
                     } finally {
                         gameState.aiActing = false;
                         _neutralAiLock = false;
+                        if (neutralOverlay) neutralOverlay.classList.remove('show');
                     }
                     notify('本轮行动完毕 即将进入下一轮...', 'info');
                     logMessage('本轮行动完毕 即将进入下一轮...');
@@ -908,6 +990,7 @@ export function recruitUnit(type) {
     });
     spawnGoldParticles(selectedCityTile.x, selectedCityTile.y);
     recalcAllFlankingMorale();
+    if (gameState.skirmishFog) _updateSkirmishFogAll();
     updateUI();
     broadcastAction('recruit', { x: selectedCityTile.x, y: selectedCityTile.y });
 }
@@ -999,10 +1082,14 @@ export function getAttackableTiles(unit) {
     }
     range = Math.max(1, Math.min(4, range));
     const startTile = unit.tile;
-    return gameState.tiles.filter(tile => {
-        if (!(hexDistance(tile, startTile) <= range && tile.unit && tile.unit.camp !== unit.camp)) return false;
-        return true;
-    });
+    const targets = gameState.tiles.filter(tile =>
+        hexDistance(tile, startTile) <= range && tile.unit && tile.unit.camp !== unit.camp
+    );
+    // 遭遇战迷雾：只能攻击视野内的敌方单位
+    if (gameState.skirmishFog && targets.length) {
+        return targets.filter(tile => isTileVisible(tile, unit.camp, gameState));
+    }
+    return targets;
 }
 
 // ===== 移动 =====================
@@ -1097,6 +1184,13 @@ export function moveUnit(unit, targetTile) {
         _cmdFxForMove = { x: targetTile.x, y: targetTile.y, glyph: '🎖️', label: '屯田' };
     }
     recalcAllFlankingMorale();
+    if (gameState.skirmishFog) _updateSkirmishFogAll();
+    // 迷雾模式下立即刷新可攻击/可移动目标，使侦察后发现敌人可立即攻击
+    if (unit.canAct && unit.remainingMP >= 0) {
+        gameState.attackableTiles = getAttackableTiles(unit);
+        gameState.movableTiles = getMovableTiles(unit);
+        gameState.selectionTime = performance.now();
+    }
     updateRecruitCostDisplay(); // 尚书驻扎城市时及时刷新折扣
     const rankUpsMove = _pendingRankUps.splice(0);
     broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger, capturedCity: _capturedCityOnMove });
@@ -1157,7 +1251,7 @@ export function attackUnit(attackerUnit, targetUnit) {
     const isCrit = attackResult.isCrit;
 
     // 核心状态修改：扣血、击杀判定（先于视觉效果，保证广播时状态正确）
-    const isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
+    let isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
 
     let atkCmdResult = null, ctrCmdResult = null;
     try {
@@ -1323,6 +1417,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             gameState.attackableTiles = [];
         }
         recalcAllFlankingMorale();
+        if (gameState.skirmishFog) _updateSkirmishFogAll();
         if (_killedThisAttack && _killerMoraleChanged) {
             spawnMoraleEffect(_killedThisAttack);
             _killerMoraleChanged = false;
@@ -1778,11 +1873,21 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (!targetTile || !targetTile.unit) { notify('请选择单位'); return; }
     } else if (tg === 'anyUnit') {
         if (!targetTile || !targetTile.unit) { notify('请选择单位'); return; }
+    } else if (tg === 'anyTileGlobal') {
+        if (!targetTile) { notify('请选择目标地块'); return; }
+    }
+
+    // 遭遇战迷雾：对策卡只能对视野内目标释放（侦察卡除外）
+    if (gameState.skirmishFog && tg !== 'anyTileGlobal' && targetTile && !isTileVisible(targetTile, myCamp, gameState)) {
+        notify('目标不在视野范围内'); return;
     }
 
     // validate hand + capture card position for burn anim
     const hand = gameState.playerHands[campKey];
-    const idx = hand.indexOf(cardId);
+    const ct = gameState.cardTargeting;
+    const idx = (ct && ct.handIndex != null && ct.handIndex < hand.length && hand[ct.handIndex] === cardId)
+        ? ct.handIndex
+        : hand.indexOf(cardId);
     if (idx === -1) { notify('手牌中没有该卡'); return; }
     const nBefore = hand.length;
     const fromI = nBefore - 1 - idx; // position index in stack (0=leftmost)
@@ -1822,6 +1927,13 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const result = cfg.execute(targetTile, gameState, helpers);
     gameState.cardTargeting = null;
     hideTargetingBanner();
+
+    // 侦察卡：立即揭示目标区域
+    if (cardId === 'scout' && result.scoutQ != null) {
+        applyScoutReveal(gameState, myCamp, result.scoutQ, result.scoutR);
+        updateFogOfWar(gameState, myCamp);
+        logMessage(`${myCamp.name}使用了【侦察】卡，揭示了目标区域`);
+    }
 
     // undo visual: save mgNest after execute, then hide
     if (cardId === 'mgNest' && targetTile.unit) {
@@ -2027,6 +2139,16 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             }, BURN_MS);
             break;
         }
+        case 'scout': {
+            // 侦察卡本地特效：望远镜 emoji + 金色辉光边框
+            // 数据逻辑（applyScoutReveal / updateFogOfWar）已在 switch 之前执行
+            logMessage(`🔭【侦察】${myCamp.name}揭示了目标区域`);
+            setTimeout(() => {
+                spawnCommanderSkillEffect(x, y, '🔭', '侦察');
+                playSound('recruit');
+            }, BURN_MS);
+            break;
+        }
         case 'commanderDeploy': {
             const cmdCfg = getCommander(result.commander);
             logMessage(`${myCamp.name}【${cmdCfg?.name || result.commander}】部署到${targetTile.unit.config.name}兵`);
@@ -2057,6 +2179,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
 
     gameState.cardStackExpanded = false;
     recalcAllFlankingMorale();
+    if (gameState.skirmishFog) _updateSkirmishFogAll();
     updateUI();
     // 烧牌动画 — 人类玩家从手牌飞到中央；AI/中立/远端在中央直接出现
     const isAI = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
@@ -2066,5 +2189,5 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         ? (COMMANDER_CONFIG[result.commander]?.name || null) : null;
     spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600, burnDisplayName);
     const airstrikeResults = (cardId === 'airstrike') ? (result.results || []) : null;
-    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, burnDisplayName });
+    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
 }

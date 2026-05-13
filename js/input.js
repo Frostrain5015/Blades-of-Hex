@@ -1,6 +1,7 @@
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
-import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner } from './state.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp } from './state.js';
+import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
     getMovableTiles, getAttackableTiles,
@@ -105,7 +106,7 @@ function _handleCardCanvasClick(e) {
                 _cardFromX = (screenX - gameRect.left) * scaleX;
                 _cardFromY = (screenY - gameRect.top) * scaleY;
             }
-            gameState.cardTargeting = { cardId, targeting: cfg.targeting };
+            gameState.cardTargeting = { cardId, targeting: cfg.targeting, handIndex: i };
             if (cardId === 'commanderDeploy') {
                 const cmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : myCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
                 const cmdCfg = COMMANDER_CONFIG[cmdKey];
@@ -659,6 +660,8 @@ export function initInput() {
                 isValid = clickedTile.unit != null;
             } else if (ct.targeting === 'anyUnit') {
                 isValid = clickedTile.unit != null;
+            } else if (ct.targeting === 'anyTileGlobal') {
+                isValid = true; // 侦察卡：全图任意地块均可选
             }
 
             if (isValid) {
@@ -737,7 +740,10 @@ export function initInput() {
         }
 
         updateRecruitButtonStates();
-        showTooltipForTile(clickedTile);
+        // 遭遇战迷雾：仅视野内地块显示 tooltip
+        if (!gameState.skirmishFog || isTileVisible(clickedTile, getViewingCamp(), gameState)) {
+            showTooltipForTile(clickedTile);
+        }
     });
 
     canvas.addEventListener('mouseleave', () => {

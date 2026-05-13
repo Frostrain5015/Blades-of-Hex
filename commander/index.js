@@ -42,11 +42,12 @@ export function shuffleAndSplitPool(isThreePlayer = false) {
     [keys[i], keys[j]] = [keys[j], keys[i]];
   }
   if (isThreePlayer) {
-    // 12个将领平均分3池
+    // 三人模式：12选9后均分，每人3选1
+    const pool = keys.slice(0, 9);
     return {
-      p1: keys.slice(0, 4),
-      p2: keys.slice(4, 8),
-      p3: keys.slice(8, 12)
+      p1: pool.slice(0, 3),
+      p2: pool.slice(3, 6),
+      p3: pool.slice(6, 9)
     };
   }
   // 双人模式：12选6后对半分，每人3选1

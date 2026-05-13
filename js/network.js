@@ -1,4 +1,5 @@
 import { CAMP } from './config.js';
+import { gameState } from './state.js';
 
 let _ws = null;
 let _myRole = null;   // 'player1' | 'player2' | 'player3' | null
@@ -140,7 +141,8 @@ export function connectToServer(url) {
                     break;
                 case 'start':
                     _myRole = msg.role;
-                    _cb.onStart?.(msg.role, msg.isThreePlayer);
+                    console.log('[FOG DEBUG] network received start: role=' + msg.role + ' skirmishFog=' + msg.skirmishFog);
+                    _cb.onStart?.(msg.role, msg.isThreePlayer, msg.skirmishFog);
                     break;
                 case 'error':
                     _cb.onError?.(msg.message);
@@ -249,7 +251,7 @@ export function disconnect() {
 
 export function createRoom(maxPlayers = 2) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
-    _ws.send(JSON.stringify({ type: 'createRoom', maxPlayers }));
+    _ws.send(JSON.stringify({ type: 'createRoom', maxPlayers, skirmishFog: gameState.skirmishFog || false }));
 }
 
 export function joinRoom(roomId) {
@@ -300,6 +302,7 @@ export function sendMessage(msg) {
 
 export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase, deployedUnitP1 = null, deployedUnitP2 = null, poolP3 = [], cmdP3 = null, p3Confirmed = false, p3Deployed = false, deployedUnitP3 = null) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+    console.log('[FOG DEBUG] syncCommanderState: skirmishFog=' + gameState.skirmishFog + ', gameMode=' + gameState.gameMode + ', _myRole=' + _myRole);
     _ws.send(JSON.stringify({
         type: 'commanderSync',
         commanderPoolP1: poolP1,
@@ -317,6 +320,8 @@ export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2
         commanderPhase: phase,
         deployedUnitP1: deployedUnitP1,
         deployedUnitP2: deployedUnitP2,
-        deployedUnitP3: deployedUnitP3
+        deployedUnitP3: deployedUnitP3,
+        skirmishFog: gameState.skirmishFog || false,
+        gameMode: gameState.gameMode || 'local'
     }));
 }

@@ -79,7 +79,17 @@ export const gameState = {
     playerDrawsThisTurn: { player1: 0, player2: 0, player3: 0 },
     playerUsesThisTurn: { player1: 0, player2: 0, player3: 0 },
     cardStackExpanded: false,
-    cardTargeting: null
+    cardTargeting: null,
+    // 战争迷雾（遭遇战模式）
+    skirmishFog: false,
+    visibleTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
+    exploredTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
+    _prevVisibleTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
+    _fogTransitionStart: 0,
+    // 侦察揭示：{ player1: Map("q,r" → expiresAt), ... }
+    scoutReveals: { player1: new Map(), player2: new Map(), player3: new Map() },
+    // PVE 难度：对手 AI 经济倍率（不影响中立 AI）
+    aiDifficulty: 1.0
 };
 
 // ===== 重置游戏状态（再来一局时调用） =====================
@@ -101,7 +111,7 @@ export function resetGameState() {
     gameState.selectionTime = 0;
     gameState.gameOver = false;
     gameState.victoryCamp = null;
-    gameState.previousGold = { player1: 40, player2: 40, player3: 40, neutral: 40 };
+    gameState.previousGold = { player1: -1, player2: -1, player3: -1, neutral: -1 };
     gameState.undoStack = [];
     gameState.turnCounter = 0;
     gameState.logHistory = [];
@@ -118,6 +128,13 @@ export function resetGameState() {
     gameState.deselectMoveTiles = [];
     gameState.deselectAtkTiles = [];
     gameState.deselectOrigin = null;
+    gameState.skirmishFog = false;
+    gameState.visibleTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
+    gameState.exploredTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
+    gameState._prevVisibleTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
+    gameState._fogTransitionStart = 0;
+    gameState.scoutReveals = { player1: new Map(), player2: new Map(), player3: new Map() };
+    gameState.aiDifficulty = 1.0;
     gameState.commanderPoolP1 = [];
     gameState.commanderPoolP2 = [];
     gameState.commanderPoolP3 = [];
@@ -158,6 +175,27 @@ function _campKeyStr(camp) {
     if (camp === CAMP.player2) return 'player2';
     if (camp === CAMP.player3) return 'player3';
     return 'neutral';
+}
+
+// 返回当前客户端应使用的观察阵营（遭遇战/多人模式迷雾渲染用）
+export function getViewingCamp() {
+    if (isNetworkGame()) {
+        const role = getMyRole();
+        let camp = CAMP.player1;
+        if (role === 'player1') camp = CAMP.player1;
+        else if (role === 'player2') camp = CAMP.player2;
+        else if (role === 'player3') camp = CAMP.player3;
+        // 已投降/战败：切换为观战视角，揭示全图视野
+        if (gameState.surrenderedCamps.includes(camp)) return CAMP.neutral;
+        return camp;
+    }
+    // PVE 模式人类固定观察己方（无论当前回合是谁）
+    if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
+        const humanCamp = gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
+        if (gameState.surrenderedCamps.includes(humanCamp)) return CAMP.neutral;
+        return humanCamp;
+    }
+    return gameState.currentCamp;
 }
 
 // ===== UI 更新 =====================
@@ -537,7 +575,24 @@ export function serializeState() {
         gameMode: gameState.gameMode || 'local',
         isThreePlayer: gameState.isThreePlayer || false,
         aiOpponentCampKey: gameState.aiOpponentCamp ? _campToKey(gameState.aiOpponentCamp) : null,
-        surrenderedCampKeys: gameState.surrenderedCamps.map(c => _campToKey(c))
+        surrenderedCampKeys: gameState.surrenderedCamps.map(c => _campToKey(c)),
+        skirmishFog: gameState.skirmishFog || false,
+        aiDifficulty: gameState.aiDifficulty || 1.0,
+        visibleTiles: gameState.visibleTiles ? {
+            player1: [...gameState.visibleTiles.player1],
+            player2: [...gameState.visibleTiles.player2],
+            player3: [...gameState.visibleTiles.player3]
+        } : { player1: [], player2: [], player3: [] },
+        exploredTiles: gameState.exploredTiles ? {
+            player1: [...gameState.exploredTiles.player1],
+            player2: [...gameState.exploredTiles.player2],
+            player3: [...gameState.exploredTiles.player3]
+        } : { player1: [], player2: [], player3: [] },
+        scoutReveals: gameState.scoutReveals ? {
+            player1: [...gameState.scoutReveals.player1],
+            player2: [...gameState.scoutReveals.player2],
+            player3: [...gameState.scoutReveals.player3]
+        } : { player1: [], player2: [], player3: [] }
     };
 }
 
@@ -589,6 +644,29 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.isThreePlayer = data.isThreePlayer || false;
     gameState.aiOpponentCamp = data.aiOpponentCampKey ? campMap[data.aiOpponentCampKey] : null;
     gameState.surrenderedCamps = (data.surrenderedCampKeys || []).map(k => campMap[k]).filter(Boolean);
+    gameState.skirmishFog = data.skirmishFog || false;
+    gameState.aiDifficulty = data.aiDifficulty || 1.0;
+    if (data.visibleTiles) {
+        gameState.visibleTiles = {
+            player1: new Set(data.visibleTiles.player1 || []),
+            player2: new Set(data.visibleTiles.player2 || []),
+            player3: new Set(data.visibleTiles.player3 || [])
+        };
+    }
+    if (data.exploredTiles) {
+        gameState.exploredTiles = {
+            player1: new Set(data.exploredTiles.player1 || []),
+            player2: new Set(data.exploredTiles.player2 || []),
+            player3: new Set(data.exploredTiles.player3 || [])
+        };
+    }
+    if (data.scoutReveals) {
+        gameState.scoutReveals = {
+            player1: new Map(data.scoutReveals.player1 || []),
+            player2: new Map(data.scoutReveals.player2 || []),
+            player3: new Map(data.scoutReveals.player3 || [])
+        };
+    }
 
     // Preserve displayHp & commander for units (prevents flicker & commander loss on sync)
     const oldDisplayHp = new Map();

@@ -9,11 +9,11 @@ export default {
     id: 'paladin',
     name: '圣骑士',
     hpBonus: 50,
-    atkBonus: 20,
+    atkBonus: 15,
     spdBonus: 0,
     skills: [
         { name: '勇气灵光', desc: '自身及相邻6格友军攻击力+10%，士气不会下降或混乱', type: 'passive' },
-        { name: '誓言', desc: '【勇气灵光】范围内的友军（包括自己）受击时获得1誓言（上限3），击杀时再获得1誓言', type: 'passive' },
+        { name: '誓言', desc: '【勇气灵光】范围内的友军（包括自己）受击时获得1誓言（上限3），击杀时再获得1誓言。每层为圣骑士提供6.67%防御力', type: 'passive' },
         { name: '至圣斩', desc: '每次点击消耗1层誓言蓄力（1层40/2层100真实伤害），最多2层', type: 'active' }
     ],
 
@@ -22,6 +22,10 @@ export default {
     onDeploy(unit, gameState, helpers) {
         unit._faith = 1;
         _syncOrbitBeams(unit, helpers);
+    },
+
+    getDefenseBonus(unit) {
+        return (unit._faith || 0) * 0.0667;
     },
 
     onKill(killer, victim, helpers) {

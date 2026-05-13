@@ -22,9 +22,13 @@ import {
     paladinOrbitBeams, updatePaladinOrbitBeams, drawPaladinOrbitBeamsBack, drawPaladinOrbitBeamsFront,
     paladinBeamProjectiles, updatePaladinBeamProjectiles, drawPaladinBeamProjectiles
 } from './effects.js';
+import { isTileVisible, getTileVisibilityState, getFogAlpha } from './fogOfWar.js';
+import { getViewingCamp } from './state.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
+let _fogLogged = false;
+let _fogInitLogged = false;
 
 function _lerpColor(aHex, bHex, t) {
     const ar = parseInt(aHex.slice(1, 3), 16), ag = parseInt(aHex.slice(3, 5), 16), ab = parseInt(aHex.slice(5, 7), 16);
@@ -51,6 +55,10 @@ function _drawBorderGlow(ctx, color, bw, w, h) {
 }
 
 export function renderGame() {
+    if (!_fogInitLogged && gameState.tiles.length > 0) {
+        console.log('[FOG DEBUG] renderGame first frame with tiles: skirmishFog=' + gameState.skirmishFog + ', gameMode=' + gameState.gameMode + ', tileCount=' + gameState.tiles.length);
+        _fogInitLogged = true;
+    }
     const now = performance.now();
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
@@ -77,6 +85,7 @@ export function renderGame() {
 
     // Draw tile bases (fill + star only, no borders)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawBase(ctx);
+
     // Borders — standalone per-edge pass
     drawAllBorders(ctx, tiles, gameState.tileMap);
     // Flag poles (before units)
@@ -99,7 +108,7 @@ export function renderGame() {
         return null;
     });
     drawPaladinOrbitBeamsBack(ctx, now);
-    // Units
+    // Units — 全部绘制，非可见地块会在后续迷雾阶段被地形覆绘+遮罩覆盖
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
     // City disabled indicator (same layer as Iron Guard shield)
     for (let i = 0, len = tiles.length; i < len; i++) {
@@ -442,6 +451,41 @@ export function renderGame() {
 
     // 尚书金币
     if (coinParticles.length > 0) drawCoinParticles(ctx);
+
+    // 战争迷雾遮罩（遭遇战模式）—— 在所有 VFX 之后绘制，防止特效穿透暴露位置
+    if (gameState.skirmishFog) {
+        const viewingCamp = getViewingCamp();
+        const nowPerf = performance.now();
+        if (!_fogLogged) {
+            console.log('[FOG DEBUG] renderer: skirmishFog=true, viewingCamp=' + (viewingCamp && viewingCamp.name) + ', visibleTiles sizes: P1=' + gameState.visibleTiles.player1.size + ' P2=' + gameState.visibleTiles.player2.size);
+            _fogLogged = true;
+        }
+        for (let i = 0, len = tiles.length; i < len; i++) {
+            const tile = tiles[i];
+            const { alpha, state } = getFogAlpha(tile, viewingCamp, gameState, nowPerf);
+            if (alpha <= 0) continue;
+            if (state === 'unexplored') {
+                // 径向渐变：全不透明，边缘略深
+                hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+                const grad = ctx.createRadialGradient(tile.x, tile.y, HEX_SIZE * 0.1, tile.x, tile.y, HEX_SIZE * 1.05);
+                const a = Math.min(1, alpha);
+                grad.addColorStop(0, `rgba(6,7,14,${a})`);
+                grad.addColorStop(0.6, `rgba(8,9,17,${a})`);
+                grad.addColorStop(1, `rgba(12,13,22,${a * 0.95})`);
+                ctx.fillStyle = grad;
+                ctx.fill();
+            } else {
+                // explored：覆绘地形基底遮盖部队/特效，再叠加暗色遮罩
+                tile.drawBase(ctx);
+                hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+                const grad = ctx.createRadialGradient(tile.x, tile.y, HEX_SIZE * 0.3, tile.x, tile.y, HEX_SIZE * 1.05);
+                grad.addColorStop(0, `rgba(0,0,0,${alpha})`);
+                grad.addColorStop(1, `rgba(0,0,0,${alpha * 0.7})`);
+                ctx.fillStyle = grad;
+                ctx.fill();
+            }
+        }
+    }
 
     ctx.restore();
 
@@ -1163,12 +1207,21 @@ function drawRangeApertures(now) {
                 if (tile.unit || tile.isCity || tile.terrain === 'mountain' || tile.camp !== myCamp) continue;
             } else if (ct.targeting === 'emptyFriendlyLandmine') {
                 if (tile.unit || tile.isCity || tile.camp !== myCamp) continue;
+            } else if (ct.targeting === 'anyTileGlobal') {
+                // 侦察卡：全图任何地块都可选
             } else { continue; }
+
+            // 遭遇战迷雾：对策卡仅高亮视野内目标（侦察卡除外）
+            if (gameState.skirmishFog && ct.targeting !== 'anyTileGlobal') {
+                const viewingCamp = getViewingCamp();
+                if (!isTileVisible(tile, viewingCamp, gameState)) continue;
+            }
 
             let r, g, b;
             if (isHeal)       { r = 80;  g = 255; b = 100; }
             else if (isShield) { r = 100; g = 180; b = 255; } // light blue for shield
             else if (ct.targeting === 'enemyCity') { r = 255; g = 120; b = 30; } // orange for airstrike
+            else if (ct.targeting === 'anyTileGlobal') { r = 160; g = 200; b = 255; } // light cyan for scout
             else if (isEmpty) { r = 100; g = 200; b = 255; } // blue for deploy/landmine
             else if (isFriendly) { r = 255; g = 200; b = 50; } // gold for friendly
             else              { r = 255; g = 50;  b = 50; } // red for enemy
@@ -1903,9 +1956,11 @@ function drawCardUseAnimation(now) {
 // ===== 空袭 / 空降飞机特效 =====================
 // ===== 将领透明底立绘（先锋旗） =====================
 function drawCommanderPennants() {
+    const viewingCamp = getViewingCamp();
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         if (!unit || !unit.commander) continue;
+        if (gameState.skirmishFog && !isTileVisible(tile, viewingCamp, gameState)) continue;
         const portrait = getTransparentPortrait(unit.commander);
         if (!portrait) continue;
 

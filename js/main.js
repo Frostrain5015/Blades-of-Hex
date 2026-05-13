@@ -321,20 +321,145 @@ document.getElementById('exitToLobbyBtn').addEventListener('click', () => {
     showHome();
 });
 
-// ==== PVE 模式 — 强制玩家为红军，跳过投骰 ====
-document.getElementById('pveGameBtn').addEventListener('click', () => {
-    showHome();
-    gameState.gameMode = 'pve';
-    gameState.aiOpponentCamp = CAMP.player2; // 蓝军固定为 AI（Grok）
-    beginPVECommanderPhase('player1');        // 人类固定为红军
-});
+// ==== 准备弹窗 =====================
+let _prepAction = null; // 'solo' | 'multiplayer'
 
-// ==== 单人游戏（本地双人） ----
-document.getElementById('localGameBtn').addEventListener('click', () => {
+function _buildPrepOptionRow(containerId, choices) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+    let selected = choices[0].id;
+    for (const c of choices) {
+        const el = document.createElement('div');
+        el.className = 'prep-option' + (c.id === selected ? ' selected' : '');
+        el.dataset.value = c.id;
+        el.innerHTML = `<div class="prep-option-title">${c.title}</div><div class="prep-option-desc">${c.desc}</div>`;
+        el.addEventListener('click', () => {
+            container.querySelectorAll('.prep-option').forEach(o => o.classList.remove('selected'));
+            el.classList.add('selected');
+        });
+        container.appendChild(el);
+    }
+}
+
+function _getPrepSelection(containerId) {
+    const sel = document.querySelector(`#${containerId} .prep-option.selected`);
+    return sel ? sel.dataset.value : null;
+}
+
+function _showPrepDialog(action) {
+    _prepAction = action;
+    const overlay = document.getElementById('prepOverlay');
+    const title = document.getElementById('prepTitle');
+
+    if (action === 'createRoom') {
+        title.textContent = '创建房间';
+        document.getElementById('prepLabel1').textContent = '对战人数';
+        document.getElementById('prepLabel2').textContent = '对战模式';
+        document.getElementById('prepSectionDiff').style.display = 'none';
+        _buildPrepOptionRow('prepOptions1', [
+            { id: '2p', title: '双人', desc: '1v1 在线对战' },
+            { id: '3p', title: '三人', desc: '三方混战' }
+        ]);
+        _buildPrepOptionRow('prepOptions2', [
+            { id: 'standard', title: '标准模式', desc: '正常规则' },
+            { id: 'skirmish', title: '遭遇战', desc: '战争迷雾' }
+        ]);
+    } else {
+        title.textContent = '本地游戏';
+        document.getElementById('prepLabel1').textContent = '对战类型';
+        document.getElementById('prepLabel2').textContent = '对战模式';
+        // 难度行：初始显示，PVE 选中时可见
+        const diffSection = document.getElementById('prepSectionDiff');
+        _buildPrepOptionRow('prepOptions1', [
+            { id: 'pve', title: 'PVE 对战AI', desc: '红军 vs 蓝军AI' },
+            { id: 'local', title: '本地双人', desc: '两位玩家轮流' }
+        ]);
+        _buildPrepOptionRow('prepOptions2', [
+            { id: 'standard', title: '标准模式', desc: '正常规则' },
+            { id: 'skirmish', title: '遭遇战', desc: '战争迷雾' }
+        ]);
+        _buildPrepOptionRow('prepOptionsDiff', [
+            { id: 'easy', title: '简单', desc: 'AI 1x 经济' },
+            { id: 'medium', title: '中等', desc: 'AI 1.5x 经济' },
+            { id: 'hard', title: '困难', desc: 'AI 2x 经济' }
+        ]);
+        // PVE/本地 切换显示难度行
+        diffSection.style.display = 'block';
+        const updateDiff = () => {
+            const sel = _getPrepSelection('prepOptions1');
+            diffSection.style.display = sel === 'pve' ? 'block' : 'none';
+        };
+        document.getElementById('prepOptions1').addEventListener('click', () => setTimeout(updateDiff, 50));
+        updateDiff();
+    }
+
+    overlay.classList.add('show');
+
+    document.getElementById('prepConfirm').onclick = () => {
+        overlay.classList.remove('show');
+        _executePrepChoice();
+    };
+    document.getElementById('prepCancel').onclick = () => {
+        overlay.classList.remove('show');
+    };
+}
+
+function _executePrepChoice() {
+    const sel1 = _getPrepSelection('prepOptions1');
+    const sel2 = _getPrepSelection('prepOptions2');
+    const isSkirmish = sel2 === 'skirmish';
+    console.log('[FOG DEBUG] _executePrepChoice: action=' + _prepAction + ' sel1=' + sel1 + ' sel2=' + sel2 + ' isSkirmish=' + isSkirmish);
     showHome();
-    gameState.gameMode = 'local';
-    gameState.aiOpponentCamp = null;
-    beginCommanderPhase();
+
+    if (_prepAction === 'createRoom') {
+        const maxP = sel1 === '3p' ? 3 : 2;
+        gameState.isThreePlayer = maxP === 3;
+        gameState.skirmishFog = isSkirmish;
+        console.log('[FOG DEBUG] _executePrepChoice createRoom: set skirmishFog=' + gameState.skirmishFog + ' isThreePlayer=' + gameState.isThreePlayer);
+        setStatus(`正在创建${maxP}人房间...`);
+        createRoom(maxP);
+        return;
+    }
+
+    // 单人模式
+    if (sel1 === 'pve') {
+        gameState.gameMode = 'pve';
+        gameState.skirmishFog = isSkirmish;
+        gameState.aiOpponentCamp = CAMP.player2;
+        const diff = _getPrepSelection('prepOptionsDiff');
+        gameState.aiDifficulty = diff === 'medium' ? 1.5 : diff === 'hard' ? 2.0 : 1.0;
+        beginPVECommanderPhase('player1');
+    } else {
+        gameState.gameMode = isSkirmish ? 'skirmish' : 'local';
+        gameState.skirmishFog = isSkirmish;
+        gameState.aiOpponentCamp = null;
+        beginCommanderPhase();
+    }
+}
+
+// ==== 单人模式按钮 ====
+document.getElementById('soloGameBtn').addEventListener('click', () => _showPrepDialog('solo'));
+
+// ==== 多人游戏 → 直接连接服务器进大厅 ====
+document.getElementById('multiplayerBtn').addEventListener('click', () => {
+    lobbyHome.style.display = 'none';
+    if (isNetworkGame() || connectionDot.classList.contains('connected')) {
+        registerNetworkCallbacks();
+        showMultiplayerLobby();
+        listRooms();
+        return;
+    }
+    setConnectionState('connecting');
+    registerNetworkCallbacks();
+    connectToServer(wsUrl(location.host)).then(() => {
+        setConnectionState('connected');
+        showMultiplayerLobby();
+        listRooms();
+    }).catch(err => {
+        setConnectionState('disconnected');
+        console.error('WebSocket 连接失败:', err);
+        showHome(`连接失败：${err.message}（请确认服务器已启动）`);
+    });
 });
 
 // ==== 将领选择流程 =====================
@@ -343,9 +468,12 @@ let _commanderTransitioning = false; // 防止移动端双击重复触发
 
 function beginCommanderPhase() {
     document.getElementById('lobbyOverlay').style.display = 'none';
-    // 清除上一局所有遗留状态
     _deploymentStarted = false;
+    const savedMode = gameState.gameMode;
+    const savedFog = gameState.skirmishFog;
     resetGameState();
+    gameState.gameMode = savedMode;
+    gameState.skirmishFog = savedFog;
     _commanderTransitioning = false;
     const pool = shuffleAndSplitPool();
     gameState.commanderPoolP1 = pool.p1;
@@ -358,9 +486,13 @@ function beginCommanderPhase() {
 function beginPVECommanderPhase(humanRole) {
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
+    const savedFog = gameState.skirmishFog;
+    const savedDiff = gameState.aiDifficulty;
     resetGameState();
     // 保持 PVE 模式状态（resetGameState 会清掉，重新设置）
     gameState.gameMode = 'pve';
+    gameState.skirmishFog = savedFog;
+    gameState.aiDifficulty = savedDiff;
     gameState.aiOpponentCamp = humanRole === 'player1' ? CAMP.player2 : CAMP.player1;
     _commanderTransitioning = false;
     const pool = shuffleAndSplitPool();
@@ -419,8 +551,14 @@ function beginNetworkCommanderFlow(role) {
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
     const wasThreePlayer = gameState.isThreePlayer;
+    const wasSkirmish = gameState.skirmishFog;
+    const wasMode = gameState.gameMode;
+    console.log('[FOG DEBUG] beginNetworkCommanderFlow: wasSkirmish=' + wasSkirmish + ', wasMode=' + wasMode + ', role=' + role);
     resetGameState();
     gameState.isThreePlayer = wasThreePlayer;
+    gameState.skirmishFog = wasSkirmish;
+    gameState.gameMode = wasMode;
+    console.log('[FOG DEBUG] beginNetworkCommanderFlow after reset: skirmishFog=' + gameState.skirmishFog + ', gameMode=' + gameState.gameMode);
     _commanderTransitioning = false;
     gameState.commanderPhase = 'selection';
 
@@ -914,44 +1052,9 @@ function renderRoomList(list) {
     });
 }
 
-// 多人游戏 → 连接服务器（若已连接则直接进入大厅）
-document.getElementById('multiplayerBtn').addEventListener('click', () => {
-    lobbyHome.style.display = 'none';
-    if (isNetworkGame() || connectionDot.classList.contains('connected')) {
-        // 已有活跃连接，直接进大厅
-        registerNetworkCallbacks();
-        showMultiplayerLobby();
-        listRooms();
-        return;
-    }
-    setConnectionState('connecting');
-    registerNetworkCallbacks();
-    connectToServer(wsUrl(location.host)).then(() => {
-        setConnectionState('connected');
-        showMultiplayerLobby();
-        listRooms();
-    }).catch(err => {
-        setConnectionState('disconnected');
-        console.error('WebSocket 连接失败:', err, 'URL:', wsUrl(location.host));
-        showHome(`连接失败：${err.message}（请确认服务器已启动，并刷新页面）`);
-    });
-});
 
-// 房间模式切换（2P/3P）
-let _roomMode = 2;
-document.querySelectorAll('.room-mode-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        _roomMode = parseInt(btn.dataset.mode);
-        document.querySelectorAll('.room-mode-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-    });
-});
-
-// 创建房间
-document.getElementById('createRoomBtn').addEventListener('click', () => {
-    setStatus(`正在创建${_roomMode}人房间...`);
-    createRoom(_roomMode);
-});
+// 创建房间 → 先弹出准备弹窗选择人数和模式
+document.getElementById('createRoomBtn').addEventListener('click', () => _showPrepDialog('createRoom'));
 
 // 刷新房间列表
 document.getElementById('refreshRoomsBtn').addEventListener('click', () => {
@@ -1069,8 +1172,10 @@ function registerNetworkCallbacks() {
             reconnectBtn.style.display = '';
         },
 
-        onStart: (role, isThreePlayer) => {
+        onStart: (role, isThreePlayer, skirmishFog) => {
             if (isThreePlayer !== undefined) gameState.isThreePlayer = isThreePlayer;
+            if (skirmishFog !== undefined) gameState.skirmishFog = skirmishFog;
+            console.log('[FOG DEBUG] onStart: role=' + role + ' skirmishFog=' + skirmishFog + ' isThreePlayer=' + isThreePlayer);
             roomWaiting.style.display = 'none';
             showFactionReveal(role);
         },
@@ -1157,6 +1262,7 @@ function registerNetworkCallbacks() {
         },
 
         onCommanderSync: (msg) => {
+            console.log('[FOG DEBUG] onCommanderSync received: skirmishFog=' + msg.skirmishFog + ', gameMode=' + msg.gameMode + ', myRole=' + getMyRole());
             const hadPool = gameState.commanderPoolP1.length > 0;
             gameState.commanderPoolP1 = msg.commanderPoolP1 || [];
             gameState.commanderPoolP2 = msg.commanderPoolP2 || [];
@@ -1171,6 +1277,8 @@ function registerNetworkCallbacks() {
             gameState.commanderP2Deployed = msg.commanderP2Deployed || false;
             gameState.commanderP3Deployed = msg.commanderP3Deployed || false;
             gameState.commanderPhase = msg.commanderPhase || 'selection';
+            if (msg.skirmishFog !== undefined) gameState.skirmishFog = msg.skirmishFog;
+            if (msg.gameMode !== undefined) gameState.gameMode = msg.gameMode;
             if (msg.deployedUnitP1 || msg.deployedUnitP2 || msg.deployedUnitP3) {
                 const myRole = getMyRole();
                 const getOtherDeploy = (role) => {
@@ -1307,7 +1415,7 @@ async function handleRemoteAction(msg) {
                     const cc = e.capturedCity;
                     const cityTile = gameState.tileMap.get(`${cc.q},${cc.r}`);
                     if (cityTile && cc.campKey) {
-                        const campMap = { p1: CAMP.player1, p2: CAMP.player2, p3: CAMP.player3 };
+                        const campMap = { player1: CAMP.player1, player2: CAMP.player2, player3: CAMP.player3 };
                         forceDistrictFade(cityTile, campMap[cc.campKey] || cityTile.camp);
                     }
                 }
@@ -1496,6 +1604,13 @@ async function handleRemoteAction(msg) {
                         case 'landmine':
                             // 地雷位置不能暴露给对手；爆炸由 mineTrigger 在 move 中广播
                             break;
+                        case 'scout': {
+                            // 侦察揭示数据已通过 state 同步（scoutReveals + visibleTiles）
+                            // 远端仅重放视觉特效，不再修改数据避免阵营错配
+                            playSound('recruit');
+                            spawnCommanderSkillEffect(e.x, e.y, '🔭', '侦察');
+                            break;
+                        }
                         case 'commanderDeploy':
                             playSound('recruit');
                             spawnCommanderSkillEffect(e.x, e.y);

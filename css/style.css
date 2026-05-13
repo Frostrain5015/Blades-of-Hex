@@ -1508,6 +1508,120 @@ body {
     justify-content: center;
 }
 
+/* ---- 准备弹窗 ---- */
+#prepOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.78);
+    z-index: 22000;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+}
+#prepOverlay.show { display: flex; }
+
+.prep-panel {
+    background: rgba(14, 7, 3, 0.98);
+    border: 1px solid var(--gold-border);
+    border-radius: var(--radius-md);
+    padding: 28px 32px;
+    min-width: 360px;
+    max-width: 440px;
+    text-align: center;
+    box-shadow: 0 0 52px rgba(0, 0, 0, 0.88);
+}
+#prepTitle {
+    color: var(--text-bright);
+    font-size: 18px;
+    margin-bottom: 20px;
+    letter-spacing: 2px;
+}
+.prep-section {
+    margin-bottom: 16px;
+}
+.prep-section-label {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+.prep-options {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+.prep-option {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.2s, background 0.2s;
+    color: var(--text-bright);
+    font-size: 14px;
+    letter-spacing: 1px;
+}
+.prep-option:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+.prep-option.selected {
+    border-color: var(--gold-border);
+    background: rgba(255, 200, 0, 0.06);
+}
+.prep-option .prep-option-title {
+    font-size: 15px;
+    font-weight: bold;
+    margin-bottom: 2px;
+}
+.prep-option .prep-option-desc {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+}
+.prep-btns {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 4px;
+}
+
+/* ---- 回合过渡遮罩（遭遇战热座）---- */
+.turn-transition-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    z-index: 16000;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+}
+.turn-transition-overlay.show { display: flex; }
+.turn-transition-text {
+    font-size: 36px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    color: var(--text-bright);
+    margin-bottom: 16px;
+    animation: turnFadeIn 0.5s ease;
+}
+.turn-transition-sub {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 2px;
+    animation: turnFadeIn 1s ease;
+}
+@keyframes turnFadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
 /* =============================================================
    LOBBY OVERLAY
    ============================================================= */

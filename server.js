@@ -213,7 +213,8 @@ function handleMessage(ws, rawData) {
                 break;
             }
             const maxPlayers = msg.maxPlayers || 2; // 默认双人，可选3人
-            const room = { id: roomId, players: new Map(), gameStarted: false, maxPlayers };
+            const skirmishFog = msg.skirmishFog || false;
+            const room = { id: roomId, players: new Map(), gameStarted: false, maxPlayers, skirmishFog };
             room.players.set(ws, { role: 'player1' });
             rooms.set(roomId, room);
             ws._room = room;
@@ -367,7 +368,7 @@ function handleMessage(ws, rawData) {
                 }
                 for (let i = 0; i < players.length; i++) {
                     room.players.set(players[i], { ...room.players.get(players[i]), role: roles[i] });
-                    sendJson(players[i], { type: 'start', role: roles[i], isThreePlayer: room.maxPlayers === 3 });
+                    sendJson(players[i], { type: 'start', role: roles[i], isThreePlayer: room.maxPlayers === 3, skirmishFog: room.skirmishFog || false });
                 }
                 console.log(`[房间 ${room.id}] ${room.maxPlayers}人准备完毕，游戏开始`);
             }
@@ -390,8 +391,8 @@ function handleMessage(ws, rawData) {
                 const roleB = roleA === 'player1' ? 'player2' : 'player1';
                 room.players.set(ws, { role: roleA });
                 room.players.set(other, { role: roleB });
-                sendJson(ws, { type: 'start', role: roleA });
-                sendJson(other, { type: 'start', role: roleB });
+                sendJson(ws, { type: 'start', role: roleA, skirmishFog: room.skirmishFog || false });
+                sendJson(other, { type: 'start', role: roleB, skirmishFog: room.skirmishFog || false });
                 console.log(`[房间 ${room.id}] 再来一局`);
             }
             break;

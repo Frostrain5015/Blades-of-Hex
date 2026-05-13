@@ -10,6 +10,7 @@ import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CA
 import { isNetworkGame, sendMessage } from './network.js';
 import { getCommander } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
+import { updateFogOfWar, isTileVisible } from './fogOfWar.js';
 import * as claudePersonality from '../.ai/claude.js';
 import * as grokPersonality from '../.ai/grok.js';
 
@@ -40,7 +41,7 @@ function resolveTile(q, r) {
 
 // 创建 helpers（每次执行时刷新 weather 等动态值）
 function makeHelpers() {
-    return { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, weather: gameState.weather };
+    return { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, weather: gameState.weather, isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState) };
 }
 
 async function executeAction(action, aiCamp) {
@@ -243,6 +244,8 @@ export async function processNeutralTurn() {
 
     gameState.aiActing = true;
     const aiCamp = CAMP.neutral;
+    // 遭遇战迷雾：AI 也需要更新视野
+    if (gameState.skirmishFog) updateFogOfWar(gameState, aiCamp);
     try {
 
         const helpers = makeHelpers();
@@ -283,6 +286,8 @@ export async function processOpponentTurn(aiCamp) {
     if (aiCamp === CAMP.neutral) return; // 中立用 Claude
 
     gameState.aiActing = true;
+    // 遭遇战迷雾：AI 也需要更新视野
+    if (gameState.skirmishFog) updateFogOfWar(gameState, aiCamp);
     try {
 
         const helpers = makeHelpers();

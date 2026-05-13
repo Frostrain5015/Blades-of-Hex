@@ -709,8 +709,8 @@ export class Unit {
         if (this.counterAttackCount >= 1 || this.type === 'archer' || this.morale === 0) {
             return { dmg: 0, isCrit: false };
         }
-        // 炮兵远程攻击（距离>1）时，被攻击方无法反击
-        if (attackerUnit.type === 'archer' && hexDistance(attackerUnit.tile, this.tile) > 1) {
+        // 炮兵/要塞远程攻击（距离>1）时，被攻击方无法反击
+        if ((attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') && hexDistance(attackerUnit.tile, this.tile) > 1) {
             return { dmg: 0, isCrit: false };
         }
 
