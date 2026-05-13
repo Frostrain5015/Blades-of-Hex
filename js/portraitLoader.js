@@ -4,18 +4,25 @@ import { COMMANDER_CONFIG } from './config.js';
 const _portraits = new Map();   // commanderId → Image (选将/手牌)
 const _trPortraits = new Map(); // commanderId → Image (透明底战场立绘)
 
+function _loadOne(id, cfg) {
+    const img = new Image();
+    img.src = `img/commander/${cfg.name}.jpg`;
+    _portraits.set(id, img);
+    const trImg = new Image();
+    trImg.src = `img/commander_tr/${cfg.name}.png`;
+    _trPortraits.set(id, trImg);
+}
+
 export function preloadPortraits() {
     for (const [id, cfg] of Object.entries(COMMANDER_CONFIG)) {
-        if (!_portraits.has(id)) {
-            const img = new Image();
-            img.src = `img/commander/${cfg.name}.jpg`;
-            _portraits.set(id, img);
-        }
-        if (!_trPortraits.has(id)) {
-            const img = new Image();
-            img.src = `img/commander_tr/${cfg.name}.png`;
-            _trPortraits.set(id, img);
-        }
+        if (!_portraits.has(id)) _loadOne(id, cfg);
+    }
+}
+
+// 联机重连后强制重新加载所有将领立绘（旧 Image 对象可能已失效）
+export function reloadPortraits() {
+    for (const [id, cfg] of Object.entries(COMMANDER_CONFIG)) {
+        _loadOne(id, cfg);
     }
 }
 

@@ -33,6 +33,11 @@ function broadcastAction(actionType, effectData = null) {
 
 // ===== 二次确认弹窗 =====================
 let _confirmActive = false;
+export function resetConfirmActive() {
+    _confirmActive = false;
+    const overlay = document.getElementById('confirmOverlay');
+    if (overlay) overlay.classList.remove('show');
+}
 let _cityCapturedInAttack = false;
 let _capturedCityOnMove = null;
 let _moraleFxUnitId = null;
@@ -313,29 +318,55 @@ export function initMap() {
     logMessage(is3P ? '三人模式开始，红军先手' : '游戏开始，红军先手');
 
     // 绑定按钮事件（仅首次，避免重开时重复绑定）
-    if (!_initMapEventsBound) {
-        _initMapEventsBound = true;
-        const surrenderBtn = document.getElementById('surrenderBtn');
-        if (surrenderBtn) {
-            surrenderBtn.addEventListener('click', handleSurrender);
-        }
-        document.getElementById('endTurnBtn').addEventListener('click', endTurn);
-        document.getElementById('recruitInfantry').addEventListener('click', () => recruitUnit('infantry'));
-        document.getElementById('recruitCavalry').addEventListener('click', () => recruitUnit('cavalry'));
-        document.getElementById('recruitArcher').addEventListener('click', () => recruitUnit('archer'));
-
-        const saveBtn = document.getElementById('saveGameBtn');
-        const loadBtn = document.getElementById('loadGameBtn');
-        if (saveBtn) saveBtn.addEventListener('click', () => saveGame());
-        if (loadBtn) loadBtn.addEventListener('click', () => {
-            loadGame(HexTile, Unit);
-            clearTransientEffects();
-        });
-    }
+    _bindGameButtons();
 
     initCardDeck();
     invalidateBoard();
 }
+
+// 游戏按钮/事件重绑定（联机重连后调用以恢复事件监听）
+export function rebindGameEvents() {
+    _initMapEventsBound = false;
+    _bindGameButtons();
+}
+
+function _bindGameButtons() {
+    if (_initMapEventsBound) return;
+    _initMapEventsBound = true;
+    const surrenderBtn = document.getElementById('surrenderBtn');
+    if (surrenderBtn) {
+        // 移除旧监听以防重复绑定
+        surrenderBtn.removeEventListener('click', handleSurrender);
+        surrenderBtn.addEventListener('click', handleSurrender);
+    }
+    const endTurnBtn = document.getElementById('endTurnBtn');
+    if (endTurnBtn) {
+        endTurnBtn.removeEventListener('click', endTurn);
+        endTurnBtn.addEventListener('click', endTurn);
+    }
+    document.getElementById('recruitInfantry').addEventListener('click', _onRecruitInfantry);
+    document.getElementById('recruitCavalry').addEventListener('click', _onRecruitCavalry);
+    document.getElementById('recruitArcher').addEventListener('click', _onRecruitArcher);
+
+    const saveBtn = document.getElementById('saveGameBtn');
+    const loadBtn = document.getElementById('loadGameBtn');
+    if (saveBtn) saveBtn.addEventListener('click', _onSaveGame);
+    if (loadBtn) loadBtn.addEventListener('click', _onLoadGame);
+}
+
+const _onRecruitInfantry = () => recruitUnit('infantry');
+const _onRecruitCavalry = () => recruitUnit('cavalry');
+const _onRecruitArcher = () => recruitUnit('archer');
+function _onSaveGame() { saveGame(); }
+function _onLoadGame() { loadGame(HexTile, Unit); clearTransientEffects(); }
+
+function _resetEventsBound() {
+    _initMapEventsBound = false;
+}
+
+    initCardDeck();
+    invalidateBoard();
+
 
 function initCardDeck() {
     const deck = [...DECK_COMPOSITION];

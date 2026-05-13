@@ -3,12 +3,12 @@ import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, getCommander } from './commanderInterface.js';
-import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade } from './gameLogic.js';
+import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
-import { initInput, initKeyboard, initSettingsPanel } from './input.js';
+import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect } from './network.js';
 import { CAMP } from './config.js';
-import { preloadPortraits } from './portraitLoader.js';
+import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
 import {
     triggerTurnFlash,
     triggerAttackFlash, triggerRecruitFlash, triggerHealFlash,
@@ -20,7 +20,11 @@ import {
     spawnMinisterDominionRing,
     spawnCardUseEffect,
     spawnGoldenBeam, spawnPaladinOrbitBeams, clearPaladinOrbitBeams, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords,
-    spawnHealingChain
+    spawnHealingChain,
+    spawnSlashMarks,
+    spawnAirstrikeEffect,
+    spawnHealParticles,
+    clearTransientEffects
 } from './effects.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
@@ -1045,8 +1049,9 @@ function registerNetworkCallbacks() {
         },
 
         onDisconnected: () => {
+            console.log('[重连] onDisconnected 触发，isNetworkGame=' + isNetworkGame() + '，_myRole=' + (typeof getMyRole === 'function' ? getMyRole() : '?'));
             setConnectionState('disconnected');
-            if (isNetworkGame()) showHome('已断开连接，正在尝试重连...');
+            if (isNetworkGame()) showHome('已断开连接，正在尝试重连...'); else console.log('[重连] onDisconnected: 非联机状态，不跳转主页');
         },
 
         onSocketReconnected: () => {
@@ -1064,12 +1069,6 @@ function registerNetworkCallbacks() {
             reconnectBtn.style.display = '';
         },
 
-        onReconnected: () => {
-            setConnectionState('connected');
-            // WebSocket 重连成功 → 重新获取房间列表
-            listRooms();
-        },
-
         onStart: (role, isThreePlayer) => {
             if (isThreePlayer !== undefined) gameState.isThreePlayer = isThreePlayer;
             roomWaiting.style.display = 'none';
@@ -1083,7 +1082,9 @@ function registerNetworkCallbacks() {
             logMessage('⚠ 对手已断开连接');
             // 对局中：立即存下全量状态到服务器
             if (gameState.commanderPhase === 'done') {
-                sendMessage({ type: 'saveState', state: serializeState() });
+                const st = serializeState();
+                console.log('[重连] saveState: drawPile=' + (st.cardDrawPile ? st.cardDrawPile.length : '?') + '，p1Hand=' + (st.playerHands ? st.playerHands.player1.length : '?') + '，p2Hand=' + (st.playerHands ? st.playerHands.player2.length : '?'));
+                sendMessage({ type: 'saveState', state: st });
                 logMessage('📦 已暂存对局状态到服务器');
             }
             roomWaitingText.textContent = '对手已离开，等待重连...';
@@ -1099,36 +1100,56 @@ function registerNetworkCallbacks() {
             logMessage('🔗 对手已重连');
         },
 
-        // 自己重连 → 跳过揭示动画，直接进入对局
+        // 自己重连（大厅/对局中统一处理）
         onReconnected: (role) => {
-            _isReady = false;
-            readyBtn.textContent = '准备';
-            readyBtn.style.background = '#27ae60';
-            // 清除各种遮罩残留
-            document.getElementById('roomWaiting').style.display = 'none';
-            document.getElementById('victoryOverlay').classList.remove('show');
-            document.getElementById('factionReveal').classList.remove('show');
-            document.getElementById('commanderOverlay').classList.remove('show');
-            document.body.style.pointerEvents = '';
-            // 初始化棋盘（stateSync 到达后会覆盖，但先有底板避免空画布）
-            resetGameState();
-            // 显示游戏界面
-            document.getElementById('lobbyOverlay').style.display = 'none';
-            document.getElementById('gameWrapper').style.display = '';
-            document.getElementById('opponentTurnBanner').style.display = '';
-            document.getElementById('networkIndicator').style.display = 'flex';
-            document.getElementById('networkRoleText').textContent =
-                role === 'player1' ? '红军' : '蓝军';
-            // 触发画布自适应
-            setTimeout(() => {
-                const wrapper = document.getElementById('canvasWrapper');
-                const cw = wrapper.clientWidth;
-                const ch = wrapper.clientHeight;
-                const scale = Math.min(cw / 1000, ch / 750);
-                const canvas = document.getElementById('gameCanvas');
-                canvas.style.width  = Math.floor(1000 * scale) + 'px';
-                canvas.style.height = Math.floor(750 * scale) + 'px';
-            }, 100);
+            console.log('[重连] onReconnected 触发，role=' + role);
+            setConnectionState('connected');
+            // 对局中重连：跳过揭示动画，直接恢复游戏界面与状态
+            if (role) {
+                console.log('[重连] 对局中重连，开始恢复UI...');
+                // 重连后强制重新加载将领立绘（旧 Image 对象可能已失效）
+                reloadPortraits();
+                console.log('[重连] reloadPortraits 完成，commanderP1=' + gameState.commanderP1 + '，P2=' + gameState.commanderP2);
+                _isReady = false;
+                readyBtn.textContent = '准备';
+                readyBtn.style.background = '#27ae60';
+                document.getElementById('roomWaiting').style.display = 'none';
+                document.getElementById('victoryOverlay').classList.remove('show');
+                document.getElementById('factionReveal').classList.remove('show');
+                document.getElementById('commanderOverlay').classList.remove('show');
+                // 清除残留确认弹窗（含遮罩 + _confirmActive 标志）
+                resetConfirmActive();
+                document.body.style.pointerEvents = '';
+                console.log('[重连] 清除残留特效...');
+                // 清除残留粒子特效，重置棋盘底板
+                clearTransientEffects();
+                console.log('[重连] 重置棋盘...');
+                resetGameState();
+                // 允许 stateSync 覆盖当前重置状态
+                _deploymentStarted = false;
+                console.log('[重连] _deploymentStarted=false，等待stateSync...');
+                document.getElementById('lobbyOverlay').style.display = 'none';
+                document.getElementById('gameWrapper').style.display = '';
+                document.getElementById('opponentTurnBanner').style.display = '';
+                document.getElementById('networkIndicator').style.display = 'flex';
+                document.getElementById('networkRoleText').textContent =
+                    role === 'player1' ? '红军' : role === 'player2' ? '蓝军' : '绿军';
+                console.log('[重连] UI已恢复，当前_myRole=' + (typeof getMyRole === 'function' ? getMyRole() : '?'));
+                setTimeout(() => {
+                    const wrapper = document.getElementById('canvasWrapper');
+                    const cw = wrapper.clientWidth;
+                    const ch = wrapper.clientHeight;
+                    const scale = Math.min(cw / 1000, ch / 750);
+                    const canvas = document.getElementById('gameCanvas');
+                    canvas.style.width  = Math.floor(1000 * scale) + 'px';
+                    canvas.style.height = Math.floor(750 * scale) + 'px';
+                    console.log('[重连] 画布自适应完成');
+                }, 100);
+            } else {
+                console.log('[重连] 大厅重连，刷新房间列表');
+                // 大厅重连：刷新房间列表
+                listRooms();
+            }
         },
 
         onRematchPending: () => {
@@ -1202,7 +1223,9 @@ async function handleRemoteAction(msg) {
 
     // 服务器下发的暂存状态：仅在尚未开始对局时恢复（防止对战中途地形重绘）
     if (msg.actionType === 'stateSync') {
+        console.log('[重连] 收到 stateSync，_deploymentStarted=' + _deploymentStarted + '，hasState=' + !!(msg.state));
         if (!_deploymentStarted) {
+            console.log('[重连] stateSync 通过检测，开始应用远程状态...');
             document.getElementById('lobbyOverlay').style.display = 'none';
             document.getElementById('gameWrapper').style.display = '';
             document.getElementById('roomWaiting').style.display = 'none';
@@ -1210,7 +1233,10 @@ async function handleRemoteAction(msg) {
             document.getElementById('networkIndicator').style.display = 'flex';
             document.body.style.pointerEvents = '';
             _deploymentStarted = true;
+            console.log('[重连] 调用 applyRemoteState，tiles=' + (msg.state && msg.state.tiles ? msg.state.tiles.length : '?'));
             applyRemoteState(msg.state, HexTile, Unit);
+            console.log('[重连] applyRemoteState 完成，当前 tiles=' + gameState.tiles.length + '，currentCamp=' + (gameState.currentCamp && gameState.currentCamp.name));
+            console.log('[重连] 卡牌状态: drawPile=' + gameState.cardDrawPile.length + '，discard=' + gameState.cardDiscardPile.length + '，p1Hand=' + gameState.playerHands.player1.length + '，p2Hand=' + gameState.playerHands.player2.length);
             // 初始同步时创建圣骑士环绕剑
             for (const tile of gameState.tiles) {
                 if (tile.unit && tile.unit.commander === 'paladin') {
@@ -1220,11 +1246,17 @@ async function handleRemoteAction(msg) {
                 }
             }
             updateUI();
+            updateCampEmblems();
             renderGame();
             _checkSpectatorBanner();
-            const limitRound = gameState.isThreePlayer ? 25 : 18;
-            const factionName = gameState.isThreePlayer ? '三方' : '双人';
-            showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得胜利！`);
+            // 重连后重新绑定所有游戏事件（按钮 + 画布 + 键盘）
+            rebindGameEvents();
+            rebindInputEvents();
+            rebindKeyboardEvents();
+            console.log('[重连] 事件监听已重新绑定');
+            console.log('[重连] stateSync 处理完毕，_deploymentStarted=' + _deploymentStarted);
+        } else {
+            console.log('[重连] stateSync 被跳过（_deploymentStarted=true），忽略此消息');
         }
         return;
     }

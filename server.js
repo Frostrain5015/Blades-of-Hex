@@ -235,8 +235,11 @@ function handleMessage(ws, rawData) {
             // 对局中重连（支持新旧两种断线记录格式）
             const hasDisconnected = room._disconnectedRole ||
                 (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0);
+            console.log(`[重连] 房间${roomId} joinRoom，gameStarted=${room.gameStarted}，hasDisconnected=${hasDisconnected}，_disconnectedRoles=` + JSON.stringify(room._disconnectedRoles));
             if (room.gameStarted && hasDisconnected) {
+                console.log(`[重连] 对局重连流程，当前在线=${room.players.size}，maxPlayers=${room.maxPlayers}`);
                 if (room.players.size >= room.maxPlayers) {
+                    console.log(`[重连] 房间已满，拒绝重连`);
                     sendJson(ws, { type: 'error', message: '房间已满' });
                     break;
                 }
@@ -245,6 +248,7 @@ function handleMessage(ws, rawData) {
 
                 // 按 clientId 找回断线前的角色
                 const cid = ws._clientId;
+                console.log(`[重连] 客户端ID=${cid}，_disconnectedRoles=` + JSON.stringify(room._disconnectedRoles));
                 let role = null;
                 if (cid && room._disconnectedRoles) {
                     for (const [r, id] of Object.entries(room._disconnectedRoles)) {
@@ -258,27 +262,36 @@ function handleMessage(ws, rawData) {
                     room._disconnectedRole = null;
                 }
                 if (!role) {
+                    console.log(`[重连] 无法确定角色，断开`);
                     sendJson(ws, { type: 'error', message: '无法确定你的角色，请重新创建房间' });
                     break;
                 }
+                console.log(`[重连] 确定角色=${role}`);
 
                 room.players.set(ws, { role });
                 ws._room = room;
                 ws._ready = false;
                 if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
                 sendJson(ws, { type: 'reconnected', roomId, role });
+                console.log(`[重连] 已发送 reconnected 给重连方`);
                 // 告诉对手玩家重连了，并告知对方的角色以便恢复 _myRole
                 const other = [...room.players.keys()].find(p => p !== ws);
                 if (other) {
                     const otherRole = room.players.get(other)?.role || null;
                     sendJson(other, { type: 'opponentReconnected', role: otherRole });
+                    console.log(`[重连] 已发送 opponentReconnected 给对手，role=${otherRole}`);
+                } else {
+                    console.log(`[重连] 无对手在线`);
                 }
                 // 向双方同步暂存的对局状态
+                console.log(`[重连] _savedState=` + (room._savedState ? '有' : '无'));
                 if (room._savedState) {
                     const syncMsg = { type: 'action', actionType: 'stateSync', state: room._savedState };
                     sendJson(ws, syncMsg);
                     if (other) sendJson(other, syncMsg);
                     console.log(`[房间 ${roomId}] 双方重连，已同步暂存状态`);
+                } else {
+                    console.log(`[房间 ${roomId}] 无暂存状态可同步！`);
                 }
                 console.log(`[房间 ${roomId}] 玩家重连为 ${role}，对局恢复`);
                 break;
@@ -393,11 +406,25 @@ function handleMessage(ws, rawData) {
         }
 
         case 'toast':
-        case 'commanderSync':
-        case 'action': {
-            // 游戏动作转发给房间内其他人
+        case 'commanderSync': {
             const room = ws._room;
             if (!room) break;
+            for (const [playerWs] of room.players) {
+                if (playerWs !== ws && playerWs.readyState === WebSocket.OPEN) {
+                    sendJson(playerWs, msg);
+                }
+            }
+            break;
+        }
+
+        case 'action': {
+            const room = ws._room;
+            if (!room) break;
+            // 每次动作都暂存状态，确保双方断线后均有最新状态可恢复
+            if (msg.state) {
+                room._savedState = msg.state;
+                if (msg.state.cardDrawPile) console.log(`[房间 ${room.id}] 动作暂存: drawPile=${msg.state.cardDrawPile.length}，p1Hand=${(msg.state.playerHands||{}).player1?.length||0}，p2Hand=${(msg.state.playerHands||{}).player2?.length||0}`);
+            }
             for (const [playerWs] of room.players) {
                 if (playerWs !== ws && playerWs.readyState === WebSocket.OPEN) {
                     sendJson(playerWs, msg);

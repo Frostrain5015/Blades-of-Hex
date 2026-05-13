@@ -570,6 +570,7 @@ function getTileAtPixel(px, py) {
 
 // ==== 鼠标输入 =====================
 let _inputInitialized = false;
+export function rebindInputEvents() { _inputInitialized = false; initInput(); }
 export function initInput() {
     if (_inputInitialized) return;
     _inputInitialized = true;
@@ -796,6 +797,7 @@ export function initInput() {
 
 // ==== 键盘快捷键 =====================
 let _keyboardInitialized = false;
+export function rebindKeyboardEvents() { _keyboardInitialized = false; initKeyboard(); }
 export function initKeyboard() {
     if (_keyboardInitialized) return;
     _keyboardInitialized = true;

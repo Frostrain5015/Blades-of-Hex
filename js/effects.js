@@ -1177,10 +1177,12 @@ export function updatePaladinOrbitBeams(now, getUnitPos) {
     for (let i = paladinOrbitBeams.length - 1; i >= 0; i--) {
         const b = paladinOrbitBeams[i];
         const pos = getUnitPos ? getUnitPos(b.unitId) : null;
-        if (pos) {
-            b.x = pos.x;
-            b.y = pos.y;
+        if (!pos) {
+            paladinOrbitBeams.splice(i, 1);
+            continue;
         }
+        b.x = pos.x;
+        b.y = pos.y;
         b.angle += b.orbitSpeed * 0.016;
     }
 }
