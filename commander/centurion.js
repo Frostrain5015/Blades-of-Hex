@@ -10,22 +10,19 @@ export default {
 
   onAttack(attacker, target, dmg, helpers) {
     if (attacker._centurionTriggered) return null;
-    const isKill = target.hp <= 0;
-    if (!isKill && Math.random() >= 0.30) return null;
-    attacker.canAct = true;
-    attacker.remainingMP = Math.min(attacker.config.speed, attacker.remainingMP + 3);
+    if (target.hp <= 0) return null; // 击杀由 onKill 处理，避免与引擎 killResult 检查冲突
+    if (Math.random() >= 0.30) return null;
     attacker._centurionTriggered = true;
+    attacker.remainingMP = Math.min(attacker.config.speed, attacker.remainingMP + 3);
     helpers.spawnFx(attacker.tile.x, attacker.tile.y);
-    helpers.logMessage(`百夫长【乘胜】${isKill ? '击杀' : '攻击'}触发：${attacker.camp.name}${attacker.config.name}兵 MP+3，可再行动`);
+    helpers.logMessage(`百夫长【乘胜】攻击触发：${attacker.camp.name}${attacker.config.name}兵 MP+3，可再行动`);
     return { extraMP: 3, canActAgain: true };
   },
 
   onKill(killer, victim, helpers) {
-    // onAttack 优先处理；此处作为兜底
     if (killer._centurionTriggered) return null;
-    killer.canAct = true;
-    killer.remainingMP = Math.min(killer.config.speed, killer.remainingMP + 3);
     killer._centurionTriggered = true;
+    killer.remainingMP = Math.min(killer.config.speed, killer.remainingMP + 3);
     helpers.spawnFx(killer.tile.x, killer.tile.y);
     helpers.logMessage(`百夫长【乘胜】击杀触发：${killer.camp.name}${killer.config.name}兵 MP+3，可再行动`);
     return { extraMP: 3, canActAgain: true };
