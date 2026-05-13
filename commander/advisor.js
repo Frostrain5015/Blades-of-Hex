@@ -1,4 +1,6 @@
 // 谋士 —— 攻心
+const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+
 export default {
   id: 'advisor',
   name: '谋士',
@@ -11,8 +13,7 @@ export default {
     // 勇气灵光保护：相邻6格内有己方圣骑士时，士气不会下降
     const gs = helpers.gameState;
     if (gs && gs.tileMap && enemy.tile) {
-      const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-      for (const [dq, dr] of dirs) {
+      for (const [dq, dr] of HEX_NEIGHBORS) {
         const nb = gs.tileMap.get(`${enemy.tile.q + dq},${enemy.tile.r + dr}`);
         if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === enemy.camp) {
           helpers.logMessage(`勇气灵光护体，${enemy.config.name}兵免疫攻心`);

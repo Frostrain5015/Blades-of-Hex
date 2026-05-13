@@ -175,6 +175,19 @@ export function getCommanderDefenseBonus(unit) {
 
 // ---- 攻击加成（堕天使等） ----
 
+export function findAdjacentCommander(unit, commanderId) {
+  if (!unit || !unit.tile) return null;
+  const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
+  if (!gs || !gs.tileMap) return null;
+  for (const [dq, dr] of HEX_NEIGHBORS) {
+    const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
+    if (nb && nb.unit && nb.unit.commander === commanderId && nb.unit.camp === unit.camp) {
+      return nb.unit;
+    }
+  }
+  return null;
+}
+
 export function getCommanderAttackBonus(unit) {
   if (!unit.commander) return 0;
   const cmd = getCommander(unit.commander);
@@ -277,7 +290,7 @@ export function getStallerSnareLayers(tile, friendlyCamp, tileMap) {
   return stallerDef.getSnareLayers(tile, friendlyCamp, tileMap);
 }
 
-export function isInStallerZone(tile, friendlyCamp, tileMap) {
+function isInStallerZone(tile, friendlyCamp, tileMap) {
   return getStallerSnareLayers(tile, friendlyCamp, tileMap) > 0;
 }
 

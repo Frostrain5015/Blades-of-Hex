@@ -1,3 +1,5 @@
+const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+
 export default {
     id: 'priest',
     name: '牧师',
@@ -13,12 +15,11 @@ export default {
         const unit = helpers.findCommanderUnit(camp, 'priest');
         if (!unit || !unit.tile) return;
         const tileMap = gameState.tileMap;
-        const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
 
         // 第一段：相邻6格（含自身），HP%最低
         let firstTarget = null, lowestRatio = 1;
         const scan1 = [unit];
-        for (const [dq, dr] of dirs) {
+        for (const [dq, dr] of HEX_NEIGHBORS) {
             const nb = tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
             if (nb && nb.unit && nb.unit.camp === camp && nb.unit.hp < nb.unit.maxHp) {
                 scan1.push(nb.unit);
@@ -36,12 +37,12 @@ export default {
 
             // 第二段：以firstTarget为中心，2格内HP%次低
             const range2 = new Set();
-            for (const [dq, dr] of dirs) {
+            for (const [dq, dr] of HEX_NEIGHBORS) {
                 const nb = tileMap.get(`${firstTarget.tile.q + dq},${firstTarget.tile.r + dr}`);
                 if (nb && nb.unit && nb.unit.camp === camp && nb.unit !== firstTarget && nb.unit.hp < nb.unit.maxHp) {
                     range2.add(nb.unit);
                 }
-                for (const [dq2, dr2] of dirs) {
+                for (const [dq2, dr2] of HEX_NEIGHBORS) {
                     const nb2 = tileMap.get(`${firstTarget.tile.q + dq + dq2},${firstTarget.tile.r + dr + dr2}`);
                     if (nb2 && nb2.unit && nb2.unit.camp === camp && nb2.unit !== firstTarget && nb2.unit.hp < nb2.unit.maxHp) {
                         range2.add(nb2.unit);

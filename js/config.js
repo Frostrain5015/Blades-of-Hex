@@ -79,13 +79,13 @@ export function hexEdge(cx, cy, size, edgeIdx) {
 }
 
 export function drawHexagonOutline(ctx2d, centerX, centerY, size, strokeStyle, lineWidth) {
-    ctx2d.save();
     hexPath(ctx2d, centerX, centerY, size);
     ctx2d.strokeStyle = strokeStyle;
     ctx2d.lineWidth = lineWidth;
     ctx2d.stroke();
-    ctx2d.restore();
 }
+
+export function pulseSine(t, freq = 0.0025) { return (Math.sin(t * freq) + 1) / 2; }
 
 export function roundRectPath(ctx2d, x, y, w, h, r) {
     ctx2d.beginPath();
@@ -125,6 +125,13 @@ export const CAMP = {
     player3: { name: '绿军', color: '#aaffaa', flag: '🟢' },
     neutral: { name: '中立', color: '#c0c0c0', flag: '⚫' }
 };
+
+export function campToKey(camp, mode = 'full') {
+    if (camp === CAMP.player1) return mode === 'short' ? 'p1' : 'player1';
+    if (camp === CAMP.player2) return mode === 'short' ? 'p2' : 'player2';
+    if (camp === CAMP.player3) return mode === 'short' ? 'p3' : 'player3';
+    return 'neutral';
+}
 
 // Saturated flag colors shared by unit & city flags
 export const CAMP_FLAG_COLORS = {

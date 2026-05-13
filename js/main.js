@@ -1,4 +1,4 @@
-import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, HEX_SIZE, COMMANDER_CONFIG, shuffleAndSplitPool, TACTICAL_CARD_CONFIG } from './config.js';
+import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, COMMANDER_CONFIG, shuffleAndSplitPool } from './config.js';
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
@@ -6,19 +6,19 @@ import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSp
 import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel } from './input.js';
-import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, disconnect, sendAction } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect } from './network.js';
 import { CAMP } from './config.js';
 import { preloadPortraits } from './portraitLoader.js';
 import {
-    clearTransientEffects, triggerTurnFlash,
+    triggerTurnFlash,
     triggerAttackFlash, triggerRecruitFlash, triggerHealFlash,
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
-    spawnRecruitEffect, spawnSlashMarks,
+    spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
     spawnProjectile, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
-    spawnGoldenFlame, spawnVictoryRipple, spawnCoinRain, spawnMinisterDominionRing,
-    spawnCardUseEffect, spawnHealParticles, spawnAirstrikeEffect,
+    spawnMinisterDominionRing,
+    spawnCardUseEffect,
     spawnGoldenBeam, spawnPaladinOrbitBeams, clearPaladinOrbitBeams, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords,
     spawnHealingChain
 } from './effects.js';
@@ -55,10 +55,6 @@ function fitCanvas() {
 window.addEventListener('resize', fitCanvas);
 window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 200));
 // Initial fit is called in startGame after gameWrapper becomes visible
-
-// ==== 对策卡 UI 渲染 ===================
-// 对策卡已改为 canvas 渲染，不再使用 DOM 区域
-function renderTacticalCards() {}
 
 // ==== 游戏循环（始终运行，画布隐藏时无开销） ===================
 function gameLoop() {
@@ -102,8 +98,6 @@ function gameLoop() {
     } else if (ttip.classList.contains('visible') && !gameState.selectedTile) {
         ttip.classList.remove('visible');
     }
-
-    renderTacticalCards();
 
     requestAnimationFrame(gameLoop);
 }

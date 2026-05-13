@@ -1,4 +1,4 @@
-import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance } from './config.js';
+import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './state.js';
@@ -143,7 +143,7 @@ export class Unit {
         // 勇气灵光 — 受相邻圣骑士影响
         if (this.commander !== 'paladin' && gameState && gameState.tileMap && this.tile) {
             let hasPaladinAura = false;
-            for (const [dq, dr] of [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
+            for (const [dq, dr] of HEX_NEIGHBORS) {
                 const nb = gameState.tileMap.get(`${this.tile.q + dq},${this.tile.r + dr}`);
                 if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === this.camp) {
                     hasPaladinAura = true;
@@ -814,7 +814,7 @@ export class Unit {
     _findAdjacentFriendlyIronGuard() {
         if (!this.tile || !_gameState) return null;
         const tileMap = _gameState.tileMap;
-        const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+        const dirs = HEX_NEIGHBORS;
         for (const [dq, dr] of dirs) {
             const neighbor = tileMap.get(`${this.tile.q + dq},${this.tile.r + dr}`);
             if (neighbor && neighbor.unit && neighbor.unit.commander === 'ironGuard' && neighbor.unit.camp === this.camp && neighbor.unit._shield > 0) {

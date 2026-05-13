@@ -35,10 +35,6 @@ export function getCommander(id) {
   return allCommanders[id] || null;
 }
 
-export function getAllCommanderIds() {
-  return Object.keys(allCommanders);
-}
-
 export function shuffleAndSplitPool(isThreePlayer = false) {
   const keys = Object.keys(allCommanders);
   for (let i = keys.length - 1; i > 0; i--) {

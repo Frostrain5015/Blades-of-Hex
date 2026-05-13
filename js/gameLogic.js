@@ -1,13 +1,13 @@
-﻿import { hexToRgb, CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, MORALE_CONFIG, calcIncome, WEATHER_CONFIG, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, COMMANDER_CONFIG } from './config.js';
+﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, COMMANDER_CONFIG } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setGameStateRef, setLogMessageRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
     triggerAttackFlash, triggerHealFlash, triggerRecruitFlash, triggerScreenShake,
-    spawnSlashMarks, spawnMeleeSlash,
+    spawnMeleeSlash,
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
@@ -240,10 +240,9 @@ export function recalcAllFlankingMorale() {
     });
 
     // 圣骑士勇气灵光：范围内友军士气≥2
-    const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
     for (const tile of gameState.tiles) {
         if (!tile.unit || tile.unit.morale >= 2) continue;
-        for (const [dq, dr] of dirs) {
+        for (const [dq, dr] of HEX_NEIGHBORS) {
             const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
             if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === tile.unit.camp) {
                 tile.unit.morale = 2;
@@ -338,7 +337,7 @@ export function initMap() {
     invalidateBoard();
 }
 
-export function initCardDeck() {
+function initCardDeck() {
     const deck = [...DECK_COMPOSITION];
     // 联机模式使用与地形相同的种子，保证所有客户端初始牌库一致
     const rand = isNetworkGame() ? _createRNG(_terrainSeed) : Math.random;

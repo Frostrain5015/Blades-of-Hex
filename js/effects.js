@@ -1,4 +1,4 @@
-import { HEX_SIZE, hexToRgb, settings, TACTICAL_CARD_CONFIG } from './config.js';
+import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG } from './config.js';
 import { playSound } from './audio.js';
 
 // ===== 粒子系统 =====================
@@ -693,11 +693,6 @@ export function updateBloodDrains(dt) {
 
 // ===== 谋士攻心：紫色波纹扩散 + 暗色粒子 =====================
 export const lightningBolts = [];
-
-export function spawnPurpleLightning(x, y) {
-    // 保留旧接口兼容联机回放，重定向到新效果
-    spawnGongxinRipple(x, y, false);
-}
 
 export const gongxinRipples = [];
 

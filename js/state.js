@@ -1,4 +1,4 @@
-import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, calcIncome, WEATHER_CONFIG } from './config.js';
+import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG } from './config.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
 
@@ -790,6 +790,13 @@ export function loadGame(HexTileClass, UnitClass) {
         logMessage('读档失败');
         return false;
     }
+}
+
+export function resolveUnitById(id) {
+    for (const tile of gameState.tiles) {
+        if (tile.unit && tile.unit.id === id) return tile.unit;
+    }
+    return null;
 }
 
 // ===== 远程状态同步（联机模式收到对手操作时调用） =====================

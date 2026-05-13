@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG, HEX_NEIGHBORS, pulseSine } from './config.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -581,12 +581,12 @@ function _drawRankStar(cx, cy, size, alpha, color, glow) {
 
 function drawMoraleIndicators() {
     const tiles = gameState.tiles;
+    const animIds = new Set();
+    for (let i = 0; i < moraleEffects.length; i++) animIds.add(moraleEffects[i].unitId);
     for (let i = 0, len = tiles.length; i < len; i++) {
         const unit = tiles[i].unit;
         if (!unit || unit.morale === 2 || unit.morale === 0) continue;
-
-        // 如果正在播放动画，跳过（动画已包含该标识）
-        if (moraleEffects.some(fx => fx.unitId === unit.id)) continue;
+        if (animIds.has(unit.id)) continue;
 
         const mc = MORALE_CONFIG[unit.morale];
         const cornerX = unit.tile.x + HEX_SIZE * 0.55;
@@ -921,7 +921,7 @@ function drawUnitHexAuras(now) {
         } else if (u.camp && gameState.tileMap) {
             // 相邻友军受勇气灵光影响
             let hasPaladinNeighbor = false;
-            for (const [dq, dr] of [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
+            for (const [dq, dr] of HEX_NEIGHBORS) {
                 const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
                 if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === u.camp) {
                     hasPaladinNeighbor = true;
@@ -1046,7 +1046,7 @@ function drawStallerZone(now) {
         ctx.restore();
 
         const tendrilAlpha = 0.20 + breathe * 0.14;
-        for (const [dq, dr] of [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
+        for (const [dq, dr] of HEX_NEIGHBORS) {
             const neighbor = gameState.tileMap.get(`${sd.centerTile.q + dq},${sd.centerTile.r + dr}`);
             if (!neighbor) continue;
             const ex = neighbor.x, ey = neighbor.y;
@@ -1437,13 +1437,13 @@ export function setCardHoveredIndex(idx) {
     }
 }
 
-export function armDrawPile() { _drawPileArmed = true; _drawPileArmTime = performance.now(); }
-export function disarmDrawPile() { _drawPileArmed = false; }
+function armDrawPile() { _drawPileArmed = true; _drawPileArmTime = performance.now(); }
+function disarmDrawPile() { _drawPileArmed = false; }
 export function triggerFlyingCard(cardId, sx, sy, ex, ey) {
     _flyingCard = { cardId, startX: sx, startY: sy, endX: ex, endY: ey, t0: performance.now(), dur: 400 };
 }
 
-export function getCardSlideCurrent(i) {
+function getCardSlideCurrent(i) {
     return _slideCurrent[i] || 0;
 }
 
