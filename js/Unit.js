@@ -172,7 +172,7 @@ export class Unit {
 
         // 牧师治愈灵光
         if (this._healingAura > 0) {
-            effects.push({ label: '治愈灵光', desc: `每回合回复12.5%最大生命值`, color: '#44dd88', remaining: this._healingAura });
+            effects.push({ label: '治愈灵光', desc: `每回合回复15%最大生命值`, color: '#44dd88', remaining: this._healingAura });
         }
 
         return effects;

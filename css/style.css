@@ -906,7 +906,7 @@ body {
     border-radius: var(--radius-md);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
     overflow: hidden;
-    width: clamp(180px, 22vw, 260px);
+    width: clamp(190px, 24vw, 290px);
 }
 #unitTooltip.visible { display: block; }
 
@@ -942,12 +942,12 @@ body {
 }
 #tooltipStats {
     display: flex;
-    gap: 12px;
+    gap: 8px;
     font-size: 12px;
     padding: 8px 13px;
     border-bottom: 1px solid var(--border);
 }
-.tooltip-stat { font-weight: bold; }
+.tooltip-stat { font-weight: bold; white-space: nowrap; }
 #tooltipStatus {
     font-size: 10px;
     color: var(--text-dim);

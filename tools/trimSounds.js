@@ -26,7 +26,7 @@ const FFMPEG = require('ffmpeg-static');
 const TRIM_CFG = [
     // ==== 核心战斗 ====
     { file: 'attack.mp3',         dur: 0.35,  start: 0.03, fadeOut: 0.02, volume: 1.2 },
-    { file: 'cannon.mp3',         dur: 1.63,  start: 0.37, fadeOut: 0.05, volume: 1.1 },
+    { file: 'cannon.mp3',         dur: 1.63,  start: 0.37, fadeOut: 0.25, volume: 1.1 },
     { file: 'crit.mp3',           dur: 0.45,  start: 0.02, fadeOut: 0.02, volume: 1.3 },
     { file: 'unitDeath.mp3',      dur: 0.7,   start: 0.05, fadeOut: 0.04 },
     { file: 'mineExplode.mp3',    dur: 0.6,   start: 0.02, fadeOut: 0.03, volume: 1.1 },

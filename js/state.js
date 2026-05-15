@@ -539,7 +539,8 @@ export function serializeState() {
             faith: t.unit._faith || 0,
             smiteReady: t.unit._smiteReady || false,
             smiteCharged: t.unit._smiteCharged || false,
-            healingAura: t.unit._healingAura || 0
+            healingAura: t.unit._healingAura || 0,
+            activeSkillBuffs: t.unit._activeSkillBuffs || null
         } : null
     }));
 
@@ -759,6 +760,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._smiteReady = td.unit.smiteReady || false;
             unit._smiteCharged = td.unit.smiteCharged || false;
             unit._healingAura = td.unit.healingAura || 0;
+            unit._activeSkillBuffs = td.unit.activeSkillBuffs || null;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {
                 const saved = oldCommander.get(unit.id);

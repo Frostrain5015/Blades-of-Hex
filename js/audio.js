@@ -203,8 +203,8 @@ function _playSynthFallback(sound) {
             break;
         }
         case 'move': {
-            _playTone(440, 0.15, 'sine', 0.1);
-            setTimeout(() => _playTone(550, 0.15, 'sine', 0.1), 150);
+            _playTone(440, 0.15, 'sine', 0.06);
+            setTimeout(() => _playTone(550, 0.15, 'sine', 0.06), 150);
             break;
         }
         case 'turnEnd': {

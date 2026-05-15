@@ -1274,6 +1274,7 @@ function startGame() {
         gameState.currentCamp = CAMP.player1;
         updateButtonColors();
         startBattleBGM();
+        playSound('turnEnd');
 
         const limitRound = gameState.isThreePlayer ? 25 : 18;
         const factionName = gameState.isThreePlayer ? '三方' : '双人';

@@ -17,7 +17,7 @@ export const SOUND_MANIFEST = {
     commanderSkill:{ file: 'sounds/commanderSkill.mp3',volume: 0.8,  pool: 2,  preload: false, category: 'magic' },
 
     // ---- 战术卡 ----
-    spawn:         { file: 'sounds/spawn.mp3',         volume: 0.65, pool: 2,  preload: false, category: 'tactical' },
+    spawn:         { file: 'sounds/spawn.mp3',         volume: 0.85, pool: 2,  preload: false, category: 'tactical' },
     airdrop:       { file: 'sounds/airdrop.mp3',       volume: 0.7,  pool: 1,  preload: false, category: 'tactical' },
     imprison:      { file: 'sounds/imprison.mp3',      volume: 0.7,  pool: 1,  preload: false, category: 'tactical' },
     forceMarch:    { file: 'sounds/forceMarch.mp3',    volume: 0.65, pool: 1,  preload: false, category: 'tactical' },
@@ -26,7 +26,7 @@ export const SOUND_MANIFEST = {
     landmine:      { file: 'sounds/landmine.mp3',      volume: 0.5,  pool: 1,  preload: false, category: 'tactical' },
 
     // ---- 移动 / 回合 ----
-    move:          { file: 'sounds/move.mp3',          volume: 0.7,  pool: 6,  preload: false, category: 'movement' },
+    move:          { file: 'sounds/move.mp3',          volume: 0.45, pool: 6,  preload: false, category: 'movement' },
     turnEnd:       { file: 'sounds/turnEnd.mp3',       volume: 0.8,  pool: 1,  preload: false, category: 'movement' },
     cityCapture:   { file: 'sounds/cityCapture.mp3',   volume: 0.8,  pool: 1,  preload: false, category: 'movement' },
 
