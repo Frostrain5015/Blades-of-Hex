@@ -89,7 +89,9 @@ export const gameState = {
     // 侦察揭示：{ player1: Map("q,r" → expiresAt), ... }
     scoutReveals: { player1: new Map(), player2: new Map(), player3: new Map() },
     // PVE 难度：对手 AI 经济倍率（不影响中立 AI）
-    aiDifficulty: 1.0
+    aiDifficulty: 1.0,
+    // 遭遇战胜利时保存的完整棋盘快照（用于查看完整棋局）
+    _victoryBoardSnapshot: null
 };
 
 // ===== 重置游戏状态（再来一局时调用） =====================
@@ -135,6 +137,7 @@ export function resetGameState() {
     gameState._fogTransitionStart = 0;
     gameState.scoutReveals = { player1: new Map(), player2: new Map(), player3: new Map() };
     gameState.aiDifficulty = 1.0;
+    gameState._victoryBoardSnapshot = null;
     gameState.commanderPoolP1 = [];
     gameState.commanderPoolP2 = [];
     gameState.commanderPoolP3 = [];

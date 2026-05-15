@@ -23,20 +23,49 @@
             <p class="lobby-subtitle">BLADES OF HEX</p>
         </div>
 
-        <!-- 首页：两个模式按钮 -->
-        <div id="lobbyHome" class="lobby-modes">
-            <button class="lobby-btn" id="soloGameBtn">
-                <span class="lbtn-icon">⚔️</span>
-                <span class="lbtn-body">
-                    <span class="lbtn-name">本地游戏</span>
-                </span>
-            </button>
-            <button class="lobby-btn" id="multiplayerBtn">
-                <span class="lbtn-icon">🌐</span>
-                <span class="lbtn-body">
-                    <span class="lbtn-name">联网对战</span>
-                </span>
-            </button>
+        <!-- 首页：Epic风格Hero区 -->
+        <div id="lobbyHome">
+            <div class="hero-wrap">
+                <!-- 左侧：文字 + 按钮 -->
+                <div class="hero-left">
+                    <div class="hero-title-block">
+                        <h2 class="hero-title">海克斯之剑</h2>
+                        <p class="hero-sub">BLADES OF HEX</p>
+                        <div class="hero-divider"></div>
+                        <p class="hero-desc">运筹帷幄，决胜千里。<br>选择你的将领，征服六边形战场。</p>
+                    </div>
+                    <div class="hero-actions">
+                        <button class="hero-btn hero-btn-primary" id="soloGameBtn">
+                            <span class="hero-btn-icon">⚔</span>
+                            <span class="hero-btn-content">
+                                <span class="hero-btn-title">本地游戏</span>
+                                <span class="hero-btn-desc">单人 · 热座 · 遭遇战</span>
+                            </span>
+                            <span class="hero-btn-arrow">→</span>
+                        </button>
+                        <button class="hero-btn hero-btn-secondary" id="multiplayerBtn">
+                            <span class="hero-btn-icon">🌐</span>
+                            <span class="hero-btn-content">
+                                <span class="hero-btn-title">联网对战</span>
+                                <span class="hero-btn-desc">创建房间 · 加入对战</span>
+                            </span>
+                            <span class="hero-btn-arrow">→</span>
+                        </button>
+                    </div>
+                    <div class="hero-carousel-dots" id="heroCarouselDots"></div>
+                </div>
+
+                <!-- 右侧：将领立绘大画幅展示 -->
+                <div class="hero-right">
+                    <div class="hero-portrait-frame">
+                        <img id="heroPortraitA" class="hero-portrait active" src="" alt="" />
+                        <img id="heroPortraitB" class="hero-portrait" src="" alt="" />
+                        <div class="hero-portrait-overlay"></div>
+                        <div class="hero-portrait-glow"></div>
+                    </div>
+                    <div class="hero-portrait-label" id="heroPortraitLabel"></div>
+                </div>
+            </div>
         </div>
 
         <!-- 准备弹窗 -->
@@ -255,6 +284,7 @@
 <!-- 胜利覆盖 -->
 <div id="victoryOverlay">
     <div id="victoryPanel">
+        <button id="viewFullBoardBtn" class="victory-view-board-btn" style="display:none">查看完整棋局</button>
         <p id="gameOverSub" class="victory-sub">对局结束</p>
         <div id="gameOverText" class="victory-title"></div>
         <div id="victoryCampText" class="victory-camp"></div>
@@ -264,6 +294,9 @@
         <div id="rematchStatus" class="rematch-status"></div>
     </div>
 </div>
+
+<!-- 查看完整棋局时的返回按钮 -->
+<button id="backToVictoryBtn" class="back-to-victory-btn" style="display:none">返回结算</button>
 
 <!-- 单位悬浮提示 -->
 <div id="unitTooltip">

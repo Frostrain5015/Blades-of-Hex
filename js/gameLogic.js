@@ -1647,11 +1647,20 @@ export function triggerVictoryEffect() {
     const panel = document.getElementById('victoryPanel');
     const gameOverText = document.getElementById('gameOverText');
     const victoryCampText = document.getElementById('victoryCampText');
+    const viewBoardBtn = document.getElementById('viewFullBoardBtn');
 
     playSound('victory');
     spawnConfetti(150);
 
     document.body.style.pointerEvents = 'none';
+
+    // 遭遇战模式：保存完整棋盘快照，显示"查看完整棋局"按钮
+    if (gameState.skirmishFog) {
+        gameState._victoryBoardSnapshot = serializeState();
+        if (viewBoardBtn) viewBoardBtn.style.display = '';
+    } else {
+        if (viewBoardBtn) viewBoardBtn.style.display = 'none';
+    }
 
     const vc = gameState.victoryCamp;
     gameOverText.textContent = '游戏结束';

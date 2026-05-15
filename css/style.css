@@ -801,6 +801,56 @@ body {
     min-height: 20px;
 }
 
+/* 查看完整棋局按钮 —— 胜利面板右上角 */
+.victory-view-board-btn {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    padding: 6px 14px;
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: rgba(230, 197, 96, 0.75);
+    cursor: pointer;
+    font-family: inherit;
+    background: rgba(205, 150, 18, 0.08);
+    border: 1px solid rgba(205, 150, 18, 0.25);
+    border-radius: var(--radius-sm);
+    transition: color 0.2s, background 0.2s, border-color 0.2s;
+    z-index: 10;
+}
+
+.victory-view-board-btn:hover {
+    color: #e6c560;
+    background: rgba(205, 150, 18, 0.18);
+    border-color: rgba(205, 150, 18, 0.50);
+}
+
+/* 返回结算按钮 —— 查看棋局时浮动显示 */
+.back-to-victory-btn {
+    position: fixed;
+    top: 18px;
+    right: 20px;
+    padding: 8px 18px;
+    font-size: 13px;
+    letter-spacing: 3px;
+    color: #f0e0c0;
+    cursor: pointer;
+    font-family: inherit;
+    background: rgba(28, 14, 6, 0.90);
+    border: 1px solid rgba(205, 150, 18, 0.40);
+    border-radius: var(--radius-md);
+    z-index: 10000;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+}
+
+.back-to-victory-btn:hover {
+    color: #fff;
+    background: rgba(40, 20, 8, 0.95);
+    border-color: rgba(230, 197, 96, 0.60);
+}
+
 /* =============================================================
    UNIT TOOLTIP
    ============================================================= */
@@ -1629,9 +1679,9 @@ body {
 #lobbyOverlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.84);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: radial-gradient(ellipse at 65% 50%, rgba(20,8,3,0.45) 0%, rgba(0,0,0,0.88) 70%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     z-index: 20000;
     display: flex;
     justify-content: center;
@@ -1639,16 +1689,29 @@ body {
 }
 
 .lobby-box {
-    background: rgba(12, 6, 2, 0.98);
-    border: 2px solid rgba(205, 150, 18, 0.42);
+    background: linear-gradient(160deg, rgba(18,10,5,0.96) 0%, rgba(8,3,1,0.98) 100%);
+    border: 1px solid rgba(205,150,18,0.28);
     border-radius: var(--radius-lg);
-    padding: clamp(20px, 4vw, 42px) clamp(24px, 5vw, 46px);
-    width: clamp(320px, 50vw, 420px);
-    text-align: center;
-    box-shadow: 0 0 80px rgba(0, 0, 0, 0.92), 0 0 40px rgba(205, 150, 18, 0.06);
+    padding: clamp(20px, 4vw, 36px) clamp(20px, 5vw, 40px);
+    width: clamp(360px, 84vw, 820px);
+    text-align: left;
+    box-shadow:
+        0 0 120px rgba(0,0,0,0.95),
+        0 0 60px rgba(205,150,18,0.05),
+        inset 0 1px 0 rgba(255,255,255,0.02);
+    position: relative;
+    overflow: hidden;
+}
+.lobby-box::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 80px rgba(0,0,0,0.3);
 }
 
-.lobby-header { margin-bottom: 30px; }
+.lobby-header { display: none; }
 
 .lobby-title {
     font-size: 36px;
@@ -1665,6 +1728,271 @@ body {
     color: var(--text-faint);
     letter-spacing: 6px;
     text-transform: uppercase;
+}
+
+/* ---- Hero Section ---- */
+#lobbyHome {
+    animation: heroFadeIn 0.6s ease-out;
+}
+@keyframes heroFadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.hero-wrap {
+    display: flex;
+    align-items: stretch;
+    gap: clamp(20px, 5vw, 48px);
+    min-height: 420px;
+}
+
+.hero-left {
+    flex: 1 1 50%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    padding: 8px 0 8px 4px;
+}
+
+.hero-title-block {
+    margin-bottom: 28px;
+}
+
+.hero-title {
+    font-size: clamp(28px, 5vw, 44px);
+    font-weight: bold;
+    letter-spacing: 6px;
+    line-height: 1.15;
+    margin: 0 0 6px 0;
+    background: linear-gradient(135deg, #d4882a 0%, #e6c560 40%, #f0d878 60%, #c89030 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.hero-sub {
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 7px;
+    text-transform: uppercase;
+    margin: 0 0 14px 0;
+}
+
+.hero-divider {
+    width: 48px;
+    height: 2px;
+    background: linear-gradient(90deg, rgba(205,150,18,0.60), rgba(205,150,18,0.0));
+    margin-bottom: 14px;
+}
+
+.hero-desc {
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    line-height: 1.7;
+    margin: 0;
+}
+
+/* Hero action buttons */
+.hero-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.hero-btn {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 14px 18px;
+    background: linear-gradient(135deg, rgba(40,18,6,0.92), rgba(22,8,2,0.96));
+    border: 1px solid rgba(180,125,14,0.30);
+    border-radius: var(--radius-md);
+    color: var(--text-bright);
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.25s, border-color 0.25s, transform 0.18s, box-shadow 0.25s;
+    box-shadow: 0 3px 0 rgba(30,5,1,0.75), 0 6px 16px rgba(0,0,0,0.40);
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 60% 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 100%);
+    pointer-events: none;
+    transition: opacity 0.25s;
+}
+
+.hero-btn:hover {
+    background: linear-gradient(135deg, rgba(60,28,8,0.94), rgba(32,12,3,0.96));
+    border-color: rgba(215,162,22,0.58);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 0 rgba(30,5,1,0.75), 0 12px 28px rgba(0,0,0,0.55);
+}
+
+.hero-btn:hover::before { opacity: 0.6; }
+
+.hero-btn:active {
+    transform: translateY(1px);
+    box-shadow: 0 1px 0 rgba(30,5,1,0.75);
+}
+
+.hero-btn-primary {
+    border-color: rgba(200,150,30,0.45);
+}
+
+.hero-btn-secondary {
+    border-color: rgba(120,100,80,0.30);
+}
+
+.hero-btn-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 5px rgba(255,215,0,0.3));
+    width: 36px;
+    text-align: center;
+}
+
+.hero-btn-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+.hero-btn-title {
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    color: var(--text-bright);
+}
+
+.hero-btn-desc {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1.2px;
+}
+
+.hero-btn-arrow {
+    font-size: 18px;
+    color: rgba(205,150,18,0.45);
+    transition: transform 0.25s, color 0.25s;
+    flex-shrink: 0;
+}
+
+.hero-btn:hover .hero-btn-arrow {
+    transform: translateX(4px);
+    color: rgba(230,197,96,0.75);
+}
+
+/* Carousel dots */
+.hero-carousel-dots {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-start;
+    padding-left: 4px;
+    min-height: 8px;
+}
+
+.hero-carousel-dots .hdot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.12);
+    cursor: pointer;
+    transition: background 0.3s, box-shadow 0.3s, transform 0.2s;
+}
+
+.hero-carousel-dots .hdot.active {
+    background: #d4a017;
+    box-shadow: 0 0 10px rgba(212,160,23,0.55);
+    transform: scale(1.3);
+}
+
+.hero-carousel-dots .hdot:hover {
+    background: rgba(255,255,255,0.30);
+}
+
+/* Right: commander portrait */
+.hero-right {
+    flex: 1 1 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+}
+
+.hero-portrait-frame {
+    position: relative;
+    width: 100%;
+    max-width: 340px;
+    aspect-ratio: 3 / 4;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow:
+        0 0 60px rgba(0,0,0,0.7),
+        0 0 30px rgba(205,150,18,0.06),
+        0 8px 32px rgba(0,0,0,0.5);
+    border: 1px solid rgba(205,150,18,0.22);
+}
+
+.hero-portrait {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+    opacity: 0;
+    transition: opacity 0.8s ease;
+    pointer-events: none;
+}
+
+.hero-portrait.active {
+    opacity: 1;
+}
+
+.hero-portrait-overlay {
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(0deg, rgba(8,3,1,0.55) 0%, transparent 35%),
+        linear-gradient(180deg, rgba(8,3,1,0.2) 0%, transparent 18%),
+        linear-gradient(90deg, rgba(8,3,1,0.30) 0%, transparent 25%);
+    pointer-events: none;
+}
+
+.hero-portrait-glow {
+    position: absolute;
+    inset: 20% 10% 30% 10%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(255,200,60,0.06) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.hero-portrait-label {
+    margin-top: 12px;
+    font-size: 13px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    color: #d4a017;
+    text-shadow: 0 0 12px rgba(212,160,23,0.35);
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.4s;
+}
+
+.hero-portrait-label.show {
+    opacity: 1;
 }
 
 .lobby-modes {
@@ -1930,7 +2258,7 @@ body {
 
 /* ---- Lobby View Transitions ---- */
 
-#multiplayerLobby, #roomWaiting, #lobbyHome {
+#multiplayerLobby, #roomWaiting {
     animation: lobbyFadeIn 0.25s ease-out;
 }
 
@@ -2411,9 +2739,19 @@ body {
     .unit-type  { font-size: 8px; }
     .unit-cost  { font-size: 11px; }
     .cmd-btn { padding: 6px 6px; font-size: 12px; }
-    .lobby-box { padding: 20px 24px; }
+    .lobby-box { padding: 16px 18px; width: 94vw; }
     .lobby-title { font-size: 26px; }
     .lobby-btn { padding: 10px 14px; gap: 8px; }
     .lbtn-name { font-size: 12px; }
     .lbtn-desc { font-size: 10px; }
+    .hero-wrap { flex-direction: column-reverse; min-height: auto; gap: 16px; }
+    .hero-right { flex: 0 0 auto; }
+    .hero-portrait-frame { max-width: 200px; }
+    .hero-title { font-size: 24px; }
+    .hero-title-block { margin-bottom: 16px; }
+    .hero-desc { font-size: 11px; }
+    .hero-actions { margin-bottom: 12px; }
+    .hero-btn { padding: 10px 14px; }
+    .hero-btn-title { font-size: 13px; }
+    .hero-btn-desc { font-size: 9px; }
 }

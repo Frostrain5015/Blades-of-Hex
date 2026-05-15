@@ -1,4 +1,4 @@
-import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, COMMANDER_CONFIG, shuffleAndSplitPool } from './config.js';
+import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, COMMANDER_CONFIG, shuffleAndSplitPool, invalidateBoard } from './config.js';
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
@@ -108,6 +108,12 @@ function gameLoop() {
 }
 requestAnimationFrame(gameLoop);
 
+// 首次进入大厅时后台预加载所有将领头像，避免对局中慢加载
+preloadPortraits();
+
+// 启动首页将领立绘轮播
+requestAnimationFrame(() => _startHeroCarousel());
+
 // ==== 大厅 UI ===================
 const lobbyOverlay      = document.getElementById('lobbyOverlay');
 const lobbyHome         = document.getElementById('lobbyHome');
@@ -171,11 +177,120 @@ function showHome(msg) {
     multiplayerLobby.style.display = 'none';
     roomWaiting.style.display = 'none';
     document.getElementById('lobbyReady').style.display = 'none';
-    connectionBar.classList.add('visible'); // 首页也显示连接状态
+    connectionBar.classList.add('visible');
     if (msg) setStatus(msg, true);
+    _startHeroCarousel();
+}
+
+// ---- 将领立绘轮播 & GSAP 入场动画 ----
+const _heroCommanders = ['paladin','fallenAngel','vampire','berserker','magician','advisor'];
+let _heroCarouselIdx = 0;
+let _heroCarouselTimer = null;
+let _heroCarouselReady = false;
+
+function _startHeroCarousel() {
+    const frame = document.querySelector('.hero-portrait-frame');
+    const label = document.getElementById('heroPortraitLabel');
+    const dotsContainer = document.getElementById('heroCarouselDots');
+    if (!frame || !label || !dotsContainer) return;
+
+    // 生成圆点
+    dotsContainer.innerHTML = '';
+    for (let i = 0; i < _heroCommanders.length; i++) {
+        const dot = document.createElement('span');
+        dot.className = 'hdot' + (i === _heroCarouselIdx ? ' active' : '');
+        dot.addEventListener('click', () => _jumpHeroCarousel(i));
+        dotsContainer.appendChild(dot);
+    }
+
+    _showHeroSlide(_heroCarouselIdx, false);
+    label.classList.add('show');
+
+    if (!_heroCarouselReady) {
+        _heroCarouselReady = true;
+        _animateHeroEntrance();
+    }
+
+    // 自动轮播
+    if (_heroCarouselTimer) clearInterval(_heroCarouselTimer);
+    _heroCarouselTimer = setInterval(() => {
+        _heroCarouselIdx = (_heroCarouselIdx + 1) % _heroCommanders.length;
+        _showHeroSlide(_heroCarouselIdx, true);
+        _updateHeroDots();
+    }, 4500);
+}
+
+function _stopHeroCarousel() {
+    if (_heroCarouselTimer) { clearInterval(_heroCarouselTimer); _heroCarouselTimer = null; }
+}
+
+function _showHeroSlide(idx, animate) {
+    const cmdId = _heroCommanders[idx];
+    const cfg = COMMANDER_CONFIG[cmdId];
+    const name = cfg ? cfg.name : cmdId;
+    const label = document.getElementById('heroPortraitLabel');
+    const imgA = document.getElementById('heroPortraitA');
+    const imgB = document.getElementById('heroPortraitB');
+
+    const src = `img/commander/${name}.jpg`;
+    const activeImg = imgA.classList.contains('active') ? imgA : imgB;
+    const idleImg  = imgA.classList.contains('active') ? imgB : imgA;
+
+    if (!animate) {
+        activeImg.src = src;
+        activeImg.classList.add('active');
+        idleImg.classList.remove('active');
+        label.textContent = cfg ? cfg.name : '';
+        return;
+    }
+
+    // 预加载后交叉淡入
+    const preload = new Image();
+    preload.onload = () => {
+        idleImg.src = src;
+        idleImg.classList.add('active');
+        activeImg.classList.remove('active');
+        label.textContent = cfg ? cfg.name : '';
+    };
+    preload.src = src;
+}
+
+function _jumpHeroCarousel(idx) {
+    _heroCarouselIdx = idx;
+    _showHeroSlide(idx, true);
+    _updateHeroDots();
+    // 重置自动轮播计时
+    if (_heroCarouselTimer) clearInterval(_heroCarouselTimer);
+    _heroCarouselTimer = setInterval(() => {
+        _heroCarouselIdx = (_heroCarouselIdx + 1) % _heroCommanders.length;
+        _showHeroSlide(_heroCarouselIdx, true);
+        _updateHeroDots();
+    }, 4500);
+}
+
+function _updateHeroDots() {
+    const dots = document.querySelectorAll('#heroCarouselDots .hdot');
+    dots.forEach((d, i) => d.classList.toggle('active', i === _heroCarouselIdx));
+}
+
+function _animateHeroEntrance() {
+    if (typeof gsap === 'undefined') return;
+    const tl = gsap.timeline();
+    const portrait = document.querySelector('.hero-portrait-frame');
+    const title = document.querySelector('.hero-title-block');
+    const buttons = document.querySelectorAll('.hero-btn');
+    const dots = document.getElementById('heroCarouselDots');
+    const label = document.getElementById('heroPortraitLabel');
+
+    tl.fromTo(portrait, { opacity: 0, x: 40, scale: 0.95 }, { opacity: 1, x: 0, scale: 1, duration: 0.7, ease: 'power2.out' });
+    tl.fromTo(title, { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.55, ease: 'power2.out' }, '-=0.25');
+    tl.fromTo(buttons, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, stagger: 0.08, ease: 'back.out(1.2)' }, '-=0.2');
+    tl.fromTo(dots, { opacity: 0 }, { opacity: 1, duration: 0.3 }, '-=0.1');
+    tl.fromTo(label, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.35, ease: 'power2.out' }, '-=0.15');
 }
 
 function showMultiplayerLobby() {
+    _stopHeroCarousel();
     lobbyHome.style.display = 'none';
     multiplayerLobby.style.display = '';
     roomWaiting.style.display = 'none';
@@ -185,6 +300,7 @@ function showMultiplayerLobby() {
 }
 
 function showRoomWaiting(roomId, maxPlayers = 2, playerCount = 1) {
+    _stopHeroCarousel();
     lobbyHome.style.display = 'none';
     multiplayerLobby.style.display = 'none';
     roomWaiting.style.display = '';
@@ -285,6 +401,7 @@ document.getElementById('lobbyReadyBtn').addEventListener('click', () => {
 
 // ==== 再来一局 ----
 document.getElementById('rematchBtn').addEventListener('click', () => {
+    document.getElementById('backToVictoryBtn').style.display = 'none';
     if (isNetworkGame()) {
         document.getElementById('rematchStatus').textContent = '等待对手确认...';
         sendMessage({ type: 'rematch' });
@@ -317,9 +434,31 @@ document.getElementById('exitToLobbyBtn').addEventListener('click', () => {
     document.body.style.pointerEvents = '';
     resetGameState();
     document.getElementById('gameWrapper').style.display = 'none';
+    document.getElementById('backToVictoryBtn').style.display = 'none';
     const lobby = document.getElementById('lobbyOverlay');
     lobby.style.display = '';
     showHome();
+});
+
+// ==== 查看完整棋局（遭遇战模式） ----
+document.getElementById('viewFullBoardBtn').addEventListener('click', () => {
+    const vo = document.getElementById('victoryOverlay');
+    vo.classList.remove('show');
+    gameState.skirmishFog = false;
+    document.body.style.pointerEvents = '';
+    document.getElementById('backToVictoryBtn').style.display = '';
+    invalidateBoard();
+});
+
+// ==== 从完整棋局返回结算界面 ----
+document.getElementById('backToVictoryBtn').addEventListener('click', () => {
+    document.getElementById('backToVictoryBtn').style.display = 'none';
+    gameState.skirmishFog = true;
+    document.body.style.pointerEvents = 'none';
+    const vo = document.getElementById('victoryOverlay');
+    vo.classList.add('show');
+    vo.style.opacity = '1';
+    invalidateBoard();
 });
 
 // ==== 准备弹窗 =====================
@@ -999,6 +1138,7 @@ function startGame() {
     document.getElementById('lobbyReady').style.display = 'none';
     document.getElementById('lobbyReadyBtn').disabled = false;
     document.getElementById('lobbyReadyBtn').textContent = '准备';
+    document.getElementById('backToVictoryBtn').style.display = 'none';
     // 三人模式：显示绿军面板，蓝军卡统一左对齐
     const camp3 = document.getElementById('campCard3');
     if (camp3) camp3.style.display = gameState.isThreePlayer ? '' : 'none';
