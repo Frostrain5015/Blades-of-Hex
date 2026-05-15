@@ -619,6 +619,12 @@ function _expireTimedEffects(camp) {
             spawnMoraleEffect(u);
         }
 
+        // 牧师治愈灵光 — 全局，不区分阵营
+        if (u._healingAura > 0) {
+            u.heal(Math.round(u.maxHp * 0.15));
+            u._healingAura--;
+        }
+
         // 以下效果仅当前阵营的单位触发（每轮1次）
         if (u.camp !== camp) return;
 
@@ -649,11 +655,6 @@ function _expireTimedEffects(camp) {
         // Rank 4 15% 回血
         if (u._rankRegenPct > 0 && u.hp < u.maxHp) {
             u.heal(Math.round(u.maxHp * u._rankRegenPct));
-        }
-        // 牧师治愈灵光
-        if (u._healingAura > 0) {
-            u.heal(Math.round(u.maxHp * 0.15));
-            u._healingAura--;
         }
     });
 }

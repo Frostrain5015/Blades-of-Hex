@@ -14,7 +14,7 @@ export default {
     skills: [
         { name: '勇气灵光', desc: '自身及相邻6格友军攻击力+10%，士气不会下降或混乱', type: 'passive' },
         { name: '誓言', desc: '【勇气灵光】范围内的友军（包括自己）受击时获得1誓言（上限3），击杀时再获得1誓言。每层为圣骑士提供6.67%防御力', type: 'passive' },
-        { name: '至圣斩', desc: '每次点击消耗1层誓言蓄力（1层40/2层100真实伤害），最多2层', type: 'active' }
+        { name: '至圣斩', desc: '每次点击消耗1层誓言蓄力（1层30~45/2层80~100真实伤害），最多2层', type: 'active' }
     ],
 
     FAITH_MAX: 3,
@@ -49,8 +49,9 @@ export default {
         const beamCount = charged ? 2 : 1;
         attacker._smiteReady = false;
         attacker._smiteCharged = false;
-        const base = charged ? 100 : 40;
-        const smiteDmg = helpers.isCrit ? base * 2 : base;
+        const smiteDmg = charged
+            ? 80 + Math.floor(Math.random() * 21)
+            : 30 + Math.floor(Math.random() * 16);
         // 剑从环绕轨道飞向目标
         const paladinProjectileDatas = helpers.launchOrbitSwords
             ? helpers.launchOrbitSwords(attacker.id, target.tile.x, target.tile.y, beamCount)
@@ -61,14 +62,14 @@ export default {
         _syncOrbitBeams(attacker, helpers);
         helpers.logMessage(
             `圣骑士【至圣斩】：附加${smiteDmg}真实伤害` +
-            `${charged ? '（蓄力翻倍）' : ''}${helpers.isCrit ? '（强击翻倍）' : ''}`
+            `${charged ? '（蓄力翻倍）' : ''}`
         );
         return { smiteDmg, paladinProjectileDatas };
     },
 
     activeSkill: {
         name: '至圣斩',
-        desc: '每次点击消耗1层誓言蓄力（1层40→再点→2层100），最多2层',
+        desc: '每次点击消耗1层誓言蓄力（1层30~45→再点→2层80~100），最多2层',
         duration: 0,
         cooldown: 0,
 
@@ -87,12 +88,12 @@ export default {
             // 每次点击消耗1层誓言（环绕剑数量暂时锁定，不在此同步）
             unit._faith -= 1;
             if (unit._smiteReady && !unit._smiteCharged) {
-                // 已有1层，升级为至圣斩·誓约（2层100伤）
+                // 已有1层，升级为至圣斩·誓约（2层80~100伤）
                 unit._smiteCharged = true;
                 helpers.spawnFx(unit.tile.x, unit.tile.y, '✝️', '至圣斩·誓约');
-                helpers.logMessage(`圣骑士【至圣斩·誓约】：再消耗1誓言，下次攻击附加双倍真实伤害（${unit._faith}/3）`);
+                helpers.logMessage(`圣骑士【至圣斩·誓约】：再消耗1誓言，下次攻击附加80~100真实伤害（${unit._faith}/3）`);
             } else {
-                // 首次蓄力：至圣斩（1层40伤）
+                // 首次蓄力：至圣斩（1层30~45伤）
                 unit._smiteReady = true;
                 unit._smiteCharged = false;
                 helpers.spawnFx(unit.tile.x, unit.tile.y, '✝️', '至圣斩');
