@@ -1,9 +1,9 @@
 import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, COMMANDER_CONFIG, shuffleAndSplitPool } from './config.js';
-import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors } from './state.js';
+import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, getCommander } from './commanderInterface.js';
-import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents } from './gameLogic.js';
+import { initMap, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect } from './network.js';
@@ -26,6 +26,7 @@ import {
     spawnHealParticles,
     clearTransientEffects
 } from './effects.js';
+import { isTileVisible } from './fogOfWar.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
 import { playSound } from './audio.js';
@@ -823,16 +824,26 @@ function _showCommanderSelection(forPlayer) {
 // 更新上方信息卡阵营徽章为将领透明底立绘
 function updateCampEmblems() {
     const camps = [
-        { id: 'emblemP1', cmdKey: gameState.commanderP1 },
-        { id: 'emblemP2', cmdKey: gameState.commanderP2 },
-        { id: 'emblemP3', cmdKey: gameState.commanderP3 },
+        { id: 'emblemP1', cmdKey: gameState.commanderP1, camp: CAMP.player1, textDefault: '红' },
+        { id: 'emblemP2', cmdKey: gameState.commanderP2, camp: CAMP.player2, textDefault: '蓝' },
+        { id: 'emblemP3', cmdKey: gameState.commanderP3, camp: CAMP.player3, textDefault: '绿' },
     ];
-    for (const { id, cmdKey } of camps) {
+    const viewingCamp = gameState.skirmishFog ? getViewingCamp() : null;
+
+    for (const { id, cmdKey, camp, textDefault } of camps) {
         const el = document.getElementById(id);
         if (!el) continue;
         const emblem = el.closest('.camp-emblem');
         if (!emblem) continue;
-        if (cmdKey) {
+        const textEl = emblem.querySelector('.camp-emblem-text');
+
+        // 遭遇战：敌方将领未发现时隐藏立绘
+        let hidden = false;
+        if (viewingCamp && camp !== viewingCamp && cmdKey) {
+            hidden = !_isCommanderUnitVisible(camp, cmdKey, viewingCamp);
+        }
+
+        if (cmdKey && !hidden) {
             const cfg = COMMANDER_CONFIG[cmdKey];
             if (cfg) {
                 el.src = `img/commander_tr/${cfg.name}.png`;
@@ -844,7 +855,18 @@ function updateCampEmblems() {
         el.src = '';
         el.classList.remove('iron-guard-crop');
         emblem.classList.remove('has-portrait');
+        if (textEl) textEl.textContent = hidden ? '?' : textDefault;
     }
+}
+
+function _isCommanderUnitVisible(camp, cmdKey, viewingCamp) {
+    for (const tile of gameState.tiles) {
+        if (tile.unit && tile.unit.commander === cmdKey && tile.unit.camp === camp) {
+            return isTileVisible(tile, viewingCamp, gameState);
+        }
+    }
+    // 将领未部署到任何单位 → 视为未发现
+    return false;
 }
 
 function _onCommanderSelected(forPlayer) {
@@ -1005,6 +1027,7 @@ function startGame() {
     initInput();
     initKeyboard();
     initSettingsPanel();
+    setOnFogUpdated(updateCampEmblems);
     updateCampEmblems();
     updateUI();
     gameState.currentCamp = CAMP.player1;

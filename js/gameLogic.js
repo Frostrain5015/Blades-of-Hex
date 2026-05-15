@@ -529,7 +529,11 @@ function _updateSkirmishFogAll() {
     updateFogOfWar(gameState, CAMP.player1);
     updateFogOfWar(gameState, CAMP.player2);
     if (gameState.isThreePlayer) updateFogOfWar(gameState, CAMP.player3);
+    if (_onFogUpdated) _onFogUpdated();
 }
+
+let _onFogUpdated = null;
+export function setOnFogUpdated(cb) { _onFogUpdated = cb; }
 
 function _showTurnTransition(camp) {
     return new Promise(resolve => {
@@ -1127,11 +1131,13 @@ export function moveUnit(unit, targetTile) {
     const mpEntry = gameState.moveParents.get(targetTile);
     if (mpEntry) unit.remainingMP = mpEntry.remaining;
 
+    // 迷雾模式下先更新视野，确保新发现的敌人出现在可攻击列表中
+    if (gameState.skirmishFog) _updateSkirmishFogAll();
+
     gameState.movableTiles = [];
     gameState.attackableTiles = getAttackableTiles(unit);
 
     if (unit.remainingMP > 0) {
-        // Can move again — recalculate movable range with remaining MP
         gameState.movableTiles = getMovableTiles(unit);
         gameState.selectionTime = performance.now();
     } else if (gameState.attackableTiles.length === 0) {
@@ -1179,13 +1185,6 @@ export function moveUnit(unit, targetTile) {
         _cmdFxForMove = { x: targetTile.x, y: targetTile.y, glyph: '🎖️', label: '屯田' };
     }
     recalcAllFlankingMorale();
-    if (gameState.skirmishFog) _updateSkirmishFogAll();
-    // 迷雾模式下立即刷新可攻击/可移动目标，使侦察后发现敌人可立即攻击
-    if (unit.canAct && unit.remainingMP >= 0) {
-        gameState.attackableTiles = getAttackableTiles(unit);
-        gameState.movableTiles = getMovableTiles(unit);
-        gameState.selectionTime = performance.now();
-    }
     updateRecruitCostDisplay(); // 尚书驻扎城市时及时刷新折扣
     const rankUpsMove = _pendingRankUps.splice(0);
     broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger, capturedCity: _capturedCityOnMove });
@@ -2179,8 +2178,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // 烧牌动画 — 人类玩家从手牌飞到中央；AI/中立/远端在中央直接出现
     const isAI = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
     const isHumanLocal = !isAI && gameState.currentCamp !== CAMP.neutral;
-    // 部署将领的烧牌动画显示所选将领名
-    const burnDisplayName = (cardId === 'commanderDeploy' && result.commander)
+    // 部署将领的烧牌动画显示所选将领名（遭遇战模式下不广播将领名）
+    const burnDisplayName = (cardId === 'commanderDeploy' && result.commander && !gameState.skirmishFog)
         ? (COMMANDER_CONFIG[result.commander]?.name || null) : null;
     spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600, burnDisplayName);
     const airstrikeResults = (cardId === 'airstrike') ? (result.results || []) : null;
