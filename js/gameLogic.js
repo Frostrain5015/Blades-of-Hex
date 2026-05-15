@@ -608,7 +608,7 @@ function _updateWeather() {
 }
 
 // 限时效果到期检查（每轮 P1 开始时调用一次）
-function _expireTimedEffects(camp) {
+function _expireTimedEffects() {
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
         const u = tile.unit;
@@ -625,10 +625,7 @@ function _expireTimedEffects(camp) {
             u._healingAura--;
         }
 
-        // 以下效果仅当前阵营的单位触发（每轮1次）
-        if (u.camp !== camp) return;
-
-        // 主动技能持续倒计时
+        // 全局每轮倒计时（不区分阵营，因为本函数每轮仅调用一次）
         if (u._shieldTurns > 0) {
             u._shieldTurns--;
             if (u._shieldTurns <= 0 && u._shield > 0) {
@@ -647,12 +644,9 @@ function _expireTimedEffects(camp) {
                 }
             }
         }
-
-        // 主动技能冷却倒计时
         if (u.activeSkillCD > 0) {
             u.activeSkillCD--;
         }
-        // Rank 4 15% 回血
         if (u._rankRegenPct > 0 && u.hp < u.maxHp) {
             u.heal(Math.round(u.maxHp * u._rankRegenPct));
         }
@@ -789,7 +783,7 @@ async function _doEndTurnPhase() {
         checkTurnLimitVictory();
         if (gameState.gameOver) return;
         _updateWeather();
-        _expireTimedEffects(camp);
+        _expireTimedEffects();
         // every 5 rounds: free card for all players
         const factionCount = gameState.isThreePlayer ? 4 : 3;
         const roundNum = Math.floor(gameState.turnCounter / factionCount);
