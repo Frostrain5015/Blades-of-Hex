@@ -41,6 +41,8 @@ const MIME = {
     '.ico':  'image/x-icon',
     '.mp3':  'audio/mpeg',
     '.wav':  'audio/wav',
+    '.ogg':  'audio/ogg',
+    '.oga':  'audio/ogg',
 };
 
 function staticHandler(req, res) {

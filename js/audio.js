@@ -1,26 +1,111 @@
 import { settings } from './config.js';
+import { SOUND_MANIFEST, ALIAS_MAP } from './audioManifest.js';
 
-let audioCtx = null;
+// ============================================================
+//  Howler.js 引擎层 — 播放 freesound.org 真实音频素材
+//  加载失败时自动回退到原有 OscillatorNode 合成
+// ============================================================
 
-function getCtx() {
-    if (!audioCtx) {
+let _howls = {};
+let _loadErrors = {};
+let _initDone = false;
+
+// ============================================================
+//  初始化
+// ============================================================
+
+export function initAudio() {
+    if (_initDone) return;
+    _initDone = true;
+    Howler.volume(settings.soundVolume ?? 0.7);
+    Howler.mute(!settings.soundEnabled);
+
+    // 预创建 BGM 的 Howl 实例，让 Howler 内部尽早开始加载和注册 autoplay 解锁
+    _getHowl('lobby_bgm');
+}
+
+export function playSound(soundName) {
+    // 入口统一网关：静音开关
+    if (!settings.soundEnabled) return;
+
+    const resolved = ALIAS_MAP[soundName] || soundName;
+    const cfg = SOUND_MANIFEST[resolved];
+
+    // 清单中未注册 → 合成回退
+    if (!cfg) {
+        _playSynthFallback(soundName);
+        return;
+    }
+
+    const { howl } = _getHowl(resolved);
+
+    // 文件加载失败 → 合成回退
+    if (_loadErrors[resolved]) {
+        _playSynthFallback(soundName);
+        return;
+    }
+
+    const masterVol = settings.soundVolume ?? 0.7;
+    howl.volume(cfg.volume * masterVol);
+    howl.play();
+}
+
+function _getHowl(name) {
+    const resolved = ALIAS_MAP[name] || name;
+    const cfg = SOUND_MANIFEST[resolved];
+    if (!cfg) return null;
+    if (!_howls[resolved]) {
+        const extra = {};
+        if (cfg.loop !== undefined) extra.loop = cfg.loop;
+        if (cfg.html5 !== undefined) extra.html5 = cfg.html5;
+        _howls[resolved] = new Howl({
+            src: [cfg.file],
+            volume: cfg.volume,
+            pool: cfg.pool,
+            preload: true,
+            ...extra,
+            onloaderror: () => { _loadErrors[resolved] = true; }
+        });
+    }
+    return { howl: _howls[resolved], cfg, resolved };
+}
+
+// ============================================================
+//  音量 / 静音控制
+// ============================================================
+
+export function setMasterVolume(vol) {
+    Howler.volume(vol);
+}
+
+export function setMuted(muted) {
+    Howler.mute(muted);
+}
+
+// ============================================================
+//  合成回退层（保留原有 OscillatorNode 代码）
+//  当音频文件不存在或加载失败时使用
+// ============================================================
+
+let _synthCtx = null;
+
+function _getCtx() {
+    if (!_synthCtx) {
         try {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            _synthCtx = new (window.AudioContext || window.webkitAudioContext)();
         } catch (e) {
             return null;
         }
     }
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
+    if (_synthCtx.state === 'suspended') {
+        _synthCtx.resume();
     }
-    return audioCtx;
+    return _synthCtx;
 }
 
-function playTone(freq, duration, type = 'sine', volume = 0.15) {
-    if (!settings.soundEnabled) return;
-    const ctx = getCtx();
+function _playTone(freq, duration, type = 'sine', volume = 0.15) {
+    const ctx = _getCtx();
     if (!ctx) return;
-
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = type;
@@ -33,13 +118,13 @@ function playTone(freq, duration, type = 'sine', volume = 0.15) {
     osc.stop(ctx.currentTime + duration);
 }
 
-export function playSound(sound) {
-    if (!settings.soundEnabled) return;
-    const ctx = getCtx();
+function _playSynthFallback(sound) {
+    const ctx = _getCtx();
     if (!ctx) return;
 
     switch (sound) {
-        case 'attack': {
+        case 'attack':
+        case 'mineExplode': {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = 'sawtooth';
@@ -47,10 +132,8 @@ export function playSound(sound) {
             osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.15);
             gain.gain.setValueAtTime(0.12, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.2);
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.2);
             break;
         }
         case 'crit': {
@@ -61,13 +144,12 @@ export function playSound(sound) {
             osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1);
             gain.gain.setValueAtTime(0.18, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.15);
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
             break;
         }
-        case 'recruit': {
+        case 'recruit':
+        case 'spawn': {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = 'triangle';
@@ -75,21 +157,17 @@ export function playSound(sound) {
             osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.3);
             gain.gain.setValueAtTime(0.1, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.4);
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
             break;
         }
         case 'move': {
-            playTone(440, 0.15, 'sine', 0.1);
-            setTimeout(() => playTone(550, 0.15, 'sine', 0.1), 150);
+            _playTone(440, 0.15, 'sine', 0.1);
+            setTimeout(() => _playTone(550, 0.15, 'sine', 0.1), 150);
             break;
         }
         case 'turnEnd': {
-            // 大钟声 — 模拟铜钟自然泛音列
             const t = ctx.currentTime;
-            // 敲击瞬态：极短噪声感（用高频方波快速衰减模拟锤击）
             const strike = ctx.createOscillator();
             const strikeGain = ctx.createGain();
             strike.type = 'square';
@@ -97,58 +175,70 @@ export function playSound(sound) {
             strike.frequency.exponentialRampToValueAtTime(60, t + 0.03);
             strikeGain.gain.setValueAtTime(0.10, t);
             strikeGain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
-            strike.connect(strikeGain);
-            strikeGain.connect(ctx.destination);
-            strike.start(t);
-            strike.stop(t + 0.04);
-
-            // 大钟泛音层：嗡鸣基音 + 自然泛音 + 轻微频率漂移
+            strike.connect(strikeGain); strikeGain.connect(ctx.destination);
+            strike.start(t); strike.stop(t + 0.04);
             const partials = [
-                // 频率    波形       音量  衰减  描述
-                [165,   'triangle', 0.13, 2.2],  // 嗡鸣基音（偏低，模拟大钟）
-                [168,   'triangle', 0.10, 2.0],  // 微失谐基音 → 拍频共振
-                [248,   'sine',     0.05, 1.6],  // 小三度泛音（钟的特征泛音）
-                [330,   'triangle', 0.07, 1.4],  // 八度泛音
-                [413,   'sine',     0.04, 1.1],  // 五度泛音
-                [495,   'sine',     0.03, 0.8],  // 上八度
-                [660,   'sine',     0.02, 0.5],  // 高泛音（金属感）
+                [165, 'triangle', 0.13, 2.2],
+                [168, 'triangle', 0.10, 2.0],
+                [248, 'sine',     0.05, 1.6],
+                [330, 'triangle', 0.07, 1.4],
+                [413, 'sine',     0.04, 1.1],
+                [495, 'sine',     0.03, 0.8],
+                [660, 'sine',     0.02, 0.5],
             ];
             for (const [freq, wave, vol, decay] of partials) {
                 const osc = ctx.createOscillator();
                 const gain = ctx.createGain();
                 osc.type = wave;
-                // 轻微随机频率偏移，避免太"干净"
                 const jitter = (Math.random() - 0.5) * 2;
                 osc.frequency.setValueAtTime(freq + jitter, t);
-                // 基音做微小下滑，模拟钟体振动自然衰减
                 if (freq < 200) {
                     osc.frequency.exponentialRampToValueAtTime(freq * 0.97, t + decay);
                 }
                 gain.gain.setValueAtTime(0, t);
-                gain.gain.linearRampToValueAtTime(vol, t + 0.04);    // 4ms 起振（模拟声波传递）
+                gain.gain.linearRampToValueAtTime(vol, t + 0.04);
                 gain.gain.exponentialRampToValueAtTime(0.001, t + decay);
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start(t);
-                osc.stop(t + decay + 0.1);
+                osc.connect(gain); gain.connect(ctx.destination);
+                osc.start(t); osc.stop(t + decay + 0.1);
             }
             break;
         }
-        case 'commanderSkill': {
-            // 将领技能触发音效 — 短促升调琶音，类强化提示音
+        case 'commanderSkill':
+        case 'heal':
+        case 'shield':
+        case 'airdrop':
+        case 'mgNest':
+        case 'imprison':
+        case 'forceMarch':
+        case 'scout':
+        case 'landmine': {
             const t = ctx.currentTime;
             [0, 80, 160].forEach((delay, i) => {
                 const freq = 660 + i * 220;
-                setTimeout(() => playTone(freq, 0.35, 'sine', 0.10), delay);
-                setTimeout(() => playTone(freq * 1.5, 0.25, 'sine', 0.06), delay + 40);
+                setTimeout(() => _playTone(freq, 0.35, 'sine', 0.10), delay);
+                setTimeout(() => _playTone(freq * 1.5, 0.25, 'sine', 0.06), delay + 40);
             });
             break;
         }
         case 'victory': {
-            const notes = [523, 659, 784, 1047];
-            notes.forEach((freq, i) => {
-                setTimeout(() => playTone(freq, 0.4, 'triangle', 0.12), i * 200);
+            [523, 659, 784, 1047].forEach((freq, i) => {
+                setTimeout(() => _playTone(freq, 0.4, 'triangle', 0.12), i * 200);
             });
+            break;
+        }
+        case 'unitDeath':
+        case 'cityCapture':
+        case 'cardDraw':
+        case 'buttonClick':
+        case 'countdown':
+        case 'rankUp':
+        case 'goldEarn':
+        case 'defeat':
+        case 'error':
+        case 'weatherRain':
+        case 'lightning':
+        case 'airstrike': {
+            // 新音效没有合成回退 — 静默
             break;
         }
     }

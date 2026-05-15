@@ -1241,7 +1241,7 @@ export function attackUnit(attackerUnit, targetUnit) {
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
     if (attackResult.isCrit) attackerUnit.addXP(2);
     if (attackResult.dmg > 0) attackerUnit.addXP(1);
-    playSound(attackResult.isCrit ? 'crit' : 'attack');
+    playSound(attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest' ? 'cannon' : (attackResult.isCrit ? 'crit' : 'attack'));
     const isCrit = attackResult.isCrit;
 
     // 核心状态修改：扣血、击杀判定（先于视觉效果，保证广播时状态正确）
@@ -2065,6 +2065,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             setTimeout(() => {
                 // airstrike visual AFTER card burn animation
                 spawnAirstrikeEffect(x, y, results);
+                playSound('airstrike');
                 // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
                 setTimeout(() => {
                     if (_savedHPs) {
@@ -2094,7 +2095,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     }
                     targetTile._cityDisabledUntil = (gameState.turnCounter || 0) + (gameState.isThreePlayer ? 3 : 2);
                     triggerScreenShake(6, 300);
-                    playSound('attack');
                 }, 1200);
             }, BURN_MS);
             break;
@@ -2106,6 +2106,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             setTimeout(() => {
                 // airdrop visual AFTER card burn animation
                 spawnAirstrikeEffect(x, y, [], 'airdrop');
+                playSound('airstrike');
                 // reveal unit & recruit effect delayed to match parachute landing (~1500ms into flight)
                 setTimeout(() => {
                     targetTile.unit._airdropWaiting = false;

@@ -10,6 +10,7 @@ import {
 } from './gameLogic.js';
 import { clearTransientEffects, spawnCommanderSkillEffect, spawnPaladinOrbitBeams } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
+import { setMasterVolume, setMuted } from './audio.js';
 
 function _getMyCampInput() {
     if (isNetworkGame()) {
@@ -895,6 +896,7 @@ export function initSettingsPanel() {
         updateSpeedBtns();
         document.getElementById('screenShake').checked = settings.screenShake;
         document.getElementById('soundEnabled').checked = settings.soundEnabled;
+        document.getElementById('soundVolume').value = Math.round((settings.soundVolume ?? 0.7) * 100);
         // 单人模式显示退出按钮
         exitBtn.style.display = isNetworkGame() ? 'none' : '';
     });
@@ -924,6 +926,20 @@ export function initSettingsPanel() {
 
     document.getElementById('soundEnabled').addEventListener('change', (e) => {
         settings.soundEnabled = e.target.checked;
+        setMuted(!e.target.checked);
+        saveSettings();
+        // 同步大厅静音按钮
+        const muteBtn = document.getElementById('lobbyMuteBtn');
+        if (muteBtn) {
+            muteBtn.textContent = e.target.checked ? '🔊' : '🔇';
+            muteBtn.classList.toggle('muted', !e.target.checked);
+        }
+    });
+
+    document.getElementById('soundVolume').addEventListener('input', (e) => {
+        const vol = parseInt(e.target.value) / 100;
+        settings.soundVolume = vol;
+        setMasterVolume(vol);
         saveSettings();
     });
 

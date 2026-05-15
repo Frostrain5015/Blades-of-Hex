@@ -386,7 +386,8 @@ const DEFAULT_SETTINGS = {
     particleDensity: 1.0,
     screenShake: true,
     turnFlash: true,
-    soundEnabled: true
+    soundEnabled: true,
+    soundVolume: 0.7
 };
 
 export let settings = { ...DEFAULT_SETTINGS };

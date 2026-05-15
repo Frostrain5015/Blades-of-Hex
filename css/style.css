@@ -1730,6 +1730,36 @@ body {
     align-items: center;
 }
 
+.lobby-mute-btn {
+    position: fixed;
+    top: 14px;
+    right: 18px;
+    z-index: 20001;
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(205,150,18,0.22);
+    border-radius: 8px;
+    color: #ddc48e;
+    font-size: 20px;
+    width: 38px;
+    height: 38px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: all 0.2s;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+}
+.lobby-mute-btn:hover {
+    background: rgba(0,0,0,0.7);
+    border-color: rgba(205,150,18,0.5);
+    color: #f5d88a;
+}
+.lobby-mute-btn.muted {
+    color: #665533;
+}
+
 .lobby-box {
     background: linear-gradient(160deg, rgba(18,10,5,0.96) 0%, rgba(8,3,1,0.98) 100%);
     border: 1px solid rgba(205,150,18,0.28);

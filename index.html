@@ -17,6 +17,7 @@
 
 <!-- ===== 大厅（默认显示） ===== -->
 <div id="lobbyOverlay">
+    <button id="lobbyMuteBtn" class="lobby-mute-btn" title="切换静音">🔊</button>
     <div class="lobby-box">
         <!-- 持久化左右分栏布局 -->
         <div class="hero-wrap">
@@ -347,6 +348,10 @@
             <label>音效</label>
             <input type="checkbox" id="soundEnabled" checked>
         </div>
+        <div class="setting-row">
+            <label>音量</label>
+            <input type="range" id="soundVolume" min="0" max="100" value="70" class="volume-slider" style="width:120px">
+        </div>
         <button id="settingsClose">完成</button>
         <button id="settingsExit" class="settings-exit-btn" style="display:none">退出</button>
     </div>
@@ -396,6 +401,7 @@
     <input type="text" id="cheatInput" placeholder="输入 / 查看命令" autocomplete="off" spellcheck="false">
 </div>
 
+<script src="js/lib/howler.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script type="module" src="js/main.js?v=22"></script>
 </body>

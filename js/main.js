@@ -1,4 +1,4 @@
-import { loadSettings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, COMMANDER_CONFIG, shuffleAndSplitPool, invalidateBoard } from './config.js';
+import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, COMMANDER_CONFIG, shuffleAndSplitPool, invalidateBoard } from './config.js';
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
@@ -29,11 +29,12 @@ import {
 import { isTileVisible } from './fogOfWar.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
-import { playSound } from './audio.js';
+import { playSound, initAudio, setMuted } from './audio.js';
 import './cheat.js';
 
 loadSettings();
 initCanvas();
+initAudio();
 setHexTileGameStateRef(gameState);
 setLogMessageRef(logMessage);
 setGameStateRef(gameState);
@@ -221,10 +222,45 @@ function _switchLobbyView(viewId, anim = true) {
     }}, '-=0.08');
 }
 
+let _bgmPlayHandler = null;
+let _bgmLastPlayed = 0;
+const BGM_COOLDOWN = 25000;
+
 function showHome(msg) {
     _switchLobbyView('lobbyHomeContent');
     connectionBar.classList.add('visible');
     if (msg) setStatus(msg, true);
+    _syncMuteBtn();
+
+    if (_bgmPlayHandler) {
+        document.removeEventListener('click', _bgmPlayHandler);
+        document.removeEventListener('touchstart', _bgmPlayHandler);
+        _bgmPlayHandler = null;
+    }
+
+    if (Howler.ctx && Howler.ctx.state === 'running') {
+        if (Date.now() - _bgmLastPlayed > BGM_COOLDOWN) {
+            _bgmLastPlayed = Date.now();
+            playSound('lobby_bgm');
+        }
+        return;
+    }
+
+    _bgmPlayHandler = () => {
+        document.removeEventListener('click', _bgmPlayHandler);
+        document.removeEventListener('touchstart', _bgmPlayHandler);
+        _bgmPlayHandler = null;
+        _bgmLastPlayed = Date.now();
+
+        const play = () => { playSound('lobby_bgm'); };
+        if (Howler.ctx && Howler.ctx.state === 'suspended') {
+            Howler.ctx.resume().then(play).catch(play);
+        } else {
+            play();
+        }
+    };
+    document.addEventListener('click', _bgmPlayHandler);
+    document.addEventListener('touchstart', _bgmPlayHandler);
 }
 
 // ---- 将领立绘轮播 & GSAP 入场动画 ----
@@ -633,6 +669,31 @@ document.getElementById('multiplayerBtn').addEventListener('click', () => {
         showHome(`连接失败：${err.message}（请确认服务器已启动）`);
     });
 });
+
+// ==== 大厅静音按钮 ====
+const lobbyMuteBtn = document.getElementById('lobbyMuteBtn');
+
+function _syncMuteBtn() {
+    if (settings.soundEnabled) {
+        lobbyMuteBtn.textContent = '🔊'; // 🔊
+        lobbyMuteBtn.classList.remove('muted');
+    } else {
+        lobbyMuteBtn.textContent = '🔇'; // 🔇
+        lobbyMuteBtn.classList.add('muted');
+    }
+}
+
+lobbyMuteBtn.addEventListener('click', () => {
+    settings.soundEnabled = !settings.soundEnabled;
+    setMuted(!settings.soundEnabled);
+    _syncMuteBtn();
+    const cb = document.getElementById('soundEnabled');
+    if (cb) cb.checked = settings.soundEnabled;
+    saveSettings();
+});
+
+// 初始化大厅：设置 _activeLobbyView、注册 BGM 交互监听、同步静音按钮
+showHome();
 
 // ==== 将领选择流程 =====================
 let _commanderPending = null;
@@ -1761,6 +1822,7 @@ async function handleRemoteAction(msg) {
                             break;
                         }
                         case 'airdrop':
+                            playSound('airstrike');
                             setTimeout(() => {
                                 const adTile = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
                                 if (adTile && adTile.unit) {
@@ -1800,6 +1862,7 @@ async function handleRemoteAction(msg) {
                         }
                         case 'airstrike': {
                             const airstrikeResults = e.airstrikeResults || [];
+                            playSound('airstrike');
                             // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
                             setTimeout(() => {
                                 for (const r of airstrikeResults) {
@@ -1830,7 +1893,6 @@ async function handleRemoteAction(msg) {
                                     const tgtTile = gameState.tileMap.get(`${e.q},${e.r}`);
                                     if (tgtTile) tgtTile._cityDisabledUntil = (gameState.turnCounter || 0) + (gameState.isThreePlayer ? 3 : 2);
                                 }
-                                playSound('attack');
                                 triggerScreenShake(6, 300);
                             }, 1200);
                             break;
@@ -1865,7 +1927,7 @@ async function handleRemoteAction(msg) {
                 const _rmFromY = e?.fromY ?? e?.y;
 
                 const _execAttackFx = () => {
-                playSound(e?.isCrit ? 'crit' : 'attack');
+                playSound(e.attackerType === 'archer' || e.attackerType === 'mgNest' ? 'cannon' : (e?.isCrit ? 'crit' : 'attack'));
                 if (e) {
                     triggerAttackFlash(e.x, e.y, e.isCrit);
                     if (e.attackerType === 'archer' || e.attackerType === 'mgNest') {
