@@ -80,7 +80,7 @@ function staticHandler(req, res) {
 const rooms = new Map(); // roomId → { id, players: Map<ws, {ready, role}>, gameStarted }
 
 // 房间号池：1-9，取最小可用
-const ZOMBIE_TIMEOUT = 15 * 60 * 1000; // 15 分钟
+const ZOMBIE_TIMEOUT = 2 * 60 * 1000; // 2 分钟
 
 const availableIds = new Set(['1','2','3','4','5','6','7','8','9']);
 
@@ -102,7 +102,7 @@ function roomList() {
     for (const [id, room] of rooms) {
         // 未开始的对局，或对局中有玩家断线（可重连）
         if (!room.gameStarted || room._disconnectedRole || (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0)) {
-            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2 });
+            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2, skirmishFog: room.skirmishFog || false });
         }
     }
     return list;

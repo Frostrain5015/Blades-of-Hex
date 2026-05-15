@@ -18,21 +18,16 @@
 <!-- ===== 大厅（默认显示） ===== -->
 <div id="lobbyOverlay">
     <div class="lobby-box">
-        <div class="lobby-header">
-            <h1 class="lobby-title">海克斯之剑</h1>
-            <p class="lobby-subtitle">BLADES OF HEX</p>
-        </div>
-
-        <!-- 首页：Epic风格Hero区 -->
-        <div id="lobbyHome">
-            <div class="hero-wrap">
-                <!-- 左侧：文字 + 按钮 -->
-                <div class="hero-left">
+        <!-- 持久化左右分栏布局 -->
+        <div class="hero-wrap">
+            <!-- 左侧：动态内容区 -->
+            <div class="hero-left" id="lobbyLeftPanel">
+                <!-- 首页 -->
+                <div id="lobbyHomeContent" class="lobby-view active">
                     <div class="hero-title-block">
                         <h2 class="hero-title">海克斯之剑</h2>
                         <p class="hero-sub">BLADES OF HEX</p>
                         <div class="hero-divider"></div>
-                        <p class="hero-desc">运筹帷幄，决胜千里。<br>选择你的将领，征服六边形战场。</p>
                     </div>
                     <div class="hero-actions">
                         <button class="hero-btn hero-btn-primary" id="soloGameBtn">
@@ -55,88 +50,104 @@
                     <div class="hero-carousel-dots" id="heroCarouselDots"></div>
                 </div>
 
-                <!-- 右侧：将领立绘大画幅展示 -->
-                <div class="hero-right">
-                    <div class="hero-portrait-frame">
-                        <img id="heroPortraitA" class="hero-portrait active" src="" alt="" />
-                        <img id="heroPortraitB" class="hero-portrait" src="" alt="" />
-                        <div class="hero-portrait-overlay"></div>
-                        <div class="hero-portrait-glow"></div>
+                <!-- 联机大厅 -->
+                <div id="multiplayerLobbyContent" class="lobby-view">
+                    <div class="mp-topbar">
+                        <button id="backToHomeBtn" class="mp-nav-btn">← 返回首页</button>
+                        <span class="mp-topbar-title">在线房间</span>
+                        <button id="refreshRoomsBtn" class="mp-nav-btn">↻ 刷新</button>
                     </div>
-                    <div class="hero-portrait-label" id="heroPortraitLabel"></div>
+                    <div id="roomListSection" class="mp-room-section">
+                        <div id="roomList" class="mp-room-list"></div>
+                        <div id="roomListEmpty" class="mp-room-empty">
+                            <span class="mp-empty-icon">⚔</span>
+                            <span class="mp-empty-text">暂无可用的房间</span>
+                            <span class="mp-empty-hint">创建一个房间邀请好友对战</span>
+                        </div>
+                    </div>
+                    <div class="mp-actions">
+                        <button id="createRoomBtn" class="mp-create-btn">+ 创建房间</button>
+                    </div>
+                </div>
+
+                <!-- 房间等待 -->
+                <div id="roomWaitingContent" class="lobby-view">
+                    <div id="roomIdDisplay" class="rw-room-card">
+                        <span class="rw-room-label">房间号</span>
+                        <span id="roomIdValue" class="rw-room-id"></span>
+                        <span class="rw-room-hint">将此房间号分享给好友</span>
+                    </div>
+                    <div id="roomWaitingStatus" class="rw-status">
+                        <span class="rw-dot"></span>
+                        <span id="roomWaitingText" class="rw-status-text">等待对手加入...</span>
+                        <span id="roomWaitingCount" class="rw-count"></span>
+                    </div>
+                    <div class="rw-actions">
+                        <button id="readyBtn" class="rw-ready-btn" disabled>准备</button>
+                        <button id="leaveRoomBtn" class="rw-leave-btn">离开房间</button>
+                    </div>
+                </div>
+
+                <!-- 阵营揭示 + 准备确认（联机开局前） -->
+                <div id="lobbyReadyContent" class="lobby-view">
+                    <div id="lobbyFaction" class="lobby-faction"></div>
+                    <button id="lobbyReadyBtn" class="lobby-ready-btn">准备</button>
+                    <div id="lobbyReadyStatus" class="lobby-ready-status"></div>
+                </div>
+
+                <!-- 准备弹窗（选择模式 / 创建房间）—— 三级菜单 -->
+                <div id="prepContent" class="lobby-view">
+                    <div class="prep-topbar">
+                        <button id="prepBackBtn" class="mp-nav-btn">← 返回</button>
+                        <span id="prepTitle" class="mp-topbar-title">选择模式</span>
+                        <span></span>
+                    </div>
+                    <div class="prep-body">
+                        <div class="prep-section">
+                            <div class="prep-section-label" id="prepLabel1">对战类型</div>
+                            <div class="prep-options" id="prepOptions1"></div>
+                        </div>
+                        <div class="prep-section" id="prepSectionDiff">
+                            <div class="prep-section-label" id="prepLabelDiff">AI 难度</div>
+                            <div class="prep-options" id="prepOptionsDiff"></div>
+                        </div>
+                        <div class="prep-section">
+                            <div class="prep-section-label" id="prepLabel2">对战模式</div>
+                            <div class="prep-options" id="prepOptions2"></div>
+                        </div>
+                        <div class="prep-actions">
+                            <button id="prepConfirm" class="mp-create-btn">确认</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：将领立绘轮播（始终可见） -->
+            <div class="hero-right">
+                <div class="hero-portrait-frame">
+                    <img id="heroPortraitA" class="hero-portrait active" src="" alt="" />
+                    <img id="heroPortraitB" class="hero-portrait" src="" alt="" />
+                    <div class="hero-portrait-overlay"></div>
+                    <div class="hero-portrait-glow"></div>
                 </div>
             </div>
         </div>
 
-        <!-- 准备弹窗 -->
-        <div id="prepOverlay" class="prep-overlay">
-            <div class="prep-panel">
-                <h2 id="prepTitle">选择模式</h2>
-                <div class="prep-section">
-                    <div class="prep-section-label" id="prepLabel1">对战类型</div>
-                    <div class="prep-options" id="prepOptions1"></div>
-                </div>
-                <div class="prep-section" id="prepSectionDiff" style="display:none">
-                    <div class="prep-section-label" id="prepLabelDiff">AI 难度</div>
-                    <div class="prep-options" id="prepOptionsDiff"></div>
-                </div>
-                <div class="prep-section">
-                    <div class="prep-section-label" id="prepLabel2">对战模式</div>
-                    <div class="prep-options" id="prepOptions2"></div>
-                </div>
-                <div class="prep-btns">
-                    <button id="prepConfirm" class="lobby-btn compact">确认</button>
-                    <button id="prepCancel" class="lobby-btn compact secondary">返回</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- 多人游戏大厅 -->
-        <div id="multiplayerLobby" style="display:none">
-            <div id="lobbyTopBar" class="lobby-topbar">
-                <button id="backToHomeBtn" class="lobby-nav-btn" title="返回首页">← 返回</button>
-                <span class="lobby-topbar-title">在线房间</span>
-                <button id="refreshRoomsBtn" class="lobby-nav-btn" title="刷新列表">↻ 刷新</button>
-            </div>
-            <div id="roomListSection">
-                <div id="roomList" class="room-grid"></div>
-                <div id="roomListEmpty" class="room-list-empty">可用房间为空</div>
-            </div>
-            <div id="roomActions">
-                <button id="createRoomBtn" class="lobby-btn compact">创建房间</button>
-            </div>
-        </div>
-
-        <!-- 房间等待 -->
-        <div id="roomWaiting" style="display:none">
-            <div id="roomIdDisplay" class="room-id-display">
-                <span class="room-id-label">房间号</span>
-                <span id="roomIdValue" class="room-id-value"></span>
-            </div>
-            <div id="roomWaitingStatus" class="room-waiting-status">
-                <span class="waiting-dot"></span>
-                <span id="roomWaitingText">等待对手加入...</span>
-                <span id="roomWaitingCount" class="room-waiting-count"></span>
-            </div>
-            <div class="room-waiting-actions">
-                <button id="readyBtn" class="room-ready-btn" disabled>准备</button>
-                <button id="leaveRoomBtn" class="room-leave-btn">离开房间</button>
-            </div>
-        </div>
-
-        <!-- 阵营揭示 + 准备确认（联机开局前，兼容旧逻辑） -->
-        <div id="lobbyReady" style="display:none">
-            <div id="lobbyFaction" class="lobby-faction"></div>
-            <button id="lobbyReadyBtn" class="lobby-ready-btn">准备</button>
-            <div id="lobbyReadyStatus" class="lobby-ready-status"></div>
-        </div>
         <div id="connectionBar" class="connection-bar">
             <span class="connection-dot"></span>
             <span id="connectionLabel" class="connection-label">未连接</span>
+            <span class="connection-divider">·</span>
+            <span id="serverLocation" class="server-location"></span>
             <button id="reconnectBtn" class="reconnect-btn" style="display:none" title="手动重连">重连</button>
         </div>
         <div id="lobbyStatus" class="lobby-status"></div>
     </div>
+</div>
+
+<!-- 开局倒计时 -->
+<div id="countdownOverlay">
+    <div id="countdownNumber">3</div>
+    <div id="countdownLabel">准备战斗</div>
 </div>
 
 <!-- ===== 游戏主体（开始后显示） ===== -->

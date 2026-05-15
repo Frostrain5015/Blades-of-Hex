@@ -116,11 +116,11 @@ requestAnimationFrame(() => _startHeroCarousel());
 
 // ==== 大厅 UI ===================
 const lobbyOverlay      = document.getElementById('lobbyOverlay');
-const lobbyHome         = document.getElementById('lobbyHome');
-const multiplayerLobby  = document.getElementById('multiplayerLobby');
-const roomWaiting       = document.getElementById('roomWaiting');
+const lobbyHomeContent  = document.getElementById('lobbyHomeContent');
+const mpLobbyContent    = document.getElementById('multiplayerLobbyContent');
+const roomWaitContent   = document.getElementById('roomWaitingContent');
+const lobbyReadyContent = document.getElementById('lobbyReadyContent');
 const roomIdValue       = document.getElementById('roomIdValue');
-const roomWaitingStatus = document.getElementById('roomWaitingStatus');
 const roomWaitingText   = document.getElementById('roomWaitingText');
 const roomList          = document.getElementById('roomList');
 const roomListEmpty     = document.getElementById('roomListEmpty');
@@ -130,6 +130,14 @@ const connectionBar     = document.getElementById('connectionBar');
 const connectionLabel   = document.getElementById('connectionLabel');
 const connectionDot     = connectionBar.querySelector('.connection-dot');
 const reconnectBtn      = document.getElementById('reconnectBtn');
+let _activeLobbyView    = null;
+
+function _detectServerLocation() {
+    const hn = location.hostname;
+    const isLocal = hn === 'localhost' || hn === '127.0.0.1' || hn === '::1' ||
+        /^192\.168\./.test(hn) || /^10\./.test(hn) || /^172\.(1[6-9]|2\d|3[01])\./.test(hn);
+    return isLocal ? '内网穿透' : '阿里云·墨裁';
+}
 
 function setConnectionState(state) {
     // state: 'disconnected' | 'connecting' | 'connected'
@@ -140,6 +148,7 @@ function setConnectionState(state) {
         case 'connected':  connectionLabel.textContent = '服务器已连接'; break;
         default:           connectionLabel.textContent = '未连接'; break;
     }
+    document.getElementById('serverLocation').textContent = _detectServerLocation();
     // 重连成功后隐藏按钮
     if (state === 'connected') reconnectBtn.style.display = 'none';
 }
@@ -172,27 +181,62 @@ function setStatus(msg, isError = false) {
     lobbyStatus.style.color = isError ? '#ff6666' : '#ffdd88';
 }
 
+function _switchLobbyView(viewId, anim = true) {
+    const target = document.getElementById(viewId);
+    if (!target || _activeLobbyView === viewId) return;
+
+    const oldEl = _activeLobbyView ? document.getElementById(_activeLobbyView) : null;
+    const prevView = _activeLobbyView;
+    _activeLobbyView = viewId;
+
+    if (!anim || typeof gsap === 'undefined' || !oldEl) {
+        document.querySelectorAll('.lobby-view').forEach(v => { v.classList.remove('active'); v.style.display = 'none'; });
+        target.style.display = '';
+        target.classList.add('active');
+        return;
+    }
+
+    // 记录旧视图高度并锁定，防止新视图撑高面板导致跳变
+    const leftPanel = document.getElementById('lobbyLeftPanel');
+    const oldHeight = leftPanel.offsetHeight;
+    leftPanel.style.minHeight = oldHeight + 'px';
+
+    // 旧视图立即脱离文档流，防止双视图叠加影响布局
+    oldEl.style.position = 'absolute';
+    oldEl.style.inset = '8px 0 8px 4px';
+    oldEl.style.pointerEvents = 'none';
+
+    const tl = gsap.timeline();
+    tl.to(oldEl, { opacity: 0, x: -16, duration: 0.22, ease: 'power2.in', onComplete: () => {
+        oldEl.style.display = 'none';
+        oldEl.style.position = '';
+        oldEl.style.inset = '';
+        oldEl.style.pointerEvents = '';
+        oldEl.classList.remove('active');
+        leftPanel.style.minHeight = '';
+    }});
+    tl.fromTo(target, { opacity: 0, x: 16 }, { opacity: 1, x: 0, duration: 0.28, ease: 'power2.out', onStart: () => {
+        target.style.display = '';
+        target.classList.add('active');
+    }}, '-=0.08');
+}
+
 function showHome(msg) {
-    lobbyHome.style.display = '';
-    multiplayerLobby.style.display = 'none';
-    roomWaiting.style.display = 'none';
-    document.getElementById('lobbyReady').style.display = 'none';
+    _switchLobbyView('lobbyHomeContent');
     connectionBar.classList.add('visible');
     if (msg) setStatus(msg, true);
-    _startHeroCarousel();
 }
 
 // ---- 将领立绘轮播 & GSAP 入场动画 ----
-const _heroCommanders = ['paladin','fallenAngel','vampire','berserker','magician','advisor'];
+const _heroCommanders = ['paladin','fallenAngel','vampire','berserker','magician','advisor','ironGuard','centurion','staller','martyr','priest','minister'];
 let _heroCarouselIdx = 0;
 let _heroCarouselTimer = null;
 let _heroCarouselReady = false;
 
 function _startHeroCarousel() {
     const frame = document.querySelector('.hero-portrait-frame');
-    const label = document.getElementById('heroPortraitLabel');
     const dotsContainer = document.getElementById('heroCarouselDots');
-    if (!frame || !label || !dotsContainer) return;
+    if (!frame || !dotsContainer) return;
 
     // 生成圆点
     dotsContainer.innerHTML = '';
@@ -204,7 +248,6 @@ function _startHeroCarousel() {
     }
 
     _showHeroSlide(_heroCarouselIdx, false);
-    label.classList.add('show');
 
     if (!_heroCarouselReady) {
         _heroCarouselReady = true;
@@ -228,7 +271,6 @@ function _showHeroSlide(idx, animate) {
     const cmdId = _heroCommanders[idx];
     const cfg = COMMANDER_CONFIG[cmdId];
     const name = cfg ? cfg.name : cmdId;
-    const label = document.getElementById('heroPortraitLabel');
     const imgA = document.getElementById('heroPortraitA');
     const imgB = document.getElementById('heroPortraitB');
 
@@ -240,17 +282,14 @@ function _showHeroSlide(idx, animate) {
         activeImg.src = src;
         activeImg.classList.add('active');
         idleImg.classList.remove('active');
-        label.textContent = cfg ? cfg.name : '';
         return;
     }
 
-    // 预加载后交叉淡入
     const preload = new Image();
     preload.onload = () => {
         idleImg.src = src;
         idleImg.classList.add('active');
         activeImg.classList.remove('active');
-        label.textContent = cfg ? cfg.name : '';
     };
     preload.src = src;
 }
@@ -276,35 +315,27 @@ function _updateHeroDots() {
 function _animateHeroEntrance() {
     if (typeof gsap === 'undefined') return;
     const tl = gsap.timeline();
+    const box = document.querySelector('.lobby-box');
     const portrait = document.querySelector('.hero-portrait-frame');
     const title = document.querySelector('.hero-title-block');
     const buttons = document.querySelectorAll('.hero-btn');
     const dots = document.getElementById('heroCarouselDots');
-    const label = document.getElementById('heroPortraitLabel');
 
-    tl.fromTo(portrait, { opacity: 0, x: 40, scale: 0.95 }, { opacity: 1, x: 0, scale: 1, duration: 0.7, ease: 'power2.out' });
-    tl.fromTo(title, { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.55, ease: 'power2.out' }, '-=0.25');
+    tl.fromTo(box, { opacity: 0, scale: 0.96, y: 12 }, { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: 'power3.out' });
+    tl.fromTo(portrait, { opacity: 0, x: 40, scale: 0.95 }, { opacity: 1, x: 0, scale: 1, duration: 0.7, ease: 'power2.out' }, '-=0.15');
+    tl.fromTo(title, { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.55, ease: 'power2.out' }, '-=0.3');
     tl.fromTo(buttons, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, stagger: 0.08, ease: 'back.out(1.2)' }, '-=0.2');
     tl.fromTo(dots, { opacity: 0 }, { opacity: 1, duration: 0.3 }, '-=0.1');
-    tl.fromTo(label, { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.35, ease: 'power2.out' }, '-=0.15');
 }
 
 function showMultiplayerLobby() {
-    _stopHeroCarousel();
-    lobbyHome.style.display = 'none';
-    multiplayerLobby.style.display = '';
-    roomWaiting.style.display = 'none';
-    document.getElementById('lobbyReady').style.display = 'none';
+    _switchLobbyView('multiplayerLobbyContent');
     connectionBar.classList.add('visible');
     setStatus('');
 }
 
 function showRoomWaiting(roomId, maxPlayers = 2, playerCount = 1) {
-    _stopHeroCarousel();
-    lobbyHome.style.display = 'none';
-    multiplayerLobby.style.display = 'none';
-    roomWaiting.style.display = '';
-    document.getElementById('lobbyReady').style.display = 'none';
+    _switchLobbyView('roomWaitingContent');
     connectionBar.classList.add('visible');
     roomIdValue.textContent = roomId;
     const maxP = maxPlayers || 2;
@@ -488,14 +519,13 @@ function _getPrepSelection(containerId) {
 
 function _showPrepDialog(action) {
     _prepAction = action;
-    const overlay = document.getElementById('prepOverlay');
     const title = document.getElementById('prepTitle');
 
     if (action === 'createRoom') {
         title.textContent = '创建房间';
         document.getElementById('prepLabel1').textContent = '对战人数';
         document.getElementById('prepLabel2').textContent = '对战模式';
-        document.getElementById('prepSectionDiff').style.display = 'none';
+        document.getElementById('prepSectionDiff').classList.add('hidden');
         _buildPrepOptionRow('prepOptions1', [
             { id: '2p', title: '双人', desc: '1v1 在线对战' },
             { id: '3p', title: '三人', desc: '三方混战' }
@@ -508,7 +538,6 @@ function _showPrepDialog(action) {
         title.textContent = '本地游戏';
         document.getElementById('prepLabel1').textContent = '对战类型';
         document.getElementById('prepLabel2').textContent = '对战模式';
-        // 难度行：初始显示，PVE 选中时可见
         const diffSection = document.getElementById('prepSectionDiff');
         _buildPrepOptionRow('prepOptions1', [
             { id: 'pve', title: 'PVE 对战AI', desc: '红军 vs 蓝军AI' },
@@ -523,33 +552,37 @@ function _showPrepDialog(action) {
             { id: 'medium', title: '中等', desc: 'AI 1.5x 经济' },
             { id: 'hard', title: '困难', desc: 'AI 2x 经济' }
         ]);
-        // PVE/本地 切换显示难度行
-        diffSection.style.display = 'block';
+        diffSection.classList.remove('hidden');
         const updateDiff = () => {
             const sel = _getPrepSelection('prepOptions1');
-            diffSection.style.display = sel === 'pve' ? 'block' : 'none';
+            diffSection.classList.toggle('hidden', sel !== 'pve');
         };
         document.getElementById('prepOptions1').addEventListener('click', () => setTimeout(updateDiff, 50));
         updateDiff();
     }
 
-    overlay.classList.add('show');
+    _switchLobbyView('prepContent');
 
     document.getElementById('prepConfirm').onclick = () => {
-        overlay.classList.remove('show');
         _executePrepChoice();
     };
-    document.getElementById('prepCancel').onclick = () => {
-        overlay.classList.remove('show');
-    };
 }
+
+// prep 返回按钮：回到进入 prep 之前的视图
+document.getElementById('prepBackBtn').addEventListener('click', () => {
+    // 联机模式回到联机大厅，单人模式回到首页
+    if (_prepAction === 'createRoom') {
+        showMultiplayerLobby();
+    } else {
+        showHome();
+    }
+});
 
 function _executePrepChoice() {
     const sel1 = _getPrepSelection('prepOptions1');
     const sel2 = _getPrepSelection('prepOptions2');
     const isSkirmish = sel2 === 'skirmish';
     console.log('[FOG DEBUG] _executePrepChoice: action=' + _prepAction + ' sel1=' + sel1 + ' sel2=' + sel2 + ' isSkirmish=' + isSkirmish);
-    showHome();
 
     if (_prepAction === 'createRoom') {
         const maxP = sel1 === '3p' ? 3 : 2;
@@ -582,7 +615,6 @@ document.getElementById('soloGameBtn').addEventListener('click', () => _showPrep
 
 // ==== 多人游戏 → 直接连接服务器进大厅 ====
 document.getElementById('multiplayerBtn').addEventListener('click', () => {
-    lobbyHome.style.display = 'none';
     if (isNetworkGame() || connectionDot.classList.contains('connected')) {
         registerNetworkCallbacks();
         showMultiplayerLobby();
@@ -607,6 +639,7 @@ let _commanderPending = null;
 let _commanderTransitioning = false; // 防止移动端双击重复触发
 
 function beginCommanderPhase() {
+    _stopHeroCarousel();
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
     const savedMode = gameState.gameMode;
@@ -624,6 +657,7 @@ function beginCommanderPhase() {
 
 // PVE 模式将领选择：人类与 AI 轮流选将
 function beginPVECommanderPhase(humanRole) {
+    _stopHeroCarousel();
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
     const savedFog = gameState.skirmishFog;
@@ -1132,10 +1166,10 @@ let _opponentCount = 0;
 function startGame() {
     if (_deploymentStarted) return;
     _deploymentStarted = true;
+    _stopHeroCarousel();
     const lobbyOverlay = document.getElementById('lobbyOverlay');
     lobbyOverlay.style.display = 'none';
     document.getElementById('gameWrapper').style.display = '';
-    document.getElementById('lobbyReady').style.display = 'none';
     document.getElementById('lobbyReadyBtn').disabled = false;
     document.getElementById('lobbyReadyBtn').textContent = '准备';
     document.getElementById('backToVictoryBtn').style.display = 'none';
@@ -1162,20 +1196,57 @@ function startGame() {
     document.getElementById('rematchStatus').textContent = '';
     dismissToast();
     fitCanvas();
-    preloadPortraits();
-    initMap();
-    initInput();
-    initKeyboard();
-    initSettingsPanel();
-    setOnFogUpdated(updateCampEmblems);
-    updateCampEmblems();
-    updateUI();
-    gameState.currentCamp = CAMP.player1;
-    updateButtonColors();
 
-    const limitRound = gameState.isThreePlayer ? 25 : 18;
-    const factionName = gameState.isThreePlayer ? '三方' : '双人';
-    showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得胜利！`);
+    // 3秒全屏倒计时
+    _runCountdown(() => {
+        preloadPortraits();
+        initMap();
+        initInput();
+        initKeyboard();
+        initSettingsPanel();
+        setOnFogUpdated(updateCampEmblems);
+        updateCampEmblems();
+        updateUI();
+        gameState.currentCamp = CAMP.player1;
+        updateButtonColors();
+
+        const limitRound = gameState.isThreePlayer ? 25 : 18;
+        const factionName = gameState.isThreePlayer ? '三方' : '双人';
+        showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得胜利！`);
+    });
+}
+
+// ---- 3-2-1 全屏倒计时 ----
+function _runCountdown(onDone) {
+    const overlay = document.getElementById('countdownOverlay');
+    const numEl = document.getElementById('countdownNumber');
+    overlay.classList.add('show');
+
+    if (typeof gsap === 'undefined') {
+        setTimeout(() => { overlay.classList.remove('show'); onDone(); }, 3000);
+        return;
+    }
+
+    function _tick(n) {
+        numEl.textContent = n;
+        gsap.fromTo(numEl, { scale: 1.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: 'power2.out' });
+        if (n > 1) {
+            setTimeout(() => {
+                gsap.to(numEl, { scale: 0.5, opacity: 0, duration: 0.25, ease: 'power2.in', onComplete: () => _tick(n - 1) });
+            }, 650);
+        } else {
+            setTimeout(() => {
+                gsap.to([overlay, numEl], { opacity: 0, duration: 0.35, ease: 'power2.in', onComplete: () => {
+                    overlay.classList.remove('show');
+                    overlay.style.opacity = '';
+                    numEl.style.opacity = '';
+                    numEl.style.transform = '';
+                    onDone();
+                }});
+            }, 700);
+        }
+    }
+    _tick(3);
 }
 
 // 根据当前页面协议和端口推导 WebSocket 地址
@@ -1199,10 +1270,12 @@ function renderRoomList(list) {
     roomList.style.display = '';
     list.forEach(r => {
         const card = document.createElement('div');
-        card.className = 'room-card';
+        card.className = 'mp-room-card';
         const maxP = r.maxPlayers || 2;
-        card.innerHTML = `<span class="room-card-id">${r.roomId}</span><span class="room-card-count">${r.playerCount}/${maxP}</span>`;
-        if (r.playerCount >= maxP) {
+        const full = r.playerCount >= maxP;
+        const modeLabel = (maxP === 3 ? '三人' : '双人') + ' · ' + (r.skirmishFog ? '遭遇战' : '标准');
+        card.innerHTML = `<span class="mp-room-id">${r.roomId}</span><span class="mp-room-mode">${modeLabel}</span><span class="mp-room-players">${r.playerCount}/${maxP}</span><span class="mp-room-arrow">→</span>`;
+        if (full) {
             card.classList.add('full');
             card.title = '房间已满';
         } else {
@@ -1238,12 +1311,12 @@ document.getElementById('readyBtn').addEventListener('click', () => {
     _isReady = !_isReady;
     if (_isReady) {
         readyBtn.textContent = '取消准备';
-        readyBtn.style.background = '#c0392b';
+        readyBtn.classList.add('cancel');
         _readyCount++;
         sendReady();
     } else {
         readyBtn.textContent = '准备';
-        readyBtn.style.background = '#27ae60';
+        readyBtn.classList.remove('cancel');
         _readyCount--;
         sendUnready();
     }
@@ -1339,7 +1412,6 @@ function registerNetworkCallbacks() {
             if (isThreePlayer !== undefined) gameState.isThreePlayer = isThreePlayer;
             if (skirmishFog !== undefined) gameState.skirmishFog = skirmishFog;
             console.log('[FOG DEBUG] onStart: role=' + role + ' skirmishFog=' + skirmishFog + ' isThreePlayer=' + isThreePlayer);
-            roomWaiting.style.display = 'none';
             showFactionReveal(role);
         },
 
@@ -1380,8 +1452,8 @@ function registerNetworkCallbacks() {
                 console.log('[重连] reloadPortraits 完成，commanderP1=' + gameState.commanderP1 + '，P2=' + gameState.commanderP2);
                 _isReady = false;
                 readyBtn.textContent = '准备';
-                readyBtn.style.background = '#27ae60';
-                document.getElementById('roomWaiting').style.display = 'none';
+                readyBtn.classList.remove('cancel');
+                document.getElementById('lobbyOverlay').style.display = 'none';
                 document.getElementById('victoryOverlay').classList.remove('show');
                 document.getElementById('factionReveal').classList.remove('show');
                 document.getElementById('commanderOverlay').classList.remove('show');
@@ -1499,7 +1571,6 @@ async function handleRemoteAction(msg) {
             console.log('[重连] stateSync 通过检测，开始应用远程状态...');
             document.getElementById('lobbyOverlay').style.display = 'none';
             document.getElementById('gameWrapper').style.display = '';
-            document.getElementById('roomWaiting').style.display = 'none';
             document.getElementById('opponentTurnBanner').style.display = '';
             document.getElementById('networkIndicator').style.display = 'flex';
             document.body.style.pointerEvents = '';
