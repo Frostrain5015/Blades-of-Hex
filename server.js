@@ -60,19 +60,46 @@ function staticHandler(req, res) {
     const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME[ext] || 'application/octet-stream';
 
-    fs.readFile(filePath, (err, data) => {
+    fs.stat(filePath, (err, stats) => {
         if (err) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
             res.end('404 Not Found');
             return;
         }
-        res.writeHead(200, {
-            'Content-Type': contentType,
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0'
-        });
-        res.end(data);
+        const fileSize = stats.size;
+        const range = req.headers.range;
+
+        if (range) {
+            const parts = range.replace(/bytes=/, '').split('-');
+            const start = parseInt(parts[0], 10);
+            const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+            const chunkSize = end - start + 1;
+
+            if (start >= fileSize) {
+                res.writeHead(416, { 'Content-Range': `bytes */${fileSize}` });
+                res.end();
+                return;
+            }
+
+            const stream = fs.createReadStream(filePath, { start, end });
+            res.writeHead(206, {
+                'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+                'Accept-Ranges': 'bytes',
+                'Content-Length': chunkSize,
+                'Content-Type': contentType,
+                'Cache-Control': 'no-cache'
+            });
+            stream.pipe(res);
+        } else {
+            res.writeHead(200, {
+                'Content-Type': contentType,
+                'Content-Length': fileSize,
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            });
+            fs.createReadStream(filePath).pipe(res);
+        }
     });
 }
 
