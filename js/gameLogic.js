@@ -785,7 +785,14 @@ async function _doEndTurnPhase() {
     // 天气在新回合开始时更新
     if (gameState.currentCamp === CAMP.player1) {
         checkTurnLimitVictory();
-        if (gameState.gameOver) return;
+        if (gameState.gameOver) {
+            broadcastAction('endTurn', {
+                cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
+                dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null,
+                healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null
+            });
+            return;
+        }
         _updateWeather();
         _expireTimedEffects();
         // every 5 rounds: free card for all players
@@ -1241,7 +1248,11 @@ export function attackUnit(attackerUnit, targetUnit) {
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
     if (attackResult.isCrit) attackerUnit.addXP(2);
     if (attackResult.dmg > 0) attackerUnit.addXP(1);
-    playSound(attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest' ? 'cannon' : (attackResult.isCrit ? 'crit' : 'attack'));
+    if (attackerUnit._smiteReady) {
+        setTimeout(() => playSound('lightning'), 500);
+    } else {
+        playSound(attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest' ? 'cannon' : (attackResult.isCrit ? 'crit' : 'attack'));
+    }
     const isCrit = attackResult.isCrit;
 
     // 核心状态修改：扣血、击杀判定（先于视觉效果，保证广播时状态正确）
@@ -1294,7 +1305,7 @@ export function attackUnit(attackerUnit, targetUnit) {
                     timeLeft: 900, lastUpdate: performance.now()
                 });
                 triggerAttackFlash(toX, toY, true);
-                spawnCommanderSkillEffect(toX, toY, '✝️', '至圣斩');
+                spawnCommanderSkillEffect(toX, toY, '✝️', '至圣斩', true);
                 triggerScreenShake(_smiteLabel === '至圣斩·誓约' ? 10 : 8, 350);
                 _smiteDmgRemote = atkCmdResult.smiteDmg;
                 // 至圣斩真伤绕过护盾走 takeDamage，完整处理击杀/殉道/计数等
@@ -2017,7 +2028,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 });
                 spawnLightningStrike(x, y);
                 triggerScreenShake(10, 350);
-                playSound('attack');
+                playSound('lightning');
             }, BURN_MS);
             break;
         }

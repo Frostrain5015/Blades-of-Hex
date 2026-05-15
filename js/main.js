@@ -29,7 +29,7 @@ import {
 import { isTileVisible } from './fogOfWar.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
-import { playSound, initAudio, setMuted } from './audio.js';
+import { playSound, initAudio, setMuted, startBattleBGM, stopBattleBGM, stopLobbyBGM } from './audio.js';
 import './cheat.js';
 
 loadSettings();
@@ -231,6 +231,7 @@ function showHome(msg) {
     connectionBar.classList.add('visible');
     if (msg) setStatus(msg, true);
     _syncMuteBtn();
+    stopBattleBGM();
 
     if (_bgmPlayHandler) {
         document.removeEventListener('click', _bgmPlayHandler);
@@ -1257,6 +1258,8 @@ function startGame() {
     document.getElementById('rematchStatus').textContent = '';
     dismissToast();
     fitCanvas();
+    stopLobbyBGM();
+    stopBattleBGM();
 
     // 3秒全屏倒计时
     _runCountdown(() => {
@@ -1270,6 +1273,7 @@ function startGame() {
         updateUI();
         gameState.currentCamp = CAMP.player1;
         updateButtonColors();
+        startBattleBGM();
 
         const limitRound = gameState.isThreePlayer ? 25 : 18;
         const factionName = gameState.isThreePlayer ? '三方' : '双人';
@@ -1290,6 +1294,7 @@ function _runCountdown(onDone) {
 
     function _tick(n) {
         numEl.textContent = n;
+        playSound('countdown');
         gsap.fromTo(numEl, { scale: 1.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: 'power2.out' });
         if (n > 1) {
             setTimeout(() => {
@@ -1779,7 +1784,7 @@ async function handleRemoteAction(msg) {
                                     triggerScreenShake(4, 150);
                                 }
                             }
-                            playSound('attack');
+                            playSound('lightning');
                             spawnLightningStrike(e.x, e.y);
                             triggerScreenShake(10, 350);
                             if (e.dmg) gameState.damageTexts.push({
@@ -1927,7 +1932,11 @@ async function handleRemoteAction(msg) {
                 const _rmFromY = e?.fromY ?? e?.y;
 
                 const _execAttackFx = () => {
-                playSound(e.attackerType === 'archer' || e.attackerType === 'mgNest' ? 'cannon' : (e?.isCrit ? 'crit' : 'attack'));
+                if (_rmSmite) {
+                    setTimeout(() => playSound('lightning'), 500);
+                } else {
+                    playSound(e.attackerType === 'archer' || e.attackerType === 'mgNest' ? 'cannon' : (e?.isCrit ? 'crit' : 'attack'));
+                }
                 if (e) {
                     triggerAttackFlash(e.x, e.y, e.isCrit);
                     if (e.attackerType === 'archer' || e.attackerType === 'mgNest') {
@@ -2004,7 +2013,7 @@ async function handleRemoteAction(msg) {
                             timeLeft: 900, lastUpdate: performance.now()
                         });
                         triggerAttackFlash(e.x, e.y, true);
-                        spawnCommanderSkillEffect(e.x, e.y, '✝️', '至圣斩');
+                        spawnCommanderSkillEffect(e.x, e.y, '✝️', '至圣斩', true);
                         triggerScreenShake(_rmSmiteLabel === '至圣斩·誓约' ? 10 : 8, 350);
                     }
                     // 圣骑士誓言金色光束
@@ -2031,7 +2040,7 @@ async function handleRemoteAction(msg) {
                 }; // _execAttackFx
 
                 if (_rmSmite) {
-                    spawnCommanderSkillEffect(_rmFromX, _rmFromY, '✝️', _rmSmiteLabel);
+                    spawnCommanderSkillEffect(_rmFromX, _rmFromY, '✝️', _rmSmiteLabel, true);
                     setTimeout(_execAttackFx, 500);
                 } else {
                     _execAttackFx();

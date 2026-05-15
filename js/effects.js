@@ -360,7 +360,7 @@ export function drawConfetti(ctx2d) {
 export const commanderSkillEffects = [];
 export const commanderFlash = { alpha: 0 };
 
-export function spawnCommanderSkillEffect(x, y, glyph = '🎖️', label = '') {
+export function spawnCommanderSkillEffect(x, y, glyph = '🎖️', label = '', skipSound = false) {
     commanderSkillEffects.push({
         x, y,
         glyph,
@@ -370,8 +370,8 @@ export function spawnCommanderSkillEffect(x, y, glyph = '🎖️', label = '') {
     });
     // 画布边框辉光
     commanderFlash.alpha = 0.90;
-    // 提示音
-    playSound('commanderSkill');
+    // 提示音（至圣斩攻击时由 lightning 替代，跳过此音效）
+    if (!skipSound) playSound('commanderSkill');
 }
 
 // ===== 士气变化动画 =====================

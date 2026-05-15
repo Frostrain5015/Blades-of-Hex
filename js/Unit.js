@@ -2,6 +2,7 @@ import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION,
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './state.js';
+import { isNetworkGame, getMyRole } from './network.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset } from './effects.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
@@ -11,6 +12,20 @@ let _gameState = null;
 export let _pendingRankUps = [];
 export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setGameStateRef(ref) { _gameState = ref; }
+
+function _isHumanTurn(gs) {
+    if (isNetworkGame()) {
+        const role = getMyRole();
+        if (role === 'player1') return gs.currentCamp === CAMP.player1;
+        if (role === 'player2') return gs.currentCamp === CAMP.player2;
+        if (role === 'player3') return gs.currentCamp === CAMP.player3;
+        return false;
+    }
+    if (gs.gameMode === 'pve' && gs.aiOpponentCamp) {
+        return gs.currentCamp !== CAMP.neutral && gs.currentCamp !== gs.aiOpponentCamp;
+    }
+    return gs.currentCamp !== CAMP.neutral;
+}
 
 export class Unit {
     constructor(type, camp, tile, isNewRecruit = false, idOverride = null, commander = null) {
@@ -426,8 +441,8 @@ export class Unit {
 
         ctx.restore();
 
-        // ── Actionable glow ──
-        if (this.canAct && gs && this.camp === gs.currentCamp && !this.isNewRecruit) {
+        // ── Actionable glow（仅己方回合显示）──
+        if (this.canAct && gs && this.camp === gs.currentCamp && !this.isNewRecruit && _isHumanTurn(gs)) {
             ctx.save();
             const pulse = (Math.sin(time * 3.2 * Math.PI) + 1) / 2;
             const alpha1 = 0.18 + pulse * 0.45;

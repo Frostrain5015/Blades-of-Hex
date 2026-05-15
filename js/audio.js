@@ -71,6 +71,47 @@ function _getHowl(name) {
 }
 
 // ============================================================
+//  BGM 控制 — 对局背景音乐循环播放
+// ============================================================
+
+let _battleBgmId = null;
+
+export function startBattleBGM() {
+    if (_battleBgmId !== null) return; // 已在播放
+    const result = _getHowl('battle_bgm');
+    if (!result || !result.howl) return;
+    if (_loadErrors['battle_bgm']) return;
+
+    const play = () => {
+        const masterVol = settings.soundVolume ?? 0.7;
+        result.howl.volume(result.cfg.volume * masterVol);
+        _battleBgmId = result.howl.play();
+    };
+
+    if (Howler.ctx && Howler.ctx.state === 'suspended') {
+        Howler.ctx.resume().then(play).catch(play);
+    } else {
+        play();
+    }
+}
+
+export function stopBattleBGM() {
+    if (_battleBgmId === null) return;
+    const result = _getHowl('battle_bgm');
+    if (result && result.howl) {
+        result.howl.stop();
+    }
+    _battleBgmId = null;
+}
+
+export function stopLobbyBGM() {
+    const result = _getHowl('lobby_bgm');
+    if (result && result.howl) {
+        result.howl.stop();
+    }
+}
+
+// ============================================================
 //  音量 / 静音控制
 // ============================================================
 
@@ -142,7 +183,7 @@ function _playSynthFallback(sound) {
             osc.type = 'square';
             osc.frequency.setValueAtTime(800, ctx.currentTime);
             osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.18, ctx.currentTime);
+            gain.gain.setValueAtTime(0.4, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
             osc.connect(gain); gain.connect(ctx.destination);
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
@@ -226,11 +267,33 @@ function _playSynthFallback(sound) {
             });
             break;
         }
+        case 'countdown': {
+            // 短促倒计时提示音：方波快速下行 + 正弦泛音
+            const t = ctx.currentTime;
+            const osc1 = ctx.createOscillator();
+            const gain1 = ctx.createGain();
+            osc1.type = 'square';
+            osc1.frequency.setValueAtTime(880, t);
+            osc1.frequency.exponentialRampToValueAtTime(440, t + 0.12);
+            gain1.gain.setValueAtTime(0.10, t);
+            gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+            osc1.connect(gain1); gain1.connect(ctx.destination);
+            osc1.start(t); osc1.stop(t + 0.18);
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(1320, t);
+            osc2.frequency.exponentialRampToValueAtTime(660, t + 0.1);
+            gain2.gain.setValueAtTime(0.06, t);
+            gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+            osc2.connect(gain2); gain2.connect(ctx.destination);
+            osc2.start(t); osc2.stop(t + 0.15);
+            break;
+        }
         case 'unitDeath':
         case 'cityCapture':
         case 'cardDraw':
         case 'buttonClick':
-        case 'countdown':
         case 'rankUp':
         case 'goldEarn':
         case 'defeat':

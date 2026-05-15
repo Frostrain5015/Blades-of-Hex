@@ -12,6 +12,7 @@
     "build-admin-exe": "pkg admin/admin-server.js -t node18-win-x64 -o BladesOfHex-Admin.exe"
   },
   "dependencies": {
+    "ssh2": "^1.17.0",
     "ws": "^8.17.0"
   },
   "devDependencies": {

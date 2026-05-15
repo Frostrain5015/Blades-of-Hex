@@ -5,7 +5,7 @@ export const SOUND_MANIFEST = {
     // ---- 战斗 ----
     attack:        { file: 'sounds/attack.mp3',        volume: 0.8,  pool: 4,  preload: false, category: 'combat' },
     cannon:        { file: 'sounds/cannon.mp3',        volume: 0.85, pool: 2,  preload: false, category: 'combat' },
-    crit:          { file: 'sounds/crit.mp3',          volume: 0.9,  pool: 2,  preload: false, category: 'combat' },
+    crit:          { file: 'sounds/crit.mp3',          volume: 1.3,  pool: 2,  preload: false, category: 'combat' },
     unitDeath:     { file: 'sounds/unitDeath.mp3',     volume: 0.7,  pool: 3,  preload: false, category: 'combat' },
     mineExplode:   { file: 'sounds/mineExplode.mp3',   volume: 0.75, pool: 2,  preload: false, category: 'combat' },
 
@@ -33,7 +33,8 @@ export const SOUND_MANIFEST = {
     // ---- UI / 反馈 ----
     buttonClick:   { file: 'sounds/buttonClick.mp3',   volume: 0.4,  pool: 3,  preload: false, category: 'ui' },
     cardDraw:      { file: 'sounds/cardDraw.mp3',      volume: 0.5,  pool: 2,  preload: false, category: 'ui' },
-    countdown:     { file: 'sounds/countdown.mp3',     volume: 0.6,  pool: 1,  preload: false, category: 'ui' },
+    // countdown 使用纯合成音效，不依赖外部文件
+    // countdown:     { file: 'sounds/countdown.mp3',     volume: 0.6,  pool: 1,  preload: false, category: 'ui' },
     rankUp:        { file: 'sounds/rankUp.mp3',        volume: 0.7,  pool: 2,  preload: false, category: 'ui' },
     goldEarn:      { file: 'sounds/goldEarn.mp3',      volume: 0.5,  pool: 2,  preload: false, category: 'ui' },
     error:         { file: 'sounds/error.mp3',         volume: 0.5,  pool: 1,  preload: false, category: 'ui' },
@@ -45,6 +46,7 @@ export const SOUND_MANIFEST = {
 
     // ---- 音乐 ----
     lobby_bgm:     { file: 'sounds/lobby_bgm.mp3',     volume: 0.45, pool: 1,  preload: true,  category: 'music' },
+    battle_bgm:    { file: 'sounds/battle_bgm.mp3',    volume: 0.4,  pool: 1,  preload: true,  loop: true, category: 'music' },
 };
 
 // 向后兼容别名：旧调用点继续使用旧名称，内部自动映射到新名称
