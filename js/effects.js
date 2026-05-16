@@ -1158,7 +1158,7 @@ export function spawnPaladinOrbitBeams(unitId, x, y, count) {
             unitId, x, y,
             angle: (i / count) * Math.PI * 2,
             orbitRadius: HEX_SIZE * 0.88,
-            orbitSpeed: 3.0,
+            orbitSpeed: 1.8,
             size: 32,
             startTime: performance.now()
         });

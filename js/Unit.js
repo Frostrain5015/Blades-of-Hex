@@ -682,7 +682,7 @@ export class Unit {
         if (attacker.type === 'archer' && attacker.tile.terrain === 'mountain') dmgBonus += 0.05;
         const dmgMulti = Math.max(0.1, 1 + dmgBonus);
 
-        const phantomCrit = (attacker._phantomStacks || 0) * 0.05;
+        const phantomCrit = (attacker._phantomStacks || 0) * 0.10;
         const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit;
         const guaranteedCrit = isCommanderGuaranteedCrit(attacker) || (rankCrit > 0 && Math.random() < rankCrit);
         const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter, guaranteedCrit);

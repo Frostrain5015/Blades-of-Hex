@@ -7,8 +7,8 @@ export default {
     hpBonus: 25,
     atkBonus: 0,
     spdBonus: 0,
-    desc: '克制时伤害+25%，被克制时伤害-15%，击杀敌方单位后变形为敌方兵种，每触发1次暴击率+5%（最多6层）',
-    tooltipDesc: '克制时伤害+25%，被克制时伤害-15%，击杀敌方后变形为敌方兵种，每触发1次暴击率+5%（最多6层）',
+    desc: '克制时伤害+25%，被克制时伤害-15%，击杀敌方单位后变形为敌方兵种，每触发1次暴击率+10%（最多6层）',
+    tooltipDesc: '克制时伤害+25%，被克制时伤害-15%，击杀敌方后变形为敌方兵种，每触发1次暴击率+10%（最多6层）',
 
     onKill(killer, victim, helpers) {
         if (victim.type === killer.type || victim.type === 'mgNest') return null;
@@ -24,10 +24,10 @@ export default {
         killer.remainingMP = 0;
         killer.canAct = false;
         killer._phantomStacks = Math.min((killer._phantomStacks || 0) + 1, 6);
-        const critPct = killer._phantomStacks * 5;
+        const critPct = killer._phantomStacks * 10;
         helpers.spawnFx(killer.tile.x, killer.tile.y, '\u{1F3AD}', '幻形');
         helpers.spawnExplosion(killer.tile.x, killer.tile.y, '#cc88ff', 12);
-        helpers.logMessage(`魔术师【幻形】：变形为${newConfig.name}兵，暴击率+5%（共${critPct}%）`);
+        helpers.logMessage(`魔术师【幻形】：变形为${newConfig.name}兵，暴击率+10%（共${critPct}%）`);
         return { transformed: true, newType: victim.type };
     }
 };
