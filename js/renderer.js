@@ -93,7 +93,7 @@ export function renderGame() {
     // Camp borders (national boundaries) — thick dashed lines along territory edges
     drawCampBorders(ctx, gameState.campBorderEdges);
     // // Rivers — overwrite on hex edges, after borders, before flags
-    // drawRiverEdges(ctx, gameState.riverEdges, gameState.riverPolyline, gameState.tileMap, getViewingCamp(), gameState);
+    // drawRiverEdges(ctx, gameState.riverEdges, gameState.riverPath, gameState.tileMap, getViewingCamp(), gameState);
     // Flag poles (before units)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     // Overlays (hover/selection)

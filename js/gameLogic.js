@@ -221,7 +221,7 @@ function generateTerrain(tiles) {
     gameState.villageTiles = new Map(villageEntries);
 }
 
-// // 河流边界 canonical key — 两个相邻格坐标按字典序排列
+// 河流边界 canonical key — 两个相邻格坐标按字典序排列
 // function canonicalEdgeKey(q1, r1, q2, r2) {
 //     if (q1 < q2 || (q1 === q2 && r1 < r2)) {
 //         return `${q1},${r1}|${q2},${r2}`;
@@ -229,43 +229,28 @@ function generateTerrain(tiles) {
 //     return `${q2},${r2}|${q1},${r1}`;
 // }
 
-// // hex 顶点世界坐标
-// function hexVertexWorld(tile, k) {
-//     const a = Math.PI / 3 * (k + 0.5);
-//     return { x: tile.x + Math.cos(a) * HEX_SIZE, y: tile.y + Math.sin(a) * HEX_SIZE };
-// }
-
-// // 找到 tileA 的哪条边面向 tileB（与 HexTile.findSharedEdge 相同逻辑）
-// function findSharedEdgeIdx(tileA, tileB) {
-//     for (let e = 0; e < 6; e++) {
-//         const [dq, dr] = HEX_NEIGHBORS[(e + 1) % 6];
-//         if (tileA.q + dq === tileB.q && tileA.r + dr === tileB.r) return e;
-//     }
-//     return -1;
-// }
-
-// // 生成贯穿地图的河流（南北走向，随机游走）
-// // 返回 { edges: Set, polyline: [{x,y}, ...] }
+// 生成贯穿地图的河流（南北走向，随机游走）
+// 返回 { edges: Set, path: [{q,r}, ...] }
 // function generateRiver(tiles, tileMap, seed) {
 //     const rand = _createRNG(seed + 0x1A2B3C4D);
 //     const visited = new Set();
-//
+// 
 //     const northCandidates = tiles.filter(t => !t.isCity && t.r <= -6);
 //     const southCandidates = tiles.filter(t => !t.isCity && t.r >= 6);
-//
+// 
 //     if (northCandidates.length === 0 || southCandidates.length === 0) {
-//         return { edges: new Set(), polyline: [] };
+//         return { edges: new Set(), path: [] };
 //     }
-//
+// 
 //     const start = northCandidates[Math.floor(rand() * northCandidates.length)];
 //     const end = southCandidates[Math.floor(rand() * southCandidates.length)];
-//
+// 
 //     let cur = start;
 //     visited.add(`${cur.q},${cur.r}`);
 //     const path = [cur];
 //     let steps = 0;
 //     const maxSteps = 30;
-//
+// 
 //     while (steps < maxSteps && cur.r < 6) {
 //         steps++;
 //         const neighbors = [];
@@ -276,17 +261,17 @@ function generateTerrain(tiles) {
 //             if (visited.has(key)) continue;
 //             const tile = tileMap.get(key);
 //             if (!tile || tile.isCity) continue;
-//
+// 
 //             if (dr <= 0) continue; // 只允许向南（左下/右下/正下）
 //             let weight = 1.0;
 //             if (tile.terrain === 'plains') weight *= 1.5;
 //             if (tile.terrain === 'mountain') weight *= 0.3;
 //             const toEndR = end.r - nr;
 //             if (toEndR > 0) weight *= 1.3;
-//
+// 
 //             neighbors.push({ tile, weight });
 //         }
-//
+// 
 //         if (neighbors.length === 0) {
 //             if (path.length > 1) {
 //                 const dead = path.pop();
@@ -296,7 +281,7 @@ function generateTerrain(tiles) {
 //             }
 //             break;
 //         }
-//
+// 
 //         const totalWeight = neighbors.reduce((s, n) => s + n.weight, 0);
 //         let rv = rand() * totalWeight;
 //         let chosen = neighbors[0];
@@ -304,94 +289,24 @@ function generateTerrain(tiles) {
 //             rv -= n.weight;
 //             if (rv <= 0) { chosen = n; break; }
 //         }
-//
+// 
 //         cur = chosen.tile;
 //         visited.add(`${cur.q},${cur.r}`);
 //         path.push(cur);
 //     }
-//
-//     if (path.length < 2) return { edges: new Set(), polyline: [] };
-//
+// 
+//     if (path.length < 2) return { edges: new Set(), path: [] };
+// 
+    // 收集所有渡河边（相邻 path tile 之间）
 //     const edges = new Set();
-//     const polyline = [];
-//
-//     // 辅助：找到 curHex 上离 worldPt 最近的进入边顶点索引
-//     function nearestEnterVertex(curHex, edgeIn, worldPt) {
-//         const v0 = hexVertexWorld(curHex, edgeIn);
-//         const v1 = hexVertexWorld(curHex, (edgeIn + 1) % 6);
-//         const d0 = (worldPt.x - v0.x) ** 2 + (worldPt.y - v0.y) ** 2;
-//         const d1 = (worldPt.x - v1.x) ** 2 + (worldPt.y - v1.y) ** 2;
-//         return d0 <= d1 ? edgeIn : (edgeIn + 1) % 6;
+//     for (let i = 0; i < path.length - 1; i++) {
+//         edges.add(canonicalEdgeKey(path[i].q, path[i].r, path[i+1].q, path[i+1].r));
 //     }
-//
-//     // 第一条边（path[0] → path[1]）：添加两个顶点
-//     {
-//         const eA = findSharedEdgeIdx(path[0], path[1]);
-//         if (eA < 0) return { edges: new Set(), polyline: [] };
-//         edges.add(canonicalEdgeKey(path[0].q, path[0].r, path[1].q, path[1].r));
-//         polyline.push(hexVertexWorld(path[0], eA));
-//         polyline.push(hexVertexWorld(path[0], (eA + 1) % 6));
-//     }
-//
-//     // 后续每条边：沿中间 hex 边界从进入边走最短弧到离开边
-//     for (let i = 1; i < path.length - 1; i++) {
-//         const curHex = path[i];
-//         const prevHex = path[i - 1];
-//         const nextHex = path[i + 1];
-//
-//         const edgeIn = findSharedEdgeIdx(curHex, prevHex);   // curHex 面向 prevHex 的边
-//         const edgeOut = findSharedEdgeIdx(curHex, nextHex);  // curHex 面向 nextHex 的边
-//         if (edgeIn < 0 || edgeOut < 0) break;
-//
-//         edges.add(canonicalEdgeKey(curHex.q, curHex.r, nextHex.q, nextHex.r));
-//
-//         // polyline 上一点在 curHex 边界上对应哪个顶点？
-//         const atIdx = nearestEnterVertex(curHex, edgeIn, polyline[polyline.length - 1]);
-//
-//         // 从 atIdx 走到离开边的两个顶点中较近的一个，再到另一个
-//         const out0 = edgeOut;
-//         const out1 = (edgeOut + 1) % 6;
-//         const distAtTo0Fwd = (out0 - atIdx + 6) % 6;
-//         const distAtTo1Fwd = (out1 - atIdx + 6) % 6;
-//         const distAtTo0Bwd = (atIdx - out0 + 6) % 6;
-//         const distAtTo1Bwd = (atIdx - out1 + 6) % 6;
-//         const minTo0 = Math.min(distAtTo0Fwd, distAtTo0Bwd);
-//         const minTo1 = Math.min(distAtTo1Fwd, distAtTo1Bwd);
-//
-//         let firstTarget, secondTarget;
-//         if (minTo0 <= minTo1) {
-//             firstTarget = out0;
-//             secondTarget = out1;
-//         } else {
-//             firstTarget = out1;
-//             secondTarget = out0;
-//         }
-//
-//         // 从 atIdx 沿较短弧走到 firstTarget（不重复 atIdx）
-//         const fwdToFirst = (firstTarget - atIdx + 6) % 6;
-//         const bwdToFirst = (atIdx - firstTarget + 6) % 6;
-//
-//         if (fwdToFirst <= bwdToFirst) {
-//             let k = (atIdx + 1) % 6;
-//             while (true) {
-//                 polyline.push(hexVertexWorld(curHex, k));
-//                 if (k === firstTarget) break;
-//                 k = (k + 1) % 6;
-//             }
-//         } else {
-//             let k = (atIdx - 1 + 6) % 6;
-//             while (true) {
-//                 polyline.push(hexVertexWorld(curHex, k));
-//                 if (k === firstTarget) break;
-//                 k = (k - 1 + 6) % 6;
-//             }
-//         }
-//
-//         // 从 firstTarget 走到 secondTarget（一步）
-//         polyline.push(hexVertexWorld(curHex, secondTarget));
-//     }
-//
-//     return { edges, polyline };
+// 
+    // 只保留路径瓦片坐标，绘制时再算边
+//     const pathData = path.map(t => ({ q: t.q, r: t.r }));
+// 
+//     return { edges, path: pathData };
 // }
 
 function countAdjacentNonFriendlies(unit, tileMap) {
@@ -528,7 +443,7 @@ export function initMap() {
     generateTerrain(gameState.tiles);
     // const riverResult = generateRiver(gameState.tiles, gameState.tileMap, _terrainSeed);
     // gameState.riverEdges = riverResult.edges;
-    // gameState.riverPolyline = riverResult.polyline;
+    // gameState.riverPath = riverResult.path;
     gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
     gameState.districtBorderEdges = computeDistrictBorders(gameState.tiles, gameState.tileMap);
     initInitialUnits();
