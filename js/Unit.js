@@ -272,7 +272,7 @@ export class Unit {
         ctx.translate(visualX, visualY);
 
         // ── Flag (below badge and ring) ──
-        if (!this.tile.isCity) {
+        if (!this.tile.isCity && !this.tile.isVillage) {
             const poleX = -13;
             const poleTop = -30;
             const poleBottom = 2;

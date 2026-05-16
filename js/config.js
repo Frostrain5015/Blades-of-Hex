@@ -156,6 +156,16 @@ export const TERRAIN_CONFIG = {
     mountain: { name: '山地', defenseBonus: 0.10, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
 };
 
+// // ==== 河流 ====================
+// export const RIVER_CROSSING_COST = 5;
+// export const RIVER_COLOR_OUTER = 'rgba(30, 100, 180, 0.75)';
+// export const RIVER_COLOR_INNER = 'rgba(100, 180, 240, 0.85)';
+// export const RIVER_LINE_WIDTH = 3.5;
+
+// ==== 村庄 ====================
+export const VILLAGE_GOLD = 5;
+export const VILLAGE_MIN_DIST = 3;
+
 // ==== 经济 ====================
 // 收入公式：1城=20, 2城=20+15, 3城+=20+15+10+10*(n-3)
 export function calcIncome(cityCount) {

@@ -2,7 +2,7 @@ import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, draw
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
-import { drawAllBorders } from './HexTile.js';
+import { drawAllBorders, drawDistrictBorders, drawCampBorders, /*drawRiverEdges*/ } from './HexTile.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
@@ -88,6 +88,12 @@ export function renderGame() {
 
     // Borders — standalone per-edge pass
     drawAllBorders(ctx, tiles, gameState.tileMap);
+    // District borders — slightly bolder than grid lines, within same camp
+    drawDistrictBorders(ctx, gameState.districtBorderEdges);
+    // Camp borders (national boundaries) — thick dashed lines along territory edges
+    drawCampBorders(ctx, gameState.campBorderEdges);
+    // // Rivers — overwrite on hex edges, after borders, before flags
+    // drawRiverEdges(ctx, gameState.riverEdges, gameState.riverPolyline, gameState.tileMap, getViewingCamp(), gameState);
     // Flag poles (before units)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     // Overlays (hover/selection)

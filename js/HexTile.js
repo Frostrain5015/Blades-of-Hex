@@ -1,5 +1,6 @@
 import { HEX_SIZE, HEX_WIDTH, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, hexToRgb, rgbToHex, frameInfo, CAMP_FLAG_COLORS, HEX_NEIGHBORS, hexEdge, TERRAIN_CONFIG, CAMP, settings } from './config.js';
 import { nextId } from './state.js';
+import { getTileVisibilityState } from './fogOfWar.js';
 
 let _gameState = null;
 export function setGameStateRef(ref) { _gameState = ref; }
@@ -12,6 +13,8 @@ export class HexTile {
         this.s = -q - r;
         this.camp = CAMP.neutral;
         this.isCity = false;
+        this.isVillage = false;
+        this.villageDistrictId = 0;
         this.districtId = 0;
         this.terrain = 'plains';
         this.unit = null;
@@ -73,6 +76,16 @@ export class HexTile {
             c.fillText('🏰', cx, cy);
             c.shadowColor = 'transparent';
             c.shadowBlur = 0;
+        } else if (this.isVillage) {
+            c.fillStyle = 'rgba(255,255,255,0.8)';
+            c.font = '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.shadowColor = 'rgba(0,0,0,0.25)';
+            c.shadowBlur = 1;
+            c.fillText('🏡', cx, cy + HEX_SIZE * 0.5);
+            c.shadowColor = 'transparent';
+            c.shadowBlur = 0;
         } else if (this.terrain !== 'plains') {
             const tcfg = TERRAIN_CONFIG[this.terrain];
             c.fillStyle = 'rgba(255,255,255,0.65)';
@@ -90,13 +103,27 @@ export class HexTile {
 
     // Per-frame: animated city flag drawn AFTER all hex bases (avoids being covered)
     _flagParams() {
-        if (!this.isCity) return null;
+        if (!this.isCity && !this.isVillage) return null;
         const cx = this.x, cy = this.y;
         const flagCx = cx - HEX_SIZE * 0.55;
         const flagCy = cy - HEX_SIZE * 0.50;
-        const isP1 = this.camp === CAMP.player1;
-        const isP2 = this.camp === CAMP.player2;
-        const isP3 = this.camp === CAMP.player3;
+        let effectiveCamp = this.camp;
+        if (this.isVillage) {
+            // 村庄旗帜颜色取决于当前受益阵营
+            if (this.unit) {
+                effectiveCamp = this.unit.camp;
+            } else {
+                // 空置时取行政区城市所属阵营
+                const gs = _gameState;
+                if (gs) {
+                    const cityTile = gs.tiles.find(t => t.isCity && t.districtId === this.villageDistrictId);
+                    if (cityTile) effectiveCamp = cityTile.camp;
+                }
+            }
+        }
+        const isP1 = effectiveCamp === CAMP.player1;
+        const isP2 = effectiveCamp === CAMP.player2;
+        const isP3 = effectiveCamp === CAMP.player3;
         const campKey = isP1 ? 'p1' : isP2 ? 'p2' : isP3 ? 'p3' : 'neu';
         return {
             poleX: flagCx, poleTop: flagCy - 16, poleBottom: flagCy + 10,
@@ -222,3 +249,150 @@ export function drawAllBorders(c, tiles, tileMap) {
         }
     }
 }
+
+// 找到 tileA 的哪条边面向 tileB（仅用于渡河消耗查找，渲染不依赖此函数）
+function findSharedEdge(tileA, tileB) {
+    for (let e = 0; e < 6; e++) {
+        const [dq, dr] = HEX_NEIGHBORS[(e + 1) % 6];
+        if (tileA.q + dq === tileB.q && tileA.r + dr === tileB.r) return e;
+    }
+    return -1;
+}
+
+// ==== 国界线（阵营交界） ====
+export function computeCampBorders(tiles, tileMap) {
+    const borders = [];
+    for (const tile of tiles) {
+        const cx = tile.x, cy = tile.y;
+        for (let e = 0; e < 6; e++) {
+            // edge e faces neighbor at HEX_NEIGHBORS[(5 - e) % 6]
+            const [dq, dr] = HEX_NEIGHBORS[(5 - e) % 6];
+            const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+            if (!nb) continue;
+            if (tile.camp === nb.camp) continue;
+            if (tile.id > nb.id) continue;
+            const ep = hexEdge(cx, cy, HEX_SIZE, e);
+            borders.push({ x0: ep.x0, y0: ep.y0, x1: ep.x1, y1: ep.y1 });
+        }
+    }
+    return borders;
+}
+
+export function drawCampBorders(ctx2d, borderEdges) {
+    if (!borderEdges || borderEdges.length === 0) return;
+
+    ctx2d.save();
+    ctx2d.lineCap = 'round';
+    ctx2d.lineJoin = 'round';
+
+    // 外层深灰粗线 + 发光
+    ctx2d.shadowColor = 'rgba(80, 80, 80, 0.5)';
+    ctx2d.shadowBlur = 6;
+    ctx2d.setLineDash([12, 7]);
+    ctx2d.lineWidth = 5;
+    ctx2d.strokeStyle = 'rgba(60, 60, 60, 0.85)';
+    for (const edge of borderEdges) {
+        ctx2d.beginPath();
+        ctx2d.moveTo(edge.x0, edge.y0);
+        ctx2d.lineTo(edge.x1, edge.y1);
+        ctx2d.stroke();
+    }
+
+    // 内层稍浅虚线
+    ctx2d.shadowBlur = 0;
+    ctx2d.lineDashOffset = 3;
+    ctx2d.lineWidth = 2.5;
+    ctx2d.strokeStyle = 'rgba(120, 120, 120, 0.7)';
+    for (const edge of borderEdges) {
+        ctx2d.beginPath();
+        ctx2d.moveTo(edge.x0, edge.y0);
+        ctx2d.lineTo(edge.x1, edge.y1);
+        ctx2d.stroke();
+    }
+
+    ctx2d.setLineDash([]);
+    ctx2d.restore();
+}
+
+// ==== 行政区界线（同阵营不同行政区） ====
+export function computeDistrictBorders(tiles, tileMap) {
+    const borders = [];
+    for (const tile of tiles) {
+        const cx = tile.x, cy = tile.y;
+        for (let e = 0; e < 6; e++) {
+            const [dq, dr] = HEX_NEIGHBORS[(5 - e) % 6];
+            const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+            if (!nb) continue;
+            if (tile.camp !== nb.camp) continue;        // 不同阵营 → 由国界线处理
+            if (tile.districtId === nb.districtId) continue; // 同行政区 → 不画
+            if (tile.id > nb.id) continue;
+            const ep = hexEdge(cx, cy, HEX_SIZE, e);
+            borders.push({ x0: ep.x0, y0: ep.y0, x1: ep.x1, y1: ep.y1 });
+        }
+    }
+    return borders;
+}
+
+export function drawDistrictBorders(ctx2d, borderEdges) {
+    if (!borderEdges || borderEdges.length === 0) return;
+
+    ctx2d.save();
+    ctx2d.lineCap = 'round';
+    ctx2d.lineJoin = 'round';
+    ctx2d.setLineDash([8, 5]);
+    ctx2d.lineWidth = 2.3;
+    ctx2d.strokeStyle = 'rgba(50, 50, 50, 0.5)';
+    for (const edge of borderEdges) {
+        ctx2d.beginPath();
+        ctx2d.moveTo(edge.x0, edge.y0);
+        ctx2d.lineTo(edge.x1, edge.y1);
+        ctx2d.stroke();
+    }
+    ctx2d.setLineDash([]);
+    ctx2d.restore();
+}
+
+// // ==== 河流边界绘制 ====
+// export function drawRiverEdges(ctx2d, riverEdges, riverPolyline, tileMap, viewingCamp, gs) {
+//     if (!riverEdges || riverEdges.size === 0 || !riverPolyline || riverPolyline.length < 2) return;
+//
+//     // 迷雾：折线上任一点所在的 hex 未被探索则整体跳过
+//     if (gs && gs.skirmishFog && viewingCamp) {
+//         let anyVisible = false;
+//         for (const key of riverEdges) {
+//             const [c1] = key.split('|');
+//             if (!c1) continue;
+//             const tile = tileMap.get(c1);
+//             if (tile && getTileVisibilityState(tile, viewingCamp, gs) !== 'unexplored') {
+//                 anyVisible = true;
+//                 break;
+//             }
+//         }
+//         if (!anyVisible) return;
+//     }
+//
+//     ctx2d.save();
+//     ctx2d.lineJoin = 'round';
+//     ctx2d.lineCap = 'round';
+//
+//     // 外层带发光
+//     ctx2d.shadowColor = 'rgba(40, 130, 220, 0.6)';
+//     ctx2d.shadowBlur = 5;
+//     ctx2d.beginPath();
+//     ctx2d.moveTo(riverPolyline[0].x, riverPolyline[0].y);
+//     for (let i = 1; i < riverPolyline.length; i++) ctx2d.lineTo(riverPolyline[i].x, riverPolyline[i].y);
+//     ctx2d.strokeStyle = 'rgba(40, 120, 200, 0.8)';
+//     ctx2d.lineWidth = 2.5;
+//     ctx2d.stroke();
+//
+//     // 内层高亮
+//     ctx2d.shadowBlur = 0;
+//     ctx2d.beginPath();
+//     ctx2d.moveTo(riverPolyline[0].x, riverPolyline[0].y);
+//     for (let i = 1; i < riverPolyline.length; i++) ctx2d.lineTo(riverPolyline[i].x, riverPolyline[i].y);
+//     ctx2d.strokeStyle = 'rgba(140, 210, 255, 0.7)';
+//     ctx2d.lineWidth = 1.0;
+//     ctx2d.stroke();
+//
+//     ctx2d.restore();
+// }

@@ -41,6 +41,14 @@ export function computeVisionForCamp(camp, tiles, tileMap) {
                 }
             }
         }
+        // 村庄仅能看到自身一格，被敌方占据后视野消失
+        if (tile.isVillage) {
+            const cityTile = tiles.find(t => t.isCity && t.districtId === tile.villageDistrictId);
+            const villageCamp = cityTile ? cityTile.camp : null;
+            if (villageCamp === camp && (!tile.unit || tile.unit.camp === camp)) {
+                visible.add(`${tile.q},${tile.r}`);
+            }
+        }
     }
 
     return visible;

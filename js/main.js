@@ -1804,7 +1804,6 @@ async function handleRemoteAction(msg) {
                                 });
                                 spawnHealParticles(e.x, e.y);
                                 triggerHealFlash(e.x, e.y);
-                                playSound('recruit');
                             }
                             break;
                         }
@@ -1815,14 +1814,12 @@ async function handleRemoteAction(msg) {
                                 st.unit._shieldMax = Math.max(st.unit._shieldMax, st.unit._shield);
                                 st.unit._shieldTurns = 3;
                             }
-                            playSound('recruit');
                             spawnCommanderSkillEffect(e.x, e.y, '🛡️', '护盾');
                             break;
                         }
                         case 'mgNest': {
                             const mgTile = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
                             if (mgTile && mgTile.unit) mgTile.unit._airdropWaiting = false;
-                            playSound('recruit');
                             spawnRecruitEffect(e.x, e.y);
                             triggerRecruitFlash(e.x, e.y);
                             break;
@@ -1847,13 +1844,11 @@ async function handleRemoteAction(msg) {
                                         spawnGoldParticles(e.x, e.y);
                                     }
                                 }
-                                playSound('recruit');
                                 spawnRecruitEffect(e.x, e.y);
                                 triggerRecruitFlash(e.x, e.y);
                             }, 1500);
                             break;
                         case 'imprison':
-                            playSound('recruit');
                             spawnCommanderSkillEffect(e.x, e.y, '🔗', '禁锢');
                             break;
                         case 'forceMarch': {
@@ -1862,7 +1857,6 @@ async function handleRemoteAction(msg) {
                                 fm.unit.canAct = true;
                                 fm.unit.remainingMP += 2;
                             }
-                            playSound('recruit');
                             spawnCommanderSkillEffect(e.x, e.y, '🏃', '强行军');
                             break;
                         }
@@ -1909,7 +1903,6 @@ async function handleRemoteAction(msg) {
                         case 'scout': {
                             // 侦察揭示数据已通过 state 同步（scoutReveals + visibleTiles）
                             // 远端仅重放视觉特效，不再修改数据避免阵营错配
-                            playSound('recruit');
                             spawnCommanderSkillEffect(e.x, e.y, '🔭', '侦察');
                             break;
                         }
@@ -2051,7 +2044,6 @@ async function handleRemoteAction(msg) {
             }
             break;
         case 'recruit':
-            playSound('recruit');
             if (e) {
                 triggerRecruitFlash(e.x, e.y);
                 spawnRecruitEffect(e.x, e.y);

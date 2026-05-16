@@ -1,4 +1,5 @@
-import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG } from './config.js';
+import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE } from './config.js';
+import { computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
 
@@ -88,6 +89,15 @@ export const gameState = {
     _fogTransitionStart: 0,
     // 侦察揭示：{ player1: Map("q,r" → expiresAt), ... }
     scoutReveals: { player1: new Map(), player2: new Map(), player3: new Map() },
+    // // 河流：边界集合（canonical key）+ 折线顶点（世界坐标，有序）
+    // riverEdges: new Set(),
+    // riverPolyline: [],
+    // 国界线（阵营交界边集）
+    campBorderEdges: [],
+    // 行政区界线（同阵营不同行政区交界）
+    districtBorderEdges: [],
+    // 村庄：Map("q,r" → { districtId, q, r })
+    villageTiles: new Map(),
     // PVE 难度：对手 AI 经济倍率（不影响中立 AI）
     aiDifficulty: 1.0,
     // 遭遇战胜利时保存的完整棋盘快照（用于查看完整棋局）
@@ -136,6 +146,11 @@ export function resetGameState() {
     gameState._prevVisibleTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
     gameState._fogTransitionStart = 0;
     gameState.scoutReveals = { player1: new Map(), player2: new Map(), player3: new Map() };
+    // gameState.riverEdges = new Set();
+    // gameState.riverPolyline = [];
+    gameState.campBorderEdges = [];
+    gameState.districtBorderEdges = [];
+    gameState.villageTiles = new Map();
     gameState.aiDifficulty = 1.0;
     gameState._victoryBoardSnapshot = null;
     gameState.commanderPoolP1 = [];
@@ -596,7 +611,10 @@ export function serializeState() {
             player1: [...gameState.scoutReveals.player1],
             player2: [...gameState.scoutReveals.player2],
             player3: [...gameState.scoutReveals.player3]
-        } : { player1: [], player2: [], player3: [] }
+        } : { player1: [], player2: [], player3: [] },
+        // riverEdges: [...gameState.riverEdges],
+        // riverPolyline: gameState.riverPolyline,
+        villageTiles: [...gameState.villageTiles]
     };
 }
 
@@ -649,6 +667,9 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.aiOpponentCamp = data.aiOpponentCampKey ? campMap[data.aiOpponentCampKey] : null;
     gameState.surrenderedCamps = (data.surrenderedCampKeys || []).map(k => campMap[k]).filter(Boolean);
     gameState.skirmishFog = data.skirmishFog || false;
+    // gameState.riverEdges = new Set(data.riverEdges || []);
+    // gameState.riverPolyline = data.riverPolyline || [];
+    gameState.villageTiles = new Map(data.villageTiles || []);
     gameState.aiDifficulty = data.aiDifficulty || 1.0;
     if (data.visibleTiles) {
         gameState.visibleTiles = {
@@ -778,6 +799,8 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     });
 
     rebuildTileMap();
+    gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
+    gameState.districtBorderEdges = computeDistrictBorders(gameState.tiles, gameState.tileMap);
     clearselection();
     updateStatsPanel();
     updateUI();

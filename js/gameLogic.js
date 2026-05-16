@@ -1,8 +1,8 @@
-﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG } from './config.js';
+﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, /*RIVER_CROSSING_COST,*/ VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
-import { HexTile } from './HexTile.js';
+import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
@@ -194,7 +194,205 @@ function generateTerrain(tiles) {
             tile.terrain = 'mountain';
         }
     }
+
+    // 村庄：每个行政区 1 个，距本区城市 ≥ VILLAGE_MIN_DIST
+    const villageEntries = [];
+    const cities = tiles.filter(t => t.isCity);
+    const districtCityMap = new Map();
+    for (const c of cities) {
+        if (!districtCityMap.has(c.districtId)) districtCityMap.set(c.districtId, []);
+        districtCityMap.get(c.districtId).push(c);
+    }
+    for (const [districtId, districtCities] of districtCityMap) {
+        const city = districtCities[0];
+        const candidates = tiles.filter(t =>
+            t.districtId === districtId &&
+            !t.isCity &&
+            !t.isVillage &&
+            hexDistance(t, city) >= VILLAGE_MIN_DIST
+        );
+        if (candidates.length === 0) continue;
+        const idx = Math.floor(rand() * candidates.length);
+        const t = candidates[idx];
+        t.isVillage = true;
+        t.villageDistrictId = districtId;
+        villageEntries.push([`${t.q},${t.r}`, { districtId, q: t.q, r: t.r }]);
+    }
+    gameState.villageTiles = new Map(villageEntries);
 }
+
+// // 河流边界 canonical key — 两个相邻格坐标按字典序排列
+// function canonicalEdgeKey(q1, r1, q2, r2) {
+//     if (q1 < q2 || (q1 === q2 && r1 < r2)) {
+//         return `${q1},${r1}|${q2},${r2}`;
+//     }
+//     return `${q2},${r2}|${q1},${r1}`;
+// }
+
+// // hex 顶点世界坐标
+// function hexVertexWorld(tile, k) {
+//     const a = Math.PI / 3 * (k + 0.5);
+//     return { x: tile.x + Math.cos(a) * HEX_SIZE, y: tile.y + Math.sin(a) * HEX_SIZE };
+// }
+
+// // 找到 tileA 的哪条边面向 tileB（与 HexTile.findSharedEdge 相同逻辑）
+// function findSharedEdgeIdx(tileA, tileB) {
+//     for (let e = 0; e < 6; e++) {
+//         const [dq, dr] = HEX_NEIGHBORS[(e + 1) % 6];
+//         if (tileA.q + dq === tileB.q && tileA.r + dr === tileB.r) return e;
+//     }
+//     return -1;
+// }
+
+// // 生成贯穿地图的河流（南北走向，随机游走）
+// // 返回 { edges: Set, polyline: [{x,y}, ...] }
+// function generateRiver(tiles, tileMap, seed) {
+//     const rand = _createRNG(seed + 0x1A2B3C4D);
+//     const visited = new Set();
+//
+//     const northCandidates = tiles.filter(t => !t.isCity && t.r <= -6);
+//     const southCandidates = tiles.filter(t => !t.isCity && t.r >= 6);
+//
+//     if (northCandidates.length === 0 || southCandidates.length === 0) {
+//         return { edges: new Set(), polyline: [] };
+//     }
+//
+//     const start = northCandidates[Math.floor(rand() * northCandidates.length)];
+//     const end = southCandidates[Math.floor(rand() * southCandidates.length)];
+//
+//     let cur = start;
+//     visited.add(`${cur.q},${cur.r}`);
+//     const path = [cur];
+//     let steps = 0;
+//     const maxSteps = 30;
+//
+//     while (steps < maxSteps && cur.r < 6) {
+//         steps++;
+//         const neighbors = [];
+//         for (const [dq, dr] of HEX_NEIGHBORS) {
+//             const nq = cur.q + dq;
+//             const nr = cur.r + dr;
+//             const key = `${nq},${nr}`;
+//             if (visited.has(key)) continue;
+//             const tile = tileMap.get(key);
+//             if (!tile || tile.isCity) continue;
+//
+//             if (dr <= 0) continue; // 只允许向南（左下/右下/正下）
+//             let weight = 1.0;
+//             if (tile.terrain === 'plains') weight *= 1.5;
+//             if (tile.terrain === 'mountain') weight *= 0.3;
+//             const toEndR = end.r - nr;
+//             if (toEndR > 0) weight *= 1.3;
+//
+//             neighbors.push({ tile, weight });
+//         }
+//
+//         if (neighbors.length === 0) {
+//             if (path.length > 1) {
+//                 const dead = path.pop();
+//                 visited.delete(`${dead.q},${dead.r}`);
+//                 cur = path[path.length - 1];
+//                 continue;
+//             }
+//             break;
+//         }
+//
+//         const totalWeight = neighbors.reduce((s, n) => s + n.weight, 0);
+//         let rv = rand() * totalWeight;
+//         let chosen = neighbors[0];
+//         for (const n of neighbors) {
+//             rv -= n.weight;
+//             if (rv <= 0) { chosen = n; break; }
+//         }
+//
+//         cur = chosen.tile;
+//         visited.add(`${cur.q},${cur.r}`);
+//         path.push(cur);
+//     }
+//
+//     if (path.length < 2) return { edges: new Set(), polyline: [] };
+//
+//     const edges = new Set();
+//     const polyline = [];
+//
+//     // 辅助：找到 curHex 上离 worldPt 最近的进入边顶点索引
+//     function nearestEnterVertex(curHex, edgeIn, worldPt) {
+//         const v0 = hexVertexWorld(curHex, edgeIn);
+//         const v1 = hexVertexWorld(curHex, (edgeIn + 1) % 6);
+//         const d0 = (worldPt.x - v0.x) ** 2 + (worldPt.y - v0.y) ** 2;
+//         const d1 = (worldPt.x - v1.x) ** 2 + (worldPt.y - v1.y) ** 2;
+//         return d0 <= d1 ? edgeIn : (edgeIn + 1) % 6;
+//     }
+//
+//     // 第一条边（path[0] → path[1]）：添加两个顶点
+//     {
+//         const eA = findSharedEdgeIdx(path[0], path[1]);
+//         if (eA < 0) return { edges: new Set(), polyline: [] };
+//         edges.add(canonicalEdgeKey(path[0].q, path[0].r, path[1].q, path[1].r));
+//         polyline.push(hexVertexWorld(path[0], eA));
+//         polyline.push(hexVertexWorld(path[0], (eA + 1) % 6));
+//     }
+//
+//     // 后续每条边：沿中间 hex 边界从进入边走最短弧到离开边
+//     for (let i = 1; i < path.length - 1; i++) {
+//         const curHex = path[i];
+//         const prevHex = path[i - 1];
+//         const nextHex = path[i + 1];
+//
+//         const edgeIn = findSharedEdgeIdx(curHex, prevHex);   // curHex 面向 prevHex 的边
+//         const edgeOut = findSharedEdgeIdx(curHex, nextHex);  // curHex 面向 nextHex 的边
+//         if (edgeIn < 0 || edgeOut < 0) break;
+//
+//         edges.add(canonicalEdgeKey(curHex.q, curHex.r, nextHex.q, nextHex.r));
+//
+//         // polyline 上一点在 curHex 边界上对应哪个顶点？
+//         const atIdx = nearestEnterVertex(curHex, edgeIn, polyline[polyline.length - 1]);
+//
+//         // 从 atIdx 走到离开边的两个顶点中较近的一个，再到另一个
+//         const out0 = edgeOut;
+//         const out1 = (edgeOut + 1) % 6;
+//         const distAtTo0Fwd = (out0 - atIdx + 6) % 6;
+//         const distAtTo1Fwd = (out1 - atIdx + 6) % 6;
+//         const distAtTo0Bwd = (atIdx - out0 + 6) % 6;
+//         const distAtTo1Bwd = (atIdx - out1 + 6) % 6;
+//         const minTo0 = Math.min(distAtTo0Fwd, distAtTo0Bwd);
+//         const minTo1 = Math.min(distAtTo1Fwd, distAtTo1Bwd);
+//
+//         let firstTarget, secondTarget;
+//         if (minTo0 <= minTo1) {
+//             firstTarget = out0;
+//             secondTarget = out1;
+//         } else {
+//             firstTarget = out1;
+//             secondTarget = out0;
+//         }
+//
+//         // 从 atIdx 沿较短弧走到 firstTarget（不重复 atIdx）
+//         const fwdToFirst = (firstTarget - atIdx + 6) % 6;
+//         const bwdToFirst = (atIdx - firstTarget + 6) % 6;
+//
+//         if (fwdToFirst <= bwdToFirst) {
+//             let k = (atIdx + 1) % 6;
+//             while (true) {
+//                 polyline.push(hexVertexWorld(curHex, k));
+//                 if (k === firstTarget) break;
+//                 k = (k + 1) % 6;
+//             }
+//         } else {
+//             let k = (atIdx - 1 + 6) % 6;
+//             while (true) {
+//                 polyline.push(hexVertexWorld(curHex, k));
+//                 if (k === firstTarget) break;
+//                 k = (k - 1 + 6) % 6;
+//             }
+//         }
+//
+//         // 从 firstTarget 走到 secondTarget（一步）
+//         polyline.push(hexVertexWorld(curHex, secondTarget));
+//     }
+//
+//     return { edges, polyline };
+// }
 
 function countAdjacentNonFriendlies(unit, tileMap) {
     let count = 0;
@@ -328,6 +526,11 @@ export function initMap() {
     updateButtonColors();
     rebuildTileMap();
     generateTerrain(gameState.tiles);
+    // const riverResult = generateRiver(gameState.tiles, gameState.tileMap, _terrainSeed);
+    // gameState.riverEdges = riverResult.edges;
+    // gameState.riverPolyline = riverResult.polyline;
+    gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
+    gameState.districtBorderEdges = computeDistrictBorders(gameState.tiles, gameState.tileMap);
     initInitialUnits();
 
     // 遭遇战迷雾：初始化（支持 skirmish 模式和 PVE 遭遇战）
@@ -753,6 +956,27 @@ async function _doEndTurnPhase() {
         });
     }
 
+    // 村庄金币结算：有部队占据时给部队阵营，空置时给行政区阵营
+    for (const [vk, v] of gameState.villageTiles) {
+        const vTile = gameState.tileMap.get(vk);
+        if (!vTile) continue;
+        let beneficiaryCamp;
+        if (vTile.unit) {
+            beneficiaryCamp = vTile.unit.camp;
+        } else {
+            const cityTile = gameState.tiles.find(t => t.isCity && t.districtId === v.districtId);
+            beneficiaryCamp = cityTile ? cityTile.camp : CAMP.neutral;
+        }
+        if (beneficiaryCamp !== camp) continue; // 只在轮到该阵营时结算
+        gameState.playerGold[_campKey(beneficiaryCamp)] += VILLAGE_GOLD;
+        gameState.goldTexts.push({
+            x: vTile.x, y: vTile.y,
+            value: VILLAGE_GOLD, prefix: '+', color: '#ffcc00',
+            timeLeft: 1000, lastUpdate: performance.now()
+        });
+        spawnCoinRain(vTile.x, vTile.y, 1);
+    }
+
     // Turn toggle（三人模式自动跳过已投降阵营）
     gameState.currentCamp = _nextActiveCamp(camp);
     gameState.turnCounter++;
@@ -983,7 +1207,6 @@ export function recruitUnit(type) {
     pushUndo();
     gameState.playerGold[currentPlayerKey] -= effectiveCost;
     new Unit(type, gameState.currentCamp, selectedCityTile, true);
-    playSound('recruit');
     triggerRecruitFlash(selectedCityTile.x, selectedCityTile.y);
     spawnRecruitEffect(selectedCityTile.x, selectedCityTile.y);
     logMessage(`${gameState.currentCamp.name}成功招募${config.name}兵，金币-${effectiveCost}`);
@@ -1046,6 +1269,10 @@ export function getMovableTiles(unit) {
             if (neighbor.unit) continue; // occupied → impassable
 
             let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
+            // // 渡河额外消耗
+            // if (gameState.riverEdges.size > 0 && gameState.riverEdges.has(canonicalEdgeKey(cur.q, cur.r, neighbor.q, neighbor.r))) {
+            //     stepCost += RIVER_CROSSING_COST;
+            // }
             if (gameState.weather === 'rain' && unit.type === 'cavalry') stepCost += 1;
             // 停滞者【缚足】：每层行动消耗+2
             const snareLayers = _getStallerSnareLayers(neighbor, friendlyCamp);
@@ -1540,6 +1767,8 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
         }
     });
 
+    gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
+    gameState.districtBorderEdges = computeDistrictBorders(gameState.tiles, gameState.tileMap);
     logMessage(`${camp.name}占领的(${cityTile.q},${cityTile.r})城市所属行政区已归属${camp.name}`);
     if (attackerUnit) attackerUnit.addXP(5);
     invalidateBoard();
@@ -1999,7 +2228,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     spawnHealParticles(x, y);
                     triggerHealFlash(x, y);
                 }
-                playSound('recruit');
             }, BURN_MS);
             break;
         }
@@ -2038,7 +2266,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 if (_mgNestSaved) _mgNestSaved._airdropWaiting = false;
                 spawnRecruitEffect(x, y);
                 triggerRecruitFlash(x, y);
-                playSound('recruit');
             }, BURN_MS);
             break;
         }
@@ -2046,7 +2273,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`🔗【禁锢】${targetTile.unit.camp.name}${targetTile.unit.config.name}兵下回合无法移动`);
             setTimeout(() => {
                 spawnCommanderSkillEffect(x, y, '🔗', '禁锢');
-                playSound('recruit');
             }, BURN_MS);
             break;
         }
@@ -2054,7 +2280,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`🏃【强行军】${targetTile.unit.camp.name}${targetTile.unit.config.name}兵回复2点行动力并可再次行动`);
             setTimeout(() => {
                 spawnCommanderSkillEffect(x, y, '🏃', '强行军');
-                playSound('recruit');
             }, BURN_MS);
             break;
         }
@@ -2128,7 +2353,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     }
                     spawnRecruitEffect(x, y);
                     triggerRecruitFlash(x, y);
-                    playSound('recruit');
                 }, 1500);
             }, BURN_MS);
             break;
@@ -2142,7 +2366,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     _shieldSaved.unit._shieldTurns = 3;
                 }
                 spawnCommanderSkillEffect(x, y, '🛡️', '护盾');
-                playSound('recruit');
             }, BURN_MS);
             break;
         }
@@ -2150,7 +2373,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`💣【地雷】${myCamp.name}在(${targetTile.q},${targetTile.r})埋设了地雷`);
             setTimeout(() => {
                 spawnCommanderSkillEffect(x, y, '💣', '地雷');
-                playSound('recruit');
             }, BURN_MS);
             break;
         }
@@ -2160,7 +2382,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`🔭【侦察】${myCamp.name}揭示了目标区域`);
             setTimeout(() => {
                 spawnCommanderSkillEffect(x, y, '🔭', '侦察');
-                playSound('recruit');
             }, BURN_MS);
             break;
         }
