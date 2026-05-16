@@ -5,11 +5,11 @@ export default {
   name: '狂战士',
   skill: '狂暴',
   hpBonus: 35, atkBonus: 15, spdBonus: 0,
-  desc: '已损失生命每2%提高1ATK和1%防御（⏱2 ⏳3）',
+  desc: '根据当前已损失生命值，每2%提高1点攻击力和1%防御力（⏱2 ⏳3）',
 
   activeSkill: {
     name: '狂暴',
-    desc: '已损失生命每2%提高1ATK和1%防御，持续2回合',
+    desc: '根据当前已损失生命值，每2%提高1点攻击力和1%防御力，持续2回合',
     duration: 2,
     cooldown: 3,
 

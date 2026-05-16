@@ -22,7 +22,7 @@ import {
     paladinOrbitBeams, updatePaladinOrbitBeams, drawPaladinOrbitBeamsBack, drawPaladinOrbitBeamsFront,
     paladinBeamProjectiles, updatePaladinBeamProjectiles, drawPaladinBeamProjectiles
 } from './effects.js';
-import { isTileVisible, getTileVisibilityState, getFogAlpha } from './fogOfWar.js';
+import { isTileVisible, getTileVisibilityState, getTileVisibilityStateByCoord, getFogAlpha } from './fogOfWar.js';
 import { getViewingCamp } from './state.js';
 
 let lastTime = performance.now();
@@ -489,6 +489,60 @@ export function renderGame() {
                 grad.addColorStop(1, `rgba(0,0,0,${alpha * 0.7})`);
                 ctx.fillStyle = grad;
                 ctx.fill();
+            }
+        }
+        // 迷雾覆绘会盖住之前画的国界线/行政区界线 —— 对已探索（无视野）地块的边线重绘
+        if (gameState.campBorderEdges && gameState.campBorderEdges.length > 0) {
+            for (const edge of gameState.campBorderEdges) {
+                const sA = getTileVisibilityStateByCoord(edge.qa, edge.ra, viewingCamp, gameState);
+                const sB = getTileVisibilityStateByCoord(edge.qb, edge.rb, viewingCamp, gameState);
+                if (sA === 'unexplored' || sB === 'unexplored') continue;
+                const bothExplored = sA !== 'visible' && sB !== 'visible';
+                const alpha = bothExplored ? 0.25 : 1.0;
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.shadowColor = 'rgba(80,80,80,0.5)';
+                ctx.shadowBlur = 6;
+                ctx.setLineDash([12, 7]);
+                ctx.lineWidth = 5;
+                ctx.strokeStyle = 'rgba(60,60,60,0.85)';
+                ctx.beginPath();
+                ctx.moveTo(edge.x0, edge.y0);
+                ctx.lineTo(edge.x1, edge.y1);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.lineDashOffset = 3;
+                ctx.lineWidth = 2.5;
+                ctx.strokeStyle = 'rgba(120,120,120,0.7)';
+                ctx.beginPath();
+                ctx.moveTo(edge.x0, edge.y0);
+                ctx.lineTo(edge.x1, edge.y1);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+            }
+        }
+        if (gameState.districtBorderEdges && gameState.districtBorderEdges.length > 0) {
+            for (const edge of gameState.districtBorderEdges) {
+                const sA = getTileVisibilityStateByCoord(edge.qa, edge.ra, viewingCamp, gameState);
+                const sB = getTileVisibilityStateByCoord(edge.qb, edge.rb, viewingCamp, gameState);
+                if (sA === 'unexplored' || sB === 'unexplored') continue;
+                const bothExplored = sA !== 'visible' && sB !== 'visible';
+                ctx.save();
+                ctx.globalAlpha = bothExplored ? 0.2 : 1.0;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.setLineDash([8, 5]);
+                ctx.lineWidth = 2.3;
+                ctx.strokeStyle = 'rgba(50,50,50,0.5)';
+                ctx.beginPath();
+                ctx.moveTo(edge.x0, edge.y0);
+                ctx.lineTo(edge.x1, edge.y1);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
             }
         }
     }

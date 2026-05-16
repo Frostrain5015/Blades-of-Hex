@@ -142,6 +142,22 @@ export function getTileVisibilityState(tile, camp, gameState) {
     return 'unexplored';
 }
 
+export function getTileVisibilityStateByCoord(q, r, camp, gs) {
+    if (!gs || !gs.skirmishFog) return 'visible';
+    const key = _campKey(camp);
+    if (key === 'neutral') return 'visible';
+    const coord = `${q},${r}`;
+    if (gs.visibleTiles[key].has(coord)) return 'visible';
+    // also check scout reveals
+    if (gs.scoutReveals && gs.scoutReveals[key]) {
+        for (const [sc, expires] of gs.scoutReveals[key]) {
+            if (sc === coord && Date.now() < expires) return 'visible';
+        }
+    }
+    if (gs.exploredTiles[key].has(coord)) return 'explored';
+    return 'unexplored';
+}
+
 // ---- 过渡动画：获取地块当前遮罩透明度 ----
 // 返回值: { alpha: 0~1, state: 'visible'|'explored'|'unexplored' }
 export function getFogAlpha(tile, camp, gameState, now) {

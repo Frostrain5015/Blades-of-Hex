@@ -272,7 +272,7 @@ export function computeCampBorders(tiles, tileMap) {
             if (tile.camp === nb.camp) continue;
             if (tile.id > nb.id) continue;
             const ep = hexEdge(cx, cy, HEX_SIZE, e);
-            borders.push({ x0: ep.x0, y0: ep.y0, x1: ep.x1, y1: ep.y1 });
+            borders.push({ x0: ep.x0, y0: ep.y0, x1: ep.x1, y1: ep.y1, qa: tile.q, ra: tile.r, qb: nb.q, rb: nb.r });
         }
     }
     return borders;
@@ -327,7 +327,7 @@ export function computeDistrictBorders(tiles, tileMap) {
             if (tile.districtId === nb.districtId) continue; // 鍚岃鏀垮尯 鈫?涓嶇敾
             if (tile.id > nb.id) continue;
             const ep = hexEdge(cx, cy, HEX_SIZE, e);
-            borders.push({ x0: ep.x0, y0: ep.y0, x1: ep.x1, y1: ep.y1 });
+            borders.push({ x0: ep.x0, y0: ep.y0, x1: ep.x1, y1: ep.y1, qa: tile.q, ra: tile.r, qb: nb.q, rb: nb.r });
         }
     }
     return borders;

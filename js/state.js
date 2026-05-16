@@ -508,6 +508,8 @@ export function serializeState() {
         q: t.q, r: t.r, s: t.s,
         campKey: _campToKey(t.camp),
         isCity: t.isCity,
+        isVillage: t.isVillage,
+        villageDistrictId: t.villageDistrictId,
         districtId: t.districtId,
         terrain: t.terrain,
         startColor: t.startColor,
@@ -718,6 +720,8 @@ export function deserializeState(data, HexTileClass, UnitClass) {
         tile.s = td.s;
         tile.camp = campMap[td.campKey];
         tile.isCity = td.isCity;
+        tile.isVillage = td.isVillage || false;
+        tile.villageDistrictId = td.villageDistrictId || 0;
         tile.districtId = td.districtId;
         tile.terrain = td.terrain || 'plains';
         tile.startColor = td.startColor;
