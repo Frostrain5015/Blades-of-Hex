@@ -672,14 +672,14 @@ export class Unit {
 
         let dmgBonus = effectiveCounterCoeff - 1 + extraBonus;
         dmgBonus -= TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
-        if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.05;
+        if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.10;
         dmgBonus -= (defender.config.defense || 0);
         dmgBonus -= (defender._rankDefBonus || 0);
         dmgBonus -= MORALE_CONFIG[defender.morale].defBonus;
         dmgBonus -= getCommanderDefenseBonus(defender);
         if (defender.commander === 'staller' && attacker.type === 'archer') dmgBonus -= 0.50;
         dmgBonus -= getCommanderAuraDefenseBonus(defender);
-        if (attacker.type === 'archer' && attacker.tile.terrain === 'mountain') dmgBonus += 0.05;
+        if (attacker.type === 'archer' && _gameState.weather === 'wind') dmgBonus += 0.10;
         const dmgMulti = Math.max(0.1, 1 + dmgBonus);
 
         const phantomCrit = (attacker._phantomStacks || 0) * 0.10;
@@ -700,11 +700,9 @@ export class Unit {
         const chargeThreshold = gs.weather === 'fog' ? 1 : 2;
         const chargeAmount    = gs.weather === 'fog' ? 0.30 : 0.25;
         const cavBonus = (this.type === 'cavalry' && this.moveDistance >= chargeThreshold) ? chargeAmount : 0;
+        const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.15 : 0;
 
-        let weatherAtkBonus = 0;
-        if (gs.weather === 'wind' && this.type === 'archer') weatherAtkBonus = +0.15;
-
-        const result = this._resolveDamage(this, targetUnit, 1, cavBonus + weatherAtkBonus);
+        const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus);
 
         gs.damageTexts.push({
             x: targetUnit.tile.x,
@@ -730,8 +728,9 @@ export class Unit {
         }
 
         const isCityCounter = this.type === 'infantry' && this.tile.isCity;
+        const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.15 : 0;
 
-        const result = this._resolveDamage(this, attackerUnit, 0.75, 0, true, isCityCounter);
+        const result = this._resolveDamage(this, attackerUnit, 0.75, cityAtkBonus, true, isCityCounter);
 
         if (this.hp > 0) {
             this.counterAttackCount++;

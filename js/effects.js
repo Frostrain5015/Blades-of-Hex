@@ -87,7 +87,7 @@ export function spawnRecruitEffect(x, y) {
     }
 }
 
-export function spawnGoldParticles(x, y) {
+export function spawnGoldParticles(x, y, color = '#ffd700') {
     const n = particleCount(8);
     for (let i = 0; i < n; i++) {
         const angle = Math.random() * Math.PI * 2;
@@ -95,7 +95,7 @@ export function spawnGoldParticles(x, y) {
         particles.push(new VisualParticle(
             x + (Math.random() - 0.5) * 10, y + (Math.random() - 0.5) * 10,
             Math.cos(angle) * speed, Math.sin(angle) * speed - 60,
-            '#ffd700', 3 + Math.random() * 3, 0.4 + Math.random() * 0.4
+            color, 3 + Math.random() * 3, 0.4 + Math.random() * 0.4
         ));
     }
 }
@@ -984,7 +984,7 @@ export function drawMinisterRings(ctx2d, now) {
     }
 }
 
-// ===== 尚书屯田：金币雨 =====================
+// ===== 尚书屯田 =====================
 export const coinParticles = [];
 
 export function spawnCoinRain(x, y, countMult = 1) {

@@ -27,7 +27,7 @@ export const gameState = {
     tiles: [],
     tileMap: new Map(),
     currentCamp: CAMP.player1,
-    playerGold: { player1: 40, player2: 40, player3: 40, neutral: 40 },
+    playerGold: { player1: 10, player2: 10, player3: 10, neutral: 10 },
     selectedUnit: null,
     movableTiles: [],
     moveParents: new Map(),
@@ -41,7 +41,7 @@ export const gameState = {
     selectionTime: 0,
     gameOver: false,
     victoryCamp: null,
-    previousGold: { player1: 40, player2: 40, player3: 40, neutral: 40 },
+    previousGold: { player1: 10, player2: 10, player3: 10, neutral: 10 },
     undoStack: [],
     turnCounter: 0,
     logHistory: [],
@@ -110,7 +110,7 @@ export function resetGameState() {
     gameState.tiles = [];
     gameState.tileMap = new Map();
     gameState.currentCamp = CAMP.player1;
-    gameState.playerGold = { player1: 40, player2: 40, player3: 40, neutral: 40 };
+    gameState.playerGold = { player1: 10, player2: 10, player3: 10, neutral: 10 };
     gameState.selectedUnit = null;
     gameState.movableTiles = [];
     gameState.moveParents = new Map();
@@ -273,7 +273,7 @@ export function updateRecruitCostDisplay() {
         const cost = _getRecruitCost(types[i]);
         const discountPct = cost < baseCost ? Math.round((1 - cost / baseCost) * 100) : 0;
         const discountSuffix = discountPct > 0 ? `<small> (-${discountPct}%)</small>` : '';
-        costSpan.innerHTML = `<span class="unit-cost-num">${cost}</span><small>g</small>${discountSuffix}`;
+        costSpan.innerHTML = `<small>$</small><span class="unit-cost-num">${cost}</span>${discountSuffix}`;
         const numEl = costSpan.querySelector('.unit-cost-num');
         if (numEl) animateCounter(numEl, cost, n => String(n), `cost_${types[i]}`);
     }
@@ -313,6 +313,33 @@ export function updateRecruitButtonStates() {
             btn.classList.remove('available');
         }
     }
+}
+
+function _spawnGoldDelta(el, delta) {
+    if (!el || delta === 0) return;
+    const rect = el.getBoundingClientRect();
+    const span = document.createElement('span');
+    const isGain = delta > 0;
+    span.textContent = (isGain ? '+' : '') + '$' + Math.abs(delta);
+    span.style.cssText = `
+        position: fixed; left: ${rect.left + rect.width / 2}px; top: ${rect.top - 4}px;
+        transform: translate(-50%, 0);
+        font-size: 15px; font-weight: bold; font-family: Arial, sans-serif;
+        color: ${isGain ? '#44dd44' : '#cc5555'};
+        text-shadow: 0 0 8px ${isGain ? 'rgba(60,220,60,0.8)' : 'rgba(200,80,80,0.8)'};
+        pointer-events: none; z-index: 1000; white-space: nowrap;
+    `;
+    document.body.appendChild(span);
+    const start = performance.now();
+    const duration = 1800;
+    function tick(now) {
+        const t = (now - start) / duration;
+        if (t >= 1) { span.remove(); return; }
+        span.style.opacity = Math.max(0, 1 - t);
+        span.style.top = (rect.top - 4 - 24 * t) + 'px';
+        requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
 }
 
 export function updateUI() {
@@ -374,27 +401,36 @@ export function updateUI() {
     }
 
     if (newGold1 !== gameState.previousGold.player1) {
-        if (gold1El) animateCounter(gold1El, newGold1, n => String(n));
-        if (gold1El && typeof gsap !== 'undefined') {
+        const delta1 = newGold1 - gameState.previousGold.player1;
+        const fogHide1 = gameState.skirmishFog && getViewingCamp() !== CAMP.player1;
+        if (gold1El) animateCounter(gold1El, fogHide1 ? -1 : newGold1, n => n < 0 ? '???' : '$' + String(n));
+        if (!fogHide1 && gold1El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold1El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
                 { scale: 1, textShadow: '0 0 0px rgba(255,215,0,0)', duration: 0.45, ease: 'back.out(1.7)' });
         }
+        if (!fogHide1 && gameState.previousGold.player1 >= 0) _spawnGoldDelta(gold1El, delta1);
         gameState.previousGold.player1 = newGold1;
     }
     if (newGold2 !== gameState.previousGold.player2) {
-        if (gold2El) animateCounter(gold2El, newGold2, n => String(n));
-        if (gold2El && typeof gsap !== 'undefined') {
+        const delta2 = newGold2 - gameState.previousGold.player2;
+        const fogHide2 = gameState.skirmishFog && getViewingCamp() !== CAMP.player2;
+        if (gold2El) animateCounter(gold2El, fogHide2 ? -1 : newGold2, n => n < 0 ? '???' : '$' + String(n));
+        if (!fogHide2 && gold2El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold2El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
                 { scale: 1, textShadow: '0 0 0px rgba(255,215,0,0)', duration: 0.45, ease: 'back.out(1.7)' });
         }
+        if (!fogHide2 && gameState.previousGold.player2 >= 0) _spawnGoldDelta(gold2El, delta2);
         gameState.previousGold.player2 = newGold2;
     }
     if (newGold3 !== gameState.previousGold.player3) {
-        if (gold3El) animateCounter(gold3El, newGold3, n => String(n));
-        if (gold3El && typeof gsap !== 'undefined') {
+        const delta3 = newGold3 - gameState.previousGold.player3;
+        const fogHide3 = gameState.skirmishFog && getViewingCamp() !== CAMP.player3;
+        if (gold3El) animateCounter(gold3El, fogHide3 ? -1 : newGold3, n => n < 0 ? '???' : '$' + String(n));
+        if (!fogHide3 && gold3El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold3El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
                 { scale: 1, textShadow: '0 0 0px rgba(255,215,0,0)', duration: 0.45, ease: 'back.out(1.7)' });
         }
+        if (!fogHide3 && gameState.previousGold.player3 >= 0) _spawnGoldDelta(gold3El, delta3);
         gameState.previousGold.player3 = newGold3;
     }
 
@@ -628,7 +664,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.gameOver = data.gameOver;
     gameState.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
     gameState.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
-    gameState.playerGold = { player1: 40, player2: 40, player3: 40, neutral: 40, ...data.playerGold };
+    gameState.playerGold = { player1: 10, player2: 10, player3: 10, neutral: 10, ...data.playerGold };
     // previousGold 不参与同步，保持本地值用于计数器动画
     gameState.turnCounter = data.turnCounter;
     gameState.logHistory = [...data.logHistory];

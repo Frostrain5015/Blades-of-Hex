@@ -1671,7 +1671,7 @@ async function handleRemoteAction(msg) {
     }
 
     applyRemoteState(msg.state, HexTile, Unit);
-    updateUI(); // 远程状态同步后刷新UI（金币、统计面板、招募费用等）
+    updateUI(); // 远程状态同步后刷新UI（资金、统计面板、招募费用等）
     renderGame(); // 强制立即重绘画布，不等下一帧
 
     // 三人模式：检查本地玩家是否已投降，显示观战横幅

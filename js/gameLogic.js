@@ -548,7 +548,7 @@ export function drawCard(camp) {
         notify('手牌已满（最多3张）', 'error'); return null;
     }
     if (gameState.playerGold[campKey] < CARD_SYSTEM_CONFIG.drawCost) {
-        notify('金币不足（需30g）', 'error'); return null;
+        notify('资金不足（需$5）', 'error'); return null;
     }
 
     if (gameState.cardDrawPile.length === 0 && gameState.cardDiscardPile.length > 0) {
@@ -570,7 +570,7 @@ export function drawCard(camp) {
     gameState.playerDrawsThisTurn[campKey]++;
 
     const cfg = TACTICAL_CARD_CONFIG[cardId];
-    logMessage(`${camp.name}花费30g抽到了【${cfg ? cfg.name : cardId}】`);
+    logMessage(`${camp.name}花费$5抽到了【${cfg ? cfg.name : cardId}】`);
     updateUI();
     return cardId;
 }
@@ -825,12 +825,13 @@ async function _doEndTurnPhase() {
                 spawnPaladinOrbitBeams(tile.unit.id, tile.x, tile.y, tile.unit._faith);
             }
 
-            if (tile.unit.type === 'infantry' && tile.isCity && tile.unit.camp === camp) {
-                const healPct = (gameState.weather === 'rain') ? 0.20 : 0.10;
-                const healAmount = tile.unit.maxHp * healPct;
-                const actualHeal = tile.unit.heal(healAmount);
-                if (actualHeal > 0) {
-                    logMessage(`${tile.unit.camp.name}的步兵驻守城市回复${Math.round(actualHeal)}生命值`);
+            if (tile.unit.camp === camp) {
+                let healPct = 0;
+                if (tile.isCity) healPct = 0.10;
+                else if (tile.isVillage) healPct = 0.05;
+                if (tile.unit.type === 'infantry' && gameState.weather === 'rain') healPct *= 2;
+                if (healPct > 0) {
+                    tile.unit.heal(tile.unit.maxHp * healPct);
                 }
             }
             // 主动技能持续/冷却倒计时 → 移至回合开始时统一处理
@@ -852,26 +853,28 @@ async function _doEndTurnPhase() {
     gameState.playerGold[key] += income;
     // 将领回合结束效果（尚书屯田等）
     triggerCommanderTurnEnd(gameState, camp, key);
-    // 尚书屯田金币雨
+    // 尚书屯田
     const ministerUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'minister' && t.unit.camp === camp ? t.unit : null), null);
     if (ministerUnit && ministerUnit.tile.isCity) {
         spawnMinisterDominionRing(ministerUnit.tile.x, ministerUnit.tile.y);
         spawnCoinRain(ministerUnit.tile.x, ministerUnit.tile.y, 5);
     }
     if (income > 0) {
-        logMessage(`${camp.name}回合结束，城市产出共计${income}金币`);
+        logMessage(`${camp.name}回合结束，城市产出共计$${income}`);
         cities.forEach((cityTile, i) => {
-            const cityValue = i === 0 ? 20 : i === 1 ? 15 : 10;
+            const cityValue = i === 0 ? 4 : i === 1 ? 3 : 2;
             gameState.goldTexts.push({
                 x: cityTile.x, y: cityTile.y,
                 value: cityValue, prefix: '+', color: '#ffff00',
-                timeLeft: 1000, lastUpdate: performance.now()
+                timeLeft: 1800, lastUpdate: performance.now()
             });
             spawnCoinRain(cityTile.x, cityTile.y, 2);
         });
     }
 
-    // 村庄金币结算：有部队占据时给部队阵营，空置时给行政区阵营
+    // 村庄结算：有部队占据时给部队阵营，空置时给行政区阵营
+    // 产出按玩家村庄序号递减：第1村$2, 第2村$1, 第3村起$0
+    const _villageCounts = new Map();
     for (const [vk, v] of gameState.villageTiles) {
         const vTile = gameState.tileMap.get(vk);
         if (!vTile) continue;
@@ -882,12 +885,16 @@ async function _doEndTurnPhase() {
             const cityTile = gameState.tiles.find(t => t.isCity && t.districtId === v.districtId);
             beneficiaryCamp = cityTile ? cityTile.camp : CAMP.neutral;
         }
-        if (beneficiaryCamp !== camp) continue; // 只在轮到该阵营时结算
-        gameState.playerGold[_campKey(beneficiaryCamp)] += VILLAGE_GOLD;
+        if (beneficiaryCamp !== camp) continue;
+        const idx = _villageCounts.get(beneficiaryCamp) || 0;
+        let villageGold = idx === 0 ? VILLAGE_GOLD : idx === 1 ? 1 : 0;
+        _villageCounts.set(beneficiaryCamp, idx + 1);
+        if (villageGold <= 0) continue;
+        gameState.playerGold[_campKey(beneficiaryCamp)] += villageGold;
         gameState.goldTexts.push({
             x: vTile.x, y: vTile.y,
-            value: VILLAGE_GOLD, prefix: '+', color: '#ffcc00',
-            timeLeft: 1000, lastUpdate: performance.now()
+            value: villageGold, prefix: '+', color: '#ffcc00',
+            timeLeft: 1800, lastUpdate: performance.now()
         });
         spawnCoinRain(vTile.x, vTile.y, 1);
     }
@@ -1115,7 +1122,7 @@ export function recruitUnit(type) {
     }
     let effectiveCost = getCommanderRecruitCost(config.cost, gameState, gameState.currentCamp);
     if (gameState.playerGold[currentPlayerKey] < effectiveCost) {
-        notify('金币不足', 'error');
+        notify('资金不足', 'error');
         return;
     }
 
@@ -1124,15 +1131,15 @@ export function recruitUnit(type) {
     new Unit(type, gameState.currentCamp, selectedCityTile, true);
     triggerRecruitFlash(selectedCityTile.x, selectedCityTile.y);
     spawnRecruitEffect(selectedCityTile.x, selectedCityTile.y);
-    logMessage(`${gameState.currentCamp.name}成功招募${config.name}兵，金币-${effectiveCost}`);
+    logMessage(`${gameState.currentCamp.name}成功招募${config.name}兵，-$${effectiveCost}`);
     gameState.selectedCityTile = null;
 
     gameState.goldTexts.push({
         x: selectedCityTile.x, y: selectedCityTile.y,
-        value: effectiveCost, prefix: '-', color: '#cccccc',
-        timeLeft: 1000, lastUpdate: performance.now()
+        value: effectiveCost, prefix: '-', color: '#ff5555', shadowColor: '#661111',
+        timeLeft: 1800, lastUpdate: performance.now()
     });
-    spawnGoldParticles(selectedCityTile.x, selectedCityTile.y);
+    spawnGoldParticles(selectedCityTile.x, selectedCityTile.y, '#cc5555');
     recalcAllFlankingMorale();
     if (gameState.skirmishFog) _updateSkirmishFogAll();
     updateUI();
@@ -1650,30 +1657,10 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     if (cityTile.camp === camp) return;
 
     const oldCamp = cityTile.camp;
-    const attackerGoldKey = _campKey(camp);
-    const defenderGoldKey = _campKey(oldCamp);
-
-    // 统一掠夺公式：按守方剩余城市数均摊其50%金币
-    const defenderCityCount = gameState.tiles.filter(t => t.isCity && t.camp === oldCamp).length;
-    const plunderGold = defenderCityCount > 0
-        ? Math.floor((1 / defenderCityCount) * 0.5 * gameState.playerGold[defenderGoldKey])
-        : 0;
 
     cityTile.setCampWithFade(camp);
 
-    if (plunderGold > 0) {
-        gameState.playerGold[attackerGoldKey] += plunderGold;
-        gameState.playerGold[defenderGoldKey] -= plunderGold;
-        logMessage(`${camp.name}攻占${oldCamp.name}城市(${cityTile.q},${cityTile.r})，掠夺${plunderGold}金币`);
-        gameState.goldTexts.push({
-            x: cityTile.x, y: cityTile.y,
-            value: plunderGold, prefix: '+', color: '#ffff00',
-            timeLeft: 1000, lastUpdate: performance.now()
-        });
-        spawnGoldParticles(cityTile.x, cityTile.y);
-    } else {
-        logMessage(`${camp.name}攻占了${oldCamp.name}的城市(${cityTile.q},${cityTile.r})`);
-    }
+    logMessage(`${camp.name}攻占了${oldCamp.name}的城市(${cityTile.q},${cityTile.r})`);
 
     const districtId = cityTile.districtId;
     gameState.tiles.forEach(tile => {

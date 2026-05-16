@@ -270,10 +270,10 @@ export function planActions(gameState, helpers, myCamp) {
     let drawsUsed = gameState.playerDrawsThisTurn[campKey] || 0;
 
     // 抽牌（Grok 激进，有金就抽）
-    if (gold >= 30 && drawsUsed < 1 && hand.length < 3
+    if (gold >= 5 && drawsUsed < 1 && hand.length < 3
         && (gameState.cardDrawPile.length > 0 || gameState.cardDiscardPile.length > 0)) {
         actions.push({ type: 'drawCard' });
-        gold -= 30; drawsUsed++;
+        gold -= 5; drawsUsed++;
     }
 
     // 部署将领（via hand card）
@@ -687,12 +687,12 @@ export function planActions(gameState, helpers, myCamp) {
     // 第三轮：招募 — 前线补守军、后方出进攻兵种
     // ═══════════════════════════════════════════
 
-    const maxRecruits = gold >= 90 ? 2 : 1;
+    const maxRecruits = gold >= 16 ? 2 : 1;
     let recruitCount = 0;
 
     const emptyOwnCities = gameState.tiles.filter(t => t.isCity && t.camp === myCamp && !t.unit);
 
-    if (gold < 40 || emptyOwnCities.length === 0) {
+    if (gold < 8 || emptyOwnCities.length === 0) {
         return actions;
     }
 

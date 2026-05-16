@@ -112,9 +112,9 @@ export const HEX_NEIGHBORS = [
 
 // ==== 兵种配置 ====================
 export const UNIT_CONFIG = {
-    infantry: { name: '步', hp: 200, attack: 40, defense: 0.05, speed: 5, range: 1, cost: 40, color: '#0a0a0a' },
-    cavalry:  { name: '骑', hp: 125, attack: 50, defense: 0.05, speed: 8, range: 1, cost: 50, color: '#0a0a0a' },
-    archer:   { name: '炮', hp: 100, attack: 55, defense: 0,    speed: 3, range: 2, cost: 60, color: '#0a0a0a' },
+    infantry: { name: '步', hp: 200, attack: 40, defense: 0.05, speed: 5, range: 1, cost: 8,  color: '#0a0a0a' },
+    cavalry:  { name: '骑', hp: 140, attack: 55, defense: 0.05, speed: 8, range: 1, cost: 10, color: '#0a0a0a' },
+    archer:   { name: '炮', hp: 100, attack: 50, defense: 0,    speed: 3, range: 2, cost: 12, color: '#0a0a0a' },
     mgNest:   { name: '要塞', hp: 200, attack: 30, defense: 0.05, speed: 0, range: 2, cost: 0, color: '#8B7355' }
 };
 
@@ -163,15 +163,15 @@ export const TERRAIN_CONFIG = {
 // export const RIVER_LINE_WIDTH = 3.5;
 
 // ==== 村庄 ====================
-export const VILLAGE_GOLD = 5;
+export const VILLAGE_GOLD = 2;
 export const VILLAGE_MIN_DIST = 3;
 
 // ==== 经济 ====================
-// 收入公式：1城=20, 2城=20+15, 3城+=20+15+10+10*(n-3)
+// 收入公式：1城=4, 2城=4+3, 3城+=4+3+2*(n-2)
 export function calcIncome(cityCount) {
-    if (cityCount >= 3) return 20 + 15 + (cityCount - 2) * 10;
-    if (cityCount === 2) return 35;
-    if (cityCount === 1) return 20;
+    if (cityCount >= 3) return 4 + 3 + (cityCount - 2) * 2;
+    if (cityCount === 2) return 7;
+    if (cityCount === 1) return 4;
     return 0;
 }
 
@@ -193,9 +193,9 @@ export { getCommander } from '../commander/index.js';
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {
     clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
-    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城回血20% · 雷击伤害1.5倍' },
+    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城/村庄回血翻倍 · 雷击伤害1.5倍' },
     fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵冲锋1格生效 伤害+30%' },
-    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 伤害+15% · 步兵无法暴击' }
+    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 无视10%防御 · 步兵无法暴击' }
 };
 
 // ==== 对策卡配置 ====================
@@ -376,7 +376,7 @@ export const SKIRMISH_EXTRAS = ['scout', 'scout', 'scout', 'scout', 'scout'];
 
 // ==== 对策卡系统参数 ====================
 export const CARD_SYSTEM_CONFIG = {
-    drawCost: 25,
+    drawCost: 5,
     maxHandSize: 3,
     maxDrawsPerTurn: 1,
     maxUsesPerTurn: 2

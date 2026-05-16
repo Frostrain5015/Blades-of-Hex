@@ -219,7 +219,7 @@ const PASSIVE_DEFS = {
     },
     archer: {
         name: '远射',
-        desc: '山地射程+1（不与风天叠加）；山地时无视敌方5%防御力',
+        desc: '山地射程+1（不与风天叠加）；风天时无视敌方10%防御力',
         active: (u) => u.tile.terrain === 'mountain'
     }
 };
@@ -279,7 +279,7 @@ function showTooltipForTile(tile) {
         const moraleDefBonus = MORALE_CONFIG[unit.morale].defBonus;
         const auraDefBonus = getCommanderAuraDefenseBonus(unit);
         const cmdDefBonus = getCommanderDefenseBonus(unit);
-        const cityDefBonus = (unit.type === 'infantry' && isCity) ? 0.05 : 0;
+        const cityDefBonus = (unit.type === 'infantry' && isCity) ? 0.10 : 0;
         const terrainDefBonus = TERRAIN_CONFIG[tile.terrain].defenseBonus;
         const rankDefBonus = unit._rankDefBonus || 0;
         const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus + rankDefBonus + auraDefBonus + cmdDefBonus + cityDefBonus) * 100);
@@ -480,12 +480,12 @@ function showTooltipForTile(tile) {
             const effects = [];
             if (gameState.weather === 'rain') {
                 if (unit.type === 'cavalry')  effects.push('每步行动力消耗+1');
-                if (unit.type === 'infantry') effects.push('守城回血20%');
+                if (unit.type === 'infantry') effects.push('守城/村庄回血翻倍');
             } else if (gameState.weather === 'fog') {
                 if (unit.type === 'archer')   effects.push('伤害−25%', '射程−1');
                 if (unit.type === 'cavalry')  effects.push('冲锋1格生效 伤害+30%');
             } else if (gameState.weather === 'wind') {
-                if (unit.type === 'archer')   effects.push('射程+1', '伤害+15%');
+                if (unit.type === 'archer')   effects.push('射程+1', '无视10%防御');
                 if (unit.type === 'infantry') effects.push('步兵无法暴击');
             }
             if (effects.length > 0) weatherDesc = effects.join('，');

@@ -455,7 +455,7 @@ export function renderGame() {
     updateMinisterRings(now);
     drawMinisterRings(ctx, now);
 
-    // 尚书金币
+    // 尚书屯田特效
     if (coinParticles.length > 0) drawCoinParticles(ctx);
 
     // 战争迷雾遮罩（遭遇战模式）—— 在所有 VFX 之后绘制，防止特效穿透暴露位置
@@ -1496,14 +1496,15 @@ function drawHealTexts(now) {
     });
 }
 
-// ===== 金币文本（增强版：浮起效果） =====================
+// ===== 资金浮动文本 =====================
 function drawGoldTexts(now) {
     gameState.goldTexts = gameState.goldTexts.filter(text => {
         text.timeLeft -= now - text.lastUpdate;
         text.lastUpdate = now;
         if (text.timeLeft <= 0) return false;
+        if (text._duration === undefined) text._duration = text.timeLeft;
 
-        const progress = 1 - text.timeLeft / 1000;
+        const progress = 1 - text.timeLeft / text._duration;
         const floatUp = progress * 15;
         const alpha = Math.max(0, 1 - progress);
 
@@ -1511,10 +1512,10 @@ function drawGoldTexts(now) {
         ctx.globalAlpha = alpha;
         ctx.textAlign = 'center';
         ctx.font = 'bold 17px Arial';
-        ctx.shadowColor = '#aa8800';
+        ctx.shadowColor = text.shadowColor || '#aa8800';
         ctx.shadowBlur = 6;
         ctx.fillStyle = text.color;
-        ctx.fillText(`${text.prefix}${Math.round(text.value)}g`, text.x, text.y - 25 - floatUp);
+        ctx.fillText(`${text.prefix}$${Math.round(text.value)}`, text.x, text.y - 25 - floatUp);
         ctx.restore();
         return true;
     });
@@ -1762,7 +1763,7 @@ export function drawCardCanvas(now) {
     cctx.fillStyle = '#ffd700';
     cctx.font = 'bold 13px sans-serif';
     cctx.textAlign = 'center';
-    cctx.fillText(`${CARD_SYSTEM_CONFIG.drawCost}g`, pileX + pileW / 2, pileY + pileH + 20);
+    cctx.fillText(`$${CARD_SYSTEM_CONFIG.drawCost}`, pileX + pileW / 2, pileY + pileH + 20);
 
     // guard: when draw pile is empty, render a faint placeholder outline so the area is never invisible
     if (pileCount === 0) {

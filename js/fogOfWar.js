@@ -22,12 +22,25 @@ const _campKey = (camp) =>
     camp === CAMP.player3 ? 'player3' : 'neutral';
 
 // ---- 核心：计算一个阵营当前能看到的所有地块 ----
-export function computeVisionForCamp(camp, tiles, tileMap) {
+function _getEffectiveVision(unit, gs) {
+    if (unit.type === 'archer') {
+        let range = unit.config.range;
+        if (gs.weather === 'fog') range -= 1;
+        let bonus = 0;
+        if (unit.tile.terrain === 'mountain') bonus = 1;
+        if (gs.weather === 'wind') bonus = Math.max(bonus, 1);
+        return Math.max(1, Math.min(4, range + bonus));
+    }
+    return UNIT_VISION[unit.type] || 1;
+}
+
+export function computeVisionForCamp(camp, tiles, tileMap, gameState) {
     const visible = new Set();
+    const gs = gameState;
 
     for (const tile of tiles) {
         if (tile.unit && tile.unit.camp === camp) {
-            const range = UNIT_VISION[tile.unit.type] || 1;
+            const range = _getEffectiveVision(tile.unit, gs);
             for (const t of tiles) {
                 if (hexDistance(tile, t) <= range) {
                     visible.add(`${t.q},${t.r}`);
@@ -65,7 +78,7 @@ export function updateFogOfWar(gameState, camp) {
     gameState._prevVisibleTiles[key] = new Set(prevVisible);
     gameState._fogTransitionStart = performance.now();
 
-    const newVisible = computeVisionForCamp(camp, gameState.tiles, gameState.tileMap);
+    const newVisible = computeVisionForCamp(camp, gameState.tiles, gameState.tileMap, gameState);
 
     // 侦察揭示格也纳入 visibleTiles，参与过渡动画追踪，避免每步闪烁
     const reveals = gameState.scoutReveals[key];

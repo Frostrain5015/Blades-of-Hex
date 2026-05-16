@@ -133,7 +133,7 @@ export function planActions(gameState, helpers) {
     const goldN = gameState.playerGold[campKeyNeutral];
 
     // Claude 保守抽牌：有足够余钱时才抽
-    if (goldN >= 50 && handN.length < 3
+    if (goldN >= 5 && handN.length < 3
         && gameState.playerDrawsThisTurn[campKeyNeutral] < 1
         && (gameState.cardDrawPile.length > 0 || gameState.cardDiscardPile.length > 0)) {
         actions.push({ type: 'drawCard' });
@@ -282,8 +282,8 @@ export function planActions(gameState, helpers) {
             const cityThreatened = allEnemyTiles.some(e => hexDistance(cityTile, e) <= 4);
             const hpRatio = unit.hp / unit.maxHp;
 
-            // ① 紧急换防：守军残血 + 城市受威胁 + 有金币 → 移走残血、招募满血步兵
-            if (hpRatio < 0.55 && cityThreatened && gold >= 40) {
+            // ① 紧急换防：守军残血 + 城市受威胁 + 资金充足 → 移走残血、招募满血步兵
+            if (hpRatio < 0.55 && cityThreatened && gold >= 8) {
                 const movTiles = getMovableTiles(unit);
                 const retreatTiles = movTiles.filter(t =>
                     isMyTurf(t) && !t.unit && !t.isCity && countAdjacentEnemies(t) === 0
@@ -307,8 +307,8 @@ export function planActions(gameState, helpers) {
                 // 无路可退 → 死守不换
             }
 
-            // ①b 紧急软换防（备用）：金币不足 → 移走残血，调邻近健康单位接替城防
-            if (hpRatio < 0.55 && cityThreatened && gold < 40) {
+            // ①b 紧急软换防（备用）：资金不足 → 移走残血，调邻近健康单位接替城防
+            if (hpRatio < 0.55 && cityThreatened && gold < 8) {
                 const movTiles = getMovableTiles(unit);
                 const retreatTiles = movTiles.filter(t =>
                     isMyTurf(t) && !t.unit && !t.isCity && countAdjacentEnemies(t) === 0
@@ -353,8 +353,8 @@ export function planActions(gameState, helpers) {
                 // 无撤退路径或无合适替补 → 死守不换
             }
 
-            // ② 非步兵守安全城市 + 有金币 → 移走让位给步兵长期驻守
-            if (unit.type !== 'infantry' && !cityThreatened && gold >= 40) {
+            // ② 非步兵守安全城市 + 资金充足 → 移走让位给步兵长期驻守
+            if (unit.type !== 'infantry' && !cityThreatened && gold >= 8) {
                 const movTiles = getMovableTiles(unit);
                 const inTurf = movTiles.filter(t => isMyTurf(t) && !t.unit && !t.isCity);
                 if (inTurf.length > 0) {
@@ -372,7 +372,7 @@ export function planActions(gameState, helpers) {
                 }
             }
 
-            // ③ 其他情况（步兵守城 / 无金币换防 / 无路可退）→ 死守不退
+            // ③ 其他情况（步兵守城 / 资金不足换防 / 无路可退）→ 死守不退
             continue;
         }
 
@@ -456,14 +456,14 @@ export function planActions(gameState, helpers) {
     // 第三轮：招募 — 紧急接防优先、步兵守城、反制兵种
     // ═══════════════════════════════════════════
 
-    const maxRecruits = gold >= 80 ? 2 : 1;
+    const maxRecruits = gold >= 16 ? 2 : 1;
     let recruitCount = 0;
 
     const emptyCities = gameState.tiles.filter(t =>
         t.isCity && isMyTurf(t) && !t.unit
     );
 
-    if (gold < 40 || (emptyCities.length === 0 && emergencySwapCities.size === 0)) {
+    if (gold < 8 || (emptyCities.length === 0 && emergencySwapCities.size === 0)) {
         return actions;
     }
 

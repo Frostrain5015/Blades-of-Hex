@@ -19,7 +19,7 @@ const COMMANDS = [
         { cmd: 'chaos',  desc: '混乱' },
     ]},
     { cmd: '/god',      desc: '切换无敌状态', subs: null },
-    { cmd: '/gold',     desc: '加金币 <数量>', subs: null },
+    { cmd: '/gold',     desc: '加钱 <数量>', subs: null },
     { cmd: '/spawn',    desc: '招募单位', subs: [
         { cmd: '步', desc: '步兵' },
         { cmd: '骑', desc: '骑兵' },
@@ -168,7 +168,7 @@ function exec(cmd) {
         case '/gold':
             if (!args[1] || isNaN(args[1])) { notify('用法: /gold <数量>', 'error'); break; }
             gameState.playerGold[campKey] += parseInt(args[1]);
-            notify(`金币 +${args[1]}，现有 ${gameState.playerGold[campKey]}`);
+            notify(`+$${args[1]}，现有 $${gameState.playerGold[campKey]}`);
             break;
 
         case '/rank':
