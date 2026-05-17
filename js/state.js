@@ -262,12 +262,22 @@ function _getRecruitCost(type) {
 }
 
 export function updateRecruitCostDisplay() {
-    const types = ['infantry', 'cavalry', 'archer'];
+    const tile = gameState.selectedCityTile;
+    const isVillage = tile && tile.isVillage;
+    const types = isVillage ? ['militia', null, null] : ['infantry', 'cavalry', 'archer'];
     const btnIds = ['recruitInfantry', 'recruitCavalry', 'recruitArcher'];
-    for (let i = 0; i < types.length; i++) {
+    const glyphs = isVillage ? ['🗡️', null, null] : ['⚔️', '🐎', '🎯'];
+    const names  = isVillage ? ['民兵', null, null] : ['步兵', '骑兵', '炮兵'];
+    for (let i = 0; i < btnIds.length; i++) {
         const btn = document.getElementById(btnIds[i]);
         if (!btn) continue;
+        if (!types[i]) { btn.style.display = 'none'; continue; }
+        btn.style.display = '';
+        const glyphEl = btn.querySelector('.unit-glyph');
+        const typeEl = btn.querySelector('.unit-type');
         const costSpan = btn.querySelector('.unit-cost');
+        if (glyphEl && glyphs[i]) glyphEl.textContent = glyphs[i];
+        if (typeEl && names[i]) typeEl.textContent = names[i];
         if (!costSpan) continue;
         const baseCost = UNIT_CONFIG[types[i]].cost;
         const cost = _getRecruitCost(types[i]);
@@ -296,16 +306,33 @@ export function updateRecruitButtonStates() {
         return;
     }
 
-    const city = gameState.selectedCityTile;
-    const canRecruit = city && city.isCity && city.camp === gameState.currentCamp && !city.unit;
+    const tile = gameState.selectedCityTile;
+    const isVillage = tile && tile.isVillage;
+    const isCity = tile && tile.isCity;
+    const canRecruitCity = isCity && tile.camp === gameState.currentCamp && !tile.unit;
+    const canRecruitVillage = isVillage && tile.camp === gameState.currentCamp && !tile.unit;
     const currentKey = _campKeyStr(gameState.currentCamp);
     const gold = gameState.playerGold[currentKey];
+
+    // 村庄模式：只显示民兵（第一个按钮），隐藏骑兵炮兵
+    if (isVillage) {
+        const militiaCost = _getRecruitCost('militia');
+        const militiaBtn = btns.infantry;
+        if (militiaBtn) {
+            const available = canRecruitVillage && gold >= militiaCost;
+            militiaBtn.disabled = !available;
+            militiaBtn.classList.toggle('available', available);
+        }
+        if (btns.cavalry) btns.cavalry.disabled = true;
+        if (btns.archer) btns.archer.disabled = true;
+        return;
+    }
 
     for (const [type, btn] of Object.entries(btns)) {
         if (!btn) continue;
         const cost = _getRecruitCost(type);
         const affordable = gold >= cost;
-        const available = canRecruit && affordable;
+        const available = canRecruitCity && affordable;
         btn.disabled = !available;
         if (available) {
             btn.classList.add('available');

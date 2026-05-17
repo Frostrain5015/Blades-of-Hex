@@ -1,6 +1,6 @@
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
-import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, saveGame, loadGame, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp } from './state.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, saveGame, loadGame, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp } from './state.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
@@ -46,9 +46,10 @@ function _handleCardCanvasClick(e) {
         const isMyTurnLocal = isNetworkGame()
             ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
             : (gameState.gameMode === 'pve' ? gameState.currentCamp === CAMP.player1 : true);
+        const _dcCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
         if (!isMyTurnLocal || gameState.cardTargeting ||
             hand.length >= CARD_SYSTEM_CONFIG.maxHandSize ||
-            gameState.playerGold[campKey] < CARD_SYSTEM_CONFIG.drawCost ||
+            gameState.playerGold[campKey] < _dcCost ||
             gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
             return;
         }
@@ -230,7 +231,7 @@ function showTooltipForTile(tile) {
     const tc = TERRAIN_CONFIG[tile.terrain];
 
     if (unit) {
-        const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵' };
+        const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵', militia: '民兵' };
         let headerText = `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}`;
         if (unit.commander) {
             const cmdCfgHdr = getCommander(unit.commander);
@@ -721,6 +722,7 @@ export function initInput() {
 
         const ownActionable = clickedTile.unit && clickedTile.unit.camp === gameState.currentCamp && clickedTile.unit.canAct && !clickedTile.unit.isNewRecruit;
         const ownEmptyCity = clickedTile.isCity && clickedTile.camp === gameState.currentCamp && !clickedTile.unit;
+        const ownEmptyVillage = clickedTile.isVillage && clickedTile.camp === gameState.currentCamp && !clickedTile.unit;
 
         if (ownActionable) {
             gameState.selectedUnit = clickedTile.unit;
@@ -733,7 +735,7 @@ export function initInput() {
                 return;
             }
             gameState.selectionTime = performance.now();
-        } else if (ownEmptyCity) {
+        } else if (ownEmptyCity || ownEmptyVillage) {
             gameState.selectedCityTile = clickedTile;
         } else if (clickedTile.unit) {
             // 敌方/中立/不可行动单位：可选中查看（tooltip / 作弊控制台用），不显示行动范围
@@ -741,6 +743,7 @@ export function initInput() {
         }
 
         updateRecruitButtonStates();
+        updateRecruitCostDisplay();
         // 遭遇战迷雾：仅视野内地块显示 tooltip
         if (!gameState.skirmishFog || isTileVisible(clickedTile, getViewingCamp(), gameState)) {
             showTooltipForTile(clickedTile);
@@ -854,7 +857,7 @@ export function initKeyboard() {
 
             if (e.key === '1') {
                 e.preventDefault();
-                recruitUnit('infantry');
+                recruitUnit(gameState.selectedCityTile && gameState.selectedCityTile.isVillage ? 'militia' : 'infantry');
                 return;
             }
             if (e.key === '2') {

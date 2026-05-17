@@ -1693,10 +1693,11 @@ export function drawCardCanvas(now) {
         : (gameState.gameMode === 'pve'
             ? (gameState.currentCamp === CAMP.player1 && !isNeutralTurn)
             : (gameState.currentCamp === myCamp && !isNeutralTurn));
+    const currentDrawCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
     const canDraw = isMyTurn && !gameState.cardTargeting
         && hand.length < CARD_SYSTEM_CONFIG.maxHandSize
         && gameState.playerDrawsThisTurn[campKey] < CARD_SYSTEM_CONFIG.maxDrawsPerTurn
-        && gameState.playerGold[campKey] >= CARD_SYSTEM_CONFIG.drawCost;
+        && gameState.playerGold[campKey] >= currentDrawCost;
 
     // ---- draw pile (top-right, same size/style as hand cards) ----
     const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
@@ -1743,27 +1744,18 @@ export function drawCardCanvas(now) {
             cctx.beginPath();
             cctx.roundRect(ox + 5, oy + 5, pileW - 10, pileH - 10, 6);
             cctx.stroke();
-            cctx.strokeStyle = crossCol;
-            cctx.lineWidth = 1;
+            // price on card back
             const cxP = ox + pileW / 2, cyP = oy + pileH / 2;
-            cctx.beginPath();
-            cctx.moveTo(cxP, oy + 8); cctx.lineTo(cxP, oy + pileH - 8);
-            cctx.moveTo(ox + 8, cyP); cctx.lineTo(ox + pileW - 8, cyP);
-            cctx.stroke();
-            const dSize = 15;
-            cctx.beginPath();
-            cctx.moveTo(cxP, cyP - dSize); cctx.lineTo(cxP + dSize * 0.6, cyP);
-            cctx.lineTo(cxP, cyP + dSize); cctx.lineTo(cxP - dSize * 0.6, cyP);
-            cctx.closePath();
-            cctx.stroke();
+            cctx.fillStyle = pileActive ? '#ffd700' : '#8a6a38';
+            cctx.font = 'bold 18px sans-serif';
+            cctx.textAlign = 'center';
+            cctx.textBaseline = 'middle';
+            cctx.shadowColor = pileActive ? 'rgba(255,215,0,0.6)' : 'rgba(0,0,0,0)';
+            cctx.shadowBlur = pileActive ? 8 : 0;
+            cctx.fillText(`$${currentDrawCost}`, cxP, cyP);
+            cctx.shadowBlur = 0;
         }
     }
-
-    // price tag
-    cctx.fillStyle = '#ffd700';
-    cctx.font = 'bold 13px sans-serif';
-    cctx.textAlign = 'center';
-    cctx.fillText(`$${CARD_SYSTEM_CONFIG.drawCost}`, pileX + pileW / 2, pileY + pileH + 20);
 
     // guard: when draw pile is empty, render a faint placeholder outline so the area is never invisible
     if (pileCount === 0) {

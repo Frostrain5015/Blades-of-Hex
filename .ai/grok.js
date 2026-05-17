@@ -1,18 +1,15 @@
-// Grok — 进攻型 AI v4
-// 核心原则：先夺中立跳板 → 再全线推进破敌城 → 合围主城
-// v4 升级：将领特化策略——根据所选将领技能调整进攻/移动/招募决策
-//   · 百夫长 → 优先斩杀连锁、骑兵承载
-//   · 狂战士 → 首动激活技能、全力冲锋
-//   · 吸血鬼 → 高攻单位回血续航、激进换血
-//   · 堕天使 → 黑白双形态切换、士气管控
-//   · 铁卫   → 步兵守城坦克、保护友军
-//   · 停滞者 → 防守牵制、阻断敌行军
-//   · 谋士   → 远程降士气、感化招降
-//   · 尚书   → 驻扎产金、经济碾压
+// Grok — 进攻型 AI v5 (困难模式优化)
+// 核心原则：经济全投兵力 → 少抽牌多招兵 → 全线压制
+// v5 升级：经济优化——减少抽牌开支，全力暴兵进攻
+//   · 仅在手牌空且余钱充裕时抽牌（不抽第2张）
+//   · 招募上限提高，前线步兵+后方骑兵/炮兵双线产出
+//   · 绝不招募民兵（性价比低）
+//   · 空袭优先打击敌城经济
+//   · 雷击优先斩杀高价值将领单位
 
 export const meta = {
     name: 'Grok',
-    description: '进攻型AI v4，将领特化策略——部署→破城→合围，每个将领独有打法'
+    description: '进攻型AI v5，困难模式经济优化——少抽牌多暴兵，全线压制作战'
 };
 
 const COMMANDER_PREFERENCE = ['vampire', 'paladin', 'advisor', 'berserker', 'ironGuard', 'minister', 'centurion', 'magician', 'fallenAngel', 'priest', 'staller'];
@@ -33,9 +30,10 @@ const COMMANDER_STRATEGY = {
 };
 
 const COUNTER = {
-    infantry: { archer: 0.75, cavalry: 1.25, infantry: 1 },
-    archer:   { cavalry: 0.75, infantry: 1.25, archer: 1 },
-    cavalry:  { infantry: 0.75, archer: 1.25, cavalry: 1 }
+    infantry: { archer: 0.75, cavalry: 1.25, infantry: 1, militia: 1 },
+    archer:   { cavalry: 0.75, infantry: 1.25, archer: 1, militia: 1.25 },
+    cavalry:  { infantry: 0.75, archer: 1.25, cavalry: 1, militia: 0.75 },
+    militia:  { archer: 0.75, cavalry: 1.25, infantry: 1, militia: 1 }
 };
 
 const TERRAIN_DEF = { plains: 0, forest: 0.10, mountain: 0.10 };
@@ -269,8 +267,8 @@ export function planActions(gameState, helpers, myCamp) {
     let cardUses = gameState.playerUsesThisTurn[campKey] || 0;
     let drawsUsed = gameState.playerDrawsThisTurn[campKey] || 0;
 
-    // 抽牌（Grok 激进，有金就抽）
-    if (gold >= 5 && drawsUsed < 1 && hand.length < 3
+    // 抽牌（v5: 仅在手牌空且余钱≥12时才抽，绝不抽第2张）
+    if (gold >= 12 && drawsUsed < 1 && hand.length === 0
         && (gameState.cardDrawPile.length > 0 || gameState.cardDiscardPile.length > 0)) {
         actions.push({ type: 'drawCard' });
         gold -= 5; drawsUsed++;
@@ -304,9 +302,9 @@ export function planActions(gameState, helpers, myCamp) {
         }
     }
 
-    // 遍历手牌使用（最多 2 张）
+    // 遍历手牌使用（最多 1 张，优先保留资金招兵）
     for (const cardId of hand) {
-        if (cardUses >= 2) break;
+        if (cardUses >= 1) break;
         if (cardId === 'commanderDeploy') continue;
 
         if (cardId === 'lightning') {
@@ -316,17 +314,17 @@ export function planActions(gameState, helpers, myCamp) {
                 if (!target || target.camp === myCamp) continue;
                 if (target.camp === CAMP.neutral && ownsNeutralCity) continue;
                 let score = 0;
-                if (target.commander) score += 100;
-                if (target.hp <= 25) score += 100;
-                if (primaryObjective && target.tile === primaryObjective) score += 120;
-                if (target.tile.isCity && target.camp === enemyCamp) score += 50;
-                if (target.hp <= 50) score += 70;
-                if (target.morale >= 3) score += 40;
-                if (target.type === 'archer') score += 20;
-                if (!ownsNeutralCity && target.camp === CAMP.neutral) score += 90;
+                if (target.commander) score += 150;
+                if (target.hp <= 30) score += 120;
+                if (target.hp <= 60) score += 80;
+                if (primaryObjective && target.tile === primaryObjective) score += 150;
+                if (target.tile.isCity && target.camp === enemyCamp) score += 70;
+                if (target.morale >= 3) score += 50;
+                if (target.type === 'archer') score += 30;
+                if (!ownsNeutralCity && target.camp === CAMP.neutral) score += 100;
                 if (score > bestScore) { bestScore = score; bestTarget = target; }
             }
-            if (bestScore >= 40) {
+            if (bestScore >= 80) {
                 actions.push({ type: 'tacticalCard', cardId: 'lightning', targetId: bestTarget.id });
                 cardUses++;
             }
@@ -377,16 +375,28 @@ export function planActions(gameState, helpers, myCamp) {
                 }
             }
         } else if (cardId === 'airstrike') {
-            // target strongest enemy city near primary objective
-            const enemyCities = gameState.tiles.filter(t =>
-                t.isCity && t.camp !== myCamp);
-            if (enemyCities.length > 0) {
-                enemyCities.sort((a, b) => {
-                    const da = primaryObjective ? hexDistance(a, primaryObjective) : 50;
-                    const db = primaryObjective ? hexDistance(b, primaryObjective) : 50;
-                    return da - db;
-                });
-                actions.push({ type: 'tacticalCard', cardId: 'airstrike', targetId: enemyCities[0].id });
+            // 优先打击敌城（瘫痪经济），其次打击主攻目标附近敌军集群
+            let bestAirstrikeTarget = null, bestAirstrikeScore = 0;
+            for (const tile of gameState.tiles) {
+                if (tile.camp === myCamp) continue;
+                if (!tile.unit && !tile.isCity) continue;
+                let score = 0;
+                if (tile.isCity && tile.camp === enemyCamp) score += 200;
+                if (tile.isCity && tile.camp === CAMP.neutral && !ownsNeutralCity) score += 150;
+                if (tile.unit && tile.unit.commander) score += 80;
+                if (tile.unit && tile.unit.hp <= 40) score += 60;
+                if (primaryObjective && tile === primaryObjective) score += 150;
+                // count nearby units for AOE value
+                let nearbyCount = 0;
+                for (const [dq, dr] of [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
+                    const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+                    if (nb && nb.unit && nb.unit.camp !== myCamp) nearbyCount++;
+                }
+                score += nearbyCount * 30;
+                if (score > bestAirstrikeScore) { bestAirstrikeScore = score; bestAirstrikeTarget = tile; }
+            }
+            if (bestAirstrikeScore >= 100) {
+                actions.push({ type: 'tacticalCard', cardId: 'airstrike', targetId: bestAirstrikeTarget.id });
                 cardUses++;
             }
         } else if (cardId === 'shield') {
@@ -438,6 +448,37 @@ export function planActions(gameState, helpers, myCamp) {
             const currentCD = gameState[cdKey] || 0;
             if (currentCD <= 0) {
                 actions.push({ type: 'activateSkill', unitId: berserkerUnit.id });
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════
+    // 第零·六轮：禁锢连击 — 有禁锢牌时先禁锢再攻击
+    // ═══════════════════════════════════════════
+
+    if (hand.includes('imprison') && cardUses < 1) {
+        // 找一个可攻击的高价值目标先禁锢
+        for (const unit of units) {
+            if (processed.has(unit.id)) continue;
+            const atkTiles = getAttackableTiles(unit);
+            const enemyTargets = atkTiles.filter(t =>
+                t.unit && t.unit.camp !== myCamp &&
+                (ownsNeutralCity ? t.unit.camp === enemyCamp : true));
+            if (enemyTargets.length === 0) continue;
+            // 选最威胁的目标（高攻、指挥官、守城）
+            let bestImprison = null, bestImpScore = 0;
+            for (const tile of enemyTargets) {
+                const t = tile.unit;
+                let score = t.config.attack * 2 + t.hp * 0.5;
+                if (t.commander) score += 100;
+                if (tile.isCity) score += 80;
+                if (t.type === 'archer') score += 30;
+                if (score > bestImpScore) { bestImpScore = score; bestImprison = t; }
+            }
+            if (bestImprison && bestImpScore >= 60) {
+                actions.push({ type: 'tacticalCard', cardId: 'imprison', targetId: bestImprison.id });
+                cardUses++;
+                break; // 只禁锢一个
             }
         }
     }
@@ -522,8 +563,11 @@ export function planActions(gameState, helpers, myCamp) {
             if (target.type === 'archer') score += 20;
             if (target.type === 'cavalry') score += 12;
 
-            // 避免自杀（高侵略将领容忍更高风险）
-            if (wouldDieToCounter(unit, target)) score -= 150 * Math.max(0.4, 2 - (cmdStrat2.aggression || 1));
+            // 避免自杀（高侵略将领容忍更高风险；阶段1敢打敢拼）
+            const suicidePenalty = wouldDieToCounter(unit, target)
+                ? 150 * Math.max(0.3, 2 - (cmdStrat2.aggression || 1)) * (ownsNeutralCity ? 1.0 : 0.4)
+                : 0;
+            score -= suicidePenalty;
 
             // 友军协击
             if (countAdjacentAllies(tile, target.id) > 0) score += 20;
@@ -615,12 +659,13 @@ export function planActions(gameState, helpers, myCamp) {
 
             for (const tile of validTiles) {
                 const newDist = hexDistance(tile, primaryObjective);
-                // 核心得分：向目标靠近
-                const pushW = cmdStrat2.pushWeight || 1.0;
+                // 核心得分：向目标靠近（阶段1加倍前压）
+                const pushW = (cmdStrat2.pushWeight || 1.0) * (ownsNeutralCity ? 1.0 : 2.0);
                 const advanceScore = (curDist - newDist) / Math.max(curDist, 1) * 5 * pushW;
 
-                // 直接占领空城（中立或敌方空城）
-                const captureBonus = (tile.isCity && tile.camp !== myCamp && !tile.unit) ? 3.5 * pushW : 0;
+                // 直接占领空城（中立或敌方空城）— 阶段1额外加分
+                const captureBonus = (tile.isCity && tile.camp !== myCamp && !tile.unit)
+                    ? (ownsNeutralCity ? 3.5 : 8.0) * pushW : 0;
 
                 // 邻接主攻目标
                 const siegeReady = newDist <= 1 ? 2.5 * pushW : 0;
@@ -646,15 +691,61 @@ export function planActions(gameState, helpers, myCamp) {
                 const rallyBonus = alliesNearby * 0.15;
 
                 const enemiesAdj = countAdjacentEnemies(tile, enemyCamp);
-                const exposurePenalty = enemiesAdj * 0.15;
+                const exposurePenalty = enemiesAdj * (ownsNeutralCity ? 0.15 : 0.05);
 
                 let safetyPenalty = 0;
                 if (hpRatio < 0.35 && alliesNearby === 0 && enemiesAdj >= 2) {
                     safetyPenalty = 2.0;
                 }
 
+                // 首都防卫：敌接近我首都时，向敌推进
+                let capitalDefenseBonus = 0;
+                const enemyNearCapital = allEnemyUnits.filter(e =>
+                    e.tile && hexDistance(e.tile, gameState.tiles.find(c => c.isCity && c.districtId === myCapitalDistrict)) <= 5
+                ).length;
+                if (enemyNearCapital >= 2) {
+                    const nearestEnemyToCapital = allEnemyUnits.reduce((b, e) =>
+                        hexDistance(e.tile, gameState.tiles.find(c => c.isCity && c.districtId === myCapitalDistrict)) <
+                        hexDistance(b.tile, gameState.tiles.find(c => c.isCity && c.districtId === myCapitalDistrict)) ? e : b
+                    , allEnemyUnits[0]);
+                    const distToThreat = hexDistance(tile, nearestEnemyToCapital.tile);
+                    capitalDefenseBonus = Math.max(0, 60 - distToThreat * 8);
+                }
+
+                // 占领村庄（阻断敌方收入）
+                const villageBonus = tile.isVillage ? 20 : 0;
+
+                // 向友军靠拢（集中兵力）— 阶段2才生效，前期要散开抢中立城
+                let concentrationBonus = 0;
+                if (ownsNeutralCity) {
+                    for (const ally of allUnits) {
+                        if (ally.id === unit.id) continue;
+                        const d = hexDistance(tile, ally.tile);
+                        if (d <= 3) concentrationBonus += (3 - d) * 3;
+                    }
+                }
+
+                // 残血撤退回城治疗 — 仅阶段2且无近敌时
+                let healRetreatBonus = 0;
+                if (hpRatio < 0.30 && enemiesNear === 0 && ownsNeutralCity) {
+                    const nearestOwnCity = myCities.reduce((b, c) =>
+                        hexDistance(tile, c) < hexDistance(tile, b) ? c : b, myCities[0]);
+                    healRetreatBonus = Math.max(0, 40 - hexDistance(tile, nearestOwnCity) * 3);
+                }
+
+                // 拦截敌人（敌单位在移动范围内，主动靠近）
+                let interceptBonus = 0;
+                for (const [dq, dr] of HEX_NEIGHBORS) {
+                    const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+                    if (nb && nb.unit && nb.unit.camp === enemyCamp && !willKill(unit, nb.unit)) {
+                        interceptBonus += 15;
+                    }
+                }
+
                 const score = advanceScore + captureBonus + siegeReady + nearAnyTarget +
-                    defScore + atkPotential + rallyBonus - exposurePenalty - safetyPenalty;
+                    defScore + atkPotential + rallyBonus + concentrationBonus +
+                    capitalDefenseBonus + villageBonus + healRetreatBonus + interceptBonus -
+                    exposurePenalty - safetyPenalty;
 
                 if (score > bestScore) { bestScore = score; bestTile = tile; }
             }
@@ -684,10 +775,10 @@ export function planActions(gameState, helpers, myCamp) {
     }
 
     // ═══════════════════════════════════════════
-    // 第三轮：招募 — 前线补守军、后方出进攻兵种
+    // 第三轮：招募 — 全力暴兵，前线守城+后方进攻双线产出
     // ═══════════════════════════════════════════
 
-    const maxRecruits = gold >= 16 ? 2 : 1;
+    const maxRecruits = gold >= 25 ? 3 : gold >= 12 ? 2 : 1;
     let recruitCount = 0;
 
     const emptyOwnCities = gameState.tiles.filter(t => t.isCity && t.camp === myCamp && !t.unit);
@@ -696,7 +787,7 @@ export function planActions(gameState, helpers, myCamp) {
         return actions;
     }
 
-    // 统计敌人兵种分布
+    // 统计敌人兵种分布（克制优先）
     const enemyTypeCounts = { infantry: 0, cavalry: 0, archer: 0 };
     for (const e of allEnemyUnits) {
         if (e.unit && enemyTypeCounts[e.unit.type] !== undefined) enemyTypeCounts[e.unit.type]++;
@@ -711,18 +802,18 @@ export function planActions(gameState, helpers, myCamp) {
     } else {
         recruitPriority = cmdStrat2.recruitPref || ['cavalry', 'archer', 'infantry'];
     }
+    // 剔除民兵（性价比极低）
+    recruitPriority = recruitPriority.filter(t => t !== 'militia');
 
     const scoreCity = (city) => {
         let score = 0;
         if (primaryObjective) {
-            score += Math.max(0, 100 - hexDistance(city, primaryObjective) * 8);
+            score += Math.max(0, 100 - hexDistance(city, primaryObjective) * 6);
         }
-        score += countAdjacentEnemies(city, enemyCamp) * 30;
-        const otherCities = myCities.filter(c => c !== city);
-        if (otherCities.length > 0) {
-            const minDist = Math.min(...otherCities.map(c => hexDistance(city, c)));
-            if (minDist > 4) score += 40;
-        }
+        score += countAdjacentEnemies(city, enemyCamp) * 35;
+        // 防守薄弱城优先补兵
+        const localDefense = evaluateCityDefense(city, myCamp);
+        if (localDefense < 100) score += 50;
         return score;
     };
 
@@ -731,10 +822,10 @@ export function planActions(gameState, helpers, myCamp) {
     for (let i = 0; i < Math.min(maxRecruits, emptyOwnCities.length); i++) {
         if (recruitCount >= maxRecruits) break;
         const city = emptyOwnCities[i];
-        // 前线城市（离目标 ≤4 格）→ 步兵守城；后方 → 进攻兵种
         const isFrontline = primaryObjective && hexDistance(city, primaryObjective) <= 4;
-        const types = isFrontline ? ['infantry'] : recruitPriority;
+        const types = isFrontline ? ['infantry', ...recruitPriority.filter(t => t !== 'infantry')] : recruitPriority;
         for (const type of types) {
+            if (type === 'militia') continue;
             if (gold >= UNIT_CONFIG[type].cost) {
                 actions.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
                 gold -= UNIT_CONFIG[type].cost;

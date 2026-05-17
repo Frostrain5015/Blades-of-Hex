@@ -351,7 +351,7 @@ export class Unit {
         ctx.font = 'bold 15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '💣', mgNest: '🏰' };
+        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', militia: '\u{1F5E1}\u{FE0F}', mgNest: '🏰' };
         ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
 
         // ── Ring HP bar ──

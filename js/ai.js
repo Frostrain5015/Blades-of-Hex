@@ -150,7 +150,7 @@ async function _executeActionInner(action, aiCamp) {
         }
         case 'recruit': {
             const cityTile = resolveTile(action.tileQ, action.tileR);
-            if (!cityTile || !cityTile.isCity || cityTile.unit) return;
+            if (!cityTile || (!cityTile.isCity && !(action.unitType === 'militia' && cityTile.isVillage)) || cityTile.unit) return;
             const gold = gameState.playerGold[campKey];
             if (gold < UNIT_CONFIG[action.unitType].cost) return;
             gameState.selectedCityTile = cityTile;

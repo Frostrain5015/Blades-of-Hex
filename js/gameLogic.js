@@ -497,7 +497,7 @@ function _bindGameButtons() {
     if (loadBtn) loadBtn.addEventListener('click', _onLoadGame);
 }
 
-const _onRecruitInfantry = () => recruitUnit('infantry');
+const _onRecruitInfantry = () => recruitUnit(gameState.selectedCityTile && gameState.selectedCityTile.isVillage ? 'militia' : 'infantry');
 const _onRecruitCavalry = () => recruitUnit('cavalry');
 const _onRecruitArcher = () => recruitUnit('archer');
 function _onSaveGame() { saveGame(); }
@@ -542,13 +542,14 @@ export function drawCard(camp) {
     if (campKey === 'neutral') return null;
 
     if (gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
-        notify('本回合已达到抽牌上限', 'error'); return null;
+        notify('本回合已达到抽牌上限（2次）', 'error'); return null;
     }
     if (gameState.playerHands[campKey].length >= CARD_SYSTEM_CONFIG.maxHandSize) {
         notify('手牌已满（最多3张）', 'error'); return null;
     }
-    if (gameState.playerGold[campKey] < CARD_SYSTEM_CONFIG.drawCost) {
-        notify('资金不足（需$5）', 'error'); return null;
+    const drawCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
+    if (gameState.playerGold[campKey] < drawCost) {
+        notify(`资金不足（需$${drawCost}）`, 'error'); return null;
     }
 
     if (gameState.cardDrawPile.length === 0 && gameState.cardDiscardPile.length > 0) {
@@ -564,13 +565,13 @@ export function drawCard(camp) {
         notify('卡组已空，无法抽牌', 'error'); return null;
     }
 
-    gameState.playerGold[campKey] -= CARD_SYSTEM_CONFIG.drawCost;
+    gameState.playerGold[campKey] -= drawCost;
     const cardId = gameState.cardDrawPile.pop();
     gameState.playerHands[campKey].push(cardId);
     gameState.playerDrawsThisTurn[campKey]++;
 
     const cfg = TACTICAL_CARD_CONFIG[cardId];
-    logMessage(`${camp.name}花费$5抽到了【${cfg ? cfg.name : cardId}】`);
+    logMessage(`${camp.name}花费$${drawCost}抽到了【${cfg ? cfg.name : cardId}】`);
     updateUI();
     return cardId;
 }
@@ -1100,12 +1101,20 @@ export function recruitUnit(type) {
     const currentPlayerKey = _campKey(gameState.currentCamp);
 
     if (!gameState.selectedCityTile) {
-        notify('请先选中己方控制的空城市', 'error');
+        notify('请先选中己方控制的空城市或村庄', 'error');
         return;
     }
     const selectedCityTile = gameState.selectedCityTile;
     if (selectedCityTile.camp !== gameState.currentCamp) {
-        notify('该城市不属于当前阵营，无法招募', 'error');
+        notify('该地块不属于当前阵营，无法招募', 'error');
+        return;
+    }
+    if (type === 'militia' && !selectedCityTile.isVillage) {
+        notify('民兵只能在村庄招募', 'error');
+        return;
+    }
+    if (type !== 'militia' && !selectedCityTile.isCity) {
+        notify('该兵种只能在城市招募', 'error');
         return;
     }
     if (selectedCityTile._cityDisabledUntil > 0 && selectedCityTile._cityDisabledUntil >= gameState.turnCounter) {
@@ -1113,11 +1122,7 @@ export function recruitUnit(type) {
         return;
     }
     if (selectedCityTile.unit) {
-        notify('该城市已有单位驻守，无法招募', 'error');
-        return;
-    }
-    if (!selectedCityTile.isCity) {
-        notify('该地块不是城市，无法招募', 'error');
+        notify('该地块已有单位驻守，无法招募', 'error');
         return;
     }
     let effectiveCost = getCommanderRecruitCost(config.cost, gameState, gameState.currentCamp);
