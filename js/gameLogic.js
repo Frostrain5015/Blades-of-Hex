@@ -1,7 +1,7 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, /*RIVER_CROSSING_COST,*/ VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
@@ -775,6 +775,68 @@ function _expireTimedEffects() {
     });
 }
 
+// 回合开始收入结算（城市产出 + 村庄产出 + 将领回合开始效果）
+// 返回 damageTexts 快照长度，供 _doEndTurnPhase 收集殉道者等伤害数字
+export function grantTurnStartIncome(camp) {
+    const key = _campKey(camp);
+    const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp && !(t._cityDisabledUntil > 0 && t._cityDisabledUntil >= gameState.turnCounter));
+    const cityCount = cities.length;
+    let income = camp === CAMP.neutral ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
+    if (gameState.gameMode === 'pve' && camp === gameState.aiOpponentCamp) {
+        income = Math.floor(income * gameState.aiDifficulty);
+    }
+    gameState.playerGold[key] += income;
+    if (income > 0) {
+        logMessage(`${camp.name}回合开始，城市产出共计$${income}`);
+        cities.forEach((cityTile, i) => {
+            const cityValue = i === 0 ? 4 : i === 1 ? 3 : 2;
+            gameState.goldTexts.push({
+                x: cityTile.x, y: cityTile.y,
+                value: cityValue, prefix: '+', color: '#ffff00',
+                timeLeft: 1800, lastUpdate: performance.now()
+            });
+            spawnCoinRain(cityTile.x, cityTile.y, 2);
+        });
+    }
+
+    // 村庄结算
+    const _villageCounts = new Map();
+    for (const [vk, v] of gameState.villageTiles) {
+        const vTile = gameState.tileMap.get(vk);
+        if (!vTile) continue;
+        let beneficiaryCamp;
+        if (vTile.unit) {
+            beneficiaryCamp = vTile.unit.camp;
+        } else {
+            const cityTile = gameState.tiles.find(t => t.isCity && t.districtId === v.districtId);
+            beneficiaryCamp = cityTile ? cityTile.camp : CAMP.neutral;
+        }
+        if (beneficiaryCamp !== camp) continue;
+        const idx = _villageCounts.get(beneficiaryCamp) || 0;
+        let villageGold = idx === 0 ? VILLAGE_GOLD : idx === 1 ? 1 : 0;
+        _villageCounts.set(beneficiaryCamp, idx + 1);
+        if (villageGold <= 0) continue;
+        gameState.playerGold[_campKey(beneficiaryCamp)] += villageGold;
+        gameState.goldTexts.push({
+            x: vTile.x, y: vTile.y,
+            value: villageGold, prefix: '+', color: '#ffcc00',
+            timeLeft: 1800, lastUpdate: performance.now()
+        });
+        spawnCoinRain(vTile.x, vTile.y, 1);
+    }
+
+    // 将领回合开始效果
+    const dmgTextsBefore = gameState.damageTexts.length;
+    triggerCommanderTurnStart(gameState, camp);
+    // 尚书屯田特效
+    const ministerUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'minister' && t.unit.camp === camp ? t.unit : null), null);
+    if (ministerUnit && ministerUnit.tile.isCity) {
+        spawnMinisterDominionRing(ministerUnit.tile.x, ministerUnit.tile.y);
+        spawnCoinRain(ministerUnit.tile.x, ministerUnit.tile.y, 5);
+    }
+    return dmgTextsBefore;
+}
+
 async function _doEndTurnPhase() {
     const camp = gameState.currentCamp;
     _endTurnCmdFxList = []; // 本回合将领特效收集
@@ -838,74 +900,12 @@ async function _doEndTurnPhase() {
         }
     });
 
-    // 将领回合开始效果（铁卫治疗等）—— 在回合切换后为新阵营触发
-    // 移至 turn toggle 之后，确保殉道者等效果在新回合开始时立即触发
-
-    // Income（中立减半，仅作象征性抵抗）
-    const key = _campKey(camp);
-    const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp && !(t._cityDisabledUntil > 0 && t._cityDisabledUntil >= gameState.turnCounter));
-    const cityCount = cities.length;
-    let income = camp === CAMP.neutral ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
-    // PVE 难度倍率：仅对对手 AI 生效，不影响中立 AI
-    if (gameState.gameMode === 'pve' && camp === gameState.aiOpponentCamp) {
-        income = Math.floor(income * gameState.aiDifficulty);
-    }
-    gameState.playerGold[key] += income;
-    // 将领回合结束效果（尚书屯田等）
-    triggerCommanderTurnEnd(gameState, camp, key);
-    // 尚书屯田
-    const ministerUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'minister' && t.unit.camp === camp ? t.unit : null), null);
-    if (ministerUnit && ministerUnit.tile.isCity) {
-        spawnMinisterDominionRing(ministerUnit.tile.x, ministerUnit.tile.y);
-        spawnCoinRain(ministerUnit.tile.x, ministerUnit.tile.y, 5);
-    }
-    if (income > 0) {
-        logMessage(`${camp.name}回合结束，城市产出共计$${income}`);
-        cities.forEach((cityTile, i) => {
-            const cityValue = i === 0 ? 4 : i === 1 ? 3 : 2;
-            gameState.goldTexts.push({
-                x: cityTile.x, y: cityTile.y,
-                value: cityValue, prefix: '+', color: '#ffff00',
-                timeLeft: 1800, lastUpdate: performance.now()
-            });
-            spawnCoinRain(cityTile.x, cityTile.y, 2);
-        });
-    }
-
-    // 村庄结算：有部队占据时给部队阵营，空置时给行政区阵营
-    // 产出按玩家村庄序号递减：第1村$2, 第2村$1, 第3村起$0
-    const _villageCounts = new Map();
-    for (const [vk, v] of gameState.villageTiles) {
-        const vTile = gameState.tileMap.get(vk);
-        if (!vTile) continue;
-        let beneficiaryCamp;
-        if (vTile.unit) {
-            beneficiaryCamp = vTile.unit.camp;
-        } else {
-            const cityTile = gameState.tiles.find(t => t.isCity && t.districtId === v.districtId);
-            beneficiaryCamp = cityTile ? cityTile.camp : CAMP.neutral;
-        }
-        if (beneficiaryCamp !== camp) continue;
-        const idx = _villageCounts.get(beneficiaryCamp) || 0;
-        let villageGold = idx === 0 ? VILLAGE_GOLD : idx === 1 ? 1 : 0;
-        _villageCounts.set(beneficiaryCamp, idx + 1);
-        if (villageGold <= 0) continue;
-        gameState.playerGold[_campKey(beneficiaryCamp)] += villageGold;
-        gameState.goldTexts.push({
-            x: vTile.x, y: vTile.y,
-            value: villageGold, prefix: '+', color: '#ffcc00',
-            timeLeft: 1800, lastUpdate: performance.now()
-        });
-        spawnCoinRain(vTile.x, vTile.y, 1);
-    }
-
     // Turn toggle（三人模式自动跳过已投降阵营）
     gameState.currentCamp = _nextActiveCamp(camp);
     gameState.turnCounter++;
-    // 将领回合开始效果（铁卫治疗、殉道者自爆等）—— 必须先于迷雾更新执行
-    // 殉道者自爆等效果会击杀单位（改变视野源），必须在视野计算之前结算
-    const dmgTextsBefore = gameState.damageTexts.length;
-    triggerCommanderTurnStart(gameState, gameState.currentCamp);
+
+    // ==== 回合开始：收入结算 ====================
+    const dmgTextsBefore = grantTurnStartIncome(gameState.currentCamp);
     // 收集殉道者等将领产生的伤害数字，供远端重放
     _endTurnDmgTexts = gameState.damageTexts.slice(dmgTextsBefore);
     // 遭遇战迷雾：过期侦察揭示，然后更新全阵营视野

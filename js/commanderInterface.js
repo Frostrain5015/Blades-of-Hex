@@ -92,6 +92,7 @@ function _helpers(cmdId) {
 // ---- 回合钩子 ----
 
 export function triggerCommanderTurnStart(gameState, camp) {
+  const campKey = camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : camp === CAMP.player3 ? 'player3' : 'neutral';
   const seen = new Set();
   for (const tile of gameState.tiles) {
     if (!tile.unit || !tile.unit.commander) continue;
@@ -100,7 +101,10 @@ export function triggerCommanderTurnStart(gameState, camp) {
     seen.add(cid);
     const cmd = getCommander(cid);
     if (cmd && cmd.onTurnStart) {
-      cmd.onTurnStart(gameState, camp, _helpers(cid));
+      const h = _helpers(cid);
+      h.campKey = campKey;
+      h.addGold = (amount) => { gameState.playerGold[campKey] += amount; };
+      cmd.onTurnStart(gameState, camp, h);
     }
   }
 }

@@ -27,7 +27,7 @@ export const gameState = {
     tiles: [],
     tileMap: new Map(),
     currentCamp: CAMP.player1,
-    playerGold: { player1: 10, player2: 10, player3: 10, neutral: 10 },
+    playerGold: { player1: 4, player2: 4, player3: 4, neutral: 4 },
     selectedUnit: null,
     movableTiles: [],
     moveParents: new Map(),
@@ -41,7 +41,7 @@ export const gameState = {
     selectionTime: 0,
     gameOver: false,
     victoryCamp: null,
-    previousGold: { player1: 10, player2: 10, player3: 10, neutral: 10 },
+    previousGold: { player1: 4, player2: 4, player3: 4, neutral: 4 },
     undoStack: [],
     turnCounter: 0,
     logHistory: [],
@@ -110,7 +110,7 @@ export function resetGameState() {
     gameState.tiles = [];
     gameState.tileMap = new Map();
     gameState.currentCamp = CAMP.player1;
-    gameState.playerGold = { player1: 10, player2: 10, player3: 10, neutral: 10 };
+    gameState.playerGold = { player1: 4, player2: 4, player3: 4, neutral: 4 };
     gameState.selectedUnit = null;
     gameState.movableTiles = [];
     gameState.moveParents = new Map();
@@ -664,7 +664,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.gameOver = data.gameOver;
     gameState.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
     gameState.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
-    gameState.playerGold = { player1: 10, player2: 10, player3: 10, neutral: 10, ...data.playerGold };
+    gameState.playerGold = { player1: 4, player2: 4, player3: 4, neutral: 4, ...data.playerGold };
     // previousGold 不参与同步，保持本地值用于计数器动画
     gameState.turnCounter = data.turnCounter;
     gameState.logHistory = [...data.logHistory];
