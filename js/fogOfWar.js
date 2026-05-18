@@ -69,9 +69,9 @@ export function computeVisionForCamp(camp, tiles, tileMap, gameState) {
 
 // ---- 更新迷雾状态（回合开始/行动后调用）----
 export function updateFogOfWar(gameState, camp) {
-    if (!gameState.skirmishFog) { console.log('[FOG DEBUG] updateFogOfWar: SKIPPED (skirmishFog=false) for camp=' + (camp && camp.name)); return; }
+    if (!gameState.skirmishFog) return;
     const key = _campKey(camp);
-    if (key === 'neutral') { console.log('[FOG DEBUG] updateFogOfWar: SKIPPED (neutral)'); return; }
+    if (key === 'neutral') return;
 
     // 保存更新前的可见集合用于过渡动画
     const prevVisible = gameState.visibleTiles[key];

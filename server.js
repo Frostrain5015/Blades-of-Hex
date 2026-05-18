@@ -304,22 +304,24 @@ function handleMessage(ws, rawData) {
                 if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
                 sendJson(ws, { type: 'reconnected', roomId, role });
                 console.log(`[重连] 已发送 reconnected 给重连方`);
-                // 告诉对手玩家重连了，并告知对方的角色以便恢复 _myRole
-                const other = [...room.players.keys()].find(p => p !== ws);
-                if (other) {
-                    const otherRole = room.players.get(other)?.role || null;
-                    sendJson(other, { type: 'opponentReconnected', role: otherRole });
-                    console.log(`[重连] 已发送 opponentReconnected 给对手，role=${otherRole}`);
+                // 告知所有在线对手玩家重连了，各自恢复其角色确保 _myRole 正确
+                const others = [...room.players.keys()].filter(p => p !== ws);
+                if (others.length > 0) {
+                    for (const p of others) {
+                        const roleOfP = room.players.get(p)?.role || null;
+                        sendJson(p, { type: 'opponentReconnected', role: roleOfP });
+                    }
+                    console.log(`[重连] 已发送 opponentReconnected 给 ${others.length} 个对手`);
                 } else {
                     console.log(`[重连] 无对手在线`);
                 }
-                // 向双方同步暂存的对局状态
+                // 向重连方 + 所有在线对手同步暂存的对局状态
                 console.log(`[重连] _savedState=` + (room._savedState ? '有' : '无'));
                 if (room._savedState) {
                     const syncMsg = { type: 'action', actionType: 'stateSync', state: room._savedState };
                     sendJson(ws, syncMsg);
-                    if (other) sendJson(other, syncMsg);
-                    console.log(`[房间 ${roomId}] 双方重连，已同步暂存状态`);
+                    for (const p of others) sendJson(p, syncMsg);
+                    console.log(`[房间 ${roomId}] 重连完成，已同步暂存状态`);
                 } else {
                     console.log(`[房间 ${roomId}] 无暂存状态可同步！`);
                 }
@@ -579,6 +581,40 @@ function handleMessage(ws, rawData) {
         case 'adminPing': {
             if (msg.token !== ADMIN_TOKEN) break;
             sendJson(ws, { type: 'adminPong', uptime: process.uptime() });
+            break;
+        }
+
+        case 'chat': {
+            const room = ws._room;
+            if (!room) break;
+
+            const senderEntry = room.players.get(ws);
+            if (!senderEntry) break;
+            const senderRole = senderEntry.role;
+
+            const text = String(msg.text || '').trim().substring(0, 500);
+            if (!text) break;
+
+            const chatMsg = {
+                type: 'chat',
+                channel: msg.channel,
+                text: text,
+                senderRole: senderRole
+            };
+
+            if (msg.channel === 'private' && msg.targetRole) {
+                chatMsg.targetRole = msg.targetRole;
+                const targetWs = [...room.players.keys()].find(
+                    p => room.players.get(p)?.role === msg.targetRole && p.readyState === 1
+                );
+                if (targetWs) {
+                    sendJson(targetWs, chatMsg);
+                    console.log(`[房间 ${room.id}] 私聊 ${senderRole} -> ${msg.targetRole}: ${text.substring(0, 30)}`);
+                }
+            } else if (msg.channel === 'room') {
+                broadcastRoom(room, chatMsg, ws);
+                console.log(`[房间 ${room.id}] 公聊 ${senderRole}: ${text.substring(0, 30)}`);
+            }
             break;
         }
 

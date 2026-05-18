@@ -1,4 +1,4 @@
-﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, /*RIVER_CROSSING_COST,*/ VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE } from './config.js';
+﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
@@ -221,94 +221,6 @@ function generateTerrain(tiles) {
     gameState.villageTiles = new Map(villageEntries);
 }
 
-// 河流边界 canonical key — 两个相邻格坐标按字典序排列
-// function canonicalEdgeKey(q1, r1, q2, r2) {
-//     if (q1 < q2 || (q1 === q2 && r1 < r2)) {
-//         return `${q1},${r1}|${q2},${r2}`;
-//     }
-//     return `${q2},${r2}|${q1},${r1}`;
-// }
-
-// 生成贯穿地图的河流（南北走向，随机游走）
-// 返回 { edges: Set, path: [{q,r}, ...] }
-// function generateRiver(tiles, tileMap, seed) {
-//     const rand = _createRNG(seed + 0x1A2B3C4D);
-//     const visited = new Set();
-// 
-//     const northCandidates = tiles.filter(t => !t.isCity && t.r <= -6);
-//     const southCandidates = tiles.filter(t => !t.isCity && t.r >= 6);
-// 
-//     if (northCandidates.length === 0 || southCandidates.length === 0) {
-//         return { edges: new Set(), path: [] };
-//     }
-// 
-//     const start = northCandidates[Math.floor(rand() * northCandidates.length)];
-//     const end = southCandidates[Math.floor(rand() * southCandidates.length)];
-// 
-//     let cur = start;
-//     visited.add(`${cur.q},${cur.r}`);
-//     const path = [cur];
-//     let steps = 0;
-//     const maxSteps = 30;
-// 
-//     while (steps < maxSteps && cur.r < 6) {
-//         steps++;
-//         const neighbors = [];
-//         for (const [dq, dr] of HEX_NEIGHBORS) {
-//             const nq = cur.q + dq;
-//             const nr = cur.r + dr;
-//             const key = `${nq},${nr}`;
-//             if (visited.has(key)) continue;
-//             const tile = tileMap.get(key);
-//             if (!tile || tile.isCity) continue;
-// 
-//             if (dr <= 0) continue; // 只允许向南（左下/右下/正下）
-//             let weight = 1.0;
-//             if (tile.terrain === 'plains') weight *= 1.5;
-//             if (tile.terrain === 'mountain') weight *= 0.3;
-//             const toEndR = end.r - nr;
-//             if (toEndR > 0) weight *= 1.3;
-// 
-//             neighbors.push({ tile, weight });
-//         }
-// 
-//         if (neighbors.length === 0) {
-//             if (path.length > 1) {
-//                 const dead = path.pop();
-//                 visited.delete(`${dead.q},${dead.r}`);
-//                 cur = path[path.length - 1];
-//                 continue;
-//             }
-//             break;
-//         }
-// 
-//         const totalWeight = neighbors.reduce((s, n) => s + n.weight, 0);
-//         let rv = rand() * totalWeight;
-//         let chosen = neighbors[0];
-//         for (const n of neighbors) {
-//             rv -= n.weight;
-//             if (rv <= 0) { chosen = n; break; }
-//         }
-// 
-//         cur = chosen.tile;
-//         visited.add(`${cur.q},${cur.r}`);
-//         path.push(cur);
-//     }
-// 
-//     if (path.length < 2) return { edges: new Set(), path: [] };
-// 
-    // 收集所有渡河边（相邻 path tile 之间）
-//     const edges = new Set();
-//     for (let i = 0; i < path.length - 1; i++) {
-//         edges.add(canonicalEdgeKey(path[i].q, path[i].r, path[i+1].q, path[i+1].r));
-//     }
-// 
-    // 只保留路径瓦片坐标，绘制时再算边
-//     const pathData = path.map(t => ({ q: t.q, r: t.r }));
-// 
-//     return { edges, path: pathData };
-// }
-
 function countAdjacentNonFriendlies(unit, tileMap) {
     let count = 0;
     for (const [dq, dr] of HEX_NEIGHBORS) {
@@ -441,21 +353,15 @@ export function initMap() {
     updateButtonColors();
     rebuildTileMap();
     generateTerrain(gameState.tiles);
-    // const riverResult = generateRiver(gameState.tiles, gameState.tileMap, _terrainSeed);
-    // gameState.riverEdges = riverResult.edges;
-    // gameState.riverPath = riverResult.path;
     gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
     gameState.districtBorderEdges = computeDistrictBorders(gameState.tiles, gameState.tileMap);
     initInitialUnits();
 
-    // 遭遇战迷雾：初始化（支持 skirmish 模式和 PVE 遭遇战）
-    console.log('[FOG DEBUG] initMap: skirmishFog=' + gameState.skirmishFog + ', gameMode=' + gameState.gameMode + ', is3P=' + is3P);
+    // 遭遇战迷雾：初始化（支持联机遭遇战与 PVE 遭遇战）
     if (gameState.skirmishFog) {
-        console.log('[FOG DEBUG] initMap: initializing fog for all camps...');
         updateFogOfWar(gameState, CAMP.player1);
         updateFogOfWar(gameState, CAMP.player2);
         if (is3P) updateFogOfWar(gameState, CAMP.player3);
-        console.log('[FOG DEBUG] initMap: P1 visible count=' + gameState.visibleTiles.player1.size + ', P2 visible count=' + gameState.visibleTiles.player2.size);
     }
 
     logMessage(is3P ? '三人模式开始，红军先手' : '游戏开始，红军先手');
@@ -502,14 +408,6 @@ const _onRecruitCavalry = () => recruitUnit('cavalry');
 const _onRecruitArcher = () => recruitUnit('archer');
 function _onSaveGame() { saveGame(); }
 function _onLoadGame() { loadGame(HexTile, Unit); clearTransientEffects(); }
-
-function _resetEventsBound() {
-    _initMapEventsBound = false;
-}
-
-    initCardDeck();
-    invalidateBoard();
-
 
 function initCardDeck() {
     const deck = [...DECK_COMPOSITION];
@@ -1196,10 +1094,6 @@ export function getMovableTiles(unit) {
             if (neighbor.unit) continue; // occupied → impassable
 
             let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
-            // // 渡河额外消耗
-            // if (gameState.riverEdges.size > 0 && gameState.riverEdges.has(canonicalEdgeKey(cur.q, cur.r, neighbor.q, neighbor.r))) {
-            //     stepCost += RIVER_CROSSING_COST;
-            // }
             if (gameState.weather === 'rain' && unit.type === 'cavalry') stepCost += 1;
             // 停滞者【缚足】：每层行动消耗+2
             const snareLayers = _getStallerSnareLayers(neighbor, friendlyCamp);
@@ -1557,7 +1451,7 @@ export function attackUnit(attackerUnit, targetUnit) {
                 spawnVictoryRipple(fromX, fromY);
             }
             if (_atkCmdFxCapture && !_cmdFxData) _cmdFxData = _atkCmdFxCapture;
-            const rankExtra = [0, 2, 5, 12];
+            const rankExtra = [0, 2, 5, 12, 20];
             const killXp = 3 + (rankExtra[targetUnit._rank] || 0);
             const bonusXp = targetUnit.commander ? 10 : 0;
             attackerUnit.addXP(killXp + bonusXp);

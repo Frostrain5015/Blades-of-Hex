@@ -217,8 +217,7 @@
                     <span>🌐</span>
                     <span id="networkRoleText"></span>
                 </div>
-                <button class="tool-btn" id="saveGameBtn" title="存档 (Ctrl+S)">💾</button>
-                <button class="tool-btn" id="loadGameBtn" title="读档 (Ctrl+L)">📂</button>
+                <button class="tool-btn" id="chatToggleBtn" title="聊天 (Ctrl+Enter)" style="display:none">💬</button>
                 <button class="tool-btn" id="settingsBtn" title="设置">⚙</button>
             </div>
 
@@ -390,6 +389,21 @@
 <div id="turnTransitionOverlay" class="turn-transition-overlay">
     <div class="turn-transition-text" id="turnTransitionText"></div>
     <div class="turn-transition-sub">点击继续</div>
+</div>
+
+<!-- 聊天面板 -->
+<div id="chatOverlay">
+    <div id="chatPanel">
+        <div id="chatHeader">
+            <span id="chatChannelLabel">公共频道</span>
+            <button id="chatCloseBtn">&times;</button>
+        </div>
+        <div id="chatMessages"></div>
+        <div id="chatInputArea">
+            <input type="text" id="chatInput" placeholder="输入消息..." maxlength="500" autocomplete="off" spellcheck="false" />
+            <button id="chatSendBtn">发送</button>
+        </div>
+    </div>
 </div>
 
 <!-- 作弊控制台 -->

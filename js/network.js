@@ -117,7 +117,6 @@ export function connectToServer(url) {
                     _cb.onOpponentJoined?.(msg.role);
                     break;
                 case 'opponentLeft':
-                    _myRole = null;
                     _cb.onOpponentLeft?.();
                     break;
                 case 'opponentReady':
@@ -141,7 +140,6 @@ export function connectToServer(url) {
                     break;
                 case 'start':
                     _myRole = msg.role;
-                    console.log('[FOG DEBUG] network received start: role=' + msg.role + ' skirmishFog=' + msg.skirmishFog);
                     _cb.onStart?.(msg.role, msg.isThreePlayer, msg.skirmishFog);
                     break;
                 case 'error':
@@ -169,6 +167,9 @@ export function connectToServer(url) {
                     break;
                 case 'toast':
                     _cb.onToast?.(msg.text, msg.toastType);
+                    break;
+                case 'chat':
+                    _cb.onChatMessage?.(msg);
                     break;
             }
         };
@@ -300,9 +301,35 @@ export function sendMessage(msg) {
     _ws.send(JSON.stringify(msg));
 }
 
+export function sendChatMessage(channel, text, targetRole = null) {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return false;
+    const msg = { type: 'chat', channel, text };
+    if (targetRole) msg.targetRole = targetRole;
+    try {
+        _ws.send(JSON.stringify(msg));
+        return true;
+    } catch (e) {
+        console.warn('[WS] sendChatMessage failed:', e.message);
+        return false;
+    }
+}
+
+export function roleToCamp(role) {
+    if (role === 'player1') return CAMP.player1;
+    if (role === 'player2') return CAMP.player2;
+    if (role === 'player3') return CAMP.player3;
+    return null;
+}
+
+export function campToRole(camp) {
+    if (camp === CAMP.player1) return 'player1';
+    if (camp === CAMP.player2) return 'player2';
+    if (camp === CAMP.player3) return 'player3';
+    return null;
+}
+
 export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase, deployedUnitP1 = null, deployedUnitP2 = null, poolP3 = [], cmdP3 = null, p3Confirmed = false, p3Deployed = false, deployedUnitP3 = null) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
-    console.log('[FOG DEBUG] syncCommanderState: skirmishFog=' + gameState.skirmishFog + ', gameMode=' + gameState.gameMode + ', _myRole=' + _myRole);
     _ws.send(JSON.stringify({
         type: 'commanderSync',
         commanderPoolP1: poolP1,

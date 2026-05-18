@@ -27,8 +27,6 @@ import { getViewingCamp } from './state.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
-let _fogLogged = false;
-let _fogInitLogged = false;
 
 function _lerpColor(aHex, bHex, t) {
     const ar = parseInt(aHex.slice(1, 3), 16), ag = parseInt(aHex.slice(3, 5), 16), ab = parseInt(aHex.slice(5, 7), 16);
@@ -55,10 +53,6 @@ function _drawBorderGlow(ctx, color, bw, w, h) {
 }
 
 export function renderGame() {
-    if (!_fogInitLogged && gameState.tiles.length > 0) {
-        console.log('[FOG DEBUG] renderGame first frame with tiles: skirmishFog=' + gameState.skirmishFog + ', gameMode=' + gameState.gameMode + ', tileCount=' + gameState.tiles.length);
-        _fogInitLogged = true;
-    }
     const now = performance.now();
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
@@ -462,10 +456,6 @@ export function renderGame() {
     if (gameState.skirmishFog) {
         const viewingCamp = getViewingCamp();
         const nowPerf = performance.now();
-        if (!_fogLogged) {
-            console.log('[FOG DEBUG] renderer: skirmishFog=true, viewingCamp=' + (viewingCamp && viewingCamp.name) + ', visibleTiles sizes: P1=' + gameState.visibleTiles.player1.size + ' P2=' + gameState.visibleTiles.player2.size);
-            _fogLogged = true;
-        }
         for (let i = 0, len = tiles.length; i < len; i++) {
             const tile = tiles[i];
             const { alpha, state } = getFogAlpha(tile, viewingCamp, gameState, nowPerf);
