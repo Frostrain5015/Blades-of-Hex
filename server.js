@@ -10,6 +10,27 @@ const HTTP_PORT  = process.env.PORT || process.env.HTTP_PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 const ADMIN_TOKEN = 'blades-of-hex-admin-v2';
 
+// ── Frost ID JWT verification ────────────────────────────
+const JWT_SECRET = 'blades-auth-jwt-secret-2026-05-29';
+function base64urlDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  return Buffer.from(str, 'base64');
+}
+function verifyJWT(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const expected = crypto.createHmac('sha256', JWT_SECRET).update(parts[0] + '.' + parts[1]).digest();
+    const actual = base64urlDecode(parts[2]);
+    if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return null;
+    const payload = JSON.parse(base64urlDecode(parts[1]).toString('utf-8'));
+    if (payload.exp < Date.now() / 1000) return null;
+    return payload;
+  } catch { return null; }
+}
+// ─────────────────────────────────────────────────────────
+
 // 黑名单与用户追踪
 let blacklist = new Set();
 const clients = new Map();       // clientId → { ip, roomId, role, connectTime }
@@ -629,6 +650,17 @@ function attachWebSocket(httpServer) {
     wss.on('connection', (ws, req) => {
         const ip = (req?.socket?.remoteAddress || ws._socket?.remoteAddress || 'unknown').replace(/^::ffff:/, '');
         ws._ip = ip;
+
+        // Frost ID token verification
+        const url = new URL(req.url, 'http://localhost');
+        const token = url.searchParams.get('token');
+        if (token) {
+          const payload = verifyJWT(token);
+          if (payload) {
+            ws._userId = payload.sub;
+            ws._username = payload.preferred_username || payload.email?.split('@')[0] || 'User';
+          }
+        }
 
         // 黑名单检查
         if (blacklist.has(ip)) {

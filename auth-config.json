@@ -1,0 +1,10 @@
+{
+  "clientId": "QkyGZAsepK0fqArOHJLgPQCnb1l6XIRv6zT0",
+  "clientSecret": "78a8d96064d8b1b7139b93c908a3f3cd55e01292fa40c90c45e2e29c8fe840dc",
+  "jwtSecret": "blades-auth-jwt-secret-2026-05-29",
+  "authorizeUrl": "https://116.62.179.231:4443/oauth/authorize",
+  "tokenUrl": "http://127.0.0.1:4000/oauth/token",
+  "redirectUrl": "http://116.62.179.231:3001/auth/callback",
+  "port": 3001,
+  "host": "127.0.0.1"
+}

@@ -9,6 +9,7 @@
     "generate-cert": "node generate-cert.js",
     "setup-https": "node generate-cert.js && node server.js",
     "admin": "node admin/admin-server.js",
+    "auth": "node auth-server.js",
     "build-admin-exe": "pkg admin/admin-server.js -t node18-win-x64 -o BladesOfHex-Admin.exe"
   },
   "dependencies": {

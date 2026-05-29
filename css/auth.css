@@ -1,0 +1,111 @@
+/* ═══ Auth: Frost ID Login / User Badge ═══════════════════ */
+
+/* ── Login button (medieval / dark-gold aesthetic) ───── */
+.auth-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #c8a86e;
+  background: rgba(12, 7, 3, 0.85);
+  border: 1px solid rgba(200, 168, 110, 0.25);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  position: absolute;
+  top: 12px;
+  right: 52px;
+  z-index: 100;
+}
+.auth-login-btn:hover {
+  background: rgba(200, 168, 110, 0.10);
+  border-color: rgba(200, 168, 110, 0.45);
+  box-shadow: 0 0 20px rgba(200, 168, 110, 0.08);
+}
+.auth-login-btn .auth-frost {
+  font-size: 16px;
+  line-height: 1;
+  display: inline-block;
+  animation: frostRotate 6s ease-in-out infinite;
+}
+
+/* ── User badge (top-left) ────────────────────────────── */
+.user-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 10px;
+  background: rgba(10, 6, 2, 0.80);
+  border: 1px solid rgba(200, 168, 110, 0.15);
+  border-radius: var(--radius-sm);
+  cursor: default;
+  backdrop-filter: blur(4px);
+}
+.user-badge-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(200, 168, 110, 0.15);
+  border: 1px solid rgba(200, 168, 110, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #c8a86e;
+}
+.user-badge-name {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: #d4c4a0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-badge-logout {
+  padding: 2px 8px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(200, 168, 110, 0.5);
+  background: transparent;
+  border: 1px solid rgba(200, 168, 110, 0.1);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.user-badge-logout:hover {
+  color: #c86868;
+  border-color: rgba(200, 100, 100, 0.35);
+}
+
+/* ── Frost Tech badge in connection bar ───────────────── */
+.frost-tech-badge {
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 300;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(200, 168, 110, 0.35);
+  margin-right: auto;
+  padding-left: 4px;
+  pointer-events: none;
+  user-select: none;
+}
+
+@keyframes frostRotate {
+  0%, 75%  { transform: rotate(0deg); }
+  88%      { transform: rotate(360deg); }
+  100%     { transform: rotate(360deg); }
+}

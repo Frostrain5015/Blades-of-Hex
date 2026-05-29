@@ -1,1 +1,0 @@
-CreateObject("Wscript.Shell").Run """E:\\Users\\phy55\\Downloads\\Blades-of-Hex-claude\\start-admin.bat""", 0, False
