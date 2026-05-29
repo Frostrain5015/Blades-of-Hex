@@ -66,10 +66,65 @@ const MIME = {
     '.oga':  'audio/ogg',
 };
 
+// ── Frost ID OAuth config ──────────────────────────────
+const AUTH_CFG = JSON.parse(fs.readFileSync(path.join(__dirname, 'auth-config.json'), 'utf-8'));
+const verifierStore = new Map();
+setInterval(() => { const now = Date.now(); for (const [k,v] of verifierStore) if (v.expiresAt < now) verifierStore.delete(k); }, 60000);
+
+function b64url(buf) { return buf.toString('base64url'); }
+function sigJWT(payload) {
+  const h = b64url(Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})));
+  const p = b64url(Buffer.from(JSON.stringify({...payload,iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+604800})));
+  const s = b64url(crypto.createHmac('sha256',JWT_SECRET).update(h+'.'+p).digest());
+  return h+'.'+p+'.'+s;
+}
+function genV() { return b64url(crypto.randomBytes(32)); }
+function genC(v) { return b64url(crypto.createHash('sha256').update(v).digest()); }
+
 function staticHandler(req, res) {
     let urlPath = req.url === '/' ? '/index.html' : req.url;
+    const rawQuery = req.url.split('?')[1] || '';
+    const query = new URLSearchParams(rawQuery);
     urlPath = urlPath.split('?')[0];
-    try { urlPath = decodeURIComponent(urlPath); } catch (_) { /* malformed URI, use as-is */ }
+    try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
+
+    // ── OAuth routes ────────────────────────────────────
+    if (urlPath === '/auth/login') {
+      const verifier = genV(); const challenge = genC(verifier); const state = b64url(crypto.randomBytes(16));
+      verifierStore.set(state, {verifier,expiresAt:Date.now()+600000});
+      const params = new URLSearchParams({
+        response_type:'code',client_id:AUTH_CFG.clientId,redirect_uri:AUTH_CFG.redirectUrl,
+        code_challenge:challenge,code_challenge_method:'S256',state,scope:'openid profile email'
+      });
+      res.writeHead(302,{Location:AUTH_CFG.authorizeUrl+'?'+params.toString()}); res.end();
+      return;
+    }
+    if (urlPath === '/auth/callback') {
+      (async()=>{
+        const code = query.get('code'); const state = query.get('state'); const err = query.get('error');
+        if (err) { res.writeHead(302,{Location:'/?auth_error='+encodeURIComponent(err)}); res.end(); return; }
+        const entry = verifierStore.get(state);
+        if (!entry) { res.writeHead(302,{Location:'/?auth_error=invalid_state'}); res.end(); return; }
+        verifierStore.delete(state);
+        try {
+          const r = await fetch(AUTH_CFG.tokenUrl,{method:'POST',
+            headers:{'Content-Type':'application/x-www-form-urlencoded'},
+            body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:AUTH_CFG.redirectUrl,
+              client_id:AUTH_CFG.clientId,client_secret:AUTH_CFG.clientSecret,code_verifier:entry.verifier})
+          });
+          if (!r.ok) { res.writeHead(302,{Location:'/?auth_error=token'}); res.end(); return; }
+          const d = await r.json(); const at = d.access_token;
+          if (!at) { res.writeHead(302,{Location:'/?auth_error=no_token'}); res.end(); return; }
+          const ur = await fetch('http://127.0.0.1:4000/oauth/userinfo',{headers:{Authorization:'Bearer '+at}});
+          if (!ur.ok) { res.writeHead(302,{Location:'/?auth_error=userinfo'}); res.end(); return; }
+          const u = await ur.json();
+          const jwt = sigJWT({sub:u.sub,email:u.email,preferred_username:u.username||u.email?.split('@')[0]||'User'});
+          res.writeHead(302,{Location:'/?token='+jwt+'&username='+encodeURIComponent(u.username||u.email?.split('@')[0]||'User')});
+          res.end();
+        } catch(e) { res.writeHead(302,{Location:'/?auth_error='+encodeURIComponent(e.message)}); res.end(); }
+      })();
+      return;
+    }
 
     if (urlPath === '/discover') {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
