@@ -17,9 +17,9 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
-  position: absolute;
-  top: 12px;
-  right: 52px;
+  position: fixed;
+  top: 56px;
+  right: 18px;
   z-index: 100;
 }
 .auth-login-btn:hover {
