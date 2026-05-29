@@ -95,29 +95,25 @@ function staticHandler(req, res) {
 
     // ── OAuth routes ────────────────────────────────────
     if (urlPath === '/auth/login') {
-      const verifier = genV(); const challenge = genC(verifier); const state = b64url(crypto.randomBytes(16));
-      verifierStore.set(state, {verifier,expiresAt:Date.now()+600000});
+      const verifier = genV(); const challenge = genC(verifier); const rstate = b64url(crypto.randomBytes(16));
+      const combined = b64url(Buffer.from(verifier + '|' + rstate, 'utf-8'));
       const params = new URLSearchParams({
         response_type:'code',client_id:AUTH_CFG.clientId,redirect_uri:AUTH_CFG.redirectUrl,
-        code_challenge:challenge,code_challenge_method:'S256',state,scope:'openid profile email'
+        code_challenge:challenge,code_challenge_method:'S256',state:combined,scope:'openid profile email'
       });
       res.writeHead(302,{Location:AUTH_CFG.authorizeUrl+'?'+params.toString()}); res.end();
       return;
     }
     if (urlPath === '/auth/callback') {
       const code = query.get('code'); const state = query.get('state'); const err = query.get('error');
-      const errMsg = err ? (err === 'access_denied' ? 'access_denied' : err) : null;
-      if (errMsg) {
-        res.end(htmlForCB('/?auth_error='+errMsg));
-        return;
-      }
-      const entry = verifierStore.get(state);
-      verifierStore.delete(state);
-      if (!entry) { res.end(htmlForCB('/?auth_error=invalid_state')); return; }
+      if (err) { res.end(htmlForCB('/?auth_error='+err)); return; }
+      let verifier = null;
+      try { const d = Buffer.from(state, 'base64url').toString('utf-8'); verifier = d.split('|')[0]; } catch(e) {}
+      if (!verifier) { res.end(htmlForCB('/?auth_error=invalid_state')); return; }
       fetch(AUTH_CFG.tokenUrl,{method:'POST',
         headers:{'Content-Type':'application/x-www-form-urlencoded'},
         body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:AUTH_CFG.redirectUrl,
-          client_id:AUTH_CFG.clientId,client_secret:AUTH_CFG.clientSecret,code_verifier:entry.verifier})
+          client_id:AUTH_CFG.clientId,client_secret:AUTH_CFG.clientSecret,code_verifier:verifier})
       }).then(r=>r.ok?r.json():Promise.reject('token'))
       .then(d=>d.access_token?fetch('http://127.0.0.1:4000/oauth/userinfo',{headers:{Authorization:'Bearer '+d.access_token}}):Promise.reject('no_token'))
       .then(ur=>ur.ok?ur.json():Promise.reject('userinfo'))
