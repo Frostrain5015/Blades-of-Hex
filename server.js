@@ -81,6 +81,11 @@ function sigJWT(payload) {
 function genV() { return b64url(crypto.randomBytes(32)); }
 function genC(v) { return b64url(crypto.createHash('sha256').update(v).digest()); }
 
+function htmlForCB(url, jwt, uname) {
+  const store = jwt ? 'localStorage.setItem("blades_token","'+jwt+'");localStorage.setItem("blades_user",\'{"username":"'+uname+'"}\');' : '';
+  return '<html><body><script>'+store+'if(window.opener){window.opener.location.reload();window.close()}else{location.href="'+url+'"}</script></body></html>';
+}
+
 function staticHandler(req, res) {
     let urlPath = req.url === '/' ? '/index.html' : req.url;
     const rawQuery = req.url.split('?')[1] || '';
@@ -100,29 +105,29 @@ function staticHandler(req, res) {
       return;
     }
     if (urlPath === '/auth/callback') {
-      (async()=>{
-        const code = query.get('code'); const state = query.get('state'); const err = query.get('error');
-        if (err) { res.writeHead(302,{Location:'/?auth_error='+encodeURIComponent(err)}); res.end(); return; }
-        const entry = verifierStore.get(state);
-        if (!entry) { res.writeHead(302,{Location:'/?auth_error=invalid_state'}); res.end(); return; }
-        verifierStore.delete(state);
-        try {
-          const r = await fetch(AUTH_CFG.tokenUrl,{method:'POST',
-            headers:{'Content-Type':'application/x-www-form-urlencoded'},
-            body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:AUTH_CFG.redirectUrl,
-              client_id:AUTH_CFG.clientId,client_secret:AUTH_CFG.clientSecret,code_verifier:entry.verifier})
-          });
-          if (!r.ok) { res.writeHead(302,{Location:'/?auth_error=token'}); res.end(); return; }
-          const d = await r.json(); const at = d.access_token;
-          if (!at) { res.writeHead(302,{Location:'/?auth_error=no_token'}); res.end(); return; }
-          const ur = await fetch('http://127.0.0.1:4000/oauth/userinfo',{headers:{Authorization:'Bearer '+at}});
-          if (!ur.ok) { res.writeHead(302,{Location:'/?auth_error=userinfo'}); res.end(); return; }
-          const u = await ur.json();
-          const jwt = sigJWT({sub:u.sub,email:u.email,preferred_username:u.username||u.email?.split('@')[0]||'User'});
-          res.writeHead(302,{Location:'/?token='+jwt+'&username='+encodeURIComponent(u.username||u.email?.split('@')[0]||'User')});
-          res.end();
-        } catch(e) { res.writeHead(302,{Location:'/?auth_error='+encodeURIComponent(e.message)}); res.end(); }
-      })();
+      const code = query.get('code'); const state = query.get('state'); const err = query.get('error');
+      const errMsg = err ? (err === 'access_denied' ? 'access_denied' : err) : null;
+      if (errMsg) {
+        res.end(htmlForCB('/?auth_error='+errMsg));
+        return;
+      }
+      const entry = verifierStore.get(state);
+      verifierStore.delete(state);
+      if (!entry) { res.end(htmlForCB('/?auth_error=invalid_state')); return; }
+      fetch(AUTH_CFG.tokenUrl,{method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:AUTH_CFG.redirectUrl,
+          client_id:AUTH_CFG.clientId,client_secret:AUTH_CFG.clientSecret,code_verifier:entry.verifier})
+      }).then(r=>r.ok?r.json():Promise.reject('token'))
+      .then(d=>d.access_token?fetch('http://127.0.0.1:4000/oauth/userinfo',{headers:{Authorization:'Bearer '+d.access_token}}):Promise.reject('no_token'))
+      .then(ur=>ur.ok?ur.json():Promise.reject('userinfo'))
+      .then(u=>{
+        const jwt=sigJWT({sub:u.sub,email:u.email,preferred_username:u.username||u.email?.split('@')[0]||'User'});
+        const uname=u.username||u.email?.split('@')[0]||'User';
+        const params = new URLSearchParams({token:jwt,username:uname}).toString();
+        res.end(htmlForCB('/?'+params, jwt, uname));
+      })
+      .catch(e=>res.end(htmlForCB('/?auth_error='+(typeof e==='string'?e:e.message))));
       return;
     }
 

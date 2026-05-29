@@ -4,7 +4,7 @@
   "jwtSecret": "blades-auth-jwt-secret-2026-05-29",
   "authorizeUrl": "https://116.62.179.231:4443/oauth/authorize",
   "tokenUrl": "http://127.0.0.1:4000/oauth/token",
-  "redirectUrl": "http://116.62.179.231:3000/auth/callback",
+  "redirectUrl": "https://116.62.179.231:3443/auth/callback",
   "port": 3000,
   "host": "0.0.0.0"
 }
