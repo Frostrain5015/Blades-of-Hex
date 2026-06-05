@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Blades of Hex</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
+    <link href="https://fonts.loli.net/css2?family=Cinzel:wght@400;500;600;700&family=Noto+Serif+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/auth.css">
 </head>
@@ -19,17 +20,7 @@
 <!-- ===== 大厅（默认显示） ===== -->
 <div id="lobbyOverlay">
     <button id="lobbyMuteBtn" class="lobby-mute-btn" title="切换静音">🔊</button>
-    <!-- Auth: login button (shown when logged out) -->
-    <button id="authLoginBtn" class="auth-login-btn" style="display:none" onclick="location.href='/auth/login'">
-      <span class="auth-frost" aria-hidden="true">❄</span>
-      <span>登录Frost ID</span>
-    </button>
-    <!-- Auth: user badge (shown when logged in) -->
-    <div id="userBadge" class="user-badge" style="display:none">
-      <div class="user-badge-avatar" id="userBadgeAvatar">?</div>
-      <span class="user-badge-name" id="userBadgeName"></span>
-      <button class="user-badge-logout" id="userBadgeLogout">Exit</button>
-    </div>
+    <span id="brandSnow" class="brand-snow" title="Frost Tech">❄</span>
     <div class="lobby-box">
         <!-- 持久化左右分栏布局 -->
         <div class="hero-wrap">
@@ -147,11 +138,11 @@
         </div>
 
         <div id="connectionBar" class="connection-bar">
-            <span class="frost-tech-badge">❄ FT</span>
             <span class="connection-dot"></span>
-            <span id="connectionLabel" class="connection-label">未连接</span>
-            <span class="connection-divider">·</span>
             <span id="serverLocation" class="server-location"></span>
+            <span id="connectionLabel" style="display:none"></span>
+            <span class="connection-bar-spacer"></span>
+            <span id="authSlot" class="auth-slot"></span>
             <button id="reconnectBtn" class="reconnect-btn" style="display:none" title="手动重连">重连</button>
         </div>
         <div id="lobbyStatus" class="lobby-status"></div>
@@ -427,7 +418,7 @@
 
 <script type="module" src="js/auth.js"></script>
 <script>
-// ── Auth bootstrap: capture token from URL, show/hide login UI ──
+// ── Auth bootstrap: capture token from URL, render brandSnow + authSlot ──
 (function(){
   const params = new URLSearchParams(location.search);
   const token = params.get('token');
@@ -435,7 +426,6 @@
   if (token && username) {
     localStorage.setItem('blades_token', token);
     localStorage.setItem('blades_user', JSON.stringify({ username }));
-    // Clean URL
     const u = new URL(location.href);
     u.searchParams.delete('token'); u.searchParams.delete('username');
     window.history.replaceState({}, '', u);
@@ -443,40 +433,44 @@
 
   const savedToken = localStorage.getItem('blades_token');
   const savedUser = localStorage.getItem('blades_user');
-  const loginBtn = document.getElementById('authLoginBtn');
-  const userBadge = document.getElementById('userBadge');
-  const userName = document.getElementById('userBadgeName');
-  const userAvatar = document.getElementById('userBadgeAvatar');
-  const logoutBtn = document.getElementById('userBadgeLogout');
+  const brandSnow = document.getElementById('brandSnow');
+  const authSlot = document.getElementById('authSlot');
 
-  function showLogin() {
-    if (loginBtn) loginBtn.style.display = '';
-    if (userBadge) userBadge.style.display = 'none';
-  }
-  function showUser(name) {
-    if (loginBtn) loginBtn.style.display = 'none';
-    if (userBadge) userBadge.style.display = 'flex';
-    if (userName) userName.textContent = name;
-    if (userAvatar) userAvatar.textContent = name[0].toUpperCase();
-  }
-
-  if (savedToken && savedUser) {
-    try {
-      const u = JSON.parse(savedUser);
-      showUser(u.username || 'User');
-    } catch { showLogin(); }
-  } else {
-    showLogin();
+  function renderAuth() {
+    if (!authSlot) return;
+    if (savedToken && savedUser) {
+      try {
+        const u = JSON.parse(savedUser);
+        authSlot.innerHTML = '<span class="auth-inline-user">' + u.username + '</span><button class="auth-inline-logout" id="authInlineLogout">Exit</button>';
+        if (brandSnow) brandSnow.classList.add('logged-in');
+        document.getElementById('authInlineLogout')?.addEventListener('click', function() {
+          localStorage.removeItem('blades_token');
+          localStorage.removeItem('blades_user');
+          location.reload();
+        });
+      } catch { renderLogin(); }
+    } else {
+      renderLogin();
+    }
   }
 
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', function() {
-      localStorage.removeItem('blades_token');
-      localStorage.removeItem('blades_user');
-      showLogin();
-      location.reload();
+  function renderLogin() {
+    if (!authSlot) return;
+    authSlot.innerHTML = '<a class="auth-inline-login" href="/auth/login"><span class="auth-frost" aria-hidden="true">❄</span>登录 Frost ID</a>';
+    if (brandSnow) brandSnow.classList.remove('logged-in');
+  }
+
+  if (brandSnow) {
+    brandSnow.addEventListener('click', function() {
+      if (savedToken && savedUser) {
+        location.href = 'https://frostrain.tech/dashboard';
+      } else {
+        location.href = '/auth/login';
+      }
     });
   }
+
+  renderAuth();
 })();
 </script>
 <script src="js/lib/howler.min.js"></script>

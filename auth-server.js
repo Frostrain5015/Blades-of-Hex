@@ -100,7 +100,7 @@ const server = http.createServer(async (req, res) => {
       const accessToken = tokenData.access_token;
       if (!accessToken) { res.writeHead(302, { Location: '/?auth_error=no_token' }); res.end(); return; }
 
-      const userRes = await fetch('http://127.0.0.1:4000/oauth/userinfo', {
+      const userRes = await fetch(cfg.userinfoUrl || 'http://127.0.0.1:4000/oauth/userinfo', {
         headers: { Authorization: 'Bearer ' + accessToken },
       });
       if (!userRes.ok) { res.writeHead(302, { Location: '/?auth_error=userinfo' }); res.end(); return; }

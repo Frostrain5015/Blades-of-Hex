@@ -87,11 +87,14 @@ function htmlForCB(url, jwt, uname) {
 }
 
 function staticHandler(req, res) {
-    let urlPath = req.url === '/' ? '/index.html' : req.url;
     const rawQuery = req.url.split('?')[1] || '';
     const query = new URLSearchParams(rawQuery);
-    urlPath = urlPath.split('?')[0];
+    let urlPath = req.url.split('?')[0];
     try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
+    // Map the root (and any directory path) to its index file. Must run AFTER
+    // stripping the query string, otherwise "/?token=..." stays as "/" and
+    // path.join() resolves to the project directory → fs read → EISDIR crash.
+    if (urlPath === '/' || urlPath.endsWith('/')) urlPath += 'index.html';
 
     // ── OAuth routes ────────────────────────────────────
     if (urlPath === '/auth/login') {
@@ -115,7 +118,7 @@ function staticHandler(req, res) {
         body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:AUTH_CFG.redirectUrl,
           client_id:AUTH_CFG.clientId,client_secret:AUTH_CFG.clientSecret,code_verifier:verifier})
       }).then(r=>r.ok?r.json():Promise.reject('token'))
-      .then(d=>d.access_token?fetch('http://127.0.0.1:4000/oauth/userinfo',{headers:{Authorization:'Bearer '+d.access_token}}):Promise.reject('no_token'))
+      .then(d=>d.access_token?fetch(AUTH_CFG.userinfoUrl||'http://127.0.0.1:4000/oauth/userinfo',{headers:{Authorization:'Bearer '+d.access_token}}):Promise.reject('no_token'))
       .then(ur=>ur.ok?ur.json():Promise.reject('userinfo'))
       .then(u=>{
         const jwt=sigJWT({sub:u.sub,email:u.email,preferred_username:u.username||u.email?.split('@')[0]||'User'});
@@ -138,13 +141,22 @@ function staticHandler(req, res) {
     const contentType = MIME[ext] || 'application/octet-stream';
 
     fs.stat(filePath, (err, stats) => {
-        if (err) {
+        if (err || stats.isDirectory()) {
+            // Missing file, or a directory path that has no index → 404.
+            // Reading a directory as a stream would throw EISDIR and crash.
             res.writeHead(404, { 'Content-Type': 'text/plain' });
             res.end('404 Not Found');
             return;
         }
         const fileSize = stats.size;
         const range = req.headers.range;
+
+        // Guard: any read error (EISDIR, EACCES, mid-stream failure) must not
+        // bubble up as an uncaught exception that takes the whole server down.
+        const onStreamError = () => {
+            if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end();
+        };
 
         if (range) {
             const parts = range.replace(/bytes=/, '').split('-');
@@ -159,6 +171,7 @@ function staticHandler(req, res) {
             }
 
             const stream = fs.createReadStream(filePath, { start, end });
+            stream.on('error', onStreamError);
             res.writeHead(206, {
                 'Content-Range': `bytes ${start}-${end}/${fileSize}`,
                 'Accept-Ranges': 'bytes',
@@ -175,7 +188,7 @@ function staticHandler(req, res) {
                 'Pragma': 'no-cache',
                 'Expires': '0'
             });
-            fs.createReadStream(filePath).pipe(res);
+            fs.createReadStream(filePath).on('error', onStreamError).pipe(res);
         }
     });
 }

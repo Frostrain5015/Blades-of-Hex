@@ -24,7 +24,7 @@ body {
     height: 100vh; overflow-y: auto;
     background-image: url("../bg.jpg");
     background-size: cover; background-attachment: fixed;
-    font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
+    font-family: 'Cinzel', 'Noto Serif SC', serif;
     color: var(--text-body); position: relative;
 }
 body::before {

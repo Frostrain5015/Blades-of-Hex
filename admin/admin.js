@@ -18,7 +18,8 @@ const autoStartBtn = document.getElementById('autoStartBtn');
 const initBtn = document.getElementById('initServerBtn');
 
 function connect() {
-    ws = new WebSocket(`ws://${location.hostname}:3099`);
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}`);
     ws.onmessage = ({ data }) => {
         let msg; try { msg = JSON.parse(data); } catch { return; }
         switch (msg.type) {

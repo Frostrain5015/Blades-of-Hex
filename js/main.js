@@ -154,7 +154,7 @@ function _detectServerLocation() {
     const hn = location.hostname;
     const isLocal = hn === 'localhost' || hn === '127.0.0.1' || hn === '::1' ||
         /^192\.168\./.test(hn) || /^10\./.test(hn) || /^172\.(1[6-9]|2\d|3[01])\./.test(hn);
-    return isLocal ? '内网穿透' : '阿里云·墨裁';
+    return isLocal ? '内网穿透' : 'Frost Rain · 云端';
 }
 
 function setConnectionState(state) {

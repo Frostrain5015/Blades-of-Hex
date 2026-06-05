@@ -5,7 +5,7 @@
  * and provides the token for WebSocket connections.
  */
 
-const AUTH_URL = `${location.protocol}//${location.hostname}:3001`;
+const AUTH_URL = location.origin;
 const TOKEN_KEY = 'blades_token';
 const USER_KEY  = 'blades_user';
 
