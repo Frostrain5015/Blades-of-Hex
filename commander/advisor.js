@@ -36,7 +36,7 @@ export default {
     }
 
     // 75%概率触发叠层
-    if (Math.random() >= 0.75) return null;
+    if (!(helpers.rng ? helpers.rng.chance(0.75) : Math.random() < 0.75)) return null;
 
     const currentStacks = (enemy._gongxinStacks || 0) + 1;
     enemy._gongxinStacks = currentStacks;

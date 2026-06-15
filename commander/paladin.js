@@ -50,8 +50,8 @@ export default {
         attacker._smiteReady = false;
         attacker._smiteCharged = false;
         const smiteDmg = charged
-            ? 80 + Math.floor(Math.random() * 21)
-            : 30 + Math.floor(Math.random() * 16);
+            ? (helpers.rng ? helpers.rng.between(80, 100) : 80 + Math.floor(Math.random() * 21))
+            : (helpers.rng ? helpers.rng.between(30, 45) : 30 + Math.floor(Math.random() * 16));
         // 剑从环绕轨道飞向目标
         const paladinProjectileDatas = helpers.launchOrbitSwords
             ? helpers.launchOrbitSwords(attacker.id, target.tile.x, target.tile.y, beamCount)

@@ -2,6 +2,7 @@ import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIG
 import { computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
+import { createRng } from '../core/rng.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
@@ -53,6 +54,10 @@ export const gameState = {
     surrenderedCamps: [],   // 三人模式中已投降的阵营
     weather: 'clear',
     lastWeather: null,
+    // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
+    // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
+    // 使联机收方与存档/重连保持一致。详见 core/rng.js。
+    rng: createRng((Date.now() >>> 0) || 1),
     deselecting: false,
     deselectionTime: 0,
     deselectMoveTiles: [],
@@ -127,6 +132,9 @@ export function resetGameState() {
     gameState.previousGold = { player1: -1, player2: -1, player3: -1, neutral: -1 };
     gameState.undoStack = [];
     gameState.turnCounter = 0;
+    // 新对局重新播种模拟 RNG(联机模式随后会被 state-sync 对齐;可由
+    // seedMatchRng 显式指定共享种子以做到开局即跨端确定)。
+    gameState.rng.setState((Date.now() >>> 0) ^ ((Math.random() * 0x7fffffff) >>> 0));
     gameState.logHistory = [];
     gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0 };
     gameState.aiActing = false;
@@ -561,6 +569,15 @@ export function deselectUnit() {
 }
 
 // ===== 序列化 / 快照（存档 + 撤销用） =====================
+// 用共享种子显式播种对局 RNG,使所有客户端开局即确定一致(联机模式)。
+// seed 可为数字或字符串(字符串会用 createRng 的来源派生)。
+export function seedMatchRng(seed) {
+    const s = typeof seed === 'string'
+        ? [...seed].reduce((h, c) => (Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0), 2166136261 >>> 0)
+        : (seed >>> 0);
+    gameState.rng.setState(s || 1);
+}
+
 export function serializeState() {
     const tileIndex = new Map();
     gameState.tiles.forEach((t, i) => tileIndex.set(t, i));
@@ -637,6 +654,7 @@ export function serializeState() {
         idCounter: idCounter,
         weather: gameState.weather,
         lastWeather: gameState.lastWeather,
+        rngState: gameState.rng.getState(),
         killCount: { ...gameState.killCount },
         commanderPoolP1: [...gameState.commanderPoolP1],
         commanderPoolP2: [...gameState.commanderPoolP2],
@@ -697,6 +715,8 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.logHistory = [...data.logHistory];
     gameState.weather = data.weather || 'clear';
     gameState.lastWeather = data.lastWeather || null;
+    // 恢复模拟 RNG 状态(旧存档无此字段时保持当前 rng,不影响)
+    if (data.rngState != null) gameState.rng.setState(data.rngState);
     if (data.killCount) gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0, ...data.killCount };
     gameState.commanderPoolP1 = data.commanderPoolP1 || [];
     gameState.commanderPoolP2 = data.commanderPoolP2 || [];

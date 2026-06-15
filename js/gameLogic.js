@@ -454,7 +454,7 @@ export function drawCard(camp) {
         gameState.cardDrawPile = [...gameState.cardDiscardPile];
         gameState.cardDiscardPile = [];
         for (let i = gameState.cardDrawPile.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = gameState.rng ? gameState.rng.int(i + 1) : Math.floor(Math.random() * (i + 1));
             [gameState.cardDrawPile[i], gameState.cardDrawPile[j]] = [gameState.cardDrawPile[j], gameState.cardDrawPile[i]];
         }
         logMessage('弃牌堆已洗入抽牌堆');
@@ -619,7 +619,7 @@ function _updateWeather() {
     const position = cycleRound % cycleLen;  // 0,1,2
     if (position === 0) {
         const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
-        gameState.lastWeather = pool[Math.floor(Math.random() * pool.length)];
+        gameState.lastWeather = pool[gameState.rng ? gameState.rng.int(pool.length) : Math.floor(Math.random() * pool.length)];
     }
     if (position < WEATHER_CYCLE.weatherDuration) {
         gameState.weather = gameState.lastWeather;

@@ -52,6 +52,7 @@ function _helpers(cmdId) {
   const label = cmd ? cmd.skill : '';
   return {
     gameState: gs,
+    rng: gs ? gs.rng : null,
     logMessage: _logMessage || ((m) => console.log(m)),
     spawnFx: (x, y, glyph) => {
       const fn = _spawnFx || ((x, y, g, l) => {});

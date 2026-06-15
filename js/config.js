@@ -219,7 +219,7 @@ export const TACTICAL_CARD_CONFIG = {
         desc: '【雷击】\n对指定敌方单位造成40~60真实伤害（雨天翻倍）',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
-            let dmg = 40 + Math.floor(Math.random() * 21);
+            let dmg = gameState.rng ? gameState.rng.between(40, 60) : 40 + Math.floor(Math.random() * 21);
             if (gameState.weather === 'rain') dmg = Math.floor(dmg * 1.5);
             targetTile.unit.hp = Math.max(0, targetTile.unit.hp - dmg);
             return { dmg, targetTile };
@@ -284,7 +284,7 @@ export const TACTICAL_CARD_CONFIG = {
         desc: '【空袭】\n对任意敌方目标释放，目标及周边6格造成20~30伤害（对城市翻倍），2回合内城市无法产金或招募',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
-            const dmgBase = 20 + Math.floor(Math.random() * 11);
+            const dmgBase = gameState.rng ? gameState.rng.between(20, 30) : 20 + Math.floor(Math.random() * 11);
             const results = [];
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             for (const [dq, dr] of dirs) {

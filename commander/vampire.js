@@ -7,14 +7,14 @@ export default {
   desc: '攻击造成伤害时随机回复伤害值30%~60%的生命值',
   tooltipDesc: '攻击造成伤害时回复伤害值30%~60%的生命值',
 
-  _getHeal(dmg) {
-    const ratio = 0.30 + Math.random() * 0.30; // 30% ~ 60%
+  _getHeal(dmg, rng) {
+    const ratio = rng ? rng.range(0.30, 0.60) : 0.30 + Math.random() * 0.30; // 30% ~ 60%
     return Math.round(dmg * ratio);
   },
 
   onAttack(attacker, target, dmg, helpers) {
     if (dmg <= 0) return null;
-    const healAmt = this._getHeal(dmg);
+    const healAmt = this._getHeal(dmg, helpers.rng);
     const actualHeal = attacker.heal(healAmt);
     helpers.spawnFx(attacker.tile.x, attacker.tile.y);
     return { healAmt: actualHeal };
@@ -22,7 +22,7 @@ export default {
 
   onCounterAttack(attacker, target, dmg, helpers) {
     if (dmg <= 0) return null;
-    const healAmt = this._getHeal(dmg);
+    const healAmt = this._getHeal(dmg, helpers.rng);
     const actualHeal = target.heal(healAmt);
     helpers.spawnFx(target.tile.x, target.tile.y);
     return { healAmt: actualHeal };
