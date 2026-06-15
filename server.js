@@ -781,7 +781,7 @@ if (fs.existsSync(KEY_FILE) && fs.existsSync(CERT_FILE)) {
     };
     httpsServer = https.createServer(tlsOptions, staticHandler);
     attachWebSocket(httpsServer);
-    httpsServer.listen(HTTPS_PORT, () => {
+    httpsServer.listen(HTTPS_PORT, '127.0.0.1', () => {
         console.log(`HTTPS 服务器已在 :${HTTPS_PORT} 启动`);
     });
 } else {
