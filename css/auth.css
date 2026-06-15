@@ -100,3 +100,15 @@
   border-color: var(--frost-accent-hi);
   background: rgba(137,142,196,0.18);
 }
+.icp-link {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-decoration: none;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+.icp-link:hover {
+  opacity: 1;
+}

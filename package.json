@@ -1,6 +1,6 @@
 {
   "name": "blades-of-hex-server",
-  "version": "2.0.0",
+  "version": "5.0.0",
   "description": "Blades of Hex — LAN multiplayer WebSocket server",
   "main": "server.js",
   "scripts": {
