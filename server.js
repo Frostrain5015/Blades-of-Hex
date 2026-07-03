@@ -358,26 +358,43 @@ function handleMessage(ws, rawData) {
             console.log(`[重连] 房间${roomId} joinRoom，gameStarted=${room.gameStarted}，hasDisconnected=${hasDisconnected}，_disconnectedRoles=` + JSON.stringify(room._disconnectedRoles));
             if (room.gameStarted && hasDisconnected) {
                 console.log(`[重连] 对局重连流程，当前在线=${room.players.size}，maxPlayers=${room.maxPlayers}`);
+                leaveCurrentRoom(ws);
+
+                // 清理同一 clientId 的残留旧连接：闪断重连时服务器可能尚未感知旧 socket
+                // 关闭，旧连接仍占用角色会导致重连方匹配到他人角色（阵营错乱）或被误判房间已满
+                const cid = ws._clientId;
+                if (cid) {
+                    for (const [pws, pdata] of [...room.players]) {
+                        if (pws !== ws && pws._clientId === cid) {
+                            room.players.delete(pws);
+                            pws._room = null;
+                            if (!room._disconnectedRoles) room._disconnectedRoles = {};
+                            room._disconnectedRoles[pdata.role] = cid;
+                            try { pws.close(); } catch (e) { /* ignore */ }
+                            console.log(`[重连] 清理同clientId残留连接，释放角色=${pdata.role}`);
+                        }
+                    }
+                }
+
                 if (room.players.size >= room.maxPlayers) {
                     console.log(`[重连] 房间已满，拒绝重连`);
                     sendJson(ws, { type: 'error', message: '房间已满' });
                     break;
                 }
-                leaveCurrentRoom(ws);
                 if (room.players.size === 0) clearZombieTimer(room);
 
-                // 按 clientId 找回断线前的角色
-                const cid = ws._clientId;
+                // 按 clientId 找回断线前的角色（跳过仍在线的角色，避免顶掉正常玩家）
                 console.log(`[重连] 客户端ID=${cid}，_disconnectedRoles=` + JSON.stringify(room._disconnectedRoles));
+                const onlineRoles = new Set([...room.players.values()].map(p => p.role));
                 let role = null;
                 if (cid && room._disconnectedRoles) {
                     for (const [r, id] of Object.entries(room._disconnectedRoles)) {
-                        if (id === cid) { role = r; delete room._disconnectedRoles[r]; break; }
+                        if (id === cid && !onlineRoles.has(r)) { role = r; delete room._disconnectedRoles[r]; break; }
                     }
                     if (Object.keys(room._disconnectedRoles).length === 0) delete room._disconnectedRoles;
                 }
                 // 兼容旧格式
-                if (!role && room._disconnectedRole) {
+                if (!role && room._disconnectedRole && !onlineRoles.has(room._disconnectedRole)) {
                     role = room._disconnectedRole;
                     room._disconnectedRole = null;
                 }

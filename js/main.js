@@ -1522,17 +1522,8 @@ function _updateChatUnreadIndicator() {
 let _deploymentStarted = false;
 let _opponentCount = 0;
 
-function startGame() {
-    if (_deploymentStarted) return;
-    _deploymentStarted = true;
-    _stopHeroCarousel();
-    const lobbyOverlay = document.getElementById('lobbyOverlay');
-    lobbyOverlay.style.display = 'none';
-    document.getElementById('gameWrapper').style.display = '';
-    document.getElementById('lobbyReadyBtn').disabled = false;
-    document.getElementById('lobbyReadyBtn').textContent = '准备';
-    document.getElementById('backToVictoryBtn').style.display = 'none';
-    // 三人模式：显示绿军面板，蓝军卡统一左对齐
+// 三人模式：显示绿军面板，蓝军卡统一左对齐（开局与重连恢复共用）
+function applyTopbarLayout() {
     const camp3 = document.getElementById('campCard3');
     if (camp3) camp3.style.display = gameState.isThreePlayer ? '' : 'none';
     const camp2 = document.getElementById('campCard2');
@@ -1547,6 +1538,19 @@ function startGame() {
             if (info) info.classList.add('align-right');
         }
     }
+}
+
+function startGame() {
+    if (_deploymentStarted) return;
+    _deploymentStarted = true;
+    _stopHeroCarousel();
+    const lobbyOverlay = document.getElementById('lobbyOverlay');
+    lobbyOverlay.style.display = 'none';
+    document.getElementById('gameWrapper').style.display = '';
+    document.getElementById('lobbyReadyBtn').disabled = false;
+    document.getElementById('lobbyReadyBtn').textContent = '准备';
+    document.getElementById('backToVictoryBtn').style.display = 'none';
+    applyTopbarLayout();
     document.body.style.pointerEvents = '';
     const vo = document.getElementById('victoryOverlay');
     vo.classList.remove('show');
@@ -1970,6 +1974,8 @@ async function handleRemoteAction(msg) {
             applyRemoteState(msg.state, HexTile, Unit);
             console.log('[重连] applyRemoteState 完成，当前 tiles=' + gameState.tiles.length + '，currentCamp=' + (gameState.currentCamp && gameState.currentCamp.name));
             console.log('[重连] 卡牌状态: drawPile=' + gameState.cardDrawPile.length + '，discard=' + gameState.cardDiscardPile.length + '，p1Hand=' + gameState.playerHands.player1.length + '，p2Hand=' + gameState.playerHands.player2.length);
+            // 重连恢复后重建顶栏布局（isThreePlayer 已由 applyRemoteState 恢复）
+            applyTopbarLayout();
             // 初始同步时创建圣骑士环绕剑
             for (const tile of gameState.tiles) {
                 if (tile.unit && tile.unit.commander === 'paladin') {

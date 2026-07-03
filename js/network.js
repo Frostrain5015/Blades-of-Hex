@@ -34,11 +34,15 @@ function _enqueueRemoteAction(msg) {
 }
 
 // 客户端唯一标识（隧道场景下区分不同用户）
+// 存 sessionStorage 保证每个标签页独立：同机多开时各标签页ID不同，
+// 避免服务器按 clientId 找回断线角色时错配到同浏览器的另一名玩家；
+// 页面刷新/闪断重连仍保留同一ID，不影响对局恢复。
 const CLIENT_ID_KEY = 'bladesOfHex_clientId';
-let _clientId = localStorage.getItem(CLIENT_ID_KEY);
+let _clientId = null;
+try { _clientId = sessionStorage.getItem(CLIENT_ID_KEY); } catch (e) { /* ignore */ }
 if (!_clientId) {
-    _clientId = 'u' + Math.random().toString(36).slice(2, 10);
-    localStorage.setItem(CLIENT_ID_KEY, _clientId);
+    _clientId = 'u' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    try { sessionStorage.setItem(CLIENT_ID_KEY, _clientId); } catch (e) { /* ignore */ }
 }
 export function getClientId() { return _clientId; }
 
