@@ -172,7 +172,7 @@ export class Unit {
 
         // 牧师治愈灵光
         if (this._healingAura > 0) {
-            effects.push({ label: '治愈灵光', desc: `每回合回复15%最大生命值`, color: '#44dd88', remaining: this._healingAura });
+            effects.push({ label: '治愈灵光', desc: `每回合回复15%最大生命值；受致命一击时提前释放全部剩余治疗，仍不足则保底20%生命`, color: '#44dd88', remaining: this._healingAura });
         }
 
         return effects;
@@ -835,6 +835,27 @@ export class Unit {
         // 圣骑士誓言：友军受击概率获得誓言
         if (auraApplies && actualDmg > 0) {
             triggerCommanderAllyDamage(this, actualDmg);
+        }
+
+        // 牧师治愈灵光·临终迸发：致命一击时提前释放剩余 HoT，若仍不足抵扣或治疗后
+        // 仍低于20%最大生命，则血量固定为20%最大生命；灵光随之消耗。
+        // （minHp>0 的伤害本就不致死，如堕天使灼烧，不触发此保底）
+        if (this._healingAura > 0 && minHp <= 0 && (this.hp - actualDmg) <= 0) {
+            const burst = Math.round(this.maxHp * 0.15 * this._healingAura);
+            const floor = Math.round(this.maxHp * 0.20);
+            this._healingAura = 0;
+            this.hp = Math.max(Math.round(this.hp - actualDmg + burst), floor);
+            if (_gameState && _gameState.healTexts) {
+                _gameState.healTexts.push({
+                    x: this.tile.x, y: this.tile.y, value: burst,
+                    timeLeft: 1000, lastUpdate: performance.now()
+                });
+            }
+            triggerHealFlash(this.tile.x, this.tile.y);
+            spawnHealParticles(this.tile.x, this.tile.y);
+            spawnCommanderSkillEffect(this.tile.x, this.tile.y, '\u{1F54A}\u{FE0F}', '临终迸发');
+            log(`${this.camp.name}${this.config.name}兵的【治愈灵光】临终迸发，从致命一击中幸存（+${burst}HP）`);
+            return false;
         }
 
         this.hp = Math.round(Math.max(minHp, this.hp - actualDmg));

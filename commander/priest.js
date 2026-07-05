@@ -8,7 +8,7 @@ export default {
     spdBonus: 0,
     skills: [
         { name: '圣疗', desc: '每回合链式群体治疗：1段瞄准相邻友方回复10%HP，2段传导2格内友方回复5%HP', type: 'passive' },
-        { name: '祈祷', desc: '消耗50%当前HP，为2格范围友军附加【治愈灵光】（立即35%+每回合15%HP，⏱2 ⏳5）', type: 'active' }
+        { name: '祈祷', desc: '消耗50%当前HP，为2格范围友军附加【治愈灵光】（立即35%+每回合15%HP，⏱2 ⏳5）；灵光单位受致命一击时提前释放全部剩余治疗，仍不足则保底20%生命并消耗灵光', type: 'active' }
     ],
 
     onTurnEnd(gameState, camp, helpers) {
@@ -65,7 +65,7 @@ export default {
 
     activeSkill: {
         name: '祈祷',
-        desc: '消耗50%当前HP，为2格范围友军附加【治愈灵光】（立即35%HP+每回合15%HP）',
+        desc: '消耗50%当前HP，为2格范围友军附加【治愈灵光】（立即35%HP+每回合15%HP）；灵光单位受致命一击时提前迸发剩余治疗，仍不足则保底20%生命',
         duration: 0,
         cooldown: 5,
 

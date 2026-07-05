@@ -43,6 +43,7 @@ function _getCommanderIdForCamp(camp) {
   if (!gs) return null;
   if (camp === CAMP.player1) return gs.commanderP1;
   if (camp === CAMP.player2) return gs.commanderP2;
+  if (camp === CAMP.player3) return gs.commanderP3;
   return null;
 }
 
