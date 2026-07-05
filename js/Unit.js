@@ -620,12 +620,11 @@ export class Unit {
         }
     }
 
-    // ① 攻击力乘区：面板攻击（基础+「攻击力+xx」固定加成）×（1+「攻击力提高xx%」加成）
-    //    士气不再乘入攻击力，改走 _resolveDamage 的增伤乘区
+    // ① 攻击力乘区：基础面板 ×（1+「攻击力提高xx%」）+「攻击力+xx」固定加成
+    //    百分比只作用于基础面板；士气不乘入攻击力，走 _resolveDamage 的增伤乘区
     getEffectiveAttack() {
-        const baseAtk = this.config.attack + (this._atkBonus || 0) + getCommanderAttackBonus(this);
         const auraAtk = getCommanderAuraAttackBonus(this);
-        return Math.round(baseAtk * (1 + auraAtk));
+        return Math.round(this.config.attack * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this));
     }
 
     // 伤害浮动倍率（替代 critRate + critMulti 二值系统）
@@ -703,6 +702,10 @@ export class Unit {
         if (_gameState.weather === 'wind' && defender.type === 'infantry') {
             defSum -= 0.20;
         }
+        // 雾天：骑兵借雾突袭，攻击无视目标15%防御力（与冲锋势能叠加）
+        if (_gameState.weather === 'fog' && attacker.type === 'cavalry') {
+            defSum -= 0.15;
+        }
         if (defender.type === 'infantry' && defender.tile.isCity) defSum += 0.10;
         defSum += (defender.config.defense || 0);
         defSum += (defender._rankDefBonus || 0);
@@ -721,9 +724,9 @@ export class Unit {
     calculateDamage(targetUnit) {
         const gs = _gameState;
 
-        const chargeThreshold = gs.weather === 'fog' ? 1 : 2;
-        const chargeAmount    = gs.weather === 'fog' ? 0.30 : 0.25;
-        const cavBonus = (this.type === 'cavalry' && this.moveDistance >= chargeThreshold) ? chargeAmount : 0;
+        // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高15%，上限45%（3格）；
+        // moveDistance 随回合重置，势能回合结束消失
+        const cavBonus = this.type === 'cavalry' ? Math.min(this.moveDistance, 3) * 0.15 : 0;
         const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.15 : 0;
 
         const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus);

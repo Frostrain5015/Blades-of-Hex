@@ -212,8 +212,8 @@ const PASSIVE_DEFS = {
     },
     cavalry: {
         name: '冲锋',
-        desc: '本回合移动至少2格后，造成的伤害提高25%',
-        active: (u) => u.moveDistance >= 2
+        desc: '势能：本回合每移动1格，造成的伤害提高15%（上限45%），回合结束消失',
+        active: (u) => u.moveDistance >= 1
     },
     archer: {
         name: '远射',
@@ -482,7 +482,7 @@ function showTooltipForTile(tile) {
                 if (unit.type === 'infantry') effects.push('守城/村庄回血翻倍');
             } else if (gameState.weather === 'fog') {
                 if (unit.type === 'archer')   effects.push('伤害−25%', '射程−1');
-                if (unit.type === 'cavalry')  effects.push('冲锋1格生效 增伤30%');
+                if (unit.type === 'cavalry')  effects.push('攻击无视目标15%防御力');
             } else if (gameState.weather === 'wind') {
                 if (unit.type === 'archer')   effects.push('射程+1', '无法暴击');
                 if (unit.type === 'infantry') effects.push('防御-20%');
