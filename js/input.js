@@ -1,14 +1,14 @@
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
-import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, saveGame, loadGame, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp } from './state.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp } from './state.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
     getMovableTiles, getAttackableTiles,
-    moveUnit, attackUnit, recruitUnit, endTurn, undoLastAction,
+    moveUnit, attackUnit, recruitUnit, endTurn,
     executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
-import { clearTransientEffects, spawnCommanderSkillEffect, spawnPaladinOrbitBeams } from './effects.js';
+import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 import { setMasterVolume, setMuted } from './audio.js';
 
@@ -124,9 +124,6 @@ function _handleCardCanvasClick(e) {
         }
     }
 }
-
-import { HexTile } from './HexTile.js';
-import { Unit } from './Unit.js';
 
 // HTML tooltip 元素
 const tooltipEl = document.getElementById('unitTooltip');
@@ -819,24 +816,6 @@ export function initKeyboard() {
         if (e.key === 'Escape' && gameState.cardTargeting) {
             e.preventDefault();
             cancelCardTargeting();
-            return;
-        }
-
-        if (e.ctrlKey && e.key === 'z') {
-            e.preventDefault();
-            undoLastAction();
-            return;
-        }
-
-        if (e.ctrlKey && e.key === 's') {
-            e.preventDefault();
-            if (!isNetworkGame()) saveGame();
-            return;
-        }
-
-        if (e.ctrlKey && e.key === 'l') {
-            e.preventDefault();
-            if (!isNetworkGame()) { loadGame(HexTile, Unit); clearTransientEffects(); }
             return;
         }
 

@@ -667,7 +667,8 @@ export class Unit {
             if (counterCoeff === 1.25) effectiveCounterCoeff = 1.5;
             else if (counterCoeff === 0.75) effectiveCounterCoeff = 0.6;
         } else if (defender.commander === 'magician' && counterCoeff === 1.25) {
-            effectiveCounterCoeff = 1.5;
+            // 幻形防御端：被克制时减免15%（1.25 → 1.10）
+            effectiveCounterCoeff = 1.10;
         }
 
         let dmgBonus = effectiveCounterCoeff - 1 + extraBonus;
@@ -749,44 +750,69 @@ export class Unit {
         return result;
     }
 
-    takeDamage(dmg, attackerUnit, _skipAura = false) {
+    // ===== 统一伤害入口 =====================
+    // 所有伤害结算必须经此进入（普攻/反击由 takeDamage 薄包装转入）。
+    // source 来源标签决定结算规则：
+    //   'melee'  近战攻击          —— 吸收护盾；触发铁卫转移/圣骑士誓言
+    //   'ranged' 远程攻击          —— 同上
+    //   'card'   卡牌普通伤害(地雷) —— 同上
+    //   'air'    空军轰炸(空袭)     —— 吸收护盾；不触发铁卫转移/誓言
+    //   'true'   真实伤害(雷击/殉道自爆/灼烧) —— 绕过护盾；不触发铁卫转移/誓言
+    // opts:
+    //   attacker     击杀记功单位（缺省不计 killCount）
+    //   skipAura     强制跳过铁卫转移/誓言（至圣斩）
+    //   ignoreShield 覆写护盾规则（缺省由 source 决定）
+    //   minHp        生命下限，伤害不致死（堕天使灼烧=1）
+    // 返回 true 表示目标死亡
+    applyDamage(dmg, opts = {}) {
+        const {
+            source = 'true',
+            attacker = null,
+            skipAura = false,
+            ignoreShield = source === 'true',
+            minHp = 0
+        } = opts;
         const log = _logMessage;
 
         if (this.godMode) return false;
 
         let actualDmg = dmg;
 
-        // 护盾优先吸收伤害
-        if (this._shield > 0 && actualDmg > 0) {
+        // 护盾优先吸收伤害（真实伤害绕过）
+        if (!ignoreShield && this._shield > 0 && actualDmg > 0) {
             const absorbed = Math.min(this._shield, actualDmg);
             this._shield -= absorbed;
             actualDmg -= absorbed;
             if (actualDmg <= 0) return false;
         }
 
-        // 铁卫灵光：相邻友军所受伤害由铁卫护盾承担
-        if (!_skipAura && this.commander !== 'ironGuard' && _gameState) {
+        const auraApplies = !skipAura && (source === 'melee' || source === 'ranged' || source === 'card');
+
+        // 铁卫灵光：相邻友军所受伤害由铁卫护盾承担；护盾不足时溢出部分由友军自己承担
+        if (auraApplies && this.commander !== 'ironGuard' && _gameState) {
             const ironGuard = this._findAdjacentFriendlyIronGuard();
             if (ironGuard && ironGuard._shield > 0) {
-                getCommanderAllyAuraDamage(this, actualDmg, ironGuard);
-                // 移除友军头顶伤害数字（伤害已由铁卫护盾吸收）
+                const leftover = Math.max(0, getCommanderAllyAuraDamage(this, actualDmg, ironGuard));
+                // 同步友军头顶伤害数字：全部吸收则移除，部分吸收则改为实际承受值
                 const dts = _gameState.damageTexts;
                 for (let i = dts.length - 1; i >= 0; i--) {
                     if (dts[i].x === this.tile.x && dts[i].y === this.tile.y) {
-                        dts.splice(i, 1);
+                        if (leftover <= 0) dts.splice(i, 1);
+                        else dts[i].value = Math.round(leftover);
                         break;
                     }
                 }
-                actualDmg = 0;
+                actualDmg = leftover;
+                if (actualDmg <= 0) return false;
             }
         }
 
         // 圣骑士誓言：友军受击概率获得誓言
-        if (!_skipAura && actualDmg > 0) {
+        if (auraApplies && actualDmg > 0) {
             triggerCommanderAllyDamage(this, actualDmg);
         }
 
-        this.hp = Math.round(Math.max(0, this.hp - actualDmg));
+        this.hp = Math.round(Math.max(minHp, this.hp - actualDmg));
         // 殉道者：HP≤1时进入自爆倒计时（包括致死伤害）
         if (this.commander === 'martyr' && !this._martyrPrimed && this.hp <= 1) {
             this._martyrPrimed = true;
@@ -803,26 +829,40 @@ export class Unit {
             return false;
         }
         if (this.hp <= 0) {
-            // 将领死亡：清除所有效果
-            if (this.commander) {
-                if (this.camp === CAMP.player1) _gameState.commanderP1 = null;
-                else if (this.camp === CAMP.player2) _gameState.commanderP2 = null;
-                else if (this.camp === CAMP.player3) _gameState.commanderP3 = null;
-                const cmdInfo = getCommander(this.commander);
-                log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
-            }
-            this.tile.unit = null;
-            log(`${this.camp.name} ${this.config.name}兵被消灭`);
-            if (attackerUnit) {
-                const key = attackerUnit.camp === CAMP.player1 ? 'player1' : attackerUnit.camp === CAMP.player2 ? 'player2' : attackerUnit.camp === CAMP.player3 ? 'player3' : 'neutral';
-                _gameState.killCount[key]++;
-            }
-            spawnExplosionParticles(this.tile.x, this.tile.y, '#ff2200', 30);
-            spawnExplosionParticles(this.tile.x, this.tile.y, '#ffaa00', 15);
-            triggerScreenShake(4, 150);
+            this.destroy(attacker);
             return true;
         }
         return false;
+    }
+
+    // 单位死亡统一出口：将领效果清除、离场、击杀计数、阵亡特效
+    // （殉道者自爆的自毁也走这里，保证 commanderP1/P2/P3 引用被清除）
+    destroy(attackerUnit = null) {
+        const log = _logMessage;
+        if (this.commander) {
+            if (this.camp === CAMP.player1) _gameState.commanderP1 = null;
+            else if (this.camp === CAMP.player2) _gameState.commanderP2 = null;
+            else if (this.camp === CAMP.player3) _gameState.commanderP3 = null;
+            const cmdInfo = getCommander(this.commander);
+            log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
+        }
+        this.hp = 0;
+        this.tile.unit = null;
+        log(`${this.camp.name} ${this.config.name}兵被消灭`);
+        if (attackerUnit) {
+            const key = attackerUnit.camp === CAMP.player1 ? 'player1' : attackerUnit.camp === CAMP.player2 ? 'player2' : attackerUnit.camp === CAMP.player3 ? 'player3' : 'neutral';
+            _gameState.killCount[key]++;
+        }
+        spawnExplosionParticles(this.tile.x, this.tile.y, '#ff2200', 30);
+        spawnExplosionParticles(this.tile.x, this.tile.y, '#ffaa00', 15);
+        triggerScreenShake(4, 150);
+    }
+
+    // 普攻/反击/地雷入口（保留旧签名，内部转入 applyDamage）
+    takeDamage(dmg, attackerUnit, _skipAura = false) {
+        const source = !attackerUnit ? 'card'
+            : (attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') ? 'ranged' : 'melee';
+        return this.applyDamage(dmg, { source, attacker: attackerUnit, skipAura: _skipAura });
     }
 
     // 查找相邻6格内己方铁卫

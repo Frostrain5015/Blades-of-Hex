@@ -1,5 +1,5 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE } from './config.js';
-import { gameState, updateButtonColors, updateUI, logMessage, clearselection, saveGame, loadGame, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
+import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
@@ -396,18 +396,11 @@ function _bindGameButtons() {
     document.getElementById('recruitInfantry').addEventListener('click', _onRecruitInfantry);
     document.getElementById('recruitCavalry').addEventListener('click', _onRecruitCavalry);
     document.getElementById('recruitArcher').addEventListener('click', _onRecruitArcher);
-
-    const saveBtn = document.getElementById('saveGameBtn');
-    const loadBtn = document.getElementById('loadGameBtn');
-    if (saveBtn) saveBtn.addEventListener('click', _onSaveGame);
-    if (loadBtn) loadBtn.addEventListener('click', _onLoadGame);
 }
 
 const _onRecruitInfantry = () => recruitUnit(gameState.selectedCityTile && gameState.selectedCityTile.isVillage ? 'militia' : 'infantry');
 const _onRecruitCavalry = () => recruitUnit('cavalry');
 const _onRecruitArcher = () => recruitUnit('archer');
-function _onSaveGame() { saveGame(); }
-function _onLoadGame() { loadGame(HexTile, Unit); clearTransientEffects(); }
 
 function initCardDeck() {
     const deck = [...DECK_COMPOSITION];
@@ -869,8 +862,6 @@ async function _doEndTurnPhase() {
     updateButtonColors();
     if (gameState.cardTargeting) { gameState.cardTargeting = null; hideTargetingBanner(); }
     clearselection();
-    gameState.undoStack = [];
-    if (!isNetworkGame()) saveGame(true); // 自动存档静默，不弹提示
     broadcastAction('endTurn', {
         cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
         dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null,
@@ -1029,7 +1020,6 @@ export function recruitUnit(type) {
         return;
     }
 
-    pushUndo();
     gameState.playerGold[currentPlayerKey] -= effectiveCost;
     new Unit(type, gameState.currentCamp, selectedCityTile, true);
     triggerRecruitFlash(selectedCityTile.x, selectedCityTile.y);
@@ -1169,7 +1159,6 @@ export function moveUnit(unit, targetTile) {
         return;
     }
 
-    pushUndo();
     const fromX = unit.tile.x;
     const fromY = unit.tile.y;
 
@@ -1290,7 +1279,6 @@ export function attackUnit(attackerUnit, targetUnit) {
         return datas;
     });
 
-    pushUndo();
     _killerMoraleChanged = false;
     const attackResult = attackerUnit.calculateDamage(targetUnit);
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
@@ -1853,32 +1841,6 @@ async function handleSurrender() {
     broadcastAction('surrender');
 }
 
-// ===== 撤销系统 =====================
-function pushUndo() {
-    gameState.undoStack.push(serializeState());
-    if (gameState.undoStack.length > 5) gameState.undoStack.shift();
-}
-
-export function undoLastAction() {
-    if (gameState.gameOver) return;
-    if (isNetworkGame()) {
-        notify('联机模式下无法撤销', 'error');
-        return;
-    }
-    if (gameState.gameMode === 'pve') {
-        notify('PVE模式下无法撤销', 'error');
-        return;
-    }
-    if (gameState.undoStack.length === 0) {
-        notify('没有可撤销的操作', 'error');
-        return;
-    }
-    const snapshot = gameState.undoStack.pop();
-    deserializeState(snapshot, HexTile, Unit);
-    clearTransientEffects();
-    logMessage('已撤销上一步操作');
-}
-
 // ==== 对策卡系统 =====================
 
 export function cancelCardTargeting() {
@@ -2036,20 +1998,16 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             const dmg = result.dmg;
             logMessage(`⚡【雷击】对${targetTile.unit.camp.name}${targetTile.unit.config.name}兵造成${dmg}真实伤害`);
             setTimeout(() => {
-                let hpAfter = 0;
-                if (_savedHPs && _savedHPs[0] && _savedHPs[0].tile.unit) {
-                    hpAfter = Math.max(0, _savedHPs[0].hp - dmg);
-                    _savedHPs[0].tile.unit.hp = hpAfter;
-                }
-                if (hpAfter <= 0 && targetTile.unit) {
-                    const dc = targetTile.unit.camp;
-                    const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
-                    gameState.killCount[dck]++;
-                    logMessage(`${dc.name}${targetTile.unit.config.name}兵被雷击消灭`);
-                    targetTile.unit = null;
-                    spawnExplosionParticles(x, y, '#ff4400', 28);
-                    spawnExplosionParticles(x, y, '#ffaa00', 14);
-                    triggerScreenShake(4, 150);
+                // 统一伤害入口：雷击为真实伤害（绕过护盾），击杀清理/殉道锁定由 applyDamage 处理
+                if (_savedHPs && _savedHPs[0] && targetTile.unit) {
+                    const victim = targetTile.unit;
+                    const dc = victim.camp;
+                    const killed = victim.applyDamage(dmg, { source: 'true' });
+                    if (killed) {
+                        const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                        gameState.killCount[dck]++;
+                        logMessage(`${dc.name}${victim.config.name}兵被雷击消灭`);
+                    }
                 }
                 gameState.damageTexts.push({
                     x, y, value: dmg, isTrueDmg: true,
@@ -2088,16 +2046,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             const results = result.results || [];
             const killedTiles = results.filter(r => r.killed).map(r => ({ q: r.q, r: r.r }));
             result.killedTiles = killedTiles;
-            for (const r of results) {
-                if (r.killed) {
-                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                    if (tile && tile.unit && tile.unit.hp <= 0) {
-                        const dc = tile.unit.camp;
-                        const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
-                        gameState.killCount[dck]++;
-                    }
-                }
-            }
             logMessage(`✈️【空袭】对${targetTile.camp.name}城市(${targetTile.q},${targetTile.r})及周边造成轰炸伤害`);
             setTimeout(() => {
                 // airstrike visual AFTER card burn animation
@@ -2105,30 +2053,18 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 playSound('airstrike');
                 // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
                 setTimeout(() => {
-                    if (_savedHPs) {
-                        for (const s of _savedHPs) {
-                            const r = results.find(rr => rr.q === s.tile.q && rr.r === s.tile.r);
-                            if (s.tile.unit && r) {
-                                let remaining = r.dmg;
-                                if (s.tile.unit._shield > 0) {
-                                    const absorbed = Math.min(s.tile.unit._shield, remaining);
-                                    s.tile.unit._shield -= absorbed;
-                                    remaining -= absorbed;
-                                }
-                                s.tile.unit.hp = Math.max(0, s.hp - remaining);
-                            }
-                        }
-                    }
+                    // 统一伤害入口：空军伤害吸收护盾，击杀清理/殉道锁定由 applyDamage 处理
                     for (const r of results) {
                         const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                        if (tile) {
-                            if (r.killed && tile.unit) tile.unit = null;
-                            spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
-                            gameState.damageTexts.push({
-                                x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
-                                timeLeft: 900, lastUpdate: performance.now()
-                            });
+                        if (!tile) continue;
+                        if (tile.unit) {
+                            tile.unit.applyDamage(r.dmg, { source: 'air' });
                         }
+                        spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                        gameState.damageTexts.push({
+                            x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
+                            timeLeft: 900, lastUpdate: performance.now()
+                        });
                     }
                     targetTile._cityDisabledUntil = (gameState.turnCounter || 0) + (gameState.isThreePlayer ? 3 : 2);
                     triggerScreenShake(6, 300);

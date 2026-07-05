@@ -28,7 +28,8 @@ export default {
 
       if (u._fallen) {
         const burn = Math.max(1, Math.round(u.hp * 0.20));
-        u.hp = Math.max(1, u.hp - burn);
+        // 统一伤害入口：灼烧为真实伤害（绕过护盾），保底1HP不致死
+        u.applyDamage(burn, { source: 'true', minHp: 1 });
         if (gameState.damageTexts) {
           gameState.damageTexts.push({
             x: tile.x, y: tile.y, value: burn, isCrit: false,

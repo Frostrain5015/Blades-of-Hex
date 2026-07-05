@@ -36,26 +36,25 @@ export default {
           const dmgMult = dist === 0 ? 4.0 : dist === 1 ? 2.0 : 1.0;
           const baseDmg = unit.getEffectiveAttack ? unit.getEffectiveAttack() : 40;
           const dmg = Math.round(baseDmg * dmgMult);
-          tile.unit.hp -= dmg;
+          const victim = tile.unit;
+          // 统一伤害入口：真实伤害绕过护盾，将领击杀清理由 applyDamage 处理
+          const killed = victim.applyDamage(dmg, { source: 'true', attacker: unit });
           // 爆炸伤害数字（真实伤害黄色样式）
           gameState.damageTexts.push({
             x: tile.x, y: tile.y,
             value: dmg, isTrueDmg: true,
             timeLeft: 900, lastUpdate: performance.now()
           });
-          if (tile.unit.hp <= 0) {
-            helpers.logMessage(`殉道者自爆击杀${tile.unit.camp.name}${tile.unit.config.name}兵（${dmg}伤害）`);
-            tile.unit.hp = 0;
-            tile.unit = null;
+          if (killed) {
+            helpers.logMessage(`殉道者自爆击杀${victim.camp.name}${victim.config.name}兵（${dmg}伤害）`);
           } else {
-            helpers.logMessage(`殉道者自爆对${tile.unit.camp.name}${tile.unit.config.name}兵造成${dmg}伤害`);
+            helpers.logMessage(`殉道者自爆对${victim.camp.name}${victim.config.name}兵造成${dmg}伤害`);
           }
         }
       }
 
-      // 殉道者自己死亡
-      unit.hp = 0;
-      unit.tile.unit = null;
+      // 殉道者自己死亡：走统一销毁出口，清除 commanderP1/P2/P3 引用（修复幽灵将领）
+      unit.destroy(null);
     }
   },
 

@@ -43,7 +43,6 @@ export const gameState = {
     gameOver: false,
     victoryCamp: null,
     previousGold: { player1: 4, player2: 4, player3: 4, neutral: 4 },
-    undoStack: [],
     turnCounter: 0,
     logHistory: [],
     killCount: { player1: 0, player2: 0, player3: 0, neutral: 0 },
@@ -56,7 +55,7 @@ export const gameState = {
     lastWeather: null,
     // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
     // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
-    // 使联机收方与存档/重连保持一致。详见 core/rng.js。
+    // 使联机收方与重连保持一致。详见 core/rng.js。
     rng: createRng((Date.now() >>> 0) || 1),
     deselecting: false,
     deselectionTime: 0,
@@ -130,7 +129,6 @@ export function resetGameState() {
     gameState.gameOver = false;
     gameState.victoryCamp = null;
     gameState.previousGold = { player1: -1, player2: -1, player3: -1, neutral: -1 };
-    gameState.undoStack = [];
     gameState.turnCounter = 0;
     // 新对局重新播种模拟 RNG(联机模式随后会被 state-sync 对齐;可由
     // seedMatchRng 显式指定共享种子以做到开局即跨端确定)。
@@ -568,7 +566,7 @@ export function deselectUnit() {
     updateRecruitButtonStates();
 }
 
-// ===== 序列化 / 快照（存档 + 撤销用） =====================
+// ===== 序列化 / 快照（联机同步 + 断线重连用） =====================
 // 用共享种子显式播种对局 RNG,使所有客户端开局即确定一致(联机模式)。
 // seed 可为数字或字符串(字符串会用 createRng 的来源派生)。
 export function seedMatchRng(seed) {
@@ -715,7 +713,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.logHistory = [...data.logHistory];
     gameState.weather = data.weather || 'clear';
     gameState.lastWeather = data.lastWeather || null;
-    // 恢复模拟 RNG 状态(旧存档无此字段时保持当前 rng,不影响)
+    // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
     if (data.rngState != null) gameState.rng.setState(data.rngState);
     if (data.killCount) gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0, ...data.killCount };
     gameState.commanderPoolP1 = data.commanderPoolP1 || [];
@@ -950,40 +948,6 @@ export function hideTargetingBanner() {
     const el = document.getElementById('cardTargetingBanner');
     if (!el) return;
     el.classList.remove('visible');
-}
-
-export function saveGame(silent = false) {
-    try {
-        const data = serializeState();
-        localStorage.setItem('bladesOfHex_save', JSON.stringify(data));
-        if (!silent) notify('存档成功', 'success');
-        logMessage('游戏已存档');
-        return true;
-    } catch (e) {
-        if (!silent) notify('存档失败', 'error');
-        logMessage('存档失败');
-        return false;
-    }
-}
-
-export function loadGame(HexTileClass, UnitClass) {
-    try {
-        const raw = localStorage.getItem('bladesOfHex_save');
-        if (!raw) {
-            notify('没有可读取的存档', 'error');
-            logMessage('没有找到存档');
-            return false;
-        }
-        const data = JSON.parse(raw);
-        deserializeState(data, HexTileClass, UnitClass);
-        notify('读档成功', 'success');
-        logMessage('游戏已读档');
-        return true;
-    } catch (e) {
-        notify('读档失败', 'error');
-        logMessage('读档失败');
-        return false;
-    }
 }
 
 export function resolveUnitById(id) {

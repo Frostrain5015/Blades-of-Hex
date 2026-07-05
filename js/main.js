@@ -2105,15 +2105,12 @@ async function handleRemoteAction(msg) {
                         case 'lightning': {
                             const lt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
                             if (lt && lt.unit && e.dmg) {
-                                lt.unit.hp = Math.max(0, lt.unit.hp - e.dmg);
-                                if (lt.unit.hp <= 0) {
-                                    const dc = lt.unit.camp;
+                                // 统一伤害入口：真实伤害绕过护盾，击杀清理由 applyDamage 处理
+                                const dc = lt.unit.camp;
+                                const killed = lt.unit.applyDamage(e.dmg, { source: 'true' });
+                                if (killed) {
                                     const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
                                     gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
-                                    lt.unit = null;
-                                    spawnExplosionParticles(e.x, e.y, '#ff4400', 28);
-                                    spawnExplosionParticles(e.x, e.y, '#ffaa00', 14);
-                                    triggerScreenShake(4, 150);
                                 }
                             }
                             playSound('lightning');
@@ -2200,18 +2197,12 @@ async function handleRemoteAction(msg) {
                                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                                     if (!tile) continue;
                                     if (tile.unit) {
-                                        let remaining = r.dmg;
-                                        if (tile.unit._shield > 0) {
-                                            const absorbed = Math.min(tile.unit._shield, remaining);
-                                            tile.unit._shield -= absorbed;
-                                            remaining -= absorbed;
-                                        }
-                                        tile.unit.hp = Math.max(0, tile.unit.hp - remaining);
-                                        if (tile.unit.hp <= 0) {
-                                            const dc = tile.unit.camp;
+                                        // 统一伤害入口：空军伤害吸收护盾，击杀清理由 applyDamage 处理
+                                        const dc = tile.unit.camp;
+                                        const killed = tile.unit.applyDamage(r.dmg, { source: 'air' });
+                                        if (killed) {
                                             const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
                                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
-                                            tile.unit = null;
                                         }
                                     }
                                     spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);

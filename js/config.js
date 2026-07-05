@@ -221,6 +221,7 @@ export const TACTICAL_CARD_CONFIG = {
         execute(targetTile, gameState, helpers) {
             let dmg = gameState.rng ? gameState.rng.between(40, 60) : 40 + Math.floor(Math.random() * 21);
             if (gameState.weather === 'rain') dmg = Math.floor(dmg * 1.5);
+            // 预演扣血：调用方随即回滚，真正结算延迟走 Unit.applyDamage（勿改用 applyDamage，否则击杀无法回滚）
             targetTile.unit.hp = Math.max(0, targetTile.unit.hp - dmg);
             return { dmg, targetTile };
         }
@@ -293,7 +294,8 @@ export const TACTICAL_CARD_CONFIG = {
                 const isCity = ht === targetTile;
                 const dmg = isCity ? dmgBase * 2 : dmgBase;
                 if (ht.unit) {
-                    // shield absorbs first, then HP
+                    // 预演扣血（含护盾）：调用方随即回滚，真正结算延迟走 Unit.applyDamage
+                    // （勿改用 applyDamage，否则击杀无法回滚）
                     let remaining = dmg;
                     if (ht.unit._shield > 0) {
                         const absorbed = Math.min(ht.unit._shield, remaining);

@@ -1505,7 +1505,7 @@ export function drawHealingChains(ctx2d, now) {
     }
 }
 
-// ===== 清除所有瞬时效果（用于撤销/读档） =====================
+// ===== 清除所有瞬时效果（用于联机重连状态恢复） =====================
 export function clearTransientEffects() {
     particles.length = 0;
     moraleEffects.length = 0;
