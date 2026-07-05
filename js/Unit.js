@@ -642,8 +642,8 @@ export class Unit {
             lo = 0.85; hi = 1.35;
         }
 
-        // 风天：步兵/炮兵无法暴击（浮动上限压至1.05）
-        if (gs && gs.weather === 'wind' && (this.type === 'infantry' || this.type === 'archer') && !isCounter) {
+        // 风天：炮兵无法暴击（浮动上限压至1.05）
+        if (gs && gs.weather === 'wind' && this.type === 'archer' && !isCounter) {
             hi = Math.min(hi, 1.05);
         }
 
@@ -677,6 +677,10 @@ export class Unit {
         // 森林掩蔽：对远程攻击（炮兵/要塞）额外+20%防御，与地形自带10%加算
         if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest')) {
             dmgBonus -= 0.20;
+        }
+        // 风天：步兵阵线不稳，通用防御-20%（防御总和可为负，即转为敌方增伤）
+        if (_gameState.weather === 'wind' && defender.type === 'infantry') {
+            dmgBonus += 0.20;
         }
         if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.10;
         dmgBonus -= (defender.config.defense || 0);

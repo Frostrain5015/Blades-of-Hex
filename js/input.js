@@ -485,7 +485,7 @@ function showTooltipForTile(tile) {
                 if (unit.type === 'cavalry')  effects.push('冲锋1格生效 伤害+30%');
             } else if (gameState.weather === 'wind') {
                 if (unit.type === 'archer')   effects.push('射程+1', '无法暴击');
-                if (unit.type === 'infantry') effects.push('步兵无法暴击');
+                if (unit.type === 'infantry') effects.push('防御-20%');
             }
             if (effects.length > 0) weatherDesc = effects.join('，');
             else weatherDesc = '无直接影响';
