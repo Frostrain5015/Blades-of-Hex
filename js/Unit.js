@@ -632,8 +632,8 @@ export class Unit {
         let lo, hi;
 
         if (isCounter) {
-            lo = isCityCounter ? 1.05 : 0.90;
-            hi = isCityCounter ? 1.85 : 1.70;
+            lo = isCityCounter ? 1.00 : 0.90;
+            hi = isCityCounter ? 1.70 : 1.70;
         } else if (counterCoeff > 1) {
             lo = 0.90; hi = 1.50;
         } else if (counterCoeff < 1) {
@@ -642,7 +642,8 @@ export class Unit {
             lo = 0.85; hi = 1.35;
         }
 
-        if (gs && gs.weather === 'wind' && this.type === 'infantry' && !isCounter) {
+        // 风天：步兵/炮兵无法暴击（浮动上限压至1.05）
+        if (gs && gs.weather === 'wind' && (this.type === 'infantry' || this.type === 'archer') && !isCounter) {
             hi = Math.min(hi, 1.05);
         }
 
@@ -673,6 +674,10 @@ export class Unit {
 
         let dmgBonus = effectiveCounterCoeff - 1 + extraBonus;
         dmgBonus -= TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
+        // 森林掩蔽：对远程攻击（炮兵/要塞）额外+20%防御，与地形自带10%加算
+        if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest')) {
+            dmgBonus -= 0.20;
+        }
         if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.10;
         dmgBonus -= (defender.config.defense || 0);
         dmgBonus -= (defender._rankDefBonus || 0);
@@ -680,7 +685,6 @@ export class Unit {
         dmgBonus -= getCommanderDefenseBonus(defender);
         if (defender.commander === 'staller' && attacker.type === 'archer') dmgBonus -= 0.50;
         dmgBonus -= getCommanderAuraDefenseBonus(defender);
-        if (attacker.type === 'archer' && _gameState.weather === 'wind') dmgBonus += 0.10;
         const dmgMulti = Math.max(0.1, 1 + dmgBonus);
 
         const phantomCrit = (attacker._phantomStacks || 0) * 0.10;

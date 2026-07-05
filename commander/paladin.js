@@ -13,8 +13,8 @@ export default {
     spdBonus: 0,
     skills: [
         { name: '勇气灵光', desc: '自身及相邻6格友军攻击力+10%，士气不会下降或混乱', type: 'passive' },
-        { name: '誓言', desc: '【勇气灵光】范围内的友军（包括自己）受击时获得1誓言（上限3），击杀时再获得1誓言。每层为圣骑士提供6.67%防御力', type: 'passive' },
-        { name: '至圣斩', desc: '每次点击消耗1层誓言蓄力（1层30~45/2层80~100真实伤害），最多2层', type: 'active' }
+        { name: '誓言', desc: '【勇气灵光】范围内的友军（包括自己）受击或击杀时获得1誓言（每回合最多1层，上限3）。每层为圣骑士提供5%防御力', type: 'passive' },
+        { name: '至圣斩', desc: '每次点击消耗1层誓言蓄力（1层25~40/2层65~85真实伤害），最多2层，命中后冷却1回合', type: 'active' }
     ],
 
     FAITH_MAX: 3,
@@ -25,11 +25,19 @@ export default {
     },
 
     getDefenseBonus(unit) {
-        return (unit._faith || 0) * 0.0667;
+        return (unit._faith || 0) * 0.05;
+    },
+
+    // 誓言获取每回合限1层（受击/击杀共享额度），_oathGainTurn 随状态序列化同步
+    _canGainOath(unit, helpers) {
+        const turn = helpers.gameState ? (helpers.gameState.turnCounter || 0) : 0;
+        if (unit._oathGainTurn === turn) return false;
+        unit._oathGainTurn = turn;
+        return true;
     },
 
     onKill(killer, victim, helpers) {
-        if (killer._faith < 3) {
+        if (killer._faith < 3 && this._canGainOath(killer, helpers)) {
             killer._faith++;
             _syncOrbitBeams(killer, helpers);
         }
@@ -38,6 +46,7 @@ export default {
 
     onAllyDamage(victim, damage, paladinUnit, helpers) {
         if (paladinUnit._faith >= 3) return;
+        if (!this._canGainOath(paladinUnit, helpers)) return;
         paladinUnit._faith++;
         _syncOrbitBeams(paladinUnit, helpers);
         helpers.logMessage(`圣骑士【誓言】：目睹战友受创，誓言+1（${paladinUnit._faith}/3）`);
@@ -49,9 +58,11 @@ export default {
         const beamCount = charged ? 2 : 1;
         attacker._smiteReady = false;
         attacker._smiteCharged = false;
+        // 命中后冷却1回合（activeSkillCD 随状态序列化同步，回合开始统一递减）
+        attacker.activeSkillCD = Math.max(attacker.activeSkillCD || 0, 1);
         const smiteDmg = charged
-            ? (helpers.rng ? helpers.rng.between(80, 100) : 80 + Math.floor(Math.random() * 21))
-            : (helpers.rng ? helpers.rng.between(30, 45) : 30 + Math.floor(Math.random() * 16));
+            ? (helpers.rng ? helpers.rng.between(65, 85) : 65 + Math.floor(Math.random() * 21))
+            : (helpers.rng ? helpers.rng.between(25, 40) : 25 + Math.floor(Math.random() * 16));
         // 剑从环绕轨道飞向目标
         const paladinProjectileDatas = helpers.launchOrbitSwords
             ? helpers.launchOrbitSwords(attacker.id, target.tile.x, target.tile.y, beamCount)
@@ -69,8 +80,9 @@ export default {
 
     activeSkill: {
         name: '至圣斩',
-        desc: '每次点击消耗1层誓言蓄力（1层30~45→再点→2层80~100），最多2层',
+        desc: '每次点击消耗1层誓言蓄力（1层25~40→再点→2层65~85），最多2层，命中后冷却1回合',
         duration: 0,
+        // 冷却在命中后由 onAttack 施加（此处保持0，避免两段蓄力点击被自身冷却卡住）
         cooldown: 0,
 
         onActivate(unit, helpers) {
@@ -88,12 +100,12 @@ export default {
             // 每次点击消耗1层誓言（环绕剑数量暂时锁定，不在此同步）
             unit._faith -= 1;
             if (unit._smiteReady && !unit._smiteCharged) {
-                // 已有1层，升级为至圣斩·誓约（2层80~100伤）
+                // 已有1层，升级为至圣斩·誓约（2层65~85伤）
                 unit._smiteCharged = true;
                 helpers.spawnFx(unit.tile.x, unit.tile.y, '✝️', '至圣斩·誓约');
-                helpers.logMessage(`圣骑士【至圣斩·誓约】：再消耗1誓言，下次攻击附加80~100真实伤害（${unit._faith}/3）`);
+                helpers.logMessage(`圣骑士【至圣斩·誓约】：再消耗1誓言，下次攻击附加65~85真实伤害（${unit._faith}/3）`);
             } else {
-                // 首次蓄力：至圣斩（1层30~45伤）
+                // 首次蓄力：至圣斩（1层25~40伤）
                 unit._smiteReady = true;
                 unit._smiteCharged = false;
                 helpers.spawnFx(unit.tile.x, unit.tile.y, '✝️', '至圣斩');

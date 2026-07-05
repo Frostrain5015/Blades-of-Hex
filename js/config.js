@@ -197,7 +197,7 @@ export const WEATHER_CONFIG = {
     clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
     rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城/村庄回血翻倍 · 雷击伤害1.5倍' },
     fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵冲锋1格生效 伤害+30%' },
-    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 无视10%防御 · 步兵无法暴击' }
+    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 但无法暴击 · 步兵无法暴击' }
 };
 
 // ==== 对策卡配置 ====================
@@ -292,7 +292,9 @@ export const TACTICAL_CARD_CONFIG = {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
                 if (!ht) continue;
                 const isCity = ht === targetTile;
-                const dmg = isCity ? dmgBase * 2 : dmgBase;
+                let dmg = isCity ? dmgBase * 2 : dmgBase;
+                // 森林掩蔽：对空军+20%防御
+                if (ht.terrain === 'forest') dmg = Math.round(dmg * 0.8);
                 if (ht.unit) {
                     // 预演扣血（含护盾）：调用方随即回滚，真正结算延迟走 Unit.applyDamage
                     // （勿改用 applyDamage，否则击杀无法回滚）
