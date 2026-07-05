@@ -2089,6 +2089,8 @@ function drawAirstrikeEffects(now) {
 
         ctx.save();
         ctx.globalAlpha = 1;
+        // 彩色 emoji 会乘上 fillStyle 的 alpha 通道（Chromium），必须显式给一个不透明值
+        ctx.fillStyle = '#000';
         ctx.translate(planeX, planeY);
         ctx.rotate(Math.PI / 4); // 45° upward pitch
         ctx.font = '48px sans-serif';
@@ -2102,6 +2104,11 @@ function drawAirstrikeEffects(now) {
         const dropOffsets = isAirdrop ? [0] : [-0.06, 0, 0.06];
         const dropEmoji = isAirdrop ? '🪂' : '💣';
         const dropCount = isAirdrop ? 1 : 3;
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
         for (let d = 0; d < dropCount; d++) {
             const dt = dropOffsets[d] != null ? tTarget + dropOffsets[d] : -1;
             if (dt < 0 || t < dt) continue;
@@ -2113,7 +2120,8 @@ function drawAirstrikeEffects(now) {
             const landY = isAirdrop ? cy : cy + 10;
             const dropX = isAirdrop ? cx : dropReleaseX + dropT * 20;
             const dropY = cy - 80 + dropT * fallDist;
-            ctx.font = '16px sans-serif';
+            // 上一颗炸弹的爆炸粒子会改掉 fillStyle，每次绘制 emoji 前都要重设
+            ctx.fillStyle = '#000';
             ctx.fillText(dropEmoji, dropX, Math.min(landY, dropY));
 
             if (!isAirdrop && dropT > 0.7) {
@@ -2128,6 +2136,7 @@ function drawAirstrikeEffects(now) {
                 }
             }
         }
+        ctx.restore();
     }
 
 }
