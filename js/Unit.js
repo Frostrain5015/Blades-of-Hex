@@ -172,7 +172,7 @@ export class Unit {
 
         // 牧师治愈灵光
         if (this._healingAura > 0) {
-            effects.push({ label: '治愈灵光', desc: `每回合回复15%最大生命值；受致命一击时提前释放全部剩余治疗，仍不足则保底20%生命`, color: '#44dd88', remaining: this._healingAura });
+            effects.push({ label: '治愈灵光', desc: `每回合回复20%最大生命值；受致命一击时提前释放全部剩余治疗，仍不足则保底20%生命`, color: '#44dd88', remaining: this._healingAura });
         }
 
         return effects;
@@ -841,7 +841,7 @@ export class Unit {
         // 仍低于20%最大生命，则血量固定为20%最大生命；灵光随之消耗。
         // （minHp>0 的伤害本就不致死，如堕天使灼烧，不触发此保底）
         if (this._healingAura > 0 && minHp <= 0 && (this.hp - actualDmg) <= 0) {
-            const burst = Math.round(this.maxHp * 0.15 * this._healingAura);
+            const burst = Math.round(this.maxHp * 0.20 * this._healingAura);
             const floor = Math.round(this.maxHp * 0.20);
             this._healingAura = 0;
             this.hp = Math.max(Math.round(this.hp - actualDmg + burst), floor);

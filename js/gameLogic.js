@@ -635,7 +635,7 @@ function _expireTimedEffects() {
 
         // 牧师治愈灵光 — 全局，不区分阵营
         if (u._healingAura > 0) {
-            u.heal(Math.round(u.maxHp * 0.15));
+            u.heal(Math.round(u.maxHp * 0.20));
             u._healingAura--;
         }
 
