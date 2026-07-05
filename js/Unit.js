@@ -620,10 +620,12 @@ export class Unit {
         }
     }
 
+    // ① 攻击力乘区：面板攻击（基础+「攻击力+xx」固定加成）×（1+「攻击力提高xx%」加成）
+    //    士气不再乘入攻击力，改走 _resolveDamage 的增伤乘区
     getEffectiveAttack() {
         const baseAtk = this.config.attack + (this._atkBonus || 0) + getCommanderAttackBonus(this);
         const auraAtk = getCommanderAuraAttackBonus(this);
-        return Math.round(baseAtk * (1 + auraAtk) * MORALE_CONFIG[this.morale].atkMulti);
+        return Math.round(baseAtk * (1 + auraAtk));
     }
 
     // 伤害浮动倍率（替代 critRate + critMulti 二值系统）
@@ -657,7 +659,12 @@ export class Unit {
         return (gs && gs.rng) ? gs.rng.range(lo, hi) : lo + Math.random() * (hi - lo);
     }
 
-    // Shared damage resolution: attacker → defender
+    // ===== 伤害计算管线（四层乘算） =====================
+    // 伤害 = ①攻击力乘区 × ②增伤乘区 × ③暴击/浮动乘区 × ④防御乘区 （反击另乘 baseMulti=0.75）
+    //   ① 攻击力：getEffectiveAttack()，「攻击力+xx」「攻击力提高xx%」
+    //   ② 增伤（层内加算）：兵种克制 + 士气 + 冲锋/城市攻坚等，「造成的伤害提高xx%」
+    //   ③ 暴击/浮动：_calcFloat()，「暴击率提高/降低xx%」
+    //   ④ 防御（层内加算后 1-Σ）：地形/守城/兵种/军衔/士气/将领/灵光，「防御力提高xx%」
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
                    isCounter = false, isCityCounter = false) {
         const counterCoeff = COUNTER_RELATION[attacker.type][defender.type];
@@ -672,25 +679,13 @@ export class Unit {
             effectiveCounterCoeff = 1.10;
         }
 
-        let dmgBonus = effectiveCounterCoeff - 1 + extraBonus;
-        dmgBonus -= TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
-        // 森林掩蔽：对远程攻击（炮兵/要塞）额外+20%防御，与地形自带10%加算
-        if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest')) {
-            dmgBonus -= 0.20;
-        }
-        // 风天：步兵阵线不稳，通用防御-20%（防御总和可为负，即转为敌方增伤）
-        if (_gameState.weather === 'wind' && defender.type === 'infantry') {
-            dmgBonus += 0.20;
-        }
-        if (defender.type === 'infantry' && defender.tile.isCity) dmgBonus -= 0.10;
-        dmgBonus -= (defender.config.defense || 0);
-        dmgBonus -= (defender._rankDefBonus || 0);
-        dmgBonus -= MORALE_CONFIG[defender.morale].defBonus;
-        dmgBonus -= getCommanderDefenseBonus(defender);
-        if (defender.commander === 'staller' && attacker.type === 'archer') dmgBonus -= 0.50;
-        dmgBonus -= getCommanderAuraDefenseBonus(defender);
-        const dmgMulti = Math.max(0.1, 1 + dmgBonus);
+        // ② 增伤乘区
+        const dmgUp = (effectiveCounterCoeff - 1)
+            + MORALE_CONFIG[attacker.morale].dmgBonus
+            + extraBonus;
+        const offenseMulti = Math.max(0, 1 + dmgUp);
 
+        // ③ 暴击/浮动乘区
         const phantomCrit = (attacker._phantomStacks || 0) * 0.10;
         const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit;
         const _rng = _gameState && _gameState.rng;
@@ -698,8 +693,27 @@ export class Unit {
         const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter, guaranteedCrit);
         const isCrit = floatMult > (isCounter ? 1.50 : 1.30);
 
+        // ④ 防御乘区
+        let defSum = TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
+        // 森林掩蔽：对远程攻击（炮兵/要塞）额外+20%防御，与地形自带10%加算
+        if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest')) {
+            defSum += 0.20;
+        }
+        // 风天：步兵阵线不稳，通用防御-20%（防御总和可为负，即转为敌方增伤）
+        if (_gameState.weather === 'wind' && defender.type === 'infantry') {
+            defSum -= 0.20;
+        }
+        if (defender.type === 'infantry' && defender.tile.isCity) defSum += 0.10;
+        defSum += (defender.config.defense || 0);
+        defSum += (defender._rankDefBonus || 0);
+        defSum += MORALE_CONFIG[defender.morale].defBonus;
+        defSum += getCommanderDefenseBonus(defender);
+        if (defender.commander === 'staller' && attacker.type === 'archer') defSum += 0.50;
+        defSum += getCommanderAuraDefenseBonus(defender);
+        const defenseMulti = Math.max(0.1, 1 - defSum);
+
         return {
-            dmg: attacker.getEffectiveAttack() * baseMulti * dmgMulti * floatMult,
+            dmg: attacker.getEffectiveAttack() * baseMulti * offenseMulti * floatMult * defenseMulti,
             isCrit
         };
     }

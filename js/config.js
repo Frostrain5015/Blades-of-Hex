@@ -179,11 +179,12 @@ export function calcIncome(cityCount) {
 
 // ==== 士气配置 ====================
 // 士气等级: 3=上升 2=正常 1=下降 0=混乱
+// 士气增伤走「增伤乘区」（与克制/冲锋等加算），士气防御走「防御乘区」
 export const MORALE_CONFIG = {
-    3: { name: '士气上升', atkMulti: 1.15, defBonus: 0.05,  icon: '▲', color: '#ffd700', desc: '攻击力+15%，防御+5%' },
-    2: { name: '正常',     atkMulti: 1.00, defBonus: 0,     icon: '',   color: '#aaa',    desc: '' },
-    1: { name: '士气下降', atkMulti: 0.80, defBonus: -0.05, icon: '▼', color: '#b080e8', desc: '攻击力−20%，防御−5%' },
-    0: { name: '混乱',     atkMulti: 0,    defBonus: -0.15, icon: '？', color: '#666',    desc: '无法操控，防御−15%' }
+    3: { name: '士气上升', dmgBonus: 0.15,  defBonus: 0.05,  icon: '▲', color: '#ffd700', desc: '造成的伤害提高15%，防御力+5%' },
+    2: { name: '正常',     dmgBonus: 0,     defBonus: 0,     icon: '',   color: '#aaa',    desc: '' },
+    1: { name: '士气下降', dmgBonus: -0.20, defBonus: -0.05, icon: '▼', color: '#b080e8', desc: '造成的伤害降低20%，防御力−5%' },
+    0: { name: '混乱',     dmgBonus: -1.00, defBonus: -0.15, icon: '？', color: '#666',    desc: '无法操控且无法造成伤害，防御力−15%' }
 };
 
 // ==== 将领配置 ====================
@@ -196,7 +197,7 @@ export { getCommander } from '../commander/index.js';
 export const WEATHER_CONFIG = {
     clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
     rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城/村庄回血翻倍 · 雷击伤害1.5倍' },
-    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵冲锋1格生效 伤害+30%' },
+    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵冲锋1格生效且增伤30%' },
     wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 但无法暴击 · 步兵防御-20%' }
 };
 

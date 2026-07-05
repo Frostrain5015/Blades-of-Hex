@@ -7,8 +7,8 @@ export default {
     hpBonus: 25,
     atkBonus: 0,
     spdBonus: 0,
-    desc: '克制时伤害+25%，被克制时伤害-15%，击杀敌方单位后变形为敌方兵种，每触发1次暴击率+10%（最多6层）',
-    tooltipDesc: '克制时伤害+25%，被克制时伤害-15%，击杀敌方后变形为敌方兵种，每触发1次暴击率+10%（最多6层）',
+    desc: '克制时造成的伤害提高25%，被克制时受到的伤害降低15%，击杀敌方单位后变形为敌方兵种，每触发1次暴击率提高10%（最多6层）',
+    tooltipDesc: '克制时造成的伤害提高25%，被克制时受到的伤害降低15%，击杀敌方后变形为敌方兵种，每触发1次暴击率提高10%（最多6层）',
 
     onKill(killer, victim, helpers) {
         if (victim.type === killer.type || victim.type === 'mgNest') return null;

@@ -207,12 +207,12 @@ function _drawRankChevrons(cv, rank) {
 const PASSIVE_DEFS = {
     infantry: {
         name: '坚守',
-        desc: '位于城市时：每回合回复10%生命值，防御+5%，反击伤害大幅提高',
+        desc: '位于城市时：每回合回复10%生命值，防御力+10%，攻击/反击造成的伤害提高15%，反击浮动更高',
         active: (u) => u.tile.isCity
     },
     cavalry: {
         name: '冲锋',
-        desc: '本回合移动至少2格后，造成伤害+25%',
+        desc: '本回合移动至少2格后，造成的伤害提高25%',
         active: (u) => u.moveDistance >= 2
     },
     archer: {
@@ -482,7 +482,7 @@ function showTooltipForTile(tile) {
                 if (unit.type === 'infantry') effects.push('守城/村庄回血翻倍');
             } else if (gameState.weather === 'fog') {
                 if (unit.type === 'archer')   effects.push('伤害−25%', '射程−1');
-                if (unit.type === 'cavalry')  effects.push('冲锋1格生效 伤害+30%');
+                if (unit.type === 'cavalry')  effects.push('冲锋1格生效 增伤30%');
             } else if (gameState.weather === 'wind') {
                 if (unit.type === 'archer')   effects.push('射程+1', '无法暴击');
                 if (unit.type === 'infantry') effects.push('防御-20%');

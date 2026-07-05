@@ -86,8 +86,8 @@ export function planActions(gameState, helpers, myCamp) {
         const tDef = TERRAIN_DEF[defender.tile.terrain] || 0;
         const cityDef = (defender.type === 'infantry' && defender.tile.isCity) ? 0.20 : 0;
         const unitDef = defender.config.defense || 0;
-        const dmgBonus = coeff - 1 - tDef - cityDef - unitDef;
-        return attacker.getEffectiveAttack() * Math.max(0.1, 1 + dmgBonus);
+        const moraleDmg = attacker.morale === 3 ? 0.15 : attacker.morale === 1 ? -0.20 : attacker.morale === 0 ? -1 : 0;
+        return attacker.getEffectiveAttack() * Math.max(0, 1 + (coeff - 1) + moraleDmg) * Math.max(0.1, 1 - tDef - cityDef - unitDef);
     }
 
     function willKill(attacker, defender) {
