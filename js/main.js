@@ -2291,7 +2291,7 @@ async function handleRemoteAction(msg) {
                         case 'diveStrafe': {
                             // E4 空军上校：伤害在本地延迟结算，远端同样在此结算以保持一致
                             playSound('airstrike');
-                            spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }]);
+                            spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }], 'diveStrafe');
                             setTimeout(() => {
                                 const dt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : null;
                                 if (dt && dt.unit && e.dmg) {

@@ -1108,7 +1108,7 @@ export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike') {
     airstrikeEffects.push({
         x: cx, y: cy, results, type,
         startTime: performance.now(),
-        duration: 2000
+        duration: type === 'diveStrafe' ? 1500 : 2000
     });
 }
 

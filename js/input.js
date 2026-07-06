@@ -7,7 +7,8 @@ import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } fr
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
-    executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit
+    executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
+    isColonelTargetBlocked
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
@@ -714,15 +715,16 @@ export function initInput() {
         // 对策卡选择目标模式
         if (gameState.cardTargeting) {
             const ct = gameState.cardTargeting;
+            const myCamp = _getMyCampInput();
             // E4 空运第二段：直接执行空运（不取消，_executeAirliftDest 内部会清理）
             if (ct.cardId === 'airlift_dest') {
+                if (isColonelTargetBlocked(clickedTile, myCamp)) return; // 超出上校航程禁降
                 executeTacticalCard('airlift_dest', clickedTile);
                 return;
             }
             const cfg = TACTICAL_CARD_CONFIG[ct.cardId] || COLONEL_CARDS[ct.cardId];
             if (!cfg) { cancelCardTargeting(); return; }
 
-            const myCamp = _getMyCampInput();
             let isValid = false;
             if (ct.targeting === 'enemyGlobal') {
                 isValid = clickedTile.unit && clickedTile.unit.camp !== myCamp;
@@ -745,6 +747,11 @@ export function initInput() {
                 isValid = clickedTile.unit != null;
             } else if (ct.targeting === 'anyTileGlobal') {
                 isValid = true; // 侦察卡：全图任意地块均可选
+            }
+
+            // E4 上校空军卡：目标须在上校航程内（防空区不阻挡，仅降伤）
+            if (isValid && COLONEL_CARDS[ct.cardId] && isColonelTargetBlocked(clickedTile, myCamp)) {
+                isValid = false;
             }
 
             if (isValid) {

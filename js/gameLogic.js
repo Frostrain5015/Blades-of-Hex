@@ -637,11 +637,11 @@ function _updateWeather() {
 
 // 限时效果到期检查（每回合 P1 开始时调用一次）
 function _expireTimedEffects() {
-    // E2 亡灵法师：亡魂标记老化（2回合后消失）；bornAt 为回合数(0-indexed)
+    // E2 亡灵法师：亡魂标记老化（3回合后消失）；bornAt 为回合数(0-indexed)
     // 全局一次性结算，不放进 per-unit 循环（避免 O(单位数×标记数) 且无单位时不老化）
     if (gameState._soulMarks && gameState._soulMarks.length > 0) {
         const soulRound = getRoundIndex(gameState);
-        gameState._soulMarks = gameState._soulMarks.filter(m => soulRound - m.bornAt < 2);
+        gameState._soulMarks = gameState._soulMarks.filter(m => soulRound - m.bornAt < 3);
     }
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
@@ -813,9 +813,12 @@ async function _doEndTurnPhase() {
 
     // ==== 回合开始：收入结算 ====================
     const dmgTextsBefore = grantTurnStartIncome(gameState.currentCamp);
-    // E5：重置新回合阵营的城市/村庄补员标记
+    // E5：重置新回合阵营的城市/村庄补员标记（含占据的非己方村庄，与补员判定一致）
     for (const t of gameState.tiles) {
-        if (t.camp === gameState.currentCamp) t._reinforcedThisTurn = false;
+        if (t.camp === gameState.currentCamp
+            || (t.isVillage && t.unit && t.unit.camp === gameState.currentCamp)) {
+            t._reinforcedThisTurn = false;
+        }
     }
     // 收集殉道者等将领产生的伤害数字，供远端重放
     _endTurnDmgTexts = gameState.damageTexts.slice(dmgTextsBefore);
@@ -1070,7 +1073,9 @@ export function reinforceUnit(unit) {
     if (!unit || !unit.tile || unit.hp >= unit.maxHp) return;
     const tile = unit.tile;
     if (!tile.isCity && !tile.isVillage) { notify('需在城市或村庄上补员', 'error'); return; }
-    if (tile.camp !== gameState.currentCamp) { notify('该地块不属于当前阵营', 'error'); return; }
+    if (unit.camp !== gameState.currentCamp) { notify('只能为己方单位补员', 'error'); return; }
+    // 城市占领会翻转归属，需属于当前阵营；村庄站上去即算占据，按占据单位归属判定（与村庄收入结算一致）
+    if (tile.isCity && tile.camp !== gameState.currentCamp) { notify('该地块不属于当前阵营', 'error'); return; }
     if (tile._reinforcedThisTurn) { notify('该地块本回合已补员', 'error'); return; }
     if (isNetworkGame() && !isMyTurn(gameState.currentCamp)) { notify('对手回合', 'error'); return; }
 
@@ -1901,6 +1906,31 @@ async function handleSurrender() {
     broadcastAction('surrender');
 }
 
+// ==== E4 空军上校：航程 + 防空火力 目标约束 =====================
+export const COLONEL_AIR_RANGE = 6; // 上校空军卡最大航程（格）
+export const ANTIAIR_RADIUS = 2;    // 防空火力覆盖半径（格）
+
+// 找到某阵营在场的上校单位（无则 null）
+export function getColonelUnit(camp) {
+    for (const t of gameState.tiles) {
+        if (t.unit && t.unit.commander === 'colonel' && t.unit.camp === camp && t.unit.hp > 0) return t.unit;
+    }
+    return null;
+}
+
+// 是否为防空火力单位：炮兵(archer)/要塞(mgNest)/挂停滞者的单位
+export function isAntiAirUnit(u) {
+    return !!u && (u.type === 'archer' || u.type === 'mgNest' || u.commander === 'staller');
+}
+
+// 目标地块是否超出上校航程（硬限制）。防空火力不在此阻挡——它只降低伤害(见 _resolveDamage)。
+// 无上校在场时不做限制（理论上没有空军卡可用）
+export function isColonelTargetBlocked(tile, camp) {
+    const colonel = getColonelUnit(camp);
+    if (!colonel || !colonel.tile || !tile) return false;
+    return hexDistance(colonel.tile, tile) > COLONEL_AIR_RANGE;
+}
+
 // ==== 对策卡系统 =====================
 
 export function cancelCardTargeting() {
@@ -2044,14 +2074,14 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
         if (_colUnit) {
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
-                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.2, 0);
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.2, 0, false, false, true);
                 result.dmg = Math.round(_calc.dmg);
             } else if (cardId === 'carpetBomb' && result.results) {
                 for (const _r of result.results) {
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
                     if (_ht && _ht.unit) {
                         const _isCenter = _r.q === targetTile.q && _r.r === targetTile.r;
-                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 0.85, 0);
+                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 0.85, 0, false, false, true);
                         _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * 0.7);
                     }
                 }
@@ -2091,6 +2121,19 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     airUnit.canAct = false;
     const hpLoss = Math.min(Math.round(airUnit.hp * 0.20), Math.round(airUnit.maxHp * 0.40));
     if (hpLoss > 0) airUnit.applyDamage(hpLoss, { source: 'true', minHp: 1 });
+    // 强行降落防空区：落点2格内每个敌方防空单位 → 立即损失当前15%生命值（封顶45%）
+    let aaN = 0;
+    for (const t of gameState.tiles) {
+        const u = t.unit;
+        if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
+        if (hexDistance(t, targetTile) <= ANTIAIR_RADIUS) aaN++;
+    }
+    aaN = Math.min(aaN, 3);
+    if (aaN > 0) {
+        const aaLoss = Math.round(airUnit.hp * aaN * 0.15);
+        if (aaLoss > 0) airUnit.applyDamage(aaLoss, { source: 'true', minHp: 1 });
+        logMessage(`🪂 空运落入防空火力：损失${aaN * 15}%生命值（-${aaLoss}HP）`);
+    }
     spawnAirstrikeEffect(targetTile.x, targetTile.y, [], 'airdrop');
     logMessage(`🪂【空运】${airUnit.camp.name}${airUnit.config.name}兵传送至(${targetTile.q},${targetTile.r})`);
     gameState._airliftTarget = null;
@@ -2247,7 +2290,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             // 俯冲扫射：单发伤害
             logMessage(`💥【俯冲扫射】对${targetTile.camp?.name}${targetTile.unit?.config?.name}兵造成${result.dmg}伤害`);
             setTimeout(() => {
-                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }]);
+                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe');
                 playSound('airstrike');
                 setTimeout(() => {
                     if (targetTile.unit) {

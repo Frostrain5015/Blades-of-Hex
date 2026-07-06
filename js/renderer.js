@@ -4,6 +4,7 @@ import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { drawAllBorders, drawDistrictBorders, drawCampBorders } from './HexTile.js';
+import { isColonelTargetBlocked, getColonelUnit, isAntiAirUnit, COLONEL_AIR_RANGE, ANTIAIR_RADIUS } from './gameLogic.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
@@ -1309,6 +1310,7 @@ function drawRangeApertures(now) {
         const baseAlpha = 0.35 + pulse * 0.55;
         const ct = gameState.cardTargeting;
         const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
+        const isColTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest';
         const isHeal = ct.targeting === 'friendlyAny' || ct.targeting === 'anyUnit';
         const isShield = ct.targeting === 'shieldTarget';
         const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain' || ct.targeting === 'emptyFriendlyLandmine';
@@ -1342,6 +1344,9 @@ function drawRangeApertures(now) {
                 const viewingCamp = getViewingCamp();
                 if (!isTileVisible(tile, viewingCamp, gameState)) continue;
             }
+
+            // E4 上校空军卡：超出航程的目标不高亮（防空区仍高亮，只是降伤）
+            if (isColTargeting && isColonelTargetBlocked(tile, myCamp)) continue;
 
             let r, g, b;
             if (isHeal)       { r = 80;  g = 255; b = 100; }
@@ -1395,6 +1400,43 @@ function drawRangeApertures(now) {
                 ctx.stroke();
             }
             ctx.restore();
+        }
+
+        // E4 上校空军卡：最大航程蓝圈 + 敌方防空火力红圈
+        if (isColTargeting) {
+            const colonel = getColonelUnit(myCamp);
+            if (colonel && colonel.tile) {
+                // 一格像素步长：取上校任一相邻地块的像素距离（六格等距，方向无关）
+                let step = HEX_SIZE * Math.sqrt(3);
+                for (const [dq, dr] of HEX_NEIGHBORS) {
+                    const nb = gameState.tileMap.get(`${colonel.tile.q + dq},${colonel.tile.r + dr}`);
+                    if (nb) { step = Math.hypot(nb.x - colonel.tile.x, nb.y - colonel.tile.y); break; }
+                }
+                ctx.save();
+                // 蓝圈：最大航程
+                ctx.beginPath();
+                ctx.arc(colonel.tile.x, colonel.tile.y, step * COLONEL_AIR_RANGE, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(80, 170, 255, ${0.45 + pulse * 0.35})`;
+                ctx.lineWidth = 3;
+                ctx.setLineDash([10, 8]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = `rgba(80, 170, 255, ${0.05 + pulse * 0.04})`;
+                ctx.fill();
+                // 红圈：每个敌方防空火力单位的覆盖范围
+                for (const t of gameState.tiles) {
+                    const u = t.unit;
+                    if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
+                    ctx.beginPath();
+                    ctx.arc(t.x, t.y, step * ANTIAIR_RADIUS, 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(255, 70, 60, ${0.5 + pulse * 0.35})`;
+                    ctx.lineWidth = 2.5;
+                    ctx.stroke();
+                    ctx.fillStyle = `rgba(255, 70, 60, ${0.08 + pulse * 0.05})`;
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
         }
     }
 
@@ -2199,6 +2241,68 @@ function drawAirstrikeEffects(now) {
 
         const t = elapsed / fx.duration;
         const cx = fx.x, cy = fx.y;
+
+        // E4 俯冲扫射：战机俯冲 + 机炮扫射曳光弹（区别于投弹空袭）
+        if (fx.type === 'diveStrafe') {
+            // 俯冲航线：自左上俯冲掠过目标上方，再拉起飞向右下
+            const P0x = cx - 380, P0y = cy - 300;
+            const P1x = cx + 340, P1y = cy + 20;
+            const p = Math.min(1, t / 0.9);
+            const px = P0x + (P1x - P0x) * p;
+            const py = P0y + (P1y - P0y) * p;
+            const ang = Math.atan2(P1y - P0y, P1x - P0x);
+
+            // 战机
+            ctx.save();
+            ctx.globalAlpha = t < 0.9 ? 1 : Math.max(0, 1 - (t - 0.9) / 0.1);
+            ctx.fillStyle = '#000';
+            ctx.translate(px, py);
+            ctx.rotate(ang);
+            ctx.font = '46px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🛩️', 0, 0);
+            ctx.restore();
+
+            // 扫射窗口：曳光弹随机炮口 → 地面弹着点沿目标横线行走
+            const fireStart = 0.45, fireEnd = 0.80;
+            if (t >= fireStart && t <= fireEnd) {
+                const fp = (t - fireStart) / (fireEnd - fireStart);
+                const impactX = cx - 50 + fp * 100;
+                const impactY = cy + 6;
+                const noseX = px + Math.cos(ang) * 24;
+                const noseY = py + Math.sin(ang) * 24;
+                ctx.save();
+                // 曳光弹（外亮内白）
+                ctx.strokeStyle = 'rgba(255,225,90,0.9)';
+                ctx.lineWidth = 2.6;
+                ctx.shadowColor = '#ffcc33';
+                ctx.shadowBlur = 9;
+                ctx.beginPath(); ctx.moveTo(noseX, noseY); ctx.lineTo(impactX, impactY); ctx.stroke();
+                ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+                ctx.lineWidth = 1;
+                ctx.shadowBlur = 0;
+                ctx.beginPath(); ctx.moveTo(noseX, noseY); ctx.lineTo(impactX, impactY); ctx.stroke();
+                // 炮口闪光
+                ctx.fillStyle = `rgba(255,220,120,${0.5 + Math.random() * 0.5})`;
+                ctx.beginPath(); ctx.arc(noseX, noseY, 3 + Math.random() * 3, 0, Math.PI * 2); ctx.fill();
+                // 弹着火花
+                for (let s = 0; s < 7; s++) {
+                    const a = Math.random() * Math.PI * 2;
+                    const d = Math.random() * 16;
+                    ctx.fillStyle = `rgba(255,${(160 + Math.random() * 90) | 0},50,0.85)`;
+                    ctx.beginPath();
+                    ctx.arc(impactX + Math.cos(a) * d, impactY + Math.sin(a) * d - Math.random() * 7, 1.4 + Math.random() * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                // 弹着扬尘（随行走渐隐残留）
+                ctx.fillStyle = `rgba(120,110,90,${0.25 * (1 - fp)})`;
+                ctx.beginPath(); ctx.arc(impactX, impactY, 6 + fp * 10, 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            }
+            continue;
+        }
+
         const isAirdrop = fx.type === 'airdrop';
 
         // plane always flies from off-screen left to off-screen right

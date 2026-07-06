@@ -731,7 +731,7 @@ export class Unit {
     //   ③ 暴击/浮动：_calcFloat()，「暴击率提高/降低xx%」
     //   ④ 防御（层内加算后 1-Σ）：地形/守城/兵种/军衔/士气/将领/灵光，「防御力提高xx%」
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
-                   isCounter = false, isCityCounter = false) {
+                   isCounter = false, isCityCounter = false, isAirDamage = false) {
         const counterCoeff = COUNTER_RELATION[attacker.type][defender.type];
 
         // 魔术师：克制精通
@@ -779,22 +779,31 @@ export class Unit {
         defSum += (defender._rankDefBonus || 0);
         defSum += MORALE_CONFIG[defender.morale].defBonus;
         defSum += getCommanderDefenseBonus(defender);
-        // 停滞者力场 + 防空火力：2格内友军单位对远程攻击防御加成（统一计数器）
+        // 停滞者力场：2格内友军停滞者 → 对远程攻击(炮兵/要塞)防御 +15%（保持不变）
         if ((attacker.type === 'archer' || attacker.type === 'mgNest') && _gameState && _gameState.tileMap) {
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
-            let aaCount = 0;
             let hasStaller = false;
             for (const [dq, dr] of [...dirs, ...dirs2]) {
                 const nb = _gameState.tileMap.get(`${defender.tile.q + dq},${defender.tile.r + dr}`);
                 if (!nb || !nb.unit || nb.unit.camp !== defender.camp) continue;
-                if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest') {
-                    if (aaCount < 3) aaCount++;
-                }
-                if (nb.unit.commander === 'staller' && !hasStaller) hasStaller = true;
+                if (nb.unit.commander === 'staller') { hasStaller = true; break; }
             }
             if (hasStaller) defSum += 0.15;        // 停滞者力场：+15%
-            if (aaCount > 0) defSum += aaCount * 0.15; // 防空火力：每层+15%，封顶3层=45%
+        }
+        // 防空火力：2格内友军 炮兵/要塞/停滞者单位 → 仅对空军(上校空军卡)伤害 +15%/层（封顶3层=45%）
+        if (isAirDamage && _gameState && _gameState.tileMap) {
+            const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+            const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
+            let aaCount = 0;
+            for (const [dq, dr] of [...dirs, ...dirs2]) {
+                const nb = _gameState.tileMap.get(`${defender.tile.q + dq},${defender.tile.r + dr}`);
+                if (!nb || !nb.unit || nb.unit.camp !== defender.camp) continue;
+                if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest' || nb.unit.commander === 'staller') {
+                    if (aaCount < 3) aaCount++;
+                }
+            }
+            if (aaCount > 0) defSum += aaCount * 0.15; // 防空火力：每层+15%，封顶45%
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         const defenseMulti = Math.max(0.1, 1 - defSum);
