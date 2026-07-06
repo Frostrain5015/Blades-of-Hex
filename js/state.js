@@ -356,7 +356,7 @@ function _spawnGoldDelta(el, delta) {
     span.style.cssText = `
         position: fixed; left: ${rect.left + rect.width / 2}px; top: ${rect.top - 4}px;
         transform: translate(-50%, 0);
-        font-size: 15px; font-weight: bold; font-family: Arial, sans-serif;
+        font-size: 15px; font-weight: bold; font-family: "Noto Serif SC", "Noto Serif CJK SC", serif;
         color: ${isGain ? '#44dd44' : '#cc5555'};
         text-shadow: 0 0 8px ${isGain ? 'rgba(60,220,60,0.8)' : 'rgba(200,80,80,0.8)'};
         pointer-events: none; z-index: 1000; white-space: nowrap;

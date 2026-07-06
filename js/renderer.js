@@ -854,7 +854,7 @@ function drawCommanderSkillEffects(now) {
                 const labelY = fx.y - 16 - t * 30;
                 const labelAlpha = t < 0.12 ? t / 0.12 : Math.max(0, 1 - (t - 0.25) / 0.75);
                 ctx.fillStyle = `rgba(255,220,80,${labelAlpha})`;
-                ctx.font = 'bold 13px "Microsoft YaHei", Arial, sans-serif';
+                ctx.font = 'bold 13px "Noto Serif SC", "Noto Serif CJK SC", "Microsoft YaHei", serif';
                 ctx.shadowColor = 'rgba(0,0,0,0.75)';
                 ctx.shadowBlur = 4;
                 // 文字描边增强可读性
@@ -1685,24 +1685,24 @@ function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
         cctx.stroke();
     } else {
         cctx.fillStyle = disabled ? '#666' : '#ffd700';
-        cctx.font = '36px sans-serif';
+        cctx.font = '36px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
         cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
         cctx.fillText(cfg.icon, 0, -12);
     }
 
     cctx.fillStyle = disabled ? '#777' : '#eee';
-    cctx.font = 'bold 13px sans-serif';
+    cctx.font = 'bold 13px "Noto Serif SC", "Noto Serif CJK SC", serif';
     cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
     cctx.fillText(cfg.name, 0, 28);
 
     if (isDeploy && alreadyDeployed) {
         cctx.fillStyle = '#ffd700';
-        cctx.font = 'bold 16px sans-serif';
+        cctx.font = 'bold 16px "Noto Serif SC", "Noto Serif CJK SC", serif';
         cctx.fillText('✓', 0, 48);
     }
     if (isCopyCard) {
         cctx.fillStyle = '#ffd700';
-        cctx.font = 'bold 10px sans-serif';
+        cctx.font = 'bold 10px "Noto Serif SC", "Noto Serif CJK SC", serif';
         cctx.textAlign = 'right'; cctx.textBaseline = 'top';
         cctx.fillText('副本', cardW / 2 - 4, -cardH / 2 + 4);
         cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
@@ -1821,7 +1821,7 @@ export function drawCardCanvas(now) {
             // price on card back
             const cxP = ox + pileW / 2, cyP = oy + pileH / 2;
             cctx.fillStyle = pileActive ? '#ffd700' : '#8a6a38';
-            cctx.font = 'bold 18px sans-serif';
+            cctx.font = 'bold 18px "Noto Serif SC", "Noto Serif CJK SC", serif';
             cctx.textAlign = 'center';
             cctx.textBaseline = 'middle';
             cctx.shadowColor = pileActive ? 'rgba(255,215,0,0.6)' : 'rgba(0,0,0,0)';
@@ -1860,10 +1860,10 @@ export function drawCardCanvas(now) {
         cctx.stroke();
         const cxF = fuelBtnX + fuelBtnW / 2, cyF = fuelBtnY + fuelBtnH / 2 - 10;
         cctx.fillStyle = canBuyFuel ? '#ff8844' : '#553322';
-        cctx.font = '28px sans-serif';
+        cctx.font = '28px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
         cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
         cctx.fillText('🔥', cxF, cyF);
-        cctx.font = 'bold 16px sans-serif';
+        cctx.font = 'bold 16px "Noto Serif SC", "Noto Serif CJK SC", serif';
         cctx.fillStyle = '#ff6600';
         cctx.fillText(`${fuel}`, cxF, cyF + 24);
         if (canBuyFuel) {
@@ -1872,7 +1872,7 @@ export function drawCardCanvas(now) {
             cctx.roundRect(fuelBtnX + 4, fuelBtnY + fuelBtnH - 26, fuelBtnW - 8, 20, 4);
             cctx.fill();
             cctx.fillStyle = '#ff6600';
-            cctx.font = 'bold 10px sans-serif';
+            cctx.font = 'bold 10px "Noto Serif SC", "Noto Serif CJK SC", serif';
             cctx.fillText('$3 +2🔥', cxF, fuelBtnY + fuelBtnH - 17);
         }
         _fuelBtnRect = { x: fuelBtnX, y: fuelBtnY, w: fuelBtnW, h: fuelBtnH, canBuy: canBuyFuel };
@@ -2023,12 +2023,12 @@ function drawCardUseAnimation(now) {
             ctx.stroke();
 
             ctx.fillStyle = '#ffd700';
-            ctx.font = '36px sans-serif';
+            ctx.font = '36px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(fx.icon, 0, -12);
 
             ctx.fillStyle = '#eee';
-            ctx.font = 'bold 13px sans-serif';
+            ctx.font = 'bold 13px "Noto Serif SC", "Noto Serif CJK SC", serif';
             ctx.fillText(fx.name, 0, 28);
         } else {
             // Phase 2: fire at bottom, burns upward (faster)
@@ -2063,12 +2063,12 @@ function drawCardUseAnimation(now) {
 
             // icon + name
             ctx.fillStyle = '#ffd700';
-            ctx.font = '36px sans-serif';
+            ctx.font = '36px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(fx.icon, 0, -12);
 
             ctx.fillStyle = '#eee';
-            ctx.font = 'bold 13px sans-serif';
+            ctx.font = 'bold 13px "Noto Serif SC", "Noto Serif CJK SC", serif';
             ctx.fillText(fx.name, 0, 28);
 
             ctx.restore();
