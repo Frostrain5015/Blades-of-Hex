@@ -300,6 +300,30 @@ function isInStallerZone(tile, friendlyCamp, tileMap) {
   return getStallerSnareLayers(tile, friendlyCamp, tileMap) > 0;
 }
 
+// ---- 停滞者迟滞力场 ----
+
+export function getCommanderRangeReduction(tile, tileMap) {
+  if (!tileMap) return 0;
+  return stallerDef.getRangeReduction(tile, tileMap);
+}
+
+// 力场防御加成：友军在2格内停滞者力场中 → 对远程攻击+15%防御
+export function getCommanderFieldDefenseBonus(tile, friendlyCamp, tileMap) {
+  if (!tileMap) return 0;
+  return stallerDef.isInField(tile, friendlyCamp, tileMap) ? 0.15 : 0;
+}
+
+// ---- 受击钩子（谋士攻心等） ----
+
+export function triggerCommanderOnDamageTaken(unit, attacker, dmg) {
+  if (!unit || !unit.commander || !attacker || attacker.hp <= 0) return null;
+  const cmd = getCommander(unit.commander);
+  if (cmd && cmd.onDamageTaken) {
+    return cmd.onDamageTaken(unit, attacker, dmg, _helpers(unit.commander));
+  }
+  return null;
+}
+
 // ---- 通用：改变单位阵营（感化/招降，供将领钩子调用） ----
 export function changeUnitCamp(unit, newCamp, tileList) {
   if (!unit || !unit.tile) return false;

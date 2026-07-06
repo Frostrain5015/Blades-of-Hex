@@ -1,30 +1,48 @@
 // 吸血鬼 —— 嗜血
+const SHIELD_CAP = 60;
+
 export default {
   id: 'vampire',
   name: '吸血鬼',
   skill: '嗜血',
   hpBonus: 30, atkBonus: 25, spdBonus: 0,
-  desc: '攻击造成伤害时随机回复伤害值30%~60%的生命值',
-  tooltipDesc: '攻击造成伤害时回复伤害值30%~60%的生命值',
+  desc: '攻击造成伤害时随机回复伤害值30%~60%的生命值；溢出部分按50%转化为永久护盾（上限60）',
+  tooltipDesc: '攻击回复伤害值30%~60%的生命，溢出部分50%转为护盾（上限60）',
 
   _getHeal(dmg, rng) {
-    const ratio = rng ? rng.range(0.30, 0.60) : 0.30 + Math.random() * 0.30; // 30% ~ 60%
+    const ratio = rng ? rng.range(0.30, 0.60) : 0.30 + Math.random() * 0.30;
     return Math.round(dmg * ratio);
+  },
+
+  _applyHealAndShield(unit, healAmt, helpers) {
+    const actualHeal = unit.heal(healAmt);
+    const overflow = healAmt - actualHeal;
+    let shieldGain = 0;
+    if (overflow > 0) {
+      shieldGain = Math.round(overflow * 0.50);
+      if (shieldGain > 0) {
+        const newShield = Math.min(SHIELD_CAP, (unit._shield || 0) + shieldGain);
+        shieldGain = newShield - (unit._shield || 0);
+        unit._shield = newShield;
+        if (shieldGain > 0) {
+          helpers.logMessage(`吸血鬼【嗜血】：溢出治疗转化为护盾+${shieldGain}（当前护盾${unit._shield}/${SHIELD_CAP}）`);
+        }
+      }
+    }
+    return { healAmt: actualHeal, shieldGain };
   },
 
   onAttack(attacker, target, dmg, helpers) {
     if (dmg <= 0) return null;
     const healAmt = this._getHeal(dmg, helpers.rng);
-    const actualHeal = attacker.heal(healAmt);
     helpers.spawnFx(attacker.tile.x, attacker.tile.y);
-    return { healAmt: actualHeal };
+    return this._applyHealAndShield(attacker, healAmt, helpers);
   },
 
   onCounterAttack(attacker, target, dmg, helpers) {
     if (dmg <= 0) return null;
     const healAmt = this._getHeal(dmg, helpers.rng);
-    const actualHeal = target.heal(healAmt);
     helpers.spawnFx(target.tile.x, target.tile.y);
-    return { healAmt: actualHeal };
+    return this._applyHealAndShield(target, healAmt, helpers);
   }
 };

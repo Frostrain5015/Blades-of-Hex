@@ -2205,9 +2205,9 @@ async function handleRemoteAction(msg) {
                                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                                     if (!tile) continue;
                                     if (tile.unit) {
-                                        // 统一伤害入口：空军伤害吸收护盾，击杀清理由 applyDamage 处理
+                                        // 统一伤害入口：空袭为远程攻击
                                         const dc = tile.unit.camp;
-                                        const killed = tile.unit.applyDamage(r.dmg, { source: 'air' });
+                                        const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
                                         if (killed) {
                                             const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
                                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;

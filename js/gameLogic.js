@@ -1,7 +1,7 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
@@ -398,7 +398,7 @@ function _bindGameButtons() {
     document.getElementById('recruitArcher').addEventListener('click', _onRecruitArcher);
 }
 
-const _onRecruitInfantry = () => recruitUnit(gameState.selectedCityTile && gameState.selectedCityTile.isVillage ? 'militia' : 'infantry');
+const _onRecruitInfantry = () => recruitUnit('infantry');
 const _onRecruitCavalry = () => recruitUnit('cavalry');
 const _onRecruitArcher = () => recruitUnit('archer');
 
@@ -1001,11 +1001,7 @@ export function recruitUnit(type) {
         notify('该地块不属于当前阵营，无法招募', 'error');
         return;
     }
-    if (type === 'militia' && !selectedCityTile.isVillage) {
-        notify('民兵只能在村庄招募', 'error');
-        return;
-    }
-    if (type !== 'militia' && !selectedCityTile.isCity) {
+    if (!selectedCityTile.isCity) {
         notify('该兵种只能在城市招募', 'error');
         return;
     }
@@ -1119,6 +1115,7 @@ export function getMovableTiles(unit) {
 
 export function getAttackableTiles(unit) {
     if (unit.morale === 0) return [];
+    if (unit.commander === 'martyr' && unit._martyrPrimed) return [];
     let range = unit.config.range;
     if (gameState.weather === 'fog' && unit.type === 'archer') range -= 1;
     if (unit.type === 'archer') {
@@ -1127,6 +1124,8 @@ export function getAttackableTiles(unit) {
         if (gameState.weather === 'wind') bonus = Math.max(bonus, 1);
         range += bonus;
     }
+    // 停滞者迟滞力场：2格内敌方远程单位射程-1
+    range -= getCommanderRangeReduction(unit.tile, gameState.tileMap);
     range = Math.max(1, Math.min(4, range));
     const startTile = unit.tile;
     const targets = gameState.tiles.filter(tile =>
@@ -1199,7 +1198,7 @@ export function moveUnit(unit, targetTile) {
         const unitCampKey = unit.camp === CAMP.player1 ? 'p1' : unit.camp === CAMP.player2 ? 'p2' : unit.camp === CAMP.player3 ? 'p3' : 'neutral';
         if (mineCampKey !== unitCampKey) {
             const oldHp = unit.hp;
-            unit.takeDamage(100, null);
+            unit.applyDamage(100, { source: 'true' });
             const mineDmg = unit.hp !== oldHp ? 100 : 0;
             gameState.damageTexts.push({
                 x: targetTile.x, y: targetTile.y, value: mineDmg, isCrit: true,
@@ -1347,11 +1346,8 @@ export function attackUnit(attackerUnit, targetUnit) {
                 spawnCommanderSkillEffect(toX, toY, '✝️', '至圣斩', true);
                 triggerScreenShake(_smiteLabel === '至圣斩·誓约' ? 10 : 8, 350);
                 _smiteDmgRemote = atkCmdResult.smiteDmg;
-                // 至圣斩真伤绕过护盾走 takeDamage，完整处理击杀/殉道/计数等
-                const savedShield = targetUnit._shield;
-                targetUnit._shield = 0;
-                const smiteKilled = targetUnit.takeDamage(atkCmdResult.smiteDmg, attackerUnit, true);
-                targetUnit._shield = savedShield;
+                // 至圣斩为真实伤害：绕过护盾和全部乘区，不触发铁卫转移/誓言
+                const smiteKilled = targetUnit.applyDamage(atkCmdResult.smiteDmg, { source: 'true', attacker: attackerUnit });
                 targetUnit.displayHp = targetUnit.hp;
                 if (smiteKilled) isTargetDead = true;
             }
@@ -2056,12 +2052,12 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 playSound('airstrike');
                 // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
                 setTimeout(() => {
-                    // 统一伤害入口：空军伤害吸收护盾，击杀清理/殉道锁定由 applyDamage 处理
+                    // 统一伤害入口：空袭为远程攻击，吸收护盾，触发铁卫转移/誓言
                     for (const r of results) {
                         const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                         if (!tile) continue;
                         if (tile.unit) {
-                            tile.unit.applyDamage(r.dmg, { source: 'air' });
+                            tile.unit.applyDamage(r.dmg, { source: 'ranged' });
                         }
                         spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
                         gameState.damageTexts.push({

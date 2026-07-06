@@ -3,7 +3,7 @@
 // v5 升级：经济优化——减少抽牌开支，全力暴兵进攻
 //   · 仅在手牌空且余钱充裕时抽牌（不抽第2张）
 //   · 招募上限提高，前线步兵+后方骑兵/炮兵双线产出
-//   · 绝不招募民兵（性价比低）
+//   · 高效招募策略
 //   · 空袭优先打击敌城经济
 //   · 雷击优先斩杀高价值将领单位
 
@@ -30,10 +30,9 @@ const COMMANDER_STRATEGY = {
 };
 
 const COUNTER = {
-    infantry: { archer: 0.75, cavalry: 1.25, infantry: 1, militia: 1 },
-    archer:   { cavalry: 0.75, infantry: 1.25, archer: 1, militia: 1.25 },
-    cavalry:  { infantry: 0.75, archer: 1.25, cavalry: 1, militia: 0.75 },
-    militia:  { archer: 0.75, cavalry: 1.25, infantry: 1, militia: 1 }
+    infantry: { archer: 0.75, cavalry: 1.25, infantry: 1 },
+    archer:   { cavalry: 0.75, infantry: 1.25, archer: 1 },
+    cavalry:  { infantry: 0.75, archer: 1.25, cavalry: 1 }
 };
 
 const TERRAIN_DEF = { plains: 0, forest: 0.10, mountain: 0.10 };
@@ -802,8 +801,7 @@ export function planActions(gameState, helpers, myCamp) {
     } else {
         recruitPriority = cmdStrat2.recruitPref || ['cavalry', 'archer', 'infantry'];
     }
-    // 剔除民兵（性价比极低）
-    recruitPriority = recruitPriority.filter(t => t !== 'militia');
+    // 兵种优先级已由招募逻辑自然过滤
 
     const scoreCity = (city) => {
         let score = 0;
@@ -825,7 +823,6 @@ export function planActions(gameState, helpers, myCamp) {
         const isFrontline = primaryObjective && hexDistance(city, primaryObjective) <= 4;
         const types = isFrontline ? ['infantry', ...recruitPriority.filter(t => t !== 'infantry')] : recruitPriority;
         for (const type of types) {
-            if (type === 'militia') continue;
             if (gold >= UNIT_CONFIG[type].cost) {
                 actions.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
                 gold -= UNIT_CONFIG[type].cost;

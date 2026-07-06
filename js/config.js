@@ -113,9 +113,8 @@ export const HEX_NEIGHBORS = [
 // ==== 兵种配置 ====================
 export const UNIT_CONFIG = {
     infantry: { name: '步', hp: 200, attack: 40, defense: 0.05, speed: 5, range: 1, cost: 8,  color: '#0a0a0a' },
-    cavalry:  { name: '骑', hp: 140, attack: 55, defense: 0.05, speed: 8, range: 1, cost: 10, color: '#0a0a0a' },
+    cavalry:  { name: '骑', hp: 150, attack: 55, defense: 0.05, speed: 8, range: 1, cost: 10, color: '#0a0a0a' },
     archer:   { name: '炮', hp: 100, attack: 55, defense: 0,    speed: 3, range: 2, cost: 12, color: '#0a0a0a' },
-    militia:  { name: '民', hp: 80,  attack: 20, defense: 0,    speed: 5, range: 1, cost: 5,  color: '#0a0a0a' },
     mgNest:   { name: '要塞', hp: 200, attack: 30, defense: 0.05, speed: 0, range: 2, cost: 0, color: '#8B7355' }
 };
 
@@ -144,11 +143,10 @@ export const CAMP_FLAG_COLORS = {
 
 // ==== 克制关系 ====================
 export const COUNTER_RELATION = {
-    infantry: { archer: 0.75, cavalry: 1.25, infantry: 1, militia: 1, mgNest: 1 },
-    archer:   { cavalry: 0.75, infantry: 1.25, archer: 1, militia: 1.25, mgNest: 1 },
-    cavalry:  { infantry: 0.75, archer: 1.25, cavalry: 1, militia: 0.75, mgNest: 1 },
-    militia:  { archer: 0.75, cavalry: 1.25, infantry: 1, militia: 1, mgNest: 1 },
-    mgNest:   { infantry: 1, archer: 1, cavalry: 1, militia: 1, mgNest: 1 }
+    infantry: { archer: 0.75, cavalry: 1.25, infantry: 1, mgNest: 1 },
+    archer:   { cavalry: 0.75, infantry: 1.25, archer: 1, mgNest: 1 },
+    cavalry:  { infantry: 0.75, archer: 1.25, cavalry: 1, mgNest: 1 },
+    mgNest:   { infantry: 1, archer: 1, cavalry: 1, mgNest: 1 }
 };
 
 // ==== 地形配置 ====================

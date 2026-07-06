@@ -228,7 +228,7 @@ function showTooltipForTile(tile) {
     const tc = TERRAIN_CONFIG[tile.terrain];
 
     if (unit) {
-        const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵', militia: '民兵' };
+        const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵' };
         let headerText = `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}`;
         if (unit.commander) {
             const cmdCfgHdr = getCommander(unit.commander);
@@ -837,7 +837,7 @@ export function initKeyboard() {
 
             if (e.key === '1') {
                 e.preventDefault();
-                recruitUnit(gameState.selectedCityTile && gameState.selectedCityTile.isVillage ? 'militia' : 'infantry');
+                recruitUnit('infantry');
                 return;
             }
             if (e.key === '2') {

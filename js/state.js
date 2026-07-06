@@ -135,6 +135,7 @@ export function resetGameState() {
     gameState.rng.setState((Date.now() >>> 0) ^ ((Math.random() * 0x7fffffff) >>> 0));
     gameState.logHistory = [];
     gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0 };
+    gameState._friendlyDeathCount = {};
     gameState.aiActing = false;
     gameState.gameMode = 'local';
     gameState.aiOpponentCamp = null;
@@ -270,10 +271,10 @@ function _getRecruitCost(type) {
 export function updateRecruitCostDisplay() {
     const tile = gameState.selectedCityTile;
     const isVillage = tile && tile.isVillage;
-    const types = isVillage ? ['militia', null, null] : ['infantry', 'cavalry', 'archer'];
+    const types = isVillage ? [null, null, null] : ['infantry', 'cavalry', 'archer'];
     const btnIds = ['recruitInfantry', 'recruitCavalry', 'recruitArcher'];
-    const glyphs = isVillage ? ['🗡️', null, null] : ['⚔️', '🐎', '🎯'];
-    const names  = isVillage ? ['民兵', null, null] : ['步兵', '骑兵', '炮兵'];
+    const glyphs = ['⚔️', '🐎', '🎯'];
+    const names  = ['步兵', '骑兵', '炮兵'];
     for (let i = 0; i < btnIds.length; i++) {
         const btn = document.getElementById(btnIds[i]);
         if (!btn) continue;
@@ -320,17 +321,11 @@ export function updateRecruitButtonStates() {
     const currentKey = _campKeyStr(gameState.currentCamp);
     const gold = gameState.playerGold[currentKey];
 
-    // 村庄模式：只显示民兵（第一个按钮），隐藏骑兵炮兵
+    // 村庄不可招募（仅保留产币+补员功能）
     if (isVillage) {
-        const militiaCost = _getRecruitCost('militia');
-        const militiaBtn = btns.infantry;
-        if (militiaBtn) {
-            const available = canRecruitVillage && gold >= militiaCost;
-            militiaBtn.disabled = !available;
-            militiaBtn.classList.toggle('available', available);
+        for (const btn of Object.values(btns)) {
+            if (btn) { btn.disabled = true; btn.classList.remove('available'); }
         }
-        if (btns.cavalry) btns.cavalry.disabled = true;
-        if (btns.archer) btns.archer.disabled = true;
         return;
     }
 
@@ -629,6 +624,8 @@ export function serializeState() {
             isImmobile: t.unit._isImmobile || false,
             airdropWaiting: t.unit._airdropWaiting || false,
             martyrPrimed: t.unit._martyrPrimed || false,
+            elegyBonus: t.unit._elegyBonus || 0,
+            elegyProcessed: t.unit._elegyProcessed || 0,
             shield: t.unit._shield || 0,
             shieldMax: t.unit._shieldMax || 0,
             shieldTurns: t.unit._shieldTurns || 0,
@@ -655,6 +652,7 @@ export function serializeState() {
         lastWeather: gameState.lastWeather,
         rngState: gameState.rng.getState(),
         killCount: { ...gameState.killCount },
+        friendlyDeathCount: { ...(gameState._friendlyDeathCount || {}) },
         commanderPoolP1: [...gameState.commanderPoolP1],
         commanderPoolP2: [...gameState.commanderPoolP2],
         commanderPoolP3: [...gameState.commanderPoolP3],
@@ -717,6 +715,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
     if (data.rngState != null) gameState.rng.setState(data.rngState);
     if (data.killCount) gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0, ...data.killCount };
+    gameState._friendlyDeathCount = data.friendlyDeathCount || {};
     gameState.commanderPoolP1 = data.commanderPoolP1 || [];
     gameState.commanderPoolP2 = data.commanderPoolP2 || [];
     gameState.commanderPoolP3 = data.commanderPoolP3 || [];
@@ -861,6 +860,8 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._isImmobile = td.unit.isImmobile || false;
             unit._airdropWaiting = td.unit.airdropWaiting || false;
             unit._martyrPrimed = td.unit.martyrPrimed || false;
+            unit._elegyBonus = td.unit.elegyBonus || 0;
+            unit._elegyProcessed = td.unit.elegyProcessed || 0;
             unit._shield = td.unit.shield || 0;
             unit._shieldMax = td.unit.shieldMax || 0;
             unit._shieldTurns = td.unit.shieldTurns || 0;

@@ -1,5 +1,5 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderFieldDefenseBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -351,7 +351,7 @@ export class Unit {
         ctx.font = 'bold 15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', militia: '\u{1F5E1}\u{FE0F}', mgNest: '🏰' };
+        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', mgNest: '🏰' };
         ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
 
         // ── Ring HP bar ──
@@ -711,7 +711,10 @@ export class Unit {
         defSum += (defender._rankDefBonus || 0);
         defSum += MORALE_CONFIG[defender.morale].defBonus;
         defSum += getCommanderDefenseBonus(defender);
-        if (defender.commander === 'staller' && attacker.type === 'archer') defSum += 0.50;
+        // 停滞者迟滞力场：2格内友军对远程攻击防御+15%
+        if (attacker.type === 'archer' || attacker.type === 'mgNest') {
+            defSum += getCommanderFieldDefenseBonus(defender.tile, defender.camp, _gameState && _gameState.tileMap);
+        }
         defSum += getCommanderAuraDefenseBonus(defender);
         const defenseMulti = Math.max(0.1, 1 - defSum);
 
@@ -778,14 +781,12 @@ export class Unit {
     // ===== 统一伤害入口 =====================
     // 所有伤害结算必须经此进入（普攻/反击由 takeDamage 薄包装转入）。
     // source 来源标签决定结算规则：
-    //   'melee'  近战攻击          —— 吸收护盾；触发铁卫转移/圣骑士誓言
-    //   'ranged' 远程攻击          —— 同上
-    //   'card'   卡牌普通伤害(地雷) —— 同上
-    //   'air'    空军轰炸(空袭)     —— 吸收护盾；不触发铁卫转移/誓言
-    //   'true'   真实伤害(雷击/殉道自爆/灼烧) —— 绕过护盾；不触发铁卫转移/誓言
+    //   'melee'  近战攻击                          —— 吸收护盾；触发铁卫转移/圣骑士誓言
+    //   'ranged' 远程攻击(炮兵/要塞/空袭对策卡)    —— 同上
+    //   'true'   真实伤害(雷击/至圣斩/殉道自爆/灼烧) —— 绕过护盾和全部乘区；不触发铁卫转移/誓言
     // opts:
     //   attacker     击杀记功单位（缺省不计 killCount）
-    //   skipAura     强制跳过铁卫转移/誓言（至圣斩）
+    //   skipAura     强制跳过铁卫转移/誓言
     //   ignoreShield 覆写护盾规则（缺省由 source 决定）
     //   minHp        生命下限，伤害不致死（堕天使灼烧=1）
     // 返回 true 表示目标死亡
@@ -811,7 +812,7 @@ export class Unit {
             if (actualDmg <= 0) return false;
         }
 
-        const auraApplies = !skipAura && (source === 'melee' || source === 'ranged' || source === 'card');
+        const auraApplies = !skipAura && (source === 'melee' || source === 'ranged');
 
         // 铁卫灵光：相邻友军所受伤害由铁卫护盾承担；护盾不足时溢出部分由友军自己承担
         if (auraApplies && this.commander !== 'ironGuard' && _gameState) {
@@ -835,6 +836,11 @@ export class Unit {
         // 圣骑士誓言：友军受击概率获得誓言
         if (auraApplies && actualDmg > 0) {
             triggerCommanderAllyDamage(this, actualDmg);
+        }
+
+        // 受击钩子（谋士攻心等）：受伤后对攻击者触发效果
+        if (auraApplies && actualDmg > 0 && attacker) {
+            triggerCommanderOnDamageTaken(this, attacker, actualDmg);
         }
 
         // 牧师治愈灵光·临终迸发：致命一击时提前释放剩余 HoT，若仍不足抵扣或治疗后
@@ -892,6 +898,12 @@ export class Unit {
             const cmdInfo = getCommander(this.commander);
             log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
         }
+        // 记录己方阵营阵亡数（供殉道者挽歌被动使用）
+        const ownKey = this.camp === CAMP.player1 ? 'player1' : this.camp === CAMP.player2 ? 'player2' : this.camp === CAMP.player3 ? 'player3' : null;
+        if (ownKey) {
+            if (!_gameState._friendlyDeathCount) _gameState._friendlyDeathCount = {};
+            _gameState._friendlyDeathCount[ownKey] = (_gameState._friendlyDeathCount[ownKey] || 0) + 1;
+        }
         this.hp = 0;
         this.tile.unit = null;
         log(`${this.camp.name} ${this.config.name}兵被消灭`);
@@ -904,9 +916,9 @@ export class Unit {
         triggerScreenShake(4, 150);
     }
 
-    // 普攻/反击/地雷入口（保留旧签名，内部转入 applyDamage）
+    // 普攻/反击入口（保留旧签名，内部转入 applyDamage）
     takeDamage(dmg, attackerUnit, _skipAura = false) {
-        const source = !attackerUnit ? 'card'
+        const source = !attackerUnit ? 'true'
             : (attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') ? 'ranged' : 'melee';
         return this.applyDamage(dmg, { source, attacker: attackerUnit, skipAura: _skipAura });
     }
