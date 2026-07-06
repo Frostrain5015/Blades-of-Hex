@@ -1,4 +1,5 @@
-import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, COMMANDER_CONFIG, shuffleAndSplitPool, invalidateBoard, getRoundIndex } from './config.js';
+import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, invalidateBoard, getRoundIndex } from './config.js';
+import { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../commander/index.js';
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';

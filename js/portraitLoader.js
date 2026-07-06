@@ -1,5 +1,5 @@
 // 将领头像预加载器
-import { COMMANDER_CONFIG } from './config.js';
+import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 
 const _portraits = new Map();   // commanderId → Image (选将/手牌)
 const _trPortraits = new Map(); // commanderId → Image (透明底战场立绘)

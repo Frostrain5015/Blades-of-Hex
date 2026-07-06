@@ -203,9 +203,8 @@ export const MORALE_CONFIG = {
 
 // ==== 将领配置 ====================
 // 将领数据已剥离至 commander/ 文件夹，通过 commander/index.js 统一导出
-// 保留重导出以兼容旧引用
-export { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../commander/index.js';
-export { getCommander } from '../commander/index.js';
+// 注意：此处不再重导出，避免循环依赖（config.js → commander → colonel → config.js）
+// 各模块请直接从 ../commander/index.js 导入 COMMANDER_CONFIG / getCommander / shuffleAndSplitPool
 
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {
