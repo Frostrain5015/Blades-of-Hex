@@ -3,7 +3,7 @@ export default {
   id: 'martyr',
   name: '殉道者',
   skill: '殉道',
-  hpBonus: 60, atkBonus: 0, spdBonus: 0,
+  hpBonusPct: 0.30, atkBonusPct: 0, spdBonus: 0,
   desc: '生命≤1时进入殉道倒计时（可移动不可攻击），下回合对2格内所有非己方单位造成大量真实伤害；被动【挽歌】：己方单位阵亡时永久+3攻击力（上限+30）',
   tooltipDesc: 'HP≤1倒计时（可移动）→下回合2格AOE真伤；挽歌：友军阵亡永久+3ATK（上限+30）',
 
@@ -71,7 +71,7 @@ export default {
             u.morale = Math.min(3, u.morale + 1);
             if (u.morale === 3) u.moraleBoostUntil = gameState.turnCounter + 6;
             if (u.morale !== oldM) {
-              helpers.spawnFx(u.tile.x, u.tile.y);
+              helpers.spawnMoraleEffect(u);
             }
           }
         }

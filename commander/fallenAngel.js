@@ -2,7 +2,7 @@
 export default {
   id: 'fallenAngel',
   name: '堕天使',
-  hpBonus: 70, atkBonus: 0, spdBonus: 0,
+  hpBonusPct: 0.35, atkBonusPct: 0, spdBonus: 0,
   skills: [
       { name: '堕落', desc: '士气正常时切换至【堕天使·白】，每回合回复已损失生命值的30%', type: 'passive' },
       { name: '净化', desc: '士气上升或下降时切换至【堕天使·黑】，攻击力+30、暴击率+100%，每回合流失当前生命值20%', type: 'passive' }

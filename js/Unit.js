@@ -35,10 +35,10 @@ export class Unit {
         this.camp = camp;
         this.commander = commander;
         this._centurionTriggered = false;
-        // 应用将领属性加成
+        // 应用将领属性加成（百分比化：基于兵种基础面板）
         const cmdCfg = commander ? getCommander(commander) : null;
-        const hpBonus = cmdCfg ? (cmdCfg.hpBonus || 0) : 0;
-        const atkBonus = cmdCfg ? (cmdCfg.atkBonus || 0) : 0;
+        const hpBonus = cmdCfg ? Math.round(this.config.hp * (cmdCfg.hpBonusPct || 0)) : 0;
+        const atkBonus = cmdCfg ? Math.round(this.config.attack * (cmdCfg.atkBonusPct || 0)) : 0;
         const spdBonus = cmdCfg ? (cmdCfg.spdBonus || 0) : 0;
         this.hp = this.config.hp + hpBonus;
         this.maxHp = this.config.hp + hpBonus;
@@ -454,19 +454,23 @@ export class Unit {
             ctx.restore();
         }
 
-        // ── Berserker rage glow ──
-        if (this.activeSkillDur > 0 && this.commander === 'berserker') {
-            ctx.save();
-            const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
-            // 💢 glyph
-            ctx.fillStyle = `rgba(255,80,20,${0.6 + ragePulse * 0.4})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 6;
-            ctx.fillText('💢', visualX, visualY - HEX_SIZE * 0.55);
-            ctx.shadowBlur = 0;
-            ctx.restore();
+        // ── Berserker blood rage glow（已损HP越多越明显） ──
+        if (this.commander === 'berserker' && this.hp < this.maxHp) {
+            const hpLostPct = ((this.maxHp - this.hp) / this.maxHp) * 100;
+            const stacks = Math.min(50, Math.floor(hpLostPct / 1.5));
+            if (stacks > 0) {
+                ctx.save();
+                const intensity = stacks / 50;
+                const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
+                ctx.fillStyle = `rgba(255,80,20,${(0.4 + ragePulse * 0.4) * intensity})`;
+                ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 4 + 4 * intensity;
+                ctx.fillText('💢', visualX, visualY - HEX_SIZE * 0.55);
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
         }
 
         // ── Iron Guard shield marker (above flag, same layer as berserker rage) ──

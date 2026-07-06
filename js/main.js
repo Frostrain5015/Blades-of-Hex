@@ -909,8 +909,8 @@ function _showCommanderSelection(forPlayer) {
     for (const key of pool) {
         const cfg = COMMANDER_CONFIG[key];
         const bonusParts = [];
-        if (cfg.hpBonus)  bonusParts.push(`生命值 +${cfg.hpBonus}`);
-        if (cfg.atkBonus) bonusParts.push(`攻击力 +${cfg.atkBonus}`);
+        if (cfg.hpBonusPct)  bonusParts.push(`生命值 +${Math.round(cfg.hpBonusPct * 100)}%`);
+        if (cfg.atkBonusPct) bonusParts.push(`攻击力 +${Math.round(cfg.atkBonusPct * 100)}%`);
         if (cfg.defBonus) bonusParts.push(`防御力 +${cfg.defBonus}%`);
         if (cfg.spdBonus) bonusParts.push(`行动力 +${cfg.spdBonus}`);
 
@@ -1908,12 +1908,15 @@ function registerNetworkCallbacks() {
                                 tile.unit._cmdrAssignedAt = performance.now();
                                 const cmdCfg = getCommander(cmdId);
                                 if (cmdCfg) {
-                                    tile.unit.hp += cmdCfg.hpBonus || 0;
-                                    tile.unit.maxHp += cmdCfg.hpBonus || 0;
-                                    tile.unit.displayHp = tile.unit.hp;
-                                    tile.unit._atkBonus = (tile.unit._atkBonus || 0) + (cmdCfg.atkBonus || 0);
-                                    tile.unit.remainingMP += cmdCfg.spdBonus || 0;
-                                    tile.unit.displaySpeed += cmdCfg.spdBonus || 0;
+                                    const u = tile.unit;
+                                    const hpFlat = Math.round(u.config.hp * (cmdCfg.hpBonusPct || 0));
+                                    const atkFlat = Math.round(u.config.attack * (cmdCfg.atkBonusPct || 0));
+                                    u.hp += hpFlat;
+                                    u.maxHp += hpFlat;
+                                    u.displayHp = u.hp;
+                                    u._atkBonus = (u._atkBonus || 0) + atkFlat;
+                                    u.remainingMP += cmdCfg.spdBonus || 0;
+                                    u.displaySpeed += cmdCfg.spdBonus || 0;
                                 }
                                 break;
                             }

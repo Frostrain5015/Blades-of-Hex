@@ -258,7 +258,7 @@ function showTooltipForTile(tile) {
             tooltipHpFill.style.background = hpColor;
         }
         const cmdCfgHp = unit.commander ? getCommander(unit.commander) : null;
-        const cmdHpBonus = cmdCfgHp ? cmdCfgHp.hpBonus : 0;
+        const cmdHpBonus = cmdCfgHp ? Math.round(unit.config.hp * (cmdCfgHp.hpBonusPct || 0)) : 0;
         const hpBonusStr = cmdHpBonus > 0 ? `<span style="font-size:9px;color:#ffd700;"> (+${cmdHpBonus})</span>` : '';
         const shieldStr = unit._shield > 0 ? `<span style="color:#66bbff;">+🛡${Math.round(unit._shield)}</span>` : '';
         tooltipHpText.innerHTML = `❤ ${Math.round(unit.hp)}/${unit.maxHp}${hpBonusStr}${shieldStr}`;
@@ -370,17 +370,12 @@ function showTooltipForTile(tile) {
                             cmdDesc = '下回合开始时对2格范围内所有非己方单位造成大量范围伤害';
                         }
                     } else if (unit.commander === 'berserker') {
-                        if (unit.activeSkillDur > 0) {
-                            cmdDesc = '主动技能已生效';
-                        } else if (cmdCfg2.activeSkill) {
-                            const sk = cmdCfg2.activeSkill;
-                            const bufParts = [];
-                            if (sk.buffs) {
-                                const b = sk.buffs;
-                                if (b.atk) bufParts.push(`攻击力+${b.atk}`);
-                                if (b.def) bufParts.push(`防御力+${Math.round(b.def * 100)}%`);
-                            }
-                            cmdDesc = bufParts.join('，') + `（⏰${sk.duration}⌛${sk.cooldown}）`;
+                        const hpLostPct = ((unit.maxHp - unit.hp) / unit.maxHp) * 100;
+                        const stacks = Math.min(50, Math.floor(hpLostPct / 1.5));
+                        if (stacks > 0) {
+                            cmdDesc = `当前加成：+${stacks}% 攻击力、+${stacks}% 防御力`;
+                        } else {
+                            cmdDesc = '未触发（满血状态）';
                         }
                     }
 

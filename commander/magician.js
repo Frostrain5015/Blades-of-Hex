@@ -4,8 +4,8 @@ export default {
     id: 'magician',
     name: '魔术师',
     skill: '幻形',
-    hpBonus: 25,
-    atkBonus: 0,
+    hpBonusPct: 0.20,
+    atkBonusPct: 0,
     spdBonus: 0,
     desc: '克制时造成的伤害提高25%，被克制时受到的伤害降低15%，击杀敌方单位后变形为敌方兵种并保留剩余行动力，每层+3攻击力、+10%暴击率（最多6层）',
     tooltipDesc: '克制+25%伤害，被克制-15%受伤，击杀变形保留行动力，每层+3ATK+10%暴击（最多6层）',
@@ -18,7 +18,9 @@ export default {
         const rankHpBonus = killer._rank >= 1 ? 20 : 0;
         killer.type = victim.type;
         killer.config = newConfig;
-        killer.maxHp = newConfig.hp + 25 + rankHpBonus;
+        // HP加成基于新兵种基础面板的20%（hpBonusPct）
+        const hpPctBonus = Math.round(newConfig.hp * 0.20);
+        killer.maxHp = newConfig.hp + hpPctBonus + rankHpBonus;
         killer.hp = Math.round(killer.maxHp * hpRatio);
         killer.displayHp = killer.hp;
         // 保留剩余行动力，不重置 canAct

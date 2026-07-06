@@ -2,7 +2,7 @@
 import { getCommander } from '../commander/index.js';
 import { HEX_NEIGHBORS, CAMP } from './config.js';
 import stallerDef from '../commander/staller.js';
-import { spawnExplosionParticles } from './effects.js';
+import { spawnExplosionParticles, spawnMoraleEffect as _spawnMoraleEffectDirect } from './effects.js';
 
 // 延迟引用，由 main.js 初始化（避免循环依赖）
 let _gameState = null;
@@ -85,6 +85,9 @@ function _helpers(cmdId) {
     },
     spawnExplosion: (x, y, color, count = 18) => {
       spawnExplosionParticles(x, y, color, count);
+    },
+    spawnMoraleEffect: (unit) => {
+      _spawnMoraleEffectDirect(unit);
     },
     findCommanderUnit: _findCommanderUnit,
     changeUnitCamp

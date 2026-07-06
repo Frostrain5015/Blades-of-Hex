@@ -3,8 +3,8 @@ const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 export default {
     id: 'priest',
     name: '牧师',
-    hpBonus: 60,
-    atkBonus: 0,
+    hpBonusPct: 0.30,
+    atkBonusPct: 0,
     spdBonus: 0,
     skills: [
         { name: '圣疗', desc: '每回合链式群体治疗：1段瞄准相邻友方回复10%HP，2段传导2格内友方回复5%HP', type: 'passive' },

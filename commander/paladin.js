@@ -8,8 +8,8 @@ const _syncOrbitBeams = (unit, helpers) => {
 export default {
     id: 'paladin',
     name: '圣骑士',
-    hpBonus: 50,
-    atkBonus: 15,
+    hpBonusPct: 0.25,
+    atkBonusPct: 0.30,
     spdBonus: 0,
     skills: [
         { name: '勇气灵光', desc: '自身及相邻6格友军攻击力+10%，士气不会下降或混乱', type: 'passive' },

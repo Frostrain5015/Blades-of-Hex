@@ -969,15 +969,20 @@ function drawUnitHexAuras(now) {
             ctx.restore();
         }
 
-        // 狂战士狂暴辉光（仅六边形外轮廓）
-        if (u.activeSkillDur > 0 && u.commander === 'berserker') {
-            ctx.save();
-            const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
-            const rageAlpha = 0.25 + ragePulse * 0.35;
-            const rageR = HEX_SIZE + 3 + ragePulse * 5;
-            drawHexagonOutline(ctx, vx, vy, rageR, `rgba(255,40,0,${rageAlpha})`, 3);
-            drawHexagonOutline(ctx, vx, vy, rageR + 3, `rgba(255,100,40,${rageAlpha * 0.5})`, 1.5);
-            ctx.restore();
+        // 狂战士血怒辉光（已损生命值越多越明显，上限50层=75%HP损失）
+        if (u.commander === 'berserker' && u.hp < u.maxHp) {
+            const hpLostPct = ((u.maxHp - u.hp) / u.maxHp) * 100;
+            const stacks = Math.min(50, Math.floor(hpLostPct / 1.5));
+            if (stacks > 0) {
+                ctx.save();
+                const intensity = stacks / 50; // 0~1
+                const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
+                const rageAlpha = (0.15 + ragePulse * 0.25) * intensity;
+                const rageR = HEX_SIZE + 3 + ragePulse * 5 * intensity;
+                drawHexagonOutline(ctx, vx, vy, rageR, `rgba(255,40,0,${rageAlpha})`, 2 + intensity);
+                drawHexagonOutline(ctx, vx, vy, rageR + 3, `rgba(255,100,40,${rageAlpha * 0.5})`, 1 + intensity * 0.5);
+                ctx.restore();
+            }
         }
 
         // 铁卫护盾基底环（仅六边形外轮廓，glyph 保留在 Unit.draw 中）

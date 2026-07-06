@@ -4,7 +4,7 @@ export default {
   id: 'berserker',
   name: '狂战士',
   skill: '血怒',
-  hpBonus: 50, atkBonus: 0, spdBonus: 0,
+  hpBonusPct: 0.25, atkBonusPct: 0, spdBonus: 0,
   desc: '实时根据已损生命值计算加成：每损失1.5%生命 → +1%攻击力、+1%防御力（上限各50%）',
   tooltipDesc: '每损失1.5%HP → +1%ATK、+1%DEF（上限各50%）',
 

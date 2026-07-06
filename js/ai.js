@@ -170,10 +170,12 @@ async function _executeActionInner(action, aiCamp) {
             // 直接应用将领效果（绕过 UI 流程）
             unit.commander = cmdKey;
             unit._cmdrAssignedAt = performance.now();
-            unit.hp += cmdCfg.hpBonus || 0;
-            unit.maxHp += cmdCfg.hpBonus || 0;
+            const hpFlat = Math.round(unit.config.hp * (cmdCfg.hpBonusPct || 0));
+            const atkFlat = Math.round(unit.config.attack * (cmdCfg.atkBonusPct || 0));
+            unit.hp += hpFlat;
+            unit.maxHp += hpFlat;
             unit.displayHp = unit.hp;
-            unit._atkBonus = (unit._atkBonus || 0) + (cmdCfg.atkBonus || 0);
+            unit._atkBonus = (unit._atkBonus || 0) + atkFlat;
             unit.remainingMP += cmdCfg.spdBonus || 0;
             unit.displaySpeed += cmdCfg.spdBonus || 0;
             if (cmdCfg.onDeploy) {

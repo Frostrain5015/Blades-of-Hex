@@ -5,7 +5,7 @@ export default {
   id: 'advisor',
   name: '谋士',
   skill: '攻心',
-  hpBonus: 75, atkBonus: 0, spdBonus: 1,
+  hpBonusPct: 0.35, atkBonusPct: 0, spdBonus: 1,
   desc: '受到伤害时75%概率使攻击方永久士气-1，若攻击方士气已为0则直接感化为己方单位（将领单位无法被感化）；基础攻击力-20%',
   tooltipDesc: '受击时75%概率使攻击方士气-1，士气为0时感化为己方（将领除外）；ATK-20%',
 

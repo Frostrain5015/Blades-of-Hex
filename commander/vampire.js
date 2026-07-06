@@ -5,7 +5,7 @@ export default {
   id: 'vampire',
   name: '吸血鬼',
   skill: '嗜血',
-  hpBonus: 30, atkBonus: 25, spdBonus: 0,
+  hpBonusPct: 0.20, atkBonusPct: 0.45, spdBonus: 0,
   desc: '攻击造成伤害时随机回复伤害值30%~60%的生命值；溢出部分按50%转化为永久护盾（上限60）',
   tooltipDesc: '攻击回复伤害值30%~60%的生命，溢出部分50%转为护盾（上限60）',
 
@@ -24,6 +24,7 @@ export default {
         const newShield = Math.min(SHIELD_CAP, (unit._shield || 0) + shieldGain);
         shieldGain = newShield - (unit._shield || 0);
         unit._shield = newShield;
+        unit._shieldMax = Math.max(unit._shieldMax || 0, SHIELD_CAP);
         if (shieldGain > 0) {
           helpers.logMessage(`吸血鬼【嗜血】：溢出治疗转化为护盾+${shieldGain}（当前护盾${unit._shield}/${SHIELD_CAP}）`);
         }

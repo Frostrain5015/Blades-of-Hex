@@ -345,12 +345,15 @@ export const TACTICAL_CARD_CONFIG = {
             targetTile.unit._cmdrAssignedAt = performance.now();
             const cmdCfg = helpers.getCommander(cmdKey);
             if (cmdCfg) {
-                targetTile.unit.hp += cmdCfg.hpBonus || 0;
-                targetTile.unit.maxHp += cmdCfg.hpBonus || 0;
-                targetTile.unit.displayHp = targetTile.unit.hp;
-                targetTile.unit._atkBonus = (targetTile.unit._atkBonus || 0) + (cmdCfg.atkBonus || 0);
-                targetTile.unit.remainingMP += cmdCfg.spdBonus || 0;
-                targetTile.unit.displaySpeed += cmdCfg.spdBonus || 0;
+                const u = targetTile.unit;
+                const hpFlat = Math.round(u.config.hp * (cmdCfg.hpBonusPct || 0));
+                const atkFlat = Math.round(u.config.attack * (cmdCfg.atkBonusPct || 0));
+                u.hp += hpFlat;
+                u.maxHp += hpFlat;
+                u.displayHp = u.hp;
+                u._atkBonus = (u._atkBonus || 0) + atkFlat;
+                u.remainingMP += cmdCfg.spdBonus || 0;
+                u.displaySpeed += cmdCfg.spdBonus || 0;
             }
             if (cmdCfg && cmdCfg.onDeploy) {
                 cmdCfg.onDeploy(targetTile.unit, gameState, helpers);

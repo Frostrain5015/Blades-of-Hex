@@ -6,7 +6,7 @@ export default {
       { name: '老兵', desc: '晋升的速度+100%', type: 'passive' },
       { name: '乘胜', desc: '攻击时有30%概率行动力+3，击杀时必定触发（每回合最多1次）', type: 'passive' }
   ],
-  hpBonus: 0, atkBonus: 25, spdBonus: 1,
+  hpBonusPct: 0, atkBonusPct: 0.45, spdBonus: 1,
 
   onAttack(attacker, target, dmg, helpers) {
     if (attacker._centurionTriggered) return null;

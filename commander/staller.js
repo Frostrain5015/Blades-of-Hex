@@ -24,7 +24,7 @@ export default {
   id: 'staller',
   name: '停滞者',
   skill: '迟滞力场',
-  hpBonus: 60, atkBonus: 15, spdBonus: 0,
+  hpBonusPct: 0.30, atkBonusPct: 0.35, spdBonus: 0,
   desc: '2格力场：敌军移动消耗+2/步、敌远程射程-1、友军对远程攻击防御+15%',
   tooltipDesc: '2格力场：敌军减速+敌远程射程-1+友军远程防御+15%',
 
