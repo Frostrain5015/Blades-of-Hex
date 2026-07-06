@@ -778,7 +778,7 @@ export class Unit {
 
         // ③ 暴击/浮动乘区
         const phantomCrit = (attacker._phantomStacks || 0) * 0.10;
-        const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit;
+        const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit + (attacker._airCritRate || 0);
         const _rng = _gameState && _gameState.rng;
         const guaranteedCrit = isCommanderGuaranteedCrit(attacker) || (rankCrit > 0 && (_rng ? _rng.chance(rankCrit) : Math.random() < rankCrit));
         const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter, guaranteedCrit);

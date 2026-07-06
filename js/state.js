@@ -55,6 +55,7 @@ export const gameState = {
     weather: 'clear',
     lastWeather: null,
     weatherLockUntil: 0,  // E1: 占星者星移锁定天气至该回合
+    _starlightResume: false, // E1: 星移锁定结束后强制重新随机天气
     _cardOverrides: {},   // E3: 纵横家合纵卡牌覆盖 { campKey: { handSizeBonus, useBonus } }
     _soulMarks: [],       // E2: 亡灵法师亡魂标记 [{ q, r, campKey, bornAt }]
     _fuel: { player1: 0, player2: 0, player3: 0 },  // E4: 空军上校燃料
@@ -146,6 +147,7 @@ export function resetGameState() {
     gameState.weather = 'clear';
     gameState.lastWeather = null;
     gameState.weatherLockUntil = 0;
+    gameState._starlightResume = false;
     gameState._cardOverrides = {};
     gameState._soulMarks = [];
     gameState._fuel = { player1: 0, player2: 0, player3: 0 };
@@ -656,6 +658,7 @@ export function serializeState() {
         weather: gameState.weather,
         lastWeather: gameState.lastWeather,
         weatherLockUntil: gameState.weatherLockUntil || 0,
+        starlightResume: gameState._starlightResume || false,
         cardOverrides: gameState._cardOverrides || {},
         soulMarks: (gameState._soulMarks || []).map(m => ({ ...m })),
         fuel: { ...(gameState._fuel || {}) },
@@ -721,6 +724,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.weather = data.weather || 'clear';
     gameState.lastWeather = data.lastWeather || null;
     gameState.weatherLockUntil = data.weatherLockUntil || 0;
+    gameState._starlightResume = data.starlightResume || false;
     gameState._cardOverrides = data.cardOverrides || {};
     gameState._soulMarks = data.soulMarks || [];
     gameState._fuel = data.fuel || { player1: 0, player2: 0, player3: 0 };

@@ -616,6 +616,14 @@ function _updateWeather() {
     if (gameState.weatherLockUntil > 0 && getRoundIndex(gameState) < gameState.weatherLockUntil) {
         return;
     }
+    // E1 占星者星移锁定结束后首次更新：强制重新随机，避免 stale lastWeather
+    if (gameState._starlightResume) {
+        gameState._starlightResume = false;
+        const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
+        gameState.lastWeather = pool[gameState.rng ? gameState.rng.int(pool.length) : Math.floor(Math.random() * pool.length)];
+        gameState.weather = gameState.lastWeather;
+        return;
+    }
     const round = getRoundIndex(gameState);  // 0-indexed full round
     if (round < WEATHER_CYCLE.warmupRounds) {
         gameState.weather = 'clear';
@@ -2073,21 +2081,25 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             }
         }
         if (_colUnit) {
+            // E4 拔除独立倍率 → 改为临时暴击率补偿（走完整四乘区）
+            _colUnit._airCritRate = 0.75;
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
-                // 单点扫射：130% 倍率
-                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.3, 0, false, false, true);
+                // 单点扫射：走四乘区，75%暴击率补偿取代原1.3倍率
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, 0, false, false, true);
                 result.dmg = Math.round(_calc.dmg);
+                result.isCrit = _calc.isCrit;
             } else if (cardId === 'carpetBomb' && result.results) {
                 for (const _r of result.results) {
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
                     if (_ht && _ht.unit) {
                         const _isCenter = _r.q === targetTile.q && _r.r === targetTile.r;
-                        // 轰炸中心 100%，溅射 60%（以中心为基准）
                         const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, 0, false, false, true);
                         _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * 0.6);
+                        _r.isCrit = _calc.isCrit;
                     }
                 }
             }
+            _colUnit._airCritRate = 0;
         }
     }
 
@@ -2421,8 +2433,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const airstrikeResults = (cardId === 'airstrike') ? (result.results || []) : null;
     // E4 空军上校：diveStrafe/carpetBomb 伤害在本地 setTimeout 内结算，广播时状态尚未含伤害，
     // 故携带 result 供远端在自己的 setTimeout 内同样结算（对齐 lightning 的延迟结算模式）
-    const carpetBombResults = (cardId === 'carpetBomb') ? (result.results || []) : null;
-    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
+    const carpetBombResults = (cardId === 'carpetBomb') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg, isCrit: r.isCrit })) : null;
+    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
 
     // E3 纵横家连横：对方用卡后尝试复制
     if (gameState.tileMap && gameState._cardOverrides && !isCopyCard) {

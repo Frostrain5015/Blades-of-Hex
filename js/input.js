@@ -1090,30 +1090,35 @@ export function initSettingsPanel() {
     });
 }
 
-// E1 占星者：显示天气选择覆盖层
+// E1 占星者：显示天气选择覆盖层（存 unit.id 而非引用，防序列化后悬空指针）
 function _showWeatherChoice(unit) {
     const overlay = document.getElementById('weatherChoiceOverlay');
     if (!overlay) return;
     overlay.style.display = 'flex';
-    overlay._astrologerUnit = unit;
+    overlay._astrologerUnitId = unit ? unit.id : null;
 }
 
 // E1 占星者：应用天气选择
 function _applyWeatherChoice(chosenWeather) {
     const overlay = document.getElementById('weatherChoiceOverlay');
     if (!overlay) return;
-    const unit = overlay._astrologerUnit;
     overlay.style.display = 'none';
-    overlay._astrologerUnit = null;
+    // 通过 ID 重新查找 unit，防止网络同步后引用悬空
+    let unit = null;
+    if (overlay._astrologerUnitId != null) {
+        for (const t of gameState.tiles) {
+            if (t.unit && t.unit.id === overlay._astrologerUnitId) { unit = t.unit; break; }
+        }
+    }
+    overlay._astrologerUnitId = null;
     if (!unit) return;
 
-    // 锁定天气：保存当前天气为 lastWeather（确保循环恢复时不重复），设置新天气
-    gameState.lastWeather = gameState.weather;
+    // 锁定天气：不覆盖 lastWeather（让自然天气循环在锁定结束后干净恢复），设 resume 标记
     gameState.weather = chosenWeather;
-    // 锁定天气 1 回合：跳过下一次回合开始的天气循环（weatherLockUntil 为回合数, 0-indexed）
+    gameState._starlightResume = true;
     gameState.weatherLockUntil = getRoundIndex(gameState) + 2;
 
-    logMessage(`占星者【星移】：天气强制为${chosenWeather === 'clear' ? '晴' : chosenWeather === 'rain' ? '雨' : chosenWeather === 'fog' ? '雾' : '风'}，锁定1回合`);
+    logMessage(`占星者【星移】：天气强制为${chosenWeather === 'clear' ? '晴' : chosenWeather === 'rain' ? '雨' : chosenWeather === 'fog' ? '雾' : '风'}，锁定2回合`);
     spawnAstrologerEffect(unit.tile.x, unit.tile.y);
 
     // 设置CD
