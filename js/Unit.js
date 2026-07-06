@@ -560,6 +560,21 @@ export class Unit {
             ctx.restore();
         }
 
+        // ── E2 亡灵法师标记 💀 ──
+        if (this.commander === 'necromancer') {
+            ctx.save();
+            const necroY = visualY - HEX_SIZE * 0.55;
+            const necroPulse = (Math.sin(time * 3.5 * Math.PI) + 1) / 2;
+            ctx.fillStyle = `rgba(130,200,255,${0.5 + necroPulse * 0.3})`;
+            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#8844ff'; ctx.shadowBlur = 6;
+            ctx.fillText('💀', visualX, necroY);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
         // ── E1 占星者标记 🔮 ──
         if (this.commander === 'astrologer') {
             ctx.save();
@@ -936,6 +951,27 @@ export class Unit {
             const cmdInfo = getCommander(this.commander);
             log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
         }
+
+        // E2 亡灵法师留魂：非魂卒、非将领单位阵亡时留下亡魂标记
+        if (!this._isSoulMinion && !this.commander && this.tile && _gameState && _gameState.tileMap) {
+            // 检查是否有亡灵法师在场上
+            let hasNecromancer = false;
+            for (const t of _gameState.tiles) {
+                if (t.unit && t.unit.commander === 'necromancer' && t.unit.hp > 0) {
+                    hasNecromancer = true;
+                    break;
+                }
+            }
+            if (hasNecromancer) {
+                if (!_gameState._soulMarks) _gameState._soulMarks = [];
+                _gameState._soulMarks.push({
+                    q: this.tile.q, r: this.tile.r,
+                    campKey: ownKey,
+                    bornAt: _gameState.turnCounter
+                });
+            }
+        }
+
         // 记录己方阵营阵亡数（供殉道者挽歌被动使用）
         const ownKey = this.camp === CAMP.player1 ? 'player1' : this.camp === CAMP.player2 ? 'player2' : this.camp === CAMP.player3 ? 'player3' : null;
         if (ownKey) {

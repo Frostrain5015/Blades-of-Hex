@@ -418,6 +418,16 @@ function showTooltipForTile(tile) {
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
         }
 
+        // E2 亡灵法师留魂数量
+        if (unit.commander === 'necromancer' && gameState._soulMarks) {
+            const campKey = unit.camp === CAMP.player1 ? 'player1' : unit.camp === CAMP.player2 ? 'player2' : 'player3';
+            const myMarks = gameState._soulMarks.filter(m => m.campKey === campKey).length;
+            if (myMarks > 0) {
+                tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
+                    `<span style="color:#44ff88;">亡魂标记：${myMarks}个（3格内可牵引）</span>`;
+            }
+        }
+
         // E3 纵横家合纵状态
         if (unit.commander === 'diplomat' && gameState._cardOverrides) {
             const campKey = unit.camp === CAMP.player1 ? 'player1' : unit.camp === CAMP.player2 ? 'player2' : 'player3';

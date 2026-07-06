@@ -55,6 +55,7 @@ export const gameState = {
     lastWeather: null,
     weatherLockUntil: 0,  // E1: 占星者星移锁定天气至该回合
     _cardOverrides: {},   // E3: 纵横家合纵卡牌覆盖 { campKey: { handSizeBonus, useBonus } }
+    _soulMarks: [],       // E2: 亡灵法师亡魂标记 [{ q, r, campKey, bornAt }]
     // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
     // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
     // 使联机收方与重连保持一致。详见 core/rng.js。
@@ -147,6 +148,7 @@ export function resetGameState() {
     gameState.lastWeather = null;
     gameState.weatherLockUntil = 0;
     gameState._cardOverrides = {};
+    gameState._soulMarks = [];
     gameState.deselecting = false;
     gameState.deselectionTime = 0;
     gameState.deselectMoveTiles = [];
@@ -631,6 +633,7 @@ export function serializeState() {
             martyrPrimed: t.unit._martyrPrimed || false,
             elegyBonus: t.unit._elegyBonus || 0,
             elegyProcessed: t.unit._elegyProcessed || 0,
+            isSoulMinion: t.unit._isSoulMinion || false,
             shield: t.unit._shield || 0,
             shieldMax: t.unit._shieldMax || 0,
             shieldTurns: t.unit._shieldTurns || 0,
@@ -657,6 +660,7 @@ export function serializeState() {
         lastWeather: gameState.lastWeather,
         weatherLockUntil: gameState.weatherLockUntil || 0,
         cardOverrides: gameState._cardOverrides || {},
+        soulMarks: (gameState._soulMarks || []).map(m => ({ ...m })),
         rngState: gameState.rng.getState(),
         killCount: { ...gameState.killCount },
         friendlyDeathCount: { ...(gameState._friendlyDeathCount || {}) },
@@ -721,6 +725,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.lastWeather = data.lastWeather || null;
     gameState.weatherLockUntil = data.weatherLockUntil || 0;
     gameState._cardOverrides = data.cardOverrides || {};
+    gameState._soulMarks = data.soulMarks || [];
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
     if (data.rngState != null) gameState.rng.setState(data.rngState);
     if (data.killCount) gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0, ...data.killCount };
@@ -872,6 +877,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._martyrPrimed = td.unit.martyrPrimed || false;
             unit._elegyBonus = td.unit.elegyBonus || 0;
             unit._elegyProcessed = td.unit.elegyProcessed || 0;
+            unit._isSoulMinion = td.unit.isSoulMinion || false;
             unit._shield = td.unit.shield || 0;
             unit._shieldMax = td.unit.shieldMax || 0;
             unit._shieldTurns = td.unit.shieldTurns || 0;

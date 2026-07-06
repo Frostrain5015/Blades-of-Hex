@@ -98,6 +98,7 @@ export function renderGame() {
     drawIronGuardAura(now);
     // 单位六边形辉光（堕天使/铁卫/狂暴/禁锢/圣骑士/治愈灵光）—— 在立绘之前
     drawUnitHexAuras(now);
+    drawSoulMarks(now);
     // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
     drawCommanderPennants();
     // 圣骑士誓言剑环绕 — 更新位置 + 后半圈（被徽章遮挡）
@@ -1104,6 +1105,33 @@ function drawUnitHexAuras(now) {
                 ctx.restore();
             }
         }
+    }
+}
+
+// E2 亡灵法师——亡魂标记渲染
+function drawSoulMarks(now) {
+    if (!gameState._soulMarks || gameState._soulMarks.length === 0) return;
+    const time = now / 1000;
+    for (const mark of gameState._soulMarks) {
+        const tile = gameState.tileMap && gameState.tileMap.get(`${mark.q},${mark.r}`);
+        if (!tile) continue;
+        const vx = tile.x, vy = tile.y;
+        const alpha = 0.4 + Math.sin(time * 2 + mark.q) * 0.2;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.font = '18px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('👻', vx, vy);
+        ctx.restore();
+        // 绿色鬼火粒子（简化为闪烁圆形）
+        ctx.save();
+        const glowAlpha = 0.15 + Math.sin(time * 3) * 0.1;
+        ctx.fillStyle = `rgba(68,255,136,${glowAlpha})`;
+        ctx.beginPath();
+        ctx.arc(vx, vy - 2, HEX_SIZE * 0.25, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
     }
 }
 

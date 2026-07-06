@@ -654,6 +654,15 @@ function _expireTimedEffects() {
                 u._shieldMax = 0;
             }
         }
+        // E2 亡灵法师：亡魂标记老化（2回合后消失）
+        if (gameState._soulMarks && gameState._soulMarks.length > 0) {
+            const factionCount = gameState.isThreePlayer ? 4 : 3; // 同 _doEndTurnPhase
+            const roundNum = Math.floor(gameState.turnCounter / factionCount);
+            gameState._soulMarks = gameState._soulMarks.filter(m => {
+                const markAge = roundNum - m.bornAt;
+                return markAge < 2;
+            });
+        }
         if (u.activeSkillDur > 0) {
             u.activeSkillDur--;
             if (u.activeSkillDur <= 0) {

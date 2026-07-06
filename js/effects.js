@@ -1038,6 +1038,13 @@ export function drawCoinParticles(ctx2d) {
     }
 }
 
+// E2 亡灵法师魂卒唤起特效
+export function spawnNecromancerRaiseEffect(x, y) {
+    spawnExplosionParticles(x, y, '#44ff88', 15);
+    spawnExplosionParticles(x, y, '#8844ff', 10);
+    spawnCommanderSkillEffect(x, y, '💀', '回魂');
+}
+
 // E3 纵横家连横卡牌复制飞行特效
 export function spawnCardCopyEffect(fromX, fromY, toX, toY, cardId) {
     // 金色卡牌轮廓从用卡方飞向目标阵营手牌区
