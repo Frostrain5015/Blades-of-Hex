@@ -1,7 +1,7 @@
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
-import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp } from './state.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI } from './state.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
@@ -117,6 +117,13 @@ function _handleCardCanvasClick(e) {
             const useBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].useBonus || 0 : 0;
             if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
                 notify('本回合已达到使用上限', 'error'); return;
+            }
+            // E4 空军上校：进入选目标前先校验部署/燃料/雾天，避免卡在选目标态（否则会挡住买燃料）
+            if (COLONEL_CARDS[cardId]) {
+                if (!gameState._colonelDeployed || !gameState._colonelDeployed[campKey]) { notify('请先部署空军上校', 'error'); return; }
+                const fuelCost = cardId === 'diveStrafe' ? 2 : 3;
+                if ((gameState._fuel[campKey] || 0) < fuelCost) { notify('燃料不足', 'error'); return; }
+                if (gameState.weather === 'fog') { notify('雾天停飞，无法使用空军卡', 'error'); return; }
             }
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
             hideTooltip();
@@ -731,7 +738,9 @@ export function initInput() {
             } else if (ct.targeting === 'friendlyAlive') {
                 isValid = clickedTile.unit && clickedTile.unit.camp === myCamp && clickedTile.unit.canAct;
             } else if (ct.targeting === 'friendlyAny') {
-                isValid = clickedTile.unit && clickedTile.unit.camp === myCamp;
+                isValid = clickedTile.unit && clickedTile.unit.camp === myCamp
+                    // E4 空运：不能运送上校自己
+                    && !(ct.cardId === 'airlift' && clickedTile.unit.commander === 'colonel');
             } else if (ct.targeting === 'emptyTile') {
                 isValid = !clickedTile.unit;
             } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
@@ -749,7 +758,7 @@ export function initInput() {
                 isValid = true; // 侦察卡：全图任意地块均可选
             }
 
-            // E4 上校空军卡：目标须在上校航程内（防空区不阻挡，仅降伤）
+            // E4 上校空军卡：目标须在上校6格航程内（含空运拾取/落点；防空区不阻挡，仅降伤）
             if (isValid && COLONEL_CARDS[ct.cardId] && isColonelTargetBlocked(clickedTile, myCamp)) {
                 isValid = false;
             }

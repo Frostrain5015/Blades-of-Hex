@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, hexDistance } from './config.js';
 import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
@@ -1290,6 +1290,43 @@ function drawStallerZone(now) {
     }
 }
 
+// 逐格描出六边形区域外边界（行进虚线）。
+// insideFn(q,r) 判定某格是否属于该区域；邻格出界(地图边界)→不描，避免沿地图边缘画线。
+// 顶点角 60i-30，边 k(0..5) 连接顶点 k、k+1，朝向 60k°；轴向邻向→边序号见 NB。
+function _strokeHexRegionBorder(tiles, insideFn, now, pulse, outer, inner) {
+    const NB = [[1, 0, 0], [0, 1, 1], [-1, 1, 2], [-1, 0, 3], [0, -1, 4], [1, -1, 5]];
+    ctx.save();
+    ctx.beginPath();
+    for (const ht of tiles) {
+        for (const [ndq, ndr, ek] of NB) {
+            const nq = ht.q + ndq, nr = ht.r + ndr;
+            if (!gameState.tileMap.has(`${nq},${nr}`)) continue; // 出界 → 地图边界不描
+            if (insideFn(nq, nr)) continue;                       // 区域内 → 内部边不描
+            const a0 = (Math.PI / 180) * (60 * ek - 30);
+            const a1 = (Math.PI / 180) * (60 * (ek + 1) - 30);
+            ctx.moveTo(ht.x + HEX_SIZE * Math.cos(a0), ht.y + HEX_SIZE * Math.sin(a0));
+            ctx.lineTo(ht.x + HEX_SIZE * Math.cos(a1), ht.y + HEX_SIZE * Math.sin(a1));
+        }
+    }
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.setLineDash([14, 9]);
+    ctx.lineDashOffset = -(now / 22) % 23; // 行进虚线（marching ants）
+    ctx.strokeStyle = outer.color;
+    ctx.lineWidth = outer.w;
+    ctx.shadowColor = outer.glow;
+    ctx.shadowBlur = outer.blur;
+    ctx.stroke();
+    if (inner) {
+        ctx.strokeStyle = inner.color;
+        ctx.lineWidth = inner.w;
+        ctx.shadowBlur = 0;
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+}
+
 // ===== 范围涟漪展开 =====================
 function drawRangeApertures(now) {
     if (gameState.aiActing || !_isHumanTurn()) return;
@@ -1315,6 +1352,54 @@ function drawRangeApertures(now) {
         const isShield = ct.targeting === 'shieldTarget';
         const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain' || ct.targeting === 'emptyFriendlyLandmine';
         const isFriendly = ct.targeting === 'friendlyAlive' || ct.targeting === 'friendlyAny' || isShield;
+
+        // E4 上校空军卡：航程/防空覆盖层——画在目标高亮【之下】，避免边界目标与蓝圈叠加冲突
+        if (isColTargeting) {
+            const colonel = getColonelUnit(myCamp);
+            if (colonel && colonel.tile) {
+                const AR = ANTIAIR_RADIUS;
+                // 防空区并集（"q,r" 键）
+                const aaSet = new Set();
+                for (const t of gameState.tiles) {
+                    const u = t.unit;
+                    if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
+                    for (let dq = -AR; dq <= AR; dq++) {
+                        for (let dr = Math.max(-AR, -dq - AR); dr <= Math.min(AR, -dq + AR); dr++) {
+                            const nb = gameState.tileMap.get(`${t.q + dq},${t.r + dr}`);
+                            if (nb) aaSet.add(`${nb.q},${nb.r}`);
+                        }
+                    }
+                }
+                // 红色防空区填充
+                ctx.save();
+                ctx.globalAlpha = 0.10 + pulse * 0.06;
+                ctx.fillStyle = '#ff4636';
+                const aaTiles = [];
+                for (const key of aaSet) {
+                    const nb = gameState.tileMap.get(key);
+                    if (nb) { aaTiles.push(nb); hexPath(ctx, nb.x, nb.y, HEX_SIZE + 1); ctx.fill(); }
+                }
+                ctx.restore();
+                // 红色防空区外边界线
+                _strokeHexRegionBorder(aaTiles, (q, r) => aaSet.has(`${q},${r}`), now, pulse,
+                    { color: `rgba(255,80,70,${0.85 + pulse * 0.15})`, w: 3, glow: 'rgba(255,60,50,0.95)', blur: 12 + pulse * 6 },
+                    { color: `rgba(255,225,215,${0.5 + pulse * 0.3})`, w: 1.2 });
+                // 蓝色航程外边界线（地图边界处不描）
+                const R = COLONEL_AIR_RANGE, cq = colonel.tile.q, cr = colonel.tile.r;
+                const rangeTiles = [];
+                for (let dq = -R; dq <= R; dq++) {
+                    for (let dr = Math.max(-R, -dq - R); dr <= Math.min(R, -dq + R); dr++) {
+                        const ht = gameState.tileMap.get(`${cq + dq},${cr + dr}`);
+                        if (ht) rangeTiles.push(ht);
+                    }
+                }
+                const inRangeFn = (q, r) => Math.max(Math.abs(q - cq), Math.abs(r - cr), Math.abs((q + r) - (cq + cr))) <= R;
+                _strokeHexRegionBorder(rangeTiles, inRangeFn, now, pulse,
+                    { color: `rgba(120,200,255,${0.62 + pulse * 0.13})`, w: 2.6, glow: 'rgba(90,180,255,0.55)', blur: 7 + pulse * 4 },
+                    { color: `rgba(230,245,255,${0.4 + pulse * 0.2})`, w: 1 });
+            }
+        }
+
         for (const tile of gameState.tiles) {
             if (ct.targeting === 'enemyGlobal') {
                 if (!tile.unit) continue;
@@ -1345,8 +1430,10 @@ function drawRangeApertures(now) {
                 if (!isTileVisible(tile, viewingCamp, gameState)) continue;
             }
 
-            // E4 上校空军卡：超出航程的目标不高亮（防空区仍高亮，只是降伤）
+            // E4 上校空军卡：超出航程的目标不高亮（含空运；防空区仍高亮，只是降伤）
             if (isColTargeting && isColonelTargetBlocked(tile, myCamp)) continue;
+            // E4 空运：不能运送上校自己
+            if (ct.cardId === 'airlift' && tile.unit && tile.unit.commander === 'colonel') continue;
 
             let r, g, b;
             if (isHeal)       { r = 80;  g = 255; b = 100; }
@@ -1400,43 +1487,6 @@ function drawRangeApertures(now) {
                 ctx.stroke();
             }
             ctx.restore();
-        }
-
-        // E4 上校空军卡：最大航程蓝圈 + 敌方防空火力红圈
-        if (isColTargeting) {
-            const colonel = getColonelUnit(myCamp);
-            if (colonel && colonel.tile) {
-                // 一格像素步长：取上校任一相邻地块的像素距离（六格等距，方向无关）
-                let step = HEX_SIZE * Math.sqrt(3);
-                for (const [dq, dr] of HEX_NEIGHBORS) {
-                    const nb = gameState.tileMap.get(`${colonel.tile.q + dq},${colonel.tile.r + dr}`);
-                    if (nb) { step = Math.hypot(nb.x - colonel.tile.x, nb.y - colonel.tile.y); break; }
-                }
-                ctx.save();
-                // 蓝圈：最大航程
-                ctx.beginPath();
-                ctx.arc(colonel.tile.x, colonel.tile.y, step * COLONEL_AIR_RANGE, 0, Math.PI * 2);
-                ctx.strokeStyle = `rgba(80, 170, 255, ${0.45 + pulse * 0.35})`;
-                ctx.lineWidth = 3;
-                ctx.setLineDash([10, 8]);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                ctx.fillStyle = `rgba(80, 170, 255, ${0.05 + pulse * 0.04})`;
-                ctx.fill();
-                // 红圈：每个敌方防空火力单位的覆盖范围
-                for (const t of gameState.tiles) {
-                    const u = t.unit;
-                    if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
-                    ctx.beginPath();
-                    ctx.arc(t.x, t.y, step * ANTIAIR_RADIUS, 0, Math.PI * 2);
-                    ctx.strokeStyle = `rgba(255, 70, 60, ${0.5 + pulse * 0.35})`;
-                    ctx.lineWidth = 2.5;
-                    ctx.stroke();
-                    ctx.fillStyle = `rgba(255, 70, 60, ${0.08 + pulse * 0.05})`;
-                    ctx.fill();
-                }
-                ctx.restore();
-            }
         }
     }
 

@@ -1,6 +1,6 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
-import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
+import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
@@ -17,7 +17,7 @@ import {
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing, spawnCardUseEffect, spawnAirstrikeEffect,
     spawnGoldenBeam, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords, spawnPaladinOrbitBeams,
-    spawnHealingChain, spawnReinforceEffect
+    spawnHealingChain, spawnReinforceEffect, spawnCardCopyEffect
 } from './effects.js';
 import { playSound } from './audio.js';
 import { updateFogOfWar, isTileVisible, applyScoutReveal, expireScoutReveals } from './fogOfWar.js';
@@ -1185,8 +1185,6 @@ export function getAttackableTiles(unit) {
         if (gameState.weather === 'wind') bonus = Math.max(bonus, 1);
         range += bonus;
     }
-    // 停滞者迟滞力场：2格内敌方远程单位射程-1
-    range -= getCommanderRangeReduction(unit.tile, gameState.tileMap);
     range = Math.max(1, Math.min(4, range));
     const startTile = unit.tile;
     const targets = gameState.tiles.filter(tile =>
@@ -2010,12 +2008,12 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     if (isColonelCard) {
         // 部署前禁用
         if (!gameState._colonelDeployed || !gameState._colonelDeployed[campKey]) {
-            notify('请先部署空军上校', 'error'); return;
+            notify('请先部署空军上校', 'error'); cancelCardTargeting(); return;
         }
         // 燃料不足
         const fuelCost = cardId === 'diveStrafe' ? 2 : 3;
         if ((gameState._fuel[campKey] || 0) < fuelCost) {
-            notify('燃料不足', 'error'); return;
+            notify('燃料不足', 'error'); cancelCardTargeting(); return;
         }
         // 空运两段式：燃料延迟到第二段（选定目的地）才扣，避免取消白扣
         if (cardId !== 'airlift') {
@@ -2025,7 +2023,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     }
     // 雾天停飞（所有空军卡）
     if (isAirCard && gameState.weather === 'fog') {
-        notify('雾天停飞，无法使用空军卡', 'error'); return;
+        notify('雾天停飞，无法使用空军卡', 'error');
+        if (isColonelCard) cancelCardTargeting();
+        return;
     }
 
     // for damage/spawn/shield cards: save state, undo visual, re-apply after burn
@@ -2313,9 +2313,12 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     for (const r of cResults) {
                         const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                         if (!tile) continue;
-                        if (tile.unit) tile.unit.applyDamage(r.dmg, { source: 'ranged' });
                         spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
-                        gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
+                        // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）
+                        if (tile.unit) {
+                            tile.unit.applyDamage(r.dmg, { source: 'ranged' });
+                            gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
+                        }
                     }
                     triggerScreenShake(8, 400);
                 }, 1200);

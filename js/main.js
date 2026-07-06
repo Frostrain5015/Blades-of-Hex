@@ -2316,6 +2316,8 @@ async function handleRemoteAction(msg) {
                                 for (const r of cResults) {
                                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                                     if (!tile) continue;
+                                    spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                                    // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）
                                     if (tile.unit && r.dmg) {
                                         const dc = tile.unit.camp;
                                         const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
@@ -2323,9 +2325,8 @@ async function handleRemoteAction(msg) {
                                             const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
                                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
                                         }
+                                        gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                                     }
-                                    spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
-                                    gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                                 }
                                 triggerScreenShake(8, 400);
                             }, 1200);

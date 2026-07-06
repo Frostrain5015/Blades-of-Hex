@@ -1,4 +1,4 @@
-import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG } from './config.js';
+import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS } from './config.js';
 import { playSound } from './audio.js';
 
 // ===== 粒子系统 =====================
@@ -1090,7 +1090,7 @@ export const cardUseEffects = [];
 
 // isLocal: true=释放者(从手牌位置飞入), false=观战者(中央直接出现)
 export function spawnCardUseEffect(cardId, x, y, isLocal = false, fromX = 0, fromY = 0, displayName = null) {
-    const cfg = TACTICAL_CARD_CONFIG[cardId];
+    const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
     cardUseEffects.push({
         cardId, icon: cfg ? cfg.icon : '🃏', name: displayName || (cfg ? cfg.name : cardId),
         x, y, fromX, fromY, isLocal,
