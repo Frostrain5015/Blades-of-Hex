@@ -1038,6 +1038,17 @@ export function drawCoinParticles(ctx2d) {
     }
 }
 
+// E1 占星者星移特效：金色光柱 + 星辰爆裂
+export function spawnAstrologerEffect(x, y) {
+    // 金色星辰爆裂（双层：金色+蓝色）
+    spawnExplosionParticles(x, y, '#ffd700', 15);
+    spawnExplosionParticles(x, y, '#6688ff', 10);
+    // 光柱效果：从上方降下的金色粒子流
+    for (let i = 0; i < 12; i++) {
+        spawnExplosionParticles(x + (Math.random() - 0.5) * 20, y - 30 - Math.random() * 40, '#ffd700', 2);
+    }
+}
+
 // E5 补员特效：金币弹起 → 绿色治疗粒子
 export function spawnReinforceEffect(x, y, healAmt) {
     spawnCoinRain(x, y, 0.8);

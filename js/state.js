@@ -53,6 +53,7 @@ export const gameState = {
     surrenderedCamps: [],   // 三人模式中已投降的阵营
     weather: 'clear',
     lastWeather: null,
+    weatherLockUntil: 0,  // E1: 占星者星移锁定天气至该回合
     // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
     // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
     // 使联机收方与重连保持一致。详见 core/rng.js。
@@ -143,6 +144,7 @@ export function resetGameState() {
     gameState.surrenderedCamps = [];
     gameState.weather = 'clear';
     gameState.lastWeather = null;
+    gameState.weatherLockUntil = 0;
     gameState.deselecting = false;
     gameState.deselectionTime = 0;
     gameState.deselectMoveTiles = [];
@@ -651,6 +653,7 @@ export function serializeState() {
         idCounter: idCounter,
         weather: gameState.weather,
         lastWeather: gameState.lastWeather,
+        weatherLockUntil: gameState.weatherLockUntil || 0,
         rngState: gameState.rng.getState(),
         killCount: { ...gameState.killCount },
         friendlyDeathCount: { ...(gameState._friendlyDeathCount || {}) },
@@ -713,6 +716,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.logHistory = [...data.logHistory];
     gameState.weather = data.weather || 'clear';
     gameState.lastWeather = data.lastWeather || null;
+    gameState.weatherLockUntil = data.weatherLockUntil || 0;
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
     if (data.rngState != null) gameState.rng.setState(data.rngState);
     if (data.killCount) gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0, ...data.killCount };

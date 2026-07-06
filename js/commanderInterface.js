@@ -310,6 +310,15 @@ export function getCommanderRangeReduction(tile, tileMap) {
   return stallerDef.getRangeReduction(tile, tileMap);
 }
 
+// ---- 占星者星光力场（天气免疫） ----
+
+export function getCommanderWeatherImmunity(tile, camp, tileMap) {
+  if (!tileMap) return false;
+  const astrologerDef = getCommander('astrologer');
+  if (!astrologerDef || !astrologerDef.isInWeatherShield) return false;
+  return astrologerDef.isInWeatherShield(tile, camp, tileMap);
+}
+
 // 力场防御加成：友军在2格内停滞者力场中 → 对远程攻击+15%防御
 export function getCommanderFieldDefenseBonus(tile, friendlyCamp, tileMap) {
   if (!tileMap) return 0;

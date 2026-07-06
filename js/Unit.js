@@ -1,5 +1,5 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderFieldDefenseBonus, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderFieldDefenseBonus, getCommanderWeatherImmunity, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -544,6 +544,21 @@ export class Unit {
             ctx.restore();
         }
 
+        // ── E1 占星者标记 🔮 ──
+        if (this.commander === 'astrologer') {
+            ctx.save();
+            const astroPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
+            const astroY = visualY - HEX_SIZE * 0.55;
+            ctx.fillStyle = `rgba(180,160,255,${0.5 + astroPulse * 0.3})`;
+            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6;
+            ctx.fillText('🔮', visualX, astroY);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
         // ── New recruit label ──
         if (this.isNewRecruit) {
             ctx.save();
@@ -647,8 +662,9 @@ export class Unit {
             lo = 0.85; hi = 1.35;
         }
 
-        // 风天：炮兵无法暴击（浮动上限压至1.05）
-        if (gs && gs.weather === 'wind' && this.type === 'archer' && !isCounter) {
+        // 风天：炮兵无法暴击（占星者星光力场免疫）
+        if (gs && gs.weather === 'wind' && this.type === 'archer' && !isCounter
+            && !getCommanderWeatherImmunity(this.tile, this.camp, gs.tileMap)) {
             hi = Math.min(hi, 1.05);
         }
 
@@ -702,12 +718,14 @@ export class Unit {
         if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest')) {
             defSum += 0.20;
         }
-        // 风天：步兵阵线不稳，通用防御-20%（防御总和可为负，即转为敌方增伤）
-        if (_gameState.weather === 'wind' && defender.type === 'infantry') {
+        // 风天：步兵阵线不稳，通用防御-20%（占星者星光力场免疫）
+        if (_gameState.weather === 'wind' && defender.type === 'infantry'
+            && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum -= 0.20;
         }
-        // 雾天：骑兵借雾突袭，攻击无视目标15%防御力（与冲锋势能叠加）
-        if (_gameState.weather === 'fog' && attacker.type === 'cavalry') {
+        // 雾天：骑兵借雾突袭，攻击无视目标15%防御力（占星者星光力场免疫）
+        if (_gameState.weather === 'fog' && attacker.type === 'cavalry'
+            && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum -= 0.15;
         }
         if (defender.type === 'infantry' && defender.tile.isCity) defSum += 0.10;

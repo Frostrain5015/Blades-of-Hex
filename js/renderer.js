@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG, HEX_NEIGHBORS, pulseSine } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG, HEX_NEIGHBORS, pulseSine, getCommander } from './config.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -1059,6 +1059,39 @@ function drawUnitHexAuras(now) {
             drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 1,
                 `rgba(144,255,200,${healAlpha})`, 3);
             ctx.restore();
+        }
+
+        // E1 占星者星光力场（3格范围内友军淡蓝色星光罩）
+        if (u.commander === 'astrologer' && u.hp > 0 && gameState.tileMap) {
+            ctx.save();
+            const starPulse = (Math.sin(time * 2 * Math.PI) + 1) / 2;
+            // 占星者自身：金色星辰轨迹环绕
+            const starCount = 5;
+            for (let i = 0; i < starCount; i++) {
+                const angle = time * 0.5 + (i / starCount) * Math.PI * 2;
+                const r = HEX_SIZE * 0.7;
+                const sx = vx + Math.cos(angle) * r;
+                const sy = vy + Math.sin(angle) * r * 0.6;
+                ctx.fillStyle = `rgba(255,215,100,${0.5 + starPulse * 0.3})`;
+                ctx.font = '8px serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('✦', sx, sy);
+            }
+            ctx.restore();
+        }
+        // 星光力场内友军：淡蓝色六边形星光罩
+        if (u.commander !== 'astrologer' && u.hp > 0 && gameState.tileMap) {
+            const astrologerDef = getCommander('astrologer');
+            if (astrologerDef && astrologerDef.isInWeatherShield &&
+                astrologerDef.isInWeatherShield(tile, u.camp, gameState.tileMap)) {
+                ctx.save();
+                const shieldPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
+                const shieldAlpha = 0.08 + shieldPulse * 0.06;
+                drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 2,
+                    `rgba(100,150,255,${shieldAlpha})`, 1.5);
+                ctx.restore();
+            }
         }
     }
 }

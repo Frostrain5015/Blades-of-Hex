@@ -1,7 +1,7 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
@@ -602,6 +602,10 @@ function _nextActiveCamp(camp) {
 }
 
 function _updateWeather() {
+    // E1 占星者星移：锁定期间跳过天气循环
+    if (gameState.weatherLockUntil > 0 && gameState.turnCounter < gameState.weatherLockUntil) {
+        return;
+    }
     const round = Math.floor(gameState.turnCounter / _factionCount());  // 0-indexed full round
     if (round < WEATHER_CYCLE.warmupRounds) {
         gameState.weather = 'clear';
@@ -1105,7 +1109,9 @@ export function getMovableTiles(unit) {
             if (neighbor.unit) continue; // occupied → impassable
 
             let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
-            if (gameState.weather === 'rain' && unit.type === 'cavalry') stepCost += 1;
+            // 雨天骑兵步耗+1（占星者星光力场免疫）
+            if (gameState.weather === 'rain' && unit.type === 'cavalry'
+                && !getCommanderWeatherImmunity(neighbor, unit.camp, gameState.tileMap)) stepCost += 1;
             // 停滞者【缚足】：每层行动消耗+2
             const snareLayers = _getStallerSnareLayers(neighbor, friendlyCamp);
             if (snareLayers > 0) stepCost += snareLayers * 2;
@@ -1139,7 +1145,9 @@ export function getAttackableTiles(unit) {
     if (unit.morale === 0) return [];
     if (unit.commander === 'martyr' && unit._martyrPrimed) return [];
     let range = unit.config.range;
-    if (gameState.weather === 'fog' && unit.type === 'archer') range -= 1;
+    // 雾天炮兵射程-1（占星者星光力场免疫）
+    if (gameState.weather === 'fog' && unit.type === 'archer'
+        && !getCommanderWeatherImmunity(unit.tile, unit.camp, gameState.tileMap)) range -= 1;
     if (unit.type === 'archer') {
         let bonus = 0;
         if (unit.tile.terrain === 'mountain') bonus = 1;

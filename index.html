@@ -330,6 +330,17 @@
     <button id="tooltipReinforce" class="tooltip-skill-btn" style="display:none"></button>
 </div>
 
+<!-- E1 占星者星移天气选择 -->
+<div id="weatherChoiceOverlay" style="display:none;position:fixed;inset:0;z-index:25000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;flex-direction:column;">
+    <div style="color:#ffd700;font-size:18px;margin-bottom:16px;letter-spacing:4px;">⭐ 星移 — 选择天气</div>
+    <div style="display:flex;gap:16px;">
+        <button class="weather-choice-btn" data-weather="clear" style="padding:12px 24px;font-size:16px;background:#1a1a2e;color:#ffd700;border:1px solid #ffd700;border-radius:6px;cursor:pointer;">☀️ 晴</button>
+        <button class="weather-choice-btn" data-weather="rain" style="padding:12px 24px;font-size:16px;background:#1a1a2e;color:#5588cc;border:1px solid #5588cc;border-radius:6px;cursor:pointer;">🌧 雨</button>
+        <button class="weather-choice-btn" data-weather="fog" style="padding:12px 24px;font-size:16px;background:#1a1a2e;color:#bbccdd;border:1px solid #bbccdd;border-radius:6px;cursor:pointer;">🌫 雾</button>
+        <button class="weather-choice-btn" data-weather="wind" style="padding:12px 24px;font-size:16px;background:#1a1a2e;color:#88ccaa;border:1px solid #88ccaa;border-radius:6px;cursor:pointer;">💨 风</button>
+    </div>
+</div>
+
 <!-- 设置面板 -->
 <div id="settingsOverlay">
     <div id="settingsPanel">

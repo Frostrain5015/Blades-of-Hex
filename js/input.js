@@ -8,7 +8,7 @@ import {
     moveUnit, attackUnit, recruitUnit, endTurn,
     executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit
 } from './gameLogic.js';
-import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams } from './effects.js';
+import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 import { setMasterVolume, setMuted } from './audio.js';
 
@@ -414,6 +414,16 @@ function showTooltipForTile(tile) {
                 ? `<span style="color:#7eb8ff;">【守护灵光】防御力+10%</span>`
                 : `<span style="color:#7eb8ff;">【守护灵光】防御力+10%，伤害由铁卫护盾承担</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
+        }
+
+        // E1 占星者星光护体状态
+        if (unit.commander !== 'astrologer' && gameState.tileMap) {
+            const astroDef = getCommander('astrologer');
+            if (astroDef && astroDef.isInWeatherShield &&
+                astroDef.isInWeatherShield(unit.tile, unit.camp, gameState.tileMap)) {
+                tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
+                    `<span style="color:#aabbff;">✦ 星光护体（天气免疫）</span>`;
+            }
         }
 
         tooltipEl.style.borderColor = unit.camp.color;
@@ -971,6 +981,12 @@ export function initSettingsPanel() {
                 spawnFx: spawnCommanderSkillEffect,
                 spawnOrbitBeams: spawnPaladinOrbitBeams
             });
+            // E1 占星者星移：显示天气选择界面
+            if (unit._pendingWeatherChoice) {
+                unit._pendingWeatherChoice = false;
+                _showWeatherChoice(unit);
+                return; // 天气选择完成后再设置CD和广播
+            }
             unit.activeSkillDur = skill.duration;
             unit.activeSkillCD = skill.cooldown;
             recalcAllFlankingMorale();
@@ -993,4 +1009,54 @@ export function initSettingsPanel() {
             showTooltipForTile(unit.tile);
         });
     }
+
+    // E1 占星者星移天气选择按钮
+    const weatherBtns = document.querySelectorAll('.weather-choice-btn');
+    weatherBtns.forEach(btn => {
+        if (!btn._bound) {
+            btn._bound = true;
+            btn.addEventListener('click', () => {
+                const weather = btn.dataset.weather;
+                _applyWeatherChoice(weather);
+            });
+        }
+    });
+}
+
+// E1 占星者：显示天气选择覆盖层
+function _showWeatherChoice(unit) {
+    const overlay = document.getElementById('weatherChoiceOverlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    overlay._astrologerUnit = unit;
+}
+
+// E1 占星者：应用天气选择
+function _applyWeatherChoice(chosenWeather) {
+    const overlay = document.getElementById('weatherChoiceOverlay');
+    if (!overlay) return;
+    const unit = overlay._astrologerUnit;
+    overlay.style.display = 'none';
+    overlay._astrologerUnit = null;
+    if (!unit) return;
+
+    // 锁定天气：保存当前天气为 lastWeather（确保循环恢复时不重复），设置新天气
+    gameState.lastWeather = gameState.weather;
+    gameState.weather = chosenWeather;
+    // 锁定至下一个完整回合（所有阵营各走一次）
+    const factionCount = gameState.isThreePlayer ? 3 : 2;
+    gameState.weatherLockUntil = gameState.turnCounter + factionCount;
+
+    logMessage(`占星者【星移】：天气强制为${chosenWeather === 'clear' ? '晴' : chosenWeather === 'rain' ? '雨' : chosenWeather === 'fog' ? '雾' : '风'}，锁定1回合`);
+    spawnAstrologerEffect(unit.tile.x, unit.tile.y);
+
+    // 设置CD
+    const cmdCfg = getCommander(unit.commander);
+    if (cmdCfg && cmdCfg.activeSkill) {
+        unit.activeSkillCD = cmdCfg.activeSkill.cooldown;
+    }
+    unit.activeSkillDur = 0;
+    recalcAllFlankingMorale();
+    showTooltipForTile(unit.tile);
+    if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
 }

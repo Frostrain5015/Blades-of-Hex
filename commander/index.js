@@ -13,6 +13,7 @@ import fallenAngel from './fallenAngel.js';
 import magician from './magician.js';
 import paladin  from './paladin.js';
 import priest   from './priest.js';
+import astrologer from './astrologer.js';
 
 const allCommanders = {
   advisor,
@@ -26,7 +27,8 @@ const allCommanders = {
   fallenAngel,
   magician,
   paladin,
-  priest
+  priest,
+  astrologer
 };
 
 export { allCommanders };
