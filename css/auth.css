@@ -16,8 +16,8 @@
 /* ── Brand snowflake (top-left, no text) ─────────────── */
 .brand-snow {
   position: fixed;
-  top: 12px;
-  left: 14px;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: calc(14px + env(safe-area-inset-left, 0px));
   z-index: 20001;
   font-size: 2rem;
   line-height: 1;
@@ -84,8 +84,8 @@
 }
 
 .auth-inline-logout {
-  padding: 2px 8px;
-  font-size: 9px;
+  padding: 6px 12px;
+  font-size: 10px;
   letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--frost-dim);
