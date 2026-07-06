@@ -1,5 +1,5 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderFieldDefenseBonus, getCommanderWeatherImmunity, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -779,23 +779,22 @@ export class Unit {
         defSum += (defender._rankDefBonus || 0);
         defSum += MORALE_CONFIG[defender.morale].defBonus;
         defSum += getCommanderDefenseBonus(defender);
-        // 停滞者迟滞力场：2格内友军对远程攻击防御+15%
-        if (attacker.type === 'archer' || attacker.type === 'mgNest') {
-            defSum += getCommanderFieldDefenseBonus(defender.tile, defender.camp, _gameState && _gameState.tileMap);
-        }
-        // E4 防空火力：2格内每有1个己方炮兵/要塞→远程防御+15%，封顶3层（与森林加算）
+        // 停滞者力场 + 防空火力：2格内友军单位对远程攻击防御加成（统一计数器）
         if ((attacker.type === 'archer' || attacker.type === 'mgNest') && _gameState && _gameState.tileMap) {
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
             let aaCount = 0;
+            let hasStaller = false;
             for (const [dq, dr] of [...dirs, ...dirs2]) {
-                if (aaCount >= 3) break;
                 const nb = _gameState.tileMap.get(`${defender.tile.q + dq},${defender.tile.r + dr}`);
-                if (nb && nb.unit && nb.unit.camp === defender.camp && (nb.unit.type === 'archer' || nb.unit.type === 'mgNest')) {
-                    aaCount++;
+                if (!nb || !nb.unit || nb.unit.camp !== defender.camp) continue;
+                if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest') {
+                    if (aaCount < 3) aaCount++;
                 }
+                if (nb.unit.commander === 'staller' && !hasStaller) hasStaller = true;
             }
-            if (aaCount > 0) defSum += Math.min(3, aaCount) * 0.15;
+            if (hasStaller) defSum += 0.15;        // 停滞者力场：+15%
+            if (aaCount > 0) defSum += aaCount * 0.15; // 防空火力：每层+15%，封顶3层=45%
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         const defenseMulti = Math.max(0.1, 1 - defSum);
