@@ -387,7 +387,7 @@ export const TACTICAL_CARD_CONFIG = {
 export const COLONEL_CARDS = {
     diveStrafe: {
         id: 'diveStrafe', name: '俯冲扫射', icon: '💥',
-        desc: '【俯冲扫射 2🔥】\n对单体目标造成50-80伤害（生物）/20-35（装甲）',
+        desc: '【俯冲扫射 2🔥】\n对单体目标造成基于将领攻击力·三大乘区的伤害',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const isArmor = targetTile.unit.type === 'archer' || targetTile.unit.type === 'mgNest';
@@ -399,7 +399,7 @@ export const COLONEL_CARDS = {
     },
     carpetBomb: {
         id: 'carpetBomb', name: '地毯轰炸', icon: '💣',
-        desc: '【地毯轰炸 3🔥】\n对目标及相邻6格造成AOE伤害，装甲40-60/生物20-30',
+        desc: '【地毯轰炸 3🔥】\n对目标及相邻6格造成基于将领攻击力·三大乘区的AOE伤害',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];

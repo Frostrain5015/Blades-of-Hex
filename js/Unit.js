@@ -973,6 +973,12 @@ export class Unit {
     destroy(attackerUnit = null) {
         const log = _logMessage;
         if (this.commander) {
+            // 空军上校阵亡 → 禁用对应玩家的专属空军卡
+            if (this.commander === 'colonel' && _gameState && _gameState._colonelDeployed) {
+                const campKey = this.camp === CAMP.player1 ? 'player1' :
+                                this.camp === CAMP.player2 ? 'player2' : 'player3';
+                _gameState._colonelDeployed[campKey] = false;
+            }
             if (this.camp === CAMP.player1) _gameState.commanderP1 = null;
             else if (this.camp === CAMP.player2) _gameState.commanderP2 = null;
             else if (this.camp === CAMP.player3) _gameState.commanderP3 = null;

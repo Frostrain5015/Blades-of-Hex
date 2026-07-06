@@ -3189,6 +3189,9 @@ body {
     justify-content: center;
     align-items: center;
 }
+#loadingOverlay.hidden {
+    display: none;
+}
 .loading-content {
     display: flex;
     flex-direction: column;

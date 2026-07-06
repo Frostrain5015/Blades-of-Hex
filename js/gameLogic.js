@@ -1456,6 +1456,12 @@ export function attackUnit(attackerUnit, targetUnit) {
                 }
             }
             if (targetUnit.commander) {
+                // 空军上校阵亡 → 禁用对应玩家的空军卡
+                if (targetUnit.commander === 'colonel') {
+                    const defKey = targetUnit.camp === CAMP.player1 ? 'player1' :
+                                   targetUnit.camp === CAMP.player2 ? 'player2' : 'player3';
+                    if (gameState._colonelDeployed) gameState._colonelDeployed[defKey] = false;
+                }
                 const killerKey = attackerUnit.camp === CAMP.player1 ? 'player1' :
                                   attackerUnit.camp === CAMP.player2 ? 'player2' :
                                   attackerUnit.camp === CAMP.player3 ? 'player3' : 'neutral';
@@ -2026,6 +2032,31 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (colCfg) result = colCfg.execute(targetTile, gameState, helpers);
     } else {
         result = cfg.execute(targetTile, gameState, helpers);
+    }
+
+    // E4 空军上校：伤害与将领本人攻击力挂钩，走三大乘区
+    if (isColonelCard && (cardId === 'diveStrafe' || cardId === 'carpetBomb') && result) {
+        let _colUnit = null;
+        for (const _t of gameState.tiles) {
+            if (_t.unit && _t.unit.commander === 'colonel' && _t.unit.camp === myCamp && _t.unit.hp > 0) {
+                _colUnit = _t.unit; break;
+            }
+        }
+        if (_colUnit) {
+            if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.2, 0);
+                result.dmg = Math.round(_calc.dmg);
+            } else if (cardId === 'carpetBomb' && result.results) {
+                for (const _r of result.results) {
+                    const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
+                    if (_ht && _ht.unit) {
+                        const _isCenter = _r.q === targetTile.q && _r.r === targetTile.r;
+                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 0.85, 0);
+                        _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * 0.7);
+                    }
+                }
+            }
+        }
     }
 
     // E4 空运第一段：选单位后进入第二段选目的地
