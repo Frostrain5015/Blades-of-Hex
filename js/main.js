@@ -291,7 +291,7 @@ function showHome(msg) {
 }
 
 // ---- 将领立绘轮播 & GSAP 入场动画 ----
-let _heroCommanders = ['paladin','fallenAngel','vampire','berserker','magician','advisor','ironGuard','centurion','staller','martyr','priest','minister'];
+let _heroCommanders = ['paladin','fallenAngel','vampire','berserker','magician','advisor','ironGuard','centurion','staller','martyr','priest','minister','necromancer','astrologer','diplomat','colonel'];
 let _heroCarouselIdx = 0;
 let _heroCarouselTimer = null;
 let _heroCarouselReady = false;
