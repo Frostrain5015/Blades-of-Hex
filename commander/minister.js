@@ -1,6 +1,4 @@
 // 尚书 —— 屯田
-import { getRound } from '../js/config.js';
-
 export default {
   id: 'minister',
   name: '尚书',
@@ -13,7 +11,8 @@ export default {
     if (camp.name === '中立') return;
     const unit = helpers.findCommanderUnit(camp, 'minister');
     if (!unit || !unit.tile || !unit.tile.isCity) return;
-    const roundNum = getRound(gameState);  // 当前回合数(1-indexed)
+    const factionCount = gameState.isThreePlayer ? 4 : 3;
+    const roundNum = Math.floor(gameState.turnCounter / factionCount) + 1;  // 当前回合数(1-indexed)
     const gold = Math.min(roundNum, 12);
     helpers.addGold(gold);
     helpers.logMessage(`尚书【屯田】产出$${gold}`);

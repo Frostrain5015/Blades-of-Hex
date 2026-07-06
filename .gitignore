@@ -5,3 +5,6 @@ certs/
 commander_avatar_prompts.md
 start-admin-silent.vbs
 sounds_src/
+tools/deploy.js
+tools/deploy.local.js
+deploy.js.local
