@@ -8,13 +8,10 @@ import { spawnSoulRecallEffect } from '../js/effects.js';
 export default {
     id: 'necromancer',
     name: '亡灵法师',
-    skill: '留魂',
     hpBonusPct: 0.25, atkBonusPct: 0.10, spdBonus: 0,
-    desc: '己方单位阵亡时留下亡魂标记（3回合消失）；回合开始牵引3格内1个亡魂标记，原地唤起魂卒（40%HP/70%ATK，最多2个）',
-    tooltipDesc: '留魂：友军阵亡留亡魂标记（3回合）；回魂：牵引3格内亡魂→魂卒（40%HP/70%ATK，最多2个）',
     skills: [
-        { name: '留魂', desc: '己方单位阵亡后原地留下亡魂标记，3回合后消失', type: 'passive' },
-        { name: '回魂', desc: '己方回合开始牵引3格范围内1个亡魂标记，原地唤起魂卒（40%HP/70%ATK，场上最多2个）', type: 'passive' }
+        { name: '留魂', desc: '友军单位阵亡后在原地留下持续3回合的【亡魂】', type: 'passive' },
+        { name: '回魂', desc: '回合开始时自动牵引3格范围内最近的【亡魂】唤起【魂卒】，拥有原单位40%的生命值和70%的攻击力，场上最多存在2个魂卒', type: 'passive' }
     ],
 
     // 回魂：回合开始时牵引亡魂标记

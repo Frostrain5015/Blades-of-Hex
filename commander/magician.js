@@ -7,8 +7,10 @@ export default {
     hpBonusPct: 0.20,
     atkBonusPct: 0,
     spdBonus: 0,
-    desc: '克制时造成的伤害提高25%，被克制时受到的伤害降低15%，击杀敌方单位后变形为敌方兵种并保留剩余行动力，每层+3攻击力、+10%暴击率（最多6层）',
-    tooltipDesc: '克制+25%伤害，被克制-15%受伤，击杀变形保留行动力，每层+3ATK+10%暴击（最多6层）',
+    skills: [
+        { name: '千面', desc: '攻击克制目标时造成的伤害提高25%，被克制目标攻击时受到的伤害降低15%', type: 'passive' },
+        { name: '幻形', desc: '击杀敌方单位后变形为其兵种类型，获得1层【幻形】效果：攻击力+3、暴击率+10%，最多叠加6层', type: 'passive' }
+    ],
 
     onKill(killer, victim, helpers) {
         if (victim.type === killer.type || victim.type === 'mgNest') return null;

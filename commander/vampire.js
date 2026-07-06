@@ -6,8 +6,7 @@ export default {
   name: '吸血鬼',
   skill: '嗜血',
   hpBonusPct: 0.20, atkBonusPct: 0.45, spdBonus: 0,
-  desc: '攻击造成伤害时随机回复伤害值30%~60%的生命值；溢出部分按50%转化为永久护盾（上限60）',
-  tooltipDesc: '攻击回复伤害值30%~60%的生命，溢出部分50%转为护盾（上限60）',
+  desc: '攻击造成伤害时随机回复伤害值30%~60%的生命值（溢出部分按50%转化为护盾，上限60）',
 
   _getHeal(dmg, rng) {
     const ratio = rng ? rng.range(0.30, 0.60) : 0.30 + Math.random() * 0.30;

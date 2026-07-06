@@ -5,8 +5,8 @@ export default {
   name: '狂战士',
   skill: '血怒',
   hpBonusPct: 0.25, atkBonusPct: 0, spdBonus: 0,
-  desc: '实时根据已损生命值计算加成：每损失1.5%生命 → +1%攻击力、+1%防御力（上限各50%）',
-  tooltipDesc: '每损失1.5%HP → +1%ATK、+1%DEF（上限各50%）',
+  desc: '根据已损失生命值获得加成：每损失1.5%生命，攻击力与防御力各+1%（上限各50%）',
+  tooltipDesc: '每损失1.5%HP → ATK+1%、DEF+1%（各上限50%）',
 
   _getStacks(unit) {
     if (!unit || unit.hp >= unit.maxHp) return 0;

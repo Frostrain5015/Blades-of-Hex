@@ -8,11 +8,9 @@ export default {
     name: '纵横家',
     skill: '合纵',
     hpBonusPct: 0.30, atkBonusPct: 0.20, spdBonus: 0,
-    desc: '手牌上限+1、每回合用卡次数+1；处于敌方行政区时35%复制对方使用的对策卡',
-    tooltipDesc: '合纵：手牌+1/用卡+1；连横：敌区内35%复制对方卡牌（进手牌，用后不入弃牌堆）',
     skills: [
-        { name: '合纵', desc: '手牌上限+1，每回合用卡次数+1', type: 'passive' },
-        { name: '连横', desc: '处于敌方行政区时，对方每用一张对策卡35%概率获得同名复制（超上限不触发，用后不入弃牌堆）', type: 'passive' }
+        { name: '合纵', desc: '对策卡上限+1，每回合对策卡使用次数+1', type: 'passive' },
+        { name: '连横', desc: '处于非己方行政区时，有35%概率获得非己方使用的同名对策卡', type: 'passive' }
     ],
 
     // 部署时设置卡牌覆盖

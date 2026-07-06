@@ -24,8 +24,7 @@ export default {
   name: '停滞者',
   skill: '迟滞力场',
   hpBonusPct: 0.30, atkBonusPct: 0.35, spdBonus: 0,
-  desc: '2格力场：敌军移动消耗+2/步、友军对远程攻击防御+15%',
-  tooltipDesc: '2格力场：敌军减速+友军远程防御+15%',
+  desc: '自身2格范围内敌人每步移动力消耗+2，范围内友军单位对远程攻击防御+15%',
 
   // ── 缚足：返回该地块对 friendlyCamp 的束缚层数（0=无效果） ──
   getSnareLayers(tile, friendlyCamp, tileMap) {
