@@ -454,10 +454,12 @@ function handleMessage(ws, rawData) {
             ws._ready = false;
             if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
             sendJson(ws, { type: 'roomJoined', roomId, role, maxPlayers: room.maxPlayers || 2, playerCount: room.players.size });
-            // 通知房间内所有其他玩家（有人加入）
+            // 通知房间内所有其他玩家（有人加入）+ 通知新玩家已有对手
             for (const [playerWs, playerData] of room.players) {
                 if (playerWs !== ws && playerWs.readyState === WebSocket.OPEN) {
                     sendJson(playerWs, { type: 'opponentJoined', role: playerData.role });
+                    // 告知新加入者已有对手
+                    sendJson(ws, { type: 'opponentJoined', role: playerData.role });
                 }
             }
             const total = room.players.size;
@@ -470,8 +472,8 @@ function handleMessage(ws, rawData) {
             const room = ws._room;
             if (!room || room.gameStarted) break;
             ws._ready = false;
-            const other = [...room.players.keys()].find(p => p !== ws);
-            if (other) sendJson(other, { type: 'opponentUnready' });
+            const others = [...room.players.keys()].filter(p => p !== ws);
+            for (const o of others) sendJson(o, { type: 'opponentUnready' });
             break;
         }
 

@@ -1708,17 +1708,23 @@ function registerNetworkCallbacks() {
 
         onRoomCreated: (roomId, role, maxPlayers, playerCount) => {
             gameState.isThreePlayer = maxPlayers === 3;
+            _opponentCount = 0;
             showRoomWaiting(roomId, maxPlayers, playerCount || 1);
             _isReady = false;
+            _readyCount = 0;
             readyBtn.textContent = '准备';
+            readyBtn.classList.remove('cancel');
             readyBtn.style.background = '#27ae60';
         },
 
         onRoomJoined: (roomId, role, maxPlayers, playerCount) => {
             gameState.isThreePlayer = maxPlayers === 3;
+            _opponentCount = 0; // 由后续 opponentJoined 消息逐个累加，避免重复计数
             showRoomWaiting(roomId, maxPlayers, playerCount || 2);
             _isReady = false;
+            _readyCount = 0;
             readyBtn.textContent = '准备';
+            readyBtn.classList.remove('cancel');
             readyBtn.style.background = '#27ae60';
         },
 
@@ -1800,8 +1806,10 @@ function registerNetworkCallbacks() {
             roomWaitingText.textContent = '对手已离开，等待重连...';
             readyBtn.disabled = true;
             readyBtn.textContent = '准备';
+            readyBtn.classList.remove('cancel');
             readyBtn.style.background = '#27ae60';
             _isReady = false;
+            _readyCount = 0;
         },
 
         // 对手重连 → 服务器会同步暂存状态，仅通知
