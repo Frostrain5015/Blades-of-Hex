@@ -284,15 +284,46 @@ function showHome(msg) {
 }
 
 // ---- 将领立绘轮播 & GSAP 入场动画 ----
-const _heroCommanders = ['paladin','fallenAngel','vampire','berserker','magician','advisor','ironGuard','centurion','staller','martyr','priest','minister'];
+let _heroCommanders = ['paladin','fallenAngel','vampire','berserker','magician','advisor','ironGuard','centurion','staller','martyr','priest','minister'];
 let _heroCarouselIdx = 0;
 let _heroCarouselTimer = null;
 let _heroCarouselReady = false;
 
-function _startHeroCarousel() {
+// 预检立绘文件是否存在，过滤掉缺失图片的将领
+function _filterValidCommanders() {
+    return new Promise((resolve) => {
+        const list = _heroCommanders;
+        if (list.length === 0) { resolve([]); return; }
+        const valid = [];
+        let pending = list.length;
+        for (const cmdId of list) {
+            const cfg = COMMANDER_CONFIG[cmdId];
+            const name = cfg ? cfg.name : cmdId;
+            const img = new Image();
+            img.onload = () => { valid.push(cmdId); if (--pending === 0) resolve(valid); };
+            img.onerror = () => {
+                console.warn(`[轮播] 将领立绘不存在，跳过：${cmdId}`);
+                if (--pending === 0) resolve(valid);
+            };
+            img.src = `img/commander/${name}.jpg`;
+        }
+    });
+}
+
+async function _startHeroCarousel() {
     const frame = document.querySelector('.hero-portrait-frame');
     const dotsContainer = document.getElementById('heroCarouselDots');
     if (!frame || !dotsContainer) return;
+
+    // 过滤掉图片缺失的将领
+    _heroCommanders = await _filterValidCommanders();
+    if (_heroCommanders.length === 0) {
+        console.warn('[轮播] 所有将领立绘均缺失，停止轮播');
+        return;
+    }
+
+    // 重置索引（过滤后列表可能变短）
+    _heroCarouselIdx = 0;
 
     // 生成圆点
     dotsContainer.innerHTML = '';
@@ -313,6 +344,7 @@ function _startHeroCarousel() {
     // 自动轮播
     if (_heroCarouselTimer) clearInterval(_heroCarouselTimer);
     _heroCarouselTimer = setInterval(() => {
+        if (_heroCommanders.length === 0) return;
         _heroCarouselIdx = (_heroCarouselIdx + 1) % _heroCommanders.length;
         _showHeroSlide(_heroCarouselIdx, true);
         _updateHeroDots();
@@ -324,6 +356,7 @@ function _stopHeroCarousel() {
 }
 
 function _showHeroSlide(idx, animate) {
+    if (!_heroCommanders.length) return;
     const cmdId = _heroCommanders[idx];
     const cfg = COMMANDER_CONFIG[cmdId];
     const name = cfg ? cfg.name : cmdId;
@@ -347,16 +380,28 @@ function _showHeroSlide(idx, animate) {
         idleImg.classList.add('active');
         activeImg.classList.remove('active');
     };
+    preload.onerror = () => {
+        // 图片加载失败：跳过当前将领，换下一张
+        console.warn(`[轮播] 切换立绘失败：${cmdId}`);
+        const next = (idx + 1) % _heroCommanders.length;
+        if (next !== idx) {
+            _heroCarouselIdx = next;
+            _showHeroSlide(next, true);
+            _updateHeroDots();
+        }
+    };
     preload.src = src;
 }
 
 function _jumpHeroCarousel(idx) {
+    if (!_heroCommanders.length) return;
     _heroCarouselIdx = idx;
     _showHeroSlide(idx, true);
     _updateHeroDots();
     // 重置自动轮播计时
     if (_heroCarouselTimer) clearInterval(_heroCarouselTimer);
     _heroCarouselTimer = setInterval(() => {
+        if (_heroCommanders.length === 0) return;
         _heroCarouselIdx = (_heroCarouselIdx + 1) % _heroCommanders.length;
         _showHeroSlide(_heroCarouselIdx, true);
         _updateHeroDots();

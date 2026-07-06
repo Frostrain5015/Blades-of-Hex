@@ -1595,6 +1595,7 @@ const SLIDE_SPEED = 0.12; // lerp speed per frame (~60fps → completes in ~400m
 
 // draw pile state
 let _drawPileArmed = false;
+let _fuelBtnRect = null; // E4: 燃料购买按钮区域 { x, y, w, h, canBuy }
 let _drawPileArmTime = 0;
 const DRAW_ARM_TIMEOUT = 3000;
 let _flyingCard = null;
@@ -1842,6 +1843,40 @@ export function drawCardCanvas(now) {
         cctx.stroke();
         cctx.setLineDash([]);
         cctx.restore();
+    }
+
+    // E4 空军上校：燃料购买按钮替换抽牌堆
+    const isColonel = gameState['commander' + (campKey === 'player1' ? 'P1' : campKey === 'player2' ? 'P2' : 'P3')] === 'colonel';
+    _fuelBtnRect = null;
+    if (isColonel) {
+        const fuelBtnX = pileX, fuelBtnY = pileY, fuelBtnW = pileW, fuelBtnH = pileH;
+        const fuel = gameState._fuel?.[campKey] || 0;
+        const canBuyFuel = isMyTurn && gameState.playerGold[campKey] >= 3 && !gameState.cardTargeting;
+        cctx.fillStyle = '#14100a';
+        cctx.strokeStyle = canBuyFuel ? '#ff6600' : '#553322';
+        cctx.lineWidth = 2;
+        cctx.beginPath();
+        cctx.roundRect(fuelBtnX, fuelBtnY, fuelBtnW, fuelBtnH, 10);
+        cctx.fill();
+        cctx.stroke();
+        const cxF = fuelBtnX + fuelBtnW / 2, cyF = fuelBtnY + fuelBtnH / 2 - 10;
+        cctx.fillStyle = canBuyFuel ? '#ff8844' : '#553322';
+        cctx.font = '28px sans-serif';
+        cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
+        cctx.fillText('🔥', cxF, cyF);
+        cctx.font = 'bold 16px sans-serif';
+        cctx.fillStyle = '#ff6600';
+        cctx.fillText(`${fuel}`, cxF, cyF + 24);
+        if (canBuyFuel) {
+            cctx.fillStyle = 'rgba(255,102,0,0.12)';
+            cctx.beginPath();
+            cctx.roundRect(fuelBtnX + 4, fuelBtnY + fuelBtnH - 26, fuelBtnW - 8, 20, 4);
+            cctx.fill();
+            cctx.fillStyle = '#ff6600';
+            cctx.font = 'bold 10px sans-serif';
+            cctx.fillText('$3 +2🔥', cxF, fuelBtnY + fuelBtnH - 17);
+        }
+        _fuelBtnRect = { x: fuelBtnX, y: fuelBtnY, w: fuelBtnW, h: fuelBtnH, canBuy: canBuyFuel };
     }
 
     if (n === 0) return;
