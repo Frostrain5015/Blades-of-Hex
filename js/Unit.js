@@ -1013,6 +1013,16 @@ export class Unit {
                 const campKey = this.camp === CAMP.player1 ? 'player1' :
                                 this.camp === CAMP.player2 ? 'player2' : 'player3';
                 _gameState._colonelDeployed[campKey] = false;
+                // 上校阵亡：收回所有空军对策卡（仅保留部署卡，燃料保留作为部分退款）
+                if (_gameState.playerHands && _gameState.playerHands[campKey]) {
+                    const hand = _gameState.playerHands[campKey];
+                    for (let hi = hand.length - 1; hi >= 0; hi--) {
+                        const cid = typeof hand[hi] === 'object' ? hand[hi].id : hand[hi];
+                        if (cid === 'diveStrafe' || cid === 'carpetBomb' || cid === 'airlift') {
+                            hand.splice(hi, 1);
+                        }
+                    }
+                }
             }
             if (this.camp === CAMP.player1) _gameState.commanderP1 = null;
             else if (this.camp === CAMP.player2) _gameState.commanderP2 = null;

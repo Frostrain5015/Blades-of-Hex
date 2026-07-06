@@ -1846,6 +1846,7 @@ const SLIDE_SPEED = 0.12; // lerp speed per frame (~60fps → completes in ~400m
 // draw pile state
 let _drawPileArmed = false;
 let _fuelBtnRect = null; // E4: 燃料购买按钮区域 { x, y, w, h, canBuy }
+let _displayFuel = 0;    // E4: 燃料数字平滑过渡显示值
 let _drawPileArmTime = 0;
 const DRAW_ARM_TIMEOUT = 3000;
 let _flyingCard = null;
@@ -2101,6 +2102,11 @@ export function drawCardCanvas(now) {
     if (isColonel) {
         const fuelBtnX = pileX, fuelBtnY = pileY, fuelBtnW = pileW, fuelBtnH = pileH;
         const fuel = gameState._fuel?.[campKey] || 0;
+        // 燃料数字平滑过渡
+        if (_displayFuel === undefined) _displayFuel = fuel;
+        else if (Math.abs(_displayFuel - fuel) > 0.5) _displayFuel += (fuel - _displayFuel) * 0.12;
+        else _displayFuel = fuel;
+        const displayFuel = Math.round(_displayFuel);
         const canBuyFuel = isMyTurn && gameState.playerGold[campKey] >= 3 && !gameState.cardTargeting;
         cctx.fillStyle = '#14100a';
         cctx.strokeStyle = canBuyFuel ? '#ff6600' : '#553322';
@@ -2116,7 +2122,7 @@ export function drawCardCanvas(now) {
         cctx.fillText('🔥', cxF, cyF);
         cctx.font = 'bold 16px "Noto Serif SC", "Noto Serif CJK SC", serif';
         cctx.fillStyle = '#ff6600';
-        cctx.fillText(`${fuel}`, cxF, cyF + 24);
+        cctx.fillText(`${displayFuel}`, cxF, cyF + 24);
         if (canBuyFuel) {
             cctx.fillStyle = 'rgba(255,102,0,0.12)';
             cctx.beginPath();
@@ -2181,7 +2187,11 @@ export function drawCardCanvas(now) {
             continue;
         }
 
-        const disabled = !canUse || (isDeploy && alreadyDeployed);
+        // E4 上校空军卡：燃料不足时禁用
+        const isColCard = !!COLONEL_CARDS[cardId];
+        const fuelCost = cardId === 'diveStrafe' ? 2 : 3;
+        const hasFuel = !isColCard || (gameState._fuel?.[campKey] || 0) >= fuelCost;
+        const disabled = !canUse || (isDeploy && alreadyDeployed) || (isColCard && !hasFuel);
         drawOpts.disabled = disabled;
         _drawPokerCard(cctx, x, y, cardW, cardH, cfg, drawOpts);
     }

@@ -418,11 +418,11 @@ function initCardDeck() {
     for (const [key, cmdId] of [['player1', gameState.commanderP1], ['player2', gameState.commanderP2], ['player3', gameState.commanderP3]]) {
         if (cmdId === 'colonel') colonels[key] = true;
     }
-    // 上校初始手牌带部署卡：部署后空军卡启用（见 colonel 部署检查），
-    // 空军卡为燃料门控、不消耗（executeTacticalCard 不 splice），手牌恒为3张
-    // 故 >= maxHandSize，自然无法从共享牌堆抽普通牌，等效"牌库替换"。
+    // 上校初始手牌仅部署卡；部署后通过 onDeploy 发放 3 张空军卡
+    // 空军卡为燃料门控、不消耗（executeTacticalCard 不 splice），手牌固定为 3 张
     // 注意：cardDrawPile 为双方共享，切勿因上校清空，否则对手也抽不到牌。
-    const colonelHand = () => ['commanderDeploy', 'diveStrafe', 'carpetBomb', 'airlift'];
+    // 上校空军卡不占手牌上限，故使用独立计数，部署后再加入。
+    const colonelHand = () => ['commanderDeploy'];
     // 仅非上校玩家从共享牌堆摸初始牌（上校不摸，避免白白消耗共享牌）
     const freeCard1 = colonels.player1 ? null : gameState.cardDrawPile.pop();
     const freeCard2 = colonels.player2 ? null : gameState.cardDrawPile.pop();
