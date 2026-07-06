@@ -179,9 +179,9 @@ export function calcIncome(cityCount) {
 // 士气等级: 3=上升 2=正常 1=下降 0=混乱
 // 士气增伤走「增伤乘区」（与克制/冲锋等加算），士气防御走「防御乘区」
 export const MORALE_CONFIG = {
-    3: { name: '士气上升', dmgBonus: 0.15,  defBonus: 0.05,  icon: '▲', color: '#ffd700', desc: '造成的伤害提高15%，防御力+5%' },
+    3: { name: '士气上升', dmgBonus: 0.20,  defBonus: 0.10,  icon: '▲', color: '#ffd700', desc: '造成的伤害提高20%，防御力+10%' },
     2: { name: '正常',     dmgBonus: 0,     defBonus: 0,     icon: '',   color: '#aaa',    desc: '' },
-    1: { name: '士气下降', dmgBonus: -0.20, defBonus: -0.05, icon: '▼', color: '#b080e8', desc: '造成的伤害降低20%，防御力−5%' },
+    1: { name: '士气下降', dmgBonus: -0.20, defBonus: -0.10, icon: '▼', color: '#b080e8', desc: '造成的伤害降低20%，防御力−10%' },
     0: { name: '混乱',     dmgBonus: -1.00, defBonus: -0.15, icon: '？', color: '#666',    desc: '无法操控且无法造成伤害，防御力−15%' }
 };
 
