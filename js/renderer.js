@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG, HEX_NEIGHBORS, pulseSine, getCommander } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG, HEX_NEIGHBORS, pulseSine, getCommander, getRoundIndex, COLONEL_CARDS } from './config.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -114,7 +114,7 @@ export function renderGame() {
     // City disabled indicator (same layer as Iron Guard shield)
     for (let i = 0, len = tiles.length; i < len; i++) {
         const tile = tiles[i];
-        if (!tile.isCity || !tile._cityDisabledUntil || tile._cityDisabledUntil < gameState.turnCounter) continue;
+        if (!tile.isCity || !tile._cityDisabledUntil || tile._cityDisabledUntil <= getRoundIndex(gameState)) continue;
         const pulse = (Math.sin(now / 400) + 1) / 2;
         ctx.save();
         ctx.font = '18px sans-serif';
@@ -1906,7 +1906,7 @@ export function drawCardCanvas(now) {
         const cardId = typeof cardEntry === 'object' ? cardEntry.id : cardEntry;
         const isCopyCard = typeof cardEntry === 'object' && cardEntry._copy;
         if (_flyingCard && i === n - 1 && cardId === _flyingCard.cardId) continue;
-        let cfg = TACTICAL_CARD_CONFIG[cardId];
+        let cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
         if (!cfg) continue;
         // 部署将领显示所选将领名 + 头像
         let deployCmdId = null;

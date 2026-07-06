@@ -1,4 +1,4 @@
-import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, COMMANDER_CONFIG, shuffleAndSplitPool, invalidateBoard } from './config.js';
+import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, COMMANDER_CONFIG, shuffleAndSplitPool, invalidateBoard, getRoundIndex } from './config.js';
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
@@ -127,8 +127,8 @@ requestAnimationFrame(gameLoop);
 // 首次进入大厅时后台预加载所有将领头像，避免对局中慢加载
 preloadPortraits();
 
-// 启动首页将领立绘轮播
-requestAnimationFrame(() => _startHeroCarousel());
+// 启动首页将领立绘轮播（异步：内部会预检立绘存在性，失败静默跳过）
+requestAnimationFrame(() => { _startHeroCarousel().catch(err => console.warn('[轮播] 启动失败:', err)); });
 
 // 初始化聊天系统（事件绑定，仅一次）
 _initChat();
@@ -2270,7 +2270,7 @@ async function handleRemoteAction(msg) {
                                 }
                                 if (e.q != null) {
                                     const tgtTile = gameState.tileMap.get(`${e.q},${e.r}`);
-                                    if (tgtTile) tgtTile._cityDisabledUntil = (gameState.turnCounter || 0) + (gameState.isThreePlayer ? 3 : 2);
+                                    if (tgtTile) tgtTile._cityDisabledUntil = getRoundIndex(gameState) + 2;
                                 }
                                 triggerScreenShake(6, 300);
                             }, 1200);

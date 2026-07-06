@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG, UNIT_CONFIG } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG, UNIT_CONFIG, COLONEL_CARDS, getRoundIndex, getFactionCount } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp } from './state.js';
 import { isTileVisible } from './fogOfWar.js';
@@ -61,9 +61,10 @@ function _handleCardCanvasClick(e) {
             return;
         }
 
-        // 普通抽牌
+        // 普通抽牌（E3 纵横家合纵：手牌上限覆盖）
         const _dcCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
-        if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize ||
+        const handSizeBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].handSizeBonus || 0 : 0;
+        if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + handSizeBonus ||
             gameState.playerGold[campKey] < _dcCost ||
             gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
             return;
@@ -86,7 +87,9 @@ function _handleCardCanvasClick(e) {
 
     // search from top card down
     for (let i = n - 1; i >= 0; i--) {
-        const cfg = TACTICAL_CARD_CONFIG[hand[i]];
+        const cardEntry0 = hand[i];
+        const cardId0 = typeof cardEntry0 === 'object' ? cardEntry0.id : cardEntry0;
+        const cfg = TACTICAL_CARD_CONFIG[cardId0] || COLONEL_CARDS[cardId0];
         if (!cfg) continue;
         const bx = cxBase2 + (n - 1 - i) * peekW;
         const by = cyBase2;
@@ -108,8 +111,10 @@ function _handleCardCanvasClick(e) {
                 cancelCardTargeting();
                 return;
             }
-            if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn) {
-                notify('本回合已达到使用上限（2次）', 'error'); return;
+            // E3 纵横家合纵：用卡次数上限覆盖
+            const useBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].useBonus || 0 : 0;
+            if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
+                notify('本回合已达到使用上限', 'error'); return;
             }
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
             hideTooltip();
@@ -500,8 +505,8 @@ function showTooltipForTile(tile) {
         if (isCity) {
             const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : tile.camp === CAMP.player3 ? '绿军' : '中立';
             terrainDesc = `由${ownerName}控制`;
-            if (tile._cityDisabledUntil > 0 && tile._cityDisabledUntil >= gameState.turnCounter) {
-                terrainDesc += ' 🚫 遭到空袭，本回合无法产金或招募';
+            if (tile._cityDisabledUntil > 0 && tile._cityDisabledUntil > getRoundIndex(gameState)) {
+                terrainDesc += ' 🚫 遭到空袭，无法产金或招募';
             }
         } else {
             terrainDesc = `防御+${Math.round(tc.defenseBonus * 100)}%`;
@@ -1088,9 +1093,8 @@ function _applyWeatherChoice(chosenWeather) {
     // 锁定天气：保存当前天气为 lastWeather（确保循环恢复时不重复），设置新天气
     gameState.lastWeather = gameState.weather;
     gameState.weather = chosenWeather;
-    // 锁定至下一个完整回合（所有阵营各走一次）
-    const factionCount = gameState.isThreePlayer ? 3 : 2;
-    gameState.weatherLockUntil = gameState.turnCounter + factionCount;
+    // 锁定天气 1 回合：跳过下一次回合开始的天气循环（weatherLockUntil 为回合数, 0-indexed）
+    gameState.weatherLockUntil = getRoundIndex(gameState) + 2;
 
     logMessage(`占星者【星移】：天气强制为${chosenWeather === 'clear' ? '晴' : chosenWeather === 'rain' ? '雨' : chosenWeather === 'fog' ? '雾' : '风'}，锁定1回合`);
     spawnAstrologerEffect(unit.tile.x, unit.tile.y);

@@ -69,7 +69,8 @@ export default {
           if (u && u.camp === unit.camp && u.morale !== 0 && u.morale < 3) {
             const oldM = u.morale;
             u.morale = Math.min(3, u.morale + 1);
-            if (u.morale === 3) u.moraleBoostUntil = gameState.turnCounter + 6;
+            // 士气上升持续2回合（moraleBoostUntil 为回合数, 0-indexed）
+            if (u.morale === 3) u.moraleBoostUntil = Math.floor(gameState.turnCounter / (gameState.isThreePlayer ? 4 : 3)) + 2;
             if (u.morale !== oldM) {
               helpers.spawnMoraleEffect(u);
             }

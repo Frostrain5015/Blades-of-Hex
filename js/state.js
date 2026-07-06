@@ -1,4 +1,4 @@
-import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE } from './config.js';
+import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE, getRound } from './config.js';
 import { nextId, getCounter, setCounter } from './uid.js';
 import { computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
@@ -508,8 +508,7 @@ export function logMessage(msg) {
 export function updateStatsPanel() {
     const content = document.getElementById('statsContent');
     if (!content) return;
-    const factionCount = gameState.isThreePlayer ? 4 : 3;
-    const turnNum = Math.floor(gameState.turnCounter / factionCount) + 1;
+    const turnNum = getRound(gameState);
     content.innerHTML = `
         <div class="stat-turn-num" style="font-size:48px;font-weight:bold;text-align:center;line-height:1.2;">${turnNum}</div>
         <div class="stat-turn-label" style="text-align:center;">回合</div>

@@ -2,6 +2,7 @@
 // 选将时替换牌库为3张空军卡，部署前禁用
 // 燃料：每5回合发2点，可花$3买2点
 // 雾天停飞
+import { CAMP } from '../js/config.js';
 
 export default {
     id: 'colonel',
@@ -16,8 +17,8 @@ export default {
     ],
 
     onDeploy(unit, gameState, helpers) {
-        const campKey = unit.camp === (typeof CAMP !== 'undefined' ? CAMP.player1 : null)
-            ? 'player1' : unit.camp === (typeof CAMP !== 'undefined' ? CAMP.player2 : null) ? 'player2' : 'player3';
+        const campKey = unit.camp === CAMP.player1 ? 'player1'
+            : unit.camp === CAMP.player2 ? 'player2' : 'player3';
         if (!gameState._colonelDeployed) gameState._colonelDeployed = {};
         gameState._colonelDeployed[campKey] = true;
         if (!gameState._fuel) gameState._fuel = { player1: 0, player2: 0, player3: 0 };

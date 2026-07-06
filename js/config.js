@@ -105,6 +105,22 @@ export function hexDistance(a, b) {
     return (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.s - b.s)) / 2;
 }
 
+// ==== 回合计数 =====================
+// turnCounter 每切换一个阵营 +1（步）。1 回合 = 所有阵营各行动一次。
+// factionCount 含中立：双人 3、三人 4。
+// getFactionCount(): 一回合包含的阵营数（步数）
+// getRound(): 当前回合数，1-indexed（用于 UI/文案/尚书产出等）
+// getRoundIndex(): 当前回合数，0-indexed（用于内部到期比较）
+export function getFactionCount(gameState) {
+    return gameState.isThreePlayer ? 4 : 3;
+}
+export function getRoundIndex(gameState) {
+    return Math.floor(gameState.turnCounter / getFactionCount(gameState));
+}
+export function getRound(gameState) {
+    return getRoundIndex(gameState) + 1;
+}
+
 // Axial hex neighbor offsets (q, r)
 export const HEX_NEIGHBORS = [
     [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]
@@ -307,7 +323,8 @@ export const TACTICAL_CARD_CONFIG = {
                     results.push({ q: ht.q, r: ht.r, dmg, killed: ht.unit.hp <= 0 });
                 }
                 if (isCity) {
-                    ht._cityDisabledUntil = (gameState.turnCounter || 0) + (gameState.isThreePlayer ? 3 : 2);
+                    // 城市瘫痪 2 回合：存储到期回合数(0-indexed)，active 判定 > 当前回合
+                    ht._cityDisabledUntil = getRoundIndex(gameState) + 2;
                 }
             }
             return { airstrike: true, targetTile, results, dmgBase };

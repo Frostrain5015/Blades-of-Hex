@@ -1,4 +1,4 @@
-import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS } from './config.js';
+import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
@@ -92,11 +92,11 @@ export class Unit {
     // 格式：{ label, desc, color, remaining }
     getTimedEffects(gameState) {
         const effects = [];
-        const currentTurn = gameState ? gameState.turnCounter : 0;
+        const curRound = gameState ? getRoundIndex(gameState) : 0;
 
-        // 击杀士气上升
-        if (this.morale === 3 && this.moraleBoostUntil > currentTurn) {
-            const remainingRounds = Math.ceil((this.moraleBoostUntil - currentTurn) / 3);
+        // 击杀士气上升（moraleBoostUntil 为回合数, 0-indexed）
+        if (this.morale === 3 && this.moraleBoostUntil > curRound) {
+            const remainingRounds = this.moraleBoostUntil - curRound;
             effects.push({
                 label: MORALE_CONFIG[3].name,
                 desc: MORALE_CONFIG[3].desc,
@@ -980,6 +980,9 @@ export class Unit {
             log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
         }
 
+        // 己方阵营 key（供留魂标记 + 殉道者挽歌被动共用）
+        const ownKey = this.camp === CAMP.player1 ? 'player1' : this.camp === CAMP.player2 ? 'player2' : this.camp === CAMP.player3 ? 'player3' : null;
+
         // E2 亡灵法师留魂：非魂卒、非将领单位阵亡时留下亡魂标记
         if (!this._isSoulMinion && !this.commander && this.tile && _gameState && _gameState.tileMap) {
             // 检查是否有亡灵法师在场上
@@ -995,13 +998,12 @@ export class Unit {
                 _gameState._soulMarks.push({
                     q: this.tile.q, r: this.tile.r,
                     campKey: ownKey,
-                    bornAt: _gameState.turnCounter
+                    bornAt: getRoundIndex(_gameState)  // 回合数(0-indexed)，与老化检查一致
                 });
             }
         }
 
         // 记录己方阵营阵亡数（供殉道者挽歌被动使用）
-        const ownKey = this.camp === CAMP.player1 ? 'player1' : this.camp === CAMP.player2 ? 'player2' : this.camp === CAMP.player3 ? 'player3' : null;
         if (ownKey) {
             if (!_gameState._friendlyDeathCount) _gameState._friendlyDeathCount = {};
             _gameState._friendlyDeathCount[ownKey] = (_gameState._friendlyDeathCount[ownKey] || 0) + 1;

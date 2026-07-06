@@ -1,6 +1,7 @@
 // 纵横家 —— 合纵 + 连横
 // 被动【合纵】：手牌上限+1、每回合用卡次数+1
 // 被动【连横】：处于敌方行政区内时，对方玩家每使用一张对策卡35%概率使本阵营获得同名复制
+import { CAMP } from '../js/config.js';
 
 export default {
     id: 'diplomat',
@@ -17,35 +18,9 @@ export default {
     // 部署时设置卡牌覆盖
     onDeploy(unit, gameState, helpers) {
         if (!gameState._cardOverrides) gameState._cardOverrides = {};
-        const campKey = unit.camp === gameState.camp?.player1 ? 'player1'
-                      : unit.camp === gameState.camp?.player2 ? 'player2' : 'player3';
+        const campKey = unit.camp === CAMP.player1 ? 'player1'
+                      : unit.camp === CAMP.player2 ? 'player2' : 'player3';
         gameState._cardOverrides[campKey] = { handSizeBonus: 1, useBonus: 1 };
-    },
-
-    // 连横检查：在 executeTacticalCard 结束后由外部调用
-    checkCardCopy(usedCardId, userCamp, gameState, helpers) {
-        if (!gameState.tileMap) return;
-        const campKeys = Object.keys(gameState._cardOverrides || {});
-        for (const ck of campKeys) {
-            // 找到纵横家所属阵营
-            const dipCamp = ck === 'player1' ? gameState.camp?.player1
-                          : ck === 'player2' ? gameState.camp?.player2 : gameState.camp?.player3;
-            if (!dipCamp) continue;
-            // 纵横家单位
-            const dipUnit = helpers.findCommanderUnit(dipCamp, 'diplomat');
-            if (!dipUnit || !dipUnit.tile || dipUnit.hp <= 0) continue;
-            // 检查纵横家是否在对方（用卡方）行政区内
-            const tile = dipUnit.tile;
-            if (tile.camp !== userCamp) continue; // 不在敌区内
-            // 35%概率复制
-            if (!(gameState.rng ? gameState.rng.chance(0.35) : Math.random() < 0.35)) continue;
-            // 检查手牌是否已满
-            const hand = gameState.playerHands[ck] || [];
-            const maxHand = (gameState._cardSystemConfig?.maxHandSize || 3) + (gameState._cardOverrides[ck]?.handSizeBonus || 0);
-            if (hand.length >= maxHand) continue;
-            // 添加复制卡（标记 _copy: true）
-            hand.push({ id: usedCardId, _copy: true });
-            helpers.logMessage(`纵横家【连横】：${ck}获得${usedCardId}的复制`);
-        }
     }
+    // 连横复制逻辑内联在 gameLogic.js executeTacticalCard 尾部（见 E3 纵横家连横）
 };

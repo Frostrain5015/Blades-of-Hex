@@ -1,4 +1,4 @@
-﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS } from './config.js';
+﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
@@ -571,8 +571,6 @@ function _showTurnTransition(camp) {
     });
 }
 
-function _factionCount() { return gameState.isThreePlayer ? 4 : 3; }
-
 // 三人模式中跳过已投降阵营，切换到下一个活跃阵营
 function _skipToNextActiveCamp(fromCamp) {
     const order = [CAMP.player1, CAMP.player2, CAMP.player3, CAMP.neutral];
@@ -612,10 +610,10 @@ function _nextActiveCamp(camp) {
 
 function _updateWeather() {
     // E1 占星者星移：锁定期间跳过天气循环
-    if (gameState.weatherLockUntil > 0 && gameState.turnCounter < gameState.weatherLockUntil) {
+    if (gameState.weatherLockUntil > 0 && getRoundIndex(gameState) < gameState.weatherLockUntil) {
         return;
     }
-    const round = Math.floor(gameState.turnCounter / _factionCount());  // 0-indexed full round
+    const round = getRoundIndex(gameState);  // 0-indexed full round
     if (round < WEATHER_CYCLE.warmupRounds) {
         gameState.weather = 'clear';
         return;
@@ -634,14 +632,14 @@ function _updateWeather() {
     }
 }
 
-// 限时效果到期检查（每轮 P1 开始时调用一次）
+// 限时效果到期检查（每回合 P1 开始时调用一次）
 function _expireTimedEffects() {
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
         const u = tile.unit;
 
-        // 击杀士气上升到期 → 恢复正常（全局处理）
-        if (u.morale === 3 && u.moraleBoostUntil <= gameState.turnCounter) {
+        // 击杀士气上升到期 → 恢复正常（全局处理）；moraleBoostUntil 为回合数(0-indexed)
+        if (u.morale === 3 && u.moraleBoostUntil <= getRoundIndex(gameState)) {
             u.morale = 2; // setter 自动 triggerCommanderOnMoraleChange
             spawnMoraleEffect(u);
         }
@@ -652,7 +650,7 @@ function _expireTimedEffects() {
             u._healingAura--;
         }
 
-        // 全局每轮倒计时（不区分阵营，因为本函数每轮仅调用一次）
+        // 全局每回合倒计时（不区分阵营，因为本函数每回合仅调用一次）
         if (u._shieldTurns > 0) {
             u._shieldTurns--;
             if (u._shieldTurns <= 0 && u._shield > 0) {
@@ -660,10 +658,9 @@ function _expireTimedEffects() {
                 u._shieldMax = 0;
             }
         }
-        // E2 亡灵法师：亡魂标记老化（2回合后消失）
+        // E2 亡灵法师：亡魂标记老化（2回合后消失）；bornAt 为回合数(0-indexed)
         if (gameState._soulMarks && gameState._soulMarks.length > 0) {
-            const factionCount = gameState.isThreePlayer ? 4 : 3; // 同 _doEndTurnPhase
-            const roundNum = Math.floor(gameState.turnCounter / factionCount);
+            const roundNum = getRoundIndex(gameState);
             gameState._soulMarks = gameState._soulMarks.filter(m => {
                 const markAge = roundNum - m.bornAt;
                 return markAge < 2;
@@ -693,7 +690,7 @@ function _expireTimedEffects() {
 // 返回 damageTexts 快照长度，供 _doEndTurnPhase 收集殉道者等伤害数字
 export function grantTurnStartIncome(camp) {
     const key = _campKey(camp);
-    const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp && !(t._cityDisabledUntil > 0 && t._cityDisabledUntil >= gameState.turnCounter));
+    const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp && !(t._cityDisabledUntil > 0 && t._cityDisabledUntil > getRoundIndex(gameState)));
     const cityCount = cities.length;
     let income = camp === CAMP.neutral ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
     if (gameState.gameMode === 'pve' && camp === gameState.aiOpponentCamp) {
@@ -854,10 +851,9 @@ async function _doEndTurnPhase() {
         }
         _updateWeather();
         _expireTimedEffects();
-        // every 5 rounds: free card for all players
-        const factionCount = gameState.isThreePlayer ? 4 : 3;
-        const roundNum = Math.floor(gameState.turnCounter / factionCount);
-        if (roundNum > 0 && roundNum % 5 === 0 && gameState.cardDrawPile.length > 0) {
+        // 每5回合：全员免费对策卡（第5/10/15…回合发放）
+        const roundNum = getRound(gameState);  // 1-indexed 回合数
+        if (roundNum % 5 === 0 && gameState.cardDrawPile.length > 0) {
             for (const key of ['player1', 'player2', 'player3']) {
                 const h = gameState.playerHands[key];
                 // E3 纵横家合纵：手牌上限覆盖
@@ -871,7 +867,7 @@ async function _doEndTurnPhase() {
                 logMessage(`${key === 'player1' ? '红军' : key === 'player2' ? '蓝军' : '绿军'}获得免费对策卡【${cfg?.name || card}】`);
             }
         }
-        // E4 空军上校：每5回合发放燃料（roundNum % 5 === 1 首次在回合1）
+        // E4 空军上校：每5回合发放燃料（第1/6/11…回合发放，开局即得）
         if (gameState._fuel && roundNum % 5 === 1) {
             for (const key of ['player1', 'player2', 'player3']) {
                 if (gameState['commander' + (key === 'player1' ? 'P1' : key === 'player2' ? 'P2' : 'P3')] === 'colonel') {
@@ -1034,8 +1030,8 @@ export function recruitUnit(type) {
         notify('该兵种只能在城市招募', 'error');
         return;
     }
-    if (selectedCityTile._cityDisabledUntil > 0 && selectedCityTile._cityDisabledUntil >= gameState.turnCounter) {
-        notify('该城市遭到空袭，本回合无法招募', 'error');
+    if (selectedCityTile._cityDisabledUntil > 0 && selectedCityTile._cityDisabledUntil > getRoundIndex(gameState)) {
+        notify('该城市遭到空袭，无法招募', 'error');
         return;
     }
     if (selectedCityTile.unit) {
@@ -1463,13 +1459,13 @@ export function attackUnit(attackerUnit, targetUnit) {
                                   attackerUnit.camp === CAMP.player2 ? 'player2' :
                                   attackerUnit.camp === CAMP.player3 ? 'player3' : 'neutral';
                 if (killerKey !== 'neutral') {
-                    gameState.factionMoraleBoost[killerKey] = gameState.turnCounter + 6;
+                    gameState.factionMoraleBoost[killerKey] = getRoundIndex(gameState) + 2;
                     for (const tile of gameState.tiles) {
                         const u = tile.unit;
                         if (u && u.camp === attackerUnit.camp && u.morale !== 0 && u.morale < 3) {
                             const oldM = u.morale;
                             u.morale = Math.min(3, u.morale + 1);
-                            if (u.morale === 3) u.moraleBoostUntil = gameState.turnCounter + 6;
+                            if (u.morale === 3) u.moraleBoostUntil = getRoundIndex(gameState) + 2;
                             if (u.morale !== oldM) {
                                 spawnMoraleEffect(u);
                             }
@@ -1482,7 +1478,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             if (attackerUnit.morale !== 0) {
                 const oldKillerM = attackerUnit.morale;
                 attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
-                if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = gameState.turnCounter + 6;
+                if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = getRoundIndex(gameState) + 2;
                 // morale setter 自动 triggerCommanderOnMoraleChange
                 _killedThisAttack = attackerUnit;
                 _killerMoraleChanged = attackerUnit.morale !== oldKillerM;
@@ -1694,8 +1690,7 @@ function checkVictory() {
 function checkTurnLimitVictory() {
     if (gameState.gameOver) return;
 
-    const factionCount = gameState.isThreePlayer ? 4 : 3;
-    const roundNum = Math.floor(gameState.turnCounter / factionCount) + 1;
+    const roundNum = getRound(gameState);
     const limitRound = gameState.isThreePlayer ? 26 : 19;
     if (roundNum < limitRound) return;
 
@@ -2198,7 +2193,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                             timeLeft: 900, lastUpdate: performance.now()
                         });
                     }
-                    targetTile._cityDisabledUntil = (gameState.turnCounter || 0) + (gameState.isThreePlayer ? 3 : 2);
+                    targetTile._cityDisabledUntil = getRoundIndex(gameState) + 2;
                     triggerScreenShake(6, 300);
                 }, 1200);
             }, BURN_MS);

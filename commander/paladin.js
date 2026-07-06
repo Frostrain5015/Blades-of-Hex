@@ -29,10 +29,13 @@ export default {
     },
 
     // 誓言获取每回合限1层（受击/击杀共享额度），_oathGainTurn 随状态序列化同步
+    // 以回合数(0-indexed)记录，同一回合内不重复获取
     _canGainOath(unit, helpers) {
-        const turn = helpers.gameState ? (helpers.gameState.turnCounter || 0) : 0;
-        if (unit._oathGainTurn === turn) return false;
-        unit._oathGainTurn = turn;
+        const gs = helpers.gameState;
+        const fc = gs ? (gs.isThreePlayer ? 4 : 3) : 3;
+        const round = gs ? Math.floor((gs.turnCounter || 0) / fc) : 0;
+        if (unit._oathGainTurn === round) return false;
+        unit._oathGainTurn = round;
         return true;
     },
 

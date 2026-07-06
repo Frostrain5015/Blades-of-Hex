@@ -1,5 +1,5 @@
 // 战争迷雾引擎 —— 视野计算、状态管理、过渡动画
-import { hexDistance, CAMP } from './config.js';
+import { hexDistance, CAMP, getRoundIndex } from './config.js';
 
 // 视野范围：各兵种能看到的格子数
 export const UNIT_VISION = {
@@ -83,7 +83,7 @@ export function updateFogOfWar(gameState, camp) {
     // 侦察揭示格也纳入 visibleTiles，参与过渡动画追踪，避免每步闪烁
     const reveals = gameState.scoutReveals[key];
     for (const [coord, expires] of reveals) {
-        if (expires > gameState.turnCounter) {
+        if (expires > getRoundIndex(gameState)) {
             newVisible.add(coord);
         }
     }
@@ -100,7 +100,7 @@ export function applyScoutReveal(gameState, camp, q, r) {
     if (!gameState.skirmishFog) return;
     const key = _campKey(camp);
     if (key === 'neutral') return;
-    const expiresAt = gameState.turnCounter + 1; // 持续到下回合结束
+    const expiresAt = getRoundIndex(gameState) + 1; // 持续到下一回合开始（回合数, 0-indexed）
     // 揭示目标及周围6格
     const reveals = [[0,0], [1,0], [1,-1], [0,-1], [-1,0], [-1,1], [0,1]];
     for (const [dq, dr] of reveals) {
@@ -119,7 +119,7 @@ export function expireScoutReveals(gameState, camp) {
     if (key === 'neutral') return;
     const reveals = gameState.scoutReveals[key];
     for (const [coord, expires] of reveals) {
-        if (expires <= gameState.turnCounter) reveals.delete(coord);
+        if (expires <= getRoundIndex(gameState)) reveals.delete(coord);
     }
 }
 
