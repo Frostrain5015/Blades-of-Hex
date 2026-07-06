@@ -1,4 +1,4 @@
-﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE } from './config.js';
+﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, COMMANDER_CONFIG, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS } from './config.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
@@ -404,9 +404,7 @@ const _onRecruitArcher = () => recruitUnit('archer');
 
 function initCardDeck() {
     const deck = [...DECK_COMPOSITION];
-    // 遭遇战模式：额外加入 5 张侦察卡
     if (gameState.skirmishFog) deck.push(...SKIRMISH_EXTRAS);
-    // 联机模式使用与地形相同的种子，保证所有客户端初始牌库一致
     const rand = isNetworkGame() ? _createRNG(_terrainSeed) : Math.random;
     for (let i = deck.length - 1; i > 0; i--) {
         const j = Math.floor(rand() * (i + 1));
@@ -414,15 +412,23 @@ function initCardDeck() {
     }
     gameState.cardDrawPile = deck;
     gameState.cardDiscardPile = [];
-    // draw 1 free card per player from top of deck
+    // E4 空军上校：替换牌库和手牌
+    const colonels = {};
+    for (const [key, cmdId] of [['player1', gameState.commanderP1], ['player2', gameState.commanderP2], ['player3', gameState.commanderP3]]) {
+        if (cmdId === 'colonel') colonels[key] = true;
+    }
     const freeCard1 = gameState.cardDrawPile.pop();
     const freeCard2 = gameState.cardDrawPile.pop();
     const freeCard3 = gameState.isThreePlayer ? gameState.cardDrawPile.pop() : null;
     gameState.playerHands = {
-        player1: ['commanderDeploy', freeCard1].filter(Boolean),
-        player2: ['commanderDeploy', freeCard2].filter(Boolean),
-        player3: gameState.isThreePlayer ? ['commanderDeploy', freeCard3].filter(Boolean) : []
+        player1: colonels.player1 ? ['diveStrafe', 'carpetBomb', 'airlift'] : ['commanderDeploy', freeCard1].filter(Boolean),
+        player2: colonels.player2 ? ['diveStrafe', 'carpetBomb', 'airlift'] : ['commanderDeploy', freeCard2].filter(Boolean),
+        player3: gameState.isThreePlayer ? (colonels.player3 ? ['diveStrafe', 'carpetBomb', 'airlift'] : ['commanderDeploy', freeCard3].filter(Boolean)) : []
     };
+    // 上校玩家牌库清空（无牌可抽）
+    for (const ck of ['player1', 'player2', 'player3']) {
+        if (colonels[ck]) gameState.cardDrawPile = [];
+    }
     gameState.playerDrawsThisTurn = { player1: 0, player2: 0, player3: 0 };
     gameState.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0 };
     gameState.cardStackExpanded = false;
@@ -863,6 +869,15 @@ async function _doEndTurnPhase() {
                 h.push(card);
                 const cfg = TACTICAL_CARD_CONFIG[card];
                 logMessage(`${key === 'player1' ? '红军' : key === 'player2' ? '蓝军' : '绿军'}获得免费对策卡【${cfg?.name || card}】`);
+            }
+        }
+        // E4 空军上校：每5回合发放燃料（roundNum % 5 === 1 首次在回合1）
+        if (gameState._fuel && roundNum % 5 === 1) {
+            for (const key of ['player1', 'player2', 'player3']) {
+                if (gameState['commander' + (key === 'player1' ? 'P1' : key === 'player2' ? 'P2' : 'P3')] === 'colonel') {
+                    gameState._fuel[key] = (gameState._fuel[key] || 0) + 2;
+                    logMessage(`${key === 'player1' ? '红军' : key === 'player2' ? '蓝军' : '绿军'}空军上校获得2🔥燃料`);
+                }
             }
         }
     }
@@ -1949,6 +1964,27 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         notify('本回合已达到使用上限', 'error'); return;
     }
 
+    // E4 空军上校：空军卡检查（燃料/部署/雾天停飞）
+    const isColonelCard = cardId === 'diveStrafe' || cardId === 'carpetBomb' || cardId === 'airlift';
+    const isAirCard = isColonelCard || cardId === 'airstrike' || cardId === 'airdrop';
+    if (isColonelCard) {
+        // 部署前禁用
+        if (!gameState._colonelDeployed || !gameState._colonelDeployed[campKey]) {
+            notify('请先部署空军上校', 'error'); return;
+        }
+        // 燃料不足
+        const fuelCost = cardId === 'diveStrafe' ? 2 : 3;
+        if ((gameState._fuel[campKey] || 0) < fuelCost) {
+            notify('燃料不足', 'error'); return;
+        }
+        gameState._fuel[campKey] -= fuelCost;
+        logMessage(`空军上校消耗${fuelCost}🔥燃料`);
+    }
+    // 雾天停飞（所有空军卡）
+    if (isAirCard && gameState.weather === 'fog') {
+        notify('雾天停飞，无法使用空军卡', 'error'); return;
+    }
+
     // for damage/spawn/shield cards: save state, undo visual, re-apply after burn
     const isDelayedCard = cardId === 'lightning' || cardId === 'airstrike' || cardId === 'mgNest' || cardId === 'shield';
     let _savedHPs = null;
@@ -1976,7 +2012,14 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
 
     // execute
     const helpers = { getCommander, Unit, getMyCamp: () => myCamp, spawnOrbitBeams: spawnPaladinOrbitBeams };
-    const result = cfg.execute(targetTile, gameState, helpers);
+    let result;
+    // E4 上校空军卡使用 COLONEL_CARDS 而非 TACTICAL_CARD_CONFIG
+    if (isColonelCard) {
+        const colCfg = COLONEL_CARDS[cardId];
+        if (colCfg) result = colCfg.execute(targetTile, gameState, helpers);
+    } else {
+        result = cfg.execute(targetTile, gameState, helpers);
+    }
     gameState.cardTargeting = null;
     hideTargetingBanner();
 
@@ -2117,6 +2160,47 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     triggerScreenShake(6, 300);
                 }, 1200);
             }, BURN_MS);
+            break;
+        }
+        case 'diveStrafe': {
+            // 俯冲扫射：单发伤害
+            logMessage(`💥【俯冲扫射】对${targetTile.camp?.name}${targetTile.unit?.config?.name}兵造成${result.dmg}伤害`);
+            setTimeout(() => {
+                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }]);
+                playSound('airstrike');
+                setTimeout(() => {
+                    if (targetTile.unit) {
+                        targetTile.unit.applyDamage(result.dmg, { source: 'ranged' });
+                    }
+                    spawnExplosionParticles(x, y, '#ff8800', 15);
+                    gameState.damageTexts.push({ x, y, value: result.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
+                    triggerScreenShake(6, 300);
+                }, 1200);
+            }, BURN_MS);
+            break;
+        }
+        case 'carpetBomb': {
+            const cResults = result.results || [];
+            logMessage(`💣【地毯轰炸】对目标区域造成AOE伤害`);
+            setTimeout(() => {
+                spawnAirstrikeEffect(x, y, cResults);
+                playSound('airstrike');
+                setTimeout(() => {
+                    for (const r of cResults) {
+                        const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                        if (!tile) continue;
+                        if (tile.unit) tile.unit.applyDamage(r.dmg, { source: 'ranged' });
+                        spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                        gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
+                    }
+                    triggerScreenShake(8, 400);
+                }, 1200);
+            }, BURN_MS);
+            break;
+        }
+        case 'airlift': {
+            // 空运：需要二次点击选择目的地（简化：直接提示）
+            logMessage(`🪂【空运】选择目标单位`);
             break;
         }
         case 'airdrop': {

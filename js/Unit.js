@@ -575,6 +575,21 @@ export class Unit {
             ctx.restore();
         }
 
+        // ── E4 空军上校标记 ✈️ ──
+        if (this.commander === 'colonel') {
+            ctx.save();
+            const colY = visualY - HEX_SIZE * 0.55;
+            const colPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
+            ctx.fillStyle = `rgba(100,180,255,${0.5 + colPulse * 0.3})`;
+            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#6688ff'; ctx.shadowBlur = 5;
+            ctx.fillText('✈️', visualX, colY);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
         // ── E1 占星者标记 🔮 ──
         if (this.commander === 'astrologer') {
             ctx.save();
