@@ -1038,6 +1038,24 @@ export function drawCoinParticles(ctx2d) {
     }
 }
 
+// E3 纵横家连横卡牌复制飞行特效
+export function spawnCardCopyEffect(fromX, fromY, toX, toY, cardId) {
+    // 金色卡牌轮廓从用卡方飞向目标阵营手牌区
+    const midX = (fromX + toX) / 2;
+    const midY = Math.min(fromY, toY) - 30;
+    for (let i = 0; i < 8; i++) {
+        const t = i / 7;
+        const px = (1 - t) * (1 - t) * fromX + 2 * (1 - t) * t * midX + t * t * toX;
+        const py = (1 - t) * (1 - t) * fromY + 2 * (1 - t) * t * midY + t * t * toY;
+        spawnExplosionParticles(px, py, '#ffd700', 2);
+    }
+    // 到达时金色爆裂
+    setTimeout(() => {
+        spawnExplosionParticles(toX, toY, '#ffd700', 10);
+        spawnExplosionParticles(toX, toY, '#ffaa00', 5);
+    }, 800);
+}
+
 // E1 占星者星移特效：金色光柱 + 星辰爆裂
 export function spawnAstrologerEffect(x, y) {
     // 金色星辰爆裂（双层：金色+蓝色）

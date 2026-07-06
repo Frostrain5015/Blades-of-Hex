@@ -544,6 +544,22 @@ export class Unit {
             ctx.restore();
         }
 
+        // ── E3 纵横家标记 📜 ──
+        if (this.commander === 'diplomat') {
+            ctx.save();
+            const dipY = visualY - HEX_SIZE * 0.55;
+            const inEnemyTerritory = this.tile && this.tile.camp !== this.camp;
+            const dipPulse = inEnemyTerritory ? (Math.sin(time * 4 * Math.PI) + 1) / 2 : 0.5;
+            ctx.fillStyle = `rgba(255,200,50,${0.5 + dipPulse * 0.3})`;
+            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#ffd700'; ctx.shadowBlur = inEnemyTerritory ? 8 : 3;
+            ctx.fillText('📜', visualX, dipY);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
         // ── E1 占星者标记 🔮 ──
         if (this.commander === 'astrologer') {
             ctx.save();

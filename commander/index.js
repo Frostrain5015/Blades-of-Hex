@@ -14,6 +14,7 @@ import magician from './magician.js';
 import paladin  from './paladin.js';
 import priest   from './priest.js';
 import astrologer from './astrologer.js';
+import diplomat from './diplomat.js';
 
 const allCommanders = {
   advisor,
@@ -28,7 +29,8 @@ const allCommanders = {
   magician,
   paladin,
   priest,
-  astrologer
+  astrologer,
+  diplomat
 };
 
 export { allCommanders };

@@ -1061,6 +1061,17 @@ function drawUnitHexAuras(now) {
             ctx.restore();
         }
 
+        // E3 纵横家连横金虚线（在敌方行政区内时）
+        if (u.commander === 'diplomat' && u.hp > 0 && u.tile && u.tile.camp !== u.camp) {
+            ctx.save();
+            const dipPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
+            const dipAlpha = 0.2 + dipPulse * 0.15;
+            ctx.setLineDash([4, 4]);
+            drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 3, `rgba(255,200,50,${dipAlpha})`, 2);
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+
         // E1 占星者星光力场（3格范围内友军淡蓝色星光罩）
         if (u.commander === 'astrologer' && u.hp > 0 && gameState.tileMap) {
             ctx.save();
@@ -1592,7 +1603,7 @@ function getCardSlideCurrent(i) {
 function _ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 
 function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
-    const { disabled, isTargeting, isDeploy, alreadyDeployed, isHovered, alpha } = opts;
+    const { disabled, isTargeting, isDeploy, alreadyDeployed, isHovered, alpha, isCopyCard } = opts;
     cctx.save();
     if (alpha !== undefined) cctx.globalAlpha = alpha;
     cctx.translate(cx, cy);
@@ -1660,6 +1671,13 @@ function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
         cctx.fillStyle = '#ffd700';
         cctx.font = 'bold 16px sans-serif';
         cctx.fillText('✓', 0, 48);
+    }
+    if (isCopyCard) {
+        cctx.fillStyle = '#ffd700';
+        cctx.font = 'bold 10px sans-serif';
+        cctx.textAlign = 'right'; cctx.textBaseline = 'top';
+        cctx.fillText('副本', cardW / 2 - 4, -cardH / 2 + 4);
+        cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
     }
     cctx.restore();
 }
@@ -1821,12 +1839,15 @@ export function drawCardCanvas(now) {
     let targetCardData = null; // 选中目标的手牌，最后渲染（顶层）
 
     for (let i = 0; i < n; i++) {
-        if (_flyingCard && i === n - 1 && hand[i] === _flyingCard.cardId) continue;
-        let cfg = TACTICAL_CARD_CONFIG[hand[i]];
+        const cardEntry = hand[i];
+        const cardId = typeof cardEntry === 'object' ? cardEntry.id : cardEntry;
+        const isCopyCard = typeof cardEntry === 'object' && cardEntry._copy;
+        if (_flyingCard && i === n - 1 && cardId === _flyingCard.cardId) continue;
+        let cfg = TACTICAL_CARD_CONFIG[cardId];
         if (!cfg) continue;
         // 部署将领显示所选将领名 + 头像
         let deployCmdId = null;
-        if (hand[i] === 'commanderDeploy') {
+        if (cardId === 'commanderDeploy') {
             deployCmdId = myCamp === CAMP.player1 ? gameState.commanderP1 : myCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
             const cmdCfg = COMMANDER_CONFIG[deployCmdId];
             if (cmdCfg) cfg = { ...cfg, name: cmdCfg.name };
@@ -1836,11 +1857,11 @@ export function drawCardCanvas(now) {
         const x = baseX + cardW / 2;
         const y = cyBase - lift + cardH / 2;
 
-        const isTargeting = gameState.cardTargeting && gameState.cardTargeting.cardId === hand[i];
-        const isDeploy = hand[i] === 'commanderDeploy';
+        const isTargeting = gameState.cardTargeting && gameState.cardTargeting.cardId === cardId;
+        const isDeploy = cardId === 'commanderDeploy';
         const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
         const isHovered = _slideCurrent[i] > 0.3;
-        const drawOpts = { disabled: false, isTargeting: false, isDeploy, alreadyDeployed, isHovered, commanderId: deployCmdId };
+        const drawOpts = { disabled: false, isTargeting: false, isDeploy, alreadyDeployed, isHovered, commanderId: deployCmdId, isCopyCard };
 
         if (isTargeting) {
             targetCardData = { x, y, cfg, drawOpts: { ...drawOpts, isTargeting: true } };

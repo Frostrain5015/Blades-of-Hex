@@ -76,7 +76,9 @@ function _handleCardCanvasClick(e) {
         const bx = cxBase2 + (n - 1 - i) * peekW;
         const by = cyBase2;
         if (cx >= bx && cx <= bx + cardW && cy >= by && cy <= by + cardH) {
-            const cardId = hand[i];
+            const cardEntry = hand[i];
+            const cardId = typeof cardEntry === 'object' ? cardEntry.id : cardEntry;
+            const isCopyCard = typeof cardEntry === 'object' && cardEntry._copy;
             const isDeploy = cardId === 'commanderDeploy';
             const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
             if (isDeploy && alreadyDeployed) return;
@@ -414,6 +416,19 @@ function showTooltipForTile(tile) {
                 ? `<span style="color:#7eb8ff;">【守护灵光】防御力+10%</span>`
                 : `<span style="color:#7eb8ff;">【守护灵光】防御力+10%，伤害由铁卫护盾承担</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
+        }
+
+        // E3 纵横家合纵状态
+        if (unit.commander === 'diplomat' && gameState._cardOverrides) {
+            const campKey = unit.camp === CAMP.player1 ? 'player1' : unit.camp === CAMP.player2 ? 'player2' : 'player3';
+            const co = gameState._cardOverrides[campKey];
+            if (co) {
+                let dipText = `<span style="color:#ffd700;">【合纵】手牌上限+${co.handSizeBonus}、用卡次数+${co.useBonus}</span>`;
+                if (unit.tile && unit.tile.camp !== unit.camp) {
+                    dipText += `<br><span style="color:#ffaa44;">【连横】处于敌方行政区，35%概率复制对方对策卡</span>`;
+                }
+                tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + dipText;
+            }
         }
 
         // E1 占星者星光护体状态

@@ -435,8 +435,11 @@ export function drawCard(camp) {
     if (gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
         notify('本回合已达到抽牌上限（2次）', 'error'); return null;
     }
-    if (gameState.playerHands[campKey].length >= CARD_SYSTEM_CONFIG.maxHandSize) {
-        notify('手牌已满（最多3张）', 'error'); return null;
+    // E3 纵横家合纵：手牌上限覆盖
+    const handSizeBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].handSizeBonus || 0 : 0;
+    const maxHand = CARD_SYSTEM_CONFIG.maxHandSize + handSizeBonus;
+    if (gameState.playerHands[campKey].length >= maxHand) {
+        notify(`手牌已满（最多${maxHand}张）`, 'error'); return null;
     }
     const drawCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
     if (gameState.playerGold[campKey] < drawCost) {
@@ -842,7 +845,9 @@ async function _doEndTurnPhase() {
         if (roundNum > 0 && roundNum % 5 === 0 && gameState.cardDrawPile.length > 0) {
             for (const key of ['player1', 'player2', 'player3']) {
                 const h = gameState.playerHands[key];
-                if (!h || h.length >= CARD_SYSTEM_CONFIG.maxHandSize) continue;
+                // E3 纵横家合纵：手牌上限覆盖
+                const hBonus = (gameState._cardOverrides && gameState._cardOverrides[key]) ? gameState._cardOverrides[key].handSizeBonus || 0 : 0;
+                if (!h || h.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
                 if (gameState.cardDrawPile.length === 0) break;
                 if (key === 'player3' && !gameState.isThreePlayer) continue;
                 const card = gameState.cardDrawPile.pop();
@@ -1920,16 +1925,19 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // validate hand + capture card position for burn anim
     const hand = gameState.playerHands[campKey];
     const ct = gameState.cardTargeting;
-    const idx = (ct && ct.handIndex != null && ct.handIndex < hand.length && hand[ct.handIndex] === cardId)
-        ? ct.handIndex
-        : hand.indexOf(cardId);
+    // 支持手牌中既有字符串 'cardId' 也有对象 { id: 'cardId', _copy: true }
+    const idx = (ct && ct.handIndex != null && ct.handIndex < hand.length)
+        ? (hand[ct.handIndex] === cardId || (typeof hand[ct.handIndex] === 'object' && hand[ct.handIndex].id === cardId) ? ct.handIndex : -1)
+        : hand.findIndex(c => c === cardId || (typeof c === 'object' && c.id === cardId));
     if (idx === -1) { notify('手牌中没有该卡'); return; }
     const nBefore = hand.length;
-    const fromI = nBefore - 1 - idx; // position index in stack (0=leftmost)
+    const fromI = nBefore - 1 - idx;
+    const isCopyCard = typeof hand[idx] === 'object' && hand[idx]._copy;
 
-    // validate use limit
-    if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn) {
-        notify('本回合已达到使用上限（2次）', 'error'); return;
+    // E3 纵横家合纵：用卡次数上限覆盖
+    const useBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].useBonus || 0 : 0;
+    if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
+        notify('本回合已达到使用上限', 'error'); return;
     }
 
     // for damage/spawn/shield cards: save state, undo visual, re-apply after burn
@@ -1995,9 +2003,10 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
     }
 
-    // remove from hand, discard (except commanderDeploy)
+    // remove from hand
     hand.splice(idx, 1);
-    if (cardId !== 'commanderDeploy') {
+    // discard (except commanderDeploy and copy cards)
+    if (cardId !== 'commanderDeploy' && !isCopyCard) {
         gameState.cardDiscardPile.push(cardId);
     }
     gameState.playerUsesThisTurn[campKey]++;
@@ -2192,4 +2201,28 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600, burnDisplayName);
     const airstrikeResults = (cardId === 'airstrike') ? (result.results || []) : null;
     broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
+
+    // E3 纵横家连横：对方用卡后尝试复制
+    if (gameState.tileMap && gameState._cardOverrides && !isCopyCard) {
+        for (const [ck, co] of Object.entries(gameState._cardOverrides)) {
+            if (!co) continue;
+            const dipCamp = ck === 'player1' ? CAMP.player1 : ck === 'player2' ? CAMP.player2 : CAMP.player3;
+            if (!dipCamp || dipCamp === gameState.currentCamp) continue; // 不复制己方用卡
+            // 找到纵横家单位
+            for (const t of gameState.tiles) {
+                if (!t.unit || t.unit.commander !== 'diplomat' || t.unit.camp !== dipCamp || t.unit.hp <= 0) continue;
+                if (t.camp !== gameState.currentCamp) continue; // 不在敌区
+                // 35%概率
+                if (!(gameState.rng ? gameState.rng.chance(0.35) : Math.random() < 0.35)) continue;
+                const hand = gameState.playerHands[ck] || [];
+                const hBonus = co.handSizeBonus || 0;
+                if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
+                hand.push({ id: cardId, _copy: true });
+                logMessage(`纵横家【连横】：${ck}获得${cardId}的复制`);
+                // 播放复制特效
+                spawnCardCopyEffect(targetTile.x, targetTile.y, 500, 375, cardId);
+                break;
+            }
+        }
+    }
 }
