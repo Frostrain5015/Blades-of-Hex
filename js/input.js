@@ -708,6 +708,11 @@ export function initInput() {
         // 对策卡选择目标模式
         if (gameState.cardTargeting) {
             const ct = gameState.cardTargeting;
+            // E4 空运第二段：直接执行空运（不取消，_executeAirliftDest 内部会清理）
+            if (ct.cardId === 'airlift_dest') {
+                executeTacticalCard('airlift_dest', clickedTile);
+                return;
+            }
             const cfg = TACTICAL_CARD_CONFIG[ct.cardId];
             if (!cfg) { cancelCardTargeting(); return; }
 

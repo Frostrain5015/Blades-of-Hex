@@ -1903,10 +1903,16 @@ async function handleSurrender() {
 
 export function cancelCardTargeting() {
     gameState.cardTargeting = null;
+    gameState._airliftTarget = null; // E4: 空运取消时清理
     hideTargetingBanner();
 }
 
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
+    // E4 空运第二段：直接执行空运（跳过正常卡牌验证）
+    if (cardId === 'airlift_dest') {
+        _executeAirliftDest(targetTile);
+        return;
+    }
     const cfg = TACTICAL_CARD_CONFIG[cardId];
     if (!cfg) return;
 
@@ -2020,8 +2026,44 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     } else {
         result = cfg.execute(targetTile, gameState, helpers);
     }
+
+    // E4 空运第一段：选单位后进入第二段选目的地
+    if (cardId === 'airlift' && targetTile && targetTile.unit) {
+        gameState._airliftTarget = { unitId: targetTile.unit.id };
+        showTargetingBanner('选择空降目的地（空地）', '再次点击卡片或按 Esc 取消');
+        gameState.cardTargeting = { cardId: 'airlift_dest', targeting: 'emptyTile', handIndex: idx };
+        updateUI();
+        return;
+    }
+
     gameState.cardTargeting = null;
     hideTargetingBanner();
+
+    function _executeAirliftDest(targetTile) {
+    if (!gameState._airliftTarget) { notify('请先选择空运单位', 'error'); return; }
+    const myCamp = gameState.currentCamp;
+    const airUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === gameState._airliftTarget.unitId ? t.unit : null), null);
+    if (!airUnit || !airUnit.tile) { notify('空运单位已不存在', 'error'); gameState._airliftTarget = null; gameState.cardTargeting = null; hideTargetingBanner(); updateUI(); return; }
+    if (targetTile.unit) { notify('目的地已有单位', 'error'); return; }
+    if (gameState.skirmishFog && !isTileVisible(targetTile, myCamp, gameState)) { notify('目的地不在视野内', 'error'); return; }
+    const fromTile = airUnit.tile;
+    fromTile.unit = null;
+    targetTile.unit = airUnit;
+    airUnit.tile = targetTile;
+    airUnit.remainingMP = 0;
+    airUnit.canAct = false;
+    const hpLoss = Math.min(Math.round(airUnit.hp * 0.20), Math.round(airUnit.maxHp * 0.40));
+    if (hpLoss > 0) airUnit.applyDamage(hpLoss, { source: 'true', minHp: 1 });
+    spawnAirstrikeEffect(targetTile.x, targetTile.y, [], 'airdrop');
+    logMessage(`🪂【空运】${airUnit.camp.name}${airUnit.config.name}兵传送至(${targetTile.q},${targetTile.r})`);
+    gameState._airliftTarget = null;
+    gameState.cardTargeting = null;
+    hideTargetingBanner();
+    updateUI();
+    recalcAllFlankingMorale();
+    if (gameState.skirmishFog) _updateSkirmishFogAll();
+    broadcastAction('tacticalCard', { cardId: 'airlift', unitId: airUnit.id, x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r });
+}
 
     // 侦察卡：立即揭示目标区域
     if (cardId === 'scout' && result.scoutQ != null) {
