@@ -366,6 +366,52 @@ export const TACTICAL_CARD_CONFIG = {
     }
 };
 
+// ==== E4 空军上校专属对策卡 ====================
+
+export const COLONEL_CARDS = {
+    diveStrafe: {
+        id: 'diveStrafe', name: '俯冲扫射', icon: '💥',
+        desc: '【俯冲扫射 2🔥】\n对单体目标造成50-80伤害（生物）/20-35（装甲）',
+        targeting: 'enemyGlobal',
+        execute(targetTile, gameState, helpers) {
+            const isArmor = targetTile.unit.type === 'archer' || targetTile.unit.type === 'mgNest';
+            const dmg = isArmor
+                ? (gameState.rng ? gameState.rng.between(20, 35) : 20 + Math.floor(Math.random() * 16))
+                : (gameState.rng ? gameState.rng.between(50, 80) : 50 + Math.floor(Math.random() * 31));
+            return { dmg, isArmor, diveStrafe: true, targetTile };
+        }
+    },
+    carpetBomb: {
+        id: 'carpetBomb', name: '地毯轰炸', icon: '💣',
+        desc: '【地毯轰炸 3🔥】\n对目标及相邻6格造成AOE伤害，装甲40-60/生物20-30',
+        targeting: 'enemyGlobal',
+        execute(targetTile, gameState, helpers) {
+            const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+            const results = [];
+            for (const [dq, dr] of dirs) {
+                const ht = gameState.tileMap ? gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`) : null;
+                if (!ht) continue;
+                const isCenter = dq === 0 && dr === 0;
+                const isArmor = ht.unit && (ht.unit.type === 'archer' || ht.unit.type === 'mgNest');
+                const baseDmg = isArmor
+                    ? (gameState.rng ? gameState.rng.between(40, 60) : 40 + Math.floor(Math.random() * 21))
+                    : (gameState.rng ? gameState.rng.between(20, 30) : 20 + Math.floor(Math.random() * 11));
+                const dmg = isCenter ? baseDmg : Math.round(baseDmg * 0.70);
+                results.push({ q: ht.q, r: ht.r, dmg, killed: false });
+            }
+            return { carpetBomb: true, targetTile, results };
+        }
+    },
+    airlift: {
+        id: 'airlift', name: '空运', icon: '🪂',
+        desc: '【空运 3🔥】\n运送一名非己方的友军单位至已探索空地，清空其行动力',
+        targeting: 'friendlyAny',
+        execute(targetTile, gameState, helpers) {
+            return { airlift: true, targetTile };
+        }
+    }
+};
+
 // ==== 对策卡牌堆组成 ====================
 export const DECK_COMPOSITION = [
     'heal', 'heal', 'heal', 'heal',
