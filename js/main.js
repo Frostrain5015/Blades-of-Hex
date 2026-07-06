@@ -24,6 +24,7 @@ import {
     spawnSlashMarks,
     spawnAirstrikeEffect,
     spawnHealParticles,
+    spawnReinforceEffect,
     clearTransientEffects
 } from './effects.js';
 import { isTileVisible } from './fogOfWar.js';
@@ -2380,6 +2381,16 @@ async function handleRemoteAction(msg) {
             if (e) {
                 triggerRecruitFlash(e.x, e.y);
                 spawnRecruitEffect(e.x, e.y);
+            }
+            break;
+        case 'reinforce':
+            if (e && e.unitId) {
+                const rUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.unitId ? t.unit : null), null);
+                if (rUnit && rUnit.tile) {
+                    rUnit.heal(e.healAmt);
+                    rUnit.tile._reinforcedThisTurn = true;
+                    spawnReinforceEffect(e.x, e.y, e.healAmt);
+                }
             }
             break;
         case 'activateSkill': {

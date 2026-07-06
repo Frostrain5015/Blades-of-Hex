@@ -1038,6 +1038,17 @@ export function drawCoinParticles(ctx2d) {
     }
 }
 
+// E5 补员特效：金币弹起 → 绿色治疗粒子
+export function spawnReinforceEffect(x, y, healAmt) {
+    spawnCoinRain(x, y, 0.8);
+    triggerHealFlash(x, y);
+    spawnHealParticles(x, y);
+    if (healAmt > 0) {
+        spawnExplosionParticles(x, y, '#44ff44', 10);
+        spawnExplosionParticles(x, y, '#ffd700', 6);
+    }
+}
+
 // ===== 烧牌动画（对策卡使用广播） =====================
 export const cardUseEffects = [];
 

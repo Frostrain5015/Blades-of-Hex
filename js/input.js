@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COMMANDER_CONFIG, UNIT_CONFIG } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp } from './state.js';
 import { isTileVisible } from './fogOfWar.js';
@@ -6,7 +6,7 @@ import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } fr
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
-    executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard
+    executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
@@ -519,6 +519,33 @@ function showTooltipForTile(tile) {
         skillBtn.style.display = 'none';
     }
 
+    // ==== E5 补员按钮 ====
+    const reinforceBtn = document.getElementById('tooltipReinforce');
+    if (reinforceBtn) {
+        const canReinforce = unit && unit.camp === gameState.currentCamp
+            && unit.tile && (unit.tile.isCity || unit.tile.isVillage)
+            && unit.hp < unit.maxHp && !unit.tile._reinforcedThisTurn
+            && (!isNetworkGame() || isMyTurn(gameState.currentCamp));
+        if (canReinforce) {
+            const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
+            const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
+            reinforceBtn.textContent = `🪙 补充兵员 $${cost}`;
+            reinforceBtn.style.display = 'block';
+            reinforceBtn.disabled = false;
+            reinforceBtn.className = 'tooltip-skill-btn';
+            reinforceBtn.dataset.unitId = unit.id;
+        } else if (unit && unit.camp === gameState.currentCamp && unit.tile
+                   && (unit.tile.isCity || unit.tile.isVillage)
+                   && unit.tile._reinforcedThisTurn) {
+            reinforceBtn.textContent = '本回合已补员';
+            reinforceBtn.style.display = 'block';
+            reinforceBtn.disabled = true;
+            reinforceBtn.className = 'tooltip-skill-btn on-cooldown';
+        } else {
+            reinforceBtn.style.display = 'none';
+        }
+    }
+
     if (!unit && !showTerrain) {
         tooltipEl.classList.remove('visible');
         return;
@@ -949,6 +976,21 @@ export function initSettingsPanel() {
             recalcAllFlankingMorale();
             showTooltipForTile(unit.tile);
             if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
+        });
+    }
+
+    // E5 补员按钮
+    const reinforceBtn = document.getElementById('tooltipReinforce');
+    if (reinforceBtn && !reinforceBtn._bound) {
+        reinforceBtn._bound = true;
+        reinforceBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const unitId = parseInt(reinforceBtn.dataset.unitId);
+            if (!unitId || isNaN(unitId)) return;
+            const unit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === unitId ? t.unit : null), null);
+            if (!unit) return;
+            reinforceUnit(unit);
+            showTooltipForTile(unit.tile);
         });
     }
 }

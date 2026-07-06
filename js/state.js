@@ -592,6 +592,7 @@ export function serializeState() {
         minePlanted: t._minePlanted || false,
         mineCampKey: t._mineCampKey || null,
         cityDisabledUntil: t._cityDisabledUntil || 0,
+        reinforcedThisTurn: t._reinforcedThisTurn || false,
         unit: t.unit ? {
             id: t.unit.id,
             type: t.unit.type,
@@ -824,6 +825,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
         tile._minePlanted = td.minePlanted || false;
         tile._mineCampKey = td.mineCampKey || null;
         tile._cityDisabledUntil = td.cityDisabledUntil || 0;
+        tile._reinforcedThisTurn = td.reinforcedThisTurn || false;
         if (td.unit) {
             const unit = new UnitClass(td.unit.type, campMap[td.unit.campKey], tile, td.unit.isNewRecruit, td.unit.id);
             unit.hp = td.unit.hp;

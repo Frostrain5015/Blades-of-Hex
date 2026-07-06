@@ -16,7 +16,7 @@ import {
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing, spawnCardUseEffect, spawnAirstrikeEffect,
     spawnGoldenBeam, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords, spawnPaladinOrbitBeams,
-    spawnHealingChain
+    spawnHealingChain, spawnReinforceEffect
 } from './effects.js';
 import { playSound } from './audio.js';
 import { updateFogOfWar, isTileVisible, applyScoutReveal, expireScoutReveals } from './fogOfWar.js';
@@ -779,15 +779,7 @@ async function _doEndTurnPhase() {
                 spawnPaladinOrbitBeams(tile.unit.id, tile.x, tile.y, tile.unit._faith);
             }
 
-            if (tile.unit.camp === camp) {
-                let healPct = 0;
-                if (tile.isCity) healPct = 0.10;
-                else if (tile.isVillage) healPct = 0.05;
-                if (tile.unit.type === 'infantry' && gameState.weather === 'rain') healPct *= 2;
-                if (healPct > 0) {
-                    tile.unit.heal(tile.unit.maxHp * healPct);
-                }
-            }
+            // E5：城市/村庄自动回血已移除，改为补员系统（主动按钮）
             // 主动技能持续/冷却倒计时 → 移至回合开始时统一处理
         }
     });
@@ -801,6 +793,10 @@ async function _doEndTurnPhase() {
 
     // ==== 回合开始：收入结算 ====================
     const dmgTextsBefore = grantTurnStartIncome(gameState.currentCamp);
+    // E5：重置新回合阵营的城市/村庄补员标记
+    for (const t of gameState.tiles) {
+        if (t.camp === gameState.currentCamp) t._reinforcedThisTurn = false;
+    }
     // 收集殉道者等将领产生的伤害数字，供远端重放
     _endTurnDmgTexts = gameState.damageTexts.slice(dmgTextsBefore);
     // 遭遇战迷雾：过期侦察揭示，然后更新全阵营视野
@@ -1036,6 +1032,32 @@ export function recruitUnit(type) {
     if (gameState.skirmishFog) _updateSkirmishFogAll();
     updateUI();
     broadcastAction('recruit', { x: selectedCityTile.x, y: selectedCityTile.y });
+}
+
+// ===== E5 补员系统 =====================
+
+export function reinforceUnit(unit) {
+    if (!unit || !unit.tile || unit.hp >= unit.maxHp) return;
+    const tile = unit.tile;
+    if (!tile.isCity && !tile.isVillage) { notify('需在城市或村庄上补员', 'error'); return; }
+    if (tile.camp !== gameState.currentCamp) { notify('该地块不属于当前阵营', 'error'); return; }
+    if (tile._reinforcedThisTurn) { notify('该地块本回合已补员', 'error'); return; }
+    if (isNetworkGame() && !isMyTurn(gameState.currentCamp)) { notify('对手回合', 'error'); return; }
+
+    const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
+    if (healAmt <= 0) return;
+    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
+    const currentPlayerKey = _campKey(gameState.currentCamp);
+    if (gameState.playerGold[currentPlayerKey] < cost) { notify('资金不足', 'error'); return; }
+
+    gameState.playerGold[currentPlayerKey] -= cost;
+    const actualHeal = unit.heal(healAmt);
+    tile._reinforcedThisTurn = true;
+    spawnReinforceEffect(tile.x, tile.y, actualHeal);
+    logMessage(`补充兵员：${unit.config.name}兵 +${actualHeal}HP，-$${cost}`);
+    recalcAllFlankingMorale();
+    updateUI();
+    broadcastAction('reinforce', { unitId: unit.id, healAmt: actualHeal, cost, x: tile.x, y: tile.y });
 }
 
 // ===== 移动范围计算 =====================
