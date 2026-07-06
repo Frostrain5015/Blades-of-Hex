@@ -17,8 +17,17 @@
     <span>请将设备横屏使用</span>
 </div>
 
-<!-- ===== 大厅（默认显示） ===== -->
-<div id="lobbyOverlay">
+<!-- ===== 加载遮罩（服务器连接前展示） ===== -->
+<div id="loadingOverlay">
+    <div class="loading-content">
+        <div class="loading-icon">⚔️</div>
+        <div class="loading-spinner"></div>
+        <div class="loading-text">连接服务器中...</div>
+    </div>
+</div>
+
+<!-- ===== 大厅（初始隐藏，连接后展示） ===== -->
+<div id="lobbyOverlay" style="display:none">
     <button id="lobbyMuteBtn" class="lobby-mute-btn" title="切换静音">🔊</button>
     <span id="brandSnow" class="brand-snow" title="Frost Tech">❄</span>
     <div class="lobby-box">

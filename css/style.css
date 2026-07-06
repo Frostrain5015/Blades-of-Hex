@@ -3177,3 +3177,45 @@ body {
     .hero-title { font-size: 22px; }
     .mp-room-section { max-height: 180px; }
 }
+
+/* ===== 加载遮罩 ===== */
+#loadingOverlay {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+.loading-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+}
+.loading-icon {
+    font-size: 48px;
+    animation: loadingPulse 1.5s ease-in-out infinite;
+}
+.loading-spinner {
+    width: 32px; height: 32px;
+    border: 3px solid rgba(255,255,255,0.08);
+    border-top-color: #ffd700;
+    border-radius: 50%;
+    animation: loadingSpin 0.8s linear infinite;
+}
+.loading-text {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 14px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 2px;
+}
+@keyframes loadingSpin {
+    to { transform: rotate(360deg); }
+}
+@keyframes loadingPulse {
+    0%, 100% { opacity: 0.5; transform: scale(0.95); }
+    50%      { opacity: 1;   transform: scale(1.05); }
+}

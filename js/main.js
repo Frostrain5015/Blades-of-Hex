@@ -178,15 +178,20 @@ connectionBar.classList.add('visible');
 setConnectionState('connecting');
 connectToServer(wsUrl(location.host)).then(() => {
     setConnectionState('connected');
-    // 首页连接成功后注册回调（不进入房间，仅保持连接）
     setNetworkCallbacks({
         onDisconnected: () => setConnectionState('disconnected'),
         onReconnecting: (n) => { setConnectionState('connecting'); connectionLabel.textContent = '重连中 (' + n + '/2)...'; },
         onReconnectFailed: () => { setConnectionState('disconnected'); connectionLabel.textContent = '连接失败'; reconnectBtn.style.display = ''; },
         onSocketReconnected: () => setConnectionState('connected')
     });
+    // 连接成功 → 隐藏加载遮罩、展示主页
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    showHome();
 }).catch(() => {
     setConnectionState('disconnected');
+    // 连接失败 → 仍展示主页（本地/PVE 模式不需要服务器）
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    showHome('服务器未连接，您仍可进行本地游戏');
 });
 
 // 手动重连按钮
@@ -246,6 +251,7 @@ let _bgmLastPlayed = 0;
 const BGM_COOLDOWN = 25000;
 
 function showHome(msg) {
+    document.getElementById('lobbyOverlay').style.display = '';
     _updateChatAvailability();
     _switchLobbyView('lobbyHomeContent');
     connectionBar.classList.add('visible');
@@ -767,7 +773,8 @@ const _chatUnread = { room: 0, player1: 0, player2: 0, player3: 0 };
 let _chatDragStartX = 0, _chatDragStartY = 0, _chatDragOrigX = 0, _chatDragOrigY = 0, _chatDragging = false;
 
 // 初始化大厅：设置 _activeLobbyView、注册 BGM 交互监听、同步静音按钮
-showHome();
+// 延迟到连接完成后执行，避免连接完成前闪出主页
+// showHome();  // 移至 connectToServer 完成后
 
 // ==== 将领选择流程 =====================
 let _commanderPending = null;
