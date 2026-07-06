@@ -1101,6 +1101,17 @@ export function spawnCardUseEffect(cardId, x, y, isLocal = false, fromX = 0, fro
     });
 }
 
+// ===== 亡灵法师——魂卒召回黑烟特效 =====================
+export const soulRecallEffects = [];
+
+// 返回落地时间戳（供 unit._soulRecallLandAt 使用）
+export function spawnSoulRecallEffect(fromX, fromY, toX, toY) {
+    const startTime = performance.now();
+    const dur = 900;
+    soulRecallEffects.push({ fromX, fromY, toX, toY, startTime, duration: dur, landFrac: 0.92 });
+    return startTime + dur * 0.92;
+}
+
 // ===== 空袭特效 =====================
 export const airstrikeEffects = [];
 
@@ -1110,6 +1121,22 @@ export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike') {
         startTime: performance.now(),
         duration: type === 'diveStrafe' ? 1500 : 2000
     });
+}
+
+// ===== E4 空运特效（运输机飞抵 → 降落伞投放 → 单位落地时才现身） =====================
+export const airliftEffects = [];
+export const AIRLIFT_MS = 1500;
+export const AIRLIFT_LAND_FRAC = 0.82; // 单位在总时长的此比例处落地现身
+
+// 返回“单位落地时间戳”，调用方应据此设置 unit._airliftLandAt（落地前隐藏单位）
+export function spawnAirliftEffect(fromX, fromY, toX, toY, opts = {}) {
+    const startTime = performance.now();
+    airliftEffects.push({
+        fromX, fromY, toX, toY,
+        color: opts.color || '#8ab4ff',
+        startTime, duration: AIRLIFT_MS, landFrac: AIRLIFT_LAND_FRAC
+    });
+    return startTime + AIRLIFT_MS * AIRLIFT_LAND_FRAC;
 }
 
 // ===== 圣骑士誓言金色光束（从天而降） =====================
@@ -1581,6 +1608,8 @@ export function clearTransientEffects() {
     screenShake.time = 0;
     cardUseEffects.length = 0;
     airstrikeEffects.length = 0;
+    airliftEffects.length = 0;
+    soulRecallEffects.length = 0;
     screenShake.x = 0;
     screenShake.y = 0;
     turnFlash.alpha = 0;

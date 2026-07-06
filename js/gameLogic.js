@@ -17,7 +17,7 @@ import {
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing, spawnCardUseEffect, spawnAirstrikeEffect,
     spawnGoldenBeam, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords, spawnPaladinOrbitBeams,
-    spawnHealingChain, spawnReinforceEffect, spawnCardCopyEffect
+    spawnHealingChain, spawnReinforceEffect, spawnCardCopyEffect, spawnAirliftEffect
 } from './effects.js';
 import { playSound } from './audio.js';
 import { updateFogOfWar, isTileVisible, applyScoutReveal, expireScoutReveals } from './fogOfWar.js';
@@ -2074,15 +2074,17 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
         if (_colUnit) {
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
-                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.2, 0, false, false, true);
+                // 单点扫射：130% 倍率
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.3, 0, false, false, true);
                 result.dmg = Math.round(_calc.dmg);
             } else if (cardId === 'carpetBomb' && result.results) {
                 for (const _r of result.results) {
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
                     if (_ht && _ht.unit) {
                         const _isCenter = _r.q === targetTile.q && _r.r === targetTile.r;
-                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 0.85, 0, false, false, true);
-                        _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * 0.7);
+                        // 轰炸中心 100%，溅射 60%（以中心为基准）
+                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, 0, false, false, true);
+                        _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * 0.6);
                     }
                 }
             }
@@ -2134,7 +2136,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (aaLoss > 0) airUnit.applyDamage(aaLoss, { source: 'true', minHp: 1 });
         logMessage(`🪂 空运落入防空火力：损失${aaN * 15}%生命值（-${aaLoss}HP）`);
     }
-    spawnAirstrikeEffect(targetTile.x, targetTile.y, [], 'airdrop');
+    // 空运动画：运输机自起点飞抵终点上空 → 降落伞投放 → 单位落地时才现身
+    airUnit._airliftLandAt = spawnAirliftEffect(fromTile.x, fromTile.y, targetTile.x, targetTile.y, { color: airUnit.camp.color });
     logMessage(`🪂【空运】${airUnit.camp.name}${airUnit.config.name}兵传送至(${targetTile.q},${targetTile.r})`);
     gameState._airliftTarget = null;
     gameState.cardTargeting = null;
@@ -2142,7 +2145,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     updateUI();
     recalcAllFlankingMorale();
     if (gameState.skirmishFog) _updateSkirmishFogAll();
-    broadcastAction('tacticalCard', { cardId: 'airlift', unitId: airUnit.id, x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r });
+    broadcastAction('tacticalCard', { cardId: 'airlift', unitId: airUnit.id, x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r, fromX: fromTile.x, fromY: fromTile.y });
 }
 
     // 侦察卡：立即揭示目标区域
@@ -2430,7 +2433,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             // 找到纵横家单位
             for (const t of gameState.tiles) {
                 if (!t.unit || t.unit.commander !== 'diplomat' || t.unit.camp !== dipCamp || t.unit.hp <= 0) continue;
-                if (t.camp !== gameState.currentCamp) continue; // 不在敌区
+                if (t.camp === dipCamp) continue; // 不在己方地块时才可触发
                 // 35%概率
                 if (!(gameState.rng ? gameState.rng.chance(0.35) : Math.random() < 0.35)) continue;
                 const hand = gameState.playerHands[ck] || [];
@@ -2438,8 +2441,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
                 hand.push({ id: cardId, _copy: true });
                 logMessage(`纵横家【连横】：${ck}获得${cardId}的复制`);
-                // 播放复制特效
+                // 播放复制特效 + 纵横家自身金色闪光
                 spawnCardCopyEffect(targetTile.x, targetTile.y, 500, 375, cardId);
+                spawnCommanderSkillEffect(t.x, t.y, '✨', '连横');
                 break;
             }
         }

@@ -1,4 +1,4 @@
-import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
+import { HEX_SIZE, ctx, hexPath, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
@@ -250,6 +250,14 @@ export class Unit {
 
     draw(tileX, tileY) {
         if (this._airdropWaiting) return; // invisible until parachute lands
+        if (this._airliftLandAt) {         // E4 空运途中：落地前隐藏，落地时现身
+            if (frameInfo.now < this._airliftLandAt) return;
+            this._airliftLandAt = 0;
+        }
+        if (this._soulRecallLandAt) {      // E2 魂卒召回：黑烟飞抵后才现身
+            if (frameInfo.now < this._soulRecallLandAt) return;
+            this._soulRecallLandAt = 0;
+        }
         const now = frameInfo.now;
         const pos = this.getVisualPos();
         let visualX = pos.x, visualY = pos.y;
@@ -560,38 +568,9 @@ export class Unit {
             ctx.restore();
         }
 
-        // ── E2 亡灵法师标记 💀 ──
-        if (this.commander === 'necromancer') {
-            ctx.save();
-            const necroY = visualY - HEX_SIZE * 0.55;
-            const necroPulse = (Math.sin(time * 3.5 * Math.PI) + 1) / 2;
-            ctx.fillStyle = `rgba(130,200,255,${0.5 + necroPulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#8844ff'; ctx.shadowBlur = 6;
-            ctx.fillText('💀', visualX, necroY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── E4 空军上校标记 ✈️ ──
-        if (this.commander === 'colonel') {
-            ctx.save();
-            const colY = visualY - HEX_SIZE * 0.55;
-            const colPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
-            ctx.fillStyle = `rgba(100,180,255,${0.5 + colPulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#6688ff'; ctx.shadowBlur = 5;
-            ctx.fillText('✈️', visualX, colY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── E1 占星者标记 🔮 ──
-        if (this.commander === 'astrologer') {
+        // ── E1 占星者标记 🔮（仅天气锁定期展示） ──
+        if (this.commander === 'astrologer' && _gameState && _gameState.weatherLockUntil > 0
+            && getRoundIndex(_gameState) < _gameState.weatherLockUntil) {
             ctx.save();
             const astroPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
             const astroY = visualY - HEX_SIZE * 0.55;
@@ -601,6 +580,21 @@ export class Unit {
             ctx.textBaseline = 'middle';
             ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6;
             ctx.fillText('🔮', visualX, astroY);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
+        // ── E3 纵横家连横提示 ⚡（仅处于非己方地块时展示） ──
+        if (this.commander === 'diplomat' && this.tile && this.tile.camp !== this.camp) {
+            ctx.save();
+            const dipY = visualY - HEX_SIZE * 0.55;
+            const dipPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
+            ctx.fillStyle = `rgba(255,215,80,${0.5 + dipPulse * 0.3})`;
+            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#d4a017'; ctx.shadowBlur = 5;
+            ctx.fillText('⚡', visualX, dipY);
             ctx.shadowBlur = 0;
             ctx.restore();
         }
@@ -682,6 +676,38 @@ export class Unit {
                 ctx.restore();
 
             }
+        }
+
+        // 魂卒：黑烟缭绕粒子（亡灵法师本人不显示） + 头顶骷髅标志
+        if (this._isSoulMinion && this.commander !== 'necromancer') {
+            ctx.save();
+            const seed = this.id || 1;
+            // 多股黑烟绕身盘旋上升
+            for (let i = 0; i < 5; i++) {
+                const angle = time * 0.6 + (i / 5) * Math.PI * 2 + seed * 0.07;
+                const drift = Math.sin(time * 1.1 + i + seed) * 0.4;
+                const rise = (time * 0.8 + i * 1.3 + seed) % 3;
+                const px = Math.cos(angle) * (10 + rise * 4 + drift * 6);
+                const py = -rise * 12 + drift * 4;
+                const r = 3 + rise * 2.5 + Math.sin(time + i) * 0.8;
+                const alpha = Math.max(0, 0.3 - rise * 0.1 + Math.sin(time * 1.5 + i * 2) * 0.05);
+                ctx.fillStyle = `rgba(15,10,25,${alpha})`;
+                ctx.shadowColor = 'rgba(40,20,60,0.3)';
+                ctx.shadowBlur = 6 + rise * 2;
+                ctx.beginPath();
+                ctx.arc(px, py, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+            ctx.restore();
+            // 骷髅图标（头顶上方）
+            ctx.save();
+            ctx.globalAlpha = 0.4 + Math.sin(time * 1.5) * 0.12;
+            ctx.font = '20px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('💀', 0, -HEX_SIZE * 0.8);
+            ctx.restore();
         }
     }
 
@@ -1014,7 +1040,10 @@ export class Unit {
                 _gameState._soulMarks.push({
                     q: this.tile.q, r: this.tile.r,
                     campKey: ownKey,
-                    bornAt: getRoundIndex(_gameState)  // 回合数(0-indexed)，与老化检查一致
+                    bornAt: getRoundIndex(_gameState),  // 回合数(0-indexed)，与老化检查一致
+                    origType: this.type,                // 保留原兵种
+                    origMaxHp: this.maxHp,              // 保留原生命上限（含将领加成）
+                    origAtkBonus: this._atkBonus || 0   // 保留原攻击加成（含将领加成）
                 });
             }
         }

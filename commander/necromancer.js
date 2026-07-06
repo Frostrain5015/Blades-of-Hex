@@ -1,5 +1,7 @@
 // 亡灵法师 —— 留魂 + 回魂
 import { Unit } from '../js/Unit.js';
+import { UNIT_CONFIG } from '../js/config.js';
+import { spawnSoulRecallEffect } from '../js/effects.js';
 // 被动【留魂】：己方单位阵亡后原地留下亡魂标记，存在3回合后消失
 // 被动【回魂】：己方回合开始牵引3格范围内1个亡魂标记，原地唤起魂卒
 
@@ -47,23 +49,26 @@ export default {
         const idx = gameState._soulMarks.indexOf(best);
         if (idx >= 0) gameState._soulMarks.splice(idx, 1);
 
-        // 唤起魂卒：步兵基础，40%HP/70%ATK
-        const baseHp = 200; // 步兵基础HP
-        const baseAtk = 40; // 步兵基础ATK
-        const soulHp = Math.round(baseHp * 0.40);
-        const soulAtk = Math.round(baseAtk * 0.70);
+        // 唤起魂卒：保留原兵种和生命上限，当前HP=40%原上限，攻击=70%原攻击
+        const origType = best.origType || 'infantry';
+        const origMaxHp = best.origMaxHp || 200;
+        const origAtkBonus = best.origAtkBonus || 0;
+        const baseAtk = (UNIT_CONFIG[origType] && UNIT_CONFIG[origType].attack) || 40;
+        const soulHp = Math.round(origMaxHp * 0.40);
+        const soulAtk = Math.round((baseAtk + origAtkBonus) * 0.70);
 
-        // 创建魂卒单位
-        const soulUnit = new Unit('infantry', camp, targetTile, false);
+        // 创建魂卒单位（同原兵种），设落地时间戳以延迟显示
+        const soulUnit = new Unit(origType, camp, targetTile, false);
         soulUnit._isSoulMinion = true;
-        soulUnit.maxHp = soulHp;
+        soulUnit.maxHp = origMaxHp;
         soulUnit.hp = soulHp;
         soulUnit.displayHp = soulHp;
-        soulUnit._atkBonus = (soulUnit._atkBonus || 0) + soulAtk - baseAtk; // 调整ATK
+        soulUnit._atkBonus = soulAtk - baseAtk; // 调整至70%原攻击
         soulUnit.canAct = true;
-        soulUnit.remainingMP = 5; // 步兵速度
+        soulUnit.remainingMP = soulUnit.config.speed;
+        // 黑烟飞抵后才现身
+        soulUnit._soulRecallLandAt = spawnSoulRecallEffect(necroTile.x, necroTile.y, targetTile.x, targetTile.y);
 
-        helpers.spawnFx(targetTile.x, targetTile.y, '💀', '回魂');
         helpers.logMessage(`亡灵法师【回魂】：亡魂→魂卒（${soulHp}HP/${soulAtk}ATK）`);
     }
 };

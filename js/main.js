@@ -23,7 +23,7 @@ import {
     spawnGoldenBeam, spawnPaladinOrbitBeams, clearPaladinOrbitBeams, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords,
     spawnHealingChain,
     spawnSlashMarks,
-    spawnAirstrikeEffect,
+    spawnAirstrikeEffect, spawnAirliftEffect,
     spawnHealParticles,
     spawnReinforceEffect,
     clearTransientEffects
@@ -2284,10 +2284,15 @@ async function handleRemoteAction(msg) {
                             }, 1200);
                             break;
                         }
-                        case 'airlift':
-                            // 传送已随 state 同步，远端仅补放降落伞特效
-                            spawnAirstrikeEffect(e.x, e.y, [], 'airdrop');
+                        case 'airlift': {
+                            // 传送已随 state 同步，远端重放空运动画（落地前隐藏该单位）
+                            const aUnit = e.unitId ? gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.unitId ? t.unit : null), null) : null;
+                            const fromX = e.fromX != null ? e.fromX : e.x;
+                            const fromY = e.fromY != null ? e.fromY : e.y - 100;
+                            const landAt = spawnAirliftEffect(fromX, fromY, e.x, e.y, { color: aUnit ? aUnit.camp.color : '#8ab4ff' });
+                            if (aUnit) aUnit._airliftLandAt = landAt;
                             break;
+                        }
                         case 'diveStrafe': {
                             // E4 空军上校：伤害在本地延迟结算，远端同样在此结算以保持一致
                             playSound('airstrike');

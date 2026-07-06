@@ -18,7 +18,7 @@ import {
     gongxinRipples, updateGongxinRipples, drawGongxinRipples,
     ministerRings, updateMinisterRings, drawMinisterRings,
     coinParticles, updateCoinParticles, drawCoinParticles,
-    cardUseEffects, airstrikeEffects,
+    cardUseEffects, airstrikeEffects, airliftEffects, soulRecallEffects,
     goldenBeams, updateGoldenBeams, drawGoldenBeams,
     healingChains, updateHealingChains, drawHealingChains,
     paladinOrbitBeams, updatePaladinOrbitBeams, drawPaladinOrbitBeamsBack, drawPaladinOrbitBeamsFront,
@@ -96,6 +96,8 @@ export function renderGame() {
     drawStallerZone(now);
     // 铁卫灵光（7格集群外边界）—— 地块六边形特效，在立绘之前
     drawIronGuardAura(now);
+    // 占星者星光力场（常驻，所有人可见）—— 地面蓝白星光 + 边界圈，在单位之下
+    drawAstrologerField(now);
     // 单位六边形辉光（堕天使/铁卫/狂暴/禁锢/圣骑士/治愈灵光）—— 在立绘之前
     drawUnitHexAuras(now);
     drawSoulMarks(now);
@@ -549,6 +551,8 @@ export function renderGame() {
     // 烧牌动画 + 空袭特效 — 最高图层
     drawCardUseAnimation(now);
     drawAirstrikeEffects(now);
+    drawAirliftEffects(now);
+    drawSoulRecallEffects(now);
 
     // 不跟随震动的粒子更新
     if (bloodDrains.length > 0) updateBloodDrains(dt);
@@ -1062,53 +1066,154 @@ function drawUnitHexAuras(now) {
             ctx.restore();
         }
 
-        // E3 纵横家连横金虚线（在敌方行政区内时）
+        // E3 纵横家连横：敌区金地 + 边界金光圈（在敌方行政区内时）
         if (u.commander === 'diplomat' && u.hp > 0 && u.tile && u.tile.camp !== u.camp) {
             ctx.save();
-            const dipPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
-            const dipAlpha = 0.2 + dipPulse * 0.15;
-            ctx.setLineDash([4, 4]);
-            drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 3, `rgba(255,200,50,${dipAlpha})`, 2);
+            const dipPulse = (Math.sin(time * 2 * Math.PI) + 1) / 2;
+            // 金色地面填充
+            ctx.globalAlpha = 0.08 + dipPulse * 0.05;
+            ctx.fillStyle = '#d4a017';
+            hexPath(ctx, vx, vy, HEX_SIZE + 1);
+            ctx.fill();
+            // 金色边界大圈（虚线，带发光）
+            ctx.globalAlpha = 0.4 + dipPulse * 0.2;
+            ctx.strokeStyle = 'rgba(255,200,50,0.85)';
+            ctx.lineWidth = 2.5;
+            ctx.shadowColor = 'rgba(255,200,50,0.5)';
+            ctx.shadowBlur = 8 + dipPulse * 4;
+            ctx.setLineDash([6, 5]);
+            hexPath(ctx, vx, vy, HEX_SIZE + 1);
+            ctx.stroke();
             ctx.setLineDash([]);
+            ctx.shadowBlur = 0;
             ctx.restore();
         }
 
-        // E1 占星者星光力场（3格范围内友军淡蓝色星光罩）
-        if (u.commander === 'astrologer' && u.hp > 0 && gameState.tileMap) {
+    }
+}
+
+// E1 占星者星光力场（常驻、所有人可见：3格范围半透明地面 + 边界大圈 + 占星者自身环绕星光）
+function drawAstrologerField(now) {
+    const astrologerDef = getCommander('astrologer');
+    if (!astrologerDef || !astrologerDef.isInWeatherShield) return;
+    for (const tile of gameState.tiles) {
+        const u = tile.unit;
+        if (!u || u.commander !== 'astrologer' || u.hp <= 0 || !gameState.tileMap) continue;
+        const cq = tile.q, cr = tile.r, R = 3;
+        // 收集力场内的地块（去重）
+        const fieldTiles = [];
+        const fieldSet = new Set();
+        for (let dq = -R; dq <= R; dq++) {
+            for (let dr = Math.max(-R, -dq - R); dr <= Math.min(R, -dq + R); dr++) {
+                const ht = gameState.tileMap.get(`${cq + dq},${cr + dr}`);
+                if (ht && !fieldSet.has(`${ht.q},${ht.r}`)) {
+                    fieldSet.add(`${ht.q},${ht.r}`);
+                    fieldTiles.push(ht);
+                }
+            }
+        }
+        if (fieldTiles.length === 0) continue;
+        const time = now / 1000;
+        const pulse = (Math.sin(time * 1.2) + 1) / 2;
+        // 力场内：随机散布半透明星光粒子（闪烁小点 + ✦，不填充地块也不画边界圈）
+        ctx.save();
+        const sx = tile.x, sy = tile.y;
+        // 在地块中心上散布星光点（每格约3~5颗小点，位置由种子坐标决定以保持稳定闪烁）
+        ctx.shadowColor = 'rgba(200,230,255,0.4)';
+        ctx.shadowBlur = 4;
+        for (const ht of fieldTiles) {
+            const seed = ht.q * 31 + ht.r * 17;
+            const ptCount = 3 + ((seed * 7) % 3);
+            for (let p = 0; p < ptCount; p++) {
+                const pxOff = ((seed * (p + 1) * 13) % 29) - 14;
+                const pyOff = ((seed * (p + 1) * 19) % 29) - 14;
+                const flicker = Math.sin(time * 1.8 + seed * 0.3 + p * 2.1) * 0.5 + 0.5;
+                const alpha = (0.25 + flicker * 0.2) * (p === 0 ? 1 : 0.6);
+                // 每格第一颗为小✦，其余为圆点
+                if (p === 0) {
+                    ctx.fillStyle = `rgba(255,245,220,${alpha})`;
+                    ctx.font = '8px serif';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('✦', ht.x + pxOff, ht.y + pyOff);
+                } else {
+                    const dotR = 1.2 + flicker * 0.8;
+                    ctx.fillStyle = `rgba(200,230,255,${alpha * 0.7})`;
+                    ctx.beginPath();
+                    ctx.arc(ht.x + pxOff, ht.y + pyOff, dotR, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+        ctx.shadowBlur = 0;
+        ctx.restore();
+
+        // 星移光柱：天氣鎖定期間，占星者處升起明亮藍白光柱 + 頂端散發星光
+        if (gameState.weatherLockUntil > 0 && getRoundIndex(gameState) < gameState.weatherLockUntil) {
+            const beamTime = now / 600;
+            const beamPulse = (Math.sin(beamTime * Math.PI * 2) + 1) / 2;
             ctx.save();
-            const starPulse = (Math.sin(time * 2 * Math.PI) + 1) / 2;
-            // 占星者自身：金色星辰轨迹环绕
-            const starCount = 5;
-            for (let i = 0; i < starCount; i++) {
-                const angle = time * 0.5 + (i / starCount) * Math.PI * 2;
-                const r = HEX_SIZE * 0.7;
-                const sx = vx + Math.cos(angle) * r;
-                const sy = vy + Math.sin(angle) * r * 0.6;
-                ctx.fillStyle = `rgba(255,215,100,${0.5 + starPulse * 0.3})`;
-                ctx.font = '8px serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('✦', sx, sy);
+            const H = 120, cx = sx, cy = sy;
+            // 外層光暈（寬散光柱）
+            const grad = ctx.createRadialGradient(cx, cy - H * 0.4, 0, cx, cy - H * 0.4, 50);
+            grad.addColorStop(0, `rgba(160,220,255,${0.25 + beamPulse * 0.15})`);
+            grad.addColorStop(0.5, `rgba(100,180,255,${0.12 + beamPulse * 0.08})`);
+            grad.addColorStop(1, `rgba(80,160,255,0)`);
+            ctx.fillStyle = grad;
+            ctx.shadowColor = 'rgba(150,210,255,0.6)';
+            ctx.shadowBlur = 30 + beamPulse * 15;
+            ctx.fillRect(cx - 50, cy - H - 20, 100, H + 30);
+            // 內層：窄光柱 + 光點上升
+            ctx.strokeStyle = `rgba(200,235,255,${0.4 + beamPulse * 0.2})`;
+            ctx.lineWidth = 3;
+            ctx.shadowColor = 'rgba(180,230,255,0.5)';
+            ctx.shadowBlur = 20 + beamPulse * 10;
+            ctx.beginPath();
+            ctx.moveTo(cx - 2, cy);
+            ctx.lineTo(cx - 6, cy - H * 0.3);
+            ctx.lineTo(cx - 3, cy - H * 0.6);
+            ctx.lineTo(cx, cy - H);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(cx + 2, cy);
+            ctx.lineTo(cx + 6, cy - H * 0.3);
+            ctx.lineTo(cx + 3, cy - H * 0.6);
+            ctx.lineTo(cx, cy - H);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            // 上升光點
+            for (let i = 0; i < 5; i++) {
+                const tOff = (beamTime * 0.5 + i / 5) % 1;
+                const py = cy - tOff * H;
+                const pxOff = Math.sin(tOff * Math.PI * 3 + i) * 4;
+                const dotA = 0.7 * (1 - tOff) + beamPulse * 0.2;
+                ctx.fillStyle = `rgba(255,250,235,${dotA})`;
+                ctx.shadowColor = 'rgba(200,230,255,0.8)';
+                ctx.shadowBlur = 8;
+                ctx.beginPath();
+                ctx.arc(cx + pxOff, py, 2 + (1 - tOff) * 1.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+            // 頂端星光噴發
+            for (let s = 0; s < 5; s++) {
+                const a = beamTime * 0.7 + (s / 5) * Math.PI * 2;
+                const r = 8 + beamPulse * 10 + s * 4;
+                const px = cx + Math.cos(a) * r;
+                const py = cy - H + Math.sin(a) * r * 0.35;
+                const sAlpha = 0.5 + beamPulse * 0.3 - s * 0.08;
+                ctx.fillStyle = `rgba(255,245,235,${Math.max(0, sAlpha)})`;
+                ctx.shadowColor = 'rgba(200,230,255,0.6)';
+                ctx.shadowBlur = 10;
+                ctx.font = '10px serif';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('✦', px, py);
             }
             ctx.restore();
-        }
-        // 星光力场内友军：淡蓝色六边形星光罩
-        if (u.commander !== 'astrologer' && u.hp > 0 && gameState.tileMap) {
-            const astrologerDef = getCommander('astrologer');
-            if (astrologerDef && astrologerDef.isInWeatherShield &&
-                astrologerDef.isInWeatherShield(tile, u.camp, gameState.tileMap)) {
-                ctx.save();
-                const shieldPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
-                const shieldAlpha = 0.08 + shieldPulse * 0.06;
-                drawHexagonOutline(ctx, vx, vy, HEX_SIZE + 2,
-                    `rgba(100,150,255,${shieldAlpha})`, 1.5);
-                ctx.restore();
-            }
         }
     }
 }
 
-// E2 亡灵法师——亡魂标记渲染
+// E2 亡灵法师——亡魂标记渲染（黑绿色地块高亮 + 鬼火图标）
 function drawSoulMarks(now) {
     if (!gameState._soulMarks || gameState._soulMarks.length === 0) return;
     const time = now / 1000;
@@ -1116,7 +1221,26 @@ function drawSoulMarks(now) {
         const tile = gameState.tileMap && gameState.tileMap.get(`${mark.q},${mark.r}`);
         if (!tile) continue;
         const vx = tile.x, vy = tile.y;
-        const alpha = 0.4 + Math.sin(time * 2 + mark.q) * 0.2;
+        const pulse = (Math.sin(time * 1.8 + mark.q) + 1) / 2;
+
+        // 地块深绿底色 + 亮绿描边
+        ctx.save();
+        ctx.globalAlpha = 0.10 + pulse * 0.06;
+        ctx.fillStyle = '#226644';
+        hexPath(ctx, vx, vy, HEX_SIZE + 1);
+        ctx.fill();
+        ctx.globalAlpha = 0.3 + pulse * 0.15;
+        ctx.strokeStyle = '#44ee88';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = 'rgba(68,238,136,0.5)';
+        ctx.shadowBlur = 6 + pulse * 4;
+        hexPath(ctx, vx, vy, HEX_SIZE + 1);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+
+        // 鬼魂 emoji + 绿色鬼火
+        const alpha = 0.5 + Math.sin(time * 2 + mark.q) * 0.2;
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.font = '18px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
@@ -1124,7 +1248,7 @@ function drawSoulMarks(now) {
         ctx.textBaseline = 'middle';
         ctx.fillText('👻', vx, vy);
         ctx.restore();
-        // 绿色鬼火粒子（简化为闪烁圆形）
+        // 绿色鬼火闪烁
         ctx.save();
         const glowAlpha = 0.15 + Math.sin(time * 3) * 0.1;
         ctx.fillStyle = `rgba(68,255,136,${glowAlpha})`;
@@ -1348,6 +1472,7 @@ function drawRangeApertures(now) {
         const ct = gameState.cardTargeting;
         const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
         const isColTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest';
+        const time = now / 1000;
         const isHeal = ct.targeting === 'friendlyAny' || ct.targeting === 'anyUnit';
         const isShield = ct.targeting === 'shieldTarget';
         const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain' || ct.targeting === 'emptyFriendlyLandmine';
@@ -1397,6 +1522,40 @@ function drawRangeApertures(now) {
                 _strokeHexRegionBorder(rangeTiles, inRangeFn, now, pulse,
                     { color: `rgba(120,200,255,${0.62 + pulse * 0.13})`, w: 2.6, glow: 'rgba(90,180,255,0.55)', blur: 7 + pulse * 4 },
                     { color: `rgba(230,245,255,${0.4 + pulse * 0.2})`, w: 1 });
+                // 上校起飞位标志（大飞机居中覆盖，提示机场位置）
+                ctx.save();
+                const colCx = colonel.tile.x, colCy = colonel.tile.y;
+                const colPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
+                ctx.globalAlpha = 0.7 + colPulse * 0.25;
+                ctx.shadowColor = 'rgba(100,180,255,0.6)'; ctx.shadowBlur = 14 + colPulse * 6;
+                ctx.font = '36px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText('✈️', colCx, colCy);
+                // 环绕跑道虚线圆
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 0.3 + colPulse * 0.15;
+                ctx.strokeStyle = 'rgba(100,200,255,0.5)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([4, 5]);
+                ctx.beginPath();
+                ctx.arc(colCx, colCy, HEX_SIZE * 0.85, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+                // 防空单位标志（每个敌方炮兵/要塞/停滞者）
+                ctx.save();
+                ctx.font = '20px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                for (const t of gameState.tiles) {
+                    const u = t.unit;
+                    if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
+                    const aaPulse = (Math.sin(time * 2.0 + t.q) + 1) / 2;
+                    ctx.globalAlpha = 0.6 + aaPulse * 0.3;
+                    ctx.shadowColor = 'rgba(255,60,40,0.5)'; ctx.shadowBlur = 10 + aaPulse * 5;
+                    ctx.fillText('⚠️', t.x, t.y);
+                }
+                ctx.shadowBlur = 0;
+                ctx.restore();
             }
         }
 
@@ -2314,16 +2473,19 @@ function drawAirstrikeEffects(now) {
             ctx.fillText('🛩️', 0, 0);
             ctx.restore();
 
-            // 扫射窗口：曳光弹随机炮口 → 地面弹着点沿目标横线行走
-            const fireStart = 0.45, fireEnd = 0.80;
+            // 扫射窗口：曳光弹精确锁定目标中心（cx, cy），不飘
+            const fireStart = 0.40, fireEnd = 0.82;
             if (t >= fireStart && t <= fireEnd) {
                 const fp = (t - fireStart) / (fireEnd - fireStart);
-                const impactX = cx - 50 + fp * 100;
-                const impactY = cy + 6;
+                // 弹着点精确收敛至目标中心(cx,cy)，用缓动使前半程覆盖目标面前后微摆
+                const converge = fp < 0.5 ? 2 * fp * fp : 1 - 2 * (1 - fp) * (1 - fp);
+                const wobble = (1 - converge) * 12;
+                const impactX = cx + Math.sin(fp * Math.PI * 2.5) * wobble;
+                const impactY = cy + Math.cos(fp * Math.PI * 3) * wobble * 0.4;
                 const noseX = px + Math.cos(ang) * 24;
                 const noseY = py + Math.sin(ang) * 24;
                 ctx.save();
-                // 曳光弹（外亮内白）
+                // 曳光弹（外亮内白），弹道精确指向目标
                 ctx.strokeStyle = 'rgba(255,225,90,0.9)';
                 ctx.lineWidth = 2.6;
                 ctx.shadowColor = '#ffcc33';
@@ -2336,18 +2498,25 @@ function drawAirstrikeEffects(now) {
                 // 炮口闪光
                 ctx.fillStyle = `rgba(255,220,120,${0.5 + Math.random() * 0.5})`;
                 ctx.beginPath(); ctx.arc(noseX, noseY, 3 + Math.random() * 3, 0, Math.PI * 2); ctx.fill();
-                // 弹着火花
-                for (let s = 0; s < 7; s++) {
+                // 弹着火花（精确聚集在目标中心周围）
+                const spread = (1 - converge) * 12 + 3;
+                for (let s = 0; s < 5 + converge * 3; s++) {
                     const a = Math.random() * Math.PI * 2;
-                    const d = Math.random() * 16;
-                    ctx.fillStyle = `rgba(255,${(160 + Math.random() * 90) | 0},50,0.85)`;
+                    const d = Math.random() * spread;
+                    ctx.fillStyle = `rgba(255,${(160 + Math.random() * 90) | 0},50,0.9)`;
                     ctx.beginPath();
-                    ctx.arc(impactX + Math.cos(a) * d, impactY + Math.sin(a) * d - Math.random() * 7, 1.4 + Math.random() * 2, 0, Math.PI * 2);
+                    ctx.arc(impactX + Math.cos(a) * d, impactY + Math.sin(a) * d, 1.4 + Math.random() * 2, 0, Math.PI * 2);
                     ctx.fill();
                 }
-                // 弹着扬尘（随行走渐隐残留）
-                ctx.fillStyle = `rgba(120,110,90,${0.25 * (1 - fp)})`;
-                ctx.beginPath(); ctx.arc(impactX, impactY, 6 + fp * 10, 0, Math.PI * 2); ctx.fill();
+                // 中心爆点
+                if (converge > 0.85) {
+                    const flash = (converge - 0.85) / 0.15;
+                    ctx.fillStyle = `rgba(255,220,180,${flash * 0.5})`;
+                    ctx.shadowColor = '#ffaa44';
+                    ctx.shadowBlur = 12;
+                    ctx.beginPath(); ctx.arc(cx, cy, 3 + flash * 8, 0, Math.PI * 2); ctx.fill();
+                }
+                ctx.shadowBlur = 0;
                 ctx.restore();
             }
             continue;
@@ -2414,4 +2583,98 @@ function drawAirstrikeEffects(now) {
         ctx.restore();
     }
 
+}
+
+// E4 空运：运输机自起点飞抵终点上空 → 降落伞垂直投放 → 落地扬尘（单位在 _airliftLandAt 时现身）
+function drawAirliftEffects(now) {
+    for (let i = airliftEffects.length - 1; i >= 0; i--) {
+        const fx = airliftEffects[i];
+        const t = (now - fx.startTime) / fx.duration;
+        if (t >= 1) { airliftEffects.splice(i, 1); continue; }
+
+        const land = fx.landFrac;      // 单位落地时刻
+        const flyEnd = land * 0.6;     // 运输机飞行阶段结束
+        const H = 130;                 // 高空高度(px)
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        if (t < flyEnd) {
+            // 阶段A：运输机（载着单位）自起点上空飞往终点上空
+            const p = _ease(t / flyEnd);
+            const px = fx.fromX + (fx.toX - fx.fromX) * p;
+            const py = (fx.fromY + (fx.toY - fx.fromY) * p) - H;
+            const dir = fx.toX >= fx.fromX ? 1 : -1;
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.scale(dir, 1);
+            ctx.fillStyle = '#000';
+            ctx.font = '42px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+            ctx.fillText('🛩️', 0, 0);
+            ctx.restore();
+        } else if (t < land) {
+            // 阶段B：降落伞自终点上空垂直下降
+            const p = _ease((t - flyEnd) / (land - flyEnd));
+            const py = (fx.toY - H) + H * p;
+            // 阵营色微光提示
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            ctx.fillStyle = fx.color;
+            ctx.shadowColor = fx.color;
+            ctx.shadowBlur = 14;
+            ctx.beginPath();
+            ctx.arc(fx.toX, py + 14, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            ctx.fillStyle = '#000';
+            ctx.font = '34px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+            ctx.fillText('🪂', fx.toX, py);
+        } else {
+            // 阶段C：落地扬尘环
+            const p = (t - land) / (1 - land);
+            ctx.globalAlpha = (1 - p) * 0.55;
+            ctx.strokeStyle = 'rgba(190,178,150,0.9)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(fx.toX, fx.toY + 6, 8 + p * 28, 4 + p * 13, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+}
+
+// E2 亡灵法师 —— 魂卒召回：黑烟团从法师位置飞向目标位置
+function drawSoulRecallEffects(now) {
+    for (let i = soulRecallEffects.length - 1; i >= 0; i--) {
+        const fx = soulRecallEffects[i];
+        const t = (now - fx.startTime) / fx.duration;
+        if (t >= 1) { soulRecallEffects.splice(i, 1); continue; }
+        const land = fx.landFrac || 0.92;
+        const p = Math.min(1, t / land);
+        const px = fx.fromX + (fx.toX - fx.fromX) * _ease(p);
+        const py = fx.fromY + (fx.toY - fx.fromY) * _ease(p);
+        ctx.save();
+        const swirl = Math.sin(p * Math.PI * 4) * 8;
+        const r = 6 + p * 8 + swirl;
+        const alpha = (1 - p) * 0.5 + 0.3;
+        ctx.fillStyle = `rgba(25,15,40,${alpha})`;
+        ctx.shadowColor = 'rgba(50,20,80,0.4)';
+        ctx.shadowBlur = 14 + p * 8;
+        ctx.beginPath();
+        ctx.arc(px + swirl * 0.3, py - swirl * 0.5, r, 0, Math.PI * 2);
+        ctx.fill();
+        for (let s = 1; s <= 3; s++) {
+            const sp = Math.max(0, p - s * 0.06);
+            const sx = fx.fromX + (fx.toX - fx.fromX) * _ease(sp);
+            const sy = fx.fromY + (fx.toY - fx.fromY) * _ease(sp);
+            const sr = Math.max(1, r * (1 - s * 0.2));
+            const sa = Math.max(0, alpha * (1 - s * 0.25));
+            ctx.fillStyle = `rgba(25,15,40,${sa})`;
+            ctx.beginPath();
+            ctx.arc(sx + Math.sin(sp * 5) * 3, sy + Math.cos(sp * 4) * 3, sr, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
 }
