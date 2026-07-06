@@ -1,4 +1,5 @@
 import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE } from './config.js';
+import { nextId, getCounter, setCounter } from './uid.js';
 import { computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
@@ -203,8 +204,7 @@ export function rebuildTileMap() {
     }
 }
 
-let idCounter = 0;
-export function nextId() { return ++idCounter; }
+// idCounter 和 nextId 已移至 uid.js
 
 function _campKeyStr(camp) {
     if (camp === CAMP.player1) return 'player1';
@@ -659,7 +659,7 @@ export function serializeState() {
         gameOver: gameState.gameOver,
         victoryCampKey: gameState.victoryCamp ? _campToKey(gameState.victoryCamp) : null,
         logHistory: [...gameState.logHistory],
-        idCounter: idCounter,
+        idCounter: getCounter(),
         weather: gameState.weather,
         lastWeather: gameState.lastWeather,
         weatherLockUntil: gameState.weatherLockUntil || 0,
@@ -719,7 +719,7 @@ export function serializeState() {
 export function deserializeState(data, HexTileClass, UnitClass) {
     const campMap = { p1: CAMP.player1, p2: CAMP.player2, p3: CAMP.player3, neutral: CAMP.neutral };
 
-    idCounter = data.idCounter;
+    setCounter(data.idCounter);
     gameState.gameOver = data.gameOver;
     gameState.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
     gameState.currentCamp = campMap[data.currentCampKey] || CAMP.player1;

@@ -1,5 +1,5 @@
 ﻿import { HEX_SIZE, HEX_WIDTH, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, hexToRgb, rgbToHex, frameInfo, CAMP_FLAG_COLORS, HEX_NEIGHBORS, hexEdge, TERRAIN_CONFIG, CAMP, settings } from './config.js';
-import { nextId } from './state.js';
+import { nextId } from './uid.js';
 import { getTileVisibilityState } from './fogOfWar.js';
 
 let _gameState = null;
