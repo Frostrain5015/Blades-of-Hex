@@ -41,14 +41,29 @@ function _handleCardCanvasClick(e) {
     const cardW = 90, cardH = 130, peekW = 72;
     const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
 
-    // draw pile check (top-right corner) — single click to draw
+    // draw pile / fuel purchase check (top-right corner)
+    // E4 空军上校：燃料购买
     if (cx >= pileX - 4 && cx <= pileX + pileW + 4 && cy >= pileY - 4 && cy <= pileY + pileH + 4) {
         const isMyTurnLocal = isNetworkGame()
             ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
             : (gameState.gameMode === 'pve' ? gameState.currentCamp === CAMP.player1 : true);
+        if (!isMyTurnLocal || gameState.cardTargeting) return;
+
+        // 上校燃料购买
+        const isColonel = gameState['commander' + (campKey === 'player1' ? 'P1' : campKey === 'player2' ? 'P2' : 'P3')] === 'colonel';
+        if (isColonel) {
+            if (gameState.playerGold[campKey] >= 3) {
+                gameState.playerGold[campKey] -= 3;
+                gameState._fuel[campKey] = (gameState._fuel[campKey] || 0) + 2;
+                logMessage(`${campKey}购买2🔥燃料（-3$）`);
+                updateUI();
+            }
+            return;
+        }
+
+        // 普通抽牌
         const _dcCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
-        if (!isMyTurnLocal || gameState.cardTargeting ||
-            hand.length >= CARD_SYSTEM_CONFIG.maxHandSize ||
+        if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize ||
             gameState.playerGold[campKey] < _dcCost ||
             gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
             return;
