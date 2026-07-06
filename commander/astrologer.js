@@ -70,9 +70,8 @@ export default {
         cooldown: 4,
 
         onActivate(unit, helpers) {
-            // 远端重放：状态已由序列化同步
-            if (unit._astrologerReplay) {
-                unit._astrologerReplay = false;
+            // 远端重放：状态已由序列化同步，只补放特效（与 paladin 一致，用 helpers.isReplay）
+            if (helpers.isReplay) {
                 helpers.spawnFx(unit.tile.x, unit.tile.y, '⭐', '星移');
                 return;
             }

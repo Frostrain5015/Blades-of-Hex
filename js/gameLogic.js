@@ -417,18 +417,20 @@ function initCardDeck() {
     for (const [key, cmdId] of [['player1', gameState.commanderP1], ['player2', gameState.commanderP2], ['player3', gameState.commanderP3]]) {
         if (cmdId === 'colonel') colonels[key] = true;
     }
-    const freeCard1 = gameState.cardDrawPile.pop();
-    const freeCard2 = gameState.cardDrawPile.pop();
-    const freeCard3 = gameState.isThreePlayer ? gameState.cardDrawPile.pop() : null;
+    // 上校初始手牌带部署卡：部署后空军卡启用（见 colonel 部署检查），
+    // 空军卡为燃料门控、不消耗（executeTacticalCard 不 splice），手牌恒为3张
+    // 故 >= maxHandSize，自然无法从共享牌堆抽普通牌，等效"牌库替换"。
+    // 注意：cardDrawPile 为双方共享，切勿因上校清空，否则对手也抽不到牌。
+    const colonelHand = () => ['commanderDeploy', 'diveStrafe', 'carpetBomb', 'airlift'];
+    // 仅非上校玩家从共享牌堆摸初始牌（上校不摸，避免白白消耗共享牌）
+    const freeCard1 = colonels.player1 ? null : gameState.cardDrawPile.pop();
+    const freeCard2 = colonels.player2 ? null : gameState.cardDrawPile.pop();
+    const freeCard3 = (gameState.isThreePlayer && !colonels.player3) ? gameState.cardDrawPile.pop() : null;
     gameState.playerHands = {
-        player1: colonels.player1 ? ['diveStrafe', 'carpetBomb', 'airlift'] : ['commanderDeploy', freeCard1].filter(Boolean),
-        player2: colonels.player2 ? ['diveStrafe', 'carpetBomb', 'airlift'] : ['commanderDeploy', freeCard2].filter(Boolean),
-        player3: gameState.isThreePlayer ? (colonels.player3 ? ['diveStrafe', 'carpetBomb', 'airlift'] : ['commanderDeploy', freeCard3].filter(Boolean)) : []
+        player1: colonels.player1 ? colonelHand() : ['commanderDeploy', freeCard1].filter(Boolean),
+        player2: colonels.player2 ? colonelHand() : ['commanderDeploy', freeCard2].filter(Boolean),
+        player3: gameState.isThreePlayer ? (colonels.player3 ? colonelHand() : ['commanderDeploy', freeCard3].filter(Boolean)) : []
     };
-    // 上校玩家牌库清空（无牌可抽）
-    for (const ck of ['player1', 'player2', 'player3']) {
-        if (colonels[ck]) gameState.cardDrawPile = [];
-    }
     gameState.playerDrawsThisTurn = { player1: 0, player2: 0, player3: 0 };
     gameState.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0 };
     gameState.cardStackExpanded = false;
@@ -634,6 +636,12 @@ function _updateWeather() {
 
 // 限时效果到期检查（每回合 P1 开始时调用一次）
 function _expireTimedEffects() {
+    // E2 亡灵法师：亡魂标记老化（2回合后消失）；bornAt 为回合数(0-indexed)
+    // 全局一次性结算，不放进 per-unit 循环（避免 O(单位数×标记数) 且无单位时不老化）
+    if (gameState._soulMarks && gameState._soulMarks.length > 0) {
+        const soulRound = getRoundIndex(gameState);
+        gameState._soulMarks = gameState._soulMarks.filter(m => soulRound - m.bornAt < 2);
+    }
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
         const u = tile.unit;
@@ -657,14 +665,6 @@ function _expireTimedEffects() {
                 u._shield = 0;
                 u._shieldMax = 0;
             }
-        }
-        // E2 亡灵法师：亡魂标记老化（2回合后消失）；bornAt 为回合数(0-indexed)
-        if (gameState._soulMarks && gameState._soulMarks.length > 0) {
-            const roundNum = getRoundIndex(gameState);
-            gameState._soulMarks = gameState._soulMarks.filter(m => {
-                const markAge = roundNum - m.bornAt;
-                return markAge < 2;
-            });
         }
         if (u.activeSkillDur > 0) {
             u.activeSkillDur--;
@@ -1908,7 +1908,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         _executeAirliftDest(targetTile);
         return;
     }
-    const cfg = TACTICAL_CARD_CONFIG[cardId];
+    const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
     if (!cfg) return;
 
     const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
@@ -1920,6 +1920,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (!targetTile || !targetTile.unit || targetTile.unit.camp === myCamp) { notify('无效目标'); return; }
     } else if (tg === 'friendlyAlive') {
         if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('无效目标'); return; }
+    } else if (tg === 'friendlyAny') {
+        if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('请选择友方单位'); return; }
     } else if (tg === 'emptyTile') {
         if (!targetTile || targetTile.unit) { notify('该格已占用'); return; }
     } else if (tg === 'emptyFriendlyNonCityNonMountain') {
@@ -1978,8 +1980,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if ((gameState._fuel[campKey] || 0) < fuelCost) {
             notify('燃料不足', 'error'); return;
         }
-        gameState._fuel[campKey] -= fuelCost;
-        logMessage(`空军上校消耗${fuelCost}🔥燃料`);
+        // 空运两段式：燃料延迟到第二段（选定目的地）才扣，避免取消白扣
+        if (cardId !== 'airlift') {
+            gameState._fuel[campKey] -= fuelCost;
+            logMessage(`空军上校消耗${fuelCost}🔥燃料`);
+        }
     }
     // 雾天停飞（所有空军卡）
     if (isAirCard && gameState.weather === 'fog') {
@@ -2037,10 +2042,15 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     function _executeAirliftDest(targetTile) {
     if (!gameState._airliftTarget) { notify('请先选择空运单位', 'error'); return; }
     const myCamp = gameState.currentCamp;
+    const aCampKey = _campKey(myCamp);
     const airUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === gameState._airliftTarget.unitId ? t.unit : null), null);
     if (!airUnit || !airUnit.tile) { notify('空运单位已不存在', 'error'); gameState._airliftTarget = null; gameState.cardTargeting = null; hideTargetingBanner(); updateUI(); return; }
     if (targetTile.unit) { notify('目的地已有单位', 'error'); return; }
     if (gameState.skirmishFog && !isTileVisible(targetTile, myCamp, gameState)) { notify('目的地不在视野内', 'error'); return; }
+    // 扣燃料(3) + 计入本回合用卡次数（空军卡不消耗手牌，故在此统一结算）
+    gameState._fuel[aCampKey] = (gameState._fuel[aCampKey] || 0) - 3;
+    gameState.playerUsesThisTurn[aCampKey] = (gameState.playerUsesThisTurn[aCampKey] || 0) + 1;
+    logMessage(`空军上校消耗3🔥燃料`);
     const fromTile = airUnit.tile;
     fromTile.unit = null;
     targetTile.unit = airUnit;
@@ -2092,11 +2102,13 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
     }
 
-    // remove from hand
-    hand.splice(idx, 1);
-    // discard (except commanderDeploy and copy cards)
-    if (cardId !== 'commanderDeploy' && !isCopyCard) {
-        gameState.cardDiscardPile.push(cardId);
+    // remove from hand（空军上校专属卡为燃料门控、可复用 → 保留手牌、不进弃牌堆）
+    if (!isColonelCard) {
+        hand.splice(idx, 1);
+        // discard (except commanderDeploy and copy cards)
+        if (cardId !== 'commanderDeploy' && !isCopyCard) {
+            gameState.cardDiscardPile.push(cardId);
+        }
     }
     gameState.playerUsesThisTurn[campKey]++;
 
@@ -2235,11 +2247,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             }, BURN_MS);
             break;
         }
-        case 'airlift': {
-            // 空运：需要二次点击选择目的地（简化：直接提示）
-            logMessage(`🪂【空运】选择目标单位`);
-            break;
-        }
+        // 注：'airlift' 为两段式，第一段已在上方 early-return，不会进入本 switch
         case 'airdrop': {
             logMessage(`🪂【空降】${myCamp.name}在(${targetTile.q},${targetTile.r})空降了步兵`);
             // hide unit until parachute lands
@@ -2330,7 +2338,10 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         ? (COMMANDER_CONFIG[result.commander]?.name || null) : null;
     spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600, burnDisplayName);
     const airstrikeResults = (cardId === 'airstrike') ? (result.results || []) : null;
-    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
+    // E4 空军上校：diveStrafe/carpetBomb 伤害在本地 setTimeout 内结算，广播时状态尚未含伤害，
+    // 故携带 result 供远端在自己的 setTimeout 内同样结算（对齐 lightning 的延迟结算模式）
+    const carpetBombResults = (cardId === 'carpetBomb') ? (result.results || []) : null;
+    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
 
     // E3 纵横家连横：对方用卡后尝试复制
     if (gameState.tileMap && gameState._cardOverrides && !isCopyCard) {

@@ -718,7 +718,7 @@ export function initInput() {
                 executeTacticalCard('airlift_dest', clickedTile);
                 return;
             }
-            const cfg = TACTICAL_CARD_CONFIG[ct.cardId];
+            const cfg = TACTICAL_CARD_CONFIG[ct.cardId] || COLONEL_CARDS[ct.cardId];
             if (!cfg) { cancelCardTargeting(); return; }
 
             const myCamp = _getMyCampInput();

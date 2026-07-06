@@ -988,7 +988,8 @@ export class Unit {
             // 检查是否有亡灵法师在场上
             let hasNecromancer = false;
             for (const t of _gameState.tiles) {
-                if (t.unit && t.unit.commander === 'necromancer' && t.unit.hp > 0) {
+                // 仅同阵营亡灵法师能牵引本方亡魂 → 只有同阵营在场才留标记
+                if (t.unit && t.unit.commander === 'necromancer' && t.unit.camp === this.camp && t.unit.hp > 0) {
                     hasNecromancer = true;
                     break;
                 }

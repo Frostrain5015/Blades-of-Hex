@@ -1,6 +1,5 @@
 ﻿import { HEX_SIZE, HEX_WIDTH, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, hexToRgb, rgbToHex, frameInfo, CAMP_FLAG_COLORS, HEX_NEIGHBORS, hexEdge, TERRAIN_CONFIG, CAMP, settings } from './config.js';
 import { nextId } from './uid.js';
-import { getTileVisibilityState } from './fogOfWar.js';
 
 let _gameState = null;
 export function setGameStateRef(ref) { _gameState = ref; }
@@ -351,81 +350,3 @@ export function drawDistrictBorders(ctx2d, borderEdges) {
     ctx2d.setLineDash([]);
     ctx2d.restore();
 }
-
-// ==== 河流边界绘制 ====
-// export function drawRiverEdges(ctx2d, riverEdges, riverPath, tileMap, viewingCamp, gs) {
-//     if (!riverEdges || riverEdges.size === 0 || !riverPath || riverPath.length < 2) return;
-// 
-    // 迷雾：路径上任一 hex 未被探索则整体跳过
-//     if (gs && gs.skirmishFog && viewingCamp) {
-//         let anyVisible = false;
-//         for (const pt of riverPath) {
-//             const tile = tileMap.get(`${pt.q},${pt.r}`);
-//             if (tile && getTileVisibilityState(tile, viewingCamp, gs) !== 'unexplored') {
-//                 anyVisible = true;
-//                 break;
-//             }
-//         }
-//         if (!anyVisible) return;
-//     }
-// 
-//     ctx2d.save();
-//     ctx2d.lineJoin = 'round';
-//     ctx2d.lineCap = 'round';
-// 
-    // 收集所有边端点（每个 step 的共享边两个顶点）
-//     const segs = [];
-//     for (let i = 0; i < riverPath.length - 1; i++) {
-//         const tileA = tileMap.get(`${riverPath[i].q},${riverPath[i].r}`);
-//         const tileB = tileMap.get(`${riverPath[i+1].q},${riverPath[i+1].r}`);
-//         if (!tileA || !tileB) continue;
-//         const eA = findSharedEdge(tileA, tileB);
-//         if (eA < 0) continue;
-//         const v0 = hexEdge(tileA.x, tileA.y, HEX_SIZE, eA);
-//         segs.push({ x0: v0.x0, y0: v0.y0, x1: v0.x1, y1: v0.y1 });
-//     }
-//     if (segs.length === 0) { ctx2d.restore(); return; }
-// 
-    // 向北延伸到地图上缘
-//     const first = tileMap.get(`${riverPath[0].q},${riverPath[0].r}`);
-//     if (first) {
-//         const topY = first.y - HEX_SIZE * 8; // 足够远到地图外
-//         const midX = (segs[0].x0 + segs[0].x1) / 2;
-//         const midY = (segs[0].y0 + segs[0].y1) / 2;
-//         segs.unshift({ x0: midX, y0: topY, x1: midX, y1: midY });
-//     }
-// 
-    // 向南延伸到地图下缘
-//     const last = tileMap.get(`${riverPath[riverPath.length - 1].q},${riverPath[riverPath.length - 1].r}`);
-//     if (last) {
-//         const botY = last.y + HEX_SIZE * 8;
-//         const midX = (segs[segs.length - 1].x0 + segs[segs.length - 1].x1) / 2;
-//         const midY = (segs[segs.length - 1].y0 + segs[segs.length - 1].y1) / 2;
-//         segs.push({ x0: midX, y0: midY, x1: midX, y1: botY });
-//     }
-// 
-    // 外层带发光
-//     ctx2d.shadowColor = 'rgba(40, 130, 220, 0.6)';
-//     ctx2d.shadowBlur = 5;
-//     ctx2d.strokeStyle = 'rgba(40, 120, 200, 0.8)';
-//     ctx2d.lineWidth = 2.5;
-//     for (const s of segs) {
-//         ctx2d.beginPath();
-//         ctx2d.moveTo(s.x0, s.y0);
-//         ctx2d.lineTo(s.x1, s.y1);
-//         ctx2d.stroke();
-//     }
-// 
-    // 内层高亮
-//     ctx2d.shadowBlur = 0;
-//     ctx2d.strokeStyle = 'rgba(140, 210, 255, 0.7)';
-//     ctx2d.lineWidth = 1.0;
-//     for (const s of segs) {
-//         ctx2d.beginPath();
-//         ctx2d.moveTo(s.x0, s.y0);
-//         ctx2d.lineTo(s.x1, s.y1);
-//         ctx2d.stroke();
-//     }
-// 
-//     ctx2d.restore();
-// }

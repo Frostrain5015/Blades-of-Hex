@@ -1,5 +1,6 @@
 node_modules/
 .claude/
+.workbuddy/
 certs/
 commander_avatar_prompts.md
 start-admin-silent.vbs

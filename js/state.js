@@ -99,10 +99,6 @@ export const gameState = {
     _fogTransitionStart: 0,
     // 侦察揭示：{ player1: Map("q,r" → expiresAt), ... }
     scoutReveals: { player1: new Map(), player2: new Map(), player3: new Map() },
-    // // 河流：边界集合（canonical key）+ 折线顶点（世界坐标，有序）
-    // // 河流：边界集合（canonical key）+ 路径瓦片坐标
-    // riverEdges: new Set(),
-    // riverPath: [],
     // 国界线（阵营交界边集）
     campBorderEdges: [],
     // 行政区界线（同阵营不同行政区交界）
@@ -165,8 +161,6 @@ export function resetGameState() {
     gameState._prevVisibleTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
     gameState._fogTransitionStart = 0;
     gameState.scoutReveals = { player1: new Map(), player2: new Map(), player3: new Map() };
-    // gameState.riverEdges = new Set();
-    // gameState.riverPath = [];
     gameState.campBorderEdges = [];
     gameState.districtBorderEdges = [];
     gameState.villageTiles = new Map();
@@ -709,8 +703,6 @@ export function serializeState() {
             player2: [...gameState.scoutReveals.player2],
             player3: [...gameState.scoutReveals.player3]
         } : { player1: [], player2: [], player3: [] },
-        // riverEdges: [...gameState.riverEdges],
-        // riverPath: gameState.riverPath,
         villageTiles: [...gameState.villageTiles]
     };
 }
@@ -772,8 +764,6 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.aiOpponentCamp = data.aiOpponentCampKey ? campMap[data.aiOpponentCampKey] : null;
     gameState.surrenderedCamps = (data.surrenderedCampKeys || []).map(k => campMap[k]).filter(Boolean);
     gameState.skirmishFog = data.skirmishFog || false;
-    // gameState.riverEdges = new Set(data.riverEdges || []);
-    // gameState.riverPath = data.riverPath || [];
     gameState.villageTiles = new Map(data.villageTiles || []);
     gameState.aiDifficulty = data.aiDifficulty || 1.0;
     if (data.visibleTiles) {

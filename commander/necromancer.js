@@ -28,7 +28,7 @@ export default {
         for (const mark of gameState._soulMarks) {
             if (mark.campKey !== campKey) continue;
             const dist = Math.max(Math.abs(necroTile.q - mark.q), Math.abs(necroTile.r - mark.r), Math.abs(necroTile.q + necroTile.r - mark.q - mark.r));
-            if (dist <= 3 && dist < bestDist) best = mark;
+            if (dist <= 3 && dist < bestDist) { best = mark; bestDist = dist; }
         }
         if (!best) return;
 

@@ -2276,6 +2276,53 @@ async function handleRemoteAction(msg) {
                             }, 1200);
                             break;
                         }
+                        case 'airlift':
+                            // 传送已随 state 同步，远端仅补放降落伞特效
+                            spawnAirstrikeEffect(e.x, e.y, [], 'airdrop');
+                            break;
+                        case 'diveStrafe': {
+                            // E4 空军上校：伤害在本地延迟结算，远端同样在此结算以保持一致
+                            playSound('airstrike');
+                            spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }]);
+                            setTimeout(() => {
+                                const dt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : null;
+                                if (dt && dt.unit && e.dmg) {
+                                    const dc = dt.unit.camp;
+                                    const killed = dt.unit.applyDamage(e.dmg, { source: 'ranged' });
+                                    if (killed) {
+                                        const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                                        gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                    }
+                                }
+                                spawnExplosionParticles(e.x, e.y, '#ff8800', 15);
+                                if (e.dmg) gameState.damageTexts.push({ x: e.x, y: e.y, value: e.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
+                                triggerScreenShake(6, 300);
+                            }, 1200);
+                            break;
+                        }
+                        case 'carpetBomb': {
+                            const cResults = e.carpetBombResults || [];
+                            playSound('airstrike');
+                            spawnAirstrikeEffect(e.x, e.y, cResults);
+                            setTimeout(() => {
+                                for (const r of cResults) {
+                                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                                    if (!tile) continue;
+                                    if (tile.unit && r.dmg) {
+                                        const dc = tile.unit.camp;
+                                        const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
+                                        if (killed) {
+                                            const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                                            gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                        }
+                                    }
+                                    spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                                    gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
+                                }
+                                triggerScreenShake(8, 400);
+                            }, 1200);
+                            break;
+                        }
                         case 'landmine':
                             // 地雷位置不能暴露给对手；爆炸由 mineTrigger 在 move 中广播
                             break;
