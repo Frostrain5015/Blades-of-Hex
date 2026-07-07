@@ -6,7 +6,7 @@ import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit,
     executeTacticalCard, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
-import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG } from './config.js';
+import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD } from './config.js';
 import { isNetworkGame, sendMessage } from './network.js';
 import { getCommander } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
@@ -14,7 +14,7 @@ import { updateFogOfWar, isTileVisible } from './fogOfWar.js';
 import * as claudePersonality from '../.ai/claude.js';
 import * as grokPersonality from '../.ai/grok.js';
 
-const AI_DELAY = 2000;
+const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
 
 function delay(ms) {
@@ -41,7 +41,7 @@ function resolveTile(q, r) {
 
 // 创建 helpers（每次执行时刷新 weather 等动态值）
 function makeHelpers() {
-    return { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, weather: gameState.weather, isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState) };
+    return { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, weather: gameState.weather, isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState), CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD };
 }
 
 async function executeAction(action, aiCamp) {
