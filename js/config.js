@@ -462,7 +462,7 @@ export const SKIRMISH_EXTRAS = ['scout', 'scout', 'scout', 'scout', 'scout'];
 
 // ==== 对策卡系统参数 ====================
 export const CARD_SYSTEM_CONFIG = {
-    drawCost: 5,
+    drawCost: 4,
     maxHandSize: 3,
     maxDrawsPerTurn: 2,
     maxUsesPerTurn: 2

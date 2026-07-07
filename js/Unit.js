@@ -770,6 +770,8 @@ export class Unit {
         // 兵种克制：顺克 +20% / 逆克 −20%（归入②增伤乘区）；暴击率另在③处理（顺克+25%/逆克锁0）
         if (counterCoeff > 1) dmgUp += 0.20;
         else if (counterCoeff < 1) dmgUp -= 0.20;
+        // 魔术师·千面：攻击克制目标时伤害提高25%（与基础顺克+20%叠加→+45%）
+        if (attacker.commander === 'magician' && counterCoeff > 1) dmgUp += 0.25;
         // 魔术师幻形：每层+5%增伤（上限30%），归入②乘区
         if (attacker.commander === 'magician' && attacker._phantomStacks) {
             dmgUp += Math.min(attacker._phantomStacks * 0.05, 0.30);
@@ -808,6 +810,8 @@ export class Unit {
         defSum += (defender._rankDefBonus || 0);
         defSum += MORALE_CONFIG[defender.morale].defBonus;
         defSum += getCommanderDefenseBonus(defender);
+        // 魔术师·千面：被克制目标攻击时受伤降低15%
+        if (defender.commander === 'magician' && counterCoeff > 1) defSum += 0.15;
         // 停滞者力场：2格内友军停滞者 → 对远程攻击(炮兵/要塞)防御 +15%（保持不变）
         if ((attacker.type === 'archer' || attacker.type === 'mgNest') && _gameState && _gameState.tileMap) {
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
