@@ -1924,6 +1924,20 @@ export function isAntiAirUnit(u) {
     return !!u && (u.type === 'archer' || u.type === 'mgNest' || u.commander === 'staller');
 }
 
+// 计算目标地块被敌方防空火力覆盖的层数（0~2，2格半径内每1个防空单位=1层）
+export function getAALayers(tile, camp, tileMap) {
+    if (!tile || !tileMap) return 0;
+    let count = 0;
+    for (const t of tileMap.values()) {
+        if (!t || !t.unit || t.unit.camp === camp || !isAntiAirUnit(t.unit)) continue;
+        if (hexDistance(t, tile) <= ANTIAIR_RADIUS) {
+            count++;
+            if (count >= 2) break;
+        }
+    }
+    return Math.min(count, 2);
+}
+
 // 目标地块是否超出上校航程（硬限制）。防空火力不在此阻挡——它只降低伤害(见 _resolveDamage)。
 // 无上校在场时不做限制（理论上没有空军卡可用）
 export function isColonelTargetBlocked(tile, camp) {
@@ -2057,7 +2071,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     }
 
     // execute
-    const helpers = { getCommander, Unit, getMyCamp: () => myCamp, spawnOrbitBeams: spawnPaladinOrbitBeams };
+    const helpers = { getCommander, Unit, getMyCamp: () => myCamp, spawnOrbitBeams: spawnPaladinOrbitBeams, getAALayers, hexDistance };
     let result;
     // E4 上校空军卡使用 COLONEL_CARDS 而非 TACTICAL_CARD_CONFIG
     if (isColonelCard) {

@@ -1476,6 +1476,7 @@ function drawRangeApertures(now) {
         const baseAlpha = 0.35 + pulse * 0.55;
         const ct = gameState.cardTargeting;
         const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
+        const isAirCardTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest' || ct.cardId === 'airstrike' || ct.cardId === 'airdrop';
         const isColTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest';
         const time = now / 1000;
         const isHeal = ct.targeting === 'friendlyAny' || ct.targeting === 'anyUnit';
@@ -1483,75 +1484,77 @@ function drawRangeApertures(now) {
         const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain' || ct.targeting === 'emptyFriendlyLandmine';
         const isFriendly = ct.targeting === 'friendlyAlive' || ct.targeting === 'friendlyAny' || isShield;
 
-        // E4 上校空军卡：航程/防空覆盖层——画在目标高亮【之下】，避免边界目标与蓝圈叠加冲突
-        if (isColTargeting) {
-            const colonel = getColonelUnit(myCamp);
-            if (colonel && colonel.tile) {
-                const AR = ANTIAIR_RADIUS;
-                // 防空区并集（"q,r" 键）
-                const aaSet = new Set();
-                for (const t of gameState.tiles) {
-                    const u = t.unit;
-                    if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
-                    for (let dq = -AR; dq <= AR; dq++) {
-                        for (let dr = Math.max(-AR, -dq - AR); dr <= Math.min(AR, -dq + AR); dr++) {
-                            const nb = gameState.tileMap.get(`${t.q + dq},${t.r + dr}`);
-                            if (nb) aaSet.add(`${nb.q},${nb.r}`);
+        // 空军卡（上校/空袭/空降）：防空覆盖层——画在目标高亮【之下】
+        if (isAirCardTargeting) {
+            const AR = ANTIAIR_RADIUS;
+            // 防空区并集（"q,r" 键）
+            const aaSet = new Set();
+            for (const t of gameState.tiles) {
+                const u = t.unit;
+                if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
+                for (let dq = -AR; dq <= AR; dq++) {
+                    for (let dr = Math.max(-AR, -dq - AR); dr <= Math.min(AR, -dq + AR); dr++) {
+                        const nb = gameState.tileMap.get(`${t.q + dq},${t.r + dr}`);
+                        if (nb) aaSet.add(`${nb.q},${nb.r}`);
+                    }
+                }
+            }
+            // 红色防空区填充
+            ctx.save();
+            ctx.globalAlpha = 0.10 + pulse * 0.06;
+            ctx.fillStyle = '#ff4636';
+            const aaTiles = [];
+            for (const key of aaSet) {
+                const nb = gameState.tileMap.get(key);
+                if (nb) { aaTiles.push(nb); hexPath(ctx, nb.x, nb.y, HEX_SIZE + 1); ctx.fill(); }
+            }
+            ctx.restore();
+            // 红色防空区外边界线
+            _strokeHexRegionBorder(aaTiles, (q, r) => aaSet.has(`${q},${r}`), now, pulse,
+                { color: `rgba(255,80,70,${0.85 + pulse * 0.15})`, w: 3, glow: 'rgba(255,60,50,0.95)', blur: 12 + pulse * 6 },
+                { color: `rgba(255,225,215,${0.5 + pulse * 0.3})`, w: 1.2 });
+            // 上校专属：蓝色航程 + 起飞位标志
+            if (isColTargeting) {
+                const colonel = getColonelUnit(myCamp);
+                if (colonel && colonel.tile) {
+                    const R = COLONEL_AIR_RANGE, cq = colonel.tile.q, cr = colonel.tile.r;
+                    const rangeTiles = [];
+                    for (let dq = -R; dq <= R; dq++) {
+                        for (let dr = Math.max(-R, -dq - R); dr <= Math.min(R, -dq + R); dr++) {
+                            const ht = gameState.tileMap.get(`${cq + dq},${cr + dr}`);
+                            if (ht) rangeTiles.push(ht);
                         }
                     }
+                    const inRangeFn = (q, r) => Math.max(Math.abs(q - cq), Math.abs(r - cr), Math.abs((q + r) - (cq + cr))) <= R;
+                    _strokeHexRegionBorder(rangeTiles, inRangeFn, now, pulse,
+                        { color: `rgba(120,200,255,${0.62 + pulse * 0.13})`, w: 2.6, glow: 'rgba(90,180,255,0.55)', blur: 7 + pulse * 4 },
+                        { color: `rgba(230,245,255,${0.4 + pulse * 0.2})`, w: 1 });
+                    // 上校起飞位标志
+                    ctx.save();
+                    const colCx = colonel.tile.x, colCy = colonel.tile.y;
+                    const colPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
+                    ctx.globalAlpha = 0.7 + colPulse * 0.25;
+                    ctx.shadowColor = 'rgba(100,180,255,0.6)'; ctx.shadowBlur = 14 + colPulse * 6;
+                    ctx.font = '36px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText('✈️', colCx, colCy);
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = 0.3 + colPulse * 0.15;
+                    ctx.strokeStyle = 'rgba(100,200,255,0.5)';
+                    ctx.lineWidth = 1.5;
+                    ctx.setLineDash([4, 5]);
+                    ctx.beginPath();
+                    ctx.arc(colCx, colCy, HEX_SIZE * 0.85, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.restore();
                 }
-                // 红色防空区填充
-                ctx.save();
-                ctx.globalAlpha = 0.10 + pulse * 0.06;
-                ctx.fillStyle = '#ff4636';
-                const aaTiles = [];
-                for (const key of aaSet) {
-                    const nb = gameState.tileMap.get(key);
-                    if (nb) { aaTiles.push(nb); hexPath(ctx, nb.x, nb.y, HEX_SIZE + 1); ctx.fill(); }
-                }
-                ctx.restore();
-                // 红色防空区外边界线
-                _strokeHexRegionBorder(aaTiles, (q, r) => aaSet.has(`${q},${r}`), now, pulse,
-                    { color: `rgba(255,80,70,${0.85 + pulse * 0.15})`, w: 3, glow: 'rgba(255,60,50,0.95)', blur: 12 + pulse * 6 },
-                    { color: `rgba(255,225,215,${0.5 + pulse * 0.3})`, w: 1.2 });
-                // 蓝色航程外边界线（地图边界处不描）
-                const R = COLONEL_AIR_RANGE, cq = colonel.tile.q, cr = colonel.tile.r;
-                const rangeTiles = [];
-                for (let dq = -R; dq <= R; dq++) {
-                    for (let dr = Math.max(-R, -dq - R); dr <= Math.min(R, -dq + R); dr++) {
-                        const ht = gameState.tileMap.get(`${cq + dq},${cr + dr}`);
-                        if (ht) rangeTiles.push(ht);
-                    }
-                }
-                const inRangeFn = (q, r) => Math.max(Math.abs(q - cq), Math.abs(r - cr), Math.abs((q + r) - (cq + cr))) <= R;
-                _strokeHexRegionBorder(rangeTiles, inRangeFn, now, pulse,
-                    { color: `rgba(120,200,255,${0.62 + pulse * 0.13})`, w: 2.6, glow: 'rgba(90,180,255,0.55)', blur: 7 + pulse * 4 },
-                    { color: `rgba(230,245,255,${0.4 + pulse * 0.2})`, w: 1 });
-                // 上校起飞位标志（大飞机居中覆盖，提示机场位置）
-                ctx.save();
-                const colCx = colonel.tile.x, colCy = colonel.tile.y;
-                const colPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
-                ctx.globalAlpha = 0.7 + colPulse * 0.25;
-                ctx.shadowColor = 'rgba(100,180,255,0.6)'; ctx.shadowBlur = 14 + colPulse * 6;
-                ctx.font = '36px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.fillText('✈️', colCx, colCy);
-                // 环绕跑道虚线圆
-                ctx.shadowBlur = 0;
-                ctx.globalAlpha = 0.3 + colPulse * 0.15;
-                ctx.strokeStyle = 'rgba(100,200,255,0.5)';
-                ctx.lineWidth = 1.5;
-                ctx.setLineDash([4, 5]);
-                ctx.beginPath();
-                ctx.arc(colCx, colCy, HEX_SIZE * 0.85, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                ctx.restore();
-                // 防空单位标志（每个敌方炮兵/要塞/停滞者）
-                ctx.save();
-                ctx.font = '20px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                for (const t of gameState.tiles) {
+            }
+            // 防空单位标志（每个敌方炮兵/要塞/停滞者）
+            ctx.save();
+            ctx.font = '20px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            for (const t of gameState.tiles) {
                     const u = t.unit;
                     if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
                     const aaPulse = (Math.sin(time * 2.0 + t.q) + 1) / 2;

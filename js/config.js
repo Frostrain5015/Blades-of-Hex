@@ -256,13 +256,16 @@ export const TACTICAL_CARD_CONFIG = {
     },
     airdrop: {
         id: 'airdrop', name: '空降', icon: '🪂',
-        desc: '【空降】\n在任意空地投放一支空降步兵\n',
+        desc: '【空降】\n在任意空地投放一支空降步兵（受防空火力影响初始生命值）\n',
         targeting: 'emptyTile',
         execute(targetTile, gameState, helpers) {
             const myCamp = helpers.getMyCamp();
+            const { getAALayers } = helpers;
+            const aa = getAALayers(targetTile, myCamp, gameState.tileMap);
+            const hpPct = 1 - aa * 0.20; // 每层防空-20%初始HP
             const UnitClass = helpers.Unit;
             const inf = new UnitClass('infantry', myCamp, targetTile, false);
-            inf.hp = 100; inf.maxHp = 100; inf.displayHp = 100;
+            inf.hp = Math.round(100 * hpPct); inf.maxHp = Math.round(100 * hpPct); inf.displayHp = Math.round(100 * hpPct);
             inf.canAct = false; // cannot act on drop turn
             return { deployed: true, tileQ: targetTile.q, tileR: targetTile.r };
         }
@@ -296,11 +299,12 @@ export const TACTICAL_CARD_CONFIG = {
     },
     airstrike: {
         id: 'airstrike', name: '空袭', icon: '✈️',
-        desc: '【空袭】\n对任意敌方目标释放，目标及周边6格造成20~30伤害（对城市翻倍），2回合内城市无法产金或招募',
+        desc: '【空袭】\n对任意敌方目标释放，目标及周边6格造成20~30伤害（对城市翻倍），2回合内城市无法产金或招募\n受防空火力减伤',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const dmgBase = gameState.rng ? gameState.rng.between(20, 30) : 20 + Math.floor(Math.random() * 11);
             const results = [];
+            const { getAALayers, hexDistance } = helpers;
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             for (const [dq, dr] of dirs) {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
@@ -309,6 +313,9 @@ export const TACTICAL_CARD_CONFIG = {
                 let dmg = isCity ? dmgBase * 2 : dmgBase;
                 // 森林掩蔽：对空军+20%防御
                 if (ht.terrain === 'forest') dmg = Math.round(dmg * 0.8);
+                // 防空火力：每层减伤20%
+                const aa = getAALayers(ht, helpers.getMyCamp(), gameState.tileMap);
+                if (aa > 0) dmg = Math.round(dmg * (1 - aa * 0.20));
                 if (ht.unit) {
                     // 预演扣血（含护盾）：调用方随即回滚，真正结算延迟走 Unit.applyDamage
                     // （勿改用 applyDamage，否则击杀无法回滚）
