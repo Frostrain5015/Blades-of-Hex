@@ -480,8 +480,8 @@ export function spawnProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
 function spawnMuzzleFlash(x, y, toX, toY, isCrit) {
     const ang = Math.atan2(toY - y, toX - x);
     const mx = x + Math.cos(ang) * 9, my = y + Math.sin(ang) * 9;
-    // 白热炮口闪（大而短）
-    particles.push(new VisualParticle(mx, my, 0, 0, '#fff', isCrit ? 10 : 7.5, 0.09, 0));
+    // 炮口闪（暖白、略收敛，避免过曝激光感）
+    particles.push(new VisualParticle(mx, my, 0, 0, '#ffe6b0', isCrit ? 8 : 6, 0.08, 0));
     // 前冲火花锥
     const n = particleCount(isCrit ? 9 : 6);
     for (let i = 0; i < n; i++) {
@@ -527,19 +527,19 @@ export function drawProjectiles(ctx2d, now) {
 
         ctx2d.save();
         ctx2d.lineCap = 'round';
-        // 外层辉光光条
-        ctx2d.strokeStyle = p.isCrit ? '#ff6a1a' : '#ff8a3a';
-        ctx2d.shadowColor = p.isCrit ? '#ff4400' : '#ff6a1a';
-        ctx2d.shadowBlur = p.isCrit ? 18 : 12;
-        ctx2d.lineWidth = p.isCrit ? 6.5 : 5;
+        // 外层火焰辉光光条（低 bloom，偏火色而非霓虹）
+        ctx2d.strokeStyle = p.isCrit ? '#e5591a' : '#e0751f';
+        ctx2d.shadowColor = p.isCrit ? '#cc3a00' : '#b85410';
+        ctx2d.shadowBlur = p.isCrit ? 10 : 7;
+        ctx2d.lineWidth = p.isCrit ? 6 : 4.5;
         ctx2d.beginPath();
         ctx2d.moveTo(tx, ty);
         ctx2d.lineTo(hx, hy);
         ctx2d.stroke();
-        // 内芯白热光条
-        ctx2d.shadowBlur = p.isCrit ? 8 : 4;
-        ctx2d.strokeStyle = '#fff';
-        ctx2d.lineWidth = p.isCrit ? 2.6 : 1.9;
+        // 内芯热铁色芯（不发光，去掉激光感）
+        ctx2d.shadowBlur = 0;
+        ctx2d.strokeStyle = p.isCrit ? '#ffd39a' : '#ffca90';
+        ctx2d.lineWidth = p.isCrit ? 2 : 1.5;
         ctx2d.beginPath();
         ctx2d.moveTo(tx, ty);
         ctx2d.lineTo(hx, hy);

@@ -3,7 +3,7 @@ import { Unit } from '../js/Unit.js';
 import { UNIT_CONFIG } from '../js/config.js';
 import { spawnSoulRecallEffect } from '../js/effects.js';
 // 被动【留魂】：己方单位阵亡后原地留下亡魂标记，存在3回合后消失
-// 被动【回魂】：己方回合开始牵引3格范围内1个亡魂标记，原地唤起魂卒
+// 被动【回魂】：己方回合开始牵引全图最近的1个亡魂标记，原地唤起魂卒（无距离限制）
 
 export default {
     id: 'necromancer',

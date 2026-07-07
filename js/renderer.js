@@ -2719,11 +2719,25 @@ function drawAirliftEffects(now) {
 }
 
 // E2 亡灵法师 —— 魂卒召回：黑烟团从法师位置飞向目标位置
+// 遭遇战：判断某像素坐标对应的地块是否不在观察方视野内（用于遮挡穿透迷雾的最高层特效）
+function _effectTileHidden(x, y) {
+    if (!gameState.skirmishFog) return false;
+    let best = null, bestD = Infinity;
+    for (const tile of gameState.tiles) {
+        const dx = tile.x - x, dy = tile.y - y;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = tile; }
+    }
+    return best ? !isTileVisible(best, getViewingCamp(), gameState) : false;
+}
+
 function drawSoulRecallEffects(now) {
     for (let i = soulRecallEffects.length - 1; i >= 0; i--) {
         const fx = soulRecallEffects[i];
         const t = (now - fx.startTime) / fx.duration;
         if (t >= 1) { soulRecallEffects.splice(i, 1); continue; }
+        // 遭遇战：魂卒落点不在观察方视野内则不绘制黑烟，防止穿透迷雾暴露亡灵法师/魂卒位置
+        if (_effectTileHidden(fx.toX, fx.toY)) continue;
         const land = fx.landFrac || 0.92;
         const p = Math.min(1, t / land);
         const px = fx.fromX + (fx.toX - fx.fromX) * _ease(p);

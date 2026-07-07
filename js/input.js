@@ -445,7 +445,7 @@ function showTooltipForTile(tile) {
             const myMarks = gameState._soulMarks.filter(m => m.campKey === campKey).length;
             if (myMarks > 0) {
                 tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
-                    `<span style="color:#44ff88;">亡魂标记：${myMarks}个（3格内可牵引）</span>`;
+                    `<span style="color:#44ff88;">亡魂标记：${myMarks}个（回合开始牵引最近1个）</span>`;
             }
         }
 
