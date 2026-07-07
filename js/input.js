@@ -731,8 +731,8 @@ export function initInput() {
                 isValid = clickedTile.unit && clickedTile.unit.camp === myCamp && clickedTile.unit.canAct;
             } else if (ct.targeting === 'friendlyAny') {
                 isValid = clickedTile.unit && clickedTile.unit.camp === myCamp
-                    // E4 空运：不能运送上校自己
-                    && !(ct.cardId === 'airlift' && clickedTile.unit.commander === 'colonel');
+                    // E4 空运：不能运送上校自己，且被禁锢的单位不可被空运
+                    && !(ct.cardId === 'airlift' && (clickedTile.unit.commander === 'colonel' || clickedTile.unit._imprisoned));
             } else if (ct.targeting === 'emptyTile') {
                 isValid = !clickedTile.unit;
             } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {

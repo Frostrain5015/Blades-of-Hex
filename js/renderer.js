@@ -1598,8 +1598,8 @@ function drawRangeApertures(now) {
 
             // E4 上校空军卡：超出航程的目标不高亮（含空运；防空区仍高亮，只是降伤）
             if (isColTargeting && isColonelTargetBlocked(tile, myCamp)) continue;
-            // E4 空运：不能运送上校自己
-            if (ct.cardId === 'airlift' && tile.unit && tile.unit.commander === 'colonel') continue;
+            // E4 空运：不能运送上校自己，且被禁锢的单位不可被空运
+            if (ct.cardId === 'airlift' && tile.unit && (tile.unit.commander === 'colonel' || tile.unit._imprisoned)) continue;
 
             let r, g, b;
             if (isHeal)       { r = 80;  g = 255; b = 100; }
@@ -2427,10 +2427,11 @@ function drawCommanderPennants() {
 
 // 通用防空炮火特效：从AA单位射向飞行器的曳光弹流
 function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed) {
+    const targetS = -(targetQ + targetR);
     for (const _t of gameState.tiles) {
         const _u = _t.unit;
         if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
-        if (hexDistance(_t, { q: targetQ, r: targetR }) > ANTIAIR_RADIUS) continue;
+        if (hexDistance(_t, { q: targetQ, r: targetR, s: targetS }) > ANTIAIR_RADIUS) continue;
         ctx.save();
         const sx2 = _t.x, sy2 = _t.y;
         const dx = planeX - sx2, dy = planeY - sy2;
@@ -2655,10 +2656,11 @@ function drawAirliftEffects(now) {
             // 防空炮火（空运阶段A）
             if (fx.q != null && p > 0.1 && p < 0.9) {
                 const seed = (fx.fromX | 0) * 7 + (fx.toY | 0) * 13;
+                const as = -(fx.q + fx.r);
                 for (const _t of gameState.tiles) {
                     const _u = _t.unit;
                     if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
-                    if (hexDistance(_t, { q: fx.q, r: fx.r }) > ANTIAIR_RADIUS) continue;
+                    if (hexDistance(_t, { q: fx.q, r: fx.r, s: as }) > ANTIAIR_RADIUS) continue;
                     ctx.save();
                     const sx2 = _t.x, sy2 = _t.y;
                     const dx = px - sx2, dy = py - sy2;

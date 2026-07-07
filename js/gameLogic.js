@@ -2008,6 +2008,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('无效目标'); return; }
     } else if (tg === 'friendlyAny') {
         if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('请选择友方单位'); return; }
+        // E4 空运：被禁锢的单位不可被空运
+        if (cardId === 'airlift' && targetTile.unit._imprisoned) { notify('被禁锢的单位无法空运'); return; }
     } else if (tg === 'emptyTile') {
         if (!targetTile || targetTile.unit) { notify('该格已占用'); return; }
     } else if (tg === 'emptyFriendlyNonCityNonMountain') {
@@ -2479,6 +2481,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 const hand = gameState.playerHands[ck] || [];
                 const hBonus = co.handSizeBonus || 0;
                 if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
+                // 连横不可复制"部署将领"卡
+                if (cardId === 'commanderDeploy') continue;
                 hand.push({ id: cardId, _copy: true });
                 logMessage(`纵横家【连横】：${ck}获得${cardId}的复制`);
                 spawnCardCopyEffect(targetTile.x, targetTile.y, 500, 375, cardId);

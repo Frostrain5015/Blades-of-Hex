@@ -299,7 +299,7 @@ export const TACTICAL_CARD_CONFIG = {
     },
     airstrike: {
         id: 'airstrike', name: '空袭', icon: '✈️',
-        desc: '【空袭】\n对任意敌方目标释放，目标及周边6格造成35~50伤害（对城市翻倍），2回合内城市无法产金或招募\n受防空火力减伤',
+        desc: '【空袭】\n对任意敌方目标释放，目标及周边6格造成35~50伤害，2回合内城市无法产金或招募\n受防空火力减伤',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const dmgBase = gameState.rng ? gameState.rng.between(35, 50) : 35 + Math.floor(Math.random() * 16);
@@ -310,7 +310,7 @@ export const TACTICAL_CARD_CONFIG = {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
                 if (!ht) continue;
                 const isCity = ht === targetTile;
-                let dmg = isCity ? dmgBase * 2 : dmgBase;
+                let dmg = dmgBase;
                 // 森林掩蔽：对空军+20%防御
                 if (ht.terrain === 'forest') dmg = Math.round(dmg * 0.8);
                 // 通用防空接口：每层减伤20%

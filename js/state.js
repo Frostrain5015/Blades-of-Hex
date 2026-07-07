@@ -627,6 +627,8 @@ export function serializeState() {
             imprisoned: t.unit._imprisoned || false,
             isImmobile: t.unit._isImmobile || false,
             airdropWaiting: t.unit._airdropWaiting || false,
+            soulRecallLandAt: t.unit._soulRecallLandAt || 0,
+            airliftLandAt: t.unit._airliftLandAt || 0,
             martyrPrimed: t.unit._martyrPrimed || false,
             elegyBonus: t.unit._elegyBonus || 0,
             elegyProcessed: t.unit._elegyProcessed || 0,
@@ -871,6 +873,8 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._imprisoned = td.unit.imprisoned || false;
             unit._isImmobile = td.unit.isImmobile || false;
             unit._airdropWaiting = td.unit.airdropWaiting || false;
+            unit._soulRecallLandAt = td.unit.soulRecallLandAt || 0;
+            unit._airliftLandAt = td.unit.airliftLandAt || 0;
             unit._martyrPrimed = td.unit.martyrPrimed || false;
             unit._elegyBonus = td.unit.elegyBonus || 0;
             unit._elegyProcessed = td.unit.elegyProcessed || 0;
