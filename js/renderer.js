@@ -1159,6 +1159,7 @@ function drawAstrologerField(now) {
         ctx.shadowColor = 'rgba(40,30,90,0.5)';
         ctx.shadowBlur = 10;
         ctx.lineWidth = 2.5;
+        ctx.beginPath();
         for (const ht of fieldTiles) {
             // 仅绘制力场边缘地块的六边形边界
             let isEdge = false;
@@ -1167,7 +1168,16 @@ function drawAstrologerField(now) {
                 if (!fieldSet.has(nbKey)) { isEdge = true; break; }
             }
             if (isEdge) {
-                hexPath(ctx, ht.x, ht.y, HEX_SIZE + 1);
+                const cx = ht.x, cy = ht.y, s = HEX_SIZE + 1;
+                const h60 = s * 0.8660254;
+                const h30 = s * 0.5;
+                ctx.moveTo(cx + s, cy);
+                ctx.lineTo(cx + h30, cy + h60);
+                ctx.lineTo(cx - h30, cy + h60);
+                ctx.lineTo(cx - s, cy);
+                ctx.lineTo(cx - h30, cy - h60);
+                ctx.lineTo(cx + h30, cy - h60);
+                ctx.closePath();
             }
         }
         ctx.stroke();
