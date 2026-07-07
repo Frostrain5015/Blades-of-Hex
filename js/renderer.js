@@ -1281,7 +1281,6 @@ function drawStarlightBeam(now) {
                 ctx.fillText('✦', px, py);
             }
             ctx.restore();
-        }
     }
 }
 
