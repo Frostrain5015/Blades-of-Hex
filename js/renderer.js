@@ -2213,6 +2213,7 @@ export function drawCardCanvas(now) {
         const isDeploy = cardId === 'commanderDeploy';
         const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
         const isHovered = _slideCurrent[i] > 0.3;
+        const isColCard = !!COLONEL_CARDS[cardId];
         const drawOpts = { disabled: false, isTargeting: false, isDeploy, alreadyDeployed, isHovered, commanderId: deployCmdId, isCopyCard, goldCost: isColCard ? (COLONEL_CARD_GOLD[cardId] || 0) : 0 };
 
         if (isTargeting) {
@@ -2221,7 +2222,6 @@ export function drawCardCanvas(now) {
         }
 
         // E4 上校空军卡：金币不足时禁用
-        const isColCard = !!COLONEL_CARDS[cardId];
         const goldCost = COLONEL_CARD_GOLD[cardId] || 0;
         const hasGold = !isColCard || (gameState.playerGold?.[campKey] || 0) >= goldCost;
         const disabled = !canUse || (isDeploy && alreadyDeployed) || (isColCard && !hasGold);
