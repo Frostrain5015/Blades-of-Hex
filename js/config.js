@@ -260,12 +260,12 @@ export const TACTICAL_CARD_CONFIG = {
         targeting: 'emptyTile',
         execute(targetTile, gameState, helpers) {
             const myCamp = helpers.getMyCamp();
-            const { getAALayers } = helpers;
-            const aa = getAALayers(targetTile, myCamp, gameState.tileMap);
-            const hpPct = 1 - aa * 0.20; // 每层防空-20%初始HP
+            const { applyAADropHP } = helpers;
             const UnitClass = helpers.Unit;
             const inf = new UnitClass('infantry', myCamp, targetTile, false);
-            inf.hp = Math.round(100 * hpPct); inf.maxHp = Math.round(100 * hpPct); inf.displayHp = Math.round(100 * hpPct);
+            inf.maxHp = 100; inf.hp = 100; inf.displayHp = 100;
+            // 通用防空接口：每层-20%当前生命值（上限不变）
+            applyAADropHP(inf, targetTile, myCamp, gameState.tileMap);
             inf.canAct = false; // cannot act on drop turn
             return { deployed: true, tileQ: targetTile.q, tileR: targetTile.r };
         }
@@ -304,7 +304,7 @@ export const TACTICAL_CARD_CONFIG = {
         execute(targetTile, gameState, helpers) {
             const dmgBase = gameState.rng ? gameState.rng.between(35, 50) : 35 + Math.floor(Math.random() * 16);
             const results = [];
-            const { getAALayers, hexDistance } = helpers;
+            const { applyAADefense } = helpers;
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             for (const [dq, dr] of dirs) {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
@@ -313,9 +313,8 @@ export const TACTICAL_CARD_CONFIG = {
                 let dmg = isCity ? dmgBase * 2 : dmgBase;
                 // 森林掩蔽：对空军+20%防御
                 if (ht.terrain === 'forest') dmg = Math.round(dmg * 0.8);
-                // 防空火力：每层减伤20%
-                const aa = getAALayers(ht, helpers.getMyCamp(), gameState.tileMap);
-                if (aa > 0) dmg = Math.round(dmg * (1 - aa * 0.20));
+                // 通用防空接口：每层减伤20%
+                dmg = applyAADefense(dmg, ht, helpers.getMyCamp(), gameState.tileMap);
                 if (ht.unit) {
                     // 预演扣血（含护盾）：调用方随即回滚，真正结算延迟走 Unit.applyDamage
                     // （勿改用 applyDamage，否则击杀无法回滚）

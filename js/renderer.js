@@ -2426,6 +2426,51 @@ function drawCommanderPennants() {
     }
 }
 
+// 通用防空炮火特效：从AA单位射向飞行器的曳光弹流
+function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed) {
+    for (const _t of gameState.tiles) {
+        const _u = _t.unit;
+        if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
+        if (hexDistance(_t, { q: targetQ, r: targetR }) > ANTIAIR_RADIUS) continue;
+        ctx.save();
+        const sx2 = _t.x, sy2 = _t.y;
+        const dx = planeX - sx2, dy = planeY - sy2;
+        for (let tr = 0; tr < 3; tr++) {
+            const phase = (t * 6 + tr * 0.5 + (seed || 0) * 0.02) % 1;
+            const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
+            const tx = sx2 + dx * tp;
+            const ty = sy2 + dy * tp;
+            const ta = 0.8 * (1 - tp);
+            ctx.shadowColor = 'rgba(255,200,60,0.7)';
+            ctx.shadowBlur = 5;
+            ctx.fillStyle = `rgba(255,230,120,${ta})`;
+            ctx.beginPath();
+            ctx.arc(tx, ty, 1.8 + (1 - tp) * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            if (tp < 0.6) {
+                ctx.shadowBlur = 2;
+                ctx.strokeStyle = `rgba(255,220,80,${ta * 0.5})`;
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(tx, ty);
+                ctx.lineTo(tx - dx * 0.04, ty - dy * 0.04);
+                ctx.stroke();
+            }
+        }
+        // 炮口闪光
+        if (Math.sin(t * 14 + (seed || 0) * 0.5) > 0.4) {
+            ctx.shadowBlur = 0;
+            const flA = 0.3 + Math.random() * 0.2;
+            ctx.fillStyle = `rgba(255,200,80,${flA})`;
+            ctx.beginPath();
+            ctx.arc(sx2 + (Math.random() - 0.5) * 10, sy2, 2.5 + Math.random() * 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+}
+
 function drawAirstrikeEffects(now) {
     for (let i = airstrikeEffects.length - 1; i >= 0; i--) {
         const fx = airstrikeEffects[i];
@@ -2457,50 +2502,10 @@ function drawAirstrikeEffects(now) {
             ctx.fillText('🛩️', 0, 0);
             ctx.restore();
 
-            // 防空炮火：目标附近防空单位高射机枪/炮连射
+            // 通用防空炮火：AA单位向俯冲战机射曳光弹流
             const flakStart = 0.12, flakEnd = 0.85;
             if (t >= flakStart && t <= flakEnd) {
-                const seed = (fx.x | 0) * 7 + (fx.y | 0) * 13;
-                for (const _t of gameState.tiles) {
-                    const _u = _t.unit;
-                    if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
-                    if (hexDistance(_t, { q: fx.q, r: fx.r }) > ANTIAIR_RADIUS) continue;
-                    ctx.save();
-                    const sx2 = _t.x, sy2 = _t.y;
-                    const dx = px - sx2, dy = py - sy2;
-                    // 弹丸速射：每帧多发黄色光点直射飞机，带轻微曳光形成弹流
-                    for (let tr = 0; tr < 3; tr++) {
-                        const phase = (t * 6 + tr * 0.5 + seed * 0.02) % 1;
-                        const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
-                        const tx = sx2 + dx * tp;
-                        const ty = sy2 + dy * tp;
-                        const ta = 0.8 * (1 - tp);
-                        ctx.fillStyle = `rgba(255,220,80,${ta})`;
-                        ctx.beginPath();
-                        ctx.arc(tx, ty, 1.5 + (1 - tp) * 1.2, 0, Math.PI * 2);
-                        ctx.fill();
-                        // 曳光尾迹
-                        if (tp < 0.6) {
-                            ctx.strokeStyle = `rgba(255,200,60,${ta * 0.6})`;
-                            ctx.lineWidth = 1.5;
-                            ctx.beginPath();
-                            ctx.moveTo(tx, ty);
-                            ctx.lineTo(tx - dx * 0.06, ty - dy * 0.06);
-                            ctx.stroke();
-                        }
-                    }
-                    // 炮口閃光
-                    if (Math.sin(t * 14 + seed * 0.5) > 0.4) {
-                        ctx.shadowBlur = 0;
-                        const flA = 0.3 + Math.random() * 0.2;
-                        ctx.fillStyle = `rgba(255,200,80,${flA})`;
-                        ctx.beginPath();
-                        ctx.arc(sx2 + (Math.random() - 0.5) * 10, sy2, 2.5 + Math.random() * 3, 0, Math.PI * 2);
-                        ctx.fill();
-                    }
-                    ctx.shadowBlur = 0;
-                    ctx.restore();
-                }
+                _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13);
             }
 
             // 扫射窗口：曳光弹精确锁定目标中心（cx, cy），不飘
@@ -2573,42 +2578,9 @@ function drawAirstrikeEffects(now) {
         ctx.fillText('✈️', 0, 0);
         ctx.restore();
 
-        // 防空炮火（地毯轰炸 + 普通空袭，空投除外）
+        // 通用防空炮火（地毯轰炸 + 普通空袭，空投除外）
         if (!isAirdrop && fx.q != null && t > 0.15 && t < 0.85) {
-            const seed = (fx.x | 0) * 7 + (fx.y | 0) * 13;
-            const ppx = planeX, ppy = planeY;
-            for (const _t of gameState.tiles) {
-                const _u = _t.unit;
-                if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
-                if (hexDistance(_t, { q: fx.q, r: fx.r }) > ANTIAIR_RADIUS) continue;
-                ctx.save();
-                const sx2 = _t.x, sy2 = _t.y;
-                const dx = ppx - sx2, dy = ppy - sy2;
-                for (let tr = 0; tr < 3; tr++) {
-                    const phase = (t * 6 + tr * 0.5 + seed * 0.02) % 1;
-                    const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
-                    const tx = sx2 + dx * tp;
-                    const ty = sy2 + dy * tp;
-                    const ta = 0.8 * (1 - tp);
-                    ctx.shadowColor = 'rgba(255,200,60,0.7)';
-                    ctx.shadowBlur = 5;
-                    ctx.fillStyle = `rgba(255,230,120,${ta})`;
-                    ctx.beginPath();
-                    ctx.arc(tx, ty, 1.8 + (1 - tp) * 1.5, 0, Math.PI * 2);
-                    ctx.fill();
-                    if (tp < 0.6) {
-                        ctx.shadowBlur = 2;
-                        ctx.strokeStyle = `rgba(255,220,80,${ta * 0.5})`;
-                        ctx.lineWidth = 1.2;
-                        ctx.beginPath();
-                        ctx.moveTo(tx, ty);
-                        ctx.lineTo(tx - dx * 0.04, ty - dy * 0.04);
-                        ctx.stroke();
-                    }
-                }
-                ctx.shadowBlur = 0;
-                ctx.restore();
-            }
+            _renderAAFlak(planeX, planeY, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13);
         }
 
         // sequential drops: release times relative to when plane passes over target
