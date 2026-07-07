@@ -361,10 +361,8 @@ export function renderGame() {
             ctx.stroke();
             ctx.restore();
         }
-    }
-
-    // 星光力场天气遮罩 + 覆绘 — 完全过滤力场范围内的天气视觉效果
-    drawAstrologerWeatherMask(now);
+    }
+    // 星光力场覆绘 — 在天气粒子之上叠星光
     drawAstrologerField(now);
 
     // 攻击闪光
@@ -1098,35 +1096,6 @@ function drawUnitHexAuras(now) {
 
     }
 }
-
-// 星光力场天气遮罩：在天气粒子上层填充力场六边形，完全过滤力场内的天气视觉效果
-function drawAstrologerWeatherMask(now) {
-    const astrologerDef = getCommander('astrologer');
-    if (!astrologerDef || !astrologerDef.isInWeatherShield) return;
-    for (const tile of gameState.tiles) {
-        const u = tile.unit;
-        if (!u || u.commander !== 'astrologer' || u.hp <= 0 || !gameState.tileMap) continue;
-        const cq = tile.q, cr = tile.r, R = 3;
-        const fieldSet = new Set();
-        for (let dq = -R; dq <= R; dq++) {
-            for (let dr = Math.max(-R, -dq - R); dr <= Math.min(R, -dq + R); dr++) {
-                const ht = gameState.tileMap.get(`${cq + dq},${cr + dr}`);
-                if (ht) fieldSet.add(`${ht.q},${ht.r}`);
-            }
-        }
-        if (fieldSet.size === 0) continue;
-        ctx.save();
-        for (const key of fieldSet) {
-            const ht = gameState.tileMap.get(key);
-            if (!ht) continue;
-            hexPath(ctx, ht.x, ht.y, HEX_SIZE + 1);
-        }
-        ctx.fillStyle = 'rgba(235,240,255,0.72)';
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
 
 // E1 占星者星光力场（常驻、所有人可见：3格范围半透明地面 + 边界大圈 + 占星者自身环绕星光）
 function drawAstrologerField(now) {
