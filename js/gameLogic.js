@@ -2429,35 +2429,32 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // 部署将领的烧牌动画显示所选将领名（遭遇战模式下不广播将领名）
     const burnDisplayName = (cardId === 'commanderDeploy' && result.commander && !gameState.skirmishFog)
         ? (COMMANDER_CONFIG[result.commander]?.name || null) : null;
-    spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600, burnDisplayName);
-    const airstrikeResults = (cardId === 'airstrike') ? (result.results || []) : null;
-    // E4 空军上校：diveStrafe/carpetBomb 伤害在本地 setTimeout 内结算，广播时状态尚未含伤害，
-    // 故携带 result 供远端在自己的 setTimeout 内同样结算（对齐 lightning 的延迟结算模式）
-    const carpetBombResults = (cardId === 'carpetBomb') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg, isCrit: r.isCrit })) : null;
-    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
-
-    // E3 纵横家连横：对方用卡后尝试复制
+    // E3 纵横家连横：对方用卡后尝试复制（必须在 broadcastAction 之前执行，确保序列化状态含拷贝）
     if (gameState.tileMap && gameState._cardOverrides && !isCopyCard) {
         for (const [ck, co] of Object.entries(gameState._cardOverrides)) {
             if (!co) continue;
             const dipCamp = ck === 'player1' ? CAMP.player1 : ck === 'player2' ? CAMP.player2 : CAMP.player3;
-            if (!dipCamp || dipCamp === gameState.currentCamp) continue; // 不复制己方用卡
-            // 找到纵横家单位
+            if (!dipCamp || dipCamp === gameState.currentCamp) continue;
             for (const t of gameState.tiles) {
                 if (!t.unit || t.unit.commander !== 'diplomat' || t.unit.camp !== dipCamp || t.unit.hp <= 0) continue;
-                if (t.camp === dipCamp) continue; // 不在己方地块时才可触发
-                // 35%概率
+                if (t.camp === dipCamp) continue;
                 if (!(gameState.rng ? gameState.rng.chance(0.35) : Math.random() < 0.35)) continue;
                 const hand = gameState.playerHands[ck] || [];
                 const hBonus = co.handSizeBonus || 0;
                 if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
                 hand.push({ id: cardId, _copy: true });
                 logMessage(`纵横家【连横】：${ck}获得${cardId}的复制`);
-                // 播放复制特效 + 纵横家自身金色闪光
                 spawnCardCopyEffect(targetTile.x, targetTile.y, 500, 375, cardId);
                 spawnCommanderSkillEffect(t.x, t.y, '✨', '连横');
                 break;
             }
         }
     }
+
+    spawnCardUseEffect(cardId, 500, 375, isHumanLocal, _fromX || 900, _fromY || 600, burnDisplayName);
+    const airstrikeResults = (cardId === 'airstrike') ? (result.results || []) : null;
+    // E4 空军上校：diveStrafe/carpetBomb 伤害在本地 setTimeout 内结算，广播时状态尚未含伤害，
+    // 故携带 result 供远端在自己的 setTimeout 内同样结算（对齐 lightning 的延迟结算模式）
+    const carpetBombResults = (cardId === 'carpetBomb') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg, isCrit: r.isCrit })) : null;
+    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
 }
