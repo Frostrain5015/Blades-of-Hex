@@ -273,13 +273,22 @@ export function getCommanderAllyAuraDamage(ally, actualDmg, ironGuardUnit) {
   return actualDmg;
 }
 
-// ---- 必定暴击（堕天使黑形态等） ----
+// ---- 必定暴击（保留接口，供将领扩展） ----
 
 export function isCommanderGuaranteedCrit(unit) {
   if (!unit.commander) return false;
   const cmd = getCommander(unit.commander);
   if (cmd && cmd.guaranteesCrit) return cmd.guaranteesCrit(unit);
   return false;
+}
+
+// ---- 暴击率加成（堕天使黑形态 +60% 等）：并入③浮动乘区的暴击概率池 ----
+
+export function getCommanderCritRateBonus(unit) {
+  if (!unit.commander) return 0;
+  const cmd = getCommander(unit.commander);
+  if (cmd && cmd.getCritRateBonus) return cmd.getCritRateBonus(unit);
+  return 0;
 }
 
 // ---- 士气变化钩子（堕天使等） ----

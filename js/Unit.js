@@ -1,5 +1,5 @@
 import { HEX_SIZE, ctx, hexPath, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, isCommanderGuaranteedCrit, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -759,8 +759,11 @@ export class Unit {
                    isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0) {
         const counterCoeff = COUNTER_RELATION[attacker.type][defender.type];
 
-        // ② 增伤乘区（克制关系改为仅影响暴击率，见 _calcFloat）
+        // ② 增伤乘区
         let dmgUp = extraBonus;
+        // 兵种克制：顺克 +30% / 逆克 −25%（归入②增伤乘区）；同时仍影响③暴击浮动（见 _calcFloat）
+        if (counterCoeff > 1) dmgUp += 0.30;
+        else if (counterCoeff < 1) dmgUp -= 0.25;
         // 魔术师幻形：每层+5%增伤（上限30%），归入②乘区
         if (attacker.commander === 'magician' && attacker._phantomStacks) {
             dmgUp += Math.min(attacker._phantomStacks * 0.05, 0.30);
@@ -769,7 +772,9 @@ export class Unit {
 
         // ③ 暴击/浮动乘区
         const phantomCrit = (attacker._phantomStacks || 0) * 0.10;
-        const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit;
+        // 将领暴击率加成（堕天使黑形态 +60% 等）并入暴击概率池
+        const cmdCrit = getCommanderCritRateBonus(attacker);
+        const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit;
         const _rng = _gameState && _gameState.rng;
         const guaranteedCrit = isCommanderGuaranteedCrit(attacker) || (rankCrit > 0 && (_rng ? _rng.chance(rankCrit) : Math.random() < rankCrit));
         const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter, guaranteedCrit);

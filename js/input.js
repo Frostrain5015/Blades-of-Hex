@@ -360,11 +360,11 @@ function showTooltipForTile(tile) {
                     let faColor, faStatus, faDesc;
                     if (unit._fallen) {
                         faColor = '#ff6644';
-                        faDesc = '每回合流失当前生命值的20%，攻击力+25、暴击率100%，士气恢复正常时切换至【☆堕天使·白】';
+                        faDesc = '每回合流失当前生命值的20%，攻击力+30、暴击率+60%，士气恢复正常时切换至【☆堕天使·白】';
                         faStatus = '【★堕天使·黑】';
                     } else {
                         faColor = '#6688ff';
-                        faDesc = '每回合回复已损失生命值的20%，士气上升或下降时切换至【★堕天使·黑】';
+                        faDesc = '每回合回复已损失生命值的30%，士气上升或下降时切换至【★堕天使·黑】';
                         faStatus = '【☆堕天使·白】';
                     }
                     const faLine = `<span style="color:${faColor};">${faStatus}${faDesc}</span>`;
