@@ -456,7 +456,7 @@ function showTooltipForTile(tile) {
             if (co) {
                 let dipText = `<span style="color:#ffd700;">【合纵】手牌上限+${co.handSizeBonus}、用卡次数+${co.useBonus}</span>`;
                 if (unit.tile && unit.tile.camp !== unit.camp) {
-                    dipText += `<br><span style="color:#ffaa44;">【连横】处于敌方行政区，35%概率复制对方对策卡</span>`;
+                    dipText += `<br><span style="color:#ffaa44;">【连横】处于敌方行政区，50%概率复制对方对策卡</span>`;
                 }
                 tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + dipText;
             }
@@ -492,7 +492,7 @@ function showTooltipForTile(tile) {
     if (unit && unit.commander !== 'staller' && unit.tile) {
         const layers = getStallerSnareLayers(unit.tile, unit.camp, gameState.tileMap);
         if (layers > 0) {
-            const cost = Math.floor(layers * 1.5);
+            const cost = layers * 2;
             const snareLine = `<span style="color:#c08050;">【缚足】${layers}层 每步消耗+${cost}</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + snareLine;
         }

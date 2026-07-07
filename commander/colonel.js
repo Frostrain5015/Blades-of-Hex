@@ -7,7 +7,7 @@ import { CAMP } from '../js/config.js';
 export default {
     id: 'colonel',
     name: '空军上校',
-    hpBonusPct: 0.30, atkBonusPct: 0.20, spdBonus: 0,
+    hpBonusPct: 0.30, atkBonusPct: 0.30, spdBonus: 1,
     skills: [
         { name: '制空', desc: '无法使用普通对策卡。上校存活且部署时可消耗金币使用专属空军对策卡，最大航程为6格，空袭目标2格内每有1个敌方防空单位，伤害降低20%，最多40%，雾天停飞无法使用', type: 'passive' },
         { name: '扫射', desc: '$4 对指定单体目标造成上校150%攻击力的伤害', type: 'active' },

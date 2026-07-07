@@ -2126,11 +2126,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             }
         }
         if (_colUnit) {
-            // 通用空军增伤：所有空军卡 +20%伤害（②增伤乘区）
-            const airBonus = 0.20;
+            // 通用空军增伤：所有空军卡 +30%伤害（②增伤乘区）
+            const airBonus = 0.30;
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
-                // 俯冲扫射：额外无视15%防御力（破甲），走完整四乘区
-                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, 0.15);
+                // 俯冲扫射：额外无视20%防御力（破甲），走完整四乘区
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, 0.20);
                 result.dmg = Math.round(_calc.dmg);
                 result.isCrit = _calc.isCrit;
             } else if (cardId === 'carpetBomb' && result.results) {

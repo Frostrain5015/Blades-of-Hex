@@ -6,14 +6,14 @@ export default {
   hpBonusPct: 0.30, atkBonusPct: 0, spdBonus: 0,
   skills: [
     { name: '殉道', desc: '生命≤1时进入殉道倒计时，期间可移动但无法攻击；下回合开始时对2格范围内所有非己方单位造成基于攻击力的真实伤害', type: 'passive' },
-    { name: '挽歌', desc: '己方单位阵亡时，殉道者永久获得3点攻击力，该效果最多叠加10层', type: 'passive' }
+    { name: '挽歌', desc: '己方单位阵亡时，殉道者永久获得5点攻击力（上限+25）', type: 'passive' }
   ],
 
   onTurnStart(gameState, camp, helpers) {
     const unit = helpers.findCommanderUnit(camp, 'martyr');
     if (!unit || !unit.tile || unit.hp <= 0) return;
 
-    // ── 挽歌被动：己方单位阵亡 → 永久+3ATK（上限+30） ──
+    // ── 挽歌被动：己方单位阵亡 → 永久+5ATK（上限+25） ──
     const campKey = helpers.campKey || 'player1';
     const deathCount = (gameState._friendlyDeathCount && gameState._friendlyDeathCount[campKey]) || 0;
     const alreadyProcessed = unit._elegyProcessed || 0;
