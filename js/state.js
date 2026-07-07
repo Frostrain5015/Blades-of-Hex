@@ -58,7 +58,6 @@ export const gameState = {
     _starlightResume: false, // E1: 星移锁定结束后强制重新随机天气
     _cardOverrides: {},   // E3: 纵横家合纵卡牌覆盖 { campKey: { handSizeBonus, useBonus } }
     _soulMarks: [],       // E2: 亡灵法师亡魂标记 [{ q, r, campKey, bornAt }]
-    _fuel: { player1: 0, player2: 0, player3: 0 },  // E4: 空军上校燃料
     _colonelDeployed: {}, // E4: 上校部署标记 { campKey: bool }
     // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
     // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
@@ -150,7 +149,6 @@ export function resetGameState() {
     gameState._starlightResume = false;
     gameState._cardOverrides = {};
     gameState._soulMarks = [];
-    gameState._fuel = { player1: 0, player2: 0, player3: 0 };
     gameState._colonelDeployed = {};
     gameState.deselecting = false;
     gameState.deselectionTime = 0;
@@ -661,7 +659,6 @@ export function serializeState() {
         starlightResume: gameState._starlightResume || false,
         cardOverrides: gameState._cardOverrides || {},
         soulMarks: (gameState._soulMarks || []).map(m => ({ ...m })),
-        fuel: { ...(gameState._fuel || {}) },
         colonelDeployed: { ...(gameState._colonelDeployed || {}) },
         rngState: gameState.rng.getState(),
         killCount: { ...gameState.killCount },
@@ -727,7 +724,6 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState._starlightResume = data.starlightResume || false;
     gameState._cardOverrides = data.cardOverrides || {};
     gameState._soulMarks = data.soulMarks || [];
-    gameState._fuel = data.fuel || { player1: 0, player2: 0, player3: 0 };
     gameState._colonelDeployed = data.colonelDeployed || {};
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
     if (data.rngState != null) gameState.rng.setState(data.rngState);

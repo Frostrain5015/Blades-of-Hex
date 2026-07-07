@@ -1,4 +1,4 @@
-﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, getRound, getRoundIndex, getFactionCount } from './config.js';
+﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
@@ -419,7 +419,7 @@ function initCardDeck() {
         if (cmdId === 'colonel') colonels[key] = true;
     }
     // 上校初始手牌仅部署卡；部署后通过 onDeploy 发放 3 张空军卡
-    // 空军卡为燃料门控、不消耗（executeTacticalCard 不 splice），手牌固定为 3 张
+    // 空军卡为金币门控、不消耗手牌（executeTacticalCard 不 splice），手牌固定为 3 张
     // 注意：cardDrawPile 为双方共享，切勿因上校清空，否则对手也抽不到牌。
     // 上校空军卡不占手牌上限，故使用独立计数，部署后再加入。
     const colonelHand = () => ['commanderDeploy'];
@@ -879,15 +879,7 @@ async function _doEndTurnPhase() {
                 logMessage(`${key === 'player1' ? '红军' : key === 'player2' ? '蓝军' : '绿军'}获得免费对策卡【${cfg?.name || card}】`);
             }
         }
-        // E4 空军上校：每5回合发放燃料（第1/6/11…回合发放，开局即得）
-        if (gameState._fuel && roundNum % 5 === 1) {
-            for (const key of ['player1', 'player2', 'player3']) {
-                if (gameState['commander' + (key === 'player1' ? 'P1' : key === 'player2' ? 'P2' : 'P3')] === 'colonel') {
-                    gameState._fuel[key] = (gameState._fuel[key] || 0) + 2;
-                    logMessage(`${key === 'player1' ? '红军' : key === 'player2' ? '蓝军' : '绿军'}空军上校获得2🔥燃料`);
-                }
-            }
-        }
+        // E4 空军上校：空军卡改为金币消耗，不再发放燃料
     }
 
     // 恢复 commanderInterface 引用
@@ -2010,7 +2002,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         notify('本回合已达到使用上限', 'error'); return;
     }
 
-    // E4 空军上校：空军卡检查（燃料/部署/雾天停飞）
+    // E4 空军上校：空军卡检查（金币/部署/雾天停飞）
     const isColonelCard = cardId === 'diveStrafe' || cardId === 'carpetBomb' || cardId === 'airlift';
     const isAirCard = isColonelCard || cardId === 'airstrike' || cardId === 'airdrop';
     if (isColonelCard) {
@@ -2018,15 +2010,15 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (!gameState._colonelDeployed || !gameState._colonelDeployed[campKey]) {
             notify('请先部署空军上校', 'error'); cancelCardTargeting(); return;
         }
-        // 燃料不足
-        const fuelCost = cardId === 'diveStrafe' ? 2 : 3;
-        if ((gameState._fuel[campKey] || 0) < fuelCost) {
-            notify('燃料不足', 'error'); cancelCardTargeting(); return;
+        // 金币不足
+        const goldCost = COLONEL_CARD_GOLD[cardId] || 0;
+        if ((gameState.playerGold[campKey] || 0) < goldCost) {
+            notify('金币不足', 'error'); cancelCardTargeting(); return;
         }
-        // 空运两段式：燃料延迟到第二段（选定目的地）才扣，避免取消白扣
+        // 空运两段式：金币延迟到第二段（选定目的地）才扣，避免取消白扣
         if (cardId !== 'airlift') {
-            gameState._fuel[campKey] -= fuelCost;
-            logMessage(`空军上校消耗${fuelCost}🔥燃料`);
+            gameState.playerGold[campKey] -= goldCost;
+            logMessage(`空军上校消耗${goldCost}$`);
         }
     }
     // 雾天停飞（所有空军卡）
@@ -2123,10 +2115,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     if (!airUnit || !airUnit.tile) { notify('空运单位已不存在', 'error'); gameState._airliftTarget = null; gameState.cardTargeting = null; hideTargetingBanner(); updateUI(); return; }
     if (targetTile.unit) { notify('目的地已有单位', 'error'); return; }
     if (gameState.skirmishFog && !isTileVisible(targetTile, myCamp, gameState)) { notify('目的地不在视野内', 'error'); return; }
-    // 扣燃料(3) + 计入本回合用卡次数（空军卡不消耗手牌，故在此统一结算）
-    gameState._fuel[aCampKey] = (gameState._fuel[aCampKey] || 0) - 3;
+    // 扣金币 + 计入本回合用卡次数（空军卡不消耗手牌，故在此统一结算）
+    const aGoldCost = COLONEL_CARD_GOLD.airlift || 0;
+    gameState.playerGold[aCampKey] = (gameState.playerGold[aCampKey] || 0) - aGoldCost;
     gameState.playerUsesThisTurn[aCampKey] = (gameState.playerUsesThisTurn[aCampKey] || 0) + 1;
-    logMessage(`空军上校消耗3🔥燃料`);
+    logMessage(`空军上校消耗${aGoldCost}$`);
     const fromTile = airUnit.tile;
     fromTile.unit = null;
     targetTile.unit = airUnit;
@@ -2192,7 +2185,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
     }
 
-    // remove from hand（空军上校专属卡为燃料门控、可复用 → 保留手牌、不进弃牌堆）
+    // remove from hand（空军上校专属卡为金币门控、可复用 → 保留手牌、不进弃牌堆）
     if (!isColonelCard) {
         hand.splice(idx, 1);
         // discard (except commanderDeploy and copy cards)
@@ -2309,7 +2302,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 playSound('airstrike');
                 setTimeout(() => {
                     if (targetTile.unit) {
-                        targetTile.unit.applyDamage(result.dmg, { source: 'ranged' });
+                        // result.dmg 已在 execute() 走完标准管线（含防御），此处直接结算；source 'air' 不触发铁卫转移
+                        const colonel = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
+                        targetTile.unit.applyDamage(result.dmg, { source: 'air', attacker: colonel });
                     }
                     spawnExplosionParticles(x, y, '#ff8800', 15);
                     gameState.damageTexts.push({ x, y, value: result.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
@@ -2325,13 +2320,14 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 spawnAirstrikeEffect(x, y, cResults, 'carpetBomb', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 setTimeout(() => {
+                    const colonel = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
                     for (const r of cResults) {
                         const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                         if (!tile) continue;
                         spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
-                        // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）
+                        // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）；dmg 已走完管线
                         if (tile.unit) {
-                            tile.unit.applyDamage(r.dmg, { source: 'ranged' });
+                            tile.unit.applyDamage(r.dmg, { source: 'air', attacker: colonel });
                             gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                         }
                     }

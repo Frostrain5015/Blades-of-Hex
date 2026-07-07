@@ -11,7 +11,7 @@ export default {
     hpBonusPct: 0.25, atkBonusPct: 0.10, spdBonus: 0,
     skills: [
         { name: '留魂', desc: '友军单位阵亡后在原地留下持续3回合的【亡魂】', type: 'passive' },
-        { name: '回魂', desc: '回合开始时自动牵引3格范围内最近的【亡魂】唤起【魂卒】，拥有原单位40%的生命值和70%的攻击力，场上最多存在2个魂卒', type: 'passive' }
+        { name: '回魂', desc: '回合开始时自动牵引任意己方【亡魂】（原地为空地即可，无距离限制）唤起【魂卒】，拥有原单位40%的生命值和70%的攻击力，场上最多存在2个魂卒', type: 'passive' }
     ],
 
     // 回魂：回合开始时牵引亡魂标记
@@ -22,12 +22,12 @@ export default {
         if (!gameState._soulMarks || gameState._soulMarks.length === 0) return;
         const campKey = helpers.campKey || 'player1';
 
-        // 扫描3格内最近的亡魂标记
+        // 扫描最近的己方亡魂标记（无距离限制，只要目标地块为空地即可召回）
         let best = null, bestDist = 999;
         for (const mark of gameState._soulMarks) {
             if (mark.campKey !== campKey) continue;
             const dist = Math.max(Math.abs(necroTile.q - mark.q), Math.abs(necroTile.r - mark.r), Math.abs(necroTile.q + necroTile.r - mark.q - mark.r));
-            if (dist <= 3 && dist < bestDist) { best = mark; bestDist = dist; }
+            if (dist < bestDist) { best = mark; bestDist = dist; }
         }
         if (!best) return;
 

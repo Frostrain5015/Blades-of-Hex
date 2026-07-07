@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, hexDistance } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, hexDistance } from './config.js';
 import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
@@ -2034,8 +2034,10 @@ export function drawCardCanvas(now) {
     const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
     const pileCount = gameState.cardDrawPile.length;
     const pileActive = (isMyTurn || isNeutralTurn) && canDraw && !gameState.cardTargeting;
+    // 空军上校无普通抽牌（专属空军卡为金币消耗、常驻手牌）→ 右上角留空
+    const isColonelPile = gameState['commander' + (campKey === 'player1' ? 'P1' : campKey === 'player2' ? 'P2' : 'P3')] === 'colonel';
 
-    const pileDepth = Math.min(pileCount, 5);
+    const pileDepth = isColonelPile ? 0 : Math.min(pileCount, 5);
     const isArmed = _drawPileArmed && pileActive;
     // Blink factor: pulses 0→1 when active (gold充足+己方回合) and not yet armed
     const blinkT = (pileActive && !isArmed) ? 0.5 + 0.5 * Math.sin(now * 0.006) : 0;
@@ -2089,7 +2091,7 @@ export function drawCardCanvas(now) {
     }
 
     // guard: when draw pile is empty, render a faint placeholder outline so the area is never invisible
-    if (pileCount === 0) {
+    if (pileCount === 0 && !isColonelPile) {
         cctx.save();
         cctx.strokeStyle = 'rgba(68,68,68,0.35)';
         cctx.lineWidth = 1;
@@ -2101,44 +2103,8 @@ export function drawCardCanvas(now) {
         cctx.restore();
     }
 
-    // E4 空军上校：燃料购买按钮替换抽牌堆
-    const isColonel = gameState['commander' + (campKey === 'player1' ? 'P1' : campKey === 'player2' ? 'P2' : 'P3')] === 'colonel';
+    // E4 空军上校：空军卡改金币消耗，右上角不再有燃料购买按钮（抽牌堆亦已在上方对上校跳过）
     _fuelBtnRect = null;
-    if (isColonel) {
-        const fuelBtnX = pileX, fuelBtnY = pileY, fuelBtnW = pileW, fuelBtnH = pileH;
-        const fuel = gameState._fuel?.[campKey] || 0;
-        // 燃料数字平滑过渡
-        if (_displayFuel === undefined) _displayFuel = fuel;
-        else if (Math.abs(_displayFuel - fuel) > 0.5) _displayFuel += (fuel - _displayFuel) * 0.12;
-        else _displayFuel = fuel;
-        const displayFuel = Math.round(_displayFuel);
-        const canBuyFuel = isMyTurn && gameState.playerGold[campKey] >= 3 && !gameState.cardTargeting;
-        cctx.fillStyle = '#14100a';
-        cctx.strokeStyle = canBuyFuel ? '#ff6600' : '#553322';
-        cctx.lineWidth = 2;
-        cctx.beginPath();
-        cctx.roundRect(fuelBtnX, fuelBtnY, fuelBtnW, fuelBtnH, 10);
-        cctx.fill();
-        cctx.stroke();
-        const cxF = fuelBtnX + fuelBtnW / 2, cyF = fuelBtnY + fuelBtnH / 2 - 10;
-        cctx.fillStyle = canBuyFuel ? '#ff8844' : '#553322';
-        cctx.font = '28px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
-        cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
-        cctx.fillText('🔥', cxF, cyF);
-        cctx.font = 'bold 16px "Noto Serif SC", "Noto Serif CJK SC", serif';
-        cctx.fillStyle = '#ff6600';
-        cctx.fillText(`${displayFuel}`, cxF, cyF + 24);
-        if (canBuyFuel) {
-            cctx.fillStyle = 'rgba(255,102,0,0.12)';
-            cctx.beginPath();
-            cctx.roundRect(fuelBtnX + 4, fuelBtnY + fuelBtnH - 26, fuelBtnW - 8, 20, 4);
-            cctx.fill();
-            cctx.fillStyle = '#ff6600';
-            cctx.font = 'bold 10px "Noto Serif SC", "Noto Serif CJK SC", serif';
-            cctx.fillText('$3 +2🔥', cxF, fuelBtnY + fuelBtnH - 17);
-        }
-        _fuelBtnRect = { x: fuelBtnX, y: fuelBtnY, w: fuelBtnW, h: fuelBtnH, canBuy: canBuyFuel };
-    }
 
     if (n === 0) return;
 
@@ -2192,11 +2158,11 @@ export function drawCardCanvas(now) {
             continue;
         }
 
-        // E4 上校空军卡：燃料不足时禁用
+        // E4 上校空军卡：金币不足时禁用
         const isColCard = !!COLONEL_CARDS[cardId];
-        const fuelCost = cardId === 'diveStrafe' ? 2 : 3;
-        const hasFuel = !isColCard || (gameState._fuel?.[campKey] || 0) >= fuelCost;
-        const disabled = !canUse || (isDeploy && alreadyDeployed) || (isColCard && !hasFuel);
+        const goldCost = COLONEL_CARD_GOLD[cardId] || 0;
+        const hasGold = !isColCard || (gameState.playerGold?.[campKey] || 0) >= goldCost;
+        const disabled = !canUse || (isDeploy && alreadyDeployed) || (isColCard && !hasGold);
         drawOpts.disabled = disabled;
         _drawPokerCard(cctx, x, y, cardW, cardH, cfg, drawOpts);
     }

@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, getRoundIndex, getFactionCount } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI } from './state.js';
@@ -44,24 +44,16 @@ function _handleCardCanvasClick(e) {
     const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
 
     // draw pile / fuel purchase check (top-right corner)
-    // E4 空军上校：燃料购买
+    // E4 空军上校：右上角无抽牌/无燃料
     if (cx >= pileX - 4 && cx <= pileX + pileW + 4 && cy >= pileY - 4 && cy <= pileY + pileH + 4) {
         const isMyTurnLocal = isNetworkGame()
             ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
             : (gameState.gameMode === 'pve' ? gameState.currentCamp === CAMP.player1 : true);
         if (!isMyTurnLocal || gameState.cardTargeting) return;
 
-        // 上校燃料购买
+        // 空军上校无普通抽牌（专属空军卡为金币消耗、常驻手牌）→ 右上角点击无操作
         const isColonel = gameState['commander' + (campKey === 'player1' ? 'P1' : campKey === 'player2' ? 'P2' : 'P3')] === 'colonel';
-        if (isColonel) {
-            if (gameState.playerGold[campKey] >= 3) {
-                gameState.playerGold[campKey] -= 3;
-                gameState._fuel[campKey] = (gameState._fuel[campKey] || 0) + 2;
-                logMessage(`${campKey}购买2🔥燃料（-3$）`);
-                updateUI();
-            }
-            return;
-        }
+        if (isColonel) return;
 
         // 普通抽牌（E3 纵横家合纵：手牌上限覆盖）
         const _dcCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
@@ -118,11 +110,11 @@ function _handleCardCanvasClick(e) {
             if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
                 notify('本回合已达到使用上限', 'error'); return;
             }
-            // E4 空军上校：进入选目标前先校验部署/燃料/雾天，避免卡在选目标态（否则会挡住买燃料）
+            // E4 空军上校：进入选目标前先校验部署/金币/雾天，避免卡在选目标态
             if (COLONEL_CARDS[cardId]) {
                 if (!gameState._colonelDeployed || !gameState._colonelDeployed[campKey]) { notify('请先部署空军上校', 'error'); return; }
-                const fuelCost = cardId === 'diveStrafe' ? 2 : 3;
-                if ((gameState._fuel[campKey] || 0) < fuelCost) { notify('燃料不足', 'error'); return; }
+                const goldCost = COLONEL_CARD_GOLD[cardId] || 0;
+                if ((gameState.playerGold[campKey] || 0) < goldCost) { notify('金币不足', 'error'); return; }
                 if (gameState.weather === 'fog') { notify('雾天停飞，无法使用空军卡', 'error'); return; }
             }
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
