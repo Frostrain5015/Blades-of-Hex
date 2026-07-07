@@ -128,8 +128,21 @@ requestAnimationFrame(gameLoop);
 // 首次进入大厅时后台预加载所有将领头像，避免对局中慢加载
 preloadPortraits();
 
+// 首屏立绘就绪信号：首图加载完成/失败/无图均 resolve，用于延后撤下加载遮罩
+let _heroReadyResolve;
+const _heroReadyPromise = new Promise(res => { _heroReadyResolve = res; });
+function _signalHeroReady() { if (_heroReadyResolve) { _heroReadyResolve(); _heroReadyResolve = null; } }
+// 首屏立绘就绪后再撤下加载遮罩（避免露出空图占位）；最长兜底 4s 防图片异常卡住
+let _loadingDismissed = false;
+function _dismissLoadingWhenReady() {
+    if (_loadingDismissed) return;
+    _loadingDismissed = true;
+    Promise.race([_heroReadyPromise, new Promise(res => setTimeout(res, 4000))])
+        .then(() => document.getElementById('loadingOverlay').classList.add('hidden'));
+}
+
 // 启动首页将领立绘轮播（异步：内部会预检立绘存在性，失败静默跳过）
-requestAnimationFrame(() => { _startHeroCarousel().catch(err => console.warn('[轮播] 启动失败:', err)); });
+requestAnimationFrame(() => { _startHeroCarousel().catch(err => { console.warn('[轮播] 启动失败:', err); _signalHeroReady(); }); });
 
 // 初始化聊天系统（事件绑定，仅一次）
 _initChat();
@@ -184,13 +197,13 @@ connectToServer(wsUrl(location.host)).then(() => {
         onReconnectFailed: () => { setConnectionState('disconnected'); connectionLabel.textContent = '连接失败'; reconnectBtn.style.display = ''; },
         onSocketReconnected: () => setConnectionState('connected')
     });
-    // 连接成功 → 隐藏加载遮罩、展示主页
-    document.getElementById('loadingOverlay').classList.add('hidden');
+    // 连接成功 → 首屏立绘就绪后撤下加载遮罩、展示主页
+    _dismissLoadingWhenReady();
     showHome();
 }).catch(() => {
     setConnectionState('disconnected');
     // 连接失败 → 仍展示主页（本地/PVE 模式不需要服务器）
-    document.getElementById('loadingOverlay').classList.add('hidden');
+    _dismissLoadingWhenReady();
     showHome('服务器未连接，您仍可进行本地游戏');
 });
 
@@ -320,12 +333,13 @@ function _filterValidCommanders() {
 async function _startHeroCarousel() {
     const frame = document.querySelector('.hero-portrait-frame');
     const dotsContainer = document.getElementById('heroCarouselDots');
-    if (!frame || !dotsContainer) return;
+    if (!frame || !dotsContainer) { _signalHeroReady(); return; }
 
     // 过滤掉图片缺失的将领
     _heroCommanders = await _filterValidCommanders();
     if (_heroCommanders.length === 0) {
         console.warn('[轮播] 所有将领立绘均缺失，停止轮播');
+        _signalHeroReady();
         return;
     }
 
@@ -342,6 +356,16 @@ async function _startHeroCarousel() {
     }
 
     _showHeroSlide(_heroCarouselIdx, false);
+    // 首图就绪 → 通知加载遮罩可撤下（预检已缓存通常瞬时；error 也放行避免卡住）
+    const _firstImg = document.getElementById('heroPortraitA');
+    if (_firstImg && _firstImg.complete && _firstImg.naturalWidth > 0) {
+        _signalHeroReady();
+    } else if (_firstImg) {
+        _firstImg.addEventListener('load', _signalHeroReady, { once: true });
+        _firstImg.addEventListener('error', _signalHeroReady, { once: true });
+    } else {
+        _signalHeroReady();
+    }
 
     if (!_heroCarouselReady) {
         _heroCarouselReady = true;
