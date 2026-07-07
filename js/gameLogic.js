@@ -1095,6 +1095,18 @@ export function reinforceUnit(unit) {
     tile._reinforcedThisTurn = true;
     spawnReinforceEffect(tile.x, tile.y, actualHeal);
     logMessage(`补充兵员：${unit.config.name}兵 +${actualHeal}HP，-$${cost}`);
+    // E4 空军上校：补员时同时修复飞机
+    if (unit.commander === 'colonel') {
+        const _plane3 = gameState._airForce && gameState._airForce[currentPlayerKey];
+        if (_plane3 && _plane3.hp < _plane3.maxHp) {
+            const _planeRepair = tile.isCity ? 25 : (tile.isVillage ? 15 : 0);
+            if (_planeRepair > 0) {
+                const _oldHp = _plane3.hp;
+                _plane3.hp = Math.min(_plane3.maxHp, _plane3.hp + _planeRepair);
+                logMessage(`✈️ 飞机修复(+${_plane3.hp - _oldHp}HP)，当前HP:${_plane3.hp}/${_plane3.maxHp}`);
+            }
+        }
+    }
     recalcAllFlankingMorale();
     updateUI();
     broadcastAction('reinforce', { unitId: unit.id, healAmt: actualHeal, cost, x: tile.x, y: tile.y });
@@ -2081,6 +2093,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (!gameState._colonelDeployed || !gameState._colonelDeployed[campKey]) {
             notify('请先部署空军上校', 'error'); cancelCardTargeting(); return;
         }
+        // 飞机坠毁检查
+        const _plane = gameState._airForce && gameState._airForce[campKey];
+        if (_plane && _plane.hp <= 0) {
+            notify('飞机已坠毁，无法使用空军卡', 'error'); cancelCardTargeting(); return;
+        }
         // 金币不足
         const goldCost = COLONEL_CARD_GOLD[cardId] || 0;
         if ((gameState.playerGold[campKey] || 0) < goldCost) {
@@ -2165,6 +2182,22 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
     }
 
+    // E4 空军上校：空袭导致飞机损伤（基于目标地块防空层数）
+    if (isColonelCard && (cardId === 'diveStrafe' || cardId === 'carpetBomb') && targetTile) {
+        const _plane = gameState._airForce && gameState._airForce[campKey];
+        if (_plane && _plane.hp > 0) {
+            const _aa = getAALayers(targetTile, myCamp, gameState.tileMap);
+            const _planeDmg = _aa * 25;
+            if (_planeDmg > 0) {
+                _plane.hp = Math.max(0, _plane.hp - _planeDmg);
+                logMessage(`✈️ 飞机遭受对空火力损伤(-${_planeDmg}HP)，当前HP:${_plane.hp}/${_plane.maxHp}`);
+                if (_plane.hp <= 0) {
+                    logMessage('💥 飞机已坠毁！');
+                }
+            }
+        }
+    }
+
     // E4 空运第一段：选单位后进入第二段选目的地
     if (cardId === 'airlift' && targetTile && targetTile.unit) {
         gameState._airliftTarget = { unitId: targetTile.unit.id };
@@ -2202,6 +2235,18 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     applyAADropHP(airUnit, targetTile, myCamp, gameState.tileMap);
     const aa = getAALayers(targetTile, myCamp, gameState.tileMap);
     if (aa > 0) logMessage(`🪂 空运落入防空火力：损失${aa * 25}%最大生命值`);
+    // E4 空军上校：空运导致飞机损伤
+    const _plane2 = gameState._airForce && gameState._airForce[aCampKey];
+    if (_plane2 && _plane2.hp > 0) {
+        const _planeDmg2 = aa * 25;
+        if (_planeDmg2 > 0) {
+            _plane2.hp = Math.max(0, _plane2.hp - _planeDmg2);
+            logMessage(`✈️ 空运中飞机遭受对空火力损伤(-${_planeDmg2}HP)，当前HP:${_plane2.hp}/${_plane2.maxHp}`);
+            if (_plane2.hp <= 0) {
+                logMessage('💥 飞机已坠毁！');
+            }
+        }
+    }
     // 空运动画：运输机自起点飞抵终点上空 → 降落伞投放 → 单位落地时才现身
     airUnit._airliftLandAt = spawnAirliftEffect(fromTile.x, fromTile.y, targetTile.x, targetTile.y, { color: airUnit.camp.color, q: targetTile.q, r: targetTile.r });
     logMessage(`🪂【空运】${airUnit.camp.name}${airUnit.config.name}兵传送至(${targetTile.q},${targetTile.r})`);

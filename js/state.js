@@ -59,6 +59,7 @@ export const gameState = {
     _cardOverrides: {},   // E3: 纵横家合纵卡牌覆盖 { campKey: { handSizeBonus, useBonus } }
     _soulMarks: [],       // E2: 亡灵法师亡魂标记 [{ q, r, campKey, bornAt }]
     _colonelDeployed: {}, // E4: 上校部署标记 { campKey: bool }
+    _airForce: {},        // E4: 空军上校飞机数据 { campKey: { hp, maxHp } }
     // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
     // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
     // 使联机收方与重连保持一致。详见 core/rng.js。
@@ -150,6 +151,7 @@ export function resetGameState() {
     gameState._cardOverrides = {};
     gameState._soulMarks = [];
     gameState._colonelDeployed = {};
+    gameState._airForce = {};
     gameState.deselecting = false;
     gameState.deselectionTime = 0;
     gameState.deselectMoveTiles = [];
@@ -662,6 +664,7 @@ export function serializeState() {
         cardOverrides: gameState._cardOverrides || {},
         soulMarks: (gameState._soulMarks || []).map(m => ({ ...m })),
         colonelDeployed: { ...(gameState._colonelDeployed || {}) },
+        airForce: { ...(gameState._airForce || {}) },
         rngState: gameState.rng.getState(),
         killCount: { ...gameState.killCount },
         friendlyDeathCount: { ...(gameState._friendlyDeathCount || {}) },
@@ -727,6 +730,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState._cardOverrides = data.cardOverrides || {};
     gameState._soulMarks = data.soulMarks || [];
     gameState._colonelDeployed = data.colonelDeployed || {};
+    gameState._airForce = data.airForce || {};
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
     if (data.rngState != null) gameState.rng.setState(data.rngState);
     if (data.killCount) gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0, ...data.killCount };
