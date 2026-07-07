@@ -1115,9 +1115,9 @@ export function spawnSoulRecallEffect(fromX, fromY, toX, toY) {
 // ===== 空袭特效 =====================
 export const airstrikeEffects = [];
 
-export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike') {
+export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null) {
     airstrikeEffects.push({
-        x: cx, y: cy, results, type,
+        x: cx, y: cy, q, r, results, type,
         startTime: performance.now(),
         duration: type === 'diveStrafe' ? 1500 : 2000
     });
@@ -1133,6 +1133,7 @@ export function spawnAirliftEffect(fromX, fromY, toX, toY, opts = {}) {
     const startTime = performance.now();
     airliftEffects.push({
         fromX, fromY, toX, toY,
+        q: opts.q, r: opts.r,
         color: opts.color || '#8ab4ff',
         startTime, duration: AIRLIFT_MS, landFrac: AIRLIFT_LAND_FRAC
     });

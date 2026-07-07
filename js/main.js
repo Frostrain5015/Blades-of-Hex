@@ -2289,14 +2289,14 @@ async function handleRemoteAction(msg) {
                             const aUnit = e.unitId ? gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.unitId ? t.unit : null), null) : null;
                             const fromX = e.fromX != null ? e.fromX : e.x;
                             const fromY = e.fromY != null ? e.fromY : e.y - 100;
-                            const landAt = spawnAirliftEffect(fromX, fromY, e.x, e.y, { color: aUnit ? aUnit.camp.color : '#8ab4ff' });
+                            const landAt = spawnAirliftEffect(fromX, fromY, e.x, e.y, { color: aUnit ? aUnit.camp.color : '#8ab4ff', q: e.q, r: e.r });
                             if (aUnit) aUnit._airliftLandAt = landAt;
                             break;
                         }
                         case 'diveStrafe': {
                             // E4 空军上校：伤害在本地延迟结算，远端同样在此结算以保持一致
                             playSound('airstrike');
-                            spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }], 'diveStrafe');
+                            spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }], 'diveStrafe', e.q, e.r);
                             setTimeout(() => {
                                 const dt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : null;
                                 if (dt && dt.unit && e.dmg) {
@@ -2316,7 +2316,7 @@ async function handleRemoteAction(msg) {
                         case 'carpetBomb': {
                             const cResults = e.carpetBombResults || [];
                             playSound('airstrike');
-                            spawnAirstrikeEffect(e.x, e.y, cResults);
+                            spawnAirstrikeEffect(e.x, e.y, cResults, 'carpetBomb', e.q, e.r);
                             setTimeout(() => {
                                 for (const r of cResults) {
                                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);

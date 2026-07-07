@@ -1147,63 +1147,68 @@ function drawAstrologerField(now) {
         ctx.shadowBlur = 0;
         ctx.restore();
 
-        // 星移光柱：天氣鎖定期間，占星者處升起明亮藍白光柱 + 頂端散發星光
+        // 星移光柱：天氣鎖定期間，占星者處升起柔和圓柱藍白光柱 + 頂端星光噴發
         if (gameState.weatherLockUntil > 0 && getRoundIndex(gameState) < gameState.weatherLockUntil) {
             const beamTime = now / 600;
             const beamPulse = (Math.sin(beamTime * Math.PI * 2) + 1) / 2;
             ctx.save();
-            const H = 120, cx = sx, cy = sy;
-            // 外層光暈（寬散光柱）
-            const grad = ctx.createRadialGradient(cx, cy - H * 0.4, 0, cx, cy - H * 0.4, 50);
-            grad.addColorStop(0, `rgba(160,220,255,${0.25 + beamPulse * 0.15})`);
-            grad.addColorStop(0.5, `rgba(100,180,255,${0.12 + beamPulse * 0.08})`);
-            grad.addColorStop(1, `rgba(80,160,255,0)`);
+            const H = 120, cx = sx, cy = sy, W = 22;
+            // 外層光暈：橢圓柱體，從地面升起，頂部略散
+            ctx.shadowColor = 'rgba(140,200,255,0.3)';
+            ctx.shadowBlur = 35;
+            const grad = ctx.createLinearGradient(cx, cy, cx, cy - H);
+            grad.addColorStop(0, `rgba(140,210,255,${0.20 + beamPulse * 0.12})`);
+            grad.addColorStop(0.3, `rgba(180,230,255,${0.30 + beamPulse * 0.15})`);
+            grad.addColorStop(0.6, `rgba(200,240,255,${0.25 + beamPulse * 0.10})`);
+            grad.addColorStop(1, `rgba(160,220,255,0)`);
             ctx.fillStyle = grad;
-            ctx.shadowColor = 'rgba(150,210,255,0.6)';
-            ctx.shadowBlur = 30 + beamPulse * 15;
-            ctx.fillRect(cx - 50, cy - H - 20, 100, H + 30);
-            // 內層：窄光柱 + 光點上升
-            ctx.strokeStyle = `rgba(200,235,255,${0.4 + beamPulse * 0.2})`;
-            ctx.lineWidth = 3;
+            // 用圓角矩形模擬柔和光柱，底部寬頂部略微收窄
+            const tw = W * 1.0, bw = W * 0.6;
+            ctx.beginPath();
+            ctx.moveTo(cx - bw * 0.5, cy - H);
+            ctx.quadraticCurveTo(cx - tw * 0.5, cy - H * 0.5, cx - tw * 0.5, cy);
+            ctx.lineTo(cx + tw * 0.5, cy);
+            ctx.quadraticCurveTo(cx + tw * 0.5, cy - H * 0.5, cx + bw * 0.5, cy - H);
+            ctx.closePath();
+            ctx.fill();
+            // 內層：窄光柱核心 — 垂直亮線 + 微光
+            ctx.shadowBlur = 0;
+            const coreGrad = ctx.createLinearGradient(cx, cy, cx, cy - H);
+            coreGrad.addColorStop(0, `rgba(220,245,255,${0.5 + beamPulse * 0.2})`);
+            coreGrad.addColorStop(0.4, `rgba(255,255,255,${0.7 + beamPulse * 0.2})`);
+            coreGrad.addColorStop(0.7, `rgba(220,245,255,${0.4 + beamPulse * 0.15})`);
+            coreGrad.addColorStop(1, `rgba(200,235,255,0)`);
+            ctx.fillStyle = coreGrad;
             ctx.shadowColor = 'rgba(180,230,255,0.5)';
-            ctx.shadowBlur = 20 + beamPulse * 10;
+            ctx.shadowBlur = 12 + beamPulse * 6;
             ctx.beginPath();
-            ctx.moveTo(cx - 2, cy);
-            ctx.lineTo(cx - 6, cy - H * 0.3);
-            ctx.lineTo(cx - 3, cy - H * 0.6);
-            ctx.lineTo(cx, cy - H);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(cx + 2, cy);
-            ctx.lineTo(cx + 6, cy - H * 0.3);
-            ctx.lineTo(cx + 3, cy - H * 0.6);
-            ctx.lineTo(cx, cy - H);
-            ctx.stroke();
+            ctx.roundRect(cx - 3, cy - H, 6, H, 3);
+            ctx.fill();
             ctx.shadowBlur = 0;
             // 上升光點
             for (let i = 0; i < 5; i++) {
                 const tOff = (beamTime * 0.5 + i / 5) % 1;
                 const py = cy - tOff * H;
-                const pxOff = Math.sin(tOff * Math.PI * 3 + i) * 4;
+                const pxOff = Math.sin(tOff * Math.PI * 3 + i) * 3;
                 const dotA = 0.7 * (1 - tOff) + beamPulse * 0.2;
                 ctx.fillStyle = `rgba(255,250,235,${dotA})`;
-                ctx.shadowColor = 'rgba(200,230,255,0.8)';
-                ctx.shadowBlur = 8;
+                ctx.shadowColor = 'rgba(200,230,255,0.6)';
+                ctx.shadowBlur = 6;
                 ctx.beginPath();
                 ctx.arc(cx + pxOff, py, 2 + (1 - tOff) * 1.5, 0, Math.PI * 2);
                 ctx.fill();
             }
             ctx.shadowBlur = 0;
-            // 頂端星光噴發
+            // 頂端星光噴發（半環繞）
             for (let s = 0; s < 5; s++) {
                 const a = beamTime * 0.7 + (s / 5) * Math.PI * 2;
-                const r = 8 + beamPulse * 10 + s * 4;
+                const r = 6 + beamPulse * 8 + s * 3;
                 const px = cx + Math.cos(a) * r;
                 const py = cy - H + Math.sin(a) * r * 0.35;
                 const sAlpha = 0.5 + beamPulse * 0.3 - s * 0.08;
                 ctx.fillStyle = `rgba(255,245,235,${Math.max(0, sAlpha)})`;
-                ctx.shadowColor = 'rgba(200,230,255,0.6)';
-                ctx.shadowBlur = 10;
+                ctx.shadowColor = 'rgba(200,230,255,0.5)';
+                ctx.shadowBlur = 8;
                 ctx.font = '10px serif';
                 ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText('✦', px, py);
@@ -2483,6 +2488,52 @@ function drawAirstrikeEffects(now) {
             ctx.fillText('🛩️', 0, 0);
             ctx.restore();
 
+            // 防空炮火：目标附近防空单位高射机枪/炮连射
+            const flakStart = 0.12, flakEnd = 0.85;
+            if (t >= flakStart && t <= flakEnd) {
+                const seed = (fx.x | 0) * 7 + (fx.y | 0) * 13;
+                for (const _t of gameState.tiles) {
+                    const _u = _t.unit;
+                    if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
+                    if (hexDistance(_t, { q: fx.q, r: fx.r }) > ANTIAIR_RADIUS) continue;
+                    ctx.save();
+                    const sx2 = _t.x, sy2 = _t.y;
+                    const dx = px - sx2, dy = py - sy2;
+                    // 弹丸速射：每帧多发黄色光点直射飞机，带轻微曳光形成弹流
+                    for (let tr = 0; tr < 3; tr++) {
+                        const phase = (t * 6 + tr * 0.5 + seed * 0.02) % 1;
+                        const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
+                        const tx = sx2 + dx * tp;
+                        const ty = sy2 + dy * tp;
+                        const ta = 0.8 * (1 - tp);
+                        ctx.fillStyle = `rgba(255,220,80,${ta})`;
+                        ctx.beginPath();
+                        ctx.arc(tx, ty, 1.5 + (1 - tp) * 1.2, 0, Math.PI * 2);
+                        ctx.fill();
+                        // 曳光尾迹
+                        if (tp < 0.6) {
+                            ctx.strokeStyle = `rgba(255,200,60,${ta * 0.6})`;
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            ctx.moveTo(tx, ty);
+                            ctx.lineTo(tx - dx * 0.06, ty - dy * 0.06);
+                            ctx.stroke();
+                        }
+                    }
+                    // 炮口閃光
+                    if (Math.sin(t * 14 + seed * 0.5) > 0.4) {
+                        ctx.shadowBlur = 0;
+                        const flA = 0.3 + Math.random() * 0.2;
+                        ctx.fillStyle = `rgba(255,200,80,${flA})`;
+                        ctx.beginPath();
+                        ctx.arc(sx2 + (Math.random() - 0.5) * 10, sy2, 2.5 + Math.random() * 3, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                }
+            }
+
             // 扫射窗口：曳光弹精确锁定目标中心（cx, cy），不飘
             const fireStart = 0.40, fireEnd = 0.82;
             if (t >= fireStart && t <= fireEnd) {
@@ -2553,6 +2604,44 @@ function drawAirstrikeEffects(now) {
         ctx.fillText('✈️', 0, 0);
         ctx.restore();
 
+        // 防空炮火（地毯轰炸 + 普通空袭，空投除外）
+        if (!isAirdrop && fx.q != null && t > 0.15 && t < 0.85) {
+            const seed = (fx.x | 0) * 7 + (fx.y | 0) * 13;
+            const ppx = planeX, ppy = planeY;
+            for (const _t of gameState.tiles) {
+                const _u = _t.unit;
+                if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
+                if (hexDistance(_t, { q: fx.q, r: fx.r }) > ANTIAIR_RADIUS) continue;
+                ctx.save();
+                const sx2 = _t.x, sy2 = _t.y;
+                const dx = ppx - sx2, dy = ppy - sy2;
+                for (let tr = 0; tr < 3; tr++) {
+                    const phase = (t * 6 + tr * 0.5 + seed * 0.02) % 1;
+                    const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
+                    const tx = sx2 + dx * tp;
+                    const ty = sy2 + dy * tp;
+                    const ta = 0.8 * (1 - tp);
+                    ctx.shadowColor = 'rgba(255,200,60,0.7)';
+                    ctx.shadowBlur = 5;
+                    ctx.fillStyle = `rgba(255,230,120,${ta})`;
+                    ctx.beginPath();
+                    ctx.arc(tx, ty, 1.8 + (1 - tp) * 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    if (tp < 0.6) {
+                        ctx.shadowBlur = 2;
+                        ctx.strokeStyle = `rgba(255,220,80,${ta * 0.5})`;
+                        ctx.lineWidth = 1.2;
+                        ctx.beginPath();
+                        ctx.moveTo(tx, ty);
+                        ctx.lineTo(tx - dx * 0.04, ty - dy * 0.04);
+                        ctx.stroke();
+                    }
+                }
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
+        }
+
         // sequential drops: release times relative to when plane passes over target
         const tTarget = (cx - flyStartX) / totalFlyDist;
         const dropOffsets = isAirdrop ? [0] : [-0.06, 0, 0.06];
@@ -2622,6 +2711,42 @@ function drawAirliftEffects(now) {
             ctx.font = '42px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
             ctx.fillText('🛩️', 0, 0);
             ctx.restore();
+
+            // 防空炮火（空运阶段A）
+            if (fx.q != null && p > 0.1 && p < 0.9) {
+                const seed = (fx.fromX | 0) * 7 + (fx.toY | 0) * 13;
+                for (const _t of gameState.tiles) {
+                    const _u = _t.unit;
+                    if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
+                    if (hexDistance(_t, { q: fx.q, r: fx.r }) > ANTIAIR_RADIUS) continue;
+                    ctx.save();
+                    const sx2 = _t.x, sy2 = _t.y;
+                    const dx = px - sx2, dy = py - sy2;
+                    for (let tr = 0; tr < 3; tr++) {
+                        const phase = (t * 6 + tr * 0.5 + seed * 0.02) % 1;
+                        const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
+                        const tx = sx2 + dx * tp;
+                        const ty = sy2 + dy * tp;
+                        const ta = 0.8 * (1 - tp);
+                        ctx.shadowColor = 'rgba(255,200,60,0.7)';
+                        ctx.shadowBlur = 5;
+                        ctx.fillStyle = `rgba(255,230,120,${ta})`;
+                        ctx.beginPath();
+                        ctx.arc(tx, ty, 1.8 + (1 - tp) * 1.5, 0, Math.PI * 2);
+                        ctx.fill();
+                        if (tp < 0.6) {
+                            ctx.strokeStyle = `rgba(255,200,60,${ta * 0.6})`;
+                            ctx.lineWidth = 1.5;
+                            ctx.beginPath();
+                            ctx.moveTo(tx, ty);
+                            ctx.lineTo(tx - dx * 0.06, ty - dy * 0.06);
+                            ctx.stroke();
+                        }
+                    }
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                }
+            }
         } else if (t < land) {
             // 阶段B：降落伞自终点上空垂直下降
             const p = _ease((t - flyEnd) / (land - flyEnd));

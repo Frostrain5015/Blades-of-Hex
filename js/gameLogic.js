@@ -2149,7 +2149,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         logMessage(`🪂 空运落入防空火力：损失${aaN * 15}%生命值（-${aaLoss}HP）`);
     }
     // 空运动画：运输机自起点飞抵终点上空 → 降落伞投放 → 单位落地时才现身
-    airUnit._airliftLandAt = spawnAirliftEffect(fromTile.x, fromTile.y, targetTile.x, targetTile.y, { color: airUnit.camp.color });
+    airUnit._airliftLandAt = spawnAirliftEffect(fromTile.x, fromTile.y, targetTile.x, targetTile.y, { color: airUnit.camp.color, q: targetTile.q, r: targetTile.r });
     logMessage(`🪂【空运】${airUnit.camp.name}${airUnit.config.name}兵传送至(${targetTile.q},${targetTile.r})`);
     gameState._airliftTarget = null;
     gameState.cardTargeting = null;
@@ -2322,7 +2322,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             const cResults = result.results || [];
             logMessage(`💣【地毯轰炸】对目标区域造成AOE伤害`);
             setTimeout(() => {
-                spawnAirstrikeEffect(x, y, cResults);
+                spawnAirstrikeEffect(x, y, cResults, 'carpetBomb', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 setTimeout(() => {
                     for (const r of cResults) {
