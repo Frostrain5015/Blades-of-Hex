@@ -1159,28 +1159,37 @@ function drawAstrologerField(now) {
         ctx.shadowColor = 'rgba(40,30,90,0.5)';
         ctx.shadowBlur = 10;
         ctx.lineWidth = 2.5;
-        ctx.beginPath();
+        // 顶点法：收集所有六边形顶点，仅保留被 <3 个六边形共享的外部顶点
+        const _vertCount = new Map();
         for (const ht of fieldTiles) {
-            // 仅绘制力场边缘地块的六边形边界
-            let isEdge = false;
-            for (const [dq, dr] of [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
-                const nbKey = `${ht.q + dq},${ht.r + dr}`;
-                if (!fieldSet.has(nbKey)) { isEdge = true; break; }
-            }
-            if (isEdge) {
-                const cx = ht.x, cy = ht.y, s = HEX_SIZE + 1;
-                const h60 = s * 0.8660254;
-                const h30 = s * 0.5;
-                ctx.moveTo(cx + s, cy);
-                ctx.lineTo(cx + h30, cy + h60);
-                ctx.lineTo(cx - h30, cy + h60);
-                ctx.lineTo(cx - s, cy);
-                ctx.lineTo(cx - h30, cy - h60);
-                ctx.lineTo(cx + h30, cy - h60);
-                ctx.closePath();
+            for (let _vi = 0; _vi < 6; _vi++) {
+                const _angle = (Math.PI / 180) * (60 * _vi - 30);
+                const _vx = ht.x + HEX_SIZE * Math.cos(_angle);
+                const _vy = ht.y + HEX_SIZE * Math.sin(_angle);
+                const _vk = `${_vx.toFixed(1)},${_vy.toFixed(1)}`;
+                _vertCount.set(_vk, (_vertCount.get(_vk) || 0) + 1);
             }
         }
-        ctx.stroke();
+        // 筛选外边界顶点（出现次数 < 3）
+        const _outerVerts = [];
+        for (const [vk, cnt] of _vertCount) {
+            if (cnt < 3) {
+                const [vx, vy] = vk.split(",").map(Number);
+                _outerVerts.push({ x: vx, y: vy });
+            }
+        }
+        if (_outerVerts.length >= 3) {
+            // 按角度排序（以占星者为中心）
+            const _gx = tile.x, _gy = tile.y;
+            _outerVerts.sort((a, b) => Math.atan2(a.y - _gy, a.x - _gx) - Math.atan2(b.y - _gy, b.x - _gx));
+            ctx.beginPath();
+            ctx.moveTo(_outerVerts[0].x, _outerVerts[0].y);
+            for (let _vi = 1; _vi < _outerVerts.length; _vi++) {
+                ctx.lineTo(_outerVerts[_vi].x, _outerVerts[_vi].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+        }
         ctx.shadowBlur = 0;
         ctx.restore();
     }
