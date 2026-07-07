@@ -2644,8 +2644,8 @@ function drawAirstrikeEffects(now) {
         ctx.fillText('✈️', 0, 0);
         ctx.restore();
 
-        // 通用防空炮火（地毯轰炸 + 普通空袭，空投除外）
-        if (!isAirdrop && fx.q != null && t > 0.15 && t < 0.85) {
+        // 通用防空炮火（地毯轰炸 + 普通空袭 + 空降）
+        if (fx.q != null && t > 0.15 && t < 0.85) {
             _renderAAFlak(planeX, planeY, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13);
         }
 

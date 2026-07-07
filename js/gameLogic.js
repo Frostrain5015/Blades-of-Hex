@@ -2408,7 +2408,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             targetTile.unit._airdropWaiting = true;
             setTimeout(() => {
                 // airdrop visual AFTER card burn animation
-                spawnAirstrikeEffect(x, y, [], 'airdrop');
+                spawnAirstrikeEffect(x, y, [], 'airdrop', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 // reveal unit & recruit effect delayed to match parachute landing (~1500ms into flight)
                 setTimeout(() => {
@@ -2504,7 +2504,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 const hBonus = co.handSizeBonus || 0;
                 if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
                 // 连横不可复制"部署将领"卡
-                if (cardId === 'commanderDeploy') continue;
+                if (cardId === 'commanderDeploy' || cardId === 'diveStrafe' || cardId === 'carpetBomb' || cardId === 'airlift') continue;
                 hand.push({ id: cardId, _copy: true });
                 logMessage(`纵横家【连横】：${ck}获得${cardId}的复制`);
                 spawnCardCopyEffect(targetTile.x, targetTile.y, 500, 375, cardId);
