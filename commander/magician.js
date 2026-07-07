@@ -9,7 +9,7 @@ export default {
     spdBonus: 0,
     skills: [
         { name: '千面', desc: '攻击克制目标时造成的伤害提高25%，被克制目标攻击时受到的伤害降低15%', type: 'passive' },
-        { name: '幻形', desc: '击杀敌方单位后变形为其兵种类型，获得1层【幻形】效果：增伤+5%、暴击率+10%，最多叠加6层', type: 'passive' }
+        { name: '幻形', desc: '击杀敌方单位后变形为其兵种类型，获得1层【幻形】效果：造成的伤害提高5%、暴击率+10%，最多叠加6层', type: 'passive' }
     ],
 
     onKill(killer, victim, helpers) {

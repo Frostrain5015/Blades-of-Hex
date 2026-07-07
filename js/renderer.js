@@ -1565,7 +1565,6 @@ function drawRangeApertures(now) {
                 ctx.shadowBlur = 0;
                 ctx.restore();
             }
-        }
 
         for (const tile of gameState.tiles) {
             if (ct.targeting === 'enemyGlobal') {
