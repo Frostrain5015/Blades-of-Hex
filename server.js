@@ -98,17 +98,9 @@ function staticHandler(req, res) {
 
     // ── OAuth routes ────────────────────────────────────
     if (urlPath === '/auth/login') {
-      const verifier = genV(); const challenge = genC(verifier); const rstate = b64url(crypto.randomBytes(16));
-      const combined = b64url(Buffer.from(verifier + '|' + rstate, 'utf-8'));
-      const params = new URLSearchParams({
-        response_type:'code',client_id:AUTH_CFG.clientId,redirect_uri:AUTH_CFG.redirectUrl,
-        code_challenge:challenge,code_challenge_method:'S256',state:combined,scope:'openid profile email'
-      });
-      const loginUrl = AUTH_CFG.authorizeUrl+'?'+params.toString();
-      res.writeHead(200,{'Content-Type':'text/html;charset=utf-8'});
-      res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><title>登录</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#12132a;display:flex;justify-content:center;align-items:center;min-height:100vh;font-family:sans-serif}.card{background:#1a1b3a;border-radius:12px;padding:40px 48px;text-align:center}h2{color:#c8d0ff;margin-bottom:8px;font-weight:500}p{color:#8890bb;font-size:13px;margin-bottom:28px}.btn{display:inline-block;padding:12px 32px;border-radius:6px;text-decoration:none;font-size:14px}.primary{background:#4a4999;color:#fff;margin-right:12px}.primary:hover{background:#5a59b9}.skip{color:#8890bb;border:1px solid #3a3b6a}.skip:hover{background:rgba(255,255,255,0.05);color:#c8d0ff}.frost{color:#7b6bdf}</style></head><body><div class="card"><h2><span class="frost">&#10052;</span>Frost ID</h2><p>登录后可保存游戏进度和联机信息</p><a class="btn primary" href="'+loginUrl+'">登录 Frost ID</a><a class="btn skip" href="/">跳过，直接游玩</a></div></body></html>');
+      res.writeHead(302, { Location: '/' }); res.end();
       return;
-    }
+    }}
     if (urlPath === '/auth/callback') {
       const code = query.get('code'); const state = query.get('state'); const err = query.get('error');
       if (err) { res.end(htmlForCB('/?auth_error='+err)); return; }
