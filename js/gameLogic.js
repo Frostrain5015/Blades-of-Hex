@@ -2,7 +2,7 @@
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
@@ -1145,13 +1145,18 @@ export function getMovableTiles(unit) {
             if (neighbor.unit) continue; // occupied → impassable
 
             let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
-            // 雨天骑兵步耗+1（已移除，替换为守城回血+步兵守城防御）
+            // 雨天泥泞：骑兵步耗+1，末步豁免失效
+            const _isMuddyTarget = gameState.weather === "rain" && unit.type === "cavalry"
+                && !getCommanderWeatherImmunity(neighbor, friendlyCamp, gameState.tileMap);
+            if (_isMuddyTarget) stepCost += 1;
+            // 星移减益区：处于敌方占星者3格内的敌对方额外+1（此处用于敌方 AI 移动计算）
+            if (_isMuddyTarget && getCommanderWeatherDebuff(neighbor, friendlyCamp, gameState)) stepCost += 1;
             // 停滞者【缚足】：每层行动消耗+2
             const snareLayers = _getStallerSnareLayers(neighbor, friendlyCamp);
             if (snareLayers > 0) stepCost += snareLayers * 2;
             if (curRem < 1) continue;
-            // 停滞者【缚足】：层数>0时，行动力不足以全额支付则无法到达（末位豁免失效）
-            if (snareLayers > 0 && curRem < stepCost && cur !== startTile) continue;
+            // 末步豁免失效：泥泞/缚足下若行动力不足全额支付则无法到达
+            if ((_isMuddyTarget || snareLayers > 0) && curRem < stepCost && cur !== startTile) continue;
             let newRem = curRem >= stepCost ? curRem - stepCost : 0;
 
             // Zone of Control: entering a ZoC tile costs all remaining MP (must stop)
@@ -1181,7 +1186,9 @@ export function getAttackableTiles(unit) {
     let range = unit.config.range;
     // 雾天炮兵射程-1（占星者星光力场免疫）
     if (gameState.weather === 'fog' && unit.type === 'archer'
-        && !getCommanderWeatherImmunity(unit.tile, unit.camp, gameState.tileMap)) range -= 1;
+        && !getCommanderWeatherImmunity(unit.tile, unit.camp, gameState.tileMap)) {
+        range = Math.min(range, 1);
+    }
     if (unit.type === 'archer') {
         let bonus = 0;
         if (unit.tile.terrain === 'mountain') bonus = 1;

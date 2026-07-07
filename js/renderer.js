@@ -129,6 +129,9 @@ export function renderGame() {
     // Flag finials + cloth (after units, overlays the badge)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagFinialAndCloth();
 
+    // 星移光柱 — 在单位层之上绘制，避免被遮挡
+    drawStarlightBeam(now);
+
     // 士气变化动画
     drawMoraleEffects(now);
     // 晋升动画
@@ -359,6 +362,10 @@ export function renderGame() {
             ctx.restore();
         }
     }
+
+    // 星光力场天气遮罩 + 覆绘 — 完全过滤力场范围内的天气视觉效果
+    drawAstrologerWeatherMask(now);
+    drawAstrologerField(now);
 
     // 攻击闪光
     drawAttackFlashes(ctx, now);
@@ -1092,6 +1099,35 @@ function drawUnitHexAuras(now) {
     }
 }
 
+// 星光力场天气遮罩：在天气粒子上层填充力场六边形，完全过滤力场内的天气视觉效果
+function drawAstrologerWeatherMask(now) {
+    const astrologerDef = getCommander('astrologer');
+    if (!astrologerDef || !astrologerDef.isInWeatherShield) return;
+    for (const tile of gameState.tiles) {
+        const u = tile.unit;
+        if (!u || u.commander !== 'astrologer' || u.hp <= 0 || !gameState.tileMap) continue;
+        const cq = tile.q, cr = tile.r, R = 3;
+        const fieldSet = new Set();
+        for (let dq = -R; dq <= R; dq++) {
+            for (let dr = Math.max(-R, -dq - R); dr <= Math.min(R, -dq + R); dr++) {
+                const ht = gameState.tileMap.get(`${cq + dq},${cr + dr}`);
+                if (ht) fieldSet.add(`${ht.q},${ht.r}`);
+            }
+        }
+        if (fieldSet.size === 0) continue;
+        ctx.save();
+        for (const key of fieldSet) {
+            const ht = gameState.tileMap.get(key);
+            if (!ht) continue;
+            hexPath(ctx, ht.x, ht.y, HEX_SIZE + 1);
+        }
+        ctx.fillStyle = 'rgba(235,240,255,0.72)';
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+
 // E1 占星者星光力场（常驻、所有人可见：3格范围半透明地面 + 边界大圈 + 占星者自身环绕星光）
 function drawAstrologerField(now) {
     const astrologerDef = getCommander('astrologer');
@@ -1147,12 +1183,43 @@ function drawAstrologerField(now) {
         ctx.shadowBlur = 0;
         ctx.restore();
 
-        // 星移光柱：天氣鎖定期間，占星者處升起柔和圓柱藍白光柱 + 頂端星光噴發
-        if (gameState.weatherLockUntil > 0 && getRoundIndex(gameState) < gameState.weatherLockUntil) {
-            const beamTime = now / 600;
-            const beamPulse = (Math.sin(beamTime * Math.PI * 2) + 1) / 2;
-            ctx.save();
-            const H = 120, cx = sx, cy = sy, W = 22;
+        // 蓝黑色星光边界圈（力场外缘）
+        ctx.save();
+        ctx.globalAlpha = 0.25 + pulse * 0.12;
+        ctx.strokeStyle = '#1a1a3a';
+        ctx.shadowColor = 'rgba(40,30,90,0.5)';
+        ctx.shadowBlur = 10;
+        ctx.lineWidth = 2.5;
+        for (const ht of fieldTiles) {
+            // 仅绘制力场边缘地块的六边形边界
+            let isEdge = false;
+            for (const [dq, dr] of [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
+                const nbKey = `${ht.q + dq},${ht.r + dr}`;
+                if (!fieldSet.has(nbKey)) { isEdge = true; break; }
+            }
+            if (isEdge) {
+                hexPath(ctx, ht.x, ht.y, HEX_SIZE + 1);
+            }
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+}
+
+// 星移光柱：单独抽出到单位层之上绘制
+function drawStarlightBeam(now) {
+    const astrologerDef = getCommander('astrologer');
+    if (!astrologerDef || !astrologerDef.isInWeatherShield) return;
+    if (!gameState.weatherLockUntil || getRoundIndex(gameState) >= gameState.weatherLockUntil) return;
+    for (const tile of gameState.tiles) {
+        const u = tile.unit;
+        if (!u || u.commander !== 'astrologer' || u.hp <= 0) continue;
+        const sx = tile.x, sy = tile.y;
+        const beamTime = now / 600;
+        const beamPulse = (Math.sin(beamTime * Math.PI * 2) + 1) / 2;
+        ctx.save();
+        const H = 120, cx = sx, cy = sy, W = 22;
             // 外層光暈：橢圓柱體，從地面升起，頂部略散
             ctx.shadowColor = 'rgba(140,200,255,0.3)';
             ctx.shadowBlur = 35;

@@ -328,6 +328,13 @@ export function getCommanderWeatherImmunity(tile, camp, tileMap) {
   return astrologerDef.isInWeatherShield(tile, camp, tileMap);
 }
 
+export function getCommanderWeatherDebuff(tile, camp, gs) {
+  if (!gs) return false;
+  const astrologerDef = getCommander('astrologer');
+  if (!astrologerDef || !astrologerDef.isInDebuffZone) return false;
+  return astrologerDef.isInDebuffZone(tile, camp, gs);
+}
+
 // 力场防御加成：友军在2格内停滞者力场中 → 对远程攻击+15%防御
 export function getCommanderFieldDefenseBonus(tile, friendlyCamp, tileMap) {
   if (!tileMap) return 0;

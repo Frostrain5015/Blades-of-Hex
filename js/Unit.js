@@ -1,5 +1,5 @@
 import { HEX_SIZE, ctx, hexPath, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, getCommanderWeatherDebuff, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -795,10 +795,11 @@ export class Unit {
         if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest')) {
             defSum += 0.15;
         }
-        // 风天：步兵阵线不稳，通用防御-15%（占星者星光力场免疫）
-        if (_gameState.weather === 'wind' && defender.type === 'infantry'
+        // 风天：步兵防御-15%（星移期间扩展至敌方全兵种；占星者星光力场免疫）；星移减益区内额外-15%
+        if (_gameState.weather === 'wind' && (defender.type === 'infantry' || (_gameState.weatherLockUntil > 0 && getRoundIndex(_gameState) < _gameState.weatherLockUntil && defender.camp !== attacker.camp))
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum -= 0.15;
+            if (getCommanderWeatherDebuff(defender.tile, defender.camp, _gameState)) defSum -= 0.15;
         }
         if (defender.type === 'infantry' && defender.tile.isCity) defSum += 0.10;
         // 雨天：步兵守城防御力额外+10%（占星者星光力场免疫）
