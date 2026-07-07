@@ -3,7 +3,7 @@ import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, g
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
-import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset } from './effects.js';
+import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset, spawnMoraleEffect, triggerFactionMoraleFlash } from './effects.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -1045,6 +1045,34 @@ export class Unit {
             else if (this.camp === CAMP.player3) _gameState.commanderP3 = null;
             const cmdInfo = getCommander(this.commander);
             log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
+        }
+
+        // 所有来源击杀将领：全军士气+1（攻击方阵营；无明确攻击者时以当前回合阵营为准）
+        if (this.commander) {
+            let killerCamp = null;
+            if (attackerUnit && attackerUnit.camp !== this.camp) {
+                killerCamp = attackerUnit.camp;
+            } else if (!attackerUnit && _gameState && _gameState.currentCamp !== this.camp) {
+                killerCamp = _gameState.currentCamp;
+            }
+            if (killerCamp) {
+                const kKey = killerCamp === CAMP.player1 ? 'player1' : killerCamp === CAMP.player2 ? 'player2' : killerCamp === CAMP.player3 ? 'player3' : null;
+                if (kKey) {
+                    if (!_gameState.factionMoraleBoost) _gameState.factionMoraleBoost = {};
+                    _gameState.factionMoraleBoost[kKey] = getRoundIndex(_gameState) + 2;
+                    for (const tile of _gameState.tiles) {
+                        const u = tile.unit;
+                        if (u && u.camp === killerCamp && u.morale !== 0 && u.morale < 3) {
+                            const oldM = u.morale;
+                            u.morale = Math.min(3, u.morale + 1);
+                            if (u.morale === 3) u.moraleBoostUntil = getRoundIndex(_gameState) + 2;
+                            if (u.morale !== oldM) spawnMoraleEffect(u);
+                        }
+                    }
+                    triggerFactionMoraleFlash('#ffd700');
+                    log(`⚔ ${killerCamp.name}斩杀敌方将领，全军士气+1！`);
+                }
+            }
         }
 
         // 己方阵营 key（供留魂标记 + 殉道者挽歌被动共用）

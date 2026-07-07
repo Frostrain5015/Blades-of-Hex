@@ -1988,6 +1988,17 @@ export function cancelCardTargeting() {
     hideTargetingBanner();
 }
 
+// 上校空军卡击杀效果：攻击者士气+1、经验、击杀将领时全军士气+1
+export function reapColonelKill(colonel, targetHadCommander) {
+    if (!colonel) return;
+    if (colonel.morale !== 0) {
+        const oldM = colonel.morale;
+        colonel.morale = Math.min(3, colonel.morale + 1);
+        if (colonel.morale === 3) colonel.moraleBoostUntil = getRoundIndex(gameState) + 2;
+    }
+    colonel.addXP(3 + (targetHadCommander ? 10 : 0));
+}
+
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
     // E4 空运第二段：直接执行空运（跳过正常卡牌验证）
     if (cardId === 'airlift_dest') {
@@ -2314,7 +2325,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`✈️【空袭】对${targetTile.camp.name}城市(${targetTile.q},${targetTile.r})及周边造成轰炸伤害`);
             setTimeout(() => {
                 // airstrike visual AFTER card burn animation
-                spawnAirstrikeEffect(x, y, results);
+                spawnAirstrikeEffect(x, y, results, 'airstrike', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
                 setTimeout(() => {
@@ -2341,13 +2352,15 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             // 俯冲扫射：单发伤害
             logMessage(`💥【俯冲扫射】对${targetTile.camp?.name}${targetTile.unit?.config?.name}兵造成${result.dmg}伤害`);
             setTimeout(() => {
-                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe');
+                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 setTimeout(() => {
                     if (targetTile.unit) {
                         // result.dmg 已在 execute() 走完标准管线（含防御），此处直接结算；source 'air' 不触发铁卫转移
                         const colonel = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
-                        targetTile.unit.applyDamage(result.dmg, { source: 'air', attacker: colonel });
+                        const isCmd = !!targetTile.unit.commander;
+                        const killed = targetTile.unit.applyDamage(result.dmg, { source: 'air', attacker: colonel });
+                        if (killed) reapColonelKill(colonel, isCmd);
                     }
                     spawnExplosionParticles(x, y, '#ff8800', 15);
                     gameState.damageTexts.push({ x, y, value: result.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
@@ -2370,7 +2383,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
                         // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）；dmg 已走完管线
                         if (tile.unit) {
-                            tile.unit.applyDamage(r.dmg, { source: 'air', attacker: colonel });
+                            const _isCmd = !!tile.unit.commander;
+                            const _killed = tile.unit.applyDamage(r.dmg, { source: 'air', attacker: colonel });
+                            if (_killed) reapColonelKill(colonel, _isCmd);
                             gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                         }
                     }

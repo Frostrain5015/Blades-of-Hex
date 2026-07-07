@@ -4,7 +4,7 @@ import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, getCommander } from './commanderInterface.js';
-import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated } from './gameLogic.js';
+import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
@@ -2325,10 +2325,13 @@ async function handleRemoteAction(msg) {
                                 const dt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : null;
                                 if (dt && dt.unit && e.dmg) {
                                     const dc = dt.unit.camp;
+                                    const _isCmdR = !!dt.unit.commander;
                                     const killed = dt.unit.applyDamage(e.dmg, { source: 'ranged' });
                                     if (killed) {
                                         const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
                                         gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                        const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && t.unit.camp !== CAMP.neutral && t.unit.hp > 0 ? t.unit : null), null);
+                                        if (_colR) reapColonelKill(_colR, _isCmdR);
                                     }
                                 }
                                 spawnExplosionParticles(e.x, e.y, '#ff8800', 15);
@@ -2349,10 +2352,13 @@ async function handleRemoteAction(msg) {
                                     // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）
                                     if (tile.unit && r.dmg) {
                                         const dc = tile.unit.camp;
+                                        const _isCmdR = !!tile.unit.commander;
                                         const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
                                         if (killed) {
                                             const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
                                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                            const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && t.unit.camp !== CAMP.neutral && t.unit.hp > 0 ? t.unit : null), null);
+                                            if (_colR) reapColonelKill(_colR, _isCmdR);
                                         }
                                         gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                                     }
