@@ -113,8 +113,6 @@ function _handleCardCanvasClick(e) {
             // E4 空军上校：进入选目标前先校验部署/金币/雾天，避免卡在选目标态
             if (COLONEL_CARDS[cardId]) {
                 if (!gameState._colonelDeployed || !gameState._colonelDeployed[campKey]) { notify('请先部署空军上校', 'error'); return; }
-                const planeCheck = gameState._airForce && gameState._airForce[campKey];
-                if (planeCheck && planeCheck.hp <= 0) { notify('飞机已坠毁，无法使用空军卡', 'error'); return; }
                 const goldCost = COLONEL_CARD_GOLD[cardId] || 0;
                 if ((gameState.playerGold[campKey] || 0) < goldCost) { notify('金币不足', 'error'); return; }
                 if (gameState.weather === 'fog') { notify('雾天停飞，无法使用空军卡', 'error'); return; }
@@ -546,19 +544,6 @@ function showTooltipForTile(tile) {
         const weatherLine = `<span style="color:${wc.color};">${wc.icon}【${wc.name}】${weatherDesc}</span>`;
         const target = unit ? tooltipMorale : tooltipPassive;
         target.innerHTML += (target.innerHTML ? '<br>' : '') + weatherLine;
-    }
-
-    // E4 空军上校：飞机状态
-    if (unit && unit.commander === 'colonel') {
-        const _ckTip = unit.camp === CAMP.player1 ? 'player1' : unit.camp === CAMP.player2 ? 'player2' : 'player3';
-        const _planeTip = gameState._airForce && gameState._airForce[_ckTip];
-        if (_planeTip) {
-            const _pRatio = _planeTip.maxHp > 0 ? _planeTip.hp / _planeTip.maxHp : 0;
-            const _pColor = _planeTip.hp <= 0 ? '#f44336' : _pRatio > 0.5 ? '#4CAF50' : _pRatio > 0.25 ? '#FF9800' : '#f44336';
-            const _pStatus = _planeTip.hp <= 0 ? '（已坠毁）' : '';
-            const _pLine = `<span style="color:${_pColor};">✈ 飞机HP ${_planeTip.hp}/${_planeTip.maxHp}${_pStatus}</span>`;
-            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + _pLine;
-        }
     }
 
     // ==== 主动技能按钮 ====

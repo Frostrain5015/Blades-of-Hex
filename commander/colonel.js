@@ -9,7 +9,7 @@ export default {
     name: '空军上校',
     hpBonusPct: 0.30, atkBonusPct: 0.30, spdBonus: 1,
     skills: [
-        { name: '制空', desc: '空军伤害提高20%但无法使用普通对策卡。上校存活且部署时可消耗金币使用专属空军对策卡，最大航程为6格，空袭目标2格内每有1个敌方防空单位，伤害降低20%，最多40%，雾天停飞无法使用', type: 'passive' },
+        { name: '制空', desc: '无法使用普通对策卡。上校存活且部署时可消耗金币使用专属空军对策卡，最大航程为6格，空袭目标2格内每有1个敌方防空单位，伤害降低20%，最多40%，雾天停飞无法使用', type: 'passive' },
         { name: '扫射', desc: '$4 对指定单体目标造成上校150%攻击力的伤害', type: 'active' },
         { name: '轰炸', desc: '$5 对指定目标及相邻6格单位造成范围伤害（中心50%/溅射35%）', type: 'active' },
         { name: '空运', desc: '$4 运送一名自己以外的友军单位至指定空地，清空其行动力', type: 'active' }
@@ -20,9 +20,6 @@ export default {
             : unit.camp === CAMP.player2 ? 'player2' : 'player3';
         if (!gameState._colonelDeployed) gameState._colonelDeployed = {};
         gameState._colonelDeployed[campKey] = true;
-        // 初始化空军飞机
-        if (!gameState._airForce) gameState._airForce = {};
-        gameState._airForce[campKey] = { hp: 100, maxHp: 100 };
         // 部署后立即从共享牌堆发放3张常驻空军卡（手牌不足才补）
         const hand = gameState.playerHands[campKey];
         const airCards = ['diveStrafe', 'carpetBomb', 'airlift'];

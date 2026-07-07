@@ -100,23 +100,6 @@ export function spawnGoldParticles(x, y, color = '#ffd700') {
     }
 }
 
-export function spawnSmokeParticles(x, y, count = 3) {
-    const n = particleCount(count);
-    for (let i = 0; i < n; i++) {
-        const vx = (Math.random() - 0.5) * 30;
-        const vy = -(20 + Math.random() * 50);
-        particles.push(new VisualParticle(
-            x + (Math.random() - 0.5) * 12,
-            y + (Math.random() - 0.5) * 6,
-            vx, vy,
-            `rgba(180,180,180,${0.25 + Math.random() * 0.3})`,
-            3 + Math.random() * 5,
-            0.6 + Math.random() * 0.8,
-            -8
-        ));
-    }
-}
-
 export function spawnDirectionalParticles(fromX, fromY, toX, toY, color, count = 16) {
     const n = particleCount(count);
     const baseAngle = Math.atan2(toY - fromY, toX - fromX);

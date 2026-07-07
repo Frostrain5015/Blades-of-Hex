@@ -3,7 +3,7 @@ import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, g
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
-import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset, spawnMoraleEffect, triggerFactionMoraleFlash, spawnSmokeParticles } from './effects.js';
+import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset, spawnMoraleEffect, triggerFactionMoraleFlash } from './effects.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -678,52 +678,6 @@ export class Unit {
             }
         }
 
-
-        // ── E4 空军上校：飞机状态图标+血条（头顶上方） ──
-        if (this.commander === 'colonel' && gs && gs._airForce) {
-            const _ck = this.camp === CAMP.player1 ? 'player1' : this.camp === CAMP.player2 ? 'player2' : 'player3';
-            const _plane = gs._airForce[_ck];
-            if (_plane && _plane.maxHp > 0) {
-                ctx.save();
-                const _planeY = visualY - HEX_SIZE * 0.82;
-                const _hpRatio = _plane.maxHp > 0 ? _plane.hp / _plane.maxHp : 0;
-
-                // 飞机图标
-                ctx.font = 'bold 13px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.shadowColor = 'rgba(0,0,0,0.6)';
-                ctx.shadowBlur = 4;
-                const _icon = _plane.hp <= 0 ? '💥' : '✈️';
-                const _iconColor = _plane.hp <= 0 ? '#ff4444' : (_hpRatio > 0.5 ? '#ffffff' : '#ffaa44');
-                ctx.fillStyle = _iconColor;
-                ctx.fillText(_icon, 0, _planeY);
-
-                // 血条（仅飞机未坠毁时显示）
-                if (_plane.hp > 0) {
-                    const _barW = 24, _barH = 4, _barX = -_barW / 2, _barY = _planeY + 11;
-                    ctx.shadowBlur = 0;
-                    // 背景
-                    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-                    ctx.fillRect(_barX, _barY, _barW, _barH);
-                    // HP填充
-                    let _barColor;
-                    if (_hpRatio > 0.5) _barColor = '#4CAF50';
-                    else if (_hpRatio > 0.25) _barColor = '#FF9800';
-                    else _barColor = '#f44336';
-                    ctx.fillStyle = _barColor;
-                    ctx.fillRect(_barX, _barY, Math.max(0, _barW * _hpRatio), _barH);
-                }
-                ctx.shadowBlur = 0;
-                ctx.restore();
-
-                // 飞机受损烟雾粒子（HP < 50% 时持续飘散）
-                if (_plane.hp > 0 && _hpRatio < 0.5 && Math.random() < 0.25) {
-                    spawnSmokeParticles(visualX, visualY - HEX_SIZE * 0.55, 2);
-                }
-            }
-        }
-
         // 魂卒：黑烟缭绕粒子（亡灵法师本人不显示） + 头顶骷髅标志
         if (this._isSoulMinion && this.commander !== 'necromancer') {
             ctx.save();
@@ -1085,10 +1039,6 @@ export class Unit {
                             hand.splice(hi, 1);
                         }
                     }
-                }
-                // 清除飞机数据
-                if (_gameState._airForce) {
-                    delete _gameState._airForce[campKey];
                 }
             }
             if (this.camp === CAMP.player1) _gameState.commanderP1 = null;
