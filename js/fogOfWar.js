@@ -64,6 +64,20 @@ export function computeVisionForCamp(camp, tiles, tileMap, gameState) {
         }
     }
 
+    // 亡灵法师亡魂标记：为本阵营持续提供视野，范围=原单位视野（即便被敌方占据也可见）
+    if (gs && gs._soulMarks && gs._soulMarks.length) {
+        const myKey = _campKey(camp);
+        for (const mark of gs._soulMarks) {
+            if (mark.campKey !== myKey) continue;
+            const mt = tileMap.get(`${mark.q},${mark.r}`);
+            if (!mt) continue;
+            const range = UNIT_VISION[mark.origType] || 1;
+            for (const t of tiles) {
+                if (hexDistance(mt, t) <= range) visible.add(`${t.q},${t.r}`);
+            }
+        }
+    }
+
     return visible;
 }
 
