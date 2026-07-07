@@ -299,10 +299,10 @@ export const TACTICAL_CARD_CONFIG = {
     },
     airstrike: {
         id: 'airstrike', name: '空袭', icon: '✈️',
-        desc: '【空袭】\n对任意敌方目标释放，目标及周边6格造成20~30伤害（对城市翻倍），2回合内城市无法产金或招募\n受防空火力减伤',
+        desc: '【空袭】\n对任意敌方目标释放，目标及周边6格造成35~50伤害（对城市翻倍），2回合内城市无法产金或招募\n受防空火力减伤',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
-            const dmgBase = gameState.rng ? gameState.rng.between(20, 30) : 20 + Math.floor(Math.random() * 11);
+            const dmgBase = gameState.rng ? gameState.rng.between(35, 50) : 35 + Math.floor(Math.random() * 16);
             const results = [];
             const { getAALayers, hexDistance } = helpers;
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
