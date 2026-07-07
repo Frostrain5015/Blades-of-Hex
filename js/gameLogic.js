@@ -1961,19 +1961,19 @@ export function getAALayers(tile, camp, tileMap) {
 
 // ==== 通用防空接口 =====================
 // 接口1：对空防御——所有空袭伤害卡（俯冲扫射/地毯轰炸/空袭）共用
-// 每层防空提供+20%防御，伤害 = 原伤害 × (1 − 层数×0.20)
+// 每层防空提供+25%防御，伤害 = 原伤害 × (1 − 层数×0.25)
 export function applyAADefense(dmg, tile, camp, tileMap) {
     const aa = getAALayers(tile, camp, tileMap);
-    if (aa > 0) return Math.round(dmg * (1 - aa * 0.20));
+    if (aa > 0) return Math.round(dmg * (1 - aa * 0.25));
     return dmg;
 }
 
 // 接口2：空降减血——所有空降/空运卡（空降步兵/上校空运）共用
-// 每层防空降低20%最大生命值（不低于1），保持生命上限不变
+// 每层防空降低25%最大生命值（不低于1），保持生命上限不变
 export function applyAADropHP(unit, tile, camp, tileMap) {
     const aa = getAALayers(tile, camp, tileMap);
     if (aa > 0) {
-        const hpLoss = Math.round(unit.maxHp * aa * 0.20);
+        const hpLoss = Math.round(unit.maxHp * aa * 0.25);
         unit.hp = Math.max(1, unit.hp - hpLoss);
         unit.displayHp = unit.hp;
     }
@@ -2147,8 +2147,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             // 通用空军增伤：所有空军卡 +30%伤害（②增伤乘区）
             const airBonus = 0.30;
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
-                // 俯冲扫射：额外无视20%防御力（破甲），走完整四乘区
-                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, 0.20);
+                // 俯冲扫射：额外无视25%防御力（破甲），走完整四乘区
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, 0.25);
                 result.dmg = Math.round(_calc.dmg);
                 result.isCrit = _calc.isCrit;
             } else if (cardId === 'carpetBomb' && result.results) {
@@ -2156,7 +2156,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
                     if (_ht && _ht.unit) {
                         const _isCenter = _r.q === targetTile.q && _r.r === targetTile.r;
-                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, airBonus, false, false, true);
+                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, airBonus, false, false, true, 0.10);
                         _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * 0.6);
                         _r.isCrit = _calc.isCrit;
                     }
@@ -2201,7 +2201,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // 通用防空接口：空运落入防空区 → 每层-20%最大生命值（上限不变）
     applyAADropHP(airUnit, targetTile, myCamp, gameState.tileMap);
     const aa = getAALayers(targetTile, myCamp, gameState.tileMap);
-    if (aa > 0) logMessage(`🪂 空运落入防空火力：损失${aa * 20}%最大生命值`);
+    if (aa > 0) logMessage(`🪂 空运落入防空火力：损失${aa * 25}%最大生命值`);
     // 空运动画：运输机自起点飞抵终点上空 → 降落伞投放 → 单位落地时才现身
     airUnit._airliftLandAt = spawnAirliftEffect(fromTile.x, fromTile.y, targetTile.x, targetTile.y, { color: airUnit.camp.color, q: targetTile.q, r: targetTile.r });
     logMessage(`🪂【空运】${airUnit.camp.name}${airUnit.config.name}兵传送至(${targetTile.q},${targetTile.r})`);

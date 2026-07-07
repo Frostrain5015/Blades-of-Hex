@@ -825,7 +825,7 @@ export class Unit {
             }
             if (hasStaller) defSum += 0.15;        // 停滞者力场：+15%
         }
-        // 防空火力：2格内友军 炮兵/要塞/停滞者单位 → 仅对空军(上校空军卡)伤害 +20%/层（封顶2层=40%）
+        // 防空火力：2格内友军 炮兵/要塞/停滞者单位 → 仅对空军(上校空军卡)伤害 +25%/层（封顶2层=50%）
         if (isAirDamage && _gameState && _gameState.tileMap) {
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
@@ -837,7 +837,7 @@ export class Unit {
                     if (aaCount < 2) aaCount++;
                 }
             }
-            if (aaCount > 0) defSum += aaCount * 0.20; // 防空火力：每层+20%，封顶40%
+            if (aaCount > 0) defSum += aaCount * 0.25; // 防空火力：每层+25%，封顶50%
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         // 空军上校俯冲扫射：无视目标防御力
