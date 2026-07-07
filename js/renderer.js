@@ -361,7 +361,7 @@ export function renderGame() {
             ctx.stroke();
             ctx.restore();
         }
-    }
+    }
     // 星光力场覆绘 — 在天气粒子之上叠星光
     drawAstrologerField(now);
 
@@ -2019,6 +2019,12 @@ function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
         cctx.textAlign = 'right'; cctx.textBaseline = 'top';
         cctx.fillText('副本', cardW / 2 - 4, -cardH / 2 + 4);
         cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
+    } else if (opts.goldCost) {
+        cctx.fillStyle = '#ffd700';
+        cctx.font = 'bold 11px "Noto Serif SC", "Noto Serif CJK SC", sans-serif';
+        cctx.textAlign = 'right'; cctx.textBaseline = 'top';
+        cctx.fillText('$' + opts.goldCost, cardW / 2 - 4, -cardH / 2 + 4);
+        cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
     }
     cctx.restore();
 }
@@ -2207,7 +2213,7 @@ export function drawCardCanvas(now) {
         const isDeploy = cardId === 'commanderDeploy';
         const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
         const isHovered = _slideCurrent[i] > 0.3;
-        const drawOpts = { disabled: false, isTargeting: false, isDeploy, alreadyDeployed, isHovered, commanderId: deployCmdId, isCopyCard };
+        const drawOpts = { disabled: false, isTargeting: false, isDeploy, alreadyDeployed, isHovered, commanderId: deployCmdId, isCopyCard, goldCost: isColCard ? (COLONEL_CARD_GOLD[cardId] || 0) : 0 };
 
         if (isTargeting) {
             targetCardData = { x, y, cfg, drawOpts: { ...drawOpts, isTargeting: true } };
@@ -2622,14 +2628,30 @@ function drawAirstrikeEffects(now) {
 
         ctx.save();
         ctx.globalAlpha = 1;
-        // 彩色 emoji 会乘上 fillStyle 的 alpha 通道（Chromium），必须显式给一个不透明值
+        // 飞行烟迹
+        for (let _t = 1; _t <= 3; _t++) {
+            const _tp = t - _t * 0.02;
+            if (_tp < 0) continue;
+            const _tx = flyStartX + _tp * totalFlyDist;
+            const _ty = cy - 80 - _t * 6;
+            const _ta = (0.15 - _t * 0.04) * (1 - t);
+            ctx.globalAlpha = Math.max(0, _ta);
+            ctx.fillStyle = '#aaa';
+            ctx.beginPath();
+            ctx.arc(_tx, _ty, 4 - _t, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
         ctx.fillStyle = '#000';
         ctx.translate(planeX, planeY);
-        ctx.rotate(Math.PI / 4); // 45° upward pitch
-        ctx.font = '48px sans-serif';
+        ctx.rotate(Math.PI / 4);
+        ctx.font = '54px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#ff8844';
+        ctx.shadowBlur = 8;
         ctx.fillText('✈️', 0, 0);
+        ctx.shadowBlur = 0;
         ctx.restore();
 
         // 通用防空炮火（地毯轰炸 + 普通空袭 + 空降）
@@ -2640,7 +2662,7 @@ function drawAirstrikeEffects(now) {
         // sequential drops: release times relative to when plane passes over target
         const tTarget = (cx - flyStartX) / totalFlyDist;
         const dropOffsets = isAirdrop ? [0] : [-0.06, 0, 0.06];
-        const dropEmoji = isAirdrop ? '🪂' : '💣';
+        const dropEmoji = isAirdrop ? '🪂' : '💥';
         const dropCount = isAirdrop ? 1 : 3;
         ctx.save();
         ctx.globalAlpha = 1;
@@ -2664,12 +2686,25 @@ function drawAirstrikeEffects(now) {
 
             if (!isAirdrop && dropT > 0.7) {
                 const exT = (dropT - 0.7) / 0.3;
-                for (let p = 0; p < 5; p++) {
-                    const angle = (p / 5) * Math.PI * 2;
-                    const dist = exT * 25;
-                    ctx.fillStyle = `rgba(255,${150 + Math.random() * 105},0,${1 - exT})`;
+                // 爆炸光环
+                const ringA = (1 - exT) * 0.6;
+                ctx.save();
+                ctx.strokeStyle = `rgba(255,200,80,${ringA})`;
+                ctx.lineWidth = 2 + exT * 4;
+                ctx.shadowColor = '#ff8800';
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.arc(dropX, cy + 10, exT * 30, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.restore();
+                for (let p = 0; p < 8; p++) {
+                    const angle = (p / 8) * Math.PI * 2 + (exT * 2);
+                    const dist = exT * 28;
+                    const sparkA = (1 - exT) * 0.8;
+                    ctx.fillStyle = `rgba(255,${150 + Math.random() * 105},0,${sparkA})`;
                     ctx.beginPath();
-                    ctx.arc(dropX + Math.cos(angle) * dist, cy + 10 + Math.sin(angle) * dist, 2.5, 0, Math.PI * 2);
+                    ctx.arc(dropX + Math.cos(angle) * dist, cy + 10 + Math.sin(angle) * dist, 2 + (1 - exT) * 2, 0, Math.PI * 2);
                     ctx.fill();
                 }
             }

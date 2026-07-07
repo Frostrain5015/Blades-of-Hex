@@ -2147,10 +2147,13 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             // 通用空军增伤：所有空军卡 +30%伤害（②增伤乘区）
             const airBonus = 0.30;
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
-                // 俯冲扫射：额外无视25%防御力（破甲），走完整四乘区
-                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, 0.25);
+                // 扫射：额外无视25%防御力（破甲）；目标HP<50%时斩杀+30%
+                const _hpRatio2 = targetTile.unit.hp / targetTile.unit.maxHp;
+                const _execBonus = _hpRatio2 < 0.5 ? 0.30 : 0;
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus + _execBonus, false, false, true, 0.25);
                 result.dmg = Math.round(_calc.dmg);
                 result.isCrit = _calc.isCrit;
+                if (_execBonus > 0) logMessage(`目标生命值低于50%，触发斩杀！`);
             } else if (cardId === 'carpetBomb' && result.results) {
                 for (const _r of result.results) {
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
@@ -2343,15 +2346,18 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         if (tile.unit) {
                             tile.unit.applyDamage(r.dmg, { source: 'ranged' });
                         }
-                        spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                        spawnExplosionParticles(tile.x, tile.y, '#ff4400', 20);
+                        spawnExplosionParticles(tile.x, tile.y, '#ffaa00', 12);
+                        spawnExplosionParticles(tile.x, tile.y, '#886644', 8);
+                        triggerAttackFlash(tile.x, tile.y, true);
                         gameState.damageTexts.push({
                             x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
                             timeLeft: 900, lastUpdate: performance.now()
                         });
                     }
                     targetTile._cityDisabledUntil = getRoundIndex(gameState) + 2;
-                    triggerScreenShake(6, 300);
-                }, 1200);
+                    triggerScreenShake(8, 350);
+                }, 1400);
             }, BURN_MS);
             break;
         }
@@ -2369,10 +2375,13 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         const killed = targetTile.unit.applyDamage(result.dmg, { source: 'air', attacker: colonel });
                         if (killed) reapColonelKill(colonel, isCmd);
                     }
-                    spawnExplosionParticles(x, y, '#ff8800', 15);
+                    spawnExplosionParticles(x, y, '#ff4400', 20);
+                    spawnExplosionParticles(x, y, '#ffaa00', 12);
+                    spawnExplosionParticles(x, y, '#886644', 8);
+                    triggerAttackFlash(x, y, true);
                     gameState.damageTexts.push({ x, y, value: result.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
-                    triggerScreenShake(6, 300);
-                }, 1200);
+                    triggerScreenShake(10, 400);
+                }, 1000);
             }, BURN_MS);
             break;
         }
@@ -2387,7 +2396,17 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     for (const r of cResults) {
                         const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                         if (!tile) continue;
-                        spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                        const _isCenterTile = tile === targetTile || (tile.q === targetTile.q && tile.r === targetTile.r);
+                        if (_isCenterTile) {
+                            spawnExplosionParticles(tile.x, tile.y, '#ff2200', 28);
+                            spawnExplosionParticles(tile.x, tile.y, '#ff8800', 16);
+                            spawnExplosionParticles(tile.x, tile.y, '#886644', 10);
+                            triggerAttackFlash(tile.x, tile.y, true);
+                        } else {
+                            spawnExplosionParticles(tile.x, tile.y, '#ff6600', 14);
+                            spawnExplosionParticles(tile.x, tile.y, '#ffaa00', 8);
+                            spawnExplosionParticles(tile.x, tile.y, '#886644', 5);
+                        }
                         // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）；dmg 已走完管线
                         if (tile.unit) {
                             const _isCmd = !!tile.unit.commander;
@@ -2397,7 +2416,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         }
                     }
                     triggerScreenShake(8, 400);
-                }, 1200);
+                }, 1400);
             }, BURN_MS);
             break;
         }

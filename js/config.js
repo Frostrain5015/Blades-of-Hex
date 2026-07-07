@@ -391,7 +391,7 @@ export const TACTICAL_CARD_CONFIG = {
 // ==== E4 空军上校专属对策卡 ====================
 
 // 空军卡金币消耗（取代旧燃料机制）
-export const COLONEL_CARD_GOLD = { diveStrafe: 4, carpetBomb: 5, airlift: 4 };
+export const COLONEL_CARD_GOLD = { diveStrafe: 3, carpetBomb: 4, airlift: 4 };
 
 // 找到某阵营存活的空军上校单位（空军卡伤害以其攻击力为基准走标准管线）
 function _findColonel(gameState, camp) {
@@ -403,8 +403,8 @@ function _findColonel(gameState, camp) {
 
 export const COLONEL_CARDS = {
     diveStrafe: {
-        id: 'diveStrafe', name: '俯冲扫射', icon: '💥',
-        desc: '【俯冲扫射】$4\n以上校攻击力150%对单体目标走标准伤害管线（含克制/士气/防御/防空），无反击。对单破龟',
+        id: 'diveStrafe', name: '扫射', icon: '💥',
+        desc: '【扫射】$4\n以上校攻击力150%对单体目标走标准伤害管线（含克制/士气/防御/防空），无反击。对单破龟',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
@@ -416,7 +416,7 @@ export const COLONEL_CARDS = {
         }
     },
     carpetBomb: {
-        id: 'carpetBomb', name: '地毯轰炸', icon: '💣',
+        id: 'carpetBomb', name: '轰炸', icon: '💣',
         desc: '【地毯轰炸】$5\n以上校攻击力对目标及相邻6格走标准伤害管线造成AOE（中心50%/溅射35%）。对群骚扰',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
