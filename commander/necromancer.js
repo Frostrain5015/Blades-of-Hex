@@ -11,7 +11,7 @@ export default {
     hpBonusPct: 0.25, atkBonusPct: 0.10, spdBonus: 0,
     skills: [
         { name: '留魂', desc: '友军单位阵亡后在原地留下持续3回合的【亡魂】', type: 'passive' },
-        { name: '回魂', desc: '回合开始时自动牵引任意己方【亡魂】（原地为空地即可，无距离限制）唤起【魂卒】，拥有原单位40%的生命值和70%的攻击力，场上最多存在2个魂卒', type: 'passive' }
+        { name: '回魂', desc: '回合开始时自动牵引1个【亡魂】唤起【魂卒】，拥有原单位40%的生命值和70%的攻击力，场上最多存在2个魂卒', type: 'passive' }
     ],
 
     // 回魂：回合开始时牵引亡魂标记
