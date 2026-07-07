@@ -529,13 +529,13 @@ function showTooltipForTile(tile) {
         if (unit) {
             const effects = [];
             if (gameState.weather === 'rain') {
-                if (unit.type === 'cavalry')  effects.push('每步行动力消耗+1');
-                if (unit.type === 'infantry') effects.push('守城/村庄回血翻倍');
+                if (unit.tile.isCity)         effects.push('每回合回血15%');
+                if (unit.type === 'infantry' && unit.tile.isCity) effects.push('守城防御+10%');
             } else if (gameState.weather === 'fog') {
-                if (unit.type === 'archer')   effects.push('伤害−25%', '射程−1');
-                if (unit.type === 'cavalry')  effects.push('攻击无视目标15%防御力');
+                if (unit.type === 'archer')   effects.push('射程−1');
+                if (unit.type === 'cavalry')  effects.push('增伤+20%', '冲锋15%/格');
             } else if (gameState.weather === 'wind') {
-                if (unit.type === 'archer')   effects.push('射程+1', '无视敌人15%防御力');
+                if (unit.type === 'archer')   effects.push('射程+1', '增伤+20%');
                 if (unit.type === 'infantry') effects.push('防御-15%');
             }
             if (effects.length > 0) weatherDesc = effects.join('，');

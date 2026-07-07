@@ -209,9 +209,9 @@ export const MORALE_CONFIG = {
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {
     clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
-    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城/村庄回血翻倍 · 雷击伤害1.5倍' },
-    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵攻击无视目标15%防御力' },
-    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 且无视敌人15%防御力 · 步兵防御-15%' }
+    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '守城单位每回合回血15% · 步兵守城防御+10% · 雷击伤害1.5倍' },
+    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵增伤+20% · 骑兵冲锋15%/格' },
+    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 · 炮兵增伤+20% · 步兵防御-15%' }
 };
 
 // ==== 对策卡配置 ====================

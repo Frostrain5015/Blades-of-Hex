@@ -786,17 +786,12 @@ export class Unit {
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum -= 0.15;
         }
-        // 雾天：骑兵借雾突袭，攻击无视目标15%防御力（占星者星光力场免疫）
-        if (_gameState.weather === 'fog' && attacker.type === 'cavalry'
-            && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
-            defSum -= 0.15;
-        }
-        // 风天：炮兵远程压制，攻击无视目标15%防御力（占星者星光力场免疫）
-        if (_gameState.weather === 'wind' && attacker.type === 'archer'
-            && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
-            defSum -= 0.15;
-        }
         if (defender.type === 'infantry' && defender.tile.isCity) defSum += 0.10;
+        // 雨天：步兵守城防御力额外+10%（占星者星光力场免疫）
+        if (_gameState.weather === 'rain' && defender.type === 'infantry' && defender.tile.isCity
+            && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
+            defSum += 0.10;
+        }
         defSum += (defender.config.defense || 0);
         defSum += (defender._rankDefBonus || 0);
         defSum += MORALE_CONFIG[defender.morale].defBonus;
@@ -813,7 +808,7 @@ export class Unit {
             }
             if (hasStaller) defSum += 0.15;        // 停滞者力场：+15%
         }
-        // 防空火力：2格内友军 炮兵/要塞/停滞者单位 → 仅对空军(上校空军卡)伤害 +15%/层（封顶3层=45%）
+        // 防空火力：2格内友军 炮兵/要塞/停滞者单位 → 仅对空军(上校空军卡)伤害 +20%/层（封顶2层=40%）
         if (isAirDamage && _gameState && _gameState.tileMap) {
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
@@ -822,10 +817,10 @@ export class Unit {
                 const nb = _gameState.tileMap.get(`${defender.tile.q + dq},${defender.tile.r + dr}`);
                 if (!nb || !nb.unit || nb.unit.camp !== defender.camp) continue;
                 if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest' || nb.unit.commander === 'staller') {
-                    if (aaCount < 3) aaCount++;
+                    if (aaCount < 2) aaCount++;
                 }
             }
-            if (aaCount > 0) defSum += aaCount * 0.15; // 防空火力：每层+15%，封顶45%
+            if (aaCount > 0) defSum += aaCount * 0.20; // 防空火力：每层+20%，封顶40%
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         // 空军上校俯冲扫射：无视目标防御力
@@ -841,12 +836,16 @@ export class Unit {
     calculateDamage(targetUnit) {
         const gs = _gameState;
 
-        // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高10%，上限30%（3格）；
+        // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高10%（上限30%），雾天额外+5%/格
         // moveDistance 随回合重置，势能回合结束消失
-        const cavBonus = this.type === 'cavalry' ? Math.min(this.moveDistance, 3) * 0.10 : 0;
+        const chargeRate = gs && gs.weather === 'fog' ? 0.15 : 0.10;
+        const cavBonus = this.type === 'cavalry' ? Math.min(this.moveDistance, 3) * chargeRate : 0;
         const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.15 : 0;
+        // 天气条件增伤：雾天骑兵+20%、风天炮兵+20%（归入②增伤乘区）
+        const weatherBonus = (gs && gs.weather === 'fog' && this.type === 'cavalry') ? 0.20
+            : (gs && gs.weather === 'wind' && this.type === 'archer') ? 0.20 : 0;
 
-        const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus);
+        const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus + weatherBonus);
 
         gs.damageTexts.push({
             x: targetUnit.tile.x,
@@ -1149,7 +1148,7 @@ export class Unit {
         switch (rank) {
             case 1: this.maxHp += 20; if (!(this.commander === 'martyr' && this._martyrPrimed)) this.hp += 20; break;
             case 2: this._atkBonus += 10; break;
-            case 3: this._rankDefBonus = 0.10; this._rankCritBonus = 0.33; break;
+            case 3: this._rankDefBonus = 0.10; this._rankCritBonus = 0.25; break;
             case 4: this._rankRegenPct = 0.15; break;
         }
     }

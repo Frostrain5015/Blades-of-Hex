@@ -667,6 +667,11 @@ function _expireTimedEffects() {
             u._healingAura--;
         }
 
+        // 雨天：守城单位每回合回复15%最大生命值
+        if (gameState.weather === 'rain' && u.tile.isCity) {
+            u.heal(Math.round(u.maxHp * 0.15));
+        }
+
         // 全局每回合倒计时（不区分阵营，因为本函数每回合仅调用一次）
         if (u._shieldTurns > 0) {
             u._shieldTurns--;
@@ -1140,9 +1145,7 @@ export function getMovableTiles(unit) {
             if (neighbor.unit) continue; // occupied → impassable
 
             let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
-            // 雨天骑兵步耗+1（占星者星光力场免疫）
-            if (gameState.weather === 'rain' && unit.type === 'cavalry'
-                && !getCommanderWeatherImmunity(neighbor, unit.camp, gameState.tileMap)) stepCost += 1;
+            // 雨天骑兵步耗+1（已移除，替换为守城回血+步兵守城防御）
             // 停滞者【缚足】：每层行动消耗+2
             const snareLayers = _getStallerSnareLayers(neighbor, friendlyCamp);
             if (snareLayers > 0) stepCost += snareLayers * 2;
