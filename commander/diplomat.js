@@ -7,7 +7,7 @@ export default {
     id: 'diplomat',
     name: '纵横家',
     skill: '合纵',
-    hpBonusPct: 0.30, atkBonusPct: 0.20, spdBonus: 0,
+    hpBonusPct: 0.30, atkBonusPct: 0.25, spdBonus: 0,
     skills: [
         { name: '合纵', desc: '对策卡上限+1，每回合对策卡使用次数+1', type: 'passive' },
         { name: '连横', desc: '处于非己方行政区时，有35%概率获得非己方使用的同名对策卡', type: 'passive' }

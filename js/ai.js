@@ -96,8 +96,9 @@ async function _executeActionInner(action, aiCamp) {
             const tDef = TERRAIN_DEF[target.tile.terrain] || 0;
             const cityDef = (target.type === 'infantry' && target.tile.isCity) ? 0.05 : 0;
             const unitDef = target.config.defense || 0;
-            const moraleDmg = unit.morale === 3 ? 0.15 : unit.morale === 1 ? -0.20 : unit.morale === 0 ? -1 : 0;
-            const estDmg = unit.getEffectiveAttack() * Math.max(0, 1 + (c - 1) + moraleDmg) * Math.max(0.1, 1 - tDef - cityDef - unitDef);
+            const moraleFloat = unit.morale === 3 ? 1.07 : unit.morale === 1 ? 0.95 : unit.morale === 0 ? 0.90 : 1.0;
+            const counterFloat = c > 1 ? 1.10 : c < 1 ? 0.93 : 1.0; // 克制仅影响暴击浮动
+            const estDmg = unit.getEffectiveAttack() * moraleFloat * counterFloat * Math.max(0.3, 1 - tDef - cityDef - unitDef);
             let score = 0;
             if (estDmg >= target.hp) score += 200;
             score += (1 - target.hp / target.maxHp) * 60;

@@ -128,8 +128,8 @@ export const HEX_NEIGHBORS = [
 
 // ==== 兵种配置 ====================
 export const UNIT_CONFIG = {
-    infantry: { name: '步', hp: 200, attack: 40, defense: 0,    speed: 5, range: 1, cost: 8,  color: '#0a0a0a' },
-    cavalry:  { name: '骑', hp: 150, attack: 50, defense: 0,    speed: 8, range: 1, cost: 10, color: '#0a0a0a' },
+    infantry: { name: '步', hp: 200, attack: 40, defense: 0.05, speed: 5, range: 1, cost: 8,  color: '#0a0a0a' },
+    cavalry:  { name: '骑', hp: 150, attack: 50, defense: 0.05, speed: 8, range: 1, cost: 10, color: '#0a0a0a' },
     archer:   { name: '炮', hp: 100, attack: 60, defense: 0,    speed: 3, range: 2, cost: 12, color: '#0a0a0a' },
     mgNest:   { name: '要塞', hp: 200, attack: 30, defense: 0.05, speed: 0, range: 2, cost: 0, color: '#8B7355' }
 };
@@ -168,8 +168,8 @@ export const COUNTER_RELATION = {
 // ==== 地形配置 ====================
 export const TERRAIN_CONFIG = {
     plains:   { name: '平原', defenseBonus: 0,    stepCost: 2, moveDesc: '',          icon: '',   iconFont: '' },
-    forest:   { name: '森林', defenseBonus: 0.10, stepCost: 3, moveDesc: '部队移动较慢', icon: '🌲', iconFont: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' },
-    mountain: { name: '山地', defenseBonus: 0.10, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
+    forest:   { name: '森林', defenseBonus: 0.05, stepCost: 3, moveDesc: '部队移动较慢', icon: '🌲', iconFont: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' },
+    mountain: { name: '山地', defenseBonus: 0.05, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
 };
 
 // // ==== 河流 ====================
@@ -193,12 +193,12 @@ export function calcIncome(cityCount) {
 
 // ==== 士气配置 ====================
 // 士气等级: 3=上升 2=正常 1=下降 0=混乱
-// 士气增伤走「增伤乘区」（与克制/冲锋等加算），士气防御走「防御乘区」
+// 士气增伤改为影响暴击浮动倍率（见 _calcFloat），防御力影响降低至5%
 export const MORALE_CONFIG = {
-    3: { name: '士气上升', dmgBonus: 0.20,  defBonus: 0.10,  icon: '▲', color: '#ffd700', desc: '造成的伤害提高20%，防御力+10%' },
+    3: { name: '士气上升', dmgBonus: 0,     defBonus: 0.05,  icon: '▲', color: '#ffd700', desc: '暴击率约+15%，防御力+5%' },
     2: { name: '正常',     dmgBonus: 0,     defBonus: 0,     icon: '',   color: '#aaa',    desc: '' },
-    1: { name: '士气下降', dmgBonus: -0.20, defBonus: -0.10, icon: '▼', color: '#b080e8', desc: '造成的伤害降低20%，防御力−10%' },
-    0: { name: '混乱',     dmgBonus: -1.00, defBonus: -0.15, icon: '？', color: '#666',    desc: '无法操控且无法造成伤害，防御力−15%' }
+    1: { name: '士气下降', dmgBonus: 0,     defBonus: -0.05, icon: '▼', color: '#b080e8', desc: '暴击率约-10%，防御力−5%' },
+    0: { name: '混乱',     dmgBonus: 0,     defBonus: -0.20, icon: '？', color: '#666',    desc: '无法操控，暴击率约-10%，防御力−20%' }
 };
 
 // ==== 将领配置 ====================
@@ -211,7 +211,7 @@ export const WEATHER_CONFIG = {
     clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
     rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '骑兵每步行动力消耗+1 · 步兵守城/村庄回血翻倍 · 雷击伤害1.5倍' },
     fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵攻击无视目标15%防御力' },
-    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 但无法暴击 · 步兵防御-20%' }
+    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 且无视敌人15%防御力 · 步兵防御-15%' }
 };
 
 // ==== 对策卡配置 ====================

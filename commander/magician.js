@@ -9,7 +9,7 @@ export default {
     spdBonus: 0,
     skills: [
         { name: '千面', desc: '攻击克制目标时造成的伤害提高25%，被克制目标攻击时受到的伤害降低15%', type: 'passive' },
-        { name: '幻形', desc: '击杀敌方单位后变形为其兵种类型，获得1层【幻形】效果：攻击力+3、暴击率+10%，最多叠加6层', type: 'passive' }
+        { name: '幻形', desc: '击杀敌方单位后变形为其兵种类型，获得1层【幻形】效果：增伤+5%、暴击率+10%，最多叠加6层', type: 'passive' }
     ],
 
     onKill(killer, victim, helpers) {
@@ -28,14 +28,14 @@ export default {
         // 保留剩余行动力，不重置 canAct
         killer._phantomStacks = Math.min((killer._phantomStacks || 0) + 1, 6);
         const critPct = killer._phantomStacks * 10;
-        const atkBonus = killer._phantomStacks * 3;
+        const dmgPct = killer._phantomStacks * 5;
         helpers.spawnFx(killer.tile.x, killer.tile.y, '\u{1F3AD}', '幻形');
         helpers.spawnExplosion(killer.tile.x, killer.tile.y, '#cc88ff', 12);
-        helpers.logMessage(`魔术师【幻形】：变形为${newConfig.name}兵，ATK+${atkBonus}、暴击率+${critPct}%`);
+        helpers.logMessage(`魔术师【幻形】：变形为${newConfig.name}兵，增伤+${dmgPct}%、暴击率+${critPct}%`);
         return { transformed: true, newType: victim.type };
     },
 
     getAttackBonus(unit) {
-        return (unit._phantomStacks || 0) * 3;
+        return 0; // 幻形增伤移至②增伤乘区（见 _resolveDamage）
     }
 };

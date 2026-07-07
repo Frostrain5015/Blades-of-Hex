@@ -20,11 +20,11 @@ export default {
     const newDeaths = deathCount - alreadyProcessed;
     if (newDeaths > 0) {
       const currentBonus = unit._elegyBonus || 0;
-      const addedBonus = Math.min(30 - currentBonus, newDeaths * 3);
+      const addedBonus = Math.min(25 - currentBonus, newDeaths * 5);
       if (addedBonus > 0) {
         unit._elegyBonus = currentBonus + addedBonus;
         helpers.spawnFx(unit.tile.x, unit.tile.y, '🎵', '挽歌');
-        helpers.logMessage(`殉道者【挽歌】：${newDeaths}名友军阵亡 → ATK+${addedBonus}（累计+${unit._elegyBonus}/30）`);
+        helpers.logMessage(`殉道者【挽歌】：${newDeaths}名友军阵亡 → ATK+${addedBonus}（累计+${unit._elegyBonus}/25）`);
       }
       unit._elegyProcessed = deathCount;
     }
@@ -46,13 +46,14 @@ export default {
         for (const [tile, dist] of _getTilesInRange(unit.tile, tileMap, 2)) {
           if (!tile.unit || tile.unit.camp === unit.camp || tile.unit.hp <= 0) continue;
           const dmgMult = dist === 0 ? 4.0 : dist === 1 ? 2.0 : 1.0;
-          const baseDmg = unit.getEffectiveAttack ? unit.getEffectiveAttack() : 40;
-          const dmg = Math.round(baseDmg * dmgMult);
+          // 殉道自爆走完整四乘区（baseMulti 体现距离衰减），受目标防御/克制/暴击等影响
+          const result = unit._resolveDamage(unit, tile.unit, dmgMult, 0, false, false, false);
+          const dmg = Math.round(result.dmg);
           const victim = tile.unit;
-          const killed = victim.applyDamage(dmg, { source: 'true', attacker: unit });
+          const killed = victim.applyDamage(dmg, { source: 'ranged', attacker: unit });
           gameState.damageTexts.push({
             x: tile.x, y: tile.y,
-            value: dmg, isTrueDmg: true,
+            value: dmg, isCrit: result.isCrit,
             timeLeft: 900, lastUpdate: performance.now()
           });
           if (killed) {

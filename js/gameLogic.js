@@ -2073,11 +2073,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             }
         }
         if (_colUnit) {
-            // E4 拔除独立倍率 → 改为临时暴击率补偿（走完整四乘区）
-            _colUnit._airCritRate = 0.75;
+            // 通用空军增伤：所有空军卡 +20%伤害（②增伤乘区）
+            const airBonus = 0.20;
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
-                // 单点扫射：走四乘区，75%暴击率补偿取代原1.3倍率
-                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, 0, false, false, true);
+                // 俯冲扫射：额外无视15%防御力（破甲），走完整四乘区
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, 0.15);
                 result.dmg = Math.round(_calc.dmg);
                 result.isCrit = _calc.isCrit;
             } else if (cardId === 'carpetBomb' && result.results) {
@@ -2085,13 +2085,12 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
                     if (_ht && _ht.unit) {
                         const _isCenter = _r.q === targetTile.q && _r.r === targetTile.r;
-                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, 0, false, false, true);
+                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, airBonus, false, false, true);
                         _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * 0.6);
                         _r.isCrit = _calc.isCrit;
                     }
                 }
             }
-            _colUnit._airCritRate = 0;
         }
     }
 

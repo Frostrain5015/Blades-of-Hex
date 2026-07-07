@@ -734,11 +734,10 @@ export class Unit {
             lo = 0.85; hi = 1.35;
         }
 
-        // 风天：炮兵无法暴击（占星者星光力场免疫）
-        if (gs && gs.weather === 'wind' && this.type === 'archer' && !isCounter
-            && !getCommanderWeatherImmunity(this.tile, this.camp, gs.tileMap)) {
-            hi = Math.min(hi, 1.05);
-        }
+        // 士气影响暴击浮动倍率：调整 lo/hi 范围，进而改变暴击概率和伤害浮动
+        if (this.morale === 3)     { lo += 0.05; hi += 0.10; }
+        else if (this.morale === 1) { lo -= 0.05; hi -= 0.10; }
+        else if (this.morale === 0) { lo -= 0.10; hi -= 0.20; }
 
         if (guaranteedCrit) {
             const threshold = isCounter ? 1.50 : 1.30;
@@ -757,28 +756,20 @@ export class Unit {
     //   ③ 暴击/浮动：_calcFloat()，「暴击率提高/降低xx%」
     //   ④ 防御（层内加算后 1-Σ）：地形/守城/兵种/军衔/士气/将领/灵光，「防御力提高xx%」
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
-                   isCounter = false, isCityCounter = false, isAirDamage = false) {
+                   isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0) {
         const counterCoeff = COUNTER_RELATION[attacker.type][defender.type];
 
-        // 魔术师：克制精通
-        let effectiveCounterCoeff = counterCoeff;
-        if (attacker.commander === 'magician') {
-            if (counterCoeff === 1.25) effectiveCounterCoeff = 1.5;
-            else if (counterCoeff === 0.75) effectiveCounterCoeff = 0.6;
-        } else if (defender.commander === 'magician' && counterCoeff === 1.25) {
-            // 幻形防御端：被克制时减免15%（1.25 → 1.10）
-            effectiveCounterCoeff = 1.10;
+        // ② 增伤乘区（克制关系改为仅影响暴击率，见 _calcFloat）
+        let dmgUp = extraBonus;
+        // 魔术师幻形：每层+5%增伤（上限30%），归入②乘区
+        if (attacker.commander === 'magician' && attacker._phantomStacks) {
+            dmgUp += Math.min(attacker._phantomStacks * 0.05, 0.30);
         }
-
-        // ② 增伤乘区
-        const dmgUp = (effectiveCounterCoeff - 1)
-            + MORALE_CONFIG[attacker.morale].dmgBonus
-            + extraBonus;
         const offenseMulti = Math.max(0, 1 + dmgUp);
 
         // ③ 暴击/浮动乘区
         const phantomCrit = (attacker._phantomStacks || 0) * 0.10;
-        const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit + (attacker._airCritRate || 0);
+        const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit;
         const _rng = _gameState && _gameState.rng;
         const guaranteedCrit = isCommanderGuaranteedCrit(attacker) || (rankCrit > 0 && (_rng ? _rng.chance(rankCrit) : Math.random() < rankCrit));
         const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter, guaranteedCrit);
@@ -788,15 +779,20 @@ export class Unit {
         let defSum = TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
         // 森林掩蔽：对远程攻击（炮兵/要塞）额外+20%防御，与地形自带10%加算
         if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest')) {
-            defSum += 0.20;
+            defSum += 0.15;
         }
-        // 风天：步兵阵线不稳，通用防御-20%（占星者星光力场免疫）
+        // 风天：步兵阵线不稳，通用防御-15%（占星者星光力场免疫）
         if (_gameState.weather === 'wind' && defender.type === 'infantry'
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
-            defSum -= 0.20;
+            defSum -= 0.15;
         }
         // 雾天：骑兵借雾突袭，攻击无视目标15%防御力（占星者星光力场免疫）
         if (_gameState.weather === 'fog' && attacker.type === 'cavalry'
+            && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
+            defSum -= 0.15;
+        }
+        // 风天：炮兵远程压制，攻击无视目标15%防御力（占星者星光力场免疫）
+        if (_gameState.weather === 'wind' && attacker.type === 'archer'
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum -= 0.15;
         }
@@ -832,7 +828,9 @@ export class Unit {
             if (aaCount > 0) defSum += aaCount * 0.15; // 防空火力：每层+15%，封顶45%
         }
         defSum += getCommanderAuraDefenseBonus(defender);
-        const defenseMulti = Math.max(0.1, 1 - defSum);
+        // 空军上校俯冲扫射：无视目标防御力
+        if (ignoreDef > 0) defSum -= ignoreDef;
+        const defenseMulti = Math.max(0.3, 1 - defSum);
 
         return {
             dmg: attacker.getEffectiveAttack() * baseMulti * offenseMulti * floatMult * defenseMulti,
@@ -843,9 +841,9 @@ export class Unit {
     calculateDamage(targetUnit) {
         const gs = _gameState;
 
-        // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高15%，上限45%（3格）；
+        // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高10%，上限30%（3格）；
         // moveDistance 随回合重置，势能回合结束消失
-        const cavBonus = this.type === 'cavalry' ? Math.min(this.moveDistance, 3) * 0.15 : 0;
+        const cavBonus = this.type === 'cavalry' ? Math.min(this.moveDistance, 3) * 0.10 : 0;
         const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.15 : 0;
 
         const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus);
