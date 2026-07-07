@@ -50,7 +50,7 @@ let _cmdFxExtra = null;    // 额外的将领特效（如尚书进驻城市）
 let _endTurnCmdFxList = null; // 回合结束时的将领特效列表（联机同步用）
 let _endTurnDmgTexts = null;  // 回合结束时的伤害数字列表（联机同步用）
 let _attackDmg = 0, _attackIsCrit = false;
-let _counterDmg = 0, _counterX = 0, _counterY = 0;
+let _counterDmg = 0, _counterX = 0, _counterY = 0, _counterIsRanged = false, _counterIsCrit = false;
 let _healAmtRemote = 0, _healX = 0, _healY = 0;
 let _smiteDmgRemote = 0;
 let _killedThisAttack = null; // 击杀后延迟播放士气动画用
@@ -1429,6 +1429,19 @@ export function attackUnit(attackerUnit, targetUnit) {
                 targetUnit.addXP(1);
                 if (counterResult.isCrit) targetUnit.addXP(2);
                 attackerUnit.takeDamage(counterResult.dmg, targetUnit);
+                // 远程单位(炮/要塞)反击 → 复用炮弹飞行动画（近战反击维持原本仅伤害数字）
+                _counterIsCrit = counterResult.isCrit;
+                _counterIsRanged = targetUnit.type === 'archer' || targetUnit.type === 'mgNest';
+                if (_counterIsRanged) {
+                    const _cfx = targetUnit.tile.x, _cfy = targetUnit.tile.y;
+                    playSound('cannon');
+                    spawnProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, () => {
+                        triggerAttackFlash(_counterX, _counterY, counterResult.isCrit);
+                        triggerRecoil(_cfx, _cfy, _counterX, _counterY);
+                        spawnDirectionalParticles(_cfx, _cfy, _counterX, _counterY, '#ff8844', counterResult.isCrit ? 8 : 4);
+                        triggerScreenShake(counterResult.isCrit ? 6 : 3, counterResult.isCrit ? 200 : 120);
+                    });
+                }
                 _atkCmdFxCapture = null;
                 ctrCmdResult = triggerCommanderOnCounterAttack(attackerUnit, targetUnit, counterResult.dmg);
                 if (ctrCmdResult && targetUnit.commander === 'vampire') {
@@ -1550,6 +1563,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             ctrCmdFxData: _ctrCmdFxData || null,
             attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
             counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
+            counterIsRanged: _counterIsRanged, counterIsCrit: _counterIsCrit,
             healAmt: _healAmtRemote, healX: _healX, healY: _healY,
             smiteDmg: _smiteDmgRemote,
             goldenBeamDatas: _goldenBeamDatas.length ? _goldenBeamDatas : null,
@@ -1578,7 +1592,7 @@ export function attackUnit(attackerUnit, targetUnit) {
         _ctrCmdFxData = null;
         _cmdFxExtra = null;
         _attackDmg = 0; _attackIsCrit = false;
-        _counterDmg = 0; _healAmtRemote = 0; _smiteDmgRemote = 0;
+        _counterDmg = 0; _counterIsRanged = false; _counterIsCrit = false; _healAmtRemote = 0; _smiteDmgRemote = 0;
     }
     };
 
@@ -2461,7 +2475,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             for (const t of gameState.tiles) {
                 if (!t.unit || t.unit.commander !== 'diplomat' || t.unit.camp !== dipCamp || t.unit.hp <= 0) continue;
                 if (t.camp === dipCamp) continue;
-                if (!(gameState.rng ? gameState.rng.chance(0.35) : Math.random() < 0.35)) continue;
+                if (!(gameState.rng ? gameState.rng.chance(0.50) : Math.random() < 0.50)) continue;
                 const hand = gameState.playerHands[ck] || [];
                 const hBonus = co.handSizeBonus || 0;
                 if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;

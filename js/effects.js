@@ -460,7 +460,8 @@ export function spawnProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
     const dx = toX - fromX;
     const dy = toY - fromY;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const duration = Math.min(380, 200 + dist * 0.6);
+    // 快速弹道：短飞行时间，读起来干脆有力（避免单位已消失后炮弹慢悠悠飘过去）
+    const duration = Math.min(190, 90 + dist * 0.22);
     projectiles.push({
         fromX, fromY,
         toX, toY,
@@ -471,76 +472,79 @@ export function spawnProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
         impactSpawned: false,
         onImpact: onImpact || null
     });
+    // 发射瞬间：炮口白热闪光 + 前冲火花锥（与已有炮击声同步打出力量感）
+    spawnMuzzleFlash(fromX, fromY, toX, toY, isCrit);
+}
+
+// 炮口闪光（发射瞬间）
+function spawnMuzzleFlash(x, y, toX, toY, isCrit) {
+    const ang = Math.atan2(toY - y, toX - x);
+    const mx = x + Math.cos(ang) * 9, my = y + Math.sin(ang) * 9;
+    // 白热炮口闪（大而短）
+    particles.push(new VisualParticle(mx, my, 0, 0, '#fff', isCrit ? 10 : 7.5, 0.09, 0));
+    // 前冲火花锥
+    const n = particleCount(isCrit ? 9 : 6);
+    for (let i = 0; i < n; i++) {
+        const a = ang + (Math.random() - 0.5) * 0.8;
+        const sp = 140 + Math.random() * 240;
+        particles.push(new VisualParticle(
+            mx, my, Math.cos(a) * sp, Math.sin(a) * sp,
+            Math.random() < 0.5 ? '#fff' : (isCrit ? '#ffcc55' : '#ffb055'),
+            2 + Math.random() * 2.4, 0.1 + Math.random() * 0.16, 40
+        ));
+    }
 }
 
 export function updateProjectiles(now) {
     for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
         const elapsed = now - p.startTime;
-        // 炮弹到达目标 → 触发爆炸特效
+        // 命中：一次性触发爆炸粒子 + 命中回调（闪光/后坐力/震屏），随即移除弹体
         if (!p.impactSpawned && elapsed >= p.duration) {
             p.impactSpawned = true;
+            spawnCannonImpact(p.toX, p.toY, p.isCrit);
             if (p.onImpact) p.onImpact();
-        }
-        if (elapsed > p.duration + 400) {
             projectiles.splice(i, 1);
         }
     }
 }
 
 export function drawProjectiles(ctx2d, now) {
-    for (let i = projectiles.length - 1; i >= 0; i--) {
-        const p = projectiles[i];
+    for (const p of projectiles) {
         const elapsed = now - p.startTime;
         const t = Math.min(1, Math.max(0, elapsed / p.duration));
-        const eased = 1 - Math.pow(1 - t, 2.5);
+        if (t >= 1) continue; // 命中后不再绘制弹体（爆炸由 updateProjectiles 触发）
 
-        const curX = p.fromX + (p.toX - p.fromX) * eased;
-        const curY = p.fromY + (p.toY - p.fromY) * eased - Math.sin(t * Math.PI) * p.dist * 0.18;
+        // 线性匀速冲向目标 + 极小弧线，末端不减速 → 干脆、无"顿一下"
+        const arc = -Math.sin(t * Math.PI) * p.dist * 0.06;
+        const hx = p.fromX + (p.toX - p.fromX) * t;
+        const hy = p.fromY + (p.toY - p.fromY) * t + arc;
+        // 运动模糊拖尾端（落后一小段），头尾连成一条速度光条
+        const tailT = Math.max(0, t - 0.28);
+        const tArc = -Math.sin(tailT * Math.PI) * p.dist * 0.06;
+        const tx = p.fromX + (p.toX - p.fromX) * tailT;
+        const ty = p.fromY + (p.toY - p.fromY) * tailT + tArc;
 
-        // 尾焰拖尾 — 长尾巴，大粒子
-        const trailCount = p.isCrit ? 10 : 7;
-        for (let j = 0; j < trailCount; j++) {
-            const backT = Math.max(0, t - (0.015 + j * 0.035));
-            const backEased = 1 - Math.pow(1 - backT, 2.5);
-            const tx = p.fromX + (p.toX - p.fromX) * backEased;
-            const ty = p.fromY + (p.toY - p.fromY) * backEased - Math.sin(backT * Math.PI) * p.dist * 0.18;
-            const trailAlpha = 0.6 - j * 0.06;
-            if (trailAlpha <= 0) continue;
-            ctx2d.save();
-            ctx2d.globalAlpha = trailAlpha;
-            const r = (p.isCrit ? 5 : 3.5) - j * 0.3;
-            if (r <= 0) { ctx2d.restore(); continue; }
-            ctx2d.fillStyle = j <= 1 ? '#fff' : (p.isCrit ? '#ffaa00' : '#ff6622');
-            ctx2d.shadowColor = p.isCrit ? '#ff6600' : '#cc4400';
-            ctx2d.shadowBlur = p.isCrit ? 8 : 5;
-            ctx2d.beginPath();
-            ctx2d.arc(tx, ty, r, 0, Math.PI * 2);
-            ctx2d.fill();
-            ctx2d.restore();
-        }
-
-        // 炮弹本体
         ctx2d.save();
-        ctx2d.fillStyle = '#fff';
-        ctx2d.shadowColor = p.isCrit ? '#ff4400' : '#ff6622';
-        ctx2d.shadowBlur = p.isCrit ? 14 : 9;
+        ctx2d.lineCap = 'round';
+        // 外层辉光光条
+        ctx2d.strokeStyle = p.isCrit ? '#ff6a1a' : '#ff8a3a';
+        ctx2d.shadowColor = p.isCrit ? '#ff4400' : '#ff6a1a';
+        ctx2d.shadowBlur = p.isCrit ? 18 : 12;
+        ctx2d.lineWidth = p.isCrit ? 6.5 : 5;
         ctx2d.beginPath();
-        ctx2d.arc(curX, curY, p.isCrit ? 6 : 4.5, 0, Math.PI * 2);
-        ctx2d.fill();
-        // 内层高亮
-        ctx2d.fillStyle = '#ffe8cc';
-        ctx2d.shadowBlur = 0;
+        ctx2d.moveTo(tx, ty);
+        ctx2d.lineTo(hx, hy);
+        ctx2d.stroke();
+        // 内芯白热光条
+        ctx2d.shadowBlur = p.isCrit ? 8 : 4;
+        ctx2d.strokeStyle = '#fff';
+        ctx2d.lineWidth = p.isCrit ? 2.6 : 1.9;
         ctx2d.beginPath();
-        ctx2d.arc(curX, curY, p.isCrit ? 2.5 : 2, 0, Math.PI * 2);
-        ctx2d.fill();
+        ctx2d.moveTo(tx, ty);
+        ctx2d.lineTo(hx, hy);
+        ctx2d.stroke();
         ctx2d.restore();
-
-        // 命中后触发轰炸爆炸
-        if (t >= 0.92 && !p.impactSpawned) {
-            p.impactSpawned = true;
-            spawnCannonImpact(p.toX, p.toY, p.isCrit);
-        }
     }
 }
 

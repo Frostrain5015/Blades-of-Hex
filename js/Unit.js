@@ -719,31 +719,37 @@ export class Unit {
     }
 
     // 伤害浮动倍率（替代 critRate + critMulti 二值系统）
-    _calcFloat(counterCoeff, isCounter = false, isCityCounter = false, guaranteedCrit = false) {
+    // 浮动倍率区间 —— 暴击率完全由区间体现（阈值以上占比即暴击概率），不做独立随机判定
+    _calcFloat(isCounter = false, isCityCounter = false, critRateBonus = 0, noCrit = false, forceCrit = false) {
         const gs = _gameState;
         let lo, hi;
 
         if (isCounter) {
             lo = isCityCounter ? 1.00 : 0.90;
-            hi = isCityCounter ? 1.70 : 1.70;
-        } else if (counterCoeff > 1) {
-            lo = 0.90; hi = 1.50;
-        } else if (counterCoeff < 1) {
-            lo = 0.85; hi = 1.20;
+            hi = 1.70;
         } else {
             lo = 0.85; hi = 1.35;
         }
 
-        // 士气影响暴击浮动倍率：调整 lo/hi 范围，进而改变暴击概率和伤害浮动
-        if (this.morale === 3)     { lo += 0.05; hi += 0.10; }
+        // 士气影响浮动区间（进而改变暴击概率与伤害浮动）
+        if (this.morale === 3)      { lo += 0.05; hi += 0.10; }
         else if (this.morale === 1) { lo -= 0.05; hi -= 0.10; }
         else if (this.morale === 0) { lo -= 0.10; hi -= 0.20; }
 
-        if (guaranteedCrit) {
-            const threshold = isCounter ? 1.50 : 1.30;
+        const threshold = isCounter ? 1.50 : 1.30;
+        if (noCrit) {
+            // 逆克：整段浮动压到暴击阈值以下 → 暴击率0
+            if (hi > threshold) hi = threshold - 0.001;
+            if (lo > hi) lo = hi;
+        } else if (forceCrit) {
+            // 必定暴击：整段上移到阈值之上（保持原宽度）
             const width = hi - lo;
             lo = threshold + 0.001;
             hi = lo + width;
+        } else if (critRateBonus > 0) {
+            // 暴击率加成：整体上移浮动区间，使阈值以上占比≈基础+加成（cap 100%）
+            const shift = Math.min(critRateBonus, 1) * (hi - lo);
+            lo += shift; hi += shift;
         }
 
         return (gs && gs.rng) ? gs.rng.range(lo, hi) : lo + Math.random() * (hi - lo);
@@ -761,23 +767,24 @@ export class Unit {
 
         // ② 增伤乘区
         let dmgUp = extraBonus;
-        // 兵种克制：顺克 +30% / 逆克 −25%（归入②增伤乘区）；同时仍影响③暴击浮动（见 _calcFloat）
-        if (counterCoeff > 1) dmgUp += 0.30;
-        else if (counterCoeff < 1) dmgUp -= 0.25;
+        // 兵种克制：顺克 +20% / 逆克 −20%（归入②增伤乘区）；暴击率另在③处理（顺克+25%/逆克锁0）
+        if (counterCoeff > 1) dmgUp += 0.20;
+        else if (counterCoeff < 1) dmgUp -= 0.20;
         // 魔术师幻形：每层+5%增伤（上限30%），归入②乘区
         if (attacker.commander === 'magician' && attacker._phantomStacks) {
             dmgUp += Math.min(attacker._phantomStacks * 0.05, 0.30);
         }
         const offenseMulti = Math.max(0, 1 + dmgUp);
 
-        // ③ 暴击/浮动乘区
-        const phantomCrit = (attacker._phantomStacks || 0) * 0.10;
-        // 将领暴击率加成（堕天使黑形态 +60% 等）并入暴击概率池
-        const cmdCrit = getCommanderCritRateBonus(attacker);
-        const rankCrit = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit;
-        const _rng = _gameState && _gameState.rng;
-        const guaranteedCrit = isCommanderGuaranteedCrit(attacker) || (rankCrit > 0 && (_rng ? _rng.chance(rankCrit) : Math.random() < rankCrit));
-        const floatMult = attacker._calcFloat(counterCoeff, isCounter, isCityCounter, guaranteedCrit);
+        // ③ 暴击/浮动乘区：暴击率完全由浮动区间体现，无独立随机判定
+        //    各暴击率来源累加 → 在 _calcFloat 内整体上移浮动区间，使阈值以上占比≈基础+加成
+        const phantomCrit = (attacker._phantomStacks || 0) * 0.10;      // 魔术师幻形 +10%/层
+        const cmdCrit = getCommanderCritRateBonus(attacker);            // 堕天使黑形态 +60% 等
+        const counterCrit = counterCoeff > 1 ? 0.25 : 0;               // 顺克 +25%
+        const counterNoCrit = counterCoeff < 1;                        // 逆克 无法暴击
+        const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit;
+        const forceCrit = !counterNoCrit && isCommanderGuaranteedCrit(attacker);
+        const floatMult = attacker._calcFloat(isCounter, isCityCounter, critRateBonus, counterNoCrit, forceCrit);
         const isCrit = floatMult > (isCounter ? 1.50 : 1.30);
 
         // ④ 防御乘区
@@ -867,11 +874,14 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.counterAttackCount >= 1 || this.type === 'archer' || this.morale === 0) {
+        if (this.counterAttackCount >= 1 || this.morale === 0) {
             return { dmg: 0, isCrit: false };
         }
-        // 炮兵/要塞远程攻击（距离>1）时，被攻击方无法反击
-        if ((attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') && hexDistance(attackerUnit.tile, this.tile) > 1) {
+        // 反击可达性：攻击者必须落在防守方自身射程内才能还击
+        //   近战单位(步/骑) 射程1 → 仅贴脸攻击可被反击
+        //   远程单位(炮/要塞) 射程2 → 2格内的攻击者（含远程炮击/近战贴脸）均可被反击
+        const counterRange = (this.type === 'archer' || this.type === 'mgNest') ? 2 : 1;
+        if (hexDistance(attackerUnit.tile, this.tile) > counterRange) {
             return { dmg: 0, isCrit: false };
         }
 

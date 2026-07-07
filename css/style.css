@@ -2011,6 +2011,7 @@ body {
     padding: 8px 0 8px 4px;
     position: relative;
     overflow-y: auto;
+    overflow-x: hidden;   /* 防止视图切换 x 位移触发横向滚动条抖动（overflow-y:auto 会把 overflow-x 隐式提升为 auto）*/
     scrollbar-width: thin;
     scrollbar-color: rgba(205,150,18,0.15) transparent;
 }
@@ -3135,7 +3136,7 @@ body {
     .lbtn-name { font-size: 12px; }
     .lbtn-desc { font-size: 10px; }
     .hero-wrap { flex-direction: column-reverse; height: auto; min-height: auto; max-height: none; gap: 16px; }
-    .hero-left { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .hero-left { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
     .hero-right { flex: 0 0 auto; }
     .hero-portrait-frame { max-width: 200px; }
     .hero-title { font-size: 24px; }
@@ -3171,7 +3172,7 @@ body {
 @media (max-width: 720px) {
     .lobby-box { width: 96vw; padding: 14px 16px; }
     .hero-wrap { flex-direction: column-reverse; height: auto; min-height: auto; max-height: none; gap: 12px; }
-    .hero-left { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .hero-left { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
     .hero-right { flex: 0 0 auto; }
     .hero-portrait-frame { max-width: 160px; }
     .hero-title { font-size: 22px; }

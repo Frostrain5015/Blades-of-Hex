@@ -2433,12 +2433,20 @@ async function handleRemoteAction(msg) {
                             timeLeft: 900, lastUpdate: performance.now()
                         });
                     }
-                    // 反击伤害数字
+                    // 反击伤害数字 + 远程单位反击炮弹动画
                     if (e.counterDmg > 0) {
                         gameState.damageTexts.push({
-                            x: e.counterX, y: e.counterY, value: e.counterDmg, isCrit: false,
+                            x: e.counterX, y: e.counterY, value: e.counterDmg, isCrit: !!e.counterIsCrit,
                             timeLeft: 750, lastUpdate: performance.now()
                         });
+                        if (e.counterIsRanged) {
+                            playSound('cannon');
+                            triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
+                            spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                            triggerRecoil(e.x, e.y, e.counterX, e.counterY);
+                            spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);
+                            triggerScreenShake(e.counterIsCrit ? 6 : 3, e.counterIsCrit ? 200 : 120);
+                        }
                     }
                     // 至圣斩真伤数字（金色真实伤害样式）
                     if (e.smiteDmg > 0) {
