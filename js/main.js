@@ -1659,8 +1659,8 @@ function startGame() {
         playSound('turnEnd');
 
         const limitRound = gameState.isThreePlayer ? 25 : 18;
-        const factionName = gameState.isThreePlayer ? '三方' : '双人';
-        showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得胜利！`);
+        const factionName = gameState.isThreePlayer ? '三人' : '双人';
+        showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得游戏胜利`);
     });
 }
 
