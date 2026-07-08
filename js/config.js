@@ -264,7 +264,7 @@ export const TACTICAL_CARD_CONFIG = {
             const UnitClass = helpers.Unit;
             const inf = new UnitClass('infantry', myCamp, targetTile, false);
             inf.maxHp = 100; inf.hp = 100; inf.displayHp = 100;
-            // 通用防空接口：每层-20%当前生命值（上限不变）
+            // 通用防空接口：每层-25%当前生命值（上限不变）
             applyAADropHP(inf, targetTile, myCamp, gameState.tileMap);
             inf.canAct = false; // cannot act on drop turn
             return { deployed: true, tileQ: targetTile.q, tileR: targetTile.r };
@@ -313,7 +313,7 @@ export const TACTICAL_CARD_CONFIG = {
                 let dmg = dmgBase;
                 // 森林掩蔽：对空军+20%防御
                 if (ht.terrain === 'forest') dmg = Math.round(dmg * 0.8);
-                // 通用防空接口：每层减伤20%
+                // 通用防空接口：每层减伤25%
                 dmg = applyAADefense(dmg, ht, helpers.getMyCamp(), gameState.tileMap);
                 if (ht.unit) {
                     // 预演扣血（含护盾）：调用方随即回滚，真正结算延迟走 Unit.applyDamage
@@ -404,20 +404,20 @@ function _findColonel(gameState, camp) {
 export const COLONEL_CARDS = {
     diveStrafe: {
         id: 'diveStrafe', name: '扫射', icon: '💥',
-        desc: '【扫射】$4\n以上校攻击力150%对单体目标走标准伤害管线（含克制/士气/防御/防空），无反击。对单破龟',
+        desc: '【扫射】$3\n以上校攻击力对单体目标走标准伤害管线（含克制/士气/防御/防空），无反击；目标生命值低于50%时触发弱点打击，无视其25%防御力。对单破龟',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
             const target = targetTile.unit;
             if (!colonel || !target) return { dmg: 0, diveStrafe: true, targetTile };
-            // 对单破龟：150%攻击力，走标准管线（isAirDamage=true → 受防空火力削减）
+            // 预演值：最终伤害由 gameLogic.executeTacticalCard 按 通用空军增伤+条件破甲 重算覆盖
             const r = colonel._resolveDamage(colonel, target, 1.5, 0, false, false, true);
             return { dmg: Math.round(r.dmg), isCrit: r.isCrit, diveStrafe: true, targetTile };
         }
     },
     carpetBomb: {
         id: 'carpetBomb', name: '轰炸', icon: '💣',
-        desc: '【地毯轰炸】$5\n以上校攻击力对目标及相邻6格走标准伤害管线造成AOE（中心50%/溅射35%）。对群骚扰',
+        desc: '【地毯轰炸】$4\n以上校攻击力对目标及相邻6格走标准伤害管线造成AOE（中心50%/溅射35%）。对群骚扰',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
