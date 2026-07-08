@@ -1114,7 +1114,7 @@ function _showTrainingCommanderSelection(forPlayer) {
                 `<div class="cmdr-reveal-back"></div>` +
                 `<div class="cmdr-persistent" style="display:none">` +
                     `<div class="cmdr-face-portrait">` +
-                        `<img src="img/commander/${cfg.name}.jpg" class="cmdr-portrait-full" />` +
+                        `<img src="img/commander/${cfg.name}.webp" class="cmdr-portrait-full" />` +
                         `<div class="cmdr-portrait-label">${cfg.name}</div>` +
                     `</div>` +
                     `<div class="cmdr-face-details">` +
@@ -1252,7 +1252,7 @@ function _showCommanderSelection(forPlayer) {
                 `<div class="cmdr-reveal-back"></div>` +
                 `<div class="cmdr-persistent" style="display:none">` +
                     `<div class="cmdr-face-portrait">` +
-                        `<img src="img/commander/${cfg.name}.jpg" class="cmdr-portrait-full" />` +
+                        `<img src="img/commander/${cfg.name}.webp" class="cmdr-portrait-full" />` +
                         `<div class="cmdr-portrait-label">${cfg.name}</div>` +
                     `</div>` +
                     `<div class="cmdr-face-details">` +

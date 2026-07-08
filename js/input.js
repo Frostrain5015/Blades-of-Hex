@@ -747,8 +747,31 @@ export function initInput() {
             const myCamp = _getMyCampInput();
             // E4 空运第二段：直接执行空运（不取消，_executeAirliftDest 内部会清理）
             if (ct.cardId === 'airlift_dest') {
-                if (isColonelTargetBlocked(clickedTile, myCamp)) return; // 超出上校航程禁降
+                if (isColonelTargetBlocked(clickedTile, myCamp)) return;
                 executeTacticalCard('airlift_dest', clickedTile);
+                return;
+            }
+            // 天眼无人机部署：跳过 cfg 检查（非真实卡牌）
+            if (ct.cardId === 'drone_deploy') {
+                const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
+                if (!tianyanUnit) { notify('天眼已阵亡', 'error'); cancelCardTargeting(); return; }
+                if (clickedTile.unit) { notify('目标地块已有单位', 'error'); return; }
+                const drone = deployDrone(tianyanUnit, clickedTile, { gameState, Unit, logMessage: logMessage || notify, spawnFx: spawnCommanderSkillEffect });
+                if (drone) {
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                    updateUI();
+                }
+                return;
+            }
+            // 无人机自爆
+            if (ct.cardId === 'drone_suicide') {
+                const drone = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.id === ct.droneId ? t.unit : null), null);
+                if (!drone || !drone._isDrone) { notify('无人机无效', 'error'); cancelCardTargeting(); return; }
+                executeDroneSuicide(drone, clickedTile);
+                gameState.cardTargeting = null;
+                hideTargetingBanner();
+                updateUI();
                 return;
             }
             const cfg = TACTICAL_CARD_CONFIG[ct.cardId] || COLONEL_CARDS[ct.cardId];
@@ -786,28 +809,6 @@ export function initInput() {
             }
 
             if (isValid) {
-                // 天眼无人机部署
-                if (ct.cardId === 'drone_deploy') {
-                    const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
-                    if (!tianyanUnit) { notify('天眼已阵亡', 'error'); cancelCardTargeting(); return; }
-                    const drone = deployDrone(tianyanUnit, clickedTile, { gameState, Unit, logMessage: logMessage || notify, spawnFx: spawnCommanderSkillEffect });
-                    if (drone) {
-                        gameState.cardTargeting = null;
-                        hideTargetingBanner();
-                        updateUI();
-                    }
-                    return;
-                }
-                // 无人机自爆
-                if (ct.cardId === 'drone_suicide') {
-                    const drone = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.id === ct.droneId ? t.unit : null), null);
-                    if (!drone || !drone._isDrone) { notify('无人机无效', 'error'); cancelCardTargeting(); return; }
-                    executeDroneSuicide(drone, clickedTile);
-                    gameState.cardTargeting = null;
-                    hideTargetingBanner();
-                    updateUI();
-                    return;
-                }
                 executeTacticalCard(ct.cardId, clickedTile, _cardFromX, _cardFromY);
             }
             return;
