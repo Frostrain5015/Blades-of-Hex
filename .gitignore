@@ -8,3 +8,4 @@ sounds_src/
 tools/deploy.js
 tools/deploy.local.js
 deploy.js.local
+test-results/
