@@ -361,7 +361,7 @@ export class Unit {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', mgNest: '🏰' };
-            if (this._isDrone) glyphs.infantry = '';
+            if (this._isDrone) glyphs.infantry = '✈';
         ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
 
         // ── Ring HP bar ──
@@ -687,9 +687,6 @@ export class Unit {
             ctx.font = 'bold 16px sans-serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.shadowColor = this._disoriented ? 'rgba(255,50,50,0.5)' : 'rgba(100,200,255,0.5)';
-            ctx.shadowBlur = 6;
-            ctx.fillStyle = this._disoriented ? '#ff4444' : '#66ccff';
-            ctx.fillText('✈️', visualX, dy);
             ctx.shadowBlur = 0;
             const bw = 24, bh = 4, bx = -bw / 2, by = dy + 12;
             ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(bx, by, bw, bh);
