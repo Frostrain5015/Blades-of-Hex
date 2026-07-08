@@ -100,7 +100,7 @@ function staticHandler(req, res) {
     if (urlPath === '/auth/login') {
       res.writeHead(302, { Location: '/' }); res.end();
       return;
-    }}
+    }
     if (urlPath === '/auth/callback') {
       const code = query.get('code'); const state = query.get('state'); const err = query.get('error');
       if (err) { res.end(htmlForCB('/?auth_error='+err)); return; }
