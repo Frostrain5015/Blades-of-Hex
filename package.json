@@ -10,12 +10,18 @@
     "setup-https": "node generate-cert.js && node server.js",
     "admin": "node admin/admin-server.js",
     "auth": "node auth-server.js",
-    "build-admin-exe": "pkg admin/admin-server.js -t node18-win-x64 -o BladesOfHex-Admin.exe"
+    "build-admin-exe": "pkg admin/admin-server.js -t node18-win-x64 -o BladesOfHex-Admin.exe",
+    "test": "node test/run-all.mjs",
+    "test:quick": "node test/run-all.mjs --quick"
   },
   "dependencies": {
     "ws": "^8.17.0"
   },
   "optionalDependencies": {
     "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "playwright": "^1.61.1"
   }
 }
