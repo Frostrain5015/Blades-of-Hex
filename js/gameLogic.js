@@ -1995,15 +1995,20 @@ export function cancelCardTargeting() {
     hideTargetingBanner();
 }
 
-// 上校空军卡击杀效果：攻击者士气+1、经验、击杀将领时全军士气+1
-export function reapColonelKill(colonel, targetHadCommander) {
-    if (!colonel) return;
+// 上校空军卡击杀效果：攻击者士气+1（含视觉特效）、经验（含目标等级加成）、击杀将领时全军士气+1
+export function reapColonelKill(colonel, targetUnit) {
+    if (!colonel || !targetUnit) return;
     if (colonel.morale !== 0) {
         const oldM = colonel.morale;
         colonel.morale = Math.min(3, colonel.morale + 1);
         if (colonel.morale === 3) colonel.moraleBoostUntil = getRoundIndex(gameState) + 2;
+        spawnMoraleEffect(colonel); // 士气上升视觉特效
     }
-    colonel.addXP(3 + (targetHadCommander ? 10 : 0));
+    // 击杀经验：基础3 + 目标等级加成（与普攻击杀一致）+ 将领额外10
+    const rankExtra = [0, 2, 5, 12, 20];
+    const rankBonus = rankExtra[targetUnit._rank] || 0;
+    const cmdBonus = targetUnit.commander ? 10 : 0;
+    colonel.addXP(3 + rankBonus + cmdBonus);
 }
 
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
@@ -2371,9 +2376,20 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     if (targetTile.unit) {
                         // result.dmg 已在 execute() 走完标准管线（含防御），此处直接结算；source 'air' 不触发铁卫转移
                         const colonel = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
-                        const isCmd = !!targetTile.unit.commander;
-                        const killed = targetTile.unit.applyDamage(result.dmg, { source: 'air', attacker: colonel });
-                        if (killed) reapColonelKill(colonel, isCmd);
+                        const targetUnit = targetTile.unit;
+                        const killed = targetUnit.applyDamage(result.dmg, { source: 'air', attacker: colonel });
+                        if (colonel) {
+                            // 命中经验（与普攻一致）：基础 1 XP + 暴击额外 2 XP
+                            if (result.dmg > 0) {
+                                colonel.addXP(1);
+                                if (result.isCrit) colonel.addXP(2);
+                            }
+                            // 击杀：士气+1 + 击杀经验
+                            if (killed) reapColonelKill(colonel, targetUnit);
+                            // 将领钩子（上校当前未实现 onAttack/onKill，供未来扩展）
+                            triggerCommanderOnAttack(colonel, targetUnit, result.dmg, result.isCrit);
+                            if (killed) triggerCommanderOnKill(colonel, targetUnit);
+                        }
                     }
                     spawnExplosionParticles(x, y, '#ff4400', 20);
                     spawnExplosionParticles(x, y, '#ffaa00', 12);
@@ -2409,9 +2425,17 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         }
                         // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）；dmg 已走完管线
                         if (tile.unit) {
-                            const _isCmd = !!tile.unit.commander;
-                            const _killed = tile.unit.applyDamage(r.dmg, { source: 'air', attacker: colonel });
-                            if (_killed) reapColonelKill(colonel, _isCmd);
+                            const _target = tile.unit;
+                            const _killed = _target.applyDamage(r.dmg, { source: 'air', attacker: colonel });
+                            if (colonel) {
+                                // AOE 命中经验：每击中一个存活单位 1 XP（AOE 效率已由范围体现，不另加暴击加成）
+                                if (r.dmg > 0) colonel.addXP(1);
+                                // 击杀：士气+1 + 击杀经验（含目标等级加成）
+                                if (_killed) reapColonelKill(colonel, _target);
+                                // 将领钩子（上校当前未实现 onAttack/onKill，供未来扩展）
+                                triggerCommanderOnAttack(colonel, _target, r.dmg, r.isCrit || false);
+                                if (_killed) triggerCommanderOnKill(colonel, _target);
+                            }
                             gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                         }
                     }
