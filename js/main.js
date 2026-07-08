@@ -1136,39 +1136,44 @@ function _showTrainingCommanderSelection(forPlayer) {
     _deckEl2.style.opacity = "0";
     _deckEl2.style.transform = "translate(-50%, -50%) scale(0.8)";
     overlay.classList.add("show");
-    const CARD_W = 180, CARD_H = 260;
+    const CARD_W = 160, CARD_H = 230;
+    const CARDS_PER_ROW = 5;
     requestAnimationFrame(() => {
         const containerW = cardsDiv.clientWidth;
         const containerH = Math.max(cardsDiv.clientHeight, CARD_H);
-        const container = cardsDiv;
         const totalSlots = cardDatas.length;
-        const gap = 16;
-        const totalW = totalSlots * CARD_W + (totalSlots - 1) * gap;
+        const gap = 12;
+        const rows = Math.ceil(totalSlots / CARDS_PER_ROW);
+        const cols = Math.min(totalSlots, CARDS_PER_ROW);
+        const totalW = cols * CARD_W + (cols - 1) * gap;
+        const totalH = rows * CARD_H + (rows - 1) * gap;
         const startX = (containerW - totalW) / 2;
-        const startY = (containerH - CARD_H) / 2;
+        const startY = (containerH - totalH) / 2;
         const tl = gsap.timeline();
-        const dealDuration = 0.55;
-        const dealStagger = 0.10;
+        const dealDuration = 0.4;
+        const dealStagger = 0.06;
         cardDatas.forEach(({ el }, i) => {
-            const x = startX + i * (CARD_W + gap);
-            const y = startY;
+            const row = Math.floor(i / CARDS_PER_ROW);
+            const col = i % CARDS_PER_ROW;
+            const x = startX + col * (CARD_W + gap);
+            const y = startY + row * (CARD_H + gap);
             gsap.set(el, { x, y, opacity: 0, scale: 0.6 });
             tl.to(el, { opacity: 1, scale: 1, duration: dealDuration, ease: "back.out(1.5)" }, i * dealStagger);
         });
-        const lastDealEnd = (cardDatas.length - 1) * dealStagger + dealDuration;
+        const lastDealEnd = (totalSlots - 1) * dealStagger + dealDuration;
         const flipBase = lastDealEnd + 0.12;
-        const flipStagger = 0.24;
-        tl.to(statusDiv, { opacity: 1, duration: 0.4, ease: "power2.out" }, flipBase);
+        const flipStagger = 0.18;
+        tl.to(statusDiv, { opacity: 1, duration: 0.3, ease: "power2.out" }, flipBase);
         cardDatas.forEach(({ el }, i) => {
             const inner = el.querySelector(".commander-card-inner");
             const revealBack = inner.querySelector(".cmdr-reveal-back");
             const persistent = inner.querySelector(".cmdr-persistent");
             const st = flipBase + i * flipStagger;
-            tl.to(inner, { scaleX: 0.01, duration: 0.15, ease: "power2.in" }, st);
-            tl.call(() => { revealBack.style.display = "none"; persistent.style.display = ""; }, null, st + 0.15);
-            tl.to(inner, { scaleX: 1, duration: 0.15, ease: "power2.out" }, st + 0.15);
+            tl.to(inner, { scaleX: 0.01, duration: 0.12, ease: "power2.in" }, st);
+            tl.call(() => { revealBack.style.display = "none"; persistent.style.display = ""; }, null, st + 0.12);
+            tl.to(inner, { scaleX: 1, duration: 0.12, ease: "power2.out" }, st + 0.12);
         });
-        tl.to(_deckEl2, { opacity: 1, scale: 1, duration: 0.4, ease: "power2.out" }, lastDealEnd + 0.05);
+        tl.to(_deckEl2, { opacity: 1, scale: 1, duration: 0.3, ease: "power2.out" }, lastDealEnd + 0.05);
         tl.call(() => {
             cardDatas.forEach(({ el }) => {
                 gsap.set(el, { clearProps: "transform,opacity" });
