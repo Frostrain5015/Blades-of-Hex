@@ -1146,7 +1146,7 @@ export function getMovableTiles(unit) {
             if (!neighbor) continue;
             if (neighbor.unit) continue; // occupied → impassable
 
-            let stepCost = TERRAIN_CONFIG[neighbor.terrain].stepCost;
+            let stepCost = unit._isDrone ? 2 : TERRAIN_CONFIG[neighbor.terrain].stepCost;
             // 雨天泥泞：骑兵步耗+1，末步豁免失效
             const _isMuddyTarget = gameState.weather === "rain" && unit.type === "cavalry"
                 && !getCommanderWeatherImmunity(neighbor, friendlyCamp, gameState.tileMap);
@@ -2009,6 +2009,27 @@ export function reapColonelKill(colonel, targetUnit) {
     colonel.addXP(3 + rankBonus + cmdBonus);
 }
 
+
+// 无人机自杀式袭击
+export function executeDroneSuicide(droneUnit, targetTile) {
+    if (!droneUnit || !droneUnit._isDrone || droneUnit._disoriented) return;
+    const gs = gameState;
+    const mp = droneUnit.remainingMP || 0;
+    const dmg = 15 + mp * 3;
+    if (targetTile.unit) targetTile.unit.applyDamage(dmg, { source: 'air', attacker: droneUnit });
+    // 穿刺
+    if (droneUnit.tile && (targetTile.q !== droneUnit.tile.q || targetTile.r !== droneUnit.tile.r)) {
+        const dq = targetTile.q - droneUnit.tile.q;
+        const dr = targetTile.r - droneUnit.tile.r;
+        const pt = gs.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
+        if (pt && pt.unit) pt.unit.applyDamage(Math.round(dmg / 2), { source: 'air', attacker: droneUnit });
+    }
+    spawnExplosionParticles(targetTile.x, targetTile.y, '#ff6600', 30);
+    spawnExplosionParticles(targetTile.x, targetTile.y, '#ffcc00', 15);
+    logMessage(`✈️💥 无人机自爆造成${dmg}/${Math.round(dmg/2)}伤害`);
+    droneUnit.hp = 0;
+    droneUnit.destroy(droneUnit);
+}
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
     // E4 空运第二段：直接执行空运（跳过正常卡牌验证）
     if (cardId === 'airlift_dest') {

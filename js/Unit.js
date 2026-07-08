@@ -678,6 +678,26 @@ export class Unit {
             }
         }
 
+        // ── 天眼无人机 ──
+        if (this._isDrone) {
+            ctx.save();
+            const dy = visualY - HEX_SIZE * 0.75;
+            ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.shadowColor = this._disoriented ? 'rgba(255,50,50,0.5)' : 'rgba(100,200,255,0.5)';
+            ctx.shadowBlur = 6;
+            ctx.fillStyle = this._disoriented ? '#ff4444' : '#66ccff';
+            ctx.fillText('✈️', visualX, dy);
+            ctx.shadowBlur = 0;
+            const bw = 24, bh = 4, bx = -bw / 2, by = dy + 12;
+            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(bx, by, bw, bh);
+            const r = this.hp / this.maxHp;
+            ctx.fillStyle = r > 0.5 ? '#4CAF50' : (r > 0.25 ? '#FF9800' : '#f44336');
+            ctx.fillRect(bx, by, bw * r, bh);
+            if (this._disoriented) { ctx.fillStyle = '#ff6666'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('混乱', visualX, dy - 14); }
+            ctx.restore();
+        }
+
         // 魂卒：黑烟缭绕粒子（亡灵法师本人不显示） + 头顶骷髅标志
         if (this._isSoulMinion && this.commander !== 'necromancer') {
             ctx.save();

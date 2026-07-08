@@ -1,7 +1,8 @@
-import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI } from './state.js';
+import { Unit } from './Unit.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
@@ -762,6 +763,28 @@ export function initInput() {
             }
 
             if (isValid) {
+                // 天眼无人机部署
+                if (ct.cardId === 'drone_deploy') {
+                    const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
+                    if (!tianyanUnit) { notify('天眼已阵亡', 'error'); cancelCardTargeting(); return; }
+                    if (hexDistance(tianyanUnit.tile, clickedTile) > 2) { notify('超出部署范围（2格）', 'error'); return; }
+                    // 创建无人机
+                    const drone = new Unit('infantry', myCamp, clickedTile, false);
+                    drone._isDrone = true;
+                    drone._droneCampKey = campKey;
+                    drone._disoriented = false;
+                    drone.maxHp = 50;
+                    drone.hp = 50;
+                    drone._atkBonus = 25;
+                    drone.getEffectiveAttack = function() { return 25; };
+                    drone.remainingMP = 8;
+                    drone.canAct = true;
+                    notify('无人机已部署');
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                    updateUI();
+                    return;
+                }
                 executeTacticalCard(ct.cardId, clickedTile, _cardFromX, _cardFromY);
             }
             return;
@@ -1051,6 +1074,14 @@ export function initSettingsPanel() {
                 unit._pendingWeatherChoice = false;
                 _showWeatherChoice(unit);
                 return; // 天气选择完成后再设置CD和广播
+            }
+            // 天眼无人机部署：进入选位模式
+            if (unit._pendingDroneDeploy) {
+                unit._pendingDroneDeploy = false;
+                showTargetingBanner('选择部署位置（周围2格空地）', '点击空地部署无人机');
+                gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1 };
+                updateUI();
+                return;
             }
             unit.activeSkillDur = skill.duration;
             unit.activeSkillCD = skill.cooldown;
