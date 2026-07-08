@@ -496,7 +496,6 @@ function _updateWeatherUI() {
 export function logMessage(msg) {
     gameState.logHistory.push(msg);
     if (gameState.logHistory.length > LOG_LIMIT) gameState.logHistory.shift();
-    console.log(msg);
 }
 
 export function updateStatsPanel() {

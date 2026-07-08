@@ -1851,9 +1851,8 @@ function registerNetworkCallbacks() {
         },
 
         onDisconnected: () => {
-            console.log('[重连] onDisconnected 触发，isNetworkGame=' + isNetworkGame() + '，_myRole=' + (typeof getMyRole === 'function' ? getMyRole() : '?'));
             setConnectionState('disconnected');
-            if (isNetworkGame()) showHome('已断开连接，正在尝试重连...'); else console.log('[重连] onDisconnected: 非联机状态，不跳转主页');
+            if (isNetworkGame()) showHome('已断开连接，正在尝试重连...');
         },
 
         onSocketReconnected: () => {
@@ -1885,7 +1884,6 @@ function registerNetworkCallbacks() {
             // 对局中：立即存下全量状态到服务器
             if (gameState.commanderPhase === 'done') {
                 const st = serializeState();
-                console.log('[重连] saveState: drawPile=' + (st.cardDrawPile ? st.cardDrawPile.length : '?') + '，p1Hand=' + (st.playerHands ? st.playerHands.player1.length : '?') + '，p2Hand=' + (st.playerHands ? st.playerHands.player2.length : '?'));
                 sendMessage({ type: 'saveState', state: st });
                 logMessage('📦 已暂存对局状态到服务器');
             }
@@ -1906,14 +1904,9 @@ function registerNetworkCallbacks() {
 
         // 自己重连（大厅/对局中统一处理）
         onReconnected: (role) => {
-            console.log('[重连] onReconnected 触发，role=' + role);
             setConnectionState('connected');
-            // 对局中重连：跳过揭示动画，直接恢复游戏界面与状态
             if (role) {
-                console.log('[重连] 对局中重连，开始恢复UI...');
-                // 重连后强制重新加载将领立绘（旧 Image 对象可能已失效）
                 reloadPortraits();
-                console.log('[重连] reloadPortraits 完成，commanderP1=' + gameState.commanderP1 + '，P2=' + gameState.commanderP2);
                 _isReady = false;
                 readyBtn.textContent = '准备';
                 readyBtn.classList.remove('cancel');
@@ -1921,17 +1914,11 @@ function registerNetworkCallbacks() {
                 document.getElementById('victoryOverlay').classList.remove('show');
                 document.getElementById('factionReveal').classList.remove('show');
                 document.getElementById('commanderOverlay').classList.remove('show');
-                // 清除残留确认弹窗（含遮罩 + _confirmActive 标志）
                 resetConfirmActive();
                 document.body.style.pointerEvents = '';
-                console.log('[重连] 清除残留特效...');
-                // 清除残留粒子特效，重置棋盘底板
                 clearTransientEffects();
-                console.log('[重连] 重置棋盘...');
                 resetGameState();
-                // 允许 stateSync 覆盖当前重置状态
                 _deploymentStarted = false;
-                console.log('[重连] _deploymentStarted=false，等待stateSync...');
                 document.getElementById('lobbyOverlay').style.display = 'none';
                 document.getElementById('gameWrapper').style.display = '';
                 document.getElementById('opponentTurnBanner').style.display = '';
@@ -1939,7 +1926,6 @@ function registerNetworkCallbacks() {
                 document.getElementById('networkRoleText').textContent =
                     role === 'player1' ? '红军' : role === 'player2' ? '蓝军' : '绿军';
                 _updateChatAvailability();
-                console.log('[重连] UI已恢复，当前_myRole=' + (typeof getMyRole === 'function' ? getMyRole() : '?'));
                 setTimeout(() => {
                     const wrapper = document.getElementById('canvasWrapper');
                     const cw = wrapper.clientWidth;
@@ -1948,11 +1934,8 @@ function registerNetworkCallbacks() {
                     const canvas = document.getElementById('gameCanvas');
                     canvas.style.width  = Math.floor(1000 * scale) + 'px';
                     canvas.style.height = Math.floor(750 * scale) + 'px';
-                    console.log('[重连] 画布自适应完成');
                 }, 100);
             } else {
-                console.log('[重连] 大厅重连，刷新房间列表');
-                // 大厅重连：刷新房间列表
                 listRooms();
             }
         },
@@ -2025,10 +2008,8 @@ function registerNetworkCallbacks() {
         },
 
         onChatMessage: (msg) => {
-            console.log('[Chat] 收到消息:', msg.channel, 'from', msg.senderRole, 'text:', msg.text?.substring(0, 30));
             const myRole = getMyRole();
-            if (!myRole) { console.log('[Chat] myRole 为空，忽略'); return; }
-            console.log('[Chat] myRole=' + myRole);
+            if (!myRole) return;
             const { channel, senderRole, text, targetRole } = msg;
             if (channel === 'room') {
                 if (senderRole !== myRole) {
@@ -2058,24 +2039,16 @@ async function handleRemoteAction(msg) {
 
     // 服务器下发的暂存状态：仅在尚未开始对局时恢复（防止对战中途地形重绘）
     if (msg.actionType === 'stateSync') {
-        console.log('[重连] 收到 stateSync，_deploymentStarted=' + _deploymentStarted + '，hasState=' + !!(msg.state));
         if (!_deploymentStarted) {
-            console.log('[重连] stateSync 通过检测，开始应用远程状态...');
             document.getElementById('lobbyOverlay').style.display = 'none';
             document.getElementById('gameWrapper').style.display = '';
             document.getElementById('opponentTurnBanner').style.display = '';
             document.getElementById('networkIndicator').style.display = 'flex';
             document.body.style.pointerEvents = '';
             _deploymentStarted = true;
-            console.log('[重连] 调用 applyRemoteState，tiles=' + (msg.state && msg.state.tiles ? msg.state.tiles.length : '?'));
             applyRemoteState(msg.state, HexTile, Unit);
-            console.log('[重连] applyRemoteState 完成，当前 tiles=' + gameState.tiles.length + '，currentCamp=' + (gameState.currentCamp && gameState.currentCamp.name));
-            console.log('[重连] 卡牌状态: drawPile=' + gameState.cardDrawPile.length + '，discard=' + gameState.cardDiscardPile.length + '，p1Hand=' + gameState.playerHands.player1.length + '，p2Hand=' + gameState.playerHands.player2.length);
-            // 重连恢复后重建顶栏布局（isThreePlayer 已由 applyRemoteState 恢复）
             applyTopbarLayout();
-            // 重连后按恢复的双方将领装载视觉特效模块
             loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 重连加载失败:', err));
-            // 初始同步时创建圣骑士环绕剑
             for (const tile of gameState.tiles) {
                 if (tile.unit && tile.unit.commander === 'paladin') {
                     let count = tile.unit._faith || 0;
@@ -2087,15 +2060,10 @@ async function handleRemoteAction(msg) {
             updateCampEmblems();
             renderGame();
             _checkSpectatorBanner();
-            // 重连后重新绑定所有游戏事件（按钮 + 画布 + 键盘）
             rebindGameEvents();
             rebindInputEvents();
             rebindKeyboardEvents();
             _initEmblemChatClicks();
-            console.log('[重连] 事件监听已重新绑定');
-            console.log('[重连] stateSync 处理完毕，_deploymentStarted=' + _deploymentStarted);
-        } else {
-            console.log('[重连] stateSync 被跳过（_deploymentStarted=true），忽略此消息');
         }
         return;
     }

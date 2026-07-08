@@ -130,16 +130,12 @@ export function connectToServer(url) {
                     _cb.onOpponentUnready?.();
                     break;
                 case 'reconnected':
-                    console.log('[重连] 收到 reconnected，role=', msg.role, 'roomId=', msg.roomId);
                     _myRole = msg.role;
                     _myRoomId = msg.roomId;
-                    console.log('[重连] _myRole 已恢复为', _myRole, '_myRoomId=', _myRoomId);
                     _cb.onReconnected?.(msg.role);
                     break;
                 case 'opponentReconnected':
-                    console.log('[重连] 收到 opponentReconnected，role=', msg.role);
                     if (msg.role) _myRole = msg.role;
-                    console.log('[重连] _myRole 恢复为', _myRole);
                     _cb.onOpponentReconnected?.();
                     break;
                 case 'start':
@@ -160,7 +156,6 @@ export function connectToServer(url) {
                     _cb.onBanned?.(msg.message);
                     break;
                 case 'action':
-                    if (msg.actionType === 'stateSync') console.log('[重连] 收到 action(stateSync) 消息，_myRole=' + _myRole);
                     _enqueueRemoteAction(msg);
                     break;
                 case 'rematchPending':
@@ -179,18 +174,13 @@ export function connectToServer(url) {
         };
 
         _ws.onclose = () => {
-            console.log('[重连] WebSocket onclose 触发，_myRole=' + _myRole + '，_myRoomId=' + _myRoomId + '，_intentionalClose=' + _intentionalClose);
             if (_myRole) _cb.onOpponentLeft?.();
             _lastRoomId = _myRoomId;
             _myRole = null;
             _myRoomId = null;
             _cb.onDisconnected?.();
-            // 非主动断开 → 自动重连
             if (!_intentionalClose && _reconnectUrl) {
-                console.log('[重连] 触发自动重连，_reconnectUrl=' + _reconnectUrl + '，_lastRoomId=' + _lastRoomId);
                 _startAutoReconnect();
-            } else {
-                console.log('[重连] 跳过自动重连（_intentionalClose=' + _intentionalClose + '，_reconnectUrl=' + !!_reconnectUrl + '）');
             }
         };
     });
@@ -199,30 +189,20 @@ export function connectToServer(url) {
 function _startAutoReconnect() {
     _clearReconnectTimer();
     _reconnectAttempts++;
-    console.log('[重连] 自动重连 第' + _reconnectAttempts + '次，_lastRoomId=' + _lastRoomId);
     _cb.onReconnecting?.(_reconnectAttempts);
     if (_reconnectAttempts > 2) {
-        console.log('[重连] 超过最大重连次数，放弃');
         _cb.onReconnectFailed?.();
         return;
     }
     _reconnectTimer = setTimeout(() => {
-        console.log('[重连] 尝试建立WebSocket连接...');
         connectToServer(_reconnectUrl).then(() => {
-            console.log('[重连] WebSocket连接成功，_lastRoomId=' + _lastRoomId);
             _reconnectAttempts = 0;
             _cb.onSocketReconnected?.();
-            // 若之前在对局中，自动重加入房间
             if (_lastRoomId) {
-                console.log('[重连] 发送 joinRoom，roomId=' + _lastRoomId);
                 sendMessage({ type: 'joinRoom', roomId: _lastRoomId });
                 _lastRoomId = null;
-            } else {
-                console.log('[重连] _lastRoomId 为空，无法加入房间');
             }
-        }).catch(() => {
-            console.log('[重连] WebSocket连接失败');
-        });
+        }).catch(() => {});
     }, 3000);
 }
 
