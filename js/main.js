@@ -582,6 +582,12 @@ document.getElementById('rematchBtn').addEventListener('click', () => {
         document.body.style.pointerEvents = '';
         gameState.aiOpponentCamp = CAMP.player2;
         beginPVECommanderPhase('player1');
+    } else if (sel1 === 'training') {
+        gameState.gameMode = 'training';
+        gameState.skirmishFog = isSkirmish;
+        gameState.aiOpponentCamp = CAMP.player2;
+        gameState.aiDifficulty = 1.0;
+        beginTrainingCommanderPhase('player1');
     } else {
         // 本地模式：清除胜利遮罩，重新走骰子→选将→部署→对局
         const overlay = document.getElementById('victoryOverlay');
@@ -679,6 +685,7 @@ function _showPrepDialog(action) {
         const diffSection = document.getElementById('prepSectionDiff');
         _buildPrepOptionRow('prepOptions1', [
             { id: 'pve', title: 'PVE 对战AI', desc: '红军 vs 蓝军AI' },
+            { id: 'training', title: '训练场', desc: '自选将领 vs AI' },
             { id: 'local', title: '本地双人', desc: '两位玩家轮流' }
         ]);
         _buildPrepOptionRow('prepOptions2', [
@@ -827,6 +834,27 @@ function beginCommanderPhase() {
 }
 
 // PVE 模式将领选择：人类与 AI 轮流选将
+function beginTrainingCommanderPhase(humanRole) {
+    _stopHeroCarousel();
+    document.getElementById('lobbyOverlay').style.display = 'none';
+    _deploymentStarted = false;
+    const savedFog = gameState.skirmishFog;
+    const savedDiff = gameState.aiDifficulty;
+    resetGameState();
+    gameState.gameMode = 'pve';
+    gameState.skirmishFog = savedFog;
+    gameState.aiDifficulty = savedDiff;
+    gameState.aiOpponentCamp = CAMP.player2;
+    gameState._trainingMode = true;
+    _commanderTransitioning = false;
+    const allKeys = Object.keys(COMMANDER_CONFIG);
+    gameState.commanderPoolP1 = allKeys;
+    gameState.commanderPoolP2 = [];
+    gameState.commanderPhase = 'selection';
+    _pveHumanRole = 'player1';
+    _showTrainingCommanderSelection('player1');
+}
+
 function beginPVECommanderPhase(humanRole) {
     _stopHeroCarousel();
     document.getElementById('lobbyOverlay').style.display = 'none';
@@ -968,6 +996,97 @@ function _buildSkillHTML(cfg) {
         : '<span class="cmdr-skill-type cmdr-skill-passive">被动</span>';
     return `<div class="cmdr-detail-skill">${typeTag}【${cfg.skill}】</div>` +
         `<div class="cmdr-detail-desc">${cfg.desc.replace(/\n/g, '<br>')}</div>`;
+}
+
+function _showTrainingCommanderSelection(forPlayer) {
+    const overlay = document.getElementById('commanderOverlay');
+    const title = document.getElementById('commanderTitle');
+    const cardsDiv = document.getElementById('commanderCards');
+    const statusDiv = document.getElementById('commanderStatus');
+    const deckEl = document.getElementById('commanderDeck');
+    const pool = Object.keys(COMMANDER_CONFIG);
+    const ci = _forPlayerCampName(forPlayer);
+
+    _commanderPending = null;
+    title.textContent = '训练场 — 自选将领';
+    title.style.color = ci.color;
+    statusDiv.textContent = '点击将领预选，再次点击确认';
+    statusDiv.style.color = '#888';
+    statusDiv.style.opacity = '0';
+    cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
+
+    const cardDatas = [];
+    for (const key of pool) {
+        const cfg = COMMANDER_CONFIG[key];
+        const bonusParts = [];
+        if (cfg.hpBonusPct)  bonusParts.push(`生命值 +${Math.round(cfg.hpBonusPct * 100)}%`);
+        if (cfg.atkBonusPct) bonusParts.push(`攻击力 +${Math.round(cfg.atkBonusPct * 100)}%`);
+        if (cfg.defBonus) bonusParts.push(`防御力 +${cfg.defBonus}%`);
+        if (cfg.spdBonus) bonusParts.push(`行动力 +${cfg.spdBonus}`);
+
+        const card = document.createElement('div');
+        card.className = 'commander-card animating';
+        card.id = `cmd-card-${key}`;
+        card.innerHTML =
+            `<div class="commander-card-inner">` +
+                `<div class="cmdr-reveal-back"></div>` +
+                `<div class="cmdr-persistent" style="display:none">` +
+                    `<div class="cmdr-face-portrait">` +
+                        `<img src="img/commander/${cfg.name}.jpg" class="cmdr-portrait-full" />` +
+                        `<div class="cmdr-portrait-label">${cfg.name}</div>` +
+                    `</div>` +
+                    `<div class="cmdr-face-details">` +
+                        `<div class="cmdr-detail-name">${cfg.name}</div>` +
+                        (bonusParts.length ? `<div class="cmdr-detail-bonus">${bonusParts.join(' · ')}</div>` : '') +
+                        (cfg.skills ? cfg.skills.map(sk => `<div class="cmdr-detail-skill">${sk.desc}</div>`).join('') : '') +
+                    `</div>` +
+                `</div>` +
+            `</div>`;
+        card.dataset.key = key;
+        card._bound = false;
+        cardDatas.push({ el: card, key });
+        cardsDiv.appendChild(card);
+    }
+
+    _prepDeckAnimation(cardDatas, statusDiv, overlay);
+
+    // Click handler
+    cardsDiv.addEventListener('click', function _handler(e) {
+        const cardEl = e.target.closest('.commander-card');
+        if (!cardEl) return;
+        const key = cardEl.dataset.key;
+        const cfg = COMMANDER_CONFIG[key];
+        if (!cfg) return;
+
+        if (_commanderPending === key) {
+            // Confirm
+            _commanderPending = null;
+            gameState.commanderP1 = key;
+            gameState.commanderP1Confirmed = true;
+            gameState.commanderP1Deployed = false;
+            statusDiv.textContent = '已确认 ' + cfg.name;
+            statusDiv.style.color = '#4CAF50';
+            cardsDiv.querySelectorAll('.commander-card').forEach(c => c.style.pointerEvents = 'none');
+            _onCommanderSelected('player1');
+            // AI picks from remaining
+            const remaining = Object.keys(COMMANDER_CONFIG).filter(k => k !== key);
+            const aiPick = remaining[Math.floor(Math.random() * remaining.length)];
+            gameState.commanderP2 = aiPick;
+            gameState.commanderP2Confirmed = true;
+            gameState.commanderP2Deployed = false;
+            setTimeout(() => {
+                _onCommanderSelected('player2');
+                _commanderPending = null;
+            }, 300);
+            cardsDiv.removeEventListener('click', _handler);
+        } else {
+            cardsDiv.querySelectorAll('.commander-card').forEach(c => c.classList.remove('selected'));
+            cardEl.classList.add('selected');
+            _commanderPending = key;
+            statusDiv.textContent = `已预选【${cfg.name}】，再次点击确认`;
+            statusDiv.style.color = '#ffd700';
+        }
+    });
 }
 
 function _showCommanderSelection(forPlayer) {
