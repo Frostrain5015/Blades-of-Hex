@@ -584,19 +584,32 @@ function spawnCannonImpact(x, y, isCrit) {
 export const droneProjectiles = [];
 
 export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
-    const dx = toX - fromX;
-    const dy = toY - fromY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const duration = Math.min(160, 80 + dist * 0.2);
-    droneProjectiles.push({
-        fromX, fromY, toX, toY, dist,
-        startTime: performance.now(),
-        duration,
-        isCrit,
-        impactSpawned: false,
-        onImpact: onImpact || null
-    });
-    spawnDroneMuzzleFlash(fromX, fromY, toX, toY, isCrit);
+    const now = performance.now();
+    for (let b = 0; b < 5; b++) {
+        droneProjectiles.push({
+            fromX: fromX + (Math.random() - 0.5) * 6,
+            fromY: fromY + (Math.random() - 0.5) * 6,
+            toX: toX + (Math.random() - 0.5) * 8,
+            toY: toY + (Math.random() - 0.5) * 8,
+            dist: Math.sqrt((toX - fromX) ** 2 + (toY - fromY) ** 2),
+            startTime: now + b * 90,
+            duration: 100,
+            isCrit,
+            impactSpawned: false,
+            onImpact: (b === 4 && onImpact) ? onImpact : null
+        });
+    }
+    for (let f = 0; f < 3; f++) {
+        const ang = Math.atan2(toY - fromY, toX - fromX);
+        const mx = fromX + Math.cos(ang) * 8;
+        const my = fromY + Math.sin(ang) * 8;
+        particles.push(new VisualParticle(mx, my, 0, 0, "#fff8e6", 10 - f * 2, 0.08 + f * 0.02, 0));
+        for (let s = 0; s < 6; s++) {
+            const a = ang + (Math.random() - 0.5) * 0.9;
+            const sp = 180 + Math.random() * 300;
+            particles.push(new VisualParticle(mx, my, Math.cos(a) * sp, Math.sin(a) * sp, Math.random() < 0.4 ? "#fff" : "#ffaa44", 2 + Math.random() * 3, 0.12 + Math.random() * 0.12, 30));
+        }
+    }
 }
 
 function spawnDroneMuzzleFlash(x, y, toX, toY, isCrit) {
