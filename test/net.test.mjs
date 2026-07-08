@@ -1,0 +1,166 @@
+// WebSocket 联机对局套件：
+//   建房 → 加入 → 双方准备 → 双方选将 → 部署 → 回合轮转同步 → 远端特效回放 → 断线重连(stateSync)
+import {
+    newGamePage, pickCommander, waitGameStart, gameSnapshot, deployCommander,
+    clickEndTurn, installFxProbe, readFxProbe, fetchedFxModules, fxRegistryStats,
+    waitFor, sleep, Reporter,
+} from './lib/helpers.mjs';
+
+const FX_MANIFEST = ['ironGuard', 'astrologer', 'staller', 'necromancer', 'fallenAngel',
+    'berserker', 'paladin', 'priest', 'diplomat', 'vampire', 'advisor', 'minister'];
+
+async function getMyRole(page) {
+    return page.evaluate(async () => (await import('/js/network.js')).getMyRole());
+}
+
+export async function run(browser) {
+    const R = new Reporter('net');
+    const A = await newGamePage(browser);
+    const B = await newGamePage(browser);
+
+    // ── 1. A 建房 ──
+    await A.click('#multiplayerBtn');
+    await sleep(1000);
+    await A.click('#createRoomBtn');
+    await A.waitForSelector('#prepConfirm', { timeout: 5000 });
+    await A.click('#prepConfirm');
+    await waitFor(async () => A.evaluate(() => document.getElementById('roomIdValue')?.textContent.trim().length > 0),
+        10000, '房间号出现');
+    const roomId = await A.evaluate(() => document.getElementById('roomIdValue').textContent.trim());
+    R.assert(!!roomId, `创建房间成功（房间号 ${roomId}）`);
+
+    // ── 2. B 加入 ──
+    await B.click('#multiplayerBtn');
+    await sleep(1000);
+    await B.click('#refreshRoomsBtn');
+    await sleep(800);
+    const joinedViaUI = await B.evaluate((rid) => {
+        const item = [...document.querySelectorAll('#roomList > *')].find(el => el.textContent.includes(rid));
+        if (item) { item.click(); return true; }
+        return false;
+    }, roomId);
+    if (!joinedViaUI) await B.evaluate(async (rid) => (await import('/js/network.js')).joinRoom(rid), roomId);
+    await waitFor(async () => B.evaluate(() => {
+        const btn = document.getElementById('readyBtn');
+        return btn && btn.offsetParent && !btn.disabled;
+    }), 10000, 'B 进房且准备键可用');
+    R.ok(`B 加入房间（${joinedViaUI ? '房间列表' : '直连'}）`);
+
+    // ── 3. 双方准备 → 选将 ──
+    await Promise.all([
+        waitFor(async () => A.evaluate(() => !document.getElementById('readyBtn').disabled), 10000, 'A 准备键可用'),
+        waitFor(async () => B.evaluate(() => !document.getElementById('readyBtn').disabled), 10000, 'B 准备键可用'),
+    ]);
+    await A.click('#readyBtn');
+    await B.click('#readyBtn');
+    await pickCommander(A);
+    console.log('[test] A 选将完成');
+    await sleep(500);
+    await pickCommander(B);
+    console.log('[test] B 选将完成');
+    await sleep(800);
+    await Promise.all([waitGameStart(A, 60000), waitGameStart(B, 60000)]);
+    const [sa, sb] = [await gameSnapshot(A), await gameSnapshot(B)];
+    R.assert(sa.tiles > 0 && sb.tiles > 0 && sa.commanderP1 === sb.commanderP1 && sa.commanderP2 === sb.commanderP2,
+        `双端开局一致（P1=${sa.commanderP1}，P2=${sa.commanderP2}）`);
+
+    // ── 确定双方实际角色（服务器随机分配，不假定 A=P1 / B=P2）──
+    const roleA = await getMyRole(A);
+    const roleB = await getMyRole(B);
+    const pageP1 = roleA === 'player1' ? A : B;
+    const pageP2 = roleA === 'player2' ? A : B;
+    R.assert(roleA !== roleB, `角色分配 A=${roleA} B=${roleB}`);
+
+    // ── 4. 双端懒加载断言 ──
+    const expected = [sa.commanderP1, sa.commanderP2].filter(id => FX_MANIFEST.includes(id));
+    for (const [name, pg] of [['A', A], ['B', B]]) {
+        const fetched = await fetchedFxModules(pg);
+        R.assert(expected.every(id => fetched.includes(id)) && fetched.every(id => expected.includes(id)),
+            `${name} 端按需加载 [${fetched.join(', ') || '无'}]`);
+    }
+
+    // ── 5. 双方部署 + 两轮回合轮转 ──
+    await installFxProbe(A);
+    await installFxProbe(B);
+    const [da, db] = [await deployCommander(pageP1), await deployCommander(pageP2)];
+    R.assert(da.ok && db.ok, `双方部署将领（P1→${da.unit}，P2→${db.unit}）`);
+    await sleep(1500);
+
+    // 双人联机回合顺序：P1 → P2 → 中立(AI自动过) → P1 → ...
+    // 每轮完整圈 = 两个玩家操作 + 中立过渡，turnCounter +2
+    for (let round = 1; round <= 2; round++) {
+        const snap0 = await gameSnapshot(pageP1);
+        const t0 = snap0.turnCounter;
+        console.log(`[test] Round ${round}: P1 turnCounter=${t0}, camp=${snap0.currentCamp}`);
+
+        // P1 结束回合 → P2 收到变化
+        await clickEndTurn(pageP1);
+        await waitFor(async () => {
+            const s = await gameSnapshot(pageP2);
+            return s.turnCounter > t0;
+        }, 25000, `P2 收到第 ${round} 轮回合`);
+
+        // P2 结束回合 → 游戏通过中立过渡回 P1
+        await clickEndTurn(pageP2);
+        // 等待完整一圈：P1 阵营重新成为当前回合方
+        await waitFor(async () => {
+            const s = await gameSnapshot(pageP1);
+            return s.currentCamp === '红军' && s.turnCounter > t0 + 1;
+        }, 40000, `P1 重新开始回合（第 ${round} 轮完成）`);
+        R.ok(`第 ${round} 轮回合轮转同步`);
+    }
+    const [ta, tb] = [(await gameSnapshot(pageP1)).turnCounter, (await gameSnapshot(pageP2)).turnCounter];
+    R.assert(ta === tb, `双端回合计数一致（${ta}）`);
+    const pb = await readFxProbe(pageP2);
+    R.assert(pb.turnFlash > 0, 'P2 端回合闪光回放');
+    R.assert(pb.coinParticles > 0 || pb.goldTexts > 0, `P2 端收入事件/金币特效回放（coins=${pb.coinParticles}, gold=${pb.goldTexts}）`);
+    R.assertNoPageErrors(A, 'A 端对局');
+    R.assertNoPageErrors(B, 'B 端对局');
+
+    // ── 6. 断线重连（stateSync 恢复 + fx 重新装载） ──
+    await B.reload({ waitUntil: 'networkidle' });
+    B._errors.length = 0;
+    // 重连 UI：点多人按钮 → 自动连接服务器 → 切换到大厅
+    await B.click('#multiplayerBtn');
+    // 等连接就绪（连接成功 → 大厅界面出现)
+    await waitFor(async () => B.evaluate(() => {
+        const lb = document.getElementById('lobbyOverlay');
+        return lb && lb.style.display !== 'none' && document.getElementById('roomList')?.offsetParent;
+    }), 15000, 'B 重连后 WebSocket + 大厅就绪');
+    // 通过直连 joinRoom（不需要刷新列表再点）
+    await B.evaluate(async (rid) => (await import('/js/network.js')).joinRoom(rid), roomId);
+    await waitFor(async () => B.evaluate(() => {
+        const gw = document.getElementById('gameWrapper');
+        return gw && gw.style.display !== 'none';
+    }), 50000, 'B 重连后恢复棋局（收到 stateSync）');
+    const sb2 = await gameSnapshot(B);
+    R.assert(sb2.tiles > 0 && sb2.turnCounter === ta, `stateSync 恢复（回合 ${sb2.turnCounter}，地图 ${sb2.tiles} 格）`);
+    // 重连后 fx 模块验证：网络条目可能因浏览器缓存而不完整，用注册表钩子做真实验证
+    const stats2 = await fxRegistryStats(B);
+    if (expected.length > 0) {
+        const totalHooks = Object.values(stats2.layers).reduce((a, b) => a + b, 0);
+        R.softAssert(totalHooks > 0, `重连后 fx 注册表已挂钩（图层钩子 ${totalHooks} 个，updater ${stats2.updaters} 个）`);
+    }
+    const fetched2 = await fetchedFxModules(B);
+    R.softAssert(expected.every(id => fetched2.includes(id)),
+        `重连后 fx 模块已在网络日志中出现 [${fetched2.join(', ') || '无'}]，期望含 ${expected.join(', ')}（缓存可能跳过，以注册表为准）`);
+    // 重连后同步存活：查当前轮到谁 → 该玩家结束回合，对家收到
+    const bSnap = await gameSnapshot(B);
+    // B 重连了自己的角色；看 B 端 gameState.currentCamp 与角色匹配来确定是谁的回合
+    const bRole = await getMyRole(B);
+    const camps = { player1: '红军', player2: '蓝军', player3: '绿军' };
+    // B 端角色在等待对手操作，就是对家在轮
+    const waitForCamp = bRole ? camps[bRole] : null;
+    const currentStarts = bSnap.currentCamp; // 谁该行动
+    const whoMoves = currentStarts === camps[bRole] ? B : A;
+    const whoWatches = whoMoves === A ? B : A;
+    const tk = bSnap.turnCounter;
+    await clickEndTurn(whoMoves);
+    await waitFor(async () => (await gameSnapshot(whoWatches)).turnCounter > tk, 20000, '重连后回合同步存活');
+    R.ok('重连后回合同步存活');
+    R.assertNoPageErrors(B, 'B 端重连');
+
+    await A.context().close();
+    await B.context().close();
+    return R.summary();
+}
