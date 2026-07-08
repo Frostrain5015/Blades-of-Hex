@@ -417,7 +417,7 @@ export const COLONEL_CARDS = {
     },
     carpetBomb: {
         id: 'carpetBomb', name: '轰炸', icon: '💣',
-        desc: '【地毯轰炸】$4\n以上校攻击力对目标及相邻6格走标准伤害管线造成AOE（中心50%/溅射35%）。对群骚扰',
+        desc: '【轰炸】$4\n以上校攻击力对目标及相邻6格走标准伤害管线造成AOE（中心60%/溅射35%，破甲10%）。对群骚扰',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
