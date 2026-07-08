@@ -980,7 +980,7 @@ function _showCommanderWaiting(forPlayer) {
     statusDiv.style.color = '#aaa';
     cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
     const deckEl = document.getElementById('commanderDeck');
-    if (deckEl) { deckEl.style.display = 'none'; gsap.set(deckEl, { clearProps: 'transform,opacity' }); }
+    if (deckEl) { _deckEl2.style.display = 'none'; gsap.set(deckEl, { clearProps: 'transform,opacity' }); }
     overlay.classList.add('show');
 }
 
@@ -1055,10 +1055,10 @@ function _showTrainingCommanderSelection(forPlayer) {
     }
 
     // 显示牌堆
-    const deckEl = document.getElementById("commanderDeck");
+    const _deckEl2 = document.getElementById("commanderDeck");
     deckEl.style.display = "block";
-    deckEl.style.opacity = "0";
-    deckEl.style.transform = "translate(-50%, -50%) scale(0.8)";
+    _deckEl2.style.opacity = "0";
+    _deckEl2.style.transform = "translate(-50%, -50%) scale(0.8)";
     overlay.classList.add("show");
     const CARD_W = 180, CARD_H = 260;
     requestAnimationFrame(() => {
@@ -1092,7 +1092,7 @@ function _showTrainingCommanderSelection(forPlayer) {
             tl.call(() => { revealBack.style.display = "none"; persistent.style.display = ""; }, null, st + 0.15);
             tl.to(inner, { scaleX: 1, duration: 0.15, ease: "power2.out" }, st + 0.15);
         });
-        tl.to(deckEl, { opacity: 1, scale: 1, duration: 0.4, ease: "power2.out" }, lastDealEnd + 0.05);
+        tl.to(_deckEl2, { opacity: 1, scale: 1, duration: 0.4, ease: "power2.out" }, lastDealEnd + 0.05);
         tl.call(() => {
             cardDatas.forEach(({ el }) => {
                 gsap.set(el, { clearProps: "transform,opacity" });
