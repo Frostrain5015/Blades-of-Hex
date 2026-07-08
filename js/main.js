@@ -1056,7 +1056,7 @@ function _showTrainingCommanderSelection(forPlayer) {
 
     // 显示牌堆
     const _deckEl2 = document.getElementById("commanderDeck");
-    deckEl.style.display = "block";
+    _deckEl2.style.display = "block";
     _deckEl2.style.opacity = "0";
     _deckEl2.style.transform = "translate(-50%, -50%) scale(0.8)";
     overlay.classList.add("show");
