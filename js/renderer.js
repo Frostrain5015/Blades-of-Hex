@@ -490,11 +490,11 @@ export function renderGame() {
 }
 
 // 通用防空炮火特效：从AA单位射向飞行器的曳光弹流
-function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed) {
+function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) {
     const targetS = -(targetQ + targetR);
     for (const _t of gameState.tiles) {
         const _u = _t.unit;
-        if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
+        if (!_u || !_u.camp || _u.camp === friendlyCamp || _u.camp === CAMP.neutral || !isAntiAirUnit(_u)) continue;
         if (hexDistance(_t, { q: targetQ, r: targetR, s: targetS }) > ANTIAIR_RADIUS) continue;
         ctx.save();
         const sx2 = _t.x, sy2 = _t.y;
@@ -536,6 +536,7 @@ function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed) {
 }
 
 function drawAirstrikeEffects(now) {
+    const _ac = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
     for (let i = airstrikeEffects.length - 1; i >= 0; i--) {
         const fx = airstrikeEffects[i];
         const elapsed = now - fx.startTime;
@@ -569,7 +570,7 @@ function drawAirstrikeEffects(now) {
             // 通用防空炮火：AA单位向俯冲战机射曳光弹流
             const flakStart = 0.12, flakEnd = 0.85;
             if (t >= flakStart && t <= flakEnd) {
-                _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13);
+                _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13, _ac);
             }
 
             // 扫射窗口：曳光弹精确锁定目标中心（cx, cy），不飘
@@ -660,7 +661,7 @@ function drawAirstrikeEffects(now) {
 
         // 通用防空炮火（地毯轰炸 + 普通空袭 + 空降）
         if (fx.q != null && t > 0.15 && t < 0.85) {
-            _renderAAFlak(planeX, planeY, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13);
+            _renderAAFlak(planeX, planeY, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13, _ac);
         }
 
         // sequential drops: release times relative to when plane passes over target
