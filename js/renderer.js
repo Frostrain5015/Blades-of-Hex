@@ -536,7 +536,7 @@ function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) 
 }
 
 function drawAirstrikeEffects(now) {
-    const _ac = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
+    const _ac = gameState.currentCamp;
     for (let i = airstrikeEffects.length - 1; i >= 0; i--) {
         const fx = airstrikeEffects[i];
         const elapsed = now - fx.startTime;
@@ -721,6 +721,7 @@ function drawAirstrikeEffects(now) {
 
 // E4 空运：运输机自起点飞抵终点上空 → 降落伞垂直投放 → 落地扬尘（单位在 _airliftLandAt 时现身）
 function drawAirliftEffects(now) {
+    const _alc = gameState.currentCamp;
     for (let i = airliftEffects.length - 1; i >= 0; i--) {
         const fx = airliftEffects[i];
         const t = (now - fx.startTime) / fx.duration;
@@ -753,7 +754,7 @@ function drawAirliftEffects(now) {
                 const as = -(fx.q + fx.r);
                 for (const _t of gameState.tiles) {
                     const _u = _t.unit;
-                    if (!_u || _u.camp === null || !isAntiAirUnit(_u)) continue;
+                    if (!_u || !_u.camp || _u.camp === _alc || _u.camp === CAMP.neutral || !isAntiAirUnit(_u)) continue;
                     if (hexDistance(_t, { q: fx.q, r: fx.r, s: as }) > ANTIAIR_RADIUS) continue;
                     ctx.save();
                     const sx2 = _t.x, sy2 = _t.y;
