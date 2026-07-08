@@ -177,16 +177,17 @@ function _drawBeamProjectiles(ctx2d, now) {
         ctx2d.restore();
         if (t >= 0.88 && !p.impactSpawned) {
             p.impactSpawned = true;
-            const n2 = Math.round(14 * settings.particleDensity);
+            const n2 = Math.round(20 * settings.particleDensity);
             for (let k = 0; k < n2; k++) {
                 const a = Math.random() * Math.PI * 2;
-                const spd = 60 + Math.random() * 180;
+                const spd = 80 + Math.random() * 220;
                 particles.push(new VisualParticle(p.toX, p.toY,
                     Math.cos(a) * spd, Math.sin(a) * spd * 0.7 - 30 - Math.random() * 40,
                     Math.random() < 0.3 ? '#ffffff' : '#ffd700', 1.5 + Math.random() * 3,
                     0.2 + Math.random() * 0.4, 80 + Math.random() * 120));
             }
-            attackFlashes.push({ x: p.toX, y: p.toY, startTime: performance.now(), duration: 200, maxRadius: HEX_SIZE * 1.1, isCrit: false });
+            // 至圣斩命中扩散环 — 亮金色波纹
+            attackFlashes.push({ x: p.toX, y: p.toY, startTime: performance.now(), duration: 300, maxRadius: HEX_SIZE * 1.6, isCrit: false });
         }
     }
 }

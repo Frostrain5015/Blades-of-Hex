@@ -330,7 +330,7 @@ function _filterValidCommanders() {
                 console.warn(`[轮播] 将领立绘不存在，跳过：${cmdId}`);
                 if (--pending === 0) resolve(valid);
             };
-            img.src = `img/commander/${name}.jpg`;
+            img.src = `img/commander/${name}.webp`;
         }
     });
 }
@@ -399,7 +399,7 @@ function _showHeroSlide(idx, animate) {
     const imgA = document.getElementById('heroPortraitA');
     const imgB = document.getElementById('heroPortraitB');
 
-    const src = `img/commander/${name}.jpg`;
+    const src = `img/commander/${name}.webp`;
     const activeImg = imgA.classList.contains('active') ? imgA : imgB;
     const idleImg  = imgA.classList.contains('active') ? imgB : imgA;
 
@@ -1005,7 +1005,7 @@ function _showCommanderSelection(forPlayer) {
                 `<div class="cmdr-reveal-back"></div>` +
                 `<div class="cmdr-persistent" style="display:none">` +
                     `<div class="cmdr-face-portrait">` +
-                        `<img src="img/commander/${cfg.name}.jpg" class="cmdr-portrait-full" />` +
+                        `<img src="img/commander/${cfg.name}.webp" class="cmdr-portrait-full" />` +
                         `<div class="cmdr-portrait-label">${cfg.name}</div>` +
                     `</div>` +
                     `<div class="cmdr-face-details">` +
@@ -1188,7 +1188,7 @@ function updateCampEmblems() {
         if (cmdKey && !hidden) {
             const cfg = COMMANDER_CONFIG[cmdKey];
             if (cfg) {
-                el.src = `img/commander_tr/${cfg.name}.png`;
+                el.src = `img/commander_tr/${cfg.name}.webp`;
                 emblem.classList.add('has-portrait');
                 el.classList.toggle('iron-guard-crop', cmdKey === 'ironGuard');
                 continue;

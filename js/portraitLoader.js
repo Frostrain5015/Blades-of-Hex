@@ -6,10 +6,10 @@ const _trPortraits = new Map(); // commanderId → Image (透明底战场立绘)
 
 function _loadOne(id, cfg) {
     const img = new Image();
-    img.src = `img/commander/${cfg.name}.jpg`;
+    img.src = `img/commander/${cfg.name}.webp`;
     _portraits.set(id, img);
     const trImg = new Image();
-    trImg.src = `img/commander_tr/${cfg.name}.png`;
+    trImg.src = `img/commander_tr/${cfg.name}.webp`;
     _trPortraits.set(id, trImg);
 }
 

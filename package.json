@@ -15,6 +15,7 @@
     "test:quick": "node test/run-all.mjs --quick"
   },
   "dependencies": {
+    "sharp": "^0.35.3",
     "ws": "^8.17.0"
   },
   "optionalDependencies": {

@@ -1399,19 +1399,31 @@ export function attackUnit(attackerUnit, targetUnit) {
                 _moraleFxUnitId = targetUnit.id;
             }
             if (atkCmdResult.smiteDmg) {
-                // 至圣斩真伤数字（金色真实伤害样式）
-                gameState.damageTexts.push({
-                    x: toX, y: toY, value: atkCmdResult.smiteDmg, isTrueDmg: true,
-                    timeLeft: 900, lastUpdate: performance.now()
-                });
-                triggerAttackFlash(toX, toY, true);
-                spawnCommanderSkillEffect(toX, toY, '✝️', '至圣斩', true);
-                triggerScreenShake(_smiteLabel === '至圣斩·誓约' ? 10 : 8, 350);
-                _smiteDmgRemote = atkCmdResult.smiteDmg;
-                // 至圣斩为真实伤害：绕过护盾和全部乘区，不触发铁卫转移/誓言
-                const smiteKilled = targetUnit.applyDamage(atkCmdResult.smiteDmg, { source: 'true', attacker: attackerUnit });
-                targetUnit.displayHp = targetUnit.hp;
-                if (smiteKilled) isTargetDead = true;
+                // 至圣斩：三段递进动画
+                // Phase 1: 剑从环绕轨道射出（paladin.js onAttack 已通过 launchOrbitSwords 发射）
+                // Phase 2: 飞剑命中后金色光束降临（由 paladin/FX 的 drawBeamProjectiles 在 hit 时自动完成）
+                // Phase 3: 真伤数字 + 强震
+                const smiteDelay = 220;
+                const smiteLabel = _smiteLabel || '至圣斩';
+                setTimeout(() => {
+                    // 金色光束从目标上方降落
+                    spawnGoldenBeam(toX, toY);
+                    playSound('lightning');
+                }, smiteDelay);
+                setTimeout(() => {
+                    gameState.damageTexts.push({
+                        x: toX, y: toY, value: atkCmdResult.smiteDmg, isTrueDmg: true,
+                        timeLeft: 1200, lastUpdate: performance.now()
+                    });
+                    triggerAttackFlash(toX, toY, true);
+                    spawnCommanderSkillEffect(toX, toY, '✝️', smiteLabel, true);
+                    triggerScreenShake(_hasSmite && smiteLabel === '至圣斩·誓约' ? 12 : 9, 400);
+                    _smiteDmgRemote = atkCmdResult.smiteDmg;
+                    // 至圣斩为真实伤害：绕过护盾和全部乘区，不触发铁卫转移/誓言
+                    const smiteKilled = targetUnit.applyDamage(atkCmdResult.smiteDmg, { source: 'true', attacker: attackerUnit });
+                    targetUnit.displayHp = targetUnit.hp;
+                    if (smiteKilled) isTargetDead = true;
+                }, smiteDelay + 200);
             }
         }
         _cmdFxData = _atkCmdFxCapture;
