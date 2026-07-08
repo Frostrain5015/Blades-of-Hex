@@ -646,6 +646,167 @@ export function getChargeOffset(unitId, now) {
     return null;
 }
 
+// E3 纵横家连横卡牌复制飞行特效
+export function spawnCardCopyEffect(fromX, fromY, toX, toY, cardId) {
+    // 金色卡牌轮廓从用卡方飞向目标阵营手牌区
+    const midX = (fromX + toX) / 2;
+    const midY = Math.min(fromY, toY) - 30;
+    for (let i = 0; i < 8; i++) {
+        const t = i / 7;
+        const px = (1 - t) * (1 - t) * fromX + 2 * (1 - t) * t * midX + t * t * toX;
+        const py = (1 - t) * (1 - t) * fromY + 2 * (1 - t) * t * midY + t * t * toY;
+        spawnExplosionParticles(px, py, '#ffd700', 2);
+    }
+    // 到达时金色爆裂
+    setTimeout(() => {
+        spawnExplosionParticles(toX, toY, '#ffd700', 10);
+        spawnExplosionParticles(toX, toY, '#ffaa00', 5);
+    }, 800);
+}
+
+// E1 占星者星移特效：金色光柱 + 星辰爆裂
+export function spawnAstrologerEffect(x, y) {
+    spawnExplosionParticles(x, y, '#ffd700', 15);
+    spawnExplosionParticles(x, y, '#6688ff', 10);
+    for (let i = 0; i < 12; i++) {
+        spawnExplosionParticles(x + (Math.random() - 0.5) * 20, y - 30 - Math.random() * 40, '#ffd700', 2);
+    }
+}
+
+// E2 亡灵法师魂卒唤起特效
+export function spawnNecromancerRaiseEffect(x, y) {
+    spawnExplosionParticles(x, y, '#44ff88', 15);
+    spawnExplosionParticles(x, y, '#8844ff', 10);
+    spawnCommanderSkillEffect(x, y, '💀', '回魂');
+}
+
+// E5 补员特效：金币弹起 → 绿色治疗粒子
+export function spawnReinforceEffect(x, y, healAmt) {
+    spawnCoinRain(x, y, 0.8);
+    triggerHealFlash(x, y);
+    spawnHealParticles(x, y);
+    if (healAmt > 0) {
+        spawnExplosionParticles(x, y, '#44ff44', 10);
+        spawnExplosionParticles(x, y, '#ffd700', 6);
+    }
+}
+
+// ===== 烧牌动画（对策卡使用广播） =====================
+export const cardUseEffects = [];
+
+// isLocal: true=释放者(从手牌位置飞入), false=观战者(中央直接出现)
+export function spawnCardUseEffect(cardId, x, y, isLocal = false, fromX = 0, fromY = 0, displayName = null) {
+    const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
+    cardUseEffects.push({
+        cardId, icon: cfg ? cfg.icon : '🃏', name: displayName || (cfg ? cfg.name : cardId),
+        x, y, fromX, fromY, isLocal,
+        startTime: performance.now(),
+        duration: 1600,
+        phaseDuration: 600,
+        pauseDuration: 500
+    });
+}
+
+// ── 以下状态数组 + spawn 函数是共享数据源 ──
+// 状态由 commander/fx/*.js 中对应的 update/draw 消费，
+// spawn 函数被 gameLogic.js / main.js 调用。
+
+// ===== 雷击（对策卡通用特效，不属特定将领） =====================
+export const lightningBolts = [];
+
+export function spawnLightningStrike(x, y) {
+    const mainSegments = [];
+    let sx = x + (Math.random() - 0.5) * 16;
+    let sy = y - 300;
+    const steps = 10;
+    const stepY = 300 / steps;
+    const branchPoints = [];
+    for (let i = 0; i < steps; i++) {
+        const prog = (i + 1) / steps;
+        const driftToTarget = (x - sx) * 0.25;
+        const jitter = (Math.random() - 0.5) * 22 * (1 - prog * 0.6);
+        const ex = sx + driftToTarget + jitter;
+        const ey = sy + stepY;
+        mainSegments.push({ x1: sx, y1: sy, x2: ex, y2: ey });
+        if (i >= 2 && i <= 7 && Math.random() < 0.35) {
+            branchPoints.push({ bx: sx, by: sy, prog });
+        }
+        sx = ex; sy = ey;
+    }
+    mainSegments.push({ x1: sx, y1: sy, x2: x, y2: y });
+    const branches = [];
+    for (const bp of branchPoints) {
+        const bSegs = [];
+        let bx = bp.bx, by = bp.by;
+        const bSteps = 2 + Math.floor(Math.random() * 2);
+        const bLen = 40 + Math.random() * 50;
+        const bAngle = (Math.random() - 0.5) * 1.2;
+        for (let j = 0; j < bSteps; j++) {
+            const bp2 = (j + 1) / bSteps;
+            const ex2 = bx + Math.cos(bAngle) * (bLen / bSteps) + (Math.random() - 0.5) * 14;
+            const ey2 = by + (bLen / bSteps) * 0.6 + Math.random() * 8;
+            bSegs.push({ x1: bx, y1: by, x2: ex2, y2: ey2 });
+            bx = ex2; by = ey2;
+        }
+        branches.push(bSegs);
+    }
+    lightningBolts.push({
+        x, y, segments: mainSegments, branches,
+        startTime: performance.now(), duration: 500, isStrike: true
+    });
+    const sparkCount = Math.round(24 * settings.particleDensity);
+    for (let i = 0; i < sparkCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 80 + Math.random() * 220;
+        particles.push(new VisualParticle(x, y, Math.cos(angle) * speed, Math.sin(angle) * speed,
+            Math.random() < 0.35 ? '#ffffff' : '#88ccff', 1.5 + Math.random() * 3.5, 0.2 + Math.random() * 0.45, 0));
+    }
+    for (let i = 0; i < 8; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        particles.push(new VisualParticle(x, y, Math.cos(angle) * 30, Math.sin(angle) * 30,
+            '#ffcc66', 2 + Math.random() * 2, 0.15 + Math.random() * 0.2, 0));
+    }
+}
+
+export function updateLightningBolts(now) {
+    for (let i = lightningBolts.length - 1; i >= 0; i--) {
+        if (now - lightningBolts[i].startTime > lightningBolts[i].duration) lightningBolts.splice(i, 1);
+    }
+}
+
+export function drawLightningBolts(ctx2d, now) {
+    for (const b of lightningBolts) {
+        const elapsed = now - b.startTime;
+        const alpha = elapsed < 60 ? elapsed / 60 : Math.max(0, 1 - (elapsed - 60) / (b.duration - 60));
+        ctx2d.save();
+        ctx2d.globalAlpha = alpha;
+        ctx2d.strokeStyle = '#ffffff'; ctx2d.lineWidth = 6;
+        ctx2d.shadowColor = '#ffffff'; ctx2d.shadowBlur = 20;
+        ctx2d.beginPath(); ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+        ctx2d.stroke();
+        ctx2d.strokeStyle = '#a0d0ff'; ctx2d.lineWidth = 3;
+        ctx2d.shadowColor = '#88bbff'; ctx2d.shadowBlur = 10;
+        ctx2d.beginPath(); ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+        ctx2d.stroke();
+        ctx2d.strokeStyle = '#ffffff'; ctx2d.lineWidth = 1.5; ctx2d.shadowBlur = 0;
+        ctx2d.beginPath(); ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
+        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
+        ctx2d.stroke();
+        if (b.branches) {
+            ctx2d.strokeStyle = '#a0d0ff'; ctx2d.lineWidth = 1.2;
+            ctx2d.shadowColor = '#88bbff'; ctx2d.shadowBlur = 6;
+            for (const br of b.branches) {
+                ctx2d.beginPath(); ctx2d.moveTo(br[0].x1, br[0].y1);
+                for (const seg of br) ctx2d.lineTo(seg.x2, seg.y2);
+                ctx2d.stroke();
+            }
+        }
+        ctx2d.restore();
+    }
+}
+
 // ===== 吸血鬼嗜血：红色粒子流 =====================
 export const bloodDrains = [];
 
@@ -670,34 +831,7 @@ export function spawnBloodDrain(fromX, fromY, toX, toY) {
     }
 }
 
-export function updateBloodDrains(dt) {
-    for (let i = bloodDrains.length - 1; i >= 0; i--) {
-        const b = bloodDrains[i];
-        b.life -= dt;
-        if (b.life <= 0) { bloodDrains.splice(i, 1); continue; }
-        const rawT = 1 - b.life / b.maxLife;
-        if (rawT < b.delay) continue;
-        const t = (rawT - b.delay) / (1 - b.delay);
-        const spiralFactor = Math.sin(t * Math.PI);
-        const spiralAngle = b.orbitAngle + t * b.orbitSpeed * Math.PI * 2;
-        const spiralX = Math.cos(spiralAngle) * b.orbitRadius * spiralFactor;
-        const spiralY = Math.sin(spiralAngle) * b.orbitRadius * spiralFactor * 0.6;
-        const baseX = b.fromX + (b.toX - b.fromX) * t;
-        const baseY = b.fromY + (b.toY - b.fromY) * t - Math.sin(t * Math.PI) * b.peakHeight;
-        b.x = baseX + spiralX;
-        b.y = baseY + spiralY;
-        b.trail.push({ x: b.x, y: b.y, life: 0.2 });
-        for (let j = b.trail.length - 1; j >= 0; j--) {
-            b.trail[j].life -= dt;
-            if (b.trail[j].life <= 0) b.trail.splice(j, 1);
-        }
-        if (b.trail.length > 6) b.trail.splice(0, b.trail.length - 6);
-    }
-}
-
 // ===== 谋士攻心：紫色波纹扩散 + 暗色粒子 =====================
-export const lightningBolts = [];
-
 export const gongxinRipples = [];
 
 export function spawnGongxinRipple(x, y, intense = false) {
@@ -709,7 +843,6 @@ export function spawnGongxinRipple(x, y, intense = false) {
             delay: i * 0.12
         });
     }
-    // 暗色上升粒子
     const pCount = intense ? Math.round(22 * settings.particleDensity) : Math.round(12 * settings.particleDensity);
     for (let i = 0; i < pCount; i++) {
         const angle = Math.random() * Math.PI * 2;
@@ -733,194 +866,6 @@ export function spawnGongxinRipple(x, y, intense = false) {
     });
 }
 
-export function updateGongxinRipples(now) {
-    for (let i = gongxinRipples.length - 1; i >= 0; i--) {
-        if (now - gongxinRipples[i].startTime > gongxinRipples[i].duration) {
-            gongxinRipples.splice(i, 1);
-        }
-    }
-}
-
-export function drawGongxinRipples(ctx2d, now) {
-    for (const r of gongxinRipples) {
-        const elapsed = now - r.startTime;
-        const alpha = Math.max(0, 1 - elapsed / r.duration);
-        for (const ring of r.rings) {
-            const localT = Math.max(0, Math.min(1, (elapsed - ring.delay * r.duration) / (r.duration * 0.7)));
-            if (localT <= 0 || localT >= 1) continue;
-            const radius = ring.maxR * localT;
-            const ringAlpha = alpha * (1 - localT) * 0.7;
-            ctx2d.save();
-            ctx2d.globalAlpha = ringAlpha;
-            ctx2d.beginPath();
-            ctx2d.arc(r.x, r.y, radius, 0, Math.PI * 2);
-            ctx2d.strokeStyle = r.intense ? '#cc88ff' : '#9966cc';
-            ctx2d.lineWidth = 2.5 * (1 - localT);
-            ctx2d.shadowColor = r.intense ? '#cc88ff' : '#8855bb';
-            ctx2d.shadowBlur = 10 * (1 - localT);
-            ctx2d.stroke();
-            ctx2d.restore();
-        }
-    }
-}
-
-export function spawnLightningStrike(x, y) {
-    const mainSegments = [];
-    let sx = x + (Math.random() - 0.5) * 16;
-    let sy = y - 300;
-    const steps = 10;
-    const stepY = 300 / steps;
-    const branchPoints = []; // fork points for branches
-    for (let i = 0; i < steps; i++) {
-        const prog = (i + 1) / steps;
-        const driftToTarget = (x - sx) * 0.25;
-        const jitter = (Math.random() - 0.5) * 22 * (1 - prog * 0.6);
-        const ex = sx + driftToTarget + jitter;
-        const ey = sy + stepY;
-        mainSegments.push({ x1: sx, y1: sy, x2: ex, y2: ey });
-        // 中段有概率分叉
-        if (i >= 2 && i <= 7 && Math.random() < 0.35) {
-            branchPoints.push({ bx: sx, by: sy, prog });
-        }
-        sx = ex; sy = ey;
-    }
-    mainSegments.push({ x1: sx, y1: sy, x2: x, y2: y });
-
-    // 分叉短枝
-    const branches = [];
-    for (const bp of branchPoints) {
-        const bSegs = [];
-        let bx = bp.bx, by = bp.by;
-        const bSteps = 2 + Math.floor(Math.random() * 2);
-        const bLen = 40 + Math.random() * 50;
-        const bAngle = (Math.random() - 0.5) * 1.2;
-        for (let j = 0; j < bSteps; j++) {
-            const bp2 = (j + 1) / bSteps;
-            const ex2 = bx + Math.cos(bAngle) * (bLen / bSteps) + (Math.random() - 0.5) * 14;
-            const ey2 = by + (bLen / bSteps) * 0.6 + Math.random() * 8;
-            bSegs.push({ x1: bx, y1: by, x2: ex2, y2: ey2 });
-            bx = ex2; by = ey2;
-        }
-        branches.push(bSegs);
-    }
-
-    lightningBolts.push({
-        x, y,
-        segments: mainSegments,
-        branches,
-        startTime: performance.now(),
-        duration: 500,
-        isStrike: true
-    });
-
-    // 落点电能扩散火花
-    const sparkCount = Math.round(24 * settings.particleDensity);
-    for (let i = 0; i < sparkCount; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = 80 + Math.random() * 220;
-        particles.push(new VisualParticle(
-            x, y,
-            Math.cos(angle) * speed,
-            Math.sin(angle) * speed,
-            Math.random() < 0.35 ? '#ffffff' : '#88ccff',
-            1.5 + Math.random() * 3.5,
-            0.2 + Math.random() * 0.45,
-            0
-        ));
-    }
-    // 地面小冲击波粒子（暖色）
-    for (let i = 0; i < 8; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        particles.push(new VisualParticle(
-            x, y,
-            Math.cos(angle) * 30,
-            Math.sin(angle) * 30,
-            '#ffcc66',
-            2 + Math.random() * 2,
-            0.15 + Math.random() * 0.2,
-            0
-        ));
-    }
-}
-
-export function updateLightningBolts(now) {
-    for (let i = lightningBolts.length - 1; i >= 0; i--) {
-        if (now - lightningBolts[i].startTime > lightningBolts[i].duration) {
-            lightningBolts.splice(i, 1);
-        }
-    }
-}
-
-export function drawLightningBolts(ctx2d, now) {
-    for (const b of lightningBolts) {
-        const elapsed = now - b.startTime;
-        const alpha = elapsed < 60 ? elapsed / 60 : Math.max(0, 1 - (elapsed - 60) / (b.duration - 60));
-        const isStrike = b.isStrike;
-        ctx2d.save();
-        ctx2d.globalAlpha = alpha;
-        if (isStrike) {
-            // 外层粗辉光（白色）
-            ctx2d.strokeStyle = '#ffffff';
-            ctx2d.lineWidth = 6;
-            ctx2d.shadowColor = '#ffffff';
-            ctx2d.shadowBlur = 20;
-            ctx2d.beginPath();
-            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-            ctx2d.stroke();
-            // 中层亮蓝
-            ctx2d.strokeStyle = '#a0d0ff';
-            ctx2d.lineWidth = 3;
-            ctx2d.shadowColor = '#88bbff';
-            ctx2d.shadowBlur = 10;
-            ctx2d.beginPath();
-            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-            ctx2d.stroke();
-            // 核心亮白
-            ctx2d.strokeStyle = '#ffffff';
-            ctx2d.lineWidth = 1.5;
-            ctx2d.shadowBlur = 0;
-            ctx2d.beginPath();
-            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-            ctx2d.stroke();
-            // 分叉短枝（细线）
-            if (b.branches) {
-                ctx2d.strokeStyle = '#a0d0ff';
-                ctx2d.lineWidth = 1.2;
-                ctx2d.shadowColor = '#88bbff';
-                ctx2d.shadowBlur = 6;
-                for (const br of b.branches) {
-                    ctx2d.beginPath();
-                    ctx2d.moveTo(br[0].x1, br[0].y1);
-                    for (const seg of br) ctx2d.lineTo(seg.x2, seg.y2);
-                    ctx2d.stroke();
-                }
-            }
-        } else {
-            // 外层辉光
-            ctx2d.strokeStyle = '#c080ff';
-            ctx2d.lineWidth = 4;
-            ctx2d.shadowColor = '#d0a0ff';
-            ctx2d.shadowBlur = 12;
-            ctx2d.beginPath();
-            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-            ctx2d.stroke();
-            // 核心亮线
-            ctx2d.strokeStyle = '#f0e0ff';
-            ctx2d.lineWidth = 1.5;
-            ctx2d.shadowBlur = 0;
-            ctx2d.beginPath();
-            ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-            for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-            ctx2d.stroke();
-        }
-        ctx2d.restore();
-    }
-}
-
 // ===== 百夫长乘胜：金焰粒子 + 胜利涟漪 =====================
 export function spawnGoldenFlame(x, y) {
     const n = Math.round(10 * settings.particleDensity);
@@ -938,7 +883,7 @@ export function spawnGoldenFlame(x, y) {
     }
 }
 
-// 百夫长涟漪复用 softFlashes，直接调用 triggerHealFlash 风格即可
+// 百夫长涟漪复用 softFlashes
 export function spawnVictoryRipple(x, y) {
     softFlashes.push({
         x, y,
@@ -961,33 +906,6 @@ export function spawnMinisterDominionRing(x, y) {
     });
 }
 
-export function updateMinisterRings(now) {
-    for (let i = ministerRings.length - 1; i >= 0; i--) {
-        if (now - ministerRings[i].startTime > ministerRings[i].duration) {
-            ministerRings.splice(i, 1);
-        }
-    }
-}
-
-export function drawMinisterRings(ctx2d, now) {
-    for (const r of ministerRings) {
-        const elapsed = now - r.startTime;
-        const progress = Math.max(0, Math.min(1, elapsed / r.duration));
-        const radius = r.maxRadius * progress;
-        const alpha = (1 - progress) * 0.55;
-        ctx2d.save();
-        ctx2d.globalAlpha = alpha;
-        ctx2d.beginPath();
-        ctx2d.arc(r.x, r.y, radius, 0, Math.PI * 2);
-        ctx2d.strokeStyle = '#ffd700';
-        ctx2d.lineWidth = 3.5 * (1 - progress);
-        ctx2d.shadowColor = '#ffd700';
-        ctx2d.shadowBlur = 14 * (1 - progress);
-        ctx2d.stroke();
-        ctx2d.restore();
-    }
-}
-
 // ===== 尚书屯田 =====================
 export const coinParticles = [];
 
@@ -1007,6 +925,8 @@ export function spawnCoinRain(x, y, countMult = 1) {
         });
     }
 }
+
+// ===== 圣骑士至圣斩光束弹射 =====
 
 export function updateCoinParticles(dt) {
     for (let i = coinParticles.length - 1; i >= 0; i--) {
@@ -1042,109 +962,26 @@ export function drawCoinParticles(ctx2d) {
     }
 }
 
-// E2 亡灵法师魂卒唤起特效
-export function spawnNecromancerRaiseEffect(x, y) {
-    spawnExplosionParticles(x, y, '#44ff88', 15);
-    spawnExplosionParticles(x, y, '#8844ff', 10);
-    spawnCommanderSkillEffect(x, y, '💀', '回魂');
-}
+export const paladinBeamProjectiles = [];
 
-// E3 纵横家连横卡牌复制飞行特效
-export function spawnCardCopyEffect(fromX, fromY, toX, toY, cardId) {
-    // 金色卡牌轮廓从用卡方飞向目标阵营手牌区
-    const midX = (fromX + toX) / 2;
-    const midY = Math.min(fromY, toY) - 30;
-    for (let i = 0; i < 8; i++) {
-        const t = i / 7;
-        const px = (1 - t) * (1 - t) * fromX + 2 * (1 - t) * t * midX + t * t * toX;
-        const py = (1 - t) * (1 - t) * fromY + 2 * (1 - t) * t * midY + t * t * toY;
-        spawnExplosionParticles(px, py, '#ffd700', 2);
-    }
-    // 到达时金色爆裂
-    setTimeout(() => {
-        spawnExplosionParticles(toX, toY, '#ffd700', 10);
-        spawnExplosionParticles(toX, toY, '#ffaa00', 5);
-    }, 800);
-}
-
-// E1 占星者星移特效：金色光柱 + 星辰爆裂
-export function spawnAstrologerEffect(x, y) {
-    // 金色星辰爆裂（双层：金色+蓝色）
-    spawnExplosionParticles(x, y, '#ffd700', 15);
-    spawnExplosionParticles(x, y, '#6688ff', 10);
-    // 光柱效果：从上方降下的金色粒子流
-    for (let i = 0; i < 12; i++) {
-        spawnExplosionParticles(x + (Math.random() - 0.5) * 20, y - 30 - Math.random() * 40, '#ffd700', 2);
+export function spawnPaladinBeamProjectiles(fromX, fromY, toX, toY, count) {
+    for (let i = 0; i < count; i++) {
+        const angleOff = (i - (count - 1) / 2) * 0.35;
+        paladinBeamProjectiles.push({
+            fromX, fromY, toX, toY, angleOff,
+            startTime: performance.now(), duration: 280, impactSpawned: false
+        });
     }
 }
 
-// E5 补员特效：金币弹起 → 绿色治疗粒子
-export function spawnReinforceEffect(x, y, healAmt) {
-    spawnCoinRain(x, y, 0.8);
-    triggerHealFlash(x, y);
-    spawnHealParticles(x, y);
-    if (healAmt > 0) {
-        spawnExplosionParticles(x, y, '#44ff44', 10);
-        spawnExplosionParticles(x, y, '#ffd700', 6);
-    }
+// ===== 圣骑士至圣斩光束弹射（轨道剑发射） =====
+export function launchPaladinOrbitSwords(unitId, targetX, targetY, count) {
+    // 实际逻辑在 commander/fx/paladin.js — 但 gameLogic.js 通过 ref 调用
+    // 此处保留空函数作为 effects.js export 占位，避免 import 断裂
+    // launcher 会在 need context](...)时被 commanderInterface 的 ref 正确指向
 }
 
-// ===== 烧牌动画（对策卡使用广播） =====================
-export const cardUseEffects = [];
-
-// isLocal: true=释放者(从手牌位置飞入), false=观战者(中央直接出现)
-export function spawnCardUseEffect(cardId, x, y, isLocal = false, fromX = 0, fromY = 0, displayName = null) {
-    const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
-    cardUseEffects.push({
-        cardId, icon: cfg ? cfg.icon : '🃏', name: displayName || (cfg ? cfg.name : cardId),
-        x, y, fromX, fromY, isLocal,
-        startTime: performance.now(),
-        duration: 1600,
-        phaseDuration: 600,
-        pauseDuration: 500
-    });
-}
-
-// ===== 亡灵法师——魂卒召回黑烟特效 =====================
-export const soulRecallEffects = [];
-
-// 返回落地时间戳（供 unit._soulRecallLandAt 使用）
-export function spawnSoulRecallEffect(fromX, fromY, toX, toY) {
-    const startTime = performance.now();
-    const dur = 900;
-    soulRecallEffects.push({ fromX, fromY, toX, toY, startTime, duration: dur, landFrac: 0.92 });
-    return startTime + dur * 0.92;
-}
-
-// ===== 空袭特效 =====================
-export const airstrikeEffects = [];
-
-export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null) {
-    airstrikeEffects.push({
-        x: cx, y: cy, q, r, results, type,
-        startTime: performance.now(),
-        duration: type === 'diveStrafe' ? 1500 : 2000
-    });
-}
-
-// ===== E4 空运特效（运输机飞抵 → 降落伞投放 → 单位落地时才现身） =====================
-export const airliftEffects = [];
-export const AIRLIFT_MS = 1500;
-export const AIRLIFT_LAND_FRAC = 0.82; // 单位在总时长的此比例处落地现身
-
-// 返回“单位落地时间戳”，调用方应据此设置 unit._airliftLandAt（落地前隐藏单位）
-export function spawnAirliftEffect(fromX, fromY, toX, toY, opts = {}) {
-    const startTime = performance.now();
-    airliftEffects.push({
-        fromX, fromY, toX, toY,
-        q: opts.q, r: opts.r,
-        color: opts.color || '#8ab4ff',
-        startTime, duration: AIRLIFT_MS, landFrac: AIRLIFT_LAND_FRAC
-    });
-    return startTime + AIRLIFT_MS * AIRLIFT_LAND_FRAC;
-}
-
-// ===== 圣骑士誓言金色光束（从天而降） =====================
+// ===== 圣骑士誓言金色光束 =====
 export const goldenBeams = [];
 
 export function spawnGoldenBeam(x, y) {
@@ -1160,78 +997,19 @@ export function spawnGoldenBeam(x, y) {
         segments.push({ x1: sx, y1: sy, x2: ex, y2: ey });
     }
     goldenBeams.push({
-        x, y,
-        segments,
+        x, y, segments,
         startTime: performance.now(),
         duration: 700
     });
-    // 落地金色粒子
-    const n = Math.round(20 * settings.particleDensity);
-    for (let i = 0; i < n; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = 30 + Math.random() * 100;
-        particles.push(new VisualParticle(
-            x + (Math.random() - 0.5) * 12,
-            y,
-            Math.cos(angle) * speed,
-            Math.sin(angle) * speed * 0.6 - 30 - Math.random() * 50,
-            Math.random() < 0.3 ? '#ffffff' : (Math.random() < 0.5 ? '#ffedaa' : '#ffd700'),
-            2 + Math.random() * 3.5,
-            0.3 + Math.random() * 0.5,
-            60 + Math.random() * 100
-        ));
-    }
 }
 
-export function updateGoldenBeams(now) {
-    for (let i = goldenBeams.length - 1; i >= 0; i--) {
-        if (now - goldenBeams[i].startTime > goldenBeams[i].duration) {
-            goldenBeams.splice(i, 1);
-        }
-    }
-}
-
-export function drawGoldenBeams(ctx2d, now) {
-    for (const b of goldenBeams) {
-        const elapsed = now - b.startTime;
-        const alpha = elapsed < 80 ? elapsed / 80 : Math.max(0, 1 - (elapsed - 80) / (b.duration - 80));
-        ctx2d.save();
-        ctx2d.globalAlpha = alpha;
-        // 外层金色辉光
-        ctx2d.strokeStyle = '#ffd700';
-        ctx2d.lineWidth = 5;
-        ctx2d.shadowColor = '#ffd700';
-        ctx2d.shadowBlur = 18;
-        ctx2d.beginPath();
-        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-        ctx2d.stroke();
-        // 中层亮金
-        ctx2d.strokeStyle = '#ffee88';
-        ctx2d.lineWidth = 2.5;
-        ctx2d.shadowColor = '#ffee88';
-        ctx2d.shadowBlur = 8;
-        ctx2d.beginPath();
-        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-        ctx2d.stroke();
-        // 核心白线
-        ctx2d.strokeStyle = '#ffffff';
-        ctx2d.lineWidth = 1.2;
-        ctx2d.shadowBlur = 0;
-        ctx2d.beginPath();
-        ctx2d.moveTo(b.segments[0].x1, b.segments[0].y1);
-        for (const seg of b.segments) ctx2d.lineTo(seg.x2, seg.y2);
-        ctx2d.stroke();
-        ctx2d.restore();
-    }
-}
-
-// ===== 圣骑士至圣斩环绕光束 =====
+// ===== 圣骑士誓言剑环绕 =====
 export const paladinOrbitBeams = [];
 
 export function spawnPaladinOrbitBeams(unitId, x, y, count) {
-    clearPaladinOrbitBeams(unitId);
+    for (let i = paladinOrbitBeams.length - 1; i >= 0; i--) {
+        if (paladinOrbitBeams[i].unitId === unitId) paladinOrbitBeams.splice(i, 1);
+    }
     for (let i = 0; i < count; i++) {
         paladinOrbitBeams.push({
             unitId, x, y,
@@ -1246,268 +1024,7 @@ export function spawnPaladinOrbitBeams(unitId, x, y, count) {
 
 export function clearPaladinOrbitBeams(unitId) {
     for (let i = paladinOrbitBeams.length - 1; i >= 0; i--) {
-        if (paladinOrbitBeams[i].unitId === unitId) {
-            paladinOrbitBeams.splice(i, 1);
-        }
-    }
-}
-
-export function updatePaladinOrbitBeams(now, getUnitPos) {
-    for (let i = paladinOrbitBeams.length - 1; i >= 0; i--) {
-        const b = paladinOrbitBeams[i];
-        const pos = getUnitPos ? getUnitPos(b.unitId) : null;
-        if (!pos) {
-            paladinOrbitBeams.splice(i, 1);
-            continue;
-        }
-        b.x = pos.x;
-        b.y = pos.y;
-        b.angle += b.orbitSpeed * 0.016;
-    }
-}
-
-function _drawOrbitSword(ctx2d, b, now) {
-    const elapsed = (now - b.startTime) / 1000;
-    const cx = b.x + Math.cos(b.angle) * b.orbitRadius;
-    const cy = b.y + Math.sin(b.angle) * b.orbitRadius * 0.5 - Math.sin(elapsed * 1.8) * 6;
-    const hw = b.size * 0.16;
-    const bladeLen = b.size * 0.85;
-    const tipY = cy + bladeLen * 0.55;
-    const guardY = cy - bladeLen * 0.15;
-    const pommelY = cy - bladeLen * 0.45;
-
-    ctx2d.save();
-    ctx2d.shadowColor = '#ffd700';
-    ctx2d.shadowBlur = 10;
-
-    // blade — tapered polygon pointing down
-    ctx2d.fillStyle = '#ffd700';
-    ctx2d.beginPath();
-    ctx2d.moveTo(cx, tipY);
-    ctx2d.lineTo(cx + hw, guardY + hw * 0.4);
-    ctx2d.lineTo(cx + hw * 0.5, guardY);
-    ctx2d.lineTo(cx + hw * 0.3, pommelY);
-    ctx2d.lineTo(cx - hw * 0.3, pommelY);
-    ctx2d.lineTo(cx - hw * 0.5, guardY);
-    ctx2d.lineTo(cx - hw, guardY + hw * 0.4);
-    ctx2d.closePath();
-    ctx2d.fill();
-
-    // crossguard
-    ctx2d.fillStyle = '#ffe055';
-    ctx2d.fillRect(cx - hw * 1.4, guardY - hw * 0.25, hw * 2.8, hw * 0.5);
-
-    ctx2d.shadowBlur = 0;
-
-    // core bright line (no shadow)
-    ctx2d.fillStyle = '#ffffff';
-    ctx2d.beginPath();
-    ctx2d.moveTo(cx, tipY - hw * 0.3);
-    ctx2d.lineTo(cx + hw * 0.12, guardY + hw * 0.15);
-    ctx2d.lineTo(cx, guardY - hw * 0.1);
-    ctx2d.lineTo(cx - hw * 0.12, guardY + hw * 0.15);
-    ctx2d.closePath();
-    ctx2d.fill();
-
-    // pommel
-    ctx2d.beginPath();
-    ctx2d.arc(cx, pommelY, hw * 0.5, 0, Math.PI * 2);
-    ctx2d.fill();
-
-    ctx2d.restore();
-    return { cx, cy, unitY: b.y };
-}
-
-function _drawOrbitSwordsPass(ctx2d, now, pass) {
-    for (const b of paladinOrbitBeams) {
-        const elapsed = (now - b.startTime) / 1000;
-        const cy = b.y + Math.sin(b.angle) * b.orbitRadius * 0.5 - Math.sin(elapsed * 1.8) * 6;
-        // back pass: sword center above unit center (behind badge)
-        // front pass: sword center at or below unit center (in front of badge)
-        const isFront = cy >= b.y;
-        if ((pass === 'front') !== isFront) continue;
-        _drawOrbitSword(ctx2d, b, now);
-    }
-}
-
-export function drawPaladinOrbitBeamsBack(ctx2d, now) {
-    _drawOrbitSwordsPass(ctx2d, now, 'back');
-}
-
-export function drawPaladinOrbitBeamsFront(ctx2d, now) {
-    _drawOrbitSwordsPass(ctx2d, now, 'front');
-}
-
-export function drawPaladinOrbitBeams(ctx2d, now) {
-    _drawOrbitSwordsPass(ctx2d, now, 'front');
-}
-
-// ===== 圣骑士至圣斩光束弹射 =====
-export const paladinBeamProjectiles = [];
-
-export function spawnPaladinBeamProjectiles(fromX, fromY, toX, toY, count) {
-    for (let i = 0; i < count; i++) {
-        const angleOff = (i - (count - 1) / 2) * 0.35;
-        paladinBeamProjectiles.push({
-            fromX, fromY, toX, toY,
-            angleOff,
-            startTime: performance.now(),
-            duration: 280,
-            impactSpawned: false
-        });
-    }
-}
-
-// 将环绕剑从轨道位置发射到目标（返回每把剑的位置数据用于联机同步）
-export function launchPaladinOrbitSwords(unitId, targetX, targetY, count) {
-    const datas = [];
-    for (let i = paladinOrbitBeams.length - 1; i >= 0 && datas.length < count; i--) {
-        if (paladinOrbitBeams[i].unitId === unitId) {
-            const b = paladinOrbitBeams[i];
-            const n = performance.now();
-            const elapsed = (n - b.startTime) / 1000;
-            const cx = b.x + Math.cos(b.angle) * b.orbitRadius;
-            const cy = b.y + Math.sin(b.angle) * b.orbitRadius * 0.5 - Math.sin(elapsed * 1.8) * 6;
-            datas.push({ fromX: cx, fromY: cy, toX: targetX, toY: targetY });
-            paladinOrbitBeams.splice(i, 1);
-        }
-    }
-    // 生成弹射剑
-    for (let i = 0; i < datas.length; i++) {
-        const d = datas[i];
-        const angleOff = (i - (datas.length - 1) / 2) * 0.35;
-        paladinBeamProjectiles.push({
-            fromX: d.fromX, fromY: d.fromY,
-            toX: d.toX, toY: d.toY,
-            angleOff,
-            startTime: performance.now(),
-            duration: 280,
-            impactSpawned: false
-        });
-    }
-    return datas;
-}
-
-export function updatePaladinBeamProjectiles(now) {
-    for (let i = paladinBeamProjectiles.length - 1; i >= 0; i--) {
-        const p = paladinBeamProjectiles[i];
-        const elapsed = now - p.startTime;
-        if (elapsed > p.duration + 300) {
-            paladinBeamProjectiles.splice(i, 1);
-        }
-    }
-}
-
-export function drawPaladinBeamProjectiles(ctx2d, now) {
-    for (const p of paladinBeamProjectiles) {
-        const elapsed = now - p.startTime;
-        const t = Math.min(1, Math.max(0, elapsed / p.duration));
-        const eased = 1 - Math.pow(1 - t, 2);
-
-        const dx = p.toX - p.fromX;
-        const dy = p.toY - p.fromY;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const baseAngle = Math.atan2(dy, dx);
-        const flightAngle = baseAngle + p.angleOff * (1 - t);
-
-        const curX = p.fromX + dx * eased;
-        const curY = p.fromY + dy * eased - Math.sin(t * Math.PI) * dist * 0.12;
-        const s = 26; // sword size
-
-        // 尾迹粒子
-        const trailLen = 6;
-        for (let j = 0; j < trailLen; j++) {
-            const backT = Math.max(0, t - (0.015 + j * 0.04));
-            if (backT <= 0) continue;
-            const backEased = 1 - Math.pow(1 - backT, 2);
-            const tx = p.fromX + dx * backEased;
-            const ty = p.fromY + dy * backEased - Math.sin(backT * Math.PI) * dist * 0.12;
-            const trailAlpha = 0.5 - j * 0.07;
-            if (trailAlpha <= 0) continue;
-            ctx2d.save();
-            ctx2d.globalAlpha = trailAlpha;
-            ctx2d.fillStyle = j <= 1 ? '#ffffff' : '#ffd700';
-            ctx2d.shadowColor = '#ffd700';
-            ctx2d.shadowBlur = 6;
-            ctx2d.beginPath();
-            ctx2d.arc(tx, ty, 2.5 - j * 0.25, 0, Math.PI * 2);
-            ctx2d.fill();
-            ctx2d.restore();
-        }
-
-        // 飞行剑 — 剑尖朝向目标
-        ctx2d.save();
-        ctx2d.translate(curX, curY);
-        ctx2d.rotate(flightAngle);
-        const hw = s * 0.16;
-        const bladeLen = s * 0.85;
-        const tipX = bladeLen * 0.55;
-        const guardX = -bladeLen * 0.15;
-        const pommelX = -bladeLen * 0.45;
-
-        ctx2d.shadowColor = '#ffd700';
-        ctx2d.shadowBlur = 10;
-        ctx2d.fillStyle = '#ffd700';
-        ctx2d.beginPath();
-        ctx2d.moveTo(tipX, 0);
-        ctx2d.lineTo(guardX + hw * 0.4, -hw);
-        ctx2d.lineTo(guardX, -hw * 0.5);
-        ctx2d.lineTo(pommelX, -hw * 0.3);
-        ctx2d.lineTo(pommelX, hw * 0.3);
-        ctx2d.lineTo(guardX, hw * 0.5);
-        ctx2d.lineTo(guardX + hw * 0.4, hw);
-        ctx2d.closePath();
-        ctx2d.fill();
-
-        // crossguard
-        ctx2d.fillStyle = '#ffe055';
-        ctx2d.fillRect(guardX - hw * 0.25, -hw * 1.4, hw * 0.5, hw * 2.8);
-
-        ctx2d.shadowBlur = 0;
-
-        // core line (no shadow)
-        ctx2d.fillStyle = '#ffffff';
-        ctx2d.beginPath();
-        ctx2d.moveTo(tipX - hw * 0.3, 0);
-        ctx2d.lineTo(guardX + hw * 0.15, -hw * 0.15);
-        ctx2d.lineTo(guardX - hw * 0.1, 0);
-        ctx2d.lineTo(guardX + hw * 0.15, hw * 0.15);
-        ctx2d.closePath();
-        ctx2d.fill();
-
-        // pommel (same fillStyle white, no extra shadow)
-        ctx2d.beginPath();
-        ctx2d.arc(pommelX, 0, hw * 0.5, 0, Math.PI * 2);
-        ctx2d.fill();
-
-        ctx2d.restore();
-
-        // 命中目标
-        if (t >= 0.88 && !p.impactSpawned) {
-            p.impactSpawned = true;
-            const n = Math.round(14 * settings.particleDensity);
-            for (let k = 0; k < n; k++) {
-                const a = Math.random() * Math.PI * 2;
-                const spd = 60 + Math.random() * 180;
-                particles.push(new VisualParticle(
-                    p.toX, p.toY,
-                    Math.cos(a) * spd,
-                    Math.sin(a) * spd * 0.7 - 30 - Math.random() * 40,
-                    Math.random() < 0.3 ? '#ffffff' : '#ffd700',
-                    1.5 + Math.random() * 3,
-                    0.2 + Math.random() * 0.4,
-                    80 + Math.random() * 120
-                ));
-            }
-            // 小闪光
-            attackFlashes.push({
-                x: p.toX, y: p.toY,
-                startTime: performance.now(),
-                duration: 200,
-                maxRadius: HEX_SIZE * 1.1,
-                isCrit: false
-            });
-        }
+        if (paladinOrbitBeams[i].unitId === unitId) paladinOrbitBeams.splice(i, 1);
     }
 }
 
@@ -1517,71 +1034,45 @@ export const healingChains = [];
 export function spawnHealingChain(fromX, fromY, toX, toY) {
     healingChains.push({
         fromX, fromY, toX, toY,
-        startTime: performance.now(),
-        duration: 600
+        startTime: performance.now(), duration: 600
     });
-    // 起点绿色粒子
-    for (let i = 0; i < 8; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = 30 + Math.random() * 50;
-        particles.push(new VisualParticle(
-            fromX, fromY,
-            Math.cos(angle) * speed,
-            Math.sin(angle) * speed - 20,
-            '#88ffcc', 2 + Math.random() * 2.5, 0.4 + Math.random() * 0.4, -10
-        ));
-    }
-    // 终点绿色粒子
-    for (let i = 0; i < 8; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = 30 + Math.random() * 50;
-        particles.push(new VisualParticle(
-            toX, toY,
-            Math.cos(angle) * speed,
-            Math.sin(angle) * speed - 20,
-            '#66ffaa', 2 + Math.random() * 2.5, 0.4 + Math.random() * 0.4, -10
-        ));
-    }
 }
 
-export function updateHealingChains(now) {
-    for (let i = healingChains.length - 1; i >= 0; i--) {
-        if (now - healingChains[i].startTime > healingChains[i].duration) {
-            healingChains.splice(i, 1);
-        }
-    }
+// ===== 亡灵法师——魂卒召回黑烟特效 =====
+export const soulRecallEffects = [];
+
+export function spawnSoulRecallEffect(fromX, fromY, toX, toY) {
+    const startTime = performance.now();
+    const dur = 900;
+    soulRecallEffects.push({ fromX, fromY, toX, toY, startTime, duration: dur, landFrac: 0.92 });
+    return startTime + dur * 0.92;
 }
 
-export function drawHealingChains(ctx2d, now) {
-    for (const c of healingChains) {
-        const elapsed = now - c.startTime;
-        const progress = Math.min(1, elapsed / c.duration);
-        const alpha = progress < 0.2 ? progress / 0.2 : Math.max(0, 1 - (progress - 0.2) / 0.8);
+// ===== 空袭特效 =====
+export const airstrikeEffects = [];
 
-        ctx2d.save();
-        ctx2d.globalAlpha = alpha;
+export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null) {
+    airstrikeEffects.push({
+        x: cx, y: cy, q, r, results, type,
+        startTime: performance.now(),
+        duration: type === 'diveStrafe' ? 1500 : 2000
+    });
+}
 
-        // 绿色光束
-        ctx2d.strokeStyle = '#66ffaa';
-        ctx2d.lineWidth = 3;
-        ctx2d.shadowColor = '#44dd88';
-        ctx2d.shadowBlur = 12;
-        ctx2d.beginPath();
-        ctx2d.moveTo(c.fromX, c.fromY);
-        ctx2d.lineTo(c.toX, c.toY);
-        ctx2d.stroke();
+// ===== E4 空运特效 =====
+export const airliftEffects = [];
+export const AIRLIFT_MS = 1500;
+export const AIRLIFT_LAND_FRAC = 0.82;
 
-        // 核心亮线
-        ctx2d.strokeStyle = '#bbffdd';
-        ctx2d.lineWidth = 1.2;
-        ctx2d.shadowBlur = 0;
-        ctx2d.beginPath();
-        ctx2d.moveTo(c.fromX, c.fromY);
-        ctx2d.lineTo(c.toX, c.toY);
-        ctx2d.stroke();
-
-        ctx2d.restore();
-    }
+export function spawnAirliftEffect(fromX, fromY, toX, toY, opts = {}) {
+    const startTime = performance.now();
+    airliftEffects.push({
+        fromX, fromY, toX, toY,
+        q: opts.q, r: opts.r,
+        color: opts.color || '#8ab4ff',
+        startTime, duration: AIRLIFT_MS, landFrac: AIRLIFT_LAND_FRAC
+    });
+    return startTime + AIRLIFT_MS * AIRLIFT_LAND_FRAC;
 }
 
 // ===== 清除所有瞬时效果（用于联机重连状态恢复） =====================
@@ -1601,20 +1092,20 @@ export function clearTransientEffects() {
     projectiles.length = 0;
     recoils.length = 0;
     charges.length = 0;
-    bloodDrains.length = 0;
     lightningBolts.length = 0;
+    screenShake.time = 0;
+    cardUseEffects.length = 0;
+    bloodDrains.length = 0;
     gongxinRipples.length = 0;
     ministerRings.length = 0;
     coinParticles.length = 0;
+    paladinBeamProjectiles.length = 0;
     goldenBeams.length = 0;
     paladinOrbitBeams.length = 0;
-    paladinBeamProjectiles.length = 0;
     healingChains.length = 0;
-    screenShake.time = 0;
-    cardUseEffects.length = 0;
+    soulRecallEffects.length = 0;
     airstrikeEffects.length = 0;
     airliftEffects.length = 0;
-    soulRecallEffects.length = 0;
     screenShake.x = 0;
     screenShake.y = 0;
     turnFlash.alpha = 0;
