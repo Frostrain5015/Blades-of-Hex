@@ -4,7 +4,7 @@ import { CAMP, hexDistance, HEX_NEIGHBORS } from '../js/config.js';
 
 export const DRONE_MAX_COUNT = 2;
 export const DRONE_SIGNAL_RANGE = 5;
-export const DRONE_DEPLOY_RANGE = 2;
+export const DRONE_DEPLOY_RANGE = 1;
 export const DRONE_DEPLOY_COST = 5;
 export const DRONE_HP = 75;
 export const DRONE_ATK = 25;

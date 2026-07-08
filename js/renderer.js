@@ -1327,8 +1327,11 @@ function drawRangeApertures(now) {
                 if (!tile.unit) continue;
             } else if (ct.targeting === 'shieldTarget') {
                 if (!tile.unit) continue;
-            } else if (ct.targeting === 'emptyTile') {
+            } else if (ct.cardId === 'drone_deploy') {
                 if (tile.unit) continue;
+                const _ty = gameState.tiles.reduce((f, tx) => f || (tx.unit && tx.unit.commander === 'tianyan' && tx.unit.camp === myCamp && tx.unit.hp > 0 ? tx.unit : null), null);
+                if (!_ty || hexDistance(_ty.tile, tile) > 1) continue;
+            } else if (ct.targeting === 'emptyTile') {
             } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
                 if (tile.unit || tile.isCity || tile.terrain === 'mountain' || tile.camp !== myCamp) continue;
             } else if (ct.targeting === 'emptyFriendlyLandmine') {
