@@ -110,6 +110,12 @@ function _handleCardCanvasClick(e) {
             if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
                 notify('本回合已达到使用上限', 'error'); return;
             }
+            // E4 空军上校：显示当前增伤层数
+            if (COLONEL_CARDS[cardId] && gameState._colonelAirStacks) {
+                const _campKey3 = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
+                const _stk = gameState._colonelAirStacks[_campKey3] || 0;
+                if (_stk > 0) notify(`✈️ 空军熟练度 Lv.${_stk}（+${_stk * 10}%伤害）`);
+            }
             // E4 空军上校：进入选目标前先校验部署/金币/雾天，避免卡在选目标态
             if (COLONEL_CARDS[cardId]) {
                 if (!gameState._colonelDeployed || !gameState._colonelDeployed[campKey]) { notify('请先部署空军上校', 'error'); return; }

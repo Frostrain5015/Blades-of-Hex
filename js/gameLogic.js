@@ -2147,8 +2147,16 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             }
         }
         if (_colUnit) {
-            // 通用空军增伤：所有空军卡 +35%伤害（②增伤乘区）
-            const airBonus = 0.35;
+            // 通用空军增伤：每使用1张卡+10%（②增伤乘区，上限4层）
+            if (gameState._colonelAirStacks) {
+                if (gameState._colonelAirStacks[campKey] == null) gameState._colonelAirStacks[campKey] = 0;
+                if (gameState._colonelAirStacks[campKey] < 4) {
+                    gameState._colonelAirStacks[campKey]++;
+                    logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[campKey] * 10}%/上限40%`);
+                }
+            }
+            const _stacks = gameState._colonelAirStacks?.[campKey] || 0;
+            const airBonus = 0.10 * Math.min(_stacks, 4);
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
                 // 扫射·弱点打击：目标HP<50%时无视其25%防御力（满血目标无破甲）
                 const _hpRatio2 = targetTile.unit.hp / targetTile.unit.maxHp;
@@ -2196,6 +2204,14 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     gameState.playerGold[aCampKey] = (gameState.playerGold[aCampKey] || 0) - aGoldCost;
     gameState.playerUsesThisTurn[aCampKey] = (gameState.playerUsesThisTurn[aCampKey] || 0) + 1;
     logMessage(`空军上校消耗${aGoldCost}$`);
+    // 上校空军卡叠层
+    if (gameState._colonelAirStacks) {
+        if (gameState._colonelAirStacks[aCampKey] == null) gameState._colonelAirStacks[aCampKey] = 0;
+        if (gameState._colonelAirStacks[aCampKey] < 4) {
+            gameState._colonelAirStacks[aCampKey]++;
+            logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[aCampKey] * 10}%/上限40%`);
+        }
+    }
     const fromTile = airUnit.tile;
     fromTile.unit = null;
     targetTile.unit = airUnit;
@@ -2215,6 +2231,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     gameState.cardTargeting = null;
     hideTargetingBanner();
     updateUI();
+    // 空降城市 → 占领
+    if (targetTile.isCity && targetTile.camp !== myCamp) {
+        updateDistrictColor(targetTile, myCamp, airUnit);
+        spawnExplosionParticles(targetTile.x, targetTile.y, '#ffd700', 12);
+    }
     recalcAllFlankingMorale();
     if (gameState.skirmishFog) _updateSkirmishFogAll();
     broadcastAction('tacticalCard', { cardId: 'airlift', unitId: airUnit.id, x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r, fromX: fromTile.x, fromY: fromTile.y });

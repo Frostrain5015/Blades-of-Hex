@@ -58,7 +58,8 @@ export const gameState = {
     _starlightResume: false, // E1: 星移锁定结束后强制重新随机天气
     _cardOverrides: {},   // E3: 纵横家合纵卡牌覆盖 { campKey: { handSizeBonus, useBonus } }
     _soulMarks: [],       // E2: 亡灵法师亡魂标记 [{ q, r, campKey, bornAt }]
-    _colonelDeployed: {}, // E4: 上校部署标记 { campKey: bool }
+    _colonelDeployed: {},
+    _colonelAirStacks: {}, // E4: 上校部署标记 { campKey: bool }
     // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
     // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
     // 使联机收方与重连保持一致。详见 core/rng.js。
