@@ -139,6 +139,34 @@ const _heroReadyPromise = new Promise(res => { _heroReadyResolve = res; });
 function _signalHeroReady() { if (_heroReadyResolve) { _heroReadyResolve(); _heroReadyResolve = null; } }
 // 首屏立绘就绪后再撤下加载遮罩（避免露出空图占位）；最长兜底 4s 防图片异常卡住
 let _loadingDismissed = false;
+// URL 训练场模式：/?trainer=<commanderKey> 直接进入对局
+function _checkTrainerUrl() {
+    const p = new URLSearchParams(location.search);
+    const cmd = p.get('trainer');
+    if (!cmd || !COMMANDER_CONFIG[cmd]) return;
+    // 清除 URL 参数
+    const u = new URL(location.href);
+    u.searchParams.delete('trainer');
+    window.history.replaceState({}, '', u);
+    // 直接启动 PVE 训练场对局
+    gameState.gameMode = 'training';
+    gameState.skirmishFog = false;
+    gameState.aiOpponentCamp = CAMP.player2;
+    gameState.aiDifficulty = 1.0;
+    gameState._trainingMode = true;
+    gameState.commanderP1 = cmd;
+    gameState.commanderP1Confirmed = true;
+    gameState.commanderP1Deployed = false;
+    // AI 随机选将
+    const allKeys = Object.keys(COMMANDER_CONFIG).filter(k => k !== cmd);
+    const aiPick = allKeys[Math.floor(Math.random() * allKeys.length)];
+    gameState.commanderP2 = aiPick;
+    gameState.commanderP2Confirmed = true;
+    gameState.commanderP2Deployed = false;
+    logMessage(`训练场模式：自选 ${COMMANDER_CONFIG[cmd].name} vs ${COMMANDER_CONFIG[aiPick].name}`);
+    beginTrainingCountdown();
+}
+
 function _dismissLoadingWhenReady() {
     if (_loadingDismissed) return;
     _loadingDismissed = true;
@@ -813,6 +841,44 @@ let _chatLastSendTime = 0;
 const CHAT_COOLDOWN = 500;
 const _chatUnread = { room: 0, player1: 0, player2: 0, player3: 0 };
 let _chatDragStartX = 0, _chatDragStartY = 0, _chatDragOrigX = 0, _chatDragOrigY = 0, _chatDragging = false;
+
+function beginTrainingCountdown() {
+    _stopHeroCarousel();
+    document.getElementById('lobbyOverlay').style.display = 'none';
+    _deploymentStarted = false;
+    resetGameState();
+    gameState.gameMode = 'training';
+    gameState.skirmishFog = false;
+    gameState.aiOpponentCamp = CAMP.player2;
+    gameState.aiDifficulty = 1.0;
+    gameState._trainingMode = true;
+    gameState.commanderPhase = 'done';
+    gameState.commanderP1Deployed = false;
+    gameState.commanderP2Deployed = false;
+    // 3秒倒计时后开始
+    const overlay = document.getElementById('commanderOverlay');
+    overlay.classList.remove('show');
+    document.getElementById('gameWrapper').style.display = '';
+    const cb = document.getElementById('turnTransitionText');
+    let count = 3;
+    cb.textContent = '训练场 - ' + count;
+    cb.style.color = '#ffd700';
+    document.getElementById('turnTransition').classList.add('show');
+    const timer = setInterval(() => {
+        count--;
+        if (count > 0) { cb.textContent = '训练场 - ' + count; }
+        else {
+            clearInterval(timer);
+            document.getElementById('turnTransition').classList.remove('show');
+            initMap();
+            grantTurnStartIncome(CAMP.player1);
+            _onCommanderSelected('player1');
+            _onCommanderSelected('player2');
+            updateUI();
+            renderGame();
+        }
+    }, 1000);
+}
 
 // 初始化大厅：设置 _activeLobbyView、注册 BGM 交互监听、同步静音按钮
 // 延迟到连接完成后执行，避免连接完成前闪出主页

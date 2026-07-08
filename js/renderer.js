@@ -13,6 +13,8 @@ import {
     commanderSkillEffects, commanderFlash,
     factionMoraleFlash,
     drawProjectiles, updateProjectiles,
+    droneProjectiles, updateDroneProjectiles, drawDroneProjectiles,
+    droneSuicideFlak, updateDroneSuicideFlak, drawDroneSuicideFlak,
     lightningBolts, updateLightningBolts, drawLightningBolts,
     cardUseEffects,
     spawnCardCopyEffect,
@@ -358,6 +360,12 @@ export function renderGame() {
     // 炮弹飞行特效
     updateProjectiles(now);
     drawProjectiles(ctx, now);
+    // 无人机弹道
+    updateDroneProjectiles(now);
+    drawDroneProjectiles(ctx, now);
+    // 无人机自爆AA弹流
+    updateDroneSuicideFlak(now);
+    drawDroneSuicideFlak(ctx, now);
 
     // ── 将领特效图层：projectiles（通用弹道之后；至圣斩弹射飞剑）──
     drawFxLayer('projectiles', ctx, now);

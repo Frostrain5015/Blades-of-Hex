@@ -1110,6 +1110,7 @@ export function initSettingsPanel() {
             // 天眼无人机部署：进入选位模式
             if (unit._pendingDroneDeploy) {
                 unit._pendingDroneDeploy = false;
+                clearselection();
                 showTargetingBanner('选择部署位置（周围2格空地）', '点击空地部署无人机');
                 gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1 };
                 updateUI();

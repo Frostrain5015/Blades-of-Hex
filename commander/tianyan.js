@@ -48,7 +48,7 @@ export function deployDrone(tianyanUnit, targetTile, helpers) {
     const campKey = _campToKey(tianyanUnit.camp);
 
     if (hexDistance(tianyanUnit.tile, targetTile) > DRONE_DEPLOY_RANGE) {
-        helpers.logMessage('超出部署范围（2格）');
+        helpers.logMessage('超出部署范围（1格）');
         return null;
     }
     if (!_isValidDeployTile(targetTile)) {
