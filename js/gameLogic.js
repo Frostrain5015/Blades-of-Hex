@@ -2144,16 +2144,16 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             }
         }
         if (_colUnit) {
-            // 通用空军增伤：所有空军卡 +30%伤害（②增伤乘区）
-            const airBonus = 0.30;
+            // 通用空军增伤：所有空军卡 +35%伤害（②增伤乘区）
+            const airBonus = 0.35;
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
-                // 扫射：额外无视25%防御力（破甲）；目标HP<50%时斩杀+30%
+                // 扫射·弱点打击：目标HP<50%时无视其25%防御力（满血目标无破甲）
                 const _hpRatio2 = targetTile.unit.hp / targetTile.unit.maxHp;
-                const _execBonus = _hpRatio2 < 0.5 ? 0.30 : 0;
-                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus + _execBonus, false, false, true, 0.25);
+                const _pierce = _hpRatio2 < 0.5 ? 0.25 : 0;
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, _pierce);
                 result.dmg = Math.round(_calc.dmg);
                 result.isCrit = _calc.isCrit;
-                if (_execBonus > 0) logMessage(`目标生命值低于50%，触发斩杀！`);
+                if (_pierce > 0) logMessage(`目标生命值低于50%，触发弱点打击（破甲25%）！`);
             } else if (cardId === 'carpetBomb' && result.results) {
                 for (const _r of result.results) {
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;

@@ -1,7 +1,7 @@
 // 停滞者 —— 迟滞力场（统一被动）
 // 2格范围内：
 //   1. 敌军移动消耗额外+2/步（缚足）
-//   2. 友军单位对远程攻击防御力+15%
+//   2. 友军单位对远程攻击（炮兵/要塞/空军）防御力+25%（单层；对空时作为防空层计入，不与力场叠加）
 const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 
 const RANGE2 = (() => {
@@ -24,7 +24,7 @@ export default {
   name: '停滞者',
   skill: '迟滞力场',
   hpBonusPct: 0.30, atkBonusPct: 0.20, spdBonus: 0,
-  desc: '自身2格范围内敌人每步移动力消耗+2，范围内友军单位对远程攻击防御+15%',
+  desc: '自身2格范围内敌人每步移动力消耗+2，范围内友军单位对远程攻击（炮兵/要塞/空军）防御+25%（单层，与自身防空层不叠加）',
 
   // ── 缚足：返回该地块对 friendlyCamp 的束缚层数（0=无效果） ──
   getSnareLayers(tile, friendlyCamp, tileMap) {
@@ -64,7 +64,7 @@ export default {
     return 0;
   },
 
-  // ── 力场防御：检查友军是否在2格内己方停滞者力场中（对远程攻击+15%防御） ──
+  // ── 力场防御：检查友军是否在2格内己方停滞者力场中（对远程攻击+25%防御） ──
   isInField(tile, friendlyCamp, tileMap) {
     if (!tile || !tileMap) return false;
     for (let d = 0; d <= 2; d++) {

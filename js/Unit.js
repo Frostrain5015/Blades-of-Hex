@@ -813,8 +813,10 @@ export class Unit {
         defSum += getCommanderDefenseBonus(defender);
         // 魔术师·千面：被克制目标攻击时受伤降低15%
         if (defender.commander === 'magician' && counterCoeff > 1) defSum += 0.15;
-        // 停滞者力场：2格内友军停滞者 → 对远程攻击(炮兵/要塞)防御 +15%（保持不变）
-        if ((attacker.type === 'archer' || attacker.type === 'mgNest') && _gameState && _gameState.tileMap) {
+        // 停滞者力场：2格内友军停滞者 → 对远程攻击(炮兵/要塞)防御 +25%（单层）
+        // 空军伤害(isAirDamage)不走此分支：停滞者已作为防空层在下方计入 +25%，
+        // 否则炮兵载体的上校空军卡会被同一个停滞者叠加 15%+25% 双重加防
+        if (!isAirDamage && (attacker.type === 'archer' || attacker.type === 'mgNest') && _gameState && _gameState.tileMap) {
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
             let hasStaller = false;
@@ -823,7 +825,7 @@ export class Unit {
                 if (!nb || !nb.unit || nb.unit.camp !== defender.camp) continue;
                 if (nb.unit.commander === 'staller') { hasStaller = true; break; }
             }
-            if (hasStaller) defSum += 0.15;        // 停滞者力场：+15%
+            if (hasStaller) defSum += 0.25;        // 停滞者力场：+25%
         }
         // 防空火力：2格内友军 炮兵/要塞/停滞者单位 → 仅对空军(上校空军卡)伤害 +25%/层（封顶2层=50%）
         if (isAirDamage && _gameState && _gameState.tileMap) {
