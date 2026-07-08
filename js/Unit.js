@@ -361,7 +361,7 @@ export class Unit {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', mgNest: '🏰' };
-            if (this._isDrone) glyphs.infantry = '✈';
+            if (this._isDrone) glyphs.infantry = '';
         ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
 
         // ── Ring HP bar ──

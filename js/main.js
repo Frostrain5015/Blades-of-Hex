@@ -610,12 +610,6 @@ document.getElementById('rematchBtn').addEventListener('click', () => {
         document.body.style.pointerEvents = '';
         gameState.aiOpponentCamp = CAMP.player2;
         beginPVECommanderPhase('player1');
-    } else if (sel1 === 'training') {
-        gameState.gameMode = 'training';
-        gameState.skirmishFog = isSkirmish;
-        gameState.aiOpponentCamp = CAMP.player2;
-        gameState.aiDifficulty = 1.0;
-        beginTrainingCommanderPhase('player1');
     } else {
         // 本地模式：清除胜利遮罩，重新走骰子→选将→部署→对局
         const overlay = document.getElementById('victoryOverlay');
@@ -713,7 +707,6 @@ function _showPrepDialog(action) {
         const diffSection = document.getElementById('prepSectionDiff');
         _buildPrepOptionRow('prepOptions1', [
             { id: 'pve', title: 'PVE 对战AI', desc: '红军 vs 蓝军AI' },
-            { id: 'training', title: '训练场', desc: '自选将领 vs AI' },
             { id: 'local', title: '本地双人', desc: '两位玩家轮流' }
         ]);
         _buildPrepOptionRow('prepOptions2', [
@@ -1176,8 +1169,12 @@ function _showTrainingCommanderSelection(forPlayer) {
         tl.to(_deckEl2, { opacity: 1, scale: 1, duration: 0.3, ease: "power2.out" }, lastDealEnd + 0.05);
         tl.call(() => {
             cardDatas.forEach(({ el }) => {
-                gsap.set(el, { clearProps: "transform,opacity" });
                 const inner = el.querySelector(".commander-card-inner");
+                const revealBack = inner.querySelector(".cmdr-reveal-back");
+                const persistent = inner.querySelector(".cmdr-persistent");
+                revealBack.style.display = "none";
+                persistent.style.display = "";
+                gsap.set(el, { clearProps: "transform,opacity" });
                 gsap.set(inner, { clearProps: "transform" });
                 el.classList.remove("animating");
             });

@@ -1024,7 +1024,8 @@ function drawCounterText() {
     gameState.attackableTiles.forEach(tile => {
         const targetUnit = tile.unit;
         if (!targetUnit) return;
-
+        // 无人机无克制关系
+        if (gameState.selectedUnit._isDrone) return;
         const counterCoeff = COUNTER_RELATION[gameState.selectedUnit.type][targetUnit.type];
         let text = '';
         let color = '';
