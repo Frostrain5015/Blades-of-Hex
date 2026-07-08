@@ -745,6 +745,12 @@ function _executePrepChoice() {
         const diff = _getPrepSelection('prepOptionsDiff');
         gameState.aiDifficulty = diff === 'medium' ? 1.5 : diff === 'hard' ? 2.0 : 1.0;
         beginPVECommanderPhase('player1');
+    } else if (sel1 === 'training') {
+        gameState.gameMode = 'training';
+        gameState.skirmishFog = isSkirmish;
+        gameState.aiOpponentCamp = CAMP.player2;
+        gameState.aiDifficulty = 1.0;
+        beginTrainingCommanderPhase('player1');
     } else {
         gameState.gameMode = isSkirmish ? 'skirmish' : 'local';
         gameState.skirmishFog = isSkirmish;
