@@ -1,5 +1,6 @@
 import { HEX_SIZE, ctx, hexPath, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, getCommanderWeatherDebuff, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
+import { DRONE_ATK } from '../commander/tianyan.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -734,6 +735,10 @@ export class Unit {
     // ① 攻击力乘区：基础面板 ×（1+「攻击力提高xx%」）+「攻击力+xx」固定加成
     //    百分比只作用于基础面板；士气不乘入攻击力，走 _resolveDamage 的增伤乘区
     getEffectiveAttack() {
+        if (this._isDrone) {
+            const auraAtk = getCommanderAuraAttackBonus(this);
+            return Math.round(DRONE_ATK * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this));
+        }
         const auraAtk = getCommanderAuraAttackBonus(this);
         return Math.round(this.config.attack * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this));
     }
@@ -783,7 +788,7 @@ export class Unit {
     //   ④ 防御（层内加算后 1-Σ）：地形/守城/兵种/军衔/士气/将领/灵光，「防御力提高xx%」
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
                    isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0) {
-        const counterCoeff = COUNTER_RELATION[attacker.type][defender.type];
+        const counterCoeff = attacker._isDrone ? 1 : COUNTER_RELATION[attacker.type][defender.type];
 
         // ② 增伤乘区
         let dmgUp = extraBonus;
@@ -875,6 +880,20 @@ export class Unit {
     calculateDamage(targetUnit) {
         const gs = _gameState;
 
+        // 无人机机枪射击：走标准四大乘区，空军伤害（受防空减免），无克制关系
+        if (this._isDrone) {
+            const result = this._resolveDamage(this, targetUnit, 1, 0, false, false, true);
+            gs.damageTexts.push({
+                x: targetUnit.tile.x,
+                y: targetUnit.tile.y,
+                value: result.dmg,
+                isCrit: result.isCrit,
+                timeLeft: 900,
+                lastUpdate: performance.now()
+            });
+            return result;
+        }
+
         // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高10%（上限30%），雾天额外+5%/格
         // moveDistance 随回合重置，势能回合结束消失
         const chargeRate = gs && gs.weather === 'fog' ? 0.15 : 0.10;
@@ -902,6 +921,10 @@ export class Unit {
         const gs = _gameState;
 
         if (this.counterAttackCount >= 1 || this.morale === 0) {
+            return { dmg: 0, isCrit: false };
+        }
+        // 无人机攻击地面单位时，地面单位无法反击
+        if (attackerUnit && attackerUnit._isDrone && !this._isDrone) {
             return { dmg: 0, isCrit: false };
         }
         // 反击可达性：攻击者必须落在防守方自身射程内才能还击
@@ -1144,8 +1167,12 @@ export class Unit {
 
     // 普攻/反击入口（保留旧签名，内部转入 applyDamage）
     takeDamage(dmg, attackerUnit, _skipAura = false) {
-        const source = !attackerUnit ? 'true'
-            : (attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') ? 'ranged' : 'melee';
+        let source = 'true';
+        if (attackerUnit) {
+            if (attackerUnit._isDrone) source = 'ranged';
+            else if (attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') source = 'ranged';
+            else source = 'melee';
+        }
         return this.applyDamage(dmg, { source, attacker: attackerUnit, skipAura: _skipAura });
     }
 

@@ -8,9 +8,10 @@ import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } fr
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
-    executeTacticalCard, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
+    executeTacticalCard, executeDroneSuicide, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
     isColonelTargetBlocked
 } from './gameLogic.js';
+import { deployDrone } from '../commander/tianyan.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 import { setMasterVolume, setMuted } from './audio.js';
@@ -259,8 +260,10 @@ function showTooltipForTile(tile) {
 
     if (unit) {
         const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵' };
-        let headerText = `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}`;
-        if (unit.commander) {
+        let headerText = unit._isDrone
+            ? `${unit.camp.name}·无人机`
+            : `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}`;
+        if (unit.commander && !unit._isDrone) {
             const cmdCfgHdr = getCommander(unit.commander);
             if (cmdCfgHdr) headerText += ` ${cmdCfgHdr.name}`;
         }
@@ -295,7 +298,7 @@ function showTooltipForTile(tile) {
         tooltipHpBar.style.display = '';
 
         const effAtk = unit.getEffectiveAttack();
-        const baseAtk = unit.config.attack;
+        const baseAtk = unit._isDrone ? 25 : unit.config.attack;
         const atkDelta = effAtk - baseAtk;
         if (atkDelta !== 0) {
             const sign = atkDelta > 0 ? '+' : '';
@@ -318,8 +321,12 @@ function showTooltipForTile(tile) {
         } else {
             tooltipDef.innerHTML = `<span style="color:#888;">🛡 0%</span>`;
         }
-        tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${unit.remainingMP}/${unit.config.speed}</span>`;
-        tooltipRng.innerHTML = `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
+        tooltipSpd.innerHTML = unit._isDrone
+            ? `<span style="color:#6cf;">⚡ ${unit.remainingMP}/${8}</span>`
+            : `<span style="color:#6cf;">⚡ ${unit.remainingMP}/${unit.config.speed}</span>`;
+        tooltipRng.innerHTML = unit._isDrone
+            ? `<span style="color:#f8a;">📡 ${2}</span>`
+            : `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
         // 主动技能冷却剩余 → ⌛ 在属性栏
         const cdRounds = unit.getCooldownRounds();
         if (cdRounds > 0) {
@@ -354,10 +361,17 @@ function showTooltipForTile(tile) {
 
         // ==== 技能区 ====
         let skillHtml = '';
-        const def = PASSIVE_DEFS[unit.type];
-        if (def) {
-            const isActive = def.active(unit);
-            skillHtml = `<span class="${isActive ? 'tooltip-passive-active' : 'tooltip-passive-inactive'}">【${def.name}】${def.desc}</span>`;
+        if (unit._isDrone) {
+            skillHtml = `<span style="color:#88ccff;">【无人机】HP ${unit.maxHp}/ATK ${baseAtk}/MP 8/射程 2。行动力消耗2（无视地形）。</span>`;
+            if (unit._disoriented) {
+                skillHtml += `<br><span style="color:#ff6666;">【混乱】已超出天眼信号范围，无法操控</span>`;
+            }
+        } else {
+            const def = PASSIVE_DEFS[unit.type];
+            if (def) {
+                const isActive = def.active(unit);
+                skillHtml = `<span class="${isActive ? 'tooltip-passive-active' : 'tooltip-passive-inactive'}">【${def.name}】${def.desc}</span>`;
+            }
         }
         if (unit.commander) {
             const cmdCfg2 = getCommander(unit.commander);
@@ -555,28 +569,37 @@ function showTooltipForTile(tile) {
 
     // ==== 主动技能按钮 ====
     const skillBtn = document.getElementById('tooltipActiveSkill');
-    if (unit && unit.commander && unit.camp === gameState.currentCamp) {
-        const cmdCfgS = getCommander(unit.commander);
-        if (cmdCfgS && cmdCfgS.activeSkill) {
-            const skill = cmdCfgS.activeSkill;
-            const onCD = unit.activeSkillCD > 0;
-            const isActive = unit.activeSkillDur > 0;
-            const noFaith = unit.commander === 'paladin' && unit._faith < 1 && !unit._smiteReady;
-            const noFaithUpgrade = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged && unit._faith < 1;
-            const smiteFull = unit.commander === 'paladin' && unit._smiteReady && unit._smiteCharged;
-            const canUse = !onCD && !isActive && unit.canAct && !unit.isNewRecruit && !noFaith && !noFaithUpgrade && !smiteFull;
-            // 按钮文字：已蓄1层时显示「至圣斩·誓约」引导玩家升级
-            if (unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged) {
-                skillBtn.textContent = '至圣斩·誓约';
-            } else {
-                skillBtn.textContent = skill.name;
-            }
+    if (unit && unit.camp === gameState.currentCamp && (unit.commander || unit._isDrone)) {
+        if (unit._isDrone) {
+            const canUse = unit.canAct && !unit._disoriented && unit.hp > 0;
+            skillBtn.textContent = '自爆';
             skillBtn.style.display = 'block';
             skillBtn.disabled = !canUse;
-            skillBtn.className = 'tooltip-skill-btn' + (onCD ? ' on-cooldown' : '');
+            skillBtn.className = 'tooltip-skill-btn';
             skillBtn.dataset.unitId = unit.id;
         } else {
-            skillBtn.style.display = 'none';
+            const cmdCfgS = getCommander(unit.commander);
+            if (cmdCfgS && cmdCfgS.activeSkill) {
+                const skill = cmdCfgS.activeSkill;
+                const onCD = unit.activeSkillCD > 0;
+                const isActive = unit.activeSkillDur > 0;
+                const noFaith = unit.commander === 'paladin' && unit._faith < 1 && !unit._smiteReady;
+                const noFaithUpgrade = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged && unit._faith < 1;
+                const smiteFull = unit.commander === 'paladin' && unit._smiteReady && unit._smiteCharged;
+                const canUse = !onCD && !isActive && unit.canAct && !unit.isNewRecruit && !noFaith && !noFaithUpgrade && !smiteFull;
+                // 按钮文字：已蓄1层时显示「至圣斩·誓约」引导玩家升级
+                if (unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged) {
+                    skillBtn.textContent = '至圣斩·誓约';
+                } else {
+                    skillBtn.textContent = skill.name;
+                }
+                skillBtn.style.display = 'block';
+                skillBtn.disabled = !canUse;
+                skillBtn.className = 'tooltip-skill-btn' + (onCD ? ' on-cooldown' : '');
+                skillBtn.dataset.unitId = unit.id;
+            } else {
+                skillBtn.style.display = 'none';
+            }
         }
     } else {
         skillBtn.style.display = 'none';
@@ -767,19 +790,19 @@ export function initInput() {
                 if (ct.cardId === 'drone_deploy') {
                     const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
                     if (!tianyanUnit) { notify('天眼已阵亡', 'error'); cancelCardTargeting(); return; }
-                    if (hexDistance(tianyanUnit.tile, clickedTile) > 2) { notify('超出部署范围（2格）', 'error'); return; }
-                    // 创建无人机
-                    const drone = new Unit('infantry', myCamp, clickedTile, false);
-                    drone._isDrone = true;
-                    drone._droneCampKey = campKey;
-                    drone._disoriented = false;
-                    drone.maxHp = 50;
-                    drone.hp = 50;
-                    drone._atkBonus = 25;
-                    drone.getEffectiveAttack = function() { return 25; };
-                    drone.remainingMP = 8;
-                    drone.canAct = true;
-                    notify('无人机已部署');
+                    const drone = deployDrone(tianyanUnit, clickedTile, { gameState, Unit, logMessage: logMessage || notify, spawnFx: spawnCommanderSkillEffect });
+                    if (drone) {
+                        gameState.cardTargeting = null;
+                        hideTargetingBanner();
+                        updateUI();
+                    }
+                    return;
+                }
+                // 无人机自爆
+                if (ct.cardId === 'drone_suicide') {
+                    const drone = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.id === ct.droneId ? t.unit : null), null);
+                    if (!drone || !drone._isDrone) { notify('无人机无效', 'error'); cancelCardTargeting(); return; }
+                    executeDroneSuicide(drone, clickedTile);
                     gameState.cardTargeting = null;
                     hideTargetingBanner();
                     updateUI();
@@ -1060,7 +1083,16 @@ export function initSettingsPanel() {
             const unitId = parseInt(activeSkillBtn.dataset.unitId);
             if (!unitId || isNaN(unitId)) return;
             const unit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === unitId ? t.unit : null), null);
-            if (!unit || !unit.commander || unit.activeSkillCD > 0 || unit.activeSkillDur > 0) return;
+            if (!unit) return;
+            // 无人机自爆
+            if (unit._isDrone) {
+                if (!unit.canAct || unit._disoriented) return;
+                showTargetingBanner('选择自爆目标（3格内）', '点击敌方单位或空地，对主目标及身后1格造成穿刺伤害');
+                gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id };
+                updateUI();
+                return;
+            }
+            if (!unit.commander || unit.activeSkillCD > 0 || unit.activeSkillDur > 0) return;
             const cmdCfg = getCommander(unit.commander);
             if (!cmdCfg || !cmdCfg.activeSkill) return;
             const skill = cmdCfg.activeSkill;

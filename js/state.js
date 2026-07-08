@@ -641,7 +641,11 @@ export function serializeState() {
             smiteReady: t.unit._smiteReady || false,
             smiteCharged: t.unit._smiteCharged || false,
             healingAura: t.unit._healingAura || 0,
-            activeSkillBuffs: t.unit._activeSkillBuffs || null
+            activeSkillBuffs: t.unit._activeSkillBuffs || null,
+            isDrone: t.unit._isDrone || false,
+            disoriented: t.unit._disoriented || false,
+            droneCampKey: t.unit._droneCampKey || null,
+            droneBornAt: t.unit._droneBornAt || 0
         } : null
     }));
 
@@ -888,6 +892,10 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._smiteCharged = td.unit.smiteCharged || false;
             unit._healingAura = td.unit.healingAura || 0;
             unit._activeSkillBuffs = td.unit.activeSkillBuffs || null;
+            unit._isDrone = td.unit.isDrone || false;
+            unit._disoriented = td.unit.disoriented || false;
+            unit._droneCampKey = td.unit.droneCampKey || null;
+            unit._droneBornAt = td.unit.droneBornAt || 0;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {
                 const saved = oldCommander.get(unit.id);

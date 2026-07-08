@@ -580,6 +580,147 @@ function spawnCannonImpact(x, y, isCrit) {
     }
 }
 
+// ===== 无人机机枪弹道（比防空曳光弹更醒目） =====================
+export const droneProjectiles = [];
+
+export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const duration = Math.min(160, 80 + dist * 0.2);
+    droneProjectiles.push({
+        fromX, fromY, toX, toY, dist,
+        startTime: performance.now(),
+        duration,
+        isCrit,
+        impactSpawned: false,
+        onImpact: onImpact || null
+    });
+    spawnDroneMuzzleFlash(fromX, fromY, toX, toY, isCrit);
+}
+
+function spawnDroneMuzzleFlash(x, y, toX, toY, isCrit) {
+    const ang = Math.atan2(toY - y, toX - x);
+    const mx = x + Math.cos(ang) * 8, my = y + Math.sin(ang) * 8;
+    // 中心白热闪
+    particles.push(new VisualParticle(mx, my, 0, 0, '#fff8e6', isCrit ? 10 : 7, 0.10, 0));
+    // 更粗壮的火花锥
+    const n = particleCount(isCrit ? 14 : 10);
+    for (let i = 0; i < n; i++) {
+        const a = ang + (Math.random() - 0.5) * 1.0;
+        const sp = 180 + Math.random() * 300;
+        particles.push(new VisualParticle(
+            mx, my, Math.cos(a) * sp, Math.sin(a) * sp,
+            Math.random() < 0.5 ? '#fff' : (isCrit ? '#ffdd55' : '#ffaa44'),
+            2.5 + Math.random() * 3, 0.12 + Math.random() * 0.18, 45
+        ));
+    }
+}
+
+export function updateDroneProjectiles(now) {
+    for (let i = droneProjectiles.length - 1; i >= 0; i--) {
+        const p = droneProjectiles[i];
+        const elapsed = now - p.startTime;
+        if (!p.impactSpawned && elapsed >= p.duration) {
+            p.impactSpawned = true;
+            if (p.onImpact) p.onImpact();
+            // 机炮命中火花
+            spawnExplosionParticles(p.toX, p.toY, '#ffaa33', p.isCrit ? 18 : 12);
+            droneProjectiles.splice(i, 1);
+        }
+    }
+}
+
+export function drawDroneProjectiles(ctx2d, now) {
+    for (const p of droneProjectiles) {
+        const elapsed = now - p.startTime;
+        const t = Math.min(1, Math.max(0, elapsed / p.duration));
+        if (t >= 1) continue;
+
+        const hx = p.fromX + (p.toX - p.fromX) * t;
+        const hy = p.fromY + (p.toY - p.fromY) * t;
+        const tailT = Math.max(0, t - 0.22);
+        const tx = p.fromX + (p.toX - p.fromX) * tailT;
+        const ty = p.fromY + (p.toY - p.fromY) * tailT;
+
+        ctx2d.save();
+        ctx2d.lineCap = 'round';
+        // 外辉：更亮更粗，金黄色（比AA火力更醒目）
+        ctx2d.strokeStyle = p.isCrit ? '#ff5522' : '#ff8800';
+        ctx2d.shadowColor = p.isCrit ? '#ff2200' : '#ffaa00';
+        ctx2d.shadowBlur = p.isCrit ? 12 : 9;
+        ctx2d.lineWidth = p.isCrit ? 7 : 5;
+        ctx2d.beginPath();
+        ctx2d.moveTo(tx, ty);
+        ctx2d.lineTo(hx, hy);
+        ctx2d.stroke();
+        // 内芯：白热
+        ctx2d.shadowBlur = 0;
+        ctx2d.strokeStyle = p.isCrit ? '#fff8d0' : '#fff0b0';
+        ctx2d.lineWidth = p.isCrit ? 2.5 : 2;
+        ctx2d.beginPath();
+        ctx2d.moveTo(tx, ty);
+        ctx2d.lineTo(hx, hy);
+        ctx2d.stroke();
+        ctx2d.restore();
+    }
+}
+
+// ===== 无人机自爆：AA 子弹流（从无人机射向目标，模拟防空火力） =====================
+export const droneSuicideFlak = [];
+
+export function spawnDroneSuicideFlak(fromX, fromY, targetX, targetY) {
+    droneSuicideFlak.push({
+        fromX, fromY, targetX, targetY,
+        startTime: performance.now(),
+        duration: 700,
+        seed: (fromX | 0) * 7 + (targetY | 0) * 13
+    });
+}
+
+export function updateDroneSuicideFlak(now) {
+    for (let i = droneSuicideFlak.length - 1; i >= 0; i--) {
+        if (now - droneSuicideFlak[i].startTime > droneSuicideFlak[i].duration) {
+            droneSuicideFlak.splice(i, 1);
+        }
+    }
+}
+
+export function drawDroneSuicideFlak(ctx2d, now) {
+    for (const fx of droneSuicideFlak) {
+        const elapsed = now - fx.startTime;
+        const t = elapsed / fx.duration;
+        if (t >= 1) continue;
+        const dx = fx.targetX - fx.fromX;
+        const dy = fx.targetY - fx.fromY;
+        const seed = fx.seed;
+        for (let tr = 0; tr < 4; tr++) {
+            const phase = (t * 7 + tr * 0.4 + seed * 0.02) % 1;
+            const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
+            const tx = fx.fromX + dx * tp;
+            const ty = fx.fromY + dy * tp;
+            const ta = 0.9 * (1 - tp);
+            ctx2d.save();
+            ctx2d.shadowColor = 'rgba(255,200,60,0.8)';
+            ctx2d.shadowBlur = 6;
+            ctx2d.fillStyle = `rgba(255,230,120,${ta})`;
+            ctx2d.beginPath();
+            ctx2d.arc(tx, ty, 2.2 + (1 - tp) * 2, 0, Math.PI * 2);
+            ctx2d.fill();
+            if (tp < 0.6) {
+                ctx2d.shadowBlur = 2;
+                ctx2d.strokeStyle = `rgba(255,220,80,${ta * 0.55})`;
+                ctx2d.lineWidth = 1.5;
+                ctx2d.beginPath();
+                ctx2d.moveTo(tx, ty);
+                ctx2d.lineTo(tx - dx * 0.05, ty - dy * 0.05);
+                ctx2d.stroke();
+            }
+            ctx2d.restore();
+        }
+    }
+}
+
 // ===== 单位后坐力（炮兵开火时向后微振） =====================
 export const recoils = [];
 
