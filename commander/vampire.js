@@ -36,6 +36,11 @@ export default {
     if (dmg <= 0) return null;
     const healAmt = this._getHeal(dmg, helpers.rng);
     helpers.spawnFx(attacker.tile.x, attacker.tile.y);
+    // 吸血粒子流（由 commander 钩子自行触发，不再由 gameLogic 硬编码）
+    const isTargetDead = helpers.isTargetDead;
+    const bloodDestX = (isTargetDead && helpers.attackerType !== 'archer') ? helpers.targetTile.x : helpers.attackerTile.x;
+    const bloodDestY = (isTargetDead && helpers.attackerType !== 'archer') ? helpers.targetTile.y : helpers.attackerTile.y;
+    helpers.spawnBloodDrain(helpers.targetTile.x, helpers.targetTile.y, bloodDestX, bloodDestY);
     return this._applyHealAndShield(attacker, healAmt, helpers);
   },
 
@@ -43,6 +48,8 @@ export default {
     if (dmg <= 0) return null;
     const healAmt = this._getHeal(dmg, helpers.rng);
     helpers.spawnFx(target.tile.x, target.tile.y);
+    // 反击吸血粒子流
+    helpers.spawnBloodDrain(attacker.tile.x, attacker.tile.y, target.tile.x, target.tile.y);
     return this._applyHealAndShield(target, healAmt, helpers);
   }
 };

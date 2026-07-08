@@ -31,6 +31,7 @@ export default {
       enemy.canAct = false;
       enemy._gongxinStacks = 0;
       helpers.spawnFx(enemy.tile.x, enemy.tile.y);
+      helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, true);
       helpers.logMessage(`谋士【攻心】感化：${enemy.config.name}兵转为${source.camp.name}阵营`);
       return { moraleDropped: false, converted: true };
     }
@@ -46,6 +47,7 @@ export default {
     enemy.morale = Math.max(0, enemy.morale - 1);
 
     helpers.spawnFx(enemy.tile.x, enemy.tile.y);
+    helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, false);
     return { moraleDropped: true };
   },
 
