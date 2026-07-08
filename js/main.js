@@ -791,6 +791,16 @@ function _executePrepChoice() {
 document.getElementById('soloGameBtn').addEventListener('click', () => _showPrepDialog('solo'));
 
 // ==== 多人游戏 → 直接连接服务器进大厅 ====
+
+
+document.getElementById('trainingBtn').addEventListener('click', () => {
+    gameState.gameMode = 'training';
+    gameState.skirmishFog = false;
+    gameState.aiOpponentCamp = CAMP.player2;
+    gameState.aiDifficulty = 1.0;
+    beginTrainingCommanderPhase('player1');
+});
+
 document.getElementById('multiplayerBtn').addEventListener('click', () => {
     if (isNetworkGame() || connectionDot.classList.contains('connected')) {
         registerNetworkCallbacks();
