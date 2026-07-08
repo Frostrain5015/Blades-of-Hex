@@ -1054,8 +1054,54 @@ function _showTrainingCommanderSelection(forPlayer) {
         cardsDiv.appendChild(card);
     }
 
-    _prepDeckAnimation(cardDatas, statusDiv, overlay);
-
+    // 显示牌堆
+    const deckEl = document.getElementById("commanderDeck");
+    deckEl.style.display = "block";
+    deckEl.style.opacity = "0";
+    deckEl.style.transform = "translate(-50%, -50%) scale(0.8)";
+    overlay.classList.add("show");
+    const CARD_W = 180, CARD_H = 260;
+    requestAnimationFrame(() => {
+        const containerW = cardsDiv.clientWidth;
+        const containerH = Math.max(cardsDiv.clientHeight, CARD_H);
+        const container = cardsDiv;
+        const totalSlots = cardDatas.length;
+        const gap = 16;
+        const totalW = totalSlots * CARD_W + (totalSlots - 1) * gap;
+        const startX = (containerW - totalW) / 2;
+        const startY = (containerH - CARD_H) / 2;
+        const tl = gsap.timeline();
+        const dealDuration = 0.55;
+        const dealStagger = 0.10;
+        cardDatas.forEach(({ el }, i) => {
+            const x = startX + i * (CARD_W + gap);
+            const y = startY;
+            gsap.set(el, { x, y, opacity: 0, scale: 0.6 });
+            tl.to(el, { opacity: 1, scale: 1, duration: dealDuration, ease: "back.out(1.5)" }, i * dealStagger);
+        });
+        const lastDealEnd = (cardDatas.length - 1) * dealStagger + dealDuration;
+        const flipBase = lastDealEnd + 0.12;
+        const flipStagger = 0.24;
+        tl.to(statusDiv, { opacity: 1, duration: 0.4, ease: "power2.out" }, flipBase);
+        cardDatas.forEach(({ el }, i) => {
+            const inner = el.querySelector(".commander-card-inner");
+            const revealBack = inner.querySelector(".cmdr-reveal-back");
+            const persistent = inner.querySelector(".cmdr-persistent");
+            const st = flipBase + i * flipStagger;
+            tl.to(inner, { scaleX: 0.01, duration: 0.15, ease: "power2.in" }, st);
+            tl.call(() => { revealBack.style.display = "none"; persistent.style.display = ""; }, null, st + 0.15);
+            tl.to(inner, { scaleX: 1, duration: 0.15, ease: "power2.out" }, st + 0.15);
+        });
+        tl.to(deckEl, { opacity: 1, scale: 1, duration: 0.4, ease: "power2.out" }, lastDealEnd + 0.05);
+        tl.call(() => {
+            cardDatas.forEach(({ el }) => {
+                gsap.set(el, { clearProps: "transform,opacity" });
+                const inner = el.querySelector(".commander-card-inner");
+                gsap.set(inner, { clearProps: "transform" });
+                el.classList.remove("animating");
+            });
+        }, null, "+=");
+    });
     // Click handler
     cardsDiv.addEventListener('click', function _handler(e) {
         const cardEl = e.target.closest('.commander-card');
@@ -1130,7 +1176,7 @@ function _showCommanderSelection(forPlayer) {
                 `<div class="cmdr-reveal-back"></div>` +
                 `<div class="cmdr-persistent" style="display:none">` +
                     `<div class="cmdr-face-portrait">` +
-                        `<img src="img/commander/${cfg.name}.webp" class="cmdr-portrait-full" />` +
+                        `<img src="img/commander/${cfg.name}.jpg" class="cmdr-portrait-full" />` +
                         `<div class="cmdr-portrait-label">${cfg.name}</div>` +
                     `</div>` +
                     `<div class="cmdr-face-details">` +
