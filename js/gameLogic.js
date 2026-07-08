@@ -2,7 +2,7 @@
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
@@ -13,11 +13,13 @@ import {
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
     spawnProjectile, triggerRecoil, triggerCharge,
-    spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
+    spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
-    spawnCoinRain, spawnMinisterDominionRing, spawnCardUseEffect, spawnAirstrikeEffect,
+    spawnCoinRain, spawnMinisterDominionRing,
+    spawnCardUseEffect, spawnAirstrikeEffect, spawnAirliftEffect,
     spawnGoldenBeam, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords, spawnPaladinOrbitBeams,
-    spawnHealingChain, spawnReinforceEffect, spawnCardCopyEffect, spawnAirliftEffect
+    spawnHealingChain,
+    spawnReinforceEffect, spawnCardCopyEffect
 } from './effects.js';
 import { playSound } from './audio.js';
 import { updateFogOfWar, isTileVisible, applyScoutReveal, expireScoutReveals } from './fogOfWar.js';
@@ -1385,25 +1387,16 @@ export function attackUnit(attackerUnit, targetUnit) {
         }
         logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（强击）' : ''}`);
 
-        // 将领攻击效果（吸血鬼嗜血、谋士攻心等）
+        // 将领攻击效果（吸血鬼嗜血、谋士攻心等）—— 视觉特效由 commander 钩子自行触发
         _atkCmdFxCapture = null;
-        atkCmdResult = triggerCommanderOnAttack(attackerUnit, targetUnit, attackResult.dmg, attackResult.isCrit);
+        atkCmdResult = triggerCommanderOnAttackEx(attackerUnit, targetUnit, attackResult.dmg, attackResult.isCrit, isTargetDead);
         if (atkCmdResult) {
             if (atkCmdResult.healAmt) {
                 _healAmtRemote = atkCmdResult.healAmt; _healX = attackerUnit.tile.x; _healY = attackerUnit.tile.y;
             }
-            if (attackerUnit.commander === 'vampire') {
-                const bloodDestX = (isTargetDead && attackerUnit.type !== 'archer') ? toX : fromX;
-                const bloodDestY = (isTargetDead && attackerUnit.type !== 'archer') ? toY : fromY;
-                spawnBloodDrain(toX, toY, bloodDestX, bloodDestY);
-            }
             if (atkCmdResult.moraleDropped) {
-                if (attackerUnit.commander === 'advisor') spawnGongxinRipple(toX, toY, false);
                 spawnMoraleEffect(targetUnit);
                 _moraleFxUnitId = targetUnit.id;
-            }
-            if (atkCmdResult.converted) {
-                if (attackerUnit.commander === 'advisor') spawnGongxinRipple(toX, toY, true);
             }
             if (atkCmdResult.smiteDmg) {
                 // 至圣斩真伤数字（金色真实伤害样式）
@@ -1451,16 +1444,9 @@ export function attackUnit(attackerUnit, targetUnit) {
                 }
                 _atkCmdFxCapture = null;
                 ctrCmdResult = triggerCommanderOnCounterAttack(attackerUnit, targetUnit, counterResult.dmg);
-                if (ctrCmdResult && targetUnit.commander === 'vampire') {
-                    spawnBloodDrain(attackerUnit.tile.x, attackerUnit.tile.y, targetUnit.tile.x, targetUnit.tile.y);
-                }
                 if (ctrCmdResult?.moraleDropped) {
-                    if (targetUnit.commander === 'advisor') spawnGongxinRipple(attackerUnit.tile.x, attackerUnit.tile.y, false);
                     spawnMoraleEffect(attackerUnit);
                     _ctrMoraleFxUnitId = attackerUnit.id;
-                }
-                if (ctrCmdResult?.converted) {
-                    if (targetUnit.commander === 'advisor') spawnGongxinRipple(attackerUnit.tile.x, attackerUnit.tile.y, true);
                 }
                 _ctrCmdFxData = _atkCmdFxCapture;
             }

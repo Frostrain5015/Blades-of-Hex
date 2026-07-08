@@ -15,6 +15,10 @@ let _spawnBeamProjectiles = null;
 let _launchOrbitSwords = null;
 let _spawnHealingChain = null;
 
+// 将领专属视觉特效延迟引用（由 main.js 通过 setter 注入；headless 下不注入即为 no-op）
+let _spawnBloodDrain = null;
+let _spawnGongxinRipple = null;
+
 export function setGameStateRef(fn) { _gameState = fn; }
 export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setSpawnFxRef(fn) { _spawnFx = fn; }
@@ -24,6 +28,8 @@ export function setClearOrbitBeamsRef(fn) { _clearOrbitBeams = fn; }
 export function setSpawnBeamProjectilesRef(fn) { _spawnBeamProjectiles = fn; }
 export function setLaunchOrbitSwordsRef(fn) { _launchOrbitSwords = fn; }
 export function setSpawnHealingChainRef(fn) { _spawnHealingChain = fn; }
+export function setSpawnBloodDrainRef(fn) { _spawnBloodDrain = fn; }
+export function setSpawnGongxinRippleRef(fn) { _spawnGongxinRipple = fn; }
 
 // ---- 内部辅助 ----
 
@@ -90,7 +96,16 @@ function _helpers(cmdId) {
       _spawnMoraleEffectDirect(unit);
     },
     findCommanderUnit: _findCommanderUnit,
-    changeUnitCamp
+    changeUnitCamp,
+    // 将领专属视觉特效（由 commander 自身 onAttack/onKill 等钩子调用）
+    spawnBloodDrain: (toX, toY, fromX, fromY) => {
+      const fn = _spawnBloodDrain || ((a, b, c, d) => {});
+      fn(toX, toY, fromX, fromY);
+    },
+    spawnGongxinRipple: (x, y, intense = false) => {
+      const fn = _spawnGongxinRipple || ((a, b, c) => {});
+      fn(x, y, intense);
+    },
   };
 }
 
@@ -151,11 +166,31 @@ export function triggerCommanderOnAttack(attacker, target, dmg, isCrit = false) 
   return null;
 }
 
+/** triggerCommanderOnAttack 的增强版，包含击杀状态，供 gameLogic 调用 */
+export function triggerCommanderOnAttackEx(attacker, target, dmg, isCrit, isTargetDead) {
+  if (!attacker.commander) return null;
+  const cmd = getCommander(attacker.commander);
+  if (cmd && cmd.onAttack) {
+    const h = _helpers(attacker.commander);
+    h.isCrit = isCrit;
+    h.isTargetDead = isTargetDead;
+    h.attackerType = attacker.type;
+    h.targetTile = target.tile;
+    h.attackerTile = attacker.tile;
+    return cmd.onAttack(attacker, target, dmg, h);
+  }
+  return null;
+}
+
 export function triggerCommanderOnCounterAttack(attacker, target, dmg) {
   if (!target.commander) return null;
   const cmd = getCommander(target.commander);
   if (cmd && cmd.onCounterAttack) {
-    return cmd.onCounterAttack(attacker, target, dmg, _helpers(target.commander));
+    const h = _helpers(target.commander);
+    h.attackerType = target.type;
+    h.targetTile = attacker.tile;
+    h.attackerTile = target.tile;
+    return cmd.onCounterAttack(attacker, target, dmg, h);
   }
   return null;
 }

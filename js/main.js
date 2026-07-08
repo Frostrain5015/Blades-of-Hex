@@ -3,7 +3,7 @@ import { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../comma
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
-import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, getCommander } from './commanderInterface.js';
+import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
 import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents } from './input.js';
@@ -32,6 +32,7 @@ import { isTileVisible } from './fogOfWar.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
 import { playSound, initAudio, setMuted, startBattleBGM, stopBattleBGM, stopLobbyBGM } from './audio.js';
+import { loadCommanderFx } from './commanderFx.js';
 import './cheat.js';
 
 loadSettings();
@@ -49,6 +50,10 @@ setClearOrbitBeamsRef(clearPaladinOrbitBeams);
 setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
 setLaunchOrbitSwordsRef(launchPaladinOrbitSwords);
 setSpawnHealingChainRef(spawnHealingChain);
+
+// 将领专属视觉特效 ref 注入（供 commander 钩子通过 helpers 调用；headless 不注入即 no-op）
+setSpawnBloodDrainRef(spawnBloodDrain);
+setSpawnGongxinRippleRef(spawnGongxinRipple);
 
 // ==== 自适应布局 ====
 function fitCanvas() {
@@ -1640,6 +1645,9 @@ function startGame() {
     stopLobbyBGM();
     stopBattleBGM();
 
+    // 按需加载本局将领视觉特效模块（在倒计时前发起，3秒窗口内完成动态 import）
+    loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 加载失败:', err));
+
     // 3秒全屏倒计时
     _runCountdown(() => {
         preloadPortraits();
@@ -2065,6 +2073,8 @@ async function handleRemoteAction(msg) {
             console.log('[重连] 卡牌状态: drawPile=' + gameState.cardDrawPile.length + '，discard=' + gameState.cardDiscardPile.length + '，p1Hand=' + gameState.playerHands.player1.length + '，p2Hand=' + gameState.playerHands.player2.length);
             // 重连恢复后重建顶栏布局（isThreePlayer 已由 applyRemoteState 恢复）
             applyTopbarLayout();
+            // 重连后按恢复的双方将领装载视觉特效模块
+            loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 重连加载失败:', err));
             // 初始同步时创建圣骑士环绕剑
             for (const tile of gameState.tiles) {
                 if (tile.unit && tile.unit.commander === 'paladin') {
@@ -2091,6 +2101,7 @@ async function handleRemoteAction(msg) {
     }
 
     applyRemoteState(msg.state, HexTile, Unit);
+    loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
     updateUI(); // 远程状态同步后刷新UI（资金、统计面板、招募费用等）
     renderGame(); // 强制立即重绘画布，不等下一帧
 
