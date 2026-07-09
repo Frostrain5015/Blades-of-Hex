@@ -15,6 +15,7 @@ import {
     drawProjectiles, updateProjectiles,
     droneProjectiles, updateDroneProjectiles, drawDroneProjectiles,
     droneSuicideFlak, updateDroneSuicideFlak, drawDroneSuicideFlak,
+    droneDives, updateDroneDives, drawDroneDives,
     lightningBolts, updateLightningBolts, drawLightningBolts,
     cardUseEffects,
     spawnCardCopyEffect,
@@ -363,9 +364,12 @@ export function renderGame() {
     // 无人机弹道
     updateDroneProjectiles(now);
     drawDroneProjectiles(ctx, now);
-    // 无人机自爆AA弹流
+    // 无人机自爆AA子弹流
     updateDroneSuicideFlak(now);
     drawDroneSuicideFlak(ctx, now);
+    // 无人机自爆俯冲
+    updateDroneDives(now);
+    drawDroneDives(ctx, now);
 
     // ── 将领特效图层：projectiles（通用弹道之后；至圣斩弹射飞剑）──
     drawFxLayer('projectiles', ctx, now);

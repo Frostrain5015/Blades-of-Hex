@@ -637,8 +637,8 @@ export function updateDroneProjectiles(now) {
         if (!p.impactSpawned && elapsed >= p.duration) {
             p.impactSpawned = true;
             if (p.onImpact) p.onImpact();
-            // 机炮命中火花
-            spawnExplosionParticles(p.toX, p.toY, '#ffaa33', p.isCrit ? 18 : 12);
+            // 机炮命中火花（缩减，更像枪弹点射）
+            spawnExplosionParticles(p.toX, p.toY, '#ffaa33', p.isCrit ? 8 : 5);
             droneProjectiles.splice(i, 1);
         }
     }
@@ -737,6 +737,113 @@ export function drawDroneSuicideFlak(ctx2d, now) {
             }
             ctx2d.restore();
         }
+    }
+}
+
+// ===== 无人机自爆：带徽章的无人机棋子飞向目标 =====================
+export const droneDives = [];
+
+export function spawnDroneDive(fromX, fromY, toX, toY, campKey) {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const duration = Math.min(400, 180 + dist * 0.35);
+    droneDives.push({
+        fromX, fromY, toX, toY,
+        startTime: performance.now(),
+        duration,
+        campKey,
+        impactSpawned: false
+    });
+}
+
+export function updateDroneDives(now) {
+    for (let i = droneDives.length - 1; i >= 0; i--) {
+        const d = droneDives[i];
+        if (!d.impactSpawned && now - d.startTime >= d.duration) {
+            d.impactSpawned = true;
+            // 抵达目标 → 大爆炸
+            spawnExplosionParticles(d.toX, d.toY, '#ff6600', 40);
+            spawnExplosionParticles(d.toX, d.toY, '#ffcc00', 25);
+            triggerAttackFlash(d.toX, d.toY, true);
+            triggerScreenShake(8, 300);
+            playSound('cannon');
+            droneDives.splice(i, 1);
+        }
+    }
+}
+
+export function drawDroneDives(ctx2d, now) {
+    for (const d of droneDives) {
+        const elapsed = now - d.startTime;
+        const t = Math.min(1, Math.max(0, elapsed / d.duration));
+        if (t >= 1) continue;
+
+        const x = d.fromX + (d.toX - d.fromX) * t;
+        const y = d.fromY + (d.toY - d.fromY) * t;
+
+        // 拖尾光迹
+        const tailT = Math.max(0, t - 0.15);
+        const tx = d.fromX + (d.toX - d.fromX) * tailT;
+        const ty = d.fromY + (d.toY - d.fromY) * tailT;
+        const trailLen = Math.sqrt((x - tx) ** 2 + (y - ty) ** 2);
+
+        ctx2d.save();
+
+        if (trailLen > 2) {
+            const grad = ctx2d.createLinearGradient(tx, ty, x, y);
+            grad.addColorStop(0, 'rgba(100,200,255,0)');
+            grad.addColorStop(1, 'rgba(100,200,255,0.6)');
+            ctx2d.strokeStyle = grad;
+            ctx2d.lineWidth = 8;
+            ctx2d.lineCap = 'round';
+            ctx2d.shadowColor = 'rgba(100,200,255,0.8)';
+            ctx2d.shadowBlur = 14;
+            ctx2d.beginPath();
+            ctx2d.moveTo(tx, ty);
+            ctx2d.lineTo(x, y);
+            ctx2d.stroke();
+        }
+
+        // 无人机徽章（带脉冲）
+        const pulse = Math.sin(elapsed * 0.015) * 0.15 + 1;
+        const badgeR = 13 * pulse;
+        ctx2d.shadowColor = 'rgba(60,180,255,0.9)';
+        ctx2d.shadowBlur = 22;
+        ctx2d.beginPath();
+        ctx2d.arc(x, y, badgeR, 0, Math.PI * 2);
+        const grad2 = ctx2d.createRadialGradient(x - 2, y - 3, 0, x, y, badgeR);
+        grad2.addColorStop(0, '#b8e4ff');
+        grad2.addColorStop(0.4, '#4a8af4');
+        grad2.addColorStop(1, '#1a2a60');
+        ctx2d.fillStyle = grad2;
+        ctx2d.fill();
+        ctx2d.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx2d.lineWidth = 1.5;
+        ctx2d.stroke();
+
+        // ✈ 图标
+        ctx2d.shadowBlur = 0;
+        ctx2d.font = 'bold 15px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+        ctx2d.textAlign = 'center';
+        ctx2d.textBaseline = 'middle';
+        ctx2d.fillStyle = '#fff';
+        ctx2d.fillText('✈', x, y + 1);
+
+        // 速度线
+        const angle = Math.atan2(d.toY - d.fromY, d.toX - d.fromX);
+        for (let s = 0; s < 3; s++) {
+            const sa = angle + (s - 1) * 0.35;
+            const sl = 10 + (s % 2) * 6;
+            ctx2d.strokeStyle = `rgba(180,220,255,${0.15 + s * 0.1})`;
+            ctx2d.lineWidth = 1.5;
+            ctx2d.beginPath();
+            ctx2d.moveTo(x - Math.cos(sa) * (badgeR + 2), y - Math.sin(sa) * (badgeR + 2));
+            ctx2d.lineTo(x - Math.cos(sa) * (badgeR + sl), y - Math.sin(sa) * (badgeR + sl));
+            ctx2d.stroke();
+        }
+
+        ctx2d.restore();
     }
 }
 

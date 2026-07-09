@@ -16,7 +16,7 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
-    spawnProjectile, spawnDroneProjectile, spawnDroneSuicideFlak, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnDroneProjectile, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
@@ -2829,12 +2829,7 @@ async function handleRemoteAction(msg) {
             break;
         case 'droneSuicide':
             if (e) {
-                playSound('cannon');
-                spawnDroneSuicideFlak(e.fromX, e.fromY, e.x, e.y);
-                spawnExplosionParticles(e.x, e.y, '#ff6600', 30);
-                spawnExplosionParticles(e.x, e.y, '#ffcc00', 15);
-                triggerAttackFlash(e.x, e.y, true);
-                triggerScreenShake(8, 300);
+                spawnDroneDive(e.fromX, e.fromY, e.x, e.y, e.campKey || 'p1');
                 for (const r of e.results || []) {
                     gameState.damageTexts.push({
                         x: r.x,

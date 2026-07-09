@@ -1081,7 +1081,12 @@ export function initSettingsPanel() {
             // 无人机自爆
             if (unit._isDrone) {
                 if (!unit.canAct || unit._disoriented) return;
-                showTargetingBanner('选择自爆目标（3格内）', '点击敌方单位，对主目标及身后1格造成穿刺伤害');
+                // 已在自爆选位模式 → 再次点击取消
+                if (gameState.cardTargeting?.cardId === 'drone_suicide' && gameState.cardTargeting?.droneId === unit.id) {
+                    cancelCardTargeting();
+                    return;
+                }
+                showTargetingBanner('选择自爆目标（3格内）', '点击敌方单位或再次点击自爆按钮取消');
                 gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id };
                 updateUI();
                 return;

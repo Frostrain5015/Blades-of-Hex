@@ -13,7 +13,7 @@ import {
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
-    spawnProjectile, spawnDroneProjectile, spawnDroneSuicideFlak, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnDroneProjectile, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing,
@@ -1414,8 +1414,8 @@ export function attackUnit(attackerUnit, targetUnit) {
         } else if (attackerUnit._isDrone || attackerUnit.type === 'mgNest') {
             spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {
                 triggerAttackFlash(toX, toY, isCrit);
-                spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
-                triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
+                spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 4 : 2);
+                // 无人机普攻不震屏，更贴合枪弹手感
             });
         } else {
             triggerAttackFlash(toX, toY, isCrit);
@@ -2165,13 +2165,9 @@ export function executeDroneSuicide(droneUnit, targetTile) {
         applySuicideDamage(pt, 1.5);
     }
 
-    // 视觉效果：AA子弹流 + 爆炸
-    spawnDroneSuicideFlak(fromTile.x, fromTile.y, targetTile.x, targetTile.y);
-    spawnExplosionParticles(targetTile.x, targetTile.y, '#ff6600', 30);
-    spawnExplosionParticles(targetTile.x, targetTile.y, '#ffcc00', 15);
-    triggerAttackFlash(targetTile.x, targetTile.y, true);
-    triggerScreenShake(8, 300);
-    playSound('cannon');
+    // 视觉效果：无人机棋子飞向目标
+    const dCampKey = droneUnit.camp === CAMP.player1 ? 'p1' : droneUnit.camp === CAMP.player2 ? 'p2' : 'p3';
+    spawnDroneDive(fromTile.x, fromTile.y, targetTile.x, targetTile.y, dCampKey);
 
     const pierceTexts = results.filter(r => !(r.q === targetTile.q && r.r === targetTile.r));
     logMessage(`✈️💥 无人机自爆对主目标造成${mainText ? mainText.dmg : 0}伤害，穿刺造成${pierceTexts.length ? pierceTexts.map(r => r.dmg).join('/') : 0}伤害`);
@@ -2193,6 +2189,7 @@ export function executeDroneSuicide(droneUnit, targetTile) {
         y: targetTile.y,
         q: targetTile.q,
         r: targetTile.r,
+        campKey: dCampKey,
         results
     });
     return true;
