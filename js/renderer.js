@@ -506,7 +506,7 @@ function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) 
     const targetS = -(targetQ + targetR);
     for (const _t of gameState.tiles) {
         const _u = _t.unit;
-        if (!_u || !_u.camp || _u.camp === friendlyCamp || _u.camp === CAMP.neutral || !isAntiAirUnit(_u)) continue;
+        if (!_u || !_u.camp || _u.camp === friendlyCamp || !isAntiAirUnit(_u)) continue;
         if (hexDistance(_t, { q: targetQ, r: targetR, s: targetS }) > ANTIAIR_RADIUS) continue;
         ctx.save();
         const sx2 = _t.x, sy2 = _t.y;
@@ -721,7 +721,7 @@ function drawAirliftEffects(now) {
                 const as = -(fx.q + fx.r);
                 for (const _t of gameState.tiles) {
                     const _u = _t.unit;
-                    if (!_u || !_u.camp || _u.camp === _alc || _u.camp === CAMP.neutral || !isAntiAirUnit(_u)) continue;
+                    if (!_u || !_u.camp || _u.camp === _alc || !isAntiAirUnit(_u)) continue;
                     if (hexDistance(_t, { q: fx.q, r: fx.r, s: as }) > ANTIAIR_RADIUS) continue;
                     ctx.save();
                     const sx2 = _t.x, sy2 = _t.y;
