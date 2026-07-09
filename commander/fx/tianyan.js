@@ -87,20 +87,25 @@ function _drawTianyanRadar(ctx2d, now) {
         const vx = pos.x, vy = pos.y;
         const seed = (Number(unit.id) || 0) * 0.37;
         const pulse = (Math.sin(time * 3.2 + seed) + 1) / 2;
-        const outerR = HEX_SIZE + 10 + pulse * 2;
+        const radarR = HEX_SIZE + 12 + pulse * 2;
         const innerR = HEX_SIZE * 0.56;
         const sweepA = time * 3.1 + seed;
+        const sweepHead = sweepA + 0.08;
         const ping = (time * 1.45 + seed) % 1;
         const pingR = HEX_SIZE * (0.34 + ping * 0.88);
 
         ctx2d.save();
-        ctx2d.shadowColor = 'rgba(80,205,255,0.9)';
-        ctx2d.shadowBlur = 16 + pulse * 8;
-        ctx2d.strokeStyle = `rgba(105,220,255,${0.55 + pulse * 0.22})`;
-        ctx2d.lineWidth = 2.3;
+        ctx2d.shadowColor = 'rgba(80,205,255,0.65)';
+        ctx2d.shadowBlur = 14 + pulse * 5;
+        const halo = ctx2d.createRadialGradient(vx, vy, 0, vx, vy, radarR);
+        halo.addColorStop(0, `rgba(120,220,255,${0.16 + pulse * 0.04})`);
+        halo.addColorStop(0.42, `rgba(95,205,255,${0.08 + pulse * 0.03})`);
+        halo.addColorStop(0.72, 'rgba(85,190,255,0.035)');
+        halo.addColorStop(1, 'rgba(80,180,255,0)');
+        ctx2d.fillStyle = halo;
         ctx2d.beginPath();
-        ctx2d.arc(vx, vy, outerR, 0, Math.PI * 2);
-        ctx2d.stroke();
+        ctx2d.arc(vx, vy, radarR, 0, Math.PI * 2);
+        ctx2d.fill();
 
         ctx2d.shadowBlur = 8;
         ctx2d.strokeStyle = `rgba(205,245,255,${0.30 + pulse * 0.18})`;
@@ -117,32 +122,38 @@ function _drawTianyanRadar(ctx2d, now) {
         ctx2d.stroke();
         ctx2d.globalAlpha = 1;
 
-        ctx2d.setLineDash([8, 7]);
-        ctx2d.lineDashOffset = -now / 26;
-        ctx2d.strokeStyle = `rgba(155,230,255,${0.22 + pulse * 0.12})`;
-        ctx2d.lineWidth = 1;
-        ctx2d.beginPath();
-        ctx2d.arc(vx, vy, outerR + 4, 0, Math.PI * 2);
-        ctx2d.stroke();
-        ctx2d.setLineDash([]);
-
         ctx2d.beginPath();
         ctx2d.moveTo(vx, vy);
-        ctx2d.arc(vx, vy, outerR, sweepA - 0.5, sweepA + 0.08);
+        ctx2d.arc(vx, vy, radarR, sweepHead - 0.36, sweepHead);
         ctx2d.closePath();
-        const sweep = ctx2d.createRadialGradient(vx, vy, 0, vx, vy, outerR);
+        const sweep = ctx2d.createRadialGradient(vx, vy, 0, vx, vy, radarR);
         sweep.addColorStop(0, 'rgba(145,230,255,0.18)');
-        sweep.addColorStop(0.65, 'rgba(110,215,255,0.15)');
+        sweep.addColorStop(0.42, 'rgba(110,215,255,0.10)');
+        sweep.addColorStop(0.76, 'rgba(100,200,255,0.03)');
         sweep.addColorStop(1, 'rgba(120,220,255,0)');
         ctx2d.fillStyle = sweep;
         ctx2d.fill();
 
-        ctx2d.strokeStyle = 'rgba(220,250,255,0.75)';
-        ctx2d.lineWidth = 1.6;
-        ctx2d.beginPath();
-        ctx2d.moveTo(vx, vy);
-        ctx2d.lineTo(vx + Math.cos(sweepA + 0.08) * outerR, vy + Math.sin(sweepA + 0.08) * outerR);
-        ctx2d.stroke();
+        for (let i = 6; i >= 0; i--) {
+            const k = 1 - i / 6;
+            const a = sweepHead - i * 0.045;
+            const ray = ctx2d.createLinearGradient(
+                vx,
+                vy,
+                vx + Math.cos(a) * radarR,
+                vy + Math.sin(a) * radarR
+            );
+            const headAlpha = 0.08 + k * 0.64;
+            ray.addColorStop(0, `rgba(220,250,255,${headAlpha})`);
+            ray.addColorStop(0.58, `rgba(165,230,255,${headAlpha * 0.45})`);
+            ray.addColorStop(1, 'rgba(145,220,255,0)');
+            ctx2d.strokeStyle = ray;
+            ctx2d.lineWidth = 1 + k * 0.7;
+            ctx2d.beginPath();
+            ctx2d.moveTo(vx, vy);
+            ctx2d.lineTo(vx + Math.cos(a) * radarR, vy + Math.sin(a) * radarR);
+            ctx2d.stroke();
+        }
 
         ctx2d.fillStyle = 'rgba(190,240,255,0.9)';
         ctx2d.shadowBlur = 10;
