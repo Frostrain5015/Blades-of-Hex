@@ -2614,17 +2614,7 @@ async function handleRemoteAction(msg) {
                             // E4 空军上校：伤害在本地延迟结算，远端同样在此结算以保持一致
                             playSound('airstrike');
                             spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }], 'diveStrafe', e.q, e.r);
-                            setTimeout(() => {
-                                playSound('machinegun');
-                                const tx = e.x, ty = e.y;
-                                for (let i = 0; i < 8; i++) {
-                                    setTimeout(() => {
-                                        const fireTime = 600 + i * 50;
-                                        const p = Math.min(1, fireTime / 1350);
-                                        spawnDroneProjectile(tx - 380 + 720 * p, ty - 300 + 320 * p, tx, ty, e.isCrit);
-                                    }, i * 50);
-                                }
-                            }, 600);
+                            setTimeout(() => playSound('machinegun'), 600);
                             setTimeout(() => {
                                 const dt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : null;
                                 if (dt && dt.unit && e.dmg) {

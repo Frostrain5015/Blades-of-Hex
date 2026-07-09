@@ -585,6 +585,39 @@ function drawAirstrikeEffects(now) {
             if (t >= flakStart && t <= flakEnd) {
                 _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13, _ac);
             }
+
+            // 机枪扫射曳光弹（每帧从飞机当前位置射向目标，仿无人机弹道风格）
+            const mgStart = 0.40, mgEnd = 0.82;
+            if (t >= mgStart && t <= mgEnd) {
+                const strobe = 0.6 + 0.4 * Math.sin(t * 53 + (fx.x | 0) * 3.7);
+                // 弹尾沿飞机→目标连线回缩 30%
+                const tailX = px + (cx - px) * 0.70;
+                const tailY = py + (cy - py) * 0.70;
+                ctx.save();
+                ctx.lineCap = 'round';
+                // 外辉（暖色粗曳光）
+                ctx.strokeStyle = `rgba(255,138,34,${0.72 * strobe})`;
+                ctx.shadowColor = `rgba(255,176,48,${0.50 * strobe})`;
+                ctx.shadowBlur = 8;
+                ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(cx, cy); ctx.stroke();
+                // 内芯
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = `rgba(255,220,145,${0.65 * strobe})`;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(cx, cy); ctx.stroke();
+                // 弹着火花
+                ctx.fillStyle = `rgba(255,${160 + (Math.random() * 80 | 0)},50,${0.8 * strobe})`;
+                ctx.shadowColor = `rgba(255,200,80,${0.3 * strobe})`;
+                ctx.shadowBlur = 5;
+                for (let s = 0; s < 3; s++) {
+                    const a = Math.random() * Math.PI * 2;
+                    const d = 2 + Math.random() * 5;
+                    ctx.beginPath(); ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 1.2 + Math.random() * 1.5, 0, Math.PI * 2); ctx.fill();
+                }
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
             continue;
         }
 
