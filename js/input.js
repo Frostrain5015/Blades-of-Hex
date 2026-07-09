@@ -17,12 +17,71 @@ import { setMasterVolume, setMuted } from './audio.js';
 function _getMyCampInput() {
     if (isNetworkGame()) {
         const role = getMyRole();
-        if (role === 'player1') return CAMP.player1;
-        if (role === 'player2') return CAMP.player2;
-        if (role === 'player3') return CAMP.player3;
-        return CAMP.player1;
+        return _campFromKeyInput(role);
+    }
+    if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
+        return gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
     }
     return gameState.currentCamp;
+}
+
+function _campKeyInput(camp) {
+    if (!camp) return null;
+    if (camp === CAMP.player1 || camp.name === CAMP.player1.name) return 'player1';
+    if (camp === CAMP.player2 || camp.name === CAMP.player2.name) return 'player2';
+    if (camp === CAMP.player3 || camp.name === CAMP.player3.name) return 'player3';
+    return null;
+}
+
+function _campFromKeyInput(key) {
+    if (key === 'player1') return CAMP.player1;
+    if (key === 'player2') return CAMP.player2;
+    if (key === 'player3') return CAMP.player3;
+    return null;
+}
+
+function _sameCampInput(a, b) {
+    const ak = _campKeyInput(a);
+    return ak !== null && ak === _campKeyInput(b);
+}
+
+function _isLocalActionTurn() {
+    if (gameState.gameOver || gameState.currentCamp === CAMP.neutral) return false;
+    const myCamp = _getMyCampInput();
+    if (!myCamp) return false;
+    if (isNetworkGame()) return _sameCampInput(gameState.currentCamp, myCamp) && isMyTurn(gameState.currentCamp);
+    if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) return _sameCampInput(gameState.currentCamp, myCamp);
+    return true;
+}
+
+function _isLocalActionCamp(camp) {
+    return _isLocalActionTurn() && _sameCampInput(camp, _getMyCampInput());
+}
+
+function _isLocalActionUnit(unit) {
+    return !!unit && unit.hp > 0 && _isLocalActionCamp(unit.camp);
+}
+
+function _canUseDroneSkill(unit) {
+    return _isLocalActionUnit(unit) && unit.canAct && !unit._disoriented;
+}
+
+function _canUseCommanderActiveSkill(unit) {
+    if (!_isLocalActionUnit(unit) || !unit.commander) return false;
+    const cmdCfg = getCommander(unit.commander);
+    if (!cmdCfg || !cmdCfg.activeSkill) return false;
+    if (unit.activeSkillCD > 0 || unit.activeSkillDur > 0) return false;
+    const noFaith = unit.commander === 'paladin' && unit._faith < 1 && !unit._smiteReady;
+    const noFaithUpgrade = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged && unit._faith < 1;
+    const smiteFull = unit.commander === 'paladin' && unit._smiteReady && unit._smiteCharged;
+    return unit.canAct && !unit.isNewRecruit && !noFaith && !noFaithUpgrade && !smiteFull;
+}
+
+function _canReinforceUnit(unit) {
+    return _isLocalActionUnit(unit)
+        && unit.tile && (unit.tile.isCity || unit.tile.isVillage)
+        && unit.hp < unit.maxHp
+        && !unit.tile._reinforcedThisTurn;
 }
 
 // Canvas 卡牌堆叠区域点击处理
@@ -46,9 +105,7 @@ function _handleCardCanvasClick(e) {
     // draw pile / fuel purchase check (top-right corner)
     // E4 空军上校：右上角无抽牌/无燃料
     if (cx >= pileX - 4 && cx <= pileX + pileW + 4 && cy >= pileY - 4 && cy <= pileY + pileH + 4) {
-        const isMyTurnLocal = isNetworkGame()
-            ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
-            : (gameState.gameMode === 'pve' ? gameState.currentCamp === CAMP.player1 : true);
+        const isMyTurnLocal = _isLocalActionTurn();
         if (!isMyTurnLocal || gameState.cardTargeting) return;
 
         // 空军上校无普通抽牌（专属空军卡为金币消耗、常驻手牌）→ 右上角点击无操作
@@ -96,9 +153,7 @@ function _handleCardCanvasClick(e) {
             if (isDeploy && alreadyDeployed) return;
 
             // only allow during own turn (network safety)
-            const isMyTurnCheck = isNetworkGame()
-                ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
-                : (gameState.gameMode === 'pve' ? gameState.currentCamp === CAMP.player1 : gameState.currentCamp === myCamp);
+            const isMyTurnCheck = _isLocalActionTurn();
             if (!isMyTurnCheck) return;
 
             if (gameState.cardTargeting && gameState.cardTargeting.cardId === cardId) {
@@ -563,9 +618,9 @@ function showTooltipForTile(tile) {
 
     // ==== 主动技能按钮 ====
     const skillBtn = document.getElementById('tooltipActiveSkill');
-    if (unit && unit.camp === gameState.currentCamp && (unit.commander || unit._isDrone)) {
+    if (unit && _isLocalActionCamp(unit.camp) && (unit.commander || unit._isDrone)) {
         if (unit._isDrone) {
-            const canUse = unit.canAct && !unit._disoriented && unit.hp > 0;
+            const canUse = _canUseDroneSkill(unit);
             skillBtn.textContent = '自爆';
             skillBtn.style.display = 'block';
             skillBtn.disabled = !canUse;
@@ -577,10 +632,7 @@ function showTooltipForTile(tile) {
                 const skill = cmdCfgS.activeSkill;
                 const onCD = unit.activeSkillCD > 0;
                 const isActive = unit.activeSkillDur > 0;
-                const noFaith = unit.commander === 'paladin' && unit._faith < 1 && !unit._smiteReady;
-                const noFaithUpgrade = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged && unit._faith < 1;
-                const smiteFull = unit.commander === 'paladin' && unit._smiteReady && unit._smiteCharged;
-                const canUse = !onCD && !isActive && unit.canAct && !unit.isNewRecruit && !noFaith && !noFaithUpgrade && !smiteFull;
+                const canUse = _canUseCommanderActiveSkill(unit);
                 // 按钮文字：已蓄1层时显示「至圣斩·誓约」引导玩家升级
                 if (unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged) {
                     skillBtn.textContent = '至圣斩·誓约';
@@ -602,10 +654,7 @@ function showTooltipForTile(tile) {
     // ==== E5 补员按钮 ====
     const reinforceBtn = document.getElementById('tooltipReinforce');
     if (reinforceBtn) {
-        const canReinforce = unit && unit.camp === gameState.currentCamp
-            && unit.tile && (unit.tile.isCity || unit.tile.isVillage)
-            && unit.hp < unit.maxHp && !unit.tile._reinforcedThisTurn
-            && (!isNetworkGame() || isMyTurn(gameState.currentCamp));
+        const canReinforce = _canReinforceUnit(unit);
         if (canReinforce) {
             const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
             const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
@@ -614,7 +663,7 @@ function showTooltipForTile(tile) {
             reinforceBtn.disabled = false;
             reinforceBtn.className = 'tooltip-skill-btn';
             reinforceBtn.dataset.unitId = unit.id;
-        } else if (unit && unit.camp === gameState.currentCamp && unit.tile
+        } else if (unit && _isLocalActionCamp(unit.camp) && unit.tile
                    && (unit.tile.isCity || unit.tile.isVillage)
                    && unit.tile._reinforcedThisTurn) {
             reinforceBtn.textContent = '本回合已补员';
@@ -747,7 +796,7 @@ export function initInput() {
             }
             // 天眼无人机部署：跳过 cfg 检查（非真实卡牌）
             if (ct.cardId === 'drone_deploy') {
-                const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
+                const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && _sameCampInput(t.unit.camp, myCamp) && t.unit.hp > 0 ? t.unit : null), null);
                 if (!tianyanUnit) { notify('天眼已阵亡', 'error'); cancelCardTargeting(); return; }
                 if (clickedTile.unit) { notify('目标地块已有单位', 'error'); return; }
                 const drone = executeDroneDeploy(tianyanUnit, clickedTile);
@@ -772,22 +821,22 @@ export function initInput() {
 
             let isValid = false;
             if (ct.targeting === 'enemyGlobal') {
-                isValid = clickedTile.unit && clickedTile.unit.camp !== myCamp;
+                isValid = clickedTile.unit && !_sameCampInput(clickedTile.unit.camp, myCamp);
             } else if (ct.targeting === 'friendlyAlive') {
-                isValid = clickedTile.unit && clickedTile.unit.camp === myCamp && clickedTile.unit.canAct;
+                isValid = clickedTile.unit && _sameCampInput(clickedTile.unit.camp, myCamp) && clickedTile.unit.canAct;
             } else if (ct.targeting === 'friendlyAny') {
-                isValid = clickedTile.unit && clickedTile.unit.camp === myCamp
+                isValid = clickedTile.unit && _sameCampInput(clickedTile.unit.camp, myCamp)
                     // E4 空运：不能运送上校自己，且被禁锢的单位不可被空运
                     && !(ct.cardId === 'airlift' && (clickedTile.unit.commander === 'colonel' || clickedTile.unit._imprisoned));
             } else if (ct.targeting === 'emptyTile') {
                 isValid = !clickedTile.unit;
             } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
                 isValid = !clickedTile.unit && !clickedTile.isCity
-                    && clickedTile.terrain !== 'mountain' && clickedTile.camp === myCamp;
+                    && clickedTile.terrain !== 'mountain' && _sameCampInput(clickedTile.camp, myCamp);
             } else if (ct.targeting === 'emptyFriendlyLandmine') {
-                isValid = !clickedTile.unit && !clickedTile.isCity && clickedTile.camp === myCamp;
+                isValid = !clickedTile.unit && !clickedTile.isCity && _sameCampInput(clickedTile.camp, myCamp);
             } else if (ct.targeting === 'enemyCity') {
-                isValid = clickedTile.isCity && clickedTile.camp !== myCamp;
+                isValid = clickedTile.isCity && !_sameCampInput(clickedTile.camp, myCamp);
             } else if (ct.targeting === 'shieldTarget') {
                 isValid = clickedTile.unit != null;
             } else if (ct.targeting === 'anyUnit') {
@@ -817,9 +866,7 @@ export function initInput() {
 
         // 对手回合 / AI 回合：只允许查看，不允许操作
         // 联机对手 → isMyTurn；PVE AI 对手 / 中立 → 独立检查
-        const isAIOpponentTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
-        const isNeutralLocal = !isNetworkGame() && gameState.currentCamp === CAMP.neutral;
-        if (!isMyTurn(gameState.currentCamp) || isAIOpponentTurn || isNeutralLocal) {
+        if (!_isLocalActionTurn()) {
             clearselection();
             gameState.selectedTile = clickedTile;
             showTooltipForTile(clickedTile);
@@ -855,9 +902,9 @@ export function initInput() {
         clearselection();
         gameState.selectedTile = clickedTile;
 
-        const ownActionable = clickedTile.unit && clickedTile.unit.camp === gameState.currentCamp && clickedTile.unit.canAct && !clickedTile.unit.isNewRecruit;
-        const ownEmptyCity = clickedTile.isCity && clickedTile.camp === gameState.currentCamp && !clickedTile.unit;
-        const ownEmptyVillage = clickedTile.isVillage && clickedTile.camp === gameState.currentCamp && !clickedTile.unit;
+        const ownActionable = clickedTile.unit && _isLocalActionCamp(clickedTile.unit.camp) && clickedTile.unit.canAct && !clickedTile.unit.isNewRecruit;
+        const ownEmptyCity = clickedTile.isCity && _isLocalActionCamp(clickedTile.camp) && !clickedTile.unit;
+        const ownEmptyVillage = clickedTile.isVillage && _isLocalActionCamp(clickedTile.camp) && !clickedTile.unit;
 
         if (ownActionable) {
             gameState.selectedUnit = clickedTile.unit;
@@ -926,8 +973,8 @@ export function initInput() {
 
         const hovered = gameState.hoveredTile;
         if (hovered) {
-            const isOwnUnit = hovered.unit && hovered.unit.camp === gameState.currentCamp && hovered.unit.canAct && !hovered.unit.isNewRecruit;
-            const isOwnCity = hovered.isCity && hovered.camp === gameState.currentCamp && !hovered.unit && !gameState.selectedUnit;
+            const isOwnUnit = hovered.unit && _isLocalActionCamp(hovered.unit.camp) && hovered.unit.canAct && !hovered.unit.isNewRecruit;
+            const isOwnCity = hovered.isCity && _isLocalActionCamp(hovered.camp) && !hovered.unit && !gameState.selectedUnit;
             const isMovable = gameState.selectedUnit && gameState.movableTiles.includes(hovered) && !hovered.unit;
             const isAttackable = gameState.selectedUnit && gameState.attackableTiles.includes(hovered) && hovered.unit;
             if (isOwnUnit || isOwnCity) canvas.style.cursor = 'pointer';
@@ -968,7 +1015,7 @@ export function initKeyboard() {
         if (!gameState.gameOver) {
             if (e.key === 'e' || e.key === 'Enter') {
                 e.preventDefault();
-                if (gameState.currentCamp !== CAMP.neutral && isMyTurn(gameState.currentCamp)) endTurn();
+                if (_isLocalActionTurn()) endTurn();
                 return;
             }
 
@@ -1080,7 +1127,7 @@ export function initSettingsPanel() {
             if (!unit) return;
             // 无人机自爆
             if (unit._isDrone) {
-                if (!unit.canAct || unit._disoriented) return;
+                if (!_canUseDroneSkill(unit)) return;
                 // 已在自爆选位模式 → 再次点击取消
                 if (gameState.cardTargeting?.cardId === 'drone_suicide' && gameState.cardTargeting?.droneId === unit.id) {
                     cancelCardTargeting();
@@ -1091,7 +1138,7 @@ export function initSettingsPanel() {
                 updateUI();
                 return;
             }
-            if (!unit.commander || unit.activeSkillCD > 0 || unit.activeSkillDur > 0) return;
+            if (!_canUseCommanderActiveSkill(unit)) return;
             const cmdCfg = getCommander(unit.commander);
             if (!cmdCfg || !cmdCfg.activeSkill) return;
             const skill = cmdCfg.activeSkill;
@@ -1132,7 +1179,7 @@ export function initSettingsPanel() {
             const unitId = parseInt(reinforceBtn.dataset.unitId);
             if (!unitId || isNaN(unitId)) return;
             const unit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === unitId ? t.unit : null), null);
-            if (!unit) return;
+            if (!_canReinforceUnit(unit)) return;
             reinforceUnit(unit);
             showTooltipForTile(unit.tile);
         });

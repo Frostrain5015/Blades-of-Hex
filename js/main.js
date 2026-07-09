@@ -1178,6 +1178,13 @@ function _showTrainingCommanderSelection(forPlayer) {
                 gsap.set(el, { clearProps: "transform,opacity" });
                 gsap.set(inner, { clearProps: "transform" });
                 el.classList.remove("animating");
+                // GSAP hover 翻转（与普通选将一致）
+                el.addEventListener('mouseenter', () => {
+                    gsap.to(persistent, { rotateY: 180, duration: 0.45, ease: 'power2.out', overwrite: true });
+                });
+                el.addEventListener('mouseleave', () => {
+                    gsap.to(persistent, { rotateY: 0, duration: 0.45, ease: 'power2.out', overwrite: true });
+                });
             });
         }, null, "+=");
     });
@@ -2376,6 +2383,7 @@ async function handleRemoteAction(msg) {
             rebindGameEvents();
             rebindInputEvents();
             rebindKeyboardEvents();
+            initSettingsPanel();
             _initEmblemChatClicks();
         }
         return;

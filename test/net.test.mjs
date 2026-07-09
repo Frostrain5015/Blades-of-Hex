@@ -13,6 +13,91 @@ async function getMyRole(page) {
     return page.evaluate(async () => (await import('/js/network.js')).getMyRole());
 }
 
+async function getCurrentTurnRole(page) {
+    return page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        const { CAMP } = await import('/js/config.js');
+        const camp = gameState.currentCamp;
+        if (camp === CAMP.player1 || camp?.name === CAMP.player1.name) return 'player1';
+        if (camp === CAMP.player2 || camp?.name === CAMP.player2.name) return 'player2';
+        if (camp === CAMP.player3 || camp?.name === CAMP.player3.name) return 'player3';
+        return 'neutral';
+    });
+}
+
+async function ensureTurnFor(targetPage, otherPage) {
+    const targetRole = await getMyRole(targetPage);
+    const otherRole = await getMyRole(otherPage);
+    for (let i = 0; i < 8; i++) {
+        const turnRole = await getCurrentTurnRole(targetPage);
+        if (turnRole === targetRole) return;
+        if (turnRole === 'neutral') {
+            await sleep(1200);
+            continue;
+        }
+        const mover = turnRole === targetRole ? targetPage : turnRole === otherRole ? otherPage : null;
+        if (mover) await clickEndTurn(mover);
+        await sleep(1200);
+    }
+    throw new Error(`无法推进到重连玩家回合: target=${targetRole}, turn=${await getCurrentTurnRole(targetPage)}`);
+}
+
+async function probeReconnectActionButtons(page) {
+    return page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        const { CAMP, LOGICAL_W, LOGICAL_H } = await import('/js/config.js');
+        const net = await import('/js/network.js');
+        const role = net.getMyRole();
+        const camp = role === 'player1' ? CAMP.player1 : role === 'player2' ? CAMP.player2 : role === 'player3' ? CAMP.player3 : null;
+        if (!camp) return { ok: false, reason: 'no role' };
+
+        const sameCamp = (value, expected) => value === expected || value?.name === expected.name;
+        const tile = gameState.tiles.find(t => t.unit && sameCamp(t.unit.camp, camp) && (t.isCity || t.isVillage));
+        if (!tile || !tile.unit) return { ok: false, reason: 'no city unit' };
+
+        const unit = tile.unit;
+        unit.commander = 'priest';
+        unit.canAct = true;
+        unit.isNewRecruit = false;
+        unit.activeSkillCD = 0;
+        unit.activeSkillDur = 0;
+        unit.hp = Math.max(1, unit.maxHp - 40);
+        unit.displayHp = unit.hp;
+        tile._reinforcedThisTurn = false;
+
+        const canvas = document.getElementById('gameCanvas');
+        const rect = canvas.getBoundingClientRect();
+        canvas.dispatchEvent(new MouseEvent('click', {
+            bubbles: true,
+            clientX: rect.left + tile.x * (rect.width / LOGICAL_W),
+            clientY: rect.top + tile.y * (rect.height / LOGICAL_H),
+        }));
+
+        const skillBtn = document.getElementById('tooltipActiveSkill');
+        const reinforceBtn = document.getElementById('tooltipReinforce');
+        const before = {
+            ok: true,
+            selected: gameState.selectedUnit?.id === unit.id,
+            skillVisible: skillBtn && skillBtn.style.display !== 'none',
+            skillDisabled: skillBtn ? skillBtn.disabled : true,
+            reinforceVisible: reinforceBtn && reinforceBtn.style.display !== 'none',
+            reinforceDisabled: reinforceBtn ? reinforceBtn.disabled : true,
+        };
+
+        skillBtn?.click();
+        const activeSkillCD = unit.activeSkillCD;
+        reinforceBtn?.click();
+
+        return {
+            ...before,
+            activeSkillCD,
+            reinforced: !!tile._reinforcedThisTurn,
+            hp: unit.hp,
+            maxHp: unit.maxHp,
+        };
+    });
+}
+
 export async function run(browser) {
     const R = new Reporter('net');
     const A = await newGamePage(browser);
@@ -159,6 +244,14 @@ export async function run(browser) {
     await waitFor(async () => (await gameSnapshot(whoWatches)).turnCounter > tk, 20000, '重连后回合同步存活');
     R.ok('重连后回合同步存活');
     R.assertNoPageErrors(B, 'B 端重连');
+
+    await ensureTurnFor(B, A);
+    const buttonProbe = await probeReconnectActionButtons(B);
+    R.assert(buttonProbe.ok && buttonProbe.selected, `重连后可重新选中己方单位（${buttonProbe.reason || 'ok'}）`);
+    R.assert(buttonProbe.skillVisible && !buttonProbe.skillDisabled && buttonProbe.activeSkillCD > 0,
+        `重连后主动技能按钮可点击（visible=${buttonProbe.skillVisible}, disabled=${buttonProbe.skillDisabled}, cd=${buttonProbe.activeSkillCD}）`);
+    R.assert(buttonProbe.reinforceVisible && !buttonProbe.reinforceDisabled && buttonProbe.reinforced,
+        `重连后补充兵员按钮可点击（visible=${buttonProbe.reinforceVisible}, disabled=${buttonProbe.reinforceDisabled}, reinforced=${buttonProbe.reinforced}）`);
 
     await A.context().close();
     await B.context().close();
