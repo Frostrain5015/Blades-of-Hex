@@ -2577,8 +2577,18 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             setTimeout(() => {
                 spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r);
                 playSound('airstrike');
-                // 渲染器在 diveStrafe 帧循环中每帧从飞机位置画曳光弹，此处仅触发音效
-                setTimeout(() => playSound('machinegun'), 600);
+                // 600ms 起持续射出追踪飞机的曳光弹流，每发在发射时才计算飞机位置
+                setTimeout(() => {
+                    playSound('machinegun');
+                    const tx = targetTile.x, ty = targetTile.y;
+                    for (let i = 0; i < 10; i++) {
+                        setTimeout(() => {
+                            const fireTime = 600 + i * 40;
+                            const p = Math.min(1, fireTime / 1350);
+                            spawnDroneProjectile(tx - 380 + 720 * p, ty - 300 + 320 * p, tx, ty, result.isCrit);
+                        }, i * 40);
+                    }
+                }, 600);
                 setTimeout(() => {
                     if (targetTile.unit) {
                         // result.dmg 已在 execute() 走完标准管线（含防御），此处直接结算；source 'air' 不触发铁卫转移
