@@ -613,6 +613,7 @@ export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
 }
 
 // 单发曳光弹（专供扫射逐帧追踪飞机位置用，不叠加 5 连发）
+// 标记 _isStrafeTracer 以跳过不必要的爆炸粒子和降低渲染开销
 export function spawnStrafeTracer(fromX, fromY, toX, toY) {
     droneProjectiles.push({
         fromX: fromX + (Math.random() - 0.5) * 6,
@@ -624,7 +625,8 @@ export function spawnStrafeTracer(fromX, fromY, toX, toY) {
         duration: 100,
         isCrit: false,
         impactSpawned: false,
-        onImpact: null
+        onImpact: null,
+        _isStrafeTracer: true
     });
 }
 
@@ -653,8 +655,10 @@ export function updateDroneProjectiles(now) {
         if (!p.impactSpawned && elapsed >= p.duration) {
             p.impactSpawned = true;
             if (p.onImpact) p.onImpact();
-            // 机炮命中火花（缩减，更像枪弹点射）
-            spawnExplosionParticles(p.toX, p.toY, '#ffaa33', p.isCrit ? 8 : 5);
+            // 扫射曳光弹不产生命中火花（纯视觉，避免额外粒子开销）
+            if (!p._isStrafeTracer) {
+                spawnExplosionParticles(p.toX, p.toY, '#ffaa33', p.isCrit ? 8 : 5);
+            }
             droneProjectiles.splice(i, 1);
         }
     }
@@ -674,29 +678,48 @@ export function drawDroneProjectiles(ctx2d, now) {
 
         ctx2d.save();
         ctx2d.lineCap = 'round';
-        // 外辉：暖色粗曳光，保留力量感但降低白热激光感
-        ctx2d.strokeStyle = p.isCrit ? 'rgba(255,88,42,0.86)' : 'rgba(255,138,34,0.74)';
-        ctx2d.shadowColor = p.isCrit ? 'rgba(255,64,30,0.62)' : 'rgba(255,176,48,0.48)';
-        ctx2d.shadowBlur = p.isCrit ? 9 : 6;
-        ctx2d.lineWidth = p.isCrit ? 5.5 : 4;
-        ctx2d.beginPath();
-        ctx2d.moveTo(tx, ty);
-        ctx2d.lineTo(hx, hy);
-        ctx2d.stroke();
-        // 内芯：偏暖且更窄，避免连续白线
-        ctx2d.shadowBlur = 0;
-        ctx2d.strokeStyle = p.isCrit ? 'rgba(255,240,190,0.78)' : 'rgba(255,220,145,0.58)';
-        ctx2d.lineWidth = p.isCrit ? 1.7 : 1.25;
-        ctx2d.beginPath();
-        ctx2d.moveTo(tx, ty);
-        ctx2d.lineTo(hx, hy);
-        ctx2d.stroke();
-        ctx2d.shadowColor = p.isCrit ? 'rgba(255,180,70,0.75)' : 'rgba(255,190,80,0.55)';
-        ctx2d.shadowBlur = p.isCrit ? 7 : 4;
-        ctx2d.fillStyle = p.isCrit ? 'rgba(255,238,160,0.9)' : 'rgba(255,205,110,0.75)';
-        ctx2d.beginPath();
-        ctx2d.arc(hx, hy, p.isCrit ? 2.4 : 1.8, 0, Math.PI * 2);
-        ctx2d.fill();
+        if (p._isStrafeTracer) {
+            // 扫射曳光弹：轻量渲染，省去 shadowBlur 开销
+            ctx2d.strokeStyle = 'rgba(255,138,34,0.74)';
+            ctx2d.lineWidth = 3;
+            ctx2d.beginPath();
+            ctx2d.moveTo(tx, ty);
+            ctx2d.lineTo(hx, hy);
+            ctx2d.stroke();
+            ctx2d.strokeStyle = 'rgba(255,220,145,0.58)';
+            ctx2d.lineWidth = 1;
+            ctx2d.beginPath();
+            ctx2d.moveTo(tx, ty);
+            ctx2d.lineTo(hx, hy);
+            ctx2d.stroke();
+            ctx2d.fillStyle = 'rgba(255,205,110,0.75)';
+            ctx2d.beginPath();
+            ctx2d.arc(hx, hy, 1.5, 0, Math.PI * 2);
+            ctx2d.fill();
+        } else {
+            // 正常曳光弹：外辉 + 内芯 + 弹头
+            ctx2d.strokeStyle = p.isCrit ? 'rgba(255,88,42,0.86)' : 'rgba(255,138,34,0.74)';
+            ctx2d.shadowColor = p.isCrit ? 'rgba(255,64,30,0.62)' : 'rgba(255,176,48,0.48)';
+            ctx2d.shadowBlur = p.isCrit ? 9 : 6;
+            ctx2d.lineWidth = p.isCrit ? 5.5 : 4;
+            ctx2d.beginPath();
+            ctx2d.moveTo(tx, ty);
+            ctx2d.lineTo(hx, hy);
+            ctx2d.stroke();
+            ctx2d.shadowBlur = 0;
+            ctx2d.strokeStyle = p.isCrit ? 'rgba(255,240,190,0.78)' : 'rgba(255,220,145,0.58)';
+            ctx2d.lineWidth = p.isCrit ? 1.7 : 1.25;
+            ctx2d.beginPath();
+            ctx2d.moveTo(tx, ty);
+            ctx2d.lineTo(hx, hy);
+            ctx2d.stroke();
+            ctx2d.shadowColor = p.isCrit ? 'rgba(255,180,70,0.75)' : 'rgba(255,190,80,0.55)';
+            ctx2d.shadowBlur = p.isCrit ? 7 : 4;
+            ctx2d.fillStyle = p.isCrit ? 'rgba(255,238,160,0.9)' : 'rgba(255,205,110,0.75)';
+            ctx2d.beginPath();
+            ctx2d.arc(hx, hy, p.isCrit ? 2.4 : 1.8, 0, Math.PI * 2);
+            ctx2d.fill();
+        }
         ctx2d.restore();
     }
 }
