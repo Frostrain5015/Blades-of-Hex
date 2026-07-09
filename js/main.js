@@ -2617,14 +2617,12 @@ async function handleRemoteAction(msg) {
                             setTimeout(() => {
                                 playSound('machinegun');
                                 const tx = e.x, ty = e.y;
-                                for (let i = 0; i < 6; i++) {
-                                    const fireTime = 600 + i * 70;
-                                    const p = Math.min(1, fireTime / 1350);
-                                    const planeX = tx - 380 + 720 * p;
-                                    const planeY = ty - 300 + 320 * p;
+                                for (let i = 0; i < 8; i++) {
                                     setTimeout(() => {
-                                        spawnDroneProjectile(planeX, planeY, tx, ty, e.isCrit);
-                                    }, i * 70);
+                                        const fireTime = 600 + i * 50;
+                                        const p = Math.min(1, fireTime / 1350);
+                                        spawnDroneProjectile(tx - 380 + 720 * p, ty - 300 + 320 * p, tx, ty, e.isCrit);
+                                    }, i * 50);
                                 }
                             }, 600);
                             setTimeout(() => {
