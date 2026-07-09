@@ -5,6 +5,12 @@ const _syncOrbitBeams = (unit, helpers) => {
     helpers.spawnOrbitBeams(unit.id, unit.tile.x, unit.tile.y, count);
 };
 
+const _spawnFx = (helpers, x, y, glyph, label) => {
+    if (helpers && typeof helpers.spawnFx === 'function') {
+        helpers.spawnFx(x, y, glyph, label);
+    }
+};
+
 export default {
     id: 'paladin',
     name: '圣骑士',
@@ -73,7 +79,7 @@ export default {
             ? helpers.launchOrbitSwords(attacker.id, target.tile.x, target.tile.y, beamCount)
             : [];
         // 光环剑影闪 — 圣骑士自身位置爆发金色辉光
-        helpers.spawnFx(attacker.tile.x, attacker.tile.y, '⚡', '至圣斩');
+        _spawnFx(helpers, attacker.tile.x, attacker.tile.y, '⚡', '至圣斩');
         // 剩余剑同步到当前誓言层数
         setTimeout(() => {
             _syncOrbitBeams(attacker, helpers);
@@ -97,7 +103,7 @@ export default {
             if (unit._smiteCharged || (helpers.isReplay && unit._smiteReady)) {
                 // 重放时不改变环绕剑数量（已被远端锁定）
                 const label = unit._smiteCharged ? '至圣斩·誓约' : '至圣斩';
-                helpers.spawnFx(unit.tile.x, unit.tile.y, '✝️', label);
+                _spawnFx(helpers, unit.tile.x, unit.tile.y, '✝️', label);
                 return true;
             }
             if (unit._faith < 1) {
@@ -109,13 +115,13 @@ export default {
             if (unit._smiteReady && !unit._smiteCharged) {
                 // 已有1层，升级为至圣斩·誓约（2层65~85伤）
                 unit._smiteCharged = true;
-                helpers.spawnFx(unit.tile.x, unit.tile.y, '✝️', '至圣斩·誓约');
+                _spawnFx(helpers, unit.tile.x, unit.tile.y, '✝️', '至圣斩·誓约');
                 helpers.logMessage(`圣骑士【至圣斩·誓约】：再消耗1誓言，下次攻击附加65~85真实伤害（${unit._faith}/3）`);
             } else {
                 // 首次蓄力：至圣斩（1层25~40伤）
                 unit._smiteReady = true;
                 unit._smiteCharged = false;
-                helpers.spawnFx(unit.tile.x, unit.tile.y, '✝️', '至圣斩');
+                _spawnFx(helpers, unit.tile.x, unit.tile.y, '✝️', '至圣斩');
                 helpers.logMessage(`圣骑士【至圣斩】：消耗1誓言，下次攻击附加真实伤害（${unit._faith}/3）`);
             }
             return true;

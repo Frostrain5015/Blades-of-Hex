@@ -218,6 +218,10 @@ export async function run(browser) {
         const gw = document.getElementById('gameWrapper');
         return gw && gw.style.display !== 'none';
     }), 50000, 'B 重连后恢复棋局（收到 stateSync）');
+    await waitFor(async () => {
+        const snap = await gameSnapshot(B);
+        return snap.tiles > 0 && snap.turnCounter === ta;
+    }, 50000, 'B 重连后完整恢复棋局（地图与回合同步）');
     const sb2 = await gameSnapshot(B);
     R.assert(sb2.tiles > 0 && sb2.turnCounter === ta, `stateSync 恢复（回合 ${sb2.turnCounter}，地图 ${sb2.tiles} 格）`);
     // 重连后 fx 模块验证：网络条目可能因浏览器缓存而不完整，用注册表钩子做真实验证

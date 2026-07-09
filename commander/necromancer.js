@@ -1,18 +1,52 @@
 // 亡灵法师 —— 留魂 + 回魂
 import { Unit } from '../js/Unit.js';
-import { UNIT_CONFIG } from '../js/config.js';
+import { UNIT_CONFIG, getRoundIndex } from '../js/config.js';
 import { spawnSoulRecallEffect } from '../js/effects.js';
 // 被动【留魂】：己方单位阵亡后原地留下亡魂标记，存在3回合后消失
 //   · 视野：遭遇战中亡魂标记为本阵营持续提供视野（范围=原单位）
 //   · 亡魂诅咒：标记被敌方单位占据时，每回合对其施加真实伤害
 // 被动【回魂】：己方回合开始牵引最近的空地亡魂标记唤起魂卒（无距离限制）
 
+function _getCurseDamage(victim) {
+    const maxHp = victim && typeof victim.maxHp === 'number' ? victim.maxHp : 0;
+    const hp = victim && typeof victim.hp === 'number' ? victim.hp : maxHp;
+    const missingHp = Math.max(0, maxHp - hp);
+    return Math.max(1, Math.round(20 + missingHp * 0.40));
+}
+
+function _grantCurseKillCredit(killer, victim, gameState, helpers) {
+    if (!killer || !victim) return;
+
+    if (typeof killer.morale === 'number' && killer.morale !== 0) {
+        const oldMorale = killer.morale;
+        killer.morale = Math.min(3, killer.morale + 1);
+        if (killer.morale === 3) {
+            const roundIndex = gameState && Number.isFinite(gameState.turnCounter)
+                ? getRoundIndex(gameState)
+                : 0;
+            killer.moraleBoostUntil = roundIndex + 2;
+        }
+        if (killer.morale !== oldMorale && helpers && typeof helpers.spawnMoraleEffect === 'function') {
+            helpers.spawnMoraleEffect(killer);
+        }
+    }
+
+    const rankExtra = [0, 2, 5, 12, 20];
+    const victimRank = Math.max(0, Math.min(4, victim._rank || 0));
+    const xp = 3 + (rankExtra[victimRank] || 0) + (victim.commander ? 10 : 0);
+    if (typeof killer.addXP === 'function') {
+        killer.addXP(xp);
+    } else {
+        killer._xp = (killer._xp || 0) + xp;
+    }
+}
+
 export default {
     id: 'necromancer',
     name: '亡灵法师',
     hpBonusPct: 0.25, atkBonusPct: 0.20, spdBonus: 0,
     skills: [
-        { name: '留魂', desc: '友军单位阵亡后原地留下持续3回合的【亡魂】，对占据其上的单位持续施加【亡魂诅咒】，每回合流失10%最大生命值', type: 'passive' },
+        { name: '留魂', desc: '友军单位阵亡后原地留下持续3回合的【亡魂】，对占据其上的单位持续施加【亡魂诅咒】，每回合造成20+40%当前已损失生命值的真实伤害', type: 'passive' },
         { name: '回魂', desc: '回合开始牵引最近的空地【亡魂】唤起【魂卒】（拥有原单位40%生命值/70%攻击力，场上最多2个）', type: 'passive' }
     ],
 
@@ -32,12 +66,18 @@ export default {
             const mt = tileMap.get(`${mark.q},${mark.r}`);
             if (!mt || !mt.unit || mt.unit.camp === unit.camp || mt.unit.hp <= 0) continue;
             const victim = mt.unit;
-            const curse = Math.max(5, Math.round(victim.maxHp * 0.10));
+            const curse = _getCurseDamage(victim);
             if (!gameState.damageTexts) gameState.damageTexts = [];
             gameState.damageTexts.push({ x: mt.x, y: mt.y, value: curse, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
             helpers.spawnFx(mt.x, mt.y, '👻');
             helpers.spawnExplosion(mt.x, mt.y, '#4a2060', 12);
-            const killed = victim.applyDamage(curse, { source: 'true', attacker: null });
+            const killed = victim.applyDamage(curse, { source: 'true', attacker: unit });
+            if (killed) {
+                _grantCurseKillCredit(unit, victim, gameState, helpers);
+                if (typeof helpers.triggerCommanderOnKill === 'function') {
+                    helpers.triggerCommanderOnKill(unit, victim);
+                }
+            }
             helpers.logMessage(`亡魂诅咒：${victim.camp.name}${victim.config.name}兵占据亡魂之地，受${curse}点诅咒伤害${killed ? '（诅咒致死）' : ''}`);
         }
 

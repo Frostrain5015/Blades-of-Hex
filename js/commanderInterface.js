@@ -124,6 +124,7 @@ export function triggerCommanderTurnStart(gameState, camp) {
       const h = _helpers(cid);
       h.campKey = campKey;
       h.addGold = (amount) => { gameState.playerGold[campKey] += amount; };
+      h.triggerCommanderOnKill = triggerCommanderOnKill;
       cmd.onTurnStart(gameState, camp, h);
     }
   }
