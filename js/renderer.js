@@ -1194,7 +1194,8 @@ function drawRangeApertures(now) {
         const time = now / 1000;
         const isHeal = ct.targeting === 'friendlyAny' || ct.targeting === 'anyUnit';
         const isShield = ct.targeting === 'shieldTarget';
-        const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain' || ct.targeting === 'emptyFriendlyLandmine';
+        const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain'
+            || ct.targeting === 'emptyFriendlyNonCity' || ct.targeting === 'emptyFriendlyLandmine' || ct.cardId === 'engineer_bunker';
         const isFriendly = ct.targeting === 'friendlyAlive' || ct.targeting === 'friendlyAny' || isShield;
         const skipsFogTargeting = ct.targeting === 'anyTileGlobal' && ct.cardId !== 'drone_suicide';
 
@@ -1303,9 +1304,13 @@ function drawRangeApertures(now) {
                 if (!drone || !drone._isDrone || !drone.tile) continue;
                 if (!tile.unit || tile.unit.camp === myCamp) continue;
                 if (hexDistance(drone.tile, tile) > 3) continue;
+            } else if (ct.cardId === 'engineer_bunker') {
+                if (tile.unit || tile.isCity || tile.isVillage) continue;
             } else if (ct.targeting === 'emptyTile') {
             } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
                 if (tile.unit || tile.isCity || tile.terrain === 'mountain' || tile.camp !== myCamp) continue;
+            } else if (ct.targeting === 'emptyFriendlyNonCity') {
+                if (tile.unit || tile.isCity || tile.camp !== myCamp) continue;
             } else if (ct.targeting === 'emptyFriendlyLandmine') {
                 if (tile.unit || tile.isCity || tile.camp !== myCamp) continue;
             } else if (ct.targeting === 'anyTileGlobal') {

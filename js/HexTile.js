@@ -16,6 +16,7 @@ export class HexTile {
         this.villageDistrictId = 0;
         this.districtId = 0;
         this.terrain = 'plains';
+        this.fortification = null;
         this.unit = null;
 
         this.startColor = this.camp.color;
@@ -64,6 +65,30 @@ export class HexTile {
         hexPath(c, cx, cy, HEX_SIZE);
         c.fillStyle = this.currentColor;
         c.fill();
+
+        if (this.fortification === 'trench') {
+            c.save();
+            hexPath(c, cx, cy, HEX_SIZE - 1);
+            c.clip();
+
+            c.beginPath();
+            c.moveTo(cx - 22, cy + 5);
+            c.lineTo(cx + 22, cy + 5);
+            c.strokeStyle = 'rgba(53, 33, 18, 0.88)';
+            c.lineWidth = 6;
+            c.lineCap = 'round';
+            c.stroke();
+
+            c.beginPath();
+            c.moveTo(cx - 22, cy + 1);
+            c.lineTo(cx + 22, cy + 1);
+            c.strokeStyle = 'rgba(205, 170, 109, 0.88)';
+            c.lineWidth = 2;
+            c.setLineDash([3, 3]);
+            c.stroke();
+            c.setLineDash([]);
+            c.restore();
+        }
 
         if (this.isCity) {
             c.fillStyle = '#e6c200';

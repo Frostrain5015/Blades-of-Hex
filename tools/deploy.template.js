@@ -29,7 +29,7 @@ const files = [
     'commander/advisor.js', 'commander/berserker.js', 'commander/centurion.js',
     'commander/fallenAngel.js', 'commander/ironGuard.js', 'commander/magician.js',
     'commander/martyr.js', 'commander/minister.js', 'commander/paladin.js',
-    'commander/priest.js', 'commander/staller.js', 'commander/tianyan.js', 'commander/vampire.js',
+    'commander/priest.js', 'commander/staller.js', 'commander/tianyan.js', 'commander/vampire.js', 'commander/engineer.js',
     'commander/fx/tianyan.js',
 'commander/index.js',
 	    'commander/astrologer.js', 'commander/diplomat.js', 'commander/necromancer.js', 'commander/colonel.js',

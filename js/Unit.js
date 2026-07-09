@@ -1,4 +1,4 @@
-import { HEX_SIZE, ctx, hexPath, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
+import { HEX_SIZE, ctx, hexPath, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, getCommanderWeatherDebuff, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
@@ -65,6 +65,7 @@ export class Unit {
         this.activeSkillDur = 0;
         this._imprisoned = false;
         this._isImmobile = false;
+        this._engineerConstruction = null;
         this._phantomStacks = 0;
         this._shield = 0;
         this._shieldMax = 0;
@@ -811,6 +812,8 @@ export class Unit {
 
         // ④ 防御乘区
         let defSum = TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
+        const fortification = defender.tile.fortification ? FORTIFICATION_CONFIG[defender.tile.fortification] : null;
+        if (fortification) defSum += fortification.defenseBonus;
         // 森林掩蔽：对远程攻击（炮兵/碉堡/无人机）额外+15%防御，与地形自带10%加算
         if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest' || attacker.type === 'drone')) {
             defSum += 0.15;

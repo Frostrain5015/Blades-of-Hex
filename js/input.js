@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, hexDistance } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI } from './state.js';
@@ -7,12 +7,58 @@ import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } fr
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
-    executeTacticalCard, executeDroneDeploy, executeDroneSuicide, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
+    executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerBunkerConstruction, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
     isColonelTargetBlocked
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 import { setMasterVolume, setMuted } from './audio.js';
+import { canDeployDrone } from '../commander/tianyan.js';
+
+const ACTIVE_SKILL_BUTTON_THEMES = {
+    default: {
+        background: 'linear-gradient(135deg, #d4380d, #ad2102)',
+        hover: 'linear-gradient(135deg, #e8471a, #c4250a)',
+        border: '#ff6b3d'
+    },
+    paladin: {
+        background: 'linear-gradient(135deg, #bb7a12, #84510a)',
+        hover: 'linear-gradient(135deg, #d99a24, #a9680e)',
+        border: '#f5cb62'
+    },
+    priest: {
+        background: 'linear-gradient(135deg, #15836f, #0d5d50)',
+        hover: 'linear-gradient(135deg, #22a68b, #147666)',
+        border: '#76e4bf'
+    },
+    astrologer: {
+        background: 'linear-gradient(135deg, #3869ae, #28467b)',
+        hover: 'linear-gradient(135deg, #4e86d3, #355b9d)',
+        border: '#9ac8ff'
+    },
+    tianyan: {
+        background: 'linear-gradient(135deg, #087b9e, #07526f)',
+        hover: 'linear-gradient(135deg, #0ca5cb, #08748f)',
+        border: '#79dbef'
+    },
+    engineer: {
+        background: 'linear-gradient(135deg, #947026, #665019)',
+        hover: 'linear-gradient(135deg, #b68b32, #7d6020)',
+        border: '#e2c56e'
+    },
+    drone: {
+        background: 'linear-gradient(135deg, #337fae, #235879)',
+        hover: 'linear-gradient(135deg, #469fcc, #2f7197)',
+        border: '#86d1f2'
+    },
+    reinforce: {
+        background: 'linear-gradient(135deg, #3a8a54, #28623d)',
+        hover: 'linear-gradient(135deg, #51aa6d, #347b4d)',
+        border: '#9ae2aa'
+    }
+};
+
+const tooltipActionQueue = new Map();
 
 function _getMyCampInput() {
     if (isNetworkGame()) {
@@ -66,15 +112,77 @@ function _canUseDroneSkill(unit) {
     return _isLocalActionUnit(unit) && unit.canAct && !unit._disoriented;
 }
 
+function _hasDroneSuicideTarget(unit) {
+    return !!unit?.tile && gameState.tiles.some(tile =>
+        tile.unit && !_sameCampInput(tile.unit.camp, unit.camp) && hexDistance(unit.tile, tile) <= 3
+    );
+}
+
+function _canUseDroneSuicide(unit) {
+    return _canUseDroneSkill(unit) && _hasDroneSuicideTarget(unit);
+}
+
 function _canUseCommanderActiveSkill(unit) {
     if (!_isLocalActionUnit(unit) || !unit.commander) return false;
     const cmdCfg = getCommander(unit.commander);
-    if (!cmdCfg || !cmdCfg.activeSkill) return false;
-    if (unit.activeSkillCD > 0 || unit.activeSkillDur > 0) return false;
+    const hasActiveSkill = !!(cmdCfg && (cmdCfg.activeSkill || (Array.isArray(cmdCfg.activeSkills) && cmdCfg.activeSkills.length > 0)));
+    if (!hasActiveSkill || unit._engineerConstruction) return false;
+    if (cmdCfg.activeSkill && (unit.activeSkillCD > 0 || unit.activeSkillDur > 0)) return false;
     const noFaith = unit.commander === 'paladin' && unit._faith < 1 && !unit._smiteReady;
     const noFaithUpgrade = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged && unit._faith < 1;
     const smiteFull = unit.commander === 'paladin' && unit._smiteReady && unit._smiteCharged;
     return unit.canAct && !unit.isNewRecruit && !noFaith && !noFaithUpgrade && !smiteFull;
+}
+
+function _hasTianyanDeployTarget(unit) {
+    return !!unit?.tile && gameState.tiles.some(tile =>
+        !tile.unit && !tile.isCity && tile.terrain !== 'mountain' && hexDistance(unit.tile, tile) <= 1
+    );
+}
+
+function _hasEngineerBunkerTarget(unit) {
+    return gameState.tiles.some(tile =>
+        !tile.unit && !tile.isCity && !tile.isVillage
+        && (!gameState.skirmishFog || isTileVisible(tile, unit.camp, gameState))
+    );
+}
+
+function _getCommanderSkillAvailability(unit, skillId = '') {
+    if (!_canUseCommanderActiveSkill(unit)) return { canUse: false, reason: '当前不可用' };
+
+    if (unit.commander === 'priest' && unit._healingAura > 0) {
+        return { canUse: false, reason: '治愈灵光持续中' };
+    }
+    if (unit.commander === 'tianyan') {
+        if (!canDeployDrone(unit, gameState)) return { canUse: false, reason: '金币不足或本回合部署次数已满' };
+        if (!_hasTianyanDeployTarget(unit)) return { canUse: false, reason: '周围没有可部署的空地' };
+    }
+    if (unit.commander === 'engineer') {
+        const cmdCfg = getCommander(unit.commander);
+        const skill = cmdCfg?.activeSkills?.find(item => item.id === skillId);
+        const campKey = _campKeyInput(unit.camp);
+        if (!skill || !campKey || (gameState.playerGold[campKey] || 0) < skill.goldCost) {
+            return { canUse: false, reason: '金币不足' };
+        }
+        if (skillId === 'trench' && unit.tile.fortification) {
+            return { canUse: false, reason: '当前地块已有工事' };
+        }
+        if (skillId === 'bunker' && !_hasEngineerBunkerTarget(unit)) {
+            return { canUse: false, reason: '没有可施工的目标地块' };
+        }
+    }
+    return { canUse: true, reason: '' };
+}
+
+function _applyActiveSkillTheme(button, commanderId) {
+    const theme = ACTIVE_SKILL_BUTTON_THEMES[commanderId] || ACTIVE_SKILL_BUTTON_THEMES.default;
+    button.style.setProperty('--skill-button-background', theme.background);
+    button.style.setProperty('--skill-button-hover', theme.hover);
+    button.style.setProperty('--skill-button-border', theme.border);
+}
+
+function _findUnitById(unitId) {
+    return gameState.tiles.reduce((found, tile) => found || (tile.unit?.id === unitId ? tile.unit : null), null);
 }
 
 function _canReinforceUnit(unit) {
@@ -82,6 +190,204 @@ function _canReinforceUnit(unit) {
         && unit.tile && (unit.tile.isCity || unit.tile.isVillage)
         && unit.hp < unit.maxHp
         && !unit.tile._reinforcedThisTurn;
+}
+
+function _getReinforcementAction(unit) {
+    if (!unit || !_isLocalActionCamp(unit.camp) || !unit.tile || (!unit.tile.isCity && !unit.tile.isVillage)) return null;
+
+    if (unit.tile._reinforcedThisTurn) {
+        return {
+            key: `reinforce:${unit.id}`,
+            legacyId: 'tooltipReinforce',
+            kind: 'reinforce',
+            unitId: unit.id,
+            label: '本回合已补员',
+            canUse: false,
+            reason: '该地块本回合已补员',
+            theme: 'reinforce'
+        };
+    }
+    if (unit.hp >= unit.maxHp) {
+        return {
+            key: `reinforce:${unit.id}`,
+            legacyId: 'tooltipReinforce',
+            kind: 'reinforce',
+            unitId: unit.id,
+            label: '无需补员',
+            canUse: false,
+            reason: '单位生命值已满',
+            theme: 'reinforce'
+        };
+    }
+
+    const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
+    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
+    const campKey = _campKeyInput(unit.camp);
+    const hasGold = !!campKey && (gameState.playerGold[campKey] || 0) >= cost;
+    return {
+        key: `reinforce:${unit.id}`,
+        legacyId: 'tooltipReinforce',
+        kind: 'reinforce',
+        unitId: unit.id,
+        label: `🪙 补充兵员 $${cost}`,
+        canUse: _canReinforceUnit(unit) && hasGold,
+        reason: hasGold ? '' : '金币不足',
+        theme: 'reinforce'
+    };
+}
+
+function _collectTooltipActions(unit) {
+    const actions = [];
+    if (unit && _isLocalActionCamp(unit.camp)) {
+        if (unit._isDrone) {
+            actions.push({
+                key: `droneSuicide:${unit.id}`,
+                legacyId: 'tooltipActiveSkill',
+                kind: 'droneSuicide',
+                unitId: unit.id,
+                label: '自爆',
+                canUse: _canUseDroneSuicide(unit),
+                reason: _hasDroneSuicideTarget(unit) ? '当前不可用' : '3格内没有敌方单位',
+                theme: 'drone'
+            });
+        } else if (unit.commander) {
+            const cmdCfg = getCommander(unit.commander);
+            const skills = cmdCfg?.activeSkills?.length
+                ? cmdCfg.activeSkills
+                : cmdCfg?.activeSkill ? [{ id: '', name: cmdCfg.activeSkill.name }] : [];
+            skills.forEach((skill, index) => {
+                const skillId = skill.id || '';
+                const availability = _getCommanderSkillAvailability(unit, skillId);
+                const skillName = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged
+                    ? '至圣斩·誓约' : skill.name;
+                const costLabel = skill.goldCost ? ` $${skill.goldCost}` : '';
+                actions.push({
+                    key: `commander:${unit.id}:${skillId || 'default'}`,
+                    legacyId: index === 0 ? 'tooltipActiveSkill' : index === 1 ? 'tooltipSecondarySkill' : `tooltipCommanderSkill${index}`,
+                    kind: 'commanderSkill',
+                    unitId: unit.id,
+                    skillId,
+                    label: `${skillName}${costLabel}`,
+                    canUse: availability.canUse,
+                    reason: availability.reason,
+                    theme: unit.commander
+                });
+            });
+        }
+
+        const reinforcement = _getReinforcementAction(unit);
+        if (reinforcement) actions.push(reinforcement);
+    }
+    return actions;
+}
+
+function _renderTooltipActionQueue(actions) {
+    const container = document.getElementById('tooltipActionButtons');
+    if (!container) return;
+
+    tooltipActionQueue.clear();
+    const buttons = Array.from(container.querySelectorAll('button'));
+    actions.forEach((action, index) => {
+        let button = buttons[index];
+        if (!button) {
+            button = document.createElement('button');
+            button.type = 'button';
+            container.appendChild(button);
+        }
+        tooltipActionQueue.set(action.key, action);
+        button.id = action.legacyId;
+        button.className = 'tooltip-skill-btn';
+        button.textContent = action.label;
+        button.style.display = 'block';
+        button.disabled = !action.canUse;
+        button.title = action.reason || action.label;
+        button.dataset.tooltipActionKey = action.key;
+        _applyActiveSkillTheme(button, action.theme);
+    });
+    for (let index = actions.length; index < buttons.length; index++) buttons[index].remove();
+}
+
+function _activateTooltipAction(action) {
+    const unit = _findUnitById(action.unitId);
+    if (!unit) return;
+
+    if (action.kind === 'droneSuicide') {
+        if (!_canUseDroneSuicide(unit)) return;
+        if (gameState.cardTargeting?.cardId === 'drone_suicide' && gameState.cardTargeting.droneId === unit.id) {
+            cancelCardTargeting();
+            return;
+        }
+        showTargetingBanner('选择自爆目标（3格内）', '点击敌方单位或按 Esc 取消');
+        gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id };
+        updateUI();
+        return;
+    }
+
+    if (action.kind === 'reinforce') {
+        const reinforcement = _getReinforcementAction(unit);
+        if (!reinforcement?.canUse) return;
+        reinforceUnit(unit);
+        showTooltipForTile(unit.tile);
+        return;
+    }
+
+    if (action.kind !== 'commanderSkill') return;
+    const availability = _getCommanderSkillAvailability(unit, action.skillId);
+    if (!availability.canUse) return;
+
+    if (unit.commander === 'engineer') {
+        if (action.skillId === 'trench') {
+            if (executeEngineerTrench(unit)) showTooltipForTile(unit.tile);
+        } else if (action.skillId === 'bunker') {
+            _beginEngineerBunkerTargeting(unit);
+        }
+        return;
+    }
+
+    const cmdCfg = getCommander(unit.commander);
+    if (!cmdCfg?.activeSkill) return;
+    const skill = cmdCfg.activeSkill;
+    skill.onActivate(unit, {
+        gameState, logMessage,
+        spawnFx: spawnCommanderSkillEffect,
+        spawnOrbitBeams: spawnPaladinOrbitBeams
+    });
+    if (unit._pendingWeatherChoice) {
+        unit._pendingWeatherChoice = false;
+        _showWeatherChoice(unit);
+        return;
+    }
+    if (unit._pendingDroneDeploy) {
+        unit._pendingDroneDeploy = false;
+        clearselection();
+        showTargetingBanner('选择部署位置（周围1格空地）', '点击空地部署无人机');
+        gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1 };
+        updateUI();
+        return;
+    }
+    unit.activeSkillDur = skill.duration;
+    unit.activeSkillCD = skill.cooldown;
+    recalcAllFlankingMorale();
+    showTooltipForTile(unit.tile);
+    if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
+}
+
+function _beginEngineerBunkerTargeting(unit) {
+    const availability = _getCommanderSkillAvailability(unit, 'bunker');
+    if (!availability.canUse) {
+        notify(availability.reason, 'error');
+        return;
+    }
+
+    if (gameState.cardTargeting?.cardId === 'engineer_bunker' && gameState.cardTargeting.engineerUnitId === unit.id) {
+        cancelCardTargeting();
+        return;
+    }
+
+    clearselection();
+    showTargetingBanner('选择碉堡建造位置', '可建于任意空地，不能建在城市或村庄');
+    gameState.cardTargeting = { cardId: 'engineer_bunker', targeting: 'emptyTile', handIndex: -1, engineerUnitId: unit.id };
+    updateUI();
 }
 
 // Canvas 卡牌堆叠区域点击处理
@@ -306,7 +612,7 @@ const PASSIVE_DEFS = {
     }
 };
 
-function showTooltipForTile(tile) {
+export function showTooltipForTile(tile) {
     const unit = tile.unit;
     const isCity = tile.isCity;
     const tc = TERRAIN_CONFIG[tile.terrain];
@@ -365,8 +671,9 @@ function showTooltipForTile(tile) {
         const cmdDefBonus = getCommanderDefenseBonus(unit);
         const cityDefBonus = (unit.type === 'infantry' && isCity) ? 0.10 : 0;
         const terrainDefBonus = TERRAIN_CONFIG[tile.terrain].defenseBonus;
+        const fortificationDefBonus = tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
         const rankDefBonus = unit._rankDefBonus || 0;
-        const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus + rankDefBonus + auraDefBonus + cmdDefBonus + cityDefBonus) * 100);
+        const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus + fortificationDefBonus + rankDefBonus + auraDefBonus + cmdDefBonus + cityDefBonus) * 100);
         if (totalDefPct > 0) {
             tooltipDef.innerHTML = `<span style="color:#8fc;">🛡 ${totalDefPct}%</span>`;
         } else if (totalDefPct < 0) {
@@ -568,8 +875,14 @@ function showTooltipForTile(tile) {
         }
     }
 
+    if (unit && unit._engineerConstruction) {
+        const { targetQ, targetR } = unit._engineerConstruction;
+        tooltipStatus.textContent = `施工中：碉堡将于下个己方回合建成 (${targetQ},${targetR})`;
+    }
+
     // Terrain info — shown last
-    const showTerrain = isCity || tile.terrain !== 'plains';
+    const fortification = tile.fortification ? FORTIFICATION_CONFIG[tile.fortification] : null;
+    const showTerrain = isCity || tile.terrain !== 'plains' || !!fortification;
     if (showTerrain) {
         const terrainName = isCity ? '城市' : tc.name;
         let terrainDesc = '';
@@ -589,6 +902,14 @@ function showTooltipForTile(tile) {
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + terrainLine;
         } else {
             tooltipPassive.innerHTML = terrainLine;
+        }
+    }
+    if (fortification) {
+        const fortificationLine = `<span style="color:#e8c477;">【${fortification.name}】${fortification.desc}</span>`;
+        if (unit) {
+            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + fortificationLine;
+        } else {
+            tooltipPassive.innerHTML += (tooltipPassive.innerHTML ? '<br>' : '') + fortificationLine;
         }
     }
 
@@ -616,64 +937,7 @@ function showTooltipForTile(tile) {
         target.innerHTML += (target.innerHTML ? '<br>' : '') + weatherLine;
     }
 
-    // ==== 主动技能按钮 ====
-    const skillBtn = document.getElementById('tooltipActiveSkill');
-    if (unit && _isLocalActionCamp(unit.camp) && (unit.commander || unit._isDrone)) {
-        if (unit._isDrone) {
-            const canUse = _canUseDroneSkill(unit);
-            skillBtn.textContent = '自爆';
-            skillBtn.style.display = 'block';
-            skillBtn.disabled = !canUse;
-            skillBtn.className = 'tooltip-skill-btn';
-            skillBtn.dataset.unitId = unit.id;
-        } else {
-            const cmdCfgS = getCommander(unit.commander);
-            if (cmdCfgS && cmdCfgS.activeSkill) {
-                const skill = cmdCfgS.activeSkill;
-                const onCD = unit.activeSkillCD > 0;
-                const isActive = unit.activeSkillDur > 0;
-                const canUse = _canUseCommanderActiveSkill(unit);
-                // 按钮文字：已蓄1层时显示「至圣斩·誓约」引导玩家升级
-                if (unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged) {
-                    skillBtn.textContent = '至圣斩·誓约';
-                } else {
-                    skillBtn.textContent = skill.name;
-                }
-                skillBtn.style.display = 'block';
-                skillBtn.disabled = !canUse;
-                skillBtn.className = 'tooltip-skill-btn' + (onCD ? ' on-cooldown' : '');
-                skillBtn.dataset.unitId = unit.id;
-            } else {
-                skillBtn.style.display = 'none';
-            }
-        }
-    } else {
-        skillBtn.style.display = 'none';
-    }
-
-    // ==== E5 补员按钮 ====
-    const reinforceBtn = document.getElementById('tooltipReinforce');
-    if (reinforceBtn) {
-        const canReinforce = _canReinforceUnit(unit);
-        if (canReinforce) {
-            const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
-            const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
-            reinforceBtn.textContent = `🪙 补充兵员 $${cost}`;
-            reinforceBtn.style.display = 'block';
-            reinforceBtn.disabled = false;
-            reinforceBtn.className = 'tooltip-skill-btn';
-            reinforceBtn.dataset.unitId = unit.id;
-        } else if (unit && _isLocalActionCamp(unit.camp) && unit.tile
-                   && (unit.tile.isCity || unit.tile.isVillage)
-                   && unit.tile._reinforcedThisTurn) {
-            reinforceBtn.textContent = '本回合已补员';
-            reinforceBtn.style.display = 'block';
-            reinforceBtn.disabled = true;
-            reinforceBtn.className = 'tooltip-skill-btn on-cooldown';
-        } else {
-            reinforceBtn.style.display = 'none';
-        }
-    }
+    _renderTooltipActionQueue(_collectTooltipActions(unit));
 
     if (!unit && !showTerrain) {
         tooltipEl.classList.remove('visible');
@@ -816,6 +1080,24 @@ export function initInput() {
                 }
                 return;
             }
+            if (ct.cardId === 'engineer_bunker') {
+                const engineer = gameState.tiles.reduce((found, tile) => found || (tile.unit && tile.unit.id === ct.engineerUnitId ? tile.unit : null), null);
+                if (!engineer || engineer.commander !== 'engineer') {
+                    notify('工程师无效，无法建造碉堡', 'error');
+                    cancelCardTargeting();
+                    return;
+                }
+                if (gameState.skirmishFog && !isTileVisible(clickedTile, myCamp, gameState)) {
+                    notify('目标不在视野范围内', 'error');
+                    return;
+                }
+                if (executeEngineerBunkerConstruction(engineer, clickedTile)) {
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                    showTooltipForTile(engineer.tile);
+                }
+                return;
+            }
             const cfg = TACTICAL_CARD_CONFIG[ct.cardId] || COLONEL_CARDS[ct.cardId];
             if (!cfg) { cancelCardTargeting(); return; }
 
@@ -833,6 +1115,8 @@ export function initInput() {
             } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
                 isValid = !clickedTile.unit && !clickedTile.isCity
                     && clickedTile.terrain !== 'mountain' && _sameCampInput(clickedTile.camp, myCamp);
+            } else if (ct.targeting === 'emptyFriendlyNonCity') {
+                isValid = !clickedTile.unit && !clickedTile.isCity && _sameCampInput(clickedTile.camp, myCamp);
             } else if (ct.targeting === 'emptyFriendlyLandmine') {
                 isValid = !clickedTile.unit && !clickedTile.isCity && _sameCampInput(clickedTile.camp, myCamp);
             } else if (ct.targeting === 'enemyCity') {
@@ -1115,73 +1399,17 @@ export function initSettingsPanel() {
         window.location.reload();
     });
 
-    // 主动技能按钮
-    const activeSkillBtn = document.getElementById('tooltipActiveSkill');
-    if (activeSkillBtn && !activeSkillBtn._bound) {
-        activeSkillBtn._bound = true;
-        activeSkillBtn.addEventListener('click', (e) => {
+    // Tooltip 动作队列：所有按钮均由当前描述数组渲染，并由此处统一分发。
+    const actionButtons = document.getElementById('tooltipActionButtons');
+    if (actionButtons && !actionButtons._bound) {
+        actionButtons._bound = true;
+        actionButtons.addEventListener('click', (e) => {
             e.stopPropagation();
-            const unitId = parseInt(activeSkillBtn.dataset.unitId);
-            if (!unitId || isNaN(unitId)) return;
-            const unit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === unitId ? t.unit : null), null);
-            if (!unit) return;
-            // 无人机自爆
-            if (unit._isDrone) {
-                if (!_canUseDroneSkill(unit)) return;
-                // 已在自爆选位模式 → 再次点击取消
-                if (gameState.cardTargeting?.cardId === 'drone_suicide' && gameState.cardTargeting?.droneId === unit.id) {
-                    cancelCardTargeting();
-                    return;
-                }
-                showTargetingBanner('选择自爆目标（3格内）', '点击敌方单位或再次点击自爆按钮取消');
-                gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id };
-                updateUI();
-                return;
-            }
-            if (!_canUseCommanderActiveSkill(unit)) return;
-            const cmdCfg = getCommander(unit.commander);
-            if (!cmdCfg || !cmdCfg.activeSkill) return;
-            const skill = cmdCfg.activeSkill;
-            skill.onActivate(unit, {
-                gameState, logMessage,
-                spawnFx: spawnCommanderSkillEffect,
-                spawnOrbitBeams: spawnPaladinOrbitBeams
-            });
-            // E1 占星者星移：显示天气选择界面
-            if (unit._pendingWeatherChoice) {
-                unit._pendingWeatherChoice = false;
-                _showWeatherChoice(unit);
-                return; // 天气选择完成后再设置CD和广播
-            }
-            // 天眼无人机部署：进入选位模式
-            if (unit._pendingDroneDeploy) {
-                unit._pendingDroneDeploy = false;
-                clearselection();
-                showTargetingBanner('选择部署位置（周围1格空地）', '点击空地部署无人机');
-                gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1 };
-                updateUI();
-                return;
-            }
-            unit.activeSkillDur = skill.duration;
-            unit.activeSkillCD = skill.cooldown;
-            recalcAllFlankingMorale();
-            showTooltipForTile(unit.tile);
-            if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
-        });
-    }
-
-    // E5 补员按钮
-    const reinforceBtn = document.getElementById('tooltipReinforce');
-    if (reinforceBtn && !reinforceBtn._bound) {
-        reinforceBtn._bound = true;
-        reinforceBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const unitId = parseInt(reinforceBtn.dataset.unitId);
-            if (!unitId || isNaN(unitId)) return;
-            const unit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === unitId ? t.unit : null), null);
-            if (!_canReinforceUnit(unit)) return;
-            reinforceUnit(unit);
-            showTooltipForTile(unit.tile);
+            if (!(e.target instanceof HTMLElement)) return;
+            const button = e.target.closest('button[data-tooltip-action-key]');
+            if (!button || !actionButtons.contains(button)) return;
+            const action = tooltipActionQueue.get(button.dataset.tooltipActionKey);
+            if (action) _activateTooltipAction(action);
         });
     }
 

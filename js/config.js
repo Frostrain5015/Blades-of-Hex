@@ -174,6 +174,12 @@ export const TERRAIN_CONFIG = {
     mountain: { name: '山地', defenseBonus: 0.05, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
 };
 
+// ==== 工事配置 ==============================================================
+// 工事与基础地形叠加，不改变原有的移动消耗、森林掩蔽或城市/村庄功能。
+export const FORTIFICATION_CONFIG = {
+    trench: { name: '战壕', defenseBonus: 0.30, desc: '防御+30%' }
+};
+
 // // ==== 河流 ====================
 // export const RIVER_CROSSING_COST = 5;
 // export const RIVER_COLOR_OUTER = 'rgba(30, 100, 180, 0.75)';
@@ -247,8 +253,8 @@ export const TACTICAL_CARD_CONFIG = {
     },
     mgNest: {
         id: 'mgNest', name: '碉堡', icon: '🏰',
-        desc: '【碉堡】\n在己方领土空地部署一座碉堡\nHP=200 ATK=40 射程=2 不可移动\n（不能部署在城市或山地）',
-        targeting: 'emptyFriendlyNonCityNonMountain',
+        desc: '【碉堡】\n在己方领土空地部署一座碉堡\nHP=200 ATK=40 射程=2 不可移动\n（不能部署在城市）',
+        targeting: 'emptyFriendlyNonCity',
         execute(targetTile, gameState, helpers) {
             const myCamp = helpers.getMyCamp();
             const UnitClass = helpers.Unit;

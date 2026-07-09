@@ -4,9 +4,10 @@
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit,
-    executeTacticalCard, recalcAllFlankingMorale, drawCard
+    executeTacticalCard, executeEngineerTrench, executeEngineerBunkerConstruction, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
-import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD } from './config.js';
+import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
+import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
 import { isNetworkGame, sendMessage } from './network.js';
 import { getCommander } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
@@ -37,6 +38,36 @@ function resolveUnit(id) {
 
 function resolveTile(q, r) {
     return gameState.tileMap.get(`${q},${r}`);
+}
+
+function planEngineerAction(aiCamp) {
+    const campKey = aiCamp === CAMP.neutral ? 'neutral' : aiCamp === CAMP.player1 ? 'player1' : 'player2';
+    const engineer = gameState.tiles.reduce((found, tile) => found || (
+        tile.unit && tile.unit.commander === 'engineer' && tile.unit.camp === aiCamp && tile.unit.canAct && !tile.unit._engineerConstruction
+            ? tile.unit : null
+    ), null);
+    if (!engineer || !engineer.tile) return null;
+
+    const hostileTiles = gameState.tiles.filter(tile => tile.unit && tile.unit.camp !== aiCamp);
+    const isThreatened = hostileTiles.some(tile => hexDistance(engineer.tile, tile) <= 2);
+    if (!engineer.tile.fortification && (engineer.tile.isCity || engineer.tile.isVillage || isThreatened)) {
+        return { type: 'engineerTrench', unitId: engineer.id };
+    }
+
+    if ((gameState.playerGold[campKey] || 0) < ENGINEER_BUNKER_GOLD_COST || hostileTiles.length === 0) return null;
+    const candidates = gameState.tiles.filter(tile =>
+        !tile.unit && !tile.isCity && !tile.isVillage
+        && (!gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState))
+    );
+    if (candidates.length === 0) return null;
+
+    candidates.sort((left, right) => {
+        const leftDistance = Math.min(...hostileTiles.map(hostile => hexDistance(left, hostile)));
+        const rightDistance = Math.min(...hostileTiles.map(hostile => hexDistance(right, hostile)));
+        return leftDistance - rightDistance;
+    });
+    const target = candidates[0];
+    return { type: 'engineerBunker', unitId: engineer.id, tileQ: target.q, tileR: target.r };
 }
 
 // 创建 helpers（每次执行时刷新 weather 等动态值）
@@ -99,7 +130,8 @@ async function _executeActionInner(action, aiCamp) {
         for (const t of targets) {
             const target = t.unit;
             const c = (COUNTER[unit.type] && COUNTER[unit.type][target.type]) || 1;
-            const tDef = TERRAIN_DEF[target.tile.terrain] || 0;
+            const tDef = (TERRAIN_DEF[target.tile.terrain] || 0)
+                + (FORTIFICATION_CONFIG[target.tile.fortification]?.defenseBonus || 0);
             const cityDef = (target.type === 'infantry' && target.tile.isCity) ? 0.05 : 0;
             const unitDef = target.config.defense || 0;
             const moraleFloat = unit.morale === 3 ? 1.07 : unit.morale === 1 ? 0.95 : unit.morale === 0 ? 0.90 : 1.0;
@@ -216,6 +248,21 @@ async function _executeActionInner(action, aiCamp) {
             await delay(AI_DELAY);
             break;
         }
+        case 'engineerTrench': {
+            const unit = resolveUnit(action.unitId);
+            if (!unit || unit.commander !== 'engineer' || !unit.canAct) return;
+            executeEngineerTrench(unit);
+            await delay(AI_DELAY);
+            break;
+        }
+        case 'engineerBunker': {
+            const unit = resolveUnit(action.unitId);
+            const targetTile = resolveTile(action.tileQ, action.tileR);
+            if (!unit || !targetTile || unit.commander !== 'engineer' || !unit.canAct) return;
+            executeEngineerBunkerConstruction(unit, targetTile);
+            await delay(AI_DELAY);
+            break;
+        }
         case 'drawCard': {
             if (gameState.playerGold[campKey] < CARD_SYSTEM_CONFIG.drawCost) return;
             if (gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) return;
@@ -260,6 +307,8 @@ export async function processNeutralTurn() {
 
         const helpers = makeHelpers();
         const actions = claudePersonality.planActions(gameState, helpers);
+        const engineerAction = planEngineerAction(aiCamp);
+        if (engineerAction) actions.unshift(engineerAction);
 
         // 回合首次行动前延迟 2s
         if (actions.length > 0) { await delay(AI_DELAY); }
@@ -302,6 +351,8 @@ export async function processOpponentTurn(aiCamp) {
 
         const helpers = makeHelpers();
         const actions = grokPersonality.planActions(gameState, helpers, aiCamp);
+        const engineerAction = planEngineerAction(aiCamp);
+        if (engineerAction) actions.unshift(engineerAction);
 
         // 回合首次行动前延迟 2s
         if (actions.length > 0) { await delay(AI_DELAY); }

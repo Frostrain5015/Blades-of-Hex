@@ -1,6 +1,7 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
+import { digEngineerTrench, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
@@ -762,6 +763,14 @@ export function grantTurnStartIncome(camp) {
             timeLeft: 1800, lastUpdate: performance.now()
         });
         spawnCoinRain(vTile.x, vTile.y, 1);
+    }
+
+    const engineerResults = completeEngineerBunkerConstructions(gameState, camp, { Unit, logMessage });
+    for (const result of engineerResults) {
+        if (!result.ok || !result.targetTile) continue;
+        spawnRecruitEffect(result.targetTile.x, result.targetTile.y);
+        triggerRecruitFlash(result.targetTile.x, result.targetTile.y);
+        spawnCommanderSkillEffect(result.targetTile.x, result.targetTile.y, '🏰', '碉堡完工');
     }
 
     // 将领回合开始效果
@@ -2117,6 +2126,41 @@ export function executeDroneDeploy(tianyanUnit, targetTile) {
     return drone;
 }
 
+export function executeEngineerTrench(engineerUnit) {
+    const result = digEngineerTrench(engineerUnit, { gameState, logMessage });
+    if (!result.ok) {
+        notify(result.message, 'error');
+        return false;
+    }
+
+    invalidateBoard();
+    recalcAllFlankingMorale();
+    updateUI();
+    broadcastAction('engineerTrench', {
+        unitId: engineerUnit.id,
+        q: result.tile.q,
+        r: result.tile.r
+    });
+    return true;
+}
+
+export function executeEngineerBunkerConstruction(engineerUnit, targetTile) {
+    const result = beginEngineerBunkerConstruction(engineerUnit, targetTile, { gameState, logMessage });
+    if (!result.ok) {
+        notify(result.message, 'error');
+        return false;
+    }
+
+    recalcAllFlankingMorale();
+    updateUI();
+    broadcastAction('engineerBunkerStart', {
+        unitId: engineerUnit.id,
+        q: targetTile.q,
+        r: targetTile.r
+    });
+    return true;
+}
+
 // 无人机自杀式袭击
 export function executeDroneSuicide(droneUnit, targetTile) {
     if (!droneUnit || !droneUnit._isDrone) return false;
@@ -2222,6 +2266,10 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (!targetTile || targetTile.unit) { notify('该格已占用'); return; }
         if (targetTile.isCity) { notify('不能部署在城市'); return; }
         if (targetTile.terrain === 'mountain') { notify('不能部署在山地'); return; }
+        if (targetTile.camp !== myCamp) { notify('只能部署在己方领土'); return; }
+    } else if (tg === 'emptyFriendlyNonCity') {
+        if (!targetTile || targetTile.unit) { notify('该格已占用'); return; }
+        if (targetTile.isCity) { notify('不能部署在城市'); return; }
         if (targetTile.camp !== myCamp) { notify('只能部署在己方领土'); return; }
     } else if (tg === 'emptyFriendlyLandmine') {
         if (!targetTile || targetTile.unit) { notify('该格已占用'); return; }

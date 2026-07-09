@@ -597,6 +597,7 @@ export function serializeState() {
         villageDistrictId: t.villageDistrictId,
         districtId: t.districtId,
         terrain: t.terrain,
+        fortification: t.fortification || null,
         startColor: t.startColor,
         targetColor: t.targetColor,
         currentColor: t.currentColor,
@@ -655,7 +656,8 @@ export function serializeState() {
             disoriented: t.unit._disoriented || false,
             droneSignalDisabled: t.unit._droneSignalDisabled || false,
             droneCampKey: t.unit._droneCampKey || null,
-            droneBornAt: t.unit._droneBornAt || 0
+            droneBornAt: t.unit._droneBornAt || 0,
+            engineerConstruction: t.unit._engineerConstruction ? { ...t.unit._engineerConstruction } : null
         } : null
     }));
 
@@ -842,6 +844,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
         tile.villageDistrictId = td.villageDistrictId || 0;
         tile.districtId = td.districtId;
         tile.terrain = td.terrain || 'plains';
+        tile.fortification = td.fortification || null;
         tile.startColor = td.startColor;
         tile.targetColor = td.targetColor;
         tile.currentColor = td.currentColor;
@@ -918,6 +921,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._droneSignalDisabled = td.unit.droneSignalDisabled || false;
             unit._droneCampKey = td.unit.droneCampKey || null;
             unit._droneBornAt = td.unit.droneBornAt || 0;
+            unit._engineerConstruction = td.unit.engineerConstruction ? { ...td.unit.engineerConstruction } : null;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {
                 const saved = oldCommander.get(unit.id);

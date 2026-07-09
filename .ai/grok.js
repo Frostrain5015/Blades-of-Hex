@@ -36,7 +36,8 @@ const COMMANDER_STRATEGY = {
     astrologer:   { aggression: 0.9, carrierPref: ['infantry', 'cavalry', 'archer'], pushWeight: 0.9, killBonus: 0.9, recruitPref: ['infantry', 'archer', 'cavalry'], weatherControl: true, useActiveSkill: true },
     diplomat:     { aggression: 1.0, carrierPref: ['cavalry', 'infantry', 'archer'], pushWeight: 1.1, killBonus: 0.8, recruitPref: ['cavalry', 'archer', 'infantry'], cardFocus: true, pushIntoEnemy: true },
     necromancer:  { aggression: 1.1, carrierPref: ['infantry', 'cavalry', 'archer'], pushWeight: 1.0, killBonus: 1.2, recruitPref: ['infantry', 'cavalry', 'archer'], soulPlay: true },
-    colonel:      { aggression: 1.3, carrierPref: ['cavalry', 'archer', 'infantry'], pushWeight: 1.2, killBonus: 1.3, recruitPref: ['cavalry', 'archer', 'infantry'], airPower: true }
+    colonel:      { aggression: 1.3, carrierPref: ['cavalry', 'archer', 'infantry'], pushWeight: 1.2, killBonus: 1.3, recruitPref: ['cavalry', 'archer', 'infantry'], airPower: true },
+    engineer:     { aggression: 0.55, carrierPref: ['infantry', 'archer', 'cavalry'], pushWeight: 0.45, killBonus: 0.75, recruitPref: ['infantry', 'archer', 'cavalry'], holdCity: true }
 };
 
 const COUNTER = {
@@ -96,6 +97,7 @@ export function planActions(gameState, helpers, myCamp) {
     // 天气修正后的地形防御
     function getEffectiveTerrainDef(tile, unitType) {
         let def = TERRAIN_DEF[tile.terrain] || 0;
+        if (tile.fortification === 'trench') def += 0.30;
         if (tile.terrain === 'forest' && unitType === 'archer') def += 0.15;
         return def;
     }

@@ -39,7 +39,8 @@ const COMMANDER_THREAT = {
     colonel:      85,  // 空军威胁
     astrologer:   55,
     diplomat:     40,
-    necromancer:  70
+    necromancer:  70,
+    engineer:     65
 };
 
 // 天气对兵种的偏好权重（招募/站位用）
@@ -100,6 +101,7 @@ export function planActions(gameState, helpers) {
     // 天气修正后的地形防御
     function getEffectiveTerrainDef(tile, unitType) {
         let def = TERRAIN_DEF[tile.terrain] || 0;
+        if (tile.fortification === 'trench') def += 0.30;
         // 森林：对远程额外+0.15
         if (tile.terrain === 'forest' && unitType === 'archer') def += 0.15;
         return def;
