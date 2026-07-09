@@ -332,6 +332,9 @@ export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2
         deployedUnitP1: deployedUnitP1,
         deployedUnitP2: deployedUnitP2,
         deployedUnitP3: deployedUnitP3,
+        commanderRerolledP1: (gameState.commanderRerolled && gameState.commanderRerolled.player1) || false,
+        commanderRerolledP2: (gameState.commanderRerolled && gameState.commanderRerolled.player2) || false,
+        commanderRerolledP3: (gameState.commanderRerolled && gameState.commanderRerolled.player3) || false,
         skirmishFog: gameState.skirmishFog || false,
         gameMode: gameState.gameMode || 'local'
     }));

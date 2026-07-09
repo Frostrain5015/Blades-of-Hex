@@ -193,6 +193,9 @@ export function calcIncome(cityCount) {
     return 0;
 }
 
+// 选将洗牌换将成本：消耗全部初始资金（约首回合城市产出总额），首回合收入结算时清零封顶
+export const COMMANDER_REROLL_COST = 10;
+
 // ==== 士气配置 ====================
 // 士气等级: 3=上升 2=正常 1=下降 0=混乱
 // 士气增伤改为影响暴击浮动倍率（见 _calcFloat），防御力影响降低至5%

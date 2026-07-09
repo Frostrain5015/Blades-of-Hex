@@ -1559,6 +1559,45 @@ body {
     min-height: 20px;
 }
 
+.commander-reroll-btn {
+    margin-top: 10px;
+    padding: 9px 22px;
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: #ffe6a8;
+    background: linear-gradient(180deg, rgba(60, 40, 14, 0.95), rgba(40, 26, 8, 0.95));
+    border: 1px solid var(--gold-border, #b09050);
+    border-radius: var(--radius-sm, 6px);
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.2s ease, color 0.2s ease;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+.commander-reroll-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 0 16px rgba(255, 215, 0, 0.35);
+    color: #fff2cc;
+}
+.commander-reroll-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+.commander-reroll-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+    color: #999;
+    box-shadow: none;
+}
+.commander-reroll-btn.armed {
+    color: #fff;
+    background: linear-gradient(180deg, rgba(150, 40, 30, 0.96), rgba(110, 24, 18, 0.96));
+    border-color: #ff8a6a;
+    box-shadow: 0 0 18px rgba(255, 80, 50, 0.5);
+    animation: rerollPulse 1s ease-in-out infinite;
+}
+@keyframes rerollPulse {
+    0%, 100% { box-shadow: 0 0 14px rgba(255, 80, 50, 0.4); }
+    50%      { box-shadow: 0 0 22px rgba(255, 80, 50, 0.75); }
+}
+
 @keyframes diceRoll {
     0%   { transform: rotate(0deg) scale(1); }
     33%  { transform: rotate(120deg) scale(1.1); }

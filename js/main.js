@@ -8,7 +8,7 @@ import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDi
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
-import { CAMP } from './config.js';
+import { CAMP, COMMANDER_REROLL_COST } from './config.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
 import {
     triggerTurnFlash,
@@ -1077,6 +1077,8 @@ function _showTrainingCommanderSelection(forPlayer) {
     const ci = _forPlayerCampName(forPlayer);
 
     _commanderPending = null;
+    const _trainRerollBtn = document.getElementById('commanderRerollBtn');
+    if (_trainRerollBtn) _trainRerollBtn.style.display = 'none';
     title.textContent = '训练场 — 自选将领';
     title.style.color = ci.color;
     statusDiv.textContent = '点击将领预选，再次点击确认';
@@ -1222,6 +1224,8 @@ function _showCommanderSelection(forPlayer) {
     const deckEl = document.getElementById('commanderDeck');
     const pool = _forPlayerPool(forPlayer);
     const ci = _forPlayerCampName(forPlayer);
+    const rerollBtn = document.getElementById('commanderRerollBtn');
+    if (rerollBtn) { rerollBtn.style.display = 'none'; rerollBtn.classList.remove('armed'); }
 
     _commanderPending = null;
     title.textContent = `${ci.name} — 选择将领`;
@@ -1380,6 +1384,7 @@ function _showCommanderSelection(forPlayer) {
                         cardsDiv.querySelectorAll('.commander-card').forEach(c => {
                             if (!c.classList.contains('confirmed')) c.style.pointerEvents = 'none';
                         });
+                        if (rerollBtn) rerollBtn.style.display = 'none';
                         _commanderPending = null;
                         if (isNetworkGame()) {
                             syncCommanderState(
@@ -1403,8 +1408,87 @@ function _showCommanderSelection(forPlayer) {
                     }
                 });
             }
+
+            // 洗牌换将按钮：翻牌动画结束后出现，一次性；再次点击确认后执行
+            if (rerollBtn) {
+                const idleText = `🎲 洗牌换将（消耗初始资金 $${COMMANDER_REROLL_COST}）`;
+                const alreadyRerolled = !!(gameState.commanderRerolled && gameState.commanderRerolled[forPlayer]);
+                rerollBtn.style.display = '';
+                rerollBtn.classList.remove('armed');
+                if (alreadyRerolled) {
+                    rerollBtn.disabled = true;
+                    rerollBtn.textContent = '🎲 已洗牌';
+                    rerollBtn.onclick = null;
+                } else {
+                    rerollBtn.disabled = false;
+                    rerollBtn.textContent = idleText;
+                    let armed = false;
+                    let disarmTimer = null;
+                    rerollBtn.onclick = () => {
+                        if (rerollBtn.disabled) return;
+                        if (!armed) {
+                            armed = true;
+                            rerollBtn.classList.add('armed');
+                            rerollBtn.textContent = '⚠️ 确认洗牌？初始资金将清空';
+                            disarmTimer = setTimeout(() => {
+                                armed = false;
+                                rerollBtn.classList.remove('armed');
+                                rerollBtn.textContent = idleText;
+                            }, 4000);
+                            return;
+                        }
+                        if (disarmTimer) clearTimeout(disarmTimer);
+                        _rerollCommanders(forPlayer);
+                    };
+                }
+            }
         }, null, lastFlipEnd + 0.05);
     });
+}
+
+// 洗牌换将：从未被占用（其他玩家已摇到的排除）的将领中重新发放 3 名，重播翻牌动画，每人限一次
+function _rerollCommanders(forPlayer) {
+    if (_commanderTransitioning) return;
+    if (gameState.commanderRerolled && gameState.commanderRerolled[forPlayer]) return;
+
+    // 未被占用 = 所有将领 − 各玩家当前牌池（含自己这 3 名）
+    const occupied = new Set([
+        ...(gameState.commanderPoolP1 || []),
+        ...(gameState.commanderPoolP2 || []),
+        ...(gameState.commanderPoolP3 || []),
+    ]);
+    const available = Object.keys(COMMANDER_CONFIG).filter(k => !occupied.has(k));
+    if (available.length < 3) return; // 理论上不会发生（17 将领，最多占用 9）
+
+    for (let i = available.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [available[i], available[j]] = [available[j], available[i]];
+    }
+    const newPool = available.slice(0, 3);
+
+    if (!gameState.commanderRerolled) gameState.commanderRerolled = { player1: false, player2: false, player3: false };
+    gameState.commanderRerolled[forPlayer] = true;
+    if (forPlayer === 'player1') gameState.commanderPoolP1 = newPool;
+    else if (forPlayer === 'player2') gameState.commanderPoolP2 = newPool;
+    else gameState.commanderPoolP3 = newPool;
+    _commanderPending = null;
+    playSound('cardDraw');
+
+    if (isNetworkGame()) {
+        syncCommanderState(
+            gameState.commanderPoolP1, gameState.commanderPoolP2,
+            gameState.commanderP1, gameState.commanderP2,
+            gameState.commanderP1Confirmed, gameState.commanderP2Confirmed,
+            gameState.commanderP1Deployed, gameState.commanderP2Deployed,
+            gameState.commanderPhase,
+            null, null,
+            gameState.commanderPoolP3, gameState.commanderP3,
+            gameState.commanderP3Confirmed, gameState.commanderP3Deployed, null
+        );
+    }
+
+    // 重新渲染选将界面并重播发牌 + 翻牌动画
+    _showCommanderSelection(forPlayer);
 }
 
 // 更新上方信息卡阵营徽章为将领透明底立绘
@@ -2202,6 +2286,11 @@ function registerNetworkCallbacks() {
             gameState.commanderP1Deployed = msg.commanderP1Deployed || false;
             gameState.commanderP2Deployed = msg.commanderP2Deployed || false;
             gameState.commanderP3Deployed = msg.commanderP3Deployed || false;
+            gameState.commanderRerolled = {
+                player1: msg.commanderRerolledP1 || false,
+                player2: msg.commanderRerolledP2 || false,
+                player3: msg.commanderRerolledP3 || false,
+            };
             gameState.commanderPhase = msg.commanderPhase || 'selection';
             if (msg.skirmishFog !== undefined) gameState.skirmishFog = msg.skirmishFog;
             if (msg.gameMode !== undefined) gameState.gameMode = msg.gameMode;

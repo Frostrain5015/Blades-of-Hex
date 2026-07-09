@@ -82,6 +82,9 @@ export const gameState = {
     commanderP1Deployed: false,
     commanderP2Deployed: false,
     commanderP3Deployed: false,
+    // 洗牌换将：每名玩家一次性，消耗全部初始资金换 3 名未被占用的将领
+    commanderRerolled: { player1: false, player2: false, player3: false },
+    _rerollPenaltyApplied: { player1: false, player2: false, player3: false },
     commanderPhase: 'done',  // 'selection' | 'deployment' | 'done'
     factionMoraleBoost: { player1: 0, player2: 0, player3: 0 },
     // 对策卡系统 v2
@@ -179,6 +182,8 @@ export function resetGameState() {
     gameState.commanderP1Deployed = false;
     gameState.commanderP2Deployed = false;
     gameState.commanderP3Deployed = false;
+    gameState.commanderRerolled = { player1: false, player2: false, player3: false };
+    gameState._rerollPenaltyApplied = { player1: false, player2: false, player3: false };
     gameState.commanderPhase = 'done';
     gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0 };
     gameState.cardDrawPile = [];
@@ -682,6 +687,8 @@ export function serializeState() {
         commanderP1Deployed: gameState.commanderP1Deployed,
         commanderP2Deployed: gameState.commanderP2Deployed,
         commanderP3Deployed: gameState.commanderP3Deployed,
+        commanderRerolled: { ...(gameState.commanderRerolled || {}) },
+        rerollPenaltyApplied: { ...(gameState._rerollPenaltyApplied || {}) },
         commanderPhase: gameState.commanderPhase,
         factionMoraleBoost: { ...gameState.factionMoraleBoost },
         cardDrawPile: [...gameState.cardDrawPile],
@@ -749,6 +756,8 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.commanderP1Deployed = data.commanderP1Deployed || false;
     gameState.commanderP2Deployed = data.commanderP2Deployed || false;
     gameState.commanderP3Deployed = data.commanderP3Deployed || false;
+    gameState.commanderRerolled = { player1: false, player2: false, player3: false, ...(data.commanderRerolled || {}) };
+    gameState._rerollPenaltyApplied = { player1: false, player2: false, player3: false, ...(data.rerollPenaltyApplied || {}) };
     gameState.commanderPhase = data.commanderPhase || 'done';
     if (data.factionMoraleBoost) {
         gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0, ...data.factionMoraleBoost };

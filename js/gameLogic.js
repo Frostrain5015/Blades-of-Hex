@@ -1,4 +1,4 @@
-﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, getRound, getRoundIndex, getFactionCount } from './config.js';
+﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
@@ -714,6 +714,17 @@ export function grantTurnStartIncome(camp) {
         income = Math.floor(income * gameState.aiDifficulty);
     }
     gameState.playerGold[key] += income;
+
+    // 洗牌换将代价：该玩家首个回合收入结算时消耗全部初始资金（$10 封顶，不足则清零），仅结算一次
+    if (gameState.commanderRerolled && gameState.commanderRerolled[key]
+        && !(gameState._rerollPenaltyApplied && gameState._rerollPenaltyApplied[key])) {
+        const spent = Math.min(gameState.playerGold[key], COMMANDER_REROLL_COST);
+        gameState.playerGold[key] -= spent;
+        if (!gameState._rerollPenaltyApplied) gameState._rerollPenaltyApplied = {};
+        gameState._rerollPenaltyApplied[key] = true;
+        if (spent > 0) logMessage(`${camp.name}洗牌换将，消耗初始资金$${spent}`);
+    }
+
     if (income > 0) {
         logMessage(`${camp.name}回合开始，城市产出共计$${income}`);
         cities.forEach((cityTile, i) => {
