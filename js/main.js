@@ -1409,37 +1409,16 @@ function _showCommanderSelection(forPlayer) {
                 });
             }
 
-            // 洗牌换将按钮：翻牌动画结束后出现，一次性；再次点击确认后执行
+            // 洗牌换将按钮：翻牌动画结束后出现，每人限一次；已洗牌状态不显示
             if (rerollBtn) {
-                const idleText = `🎲 洗牌换将（消耗初始资金 $${COMMANDER_REROLL_COST}）`;
                 const alreadyRerolled = !!(gameState.commanderRerolled && gameState.commanderRerolled[forPlayer]);
-                rerollBtn.classList.remove('armed');
-                rerollBtn.classList.add('visible');
                 if (alreadyRerolled) {
-                    rerollBtn.disabled = true;
-                    rerollBtn.textContent = '🎲 已洗牌';
+                    rerollBtn.classList.remove('visible');
                     rerollBtn.onclick = null;
                 } else {
-                    rerollBtn.disabled = false;
-                    rerollBtn.textContent = idleText;
-                    let armed = false;
-                    let disarmTimer = null;
-                    rerollBtn.onclick = () => {
-                        if (rerollBtn.disabled) return;
-                        if (!armed) {
-                            armed = true;
-                            rerollBtn.classList.add('armed');
-                            rerollBtn.textContent = '⚠️ 确认洗牌？初始资金将清空';
-                            disarmTimer = setTimeout(() => {
-                                armed = false;
-                                rerollBtn.classList.remove('armed');
-                                rerollBtn.textContent = idleText;
-                            }, 4000);
-                            return;
-                        }
-                        if (disarmTimer) clearTimeout(disarmTimer);
-                        _rerollCommanders(forPlayer);
-                    };
+                    rerollBtn.classList.add('visible');
+                    rerollBtn.textContent = `🎲换一批将领 $${COMMANDER_REROLL_COST}`;
+                    rerollBtn.onclick = () => _rerollCommanders(forPlayer);
                 }
             }
         }, null, lastFlipEnd + 0.05);

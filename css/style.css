@@ -1598,17 +1598,6 @@ body {
     color: #999;
     box-shadow: none;
 }
-.commander-reroll-btn.armed {
-    color: #fff;
-    background: linear-gradient(180deg, rgba(150, 40, 30, 0.96), rgba(110, 24, 18, 0.96));
-    border-color: #ff8a6a;
-    box-shadow: 0 0 18px rgba(255, 80, 50, 0.5);
-    animation: rerollPulse 1s ease-in-out infinite;
-}
-@keyframes rerollPulse {
-    0%, 100% { box-shadow: 0 0 14px rgba(255, 80, 50, 0.4); }
-    50%      { box-shadow: 0 0 22px rgba(255, 80, 50, 0.75); }
-}
 
 @keyframes diceRoll {
     0%   { transform: rotate(0deg) scale(1); }
