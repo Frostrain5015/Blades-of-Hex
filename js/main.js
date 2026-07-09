@@ -16,7 +16,7 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
-    spawnProjectile, spawnDroneProjectile, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
@@ -2617,12 +2617,12 @@ async function handleRemoteAction(msg) {
                             setTimeout(() => {
                                 playSound('machinegun');
                                 const tx = e.x, ty = e.y;
-                                for (let i = 0; i < 10; i++) {
+                                for (let i = 0; i < 20; i++) {
                                     setTimeout(() => {
-                                        const fireTime = 600 + i * 40;
+                                        const fireTime = 600 + i * 20;
                                         const p = Math.min(1, fireTime / 1350);
-                                        spawnDroneProjectile(tx - 380 + 720 * p, ty - 300 + 320 * p, tx, ty, e.isCrit);
-                                    }, i * 40);
+                                        spawnStrafeTracer(tx - 380 + 720 * p, ty - 300 + 320 * p, tx, ty);
+                                    }, i * 20);
                                 }
                             }, 600);
                             setTimeout(() => {

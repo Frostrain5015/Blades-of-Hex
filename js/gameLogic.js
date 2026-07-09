@@ -13,7 +13,7 @@ import {
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
-    spawnProjectile, spawnDroneProjectile, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing,
@@ -2577,16 +2577,16 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             setTimeout(() => {
                 spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r);
                 playSound('airstrike');
-                // 600ms 起持续射出追踪飞机的曳光弹流，每发在发射时才计算飞机位置
+                // 单条弹道持续射出~5发追踪曳光弹，每发单独计算飞机位置
                 setTimeout(() => {
                     playSound('machinegun');
                     const tx = targetTile.x, ty = targetTile.y;
-                    for (let i = 0; i < 10; i++) {
+                    for (let i = 0; i < 20; i++) {
                         setTimeout(() => {
-                            const fireTime = 600 + i * 40;
+                            const fireTime = 600 + i * 20;
                             const p = Math.min(1, fireTime / 1350);
-                            spawnDroneProjectile(tx - 380 + 720 * p, ty - 300 + 320 * p, tx, ty, result.isCrit);
-                        }, i * 40);
+                            spawnStrafeTracer(tx - 380 + 720 * p, ty - 300 + 320 * p, tx, ty);
+                        }, i * 20);
                     }
                 }, 600);
                 setTimeout(() => {

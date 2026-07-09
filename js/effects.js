@@ -599,6 +599,25 @@ export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
             onImpact: (b === 4 && onImpact) ? onImpact : null
         });
     }
+}
+
+// 单发曳光弹（专供扫射逐帧追踪飞机位置用，不叠加 5 连发）
+export function spawnStrafeTracer(fromX, fromY, toX, toY) {
+    droneProjectiles.push({
+        fromX: fromX + (Math.random() - 0.5) * 6,
+        fromY: fromY + (Math.random() - 0.5) * 6,
+        toX: toX + (Math.random() - 0.5) * 8,
+        toY: toY + (Math.random() - 0.5) * 8,
+        dist: Math.sqrt((toX - fromX) ** 2 + (toY - fromY) ** 2),
+        startTime: performance.now(),
+        duration: 100,
+        isCrit: false,
+        impactSpawned: false,
+        onImpact: null
+    });
+            onImpact: (b === 4 && onImpact) ? onImpact : null
+        });
+    }
     for (let f = 0; f < 3; f++) {
         const ang = Math.atan2(toY - fromY, toX - fromX);
         const mx = fromX + Math.cos(ang) * 8;
