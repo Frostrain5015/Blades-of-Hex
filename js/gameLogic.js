@@ -2576,7 +2576,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`💥【俯冲扫射】对${targetTile.camp?.name}${targetTile.unit?.config?.name}兵造成${result.dmg}伤害`);
             setTimeout(() => {
                 spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r);
-                playSound('machinegun');
+                playSound('airstrike');
+                setTimeout(() => playSound('machinegun'), 600);
                 setTimeout(() => {
                     if (targetTile.unit) {
                         // result.dmg 已在 execute() 走完标准管线（含防御），此处直接结算；source 'air' 不触发铁卫转移
