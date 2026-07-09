@@ -2621,7 +2621,9 @@ async function handleRemoteAction(msg) {
                                     setTimeout(() => {
                                         const fireTime = 600 + i * 20;
                                         const p = Math.min(1, fireTime / 1350);
-                                        spawnStrafeTracer(tx - 380 + 720 * p, ty - 300 + 320 * p, tx, ty);
+                                        const px = tx - 380 + 720 * p, py = ty - 300 + 320 * p;
+                                        const ang = Math.atan2(320, 720);
+                                        spawnStrafeTracer(px + Math.cos(ang) * 22, py + Math.sin(ang) * 22, tx, ty);
                                     }, i * 20);
                                 }
                             }, 600);
