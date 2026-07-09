@@ -1078,7 +1078,7 @@ function _showTrainingCommanderSelection(forPlayer) {
 
     _commanderPending = null;
     const _trainRerollBtn = document.getElementById('commanderRerollBtn');
-    if (_trainRerollBtn) _trainRerollBtn.style.display = 'none';
+    if (_trainRerollBtn) _trainRerollBtn.classList.remove('visible');
     title.textContent = '训练场 — 自选将领';
     title.style.color = ci.color;
     statusDiv.textContent = '点击将领预选，再次点击确认';
@@ -1225,7 +1225,7 @@ function _showCommanderSelection(forPlayer) {
     const pool = _forPlayerPool(forPlayer);
     const ci = _forPlayerCampName(forPlayer);
     const rerollBtn = document.getElementById('commanderRerollBtn');
-    if (rerollBtn) { rerollBtn.style.display = 'none'; rerollBtn.classList.remove('armed'); }
+    if (rerollBtn) rerollBtn.classList.remove('visible', 'armed');
 
     _commanderPending = null;
     title.textContent = `${ci.name} — 选择将领`;
@@ -1384,7 +1384,7 @@ function _showCommanderSelection(forPlayer) {
                         cardsDiv.querySelectorAll('.commander-card').forEach(c => {
                             if (!c.classList.contains('confirmed')) c.style.pointerEvents = 'none';
                         });
-                        if (rerollBtn) rerollBtn.style.display = 'none';
+                        if (rerollBtn) rerollBtn.classList.remove('visible');
                         _commanderPending = null;
                         if (isNetworkGame()) {
                             syncCommanderState(
@@ -1413,8 +1413,8 @@ function _showCommanderSelection(forPlayer) {
             if (rerollBtn) {
                 const idleText = `🎲 洗牌换将（消耗初始资金 $${COMMANDER_REROLL_COST}）`;
                 const alreadyRerolled = !!(gameState.commanderRerolled && gameState.commanderRerolled[forPlayer]);
-                rerollBtn.style.display = '';
                 rerollBtn.classList.remove('armed');
+                rerollBtn.classList.add('visible');
                 if (alreadyRerolled) {
                     rerollBtn.disabled = true;
                     rerollBtn.textContent = '🎲 已洗牌';
