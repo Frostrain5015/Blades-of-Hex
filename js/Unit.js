@@ -1,6 +1,5 @@
 import { HEX_SIZE, ctx, hexPath, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, getCommanderWeatherDebuff, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
-import { DRONE_ATK } from '../commander/tianyan.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -360,8 +359,7 @@ export class Unit {
         ctx.font = 'bold 15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', mgNest: '🏰' };
-            if (this._isDrone) glyphs.infantry = '✈';
+        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', mgNest: '🏰', drone: '✈' };
         ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
 
         // ── Ring HP bar ──
@@ -733,10 +731,6 @@ export class Unit {
     // ① 攻击力乘区：基础面板 ×（1+「攻击力提高xx%」）+「攻击力+xx」固定加成
     //    百分比只作用于基础面板；士气不乘入攻击力，走 _resolveDamage 的增伤乘区
     getEffectiveAttack() {
-        if (this._isDrone) {
-            const auraAtk = getCommanderAuraAttackBonus(this);
-            return Math.round(DRONE_ATK * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this));
-        }
         const auraAtk = getCommanderAuraAttackBonus(this);
         return Math.round(this.config.attack * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this));
     }
@@ -786,7 +780,7 @@ export class Unit {
     //   ④ 防御（层内加算后 1-Σ）：地形/守城/兵种/军衔/士气/将领/灵光，「防御力提高xx%」
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
                    isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0) {
-        const counterCoeff = attacker._isDrone ? 1 : COUNTER_RELATION[attacker.type][defender.type];
+        const counterCoeff = COUNTER_RELATION[attacker.type]?.[defender.type] ?? 1;
 
         // ② 增伤乘区
         let dmgUp = extraBonus;
@@ -814,7 +808,7 @@ export class Unit {
 
         // ④ 防御乘区
         let defSum = TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
-        // 森林掩蔽：对远程攻击（炮兵/要塞）额外+20%防御，与地形自带10%加算
+        // 森林掩蔽：对远程攻击（炮兵/碉堡）额外+20%防御，与地形自带10%加算
         if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest')) {
             defSum += 0.15;
         }
@@ -836,7 +830,7 @@ export class Unit {
         defSum += getCommanderDefenseBonus(defender);
         // 魔术师·千面：被克制目标攻击时受伤降低15%
         if (defender.commander === 'magician' && counterCoeff > 1) defSum += 0.15;
-        // 停滞者力场：2格内友军停滞者 → 对远程攻击(炮兵/要塞)防御 +25%（单层）
+        // 停滞者力场：2格内友军停滞者 → 对远程攻击(炮兵/碉堡)防御 +25%（单层）
         // 空军伤害(isAirDamage)不走此分支：停滞者已作为防空层在下方计入 +25%，
         // 否则炮兵载体的上校空军卡会被同一个停滞者叠加 15%+25% 双重加防
         if (!isAirDamage && (attacker.type === 'archer' || attacker.type === 'mgNest') && _gameState && _gameState.tileMap) {
@@ -850,7 +844,7 @@ export class Unit {
             }
             if (hasStaller) defSum += 0.25;        // 停滞者力场：+25%
         }
-        // 防空火力：2格内友军 炮兵/要塞/停滞者单位 → 仅对空军(上校空军卡)伤害 +25%/层（封顶2层=50%）
+        // 防空火力：2格内友军 炮兵/碉堡/停滞者单位 → 仅对空军(上校空军卡)伤害 +25%/层（封顶2层=50%）
         if (isAirDamage && _gameState && _gameState.tileMap) {
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
@@ -878,7 +872,7 @@ export class Unit {
     calculateDamage(targetUnit) {
         const gs = _gameState;
 
-        // 无人机机枪射击：走标准四大乘区，空军伤害（受防空减免），无克制关系
+        // 无人机机枪射击：走标准四大乘区，空军伤害（受防空减免），克制关系由 COUNTER_RELATION.drone 决定
         if (this._isDrone) {
             const result = this._resolveDamage(this, targetUnit, 1, 0, false, false, true);
             gs.damageTexts.push({
@@ -918,7 +912,7 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.counterAttackCount >= 1 || this.morale === 0) {
+        if (this.counterAttackCount >= 1 || this.morale === 0 || this._disoriented) {
             return { dmg: 0, isCrit: false };
         }
         // 无人机攻击地面单位时，地面单位无法反击
@@ -927,8 +921,8 @@ export class Unit {
         }
         // 反击可达性：攻击者必须落在防守方自身射程内才能还击
         //   近战单位(步/骑) 射程1 → 仅贴脸攻击可被反击
-        //   远程单位(炮/要塞) 射程2 → 2格内的攻击者（含远程炮击/近战贴脸）均可被反击
-        const counterRange = (this.type === 'archer' || this.type === 'mgNest') ? 2 : 1;
+        //   远程单位(炮/碉堡) 射程2 → 2格内的攻击者（含远程炮击/近战贴脸）均可被反击
+        const counterRange = this._isDrone ? 2 : ((this.type === 'archer' || this.type === 'mgNest') ? 2 : 1);
         if (hexDistance(attackerUnit.tile, this.tile) > counterRange) {
             return { dmg: 0, isCrit: false };
         }
@@ -936,7 +930,7 @@ export class Unit {
         const isCityCounter = this.type === 'infantry' && this.tile.isCity;
         const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.15 : 0;
 
-        const result = this._resolveDamage(this, attackerUnit, 0.75, cityAtkBonus, true, isCityCounter);
+        const result = this._resolveDamage(this, attackerUnit, 0.75, cityAtkBonus, true, isCityCounter, this._isDrone);
 
         if (this.hp > 0) {
             this.counterAttackCount++;
@@ -958,7 +952,7 @@ export class Unit {
     // 所有伤害结算必须经此进入（普攻/反击由 takeDamage 薄包装转入）。
     // source 来源标签决定结算规则：
     //   'melee'  近战攻击                          —— 吸收护盾；触发铁卫转移/圣骑士誓言
-    //   'ranged' 远程攻击(炮兵/要塞/空袭对策卡)    —— 同上
+    //   'ranged' 远程攻击(炮兵/碉堡/空袭对策卡)    —— 同上
     //   'true'   真实伤害(雷击/至圣斩/殉道自爆/灼烧) —— 绕过护盾和全部乘区；不触发铁卫转移/誓言
     // opts:
     //   attacker     击杀记功单位（缺省不计 killCount）
@@ -1167,7 +1161,7 @@ export class Unit {
     takeDamage(dmg, attackerUnit, _skipAura = false) {
         let source = 'true';
         if (attackerUnit) {
-            if (attackerUnit._isDrone) source = 'ranged';
+            if (attackerUnit._isDrone || attackerUnit.type === 'drone') source = 'ranged';
             else if (attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') source = 'ranged';
             else source = 'melee';
         }

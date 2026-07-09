@@ -1024,9 +1024,7 @@ function drawCounterText() {
     gameState.attackableTiles.forEach(tile => {
         const targetUnit = tile.unit;
         if (!targetUnit) return;
-        // 无人机无克制关系
-        if (gameState.selectedUnit._isDrone) return;
-        const counterCoeff = COUNTER_RELATION[gameState.selectedUnit.type][targetUnit.type];
+        const counterCoeff = COUNTER_RELATION[gameState.selectedUnit.type]?.[targetUnit.type] ?? 1;
         let text = '';
         let color = '';
         let icon = '';
@@ -1232,13 +1230,14 @@ function drawRangeApertures(now) {
         const baseAlpha = 0.35 + pulse * 0.55;
         const ct = gameState.cardTargeting;
         const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
-        const isAirCardTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest' || ct.cardId === 'airstrike' || ct.cardId === 'airdrop';
+        const isAirCardTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest' || ct.cardId === 'airstrike' || ct.cardId === 'airdrop' || ct.cardId === 'drone_suicide';
         const isColTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest';
         const time = now / 1000;
         const isHeal = ct.targeting === 'friendlyAny' || ct.targeting === 'anyUnit';
         const isShield = ct.targeting === 'shieldTarget';
         const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain' || ct.targeting === 'emptyFriendlyLandmine';
         const isFriendly = ct.targeting === 'friendlyAlive' || ct.targeting === 'friendlyAny' || isShield;
+        const skipsFogTargeting = ct.targeting === 'anyTileGlobal' && ct.cardId !== 'drone_suicide';
 
         // 空军卡（上校/空袭/空降）：防空覆盖层——画在目标高亮【之下】
         if (isAirCardTargeting) {
@@ -1306,7 +1305,7 @@ function drawRangeApertures(now) {
                     ctx.restore();
                 }
             }
-            // 防空单位标志（每个敌方炮兵/要塞/停滞者）
+            // 防空单位标志（每个敌方炮兵/碉堡/停滞者）
             ctx.save();
             ctx.font = '20px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -1337,9 +1336,14 @@ function drawRangeApertures(now) {
             } else if (ct.targeting === 'shieldTarget') {
                 if (!tile.unit) continue;
             } else if (ct.cardId === 'drone_deploy') {
-                if (tile.unit) continue;
+                if (tile.unit || tile.isCity || tile.terrain === 'mountain') continue;
                 const _ty = gameState.tiles.reduce((f, tx) => f || (tx.unit && tx.unit.commander === 'tianyan' && tx.unit.camp === myCamp && tx.unit.hp > 0 ? tx.unit : null), null);
                 if (!_ty || hexDistance(_ty.tile, tile) > 1) continue;
+            } else if (ct.cardId === 'drone_suicide') {
+                const drone = gameState.tiles.reduce((f, tx) => f || (tx.unit && tx.unit.id === ct.droneId ? tx.unit : null), null);
+                if (!drone || !drone._isDrone || !drone.tile) continue;
+                if (!tile.unit || tile.unit.camp === myCamp) continue;
+                if (hexDistance(drone.tile, tile) > 3) continue;
             } else if (ct.targeting === 'emptyTile') {
             } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
                 if (tile.unit || tile.isCity || tile.terrain === 'mountain' || tile.camp !== myCamp) continue;
@@ -1350,7 +1354,7 @@ function drawRangeApertures(now) {
             } else { continue; }
 
             // 遭遇战迷雾：对策卡仅高亮视野内目标（侦察卡除外）
-            if (gameState.skirmishFog && ct.targeting !== 'anyTileGlobal') {
+            if (gameState.skirmishFog && !skipsFogTargeting) {
                 const viewingCamp = getViewingCamp();
                 if (!isTileVisible(tile, viewingCamp, gameState)) continue;
             }
@@ -1364,7 +1368,7 @@ function drawRangeApertures(now) {
             if (isHeal)       { r = 80;  g = 255; b = 100; }
             else if (isShield) { r = 100; g = 180; b = 255; } // light blue for shield
             else if (ct.targeting === 'enemyCity') { r = 255; g = 120; b = 30; } // orange for airstrike
-            else if (ct.targeting === 'anyTileGlobal') { r = 160; g = 200; b = 255; } // light cyan for scout
+            else if (ct.targeting === 'anyTileGlobal' && ct.cardId !== 'drone_suicide') { r = 160; g = 200; b = 255; } // light cyan for scout
             else if (isEmpty) { r = 100; g = 200; b = 255; } // blue for deploy/landmine
             else if (isFriendly) { r = 255; g = 200; b = 50; } // gold for friendly
             else              { r = 255; g = 50;  b = 50; } // red for enemy

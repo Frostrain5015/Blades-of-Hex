@@ -36,7 +36,8 @@ export const UNIT_CONFIG = {
     infantry: { name: '步兵', hp: 200, attack: 50, speed: 3 },
     cavalry:  { name: '骑兵', hp: 250, attack: 65, speed: 5 },
     archer:   { name: '弓兵', hp: 150, attack: 60, speed: 3 },
-    mgNest:   { name: '要塞', hp: 220, attack: 80, speed: 2 },
+    mgNest:   { name: '碉堡', hp: 220, attack: 40, speed: 2 },
+    drone:    { name: '无人机', hp: 75, attack: 30, speed: 8 },
 };
 
 export function makeGameState(overrides = {}) {
@@ -83,6 +84,7 @@ export async function injectHelpers(page) {
             UNIT_CONFIG: {
                 infantry: { name: '步兵', hp: 200, attack: 50, speed: 3 },
                 cavalry:  { name: '骑兵', hp: 250, attack: 65, speed: 5 },
+                drone:    { name: '无人机', hp: 75, attack: 30, speed: 8 },
             },
             makeGameState(overrides) {
                 return { tiles: [], tileMap: new Map(), turnCounter: 0, currentCamp: { name: '红军' },

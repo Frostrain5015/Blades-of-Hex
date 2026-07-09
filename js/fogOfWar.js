@@ -7,6 +7,7 @@ export const UNIT_VISION = {
     cavalry: 2,
     archer: 2,
     mgNest: 2,
+    drone: 2,
 };
 
 // 己方城市提供相邻6格视野

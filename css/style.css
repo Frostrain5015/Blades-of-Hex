@@ -1335,7 +1335,7 @@ body {
     border-radius: var(--radius-md);
     padding: 24px 28px;
     min-width: 500px;
-    max-width: 860px;
+    max-width: 1060px;
     text-align: center;
     box-shadow: 0 0 48px rgba(0, 0, 0, 0.85);
 }
@@ -1352,9 +1352,10 @@ body {
     gap: 12px;
     justify-content: center;
     flex-wrap: wrap;
-    margin-bottom: 12px;
+    margin: 0 auto 12px;
     position: relative;
     min-height: 260px;
+    max-width: 948px;
 }
 
 /* ---- 牌堆（单张） ---- */

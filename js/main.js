@@ -16,7 +16,7 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
-    spawnProjectile, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnDroneProjectile, spawnDroneSuicideFlak, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
@@ -139,6 +139,9 @@ const _heroReadyPromise = new Promise(res => { _heroReadyResolve = res; });
 function _signalHeroReady() { if (_heroReadyResolve) { _heroReadyResolve(); _heroReadyResolve = null; } }
 // 首屏立绘就绪后再撤下加载遮罩（避免露出空图占位）；最长兜底 4s 防图片异常卡住
 let _loadingDismissed = false;
+function _getTrainingAIPick(playerPick) {
+    return playerPick === 'berserker' ? 'centurion' : 'berserker';
+}
 // URL 训练场模式：/?trainer=<commanderKey> 直接进入对局
 function _checkTrainerUrl() {
     const p = new URLSearchParams(location.search);
@@ -157,9 +160,7 @@ function _checkTrainerUrl() {
     gameState.commanderP1 = cmd;
     gameState.commanderP1Confirmed = true;
     gameState.commanderP1Deployed = false;
-    // AI 随机选将
-    const allKeys = Object.keys(COMMANDER_CONFIG).filter(k => k !== cmd);
-    const aiPick = allKeys[Math.floor(Math.random() * allKeys.length)];
+    const aiPick = _getTrainingAIPick(cmd);
     gameState.commanderP2 = aiPick;
     gameState.commanderP2Confirmed = true;
     gameState.commanderP2Deployed = false;
@@ -233,11 +234,13 @@ connectToServer(wsUrl(location.host)).then(() => {
     // 连接成功 → 首屏立绘就绪后撤下加载遮罩、展示主页
     _dismissLoadingWhenReady();
     showHome();
+    _checkTrainerUrl();
 }).catch(() => {
     setConnectionState('disconnected');
     // 连接失败 → 仍展示主页（本地/PVE 模式不需要服务器）
     _dismissLoadingWhenReady();
     showHome('服务器未连接，您仍可进行本地游戏');
+    _checkTrainerUrl();
 });
 
 // 手动重连按钮
@@ -849,6 +852,8 @@ function beginTrainingCountdown() {
     _stopHeroCarousel();
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
+    const commanderP1 = gameState.commanderP1;
+    const commanderP2 = gameState.commanderP2;
     resetGameState();
     gameState.gameMode = 'training';
     gameState.skirmishFog = false;
@@ -856,6 +861,10 @@ function beginTrainingCountdown() {
     gameState.aiDifficulty = 1.0;
     gameState._trainingMode = true;
     gameState.commanderPhase = 'done';
+    gameState.commanderP1 = commanderP1;
+    gameState.commanderP2 = commanderP2;
+    gameState.commanderP1Confirmed = !!commanderP1;
+    gameState.commanderP2Confirmed = !!commanderP2;
     gameState.commanderP1Deployed = false;
     gameState.commanderP2Deployed = false;
     // 3秒倒计时后开始
@@ -1049,7 +1058,7 @@ function _showCommanderWaiting(forPlayer) {
     statusDiv.style.color = '#aaa';
     cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
     const deckEl = document.getElementById('commanderDeck');
-    if (deckEl) { _deckEl2.style.display = 'none'; gsap.set(deckEl, { clearProps: 'transform,opacity' }); }
+    if (deckEl) { deckEl.style.display = 'none'; gsap.set(deckEl, { clearProps: 'transform,opacity' }); }
     overlay.classList.add('show');
 }
 
@@ -1124,12 +1133,13 @@ function _showTrainingCommanderSelection(forPlayer) {
     }
 
     // 显示牌堆
-    const _deckEl2 = document.getElementById("commanderDeck");
-    _deckEl2.style.display = "block";
-    _deckEl2.style.opacity = "0";
-    _deckEl2.style.transform = "translate(-50%, -50%) scale(0.8)";
+    if (deckEl) {
+        deckEl.style.display = "block";
+        deckEl.style.opacity = "0";
+        deckEl.style.transform = "translate(-50%, -50%) scale(0.8)";
+    }
     overlay.classList.add("show");
-    const CARD_W = 160, CARD_H = 230;
+    const CARD_W = 180, CARD_H = 260;
     const CARDS_PER_ROW = 5;
     requestAnimationFrame(() => {
         const containerW = cardsDiv.clientWidth;
@@ -1166,7 +1176,10 @@ function _showTrainingCommanderSelection(forPlayer) {
             tl.call(() => { revealBack.style.display = "none"; persistent.style.display = ""; }, null, st + 0.12);
             tl.to(inner, { scaleX: 1, duration: 0.12, ease: "power2.out" }, st + 0.12);
         });
-        tl.to(_deckEl2, { opacity: 1, scale: 1, duration: 0.3, ease: "power2.out" }, lastDealEnd + 0.05);
+        if (deckEl) {
+            tl.to(deckEl, { opacity: 0, scale: 0.85, duration: 0.25, ease: "power2.out" }, lastDealEnd + 0.05);
+            tl.set(deckEl, { display: "none" }, lastDealEnd + 0.30);
+        }
         tl.call(() => {
             cardDatas.forEach(({ el }) => {
                 const inner = el.querySelector(".commander-card-inner");
@@ -1197,15 +1210,12 @@ function _showTrainingCommanderSelection(forPlayer) {
             statusDiv.textContent = '已确认 ' + cfg.name;
             statusDiv.style.color = '#4CAF50';
             cardsDiv.querySelectorAll('.commander-card').forEach(c => c.style.pointerEvents = 'none');
-            _onCommanderSelected('player1');
-            // AI picks from remaining
-            const remaining = Object.keys(COMMANDER_CONFIG).filter(k => k !== key);
-            const aiPick = remaining[Math.floor(Math.random() * remaining.length)];
+            const aiPick = _getTrainingAIPick(key);
             gameState.commanderP2 = aiPick;
             gameState.commanderP2Confirmed = true;
             gameState.commanderP2Deployed = false;
             setTimeout(() => {
-                _onCommanderSelected('player2');
+                beginTrainingCountdown();
                 _commanderPending = null;
             }, 300);
             cardsDiv.removeEventListener('click', _handler);
@@ -2627,11 +2637,14 @@ async function handleRemoteAction(msg) {
                 if (_rmSmite) {
                     setTimeout(() => playSound('lightning'), 500);
                 } else {
-                    playSound(e.attackerType === 'archer' || e.attackerType === 'mgNest' ? 'cannon' : (e?.isCrit ? 'crit' : 'attack'));
+                    playSound(e.attackerType === 'archer' || e.attackerType === 'mgNest' || e.attackerIsDrone ? 'cannon' : (e?.isCrit ? 'crit' : 'attack'));
                 }
                 if (e) {
                     triggerAttackFlash(e.x, e.y, e.isCrit);
-                    if (e.attackerType === 'archer' || e.attackerType === 'mgNest') {
+                    if (e.attackerIsDrone || e.attackerType === 'mgNest') {
+                        spawnDroneProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                        spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
+                    } else if (e.attackerType === 'archer') {
                         spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                         triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
@@ -2700,8 +2713,12 @@ async function handleRemoteAction(msg) {
                         if (e.counterIsRanged) {
                             playSound('cannon');
                             triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
-                            spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
-                            triggerRecoil(e.x, e.y, e.counterX, e.counterY);
+                            if (e.counterUsesDroneProjectile || e.counterIsDrone) {
+                                spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                            } else {
+                                spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                                triggerRecoil(e.x, e.y, e.counterX, e.counterY);
+                            }
                             spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);
                             triggerScreenShake(e.counterIsCrit ? 6 : 3, e.counterIsCrit ? 200 : 120);
                         }
@@ -2747,6 +2764,34 @@ async function handleRemoteAction(msg) {
                 }
             } catch (err) {
                 console.warn('Remote attack effects error:', err);
+            }
+            break;
+        case 'droneDeploy':
+            if (e) {
+                playSound('recruit');
+                spawnCommanderSkillEffect(e.x, e.y, '✈️', '天眼哨机');
+                spawnRecruitEffect(e.x, e.y);
+                triggerRecruitFlash(e.x, e.y);
+            }
+            break;
+        case 'droneSuicide':
+            if (e) {
+                playSound('cannon');
+                spawnDroneSuicideFlak(e.fromX, e.fromY, e.x, e.y);
+                spawnExplosionParticles(e.x, e.y, '#ff6600', 30);
+                spawnExplosionParticles(e.x, e.y, '#ffcc00', 15);
+                triggerAttackFlash(e.x, e.y, true);
+                triggerScreenShake(8, 300);
+                for (const r of e.results || []) {
+                    gameState.damageTexts.push({
+                        x: r.x,
+                        y: r.y,
+                        value: r.dmg,
+                        isCrit: !!r.isCrit,
+                        timeLeft: 900,
+                        lastUpdate: performance.now()
+                    });
+                }
             }
             break;
         case 'recruit':
@@ -2802,4 +2847,3 @@ async function handleRemoteAction(msg) {
         }
     }
 }
-

@@ -2,16 +2,14 @@ import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TE
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI } from './state.js';
-import { Unit } from './Unit.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
-    executeTacticalCard, executeDroneSuicide, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
+    executeTacticalCard, executeDroneDeploy, executeDroneSuicide, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
     isColonelTargetBlocked
 } from './gameLogic.js';
-import { deployDrone } from '../commander/tianyan.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 import { setMasterVolume, setMuted } from './audio.js';
@@ -259,7 +257,7 @@ function showTooltipForTile(tile) {
     const tc = TERRAIN_CONFIG[tile.terrain];
 
     if (unit) {
-        const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵' };
+        const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵', mgNest: '碉堡', drone: '无人机' };
         let headerText = unit._isDrone
             ? `${unit.camp.name}·无人机`
             : `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}`;
@@ -298,7 +296,7 @@ function showTooltipForTile(tile) {
         tooltipHpBar.style.display = '';
 
         const effAtk = unit.getEffectiveAttack();
-        const baseAtk = unit._isDrone ? 25 : unit.config.attack;
+        const baseAtk = unit.config.attack;
         const atkDelta = effAtk - baseAtk;
         if (atkDelta !== 0) {
             const sign = atkDelta > 0 ? '+' : '';
@@ -321,12 +319,8 @@ function showTooltipForTile(tile) {
         } else {
             tooltipDef.innerHTML = `<span style="color:#888;">🛡 0%</span>`;
         }
-        tooltipSpd.innerHTML = unit._isDrone
-            ? `<span style="color:#6cf;">⚡ ${unit.remainingMP}/${8}</span>`
-            : `<span style="color:#6cf;">⚡ ${unit.remainingMP}/${unit.config.speed}</span>`;
-        tooltipRng.innerHTML = unit._isDrone
-            ? `<span style="color:#f8a;">📡 ${2}</span>`
-            : `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
+        tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${unit.remainingMP}/${unit.config.speed}</span>`;
+        tooltipRng.innerHTML = `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
         // 主动技能冷却剩余 → ⌛ 在属性栏
         const cdRounds = unit.getCooldownRounds();
         if (cdRounds > 0) {
@@ -362,7 +356,7 @@ function showTooltipForTile(tile) {
         // ==== 技能区 ====
         let skillHtml = '';
         if (unit._isDrone) {
-            skillHtml = `<span style="color:#88ccff;">【无人机】HP ${unit.maxHp}/ATK ${baseAtk}/MP 8/射程 2。行动力消耗2（无视地形）。</span>`;
+            skillHtml = `<span style="color:#88ccff;">【无人机】HP ${unit.maxHp}/ATK ${baseAtk}/MP ${unit.config.speed}/射程 ${unit.config.range}。行动力消耗2（无视地形）。</span>`;
             if (unit._disoriented) {
                 skillHtml += `<br><span style="color:#ff6666;">【混乱】已超出天眼信号范围，无法操控</span>`;
             }
@@ -532,7 +526,7 @@ function showTooltipForTile(tile) {
             }
         } else {
             terrainDesc = `防御+${Math.round(tc.defenseBonus * 100)}%`;
-            if (tile.terrain === 'forest') terrainDesc += '（对炮兵/要塞/空军额外+15%）';
+            if (tile.terrain === 'forest') terrainDesc += '（对炮兵/碉堡/空军额外+15%）';
             if (tc.moveDesc) terrainDesc += `，${tc.moveDesc}`;
         }
         const terrainLine = `<span style="color:#fff;">【${terrainName}】${terrainDesc}</span>`;
@@ -756,11 +750,10 @@ export function initInput() {
                 const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
                 if (!tianyanUnit) { notify('天眼已阵亡', 'error'); cancelCardTargeting(); return; }
                 if (clickedTile.unit) { notify('目标地块已有单位', 'error'); return; }
-                const drone = deployDrone(tianyanUnit, clickedTile, { gameState, Unit, logMessage: logMessage || notify, spawnFx: spawnCommanderSkillEffect });
+                const drone = executeDroneDeploy(tianyanUnit, clickedTile);
                 if (drone) {
                     gameState.cardTargeting = null;
                     hideTargetingBanner();
-                    updateUI();
                 }
                 return;
             }
@@ -768,10 +761,10 @@ export function initInput() {
             if (ct.cardId === 'drone_suicide') {
                 const drone = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.id === ct.droneId ? t.unit : null), null);
                 if (!drone || !drone._isDrone) { notify('无人机无效', 'error'); cancelCardTargeting(); return; }
-                executeDroneSuicide(drone, clickedTile);
-                gameState.cardTargeting = null;
-                hideTargetingBanner();
-                updateUI();
+                if (executeDroneSuicide(drone, clickedTile)) {
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                }
                 return;
             }
             const cfg = TACTICAL_CARD_CONFIG[ct.cardId] || COLONEL_CARDS[ct.cardId];
@@ -870,7 +863,7 @@ export function initInput() {
             gameState.selectedUnit = clickedTile.unit;
             gameState.movableTiles = getMovableTiles(clickedTile.unit);
             gameState.attackableTiles = getAttackableTiles(clickedTile.unit);
-            // 要塞等不可移动单位：若无攻击目标则直接标记为不可行动
+            // 碉堡等不可移动单位：若无攻击目标则直接标记为不可行动
             if (gameState.movableTiles.length === 0 && gameState.attackableTiles.length === 0) {
                 clickedTile.unit.canAct = false;
                 gameState.selectedUnit = null;
@@ -1088,7 +1081,7 @@ export function initSettingsPanel() {
             // 无人机自爆
             if (unit._isDrone) {
                 if (!unit.canAct || unit._disoriented) return;
-                showTargetingBanner('选择自爆目标（3格内）', '点击敌方单位或空地，对主目标及身后1格造成穿刺伤害');
+                showTargetingBanner('选择自爆目标（3格内）', '点击敌方单位，对主目标及身后1格造成穿刺伤害');
                 gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id };
                 updateUI();
                 return;
@@ -1112,7 +1105,7 @@ export function initSettingsPanel() {
             if (unit._pendingDroneDeploy) {
                 unit._pendingDroneDeploy = false;
                 clearselection();
-                showTargetingBanner('选择部署位置（周围2格空地）', '点击空地部署无人机');
+                showTargetingBanner('选择部署位置（周围1格空地）', '点击空地部署无人机');
                 gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1 };
                 updateUI();
                 return;

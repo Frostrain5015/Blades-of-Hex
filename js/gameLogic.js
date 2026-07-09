@@ -1,6 +1,6 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
-import { DRONE_SUICIDE_RANGE } from '../commander/tianyan.js';
+import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, refreshDroneSignal } from '../commander/tianyan.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
@@ -1124,6 +1124,7 @@ function _isInEnemyZoC(tile, friendlyCamp) {
 
 // BFS pathfinding: returns tiles reachable without passing through enemy lines
 export function getMovableTiles(unit) {
+    if (unit._isDrone) refreshDroneSignal(gameState, unit.camp);
     if (unit.morale === 0 || unit._imprisoned || unit._isImmobile || unit._disoriented) return [];
 
     const speed = unit.remainingMP;
@@ -1146,6 +1147,7 @@ export function getMovableTiles(unit) {
             const neighbor = map.get(`${cur.q + dq},${cur.r + dr}`);
             if (!neighbor) continue;
             if (neighbor.unit) continue; // occupied → impassable
+            if (unit._isDrone && !isTileInDroneSignal(gameState, unit.camp, neighbor)) continue;
 
             let stepCost = unit._isDrone ? 2 : TERRAIN_CONFIG[neighbor.terrain].stepCost;
             // 雨天泥泞：骑兵步耗+1，末步豁免失效
@@ -1184,11 +1186,12 @@ export function getMovableTiles(unit) {
 }
 
 export function getAttackableTiles(unit) {
+    if (unit._isDrone) refreshDroneSignal(gameState, unit.camp);
     if (unit.morale === 0 || unit._disoriented) return [];
     if (unit.commander === 'martyr' && unit._martyrPrimed) return [];
     let range = unit.config.range;
     // 无人机固定射程2
-    if (unit._isDrone) range = 2;
+    if (unit._isDrone) range = DRONE_RANGE;
     // 雾天炮兵射程-1（占星者星光力场免疫）
     if (gameState.weather === 'fog' && unit.type === 'archer'
         && !getCommanderWeatherImmunity(unit.tile, unit.camp, gameState.tileMap)) {
@@ -1203,7 +1206,9 @@ export function getAttackableTiles(unit) {
     range = Math.max(1, Math.min(4, range));
     const startTile = unit.tile;
     const targets = gameState.tiles.filter(tile =>
-        hexDistance(tile, startTile) <= range && tile.unit && tile.unit.camp !== unit.camp
+        hexDistance(tile, startTile) <= range
+        && tile.unit
+        && tile.unit.camp !== unit.camp
     );
     // 遭遇战迷雾：只能攻击视野内的敌方单位
     if (gameState.skirmishFog && targets.length) {
@@ -1250,6 +1255,7 @@ export function moveUnit(unit, targetTile) {
 
     const mpEntry = gameState.moveParents.get(targetTile);
     if (mpEntry) unit.remainingMP = mpEntry.remaining;
+    if (unit._isDrone) refreshDroneSignal(gameState, unit.camp);
 
     // 迷雾模式下先更新视野，确保新发现的敌人出现在可攻击列表中
     if (gameState.skirmishFog) _updateSkirmishFogAll();
@@ -1263,6 +1269,12 @@ export function moveUnit(unit, targetTile) {
     } else if (gameState.attackableTiles.length === 0) {
         unit.canAct = false;
         clearselection();
+    }
+    if (unit._isDrone && unit._disoriented) {
+        gameState.movableTiles = [];
+        gameState.attackableTiles = [];
+        clearselection();
+        notify('无人机超出天眼信号范围，陷入混乱', 'warn');
     }
 
     // 地雷触发（特效对所有玩家广播）
@@ -1290,7 +1302,7 @@ export function moveUnit(unit, targetTile) {
         }
     }
 
-    if (targetTile.isCity) {
+    if (targetTile.isCity && !unit._isDrone) {
         unit.remainingMP = 0; // entering city ends movement
         if (targetTile.camp !== unit.camp) {
             updateDistrictColor(targetTile, unit.camp, unit);
@@ -1315,6 +1327,7 @@ export function moveUnit(unit, targetTile) {
 export function attackUnit(attackerUnit, targetUnit) {
     if (gameState.gameOver) return;
     if (attackerUnit.camp !== gameState.currentCamp) return;
+    if (attackerUnit._isDrone) refreshDroneSignal(gameState, attackerUnit.camp);
     if (!attackerUnit.canAct || !gameState.attackableTiles.includes(targetUnit.tile)) {
         notify('无法攻击：超出射程或单位已行动', 'error');
         return;
@@ -1372,14 +1385,14 @@ export function attackUnit(attackerUnit, targetUnit) {
 
     let atkCmdResult = null, ctrCmdResult = null;
     try {
-        if (attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') {
+        if (attackerUnit.type === 'archer') {
             spawnProjectile(fromX, fromY, toX, toY, isCrit, () => {
                 triggerAttackFlash(toX, toY, isCrit);
                 triggerRecoil(fromX, fromY, toX, toY);
                 spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
                 triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
             });
-        } else if (attackerUnit._isDrone) {
+        } else if (attackerUnit._isDrone || attackerUnit.type === 'mgNest') {
             spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {
                 triggerAttackFlash(toX, toY, isCrit);
                 spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
@@ -1390,7 +1403,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             spawnMeleeSlash(toX, toY, fromX, fromY, isCrit);
             triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
         }
-        // 近战突进特效（击杀时由 movePath 处理位移，不重复触发；要塞/无人机不可移动，无突进）
+        // 近战突进特效（击杀时由 movePath 处理位移，不重复触发；碉堡/无人机不可移动，无突进）
         if (attackerUnit.type !== 'archer' && attackerUnit.type !== 'mgNest' && !attackerUnit._isDrone && !isTargetDead) {
             triggerCharge(attackerUnit.id, fromX, fromY, toX, toY);
         }
@@ -1450,13 +1463,13 @@ export function attackUnit(attackerUnit, targetUnit) {
                 targetUnit.addXP(1);
                 if (counterResult.isCrit) targetUnit.addXP(2);
                 attackerUnit.takeDamage(counterResult.dmg, targetUnit);
-                // 远程单位(炮/要塞/无人机)反击 → 复用炮弹/子弹飞行动画（近战反击维持原本仅伤害数字）
+                // 远程单位(炮/碉堡/无人机)反击 → 复用炮弹/子弹飞行动画（近战反击维持原本仅伤害数字）
                 _counterIsCrit = counterResult.isCrit;
                 _counterIsRanged = targetUnit.type === 'archer' || targetUnit.type === 'mgNest' || targetUnit._isDrone;
                 if (_counterIsRanged) {
                     const _cfx = targetUnit.tile.x, _cfy = targetUnit.tile.y;
                     playSound('cannon');
-                    if (targetUnit._isDrone) {
+                    if (targetUnit._isDrone || targetUnit.type === 'mgNest') {
                         spawnDroneProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, () => {
                             triggerAttackFlash(_counterX, _counterY, counterResult.isCrit);
                             spawnDirectionalParticles(_cfx, _cfy, _counterX, _counterY, '#ff8844', counterResult.isCrit ? 8 : 4);
@@ -1484,7 +1497,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             }
         } else {
             const targetTile = targetUnit.tile;
-            if (attackerUnit.type !== 'archer' && !attackerUnit._imprisoned && !attackerUnit._isImmobile) {
+            if (attackerUnit.type !== 'archer' && attackerUnit.type !== 'mgNest' && !attackerUnit._isDrone && !attackerUnit._imprisoned && !attackerUnit._isImmobile) {
                 attackerUnit.tile.unit = null;
                 attackerUnit.tile = targetTile;
                 targetTile.unit = attackerUnit;
@@ -1577,6 +1590,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             fromX, fromY,
             attackerUnitId: attackerUnit.id,
             attackerType: attackerUnit.type,
+            attackerIsDrone: !!attackerUnit._isDrone,
             isCrit: attackResult.isCrit,
             killed: isTargetDead,
             cityCaptured: _cityCapturedInAttack || false,
@@ -1586,6 +1600,8 @@ export function attackUnit(attackerUnit, targetUnit) {
             attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
             counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
             counterIsRanged: _counterIsRanged, counterIsCrit: _counterIsCrit,
+            counterIsDrone: !!targetUnit._isDrone,
+            counterUsesDroneProjectile: !!(targetUnit._isDrone || targetUnit.type === 'mgNest'),
             healAmt: _healAmtRemote, healX: _healX, healY: _healY,
             smiteDmg: _smiteDmgRemote,
             goldenBeamDatas: _goldenBeamDatas.length ? _goldenBeamDatas : null,
@@ -1955,7 +1971,7 @@ export function getColonelUnit(camp) {
     return null;
 }
 
-// 是否为防空火力单位：炮兵(archer)/要塞(mgNest)/挂停滞者的单位
+// 是否为防空火力单位：炮兵(archer)/碉堡(mgNest)/挂停滞者的单位
 export function isAntiAirUnit(u) {
     return !!u && (u.type === 'archer' || u.type === 'mgNest' || u.commander === 'staller');
 }
@@ -2049,42 +2065,85 @@ function _getSuicidePiercingTiles(fromTile, targetTile) {
     return tiles;
 }
 
+export function executeDroneDeploy(tianyanUnit, targetTile) {
+    if (!tianyanUnit || tianyanUnit.commander !== 'tianyan' || tianyanUnit.hp <= 0) {
+        notify('天眼无效，无法部署无人机', 'error');
+        return null;
+    }
+    if (tianyanUnit.camp !== gameState.currentCamp) {
+        notify('只能在当前回合部署无人机', 'error');
+        return null;
+    }
+
+    const drone = deployDrone(tianyanUnit, targetTile, {
+        gameState,
+        Unit,
+        logMessage,
+        spawnFx: spawnCommanderSkillEffect
+    });
+    if (!drone) return null;
+
+    refreshDroneSignal(gameState, tianyanUnit.camp);
+    recalcAllFlankingMorale();
+    updateRecruitCostDisplay();
+    updateUI();
+    broadcastAction('droneDeploy', {
+        unitId: drone.id,
+        commanderUnitId: tianyanUnit.id,
+        x: targetTile.x,
+        y: targetTile.y,
+        q: targetTile.q,
+        r: targetTile.r
+    });
+    return drone;
+}
+
 // 无人机自杀式袭击
 export function executeDroneSuicide(droneUnit, targetTile) {
-    if (!droneUnit || !droneUnit._isDrone || droneUnit._disoriented) return;
-    if (!targetTile) return;
+    if (!droneUnit || !droneUnit._isDrone) return false;
+    refreshDroneSignal(gameState, droneUnit.camp);
+    if (droneUnit._disoriented || !droneUnit.canAct) {
+        notify('无人机当前无法行动', 'error');
+        return false;
+    }
+    if (!targetTile || !targetTile.unit || targetTile.unit.camp === droneUnit.camp) {
+        notify('请选择3格内敌方单位作为自爆目标', 'error');
+        return false;
+    }
     if (hexDistance(droneUnit.tile, targetTile) > DRONE_SUICIDE_RANGE) {
         notify('超出自爆射程（3格）', 'error');
-        return;
+        return false;
     }
     const gs = gameState;
     const fromTile = droneUnit.tile;
 
-    // 基础普攻伤害（标准四大乘区，空军伤害，无克制）
-    let baseDmg = 0;
-    if (targetTile.unit) {
-        const baseResult = droneUnit._resolveDamage(droneUnit, targetTile.unit, 1, 0, false, false, true);
-        baseDmg = baseResult.dmg;
-    }
-
-    // 主目标 = 3倍普攻；穿刺目标 = 1.5倍普攻
-    const mainDmg = targetTile.unit ? Math.round(baseDmg * 3) : 0;
-    const pierceDmg = Math.round(baseDmg * 1.5);
-
     const results = [];
+    const applySuicideDamage = (tile, multiplier) => {
+        if (!tile.unit || tile.unit.camp === droneUnit.camp) return null;
+        const baseResult = droneUnit._resolveDamage(droneUnit, tile.unit, 1, 0, false, false, true);
+        const dmg = Math.round(baseResult.dmg * multiplier);
+        if (dmg <= 0) return null;
+        const killed = tile.unit.applyDamage(dmg, { source: 'ranged', attacker: droneUnit });
+        gs.damageTexts.push({
+            x: tile.x,
+            y: tile.y,
+            value: dmg,
+            isCrit: baseResult.isCrit,
+            timeLeft: 900,
+            lastUpdate: performance.now()
+        });
+        const result = { q: tile.q, r: tile.r, x: tile.x, y: tile.y, dmg, killed, isCrit: baseResult.isCrit };
+        results.push(result);
+        return result;
+    };
 
     // 主目标
-    if (targetTile.unit && mainDmg > 0) {
-        const killed = targetTile.unit.applyDamage(mainDmg, { source: 'ranged', attacker: droneUnit });
-        results.push({ q: targetTile.q, r: targetTile.r, dmg: mainDmg, killed });
-    }
+    const mainText = applySuicideDamage(targetTile, 3);
 
     // 穿刺目标（身后1格左右2个）
     const piercingTiles = _getSuicidePiercingTiles(fromTile, targetTile);
     for (const pt of piercingTiles) {
-        if (!pt.unit || pt.unit.camp === droneUnit.camp) continue; // 不伤害友军
-        const killed = pt.unit.applyDamage(pierceDmg, { source: 'ranged', attacker: droneUnit });
-        results.push({ q: pt.q, r: pt.r, dmg: pierceDmg, killed });
+        applySuicideDamage(pt, 1.5);
     }
 
     // 视觉效果：AA子弹流 + 爆炸
@@ -2095,14 +2154,29 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     triggerScreenShake(8, 300);
     playSound('cannon');
 
-    const mainText = results.find(r => r.q === targetTile.q && r.r === targetTile.r);
     const pierceTexts = results.filter(r => !(r.q === targetTile.q && r.r === targetTile.r));
-    logMessage(`✈️💥 无人机自爆对主目标造成${mainText ? mainText.dmg : 0}伤害，穿刺造成${pierceTexts.map(r => r.dmg).join('/')}伤害`);
+    logMessage(`✈️💥 无人机自爆对主目标造成${mainText ? mainText.dmg : 0}伤害，穿刺造成${pierceTexts.length ? pierceTexts.map(r => r.dmg).join('/') : 0}伤害`);
 
     // 消耗全部行动力并坠毁
     droneUnit.remainingMP = 0;
+    droneUnit.canAct = false;
     droneUnit.hp = 0;
-    droneUnit.destroy(droneUnit);
+    droneUnit.destroy(null);
+    clearselection();
+    recalcAllFlankingMorale();
+    if (gameState.skirmishFog) _updateSkirmishFogAll();
+    updateRecruitCostDisplay();
+    updateUI();
+    broadcastAction('droneSuicide', {
+        fromX: fromTile.x,
+        fromY: fromTile.y,
+        x: targetTile.x,
+        y: targetTile.y,
+        q: targetTile.q,
+        r: targetTile.r,
+        results
+    });
+    return true;
 }
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
     // E4 空运第二段：直接执行空运（跳过正常卡牌验证）
@@ -2425,7 +2499,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             break;
         }
         case 'mgNest': {
-            logMessage(`${myCamp.name}在(${targetTile.q},${targetTile.r})部署了要塞`);
+            logMessage(`${myCamp.name}在(${targetTile.q},${targetTile.r})部署了碉堡`);
             setTimeout(() => {
                 if (_mgNestSaved) _mgNestSaved._airdropWaiting = false;
                 spawnRecruitEffect(x, y);

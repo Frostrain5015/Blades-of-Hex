@@ -644,6 +644,7 @@ export function serializeState() {
             activeSkillBuffs: t.unit._activeSkillBuffs || null,
             isDrone: t.unit._isDrone || false,
             disoriented: t.unit._disoriented || false,
+            droneSignalDisabled: t.unit._droneSignalDisabled || false,
             droneCampKey: t.unit._droneCampKey || null,
             droneBornAt: t.unit._droneBornAt || 0
         } : null
@@ -843,7 +844,8 @@ export function deserializeState(data, HexTileClass, UnitClass) {
         tile._cityDisabledUntil = td.cityDisabledUntil || 0;
         tile._reinforcedThisTurn = td.reinforcedThisTurn || false;
         if (td.unit) {
-            const unit = new UnitClass(td.unit.type, campMap[td.unit.campKey], tile, td.unit.isNewRecruit, td.unit.id);
+            const unitType = td.unit.isDrone ? 'drone' : td.unit.type;
+            const unit = new UnitClass(unitType, campMap[td.unit.campKey], tile, td.unit.isNewRecruit, td.unit.id);
             unit.hp = td.unit.hp;
             unit.maxHp = td.unit.maxHp;
             unit.canAct = td.unit.canAct;
@@ -894,6 +896,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._activeSkillBuffs = td.unit.activeSkillBuffs || null;
             unit._isDrone = td.unit.isDrone || false;
             unit._disoriented = td.unit.disoriented || false;
+            unit._droneSignalDisabled = td.unit.droneSignalDisabled || false;
             unit._droneCampKey = td.unit.droneCampKey || null;
             unit._droneBornAt = td.unit.droneBornAt || 0;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）

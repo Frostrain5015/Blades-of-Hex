@@ -37,7 +37,7 @@ const COMMANDS = [
         { cmd: 'lightning', desc: '雷击' },
         { cmd: 'airstrike', desc: '空袭' },
         { cmd: 'airdrop',   desc: '空降' },
-        { cmd: 'mgNest',    desc: '机枪堡' },
+        { cmd: 'mgNest',    desc: '碉堡' },
         { cmd: 'shield',    desc: '护盾' },
         { cmd: 'landmine',  desc: '地雷' },
         { cmd: 'imprison',  desc: '禁锢' },

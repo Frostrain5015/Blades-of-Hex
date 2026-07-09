@@ -580,7 +580,7 @@ function spawnCannonImpact(x, y, isCrit) {
     }
 }
 
-// ===== 无人机机枪弹道（比防空曳光弹更醒目） =====================
+// ===== 无人机机枪弹道（比防空曳光弹更醒目，但避免激光感） =====================
 export const droneProjectiles = [];
 
 export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
@@ -603,11 +603,11 @@ export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
         const ang = Math.atan2(toY - fromY, toX - fromX);
         const mx = fromX + Math.cos(ang) * 8;
         const my = fromY + Math.sin(ang) * 8;
-        particles.push(new VisualParticle(mx, my, 0, 0, "#fff8e6", 10 - f * 2, 0.08 + f * 0.02, 0));
+        particles.push(new VisualParticle(mx, my, 0, 0, "#ffe7b8", 8 - f * 1.6, 0.07 + f * 0.018, 0));
         for (let s = 0; s < 6; s++) {
             const a = ang + (Math.random() - 0.5) * 0.9;
             const sp = 180 + Math.random() * 300;
-            particles.push(new VisualParticle(mx, my, Math.cos(a) * sp, Math.sin(a) * sp, Math.random() < 0.4 ? "#fff" : "#ffaa44", 2 + Math.random() * 3, 0.12 + Math.random() * 0.12, 30));
+            particles.push(new VisualParticle(mx, my, Math.cos(a) * sp, Math.sin(a) * sp, Math.random() < 0.3 ? "#ffe9c0" : "#ff9a3a", 1.8 + Math.random() * 2.6, 0.11 + Math.random() * 0.1, 30));
         }
     }
 }
@@ -615,8 +615,8 @@ export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
 function spawnDroneMuzzleFlash(x, y, toX, toY, isCrit) {
     const ang = Math.atan2(toY - y, toX - x);
     const mx = x + Math.cos(ang) * 8, my = y + Math.sin(ang) * 8;
-    // 中心白热闪
-    particles.push(new VisualParticle(mx, my, 0, 0, '#fff8e6', isCrit ? 10 : 7, 0.10, 0));
+    // 中心暖色枪口闪
+    particles.push(new VisualParticle(mx, my, 0, 0, '#ffe7b8', isCrit ? 8 : 6, 0.09, 0));
     // 更粗壮的火花锥
     const n = particleCount(isCrit ? 14 : 10);
     for (let i = 0; i < n; i++) {
@@ -624,8 +624,8 @@ function spawnDroneMuzzleFlash(x, y, toX, toY, isCrit) {
         const sp = 180 + Math.random() * 300;
         particles.push(new VisualParticle(
             mx, my, Math.cos(a) * sp, Math.sin(a) * sp,
-            Math.random() < 0.5 ? '#fff' : (isCrit ? '#ffdd55' : '#ffaa44'),
-            2.5 + Math.random() * 3, 0.12 + Math.random() * 0.18, 45
+            Math.random() < 0.35 ? '#ffe9c0' : (isCrit ? '#ffc65a' : '#ff9a3a'),
+            2.1 + Math.random() * 2.5, 0.11 + Math.random() * 0.15, 45
         ));
     }
 }
@@ -652,29 +652,35 @@ export function drawDroneProjectiles(ctx2d, now) {
 
         const hx = p.fromX + (p.toX - p.fromX) * t;
         const hy = p.fromY + (p.toY - p.fromY) * t;
-        const tailT = Math.max(0, t - 0.22);
+        const tailT = Math.max(0, t - 0.14);
         const tx = p.fromX + (p.toX - p.fromX) * tailT;
         const ty = p.fromY + (p.toY - p.fromY) * tailT;
 
         ctx2d.save();
         ctx2d.lineCap = 'round';
-        // 外辉：更亮更粗，金黄色（比AA火力更醒目）
-        ctx2d.strokeStyle = p.isCrit ? '#ff5522' : '#ff8800';
-        ctx2d.shadowColor = p.isCrit ? '#ff2200' : '#ffaa00';
-        ctx2d.shadowBlur = p.isCrit ? 12 : 9;
-        ctx2d.lineWidth = p.isCrit ? 7 : 5;
+        // 外辉：暖色粗曳光，保留力量感但降低白热激光感
+        ctx2d.strokeStyle = p.isCrit ? 'rgba(255,88,42,0.86)' : 'rgba(255,138,34,0.74)';
+        ctx2d.shadowColor = p.isCrit ? 'rgba(255,64,30,0.62)' : 'rgba(255,176,48,0.48)';
+        ctx2d.shadowBlur = p.isCrit ? 9 : 6;
+        ctx2d.lineWidth = p.isCrit ? 5.5 : 4;
         ctx2d.beginPath();
         ctx2d.moveTo(tx, ty);
         ctx2d.lineTo(hx, hy);
         ctx2d.stroke();
-        // 内芯：白热
+        // 内芯：偏暖且更窄，避免连续白线
         ctx2d.shadowBlur = 0;
-        ctx2d.strokeStyle = p.isCrit ? '#fff8d0' : '#fff0b0';
-        ctx2d.lineWidth = p.isCrit ? 2.5 : 2;
+        ctx2d.strokeStyle = p.isCrit ? 'rgba(255,240,190,0.78)' : 'rgba(255,220,145,0.58)';
+        ctx2d.lineWidth = p.isCrit ? 1.7 : 1.25;
         ctx2d.beginPath();
         ctx2d.moveTo(tx, ty);
         ctx2d.lineTo(hx, hy);
         ctx2d.stroke();
+        ctx2d.shadowColor = p.isCrit ? 'rgba(255,180,70,0.75)' : 'rgba(255,190,80,0.55)';
+        ctx2d.shadowBlur = p.isCrit ? 7 : 4;
+        ctx2d.fillStyle = p.isCrit ? 'rgba(255,238,160,0.9)' : 'rgba(255,205,110,0.75)';
+        ctx2d.beginPath();
+        ctx2d.arc(hx, hy, p.isCrit ? 2.4 : 1.8, 0, Math.PI * 2);
+        ctx2d.fill();
         ctx2d.restore();
     }
 }

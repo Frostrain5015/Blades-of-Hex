@@ -86,7 +86,13 @@ async function _executeActionInner(action, aiCamp) {
         }
         if (targets.length === 0) return false;
 
-        const COUNTER = { infantry: { archer: 0.75, cavalry: 1.25 }, archer: { cavalry: 0.75, infantry: 1.25 }, cavalry: { infantry: 0.75, archer: 1.25 } };
+        const COUNTER = {
+            infantry: { archer: 0.75, cavalry: 1.25, mgNest: 0.75, drone: 1 },
+            archer: { cavalry: 0.75, infantry: 1.25, mgNest: 1.25, drone: 1 },
+            cavalry: { infantry: 0.75, archer: 1.25, mgNest: 0.75, drone: 1 },
+            mgNest: { infantry: 1.25, archer: 0.75, cavalry: 1.25, drone: 1 },
+            drone: { infantry: 1.25, archer: 1, cavalry: 1, mgNest: 1, drone: 1 }
+        };
         const TERRAIN_DEF = { plains: 0, forest: 0.10, mountain: 0.20 };
         let best = targets[0];
         let bestScore = -Infinity;
