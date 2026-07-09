@@ -2618,9 +2618,13 @@ async function handleRemoteAction(msg) {
                                 playSound('machinegun');
                                 const tx = e.x, ty = e.y;
                                 for (let i = 0; i < 4; i++) {
+                                    const fireTime = 600 + i * 110;
+                                    const p = Math.min(1, fireTime / 1350);
+                                    const planeX = tx - 380 + 720 * p;
+                                    const planeY = ty - 300 + 320 * p;
                                     setTimeout(() => {
-                                        spawnDroneProjectile(tx - 180, ty - 240, tx, ty, e.isCrit);
-                                        spawnDroneProjectile(tx - 150, ty - 220, tx, ty, e.isCrit);
+                                        spawnDroneProjectile(planeX, planeY, tx, ty, e.isCrit);
+                                        spawnDroneProjectile(planeX + 30, planeY + 20, tx, ty, e.isCrit);
                                     }, i * 110);
                                 }
                             }, 600);

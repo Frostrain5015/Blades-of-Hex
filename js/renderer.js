@@ -565,6 +565,7 @@ function drawAirstrikeEffects(now) {
             const p = Math.min(1, t / 0.9);
             const px = P0x + (P1x - P0x) * p;
             const py = P0y + (P1y - P0y) * p;
+            // 飞行方向角；🛩️ 此字体默认朝向右上方（+π/4），补正后机头对准航向
             const ang = Math.atan2(P1y - P0y, P1x - P0x);
 
             // 战机
@@ -572,7 +573,7 @@ function drawAirstrikeEffects(now) {
             ctx.globalAlpha = t < 0.9 ? 1 : Math.max(0, 1 - (t - 0.9) / 0.1);
             ctx.fillStyle = '#000';
             ctx.translate(px, py);
-            ctx.rotate(ang);
+            ctx.rotate(ang + Math.PI / 4);
             ctx.font = '46px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -583,53 +584,6 @@ function drawAirstrikeEffects(now) {
             const flakStart = 0.12, flakEnd = 0.85;
             if (t >= flakStart && t <= flakEnd) {
                 _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13, _ac);
-            }
-
-            // 扫射窗口：曳光弹精确锁定目标中心（cx, cy），不飘
-            const fireStart = 0.40, fireEnd = 0.82;
-            if (t >= fireStart && t <= fireEnd) {
-                const fp = (t - fireStart) / (fireEnd - fireStart);
-                // 弹着点精确收敛至目标中心(cx,cy)，用缓动使前半程覆盖目标面前后微摆
-                const converge = fp < 0.5 ? 2 * fp * fp : 1 - 2 * (1 - fp) * (1 - fp);
-                const wobble = (1 - converge) * 12;
-                const impactX = cx + Math.sin(fp * Math.PI * 2.5) * wobble;
-                const impactY = cy + Math.cos(fp * Math.PI * 3) * wobble * 0.4;
-                const noseX = px + Math.cos(ang) * 24;
-                const noseY = py + Math.sin(ang) * 24;
-                ctx.save();
-                // 曳光弹（外亮内白），弹道精确指向目标
-                ctx.strokeStyle = 'rgba(255,225,90,0.9)';
-                ctx.lineWidth = 2.6;
-                ctx.shadowColor = '#ffcc33';
-                ctx.shadowBlur = 9;
-                ctx.beginPath(); ctx.moveTo(noseX, noseY); ctx.lineTo(impactX, impactY); ctx.stroke();
-                ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-                ctx.lineWidth = 1;
-                ctx.shadowBlur = 0;
-                ctx.beginPath(); ctx.moveTo(noseX, noseY); ctx.lineTo(impactX, impactY); ctx.stroke();
-                // 炮口闪光
-                ctx.fillStyle = `rgba(255,220,120,${0.5 + Math.random() * 0.5})`;
-                ctx.beginPath(); ctx.arc(noseX, noseY, 3 + Math.random() * 3, 0, Math.PI * 2); ctx.fill();
-                // 弹着火花（精确聚集在目标中心周围）
-                const spread = (1 - converge) * 12 + 3;
-                for (let s = 0; s < 5 + converge * 3; s++) {
-                    const a = Math.random() * Math.PI * 2;
-                    const d = Math.random() * spread;
-                    ctx.fillStyle = `rgba(255,${(160 + Math.random() * 90) | 0},50,0.9)`;
-                    ctx.beginPath();
-                    ctx.arc(impactX + Math.cos(a) * d, impactY + Math.sin(a) * d, 1.4 + Math.random() * 2, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-                // 中心爆点
-                if (converge > 0.85) {
-                    const flash = (converge - 0.85) / 0.15;
-                    ctx.fillStyle = `rgba(255,220,180,${flash * 0.5})`;
-                    ctx.shadowColor = '#ffaa44';
-                    ctx.shadowBlur = 12;
-                    ctx.beginPath(); ctx.arc(cx, cy, 3 + flash * 8, 0, Math.PI * 2); ctx.fill();
-                }
-                ctx.shadowBlur = 0;
-                ctx.restore();
             }
             continue;
         }
