@@ -2577,19 +2577,18 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             setTimeout(() => {
                 spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r);
                 playSound('airstrike');
-                // 600ms 后启动机枪弹幕（与 machinegun 音效同步），弹流来源跟随飞机位置
+                // 600ms 后持续射出追踪飞机的单道机枪弹流
                 setTimeout(() => {
                     playSound('machinegun');
                     const tx = targetTile.x, ty = targetTile.y;
-                    for (let i = 0; i < 4; i++) {
-                        const fireTime = 600 + i * 110;
+                    for (let i = 0; i < 6; i++) {
+                        const fireTime = 600 + i * 70;
                         const p = Math.min(1, fireTime / 1350);
                         const planeX = tx - 380 + 720 * p;
                         const planeY = ty - 300 + 320 * p;
                         setTimeout(() => {
                             spawnDroneProjectile(planeX, planeY, tx, ty, result.isCrit);
-                            spawnDroneProjectile(planeX + 30, planeY + 20, tx, ty, result.isCrit);
-                        }, i * 110);
+                        }, i * 70);
                     }
                 }, 600);
                 setTimeout(() => {
