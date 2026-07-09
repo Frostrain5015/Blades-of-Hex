@@ -2613,14 +2613,14 @@ async function handleRemoteAction(msg) {
                         case 'diveStrafe': {
                             // E4 空军上校：伤害在本地延迟结算，远端同样在此结算以保持一致
                             playSound('airstrike');
+                            spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }], 'diveStrafe', e.q, e.r);
                             setTimeout(() => {
                                 playSound('machinegun');
                                 const tx = e.x, ty = e.y;
-                                const originX = tx - 180, originY = ty - 240;
                                 for (let i = 0; i < 4; i++) {
                                     setTimeout(() => {
-                                        spawnDroneProjectile(originX, originY, tx, ty, e.isCrit);
-                                        spawnDroneProjectile(originX + 30, originY + 20, tx, ty, e.isCrit);
+                                        spawnDroneProjectile(tx - 180, ty - 240, tx, ty, e.isCrit);
+                                        spawnDroneProjectile(tx - 150, ty - 220, tx, ty, e.isCrit);
                                     }, i * 110);
                                 }
                             }, 600);

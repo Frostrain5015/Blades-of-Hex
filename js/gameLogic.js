@@ -2575,16 +2575,16 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             // 俯冲扫射：单发伤害
             logMessage(`💥【俯冲扫射】对${targetTile.camp?.name}${targetTile.unit?.config?.name}兵造成${result.dmg}伤害`);
             setTimeout(() => {
+                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 // 600ms 后启动机枪弹幕（与 machinegun 音效同步），仿无人机机枪子弹流
                 setTimeout(() => {
                     playSound('machinegun');
                     const tx = targetTile.x, ty = targetTile.y;
-                    const originX = tx - 180, originY = ty - 240;
                     for (let i = 0; i < 4; i++) {
                         setTimeout(() => {
-                            spawnDroneProjectile(originX, originY, tx, ty, result.isCrit);
-                            spawnDroneProjectile(originX + 30, originY + 20, tx, ty, result.isCrit);
+                            spawnDroneProjectile(tx - 180, ty - 240, tx, ty, result.isCrit);
+                            spawnDroneProjectile(tx - 150, ty - 220, tx, ty, result.isCrit);
                         }, i * 110);
                     }
                 }, 600);
