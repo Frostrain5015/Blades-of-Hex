@@ -337,6 +337,9 @@ export class Unit {
         // ── Badge ──
         // ── Floating shadow for entire badge+ring group ──
         ctx.save();
+        if (this._isDrone || this.type === 'drone') {
+            ctx.translate(0, Math.sin(time * 2.5) * 3);
+        }
         ctx.shadowColor = 'rgba(0,0,0,0.3)';
         ctx.shadowBlur = 6;
         ctx.shadowOffsetY = 2;
