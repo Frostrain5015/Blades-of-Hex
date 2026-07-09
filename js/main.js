@@ -848,13 +848,13 @@ function beginTrainingCountdown() {
     let count = 3;
     cb.textContent = '训练场 - ' + count;
     cb.style.color = '#ffd700';
-    document.getElementById('turnTransition').classList.add('show');
+    document.getElementById('turnTransitionOverlay').classList.add('show');
     const timer = setInterval(() => {
         count--;
         if (count > 0) { cb.textContent = '训练场 - ' + count; }
         else {
             clearInterval(timer);
-            document.getElementById('turnTransition').classList.remove('show');
+            document.getElementById('turnTransitionOverlay').classList.remove('show');
             _deploymentStarted = true;
             loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 加载失败:', err));
             preloadPortraits();
