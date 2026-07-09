@@ -599,6 +599,17 @@ export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
             onImpact: (b === 4 && onImpact) ? onImpact : null
         });
     }
+    for (let f = 0; f < 3; f++) {
+        const ang = Math.atan2(toY - fromY, toX - fromX);
+        const mx = fromX + Math.cos(ang) * 8;
+        const my = fromY + Math.sin(ang) * 8;
+        particles.push(new VisualParticle(mx, my, 0, 0, "#ffe7b8", 8 - f * 1.6, 0.07 + f * 0.018, 0));
+        for (let s = 0; s < 6; s++) {
+            const a = ang + (Math.random() - 0.5) * 0.9;
+            const sp = 180 + Math.random() * 300;
+            particles.push(new VisualParticle(mx, my, Math.cos(a) * sp, Math.sin(a) * sp, Math.random() < 0.3 ? "#ffe9c0" : "#ff9a3a", 1.8 + Math.random() * 2.6, 0.11 + Math.random() * 0.1, 30));
+        }
+    }
 }
 
 // 单发曳光弹（专供扫射逐帧追踪飞机位置用，不叠加 5 连发）
@@ -615,20 +626,6 @@ export function spawnStrafeTracer(fromX, fromY, toX, toY) {
         impactSpawned: false,
         onImpact: null
     });
-            onImpact: (b === 4 && onImpact) ? onImpact : null
-        });
-    }
-    for (let f = 0; f < 3; f++) {
-        const ang = Math.atan2(toY - fromY, toX - fromX);
-        const mx = fromX + Math.cos(ang) * 8;
-        const my = fromY + Math.sin(ang) * 8;
-        particles.push(new VisualParticle(mx, my, 0, 0, "#ffe7b8", 8 - f * 1.6, 0.07 + f * 0.018, 0));
-        for (let s = 0; s < 6; s++) {
-            const a = ang + (Math.random() - 0.5) * 0.9;
-            const sp = 180 + Math.random() * 300;
-            particles.push(new VisualParticle(mx, my, Math.cos(a) * sp, Math.sin(a) * sp, Math.random() < 0.3 ? "#ffe9c0" : "#ff9a3a", 1.8 + Math.random() * 2.6, 0.11 + Math.random() * 0.1, 30));
-        }
-    }
 }
 
 function spawnDroneMuzzleFlash(x, y, toX, toY, isCrit) {
