@@ -1395,7 +1395,7 @@ export function attackUnit(attackerUnit, targetUnit) {
     if (attackerUnit._smiteReady) {
         setTimeout(() => playSound('lightning'), 500);
     } else {
-        playSound(attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest' || attackerUnit._isDrone ? 'cannon' : (attackResult.isCrit ? 'crit' : 'attack'));
+        playSound(attackerUnit._isDrone || attackerUnit.type === 'mgNest' ? 'machinegun' : attackerUnit.type === 'archer' ? 'cannon' : (attackResult.isCrit ? 'crit' : 'attack'));
     }
     const isCrit = attackResult.isCrit;
 
@@ -1487,7 +1487,7 @@ export function attackUnit(attackerUnit, targetUnit) {
                 _counterIsRanged = targetUnit.type === 'archer' || targetUnit.type === 'mgNest' || targetUnit._isDrone;
                 if (_counterIsRanged) {
                     const _cfx = targetUnit.tile.x, _cfy = targetUnit.tile.y;
-                    playSound('cannon');
+                    playSound(targetUnit._isDrone || targetUnit.type === 'mgNest' ? 'machinegun' : 'cannon');
                     if (targetUnit._isDrone || targetUnit.type === 'mgNest') {
                         spawnDroneProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, () => {
                             triggerAttackFlash(_counterX, _counterY, counterResult.isCrit);
@@ -2546,8 +2546,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 // airstrike visual AFTER card burn animation
                 spawnAirstrikeEffect(x, y, results, 'airstrike', targetTile.q, targetTile.r);
                 playSound('airstrike');
-                // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
+                // damage/HP/particles delayed to match bomb impact timing (~1400ms into flight)
                 setTimeout(() => {
+                    playSound('explosion');
                     // 统一伤害入口：空袭为远程攻击，吸收护盾，触发铁卫转移/誓言
                     for (const r of results) {
                         const tile = gameState.tileMap.get(`${r.q},${r.r}`);
@@ -2575,7 +2576,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             logMessage(`💥【俯冲扫射】对${targetTile.camp?.name}${targetTile.unit?.config?.name}兵造成${result.dmg}伤害`);
             setTimeout(() => {
                 spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r);
-                playSound('airstrike');
+                playSound('machinegun');
                 setTimeout(() => {
                     if (targetTile.unit) {
                         // result.dmg 已在 execute() 走完标准管线（含防御），此处直接结算；source 'air' 不触发铁卫转移
@@ -2612,6 +2613,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 spawnAirstrikeEffect(x, y, cResults, 'carpetBomb', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 setTimeout(() => {
+                    playSound('explosion');
                     const colonel = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
                     for (const r of cResults) {
                         const tile = gameState.tileMap.get(`${r.q},${r.r}`);

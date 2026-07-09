@@ -13,7 +13,9 @@ export const SOUND_MANIFEST = {
     heal:          { file: 'sounds/heal.mp3',          volume: 0.6,  pool: 2,  preload: false, category: 'magic' },
     shield:        { file: 'sounds/shield.mp3',        volume: 0.7,  pool: 2,  preload: false, category: 'magic' },
     lightning:     { file: 'sounds/lightning.mp3',     volume: 0.85, pool: 2,  preload: false, category: 'magic' },
+    machinegun:    { file: 'sounds/machinegun.mp3',    volume: 0.7,  pool: 4,  preload: false, category: 'combat' },
     airstrike:     { file: 'sounds/airstrike.mp3',     volume: 0.8,  pool: 1,  preload: false, category: 'magic' },
+    explosion:     { file: 'sounds/explosion.mp3',     volume: 0.75, pool: 3,  preload: false, category: 'combat' },
     commanderSkill:{ file: 'sounds/commanderSkill.mp3',volume: 0.8,  pool: 2,  preload: false, category: 'magic' },
 
     // ---- 战术卡 ----

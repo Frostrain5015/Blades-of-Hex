@@ -767,7 +767,7 @@ export function updateDroneDives(now) {
             spawnExplosionParticles(d.toX, d.toY, '#ffcc00', 25);
             triggerAttackFlash(d.toX, d.toY, true);
             triggerScreenShake(8, 300);
-            playSound('cannon');
+            playSound('explosion');
             droneDives.splice(i, 1);
         }
     }

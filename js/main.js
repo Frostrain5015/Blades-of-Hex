@@ -2574,6 +2574,7 @@ async function handleRemoteAction(msg) {
                             playSound('airstrike');
                             // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
                             setTimeout(() => {
+                                playSound('explosion');
                                 for (const r of airstrikeResults) {
                                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                                     if (!tile) continue;
@@ -2611,7 +2612,7 @@ async function handleRemoteAction(msg) {
                         }
                         case 'diveStrafe': {
                             // E4 空军上校：伤害在本地延迟结算，远端同样在此结算以保持一致
-                            playSound('airstrike');
+                            playSound('machinegun');
                             spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }], 'diveStrafe', e.q, e.r);
                             setTimeout(() => {
                                 const dt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : null;
@@ -2637,6 +2638,7 @@ async function handleRemoteAction(msg) {
                             playSound('airstrike');
                             spawnAirstrikeEffect(e.x, e.y, cResults, 'carpetBomb', e.q, e.r);
                             setTimeout(() => {
+                                playSound('explosion');
                                 for (const r of cResults) {
                                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                                     if (!tile) continue;
@@ -2691,7 +2693,7 @@ async function handleRemoteAction(msg) {
                 if (_rmSmite) {
                     setTimeout(() => playSound('lightning'), 500);
                 } else {
-                    playSound(e.attackerType === 'archer' || e.attackerType === 'mgNest' || e.attackerIsDrone ? 'cannon' : (e?.isCrit ? 'crit' : 'attack'));
+                    playSound(e.attackerIsDrone || e.attackerType === 'mgNest' ? 'machinegun' : e.attackerType === 'archer' ? 'cannon' : (e?.isCrit ? 'crit' : 'attack'));
                 }
                 if (e) {
                     triggerAttackFlash(e.x, e.y, e.isCrit);
@@ -2765,7 +2767,7 @@ async function handleRemoteAction(msg) {
                             timeLeft: 750, lastUpdate: performance.now()
                         });
                         if (e.counterIsRanged) {
-                            playSound('cannon');
+                            playSound(e.counterUsesDroneProjectile ? 'machinegun' : 'cannon');
                             triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
                             if (e.counterUsesDroneProjectile || e.counterIsDrone) {
                                 spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
