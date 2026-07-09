@@ -808,8 +808,8 @@ export class Unit {
 
         // ④ 防御乘区
         let defSum = TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
-        // 森林掩蔽：对远程攻击（炮兵/碉堡）额外+20%防御，与地形自带10%加算
-        if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest')) {
+        // 森林掩蔽：对远程攻击（炮兵/碉堡/无人机）额外+15%防御，与地形自带10%加算
+        if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest' || attacker.type === 'drone')) {
             defSum += 0.15;
         }
         // 风天：步兵防御-15%（星移期间扩展至敌方全兵种；占星者星光力场免疫）；星移减益区内额外-15%

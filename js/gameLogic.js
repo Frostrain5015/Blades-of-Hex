@@ -1,6 +1,6 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
-import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, refreshDroneSignal } from '../commander/tianyan.js';
+import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
@@ -1124,7 +1124,11 @@ function _isInEnemyZoC(tile, friendlyCamp) {
 
 // BFS pathfinding: returns tiles reachable without passing through enemy lines
 export function getMovableTiles(unit) {
-    if (unit._isDrone) refreshDroneSignal(gameState, unit.camp);
+    // 无人机：实时检查信号范围，同步本机混乱状态（不刷新其他无人机）
+    if (unit._isDrone) {
+        unit._disoriented = !isDroneInSignal(gameState, unit);
+        if (unit._disoriented) return [];
+    }
     if (unit.morale === 0 || unit._imprisoned || unit._isImmobile || unit._disoriented) return [];
 
     const speed = unit.remainingMP;
@@ -1186,7 +1190,11 @@ export function getMovableTiles(unit) {
 }
 
 export function getAttackableTiles(unit) {
-    if (unit._isDrone) refreshDroneSignal(gameState, unit.camp);
+    // 无人机：实时检查信号范围，同步本机混乱状态（不刷新其他无人机）
+    if (unit._isDrone) {
+        unit._disoriented = !isDroneInSignal(gameState, unit);
+        if (unit._disoriented) return [];
+    }
     if (unit.morale === 0 || unit._disoriented) return [];
     if (unit.commander === 'martyr' && unit._martyrPrimed) return [];
     let range = unit.config.range;

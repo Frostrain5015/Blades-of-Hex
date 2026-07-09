@@ -142,31 +142,6 @@ let _loadingDismissed = false;
 function _getTrainingAIPick(playerPick) {
     return playerPick === 'berserker' ? 'centurion' : 'berserker';
 }
-// URL 训练场模式：/?trainer=<commanderKey> 直接进入对局
-function _checkTrainerUrl() {
-    const p = new URLSearchParams(location.search);
-    const cmd = p.get('trainer');
-    if (!cmd || !COMMANDER_CONFIG[cmd]) return;
-    // 清除 URL 参数
-    const u = new URL(location.href);
-    u.searchParams.delete('trainer');
-    window.history.replaceState({}, '', u);
-    // 直接启动 PVE 训练场对局
-    gameState.gameMode = 'training';
-    gameState.skirmishFog = false;
-    gameState.aiOpponentCamp = CAMP.player2;
-    gameState.aiDifficulty = 1.0;
-    gameState._trainingMode = true;
-    gameState.commanderP1 = cmd;
-    gameState.commanderP1Confirmed = true;
-    gameState.commanderP1Deployed = false;
-    const aiPick = _getTrainingAIPick(cmd);
-    gameState.commanderP2 = aiPick;
-    gameState.commanderP2Confirmed = true;
-    gameState.commanderP2Deployed = false;
-    logMessage(`训练场模式：自选 ${COMMANDER_CONFIG[cmd].name} vs ${COMMANDER_CONFIG[aiPick].name}`);
-    beginTrainingCountdown();
-}
 
 function _dismissLoadingWhenReady() {
     if (_loadingDismissed) return;
@@ -234,13 +209,11 @@ connectToServer(wsUrl(location.host)).then(() => {
     // 连接成功 → 首屏立绘就绪后撤下加载遮罩、展示主页
     _dismissLoadingWhenReady();
     showHome();
-    _checkTrainerUrl();
 }).catch(() => {
     setConnectionState('disconnected');
     // 连接失败 → 仍展示主页（本地/PVE 模式不需要服务器）
     _dismissLoadingWhenReady();
     showHome('服务器未连接，您仍可进行本地游戏');
-    _checkTrainerUrl();
 });
 
 // 手动重连按钮
@@ -882,11 +855,23 @@ function beginTrainingCountdown() {
         else {
             clearInterval(timer);
             document.getElementById('turnTransition').classList.remove('show');
+            _deploymentStarted = true;
+            loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 加载失败:', err));
+            preloadPortraits();
             initMap();
+            initInput();
+            initKeyboard();
+            initSettingsPanel();
+            setOnFogUpdated(updateCampEmblems);
+            updateCampEmblems();
+            _updateChatAvailability();
+            _initEmblemChatClicks();
+            gameState.currentCamp = CAMP.player1;
             grantTurnStartIncome(CAMP.player1);
-            _onCommanderSelected('player1');
-            _onCommanderSelected('player2');
             updateUI();
+            updateButtonColors();
+            startBattleBGM();
+            playSound('turnEnd');
             renderGame();
         }
     }, 1000);

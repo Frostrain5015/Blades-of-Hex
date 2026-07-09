@@ -690,6 +690,7 @@ export function serializeState() {
         playerDrawsThisTurn: { ...gameState.playerDrawsThisTurn },
         playerUsesThisTurn: { ...gameState.playerUsesThisTurn },
         gameMode: gameState.gameMode || 'local',
+        trainingMode: gameState._trainingMode || false,
         isThreePlayer: gameState.isThreePlayer || false,
         aiOpponentCampKey: gameState.aiOpponentCamp ? _campToKey(gameState.aiOpponentCamp) : null,
         surrenderedCampKeys: gameState.surrenderedCamps.map(c => _campToKey(c)),
@@ -767,6 +768,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     if (data.playerUsesThisTurn) gameState.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0, ...data.playerUsesThisTurn };
     gameState.cardStackExpanded = false;
     gameState.gameMode = data.gameMode || 'local';
+    gameState._trainingMode = data.trainingMode || false;
     gameState.isThreePlayer = data.isThreePlayer || false;
     gameState.aiOpponentCamp = data.aiOpponentCampKey ? campMap[data.aiOpponentCampKey] : null;
     gameState.surrenderedCamps = (data.surrenderedCampKeys || []).map(k => campMap[k]).filter(Boolean);
