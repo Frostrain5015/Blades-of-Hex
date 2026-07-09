@@ -33,6 +33,7 @@ import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
 import { playSound, initAudio, setMuted, startBattleBGM, stopBattleBGM, stopLobbyBGM } from './audio.js';
 import { loadCommanderFx } from './commanderFx.js';
+import { emit } from './eventBus.js';
 import './cheat.js';
 
 loadSettings();
@@ -2381,7 +2382,7 @@ async function handleRemoteAction(msg) {
     }
 
     applyRemoteState(msg.state, HexTile, Unit);
-    loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
+    await loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
     updateUI(); // 远程状态同步后刷新UI（资金、统计面板、招募费用等）
     renderGame(); // 强制立即重绘画布，不等下一帧
 
@@ -2821,10 +2822,7 @@ async function handleRemoteAction(msg) {
             break;
         case 'droneDeploy':
             if (e) {
-                playSound('recruit');
-                spawnCommanderSkillEffect(e.x, e.y, '✈️', '天眼哨机');
-                spawnRecruitEffect(e.x, e.y);
-                triggerRecruitFlash(e.x, e.y);
+                emit('tianyan:droneDeploy', e);
             }
             break;
         case 'droneSuicide':

@@ -24,15 +24,19 @@ const _campKey = (camp) =>
 
 // ---- 核心：计算一个阵营当前能看到的所有地块 ----
 function _getEffectiveVision(unit, gs) {
+    let range;
     if (unit.type === 'archer') {
-        let range = unit.config.range;
+        range = unit.config.range;
         if (gs.weather === 'fog') range -= 1;
         let bonus = 0;
         if (unit.tile.terrain === 'mountain') bonus = 1;
         if (gs.weather === 'wind') bonus = Math.max(bonus, 1);
-        return Math.max(1, Math.min(4, range + bonus));
+        range = Math.max(1, Math.min(4, range + bonus));
+    } else {
+        range = UNIT_VISION[unit.type] || 1;
     }
-    return UNIT_VISION[unit.type] || 1;
+    if (unit.commander === 'tianyan') range += 1;
+    return Math.max(1, Math.min(5, range));
 }
 
 export function computeVisionForCamp(camp, tiles, tileMap, gameState) {

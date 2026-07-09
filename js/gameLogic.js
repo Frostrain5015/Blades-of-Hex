@@ -2097,12 +2097,12 @@ export function executeDroneDeploy(tianyanUnit, targetTile) {
     const drone = deployDrone(tianyanUnit, targetTile, {
         gameState,
         Unit,
-        logMessage,
-        spawnFx: spawnCommanderSkillEffect
+        logMessage
     });
     if (!drone) return null;
 
     refreshDroneSignal(gameState, tianyanUnit.camp);
+    if (gameState.skirmishFog) updateFogOfWar(gameState, tianyanUnit.camp);
     recalcAllFlankingMorale();
     updateRecruitCostDisplay();
     updateUI();

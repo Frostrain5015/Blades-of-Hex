@@ -1,10 +1,12 @@
 // 天眼 —— 无人机指挥官
-// 本体：HP+30% / ATK+0% / 移速+1，核心战力集中在无人机上。
+// 本体：HP+30% / ATK+15% / 移速+1，核心战力集中在无人机上。
 import { CAMP, hexDistance, HEX_NEIGHBORS } from '../js/config.js';
+import { emit } from '../js/eventBus.js';
 
 export const DRONE_MAX_COUNT = 2;
 export const DRONE_SIGNAL_RANGE = 5;
 export const DRONE_DEPLOY_RANGE = 1;
+export const DRONE_DEPLOY_LIMIT_PER_TURN = 1;
 export const DRONE_DEPLOY_COST = 5;
 export const DRONE_HP = 75;
 export const DRONE_ATK = 30;
@@ -37,6 +39,33 @@ export function _findDrones(gameState, campKey) {
 
 function _isValidDeployTile(tile) {
     return tile && !tile.unit && !tile.isCity && tile.terrain !== 'mountain';
+}
+
+function _ensureDeployLimitState(gameState) {
+    if (!gameState._droneDeployTurn) gameState._droneDeployTurn = {};
+    if (!gameState._droneDeployCount) gameState._droneDeployCount = {};
+}
+
+function _getDeployCountThisTurn(gameState, campKey) {
+    _ensureDeployLimitState(gameState);
+    if (gameState._droneDeployTurn[campKey] !== gameState.turnCounter) {
+        gameState._droneDeployTurn[campKey] = gameState.turnCounter;
+        gameState._droneDeployCount[campKey] = 0;
+    }
+    return gameState._droneDeployCount[campKey] || 0;
+}
+
+function _markDroneDeployedThisTurn(gameState, campKey) {
+    _ensureDeployLimitState(gameState);
+    gameState._droneDeployTurn[campKey] = gameState.turnCounter;
+    gameState._droneDeployCount[campKey] = _getDeployCountThisTurn(gameState, campKey) + 1;
+}
+
+export function resetDroneDeployLimit(gameState, camp) {
+    const campKey = _campToKey(camp);
+    _ensureDeployLimitState(gameState);
+    gameState._droneDeployTurn[campKey] = gameState.turnCounter;
+    gameState._droneDeployCount[campKey] = 0;
 }
 
 function _setDroneSignalState(drone, disoriented, resetActive = false) {
@@ -82,7 +111,7 @@ export function isTileInDroneSignal(gameState, camp, tile) {
 
 /**
  * 在目标地块部署一架无人机。由 input.js 在玩家选定目标后调用。
- * helpers 需包含 { gameState, Unit, logMessage, spawnFx }
+ * helpers 需包含 { gameState, Unit, logMessage }
  */
 export function deployDrone(tianyanUnit, targetTile, helpers) {
     const gs = helpers.gameState;
@@ -100,6 +129,10 @@ export function deployDrone(tianyanUnit, targetTile, helpers) {
         helpers.logMessage('金币不足，需要$5');
         return null;
     }
+    if (_getDeployCountThisTurn(gs, campKey) >= DRONE_DEPLOY_LIMIT_PER_TURN) {
+        helpers.logMessage('天眼：每回合最多部署1架无人机');
+        return null;
+    }
 
     const drones = _findDrones(gs, campKey);
     if (drones.length >= DRONE_MAX_COUNT) {
@@ -113,6 +146,7 @@ export function deployDrone(tianyanUnit, targetTile, helpers) {
     }
 
     gs.playerGold[campKey] -= DRONE_DEPLOY_COST;
+    _markDroneDeployedThisTurn(gs, campKey);
 
     const UnitClass = helpers.Unit;
     const drone = new UnitClass('drone', tianyanUnit.camp, targetTile, false);
@@ -131,26 +165,35 @@ export function deployDrone(tianyanUnit, targetTile, helpers) {
     drone.isNewRecruit = false;
 
     helpers.logMessage('天眼【天眼哨机】：部署无人机');
-    if (helpers.spawnFx) helpers.spawnFx(targetTile.x, targetTile.y, '✈️', '天眼哨机');
+    emit('tianyan:droneDeploy', {
+        x: targetTile.x,
+        y: targetTile.y,
+        q: targetTile.q,
+        r: targetTile.r,
+        unitId: drone.id,
+        campKey
+    });
 
     return drone;
 }
 
 export function canDeployDrone(tianyanUnit, gameState) {
     const campKey = _campToKey(tianyanUnit.camp);
-    return (gameState.playerGold[campKey] || 0) >= DRONE_DEPLOY_COST;
+    return (gameState.playerGold[campKey] || 0) >= DRONE_DEPLOY_COST
+        && _getDeployCountThisTurn(gameState, campKey) < DRONE_DEPLOY_LIMIT_PER_TURN;
 }
 
 export default {
     id: 'tianyan',
     name: '天眼',
     skill: '天眼哨机',
-    hpBonusPct: 0.30, atkBonusPct: 0, spdBonus: 1,
-    desc: '本体HP+30%、移速+1，攻击力无加成；核心战力为2架无人机。',
+    hpBonusPct: 0.30, atkBonusPct: 0.15, spdBonus: 1,
+    desc: '本体HP+30%、ATK+15%、移速+1；遭遇战视野+1，以无人机建立5格信号网。',
     skills: [
-        { name: '天眼哨机', desc: '$5 在自身周围1格空地部署1架无人机（上限2架）；无人机MP8/射程2/行动力消耗2（无视地形），超过5格失控陷入混乱', type: 'active' },
-        { name: '机枪射击', desc: '无人机普攻：对2格内单体造成空军伤害，走标准四大乘区；无人机单向克制步兵，其余兵种与无人机互不克制；主动攻击地面单位时对方无法反击', type: 'passive' },
-        { name: '自爆', desc: '无人机消耗全部剩余行动力撞向3格内目标，主目标伤害=普攻3倍（受防空减免），对身后1格左右2个目标造成普攻1.5倍穿刺伤害，随后坠毁', type: 'active' }
+        { name: '战场观测', desc: '遭遇战中自身视野+1；常驻显示5格无人机信号范围', type: 'passive' },
+        { name: '天眼哨机', desc: '$5 在周围1格空地部署无人机（上限2架，每回合1架），落地即可行动；离天眼超过5格会失控', type: 'active' },
+        { name: '机枪射击', desc: '无人机射程2，行动消耗2且无视地形；主动攻击地面单位时不被反击，单向克制步兵', type: 'passive' },
+        { name: '自爆', desc: '无人机冲向3格内目标自毁：主目标3倍普攻，身后左右2格1.5倍穿刺，受防空减免', type: 'active' }
     ],
 
     onDeploy(unit, gameState, helpers) {
@@ -158,12 +201,13 @@ export default {
     },
 
     onTurnStart(gameState, camp, helpers) {
+        resetDroneDeployLimit(gameState, camp);
         refreshDroneSignal(gameState, camp, { resetActive: true });
     },
 
     activeSkill: {
         name: '天眼哨机',
-        desc: '$5 在自身周围1格空地部署1架无人机（上限2架）',
+        desc: '$5 在周围1格空地部署无人机（上限2架，每回合1架）',
         duration: 0,
         cooldown: 0,
 
@@ -172,6 +216,10 @@ export default {
             const campKey = _campToKey(unit.camp);
             if ((gs.playerGold[campKey] || 0) < DRONE_DEPLOY_COST) {
                 helpers.logMessage('金币不足，需要$5');
+                return;
+            }
+            if (_getDeployCountThisTurn(gs, campKey) >= DRONE_DEPLOY_LIMIT_PER_TURN) {
+                helpers.logMessage('天眼：每回合最多部署1架无人机');
                 return;
             }
             unit._pendingDroneDeploy = true;

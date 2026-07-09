@@ -19,7 +19,8 @@ const FX_MANIFEST = new Set([
     'diplomat',
     'vampire',
     'advisor',
-    'minister'
+    'minister',
+    'tianyan'
 ]);
 
 const _loaded = new Map(); // id → module（模块缓存，重复开局不再发请求）
