@@ -1064,8 +1064,6 @@ body {
 .selection-effect-icon,
 .canvas-passive-icon { font-size: 15px; line-height: 1; }
 
-.ability-badge-enter { animation: abilityBadgeEnter 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
-
 .ability-badge-count {
     position: absolute;
     right: 1px;
@@ -1226,6 +1224,21 @@ body {
     color: #c1c1c1;
 }
 
+.canvas-action-time {
+    position: absolute;
+    right: 2px;
+    top: 1px;
+    padding: 0 3px;
+    color: #cfe3f5;
+    background: rgba(0, 0, 0, 0.58);
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 13px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7);
+}
+
 .board-detail-popover {
     position: absolute;
     z-index: 30;
@@ -1327,11 +1340,6 @@ body {
 
 @keyframes abilityGroupSwap {
     0% { opacity: 0.12; transform: translate3d(0, 5px, 0) scale(0.96); }
-    100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-}
-
-@keyframes abilityBadgeEnter {
-    0% { opacity: 0; transform: translate3d(0, 4px, 0) scale(0.78); }
     100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 

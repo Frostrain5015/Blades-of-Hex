@@ -174,7 +174,7 @@ function _getCommanderSkillAvailability(unit, skillId = '') {
     if (!_canUseCommanderActiveSkill(unit)) return { canUse: false, reason: '当前不可用' };
 
     if (unit.commander === 'priest' && unit._healingAura > 0) {
-        return { canUse: false, reason: '治愈灵光持续中' };
+        return { canUse: false, reason: '持续' + unit._healingAura + '回合' };
     }
     if (unit.commander === 'tianyan') {
         if (!canDeployDrone(unit, gameState)) return { canUse: false, reason: '金币不足或本回合部署次数已满' };
@@ -192,7 +192,7 @@ function _getCommanderSkillAvailability(unit, skillId = '') {
         }
         if (skillId === 'bunker') {
             if ((unit._engineerBunkerCD || 0) > 0) {
-                return { canUse: false, reason: `冷却中（${unit._engineerBunkerCD}回合）` };
+                return { canUse: false, reason: `冷却${unit._engineerBunkerCD}回合` };
             }
             if (!_hasEngineerBunkerTarget(unit)) {
                 return { canUse: false, reason: '没有可施工的目标地块' };
@@ -311,6 +311,13 @@ function _collectBoardActions(unit) {
                 : { canUse: false, reason: unavailableReason };
             const skillName = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged
                 ? '至圣斩·誓约' : skill.name;
+            // 牧师的技能持续以治愈灵光剩余回合计；碉堡走独立冷却，其余走通用主动技能冷却/持续
+            const duration = unit.commander === 'priest'
+                ? Math.max(0, unit._healingAura || 0)
+                : (cmdCfg?.activeSkill && unit.activeSkillDur > 0 ? unit.activeSkillDur : 0);
+            const cooldown = skillId === 'bunker'
+                ? (unit._engineerBunkerCD || 0)
+                : (cmdCfg?.activeSkill ? unit.getCooldownRounds() : 0);
             actions.push({
                 key: `commander:${unit.id}:${skillId || 'default'}`,
                 buttonId: index === 0 ? 'boardActiveSkill' : index === 1 ? 'boardSecondarySkill' : `boardCommanderSkill${index}`,
@@ -320,6 +327,8 @@ function _collectBoardActions(unit) {
                 icon: _getCommanderActionIcon(unit.commander, skillId),
                 label: skillName,
                 goldCost: skill.goldCost || (unit.commander === 'tianyan' ? DRONE_DEPLOY_COST : 0),
+                duration,
+                cooldown,
                 canUse: availability.canUse,
                 reason: availability.reason,
                 theme: unit.commander
@@ -356,6 +365,8 @@ function _renderBoardActionQueue(actions) {
         action.icon,
         action.label,
         action.goldCost || 0,
+        action.duration || 0,
+        action.cooldown || 0,
         action.canUse,
         action.reason,
         action.theme
@@ -395,6 +406,14 @@ function _renderBoardActionQueue(actions) {
             cost.className = 'canvas-action-cost';
             cost.textContent = `$${action.goldCost}`;
             button.appendChild(cost);
+        }
+        // 持续优先于冷却：技能生效期间展示剩余持续，之后展示剩余冷却
+        const timeRounds = action.duration || action.cooldown || 0;
+        if (timeRounds > 0) {
+            const time = document.createElement('span');
+            time.className = 'canvas-action-time';
+            time.textContent = `⏳${timeRounds}`;
+            button.appendChild(time);
         }
     });
     for (let index = actions.length; index < buttons.length; index++) buttons[index].remove();
@@ -1083,8 +1102,8 @@ function _buildEffectItems(tile, unit) {
             label: effect.label,
             desc: effect.desc || '效果生效中',
             color: effect.color || '#8fcfff',
-            count: remaining,
-            status: remaining !== '' ? '剩余' + remaining + '回合' : '持续生效',
+            count: remaining !== '' ? '⏳' + remaining : '',
+            status: remaining !== '' ? '持续' + remaining + '回合' : '持续生效',
             kind: 'effect'
         });
     });
@@ -1167,8 +1186,8 @@ function _buildEffectItems(tile, unit) {
             label: '施工中',
             desc: '碉堡还需' + remain + '回合建成',
             color: '#e8c477',
-            count: remain,
-            status: '剩余' + remain + '回合',
+            count: '⏳' + remain,
+            status: '持续' + remain + '回合',
             kind: 'effect'
         });
     }
@@ -1180,8 +1199,8 @@ function _buildEffectItems(tile, unit) {
             label: '脚手架',
             desc: '还需' + remain + '回合建成碉堡，可被攻击摧毁',
             color: '#e8c477',
-            count: remain,
-            status: '剩余' + remain + '回合',
+            count: '⏳' + remain,
+            status: '持续' + remain + '回合',
             kind: 'effect'
         });
     }
@@ -1346,9 +1365,15 @@ function _describeBoardAction(action) {
         const droneCount = gameState.tiles.filter(tile => tile.unit?._isDrone && _sameCampInput(tile.unit.camp, unit.camp)).length;
         statusParts.push('当前哨机 ' + droneCount + '/2');
     }
-    if (unit.activeSkillDur > 0 && action.kind === 'commanderSkill') statusParts.push('持续中 ' + unit.activeSkillDur + ' 回合');
-    if (unit.getCooldownRounds() > 0 && action.kind === 'commanderSkill') statusParts.push('冷却 ' + unit.getCooldownRounds() + ' 回合');
-    statusParts.push(action.canUse ? '可施放' : (action.reason || '当前不可用'));
+    const timeParts = [];
+    if (action.duration > 0) timeParts.push('持续' + action.duration + '回合');
+    if (action.cooldown > 0) timeParts.push('冷却' + action.cooldown + '回合');
+    statusParts.push(...timeParts);
+    // 冷却/持续本身即不可用原因时，不再重复笼统的"当前不可用"
+    const reasonText = action.canUse ? '可施放' : (action.reason || '当前不可用');
+    if (action.canUse || !(timeParts.includes(reasonText) || (timeParts.length && reasonText === '当前不可用'))) {
+        statusParts.push(reasonText);
+    }
     return {
         key: action.key,
         icon: action.icon,
@@ -1436,10 +1461,35 @@ function _syncSelectionHud(tile) {
     const unit = tile.unit;
     const effects = _buildEffectItems(tile, unit);
     const selectionKey = unit ? 'unit:' + unit.id : 'tile:' + tile.q + ':' + tile.r;
+
+    // 攻防按当前值直接参与签名：任何修正来源（幻形/挽歌/制空/灵光等）变化都会触发刷新
+    let attack = 0;
+    let defense = 0;
+    let hoverMoveCost = 0;
+    if (unit) {
+        attack = unit.getEffectiveAttack();
+        const moraleDefBonus = MORALE_CONFIG[unit.morale].defBonus;
+        const auraDefBonus = getCommanderAuraDefenseBonus(unit);
+        const commanderDefBonus = getCommanderDefenseBonus(unit);
+        const cityDefBonus = unit.type === 'infantry' && tile.isCity ? 0.10 : 0;
+        const terrainDefBonus = TERRAIN_CONFIG[tile.terrain].defenseBonus;
+        const fortificationDefBonus = tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
+        const rankDefBonus = unit._rankDefBonus || 0;
+        defense = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus
+            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + cityDefBonus) * 100);
+        // 悬浮可走地块时预览本次移动的行动力消耗
+        if (gameState.selectedUnit === unit && gameState.hoveredTile && !gameState.hoveredTile.unit
+            && gameState.movableTiles.includes(gameState.hoveredTile)) {
+            const entry = gameState.moveParents?.get(gameState.hoveredTile);
+            if (entry) hoverMoveCost = Math.max(0, unit.remainingMP - entry.remaining);
+        }
+    }
+
     const signature = selectionKey + '|' + effects.map(effect => effect.key + ':' + (effect.count || '') + ':' + effect.desc).join('|')
         + '|' + (unit ? [
             unit.hp, unit.maxHp, unit._shield || 0, unit.remainingMP, unit.canAct,
-            unit._faith || 0, unit._gongxinStacks || 0, unit._rank || 0
+            unit._faith || 0, unit._gongxinStacks || 0, unit._rank || 0,
+            attack, defense, hoverMoveCost
         ].join(':') : '');
     if (signature === _lastHudSignature) return;
     const selectionChanged = _lastHudSelectionKey && _lastHudSelectionKey !== selectionKey;
@@ -1470,21 +1520,13 @@ function _syncSelectionHud(tile) {
         selectionHudHpText.textContent = '❤ ' + Math.round(unit.hp) + '/' + unit.maxHp
             + (hpBonus > 0 ? ' (+' + hpBonus + ')' : '') + (unit._shield > 0 ? '  +🛡' + Math.round(unit._shield) : '');
 
-        const moraleDefBonus = MORALE_CONFIG[unit.morale].defBonus;
-        const auraDefBonus = getCommanderAuraDefenseBonus(unit);
-        const commanderDefBonus = getCommanderDefenseBonus(unit);
-        const cityDefBonus = unit.type === 'infantry' && tile.isCity ? 0.10 : 0;
-        const terrainDefBonus = TERRAIN_CONFIG[tile.terrain].defenseBonus;
-        const fortificationDefBonus = tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
-        const rankDefBonus = unit._rankDefBonus || 0;
-        const defense = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus
-            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + cityDefBonus) * 100);
-        const attack = unit.getEffectiveAttack();
         const attackDelta = attack - unit.config.attack;
+        const mpText = '⚡ ' + unit.remainingMP
+            + (hoverMoveCost > 0 ? '(-' + hoverMoveCost + ')' : '') + '/' + unit.config.speed;
         selectionHudStats.replaceChildren(
             _textSpan('⚔ ' + attack + (attackDelta ? ' (' + (attackDelta > 0 ? '+' : '') + attackDelta + ')' : ''), attackDelta > 0 ? '#ffe875' : '#ffdf70'),
             _textSpan('🛡 ' + defense + '%', defense > 0 ? '#9be5df' : defense < 0 ? '#ff8f96' : '#b3b3b3'),
-            _textSpan('⚡ ' + unit.remainingMP + '/' + unit.config.speed, '#87d5ff'),
+            _textSpan(mpText, '#87d5ff'),
             _textSpan('📡 ' + unit.config.range, '#f4a8d4')
         );
     } else {
@@ -1928,12 +1970,6 @@ export function initInput() {
     canvas.addEventListener('mouseleave', () => {
         gameState.hoveredTile = null;
         canvas.style.cursor = 'default';
-    });
-
-    document.addEventListener('rankUpHudRefresh', (e) => {
-        if (gameState.selectedTile === e.detail.tile) {
-            showSelectionHudForTile(gameState.selectedTile);
-        }
     });
 
     // 对策卡交互已改为 canvas 渲染，不再使用 DOM 事件
