@@ -1538,6 +1538,9 @@ function _syncSelectionHud(tile) {
         _setHudTitle(unit.camp.name + ' · ' + typeName + (commander ? ' · ' + commander.name : ''), unit._rank || 0);
         selectionHudEl.style.setProperty('--selection-camp-color', unit.camp.color);
         selectionHudHp.hidden = false;
+        // 血条长度正比于 maxHp + 护盾（最小 80px）
+        const barTotal = unit.maxHp + Math.max(0, unit._shield || 0);
+        selectionHudHp.style.width = Math.max(80, barTotal * 1.1) + 'px';
         const total = unit.maxHp + Math.max(0, unit._shield || 0);
         const hpRatio = total ? unit.hp / total : 0;
         const shieldRatio = total ? Math.max(0, unit._shield || 0) / total : 0;

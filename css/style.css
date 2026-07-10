@@ -965,6 +965,7 @@ body {
     height: 100%;
     border-radius: inherit;
     transition: width 0.34s cubic-bezier(0.22, 0.8, 0.28, 1), background 0.24s ease;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.2);
 }
 
 .selection-hud-hp-text {
