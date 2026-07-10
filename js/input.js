@@ -786,7 +786,7 @@ const SKILL_ICONS = {
     '屯田': '🌾',
     '迟滞力场': '🌀',
     '连横': '🤝',
-    '合纵': '',
+    '合纵': '🎴',
 };
 
 const EFFECT_ICONS = {
@@ -800,16 +800,16 @@ const EFFECT_ICONS = {
     '碉堡': '🏰',
     '士气上升': '▲',
     '士气下降': '▼',
-    '混乱': '？',
-    '禁锢': '⛓️',
-    '不可移动': '🧱',
-    '勇气灵光': '✨',
+    '混乱': '❓',
+    '禁锢': '🔒',
+    '不可移动': '🚫',
+    '勇气灵光': '🗡',
     '治愈灵光': '💚',
     '守护灵光': '🛡️',
     '夜观': '🌟',
-    '亡魂标记': '👻',
-    '合纵': '🤝',
-    '连横': '🪢',
+    '亡魂': '👻',
+    '合纵': '🎴',
+    '连横': '🤝',
     '缚足': '🕸️',
     '施工中': '🚧',
     '脚手架': '🏗️'
@@ -1277,7 +1277,7 @@ function _buildPassiveItems(unit) {
     let intensity = 1;
     if (unit.commander === 'minister') {
         active = !!unit.tile?.isCity;
-        status = active ? '当前生效' : '未驻扎城市';
+        status = active ? '当前生效' : '当前未生效';
         color = active ? '#ffd700' : '#7b8790';
         intensity = active ? 1 : 0;
     } else if (unit.commander === 'martyr' && unit._martyrPrimed) {
@@ -1291,7 +1291,7 @@ function _buildPassiveItems(unit) {
         const stacks = Math.min(40, Math.floor(hpLostPct / 2));
         desc = stacks > 0
             ? '当前加成：+' + stacks + '%攻击力、+' + stacks + '%防御力'
-            : '满血状态，当前未触发加成';
+            : '当前未生效';
         status = '当前 ' + stacks + '/40 层';
         count = stacks || '';
         color = stacks > 0 ? '#ff7b5c' : '#7b8790';
