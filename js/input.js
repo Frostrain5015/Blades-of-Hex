@@ -398,9 +398,6 @@ function _renderBoardActionQueue(actions) {
             cost.textContent = `$${action.goldCost}`;
             button.appendChild(cost);
         }
-        button.classList.remove('ability-action-update');
-        void button.offsetWidth;
-        button.classList.add('ability-action-update');
     });
     for (let index = actions.length; index < buttons.length; index++) buttons[index].remove();
     container.classList.toggle('visible', actions.length > 0);
@@ -735,7 +732,7 @@ const UNIT_TYPE_NAMES = {
     cavalry: '骑兵',
     archer: '炮兵',
     mgNest: '碉堡',
-    drone: '无人机'
+    drone: '天眼哨机'
 };
 
 const PASSIVE_ICONS = {
@@ -1213,9 +1210,6 @@ function _renderIconQueue(container, queue, items, className, iconClass, signatu
             count.textContent = String(item.count);
             button.appendChild(count);
         }
-        button.classList.remove('ability-badge-enter');
-        void button.offsetWidth;
-        button.classList.add('ability-badge-enter');
     });
     for (let index = items.length; index < buttons.length; index++) buttons[index].remove();
 }

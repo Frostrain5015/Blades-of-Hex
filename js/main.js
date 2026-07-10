@@ -93,41 +93,6 @@ function gameLoop() {
     // 对策卡手牌独立画布
     drawCardCanvas(now);
 
-    // Animate tooltip speed and ATK display
-    const ttip = document.getElementById('unitTooltip');
-    if (ttip.classList.contains('visible') && gameState.selectedTile && gameState.selectedTile.unit) {
-        const spdEl = document.getElementById('tooltipSpd');
-        const atkEl = document.getElementById('tooltipAtk');
-        const u = gameState.selectedTile.unit;
-        const mpRemaining = Math.round(u.displaySpeed);
-        let cost = 0;
-        if (gameState.selectedUnit === u && gameState.hoveredTile && gameState.moveParents) {
-            const entry = gameState.moveParents.get(gameState.hoveredTile);
-            if (entry && gameState.movableTiles.includes(gameState.hoveredTile) && !gameState.hoveredTile.unit) {
-                const afterMove = entry.remaining;
-                cost = mpRemaining - afterMove;
-            }
-        }
-        if (spdEl) {
-            spdEl.innerHTML = cost > 0
-                ? `<span style="color:#6cf;">⚡ ${mpRemaining}(-${cost})/${u.config.speed}</span>`
-                : `<span style="color:#6cf;">⚡ ${mpRemaining}/${u.config.speed}</span>`;
-        }
-        if (atkEl) {
-            const effAtk = u.getEffectiveAttack();
-            const atkDelta = effAtk - u.config.attack;
-            if (atkDelta !== 0) {
-                const sign = atkDelta > 0 ? '+' : '';
-                const deltaColor = atkDelta > 0 ? '#ffd700' : '#b080e8';
-                atkEl.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}<span style="font-size:10px;color:${deltaColor};">(${sign}${atkDelta})</span></span>`;
-            } else {
-                atkEl.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}</span>`;
-            }
-        }
-    } else if (ttip.classList.contains('visible') && !gameState.selectedTile) {
-        ttip.classList.remove('visible');
-    }
-
     requestAnimationFrame(gameLoop);
 }
 requestAnimationFrame(gameLoop);
@@ -1057,7 +1022,7 @@ function _buildSkillHTML(cfg) {
                 : '<span class="cmdr-skill-type cmdr-skill-passive">被动</span>';
             return `<div class="cmdr-skill-block">` +
                 `<div class="cmdr-detail-skill">${typeTag}【${s.name}】</div>` +
-                `<div class="cmdr-detail-desc">${s.desc.replace(/\n/g, '<br>')}</div>` +
+                `<div class="cmdr-detail-desc">${(s.desc || '暂无技能说明').replace(/\n/g, '<br>')}</div>` +
             `</div>`;
         }).join('');
     }
@@ -1065,8 +1030,12 @@ function _buildSkillHTML(cfg) {
     const typeTag = isActive
         ? '<span class="cmdr-skill-type cmdr-skill-active">主动</span>'
         : '<span class="cmdr-skill-type cmdr-skill-passive">被动</span>';
-    return `<div class="cmdr-detail-skill">${typeTag}【${cfg.skill}】</div>` +
-        `<div class="cmdr-detail-desc">${cfg.desc.replace(/\n/g, '<br>')}</div>`;
+    const name = cfg.skill || cfg.activeSkill?.name || '技能';
+    const desc = cfg.tooltipDesc || cfg.desc || cfg.activeSkill?.desc || '暂无技能说明';
+    return `<div class="cmdr-skill-block">` +
+        `<div class="cmdr-detail-skill">${typeTag}【${name}】</div>` +
+        `<div class="cmdr-detail-desc">${desc.replace(/\n/g, '<br>')}</div>` +
+    `</div>`;
 }
 
 function _showTrainingCommanderSelection(forPlayer) {
@@ -1111,7 +1080,7 @@ function _showTrainingCommanderSelection(forPlayer) {
                     `<div class="cmdr-face-details">` +
                         `<div class="cmdr-detail-name">${cfg.name}</div>` +
                         (bonusParts.length ? `<div class="cmdr-detail-bonus">${bonusParts.join(' · ')}</div>` : '') +
-                        (cfg.skills ? cfg.skills.map(sk => `<div class="cmdr-detail-skill">${sk.desc}</div>`).join('') : '') +
+                        _buildSkillHTML(cfg) +
                     `</div>` +
                 `</div>` +
             `</div>`;
