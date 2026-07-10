@@ -36,6 +36,7 @@ export default {
       helpers.spawnExplosion(x, y, '#ffaa00', 30);
       helpers.spawnExplosion(x, y, '#ffff00', 15);
       helpers.spawnFx(x, y, '💥');
+      helpers.playSound?.('explosion');
 
       helpers.logMessage(`殉道者【${unit.config.name}兵】殉道牺牲，造成范围伤害！`);
 

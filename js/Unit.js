@@ -69,6 +69,7 @@ export class Unit {
         this._engineerScaffold = null;
         this._engineerBunkerCD = 0;
         this._phantomStacks = 0;
+        this._berserkerQixue = false;
         this._shield = 0;
         this._shieldMax = 0;
         this._shieldTurns = 0;
@@ -125,6 +126,14 @@ export class Unit {
                     remaining: this.activeSkillDur
                 });
             }
+        }
+
+        if (this._berserkerQixue) {
+            effects.push({
+                label: '泣血',
+                desc: '下次攻击伤害+30%、暴击率+50%，并对相邻敌人造成40%溅射伤害',
+                color: '#d63c3c'
+            });
         }
 
         if (this._imprisoned) {
@@ -788,9 +797,11 @@ export class Unit {
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
                    isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0) {
         const counterCoeff = COUNTER_RELATION[attacker.type]?.[defender.type] ?? 1;
+        const qixueActive = attacker.commander === 'berserker' && attacker._berserkerQixue && !isCounter;
 
         // ② 增伤乘区
         let dmgUp = extraBonus;
+        if (qixueActive) dmgUp += 0.30;
         // 兵种克制：顺克 +20% / 逆克 −20%（归入②增伤乘区）；暴击率另在③处理（顺克+25%/逆克锁0）
         if (counterCoeff > 1) dmgUp += 0.20;
         else if (counterCoeff < 1) dmgUp -= 0.20;
@@ -808,7 +819,7 @@ export class Unit {
         const cmdCrit = getCommanderCritRateBonus(attacker);            // 堕天使黑形态 +60% 等
         const counterCrit = counterCoeff > 1 ? 0.25 : 0;               // 顺克 +25%
         const counterNoCrit = counterCoeff < 1;                        // 逆克 无法暴击
-        const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit;
+        const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit + (qixueActive ? 0.50 : 0);
         const forceCrit = !counterNoCrit && isCommanderGuaranteedCrit(attacker);
         const floatMult = attacker._calcFloat(isCounter, isCityCounter, critRateBonus, counterNoCrit, forceCrit);
         const isCrit = floatMult > (isCounter ? 1.50 : 1.30);
@@ -1108,9 +1119,13 @@ export class Unit {
                     }
                 }
             }
-            if (this.camp === CAMP.player1) _gameState.commanderP1 = null;
-            else if (this.camp === CAMP.player2) _gameState.commanderP2 = null;
-            else if (this.camp === CAMP.player3) _gameState.commanderP3 = null;
+            const slots = this.camp === CAMP.player1
+                ? ['commanderP1', 'commanderP1Secondary']
+                : this.camp === CAMP.player2
+                    ? ['commanderP2', 'commanderP2Secondary']
+                    : ['commanderP3', 'commanderP3Secondary'];
+            if (_gameState[slots[0]] === this.commander) _gameState[slots[0]] = null;
+            else if (_gameState[slots[1]] === this.commander) _gameState[slots[1]] = null;
             const cmdInfo = getCommander(this.commander);
             log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
         }

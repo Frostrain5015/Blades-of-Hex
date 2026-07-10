@@ -215,7 +215,7 @@ function roomList() {
     for (const [id, room] of rooms) {
         // 未开始的对局，或对局中有玩家断线（可重连）
         if (!room.gameStarted || room._disconnectedRole || (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0)) {
-            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2, skirmishFog: room.skirmishFog || false });
+            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false });
         }
     }
     return list;
@@ -327,7 +327,8 @@ function handleMessage(ws, rawData) {
             }
             const maxPlayers = msg.maxPlayers || 2; // 默认双人，可选3人
             const skirmishFog = msg.skirmishFog || false;
-            const room = { id: roomId, players: new Map(), gameStarted: false, maxPlayers, skirmishFog };
+            const doubleCommanderMode = msg.doubleCommanderMode || false;
+            const room = { id: roomId, players: new Map(), gameStarted: false, maxPlayers, skirmishFog, doubleCommanderMode };
             room.players.set(ws, { role: 'player1' });
             rooms.set(roomId, room);
             ws._room = room;
@@ -502,7 +503,7 @@ function handleMessage(ws, rawData) {
                 }
                 for (let i = 0; i < players.length; i++) {
                     room.players.set(players[i], { ...room.players.get(players[i]), role: roles[i] });
-                    sendJson(players[i], { type: 'start', role: roles[i], isThreePlayer: room.maxPlayers === 3, skirmishFog: room.skirmishFog || false });
+                    sendJson(players[i], { type: 'start', role: roles[i], isThreePlayer: room.maxPlayers === 3, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false });
                 }
                 console.log(`[房间 ${room.id}] ${room.maxPlayers}人准备完毕，游戏开始`);
             }
@@ -525,8 +526,8 @@ function handleMessage(ws, rawData) {
                 const roleB = roleA === 'player1' ? 'player2' : 'player1';
                 room.players.set(ws, { role: roleA });
                 room.players.set(other, { role: roleB });
-                sendJson(ws, { type: 'start', role: roleA, skirmishFog: room.skirmishFog || false });
-                sendJson(other, { type: 'start', role: roleB, skirmishFog: room.skirmishFog || false });
+                sendJson(ws, { type: 'start', role: roleA, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false });
+                sendJson(other, { type: 'start', role: roleB, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false });
                 console.log(`[房间 ${room.id}] 再来一局`);
             }
             break;

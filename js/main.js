@@ -622,42 +622,58 @@ function _getPrepSelection(containerId) {
     return sel ? sel.dataset.value : null;
 }
 
+function _buildPrepRuleOptions() {
+    const container = document.getElementById('prepOptions2');
+    container.className = 'prep-options prep-checkboxes';
+    container.innerHTML = `
+        <label class="prep-check-option">
+            <input type="checkbox" id="prepSkirmish" />
+            <span class="prep-check-copy"><strong>遭遇战</strong><small>开启战争迷雾与遭遇战专属卡牌</small></span>
+        </label>
+        <label class="prep-check-option">
+            <input type="checkbox" id="prepDoubleCommander" />
+            <span class="prep-check-copy"><strong>双将模式</strong><small>随机 5 名将领，选择 2 名分别部署</small></span>
+        </label>
+    `;
+}
+
 function _showPrepDialog(action) {
     _prepAction = action;
     const title = document.getElementById('prepTitle');
+    const typeSection = document.getElementById('prepSectionType');
+    const diffSection = document.getElementById('prepSectionDiff');
+    typeSection.classList.remove('collapsed');
+    diffSection.classList.remove('collapsed');
+    _buildPrepRuleOptions();
+    document.getElementById('prepLabel2').textContent = '特殊规则';
 
     if (action === 'createRoom') {
         title.textContent = '创建房间';
         document.getElementById('prepLabel1').textContent = '对战人数';
-        document.getElementById('prepLabel2').textContent = '对战模式';
-        document.getElementById('prepSectionDiff').classList.add('hidden');
+        diffSection.classList.remove('hidden');
+        diffSection.classList.add('collapsed');
         _buildPrepOptionRow('prepOptions1', [
             { id: '2p', title: '双人', desc: '1v1 在线对战' },
             { id: '3p', title: '三人', desc: '三方混战' }
         ]);
-        _buildPrepOptionRow('prepOptions2', [
-            { id: 'standard', title: '标准模式', desc: '正常规则' },
-            { id: 'skirmish', title: '遭遇战', desc: '战争迷雾' }
-        ]);
+    } else if (action === 'training') {
+        title.textContent = '训练场';
+        typeSection.classList.add('collapsed');
+        diffSection.classList.remove('hidden');
+        diffSection.classList.add('collapsed');
     } else {
         title.textContent = '本地游戏';
         document.getElementById('prepLabel1').textContent = '对战类型';
-        document.getElementById('prepLabel2').textContent = '对战模式';
-        const diffSection = document.getElementById('prepSectionDiff');
         _buildPrepOptionRow('prepOptions1', [
             { id: 'pve', title: 'PVE 对战AI', desc: '红军 vs 蓝军AI' },
             { id: 'local', title: '本地双人', desc: '两位玩家轮流' }
-        ]);
-        _buildPrepOptionRow('prepOptions2', [
-            { id: 'standard', title: '标准模式', desc: '正常规则' },
-            { id: 'skirmish', title: '遭遇战', desc: '战争迷雾' }
         ]);
         _buildPrepOptionRow('prepOptionsDiff', [
             { id: 'easy', title: '简单', desc: 'AI 1x 经济' },
             { id: 'medium', title: '中等', desc: 'AI 1.5x 经济' },
             { id: 'hard', title: '困难', desc: 'AI 2x 经济' }
         ]);
-        diffSection.classList.remove('hidden');
+        diffSection.classList.remove('hidden', 'collapsed');
         const updateDiff = () => {
             const sel = _getPrepSelection('prepOptions1');
             diffSection.classList.toggle('hidden', sel !== 'pve');
@@ -685,15 +701,26 @@ document.getElementById('prepBackBtn').addEventListener('click', () => {
 
 function _executePrepChoice() {
     const sel1 = _getPrepSelection('prepOptions1');
-    const sel2 = _getPrepSelection('prepOptions2');
-    const isSkirmish = sel2 === 'skirmish';
+    const isSkirmish = document.getElementById('prepSkirmish')?.checked || false;
+    const isDoubleCommander = document.getElementById('prepDoubleCommander')?.checked || false;
 
     if (_prepAction === 'createRoom') {
         const maxP = sel1 === '3p' ? 3 : 2;
         gameState.isThreePlayer = maxP === 3;
         gameState.skirmishFog = isSkirmish;
+        gameState.doubleCommanderMode = isDoubleCommander;
         setStatus(`正在创建${maxP}人房间...`);
         createRoom(maxP);
+        return;
+    }
+
+    if (_prepAction === 'training') {
+        gameState.gameMode = 'training';
+        gameState.skirmishFog = isSkirmish;
+        gameState.doubleCommanderMode = isDoubleCommander;
+        gameState.aiOpponentCamp = CAMP.player2;
+        gameState.aiDifficulty = 1.0;
+        beginTrainingCommanderPhase('player1');
         return;
     }
 
@@ -701,6 +728,7 @@ function _executePrepChoice() {
     if (sel1 === 'pve') {
         gameState.gameMode = 'pve';
         gameState.skirmishFog = isSkirmish;
+        gameState.doubleCommanderMode = isDoubleCommander;
         gameState.aiOpponentCamp = CAMP.player2;
         const diff = _getPrepSelection('prepOptionsDiff');
         gameState.aiDifficulty = diff === 'medium' ? 1.5 : diff === 'hard' ? 2.0 : 1.0;
@@ -708,12 +736,14 @@ function _executePrepChoice() {
     } else if (sel1 === 'training') {
         gameState.gameMode = 'training';
         gameState.skirmishFog = isSkirmish;
+        gameState.doubleCommanderMode = isDoubleCommander;
         gameState.aiOpponentCamp = CAMP.player2;
         gameState.aiDifficulty = 1.0;
         beginTrainingCommanderPhase('player1');
     } else {
         gameState.gameMode = isSkirmish ? 'skirmish' : 'local';
         gameState.skirmishFog = isSkirmish;
+        gameState.doubleCommanderMode = isDoubleCommander;
         gameState.aiOpponentCamp = null;
         beginCommanderPhase();
     }
@@ -726,11 +756,7 @@ document.getElementById('soloGameBtn').addEventListener('click', () => _showPrep
 
 
 document.getElementById('trainingBtn').addEventListener('click', () => {
-    gameState.gameMode = 'training';
-    gameState.skirmishFog = false;
-    gameState.aiOpponentCamp = CAMP.player2;
-    gameState.aiDifficulty = 1.0;
-    beginTrainingCommanderPhase('player1');
+    _showPrepDialog('training');
 });
 
 document.getElementById('multiplayerBtn').addEventListener('click', () => {
@@ -790,19 +816,31 @@ function beginTrainingCountdown() {
     _deploymentStarted = false;
     const commanderP1 = gameState.commanderP1;
     const commanderP2 = gameState.commanderP2;
+    const commanderP1Secondary = gameState.commanderP1Secondary;
+    const commanderP2Secondary = gameState.commanderP2Secondary;
+    const savedFog = gameState.skirmishFog;
+    const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     resetGameState();
-    gameState.gameMode = 'training';
-    gameState.skirmishFog = false;
+    // 双将训练场使用 PVE 回合逻辑，让 AI 自动选择并部署第二名将领。
+    gameState.gameMode = savedDoubleCommanderMode ? 'pve' : 'training';
+    gameState.skirmishFog = savedFog;
+    gameState.doubleCommanderMode = savedDoubleCommanderMode;
     gameState.aiOpponentCamp = CAMP.player2;
     gameState.aiDifficulty = 1.0;
     gameState._trainingMode = true;
     gameState.commanderPhase = 'done';
     gameState.commanderP1 = commanderP1;
     gameState.commanderP2 = commanderP2;
+    gameState.commanderP1Secondary = commanderP1Secondary;
+    gameState.commanderP2Secondary = commanderP2Secondary;
     gameState.commanderP1Confirmed = !!commanderP1;
     gameState.commanderP2Confirmed = !!commanderP2;
+    gameState.commanderP1SecondaryConfirmed = !!commanderP1Secondary;
+    gameState.commanderP2SecondaryConfirmed = !!commanderP2Secondary;
     gameState.commanderP1Deployed = false;
     gameState.commanderP2Deployed = false;
+    gameState.commanderP1SecondaryDeployed = false;
+    gameState.commanderP2SecondaryDeployed = false;
     // 3秒倒计时后开始
     const overlay = document.getElementById('commanderOverlay');
     overlay.classList.remove('show');
@@ -848,17 +886,46 @@ function beginTrainingCountdown() {
 let _commanderPending = null;
 let _commanderTransitioning = false; // 防止移动端双击重复触发
 
+const _commanderSlots = {
+    player1: { primary: 'commanderP1', secondary: 'commanderP1Secondary', primaryConfirmed: 'commanderP1Confirmed', secondaryConfirmed: 'commanderP1SecondaryConfirmed' },
+    player2: { primary: 'commanderP2', secondary: 'commanderP2Secondary', primaryConfirmed: 'commanderP2Confirmed', secondaryConfirmed: 'commanderP2SecondaryConfirmed' },
+    player3: { primary: 'commanderP3', secondary: 'commanderP3Secondary', primaryConfirmed: 'commanderP3Confirmed', secondaryConfirmed: 'commanderP3SecondaryConfirmed' }
+};
+
+function _isCommanderSelectionComplete(forPlayer) {
+    const slots = _commanderSlots[forPlayer];
+    return !!(gameState[slots.primary] && (!gameState.doubleCommanderMode || gameState[slots.secondary]));
+}
+
+function _selectCommander(forPlayer, commanderId) {
+    const slots = _commanderSlots[forPlayer];
+    if (!gameState[slots.primary]) {
+        gameState[slots.primary] = commanderId;
+        gameState[slots.primaryConfirmed] = !gameState.doubleCommanderMode;
+        return { selectionNumber: 1, complete: !gameState.doubleCommanderMode };
+    }
+    if (gameState.doubleCommanderMode && !gameState[slots.secondary] && gameState[slots.primary] !== commanderId) {
+        gameState[slots.secondary] = commanderId;
+        gameState[slots.primaryConfirmed] = true;
+        gameState[slots.secondaryConfirmed] = true;
+        return { selectionNumber: 2, complete: true };
+    }
+    return { selectionNumber: 0, complete: _isCommanderSelectionComplete(forPlayer) };
+}
+
 function beginCommanderPhase() {
     _stopHeroCarousel();
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
     const savedMode = gameState.gameMode;
     const savedFog = gameState.skirmishFog;
+    const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     resetGameState();
     gameState.gameMode = savedMode;
     gameState.skirmishFog = savedFog;
+    gameState.doubleCommanderMode = savedDoubleCommanderMode;
     _commanderTransitioning = false;
-    const pool = shuffleAndSplitPool();
+    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? 5 : 3);
     gameState.commanderPoolP1 = pool.p1;
     gameState.commanderPoolP2 = pool.p2;
     gameState.commanderPhase = 'selection';
@@ -871,14 +938,25 @@ function beginTrainingCommanderPhase(humanRole) {
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
     const savedFog = gameState.skirmishFog;
+    const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     const savedDiff = gameState.aiDifficulty;
     resetGameState();
-    gameState.gameMode = 'pve';
+    gameState.gameMode = 'training';
     gameState.skirmishFog = savedFog;
+    gameState.doubleCommanderMode = savedDoubleCommanderMode;
     gameState.aiDifficulty = savedDiff;
     gameState.aiOpponentCamp = CAMP.player2;
     gameState._trainingMode = true;
     _commanderTransitioning = false;
+    if (savedDoubleCommanderMode) {
+        const pool = shuffleAndSplitPool(false, 5);
+        gameState.commanderPoolP1 = pool.p1;
+        gameState.commanderPoolP2 = pool.p2;
+        gameState.commanderPhase = 'selection';
+        _pveHumanRole = 'player1';
+        _showCommanderSelection('player1');
+        return;
+    }
     const allKeys = Object.keys(COMMANDER_CONFIG);
     gameState.commanderPoolP1 = allKeys;
     gameState.commanderPoolP2 = [];
@@ -892,15 +970,17 @@ function beginPVECommanderPhase(humanRole) {
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
     const savedFog = gameState.skirmishFog;
+    const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     const savedDiff = gameState.aiDifficulty;
     resetGameState();
     // 保持 PVE 模式状态（resetGameState 会清掉，重新设置）
     gameState.gameMode = 'pve';
     gameState.skirmishFog = savedFog;
+    gameState.doubleCommanderMode = savedDoubleCommanderMode;
     gameState.aiDifficulty = savedDiff;
     gameState.aiOpponentCamp = humanRole === 'player1' ? CAMP.player2 : CAMP.player1;
     _commanderTransitioning = false;
-    const pool = shuffleAndSplitPool();
+    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? 5 : 3);
     gameState.commanderPoolP1 = pool.p1;
     gameState.commanderPoolP2 = pool.p2;
     gameState.commanderPhase = 'selection';
@@ -927,18 +1007,16 @@ let _pveHumanRole = null;
 const _GROK_PREF = ['centurion', 'berserker', 'vampire', 'fallenAngel', 'ironGuard', 'staller', 'advisor', 'minister'];
 function _pveAIQuickPick(forPlayer) {
     const pool = forPlayer === 'player1' ? gameState.commanderPoolP1 : gameState.commanderPoolP2;
-    // Grok 选将偏好（与 .ai/grok.js COMMANDER_PREFERENCE 同步）
-    let picked = pool[0];
+    const picks = [];
     for (const pref of _GROK_PREF) {
-        if (pool.includes(pref)) { picked = pref; break; }
+        if (pool.includes(pref) && !picks.includes(pref)) picks.push(pref);
+        if (picks.length === (gameState.doubleCommanderMode ? 2 : 1)) break;
     }
-    if (forPlayer === 'player1') {
-        gameState.commanderP1 = picked;
-        gameState.commanderP1Confirmed = true;
-    } else {
-        gameState.commanderP2 = picked;
-        gameState.commanderP2Confirmed = true;
+    for (const commanderId of pool) {
+        if (!picks.includes(commanderId)) picks.push(commanderId);
+        if (picks.length === (gameState.doubleCommanderMode ? 2 : 1)) break;
     }
+    for (const commanderId of picks) _selectCommander(forPlayer, commanderId);
 }
 
 function _forPlayerCampName(forPlayer) {
@@ -957,10 +1035,12 @@ function beginNetworkCommanderFlow(role) {
     _deploymentStarted = false;
     const wasThreePlayer = gameState.isThreePlayer;
     const wasSkirmish = gameState.skirmishFog;
+    const wasDoubleCommanderMode = gameState.doubleCommanderMode;
     const wasMode = gameState.gameMode;
     resetGameState();
     gameState.isThreePlayer = wasThreePlayer;
     gameState.skirmishFog = wasSkirmish;
+    gameState.doubleCommanderMode = wasDoubleCommanderMode;
     gameState.gameMode = wasMode;
     _commanderTransitioning = false;
     gameState.commanderPhase = 'selection';
@@ -968,7 +1048,7 @@ function beginNetworkCommanderFlow(role) {
     const myRole = getMyRole();
     if (myRole === 'player1') {
         const is3P = gameState.isThreePlayer;
-        const pool = shuffleAndSplitPool(is3P);
+        const pool = shuffleAndSplitPool(is3P, wasDoubleCommanderMode ? 5 : 3);
         gameState.commanderPoolP1 = pool.p1;
         gameState.commanderPoolP2 = pool.p2;
         if (is3P) gameState.commanderPoolP3 = pool.p3 || [];
@@ -1214,7 +1294,9 @@ function _showCommanderSelection(forPlayer) {
     _commanderPending = null;
     title.textContent = `${ci.name} — 选择将领`;
     title.style.color = ci.color;
-    statusDiv.textContent = '点击将领预选，再次点击确认';
+    statusDiv.textContent = gameState.doubleCommanderMode
+        ? '点击将领预选，再次点击确认；请选择 2 名将领'
+        : '点击将领预选，再次点击确认';
     statusDiv.style.color = '#888';
     statusDiv.style.opacity = '0';
     cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
@@ -1349,26 +1431,11 @@ function _showCommanderSelection(forPlayer) {
                 });
 
                 el.addEventListener('click', function handler() {
-                    if (el.classList.contains('confirmed')) return;
+                    if (el.classList.contains('confirmed') || el.classList.contains('taken')) return;
                     if (_commanderPending === key) {
+                        const selection = _selectCommander(forPlayer, key);
+                        if (selection.selectionNumber === 0) return;
                         el.classList.remove('selected');
-                        el.classList.add('confirmed');
-                        if (forPlayer === 'player1') {
-                            gameState.commanderP1 = key;
-                            gameState.commanderP1Confirmed = true;
-                        } else if (forPlayer === 'player2') {
-                            gameState.commanderP2 = key;
-                            gameState.commanderP2Confirmed = true;
-                        } else {
-                            gameState.commanderP3 = key;
-                            gameState.commanderP3Confirmed = true;
-                        }
-                        statusDiv.textContent = '已确认 ✓';
-                        statusDiv.style.color = '#4CAF50';
-                        cardsDiv.querySelectorAll('.commander-card').forEach(c => {
-                            if (!c.classList.contains('confirmed')) c.style.pointerEvents = 'none';
-                        });
-                        if (rerollBtn) rerollBtn.classList.remove('visible');
                         _commanderPending = null;
                         if (isNetworkGame()) {
                             syncCommanderState(
@@ -1382,6 +1449,20 @@ function _showCommanderSelection(forPlayer) {
                                 gameState.commanderP3Confirmed, gameState.commanderP3Deployed, null
                             );
                         }
+                        if (!selection.complete) {
+                            el.classList.add('taken');
+                            el.style.pointerEvents = 'none';
+                            statusDiv.textContent = `已选择【${cfg.name}】，请选择第 2 名将领`;
+                            statusDiv.style.color = '#ffd700';
+                            return;
+                        }
+                        el.classList.add('confirmed');
+                        statusDiv.textContent = '已确认 ✓';
+                        statusDiv.style.color = '#4CAF50';
+                        cardsDiv.querySelectorAll('.commander-card').forEach(c => {
+                            if (!c.classList.contains('confirmed') && !c.classList.contains('taken')) c.style.pointerEvents = 'none';
+                        });
+                        if (rerollBtn) rerollBtn.classList.remove('visible');
                         _onCommanderSelected(forPlayer);
                     } else {
                         cardsDiv.querySelectorAll('.commander-card').forEach(c => c.classList.remove('selected'));
@@ -1394,7 +1475,10 @@ function _showCommanderSelection(forPlayer) {
             }
 
             // 洗牌换将按钮：翻牌动画结束后出现，每人限一次；已洗牌状态不显示
-            if (rerollBtn) {
+            if (rerollBtn && gameState.doubleCommanderMode) {
+                rerollBtn.classList.remove('visible');
+                rerollBtn.onclick = null;
+            } else if (rerollBtn) {
                 const alreadyRerolled = !!(gameState.commanderRerolled && gameState.commanderRerolled[forPlayer]);
                 if (alreadyRerolled) {
                     rerollBtn.classList.remove('visible');
@@ -1412,6 +1496,7 @@ function _showCommanderSelection(forPlayer) {
 // 洗牌换将：从未被占用（其他玩家已摇到的排除）的将领中重新发放 3 名，重播翻牌动画，每人限一次
 function _rerollCommanders(forPlayer) {
     if (_commanderTransitioning) return;
+    if (gameState.doubleCommanderMode) return;
     if (gameState.commanderRerolled && gameState.commanderRerolled[forPlayer]) return;
 
     // 未被占用 = 所有将领 − 各玩家当前牌池（含自己这 3 名）
@@ -1459,9 +1544,9 @@ function _rerollCommanders(forPlayer) {
 // 更新上方信息卡阵营徽章为将领透明底立绘
 function updateCampEmblems() {
     const camps = [
-        { id: 'emblemP1', cmdKey: gameState.commanderP1, camp: CAMP.player1, textDefault: '红' },
-        { id: 'emblemP2', cmdKey: gameState.commanderP2, camp: CAMP.player2, textDefault: '蓝' },
-        { id: 'emblemP3', cmdKey: gameState.commanderP3, camp: CAMP.player3, textDefault: '绿' },
+        { id: 'emblemP1', cmdKey: gameState.commanderP1 || gameState.commanderP1Secondary, camp: CAMP.player1, textDefault: '红' },
+        { id: 'emblemP2', cmdKey: gameState.commanderP2 || gameState.commanderP2Secondary, camp: CAMP.player2, textDefault: '蓝' },
+        { id: 'emblemP3', cmdKey: gameState.commanderP3 || gameState.commanderP3Secondary, camp: CAMP.player3, textDefault: '绿' },
     ];
     const viewingCamp = gameState.skirmishFog ? getViewingCamp() : null;
 
@@ -1510,26 +1595,29 @@ function _onCommanderSelected(forPlayer) {
     updateCampEmblems();
     if (isNetworkGame()) {
         _checkBothConfirmed();
-    } else if (gameState.gameMode === 'pve') {
+    } else if (gameState.gameMode === 'pve' || (gameState.gameMode === 'training' && gameState.doubleCommanderMode)) {
         // PVE 模式：人类选完后 AI 自动选
+        const beginSelectedMatch = () => {
+            document.getElementById('commanderOverlay').classList.remove('show');
+            gameState.commanderPhase = 'done';
+            if (gameState.gameMode === 'training') {
+                beginTrainingCountdown();
+            } else {
+                startGame();
+                _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
+            }
+            _commanderTransitioning = false;
+        };
         if (_pveHumanRole === 'player1' && forPlayer === 'player1') {
             // 人类 P1 选完，AI 选 P2
             _pveAIQuickPick('player2');
             setTimeout(() => {
-                document.getElementById('commanderOverlay').classList.remove('show');
-                gameState.commanderPhase = 'done';
-                startGame();
-                _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
-                _commanderTransitioning = false;
+                beginSelectedMatch();
             }, 800);
         } else if (_pveHumanRole === 'player2' && forPlayer === 'player2') {
             // 人类 P2 选完（AI P1 已选），开始游戏 + AI 先手
             setTimeout(() => {
-                document.getElementById('commanderOverlay').classList.remove('show');
-                gameState.commanderPhase = 'done';
-                startGame();
-                _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
-                _commanderTransitioning = false;
+                beginSelectedMatch();
             }, 800);
         }
     } else if (gameState.isThreePlayer) {
@@ -1610,9 +1698,14 @@ async function _triggerInitialAITurn() {
 }
 
 function _checkBothConfirmed() {
+    const playerConfirmed = (forPlayer) => {
+        const slots = _commanderSlots[forPlayer];
+        return gameState[slots.primaryConfirmed]
+            && (!gameState.doubleCommanderMode || gameState[slots.secondaryConfirmed]);
+    };
     const allConfirmed = gameState.isThreePlayer
-        ? gameState.commanderP1Confirmed && gameState.commanderP2Confirmed && gameState.commanderP3Confirmed
-        : gameState.commanderP1Confirmed && gameState.commanderP2Confirmed;
+        ? playerConfirmed('player1') && playerConfirmed('player2') && playerConfirmed('player3')
+        : playerConfirmed('player1') && playerConfirmed('player2');
     if (allConfirmed && !_deploymentStarted) {
         setTimeout(() => {
             document.getElementById('commanderOverlay').classList.remove('show');
@@ -2023,7 +2116,9 @@ function renderRoomList(list) {
         card.className = 'mp-room-card';
         const maxP = r.maxPlayers || 2;
         const full = r.playerCount >= maxP;
-        const modeLabel = (maxP === 3 ? '三人' : '双人') + ' · ' + (r.skirmishFog ? '遭遇战' : '标准');
+        const rules = [r.skirmishFog ? '遭遇战' : '标准'];
+        if (r.doubleCommanderMode) rules.push('双将');
+        const modeLabel = (maxP === 3 ? '三人' : '双人') + ' · ' + rules.join(' · ');
         card.innerHTML = `<span class="mp-room-id">${r.roomId}</span><span class="mp-room-mode">${modeLabel}</span><span class="mp-room-players">${r.playerCount}/${maxP}</span><span class="mp-room-arrow">→</span>`;
         if (full) {
             card.classList.add('full');
@@ -2163,9 +2258,10 @@ function registerNetworkCallbacks() {
             reconnectBtn.style.display = '';
         },
 
-        onStart: (role, isThreePlayer, skirmishFog) => {
+        onStart: (role, isThreePlayer, skirmishFog, doubleCommanderMode) => {
             if (isThreePlayer !== undefined) gameState.isThreePlayer = isThreePlayer;
             if (skirmishFog !== undefined) gameState.skirmishFog = skirmishFog;
+            if (doubleCommanderMode !== undefined) gameState.doubleCommanderMode = doubleCommanderMode;
             showFactionReveal(role);
         },
 
@@ -2245,12 +2341,21 @@ function registerNetworkCallbacks() {
             gameState.commanderP1 = msg.commanderP1 || null;
             gameState.commanderP2 = msg.commanderP2 || null;
             gameState.commanderP3 = msg.commanderP3 || null;
+            gameState.commanderP1Secondary = msg.commanderP1Secondary || null;
+            gameState.commanderP2Secondary = msg.commanderP2Secondary || null;
+            gameState.commanderP3Secondary = msg.commanderP3Secondary || null;
             gameState.commanderP1Confirmed = msg.commanderP1Confirmed || false;
             gameState.commanderP2Confirmed = msg.commanderP2Confirmed || false;
             gameState.commanderP3Confirmed = msg.commanderP3Confirmed || false;
+            gameState.commanderP1SecondaryConfirmed = msg.commanderP1SecondaryConfirmed || false;
+            gameState.commanderP2SecondaryConfirmed = msg.commanderP2SecondaryConfirmed || false;
+            gameState.commanderP3SecondaryConfirmed = msg.commanderP3SecondaryConfirmed || false;
             gameState.commanderP1Deployed = msg.commanderP1Deployed || false;
             gameState.commanderP2Deployed = msg.commanderP2Deployed || false;
             gameState.commanderP3Deployed = msg.commanderP3Deployed || false;
+            gameState.commanderP1SecondaryDeployed = msg.commanderP1SecondaryDeployed || false;
+            gameState.commanderP2SecondaryDeployed = msg.commanderP2SecondaryDeployed || false;
+            gameState.commanderP3SecondaryDeployed = msg.commanderP3SecondaryDeployed || false;
             gameState.commanderRerolled = {
                 player1: msg.commanderRerolledP1 || false,
                 player2: msg.commanderRerolledP2 || false,
@@ -2258,9 +2363,36 @@ function registerNetworkCallbacks() {
             };
             gameState.commanderPhase = msg.commanderPhase || 'selection';
             if (msg.skirmishFog !== undefined) gameState.skirmishFog = msg.skirmishFog;
+            if (msg.doubleCommanderMode !== undefined) gameState.doubleCommanderMode = msg.doubleCommanderMode;
             if (msg.gameMode !== undefined) gameState.gameMode = msg.gameMode;
-            if (msg.deployedUnitP1 || msg.deployedUnitP2 || msg.deployedUnitP3) {
+            if (msg.commanderDeployment || msg.deployedUnitP1 || msg.deployedUnitP2 || msg.deployedUnitP3) {
                 const myRole = getMyRole();
+                const applyDeployment = (unitId, cmdId) => {
+                    if (!unitId || !cmdId) return;
+                    for (const tile of gameState.tiles) {
+                        if (tile.unit && tile.unit.id === unitId) {
+                            tile.unit.commander = cmdId;
+                            tile.unit._cmdrAssignedAt = performance.now();
+                            const cmdCfg = getCommander(cmdId);
+                            if (cmdCfg) {
+                                const u = tile.unit;
+                                const hpFlat = Math.round(u.config.hp * (cmdCfg.hpBonusPct || 0));
+                                const atkFlat = Math.round(u.config.attack * (cmdCfg.atkBonusPct || 0));
+                                u.hp += hpFlat;
+                                u.maxHp += hpFlat;
+                                u.displayHp = u.hp;
+                                u._atkBonus = (u._atkBonus || 0) + atkFlat;
+                                u.remainingMP += cmdCfg.spdBonus || 0;
+                                u.displaySpeed += cmdCfg.spdBonus || 0;
+                            }
+                            break;
+                        }
+                    }
+                };
+                if (msg.commanderDeployment) {
+                    const deployment = msg.commanderDeployment;
+                    if (deployment.campKey !== myRole) applyDeployment(deployment.unitId, deployment.commanderId);
+                } else {
                 const getOtherDeploy = (role) => {
                     if (role === 'player1') return { unitId: msg.deployedUnitP2, cmdId: gameState.commanderP2, unitId2: msg.deployedUnitP3, cmdId2: gameState.commanderP3 };
                     if (role === 'player2') return { unitId: msg.deployedUnitP1, cmdId: gameState.commanderP1, unitId2: msg.deployedUnitP3, cmdId2: gameState.commanderP3 };
@@ -2268,27 +2400,8 @@ function registerNetworkCallbacks() {
                 };
                 const deploy = getOtherDeploy(myRole);
                 for (const { unitId, cmdId } of [{ unitId: deploy.unitId, cmdId: deploy.cmdId }, { unitId: deploy.unitId2, cmdId: deploy.cmdId2 }]) {
-                    if (unitId && cmdId) {
-                        for (const tile of gameState.tiles) {
-                            if (tile.unit && tile.unit.id === unitId) {
-                                tile.unit.commander = cmdId;
-                                tile.unit._cmdrAssignedAt = performance.now();
-                                const cmdCfg = getCommander(cmdId);
-                                if (cmdCfg) {
-                                    const u = tile.unit;
-                                    const hpFlat = Math.round(u.config.hp * (cmdCfg.hpBonusPct || 0));
-                                    const atkFlat = Math.round(u.config.attack * (cmdCfg.atkBonusPct || 0));
-                                    u.hp += hpFlat;
-                                    u.maxHp += hpFlat;
-                                    u.displayHp = u.hp;
-                                    u._atkBonus = (u._atkBonus || 0) + atkFlat;
-                                    u.remainingMP += cmdCfg.spdBonus || 0;
-                                    u.displaySpeed += cmdCfg.spdBonus || 0;
-                                }
-                                break;
-                            }
-                        }
-                    }
+                    applyDeployment(unitId, cmdId);
+                }
                 }
             }
             updateCampEmblems();
@@ -2442,6 +2555,7 @@ async function handleRemoteAction(msg) {
             if (e && e.cmdFxList) {
                 for (const fx of e.cmdFxList) {
                     spawnCommanderSkillEffect(fx.x, fx.y, fx.glyph, fx.label);
+                    if (fx.glyph === '💥' && fx.label === '殉道') playSound('explosion');
                 }
             }
             // 重放殉道者爆炸等将领产生的伤害数字
@@ -2713,6 +2827,22 @@ async function handleRemoteAction(msg) {
                         spawnExplosionParticles(e.x, e.y, '#ff2200', 30);
                         spawnExplosionParticles(e.x, e.y, '#ffaa00', 15);
                         triggerScreenShake(4, 150);
+                    }
+                    if (e.berserkerQixue) {
+                        spawnCommanderSkillEffect(e.fromX ?? e.x, e.fromY ?? e.y, '🩸', '泣血');
+                        spawnExplosionParticles(e.x, e.y, '#b71c1c', 24);
+                        spawnExplosionParticles(e.x, e.y, '#ff6b4a', 14);
+                        for (const splash of e.berserkerSplash || []) {
+                            spawnDirectionalParticles(e.x, e.y, splash.x, splash.y, '#d63c3c', splash.isCrit ? 12 : 8);
+                            spawnExplosionParticles(splash.x, splash.y, '#b71c1c', splash.isCrit ? 16 : 10);
+                            spawnExplosionParticles(splash.x, splash.y, '#ff8a65', splash.isCrit ? 8 : 5);
+                            gameState.damageTexts.push({
+                                x: splash.x, y: splash.y, value: splash.dmg, isCrit: splash.isCrit,
+                                timeLeft: 900, lastUpdate: performance.now()
+                            });
+                        }
+                        if (e.berserkerSplash?.length) playSound('explosion');
+                        triggerScreenShake(8, 260);
                     }
                     if (e.cityCaptured) {
                         spawnExplosionParticles(e.x, e.y, '#ffd700', 12);

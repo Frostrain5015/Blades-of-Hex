@@ -85,6 +85,22 @@ function makeHelpers() {
     return { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, weather: gameState.weather, isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState), CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD };
 }
 
+async function deployAvailableCommanders(aiCamp) {
+    const prefix = aiCamp === CAMP.player1 ? 'commanderP1' : aiCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+    const commanders = [
+        { commanderId: gameState[prefix], deployedKey: `${prefix}Deployed` },
+        { commanderId: gameState[`${prefix}Secondary`], deployedKey: `${prefix}SecondaryDeployed` }
+    ].filter(({ commanderId, deployedKey }) => commanderId && !gameState[deployedKey]);
+    const availableUnits = gameState.tiles
+        .map(tile => tile.unit)
+        .filter(unit => unit && unit.camp === aiCamp && !unit.commander && unit.tile && unit.hp > 0)
+        .sort((left, right) => right.getEffectiveAttack() - left.getEffectiveAttack());
+
+    for (let i = 0; i < commanders.length && i < availableUnits.length; i++) {
+        await executeAction({ type: 'deployCommander', unitId: availableUnits[i].id, commanderId: commanders[i].commanderId }, aiCamp);
+    }
+}
+
 async function executeAction(action, aiCamp) {
     if (gameState.gameOver) return;
     if (!gameState.aiActing || gameState.currentCamp !== aiCamp) return;
@@ -211,7 +227,8 @@ async function _executeActionInner(action, aiCamp) {
             const unit = resolveUnit(action.unitId);
             if (!unit || !unit.tile || unit.commander) return;
             const myCamp = aiCamp;
-            const cmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : gameState.commanderP2;
+            const prefix = myCamp === CAMP.player1 ? 'commanderP1' : myCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+            const cmdKey = action.commanderId || gameState[prefix];
             if (!cmdKey) return;
             const cmdCfg = getCommander(cmdKey);
             if (!cmdCfg) return;
@@ -229,11 +246,10 @@ async function _executeActionInner(action, aiCamp) {
             if (cmdCfg.onDeploy) {
                 cmdCfg.onDeploy(unit, gameState, { getCommander });
             }
-            if (myCamp === CAMP.player1) {
-                gameState.commanderP1Deployed = true;
-            } else {
-                gameState.commanderP2Deployed = true;
-            }
+            const deployedKey = gameState[`${prefix}Secondary`] === cmdKey
+                ? `${prefix}SecondaryDeployed`
+                : `${prefix}Deployed`;
+            gameState[deployedKey] = true;
             logMessage(`${myCamp.name} AI【${cmdCfg.name}】部署到${unit.config.name}兵`);
             spawnCommanderSkillEffect(unit.tile.x, unit.tile.y);
             await delay(AI_DELAY);
@@ -364,6 +380,8 @@ export async function processOpponentTurn(aiCamp) {
     // 遭遇战迷雾：AI 也需要更新视野
     if (gameState.skirmishFog) updateFogOfWar(gameState, aiCamp);
     try {
+
+        if (gameState.doubleCommanderMode) await deployAvailableCommanders(aiCamp);
 
         const helpers = makeHelpers();
         const actions = grokPersonality.planActions(gameState, helpers, aiCamp);

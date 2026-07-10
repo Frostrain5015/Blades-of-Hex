@@ -380,7 +380,10 @@ export const TACTICAL_CARD_CONFIG = {
         targeting: 'friendlyAny',
         execute(targetTile, gameState, helpers) {
             const unitCamp = targetTile.unit.camp;
-            const cmdKey = unitCamp === CAMP.player1 ? gameState.commanderP1 : unitCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
+            const primaryKey = unitCamp === CAMP.player1 ? 'commanderP1' : unitCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+            const secondaryKey = `${primaryKey}Secondary`;
+            const cmdKey = helpers.deployCommanderId || gameState[primaryKey];
+            if (!cmdKey || targetTile.unit.commander) return { deployed: false, commander: cmdKey };
             targetTile.unit.commander = cmdKey;
             targetTile.unit._cmdrAssignedAt = performance.now();
             const cmdCfg = helpers.getCommander(cmdKey);
@@ -398,9 +401,10 @@ export const TACTICAL_CARD_CONFIG = {
             if (cmdCfg && cmdCfg.onDeploy) {
                 cmdCfg.onDeploy(targetTile.unit, gameState, helpers);
             }
-            if (unitCamp === CAMP.player1) gameState.commanderP1Deployed = true;
-            else if (unitCamp === CAMP.player2) gameState.commanderP2Deployed = true;
-            else gameState.commanderP3Deployed = true;
+            const deployedKey = gameState[secondaryKey] === cmdKey
+                ? `${secondaryKey}Deployed`
+                : `${primaryKey}Deployed`;
+            gameState[deployedKey] = true;
             return { deployed: true, commander: cmdKey };
         }
     }

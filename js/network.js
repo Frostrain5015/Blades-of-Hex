@@ -140,7 +140,7 @@ export function connectToServer(url) {
                     break;
                 case 'start':
                     _myRole = msg.role;
-                    _cb.onStart?.(msg.role, msg.isThreePlayer, msg.skirmishFog);
+                    _cb.onStart?.(msg.role, msg.isThreePlayer, msg.skirmishFog, msg.doubleCommanderMode);
                     break;
                 case 'error':
                     _cb.onError?.(msg.message);
@@ -236,7 +236,12 @@ export function disconnect() {
 
 export function createRoom(maxPlayers = 2) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
-    _ws.send(JSON.stringify({ type: 'createRoom', maxPlayers, skirmishFog: gameState.skirmishFog || false }));
+    _ws.send(JSON.stringify({
+        type: 'createRoom',
+        maxPlayers,
+        skirmishFog: gameState.skirmishFog || false,
+        doubleCommanderMode: gameState.doubleCommanderMode || false
+    }));
 }
 
 export function joinRoom(roomId) {
@@ -312,7 +317,7 @@ export function campToRole(camp) {
     return null;
 }
 
-export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase, deployedUnitP1 = null, deployedUnitP2 = null, poolP3 = [], cmdP3 = null, p3Confirmed = false, p3Deployed = false, deployedUnitP3 = null) {
+export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase, deployedUnitP1 = null, deployedUnitP2 = null, poolP3 = [], cmdP3 = null, p3Confirmed = false, p3Deployed = false, deployedUnitP3 = null, commanderDeployment = null) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
     _ws.send(JSON.stringify({
         type: 'commanderSync',
@@ -322,20 +327,31 @@ export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2
         commanderP1: cmdP1,
         commanderP2: cmdP2,
         commanderP3: cmdP3,
+        commanderP1Secondary: gameState.commanderP1Secondary,
+        commanderP2Secondary: gameState.commanderP2Secondary,
+        commanderP3Secondary: gameState.commanderP3Secondary,
         commanderP1Confirmed: p1Confirmed,
         commanderP2Confirmed: p2Confirmed,
         commanderP3Confirmed: p3Confirmed,
+        commanderP1SecondaryConfirmed: gameState.commanderP1SecondaryConfirmed,
+        commanderP2SecondaryConfirmed: gameState.commanderP2SecondaryConfirmed,
+        commanderP3SecondaryConfirmed: gameState.commanderP3SecondaryConfirmed,
         commanderP1Deployed: p1Deployed,
         commanderP2Deployed: p2Deployed,
         commanderP3Deployed: p3Deployed,
+        commanderP1SecondaryDeployed: gameState.commanderP1SecondaryDeployed,
+        commanderP2SecondaryDeployed: gameState.commanderP2SecondaryDeployed,
+        commanderP3SecondaryDeployed: gameState.commanderP3SecondaryDeployed,
         commanderPhase: phase,
         deployedUnitP1: deployedUnitP1,
         deployedUnitP2: deployedUnitP2,
         deployedUnitP3: deployedUnitP3,
+        commanderDeployment,
         commanderRerolledP1: (gameState.commanderRerolled && gameState.commanderRerolled.player1) || false,
         commanderRerolledP2: (gameState.commanderRerolled && gameState.commanderRerolled.player2) || false,
         commanderRerolledP3: (gameState.commanderRerolled && gameState.commanderRerolled.player3) || false,
         skirmishFog: gameState.skirmishFog || false,
+        doubleCommanderMode: gameState.doubleCommanderMode || false,
         gameMode: gameState.gameMode || 'local'
     }));
 }

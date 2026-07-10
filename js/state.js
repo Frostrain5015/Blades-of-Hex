@@ -78,12 +78,22 @@ export const gameState = {
     commanderP1: null,
     commanderP2: null,
     commanderP3: null,
+    commanderP1Secondary: null,
+    commanderP2Secondary: null,
+    commanderP3Secondary: null,
     commanderP1Confirmed: false,
     commanderP2Confirmed: false,
     commanderP3Confirmed: false,
+    commanderP1SecondaryConfirmed: false,
+    commanderP2SecondaryConfirmed: false,
+    commanderP3SecondaryConfirmed: false,
     commanderP1Deployed: false,
     commanderP2Deployed: false,
     commanderP3Deployed: false,
+    commanderP1SecondaryDeployed: false,
+    commanderP2SecondaryDeployed: false,
+    commanderP3SecondaryDeployed: false,
+    doubleCommanderMode: false,
     // 洗牌换将：每名玩家一次性，消耗全部初始资金换 3 名未被占用的将领
     commanderRerolled: { player1: false, player2: false, player3: false },
     _rerollPenaltyApplied: { player1: false, player2: false, player3: false },
@@ -180,12 +190,22 @@ export function resetGameState() {
     gameState.commanderP1 = null;
     gameState.commanderP2 = null;
     gameState.commanderP3 = null;
+    gameState.commanderP1Secondary = null;
+    gameState.commanderP2Secondary = null;
+    gameState.commanderP3Secondary = null;
     gameState.commanderP1Confirmed = false;
     gameState.commanderP2Confirmed = false;
     gameState.commanderP3Confirmed = false;
+    gameState.commanderP1SecondaryConfirmed = false;
+    gameState.commanderP2SecondaryConfirmed = false;
+    gameState.commanderP3SecondaryConfirmed = false;
     gameState.commanderP1Deployed = false;
     gameState.commanderP2Deployed = false;
     gameState.commanderP3Deployed = false;
+    gameState.commanderP1SecondaryDeployed = false;
+    gameState.commanderP2SecondaryDeployed = false;
+    gameState.commanderP3SecondaryDeployed = false;
+    gameState.doubleCommanderMode = false;
     gameState.commanderRerolled = { player1: false, player2: false, player3: false };
     gameState._rerollPenaltyApplied = { player1: false, player2: false, player3: false };
     gameState.commanderPhase = 'done';
@@ -632,6 +652,7 @@ export function serializeState() {
             activeSkillCD: t.unit.activeSkillCD,
             activeSkillDur: t.unit.activeSkillDur,
             phantomStacks: t.unit._phantomStacks || 0,
+            berserkerQixue: t.unit._berserkerQixue || false,
             gongxinStacks: t.unit._gongxinStacks || 0,
             gongxinCampKey: t.unit._gongxinCamp ? _campToKey(t.unit._gongxinCamp) : null,
             imprisoned: t.unit._imprisoned || false,
@@ -690,12 +711,22 @@ export function serializeState() {
         commanderP1: gameState.commanderP1,
         commanderP2: gameState.commanderP2,
         commanderP3: gameState.commanderP3,
+        commanderP1Secondary: gameState.commanderP1Secondary,
+        commanderP2Secondary: gameState.commanderP2Secondary,
+        commanderP3Secondary: gameState.commanderP3Secondary,
         commanderP1Confirmed: gameState.commanderP1Confirmed,
         commanderP2Confirmed: gameState.commanderP2Confirmed,
         commanderP3Confirmed: gameState.commanderP3Confirmed,
+        commanderP1SecondaryConfirmed: gameState.commanderP1SecondaryConfirmed,
+        commanderP2SecondaryConfirmed: gameState.commanderP2SecondaryConfirmed,
+        commanderP3SecondaryConfirmed: gameState.commanderP3SecondaryConfirmed,
         commanderP1Deployed: gameState.commanderP1Deployed,
         commanderP2Deployed: gameState.commanderP2Deployed,
         commanderP3Deployed: gameState.commanderP3Deployed,
+        commanderP1SecondaryDeployed: gameState.commanderP1SecondaryDeployed,
+        commanderP2SecondaryDeployed: gameState.commanderP2SecondaryDeployed,
+        commanderP3SecondaryDeployed: gameState.commanderP3SecondaryDeployed,
+        doubleCommanderMode: gameState.doubleCommanderMode || false,
         commanderRerolled: { ...(gameState.commanderRerolled || {}) },
         rerollPenaltyApplied: { ...(gameState._rerollPenaltyApplied || {}) },
         commanderPhase: gameState.commanderPhase,
@@ -761,12 +792,22 @@ export function deserializeState(data, HexTileClass, UnitClass) {
     gameState.commanderP1 = data.commanderP1 || null;
     gameState.commanderP2 = data.commanderP2 || null;
     gameState.commanderP3 = data.commanderP3 || null;
+    gameState.commanderP1Secondary = data.commanderP1Secondary || null;
+    gameState.commanderP2Secondary = data.commanderP2Secondary || null;
+    gameState.commanderP3Secondary = data.commanderP3Secondary || null;
     gameState.commanderP1Confirmed = data.commanderP1Confirmed || false;
     gameState.commanderP2Confirmed = data.commanderP2Confirmed || false;
     gameState.commanderP3Confirmed = data.commanderP3Confirmed || false;
+    gameState.commanderP1SecondaryConfirmed = data.commanderP1SecondaryConfirmed || false;
+    gameState.commanderP2SecondaryConfirmed = data.commanderP2SecondaryConfirmed || false;
+    gameState.commanderP3SecondaryConfirmed = data.commanderP3SecondaryConfirmed || false;
     gameState.commanderP1Deployed = data.commanderP1Deployed || false;
     gameState.commanderP2Deployed = data.commanderP2Deployed || false;
     gameState.commanderP3Deployed = data.commanderP3Deployed || false;
+    gameState.commanderP1SecondaryDeployed = data.commanderP1SecondaryDeployed || false;
+    gameState.commanderP2SecondaryDeployed = data.commanderP2SecondaryDeployed || false;
+    gameState.commanderP3SecondaryDeployed = data.commanderP3SecondaryDeployed || false;
+    gameState.doubleCommanderMode = data.doubleCommanderMode || false;
     gameState.commanderRerolled = { player1: false, player2: false, player3: false, ...(data.commanderRerolled || {}) };
     gameState._rerollPenaltyApplied = { player1: false, player2: false, player3: false, ...(data.rerollPenaltyApplied || {}) };
     gameState.commanderPhase = data.commanderPhase || 'done';
@@ -895,6 +936,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit.activeSkillCD = td.unit.activeSkillCD || 0;
             unit.activeSkillDur = td.unit.activeSkillDur || 0;
             unit._phantomStacks = td.unit.phantomStacks || 0;
+            unit._berserkerQixue = td.unit.berserkerQixue || false;
             unit._gongxinStacks = td.unit.gongxinStacks || 0;
             if (td.unit.gongxinCampKey) {
                 unit._gongxinCamp = campMap[td.unit.gongxinCampKey] || CAMP.neutral;

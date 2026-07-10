@@ -1890,7 +1890,9 @@ export function drawCardCanvas(now) {
         // 部署将领显示所选将领名 + 头像
         let deployCmdId = null;
         if (cardId === 'commanderDeploy') {
-            deployCmdId = myCamp === CAMP.player1 ? gameState.commanderP1 : myCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
+            const primaryKey = myCamp === CAMP.player1 ? 'commanderP1' : myCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+            deployCmdId = typeof cardEntry === 'object' ? cardEntry.commanderId : null;
+            deployCmdId ||= gameState[primaryKey];
             const cmdCfg = COMMANDER_CONFIG[deployCmdId];
             if (cmdCfg) cfg = { ...cfg, name: cmdCfg.name };
         }
@@ -1899,9 +1901,14 @@ export function drawCardCanvas(now) {
         const x = baseX + cardW / 2;
         const y = cyBase - lift + cardH / 2;
 
-        const isTargeting = gameState.cardTargeting && gameState.cardTargeting.cardId === cardId;
+        const isTargeting = gameState.cardTargeting && gameState.cardTargeting.cardId === cardId
+            && (gameState.cardTargeting.handIndex == null || gameState.cardTargeting.handIndex === i);
         const isDeploy = cardId === 'commanderDeploy';
-        const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
+        const primaryKey = myCamp === CAMP.player1 ? 'commanderP1' : myCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+        const deployedKey = deployCmdId && gameState[`${primaryKey}Secondary`] === deployCmdId
+            ? `${primaryKey}SecondaryDeployed`
+            : `${primaryKey}Deployed`;
+        const alreadyDeployed = isDeploy && gameState[deployedKey];
         const isHovered = _slideCurrent[i] > 0.3;
         const isColCard = !!COLONEL_CARDS[cardId];
         const drawOpts = { disabled: false, isTargeting: false, isDeploy, alreadyDeployed, isHovered, commanderId: deployCmdId, isCopyCard, goldCost: isColCard ? (COLONEL_CARD_GOLD[cardId] || 0) : 0 };

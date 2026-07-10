@@ -418,23 +418,32 @@ function initCardDeck() {
     gameState.cardDrawPile = deck;
     gameState.cardDiscardPile = [];
     // E4 空军上校：替换牌库和手牌
-    const colonels = {};
-    for (const [key, cmdId] of [['player1', gameState.commanderP1], ['player2', gameState.commanderP2], ['player3', gameState.commanderP3]]) {
-        if (cmdId === 'colonel') colonels[key] = true;
-    }
+    const commanderIds = {
+        player1: [gameState.commanderP1, gameState.commanderP1Secondary].filter(Boolean),
+        player2: [gameState.commanderP2, gameState.commanderP2Secondary].filter(Boolean),
+        player3: [gameState.commanderP3, gameState.commanderP3Secondary].filter(Boolean)
+    };
+    const colonels = Object.fromEntries(
+        Object.entries(commanderIds).map(([key, ids]) => [key, ids.includes('colonel')])
+    );
     // 上校初始手牌仅部署卡；部署后通过 onDeploy 发放 3 张空军卡
     // 空军卡为金币门控、不消耗手牌（executeTacticalCard 不 splice），手牌固定为 3 张
     // 注意：cardDrawPile 为双方共享，切勿因上校清空，否则对手也抽不到牌。
     // 上校空军卡不占手牌上限，故使用独立计数，部署后再加入。
-    const colonelHand = () => ['commanderDeploy'];
+    const deploymentCards = (campKey) => {
+        const ids = commanderIds[campKey];
+        if (!gameState.doubleCommanderMode) return ['commanderDeploy'];
+        return ids.map(commanderId => ({ id: 'commanderDeploy', commanderId }));
+    };
+    const colonelHand = (campKey) => deploymentCards(campKey);
     // 仅非上校玩家从共享牌堆摸初始牌（上校不摸，避免白白消耗共享牌）
     const freeCard1 = colonels.player1 ? null : gameState.cardDrawPile.pop();
     const freeCard2 = colonels.player2 ? null : gameState.cardDrawPile.pop();
     const freeCard3 = (gameState.isThreePlayer && !colonels.player3) ? gameState.cardDrawPile.pop() : null;
     gameState.playerHands = {
-        player1: colonels.player1 ? colonelHand() : ['commanderDeploy', freeCard1].filter(Boolean),
-        player2: colonels.player2 ? colonelHand() : ['commanderDeploy', freeCard2].filter(Boolean),
-        player3: gameState.isThreePlayer ? (colonels.player3 ? colonelHand() : ['commanderDeploy', freeCard3].filter(Boolean)) : []
+        player1: colonels.player1 ? colonelHand('player1') : [...deploymentCards('player1'), freeCard1].filter(Boolean),
+        player2: colonels.player2 ? colonelHand('player2') : [...deploymentCards('player2'), freeCard2].filter(Boolean),
+        player3: gameState.isThreePlayer ? (colonels.player3 ? colonelHand('player3') : [...deploymentCards('player3'), freeCard3].filter(Boolean)) : []
     };
     gameState.playerDrawsThisTurn = { player1: 0, player2: 0, player3: 0 };
     gameState.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0 };
@@ -1357,8 +1366,11 @@ export function attackUnit(attackerUnit, targetUnit) {
 
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
     const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
+    const primaryTargetTile = targetUnit.tile;
     const _hasSmite = attackerUnit._smiteReady;
     const _smiteLabel = _hasSmite ? (attackerUnit._smiteCharged ? '至圣斩·誓约' : '至圣斩') : '';
+    const qixueActive = attackerUnit.commander === 'berserker' && attackerUnit._berserkerQixue;
+    const qixueAttackCamp = attackerUnit.camp;
 
     const _executeAttack = () => {
 
@@ -1404,6 +1416,28 @@ export function attackUnit(attackerUnit, targetUnit) {
 
     // 核心状态修改：扣血、击杀判定（先于视觉效果，保证广播时状态正确）
     let isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
+    const qixueSplashResults = [];
+    if (qixueActive) {
+        for (const [dq, dr] of HEX_NEIGHBORS) {
+            const splashTile = gameState.tileMap.get(`${primaryTargetTile.q + dq},${primaryTargetTile.r + dr}`);
+            const splashUnit = splashTile?.unit;
+            if (!splashUnit || splashUnit.camp === qixueAttackCamp || splashUnit.hp <= 0) continue;
+            const splashResult = attackerUnit._resolveDamage(attackerUnit, splashUnit, 0.40);
+            const splashDmg = Math.round(splashResult.dmg);
+            if (splashDmg <= 0) continue;
+            const killed = splashUnit.applyDamage(splashDmg, { source: 'ranged', attacker: attackerUnit });
+            qixueSplashResults.push({
+                x: splashTile.x, y: splashTile.y, q: splashTile.q, r: splashTile.r,
+                dmg: splashDmg, isCrit: splashResult.isCrit, killed
+            });
+            gameState.damageTexts.push({
+                x: splashTile.x, y: splashTile.y, value: splashDmg, isCrit: splashResult.isCrit,
+                timeLeft: 900, lastUpdate: performance.now()
+            });
+            logMessage(`狂战士【泣血】溅射对${splashUnit.camp.name}${splashUnit.config.name}兵造成${splashDmg}伤害`);
+        }
+        attackerUnit._berserkerQixue = false;
+    }
 
     let atkCmdResult = null, ctrCmdResult = null;
     try {
@@ -1424,6 +1458,18 @@ export function attackUnit(attackerUnit, targetUnit) {
             triggerAttackFlash(toX, toY, isCrit);
             spawnMeleeSlash(toX, toY, fromX, fromY, isCrit);
             triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
+        }
+        if (qixueActive) {
+            spawnCommanderSkillEffect(fromX, fromY, '🩸', '泣血');
+            spawnExplosionParticles(toX, toY, '#b71c1c', 24);
+            spawnExplosionParticles(toX, toY, '#ff6b4a', 14);
+            for (const splash of qixueSplashResults) {
+                spawnDirectionalParticles(toX, toY, splash.x, splash.y, '#d63c3c', splash.isCrit ? 12 : 8);
+                spawnExplosionParticles(splash.x, splash.y, '#b71c1c', splash.isCrit ? 16 : 10);
+                spawnExplosionParticles(splash.x, splash.y, '#ff8a65', splash.isCrit ? 8 : 5);
+            }
+            if (qixueSplashResults.length > 0) playSound('explosion');
+            triggerScreenShake(8, 260);
         }
         // 近战突进特效（击杀时由 movePath 处理位移，不重复触发；碉堡/无人机不可移动，无突进）
         if (attackerUnit.type !== 'archer' && attackerUnit.type !== 'mgNest' && !attackerUnit._isDrone && !isTargetDead) {
@@ -1643,7 +1689,9 @@ export function attackUnit(attackerUnit, targetUnit) {
                 isCtr: !!(ctrCmdResult?.moraleDropped || ctrCmdResult?.converted) && !atkCmdResult?.moraleDropped && !atkCmdResult?.converted
             } : null,
             ctrBloodDrain: (ctrCmdResult && targetUnit.commander === 'vampire') ? { toX: attackerUnit.tile.x, toY: attackerUnit.tile.y, fromX: targetUnit.tile.x, fromY: targetUnit.tile.y } : null,
-            ctrMoraleFxUnitId: _ctrMoraleFxUnitId || null
+            ctrMoraleFxUnitId: _ctrMoraleFxUnitId || null,
+            berserkerQixue: qixueActive,
+            berserkerSplash: qixueSplashResults.length ? qixueSplashResults : null
         });
         _cityCapturedInAttack = false;
         _moraleFxUnitId = null;
@@ -2278,6 +2326,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('无效目标'); return; }
     } else if (tg === 'friendlyAny') {
         if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('请选择友方单位'); return; }
+        if (cardId === 'commanderDeploy' && targetTile.unit.commander) { notify('将领必须部署到未配属将领的单位'); return; }
         // E4 空运：被禁锢的单位不可被空运
         if (cardId === 'airlift' && targetTile.unit._imprisoned) { notify('被禁锢的单位无法空运'); return; }
     } else if (tg === 'emptyTile') {
@@ -2321,7 +2370,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     if (idx === -1) { notify('手牌中没有该卡'); return; }
     const nBefore = hand.length;
     const fromI = nBefore - 1 - idx;
-    const isCopyCard = typeof hand[idx] === 'object' && hand[idx]._copy;
+    const cardEntry = hand[idx];
+    const isCopyCard = typeof cardEntry === 'object' && cardEntry._copy;
+    const deployCommanderId = cardId === 'commanderDeploy' && typeof cardEntry === 'object'
+        ? cardEntry.commanderId || null
+        : null;
 
     // E3 纵横家合纵：用卡次数上限覆盖
     const useBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].useBonus || 0 : 0;
@@ -2381,7 +2434,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     }
 
     // execute
-    const helpers = { getCommander, Unit, getMyCamp: () => myCamp, spawnOrbitBeams: spawnPaladinOrbitBeams, getAALayers, hexDistance, applyAADefense, applyAADropHP };
+    const helpers = { getCommander, Unit, getMyCamp: () => myCamp, deployCommanderId, spawnOrbitBeams: spawnPaladinOrbitBeams, getAALayers, hexDistance, applyAADefense, applyAADropHP };
     let result;
     // E4 上校空军卡使用 COLONEL_CARDS 而非 TACTICAL_CARD_CONFIG
     if (isColonelCard) {
@@ -2797,7 +2850,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     myCamp === CAMP.player2 ? targetTile.unit.id : null,
                     gameState.commanderPoolP3, gameState.commanderP3,
                     gameState.commanderP3Confirmed, gameState.commanderP3Deployed,
-                    myCamp === CAMP.player3 ? targetTile.unit.id : null
+                    myCamp === CAMP.player3 ? targetTile.unit.id : null,
+                    { campKey, unitId: targetTile.unit.id, commanderId: result.commander }
                 );
             }
             setTimeout(() => {

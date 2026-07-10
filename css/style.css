@@ -1685,8 +1685,10 @@ body {
     border: 1px solid var(--gold-border);
     border-radius: var(--radius-md);
     padding: 24px 28px;
-    min-width: 500px;
-    max-width: 1200px;
+    box-sizing: border-box;
+    width: min(1120px, calc(100vw - 32px));
+    min-width: 0;
+    min-height: 350px;
     text-align: center;
     box-shadow: 0 0 48px rgba(0, 0, 0, 0.85);
 }
@@ -1706,7 +1708,7 @@ body {
     margin: 0 auto 12px;
     position: relative;
     min-height: 260px;
-    max-width: 1140px;
+    max-width: 1064px;
 }
 
 /* ---- 牌堆（单张） ---- */
@@ -2208,6 +2210,10 @@ body {
     margin-bottom: 14px;
 }
 
+.prep-section.collapsed {
+    display: none;
+}
+
 .prep-section-label {
     color: rgba(255, 255, 255, 0.40);
     font-size: 10px;
@@ -2254,6 +2260,68 @@ body {
 .prep-option .prep-option-desc {
     font-size: 10px;
     color: rgba(255, 255, 255, 0.38);
+}
+
+.prep-checkboxes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.prep-check-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-height: 56px;
+    padding: 10px 12px;
+    box-sizing: border-box;
+    cursor: pointer;
+    color: var(--text-bright);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: var(--radius-sm);
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.prep-check-option:hover,
+.prep-check-option:has(input:checked) {
+    background: rgba(205, 150, 18, 0.08);
+    border-color: var(--gold-border);
+}
+
+.prep-check-option input {
+    appearance: none;
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+    margin: 2px 0 0;
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.28);
+    cursor: pointer;
+}
+
+.prep-check-option input:checked {
+    border-color: var(--gold);
+    background: var(--gold);
+    box-shadow: inset 0 0 0 3px rgba(40, 25, 3, 0.92);
+}
+
+.prep-check-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.prep-check-copy strong {
+    font-size: 13px;
+    letter-spacing: 1px;
+}
+
+.prep-check-copy small {
+    color: rgba(255, 255, 255, 0.42);
+    font-size: 10px;
+    line-height: 1.35;
 }
 
 .prep-actions {
@@ -3558,6 +3626,7 @@ body {
     /* prep 选项在窄屏换行，确保最小触摸宽度 */
     .prep-options { flex-wrap: wrap; }
     .prep-option { flex: 1 1 calc(50% - 8px); min-width: 120px; min-height: 44px; }
+    .prep-checkboxes { grid-template-columns: 1fr; }
     /* 房间列表卡片增大间距 */
     .mp-room-card { padding: 14px 18px; min-height: 48px; }
     /* 静音按钮增大 */

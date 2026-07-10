@@ -47,25 +47,25 @@ export function getCommander(id) {
   return allCommanders[id] || null;
 }
 
-export function shuffleAndSplitPool(isThreePlayer = false) {
+export function shuffleAndSplitPool(isThreePlayer = false, commandersPerPlayer = 3) {
   const keys = Object.keys(allCommanders);
   for (let i = keys.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [keys[i], keys[j]] = [keys[j], keys[i]];
   }
   if (isThreePlayer) {
-    // 三人模式：12选9后均分，每人3选1
-    const pool = keys.slice(0, 9);
+    // 三人模式：按每位玩家所需数量均分候选将领
+    const pool = keys.slice(0, commandersPerPlayer * 3);
     return {
-      p1: pool.slice(0, 3),
-      p2: pool.slice(3, 6),
-      p3: pool.slice(6, 9)
+      p1: pool.slice(0, commandersPerPlayer),
+      p2: pool.slice(commandersPerPlayer, commandersPerPlayer * 2),
+      p3: pool.slice(commandersPerPlayer * 2, commandersPerPlayer * 3)
     };
   }
-  // 双人模式：12选6后对半分，每人3选1
-  const pool = keys.slice(0, 6);
+  // 双人模式：候选将领不重叠，均分给双方
+  const pool = keys.slice(0, commandersPerPlayer * 2);
   return {
-    p1: pool.slice(0, 3),
-    p2: pool.slice(3, 6)
+    p1: pool.slice(0, commandersPerPlayer),
+    p2: pool.slice(commandersPerPlayer, commandersPerPlayer * 2)
   };
 }

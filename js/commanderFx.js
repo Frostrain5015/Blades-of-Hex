@@ -28,7 +28,10 @@ const _loaded = new Map(); // id → module（模块缓存，重复开局不再�
 export async function loadCommanderFx(gameState) {
     clearFxLayers();
     const picked = new Set(
-        [gameState.commanderP1, gameState.commanderP2, gameState.commanderP3]
+        [
+            gameState.commanderP1, gameState.commanderP2, gameState.commanderP3,
+            gameState.commanderP1Secondary, gameState.commanderP2Secondary, gameState.commanderP3Secondary
+        ]
             .filter(id => id && FX_MANIFEST.has(id))
     );
     for (const id of picked) {

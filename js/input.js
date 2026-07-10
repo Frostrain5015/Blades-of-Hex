@@ -582,7 +582,12 @@ function _handleCardCanvasClick(e) {
             const cardId = typeof cardEntry === 'object' ? cardEntry.id : cardEntry;
             const isCopyCard = typeof cardEntry === 'object' && cardEntry._copy;
             const isDeploy = cardId === 'commanderDeploy';
-            const alreadyDeployed = isDeploy && (myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed);
+            const primaryKey = myCamp === CAMP.player1 ? 'commanderP1' : myCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+            const deployCommanderId = isDeploy && typeof cardEntry === 'object' ? cardEntry.commanderId : null;
+            const deployedKey = deployCommanderId && gameState[`${primaryKey}Secondary`] === deployCommanderId
+                ? `${primaryKey}SecondaryDeployed`
+                : `${primaryKey}Deployed`;
+            const alreadyDeployed = isDeploy && gameState[deployedKey];
             if (isDeploy && alreadyDeployed) return;
 
             // only allow during own turn (network safety)
@@ -625,9 +630,9 @@ function _handleCardCanvasClick(e) {
                 _cardFromX = (screenX - gameRect.left) * scaleX;
                 _cardFromY = (screenY - gameRect.top) * scaleY;
             }
-            gameState.cardTargeting = { cardId, targeting: cfg.targeting, handIndex: i };
+            gameState.cardTargeting = { cardId, targeting: cfg.targeting, handIndex: i, commanderId: deployCommanderId };
             if (cardId === 'commanderDeploy') {
-                const cmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : myCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
+                const cmdKey = deployCommanderId || gameState[primaryKey];
                 const cmdCfg = COMMANDER_CONFIG[cmdKey];
                 if (cmdCfg) {
                     showTargetingBanner('请选择目标');
