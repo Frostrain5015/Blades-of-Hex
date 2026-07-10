@@ -603,11 +603,11 @@ function _handleCardCanvasClick(e) {
             if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
                 notify('本回合已达到使用上限', 'error'); return;
             }
-            // E4 空军上校：显示当前增伤层数
+            // E4 空军上校：显示当前实际增伤
             if (COLONEL_CARDS[cardId] && gameState._colonelAirStacks) {
                 const _campKey3 = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
                 const _stk = gameState._colonelAirStacks[_campKey3] || 0;
-                if (_stk > 0) notify(`✈️ 空军熟练度 Lv.${_stk}（+${_stk * 5}%伤害）`);
+                if (_stk > 0) notify(`✈️ 空军伤害提高${_stk * 5}%`);
             }
             // E4 空军上校：进入选目标前先校验部署/金币/雾天，避免卡在选目标态
             if (COLONEL_CARDS[cardId]) {
@@ -857,11 +857,11 @@ function _getUnitPassiveRuntimeState(unit, passive) {
 
     if (unit.type === 'cavalry') {
         const stacks = Math.min(3, Math.max(0, unit.moveDistance || 0));
-        presentation.count = stacks || '';
+        presentation.count = '';
         presentation.active = stacks > 0;
         presentation.intensity = stacks / 3;
         presentation.status = presentation.active
-            ? '当前生效 造成的伤害提高' + (stacks * 10) + '%（本回合 ' + stacks + '/3 层）'
+            ? '当前生效 造成的伤害提高' + (stacks * 10) + '%'
             : '当前未生效';
     } else if (unit.type === 'infantry') {
         presentation.status = unit.tile?.isCity ? '当前生效' : '当前未生效';
@@ -895,19 +895,19 @@ function _getPassiveRuntimeState(unit, skill) {
         const charged = unit._smiteReady
             ? (unit._smiteCharged ? ' 至圣斩已满蓄力' : ' 至圣斩已蓄力')
             : '';
-        presentation.count = faith || '';
+        presentation.count = '';
         presentation.active = faith > 0;
         presentation.intensity = faith / 3;
-        presentation.status = '当前生效 防御力+' + (faith * 5) + '%（' + faith + '/3 层）' + charged;
+        presentation.status = '当前生效 防御力+' + (faith * 5) + '%' + charged;
     }
 
     if (unit.commander === 'martyr' && skill.name === '挽歌') {
         const bonus = Math.min(25, unit._elegyBonus || 0);
         const stacks = Math.floor(bonus / 5);
-        presentation.count = stacks || '';
+        presentation.count = '';
         presentation.active = stacks > 0;
         presentation.intensity = stacks / 5;
-        presentation.status = '当前生效 攻击力提高' + bonus + '/25（' + stacks + '/5 层）';
+        presentation.status = '当前生效 攻击力提高' + bonus;
     }
 
     if (unit.commander === 'martyr' && skill.name === '殉道' && unit._martyrPrimed) {
@@ -920,10 +920,10 @@ function _getPassiveRuntimeState(unit, skill) {
 
     if (unit.commander === 'magician' && skill.name === '幻形') {
         const stacks = Math.min(6, unit._phantomStacks || 0);
-        presentation.count = stacks || '';
+        presentation.count = '';
         presentation.active = stacks > 0;
         presentation.intensity = stacks / 6;
-        presentation.status = '当前生效 造成伤害+' + (stacks * 5) + '%，暴击率+' + (stacks * 10) + '%（' + stacks + '/6 层）';
+        presentation.status = '当前生效 造成伤害+' + (stacks * 5) + '%，暴击率+' + (stacks * 10) + '%';
         if (stacks > 0) presentation.color = '#d79cff';
     }
 
@@ -931,7 +931,7 @@ function _getPassiveRuntimeState(unit, skill) {
         const shield = Math.max(0, unit._shield || 0);
         presentation.active = shield > 0;
         presentation.intensity = shield / 120;
-        presentation.status = '当前生效 护盾 ' + shield + '/120';
+        presentation.status = '当前生效 护盾 ' + shield;
         if (shield <= 0) presentation.color = '#7b8790';
     }
 
@@ -952,10 +952,10 @@ function _getPassiveRuntimeState(unit, skill) {
 
     if (unit.commander === 'colonel' && skill.name === '制空') {
         const stacks = Math.min(6, gameState._colonelAirStacks?.[_campKeyInput(unit.camp)] || 0);
-        presentation.count = stacks || '';
+        presentation.count = '';
         presentation.active = stacks > 0;
         presentation.intensity = stacks / 6;
-        presentation.status = '当前生效 空军伤害提高' + (stacks * 5) + '%（空军熟练度 ' + stacks + '/6 层）';
+        presentation.status = '当前生效 空军伤害提高' + (stacks * 5) + '%';
         if (stacks > 0) presentation.color = '#94cdf8';
     }
 
@@ -972,7 +972,7 @@ function _getPassiveRuntimeState(unit, skill) {
             presentation.count = soulMinions || '';
             presentation.active = soulMinions > 0;
             presentation.intensity = soulMinions / 2;
-            presentation.status = '当前生效 场上魂卒 ' + soulMinions + '/2 名';
+            presentation.status = '当前生效 场上魂卒 ' + soulMinions + ' 名';
         }
     }
 
@@ -1169,8 +1169,7 @@ function _buildEffectItems(tile, unit) {
                 label: '缚足',
                 desc: '每层使得当前单位每步行动力消耗提高2点',
                 color: '#c08050',
-                count: layers,
-                status: '当前' + layers + '层',
+                status: '当前生效 每步行动力消耗提高' + (layers * 2),
                 kind: 'effect'
             });
         }
@@ -1306,11 +1305,11 @@ function _buildPassiveItems(unit) {
     } else if (unit.commander === 'berserker') {
         const hpLostPct = ((unit.maxHp - unit.hp) / unit.maxHp) * 100;
         const stacks = Math.min(40, Math.floor(hpLostPct / 2));
-        count = stacks || '';
+        count = '';
         color = stacks > 0 ? '#ff7b5c' : '#7b8790';
         active = stacks > 0;
         intensity = stacks / 40;
-        status = '当前生效 加成：攻击力+' + stacks + '%、防御力+' + stacks + '%（' + stacks + '/40 层）';
+        status = '当前生效 加成：攻击力+' + stacks + '%、防御力+' + stacks + '%';
     }
     if (!active) status = '当前未生效';
     if (commander.skill) {
