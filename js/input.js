@@ -1836,7 +1836,8 @@ export function initInput() {
             }
             setCardHoveredIndex(found);
             if (found >= 0) {
-                const cardId = hand2[found];
+                const cardEntry = hand2[found];
+                const cardId = typeof cardEntry === 'object' ? cardEntry.id : cardEntry;
                 const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
                 if (cfg) {
                     const usesLeft = CARD_SYSTEM_CONFIG.maxUsesPerTurn - (gameState.playerUsesThisTurn?.[ck] || 0);
