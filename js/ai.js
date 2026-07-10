@@ -155,6 +155,7 @@ async function _executeActionInner(action, aiCamp) {
             if (score > bestScore) { bestScore = score; best = t; }
         }
         await delay(AI_DELAY);
+        gameState.attackableTiles = atkTiles;
         attackUnit(unit, best.unit);
         return true;
     }
@@ -164,8 +165,10 @@ async function _executeActionInner(action, aiCamp) {
             const unit = resolveUnit(action.unitId);
             const target = resolveUnit(action.targetId);
             if (!unit || !target || !unit.canAct || !unit.tile || !target.tile) return;
-            if (getAttackableTiles(unit).includes(target.tile)) {
+            const aiAtkTiles = getAttackableTiles(unit);
+            if (aiAtkTiles.includes(target.tile)) {
                 await delay(AI_DELAY);
+                gameState.attackableTiles = aiAtkTiles;
                 attackUnit(unit, target);
                 // 百夫长乘胜 / 击杀后再行动：循环追击直到无法行动（最多3次防死循环）
                 for (let chain = 0; chain < 3 && unit.canAct && unit.tile && unit.hp > 0; chain++) {
@@ -178,8 +181,10 @@ async function _executeActionInner(action, aiCamp) {
             const unit = resolveUnit(action.unitId);
             const targetTile = resolveTile(action.tileQ, action.tileR);
             if (!unit || !targetTile || !unit.canAct || !unit.tile || targetTile.unit) return;
-            if (getMovableTiles(unit).includes(targetTile)) {
+            const aiMoveTiles = getMovableTiles(unit);
+            if (aiMoveTiles.includes(targetTile)) {
                 await delay(AI_DELAY);
+                gameState.movableTiles = aiMoveTiles;
                 moveUnit(unit, targetTile);
                 // 移动后尝试自动攻击
                 if (unit.canAct && unit.tile && unit.hp > 0) {

@@ -1454,6 +1454,11 @@ export function attackUnit(attackerUnit, targetUnit) {
                     spawnGoldenBeam(toX, toY);
                     playSound('lightning');
                 }, smiteDelay);
+                // 真实伤害必须同步执行，否则 isTargetDead 无法正确阻止反击
+                const smiteKilled = targetUnit.applyDamage(atkCmdResult.smiteDmg, { source: 'true', attacker: attackerUnit });
+                targetUnit.displayHp = targetUnit.hp;
+                if (smiteKilled) isTargetDead = true;
+                _smiteDmgRemote = atkCmdResult.smiteDmg;
                 setTimeout(() => {
                     gameState.damageTexts.push({
                         x: toX, y: toY, value: atkCmdResult.smiteDmg, isTrueDmg: true,
@@ -1462,11 +1467,6 @@ export function attackUnit(attackerUnit, targetUnit) {
                     triggerAttackFlash(toX, toY, true);
                     spawnCommanderSkillEffect(toX, toY, '✝️', smiteLabel, true);
                     triggerScreenShake(_hasSmite && smiteLabel === '至圣斩·誓约' ? 12 : 9, 400);
-                    _smiteDmgRemote = atkCmdResult.smiteDmg;
-                    // 至圣斩为真实伤害：绕过护盾和全部乘区，不触发铁卫转移/誓言
-                    const smiteKilled = targetUnit.applyDamage(atkCmdResult.smiteDmg, { source: 'true', attacker: attackerUnit });
-                    targetUnit.displayHp = targetUnit.hp;
-                    if (smiteKilled) isTargetDead = true;
                 }, smiteDelay + 200);
             }
         }
@@ -1949,6 +1949,8 @@ async function handleSurrender() {
         }
         // 跳过该阵营回合，切换到下一个未投降阵营
         if (gameState.currentCamp === surrenderCamp) {
+            gameState.turnCounter++;
+            _updateWeather();
             _skipToNextActiveCamp(surrenderCamp);
         }
         // 投降方显示观战横幅
