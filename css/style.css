@@ -1751,6 +1751,11 @@ body {
 .commander-card:not(.animating).confirmed {
     box-shadow: 0 0 0 2px #4CAF50, 0 0 12px rgba(76, 175, 80, 0.4);
 }
+.commander-card.taken {
+    opacity: 0.35;
+    filter: grayscale(0.9);
+    pointer-events: none;
+}
 
 .commander-card-inner {
     position: relative;

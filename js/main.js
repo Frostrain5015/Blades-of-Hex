@@ -106,10 +106,6 @@ const _heroReadyPromise = new Promise(res => { _heroReadyResolve = res; });
 function _signalHeroReady() { if (_heroReadyResolve) { _heroReadyResolve(); _heroReadyResolve = null; } }
 // 首屏立绘就绪后再撤下加载遮罩（避免露出空图占位）；最长兜底 4s 防图片异常卡住
 let _loadingDismissed = false;
-function _getTrainingAIPick(playerPick) {
-    return playerPick === 'berserker' ? 'centurion' : 'berserker';
-}
-
 function _dismissLoadingWhenReady() {
     if (_loadingDismissed) return;
     _loadingDismissed = true;
@@ -1158,32 +1154,42 @@ function _showTrainingCommanderSelection(forPlayer) {
             });
         }, null, "+=");
     });
-    // Click handler
+    // 两阶段选将：先点一张卡选红军，再点另一张选蓝军
+    let _trainPhase = 'player1'; // 'player1' | 'player2'
+    statusDiv.textContent = '请为红军选择将领';
+    statusDiv.style.color = ci.color;
     cardsDiv.addEventListener('click', function _handler(e) {
         const cardEl = e.target.closest('.commander-card');
         if (!cardEl) return;
         const key = cardEl.dataset.key;
         const cfg = COMMANDER_CONFIG[key];
-        if (!cfg) return;
+        if (!cfg || cardEl.classList.contains('taken')) return;
 
         if (_commanderPending === key) {
-            // Confirm
+            // Double-click confirm
             _commanderPending = null;
-            gameState.commanderP1 = key;
-            gameState.commanderP1Confirmed = true;
-            gameState.commanderP1Deployed = false;
-            statusDiv.textContent = '已确认 ' + cfg.name;
-            statusDiv.style.color = '#4CAF50';
-            cardsDiv.querySelectorAll('.commander-card').forEach(c => c.style.pointerEvents = 'none');
-            const aiPick = _getTrainingAIPick(key);
-            gameState.commanderP2 = aiPick;
-            gameState.commanderP2Confirmed = true;
-            gameState.commanderP2Deployed = false;
-            setTimeout(() => {
-                beginTrainingCountdown();
-                _commanderPending = null;
-            }, 300);
-            cardsDiv.removeEventListener('click', _handler);
+            if (_trainPhase === 'player1') {
+                gameState.commanderP1 = key;
+                gameState.commanderP1Confirmed = true;
+                gameState.commanderP1Deployed = false;
+                cardEl.classList.remove('selected');
+                cardEl.classList.add('taken');
+                cardEl.style.pointerEvents = 'none';
+                statusDiv.textContent = `红军已选 ${cfg.name}，请为蓝军选择将领`;
+                statusDiv.style.color = '#4CAF50';
+                _trainPhase = 'player2';
+            } else {
+                gameState.commanderP2 = key;
+                gameState.commanderP2Confirmed = true;
+                gameState.commanderP2Deployed = false;
+                statusDiv.textContent = `红军：${gameState.commanderP1} ／ 蓝军：${cfg.name}`;
+                statusDiv.style.color = '#4CAF50';
+                cardsDiv.querySelectorAll('.commander-card').forEach(c => c.style.pointerEvents = 'none');
+                setTimeout(() => {
+                    beginTrainingCountdown();
+                }, 300);
+                cardsDiv.removeEventListener('click', _handler);
+            }
         } else {
             cardsDiv.querySelectorAll('.commander-card').forEach(c => c.classList.remove('selected'));
             cardEl.classList.add('selected');
