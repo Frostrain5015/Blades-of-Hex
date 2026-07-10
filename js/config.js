@@ -1,6 +1,15 @@
-// ==== 核心配置与常量 ====
-export const HEX_SIZE = 30;
-export const LOG_LIMIT = 20;
+// ==== 运行时画布与几何 ====
+// 可编辑的游戏数据放在 gameData.js；此文件仅保留运行时代码与兼容导出。
+import {
+    BOARD_RULES, UNIT_CONFIG, CAMP_DATA, CAMP_FLAG_COLORS, COUNTER_RELATION,
+    TERRAIN_CONFIG, FORTIFICATION_CONFIG, MORALE_CONFIG, WEATHER_CONFIG,
+    GAME_RULES, TACTICAL_CARD_DATA, COLONEL_CARD_DATA
+} from './gameData.js';
+
+export { UNIT_CONFIG, CAMP_FLAG_COLORS, COUNTER_RELATION, TERRAIN_CONFIG, FORTIFICATION_CONFIG, MORALE_CONFIG, WEATHER_CONFIG };
+
+export const HEX_SIZE = BOARD_RULES.hexSize;
+export const LOG_LIMIT = BOARD_RULES.logLimit;
 
 export const canvas = document.getElementById('gameCanvas');
 export const ctx = canvas.getContext('2d');
@@ -8,8 +17,8 @@ export const cardCanvas = document.getElementById('cardCanvas');
 export const cardCtx = cardCanvas ? cardCanvas.getContext('2d') : null;
 
 // 逻辑分辨率（所有游戏坐标基于此）
-export const LOGICAL_W = 1000;
-export const LOGICAL_H = 750;
+export const LOGICAL_W = BOARD_RULES.logicalWidth;
+export const LOGICAL_H = BOARD_RULES.logicalHeight;
 
 let dpr = 1;
 export let HEX_WIDTH;
@@ -122,26 +131,10 @@ export function getRound(gameState) {
 }
 
 // Axial hex neighbor offsets (q, r)
-export const HEX_NEIGHBORS = [
-    [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]
-];
+export const HEX_NEIGHBORS = BOARD_RULES.hexNeighbors;
 
-// ==== 兵种配置 ====================
-export const UNIT_CONFIG = {
-    infantry: { name: '步', hp: 200, attack: 40, defense: 0.05, speed: 5, range: 1, cost: 8,  color: '#0a0a0a' },
-    cavalry:  { name: '骑', hp: 150, attack: 50, defense: 0.05, speed: 8, range: 1, cost: 10, color: '#0a0a0a' },
-    archer:   { name: '炮', hp: 100, attack: 60, defense: 0,    speed: 3, range: 2, cost: 12, color: '#0a0a0a' },
-    mgNest:   { name: '碉堡', hp: 200, attack: 40, defense: 0.05, speed: 0, range: 2, cost: 0, color: '#8B7355' },
-    drone:    { name: '无人机', hp: 75, attack: 30, defense: 0, speed: 8, range: 2, cost: 0, color: '#6bbcff' }
-};
-
-// ==== 阵营配置 ====================
-export const CAMP = {
-    player1: { name: '红军', color: '#ffaaaa', flag: '🔴' },
-    player2: { name: '蓝军', color: '#aaaaff', flag: '🔵' },
-    player3: { name: '绿军', color: '#aaffaa', flag: '🟢' },
-    neutral: { name: '中立', color: '#c0c0c0', flag: '⚫' }
-};
+// 阵营对象在启动期创建一次，其他模块仍可按引用比较 CAMP.player1 等。
+export const CAMP = CAMP_DATA;
 
 export function campToKey(camp, mode = 'full') {
     if (camp === CAMP.player1) return mode === 'short' ? 'p1' : 'player1';
@@ -150,138 +143,72 @@ export function campToKey(camp, mode = 'full') {
     return 'neutral';
 }
 
-// Saturated flag colors shared by unit & city flags
-export const CAMP_FLAG_COLORS = {
-    p1: { main: '#d44040', dark: '#8b1a1a', light: '#f06060' },
-    p2: { main: '#4060d0', dark: '#1a2a80', light: '#6080f0' },
-    p3: { main: '#40a040', dark: '#1a601a', light: '#60d060' },
-    neu: { main: '#777', dark: '#444', light: '#999' }
-};
-
-// ==== 克制关系 ====================
-export const COUNTER_RELATION = {
-    infantry: { archer: 0.75, cavalry: 1.25, infantry: 1, mgNest: 0.75, drone: 1 },
-    archer:   { cavalry: 0.75, infantry: 1.25, archer: 1, mgNest: 1.25, drone: 1 },
-    cavalry:  { infantry: 0.75, archer: 1.25, cavalry: 1, mgNest: 0.75, drone: 1 },
-    mgNest:   { infantry: 1.25, archer: 0.75, cavalry: 1.25, mgNest: 1, drone: 1 },
-    drone:    { infantry: 1.25, archer: 1, cavalry: 1, mgNest: 1, drone: 1 }
-};
-
-// ==== 地形配置 ====================
-export const TERRAIN_CONFIG = {
-    plains:   { name: '平原', defenseBonus: 0,    stepCost: 2, moveDesc: '',          icon: '',   iconFont: '' },
-    forest:   { name: '森林', defenseBonus: 0.05, stepCost: 3, moveDesc: '部队移动较慢', icon: '🌲', iconFont: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' },
-    mountain: { name: '山地', defenseBonus: 0.05, stepCost: 6, moveDesc: '部队移动缓慢', icon: '⛰️', iconFont: '15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif' }
-};
-
-// ==== 工事配置 ==============================================================
-// 工事与基础地形叠加，不改变原有的移动消耗、森林掩蔽或城市/村庄功能。
-export const FORTIFICATION_CONFIG = {
-    trench: {
-        name: '战壕',
-        defenseBonus: 0.25,
-        appliesTo: 'melee',            // 仅对近战攻击（步兵/骑兵）生效
-        desc: '对近战攻击防御力提高25%',
-        icon: '🚧',
-        iconFont: '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif'
-    },
-    flak: {
-        name: '高射机枪',
-        defenseBonus: 0.25,
-        appliesTo: 'ranged',           // 对远程攻击（炮兵/碉堡）生效
-        providesSelfAA: true,          // 遭空军攻击时视为拥有1层防空（仅覆盖自身1格）
-        desc: '对远程攻击防御力提高25%',
-        icon: '🔫',
-        iconFont: '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif'
-    }
-};
+// 兵种、旗帜、克制、地形与工事均从 gameData.js 兼容导出。
 
 
 // ==== 村庄 ====================
-export const VILLAGE_GOLD = 2;
-export const VILLAGE_MIN_DIST = 3;
+export const VILLAGE_GOLD = GAME_RULES.villageGold;
+export const VILLAGE_MIN_DIST = GAME_RULES.villageMinDistance;
 
 // ==== 经济 ====================
 // 收入公式：1城=4, 2城=4+3, 3城+=4+3+2*(n-2)
 export function calcIncome(cityCount) {
-    if (cityCount >= 3) return 4 + 3 + (cityCount - 2) * 2;
-    if (cityCount === 2) return 7;
-    if (cityCount === 1) return 4;
+    const income = GAME_RULES.income;
+    if (cityCount >= 3) return income.firstCityGold + income.secondCityGold + (cityCount - 2) * income.additionalCityGold;
+    if (cityCount === 2) return income.firstCityGold + income.secondCityGold;
+    if (cityCount === 1) return income.firstCityGold;
     return 0;
 }
 
 // 选将洗牌换将成本：换将后初始资金置为$1（而非$4），洗过的不再扣钱
-export const COMMANDER_REROLL_COST = 3;
-
-// ==== 士气配置 ====================
-// 士气等级: 3=上升 2=正常 1=下降 0=混乱
-// 士气增伤改为影响暴击浮动倍率（见 _calcFloat），防御力影响降低至5%
-export const MORALE_CONFIG = {
-    3: { name: '士气上升', dmgBonus: 0,     defBonus: 0.05,  icon: '▲', color: '#ffd700', desc: '暴击率提高15%，防御力提高5%' },
-    2: { name: '正常',     dmgBonus: 0,     defBonus: 0,     icon: '',   color: '#aaa',    desc: '' },
-    1: { name: '士气下降', dmgBonus: 0,     defBonus: -0.05, icon: '▼', color: '#b080e8', desc: '暴击率降低10%，防御力降低5%' },
-    0: { name: '混乱',     dmgBonus: 0,     defBonus: -0.20, icon: '？', color: '#666',    desc: '无法行动，暴击率降低10%，防御力降低20%' }
-};
-
-
-// ==== 天气配置 ====================
-export const WEATHER_CONFIG = {
-    clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
-    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '驻扎在城市上的单位每回合恢复15%最大生命值，步兵守城防御提高10%，骑兵每步行动力消耗提高1点' },
-    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1，骑兵伤害提高20%且每格冲锋伤害额外提高5%' },
-    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1且伤害提高20%，步兵防御力降低15%' }
-};
+export const COMMANDER_REROLL_COST = GAME_RULES.commanderRerollCost;
 
 // ==== 对策卡配置 ====================
 export const TACTICAL_CARD_CONFIG = {
     heal: {
-        id: 'heal', name: '疗愈', icon: '💚',
-        desc: '【疗愈】\n对指定单位释放，立即恢复其40%最大生命值',
-        targeting: 'anyUnit',
+        ...TACTICAL_CARD_DATA.heal,
         execute(targetTile, gameState, helpers) {
             const unit = targetTile.unit;
-            const healAmt = Math.round(unit.maxHp * 0.4);
+            const healAmt = Math.round(unit.maxHp * TACTICAL_CARD_DATA.heal.balance.healMaxHpPct);
             const oldHp = unit.hp;
             const maxHeal = Math.min(unit.maxHp - oldHp, healAmt);
             return { healAmt: maxHeal, targetTile };
         }
     },
     lightning: {
-        id: 'lightning', name: '雷击', icon: '⚡',
-        desc: '【雷击】\n对指定敌方单位造成40~60真实伤害，雨天伤害提高100%',
-        targeting: 'enemyGlobal',
+        ...TACTICAL_CARD_DATA.lightning,
         execute(targetTile, gameState, helpers) {
-            let dmg = gameState.rng ? gameState.rng.between(40, 60) : 40 + Math.floor(Math.random() * 21);
-            if (gameState.weather === 'rain') dmg = Math.floor(dmg * 1.5);
+            const balance = TACTICAL_CARD_DATA.lightning.balance;
+            let dmg = gameState.rng
+                ? gameState.rng.between(balance.minDamage, balance.maxDamage)
+                : balance.minDamage + Math.floor(Math.random() * (balance.maxDamage - balance.minDamage + 1));
+            if (gameState.weather === 'rain') dmg = Math.floor(dmg * balance.rainMultiplier);
             // 预演扣血：调用方随即回滚，真正结算延迟走 Unit.applyDamage（勿改用 applyDamage，否则击杀无法回滚）
             targetTile.unit.hp = Math.max(0, targetTile.unit.hp - dmg);
             return { dmg, targetTile };
         }
     },
     mgNest: {
-        id: 'mgNest', name: '碉堡', icon: '🏰',
-        desc: '【碉堡】\n在指定己方行政区空地部署一座碉堡\nHP=200 ATK=40 射程=2 不可移动\n',
-        targeting: 'emptyFriendlyNonCity',
+        ...TACTICAL_CARD_DATA.mgNest,
         execute(targetTile, gameState, helpers) {
             const myCamp = helpers.getMyCamp();
             const UnitClass = helpers.Unit;
             const nest = new UnitClass('mgNest', myCamp, targetTile, false);
-            nest.hp = 200; nest.maxHp = 200; nest.displayHp = 200;
+            nest.hp = UNIT_CONFIG.mgNest.hp; nest.maxHp = UNIT_CONFIG.mgNest.hp; nest.displayHp = UNIT_CONFIG.mgNest.hp;
             nest._isImmobile = true;
             nest.canAct = false; // cannot act on deploy turn
             return { deployed: true, tileQ: targetTile.q, tileR: targetTile.r };
         }
     },
     airdrop: {
-        id: 'airdrop', name: '空降', icon: '🪂',
-        desc: '【空降】\n在指定空地投放一支空降步兵\n',
-        targeting: 'emptyTile',
+        ...TACTICAL_CARD_DATA.airdrop,
         execute(targetTile, gameState, helpers) {
             const myCamp = helpers.getMyCamp();
             const { applyAADropHP } = helpers;
             const UnitClass = helpers.Unit;
             const inf = new UnitClass('infantry', myCamp, targetTile, false);
-            inf.maxHp = 100; inf.hp = 100; inf.displayHp = 100;
+            const hp = TACTICAL_CARD_DATA.airdrop.balance.infantryHp;
+            inf.maxHp = hp; inf.hp = hp; inf.displayHp = hp;
             // 通用防空接口：每层-25%当前生命值（上限不变）
             applyAADropHP(inf, targetTile, myCamp, gameState.tileMap);
             inf.canAct = false; // cannot act on drop turn
@@ -289,38 +216,33 @@ export const TACTICAL_CARD_CONFIG = {
         }
     },
     imprison: {
-        id: 'imprison', name: '禁锢', icon: '🔗',
-        desc: '【禁锢】\n对指定敌方单位释放，使其下回合无法移动',
-        targeting: 'enemyGlobal',
+        ...TACTICAL_CARD_DATA.imprison,
         execute(targetTile, gameState, helpers) {
             targetTile.unit._imprisoned = true;
             return { imprisoned: true, targetTile };
         }
     },
     forceMarch: {
-        id: 'forceMarch', name: '强行军', icon: '🏃',
-        desc: '【强行军】\n对指定己方单位释放，立即回复2点行动力',
-        targeting: 'friendlyAny',
+        ...TACTICAL_CARD_DATA.forceMarch,
         execute(targetTile, gameState, helpers) {
-            targetTile.unit.remainingMP += 2;
+            targetTile.unit.remainingMP += TACTICAL_CARD_DATA.forceMarch.balance.movementPoints;
             targetTile.unit.canAct = true;
             return { forceMarch: true, targetTile };
         }
     },
     scout: {
-        id: 'scout', name: '侦察', icon: '🔭',
-        desc: '【侦察】\n对指定位置释放，\n揭示目标及其周围6格区域的战争迷雾，持续1回合',
-        targeting: 'anyTileGlobal',
+        ...TACTICAL_CARD_DATA.scout,
         execute(targetTile, gameState, helpers) {
             return { scoutQ: targetTile.q, scoutR: targetTile.r };
         }
     },
     airstrike: {
-        id: 'airstrike', name: '空袭', icon: '✈️',
-        desc: '【空袭】\n对指定敌方目标及周边6格造成35~50范围伤害，命中城市时其2回合内无法产出资源或招募部队',
-        targeting: 'enemyGlobal',
+        ...TACTICAL_CARD_DATA.airstrike,
         execute(targetTile, gameState, helpers) {
-            const dmgBase = gameState.rng ? gameState.rng.between(35, 50) : 35 + Math.floor(Math.random() * 16);
+            const balance = TACTICAL_CARD_DATA.airstrike.balance;
+            const dmgBase = gameState.rng
+                ? gameState.rng.between(balance.minDamage, balance.maxDamage)
+                : balance.minDamage + Math.floor(Math.random() * (balance.maxDamage - balance.minDamage + 1));
             const results = [];
             const { applyAADefense } = helpers;
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
@@ -330,7 +252,7 @@ export const TACTICAL_CARD_CONFIG = {
                 const isCity = ht === targetTile;
                 let dmg = dmgBase;
                 // 森林掩蔽：对空军+20%防御
-                if (ht.terrain === 'forest') dmg = Math.round(dmg * 0.8);
+                if (ht.terrain === 'forest') dmg = Math.round(dmg * balance.forestMultiplier);
                 // 通用防空接口：每层减伤25%
                 dmg = applyAADefense(dmg, ht, helpers.getMyCamp(), gameState.tileMap);
                 if (ht.unit) {
@@ -347,27 +269,23 @@ export const TACTICAL_CARD_CONFIG = {
                 }
                 if (isCity) {
                     // 城市瘫痪 2 回合：存储到期回合数(0-indexed)，active 判定 > 当前回合
-                    ht._cityDisabledUntil = getRoundIndex(gameState) + 2;
+                    ht._cityDisabledUntil = getRoundIndex(gameState) + balance.cityDisableRounds;
                 }
             }
             return { airstrike: true, targetTile, results, dmgBase };
         }
     },
     shield: {
-        id: 'shield', name: '护盾', icon: '🛡️',
-        desc: '【护盾】\n对指定目标释放，使其获得50点护盾值，持续3回合',
-        targeting: 'shieldTarget',
+        ...TACTICAL_CARD_DATA.shield,
         execute(targetTile, gameState, helpers) {
-            targetTile.unit._shield += 50;
+            targetTile.unit._shield += TACTICAL_CARD_DATA.shield.balance.shield;
             targetTile.unit._shieldMax = Math.max(targetTile.unit._shieldMax, targetTile.unit._shield);
-            targetTile.unit._shieldTurns = 3;
+            targetTile.unit._shieldTurns = TACTICAL_CARD_DATA.shield.balance.duration;
             return { shielded: true, targetTile };
         }
     },
     landmine: {
-        id: 'landmine', name: '地雷', icon: '💣',
-        desc: '【地雷】\n在己方空地部署地雷，敌方单位经过时触发造成伤害',
-        targeting: 'emptyFriendlyLandmine',
+        ...TACTICAL_CARD_DATA.landmine,
         execute(targetTile, gameState, helpers) {
             targetTile._minePlanted = true;
             targetTile._mineCampKey = helpers.getMyCamp ? (helpers.getMyCamp() === CAMP.player1 ? 'p1' : helpers.getMyCamp() === CAMP.player2 ? 'p2' : 'p3') : 'p1';
@@ -375,9 +293,7 @@ export const TACTICAL_CARD_CONFIG = {
         }
     },
     commanderDeploy: {
-        id: 'commanderDeploy', name: '部署将领', icon: '🎖️',
-        desc: '【部署将领】\n将所选将领挂载到指定己方单位上\n',
-        targeting: 'friendlyAny',
+        ...TACTICAL_CARD_DATA.commanderDeploy,
         execute(targetTile, gameState, helpers) {
             const unitCamp = targetTile.unit.camp;
             const primaryKey = unitCamp === CAMP.player1 ? 'commanderP1' : unitCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
@@ -413,7 +329,7 @@ export const TACTICAL_CARD_CONFIG = {
 // ==== E4 空军上校专属对策卡 ====================
 
 // 空军卡金币消耗（取代旧燃料机制）
-export const COLONEL_CARD_GOLD = { diveStrafe: 3, carpetBomb: 4, airlift: 4 };
+export const COLONEL_CARD_GOLD = COLONEL_CARD_DATA.goldCost;
 
 // 找到某阵营存活的空军上校单位（空军卡伤害以其攻击力为基准走标准管线）
 function _findColonel(gameState, camp) {
@@ -425,22 +341,18 @@ function _findColonel(gameState, camp) {
 
 export const COLONEL_CARDS = {
     diveStrafe: {
-        id: 'diveStrafe', name: '扫射', icon: '💥',
-        desc: '【扫射】$3\n对指定单体目标造成伤害；附加等同于目标已损生命值10%的攻击力（最多+15），再按标准伤害流程结算',
-        targeting: 'enemyGlobal',
+        ...COLONEL_CARD_DATA.diveStrafe,
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
             const target = targetTile.unit;
             if (!colonel || !target) return { dmg: 0, diveStrafe: true, targetTile };
             // 预演值：最终伤害由 gameLogic.executeTacticalCard 按通用空军增伤与已损生命攻击加成重算覆盖
-            const r = colonel._resolveDamage(colonel, target, 1.5, 0, false, false, true);
+            const r = colonel._resolveDamage(colonel, target, COLONEL_CARD_DATA.diveStrafe.balance.attackMultiplier, 0, false, false, true);
             return { dmg: Math.round(r.dmg), isCrit: r.isCrit, diveStrafe: true, targetTile };
         }
     },
     carpetBomb: {
-        id: 'carpetBomb', name: '轰炸', icon: '💣',
-        desc: '【轰炸】$4\n对指定单体目标及相邻6格造成范围伤害（中心60%/溅射35%，破甲10%）',
-        targeting: 'enemyGlobal',
+        ...COLONEL_CARD_DATA.carpetBomb,
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
@@ -450,16 +362,15 @@ export const COLONEL_CARDS = {
                 if (!ht || !ht.unit || !colonel) continue;
                 const isCenter = dq === 0 && dr === 0;
                 // 对群骚扰：中心50%、溅射35%攻击力，走标准管线
-                const r = colonel._resolveDamage(colonel, ht.unit, isCenter ? 0.5 : 0.35, 0, false, false, true);
+                const balance = COLONEL_CARD_DATA.carpetBomb.balance;
+                const r = colonel._resolveDamage(colonel, ht.unit, isCenter ? balance.centerMultiplier : balance.splashMultiplier, 0, false, false, true);
                 results.push({ q: ht.q, r: ht.r, dmg: Math.round(r.dmg), isCrit: r.isCrit, killed: false });
             }
             return { carpetBomb: true, targetTile, results };
         }
     },
     airlift: {
-        id: 'airlift', name: '空运', icon: '🪂',
-        desc: '【空运】$4\n运送一名自己以外的的友军单位至已探索空地',
-        targeting: 'friendlyAny',
+        ...COLONEL_CARD_DATA.airlift,
         execute(targetTile, gameState, helpers) {
             return { airlift: true, targetTile };
         }
@@ -467,34 +378,15 @@ export const COLONEL_CARDS = {
 };
 
 // ==== 对策卡牌堆组成 ====================
-export const DECK_COMPOSITION = [
-    'heal', 'heal', 'heal', 'heal',
-    'lightning', 'lightning', 'lightning',
-    'airstrike', 'airstrike',
-    'airdrop', 'airdrop',
-    'mgNest',
-    'shield', 'shield',
-    'landmine', 'landmine',
-    'imprison', 'imprison',
-    'forceMarch', 'forceMarch'
-];
+export const DECK_COMPOSITION = GAME_RULES.deckComposition;
 
 // 遭遇战模式专用卡
-export const SKIRMISH_EXTRAS = ['scout', 'scout', 'scout', 'scout', 'scout'];
+export const SKIRMISH_EXTRAS = GAME_RULES.skirmishExtras;
 
 // ==== 对策卡系统参数 ====================
-export const CARD_SYSTEM_CONFIG = {
-    drawCost: 4,
-    maxHandSize: 3,
-    maxDrawsPerTurn: 2,
-    maxUsesPerTurn: 2
-};
+export const CARD_SYSTEM_CONFIG = GAME_RULES.cardSystem;
 
-export const WEATHER_CYCLE = {
-    warmupRounds:   2,
-    weatherDuration: 2,
-    clearDuration:   1
-};
+export const WEATHER_CYCLE = GAME_RULES.weatherCycle;
 
 // ==== 设置（通过 localStorage 持久化） ====================
 const SETTINGS_KEY = 'bladesOfHex_settings';

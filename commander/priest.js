@@ -1,15 +1,10 @@
 const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+import { COMMANDER_CONFIG } from '../js/gameData.js';
+
+const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.priest;
 
 export default {
-    id: 'priest',
-    name: '牧师',
-    hpBonusPct: 0.30,
-    atkBonusPct: 0,
-    spdBonus: 0,
-    skills: [
-        { name: '圣疗', desc: '每回合链式群体治疗：1段瞄准相邻友方回复10%生命值，2段传导2格内友方回复5%生命值', type: 'passive' },
-        { name: '祈祷', desc: '消耗50%当前生命值，为2格范围友军附加【治愈灵光】：立即回复35%生命值，每回合再回复20%生命值，持续期间受致命一击则提前释放全部剩余治疗量并消耗灵光（⏱3 ⏳5）', type: 'active' }
-    ],
+    ...DEFINITION,
 
     onTurnEnd(gameState, camp, helpers) {
         const unit = helpers.findCommanderUnit(camp, 'priest');
@@ -30,7 +25,7 @@ export default {
             if (ratio < lowestRatio) { lowestRatio = ratio; firstTarget = ally; }
         }
         if (firstTarget) {
-            const heal1 = Math.round(firstTarget.maxHp * 0.10);
+            const heal1 = Math.round(firstTarget.maxHp * BALANCE.chainFirstHealPct);
             firstTarget.heal(heal1);
             helpers.spawnHealingChain(unit.tile.x, unit.tile.y, firstTarget.tile.x, firstTarget.tile.y);
             helpers.logMessage(`牧师【圣链·一段】治疗${firstTarget.config.name}兵 +${heal1}HP`);
@@ -55,7 +50,7 @@ export default {
                 if (ratio < secondLowest) { secondLowest = ratio; secondTarget = ally; }
             }
             if (secondTarget) {
-                const heal2 = Math.round(secondTarget.maxHp * 0.05);
+                const heal2 = Math.round(secondTarget.maxHp * BALANCE.chainSecondHealPct);
                 secondTarget.heal(heal2);
                 helpers.spawnHealingChain(firstTarget.tile.x, firstTarget.tile.y, secondTarget.tile.x, secondTarget.tile.y);
                 helpers.logMessage(`牧师【圣链·传导】治疗${secondTarget.config.name}兵 +${heal2}HP`);
@@ -64,10 +59,7 @@ export default {
     },
 
     activeSkill: {
-        name: '祈祷',
-        desc: '消耗50%当前HP，为2格范围友军附加【治愈灵光】（立即35%HP+每回合20%HP，持续3回合）；灵光单位受致命一击时提前迸发剩余治疗，仍不足则保底20%生命',
-        duration: 0,
-        cooldown: 5,
+        ...DEFINITION.activeSkill,
 
         onActivate(unit, helpers) {
             // 远端重放保护：状态已由序列化同步，仅重放特效
@@ -75,22 +67,22 @@ export default {
                 helpers.spawnFx(unit.tile.x, unit.tile.y, '\u{1F54A}\u{FE0F}', '祈祷');
                 return;
             }
-            const cost = Math.max(1, Math.ceil(unit.hp * 0.5));
+            const cost = Math.max(1, Math.ceil(unit.hp * BALANCE.prayerHpCostPct));
             unit.hp = Math.max(1, unit.hp - cost);
             unit.displayHp = unit.hp;
-            unit._healingAura = 3;
+            unit._healingAura = BALANCE.auraDuration;
             const tileMap = helpers.gameState.tileMap;
 
             const healed = [];
             // 2格范围：距离1（6格）+ 距离2（12格）
-            for (let dq = -2; dq <= 2; dq++) {
-                for (let dr = Math.max(-2, -dq - 2); dr <= Math.min(2, -dq + 2); dr++) {
+            for (let dq = -BALANCE.prayerRange; dq <= BALANCE.prayerRange; dq++) {
+                for (let dr = Math.max(-BALANCE.prayerRange, -dq - BALANCE.prayerRange); dr <= Math.min(BALANCE.prayerRange, -dq + BALANCE.prayerRange); dr++) {
                     if (dq === 0 && dr === 0) continue; // 跳过牧师自身
                     const nb = tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
                     if (nb && nb.unit && nb.unit.camp === unit.camp) {
-                        const healAmt = Math.ceil(nb.unit.maxHp * 0.35);
+                        const healAmt = Math.ceil(nb.unit.maxHp * BALANCE.prayerInitialHealPct);
                         nb.unit.heal(healAmt);
-                        nb.unit._healingAura = 3;
+                        nb.unit._healingAura = BALANCE.auraDuration;
                         healed.push(nb.unit.config.name);
                     }
                 }

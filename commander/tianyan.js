@@ -2,17 +2,20 @@
 // 本体：HP+30% / ATK+15% / 移速+1，核心战力集中在无人机上。
 import { CAMP, hexDistance, HEX_NEIGHBORS } from '../js/config.js';
 import { emit } from '../js/eventBus.js';
+import { COMMANDER_CONFIG } from '../js/gameData.js';
 
-export const DRONE_MAX_COUNT = 2;
-export const DRONE_SIGNAL_RANGE = 5;
-export const DRONE_DEPLOY_RANGE = 1;
-export const DRONE_DEPLOY_LIMIT_PER_TURN = 1;
-export const DRONE_DEPLOY_COST = 5;
-export const DRONE_HP = 75;
-export const DRONE_ATK = 30;
-export const DRONE_MP = 8;
-export const DRONE_RANGE = 2;
-export const DRONE_SUICIDE_RANGE = 3;
+const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.tianyan;
+
+export const DRONE_MAX_COUNT = BALANCE.maxCount;
+export const DRONE_SIGNAL_RANGE = BALANCE.signalRange;
+export const DRONE_DEPLOY_RANGE = BALANCE.deployRange;
+export const DRONE_DEPLOY_LIMIT_PER_TURN = BALANCE.deployLimitPerTurn;
+export const DRONE_DEPLOY_COST = BALANCE.deployGoldCost;
+export const DRONE_HP = BALANCE.hp;
+export const DRONE_ATK = BALANCE.attack;
+export const DRONE_MP = BALANCE.movement;
+export const DRONE_RANGE = BALANCE.attackRange;
+export const DRONE_SUICIDE_RANGE = BALANCE.suicideRange;
 
 function _campToKey(camp) {
     return camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : camp === CAMP.player3 ? 'player3' : 'neutral';
@@ -180,14 +183,7 @@ export function canDeployDrone(tianyanUnit, gameState) {
 }
 
 export default {
-    id: 'tianyan',
-    name: '天眼',
-    hpBonusPct: 0.30, atkBonusPct: 0.15, spdBonus: 1,
-    skills: [
-        { name: '战场观测', desc: '遭遇战中自身视野+1；常驻显示5格无人机信号范围', type: 'passive' },
-        { name: '天眼哨机', desc: '$5 在周围部署天眼哨机，每回合可部署1架，上限2架，哨机与天眼距离超过5格会失控', type: 'active' },
-        { name: '自爆', desc: '立即撞向3格内指定目标自毁并造成穿刺伤害', type: 'active' }
-    ],
+    ...DEFINITION,
 
     onDeploy(unit, gameState, helpers) {
         // 无需额外初始化，无人机在主动技能部署时创建
@@ -199,10 +195,7 @@ export default {
     },
 
     activeSkill: {
-        name: '天眼哨机',
-        desc: '$5 在周围1格空地部署天眼哨机，每回合最多部署1架，同时最多存在2架',
-        duration: 0,
-        cooldown: 0,
+        ...DEFINITION.activeSkill,
 
         onActivate(unit, helpers) {
             const gs = helpers.gameState;

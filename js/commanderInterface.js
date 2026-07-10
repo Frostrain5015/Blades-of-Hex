@@ -4,6 +4,7 @@ import { HEX_NEIGHBORS, CAMP } from './config.js';
 import stallerDef from '../commander/staller.js';
 import { spawnExplosionParticles, spawnMoraleEffect as _spawnMoraleEffectDirect } from './effects.js';
 import { playSound } from './audio.js';
+import { COMMANDER_CONFIG } from './gameData.js';
 
 // 延迟引用，由 main.js 初始化（避免循环依赖）
 let _gameState = null;
@@ -273,10 +274,10 @@ export function getCommanderAuraAttackBonus(unit) {
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
     if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === unit.camp) {
-      return 0.10;
+      return COMMANDER_CONFIG.paladin.balance.auraAttackBonus;
     }
   }
-  if (unit.commander === 'paladin') return 0.10;
+  if (unit.commander === 'paladin') return COMMANDER_CONFIG.paladin.balance.auraAttackBonus;
   return 0;
 }
 

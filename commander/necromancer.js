@@ -2,6 +2,9 @@
 import { Unit } from '../js/Unit.js';
 import { UNIT_CONFIG, getRoundIndex } from '../js/config.js';
 import { spawnSoulRecallEffect } from '../js/effects.js';
+import { COMMANDER_CONFIG } from '../js/gameData.js';
+
+const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.necromancer;
 // 被动【留魂】：己方单位阵亡后原地留下亡魂标记，存在3回合后消失
 //   · 视野：遭遇战中亡魂标记为本阵营持续提供视野（范围=原单位）
 //   · 亡魂诅咒：标记被敌方单位占据时，每回合对其施加真实伤害
@@ -11,7 +14,7 @@ function _getCurseDamage(victim) {
     const maxHp = victim && typeof victim.maxHp === 'number' ? victim.maxHp : 0;
     const hp = victim && typeof victim.hp === 'number' ? victim.hp : maxHp;
     const missingHp = Math.max(0, maxHp - hp);
-    return Math.max(1, Math.round(20 + missingHp * 0.40));
+    return Math.max(1, Math.round(BALANCE.curseBaseDamage + missingHp * BALANCE.curseMissingHpPct));
 }
 
 function _grantCurseKillCredit(killer, victim, gameState, helpers) {
@@ -24,16 +27,16 @@ function _grantCurseKillCredit(killer, victim, gameState, helpers) {
             const roundIndex = gameState && Number.isFinite(gameState.turnCounter)
                 ? getRoundIndex(gameState)
                 : 0;
-            killer.moraleBoostUntil = roundIndex + 2;
+            killer.moraleBoostUntil = roundIndex + BALANCE.moraleBoostRounds;
         }
         if (killer.morale !== oldMorale && helpers && typeof helpers.spawnMoraleEffect === 'function') {
             helpers.spawnMoraleEffect(killer);
         }
     }
 
-    const rankExtra = [0, 2, 5, 12, 20];
+    const rankExtra = BALANCE.rankXp;
     const victimRank = Math.max(0, Math.min(4, victim._rank || 0));
-    const xp = 3 + (rankExtra[victimRank] || 0) + (victim.commander ? 10 : 0);
+    const xp = BALANCE.killBaseXp + (rankExtra[victimRank] || 0) + (victim.commander ? BALANCE.commanderKillXp : 0);
     if (typeof killer.addXP === 'function') {
         killer.addXP(xp);
     } else {
@@ -42,13 +45,7 @@ function _grantCurseKillCredit(killer, victim, gameState, helpers) {
 }
 
 export default {
-    id: 'necromancer',
-    name: '亡灵法师',
-    hpBonusPct: 0.25, atkBonusPct: 0.20, spdBonus: 0,
-    skills: [
-        { name: '留魂', desc: '友军单位阵亡后原地留下持续3回合的【亡魂】，对占据其上的单位持续施加【亡魂诅咒】，每回合造成20+40%当前已损失生命值的真实伤害', type: 'passive' },
-        { name: '回魂', desc: '回合开始牵引最近的空地【亡魂】唤起【魂卒】，拥有原单位40%生命值和70%攻击力，场上最多2个', type: 'passive' }
-    ],
+    ...DEFINITION,
 
     // 回魂 + 亡魂诅咒：回合开始处理己方亡魂标记
     onTurnStart(gameState, camp, helpers) {
@@ -86,7 +83,7 @@ export default {
         for (const t of gameState.tiles) {
             if (t.unit && t.unit._isSoulMinion && t.unit.camp === camp) soulCount++;
         }
-        if (soulCount >= 2) return;
+        if (soulCount >= BALANCE.maxSoulMinions) return;
 
         let best = null, bestDist = 999, targetTile = null;
         for (const mark of gameState._soulMarks) {
@@ -104,11 +101,11 @@ export default {
 
         // 唤起魂卒：保留原兵种和生命上限，当前HP=40%原上限，攻击=70%原攻击
         const origType = best.origType || 'infantry';
-        const origMaxHp = best.origMaxHp || 200;
+        const origMaxHp = best.origMaxHp || UNIT_CONFIG.infantry.hp;
         const origAtkBonus = best.origAtkBonus || 0;
-        const baseAtk = (UNIT_CONFIG[origType] && UNIT_CONFIG[origType].attack) || 40;
-        const soulHp = Math.round(origMaxHp * 0.40);
-        const soulAtk = Math.round((baseAtk + origAtkBonus) * 0.70);
+        const baseAtk = (UNIT_CONFIG[origType] && UNIT_CONFIG[origType].attack) || UNIT_CONFIG.infantry.attack;
+        const soulHp = Math.round(origMaxHp * BALANCE.soulHpPct);
+        const soulAtk = Math.round((baseAtk + origAtkBonus) * BALANCE.soulAttackPct);
 
         // 创建魂卒单位（同原兵种），设落地时间戳以延迟显示
         const soulUnit = new Unit(origType, camp, targetTile, false);

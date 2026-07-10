@@ -14,6 +14,7 @@ import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffec
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 import { setMasterVolume, setMuted } from './audio.js';
 import { canDeployDrone, DRONE_DEPLOY_COST } from '../commander/tianyan.js';
+import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG, COMBAT_BALANCE, EMOJI_FONT_STACK, FRONTEND_TEXT } from './gameData.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
@@ -642,21 +643,9 @@ function _handleCardCanvasClick(e) {
 }
 
 const PASSIVE_DEFS = {
-    infantry: {
-        name: '坚守',
-        desc: '位于城市时每回合回复10%生命值，防御力提高10%，造成的伤害提高15%',
-        active: (u) => u.tile.isCity
-    },
-    cavalry: {
-        name: '冲锋',
-        desc: '势能：本回合每移动1格，造成的伤害提高10%，最多30%，回合结束消失',
-        active: (u) => u.moveDistance >= 1
-    },
-    archer: {
-        name: '远射',
-        desc: '山地射程+1（不与风天叠加）；风天射程+1',
-        active: (u) => u.tile.terrain === 'mountain'
-    }
+    infantry: { ...FRONTEND_TEXT.unitPassives.infantry, active: (u) => u.tile.isCity },
+    cavalry: { ...FRONTEND_TEXT.unitPassives.cavalry, active: (u) => u.moveDistance >= 1 },
+    archer: { ...FRONTEND_TEXT.unitPassives.archer, active: (u) => u.tile.terrain === 'mountain' }
 };
 
 // 军衔折形沿用战场单位的图形语言：1–3 阶为折形，4 阶及以上为金色星章。
@@ -752,91 +741,10 @@ const UNIT_TYPE_NAMES = {
     drone: '天眼哨机'
 };
 
-const PASSIVE_ICONS = {
-    infantry: '⚔️',
-    cavalry: '🐎',
-    archer: '🎯',
-    drone: '✈'
-};
-
-const COMMANDER_ICONS = {
-    advisor: '🧠',
-    astrologer: '🔮',
-    berserker: '🩸',
-    centurion: '🏛️',
-    colonel: '🛩️',
-    diplomat: '🤝',
-    engineer: '🛠️',
-    fallenAngel: '😇',
-    ironGuard: '🛡️',
-    magician: '🎩',
-    martyr: '🔥',
-    minister: '📜',
-    necromancer: '💀',
-    paladin: '✝️',
-    priest: '🙏',
-    staller: '🕳️',
-    tianyan: '🛰️',
-    vampire: '🧛'
-};
-
-const SKILL_ICONS = {
-    '坚守': '🏰',
-    '冲锋': '🐎',
-    '远射': '🎯',
-    '攻心': '🧠',
-    '守护': '✨',
-    '守护灵光': '🛡️',
-    '勇气灵光': '🗡️',
-    '誓言': '⚔️',
-    '至圣斩': '✝️',
-    '挽歌': '🩸',
-    '幻形': '🎭',
-    '乘胜': '🏆',
-    '制空': '✈️',
-    '老练': '⭐',
-    '留魂': '👻',
-    '回魂': '💀',
-    '治愈灵光': '💚',
-    '夜观': '🌟',
-    '堕天使·白': '🤍',
-    '堕天使·黑': '🖤',
-    '血怒': '💢',
-    '泣血': '🩸',
-    '殉道': '💀',
-    '屯田': '🌾',
-    '迟滞力场': '🌀',
-    '连横': '🃏',
-    '合纵': '🎴',
-};
-
-const EFFECT_ICONS = {
-    '城市': '🏙️',
-    '村庄': '🏘️',
-    '平原': '🌾',
-    '森林': '🌲',
-    '山地': '⛰️',
-    '战壕': '🪖',
-    '高射机枪': '🔫',
-    '碉堡': '🏰',
-    '士气上升': '⬆️',
-    '士气下降': '⬇️',
-    '混乱': '❓',
-    '禁锢': '🔒',
-    '不可移动': '🚫',
-    '勇气灵光': '🗡️',
-    '治愈灵光': '💚',
-    '守护灵光': '🛡️',
-    '夜观': '🌟',
-    '亡魂': '👻',
-    '合纵': '🎴',
-    '连横': '🃏',
-    '缚足': '🕸️',
-    '施工中': '🚧',
-    '脚手架': '🏗️',
-    '泣血': '🩸',
-    '星移': '🔮'
-};
+const PASSIVE_ICONS = FRONTEND_TEXT.icons.unitPassive;
+const COMMANDER_ICONS = FRONTEND_TEXT.icons.commander;
+const SKILL_ICONS = FRONTEND_TEXT.icons.skill;
+const EFFECT_ICONS = FRONTEND_TEXT.icons.effect;
 
 function _commanderSkillIcon(commanderId, skillName) {
     return SKILL_ICONS[skillName] || COMMANDER_ICONS[commanderId] || '✦';
@@ -854,12 +762,12 @@ function _getUnitPassiveRuntimeState(unit, passive) {
     };
 
     if (unit.type === 'cavalry') {
-        const stacks = Math.min(3, Math.max(0, unit.moveDistance || 0));
+        const stacks = Math.min(COMBAT_BALANCE.cavalry.maxChargeSteps, Math.max(0, unit.moveDistance || 0));
         presentation.count = '';
         presentation.active = stacks > 0;
-        presentation.intensity = stacks / 3;
+        presentation.intensity = stacks / COMBAT_BALANCE.cavalry.maxChargeSteps;
         presentation.status = presentation.active
-            ? '当前生效 造成的伤害提高' + (stacks * 10) + '%'
+            ? '当前生效 造成的伤害提高' + (stacks * COMBAT_BALANCE.cavalry.normalChargeDamagePerStep * 100) + '%'
             : '当前未生效';
     } else if (unit.type === 'infantry') {
         presentation.status = unit.tile?.isCity ? '当前生效' : '当前未生效';
@@ -889,27 +797,30 @@ function _getPassiveRuntimeState(unit, skill) {
     };
 
     if (unit.commander === 'paladin' && skill.name === '誓言') {
+        const balance = COMMANDER_BALANCE_CONFIG.paladin.balance;
         const faith = Math.max(0, unit._faith || 0);
         const charged = unit._smiteReady
             ? (unit._smiteCharged ? ' 至圣斩已满蓄力' : ' 至圣斩已蓄力')
             : '';
         presentation.count = '';
         presentation.active = faith > 0;
-        presentation.intensity = faith / 3;
-        presentation.status = '当前生效 防御力+' + (faith * 5) + '%' + charged;
+        presentation.intensity = faith / balance.faithMax;
+        presentation.status = '当前生效 防御力提高' + (faith * balance.defensePerFaith * 100) + '%' + charged;
     }
 
     if (unit.commander === 'martyr' && skill.name === '挽歌') {
-        const bonus = Math.min(25, unit._elegyBonus || 0);
-        const stacks = Math.floor(bonus / 5);
+        const balance = COMMANDER_BALANCE_CONFIG.martyr.balance;
+        const bonus = Math.min(balance.elegyAttackCap, unit._elegyBonus || 0);
+        const stacks = Math.floor(bonus / balance.elegyAttackPerDeath);
         presentation.count = '';
         presentation.active = stacks > 0;
-        presentation.intensity = stacks / 5;
+        presentation.intensity = stacks / (balance.elegyAttackCap / balance.elegyAttackPerDeath);
         presentation.status = '当前生效 攻击力提高' + bonus;
     }
 
     if (unit.commander === 'martyr' && skill.name === '殉道' && unit._martyrPrimed) {
-        presentation.desc = '生命锁定为1，下回合开始时对2格范围内所有非己方单位造成基于攻击力的真实伤害。';
+        const balance = COMMANDER_BALANCE_CONFIG.martyr.balance;
+        presentation.desc = '生命锁定为' + balance.triggerHp + '，下回合开始时对' + balance.explosionRange + '格范围内所有非己方单位造成基于攻击力的真实伤害。';
         presentation.color = '#ff5533';
         presentation.status = '已进入倒计时';
         presentation.active = true;
@@ -917,18 +828,20 @@ function _getPassiveRuntimeState(unit, skill) {
     }
 
     if (unit.commander === 'magician' && skill.name === '幻形') {
-        const stacks = Math.min(6, unit._phantomStacks || 0);
+        const balance = COMMANDER_BALANCE_CONFIG.magician.balance;
+        const stacks = Math.min(balance.maxStacks, unit._phantomStacks || 0);
         presentation.count = '';
         presentation.active = stacks > 0;
-        presentation.intensity = stacks / 6;
-        presentation.status = '当前生效 造成伤害+' + (stacks * 5) + '%，暴击率+' + (stacks * 10) + '%';
+        presentation.intensity = stacks / balance.maxStacks;
+        presentation.status = '当前生效 造成的伤害提高' + (stacks * balance.damagePerStack * 100) + '%，暴击率提高' + (stacks * balance.critPerStack * 100) + '%';
         if (stacks > 0) presentation.color = '#d79cff';
     }
 
     if (unit.commander === 'ironGuard' && skill.name === '守护') {
+        const balance = COMMANDER_BALANCE_CONFIG.ironGuard.balance;
         const shield = Math.max(0, unit._shield || 0);
         presentation.active = shield > 0;
-        presentation.intensity = shield / 120;
+        presentation.intensity = shield / balance.shieldMax;
         presentation.status = '当前生效 护盾 ' + shield;
         if (shield <= 0) presentation.color = '#7b8790';
     }
@@ -952,17 +865,19 @@ function _getPassiveRuntimeState(unit, skill) {
         presentation.status = '常驻生效';
     }
     if (unit.commander === 'colonel' && skill.name === '老练') {
-        const stacks = Math.min(6, gameState._colonelAirStacks?.[_campKeyInput(unit.camp)] || 0);
+        const balance = COMMANDER_BALANCE_CONFIG.colonel.balance;
+        const stacks = Math.min(balance.maxAirDamageStacks, gameState._colonelAirStacks?.[_campKeyInput(unit.camp)] || 0);
         presentation.count = stacks || '';
         presentation.active = stacks > 0;
-        presentation.intensity = stacks / 6;
+        presentation.intensity = stacks / balance.maxAirDamageStacks;
         presentation.status = stacks > 0
-            ? '当前生效 空军伤害提高' + (stacks * 5) + '%'
+            ? '当前生效 空军伤害提高' + (stacks * balance.airDamagePerStack * 100) + '%'
             : '当前未生效';
         if (stacks > 0) presentation.color = '#94cdf8';
     }
 
     if (unit.commander === 'necromancer') {
+        const balance = COMMANDER_BALANCE_CONFIG.necromancer.balance;
         const campKey = _campKeyInput(unit.camp);
         const marks = (gameState._soulMarks || []).filter(mark => mark.campKey === campKey).length;
         const soulMinions = gameState.tiles.filter(tile => tile.unit?._isSoulMinion && _sameCampInput(tile.unit.camp, unit.camp)).length;
@@ -974,7 +889,7 @@ function _getPassiveRuntimeState(unit, skill) {
         } else if (skill.name === '回魂') {
             presentation.count = soulMinions || '';
             presentation.active = soulMinions > 0;
-            presentation.intensity = soulMinions / 2;
+            presentation.intensity = soulMinions / balance.maxSoulMinions;
             presentation.status = '当前生效 场上魂卒 ' + soulMinions + ' 名';
         }
     }
@@ -1039,6 +954,7 @@ function _getTerrainEffect(tile) {
     return {
         key: 'terrain:' + tile.terrain + ':' + tile.q + ':' + tile.r,
         icon: terrain.icon || '🌾',
+        iconFont: terrain.iconFont || EMOJI_FONT_STACK,
         label: terrain.name,
         desc,
         color: '#e6dfc8',
@@ -1053,15 +969,15 @@ function _getWeatherEffect(unit) {
     let desc = weather.desc;
     const details = [];
     if (gameState.weather === 'rain') {
-        if (unit.tile.isCity) details.push('每回合回复15%最大生命值');
-        if (unit.type === 'infantry' && unit.tile.isCity) details.push('驻守城市时防御提高10%');
-        if (unit.type === 'cavalry') details.push('每步移动消耗+1');
+        if (unit.tile.isCity) details.push('每回合回复' + (COMBAT_BALANCE.weather.rainCityHealPct * 100) + '%最大生命值');
+        if (unit.type === 'infantry' && unit.tile.isCity) details.push('驻守城市时防御提高' + (COMBAT_BALANCE.defense.rainCityInfantryBonus * 100) + '%');
+        if (unit.type === 'cavalry') details.push('每步移动消耗+' + COMBAT_BALANCE.weather.rainCavalryMovementCost);
     } else if (gameState.weather === 'fog') {
-        if (unit.type === 'archer') details.push('射程−1');
-        if (unit.type === 'cavalry') details.push('伤害提高20%，每格冲锋伤害额外提高5%');
+        if (unit.type === 'archer') details.push('射程' + COMBAT_BALANCE.weather.fogArcherRangeDelta);
+        if (unit.type === 'cavalry') details.push('伤害提高' + (COMBAT_BALANCE.cavalry.fogDamageBonus * 100) + '%，每格冲锋伤害额外提高' + ((COMBAT_BALANCE.cavalry.fogChargeDamagePerStep - COMBAT_BALANCE.cavalry.normalChargeDamagePerStep) * 100) + '%');
     } else if (gameState.weather === 'wind') {
-        if (unit.type === 'archer') details.push('射程+1，伤害提高20%');
-        if (unit.type === 'infantry') details.push('防御降低15%');
+        if (unit.type === 'archer') details.push('射程+' + COMBAT_BALANCE.weather.windArcherRangeDelta + '，伤害提高' + (COMBAT_BALANCE.weather.windArcherDamageBonus * 100) + '%');
+        if (unit.type === 'infantry') details.push('防御降低' + (COMBAT_BALANCE.defense.windInfantryPenalty * 100) + '%');
     }
     // 天气未对当前单位产生修正时，不显示为该单位的效果。
     if (!details.length) return null;
@@ -1112,7 +1028,8 @@ function _buildEffectItems(tile, unit) {
         const morale = MORALE_CONFIG[unit.morale];
         items.push({
             key: 'morale:' + unit.morale,
-            icon: morale.icon || '●',
+            icon: morale.badgeIcon || morale.icon || '●',
+            iconFont: EMOJI_FONT_STACK,
             label: morale.name,
             desc: morale.desc,
             color: morale.color,
@@ -1152,8 +1069,8 @@ function _buildEffectItems(tile, unit) {
             icon: '🛡️',
             label: '守护灵光',
             desc: unit.commander === 'ironGuard'
-                ? '防御力提高10%'
-                : '防御力提高10%，伤害由铁卫护盾承担',
+                ? FRONTEND_TEXT.effectDescriptions.guardianSelf
+                : FRONTEND_TEXT.effectDescriptions.guardianAlly,
             color: '#7eb8ff',
             kind: 'effect'
         });
@@ -1168,9 +1085,9 @@ function _buildEffectItems(tile, unit) {
                 key: 'staller:snare',
                 icon: '🕸️',
                 label: '缚足',
-                desc: '每层使得当前单位每步行动力消耗提高2点',
+                desc: '每层使得当前单位每步行动力消耗提高' + COMMANDER_BALANCE_CONFIG.staller.balance.movementCostPerLayer + '点',
                 color: '#c08050',
-                status: '当前生效 每步行动力消耗提高' + (layers * 2),
+                status: '当前生效 每步行动力消耗提高' + (layers * COMMANDER_BALANCE_CONFIG.staller.balance.movementCostPerLayer),
                 kind: 'effect'
             });
         }
@@ -1304,13 +1221,14 @@ function _buildPassiveItems(unit) {
         active = true;
         intensity = 1;
     } else if (unit.commander === 'berserker') {
-        const hpLostPct = ((unit.maxHp - unit.hp) / unit.maxHp) * 100;
-        const stacks = Math.min(40, Math.floor(hpLostPct / 2));
+        const balance = COMMANDER_BALANCE_CONFIG.berserker.balance;
+        const hpLostRatio = (unit.maxHp - unit.hp) / unit.maxHp;
+        const stacks = Math.min(balance.maxStacks, Math.floor(hpLostRatio / balance.hpLossPerStackPct));
         count = '';
         color = stacks > 0 ? '#ff7b5c' : '#7b8790';
         active = stacks > 0;
-        intensity = stacks / 40;
-        status = '当前生效 攻击力提高' + stacks + '%，防御力提高' + stacks + '%';
+        intensity = stacks / balance.maxStacks;
+        status = '当前生效 攻击力提高' + (stacks * balance.statBonusPerStackPct * 100) + '%，防御力提高' + (stacks * balance.statBonusPerStackPct * 100) + '%';
     }
     if (!active) status = '当前未生效';
     if (commander.skill) {
@@ -1386,7 +1304,7 @@ function _describeBoardAction(action) {
 function _renderIconQueue(container, queue, items, className, iconClass, signaturePrefix) {
     if (!container) return;
     const signature = items.map(item => [
-        item.key, item.icon, item.label, item.desc, item.color, item.count || '', item.status || '', item.active, item.intensity
+        item.key, item.icon, item.iconFont || '', item.label, item.desc, item.color, item.count || '', item.status || '', item.active, item.intensity
     ].join(':')).join('|');
     const signatureProp = signaturePrefix === 'passive' ? '_lastPassiveSignature' : '_lastEffectSignature';
     if (signatureProp === '_lastPassiveSignature' && signature === _lastPassiveSignature) return;
@@ -1417,6 +1335,7 @@ function _renderIconQueue(container, queue, items, className, iconClass, signatu
         const icon = document.createElement('span');
         icon.className = iconClass;
         icon.setAttribute('aria-hidden', 'true');
+        icon.style.fontFamily = item.iconFont || EMOJI_FONT_STACK;
         icon.textContent = item.icon || '✦';
         button.replaceChildren(icon);
         if (item._isShielded) {

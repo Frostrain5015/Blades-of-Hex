@@ -1,4 +1,5 @@
 import { getRoundIndex } from '../js/config.js';
+import { COMMANDER_CONFIG } from '../js/gameData.js';
 // 占星者 —— 夜观 + 星移
 // 被动：3格内友军免疫天气不利效果
 // 主动：强制指定当前天气并锁定2回合（CD4）
@@ -35,20 +36,15 @@ const RANGE3 = (() => {
 })();
 
 const RINGS = [[[0, 0]], HEX_NEIGHBORS, RANGE2, RANGE3];
+const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.astrologer;
 
 export default {
-    id: 'astrologer',
-    name: '占星者',
-    hpBonusPct: 0.30, atkBonusPct: 0.20, spdBonus: 0,
-    skills: [
-        { name: '夜观', desc: '自身3格范围内友军单位免疫天气不利效果', type: 'passive' },
-        { name: '星移', desc: '强制指定天气并锁定2回合，锁定期间天气负面效果对所有敌人生效，若处于【夜观】范围内则效果翻倍（⏳4）', type: 'active' }
-    ],
+    ...DEFINITION,
 
     // 检查 tile 是否在友方占星者的3格星光范围内
     isInWeatherShield(tile, friendlyCamp, tileMap) {
         if (!tile || !tileMap) return false;
-        for (let d = 0; d <= 3; d++) {
+        for (let d = 0; d <= BALANCE.auraRange; d++) {
             for (const [dq, dr] of RINGS[d]) {
                 const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
                 if (nb && nb.unit && nb.unit.commander === 'astrologer' &&
@@ -65,7 +61,7 @@ export default {
         if (!tile || !gs || !gs.tileMap || !gs.weatherLockUntil) return false;
         if (getRoundIndex(gs) >= gs.weatherLockUntil) return false;
         const tileMap = gs.tileMap;
-        for (let d = 0; d <= 3; d++) {
+        for (let d = 0; d <= BALANCE.auraRange; d++) {
             for (const [dq, dr] of RINGS[d]) {
                 const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
                 if (nb && nb.unit && nb.unit.commander === 'astrologer' &&
@@ -79,10 +75,7 @@ export default {
 
     // 主动技能：星移 — 弹出天气选择，锁定天气1回合
     activeSkill: {
-        name: '星移',
-        desc: '强制指定当前天气并锁定2回合（⏳5）',
-        duration: 2,
-        cooldown: 5,
+        ...DEFINITION.activeSkill,
 
         onActivate(unit, helpers) {
             // 远端重放：状态已由序列化同步，只补放特效（与 paladin 一致，用 helpers.isReplay）

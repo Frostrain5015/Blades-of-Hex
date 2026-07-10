@@ -1,15 +1,15 @@
 // 吸血鬼 —— 嗜血
-const SHIELD_CAP = 60;
+import { COMMANDER_CONFIG } from '../js/gameData.js';
+
+const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.vampire;
 
 export default {
-  id: 'vampire',
-  name: '吸血鬼',
-  skill: '嗜血',
-  hpBonusPct: 0.20, atkBonusPct: 0.40, spdBonus: 0,
-  desc: '攻击造成伤害时随机回复伤害值30%~60%的生命值（溢出部分按50%转化为护盾，上限60）',
+  ...DEFINITION,
 
   _getHeal(dmg, rng) {
-    const ratio = rng ? rng.range(0.30, 0.60) : 0.30 + Math.random() * 0.30;
+    const ratio = rng
+      ? rng.range(BALANCE.healMinPct, BALANCE.healMaxPct)
+      : BALANCE.healMinPct + Math.random() * (BALANCE.healMaxPct - BALANCE.healMinPct);
     return Math.round(dmg * ratio);
   },
 
@@ -18,14 +18,14 @@ export default {
     const overflow = healAmt - actualHeal;
     let shieldGain = 0;
     if (overflow > 0) {
-      shieldGain = Math.round(overflow * 0.50);
+      shieldGain = Math.round(overflow * BALANCE.overflowToShieldPct);
       if (shieldGain > 0) {
-        const newShield = Math.min(SHIELD_CAP, (unit._shield || 0) + shieldGain);
+        const newShield = Math.min(BALANCE.shieldCap, (unit._shield || 0) + shieldGain);
         shieldGain = newShield - (unit._shield || 0);
         unit._shield = newShield;
-        unit._shieldMax = Math.max(unit._shieldMax || 0, SHIELD_CAP);
+        unit._shieldMax = Math.max(unit._shieldMax || 0, BALANCE.shieldCap);
         if (shieldGain > 0) {
-          helpers.logMessage(`吸血鬼【嗜血】：溢出治疗转化为护盾+${shieldGain} 当前护盾${unit._shield}/${SHIELD_CAP}`);
+          helpers.logMessage(`吸血鬼【嗜血】：溢出治疗转化为护盾+${shieldGain} 当前护盾${unit._shield}/${BALANCE.shieldCap}`);
         }
       }
     }

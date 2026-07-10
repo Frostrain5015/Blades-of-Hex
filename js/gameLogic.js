@@ -25,6 +25,7 @@ import {
 } from './effects.js';
 import { playSound } from './audio.js';
 import { updateFogOfWar, isTileVisible, applyScoutReveal, expireScoutReveals } from './fogOfWar.js';
+import { COLONEL_CARD_DATA, COMBAT_BALANCE, COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from './gameData.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
@@ -662,7 +663,7 @@ function _expireTimedEffects() {
     // 全局一次性结算，不放进 per-unit 循环（避免 O(单位数×标记数) 且无单位时不老化）
     if (gameState._soulMarks && gameState._soulMarks.length > 0) {
         const soulRound = getRoundIndex(gameState);
-        gameState._soulMarks = gameState._soulMarks.filter(m => soulRound - m.bornAt < 3);
+        gameState._soulMarks = gameState._soulMarks.filter(m => soulRound - m.bornAt < COMMANDER_BALANCE_CONFIG.necromancer.balance.soulMarkRounds);
     }
     gameState.tiles.forEach(tile => {
         if (!tile.unit) return;
@@ -685,13 +686,13 @@ function _expireTimedEffects() {
 
         // 牧师治愈灵光 — 全局，不区分阵营
         if (u._healingAura > 0) {
-            u.heal(Math.round(u.maxHp * 0.20));
+            u.heal(Math.round(u.maxHp * COMMANDER_BALANCE_CONFIG.priest.balance.auraHealPct));
             u._healingAura--;
         }
 
         // 雨天：守城单位每回合回复15%最大生命值
         if (gameState.weather === 'rain' && u.tile.isCity) {
-            u.heal(Math.round(u.maxHp * 0.15));
+            u.heal(Math.round(u.maxHp * COMBAT_BALANCE.weather.rainCityHealPct));
         }
 
         // 全局每回合倒计时（不区分阵营，因为本函数每回合仅调用一次）
@@ -841,7 +842,7 @@ async function _doEndTurnPhase() {
             // 圣骑士至圣斩蓄力跨回合清除并返还誓言
             if (tile.unit.commander === 'paladin' && tile.unit._smiteReady) {
                 const refund = tile.unit._smiteCharged ? 2 : 1;
-                tile.unit._faith = Math.min(3, tile.unit._faith + refund);
+                tile.unit._faith = Math.min(COMMANDER_BALANCE_CONFIG.paladin.balance.faithMax, tile.unit._faith + refund);
                 tile.unit._smiteReady = false;
                 tile.unit._smiteCharged = false;
                 spawnPaladinOrbitBeams(tile.unit.id, tile.x, tile.y, tile.unit._faith);
@@ -2045,8 +2046,8 @@ async function handleSurrender() {
 }
 
 // ==== E4 空军上校：航程 + 防空火力 目标约束 =====================
-export const COLONEL_AIR_RANGE = 6; // 上校空军卡最大航程（格）
-export const ANTIAIR_RADIUS = 2;    // 防空火力覆盖半径（格）
+export const COLONEL_AIR_RANGE = COLONEL_CARD_DATA.range;
+export const ANTIAIR_RADIUS = COLONEL_CARD_DATA.antiairRadius;
 
 // 找到某阵营在场的上校单位（无则 null）
 export function getColonelUnit(camp) {
@@ -2071,10 +2072,10 @@ export function getAALayers(tile, camp, tileMap) {
         if (!t || !t.unit || t.unit.camp === camp || !isAntiAirUnit(t.unit)) continue;
         if (hexDistance(t, tile) <= ANTIAIR_RADIUS) {
             count++;
-            if (count >= 2) break;
+            if (count >= COMBAT_BALANCE.defense.antiairMaxLayers) break;
         }
     }
-    return Math.min(count, 2);
+    return Math.min(count, COMBAT_BALANCE.defense.antiairMaxLayers);
 }
 
 // ==== 通用防空接口 =====================
@@ -2082,7 +2083,7 @@ export function getAALayers(tile, camp, tileMap) {
 // 每层防空提供+25%防御，伤害 = 原伤害 × (1 − 层数×0.25)
 export function applyAADefense(dmg, tile, camp, tileMap) {
     const aa = getAALayers(tile, camp, tileMap);
-    if (aa > 0) return Math.round(dmg * (1 - aa * 0.25));
+    if (aa > 0) return Math.round(dmg * (1 - aa * COMBAT_BALANCE.defense.antiairPerLayer));
     return dmg;
 }
 
@@ -2091,7 +2092,7 @@ export function applyAADefense(dmg, tile, camp, tileMap) {
 export function applyAADropHP(unit, tile, camp, tileMap) {
     const aa = getAALayers(tile, camp, tileMap);
     if (aa > 0) {
-        const hpLoss = Math.round(unit.maxHp * aa * 0.25);
+        const hpLoss = Math.round(unit.maxHp * aa * COMBAT_BALANCE.defense.antiairPerLayer);
         unit.hp = Math.max(1, unit.hp - hpLoss);
         unit.displayHp = unit.hp;
     }
@@ -2469,16 +2470,17 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             // 通用空军增伤：每使用1张卡+5%（②增伤乘区，上限6层）
             if (gameState._colonelAirStacks) {
                 if (gameState._colonelAirStacks[campKey] == null) gameState._colonelAirStacks[campKey] = 0;
-                if (gameState._colonelAirStacks[campKey] < 6) {
+                if (gameState._colonelAirStacks[campKey] < COLONEL_CARD_DATA.maxAirDamageStacks) {
                     gameState._colonelAirStacks[campKey]++;
-                    logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[campKey] * 5}%/上限30%`);
+                    logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[campKey] * COLONEL_CARD_DATA.airDamagePerStack * 100}%/上限${COLONEL_CARD_DATA.maxAirDamageStacks * COLONEL_CARD_DATA.airDamagePerStack * 100}%`);
                 }
             }
             const _stacks = gameState._colonelAirStacks?.[campKey] || 0;
-            const airBonus = 0.05 * Math.min(_stacks, 6);
+            const airBonus = COLONEL_CARD_DATA.airDamagePerStack * Math.min(_stacks, COLONEL_CARD_DATA.maxAirDamageStacks);
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
                 // 扫射·弱点打击：目标已损生命值的10%转化为攻击力，封顶+15，并在后续乘区前计入。
-                const _missingHpBonus = Math.min(15, Math.floor((targetTile.unit.maxHp - targetTile.unit.hp) * 0.10));
+                const balance = COLONEL_CARD_DATA.diveStrafe.balance;
+                const _missingHpBonus = Math.min(balance.maxMissingHpAttack, Math.floor((targetTile.unit.maxHp - targetTile.unit.hp) * balance.missingHpToAttackPct));
                 const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, 0, _missingHpBonus);
                 result.dmg = Math.round(_calc.dmg);
                 result.isCrit = _calc.isCrit;
@@ -2488,8 +2490,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
                     if (_ht && _ht.unit) {
                         const _isCenter = _r.q === targetTile.q && _r.r === targetTile.r;
-                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, airBonus, false, false, true, 0.10);
-                        _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * 0.6);
+                        const balance = COLONEL_CARD_DATA.carpetBomb.balance;
+                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, airBonus, false, false, true, balance.ignoreDefense);
+                        _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * (balance.splashMultiplier / balance.centerMultiplier));
                         _r.isCrit = _calc.isCrit;
                     }
                 }
@@ -2525,9 +2528,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // 上校空军卡叠层
     if (gameState._colonelAirStacks) {
         if (gameState._colonelAirStacks[aCampKey] == null) gameState._colonelAirStacks[aCampKey] = 0;
-        if (gameState._colonelAirStacks[aCampKey] < 6) {
+        if (gameState._colonelAirStacks[aCampKey] < COLONEL_CARD_DATA.maxAirDamageStacks) {
             gameState._colonelAirStacks[aCampKey]++;
-            logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[aCampKey] * 5}%/上限30%`);
+            logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[aCampKey] * COLONEL_CARD_DATA.airDamagePerStack * 100}%/上限${COLONEL_CARD_DATA.maxAirDamageStacks * COLONEL_CARD_DATA.airDamagePerStack * 100}%`);
         }
     }
     const fromTile = airUnit.tile;
@@ -2698,7 +2701,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                             timeLeft: 900, lastUpdate: performance.now()
                         });
                     }
-                    targetTile._cityDisabledUntil = getRoundIndex(gameState) + 2;
+                    targetTile._cityDisabledUntil = getRoundIndex(gameState) + TACTICAL_CARD_CONFIG.airstrike.balance.cityDisableRounds;
                     triggerScreenShake(8, 350);
                 }, 1400);
             }, BURN_MS);

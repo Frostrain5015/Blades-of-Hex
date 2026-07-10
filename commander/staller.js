@@ -2,6 +2,8 @@
 // 2格范围内：
 //   1. 敌军移动消耗额外+2/步（缚足）
 //   2. 友军单位对远程攻击（炮兵/碉堡/空军）防御力+25%（单层；对空时作为防空层计入，不与力场叠加）
+import { COMMANDER_CONFIG } from '../js/gameData.js';
+
 const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 
 const RANGE2 = (() => {
@@ -18,24 +20,21 @@ const RANGE2 = (() => {
 
 // 距离环：[0]=自身, [1]=相邻6格, [2]=距离2共12格
 const RINGS = [[[0, 0]], HEX_NEIGHBORS, RANGE2];
+const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.staller;
 
 export default {
-  id: 'staller',
-  name: '停滞者',
-  skill: '迟滞力场',
-  hpBonusPct: 0.30, atkBonusPct: 0.20, spdBonus: 0,
-  desc: '自身2格范围内敌人每步移动力消耗+2，范围内友军单位对远程攻击防御力提高25%',
+  ...DEFINITION,
 
   // ── 缚足：返回该地块对 friendlyCamp 的束缚层数（0=无效果） ──
   getSnareLayers(tile, friendlyCamp, tileMap) {
     if (!tileMap) return 0;
     let best = 0;
-    for (let d = 0; d <= 2; d++) {
+    for (let d = 0; d <= BALANCE.range; d++) {
       for (const [dq, dr] of RINGS[d]) {
         const nb = tileMap.get(`${tile.q - dq},${tile.r - dr}`);
         if (nb && nb.unit && nb.unit.commander === 'staller' &&
             nb.unit.camp !== friendlyCamp && nb.unit.hp > 0) {
-          best = Math.max(best, 3 - d);
+          best = Math.max(best, BALANCE.range + 1 - d);
         }
       }
       if (best > 0) break;
@@ -52,12 +51,12 @@ export default {
     if (!tile || !tile.unit || !tileMap) return 0;
     const unit = tile.unit;
     if (unit.type !== 'archer' && unit.type !== 'mgNest') return 0;
-    for (let d = 1; d <= 2; d++) {
+    for (let d = 1; d <= BALANCE.range; d++) {
       for (const [dq, dr] of RINGS[d]) {
         const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
         if (nb && nb.unit && nb.unit.commander === 'staller' &&
             nb.unit.camp !== unit.camp && nb.unit.hp > 0) {
-          return 1;
+          return BALANCE.rangeReduction;
         }
       }
     }
@@ -67,7 +66,7 @@ export default {
   // ── 力场防御：检查友军是否在2格内己方停滞者力场中（对远程攻击+25%防御） ──
   isInField(tile, friendlyCamp, tileMap) {
     if (!tile || !tileMap) return false;
-    for (let d = 0; d <= 2; d++) {
+    for (let d = 0; d <= BALANCE.range; d++) {
       for (const [dq, dr] of RINGS[d]) {
         const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
         if (nb && nb.unit && nb.unit.commander === 'staller' &&

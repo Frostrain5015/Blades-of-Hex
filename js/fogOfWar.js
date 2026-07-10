@@ -1,5 +1,6 @@
 // 战争迷雾引擎 —— 视野计算、状态管理、过渡动画
 import { hexDistance, CAMP, getRoundIndex } from './config.js';
+import { COMMANDER_CONFIG } from './gameData.js';
 
 // 视野范围：各兵种能看到的格子数
 export const UNIT_VISION = {
@@ -35,7 +36,7 @@ function _getEffectiveVision(unit, gs) {
     } else {
         range = UNIT_VISION[unit.type] || 1;
     }
-    if (unit.commander === 'tianyan') range += 1;
+    if (unit.commander === 'tianyan') range += COMMANDER_CONFIG.tianyan.balance.visionBonus;
     return Math.max(1, Math.min(5, range));
 }
 

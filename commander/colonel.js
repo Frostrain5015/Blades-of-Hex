@@ -3,18 +3,12 @@
 // 空军卡直接消耗金币；伤害以上校自身攻击力走标准管线（越强的上校空军越猛）
 // 雾天停飞
 import { CAMP } from '../js/config.js';
+import { COMMANDER_CONFIG } from '../js/gameData.js';
+
+const { definition: DEFINITION } = COMMANDER_CONFIG.colonel;
 
 export default {
-    id: 'colonel',
-    name: '空军上校',
-    hpBonusPct: 0.30, atkBonusPct: 0.30, spdBonus: 1,
-    skills: [
-        { name: '制空', desc: '无法使用普通对策卡；上校存活且部署时可消耗金币使用专属空军对策卡；最大航程为6格；雾天停飞无法使用', type: 'passive' },
-        { name: '老练', desc: '每使用1张空军卡使本场空军伤害提高5%，最多叠加6层', type: 'passive' },
-        { name: '扫射', desc: '$3 对指定单体目标造成伤害，附加等同于目标已损生命值10%的攻击力（最多+15），再按标准伤害流程结算', type: 'active' },
-        { name: '轰炸', desc: '$4 对指定目标及相邻6格单位造成范围伤害（中心100%/溅射60%），无视其10%防御力', type: 'active' },
-        { name: '空运', desc: '$4 运送一名自己以外的友军单位至指定空地', type: 'active' }
-    ],
+    ...DEFINITION,
 
     onDeploy(unit, gameState, helpers) {
         const campKey = unit.camp === CAMP.player1 ? 'player1'

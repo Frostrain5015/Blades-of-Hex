@@ -4,6 +4,7 @@ import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset, spawnMoraleEffect, triggerFactionMoraleFlash } from './effects.js';
+import { COMBAT_BALANCE, COMMANDER_CONFIG, FRONTEND_TEXT } from './gameData.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -147,12 +148,13 @@ export class Unit {
         }
 
         if (this._berserkerQixue) {
-            const hpLostPct = Math.min(40, Math.floor(((this.maxHp - this.hp) / this.maxHp) * 100 / 2));
+            const balance = COMMANDER_CONFIG.berserker.balance;
+            const stacks = Math.min(balance.maxStacks, Math.floor(((this.maxHp - this.hp) / this.maxHp) / balance.hpLossPerStackPct));
             effects.push({
                 label: '泣血',
-                desc: '下次攻击伤害+30%、暴击率+50%，并对相邻敌人造成40%溅射伤害',
+                desc: COMMANDER_CONFIG.berserker.definition.activeSkill.desc,
                 color: '#d63c3c',
-                status: '当前生效 攻击力提高' + hpLostPct + '%，防御力提高' + hpLostPct + '%'
+                status: '当前生效 攻击力提高' + (stacks * balance.statBonusPerStackPct * 100) + '%，防御力提高' + (stacks * balance.statBonusPerStackPct * 100) + '%'
             });
         }
 
@@ -165,7 +167,7 @@ export class Unit {
 
         // 勇气灵光（自身）
         if (this.commander === 'paladin') {
-            effects.push({ label: '勇气灵光', desc: '攻击力提高10%，士气不会下降', color: '#ffd700' });
+            effects.push({ label: '勇气灵光', desc: FRONTEND_TEXT.effectDescriptions.courageAura, color: '#ffd700' });
         }
 
         // 勇气灵光 — 受相邻圣骑士影响
@@ -179,13 +181,13 @@ export class Unit {
                 }
             }
             if (hasPaladinAura) {
-                effects.push({ label: '勇气灵光', desc: '攻击力提高10%，士气不会下降', color: '#ffd700' });
+                effects.push({ label: '勇气灵光', desc: FRONTEND_TEXT.effectDescriptions.courageAura, color: '#ffd700' });
             }
         }
 
         // 牧师治愈灵光
         if (this._healingAura > 0) {
-            effects.push({ label: '治愈灵光', desc: `每回合回复20%最大生命值，受致命一击时提前释放全部剩余治疗量，仍不足则保底20%生命`, color: '#44dd88', remaining: this._healingAura });
+            effects.push({ label: '治愈灵光', desc: FRONTEND_TEXT.effectDescriptions.healingAura, color: '#44dd88', remaining: this._healingAura });
         }
 
         return effects;
@@ -500,11 +502,12 @@ export class Unit {
 
         // ── Berserker blood rage glow（已损HP越多越明显） ──
         if (this.commander === 'berserker' && this.hp < this.maxHp) {
-            const hpLostPct = ((this.maxHp - this.hp) / this.maxHp) * 100;
-            const stacks = Math.min(50, Math.floor(hpLostPct / 1.5));
+            const balance = COMMANDER_CONFIG.berserker.balance;
+            const hpLostRatio = (this.maxHp - this.hp) / this.maxHp;
+            const stacks = Math.min(balance.maxStacks, Math.floor(hpLostRatio / balance.hpLossPerStackPct));
             if (stacks > 0) {
                 ctx.save();
-                const intensity = stacks / 50;
+                const intensity = stacks / balance.maxStacks;
                 const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
                 ctx.fillStyle = `rgba(255,80,20,${(0.4 + ragePulse * 0.4) * intensity})`;
                 ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
@@ -776,20 +779,21 @@ export class Unit {
     _calcFloat(isCounter = false, isCityCounter = false, critRateBonus = 0, noCrit = false, forceCrit = false) {
         const gs = _gameState;
         let lo, hi;
+        const floatBalance = COMBAT_BALANCE.float;
 
         if (isCounter) {
-            lo = isCityCounter ? 1.00 : 0.90;
-            hi = 1.70;
+            lo = isCityCounter ? floatBalance.counter.cityMin : floatBalance.counter.min;
+            hi = floatBalance.counter.max;
         } else {
-            lo = 0.85; hi = 1.35;
+            lo = floatBalance.attack.min; hi = floatBalance.attack.max;
         }
 
         // 士气影响浮动区间（进而改变暴击概率与伤害浮动）
-        if (this.morale === 3)      { lo += 0.05; hi += 0.10; }
-        else if (this.morale === 1) { lo -= 0.05; hi -= 0.10; }
-        else if (this.morale === 0) { lo -= 0.10; hi -= 0.20; }
+        if (this.morale === 3)      { lo += floatBalance.morale.up.min; hi += floatBalance.morale.up.max; }
+        else if (this.morale === 1) { lo += floatBalance.morale.down.min; hi += floatBalance.morale.down.max; }
+        else if (this.morale === 0) { lo += floatBalance.morale.confused.min; hi += floatBalance.morale.confused.max; }
 
-        const threshold = isCounter ? 1.50 : 1.30;
+        const threshold = isCounter ? floatBalance.counter.critThreshold : floatBalance.attack.critThreshold;
         if (noCrit) {
             // 逆克：整段浮动压到暴击阈值以下 → 暴击率0
             if (hi > threshold) hi = threshold - 0.001;
@@ -821,28 +825,29 @@ export class Unit {
 
         // ② 增伤乘区
         let dmgUp = extraBonus;
-        if (qixueActive) dmgUp += 0.30;
+        if (qixueActive) dmgUp += COMMANDER_CONFIG.berserker.balance.qixueDamageBonus;
         // 兵种克制：顺克 +20% / 逆克 −20%（归入②增伤乘区）；暴击率另在③处理（顺克+25%/逆克锁0）
-        if (counterCoeff > 1) dmgUp += 0.20;
-        else if (counterCoeff < 1) dmgUp -= 0.20;
+        if (counterCoeff > 1) dmgUp += COMBAT_BALANCE.counter.advantageDamage;
+        else if (counterCoeff < 1) dmgUp += COMBAT_BALANCE.counter.disadvantageDamage;
         // 魔术师·千面：攻击克制目标时伤害提高25%（与基础顺克+20%叠加→+45%）
-        if (attacker.commander === 'magician' && counterCoeff > 1) dmgUp += 0.25;
+        if (attacker.commander === 'magician' && counterCoeff > 1) dmgUp += COMMANDER_CONFIG.magician.balance.counterDamageBonus;
         // 魔术师幻形：每层+5%增伤（上限30%），归入②乘区
         if (attacker.commander === 'magician' && attacker._phantomStacks) {
-            dmgUp += Math.min(attacker._phantomStacks * 0.05, 0.30);
+            const balance = COMMANDER_CONFIG.magician.balance;
+            dmgUp += Math.min(attacker._phantomStacks * balance.damagePerStack, balance.maxStacks * balance.damagePerStack);
         }
         const offenseMulti = Math.max(0, 1 + dmgUp);
 
         // ③ 暴击/浮动乘区：暴击率完全由浮动区间体现，无独立随机判定
         //    各暴击率来源累加 → 在 _calcFloat 内整体上移浮动区间，使阈值以上占比≈基础+加成
-        const phantomCrit = (attacker._phantomStacks || 0) * 0.10;      // 魔术师幻形 +10%/层
+        const phantomCrit = (attacker._phantomStacks || 0) * COMMANDER_CONFIG.magician.balance.critPerStack;
         const cmdCrit = getCommanderCritRateBonus(attacker);            // 堕天使黑形态 +60% 等
-        const counterCrit = counterCoeff > 1 ? 0.25 : 0;               // 顺克 +25%
+        const counterCrit = counterCoeff > 1 ? COMBAT_BALANCE.counter.advantageCrit : 0;
         const counterNoCrit = counterCoeff < 1;                        // 逆克 无法暴击
-        const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit + (qixueActive ? 0.50 : 0);
+        const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit + (qixueActive ? COMMANDER_CONFIG.berserker.balance.qixueCritBonus : 0);
         const forceCrit = !counterNoCrit && isCommanderGuaranteedCrit(attacker);
         const floatMult = attacker._calcFloat(isCounter, isCityCounter, critRateBonus, counterNoCrit, forceCrit);
-        const isCrit = floatMult > (isCounter ? 1.50 : 1.30);
+        const isCrit = floatMult > (isCounter ? COMBAT_BALANCE.float.counter.critThreshold : COMBAT_BALANCE.float.attack.critThreshold);
 
         // ④ 防御乘区
         let defSum = TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
@@ -857,26 +862,26 @@ export class Unit {
         }
         // 森林掩蔽：对远程攻击（炮兵/碉堡/无人机）额外+15%防御，与地形自带10%加算
         if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest' || attacker.type === 'drone')) {
-            defSum += 0.15;
+            defSum += COMBAT_BALANCE.defense.forestVsRangedBonus;
         }
         // 风天：步兵防御-15%（星移期间扩展至敌方全兵种；占星者星光力场免疫）；星移减益区内额外-15%
         if (_gameState.weather === 'wind' && (defender.type === 'infantry' || (_gameState.weatherLockUntil > 0 && getRoundIndex(_gameState) < _gameState.weatherLockUntil && defender.camp !== attacker.camp))
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
-            defSum -= 0.15;
-            if (getCommanderWeatherDebuff(defender.tile, defender.camp, _gameState)) defSum -= 0.15;
+            defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
+            if (getCommanderWeatherDebuff(defender.tile, defender.camp, _gameState)) defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
         }
-        if (defender.type === 'infantry' && defender.tile.isCity) defSum += 0.10;
+        if (defender.type === 'infantry' && defender.tile.isCity) defSum += COMBAT_BALANCE.defense.cityInfantryBonus;
         // 雨天：步兵守城防御力额外+10%（占星者星光力场免疫）
         if (_gameState.weather === 'rain' && defender.type === 'infantry' && defender.tile.isCity
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
-            defSum += 0.10;
+            defSum += COMBAT_BALANCE.defense.rainCityInfantryBonus;
         }
         defSum += (defender.config.defense || 0);
         defSum += (defender._rankDefBonus || 0);
         defSum += MORALE_CONFIG[defender.morale].defBonus;
         defSum += getCommanderDefenseBonus(defender);
         // 魔术师·千面：被克制目标攻击时受伤降低15%
-        if (defender.commander === 'magician' && counterCoeff > 1) defSum += 0.15;
+        if (defender.commander === 'magician' && counterCoeff > 1) defSum += COMMANDER_CONFIG.magician.balance.counterDefenseBonus;
         // 停滞者力场：2格内友军停滞者 → 对远程攻击(炮兵/碉堡)防御 +25%（单层）
         // 空军伤害(isAirDamage)不走此分支：停滞者已作为防空层在下方计入 +25%，
         // 否则炮兵载体的上校空军卡会被同一个停滞者叠加 15%+25% 双重加防
@@ -889,7 +894,7 @@ export class Unit {
                 if (!nb || !nb.unit || nb.unit.camp !== defender.camp) continue;
                 if (nb.unit.commander === 'staller') { hasStaller = true; break; }
             }
-            if (hasStaller) defSum += 0.25;        // 停滞者力场：+25%
+            if (hasStaller) defSum += COMMANDER_CONFIG.staller.balance.rangedDefenseBonus;
         }
         // 防空火力：2格内友军 炮兵/碉堡/停滞者单位 → 仅对空军(上校空军卡)伤害 +25%/层（封顶2层=50%）
         if (isAirDamage && _gameState && _gameState.tileMap) {
@@ -900,17 +905,17 @@ export class Unit {
                 const nb = _gameState.tileMap.get(`${defender.tile.q + dq},${defender.tile.r + dr}`);
                 if (!nb || !nb.unit || nb.unit.camp !== defender.camp) continue;
                 if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest' || nb.unit.commander === 'staller') {
-                    if (aaCount < 2) aaCount++;
+                    if (aaCount < COMBAT_BALANCE.defense.antiairMaxLayers) aaCount++;
                 }
             }
             // 高射机枪工事：为站在其上的单位额外提供自身1层防空（仅覆盖自身1格）
-            if (fortification && fortification.providesSelfAA && aaCount < 2) aaCount++;
-            if (aaCount > 0) defSum += aaCount * 0.25; // 防空火力：每层+25%，封顶50%
+            if (fortification && fortification.providesSelfAA && aaCount < COMBAT_BALANCE.defense.antiairMaxLayers) aaCount++;
+            if (aaCount > 0) defSum += aaCount * COMBAT_BALANCE.defense.antiairPerLayer;
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         // 空军上校俯冲扫射：无视目标防御力
         if (ignoreDef > 0) defSum -= ignoreDef;
-        const defenseMulti = Math.max(0.3, 1 - defSum);
+        const defenseMulti = Math.max(COMBAT_BALANCE.defense.minimumMultiplier, 1 - defSum);
 
         return {
             dmg: (attacker.getEffectiveAttack() + attackFlatBonus) * baseMulti * offenseMulti * floatMult * defenseMulti,
@@ -937,11 +942,13 @@ export class Unit {
 
         // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高10%（上限30%），雾天额外+5%/格
         // moveDistance 随回合重置，势能回合结束消失
-        const chargeRate = gs && gs.weather === 'fog' ? 0.15 : 0.10;
-        const cavBonus = this.type === 'cavalry' ? Math.min(this.moveDistance, 3) * chargeRate : 0;
-        const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.15 : 0;
+        const chargeRate = gs && gs.weather === 'fog'
+            ? COMBAT_BALANCE.cavalry.fogChargeDamagePerStep
+            : COMBAT_BALANCE.cavalry.normalChargeDamagePerStep;
+        const cavBonus = this.type === 'cavalry' ? Math.min(this.moveDistance, COMBAT_BALANCE.cavalry.maxChargeSteps) * chargeRate : 0;
+        const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? COMBAT_BALANCE.infantry.cityDamageBonus : 0;
         // 天气条件增伤：雾天骑兵+20%、风天炮兵+20%（归入②增伤乘区）
-        const weatherBonus = (gs && gs.weather === 'fog' && this.type === 'cavalry') ? 0.20
+        const weatherBonus = (gs && gs.weather === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
             : 0;
 
         const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus + weatherBonus);
@@ -977,9 +984,9 @@ export class Unit {
         }
 
         const isCityCounter = this.type === 'infantry' && this.tile.isCity;
-        const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.15 : 0;
+        const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? COMBAT_BALANCE.infantry.cityDamageBonus : 0;
 
-        const result = this._resolveDamage(this, attackerUnit, 0.75, cityAtkBonus, true, isCityCounter, this._isDrone);
+        const result = this._resolveDamage(this, attackerUnit, COMBAT_BALANCE.float.counter.baseMultiplier, cityAtkBonus, true, isCityCounter, this._isDrone);
 
         if (this.hp > 0) {
             this.counterAttackCount++;
@@ -1061,8 +1068,9 @@ export class Unit {
         // 仍低于20%最大生命，则血量固定为20%最大生命；灵光随之消耗。
         // （minHp>0 的伤害本就不致死，如堕天使灼烧，不触发此保底）
         if (this._healingAura > 0 && minHp <= 0 && (this.hp - actualDmg) <= 0) {
-            const burst = Math.round(this.maxHp * 0.20 * this._healingAura);
-            const floor = Math.round(this.maxHp * 0.20);
+            const balance = COMMANDER_CONFIG.priest.balance;
+            const burst = Math.round(this.maxHp * balance.auraHealPct * this._healingAura);
+            const floor = Math.round(this.maxHp * balance.minimumHpPct);
             this._healingAura = 0;
             this.hp = Math.max(Math.round(this.hp - actualDmg + burst), floor);
             if (_gameState && _gameState.healTexts) {
@@ -1080,9 +1088,9 @@ export class Unit {
 
         this.hp = Math.round(Math.max(minHp, this.hp - actualDmg));
         // 殉道者：HP≤1时进入自爆倒计时（包括致死伤害）
-        if (this.commander === 'martyr' && !this._martyrPrimed && this.hp <= 1) {
+        if (this.commander === 'martyr' && !this._martyrPrimed && this.hp <= COMMANDER_CONFIG.martyr.balance.triggerHp) {
             this._martyrPrimed = true;
-            this.hp = 1;
+            this.hp = COMMANDER_CONFIG.martyr.balance.triggerHp;
             this.canAct = false;
             this.remainingMP = 0;
             log(`${this.camp.name}殉道者【${this.config.name}兵】生命垂危，进入殉道倒计时！`);
@@ -1157,13 +1165,13 @@ export class Unit {
                 const kKey = killerCamp === CAMP.player1 ? 'player1' : killerCamp === CAMP.player2 ? 'player2' : killerCamp === CAMP.player3 ? 'player3' : null;
                 if (kKey) {
                     if (!_gameState.factionMoraleBoost) _gameState.factionMoraleBoost = {};
-                    _gameState.factionMoraleBoost[kKey] = getRoundIndex(_gameState) + 2;
+                    _gameState.factionMoraleBoost[kKey] = getRoundIndex(_gameState) + COMMANDER_CONFIG.martyr.balance.moraleBoostRounds;
                     for (const tile of _gameState.tiles) {
                         const u = tile.unit;
                         if (u && u.camp === killerCamp && u.morale !== 0 && u.morale < 3) {
                             const oldM = u.morale;
                             u.morale = Math.min(3, u.morale + 1);
-                            if (u.morale === 3) u.moraleBoostUntil = getRoundIndex(_gameState) + 2;
+                            if (u.morale === 3) u.moraleBoostUntil = getRoundIndex(_gameState) + COMMANDER_CONFIG.martyr.balance.moraleBoostRounds;
                             if (u.morale !== oldM) spawnMoraleEffect(u);
                         }
                     }
@@ -1267,7 +1275,7 @@ export class Unit {
 
     addXP(amount) {
         if (this._rank >= 4 || amount <= 0) return;
-        if (this.commander === 'centurion') amount *= 2.0;
+        if (this.commander === 'centurion') amount *= COMMANDER_CONFIG.centurion.balance.veteranXpMultiplier;
         this._xp += amount;
         this._checkRankUp();
     }

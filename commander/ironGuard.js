@@ -1,18 +1,15 @@
 // 铁卫 —— 守护
 import { HEX_SIZE } from '../js/config.js';
+import { COMMANDER_CONFIG } from '../js/gameData.js';
+
+const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.ironGuard;
 
 export default {
-  id: 'ironGuard',
-  name: '铁卫',
-  hpBonusPct: 0.30, spdBonus: 0,
-  skills: [
-      { name: '守护', desc: '部署时获得120点永久护盾，每回合回复40点，最多120点，自身及相邻友军获得【守护灵光】', type: 'passive' },
-      { name: '守护灵光', desc: '防御力+10%，所受伤害转由铁卫护盾承担', type: 'passive' }
-  ],
+  ...DEFINITION,
 
   onDeploy(unit, gameState, helpers) {
-    unit._shield = 120;
-    unit._shieldMax = 120;
+    unit._shield = BALANCE.shieldMax;
+    unit._shieldMax = BALANCE.shieldMax;
     unit._shieldTurns = 999;
   },
 
@@ -22,10 +19,10 @@ export default {
       if (!tile.unit) continue;
       const u = tile.unit;
       if (u.commander === 'ironGuard' && u.camp === camp) {
-        if (u._shield < 120) {
+        if (u._shield < BALANCE.shieldMax) {
           const oldShield = u._shield;
-          u._shield = Math.min(120, u._shield + 40);
-          u._shieldMax = 120;
+          u._shield = Math.min(BALANCE.shieldMax, u._shield + BALANCE.shieldRestorePerRound);
+          u._shieldMax = BALANCE.shieldMax;
           u._shieldTurns = 999;
           const gained = u._shield - oldShield;
           if (gained > 0) {
@@ -40,7 +37,7 @@ export default {
 
   // 灵光：自身及相邻友军防御+10%（在防御乘区加算）
   getAuraDefenseBonus(allyUnit) {
-    return 0.10;
+    return BALANCE.auraDefenseBonus;
   },
 
   // 灵光转移：友军所受伤害由铁卫护盾值承担，护盾耗尽后不再承担

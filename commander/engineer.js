@@ -1,12 +1,15 @@
 import { CAMP } from '../js/config.js';
+import { COMMANDER_CONFIG } from '../js/gameData.js';
 
-export const ENGINEER_TRENCH_GOLD_COST = 2;
-export const ENGINEER_FLAK_GOLD_COST = 2;
-export const ENGINEER_BUNKER_GOLD_COST = 5;
+const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.engineer;
+
+export const ENGINEER_TRENCH_GOLD_COST = BALANCE.trenchGoldCost;
+export const ENGINEER_FLAK_GOLD_COST = BALANCE.flakGoldCost;
+export const ENGINEER_BUNKER_GOLD_COST = BALANCE.bunkerGoldCost;
 // 碉堡施工需要 1 个己方回合（起始回合工程师锁定），下个己方回合开始时脚手架变为碉堡。
-export const ENGINEER_BUNKER_BUILD_TURNS = 1;
+export const ENGINEER_BUNKER_BUILD_TURNS = BALANCE.bunkerBuildRounds;
 // 碉堡建成后进入冷却，冷却期内无法再次建造（不影响挖战壕/架机枪/移动/战斗）。
-export const ENGINEER_BUNKER_CD_TURNS = 2;
+export const ENGINEER_BUNKER_CD_TURNS = BALANCE.bunkerCooldownRounds;
 
 // 六角距离（仅依赖 q/r，避免依赖 tile.s，测试用桩对象也可复用）。
 function hexDistanceQR(a, b) {
@@ -18,7 +21,7 @@ function hexDistanceQR(a, b) {
 // 目标是否位于工程师身旁 1 格。
 export function isEngineerBunkerAdjacent(engineerUnit, tile) {
     return !!engineerUnit && !!engineerUnit.tile && !!tile
-        && hexDistanceQR(engineerUnit.tile, tile) === 1;
+        && hexDistanceQR(engineerUnit.tile, tile) === BALANCE.bunkerRange;
 }
 
 function campToKey(camp) {
@@ -95,7 +98,7 @@ export function digEngineerFlak(unit, helpers) {
 }
 
 // 碉堡满血值（脚手架与建成碉堡共用；脚手架剩余 HP 会被建成碉堡继承）。
-export const ENGINEER_BUNKER_HP = 200;
+export const ENGINEER_BUNKER_HP = BALANCE.bunkerHp;
 
 function findUnitById(gameState, id) {
     if (id == null) return null;
@@ -226,31 +229,5 @@ export function releaseEngineerOnScaffoldLost(scaffold, gameState) {
 }
 
 export default {
-    id: 'engineer',
-    name: '工程师',
-    hpBonusPct: 0.30,
-    atkBonusPct: 0.15,
-    spdBonus: 0,
-    skills: [
-        {
-            name: '挖掘战壕',
-            desc: `$${ENGINEER_TRENCH_GOLD_COST} 在自身所在格挖掘永久【战壕】：处于其中的单位对近战攻击防御力提高25%`,
-            type: 'active'
-        },
-        {
-            name: '高射机枪',
-            desc: `$${ENGINEER_FLAK_GOLD_COST} 在自身所在格架设永久【高射机枪】：处于其中的任何单位对远程攻击防御力提高25%`,
-            type: 'active'
-        },
-        {
-            name: '建造碉堡',
-            desc: `$${ENGINEER_BUNKER_GOLD_COST} 对指定位置施工，花费${ENGINEER_BUNKER_BUILD_TURNS}个己方回合（期间工程师无法行动、同时只能修建1座碉堡）建成1座碉堡`,
-            type: 'active'
-        }
-    ],
-    activeSkills: [
-        { id: 'trench', name: '战壕', goldCost: ENGINEER_TRENCH_GOLD_COST },
-        { id: 'flak', name: '高射机枪', goldCost: ENGINEER_FLAK_GOLD_COST },
-        { id: 'bunker', name: '碉堡', goldCost: ENGINEER_BUNKER_GOLD_COST }
-    ]
+    ...DEFINITION
 };

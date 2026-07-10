@@ -1,13 +1,10 @@
 // 殉道者 —— 殉道 + 挽歌
+import { COMMANDER_CONFIG } from '../js/gameData.js';
+
+const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.martyr;
+
 export default {
-  id: 'martyr',
-  name: '殉道者',
-  skill: '殉道',
-  hpBonusPct: 0.30, atkBonusPct: 0, spdBonus: 0,
-  skills: [
-    { name: '殉道', desc: '生命≤1时进入殉道倒计时，期间可移动但无法攻击；下回合开始时对2格范围内所有非己方单位造成基于攻击力的真实伤害', type: 'passive' },
-    { name: '挽歌', desc: '己方单位阵亡时，殉道者永久获得5点攻击力，最多叠加25点', type: 'passive' }
-  ],
+  ...DEFINITION,
 
   onTurnStart(gameState, camp, helpers) {
     const unit = helpers.findCommanderUnit(camp, 'martyr');
@@ -20,11 +17,11 @@ export default {
     const newDeaths = deathCount - alreadyProcessed;
     if (newDeaths > 0) {
       const currentBonus = unit._elegyBonus || 0;
-      const addedBonus = Math.min(25 - currentBonus, newDeaths * 5);
+      const addedBonus = Math.min(BALANCE.elegyAttackCap - currentBonus, newDeaths * BALANCE.elegyAttackPerDeath);
       if (addedBonus > 0) {
         unit._elegyBonus = currentBonus + addedBonus;
         helpers.spawnFx(unit.tile.x, unit.tile.y, '🎵', '挽歌');
-        helpers.logMessage(`殉道者【挽歌】：${newDeaths}名友军阵亡 → ATK+${addedBonus} 累计+${unit._elegyBonus}/25`);
+        helpers.logMessage(`殉道者【挽歌】：${newDeaths}名友军阵亡 → ATK+${addedBonus} 累计+${unit._elegyBonus}/${BALANCE.elegyAttackCap}`);
       }
       unit._elegyProcessed = deathCount;
     }
@@ -44,9 +41,9 @@ export default {
       let killedCommander = false;
       if (tileMap) {
         if (!gameState.damageTexts) gameState.damageTexts = [];
-        for (const [tile, dist] of _getTilesInRange(unit.tile, tileMap, 2)) {
+        for (const [tile, dist] of _getTilesInRange(unit.tile, tileMap, BALANCE.explosionRange)) {
           if (!tile.unit || tile.unit.camp === unit.camp || tile.unit.hp <= 0) continue;
-          const dmgMult = dist === 0 ? 4.0 : dist === 1 ? 2.0 : 1.0;
+          const dmgMult = dist === 0 ? BALANCE.centerMultiplier : dist === 1 ? BALANCE.adjacentMultiplier : BALANCE.outerMultiplier;
           // 殉道自爆走完整四乘区（baseMulti 体现距离衰减），受目标防御/克制/暴击等影响
           const result = unit._resolveDamage(unit, tile.unit, dmgMult, 0, false, false, false);
           const dmg = Math.round(result.dmg);
@@ -74,7 +71,7 @@ export default {
             const oldM = u.morale;
             u.morale = Math.min(3, u.morale + 1);
             // 士气上升持续2回合（moraleBoostUntil 为回合数, 0-indexed）
-            if (u.morale === 3) u.moraleBoostUntil = Math.floor(gameState.turnCounter / (gameState.isThreePlayer ? 4 : 3)) + 2;
+            if (u.morale === 3) u.moraleBoostUntil = Math.floor(gameState.turnCounter / (gameState.isThreePlayer ? 4 : 3)) + BALANCE.moraleBoostRounds;
             if (u.morale !== oldM) {
               helpers.spawnMoraleEffect(u);
             }
@@ -90,9 +87,9 @@ export default {
 
   checkMartyrState(unit, gameState) {
     if (!unit || unit.commander !== 'martyr' || unit._martyrPrimed) return false;
-    if (unit.hp <= 1 && unit.hp > 0) {
+    if (unit.hp <= BALANCE.triggerHp && unit.hp > 0) {
       unit._martyrPrimed = true;
-      unit.hp = 1;
+      unit.hp = BALANCE.triggerHp;
       // 不重置 canAct 和 remainingMP —— 允许移动但禁止攻击（由 getAttackableTiles 拦截）
       return true;
     }
