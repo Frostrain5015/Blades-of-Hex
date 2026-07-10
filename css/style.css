@@ -1069,6 +1069,26 @@ body {
     line-height: 1;
 }
 
+/* 夜观星光护体：在天气效果徽章上叠半透明星标 */
+.ability-star-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    opacity: 0.45;
+    pointer-events: none;
+    z-index: 2;
+}
+/* 天气效果详情卡中，被免疫的负面效果加删除线 */
+.board-detail-desc.is-shielded {
+    text-decoration: line-through;
+    text-decoration-color: #88ccff;
+    text-decoration-thickness: 2px;
+    opacity: 0.75;
+}
+
 .ability-badge-count {
     position: absolute;
     right: 1px;

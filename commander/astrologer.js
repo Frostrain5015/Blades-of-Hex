@@ -81,7 +81,7 @@ export default {
     activeSkill: {
         name: '星移',
         desc: '强制指定当前天气并锁定2回合（⏳5）',
-        duration: 0,
+        duration: 2,
         cooldown: 5,
 
         onActivate(unit, helpers) {

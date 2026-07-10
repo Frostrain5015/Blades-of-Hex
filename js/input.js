@@ -1091,7 +1091,17 @@ function _buildEffectItems(tile, unit) {
     }
 
     const weather = _getWeatherEffect(unit);
-    if (weather) items.push(weather);
+    if (weather) {
+        // 夜观星光护体：若该单位在友方占星者3格内，标记天气效果为被免疫
+        if (gameState.tileMap) {
+            const astroDef = getCommander('astrologer');
+            if (astroDef && astroDef.isInWeatherShield && astroDef.isInWeatherShield(tile, unit.camp, gameState.tileMap)) {
+                weather._isShielded = true;
+                weather.desc += '（【夜观】免疫）';
+            }
+        }
+        items.push(weather);
+    }
     if (!unit) return items;
 
     const timedEffects = unit.getTimedEffects(gameState);
@@ -1147,20 +1157,7 @@ function _buildEffectItems(tile, unit) {
         });
     }
 
-    if (unit.commander !== 'astrologer' && gameState.tileMap) {
-        const astrologer = getCommander('astrologer');
-        if (astrologer && astrologer.isInWeatherShield
-            && astrologer.isInWeatherShield(unit.tile, unit.camp, gameState.tileMap)) {
-            items.push({
-                key: 'astrologer:shield',
-                icon: '🌟',
-                label: '星光护体',
-                desc: '免疫天气带来的负面影响',
-                color: '#aabbff',
-                kind: 'effect'
-            });
-        }
-    }
+    // 夜观星光护体：移除独立徽章，改为在天气效果上叠加星标 + 描述标注
 
     if (unit.commander !== 'staller' && unit.tile) {
         const layers = getStallerSnareLayers(unit.tile, unit.camp, gameState.tileMap);
@@ -1420,6 +1417,12 @@ function _renderIconQueue(container, queue, items, className, iconClass, signatu
         icon.setAttribute('aria-hidden', 'true');
         icon.textContent = item.icon || '✦';
         button.replaceChildren(icon);
+        if (item._isShielded) {
+            const starOverlay = document.createElement('span');
+            starOverlay.className = 'ability-star-overlay';
+            starOverlay.textContent = '🌟';
+            button.appendChild(starOverlay);
+        }
         if (item.count !== undefined && item.count !== null && item.count !== '') {
             const count = document.createElement('span');
             count.className = 'ability-badge-count';
@@ -1505,8 +1508,8 @@ function _syncSelectionHud(tile) {
         _setHudTitle(unit.camp.name + ' · ' + typeName + (commander ? ' · ' + commander.name : ''), unit._rank || 0);
         selectionHudEl.style.setProperty('--selection-camp-color', unit.camp.color);
         selectionHudHp.hidden = false;
-        // 血条长度正比于 maxHp + 护盾（最小 80px）
-        const barTotal = unit.maxHp + Math.max(0, unit._shield || 0);
+        // 血条长度正比于 maxHp + 护盾 × 0.5（最小 80px），护盾适当撑宽但不过度
+        const barTotal = unit.maxHp + Math.max(0, (unit._shield || 0) * 0.5);
         selectionHudHp.style.width = Math.max(80, barTotal * 1.1) + 'px';
         const total = unit.maxHp + Math.max(0, unit._shield || 0);
         const hpRatio = total ? unit.hp / total : 0;
@@ -1604,6 +1607,7 @@ function _openBoardDetail(item, source, pinned = false) {
     boardDetailKicker.textContent = item.kicker || (item.kind === 'passive' ? '被动技能' : item.kind === 'effect' ? '效果' : '主动技能');
     boardDetailTitle.textContent = (item.icon ? item.icon + ' ' : '') + item.label;
     boardDetailDesc.textContent = item.desc || '';
+    boardDetailDesc.classList.toggle('is-shielded', !!item._isShielded);
     boardDetailStatus.textContent = item.status || '';
     _positionBoardDetail(source);
     boardDetailPopover.classList.add('visible');
@@ -2240,12 +2244,12 @@ function _applyWeatherChoice(chosenWeather) {
     logMessage(`占星者【星移】：天气强制为${chosenWeather === 'clear' ? '晴' : chosenWeather === 'rain' ? '雨' : chosenWeather === 'fog' ? '雾' : '风'}，锁定2回合`);
     spawnAstrologerEffect(unit.tile.x, unit.tile.y);
 
-    // 设置CD
+    // 设置持续与冷却（duration=2→按钮显示「持续」，结束后进入冷却）
     const cmdCfg = getCommander(unit.commander);
     if (cmdCfg && cmdCfg.activeSkill) {
+        unit.activeSkillDur = cmdCfg.activeSkill.duration;
         unit.activeSkillCD = cmdCfg.activeSkill.cooldown;
     }
-    unit.activeSkillDur = 0;
     recalcAllFlankingMorale();
     showSelectionHudForTile(unit.tile);
     if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });

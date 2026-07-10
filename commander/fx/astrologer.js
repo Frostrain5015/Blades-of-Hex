@@ -56,41 +56,27 @@ function _drawStarlightField(now) {
         ctx.shadowBlur = 0;
         ctx.restore();
 
-        // 蓝黑色星光边界圈（力场外缘）
+        // 蓝黑色星光边界圈（力场外缘），采用与上校航程圈一致的邻接检查，遇到地图边界不渲染
         ctx.save();
         ctx.globalAlpha = 0.25 + pulse * 0.12;
         ctx.strokeStyle = '#1a1a3a';
         ctx.shadowColor = 'rgba(40,30,90,0.5)';
         ctx.shadowBlur = 10;
         ctx.lineWidth = 2.5;
-        const _vertCount = new Map();
+        ctx.beginPath();
+        const _neighborOffsets = [[1,0,0],[0,1,1],[-1,1,2],[-1,0,3],[0,-1,4],[1,-1,5]];
         for (const ht of fieldTiles) {
-            for (let _vi = 0; _vi < 6; _vi++) {
-                const _angle = (Math.PI / 180) * (60 * _vi - 30);
-                const _vx = ht.x + HEX_SIZE * Math.cos(_angle);
-                const _vy = ht.y + HEX_SIZE * Math.sin(_angle);
-                const _vk = `${_vx.toFixed(1)},${_vy.toFixed(1)}`;
-                _vertCount.set(_vk, (_vertCount.get(_vk) || 0) + 1);
+            for (const [ndq, ndr, ek] of _neighborOffsets) {
+                const nq = ht.q + ndq, nr = ht.r + ndr;
+                if (!gameState.tileMap.has(`${nq},${nr}`)) continue; // 出界→不描
+                if (fieldSet.has(`${nq},${nr}`)) continue;            // 区域内→内部边不描
+                const a0 = (Math.PI / 180) * (60 * ek - 30);
+                const a1 = (Math.PI / 180) * (60 * (ek + 1) - 30);
+                ctx.moveTo(ht.x + HEX_SIZE * Math.cos(a0), ht.y + HEX_SIZE * Math.sin(a0));
+                ctx.lineTo(ht.x + HEX_SIZE * Math.cos(a1), ht.y + HEX_SIZE * Math.sin(a1));
             }
         }
-        const _outerVerts = [];
-        for (const [vk, cnt] of _vertCount) {
-            if (cnt < 3) {
-                const [vx, vy] = vk.split(",").map(Number);
-                _outerVerts.push({ x: vx, y: vy });
-            }
-        }
-        if (_outerVerts.length >= 3) {
-            const _gx = tile.x, _gy = tile.y;
-            _outerVerts.sort((a, b) => Math.atan2(a.y - _gy, a.x - _gx) - Math.atan2(b.y - _gy, b.x - _gx));
-            ctx.beginPath();
-            ctx.moveTo(_outerVerts[0].x, _outerVerts[0].y);
-            for (let _vi = 1; _vi < _outerVerts.length; _vi++) {
-                ctx.lineTo(_outerVerts[_vi].x, _outerVerts[_vi].y);
-            }
-            ctx.closePath();
-            ctx.stroke();
-        }
+        ctx.stroke();
         ctx.shadowBlur = 0;
         ctx.restore();
     }
