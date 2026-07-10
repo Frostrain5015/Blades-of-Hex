@@ -1309,7 +1309,7 @@ function _buildPassiveItems(unit) {
         color = stacks > 0 ? '#ff7b5c' : '#7b8790';
         active = stacks > 0;
         intensity = stacks / 40;
-        status = '当前生效 加成：攻击力+' + stacks + '%、防御力+' + stacks + '%';
+        status = '当前生效 攻击力提高' + stacks + '%，防御力提高' + stacks + '%';
     }
     if (!active) status = '当前未生效';
     if (commander.skill) {
