@@ -815,7 +815,7 @@ const EFFECT_ICONS = {
     '村庄': '🏘️',
     '平原': '🌾',
     '森林': '🌲',
-    '山地': '⛰',
+    '山地': '⛰️',
     '战壕': '🪖',
     '高射机枪': '🔫',
     '碉堡': '🏰',
@@ -834,7 +834,8 @@ const EFFECT_ICONS = {
     '缚足': '🕸️',
     '施工中': '🚧',
     '脚手架': '🏗️',
-    '泣血': '🩸'
+    '泣血': '🩸',
+    '星移': '🔮'
 };
 
 function _commanderSkillIcon(commanderId, skillName) {
@@ -2251,6 +2252,11 @@ function _applyWeatherChoice(chosenWeather) {
         unit.activeSkillCD = cmdCfg.activeSkill.cooldown;
     }
     recalcAllFlankingMorale();
+    // 强制刷新 HUD 天气显示 + 全图单位天气效果徽章
+    _lastHudSignature = null;
+    _lastHudSelectionKey = null;
+    _lastEffectSignature = null;
     showSelectionHudForTile(unit.tile);
+    updateUI();
     if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
 }
