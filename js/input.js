@@ -607,7 +607,7 @@ function _handleCardCanvasClick(e) {
             if (COLONEL_CARDS[cardId] && gameState._colonelAirStacks) {
                 const _campKey3 = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
                 const _stk = gameState._colonelAirStacks[_campKey3] || 0;
-                if (_stk > 0) notify(`✈️ 空军熟练度 Lv.${_stk}（+${_stk * 10}%伤害）`);
+                if (_stk > 0) notify(`✈️ 空军熟练度 Lv.${_stk}（+${_stk * 5}%伤害）`);
             }
             // E4 空军上校：进入选目标前先校验部署/金币/雾天，避免卡在选目标态
             if (COLONEL_CARDS[cardId]) {
@@ -954,12 +954,12 @@ function _getPassiveRuntimeState(unit, skill) {
     }
 
     if (unit.commander === 'colonel' && skill.name === '制空') {
-        const stacks = Math.min(4, gameState._colonelAirStacks?.[_campKeyInput(unit.camp)] || 0);
-        presentation.desc += '\n当前空军伤害 +' + (stacks * 10) + '%。';
-        presentation.status = '空军熟练度 ' + stacks + '/4 层';
+        const stacks = Math.min(6, gameState._colonelAirStacks?.[_campKeyInput(unit.camp)] || 0);
+        presentation.desc += '\n当前空军伤害 +' + (stacks * 5) + '%。';
+        presentation.status = '空军熟练度 ' + stacks + '/6 层';
         presentation.count = stacks || '';
         presentation.active = stacks > 0;
-        presentation.intensity = stacks / 4;
+        presentation.intensity = stacks / 6;
         if (stacks > 0) presentation.color = '#94cdf8';
     }
 

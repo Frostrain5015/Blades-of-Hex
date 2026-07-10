@@ -2453,24 +2453,23 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             }
         }
         if (_colUnit) {
-            // 通用空军增伤：每使用1张卡+10%（②增伤乘区，上限4层）
+            // 通用空军增伤：每使用1张卡+5%（②增伤乘区，上限6层）
             if (gameState._colonelAirStacks) {
                 if (gameState._colonelAirStacks[campKey] == null) gameState._colonelAirStacks[campKey] = 0;
-                if (gameState._colonelAirStacks[campKey] < 4) {
+                if (gameState._colonelAirStacks[campKey] < 6) {
                     gameState._colonelAirStacks[campKey]++;
-                    logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[campKey] * 10}%/上限40%`);
+                    logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[campKey] * 5}%/上限30%`);
                 }
             }
             const _stacks = gameState._colonelAirStacks?.[campKey] || 0;
-            const airBonus = 0.10 * Math.min(_stacks, 4);
+            const airBonus = 0.05 * Math.min(_stacks, 6);
             if (cardId === 'diveStrafe' && targetTile && targetTile.unit) {
-                // 扫射·弱点打击：目标HP<50%时无视其25%防御力（满血目标无破甲）
-                const _hpRatio2 = targetTile.unit.hp / targetTile.unit.maxHp;
-                const _pierce = _hpRatio2 < 0.5 ? 0.25 : 0;
-                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, _pierce);
+                // 扫射·弱点打击：目标已损生命值的10%转化为攻击力，封顶+15，并在后续乘区前计入。
+                const _missingHpBonus = Math.min(15, Math.floor((targetTile.unit.maxHp - targetTile.unit.hp) * 0.10));
+                const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, 0, _missingHpBonus);
                 result.dmg = Math.round(_calc.dmg);
                 result.isCrit = _calc.isCrit;
-                if (_pierce > 0) logMessage(`目标生命值低于50%，触发弱点打击（破甲25%）！`);
+                if (_missingHpBonus > 0) logMessage(`目标已损生命转化为+${_missingHpBonus}攻击力，触发弱点打击！`);
             } else if (cardId === 'carpetBomb' && result.results) {
                 for (const _r of result.results) {
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
@@ -2513,9 +2512,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // 上校空军卡叠层
     if (gameState._colonelAirStacks) {
         if (gameState._colonelAirStacks[aCampKey] == null) gameState._colonelAirStacks[aCampKey] = 0;
-        if (gameState._colonelAirStacks[aCampKey] < 4) {
+        if (gameState._colonelAirStacks[aCampKey] < 6) {
             gameState._colonelAirStacks[aCampKey]++;
-            logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[aCampKey] * 10}%/上限40%`);
+            logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[aCampKey] * 5}%/上限30%`);
         }
     }
     const fromTile = airUnit.tile;

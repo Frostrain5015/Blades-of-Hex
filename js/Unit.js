@@ -795,7 +795,7 @@ export class Unit {
     //   ③ 暴击/浮动：_calcFloat()，「暴击率提高/降低xx%」
     //   ④ 防御（层内加算后 1-Σ）：地形/守城/兵种/军衔/士气/将领/灵光，「防御力提高xx%」
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
-                   isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0) {
+                   isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0, attackFlatBonus = 0) {
         const counterCoeff = COUNTER_RELATION[attacker.type]?.[defender.type] ?? 1;
         const qixueActive = attacker.commander === 'berserker' && attacker._berserkerQixue && !isCounter;
 
@@ -893,7 +893,7 @@ export class Unit {
         const defenseMulti = Math.max(0.3, 1 - defSum);
 
         return {
-            dmg: attacker.getEffectiveAttack() * baseMulti * offenseMulti * floatMult * defenseMulti,
+            dmg: (attacker.getEffectiveAttack() + attackFlatBonus) * baseMulti * offenseMulti * floatMult * defenseMulti,
             isCrit
         };
     }

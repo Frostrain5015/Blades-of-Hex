@@ -426,13 +426,13 @@ function _findColonel(gameState, camp) {
 export const COLONEL_CARDS = {
     diveStrafe: {
         id: 'diveStrafe', name: '扫射', icon: '💥',
-        desc: '【扫射】$3\n对指定单体目标造成伤害；目标生命值低于50%时额外无视其25%防御力',
+        desc: '【扫射】$3\n对指定单体目标造成伤害；附加等同于目标已损生命值10%的攻击力（最多+15），再按标准伤害流程结算',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
             const target = targetTile.unit;
             if (!colonel || !target) return { dmg: 0, diveStrafe: true, targetTile };
-            // 预演值：最终伤害由 gameLogic.executeTacticalCard 按 通用空军增伤+条件破甲 重算覆盖
+            // 预演值：最终伤害由 gameLogic.executeTacticalCard 按通用空军增伤与已损生命攻击加成重算覆盖
             const r = colonel._resolveDamage(colonel, target, 1.5, 0, false, false, true);
             return { dmg: Math.round(r.dmg), isCrit: r.isCrit, diveStrafe: true, targetTile };
         }
