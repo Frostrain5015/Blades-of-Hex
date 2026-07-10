@@ -1063,13 +1063,17 @@ body {
 }
 
 .selection-effect-icon,
-.canvas-passive-icon { font-size: 15px; line-height: 1; }
+.canvas-passive-icon {
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+    font-size: 15px;
+    line-height: 1;
+}
 
 .ability-badge-count {
     position: absolute;
-    right: 1px;
-    bottom: 1px;
-    z-index: 2;
+    right: 3px;
+    bottom: 5px;
+    z-index: 5;
     min-width: 11px;
     height: 11px;
     padding: 0 2px;
@@ -1138,7 +1142,7 @@ body {
     gap: 6px;
     max-height: calc(100% - 28px);
     overflow-y: auto;
-    padding: 2px;
+    padding: 7px 3px 2px;
     opacity: 0;
     transform: translateY(8px) scale(0.96);
     pointer-events: none;
@@ -1164,7 +1168,7 @@ body {
     height: 42px;
     padding: 0;
     place-items: center;
-    overflow: hidden;
+    overflow: visible;
     color: #fff;
     background: var(--board-action-background, linear-gradient(135deg, #d4380d, #ad2102));
     border: 1px solid var(--board-action-border, #ff6b3d);
@@ -1208,8 +1212,9 @@ body {
 
 .canvas-action-cost {
     position: absolute;
-    right: 2px;
-    bottom: 1px;
+    right: 3px;
+    bottom: 5px;
+    z-index: 5;
     padding: 0 3px;
     color: #ffe59a;
     background: rgba(0, 0, 0, 0.58);
@@ -1228,8 +1233,9 @@ body {
 
 .canvas-action-time {
     position: absolute;
-    right: 2px;
-    top: 1px;
+    right: 3px;
+    top: -5px;
+    z-index: 5;
     padding: 0 3px;
     color: #cfe3f5;
     background: rgba(0, 0, 0, 0.58);
@@ -1734,6 +1740,7 @@ body {
 
 /* ---- 将领卡片（双面结构）---- */
 .commander-card {
+    position: relative;
     width: 180px;
     height: 260px;
     cursor: pointer;
@@ -1751,6 +1758,30 @@ body {
         0 0 22px rgba(255, 215, 0, 0.28);
 }
 .commander-card:not(.animating).confirmed {
+    box-shadow: 0 0 0 2px #4CAF50, 0 0 12px rgba(76, 175, 80, 0.4);
+}
+.commander-card:not(.animating).confirmed::after,
+.commander-card:not(.animating).dual-selected::after {
+    content: '已选中';
+    position: absolute;
+    z-index: 4;
+    top: 8px;
+    right: 8px;
+    padding: 3px 7px;
+    border: 1px solid rgba(220, 255, 225, 0.8);
+    border-radius: 999px;
+    color: #effff1;
+    background: rgba(28, 126, 63, 0.92);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.38), 0 0 10px rgba(76, 175, 80, 0.48);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.2;
+    pointer-events: none;
+}
+.commander-card:not(.animating).dual-selected {
+    opacity: 1;
+    filter: none;
     box-shadow: 0 0 0 2px #4CAF50, 0 0 12px rgba(76, 175, 80, 0.4);
 }
 .commander-card.taken {

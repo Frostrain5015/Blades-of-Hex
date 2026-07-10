@@ -658,9 +658,14 @@ function _showPrepDialog(action) {
         ]);
     } else if (action === 'training') {
         title.textContent = '训练场';
-        typeSection.classList.add('collapsed');
+        document.getElementById('prepLabel1').textContent = '对战人数';
+        typeSection.classList.remove('collapsed');
         diffSection.classList.remove('hidden');
         diffSection.classList.add('collapsed');
+        _buildPrepOptionRow('prepOptions1', [
+            { id: '2p', title: '双人', desc: '红军与蓝军轮流自选将领' },
+            { id: '3p', title: '三人', desc: '红、蓝、绿三方依次自选将领' }
+        ]);
     } else {
         title.textContent = '本地游戏';
         document.getElementById('prepLabel1').textContent = '对战类型';
@@ -716,6 +721,7 @@ function _executePrepChoice() {
 
     if (_prepAction === 'training') {
         gameState.gameMode = 'training';
+        gameState.isThreePlayer = sel1 === '3p';
         gameState.skirmishFog = isSkirmish;
         gameState.doubleCommanderMode = isDoubleCommander;
         gameState.aiOpponentCamp = CAMP.player2;
@@ -818,14 +824,18 @@ function beginTrainingCountdown() {
     const commanderP2 = gameState.commanderP2;
     const commanderP1Secondary = gameState.commanderP1Secondary;
     const commanderP2Secondary = gameState.commanderP2Secondary;
+    const commanderP3 = gameState.commanderP3;
+    const commanderP3Secondary = gameState.commanderP3Secondary;
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
+    const savedThreePlayer = gameState.isThreePlayer;
     resetGameState();
-    // 双将训练场使用 PVE 回合逻辑，让 AI 自动选择并部署第二名将领。
-    gameState.gameMode = savedDoubleCommanderMode ? 'pve' : 'training';
+    // 双人双将训练场沿用 PVE 回合逻辑；三人训练场保持同设备本地对战。
+    gameState.gameMode = savedDoubleCommanderMode && !savedThreePlayer ? 'pve' : 'training';
+    gameState.isThreePlayer = savedThreePlayer;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
-    gameState.aiOpponentCamp = CAMP.player2;
+    gameState.aiOpponentCamp = savedDoubleCommanderMode && !savedThreePlayer ? CAMP.player2 : null;
     gameState.aiDifficulty = 1.0;
     gameState._trainingMode = true;
     gameState.commanderPhase = 'done';
@@ -833,14 +843,20 @@ function beginTrainingCountdown() {
     gameState.commanderP2 = commanderP2;
     gameState.commanderP1Secondary = commanderP1Secondary;
     gameState.commanderP2Secondary = commanderP2Secondary;
+    gameState.commanderP3 = commanderP3;
+    gameState.commanderP3Secondary = commanderP3Secondary;
     gameState.commanderP1Confirmed = !!commanderP1;
     gameState.commanderP2Confirmed = !!commanderP2;
     gameState.commanderP1SecondaryConfirmed = !!commanderP1Secondary;
     gameState.commanderP2SecondaryConfirmed = !!commanderP2Secondary;
+    gameState.commanderP3Confirmed = !!commanderP3;
+    gameState.commanderP3SecondaryConfirmed = !!commanderP3Secondary;
     gameState.commanderP1Deployed = false;
     gameState.commanderP2Deployed = false;
     gameState.commanderP1SecondaryDeployed = false;
     gameState.commanderP2SecondaryDeployed = false;
+    gameState.commanderP3Deployed = false;
+    gameState.commanderP3SecondaryDeployed = false;
     // 3秒倒计时后开始
     const overlay = document.getElementById('commanderOverlay');
     overlay.classList.remove('show');
@@ -939,19 +955,22 @@ function beginTrainingCommanderPhase(humanRole) {
     _deploymentStarted = false;
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
+    const savedThreePlayer = gameState.isThreePlayer;
     const savedDiff = gameState.aiDifficulty;
     resetGameState();
     gameState.gameMode = 'training';
+    gameState.isThreePlayer = savedThreePlayer;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
     gameState.aiDifficulty = savedDiff;
-    gameState.aiOpponentCamp = CAMP.player2;
+    gameState.aiOpponentCamp = savedThreePlayer ? null : CAMP.player2;
     gameState._trainingMode = true;
     _commanderTransitioning = false;
     if (savedDoubleCommanderMode) {
-        const pool = shuffleAndSplitPool(false, 5);
+        const pool = shuffleAndSplitPool(savedThreePlayer, 5);
         gameState.commanderPoolP1 = pool.p1;
         gameState.commanderPoolP2 = pool.p2;
+        if (savedThreePlayer) gameState.commanderPoolP3 = pool.p3 || [];
         gameState.commanderPhase = 'selection';
         _pveHumanRole = 'player1';
         _showCommanderSelection('player1');
@@ -1248,21 +1267,32 @@ function _showTrainingCommanderSelection(forPlayer) {
         if (_commanderPending === key) {
             // Double-click confirm
             _commanderPending = null;
-            if (_trainPhase === 'player1') {
-                gameState.commanderP1 = key;
-                gameState.commanderP1Confirmed = true;
-                gameState.commanderP1Deployed = false;
+            const slots = _commanderSlots[_trainPhase];
+            gameState[slots.primary] = key;
+            gameState[slots.primaryConfirmed] = true;
+            const deployedKey = _trainPhase === 'player1'
+                ? 'commanderP1Deployed'
+                : _trainPhase === 'player2' ? 'commanderP2Deployed' : 'commanderP3Deployed';
+            gameState[deployedKey] = false;
+
+            const nextPhase = _trainPhase === 'player1'
+                ? 'player2'
+                : (_trainPhase === 'player2' && gameState.isThreePlayer ? 'player3' : null);
+            if (nextPhase) {
                 cardEl.classList.remove('selected');
                 cardEl.classList.add('taken');
                 cardEl.style.pointerEvents = 'none';
-                statusDiv.textContent = `红军已选 ${cfg.name}，请为蓝军选择将领`;
+                const nextName = nextPhase === 'player2' ? '蓝军' : '绿军';
+                statusDiv.textContent = `${_trainPhase === 'player1' ? '红军' : '蓝军'}已选 ${cfg.name}，请为${nextName}选择将领`;
                 statusDiv.style.color = '#4CAF50';
-                _trainPhase = 'player2';
+                _trainPhase = nextPhase;
             } else {
-                gameState.commanderP2 = key;
-                gameState.commanderP2Confirmed = true;
-                gameState.commanderP2Deployed = false;
-                statusDiv.textContent = `红军：${gameState.commanderP1} ／ 蓝军：${cfg.name}`;
+                const selectedNames = [
+                    `红军：${gameState.commanderP1}`,
+                    `蓝军：${gameState.commanderP2}`
+                ];
+                if (gameState.isThreePlayer) selectedNames.push(`绿军：${gameState.commanderP3}`);
+                statusDiv.textContent = selectedNames.join(' ／ ');
                 statusDiv.style.color = '#4CAF50';
                 cardsDiv.querySelectorAll('.commander-card').forEach(c => c.style.pointerEvents = 'none');
                 setTimeout(() => {
@@ -1450,7 +1480,7 @@ function _showCommanderSelection(forPlayer) {
                             );
                         }
                         if (!selection.complete) {
-                            el.classList.add('taken');
+                            el.classList.add('taken', 'dual-selected');
                             el.style.pointerEvents = 'none';
                             statusDiv.textContent = `已选择【${cfg.name}】，请选择第 2 名将领`;
                             statusDiv.style.color = '#ffd700';
@@ -1595,7 +1625,7 @@ function _onCommanderSelected(forPlayer) {
     updateCampEmblems();
     if (isNetworkGame()) {
         _checkBothConfirmed();
-    } else if (gameState.gameMode === 'pve' || (gameState.gameMode === 'training' && gameState.doubleCommanderMode)) {
+    } else if (gameState.gameMode === 'pve' || (gameState.gameMode === 'training' && gameState.doubleCommanderMode && !gameState.isThreePlayer)) {
         // PVE 模式：人类选完后 AI 自动选
         const beginSelectedMatch = () => {
             document.getElementById('commanderOverlay').classList.remove('show');
@@ -1630,7 +1660,8 @@ function _onCommanderSelected(forPlayer) {
             setTimeout(() => {
                 document.getElementById('commanderOverlay').classList.remove('show');
                 gameState.commanderPhase = 'done';
-                startGame();
+                if (gameState.gameMode === 'training') beginTrainingCountdown();
+                else startGame();
                 _commanderTransitioning = false;
             }, 800);
         }
