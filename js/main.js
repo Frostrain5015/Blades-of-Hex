@@ -1098,7 +1098,7 @@ function _showTrainingCommanderSelection(forPlayer) {
     }
     overlay.classList.add("show");
     const CARD_W = 180, CARD_H = 260;
-    const CARDS_PER_ROW = 5;
+    const CARDS_PER_ROW = 6;
     requestAnimationFrame(() => {
         const containerW = cardsDiv.clientWidth;
         const containerH = Math.max(cardsDiv.clientHeight, CARD_H);

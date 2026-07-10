@@ -1686,7 +1686,7 @@ body {
     border-radius: var(--radius-md);
     padding: 24px 28px;
     min-width: 500px;
-    max-width: 1060px;
+    max-width: 1200px;
     text-align: center;
     box-shadow: 0 0 48px rgba(0, 0, 0, 0.85);
 }
