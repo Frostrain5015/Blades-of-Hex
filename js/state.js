@@ -658,7 +658,8 @@ export function serializeState() {
             droneCampKey: t.unit._droneCampKey || null,
             droneBornAt: t.unit._droneBornAt || 0,
             engineerConstruction: t.unit._engineerConstruction ? { ...t.unit._engineerConstruction } : null,
-            engineerScaffold: t.unit._engineerScaffold ? { ...t.unit._engineerScaffold } : null
+            engineerScaffold: t.unit._engineerScaffold ? { ...t.unit._engineerScaffold } : null,
+            engineerBunkerCD: t.unit._engineerBunkerCD || 0
         } : null
     }));
 
@@ -924,6 +925,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._droneBornAt = td.unit.droneBornAt || 0;
             unit._engineerConstruction = td.unit.engineerConstruction ? { ...td.unit.engineerConstruction } : null;
             unit._engineerScaffold = td.unit.engineerScaffold ? { ...td.unit.engineerScaffold } : null;
+            unit._engineerBunkerCD = td.unit.engineerBunkerCD || 0;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.commander) {
                 const saved = oldCommander.get(unit.id);

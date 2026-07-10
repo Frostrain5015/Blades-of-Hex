@@ -1,7 +1,7 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
-import { digEngineerTrench, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
+import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
@@ -2010,6 +2010,8 @@ export function isAntiAirUnit(u) {
 export function getAALayers(tile, camp, tileMap) {
     if (!tile || !tileMap) return 0;
     let count = 0;
+    // 高射机枪工事：为站在其上的单位提供自身1层防空（仅覆盖自身1格）
+    if (tile.fortification === 'flak') count++;
     for (const t of tileMap.values()) {
         if (!t || !t.unit || t.unit.camp === camp || !isAntiAirUnit(t.unit)) continue;
         if (hexDistance(t, tile) <= ANTIAIR_RADIUS) {
@@ -2139,6 +2141,24 @@ export function executeEngineerTrench(engineerUnit) {
     recalcAllFlankingMorale();
     updateUI();
     broadcastAction('engineerTrench', {
+        unitId: engineerUnit.id,
+        q: result.tile.q,
+        r: result.tile.r
+    });
+    return true;
+}
+
+export function executeEngineerFlak(engineerUnit) {
+    const result = digEngineerFlak(engineerUnit, { gameState, logMessage });
+    if (!result.ok) {
+        notify(result.message, 'error');
+        return false;
+    }
+
+    invalidateBoard();
+    recalcAllFlankingMorale();
+    updateUI();
+    broadcastAction('engineerFlak', {
         unitId: engineerUnit.id,
         q: result.tile.q,
         r: result.tile.r

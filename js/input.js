@@ -7,7 +7,7 @@ import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } fr
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
-    executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerBunkerConstruction, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
+    executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
     isColonelTargetBlocked
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
@@ -166,11 +166,16 @@ function _getCommanderSkillAvailability(unit, skillId = '') {
         if (!skill || !campKey || (gameState.playerGold[campKey] || 0) < skill.goldCost) {
             return { canUse: false, reason: '金币不足' };
         }
-        if (skillId === 'trench' && unit.tile.fortification) {
+        if ((skillId === 'trench' || skillId === 'flak') && unit.tile.fortification) {
             return { canUse: false, reason: '当前地块已有工事' };
         }
-        if (skillId === 'bunker' && !_hasEngineerBunkerTarget(unit)) {
-            return { canUse: false, reason: '没有可施工的目标地块' };
+        if (skillId === 'bunker') {
+            if ((unit._engineerBunkerCD || 0) > 0) {
+                return { canUse: false, reason: `冷却中（${unit._engineerBunkerCD}回合）` };
+            }
+            if (!_hasEngineerBunkerTarget(unit)) {
+                return { canUse: false, reason: '没有可施工的目标地块' };
+            }
         }
     }
     return { canUse: true, reason: '' };
@@ -243,7 +248,7 @@ function _getReinforcementAction(unit) {
 }
 
 function _getCommanderActionIcon(commanderId, skillId) {
-    if (commanderId === 'engineer') return skillId === 'bunker' ? '🧱' : '🕳️';
+    if (commanderId === 'engineer') return skillId === 'bunker' ? '🧱' : skillId === 'flak' ? '🔫' : '🕳️';
     if (commanderId === 'paladin') return '⚔️';
     if (commanderId === 'priest') return '✨';
     if (commanderId === 'astrologer') return '🔮';
@@ -393,6 +398,8 @@ function _activateBoardAction(action) {
     if (unit.commander === 'engineer') {
         if (action.skillId === 'trench') {
             if (executeEngineerTrench(unit)) showTooltipForTile(unit.tile);
+        } else if (action.skillId === 'flak') {
+            if (executeEngineerFlak(unit)) showTooltipForTile(unit.tile);
         } else if (action.skillId === 'bunker') {
             _beginEngineerBunkerTargeting(unit);
         }

@@ -1,9 +1,12 @@
 import { CAMP } from '../js/config.js';
 
 export const ENGINEER_TRENCH_GOLD_COST = 2;
+export const ENGINEER_FLAK_GOLD_COST = 2;
 export const ENGINEER_BUNKER_GOLD_COST = 6;
-// 碉堡施工总共需要 2 个己方回合：起始回合 + 之后 1 个己方回合，期间工程师全程锁定。
-export const ENGINEER_BUNKER_BUILD_TURNS = 2;
+// 碉堡施工需要 1 个己方回合（起始回合工程师锁定），下个己方回合开始时脚手架变为碉堡。
+export const ENGINEER_BUNKER_BUILD_TURNS = 1;
+// 碉堡建成后进入冷却，冷却期内无法再次建造（不影响挖战壕/架机枪/移动/战斗）。
+export const ENGINEER_BUNKER_CD_TURNS = 2;
 
 // 六角距离（仅依赖 q/r，避免依赖 tile.s，测试用桩对象也可复用）。
 function hexDistanceQR(a, b) {
@@ -69,7 +72,27 @@ export function digEngineerTrench(unit, helpers) {
     gameState.playerGold[campKey] -= ENGINEER_TRENCH_GOLD_COST;
     tile.fortification = 'trench';
     consumeEngineerAction(unit);
-    helpers.logMessage(`${unit.camp.name}工程师在(${tile.q},${tile.r})挖掘了【战壕】`);
+    helpers.logMessage(`${unit.camp.name}工程师在(${tile.q},${tile.r})挖掘了【战壕】（近战防御+25%）`);
+    return { ok: true, tile };
+}
+
+export function digEngineerFlak(unit, helpers) {
+    const gameState = helpers.gameState;
+    if (!canActAsEngineer(unit, gameState)) return fail('工程师当前无法架设高射机枪');
+
+    const tile = unit.tile;
+    // 与战壕互斥：一格只能存在一种工事
+    if (tile.fortification) return fail('该地块已有工事');
+
+    const campKey = campToKey(unit.camp);
+    if ((gameState.playerGold[campKey] || 0) < ENGINEER_FLAK_GOLD_COST) {
+        return fail(`金币不足，需要$${ENGINEER_FLAK_GOLD_COST}`);
+    }
+
+    gameState.playerGold[campKey] -= ENGINEER_FLAK_GOLD_COST;
+    tile.fortification = 'flak';
+    consumeEngineerAction(unit);
+    helpers.logMessage(`${unit.camp.name}工程师在(${tile.q},${tile.r})架设了【高射机枪】（远程防御+25%，自身1层防空）`);
     return { ok: true, tile };
 }
 
@@ -94,6 +117,7 @@ export function beginEngineerBunkerConstruction(unit, targetTile, helpers) {
     const gameState = helpers.gameState;
     // canActAsEngineer 已含 !unit._engineerConstruction，保证同时只能修建 1 个碉堡。
     if (!canActAsEngineer(unit, gameState)) return fail('工程师当前无法建造碉堡');
+    if ((unit._engineerBunkerCD || 0) > 0) return fail(`建造碉堡冷却中，还需${unit._engineerBunkerCD}回合`);
     if (!canBuildEngineerBunkerAt(targetTile)) return fail('碉堡不能建造在单位、城市或村庄上');
     if (!isEngineerBunkerAdjacent(unit, targetTile)) return fail('只能在工程师身旁1格的地块施工');
     if (typeof helpers.Unit !== 'function') return fail('无法创建施工脚手架');
@@ -134,6 +158,15 @@ export function beginEngineerBunkerConstruction(unit, targetTile, helpers) {
 // 脚手架若已被摧毁则不在场，其对应工程师的锁定已在 Unit.destroy() 中立即解除。
 export function completeEngineerBunkerConstructions(gameState, camp, helpers) {
     const results = [];
+
+    // 先递减本方工程师的建造冷却（先于本回合可能新产生的冷却，避免同回合被扣掉）。
+    for (const tile of gameState.tiles) {
+        const engineer = tile.unit;
+        if (engineer && engineer.commander === 'engineer' && engineer.camp === camp && (engineer._engineerBunkerCD || 0) > 0) {
+            engineer._engineerBunkerCD -= 1;
+        }
+    }
+
     for (const tile of gameState.tiles) {
         const scaffold = tile.unit;
         if (!scaffold || !scaffold._engineerScaffold || scaffold.camp !== camp) continue;
@@ -163,7 +196,9 @@ export function completeEngineerBunkerConstructions(gameState, camp, helpers) {
         scaffold.canAct = false;
         scaffold.remainingMP = 0;
         if (builder && builder._engineerConstruction) builder._engineerConstruction = null;
-        helpers.logMessage(`${camp.name}工程师在(${tile.q},${tile.r})建成了【碉堡】（继承HP ${Math.max(0, Math.round(scaffold.hp))}/${scaffold.maxHp}）`);
+        // 以建成为起点进入冷却：本回合刚设置，不会被上方递减扣掉。
+        if (builder) builder._engineerBunkerCD = ENGINEER_BUNKER_CD_TURNS;
+        helpers.logMessage(`${camp.name}工程师在(${tile.q},${tile.r})建成了【碉堡】（继承HP ${Math.max(0, Math.round(scaffold.hp))}/${scaffold.maxHp}）；建造进入${ENGINEER_BUNKER_CD_TURNS}回合冷却`);
         results.push({ ok: true, engineer: builder || null, bunker: scaffold, targetTile: tile });
     }
 
@@ -199,21 +234,27 @@ export default {
     hpBonusPct: 0.30,
     atkBonusPct: 0.15,
     spdBonus: 0,
-    desc: '以永久战壕和延迟碉堡封锁关键地块的防御型将领。',
+    desc: '以定向工事（战壕/高射机枪）与延迟碉堡巩固后方防线的防御型将领。',
     skills: [
         {
             name: '挖掘战壕',
-            desc: `$${ENGINEER_TRENCH_GOLD_COST} 在自身所在格挖掘永久【战壕】。战壕与原有地形叠加，处于其中的任何单位防御+30%；使用后清空行动力。`,
+            desc: `$${ENGINEER_TRENCH_GOLD_COST} 在自身所在格挖掘永久【战壕】：处于其中的任何单位对**近战**攻击防御+25%。与地形叠加、与高射机枪互斥（一格一种工事）；使用后清空行动力。`,
+            type: 'active'
+        },
+        {
+            name: '高射机枪',
+            desc: `$${ENGINEER_FLAK_GOLD_COST} 在自身所在格架设永久【高射机枪】：处于其中的任何单位对**远程**攻击防御+25%，遭空军攻击时视为拥有1层防空（仅覆盖自身1格）。与地形叠加、与战壕互斥；使用后清空行动力。`,
             type: 'active'
         },
         {
             name: '建造碉堡',
-            desc: `$${ENGINEER_BUNKER_GOLD_COST} 选择身旁1格的空地（非城市、非村庄）施工，立即在该格放置一座🧱【脚手架】：建造中无法攻击，但有${ENGINEER_BUNKER_HP}HP、可被攻击甚至摧毁。施工共需${ENGINEER_BUNKER_BUILD_TURNS}个己方回合，期间工程师无法行动且同时只能修建1座；${ENGINEER_BUNKER_BUILD_TURNS}回合后脚手架变为【碉堡】并继承剩余HP。施工中若脚手架被摧毁，金币不返还，工程师立即解除锁定、下回合可正常行动。`,
+            desc: `$${ENGINEER_BUNKER_GOLD_COST} 选择身旁1格的空地（非城市、非村庄）施工，立即在该格放置一座🧱【脚手架】：建造中无法攻击，但有${ENGINEER_BUNKER_HP}HP、可被攻击甚至摧毁。施工需${ENGINEER_BUNKER_BUILD_TURNS}个己方回合（期间工程师无法行动、同时只能修建1座），之后脚手架变为【碉堡】并继承剩余HP；建成后进入${ENGINEER_BUNKER_CD_TURNS}回合冷却，冷却期不影响挖战壕/架机枪/移动/战斗。施工中若脚手架被摧毁则金币不返还、工程师立即解锁。`,
             type: 'active'
         }
     ],
     activeSkills: [
         { id: 'trench', name: '挖掘战壕', goldCost: ENGINEER_TRENCH_GOLD_COST },
+        { id: 'flak', name: '高射机枪', goldCost: ENGINEER_FLAK_GOLD_COST },
         { id: 'bunker', name: '建造碉堡', goldCost: ENGINEER_BUNKER_GOLD_COST }
     ]
 };

@@ -67,6 +67,7 @@ export class Unit {
         this._isImmobile = false;
         this._engineerConstruction = null;
         this._engineerScaffold = null;
+        this._engineerBunkerCD = 0;
         this._phantomStacks = 0;
         this._shield = 0;
         this._shieldMax = 0;
@@ -833,8 +834,15 @@ export class Unit {
 
         // ④ 防御乘区
         let defSum = TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
+        // 工事定向减伤：战壕仅挡近战（步/骑）、高射机枪仅挡地面远程（炮/碉堡）。
+        // 空军(isAirDamage，含无人机)不吃工事定向加成，改由下方防空层处理。
         const fortification = defender.tile.fortification ? FORTIFICATION_CONFIG[defender.tile.fortification] : null;
-        if (fortification) defSum += fortification.defenseBonus;
+        if (fortification && !isAirDamage) {
+            const isMeleeAtk = attacker.type === 'infantry' || attacker.type === 'cavalry';
+            const isGroundRangedAtk = attacker.type === 'archer' || attacker.type === 'mgNest';
+            if (fortification.appliesTo === 'melee' && isMeleeAtk) defSum += fortification.defenseBonus;
+            else if (fortification.appliesTo === 'ranged' && isGroundRangedAtk) defSum += fortification.defenseBonus;
+        }
         // 森林掩蔽：对远程攻击（炮兵/碉堡/无人机）额外+15%防御，与地形自带10%加算
         if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest' || attacker.type === 'drone')) {
             defSum += 0.15;
@@ -883,6 +891,8 @@ export class Unit {
                     if (aaCount < 2) aaCount++;
                 }
             }
+            // 高射机枪工事：为站在其上的单位额外提供自身1层防空（仅覆盖自身1格）
+            if (fortification && fortification.providesSelfAA && aaCount < 2) aaCount++;
             if (aaCount > 0) defSum += aaCount * 0.25; // 防空火力：每层+25%，封顶50%
         }
         defSum += getCommanderAuraDefenseBonus(defender);

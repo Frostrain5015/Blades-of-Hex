@@ -504,10 +504,20 @@ export function renderGame() {
 // 通用防空炮火特效：从AA单位射向飞行器的曳光弹流
 function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) {
     const targetS = -(targetQ + targetR);
+    const _sources = [];
     for (const _t of gameState.tiles) {
         const _u = _t.unit;
         if (!_u || !_u.camp || _u.camp === friendlyCamp || !isAntiAirUnit(_u)) continue;
         if (hexDistance(_t, { q: targetQ, r: targetR, s: targetS }) > ANTIAIR_RADIUS) continue;
+        _sources.push(_t);
+    }
+    // 高射机枪工事：目标格自身作为防空源（仅覆盖自身1格），敌方空军来袭时照常射出曳光弹流
+    const _flakTile = gameState.tileMap.get(`${targetQ},${targetR}`);
+    if (_flakTile && _flakTile.fortification === 'flak' && _flakTile.unit
+        && _flakTile.unit.camp !== friendlyCamp && !_sources.includes(_flakTile)) {
+        _sources.push(_flakTile);
+    }
+    for (const _t of _sources) {
         ctx.save();
         const sx2 = _t.x, sy2 = _t.y;
         const dx = planeX - sx2, dy = planeY - sy2;
@@ -1214,6 +1224,10 @@ function drawRangeApertures(now) {
                     }
                 }
             }
+            // 敌方高射机枪工事：防空圈仅覆盖自身1格
+            for (const t of gameState.tiles) {
+                if (t.fortification === 'flak' && t.unit && t.unit.camp !== myCamp) aaSet.add(`${t.q},${t.r}`);
+            }
             // 红色防空区填充
             ctx.save();
             ctx.globalAlpha = 0.10 + pulse * 0.06;
@@ -1271,7 +1285,8 @@ function drawRangeApertures(now) {
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             for (const t of gameState.tiles) {
                     const u = t.unit;
-                    if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
+                    const isFlakTile = t.fortification === 'flak' && u && u.camp !== myCamp;
+                    if (!isFlakTile && (!u || u.camp === myCamp || !isAntiAirUnit(u))) continue;
                     const aaPulse = (Math.sin(time * 2.0 + t.q) + 1) / 2;
                     ctx.globalAlpha = 0.6 + aaPulse * 0.3;
                     ctx.shadowColor = 'rgba(255,60,40,0.5)'; ctx.shadowBlur = 10 + aaPulse * 5;

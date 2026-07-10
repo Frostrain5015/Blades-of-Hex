@@ -85,28 +85,50 @@ export async function run(browser) {
             // 模拟脚手架承受了一些伤害（用于验证碉堡继承剩余HP）
             scaffold.hp = 150;
 
-            // 模拟下一个己方回合开始：单位刷新已把行动力复位，随后施工结算应重新锁定工程师。
+            // 下一个己方回合开始（建造只需1回合）：脚手架变为碉堡并继承剩余HP，并进入冷却。
             unit.canAct = true;
             unit.remainingMP = 5;
             scaffold.canAct = true;
-            const firstTurn = engineer.completeEngineerBunkerConstructions(gameState, CAMP.player1, { Unit: StubUnit, logMessage });
-            assert(firstTurn.length === 1 && !firstTurn[0].ok && firstTurn[0].pending, '第1个己方回合尚未完工');
-            assert(target.unit === scaffold && scaffold._engineerScaffold, '第1回合脚手架仍在、尚未变为碉堡');
-            assert(scaffold.canAct === false, '施工期间脚手架不可行动');
-            assert(unit.canAct === false && unit.remainingMP === 0, '施工期间工程师被重新锁定，无法行动');
-
-            // 再下一个己方回合：施工完成，脚手架变为碉堡并继承剩余HP。
-            unit.canAct = true;
-            unit.remainingMP = 5;
-            const secondTurn = engineer.completeEngineerBunkerConstructions(gameState, CAMP.player1, { Unit: StubUnit, logMessage });
-            assert(secondTurn.length === 1 && secondTurn[0].ok, '第2个己方回合完成施工');
+            const built = engineer.completeEngineerBunkerConstructions(gameState, CAMP.player1, { Unit: StubUnit, logMessage });
+            assert(built.length === 1 && built[0].ok, '1回合后完成施工');
             assert(target.unit === scaffold && !scaffold._engineerScaffold, '脚手架原地变为碉堡');
             assert(scaffold.type === 'mgNest' && scaffold._isImmobile, '碉堡不可移动');
             assert(scaffold.hp === 150, '碉堡继承脚手架剩余HP');
             assert(scaffold.canAct === false, '新碉堡本回合不可行动');
             assert(!unit._engineerConstruction, '完工后清除工程师施工状态');
+            assert(unit._engineerBunkerCD === engineer.ENGINEER_BUNKER_CD_TURNS, '建成后进入建造冷却');
+
+            // 冷却期内不能再建
+            const target2 = { q: 0, r: 1, isCity: false, isVillage: false, unit: null };
+            gameState.tiles.push(target2); gameState.tileMap.set('0,1', target2);
+            const cdBlocked = engineer.beginEngineerBunkerConstruction(unit, target2, { gameState, logMessage, Unit: StubUnit });
+            assert(!cdBlocked.ok, '冷却期内不能再次建造碉堡');
+            // 冷却递减到 0 后可再建
+            engineer.completeEngineerBunkerConstructions(gameState, CAMP.player1, { Unit: StubUnit, logMessage });
+            engineer.completeEngineerBunkerConstructions(gameState, CAMP.player1, { Unit: StubUnit, logMessage });
+            assert(unit._engineerBunkerCD === 0, '冷却递减到0');
+            unit.canAct = true; unit.remainingMP = 5;
+            const rebuildOk = engineer.beginEngineerBunkerConstruction(unit, target2, { gameState, logMessage, Unit: StubUnit });
+            assert(rebuildOk.ok, '冷却结束后可再次建造');
         } catch (error) {
             assert(false, '碉堡异常: ' + error.message);
+        }
+
+        // 高射机枪工事：架设 + 与战壕互斥
+        try {
+            const source = { q: 0, r: 0, isCity: false, isVillage: false, fortification: null, unit: null };
+            const unit = makeEngineer(source);
+            source.unit = unit;
+            const gameState = makeGameState([source]);
+            const flak = engineer.digEngineerFlak(unit, { gameState, logMessage });
+            assert(flak.ok && source.fortification === 'flak', '架设高射机枪写入flak工事');
+            assert(gameState.playerGold.player1 === 20 - engineer.ENGINEER_FLAK_GOLD_COST, '高射机枪扣除$2');
+            assert(unit.remainingMP === 0 && unit.canAct === false, '高射机枪清空行动力');
+            unit.canAct = true;
+            const trenchBlocked = engineer.digEngineerTrench(unit, { gameState, logMessage });
+            assert(!trenchBlocked.ok, '已有工事时战壕与高射机枪互斥');
+        } catch (error) {
+            assert(false, '高射机枪异常: ' + error.message);
         }
 
         // 施工中脚手架被摧毁：工程师立即解除锁定

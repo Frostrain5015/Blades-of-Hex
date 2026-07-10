@@ -4,7 +4,7 @@
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit,
-    executeTacticalCard, executeEngineerTrench, executeEngineerBunkerConstruction, recalcAllFlankingMorale, drawCard
+    executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
 import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
 import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
@@ -51,9 +51,18 @@ function planEngineerAction(aiCamp) {
     const hostileTiles = gameState.tiles.filter(tile => tile.unit && tile.unit.camp !== aiCamp);
     const isThreatened = hostileTiles.some(tile => hexDistance(engineer.tile, tile) <= 2);
     if (!engineer.tile.fortification && (engineer.tile.isCity || engineer.tile.isVillage || isThreatened)) {
+        // 附近以远程/空军威胁为主 → 架高射机枪；否则挖战壕（定向选择）
+        const rangedThreatNearby = hostileTiles.some(tile =>
+            hexDistance(engineer.tile, tile) <= 2
+            && (tile.unit.type === 'archer' || tile.unit.type === 'mgNest' || tile.unit._isDrone));
+        const airThreatOnBoard = hostileTiles.some(tile => tile.unit.commander === 'colonel' || tile.unit._isDrone);
+        if (rangedThreatNearby || airThreatOnBoard) {
+            return { type: 'engineerFlak', unitId: engineer.id };
+        }
         return { type: 'engineerTrench', unitId: engineer.id };
     }
 
+    if ((engineer._engineerBunkerCD || 0) > 0) return null;
     if ((gameState.playerGold[campKey] || 0) < ENGINEER_BUNKER_GOLD_COST || hostileTiles.length === 0) return null;
     const candidates = gameState.tiles.filter(tile =>
         !tile.unit && !tile.isCity && !tile.isVillage
@@ -253,6 +262,13 @@ async function _executeActionInner(action, aiCamp) {
             const unit = resolveUnit(action.unitId);
             if (!unit || unit.commander !== 'engineer' || !unit.canAct) return;
             executeEngineerTrench(unit);
+            await delay(AI_DELAY);
+            break;
+        }
+        case 'engineerFlak': {
+            const unit = resolveUnit(action.unitId);
+            if (!unit || unit.commander !== 'engineer' || !unit.canAct) return;
+            executeEngineerFlak(unit);
             await delay(AI_DELAY);
             break;
         }

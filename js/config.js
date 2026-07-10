@@ -179,9 +179,19 @@ export const TERRAIN_CONFIG = {
 export const FORTIFICATION_CONFIG = {
     trench: {
         name: '战壕',
-        defenseBonus: 0.30,
-        desc: '防御+30%',
+        defenseBonus: 0.25,
+        appliesTo: 'melee',            // 仅对近战攻击（步兵/骑兵）生效
+        desc: '近战防御+25%',
         icon: '🕳️',
+        iconFont: '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif'
+    },
+    flak: {
+        name: '高射机枪',
+        defenseBonus: 0.25,
+        appliesTo: 'ranged',           // 对远程攻击（炮兵/碉堡）生效
+        providesSelfAA: true,          // 遭空军攻击时视为拥有1层防空（仅覆盖自身1格）
+        desc: '远程防御+25%；遭空军攻击时提供自身1层防空',
+        icon: '🔫',
         iconFont: '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif'
     }
 };
