@@ -142,8 +142,9 @@ function _hasTianyanDeployTarget(unit) {
 }
 
 function _hasEngineerBunkerTarget(unit) {
-    return gameState.tiles.some(tile =>
+    return !!unit?.tile && gameState.tiles.some(tile =>
         !tile.unit && !tile.isCity && !tile.isVillage
+        && hexDistance(unit.tile, tile) <= 1
         && (!gameState.skirmishFog || isTileVisible(tile, unit.camp, gameState))
     );
 }
@@ -439,7 +440,7 @@ function _beginEngineerBunkerTargeting(unit) {
     }
 
     clearselection();
-    showTargetingBanner('选择碉堡建造位置', '可建于任意空地，不能建在城市或村庄');
+    showTargetingBanner('选择碉堡建造位置', '仅限身旁1格空地，不能建在城市或村庄');
     gameState.cardTargeting = { cardId: 'engineer_bunker', targeting: 'emptyTile', handIndex: -1, engineerUnitId: unit.id };
     updateUI();
 }
@@ -930,8 +931,13 @@ export function showTooltipForTile(tile) {
     }
 
     if (unit && unit._engineerConstruction) {
-        const { targetQ, targetR } = unit._engineerConstruction;
-        tooltipStatus.textContent = `施工中：碉堡将于下个己方回合建成 (${targetQ},${targetR})`;
+        const { targetQ, targetR, turnsRemaining } = unit._engineerConstruction;
+        const remain = turnsRemaining || 1;
+        tooltipStatus.textContent = `施工中（工程师锁定）：碉堡还需${remain}回合建成 (${targetQ},${targetR})`;
+    }
+    if (unit && unit._engineerScaffold) {
+        const remain = unit._engineerScaffold.turnsRemaining || 1;
+        tooltipStatus.textContent = `🧱脚手架（建造中）：还需${remain}回合建成碉堡，可被攻击摧毁`;
     }
 
     // Terrain info — shown last

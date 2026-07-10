@@ -808,6 +808,8 @@ async function _doEndTurnPhase() {
     gameState.tiles.forEach(tile => {
         if (tile.unit) {
             tile.unit.canAct = tile.unit.morale !== 0;
+            // 工程师脚手架：建造中始终不能行动（既不能攻击也不能移动）
+            if (tile.unit._engineerScaffold) tile.unit.canAct = false;
             // mgNest: disable if no enemies in range
             if (tile.unit._isImmobile && tile.unit.canAct) {
                 const atk = getAttackableTiles(tile.unit);
@@ -2145,12 +2147,16 @@ export function executeEngineerTrench(engineerUnit) {
 }
 
 export function executeEngineerBunkerConstruction(engineerUnit, targetTile) {
-    const result = beginEngineerBunkerConstruction(engineerUnit, targetTile, { gameState, logMessage });
+    const result = beginEngineerBunkerConstruction(engineerUnit, targetTile, { gameState, logMessage, Unit });
     if (!result.ok) {
         notify(result.message, 'error');
         return false;
     }
 
+    // 脚手架立即出现在目标格
+    spawnRecruitEffect(targetTile.x, targetTile.y);
+    triggerRecruitFlash(targetTile.x, targetTile.y);
+    spawnCommanderSkillEffect(targetTile.x, targetTile.y, '🧱', '搭建脚手架');
     recalcAllFlankingMorale();
     updateUI();
     broadcastAction('engineerBunkerStart', {

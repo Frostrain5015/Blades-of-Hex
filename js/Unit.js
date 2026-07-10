@@ -66,6 +66,7 @@ export class Unit {
         this._imprisoned = false;
         this._isImmobile = false;
         this._engineerConstruction = null;
+        this._engineerScaffold = null;
         this._phantomStacks = 0;
         this._shield = 0;
         this._shieldMax = 0;
@@ -364,7 +365,7 @@ export class Unit {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', mgNest: '🏰', drone: '✈' };
-        ctx.fillText(glyphs[this.type] || '?', 0, badgeY + 1);
+        ctx.fillText(this._engineerScaffold ? '🧱' : (glyphs[this.type] || '?'), 0, badgeY + 1);
 
         // ── Ring HP bar ──
         const lerpFactor = 0.18;
@@ -452,6 +453,26 @@ export class Unit {
         }
 
         ctx.restore();
+
+        // ── 工程师脚手架：建造中标记（🚧 + 剩余回合） ──
+        if (this._engineerScaffold) {
+            ctx.save();
+            const buildPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
+            const bY = visualY - HEX_SIZE * 0.6;
+            ctx.font = 'bold 13px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.globalAlpha = 0.65 + buildPulse * 0.35;
+            ctx.shadowColor = '#ffcc44'; ctx.shadowBlur = 5;
+            ctx.fillText('🚧', visualX, bY);
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            const turns = this._engineerScaffold.turnsRemaining || 1;
+            ctx.fillStyle = '#ffd54a';
+            ctx.font = 'bold 10px Arial';
+            ctx.fillText(`${turns}`, visualX + HEX_SIZE * 0.5, bY);
+            ctx.restore();
+        }
 
         // ── Actionable glow（仅己方回合显示）──
         if (this.canAct && gs && this.camp === gs.currentCamp && !this.isNewRecruit && _isHumanTurn(gs)) {
@@ -1067,6 +1088,18 @@ export class Unit {
     // （殉道者自爆的自毁也走这里，保证 commanderP1/P2/P3 引用被清除）
     destroy(attackerUnit = null) {
         const log = _logMessage;
+        // 工程师脚手架被摧毁：立即解除对应工程师的施工锁定（金币不返还）
+        if (this._engineerScaffold && _gameState) {
+            const builderId = this._engineerScaffold.builderId;
+            for (const t of _gameState.tiles) {
+                const u = t.unit;
+                if (u && u.id === builderId && u._engineerConstruction && u._engineerConstruction.scaffoldId === this.id) {
+                    u._engineerConstruction = null;
+                    break;
+                }
+            }
+            if (log) log(`${this.camp.name}工程师的碉堡在施工中被摧毁，工程师解除锁定`);
+        }
         if (this.commander) {
             // 空军上校阵亡 → 禁用对应玩家的专属空军卡
             if (this.commander === 'colonel' && _gameState && _gameState._colonelDeployed) {
@@ -1122,8 +1155,8 @@ export class Unit {
         // 己方阵营 key（供留魂标记 + 殉道者挽歌被动共用）
         const ownKey = this.camp === CAMP.player1 ? 'player1' : this.camp === CAMP.player2 ? 'player2' : this.camp === CAMP.player3 ? 'player3' : null;
 
-        // E2 亡灵法师留魂：非魂卒、非将领单位阵亡时留下亡魂标记
-        if (!this._isSoulMinion && !this.commander && this.tile && _gameState && _gameState.tileMap) {
+        // E2 亡灵法师留魂：非魂卒、非将领单位阵亡时留下亡魂标记（脚手架不留魂）
+        if (!this._isSoulMinion && !this.commander && !this._engineerScaffold && this.tile && _gameState && _gameState.tileMap) {
             // 检查是否有亡灵法师在场上
             let hasNecromancer = false;
             for (const t of _gameState.tiles) {

@@ -1306,6 +1306,8 @@ function drawRangeApertures(now) {
                 if (hexDistance(drone.tile, tile) > 3) continue;
             } else if (ct.cardId === 'engineer_bunker') {
                 if (tile.unit || tile.isCity || tile.isVillage) continue;
+                const _eng = gameState.tiles.reduce((f, tx) => f || (tx.unit && tx.unit.id === ct.engineerUnitId ? tx.unit : null), null);
+                if (!_eng || !_eng.tile || hexDistance(_eng.tile, tile) > 1) continue;
             } else if (ct.targeting === 'emptyTile') {
             } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
                 if (tile.unit || tile.isCity || tile.terrain === 'mountain' || tile.camp !== myCamp) continue;

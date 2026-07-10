@@ -57,6 +57,7 @@ function planEngineerAction(aiCamp) {
     if ((gameState.playerGold[campKey] || 0) < ENGINEER_BUNKER_GOLD_COST || hostileTiles.length === 0) return null;
     const candidates = gameState.tiles.filter(tile =>
         !tile.unit && !tile.isCity && !tile.isVillage
+        && hexDistance(engineer.tile, tile) <= 1
         && (!gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState))
     );
     if (candidates.length === 0) return null;
