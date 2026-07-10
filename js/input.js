@@ -426,9 +426,10 @@ function _renderBoardActionQueue(actions) {
 export function syncBoardActionBar() {
     const tile = gameState.selectedTile || gameState.selectedUnit?.tile || null;
     _syncSelectionHud(tile);
-    const unit = !gameState.cardTargeting ? tile?.unit || null : null;
+    const inFog = gameState.skirmishFog && tile && !isTileVisible(tile, getViewingCamp(), gameState);
+    const unit = !gameState.cardTargeting && !inFog ? tile?.unit || null : null;
     _renderBoardActionQueue(_collectBoardActions(unit));
-    _renderPassiveQueue(!gameState.cardTargeting ? _buildPassiveItems(unit) : []);
+    _renderPassiveQueue(!gameState.cardTargeting && !inFog ? _buildPassiveItems(unit) : []);
 }
 
 function _activateBoardAction(action) {
