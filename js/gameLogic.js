@@ -446,17 +446,17 @@ export function drawCard(camp) {
     if (campKey === 'neutral') return null;
 
     if (gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
-        notify('本回合已达到抽牌上限（2次）', 'error'); return null;
+        notify('本回合已达到抽牌上限', 'error'); return null;
     }
     // E3 纵横家合纵：手牌上限覆盖
     const handSizeBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].handSizeBonus || 0 : 0;
     const maxHand = CARD_SYSTEM_CONFIG.maxHandSize + handSizeBonus;
     if (gameState.playerHands[campKey].length >= maxHand) {
-        notify(`手牌已满（最多${maxHand}张）`, 'error'); return null;
+        notify(`当前手牌队列已满`, 'error'); return null;
     }
     const drawCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
     if (gameState.playerGold[campKey] < drawCost) {
-        notify(`资金不足（需$${drawCost}）`, 'error'); return null;
+        notify(`资金不足`, 'error'); return null;
     }
 
     if (gameState.cardDrawPile.length === 0 && gameState.cardDiscardPile.length > 0) {
@@ -469,7 +469,7 @@ export function drawCard(camp) {
         logMessage('弃牌堆已洗入抽牌堆');
     }
     if (gameState.cardDrawPile.length === 0) {
-        notify('卡组已空，无法抽牌', 'error'); return null;
+        notify('当前无法抽牌', 'error'); return null;
     }
 
     gameState.playerGold[campKey] -= drawCost;
@@ -1018,9 +1018,9 @@ export async function endTurn() {
                         ]);
                     } catch (e) {
                         if (e && e.message === 'AI_TIMEOUT') {
-                            logMessage('中立AI超时，强制结束回合');
+                            logMessage('中立AI超时 强制结束回合');
                         } else {
-                            logMessage('中立AI执行出错，跳过回合');
+                            logMessage('中立AI执行出错 跳过回合');
                         }
                         console.warn('Neutral AI error:', e);
                     } finally {
@@ -1028,9 +1028,9 @@ export async function endTurn() {
                         _neutralAiLock = false;
                         if (neutralOverlay) neutralOverlay.classList.remove('show');
                     }
-                    notify('本轮行动完毕 即将进入下一轮...', 'info');
-                    logMessage('本轮行动完毕 即将进入下一轮...');
-                    if (isNetworkGame()) sendMessage({ type: 'toast', text: '本轮行动完毕 即将进入下一轮...', toastType: 'info' });
+                    notify('本轮行动完毕 即将进入下一轮', 'info');
+                    logMessage('本轮行动完毕 即将进入下一轮');
+                    if (isNetworkGame()) sendMessage({ type: 'toast', text: '本轮行动完毕 即将进入下一轮', toastType: 'info' });
                     await new Promise(r => setTimeout(r, 2500));
                 }
                 // 无论如何都要推进回合
@@ -1057,19 +1057,19 @@ export function recruitUnit(type) {
     }
     const selectedCityTile = gameState.selectedCityTile;
     if (selectedCityTile.camp !== gameState.currentCamp) {
-        notify('该地块不属于当前阵营，无法招募', 'error');
+        notify('该地块不属于当前阵营 无法招募', 'error');
         return;
     }
     if (!selectedCityTile.isCity) {
-        notify('该兵种只能在城市招募', 'error');
+        notify('只能在城市招募', 'error');
         return;
     }
     if (selectedCityTile._cityDisabledUntil > 0 && selectedCityTile._cityDisabledUntil > getRoundIndex(gameState)) {
-        notify('该城市遭到空袭，无法招募', 'error');
+        notify('该城市遭到空袭 无法招募', 'error');
         return;
     }
     if (selectedCityTile.unit) {
-        notify('该地块已有单位驻守，无法招募', 'error');
+        notify('该地块已有单位驻守', 'error');
         return;
     }
     let effectiveCost = getCommanderRecruitCost(config.cost, gameState, gameState.currentCamp);
@@ -2099,11 +2099,11 @@ function _getSuicidePiercingTiles(fromTile, targetTile) {
 
 export function executeDroneDeploy(tianyanUnit, targetTile) {
     if (!tianyanUnit || tianyanUnit.commander !== 'tianyan' || tianyanUnit.hp <= 0) {
-        notify('天眼无效，无法部署无人机', 'error');
+        notify('当前无法部署天眼哨机', 'error');
         return null;
     }
     if (tianyanUnit.camp !== gameState.currentCamp) {
-        notify('只能在当前回合部署无人机', 'error');
+        notify('当前不是你的回合', 'error');
         return null;
     }
 
@@ -2192,15 +2192,15 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     if (!droneUnit || !droneUnit._isDrone) return false;
     refreshDroneSignal(gameState, droneUnit.camp);
     if (droneUnit._disoriented || !droneUnit.canAct) {
-        notify('无人机当前无法行动', 'error');
+        notify('哨机当前无法行动', 'error');
         return false;
     }
     if (!targetTile || !targetTile.unit || targetTile.unit.camp === droneUnit.camp) {
-        notify('请选择3格内敌方单位作为自爆目标', 'error');
+        notify('无法对该目标释放自爆', 'error');
         return false;
     }
     if (hexDistance(droneUnit.tile, targetTile) > DRONE_SUICIDE_RANGE) {
-        notify('超出自爆射程（3格）', 'error');
+        notify('目标超出最大射程', 'error');
         return false;
     }
     const gs = gameState;
@@ -2441,7 +2441,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // E4 空运第一段：选单位后进入第二段选目的地
     if (cardId === 'airlift' && targetTile && targetTile.unit) {
         gameState._airliftTarget = { unitId: targetTile.unit.id };
-        showTargetingBanner('选择空降目的地（空地）', '再次点击卡片或按 Esc 取消');
+        showTargetingBanner('请选择目标');
         gameState.cardTargeting = { cardId: 'airlift_dest', targeting: 'emptyTile', handIndex: idx };
         updateUI();
         return;

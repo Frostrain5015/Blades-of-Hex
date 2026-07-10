@@ -377,7 +377,7 @@ function _activateBoardAction(action) {
             cancelCardTargeting();
             return;
         }
-        showTargetingBanner('选择自爆目标（3格内）', '点击敌方单位或按 Esc 取消');
+        showTargetingBanner('请选择目标');
         gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id };
         updateUI();
         return;
@@ -422,7 +422,7 @@ function _activateBoardAction(action) {
     if (unit._pendingDroneDeploy) {
         unit._pendingDroneDeploy = false;
         clearselection();
-        showTargetingBanner('选择部署位置（周围1格空地）', '点击空地部署无人机');
+        showTargetingBanner('请选择目标');
         gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1 };
         updateUI();
         return;
@@ -447,7 +447,7 @@ function _beginEngineerBunkerTargeting(unit) {
     }
 
     clearselection();
-    showTargetingBanner('选择碉堡建造位置', '仅限身旁1格空地，不能建在城市或村庄');
+    showTargetingBanner('请选择目标');
     gameState.cardTargeting = { cardId: 'engineer_bunker', targeting: 'emptyTile', handIndex: -1, engineerUnitId: unit.id };
     updateUI();
 }
@@ -565,12 +565,12 @@ function _handleCardCanvasClick(e) {
                 const cmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : myCamp === CAMP.player2 ? gameState.commanderP2 : gameState.commanderP3;
                 const cmdCfg = COMMANDER_CONFIG[cmdKey];
                 if (cmdCfg) {
-                    showTargetingBanner(`选择单位部署【${cmdCfg.name}】`, '再次点击卡片或按 Esc 取消');
+                    showTargetingBanner('请选择目标');
                 } else {
-                    showTargetingBanner(`选择【${cfg.name}】目标`, '再次点击卡片或按 Esc 取消');
+                    showTargetingBanner('请选择目标');
                 }
             } else {
-                showTargetingBanner(`选择【${cfg.name}】目标`, '再次点击卡片或按 Esc 取消');
+                showTargetingBanner('请选择目标');
             }
             return;
         }

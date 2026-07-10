@@ -994,7 +994,7 @@ export function notify(text, type = 'info', persistent = false) {
 }
 
 // ==== 对策卡选择目标横幅 ====
-export function showTargetingBanner(text, hint = '') {
+export function showTargetingBanner(text) {
     const el = document.getElementById('cardTargetingBanner');
     if (!el) return;
     el.children[0].textContent = '🎯';
