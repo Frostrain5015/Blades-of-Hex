@@ -75,14 +75,12 @@ const selectionHudHp = document.getElementById('selectionHudHp');
 const selectionHudHpFill = document.getElementById('selectionHudHpFill');
 const selectionHudHpText = document.getElementById('selectionHudHpText');
 const selectionHudStats = document.getElementById('selectionHudStats');
-const selectionHudStacks = document.getElementById('selectionHudStacks');
 const selectionEffectButtons = document.getElementById('selectionEffectButtons');
 const boardDetailPopover = document.getElementById('boardDetailPopover');
 const boardDetailKicker = document.getElementById('boardDetailKicker');
 const boardDetailTitle = document.getElementById('boardDetailTitle');
 const boardDetailDesc = document.getElementById('boardDetailDesc');
 const boardDetailStatus = document.getElementById('boardDetailStatus');
-const boardDetailCast = document.getElementById('boardDetailCast');
 
 function _getMyCampInput() {
     if (isNetworkGame()) {
@@ -736,10 +734,10 @@ const UNIT_TYPE_NAMES = {
 };
 
 const PASSIVE_ICONS = {
-    infantry: '🏰',
+    infantry: '⚔️',
     cavalry: '🐎',
     archer: '🎯',
-    drone: '🛸'
+    drone: '✈'
 };
 
 const COMMANDER_ICONS = {
@@ -767,22 +765,28 @@ const SKILL_ICONS = {
     '坚守': '🏰',
     '冲锋': '🐎',
     '远射': '🎯',
-    '守护': '🛡️',
+    '攻心': '🧠',
+    '守护': '✨',
     '守护灵光': '🛡️',
-    '勇气灵光': '✨',
+    '勇气灵光': '🗡',
     '誓言': '⚔️',
     '至圣斩': '✝️',
+    '挽歌': '🩸',
+    '幻形': '🎭',
+    '乘胜': '🏆',
+    '制空': '✈️',
+    '留魂': '👻',
+    '回魂': '💀',
     '治愈灵光': '💚',
-    '星光护体': '🌟',
+    '夜观': '🌟',
     '堕天使·白': '🤍',
     '堕天使·黑': '🖤',
-    '血怒': '🩸',
-    '殉道': '🔥',
+    '血怒': '💢',
+    '殉道': '💀',
     '屯田': '🌾',
     '迟滞力场': '🌀',
     '连横': '🤝',
-    '合纵': '🤝',
-    '留魂': '👻'
+    '合纵': '',
 };
 
 const EFFECT_ICONS = {
@@ -802,7 +806,7 @@ const EFFECT_ICONS = {
     '勇气灵光': '✨',
     '治愈灵光': '💚',
     '守护灵光': '🛡️',
-    '星光护体': '🌟',
+    '夜观': '🌟',
     '亡魂标记': '👻',
     '合纵': '🤝',
     '连横': '🪢',
@@ -813,6 +817,163 @@ const EFFECT_ICONS = {
 
 function _commanderSkillIcon(commanderId, skillName) {
     return SKILL_ICONS[skillName] || COMMANDER_ICONS[commanderId] || '✦';
+}
+
+function _getUnitPassiveRuntimeState(unit, passive) {
+    const active = passive.active(unit);
+    const presentation = {
+        desc: passive.desc,
+        color: active ? '#7de89a' : '#7b8790',
+        status: active ? '当前生效' : '当前未生效',
+        count: '',
+        active,
+        intensity: active ? 1 : 0
+    };
+
+    if (unit.type === 'cavalry') {
+        const stacks = Math.min(3, Math.max(0, unit.moveDistance || 0));
+        presentation.desc += '\n当前造成的伤害提高' + (stacks * 10) + '%。';
+        presentation.status = '本回合 ' + stacks + '/3 层';
+        presentation.count = stacks || '';
+        presentation.active = stacks > 0;
+        presentation.intensity = stacks / 3;
+    } else if (unit.type === 'infantry') {
+        presentation.status = unit.tile?.isCity ? '当前生效' : '当前未生效';
+        presentation.active = !!unit.tile?.isCity;
+        presentation.intensity = presentation.active ? 1 : 0;
+    } else if (unit.type === 'archer') {
+        const mountain = unit.tile?.terrain === 'mountain';
+        const wind = gameState.weather === 'wind';
+        presentation.color = mountain || wind ? '#7de89a' : '#7b8790';
+        presentation.active = mountain || wind;
+        presentation.intensity = presentation.active ? 1 : 0;
+        presentation.status = mountain
+            ? '山地射程 +1'
+            : wind ? '风天射程 +1 无视敌人15%防御力' : '当前未生效';
+    }
+    return presentation;
+}
+
+function _getPassiveRuntimeState(unit, skill) {
+    const presentation = {
+        desc: skill.desc,
+        color: '#88ccff',
+        status: '将领被动',
+        count: '',
+        active: true,
+        intensity: 1
+    };
+
+    if (unit.commander === 'paladin' && skill.name === '誓言') {
+        const faith = Math.max(0, unit._faith || 0);
+        const charged = unit._smiteReady
+            ? (unit._smiteCharged ? ' 至圣斩已满蓄力' : ' 至圣斩已蓄力')
+            : '';
+        presentation.desc += '\n当前防御力' + (faith * 5) + '%。';
+        presentation.status = '当前 ' + faith + '/3 层' + charged;
+        presentation.count = faith || '';
+        presentation.active = faith > 0;
+        presentation.intensity = faith / 3;
+    }
+
+    if (unit.commander === 'martyr' && skill.name === '挽歌') {
+        const bonus = Math.min(25, unit._elegyBonus || 0);
+        const stacks = Math.floor(bonus / 5);
+        presentation.desc += '\n当前攻击力提高' + bonus + '/25。';
+        presentation.status = '当前 ' + stacks + '/5 层';
+        presentation.count = stacks || '';
+        presentation.active = stacks > 0;
+        presentation.intensity = stacks / 5;
+    }
+
+    if (unit.commander === 'martyr' && skill.name === '殉道' && unit._martyrPrimed) {
+        presentation.desc = '生命锁定为1，下回合开始时对2格范围内所有非己方单位造成基于攻击力的真实伤害。';
+        presentation.color = '#ff5533';
+        presentation.status = '已进入倒计时';
+        presentation.active = true;
+        presentation.intensity = 1;
+    }
+
+    if (unit.commander === 'magician' && skill.name === '幻形') {
+        const stacks = Math.min(6, unit._phantomStacks || 0);
+        presentation.desc += '\n当前造成伤害 +' + (stacks * 5) + '%，暴击率 +' + (stacks * 10) + '%。';
+        presentation.status = '当前 ' + stacks + '/6 层';
+        presentation.count = stacks || '';
+        presentation.active = stacks > 0;
+        presentation.intensity = stacks / 6;
+        if (stacks > 0) presentation.color = '#d79cff';
+    }
+
+    if (unit.commander === 'ironGuard' && skill.name === '守护') {
+        const shield = Math.max(0, unit._shield || 0);
+        presentation.desc += '\n当前护盾 ' + shield + '/120。';
+        presentation.status = '当前护盾 ' + shield + '/120';
+        presentation.active = shield > 0;
+        presentation.intensity = shield / 120;
+        if (shield <= 0) presentation.color = '#7b8790';
+    }
+
+    if (unit.commander === 'ironGuard' && skill.name === '守护灵光') {
+        const shield = Math.max(0, unit._shield || 0);
+        presentation.status = shield > 0 ? '当前生效' : '护盾耗尽 当前失效';
+        presentation.active = shield > 0;
+        presentation.intensity = presentation.active ? 1 : 0;
+        if (shield <= 0) presentation.color = '#7b8790';
+    }
+
+    if (unit.commander === 'centurion' && skill.name === '乘胜') {
+        presentation.status = unit._centurionTriggered ? '本回合已触发' : '本回合可触发';
+        presentation.active = !unit._centurionTriggered;
+        presentation.intensity = presentation.active ? 1 : 0;
+        if (unit._centurionTriggered) presentation.color = '#f5ca67';
+    }
+
+    if (unit.commander === 'colonel' && skill.name === '制空') {
+        const stacks = Math.min(4, gameState._colonelAirStacks?.[_campKeyInput(unit.camp)] || 0);
+        presentation.desc += '\n当前空军伤害 +' + (stacks * 10) + '%。';
+        presentation.status = '空军熟练度 ' + stacks + '/4 层';
+        presentation.count = stacks || '';
+        presentation.active = stacks > 0;
+        presentation.intensity = stacks / 4;
+        if (stacks > 0) presentation.color = '#94cdf8';
+    }
+
+    if (unit.commander === 'necromancer') {
+        const campKey = _campKeyInput(unit.camp);
+        const marks = (gameState._soulMarks || []).filter(mark => mark.campKey === campKey).length;
+        const soulMinions = gameState.tiles.filter(tile => tile.unit?._isSoulMinion && _sameCampInput(tile.unit.camp, unit.camp)).length;
+        if (skill.name === '留魂') {
+            presentation.desc += '\n当前场上亡魂 ' + marks + ' 个。';
+            presentation.status = '当前 ' + marks + ' 个亡魂';
+            presentation.count = marks || '';
+            presentation.active = marks > 0;
+            presentation.intensity = presentation.active ? 1 : 0;
+        } else if (skill.name === '回魂') {
+            presentation.desc += '\n当前场上魂卒 ' + soulMinions + '/2。';
+            presentation.status = '当前 ' + soulMinions + '/2 名魂卒';
+            presentation.count = soulMinions || '';
+            presentation.active = soulMinions > 0;
+            presentation.intensity = soulMinions / 2;
+        }
+    }
+
+    if (unit.commander === 'diplomat') {
+        const override = gameState._cardOverrides?.[_campKeyInput(unit.camp)];
+        if (skill.name === '合纵') {
+            presentation.status = override ? '当前生效' : '尚未部署';
+            presentation.active = !!override;
+            presentation.intensity = presentation.active ? 1 : 0;
+            if (!override) presentation.color = '#7b8790';
+        } else if (skill.name === '连横') {
+            const active = unit.tile && !_sameCampInput(unit.tile.camp, unit.camp);
+            presentation.status = active ? '位于非己方行政区 当前生效' : '未进入非己方行政区';
+            presentation.active = !!active;
+            presentation.intensity = presentation.active ? 1 : 0;
+            presentation.color = active ? '#ffd27a' : '#7b8790';
+        }
+    }
+
+    return presentation;
 }
 
 function _getTerrainEffect(tile) {
@@ -835,6 +996,9 @@ function _getTerrainEffect(tile) {
         };
     }
 
+    // 平原没有额外修正，不占用效果栏注意力。
+    if (tile.terrain === 'plains') return null;
+
     let desc = '防御力提高' + Math.round((terrain.defenseBonus || 0) * 100) + '%';
     if (tile.terrain === 'forest') desc += '，远程单位额外提高15%';
     if (terrain.moveDesc) desc += '，' + terrain.moveDesc;
@@ -851,21 +1015,22 @@ function _getTerrainEffect(tile) {
 function _getWeatherEffect(unit) {
     const weather = WEATHER_CONFIG[gameState.weather];
     if (!weather || gameState.weather === 'clear') return null;
+    if (!unit) return null;
     let desc = weather.desc;
-    if (unit) {
-        const details = [];
-        if (gameState.weather === 'rain') {
-            if (unit.tile.isCity) details.push('每回合回复15%最大生命值');
-            if (unit.type === 'infantry' && unit.tile.isCity) details.push('驻守城市时防御提高10%');
-        } else if (gameState.weather === 'fog') {
-            if (unit.type === 'archer') details.push('射程−1');
-            if (unit.type === 'cavalry') details.push('伤害提高20%，每格冲锋伤害额外提高5%');
-        } else if (gameState.weather === 'wind') {
-            if (unit.type === 'archer') details.push('射程+1，伤害提高20%');
-            if (unit.type === 'infantry') details.push('防御降低15%');
-        }
-        if (details.length) desc = details.join('；');
+    const details = [];
+    if (gameState.weather === 'rain') {
+        if (unit.tile.isCity) details.push('每回合回复15%最大生命值');
+        if (unit.type === 'infantry' && unit.tile.isCity) details.push('驻守城市时防御提高10%');
+    } else if (gameState.weather === 'fog') {
+        if (unit.type === 'archer') details.push('射程−1');
+        if (unit.type === 'cavalry') details.push('伤害提高20%，每格冲锋伤害额外提高5%');
+    } else if (gameState.weather === 'wind') {
+        if (unit.type === 'archer') details.push('射程+1，伤害提高20%');
+        if (unit.type === 'infantry') details.push('防御降低15%');
     }
+    // 天气未对当前单位产生修正时，不显示为该单位的效果。
+    if (!details.length) return null;
+    desc = details.join('；');
     return {
         key: 'weather:' + gameState.weather,
         icon: weather.icon,
@@ -878,7 +1043,8 @@ function _getWeatherEffect(unit) {
 
 function _buildEffectItems(tile, unit) {
     if (!tile) return [];
-    const items = [_getTerrainEffect(tile)];
+    const terrainEffect = _getTerrainEffect(tile);
+    const items = terrainEffect ? [terrainEffect] : [];
     const fortification = tile.fortification ? FORTIFICATION_CONFIG[tile.fortification] : null;
     if (fortification) {
         items.push({
@@ -910,16 +1076,43 @@ function _buildEffectItems(tile, unit) {
     }
 
     timedEffects.forEach((effect, index) => {
+        const remaining = effect.remaining != null && effect.remaining !== '永久' ? effect.remaining : '';
         items.push({
             key: 'timed:' + effect.label + ':' + index,
             icon: EFFECT_ICONS[effect.label] || '✦',
             label: effect.label,
             desc: effect.desc || '效果生效中',
             color: effect.color || '#8fcfff',
-            count: effect.remaining != null && effect.remaining !== '永久' ? effect.remaining : '',
+            count: remaining,
+            status: remaining !== '' ? '剩余' + remaining + '回合' : '持续生效',
             kind: 'effect'
         });
     });
+
+    if ((unit._gongxinStacks || 0) > 0) {
+        const stacks = unit._gongxinStacks;
+        items.push({
+            key: 'advisor:gongxin',
+            icon: '🧠',
+            label: '攻心',
+            desc: '每层使士气下降1级；士气混乱后可能被感化。',
+            color: '#c08cff',
+            count: stacks,
+            status: '当前' + stacks + '层',
+            kind: 'effect'
+        });
+    }
+
+    if (unit._isDrone && unit._droneSignalDisabled) {
+        items.push({
+            key: 'tianyan:signal-lost',
+            icon: '📡',
+            label: '信号失联',
+            desc: '超出天眼5格信号范围，当前无法行动；回到信号范围后恢复。',
+            color: '#ff9b72',
+            kind: 'effect'
+        });
+    }
 
     const auraDefBonus = getCommanderAuraDefenseBonus(unit);
     if (auraDefBonus > 0) {
@@ -933,46 +1126,6 @@ function _buildEffectItems(tile, unit) {
             color: '#7eb8ff',
             kind: 'effect'
         });
-    }
-
-    if (unit.commander === 'necromancer' && gameState._soulMarks) {
-        const campKey = _campKeyInput(unit.camp);
-        const marks = gameState._soulMarks.filter(mark => mark.campKey === campKey).length;
-        if (marks > 0) {
-            items.push({
-                key: 'necromancer:souls',
-                icon: '👻',
-                label: '亡魂标记',
-                desc: '当前有' + marks + '个亡魂标记，下回合开始牵引最近1个',
-                color: '#44ff88',
-                count: marks,
-                kind: 'effect'
-            });
-        }
-    }
-
-    if (unit.commander === 'diplomat' && gameState._cardOverrides) {
-        const override = gameState._cardOverrides[_campKeyInput(unit.camp)];
-        if (override) {
-            items.push({
-                key: 'diplomat:alliance',
-                icon: '🤝',
-                label: '合纵',
-                desc: '手牌上限提高' + override.handSizeBonus + '张，用卡次数提高' + override.useBonus + '次',
-                color: '#ffd700',
-                kind: 'effect'
-            });
-            if (unit.tile && unit.tile.camp !== unit.camp) {
-                items.push({
-                    key: 'diplomat:liaison',
-                    icon: '🪢',
-                    label: '连横',
-                    desc: '处于敌方行政区，50%概率复制对方对策卡',
-                    color: '#ffaa44',
-                    kind: 'effect'
-                });
-            }
-        }
     }
 
     if (unit.commander !== 'astrologer' && gameState.tileMap) {
@@ -997,9 +1150,10 @@ function _buildEffectItems(tile, unit) {
                 key: 'staller:snare',
                 icon: '🕸️',
                 label: '缚足',
-                desc: layers + '层，每步行动力消耗提高' + (layers * 2) + '点',
+                desc: '每层使得当前单位每步行动力消耗提高2点',
                 color: '#c08050',
                 count: layers,
+                status: '当前' + layers + '层',
                 kind: 'effect'
             });
         }
@@ -1014,6 +1168,7 @@ function _buildEffectItems(tile, unit) {
             desc: '碉堡还需' + remain + '回合建成',
             color: '#e8c477',
             count: remain,
+            status: '剩余' + remain + '回合',
             kind: 'effect'
         });
     }
@@ -1026,6 +1181,7 @@ function _buildEffectItems(tile, unit) {
             desc: '还需' + remain + '回合建成碉堡，可被攻击摧毁',
             color: '#e8c477',
             count: remain,
+            status: '剩余' + remain + '回合',
             kind: 'effect'
         });
     }
@@ -1038,12 +1194,15 @@ function _buildPassiveItems(unit) {
     if (unit._isDrone) {
         items.push({
             key: 'unit:' + unit.id + ':drone',
-            icon: '🛸',
+            icon: '✈',
             label: '无人机',
             desc: 'HP ' + unit.maxHp + ' / ATK ' + unit.config.attack + ' / MP ' + unit.config.speed
                 + ' / 射程 ' + unit.config.range + '。行动力消耗2，无视地形。',
             color: '#88ccff',
             status: '单位特性',
+            kicker: '兵种被动',
+            active: true,
+            intensity: 1,
             kind: 'passive'
         });
         return items;
@@ -1051,14 +1210,18 @@ function _buildPassiveItems(unit) {
 
     const unitPassive = PASSIVE_DEFS[unit.type];
     if (unitPassive) {
-        const active = unitPassive.active(unit);
+        const runtime = _getUnitPassiveRuntimeState(unit, unitPassive);
         items.push({
             key: 'unit:' + unit.id + ':' + unit.type,
             icon: PASSIVE_ICONS[unit.type] || '✦',
             label: unitPassive.name,
-            desc: unitPassive.desc,
-            color: active ? '#7de89a' : '#7b8790',
-            status: active ? '当前生效' : '当前未触发',
+            desc: runtime.desc,
+            color: runtime.color,
+            status: runtime.status,
+            count: runtime.count,
+            kicker: '兵种被动',
+            active: runtime.active,
+            intensity: runtime.intensity,
             kind: 'passive'
         });
     }
@@ -1078,6 +1241,9 @@ function _buildPassiveItems(unit) {
                 : '每回合回复已损失生命值的30%；士气上升或下降时切换至黑形态。',
             color: fallen ? '#ff6644' : '#6688ff',
             status: '将领被动',
+            kicker: '将领被动',
+            active: true,
+            intensity: 1,
             kind: 'passive'
         });
         return items;
@@ -1085,14 +1251,19 @@ function _buildPassiveItems(unit) {
 
     if (Array.isArray(commander.skills) && commander.skills.length) {
         commander.skills.filter(skill => skill.type !== 'active').forEach((skill, index) => {
+            const runtime = _getPassiveRuntimeState(unit, skill);
             items.push({
                 key: 'commander:' + unit.id + ':passive:' + index,
                 icon: _commanderSkillIcon(unit.commander, skill.name),
                 label: skill.name,
-                desc: skill.desc,
-                color: '#88ccff',
-                status: '将领被动',
-                kind: 'passive'
+                desc: runtime.desc,
+                color: runtime.color,
+            status: runtime.status,
+            count: runtime.count,
+            kicker: '将领被动',
+            active: runtime.active,
+            intensity: runtime.intensity,
+            kind: 'passive'
             });
         });
         return items;
@@ -1101,21 +1272,31 @@ function _buildPassiveItems(unit) {
     let desc = commander.tooltipDesc || commander.desc || '';
     let color = '#ffd700';
     let status = '将领被动';
+    let count = '';
+    let active = true;
+    let intensity = 1;
     if (unit.commander === 'minister') {
-        const active = !!unit.tile?.isCity;
+        active = !!unit.tile?.isCity;
         status = active ? '当前生效' : '未驻扎城市';
         color = active ? '#ffd700' : '#7b8790';
+        intensity = active ? 1 : 0;
     } else if (unit.commander === 'martyr' && unit._martyrPrimed) {
         desc = '下回合开始时对2格范围内所有非己方单位造成大量范围伤害。';
         status = '即将触发';
         color = '#ff3300';
+        active = true;
+        intensity = 1;
     } else if (unit.commander === 'berserker') {
         const hpLostPct = ((unit.maxHp - unit.hp) / unit.maxHp) * 100;
         const stacks = Math.min(40, Math.floor(hpLostPct / 2));
         desc = stacks > 0
             ? '当前加成：+' + stacks + '%攻击力、+' + stacks + '%防御力'
             : '满血状态，当前未触发加成';
-        status = stacks > 0 ? '当前生效' : '当前未触发';
+        status = '当前 ' + stacks + '/40 层';
+        count = stacks || '';
+        color = stacks > 0 ? '#ff7b5c' : '#7b8790';
+        active = stacks > 0;
+        intensity = stacks / 40;
     }
     if (commander.skill) {
         items.push({
@@ -1125,6 +1306,10 @@ function _buildPassiveItems(unit) {
             desc,
             color,
             status,
+            count,
+            kicker: '将领被动',
+            active,
+            intensity,
             kind: 'passive'
         });
     }
@@ -1157,6 +1342,10 @@ function _describeBoardAction(action) {
 
     const statusParts = [];
     if (action.goldCost) statusParts.push('消耗 $' + action.goldCost);
+    if (unit.commander === 'tianyan' && action.kind === 'commanderSkill') {
+        const droneCount = gameState.tiles.filter(tile => tile.unit?._isDrone && _sameCampInput(tile.unit.camp, unit.camp)).length;
+        statusParts.push('当前哨机 ' + droneCount + '/2');
+    }
     if (unit.activeSkillDur > 0 && action.kind === 'commanderSkill') statusParts.push('持续中 ' + unit.activeSkillDur + ' 回合');
     if (unit.getCooldownRounds() > 0 && action.kind === 'commanderSkill') statusParts.push('冷却 ' + unit.getCooldownRounds() + ' 回合');
     statusParts.push(action.canUse ? '可施放' : (action.reason || '当前不可用'));
@@ -1166,7 +1355,7 @@ function _describeBoardAction(action) {
         label: action.label,
         desc,
         color,
-        status: statusParts.join(' · '),
+        status: statusParts.join(' '),
         kicker,
         kind: 'action',
         action
@@ -1176,7 +1365,7 @@ function _describeBoardAction(action) {
 function _renderIconQueue(container, queue, items, className, iconClass, signaturePrefix) {
     if (!container) return;
     const signature = items.map(item => [
-        item.key, item.icon, item.label, item.desc, item.color, item.count || '', item.status || ''
+        item.key, item.icon, item.label, item.desc, item.color, item.count || '', item.status || '', item.active, item.intensity
     ].join(':')).join('|');
     const signatureProp = signaturePrefix === 'passive' ? '_lastPassiveSignature' : '_lastEffectSignature';
     if (signatureProp === '_lastPassiveSignature' && signature === _lastPassiveSignature) return;
@@ -1197,6 +1386,11 @@ function _renderIconQueue(container, queue, items, className, iconClass, signatu
         button.className = className;
         button.dataset.abilityKey = item.key;
         button.style.setProperty('--ability-color', item.color || '#8fcfff');
+        const intensity = Math.max(0, Math.min(1, Number.isFinite(item.intensity) ? item.intensity : (item.active ? 1 : 0)));
+        button.style.setProperty('--ability-fill', item.active ? String(0.18 + intensity * 0.36) : '0');
+        button.style.setProperty('--ability-emphasis', item.active ? String(0.45 + intensity * 0.55) : '0');
+        button.style.setProperty('--ability-icon-scale', item.active ? String(1.025 + intensity * 0.045) : '1');
+        button.classList.toggle('is-active', item.active === true);
         button.removeAttribute('title');
         button.setAttribute('aria-label', item.label + (item.status ? '，' + item.status : ''));
         const icon = document.createElement('span');
@@ -1293,17 +1487,10 @@ function _syncSelectionHud(tile) {
             _textSpan('⚡ ' + unit.remainingMP + '/' + unit.config.speed, '#87d5ff'),
             _textSpan('📡 ' + unit.config.range, '#f4a8d4')
         );
-        const stackParts = [];
-        if (unit.commander === 'paladin') {
-            stackParts.push(unit._smiteCharged ? '⚔ ' + unit._faith + '/3 · 至圣斩蓄力' : '⚔ ' + unit._faith + '/3');
-        }
-        if (unit._gongxinStacks > 0) stackParts.push('士气 ' + unit._gongxinStacks);
-        selectionHudStacks.textContent = stackParts.join(' · ');
     } else {
         _setHudTitle('');
         selectionHudHp.hidden = true;
         selectionHudStats.replaceChildren();
-        selectionHudStacks.textContent = '';
     }
 
     selectionHudEl.classList.toggle('visible', !!unit || effects.length > 0);
@@ -1350,13 +1537,11 @@ function _openBoardDetail(item, source, pinned = false) {
     _boardDetailState = { key: item.key, source, pinned, item };
     boardDetailPopover.style.setProperty('--detail-color', item.color || '#8fcfff');
     boardDetailPopover.dataset.kind = item.kind || '';
-    boardDetailKicker.textContent = item.kicker || (item.kind === 'passive' ? '被动技能' : item.kind === 'effect' ? '当前效果' : '主动技能');
+    boardDetailPopover.dataset.active = item.active === true ? 'true' : item.active === false ? 'false' : '';
+    boardDetailKicker.textContent = item.kicker || (item.kind === 'passive' ? '被动技能' : item.kind === 'effect' ? '效果' : '主动技能');
     boardDetailTitle.textContent = (item.icon ? item.icon + ' ' : '') + item.label;
     boardDetailDesc.textContent = item.desc || '';
     boardDetailStatus.textContent = item.status || '';
-    const canCast = !!item.action?.canUse;
-    boardDetailCast.classList.toggle('visible', canCast);
-    boardDetailCast.textContent = item.action?.kind === 'reinforce' ? '执行补员' : '施放';
     _positionBoardDetail(source);
     boardDetailPopover.classList.add('visible');
     boardDetailPopover.setAttribute('aria-hidden', 'false');
@@ -1420,10 +1605,11 @@ function getTileAtPixel(px, py) {
 }
 
 // ==== 鼠标输入 =====================
-function _bindDetailQueue(containerId, queue, source, itemForKey, keyAttribute = 'abilityKey') {
+function _bindDetailQueue(containerId, queue, source, itemForKey, keyAttribute = 'abilityKey', onDoubleActivate = null) {
     const container = document.getElementById(containerId);
     if (!container || container._detailBound) return;
     container._detailBound = true;
+    let singleClickTimer = null;
 
     const getButton = (target) => {
         if (!(target instanceof HTMLElement)) return null;
@@ -1458,8 +1644,30 @@ function _bindDetailQueue(containerId, queue, source, itemForKey, keyAttribute =
         if (!item) return;
         e.preventDefault();
         e.stopPropagation();
+        if (onDoubleActivate) {
+            if (singleClickTimer) return;
+            singleClickTimer = window.setTimeout(() => {
+                singleClickTimer = null;
+                _toggleBoardDetail(item, source);
+            }, 230);
+            return;
+        }
         _toggleBoardDetail(item, source);
     });
+    if (onDoubleActivate) {
+        container.addEventListener('dblclick', (e) => {
+            const button = getButton(e.target);
+            const item = getItem(button);
+            if (!item) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (singleClickTimer) {
+                window.clearTimeout(singleClickTimer);
+                singleClickTimer = null;
+            }
+            onDoubleActivate(item);
+        });
+    }
 }
 
 function _bindBoardAbilityControls() {
@@ -1471,7 +1679,13 @@ function _bindBoardAbilityControls() {
             const action = boardActionQueue.get(key);
             return action ? _describeBoardAction(action) : null;
         },
-        'boardActionKey'
+        'boardActionKey',
+        item => {
+            const action = item.action;
+            if (!action?.canUse) return;
+            _activateBoardAction(action);
+            _closeBoardDetail();
+        }
     );
     _bindDetailQueue('canvasPassiveButtons', boardPassiveQueue, 'passive', key => boardPassiveQueue.get(key));
     _bindDetailQueue('selectionEffectButtons', boardEffectQueue, 'effect', key => boardEffectQueue.get(key));
@@ -1481,14 +1695,6 @@ function _bindBoardAbilityControls() {
     boardDetailPopover.addEventListener('pointerenter', _clearDetailCloseTimer);
     boardDetailPopover.addEventListener('pointerleave', _scheduleBoardDetailClose);
     document.getElementById('boardDetailClose')?.addEventListener('click', () => _closeBoardDetail());
-    boardDetailCast?.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const action = _boardDetailState?.item?.action;
-        if (!action || !action.canUse) return;
-        _activateBoardAction(action);
-        _closeBoardDetail();
-    });
 }
 
 let _inputInitialized = false;
