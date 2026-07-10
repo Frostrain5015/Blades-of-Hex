@@ -1839,11 +1839,14 @@ export function initInput() {
                 const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
                 if (cfg) {
                     const usesLeft = CARD_SYSTEM_CONFIG.maxUsesPerTurn - (gameState.playerUsesThisTurn?.[ck] || 0);
+                    // 去除 desc 开头的【名称】重复前缀
+                    const rawDesc = cfg.desc || '';
+                    const cleanDesc = rawDesc.replace(/^【[^】]+】\s*\n?/, '');
                     _openBoardDetail({
                         key: 'card:' + cardId,
                         icon: cfg.icon || '🃏',
                         label: cfg.name,
-                        desc: cfg.desc || '',
+                        desc: cleanDesc,
                         kicker: '对策卡',
                         status: usesLeft > 0 ? '可用' : '使用次数已达到上限',
                         active: true,
