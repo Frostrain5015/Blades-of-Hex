@@ -1558,7 +1558,7 @@ function _syncSelectionHud(tile) {
             + (hoverMoveCost > 0 ? '(-' + hoverMoveCost + ')' : '') + '/' + unit.config.speed;
         selectionHudStats.replaceChildren(
             _textSpan('⚔ ' + attack + (attackDelta ? ' (' + (attackDelta > 0 ? '+' : '') + attackDelta + ')' : ''), attackDelta > 0 ? '#ffe875' : '#ffdf70'),
-            _textSpan('🛡 ' + defense + '%', defense > 0 ? '#9be5df' : defense < 0 ? '#ff8f96' : '#b3b3b3'),
+            _textSpan('🛡 ' + defense + '%(' + (defense + _calcAADefense(tile, unit) * 25) + '%)', defense > 0 ? '#9be5df' : defense < 0 ? '#ff8f96' : '#b3b3b3'),
             _textSpan(mpText, '#87d5ff'),
             _textSpan('📡 ' + unit.config.range, '#f4a8d4')
         );
@@ -1570,6 +1570,22 @@ function _syncSelectionHud(tile) {
 
     selectionHudEl.classList.toggle('visible', !!unit || effects.length > 0);
     _renderEffectQueue(effects, selectionKey);
+}
+
+// 计算友方 AA 单位提供的防空层数（0~2，与 Unit.js 防空逻辑一致）
+function _calcAADefense(tile, unit) {
+    if (!gameState.tileMap) return 0;
+    let aaCount = 0;
+    const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+    const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
+    for (const [dq, dr] of [...dirs, ...dirs2]) {
+        const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+        if (!nb || !nb.unit || nb.unit.camp !== unit.camp) continue;
+        if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest' || nb.unit.commander === 'staller') {
+            if (++aaCount >= 2) break;
+        }
+    }
+    return aaCount;
 }
 
 function _textSpan(text, color) {
