@@ -1834,9 +1834,29 @@ export function initInput() {
                 }
             }
             setCardHoveredIndex(found);
+            if (found >= 0) {
+                const cardId = hand2[found];
+                const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
+                if (cfg) {
+                    const usesLeft = CARD_SYSTEM_CONFIG.maxUsesPerTurn - (gameState.playerUsesThisTurn?.[ck] || 0);
+                    _openBoardDetail({
+                        key: 'card:' + cardId,
+                        icon: cfg.icon || '🃏',
+                        label: cfg.name,
+                        desc: cfg.desc || '',
+                        kicker: '对策卡',
+                        status: usesLeft > 0 ? '可用' : '使用次数已达到上限',
+                        active: true,
+                        color: COLONEL_CARDS[cardId] ? '#94cdf8' : '#b8d4e8'
+                    }, 'passive', false);
+                }
+            } else if (_boardDetailState?.key?.startsWith('card:')) {
+                _closeBoardDetail();
+            }
         });
         cardCanvas.addEventListener('mouseleave', () => {
             setCardHoveredIndex(-1);
+            if (_boardDetailState?.key?.startsWith('card:')) _closeBoardDetail();
         });
         cardCanvas.addEventListener('click', (e) => {
             if (gameState.gameOver) return;
