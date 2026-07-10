@@ -2183,7 +2183,7 @@ export function executeEngineerBunkerConstruction(engineerUnit, targetTile) {
 export function executeDroneSuicide(droneUnit, targetTile) {
     if (!droneUnit || !droneUnit._isDrone) return false;
     refreshDroneSignal(gameState, droneUnit.camp);
-    if (droneUnit.morale === 0 || !droneUnit.canAct) {
+    if (droneUnit.morale === 0) {
         notify('哨机当前无法行动', 'error');
         return false;
     }

@@ -131,7 +131,7 @@ function _isLocalActionUnit(unit) {
 }
 
 function _canUseDroneSkill(unit) {
-    return _isLocalActionUnit(unit) && unit.canAct;
+    return _isLocalActionUnit(unit);
 }
 
 function _hasDroneSuicideTarget(unit) {
@@ -153,7 +153,7 @@ function _canUseCommanderActiveSkill(unit) {
     const noFaith = unit.commander === 'paladin' && unit._faith < 1 && !unit._smiteReady;
     const noFaithUpgrade = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged && unit._faith < 1;
     const smiteFull = unit.commander === 'paladin' && unit._smiteReady && unit._smiteCharged;
-    return unit.canAct && !unit.isNewRecruit && !noFaith && !noFaithUpgrade && !smiteFull;
+    return !unit.isNewRecruit && !noFaith && !noFaithUpgrade && !smiteFull;
 }
 
 function _hasTianyanDeployTarget(unit) {
@@ -2019,21 +2019,27 @@ export function initInput() {
         clearselection();
         gameState.selectedTile = clickedTile;
 
-        const ownActionable = clickedTile.unit && _isLocalActionCamp(clickedTile.unit.camp) && clickedTile.unit.canAct && !clickedTile.unit.isNewRecruit;
+        const isOwnUnit = clickedTile.unit && _isLocalActionCamp(clickedTile.unit.camp) && !clickedTile.unit.isNewRecruit;
+        const ownActionable = isOwnUnit && clickedTile.unit.canAct;
         const ownEmptyCity = clickedTile.isCity && _isLocalActionCamp(clickedTile.camp) && !clickedTile.unit;
         const ownEmptyVillage = clickedTile.isVillage && _isLocalActionCamp(clickedTile.camp) && !clickedTile.unit;
 
-        if (ownActionable) {
+        if (isOwnUnit) {
             gameState.selectedUnit = clickedTile.unit;
-            gameState.movableTiles = getMovableTiles(clickedTile.unit);
-            gameState.attackableTiles = getAttackableTiles(clickedTile.unit);
-            // 碉堡等不可移动单位：若无攻击目标则直接标记为不可行动
-            if (gameState.movableTiles.length === 0 && gameState.attackableTiles.length === 0) {
-                clickedTile.unit.canAct = false;
-                gameState.selectedUnit = null;
-                return;
+            if (ownActionable) {
+                gameState.movableTiles = getMovableTiles(clickedTile.unit);
+                gameState.attackableTiles = getAttackableTiles(clickedTile.unit);
+                // 碉堡等不可移动单位：若无攻击目标则直接标记为不可行动
+                if (gameState.movableTiles.length === 0 && gameState.attackableTiles.length === 0) {
+                    clickedTile.unit.canAct = false;
+                    gameState.selectedUnit = null;
+                    return;
+                }
+                gameState.selectionTime = performance.now();
+            } else {
+                gameState.movableTiles = [];
+                gameState.attackableTiles = [];
             }
-            gameState.selectionTime = performance.now();
         } else if (ownEmptyCity || ownEmptyVillage) {
             gameState.selectedCityTile = clickedTile;
         } else if (clickedTile.unit) {
@@ -2081,7 +2087,7 @@ export function initInput() {
 
         const hovered = gameState.hoveredTile;
         if (hovered) {
-            const isOwnUnit = hovered.unit && _isLocalActionCamp(hovered.unit.camp) && hovered.unit.canAct && !hovered.unit.isNewRecruit;
+            const isOwnUnit = hovered.unit && _isLocalActionCamp(hovered.unit.camp) && !hovered.unit.isNewRecruit;
             const isOwnCity = hovered.isCity && _isLocalActionCamp(hovered.camp) && !hovered.unit && !gameState.selectedUnit;
             const isMovable = gameState.selectedUnit && gameState.movableTiles.includes(hovered) && !hovered.unit;
             const isAttackable = gameState.selectedUnit && gameState.attackableTiles.includes(hovered) && hovered.unit;
