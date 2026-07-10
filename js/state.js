@@ -1053,18 +1053,15 @@ export function resolveUnitById(id) {
 
 // ===== 远程状态同步（联机模式收到对手操作时调用） =====================
 export function applyRemoteState(data, HexTileClass, UnitClass) {
-    // 记录当前选中的单位 ID，状态同步后若仍存活则恢复引用
-    const prevSelectedId = gameState.selectedUnit?.id ?? null;
+    // 保存选中的单位 ID，状态同步后在新 tiles 中恢复引用（若存活）
+    const prevId = gameState.selectedUnit?.id ?? null;
     deserializeState(data, HexTileClass, UnitClass);
-    if (prevSelectedId) {
-        const restored = gameState.tiles.reduce((f, t) => f || (t.unit?.id === prevSelectedId ? t.unit : null), null);
-        if (restored && restored.hp > 0) {
-            gameState.selectedUnit = restored;
-            gameState.selectedCityTile = null;
-            gameState.selectedTile = null;
-            gameState.movableTiles = [];
-            gameState.attackableTiles = [];
-            return;
+    if (prevId) {
+        for (const t of gameState.tiles) {
+            if (t.unit && t.unit.id === prevId && t.unit.hp > 0) {
+                gameState.selectedUnit = t.unit;
+                return;
+            }
         }
     }
     gameState.selectedUnit = null;
