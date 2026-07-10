@@ -1803,11 +1803,11 @@ export function initInput() {
             setCardHoveredIndex(found);
             if (found >= 0) {
                 const cardEntry = hand2[found];
+                if (!cardEntry) { if (_boardDetailState?.key?.startsWith('card:')) _closeBoardDetail(); return; }
                 const cardId = typeof cardEntry === 'object' ? cardEntry.id : cardEntry;
                 const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
                 if (cfg) {
                     const usesLeft = CARD_SYSTEM_CONFIG.maxUsesPerTurn - (gameState.playerUsesThisTurn?.[ck] || 0);
-                    // 去除 desc 开头的【名称】重复前缀
                     const rawDesc = cfg.desc || '';
                     const cleanDesc = rawDesc.replace(/^【[^】]+】\s*\n?/, '');
                     _openBoardDetail({
@@ -1821,8 +1821,8 @@ export function initInput() {
                         color: COLONEL_CARDS[cardId] ? '#94cdf8' : '#b8d4e8'
                     }, 'passive', false);
                 }
-            } else if (_boardDetailState?.key?.startsWith('card:')) {
-                _closeBoardDetail();
+            } else {
+                if (_boardDetailState?.key?.startsWith('card:')) _closeBoardDetail();
             }
         });
         cardCanvas.addEventListener('mouseleave', () => {
