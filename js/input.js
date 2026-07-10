@@ -976,6 +976,36 @@ function _getPassiveRuntimeState(unit, skill) {
         }
     }
 
+    if (unit.commander === 'centurion' && skill.name === '老兵') {
+        presentation.status = '常驻生效';
+    }
+
+    if (unit.commander === 'astrologer' && skill.name === '夜观') {
+        presentation.status = '常驻生效';
+    }
+
+    if (unit.commander === 'tianyan' && (skill.name === '战场观测' || skill.name === '机枪射击')) {
+        presentation.status = '常驻生效';
+    }
+
+    if (unit.commander === 'magician' && skill.name === '千面') {
+        presentation.status = '常驻生效';
+    }
+
+    if (unit.commander === 'priest' && skill.name === '圣疗') {
+        presentation.status = '常驻生效';
+    }
+
+    if (unit.commander === 'paladin' && skill.name === '勇气灵光') {
+        presentation.status = '常驻生效';
+    }
+
+    if (unit.commander === 'fallenAngel') {
+        const form = unit._fallen ? '堕天使·黑' : '堕天使·白';
+        presentation.status = '当前处于' + form;
+        presentation.color = unit._fallen ? '#ff6644' : '#6688ff';
+    }
+
     if (unit.commander === 'diplomat') {
         const override = gameState._cardOverrides?.[_campKeyInput(unit.camp)];
         if (skill.name === '合纵') {
