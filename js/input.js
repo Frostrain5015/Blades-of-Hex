@@ -1572,7 +1572,7 @@ function _syncSelectionHud(tile) {
     _renderEffectQueue(effects, selectionKey);
 }
 
-// 计算友方 AA 单位提供的防空层数（0~2，与 Unit.js 防空逻辑一致）
+// 计算该地块的防空层数（0~2，与 Unit.js 防空逻辑一致：友军AA单位2格内 + 己方高射机枪）
 function _calcAADefense(tile, unit) {
     if (!gameState.tileMap) return 0;
     let aaCount = 0;
@@ -1585,7 +1585,12 @@ function _calcAADefense(tile, unit) {
             if (++aaCount >= 2) break;
         }
     }
-    return aaCount;
+    // 高射机枪工事：为站在其上的单位额外提供自身1层防空
+    if (aaCount < 2 && tile.fortification) {
+        const fc = FORTIFICATION_CONFIG[tile.fortification];
+        if (fc && fc.providesSelfAA) aaCount++;
+    }
+    return Math.min(aaCount, 2);
 }
 
 function _textSpan(text, color) {
