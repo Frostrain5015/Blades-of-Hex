@@ -794,6 +794,7 @@ const SKILL_ICONS = {
     '幻形': '🎭',
     '乘胜': '🏆',
     '制空': '✈️',
+    '老练': '⭐',
     '留魂': '👻',
     '回魂': '💀',
     '治愈灵光': '💚',
@@ -945,11 +946,16 @@ function _getPassiveRuntimeState(unit, skill) {
     }
 
     if (unit.commander === 'colonel' && skill.name === '制空') {
+        presentation.status = '常驻生效';
+    }
+    if (unit.commander === 'colonel' && skill.name === '老练') {
         const stacks = Math.min(6, gameState._colonelAirStacks?.[_campKeyInput(unit.camp)] || 0);
-        presentation.count = '';
+        presentation.count = stacks || '';
         presentation.active = stacks > 0;
         presentation.intensity = stacks / 6;
-        presentation.status = '当前生效 空军伤害提高' + (stacks * 5) + '%';
+        presentation.status = stacks > 0
+            ? '当前生效 空军伤害提高' + (stacks * 5) + '%'
+            : '当前未生效';
         if (stacks > 0) presentation.color = '#94cdf8';
     }
 
