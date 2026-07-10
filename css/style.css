@@ -1068,7 +1068,7 @@ body {
 .ability-badge-count {
     position: absolute;
     right: 1px;
-    bottom: 1px;
+    top: -4px;
     min-width: 11px;
     height: 11px;
     padding: 0 2px;
