@@ -1055,6 +1055,7 @@ function _getWeatherEffect(unit) {
     if (gameState.weather === 'rain') {
         if (unit.tile.isCity) details.push('每回合回复15%最大生命值');
         if (unit.type === 'infantry' && unit.tile.isCity) details.push('驻守城市时防御提高10%');
+        if (unit.type === 'cavalry') details.push('每步移动消耗+1');
     } else if (gameState.weather === 'fog') {
         if (unit.type === 'archer') details.push('射程−1');
         if (unit.type === 'cavalry') details.push('伤害提高20%，每格冲锋伤害额外提高5%');
