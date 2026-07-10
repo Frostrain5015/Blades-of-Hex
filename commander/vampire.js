@@ -25,7 +25,7 @@ export default {
         unit._shield = newShield;
         unit._shieldMax = Math.max(unit._shieldMax || 0, SHIELD_CAP);
         if (shieldGain > 0) {
-          helpers.logMessage(`吸血鬼【嗜血】：溢出治疗转化为护盾+${shieldGain}（当前护盾${unit._shield}/${SHIELD_CAP}）`);
+          helpers.logMessage(`吸血鬼【嗜血】：溢出治疗转化为护盾+${shieldGain} 当前护盾${unit._shield}/${SHIELD_CAP}`);
         }
       }
     }

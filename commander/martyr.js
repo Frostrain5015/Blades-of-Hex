@@ -6,7 +6,7 @@ export default {
   hpBonusPct: 0.30, atkBonusPct: 0, spdBonus: 0,
   skills: [
     { name: '殉道', desc: '生命≤1时进入殉道倒计时，期间可移动但无法攻击；下回合开始时对2格范围内所有非己方单位造成基于攻击力的真实伤害', type: 'passive' },
-    { name: '挽歌', desc: '己方单位阵亡时，殉道者永久获得5点攻击力（上限+25）', type: 'passive' }
+    { name: '挽歌', desc: '己方单位阵亡时，殉道者永久获得5点攻击力，最多叠加25点', type: 'passive' }
   ],
 
   onTurnStart(gameState, camp, helpers) {
@@ -24,7 +24,7 @@ export default {
       if (addedBonus > 0) {
         unit._elegyBonus = currentBonus + addedBonus;
         helpers.spawnFx(unit.tile.x, unit.tile.y, '🎵', '挽歌');
-        helpers.logMessage(`殉道者【挽歌】：${newDeaths}名友军阵亡 → ATK+${addedBonus}（累计+${unit._elegyBonus}/25）`);
+        helpers.logMessage(`殉道者【挽歌】：${newDeaths}名友军阵亡 → ATK+${addedBonus} 累计+${unit._elegyBonus}/25`);
       }
       unit._elegyProcessed = deathCount;
     }
@@ -57,7 +57,7 @@ export default {
             timeLeft: 900, lastUpdate: performance.now()
           });
           if (killed) {
-            helpers.logMessage(`殉道者自爆击杀${victim.camp.name}${victim.config.name}兵（${dmg}伤害）`);
+            helpers.logMessage(`殉道者自爆击杀${victim.camp.name}${victim.config.name}兵 ${dmg}伤害`);
             if (victim.commander) killedCommander = true;
           } else {
             helpers.logMessage(`殉道者自爆对${victim.camp.name}${victim.config.name}兵造成${dmg}伤害`);

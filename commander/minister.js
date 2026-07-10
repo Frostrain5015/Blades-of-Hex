@@ -4,7 +4,7 @@ export default {
   name: '尚书',
   skill: '屯田',
   hpBonusPct: 0.40, spdBonus: 0,
-  desc: '驻扎于城市时，每回合额外产出$1×当前回合数（上限$12）',
+  desc: '驻扎于城市时，每回合额外产出$1×当前回合数，最多$12',
 
   onTurnStart(gameState, camp, helpers) {
     if (camp.name === '中立') return;

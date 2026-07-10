@@ -664,7 +664,7 @@ const PASSIVE_DEFS = {
     },
     cavalry: {
         name: '冲锋',
-        desc: '势能：本回合每移动1格，造成的伤害提高10%（上限30%），回合结束消失',
+        desc: '势能：本回合每移动1格，造成的伤害提高10%，最多30%，回合结束消失',
         active: (u) => u.moveDistance >= 1
     },
     archer: {
@@ -987,17 +987,17 @@ export function showTooltipForTile(tile) {
         if (unit) {
             const effects = [];
             if (gameState.weather === 'rain') {
-                if (unit.tile.isCity)         effects.push('每回合回血15%');
-                if (unit.type === 'infantry' && unit.tile.isCity) effects.push('守城防御+10%');
+                if (unit.tile.isCity)         effects.push('每回合回复15%最大生命值');
+                if (unit.type === 'infantry' && unit.tile.isCity) effects.push('驻守城市时防御提高10%');
             } else if (gameState.weather === 'fog') {
                 if (unit.type === 'archer')   effects.push('射程−1');
-                if (unit.type === 'cavalry')  effects.push('增伤+20%', '冲锋15%/格');
+                if (unit.type === 'cavalry')  effects.push('伤害提高20%', '本回合每移动1格伤害额外提高5%');
             } else if (gameState.weather === 'wind') {
-                if (unit.type === 'archer')   effects.push('射程+1', '增伤+20%');
-                if (unit.type === 'infantry') effects.push('防御-15%');
+                if (unit.type === 'archer')   effects.push('射程+1', '伤害提高20%');
+                if (unit.type === 'infantry') effects.push('防御降低15%');
             }
             if (effects.length > 0) weatherDesc = effects.join('，');
-            else weatherDesc = '无直接影响';
+            else weatherDesc = '';
         }
         const weatherLine = `<span style="color:${wc.color};">${wc.icon}【${wc.name}】${weatherDesc}</span>`;
         const target = unit ? tooltipMorale : tooltipPassive;

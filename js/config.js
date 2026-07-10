@@ -181,7 +181,7 @@ export const FORTIFICATION_CONFIG = {
         name: '战壕',
         defenseBonus: 0.25,
         appliesTo: 'melee',            // 仅对近战攻击（步兵/骑兵）生效
-        desc: '近战防御+25%',
+        desc: '对近战攻击防御力提高25%',
         icon: '🚧',
         iconFont: '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif'
     },
@@ -190,17 +190,12 @@ export const FORTIFICATION_CONFIG = {
         defenseBonus: 0.25,
         appliesTo: 'ranged',           // 对远程攻击（炮兵/碉堡）生效
         providesSelfAA: true,          // 遭空军攻击时视为拥有1层防空（仅覆盖自身1格）
-        desc: '远程防御+25%；遭空军攻击时提供自身1层防空',
+        desc: '对远程攻击防御力提高25%',
         icon: '🔫',
         iconFont: '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif'
     }
 };
 
-// // ==== 河流 ====================
-// export const RIVER_CROSSING_COST = 5;
-// export const RIVER_COLOR_OUTER = 'rgba(30, 100, 180, 0.75)';
-// export const RIVER_COLOR_INNER = 'rgba(100, 180, 240, 0.85)';
-// export const RIVER_LINE_WIDTH = 3.5;
 
 // ==== 村庄 ====================
 export const VILLAGE_GOLD = 2;
@@ -222,21 +217,17 @@ export const COMMANDER_REROLL_COST = 10;
 // 士气等级: 3=上升 2=正常 1=下降 0=混乱
 // 士气增伤改为影响暴击浮动倍率（见 _calcFloat），防御力影响降低至5%
 export const MORALE_CONFIG = {
-    3: { name: '士气上升', dmgBonus: 0,     defBonus: 0.05,  icon: '▲', color: '#ffd700', desc: '暴击率约+15%，防御力+5%' },
+    3: { name: '士气上升', dmgBonus: 0,     defBonus: 0.05,  icon: '▲', color: '#ffd700', desc: '暴击率提高15%，防御力提高5%' },
     2: { name: '正常',     dmgBonus: 0,     defBonus: 0,     icon: '',   color: '#aaa',    desc: '' },
-    1: { name: '士气下降', dmgBonus: 0,     defBonus: -0.05, icon: '▼', color: '#b080e8', desc: '暴击率约-10%，防御力−5%' },
-    0: { name: '混乱',     dmgBonus: 0,     defBonus: -0.20, icon: '？', color: '#666',    desc: '无法操控，暴击率约-10%，防御力−20%' }
+    1: { name: '士气下降', dmgBonus: 0,     defBonus: -0.05, icon: '▼', color: '#b080e8', desc: '暴击率降低10%，防御力降低5%' },
+    0: { name: '混乱',     dmgBonus: 0,     defBonus: -0.20, icon: '？', color: '#666',    desc: '无法行动，暴击率降低10%，防御力降低20%' }
 };
 
-// ==== 将领配置 ====================
-// 将领数据已剥离至 commander/ 文件夹，通过 commander/index.js 统一导出
-// 注意：此处不再重导出，避免循环依赖（config.js → commander → colonel → config.js）
-// 各模块请直接从 ../commander/index.js 导入 COMMANDER_CONFIG / getCommander / shuffleAndSplitPool
 
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {
     clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
-    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '守城单位每回合回血15% · 步兵守城防御+10% · 雷击伤害1.5倍 · 骑兵步耗+1、末步豁免失效' },
+    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '守城单位每回合恢复15%最大生命值 · 步兵守城防御+10% · 雷击伤害1.5倍 · 骑兵步耗+1、末步豁免失效' },
     fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵增伤+20% · 骑兵冲锋15%/格' },
     wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 · 炮兵增伤+20% · 步兵防御-15%' }
 };
@@ -245,7 +236,7 @@ export const WEATHER_CONFIG = {
 export const TACTICAL_CARD_CONFIG = {
     heal: {
         id: 'heal', name: '疗愈', icon: '💚',
-        desc: '【疗愈】\n对地图上任意单位释放，立即恢复其40%生命值',
+        desc: '【疗愈】\n对指定单位释放，立即恢复其40%最大生命值',
         targeting: 'anyUnit',
         execute(targetTile, gameState, helpers) {
             const unit = targetTile.unit;
@@ -257,7 +248,7 @@ export const TACTICAL_CARD_CONFIG = {
     },
     lightning: {
         id: 'lightning', name: '雷击', icon: '⚡',
-        desc: '【雷击】\n对指定敌方单位造成40~60真实伤害（雨天翻倍）',
+        desc: '【雷击】\n对指定敌方单位造成40~60真实伤害，雨天伤害提高100%',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             let dmg = gameState.rng ? gameState.rng.between(40, 60) : 40 + Math.floor(Math.random() * 21);
@@ -269,7 +260,7 @@ export const TACTICAL_CARD_CONFIG = {
     },
     mgNest: {
         id: 'mgNest', name: '碉堡', icon: '🏰',
-        desc: '【碉堡】\n在己方领土空地部署一座碉堡\nHP=200 ATK=40 射程=2 不可移动\n（不能部署在城市）',
+        desc: '【碉堡】\n在指定己方行政区空地部署一座碉堡\nHP=200 ATK=40 射程=2 不可移动\n',
         targeting: 'emptyFriendlyNonCity',
         execute(targetTile, gameState, helpers) {
             const myCamp = helpers.getMyCamp();
@@ -283,7 +274,7 @@ export const TACTICAL_CARD_CONFIG = {
     },
     airdrop: {
         id: 'airdrop', name: '空降', icon: '🪂',
-        desc: '【空降】\n在任意空地投放一支空降步兵（受防空火力影响初始生命值）\n',
+        desc: '【空降】\n在指定空地投放一支空降步兵\n',
         targeting: 'emptyTile',
         execute(targetTile, gameState, helpers) {
             const myCamp = helpers.getMyCamp();
@@ -308,7 +299,7 @@ export const TACTICAL_CARD_CONFIG = {
     },
     forceMarch: {
         id: 'forceMarch', name: '强行军', icon: '🏃',
-        desc: '【强行军】\n对指定己方单位释放，立即回复2点行动力并可再次行动',
+        desc: '【强行军】\n对指定己方单位释放，立即回复2点行动力',
         targeting: 'friendlyAny',
         execute(targetTile, gameState, helpers) {
             targetTile.unit.remainingMP += 2;
@@ -318,7 +309,7 @@ export const TACTICAL_CARD_CONFIG = {
     },
     scout: {
         id: 'scout', name: '侦察', icon: '🔭',
-        desc: '【侦察】\n对全图任意位置释放，\n揭示目标及其周围6格，持续1回合。\n对手无从得知侦察位置。',
+        desc: '【侦察】\n对指定位置释放，\n揭示目标及其周围6格区域的战争迷雾，持续1回合',
         targeting: 'anyTileGlobal',
         execute(targetTile, gameState, helpers) {
             return { scoutQ: targetTile.q, scoutR: targetTile.r };
@@ -326,7 +317,7 @@ export const TACTICAL_CARD_CONFIG = {
     },
     airstrike: {
         id: 'airstrike', name: '空袭', icon: '✈️',
-        desc: '【空袭】\n对任意敌方目标释放，目标及周边6格造成35~50伤害，2回合内城市无法产金或招募\n受防空火力减伤',
+        desc: '【空袭】\n对指定敌方目标及周边6格造成35~50范围伤害，命中城市时其2回合内无法产出资源或招募部队',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const dmgBase = gameState.rng ? gameState.rng.between(35, 50) : 35 + Math.floor(Math.random() * 16);
@@ -364,7 +355,7 @@ export const TACTICAL_CARD_CONFIG = {
     },
     shield: {
         id: 'shield', name: '护盾', icon: '🛡️',
-        desc: '【护盾】\n对任意单位释放，获得50点护盾，持续3回合（优先吸收伤害）',
+        desc: '【护盾】\n对指定目标释放，使其获得50点护盾值，持续3回合',
         targeting: 'shieldTarget',
         execute(targetTile, gameState, helpers) {
             targetTile.unit._shield += 50;
@@ -375,7 +366,7 @@ export const TACTICAL_CARD_CONFIG = {
     },
     landmine: {
         id: 'landmine', name: '地雷', icon: '💣',
-        desc: '【地雷】\n在己方空地部署地雷，敌方单位经过时触发，造成100点普通伤害',
+        desc: '【地雷】\n在己方空地部署地雷，敌方单位经过时触发造成伤害',
         targeting: 'emptyFriendlyLandmine',
         execute(targetTile, gameState, helpers) {
             targetTile._minePlanted = true;
@@ -431,7 +422,7 @@ function _findColonel(gameState, camp) {
 export const COLONEL_CARDS = {
     diveStrafe: {
         id: 'diveStrafe', name: '扫射', icon: '💥',
-        desc: '【扫射】$3\n以上校攻击力对单体目标走标准伤害管线（含克制/士气/防御/防空），无反击；目标生命值低于50%时触发弱点打击，无视其25%防御力。对单破龟',
+        desc: '【扫射】$3\n对指定单体目标造成伤害；目标生命值低于50%时额外无视其25%防御力',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
@@ -444,7 +435,7 @@ export const COLONEL_CARDS = {
     },
     carpetBomb: {
         id: 'carpetBomb', name: '轰炸', icon: '💣',
-        desc: '【轰炸】$4\n以上校攻击力对目标及相邻6格走标准伤害管线造成AOE（中心60%/溅射35%，破甲10%）。对群骚扰',
+        desc: '【轰炸】$4\n对指定单体目标及相邻6格造成范围伤害（中心60%/溅射35%，破甲10%）',
         targeting: 'enemyGlobal',
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
@@ -463,7 +454,7 @@ export const COLONEL_CARDS = {
     },
     airlift: {
         id: 'airlift', name: '空运', icon: '🪂',
-        desc: '【空运】$4\n运送一名非己方的友军单位至已探索空地，清空其行动力',
+        desc: '【空运】$4\n运送一名自己以外的的友军单位至已探索空地',
         targeting: 'friendlyAny',
         execute(targetTile, gameState, helpers) {
             return { airlift: true, targetTile };

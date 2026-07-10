@@ -117,20 +117,16 @@ export function deployDrone(tianyanUnit, targetTile, helpers) {
     const gs = helpers.gameState;
     const campKey = _campToKey(tianyanUnit.camp);
 
-    if (hexDistance(tianyanUnit.tile, targetTile) > DRONE_DEPLOY_RANGE) {
-        helpers.logMessage('超出部署范围（1格）');
-        return null;
-    }
-    if (!_isValidDeployTile(targetTile)) {
-        helpers.logMessage('该格无法部署无人机');
+    if (!_isValidDeployTile(targetTile || hexDistance(tianyanUnit.tile, targetTile) > DRONE_DEPLOY_RANGE)) {
+        helpers.logMessage('该位置无法部署');
         return null;
     }
     if ((gs.playerGold[campKey] || 0) < DRONE_DEPLOY_COST) {
-        helpers.logMessage('金币不足，需要$5');
+        helpers.logMessage('金币不足');
         return null;
     }
     if (_getDeployCountThisTurn(gs, campKey) >= DRONE_DEPLOY_LIMIT_PER_TURN) {
-        helpers.logMessage('天眼：每回合最多部署1架无人机');
+        helpers.logMessage('每回合最多部署1架天眼哨机');
         return null;
     }
 
@@ -139,7 +135,7 @@ export function deployDrone(tianyanUnit, targetTile, helpers) {
         drones.sort((a, b) => (a._droneBornAt || 0) - (b._droneBornAt || 0));
         const oldest = drones[0];
         if (oldest && oldest.tile) {
-            helpers.logMessage('天眼：无人机超上限，销毁最旧无人机');
+            helpers.logMessage('天眼哨机数量超出上限 已自动销毁最旧无人机');
             oldest.hp = 0;
             oldest.destroy(null);
         }
@@ -164,7 +160,7 @@ export function deployDrone(tianyanUnit, targetTile, helpers) {
     drone.canAct = true;
     drone.isNewRecruit = false;
 
-    helpers.logMessage('天眼【天眼哨机】：部署无人机');
+    helpers.logMessage('【天眼哨机】部署天眼哨机');
     emit('tianyan:droneDeploy', {
         x: targetTile.x,
         y: targetTile.y,
@@ -186,14 +182,11 @@ export function canDeployDrone(tianyanUnit, gameState) {
 export default {
     id: 'tianyan',
     name: '天眼',
-    skill: '天眼哨机',
     hpBonusPct: 0.30, atkBonusPct: 0.15, spdBonus: 1,
-    desc: '本体HP+30%、ATK+15%、移速+1；遭遇战视野+1，以无人机建立5格信号网。',
     skills: [
         { name: '战场观测', desc: '遭遇战中自身视野+1；常驻显示5格无人机信号范围', type: 'passive' },
-        { name: '天眼哨机', desc: '$5 在周围1格空地部署无人机（上限2架，每回合1架），落地即可行动；离天眼超过5格会失控', type: 'active' },
-        { name: '机枪射击', desc: '无人机射程2，行动消耗2且无视地形；主动攻击地面单位时不被反击，单向克制步兵', type: 'passive' },
-        { name: '自爆', desc: '无人机冲向3格内目标自毁：主目标3倍普攻，身后左右2格1.5倍穿刺，受防空减免', type: 'active' }
+        { name: '天眼哨机', desc: '$5 在周围部署天眼哨机，每回合可部署1架，上限2架，哨机与天眼距离超过5格会失控', type: 'active' },
+        { name: '自爆', desc: '立即撞向3格内指定目标自毁并造成穿刺伤害', type: 'active' }
     ],
 
     onDeploy(unit, gameState, helpers) {
@@ -207,7 +200,7 @@ export default {
 
     activeSkill: {
         name: '天眼哨机',
-        desc: '$5 在周围1格空地部署无人机（上限2架，每回合1架）',
+        desc: '$5 在周围1格空地部署天眼哨机，每回合最多部署1架，同时最多存在2架',
         duration: 0,
         cooldown: 0,
 
@@ -215,15 +208,15 @@ export default {
             const gs = helpers.gameState;
             const campKey = _campToKey(unit.camp);
             if ((gs.playerGold[campKey] || 0) < DRONE_DEPLOY_COST) {
-                helpers.logMessage('金币不足，需要$5');
+                helpers.logMessage('金币不足');
                 return;
             }
             if (_getDeployCountThisTurn(gs, campKey) >= DRONE_DEPLOY_LIMIT_PER_TURN) {
-                helpers.logMessage('天眼：每回合最多部署1架无人机');
+                helpers.logMessage('每回合最多部署1架天眼哨机');
                 return;
             }
             unit._pendingDroneDeploy = true;
-            helpers.logMessage('天眼【天眼哨机】：请选择部署位置（周围1格空地）');
+            helpers.logMessage('【天眼哨机】：请选择部署位置');
         },
         onExpire(unit, helpers) {}
     }

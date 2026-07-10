@@ -6,7 +6,7 @@ export default {
   name: '铁卫',
   hpBonusPct: 0.30, spdBonus: 0,
   skills: [
-      { name: '守护', desc: '部署时获得120点永久护盾，每回合回复40点（上限120），自身及相邻友军获得【守护灵光】', type: 'passive' },
+      { name: '守护', desc: '部署时获得120点永久护盾，每回合回复40点，最多120点，自身及相邻友军获得【守护灵光】', type: 'passive' },
       { name: '守护灵光', desc: '防御力+10%，所受伤害转由铁卫护盾承担', type: 'passive' }
   ],
 

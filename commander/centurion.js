@@ -4,7 +4,7 @@ export default {
   name: '百夫长',
   skills: [
       { name: '老兵', desc: '晋升的速度+100%', type: 'passive' },
-      { name: '乘胜', desc: '攻击时有30%概率行动力+3，击杀时必定触发（每回合最多1次）', type: 'passive' }
+      { name: '乘胜', desc: '攻击时有30%概率获得3点行动力，击杀时必定触发，每回合最多1次', type: 'passive' }
   ],
   hpBonusPct: 0, atkBonusPct: 0.40, spdBonus: 1,
 
