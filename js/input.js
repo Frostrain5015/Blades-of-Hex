@@ -59,7 +59,30 @@ const BOARD_ACTION_THEMES = {
 };
 
 const boardActionQueue = new Map();
+const boardPassiveQueue = new Map();
+const boardEffectQueue = new Map();
 let _lastBoardActionSignature = null;
+let _lastPassiveSignature = null;
+let _lastEffectSignature = null;
+let _lastHudSignature = null;
+let _lastHudSelectionKey = null;
+let _detailCloseTimer = null;
+let _boardDetailState = null;
+
+const selectionHudEl = document.getElementById('selectionHud');
+const selectionHudTitle = document.getElementById('selectionHudTitle');
+const selectionHudHp = document.getElementById('selectionHudHp');
+const selectionHudHpFill = document.getElementById('selectionHudHpFill');
+const selectionHudHpText = document.getElementById('selectionHudHpText');
+const selectionHudStats = document.getElementById('selectionHudStats');
+const selectionHudStacks = document.getElementById('selectionHudStacks');
+const selectionEffectButtons = document.getElementById('selectionEffectButtons');
+const boardDetailPopover = document.getElementById('boardDetailPopover');
+const boardDetailKicker = document.getElementById('boardDetailKicker');
+const boardDetailTitle = document.getElementById('boardDetailTitle');
+const boardDetailDesc = document.getElementById('boardDetailDesc');
+const boardDetailStatus = document.getElementById('boardDetailStatus');
+const boardDetailCast = document.getElementById('boardDetailCast');
 
 function _getMyCampInput() {
     if (isNetworkGame()) {
@@ -205,7 +228,7 @@ function _getReinforcementAction(unit) {
     if (unit.tile._reinforcedThisTurn) {
         return {
             key: `reinforce:${unit.id}`,
-            legacyId: 'tooltipReinforce',
+            buttonId: 'boardReinforce',
             kind: 'reinforce',
             unitId: unit.id,
             icon: '📯',
@@ -218,7 +241,7 @@ function _getReinforcementAction(unit) {
     if (unit.hp >= unit.maxHp) {
         return {
             key: `reinforce:${unit.id}`,
-            legacyId: 'tooltipReinforce',
+            buttonId: 'boardReinforce',
             kind: 'reinforce',
             unitId: unit.id,
             icon: '📯',
@@ -235,7 +258,7 @@ function _getReinforcementAction(unit) {
     const hasGold = !!campKey && (gameState.playerGold[campKey] || 0) >= cost;
     return {
         key: `reinforce:${unit.id}`,
-        legacyId: 'tooltipReinforce',
+        buttonId: 'boardReinforce',
         kind: 'reinforce',
         unitId: unit.id,
         icon: '📯',
@@ -258,48 +281,56 @@ function _getCommanderActionIcon(commanderId, skillId) {
 
 function _collectBoardActions(unit) {
     const actions = [];
-    if (unit && _isLocalActionCamp(unit.camp)) {
-        if (unit._isDrone) {
-            actions.push({
-                key: `droneSuicide:${unit.id}`,
-                legacyId: 'tooltipActiveSkill',
-                kind: 'droneSuicide',
-                unitId: unit.id,
-                icon: '💥',
-                label: '自爆',
-                canUse: _canUseDroneSuicide(unit),
-                reason: _hasDroneSuicideTarget(unit) ? '当前不可用' : '3格内没有敌方单位',
-                theme: 'drone'
-            });
-        } else if (unit.commander) {
-            const cmdCfg = getCommander(unit.commander);
-            const skills = cmdCfg?.activeSkills?.length
-                ? cmdCfg.activeSkills
-                : cmdCfg?.activeSkill ? [{ id: '', name: cmdCfg.activeSkill.name }] : [];
-            skills.forEach((skill, index) => {
-                const skillId = skill.id || '';
-                const availability = _getCommanderSkillAvailability(unit, skillId);
-                const skillName = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged
-                    ? '至圣斩·誓约' : skill.name;
-                actions.push({
-                    key: `commander:${unit.id}:${skillId || 'default'}`,
-                    legacyId: index === 0 ? 'tooltipActiveSkill' : index === 1 ? 'tooltipSecondarySkill' : `tooltipCommanderSkill${index}`,
-                    kind: 'commanderSkill',
-                    unitId: unit.id,
-                    skillId,
-                    icon: _getCommanderActionIcon(unit.commander, skillId),
-                    label: skillName,
-                    goldCost: skill.goldCost || (unit.commander === 'tianyan' ? DRONE_DEPLOY_COST : 0),
-                    canUse: availability.canUse,
-                    reason: availability.reason,
-                    theme: unit.commander
-                });
-            });
-        }
+    if (!unit) return actions;
 
-        const reinforcement = _getReinforcementAction(unit);
-        if (reinforcement) actions.push(reinforcement);
+    const isControllable = _isLocalActionCamp(unit.camp);
+    const unavailableReason = _sameCampInput(unit.camp, _getMyCampInput())
+        ? '当前不是你的行动回合'
+        : '非己方单位，无法施放';
+    if (unit._isDrone) {
+        actions.push({
+            key: `droneSuicide:${unit.id}`,
+            buttonId: 'boardActiveSkill',
+            kind: 'droneSuicide',
+            unitId: unit.id,
+            icon: '💥',
+            label: '自爆',
+            canUse: isControllable && _canUseDroneSuicide(unit),
+            reason: isControllable
+                ? (_hasDroneSuicideTarget(unit) ? '当前不可用' : '3格内没有敌方单位')
+                : unavailableReason,
+            theme: 'drone'
+        });
+    } else if (unit.commander) {
+        const cmdCfg = getCommander(unit.commander);
+        const skills = cmdCfg?.activeSkills?.length
+            ? cmdCfg.activeSkills
+            : cmdCfg?.activeSkill ? [{ id: '', name: cmdCfg.activeSkill.name }] : [];
+        skills.forEach((skill, index) => {
+            const skillId = skill.id || '';
+            const availability = isControllable
+                ? _getCommanderSkillAvailability(unit, skillId)
+                : { canUse: false, reason: unavailableReason };
+            const skillName = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged
+                ? '至圣斩·誓约' : skill.name;
+            actions.push({
+                key: `commander:${unit.id}:${skillId || 'default'}`,
+                buttonId: index === 0 ? 'boardActiveSkill' : index === 1 ? 'boardSecondarySkill' : `boardCommanderSkill${index}`,
+                kind: 'commanderSkill',
+                unitId: unit.id,
+                skillId,
+                icon: _getCommanderActionIcon(unit.commander, skillId),
+                label: skillName,
+                goldCost: skill.goldCost || (unit.commander === 'tianyan' ? DRONE_DEPLOY_COST : 0),
+                canUse: availability.canUse,
+                reason: availability.reason,
+                theme: unit.commander
+            });
+        });
     }
+
+    const reinforcement = _getReinforcementAction(unit);
+    if (reinforcement) actions.push(reinforcement);
     return actions;
 }
 
@@ -307,6 +338,15 @@ function _formatBoardActionTitle(action) {
     const hasEmbeddedCost = action.goldCost && action.label.includes(`$${action.goldCost}`);
     const cost = action.goldCost && !hasEmbeddedCost ? ` $${action.goldCost}` : '';
     return action.reason ? `${action.label}${cost} - ${action.reason}` : `${action.label}${cost}`;
+}
+
+function _animateAbilityGroup(container, selectionKey) {
+    const nextKey = selectionKey || '';
+    if (container.dataset.selectionKey === nextKey) return;
+    container.dataset.selectionKey = nextKey;
+    container.classList.remove('is-swapping');
+    void container.offsetWidth;
+    container.classList.add('is-swapping');
 }
 
 function _renderBoardActionQueue(actions) {
@@ -336,12 +376,14 @@ function _renderBoardActionQueue(actions) {
         }
 
         boardActionQueue.set(action.key, action);
-        button.id = action.legacyId;
+        button.id = action.buttonId;
         button.className = 'canvas-action-button';
-        button.disabled = !action.canUse;
+        // 保持禁用技能可悬浮查看，因此使用语义禁用并在执行层拦截点击。
+        button.disabled = false;
         button.classList.toggle('is-disabled', !action.canUse);
-        button.title = _formatBoardActionTitle(action);
-        button.setAttribute('aria-label', button.title);
+        button.setAttribute('aria-disabled', action.canUse ? 'false' : 'true');
+        button.removeAttribute('title');
+        button.setAttribute('aria-label', _formatBoardActionTitle(action));
         button.dataset.boardActionKey = action.key;
         _applyBoardActionTheme(button, action.theme);
 
@@ -356,15 +398,23 @@ function _renderBoardActionQueue(actions) {
             cost.textContent = `$${action.goldCost}`;
             button.appendChild(cost);
         }
+        button.classList.remove('ability-action-update');
+        void button.offsetWidth;
+        button.classList.add('ability-action-update');
     });
     for (let index = actions.length; index < buttons.length; index++) buttons[index].remove();
     container.classList.toggle('visible', actions.length > 0);
     container.setAttribute('aria-hidden', actions.length > 0 ? 'false' : 'true');
+    document.getElementById('canvasPassiveButtons')?.classList.toggle('has-actions', actions.length > 0);
+    _animateAbilityGroup(container, actions[0]?.unitId);
 }
 
 export function syncBoardActionBar() {
-    const unit = !gameState.cardTargeting ? gameState.selectedUnit : null;
+    const tile = gameState.selectedTile || gameState.selectedUnit?.tile || null;
+    _syncSelectionHud(tile);
+    const unit = !gameState.cardTargeting ? tile?.unit || null : null;
     _renderBoardActionQueue(_collectBoardActions(unit));
+    _renderPassiveQueue(!gameState.cardTargeting ? _buildPassiveItems(unit) : []);
 }
 
 function _activateBoardAction(action) {
@@ -387,7 +437,7 @@ function _activateBoardAction(action) {
         const reinforcement = _getReinforcementAction(unit);
         if (!reinforcement?.canUse) return;
         reinforceUnit(unit);
-        showTooltipForTile(unit.tile);
+        showSelectionHudForTile(unit.tile);
         return;
     }
 
@@ -397,9 +447,9 @@ function _activateBoardAction(action) {
 
     if (unit.commander === 'engineer') {
         if (action.skillId === 'trench') {
-            if (executeEngineerTrench(unit)) showTooltipForTile(unit.tile);
+            if (executeEngineerTrench(unit)) showSelectionHudForTile(unit.tile);
         } else if (action.skillId === 'flak') {
-            if (executeEngineerFlak(unit)) showTooltipForTile(unit.tile);
+            if (executeEngineerFlak(unit)) showSelectionHudForTile(unit.tile);
         } else if (action.skillId === 'bunker') {
             _beginEngineerBunkerTargeting(unit);
         }
@@ -430,7 +480,7 @@ function _activateBoardAction(action) {
     unit.activeSkillDur = skill.duration;
     unit.activeSkillCD = skill.cooldown;
     recalcAllFlankingMorale();
-    showTooltipForTile(unit.tile);
+    showSelectionHudForTile(unit.tile);
     if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
 }
 
@@ -547,7 +597,7 @@ function _handleCardCanvasClick(e) {
                 if (gameState.weather === 'fog') { notify('雾天停飞，无法使用空军卡', 'error'); return; }
             }
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
-            hideTooltip();
+            hideSelectionHud();
             gameState.selectedTile = null;
             // capture card hand position in game logical coords for burn animation
             {
@@ -577,85 +627,6 @@ function _handleCardCanvasClick(e) {
     }
 }
 
-// HTML tooltip 元素
-const tooltipEl = document.getElementById('unitTooltip');
-const tooltipHeader = document.getElementById('tooltipHeader');
-const tooltipHpFill = document.getElementById('tooltipHpFill');
-const tooltipHpText = document.getElementById('tooltipHpText');
-const tooltipAtk = document.getElementById('tooltipAtk');
-const tooltipDef = document.getElementById('tooltipDef');
-const tooltipSpd = document.getElementById('tooltipSpd');
-const tooltipRng = document.getElementById('tooltipRng');
-const tooltipCD = document.getElementById('tooltipCD');
-const tooltipSkillInfo = document.getElementById('tooltipSkillInfo');
-const tooltipStackStats = document.getElementById('tooltipStackStats');
-const tooltipPassive = document.getElementById('tooltipPassive');
-const tooltipMorale = document.getElementById('tooltipMorale');
-
-// 军衔折形图标 canvas（惰性创建，复用）
-// 折形比例与部队右下角完全一致：hw=5.5 hh=1.5(略压扁) dy=4 lineWidth=2
-let _rankCanvas = null;
-function _getOrCreateRankCanvas() {
-    if (!_rankCanvas) {
-        _rankCanvas = document.createElement('canvas');
-        _rankCanvas.style.flexShrink = '0';
-        _rankCanvas.style.marginLeft = '4px';
-    }
-    return _rankCanvas;
-}
-function _drawRankChevrons(cv, rank) {
-    const pad = 2;
-    const ctx = cv.getContext('2d');
-    if (rank >= 4) {
-        const outerR = 7, innerR = outerR * 0.382;
-        const extra = 4;
-        cv.width = Math.ceil(outerR * 2 + pad * 2 + extra * 2);
-        cv.height = cv.width;
-        ctx.clearRect(0, 0, cv.width, cv.height);
-        const cx = cv.width / 2, cy = cv.height / 2;
-        ctx.beginPath();
-        for (let i = 0; i < 5; i++) {
-            const aOut = -Math.PI / 2 + i * 2 * Math.PI / 5;
-            const aIn = aOut + Math.PI / 5;
-            if (i === 0) ctx.moveTo(cx + outerR * Math.cos(aOut), cy + outerR * Math.sin(aOut));
-            else ctx.lineTo(cx + outerR * Math.cos(aOut), cy + outerR * Math.sin(aOut));
-            ctx.lineTo(cx + innerR * Math.cos(aIn), cy + innerR * Math.sin(aIn));
-        }
-        ctx.closePath();
-        ctx.fillStyle = '#ffd700';
-        ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetY = 1;
-        ctx.fill();
-        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5; ctx.shadowOffsetY = 0;
-        ctx.fill();
-        ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-        return;
-    }
-    const hw = 5.5, hh = 1.5, sp = 4; // width-half, height-half(压扁), vertical spacing
-    const cw = Math.ceil(hw * 2 + pad * 2);
-    const ch = Math.ceil((rank - 1) * sp + hh * 2 + pad * 2 + 2);
-    cv.width = cw;
-    cv.height = ch;
-    ctx.clearRect(0, 0, cw, ch);
-    ctx.strokeStyle = '#ffd700';
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    const chX = cw / 2;
-    const chY = pad + hh;
-    for (let lv = 0; lv < rank; lv++) {
-        const oy = lv * sp;
-        ctx.beginPath();
-        ctx.moveTo(chX - hw, chY + hh + oy);
-        ctx.lineTo(chX,      chY - hh + oy);
-        ctx.lineTo(chX + hw, chY + hh + oy);
-        ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetY = 1;
-        ctx.stroke();
-        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5; ctx.shadowOffsetY = 0;
-        ctx.stroke();
-    }
-    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-}
-
 const PASSIVE_DEFS = {
     infantry: {
         name: '坚守',
@@ -674,379 +645,770 @@ const PASSIVE_DEFS = {
     }
 };
 
-export function showTooltipForTile(tile) {
-    // 迷雾遮挡的地块不显示任何信息
-    if (gameState.skirmishFog && !isTileVisible(tile, getViewingCamp(), gameState)) {
-        tooltipEl.classList.remove('visible');
+// 军衔折形沿用战场单位的图形语言：1–3 阶为折形，4 阶及以上为金色星章。
+let _hudRankCanvas = null;
+function _getHudRankCanvas() {
+    if (!_hudRankCanvas) {
+        _hudRankCanvas = document.createElement('canvas');
+        _hudRankCanvas.className = 'selection-hud-rank';
+    }
+    return _hudRankCanvas;
+}
+
+function _drawHudRank(cv, rank) {
+    const pad = 2;
+    const ctx = cv.getContext('2d');
+    if (rank >= 4) {
+        const outerRadius = 7;
+        const innerRadius = outerRadius * 0.382;
+        const extra = 4;
+        cv.width = Math.ceil(outerRadius * 2 + pad * 2 + extra * 2);
+        cv.height = cv.width;
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        const centerX = cv.width / 2;
+        const centerY = cv.height / 2;
+        ctx.beginPath();
+        for (let index = 0; index < 5; index++) {
+            const outerAngle = -Math.PI / 2 + index * 2 * Math.PI / 5;
+            const innerAngle = outerAngle + Math.PI / 5;
+            if (index === 0) ctx.moveTo(centerX + outerRadius * Math.cos(outerAngle), centerY + outerRadius * Math.sin(outerAngle));
+            else ctx.lineTo(centerX + outerRadius * Math.cos(outerAngle), centerY + outerRadius * Math.sin(outerAngle));
+            ctx.lineTo(centerX + innerRadius * Math.cos(innerAngle), centerY + innerRadius * Math.sin(innerAngle));
+        }
+        ctx.closePath();
+        ctx.fillStyle = '#ffd700';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 1.5;
+        ctx.shadowOffsetY = 1;
+        ctx.fill();
+        ctx.shadowColor = '#ffd700';
+        ctx.shadowBlur = 2.5;
+        ctx.shadowOffsetY = 0;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
         return;
     }
+
+    const halfWidth = 5.5;
+    const halfHeight = 1.5;
+    const spacing = 4;
+    cv.width = Math.ceil(halfWidth * 2 + pad * 2);
+    cv.height = Math.ceil((rank - 1) * spacing + halfHeight * 2 + pad * 2 + 2);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const centerX = cv.width / 2;
+    const centerY = pad + halfHeight;
+    for (let level = 0; level < rank; level++) {
+        const offsetY = level * spacing;
+        ctx.beginPath();
+        ctx.moveTo(centerX - halfWidth, centerY + halfHeight + offsetY);
+        ctx.lineTo(centerX, centerY - halfHeight + offsetY);
+        ctx.lineTo(centerX + halfWidth, centerY + halfHeight + offsetY);
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 1.5;
+        ctx.shadowOffsetY = 1;
+        ctx.stroke();
+        ctx.shadowColor = '#ffd700';
+        ctx.shadowBlur = 2.5;
+        ctx.shadowOffsetY = 0;
+        ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+}
+
+function _setHudTitle(text, rank = 0) {
+    selectionHudTitle.replaceChildren(document.createTextNode(text));
+    if (rank > 0) {
+        const rankCanvas = _getHudRankCanvas();
+        _drawHudRank(rankCanvas, rank);
+        selectionHudTitle.appendChild(rankCanvas);
+    }
+}
+
+const UNIT_TYPE_NAMES = {
+    infantry: '步兵',
+    cavalry: '骑兵',
+    archer: '炮兵',
+    mgNest: '碉堡',
+    drone: '无人机'
+};
+
+const PASSIVE_ICONS = {
+    infantry: '🏰',
+    cavalry: '🐎',
+    archer: '🎯',
+    drone: '🛸'
+};
+
+const COMMANDER_ICONS = {
+    advisor: '🧠',
+    astrologer: '🔮',
+    berserker: '🩸',
+    centurion: '🏛️',
+    colonel: '🛩️',
+    diplomat: '🤝',
+    engineer: '🛠️',
+    fallenAngel: '😇',
+    ironGuard: '🛡️',
+    magician: '🎩',
+    martyr: '🔥',
+    minister: '📜',
+    necromancer: '💀',
+    paladin: '✝️',
+    priest: '🙏',
+    staller: '🕳️',
+    tianyan: '🛰️',
+    vampire: '🧛'
+};
+
+const SKILL_ICONS = {
+    '坚守': '🏰',
+    '冲锋': '🐎',
+    '远射': '🎯',
+    '守护': '🛡️',
+    '守护灵光': '🛡️',
+    '勇气灵光': '✨',
+    '誓言': '⚔️',
+    '至圣斩': '✝️',
+    '治愈灵光': '💚',
+    '星光护体': '🌟',
+    '堕天使·白': '🤍',
+    '堕天使·黑': '🖤',
+    '血怒': '🩸',
+    '殉道': '🔥',
+    '屯田': '🌾',
+    '迟滞力场': '🌀',
+    '连横': '🤝',
+    '合纵': '🤝',
+    '留魂': '👻'
+};
+
+const EFFECT_ICONS = {
+    '城市': '🏙️',
+    '村庄': '🏘️',
+    '平原': '🌾',
+    '森林': '🌲',
+    '山地': '⛰️',
+    '战壕': '🪖',
+    '高射机枪': '🔫',
+    '碉堡': '🏰',
+    '士气上升': '▲',
+    '士气下降': '▼',
+    '混乱': '？',
+    '禁锢': '⛓️',
+    '不可移动': '🧱',
+    '勇气灵光': '✨',
+    '治愈灵光': '💚',
+    '守护灵光': '🛡️',
+    '星光护体': '🌟',
+    '亡魂标记': '👻',
+    '合纵': '🤝',
+    '连横': '🪢',
+    '缚足': '🕸️',
+    '施工中': '🚧',
+    '脚手架': '🏗️'
+};
+
+function _commanderSkillIcon(commanderId, skillName) {
+    return SKILL_ICONS[skillName] || COMMANDER_ICONS[commanderId] || '✦';
+}
+
+function _getTerrainEffect(tile) {
+    const terrain = TERRAIN_CONFIG[tile.terrain];
+    if (tile.isCity) {
+        const ownerName = tile.camp === CAMP.player1 ? '红军'
+            : tile.camp === CAMP.player2 ? '蓝军'
+                : tile.camp === CAMP.player3 ? '绿军' : '中立';
+        let desc = '由' + ownerName + '控制';
+        if (tile._cityDisabledUntil > getRoundIndex(gameState)) {
+            desc += '。遭到空袭，暂时无法产出资源或招募部队';
+        }
+        return {
+            key: 'terrain:city:' + tile.q + ':' + tile.r,
+            icon: '🏙️',
+            label: '城市',
+            desc,
+            color: tile.camp?.color || '#ffffff',
+            kind: 'effect'
+        };
+    }
+
+    let desc = '防御力提高' + Math.round((terrain.defenseBonus || 0) * 100) + '%';
+    if (tile.terrain === 'forest') desc += '，远程单位额外提高15%';
+    if (terrain.moveDesc) desc += '，' + terrain.moveDesc;
+    return {
+        key: 'terrain:' + tile.terrain + ':' + tile.q + ':' + tile.r,
+        icon: terrain.icon || '🌾',
+        label: terrain.name,
+        desc,
+        color: '#e6dfc8',
+        kind: 'effect'
+    };
+}
+
+function _getWeatherEffect(unit) {
+    const weather = WEATHER_CONFIG[gameState.weather];
+    if (!weather || gameState.weather === 'clear') return null;
+    let desc = weather.desc;
+    if (unit) {
+        const details = [];
+        if (gameState.weather === 'rain') {
+            if (unit.tile.isCity) details.push('每回合回复15%最大生命值');
+            if (unit.type === 'infantry' && unit.tile.isCity) details.push('驻守城市时防御提高10%');
+        } else if (gameState.weather === 'fog') {
+            if (unit.type === 'archer') details.push('射程−1');
+            if (unit.type === 'cavalry') details.push('伤害提高20%，每格冲锋伤害额外提高5%');
+        } else if (gameState.weather === 'wind') {
+            if (unit.type === 'archer') details.push('射程+1，伤害提高20%');
+            if (unit.type === 'infantry') details.push('防御降低15%');
+        }
+        if (details.length) desc = details.join('；');
+    }
+    return {
+        key: 'weather:' + gameState.weather,
+        icon: weather.icon,
+        label: weather.name + '天',
+        desc,
+        color: weather.color,
+        kind: 'effect'
+    };
+}
+
+function _buildEffectItems(tile, unit) {
+    if (!tile) return [];
+    const items = [_getTerrainEffect(tile)];
+    const fortification = tile.fortification ? FORTIFICATION_CONFIG[tile.fortification] : null;
+    if (fortification) {
+        items.push({
+            key: 'fortification:' + tile.fortification,
+            icon: EFFECT_ICONS[fortification.name] || '🛡️',
+            label: fortification.name,
+            desc: fortification.desc,
+            color: '#e8c477',
+            kind: 'effect'
+        });
+    }
+
+    const weather = _getWeatherEffect(unit);
+    if (weather) items.push(weather);
+    if (!unit) return items;
+
+    const timedEffects = unit.getTimedEffects(gameState);
+    const hasMoraleTimed = timedEffects.some(fx => fx.label === MORALE_CONFIG[3].name);
+    if (unit.morale !== 2 && !hasMoraleTimed) {
+        const morale = MORALE_CONFIG[unit.morale];
+        items.push({
+            key: 'morale:' + unit.morale,
+            icon: morale.icon || '●',
+            label: morale.name,
+            desc: morale.desc,
+            color: morale.color,
+            kind: 'effect'
+        });
+    }
+
+    timedEffects.forEach((effect, index) => {
+        items.push({
+            key: 'timed:' + effect.label + ':' + index,
+            icon: EFFECT_ICONS[effect.label] || '✦',
+            label: effect.label,
+            desc: effect.desc || '效果生效中',
+            color: effect.color || '#8fcfff',
+            count: effect.remaining != null && effect.remaining !== '永久' ? effect.remaining : '',
+            kind: 'effect'
+        });
+    });
+
+    const auraDefBonus = getCommanderAuraDefenseBonus(unit);
+    if (auraDefBonus > 0) {
+        items.push({
+            key: 'aura:ironGuard',
+            icon: '🛡️',
+            label: '守护灵光',
+            desc: unit.commander === 'ironGuard'
+                ? '防御力提高10%'
+                : '防御力提高10%，伤害由铁卫护盾承担',
+            color: '#7eb8ff',
+            kind: 'effect'
+        });
+    }
+
+    if (unit.commander === 'necromancer' && gameState._soulMarks) {
+        const campKey = _campKeyInput(unit.camp);
+        const marks = gameState._soulMarks.filter(mark => mark.campKey === campKey).length;
+        if (marks > 0) {
+            items.push({
+                key: 'necromancer:souls',
+                icon: '👻',
+                label: '亡魂标记',
+                desc: '当前有' + marks + '个亡魂标记，下回合开始牵引最近1个',
+                color: '#44ff88',
+                count: marks,
+                kind: 'effect'
+            });
+        }
+    }
+
+    if (unit.commander === 'diplomat' && gameState._cardOverrides) {
+        const override = gameState._cardOverrides[_campKeyInput(unit.camp)];
+        if (override) {
+            items.push({
+                key: 'diplomat:alliance',
+                icon: '🤝',
+                label: '合纵',
+                desc: '手牌上限提高' + override.handSizeBonus + '张，用卡次数提高' + override.useBonus + '次',
+                color: '#ffd700',
+                kind: 'effect'
+            });
+            if (unit.tile && unit.tile.camp !== unit.camp) {
+                items.push({
+                    key: 'diplomat:liaison',
+                    icon: '🪢',
+                    label: '连横',
+                    desc: '处于敌方行政区，50%概率复制对方对策卡',
+                    color: '#ffaa44',
+                    kind: 'effect'
+                });
+            }
+        }
+    }
+
+    if (unit.commander !== 'astrologer' && gameState.tileMap) {
+        const astrologer = getCommander('astrologer');
+        if (astrologer && astrologer.isInWeatherShield
+            && astrologer.isInWeatherShield(unit.tile, unit.camp, gameState.tileMap)) {
+            items.push({
+                key: 'astrologer:shield',
+                icon: '🌟',
+                label: '星光护体',
+                desc: '免疫天气带来的负面影响',
+                color: '#aabbff',
+                kind: 'effect'
+            });
+        }
+    }
+
+    if (unit.commander !== 'staller' && unit.tile) {
+        const layers = getStallerSnareLayers(unit.tile, unit.camp, gameState.tileMap);
+        if (layers > 0) {
+            items.push({
+                key: 'staller:snare',
+                icon: '🕸️',
+                label: '缚足',
+                desc: layers + '层，每步行动力消耗提高' + (layers * 2) + '点',
+                color: '#c08050',
+                count: layers,
+                kind: 'effect'
+            });
+        }
+    }
+
+    if (unit._engineerConstruction) {
+        const remain = unit._engineerConstruction.turnsRemaining || 1;
+        items.push({
+            key: 'engineer:constructing',
+            icon: '🚧',
+            label: '施工中',
+            desc: '碉堡还需' + remain + '回合建成',
+            color: '#e8c477',
+            count: remain,
+            kind: 'effect'
+        });
+    }
+    if (unit._engineerScaffold) {
+        const remain = unit._engineerScaffold.turnsRemaining || 1;
+        items.push({
+            key: 'engineer:scaffold',
+            icon: '🏗️',
+            label: '脚手架',
+            desc: '还需' + remain + '回合建成碉堡，可被攻击摧毁',
+            color: '#e8c477',
+            count: remain,
+            kind: 'effect'
+        });
+    }
+    return items;
+}
+
+function _buildPassiveItems(unit) {
+    if (!unit) return [];
+    const items = [];
+    if (unit._isDrone) {
+        items.push({
+            key: 'unit:' + unit.id + ':drone',
+            icon: '🛸',
+            label: '无人机',
+            desc: 'HP ' + unit.maxHp + ' / ATK ' + unit.config.attack + ' / MP ' + unit.config.speed
+                + ' / 射程 ' + unit.config.range + '。行动力消耗2，无视地形。',
+            color: '#88ccff',
+            status: '单位特性',
+            kind: 'passive'
+        });
+        return items;
+    }
+
+    const unitPassive = PASSIVE_DEFS[unit.type];
+    if (unitPassive) {
+        const active = unitPassive.active(unit);
+        items.push({
+            key: 'unit:' + unit.id + ':' + unit.type,
+            icon: PASSIVE_ICONS[unit.type] || '✦',
+            label: unitPassive.name,
+            desc: unitPassive.desc,
+            color: active ? '#7de89a' : '#7b8790',
+            status: active ? '当前生效' : '当前未触发',
+            kind: 'passive'
+        });
+    }
+
+    if (!unit.commander) return items;
+    const commander = getCommander(unit.commander);
+    if (!commander) return items;
+
+    if (unit.commander === 'fallenAngel') {
+        const fallen = !!unit._fallen;
+        items.push({
+            key: 'commander:' + unit.id + ':fallenAngel',
+            icon: fallen ? '🖤' : '🤍',
+            label: fallen ? '堕天使·黑' : '堕天使·白',
+            desc: fallen
+                ? '每回合流失当前生命值的20%，攻击力提高30点，暴击率提高60%；士气恢复正常时切换至白形态。'
+                : '每回合回复已损失生命值的30%；士气上升或下降时切换至黑形态。',
+            color: fallen ? '#ff6644' : '#6688ff',
+            status: '将领被动',
+            kind: 'passive'
+        });
+        return items;
+    }
+
+    if (Array.isArray(commander.skills) && commander.skills.length) {
+        commander.skills.filter(skill => skill.type !== 'active').forEach((skill, index) => {
+            items.push({
+                key: 'commander:' + unit.id + ':passive:' + index,
+                icon: _commanderSkillIcon(unit.commander, skill.name),
+                label: skill.name,
+                desc: skill.desc,
+                color: '#88ccff',
+                status: '将领被动',
+                kind: 'passive'
+            });
+        });
+        return items;
+    }
+
+    let desc = commander.tooltipDesc || commander.desc || '';
+    let color = '#ffd700';
+    let status = '将领被动';
+    if (unit.commander === 'minister') {
+        const active = !!unit.tile?.isCity;
+        status = active ? '当前生效' : '未驻扎城市';
+        color = active ? '#ffd700' : '#7b8790';
+    } else if (unit.commander === 'martyr' && unit._martyrPrimed) {
+        desc = '下回合开始时对2格范围内所有非己方单位造成大量范围伤害。';
+        status = '即将触发';
+        color = '#ff3300';
+    } else if (unit.commander === 'berserker') {
+        const hpLostPct = ((unit.maxHp - unit.hp) / unit.maxHp) * 100;
+        const stacks = Math.min(40, Math.floor(hpLostPct / 2));
+        desc = stacks > 0
+            ? '当前加成：+' + stacks + '%攻击力、+' + stacks + '%防御力'
+            : '满血状态，当前未触发加成';
+        status = stacks > 0 ? '当前生效' : '当前未触发';
+    }
+    if (commander.skill) {
+        items.push({
+            key: 'commander:' + unit.id + ':legacy',
+            icon: _commanderSkillIcon(unit.commander, commander.skill),
+            label: commander.skill,
+            desc,
+            color,
+            status,
+            kind: 'passive'
+        });
+    }
+    return items;
+}
+
+function _describeBoardAction(action) {
+    const unit = _findUnitById(action.unitId);
+    if (!unit) return null;
+    let desc = '';
+    let kicker = '单位操作';
+    let color = (BOARD_ACTION_THEMES[action.theme] || BOARD_ACTION_THEMES.default).border;
+    if (action.kind === 'commanderSkill') {
+        kicker = '主动技能';
+        const commander = getCommander(unit.commander);
+        const activeDefs = commander?.skills?.filter(skill => skill.type === 'active') || [];
+        if (commander?.activeSkills?.length) {
+            const activeIndex = commander.activeSkills.findIndex(skill => skill.id === action.skillId);
+            desc = activeDefs[activeIndex]?.desc || '';
+        }
+        if (!desc && commander?.activeSkill) desc = commander.activeSkill.desc || '';
+        if (!desc) desc = '该将领的主动技能。';
+    } else if (action.kind === 'droneSuicide') {
+        kicker = '单位技能';
+        desc = '选择3格内的敌方单位后自爆，对目标造成伤害。';
+    } else if (action.kind === 'reinforce') {
+        kicker = '单位操作';
+        desc = '在城市或村庄消耗金币补充兵员，最多恢复至满生命。';
+    }
+
+    const statusParts = [];
+    if (action.goldCost) statusParts.push('消耗 $' + action.goldCost);
+    if (unit.activeSkillDur > 0 && action.kind === 'commanderSkill') statusParts.push('持续中 ' + unit.activeSkillDur + ' 回合');
+    if (unit.getCooldownRounds() > 0 && action.kind === 'commanderSkill') statusParts.push('冷却 ' + unit.getCooldownRounds() + ' 回合');
+    statusParts.push(action.canUse ? '可施放' : (action.reason || '当前不可用'));
+    return {
+        key: action.key,
+        icon: action.icon,
+        label: action.label,
+        desc,
+        color,
+        status: statusParts.join(' · '),
+        kicker,
+        kind: 'action',
+        action
+    };
+}
+
+function _renderIconQueue(container, queue, items, className, iconClass, signaturePrefix) {
+    if (!container) return;
+    const signature = items.map(item => [
+        item.key, item.icon, item.label, item.desc, item.color, item.count || '', item.status || ''
+    ].join(':')).join('|');
+    const signatureProp = signaturePrefix === 'passive' ? '_lastPassiveSignature' : '_lastEffectSignature';
+    if (signatureProp === '_lastPassiveSignature' && signature === _lastPassiveSignature) return;
+    if (signatureProp === '_lastEffectSignature' && signature === _lastEffectSignature) return;
+    if (signatureProp === '_lastPassiveSignature') _lastPassiveSignature = signature;
+    else _lastEffectSignature = signature;
+
+    queue.clear();
+    const buttons = Array.from(container.querySelectorAll('button'));
+    items.forEach((item, index) => {
+        let button = buttons[index];
+        if (!button) {
+            button = document.createElement('button');
+            button.type = 'button';
+            container.appendChild(button);
+        }
+        queue.set(item.key, item);
+        button.className = className;
+        button.dataset.abilityKey = item.key;
+        button.style.setProperty('--ability-color', item.color || '#8fcfff');
+        button.removeAttribute('title');
+        button.setAttribute('aria-label', item.label + (item.status ? '，' + item.status : ''));
+        const icon = document.createElement('span');
+        icon.className = iconClass;
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = item.icon || '✦';
+        button.replaceChildren(icon);
+        if (item.count !== undefined && item.count !== null && item.count !== '') {
+            const count = document.createElement('span');
+            count.className = 'ability-badge-count';
+            count.textContent = String(item.count);
+            button.appendChild(count);
+        }
+        button.classList.remove('ability-badge-enter');
+        void button.offsetWidth;
+        button.classList.add('ability-badge-enter');
+    });
+    for (let index = items.length; index < buttons.length; index++) buttons[index].remove();
+}
+
+function _renderPassiveQueue(items) {
+    const container = document.getElementById('canvasPassiveButtons');
+    if (!container) return;
+    _renderIconQueue(container, boardPassiveQueue, items, 'canvas-passive-button', 'canvas-passive-icon', 'passive');
+    container.classList.toggle('visible', items.length > 0);
+    container.setAttribute('aria-hidden', items.length > 0 ? 'false' : 'true');
+    _animateAbilityGroup(container, items[0]?.key.split(':')[1]);
+}
+
+function _renderEffectQueue(items, selectionKey) {
+    _renderIconQueue(selectionEffectButtons, boardEffectQueue, items, 'selection-effect-button', 'selection-effect-icon', 'effect');
+    _animateAbilityGroup(selectionEffectButtons, selectionKey);
+}
+
+function _syncSelectionHud(tile) {
+    if (!selectionHudEl) return;
+    if (!tile || (gameState.skirmishFog && !isTileVisible(tile, getViewingCamp(), gameState))) {
+        selectionHudEl.classList.remove('visible');
+        _renderEffectQueue([], '');
+        if (_boardDetailState) _closeBoardDetail();
+        _lastHudSignature = null;
+        _lastHudSelectionKey = null;
+        return;
+    }
+
     const unit = tile.unit;
-    const isCity = tile.isCity;
-    const tc = TERRAIN_CONFIG[tile.terrain];
+    const effects = _buildEffectItems(tile, unit);
+    const selectionKey = unit ? 'unit:' + unit.id : 'tile:' + tile.q + ':' + tile.r;
+    const signature = selectionKey + '|' + effects.map(effect => effect.key + ':' + (effect.count || '') + ':' + effect.desc).join('|')
+        + '|' + (unit ? [
+            unit.hp, unit.maxHp, unit._shield || 0, unit.remainingMP, unit.canAct,
+            unit._faith || 0, unit._gongxinStacks || 0, unit._rank || 0
+        ].join(':') : '');
+    if (signature === _lastHudSignature) return;
+    const selectionChanged = _lastHudSelectionKey && _lastHudSelectionKey !== selectionKey;
+    _lastHudSignature = signature;
+    _lastHudSelectionKey = selectionKey;
+    if (selectionChanged) {
+        _closeBoardDetail();
+        selectionHudEl.classList.remove('is-swapping');
+        void selectionHudEl.offsetWidth;
+        selectionHudEl.classList.add('is-swapping');
+    }
 
     if (unit) {
-        const typeNames = { infantry: '步兵', cavalry: '骑兵', archer: '炮兵', mgNest: '碉堡', drone: '无人机' };
-        let headerText = unit._isDrone
-            ? `${unit.camp.name}·无人机`
-            : `${unit.camp.name}·${typeNames[unit.type] || unit.config.name}`;
-        if (unit.commander && !unit._isDrone) {
-            const cmdCfgHdr = getCommander(unit.commander);
-            if (cmdCfgHdr) headerText += ` ${cmdCfgHdr.name}`;
-        }
-        const headerColor = unit.camp.color;
-        tooltipHeader.style.color = headerColor;
-        tooltipHeader.style.display = 'flex';
-        tooltipHeader.style.alignItems = 'center';
-        while (tooltipHeader.firstChild) tooltipHeader.removeChild(tooltipHeader.firstChild);
-        tooltipHeader.appendChild(document.createTextNode(headerText));
-        if (unit._rank > 0) {
-            const rc = _getOrCreateRankCanvas();
-            _drawRankChevrons(rc, unit._rank);
-            tooltipHeader.appendChild(rc);
-        }
+        const commander = unit.commander ? getCommander(unit.commander) : null;
+        const typeName = unit._isDrone ? '无人机' : (UNIT_TYPE_NAMES[unit.type] || unit.config.name);
+        _setHudTitle(unit.camp.name + ' · ' + typeName + (commander ? ' · ' + commander.name : ''), unit._rank || 0);
+        selectionHudEl.style.setProperty('--selection-camp-color', unit.camp.color);
+        selectionHudHp.hidden = false;
+        const total = unit.maxHp + Math.max(0, unit._shield || 0);
+        const hpRatio = total ? unit.hp / total : 0;
+        const shieldRatio = total ? Math.max(0, unit._shield || 0) / total : 0;
+        const hpColor = unit.hp / unit.maxHp > 0.5 ? '#4caf50' : unit.hp / unit.maxHp > 0.25 ? '#ff9800' : '#f44336';
+        selectionHudHpFill.style.width = Math.min(100, Math.max(0, (hpRatio + shieldRatio) * 100)) + '%';
+        selectionHudHpFill.style.background = shieldRatio > 0
+            ? 'linear-gradient(to right, ' + hpColor + ' ' + (hpRatio / (hpRatio + shieldRatio) * 100) + '%, #66bbff ' + (hpRatio / (hpRatio + shieldRatio) * 100) + '%)'
+            : hpColor;
+        const hpBonus = commander ? Math.round(unit.config.hp * (commander.hpBonusPct || 0)) : 0;
+        selectionHudHpText.textContent = '❤ ' + Math.round(unit.hp) + '/' + unit.maxHp
+            + (hpBonus > 0 ? ' (+' + hpBonus + ')' : '') + (unit._shield > 0 ? '  +🛡' + Math.round(unit._shield) : '');
 
-        const totalBase = unit.maxHp + (unit._shield > 0 ? unit._shield : 0);
-        const hpRatio = unit.hp / totalBase;
-        const shieldRatio = unit._shield > 0 ? unit._shield / totalBase : 0;
-        const hpColor = (unit.hp / unit.maxHp) > 0.5 ? '#4CAF50' : (unit.hp / unit.maxHp) > 0.25 ? '#FF9800' : '#f44336';
-        // HP+shield combined bar: green=HP, blue=shield
-        tooltipHpFill.style.width = ((hpRatio + shieldRatio) * 100) + '%';
-        if (shieldRatio > 0) {
-            tooltipHpFill.style.background = `linear-gradient(to right, ${hpColor} ${(hpRatio/(hpRatio+shieldRatio)*100)}%, #66bbff ${(hpRatio/(hpRatio+shieldRatio)*100)}%)`;
-        } else {
-            tooltipHpFill.style.background = hpColor;
-        }
-        const cmdCfgHp = unit.commander ? getCommander(unit.commander) : null;
-        const cmdHpBonus = cmdCfgHp ? Math.round(unit.config.hp * (cmdCfgHp.hpBonusPct || 0)) : 0;
-        const hpBonusStr = cmdHpBonus > 0 ? `<span style="font-size:9px;color:#ffd700;"> (+${cmdHpBonus})</span>` : '';
-        const shieldStr = unit._shield > 0 ? `<span style="color:#66bbff;">+🛡${Math.round(unit._shield)}</span>` : '';
-        tooltipHpText.innerHTML = `❤ ${Math.round(unit.hp)}/${unit.maxHp}${hpBonusStr}${shieldStr}`;
-        tooltipHpBar.style.display = '';
-
-        const effAtk = unit.getEffectiveAttack();
-        const baseAtk = unit.config.attack;
-        const atkDelta = effAtk - baseAtk;
-        if (atkDelta !== 0) {
-            const sign = atkDelta > 0 ? '+' : '';
-            const deltaColor = atkDelta > 0 ? '#ffd700' : '#b080e8';
-            tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}<span style="font-size:10px;color:${deltaColor};">(${sign}${atkDelta})</span></span>`;
-        } else {
-            tooltipAtk.innerHTML = `<span style="color:#ff6;">⚔ ${effAtk}</span>`;
-        }
         const moraleDefBonus = MORALE_CONFIG[unit.morale].defBonus;
         const auraDefBonus = getCommanderAuraDefenseBonus(unit);
-        const cmdDefBonus = getCommanderDefenseBonus(unit);
-        const cityDefBonus = (unit.type === 'infantry' && isCity) ? 0.10 : 0;
+        const commanderDefBonus = getCommanderDefenseBonus(unit);
+        const cityDefBonus = unit.type === 'infantry' && tile.isCity ? 0.10 : 0;
         const terrainDefBonus = TERRAIN_CONFIG[tile.terrain].defenseBonus;
         const fortificationDefBonus = tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
         const rankDefBonus = unit._rankDefBonus || 0;
-        const totalDefPct = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus + fortificationDefBonus + rankDefBonus + auraDefBonus + cmdDefBonus + cityDefBonus) * 100);
-        if (totalDefPct > 0) {
-            tooltipDef.innerHTML = `<span style="color:#8fc;">🛡 ${totalDefPct}%</span>`;
-        } else if (totalDefPct < 0) {
-            tooltipDef.innerHTML = `<span style="color:#f66;">🛡 ${totalDefPct}%</span>`;
-        } else {
-            tooltipDef.innerHTML = `<span style="color:#888;">🛡 0%</span>`;
-        }
-        tooltipSpd.innerHTML = `<span style="color:#6cf;">⚡ ${unit.remainingMP}/${unit.config.speed}</span>`;
-        tooltipRng.innerHTML = `<span style="color:#f8a;">📡 ${unit.config.range}</span>`;
-        // 主动技能冷却剩余 → ⌛ 在属性栏
-        const cdRounds = unit.getCooldownRounds();
-        if (cdRounds > 0) {
-            tooltipCD.innerHTML = `<span style="color:#aac8e0;">⌛ ${cdRounds}</span>`;
-            tooltipCD.style.display = '';
-        } else {
-            tooltipCD.innerHTML = '';
-            tooltipCD.style.display = 'none';
-        }
-        tooltipStats.style.display = '';
-
-        // ==== 属性栏第二行：叠层数值 ====
+        const defense = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus
+            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + cityDefBonus) * 100);
+        const attack = unit.getEffectiveAttack();
+        const attackDelta = attack - unit.config.attack;
+        selectionHudStats.replaceChildren(
+            _textSpan('⚔ ' + attack + (attackDelta ? ' (' + (attackDelta > 0 ? '+' : '') + attackDelta + ')' : ''), attackDelta > 0 ? '#ffe875' : '#ffdf70'),
+            _textSpan('🛡 ' + defense + '%', defense > 0 ? '#9be5df' : defense < 0 ? '#ff8f96' : '#b3b3b3'),
+            _textSpan('⚡ ' + unit.remainingMP + '/' + unit.config.speed, '#87d5ff'),
+            _textSpan('📡 ' + unit.config.range, '#f4a8d4')
+        );
         const stackParts = [];
         if (unit.commander === 'paladin') {
-            const oathLabel = unit._smiteCharged ? `⚔${unit._faith}/3 ⚡至圣斩` : `⚔${unit._faith}/3`;
-            stackParts.push(oathLabel);
+            stackParts.push(unit._smiteCharged ? '⚔ ' + unit._faith + '/3 · 至圣斩蓄力' : '⚔ ' + unit._faith + '/3');
         }
-        if (unit._gongxinStacks > 0) {
-            stackParts.push(`士气 ${unit._gongxinStacks}`);
-        }
-        tooltipStackStats.innerHTML = stackParts.length ? stackParts.join(' · ') : '';
-
-        // ==== 主动技能信息（独立行） ====
-        // 狂战士等已在技能区显示（⏰N⌛N），此处仅对其他将领显示可用提示
-        if (unit.commander && unit.commander !== 'berserker') {
-            const cmdSk = getCommander(unit.commander);
-            if (cmdSk && cmdSk.activeSkill) {
-                if (unit.activeSkillDur <= 0 && unit.activeSkillCD <= 0) {
-                    tooltipSkillInfo.innerHTML = `<span style="color:#cf9;">⏱&nbsp;${cmdSk.activeSkill.duration}轮 — 可用</span>`;
-                } else {
-                    tooltipSkillInfo.innerHTML = '';
-                }
-            } else {
-                tooltipSkillInfo.innerHTML = '';
-            }
-        } else {
-            tooltipSkillInfo.innerHTML = '';
-        }
-
-
-        // ==== 技能区 ====
-        let skillHtml = '';
-        if (unit._isDrone) {
-            skillHtml = `<span style="color:#88ccff;">【无人机】HP ${unit.maxHp}/ATK ${baseAtk}/MP ${unit.config.speed}/射程 ${unit.config.range}。行动力消耗2（无视地形）。</span>`;
-        } else {
-            const def = PASSIVE_DEFS[unit.type];
-            if (def) {
-                const isActive = def.active(unit);
-                skillHtml = `<span class="${isActive ? 'tooltip-passive-active' : 'tooltip-passive-inactive'}">【${def.name}】${def.desc}</span>`;
-            }
-        }
-        if (unit.commander) {
-            const cmdCfg2 = getCommander(unit.commander);
-            if (cmdCfg2) {
-                // 堕天使使用动态形态显示（保留特殊逻辑）
-                if (unit.commander === 'fallenAngel') {
-                    let faColor, faStatus, faDesc;
-                    if (unit._fallen) {
-                        faColor = '#ff6644';
-                        faDesc = '每回合流失当前生命值的20%，攻击力提高30点，暴击率提高60%，士气恢复正常时切换至【☆堕天使·白】';
-                        faStatus = '【★堕天使·黑】';
-                    } else {
-                        faColor = '#6688ff';
-                        faDesc = '每回合回复已损失生命值的30%，士气上升或下降时切换至【★堕天使·黑】';
-                        faStatus = '【☆堕天使·白】';
-                    }
-                    const faLine = `<span style="color:${faColor};">${faStatus}${faDesc}</span>`;
-                    skillHtml += (skillHtml ? '<br>' : '') + faLine;
-                } else if (cmdCfg2.skills && cmdCfg2.skills.length) {
-                    // 新多技能分段显示
-                    for (const sk of cmdCfg2.skills) {
-                        const skColor = sk.type === 'active' ? '#ff9944' : '#88ccff';
-                        const skLine = `<span style="color:${skColor};">【${sk.name}】${sk.desc}</span>`;
-                        skillHtml += (skillHtml ? '<br>' : '') + skLine;
-                    }
-                } else {
-                    // 旧版单技能格式
-                    let active = true;
-                    let statusNote = '';
-                    let cmdDesc = cmdCfg2.tooltipDesc || cmdCfg2.desc;
-                    let cmdColor = '#ffd700';
-
-                    if (unit.commander === 'minister') {
-                        active = !!(unit.tile && unit.tile.isCity);
-                        statusNote = active ? '生效中 ' : '未驻扎城市 未生效 ';
-                    } else if (unit.commander === 'martyr') {
-                        if (unit._martyrPrimed) {
-                            cmdColor = '#ff3300';
-                            statusNote = '【★殉道】技能已激活，';
-                            cmdDesc = '下回合开始时对2格范围内所有非己方单位造成大量范围伤害';
-                        }
-                    } else if (unit.commander === 'berserker') {
-                        const hpLostPct = ((unit.maxHp - unit.hp) / unit.maxHp) * 100;
-                        const stacks = Math.min(40, Math.floor(hpLostPct / 2.0));
-                        if (stacks > 0) {
-                            cmdDesc = `当前加成：+${stacks}% 攻击力、+${stacks}% 防御力`;
-                        } else {
-                            cmdDesc = '未触发 满血状态';
-                        }
-                    }
-
-                    const color = active ? cmdColor : '#888';
-                    const tag = (cmdCfg2.activeSkill && active && unit.activeSkillDur <= 0) ? '主动技能 ' : '';
-                    const prefix = (unit.commander === 'martyr' && unit._martyrPrimed) ? '' : `【☆${cmdCfg2.skill}】`;
-                    const cmdLine = `<span style="color:${color};">${prefix}${statusNote}${tag}${cmdDesc}</span>`;
-                    skillHtml += (skillHtml ? '<br>' : '') + cmdLine;
-                }
-            }
-        }
-        tooltipPassive.innerHTML = skillHtml;
-
-        // ==== 效果区 ====
-        const timedEffects = unit.getTimedEffects(gameState);
-        const hasMoraleTimed = timedEffects.some(fx => fx.label === MORALE_CONFIG[3].name);
-
-        tooltipMorale.innerHTML = '';
-        // 基础士气（仅在非限时效果时显示，避免与限时效果重复）
-        if (unit.morale !== 2 && !hasMoraleTimed) {
-            const mc = MORALE_CONFIG[unit.morale];
-            tooltipMorale.innerHTML = `<span style="color:${mc.color};">【${mc.name}】${mc.desc}</span>`;
-        }
-
-        // 限时效果 → 格式：【名称】效果描述（⏰剩余轮数）
-        for (const fx of timedEffects) {
-            const descSuffix = fx.desc ? `${fx.desc}` : '';
-            const clockSuffix = (fx.remaining != null && fx.remaining !== '永久') ? `（⏰${fx.remaining}）` : '';
-            const line = `<span style="color:${fx.color};">【${fx.label}】${descSuffix}${clockSuffix}</span>`;
-            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + line;
-        }
-
-        // 铁卫灵光buff（铁卫自身 + 相邻友军）
-        if (auraDefBonus > 0) {
-            const auraLine = unit.commander === 'ironGuard'
-                ? `<span style="color:#7eb8ff;">【守护灵光】防御力提高10%</span>`
-                : `<span style="color:#7eb8ff;">【守护灵光】防御力提高10%，伤害由铁卫护盾承担</span>`;
-            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
-        }
-
-        // E2 亡灵法师留魂数量
-        if (unit.commander === 'necromancer' && gameState._soulMarks) {
-            const campKey = unit.camp === CAMP.player1 ? 'player1' : unit.camp === CAMP.player2 ? 'player2' : 'player3';
-            const myMarks = gameState._soulMarks.filter(m => m.campKey === campKey).length;
-            if (myMarks > 0) {
-                tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
-                    `<span style="color:#44ff88;">亡魂标记：${myMarks}个 下回合开始牵引最近1个</span>`;
-            }
-        }
-
-        // E3 纵横家合纵状态
-        if (unit.commander === 'diplomat' && gameState._cardOverrides) {
-            const campKey = unit.camp === CAMP.player1 ? 'player1' : unit.camp === CAMP.player2 ? 'player2' : 'player3';
-            const co = gameState._cardOverrides[campKey];
-            if (co) {
-                let dipText = `<span style="color:#ffd700;">【合纵】手牌上限提高${co.handSizeBonus}张，用卡次数提高${co.useBonus}次</span>`;
-                if (unit.tile && unit.tile.camp !== unit.camp) {
-                    dipText += `<br><span style="color:#ffaa44;">【连横】处于敌方行政区，50%概率复制对方对策卡</span>`;
-                }
-                tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + dipText;
-            }
-        }
-
-        // E1 占星者星光护体状态
-        if (unit.commander !== 'astrologer' && gameState.tileMap) {
-            const astroDef = getCommander('astrologer');
-            if (astroDef && astroDef.isInWeatherShield &&
-                astroDef.isInWeatherShield(unit.tile, unit.camp, gameState.tileMap)) {
-                tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
-                    `<span style="color:#aabbff;">✦ 星光护体（天气免疫）</span>`;
-            }
-        }
-
-        tooltipEl.style.borderColor = unit.camp.color;
+        if (unit._gongxinStacks > 0) stackParts.push('士气 ' + unit._gongxinStacks);
+        selectionHudStacks.textContent = stackParts.join(' · ');
     } else {
-        while (tooltipHeader.firstChild) tooltipHeader.removeChild(tooltipHeader.firstChild);
-        tooltipHeader.style.color = '';
-        tooltipHeader.style.display = '';
-        tooltipHpBar.style.display = 'none';
-        tooltipStats.style.display = 'none';
-        tooltipCD.innerHTML = '';
-        tooltipCD.style.display = 'none';
-        tooltipStackStats.innerHTML = '';
-        tooltipPassive.innerHTML = '';
-        tooltipMorale.innerHTML = '';
-        tooltipSkillInfo.innerHTML = '';
-        tooltipEl.style.borderColor = 'rgba(255,255,255,0.15)';
+        _setHudTitle('');
+        selectionHudHp.hidden = true;
+        selectionHudStats.replaceChildren();
+        selectionHudStacks.textContent = '';
     }
 
-    // 停滞者缚足debuff（范围内敌军）
-    if (unit && unit.commander !== 'staller' && unit.tile) {
-        const layers = getStallerSnareLayers(unit.tile, unit.camp, gameState.tileMap);
-        if (layers > 0) {
-            const cost = layers * 2;
-            const snareLine = `<span style="color:#c08050;">【缚足】${layers}层 每步行动力消耗提高${cost}点</span>`;
-            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + snareLine;
-        }
-    }
+    selectionHudEl.classList.toggle('visible', !!unit || effects.length > 0);
+    _renderEffectQueue(effects, selectionKey);
+}
 
-    if (unit && unit._engineerConstruction) {
-        const { targetQ, targetR, turnsRemaining } = unit._engineerConstruction;
-        const remain = turnsRemaining || 1;
-        tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
-            `<span style="color:#e8c477;">【施工中】碉堡还需${remain}回合建成 (${targetQ},${targetR})</span>`;
-    }
-    if (unit && unit._engineerScaffold) {
-        const remain = unit._engineerScaffold.turnsRemaining || 1;
-        tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
-            `<span style="color:#e8c477;">【脚手架】还需${remain}回合建成碉堡 可被攻击摧毁</span>`;
-    }
+function _textSpan(text, color) {
+    const span = document.createElement('span');
+    span.textContent = text;
+    span.style.color = color;
+    return span;
+}
 
-    // Terrain info — shown last
-    const fortification = tile.fortification ? FORTIFICATION_CONFIG[tile.fortification] : null;
-    const showTerrain = isCity || tile.terrain !== 'plains' || !!fortification;
-    if (showTerrain) {
-        const terrainName = isCity ? '城市' : tc.name;
-        let terrainDesc = '';
-        if (isCity) {
-            const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : tile.camp === CAMP.player3 ? '绿军' : '中立';
-            terrainDesc = `由${ownerName}控制`;
-            if (tile._cityDisabledUntil > 0 && tile._cityDisabledUntil > getRoundIndex(gameState)) {
-                terrainDesc += ' 🚫 遭到空袭 无法产出资源或招募部队';
-            }
-        } else {
-            terrainDesc = `防御力提高${Math.round(tc.defenseBonus * 100)}%`;
-            if (tile.terrain === 'forest') terrainDesc += ` 远程单位额外提高15%`;
-            if (tc.moveDesc) terrainDesc += ` ${tc.moveDesc}`;
-        }
-        const terrainLine = `<span style="color:#fff;">【${terrainName}】${terrainDesc}</span>`;
-        if (unit) {
-            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + terrainLine;
-        } else {
-            tooltipPassive.innerHTML = terrainLine;
-        }
-    }
-    if (fortification) {
-        const fortificationLine = `<span style="color:#e8c477;">【${fortification.name}】${fortification.desc}</span>`;
-        if (unit) {
-            tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + fortificationLine;
-        } else {
-            tooltipPassive.innerHTML += (tooltipPassive.innerHTML ? '<br>' : '') + fortificationLine;
-        }
-    }
+function _clearDetailCloseTimer() {
+    if (_detailCloseTimer) window.clearTimeout(_detailCloseTimer);
+    _detailCloseTimer = null;
+}
 
-    // Weather info — shown last after terrain
-    const wc = WEATHER_CONFIG[gameState.weather];
-    if (gameState.weather !== 'clear' && wc) {
-        let weatherDesc = wc.desc;
-        if (unit) {
-            const effects = [];
-            if (gameState.weather === 'rain') {
-                if (unit.tile.isCity)         effects.push('每回合回复15%最大生命值');
-                if (unit.type === 'infantry' && unit.tile.isCity) effects.push('驻守城市时防御提高10%');
-            } else if (gameState.weather === 'fog') {
-                if (unit.type === 'archer')   effects.push('射程−1');
-                if (unit.type === 'cavalry')  effects.push('伤害提高20%', '本回合每移动1格伤害额外提高5%');
-            } else if (gameState.weather === 'wind') {
-                if (unit.type === 'archer')   effects.push('射程+1', '伤害提高20%');
-                if (unit.type === 'infantry') effects.push('防御降低15%');
-            }
-            if (effects.length > 0) weatherDesc = effects.join('，');
-            else weatherDesc = '';
-        }
-        const weatherLine = `<span style="color:${wc.color};">${wc.icon}【${wc.name}】${weatherDesc}</span>`;
-        const target = unit ? tooltipMorale : tooltipPassive;
-        target.innerHTML += (target.innerHTML ? '<br>' : '') + weatherLine;
+function _positionBoardDetail(source) {
+    if (!boardDetailPopover) return;
+    boardDetailPopover.classList.remove('from-left', 'from-right', 'from-hud');
+    boardDetailPopover.style.removeProperty('top');
+    boardDetailPopover.style.removeProperty('right');
+    boardDetailPopover.style.removeProperty('bottom');
+    boardDetailPopover.style.removeProperty('left');
+    if (source === 'action') {
+        boardDetailPopover.classList.add('from-right');
+        boardDetailPopover.style.right = '64px';
+        boardDetailPopover.style.bottom = '14px';
+    } else if (source === 'passive') {
+        boardDetailPopover.classList.add('from-left');
+        boardDetailPopover.style.left = '14px';
+        boardDetailPopover.style.bottom = '64px';
+    } else {
+        boardDetailPopover.classList.add('from-hud');
+        boardDetailPopover.style.left = '14px';
+        boardDetailPopover.style.top = Math.min(selectionHudEl.offsetTop + selectionHudEl.offsetHeight + 8, 160) + 'px';
     }
+}
 
-    syncBoardActionBar();
+function _openBoardDetail(item, source, pinned = false) {
+    if (!boardDetailPopover || !item) return;
+    _clearDetailCloseTimer();
+    _boardDetailState = { key: item.key, source, pinned, item };
+    boardDetailPopover.style.setProperty('--detail-color', item.color || '#8fcfff');
+    boardDetailPopover.dataset.kind = item.kind || '';
+    boardDetailKicker.textContent = item.kicker || (item.kind === 'passive' ? '被动技能' : item.kind === 'effect' ? '当前效果' : '主动技能');
+    boardDetailTitle.textContent = (item.icon ? item.icon + ' ' : '') + item.label;
+    boardDetailDesc.textContent = item.desc || '';
+    boardDetailStatus.textContent = item.status || '';
+    const canCast = !!item.action?.canUse;
+    boardDetailCast.classList.toggle('visible', canCast);
+    boardDetailCast.textContent = item.action?.kind === 'reinforce' ? '执行补员' : '施放';
+    _positionBoardDetail(source);
+    boardDetailPopover.classList.add('visible');
+    boardDetailPopover.setAttribute('aria-hidden', 'false');
+}
 
-    if (!unit && !showTerrain) {
-        tooltipEl.classList.remove('visible');
+function _closeBoardDetail() {
+    _clearDetailCloseTimer();
+    _boardDetailState = null;
+    if (!boardDetailPopover) return;
+    boardDetailPopover.classList.remove('visible');
+    boardDetailPopover.setAttribute('aria-hidden', 'true');
+}
+
+function _scheduleBoardDetailClose() {
+    if (_boardDetailState?.pinned) return;
+    _clearDetailCloseTimer();
+    _detailCloseTimer = window.setTimeout(() => {
+        if (!_boardDetailState?.pinned) _closeBoardDetail();
+    }, 140);
+}
+
+function _previewBoardDetail(item, source) {
+    if (_boardDetailState?.pinned) return;
+    _openBoardDetail(item, source, false);
+}
+
+function _toggleBoardDetail(item, source) {
+    if (_boardDetailState?.pinned && _boardDetailState.key === item.key) {
+        _closeBoardDetail();
         return;
     }
-    tooltipEl.classList.add('visible');
-
-    // Position: below stats panel
-    const statsPanel = document.getElementById('statsPanel');
-    if (statsPanel) {
-        const rect = statsPanel.getBoundingClientRect();
-        const ttipW = tooltipEl.offsetWidth || 210;
-        let left = rect.left + rect.width / 2 - ttipW / 2;
-        let top = rect.bottom + 10;
-        // 移动端视口边界保护：防止tooltip溢出屏幕或被错误定位
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        if (left < 4) left = 4;
-        if (left + ttipW > vw - 4) left = vw - ttipW - 4;
-        if (top + 120 > vh) top = rect.top - 130; // 如果下方空间不足，移到上方
-        if (top < 4) top = 4;
-        tooltipEl.style.left = left + 'px';
-        tooltipEl.style.top = top + 'px';
-    }
+    _openBoardDetail(item, source, true);
 }
 
-function hideTooltip() {
-    tooltipEl.classList.remove('visible');
+export function showSelectionHudForTile(tile) {
+    // 所有单位信息均由棋盘 HUD 呈现。
+    _syncSelectionHud(tile || null);
+    syncBoardActionBar();
 }
 
+function hideSelectionHud() {
+    _syncSelectionHud(null);
+    _renderBoardActionQueue([]);
+    _renderPassiveQueue([]);
+    _closeBoardDetail();
+}
 // ==== 像素 → 地块 =====================
 function getTileAtPixel(px, py) {
     let result = null;
@@ -1064,18 +1426,74 @@ function getTileAtPixel(px, py) {
 }
 
 // ==== 鼠标输入 =====================
-function _bindBoardActionButtons() {
-    const actionButtons = document.getElementById('canvasActionButtons');
-    if (!actionButtons || actionButtons._bound) return;
+function _bindDetailQueue(containerId, queue, source, itemForKey, keyAttribute = 'abilityKey') {
+    const container = document.getElementById(containerId);
+    if (!container || container._detailBound) return;
+    container._detailBound = true;
 
-    actionButtons._bound = true;
-    actionButtons.addEventListener('click', (e) => {
+    const getButton = (target) => {
+        if (!(target instanceof HTMLElement)) return null;
+        const button = target.closest('button');
+        return button && container.contains(button) ? button : null;
+    };
+    const getItem = (button) => {
+        if (!button) return null;
+        const key = button.dataset[keyAttribute];
+        return key ? itemForKey(key) : null;
+    };
+
+    container.addEventListener('pointerover', (e) => {
+        const item = getItem(getButton(e.target));
+        if (item) _previewBoardDetail(item, source);
+    });
+    container.addEventListener('pointerout', (e) => {
+        const button = getButton(e.target);
+        if (!button) return;
+        const next = getButton(e.relatedTarget);
+        if (next === button) return;
+        _scheduleBoardDetailClose();
+    });
+    container.addEventListener('focusin', (e) => {
+        const item = getItem(getButton(e.target));
+        if (item) _previewBoardDetail(item, source);
+    });
+    container.addEventListener('focusout', () => _scheduleBoardDetailClose());
+    container.addEventListener('click', (e) => {
+        const button = getButton(e.target);
+        const item = getItem(button);
+        if (!item) return;
+        e.preventDefault();
         e.stopPropagation();
-        if (!(e.target instanceof HTMLElement)) return;
-        const button = e.target.closest('button[data-board-action-key]');
-        if (!button || !actionButtons.contains(button)) return;
-        const action = boardActionQueue.get(button.dataset.boardActionKey);
-        if (action) _activateBoardAction(action);
+        _toggleBoardDetail(item, source);
+    });
+}
+
+function _bindBoardAbilityControls() {
+    _bindDetailQueue(
+        'canvasActionButtons',
+        boardActionQueue,
+        'action',
+        key => {
+            const action = boardActionQueue.get(key);
+            return action ? _describeBoardAction(action) : null;
+        },
+        'boardActionKey'
+    );
+    _bindDetailQueue('canvasPassiveButtons', boardPassiveQueue, 'passive', key => boardPassiveQueue.get(key));
+    _bindDetailQueue('selectionEffectButtons', boardEffectQueue, 'effect', key => boardEffectQueue.get(key));
+
+    if (!boardDetailPopover || boardDetailPopover._bound) return;
+    boardDetailPopover._bound = true;
+    boardDetailPopover.addEventListener('pointerenter', _clearDetailCloseTimer);
+    boardDetailPopover.addEventListener('pointerleave', _scheduleBoardDetailClose);
+    document.getElementById('boardDetailClose')?.addEventListener('click', () => _closeBoardDetail());
+    boardDetailCast?.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const action = _boardDetailState?.item?.action;
+        if (!action || !action.canUse) return;
+        _activateBoardAction(action);
+        _closeBoardDetail();
     });
 }
 
@@ -1084,7 +1502,7 @@ export function rebindInputEvents() { _inputInitialized = false; initInput(); }
 export function initInput() {
     if (_inputInitialized) return;
     _inputInitialized = true;
-    _bindBoardActionButtons();
+    _bindBoardAbilityControls();
     function toLogical(e) {
         const rect = canvas.getBoundingClientRect();
         return {
@@ -1139,7 +1557,7 @@ export function initInput() {
             if (gameState.cardTargeting) { cancelCardTargeting(); return; }
             if (gameState.cardStackExpanded) { gameState.cardStackExpanded = false; return; }
             clearselection();
-            hideTooltip();
+            hideSelectionHud();
             return;
         }
 
@@ -1189,7 +1607,7 @@ export function initInput() {
                 if (executeEngineerBunkerConstruction(engineer, clickedTile)) {
                     gameState.cardTargeting = null;
                     hideTargetingBanner();
-                    showTooltipForTile(engineer.tile);
+                    showSelectionHudForTile(engineer.tile);
                 }
                 return;
             }
@@ -1238,7 +1656,7 @@ export function initInput() {
         // 点选已选中单位/地块 → 取消选中（己方可操作单位有光圈倒放动画）
         if (gameState.selectedTile === clickedTile) {
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
-            hideTooltip();
+            hideSelectionHud();
             gameState.selectedTile = null;
             return;
         }
@@ -1247,7 +1665,7 @@ export function initInput() {
         if (!_isLocalActionTurn()) {
             clearselection();
             gameState.selectedTile = clickedTile;
-            showTooltipForTile(clickedTile);
+            showSelectionHudForTile(clickedTile);
             return;
         }
 
@@ -1255,7 +1673,7 @@ export function initInput() {
         if (gameState.selectedUnit && gameState.movableTiles.includes(clickedTile) && !clickedTile.unit) {
             moveUnit(gameState.selectedUnit, clickedTile);
             gameState.selectedTile = gameState.selectedUnit ? gameState.selectedUnit.tile : clickedTile;
-            showTooltipForTile(gameState.selectedTile);
+            showSelectionHudForTile(gameState.selectedTile);
             return;
         }
 
@@ -1267,11 +1685,11 @@ export function initInput() {
             if (attacker.canAct) {
                 gameState.selectedUnit = attacker;
                 gameState.selectedTile = attacker.tile;
-                showTooltipForTile(attacker.tile);
+                showSelectionHudForTile(attacker.tile);
             } else {
                 clearselection();
                 gameState.selectedTile = clickedTile;
-                showTooltipForTile(clickedTile);
+                showSelectionHudForTile(clickedTile);
             }
             return;
         }
@@ -1298,13 +1716,13 @@ export function initInput() {
         } else if (ownEmptyCity || ownEmptyVillage) {
             gameState.selectedCityTile = clickedTile;
         } else if (clickedTile.unit) {
-            // 敌方/中立/不可行动单位：可选中查看（tooltip / 作弊控制台用），不显示行动范围
+            // 敌方/中立/不可行动单位：可选中查看 HUD 信息，不显示行动范围
             gameState.selectedUnit = clickedTile.unit;
         }
 
         updateRecruitButtonStates();
         updateRecruitCostDisplay();
-        showTooltipForTile(clickedTile);
+        showSelectionHudForTile(clickedTile);
     });
 
     canvas.addEventListener('mouseleave', () => {
@@ -1312,9 +1730,9 @@ export function initInput() {
         canvas.style.cursor = 'default';
     });
 
-    document.addEventListener('rankUpTooltipRefresh', (e) => {
-        if (gameState.hoveredTile === e.detail.tile) {
-            showTooltipForTile(gameState.hoveredTile);
+    document.addEventListener('rankUpHudRefresh', (e) => {
+        if (gameState.selectedTile === e.detail.tile) {
+            showSelectionHudForTile(gameState.selectedTile);
         }
     });
 
@@ -1382,7 +1800,7 @@ export function initKeyboard() {
         if (e.key === 'Escape') {
             e.preventDefault();
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
-            hideTooltip();
+            hideSelectionHud();
             gameState.selectedTile = null;
             return;
         }
@@ -1490,7 +1908,7 @@ export function initSettingsPanel() {
         window.location.reload();
     });
 
-    // Tooltip 动作队列：所有按钮均由当前描述数组渲染，并由此处统一分发。
+    // HUD 动作队列：所有按钮均由当前描述数组渲染，并由此处统一分发。
     // E1 占星者星移天气选择按钮
     const weatherBtns = document.querySelectorAll('.weather-choice-btn');
     weatherBtns.forEach(btn => {
@@ -1542,6 +1960,6 @@ function _applyWeatherChoice(chosenWeather) {
     }
     unit.activeSkillDur = 0;
     recalcAllFlankingMorale();
-    showTooltipForTile(unit.tile);
+    showSelectionHudForTile(unit.tile);
     if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
 }

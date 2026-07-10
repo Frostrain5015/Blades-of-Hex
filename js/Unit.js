@@ -1257,7 +1257,7 @@ export class Unit {
             _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
             spawnRankUpEffect(this.tile.x, this.tile.y, this._rank);
             if (_gameState && _gameState.hoveredTile === this.tile) {
-                const evt = new CustomEvent('rankUpTooltipRefresh', { detail: { tile: this.tile } });
+                const evt = new CustomEvent('rankUpHudRefresh', { detail: { tile: this.tile } });
                 document.dispatchEvent(evt);
             }
         }

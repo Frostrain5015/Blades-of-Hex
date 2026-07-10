@@ -248,7 +248,26 @@
         <div id="canvasWrapper">
             <div id="canvasStage">
                 <canvas id="gameCanvas" width="1000" height="750"></canvas>
+                <section id="selectionHud" class="selection-hud" aria-live="polite" aria-atomic="true">
+                    <div id="selectionHudTitle" class="selection-hud-title"></div>
+                    <div id="selectionHudHp" class="selection-hud-hp">
+                        <div class="selection-hud-hp-track"><div id="selectionHudHpFill" class="selection-hud-hp-fill"></div></div>
+                        <span id="selectionHudHpText" class="selection-hud-hp-text"></span>
+                    </div>
+                    <div id="selectionHudStats" class="selection-hud-stats"></div>
+                    <div id="selectionHudStacks" class="selection-hud-stacks"></div>
+                    <div id="selectionEffectButtons" class="selection-effect-buttons" role="toolbar" aria-label="当前效果"></div>
+                </section>
+                <div id="canvasPassiveButtons" class="canvas-passive-buttons" role="toolbar" aria-label="被动技能" aria-hidden="true"></div>
                 <div id="canvasActionButtons" class="canvas-action-buttons" role="toolbar" aria-label="单位动作" aria-hidden="true"></div>
+                <section id="boardDetailPopover" class="board-detail-popover" aria-hidden="true">
+                    <button id="boardDetailClose" class="board-detail-close" type="button" aria-label="关闭详情">×</button>
+                    <div id="boardDetailKicker" class="board-detail-kicker"></div>
+                    <div id="boardDetailTitle" class="board-detail-title"></div>
+                    <div id="boardDetailDesc" class="board-detail-desc"></div>
+                    <div id="boardDetailStatus" class="board-detail-status"></div>
+                    <button id="boardDetailCast" class="board-detail-cast" type="button">施放</button>
+                </section>
                 <div id="opponentTurnBanner" class="top-banner">
                     <span>⏳</span><span>等待对手行动...</span>
                 </div>
@@ -327,23 +346,6 @@
 
 <!-- 查看完整棋局时的返回按钮 -->
 <button id="backToVictoryBtn" class="back-to-victory-btn" style="display:none">返回结算</button>
-
-<!-- 单位悬浮提示 -->
-<div id="unitTooltip">
-    <div id="tooltipHeader"></div>
-    <div id="tooltipHpBar"><div id="tooltipHpFill"></div><span id="tooltipHpText"></span></div>
-    <div id="tooltipStats">
-        <span class="tooltip-stat" id="tooltipAtk"></span>
-        <span class="tooltip-stat" id="tooltipDef"></span>
-        <span class="tooltip-stat" id="tooltipSpd"></span>
-        <span class="tooltip-stat" id="tooltipRng"></span>
-        <span class="tooltip-stat" id="tooltipCD"></span>
-    </div>
-    <div id="tooltipStackStats"></div>
-    <div id="tooltipSkillInfo"></div>
-    <div id="tooltipPassive"></div>
-    <div id="tooltipMorale"></div>
-</div>
 
 <!-- E1 占星者星移天气选择 -->
 <div id="weatherChoiceOverlay" style="display:none;position:fixed;inset:0;z-index:25000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;flex-direction:column;">
