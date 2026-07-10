@@ -1425,6 +1425,8 @@ function _rerollCommanders(forPlayer) {
 
     if (!gameState.commanderRerolled) gameState.commanderRerolled = { player1: false, player2: false, player3: false };
     gameState.commanderRerolled[forPlayer] = true;
+    // 换将后初始资金置为$1（而非默认$4），首回合直接生效
+    gameState.playerGold[forPlayer] = 1;
     if (forPlayer === 'player1') gameState.commanderPoolP1 = newPool;
     else if (forPlayer === 'player2') gameState.commanderPoolP2 = newPool;
     else gameState.commanderPoolP3 = newPool;

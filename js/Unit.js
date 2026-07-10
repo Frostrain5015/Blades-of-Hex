@@ -911,7 +911,7 @@ export class Unit {
         const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? 0.15 : 0;
         // 天气条件增伤：雾天骑兵+20%、风天炮兵+20%（归入②增伤乘区）
         const weatherBonus = (gs && gs.weather === 'fog' && this.type === 'cavalry') ? 0.20
-            : (gs && gs.weather === 'wind' && this.type === 'archer') ? 0.20 : 0;
+            : 0;
 
         const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus + weatherBonus);
 

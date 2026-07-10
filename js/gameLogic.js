@@ -716,15 +716,7 @@ export function grantTurnStartIncome(camp) {
     }
     gameState.playerGold[key] += income;
 
-    // 洗牌换将代价：该玩家首个回合收入结算时消耗全部初始资金（$10 封顶，不足则清零），仅结算一次
-    if (gameState.commanderRerolled && gameState.commanderRerolled[key]
-        && !(gameState._rerollPenaltyApplied && gameState._rerollPenaltyApplied[key])) {
-        const spent = Math.min(gameState.playerGold[key], COMMANDER_REROLL_COST);
-        gameState.playerGold[key] -= spent;
-        if (!gameState._rerollPenaltyApplied) gameState._rerollPenaltyApplied = {};
-        gameState._rerollPenaltyApplied[key] = true;
-        if (spent > 0) logMessage(`${camp.name}洗牌换将，消耗初始资金$${spent}`);
-    }
+    // 洗牌换将代价已直接在选将阶段计提（初始资金 $4→$1），此处不再重复扣减
 
     if (income > 0) {
         logMessage(`${camp.name}回合开始，城市产出共计$${income}`);

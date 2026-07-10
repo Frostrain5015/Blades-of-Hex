@@ -654,7 +654,7 @@ const PASSIVE_DEFS = {
     },
     archer: {
         name: '远射',
-        desc: '山地射程+1（不与风天叠加）；风天射程+1且无视敌人15%防御力',
+        desc: '山地射程+1（不与风天叠加）；风天射程+1',
         active: (u) => u.tile.terrain === 'mountain'
     }
 };
@@ -868,7 +868,7 @@ function _getUnitPassiveRuntimeState(unit, passive) {
         presentation.intensity = presentation.active ? 1 : 0;
         presentation.status = mountain
             ? '山地射程 +1'
-            : wind ? '风天射程 +1 无视敌人15%防御力' : '当前未生效';
+            : wind ? '风天射程 +1' : '当前未生效';
     }
     return presentation;
 }
