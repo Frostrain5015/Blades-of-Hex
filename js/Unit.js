@@ -119,9 +119,16 @@ export class Unit {
                     if (b.atk) buffParts.push(`攻击力提高${b.atk}点`);
                     if (b.def) buffParts.push(`防御力提高${Math.round(b.def * 100)}%`);
                 }
+                // 占星者星移：显示当前锁定的天气
+                let skillDesc = buffParts.length ? buffParts.join('，') : '';
+                if (this.commander === 'astrologer' && cmdCfg.activeSkill.name === '星移' && _gameState) {
+                    const w = _gameState.weather;
+                    const wName = w === 'clear' ? '晴' : w === 'rain' ? '雨' : w === 'fog' ? '雾' : w === 'wind' ? '风' : '';
+                    skillDesc = '锁定当前天气：' + wName;
+                }
                 effects.push({
                     label: cmdCfg.activeSkill.name,
-                    desc: buffParts.length ? buffParts.join('，') : '',
+                    desc: skillDesc,
                     color: '#ff8844',
                     remaining: this.activeSkillDur
                 });
