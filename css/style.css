@@ -958,14 +958,15 @@ body {
     border-bottom: 1px solid var(--border);
 }
 .tooltip-stat { font-weight: bold; white-space: nowrap; }
-#tooltipStatus {
-    font-size: 10px;
+#tooltipStackStats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11px;
+    padding: 2px 13px 6px;
     color: var(--text-dim);
-    text-align: center;
-    padding: 6px 13px;
-    border-bottom: 1px solid var(--border);
 }
-#tooltipStatus:empty { display: none; }
+#tooltipStackStats:empty { display: none; }
 #tooltipPassive {
     font-size: 11px;
     line-height: 1.5;

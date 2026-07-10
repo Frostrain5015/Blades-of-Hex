@@ -227,9 +227,9 @@ export const MORALE_CONFIG = {
 // ==== 天气配置 ====================
 export const WEATHER_CONFIG = {
     clear: { name: '晴', icon: '☀️', color: '#ffd700', desc: '无特殊效果' },
-    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '守城单位每回合恢复15%最大生命值 · 步兵守城防御+10% · 雷击伤害1.5倍 · 骑兵步耗+1、末步豁免失效' },
-    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1 · 骑兵增伤+20% · 骑兵冲锋15%/格' },
-    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1 · 炮兵增伤+20% · 步兵防御-15%' }
+    rain:  { name: '雨',   icon: '🌧', color: '#5588cc', desc: '驻扎在城市上的单位每回合恢复15%最大生命值，步兵守城防御提高10%，骑兵每步行动力消耗提高1点' },
+    fog:   { name: '雾',   icon: '🌫', color: '#bbccdd', desc: '炮兵射程−1，骑兵伤害提高20%且每格冲锋伤害额外提高5%' },
+    wind:  { name: '风',   icon: '💨', color: '#aaccaa', desc: '炮兵射程+1且伤害提高20%，步兵防御力降低15%' }
 };
 
 // ==== 对策卡配置 ====================

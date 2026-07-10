@@ -183,7 +183,7 @@ function _drawDroneBadge(ctx2d, x, y, unit, now, opts = {}) {
     const scale = opts.scale || 1;
     const alpha = opts.alpha == null ? 1 : opts.alpha;
     const floatY = opts.float === false ? 0 : Math.sin(time * 2.5) * 3;
-    const disoriented = !!(unit && unit._disoriented);
+    const disoriented = !!(unit && unit.morale === 0);
     const coreAlpha = alpha * (disoriented ? 0.62 : 1);
     const badgeR = 13.2 * scale;
 

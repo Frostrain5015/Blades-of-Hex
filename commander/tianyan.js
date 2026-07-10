@@ -69,7 +69,7 @@ export function resetDroneDeployLimit(gameState, camp) {
 }
 
 function _setDroneSignalState(drone, disoriented, resetActive = false) {
-    drone._disoriented = disoriented;
+    drone.morale = disoriented ? 0 : 2;
     if (disoriented) {
         drone._droneSignalDisabled = true;
         drone.canAct = false;
@@ -149,7 +149,7 @@ export function deployDrone(tianyanUnit, targetTile, helpers) {
     drone._isDrone = true;
     drone._droneCampKey = campKey;
     drone._droneBornAt = performance.now();
-    drone._disoriented = false;
+    drone.morale = 2;
     drone._droneSignalDisabled = false;
     drone.maxHp = DRONE_HP;
     drone.hp = DRONE_HP;

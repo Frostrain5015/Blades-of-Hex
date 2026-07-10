@@ -108,16 +108,6 @@ export class Unit {
             });
         }
 
-        // 攻心持续效果（永久士气debuff）
-        if (this._gongxinStacks > 0) {
-            effects.push({
-                label: '攻心',
-                desc: `士气-${this._gongxinStacks}`,
-                color: '#cc44ff',
-                remaining: '永久'
-            });
-        }
-
         // 主动技能持续中
         if (this.activeSkillDur > 0 && this.commander) {
             const cmdCfg = getCommander(this.commander);
@@ -125,8 +115,8 @@ export class Unit {
                 const buffParts = [];
                 if (cmdCfg.activeSkill.buffs) {
                     const b = cmdCfg.activeSkill.buffs;
-                    if (b.atk) buffParts.push(`攻击力+${b.atk}`);
-                    if (b.def) buffParts.push(`防御力+${Math.round(b.def * 100)}%`);
+                    if (b.atk) buffParts.push(`攻击力提高${b.atk}点`);
+                    if (b.def) buffParts.push(`防御力提高${Math.round(b.def * 100)}%`);
                 }
                 effects.push({
                     label: cmdCfg.activeSkill.name,
@@ -137,10 +127,6 @@ export class Unit {
             }
         }
 
-        // 护盾（铁卫永久护盾不在效果区显示，已在HP条中体现）
-        if (this._shield > 0 && !(this.commander === 'ironGuard' && this._shieldTurns >= 999)) {
-            effects.push({ label: '护盾', desc: `${Math.round(this._shield)}/${this._shieldMax}（${this._shieldTurns}回合）`, color: '#66bbff' });
-        }
         if (this._imprisoned) {
             effects.push({ label: '禁锢', desc: '本回合无法移动', color: '#ff8844' });
         }
@@ -148,14 +134,9 @@ export class Unit {
             effects.push({ label: '不可移动', desc: '该单位无法移动', color: '#888' });
         }
 
-        // 圣骑士誓言 + 勇气灵光
+        // 勇气灵光（自身）
         if (this.commander === 'paladin') {
-            effects.push({ label: '誓言', desc: `${this._faith}/3`, color: '#ffd700' });
-            effects.push({ label: '勇气灵光', desc: '自身及相邻友军攻击+10%，士气保护', color: '#ffd700' });
-        }
-        if (this._smiteReady) {
-            const smiteLabel = this._smiteCharged ? '至圣斩·誓约' : '至圣斩';
-            effects.push({ label: smiteLabel, desc: '每层下次攻击附加伤害', color: '#ffd700' });
+            effects.push({ label: '勇气灵光', desc: '攻击力提高10%，士气不会下降', color: '#ffd700' });
         }
 
         // 勇气灵光 — 受相邻圣骑士影响
@@ -169,13 +150,13 @@ export class Unit {
                 }
             }
             if (hasPaladinAura) {
-                effects.push({ label: '勇气灵光', desc: '攻击力+10%，士气保护', color: '#ffd700' });
+                effects.push({ label: '勇气灵光', desc: '攻击力提高10%，士气不会下降', color: '#ffd700' });
             }
         }
 
         // 牧师治愈灵光
         if (this._healingAura > 0) {
-            effects.push({ label: '治愈灵光', desc: `每回合回复20%最大生命值；受致命一击时提前释放全部剩余治疗，仍不足则保底20%生命`, color: '#44dd88', remaining: this._healingAura });
+            effects.push({ label: '治愈灵光', desc: `每回合回复20%最大生命值，受致命一击时提前释放全部剩余治疗量，仍不足则保底20%生命`, color: '#44dd88', remaining: this._healingAura });
         }
 
         return effects;
@@ -710,14 +691,14 @@ export class Unit {
             const dy = visualY - HEX_SIZE * 0.75;
             ctx.font = 'bold 16px sans-serif';
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.shadowColor = this._disoriented ? 'rgba(255,50,50,0.5)' : 'rgba(100,200,255,0.5)';
+            ctx.shadowColor = this.morale === 0 ? 'rgba(255,50,50,0.5)' : 'rgba(100,200,255,0.5)';
             ctx.shadowBlur = 0;
             const bw = 24, bh = 4, bx = -bw / 2, by = dy + 12;
             ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(bx, by, bw, bh);
             const r = this.hp / this.maxHp;
             ctx.fillStyle = r > 0.5 ? '#4CAF50' : (r > 0.25 ? '#FF9800' : '#f44336');
             ctx.fillRect(bx, by, bw * r, bh);
-            if (this._disoriented) { ctx.fillStyle = '#ff6666'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('混乱', visualX, dy - 14); }
+            if (this.morale === 0) { ctx.fillStyle = '#ff6666'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('混乱', visualX, dy - 14); }
             ctx.restore();
         }
 
@@ -949,7 +930,7 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.counterAttackCount >= 1 || this.morale === 0 || this._disoriented) {
+        if (this.counterAttackCount >= 1 || this.morale === 0) {
             return { dmg: 0, isCrit: false };
         }
         // 无人机攻击地面单位时，地面单位无法反击

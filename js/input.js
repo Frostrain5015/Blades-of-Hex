@@ -110,7 +110,7 @@ function _isLocalActionUnit(unit) {
 }
 
 function _canUseDroneSkill(unit) {
-    return _isLocalActionUnit(unit) && unit.canAct && !unit._disoriented;
+    return _isLocalActionUnit(unit) && unit.canAct;
 }
 
 function _hasDroneSuicideTarget(unit) {
@@ -588,7 +588,7 @@ const tooltipSpd = document.getElementById('tooltipSpd');
 const tooltipRng = document.getElementById('tooltipRng');
 const tooltipCD = document.getElementById('tooltipCD');
 const tooltipSkillInfo = document.getElementById('tooltipSkillInfo');
-const tooltipStatus = document.getElementById('tooltipStatus');
+const tooltipStackStats = document.getElementById('tooltipStackStats');
 const tooltipPassive = document.getElementById('tooltipPassive');
 const tooltipMorale = document.getElementById('tooltipMorale');
 
@@ -756,6 +756,17 @@ export function showTooltipForTile(tile) {
         }
         tooltipStats.style.display = '';
 
+        // ==== 属性栏第二行：叠层数值 ====
+        const stackParts = [];
+        if (unit.commander === 'paladin') {
+            const oathLabel = unit._smiteCharged ? `⚔${unit._faith}/3 ⚡至圣斩` : `⚔${unit._faith}/3`;
+            stackParts.push(oathLabel);
+        }
+        if (unit._gongxinStacks > 0) {
+            stackParts.push(`士气 ${unit._gongxinStacks}`);
+        }
+        tooltipStackStats.innerHTML = stackParts.length ? stackParts.join(' · ') : '';
+
         // ==== 主动技能信息（独立行） ====
         // 狂战士等已在技能区显示（⏰N⌛N），此处仅对其他将领显示可用提示
         if (unit.commander && unit.commander !== 'berserker') {
@@ -773,17 +784,11 @@ export function showTooltipForTile(tile) {
             tooltipSkillInfo.innerHTML = '';
         }
 
-        const statusParts = [];
-        if (unit.isNewRecruit) statusParts.push('新招募');
-        tooltipStatus.textContent = statusParts.join(' | ');
 
         // ==== 技能区 ====
         let skillHtml = '';
         if (unit._isDrone) {
             skillHtml = `<span style="color:#88ccff;">【无人机】HP ${unit.maxHp}/ATK ${baseAtk}/MP ${unit.config.speed}/射程 ${unit.config.range}。行动力消耗2（无视地形）。</span>`;
-            if (unit._disoriented) {
-                skillHtml += `<br><span style="color:#ff6666;">【混乱】已超出天眼信号范围，无法操控</span>`;
-            }
         } else {
             const def = PASSIVE_DEFS[unit.type];
             if (def) {
@@ -799,7 +804,7 @@ export function showTooltipForTile(tile) {
                     let faColor, faStatus, faDesc;
                     if (unit._fallen) {
                         faColor = '#ff6644';
-                        faDesc = '每回合流失当前生命值的20%，攻击力+30、暴击率+60%，士气恢复正常时切换至【☆堕天使·白】';
+                        faDesc = '每回合流失当前生命值的20%，攻击力提高30点，暴击率提高60%，士气恢复正常时切换至【☆堕天使·白】';
                         faStatus = '【★堕天使·黑】';
                     } else {
                         faColor = '#6688ff';
@@ -824,7 +829,7 @@ export function showTooltipForTile(tile) {
 
                     if (unit.commander === 'minister') {
                         active = !!(unit.tile && unit.tile.isCity);
-                        statusNote = active ? '（生效中）' : '（未驻扎城市，未生效）';
+                        statusNote = active ? '生效中 ' : '未驻扎城市 未生效 ';
                     } else if (unit.commander === 'martyr') {
                         if (unit._martyrPrimed) {
                             cmdColor = '#ff3300';
@@ -837,12 +842,12 @@ export function showTooltipForTile(tile) {
                         if (stacks > 0) {
                             cmdDesc = `当前加成：+${stacks}% 攻击力、+${stacks}% 防御力`;
                         } else {
-                            cmdDesc = '未触发（满血状态）';
+                            cmdDesc = '未触发 满血状态';
                         }
                     }
 
                     const color = active ? cmdColor : '#888';
-                    const tag = (cmdCfg2.activeSkill && active && unit.activeSkillDur <= 0) ? '（主动技能）' : '';
+                    const tag = (cmdCfg2.activeSkill && active && unit.activeSkillDur <= 0) ? '主动技能 ' : '';
                     const prefix = (unit.commander === 'martyr' && unit._martyrPrimed) ? '' : `【☆${cmdCfg2.skill}】`;
                     const cmdLine = `<span style="color:${color};">${prefix}${statusNote}${tag}${cmdDesc}</span>`;
                     skillHtml += (skillHtml ? '<br>' : '') + cmdLine;
@@ -873,8 +878,8 @@ export function showTooltipForTile(tile) {
         // 铁卫灵光buff（铁卫自身 + 相邻友军）
         if (auraDefBonus > 0) {
             const auraLine = unit.commander === 'ironGuard'
-                ? `<span style="color:#7eb8ff;">【守护灵光】防御力+10%</span>`
-                : `<span style="color:#7eb8ff;">【守护灵光】防御力+10%，伤害由铁卫护盾承担</span>`;
+                ? `<span style="color:#7eb8ff;">【守护灵光】防御力提高10%</span>`
+                : `<span style="color:#7eb8ff;">【守护灵光】防御力提高10%，伤害由铁卫护盾承担</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + auraLine;
         }
 
@@ -884,7 +889,7 @@ export function showTooltipForTile(tile) {
             const myMarks = gameState._soulMarks.filter(m => m.campKey === campKey).length;
             if (myMarks > 0) {
                 tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
-                    `<span style="color:#44ff88;">亡魂标记：${myMarks}个（回合开始牵引最近1个）</span>`;
+                    `<span style="color:#44ff88;">亡魂标记：${myMarks}个 下回合开始牵引最近1个</span>`;
             }
         }
 
@@ -893,7 +898,7 @@ export function showTooltipForTile(tile) {
             const campKey = unit.camp === CAMP.player1 ? 'player1' : unit.camp === CAMP.player2 ? 'player2' : 'player3';
             const co = gameState._cardOverrides[campKey];
             if (co) {
-                let dipText = `<span style="color:#ffd700;">【合纵】手牌上限+${co.handSizeBonus}、用卡次数+${co.useBonus}</span>`;
+                let dipText = `<span style="color:#ffd700;">【合纵】手牌上限提高${co.handSizeBonus}张，用卡次数提高${co.useBonus}次</span>`;
                 if (unit.tile && unit.tile.camp !== unit.camp) {
                     dipText += `<br><span style="color:#ffaa44;">【连横】处于敌方行政区，50%概率复制对方对策卡</span>`;
                 }
@@ -920,7 +925,7 @@ export function showTooltipForTile(tile) {
         tooltipStats.style.display = 'none';
         tooltipCD.innerHTML = '';
         tooltipCD.style.display = 'none';
-        tooltipStatus.textContent = '';
+        tooltipStackStats.innerHTML = '';
         tooltipPassive.innerHTML = '';
         tooltipMorale.innerHTML = '';
         tooltipSkillInfo.innerHTML = '';
@@ -932,7 +937,7 @@ export function showTooltipForTile(tile) {
         const layers = getStallerSnareLayers(unit.tile, unit.camp, gameState.tileMap);
         if (layers > 0) {
             const cost = layers * 2;
-            const snareLine = `<span style="color:#c08050;">【缚足】${layers}层 每步消耗+${cost}</span>`;
+            const snareLine = `<span style="color:#c08050;">【缚足】${layers}层 每步行动力消耗提高${cost}点</span>`;
             tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') + snareLine;
         }
     }
@@ -940,11 +945,13 @@ export function showTooltipForTile(tile) {
     if (unit && unit._engineerConstruction) {
         const { targetQ, targetR, turnsRemaining } = unit._engineerConstruction;
         const remain = turnsRemaining || 1;
-        tooltipStatus.textContent = `施工中（工程师锁定）：碉堡还需${remain}回合建成 (${targetQ},${targetR})`;
+        tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
+            `<span style="color:#e8c477;">【施工中】碉堡还需${remain}回合建成 (${targetQ},${targetR})</span>`;
     }
     if (unit && unit._engineerScaffold) {
         const remain = unit._engineerScaffold.turnsRemaining || 1;
-        tooltipStatus.textContent = `🧱脚手架（建造中）：还需${remain}回合建成碉堡，可被攻击摧毁`;
+        tooltipMorale.innerHTML += (tooltipMorale.innerHTML ? '<br>' : '') +
+            `<span style="color:#e8c477;">【脚手架】还需${remain}回合建成碉堡 可被攻击摧毁</span>`;
     }
 
     // Terrain info — shown last
@@ -957,12 +964,12 @@ export function showTooltipForTile(tile) {
             const ownerName = tile.camp === CAMP.player1 ? '红军' : tile.camp === CAMP.player2 ? '蓝军' : tile.camp === CAMP.player3 ? '绿军' : '中立';
             terrainDesc = `由${ownerName}控制`;
             if (tile._cityDisabledUntil > 0 && tile._cityDisabledUntil > getRoundIndex(gameState)) {
-                terrainDesc += ' 🚫 遭到空袭，无法产金或招募';
+                terrainDesc += ' 🚫 遭到空袭 无法产出资源或招募部队';
             }
         } else {
-            terrainDesc = `防御+${Math.round(tc.defenseBonus * 100)}%`;
-            if (tile.terrain === 'forest') terrainDesc += '（对炮兵/碉堡/空军额外+15%）';
-            if (tc.moveDesc) terrainDesc += `，${tc.moveDesc}`;
+            terrainDesc = `防御力提高${Math.round(tc.defenseBonus * 100)}%`;
+            if (tile.terrain === 'forest') terrainDesc += ` 远程单位额外提高15%`;
+            if (tc.moveDesc) terrainDesc += ` ${tc.moveDesc}`;
         }
         const terrainLine = `<span style="color:#fff;">【${terrainName}】${terrainDesc}</span>`;
         if (unit) {

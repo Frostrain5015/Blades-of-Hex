@@ -31,7 +31,7 @@ export default {
         const dmgPct = killer._phantomStacks * 5;
         helpers.spawnFx(killer.tile.x, killer.tile.y, '\u{1F3AD}', '幻形');
         helpers.spawnExplosion(killer.tile.x, killer.tile.y, '#cc88ff', 12);
-        helpers.logMessage(`魔术师【幻形】：变形为${newConfig.name}兵，增伤+${dmgPct}%、暴击率+${critPct}%`);
+        helpers.logMessage(`魔术师【幻形】：变形为${newConfig.name}兵 增伤+${dmgPct}% 暴击率+${critPct}%`);
         return { transformed: true, newType: victim.type };
     },
 

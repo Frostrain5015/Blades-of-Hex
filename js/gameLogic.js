@@ -1146,12 +1146,12 @@ function _isInEnemyZoC(tile, friendlyCamp) {
 
 // BFS pathfinding: returns tiles reachable without passing through enemy lines
 export function getMovableTiles(unit) {
-    // 无人机：实时检查信号范围，同步本机混乱状态（不刷新其他无人机）
+    // 无人机：实时检查信号范围，同步士气状态（不刷新其他无人机）
     if (unit._isDrone) {
-        unit._disoriented = !isDroneInSignal(gameState, unit);
-        if (unit._disoriented) return [];
+        unit.morale = isDroneInSignal(gameState, unit) ? 2 : 0;
+        if (unit.morale === 0) return [];
     }
-    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile || unit._disoriented) return [];
+    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile) return [];
 
     const speed = unit.remainingMP;
     const startTile = unit.tile;
@@ -1212,12 +1212,12 @@ export function getMovableTiles(unit) {
 }
 
 export function getAttackableTiles(unit) {
-    // 无人机：实时检查信号范围，同步本机混乱状态（不刷新其他无人机）
+    // 无人机：实时检查信号范围，同步士气状态（不刷新其他无人机）
     if (unit._isDrone) {
-        unit._disoriented = !isDroneInSignal(gameState, unit);
-        if (unit._disoriented) return [];
+        unit.morale = isDroneInSignal(gameState, unit) ? 2 : 0;
+        if (unit.morale === 0) return [];
     }
-    if (unit.morale === 0 || unit._disoriented) return [];
+    if (unit.morale === 0) return [];
     if (unit.commander === 'martyr' && unit._martyrPrimed) return [];
     let range = unit.config.range;
     // 无人机固定射程2
@@ -1300,11 +1300,11 @@ export function moveUnit(unit, targetTile) {
         unit.canAct = false;
         clearselection();
     }
-    if (unit._isDrone && unit._disoriented) {
+    if (unit._isDrone && unit.morale === 0) {
         gameState.movableTiles = [];
         gameState.attackableTiles = [];
         clearselection();
-        notify('无人机超出天眼信号范围，陷入混乱', 'warn');
+        notify('天眼哨机超出信号范围', 'warn');
     }
 
     // 地雷触发（特效对所有玩家广播）
@@ -2191,7 +2191,7 @@ export function executeEngineerBunkerConstruction(engineerUnit, targetTile) {
 export function executeDroneSuicide(droneUnit, targetTile) {
     if (!droneUnit || !droneUnit._isDrone) return false;
     refreshDroneSignal(gameState, droneUnit.camp);
-    if (droneUnit._disoriented || !droneUnit.canAct) {
+    if (droneUnit.morale === 0 || !droneUnit.canAct) {
         notify('哨机当前无法行动', 'error');
         return false;
     }

@@ -653,7 +653,6 @@ export function serializeState() {
             healingAura: t.unit._healingAura || 0,
             activeSkillBuffs: t.unit._activeSkillBuffs || null,
             isDrone: t.unit._isDrone || false,
-            disoriented: t.unit._disoriented || false,
             droneSignalDisabled: t.unit._droneSignalDisabled || false,
             droneCampKey: t.unit._droneCampKey || null,
             droneBornAt: t.unit._droneBornAt || 0,
@@ -919,7 +918,6 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit._healingAura = td.unit.healingAura || 0;
             unit._activeSkillBuffs = td.unit.activeSkillBuffs || null;
             unit._isDrone = td.unit.isDrone || false;
-            unit._disoriented = td.unit.disoriented || false;
             unit._droneSignalDisabled = td.unit.droneSignalDisabled || false;
             unit._droneCampKey = td.unit.droneCampKey || null;
             unit._droneBornAt = td.unit.droneBornAt || 0;

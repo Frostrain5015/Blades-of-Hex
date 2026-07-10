@@ -58,7 +58,7 @@ export default {
         if (!this._canGainOath(paladinUnit, helpers)) return;
         paladinUnit._faith++;
         _syncOrbitBeams(paladinUnit, helpers);
-        helpers.logMessage(`圣骑士【誓言】：目睹战友受创，誓言+1（${paladinUnit._faith}/3）`);
+        helpers.logMessage(`圣骑士【誓言】：目睹战友受创 誓言+1 ${paladinUnit._faith}/3`);
     },
 
     onAttack(attacker, target, dmg, helpers) {
