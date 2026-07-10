@@ -659,7 +659,7 @@ function _drawRankChevrons(cv, rank) {
 const PASSIVE_DEFS = {
     infantry: {
         name: '坚守',
-        desc: '位于城市时：每回合回复10%生命值，防御力+10%，攻击/反击造成的伤害提高15%，反击浮动更高',
+        desc: '位于城市时每回合回复10%生命值，防御力提高10%，造成的伤害提高15%',
         active: (u) => u.tile.isCity
     },
     cavalry: {
@@ -675,6 +675,11 @@ const PASSIVE_DEFS = {
 };
 
 export function showTooltipForTile(tile) {
+    // 迷雾遮挡的地块不显示任何信息
+    if (gameState.skirmishFog && !isTileVisible(tile, getViewingCamp(), gameState)) {
+        tooltipEl.classList.remove('visible');
+        return;
+    }
     const unit = tile.unit;
     const isCity = tile.isCity;
     const tc = TERRAIN_CONFIG[tile.terrain];
@@ -1238,8 +1243,7 @@ export function initInput() {
             return;
         }
 
-        // 对手回合 / AI 回合：只允许查看，不允许操作
-        // 联机对手 → isMyTurn；PVE AI 对手 / 中立 → 独立检查
+        // 对手回合 / AI 回合：只允许查看可见地块，不允许操作
         if (!_isLocalActionTurn()) {
             clearselection();
             gameState.selectedTile = clickedTile;
@@ -1300,10 +1304,7 @@ export function initInput() {
 
         updateRecruitButtonStates();
         updateRecruitCostDisplay();
-        // 遭遇战迷雾：仅视野内地块显示 tooltip
-        if (!gameState.skirmishFog || isTileVisible(clickedTile, getViewingCamp(), gameState)) {
-            showTooltipForTile(clickedTile);
-        }
+        showTooltipForTile(clickedTile);
     });
 
     canvas.addEventListener('mouseleave', () => {
