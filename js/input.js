@@ -208,7 +208,7 @@ function _getReinforcementAction(unit) {
             legacyId: 'tooltipReinforce',
             kind: 'reinforce',
             unitId: unit.id,
-            icon: '🩹',
+            icon: '📯',
             label: '本回合已补员',
             canUse: false,
             reason: '该地块本回合已补员',
@@ -221,7 +221,7 @@ function _getReinforcementAction(unit) {
             legacyId: 'tooltipReinforce',
             kind: 'reinforce',
             unitId: unit.id,
-            icon: '🩹',
+            icon: '📯',
             label: '无需补员',
             canUse: false,
             reason: '单位生命值已满',
@@ -238,7 +238,7 @@ function _getReinforcementAction(unit) {
         legacyId: 'tooltipReinforce',
         kind: 'reinforce',
         unitId: unit.id,
-        icon: '🩹',
+        icon: '📯',
         goldCost: cost,
         label: `🪙 补充兵员 $${cost}`,
         canUse: _canReinforceUnit(unit) && hasGold,
@@ -248,9 +248,9 @@ function _getReinforcementAction(unit) {
 }
 
 function _getCommanderActionIcon(commanderId, skillId) {
-    if (commanderId === 'engineer') return skillId === 'bunker' ? '🧱' : skillId === 'flak' ? '🔫' : '🕳️';
+    if (commanderId === 'engineer') return skillId === 'bunker' ? '🏰' : skillId === 'flak' ? '🔫' : '🕳️';
     if (commanderId === 'paladin') return '⚔️';
-    if (commanderId === 'priest') return '✨';
+    if (commanderId === 'priest') return '🙏';
     if (commanderId === 'astrologer') return '🔮';
     if (commanderId === 'tianyan') return '🛰️';
     return '✦';
