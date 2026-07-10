@@ -802,6 +802,7 @@ const SKILL_ICONS = {
     '堕天使·白': '🤍',
     '堕天使·黑': '🖤',
     '血怒': '💢',
+    '泣血': '🩸',
     '殉道': '💀',
     '屯田': '🌾',
     '迟滞力场': '🌀',
@@ -832,7 +833,8 @@ const EFFECT_ICONS = {
     '连横': '🃏',
     '缚足': '🕸️',
     '施工中': '🚧',
-    '脚手架': '🏗️'
+    '脚手架': '🏗️',
+    '泣血': '🩸'
 };
 
 function _commanderSkillIcon(commanderId, skillName) {
@@ -1115,7 +1117,7 @@ function _buildEffectItems(tile, unit) {
             desc: effect.desc || '效果生效中',
             color: effect.color || '#8fcfff',
             count: remaining !== '' ? '⏳' + remaining : '',
-            status: remaining !== '' ? '持续' + remaining + '回合' : '持续生效',
+            status: effect.status || (remaining !== '' ? '持续' + remaining + '回合' : '持续生效'),
             kind: 'effect'
         });
     });

@@ -140,10 +140,12 @@ export class Unit {
         }
 
         if (this._berserkerQixue) {
+            const hpLostPct = Math.min(40, Math.floor(((this.maxHp - this.hp) / this.maxHp) * 100 / 2));
             effects.push({
                 label: '泣血',
                 desc: '下次攻击伤害+30%、暴击率+50%，并对相邻敌人造成40%溅射伤害',
-                color: '#d63c3c'
+                color: '#d63c3c',
+                status: '当前生效 攻击力提高' + hpLostPct + '%，防御力提高' + hpLostPct + '%'
             });
         }
 
