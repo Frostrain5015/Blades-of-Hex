@@ -382,17 +382,6 @@ export function getCommanderFieldDefenseBonus(tile, friendlyCamp, tileMap) {
   return stallerDef.isInField(tile, friendlyCamp, tileMap) ? 0.25 : 0;
 }
 
-// ---- 受击钩子（谋士攻心等） ----
-
-export function triggerCommanderOnDamageTaken(unit, attacker, dmg) {
-  if (!unit || !unit.commander || !attacker || attacker.hp <= 0) return null;
-  const cmd = getCommander(unit.commander);
-  if (cmd && cmd.onDamageTaken) {
-    return cmd.onDamageTaken(unit, attacker, dmg, _helpers(unit.commander));
-  }
-  return null;
-}
-
 // ---- 通用：改变单位阵营（感化/招降，供将领钩子调用） ----
 export function changeUnitCamp(unit, newCamp, tileList) {
   if (!unit || !unit.tile) return false;

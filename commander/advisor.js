@@ -1,4 +1,4 @@
-// 谋士 —— 攻心（受击触发）
+// 谋士 —— 攻心（攻击触发）
 const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 
 export default {
@@ -6,8 +6,8 @@ export default {
   name: '谋士',
   skill: '攻心',
   hpBonusPct: 0.35, atkBonusPct: 0, spdBonus: 1,
-  desc: '受到伤害时有75%概率使攻击者士气下降，若其已混乱则感化为友军单位，将领单位无法被感化',
-  tooltipDesc: '受到伤害时有75%概率使攻击者士气下降，若其已混乱则感化为友军单位，将领单位无法被感化',
+  desc: '攻击时随机判定：25%无效果、25%使目标士气下降2回合、25%使目标混乱2回合、25%使非将领目标变更为己方势力；将领命中最后一项时改为混乱2回合',
+  tooltipDesc: '攻击时随机判定：25%无效果、25%使目标士气下降2回合、25%使目标混乱2回合、25%使非将领目标变更为己方势力；将领命中最后一项时改为混乱2回合',
 
   _gongxin(source, enemy, helpers) {
     // 勇气灵光保护：相邻6格内有己方圣骑士时，士气不会下降
@@ -22,38 +22,49 @@ export default {
       }
     }
 
-    // 士气已为0 → 攻心使其降至负数，直接感化招降
-    if (enemy.morale === 0) {
-      if (enemy.commander) return null;
-      if (!gs) return null;
-      helpers.changeUnitCamp(enemy, source.camp, gs.tiles);
-      enemy.morale = 2;
-      enemy.canAct = false;
-      enemy._gongxinStacks = 0;
-      helpers.spawnFx(enemy.tile.x, enemy.tile.y);
-      helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, true);
-      helpers.logMessage(`谋士【攻心】感化：${enemy.config.name}兵转为${source.camp.name}阵营`);
-      return { moraleDropped: false, converted: true };
+    const roll = helpers.rng ? helpers.rng.int(4) : Math.floor(Math.random() * 4);
+    if (roll === 0) {
+      helpers.logMessage(`谋士【攻心】未能动摇${enemy.config.name}兵`);
+      return null;
     }
 
-    // 75%概率触发叠层
-    if (!(helpers.rng ? helpers.rng.chance(0.75) : Math.random() < 0.75)) return null;
+    const expiresAt = gs ? Math.floor(gs.turnCounter / (gs.isThreePlayer ? 4 : 3)) + 2 : 0;
+    if (roll === 1) {
+      // 已混乱的单位不会被较轻的结果解除混乱，但会刷新剩余时长。
+      enemy.morale = Math.min(enemy.morale, 1);
+      enemy.moralePenaltyUntil = Math.max(enemy.moralePenaltyUntil || 0, expiresAt);
+      helpers.spawnFx(enemy.tile.x, enemy.tile.y);
+      helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, false);
+      helpers.logMessage(`谋士【攻心】使${enemy.config.name}兵士气下降（持续2回合）`);
+      return { moraleDropped: true };
+    }
 
-    const currentStacks = (enemy._gongxinStacks || 0) + 1;
-    enemy._gongxinStacks = currentStacks;
-    enemy._gongxinCamp = source.camp;
+    if (roll === 2 || enemy.commander) {
+      enemy.morale = 0;
+      enemy.moralePenaltyUntil = Math.max(enemy.moralePenaltyUntil || 0, expiresAt);
+      enemy.canAct = false;
+      helpers.spawnFx(enemy.tile.x, enemy.tile.y);
+      helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, false);
+      helpers.logMessage(roll === 2
+        ? `谋士【攻心】使${enemy.config.name}兵陷入混乱（持续2回合）`
+        : `谋士【攻心】命中将领单位：感化免疫，${enemy.config.name}兵陷入混乱（持续2回合）`);
+      return { moraleDropped: true };
+    }
 
-    // 每层当前士气-1
-    enemy.morale = Math.max(0, enemy.morale - 1);
-
+    if (!gs) return null;
+    helpers.changeUnitCamp(enemy, source.camp, gs.tiles);
+    enemy.morale = 2;
+    enemy.moralePenaltyUntil = 0;
+    enemy.canAct = false;
     helpers.spawnFx(enemy.tile.x, enemy.tile.y);
-    helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, false);
-    return { moraleDropped: true };
+    helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, true);
+    helpers.logMessage(`谋士【攻心】感化：${enemy.config.name}兵转为${source.camp.name}阵营`);
+    return { moraleDropped: false, converted: true };
   },
 
-  // 受击时触发：谋士挂载的部队受到伤害时，对攻击者触发攻心
-  onDamageTaken(unit, attacker, dmg, helpers) {
-    if (dmg <= 0 || !attacker || attacker.hp <= 0) return null;
-    return this._gongxin(unit, attacker, helpers);
+  // 攻击命中后触发：被击杀目标不会再承受攻心效果。
+  onAttack(unit, target, dmg, helpers) {
+    if (!target || target.hp <= 0) return null;
+    return this._gongxin(unit, target, helpers);
   }
 };

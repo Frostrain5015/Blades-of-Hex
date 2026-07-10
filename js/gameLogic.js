@@ -674,6 +674,15 @@ function _expireTimedEffects() {
             spawnMoraleEffect(u);
         }
 
+        // 谋士攻心的士气下降/混乱到期 → 恢复正常（全局处理）
+        if (u.moralePenaltyUntil > 0 && u.moralePenaltyUntil <= getRoundIndex(gameState)) {
+            if (u.morale < 2) {
+                u.morale = 2;
+                spawnMoraleEffect(u);
+            }
+            u.moralePenaltyUntil = 0;
+        }
+
         // 牧师治愈灵光 — 全局，不区分阵营
         if (u._healingAura > 0) {
             u.heal(Math.round(u.maxHp * 0.20));
@@ -1518,7 +1527,8 @@ export function attackUnit(attackerUnit, targetUnit) {
         }
         _cmdFxData = _atkCmdFxCapture;
 
-        if (!isTargetDead) {
+        const targetConverted = !!atkCmdResult?.converted;
+        if (!isTargetDead && !targetConverted) {
             // 连续承受攻击经验：第x次受击奖励(x-1)点经验
             targetUnit._timesAttackedThisTurn = (targetUnit._timesAttackedThisTurn || 0) + 1;
             const enduranceXp = targetUnit._timesAttackedThisTurn - 1;
@@ -1563,6 +1573,9 @@ export function attackUnit(attackerUnit, targetUnit) {
             if (!atkCmdResult || !atkCmdResult.canActAgain) {
                 attackerUnit.canAct = false;
             }
+        } else if (!isTargetDead) {
+            // 攻心感化后的目标已改投同阵营，本次攻击不触发反击。
+            attackerUnit.canAct = false;
         } else {
             const targetTile = targetUnit.tile;
             if (attackerUnit.type !== 'archer' && attackerUnit.type !== 'mgNest' && !attackerUnit._isDrone && !attackerUnit._imprisoned && !attackerUnit._isImmobile) {

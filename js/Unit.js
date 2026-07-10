@@ -1,5 +1,5 @@
 import { HEX_SIZE, ctx, hexPath, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, getCommanderWeatherDebuff, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage, triggerCommanderOnDamageTaken } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, getCommanderWeatherDebuff, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
 import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
@@ -52,6 +52,7 @@ export class Unit {
         this.isNewRecruit = isNewRecruit;
         this._morale = 2;
         this.moraleBoostUntil = 0;
+        this.moralePenaltyUntil = 0;
         this.godMode = false;
         this._xp = 0;
         this._rank = 0;
@@ -59,7 +60,6 @@ export class Unit {
         this._rankCritBonus = 0;
         this._rankRegenPct = 0;
         this._fallen = false;
-        this._gongxinStacks = 0;
         this._shieldPulseUntil = 0;
         this.activeSkillCD = 0;
         this.activeSkillDur = 0;
@@ -126,6 +126,17 @@ export class Unit {
                     remaining: this.activeSkillDur
                 });
             }
+        }
+
+        // 谋士攻心的士气下降/混乱（moralePenaltyUntil 为回合数, 0-indexed）
+        if (this.morale < 2 && this.moralePenaltyUntil > curRound) {
+            const morale = MORALE_CONFIG[this.morale];
+            effects.push({
+                label: morale.name,
+                desc: morale.desc,
+                color: morale.color,
+                remaining: this.moralePenaltyUntil - curRound
+            });
         }
 
         if (this._berserkerQixue) {
@@ -1035,11 +1046,6 @@ export class Unit {
         // 圣骑士誓言：友军受击概率获得誓言
         if (auraApplies && actualDmg > 0) {
             triggerCommanderAllyDamage(this, actualDmg);
-        }
-
-        // 受击钩子（谋士攻心等）：受伤后对攻击者触发效果
-        if (auraApplies && actualDmg > 0 && attacker) {
-            triggerCommanderOnDamageTaken(this, attacker, actualDmg);
         }
 
         // 牧师治愈灵光·临终迸发：致命一击时提前释放剩余 HoT，若仍不足抵扣或治疗后

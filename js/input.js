@@ -1117,7 +1117,7 @@ function _buildEffectItems(tile, unit) {
     if (!unit) return items;
 
     const timedEffects = unit.getTimedEffects(gameState);
-    const hasMoraleTimed = timedEffects.some(fx => fx.label === MORALE_CONFIG[3].name);
+    const hasMoraleTimed = timedEffects.some(fx => fx.label === MORALE_CONFIG[unit.morale]?.name);
     if (unit.morale !== 2 && !hasMoraleTimed) {
         const morale = MORALE_CONFIG[unit.morale];
         items.push({
@@ -1143,20 +1143,6 @@ function _buildEffectItems(tile, unit) {
             kind: 'effect'
         });
     });
-
-    if ((unit._gongxinStacks || 0) > 0) {
-        const stacks = unit._gongxinStacks;
-        items.push({
-            key: 'advisor:gongxin',
-            icon: '🧠',
-            label: '攻心',
-            desc: '每层使士气下降1级；士气混乱后可能被感化。',
-            color: '#c08cff',
-            count: stacks,
-            status: '当前' + stacks + '层',
-            kind: 'effect'
-        });
-    }
 
     if (unit._isDrone && unit._droneSignalDisabled) {
         items.push({
@@ -1524,7 +1510,7 @@ function _syncSelectionHud(tile) {
     const signature = selectionKey + '|' + effects.map(effect => effect.key + ':' + (effect.count || '') + ':' + effect.desc).join('|')
         + '|' + (unit ? [
             unit.hp, unit.maxHp, unit._shield || 0, unit.remainingMP, unit.canAct,
-            unit._faith || 0, unit._gongxinStacks || 0, unit._rank || 0,
+            unit._faith || 0, unit.moralePenaltyUntil || 0, unit._rank || 0,
             attack, defense, hoverMoveCost
         ].join(':') : '');
     if (signature === _lastHudSignature) return;

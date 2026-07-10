@@ -638,6 +638,7 @@ export function serializeState() {
             isNewRecruit: t.unit.isNewRecruit,
             morale: t.unit.morale,
             moraleBoostUntil: t.unit.moraleBoostUntil,
+            moralePenaltyUntil: t.unit.moralePenaltyUntil || 0,
             remainingMP: t.unit.remainingMP,
             commander: t.unit.commander,
             _centurionTriggered: t.unit._centurionTriggered,
@@ -653,8 +654,6 @@ export function serializeState() {
             activeSkillDur: t.unit.activeSkillDur,
             phantomStacks: t.unit._phantomStacks || 0,
             berserkerQixue: t.unit._berserkerQixue || false,
-            gongxinStacks: t.unit._gongxinStacks || 0,
-            gongxinCampKey: t.unit._gongxinCamp ? _campToKey(t.unit._gongxinCamp) : null,
             imprisoned: t.unit._imprisoned || false,
             isImmobile: t.unit._isImmobile || false,
             airdropWaiting: t.unit._airdropWaiting || false,
@@ -922,6 +921,7 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             else if (rawMorale === 'chaos') unit.morale = 0;
             else unit.morale = 2;
             unit.moraleBoostUntil = td.unit.moraleBoostUntil || 0;
+            unit.moralePenaltyUntil = td.unit.moralePenaltyUntil || 0;
             unit.remainingMP = td.unit.remainingMP ?? unit.config.speed;
             unit.commander = td.unit.commander || null;
             unit._centurionTriggered = td.unit._centurionTriggered || false;
@@ -937,10 +937,6 @@ export function deserializeState(data, HexTileClass, UnitClass) {
             unit.activeSkillDur = td.unit.activeSkillDur || 0;
             unit._phantomStacks = td.unit.phantomStacks || 0;
             unit._berserkerQixue = td.unit.berserkerQixue || false;
-            unit._gongxinStacks = td.unit.gongxinStacks || 0;
-            if (td.unit.gongxinCampKey) {
-                unit._gongxinCamp = campMap[td.unit.gongxinCampKey] || CAMP.neutral;
-            }
             unit._imprisoned = td.unit.imprisoned || false;
             unit._isImmobile = td.unit.isImmobile || false;
             unit._airdropWaiting = td.unit.airdropWaiting || false;
