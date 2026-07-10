@@ -182,7 +182,7 @@ export const FORTIFICATION_CONFIG = {
         defenseBonus: 0.25,
         appliesTo: 'melee',            // 仅对近战攻击（步兵/骑兵）生效
         desc: '近战防御+25%',
-        icon: '🕳️',
+        icon: '🚧',
         iconFont: '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif'
     },
     flak: {

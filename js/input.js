@@ -248,7 +248,7 @@ function _getReinforcementAction(unit) {
 }
 
 function _getCommanderActionIcon(commanderId, skillId) {
-    if (commanderId === 'engineer') return skillId === 'bunker' ? '🏰' : skillId === 'flak' ? '🔫' : '🕳️';
+    if (commanderId === 'engineer') return skillId === 'bunker' ? '🏰' : skillId === 'flak' ? '🔫' : '🚧';
     if (commanderId === 'paladin') return '⚔️';
     if (commanderId === 'priest') return '🙏';
     if (commanderId === 'astrologer') return '🔮';

@@ -465,7 +465,7 @@ export class Unit {
             ctx.textBaseline = 'middle';
             ctx.globalAlpha = 0.65 + buildPulse * 0.35;
             ctx.shadowColor = '#ffcc44'; ctx.shadowBlur = 5;
-            ctx.fillText('🚧', visualX, bY);
+            ctx.fillText('🔨', visualX, bY);
             ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
             const turns = this._engineerScaffold.turnsRemaining || 1;

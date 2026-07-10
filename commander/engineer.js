@@ -2,7 +2,7 @@ import { CAMP } from '../js/config.js';
 
 export const ENGINEER_TRENCH_GOLD_COST = 2;
 export const ENGINEER_FLAK_GOLD_COST = 2;
-export const ENGINEER_BUNKER_GOLD_COST = 6;
+export const ENGINEER_BUNKER_GOLD_COST = 5;
 // 碉堡施工需要 1 个己方回合（起始回合工程师锁定），下个己方回合开始时脚手架变为碉堡。
 export const ENGINEER_BUNKER_BUILD_TURNS = 1;
 // 碉堡建成后进入冷却，冷却期内无法再次建造（不影响挖战壕/架机枪/移动/战斗）。
