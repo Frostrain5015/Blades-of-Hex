@@ -346,13 +346,31 @@
 <button id="backToVictoryBtn" class="back-to-victory-btn" style="display:none">返回结算</button>
 
 <!-- E1 占星者星移天气选择 -->
-<div id="weatherChoiceOverlay" style="display:none;position:fixed;inset:0;z-index:25000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;flex-direction:column;">
-    <div style="color:#ffd700;font-size:18px;margin-bottom:16px;letter-spacing:4px;">⭐ 星移 — 选择天气</div>
-    <div style="display:flex;gap:16px;">
-        <button class="weather-choice-btn" data-weather="clear" style="padding:12px 24px;font-size:16px;background:#1a1a2e;color:#ffd700;border:1px solid #ffd700;border-radius:6px;cursor:pointer;">☀️ 晴</button>
-        <button class="weather-choice-btn" data-weather="rain" style="padding:12px 24px;font-size:16px;background:#1a1a2e;color:#5588cc;border:1px solid #5588cc;border-radius:6px;cursor:pointer;">🌧 雨</button>
-        <button class="weather-choice-btn" data-weather="fog" style="padding:12px 24px;font-size:16px;background:#1a1a2e;color:#bbccdd;border:1px solid #bbccdd;border-radius:6px;cursor:pointer;">🌫 雾</button>
-        <button class="weather-choice-btn" data-weather="wind" style="padding:12px 24px;font-size:16px;background:#1a1a2e;color:#88ccaa;border:1px solid #88ccaa;border-radius:6px;cursor:pointer;">💨 风</button>
+<div id="weatherChoiceOverlay">
+    <div class="weather-choice-panel">
+        <div class="weather-choice-header">🔮 星移 · 选择天气</div>
+        <div class="weather-choice-grid">
+            <button class="weather-card" data-weather="clear">
+                <span class="wc-icon">☀️</span>
+                <span class="wc-name">晴</span>
+                <span class="wc-desc">无特殊效果</span>
+            </button>
+            <button class="weather-card" data-weather="rain">
+                <span class="wc-icon">🌧️</span>
+                <span class="wc-name">雨</span>
+                <span class="wc-desc">骑兵减速 · 步兵城防</span>
+            </button>
+            <button class="weather-card" data-weather="fog">
+                <span class="wc-icon">🌫️</span>
+                <span class="wc-name">雾</span>
+                <span class="wc-desc">火炮受限 · 骑兵冲锋</span>
+            </button>
+            <button class="weather-card" data-weather="wind">
+                <span class="wc-icon">💨</span>
+                <span class="wc-name">风</span>
+                <span class="wc-desc">炮击强化 · 步兵脆弱</span>
+            </button>
+        </div>
     </div>
 </div>
 

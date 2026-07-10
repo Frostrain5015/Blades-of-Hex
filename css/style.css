@@ -2059,6 +2059,84 @@ body {
 }
 
 /* =============================================================
+   星移天气选择
+   ============================================================= */
+#weatherChoiceOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.78);
+    z-index: 25000;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+#weatherChoiceOverlay.show { display: flex; }
+
+.weather-choice-panel {
+    background: rgba(14, 7, 3, 0.97);
+    border: 1px solid var(--gold-border);
+    border-radius: var(--radius-md);
+    padding: 28px 28px 24px;
+    min-width: 440px;
+    text-align: center;
+    box-shadow: 0 0 48px rgba(0, 0, 0, 0.85);
+}
+
+.weather-choice-header {
+    color: #ffd700;
+    font-size: 17px;
+    letter-spacing: 3px;
+    margin-bottom: 22px;
+    text-shadow: 0 0 20px rgba(255, 215, 0, 0.2);
+}
+
+.weather-choice-grid {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.weather-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 90px;
+    padding: 14px 8px 12px;
+    background: rgba(20, 12, 6, 0.85);
+    border: 1px solid rgba(176, 144, 80, 0.35);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    font-family: inherit;
+}
+.weather-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--gold-border);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5), 0 0 12px rgba(255, 215, 0, 0.08);
+}
+.weather-card:focus-visible {
+    outline: 2px solid var(--gold-border);
+    outline-offset: 3px;
+}
+
+.wc-icon { font-size: 28px; line-height: 1; }
+.wc-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: 2px;
+}
+.wc-desc {
+    font-size: 10px;
+    color: #998866;
+    line-height: 1.3;
+    letter-spacing: 0.5px;
+}
+
+/* =============================================================
    CHAT OVERLAY
    ============================================================= */
 

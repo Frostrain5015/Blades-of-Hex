@@ -2219,7 +2219,7 @@ export function initSettingsPanel() {
 function _showWeatherChoice(unit) {
     const overlay = document.getElementById('weatherChoiceOverlay');
     if (!overlay) return;
-    overlay.style.display = 'flex';
+    overlay.classList.add('show');
     overlay._astrologerUnitId = unit ? unit.id : null;
 }
 
@@ -2227,7 +2227,7 @@ function _showWeatherChoice(unit) {
 function _applyWeatherChoice(chosenWeather) {
     const overlay = document.getElementById('weatherChoiceOverlay');
     if (!overlay) return;
-    overlay.style.display = 'none';
+    overlay.classList.remove('show');
     // 通过 ID 重新查找 unit，防止网络同步后引用悬空
     let unit = null;
     if (overlay._astrologerUnitId != null) {
