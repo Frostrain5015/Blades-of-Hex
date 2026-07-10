@@ -883,7 +883,7 @@ function _getPassiveRuntimeState(unit, skill) {
     const presentation = {
         desc: skill.desc,
         color: '#88ccff',
-        status: '将领被动',
+        status: '当前生效',
         count: '',
         active: true,
         intensity: 1
@@ -982,30 +982,6 @@ function _getPassiveRuntimeState(unit, skill) {
         }
     }
 
-    if (unit.commander === 'centurion' && skill.name === '老兵') {
-        presentation.status = '常驻生效';
-    }
-
-    if (unit.commander === 'astrologer' && skill.name === '夜观') {
-        presentation.status = '常驻生效';
-    }
-
-    if (unit.commander === 'tianyan' && (skill.name === '战场观测' || skill.name === '机枪射击')) {
-        presentation.status = '常驻生效';
-    }
-
-    if (unit.commander === 'magician' && skill.name === '千面') {
-        presentation.status = '常驻生效';
-    }
-
-    if (unit.commander === 'priest' && skill.name === '圣疗') {
-        presentation.status = '常驻生效';
-    }
-
-    if (unit.commander === 'paladin' && skill.name === '勇气灵光') {
-        presentation.status = '常驻生效';
-    }
-
     if (unit.commander === 'fallenAngel') {
         const form = unit._fallen ? '堕天使·黑' : '堕天使·白';
         presentation.status = '当前处于' + form;
@@ -1028,6 +1004,12 @@ function _getPassiveRuntimeState(unit, skill) {
         }
     }
 
+    // 状态栏只描述当前效果：标题已标明“将领被动”，不再重复显示该分类。
+    // “本回合已触发”是已结算的历史状态，保留以提示本回合不能再次触发。
+    if (!presentation.active && presentation.status !== '本回合已触发') {
+        presentation.status = '当前未生效';
+        presentation.color = '#7b8790';
+    }
     return presentation;
 }
 
@@ -1281,7 +1263,7 @@ function _buildPassiveItems(unit) {
                 ? '每回合流失当前生命值的20%，攻击力提高30点，暴击率提高60%；士气恢复正常时切换至白形态。'
                 : '每回合回复已损失生命值的30%；士气上升或下降时切换至黑形态。',
             color: fallen ? '#ff6644' : '#6688ff',
-            status: '将领被动',
+            status: '当前生效',
             kicker: '将领被动',
             active: true,
             intensity: 1,
@@ -1312,7 +1294,7 @@ function _buildPassiveItems(unit) {
 
     let desc = commander.tooltipDesc || commander.desc || '';
     let color = '#ffd700';
-    let status = '将领被动';
+    let status = '当前生效';
     let count = '';
     let active = true;
     let intensity = 1;
@@ -1339,6 +1321,7 @@ function _buildPassiveItems(unit) {
         active = stacks > 0;
         intensity = stacks / 40;
     }
+    if (!active) status = '当前未生效';
     if (commander.skill) {
         items.push({
             key: 'commander:' + unit.id + ':legacy',
