@@ -5,7 +5,7 @@ export async function run(browser) {
     const R = await page.evaluate(async () => {
         const state = await import('/js/state.js');
         const input = await import('/js/input.js');
-        const { CAMP } = await import('/js/config.js');
+        const { CAMP, TERRAIN_CONFIG } = await import('/js/config.js');
         const { HexTile } = await import('/js/HexTile.js');
         const { Unit } = await import('/js/Unit.js');
         const results = { passed: 0, failed: 0, logs: [] };
@@ -32,16 +32,20 @@ export async function run(browser) {
         engineer.hp = engineer.maxHp - 40;
         engineer.displayHp = engineer.hp;
         engineer.canAct = true;
+        gameState.selectedUnit = engineer;
 
         input.showTooltipForTile(city);
-        const actionButtons = document.querySelectorAll('#tooltipActionButtons button');
+        const actionBar = document.getElementById('canvasActionButtons');
+        const actionButtons = document.querySelectorAll('#canvasActionButtons button');
         const trench = document.getElementById('tooltipActiveSkill');
         const bunker = document.getElementById('tooltipSecondarySkill');
         const reinforce = document.getElementById('tooltipReinforce');
         assert(actionButtons.length === 3, '工程师驻城可注册两项技能与补员共3项动作');
+        assert(actionBar?.classList.contains('visible'), '选中单位时画布内动作条淡入');
         assert(!!trench && !!bunker && !!reinforce, '队列保留兼容按钮标识');
         assert(!trench?.disabled && !bunker?.disabled && !reinforce?.disabled, '满足条件时三项动作均可用');
-        assert(trench?.style.getPropertyValue('--skill-button-background').includes('#947026'), '工程师技能使用工程主题色');
+        assert(trench?.style.getPropertyValue('--board-action-background').includes('#947026'), '工程师技能使用工程主题色');
+        assert(trench?.querySelector('.canvas-action-cost')?.textContent === '$2', '战壕动作显示$2成本');
 
         city.fortification = 'trench';
         input.showTooltipForTile(city);
@@ -52,6 +56,24 @@ export async function run(browser) {
         input.showTooltipForTile(city);
         assert(document.getElementById('tooltipSecondarySkill')?.disabled === true, '金币不足时碉堡按钮直接变灰');
         assert(document.getElementById('tooltipReinforce')?.disabled === true, '金币不足时补员按钮直接变灰');
+
+        gameState.selectedUnit = null;
+        input.syncBoardActionBar();
+        assert(!actionBar?.classList.contains('visible'), '取消选中后画布内动作条淡出');
+
+        const glyphCalls = [];
+        const fakeContext = {
+            save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {},
+            measureText() { return { width: 12 }; },
+            fillText(icon) { glyphCalls.push(icon); }
+        };
+        const terrainTile = new HexTile(2, 0);
+        terrainTile.isVillage = true;
+        terrainTile.terrain = 'forest';
+        terrainTile.fortification = 'trench';
+        terrainTile.drawBase(fakeContext);
+        const glyphs = glyphCalls.slice(-3);
+        assert(glyphs.join('|') === `🏡|${TERRAIN_CONFIG.forest.icon}|🕳️`, '地物图标按村庄、地形、战壕顺序横向绘制');
 
         return results;
     });

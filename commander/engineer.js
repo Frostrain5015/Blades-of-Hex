@@ -1,6 +1,6 @@
 import { CAMP } from '../js/config.js';
 
-export const ENGINEER_TRENCH_GOLD_COST = 3;
+export const ENGINEER_TRENCH_GOLD_COST = 2;
 export const ENGINEER_BUNKER_GOLD_COST = 6;
 
 function campToKey(camp) {

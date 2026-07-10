@@ -13,9 +13,9 @@ import {
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 import { setMasterVolume, setMuted } from './audio.js';
-import { canDeployDrone } from '../commander/tianyan.js';
+import { canDeployDrone, DRONE_DEPLOY_COST } from '../commander/tianyan.js';
 
-const ACTIVE_SKILL_BUTTON_THEMES = {
+const BOARD_ACTION_THEMES = {
     default: {
         background: 'linear-gradient(135deg, #d4380d, #ad2102)',
         hover: 'linear-gradient(135deg, #e8471a, #c4250a)',
@@ -58,7 +58,8 @@ const ACTIVE_SKILL_BUTTON_THEMES = {
     }
 };
 
-const tooltipActionQueue = new Map();
+const boardActionQueue = new Map();
+let _lastBoardActionSignature = null;
 
 function _getMyCampInput() {
     if (isNetworkGame()) {
@@ -174,11 +175,11 @@ function _getCommanderSkillAvailability(unit, skillId = '') {
     return { canUse: true, reason: '' };
 }
 
-function _applyActiveSkillTheme(button, commanderId) {
-    const theme = ACTIVE_SKILL_BUTTON_THEMES[commanderId] || ACTIVE_SKILL_BUTTON_THEMES.default;
-    button.style.setProperty('--skill-button-background', theme.background);
-    button.style.setProperty('--skill-button-hover', theme.hover);
-    button.style.setProperty('--skill-button-border', theme.border);
+function _applyBoardActionTheme(button, commanderId) {
+    const theme = BOARD_ACTION_THEMES[commanderId] || BOARD_ACTION_THEMES.default;
+    button.style.setProperty('--board-action-background', theme.background);
+    button.style.setProperty('--board-action-hover', theme.hover);
+    button.style.setProperty('--board-action-border', theme.border);
 }
 
 function _findUnitById(unitId) {
@@ -201,6 +202,7 @@ function _getReinforcementAction(unit) {
             legacyId: 'tooltipReinforce',
             kind: 'reinforce',
             unitId: unit.id,
+            icon: '🩹',
             label: '本回合已补员',
             canUse: false,
             reason: '该地块本回合已补员',
@@ -213,6 +215,7 @@ function _getReinforcementAction(unit) {
             legacyId: 'tooltipReinforce',
             kind: 'reinforce',
             unitId: unit.id,
+            icon: '🩹',
             label: '无需补员',
             canUse: false,
             reason: '单位生命值已满',
@@ -229,6 +232,8 @@ function _getReinforcementAction(unit) {
         legacyId: 'tooltipReinforce',
         kind: 'reinforce',
         unitId: unit.id,
+        icon: '🩹',
+        goldCost: cost,
         label: `🪙 补充兵员 $${cost}`,
         canUse: _canReinforceUnit(unit) && hasGold,
         reason: hasGold ? '' : '金币不足',
@@ -236,7 +241,16 @@ function _getReinforcementAction(unit) {
     };
 }
 
-function _collectTooltipActions(unit) {
+function _getCommanderActionIcon(commanderId, skillId) {
+    if (commanderId === 'engineer') return skillId === 'bunker' ? '🧱' : '🕳️';
+    if (commanderId === 'paladin') return '⚔️';
+    if (commanderId === 'priest') return '✨';
+    if (commanderId === 'astrologer') return '🔮';
+    if (commanderId === 'tianyan') return '🛰️';
+    return '✦';
+}
+
+function _collectBoardActions(unit) {
     const actions = [];
     if (unit && _isLocalActionCamp(unit.camp)) {
         if (unit._isDrone) {
@@ -245,6 +259,7 @@ function _collectTooltipActions(unit) {
                 legacyId: 'tooltipActiveSkill',
                 kind: 'droneSuicide',
                 unitId: unit.id,
+                icon: '💥',
                 label: '自爆',
                 canUse: _canUseDroneSuicide(unit),
                 reason: _hasDroneSuicideTarget(unit) ? '当前不可用' : '3格内没有敌方单位',
@@ -260,14 +275,15 @@ function _collectTooltipActions(unit) {
                 const availability = _getCommanderSkillAvailability(unit, skillId);
                 const skillName = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged
                     ? '至圣斩·誓约' : skill.name;
-                const costLabel = skill.goldCost ? ` $${skill.goldCost}` : '';
                 actions.push({
                     key: `commander:${unit.id}:${skillId || 'default'}`,
                     legacyId: index === 0 ? 'tooltipActiveSkill' : index === 1 ? 'tooltipSecondarySkill' : `tooltipCommanderSkill${index}`,
                     kind: 'commanderSkill',
                     unitId: unit.id,
                     skillId,
-                    label: `${skillName}${costLabel}`,
+                    icon: _getCommanderActionIcon(unit.commander, skillId),
+                    label: skillName,
+                    goldCost: skill.goldCost || (unit.commander === 'tianyan' ? DRONE_DEPLOY_COST : 0),
                     canUse: availability.canUse,
                     reason: availability.reason,
                     theme: unit.commander
@@ -281,11 +297,29 @@ function _collectTooltipActions(unit) {
     return actions;
 }
 
-function _renderTooltipActionQueue(actions) {
-    const container = document.getElementById('tooltipActionButtons');
+function _formatBoardActionTitle(action) {
+    const hasEmbeddedCost = action.goldCost && action.label.includes(`$${action.goldCost}`);
+    const cost = action.goldCost && !hasEmbeddedCost ? ` $${action.goldCost}` : '';
+    return action.reason ? `${action.label}${cost} - ${action.reason}` : `${action.label}${cost}`;
+}
+
+function _renderBoardActionQueue(actions) {
+    const container = document.getElementById('canvasActionButtons');
     if (!container) return;
 
-    tooltipActionQueue.clear();
+    const signature = actions.map(action => [
+        action.key,
+        action.icon,
+        action.label,
+        action.goldCost || 0,
+        action.canUse,
+        action.reason,
+        action.theme
+    ].join(':')).join('|');
+    if (signature === _lastBoardActionSignature) return;
+    _lastBoardActionSignature = signature;
+
+    boardActionQueue.clear();
     const buttons = Array.from(container.querySelectorAll('button'));
     actions.forEach((action, index) => {
         let button = buttons[index];
@@ -294,20 +328,40 @@ function _renderTooltipActionQueue(actions) {
             button.type = 'button';
             container.appendChild(button);
         }
-        tooltipActionQueue.set(action.key, action);
+
+        boardActionQueue.set(action.key, action);
         button.id = action.legacyId;
-        button.className = 'tooltip-skill-btn';
-        button.textContent = action.label;
-        button.style.display = 'block';
+        button.className = 'canvas-action-button';
         button.disabled = !action.canUse;
-        button.title = action.reason || action.label;
-        button.dataset.tooltipActionKey = action.key;
-        _applyActiveSkillTheme(button, action.theme);
+        button.classList.toggle('is-disabled', !action.canUse);
+        button.title = _formatBoardActionTitle(action);
+        button.setAttribute('aria-label', button.title);
+        button.dataset.boardActionKey = action.key;
+        _applyBoardActionTheme(button, action.theme);
+
+        const icon = document.createElement('span');
+        icon.className = 'canvas-action-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = action.icon || '✦';
+        button.replaceChildren(icon);
+        if (action.goldCost) {
+            const cost = document.createElement('span');
+            cost.className = 'canvas-action-cost';
+            cost.textContent = `$${action.goldCost}`;
+            button.appendChild(cost);
+        }
     });
     for (let index = actions.length; index < buttons.length; index++) buttons[index].remove();
+    container.classList.toggle('visible', actions.length > 0);
+    container.setAttribute('aria-hidden', actions.length > 0 ? 'false' : 'true');
 }
 
-function _activateTooltipAction(action) {
+export function syncBoardActionBar() {
+    const unit = !gameState.cardTargeting ? gameState.selectedUnit : null;
+    _renderBoardActionQueue(_collectBoardActions(unit));
+}
+
+function _activateBoardAction(action) {
     const unit = _findUnitById(action.unitId);
     if (!unit) return;
 
@@ -937,7 +991,7 @@ export function showTooltipForTile(tile) {
         target.innerHTML += (target.innerHTML ? '<br>' : '') + weatherLine;
     }
 
-    _renderTooltipActionQueue(_collectTooltipActions(unit));
+    syncBoardActionBar();
 
     if (!unit && !showTerrain) {
         tooltipEl.classList.remove('visible');
@@ -985,11 +1039,27 @@ function getTileAtPixel(px, py) {
 }
 
 // ==== 鼠标输入 =====================
+function _bindBoardActionButtons() {
+    const actionButtons = document.getElementById('canvasActionButtons');
+    if (!actionButtons || actionButtons._bound) return;
+
+    actionButtons._bound = true;
+    actionButtons.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!(e.target instanceof HTMLElement)) return;
+        const button = e.target.closest('button[data-board-action-key]');
+        if (!button || !actionButtons.contains(button)) return;
+        const action = boardActionQueue.get(button.dataset.boardActionKey);
+        if (action) _activateBoardAction(action);
+    });
+}
+
 let _inputInitialized = false;
 export function rebindInputEvents() { _inputInitialized = false; initInput(); }
 export function initInput() {
     if (_inputInitialized) return;
     _inputInitialized = true;
+    _bindBoardActionButtons();
     function toLogical(e) {
         const rect = canvas.getBoundingClientRect();
         return {
@@ -1400,19 +1470,6 @@ export function initSettingsPanel() {
     });
 
     // Tooltip 动作队列：所有按钮均由当前描述数组渲染，并由此处统一分发。
-    const actionButtons = document.getElementById('tooltipActionButtons');
-    if (actionButtons && !actionButtons._bound) {
-        actionButtons._bound = true;
-        actionButtons.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!(e.target instanceof HTMLElement)) return;
-            const button = e.target.closest('button[data-tooltip-action-key]');
-            if (!button || !actionButtons.contains(button)) return;
-            const action = tooltipActionQueue.get(button.dataset.tooltipActionKey);
-            if (action) _activateTooltipAction(action);
-        });
-    }
-
     // E1 占星者星移天气选择按钮
     const weatherBtns = document.querySelectorAll('.weather-choice-btn');
     weatherBtns.forEach(btn => {

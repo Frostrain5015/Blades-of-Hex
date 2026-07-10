@@ -177,7 +177,13 @@ export const TERRAIN_CONFIG = {
 // ==== 工事配置 ==============================================================
 // 工事与基础地形叠加，不改变原有的移动消耗、森林掩蔽或城市/村庄功能。
 export const FORTIFICATION_CONFIG = {
-    trench: { name: '战壕', defenseBonus: 0.30, desc: '防御+30%' }
+    trench: {
+        name: '战壕',
+        defenseBonus: 0.30,
+        desc: '防御+30%',
+        icon: '🕳️',
+        iconFont: '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif'
+    }
 };
 
 // // ==== 河流 ====================

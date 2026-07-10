@@ -1,5 +1,6 @@
 ﻿import { HEX_SIZE, HEX_WIDTH, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, hexToRgb, rgbToHex, frameInfo, CAMP_FLAG_COLORS, HEX_NEIGHBORS, hexEdge, TERRAIN_CONFIG, CAMP, settings } from './config.js';
 import { nextId } from './uid.js';
+import { FORTIFICATION_CONFIG } from './config.js';
 
 let _gameState = null;
 export function setGameStateRef(ref) { _gameState = ref; }
@@ -55,7 +56,60 @@ export class HexTile {
         if (progress >= 1) this.fadeStartTime = null;
     }
 
-    // Fill, shadow, star
+    _drawTerrainGlyphs(c, cx, cy) {
+        const glyphs = [];
+        if (this.isVillage) {
+            glyphs.push({
+                icon: '🏡',
+                font: '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif',
+                color: 'rgba(255,255,255,0.8)'
+            });
+        }
+
+        const terrain = TERRAIN_CONFIG[this.terrain];
+        if (this.terrain !== 'plains' && terrain?.icon) {
+            glyphs.push({
+                icon: terrain.icon,
+                font: terrain.iconFont,
+                color: 'rgba(255,255,255,0.65)'
+            });
+        }
+
+        const fortification = FORTIFICATION_CONFIG[this.fortification];
+        if (fortification?.icon) {
+            glyphs.push({
+                icon: fortification.icon,
+                font: fortification.iconFont,
+                color: '#e8c477'
+            });
+        }
+
+        if (glyphs.length === 0) return;
+
+        const gap = 3;
+        const widths = glyphs.map(glyph => {
+            c.font = glyph.font;
+            return c.measureText(glyph.icon).width;
+        });
+        const totalWidth = widths.reduce((sum, width) => sum + width, 0) + gap * (glyphs.length - 1);
+        let glyphX = cx - totalWidth / 2;
+
+        c.save();
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.shadowColor = 'rgba(0,0,0,0.3)';
+        c.shadowBlur = 1;
+        for (let index = 0; index < glyphs.length; index++) {
+            const glyph = glyphs[index];
+            c.font = glyph.font;
+            c.fillStyle = glyph.color;
+            c.fillText(glyph.icon, glyphX + widths[index] / 2, cy + HEX_SIZE * 0.5);
+            glyphX += widths[index] + gap;
+        }
+        c.restore();
+    }
+
+    // Fill, shadow, and ordered terrain glyphs.
     drawBase(c) {
         const cx = this.x, cy = this.y;
         c.save();
@@ -65,30 +119,6 @@ export class HexTile {
         hexPath(c, cx, cy, HEX_SIZE);
         c.fillStyle = this.currentColor;
         c.fill();
-
-        if (this.fortification === 'trench') {
-            c.save();
-            hexPath(c, cx, cy, HEX_SIZE - 1);
-            c.clip();
-
-            c.beginPath();
-            c.moveTo(cx - 22, cy + 5);
-            c.lineTo(cx + 22, cy + 5);
-            c.strokeStyle = 'rgba(53, 33, 18, 0.88)';
-            c.lineWidth = 6;
-            c.lineCap = 'round';
-            c.stroke();
-
-            c.beginPath();
-            c.moveTo(cx - 22, cy + 1);
-            c.lineTo(cx + 22, cy + 1);
-            c.strokeStyle = 'rgba(205, 170, 109, 0.88)';
-            c.lineWidth = 2;
-            c.setLineDash([3, 3]);
-            c.stroke();
-            c.setLineDash([]);
-            c.restore();
-        }
 
         if (this.isCity) {
             c.fillStyle = '#e6c200';
@@ -100,28 +130,8 @@ export class HexTile {
             c.fillText('🏰', cx, cy);
             c.shadowColor = 'transparent';
             c.shadowBlur = 0;
-        } else if (this.isVillage) {
-            c.fillStyle = 'rgba(255,255,255,0.8)';
-            c.font = '14px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
-            c.textAlign = 'center';
-            c.textBaseline = 'middle';
-            c.shadowColor = 'rgba(0,0,0,0.25)';
-            c.shadowBlur = 1;
-            c.fillText('🏡', cx, cy + HEX_SIZE * 0.5);
-            c.shadowColor = 'transparent';
-            c.shadowBlur = 0;
-        } else if (this.terrain !== 'plains') {
-            const tcfg = TERRAIN_CONFIG[this.terrain];
-            c.fillStyle = 'rgba(255,255,255,0.65)';
-            c.font = tcfg.iconFont;
-            c.textAlign = 'center';
-            c.textBaseline = 'middle';
-            c.shadowColor = 'rgba(0,0,0,0.3)';
-            c.shadowBlur = 1;
-            c.fillText(tcfg.icon, cx, cy + HEX_SIZE * 0.5);
-            c.shadowColor = 'transparent';
-            c.shadowBlur = 0;
         }
+        this._drawTerrainGlyphs(c, cx, cy);
         c.restore();
     }
 

@@ -990,31 +990,103 @@ body {
 }
 #tooltipSkillInfo:empty { display: none; }
 
-.tooltip-skill-btn {
-    display: block;
-    width: calc(100% - 26px);
-    margin: 4px 13px 10px;
-    padding: 7px 12px;
-    background: var(--skill-button-background, linear-gradient(135deg, #d4380d, #ad2102));
-    color: #fff;
-    border: 1px solid var(--skill-button-border, #ff6b3d);
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: bold;
-    cursor: pointer;
+.canvas-action-buttons {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    z-index: 24;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.canvas-action-buttons.visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
     pointer-events: auto;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-    transition: background 0.2s, border-color 0.2s;
 }
-.tooltip-skill-btn:hover:not(:disabled):not(.on-cooldown) {
-    background: var(--skill-button-hover, linear-gradient(135deg, #e8471a, #c4250a));
+
+.canvas-action-button {
+    position: relative;
+    display: grid;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    place-items: center;
+    overflow: hidden;
+    color: #fff;
+    background: var(--board-action-background, linear-gradient(135deg, #d4380d, #ad2102));
+    border: 1px solid var(--board-action-border, #ff6b3d);
+    border-radius: 6px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.42), inset 0 1px rgba(255, 255, 255, 0.14);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.tooltip-skill-btn:disabled,
-.tooltip-skill-btn.on-cooldown {
-    background: #565656;
-    border-color: #777;
-    color: #a8a8a8;
+
+.canvas-action-button:hover:not(:disabled) {
+    background: var(--board-action-hover, linear-gradient(135deg, #e8471a, #c4250a));
+    border-color: #fff2cf;
+    box-shadow: 0 5px 16px rgba(0, 0, 0, 0.52), 0 0 12px var(--board-action-border, #ff6b3d);
+    transform: translateY(-2px) scale(1.04);
+}
+
+.canvas-action-button:focus-visible {
+    outline: 2px solid #fff2cf;
+    outline-offset: 2px;
+}
+
+.canvas-action-button:disabled,
+.canvas-action-button.is-disabled {
+    background: #4d4d4d;
+    border-color: #717171;
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.08);
     cursor: not-allowed;
+    filter: grayscale(1);
+}
+
+.canvas-action-icon {
+    font-size: 21px;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.canvas-action-cost {
+    position: absolute;
+    right: 2px;
+    bottom: 1px;
+    padding: 0 3px;
+    color: #ffe59a;
+    background: rgba(0, 0, 0, 0.58);
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 13px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7);
+}
+
+.canvas-action-button:disabled .canvas-action-cost {
+    color: #c1c1c1;
+}
+
+@media (max-width: 640px) {
+    .canvas-action-buttons {
+        right: 10px;
+        bottom: 10px;
+        gap: 4px;
+    }
+
+    .canvas-action-button {
+        width: 38px;
+        height: 38px;
+    }
+
+    .canvas-action-icon { font-size: 19px; }
 }
 
 /* =============================================================

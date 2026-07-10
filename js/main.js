@@ -6,7 +6,7 @@ import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
 import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
-import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents } from './input.js';
+import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { CAMP, COMMANDER_REROLL_COST } from './config.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
@@ -88,6 +88,7 @@ window.addEventListener('beforeunload', (e) => {
 function gameLoop() {
     const now = performance.now();
     renderGame();
+    syncBoardActionBar();
 
     // 对策卡手牌独立画布
     drawCardCanvas(now);

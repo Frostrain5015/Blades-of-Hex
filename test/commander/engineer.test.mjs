@@ -38,7 +38,7 @@ export async function run(browser) {
             const result = engineer.digEngineerTrench(unit, { gameState, logMessage });
             assert(result.ok, '城市与山地上的战壕可建造');
             assert(source.fortification === 'trench', '战壕写入独立工事层');
-            assert(gameState.playerGold.player1 === 20 - engineer.ENGINEER_TRENCH_GOLD_COST, '战壕扣除$3');
+            assert(gameState.playerGold.player1 === 20 - engineer.ENGINEER_TRENCH_GOLD_COST, '战壕扣除$2');
             assert(unit.remainingMP === 0 && unit.canAct === false, '战壕清空行动力');
         } catch (error) {
             assert(false, '战壕异常: ' + error.message);
