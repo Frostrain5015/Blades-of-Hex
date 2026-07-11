@@ -71,7 +71,26 @@ function _rerender() {
     if (!container || !chronicle) return;
     _renderInto(container, chronicle);
     refreshCampaignLobbyProgress();
-    _onPortrait?.(chronicle.portraitCommanderId);
+
+    // 切换右侧展示：有 posterUrl 的传记显示电影海报，否则显示将领立绘
+    const poster = document.getElementById('campaignPoster');
+    if (chronicle.posterUrl) {
+        poster.src = chronicle.posterUrl;
+        poster.classList.add('active');
+        // 非战役传记页隐藏轮播立绘（保持 overlay 可见）
+        for (const id of ['heroPortraitA', 'heroPortraitB']) {
+            const el = document.getElementById(id);
+            if (el) el.style.opacity = '0';
+        }
+        _onPortrait?.(null); // 不切换将领立绘
+    } else {
+        poster.classList.remove('active');
+        for (const id of ['heroPortraitA', 'heroPortraitB']) {
+            const el = document.getElementById(id);
+            if (el) el.style.opacity = '';
+        }
+        _onPortrait?.(chronicle.portraitCommanderId);
+    }
 }
 
 /**

@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-11T13:01:47.083Z",
-  "entryVersion": "ada4618a1a",
+  "generatedAt": "2026-07-11T15:32:18.240Z",
+  "entryVersion": "496a819df6",
   "files": {
     "js/ai.js": "05ccb9ae92",
     "js/audio.js": "e9d0efd96c",
@@ -96,13 +96,14 @@
     "protocol/package.json": "50faeb965b",
     "ai/claude.js": "9c977a4fc9",
     "ai/grok.js": "aae2d023eb",
-    "campaign/catalog.js": "6bb40354b4",
-    "campaign/content/heartAsFire/chronicle.js": "ed47642874",
+    "campaign/catalog.js": "580efedaab",
+    "campaign/content/bloodIris/chronicle.js": "7734c6195e",
+    "campaign/content/heartAsFire/chronicle.js": "8550eb03b0",
     "campaign/content/heartAsFire/rainCity/battlefield.js": "41afc034dd",
     "campaign/content/heartAsFire/rainCity/scenario.js": "d90a2b5ef4",
-    "campaign/lobby.js": "d3846c563a",
+    "campaign/lobby.js": "171b47bafa",
     "campaign/package.json": "50faeb965b",
     "campaign/progress.js": "de15c4ada7",
-    "index.html": "c336528462"
+    "index.html": "c6c8bddc6c"
   }
 }
