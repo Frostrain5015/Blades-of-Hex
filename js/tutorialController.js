@@ -33,15 +33,15 @@ const STEPS = {
     // ===== Phase 1: 欢迎与总览 ====================
     welcome: {
         phase: 'dialog',
-        title: '战术演练',
-        text: '本局模拟真实残局：你指挥红军（狂战士 + 炮兵），蓝军防守中央城市。\n\n每一步需按指引完成。系统已锁定非目标操作，请跟随指示熟悉各兵种特性与克制关系。',
+        title: '欢迎',
+        text: '欢迎来到《Blades of Hex》，接下来您将通过一个简短的教程学习游戏的基本操作与战术要领。',
         button: '开始教程',
         next: 'topbar_intro'
     },
     topbar_intro: {
         phase: 'dialog',
         title: '战场总览',
-        text: '顶部显示当前行动方、天气（雨天），以及双方资金。\n\n🌧️ 雨天效果：骑兵每步消耗 +1 行动力；步兵驻守城市时防御提升。\n\n右侧面板可招募部队、查看统计与对策卡手牌。',
+        text: '顶部的信息卡显示当前游戏的行动方、天气情况，以及双方资金。\n天气会对地图上所有单位造成特殊影响现在是【🌧️雨天】，地图上所有的【骑兵】每步消耗 +1 行动力；步兵驻守城市时防御提升。\n\n右侧面板可招募部队、查看统计与对策卡手牌。',
         button: '查看棋盘',
         next: 'units_intro',
         focus: '#topBar, #rightPanel'
@@ -180,7 +180,10 @@ export function createTutorialController() {
         const id = targetId(stepTarget);
 
         if (kind === 'unit') {
-            return gameState.tiles.find(tile => tile.unit?.id === id) || null;
+            if (!gameState.tiles) return null;
+            const found = gameState.tiles.find(tile => tile.unit?.id === id) || null;
+            if (!found) { console.warn("[tutorial] unit not found:", id); }
+            return found;
         }
         if (kind === 'tile') {
             if (id === 'move' && targets.move) {
