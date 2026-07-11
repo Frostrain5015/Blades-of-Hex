@@ -671,29 +671,26 @@ function beginTutorial() {
 	stopBattleBGM();
 	loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 教程将领特效加载失败:', err));
 
-	_showCampaignIntro({
-	campaignTitle: '将星列传 · 我心如火',
-	scenarioSubtitle: '序 雨幕下的孤城'
-}, () => {
-		initMap();
-		setupTutorialBattlefield();
-		runTutorialOpponentScript().catch(err => console.warn('[tutorial] AI 脚本初始化失败:', err));
-		initInput();
-		initKeyboard();
-		initSettingsPanel();
-		setOnFogUpdated(updateCampEmblems);
-		updateCampEmblems();
-		updateChatAvailability();
-		initEmblemChatClicks();
-		gameState.currentCamp = CAMP.player1;
-		grantTurnStartIncome(CAMP.player1);
-		updateUI();
-		updateButtonColors();
-		startBattleBGM();
-		playSound('turnEnd');
-		renderGame();
-		_tutorialController.start();
-	});
+		_runCountdown(() => {
+			initMap();
+			setupTutorialBattlefield();
+			runTutorialOpponentScript().catch(err => console.warn('[tutorial] AI 脚本初始化失败:', err));
+			initInput();
+			initKeyboard();
+			initSettingsPanel();
+			setOnFogUpdated(updateCampEmblems);
+			updateCampEmblems();
+			updateChatAvailability();
+			initEmblemChatClicks();
+			gameState.currentCamp = CAMP.player1;
+			grantTurnStartIncome(CAMP.player1);
+			updateUI();
+			updateButtonColors();
+			startBattleBGM();
+			playSound('turnEnd');
+			renderGame();
+			_tutorialController.start();
+		});
 }
 
 // ==== 单人战役：《我心如火》·《雨幕下的孤城》 =============================
@@ -733,7 +730,10 @@ function beginCampaignScenario() {
 	stopLobbyBGM();
 	stopBattleBGM();
 
-	_runCountdown(() => {
+	_showCampaignIntro({
+		campaignTitle: '将星列传 · 我心如火',
+		scenarioSubtitle: '序 雨幕下的孤城'
+	}, () => {
 		gameState.rng.setState(RAIN_CITY_SCENARIO.seed);
 		initMap();
 		setupRainCityBattlefield();
