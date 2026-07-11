@@ -1798,22 +1798,23 @@ function registerNetworkCallbacks() {
         onRemoteAction: handleRemoteAction,
 
         onOpponentLeft: (role) => {
-            const campName = role === 'player1' ? '红军' : role === 'player2' ? '蓝军' : role === 'player3' ? '绿军' : '对手';
-            notify(${campName}已断开连接, 'warn', true);
-            logMessage(⚠ 已断开连接);
-            // 对局中：立即存下全量状态到服务器
+            const campCardId = role === 'player1' ? 'campCard1' : role === 'player2' ? 'campCard2' : role === 'player3' ? 'campCard3' : null;
+            // 对局中：头像变灰 + 转圈，不弹通知
             if (gameState.commanderPhase === 'done') {
+                const card = document.getElementById(campCardId);
+                if (card) card.classList.add('disconnected');
                 const st = serializeState();
                 sendMessage({ type: 'saveState', state: st });
-                logMessage('📦 已暂存对局状态到服务器');
+            } else {
+                // 大厅等房间阶段：显示等待文字
+                roomWaitingText.textContent = '对手已离开，等待重连...';
+                readyBtn.disabled = true;
+                readyBtn.textContent = '准备';
+                readyBtn.classList.remove('cancel');
+                readyBtn.style.background = '#27ae60';
+                _isReady = false;
+                _readyCount = 0;
             }
-            roomWaitingText.textContent = '对手已离开，等待重连...';
-            readyBtn.disabled = true;
-            readyBtn.textContent = '准备';
-            readyBtn.classList.remove('cancel');
-            readyBtn.style.background = '#27ae60';
-            _isReady = false;
-            _readyCount = 0;
         },
 
         // 对手重连 → 服务器会同步暂存状态，仅通知
