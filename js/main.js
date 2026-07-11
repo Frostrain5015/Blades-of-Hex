@@ -799,9 +799,9 @@ function _pveAIQuickPick(forPlayer) {
 }
 
 function _forPlayerCampName(forPlayer) {
-    if (forPlayer === 'player1') return { name: '红军', color: '#ffaaaa' };
-    if (forPlayer === 'player2') return { name: '蓝军', color: '#aaaaff' };
-    return { name: '绿军', color: '#aaffaa' };
+    if (forPlayer === 'player1') return { name: '红军', color: '#cc4444' };
+    if (forPlayer === 'player2') return { name: '蓝军', color: '#4488cc' };
+    return { name: '绿军', color: '#44aa44' };
 }
 function _forPlayerPool(forPlayer) {
     if (forPlayer === 'player1') return gameState.commanderPoolP1;
@@ -860,7 +860,7 @@ function _showCommanderWaiting(forPlayer) {
     const ci = _forPlayerCampName(forPlayer);
 
     _commanderPending = null;
-    campName.textContent = `${ci.name} — 选择将领`;
+    campName.textContent = `${ci.name}`;
     campName.style.color = ci.color;
     logo.style.setProperty('--camp-color', ci.color);
     subtitle.textContent = 'AI 正在选择将领...';
@@ -1093,7 +1093,7 @@ function _showCommanderSelection(forPlayer) {
     if (rerollBtn) rerollBtn.classList.remove('visible', 'armed');
 
     _commanderPending = null;
-    campName.textContent = `${ci.name} — 选择将领`;
+    campName.textContent = `${ci.name}`;
     campName.style.color = ci.color;
     logo.style.setProperty('--camp-color', ci.color);
     subtitle.textContent = gameState.doubleCommanderMode
