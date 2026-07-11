@@ -1721,7 +1721,7 @@ body {
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 22px;
+    gap: 12px;
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
 }
