@@ -1817,9 +1817,10 @@ function registerNetworkCallbacks() {
         },
 
         // 对手重连 → 服务器会同步暂存状态，仅通知
-        onOpponentReconnected: () => {
-            notify('对手已重连', '', false);
-            logMessage('🔗 对手已重连');
+        onOpponentReconnected: (role) => {
+            const campCardId = role === 'player1' ? 'campCard1' : role === 'player2' ? 'campCard2' : role === 'player3' ? 'campCard3' : null;
+            const card = document.getElementById(campCardId);
+            if (card) card.classList.remove('disconnected');
         },
 
         // 自己重连（大厅/对局中统一处理）

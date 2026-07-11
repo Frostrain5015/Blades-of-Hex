@@ -192,6 +192,25 @@ body {
 .camp-emblem.has-portrait .camp-emblem-text { display: none; }
 
 /* Chat-clickable emblems */
+/* 断线状态：灰暗 + 转圈加载 */
+.camp-card.disconnected .camp-emblem {
+    opacity: 0.45;
+    filter: grayscale(0.85);
+    position: relative;
+}
+.camp-card.disconnected .camp-emblem::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 2px solid transparent;
+    border-top-color: rgba(255, 215, 0, 0.7);
+    border-radius: 50%;
+    animation: campReconnectSpin 1s linear infinite;
+}
+@keyframes campReconnectSpin {
+    to { transform: rotate(360deg); }
+}
+
 .camp-emblem.chat-enabled {
     cursor: pointer;
     transition: transform 0.15s ease, box-shadow 0.15s ease;

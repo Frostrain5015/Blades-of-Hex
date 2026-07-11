@@ -143,7 +143,7 @@ export function connectToServer(url) {
                     break;
                 case 'opponentReconnected':
                     if (msg.role) _myRole = msg.role;
-                    _cb.onOpponentReconnected?.();
+                    _cb.onOpponentReconnected?.(msg.role);
                     break;
                 case 'start':
                     _myRole = msg.role;
