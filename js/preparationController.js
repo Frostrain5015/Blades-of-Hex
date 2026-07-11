@@ -8,6 +8,7 @@ export function createPreparationController({
     beginCommanderPhase,
     beginPVECommanderPhase,
     beginTrainingCommanderPhase,
+    beginTutorial,
     showHome,
     showMultiplayerLobby,
     setStatus,
@@ -49,7 +50,36 @@ export function createPreparationController({
                 <input type="checkbox" id="prepDoubleCommander" />
                 <span class="prep-check-copy"><strong>双将模式</strong><small>随机 ${COMMANDER_DRAFT.dualCandidatesPerPlayer} 名将领，选择 ${COMMANDER_DRAFT.dualCommanderCount} 名分别部署</small></span>
             </label>
+            ${action === 'training' ? `
+            <label class="prep-check-option prep-tutorial-option">
+                <input type="checkbox" id="prepTutorial" />
+                <span class="prep-check-copy"><strong>教程</strong><small>固定双人剧本：狂战士对百夫长，循序学习基本操作</small></span>
+            </label>` : ''}
         `;
+
+        const tutorial = document.getElementById('prepTutorial');
+        if (!tutorial) return;
+        const typeOptions = document.getElementById('prepOptions1');
+        const skirmish = document.getElementById('prepSkirmish');
+        const doubleCommander = document.getElementById('prepDoubleCommander');
+        const syncTutorialLock = () => {
+            const locked = tutorial.checked;
+            if (skirmish) skirmish.disabled = locked;
+            if (doubleCommander) doubleCommander.disabled = locked;
+            typeOptions?.classList.toggle('prep-options-locked', locked);
+            if (locked) {
+                if (skirmish) skirmish.checked = false;
+                if (doubleCommander) doubleCommander.checked = false;
+                typeOptions?.querySelectorAll('.prep-option').forEach((option, index) => {
+                    option.classList.toggle('selected', index === 0);
+                    option.setAttribute('aria-disabled', 'true');
+                });
+            } else {
+                typeOptions?.querySelectorAll('.prep-option').forEach(option => option.removeAttribute('aria-disabled'));
+            }
+        };
+        tutorial.addEventListener('change', syncTutorialLock);
+        syncTutorialLock();
     }
 
     function showPrepDialog(nextAction) {
@@ -108,6 +138,7 @@ export function createPreparationController({
         const selectedType = getSelection('prepOptions1');
         const skirmishFog = document.getElementById('prepSkirmish')?.checked || false;
         const doubleCommanderMode = document.getElementById('prepDoubleCommander')?.checked || false;
+        const tutorialMode = action === 'training' && (document.getElementById('prepTutorial')?.checked || false);
 
         if (action === 'createRoom') {
             const maxPlayers = selectedType === '3p' ? 3 : 2;
@@ -120,6 +151,10 @@ export function createPreparationController({
         }
 
         if (action === 'training') {
+            if (tutorialMode) {
+                beginTutorial();
+                return;
+            }
             gameState.gameMode = 'training';
             gameState.isThreePlayer = selectedType === '3p';
             gameState.skirmishFog = skirmishFog;

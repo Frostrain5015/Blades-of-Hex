@@ -91,8 +91,10 @@ const MIME = {
     '.ogg':  'audio/ogg',
     '.oga':  'audio/ogg',
 };
-const STATIC_ROOT_FILES = new Set(['/index.html', '/favicon.ico']);
-const STATIC_DIRECTORIES = ['/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/'];
+// 浏览器入口引用的根级背景图，以及被 ESM 状态模型导入的纯算法模块，都属于公开静态资源。
+// 其余根级文件仍默认拒绝，避免把服务器代码和本地配置暴露出去。
+const STATIC_ROOT_FILES = new Set(['/index.html', '/favicon.ico', '/bg.jpg']);
+const STATIC_DIRECTORIES = ['/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/', '/core/'];
 
 // ── Frost ID OAuth config ──────────────────────────────
 const verifierStore = new Map();

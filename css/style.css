@@ -2438,6 +2438,30 @@ body {
     box-shadow: inset 0 0 0 3px rgba(40, 25, 3, 0.92);
 }
 
+.prep-check-option:has(input:disabled) {
+    cursor: not-allowed;
+    opacity: 0.44;
+    filter: saturate(0.45);
+}
+
+.prep-check-option input:disabled {
+    cursor: not-allowed;
+}
+
+.prep-options-locked {
+    pointer-events: none;
+}
+
+.prep-options-locked .prep-option {
+    cursor: not-allowed;
+    opacity: 0.44;
+    filter: saturate(0.45);
+}
+
+.prep-options-locked .prep-option.selected {
+    opacity: 0.78;
+}
+
 .prep-check-copy {
     display: flex;
     flex-direction: column;
@@ -2487,6 +2511,170 @@ body {
     color: rgba(255, 255, 255, 0.4);
     letter-spacing: 2px;
     animation: turnFadeIn 1s ease;
+}
+
+/* ---- 训练场教程 v2：严格状态机引导 ---- */
+#tutorialOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9500;
+    pointer-events: none;
+    display: none;
+}
+
+#tutorialOverlay.show { display: block; }
+
+/* 全屏透明点击拦截盾 —— 由 JS 控制 pointer-events。
+   在 dialog 阶段拦截全部点击；在操作阶段让 canvas/card/按钮区域可穿透。 */
+#tutorialBlockingShield {
+    position: fixed;
+    inset: 0;
+    z-index: 9501;
+    pointer-events: none;  /* 默认不拦截，由 JS 启用 */
+    background: transparent;
+    display: none;
+}
+#tutorialBlockingShield.active {
+    display: block;
+}
+
+/* 操作提示浮层（居中显示，短暂出现后消失） */
+#tutorialHint {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    z-index: 9510;
+    transform: translate(-50%, -50%) scale(0.92);
+    padding: 14px 28px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: rgba(180, 40, 20, 0.92);
+    border: 1px solid rgba(255, 150, 80, 0.6);
+    border-radius: 10px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.22, 0.8, 0.22, 1);
+    white-space: nowrap;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+#tutorialHint.visible {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+#tutorialTargetRing {
+    position: fixed;
+    display: none;
+    z-index: 9502;
+    border: 2.5px solid #ffd76a;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 215, 106, 0.25) 0%, rgba(255, 215, 106, 0.07) 49%, transparent 52%);
+    box-shadow: 0 0 0 6px rgba(255, 215, 106, 0.12), 0 0 28px rgba(255, 186, 58, 0.95), inset 0 0 20px rgba(255, 231, 141, 0.4);
+    animation: tutorialTargetPulse 1.35s ease-in-out infinite;
+    pointer-events: none;
+}
+
+#tutorialTargetRing.visible { display: block; }
+
+@keyframes tutorialTargetPulse {
+    0%, 100% { transform: scale(0.93); opacity: 0.82; }
+    50% { transform: scale(1.12); opacity: 1; }
+}
+
+#tutorialCoach {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    width: min(560px, calc(100vw - 32px));
+    transform: translateX(-50%);
+    padding: 17px 20px 16px;
+    color: #f2e4c5;
+    background:
+        linear-gradient(132deg, rgba(64, 34, 12, 0.98), rgba(25, 13, 5, 0.985)),
+        repeating-linear-gradient(0deg, transparent 0 5px, rgba(255, 216, 130, 0.025) 6px);
+    border: 1px solid rgba(243, 188, 71, 0.68);
+    border-radius: 3px 14px 3px 14px;
+    box-shadow: 0 14px 46px rgba(0, 0, 0, 0.64), inset 0 0 0 1px rgba(255, 241, 201, 0.08);
+    pointer-events: auto;
+    z-index: 9503;
+}
+
+#tutorialCoach::before {
+    content: '✦';
+    position: absolute;
+    top: -11px;
+    left: 18px;
+    width: 21px;
+    height: 21px;
+    display: grid;
+    place-items: center;
+    color: #261305;
+    background: #edc05b;
+    border: 1px solid #fff1bc;
+    transform: rotate(45deg);
+    font-size: 11px;
+}
+
+.tutorial-progress {
+    margin-bottom: 7px;
+    color: #e8b94e;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+}
+
+#tutorialCoach h2 {
+    margin: 0 0 7px;
+    color: #fff1c6;
+    font-size: 19px;
+    letter-spacing: 1.2px;
+}
+
+#tutorialCoach p {
+    margin: 0;
+    color: rgba(246, 232, 201, 0.86);
+    font-family: 'Noto Serif SC', serif;
+    font-size: 13px;
+    line-height: 1.65;
+    white-space: pre-line;
+}
+
+#tutorialNextBtn {
+    margin-top: 12px;
+    min-width: 112px;
+    padding: 8px 14px;
+    border: 1px solid rgba(255, 225, 140, 0.68);
+    border-radius: 3px;
+    color: #281606;
+    background: linear-gradient(135deg, #f6d375, #c58b25);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.32);
+    cursor: pointer;
+    font: 700 12px 'Noto Serif SC', serif;
+    letter-spacing: 1px;
+    transition: filter 0.15s ease, transform 0.12s ease;
+}
+
+#tutorialNextBtn:hover { filter: brightness(1.12); transform: translateY(-1px); }
+#tutorialNextBtn[hidden] { display: none; }
+
+.tutorial-focus {
+    position: relative;
+    outline: 2px solid rgba(255, 215, 106, 0.9);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 5px rgba(255, 198, 72, 0.14), 0 0 24px rgba(255, 191, 62, 0.58) !important;
+    border-radius: 7px;
+    z-index: 9504;
+}
+
+@media (max-width: 640px) {
+    #tutorialCoach { bottom: 10px; padding: 14px 16px 13px; width: min(480px, calc(100vw - 20px)); }
+    #tutorialCoach h2 { font-size: 17px; }
+    #tutorialCoach p { font-size: 12px; line-height: 1.55; }
+    #tutorialHint { font-size: 14px; padding: 10px 20px; }
 }
 @keyframes turnFadeIn {
     from { opacity: 0; transform: translateY(10px); }

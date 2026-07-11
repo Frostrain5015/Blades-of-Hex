@@ -443,6 +443,19 @@
     <div class="turn-transition-sub">点击继续</div>
 </div>
 
+<!-- 训练场教程 v2：全屏拦截盾 + 状态机引导。 -->
+<div id="tutorialOverlay" aria-live="polite" aria-atomic="true">
+    <div id="tutorialBlockingShield" class="tutorial-blocking-shield" aria-hidden="true"></div>
+    <div id="tutorialHint" aria-live="assertive" role="alert"></div>
+    <div id="tutorialTargetRing" aria-hidden="true"></div>
+    <section id="tutorialCoach" role="dialog" aria-label="教程引导">
+        <div id="tutorialProgress" class="tutorial-progress">教程 0%</div>
+        <h2 id="tutorialTitle"></h2>
+        <p id="tutorialText"></p>
+        <button id="tutorialNextBtn" type="button"></button>
+    </section>
+</div>
+
 <!-- 聊天面板 -->
 <div id="chatOverlay">
     <div id="chatPanel">

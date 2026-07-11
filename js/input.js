@@ -2,9 +2,10 @@ import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TE
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget } from './state.js';
-import { on } from './eventBus.js';
+import { on, emit } from './eventBus.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
+import { tutorialValidateCanvasClick, tutorialValidateCardCanvasClick, tutorialValidateActionButton } from './tutorialController.js';
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
@@ -279,6 +280,7 @@ function _getCommanderActionIcon(commanderId, skillId) {
     if (commanderId === 'priest') return '🙏';
     if (commanderId === 'astrologer') return '🔮';
     if (commanderId === 'tianyan') return '🛰️';
+    if (commanderId === 'berserker') return '🩸';
     return '✦';
 }
 
@@ -479,7 +481,7 @@ function _activateBoardAction(action) {
     const cmdCfg = getCommander(unit.commander);
     if (!cmdCfg?.activeSkill) return;
     const skill = cmdCfg.activeSkill;
-    skill.onActivate(unit, {
+    const activated = skill.onActivate(unit, {
         gameState, logMessage,
         spawnFx: spawnCommanderSkillEffect,
         spawnOrbitBeams: spawnPaladinOrbitBeams
@@ -501,6 +503,7 @@ function _activateBoardAction(action) {
     unit.activeSkillCD = skill.cooldown;
     recalcAllFlankingMorale();
     showSelectionHudForTile(unit.tile);
+    if (activated !== false) emit('input:commanderSkillUsed', { unit, skillId: action.skillId || '', skillName: skill.name });
     if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
 }
 
@@ -1683,6 +1686,10 @@ function _bindBoardAbilityControls() {
         item => {
             const action = item.action;
             if (!action?.canUse) return;
+            // 教程模式拦截：只允许指定的操作按钮
+            if (gameState.tutorialMode && gameState.tutorialStep) {
+                if (!tutorialValidateActionButton(action.key)) return;
+            }
             _activateBoardAction(action);
             _closeBoardDetail();
         }
@@ -1768,6 +1775,28 @@ export function initInput() {
         });
         cardCanvas.addEventListener('click', (e) => {
             if (gameState.gameOver) return;
+            // 教程模式拦截：检查卡牌点击是否为步骤允许的目标
+            if (gameState.tutorialMode && gameState.tutorialStep) {
+                const rect = cardCanvas.getBoundingClientRect();
+                const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+                const W = cardCanvas.clientWidth, H = cardCanvas.clientHeight;
+                const myCamp2 = _getMyCampInput();
+                if (myCamp2) {
+                    const ck = myCamp2 === CAMP.player1 ? 'player1' : myCamp2 === CAMP.player2 ? 'player2' : 'player3';
+                    const hand2 = gameState.playerHands[ck] || [];
+                    for (let i = hand2.length - 1; i >= 0; i--) {
+                        const cardEntry = hand2[i];
+                        const cardId = typeof cardEntry === 'object' ? cardEntry.id : cardEntry;
+                        const cardW = 90, cardH = 130, peekW = 72;
+                        const bx = 8 + (hand2.length - 1 - i) * peekW;
+                        const by = H - 120;
+                        if (cx >= bx && cx <= bx + cardW && cy >= by && cy <= by + cardH) {
+                            if (!tutorialValidateCardCanvasClick(cardId)) return;
+                            break;
+                        }
+                    }
+                }
+            }
             _handleCardCanvasClick(e);
         });
     }
@@ -1777,6 +1806,11 @@ export function initInput() {
         const { x: clickX, y: clickY } = toLogical(e);
 
         const clickedTile = getTileAtPixel(clickX, clickY);
+
+        // 教程模式拦截：检查当前点击是否为步骤允许的目标
+        if (gameState.tutorialMode && gameState.tutorialStep) {
+            if (!tutorialValidateCanvasClick(clickedTile)) return;
+        }
         if (!clickedTile) {
             if (gameState.cardTargeting) { cancelCardTargeting(); return; }
             if (gameState.cardStackExpanded) { gameState.cardStackExpanded = false; return; }
@@ -1953,6 +1987,7 @@ export function initInput() {
         updateRecruitButtonStates();
         updateRecruitCostDisplay();
         showSelectionHudForTile(clickedTile);
+        emit('input:tileSelected', { tile: clickedTile, unit: clickedTile.unit || null });
     });
 
     canvas.addEventListener('mouseleave', () => {

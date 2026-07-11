@@ -30,6 +30,10 @@ export function createMatchState() {
         _friendlyDeathCount: {},
         gameMode: 'local',      // 'local' | 'pve' | 'network'
         _trainingMode: false,
+        // 教程是单机 PVE 的受限剧本；步骤数据留在状态上，供规则层阻止跳关。
+        tutorialMode: false,
+        tutorialStep: '',
+        tutorialTargets: null,
         aiOpponentCamp: null,   // PVE 模式下 AI 对手的阵营（CAMP.player1 或 CAMP.player2）
         isThreePlayer: false,   // 三人模式
         surrenderedCamps: [],   // 三人模式中已投降的阵营
@@ -98,7 +102,7 @@ export function createMatchState() {
 }
 
 // 重置对局字段（再来一局时调用）。
-// 注意保持存量语义：_trainingMode 不在此重置（main.js 在 reset 前后手动保存/恢复模式类字段）。
+// 模式字段必须在新对局时归零；训练场与教程会在启动流程中显式恢复自身模式。
 // 【老练】是单局叠层，绝不能跨对局保留。
 export function resetMatchState(match) {
     match.tiles = [];
@@ -116,6 +120,10 @@ export function resetMatchState(match) {
     match.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0 };
     match._friendlyDeathCount = {};
     match.gameMode = 'local';
+    match._trainingMode = false;
+    match.tutorialMode = false;
+    match.tutorialStep = '';
+    match.tutorialTargets = null;
     match.aiOpponentCamp = null;
     match.isThreePlayer = false;
     match.surrenderedCamps = [];

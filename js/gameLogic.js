@@ -28,6 +28,7 @@ import { updateFogOfWar, isTileVisible, applyScoutReveal, expireScoutReveals } f
 import { COLONEL_CARD_DATA } from '../rules/cards.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
+import { emit } from './eventBus.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
@@ -927,6 +928,10 @@ async function _doEndTurnPhase() {
 
 export async function endTurn(options = {}) {
     if (gameState.gameOver || _turnProcessing) return;
+    if (gameState.tutorialMode) {
+        notify('请先完成当前教程指令', 'info');
+        return;
+    }
     // 网络游戏中仅当前回合方可结束回合
     if (isNetworkGame() && !isMyTurn(gameState.currentCamp)) return;
     _turnProcessing = true;
@@ -1259,6 +1264,14 @@ function _reconstructPath(parents, startTile, targetTile) {
 export function moveUnit(unit, targetTile) {
     if (gameState.gameOver) return;
     if (unit.camp !== gameState.currentCamp) return;
+    if (gameState.tutorialMode) {
+        const expected = gameState.tutorialTargets?.move;
+        if (gameState.tutorialStep !== 'move' || unit.id !== gameState.tutorialTargets?.berserkerUnitId
+            || targetTile.q !== expected?.q || targetTile.r !== expected?.r) {
+            notify('教程提示：请将狂战士移动到高亮的森林', 'info');
+            return;
+        }
+    }
     if (unit.isNewRecruit || !unit.canAct || !gameState.movableTiles.includes(targetTile) || targetTile.unit) {
         notify('该单位本回合无法移动', 'error');
         return;
@@ -1345,12 +1358,21 @@ export function moveUnit(unit, targetTile) {
     const rankUpsMove = _pendingRankUps.splice(0);
     broadcastAction('move', { unitId: unit.id, fromX, fromY, q: targetTile.q, r: targetTile.r, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger, capturedCity: _capturedCityOnMove });
     _capturedCityOnMove = null;
+    emit('match:unitMoved', { unit, targetTile, fromX, fromY });
 }
 
 // ===== 攻击 =====================
 export function attackUnit(attackerUnit, targetUnit) {
     if (gameState.gameOver) return;
     if (attackerUnit.camp !== gameState.currentCamp) return;
+    if (gameState.tutorialMode) {
+        const expected = gameState.tutorialTargets?.attack;
+        if (gameState.tutorialStep !== 'attack' || attackerUnit.id !== gameState.tutorialTargets?.berserkerUnitId
+            || targetUnit.tile?.q !== expected?.q || targetUnit.tile?.r !== expected?.r) {
+            notify('教程提示：先施放泣血，再攻击高亮的百夫长', 'info');
+            return;
+        }
+    }
     if (attackerUnit._isDrone) refreshDroneSignal(gameState, attackerUnit.camp);
     if (!attackerUnit.canAct || !gameState.attackableTiles.includes(targetUnit.tile)) {
         notify('无法攻击：超出射程或单位已行动', 'error');
@@ -1747,6 +1769,7 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     logMessage(`${camp.name}占领的(${cityTile.q},${cityTile.r})城市所属行政区已归属${camp.name}`);
     if (attackerUnit) attackerUnit.addXP(5);
     invalidateBoard();
+    emit('match:cityCaptured', { cityTile, camp, campKey: _campKey(camp), attackerUnit });
     checkVictory();
 }
 
@@ -1862,6 +1885,7 @@ export function triggerVictoryEffect() {
     const gameOverText = document.getElementById('gameOverText');
     const victoryCampText = document.getElementById('victoryCampText');
     const viewBoardBtn = document.getElementById('viewFullBoardBtn');
+    const gameOverSub = document.getElementById('gameOverSub');
 
     playSound('victory');
     spawnConfetti(150);
@@ -1877,6 +1901,7 @@ export function triggerVictoryEffect() {
     }
 
     const vc = gameState.victoryCamp;
+    if (gameOverSub) gameOverSub.textContent = gameState.tutorialMode ? '教程完成 · 核心机制已掌握' : '对局结束';
     gameOverText.textContent = '游戏结束';
     if (vc === 'draw') {
         victoryCampText.textContent = '平局';
@@ -2586,6 +2611,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
     }
     gameState.playerUsesThisTurn[campKey]++;
+	    // tutorial: card usage complete
+	    if (gameState.tutorialMode) {
+	        const targetUnitId = targetTile?.unit?.id || null;
+	        emit('input:cardUsed', { cardId, targetUnitId, targetTile });
+	    }
 
     const x = targetTile.x, y = targetTile.y;
 

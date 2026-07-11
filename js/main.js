@@ -1,4 +1,4 @@
-import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, invalidateBoard, getRoundIndex } from './config.js';
+﻿import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, invalidateBoard, getRoundIndex } from './config.js';
 import { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../commander/index.js';
 import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
@@ -39,6 +39,8 @@ import { emit } from './eventBus.js';
 import { createHeroCarousel } from './heroCarousel.js';
 import { createPreparationController } from './preparationController.js';
 import { initChat, updateChatAvailability, initEmblemChatClicks, addChatMessage, openChat, isChatViewing } from './chatController.js';
+import { setupTutorialBattlefield, runTutorialOpponentScript } from './tutorialScenario.js';
+import { createTutorialController, setTutorialControllerRef } from './tutorialController.js';
 import './visualEventBridge.js';
 import './cheat.js';
 
@@ -57,6 +59,8 @@ setClearOrbitBeamsRef(clearPaladinOrbitBeams);
 setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
 setLaunchOrbitSwordsRef(launchPaladinOrbitSwords);
 setSpawnHealingChainRef(spawnHealingChain);
+	const _tutorialController = createTutorialController();
+	setTutorialControllerRef(_tutorialController);
 
 // 将领专属视觉特效 ref 注入（供 commander 钩子通过 helpers 调用；headless 不注入即 no-op）
 setSpawnBloodDrainRef(spawnBloodDrain);
@@ -455,6 +459,7 @@ const _preparationController = createPreparationController({
     beginCommanderPhase,
     beginPVECommanderPhase,
     beginTrainingCommanderPhase,
+    beginTutorial,
     showHome,
     showMultiplayerLobby,
     setStatus,
@@ -588,6 +593,65 @@ function beginTrainingCountdown() {
     }, 1000);
 }
 
+// ==== 固定剧本教程 ==========================================================
+// 跳过选将与部署：仍沿用 PVE 的本地操作权限和胜利结算，但 AI 由教程脚本接管。
+function beginTutorial() {
+	_tutorialController.stop();
+	_stopHeroCarousel();
+	_deploymentStarted = true;
+	resetGameState();
+	gameState.gameMode = 'pve';
+	gameState._trainingMode = true;
+	gameState.tutorialMode = true;
+	gameState.isThreePlayer = false;
+	gameState.skirmishFog = false;
+	gameState.doubleCommanderMode = false;
+	gameState.aiOpponentCamp = CAMP.player2;
+	gameState.aiDifficulty = 1.0;
+	gameState.commanderPhase = 'done';
+	gameState.commanderP1 = 'berserker';
+	gameState.commanderP2 = 'centurion';
+	gameState.commanderP1Confirmed = true;
+	gameState.commanderP2Confirmed = true;
+	gameState.commanderP1Deployed = true;
+	gameState.commanderP2Deployed = true;
+
+	document.getElementById('lobbyOverlay').style.display = 'none';
+	document.getElementById('gameWrapper').style.display = '';
+	document.getElementById('backToVictoryBtn').style.display = 'none';
+	document.body.style.pointerEvents = '';
+	const victoryOverlay = document.getElementById('victoryOverlay');
+	victoryOverlay.classList.remove('show');
+	victoryOverlay.style.opacity = '';
+	victoryOverlay.style.backgroundColor = '';
+	dismissToast();
+	applyTopbarLayout();
+	fitCanvas();
+	stopLobbyBGM();
+	stopBattleBGM();
+	loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 教程将领特效加载失败:', err));
+
+	_runCountdown(() => {
+		initMap();
+		setupTutorialBattlefield();
+		runTutorialOpponentScript().catch(err => console.warn('[tutorial] AI 脚本初始化失败:', err));
+		initInput();
+		initKeyboard();
+		initSettingsPanel();
+		setOnFogUpdated(updateCampEmblems);
+		updateCampEmblems();
+		updateChatAvailability();
+		initEmblemChatClicks();
+		gameState.currentCamp = CAMP.player1;
+		grantTurnStartIncome(CAMP.player1);
+		updateUI();
+		updateButtonColors();
+		startBattleBGM();
+		playSound('turnEnd');
+		renderGame();
+		_tutorialController.start();
+	});
+}
 // 初始化大厅：设置 _activeLobbyView、注册 BGM 交互监听、同步静音按钮
 // 延迟到连接完成后执行，避免连接完成前闪出主页
 // showHome();  // 移至 connectToServer 完成后
