@@ -95,6 +95,11 @@ export default {
         }
         if (!best || !targetTile) return;
 
+        // 再加一道守卫：构造 Unit 时 constructor 会无条件执行 targetTile.unit = this，
+        // 一旦目标格此刻已被占据（例如站在亡魂之上的将领），原单位会被直接覆盖吞掉。
+        // 选格阶段虽已过滤被占据的标记，此处落地前再确认一次，杜绝任何时序漏洞吞将领。
+        if (targetTile.unit) return;
+
         // 移除亡魂标记
         const idx = gameState._soulMarks.indexOf(best);
         if (idx >= 0) gameState._soulMarks.splice(idx, 1);

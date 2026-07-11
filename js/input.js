@@ -2175,7 +2175,7 @@ export function initSettingsPanel() {
 
     // HUD 动作队列：所有按钮均由当前描述数组渲染，并由此处统一分发。
     // E1 占星者星移天气选择按钮
-    const weatherBtns = document.querySelectorAll('.weather-choice-btn');
+    const weatherBtns = document.querySelectorAll('.weather-card');
     weatherBtns.forEach(btn => {
         if (!btn._bound) {
             btn._bound = true;
