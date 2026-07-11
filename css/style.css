@@ -2657,13 +2657,10 @@ body {
 #tutorialNextBtn[hidden] { display: none; }
 
 .tutorial-focus {
-    position: relative;
     outline: 2px solid rgba(255, 215, 106, 0.9);
     outline-offset: 3px;
     box-shadow: 0 0 0 5px rgba(255, 198, 72, 0.14), 0 0 24px rgba(255, 191, 62, 0.58) !important;
     border-radius: 7px;
-    /* 仅在棋盘内部层叠上下文生效，低于教程遮罩（9500） */
-    z-index: 100;
 }
 
 @media (max-width: 640px) {
