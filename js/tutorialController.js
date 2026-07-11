@@ -484,6 +484,9 @@ export function createTutorialController() {
         const step = STEPS[stepId];
         if (!step || !active) return true; // 非教程不拦截
 
+        // 允许浏览器功能键：F12（控制台）、F5（刷新）
+        if (key === 'F12' || key === 'F5') return true;
+
         // 允许 ESC（取消选中/卡牌选择）
         if (key === 'Escape') return true;
 
