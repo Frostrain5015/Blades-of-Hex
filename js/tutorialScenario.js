@@ -1,4 +1,4 @@
-// 训练场教程剧本 v2 — 残局演练：多兵种、地形克制、对策卡使用。
+﻿// 训练场教程剧本 v2 — 残局演练：多兵种、地形克制、对策卡使用。
 // 地图收束为一个可重复的战术脚本，模拟真实末期残局。
 // 红军进攻蓝军城池，包含骑兵/炮兵协同、地形利用、对策卡使用。
 import { CAMP, invalidateBoard } from './config.js';
@@ -105,7 +105,7 @@ export function setupTutorialBattlefield() {
 
     // ---- 蓝军单位 ----
     const centurion = new Unit('infantry', CAMP.player2, cTile, false, 'tutorial_centurion', 'centurion');
-    centurion.hp = Math.max(1, Math.round(centurion.maxHp * 0.65));
+    centurion.hp = Math.max(1, Math.round(centurion.maxHp * 0.15));
     centurion.displayHp = centurion.hp;
     centurion.canAct = false; // 固守
 
