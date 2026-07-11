@@ -349,16 +349,12 @@ function reviveRoom(room, ws) {
 function leaveCurrentRoom(ws) {
     const room = ws._room;
     if (!room) return;
-    // 对局中断线，记住角色以便重连（按 clientId 映射，支持双方先后断线）
-    if (room.gameStarted) {
-        const role = room.players.get(ws)?.role || null;
-        if (role) {
-            if (!room._disconnectedRoles) room._disconnectedRoles = {};
-            room._disconnectedRoles[role] = ws._clientId || null;
-        }
+    // 在删除 ws 前记录其 role（断线重连映射 + broadcast 用）
+    const role = room.players.get(ws)?.role || null;
+    if (role && room.gameStarted) {
+        if (!room._disconnectedRoles) room._disconnectedRoles = {};
+        room._disconnectedRoles[role] = ws._clientId || null;
     }
-    // 在删除 ws 前记录其 role，用于 broadcast
-    const leftRole = room.players.get(ws)?.role || null;
     room.players.delete(ws);
     ws._room = null;
     ws._ready = false;
@@ -367,7 +363,7 @@ function leaveCurrentRoom(ws) {
         startZombieTimer(room);
     } else {
         clearZombieTimer(room);
-        broadcastRoom(room, { type: 'opponentLeft', role: leftRole });
+        broadcastRoom(room, { type: 'opponentLeft', role });
         // 对局中不重置 gameStarted，保留重连可能
         if (!room.gameStarted) {
             for (const p of room.players.keys()) p._ready = false;
