@@ -66,8 +66,23 @@ export function shuffleAndSplitPool(isThreePlayer = false, commandersPerPlayer =
   }
   // 双人模式：候选将领不重叠，均分给双方
   const pool = keys.slice(0, commandersPerPlayer * 2);
-  return {
-    p1: pool.slice(0, commandersPerPlayer),
-    p2: pool.slice(commandersPerPlayer, commandersPerPlayer * 2)
-  };
+  const p1 = pool.slice(0, commandersPerPlayer);
+  const p2 = pool.slice(commandersPerPlayer, commandersPerPlayer * 2);
+
+  // 隐形限制：空军上校（colonel）和纵横家（diplomat）不可同时出现在同一玩家池中
+  // 两将机制有根本冲突：合纵覆盖了上校的卡牌系统，会导致卡牌逻辑混乱
+  function enforceNoColonelDiplomatConflict(a, b) {
+    if (!a.includes('colonel') || !a.includes('diplomat')) return;
+    // a 同时有上校和纵横家 → 把纵横家换到 b 中
+    const swapFrom = b.find(c => c !== 'colonel' && c !== 'diplomat');
+    if (swapFrom === undefined) return;
+    const diplomatIdxA = a.indexOf('diplomat');
+    const swapIdxB = b.indexOf(swapFrom);
+    a[diplomatIdxA] = swapFrom;
+    b[swapIdxB] = 'diplomat';
+  }
+  enforceNoColonelDiplomatConflict(p1, p2);
+  enforceNoColonelDiplomatConflict(p2, p1);
+
+  return { p1, p2 };
 }
