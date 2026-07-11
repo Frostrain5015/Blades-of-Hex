@@ -14,7 +14,8 @@ import { setGameStateRef as setHexTileGameStateRef } from '../js/HexTile.js';
 import { setLogMessageRef, setGameStateRef } from '../js/Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef } from '../js/commanderInterface.js';
 import {
-    initMap, moveUnit, attackUnit, recruitUnit, endTurn, executeTacticalCard, drawCard,
+    initMap, moveUnit, attackUnit, recruitUnit, reinforceUnit, endTurn, executeTacticalCard, drawCard,
+    getMovableTiles, getAttackableTiles,
 } from '../js/gameLogic.js';
 import { HexTile } from '../js/HexTile.js';
 import { Unit } from '../js/Unit.js';
@@ -36,7 +37,8 @@ export function wireHeadlessEngine() {
 // 引擎单例 + 动作面。服务器按房间“hydrate 单例 → 应用意图 → 重新序列化”。
 export const engine = {
     gameState,
-    initMap, moveUnit, attackUnit, recruitUnit, endTurn, executeTacticalCard, drawCard,
+    initMap, moveUnit, attackUnit, recruitUnit, reinforceUnit, endTurn, executeTacticalCard, drawCard,
+    getMovableTiles, getAttackableTiles,
     serializeState, deserializeState,
     HexTile, Unit,
 };

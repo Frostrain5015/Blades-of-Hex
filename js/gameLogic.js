@@ -925,7 +925,7 @@ async function _doEndTurnPhase() {
     });
 }
 
-export async function endTurn() {
+export async function endTurn(options = {}) {
     if (gameState.gameOver || _turnProcessing) return;
     // 网络游戏中仅当前回合方可结束回合
     if (isNetworkGame() && !isMyTurn(gameState.currentCamp)) return;
@@ -937,7 +937,7 @@ export async function endTurn() {
         const hasActionable = gameState.tiles.some(t =>
             t.unit && t.unit.camp === gameState.currentCamp && t.unit.canAct && !t.unit.isNewRecruit
         );
-        if (hasActionable && !isAITurn) {
+        if (hasActionable && !isAITurn && !options.skipConfirmation) {
             const confirmed = await showConfirm(
                 `你仍有未行动的部队。\n确定要跳过行动，结束当前回合吗？`
             );
@@ -1088,7 +1088,7 @@ export function recruitUnit(type) {
     recalcAllFlankingMorale();
     if (gameState.skirmishFog) _updateSkirmishFogAll();
     updateUI();
-    broadcastAction('recruit', { x: selectedCityTile.x, y: selectedCityTile.y });
+    broadcastAction('recruit', { type, x: selectedCityTile.x, y: selectedCityTile.y, q: selectedCityTile.q, r: selectedCityTile.r });
 }
 
 // ===== E5 补员系统 =====================
@@ -1343,7 +1343,7 @@ export function moveUnit(unit, targetTile) {
     recalcAllFlankingMorale();
     updateRecruitCostDisplay(); // 尚书驻扎城市时及时刷新折扣
     const rankUpsMove = _pendingRankUps.splice(0);
-    broadcastAction('move', { unitId: unit.id, fromX, fromY, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger, capturedCity: _capturedCityOnMove });
+    broadcastAction('move', { unitId: unit.id, fromX, fromY, q: targetTile.q, r: targetTile.r, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger, capturedCity: _capturedCityOnMove });
     _capturedCityOnMove = null;
 }
 
