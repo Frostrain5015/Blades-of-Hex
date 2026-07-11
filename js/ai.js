@@ -390,7 +390,17 @@ export async function processOpponentTurn(aiCamp) {
 
     gameState.aiActing = true;
     // 遭遇战迷雾：AI 也需要更新视野
-    if (gameState.skirmishFog) updateFogOfWar(gameState, aiCamp);
+    if (gameState.skirmishFog) {
+        updateFogOfWar(gameState, aiCamp);
+        // 困难模式 AI 拥有全局视野（隐藏作弊）
+        if (gameState.aiDifficulty >= 2.0) {
+            const campKey = aiCamp === CAMP.player1 ? 'player1' : aiCamp === CAMP.player2 ? 'player2' : 'player3';
+            for (const tile of gameState.tiles) {
+                gameState.visibleTiles[campKey].add(`${tile.q},${tile.r}`);
+                gameState.exploredTiles[campKey].add(`${tile.q},${tile.r}`);
+            }
+        }
+    }
     try {
 
         if (gameState.doubleCommanderMode) await deployAvailableCommanders(aiCamp);
