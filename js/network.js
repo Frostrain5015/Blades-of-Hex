@@ -128,7 +128,7 @@ export function connectToServer(url) {
                     _cb.onOpponentJoined?.(msg.role);
                     break;
                 case 'opponentLeft':
-                    _cb.onOpponentLeft?.();
+                    _cb.onOpponentLeft?.(msg.role || null);
                     break;
                 case 'opponentReady':
                     _cb.onOpponentReady?.();

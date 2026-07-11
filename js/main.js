@@ -1797,9 +1797,10 @@ function registerNetworkCallbacks() {
 
         onRemoteAction: handleRemoteAction,
 
-        onOpponentLeft: () => {
-            notify('对手已断开连接', 'warn', true);
-            logMessage('⚠ 对手已断开连接');
+        onOpponentLeft: (role) => {
+            const campName = role === 'player1' ? '红军' : role === 'player2' ? '蓝军' : role === 'player3' ? '绿军' : '对手';
+            notify(${campName}已断开连接, 'warn', true);
+            logMessage(⚠ 已断开连接);
             // 对局中：立即存下全量状态到服务器
             if (gameState.commanderPhase === 'done') {
                 const st = serializeState();

@@ -365,7 +365,8 @@ function leaveCurrentRoom(ws) {
         startZombieTimer(room);
     } else {
         clearZombieTimer(room);
-        broadcastRoom(room, { type: 'opponentLeft' });
+        const leftRole = room.players.get(ws)?.role || null;
+        broadcastRoom(room, { type: 'opponentLeft', role: leftRole });
         // 对局中不重置 gameStarted，保留重连可能
         if (!room.gameStarted) {
             for (const p of room.players.keys()) p._ready = false;
