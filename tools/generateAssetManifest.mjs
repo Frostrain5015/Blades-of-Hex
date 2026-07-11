@@ -12,7 +12,7 @@ import { dirname, join, relative, sep } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const SCAN_DIRS = ['js', 'rules', 'commander', 'core', 'engine', 'protocol'];
+const SCAN_DIRS = ['js', 'rules', 'commander', 'core', 'engine', 'protocol', 'ai'];
 const SCAN_FILES = ['style.css', 'index.html'];
 
 function* walk(dir) {
@@ -42,7 +42,7 @@ for (const f of SCAN_FILES) {
 
 // 主入口版本 = js/ + rules/ + commander/ 全部模块哈希的组合（任一模块变动即失效缓存）
 const moduleHashes = Object.entries(manifest)
-    .filter(([k]) => /^(js|rules|commander|core|engine|protocol)\//.test(k))
+    .filter(([k]) => /^(js|rules|commander|core|engine|protocol|ai)\//.test(k))
     .map(([k, v]) => `${k}:${v}`)
     .sort()
     .join('|');

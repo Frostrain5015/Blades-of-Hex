@@ -83,3 +83,15 @@ export function isSetupAction(actionType, snapshot) {
     return snapshot.commanderPhase !== 'done'
         || actionType === 'deployDone';
 }
+
+// 中立回合的驱动方：回合顺序上紧邻中立之前的存活玩家（即最后一个未投降的人类阵营）。
+// 中立 AI 没有自己的客户端，由该玩家的客户端代为执行并广播；服务器据此放行其操作。
+// 纯函数、双端共用（server.js 校验 / 客户端判断是否由自己接管）。
+export function neutralDriverRole(snapshot) {
+    const order = snapshot.isThreePlayer ? ['p1', 'p2', 'p3'] : ['p1', 'p2'];
+    const surrendered = new Set(snapshot.surrenderedCampKeys || []);
+    const alive = order.filter((key) => !surrendered.has(key));
+    if (alive.length === 0) return null;
+    const campKey = alive[alive.length - 1];
+    return campKey === 'p1' ? 'player1' : campKey === 'p2' ? 'player2' : 'player3';
+}

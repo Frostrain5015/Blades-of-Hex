@@ -1983,7 +1983,15 @@ function registerNetworkCallbacks() {
 }
 
 // ==== 处理对手发来的操作 ----
-let _remoteAiRunning = false;  // 防止远程AI重入
+// 中立回合接管：远端状态落在中立阵营且本机是驱动方（回合序最后一名存活玩家）时，
+// 由本机代理中立 AI。gameLogic 内部有 _turnProcessing/aiActing 互斥，重复调用安全。
+function _maybeResumeNeutralTurn() {
+    if (gameState.gameOver || gameState.currentCamp !== CAMP.neutral) return;
+    import('./gameLogic.js')
+        .then(({ resumeNeutralTurnIfNeeded }) => resumeNeutralTurnIfNeeded())
+        .catch(e => console.warn('Neutral resume error:', e));
+}
+
 async function handleRemoteAction(msg) {
     const wasGameOver = gameState.gameOver;
 
@@ -2025,6 +2033,8 @@ async function handleRemoteAction(msg) {
             updateCampEmblems();
             _checkSpectatorBanner();
         }
+        // 重连/服务端纠偏后若正值中立回合，由驱动方客户端接手推进
+        _maybeResumeNeutralTurn();
         return;
     }
 
@@ -2039,26 +2049,6 @@ async function handleRemoteAction(msg) {
 
     if (gameState.gameOver && !wasGameOver) {
         setTimeout(() => triggerVictoryEffect(), 1500);
-        return;
-    }
-
-    // 联机：主机收到 P2 的 endTurn 后，若状态切换为中立，自动推进回合
-    // （中立AI已暂时禁用以修复联机回合切换bug，后续恢复时需重写此段）
-    if (msg.actionType === 'endTurn' && gameState.currentCamp === CAMP.neutral && !gameState.gameOver) {
-        if (getMyRole() === 'player1' && !_remoteAiRunning) {
-            _remoteAiRunning = true;
-            try {
-                gameState.aiActing = true;
-                try {
-                    const { endTurn } = await import('./gameLogic.js');
-                    await endTurn();
-                } finally {
-                    gameState.aiActing = false;
-                }
-            } finally {
-                _remoteAiRunning = false;
-            }
-        }
         return;
     }
 
@@ -2572,4 +2562,7 @@ async function handleRemoteAction(msg) {
             spawnPaladinOrbitBeams(tile.unit.id, tile.x, tile.y, count);
         }
     }
+
+    // 对手 endTurn 把回合推进到中立（或投降直切中立）：驱动方客户端在此接手执行中立 AI
+    _maybeResumeNeutralTurn();
 }

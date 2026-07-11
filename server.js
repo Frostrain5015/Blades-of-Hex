@@ -94,7 +94,7 @@ const MIME = {
 // 浏览器入口引用的根级背景图，以及被 ESM 状态模型导入的纯算法模块，都属于公开静态资源。
 // 其余根级文件仍默认拒绝，避免把服务器代码和本地配置暴露出去。
 const STATIC_ROOT_FILES = new Set(['/index.html', '/favicon.ico', '/bg.jpg']);
-const STATIC_DIRECTORIES = ['/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/', '/core/'];
+const STATIC_DIRECTORIES = ['/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/', '/core/', '/ai/'];
 
 // ── Frost ID OAuth config ──────────────────────────────
 const verifierStore = new Map();
@@ -678,10 +678,19 @@ async function handleMessage(ws, rawData) {
                 sendAuthoritativeSnapshot(ws, room, '无效的玩家身份');
                 break;
             }
-            if (authority.state && !protocol.isSetupAction(msg.actionType, authority.state)
-                && authority.state.currentCampKey !== expectedCamp) {
-                sendAuthoritativeSnapshot(ws, room, '当前不是你的回合');
-                break;
+            if (authority.state && !protocol.isSetupAction(msg.actionType, authority.state)) {
+                const stateCampKey = authority.state.currentCampKey;
+                if (stateCampKey === 'neutral') {
+                    // 中立回合：中立 AI 由驱动方客户端（回合序上最后一名存活玩家）代理执行，
+                    // 只放行该玩家的操作，其余客户端一律拒绝，避免双驱动竞争。
+                    if (senderRole !== protocol.neutralDriverRole(authority.state)) {
+                        sendAuthoritativeSnapshot(ws, room, '中立回合行动中，请稍候');
+                        break;
+                    }
+                } else if (stateCampKey !== expectedCamp) {
+                    sendAuthoritativeSnapshot(ws, room, '当前不是你的回合');
+                    break;
+                }
             }
             if (msg.state.isThreePlayer !== (room.maxPlayers === 3)
                 || !!msg.state.skirmishFog !== !!room.skirmishFog

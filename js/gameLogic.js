@@ -4,6 +4,7 @@ import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isD
 import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState, seedMatchRng } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
+import { neutralDriverRole } from '../protocol/messages.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
@@ -993,52 +994,86 @@ export async function endTurn(options = {}) {
                 if (!gameState.gameOver) await _doEndTurnPhase();
 
             } else if (isNeutral) {
-                // 中立 AI（Claude 防御型人格）
-                const hasNeutralUnits = gameState.tiles.some(t => t.unit && t.unit.camp === CAMP.neutral && t.unit.canAct);
-                const hasNeutralCities = gameState.tiles.some(t => t.isCity && t.camp === CAMP.neutral && !t.unit);
-                if (hasNeutralUnits || hasNeutralCities) {
-                    // 遭遇战热座：中立 AI 回合也遮罩，防止两边玩家偷看
-                    let neutralOverlay = null;
-                    if (isLocalSkirmish) {
-                        const overlay = document.getElementById('turnTransitionOverlay');
-                        const text = document.getElementById('turnTransitionText');
-                        text.textContent = '中立回合';
-                        text.style.color = '#888';
-                        overlay.classList.add('show');
-                        neutralOverlay = overlay;
-                    }
-                    _neutralAiLock = true;
-                    gameState.aiActing = true;
-                    try {
-                        const { processNeutralTurn } = await import('./ai.js');
-                        await Promise.race([
-                            processNeutralTurn(),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 18000))
-                        ]);
-                    } catch (e) {
-                        if (e && e.message === 'AI_TIMEOUT') {
-                            logMessage('中立AI超时 强制结束回合');
-                        } else {
-                            logMessage('中立AI执行出错 跳过回合');
-                        }
-                        console.warn('Neutral AI error:', e);
-                    } finally {
-                        gameState.aiActing = false;
-                        _neutralAiLock = false;
-                        if (neutralOverlay) neutralOverlay.classList.remove('show');
-                    }
-                    notify('本轮行动完毕 即将进入下一轮', 'info');
-                    logMessage('本轮行动完毕 即将进入下一轮');
-                    if (isNetworkGame()) sendMessage({ type: 'toast', text: '本轮行动完毕 即将进入下一轮', toastType: 'info' });
-                    await new Promise(r => setTimeout(r, 2500));
-                }
-                // 无论如何都要推进回合
-                if (!gameState.gameOver) await _doEndTurnPhase();
+                await _processNeutralTurn(isLocalSkirmish);
 
             } else {
                 break; // 人类回合
             }
         }
+    } finally {
+        _turnProcessing = false;
+    }
+}
+
+// 中立 AI 回合（Claude 防御型人格）：执行 AI 行动后推进回合。
+// 调用方负责 _turnProcessing 互斥（endTurn 链 / resumeNeutralTurnIfNeeded）。
+async function _processNeutralTurn(isLocalSkirmish) {
+    const hasNeutralUnits = gameState.tiles.some(t => t.unit && t.unit.camp === CAMP.neutral && t.unit.canAct);
+    const hasNeutralCities = gameState.tiles.some(t => t.isCity && t.camp === CAMP.neutral && !t.unit);
+    if (hasNeutralUnits || hasNeutralCities) {
+        // 遭遇战热座：中立 AI 回合也遮罩，防止两边玩家偷看
+        let neutralOverlay = null;
+        if (isLocalSkirmish) {
+            const overlay = document.getElementById('turnTransitionOverlay');
+            const text = document.getElementById('turnTransitionText');
+            text.textContent = '中立回合';
+            text.style.color = '#888';
+            overlay.classList.add('show');
+            neutralOverlay = overlay;
+        }
+        _neutralAiLock = true;
+        gameState.aiActing = true;
+        try {
+            const { processNeutralTurn } = await import('./ai.js');
+            await Promise.race([
+                processNeutralTurn(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 18000))
+            ]);
+        } catch (e) {
+            if (e && e.message === 'AI_TIMEOUT') {
+                logMessage('中立AI超时 强制结束回合');
+            } else {
+                logMessage('中立AI执行出错 跳过回合');
+            }
+            console.warn('Neutral AI error:', e);
+        } finally {
+            gameState.aiActing = false;
+            _neutralAiLock = false;
+            if (neutralOverlay) neutralOverlay.classList.remove('show');
+        }
+        notify('本轮行动完毕 即将进入下一轮', 'info');
+        logMessage('本轮行动完毕 即将进入下一轮');
+        if (isNetworkGame()) sendMessage({ type: 'toast', text: '本轮行动完毕 即将进入下一轮', toastType: 'info' });
+        await new Promise(r => setTimeout(r, 2500));
+    }
+    // 无论如何都要推进回合
+    if (!gameState.gameOver) await _doEndTurnPhase();
+}
+
+// 本机是否为中立回合驱动方。本地模式恒为真；联机时中立 AI 没有自己的客户端，
+// 由回合序上最后一名存活玩家的客户端代理执行（与服务器校验规则一致）。
+function _isNeutralDriverClient() {
+    if (!isNetworkGame()) return true;
+    const surrenderedKeys = gameState.surrenderedCamps.map(c =>
+        c === CAMP.player1 ? 'p1' : c === CAMP.player2 ? 'p2' : 'p3');
+    return getMyRole() === neutralDriverRole({
+        isThreePlayer: gameState.isThreePlayer,
+        surrenderedCampKeys: surrenderedKeys
+    });
+}
+
+// 中立回合接管兜底：投降把回合直切中立、联机重连/状态同步后落在中立回合时调用。
+// 正常结束回合的 AI 链在 endTurn 内部完成；此入口只在“无人驱动”时接手，
+// 由 _turnProcessing / aiActing / _neutralAiLock 三重互斥防止与 endTurn 链并跑。
+export async function resumeNeutralTurnIfNeeded() {
+    if (gameState.gameOver || _turnProcessing) return;
+    if (gameState.currentCamp !== CAMP.neutral) return;
+    if (gameState.aiActing || _neutralAiLock) return;
+    if (gameState.tutorialMode) return;
+    if (!_isNeutralDriverClient()) return;
+    _turnProcessing = true;
+    try {
+        await _processNeutralTurn(false);
     } finally {
         _turnProcessing = false;
     }
@@ -1106,7 +1141,8 @@ export function reinforceUnit(unit) {
     // 城市占领会翻转归属，需属于当前阵营；村庄站上去即算占据，按占据单位归属判定（与村庄收入结算一致）
     if (tile.isCity && tile.camp !== gameState.currentCamp) { notify('该地块不属于当前阵营', 'error'); return; }
     if (tile._reinforcedThisTurn) { notify('该地块本回合已补员', 'error'); return; }
-    if (isNetworkGame() && !isMyTurn(gameState.currentCamp)) { notify('对手回合', 'error'); return; }
+    // aiActing：联机中立回合由驱动方客户端代理 AI 补员，需绕过“非本方回合”拦截；人类点击不受影响
+    if (isNetworkGame() && !gameState.aiActing && !isMyTurn(gameState.currentCamp)) { notify('对手回合', 'error'); return; }
 
     const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
     if (healAmt <= 0) return;
@@ -2036,6 +2072,11 @@ async function handleSurrender() {
         checkVictory();
         updateButtonColors();
         broadcastAction('surrender');
+        // 投降可能把回合直接切到中立（未经过 endTurn 的 AI 链）：
+        // 本地由本机立即接管；联机时非驱动方此调用为空操作，驱动方在收到广播后接管
+        if (!gameState.gameOver && gameState.currentCamp === CAMP.neutral) {
+            resumeNeutralTurnIfNeeded().catch(e => console.warn('Neutral resume error:', e));
+        }
         return;
     }
 

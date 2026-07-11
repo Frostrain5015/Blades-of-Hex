@@ -3,7 +3,7 @@
 
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
-    getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit,
+    getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit, reinforceUnit,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
 import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
@@ -12,8 +12,9 @@ import { isNetworkGame, sendMessage } from './network.js';
 import { getCommander } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
 import { updateFogOfWar, isTileVisible } from './fogOfWar.js';
-import * as claudePersonality from '../.ai/claude.js';
-import * as grokPersonality from '../.ai/grok.js';
+// 人格脚本位于可见目录 ai/（勿用隐藏目录：静态白名单、资源清单与部署工具都会跳过点开头路径）
+import * as claudePersonality from '../ai/claude.js';
+import * as grokPersonality from '../ai/grok.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -150,7 +151,8 @@ async function _executeActionInner(action, aiCamp) {
             mgNest: { infantry: 1.25, archer: 0.75, cavalry: 1.25, drone: 1 },
             drone: { infantry: 1.25, archer: 1, cavalry: 1, mgNest: 1, drone: 1 }
         };
-        const TERRAIN_DEF = { plains: 0, forest: 0.10, mountain: 0.20 };
+        // 数值对齐 rules/：地形防御 forest/mountain 均 0.05，步兵守城 +0.10（雨天再 +0.10），克制 ±0.20，士气浮动 ±7.5%
+        const TERRAIN_DEF = { plains: 0, forest: 0.05, mountain: 0.05 };
         let best = targets[0];
         let bestScore = -Infinity;
         for (const t of targets) {
@@ -158,15 +160,16 @@ async function _executeActionInner(action, aiCamp) {
             const c = (COUNTER[unit.type] && COUNTER[unit.type][target.type]) || 1;
             const tDef = (TERRAIN_DEF[target.tile.terrain] || 0)
                 + (FORTIFICATION_CONFIG[target.tile.fortification]?.defenseBonus || 0);
-            const cityDef = (target.type === 'infantry' && target.tile.isCity) ? 0.05 : 0;
+            const cityDef = (target.type === 'infantry' && target.tile.isCity)
+                ? (gameState.weather === 'rain' ? 0.20 : 0.10) : 0;
             const unitDef = target.config.defense || 0;
-            const moraleFloat = unit.morale === 3 ? 1.07 : unit.morale === 1 ? 0.95 : unit.morale === 0 ? 0.90 : 1.0;
-            const counterFloat = c > 1 ? 1.10 : c < 1 ? 0.93 : 1.0; // 克制仅影响暴击浮动
+            const moraleFloat = unit.morale === 3 ? 1.075 : unit.morale === 1 ? 0.925 : unit.morale === 0 ? 0.90 : 1.0;
+            const counterFloat = c > 1 ? 1.20 : c < 1 ? 0.80 : 1.0;
             const estDmg = unit.getEffectiveAttack() * moraleFloat * counterFloat * Math.max(0.3, 1 - tDef - cityDef - unitDef);
             let score = 0;
-            if (estDmg >= target.hp) score += 200;
+            if (estDmg >= target.hp + (target._shield || 0)) score += 200;
             score += (1 - target.hp / target.maxHp) * 60;
-            if (c >= 1.25) score += 30;
+            if (c > 1) score += 30;
             if (target.hp <= 25) score += 40;
             if (score > bestScore) { bestScore = score; best = t; }
         }
@@ -221,6 +224,15 @@ async function _executeActionInner(action, aiCamp) {
             gameState.selectedCityTile = cityTile;
             await delay(AI_DELAY);
             recruitUnit(action.unitType);
+            break;
+        }
+        case 'reinforce': {
+            const unit = resolveUnit(action.unitId);
+            if (!unit || !unit.tile || unit.hp >= unit.maxHp) return;
+            if (!unit.tile.isCity && !unit.tile.isVillage) return;
+            if (unit.tile._reinforcedThisTurn) return;
+            await delay(AI_DELAY * 0.5);
+            reinforceUnit(unit);
             break;
         }
         case 'deployCommander': {
