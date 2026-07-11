@@ -142,6 +142,7 @@ export function createTutorialController() {
     const paneBottom = document.getElementById('tutorialPaneBottom');
     const paneLeft = document.getElementById('tutorialPaneLeft');
     const paneRight = document.getElementById('tutorialPaneRight');
+    const holeBorder = document.getElementById('tutorialHoleBorder');
 
     let active = false;
     let stepId = '';
