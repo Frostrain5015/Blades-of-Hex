@@ -37,6 +37,7 @@ import { playSound, initAudio, setMuted, startBattleBGM, stopBattleBGM, stopLobb
 import { loadCommanderFx } from './commanderFx.js';
 import { emit } from './eventBus.js';
 import { createHeroCarousel } from './heroCarousel.js';
+import { createPreparationController } from './preparationController.js';
 import { initChat, updateChatAvailability, initEmblemChatClicks, addChatMessage, openChat, isChatViewing } from './chatController.js';
 import './visualEventBridge.js';
 import './cheat.js';
@@ -450,172 +451,21 @@ document.getElementById('backToVictoryBtn').addEventListener('click', () => {
 });
 
 // ==== 准备弹窗 =====================
-let _prepAction = null; // 'solo' | 'multiplayer'
-
-function _buildPrepOptionRow(containerId, choices) {
-    const container = document.getElementById(containerId);
-    container.innerHTML = '';
-    let selected = choices[0].id;
-    for (const c of choices) {
-        const el = document.createElement('div');
-        el.className = 'prep-option' + (c.id === selected ? ' selected' : '');
-        el.dataset.value = c.id;
-        el.innerHTML = `<div class="prep-option-title">${c.title}</div><div class="prep-option-desc">${c.desc}</div>`;
-        el.addEventListener('click', () => {
-            container.querySelectorAll('.prep-option').forEach(o => o.classList.remove('selected'));
-            el.classList.add('selected');
-        });
-        container.appendChild(el);
-    }
-}
-
-function _getPrepSelection(containerId) {
-    const sel = document.querySelector(`#${containerId} .prep-option.selected`);
-    return sel ? sel.dataset.value : null;
-}
-
-function _buildPrepRuleOptions() {
-    const container = document.getElementById('prepOptions2');
-    container.className = 'prep-options prep-checkboxes';
-    container.innerHTML = `
-        <label class="prep-check-option">
-            <input type="checkbox" id="prepSkirmish" />
-            <span class="prep-check-copy"><strong>遭遇战</strong><small>开启战争迷雾与遭遇战专属卡牌</small></span>
-        </label>
-        <label class="prep-check-option">
-            <input type="checkbox" id="prepDoubleCommander" />
-            <span class="prep-check-copy"><strong>双将模式</strong><small>随机 ${COMMANDER_DRAFT.dualCandidatesPerPlayer} 名将领，选择 ${COMMANDER_DRAFT.dualCommanderCount} 名分别部署</small></span>
-        </label>
-    `;
-}
-
-function _showPrepDialog(action) {
-    _prepAction = action;
-    const title = document.getElementById('prepTitle');
-    const typeSection = document.getElementById('prepSectionType');
-    const diffSection = document.getElementById('prepSectionDiff');
-    typeSection.classList.remove('collapsed');
-    diffSection.classList.remove('collapsed');
-    _buildPrepRuleOptions();
-    document.getElementById('prepLabel2').textContent = '特殊规则';
-
-    if (action === 'createRoom') {
-        title.textContent = '创建房间';
-        document.getElementById('prepLabel1').textContent = '对战人数';
-        diffSection.classList.remove('hidden');
-        diffSection.classList.add('collapsed');
-        _buildPrepOptionRow('prepOptions1', [
-            { id: '2p', title: '双人', desc: '1v1 在线对战' },
-            { id: '3p', title: '三人', desc: '三方混战' }
-        ]);
-    } else if (action === 'training') {
-        title.textContent = '训练场';
-        document.getElementById('prepLabel1').textContent = '对战人数';
-        typeSection.classList.remove('collapsed');
-        diffSection.classList.remove('hidden');
-        diffSection.classList.add('collapsed');
-        _buildPrepOptionRow('prepOptions1', [
-            { id: '2p', title: '双人', desc: '红军与蓝军轮流自选将领' },
-            { id: '3p', title: '三人', desc: '红、蓝、绿三方依次自选将领' }
-        ]);
-    } else {
-        title.textContent = '本地游戏';
-        document.getElementById('prepLabel1').textContent = '对战类型';
-        _buildPrepOptionRow('prepOptions1', [
-            { id: 'pve', title: 'PVE 对战AI', desc: '红军 vs 蓝军AI' },
-            { id: 'local', title: '本地双人', desc: '两位玩家轮流' }
-        ]);
-        _buildPrepOptionRow('prepOptionsDiff', [
-            { id: 'easy', title: '简单', desc: 'AI 1x 经济' },
-            { id: 'medium', title: '中等', desc: 'AI 1.5x 经济' },
-            { id: 'hard', title: '困难', desc: 'AI 2x 经济' }
-        ]);
-        diffSection.classList.remove('hidden', 'collapsed');
-        const updateDiff = () => {
-            const sel = _getPrepSelection('prepOptions1');
-            diffSection.classList.toggle('hidden', sel !== 'pve');
-        };
-        document.getElementById('prepOptions1').addEventListener('click', () => setTimeout(updateDiff, 50));
-        updateDiff();
-    }
-
-    _switchLobbyView('prepContent');
-
-    document.getElementById('prepConfirm').onclick = () => {
-        _executePrepChoice();
-    };
-}
-
-// prep 返回按钮：回到进入 prep 之前的视图
-document.getElementById('prepBackBtn').addEventListener('click', () => {
-    // 联机模式回到联机大厅，单人模式回到首页
-    if (_prepAction === 'createRoom') {
-        showMultiplayerLobby();
-    } else {
-        showHome();
-    }
+const _preparationController = createPreparationController({
+    beginCommanderPhase,
+    beginPVECommanderPhase,
+    beginTrainingCommanderPhase,
+    showHome,
+    showMultiplayerLobby,
+    setStatus,
+    switchLobbyView: _switchLobbyView
 });
+_preparationController.init();
 
-function _executePrepChoice() {
-    const sel1 = _getPrepSelection('prepOptions1');
-    const isSkirmish = document.getElementById('prepSkirmish')?.checked || false;
-    const isDoubleCommander = document.getElementById('prepDoubleCommander')?.checked || false;
-
-    if (_prepAction === 'createRoom') {
-        const maxP = sel1 === '3p' ? 3 : 2;
-        gameState.isThreePlayer = maxP === 3;
-        gameState.skirmishFog = isSkirmish;
-        gameState.doubleCommanderMode = isDoubleCommander;
-        setStatus(`正在创建${maxP}人房间...`);
-        createRoom(maxP);
-        return;
-    }
-
-    if (_prepAction === 'training') {
-        gameState.gameMode = 'training';
-        gameState.isThreePlayer = sel1 === '3p';
-        gameState.skirmishFog = isSkirmish;
-        gameState.doubleCommanderMode = isDoubleCommander;
-        gameState.aiOpponentCamp = CAMP.player2;
-        gameState.aiDifficulty = 1.0;
-        beginTrainingCommanderPhase('player1');
-        return;
-    }
-
-    // 单人模式
-    if (sel1 === 'pve') {
-        gameState.gameMode = 'pve';
-        gameState.skirmishFog = isSkirmish;
-        gameState.doubleCommanderMode = isDoubleCommander;
-        gameState.aiOpponentCamp = CAMP.player2;
-        const diff = _getPrepSelection('prepOptionsDiff');
-        gameState.aiDifficulty = diff === 'medium' ? 1.5 : diff === 'hard' ? 2.0 : 1.0;
-        beginPVECommanderPhase('player1');
-    } else if (sel1 === 'training') {
-        gameState.gameMode = 'training';
-        gameState.skirmishFog = isSkirmish;
-        gameState.doubleCommanderMode = isDoubleCommander;
-        gameState.aiOpponentCamp = CAMP.player2;
-        gameState.aiDifficulty = 1.0;
-        beginTrainingCommanderPhase('player1');
-    } else {
-        gameState.gameMode = isSkirmish ? 'skirmish' : 'local';
-        gameState.skirmishFog = isSkirmish;
-        gameState.doubleCommanderMode = isDoubleCommander;
-        gameState.aiOpponentCamp = null;
-        beginCommanderPhase();
-    }
-}
-
-// ==== 单人模式按钮 ====
-document.getElementById('soloGameBtn').addEventListener('click', () => _showPrepDialog('solo'));
 
 // ==== 多人游戏 → 直接连接服务器进大厅 ====
 
 
-document.getElementById('trainingBtn').addEventListener('click', () => {
-    _showPrepDialog('training');
-});
 
 document.getElementById('multiplayerBtn').addEventListener('click', () => {
     if (isNetworkGame() || connectionDot.classList.contains('connected')) {
@@ -1743,7 +1593,7 @@ function renderRoomList(list) {
 
 
 // 创建房间 → 先弹出准备弹窗选择人数和模式
-document.getElementById('createRoomBtn').addEventListener('click', () => _showPrepDialog('createRoom'));
+document.getElementById('createRoomBtn').addEventListener('click', () => _preparationController.showPrepDialog('createRoom'));
 
 // 刷新房间列表
 document.getElementById('refreshRoomsBtn').addEventListener('click', () => {
