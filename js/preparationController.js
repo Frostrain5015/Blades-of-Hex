@@ -24,7 +24,7 @@ export function createPreparationController({
             const element = document.createElement('div');
             element.className = 'prep-option' + (choice.id === selected ? ' selected' : '');
             element.dataset.value = choice.id;
-            element.innerHTML = `<div class="prep-option-title">${choice.title}</div><div class="prep-option-desc">${choice.desc}</div>`;
+            element.innerHTML = `<div class="prep-option-title">${choice.title}</div>${choice.desc ? `<div class="prep-option-desc">${choice.desc}</div>` : ''}`;
             element.addEventListener('click', () => {
                 container.querySelectorAll('.prep-option').forEach((option) => option.classList.remove('selected'));
                 element.classList.add('selected');
