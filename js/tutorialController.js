@@ -52,7 +52,7 @@ const STEPS = {
     unit_passive: {
         phase: 'dialog',
         title: '兵种被动 & 血怒',
-        text: '狂战士因已损失生命触发了【血怒】：损失的生命按比例转为攻击与防御（底部效果徽章显示具体数值）。\n\n🐎 骑兵被动【冲锋】：移动越远，造成的伤害越高。雨天每步消耗 +1。\n\n🎯 炮兵被动【高地】：位于山地时射程 +1。风天同样生效。',
+        text: '狂战士的被动技能是【血怒】：当前生命值越低，攻击力与防御力越高。\n点击左下角徽章查看详情。',
         button: '查看对策卡',
         next: 'card_intro',
         focus: '#selectionHud, #canvasPassiveButtons'
@@ -60,7 +60,7 @@ const STEPS = {
     card_intro: {
         phase: 'dialog',
         title: '对策卡',
-        text: '右侧面板下方为【对策卡】手牌。每回合可使用一次，扭转战局。\n\n你已获得一张【疗愈】：对任一单位使用，立即恢复 40% 最大生命值。\n\n先对受伤的狂战士使用疗愈，然后再推进。',
+        text: '右侧面板下方为【对策卡】，熟练运用可以有效为自己创造优势。\n当前你已获得一张【疗愈】对策卡，\n请先对受伤的狂战士使用疗愈。',
         button: '使用疗愈',
         next: 'card_use',
         focus: '#cardCanvas'
@@ -68,7 +68,7 @@ const STEPS = {
     card_use: {
         phase: 'cardCanvas',
         title: '点击疗愈卡',
-        text: '点击右侧手牌中的【疗愈】卡牌，进入选目标模式。',
+        text: '点击右侧手牌中的【疗愈】卡牌，进入选择目标视图。',
         target: 'card:heal',
         next: 'card_target',
         focus: '#cardCanvas'
@@ -186,6 +186,24 @@ export function createTutorialController() {
                 const size = Math.max(72, Math.min(rect.width, rect.height) * 0.1);
                 const cx = rect.left + tile.x * scaleX;
                 const cy = rect.top + tile.y * scaleY;
+
+                // 移动步骤：同时露出狂战士和目的地两格
+                const targets = gameState.tutorialTargets;
+                if (stepId === 'move' && targets?.berserkerUnitId && targets?.move) {
+                    const bTile = gameState.tiles.find(t => t.unit?.id === targets.berserkerUnitId);
+                    if (bTile) {
+                        const bx = rect.left + bTile.x * scaleX;
+                        const by = rect.top + bTile.y * scaleY;
+                        const half = size / 2 + pad;
+                        return {
+                            left: Math.min(cx, bx) - half,
+                            top: Math.min(cy, by) - half,
+                            right: Math.max(cx, bx) + half,
+                            bottom: Math.max(cy, by) + half
+                        };
+                    }
+                }
+
                 return {
                     left: cx - size / 2 - pad,
                     top: cy - size / 2 - pad,

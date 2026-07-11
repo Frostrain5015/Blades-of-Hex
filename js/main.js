@@ -951,6 +951,8 @@ function _showTrainingCommanderSelection(forPlayer) {
         deckEl.style.transform = "translate(-50%, -50%) scale(0.8)";
     }
     overlay.classList.add("show");
+    // 训练场选将面板加宽
+    document.querySelector('.commander-panel')?.classList.add('commander-panel-training');
     const CARD_W = 180, CARD_H = 260;
     const CARDS_PER_ROW = 6;
     requestAnimationFrame(() => {
@@ -1021,7 +1023,7 @@ function _showTrainingCommanderSelection(forPlayer) {
         if (!cardEl) return;
         const key = cardEl.dataset.key;
         const cfg = COMMANDER_CONFIG[key];
-        if (!cfg || cardEl.classList.contains('taken')) return;
+        if (!cfg || cardEl.classList.contains('camp-selected') || cardEl.classList.contains('taken')) return;
 
         if (_commanderPending === key) {
             // Double-click confirm
@@ -1039,10 +1041,14 @@ function _showTrainingCommanderSelection(forPlayer) {
                 : (_trainPhase === 'player2' && gameState.isThreePlayer ? 'player3' : null);
             if (nextPhase) {
                 cardEl.classList.remove('selected');
-                cardEl.classList.add('taken');
+                const campLabel = _trainPhase === 'player1' ? '红军' : _trainPhase === 'player2' ? '蓝军' : '绿军';
+                const campHex = _trainPhase === 'player1' ? '#cc4444' : _trainPhase === 'player2' ? '#4488cc' : '#44aa44';
+                cardEl.style.setProperty('--camp-color', campHex);
+                cardEl.style.setProperty('--camp-label', "'" + campLabel + "'");
+                cardEl.classList.add('camp-selected');
                 cardEl.style.pointerEvents = 'none';
                 const nextName = nextPhase === 'player2' ? '蓝军' : '绿军';
-                statusDiv.textContent = `${_trainPhase === 'player1' ? '红军' : '蓝军'}已选 ${cfg.name}，请为${nextName}选择将领`;
+                statusDiv.textContent = `${campLabel}已选 ${cfg.name}，请为${nextName}选择将领`;
                 statusDiv.style.color = '#4CAF50';
                 _trainPhase = nextPhase;
             } else {

@@ -1737,6 +1737,11 @@ body {
     max-width: 1064px;
 }
 
+/* 训练场选将面板加宽（容纳 6 张卡一行） */
+.commander-panel-training {
+    width: min(1220px, calc(100vw - 32px));
+}
+
 /* ---- 牌堆（单张） ---- */
 .commander-deck {
     position: absolute;
@@ -1803,6 +1808,28 @@ body {
     opacity: 1;
     filter: none;
     box-shadow: 0 0 0 2px #4CAF50, 0 0 12px rgba(76, 175, 80, 0.4);
+}
+.commander-card.camp-selected {
+    pointer-events: none;
+    box-shadow: 0 0 0 2px var(--camp-color), 0 0 12px color-mix(in srgb, var(--camp-color) 50%, transparent) !important;
+}
+.commander-card.camp-selected::after {
+    content: var(--camp-label);
+    position: absolute;
+    z-index: 4;
+    top: 8px;
+    right: 8px;
+    padding: 3px 7px;
+    border: 1px solid color-mix(in srgb, var(--camp-color) 70%, #fff);
+    border-radius: 999px;
+    color: #fff;
+    background: color-mix(in srgb, var(--camp-color) 85%, #000);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.2;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
 .commander-card.taken {
     opacity: 0.35;
