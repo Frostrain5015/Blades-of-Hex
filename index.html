@@ -410,14 +410,17 @@
 
 <!-- 将领选择浮层 -->
 <div id="commanderOverlay">
+    <div class="commander-header">
+        <div class="commander-logo" id="commanderLogo">⚔️</div>
+        <div class="commander-camp-name" id="commanderCampName">选择将领</div>
+        <div class="commander-subtitle" id="commanderSubtitle">请选择出战将领</div>
+    </div>
     <div class="commander-panel">
-        <h2 id="commanderTitle">选择将领</h2>
         <div id="commanderCards" class="commander-cards">
             <div class="commander-deck" id="commanderDeck">
                 <div class="commander-deck-card"></div>
             </div>
         </div>
-        <div id="commanderStatus" class="commander-status">点击将领预选，再次点击确认</div>
     </div>
     <!-- 洗牌按钮置于 panel 之外、浮层底部，避免出现时挤压面板导致跳变 -->
     <button id="commanderRerollBtn" class="commander-reroll-btn">🎲 洗牌换将</button>

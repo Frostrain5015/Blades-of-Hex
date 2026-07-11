@@ -853,16 +853,18 @@ function _waitForNetworkPool(forPlayer) {
 
 function _showCommanderWaiting(forPlayer) {
     const overlay = document.getElementById('commanderOverlay');
-    const title = document.getElementById('commanderTitle');
+    const campName = document.getElementById('commanderCampName');
+    const logo = document.getElementById('commanderLogo');
     const cardsDiv = document.getElementById('commanderCards');
-    const statusDiv = document.getElementById('commanderStatus');
+    const subtitle = document.getElementById('commanderSubtitle');
     const ci = _forPlayerCampName(forPlayer);
 
     _commanderPending = null;
-    title.textContent = `${ci.name} — 选择将领`;
-    title.style.color = ci.color;
-    statusDiv.textContent = 'AI 正在选择将领...';
-    statusDiv.style.color = '#aaa';
+    campName.textContent = `${ci.name} — 选择将领`;
+    campName.style.color = ci.color;
+    logo.style.setProperty('--camp-color', ci.color);
+    subtitle.textContent = 'AI 正在选择将领...';
+    subtitle.style.color = '#aaa';
     cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
     const deckEl = document.getElementById('commanderDeck');
     if (deckEl) { deckEl.style.display = 'none'; gsap.set(deckEl, { clearProps: 'transform,opacity' }); }
@@ -895,9 +897,10 @@ function _buildSkillHTML(cfg) {
 
 function _showTrainingCommanderSelection(forPlayer) {
     const overlay = document.getElementById('commanderOverlay');
-    const title = document.getElementById('commanderTitle');
+    const campName = document.getElementById('commanderCampName');
+    const logo = document.getElementById('commanderLogo');
     const cardsDiv = document.getElementById('commanderCards');
-    const statusDiv = document.getElementById('commanderStatus');
+    const subtitle = document.getElementById('commanderSubtitle');
     const deckEl = document.getElementById('commanderDeck');
     const pool = Object.keys(COMMANDER_CONFIG);
     const ci = _forPlayerCampName(forPlayer);
@@ -905,11 +908,12 @@ function _showTrainingCommanderSelection(forPlayer) {
     _commanderPending = null;
     const _trainRerollBtn = document.getElementById('commanderRerollBtn');
     if (_trainRerollBtn) _trainRerollBtn.classList.remove('visible');
-    title.textContent = '训练场 — 自选将领';
-    title.style.color = ci.color;
-    statusDiv.textContent = '点击将领预选，再次点击确认';
-    statusDiv.style.color = '#888';
-    statusDiv.style.opacity = '0';
+    campName.textContent = '训练场';
+    campName.style.color = ci.color;
+    logo.style.setProperty('--camp-color', ci.color);
+    subtitle.textContent = '点击将领预选，再次点击确认';
+    subtitle.style.color = '#888';
+    subtitle.style.opacity = '0';
     cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
 
     const cardDatas = [];
@@ -1017,8 +1021,8 @@ function _showTrainingCommanderSelection(forPlayer) {
     });
     // 两阶段选将：先点一张卡选红军，再点另一张选蓝军
     let _trainPhase = 'player1'; // 'player1' | 'player2'
-    statusDiv.textContent = '请为红军选择将领';
-    statusDiv.style.color = ci.color;
+    subtitle.textContent = '请为红军选择将领';
+    subtitle.style.color = ci.color;
     cardsDiv.addEventListener('click', function _handler(e) {
         const cardEl = e.target.closest('.commander-card');
         if (!cardEl) return;
@@ -1049,8 +1053,8 @@ function _showTrainingCommanderSelection(forPlayer) {
                 cardEl.classList.add('camp-selected');
                 cardEl.style.pointerEvents = 'none';
                 const nextName = nextPhase === 'player2' ? '蓝军' : '绿军';
-                statusDiv.textContent = `${campLabel}已选 ${cfg.name}，请为${nextName}选择将领`;
-                statusDiv.style.color = '#4CAF50';
+                subtitle.textContent = `${campLabel}已选 ${cfg.name}，请为${nextName}选择将领`;
+                subtitle.style.color = '#4CAF50';
                 _trainPhase = nextPhase;
             } else {
                 const selectedNames = [
@@ -1058,8 +1062,8 @@ function _showTrainingCommanderSelection(forPlayer) {
                     `蓝军：${gameState.commanderP2}`
                 ];
                 if (gameState.isThreePlayer) selectedNames.push(`绿军：${gameState.commanderP3}`);
-                statusDiv.textContent = selectedNames.join(' ／ ');
-                statusDiv.style.color = '#4CAF50';
+                subtitle.textContent = selectedNames.join(' ／ ');
+                subtitle.style.color = '#4CAF50';
                 cardsDiv.querySelectorAll('.commander-card').forEach(c => c.style.pointerEvents = 'none');
                 setTimeout(() => {
                     beginTrainingCountdown();
@@ -1070,17 +1074,18 @@ function _showTrainingCommanderSelection(forPlayer) {
             cardsDiv.querySelectorAll('.commander-card').forEach(c => c.classList.remove('selected'));
             cardEl.classList.add('selected');
             _commanderPending = key;
-            statusDiv.textContent = `已预选【${cfg.name}】，再次点击确认`;
-            statusDiv.style.color = '#ffd700';
+            subtitle.textContent = `已预选【${cfg.name}】，再次点击确认`;
+            subtitle.style.color = '#ffd700';
         }
     });
 }
 
 function _showCommanderSelection(forPlayer) {
     const overlay = document.getElementById('commanderOverlay');
-    const title = document.getElementById('commanderTitle');
+    const campName = document.getElementById('commanderCampName');
+    const logo = document.getElementById('commanderLogo');
     const cardsDiv = document.getElementById('commanderCards');
-    const statusDiv = document.getElementById('commanderStatus');
+    const subtitle = document.getElementById('commanderSubtitle');
     const deckEl = document.getElementById('commanderDeck');
     const pool = _forPlayerPool(forPlayer);
     const ci = _forPlayerCampName(forPlayer);
@@ -1088,13 +1093,14 @@ function _showCommanderSelection(forPlayer) {
     if (rerollBtn) rerollBtn.classList.remove('visible', 'armed');
 
     _commanderPending = null;
-    title.textContent = `${ci.name} — 选择将领`;
-    title.style.color = ci.color;
-    statusDiv.textContent = gameState.doubleCommanderMode
+    campName.textContent = `${ci.name} — 选择将领`;
+    campName.style.color = ci.color;
+    logo.style.setProperty('--camp-color', ci.color);
+    subtitle.textContent = gameState.doubleCommanderMode
         ? '点击将领预选，再次点击确认；请选择 2 名将领'
         : '点击将领预选，再次点击确认';
-    statusDiv.style.color = '#888';
-    statusDiv.style.opacity = '0';
+    subtitle.style.color = '#888';
+    subtitle.style.opacity = '0';
     cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
 
     // 创建卡片（双面结构）
@@ -1248,13 +1254,13 @@ function _showCommanderSelection(forPlayer) {
                         if (!selection.complete) {
                             el.classList.add('taken', 'dual-selected');
                             el.style.pointerEvents = 'none';
-                            statusDiv.textContent = `已选择【${cfg.name}】，请选择第 2 名将领`;
-                            statusDiv.style.color = '#ffd700';
+                            subtitle.textContent = `已选择【${cfg.name}】，请选择第 2 名将领`;
+                            subtitle.style.color = '#ffd700';
                             return;
                         }
                         el.classList.add('confirmed');
-                        statusDiv.textContent = '已确认 ✓';
-                        statusDiv.style.color = '#4CAF50';
+                        subtitle.textContent = '已确认 ✓';
+                        subtitle.style.color = '#4CAF50';
                         cardsDiv.querySelectorAll('.commander-card').forEach(c => {
                             if (!c.classList.contains('confirmed') && !c.classList.contains('taken')) c.style.pointerEvents = 'none';
                         });
@@ -1264,8 +1270,8 @@ function _showCommanderSelection(forPlayer) {
                         cardsDiv.querySelectorAll('.commander-card').forEach(c => c.classList.remove('selected'));
                         el.classList.add('selected');
                         _commanderPending = key;
-                        statusDiv.textContent = `已预选【${cfg.name}】，再次点击确认`;
-                        statusDiv.style.color = '#ffd700';
+                        subtitle.textContent = `已预选【${cfg.name}】，再次点击确认`;
+                        subtitle.style.color = '#ffd700';
                     }
                 });
             }
