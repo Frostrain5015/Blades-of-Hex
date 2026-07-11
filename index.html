@@ -52,8 +52,7 @@
                         <button class="hero-btn hero-btn-campaign" id="campaignBtn">
                             <span class="hero-btn-icon">🔥</span>
                             <span class="hero-btn-content">
-                                <span class="hero-btn-title">单人战役</span>
-                                <span class="hero-btn-subtitle">群像传记 · 固定剧本</span>
+                                <span class="hero-btn-title">将星列传</span>
                             </span>
                             <span class="hero-btn-arrow">→</span>
                         </button>
@@ -79,36 +78,25 @@
                 <div id="campaignLobbyContent" class="lobby-view campaign-lobby-view">
                     <div class="mp-topbar campaign-topbar">
                         <button id="campaignBackBtn" class="mp-nav-btn">← 返回首页</button>
-                        <span class="mp-topbar-title">单人战役</span>
-                        <span class="campaign-progress-mark" id="campaignProgressMark">序章</span>
+                        <span class="mp-topbar-title">将星列传</span>
+                        <span class="campaign-progress-mark" id="campaignProgressMark">当前进度 0%</span>
                     </div>
-                    <nav class="campaign-story-tabs" aria-label="选择传记线">
-                        <span>传记线</span>
-                        <button class="selected" type="button" aria-current="true">01 · 我心如火</button>
-                    </nav>
                     <section class="campaign-chronicle-card" aria-labelledby="campaignChronicleTitle">
                         <div class="campaign-ember" aria-hidden="true"></div>
-                        <div class="campaign-chronicle-index">第一部传记</div>
+                        <div class="campaign-chronicle-index">将星列传01</div>
                         <h3 id="campaignChronicleTitle">我心如火</h3>
                         <p>伤痛会熄灭一个人，也会把他铸成火种。数位立场各异的将领，将从同一场战争的不同侧面走入彼此命运。</p>
-                        <div class="campaign-cast-row">
-                            <span>狂战士</span><i></i><span>百夫长</span><i></i><span>更多角色待揭晓</span>
-                        </div>
                     </section>
                     <div class="campaign-level-label">选择关卡</div>
                     <button id="rainCityLevelBtn" class="campaign-level-card" type="button">
                         <span class="campaign-level-number">序章</span>
                         <span class="campaign-level-copy">
                             <strong>雨幕下的孤城</strong>
-                            <small>狂战士视角 · 教学关卡 · 约 10 分钟</small>
                         </span>
                         <span class="campaign-level-rating" id="rainCityRating" aria-label="尚未完成">☆☆☆</span>
                     </button>
-                    <div class="campaign-level-brief">
-                        <span>🌧 雨夜</span><span>⚔ 突袭</span><span>🏰 守城</span>
-                    </div>
                     <button id="startRainCityBtn" class="campaign-start-btn" type="button">
-                        <span>进入战役</span><small>固定剧本 · 可随时重试</small>
+                        <span>进入战役</span>
                     </button>
                 </div>
 
@@ -519,10 +507,16 @@
     <div id="tutorialHint" aria-live="assertive" role="alert"></div>
     <div id="tutorialTargetRing" aria-hidden="true"></div>
     <section id="tutorialCoach" role="dialog" aria-label="教程引导">
-        <div id="tutorialProgress" class="tutorial-progress">教程 0%</div>
-        <h2 id="tutorialTitle"></h2>
-        <p id="tutorialText"></p>
-        <button id="tutorialNextBtn" type="button"></button>
+        <aside id="campaignSpeakerCard" class="campaign-speaker-card" aria-hidden="true">
+            <img id="campaignSpeakerPortrait" alt="" />
+            <span id="campaignSpeakerName"></span>
+        </aside>
+        <div class="tutorial-coach-copy">
+            <div id="tutorialProgress" class="tutorial-progress">教程 0%</div>
+            <h2 id="tutorialTitle"></h2>
+            <p id="tutorialText"></p>
+            <button id="tutorialNextBtn" type="button"></button>
+        </div>
     </section>
 </div>
 
@@ -624,6 +618,6 @@
 </script>
 <script src="js/lib/howler.min.js"></script>
 <script src="js/lib/gsap.min.js"></script>
-<script type="module" src="js/main.js?v=17de1a47a3"></script>
+<script type="module" src="js/main.js?v=c9307f60be"></script>
 </body>
 </html>

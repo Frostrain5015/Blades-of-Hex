@@ -4,6 +4,7 @@
 export const HEART_AS_FIRE_CAMPAIGN = Object.freeze({
     id: 'heart-as-fire',
     title: '我心如火',
+    scenarioIds: Object.freeze(['rain-city']),
     cast: Object.freeze([
         { characterId: 'berserker', commanderId: 'berserker', role: 'viewpoint' },
         { characterId: 'centurion', commanderId: 'centurion', role: 'opponent' }

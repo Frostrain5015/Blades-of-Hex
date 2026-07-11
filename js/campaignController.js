@@ -2,55 +2,65 @@ import { canvas, LOGICAL_W, LOGICAL_H, CAMP, invalidateBoard } from './config.js
 import { gameState, logMessage, updateUI } from './state.js';
 import { on } from './eventBus.js';
 import { spawnRainCityCounterattack } from './tutorialScenario.js';
-import { RAIN_CITY_SCENARIO, CAMPAIGN_STORAGE_KEY } from '../campaign/content/heartAsFire.js';
+import { HEART_AS_FIRE_CAMPAIGN, RAIN_CITY_SCENARIO, CAMPAIGN_STORAGE_KEY } from '../campaign/content/heartAsFire.js';
 
 const STEPS = Object.freeze({
     briefing: {
-        phase: 'dialog', title: '雨幕下的孤城', speaker: '战地纪要 · 狂战士视角',
-        text: '雨水淹没了东侧道路，百夫长封锁中央石桥。桥后还有三十名伤兵——天亮之前，必须夺下这座城。',
+        phase: 'dialog', mode: 'narrator',
+        text: '【雨幕下的孤城】\n雨水淹没了东侧道路，百夫长封锁中央石桥。桥后还有三十名伤兵——天亮之前，必须夺下这座城。',
         button: '进入雨幕', next: 'battlefield'
     },
     battlefield: {
-        phase: 'dialog', title: '战场态势', speaker: '任务简报',
+        phase: 'dialog', mode: 'narrator',
         text: '雨天会拖慢骑兵。山地上的弩手已经完成掩护射击，本回合无法行动。先查看前线的狂战士，再决定如何突破。',
         button: '查看主将', next: 'selectHero'
     },
     selectHero: {
-        phase: 'unit', title: '伤痕与怒火', speaker: '操作指引',
+        phase: 'unit', mode: 'narrator',
         text: '点击地图上的【狂战士】，查看他的生命、兵种与将领能力。', target: 'hero'
     },
     fieldAid: {
-        phase: 'dialog', title: '最后一份药', speaker: '军医',
-        text: '“把绷带系紧。桥后的人，比我更需要一条退路。”\n\n使用右侧手牌中的【疗愈】，先稳定狂战士的伤势。',
+        phase: 'dialog', mode: 'character', speaker: { name: '狂战士', portrait: '狂战士' },
+        text: '“把绷带系紧。桥后的人，比我更需要一条退路。”\n\n使用右侧手牌中的【疗愈】，先稳定伤势。',
         button: '使用疗愈', next: 'useCard'
     },
     useCard: {
-        phase: 'card', title: '对策卡 · 疗愈', speaker: '操作指引',
+        phase: 'card', mode: 'narrator',
         text: '点击右侧手牌中的【疗愈】，再选择狂战士作为目标。', target: 'heal'
     },
     cardTarget: {
-        phase: 'unit', title: '选择疗愈目标', speaker: '操作指引',
+        phase: 'unit', mode: 'narrator',
         text: '点击狂战士，为其恢复生命。', target: 'hero'
     },
     approach: {
-        phase: 'tile', title: '借林掩行', speaker: '主目标 · 突破城门',
+        phase: 'tile', mode: 'narrator',
         text: '先点击狂战士，再点击高亮森林。森林能提供防御，但在雨中会消耗更多行动力。', target: 'move'
     },
     skill: {
-        phase: 'action', title: '泣血', speaker: '将领技能',
+        phase: 'action', mode: 'narrator',
         text: '双击右下角的【泣血】：以当前生命为代价，强化下一次攻击并造成溅射伤害。', target: 'commander'
     },
+    duelCenturion: {
+        phase: 'dialog', mode: 'character', speaker: { name: '百夫长', portrait: '百夫长' },
+        text: '“雨会拖住你的马，也会洗掉你留下的血。”',
+        button: '回应', next: 'duelBerserker'
+    },
+    duelBerserker: {
+        phase: 'dialog', mode: 'character', speaker: { name: '狂战士', portrait: '狂战士' },
+        text: '“那就趁它还没洗净，记住我。”',
+        button: '攻城', next: 'attack'
+    },
     attack: {
-        phase: 'unit', title: '城门决斗', speaker: '主目标 · 突破城门',
-        text: '百夫长：“雨会洗掉你留下的血。”\n狂战士：“那就趁它还没洗净，记住我。”\n\n点击城中的百夫长发动攻击。', target: 'centurion'
+        phase: 'unit', mode: 'narrator',
+        text: '点击城中的百夫长，发动攻击。', target: 'centurion'
     },
     captured: {
-        phase: 'dialog', title: '信号火', speaker: '百夫长',
-        text: '城门陷落，百夫长却在最后一刻点燃了东塔信号。\n\n“夺城容易。守住它，才算你赢。”',
+        phase: 'dialog', mode: 'character', speaker: { name: '百夫长', portrait: '百夫长' },
+        text: '城门陷落，东塔的信号火却已经燃起。\n\n“夺城容易。守住它，才算你赢。”',
         button: '迎击反扑', next: '__counterattack__'
     },
     lastStand: {
-        phase: 'dialog', title: '黎明前的最后一轮', speaker: '弩手',
+        phase: 'dialog', mode: 'narrator',
         text: '反扑没有夺回石桥。远处已出现友军火把——再守住这一轮，伤兵就能全部过桥。\n\n你可以消灭骑兵争取额外评价，也可以直接结束回合。',
         button: '守到天明', next: '__hold__'
     }
@@ -61,9 +71,16 @@ let sharedController = null;
 function readProgress() {
     try {
         const parsed = JSON.parse(localStorage.getItem(CAMPAIGN_STORAGE_KEY) || '{}');
-        return { completed: !!parsed.completed, bestStars: Math.max(0, Math.min(3, Number(parsed.bestStars) || 0)) };
+        const completedScenarioIds = Array.isArray(parsed.completedScenarioIds)
+            ? parsed.completedScenarioIds.filter(id => typeof id === 'string')
+            : (parsed.completed ? [RAIN_CITY_SCENARIO.id] : []);
+        return {
+            completedScenarioIds,
+            completed: completedScenarioIds.includes(RAIN_CITY_SCENARIO.id),
+            bestStars: Math.max(0, Math.min(3, Number(parsed.bestStars) || 0))
+        };
     } catch (_) {
-        return { completed: false, bestStars: 0 };
+        return { completedScenarioIds: [], completed: false, bestStars: 0 };
     }
 }
 
@@ -75,7 +92,10 @@ export function refreshCampaignLobbyProgress() {
         rating.textContent = '★'.repeat(progress.bestStars) + '☆'.repeat(3 - progress.bestStars);
         rating.setAttribute('aria-label', progress.completed ? `最佳评价 ${progress.bestStars} 星` : '尚未完成');
     }
-    if (mark) mark.textContent = progress.completed ? `已完成 · ${progress.bestStars}星` : '序章';
+    const completedScenarios = HEART_AS_FIRE_CAMPAIGN.scenarioIds
+        .filter(id => progress.completedScenarioIds.includes(id)).length;
+    const totalScenarios = HEART_AS_FIRE_CAMPAIGN.scenarioIds.length;
+    if (mark) mark.textContent = `当前进度 ${Math.round((completedScenarios / totalScenarios) * 100)}%`;
 }
 
 export function createCampaignController({ onRetry, onReturn }) {
@@ -95,11 +115,18 @@ export function createCampaignController({ onRetry, onReturn }) {
     const objectiveDetail = document.getElementById('campaignObjectiveDetail');
     const optionalList = document.getElementById('campaignOptionalObjectives');
     const resultOverlay = document.getElementById('campaignResultOverlay');
+    const speakerCard = document.getElementById('campaignSpeakerCard');
+    const speakerPortrait = document.getElementById('campaignSpeakerPortrait');
+    const speakerName = document.getElementById('campaignSpeakerName');
 
     let active = false;
     let stepId = '';
     let sawEnemyTurn = false;
     let resultShown = false;
+    let transitionToken = 0;
+    let transitionTimer = null;
+    let transitionCleanupTimer = null;
+    let captureDialogueTimer = null;
 
     function tileForTarget(target) {
         const targets = gameState.tutorialTargets;
@@ -110,13 +137,15 @@ export function createCampaignController({ onRetry, onReturn }) {
         return null;
     }
 
-    function setModalBlock(blocked) {
+    function setModalBlock(_blocked) {
+        // 战役对白不使用全屏遮层：棋盘演出与 HUD 始终保持原亮度。
+        // 前半段误操作仍由 InputPolicy（tutorialMode）拦截，对话框自身保留点击能力。
         for (const pane of panes) {
             if (!pane) continue;
-            pane.style.display = blocked ? 'block' : 'none';
-            if (blocked) {
-                pane.style.left = '0'; pane.style.top = '0'; pane.style.width = '100vw'; pane.style.height = '100vh';
-            }
+            pane.style.display = 'none';
+            pane.style.background = '';
+            pane.style.backdropFilter = '';
+            pane.style.webkitBackdropFilter = '';
         }
         holeBorder?.classList.remove('visible');
     }
@@ -157,27 +186,67 @@ export function createCampaignController({ onRetry, onReturn }) {
         objectiveHud.classList.add('show');
     }
 
-    function showStep(nextId) {
-        const step = STEPS[nextId];
-        if (!active || !step) return;
-        stepId = nextId;
-        // 旧规则层仍将受限移动识别为固定的 `move`；控制器内部保留更语义化的阶段名。
-        gameState.tutorialStep = nextId === 'approach' ? 'move' : nextId;
-        gameState.campaignPhase = nextId;
-        title.textContent = step.title;
+    function renderStep(step, nextId) {
+        title.textContent = '';
+        progress.textContent = '';
         text.textContent = step.text;
-        progress.textContent = step.speaker || '我心如火';
+        const hasSpeaker = step.mode === 'character' && step.speaker;
+        speakerCard.classList.toggle('show', !!hasSpeaker);
+        speakerCard.setAttribute('aria-hidden', hasSpeaker ? 'false' : 'true');
+        coach.classList.toggle('has-speaker', !!hasSpeaker);
+        if (hasSpeaker) {
+            speakerPortrait.src = `img/commander/${step.speaker.portrait}.webp`;
+            speakerPortrait.alt = `${step.speaker.name}立绘`;
+            speakerName.textContent = step.speaker.name;
+            coach.setAttribute('aria-label', `${step.speaker.name}对话`);
+        } else {
+            speakerPortrait.removeAttribute('src');
+            speakerPortrait.alt = '';
+            speakerName.textContent = '';
+            coach.setAttribute('aria-label', '剧情旁白');
+        }
         button.hidden = !step.button;
+        button.disabled = false;
         button.textContent = step.button || '';
         button.dataset.campaignNext = step.next || '';
         coach.dataset.campaign = 'heart-as-fire';
         coach.dataset.campaignPhase = step.phase;
         setModalBlock(step.phase === 'dialog');
         overlay.classList.add('show');
+        coach.classList.remove('campaign-dialog-out');
+        coach.classList.add('campaign-dialog-in');
+        clearTimeout(transitionCleanupTimer);
+        transitionCleanupTimer = setTimeout(() => coach.classList.remove('campaign-dialog-in'), 420);
         requestAnimationFrame(syncRing);
     }
 
+    function showStep(nextId, { immediate = false } = {}) {
+        const step = STEPS[nextId];
+        if (!active || !step) return;
+        stepId = nextId;
+        // 旧规则层仍将受限移动识别为固定的 `move`；控制器内部保留更语义化的阶段名。
+        gameState.tutorialStep = nextId === 'approach' ? 'move' : nextId;
+        gameState.campaignPhase = nextId;
+        const token = ++transitionToken;
+        clearTimeout(transitionTimer);
+        button.disabled = true;
+        if (immediate || !overlay.classList.contains('show')) {
+            renderStep(step, nextId);
+            return;
+        }
+        coach.classList.remove('campaign-dialog-in');
+        coach.classList.add('campaign-dialog-out');
+        transitionTimer = setTimeout(() => {
+            if (!active || token !== transitionToken) return;
+            renderStep(step, nextId);
+        }, 190);
+    }
+
     function hideGuidance() {
+        transitionToken++;
+        clearTimeout(transitionTimer);
+        clearTimeout(transitionCleanupTimer);
+        coach.classList.remove('campaign-dialog-in', 'campaign-dialog-out');
         setModalBlock(false);
         overlay.classList.remove('show');
         ring?.classList.remove('visible');
@@ -220,8 +289,10 @@ export function createCampaignController({ onRetry, onReturn }) {
 
     function saveVictory(stars) {
         const previous = readProgress();
+        const completedScenarioIds = [...new Set([...previous.completedScenarioIds, RAIN_CITY_SCENARIO.id])];
         localStorage.setItem(CAMPAIGN_STORAGE_KEY, JSON.stringify({
             completed: true,
+            completedScenarioIds,
             bestStars: Math.max(previous.bestStars, stars),
             completedAt: new Date().toISOString()
         }));
@@ -293,23 +364,27 @@ export function createCampaignController({ onRetry, onReturn }) {
         resultOverlay.classList.remove('show');
         resultOverlay.setAttribute('aria-hidden', 'true');
         updateObjectives('assault');
-        showStep('briefing');
+        showStep('briefing', { immediate: true });
     }
 
     function stop() {
         active = false;
         stepId = '';
         sawEnemyTurn = false;
+        clearTimeout(captureDialogueTimer);
+        captureDialogueTimer = null;
         hideGuidance();
         objectiveHud?.classList.remove('show');
         resultOverlay.classList.remove('show');
         resultOverlay.setAttribute('aria-hidden', 'true');
         coach?.removeAttribute('data-campaign');
         coach?.removeAttribute('data-campaign-phase');
+        speakerCard?.classList.remove('show');
+        speakerCard?.setAttribute('aria-hidden', 'true');
     }
 
     button.addEventListener('click', () => {
-        if (!active || !coach.dataset.campaign) return;
+        if (!active || !coach.dataset.campaign || button.disabled) return;
         const next = button.dataset.campaignNext;
         if (next === '__counterattack__') beginCounterattack();
         else if (next === '__hold__') { gameState.campaignPhase = 'hold'; hideGuidance(); }
@@ -331,11 +406,20 @@ export function createCampaignController({ onRetry, onReturn }) {
             && targetTile?.q === target?.q && targetTile?.r === target?.r) showStep('skill');
     });
     on('input:commanderSkillUsed', ({ unit }) => {
-        if (active && stepId === 'skill' && unit?.id === gameState.tutorialTargets?.berserkerUnitId) showStep('attack');
+        if (active && stepId === 'skill' && unit?.id === gameState.tutorialTargets?.berserkerUnitId) showStep('duelCenturion');
     });
     on('match:cityCaptured', ({ campKey: capturedBy }) => {
         if (!active) return;
-        if (stepId === 'attack' && capturedBy === 'player1') showStep('captured');
+        if (stepId === 'attack' && capturedBy === 'player1') {
+            stepId = 'cinematic';
+            gameState.tutorialStep = 'cinematic';
+            gameState.campaignPhase = 'cinematic';
+            hideGuidance();
+            clearTimeout(captureDialogueTimer);
+            captureDialogueTimer = setTimeout(() => {
+                if (active && !resultShown) showStep('captured', { immediate: true });
+            }, 2600);
+        }
         else if ((gameState.campaignPhase === 'counterattack' || gameState.campaignPhase === 'hold') && capturedBy !== 'player1') {
             fail('中央城市失守，石桥重新落入蓝军手中。');
         }

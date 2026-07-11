@@ -216,6 +216,8 @@ function _switchLobbyView(viewId, anim = true) {
     const target = document.getElementById(viewId);
     if (!target || _activeLobbyView === viewId) return;
 
+    document.getElementById('lobbyLeftPanel')?.classList.toggle('campaign-active', viewId === 'campaignLobbyContent');
+
     const oldEl = _activeLobbyView ? document.getElementById(_activeLobbyView) : null;
     const prevView = _activeLobbyView;
     _activeLobbyView = viewId;

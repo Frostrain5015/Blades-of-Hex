@@ -37,7 +37,7 @@ export async function run(browser) {
     }), 3000, '单人战役页签切换');
     R.assert(true, '单人战役拥有独立大厅页签');
     R.assert((await page.textContent('#campaignChronicleTitle')).trim() === '我心如火', '第一部传记名为《我心如火》');
-    R.assert((await page.textContent('.campaign-story-tabs')).includes('我心如火'), '二级菜单可选择传记线');
+    R.assert((await page.textContent('.campaign-chronicle-index')).includes('将星列传01'), '传记档案编号正确');
     R.assert((await page.textContent('#rainCityLevelBtn')).includes('雨幕下的孤城'), '二级菜单展示具体关卡');
 
     await page.click('#startRainCityBtn');
@@ -50,8 +50,10 @@ export async function run(browser) {
 
     await clickVisibleButton(page, '进入雨幕');
     await clickVisibleButton(page, '查看主将');
+    await sleep(260);
     await clickTile(page, -2, 0);
     await clickVisibleButton(page, '使用疗愈');
+    await sleep(260);
 
     const cardPoint = await page.evaluate(() => {
         const canvas = document.getElementById('cardCanvas');
@@ -60,18 +62,27 @@ export async function run(browser) {
     });
     await page.mouse.click(cardPoint.x, cardPoint.y);
     await clickTile(page, -2, 0);
-    await waitFor(() => page.evaluate(() => document.getElementById('tutorialTitle')?.textContent === '借林掩行'), 4000, '疗愈结算');
+    await waitFor(() => page.evaluate(async () => (await import('/js/state.js')).gameState.campaignPhase === 'approach'), 4000, '疗愈结算');
 
     await clickTile(page, -2, 0);
     await clickTile(page, -1, 0);
-    await waitFor(() => page.evaluate(() => document.getElementById('tutorialTitle')?.textContent === '泣血'), 4000, '进入森林');
+    await waitFor(() => page.evaluate(async () => (await import('/js/state.js')).gameState.campaignPhase === 'skill'), 4000, '进入森林');
 
     const skillButton = page.locator('#canvasActionButtons button');
     await skillButton.dblclick();
-    await waitFor(() => page.evaluate(() => document.getElementById('tutorialTitle')?.textContent === '城门决斗'), 4000, '泣血发动');
+    await waitFor(() => page.evaluate(async () => (await import('/js/state.js')).gameState.campaignPhase === 'duelCenturion'), 4000, '百夫长战前对白');
+    await waitFor(() => page.evaluate(() => document.getElementById('campaignSpeakerCard')?.classList.contains('show')), 2000, '人物立绘卡入场');
+    R.assert(await page.locator('#campaignSpeakerCard').evaluate(el => el.classList.contains('show')), '人物对白显示左侧将领立绘卡');
+    R.assert((await page.textContent('#campaignSpeakerName')).trim() === '百夫长', '人物立绘卡显示说话者姓名');
+    await clickVisibleButton(page, '回应');
+    await clickVisibleButton(page, '攻城');
+    await waitFor(() => page.evaluate(async () => (await import('/js/state.js')).gameState.campaignPhase === 'attack'), 4000, '进入攻击指引');
+    await sleep(260);
 
     await clickTile(page, 0, 0);
-    await waitFor(() => page.evaluate(() => document.getElementById('tutorialTitle')?.textContent === '信号火'), 5000, '夺取中央城市');
+    await sleep(500);
+    R.assert(!await page.locator('#tutorialOverlay').evaluate(el => el.classList.contains('show')), '击杀后先留出棋盘演出时间');
+    await waitFor(() => page.evaluate(() => document.getElementById('tutorialText')?.textContent.includes('信号火')), 6000, '击杀演出后的剧情对白');
     R.assert(await page.evaluate(async () => (await import('/js/state.js')).gameState.gameOver === false), '夺城不会触发普通对战提前胜利');
 
     await clickVisibleButton(page, '迎击反扑');
@@ -105,6 +116,7 @@ export async function run(browser) {
         return view?.classList.contains('active') && getComputedStyle(view).display === 'flex';
     }), 5000, '返回战役菜单');
     R.assert((await page.textContent('#rainCityRating')).includes('★'), '通关进度持久化并回显');
+    R.assert((await page.textContent('#campaignProgressMark')).includes('100%'), '关卡完成比例显示正确');
     R.assert(page._errors.length === 0, `流程无页面异常${page._errors.length ? `：${page._errors.join(' | ')}` : ''}`);
 
     await page.context().close();

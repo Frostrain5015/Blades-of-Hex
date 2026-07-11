@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-07-11T08:17:45.676Z",
-  "entryVersion": "17de1a47a3",
+  "generatedAt": "2026-07-11T08:59:13.922Z",
+  "entryVersion": "c9307f60be",
   "files": {
     "js/ai.js": "05ccb9ae92",
     "js/audio.js": "e9d0efd96c",
     "js/audioManifest.js": "28f798ad2d",
     "js/auth.js": "015f7c7568",
-    "js/campaignController.js": "f408a7a2ca",
+    "js/campaignController.js": "c316e9fa6a",
     "js/canvasRuntime.js": "e6b2001afa",
     "js/chatController.js": "018f8f077c",
     "js/cheat.js": "c5c0488302",
@@ -24,7 +24,7 @@
     "js/input.js": "3d35998bcd",
     "js/lib/gsap.min.js": "e208f4c759",
     "js/lib/howler.min.js": "47318d3eef",
-    "js/main.js": "7a2a9039d9",
+    "js/main.js": "8eca0ea354",
     "js/network.js": "88f8b4f674",
     "js/package.json": "50faeb965b",
     "js/portraitLoader.js": "ea8d25d1dd",
@@ -96,8 +96,8 @@
     "protocol/package.json": "50faeb965b",
     "ai/claude.js": "9c977a4fc9",
     "ai/grok.js": "aae2d023eb",
-    "campaign/content/heartAsFire.js": "7609591487",
+    "campaign/content/heartAsFire.js": "531eb66dc0",
     "campaign/package.json": "50faeb965b",
-    "index.html": "fee5726c5d"
+    "index.html": "0b44acea9f"
   }
 }
