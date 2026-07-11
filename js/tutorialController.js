@@ -41,7 +41,7 @@ const STEPS = {
     topbar_intro: {
         phase: 'dialog',
         title: '战场总览',
-        text: '顶部的信息卡显示当前游戏的行动方、天气情况，以及双方资金。\n天气会对地图上所有单位造成特殊影响现在是【🌧️雨天】，地图上所有的【骑兵】每步消耗 +1 行动力；步兵驻守城市时防御提升。\n\n右侧面板可招募部队、查看统计与对策卡手牌。',
+        text: '顶部的信息卡显示当前游戏的行动方、天气情况，以及双方当前剩余资金。\n天气会不分阵营地对单位施加效果。现在是【🌧️雨天】，地图上所有的【骑兵】将移动得更慢。\n选中己方控制的城市后可在右侧面板招募部队，招募部队需要消耗对应的资金。查看统计与对策卡手牌。',
         button: '查看棋盘',
         next: 'units_intro',
         focus: '#topBar, #rightPanel'
@@ -49,7 +49,7 @@ const STEPS = {
     units_intro: {
         phase: 'dialog',
         title: '兵力部署',
-        text: '红军：🐎 狂战士（骑兵）- 已受伤触发【血怒】，攻击/防御提升\n       🎯 炮兵（弓箭手）- 位于山地，射程 +1\n\n蓝军：⚔️ 百夫长（步兵）- 驻守城市，获得防御加成\n       🐎 敌方骑兵（残血）- 任一手段击败即可\n\n💡 克制简记：骑兵克远程，步兵守城克骑兵，远程高地压步兵。',
+        text: '基础兵种有三种：步兵、骑兵、炮兵，分别充当前线抗压、快速突击、远程轰炸功能，它们之间存在相互克制关系。\n\n💡 克制简记：骑兵克远程，步兵守城克骑兵，远程高地压步兵。',
         button: '选中你的主将',
         next: 'unit_select',
         focus: '#canvasStage'
@@ -58,7 +58,7 @@ const STEPS = {
     unit_select: {
         phase: 'canvasTarget',
         title: '选中狂战士',
-        text: '点击地图上高亮的【狂战士】（我方骑兵单位）。\n\n选中后可在左上方信息栏查看：生命、攻击、防御、行动力、兵种被动与将领技能。',
+        text: '点击地图上高亮的【狂战士】。\n选中后可在左上方信息栏查看基础属性，左下角查看当前单位的被动技能，右下角显示的则是主动技能。',
         target: 'unit:tutorial_berserker',
         focus: '#canvasStage'
     },
@@ -101,7 +101,7 @@ const STEPS = {
     move: {
         phase: 'canvasTarget',
         title: '移动·地形·天气',
-        text: '先点击【狂战士】选中它，然后点击高亮的【森林】地块进行移动。\n\n🌲 森林提供防御加成，但骑兵通过消耗更高。\n🌧️ 雨天让骑兵每步额外消耗 1 行动力。\n\n选中后可看到蓝色高亮移动范围。',
+        text: '先点击【狂战士】选中它，此时可看到蓝色高亮可移动范围，然后点击高亮的【森林】地块进行移动。\n\n🌳 地形会影响单位的移动和战斗能力。',
         target: 'tile:move',
         focus: '#canvasStage'
     },
@@ -109,7 +109,7 @@ const STEPS = {
     active_skill: {
         phase: 'actionButton',
         title: '主动技能：泣血',
-        text: '点击右下角动作栏的【泣血】按钮。\n\n💔 消耗当前生命，大幅强化下一次攻击，并对目标周围的敌人造成溅射伤害。',
+        text: '双击右下角动作栏的【泣血】按钮发动狂战士的主动技能。\n这将消耗当前生命大幅强化下一次攻击，并对目标周围的敌人造成溅射伤害。\n\n💡 每位将领都拥有各异的丰富技能等你来探索！',
         target: 'skill:commander',
         focus: '#canvasActionButtons'
     },
@@ -117,7 +117,7 @@ const STEPS = {
     attack: {
         phase: 'canvasTarget',
         title: '攻击与占领',
-        text: '点击高亮的【百夫长】（城市中的蓝军步兵）。\n\n击败守军后，近战单位会进入城市，整块行政区变更归属。\n\n⚔️ 注意：步兵在城中获得防御加成，但百夫长已受伤，配合泣血可一击制胜！',
+        text: '点击高亮的【百夫长】（城市中的蓝军步兵）发动制胜一击！\n击败守军后，近战单位会进入城市，行政区此时将变更归属。',
         target: 'unit:tutorial_centurion',
         focus: '#canvasStage'
     },
@@ -125,7 +125,7 @@ const STEPS = {
     post_attack_card_intro: {
         phase: 'dialog',
         title: '城市易手',
-        text: '中央城市已归属红军！狂战士的【泣血】溅射可能也伤及了附近敌方骑兵。\n\n若残局尚未结束，你还可以：\n• 继续使用对策卡扭转战局\n• 在己方城市/村庄补充兵员\n• 部署新单位扩大优势\n\n对策卡是逆转关键——每回合仔细考虑是否使用。',
+        text: '中央行政区已经被占领！\n若残局尚未结束，你还可以：\n• 继续使用对策卡扭转战局/在己方城市补充兵员/部署新单位扩大优势\n对策卡是逆转关键——每回合仔细考虑是否使用。',
         button: '继续',
         next: 'complete'
     },
@@ -133,7 +133,7 @@ const STEPS = {
     complete: {
         phase: 'dialog',
         title: '教程完成',
-        text: '你已掌握基本战术要领：\n\n✅ 兵种特性与克制\n✅ 地形与天气影响\n✅ 主动技能与被动\n✅ 对策卡使用时机\n\n现在开始你的征服之路吧！',
+        text: '你已掌握基本战术要领，现在开始你的征服之路吧！',
         button: '返回大厅',
         next: '__exit__'
     }
@@ -181,9 +181,7 @@ export function createTutorialController() {
 
         if (kind === 'unit') {
             if (!gameState.tiles) return null;
-            const found = gameState.tiles.find(tile => tile.unit?.id === id) || null;
-            if (!found) { console.warn("[tutorial] unit not found:", id); }
-            return found;
+            return gameState.tiles.find(tile => tile.unit?.id === id) || null;
         }
         if (kind === 'tile') {
             if (id === 'move' && targets.move) {
