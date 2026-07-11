@@ -36,6 +36,7 @@ import './unitPresentationAdapter.js';
 import { playSound, initAudio, setMuted, startBattleBGM, stopBattleBGM, stopLobbyBGM } from './audio.js';
 import { loadCommanderFx } from './commanderFx.js';
 import { emit } from './eventBus.js';
+import { createHeroCarousel } from './heroCarousel.js';
 import { initChat, updateChatAvailability, initEmblemChatClicks, addChatMessage, openChat, isChatViewing } from './chatController.js';
 import './visualEventBridge.js';
 import './cheat.js';
@@ -108,6 +109,10 @@ preloadPortraits();
 let _heroReadyResolve;
 const _heroReadyPromise = new Promise(res => { _heroReadyResolve = res; });
 function _signalHeroReady() { if (_heroReadyResolve) { _heroReadyResolve(); _heroReadyResolve = null; } }
+const _heroCarousel = createHeroCarousel({ onReady: _signalHeroReady });
+const _startHeroCarousel = () => _heroCarousel.start();
+const _stopHeroCarousel = () => _heroCarousel.stop();
+
 // 首屏立绘就绪后再撤下加载遮罩（避免露出空图占位）；最长兜底 4s 防图片异常卡住
 let _loadingDismissed = false;
 function _dismissLoadingWhenReady() {
@@ -277,163 +282,6 @@ function showHome(msg) {
     };
     document.addEventListener('click', _bgmPlayHandler);
     document.addEventListener('touchstart', _bgmPlayHandler);
-}
-
-// ---- 将领立绘轮播 & GSAP 入场动画 ----
-	let _heroCommanders = ['tianyan','paladin','fallenAngel','vampire','berserker','magician','advisor','ironGuard','centurion','staller','martyr','priest','minister','necromancer','astrologer','diplomat','colonel'];
-let _heroCarouselIdx = 0;
-let _heroCarouselTimer = null;
-let _heroCarouselReady = false;
-
-// 预检立绘文件是否存在，过滤掉缺失图片的将领
-function _filterValidCommanders() {
-    return new Promise((resolve) => {
-        const list = _heroCommanders;
-        if (list.length === 0) { resolve([]); return; }
-        const valid = [];
-        let pending = list.length;
-        for (const cmdId of list) {
-            const cfg = COMMANDER_CONFIG[cmdId];
-            const name = cfg ? cfg.name : cmdId;
-            const img = new Image();
-            img.onload = () => { valid.push(cmdId); if (--pending === 0) resolve(valid); };
-            img.onerror = () => {
-                console.warn(`[轮播] 将领立绘不存在，跳过：${cmdId}`);
-                if (--pending === 0) resolve(valid);
-            };
-            img.src = `img/commander/${name}.webp`;
-        }
-    });
-}
-
-async function _startHeroCarousel() {
-    const frame = document.querySelector('.hero-portrait-frame');
-    const dotsContainer = document.getElementById('heroCarouselDots');
-    if (!frame || !dotsContainer) { _signalHeroReady(); return; }
-
-    // 过滤掉图片缺失的将领
-    _heroCommanders = await _filterValidCommanders();
-    if (_heroCommanders.length === 0) {
-        console.warn('[轮播] 所有将领立绘均缺失，停止轮播');
-        _signalHeroReady();
-        return;
-    }
-
-    // 重置索引（过滤后列表可能变短）
-    _heroCarouselIdx = 0;
-
-    // 生成圆点
-    dotsContainer.innerHTML = '';
-    for (let i = 0; i < _heroCommanders.length; i++) {
-        const dot = document.createElement('span');
-        dot.className = 'hdot' + (i === _heroCarouselIdx ? ' active' : '');
-        dot.addEventListener('click', () => _jumpHeroCarousel(i));
-        dotsContainer.appendChild(dot);
-    }
-
-    _showHeroSlide(_heroCarouselIdx, false);
-    // 首图就绪 → 通知加载遮罩可撤下（预检已缓存通常瞬时；error 也放行避免卡住）
-    const _firstImg = document.getElementById('heroPortraitA');
-    if (_firstImg && _firstImg.complete && _firstImg.naturalWidth > 0) {
-        _signalHeroReady();
-    } else if (_firstImg) {
-        _firstImg.addEventListener('load', _signalHeroReady, { once: true });
-        _firstImg.addEventListener('error', _signalHeroReady, { once: true });
-    } else {
-        _signalHeroReady();
-    }
-
-    if (!_heroCarouselReady) {
-        _heroCarouselReady = true;
-        _animateHeroEntrance();
-    }
-
-    // 自动轮播
-    if (_heroCarouselTimer) clearInterval(_heroCarouselTimer);
-    _heroCarouselTimer = setInterval(() => {
-        if (_heroCommanders.length === 0) return;
-        _heroCarouselIdx = (_heroCarouselIdx + 1) % _heroCommanders.length;
-        _showHeroSlide(_heroCarouselIdx, true);
-        _updateHeroDots();
-    }, 4500);
-}
-
-function _stopHeroCarousel() {
-    if (_heroCarouselTimer) { clearInterval(_heroCarouselTimer); _heroCarouselTimer = null; }
-}
-
-function _showHeroSlide(idx, animate) {
-    if (!_heroCommanders.length) return;
-    const cmdId = _heroCommanders[idx];
-    const cfg = COMMANDER_CONFIG[cmdId];
-    const name = cfg ? cfg.name : cmdId;
-    const imgA = document.getElementById('heroPortraitA');
-    const imgB = document.getElementById('heroPortraitB');
-
-    const src = `img/commander/${name}.webp`;
-    const activeImg = imgA.classList.contains('active') ? imgA : imgB;
-    const idleImg  = imgA.classList.contains('active') ? imgB : imgA;
-
-    if (!animate) {
-        activeImg.src = src;
-        activeImg.classList.add('active');
-        idleImg.classList.remove('active');
-        return;
-    }
-
-    const preload = new Image();
-    preload.onload = () => {
-        idleImg.src = src;
-        idleImg.classList.add('active');
-        activeImg.classList.remove('active');
-    };
-    preload.onerror = () => {
-        // 图片加载失败：跳过当前将领，换下一张
-        console.warn(`[轮播] 切换立绘失败：${cmdId}`);
-        const next = (idx + 1) % _heroCommanders.length;
-        if (next !== idx) {
-            _heroCarouselIdx = next;
-            _showHeroSlide(next, true);
-            _updateHeroDots();
-        }
-    };
-    preload.src = src;
-}
-
-function _jumpHeroCarousel(idx) {
-    if (!_heroCommanders.length) return;
-    _heroCarouselIdx = idx;
-    _showHeroSlide(idx, true);
-    _updateHeroDots();
-    // 重置自动轮播计时
-    if (_heroCarouselTimer) clearInterval(_heroCarouselTimer);
-    _heroCarouselTimer = setInterval(() => {
-        if (_heroCommanders.length === 0) return;
-        _heroCarouselIdx = (_heroCarouselIdx + 1) % _heroCommanders.length;
-        _showHeroSlide(_heroCarouselIdx, true);
-        _updateHeroDots();
-    }, 4500);
-}
-
-function _updateHeroDots() {
-    const dots = document.querySelectorAll('#heroCarouselDots .hdot');
-    dots.forEach((d, i) => d.classList.toggle('active', i === _heroCarouselIdx));
-}
-
-function _animateHeroEntrance() {
-    if (typeof gsap === 'undefined') return;
-    const tl = gsap.timeline();
-    const box = document.querySelector('.lobby-box');
-    const portrait = document.querySelector('.hero-portrait-frame');
-    const title = document.querySelector('.hero-title-block');
-    const buttons = document.querySelectorAll('.hero-btn');
-    const dots = document.getElementById('heroCarouselDots');
-
-    tl.fromTo(box, { opacity: 0, scale: 0.96, y: 12 }, { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: 'power3.out' });
-    tl.fromTo(portrait, { opacity: 0, x: 40, scale: 0.95 }, { opacity: 1, x: 0, scale: 1, duration: 0.7, ease: 'power2.out' }, '-=0.15');
-    tl.fromTo(title, { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.55, ease: 'power2.out' }, '-=0.3');
-    tl.fromTo(buttons, { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, stagger: 0.08, ease: 'back.out(1.2)' }, '-=0.2');
-    tl.fromTo(dots, { opacity: 0 }, { opacity: 1, duration: 0.3 }, '-=0.1');
 }
 
 function showMultiplayerLobby() {

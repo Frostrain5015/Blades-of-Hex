@@ -2153,6 +2153,8 @@ body {
 
 #chatPanel {
     position: absolute;
+    /* Overlay deliberately lets the board receive clicks; restore pointer input for the panel itself. */
+    pointer-events: auto;
     right: 16px;
     bottom: 24px;
     width: 320px;
