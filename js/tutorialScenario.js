@@ -93,23 +93,23 @@ export function setupTutorialBattlefield() {
     cTile.isCity = true;
 
     // ---- 红军单位 ----
-    const berserker = new Unit('cavalry', CAMP.player1, bTile, false, null, 'tutorial_berserker');
+    const berserker = new Unit('cavalry', CAMP.player1, bTile, false, 'tutorial_berserker', 'berserker');
     berserker.hp = Math.max(1, Math.round(berserker.maxHp * 0.78));
     berserker.displayHp = berserker.hp;
     // 手动将 morale 恢复到 2（没有友方夹击/包围，且刚上场）
     berserker.morale = 2;
 
-    const archer = new Unit('archer', CAMP.player1, aTile, false, null, 'tutorial_archer');
+    const archer = new Unit('archer', CAMP.player1, aTile, false, 'tutorial_archer', null);
     archer.canAct = false; // 本回合已行动（展示兵种，不操作）
     archer.morale = 2;
 
     // ---- 蓝军单位 ----
-    const centurion = new Unit('infantry', CAMP.player2, cTile, false, null, 'tutorial_centurion');
+    const centurion = new Unit('infantry', CAMP.player2, cTile, false, 'tutorial_centurion', 'centurion');
     centurion.hp = Math.max(1, Math.round(centurion.maxHp * 0.65));
     centurion.displayHp = centurion.hp;
     centurion.canAct = false; // 固守
 
-    const enemyCav = new Unit('cavalry', CAMP.player2, eTile, false, null, 'tutorial_enemyCav');
+    const enemyCav = new Unit('cavalry', CAMP.player2, eTile, false, 'tutorial_enemyCav', null);
     enemyCav.hp = 1; // 残血展示——可通过任何手段击杀
     enemyCav.displayHp = 1;
     enemyCav.canAct = false;
