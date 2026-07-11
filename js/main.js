@@ -2038,11 +2038,14 @@ async function handleRemoteAction(msg) {
         return;
     }
 
-    applyRemoteState(msg.state, HexTile, Unit);
-    await loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
-    syncBoardActionBar();
-    updateUI();
-    renderGame();
+    // 避免广播回显在 AI 处理期间覆盖 gameState（本端 endTurn 链已在处理，回显多余）
+    if (!gameState.aiActing && !gameState.gameOver) {
+        applyRemoteState(msg.state, HexTile, Unit);
+        await loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
+        syncBoardActionBar();
+        updateUI();
+        renderGame();
+    }
 
     // 三人模式：检查本地玩家是否已投降，显示观战横幅
     _checkSpectatorBanner();

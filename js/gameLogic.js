@@ -1008,8 +1008,10 @@ export async function endTurn(options = {}) {
 // 中立 AI 回合（Claude 防御型人格）：执行 AI 行动后推进回合。
 // 调用方负责 _turnProcessing 互斥（endTurn 链 / resumeNeutralTurnIfNeeded）。
 async function _processNeutralTurn(isLocalSkirmish) {
-    const hasNeutralUnits = gameState.tiles.some(t => t.unit && t.unit.camp === CAMP.neutral && t.unit.canAct);
+    const neutUnits = gameState.tiles.filter(t => t.unit && t.unit.camp === CAMP.neutral);
+    const hasNeutralUnits = neutUnits.some(t => t.unit.canAct);
     const hasNeutralCities = gameState.tiles.some(t => t.isCity && t.camp === CAMP.neutral && !t.unit);
+    console.warn('[neutral] units:', neutUnits.length, 'canAct:', neutUnits.filter(t=>t.unit.canAct).length, 'cities:', gameState.tiles.filter(t=>t.isCity&&t.camp===CAMP.neutral).length, 'emptyCities:', gameState.tiles.filter(t=>t.isCity&&t.camp===CAMP.neutral&&!t.unit).length);
     if (hasNeutralUnits || hasNeutralCities) {
         // 遭遇战热座：中立 AI 回合也遮罩，防止两边玩家偷看
         let neutralOverlay = null;
