@@ -173,44 +173,71 @@ export function createTutorialController() {
 
     // ---- 计算 hole 在视口中的位置 ----
     function getHoleRect(step) {
-        if (!step || step.phase === 'dialog') return null; // 全遮无洞
+        if (!step) return null;
+        const pad = 14;
 
-        const pad = 12; // 洞比目标稍大，留操作余量
-
+        // 优先用 step.target 计算精确洞位（画布棋子/动作按钮/对策卡画布）
         if (step.phase === 'canvasTarget') {
-            // 棋子/地块：从 tile 坐标映射到视口坐标
             const tile = getTargetTile(step.target);
-            if (!tile) return null;
-            const rect = canvas.getBoundingClientRect();
-            // 用 LOGICAL_W/H 而非 canvas.width/height，确保与渲染坐标系一致
-            const scaleX = rect.width / LOGICAL_W;
-            const scaleY = rect.height / LOGICAL_H;
-            const size = Math.max(72, Math.min(rect.width, rect.height) * 0.1);
-            const cx = rect.left + tile.x * scaleX;
-            const cy = rect.top + tile.y * scaleY;
-            return {
-                left: cx - size / 2 - pad,
-                top: cy - size / 2 - pad,
-                right: cx + size / 2 + pad,
-                bottom: cy + size / 2 + pad
-            };
+            if (tile) {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = rect.width / LOGICAL_W;
+                const scaleY = rect.height / LOGICAL_H;
+                const size = Math.max(72, Math.min(rect.width, rect.height) * 0.1);
+                const cx = rect.left + tile.x * scaleX;
+                const cy = rect.top + tile.y * scaleY;
+                return {
+                    left: cx - size / 2 - pad,
+                    top: cy - size / 2 - pad,
+                    right: cx + size / 2 + pad,
+                    bottom: cy + size / 2 + pad
+                };
+            }
         }
 
         if (step.phase === 'actionButton') {
             const el = document.querySelector('#canvasActionButtons');
-            if (!el) return null;
-            const r = el.getBoundingClientRect();
-            return { left: r.left - pad, top: r.top - pad, right: r.right + pad, bottom: r.bottom + pad };
+            if (el) {
+                const r = el.getBoundingClientRect();
+                return { left: r.left - pad, top: r.top - pad, right: r.right + pad, bottom: r.bottom + pad };
+            }
         }
 
         if (step.phase === 'cardCanvas') {
             const el = document.querySelector('#cardCanvas');
-            if (!el) return null;
-            const r = el.getBoundingClientRect();
-            return { left: r.left - pad, top: r.top - pad, right: r.right + pad, bottom: r.bottom + pad };
+            if (el) {
+                const r = el.getBoundingClientRect();
+                return { left: r.left - pad, top: r.top - pad, right: r.right + pad, bottom: r.bottom + pad };
+            }
         }
 
-        return null;
+        // 无精确目标时，用 step.focus 元素合并边界计算洞位
+        if (step.focus) {
+            let hole = null;
+            step.focus.split(',').forEach(sel => {
+                const el = document.querySelector(sel.trim());
+                if (!el) return;
+                const r = el.getBoundingClientRect();
+                if (!hole) {
+                    hole = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+                } else {
+                    hole.left = Math.min(hole.left, r.left);
+                    hole.top = Math.min(hole.top, r.top);
+                    hole.right = Math.max(hole.right, r.right);
+                    hole.bottom = Math.max(hole.bottom, r.bottom);
+                }
+            });
+            if (hole) {
+                return {
+                    left: hole.left - pad * 2,
+                    top: hole.top - pad * 2,
+                    right: hole.right + pad * 2,
+                    bottom: hole.bottom + pad * 2
+                };
+            }
+        }
+
+        return null; // 全遮无洞
     }
 
     // ---- 四块遮罩定位 ----
