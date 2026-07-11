@@ -1,0 +1,9 @@
+{
+  "clientId": "replace-with-frost-id-client-id",
+  "clientSecret": "replace-with-frost-id-client-secret",
+  "jwtSecret": "replace-with-a-random-32-byte-secret",
+  "authorizeUrl": "https://frostrain.tech/oauth/authorize",
+  "tokenUrl": "https://frostrain.tech/oauth/token",
+  "userinfoUrl": "https://frostrain.tech/oauth/userinfo",
+  "redirectUrl": "https://your-domain.example/auth/callback"
+}

@@ -1,0 +1,10 @@
+{
+  "adminPort": 3099,
+  "host": "127.0.0.1",
+  "gameHttpPort": 3000,
+  "gameHttpsPort": 3443,
+  "password": "replace-with-a-strong-admin-password",
+  "adminToken": "replace-with-a-random-32-byte-token",
+  "blacklist": [],
+  "notes": {}
+}

@@ -9,10 +9,35 @@ const protocolReady = import('./protocol/messages.js');
 
 const HTTP_PORT  = process.env.PORT || process.env.HTTP_PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
-const ADMIN_TOKEN = 'blades-of-hex-admin-v2';
+const AUTH_CONFIG_PATH = process.env.BOH_AUTH_CONFIG || path.join(__dirname, 'auth-config.json');
+const ADMIN_CONFIG_PATH = process.env.BOH_ADMIN_CONFIG || path.join(__dirname, 'admin-config.json');
+
+let AUTH_CFG = null;
+try {
+    AUTH_CFG = JSON.parse(fs.readFileSync(AUTH_CONFIG_PATH, 'utf-8'));
+} catch {
+    console.warn('[auth] OAuth configuration is unavailable; Frost ID login is disabled.');
+}
+
+let adminConfig = {};
+try {
+    adminConfig = JSON.parse(fs.readFileSync(ADMIN_CONFIG_PATH, 'utf-8'));
+} catch {
+    console.warn('[admin] Admin configuration is unavailable; remote admin commands are disabled.');
+}
+
+const ADMIN_TOKEN = process.env.BOH_ADMIN_TOKEN || adminConfig.adminToken || null;
+const PUBLIC_ROOT = path.resolve(__dirname);
+
+function isAdminToken(token) {
+    if (!ADMIN_TOKEN || typeof token !== 'string') return false;
+    const expected = Buffer.from(ADMIN_TOKEN);
+    const actual = Buffer.from(token);
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
 
 // ── Frost ID JWT verification ────────────────────────────
-const JWT_SECRET = 'blades-auth-jwt-secret-2026-05-29';
+const JWT_SECRET = process.env.BOH_JWT_SECRET || AUTH_CFG?.jwtSecret || crypto.randomBytes(32).toString('base64url');
 function base64urlDecode(str) {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4) str += '=';
@@ -37,13 +62,12 @@ let blacklist = new Set();
 const clients = new Map();       // clientId → { ip, roomId, role, connectTime }
 const adminIPs = new Set();      // 管理后台连接的 IP
 try {
-    const adminConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'admin-config.json'), 'utf-8'));
     if (adminConfig.blacklist) blacklist = new Set(adminConfig.blacklist);
 } catch(e) { /* admin-config.json 不存在时忽略 */ }
 
 function saveBlacklist() {
     try {
-        const configPath = path.join(__dirname, 'admin-config.json');
+        const configPath = ADMIN_CONFIG_PATH;
         const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
         config.blacklist = [...blacklist];
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
@@ -59,6 +83,7 @@ const MIME = {
     '.css':  'text/css; charset=utf-8',
     '.jpg':  'image/jpeg',
     '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
     '.png':  'image/png',
     '.ico':  'image/x-icon',
     '.mp3':  'audio/mpeg',
@@ -66,9 +91,10 @@ const MIME = {
     '.ogg':  'audio/ogg',
     '.oga':  'audio/ogg',
 };
+const STATIC_ROOT_FILES = new Set(['/index.html', '/favicon.ico']);
+const STATIC_DIRECTORIES = ['/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/'];
 
 // ── Frost ID OAuth config ──────────────────────────────
-const AUTH_CFG = JSON.parse(fs.readFileSync(path.join(__dirname, 'auth-config.json'), 'utf-8'));
 const verifierStore = new Map();
 setInterval(() => { const now = Date.now(); for (const [k,v] of verifierStore) if (v.expiresAt < now) verifierStore.delete(k); }, 60000);
 
@@ -82,9 +108,12 @@ function sigJWT(payload) {
 function genV() { return b64url(crypto.randomBytes(32)); }
 function genC(v) { return b64url(crypto.createHash('sha256').update(v).digest()); }
 
-function htmlForCB(url, jwt, uname) {
-  const store = jwt ? 'localStorage.setItem("blades_token","'+jwt+'");localStorage.setItem("blades_user",\'{"username":"'+uname+'"}\');' : '';
-  return '<html><body><script>'+store+'if(window.opener){window.opener.location.reload();window.close()}else{location.href="'+url+'"}</script></body></html>';
+function htmlForCB(destination, jwt, username) {
+  const safeJson = (value) => JSON.stringify(value).replace(/</g, '\\u003c');
+  const store = jwt
+    ? `localStorage.setItem('blades_token', ${safeJson(jwt)});localStorage.setItem('blades_user', JSON.stringify({username:${safeJson(username)}}));`
+    : '';
+  return `<!doctype html><meta charset="utf-8"><script>${store}if(window.opener){window.opener.postMessage({type:'boh-auth-complete'},location.origin);window.opener.location.reload();window.close()}else{location.replace(${safeJson(destination)})}</script>`;
 }
 
 function staticHandler(req, res) {
@@ -99,15 +128,30 @@ function staticHandler(req, res) {
 
     // ── OAuth routes ────────────────────────────────────
     if (urlPath === '/auth/login') {
-      res.writeHead(302, { Location: '/' }); res.end();
+      if (!AUTH_CFG) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Frost ID login is not configured'); return; }
+      const verifier = genV();
+      const state = genV();
+      verifierStore.set(state, { verifier, expiresAt: Date.now() + 10 * 60 * 1000 });
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: AUTH_CFG.clientId,
+        redirect_uri: AUTH_CFG.redirectUrl,
+        code_challenge: genC(verifier),
+        code_challenge_method: 'S256',
+        state,
+        scope: 'openid profile email'
+      });
+      res.writeHead(302, { Location: `${AUTH_CFG.authorizeUrl}?${params}` }); res.end();
       return;
     }
     if (urlPath === '/auth/callback') {
       const code = query.get('code'); const state = query.get('state'); const err = query.get('error');
-      if (err) { res.end(htmlForCB('/?auth_error='+err)); return; }
-      let verifier = null;
-      try { const d = Buffer.from(state, 'base64url').toString('utf-8'); verifier = d.split('|')[0]; } catch(e) {}
-      if (!verifier) { res.end(htmlForCB('/?auth_error=invalid_state')); return; }
+      if (!AUTH_CFG) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Frost ID login is not configured'); return; }
+      if (err) { res.end(htmlForCB('/?auth_error='+encodeURIComponent(err))); return; }
+      const pending = state ? verifierStore.get(state) : null;
+      if (state) verifierStore.delete(state);
+      const verifier = pending?.verifier;
+      if (!code || !verifier) { res.end(htmlForCB('/?auth_error=invalid_state')); return; }
       fetch(AUTH_CFG.tokenUrl,{method:'POST',
         headers:{'Content-Type':'application/x-www-form-urlencoded'},
         body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:AUTH_CFG.redirectUrl,
@@ -118,8 +162,7 @@ function staticHandler(req, res) {
       .then(u=>{
         const jwt=sigJWT({sub:u.sub,email:u.email,preferred_username:u.username||u.email?.split('@')[0]||'User'});
         const uname=u.username||u.email?.split('@')[0]||'User';
-        const params = new URLSearchParams({token:jwt,username:uname}).toString();
-        res.end(htmlForCB('/?'+params, jwt, uname));
+        res.end(htmlForCB('/', jwt, uname));
       })
       .catch(e=>res.end(htmlForCB('/?auth_error='+(typeof e==='string'?e:e.message))));
       return;
@@ -131,9 +174,25 @@ function staticHandler(req, res) {
         return;
     }
 
-    const filePath = path.join(__dirname, urlPath);
+    if (!STATIC_ROOT_FILES.has(urlPath) && !STATIC_DIRECTORIES.some((prefix) => urlPath.startsWith(prefix))) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('404 Not Found');
+        return;
+    }
+
+    const filePath = path.resolve(PUBLIC_ROOT, `.${urlPath.startsWith('/') ? urlPath : `/${urlPath}`}`);
+    if (filePath !== PUBLIC_ROOT && !filePath.startsWith(PUBLIC_ROOT + path.sep)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('403 Forbidden');
+        return;
+    }
     const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME[ext] || 'application/octet-stream';
+    const contentType = MIME[ext];
+    if (!contentType) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('404 Not Found');
+        return;
+    }
 
     fs.stat(filePath, (err, stats) => {
         if (err || stats.isDirectory()) {
@@ -321,7 +380,7 @@ async function handleMessage(ws, rawData) {
     try { msg = JSON.parse(rawData); } catch { return; }
 
     // admin 消息标记（管理后台自身连接不计入用户列表）
-    if (msg.type && msg.type.startsWith('admin')) {
+    if (msg.type && msg.type.startsWith('admin') && isAdminToken(msg.token)) {
         ws._isAdmin = true;
         adminIPs.add(ws._ip);
     } else if (msg.type && !msg.type.startsWith('admin')) {
@@ -656,7 +715,7 @@ async function handleMessage(ws, rawData) {
 
         // ==== 管理后台消息 ====
         case 'adminListAll': {
-            if (msg.token !== ADMIN_TOKEN) break;
+            if (!isAdminToken(msg.token)) break;
             const allRooms = [];
             for (const [id, room] of rooms) {
                 const playerList = [];
@@ -674,7 +733,7 @@ async function handleMessage(ws, rawData) {
         }
 
         case 'adminCloseRoom': {
-            if (msg.token !== ADMIN_TOKEN) break;
+            if (!isAdminToken(msg.token)) break;
             const roomId = msg.roomId;
             const room = rooms.get(roomId);
             if (!room) { sendJson(ws, { type: 'adminCloseResult', roomId, ok: false, reason: '房间不存在' }); break; }
@@ -693,7 +752,7 @@ async function handleMessage(ws, rawData) {
         }
 
         case 'adminListUsers': {
-            if (msg.token !== ADMIN_TOKEN) break;
+            if (!isAdminToken(msg.token)) break;
             const users = [];
             for (const [clientId, info] of clients) {
                 // 管理后台自身的连接不显示
@@ -705,7 +764,7 @@ async function handleMessage(ws, rawData) {
         }
 
         case 'adminBanUser': {
-            if (msg.token !== ADMIN_TOKEN) break;
+            if (!isAdminToken(msg.token)) break;
             const banIp = msg.ip;
             if (!banIp) break;
             blacklist.add(banIp);
@@ -737,7 +796,7 @@ async function handleMessage(ws, rawData) {
         }
 
         case 'adminUnbanUser': {
-            if (msg.token !== ADMIN_TOKEN) break;
+            if (!isAdminToken(msg.token)) break;
             const unbanIp = msg.ip;
             if (!unbanIp) break;
             blacklist.delete(unbanIp);
@@ -748,7 +807,7 @@ async function handleMessage(ws, rawData) {
         }
 
         case 'adminFlushRooms': {
-            if (msg.token !== ADMIN_TOKEN) break;
+            if (!isAdminToken(msg.token)) break;
             let count = 0;
             for (const [id, room] of rooms) {
                 broadcastRoom(room, { type: 'roomClosed', reason: '管理员清空了所有房间' });
@@ -768,7 +827,7 @@ async function handleMessage(ws, rawData) {
         }
 
         case 'adminPing': {
-            if (msg.token !== ADMIN_TOKEN) break;
+            if (!isAdminToken(msg.token)) break;
             sendJson(ws, { type: 'adminPong', uptime: process.uptime() });
             break;
         }

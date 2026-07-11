@@ -1,21 +1,32 @@
 const http      = require('http');
 const fs        = require('fs');
 const path      = require('path');
+const crypto    = require('crypto');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
 
 // ==== 配置 =====================
 const PROJECT_ROOT = path.join(__dirname, '..');
-let config = { adminPort: 3099, gameHttpPort: 3000, gameHttpsPort: 3443, password: 'admin', blacklist: [], notes: {} };
+const ADMIN_CONFIG_PATH = process.env.BOH_ADMIN_CONFIG || path.join(PROJECT_ROOT, 'admin-config.json');
+let config = { adminPort: 3099, gameHttpPort: 3000, gameHttpsPort: 3443, blacklist: [], notes: {} };
 try {
-    config = { ...config, ...JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, 'admin-config.json'), 'utf-8')) };
+    config = { ...config, ...JSON.parse(fs.readFileSync(ADMIN_CONFIG_PATH, 'utf-8')) };
 } catch(e) { console.log('未检测到 admin-config.json，使用默认配置'); }
 
-const ADMIN_TOKEN = 'blades-of-hex-admin-v2';
+const ADMIN_PASSWORD = process.env.BOH_ADMIN_PASSWORD || config.password || null;
+const ADMIN_TOKEN = process.env.BOH_ADMIN_TOKEN || config.adminToken || crypto.randomBytes(32).toString('base64url');
+const ADMIN_HOST = process.env.BOH_ADMIN_HOST || config.host || '127.0.0.1';
+
+function credentialsMatch(actual, expected) {
+    if (typeof actual !== 'string' || typeof expected !== 'string') return false;
+    const left = Buffer.from(actual);
+    const right = Buffer.from(expected);
+    return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
 
 function saveConfig() {
     try {
-        fs.writeFileSync(path.join(PROJECT_ROOT, 'admin-config.json'), JSON.stringify(config, null, 2), 'utf-8');
+        fs.writeFileSync(ADMIN_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
     } catch(e) {}
 }
 
@@ -73,7 +84,8 @@ function spawnGameServer() {
     const env = {
         ...process.env,
         HTTP_PORT: String(config.gameHttpPort),
-        HTTPS_PORT: String(config.gameHttpsPort)
+        HTTPS_PORT: String(config.gameHttpsPort),
+        BOH_ADMIN_TOKEN: ADMIN_TOKEN
     };
     // detached + unref: 游戏服独立于管理后台进程，关闭 CMD 窗口也不影响
     gameProcess = spawn('node', ['server.js'], {
@@ -127,9 +139,10 @@ function addLogLine(text, level) {
 }
 
 function handleProcessOutput(chunk, level) {
-    const remainder = level === 'stdout' ? 'stdoutRemainder' : 'stderrRemainder';
-    const lines = (eval(remainder) + chunk.toString()).split('\n');
-    eval(`${remainder} = lines.pop()`);
+    const previous = level === 'stdout' ? stdoutRemainder : stderrRemainder;
+    const lines = (previous + chunk.toString()).split('\n');
+    if (level === 'stdout') stdoutRemainder = lines.pop();
+    else stderrRemainder = lines.pop();
     for (const line of lines) {
         if (!line.trim()) continue;
         addLogLine(line, level);
@@ -155,7 +168,8 @@ const MIME = {
 
 function staticHandler(req, res) {
     let urlPath = req.url === '/' ? '/admin.html' : req.url.split('?')[0];
-    const filePath = path.join(__dirname, urlPath);
+    const filePath = path.resolve(__dirname, `.${urlPath.startsWith('/') ? urlPath : `/${urlPath}`}`);
+    if (filePath !== __dirname && !filePath.startsWith(__dirname + path.sep)) { res.writeHead(403); res.end('403'); return; }
     const ext = path.extname(filePath).toLowerCase();
     if (!MIME[ext]) { res.writeHead(404); res.end('404'); return; }
     fs.readFile(filePath, (err, data) => {
@@ -189,7 +203,7 @@ wss.on('connection', (ws) => {
 
         switch (msg.type) {
             case 'auth': {
-                if (msg.password === config.password) {
+                if (credentialsMatch(msg.password, ADMIN_PASSWORD)) {
                     ws._authenticated = true;
                     sendJson(ws, { type: 'authResult', ok: true });
                     // 发送当前状态
@@ -469,14 +483,13 @@ process.on('SIGINT', () => { process.exit(0); });
 process.on('SIGTERM', () => { process.exit(0); });
 
 // ==== 启动 =====================
-httpServer.listen(config.adminPort, () => {
+httpServer.listen(config.adminPort, ADMIN_HOST, () => {
     console.log('');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('  Blades of Hex — 管理后台');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('');
-    console.log(`  管理后台: http://localhost:${config.adminPort}`);
-    console.log(`  默认密码: ${config.password}`);
+    console.log(`  管理后台: http://${ADMIN_HOST}:${config.adminPort}`);
     console.log('');
     console.log('  游戏服务器需在管理面板中手动启动。');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

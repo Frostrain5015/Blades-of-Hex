@@ -489,7 +489,16 @@
     if (savedToken && savedUser) {
       try {
         const u = JSON.parse(savedUser);
-        authSlot.innerHTML = '<span class="auth-inline-user">' + u.username + '</span><button class="auth-inline-logout" id="authInlineLogout">Exit</button>';
+        authSlot.replaceChildren();
+        const userLabel = document.createElement('span');
+        userLabel.className = 'auth-inline-user';
+        userLabel.textContent = typeof u.username === 'string' ? u.username : '';
+        const logoutButton = document.createElement('button');
+        logoutButton.className = 'auth-inline-logout';
+        logoutButton.id = 'authInlineLogout';
+        logoutButton.type = 'button';
+        logoutButton.textContent = 'Exit';
+        authSlot.append(userLabel, logoutButton);
         if (brandSnow) brandSnow.classList.add('logged-in');
         document.getElementById('authInlineLogout')?.addEventListener('click', function() {
           localStorage.removeItem('blades_token');
@@ -504,7 +513,16 @@
 
   function renderLogin() {
     if (!authSlot) return;
-    authSlot.innerHTML = '<a class="auth-inline-login" href="/auth/login"><span class="auth-frost" aria-hidden="true">❄</span>登录 Frost ID</a>';
+    authSlot.replaceChildren();
+    const loginLink = document.createElement('a');
+    loginLink.className = 'auth-inline-login';
+    loginLink.href = '/auth/login';
+    const frost = document.createElement('span');
+    frost.className = 'auth-frost';
+    frost.setAttribute('aria-hidden', 'true');
+    frost.textContent = '❄';
+    loginLink.append(frost, document.createTextNode('登录 Frost ID'));
+    authSlot.appendChild(loginLink);
     if (brandSnow) brandSnow.classList.remove('logged-in');
   }
 

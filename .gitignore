@@ -9,3 +9,6 @@ tools/deploy.js
 tools/deploy.local.js
 deploy.js.local
 test-results/
+auth-config.json
+admin-config.json
+.env
