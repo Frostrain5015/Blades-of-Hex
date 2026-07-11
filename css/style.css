@@ -2667,7 +2667,8 @@ body {
     outline-offset: 3px;
     box-shadow: 0 0 0 5px rgba(255, 198, 72, 0.14), 0 0 24px rgba(255, 191, 62, 0.58) !important;
     border-radius: 7px;
-    z-index: 9504;
+    /* 仅在棋盘内部层叠上下文生效，低于教程遮罩（9500） */
+    z-index: 100;
 }
 
 @media (max-width: 640px) {
