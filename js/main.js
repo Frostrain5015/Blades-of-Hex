@@ -671,7 +671,10 @@ function beginTutorial() {
 	stopBattleBGM();
 	loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 教程将领特效加载失败:', err));
 
-	_runCountdown(() => {
+	_showCampaignIntro({
+	campaignTitle: '将星列传 · 我心如火',
+	scenarioSubtitle: '序 雨幕下的孤城'
+}, () => {
 		initMap();
 		setupTutorialBattlefield();
 		runTutorialOpponentScript().catch(err => console.warn('[tutorial] AI 脚本初始化失败:', err));
@@ -1691,6 +1694,53 @@ function startGame() {
         const factionName = gameState.isThreePlayer ? '三人' : '双人';
         showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得游戏胜利`);
     });
+}
+
+// ---- 战役剧情开场遮罩（通用接口） ----
+// config: { campaignTitle: '将星列传 · 我心如火', scenarioSubtitle: '序 雨幕下的孤城' }
+// onDismiss: 点击遮罩后回调，此时遮罩已淡出
+function _showCampaignIntro(config, onDismiss) {
+	const overlay = document.getElementById('turnTransitionOverlay');
+	const textEl = document.getElementById('turnTransitionText');
+	const subEl = overlay.querySelector('.turn-transition-sub');
+	if (!overlay) { onDismiss(); return; }
+
+	// 隐藏原始子元素，注入 campaign 内容
+	textEl.style.display = 'none';
+	if (subEl) subEl.style.display = 'none';
+	overlay.querySelectorAll('.campaign-intro-subtitle, .campaign-intro-title, .campaign-intro-hint').forEach(el => el.remove());
+
+	const subtitle = document.createElement('div');
+	subtitle.className = 'campaign-intro-subtitle';
+	subtitle.textContent = config.campaignTitle || '';
+
+	const title = document.createElement('div');
+	title.className = 'campaign-intro-title';
+	title.textContent = config.scenarioSubtitle || '';
+
+	const hint = document.createElement('div');
+	hint.className = 'campaign-intro-hint';
+	hint.textContent = '点击开始';
+
+	overlay.appendChild(subtitle);
+	overlay.appendChild(title);
+	overlay.appendChild(hint);
+
+	overlay.classList.add('show');
+	overlay.style.cursor = 'pointer';
+	overlay.onclick = function handler() {
+		overlay.classList.remove('show');
+		overlay.style.opacity = '';
+		overlay.onclick = null;
+		// 移除 campaign 元素，恢复原始子元素
+		subtitle.remove();
+		title.remove();
+		hint.remove();
+		textEl.style.display = '';
+		if (subEl) subEl.style.display = '';
+		// 给淡出留时间再启动
+		setTimeout(() => onDismiss(), 350);
+	};
 }
 
 // ---- 3-2-1 全屏倒计时 ----
