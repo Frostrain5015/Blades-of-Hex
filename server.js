@@ -900,6 +900,8 @@ function attachWebSocket(httpServer) {
         ws._rematchReady = false;
         ws._isAdmin = false;
         ws._clientId = null;
+        ws._alive = true;
+        ws._pingTimer = null;
 
         ws._messageQueue = Promise.resolve();
         ws.on('message', (data) => {
@@ -915,6 +917,7 @@ function attachWebSocket(httpServer) {
             if (hadRoom) console.log(`[连接] 玩家断线，当前房间数: ${rooms.size}`);
         });
 
+        ws.on('pong', () => { ws._alive = true; });
         ws.on('error', () => {});
     });
 
@@ -927,6 +930,15 @@ function attachWebSocket(httpServer) {
 const httpServer = http.createServer(staticHandler);
 attachWebSocket(httpServer);
 httpServer.listen(HTTP_PORT, () => {
+    // 心跳检测：每 25 秒 ping 所有连接，无响应则断开
+    setInterval(() => {
+        for (const ws of clients.values()) {
+            if (!ws._alive) { try { ws.terminate(); } catch(e) {} continue; }
+            ws._alive = false;
+            try { ws.ping(); } catch (e) { try { ws.terminate(); } catch(e) {} }
+        }
+    }, 25000);
+
     console.log(`HTTP  服务器已在 :${HTTP_PORT} 启动`);
 });
 
