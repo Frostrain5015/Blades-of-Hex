@@ -601,6 +601,7 @@ function beginTutorial() {
 	_stopHeroCarousel();
 	_deploymentStarted = true;
 	resetGameState();
+	document.getElementById('networkIndicator').style.display = 'none';
 	gameState.gameMode = 'pve';
 	gameState._trainingMode = true;
 	gameState.tutorialMode = true;

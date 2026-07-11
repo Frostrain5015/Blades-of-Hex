@@ -226,7 +226,10 @@ export function createTutorialController() {
             const el = document.querySelector('#cardCanvas');
             if (el) {
                 const r = el.getBoundingClientRect();
-                return { left: r.left - pad, top: r.top - pad, right: r.right + pad, bottom: r.bottom + pad };
+                // 仅露出底部手牌区域（~45%），避免玩家点到顶部的抽牌堆
+                const handRatio = 0.45;
+                const handTop = r.top + r.height * (1 - handRatio);
+                return { left: r.left - pad, top: handTop - pad, right: r.right + pad, bottom: r.bottom + pad };
             }
         }
 

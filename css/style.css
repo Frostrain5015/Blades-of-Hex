@@ -3788,7 +3788,7 @@ body {
    ============================================================= */
 
 #networkIndicator {
-    display: none;
+    display: none !important;
     align-items: center;
     gap: 6px;
     font-size: 11px;
