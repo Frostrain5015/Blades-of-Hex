@@ -1741,6 +1741,9 @@ body {
 .commander-panel-training {
     width: min(1220px, calc(100vw - 32px));
 }
+.commander-panel-training .commander-cards {
+    max-width: 1200px;
+}
 
 /* ---- 牌堆（单张） ---- */
 .commander-deck {
