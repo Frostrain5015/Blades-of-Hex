@@ -730,28 +730,30 @@ function beginCampaignScenario() {
 	stopLobbyBGM();
 	stopBattleBGM();
 
+	// 在遮罩后预先加载棋盘，避免玩家点击后才看到空棋盘
+	gameState.rng.setState(RAIN_CITY_SCENARIO.seed);
+	initMap();
+	setupRainCityBattlefield();
+	loadCommanderFx(gameState).catch(err => console.warn('[campaign] 将领特效加载失败:', err));
+	initInput();
+	initKeyboard();
+	initSettingsPanel();
+	setOnFogUpdated(updateCampEmblems);
+	updateCampEmblems();
+	updateChatAvailability();
+	initEmblemChatClicks();
+	gameState.currentCamp = CAMP.player1;
+	grantTurnStartIncome(CAMP.player1);
+	updateUI();
+	updateButtonColors();
+	renderGame();
+
 	_showCampaignIntro({
 		campaignTitle: '将星列传 · 我心如火',
 		scenarioSubtitle: '序 雨幕下的孤城'
 	}, () => {
-		gameState.rng.setState(RAIN_CITY_SCENARIO.seed);
-		initMap();
-		setupRainCityBattlefield();
-		loadCommanderFx(gameState).catch(err => console.warn('[campaign] 将领特效加载失败:', err));
-		initInput();
-		initKeyboard();
-		initSettingsPanel();
-		setOnFogUpdated(updateCampEmblems);
-		updateCampEmblems();
-		updateChatAvailability();
-		initEmblemChatClicks();
-		gameState.currentCamp = CAMP.player1;
-		grantTurnStartIncome(CAMP.player1);
-		updateUI();
-		updateButtonColors();
 		startBattleBGM();
 		playSound('turnEnd');
-		renderGame();
 		_campaignController.start();
 		emit('turn:started', { camp: CAMP.player1, campKey: 'player1', turnCounter: gameState.turnCounter });
 	});
