@@ -357,6 +357,8 @@ function leaveCurrentRoom(ws) {
             room._disconnectedRoles[role] = ws._clientId || null;
         }
     }
+    // 在删除 ws 前记录其 role，用于 broadcast
+    const leftRole = room.players.get(ws)?.role || null;
     room.players.delete(ws);
     ws._room = null;
     ws._ready = false;
@@ -365,7 +367,6 @@ function leaveCurrentRoom(ws) {
         startZombieTimer(room);
     } else {
         clearZombieTimer(room);
-        const leftRole = room.players.get(ws)?.role || null;
         broadcastRoom(room, { type: 'opponentLeft', role: leftRole });
         // 对局中不重置 gameStarted，保留重连可能
         if (!room.gameStarted) {
