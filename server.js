@@ -398,32 +398,6 @@ async function handleMessage(ws, rawData) {
             break;
         }
 
-        case 'checkReconnect': {
-            // 检查该 clientId 是否有处于断线等待重连状态的对局
-            const cid = ws._clientId;
-            if (!cid) { sendJson(ws, { type: 'reconnectInfo', reconnect: false }); break; }
-            let foundRoom = null;
-            for (const [id, room] of rooms) {
-                if (!room.gameStarted) continue;
-                const roles = room._disconnectedRoles;
-                if (!roles) continue;
-                for (const [role, storedCid] of Object.entries(roles)) {
-                    if (storedCid === cid) {
-                        foundRoom = { roomId: id, role };
-                        break;
-                    }
-                }
-                if (foundRoom) break;
-            }
-            if (foundRoom) {
-                const roleName = foundRoom.role === 'player1' ? '红军' : foundRoom.role === 'player2' ? '蓝军' : foundRoom.role === 'player3' ? '绿军' : foundRoom.role;
-                sendJson(ws, { type: 'reconnectInfo', reconnect: true, roomId: foundRoom.roomId, role: foundRoom.role, roleName });
-            } else {
-                sendJson(ws, { type: 'reconnectInfo', reconnect: false });
-            }
-            break;
-        }
-
         case 'createRoom': {
             leaveCurrentRoom(ws);
             const roomId = acquireRoomId();
@@ -520,12 +494,11 @@ async function handleMessage(ws, rawData) {
                 if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
                 sendJson(ws, { type: 'reconnected', roomId, role });
                 console.log(`[重连] 已发送 reconnected 给重连方`);
-                // 告知所有在线对手玩家重连了，各自恢复其角色确保 _myRole 正确
+                // 告知所有在线对手玩家重连了，传重连者的 role 以便恢复对应阵营头像
                 const others = [...room.players.keys()].filter(p => p !== ws);
                 if (others.length > 0) {
                     for (const p of others) {
-                        const roleOfP = room.players.get(p)?.role || null;
-                        sendJson(p, { type: 'opponentReconnected', role: roleOfP });
+                        sendJson(p, { type: 'opponentReconnected', role: role });
                     }
                     console.log(`[重连] 已发送 opponentReconnected 给 ${others.length} 个对手`);
                 } else {

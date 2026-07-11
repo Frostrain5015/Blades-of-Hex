@@ -49,11 +49,6 @@ if (!_clientId) {
 }
 export function getClientId() { return _clientId; }
 
-export function checkReconnect() {
-    if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
-    _ws.send(JSON.stringify({ type: 'checkReconnect' }));
-}
-
 const _cb = {};
 
 export function setNetworkCallbacks(callbacks) {
@@ -158,9 +153,6 @@ export function connectToServer(url) {
                     break;
                 case 'error':
                     _cb.onError?.(msg.message);
-                    break;
-                case 'reconnectInfo':
-                    _cb.onReconnectInfo?.(msg);
                     break;
                 case 'roomClosed':
                     _myRole = null;
