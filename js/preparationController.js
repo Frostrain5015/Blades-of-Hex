@@ -44,16 +44,16 @@ export function createPreparationController({
         container.innerHTML = `
             <label class="prep-check-option">
                 <input type="checkbox" id="prepSkirmish" />
-                <span class="prep-check-copy"><strong>遭遇战</strong><small>开启战争迷雾与遭遇战专属卡牌</small></span>
+                <span class="prep-check-copy"><strong>遭遇战</strong><small>开启战争迷雾</small></span>
             </label>
             <label class="prep-check-option">
                 <input type="checkbox" id="prepDoubleCommander" />
-                <span class="prep-check-copy"><strong>双将模式</strong><small>随机 ${COMMANDER_DRAFT.dualCandidatesPerPlayer} 名将领，选择 ${COMMANDER_DRAFT.dualCommanderCount} 名分别部署</small></span>
+                <span class="prep-check-copy"><strong>双将模式</strong><small>可部署两名将领</small></span>
             </label>
             ${action === 'training' ? `
             <label class="prep-check-option prep-tutorial-option">
                 <input type="checkbox" id="prepTutorial" />
-                <span class="prep-check-copy"><strong>教程</strong><small>固定双人剧本：狂战士对百夫长，循序学习基本操作</small></span>
+                <span class="prep-check-copy"><strong>教程</strong><small>学习游戏基本操作</small></span>
             </label>` : ''}
         `;
 
@@ -98,8 +98,8 @@ export function createPreparationController({
             difficultySection.classList.remove('hidden');
             difficultySection.classList.add('collapsed');
             buildOptionRow('prepOptions1', [
-                { id: '2p', title: '双人', desc: '1v1 在线对战' },
-                { id: '3p', title: '三人', desc: '三方混战' }
+                { id: '2p', title: '双人' },
+                { id: '3p', title: '三人' }
             ]);
         } else if (action === 'training') {
             title.textContent = '训练场';
@@ -107,20 +107,20 @@ export function createPreparationController({
             difficultySection.classList.remove('hidden');
             difficultySection.classList.add('collapsed');
             buildOptionRow('prepOptions1', [
-                { id: '2p', title: '双人', desc: '红军与蓝军轮流自选将领' },
-                { id: '3p', title: '三人', desc: '红、蓝、绿三方依次自选将领' }
+                { id: '2p', title: '双人' },
+                { id: '3p', title: '三人' }
             ]);
         } else {
             title.textContent = '本地游戏';
             document.getElementById('prepLabel1').textContent = '对战类型';
             buildOptionRow('prepOptions1', [
-                { id: 'pve', title: 'PVE 对战AI', desc: '红军 vs 蓝军AI' },
-                { id: 'local', title: '本地双人', desc: '两位玩家轮流' }
+                { id: 'pve', title: 'PVE' },
+                { id: 'local', title: '本地热座', desc: '玩家轮流操作' }
             ]);
             buildOptionRow('prepOptionsDiff', [
-                { id: 'easy', title: '简单', desc: 'AI 1x 经济' },
-                { id: 'medium', title: '中等', desc: 'AI 1.5x 经济' },
-                { id: 'hard', title: '困难', desc: 'AI 2x 经济' }
+                { id: 'easy', title: '简单' },
+                { id: 'medium', title: '中等' },
+                { id: 'hard', title: '困难' }
             ]);
             difficultySection.classList.remove('hidden', 'collapsed');
             const updateDifficulty = () => {
@@ -145,7 +145,7 @@ export function createPreparationController({
             gameState.isThreePlayer = maxPlayers === 3;
             gameState.skirmishFog = skirmishFog;
             gameState.doubleCommanderMode = doubleCommanderMode;
-            setStatus(`正在创建${maxPlayers}人房间...`);
+            setStatus(`正在创建房间...`);
             createRoom(maxPlayers);
             return;
         }
