@@ -42,10 +42,10 @@ function _enqueueRemoteAction(msg) {
 // 页面刷新/闪断重连仍保留同一ID，不影响对局恢复。
 const CLIENT_ID_KEY = 'bladesOfHex_clientId';
 let _clientId = null;
-try { _clientId = sessionStorage.getItem(CLIENT_ID_KEY); } catch (e) { /* ignore */ }
+try { _clientId = localStorage.getItem(CLIENT_ID_KEY); } catch (e) { /* ignore */ }
 if (!_clientId) {
     _clientId = 'u' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-    try { sessionStorage.setItem(CLIENT_ID_KEY, _clientId); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(CLIENT_ID_KEY, _clientId); } catch (e) { /* ignore */ }
 }
 export function getClientId() { return _clientId; }
 
