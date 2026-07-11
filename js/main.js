@@ -1908,14 +1908,17 @@ async function handleRemoteAction(msg) {
 
     // 服务器下发的暂存状态：仅在尚未开始对局时恢复（防止对战中途地形重绘）
     if (msg.actionType === 'stateSync') {
-        if (!_deploymentStarted) {
+        const needsGameBootstrap = !_deploymentStarted;
+        if (needsGameBootstrap) {
             document.getElementById('lobbyOverlay').style.display = 'none';
             document.getElementById('gameWrapper').style.display = '';
             document.getElementById('opponentTurnBanner').style.display = '';
             document.getElementById('networkIndicator').style.display = 'flex';
             document.body.style.pointerEvents = '';
             _deploymentStarted = true;
-            applyRemoteState(msg.state, HexTile, Unit);
+        }
+        applyRemoteState(msg.state, HexTile, Unit);
+        if (needsGameBootstrap) {
             applyTopbarLayout();
             loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 重连加载失败:', err));
             for (const tile of gameState.tiles) {
@@ -1934,6 +1937,12 @@ async function handleRemoteAction(msg) {
             rebindKeyboardEvents();
             initSettingsPanel();
             initEmblemChatClicks();
+        } else {
+            syncBoardActionBar();
+            updateUI();
+            renderGame();
+            updateCampEmblems();
+            _checkSpectatorBanner();
         }
         return;
     }

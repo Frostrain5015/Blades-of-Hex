@@ -1,9 +1,12 @@
 import { CAMP } from './config.js';
 import { gameState } from './state.js';
+import { buildActionMessage } from '../protocol/messages.js';
 
 let _ws = null;
 let _myRole = null;   // 'player1' | 'player2' | 'player3' | null
 let _myRoomId = null;
+let _revision = 0;
+let _matchSeed = null;
 
 // 自动重连
 let _reconnectUrl = null;
@@ -54,6 +57,8 @@ export function setNetworkCallbacks(callbacks) {
 
 export function getMyRole() { return _myRole; }
 export function getMyRoomId() { return _myRoomId; }
+export function getMatchRevision() { return _revision; }
+export function getMatchSeed() { return _matchSeed; }
 export function isNetworkGame() { return _myRole !== null; }
 
 export function isMyTurn(currentCamp) {
@@ -115,6 +120,8 @@ export function connectToServer(url) {
                 case 'roomLeft':
                     _myRoomId = null;
                     _myRole = null;
+                    _revision = 0;
+                    _matchSeed = null;
                     _cb.onRoomLeft?.();
                     break;
                 case 'opponentJoined':
@@ -140,7 +147,9 @@ export function connectToServer(url) {
                     break;
                 case 'start':
                     _myRole = msg.role;
-                    _cb.onStart?.(msg.role, msg.isThreePlayer, msg.skirmishFog, msg.doubleCommanderMode);
+                    _revision = Number.isInteger(msg.revision) ? msg.revision : 0;
+                    _matchSeed = Number.isInteger(msg.matchSeed) ? msg.matchSeed : null;
+                    _cb.onStart?.(msg.role, msg.isThreePlayer, msg.skirmishFog, msg.doubleCommanderMode, _matchSeed);
                     break;
                 case 'error':
                     _cb.onError?.(msg.message);
@@ -156,7 +165,11 @@ export function connectToServer(url) {
                     _cb.onBanned?.(msg.message);
                     break;
                 case 'action':
+                    if (Number.isInteger(msg.revision)) _revision = msg.revision;
                     _enqueueRemoteAction(msg);
+                    break;
+                case 'actionAccepted':
+                    if (Number.isInteger(msg.revision)) _revision = msg.revision;
                     break;
                 case 'rematchPending':
                     _cb.onRematchPending?.();
@@ -178,6 +191,8 @@ export function connectToServer(url) {
             _lastRoomId = _myRoomId;
             _myRole = null;
             _myRoomId = null;
+            _revision = 0;
+            _matchSeed = null;
             _cb.onDisconnected?.();
             if (!_intentionalClose && _reconnectUrl) {
                 _startAutoReconnect();
@@ -229,6 +244,8 @@ export function disconnect() {
     _reconnectUrl = null;
     _myRole = null;
     _myRoomId = null;
+    _revision = 0;
+    _matchSeed = null;
     if (_ws) { try { _ws.close(); } catch(e) {}; _ws = null; }
 }
 
@@ -276,8 +293,7 @@ export function sendAction(actionType, serializedState, effectData = null) {
         console.warn(`[WS] sendAction(${actionType}) skipped: socket not open (readyState=${_ws ? _ws.readyState : 'null'})`);
         return;
     }
-    const msg = { type: 'action', actionType, state: serializedState };
-    if (effectData) msg.effects = effectData;
+    const msg = buildActionMessage(actionType, serializedState, effectData, _revision);
     try {
         _ws.send(JSON.stringify(msg));
     } catch (e) {

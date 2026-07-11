@@ -5,6 +5,7 @@ const path  = require('path');
 const os    = require('os');
 const crypto = require('crypto');
 const WebSocket = require('ws');
+const protocolReady = import('./protocol/messages.js');
 
 const HTTP_PORT  = process.env.PORT || process.env.HTTP_PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
@@ -233,6 +234,25 @@ function broadcastRoom(room, obj, exclude = null) {
     }
 }
 
+function createRoomAuthority() {
+    return {
+        revision: 0,
+        state: null,
+        matchSeed: crypto.randomBytes(4).readUInt32LE(0)
+    };
+}
+
+function sendAuthoritativeSnapshot(ws, room, reason) {
+    if (reason) sendJson(ws, { type: 'error', message: reason });
+    if (!room?.authority?.state) return;
+    sendJson(ws, {
+        type: 'action',
+        actionType: 'stateSync',
+        state: room.authority.state,
+        revision: room.authority.revision
+    });
+}
+
 function startZombieTimer(room) {
     if (room._zombieTimer) return;
     room._zombieSince = Date.now();
@@ -295,7 +315,8 @@ function leaveCurrentRoom(ws) {
 // ====
 //  WebSocket 处理
 // ====
-function handleMessage(ws, rawData) {
+async function handleMessage(ws, rawData) {
+    const protocol = await protocolReady;
     let msg;
     try { msg = JSON.parse(rawData); } catch { return; }
 
@@ -328,7 +349,15 @@ function handleMessage(ws, rawData) {
             const maxPlayers = msg.maxPlayers || 2; // 默认双人，可选3人
             const skirmishFog = msg.skirmishFog || false;
             const doubleCommanderMode = msg.doubleCommanderMode || false;
-            const room = { id: roomId, players: new Map(), gameStarted: false, maxPlayers, skirmishFog, doubleCommanderMode };
+            const room = {
+                id: roomId,
+                players: new Map(),
+                gameStarted: false,
+                maxPlayers,
+                skirmishFog,
+                doubleCommanderMode,
+                authority: createRoomAuthority()
+            };
             room.players.set(ws, { role: 'player1' });
             rooms.set(roomId, room);
             ws._room = room;
@@ -419,8 +448,14 @@ function handleMessage(ws, rawData) {
                 }
                 // 向重连方 + 所有在线对手同步暂存的对局状态
                 console.log(`[重连] _savedState=` + (room._savedState ? '有' : '无'));
-                if (room._savedState) {
-                    const syncMsg = { type: 'action', actionType: 'stateSync', state: room._savedState };
+                if (room.authority?.state || room._savedState) {
+                    const state = room.authority?.state || room._savedState;
+                    const syncMsg = {
+                        type: 'action',
+                        actionType: 'stateSync',
+                        state,
+                        revision: room.authority?.revision || 0
+                    };
                     sendJson(ws, syncMsg);
                     for (const p of others) sendJson(p, syncMsg);
                     console.log(`[房间 ${roomId}] 重连完成，已同步暂存状态`);
@@ -492,6 +527,7 @@ function handleMessage(ws, rawData) {
             const allReady = ws._ready && others.every(o => o._ready);
             if (allReady) {
                 room.gameStarted = true;
+                room.authority = createRoomAuthority();
                 const players = [...room.players.keys()];
                 const roles = room.maxPlayers === 3
                     ? ['player1', 'player2', 'player3']
@@ -503,7 +539,16 @@ function handleMessage(ws, rawData) {
                 }
                 for (let i = 0; i < players.length; i++) {
                     room.players.set(players[i], { ...room.players.get(players[i]), role: roles[i] });
-                    sendJson(players[i], { type: 'start', role: roles[i], isThreePlayer: room.maxPlayers === 3, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false });
+                    sendJson(players[i], {
+                        type: 'start',
+                        protocolVersion: protocol.PROTOCOL_VERSION,
+                        role: roles[i],
+                        isThreePlayer: room.maxPlayers === 3,
+                        skirmishFog: room.skirmishFog || false,
+                        doubleCommanderMode: room.doubleCommanderMode || false,
+                        revision: room.authority.revision,
+                        matchSeed: room.authority.matchSeed
+                    });
                 }
                 console.log(`[房间 ${room.id}] ${room.maxPlayers}人准备完毕，游戏开始`);
             }
@@ -522,12 +567,13 @@ function handleMessage(ws, rawData) {
                 ws._ready = false;
                 other._ready = false;
                 room.gameStarted = true;
+                room.authority = createRoomAuthority();
                 const roleA = Math.random() < 0.5 ? 'player1' : 'player2';
                 const roleB = roleA === 'player1' ? 'player2' : 'player1';
                 room.players.set(ws, { role: roleA });
                 room.players.set(other, { role: roleB });
-                sendJson(ws, { type: 'start', role: roleA, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false });
-                sendJson(other, { type: 'start', role: roleB, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false });
+                sendJson(ws, { type: 'start', protocolVersion: protocol.PROTOCOL_VERSION, role: roleA, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false, revision: room.authority.revision, matchSeed: room.authority.matchSeed });
+                sendJson(other, { type: 'start', protocolVersion: protocol.PROTOCOL_VERSION, role: roleB, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false, revision: room.authority.revision, matchSeed: room.authority.matchSeed });
                 console.log(`[房间 ${room.id}] 再来一局`);
             }
             break;
@@ -536,8 +582,10 @@ function handleMessage(ws, rawData) {
         case 'saveState': {
             const room = ws._room;
             if (!room || !room.gameStarted) break;
-            room._savedState = msg.state;
-            console.log(`[房间 ${room.id}] 已暂存游戏状态`);
+            if (protocol.isValidSnapshot(msg.state) && !room.authority.state) {
+                room.authority.state = msg.state;
+                room._savedState = msg.state;
+            }
             break;
         }
 
@@ -555,15 +603,52 @@ function handleMessage(ws, rawData) {
 
         case 'action': {
             const room = ws._room;
-            if (!room) break;
-            // 每次动作都暂存状态，确保双方断线后均有最新状态可恢复
-            if (msg.state) {
-                room._savedState = msg.state;
-                if (msg.state.cardDrawPile) console.log(`[房间 ${room.id}] 动作暂存: drawPile=${msg.state.cardDrawPile.length}，p1Hand=${(msg.state.playerHands||{}).player1?.length||0}，p2Hand=${(msg.state.playerHands||{}).player2?.length||0}`);
+            if (!room || !room.gameStarted) break;
+            const validation = protocol.validateActionMessage(msg);
+            if (!validation.ok) {
+                sendAuthoritativeSnapshot(ws, room, validation.reason);
+                break;
             }
+            const authority = room.authority || (room.authority = createRoomAuthority());
+            if (msg.baseRevision !== authority.revision) {
+                sendAuthoritativeSnapshot(ws, room, '操作已过期，已恢复服务端状态');
+                break;
+            }
+            const senderRole = room.players.get(ws)?.role;
+            const expectedCamp = protocol.roleToCampKey(senderRole);
+            if (!senderRole || !expectedCamp) {
+                sendAuthoritativeSnapshot(ws, room, '无效的玩家身份');
+                break;
+            }
+            if (authority.state && !protocol.isSetupAction(msg.actionType, authority.state)
+                && authority.state.currentCampKey !== expectedCamp) {
+                sendAuthoritativeSnapshot(ws, room, '当前不是你的回合');
+                break;
+            }
+            if (msg.state.isThreePlayer !== (room.maxPlayers === 3)
+                || !!msg.state.skirmishFog !== !!room.skirmishFog
+                || !!msg.state.doubleCommanderMode !== !!room.doubleCommanderMode) {
+                sendAuthoritativeSnapshot(ws, room, '对局规则与房间设置不一致');
+                break;
+            }
+            const baseRevision = authority.revision;
+            authority.state = msg.state;
+            authority.revision += 1;
+            room._savedState = authority.state;
+            const canonicalAction = {
+                type: 'action',
+                protocolVersion: protocol.PROTOCOL_VERSION,
+                actionType: msg.actionType,
+                state: authority.state,
+                effects: msg.effects || null,
+                baseRevision,
+                revision: authority.revision,
+                originRole: senderRole
+            };
+            sendJson(ws, { type: 'actionAccepted', revision: authority.revision });
             for (const [playerWs] of room.players) {
                 if (playerWs !== ws && playerWs.readyState === WebSocket.OPEN) {
-                    sendJson(playerWs, msg);
+                    sendJson(playerWs, canonicalAction);
                 }
             }
             break;
@@ -758,7 +843,12 @@ function attachWebSocket(httpServer) {
         ws._isAdmin = false;
         ws._clientId = null;
 
-        ws.on('message', (data) => handleMessage(ws, data));
+        ws._messageQueue = Promise.resolve();
+        ws.on('message', (data) => {
+            ws._messageQueue = ws._messageQueue
+                .then(() => handleMessage(ws, data))
+                .catch((error) => console.error('[WS] message handling failed:', error));
+        });
 
         ws.on('close', () => {
             const hadRoom = !!ws._room;

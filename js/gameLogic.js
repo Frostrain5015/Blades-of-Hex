@@ -3,7 +3,7 @@ import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
 import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState, seedMatchRng } from './state.js';
-import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
+import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit, _pendingRankUps } from './Unit.js';
@@ -285,8 +285,8 @@ export function recalcAllFlankingMorale() {
 }
 
 export function initMap() {
-    // 阶段 4 会由服务端下发逐局种子；过渡期按房间号先让所有联机客户端拥有相同随机序列。
-    if (isNetworkGame()) seedMatchRng(`room:${getMyRoomId() || '0'}`);
+    // 联机对局使用服务端逐局种子；旧服务端降级为房间号，保证兼容现有房间。
+    if (isNetworkGame()) seedMatchRng(getMatchSeed() ?? `room:${getMyRoomId() || '0'}`);
     gameState.tiles = [];
 
     // City definitions: each city anchors a Voronoi district
