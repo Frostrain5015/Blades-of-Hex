@@ -218,6 +218,7 @@ function _switchLobbyView(viewId, anim = true) {
     if (!target || _activeLobbyView === viewId) return;
 
     document.getElementById('lobbyLeftPanel')?.classList.toggle('campaign-active', viewId === 'campaignLobbyContent');
+    document.getElementById('lobbyLeftPanel')?.classList.toggle('solo-active', viewId === 'soloLobbyContent');
     document.body.classList.toggle('campaign-lobby-active', viewId === 'campaignLobbyContent');
 
     const oldEl = _activeLobbyView ? document.getElementById(_activeLobbyView) : null;
@@ -493,16 +494,24 @@ const _preparationController = createPreparationController({
     beginCommanderPhase,
     beginPVECommanderPhase,
     beginTrainingCommanderPhase,
-    showHome,
     showMultiplayerLobby,
     setStatus,
     switchLobbyView: _switchLobbyView
 });
 _preparationController.init();
 
+// ==== 单人游戏二级菜单：将星列传 / 标准对局 / 训练场 ====
+function showSoloMenu() {
+    _switchLobbyView('soloLobbyContent');
+    connectionBar.classList.add('visible');
+}
+document.getElementById('soloGameBtn').addEventListener('click', showSoloMenu);
+document.getElementById('soloBackBtn').addEventListener('click', showHome);
+
 document.getElementById('campaignBtn').addEventListener('click', showCampaignLobby);
 document.getElementById('campaignBackBtn').addEventListener('click', () => {
-    showHome();
+    // 将星列传隶属单人游戏 → 返回上级二级菜单，并恢复立绘轮播
+    showSoloMenu();
     _startHeroCarousel().catch(err => console.warn('[轮播] 恢复失败:', err));
 });
 // 关卡卡/进入按钮由 campaign/lobby.js 依数据生成并绑定（见 showCampaignLobby）。

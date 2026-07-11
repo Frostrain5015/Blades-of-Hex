@@ -2848,6 +2848,8 @@ body {
     overflow: hidden;
 }
 .hero-left.campaign-active { overflow-y: hidden; }
+/* 单人游戏二级菜单：强制禁用横纵两个方向的滚动条（高特异性，覆盖移动端 auto 回退） */
+.hero-left.solo-active { overflow-x: hidden; overflow-y: hidden; }
 .campaign-lobby-view::before {
     content: '';
     position: absolute;

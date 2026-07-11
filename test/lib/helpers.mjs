@@ -57,7 +57,8 @@ export function ev(page, fn, ...args) {
 
 // ── 游戏流程驱动 ─────────────────────────────────────────
 export async function startSolo(page) {
-    await page.click('#soloGameBtn');
+    await page.click('#soloGameBtn');           // 首页 → 单人游戏二级菜单
+    await page.click('#standardGameBtn');       // 二级菜单 → 标准对局准备页
     await page.waitForSelector('#prepConfirm', { timeout: 5000 });
     await page.click('#prepConfirm');
 }

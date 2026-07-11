@@ -30,6 +30,7 @@ export async function run(browser) {
     const R = new Reporter('campaign');
     const page = await newGamePage(browser);
 
+    await page.click('#soloGameBtn');   // 首页 → 单人游戏二级菜单
     await page.click('#campaignBtn');
     await waitFor(() => page.evaluate(() => {
         const view = document.getElementById('campaignLobbyContent');

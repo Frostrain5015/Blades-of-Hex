@@ -8,7 +8,6 @@ export function createPreparationController({
     beginCommanderPhase,
     beginPVECommanderPhase,
     beginTrainingCommanderPhase,
-    showHome,
     showMultiplayerLobby,
     setStatus,
     switchLobbyView
@@ -81,7 +80,7 @@ export function createPreparationController({
                 { id: '3p', title: '三人' }
             ]);
         } else {
-            title.textContent = '本地游戏';
+            title.textContent = '标准对局';
             document.getElementById('prepLabel1').textContent = '对战类型';
             buildOptionRow('prepOptions1', [
                 { id: 'pve', title: 'PVE' },
@@ -150,10 +149,11 @@ export function createPreparationController({
 
     function init() {
         document.getElementById('prepBackBtn').addEventListener('click', () => {
+            // 标准对局/训练场均由“单人游戏”二级菜单进入 → 返回上级菜单
             if (action === 'createRoom') showMultiplayerLobby();
-            else showHome();
+            else switchLobbyView('soloLobbyContent');
         });
-        document.getElementById('soloGameBtn').addEventListener('click', () => showPrepDialog('solo'));
+        document.getElementById('standardGameBtn').addEventListener('click', () => showPrepDialog('solo'));
         document.getElementById('trainingBtn').addEventListener('click', () => showPrepDialog('training'));
     }
 

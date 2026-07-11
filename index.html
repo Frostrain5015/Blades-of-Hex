@@ -49,6 +49,25 @@
                             </span>
                             <span class="hero-btn-arrow">→</span>
                         </button>
+                        <button class="hero-btn hero-btn-secondary" id="multiplayerBtn">
+                            <span class="hero-btn-icon">🌐</span>
+                            <span class="hero-btn-content">
+                                <span class="hero-btn-title">联网对战</span>
+                            </span>
+                            <span class="hero-btn-arrow">→</span>
+                        </button>
+                    </div>
+                    <div class="hero-carousel-dots" id="heroCarouselDots"></div>
+                </div>
+
+                <!-- 单人游戏：二级菜单（禁用横纵滚动，由 .hero-left.solo-active 锁定） -->
+                <div id="soloLobbyContent" class="lobby-view">
+                    <div class="mp-topbar">
+                        <button id="soloBackBtn" class="mp-nav-btn">← 返回首页</button>
+                        <span class="mp-topbar-title">单人游戏</span>
+                        <span></span>
+                    </div>
+                    <div class="hero-actions">
                         <button class="hero-btn hero-btn-campaign" id="campaignBtn">
                             <span class="hero-btn-icon">🔥</span>
                             <span class="hero-btn-content">
@@ -56,10 +75,10 @@
                             </span>
                             <span class="hero-btn-arrow">→</span>
                         </button>
-                        <button class="hero-btn hero-btn-secondary" id="multiplayerBtn">
-                            <span class="hero-btn-icon">🌐</span>
+                        <button class="hero-btn hero-btn-primary" id="standardGameBtn">
+                            <span class="hero-btn-icon">⚔️</span>
                             <span class="hero-btn-content">
-                                <span class="hero-btn-title">联网对战</span>
+                                <span class="hero-btn-title">标准对局</span>
                             </span>
                             <span class="hero-btn-arrow">→</span>
                         </button>
@@ -71,13 +90,12 @@
                             <span class="hero-btn-arrow">→</span>
                         </button>
                     </div>
-                    <div class="hero-carousel-dots" id="heroCarouselDots"></div>
                 </div>
 
                 <!-- 单人战役：传记线与关卡二级菜单 -->
                 <div id="campaignLobbyContent" class="lobby-view campaign-lobby-view">
                     <div class="mp-topbar campaign-topbar">
-                        <button id="campaignBackBtn" class="mp-nav-btn">← 返回首页</button>
+                        <button id="campaignBackBtn" class="mp-nav-btn">← 返回上级</button>
                         <span class="mp-topbar-title">将星列传</span>
                         <span class="campaign-progress-mark" id="campaignProgressMark">当前进度 0%</span>
                     </div>
@@ -606,6 +624,6 @@
 </script>
 <script src="js/lib/howler.min.js"></script>
 <script src="js/lib/gsap.min.js"></script>
-<script type="module" src="js/main.js?v=d5f651398d"></script>
+<script type="module" src="js/main.js?v=ada4618a1a"></script>
 </body>
 </html>
