@@ -1,4 +1,4 @@
-import { getRoundIndex } from '../js/config.js';
+import { getRoundIndex } from '../rules/turns.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 // 占星者 —— 夜观 + 星移
 // 被动：3格内友军免疫天气不利效果

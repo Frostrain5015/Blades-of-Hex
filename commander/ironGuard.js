@@ -1,8 +1,9 @@
 // 铁卫 —— 守护
-import { HEX_SIZE } from '../js/config.js';
+import { BOARD_RULES } from '../rules/constants.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.ironGuard;
+const HEX_SIZE = BOARD_RULES.hexSize;
 
 export default {
   ...DEFINITION,

@@ -1,4 +1,4 @@
-import { CAMP } from '../js/config.js';
+import { CAMP } from '../rules/camps.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.engineer;

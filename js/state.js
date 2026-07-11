@@ -1,9 +1,13 @@
 import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE, getRound } from './config.js';
-import { nextId, getCounter, setCounter } from './uid.js';
 import { computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
-import { createRng } from '../core/rng.js';
+import { emit } from './eventBus.js';
+import { isTileVisible } from './fogOfWar.js';
+import {
+    createMatchState, resetMatchState, createClientUiState, resetClientUiState,
+    serializeMatchState, restoreMatchState
+} from '../engine/matchState.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
@@ -25,198 +29,15 @@ function animateCounter(el, newVal, fmtFn, key) {
 }
 
 // ===== 游戏核心状态 =====================
-export const gameState = {
-    tiles: [],
-    tileMap: new Map(),
-    currentCamp: CAMP.player1,
-    playerGold: { player1: 4, player2: 4, player3: 4, neutral: 4 },
-    selectedUnit: null,
-    movableTiles: [],
-    moveParents: new Map(),
-    attackableTiles: [],
-    damageTexts: [],
-    healTexts: [],
-    selectedCityTile: null,
-    selectedTile: null,
-    goldTexts: [],
-    hoveredTile: null,
-    selectionTime: 0,
-    gameOver: false,
-    victoryCamp: null,
-    previousGold: { player1: 4, player2: 4, player3: 4, neutral: 4 },
-    turnCounter: 0,
-    logHistory: [],
-    killCount: { player1: 0, player2: 0, player3: 0, neutral: 0 },
-    aiActing: false,
-    gameMode: 'local',      // 'local' | 'pve' | 'network'
-    aiOpponentCamp: null,   // PVE 模式下 AI 对手的阵营（CAMP.player1 或 CAMP.player2）
-    isThreePlayer: false,   // 三人模式
-    surrenderedCamps: [],   // 三人模式中已投降的阵营
-    weather: 'clear',
-    lastWeather: null,
-    weatherLockUntil: 0,  // E1: 占星者星移锁定天气至该回合
-    _starlightResume: false, // E1: 星移锁定结束后强制重新随机天气
-    _cardOverrides: {},   // E3: 纵横家合纵卡牌覆盖 { campKey: { handSizeBonus, useBonus } }
-    _soulMarks: [],       // E2: 亡灵法师亡魂标记 [{ q, r, campKey, bornAt }]
-    _colonelDeployed: {},
-    _droneDeployTurn: {},
-    _droneDeployCount: {},
-    _colonelAirStacks: {}, // E4: 上校部署标记 { campKey: bool }
-    // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
-    // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
-    // 使联机收方与重连保持一致。详见 core/rng.js。
-    rng: createRng((Date.now() >>> 0) || 1),
-    deselecting: false,
-    deselectionTime: 0,
-    deselectMoveTiles: [],
-    deselectAtkTiles: [],
-    deselectOrigin: null,
-    // 将领系统
-    commanderPoolP1: [],
-    commanderPoolP2: [],
-    commanderPoolP3: [],
-    commanderP1: null,
-    commanderP2: null,
-    commanderP3: null,
-    commanderP1Secondary: null,
-    commanderP2Secondary: null,
-    commanderP3Secondary: null,
-    commanderP1Confirmed: false,
-    commanderP2Confirmed: false,
-    commanderP3Confirmed: false,
-    commanderP1SecondaryConfirmed: false,
-    commanderP2SecondaryConfirmed: false,
-    commanderP3SecondaryConfirmed: false,
-    commanderP1Deployed: false,
-    commanderP2Deployed: false,
-    commanderP3Deployed: false,
-    commanderP1SecondaryDeployed: false,
-    commanderP2SecondaryDeployed: false,
-    commanderP3SecondaryDeployed: false,
-    doubleCommanderMode: false,
-    // 洗牌换将：每名玩家一次性，消耗全部初始资金换 3 名未被占用的将领
-    commanderRerolled: { player1: false, player2: false, player3: false },
-    _rerollPenaltyApplied: { player1: false, player2: false, player3: false },
-    commanderPhase: 'done',  // 'selection' | 'deployment' | 'done'
-    factionMoraleBoost: { player1: 0, player2: 0, player3: 0 },
-    // 对策卡系统 v2
-    cardDrawPile: [],
-    cardDiscardPile: [],
-    playerHands: { player1: [], player2: [], player3: [] },
-    playerDrawsThisTurn: { player1: 0, player2: 0, player3: 0 },
-    playerUsesThisTurn: { player1: 0, player2: 0, player3: 0 },
-    cardStackExpanded: false,
-    cardTargeting: null,
-    // 战争迷雾（遭遇战模式）
-    skirmishFog: false,
-    visibleTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
-    exploredTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
-    _prevVisibleTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
-    _fogTransitionStart: 0,
-    // 侦察揭示：{ player1: Map("q,r" → expiresAt), ... }
-    scoutReveals: { player1: new Map(), player2: new Map(), player3: new Map() },
-    // 国界线（阵营交界边集）
-    campBorderEdges: [],
-    // 行政区界线（同阵营不同行政区交界）
-    districtBorderEdges: [],
-    // 村庄：Map("q,r" → { districtId, q, r })
-    villageTiles: new Map(),
-    // PVE 难度：对手 AI 经济倍率（不影响中立 AI）
-    aiDifficulty: 1.0,
-    // 遭遇战胜利时保存的完整棋盘快照（用于查看完整棋局）
-    _victoryBoardSnapshot: null
-};
+// 字段归属的唯一出处在 engine/matchState.js：
+//   MatchState（规则结算/可序列化） + ClientUiState（本地选中/动画/浮层）。
+// 过渡期两者仍合并为同一个单例对象，旧代码的引用方式不变。
+export const gameState = Object.assign(createMatchState(), createClientUiState());
 
 // ===== 重置游戏状态（再来一局时调用） =====================
 export function resetGameState() {
-    gameState.tiles = [];
-    gameState.tileMap = new Map();
-    gameState.currentCamp = CAMP.player1;
-    gameState.playerGold = { player1: 4, player2: 4, player3: 4, neutral: 4 };
-    gameState.selectedUnit = null;
-    gameState.movableTiles = [];
-    gameState.moveParents = new Map();
-    gameState.attackableTiles = [];
-    gameState.damageTexts = [];
-    gameState.healTexts = [];
-    gameState.selectedCityTile = null;
-    gameState.selectedTile = null;
-    gameState.goldTexts = [];
-    gameState.hoveredTile = null;
-    gameState.selectionTime = 0;
-    gameState.gameOver = false;
-    gameState.victoryCamp = null;
-    gameState.previousGold = { player1: -1, player2: -1, player3: -1, neutral: -1 };
-    gameState.turnCounter = 0;
-    // 新对局重新播种模拟 RNG(联机模式随后会被 state-sync 对齐;可由
-    // seedMatchRng 显式指定共享种子以做到开局即跨端确定)。
-    gameState.rng.setState((Date.now() >>> 0) ^ ((Math.random() * 0x7fffffff) >>> 0));
-    gameState.logHistory = [];
-    gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0 };
-    gameState._friendlyDeathCount = {};
-    gameState.aiActing = false;
-    gameState.gameMode = 'local';
-    gameState.aiOpponentCamp = null;
-    gameState.isThreePlayer = false;
-    gameState.surrenderedCamps = [];
-    gameState.weather = 'clear';
-    gameState.lastWeather = null;
-    gameState.weatherLockUntil = 0;
-    gameState._starlightResume = false;
-    gameState._cardOverrides = {};
-    gameState._soulMarks = [];
-    gameState._colonelDeployed = {};
-    gameState._droneDeployTurn = {};
-    gameState._droneDeployCount = {};
-    gameState.deselecting = false;
-    gameState.deselectionTime = 0;
-    gameState.deselectMoveTiles = [];
-    gameState.deselectAtkTiles = [];
-    gameState.deselectOrigin = null;
-    gameState.skirmishFog = false;
-    gameState.visibleTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
-    gameState.exploredTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
-    gameState._prevVisibleTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
-    gameState._fogTransitionStart = 0;
-    gameState.scoutReveals = { player1: new Map(), player2: new Map(), player3: new Map() };
-    gameState.campBorderEdges = [];
-    gameState.districtBorderEdges = [];
-    gameState.villageTiles = new Map();
-    gameState.aiDifficulty = 1.0;
-    gameState._victoryBoardSnapshot = null;
-    gameState.commanderPoolP1 = [];
-    gameState.commanderPoolP2 = [];
-    gameState.commanderPoolP3 = [];
-    gameState.commanderP1 = null;
-    gameState.commanderP2 = null;
-    gameState.commanderP3 = null;
-    gameState.commanderP1Secondary = null;
-    gameState.commanderP2Secondary = null;
-    gameState.commanderP3Secondary = null;
-    gameState.commanderP1Confirmed = false;
-    gameState.commanderP2Confirmed = false;
-    gameState.commanderP3Confirmed = false;
-    gameState.commanderP1SecondaryConfirmed = false;
-    gameState.commanderP2SecondaryConfirmed = false;
-    gameState.commanderP3SecondaryConfirmed = false;
-    gameState.commanderP1Deployed = false;
-    gameState.commanderP2Deployed = false;
-    gameState.commanderP3Deployed = false;
-    gameState.commanderP1SecondaryDeployed = false;
-    gameState.commanderP2SecondaryDeployed = false;
-    gameState.commanderP3SecondaryDeployed = false;
-    gameState.doubleCommanderMode = false;
-    gameState.commanderRerolled = { player1: false, player2: false, player3: false };
-    gameState._rerollPenaltyApplied = { player1: false, player2: false, player3: false };
-    gameState.commanderPhase = 'done';
-    gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0 };
-    gameState.cardDrawPile = [];
-    gameState.cardDiscardPile = [];
-    gameState.playerHands = { player1: [], player2: [], player3: [] };
-    gameState.playerDrawsThisTurn = { player1: 0, player2: 0, player3: 0 };
-    gameState.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0 };
-    gameState.cardStackExpanded = false;
-    gameState.cardTargeting = null;
+    resetMatchState(gameState);
+    resetClientUiState(gameState);
     // 清除计数器动画记忆
     for (const k of Object.keys(_counterStore)) delete _counterStore[k];
 }
@@ -226,6 +47,40 @@ export function rebuildTileMap() {
     for (const tile of gameState.tiles) {
         gameState.tileMap.set(`${tile.q},${tile.r}`, tile);
     }
+}
+
+/**
+ * 将当前 HUD 的查看对象保存为稳定标识，而非 Tile / Unit 实例。
+ * 远端快照会重建这些实例，只有 ID 或坐标能在同步后安全恢复。
+ */
+export function setInspectionTarget(tile) {
+    if (!tile) {
+        gameState.inspectionTarget = null;
+        return;
+    }
+    gameState.inspectionTarget = tile.unit
+        ? { kind: 'unit', unitId: tile.unit.id }
+        : { kind: 'tile', q: tile.q, r: tile.r };
+}
+
+function _resolveInspectionTarget(target) {
+    if (!target) return null;
+    if (target.kind === 'unit') {
+        for (const tile of gameState.tiles) {
+            if (tile.unit?.id === target.unitId && tile.unit.hp > 0) return tile;
+        }
+        return null;
+    }
+    if (target.kind === 'tile') return gameState.tileMap.get(`${target.q},${target.r}`) || null;
+    return null;
+}
+
+function _getLegacyInspectionTarget() {
+    const tile = gameState.selectedTile || gameState.selectedUnit?.tile || null;
+    if (!tile) return null;
+    return tile.unit
+        ? { kind: 'unit', unitId: tile.unit.id }
+        : { kind: 'tile', q: tile.q, r: tile.r };
 }
 
 // idCounter 和 nextId 已移至 uid.js
@@ -576,6 +431,7 @@ export function clearselection() {
     gameState.attackableTiles = [];
     gameState.selectionTime = 0;
     gameState.deselecting = false;
+    setInspectionTarget(null);
     updateRecruitButtonStates();
 }
 
@@ -590,6 +446,7 @@ export function deselectUnit() {
     gameState.movableTiles = [];
     gameState.attackableTiles = [];
     gameState.selectionTime = 0;
+    setInspectionTarget(null);
     updateRecruitButtonStates();
 }
 
@@ -604,384 +461,14 @@ export function seedMatchRng(seed) {
 }
 
 export function serializeState() {
-    const tileIndex = new Map();
-    gameState.tiles.forEach((t, i) => tileIndex.set(t, i));
-
-    function _campToKey(c) { return c === CAMP.player1 ? 'p1' : c === CAMP.player2 ? 'p2' : c === CAMP.player3 ? 'p3' : 'neutral'; }
-    const tilesData = gameState.tiles.map(t => ({
-        id: t.id,
-        q: t.q, r: t.r, s: t.s,
-        campKey: _campToKey(t.camp),
-        isCity: t.isCity,
-        isVillage: t.isVillage,
-        villageDistrictId: t.villageDistrictId,
-        districtId: t.districtId,
-        terrain: t.terrain,
-        fortification: t.fortification || null,
-        startColor: t.startColor,
-        targetColor: t.targetColor,
-        currentColor: t.currentColor,
-        fadeStartTime: t.fadeStartTime,
-        minePlanted: t._minePlanted || false,
-        mineCampKey: t._mineCampKey || null,
-        cityDisabledUntil: t._cityDisabledUntil || 0,
-        reinforcedThisTurn: t._reinforcedThisTurn || false,
-        unit: t.unit ? {
-            id: t.unit.id,
-            type: t.unit.type,
-            campKey: _campToKey(t.unit.camp),
-            hp: t.unit.hp,
-            maxHp: t.unit.maxHp,
-            canAct: t.unit.canAct,
-            movedThisTurn: t.unit.movedThisTurn,
-            counterAttackCount: t.unit.counterAttackCount,
-            isNewRecruit: t.unit.isNewRecruit,
-            morale: t.unit.morale,
-            moraleBoostUntil: t.unit.moraleBoostUntil,
-            moralePenaltyUntil: t.unit.moralePenaltyUntil || 0,
-            remainingMP: t.unit.remainingMP,
-            commander: t.unit.commander,
-            _centurionTriggered: t.unit._centurionTriggered,
-            _atkBonus: t.unit._atkBonus,
-            _rankDefBonus: t.unit._rankDefBonus || 0,
-            _rankCritBonus: t.unit._rankCritBonus || 0,
-            _rankRegenPct: t.unit._rankRegenPct || 0,
-            displaySpeed: t.unit.displaySpeed,
-            xp: t.unit._xp,
-            rank: t.unit._rank,
-            fallen: t.unit._fallen || false,
-            activeSkillCD: t.unit.activeSkillCD,
-            activeSkillDur: t.unit.activeSkillDur,
-            phantomStacks: t.unit._phantomStacks || 0,
-            berserkerQixue: t.unit._berserkerQixue || false,
-            imprisoned: t.unit._imprisoned || false,
-            isImmobile: t.unit._isImmobile || false,
-            airdropWaiting: t.unit._airdropWaiting || false,
-            soulRecallLandAt: t.unit._soulRecallLandAt || 0,
-            airliftLandAt: t.unit._airliftLandAt || 0,
-            martyrPrimed: t.unit._martyrPrimed || false,
-            elegyBonus: t.unit._elegyBonus || 0,
-            elegyProcessed: t.unit._elegyProcessed || 0,
-            isSoulMinion: t.unit._isSoulMinion || false,
-            shield: t.unit._shield || 0,
-            shieldMax: t.unit._shieldMax || 0,
-            shieldTurns: t.unit._shieldTurns || 0,
-            faith: t.unit._faith || 0,
-            oathGainTurn: t.unit._oathGainTurn ?? null,
-            smiteReady: t.unit._smiteReady || false,
-            smiteCharged: t.unit._smiteCharged || false,
-            healingAura: t.unit._healingAura || 0,
-            activeSkillBuffs: t.unit._activeSkillBuffs || null,
-            isDrone: t.unit._isDrone || false,
-            droneSignalDisabled: t.unit._droneSignalDisabled || false,
-            droneCampKey: t.unit._droneCampKey || null,
-            droneBornAt: t.unit._droneBornAt || 0,
-            engineerConstruction: t.unit._engineerConstruction ? { ...t.unit._engineerConstruction } : null,
-            engineerScaffold: t.unit._engineerScaffold ? { ...t.unit._engineerScaffold } : null,
-            engineerBunkerCD: t.unit._engineerBunkerCD || 0
-        } : null
-    }));
-
-    return {
-        tiles: tilesData,
-        serializedAt: Date.now(),
-        currentCampKey: _campToKey(gameState.currentCamp),
-        playerGold: { ...gameState.playerGold },
-        turnCounter: gameState.turnCounter,
-        gameOver: gameState.gameOver,
-        victoryCampKey: gameState.victoryCamp ? _campToKey(gameState.victoryCamp) : null,
-        logHistory: [...gameState.logHistory],
-        idCounter: getCounter(),
-        weather: gameState.weather,
-        lastWeather: gameState.lastWeather,
-        weatherLockUntil: gameState.weatherLockUntil || 0,
-        starlightResume: gameState._starlightResume || false,
-        cardOverrides: gameState._cardOverrides || {},
-        soulMarks: (gameState._soulMarks || []).map(m => ({ ...m })),
-        colonelDeployed: { ...(gameState._colonelDeployed || {}) },
-        droneDeployTurn: { ...(gameState._droneDeployTurn || {}) },
-        droneDeployCount: { ...(gameState._droneDeployCount || {}) },
-        rngState: gameState.rng.getState(),
-        killCount: { ...gameState.killCount },
-        friendlyDeathCount: { ...(gameState._friendlyDeathCount || {}) },
-        commanderPoolP1: [...gameState.commanderPoolP1],
-        commanderPoolP2: [...gameState.commanderPoolP2],
-        commanderPoolP3: [...gameState.commanderPoolP3],
-        commanderP1: gameState.commanderP1,
-        commanderP2: gameState.commanderP2,
-        commanderP3: gameState.commanderP3,
-        commanderP1Secondary: gameState.commanderP1Secondary,
-        commanderP2Secondary: gameState.commanderP2Secondary,
-        commanderP3Secondary: gameState.commanderP3Secondary,
-        commanderP1Confirmed: gameState.commanderP1Confirmed,
-        commanderP2Confirmed: gameState.commanderP2Confirmed,
-        commanderP3Confirmed: gameState.commanderP3Confirmed,
-        commanderP1SecondaryConfirmed: gameState.commanderP1SecondaryConfirmed,
-        commanderP2SecondaryConfirmed: gameState.commanderP2SecondaryConfirmed,
-        commanderP3SecondaryConfirmed: gameState.commanderP3SecondaryConfirmed,
-        commanderP1Deployed: gameState.commanderP1Deployed,
-        commanderP2Deployed: gameState.commanderP2Deployed,
-        commanderP3Deployed: gameState.commanderP3Deployed,
-        commanderP1SecondaryDeployed: gameState.commanderP1SecondaryDeployed,
-        commanderP2SecondaryDeployed: gameState.commanderP2SecondaryDeployed,
-        commanderP3SecondaryDeployed: gameState.commanderP3SecondaryDeployed,
-        doubleCommanderMode: gameState.doubleCommanderMode || false,
-        commanderRerolled: { ...(gameState.commanderRerolled || {}) },
-        rerollPenaltyApplied: { ...(gameState._rerollPenaltyApplied || {}) },
-        commanderPhase: gameState.commanderPhase,
-        factionMoraleBoost: { ...gameState.factionMoraleBoost },
-        cardDrawPile: [...gameState.cardDrawPile],
-        cardDiscardPile: [...gameState.cardDiscardPile],
-        playerHands: { player1: [...gameState.playerHands.player1], player2: [...gameState.playerHands.player2], player3: [...gameState.playerHands.player3] },
-        playerDrawsThisTurn: { ...gameState.playerDrawsThisTurn },
-        playerUsesThisTurn: { ...gameState.playerUsesThisTurn },
-        gameMode: gameState.gameMode || 'local',
-        trainingMode: gameState._trainingMode || false,
-        isThreePlayer: gameState.isThreePlayer || false,
-        aiOpponentCampKey: gameState.aiOpponentCamp ? _campToKey(gameState.aiOpponentCamp) : null,
-        surrenderedCampKeys: gameState.surrenderedCamps.map(c => _campToKey(c)),
-        skirmishFog: gameState.skirmishFog || false,
-        aiDifficulty: gameState.aiDifficulty || 1.0,
-        visibleTiles: gameState.visibleTiles ? {
-            player1: [...gameState.visibleTiles.player1],
-            player2: [...gameState.visibleTiles.player2],
-            player3: [...gameState.visibleTiles.player3]
-        } : { player1: [], player2: [], player3: [] },
-        exploredTiles: gameState.exploredTiles ? {
-            player1: [...gameState.exploredTiles.player1],
-            player2: [...gameState.exploredTiles.player2],
-            player3: [...gameState.exploredTiles.player3]
-        } : { player1: [], player2: [], player3: [] },
-        scoutReveals: gameState.scoutReveals ? {
-            player1: [...gameState.scoutReveals.player1],
-            player2: [...gameState.scoutReveals.player2],
-            player3: [...gameState.scoutReveals.player3]
-        } : { player1: [], player2: [], player3: [] },
-        villageTiles: [...gameState.villageTiles]
-    };
+    return serializeMatchState(gameState);
 }
 
-export function deserializeState(data, HexTileClass, UnitClass) {
-    const campMap = { p1: CAMP.player1, p2: CAMP.player2, p3: CAMP.player3, neutral: CAMP.neutral };
-
-    setCounter(data.idCounter);
-    gameState.gameOver = data.gameOver;
-    gameState.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
-    gameState.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
-    gameState.playerGold = { player1: 4, player2: 4, player3: 4, neutral: 4, ...data.playerGold };
-    // previousGold 不参与同步，保持本地值用于计数器动画
-    gameState.turnCounter = data.turnCounter;
-    gameState.logHistory = [...data.logHistory];
-    gameState.weather = data.weather || 'clear';
-    gameState.lastWeather = data.lastWeather || null;
-    gameState.weatherLockUntil = data.weatherLockUntil || 0;
-    gameState._starlightResume = data.starlightResume || false;
-    gameState._cardOverrides = data.cardOverrides || {};
-    gameState._soulMarks = data.soulMarks || [];
-    gameState._colonelDeployed = data.colonelDeployed || {};
-    gameState._droneDeployTurn = data.droneDeployTurn || {};
-    gameState._droneDeployCount = data.droneDeployCount || {};
-    // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
-    if (data.rngState != null) gameState.rng.setState(data.rngState);
-    if (data.killCount) gameState.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0, ...data.killCount };
-    gameState._friendlyDeathCount = data.friendlyDeathCount || {};
-    gameState.commanderPoolP1 = data.commanderPoolP1 || [];
-    gameState.commanderPoolP2 = data.commanderPoolP2 || [];
-    gameState.commanderPoolP3 = data.commanderPoolP3 || [];
-    gameState.commanderP1 = data.commanderP1 || null;
-    gameState.commanderP2 = data.commanderP2 || null;
-    gameState.commanderP3 = data.commanderP3 || null;
-    gameState.commanderP1Secondary = data.commanderP1Secondary || null;
-    gameState.commanderP2Secondary = data.commanderP2Secondary || null;
-    gameState.commanderP3Secondary = data.commanderP3Secondary || null;
-    gameState.commanderP1Confirmed = data.commanderP1Confirmed || false;
-    gameState.commanderP2Confirmed = data.commanderP2Confirmed || false;
-    gameState.commanderP3Confirmed = data.commanderP3Confirmed || false;
-    gameState.commanderP1SecondaryConfirmed = data.commanderP1SecondaryConfirmed || false;
-    gameState.commanderP2SecondaryConfirmed = data.commanderP2SecondaryConfirmed || false;
-    gameState.commanderP3SecondaryConfirmed = data.commanderP3SecondaryConfirmed || false;
-    gameState.commanderP1Deployed = data.commanderP1Deployed || false;
-    gameState.commanderP2Deployed = data.commanderP2Deployed || false;
-    gameState.commanderP3Deployed = data.commanderP3Deployed || false;
-    gameState.commanderP1SecondaryDeployed = data.commanderP1SecondaryDeployed || false;
-    gameState.commanderP2SecondaryDeployed = data.commanderP2SecondaryDeployed || false;
-    gameState.commanderP3SecondaryDeployed = data.commanderP3SecondaryDeployed || false;
-    gameState.doubleCommanderMode = data.doubleCommanderMode || false;
-    gameState.commanderRerolled = { player1: false, player2: false, player3: false, ...(data.commanderRerolled || {}) };
-    gameState._rerollPenaltyApplied = { player1: false, player2: false, player3: false, ...(data.rerollPenaltyApplied || {}) };
-    gameState.commanderPhase = data.commanderPhase || 'done';
-    if (data.factionMoraleBoost) {
-        gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0, ...data.factionMoraleBoost };
-    } else {
-        gameState.factionMoraleBoost = { player1: 0, player2: 0, player3: 0 };
-    }
-    if (data.cardDrawPile) gameState.cardDrawPile = [...data.cardDrawPile];
-    if (data.cardDiscardPile) gameState.cardDiscardPile = [...data.cardDiscardPile];
-    if (data.playerHands) {
-        gameState.playerHands = {
-            player1: [...(data.playerHands.player1 || [])],
-            player2: [...(data.playerHands.player2 || [])],
-            player3: [...(data.playerHands.player3 || [])]
-        };
-    }
-    if (data.playerDrawsThisTurn) gameState.playerDrawsThisTurn = { player1: 0, player2: 0, player3: 0, ...data.playerDrawsThisTurn };
-    if (data.playerUsesThisTurn) gameState.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0, ...data.playerUsesThisTurn };
+export function deserializeState(data, HexTileClass, UnitClass, options = {}) {
+    restoreMatchState(gameState, data, { HexTileClass, UnitClass, computeCampBorders, computeDistrictBorders });
+    // 界面刷新属于客户端职责，不进 engine
     gameState.cardStackExpanded = false;
-    gameState.gameMode = data.gameMode || 'local';
-    gameState._trainingMode = data.trainingMode || false;
-    gameState.isThreePlayer = data.isThreePlayer || false;
-    gameState.aiOpponentCamp = data.aiOpponentCampKey ? campMap[data.aiOpponentCampKey] : null;
-    gameState.surrenderedCamps = (data.surrenderedCampKeys || []).map(k => campMap[k]).filter(Boolean);
-    gameState.skirmishFog = data.skirmishFog || false;
-    gameState.villageTiles = new Map(data.villageTiles || []);
-    gameState.aiDifficulty = data.aiDifficulty || 1.0;
-    if (data.visibleTiles) {
-        gameState.visibleTiles = {
-            player1: new Set(data.visibleTiles.player1 || []),
-            player2: new Set(data.visibleTiles.player2 || []),
-            player3: new Set(data.visibleTiles.player3 || [])
-        };
-    }
-    if (data.exploredTiles) {
-        gameState.exploredTiles = {
-            player1: new Set(data.exploredTiles.player1 || []),
-            player2: new Set(data.exploredTiles.player2 || []),
-            player3: new Set(data.exploredTiles.player3 || [])
-        };
-    }
-    if (data.scoutReveals) {
-        gameState.scoutReveals = {
-            player1: new Map(data.scoutReveals.player1 || []),
-            player2: new Map(data.scoutReveals.player2 || []),
-            player3: new Map(data.scoutReveals.player3 || [])
-        };
-    }
-
-    // Preserve displayHp & commander for units (prevents flicker & commander loss on sync)
-    const oldDisplayHp = new Map();
-    const oldCommander = new Map();
-    for (const tile of gameState.tiles) {
-        if (tile.unit) {
-            oldDisplayHp.set(tile.unit.id, { hp: tile.unit.hp, displayHp: tile.unit.displayHp });
-            if (tile.unit.commander) {
-                oldCommander.set(tile.unit.id, {
-                    commander: tile.unit.commander,
-                    _atkBonus: tile.unit._atkBonus,
-                    displaySpeed: tile.unit.displaySpeed
-                });
-            }
-        }
-    }
-
-    // 校准渐变动画时间戳，补偿网络延迟
-    const timeDelta = data.serializedAt ? Date.now() - data.serializedAt : 0;
-
-    gameState.tiles = data.tiles.map(td => {
-        const tile = new HexTileClass(td.q, td.r, td.id);
-        tile.s = td.s;
-        tile.camp = campMap[td.campKey];
-        tile.isCity = td.isCity;
-        tile.isVillage = td.isVillage || false;
-        tile.villageDistrictId = td.villageDistrictId || 0;
-        tile.districtId = td.districtId;
-        tile.terrain = td.terrain || 'plains';
-        tile.fortification = td.fortification || null;
-        tile.startColor = td.startColor;
-        tile.targetColor = td.targetColor;
-        tile.currentColor = td.currentColor;
-        // 将主机时间戳校准为本地时间，若动画已过期则直接应用目标色
-        if (td.fadeStartTime) {
-            const adjustedStart = td.fadeStartTime + timeDelta;
-            if (Date.now() - adjustedStart >= tile.fadeDuration) {
-                tile.fadeStartTime = null;
-                tile.currentColor = tile.targetColor;
-                tile.startColor = tile.targetColor;
-            } else {
-                tile.fadeStartTime = adjustedStart;
-            }
-        } else {
-            tile.fadeStartTime = null;
-        }
-        tile._minePlanted = td.minePlanted || false;
-        tile._mineCampKey = td.mineCampKey || null;
-        tile._cityDisabledUntil = td.cityDisabledUntil || 0;
-        tile._reinforcedThisTurn = td.reinforcedThisTurn || false;
-        if (td.unit) {
-            const unitType = td.unit.isDrone ? 'drone' : td.unit.type;
-            const unit = new UnitClass(unitType, campMap[td.unit.campKey], tile, td.unit.isNewRecruit, td.unit.id);
-            unit.hp = td.unit.hp;
-            unit.maxHp = td.unit.maxHp;
-            unit.canAct = td.unit.canAct;
-            unit.movedThisTurn = td.unit.movedThisTurn;
-            unit.counterAttackCount = td.unit.counterAttackCount;
-            const rawMorale = td.unit.morale;
-            if (typeof rawMorale === 'number') unit.morale = rawMorale;
-            else if (rawMorale === 'high') unit.morale = 3;
-            else if (rawMorale === 'low') unit.morale = 1;
-            else if (rawMorale === 'chaos') unit.morale = 0;
-            else unit.morale = 2;
-            unit.moraleBoostUntil = td.unit.moraleBoostUntil || 0;
-            unit.moralePenaltyUntil = td.unit.moralePenaltyUntil || 0;
-            unit.remainingMP = td.unit.remainingMP ?? unit.config.speed;
-            unit.commander = td.unit.commander || null;
-            unit._centurionTriggered = td.unit._centurionTriggered || false;
-            unit._atkBonus = td.unit._atkBonus || 0;
-            unit._rankDefBonus = td.unit._rankDefBonus || 0;
-            unit._rankCritBonus = td.unit._rankCritBonus || 0;
-            unit._rankRegenPct = td.unit._rankRegenPct || 0;
-            unit.displaySpeed = td.unit.displaySpeed ?? unit.config.speed;
-            unit._xp = td.unit.xp || 0;
-            unit._rank = td.unit.rank || 0;
-            unit._fallen = td.unit.fallen || false;
-            unit.activeSkillCD = td.unit.activeSkillCD || 0;
-            unit.activeSkillDur = td.unit.activeSkillDur || 0;
-            unit._phantomStacks = td.unit.phantomStacks || 0;
-            unit._berserkerQixue = td.unit.berserkerQixue || false;
-            unit._imprisoned = td.unit.imprisoned || false;
-            unit._isImmobile = td.unit.isImmobile || false;
-            unit._airdropWaiting = td.unit.airdropWaiting || false;
-            unit._soulRecallLandAt = td.unit.soulRecallLandAt || 0;
-            unit._airliftLandAt = td.unit.airliftLandAt || 0;
-            unit._martyrPrimed = td.unit.martyrPrimed || false;
-            unit._elegyBonus = td.unit.elegyBonus || 0;
-            unit._elegyProcessed = td.unit.elegyProcessed || 0;
-            unit._isSoulMinion = td.unit.isSoulMinion || false;
-            unit._shield = td.unit.shield || 0;
-            unit._shieldMax = td.unit.shieldMax || 0;
-            unit._shieldTurns = td.unit.shieldTurns || 0;
-            unit._faith = td.unit.faith || 0;
-            unit._oathGainTurn = td.unit.oathGainTurn ?? undefined;
-            unit._smiteReady = td.unit.smiteReady || false;
-            unit._smiteCharged = td.unit.smiteCharged || false;
-            unit._healingAura = td.unit.healingAura || 0;
-            unit._activeSkillBuffs = td.unit.activeSkillBuffs || null;
-            unit._isDrone = td.unit.isDrone || false;
-            unit._droneSignalDisabled = td.unit.droneSignalDisabled || false;
-            unit._droneCampKey = td.unit.droneCampKey || null;
-            unit._droneBornAt = td.unit.droneBornAt || 0;
-            unit._engineerConstruction = td.unit.engineerConstruction ? { ...td.unit.engineerConstruction } : null;
-            unit._engineerScaffold = td.unit.engineerScaffold ? { ...td.unit.engineerScaffold } : null;
-            unit._engineerBunkerCD = td.unit.engineerBunkerCD || 0;
-            // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
-            if (!unit.commander) {
-                const saved = oldCommander.get(unit.id);
-                if (saved) {
-                    unit.commander = saved.commander;
-                    unit._atkBonus = saved._atkBonus;
-                    unit.displaySpeed = saved.displaySpeed;
-                }
-            }
-            const prev = oldDisplayHp.get(unit.id);
-            if (prev && prev.hp === unit.hp) unit.displayHp = prev.displayHp;
-            tile.unit = unit;
-        }
-        return tile;
-    });
-
-    rebuildTileMap();
-    gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
-    gameState.districtBorderEdges = computeDistrictBorders(gameState.tiles, gameState.tileMap);
-    clearselection();
+    if (!options.preserveClientUi) clearselection();
     updateStatsPanel();
     updateUI();
     updateButtonColors();
@@ -1053,20 +540,27 @@ export function resolveUnitById(id) {
 
 // ===== 远程状态同步（联机模式收到对手操作时调用） =====================
 export function applyRemoteState(data, HexTileClass, UnitClass) {
-    // 保存选中的单位 ID，状态同步后在新 tiles 中恢复引用（若存活）
-    const prevId = gameState.selectedUnit?.id ?? null;
-    deserializeState(data, HexTileClass, UnitClass);
-    if (prevId) {
-        for (const t of gameState.tiles) {
-            if (t.unit && t.unit.id === prevId && t.unit.hp > 0) {
-                gameState.selectedUnit = t.unit;
-                return;
-            }
-        }
-    }
+    // 对局快照会重建 Tile / Unit 实例；观察目标属于纯本地 UI 状态，必须先以稳定 ID/坐标保存。
+    const inspectionTarget = gameState.inspectionTarget || _getLegacyInspectionTarget();
+    deserializeState(data, HexTileClass, UnitClass, { preserveClientUi: true });
+
+    // 远端操作期间不能保留可行动范围或卡牌瞄准，但可以继续查看有效且可见的目标。
     gameState.selectedUnit = null;
     gameState.selectedCityTile = null;
     gameState.selectedTile = null;
     gameState.movableTiles = [];
     gameState.attackableTiles = [];
+    gameState.moveParents = new Map();
+    gameState.cardTargeting = null;
+
+    const tile = _resolveInspectionTarget(inspectionTarget);
+    const isVisible = tile && isTileVisible(tile, getViewingCamp(), gameState);
+    if (isVisible) {
+        gameState.selectedTile = tile;
+        gameState.selectedUnit = tile.unit || null;
+        gameState.inspectionTarget = inspectionTarget;
+    } else {
+        gameState.inspectionTarget = null;
+    }
+    emit('client:inspectionRestored', isVisible ? tile : null);
 }

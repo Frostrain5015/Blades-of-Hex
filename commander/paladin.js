@@ -64,8 +64,8 @@ export default {
         // 命中后冷却1回合（activeSkillCD 随状态序列化同步，回合开始统一递减）
         attacker.activeSkillCD = Math.max(attacker.activeSkillCD || 0, BALANCE.smiteCooldown);
         const smiteDmg = charged
-            ? (helpers.rng ? helpers.rng.between(BALANCE.chargedSmiteMin, BALANCE.chargedSmiteMax) : BALANCE.chargedSmiteMin + Math.floor(Math.random() * (BALANCE.chargedSmiteMax - BALANCE.chargedSmiteMin + 1)))
-            : (helpers.rng ? helpers.rng.between(BALANCE.normalSmiteMin, BALANCE.normalSmiteMax) : BALANCE.normalSmiteMin + Math.floor(Math.random() * (BALANCE.normalSmiteMax - BALANCE.normalSmiteMin + 1)));
+            ? helpers.rng.between(BALANCE.chargedSmiteMin, BALANCE.chargedSmiteMax)
+            : helpers.rng.between(BALANCE.normalSmiteMin, BALANCE.normalSmiteMax);
         // Phase 1: 剑从环绕轨道飞向目标（发射即释放，移除环绕剑）
         // 注意：gameLogic 的 setTimeout(smiteDelay) 内会触发 spawnGoldenBeam
         // 此处不应再立即 spawnGoldenBeam，否则会 double

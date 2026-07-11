@@ -1,7 +1,8 @@
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
-import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI } from './state.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget } from './state.js';
+import { on } from './eventBus.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import {
@@ -1569,16 +1570,24 @@ function _toggleBoardDetail(item, source) {
 
 export function showSelectionHudForTile(tile) {
     // 所有单位信息均由棋盘 HUD 呈现。
+    setInspectionTarget(tile || null);
     _syncSelectionHud(tile || null);
     syncBoardActionBar();
 }
 
 function hideSelectionHud() {
+    setInspectionTarget(null);
     _syncSelectionHud(null);
     _renderBoardActionQueue([]);
     _renderPassiveQueue([]);
     _closeBoardDetail();
 }
+
+// 收到对手操作时，state 只恢复本地观察目标；HUD 由输入层重新绘制，避免状态层反向依赖 DOM。
+on('client:inspectionRestored', (tile) => {
+    if (tile) showSelectionHudForTile(tile);
+    else hideSelectionHud();
+});
 // ==== 像素 → 地块 =====================
 function getTileAtPixel(px, py) {
     let result = null;

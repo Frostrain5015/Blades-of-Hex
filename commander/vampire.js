@@ -7,9 +7,7 @@ export default {
   ...DEFINITION,
 
   _getHeal(dmg, rng) {
-    const ratio = rng
-      ? rng.range(BALANCE.healMinPct, BALANCE.healMaxPct)
-      : BALANCE.healMinPct + Math.random() * (BALANCE.healMaxPct - BALANCE.healMinPct);
+    const ratio = rng.range(BALANCE.healMinPct, BALANCE.healMaxPct);
     return Math.round(dmg * ratio);
   },
 

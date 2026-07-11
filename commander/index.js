@@ -48,10 +48,11 @@ export function getCommander(id) {
   return allCommanders[id] || null;
 }
 
-export function shuffleAndSplitPool(isThreePlayer = false, commandersPerPlayer = COMMANDER_DRAFT.candidatesPerPlayer) {
+export function shuffleAndSplitPool(isThreePlayer = false, commandersPerPlayer = COMMANDER_DRAFT.candidatesPerPlayer, rng) {
+  if (!rng) throw new Error('Commander draft requires MatchState.rng');
   const keys = Object.keys(allCommanders);
   for (let i = keys.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = rng.int(i + 1);
     [keys[i], keys[j]] = [keys[j], keys[i]];
   }
   if (isThreePlayer) {

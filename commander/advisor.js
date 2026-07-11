@@ -21,7 +21,7 @@ export default {
       }
     }
 
-    const roll = helpers.rng ? helpers.rng.int(BALANCE.outcomeCount) : Math.floor(Math.random() * BALANCE.outcomeCount);
+    const roll = helpers.rng.int(BALANCE.outcomeCount);
     if (roll === BALANCE.noEffectOutcome) {
       helpers.logMessage(`谋士【攻心】未能动摇${enemy.config.name}兵`);
       return null;

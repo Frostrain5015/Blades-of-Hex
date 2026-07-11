@@ -32,9 +32,11 @@ import {
 import { isTileVisible } from './fogOfWar.js';
 import { HexTile } from './HexTile.js';
 import { Unit } from './Unit.js';
+import './unitPresentationAdapter.js';
 import { playSound, initAudio, setMuted, startBattleBGM, stopBattleBGM, stopLobbyBGM } from './audio.js';
 import { loadCommanderFx } from './commanderFx.js';
 import { emit } from './eventBus.js';
+import './visualEventBridge.js';
 import './cheat.js';
 
 loadSettings();
@@ -942,7 +944,7 @@ function beginCommanderPhase() {
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
     _commanderTransitioning = false;
-    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer);
+    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
     gameState.commanderPoolP1 = pool.p1;
     gameState.commanderPoolP2 = pool.p2;
     gameState.commanderPhase = 'selection';
@@ -968,7 +970,7 @@ function beginTrainingCommanderPhase(humanRole) {
     gameState._trainingMode = true;
     _commanderTransitioning = false;
     if (savedDoubleCommanderMode) {
-        const pool = shuffleAndSplitPool(savedThreePlayer, COMMANDER_DRAFT.dualCandidatesPerPlayer);
+        const pool = shuffleAndSplitPool(savedThreePlayer, COMMANDER_DRAFT.dualCandidatesPerPlayer, gameState.rng);
         gameState.commanderPoolP1 = pool.p1;
         gameState.commanderPoolP2 = pool.p2;
         if (savedThreePlayer) gameState.commanderPoolP3 = pool.p3 || [];
@@ -1000,7 +1002,7 @@ function beginPVECommanderPhase(humanRole) {
     gameState.aiDifficulty = savedDiff;
     gameState.aiOpponentCamp = humanRole === 'player1' ? CAMP.player2 : CAMP.player1;
     _commanderTransitioning = false;
-    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer);
+    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
     gameState.commanderPoolP1 = pool.p1;
     gameState.commanderPoolP2 = pool.p2;
     gameState.commanderPhase = 'selection';
@@ -1068,7 +1070,7 @@ function beginNetworkCommanderFlow(role) {
     const myRole = getMyRole();
     if (myRole === 'player1') {
         const is3P = gameState.isThreePlayer;
-        const pool = shuffleAndSplitPool(is3P, wasDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer);
+        const pool = shuffleAndSplitPool(is3P, wasDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
         gameState.commanderPoolP1 = pool.p1;
         gameState.commanderPoolP2 = pool.p2;
         if (is3P) gameState.commanderPoolP3 = pool.p3 || [];
@@ -1540,7 +1542,7 @@ function _rerollCommanders(forPlayer) {
     if (available.length < 3) return; // 理论上不会发生（17 将领，最多占用 9）
 
     for (let i = available.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = gameState.rng.int(i + 1);
         [available[i], available[j]] = [available[j], available[i]];
     }
     const newPool = available.slice(0, 3);

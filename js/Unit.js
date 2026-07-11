@@ -1,9 +1,11 @@
-import { HEX_SIZE, ctx, hexPath, drawHexagonOutline, CAMP, UNIT_CONFIG, COUNTER_RELATION, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, roundRectPath, hexDistance, HEX_NEIGHBORS, getRoundIndex } from './config.js';
+import { CAMP } from '../rules/camps.js';
+import { UNIT_CONFIG, COUNTER_RELATION } from '../rules/units.js';
+import { MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG } from '../rules/terrain.js';
+import { hexDistance, HEX_NEIGHBORS } from '../rules/hex.js';
+import { getRoundIndex } from '../rules/turns.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, getCommanderWeatherDebuff, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
-import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
-import { isNetworkGame, getMyRole } from './network.js';
-import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset, spawnMoraleEffect, triggerFactionMoraleFlash } from './effects.js';
+import { emit } from './eventBus.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
@@ -15,20 +17,6 @@ let _gameState = null;
 export let _pendingRankUps = [];
 export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setGameStateRef(ref) { _gameState = ref; }
-
-function _isHumanTurn(gs) {
-    if (isNetworkGame()) {
-        const role = getMyRole();
-        if (role === 'player1') return gs.currentCamp === CAMP.player1;
-        if (role === 'player2') return gs.currentCamp === CAMP.player2;
-        if (role === 'player3') return gs.currentCamp === CAMP.player3;
-        return false;
-    }
-    if (gs.gameMode === 'pve' && gs.aiOpponentCamp) {
-        return gs.currentCamp !== CAMP.neutral && gs.currentCamp !== gs.aiOpponentCamp;
-    }
-    return gs.currentCamp !== CAMP.neutral;
-}
 
 export class Unit {
     constructor(type, camp, tile, isNewRecruit = false, idOverride = null, commander = null) {
@@ -200,577 +188,6 @@ export class Unit {
         return this.activeSkillCD > 0 ? this.activeSkillCD : 0;
     }
 
-    getVisualPos() {
-        const baseX = this.tile.x, baseY = this.tile.y;
-        let vx = baseX, vy = baseY;
-
-        if (this.movePath) {
-            const path = this.movePath;
-            const elapsed = frameInfo.now - this.movePathStart;
-            if (elapsed >= this.movePathDuration) {
-                vx = path[path.length - 1].x;
-                vy = path[path.length - 1].y;
-            } else {
-                const segs = [];
-                let totalLen = 0;
-                for (let i = 1; i < path.length; i++) {
-                    const dx = path[i].x - path[i-1].x;
-                    const dy = path[i].y - path[i-1].y;
-                    const len = Math.sqrt(dx * dx + dy * dy);
-                    segs.push({ from: path[i-1], to: path[i], len, acc: totalLen });
-                    totalLen += len;
-                }
-                if (totalLen === 0) {
-                    vx = baseX; vy = baseY;
-                } else {
-                    const tTotal = elapsed / this.movePathDuration;
-                    const target = tTotal * totalLen;
-                    let found = false;
-                    for (const seg of segs) {
-                        if (target <= seg.acc + seg.len) {
-                            const t = Math.max(0, Math.min(1, (target - seg.acc) / seg.len));
-                            const eased = 1 - Math.pow(1 - t, 3);
-                            vx = seg.from.x + (seg.to.x - seg.from.x) * eased;
-                            vy = seg.from.y + (seg.to.y - seg.from.y) * eased;
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) { vx = baseX; vy = baseY; }
-                }
-            }
-        }
-
-        // 后坐力偏移（炮兵开火时）
-        const recoil = getRecoilOffset(baseX, baseY, frameInfo.now);
-        if (recoil) {
-            vx += recoil.x;
-            vy += recoil.y;
-        }
-
-        // 近战突进偏移（撞击目标）
-        const charge = getChargeOffset(this.id, frameInfo.now);
-        if (charge) {
-            vx += charge.x;
-            vy += charge.y;
-        }
-
-        return { x: vx, y: vy };
-    }
-
-    startMovePath(path) {
-        if (!path || path.length < 2) return;
-        this.movePath = path;
-        this.movePathStart = frameInfo.now;
-        this.movePathDuration = (path.length - 1) * 120 / (settings.animationSpeed || 1);
-    }
-
-    draw(tileX, tileY) {
-        if (this._airdropWaiting) return; // invisible until parachute lands
-        if (this._airliftLandAt) {         // E4 空运途中：落地前隐藏，落地时现身
-            if (frameInfo.now < this._airliftLandAt) return;
-            this._airliftLandAt = 0;
-        }
-        if (this._soulRecallLandAt) {      // E2 魂卒召回：黑烟飞抵后才现身
-            if (frameInfo.now < this._soulRecallLandAt) return;
-            this._soulRecallLandAt = 0;
-        }
-        const now = frameInfo.now;
-        const pos = this.getVisualPos();
-        let visualX = pos.x, visualY = pos.y;
-        if (this.movePath) {
-            if (now - this.movePathStart >= this.movePathDuration) {
-                this.movePath = null;
-            }
-        }
-
-        const gs = _gameState;
-        const time = now / 1000;
-
-        const isP1 = this.camp === CAMP.player1;
-        const isP2 = this.camp === CAMP.player2;
-        const isP3 = this.camp === CAMP.player3;
-        const campKey = isP1 ? 'p1' : isP2 ? 'p2' : isP3 ? 'p3' : 'neu';
-        const cc = CAMP_FLAG_COLORS[campKey];
-
-        ctx.save();
-        ctx.translate(visualX, visualY);
-
-        // ── Flag (below badge and ring) ──
-        if (!this.tile.isCity && !this.tile.isVillage) {
-            const poleX = -13;
-            const poleTop = -30;
-            const poleBottom = 2;
-            ctx.beginPath();
-            ctx.moveTo(poleX, poleTop);
-            ctx.lineTo(poleX, poleBottom);
-            ctx.strokeStyle = '#bbb';
-            ctx.lineWidth = 1.5;
-            ctx.lineCap = 'round';
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(poleX, poleTop, 1.5, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffd700';
-            ctx.fill();
-
-            const wave = Math.sin(time * 7 + this.id * 1.3) * 2.0;
-            const flagLeft = poleX + 1;
-            const flagRight = flagLeft + 10;
-            const flagTop = poleTop + 2;
-            const flagMid = flagTop + 4;
-            const flagBot = flagTop + 10;
-            ctx.beginPath();
-            ctx.moveTo(flagLeft, flagTop);
-            ctx.quadraticCurveTo(flagLeft + 3, flagMid - 2 + wave, flagRight, flagMid + wave);
-            ctx.lineTo(flagRight, flagBot + wave * 0.7);
-            ctx.quadraticCurveTo(flagLeft + 3, flagMid + 2 + wave * 0.7, flagLeft, flagBot);
-            ctx.closePath();
-            const flagGrad = ctx.createLinearGradient(flagLeft, 0, flagRight, 0);
-            flagGrad.addColorStop(0, cc.main);
-            flagGrad.addColorStop(1, cc.dark);
-            ctx.fillStyle = flagGrad;
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-            ctx.lineWidth = 0.6;
-            ctx.stroke();
-
-            // 将领星标（跟随旗帜飘动+扭曲）
-            if (this.commander) {
-                ctx.save();
-                ctx.translate(flagLeft + 5, flagTop + 5 + wave * 0.5);
-                const waveTilt = Math.cos(time * 7 + this.id * 1.3) * 0.14;
-                ctx.rotate(waveTilt);
-                ctx.fillStyle = '#ffd700';
-                ctx.font = 'bold 9px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.shadowColor = '#ffd700';
-                ctx.shadowBlur = 5;
-                ctx.fillText('★', 0, 0);
-                ctx.restore();
-            }
-        }
-
-        // ── Badge ──
-        // ── Floating shadow for entire badge+ring group ──
-        ctx.save();
-        if (this._isDrone || this.type === 'drone') {
-            ctx.translate(0, Math.sin(time * 2.5) * 3);
-        }
-        ctx.shadowColor = 'rgba(0,0,0,0.3)';
-        ctx.shadowBlur = 6;
-        ctx.shadowOffsetY = 2;
-
-        const badgeR = 15;
-        const badgeY = 1;
-        ctx.beginPath();
-        ctx.arc(0, badgeY, badgeR, 0, Math.PI * 2);
-        const badgeGrad = ctx.createRadialGradient(-1, badgeY - 2, badgeR * 0.05, 0, badgeY, badgeR);
-        badgeGrad.addColorStop(0, cc.light);
-        badgeGrad.addColorStop(1, cc.dark);
-        ctx.fillStyle = badgeGrad;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // ── Unit type character ──
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', mgNest: '🏰', drone: '✈' };
-        ctx.fillText(this._engineerScaffold ? '🧱' : (glyphs[this.type] || '?'), 0, badgeY + 1);
-
-        // ── Ring HP bar ──
-        const lerpFactor = 0.18;
-        this.displayHp += (this.hp - this.displayHp) * lerpFactor;
-        if (Math.abs(this.hp - this.displayHp) < 0.3) this.displayHp = this.hp;
-        this._displayShield += (this._shield - this._displayShield) * lerpFactor;
-        if (Math.abs(this._shield - this._displayShield) < 0.3) this._displayShield = this._shield;
-        this._displayShield += (this._shield - this._displayShield) * lerpFactor;
-        if (Math.abs(this._shield - this._displayShield) < 0.3) this._displayShield = this._shield;
-
-        this.displaySpeed += (this.remainingMP - this.displaySpeed) * lerpFactor;
-        if (Math.abs(this.remainingMP - this.displaySpeed) < 0.3) this.displaySpeed = this.remainingMP;
-
-        const hpRatio = this.displayHp / this.maxHp;
-        const ringR = badgeR;
-        const ringW = 3.5;
-        const startAngle = -Math.PI / 2;
-        const sweepAngle = hpRatio * Math.PI * 2;
-
-        // Background ring
-        ctx.beginPath();
-        ctx.arc(0, badgeY, ringR, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-        ctx.lineWidth = ringW;
-        ctx.stroke();
-
-        // HP arc
-        if (hpRatio > 0.005) {
-            let hpColor;
-            if (hpRatio > 0.7) hpColor = '#4CAF50';
-            else if (hpRatio > 0.35) hpColor = '#FFC107';
-            else hpColor = '#f44336';
-
-            ctx.beginPath();
-            ctx.arc(0, badgeY, ringR, startAngle, startAngle + sweepAngle);
-            ctx.strokeStyle = hpColor;
-            ctx.lineWidth = ringW;
-            ctx.lineCap = 'round';
-            ctx.stroke();
-        }
-
-        // Shield overlay arc
-        const shieldRatio = this._displayShield > 0.5 ? this._displayShield / this.maxHp : 0;
-        if (shieldRatio > 0.003) {
-            const shieldSweep = shieldRatio * Math.PI * 2;
-            const shieldStart = startAngle + sweepAngle;
-            ctx.beginPath();
-            ctx.arc(0, badgeY, ringR, shieldStart, shieldStart + shieldSweep);
-            ctx.strokeStyle = '#66bbff';
-            ctx.lineWidth = ringW;
-            ctx.lineCap = 'round';
-            ctx.stroke();
-        }
-
-        ctx.restore(); // end floating shadow group
-
-        // Morale marker — hex corner badge (top-right)
-        const hasMoraleAnim = moraleEffects.some(fx => fx.unitId === this.id);
-        if (this.morale !== 2 && !hasMoraleAnim) {
-            const mc = MORALE_CONFIG[this.morale];
-            const mx = HEX_SIZE * 0.55 + (this.morale === 0 ? 2 : 0);
-            const my = -HEX_SIZE * 0.35;
-            ctx.fillStyle = mc.color;
-            ctx.font = this.morale === 0 ? 'bold 14px Arial' : 'bold 11px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(0,0,0,0.6)';
-            ctx.shadowBlur = 3;
-            ctx.fillText(mc.icon, mx, my + 1);
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-        }
-
-        // Imprisoned lock — same position as Iron Guard shield
-        if (this._imprisoned) {
-            ctx.fillStyle = '#ff8844';
-            ctx.font = 'bold 14px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(0,0,0,0.6)';
-            ctx.shadowBlur = 3;
-            ctx.fillText('🔒', 0, -HEX_SIZE * 0.82);
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-        }
-
-        ctx.restore();
-
-        // ── 工程师脚手架：建造中标记（🚧 + 剩余回合） ──
-        if (this._engineerScaffold) {
-            ctx.save();
-            const buildPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
-            const bY = visualY - HEX_SIZE * 0.6;
-            ctx.font = 'bold 13px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.globalAlpha = 0.65 + buildPulse * 0.35;
-            ctx.shadowColor = '#ffcc44'; ctx.shadowBlur = 5;
-            ctx.fillText('🔨', visualX, bY);
-            ctx.globalAlpha = 1;
-            ctx.shadowBlur = 0;
-            const turns = this._engineerScaffold.turnsRemaining || 1;
-            ctx.fillStyle = '#ffd54a';
-            ctx.font = 'bold 10px Arial';
-            ctx.fillText(`${turns}`, visualX + HEX_SIZE * 0.5, bY);
-            ctx.restore();
-        }
-
-        // ── Actionable glow（仅己方回合显示）──
-        if (this.canAct && gs && this.camp === gs.currentCamp && !this.isNewRecruit && _isHumanTurn(gs)) {
-            ctx.save();
-            const pulse = (Math.sin(time * 3.2 * Math.PI) + 1) / 2;
-            const alpha1 = 0.18 + pulse * 0.45;
-            const alpha2 = 0.08 + (1 - pulse) * 0.25;
-            const r1 = HEX_SIZE + 2 + pulse * 3;
-            const r2 = HEX_SIZE + 6 + (1 - pulse) * 4;
-            drawHexagonOutline(ctx, visualX, visualY, r1, `rgba(255,215,0,${alpha1})`, 2.5);
-            drawHexagonOutline(ctx, visualX, visualY, r2, `rgba(255,255,200,${alpha2})`, 1.5);
-            ctx.restore();
-        }
-
-        // ── Berserker blood rage glow（已损HP越多越明显） ──
-        if (this.commander === 'berserker' && this.hp < this.maxHp) {
-            const balance = COMMANDER_CONFIG.berserker.balance;
-            const hpLostRatio = (this.maxHp - this.hp) / this.maxHp;
-            const stacks = Math.min(balance.maxStacks, Math.floor(hpLostRatio / balance.hpLossPerStackPct));
-            if (stacks > 0) {
-                ctx.save();
-                const intensity = stacks / balance.maxStacks;
-                const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
-                ctx.fillStyle = `rgba(255,80,20,${(0.4 + ragePulse * 0.4) * intensity})`;
-                ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 4 + 4 * intensity;
-                ctx.fillText('💢', visualX, visualY - HEX_SIZE * 0.55);
-                ctx.shadowBlur = 0;
-                ctx.restore();
-            }
-        }
-
-        // ── Iron Guard shield marker (above flag, same layer as berserker rage) ──
-        if (this.commander === 'ironGuard') {
-            ctx.save();
-            const shieldRatio = Math.min(1, this._shield / Math.max(this._shieldMax, 1));
-            const shieldPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
-            const shieldY = visualY - HEX_SIZE * 0.82;
-            const inFlash = performance.now() < this._shieldPulseUntil;
-            const flashT = inFlash ? 1 - (this._shieldPulseUntil - performance.now()) / 800 : 0;
-
-            // 承伤扩散环（呼吸灯式向外扩散）— 强度随护盾比例
-            if (inFlash) {
-                const ringR = HEX_SIZE * 0.2 + flashT * HEX_SIZE * 1.5;
-                const ringAlpha = (1 - flashT) * 0.7 * shieldRatio;
-                ctx.beginPath();
-                ctx.arc(visualX, shieldY, ringR, 0, Math.PI * 2);
-                ctx.strokeStyle = `rgba(140,200,255,${ringAlpha})`;
-                ctx.lineWidth = (3 * (1 - flashT) + 1) * shieldRatio;
-                ctx.stroke();
-                const ring2R = ringR + HEX_SIZE * 0.25;
-                const ring2Alpha = (1 - flashT) * 0.35 * shieldRatio;
-                ctx.beginPath();
-                ctx.arc(visualX, shieldY, ring2R, 0, Math.PI * 2);
-                ctx.strokeStyle = `rgba(180,220,255,${ring2Alpha})`;
-                ctx.lineWidth = (2 * (1 - flashT)) * shieldRatio;
-                ctx.stroke();
-            }
-
-            // shield glyph — 强度随护盾比例
-            const glyphAlpha = shieldRatio * (inFlash ? 0.9 + flashT * 0.1 : 0.7 + shieldPulse * 0.3);
-            ctx.fillStyle = `rgba(130,200,255,${glyphAlpha})`;
-            const glyphSize = 13 * (0.6 + 0.4 * shieldRatio);
-            ctx.font = `bold ${Math.round(glyphSize)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = inFlash ? '#aaddff' : '#5599cc';
-            ctx.shadowBlur = shieldRatio * (inFlash ? 8 + flashT * 8 : 5);
-            ctx.fillText('🛡', visualX, shieldY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── Paladin smite ready marker ──
-        if (this._smiteReady) {
-            ctx.save();
-            const smitePulse = (Math.sin(time * 5 * Math.PI) + 1) / 2;
-            const smiteY = visualY - HEX_SIZE * 0.55;
-            ctx.fillStyle = `rgba(255,215,0,${0.7 + smitePulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6;
-            ctx.fillText('✗', visualX, smiteY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── Priest healing aura glow ──
-        if (this._healingAura > 0) {
-            ctx.save();
-            const healPulse = (Math.sin(time * 4 * Math.PI) + 1) / 2;
-            const healY = visualY - HEX_SIZE * 0.55;
-            ctx.fillStyle = `rgba(68,221,136,${0.5 + healPulse * 0.3})`;
-            ctx.font = 'bold 11px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#44dd88'; ctx.shadowBlur = 5;
-            ctx.fillText('\u{1F54A}\u{FE0F}', visualX, healY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── E3 纵横家标记 📜 ──
-        if (this.commander === 'diplomat') {
-            ctx.save();
-            const dipY = visualY - HEX_SIZE * 0.55;
-            const inEnemyTerritory = this.tile && this.tile.camp !== this.camp;
-            const dipPulse = inEnemyTerritory ? (Math.sin(time * 4 * Math.PI) + 1) / 2 : 0.5;
-            ctx.fillStyle = `rgba(255,200,50,${0.5 + dipPulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ffd700'; ctx.shadowBlur = inEnemyTerritory ? 8 : 3;
-            ctx.fillText('📜', visualX, dipY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── E1 占星者标记 🔮（仅天气锁定期展示） ──
-        if (this.commander === 'astrologer' && _gameState && _gameState.weatherLockUntil > 0
-            && getRoundIndex(_gameState) < _gameState.weatherLockUntil) {
-            ctx.save();
-            const astroPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
-            const astroY = visualY - HEX_SIZE * 0.55;
-            ctx.fillStyle = `rgba(180,160,255,${0.5 + astroPulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6;
-            ctx.fillText('🔮', visualX, astroY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── E3 纵横家连横提示 ⚡（仅处于非己方地块时展示） ──
-        if (this.commander === 'diplomat' && this.tile && this.tile.camp !== this.camp) {
-            ctx.save();
-            const dipY = visualY - HEX_SIZE * 0.55;
-            const dipPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
-            ctx.fillStyle = `rgba(255,215,80,${0.5 + dipPulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#d4a017'; ctx.shadowBlur = 5;
-            ctx.fillText('⚡', visualX, dipY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── New recruit label ──
-        if (this.isNewRecruit) {
-            ctx.save();
-            ctx.fillStyle = 'rgba(255,255,120,0.75)';
-            ctx.font = 'bold 9px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('NEW', visualX, visualY - badgeR - 2);
-            ctx.restore();
-        }
-
-        // ── Rank insignia ──
-        if (this._rank > 0) {
-            ctx.save();
-            const chX = visualX + HEX_SIZE * 0.48, chY = visualY + HEX_SIZE * 0.38;
-            if (this._rank >= 4) {
-                const outerR = 7, innerR = outerR * 0.382;
-                ctx.beginPath();
-                for (let i = 0; i < 5; i++) {
-                    const aOut = -Math.PI / 2 + i * 2 * Math.PI / 5;
-                    const aIn = aOut + Math.PI / 5;
-                    if (i === 0) ctx.moveTo(chX + outerR * Math.cos(aOut), chY + outerR * Math.sin(aOut));
-                    else ctx.lineTo(chX + outerR * Math.cos(aOut), chY + outerR * Math.sin(aOut));
-                    ctx.lineTo(chX + innerR * Math.cos(aIn), chY + innerR * Math.sin(aIn));
-                }
-                ctx.closePath();
-                ctx.fillStyle = '#ffd700';
-                ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetY = 1;
-                ctx.fill();
-                ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 0;
-                ctx.fill();
-            } else {
-                ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
-                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-                for (let lv = 0; lv < this._rank; lv++) {
-                    const dy = lv * 5;
-                    ctx.beginPath();
-                    ctx.moveTo(chX - 5.5, chY + 2 + dy);
-                    ctx.lineTo(chX,       chY - 2 + dy);
-                    ctx.lineTo(chX + 5.5, chY + 2 + dy);
-                    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 1.5; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 1;
-                    ctx.stroke();
-                    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 2.5; ctx.shadowOffsetY = 0;
-                    ctx.stroke();
-                }
-            }
-            ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-            ctx.restore();
-        }
-
-        // ── Commander name badge ──
-        if (this.commander) {
-            const cmdCfg = getCommander(this.commander);
-            if (cmdCfg) {
-                const cx = visualX - HEX_SIZE * 0.40;
-                const cy = visualY + HEX_SIZE * 0.22;
-                const text = cmdCfg.name;
-                ctx.save();
-                ctx.font = 'bold 7.5px Arial';
-                const m = ctx.measureText(text);
-                const bw = m.width + 8;
-                const bh = 13;
-                const bx = cx - bw / 2;
-                const by = cy;
-                ctx.fillStyle = 'rgba(0,0,0,0.78)';
-                roundRectPath(ctx, bx, by, bw, bh, 3);
-                ctx.fill();
-                ctx.strokeStyle = cc.main;
-                ctx.lineWidth = 1.2;
-                roundRectPath(ctx, bx, by, bw, bh, 3);
-                ctx.stroke();
-                ctx.fillStyle = cc.main;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(text, cx, cy + bh / 2);
-                ctx.restore();
-
-            }
-        }
-
-        // ── 天眼无人机 ──
-        if (this._isDrone) {
-            ctx.save();
-            const dy = visualY - HEX_SIZE * 0.75;
-            ctx.font = 'bold 16px sans-serif';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.shadowColor = this.morale === 0 ? 'rgba(255,50,50,0.5)' : 'rgba(100,200,255,0.5)';
-            ctx.shadowBlur = 0;
-            const bw = 24, bh = 4, bx = -bw / 2, by = dy + 12;
-            ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(bx, by, bw, bh);
-            const r = this.hp / this.maxHp;
-            ctx.fillStyle = r > 0.5 ? '#4CAF50' : (r > 0.25 ? '#FF9800' : '#f44336');
-            ctx.fillRect(bx, by, bw * r, bh);
-            if (this.morale === 0) { ctx.fillStyle = '#ff6666'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('混乱', visualX, dy - 14); }
-            ctx.restore();
-        }
-
-        // 魂卒：黑烟缭绕粒子（亡灵法师本人不显示） + 头顶骷髅标志
-        if (this._isSoulMinion && this.commander !== 'necromancer') {
-            ctx.save();
-            const seed = this.id || 1;
-            // 多股黑烟绕身盘旋上升
-            for (let i = 0; i < 5; i++) {
-                const angle = time * 0.6 + (i / 5) * Math.PI * 2 + seed * 0.07;
-                const drift = Math.sin(time * 1.1 + i + seed) * 0.4;
-                const rise = (time * 0.8 + i * 1.3 + seed) % 3;
-                const px = Math.cos(angle) * (10 + rise * 4 + drift * 6);
-                const py = -rise * 12 + drift * 4;
-                const r = 3 + rise * 2.5 + Math.sin(time + i) * 0.8;
-                const alpha = Math.max(0, 0.3 - rise * 0.1 + Math.sin(time * 1.5 + i * 2) * 0.05);
-                ctx.fillStyle = `rgba(15,10,25,${alpha})`;
-                ctx.shadowColor = 'rgba(40,20,60,0.3)';
-                ctx.shadowBlur = 6 + rise * 2;
-                ctx.beginPath();
-                ctx.arc(px, py, r, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            ctx.shadowBlur = 0;
-            ctx.restore();
-            // 骷髅图标（头顶上方）
-            ctx.save();
-            ctx.globalAlpha = 0.4 + Math.sin(time * 1.5) * 0.12;
-            ctx.font = '20px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText('💀', 0, -HEX_SIZE * 0.8);
-            ctx.restore();
-        }
-    }
-
-    // ① 攻击力乘区：基础面板 ×（1+「攻击力提高xx%」）+「攻击力+xx」固定加成
-    //    百分比只作用于基础面板；士气不乘入攻击力，走 _resolveDamage 的增伤乘区
     getEffectiveAttack() {
         const auraAtk = getCommanderAuraAttackBonus(this);
         return Math.round(this.config.attack * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this));
@@ -811,7 +228,8 @@ export class Unit {
             lo += shift; hi += shift;
         }
 
-        return (gs && gs.rng) ? gs.rng.range(lo, hi) : lo + Math.random() * (hi - lo);
+        if (!gs?.rng) throw new Error('Unit damage calculation requires MatchState.rng');
+        return gs.rng.range(lo, hi);
     }
 
     // ===== 伤害计算管线（四层乘算） =====================
@@ -1081,9 +499,9 @@ export class Unit {
                     timeLeft: 1000, lastUpdate: performance.now()
                 });
             }
-            triggerHealFlash(this.tile.x, this.tile.y);
-            spawnHealParticles(this.tile.x, this.tile.y);
-            spawnCommanderSkillEffect(this.tile.x, this.tile.y, '\u{1F54A}\u{FE0F}', '临终迸发');
+            emit('fx:healFlash', { x: this.tile.x, y: this.tile.y });
+            emit('fx:healParticles', { x: this.tile.x, y: this.tile.y });
+            emit('fx:commanderSkill', { x: this.tile.x, y: this.tile.y, glyph: '\u{1F54A}\u{FE0F}', label: '临终迸发' });
             log(`${this.camp.name}${this.config.name}兵的【治愈灵光】临终迸发，从致命一击中幸存（+${burst}HP）`);
             return false;
         }
@@ -1096,7 +514,7 @@ export class Unit {
             this.canAct = false;
             this.remainingMP = 0;
             log(`${this.camp.name}殉道者【${this.config.name}兵】生命垂危，进入殉道倒计时！`);
-            spawnCommanderSkillEffect(this.tile.x, this.tile.y, '💥', '殉道倒计时');
+            emit('fx:commanderSkill', { x: this.tile.x, y: this.tile.y, glyph: '💥', label: '殉道倒计时' });
             return false;
         }
         // 殉道者已进入倒计时后再次受伤：血量锁死在1，不会死亡
@@ -1174,10 +592,10 @@ export class Unit {
                             const oldM = u.morale;
                             u.morale = Math.min(3, u.morale + 1);
                             if (u.morale === 3) u.moraleBoostUntil = getRoundIndex(_gameState) + COMMANDER_CONFIG.martyr.balance.moraleBoostRounds;
-                            if (u.morale !== oldM) spawnMoraleEffect(u);
+                            if (u.morale !== oldM) emit('fx:morale', { unit: u });
                         }
                     }
-                    triggerFactionMoraleFlash('#ffd700');
+                    emit('fx:factionMorale', { color: '#ffd700' });
                     log(`⚔ ${killerCamp.name}斩杀敌方将领，全军士气+1！`);
                 }
             }
@@ -1222,9 +640,9 @@ export class Unit {
             const key = attackerUnit.camp === CAMP.player1 ? 'player1' : attackerUnit.camp === CAMP.player2 ? 'player2' : attackerUnit.camp === CAMP.player3 ? 'player3' : 'neutral';
             _gameState.killCount[key]++;
         }
-        spawnExplosionParticles(this.tile.x, this.tile.y, '#ff2200', 30);
-        spawnExplosionParticles(this.tile.x, this.tile.y, '#ffaa00', 15);
-        triggerScreenShake(4, 150);
+        emit('fx:explosion', { x: this.tile.x, y: this.tile.y, color: '#ff2200', count: 30 });
+        emit('fx:explosion', { x: this.tile.x, y: this.tile.y, color: '#ffaa00', count: 15 });
+        emit('fx:screenShake', { strength: 4, duration: 150 });
     }
 
     // 普攻/反击入口（保留旧签名，内部转入 applyDamage）
@@ -1268,8 +686,8 @@ export class Unit {
                 timeLeft: 1000,
                 lastUpdate: performance.now()
             });
-            triggerHealFlash(this.tile.x, this.tile.y);
-            spawnHealParticles(this.tile.x, this.tile.y);
+            emit('fx:healFlash', { x: this.tile.x, y: this.tile.y });
+            emit('fx:healParticles', { x: this.tile.x, y: this.tile.y });
             return actualHeal;
         }
         return 0;
@@ -1296,7 +714,7 @@ export class Unit {
                 }
             }
             _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
-            spawnRankUpEffect(this.tile.x, this.tile.y, this._rank);
+            emit('fx:rankUp', { x: this.tile.x, y: this.tile.y, rank: this._rank });
         }
     }
 

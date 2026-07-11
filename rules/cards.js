@@ -76,9 +76,7 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
         ...TACTICAL_CARD_DATA.lightning,
         execute(targetTile, gameState, helpers) {
             const balance = TACTICAL_CARD_DATA.lightning.balance;
-            let dmg = gameState.rng
-                ? gameState.rng.between(balance.minDamage, balance.maxDamage)
-                : balance.minDamage + Math.floor(Math.random() * (balance.maxDamage - balance.minDamage + 1));
+            let dmg = gameState.rng.between(balance.minDamage, balance.maxDamage);
             if (gameState.weather === 'rain') dmg = Math.floor(dmg * balance.rainMultiplier);
             // 预演扣血：调用方随即回滚，真正结算延迟走 Unit.applyDamage（勿改用 applyDamage，否则击杀无法回滚）
             targetTile.unit.hp = Math.max(0, targetTile.unit.hp - dmg);
@@ -137,9 +135,7 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
         ...TACTICAL_CARD_DATA.airstrike,
         execute(targetTile, gameState, helpers) {
             const balance = TACTICAL_CARD_DATA.airstrike.balance;
-            const dmgBase = gameState.rng
-                ? gameState.rng.between(balance.minDamage, balance.maxDamage)
-                : balance.minDamage + Math.floor(Math.random() * (balance.maxDamage - balance.minDamage + 1));
+            const dmgBase = gameState.rng.between(balance.minDamage, balance.maxDamage);
             const results = [];
             const { applyAADefense } = helpers;
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];

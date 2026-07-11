@@ -1,36 +1,14 @@
 ﻿import { HEX_SIZE, HEX_WIDTH, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, hexToRgb, rgbToHex, frameInfo, CAMP_FLAG_COLORS, HEX_NEIGHBORS, hexEdge, TERRAIN_CONFIG, CAMP, settings } from './config.js';
-import { nextId } from './uid.js';
 import { FORTIFICATION_CONFIG } from './config.js';
+import { EngineHexTile } from '../engine/HexTile.js';
 
 let _gameState = null;
 export function setGameStateRef(ref) { _gameState = ref; }
 
-export class HexTile {
+export class HexTile extends EngineHexTile {
     constructor(q, r, idOverride = null) {
-        this.id = idOverride ?? nextId();
-        this.q = q;
-        this.r = r;
-        this.s = -q - r;
-        this.camp = CAMP.neutral;
-        this.isCity = false;
-        this.isVillage = false;
-        this.villageDistrictId = 0;
-        this.districtId = 0;
-        this.terrain = 'plains';
-        this.fortification = null;
-        this.unit = null;
-
-        this.startColor = this.camp.color;
-        this.targetColor = this.camp.color;
-        this.currentColor = this.camp.color;
+        super(q, r, idOverride);
         this.fadeDuration = 1500;
-        this.fadeStartTime = null;
-        this._minePlanted = false;
-        this._mineCampKey = null;
-        this._cityDisabledUntil = 0;
-
-        this.x = (LOGICAL_W / 2) + HEX_WIDTH * (q + r * 0.5);
-        this.y = LOGICAL_H / 2 + (3 / 2 * HEX_SIZE) * r;
     }
 
     setCampWithFade(newCamp) {

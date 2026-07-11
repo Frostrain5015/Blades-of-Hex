@@ -1,4 +1,4 @@
-import { UNIT_CONFIG } from '../js/config.js';
+import { UNIT_CONFIG } from '../rules/units.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.magician;

@@ -1,7 +1,7 @@
 // 亡灵法师 —— 留魂 + 回魂
-import { Unit } from '../js/Unit.js';
-import { UNIT_CONFIG, getRoundIndex } from '../js/config.js';
-import { spawnSoulRecallEffect } from '../js/effects.js';
+import { UNIT_CONFIG } from '../rules/units.js';
+import { getRoundIndex } from '../rules/turns.js';
+import { emit } from '../js/eventBus.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.necromancer;
@@ -108,7 +108,8 @@ export default {
         const soulAtk = Math.round((baseAtk + origAtkBonus) * BALANCE.soulAttackPct);
 
         // 创建魂卒单位（同原兵种），设落地时间戳以延迟显示
-        const soulUnit = new Unit(origType, camp, targetTile, false);
+        const UnitClass = unit.constructor;
+        const soulUnit = new UnitClass(origType, camp, targetTile, false);
         soulUnit._isSoulMinion = true;
         soulUnit.maxHp = origMaxHp;
         soulUnit.hp = soulHp;
@@ -117,7 +118,7 @@ export default {
         soulUnit.canAct = true;
         soulUnit.remainingMP = soulUnit.config.speed;
         // 黑烟飞抵后才现身
-        soulUnit._soulRecallLandAt = spawnSoulRecallEffect(necroTile.x, necroTile.y, targetTile.x, targetTile.y);
+        emit('fx:soulRecall', { fromX: necroTile.x, fromY: necroTile.y, toX: targetTile.x, toY: targetTile.y, unit: soulUnit });
 
         helpers.logMessage(`亡灵法师【回魂】：亡魂→魂卒（${soulHp}HP/${soulAtk}ATK）`);
     }

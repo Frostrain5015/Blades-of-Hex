@@ -9,7 +9,7 @@ export default {
   onAttack(attacker, target, dmg, helpers) {
     if (attacker._centurionTriggered) return null;
     if (target.hp <= 0) return null; // 击杀由 onKill 处理，避免与引擎 killResult 检查冲突
-    if (!(helpers.rng ? helpers.rng.chance(BALANCE.attackTriggerChance) : Math.random() < BALANCE.attackTriggerChance)) return null;
+    if (!helpers.rng.chance(BALANCE.attackTriggerChance)) return null;
     attacker._centurionTriggered = true;
     attacker.remainingMP = Math.min(attacker.config.speed, attacker.remainingMP + BALANCE.movementPoints);
     helpers.spawnFx(attacker.tile.x, attacker.tile.y);

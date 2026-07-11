@@ -2,7 +2,7 @@
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
 import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
-import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState } from './state.js';
+import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState, seedMatchRng } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId } from './network.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
@@ -139,39 +139,18 @@ const HEX_AXES = [
     [[1, -1], [-1, 1]]
 ];
 
-// 可播种的伪随机数生成器（mulberry32），保证联机时各地形/牌库一致
-let _terrainSeed = 0;
-function _createRNG(seed) {
-    let s = seed | 0;
-    return function () {
-        s |= 0; s = s + 0x6D2B79F5 | 0;
-        let t = Math.imul(s ^ s >>> 15, 1 | s);
-        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-        return ((t ^ t >>> 14) >>> 0) / 4294967296;
-    };
-}
-
 function generateTerrain(tiles) {
     const nonCityTiles = tiles.filter(t => !t.isCity);
     const total = nonCityTiles.length;
     if (total === 0) return;
 
-    // 联机模式使用房间号作为种子，保证所有客户端地形一致
-    let rand;
-    if (isNetworkGame()) {
-        const roomId = getMyRoomId() || '0';
-        _terrainSeed = 0;
-        for (let i = 0; i < roomId.length; i++) _terrainSeed = (_terrainSeed * 31 + roomId.charCodeAt(i)) | 0;
-        rand = _createRNG(_terrainSeed);
-    } else {
-        rand = Math.random;
-    }
+    const rng = gameState.rng;
 
     const forestSeeds   = Math.floor(total * 0.08);
     const mountainSeeds = Math.floor(total * 0.04);
 
     for (let i = nonCityTiles.length - 1; i > 0; i--) {
-        const j = Math.floor(rand() * (i + 1));
+        const j = rng.int(i + 1);
         [nonCityTiles[i], nonCityTiles[j]] = [nonCityTiles[j], nonCityTiles[i]];
     }
 
@@ -196,9 +175,9 @@ function generateTerrain(tiles) {
             tile.terrain = 'forest';
         } else if (mCount >= 2) {
             tile.terrain = 'mountain';
-        } else if (fCount === 1 && rand() < 0.30) {
+        } else if (fCount === 1 && rng.chance(0.30)) {
             tile.terrain = 'forest';
-        } else if (mCount === 1 && rand() < 0.20) {
+        } else if (mCount === 1 && rng.chance(0.20)) {
             tile.terrain = 'mountain';
         }
     }
@@ -220,7 +199,7 @@ function generateTerrain(tiles) {
             hexDistance(t, city) >= VILLAGE_MIN_DIST
         );
         if (candidates.length === 0) continue;
-        const idx = Math.floor(rand() * candidates.length);
+        const idx = rng.int(candidates.length);
         const t = candidates[idx];
         t.isVillage = true;
         t.villageDistrictId = districtId;
@@ -306,6 +285,8 @@ export function recalcAllFlankingMorale() {
 }
 
 export function initMap() {
+    // 阶段 4 会由服务端下发逐局种子；过渡期按房间号先让所有联机客户端拥有相同随机序列。
+    if (isNetworkGame()) seedMatchRng(`room:${getMyRoomId() || '0'}`);
     gameState.tiles = [];
 
     // City definitions: each city anchors a Voronoi district
@@ -413,9 +394,9 @@ const _onRecruitArcher = () => recruitUnit('archer');
 function initCardDeck() {
     const deck = [...DECK_COMPOSITION];
     if (gameState.skirmishFog) deck.push(...SKIRMISH_EXTRAS);
-    const rand = isNetworkGame() ? _createRNG(_terrainSeed) : Math.random;
+    const rng = gameState.rng;
     for (let i = deck.length - 1; i > 0; i--) {
-        const j = Math.floor(rand() * (i + 1));
+        const j = rng.int(i + 1);
         [deck[i], deck[j]] = [deck[j], deck[i]];
     }
     gameState.cardDrawPile = deck;
@@ -475,7 +456,7 @@ export function drawCard(camp) {
         gameState.cardDrawPile = [...gameState.cardDiscardPile];
         gameState.cardDiscardPile = [];
         for (let i = gameState.cardDrawPile.length - 1; i > 0; i--) {
-            const j = gameState.rng ? gameState.rng.int(i + 1) : Math.floor(Math.random() * (i + 1));
+            const j = gameState.rng.int(i + 1);
             [gameState.cardDrawPile[i], gameState.cardDrawPile[j]] = [gameState.cardDrawPile[j], gameState.cardDrawPile[i]];
         }
         logMessage('弃牌堆已洗入抽牌堆');
@@ -636,7 +617,7 @@ function _updateWeather() {
     if (gameState._starlightResume) {
         gameState._starlightResume = false;
         const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
-        gameState.lastWeather = pool[gameState.rng ? gameState.rng.int(pool.length) : Math.floor(Math.random() * pool.length)];
+        gameState.lastWeather = pool[gameState.rng.int(pool.length)];
         gameState.weather = gameState.lastWeather;
         return;
     }
@@ -650,7 +631,7 @@ function _updateWeather() {
     const position = cycleRound % cycleLen;  // 0,1,2
     if (position === 0) {
         const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
-        gameState.lastWeather = pool[gameState.rng ? gameState.rng.int(pool.length) : Math.floor(Math.random() * pool.length)];
+        gameState.lastWeather = pool[gameState.rng.int(pool.length)];
     }
     if (position < WEATHER_CYCLE.weatherDuration) {
         gameState.weather = gameState.lastWeather;
@@ -1293,7 +1274,7 @@ export function moveUnit(unit, targetTile) {
     targetTile.unit = unit;
     unit.movedThisTurn = true;
     unit.moveDistance += path.length - 1;
-    unit.startMovePath(path);
+    unit.startMovePath?.(path);
     playSound('move');
 
     const mpEntry = gameState.moveParents.get(targetTile);
@@ -1586,7 +1567,7 @@ export function attackUnit(attackerUnit, targetUnit) {
                 attackerUnit.tile = targetTile;
                 targetTile.unit = attackerUnit;
                 attackerUnit.moveDistance++;
-                attackerUnit.startMovePath([{ x: fromX, y: fromY }, { x: toX, y: toY }]);
+                attackerUnit.startMovePath?.([{ x: fromX, y: fromY }, { x: toX, y: toY }]);
                 if (targetTile.isCity) { updateDistrictColor(targetTile, attackerUnit.camp, attackerUnit); _cityCapturedInAttack = true; }
                 if (targetTile.isCity && attackerUnit.commander === 'minister') {
                     spawnCommanderSkillEffect(targetTile.x, targetTile.y, '🎖️', '屯田');
@@ -2901,7 +2882,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             for (const t of gameState.tiles) {
                 if (!t.unit || t.unit.commander !== 'diplomat' || t.unit.camp !== dipCamp || t.unit.hp <= 0) continue;
                 if (t.camp === dipCamp) continue;
-                if (!(gameState.rng ? gameState.rng.chance(0.50) : Math.random() < 0.50)) continue;
+                if (!gameState.rng.chance(0.50)) continue;
                 const hand = gameState.playerHands[ck] || [];
                 const hBonus = co.handSizeBonus || 0;
                 if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;

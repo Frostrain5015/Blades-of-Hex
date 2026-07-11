@@ -1,10 +1,10 @@
 // 将领通用接口 —— 游戏主体通过此模块调用将领钩子
 import { getCommander } from '../commander/index.js';
-import { HEX_NEIGHBORS, CAMP } from './config.js';
+import { HEX_NEIGHBORS } from '../rules/hex.js';
+import { CAMP } from '../rules/camps.js';
 import stallerDef from '../commander/staller.js';
-import { spawnExplosionParticles, spawnMoraleEffect as _spawnMoraleEffectDirect } from './effects.js';
-import { playSound } from './audio.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { emit } from './eventBus.js';
 
 // 延迟引用，由 main.js 初始化（避免循环依赖）
 let _gameState = null;
@@ -64,52 +64,53 @@ function _helpers(cmdId) {
     rng: gs ? gs.rng : null,
     logMessage: _logMessage || ((m) => console.log(m)),
     spawnFx: (x, y, glyph) => {
-      const fn = _spawnFx || ((x, y, g, l) => {});
-      fn(x, y, glyph || '\u{1F3C5}', label);
+      if (_spawnFx) _spawnFx(x, y, glyph || '\u{1F3C5}', label);
+      else emit('fx:commanderSkill', { x, y, glyph: glyph || '\u{1F3C5}', label });
     },
     spawnGoldenBeam: (x, y) => {
-      const fn = _spawnGoldenBeam || ((a, b) => {});
-      fn(x, y);
+      if (_spawnGoldenBeam) _spawnGoldenBeam(x, y);
+      else emit('fx:goldenBeam', { x, y });
     },
     spawnOrbitBeams: (unitId, x, y, count) => {
-      const fn = _spawnOrbitBeams || ((uid, px, py, c) => {});
-      fn(unitId, x, y, count);
+      if (_spawnOrbitBeams) _spawnOrbitBeams(unitId, x, y, count);
+      else emit('fx:orbitBeams', { unitId, x, y, count });
     },
     clearOrbitBeams: (unitId) => {
-      const fn = _clearOrbitBeams || ((uid) => {});
-      fn(unitId);
+      if (_clearOrbitBeams) _clearOrbitBeams(unitId);
+      else emit('fx:clearOrbitBeams', { unitId });
     },
     spawnBeamProjectiles: (fromX, fromY, toX, toY, count) => {
-      const fn = _spawnBeamProjectiles || ((fx, fy, tx, ty, c) => {});
-      fn(fromX, fromY, toX, toY, count);
+      if (_spawnBeamProjectiles) _spawnBeamProjectiles(fromX, fromY, toX, toY, count);
+      else emit('fx:beamProjectiles', { fromX, fromY, toX, toY, count });
     },
     launchOrbitSwords: (unitId, targetX, targetY, count) => {
-      const fn = _launchOrbitSwords || ((uid, tx, ty, c) => []);
-      return fn(unitId, targetX, targetY, count);
+      if (_launchOrbitSwords) return _launchOrbitSwords(unitId, targetX, targetY, count);
+      emit('fx:launchOrbitSwords', { unitId, targetX, targetY, count });
+      return [];
     },
     spawnHealingChain: (fromX, fromY, toX, toY) => {
-      const fn = _spawnHealingChain || ((fx, fy, tx, ty) => {});
-      fn(fromX, fromY, toX, toY);
+      if (_spawnHealingChain) _spawnHealingChain(fromX, fromY, toX, toY);
+      else emit('fx:healingChain', { fromX, fromY, toX, toY });
     },
     spawnExplosion: (x, y, color, count = 18) => {
-      spawnExplosionParticles(x, y, color, count);
+      emit('fx:explosion', { x, y, color, count });
     },
     playSound: (soundName) => {
-      playSound(soundName);
+      emit('audio:play', { soundName });
     },
     spawnMoraleEffect: (unit) => {
-      _spawnMoraleEffectDirect(unit);
+      emit('fx:morale', { unit });
     },
     findCommanderUnit: _findCommanderUnit,
     changeUnitCamp,
     // 将领专属视觉特效（由 commander 自身 onAttack/onKill 等钩子调用）
     spawnBloodDrain: (toX, toY, fromX, fromY) => {
-      const fn = _spawnBloodDrain || ((a, b, c, d) => {});
-      fn(toX, toY, fromX, fromY);
+      if (_spawnBloodDrain) _spawnBloodDrain(toX, toY, fromX, fromY);
+      else emit('fx:bloodDrain', { toX, toY, fromX, fromY });
     },
     spawnGongxinRipple: (x, y, intense = false) => {
-      const fn = _spawnGongxinRipple || ((a, b, c) => {});
-      fn(x, y, intense);
+      if (_spawnGongxinRipple) _spawnGongxinRipple(x, y, intense);
+      else emit('fx:gongxinRipple', { x, y, intense });
     },
   };
 }
