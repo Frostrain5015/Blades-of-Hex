@@ -2,6 +2,8 @@
 
 This document is the maintenance map for the six-stage refactor. The game intentionally remains native browser ESM: there is no bundler step.
 
+The browser-facing source directories (`js/`, `engine/`, `rules/`, `commander/`, `core/`, and `protocol/`) each declare a local `package.json` with `"type": "module"`. The root package remains CommonJS for `server.js`, `auth-server.js`, and the admin service.
+
 ## Architecture map
 
 | Area | Source of truth | Responsibility |

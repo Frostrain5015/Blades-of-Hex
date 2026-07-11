@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-11T01:11:56.908Z",
-  "entryVersion": "f74dc8f7b9",
+  "generatedAt": "2026-07-11T01:14:38.117Z",
+  "entryVersion": "28e3bd8984",
   "files": {
     "js/ai.js": "5fa0b206e5",
     "js/audio.js": "e9d0efd96c",
@@ -25,6 +25,7 @@
     "js/lib/howler.min.js": "47318d3eef",
     "js/main.js": "fa32bd351e",
     "js/network.js": "c9bef4ff58",
+    "js/package.json": "50faeb965b",
     "js/portraitLoader.js": "ea8d25d1dd",
     "js/preparationController.js": "9e9c0bd957",
     "js/renderer.js": "8e05eb1426",
@@ -42,6 +43,7 @@
     "rules/format.js": "a57f5c8527",
     "rules/freeze.js": "9d2b8c3195",
     "rules/hex.js": "e9ccb117df",
+    "rules/package.json": "50faeb965b",
     "rules/symbols.js": "c01f671fdd",
     "rules/terrain.js": "05e1998edc",
     "rules/turns.js": "624b7b5753",
@@ -74,6 +76,7 @@
     "commander/martyr.js": "1b860834fb",
     "commander/minister.js": "0ea9ec104b",
     "commander/necromancer.js": "b33ec251d8",
+    "commander/package.json": "50faeb965b",
     "commander/paladin.js": "7ea6d48dc1",
     "commander/priest.js": "ab74e0d829",
     "commander/staller.js": "330752aa39",
@@ -81,10 +84,13 @@
     "commander/vampire.js": "dde19db552",
     "core/dom-shim.js": "2424a059ef",
     "core/headless.js": "37d9fe2d9d",
+    "core/package.json": "50faeb965b",
     "core/rng.js": "cb850dab9f",
     "engine/HexTile.js": "93fd06b06b",
     "engine/matchState.js": "490e8a57ff",
+    "engine/package.json": "50faeb965b",
     "protocol/messages.js": "55c415ca83",
-    "index.html": "c7dd675cc3"
+    "protocol/package.json": "50faeb965b",
+    "index.html": "017961a43b"
   }
 }
