@@ -1735,6 +1735,7 @@ body {
     gap: 6px;
     pointer-events: none;
     user-select: none;
+    margin-top: -40px;
 }
 .commander-logo {
     width: 52px;
