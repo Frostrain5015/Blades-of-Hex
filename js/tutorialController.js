@@ -270,6 +270,7 @@ export function createTutorialController() {
             paneBottom.style.display = 'none';
             paneLeft.style.display = 'none';
             paneRight.style.display = 'none';
+            if (holeBorder) holeBorder.classList.remove('visible');
             return;
         }
 
@@ -280,6 +281,12 @@ export function createTutorialController() {
         paneBottom.style.cssText = `display:block;top:${hole.bottom}px;left:0;width:100vw;height:${h - hole.bottom}px`;
         paneLeft.style.cssText = `display:block;top:${hole.top}px;left:0;width:${hole.left}px;height:${hole.bottom - hole.top}px`;
         paneRight.style.cssText = `display:block;top:${hole.top}px;left:${hole.right}px;width:${w - hole.right}px;height:${hole.bottom - hole.top}px`;
+
+        // 洞口边框定位
+        if (holeBorder) {
+            holeBorder.style.cssText = `top:${hole.top}px;left:${hole.left}px;width:${hole.right - hole.left}px;height:${hole.bottom - hole.top}px`;
+            holeBorder.classList.add('visible');
+        }
     }
 
     // ---- 目标高亮环 ----

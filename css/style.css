@@ -2561,6 +2561,28 @@ body {
     background: rgba(0,0,0,0.65);
     pointer-events: auto;
     display: none;
+    transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+
+/* 洞口方形边框 —— 跳变色 */
+#tutorialHoleBorder {
+    position: fixed;
+    z-index: 9502;
+    pointer-events: none;
+    display: none;
+    border: 2px solid #ffd700;
+    border-radius: 3px;
+    animation: holeBorderPulse 1.8s ease-in-out infinite;
+    box-shadow: 0 0 10px rgba(255,215,0,0.25), inset 0 0 10px rgba(255,215,0,0.08);
+    transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+#tutorialHoleBorder.visible { display: block; }
+
+@keyframes holeBorderPulse {
+    0%   { border-color: #ffd700; box-shadow: 0 0 10px rgba(255,215,0,0.25), inset 0 0 10px rgba(255,215,0,0.08); }
+    33%  { border-color: #ff8844; box-shadow: 0 0 14px rgba(255,136,68,0.30), inset 0 0 10px rgba(255,136,68,0.10); }
+    66%  { border-color: #ffdd66; box-shadow: 0 0 12px rgba(255,221,102,0.28), inset 0 0 10px rgba(255,221,102,0.09); }
+    100% { border-color: #ffd700; box-shadow: 0 0 10px rgba(255,215,0,0.25), inset 0 0 10px rgba(255,215,0,0.08); }
 }
 
 /* 操作提示浮层（居中显示，短暂出现后消失） */
