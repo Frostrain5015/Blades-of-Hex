@@ -7,7 +7,7 @@ import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSp
 import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill } from './gameLogic.js';
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
-import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp, checkReconnect } from './network.js';
 import { CAMP, COMMANDER_REROLL_COST } from './config.js';
 import { COMMANDER_DRAFT } from '../rules/constants.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
@@ -181,11 +181,29 @@ connectToServer(wsUrl(location.host)).then(() => {
         onDisconnected: () => setConnectionState('disconnected'),
         onReconnecting: (n) => { setConnectionState('connecting'); connectionLabel.textContent = '重连中...'; },
         onReconnectFailed: () => { setConnectionState('disconnected'); connectionLabel.textContent = '连接断开，正在自动重连'; },
-        onSocketReconnected: () => setConnectionState('connected')
+        onSocketReconnected: () => setConnectionState('connected'),
+        onReconnectInfo: (info) => {
+            if (info.reconnect && info.roomId && info.roleName) {
+                const campColor = info.role === 'player1' ? '#ff6666' : info.role === 'player2' ? '#6688ff' : '#66cc66';
+                const overlay = document.getElementById('confirmOverlay');
+                const msgEl = document.getElementById('confirmMessage');
+                const yesBtn = document.getElementById('confirmYes');
+                const noBtn = document.getElementById('confirmNo');
+                msgEl.innerHTML = `检测到您有未完成的对局：<strong>${info.roomId}</strong> 号房间 <strong style="color:${campColor}">${info.roleName}</strong>，是否重连？`;
+                overlay.classList.add('show');
+                const cleanup = () => { overlay.classList.remove('show'); yesBtn.removeEventListener('click', onYes); noBtn.removeEventListener('click', onNo); };
+                const onYes = () => { cleanup(); joinRoom(info.roomId); };
+                const onNo = () => { cleanup(); };
+                yesBtn.addEventListener('click', onYes);
+                noBtn.addEventListener('click', onNo);
+            }
+        }
     });
     // 连接成功 → 首屏立绘就绪后撤下加载遮罩、展示主页
     _dismissLoadingWhenReady();
     showHome();
+    // 检查是否有断线对局可重连（延迟等首页稳定后再弹）
+    setTimeout(() => checkReconnect(), 500);
 }).catch(() => {
     setConnectionState('disconnected');
     // 连接失败 → 仍展示主页（本地/PVE 模式不需要服务器）

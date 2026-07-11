@@ -398,6 +398,32 @@ async function handleMessage(ws, rawData) {
             break;
         }
 
+        case 'checkReconnect': {
+            // 检查该 clientId 是否有处于断线等待重连状态的对局
+            const cid = ws._clientId;
+            if (!cid) { sendJson(ws, { type: 'reconnectInfo', reconnect: false }); break; }
+            let foundRoom = null;
+            for (const [id, room] of rooms) {
+                if (!room.gameStarted) continue;
+                const roles = room._disconnectedRoles;
+                if (!roles) continue;
+                for (const [role, storedCid] of Object.entries(roles)) {
+                    if (storedCid === cid) {
+                        foundRoom = { roomId: id, role };
+                        break;
+                    }
+                }
+                if (foundRoom) break;
+            }
+            if (foundRoom) {
+                const roleName = foundRoom.role === 'player1' ? '红军' : foundRoom.role === 'player2' ? '蓝军' : foundRoom.role === 'player3' ? '绿军' : foundRoom.role;
+                sendJson(ws, { type: 'reconnectInfo', reconnect: true, roomId: foundRoom.roomId, role: foundRoom.role, roleName });
+            } else {
+                sendJson(ws, { type: 'reconnectInfo', reconnect: false });
+            }
+            break;
+        }
+
         case 'createRoom': {
             leaveCurrentRoom(ws);
             const roomId = acquireRoomId();
