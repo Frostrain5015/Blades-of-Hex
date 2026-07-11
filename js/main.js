@@ -64,9 +64,11 @@ setLaunchOrbitSwordsRef(launchPaladinOrbitSwords);
 setSpawnHealingChainRef(spawnHealingChain);
 	const _tutorialController = createTutorialController();
 	setTutorialControllerRef(_tutorialController);
+	// 编辑器试玩中的关卡配置；非空时结算面板的重试/返回路由到编辑器而非战役大厅。
+	let _playtestConfig = null;
 	const _campaignController = createCampaignController({
-		onRetry: () => startScenario(_currentChronicleId, _currentScenarioId),
-		onReturn: () => returnToCampaignLobby()
+		onRetry: () => _playtestConfig ? startScenarioFromConfig(_playtestConfig) : startScenario(_currentChronicleId, _currentScenarioId),
+		onReturn: () => _playtestConfig ? returnToEditorFromPlaytest() : returnToCampaignLobby()
 	});
 	setCampaignControllerRef(_campaignController);
 
@@ -516,6 +518,29 @@ document.getElementById('campaignBackBtn').addEventListener('click', () => {
 });
 // 关卡卡/进入按钮由 campaign/lobby.js 依数据生成并绑定（见 showCampaignLobby）。
 
+// ==== 战役编辑器（大厅第三入口；模块按需加载） ====
+document.getElementById('editorBtn').addEventListener('click', async () => {
+    let editor;
+    try {
+        editor = await import('../campaign/editor/editor.js');
+    } catch (err) {
+        console.error('[editor] 编辑器加载失败', err);
+        setStatus('编辑器加载失败，请刷新后重试', true);
+        return;
+    }
+    editor.initEditor({
+        onPlaytest: (config) => startScenarioFromConfig(config),
+        onBack: () => {
+            document.getElementById('lobbyOverlay').style.display = '';
+            showHome();
+            _startHeroCarousel().catch(err => console.warn('[轮播] 恢复失败:', err));
+        }
+    });
+    _stopHeroCarousel();
+    document.getElementById('lobbyOverlay').style.display = 'none';
+    editor.openEditor();
+});
+
 
 // ==== 多人游戏 → 直接连接服务器进大厅 ====
 
@@ -719,7 +744,36 @@ async function startScenario(chronicleId, scenarioId) {
 	if (!scenario) { console.warn(`[campaign] 未找到关卡：${chronicleId}/${scenarioId}`); return; }
 	_currentChronicleId = chronicleId;
 	_currentScenarioId = scenarioId;
+	_playtestConfig = null;
+	_launchScenario(scenario);
+}
 
+// 编辑器试玩：配置直接包装为 scenario 启动，跳过选将与倒计时，不写通关进度。
+async function startScenarioFromConfig(config) {
+	let scenario;
+	try {
+		const { scenarioFromConfig } = await import('../campaign/runtime/scenarioFromConfig.js');
+		scenario = scenarioFromConfig(config, { storageKey: '' });
+	} catch (err) {
+		console.error('[editor] 试玩关卡构建失败', err);
+		return;
+	}
+	_playtestConfig = config;
+	document.getElementById('editorOverlay').style.display = 'none';
+	_launchScenario(scenario);
+}
+
+function returnToEditorFromPlaytest() {
+	_campaignController.stop();
+	resetGameState();
+	_deploymentStarted = false;
+	document.body.style.pointerEvents = '';
+	stopBattleBGM();
+	document.getElementById('gameWrapper').style.display = 'none';
+	import('../campaign/editor/editor.js').then(m => m.reopenEditorAfterPlaytest());
+}
+
+function _launchScenario(scenario) {
 	_campaignController.stop();
 	_tutorialController.stop();
 	_stopHeroCarousel();
@@ -727,8 +781,8 @@ async function startScenario(chronicleId, scenarioId) {
 	resetGameState();
 	gameState.gameMode = 'pve';
 	gameState.campaignMode = true;
-	gameState.campaignId = chronicleId;
-	gameState.scenarioId = scenarioId;
+	gameState.campaignId = _playtestConfig ? '__editor__' : _currentChronicleId;
+	gameState.scenarioId = scenario.id;
 	gameState.campaignPhase = scenario.initialStep;
 	gameState.tutorialMode = true; // 首阶段使用严格引导锁；夺城后由战役控制器解除。
 	gameState.tutorialStep = scenario.initialStep;
@@ -736,8 +790,9 @@ async function startScenario(chronicleId, scenarioId) {
 	gameState.isThreePlayer = false;
 	gameState.skirmishFog = false;
 	gameState.doubleCommanderMode = false;
-	gameState.aiOpponentCamp = CAMP.player2;
-	gameState.aiDifficulty = 1.0;
+	// 配置关卡可指定 AI 阵营与难度；默认蓝军 / 1.0。
+	gameState.aiOpponentCamp = scenario.aiOpponentCampKey === 'player1' ? CAMP.player1 : CAMP.player2;
+	gameState.aiDifficulty = scenario.aiDifficulty ?? 1.0;
 	gameState.commanderPhase = 'done';
 
 	_campaignController.loadScenarioRuntime(scenario);
@@ -759,7 +814,8 @@ async function startScenario(chronicleId, scenarioId) {
 
 	// 在遮罩后预先加载棋盘，避免玩家点击后才看到空棋盘
 	gameState.rng.setState(scenario.seed);
-	initMap();
+	// 配置关卡自带棋盘（半径/城市/区划由配置决定），跳过标准建图。
+	if (!scenario.buildsOwnBoard) initMap();
 	scenario.buildBattlefield();
 	loadCommanderFx(gameState).catch(err => console.warn('[campaign] 将领特效加载失败:', err));
 	initInput();
@@ -770,7 +826,8 @@ async function startScenario(chronicleId, scenarioId) {
 	updateChatAvailability();
 	initEmblemChatClicks();
 	gameState.currentCamp = CAMP.player1;
-	grantTurnStartIncome(CAMP.player1);
+	// 配置关卡：初始金币以配置为准，不叠加首回合收入（编辑器所见即所得）。
+	if (!scenario.buildsOwnBoard) grantTurnStartIncome(CAMP.player1);
 	updateUI();
 	updateButtonColors();
 	renderGame();

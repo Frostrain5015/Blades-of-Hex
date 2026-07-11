@@ -1,0 +1,285 @@
+/* ===== 战役编辑器 ===== */
+#editorOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    background: radial-gradient(ellipse at 50% 0%, #1d2433 0%, #12161f 55%, #0c0f15 100%);
+    color: #d8dee9;
+    font-family: inherit;
+    user-select: none;
+}
+
+/* ── 顶栏 ── */
+.editor-topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: rgba(10, 13, 20, 0.85);
+    border-bottom: 1px solid rgba(230, 194, 0, 0.22);
+    flex: 0 0 auto;
+}
+.editor-title-input {
+    flex: 0 0 220px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    color: #ffe9a8;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 6px 10px;
+    outline: none;
+}
+.editor-title-input:focus { border-color: rgba(230, 194, 0, 0.55); }
+.editor-topbar-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+}
+.editor-action-btn {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    color: #d8dee9;
+    font-size: 13px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.editor-action-btn:hover { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.3); }
+.editor-action-primary {
+    background: linear-gradient(180deg, rgba(230, 194, 0, 0.28), rgba(230, 194, 0, 0.14));
+    border-color: rgba(230, 194, 0, 0.5);
+    color: #ffe9a8;
+    font-weight: 700;
+}
+.editor-action-primary:hover { background: linear-gradient(180deg, rgba(230, 194, 0, 0.4), rgba(230, 194, 0, 0.2)); }
+
+/* ── 三栏主体 ── */
+.editor-body {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: 240px 1fr 300px;
+    min-height: 0;
+}
+
+/* 左：工具面板 */
+.editor-tools {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: rgba(12, 15, 22, 0.72);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.editor-tabbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.editor-tab {
+    flex: 1 0 40%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    color: #aab3c0;
+    font-size: 13px;
+    padding: 6px 0;
+    cursor: pointer;
+}
+.editor-tab.active {
+    background: rgba(230, 194, 0, 0.16);
+    border-color: rgba(230, 194, 0, 0.45);
+    color: #ffe9a8;
+    font-weight: 700;
+}
+.editor-tab-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 10px;
+    min-height: 0;
+}
+
+/* 中：画布 */
+.editor-canvas-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 0;
+    padding: 10px;
+}
+#editorCanvas {
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 4 / 3;
+    background: radial-gradient(ellipse at center, #232b3a 0%, #161b26 75%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    cursor: crosshair;
+    touch-action: none;
+}
+.editor-canvas-hint {
+    position: absolute;
+    left: 18px;
+    bottom: 16px;
+    font-size: 12px;
+    color: rgba(216, 222, 233, 0.65);
+    background: rgba(10, 13, 20, 0.7);
+    border-radius: 5px;
+    padding: 3px 8px;
+    pointer-events: none;
+}
+
+/* 右：检查器 */
+.editor-inspector {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: rgba(12, 15, 22, 0.72);
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+.editor-inspector-title {
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffe9a8;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    letter-spacing: 0.08em;
+}
+.editor-inspector-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 10px 12px;
+    min-height: 0;
+}
+
+/* ── 底部状态栏 ── */
+.editor-statusbar {
+    flex: 0 0 auto;
+    padding: 5px 14px;
+    font-size: 12px;
+    color: #8f9aab;
+    background: rgba(10, 13, 20, 0.85);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    max-height: 96px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+.editor-statusbar.error { color: #ff8484; }
+.editor-statusbar.ok { color: #9fe6a0; }
+
+/* ── 表单通用控件（工具/检查器内） ── */
+.ed-section { margin-bottom: 14px; }
+.ed-section-label {
+    font-size: 12px;
+    color: #8f9aab;
+    letter-spacing: 0.1em;
+    margin: 4px 0 6px;
+}
+.ed-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.ed-row label { flex: 0 0 64px; font-size: 12px; color: #aab3c0; }
+.ed-row input[type="text"], .ed-row input[type="number"], .ed-row select, .ed-row textarea {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 5px;
+    color: #d8dee9;
+    font-size: 12px;
+    padding: 4px 7px;
+    outline: none;
+}
+.ed-row textarea { resize: vertical; min-height: 56px; font-family: inherit; line-height: 1.5; }
+.ed-row input:focus, .ed-row select:focus, .ed-row textarea:focus { border-color: rgba(230, 194, 0, 0.5); }
+.ed-row input[type="checkbox"] { accent-color: #e6c200; }
+.ed-row select option { background: #1a202c; }
+
+/* 笔刷网格按钮 */
+.ed-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+.ed-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.ed-brush {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 5px;
+    color: #c6cdd8;
+    font-size: 12px;
+    padding: 7px 4px;
+    cursor: pointer;
+    text-align: center;
+}
+.ed-brush:hover { background: rgba(255, 255, 255, 0.11); }
+.ed-brush.active {
+    background: rgba(230, 194, 0, 0.18);
+    border-color: rgba(230, 194, 0, 0.5);
+    color: #ffe9a8;
+    font-weight: 700;
+}
+
+/* 列表（步骤/触发器/单位清单） */
+.ed-list { display: flex; flex-direction: column; gap: 4px; }
+.ed-list-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    padding: 5px 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.ed-list-item:hover { background: rgba(255, 255, 255, 0.09); }
+.ed-list-item.active { border-color: rgba(230, 194, 0, 0.55); background: rgba(230, 194, 0, 0.12); color: #ffe9a8; }
+.ed-list-item .ed-item-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-item-del {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    color: #ff8484;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0 2px;
+}
+.ed-add-btn {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px dashed rgba(255, 255, 255, 0.25);
+    border-radius: 5px;
+    color: #aab3c0;
+    font-size: 12px;
+    padding: 6px 0;
+    cursor: pointer;
+    margin-top: 6px;
+}
+.ed-add-btn:hover { color: #ffe9a8; border-color: rgba(230, 194, 0, 0.5); }
+
+/* 子块（触发器的条件/动作卡） */
+.ed-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 7px 8px;
+    margin-bottom: 7px;
+}
+.ed-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #ffe9a8;
+    margin-bottom: 6px;
+}
+.ed-hint { font-size: 11px; color: #77808f; line-height: 1.5; margin: 4px 0; }
+
+/* 首页第三按钮的配色（沿用 hero-btn 骨架） */
+.hero-btn-editor .hero-btn-icon { filter: hue-rotate(160deg); }
+
+/* 窄屏兜底：编辑器要求横屏桌面比例 */
+@media (max-width: 1023px) {
+    .editor-body { grid-template-columns: 200px 1fr 240px; }
+}

@@ -7,6 +7,7 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/auth.css">
+    <link rel="stylesheet" href="css/editor.css">
 </head>
 <body>
 
@@ -53,6 +54,13 @@
                             <span class="hero-btn-icon">🌐</span>
                             <span class="hero-btn-content">
                                 <span class="hero-btn-title">联网对战</span>
+                            </span>
+                            <span class="hero-btn-arrow">→</span>
+                        </button>
+                        <button class="hero-btn hero-btn-editor" id="editorBtn">
+                            <span class="hero-btn-icon">🛠️</span>
+                            <span class="hero-btn-content">
+                                <span class="hero-btn-title">战役编辑器</span>
                             </span>
                             <span class="hero-btn-arrow">→</span>
                         </button>
@@ -202,6 +210,46 @@
         </div>
         <div id="lobbyStatus" class="lobby-status"></div>
     </div>
+</div>
+
+<!-- ===== 战役编辑器（大厅第三入口，全屏，默认隐藏） ===== -->
+<div id="editorOverlay" style="display:none">
+    <div class="editor-topbar">
+        <button id="editorBackBtn" class="mp-nav-btn">← 返回大厅</button>
+        <input id="editorLevelTitle" class="editor-title-input" type="text" placeholder="关卡标题" maxlength="24" />
+        <div class="editor-topbar-actions">
+            <button id="editorNewBtn" class="editor-action-btn" title="新建空白关卡">新建</button>
+            <button id="editorImportBtn" class="editor-action-btn" title="导入 level.json">导入</button>
+            <button id="editorExportBtn" class="editor-action-btn" title="下载 level.json 到本地">导出</button>
+            <button id="editorValidateBtn" class="editor-action-btn" title="校验配置">校验</button>
+            <button id="editorPlaytestBtn" class="editor-action-btn editor-action-primary" title="立即试玩本关">▶ 试玩</button>
+        </div>
+    </div>
+    <div class="editor-body">
+        <!-- 左：工具页签 -->
+        <div class="editor-tools">
+            <div class="editor-tabbar">
+                <button class="editor-tab active" data-tab="board">棋盘</button>
+                <button class="editor-tab" data-tab="units">单位</button>
+                <button class="editor-tab" data-tab="story">剧情</button>
+                <button class="editor-tab" data-tab="triggers">触发</button>
+                <button class="editor-tab" data-tab="meta">设置</button>
+            </div>
+            <div class="editor-tab-body" id="editorTabBody"></div>
+        </div>
+        <!-- 中：所见即所得画布 -->
+        <div class="editor-canvas-wrap">
+            <canvas id="editorCanvas" width="1000" height="750"></canvas>
+            <div class="editor-canvas-hint" id="editorCanvasHint"></div>
+        </div>
+        <!-- 右：检查器（点选对象的属性表单） -->
+        <div class="editor-inspector">
+            <div class="editor-inspector-title" id="editorInspectorTitle">检查器</div>
+            <div class="editor-inspector-body" id="editorInspectorBody"></div>
+        </div>
+    </div>
+    <div class="editor-statusbar" id="editorStatusBar">就绪</div>
+    <input type="file" id="editorImportInput" accept=".json,application/json" style="display:none" />
 </div>
 
 <!-- 开局倒计时 -->

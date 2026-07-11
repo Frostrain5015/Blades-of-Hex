@@ -171,7 +171,8 @@ export function createCampaignController({ onRetry, onReturn }) {
         hideGuidance();
         objectiveHud?.classList.remove('show');
         const res = activeScenario.calculateResult(victory, api);
-        if (victory) saveVictory(activeScenario.storageKey, activeScenario.id, res.stars);
+        // 编辑器试玩（storageKey 为空）不写通关进度。
+        if (victory && activeScenario.storageKey) saveVictory(activeScenario.storageKey, activeScenario.id, res.stars);
         document.getElementById('campaignResultKicker').textContent = victory ? '战役完成' : '任务失败';
         document.getElementById('campaignResultKicker').classList.toggle('defeat', !victory);
         document.getElementById('campaignResultStars').textContent = victory
