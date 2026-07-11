@@ -9,20 +9,17 @@ export async function run() {
     const ROOT = process.cwd();
 
     const files = [];
-    (function walk(dir) {
+    function walk(dir) {
         for (const f of readdirSync(dir)) {
             const p = join(dir, f);
-            if (statSync(p).isDirectory()) { if (!f.startsWith('.') && f !== 'node_modules' && f !== 'lib') walk(p); }
-            else if (f.endsWith('.js')) files.push(p);
+            if (statSync(p).isDirectory()) {
+                if (!f.startsWith('.') && f !== 'node_modules' && f !== 'lib') walk(p);
+            } else if (f.endsWith('.js')) files.push(p);
         }
-    })(join(ROOT, 'js'));
-    (function walk(dir) {
-        for (const f of readdirSync(dir)) {
-            const p = join(dir, f);
-            if (statSync(p).isDirectory()) walk(p);
-            else if (f.endsWith('.js')) files.push(p);
-        }
-    })(join(ROOT, 'commander'));
+    }
+    for (const dir of ['js', 'rules', 'commander', 'core', 'engine', 'protocol', 'ai', 'campaign']) {
+        walk(join(ROOT, dir));
+    }
 
     // 1) 语法检查
     let synErr = 0;

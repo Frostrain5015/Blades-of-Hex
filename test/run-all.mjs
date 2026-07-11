@@ -1,4 +1,4 @@
-// 一键全量测试入口：node test/run-all.mjs [--quick] [--suite=static|pve|net|cmdr|fx]
+// 一键全量测试入口：node test/run-all.mjs [--quick] [--suite=static|campaign|pve|net|cmdr|fx]
 //   static — 语法 + import/export 审计（无浏览器）
 //   pve    — 单机完整对局（--quick 只跑 3 轮回合循环）
 //   net    — WebSocket 双人对局 + 断线重连
@@ -18,7 +18,7 @@ const results = {};
 let stopServer = null, browser = null;
 
 function banner(name) { console.log(`\n══════════ 套件: ${name} ══════════`); }
-function needServer(s) { return !s || s === 'pve' || s === 'net' || s === 'cmdr' || s === 'fx'; }
+function needServer(s) { return !s || s === 'campaign' || s === 'pve' || s === 'net' || s === 'cmdr' || s === 'fx'; }
 
 try {
     if (!only || only === 'static') {
@@ -34,6 +34,11 @@ try {
     if (!only || only === 'pve') {
         banner(`pve（单机${quick ? '·快速' : '·完整对局'}）`);
         results.pve = await (await import('./pve.test.mjs')).run(browser, { quick });
+    }
+
+    if (!only || only === 'campaign') {
+        banner('campaign（单人战役完整流程）');
+        results.campaign = await (await import('./campaign.test.mjs')).run(browser);
     }
 
     if (!only || only === 'net') {

@@ -6,6 +6,7 @@ import { on, emit } from './eventBus.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import { tutorialValidateCanvasClick, tutorialValidateCardCanvasClick, tutorialValidateActionButton } from './tutorialController.js';
+import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
@@ -1688,6 +1689,7 @@ function _bindBoardAbilityControls() {
             if (!action?.canUse) return;
             // 教程模式拦截：只允许指定的操作按钮
             if (gameState.tutorialMode && gameState.tutorialStep) {
+                if (gameState.campaignMode && !campaignValidateAction(action.key)) return;
                 if (!tutorialValidateActionButton(action.key)) return;
             }
             _activateBoardAction(action);
@@ -1791,7 +1793,9 @@ export function initInput() {
                         const bx = 8 + (hand2.length - 1 - i) * peekW;
                         const by = H - 120;
                         if (cx >= bx && cx <= bx + cardW && cy >= by && cy <= by + cardH) {
-                            if (!tutorialValidateCardCanvasClick(cardId)) return;
+                            if (gameState.campaignMode) {
+                                if (!campaignValidateCardClick(cardId)) return;
+                            } else if (!tutorialValidateCardCanvasClick(cardId)) return;
                             break;
                         }
                     }
@@ -1809,7 +1813,9 @@ export function initInput() {
 
         // 教程模式拦截：检查当前点击是否为步骤允许的目标
         if (gameState.tutorialMode && gameState.tutorialStep) {
-            if (!tutorialValidateCanvasClick(clickedTile)) return;
+            if (gameState.campaignMode) {
+                if (!campaignValidateCanvasClick(clickedTile)) return;
+            } else if (!tutorialValidateCanvasClick(clickedTile)) return;
         }
         if (!clickedTile) {
             if (gameState.cardTargeting) { cancelCardTargeting(); return; }

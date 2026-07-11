@@ -49,6 +49,14 @@
                             </span>
                             <span class="hero-btn-arrow">→</span>
                         </button>
+                        <button class="hero-btn hero-btn-campaign" id="campaignBtn">
+                            <span class="hero-btn-icon">🔥</span>
+                            <span class="hero-btn-content">
+                                <span class="hero-btn-title">单人战役</span>
+                                <span class="hero-btn-subtitle">群像传记 · 固定剧本</span>
+                            </span>
+                            <span class="hero-btn-arrow">→</span>
+                        </button>
                         <button class="hero-btn hero-btn-secondary" id="multiplayerBtn">
                             <span class="hero-btn-icon">🌐</span>
                             <span class="hero-btn-content">
@@ -65,6 +73,43 @@
                         </button>
                     </div>
                     <div class="hero-carousel-dots" id="heroCarouselDots"></div>
+                </div>
+
+                <!-- 单人战役：传记线与关卡二级菜单 -->
+                <div id="campaignLobbyContent" class="lobby-view campaign-lobby-view">
+                    <div class="mp-topbar campaign-topbar">
+                        <button id="campaignBackBtn" class="mp-nav-btn">← 返回首页</button>
+                        <span class="mp-topbar-title">单人战役</span>
+                        <span class="campaign-progress-mark" id="campaignProgressMark">序章</span>
+                    </div>
+                    <nav class="campaign-story-tabs" aria-label="选择传记线">
+                        <span>传记线</span>
+                        <button class="selected" type="button" aria-current="true">01 · 我心如火</button>
+                    </nav>
+                    <section class="campaign-chronicle-card" aria-labelledby="campaignChronicleTitle">
+                        <div class="campaign-ember" aria-hidden="true"></div>
+                        <div class="campaign-chronicle-index">第一部传记</div>
+                        <h3 id="campaignChronicleTitle">我心如火</h3>
+                        <p>伤痛会熄灭一个人，也会把他铸成火种。数位立场各异的将领，将从同一场战争的不同侧面走入彼此命运。</p>
+                        <div class="campaign-cast-row">
+                            <span>狂战士</span><i></i><span>百夫长</span><i></i><span>更多角色待揭晓</span>
+                        </div>
+                    </section>
+                    <div class="campaign-level-label">选择关卡</div>
+                    <button id="rainCityLevelBtn" class="campaign-level-card" type="button">
+                        <span class="campaign-level-number">序章</span>
+                        <span class="campaign-level-copy">
+                            <strong>雨幕下的孤城</strong>
+                            <small>狂战士视角 · 教学关卡 · 约 10 分钟</small>
+                        </span>
+                        <span class="campaign-level-rating" id="rainCityRating" aria-label="尚未完成">☆☆☆</span>
+                    </button>
+                    <div class="campaign-level-brief">
+                        <span>🌧 雨夜</span><span>⚔ 突袭</span><span>🏰 守城</span>
+                    </div>
+                    <button id="startRainCityBtn" class="campaign-start-btn" type="button">
+                        <span>进入战役</span><small>固定剧本 · 可随时重试</small>
+                    </button>
                 </div>
 
                 <!-- 联机大厅 -->
@@ -254,6 +299,12 @@
                     <div id="selectionHudStats" class="selection-hud-stats"></div>
                     <div id="selectionEffectButtons" class="selection-effect-buttons" role="toolbar" aria-label="当前效果"></div>
                 </section>
+                <aside id="campaignObjectiveHud" class="campaign-objective-hud" aria-live="polite" aria-atomic="true">
+                    <div class="campaign-objective-kicker">我心如火 · 序章</div>
+                    <div id="campaignObjectiveTitle" class="campaign-objective-title"></div>
+                    <div id="campaignObjectiveDetail" class="campaign-objective-detail"></div>
+                    <div id="campaignOptionalObjectives" class="campaign-optional-objectives"></div>
+                </aside>
                 <div id="canvasPassiveButtons" class="canvas-passive-buttons" role="toolbar" aria-label="被动技能" aria-hidden="true"></div>
                 <div id="canvasActionButtons" class="canvas-action-buttons" role="toolbar" aria-label="单位动作" aria-hidden="true"></div>
                 <section id="boardDetailPopover" class="board-detail-popover" aria-hidden="true">
@@ -323,6 +374,21 @@
         <canvas id="cardCanvas" width="360" height="620"></canvas>
 
     </div>
+</div>
+
+<!-- 单人战役专用结算 -->
+<div id="campaignResultOverlay" class="campaign-result-overlay" aria-hidden="true">
+    <section class="campaign-result-panel" role="dialog" aria-modal="true" aria-labelledby="campaignResultTitle">
+        <div id="campaignResultKicker" class="campaign-result-kicker">战役完成</div>
+        <h2 id="campaignResultTitle">雨幕下的孤城</h2>
+        <div id="campaignResultStars" class="campaign-result-stars">★★★</div>
+        <p id="campaignResultText"></p>
+        <div id="campaignResultObjectives" class="campaign-result-objectives"></div>
+        <div class="campaign-result-actions">
+            <button id="campaignRetryBtn" type="button">重新挑战</button>
+            <button id="campaignReturnBtn" type="button">返回战役</button>
+        </div>
+    </section>
 </div>
 
 <!-- 胜利覆盖 -->
@@ -558,6 +624,6 @@
 </script>
 <script src="js/lib/howler.min.js"></script>
 <script src="js/lib/gsap.min.js"></script>
-<script type="module" src="js/main.js?v=d58c96a"></script>
+<script type="module" src="js/main.js?v=17de1a47a3"></script>
 </body>
 </html>

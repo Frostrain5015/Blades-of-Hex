@@ -34,6 +34,11 @@ export function createMatchState() {
         tutorialMode: false,
         tutorialStep: '',
         tutorialTargets: null,
+        // 单人战役拥有独立的任务裁决；tutorialMode 仅可作为关卡前半段的输入引导锁。
+        campaignMode: false,
+        campaignId: null,
+        scenarioId: null,
+        campaignPhase: '',
         aiOpponentCamp: null,   // PVE 模式下 AI 对手的阵营（CAMP.player1 或 CAMP.player2）
         isThreePlayer: false,   // 三人模式
         surrenderedCamps: [],   // 三人模式中已投降的阵营
@@ -124,6 +129,10 @@ export function resetMatchState(match) {
     match.tutorialMode = false;
     match.tutorialStep = '';
     match.tutorialTargets = null;
+    match.campaignMode = false;
+    match.campaignId = null;
+    match.scenarioId = null;
+    match.campaignPhase = '';
     match.aiOpponentCamp = null;
     match.isThreePlayer = false;
     match.surrenderedCamps = [];
@@ -329,6 +338,10 @@ export function serializeMatchState(match) {
         turnCounter: match.turnCounter,
         gameOver: match.gameOver,
         victoryCampKey: match.victoryCamp ? _campToKey(match.victoryCamp) : null,
+        campaignMode: !!match.campaignMode,
+        campaignId: match.campaignId || null,
+        scenarioId: match.scenarioId || null,
+        campaignPhase: match.campaignPhase || '',
         logHistory: [...match.logHistory],
         idCounter: getCounter(),
         weather: match.weather,
@@ -414,6 +427,10 @@ export function restoreMatchState(match, data, deps) {
     setCounter(data.idCounter);
     match.gameOver = data.gameOver;
     match.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
+    match.campaignMode = !!data.campaignMode;
+    match.campaignId = data.campaignId || null;
+    match.scenarioId = data.scenarioId || null;
+    match.campaignPhase = data.campaignPhase || '';
     match.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
     match.playerGold = { player1: 4, player2: 4, player3: 4, neutral: 4, ...data.playerGold };
     // previousGold 不参与同步，保持本地值用于计数器动画

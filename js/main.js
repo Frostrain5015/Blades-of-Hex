@@ -39,8 +39,10 @@ import { emit } from './eventBus.js';
 import { createHeroCarousel } from './heroCarousel.js';
 import { createPreparationController } from './preparationController.js';
 import { initChat, updateChatAvailability, initEmblemChatClicks, addChatMessage, openChat, isChatViewing } from './chatController.js';
-import { setupTutorialBattlefield, runTutorialOpponentScript } from './tutorialScenario.js';
+import { setupTutorialBattlefield, setupRainCityBattlefield, runTutorialOpponentScript } from './tutorialScenario.js';
 import { createTutorialController, setTutorialControllerRef } from './tutorialController.js';
+import { createCampaignController, setCampaignControllerRef, refreshCampaignLobbyProgress } from './campaignController.js';
+import { RAIN_CITY_SCENARIO } from '../campaign/content/heartAsFire.js';
 import './visualEventBridge.js';
 import './cheat.js';
 
@@ -61,6 +63,11 @@ setLaunchOrbitSwordsRef(launchPaladinOrbitSwords);
 setSpawnHealingChainRef(spawnHealingChain);
 	const _tutorialController = createTutorialController();
 	setTutorialControllerRef(_tutorialController);
+	const _campaignController = createCampaignController({
+		onRetry: () => beginCampaignScenario(),
+		onReturn: () => returnToCampaignLobby()
+	});
+	setCampaignControllerRef(_campaignController);
 
 // 将领专属视觉特效 ref 注入（供 commander 钩子通过 helpers 调用；headless 不注入即 no-op）
 setSpawnBloodDrainRef(spawnBloodDrain);
@@ -289,6 +296,26 @@ function showHome(msg) {
     document.addEventListener('touchstart', _bgmPlayHandler);
 }
 
+function showCampaignLobby() {
+    _stopHeroCarousel();
+    _heroCarousel.showCommander('berserker');
+    refreshCampaignLobbyProgress();
+    document.getElementById('lobbyOverlay').style.display = '';
+    document.getElementById('gameWrapper').style.display = 'none';
+    connectionBar.classList.add('visible');
+    _switchLobbyView('campaignLobbyContent');
+}
+
+function returnToCampaignLobby() {
+    _campaignController.stop();
+    resetGameState();
+    _deploymentStarted = false;
+    document.body.style.pointerEvents = '';
+    stopBattleBGM();
+    playSound('lobby_bgm');
+    showCampaignLobby();
+}
+
 function showMultiplayerLobby() {
     _switchLobbyView('multiplayerLobbyContent');
     connectionBar.classList.add('visible');
@@ -460,13 +487,22 @@ const _preparationController = createPreparationController({
     beginCommanderPhase,
     beginPVECommanderPhase,
     beginTrainingCommanderPhase,
-    beginTutorial,
     showHome,
     showMultiplayerLobby,
     setStatus,
     switchLobbyView: _switchLobbyView
 });
 _preparationController.init();
+
+document.getElementById('campaignBtn').addEventListener('click', showCampaignLobby);
+document.getElementById('campaignBackBtn').addEventListener('click', () => {
+    showHome();
+    _startHeroCarousel().catch(err => console.warn('[轮播] 恢复失败:', err));
+});
+document.getElementById('rainCityLevelBtn').addEventListener('click', () => {
+    document.getElementById('startRainCityBtn').focus();
+});
+document.getElementById('startRainCityBtn').addEventListener('click', () => beginCampaignScenario());
 
 
 // ==== 多人游戏 → 直接连接服务器进大厅 ====
@@ -652,6 +688,67 @@ function beginTutorial() {
 		playSound('turnEnd');
 		renderGame();
 		_tutorialController.start();
+	});
+}
+
+// ==== 单人战役：《我心如火》·《雨幕下的孤城》 =============================
+function beginCampaignScenario() {
+	_campaignController.stop();
+	_tutorialController.stop();
+	_stopHeroCarousel();
+	_deploymentStarted = true;
+	resetGameState();
+	gameState.gameMode = 'pve';
+	gameState.campaignMode = true;
+	gameState.campaignId = 'heart-as-fire';
+	gameState.scenarioId = 'rain-city';
+	gameState.campaignPhase = 'briefing';
+	gameState.tutorialMode = true; // 首阶段使用严格引导锁；夺城后由战役控制器解除。
+	gameState.tutorialStep = 'briefing';
+	gameState._trainingMode = false;
+	gameState.isThreePlayer = false;
+	gameState.skirmishFog = false;
+	gameState.doubleCommanderMode = false;
+	gameState.aiOpponentCamp = CAMP.player2;
+	gameState.aiDifficulty = 1.0;
+	gameState.commanderPhase = 'done';
+
+	document.getElementById('networkIndicator').style.display = 'none';
+	document.getElementById('lobbyOverlay').style.display = 'none';
+	document.getElementById('gameWrapper').style.display = '';
+	document.getElementById('backToVictoryBtn').style.display = 'none';
+	document.body.style.pointerEvents = '';
+	const victoryOverlay = document.getElementById('victoryOverlay');
+	victoryOverlay.classList.remove('show');
+	victoryOverlay.style.opacity = '';
+	victoryOverlay.style.backgroundColor = '';
+	dismissToast();
+	applyTopbarLayout();
+	fitCanvas();
+	stopLobbyBGM();
+	stopBattleBGM();
+
+	_runCountdown(() => {
+		gameState.rng.setState(RAIN_CITY_SCENARIO.seed);
+		initMap();
+		setupRainCityBattlefield();
+		loadCommanderFx(gameState).catch(err => console.warn('[campaign] 将领特效加载失败:', err));
+		initInput();
+		initKeyboard();
+		initSettingsPanel();
+		setOnFogUpdated(updateCampEmblems);
+		updateCampEmblems();
+		updateChatAvailability();
+		initEmblemChatClicks();
+		gameState.currentCamp = CAMP.player1;
+		grantTurnStartIncome(CAMP.player1);
+		updateUI();
+		updateButtonColors();
+		startBattleBGM();
+		playSound('turnEnd');
+		renderGame();
+		_campaignController.start();
+		emit('turn:started', { camp: CAMP.player1, campKey: 'player1', turnCounter: gameState.turnCounter });
 	});
 }
 // 初始化大厅：设置 _activeLobbyView、注册 BGM 交互监听、同步静音按钮

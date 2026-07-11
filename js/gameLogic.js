@@ -917,6 +917,7 @@ async function _doEndTurnPhase() {
     triggerTurnFlash(gameState.currentCamp.color);
     updateUI();
     logMessage(`轮到${gameState.currentCamp.name}行动`);
+    emit('turn:started', { camp: gameState.currentCamp, campKey: _campKey(gameState.currentCamp), turnCounter: gameState.turnCounter });
     updateButtonColors();
     if (gameState.cardTargeting) { gameState.cardTargeting = null; hideTargetingBanner(); }
     clearselection();
@@ -1814,6 +1815,8 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
 // ===== 胜利检测 =====================
 function checkVictory() {
     if (gameState.gameOver) return;
+    // 战役由 ObjectiveManager/关卡控制器裁决，常规行政区歼灭不能提前截断剧情阶段。
+    if (gameState.campaignMode) return;
 
     const player1Districts = new Set();
     const player2Districts = new Set();
@@ -1881,6 +1884,7 @@ function checkVictory() {
 
 // ===== 回合限制胜利检测 =====================
 function checkTurnLimitVictory() {
+    if (gameState.campaignMode) return;
     if (gameState.gameOver) return;
 
     const roundNum = getRound(gameState);

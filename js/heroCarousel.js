@@ -164,5 +164,14 @@ export function createHeroCarousel({ onReady }) {
         }
     }
 
-    return { start, stop };
+    function showCommander(commanderId) {
+        const index = commanders.indexOf(commanderId);
+        if (index < 0) return false;
+        currentIndex = index;
+        showSlide(index, true);
+        updateDots();
+        return true;
+    }
+
+    return { start, stop, showCommander };
 }
