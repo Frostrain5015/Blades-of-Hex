@@ -179,8 +179,8 @@ connectToServer(wsUrl(location.host)).then(() => {
     setConnectionState('connected');
     setNetworkCallbacks({
         onDisconnected: () => setConnectionState('disconnected'),
-        onReconnecting: (n) => { setConnectionState('connecting'); connectionLabel.textContent = '重连中 (' + n + '/2)...'; },
-        onReconnectFailed: () => { setConnectionState('disconnected'); connectionLabel.textContent = '连接失败'; reconnectBtn.style.display = ''; },
+        onReconnecting: (n) => { setConnectionState('connecting'); connectionLabel.textContent = '重连中...'; },
+        onReconnectFailed: () => { setConnectionState('disconnected'); connectionLabel.textContent = '连接断开，正在自动重连'; },
         onSocketReconnected: () => setConnectionState('connected')
     });
     // 连接成功 → 首屏立绘就绪后撤下加载遮罩、展示主页
@@ -1779,12 +1779,12 @@ function registerNetworkCallbacks() {
 
         onReconnecting: (attempt) => {
             setConnectionState('connecting');
-            connectionLabel.textContent = '重连中 (' + attempt + '/2)...';
+            connectionLabel.textContent = '重连中...';
         },
 
         onReconnectFailed: () => {
             setConnectionState('disconnected');
-            connectionLabel.textContent = '连接失败';
+            connectionLabel.textContent = '连接断开，正在自动重连';
             reconnectBtn.style.display = '';
         },
 

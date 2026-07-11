@@ -204,11 +204,9 @@ export function connectToServer(url) {
 function _startAutoReconnect() {
     _clearReconnectTimer();
     _reconnectAttempts++;
+    // 指数退避：1s → 2s → 4s → 8s → 16s → 封顶 30s
+    const delay = Math.min(1000 * Math.pow(2, _reconnectAttempts - 1), 30000);
     _cb.onReconnecting?.(_reconnectAttempts);
-    if (_reconnectAttempts > 2) {
-        _cb.onReconnectFailed?.();
-        return;
-    }
     _reconnectTimer = setTimeout(() => {
         connectToServer(_reconnectUrl).then(() => {
             _reconnectAttempts = 0;
@@ -217,8 +215,11 @@ function _startAutoReconnect() {
                 sendMessage({ type: 'joinRoom', roomId: _lastRoomId });
                 _lastRoomId = null;
             }
-        }).catch(() => {});
-    }, 3000);
+        }).catch(() => {
+            // 继续重连，不封顶
+            _startAutoReconnect();
+        });
+    }, delay);
 }
 
 function _clearReconnectTimer() {
