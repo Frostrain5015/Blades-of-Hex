@@ -81,23 +81,8 @@
                         <span class="mp-topbar-title">将星列传</span>
                         <span class="campaign-progress-mark" id="campaignProgressMark">当前进度 0%</span>
                     </div>
-                    <section class="campaign-chronicle-card" aria-labelledby="campaignChronicleTitle">
-                        <div class="campaign-ember" aria-hidden="true"></div>
-                        <div class="campaign-chronicle-index">将星列传01</div>
-                        <h3 id="campaignChronicleTitle">我心如火</h3>
-                        <p>伤痛会熄灭一个人，也会把他铸成火种。数位立场各异的将领，将从同一场战争的不同侧面走入彼此命运。</p>
-                    </section>
-                    <div class="campaign-level-label">选择关卡</div>
-                    <button id="rainCityLevelBtn" class="campaign-level-card" type="button">
-                        <span class="campaign-level-number">序章</span>
-                        <span class="campaign-level-copy">
-                            <strong>雨幕下的孤城</strong>
-                        </span>
-                        <span class="campaign-level-rating" id="rainCityRating" aria-label="尚未完成">☆☆☆</span>
-                    </button>
-                    <button id="startRainCityBtn" class="campaign-start-btn" type="button">
-                        <span>进入战役</span>
-                    </button>
+                    <!-- 传记卡与关卡卡由 campaign/lobby.js 依 catalog 数据驱动生成 -->
+                    <div id="campaignChronicleList" class="campaign-chronicle-list"></div>
                 </div>
 
                 <!-- 联机大厅 -->
@@ -179,6 +164,9 @@
                     <img id="heroPortraitB" class="hero-portrait" src="" alt="" />
                     <div class="hero-portrait-overlay"></div>
                     <div class="hero-portrait-glow"></div>
+                    <!-- 单人战役大厅：切换上一部/下一部将星列传（默认隐藏，进入战役页显示） -->
+                    <button id="campaignChroniclePrevBtn" class="chronicle-nav-btn prev" type="button" aria-label="上一部将星列传">‹</button>
+                    <button id="campaignChronicleNextBtn" class="chronicle-nav-btn next" type="button" aria-label="下一部将星列传">›</button>
                 </div>
             </div>
         </div>
@@ -618,6 +606,6 @@
 </script>
 <script src="js/lib/howler.min.js"></script>
 <script src="js/lib/gsap.min.js"></script>
-<script type="module" src="js/main.js?v=c9307f60be"></script>
+<script type="module" src="js/main.js?v=d5f651398d"></script>
 </body>
 </html>

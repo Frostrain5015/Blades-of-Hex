@@ -39,10 +39,11 @@ import { emit } from './eventBus.js';
 import { createHeroCarousel } from './heroCarousel.js';
 import { createPreparationController } from './preparationController.js';
 import { initChat, updateChatAvailability, initEmblemChatClicks, addChatMessage, openChat, isChatViewing } from './chatController.js';
-import { setupTutorialBattlefield, setupRainCityBattlefield, runTutorialOpponentScript } from './tutorialScenario.js';
+import { setupTutorialBattlefield, runTutorialOpponentScript } from './tutorialScenario.js';
 import { createTutorialController, setTutorialControllerRef } from './tutorialController.js';
-import { createCampaignController, setCampaignControllerRef, refreshCampaignLobbyProgress } from './campaignController.js';
-import { RAIN_CITY_SCENARIO } from '../campaign/content/heartAsFire.js';
+import { createCampaignController, setCampaignControllerRef } from './campaignController.js';
+import { loadScenario } from '../campaign/catalog.js';
+import { renderCampaignLobby } from '../campaign/lobby.js';
 import './visualEventBridge.js';
 import './cheat.js';
 
@@ -64,7 +65,7 @@ setSpawnHealingChainRef(spawnHealingChain);
 	const _tutorialController = createTutorialController();
 	setTutorialControllerRef(_tutorialController);
 	const _campaignController = createCampaignController({
-		onRetry: () => beginCampaignScenario(),
+		onRetry: () => startScenario(_currentChronicleId, _currentScenarioId),
 		onReturn: () => returnToCampaignLobby()
 	});
 	setCampaignControllerRef(_campaignController);
@@ -217,6 +218,7 @@ function _switchLobbyView(viewId, anim = true) {
     if (!target || _activeLobbyView === viewId) return;
 
     document.getElementById('lobbyLeftPanel')?.classList.toggle('campaign-active', viewId === 'campaignLobbyContent');
+    document.body.classList.toggle('campaign-lobby-active', viewId === 'campaignLobbyContent');
 
     const oldEl = _activeLobbyView ? document.getElementById(_activeLobbyView) : null;
     const prevView = _activeLobbyView;
@@ -300,8 +302,10 @@ function showHome(msg) {
 
 function showCampaignLobby() {
     _stopHeroCarousel();
-    _heroCarousel.showCommander('berserker');
-    refreshCampaignLobbyProgress();
+    renderCampaignLobby({
+        onStartScenario: (chronicleId, scenarioId) => startScenario(chronicleId, scenarioId),
+        onPortraitChange: (commanderId) => _heroCarousel.showCommander(commanderId)
+    });
     document.getElementById('lobbyOverlay').style.display = '';
     document.getElementById('gameWrapper').style.display = 'none';
     connectionBar.classList.add('visible');
@@ -501,10 +505,7 @@ document.getElementById('campaignBackBtn').addEventListener('click', () => {
     showHome();
     _startHeroCarousel().catch(err => console.warn('[轮播] 恢复失败:', err));
 });
-document.getElementById('rainCityLevelBtn').addEventListener('click', () => {
-    document.getElementById('startRainCityBtn').focus();
-});
-document.getElementById('startRainCityBtn').addEventListener('click', () => beginCampaignScenario());
+// 关卡卡/进入按钮由 campaign/lobby.js 依数据生成并绑定（见 showCampaignLobby）。
 
 
 // ==== 多人游戏 → 直接连接服务器进大厅 ====
@@ -694,8 +695,22 @@ function beginTutorial() {
 		});
 }
 
-// ==== 单人战役：《我心如火》·《雨幕下的孤城》 =============================
-function beginCampaignScenario() {
+// ==== 单人战役：通用关卡启动（懒加载关卡内容 → 建图 → 交由通用控制器驱动）====
+let _currentChronicleId = null;
+let _currentScenarioId = null;
+
+async function startScenario(chronicleId, scenarioId) {
+	let scenario;
+	try {
+		scenario = await loadScenario(chronicleId, scenarioId);
+	} catch (err) {
+		console.error(`[campaign] 关卡加载失败：${chronicleId}/${scenarioId}`, err);
+		return;
+	}
+	if (!scenario) { console.warn(`[campaign] 未找到关卡：${chronicleId}/${scenarioId}`); return; }
+	_currentChronicleId = chronicleId;
+	_currentScenarioId = scenarioId;
+
 	_campaignController.stop();
 	_tutorialController.stop();
 	_stopHeroCarousel();
@@ -703,11 +718,11 @@ function beginCampaignScenario() {
 	resetGameState();
 	gameState.gameMode = 'pve';
 	gameState.campaignMode = true;
-	gameState.campaignId = 'heart-as-fire';
-	gameState.scenarioId = 'rain-city';
-	gameState.campaignPhase = 'briefing';
+	gameState.campaignId = chronicleId;
+	gameState.scenarioId = scenarioId;
+	gameState.campaignPhase = scenario.initialStep;
 	gameState.tutorialMode = true; // 首阶段使用严格引导锁；夺城后由战役控制器解除。
-	gameState.tutorialStep = 'briefing';
+	gameState.tutorialStep = scenario.initialStep;
 	gameState._trainingMode = false;
 	gameState.isThreePlayer = false;
 	gameState.skirmishFog = false;
@@ -715,6 +730,8 @@ function beginCampaignScenario() {
 	gameState.aiOpponentCamp = CAMP.player2;
 	gameState.aiDifficulty = 1.0;
 	gameState.commanderPhase = 'done';
+
+	_campaignController.loadScenarioRuntime(scenario);
 
 	document.getElementById('networkIndicator').style.display = 'none';
 	document.getElementById('lobbyOverlay').style.display = 'none';
@@ -732,9 +749,9 @@ function beginCampaignScenario() {
 	stopBattleBGM();
 
 	// 在遮罩后预先加载棋盘，避免玩家点击后才看到空棋盘
-	gameState.rng.setState(RAIN_CITY_SCENARIO.seed);
+	gameState.rng.setState(scenario.seed);
 	initMap();
-	setupRainCityBattlefield();
+	scenario.buildBattlefield();
 	loadCommanderFx(gameState).catch(err => console.warn('[campaign] 将领特效加载失败:', err));
 	initInput();
 	initKeyboard();
@@ -749,10 +766,7 @@ function beginCampaignScenario() {
 	updateButtonColors();
 	renderGame();
 
-	_showCampaignIntro({
-		campaignTitle: '将星列传 · 我心如火',
-		scenarioSubtitle: '序 雨幕下的孤城'
-	}, () => {
+	_showCampaignIntro(scenario.intro, () => {
 		startBattleBGM();
 		playSound('turnEnd');
 		_campaignController.start();

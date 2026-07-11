@@ -2972,6 +2972,41 @@ body {
 }
 .campaign-start-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
 
+/* 数据驱动关卡列表容器 */
+.campaign-chronicle-list { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+
+/* 立绘区：切换上一部/下一部将星列传（默认隐藏，仅战役大厅显示） */
+.chronicle-nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 6;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(240, 122, 65, 0.5);
+    background: rgba(20, 10, 6, 0.62);
+    color: #f0c9a0;
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    transition: background 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+.chronicle-nav-btn.prev { left: 8px; }
+.chronicle-nav-btn.next { right: 8px; }
+.chronicle-nav-btn:hover:not(.disabled) {
+    background: rgba(131, 39, 17, 0.8);
+    border-color: rgba(240, 122, 65, 0.9);
+    transform: translateY(-50%) scale(1.08);
+}
+.chronicle-nav-btn.disabled { opacity: 0.35; cursor: default; }
+body.campaign-lobby-active .chronicle-nav-btn { display: flex; }
+
 .campaign-objective-hud {
     position: absolute;
     z-index: 120;
