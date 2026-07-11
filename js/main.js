@@ -985,7 +985,7 @@ function _showTrainingCommanderSelection(forPlayer) {
         const lastDealEnd = (totalSlots - 1) * dealStagger + dealDuration;
         const flipBase = lastDealEnd + 0.12;
         const flipStagger = 0.18;
-        tl.to(statusDiv, { opacity: 1, duration: 0.3, ease: "power2.out" }, flipBase);
+        tl.to(subtitle, { opacity: 1, duration: 0.3, ease: "power2.out" }, flipBase);
         cardDatas.forEach(({ el }, i) => {
             const inner = el.querySelector(".commander-card-inner");
             const revealBack = inner.querySelector(".cmdr-reveal-back");
@@ -1192,7 +1192,7 @@ function _showCommanderSelection(forPlayer) {
         // 阶段 3：翻牌 + 状态文字淡入
         const flipBase = lastDealEnd + 0.12;
         const flipStagger = 0.24;
-        tl.to(statusDiv, { opacity: 1, duration: 0.4, ease: 'power2.out' }, flipBase);
+        tl.to(subtitle, { opacity: 1, duration: 0.4, ease: 'power2.out' }, flipBase);
 
         cardDatas.forEach(({ el }, i) => {
             const inner = el.querySelector('.commander-card-inner');
