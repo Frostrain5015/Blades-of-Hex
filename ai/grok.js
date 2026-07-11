@@ -139,7 +139,7 @@ export function planActions(gameState, helpers, myCamp) {
         const cityDef = getCityDef(defender.type, tileObj);
         const unitDef = defender.config.defense || 0;
         // 士气浮动期望：高昂 +5%~10%、低落 −5%~10%（对齐 COMBAT_BALANCE.float.morale）
-        const moraleDmg = attacker.morale === 3 ? 0.075 : attacker.morale === 1 ? -0.075 : attacker.morale === 0 ? -1 : 0;
+        const moraleDmg = attacker.morale === 3 ? 0.075 : attacker.morale === 1 ? -0.075 : attacker.morale === 0 ? -0.15 : 0;
         const weatherAtk = getWeatherAtkBonus(attacker.type);
         const weatherDef = getWeatherDefPenalty(defender.type);
 

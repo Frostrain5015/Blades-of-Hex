@@ -1,7 +1,7 @@
 // Claude — 防御型 AI v4
 // 核心原则：保守反击、死守城市、优先击杀
 // v4 升级：战斗模型对齐引擎 + 集火补刀 + 城内补员
-//   · 克制 ±20%、士气 ±7.5%、反击 0.75×基础（对齐 rules/constants.js）
+//   · 克制 ±20%、士气 高昂+5~10%/低落-5~10%/混乱-10~-20%、反击 0.75×基础（对齐 rules/constants.js）
 //   · 战壕只防近战、高射机枪只防远程、森林只对远程 +15%
 //   · 集火账本：多单位合力锁定击杀，不再各自为战
 //   · 城市/村庄驻军血量不足时补员回血，守得更久
@@ -143,7 +143,7 @@ export function planActions(gameState, helpers) {
         const cityDef = getCityDef(defender.type, tileObj, weather);
         const unitDef = defender.config.defense || 0;
         // 士气浮动期望：高昂 +5%~10%、低落 −5%~10%（对齐 COMBAT_BALANCE.float.morale）
-        const moraleDmg = attacker.morale === 3 ? 0.075 : attacker.morale === 1 ? -0.075 : attacker.morale === 0 ? -1 : 0;
+        const moraleDmg = attacker.morale === 3 ? 0.075 : attacker.morale === 1 ? -0.075 : attacker.morale === 0 ? -0.15 : 0;
         const weatherAtk = getWeatherAtkBonus(attacker.type, weather);
         const weatherDef = getWeatherDefPenalty(defender.type, weather);
 
