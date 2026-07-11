@@ -393,6 +393,7 @@ document.getElementById('lobbyReadyBtn').addEventListener('click', () => {
 
 // ==== 再来一局 ----
 document.getElementById('rematchBtn').addEventListener('click', () => {
+    if (gameState.tutorialMode) return; // 教程模式禁止重新开局
     document.getElementById('backToVictoryBtn').style.display = 'none';
     if (isNetworkGame()) {
         document.getElementById('rematchStatus').textContent = '等待对手确认...';

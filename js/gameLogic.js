@@ -1831,12 +1831,12 @@ function checkVictory() {
             gameState.gameOver = true;
             gameState.victoryCamp = CAMP.player2;
             logMessage('红军失去所有行政区，蓝军胜利');
-            setTimeout(() => triggerVictoryEffect(), 1500);
+            if (!gameState.tutorialMode) setTimeout(() => triggerVictoryEffect(), 1500);
         } else if (player2Districts.size === 0) {
             gameState.gameOver = true;
             gameState.victoryCamp = CAMP.player1;
             logMessage('蓝军失去所有行政区，红军胜利');
-            setTimeout(() => triggerVictoryEffect(), 1500);
+            if (!gameState.tutorialMode) setTimeout(() => triggerVictoryEffect(), 1500);
         }
     }
 }
@@ -1880,6 +1880,7 @@ function checkTurnLimitVictory() {
 }
 
 export function triggerVictoryEffect() {
+    if (gameState.tutorialMode) return; // 教程模式自行处理完成流程
     const overlay = document.getElementById('victoryOverlay');
     const panel = document.getElementById('victoryPanel');
     const gameOverText = document.getElementById('gameOverText');

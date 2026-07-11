@@ -2155,44 +2155,7 @@ function drawCardUseAnimation(now) {
                 }
             }
 
-            // --- smoke rising (semi-transparent grey plumes) ---
-            const smokeCount = 8 + Math.floor(burnT * 10);
-            for (let s = 0; s < smokeCount; s++) {
-                const seed = s * 7.3;
-                const sx = -cardW / 2 + 5 + ((seed * 13.7 + burnT * 4) % cardW);
-                const sy = baseBurnLine - 15 - (s / smokeCount) * 60 - burnT * 50 - (seed * 3.1) % 20;
-                const sr = 6 + (seed * 2.3 + burnT * 8) % 12 + burnT * 8;
-                const smokeAlpha = Math.max(0, (0.25 - burnT * 0.15)) * (0.6 + 0.4 * Math.sin(seed + burnT * 3));
-                ctx.fillStyle = `rgba(60,55,50,${smokeAlpha})`;
-                ctx.beginPath();
-                ctx.arc(sx + Math.sin(burnT * 5 + seed) * 6, sy, sr, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // --- embers rising with physics ---
-            for (let p = 0; p < 18; p++) {
-                const seed = p * 5.7;
-                const driftX = Math.sin(seed + burnT * 3 + p) * 8 + Math.sin(seed * 2 + burnT * 5) * 4;
-                const px = -cardW / 2 + 6 + ((seed * 7.1 + burnT * 20 + p * 13) % (cardW - 12)) + driftX;
-                const py = baseBurnLine - 4 - ((p / 18) * 55 + burnT * 35 + (seed * 2.7) % 15);
-                const size = 1.5 + (seed % 2.5) * (0.6 + burnT * 0.8);
-                const brightness = Math.max(0, 1 - burnT * 0.6) * (0.6 + 0.4 * Math.sin(seed + burnT * 7));
-                const r = 200 + Math.floor(55 * (seed % 1));
-                const g = 120 + Math.floor(80 * ((seed + 1) % 1));
-                ctx.fillStyle = `rgba(${r},${g},20,${brightness})`;
-                ctx.beginPath();
-                ctx.arc(px, py, size, 0, Math.PI * 2);
-                ctx.fill();
-
-                // ember glow halo
-                if (size > 2.5) {
-                    ctx.fillStyle = `rgba(255,180,40,${brightness * 0.15})`;
-                    ctx.beginPath();
-                    ctx.arc(px, py, size * 2.5, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            }
-        }
+	        }
 
         ctx.restore();
     }
