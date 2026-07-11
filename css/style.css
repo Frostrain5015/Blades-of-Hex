@@ -2524,18 +2524,13 @@ body {
 
 #tutorialOverlay.show { display: block; }
 
-/* 全屏透明点击拦截盾 —— 由 JS 控制 pointer-events。
-   在 dialog 阶段拦截全部点击；在操作阶段让 canvas/card/按钮区域可穿透。 */
-#tutorialBlockingShield {
+/* 四块暗色遮罩 —— 在目标区域开洞，自然拦截非目标点击 */
+.tutorial-pane {
     position: fixed;
-    inset: 0;
     z-index: 9501;
-    pointer-events: none;  /* 默认不拦截，由 JS 启用 */
-    background: transparent;
+    background: rgba(0,0,0,0.65);
+    pointer-events: auto;
     display: none;
-}
-#tutorialBlockingShield.active {
-    display: block;
 }
 
 /* 操作提示浮层（居中显示，短暂出现后消失） */

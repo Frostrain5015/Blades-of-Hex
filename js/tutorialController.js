@@ -1,16 +1,16 @@
-// 教程控制器 v2 — 严格步骤状态机 + 全局输入拦截 + 固定布局锚点。
+// 教程控制器 v2 — 严格步骤状态机 + 四块遮罩开洞 + 固定布局锚点。
 //
 // 核心设计：
-//   1. 每一步精确声明允许的操作（不允许的操作被全局拦截）。
+//   1. 四块暗色遮罩（上/下/左/右）在目标区域开洞，自然拦截非目标点击。
 //   2. 对话框始终固定在底部锚点区域，不因 HUD/按钮变化而位移。
 //   3. 目标高亮环独立于棋盘渲染循环，稳定锚定在像素坐标。
 //   4. 对策卡使用纳入必经流程。
 //
 // 步骤阶段（phase）：
-//   'dialog'        — 只能点教程按钮，阻止所有游戏内交互
-//   'canvasTarget'  — 只能点棋盘上的指定单位/地块
-//   'actionButton'  — 只能点棋盘动作栏上的指定按钮
-//   'cardCanvas'    — 只能点对策卡画布上的指定卡牌
+//   'dialog'        — 全屏遮罩无洞，只能点教练卡按钮
+//   'canvasTarget'  — 遮罩在目标地块位置开洞，只能点棋子/地块
+//   'actionButton'  — 遮罩在动作栏位置开洞，只能点技能按钮
+//   'cardCanvas'    — 遮罩在手牌画布位置开洞，只能点对策卡
 //   'auto'          — 无操作，等待事件自动推进
 
 import { canvas } from './config.js';
@@ -18,23 +18,11 @@ import { gameState } from './state.js';
 import { emit, on } from './eventBus.js';
 
 // ===== 步骤定义 ====================================================
-// 各字段：
-//   phase     — 步骤阶段（见上）
-//   title     — 对话框标题
-//   text      — 对话框说明文字
-//   button    — 按钮文字（null 表示无按钮，等待操作/事件）
-//   next      — 按钮点击后进入的步骤 id（仅 phase='dialog' 时有效）
-//   focus     — 高亮 CSS 选择器（逗号分隔）
-//   target    — 操作目标标识（不同 phase 含义不同）
-//   nextEvent — 监听此 eventBus 事件后自动推进（配合 nextStep）
-//   nextStep  — 事件触发后进入的步骤
-//   condition — (event) => boolean 事件过滤条件
 const STEPS = {
-    // ===== Phase 1: 欢迎与总览 ====================
     welcome: {
         phase: 'dialog',
-        title: '欢迎',
-        text: '欢迎来到《Blades of Hex》，接下来您将通过一个简短的教程学习游戏的基本操作与战术要领。',
+        title: '战术演练',
+        text: '本局模拟真实残局：你指挥红军（狂战士 + 炮兵），蓝军防守中央城市。\n\n每一步需按指引完成。系统已锁定非目标操作，请跟随指示熟悉各兵种特性与克制关系。',
         button: '开始教程',
         next: 'topbar_intro'
     },
@@ -54,7 +42,6 @@ const STEPS = {
         next: 'unit_select',
         focus: '#canvasStage'
     },
-    // ===== Phase 2: 选中狂战士 ====================
     unit_select: {
         phase: 'canvasTarget',
         title: '选中狂战士',
@@ -62,7 +49,6 @@ const STEPS = {
         target: 'unit:tutorial_berserker',
         focus: '#canvasStage'
     },
-    // ===== Phase 3: 被动技能与兵种特性 ====================
     unit_passive: {
         phase: 'dialog',
         title: '兵种被动 & 血怒',
@@ -71,7 +57,6 @@ const STEPS = {
         next: 'card_intro',
         focus: '#selectionHud, #canvasPassiveButtons'
     },
-    // ===== Phase 4: 对策卡介绍 ====================
     card_intro: {
         phase: 'dialog',
         title: '对策卡',
@@ -80,7 +65,6 @@ const STEPS = {
         next: 'card_use',
         focus: '#cardCanvas'
     },
-    // ===== Phase 5: 点击对策卡 ====================
     card_use: {
         phase: 'cardCanvas',
         title: '点击疗愈卡',
@@ -89,7 +73,6 @@ const STEPS = {
         next: 'card_target',
         focus: '#cardCanvas'
     },
-    // ===== Phase 6: 选择卡牌目标 ====================
     card_target: {
         phase: 'canvasTarget',
         title: '选择目标',
@@ -97,7 +80,6 @@ const STEPS = {
         target: 'unit:tutorial_berserker',
         focus: '#canvasStage'
     },
-    // ===== Phase 7: 移动与地形 ====================
     move: {
         phase: 'canvasTarget',
         title: '移动·地形·天气',
@@ -105,7 +87,6 @@ const STEPS = {
         target: 'tile:move',
         focus: '#canvasStage'
     },
-    // ===== Phase 8: 主动技能：泣血 ====================
     active_skill: {
         phase: 'actionButton',
         title: '主动技能：泣血',
@@ -113,7 +94,6 @@ const STEPS = {
         target: 'skill:commander',
         focus: '#canvasActionButtons'
     },
-    // ===== Phase 9: 攻击百夫长 ====================
     attack: {
         phase: 'canvasTarget',
         title: '攻击与占领',
@@ -121,7 +101,6 @@ const STEPS = {
         target: 'unit:tutorial_centurion',
         focus: '#canvasStage'
     },
-    // ===== Phase 10: 占领城市后的对策卡复讲 ====================
     post_attack_card_intro: {
         phase: 'dialog',
         title: '城市易手',
@@ -129,7 +108,6 @@ const STEPS = {
         button: '继续',
         next: 'complete'
     },
-    // ===== Phase 11: 完成 ====================
     complete: {
         phase: 'dialog',
         title: '教程完成',
@@ -139,7 +117,6 @@ const STEPS = {
     }
 };
 
-// 获取当前步骤的原始目标 id 字符串（不含前缀）
 function targetId(target) {
     if (!target || typeof target !== 'string') return null;
     const colonIdx = target.indexOf(':');
@@ -161,13 +138,13 @@ export function createTutorialController() {
     const progress = document.getElementById('tutorialProgress');
     const ring = document.getElementById('tutorialTargetRing');
     const hint = document.getElementById('tutorialHint');
-    const blockingShield = document.getElementById('tutorialBlockingShield');
+    const paneTop = document.getElementById('tutorialPaneTop');
+    const paneBottom = document.getElementById('tutorialPaneBottom');
+    const paneLeft = document.getElementById('tutorialPaneLeft');
+    const paneRight = document.getElementById('tutorialPaneRight');
 
     let active = false;
     let stepId = '';
-    let _interceptorInstalled = false;
-
-    // ---- 工具函数 ----
 
     function clearFocus() {
         document.querySelectorAll('.tutorial-focus').forEach(el => el.classList.remove('tutorial-focus'));
@@ -194,7 +171,72 @@ export function createTutorialController() {
         return null;
     }
 
-    // ---- 目标高亮环（固定锚点，不随 HUD 跳变）----
+    // ---- 计算 hole 在视口中的位置 ----
+    function getHoleRect(step) {
+        if (!step || step.phase === 'dialog') return null; // 全遮无洞
+
+        const pad = 12; // 洞比目标稍大，留操作余量
+
+        if (step.phase === 'canvasTarget') {
+            // 棋子/地块：从 tile 坐标映射到视口坐标
+            const tile = getTargetTile(step.target);
+            if (!tile) return null;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = rect.width / canvas.width;
+            const scaleY = rect.height / canvas.height;
+            const size = Math.max(72, Math.min(rect.width, rect.height) * 0.1);
+            const cx = rect.left + tile.x * scaleX;
+            const cy = rect.top + tile.y * scaleY;
+            return {
+                left: cx - size / 2 - pad,
+                top: cy - size / 2 - pad,
+                right: cx + size / 2 + pad,
+                bottom: cy + size / 2 + pad
+            };
+        }
+
+        if (step.phase === 'actionButton') {
+            const el = document.querySelector('#canvasActionButtons');
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { left: r.left - pad, top: r.top - pad, right: r.right + pad, bottom: r.bottom + pad };
+        }
+
+        if (step.phase === 'cardCanvas') {
+            const el = document.querySelector('#cardCanvas');
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { left: r.left - pad, top: r.top - pad, right: r.right + pad, bottom: r.bottom + pad };
+        }
+
+        return null;
+    }
+
+    // ---- 四块遮罩定位 ----
+    function updatePanes(step) {
+        if (![paneTop, paneBottom, paneLeft, paneRight].every(p => p)) return;
+
+        const hole = getHoleRect(step);
+
+        if (!hole) {
+            // 全屏遮罩（dialog 等）
+            paneTop.style.cssText = 'display:block;top:0;left:0;width:100vw;height:100vh';
+            paneBottom.style.display = 'none';
+            paneLeft.style.display = 'none';
+            paneRight.style.display = 'none';
+            return;
+        }
+
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+
+        paneTop.style.cssText = `display:block;top:0;left:0;width:100vw;height:${hole.top}px`;
+        paneBottom.style.cssText = `display:block;top:${hole.bottom}px;left:0;width:100vw;height:${h - hole.bottom}px`;
+        paneLeft.style.cssText = `display:block;top:${hole.top}px;left:0;width:${hole.left}px;height:${hole.bottom - hole.top}px`;
+        paneRight.style.cssText = `display:block;top:${hole.top}px;left:${hole.right}px;width:${w - hole.right}px;height:${hole.bottom - hole.top}px`;
+    }
+
+    // ---- 目标高亮环 ----
     function syncTargetRing() {
         const step = STEPS[stepId];
         if (!step || !active) { ring?.classList.remove('visible'); return; }
@@ -213,13 +255,6 @@ export function createTutorialController() {
                 ring.classList.add('visible');
                 return;
             }
-        }
-
-        // 画布目标无有效 tile 时不显示环
-        if (step.phase === 'actionButton' && step.target === 'skill:commander') {
-            // 动作按钮由聚焦高亮 handle，不用环
-            ring?.classList.remove('visible');
-            return;
         }
 
         ring?.classList.remove('visible');
@@ -241,7 +276,6 @@ export function createTutorialController() {
             });
         }
 
-        // 设置对话框文案
         title.textContent = step.title;
         text.textContent = step.text;
         const hasButton = !!step.button;
@@ -252,40 +286,23 @@ export function createTutorialController() {
         }
         card.dataset.step = nextStep;
 
-        // 进度标签
         const stepKeys = Object.keys(STEPS);
         const idx = stepKeys.indexOf(nextStep);
         const total = stepKeys.length;
         const pct = idx >= 0 ? Math.round((idx / (total - 1)) * 100) : 0;
         progress.textContent = `教程 ${pct}%`;
 
+        // 更新四块遮罩位置
+        updatePanes(step);
+
         // 显示遮罩
         overlay.classList.add('show');
 
-        // 更新拦截盾状态（对话框阶段全拦截；其他阶段让出可操作区域）
-        updateBlockingShield(step);
-
-        // 同步目标环（延迟一帧以保证布局稳定）
+        // 同步目标环
         requestAnimationFrame(() => requestAnimationFrame(syncTargetRing));
     }
 
-    // ---- 拦截盾状态管理 ----
-    function updateBlockingShield(step) {
-        if (!blockingShield) return;
-        if (!step) { blockingShield.classList.remove('active'); return; }
-
-        if (step.phase === 'dialog') {
-            // 对话框阶段：全屏拦截，只露出教练卡区域
-            blockingShield.classList.add('active');
-            blockingShield.style.pointerEvents = 'auto';
-        } else {
-            // 操作阶段：遮罩仍然覆盖全屏，但通过 CSS pointer-events 让部分区域可穿透
-            blockingShield.classList.add('active');
-            blockingShield.style.pointerEvents = 'auto';
-        }
-    }
-
-    // ---- 显示操作提示（非法操作时） ----
+    // ---- 显示操作提示 ----
     function showHint(msg) {
         if (!hint) return;
         hint.textContent = msg;
@@ -294,84 +311,10 @@ export function createTutorialController() {
         hint._timer = setTimeout(() => hint.classList.remove('visible'), 1800);
     }
 
-    // ---- 全局输入拦截器（capture phase） ----
-    function isAllowedClick(e) {
-        const step = STEPS[stepId];
-        if (!step || !active) return true; // 不拦截非活跃状态
-
-        const target = e.target;
-
-        // 教程对话框按钮始终可点
-        if (target === button || target.closest('#tutorialCoach')) {
-            // 仅 dialog/auto 阶段允许
-            if (step.phase === 'dialog') return true;
-            // 其他阶段也可点（防止玩家卡死），但只会提示
-            return true;
-        }
-
-        // 允许设置按钮（玩家可随时调整设置）
-        if (target.closest('#settingsBtn') || target.closest('#settingsOverlay')) {
-            return true;
-        }
-        // 允许聊天
-        if (target.closest('#chatToggleBtn') || target.closest('#chatOverlay')) {
-            return true;
-        }
-        // 允许静音按钮
-        if (target.closest('#lobbyMuteBtn')) {
-            return true;
-        }
-
-        switch (step.phase) {
-            case 'dialog':
-                // 对话框阶段：只允许点教程按钮
-                return false;
-
-            case 'canvasTarget': {
-                // 棋盘选择目标阶段：只允许点击 canvas 上的特定目标
-                if (!target.closest('#gameCanvas') && !target.closest('#canvasStage')) {
-                    showHint('请按照指引点击棋盘上的目标');
-                    return false;
-                }
-                // 让 canvas 点击通过事件系统验证（在 input.js 拦截器中做精确判断）
-                return true;
-            }
-
-            case 'actionButton': {
-                // 动作按钮阶段：只允许点指定的 canvas 动作按钮
-                if (target.closest('#canvasActionButtons') || target.closest('#canvasPassiveButtons')) {
-                    return true;
-                }
-                showHint('请点击右下角的技能按钮');
-                return false;
-            }
-
-            case 'cardCanvas': {
-                // 卡牌选择阶段：只允许点 cardCanvas
-                if (target.closest('#cardCanvas')) {
-                    return true;
-                }
-                showHint('请点击右侧手牌中的对策卡');
-                return false;
-            }
-
-            case 'auto':
-                return false;
-
-            default:
-                return false;
-        }
-    }
-
-    // ---- 公开的 canvas 点击验证（由 input.js 调用） ----
+    // ---- canvas 点击验证（由 input.js 调用） ----
     function validateCanvasClick(clickedTile) {
         const step = STEPS[stepId];
-        if (!step || !active) return true; // 非教程模式不拦截
-
-        if (step.phase !== 'canvasTarget' && step.phase !== 'cardCanvas') {
-            showHint('请先完成当前指引');
-            return false;
-        }
+        if (!step || !active) return true;
 
         if (step.phase === 'canvasTarget') {
             const kind = targetKind(step.target);
@@ -383,7 +326,6 @@ export function createTutorialController() {
                     showHint('请点击指定的目标单位');
                     return false;
                 }
-                // 攻击步骤允许先点自己的单位重新选中
                 if (stepId === 'attack' && clickedTile.unit.id === targets.berserkerUnitId) {
                     return true;
                 }
@@ -391,15 +333,12 @@ export function createTutorialController() {
                     showHint('请点击指定的目标单位');
                     return false;
                 }
-                return true; // 合法目标，交给事件系统推进
+                return true;
             }
 
             if (kind === 'tile') {
                 if (id === 'move' && targets.move) {
-                    // 允许先点狂战士选中它（可能因卡牌操作取消选中）
-                    if (clickedTile?.unit?.id === targets.berserkerUnitId) {
-                        return true;
-                    }
+                    if (clickedTile?.unit?.id === targets.berserkerUnitId) return true;
                     if (!clickedTile || clickedTile.q !== targets.move.q || clickedTile.r !== targets.move.r) {
                         showHint('请点击高亮的森林地块');
                         return false;
@@ -415,15 +354,10 @@ export function createTutorialController() {
                 }
             }
 
-            // card_target 阶段的特殊处理：点击任何有效卡牌目标
-            // 由 eventBus 事件驱动，canvas 层放行所有点击（卡牌系统自己会验证合法性）
+            // card_target 阶段：限狂战士
             if (stepId === 'card_target') {
-                if (!clickedTile) {
-                    showHint('请点击【狂战士】以使用疗愈');
-                    return false;
-                }
-                // 限定只能点狂战士，确保疗愈用对单位
-                if (clickedTile.unit?.id !== gameState.tutorialTargets?.berserkerUnitId) {
+                if (!clickedTile) { showHint('请点击【狂战士】以使用疗愈'); return false; }
+                if (clickedTile.unit?.id !== targets.berserkerUnitId) {
                     showHint('请选择【狂战士】作为疗愈目标');
                     return false;
                 }
@@ -431,24 +365,21 @@ export function createTutorialController() {
             }
         }
 
-        return false;
+        return true;
     }
 
-    // ---- 卡牌 canvas 点击验证（由 input.js 调用） ----
+    // ---- 卡牌 canvas 点击验证 ----
     function validateCardCanvasClick(cardId) {
         const step = STEPS[stepId];
         if (!step || !active) return false;
 
         if (step.phase === 'cardCanvas') {
-            const expectedTarget = targetId(step.target); // e.g. 'heal'
-            if (expectedTarget && cardId === expectedTarget) {
-                // 选卡成功：延迟推进到下一步（让 _handleCardCanvasClick 先设置 cardTargeting）
-                const nextStep = step.next;
-                if (nextStep) {
-                    const currentStepId = stepId;
-                    setTimeout(() => {
-                        if (active && stepId === currentStepId) show(nextStep);
-                    }, 120);
+            const expected = targetId(step.target);
+            if (expected && cardId === expected) {
+                const n = step.next;
+                if (n) {
+                    const cur = stepId;
+                    setTimeout(() => { if (active && stepId === cur) show(n); }, 120);
                 }
                 return true;
             }
@@ -456,18 +387,16 @@ export function createTutorialController() {
             return false;
         }
 
-        // 非 cardCanvas 阶段点卡牌 → 拦截
         showHint('请先完成当前指引');
         return false;
     }
 
-    // ---- 动作按钮点击验证（由 input.js 调用） ----
+    // ---- 动作按钮点击验证 ----
     function validateActionButton(actionKey) {
         const step = STEPS[stepId];
         if (!step || !active) return true;
 
         if (step.phase === 'actionButton') {
-            // 验证是否为指挥官技能按钮
             if (!actionKey || !actionKey.startsWith('commander:')) {
                 showHint('请点击右下角的【泣血】技能按钮');
                 return false;
@@ -482,15 +411,11 @@ export function createTutorialController() {
     // ---- 键盘操作验证 ----
     function validateKeyboard(key) {
         const step = STEPS[stepId];
-        if (!step || !active) return true; // 非教程不拦截
+        if (!step || !active) return true;
 
-        // 允许浏览器功能键：F12（控制台）、F5（刷新）
-        if (key === 'F12' || key === 'F5') return true;
+        // 允许浏览器功能键和 ESC
+        if (key === 'F12' || key === 'F5' || key === 'Escape') return true;
 
-        // 允许 ESC（取消选中/卡牌选择）
-        if (key === 'Escape') return true;
-
-        // 教程模式下阻止所有游戏快捷键
         showHint('教程期间请使用鼠标操作');
         return false;
     }
@@ -500,8 +425,13 @@ export function createTutorialController() {
         if (active) return;
         active = true;
         stepId = '';
+
+        // 安装键盘拦截（仅拦截游戏快捷键）
+        document.addEventListener('keydown', keydownHandler, { capture: true });
+        // 拦截右键（防止右键菜单干扰操作）
+        document.addEventListener('contextmenu', ctxHandler, { capture: true });
+
         overlay.classList.add('show');
-        installInterceptor();
         show('welcome');
     }
 
@@ -513,118 +443,80 @@ export function createTutorialController() {
         clearFocus();
         ring?.classList.remove('visible');
         if (hint) hint.classList.remove('visible');
-        if (blockingShield) blockingShield.classList.remove('active');
+
+        // 恢复全遮 -> 隐藏所有遮罩
+        updatePanes(null);
         overlay.classList.remove('show');
+
+        document.removeEventListener('keydown', keydownHandler, { capture: true });
+        document.removeEventListener('contextmenu', ctxHandler, { capture: true });
     }
 
-    // ---- 全局事件拦截安装 ----
-    function installInterceptor() {
-        if (_interceptorInstalled) return;
-        _interceptorInstalled = true;
-
-        document.addEventListener('click', (e) => {
-            if (!active || !stepId) return;
-            if (!isAllowedClick(e)) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-            }
-        }, { capture: true });
-
-        // 拦截键盘事件
-        document.addEventListener('keydown', (e) => {
-            if (!active || !stepId) return;
-            // 不拦截输入框
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            if (!validateKeyboard(e.key)) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-            }
-        }, { capture: true });
-
-        // 拦截右键（防止右键菜单干扰）
-        document.addEventListener('contextmenu', (e) => {
-            if (active && stepId) {
-                e.preventDefault();
-                e.stopPropagation();
-            }
-        }, { capture: true });
+    // ---- 键盘拦截 handler ----
+    function keydownHandler(e) {
+        if (!active || !stepId) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        if (!validateKeyboard(e.key)) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+        }
     }
 
-    // ---- 事件监听（推进步骤） ----
-    // 按钮点击推进
+    function ctxHandler(e) {
+        if (active && stepId) { e.preventDefault(); e.stopPropagation(); }
+    }
+
+    // ---- 事件监听 ----
     button?.addEventListener('click', () => {
         const step = STEPS[stepId];
         if (!active || !step) return;
-        if (step.next === '__exit__') {
-            stop();
-            // 返回大厅
-            window.location.reload();
-            return;
-        }
+        if (step.next === '__exit__') { stop(); window.location.reload(); return; }
         if (step.next) show(step.next);
     });
 
-    // 窗口 resize → 重定位目标环
     window.addEventListener('resize', () => {
-        if (active) requestAnimationFrame(syncTargetRing);
+        if (active) {
+            const step = STEPS[stepId];
+            if (step) updatePanes(step);
+            requestAnimationFrame(syncTargetRing);
+        }
     });
 
     // ---- eventBus 事件驱动的步骤推进 ----
-    // 选中单位 → unit_select 推进
     on('input:tileSelected', ({ unit }) => {
         if (!active || stepId !== 'unit_select') return;
-        if (unit?.id === gameState.tutorialTargets?.berserkerUnitId) {
-            show('unit_passive');
-        }
+        if (unit?.id === gameState.tutorialTargets?.berserkerUnitId) show('unit_passive');
     });
 
-    // 卡牌使用完成 → card_target 或 card_use 推进
     on('input:cardUsed', ({ cardId, targetUnitId }) => {
         if (!active) return;
-        if (stepId === 'card_target' && cardId === 'heal') {
-            // 疗愈使用成功 → 进入移动阶段
-            show('move');
-        }
+        if (stepId === 'card_target' && cardId === 'heal') show('move');
     });
 
-    // 移动完成 → move 推进
     on('match:unitMoved', ({ unit, targetTile }) => {
         if (!active || stepId !== 'move') return;
-        const moveTarget = gameState.tutorialTargets?.move;
+        const mt = gameState.tutorialTargets?.move;
         if (unit?.id === gameState.tutorialTargets?.berserkerUnitId
-            && targetTile?.q === moveTarget?.q && targetTile?.r === moveTarget?.r) {
-            show('active_skill');
-        }
+            && targetTile?.q === mt?.q && targetTile?.r === mt?.r) show('active_skill');
     });
 
-    // 主动技能使用 → active_skill 推进
     on('input:commanderSkillUsed', ({ unit }) => {
         if (!active || stepId !== 'active_skill') return;
-        if (unit?.id === gameState.tutorialTargets?.berserkerUnitId) {
-            show('attack');
-        }
+        if (unit?.id === gameState.tutorialTargets?.berserkerUnitId) show('attack');
     });
 
-    // 城市占领 → attack 推进
     on('match:cityCaptured', ({ cityTile, campKey }) => {
         if (!active || stepId !== 'attack') return;
-        const attackTarget = gameState.tutorialTargets?.attack;
-        if (campKey === 'player1'
-            && cityTile?.q === attackTarget?.q && cityTile?.r === attackTarget?.r) {
+        const at = gameState.tutorialTargets?.attack;
+        if (campKey === 'player1' && cityTile?.q === at?.q && cityTile?.r === at?.r) {
             show('post_attack_card_intro');
         }
     });
 
     return {
-        start,
-        stop,
-        syncTargetRing,
-        validateCanvasClick,
-        validateCardCanvasClick,
-        validateActionButton,
-        validateKeyboard
+        start, stop, syncTargetRing,
+        validateCanvasClick, validateCardCanvasClick, validateActionButton, validateKeyboard
     };
 }
 
@@ -633,35 +525,20 @@ let _sharedCtrl = null;
 export function setTutorialControllerRef(ctrl) { _sharedCtrl = ctrl; }
 export function getTutorialControllerRef() { return _sharedCtrl; }
 
-/**
- * 便捷验证器：由 input.js 在 canvas 点击后调用。
- * 返回 true 表示可放行，false 表示拦截。
- * 比完整实例更轻量，仅依赖 gameState 上的教程状态。
- */
 export function tutorialValidateCanvasClick(clickedTile) {
     if (!gameState.tutorialMode || !gameState.tutorialStep) return true;
     const ctrl = getTutorialControllerRef();
-    if (!ctrl) return true;
-    return ctrl.validateCanvasClick(clickedTile);
+    return ctrl ? ctrl.validateCanvasClick(clickedTile) : true;
 }
 
 export function tutorialValidateCardCanvasClick(cardId) {
     if (!gameState.tutorialMode || !gameState.tutorialStep) return true;
     const ctrl = getTutorialControllerRef();
-    if (!ctrl) return true;
-    return ctrl.validateCardCanvasClick(cardId);
+    return ctrl ? ctrl.validateCardCanvasClick(cardId) : true;
 }
 
 export function tutorialValidateActionButton(actionKey) {
     if (!gameState.tutorialMode || !gameState.tutorialStep) return true;
     const ctrl = getTutorialControllerRef();
-    if (!ctrl) return true;
-    return ctrl.validateActionButton(actionKey);
-}
-
-export function tutorialValidateKeyboard(key) {
-    if (!gameState.tutorialMode || !gameState.tutorialStep) return true;
-    const ctrl = getTutorialControllerRef();
-    if (!ctrl) return true;
-    return ctrl.validateKeyboard(key);
+    return ctrl ? ctrl.validateActionButton(actionKey) : true;
 }
