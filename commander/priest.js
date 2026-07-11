@@ -1,5 +1,5 @@
-const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { HEX_NEIGHBORS } from '../rules/hex.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.priest;
 

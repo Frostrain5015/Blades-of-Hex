@@ -2,7 +2,7 @@
 // 被动【合纵】：手牌上限+1、每回合用卡次数+1
 // 被动【连横】：处于敌方行政区内时，对方玩家每使用一张对策卡35%概率使本阵营获得同名复制
 import { CAMP } from '../js/config.js';
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.diplomat;
 

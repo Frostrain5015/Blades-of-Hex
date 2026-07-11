@@ -4,7 +4,7 @@ import { HEX_NEIGHBORS, CAMP } from './config.js';
 import stallerDef from '../commander/staller.js';
 import { spawnExplosionParticles, spawnMoraleEffect as _spawnMoraleEffectDirect } from './effects.js';
 import { playSound } from './audio.js';
-import { COMMANDER_CONFIG } from './gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 // 延迟引用，由 main.js 初始化（避免循环依赖）
 let _gameState = null;

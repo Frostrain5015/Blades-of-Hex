@@ -1,6 +1,6 @@
 // 狂战士 —— 血怒（被动）
 // 实时根据已损生命值计算加成：每损失2%生命 → +1%攻击力、+1%防御力，上限各40%
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.berserker;
 

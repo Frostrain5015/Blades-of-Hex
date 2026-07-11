@@ -1,5 +1,5 @@
 import { getRoundIndex } from '../js/config.js';
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 // 占星者 —— 夜观 + 星移
 // 被动：3格内友军免疫天气不利效果
 // 主动：强制指定当前天气并锁定2回合（CD4）

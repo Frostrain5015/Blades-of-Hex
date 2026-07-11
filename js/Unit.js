@@ -4,7 +4,9 @@ import { getPortrait } from './portraitLoader.js';
 import { nextId } from './uid.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { spawnExplosionParticles, spawnHealParticles, triggerAttackFlash, triggerHealFlash, triggerScreenShake, moraleEffects, spawnCommanderSkillEffect, spawnRankUpEffect, getRecoilOffset, getChargeOffset, spawnMoraleEffect, triggerFactionMoraleFlash } from './effects.js';
-import { COMBAT_BALANCE, COMMANDER_CONFIG, FRONTEND_TEXT } from './gameData.js';
+import { COMBAT_BALANCE } from '../rules/constants.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { FRONTEND_TEXT } from '../rules/uiText.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -1281,15 +1283,16 @@ export class Unit {
     }
 
     _checkRankUp() {
-        const thresholds = [8, 18, 30, 48];
-        while (this._rank < 4 && this._xp >= thresholds[this._rank]) {
+        const rankRules = COMBAT_BALANCE.rank;
+        const thresholds = rankRules.xpThresholds;
+        while (this._rank < thresholds.length && this._xp >= thresholds[this._rank]) {
             this._rank++;
             this._applyRankBonus(this._rank);
-            // 晋升时恢复已损失生命值的30%（殉道者倒计时中不回复）
+            // 晋升时恢复已损失生命值（殉道者倒计时中不回复）
             if (!(this.commander === 'martyr' && this._martyrPrimed)) {
                 const lostHp = this.maxHp - this.hp;
                 if (lostHp > 0) {
-                    this.hp = Math.min(this.maxHp, this.hp + Math.round(lostHp * 0.30));
+                    this.hp = Math.min(this.maxHp, this.hp + Math.round(lostHp * rankRules.rankUpHealLostPct));
                 }
             }
             _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
@@ -1298,11 +1301,12 @@ export class Unit {
     }
 
     _applyRankBonus(rank) {
+        const rankRules = COMBAT_BALANCE.rank;
         switch (rank) {
-            case 1: this.maxHp += 20; if (!(this.commander === 'martyr' && this._martyrPrimed)) this.hp += 20; break;
-            case 2: this._atkBonus += 10; break;
-            case 3: this._rankDefBonus = 0.10; this._rankCritBonus = 0.25; break;
-            case 4: this._rankRegenPct = 0.15; break;
+            case 1: this.maxHp += rankRules.hpBonusAtFirstRank; if (!(this.commander === 'martyr' && this._martyrPrimed)) this.hp += rankRules.hpBonusAtFirstRank; break;
+            case 2: this._atkBonus += rankRules.atkBonusAtSecondRank; break;
+            case 3: this._rankDefBonus = rankRules.defBonusAtThirdRank; this._rankCritBonus = rankRules.critBonusAtThirdRank; break;
+            case 4: this._rankRegenPct = rankRules.regenPctAtFourthRank; break;
         }
     }
 }

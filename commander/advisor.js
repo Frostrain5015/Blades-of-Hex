@@ -1,7 +1,7 @@
 // 谋士 —— 攻心（攻击触发）
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
-const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+import { HEX_NEIGHBORS } from '../rules/hex.js';
 const CONFIG = COMMANDER_CONFIG.advisor;
 const { definition: DEFINITION, balance: BALANCE } = CONFIG;
 

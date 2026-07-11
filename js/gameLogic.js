@@ -25,7 +25,9 @@ import {
 } from './effects.js';
 import { playSound } from './audio.js';
 import { updateFogOfWar, isTileVisible, applyScoutReveal, expireScoutReveals } from './fogOfWar.js';
-import { COLONEL_CARD_DATA, COMBAT_BALANCE, COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from './gameData.js';
+import { COLONEL_CARD_DATA } from '../rules/cards.js';
+import { COMBAT_BALANCE } from '../rules/constants.js';
+import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {

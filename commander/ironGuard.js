@@ -1,6 +1,6 @@
 // 铁卫 —— 守护
 import { HEX_SIZE } from '../js/config.js';
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.ironGuard;
 

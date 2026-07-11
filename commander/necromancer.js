@@ -2,7 +2,7 @@
 import { Unit } from '../js/Unit.js';
 import { UNIT_CONFIG, getRoundIndex } from '../js/config.js';
 import { spawnSoulRecallEffect } from '../js/effects.js';
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.necromancer;
 // 被动【留魂】：己方单位阵亡后原地留下亡魂标记，存在3回合后消失

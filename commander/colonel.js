@@ -3,7 +3,7 @@
 // 空军卡直接消耗金币；伤害以上校自身攻击力走标准管线（越强的上校空军越猛）
 // 雾天停飞
 import { CAMP } from '../js/config.js';
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION } = COMMANDER_CONFIG.colonel;
 

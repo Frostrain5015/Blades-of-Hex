@@ -2,9 +2,8 @@
 // 2格范围内：
 //   1. 敌军移动消耗额外+2/步（缚足）
 //   2. 友军单位对远程攻击（炮兵/碉堡/空军）防御力+25%（单层；对空时作为防空层计入，不与力场叠加）
-import { COMMANDER_CONFIG } from '../js/gameData.js';
-
-const HEX_NEIGHBORS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { HEX_NEIGHBORS } from '../rules/hex.js';
 
 const RANGE2 = (() => {
     const set = new Set(HEX_NEIGHBORS.map(([q, r]) => `${q},${r}`));

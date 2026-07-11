@@ -9,6 +9,7 @@ import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { CAMP, COMMANDER_REROLL_COST } from './config.js';
+import { COMMANDER_DRAFT } from '../rules/constants.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
 import {
     triggerTurnFlash,
@@ -632,7 +633,7 @@ function _buildPrepRuleOptions() {
         </label>
         <label class="prep-check-option">
             <input type="checkbox" id="prepDoubleCommander" />
-            <span class="prep-check-copy"><strong>双将模式</strong><small>随机 5 名将领，选择 2 名分别部署</small></span>
+            <span class="prep-check-copy"><strong>双将模式</strong><small>随机 ${COMMANDER_DRAFT.dualCandidatesPerPlayer} 名将领，选择 ${COMMANDER_DRAFT.dualCommanderCount} 名分别部署</small></span>
         </label>
     `;
 }
@@ -941,7 +942,7 @@ function beginCommanderPhase() {
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
     _commanderTransitioning = false;
-    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? 5 : 3);
+    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer);
     gameState.commanderPoolP1 = pool.p1;
     gameState.commanderPoolP2 = pool.p2;
     gameState.commanderPhase = 'selection';
@@ -967,7 +968,7 @@ function beginTrainingCommanderPhase(humanRole) {
     gameState._trainingMode = true;
     _commanderTransitioning = false;
     if (savedDoubleCommanderMode) {
-        const pool = shuffleAndSplitPool(savedThreePlayer, 5);
+        const pool = shuffleAndSplitPool(savedThreePlayer, COMMANDER_DRAFT.dualCandidatesPerPlayer);
         gameState.commanderPoolP1 = pool.p1;
         gameState.commanderPoolP2 = pool.p2;
         if (savedThreePlayer) gameState.commanderPoolP3 = pool.p3 || [];
@@ -999,7 +1000,7 @@ function beginPVECommanderPhase(humanRole) {
     gameState.aiDifficulty = savedDiff;
     gameState.aiOpponentCamp = humanRole === 'player1' ? CAMP.player2 : CAMP.player1;
     _commanderTransitioning = false;
-    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? 5 : 3);
+    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer);
     gameState.commanderPoolP1 = pool.p1;
     gameState.commanderPoolP2 = pool.p2;
     gameState.commanderPhase = 'selection';
@@ -1067,7 +1068,7 @@ function beginNetworkCommanderFlow(role) {
     const myRole = getMyRole();
     if (myRole === 'player1') {
         const is3P = gameState.isThreePlayer;
-        const pool = shuffleAndSplitPool(is3P, wasDoubleCommanderMode ? 5 : 3);
+        const pool = shuffleAndSplitPool(is3P, wasDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer);
         gameState.commanderPoolP1 = pool.p1;
         gameState.commanderPoolP2 = pool.p2;
         if (is3P) gameState.commanderPoolP3 = pool.p3 || [];

@@ -1,5 +1,5 @@
 // 堕天使 —— 堕落（双形态转换）
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.fallenAngel;
 

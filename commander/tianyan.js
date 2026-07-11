@@ -2,7 +2,7 @@
 // 本体：HP+30% / ATK+15% / 移速+1，核心战力集中在无人机上。
 import { CAMP, hexDistance, HEX_NEIGHBORS } from '../js/config.js';
 import { emit } from '../js/eventBus.js';
-import { COMMANDER_CONFIG } from '../js/gameData.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.tianyan;
 

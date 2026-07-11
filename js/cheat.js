@@ -1,6 +1,7 @@
 import { gameState, notify, updateUI } from './state.js';
 import { isNetworkGame } from './network.js';
 import { CAMP, MORALE_CONFIG, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG } from './config.js';
+import { COMBAT_BALANCE } from '../rules/constants.js';
 import { Unit } from './Unit.js';
 import { spawnMoraleEffect } from './effects.js';
 
@@ -183,7 +184,7 @@ function exec(cmd) {
                     notify(`单位当前军衔为 ${unit._rank}，只能晋升到更高军衔`, 'error');
                     break;
                 }
-                const thresholds = [8, 18, 30, 48];
+                const thresholds = COMBAT_BALANCE.rank.xpThresholds;
                 unit._xp = thresholds[targetRank - 1];
                 unit._checkRankUp();
                 notify(`${unit.camp.name} ${unit.config.name}兵 军衔 → ${targetRank}`);

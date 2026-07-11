@@ -14,7 +14,10 @@ import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffec
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 import { setMasterVolume, setMuted } from './audio.js';
 import { canDeployDrone, DRONE_DEPLOY_COST } from '../commander/tianyan.js';
-import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG, COMBAT_BALANCE, EMOJI_FONT_STACK, FRONTEND_TEXT } from './gameData.js';
+import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
+import { COMBAT_BALANCE } from '../rules/constants.js';
+import { EMOJI_FONT_STACK } from '../rules/symbols.js';
+import { FRONTEND_TEXT } from '../rules/uiText.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
