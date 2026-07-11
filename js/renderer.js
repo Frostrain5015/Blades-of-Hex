@@ -2024,12 +2024,38 @@ function drawCardUseAnimation(now) {
         } else {
             // Phase 2: fire at bottom, burns upward (faster)
             const burnT = (elapsed - burnStart) / burnDur;
-            const burnLine = cardH / 2 - burnT * cardH * 1.05; // moves topward from bottom
+            const baseBurnLine = cardH / 2 - burnT * cardH * 1.05; // moves topward from bottom
+
+            // --- irregular burn line: add per-x noise ---
+            const burnNoise = new Array(Math.ceil(cardW) + 2);
+            for (let bx = 0; bx < burnNoise.length; bx++) {
+                const n1 = Math.sin(bx * 0.35 + burnT * 9) * 5;
+                const n2 = Math.sin(bx * 0.7 + burnT * 13) * 3;
+                const n3 = Math.sin(bx * 0.15 + burnT * 5) * 8;
+                burnNoise[bx] = baseBurnLine + n1 + n2 + n3;
+            }
+
+            // --- clamp burn line so it never rises above card top ---
+            const effectiveTop = -cardH / 2;
+            for (let bx = 0; bx < burnNoise.length; bx++) {
+                burnNoise[bx] = Math.max(effectiveTop - 2, burnNoise[bx]);
+            }
+
+            // --- ambient glow behind burn area ---
+            const glowAlpha = 0.15 + burnT * 0.1;
+            const glowGrad = ctx.createRadialGradient(0, baseBurnLine + 10, 2, 0, baseBurnLine + 10, cardH * 0.6);
+            glowGrad.addColorStop(0, `rgba(255,160,20,${glowAlpha})`);
+            glowGrad.addColorStop(0.4, `rgba(255,60,10,${glowAlpha * 0.6})`);
+            glowGrad.addColorStop(1, 'rgba(255,30,0,0)');
+            ctx.fillStyle = glowGrad;
+            ctx.fillRect(-cardW / 2 - 10, -cardH / 2 - 10, cardW + 20, cardH + 20);
 
             // --- card below burn line is visible; above = gone ---
             ctx.save();
             ctx.beginPath();
-            ctx.rect(-cardW / 2 - 1, -cardH / 2 - 1, cardW + 2, burnLine - (-cardH / 2) + 1);
+            // Clip to the min burn line across all x
+            const minBurn = Math.min(...burnNoise);
+            ctx.rect(-cardW / 2 - 1, -cardH / 2 - 1, cardW + 2, minBurn - (-cardH / 2) + 1);
             ctx.clip();
 
             // card body (only visible portion remains above burn line)
@@ -2064,43 +2090,107 @@ function drawCardUseAnimation(now) {
 
             ctx.restore();
 
-            // --- scorch mark just above burn line ---
-            const scorchH = 6;
-            const scorchGrad = ctx.createLinearGradient(0, burnLine - scorchH, 0, burnLine + scorchH);
-            scorchGrad.addColorStop(0, 'rgba(20,10,5,0)');
-            scorchGrad.addColorStop(0.5, 'rgba(30,10,0,0.7)');
-            scorchGrad.addColorStop(1, 'rgba(255,100,0,0)');
-            ctx.fillStyle = scorchGrad;
-            ctx.fillRect(-cardW / 2, burnLine - scorchH, cardW, scorchH * 2);
+            // --- paper charring: darken/brown just below burn line ---
+            const charH = 10 + burnT * 8;
+            for (let bx = 1; bx < burnNoise.length - 1; bx++) {
+                const bl = burnNoise[bx];
+                if (bl <= effectiveTop) continue;
+                const prevBl = burnNoise[bx - 1];
+                const nextBl = burnNoise[bx + 1];
+                const localBl = (prevBl + bl + nextBl) / 3;
+                const charGrad = ctx.createLinearGradient(0, localBl - charH, 0, localBl + 2);
+                charGrad.addColorStop(0, 'rgba(60,20,5,0)');
+                charGrad.addColorStop(0.5, `rgba(35,12,2,${0.5 + burnT * 0.3})`);
+                charGrad.addColorStop(1, 'rgba(255,100,20,0.15)');
+                ctx.fillStyle = charGrad;
+                ctx.fillRect(-cardW / 2 + bx - 1, localBl - charH, 2, charH + 2);
+            }
 
-            // --- flame tongues ---
-            for (let f = 0; f < 7; f++) {
-                const fxP = -cardW / 2 + 5 + (f / 6) * (cardW - 10);
-                const fh = 14 + Math.sin(f * 3.7 + burnT * 12) * 10 + burnT * 22;
-                const fw = 7 + Math.sin(f * 5.1 + burnT * 8) * 4;
+            // --- edge glow on card below burn line ---
+            for (let bx = 1; bx < burnNoise.length - 1; bx++) {
+                const bl = burnNoise[bx];
+                if (bl <= effectiveTop) continue;
+                const edgeGlow = ctx.createRadialGradient(0, bl, 1, 0, bl, 8);
+                edgeGlow.addColorStop(0, `rgba(255,200,50,${(0.4 + burnT * 0.2) * (0.8 + 0.2 * Math.sin(bx * 2.3 + burnT * 15))})`);
+                edgeGlow.addColorStop(0.5, `rgba(255,80,10,${(0.25 + burnT * 0.15) * (0.7 + 0.3 * Math.sin(bx * 1.7 + burnT * 11))})`);
+                edgeGlow.addColorStop(1, 'rgba(255,40,0,0)');
+                ctx.fillStyle = edgeGlow;
+                ctx.fillRect(-cardW / 2 + bx - 3, bl - 8, 6, 16);
+            }
 
-                const flGrad = ctx.createLinearGradient(fxP, burnLine + fh, fxP, burnLine);
-                flGrad.addColorStop(0, `rgba(255,220,30,${0.9 - burnT * 0.4})`);
-                flGrad.addColorStop(0.3, `rgba(255,150,0,${0.85 - burnT * 0.3})`);
-                flGrad.addColorStop(0.7, `rgba(255,40,0,${0.7 - burnT * 0.4})`);
-                flGrad.addColorStop(1, 'rgba(40,5,0,0.95)');
-                ctx.fillStyle = flGrad;
+            // --- flame tongues (multi-layer for depth) ---
+            const flameLayers = [
+                { count: 9, heightMul: 1.0, widthMul: 1.0, alphaMul: 1.0, yOff: 0, seedOff: 0 },
+                { count: 5, heightMul: 0.7, widthMul: 0.6, alphaMul: 1.6, yOff: -4, seedOff: 100 }
+            ];
+            for (const layer of flameLayers) {
+                for (let f = 0; f < layer.count; f++) {
+                    const seed = f + layer.seedOff;
+                    const fxP = -cardW / 2 - 4 + ((seed + 0.5) / layer.count) * (cardW + 8) + Math.sin(seed * 2.7 + burnT * 6) * 5;
+                    const fhBase = 18 + burnT * 28;
+                    const fh = fhBase * layer.heightMul
+                        + Math.sin(seed * 3.7 + burnT * 14) * 8 * layer.heightMul
+                        + Math.sin(seed * 8.1 + burnT * 22) * 4 * layer.heightMul;
+                    const fw = (8 + Math.sin(seed * 5.1 + burnT * 10) * 4) * layer.widthMul;
+
+                    // Per-flame burn line from noise
+                    const normX = Math.max(0, Math.min(1, (fxP + cardW / 2) / cardW));
+                    const noiseIdx = Math.floor(normX * (burnNoise.length - 1));
+                    const localBurn = burnNoise[Math.min(noiseIdx, burnNoise.length - 1)];
+
+                    const flGrad = ctx.createLinearGradient(fxP, localBurn + fh, fxP, localBurn);
+                    const a = (0.95 - burnT * 0.35) * layer.alphaMul;
+                    flGrad.addColorStop(0, `rgba(255,240,60,${a})`);
+                    flGrad.addColorStop(0.15, `rgba(255,200,30,${a * 0.95})`);
+                    flGrad.addColorStop(0.35, `rgba(255,120,10,${a * 0.8})`);
+                    flGrad.addColorStop(0.6, `rgba(255,50,5,${a * 0.65})`);
+                    flGrad.addColorStop(0.85, `rgba(120,15,0,${a * 0.5})`);
+                    flGrad.addColorStop(1, `rgba(40,4,0,${a * 0.2})`);
+                    ctx.fillStyle = flGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(fxP - fw, localBurn);
+                    ctx.quadraticCurveTo(fxP - fw * 0.25, localBurn + fh * 0.6, fxP * 0.9 + (fxP * 0.1), localBurn + fh);
+                    ctx.quadraticCurveTo(fxP + fw * 0.25, localBurn + fh * 0.6, fxP + fw, localBurn);
+                    ctx.fill();
+                }
+            }
+
+            // --- smoke rising (semi-transparent grey plumes) ---
+            const smokeCount = 8 + Math.floor(burnT * 10);
+            for (let s = 0; s < smokeCount; s++) {
+                const seed = s * 7.3;
+                const sx = -cardW / 2 + 5 + ((seed * 13.7 + burnT * 4) % cardW);
+                const sy = baseBurnLine - 15 - (s / smokeCount) * 60 - burnT * 50 - (seed * 3.1) % 20;
+                const sr = 6 + (seed * 2.3 + burnT * 8) % 12 + burnT * 8;
+                const smokeAlpha = Math.max(0, (0.25 - burnT * 0.15)) * (0.6 + 0.4 * Math.sin(seed + burnT * 3));
+                ctx.fillStyle = `rgba(60,55,50,${smokeAlpha})`;
                 ctx.beginPath();
-                ctx.moveTo(fxP - fw, burnLine);
-                ctx.quadraticCurveTo(fxP - fw * 0.3, burnLine + fh * 0.5, fxP, burnLine + fh);
-                ctx.quadraticCurveTo(fxP + fw * 0.3, burnLine + fh * 0.5, fxP + fw, burnLine);
+                ctx.arc(sx + Math.sin(burnT * 5 + seed) * 6, sy, sr, 0, Math.PI * 2);
                 ctx.fill();
             }
 
-            // --- embers rising ---
-            for (let p = 0; p < 14; p++) {
-                const px = -cardW / 2 + Math.random() * cardW;
-                const py = burnLine - Math.random() * 50 - burnT * 30;
-                const size = 1 + Math.random() * 2.5;
-                ctx.fillStyle = `rgba(255,${180 + Math.random() * 75},${Math.random() * 40},${0.8 - burnT * 0.5})`;
+            // --- embers rising with physics ---
+            for (let p = 0; p < 18; p++) {
+                const seed = p * 5.7;
+                const driftX = Math.sin(seed + burnT * 3 + p) * 8 + Math.sin(seed * 2 + burnT * 5) * 4;
+                const px = -cardW / 2 + 6 + ((seed * 7.1 + burnT * 20 + p * 13) % (cardW - 12)) + driftX;
+                const py = baseBurnLine - 4 - ((p / 18) * 55 + burnT * 35 + (seed * 2.7) % 15);
+                const size = 1.5 + (seed % 2.5) * (0.6 + burnT * 0.8);
+                const brightness = Math.max(0, 1 - burnT * 0.6) * (0.6 + 0.4 * Math.sin(seed + burnT * 7));
+                const r = 200 + Math.floor(55 * (seed % 1));
+                const g = 120 + Math.floor(80 * ((seed + 1) % 1));
+                ctx.fillStyle = `rgba(${r},${g},20,${brightness})`;
                 ctx.beginPath();
                 ctx.arc(px, py, size, 0, Math.PI * 2);
                 ctx.fill();
+
+                // ember glow halo
+                if (size > 2.5) {
+                    ctx.fillStyle = `rgba(255,180,40,${brightness * 0.15})`;
+                    ctx.beginPath();
+                    ctx.arc(px, py, size * 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
         }
 
