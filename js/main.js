@@ -595,7 +595,23 @@ function beginTrainingCountdown() {
     gameState.commanderP2SecondaryDeployed = false;
     gameState.commanderP3Deployed = false;
     gameState.commanderP3SecondaryDeployed = false;
-    // 3秒倒计时后开始
+    // 预先加载棋盘，避免玩家在倒计时后看到空棋盘
+    _deploymentStarted = true;
+    loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 加载失败:', err));
+    preloadPortraits();
+    initMap();
+    initInput();
+    initKeyboard();
+    initSettingsPanel();
+    setOnFogUpdated(updateCampEmblems);
+    updateCampEmblems();
+    updateChatAvailability();
+    initEmblemChatClicks();
+    gameState.currentCamp = CAMP.player1;
+    grantTurnStartIncome(CAMP.player1);
+    updateUI();
+    updateButtonColors();
+    renderGame();
     const overlay = document.getElementById('commanderOverlay');
     overlay.classList.remove('show');
     document.getElementById('gameWrapper').style.display = '';
@@ -610,24 +626,8 @@ function beginTrainingCountdown() {
         else {
             clearInterval(timer);
             document.getElementById('turnTransitionOverlay').classList.remove('show');
-            _deploymentStarted = true;
-            loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 加载失败:', err));
-            preloadPortraits();
-            initMap();
-            initInput();
-            initKeyboard();
-            initSettingsPanel();
-            setOnFogUpdated(updateCampEmblems);
-            updateCampEmblems();
-            updateChatAvailability();
-            initEmblemChatClicks();
-            gameState.currentCamp = CAMP.player1;
-            grantTurnStartIncome(CAMP.player1);
-            updateUI();
-            updateButtonColors();
             startBattleBGM();
             playSound('turnEnd');
-            renderGame();
         }
     }, 1000);
 }
@@ -671,24 +671,25 @@ function beginTutorial() {
 	stopBattleBGM();
 	loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 教程将领特效加载失败:', err));
 
+		// 在倒计时前预先加载棋盘，避免玩家看到空棋盘
+		initMap();
+		setupTutorialBattlefield();
+		runTutorialOpponentScript().catch(err => console.warn('[tutorial] AI 脚本初始化失败:', err));
+		initInput();
+		initKeyboard();
+		initSettingsPanel();
+		setOnFogUpdated(updateCampEmblems);
+		updateCampEmblems();
+		updateChatAvailability();
+		initEmblemChatClicks();
+		gameState.currentCamp = CAMP.player1;
+		grantTurnStartIncome(CAMP.player1);
+		updateUI();
+		updateButtonColors();
+		renderGame();
 		_runCountdown(() => {
-			initMap();
-			setupTutorialBattlefield();
-			runTutorialOpponentScript().catch(err => console.warn('[tutorial] AI 脚本初始化失败:', err));
-			initInput();
-			initKeyboard();
-			initSettingsPanel();
-			setOnFogUpdated(updateCampEmblems);
-			updateCampEmblems();
-			updateChatAvailability();
-			initEmblemChatClicks();
-			gameState.currentCamp = CAMP.player1;
-			grantTurnStartIncome(CAMP.player1);
-			updateUI();
-			updateButtonColors();
 			startBattleBGM();
 			playSound('turnEnd');
-			renderGame();
 			_tutorialController.start();
 		});
 }
@@ -1671,24 +1672,26 @@ function startGame() {
     stopLobbyBGM();
     stopBattleBGM();
 
-    // 按需加载本局将领视觉特效模块（在倒计时前发起，3秒窗口内完成动态 import）
+    // 在倒计时前预先加载棋盘，避免玩家看到空棋盘
     loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 加载失败:', err));
+
+    preloadPortraits();
+    initMap();
+    initInput();
+    initKeyboard();
+    initSettingsPanel();
+    setOnFogUpdated(updateCampEmblems);
+    updateCampEmblems();
+    updateChatAvailability();
+    initEmblemChatClicks();
+    gameState.currentCamp = CAMP.player1;
+    grantTurnStartIncome(CAMP.player1);
+    updateUI();
+    updateButtonColors();
+    renderGame();
 
     // 3秒全屏倒计时
     _runCountdown(() => {
-        preloadPortraits();
-        initMap();
-        initInput();
-        initKeyboard();
-        initSettingsPanel();
-        setOnFogUpdated(updateCampEmblems);
-        updateCampEmblems();
-        updateChatAvailability();
-        initEmblemChatClicks();
-        gameState.currentCamp = CAMP.player1;
-        grantTurnStartIncome(CAMP.player1);
-        updateUI();
-        updateButtonColors();
         startBattleBGM();
         playSound('turnEnd');
 

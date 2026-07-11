@@ -62,7 +62,7 @@ function buildCenturion() {
         definition: {
             id: 'centurion', name: '百夫长', hpBonusPct: 0, atkBonusPct: 0.40, spdBonus: 1,
             skills: [
-                { name: '老兵', desc: '', type: 'passive' },
+                { name: '老兵', desc: '晋升的速度提高100%', type: 'passive' },
                 { name: '乘胜', desc: `攻击时有${percent(balance.attackTriggerChance)}概率获得${balance.movementPoints}点行动力，击杀时必定触发，每回合最多${balance.maxTriggersPerRound}次`, type: 'passive' }
             ]
         },
