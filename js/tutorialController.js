@@ -13,7 +13,7 @@
 //   'cardCanvas'    — 遮罩在手牌画布位置开洞，只能点对策卡
 //   'auto'          — 无操作，等待事件自动推进
 
-import { canvas } from './config.js';
+import { canvas, LOGICAL_W, LOGICAL_H } from './config.js';
 import { gameState } from './state.js';
 import { emit, on } from './eventBus.js';
 
@@ -182,8 +182,9 @@ export function createTutorialController() {
             const tile = getTargetTile(step.target);
             if (!tile) return null;
             const rect = canvas.getBoundingClientRect();
-            const scaleX = rect.width / canvas.width;
-            const scaleY = rect.height / canvas.height;
+            // 用 LOGICAL_W/H 而非 canvas.width/height，确保与渲染坐标系一致
+            const scaleX = rect.width / LOGICAL_W;
+            const scaleY = rect.height / LOGICAL_H;
             const size = Math.max(72, Math.min(rect.width, rect.height) * 0.1);
             const cx = rect.left + tile.x * scaleX;
             const cy = rect.top + tile.y * scaleY;
@@ -245,13 +246,16 @@ export function createTutorialController() {
             const tile = getTargetTile(step.target);
             if (tile) {
                 const rect = canvas.getBoundingClientRect();
-                const scaleX = rect.width / canvas.width;
-                const scaleY = rect.height / canvas.height;
+                const scaleX = rect.width / LOGICAL_W;
+                const scaleY = rect.height / LOGICAL_H;
                 const size = Math.max(56, Math.min(rect.width, rect.height) * 0.09);
+                const left = rect.left + tile.x * scaleX - size / 2;
+                const top = rect.top + tile.y * scaleY - size / 2;
+                console.warn('[tutorial] ring pos:', {tileX:tile.x, tileY:tile.y, rectLeft:rect.left, rectTop:rect.top, rectW:rect.width, rectH:rect.height, scaleX, scaleY, left, top, id: tile.unit?.id});
                 ring.style.width = `${size}px`;
                 ring.style.height = `${size}px`;
-                ring.style.left = `${rect.left + tile.x * scaleX - size / 2}px`;
-                ring.style.top = `${rect.top + tile.y * scaleY - size / 2}px`;
+                ring.style.left = `${left}px`;
+                ring.style.top = `${top}px`;
                 ring.classList.add('visible');
                 return;
             }
