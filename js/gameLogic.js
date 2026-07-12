@@ -1974,12 +1974,18 @@ async function handleSurrender() {
         gameState.gameOver = true;
         resetGameState();
         document.getElementById('gameWrapper').style.display = 'none';
-        const lobby = document.getElementById('lobbyOverlay');
-        lobby.style.display = '';
-        document.getElementById('lobbyHome').style.display = '';
-        document.getElementById('multiplayerLobby').style.display = 'none';
-        document.getElementById('roomWaiting').style.display = 'none';
-        document.getElementById('lobbyReady').style.display = 'none';
+        if (gameState.campaignId === '__editor__') {
+            // 编辑器测试 → 返回编辑器
+            const editor = await import('../campaign/editor/editor.js');
+            editor.reopenEditorAfterPlaytest();
+        } else {
+            const lobby = document.getElementById('lobbyOverlay');
+            lobby.style.display = '';
+            document.getElementById('lobbyHome').style.display = '';
+            document.getElementById('multiplayerLobby').style.display = 'none';
+            document.getElementById('roomWaiting').style.display = 'none';
+            document.getElementById('lobbyReady').style.display = 'none';
+        }
         return;
     }
 

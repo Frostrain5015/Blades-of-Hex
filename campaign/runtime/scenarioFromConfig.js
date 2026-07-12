@@ -8,7 +8,7 @@ import { createTriggerFlow, evaluateConditions } from './triggers.js';
 
 /**
  * @param {object} rawConfig  level 配置（未归一化亦可）
- * @param {{ storageKey?: string }} [options]  storageKey 为空时不写通关进度（编辑器试玩用）
+ * @param {{ storageKey?: string }} [options]  storageKey 为空时不写通关进度（编辑器测试用）
  * @returns {object} scenario 对象
  */
 // 配置步骤（简化模型：台词/旁白 + 统一「下一步」）→ 控制器步骤格式。
@@ -108,7 +108,7 @@ export function scenarioFromConfig(rawConfig, options = {}) {
         calculateResult,
         resultText,
         resultObjectivesHtml,
-        // 保留原始配置，便于「从试玩返回编辑器」等场景取回。
+        // 保留原始配置，便于「从测试返回编辑器」等场景取回。
         _config: config
     };
 }

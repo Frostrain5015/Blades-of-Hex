@@ -1011,7 +1011,7 @@ function buildMetaInspector() {
     return wrap;
 }
 
-// ═══════════════════ 导入 / 导出 / 校验 / 试玩 ═══════════════════
+// ═══════════════════ 导入 / 导出 / 编译 / 测试 ═══════════════════
 function runValidation({ silent = false } = {}) {
     const { errors, warnings } = validateLevel(config);
     if (errors.length) {
@@ -1019,7 +1019,7 @@ function runValidation({ silent = false } = {}) {
         return false;
     }
     if (!silent) {
-        setStatus(warnings.length ? warnings.map(w => '⚠ ' + w).join('\n') : '✓ 校验通过', warnings.length ? '' : 'ok');
+        setStatus(warnings.length ? warnings.map(w => '⚠ ' + w).join('\n') : '✓ 编译通过', warnings.length ? '' : 'ok');
     }
     return true;
 }
@@ -1071,7 +1071,6 @@ function newLevel() {
 function playtest() {
     if (!runValidation()) return;
     if (!config.initialStep && !Object.keys(config.steps).length) {
-        // 无剧情也允许试玩，仅提示
         setStatus('提示：本关没有剧情步骤，将直接进入对局', '');
     }
     callbacks.onPlaytest?.(clone(config));
@@ -1159,8 +1158,8 @@ export function closeEditor() {
     $id('editorOverlay').style.display = 'none';
 }
 
-/** 试玩返回时恢复编辑器（保留当前配置与选中状态）。 */
+/** 测试返回时恢复编辑器（保留当前配置与选中状态）。 */
 export function reopenEditorAfterPlaytest() {
     $id('editorOverlay').style.display = '';
-    refreshAll('试玩结束，已返回编辑器');
+    refreshAll('测试结束，已返回编辑器');
 }

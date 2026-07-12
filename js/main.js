@@ -60,7 +60,7 @@ setClearOrbitBeamsRef(clearPaladinOrbitBeams);
 setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
 setLaunchOrbitSwordsRef(launchPaladinOrbitSwords);
 setSpawnHealingChainRef(spawnHealingChain);
-	// 编辑器试玩中的关卡配置；非空时结算面板的重试/返回路由到编辑器而非战役大厅。
+	// 编辑器测试中的关卡配置；非空时结算面板的重试/返回路由到编辑器而非战役大厅。
 	let _playtestConfig = null;
 	const _campaignController = createCampaignController({
 		onRetry: () => _playtestConfig ? startScenarioFromConfig(_playtestConfig) : startScenario(_currentChronicleId, _currentScenarioId),
@@ -460,9 +460,14 @@ document.getElementById('exitToLobbyBtn').addEventListener('click', () => {
     updateChatAvailability();
     document.getElementById('gameWrapper').style.display = 'none';
     document.getElementById('backToVictoryBtn').style.display = 'none';
-    const lobby = document.getElementById('lobbyOverlay');
-    lobby.style.display = '';
-    showHome();
+    if (gameState.campaignId === '__editor__') {
+        // 编辑器测试 → 返回编辑器
+        import('../campaign/editor/editor.js').then(m => m.reopenEditorAfterPlaytest());
+    } else {
+        const lobby = document.getElementById('lobbyOverlay');
+        lobby.style.display = '';
+        showHome();
+    }
 });
 
 // ==== 查看完整棋局（遭遇战模式） ----
@@ -691,7 +696,7 @@ async function startScenario(chronicleId, scenarioId) {
 	_launchScenario(scenario);
 }
 
-// 编辑器试玩：配置直接包装为 scenario 启动，跳过选将与倒计时，不写通关进度。
+// 编辑器测试：配置直接包装为 scenario 启动，跳过选将与倒计时，不写通关进度。
 async function startScenarioFromConfig(config) {
 	let scenario;
 	try {
