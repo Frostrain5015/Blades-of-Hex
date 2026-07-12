@@ -1404,7 +1404,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                 dialogue.appendChild(selectRow('立绘', action.speaker?.portrait || '', { '': '（无）', ...COMMANDER_LABELS }, v => patch({ speaker: { ...(action.speaker || {}), portrait: v } })));
             }
             dialogue.appendChild(textareaRow('台词', action.text || '', v => patch({ text: v }), 3));
-            dialogue.appendChild(textRow('推进目标（next）', action.next || '', v => patch({ next: v || undefined }), '留空=等待触发器; __前缀=触发信号'));
             box.appendChild(dialogue);
             // 高亮 = 操作放行 + 视觉指示一体化
             const hl = action.highlight || {};

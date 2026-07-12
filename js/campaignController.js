@@ -65,6 +65,8 @@ export function createCampaignController({ onRetry, onReturn }) {
         if (!active) return;
         const step = gameState._inlineStepData;
         if (!step) return;
+        // 操作锁开启时点击对话框不推进（需玩家完成指定操作）
+        if (gameState.tutorialMode) return;
         if (step.next) {
             if (step.next.startsWith('__')) activeFlow?.onAdvance?.(step.next);
             else if (gameState._inlineStepMap?.[step.next]) showStep(gameState._inlineStepMap[step.next]);

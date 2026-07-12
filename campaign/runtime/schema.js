@@ -99,7 +99,7 @@ export const TRIGGER_CONDITIONS = Object.freeze([
 // 动作：对关卡状态/UI 的副作用。每条形如 { kind, ...字段 }；kind 必须与
 // triggers.js 的 runAction 分支一致。
 export const TRIGGER_ACTIONS = Object.freeze([
-    { kind: 'showStep',      label: '显示步骤',     arg: 'inlineStep', note: '对话框内容直接写在动作中，不再使用独立的 steps 表' }
+    { kind: 'showStep',      label: '显示步骤',     arg: 'inlineStep',  }
     ,{ kind: 'spawnUnits',    label: '生成单位',     arg: 'spawnGroup' }
     ,{ kind: 'unlockInput',   label: '解除输入锁',   arg: 'none', note: '关闭严格引导，玩家自由操作' }
     ,{ kind: 'lockInput',     label: '开启输入锁',   arg: 'lockStep', note: '恢复严格引导模式，可选配白名单（不产生视觉高亮）' }
