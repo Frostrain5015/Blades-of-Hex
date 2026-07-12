@@ -172,10 +172,8 @@ export function createDefaultLevel() {
         //     target?: unitId|{q,r},            // 可选：目标环
         //     allow?: { units:[], tiles:[{q,r}], cards:[], actions:[], hint } } // 可选：输入白名单
         steps: {},
-        objectives: {},             // { objId: { title, detail } }
-        optionalObjectives: [],     // [{ id, text }]
+        objectives: {},             // { objId: { title, detail, active, main } }
         initialStep: '',
-        initialObjective: '',
         triggers: [],               // [{ id, when:[], do:[], once, enabled }]
         result: {
             winText: '任务完成。',
@@ -211,7 +209,6 @@ export function normalizeLevel(raw) {
     merged.variables = Array.isArray(raw.variables) ? raw.variables : [];
     merged.steps = raw.steps && typeof raw.steps === 'object' ? raw.steps : {};
     merged.objectives = raw.objectives && typeof raw.objectives === 'object' ? raw.objectives : {};
-    merged.optionalObjectives = Array.isArray(raw.optionalObjectives) ? raw.optionalObjectives : [];
     merged.triggers = Array.isArray(raw.triggers) ? raw.triggers : [];
     merged.result = { ...def.result, ...(raw.result || {}) };
     merged.result.starRules = Array.isArray(merged.result.starRules) ? merged.result.starRules : [];
@@ -321,8 +318,9 @@ export function validateLevel(config) {
             errors.push(`步骤「${stepId}」的 next「${step.next}」不存在（自定义跳转请用 __ 前缀）。`);
         }
     }
-    if (c.initialObjective && !c.objectives?.[c.initialObjective]) {
-        warnings.push(`initialObjective「${c.initialObjective}」在 objectives 中不存在。`);
+    const activeMainCount = Object.values(c.objectives || {}).filter(o => o.main && o.active !== false).length;
+    if (activeMainCount === 0 && Object.keys(c.objectives || {}).length > 0) {
+        warnings.push('没有设置任何主要目标，玩家将无法通过目标完成获得胜利。');
     }
 
     const triggerIds = new Set((c.triggers || []).map(t => t.id).filter(Boolean));

@@ -107,7 +107,7 @@ export function scenarioFromConfig(rawConfig, options = {}) {
         turnLimit: config.turnLimit || 0,
         storageKey,
         initialStep: config.initialStep || '',
-        initialObjective: config.initialObjective || '',
+        initialObjective: Object.keys(config.objectives || {}).find(id => config.objectives[id].active !== false) || '',
         intro: config.intro || { campaignTitle: '', scenarioSubtitle: config.title },
         aiOpponentCampKey: config.aiOpponentCamp || 'player2',
         aiDifficulty: config.aiDifficulty ?? 1.0,

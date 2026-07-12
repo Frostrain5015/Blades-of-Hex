@@ -91,8 +91,12 @@ export function createCampaignController({ onRetry, onReturn }) {
         if (!objectiveHud || !objective) return;
         objectiveTitle.textContent = objective.title;
         objectiveDetail.textContent = objective.detail;
-        optionalList.innerHTML = (activeScenario.optionalObjectives || [])
-            .map(item => `<span data-objective="${item.id}">◇ ${item.text}</span>`).join('');
+        // 显示当前目标之外的其他目标（含支线）
+        const allObj = activeScenario?.objectives || {};
+        optionalList.innerHTML = Object.keys(allObj).filter(id => id !== key).map(id => {
+            const o = allObj[id];
+            return `<span data-objective="${id}">${o.main ? '★' : '◇'} ${o.title || o.detail || id}</span>`;
+        }).join('');
         objectiveHud.classList.add('show');
     }
 
@@ -234,7 +238,8 @@ export function createCampaignController({ onRetry, onReturn }) {
         resultShown = false;
         resultOverlay.classList.remove('show');
         resultOverlay.setAttribute('aria-hidden', 'true');
-        updateObjectives(activeScenario.initialObjective);
+        const firstActive = Object.keys(activeScenario?.objectives || {}).find(id => activeScenario.objectives[id].active !== false) || '';
+        updateObjectives(firstActive);
         showStep(activeScenario.initialStep, { immediate: true });
         activeFlow?.onLevelStarted?.();
     }

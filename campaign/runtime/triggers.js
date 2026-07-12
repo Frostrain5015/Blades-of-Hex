@@ -284,18 +284,19 @@ export function createTriggerFlow(config, api) {
     function autoResolve() {
         if (!api.isActive() || api.isResultShown()) return;
         const localPlayerKey = gameState.localPlayerCampKey || 'player1';
-        // 玩家被消灭：无存活单位且无领地 → 失败
+        // 玩家被消灭 → 失败
         const hasPlayerUnit = gameState.tiles.some(t => t.unit && campKeyOf(t.unit.camp) === localPlayerKey && t.unit.hp > 0);
         const hasPlayerTile = gameState.tiles.some(t => campKeyOf(t.camp) === localPlayerKey);
         if (!hasPlayerUnit && !hasPlayerTile) { api.fail(result.loseText); return; }
-        // 歼灭目标敌军 → 胜利
-        if (result.eliminateEnemy) {
-            const enemy = campFromKey(config.aiOpponentCamp || 'player2');
-            if (!gameState.tiles.some(tile => tile.unit && tile.unit.camp === enemy && tile.unit.hp > 0)) { api.win(); return; }
-        }
-        if (result.eliminateAllHostileToPlayer) {
-            const viewer = gameState.localPlayerCampKey || 'player1';
-            if (!gameState.tiles.some(tile => tile.unit && getRelation(gameState, viewer, tile.unit.camp) === 'enemy')) { api.win(); return; }
+        // 目标状态自动判定（主要目标全部完成→胜利，任一失败→失败）
+        const objConfig = config.objectives;
+        if (objConfig && typeof objConfig === 'object') {
+            const mainIds = Object.keys(objConfig).filter(id => objConfig[id].main);
+            if (mainIds.length > 0) {
+                const states = gameState.objectiveStates || {};
+                if (mainIds.every(id => states[id] === 'completed')) { api.win(); return; }
+                if (mainIds.some(id => states[id] === 'failed')) { api.fail(result.loseText); return; }
+            }
         }
     }
 

@@ -615,59 +615,29 @@ function buildTriggerList() {
     wrap.appendChild(secTrig);
 
     const objIds = Object.keys(config.objectives);
-    const secObj = section(`主目标（${objIds.length}）`);
+    const secObj = section(`目标（${objIds.length}）`);
     secObj.appendChild(itemList({
-        items: objIds.map(id => ({ key: id, label: `${id} · ${config.objectives[id].title || ''}` })),
+        items: objIds.map(id => ({ key: id, label: `${id} · ${config.objectives[id].title || ''}${config.objectives[id].main ? ' ★' : ''}` })),
         activeKey: selection?.kind === 'objective' ? selection.id : null,
         onSelect: (id) => { selection = { kind: 'objective', id }; renderToolPanel(); renderInspector(); },
         onDelete: (id) => mutate(c => {
             delete c.objectives[id];
-            if (c.initialObjective === id) c.initialObjective = '';
             if (selection?.kind === 'objective' && selection.id === id) selection = null;
         }),
-        addLabel: '+ 新增主目标',
+        addLabel: '+ 新增目标',
         onAdd: () => mutate(c => {
             let n = 1;
             while (c.objectives[`obj${n}`]) n++;
-            c.objectives[`obj${n}`] = { title: '', detail: '' };
+            c.objectives[`obj${n}`] = { title: '', detail: '', active: true, main: false };
             selection = { kind: 'objective', id: `obj${n}` };
-            if (!c.initialObjective) c.initialObjective = `obj${n}`;
         })
     }));
-    secObj.appendChild(selectRow('初始目标', config.initialObjective,
-        { '': '（无）', ...Object.fromEntries(objIds.map(id => [id, config.objectives[id].title || id])) },
-        v => mutate(c => { c.initialObjective = v; }, { rebuildPanels: false })));
     wrap.appendChild(secObj);
-
-    const secOpt = section(`支线目标（${config.optionalObjectives.length}）`);
-    secOpt.appendChild(itemList({
-        items: config.optionalObjectives.map((o, i) => ({ key: String(i), label: `${o.id} · ${o.text || ''}` })),
-        activeKey: selection?.kind === 'optional' ? String(selection.index) : null,
-        onSelect: (key) => { selection = { kind: 'optional', index: Number(key) }; renderToolPanel(); renderInspector(); },
-        onDelete: (key) => mutate(c => {
-            c.optionalObjectives.splice(Number(key), 1);
-            if (selection?.kind === 'optional') selection = null;
-        }),
-        addLabel: '+ 新增支线',
-        onAdd: () => mutate(c => {
-            c.optionalObjectives.push({ id: `opt${c.optionalObjectives.length + 1}`, text: '', when: [] });
-            selection = { kind: 'optional', index: c.optionalObjectives.length - 1 };
-        })
-    }));
-    wrap.appendChild(secOpt);
 
     const resBtn = el('button', 'ed-add-btn', '⚖ 编辑结算与星级规则');
     resBtn.addEventListener('click', () => { selection = { kind: 'result' }; renderInspector(); });
     wrap.appendChild(resBtn);
     return wrap;
-}
-
-function buildFactionBasics() {
-    const wrap = el('div');
-    const relationLabels = { ally: '联盟', neutral: '中立', enemy: '敌对' };
-    const factionOpts = Object.fromEntries(config.factions.filter(f => f.active !== false).map(f => [f.id, f.name]));
-
-    // 玩家所属阵营下拉只从活跃阵营里选
     const secPlayer = section('玩家视角');
     secPlayer.appendChild(selectRow('所属阵营', config.localPlayerCamp, factionOpts,
         value => mutate(c => { c.localPlayerCamp = value; }, { rebuildPanels: false })));
@@ -788,11 +758,6 @@ function renderInspector() {
     if (selection?.kind === 'objective' && config.objectives[selection.id]) {
         title.textContent = `主目标 · ${selection.id}`;
         body.appendChild(buildObjectiveInspector(selection.id));
-        return;
-    }
-    if (selection?.kind === 'optional' && config.optionalObjectives[selection.index]) {
-        title.textContent = '支线目标';
-        body.appendChild(buildOptionalInspector(selection.index));
         return;
     }
     if (selection?.kind === 'result') {
@@ -1400,18 +1365,9 @@ function buildObjectiveInspector(id) {
     const obj = config.objectives[id];
     wrap.appendChild(textRow('标题', obj.title, v => mutate(c => { c.objectives[id].title = v; })));
     wrap.appendChild(textareaRow('描述', obj.detail, v => mutate(c => { c.objectives[id].detail = v; }, { rebuildPanels: false }), 3));
-    wrap.appendChild(hint('通过触发器动作「切换主目标」在关卡中途更换目标。'));
-    return wrap;
-}
-
-function buildOptionalInspector(index) {
-    const wrap = el('div');
-    const opt = config.optionalObjectives[index];
-    wrap.appendChild(textRow('支线 id', opt.id, v => mutate(c => { c.optionalObjectives[index].id = v; })));
-    wrap.appendChild(textRow('文案', opt.text, v => mutate(c => { c.optionalObjectives[index].text = v; })));
-    const sec = section('完成条件（结算时判定；留空则由触发器「标记支线完成」驱动）');
-    sec.appendChild(conditionListEditor(opt.when || [], list => mutate(c => { c.optionalObjectives[index].when = list; })));
-    wrap.appendChild(sec);
+    wrap.appendChild(checkRow('开场时启用', obj.active !== false, v => mutate(c => { c.objectives[id].active = v; }, { rebuildPanels: false })));
+    wrap.appendChild(checkRow('主要目标（全部完成即胜利）', obj.main === true, v => mutate(c => { c.objectives[id].main = v || undefined; }, { rebuildPanels: false })));
+    wrap.appendChild(hint('主要目标全部完成 → 胜利；任一主要目标失败 → 失败。通过触发器「设置目标状态」改变。'));
     return wrap;
 }
 

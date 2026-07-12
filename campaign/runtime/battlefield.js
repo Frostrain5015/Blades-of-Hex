@@ -34,7 +34,7 @@ export function buildBattlefieldFromConfig(config, gameState) {
         .filter(variable => variable.scope !== 'campaign')
         .map(variable => [variable.id, variable.initial ?? (variable.type === 'boolean' ? false : variable.type === 'string' ? '' : 0)]));
     gameState.objectiveStates = Object.fromEntries(Object.keys(config.objectives || {})
-        .map(id => [id, id === config.initialObjective ? 'active' : (config.objectives[id]?.status || 'hidden')]));
+        .map(id => [id, (config.objectives[id]?.active !== false ? 'active' : (config.objectives[id]?.status || 'hidden'))]));
     gameState.interactionStates = Object.fromEntries((config.interactables || [])
         .map(item => [item.id, item.enabled === false ? 'disabled' : 'available']));
 
