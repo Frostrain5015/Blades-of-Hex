@@ -335,6 +335,8 @@ export function updateUI() {
     });
     const factionListBtn = document.getElementById('factionListBtn');
     if (factionListBtn) factionListBtn.style.display = gameState.campaignMode ? '' : 'none';
+    const objPopupBtn = document.getElementById('objectivePopupBtn');
+    if (objPopupBtn) objPopupBtn.style.display = gameState.campaignMode ? '' : 'none';
     const recruitSection = document.querySelector('.recruit-section');
     if (recruitSection) recruitSection.hidden = gameState.campaignMode && !isMechanicEnabled(gameState, 'recruitment');
     // 投降/退出：PVE 模式下按钮改为"退出"，始终可用（AI 回合也可退出）

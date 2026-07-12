@@ -1670,6 +1670,25 @@ body {
 .faction-list-relation { padding: 4px 8px; color: var(--relation-color); border: 1px solid color-mix(in srgb, var(--relation-color) 38%, transparent); border-radius: 999px; font-size: 10px; }
 .faction-list-note { margin: 14px 2px 0; color: rgba(255,255,255,.34); font-size: 9px; line-height: 1.6; }
 
+#objectivePopupOverlay { position: fixed; inset: 0; z-index: 10020; display: none; place-items: center; background: rgba(0,0,0,.7); backdrop-filter: blur(4px); }
+#objectivePopupOverlay.show { display: grid; }
+#objectivePopupPanel { width: min(420px, 94vw); max-height: min(560px, 86vh); overflow-y: auto; padding: 24px 26px; background: linear-gradient(140deg,#1e1410,#110b08); border: 1px solid rgba(255,215,0,.15); border-radius: 14px; box-shadow: 0 22px 70px rgba(0,0,0,.72); }
+.objective-toast {
+    position: fixed; top: 60px; right: 20px; z-index: 9999;
+    width: 280px; padding: 14px 18px;
+    background: linear-gradient(135deg, rgba(30,20,16,.96), rgba(17,11,8,.96));
+    border: 1px solid rgba(255,215,0,.2); border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.6);
+    transform: translateX(calc(100% + 30px)); opacity: 0;
+    transition: transform .4s cubic-bezier(.22,.61,.36,1), opacity .4s ease;
+    pointer-events: none;
+}
+.objective-toast.show { transform: translateX(0); opacity: 1; }
+.objective-toast-header { font-size: 11px; font-weight: 700; letter-spacing: 2px; color: #ffd866; margin-bottom: 6px; }
+.objective-toast-item { font-size: 12px; color: rgba(255,255,255,.78); line-height: 1.5; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+.objective-toast-item:last-child { border: 0; }
+.objective-toast-item .main-badge { color: #ffd866; margin-right: 4px; }
+
 #settingsPanel {
     background: rgba(14, 7, 3, 0.98);
     border: 1px solid var(--gold-border);

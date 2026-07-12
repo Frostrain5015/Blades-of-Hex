@@ -24,6 +24,10 @@ export function createCampaignController({ onRetry, onReturn }) {
     const objectiveTitle = document.getElementById('campaignObjectiveTitle');
     const objectiveDetail = document.getElementById('campaignObjectiveDetail');
     const optionalList = document.getElementById('campaignOptionalObjectives');
+    const objPopup = document.getElementById('objectivePopupOverlay');
+    const objPopupBody = document.getElementById('objectivePopupBody');
+    const objToast = document.getElementById('objectiveToast');
+    const objToastBody = document.getElementById('objectiveToastBody');
     const resultOverlay = document.getElementById('campaignResultOverlay');
     const speakerCard = document.getElementById('campaignSpeakerCard');
     const speakerPortrait = document.getElementById('campaignSpeakerPortrait');
@@ -105,10 +109,19 @@ export function createCampaignController({ onRetry, onReturn }) {
         const previous = gameState.objectiveStates?.[id] || 'hidden';
         if (!gameState.objectiveStates) gameState.objectiveStates = {};
         gameState.objectiveStates[id] = status;
-        const optional = optionalList?.querySelector(`[data-objective="${CSS.escape(id)}"]`);
-        if (optional) {
-            optional.classList.toggle('complete', status === 'completed');
-            optional.textContent = `${status === 'completed' ? '✓' : status === 'failed' ? '✕' : '◇'} ${optional.textContent.replace(/^[◇✓✕]\s*/, '')}`;
+        const el = optionalList?.querySelector(`[data-objective="${CSS.escape(id)}"]`);
+        if (el) {
+            el.classList.toggle('complete', status === 'completed');
+            el.textContent = `${status === 'completed' ? '✓' : status === 'failed' ? '✕' : '◇'} ${el.textContent.replace(/^[◇✓✕]\s*/, '')}`;
+        }
+        // 弹出任务通知卡片
+        if (status === 'completed' || status === 'failed') {
+            const allObj = activeScenario?.objectives || {};
+            const obj = allObj[id];
+            const label = obj?.title || obj?.detail || id;
+            const icon = status === 'completed' ? '✓' : '✗';
+            const prefix = obj?.main ? '★' : '◇';
+            window._showObjectiveToast?.(`<div class="objective-toast-item">${prefix} ${label} — ${status === 'completed' ? '已完成' : '已失败'}</div>`);
         }
         emit('campaign:objectiveChanged', { objectiveId: id, previous, status });
     }
@@ -296,6 +309,32 @@ export function createCampaignController({ onRetry, onReturn }) {
     on('match:diplomacyChanged', (p) => activeFlow?.onDiplomacyChanged?.(p));
     on('campaign:objectiveChanged', (p) => activeFlow?.onObjectiveChanged?.(p));
     on('campaign:interactionCompleted', (p) => activeFlow?.onInteractionCompleted?.(p));
+
+    // 任务目标弹窗
+    document.getElementById('objectivePopupBtn')?.addEventListener('click', () => {
+        if (!activeScenario?.objectives) return;
+        const allObj = activeScenario.objectives;
+        const statuses = gameState.objectiveStates || {};
+        objPopupBody.innerHTML = Object.keys(allObj).map(id => {
+            const o = allObj[id];
+            const st = statuses[id] || 'hidden';
+            const icon = st === 'completed' ? '✓' : st === 'failed' ? '✗' : o.main ? '★' : '◇';
+            const cls = st === 'completed' ? 'complete' : st === 'failed' ? 'failed' : '';
+            return `<div class="faction-list-row ${cls}" style="border-left-color:${o.main ? '#ffd866' : '#777'}"><span class="faction-list-swatch"></span><span class="faction-list-name">${icon} ${o.title || id}</span><span class="faction-list-meta">${st}</span></div>`;
+        }).join('');
+        objPopup.classList.add('show');
+    });
+    document.getElementById('objectivePopupClose')?.addEventListener('click', () => objPopup.classList.remove('show'));
+    objPopup?.addEventListener('click', (e) => { if (e.target === objPopup) objPopup.classList.remove('show'); });
+
+    // 任务通知卡片（弹出式 toast）
+    window._showObjectiveToast = (text) => {
+        if (!objToast || !objToastBody) return;
+        objToastBody.innerHTML = text;
+        objToast.classList.add('show');
+        clearTimeout(objToast._timer);
+        objToast._timer = setTimeout(() => objToast.classList.remove('show'), 4000);
+    };
 
     function validateCanvasClick(tile) { return activeFlow?.validateCanvasClick?.(tile) ?? true; }
     function validateCardClick(cardId) { return activeFlow?.validateCardClick?.(cardId) ?? true; }
