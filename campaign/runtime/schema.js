@@ -95,6 +95,7 @@ export const TRIGGER_ACTIONS = Object.freeze([
     ,{ kind: 'spawnUnits',    label: '生成单位',     arg: 'spawnGroup' }
     ,{ kind: 'hideGuidance',  label: '隐藏引导对白', arg: 'none' }
     ,{ kind: 'unlockInput',   label: '解除输入锁',   arg: 'none', note: '关闭严格引导，玩家自由操作' }
+    ,{ kind: 'lockInput',     label: '开启输入锁',   arg: 'none', note: '恢复严格引导模式' }
     ,{ kind: 'log',           label: '写战报',       arg: 'text' }
     ,{ kind: 'delay',         label: '延迟后执行',   arg: 'delayGroup', note: '毫秒后执行一组子动作（演出用）' }
     ,{ kind: 'setVariable', label: '修改变量', arg: 'variableOperation' }

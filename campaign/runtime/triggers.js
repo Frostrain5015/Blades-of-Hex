@@ -232,6 +232,7 @@ function runAction(action, ctx) {
         } invalidateBoard(); break;
         case 'hideGuidance': api.hideGuidance(); break;
         case 'unlockInput': gameState.tutorialMode = false; gameState.tutorialStep = ''; api.hideGuidance(); break;
+        case 'lockInput': gameState.tutorialMode = true; api.hideGuidance(); break;
         case 'log': if (action.text) logMessage(action.text); break;
         case 'endScenario': action.result === 'lose' ? api.fail(action.reason || '') : api.win(action.ending || ''); break;
         case 'delay': {
