@@ -435,8 +435,9 @@ export function createTriggerFlow(config, api) {
         return { api, event: event || {}, eventId, flags: state.flags, state, config, dispatch, enabled, triggerId };
     }
     function dispatch(eventId, event = {}) {
-        if (!api.isActive() || api.isResultShown()) return;
-        if (state.dispatching.length > 32) { console.error('[campaign] 触发器递归超过 32 层，已中止。'); return; }
+        if (!api.isActive() || api.isResultShown()) return false;
+        if (state.dispatching.length > 32) { console.error('[campaign] 触发器递归超过 32 层，已中止。'); return false; }
+        let handled = false;
         state.dispatching.push(eventId);
         try {
             for (const trigger of triggers) {
@@ -444,11 +445,13 @@ export function createTriggerFlow(config, api) {
                 if (trigger.once && state.fired.has(trigger._id)) continue;
                 const ctx = ctxFor(eventId, event, trigger._id);
                 if (!evalAll(trigger.when, ctx)) continue;
+                handled = true;
                 if (trigger.once) state.fired.add(trigger._id);
                 runActions(trigger.do, ctx);
-                if (api.isResultShown()) return;
+                if (api.isResultShown()) return true;
             }
             autoResolve();
+            return handled || api.isResultShown();
         } finally { state.dispatching.pop(); }
     }
 
@@ -522,7 +525,7 @@ export function createTriggerFlow(config, api) {
         onDiplomacyChanged(event) { dispatch('diplomacyChanged', event); },
         onObjectiveChanged(event) { dispatch('objectiveChanged', event); },
         onInteractionCompleted(event) { dispatch('interactionCompleted', event); },
-        onAdvance(next) { dispatch('advance', { next, choiceId: next }); },
+        onAdvance(next) { return dispatch('advance', { next, choiceId: next }); },
         validateCanvasClick(tile) {
             if (!api.isActive() || !gameState.tutorialMode) return true;
             const allow = currentAllow();

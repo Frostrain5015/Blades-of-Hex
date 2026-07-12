@@ -1,21 +1,22 @@
 {
   "schemaVersion": 2,
   "id": "bi-t1-extended",
-  "title": "三种兵种",
+  "title": "出鞘",
+  "displayId": "BI-T1-EXT",
   "chronicleId": "blood-iris",
   "seed": 4660,
   "turnLimit": 0,
   "intro": {
-    "campaignTitle": "战术训练场",
-    "chapterTitle": "基础兵种教学",
-    "scenarioSubtitle": "步兵·骑兵·炮兵"
+    "campaignTitle": "染血的鸢尾花",
+    "chapterTitle": "雨夜孤城",
+    "scenarioSubtitle": "T1 出鞘 · 北境校场"
   },
   "weather": "clear",
   "localPlayerCamp": "player1",
   "factions": [
     {
       "id": "player1",
-      "name": "红军",
+      "name": "奥雷利亚王国",
       "color": "#ffaaaa",
       "controller": "human",
       "participatesInTurns": true,
@@ -23,7 +24,7 @@
     },
     {
       "id": "targets",
-      "name": "训练靶",
+      "name": "校场草靶",
       "color": "#b0b0b0",
       "controller": "ai",
       "participatesInTurns": false,
@@ -49,64 +50,59 @@
   "aiOpponentCamp": "",
   "aiDifficulty": 1.0,
   "gold": { "player1": 0 },
-  "commanders": {},
+  "commanders": { "player1": "centurion" },
   "hands": {},
-
   "board": {
     "radius": 4,
     "cities": [
       { "q": 0, "r": 0, "districtId": 1, "camp": "player1" }
     ],
     "terrain": [
-      { "q": -4, "r":  1, "type": "forest" },
-      { "q": -3, "r":  2, "type": "forest" },
-      { "q": -4, "r":  3, "type": "forest" },
-      { "q":  4, "r": -1, "type": "forest" },
-      { "q":  3, "r": -3, "type": "forest" },
-      { "q":  2, "r": -4, "type": "forest" },
-      { "q": -1, "r":  4, "type": "forest" },
-      { "q": -3, "r": -1, "type": "plains" },
-      { "q": -2, "r":  2, "type": "plains" }
+      { "q": -4, "r": 1, "type": "forest" },
+      { "q": -3, "r": 2, "type": "forest" },
+      { "q": -4, "r": 3, "type": "forest" },
+      { "q": 4, "r": -1, "type": "forest" },
+      { "q": 3, "r": -3, "type": "forest" },
+      { "q": 2, "r": -4, "type": "forest" },
+      { "q": -1, "r": 4, "type": "forest" }
     ],
     "villages": [],
     "fortifications": [],
     "districts": []
   },
-
   "units": [
     {
-      "id": "recruit1",
+      "id": "recruit_infantry",
       "type": "infantry",
       "camp": "player1",
       "q": -2,
       "r": 1,
       "hpPct": 100,
       "morale": 2,
-      "canAct": true,
-      "commander": ""
+      "canAct": false
     },
     {
-      "id": "cavalry1",
+      "id": "recruit_cavalry",
       "type": "cavalry",
       "camp": "player1",
       "q": -3,
       "r": -1,
       "hpPct": 100,
       "morale": 2,
-      "canAct": true
+      "canAct": false
     },
     {
-      "id": "archer1",
+      "id": "recruit_artillery",
       "type": "archer",
       "camp": "player1",
       "q": -2,
       "r": 3,
       "hpPct": 100,
       "morale": 2,
-      "canAct": true
+      "canAct": false
     },
     {
-      "id": "inf_target",
+      "id": "target_infantry",
       "type": "infantry",
       "camp": "targets",
       "q": 2,
@@ -116,7 +112,7 @@
       "canAct": false
     },
     {
-      "id": "cav_target",
+      "id": "target_cavalry",
       "type": "infantry",
       "camp": "targets",
       "q": 3,
@@ -126,7 +122,7 @@
       "canAct": false
     },
     {
-      "id": "arch_target",
+      "id": "target_artillery",
       "type": "infantry",
       "camp": "targets",
       "q": 0,
@@ -136,38 +132,77 @@
       "canAct": false
     }
   ],
-
   "unitGroups": [
-    { "id": "training_targets", "unitIds": ["inf_target", "cav_target", "arch_target"] }
+    {
+      "id": "player_recruits",
+      "unitIds": ["recruit_infantry", "recruit_cavalry", "recruit_artillery"]
+    },
+    {
+      "id": "training_targets",
+      "unitIds": ["target_infantry", "target_cavalry", "target_artillery"]
+    }
   ],
-
   "areas": [],
   "interactables": [],
   "variables": [],
-
   "objectives": {
     "main_training": {
-      "title": "完成三种兵种的战术训练",
-      "detail": "依次操作步兵、骑兵、炮兵完成攻击训练",
+      "title": "完成北境校场操练",
+      "detail": "依马库斯的口令，完成步兵、骑兵与炮兵三项基础训练。",
       "active": true,
       "main": true
     }
   },
-
   "triggers": [
     {
-      "id": "start_dialogue",
+      "id": "start_story",
       "when": [{ "kind": "timer", "value": 1500 }],
       "do": [
         {
           "kind": "showStep",
-          "text": "欢迎来到战术训练场。今天你将了解三种主力兵种的区别与用法。",
-          "boardLock": true
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "阿克罗斯以北，东征军整训的第一日。\n\n新兵，站到旗帜下。这里是北境校场；从今天起，你们会在这里学会活下去。",
+          "boardLock": true,
+          "highlight": { "tiles": [{ "q": 0, "r": 0 }], "hint": "马库斯正在校场中央训话" }
         },
         {
           "kind": "showStep",
-          "text": "你所指挥的三支部队已经部署在阵地左侧。对面是三个训练靶标，各自对应一种兵种的展示。\n\n先看向左下角——那名手持剑盾的步兵。",
-          "boardLock": true
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "看着手里的血印金币。它不是赏钱，是契约：王国记住你们的名字，你们也要记住自己为何举剑。",
+          "boardLock": true,
+          "highlight": { "tiles": [{ "q": 0, "r": 0 }], "hint": "血印金币的授予仪式仍在继续" }
+        },
+        {
+          "kind": "showStep",
+          "text": "新兵们依次按血为印，低声复诵誓词。阳光照在金币的金箔上，像一排尚未出鞘的刀锋。",
+          "boardLock": true,
+          "highlight": { "tiles": [{ "q": 0, "r": 0 }], "hint": "校场中央正在举行入伍誓约" }
+        },
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "仪式结束。现在开始第一课：不是如何逞强，而是如何让每一种兵器在该出现的位置出现。\n\n准备好后，点击这段话开始操练。",
+          "next": "__infantry_ready",
+          "boardLock": true,
+          "highlight": { "unit": "recruit_infantry", "hint": "第一名新兵已经在队列前列待命" }
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "group": "player_recruits" },
+          "state": "canAct",
+          "value": false
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "group": "player_recruits" },
+          "state": "canMove",
+          "value": false
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "group": "player_recruits" },
+          "state": "canAttack",
+          "value": false
         },
         {
           "kind": "setUnitState",
@@ -175,123 +210,392 @@
           "state": "canCounterattack",
           "value": false
         },
-        { "kind": "setTriggerEnabled", "trigger": "inf_select", "enabled": true }
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "infantry_ready",
+          "enabled": true
+        }
       ],
       "once": true,
       "enabled": true
     },
-
     {
-      "id": "inf_select",
-      "when": [{ "kind": "unitSelected", "target": { "unit": "recruit1" } }],
+      "id": "infantry_ready",
+      "when": [{ "kind": "eventNextIs", "value": "__infantry_ready" }],
       "do": [
         {
           "kind": "showStep",
-          "text": "【步兵】移动 5 · 近战 · HP 200\n\n步兵是战场上的中坚力量。他们移动距离适中，擅长稳步推进、攻占并据守阵地。\n\n现在，将步兵移动到训练靶旁边的格子，然后发起攻击。",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "先看步兵。盾在前，剑在后；他们不是最快的，却是队列的骨头。\n\n点击这名步兵，将他选中。",
           "boardLock": true,
           "dialogLock": true,
-          "highlight": { "tiles": [{ "q": 1, "r": 1 }], "hint": "先移动到这里，再攻击相邻的训练靶" }
+          "highlight": { "unit": "recruit_infantry", "hint": "点击步兵，查看他的行动范围" }
         },
-        { "kind": "setTriggerEnabled", "trigger": "inf_attack", "enabled": true }
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_infantry" },
+          "state": "canAct",
+          "value": true
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_infantry" },
+          "state": "canMove",
+          "value": true
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "infantry_selected",
+          "enabled": true
+        }
       ],
       "once": true,
       "enabled": false
     },
     {
-      "id": "inf_attack",
-      "when": [{ "kind": "unitAttacksUnit", "attacker": { "unit": "recruit1" }, "defender": { "unit": "inf_target" } }],
+      "id": "infantry_selected",
+      "when": [{ "kind": "unitSelected", "target": { "unit": "recruit_infantry" } }],
       "do": [
         {
           "kind": "showStep",
-          "text": "步兵攻击完成。流程就是如此：选择单位 → 移动到位 → 攻击。\n\n步兵的速度为 5，意味着每回合可移动 5 格。配合近战攻击（射程 1），你需要让步兵走到敌人身边才能挥出武器。",
-          "boardLock": true
-        },
-        {
-          "kind": "showStep",
-          "text": "下面轮到骑兵。注意看地图上方——那支骑马的部队。",
-          "boardLock": true
-        },
-        { "kind": "setTriggerEnabled", "trigger": "cav_select", "enabled": true }
-      ],
-      "once": true,
-      "enabled": false
-    },
-
-    {
-      "id": "cav_select",
-      "when": [{ "kind": "unitSelected", "target": { "unit": "cavalry1" } }],
-      "do": [
-        {
-          "kind": "showStep",
-          "text": "【骑兵】移动 8 · 近战 · HP 150\n\n骑兵以速度见长。移动力 8，比步兵多出整整 3 格。这意味着骑兵能快速包抄侧翼、追击溃敌、抢占关键位置。\n\n注意看远处的训练靶——步兵要花一整个回合才能勉强走到，但骑兵可以轻松到达并发起突击。",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "步兵有 5 点行动力。先稳住阵线，再把距离缩到一剑之内。\n\n移动到高亮地块，与草靶相邻。",
           "boardLock": true,
           "dialogLock": true,
-          "highlight": { "tiles": [{ "q": 2, "r": -1 }], "hint": "策马冲到这里，然后攻击训练靶" }
+          "highlight": {
+            "unit": "recruit_infantry",
+            "tiles": [{ "q": 1, "r": 1 }],
+            "hint": "移动到高亮地块，准备近战"
+          }
         },
-        { "kind": "setTriggerEnabled", "trigger": "cav_attack", "enabled": true }
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "infantry_moved",
+          "enabled": true
+        }
       ],
       "once": true,
       "enabled": false
     },
     {
-      "id": "cav_attack",
-      "when": [{ "kind": "unitAttacksUnit", "attacker": { "unit": "cavalry1" }, "defender": { "unit": "cav_target" } }],
+      "id": "infantry_moved",
+      "when": [{ "kind": "unitMovesToTile", "target": { "unit": "recruit_infantry" }, "q": 1, "r": 1 }],
       "do": [
         {
           "kind": "showStep",
-          "text": "骑兵冲锋完成！同样是近战攻击，但骑兵的覆盖范围远超步兵。这就是「行动力」的价值——谁能更快到达战场，谁就掌握主动权。",
-          "boardLock": true
-        },
-        {
-          "kind": "showStep",
-          "text": "最后来看炮兵——阵地右下角那门远程火力。",
-          "boardLock": true
-        },
-        { "kind": "setTriggerEnabled", "trigger": "arch_select", "enabled": true }
-      ],
-      "once": true,
-      "enabled": false
-    },
-
-    {
-      "id": "arch_select",
-      "when": [{ "kind": "unitSelected", "target": { "unit": "archer1" } }],
-      "do": [
-        {
-          "kind": "showStep",
-          "text": "【炮兵】移动 3 · 射程 2 · HP 100\n\n炮兵虽然移动缓慢，但它有一个其他兵种没有的优势——射程。\n\n射程为 2，意味着炮兵可以隔着一条街开火。你看，2 格外就有一个训练靶——炮兵站在原地就可以攻击它，不需要挪动一步。",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "很好。近战的代价是贴近敌人；近战的力量，也来自你肯站在最前面。\n\n现在攻击相邻的草靶。",
           "boardLock": true,
           "dialogLock": true,
-          "highlight": { "tiles": [{ "q": 0, "r": 3 }], "hint": "直接攻击那个训练靶——不用移动" }
+          "highlight": {
+            "unit": "recruit_infantry",
+            "tiles": [{ "q": 2, "r": 1 }],
+            "hint": "攻击相邻的训练草靶"
+          }
         },
-        { "kind": "setTriggerEnabled", "trigger": "arch_attack", "enabled": true }
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_infantry" },
+          "state": "canAttack",
+          "value": true
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "infantry_attacked",
+          "enabled": true
+        }
       ],
       "once": true,
       "enabled": false
     },
     {
-      "id": "arch_attack",
-      "when": [{ "kind": "unitAttacksUnit", "attacker": { "unit": "archer1" }, "defender": { "unit": "arch_target" } }],
+      "id": "infantry_attacked",
+      "when": [{ "kind": "unitAttacksUnit", "attacker": { "unit": "recruit_infantry" }, "defender": { "unit": "target_infantry" } }],
       "do": [
         {
           "kind": "showStep",
-          "text": "漂亮！炮兵在安全距离外就能消灭敌人。如果面对无法靠近的强敌，远程火力就是打破僵局的关键。",
-          "boardLock": true
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "这就是步兵：推进、贴住、顶住。没有他们，任何阵线都会散。",
+          "boardLock": true,
+          "highlight": { "unit": "recruit_infantry", "hint": "步兵已完成第一项操练" }
         },
         {
           "kind": "showStep",
-          "text": "三种兵种的全部训练已完成。来回顾一下：\n\n▪ 步兵 —— 均衡之选，前线主力\n  移动 5 · 近战 · 能攻能守\n\n▪ 骑兵 —— 速度之王，战场利刃\n  移动 8 · 近战 · 包抄追击\n\n▪ 炮兵 —— 远程压制，以远制近\n  移动 3 · 射程 2 · 隔山打牛",
-          "boardLock": true
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "但战场不会总等你一步步走到面前。看左侧那匹战马——骑兵要学会把机会变成距离。\n\n点击这段话，开始第二项操练。",
+          "next": "__cavalry_ready",
+          "boardLock": true,
+          "highlight": { "unit": "recruit_cavalry", "hint": "骑兵正在等待下一道口令" }
         },
-        { "kind": "setTriggerEnabled", "trigger": "check_complete", "enabled": true }
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_infantry" },
+          "state": "canAct",
+          "value": false
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_infantry" },
+          "state": "canMove",
+          "value": false
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_infantry" },
+          "state": "canAttack",
+          "value": false
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "cavalry_ready",
+          "enabled": true
+        }
       ],
       "once": true,
       "enabled": false
     },
-
     {
-      "id": "check_complete",
-      "when": [{ "kind": "eventNextIs", "value": "__chain_end__" }],
+      "id": "cavalry_ready",
+      "when": [{ "kind": "eventNextIs", "value": "__cavalry_ready" }],
+      "do": [
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "骑兵有 8 点行动力。你可以用它绕过正面、抢到缺口，或在敌人反应前结束战斗。\n\n点击骑兵。",
+          "boardLock": true,
+          "dialogLock": true,
+          "highlight": { "unit": "recruit_cavalry", "hint": "点击骑兵，查看更远的行动范围" }
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_cavalry" },
+          "state": "canAct",
+          "value": true
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_cavalry" },
+          "state": "canMove",
+          "value": true
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "cavalry_selected",
+          "enabled": true
+        }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "cavalry_selected",
+      "when": [{ "kind": "unitSelected", "target": { "unit": "recruit_cavalry" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "草靶离得很远，步兵需要多次推进；骑兵可以一口气切入。\n\n策马移动到高亮地块。",
+          "boardLock": true,
+          "dialogLock": true,
+          "highlight": {
+            "unit": "recruit_cavalry",
+            "tiles": [{ "q": 2, "r": -1 }],
+            "hint": "利用骑兵的高行动力切入目标侧面"
+          }
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "cavalry_moved",
+          "enabled": true
+        }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "cavalry_moved",
+      "when": [{ "kind": "unitMovesToTile", "target": { "unit": "recruit_cavalry" }, "q": 2, "r": -1 }],
+      "do": [
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "现在你已经抢在敌人前面。速度不是为了逃跑；速度是为了决定交锋发生在哪里。\n\n攻击相邻草靶。",
+          "boardLock": true,
+          "dialogLock": true,
+          "highlight": {
+            "unit": "recruit_cavalry",
+            "tiles": [{ "q": 3, "r": -1 }],
+            "hint": "攻击骑兵训练草靶"
+          }
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_cavalry" },
+          "state": "canAttack",
+          "value": true
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "cavalry_attacked",
+          "enabled": true
+        }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "cavalry_attacked",
+      "when": [{ "kind": "unitAttacksUnit", "attacker": { "unit": "recruit_cavalry" }, "defender": { "unit": "target_cavalry" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "骑兵不该替步兵硬扛；他们的价值在于抓住阵线转动的那一瞬间。",
+          "boardLock": true,
+          "highlight": { "unit": "recruit_cavalry", "hint": "骑兵已完成第二项操练" }
+        },
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "最后一项。炮兵走得最慢，却能在敌人靠近前开火。让他们站在该站的位置，别让敌人碰到他们。\n\n点击这段话，开始第三项操练。",
+          "next": "__artillery_ready",
+          "boardLock": true,
+          "highlight": { "unit": "recruit_artillery", "hint": "炮兵已在远处架好火力" }
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_cavalry" },
+          "state": "canAct",
+          "value": false
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_cavalry" },
+          "state": "canMove",
+          "value": false
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_cavalry" },
+          "state": "canAttack",
+          "value": false
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "artillery_ready",
+          "enabled": true
+        }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "artillery_ready",
+      "when": [{ "kind": "eventNextIs", "value": "__artillery_ready" }],
+      "do": [
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "炮兵只有 3 点行动力，但射程有 2 格。不是每一次进攻都要先冲到敌人脸上。\n\n点击炮兵。",
+          "boardLock": true,
+          "dialogLock": true,
+          "highlight": { "unit": "recruit_artillery", "hint": "点击炮兵，查看它的远程攻击范围" }
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_artillery" },
+          "state": "canAct",
+          "value": true
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_artillery" },
+          "state": "canMove",
+          "value": false
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "artillery_selected",
+          "enabled": true
+        }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "artillery_selected",
+      "when": [{ "kind": "unitSelected", "target": { "unit": "recruit_artillery" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "看清了吗？草靶在两格之外。炮兵不需要移动——让火力替你跨过这段距离。\n\n直接攻击高亮草靶。",
+          "boardLock": true,
+          "dialogLock": true,
+          "highlight": {
+            "unit": "recruit_artillery",
+            "tiles": [{ "q": 0, "r": 3 }],
+            "hint": "无需移动，直接进行远程攻击"
+          }
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_artillery" },
+          "state": "canAttack",
+          "value": true
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "artillery_attacked",
+          "enabled": true
+        }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "artillery_attacked",
+      "when": [{ "kind": "unitAttacksUnit", "attacker": { "unit": "recruit_artillery" }, "defender": { "unit": "target_artillery" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "记住今天的顺序：步兵顶住阵线，骑兵夺取时机，炮兵在距离之外撕开缺口。没有哪一种兵器能独自赢下一场仗。",
+          "boardLock": true,
+          "highlight": { "unit": "recruit_artillery", "hint": "三项基础操练已全部完成" }
+        },
+        {
+          "kind": "showStep",
+          "speaker": { "name": "马库斯", "portrait": "centurion" },
+          "text": "操典会告诉你怎样持剑，却不会替你决定剑该指向谁。\n\n剑不问方向，问方向的是持剑的人。\n\n解散。准备好后，点击这段话结束操练。",
+          "next": "__training_complete",
+          "boardLock": true,
+          "highlight": { "tiles": [{ "q": 0, "r": 0 }], "hint": "马库斯在校场中央收束训话" }
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_artillery" },
+          "state": "canAct",
+          "value": false
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "unit": "recruit_artillery" },
+          "state": "canAttack",
+          "value": false
+        },
+        {
+          "kind": "setTriggerEnabled",
+          "trigger": "training_complete",
+          "enabled": true
+        }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "training_complete",
+      "when": [{ "kind": "eventNextIs", "value": "__training_complete" }],
       "do": [
         { "kind": "setObjectiveStatus", "objective": "main_training", "status": "completed" },
         { "kind": "unlockInput" },
@@ -301,13 +605,10 @@
       "enabled": false
     }
   ],
-
   "result": {
-    "winText": "战术训练完成。三种兵种各有所长，合理搭配才能百战不殆。",
-    "loseText": "训练中断。重新集结，再来一次。",
+    "winText": "北境校场的第一课结束了。马库斯教会新兵怎样持剑；至于剑将来指向何处，没人能在这一天回答。",
+    "loseText": "操练中断。回到队列，重新开始。",
     "eliminateEnemy": false,
     "starRules": []
-  },
-
-  "displayId": "EXT-T1"
+  }
 }

@@ -60,17 +60,43 @@ export function createCampaignController({ onRetry, onReturn }) {
         };
     }
 
-    // 对话框点击推进（受 dialogLock 控制）
+    function dismissUnresolvedStep(next) {
+        const unresolvedStep = gameState._inlineStepData;
+        const label = next || '__chain_end__';
+        console.warn(`[campaign] 剧情跳转「${label}」没有被接收，已淡出对白并解除操作锁。`);
+        const token = ++transitionToken;
+        clearTimeout(transitionTimer);
+        clearTimeout(transitionCleanupTimer);
+        coach.classList.remove('campaign-dialog-in');
+        coach.classList.add('campaign-dialog-out');
+        transitionTimer = setTimeout(() => {
+            if (!active || token !== transitionToken || gameState._inlineStepData !== unresolvedStep) return;
+            gameState.tutorialMode = false;
+            delete gameState._campaignInputLock;
+            delete gameState._inlineStepData;
+            hideGuidance();
+        }, 190);
+    }
+
+    // 对话框点击推进（受 dialogLock 控制）。显式跳转由触发器接收；
+    // 找不到内联下一页或没有触发器接收时，淡出当前对白，避免作者配置失误软锁玩家。
     function _advanceFromClick() {
         if (!active) return;
         const step = gameState._inlineStepData;
         if (!step || step.dialogLock) return;
         if (step.next) {
-            if (step.next.startsWith('__')) activeFlow?.onAdvance?.(step.next);
-            else if (gameState._inlineStepMap?.[step.next]) showStep(gameState._inlineStepMap[step.next]);
+            if (step.next.startsWith('__')) {
+                const handled = activeFlow?.onAdvance?.(step.next) === true;
+                if (!handled) dismissUnresolvedStep(step.next);
+            } else if (gameState._inlineStepMap?.[step.next]) {
+                showStep(gameState._inlineStepMap[step.next]);
+            } else {
+                dismissUnresolvedStep(step.next);
+            }
         } else {
-            // 没有 next = 链尾，发送链结束信号
-            activeFlow?.onAdvance?.('__chain_end__');
+            // 没有 next = 链尾；如无收尾触发器，淡出而不是把对白和操作锁留在画面上。
+            const handled = activeFlow?.onAdvance?.('__chain_end__') === true;
+            if (!handled) dismissUnresolvedStep('__chain_end__');
         }
     }
 
