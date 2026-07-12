@@ -18,7 +18,7 @@ export const CAMPAIGN_STORAGE_KEY = 'bladesOfHex.campaign.bloodIris';
 const SCENARIOS = Object.freeze([
     {
         id: 'bi-t1-sheath',
-        title: '入鞘',
+        title: '出鞘',
         label: 'T1',
         elementKey: 'bi-t1-sheath',
         type: 'teaching',

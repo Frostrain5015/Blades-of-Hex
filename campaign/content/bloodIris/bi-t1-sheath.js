@@ -1,4 +1,4 @@
-// 染血的鸢尾花 · T1 教学关「入鞘」
+// 染血的鸢尾花 · T1 教学关「出鞘」
 // 闪回 · 东征前整训，马库斯任教官带新兵操练
 // 教学内容：选择 → 移动 → 攻击
 //
@@ -16,15 +16,15 @@
 export const config = {
     schemaVersion: 2,
     id: 'bi-t1-sheath',
-    title: '入鞘',
+    title: '出鞘',
     chronicleId: 'blood-iris',
     seed: 0x1234,
     turnLimit: 2,
 
     intro: {
-        campaignTitle: '将星列传',
-        chapterTitle: '第一章 · 雨夜孤城',
-        scenarioSubtitle: 'T1 入鞘'
+        campaignTitle: '染血的鸢尾花',
+        chapterTitle: '雨夜孤城',
+        scenarioSubtitle: 'T1 出鞘'
     },
 
     weather: 'clear',
@@ -34,7 +34,7 @@ export const config = {
     factions: [
         {
             id: 'player1',
-            name: '东征新兵',
+            name: '奥雷利亚王国',
             color: '#c0392b',
             controller: 'human',
             participatesInTurns: true,
@@ -156,20 +156,20 @@ export const config = {
         'intro1': {
             mode: 'character',
             speaker: { name: '马库斯', portrait: 'centurion' },
-            text: '新兵，欢迎来到战神校场。从今天起你们就是奥雷利亚的战士了——这枚血印金币是你们的誓约，收好它，它是你们与王国的契约。',
+            text: '新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。',
             next: 'intro2'
         },
         'intro2': {
             mode: 'character',
             speaker: { name: '马库斯', portrait: 'centurion' },
-            text: '我的职责是教会你们在战场上活下去。记住——剑不问方向，问方向的是持剑的人。这一课，从最基本的开始。',
+            text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。',
             next: 'select_guide'
         },
 
         // 【教学一：选择】让玩家点击选中 recruit1
         'select_guide': {
             mode: 'narrator',
-            text: '点击你的单位将其选中。选中的单位会高亮显示，底部面板会展示它的状态。',
+            text: '点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。',
             allow: { units: ['recruit1'], hint: '请点击你的步兵' }
         },
 
@@ -183,7 +183,7 @@ export const config = {
         // 【教学三：攻击】让玩家攻击训练靶
         'attack_guide': {
             mode: 'narrator',
-            text: '现在攻击训练草靶。点击假人所在位置发起攻击——记住，战场上每一次出手都要有理由。',
+            text: '现在攻击训练草靶。点击假人所在位置进行攻击。',
             allow: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' }
         },
 
@@ -197,7 +197,7 @@ export const config = {
         'outro2': {
             mode: 'character',
             speaker: { name: '马库斯', portrait: 'centurion' },
-            text: '剑不问方向，问方向的是持剑的人。今天你们学会了握剑——至于方向，你们以后会自己找到的。下课。',
+            text: '刀剑无影，重要的是谁拿着他们。今天就到这里。',
             next: '__complete__'
         }
     },
