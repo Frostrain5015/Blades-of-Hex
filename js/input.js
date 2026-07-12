@@ -1428,8 +1428,9 @@ function _syncSelectionHud(tile) {
         const terrainDefBonus = TERRAIN_CONFIG[tile.terrain].defenseBonus;
         const fortificationDefBonus = tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
         const rankDefBonus = unit._rankDefBonus || 0;
+        const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
         defense = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus
-            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + cityDefBonus) * 100);
+            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + cityDefBonus + campaignDefBonus) * 100);
         // 悬浮可走地块时预览本次移动的行动力消耗
         if (gameState.selectedUnit === unit && gameState.hoveredTile && !gameState.hoveredTile.unit
             && gameState.movableTiles.includes(gameState.hoveredTile)) {
@@ -1483,7 +1484,7 @@ function _syncSelectionHud(tile) {
 
         const attackDelta = attack - unit.config.attack;
         const mpText = '⚡ ' + unit.remainingMP
-            + (hoverMoveCost > 0 ? '(-' + hoverMoveCost + ')' : '') + '/' + unit.config.speed;
+            + (hoverMoveCost > 0 ? '(-' + hoverMoveCost + ')' : '') + '/' + (unit.getEffectiveSpeed?.() ?? unit.config.speed);
         selectionHudStats.replaceChildren(
             _textSpan('⚔ ' + attack + (attackDelta ? ' (' + (attackDelta > 0 ? '+' : '') + attackDelta + ')' : ''), attackDelta > 0 ? '#ffe875' : '#ffdf70'),
             _textSpan('🛡 ' + defense + '%(' + (defense + _calcAADefense(tile, unit) * 25) + '%)', defense > 0 ? '#9be5df' : defense < 0 ? '#ff8f96' : '#b3b3b3'),

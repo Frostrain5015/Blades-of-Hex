@@ -7,6 +7,15 @@ import { buildBattlefieldFromConfig, prepareCampaignFactions } from './battlefie
 import { createTriggerFlow, evaluateConditions } from './triggers.js';
 import { readProgress } from '../progress.js';
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
 export function scenarioFromConfig(rawConfig, options = {}) {
     const config = normalizeLevel(rawConfig);
     const storageKey = options.storageKey ?? '';
@@ -30,7 +39,10 @@ export function scenarioFromConfig(rawConfig, options = {}) {
     function buildBattlefield() {
         prepareCampaignFactions(config, gameState);
         buildBoardFromConfig(config, gameState);
-        gameState._campaignFlags = new Set();
+        // createTriggerFlow 会持有这个 Set；试玩重建棋盘时必须清空而不能替换，
+        // 否则触发器写入的旗标与结算读取的旗标会分裂成两份状态。
+        if (gameState._campaignFlags instanceof Set) gameState._campaignFlags.clear();
+        else gameState._campaignFlags = new Set();
         const built = buildBattlefieldFromConfig(config, gameState);
         gameState.campaignVariables = storageKey ? { ...readProgress(storageKey).variables } : {};
         for (const variable of (config.variables || [])) {
@@ -67,7 +79,7 @@ export function scenarioFromConfig(rawConfig, options = {}) {
     }
 
     function resultText(victory, res, reason) {
-        if (victory) return config.result?.winText || '任务完成。';
+        if (victory) return reason || config.result?.winText || '任务完成。';
         return reason || config.result?.loseText || '任务失败。';
     }
 
@@ -75,7 +87,7 @@ export function scenarioFromConfig(rawConfig, options = {}) {
         if (!victory) return '<span>重新整顿部队，再次尝试。</span>';
         if (!res.optionals || res.optionals.length === 0) return '<span class="complete">✓ 任务达成</span>';
         return res.optionals
-            .map(o => `<span class="${o.done ? 'complete' : ''}">${o.done ? '✓' : '◇'} ${o.text}</span>`)
+            .map(o => `<span class="${o.done ? 'complete' : ''}">${o.done ? '✓' : '◇'} ${escapeHtml(o.text)}</span>`)
             .join('');
     }
 

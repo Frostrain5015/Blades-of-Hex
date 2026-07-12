@@ -735,6 +735,15 @@ function _expireTimedEffects() {
         if (u.activeSkillCD > 0) {
             u.activeSkillCD--;
         }
+        if (Array.isArray(u._campaignEffects) && u._campaignEffects.length > 0) {
+            const previousSpeed = u.getEffectiveSpeed?.() ?? u.remainingMP;
+            u._campaignEffects = u._campaignEffects
+                .map(effect => effect.duration > 0 ? { ...effect, duration: effect.duration - 1 } : effect)
+                .filter(effect => effect.duration == null || effect.duration > 0);
+            u.refreshCampaignEffectState?.();
+            const nextSpeed = u.getEffectiveSpeed?.() ?? previousSpeed;
+            u.remainingMP = Math.max(0, u.remainingMP + nextSpeed - previousSpeed);
+        }
         if (u._rankRegenPct > 0 && u.hp < u.maxHp) {
             u.heal(Math.round(u.maxHp * u._rankRegenPct));
         }
@@ -837,7 +846,8 @@ async function _doEndTurnPhase() {
     // Unit reset + infantry city heal + 将领回合开始效果
     gameState.tiles.forEach(tile => {
         if (tile.unit) {
-            tile.unit.canAct = !isMechanicEnabled(gameState, 'morale') || tile.unit.morale !== 0;
+            tile.unit.canAct = tile.unit._campaignCanAct !== false
+                && (!isMechanicEnabled(gameState, 'morale') || tile.unit.morale !== 0);
             // 工程师脚手架：建造中始终不能行动（既不能攻击也不能移动）
             if (tile.unit._engineerScaffold) tile.unit.canAct = false;
             // mgNest: disable if no enemies in range
@@ -849,12 +859,8 @@ async function _doEndTurnPhase() {
             tile.unit.moveDistance = 0;
             tile.unit.counterAttackCount = 0;
             tile.unit._timesAttackedThisTurn = 0;
-            tile.unit.remainingMP = tile.unit.config.speed;
-            // SPD bonus re-apply from commander
-            if (tile.unit.commander) {
-                const cmdCfg = getCommander(tile.unit.commander);
-                if (cmdCfg && cmdCfg.spdBonus) tile.unit.remainingMP += cmdCfg.spdBonus;
-            }
+            tile.unit.remainingMP = tile.unit.getEffectiveSpeed?.() ?? tile.unit.config.speed;
+            tile.unit.displaySpeed = tile.unit.remainingMP;
             tile.unit.isNewRecruit = false;
             // 百夫长标记重置
             tile.unit._centurionTriggered = false;

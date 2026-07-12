@@ -65,11 +65,6 @@ export function spawnUnitsInto(state, specs) {
         const tile = state.tileMap.get(coordKey(spec.q, spec.r));
         if (!tile || tile.unit) continue;
         const camp = campFromKey(spec.camp, state);
-        tile.camp = camp;
-        tile.startColor = camp.color;
-        tile.targetColor = camp.color;
-        tile.currentColor = camp.color;
-        tile.fadeStartTime = null;
         const unit = new Unit(spec.type, camp, tile, false, spec.id || null, spec.commander || null);
         if (typeof spec.hp === 'number') unit.hp = Math.max(1, Math.min(unit.maxHp, Math.round(spec.hp)));
         else if (typeof spec.hpPct === 'number') unit.hp = Math.max(1, Math.min(unit.maxHp, Math.round(unit.maxHp * spec.hpPct / 100)));
@@ -87,7 +82,7 @@ export function spawnUnitsInto(state, specs) {
 
 function evalCondition(cond, ctx) {
     if (!cond || typeof cond !== 'object') return false;
-    const { api, event, eventId, flags, config, enabled, state = { _timerStarts: {} } } = ctx;
+    const { api, event, eventId, flags, config, enabled, state = {} } = ctx;
     switch (cond.kind) {
         case 'all': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.every(child => evalCondition(child, ctx));
         case 'any': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.some(child => evalCondition(child, ctx));
@@ -126,6 +121,14 @@ function evalCondition(cond, ctx) {
         case 'cityCaptured': return eventId === 'tileCaptured'
             && event?.q === cond.q && event?.r === cond.r
             && (!cond.camp || event?.newCamp === cond.camp);
+        case 'cityOwnedBy': {
+            const tile = gameState.tileMap.get(coordKey(cond.q, cond.r));
+            return !!tile?.isCity && campKeyOf(tile.camp) === cond.camp;
+        }
+        case 'tileOwnedBy': {
+            const tile = gameState.tileMap.get(coordKey(cond.q, cond.r));
+            return !!tile && campKeyOf(tile.camp) === cond.camp;
+        }
         case 'turnStarted': {
             if (eventId !== 'turnStarted') return false;
             // 留空 = 每轮首个阵营回合开始时（新的一轮）
@@ -133,12 +136,15 @@ function evalCondition(cond, ctx) {
                 if (event?.camp !== gameState.turnOrder?.[0]) return false;
             } else if (event?.camp !== cond.camp) return false;
             if (cond.turn != null && cond.turn > 0) {
-                const timerId = `turn:${ctx.triggerId}`;
-                if (!state._timerStarts) state._timerStarts = {};
-                if (!state._timerStarts[timerId]) state._timerStarts[timerId] = getRound(gameState);
-                if (state._timerStarts[timerId] === -1) return false;
-                if (getRound(gameState) - state._timerStarts[timerId] < Number(cond.turn)) return false;
-                state._timerStarts[timerId] = -1;
+                if (!state.turnStarts) state.turnStarts = new WeakMap();
+                const startedRound = state.turnStarts.get(cond);
+                if (startedRound === -1) return false;
+                if (startedRound == null) {
+                    state.turnStarts.set(cond, getRound(gameState));
+                    return false;
+                }
+                if (getRound(gameState) - startedRound < Number(cond.turn)) return false;
+                state.turnStarts.set(cond, -1);
             }
             return true;
         }
@@ -167,14 +173,16 @@ function evalCondition(cond, ctx) {
         case 'eventNextIs': case 'eventChoiceIs': return eventId === 'advance' && (event?.next === cond.value || event?.choiceId === cond.value);
         case 'eventInteractionIs': return eventId === 'interactionCompleted' && event?.interactableId === cond.interactable;
         case 'timer': {
-            const timerId = ctx.triggerId;
-            if (!timerId || !cond.value || cond.value <= 0) return false;
-            if (!state._timerStarts) state._timerStarts = {};
-            if (!state._timerStarts[timerId]) state._timerStarts[timerId] = Date.now();
-            // 已触发的计时器不再重复满足
-            if (state._timerStarts[timerId] === -1) return false;
-            if (Date.now() - state._timerStarts[timerId] >= Number(cond.value)) {
-                state._timerStarts[timerId] = -1;  // 标记为已触发
+            if (!cond.value || cond.value <= 0) return false;
+            if (!state.timerStarts) state.timerStarts = new WeakMap();
+            const startedAt = state.timerStarts.get(cond);
+            if (startedAt === -1) return false;
+            if (startedAt == null) {
+                state.timerStarts.set(cond, Date.now());
+                return false;
+            }
+            if (Date.now() - startedAt >= Number(cond.value)) {
+                state.timerStarts.set(cond, -1);
                 return true;
             }
             return false;
@@ -246,14 +254,30 @@ function runAction(action, ctx) {
     const { api, flags, state, config, dispatch, enabled } = ctx;
     switch (action.kind) {
         case 'showStep':
+            if (action.boardLock === true) {
+                gameState.tutorialMode = true;
+                gameState._campaignInputLock = action.highlight || {};
+            }
             if (action.step) api.showStep(action.step, { immediate: !!action.immediate });
             else api.showInlineStep?.(action, { immediate: !!action.immediate });
+            break;
+        case 'unlockInput':
+            gameState.tutorialMode = false;
+            delete gameState._campaignInputLock;
+            break;
+        case 'lockInput':
+            gameState.tutorialMode = true;
+            gameState._campaignInputLock = action.highlight || {};
             break;
         case 'setObjectiveStatus': api.setObjectiveStatus?.(action.objective, action.status); break;
         case 'spawnUnits': spawnUnitsInto(gameState, action.units); updateUI(); break;
         case 'setPhase': gameState.campaignPhase = action.value; break;
         case 'setVariable': {
             const variable = (config.variables || []).find(item => item.id === action.variable);
+            if (!variable) {
+                console.warn(`[campaign] 修改变量时找不到「${action.variable}」，已跳过。`);
+                break;
+            }
             const target = variable?.scope === 'campaign' ? gameState.campaignVariables : gameState.levelVariables;
             target[action.variable] = applyOperation(target[action.variable], action.operation || 'set', action.value);
             break;
@@ -281,47 +305,62 @@ function runAction(action, ctx) {
             clearselection(); invalidateBoard(); updateUI(); break;
         }
         case 'setUnitState': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-            if (action.state === 'canAct') unit.canAct = action.value !== false;
+            if (action.state === 'canAct') {
+                unit._campaignCanAct = action.value !== false;
+                unit.canAct = unit._campaignCanAct;
+            }
             else if (action.state === 'canMove') unit._campaignCanMove = action.value !== false;
             else if (action.state === 'canAttack') unit._campaignCanAttack = action.value !== false;
             else if (action.state === 'targetable') unit._campaignTargetable = action.value !== false;
-            else if (action.state === 'invulnerable') unit.godMode = action.value !== false;
+            else if (action.state === 'invulnerable') {
+                const value = action.value !== false;
+                if (Object.hasOwn(unit, '_campaignGodModeBase')) unit._campaignGodModeBase = value;
+                else unit.godMode = value;
+            }
             else if (action.state === 'canCounterattack') unit._campaignNoCounter = action.value === false;
         } break;
-        case 'applyEffect': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-            if (!Array.isArray(unit._campaignEffects)) unit._campaignEffects = [];
-            // 特殊规则（minHp/maxHp/godMode）直接写 unit 属性
-            if (action.rule === 'minHp') {
-                unit._campaignMinHp = Math.max(0, Math.min(100, Number(action.rulePercent) || 0)) / 100 * unit.maxHp;
-            } else if (action.rule === 'maxHp') {
-                unit._campaignMaxHp = Math.max(0, Math.min(100, Number(action.rulePercent) || 0)) / 100 * unit.maxHp;
-            } else if (action.rule === 'godMode') {
-                unit.godMode = true;
-            }
-            // 常规 statMods 效果存入 effects 数组（用于显示徽章 + 修正面板）
-            const mods = action.statMods || {};
-            if (Object.keys(mods).length || action.name) {
-                const existing = Array.isArray(unit._campaignEffects) ? unit._campaignEffects.find(e => e.id === action.effectId) : null;
-                const effect = {
-                    id: action.effectId || `effect_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                    name: action.name || '',
-                    desc: action.desc || '', 
-                    emoji: action.emoji || '✨',
-                    duration: action.duration || 0,
-                    statMods: { ...mods }
-                };
-                if (existing) Object.assign(existing, effect);
-                else unit._campaignEffects.push(effect);
+        case 'applyEffect': {
+            for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
+                if (!Array.isArray(unit._campaignEffects)) unit._campaignEffects = [];
+                const previousSpeed = unit.getEffectiveSpeed?.() ?? unit.remainingMP;
+                const mods = action.statMods || {};
+                if (Object.keys(mods).length || action.name || action.rule) {
+                    const existing = Array.isArray(unit._campaignEffects) ? unit._campaignEffects.find(e => e.id === action.effectId) : null;
+                    const effect = {
+                        id: action.effectId || `effect_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                        name: action.name || '',
+                        desc: action.desc || '',
+                        emoji: action.emoji || '✨',
+                        duration: action.duration || 0,
+                        statMods: { ...mods },
+                        rule: action.rule || null,
+                        rulePercent: action.rulePercent
+                    };
+                    if (existing) Object.assign(existing, effect);
+                    else unit._campaignEffects.push(effect);
+                }
+                unit.refreshCampaignEffectState?.();
+                const nextSpeed = unit.getEffectiveSpeed?.() ?? previousSpeed;
+                unit.remainingMP = Math.max(0, unit.remainingMP + nextSpeed - previousSpeed);
             }
             updateUI();
             break;
         }
         case 'assignCommander': {
-            if (!action.commander) break;
             for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-                unit.commander = action.commander;
+                unit.assignCampaignCommander?.(action.commander || null);
             }
             updateUI(); break;
+        }
+        case 'setDiplomacy': {
+            const change = setRelation(gameState, action.camp, action.targetCamp, action.relation);
+            if (change) {
+                clearselection();
+                invalidateBoard();
+                updateUI();
+                emit('match:diplomacyChanged', { ...change, reason: 'trigger' });
+            }
+            break;
         }
         case 'setWeather':
             if (action.weather === 'cycle') { gameState.weather = 'clear'; gameState.lastWeather = null; }
@@ -334,8 +373,14 @@ function runAction(action, ctx) {
             }
             break;
         case 'removeUnits': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-            if (action.mode === 'kill') unit.destroy(null); else if (unit.tile) unit.tile.unit = null;
+            if (action.mode === 'kill') unit.destroy(null);
+            else if (unit.tile?.unit === unit) { unit.tile.unit = null; unit.tile = null; }
         }
+            clearselection(); invalidateBoard(); updateUI(); break;
+        case 'endScenario':
+            if (action.result === 'lose') api.fail(action.reason || '');
+            else api.win(action.ending || '');
+            break;
         default: console.warn(`[campaign] 未知效果「${action.kind}」，已跳过。`);
     }
 }
@@ -348,6 +393,7 @@ function runActions(actions, ctx) {
             shownFirstStep = true;
         }
         runAction(action, ctx);
+        if (ctx.api.isResultShown()) return;
     }
 }
 
@@ -361,22 +407,25 @@ export function createTriggerFlow(config, api) {
 
     // 自动编排内联 showStep：按 do 数组顺序分配 _id，相邻自动挂钩
     // 第一个执行，点击后自动推进到下一个，最后一个点击后结束（无 next）
-    if (!gameState._inlineStepMap) gameState._inlineStepMap = {};
+    gameState._inlineStepMap = {};
+    delete gameState._campaignInputLock;
     let seq = 0;
     for (const trigger of triggers) {
         const steps = (trigger.do || []).filter(a => a.kind === 'showStep' && !a.step);
+        for (const action of steps) if (!action._id) action._id = `_auto_${++seq}`;
         for (let i = 0; i < steps.length; i++) {
             const action = steps[i];
-            if (!action._id) action._id = `_auto_${++seq}`;
             // 自动设置 next：最后一个没有 next，之前的指向下一个
             const hasNext = i < steps.length - 1;
+            if (hasNext && !action.next) action.next = steps[i + 1]._id;
             gameState._inlineStepMap[action._id] = {
                 phase: hasNext ? 'dialog' : 'wait',
-                mode: action.mode || 'narrator',
+                mode: (action.speaker?.name || action.speaker?.portrait) ? 'character' : (action.mode || 'narrator'),
                 text: action.text || '',
                 speaker: (action.speaker?.name || action.speaker?.portrait) ? { name: action.speaker.name || '', portrait: action.speaker.portrait || '' } : undefined,
-                next: hasNext ? steps[i + 1]._id : undefined,
+                next: action.next || undefined,
                 highlight: action.highlight,
+                boardLock: action.boardLock === true,
                 dialogLock: action.dialogLock
             };
         }
@@ -423,7 +472,7 @@ export function createTriggerFlow(config, api) {
     }
 
     function currentAllow() {
-        const hl = gameState._inlineStepData?.highlight;
+        const hl = gameState._campaignInputLock || gameState._inlineStepData?.highlight;
         if (hl) {
             // "all" 后门：允许所有操作
             if (hl.unit === 'all' || hl.tiles === 'all') return { units: ['all'], tiles: ['all'], hint: hl.hint };
@@ -435,6 +484,9 @@ export function createTriggerFlow(config, api) {
         }
         return null;
     }
+    const containsTimer = (condition) => condition?.kind === 'timer'
+        || (Array.isArray(condition?.conditions) && condition.conditions.some(containsTimer))
+        || (condition?.kind === 'not' && containsTimer(condition.condition));
     // 计时器条件轮询（每 100ms 检查一次，确保 timer 条件及时触发）。
     // 必须在 return 前创建；return 后的代码不会执行。
     let _tickTimer = setInterval(() => {
@@ -442,7 +494,7 @@ export function createTriggerFlow(config, api) {
         const needsTick = triggers.some(t => {
             if (enabled.get(t._id) === false) return false;
             if (t.once && state.fired.has(t._id)) return false;
-            return (t.when || []).some(c => c?.kind === 'timer');
+            return (t.when || []).some(containsTimer);
         });
         if (needsTick) dispatch('_timerTick', {});
     }, 100);

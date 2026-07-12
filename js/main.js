@@ -741,8 +741,9 @@ function _launchScenario(scenario) {
 	gameState.isThreePlayer = false;
 	gameState.skirmishFog = false;
 	gameState.doubleCommanderMode = false;
-	// 配置关卡可指定 AI 阵营与难度；默认蓝军 / 1.0。
-	gameState.aiOpponentCamp = scenario.aiOpponentCampKey === 'player1' ? CAMP.player1 : CAMP.player2;
+	// 配置关卡会在 buildBattlefield 中按阵营配置设置 AI 阵营；不在这里覆盖，
+	// 否则自定义阵营和作者设定的回合顺序会被硬编码的 player2 破坏。
+	gameState.aiOpponentCamp = null;
 	gameState.aiDifficulty = scenario.aiDifficulty ?? 1.0;
 	gameState.commanderPhase = 'done';
 
@@ -777,9 +778,8 @@ function _launchScenario(scenario) {
 	updateCampEmblems();
 	updateChatAvailability();
 	initEmblemChatClicks();
-	gameState.currentCamp = CAMP.player1;
 	// 配置关卡：初始金币以配置为准，不叠加首回合收入（编辑器所见即所得）。
-	if (!scenario.buildsOwnBoard) grantTurnStartIncome(CAMP.player1);
+	if (!scenario.buildsOwnBoard) grantTurnStartIncome(gameState.currentCamp);
 	updateUI();
 	updateButtonColors();
 	renderGame();
@@ -788,7 +788,6 @@ function _launchScenario(scenario) {
 		startBattleBGM();
 		playSound('turnEnd');
 		_campaignController.start();
-		emit('turn:started', { camp: CAMP.player1, campKey: 'player1', turnCounter: gameState.turnCounter });
 	});
 }
 // 初始化大厅：设置 _activeLobbyView、注册 BGM 交互监听、同步静音按钮

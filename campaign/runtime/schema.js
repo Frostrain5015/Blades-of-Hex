@@ -67,6 +67,8 @@ export const BOARD_RADIUS_DEFAULT = 4;
 // 每条条件形如 { kind, ...字段 }；kind 必须与 triggers.js 的 evalCondition 分支一致。
 export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'any', label: '满足任一（OR）', arg: 'conditionGroup' },
+    { kind: 'all', label: '满足全部（AND）', arg: 'conditionGroup' },
+    { kind: 'not', label: '不满足（NOT）', arg: 'conditionSingle' },
     { kind: 'levelStarted', label: '关卡开始时', arg: 'none', event: true },
     { kind: 'unitSelected', label: '指定单位被选中', arg: 'eventTarget', event: true },
     { kind: 'unitMovesToTile', label: '指定单位/单位组移动到指定地块/区域', arg: 'eventTargetArea', event: true },
@@ -77,6 +79,7 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'cardUsed', label: '使用指定对策卡', arg: 'cardCamp', event: true },
     { kind: 'skillUsed', label: '指定单位使用技能', arg: 'eventUnitSkill', event: true },
     { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值', event: true },
+    { kind: 'eventChoiceIs', label: '对话选项结果为', arg: 'text', event: true },
     { kind: 'timer',        label: '计时器到期',   arg: 'number', note: '关卡开始后经过指定毫秒时触发一次' }
     ,{ kind: 'cityOwnedBy',  label: '城市归属于',   arg: 'cityOwner' },
     { kind: 'unitExists', label: '单位存在/存活', arg: 'unitExists' }
@@ -132,7 +135,7 @@ export function createDefaultLevel() {
         intro: { campaignTitle: '将星列传', chapterTitle: '', scenarioSubtitle: '新关卡' },
         weather: 'clear',
         localPlayerCamp: 'player1',
-        factions: [{ id: 'player1', name: '红军', color: '#e05050', controller: 'human', participatesInTurns: true, active: true }],
+        factions: [{ id: 'player1', name: '红军', color: '#ffaaaa', controller: 'human', participatesInTurns: true, active: true }],
         turnOrder: ['player1'],
         diplomacy: {},
         mechanics: createDefaultMechanics(),
@@ -148,7 +151,7 @@ export function createDefaultLevel() {
         board: {
             radius: BOARD_RADIUS_DEFAULT,
             cities: [
-                { q: 0, r: 0, districtId: 5, camp: 'neutral' }   // 城市即该区划的颜色来源
+                { q: 0, r: 0, districtId: 5, camp: 'player1' }   // 城市即该区划的颜色来源
             ],
             terrain: [],            // [{ q, r, type }]  非 plains 的地块
             villages: [],           // [{ q, r, districtId }]
@@ -309,6 +312,9 @@ export function validateLevel(config) {
         variableIds.add(variable.id);
         if (!VARIABLE_TYPES.includes(variable.type)) errors.push(`变量「${variable.id}」类型非法。`);
         if (!VARIABLE_SCOPES.includes(variable.scope)) errors.push(`变量「${variable.id}」作用域非法。`);
+        if (variable.initial != null && VARIABLE_TYPES.includes(variable.type) && typeof variable.initial !== variable.type) {
+            errors.push(`变量「${variable.id}」的初始值类型与变量类型不一致。`);
+        }
     }
 
     const activeMainCount = Object.values(c.objectives || {}).filter(o => o.main && o.active !== false).length;
@@ -324,6 +330,20 @@ export function validateLevel(config) {
         if (conditionMeta(condition.kind)?.event) return true;
         if (Array.isArray(condition.conditions)) return condition.conditions.some(conditionContainsEvent);
         return condition.kind === 'not' && conditionContainsEvent(condition.condition);
+    };
+    const conditionRequiresTimer = (condition) => {
+        if (!condition || typeof condition !== 'object') return false;
+        if (condition.kind === 'timer') return true;
+        if (condition.kind === 'all') return (condition.conditions || []).some(conditionRequiresTimer);
+        if (condition.kind === 'any') return condition.conditions?.length > 0 && condition.conditions.every(conditionRequiresTimer);
+        return false;
+    };
+    const conditionRequiresEvent = (condition) => {
+        if (!condition || typeof condition !== 'object') return false;
+        if (conditionMeta(condition.kind)?.event) return true;
+        if (condition.kind === 'all') return (condition.conditions || []).some(conditionRequiresEvent);
+        if (condition.kind === 'any') return condition.conditions?.length > 0 && condition.conditions.every(conditionRequiresEvent);
+        return false;
     };
     const validateCondition = (condition, path) => {
         if (!condition || typeof condition !== 'object') { errors.push(`${path} 条件为空。`); return; }
@@ -343,8 +363,18 @@ export function validateLevel(config) {
         if (target?.group && !groupIds.has(target.group)) errors.push(`${path} 引用不存在的单位组「${target.group}」。`);
         if (['unitSelected', 'unitMovesToTile', 'unitMovesToArea', 'unitKilled', 'skillUsed'].includes(condition.kind)
             && !target?.unit && !target?.group) errors.push(`${path} 必须选择一个单位或单位组。`);
-        if (condition.kind === 'unitMovesToTile' && (!Number.isInteger(condition.q) || !Number.isInteger(condition.r) || !inBoard(condition.q, condition.r))) {
-            errors.push(`${path} 的目标地块 (${condition.q},${condition.r}) 不在棋盘内。`);
+        if (condition.kind === 'unitMovesToTile') {
+            if (Array.isArray(condition.tiles) && condition.tiles.length) {
+                condition.tiles.forEach((tile, index) => {
+                    if (!Number.isInteger(tile?.q) || !Number.isInteger(tile?.r) || !inBoard(tile.q, tile.r)) {
+                        errors.push(`${path} 的区域地块 ${index + 1} (${tile?.q},${tile?.r}) 不在棋盘内。`);
+                    }
+                });
+            } else if (condition.area) {
+                if (!areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
+            } else if (!Number.isInteger(condition.q) || !Number.isInteger(condition.r) || !inBoard(condition.q, condition.r)) {
+                errors.push(`${path} 的目标地块 (${condition.q},${condition.r}) 不在棋盘内。`);
+            }
         }
         if (condition.kind === 'unitMovesToArea' && !areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
         if (condition.kind === 'unitAttacksUnit') {
@@ -360,16 +390,34 @@ export function validateLevel(config) {
             if (!(c.board?.cities || []).some(city => city.q === condition.q && city.r === condition.r)) warnings.push(`${path} 指向的地块不是已配置城市。`);
             if (condition.camp && !factionIds.has(condition.camp)) errors.push(`${path} 的占领阵营「${condition.camp}」未在本关阵营列表中声明。`);
         }
-        if (condition.kind === 'turnStarted' && !factionIds.has(condition.camp)) errors.push(`${path} 的阵营「${condition.camp}」未在本关阵营列表中声明。`);
+        if (condition.kind === 'turnStarted' && condition.camp && !factionIds.has(condition.camp)) errors.push(`${path} 的阵营「${condition.camp}」未在本关阵营列表中声明。`);
         if (['cityOwnedBy', 'tileOwnedBy', 'factionUnitCount', 'goldCompare'].includes(condition.kind) && !factionIds.has(condition.camp)) errors.push(`${path} 的阵营「${condition.camp}」未在本关阵营列表中声明。`);
+        if (['cityOwnedBy', 'tileOwnedBy'].includes(condition.kind)) {
+            if (!Number.isInteger(condition.q) || !Number.isInteger(condition.r) || !inBoard(condition.q, condition.r)) {
+                errors.push(`${path} 的目标地块 (${condition.q},${condition.r}) 不在棋盘内。`);
+            }
+            if (condition.kind === 'cityOwnedBy' && !(c.board?.cities || []).some(city => city.q === condition.q && city.r === condition.r)) {
+                warnings.push(`${path} 指向的地块不是已配置城市。`);
+            }
+        }
         if (condition.kind === 'relationIs' && (!factionIds.has(condition.camp) || !factionIds.has(condition.targetCamp))) errors.push(`${path} 的外交阵营引用未在本关阵营列表中声明。`);
+        if (condition.kind === 'relationIs' && condition.camp === condition.targetCamp) errors.push(`${path} 不能比较同一阵营与自身的外交关系。`);
+        if (condition.kind === 'relationIs' && !RELATION_KEYS.includes(condition.relation)) errors.push(`${path} 的外交关系「${condition.relation}」无效。`);
         if (condition.kind === 'unitsInArea' && condition.camp && !factionIds.has(condition.camp)) errors.push(`${path} 的阵营筛选「${condition.camp}」未在本关阵营列表中声明。`);
         if (['cardUsed', 'eventCardIs'].includes(condition.kind) && !CARD_IDS.includes(condition.value)) errors.push(`${path} 引用不存在的对策卡「${condition.value}」。`);
         if (condition.kind === 'groupState' && !groupIds.has(condition.group)) errors.push(`${path} 引用不存在的单位组「${condition.group}」。`);
-        if (condition.kind === 'unitsInArea' && !areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
+        if (condition.kind === 'unitsInArea' && condition.area && !areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
         if (['eventInteractionIs', 'interactionStateIs'].includes(condition.kind) && !interactionIds.has(condition.interactable)) errors.push(`${path} 引用不存在的调查点「${condition.interactable}」。`);
         if (condition.kind === 'objectiveStatusIs' && !objectiveIds.has(condition.objective)) errors.push(`${path} 引用不存在的目标「${condition.objective}」。`);
         if (condition.kind === 'mechanicEnabled' && !MECHANIC_KEYS.includes(condition.mechanic)) errors.push(`${path} 引用不存在的机制「${condition.mechanic}」。`);
+        if (condition.kind === 'variableCompare') {
+            const variable = (c.variables || []).find(item => item.id === condition.variable && item.scope === (condition.scope || 'level'));
+            if (!variable) errors.push(`${path} 引用不存在的${condition.scope === 'campaign' ? '战役' : '本关'}变量「${condition.variable}」。`);
+            else {
+                if (condition.value != null && typeof condition.value !== variable.type) errors.push(`${path} 的比较值类型与变量「${condition.variable}」不一致。`);
+                if (variable.type !== 'number' && !['==', '!='].includes(condition.op || '==')) errors.push(`${path} 的${variable.type}变量只能使用等于或不等于比较。`);
+            }
+        }
     };
     const validateAction = (action, path) => {
         if (!action || typeof action !== 'object') { errors.push(`${path} 效果为空。`); return; }
@@ -378,22 +426,79 @@ export function validateLevel(config) {
         if (target?.unit && !unitIds.has(target.unit)) errors.push(`${path} 引用不存在的单位「${target.unit}」。`);
         if (target?.group && !groupIds.has(target.group)) errors.push(`${path} 引用不存在的单位组「${target.group}」。`);
         if (action.kind === 'setVariable' && !variableIds.has(action.variable)) errors.push(`${path} 引用不存在的变量「${action.variable}」。`);
+        if (action.kind === 'setVariable') {
+            const variable = (c.variables || []).find(item => item.id === action.variable);
+            if (variable && variable.type !== 'number' && (action.operation || 'set') !== 'set') {
+                errors.push(`${path} 的${variable.type}变量只能使用“设为”操作。`);
+            }
+            if (variable && action.value != null && typeof action.value !== variable.type) {
+                errors.push(`${path} 的值类型与变量「${action.variable}」不一致。`);
+            }
+        }
         if (action.kind === 'setTriggerEnabled' && !triggerIds.has(action.trigger)) errors.push(`${path} 引用不存在的触发器「${action.trigger}」。`);
         if (action.kind === 'setObjectiveStatus') {
             if (!objectiveIds.has(action.objective)) errors.push(`${path} 引用不存在的目标「${action.objective}」。`);
             if (!OBJECTIVE_STATUS_KEYS.includes(action.status)) errors.push(`${path} 设置了非法目标状态「${action.status}」。`);
         }
-        if (action.kind === 'setInteractionState' && !interactionIds.has(action.interactable)) errors.push(`${path} 引用不存在的调查点「${action.interactable}」。`);
+        if (action.kind === 'setInteractionState') {
+            if (!interactionIds.has(action.interactable)) errors.push(`${path} 引用不存在的调查点「${action.interactable}」。`);
+            if (!['disabled', 'available', 'completed'].includes(action.state)) errors.push(`${path} 设置了非法调查点状态「${action.state}」。`);
+        }
         if (action.kind === 'setMechanicEnabled' && !MECHANIC_KEYS.includes(action.mechanic)) errors.push(`${path} 引用不存在的机制「${action.mechanic}」。`);
         if (['changeGold', 'changeUnitFaction'].includes(action.kind) && !factionIds.has(action.camp)) errors.push(`${path} 的阵营「${action.camp}」未在本关阵营列表中声明。`);
+        if (['changeUnitHp', 'changeUnitFaction', 'setUnitState', 'applyEffect', 'assignCommander', 'removeUnits'].includes(action.kind)
+            && !target?.unit && !target?.group && !action.unit) errors.push(`${path} 必须选择一个单位或单位组。`);
         if (action.kind === 'setDiplomacy' && (!factionIds.has(action.camp) || !factionIds.has(action.targetCamp))) errors.push(`${path} 的外交阵营引用未在本关阵营列表中声明。`);
+        if (action.kind === 'setDiplomacy' && action.camp === action.targetCamp) errors.push(`${path} 不能设置同一阵营与自身的外交关系。`);
+        if (action.kind === 'setDiplomacy' && !RELATION_KEYS.includes(action.relation)) errors.push(`${path} 的外交关系「${action.relation}」无效。`);
+        if (action.kind === 'endScenario' && !['win', 'lose'].includes(action.result || 'win')) errors.push(`${path} 的关卡结果必须是胜利或失败。`);
+        if (action.kind === 'changeGold' && !['set', 'add', 'subtract'].includes(action.operation || 'add')) errors.push(`${path} 的金币操作无效。`);
+        if (action.kind === 'changeGold' && !Number.isFinite(action.value)) errors.push(`${path} 的金币数值必须是数字。`);
+        if (action.kind === 'changeUnitHp') {
+            if (!['set', 'add', 'subtract'].includes(action.operation || 'subtract')) errors.push(`${path} 的生命操作无效。`);
+            if (!['value', 'percent'].includes(action.mode || 'value')) errors.push(`${path} 的生命单位无效。`);
+            if (!Number.isFinite(action.value) || action.value < 0) errors.push(`${path} 的生命数值必须是非负数字。`);
+        }
+        if (action.kind === 'setUnitState' && !['canAct', 'canMove', 'canAttack', 'targetable', 'invulnerable', 'canCounterattack'].includes(action.state)) errors.push(`${path} 的单位状态「${action.state}」无效。`);
+        if (action.kind === 'assignCommander' && action.commander && !COMMANDER_IDS.includes(action.commander)) errors.push(`${path} 引用不存在的将领「${action.commander}」。`);
+        if (action.kind === 'setWeather' && !WEATHER_KEYS.includes(action.weather)) errors.push(`${path} 的天气「${action.weather}」无效。`);
+        if (action.kind === 'removeUnits' && !['despawn', 'kill'].includes(action.mode || 'despawn')) errors.push(`${path} 的移除方式无效。`);
+        if (action.kind === 'applyEffect') {
+            if (action.duration != null && (!Number.isInteger(action.duration) || action.duration < 0)) errors.push(`${path} 的效果持续回合必须是非负整数。`);
+            if (action.rule && !['minHp', 'maxHp', 'godMode'].includes(action.rule)) errors.push(`${path} 的效果规则「${action.rule}」无效。`);
+            if (action.rule && action.rule !== 'godMode' && (!Number.isFinite(action.rulePercent) || action.rulePercent <= 0 || action.rulePercent > 100)) errors.push(`${path} 的效果阈值必须在 1 到 100 之间。`);
+            for (const [key, value] of Object.entries(action.statMods || {})) {
+                if (!['atkPct', 'atkFlat', 'defPct', 'meleeDefPct', 'rangeDefPct', 'spdFlat', 'hpPct', 'hpFlat'].includes(key)) errors.push(`${path} 包含未知效果属性「${key}」。`);
+                else if (!Number.isFinite(value)) errors.push(`${path} 的效果属性「${key}」必须是数字。`);
+            }
+        }
+        if (action.kind === 'spawnUnits') {
+            const seenSpawnTiles = new Set();
+            const seenSpawnIds = new Set();
+            for (const [index, spec] of (action.units || []).entries()) {
+                const specPath = `${path} 的生成单位 ${index + 1}`;
+                if (!UNIT_TYPES.includes(spec?.type)) errors.push(`${specPath} 的单位类型「${spec?.type}」不存在。`);
+                if (!factionIds.has(spec?.camp)) errors.push(`${specPath} 的阵营「${spec?.camp}」未在本关阵营列表中声明。`);
+                if (!Number.isInteger(spec?.q) || !Number.isInteger(spec?.r) || !inBoard(spec.q, spec.r)) errors.push(`${specPath} 的坐标不在棋盘内。`);
+                if (spec?.commander && !COMMANDER_IDS.includes(spec.commander)) errors.push(`${specPath} 引用不存在的将领「${spec.commander}」。`);
+                if (spec?.hp != null && (!Number.isFinite(spec.hp) || spec.hp <= 0)) errors.push(`${specPath} 的生命值必须是正数。`);
+                if (spec?.hpPct != null && (!Number.isFinite(spec.hpPct) || spec.hpPct <= 0 || spec.hpPct > 100)) errors.push(`${specPath} 的生命百分比必须在 1 到 100 之间。`);
+                const tileKey = `${spec?.q},${spec?.r}`;
+                if (seenSpawnTiles.has(tileKey)) errors.push(`${path} 同一次生成不能把多个单位放在同一地块。`);
+                seenSpawnTiles.add(tileKey);
+                if (spec?.id) {
+                    if (unitIds.has(spec.id) || seenSpawnIds.has(spec.id)) errors.push(`${specPath} 的单位 ID「${spec.id}」与已有单位或本动作重复。`);
+                    seenSpawnIds.add(spec.id);
+                }
+            }
+        }
         // ── 内联 showStep 参数完整性 ──
         if (action.kind === 'showStep' && !action.step) {
             if (!action.text) errors.push(`${path} 的 showStep 缺少台词。`);
             if (action.mode === 'character' && !action.speaker?.name) errors.push(`${path} 的台词模式缺少说话人。`);
             // next 不校验引用（可能是本触发器内其他 _id 或后续注册的步骤）
-            // lock:true 时必须配 highlight
-            if (action.lock && !action.highlight) warnings.push(`${path} 启用了操作锁但未配 highlight，所有操作将被锁定。`);
+            // boardLock:true 时建议配 highlight；否则会锁定全部操作。
+            if (action.boardLock && !action.highlight) warnings.push(`${path} 启用了操作锁但未配高亮目标，所有操作将被锁定。`);
         }
         // ── 施加效果名称 ──
         if (action.kind === 'applyEffect' && !action.name && !action.rule && (!action.statMods || !Object.keys(action.statMods).length)) {
@@ -411,7 +516,7 @@ export function validateLevel(config) {
             && !cond.defender?.unit && !cond.defender?.group && !cond.defenderCamp) {
             errors.push(`${path} 至少需要指定攻击方或受击方的单位/阵营。`);
         }
-        if (cond.kind === 'eventNextIs' && !cond.value) errors.push(`${path} 缺少跳转值。`);
+        if (['eventNextIs', 'eventChoiceIs'].includes(cond.kind) && !cond.value) errors.push(`${path} 缺少跳转值。`);
         if (cond.kind === 'timer' && (!cond.value || cond.value <= 0)) errors.push(`${path} 计时器到期时间必须大于 0 毫秒。`);
         if (cond.kind === 'turnStarted' && cond.turn != null && cond.turn <= 0) errors.push(`${path} 回合数必须大于 0。`);
         if (cond.kind === 'cityCaptured' && (cond.q == null || cond.r == null)) errors.push(`${path} 缺少城市坐标。`);
@@ -419,7 +524,7 @@ export function validateLevel(config) {
         if (cond.kind === 'variableCompare' && !cond.variable) errors.push(`${path} 缺少变量名。`);
         if (cond.kind === 'triggerEnabled' && !cond.trigger) errors.push(`${path} 缺少触发器 ID。`);
         if (cond.kind === 'groupState' && !cond.group) errors.push(`${path} 缺少单位组 ID。`);
-        if (cond.kind === 'unitsInArea' && !cond.tiles?.length && !cond.area) errors.push(`${path} 缺少区域或地块。`);
+        if (cond.kind === 'unitsInArea' && !cond.area) errors.push(`${path} 缺少区域。`);
     };
     const seenTriggerIds = new Set();
     for (const t of (c.triggers || [])) {
@@ -428,6 +533,9 @@ export function validateLevel(config) {
         if (!t.when?.length) warnings.push(`触发器「${t.id || '?'}」没有条件，将在下一次任意事件后触发。请显式使用「关卡开始时」或其他事件条件。`);
         if (!t.do?.length) warnings.push(`触发器「${t.id || '?'}」没有动作，不会产生任何效果。`);
         if (t.once === false && !(t.when || []).some(conditionContainsEvent)) warnings.push(`重复触发器「${t.id || '?'}」只包含状态条件，可能在每次事件后重复执行。`);
+        const requiresTimer = (t.when || []).some(conditionRequiresTimer);
+        const requiresEvent = (t.when || []).some(conditionRequiresEvent);
+        if (requiresTimer && requiresEvent) errors.push(`触发器「${t.id || '?'}」不能要求“计时器到期”和事件条件同时成立；它们不会在同一次事件中同时成立，请拆成两个触发器。`);
         (t.when || []).forEach((condition, index) => {
             validateCondition(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`);
             minConditionChecks(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`);

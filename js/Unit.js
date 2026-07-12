@@ -191,9 +191,99 @@ export class Unit {
         return this.activeSkillCD > 0 ? this.activeSkillCD : 0;
     }
 
+    getCampaignEffectMods() {
+        const total = {
+            atkPct: 0, atkFlat: 0, defPct: 0, meleeDefPct: 0,
+            rangeDefPct: 0, spdFlat: 0, hpPct: 0, hpFlat: 0
+        };
+        for (const effect of this._campaignEffects || []) {
+            const mods = effect?.statMods || {};
+            for (const key of Object.keys(total)) total[key] += Number(mods[key]) || 0;
+        }
+        return total;
+    }
+
+    getEffectiveSpeed() {
+        const commander = this.commander ? getCommander(this.commander) : null;
+        return Math.max(0, this.config.speed + (commander?.spdBonus || 0) + this.getCampaignEffectMods().spdFlat);
+    }
+
+    getCampaignDefenseBonus(attacker = null) {
+        const mods = this.getCampaignEffectMods();
+        let percent = mods.defPct;
+        if (attacker) {
+            const melee = attacker.type === 'infantry' || attacker.type === 'cavalry';
+            percent += melee ? mods.meleeDefPct : mods.rangeDefPct;
+        }
+        return percent / 100;
+    }
+
+    refreshCampaignEffectState() {
+        const effects = Array.isArray(this._campaignEffects) ? this._campaignEffects : [];
+        const mods = this.getCampaignEffectMods();
+        const hasHpModifier = effects.some(effect => {
+            const effectMods = effect?.statMods || {};
+            return (Number(effectMods.hpPct) || 0) !== 0 || (Number(effectMods.hpFlat) || 0) !== 0;
+        });
+
+        if (hasHpModifier) {
+            if (this._campaignBaseMaxHp == null) this._campaignBaseMaxHp = this.maxHp;
+            this.maxHp = Math.max(1, Math.round(this._campaignBaseMaxHp * (1 + mods.hpPct / 100) + mods.hpFlat));
+        } else if (this._campaignBaseMaxHp != null) {
+            this.maxHp = Math.max(1, this._campaignBaseMaxHp);
+            delete this._campaignBaseMaxHp;
+        }
+
+        const minPercent = Math.max(0, ...effects
+            .filter(effect => effect?.rule === 'minHp')
+            .map(effect => Number(effect.rulePercent) || 0));
+        const maxPercents = effects
+            .filter(effect => effect?.rule === 'maxHp')
+            .map(effect => Number(effect.rulePercent) || 100);
+        if (minPercent > 0) this._campaignMinHp = this.maxHp * Math.min(100, minPercent) / 100;
+        else delete this._campaignMinHp;
+        if (maxPercents.length > 0) this._campaignMaxHp = this.maxHp * Math.max(0, Math.min(...maxPercents)) / 100;
+        else delete this._campaignMaxHp;
+
+        const hasGodMode = effects.some(effect => effect?.rule === 'godMode');
+        if (hasGodMode) {
+            if (!Object.hasOwn(this, '_campaignGodModeBase')) this._campaignGodModeBase = this.godMode;
+            this.godMode = true;
+        } else if (Object.hasOwn(this, '_campaignGodModeBase')) {
+            this.godMode = this._campaignGodModeBase;
+            delete this._campaignGodModeBase;
+        }
+
+        const maxAllowed = this._campaignMaxHp || this.maxHp;
+        this.hp = Math.min(this.hp, maxAllowed, this.maxHp);
+        this.displaySpeed = this.getEffectiveSpeed();
+    }
+
+    assignCampaignCommander(commander) {
+        const nextCommander = commander || null;
+        if (this.commander === nextCommander) return;
+        const previousSpeed = this.getEffectiveSpeed();
+        const oldConfig = this.commander ? getCommander(this.commander) : null;
+        const nextConfig = nextCommander ? getCommander(nextCommander) : null;
+        const oldHp = oldConfig ? Math.round(this.config.hp * (oldConfig.hpBonusPct || 0)) : 0;
+        const nextHp = nextConfig ? Math.round(this.config.hp * (nextConfig.hpBonusPct || 0)) : 0;
+        const oldAtk = oldConfig ? Math.round(this.config.attack * (oldConfig.atkBonusPct || 0)) : 0;
+        const nextAtk = nextConfig ? Math.round(this.config.attack * (nextConfig.atkBonusPct || 0)) : 0;
+        this.commander = nextCommander;
+        if (this._campaignBaseMaxHp != null) this._campaignBaseMaxHp += nextHp - oldHp;
+        else this.maxHp = Math.max(1, this.maxHp + nextHp - oldHp);
+        this._atkBonus = (this._atkBonus || 0) + nextAtk - oldAtk;
+        this.refreshCampaignEffectState();
+        this.hp = Math.max(1, Math.min(this._campaignMaxHp || this.maxHp, this.maxHp, this.hp + nextHp - oldHp));
+        this.remainingMP = Math.max(0, this.remainingMP + this.getEffectiveSpeed() - previousSpeed);
+        this.displaySpeed = this.getEffectiveSpeed();
+    }
+
     getEffectiveAttack() {
         const auraAtk = getCommanderAuraAttackBonus(this);
-        return Math.round(this.config.attack * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this));
+        const base = this.config.attack * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this);
+        const mods = this.getCampaignEffectMods();
+        return Math.round(base * (1 + mods.atkPct / 100) + mods.atkFlat);
     }
 
     // 伤害浮动倍率（替代 critRate + critMulti 二值系统）
@@ -338,6 +428,7 @@ export class Unit {
             if (aaCount > 0) defSum += aaCount * COMBAT_BALANCE.defense.antiairPerLayer;
         }
         defSum += getCommanderAuraDefenseBonus(defender);
+        defSum += defender.getCampaignDefenseBonus(attacker);
         // 空军上校俯冲扫射：无视目标防御力
         if (ignoreDef > 0) defSum -= ignoreDef;
         const defenseMulti = Math.max(COMBAT_BALANCE.defense.minimumMultiplier, 1 - defSum);
@@ -752,7 +843,17 @@ export class Unit {
     _applyRankBonus(rank) {
         const rankRules = COMBAT_BALANCE.rank;
         switch (rank) {
-            case 1: this.maxHp += rankRules.hpBonusAtFirstRank; if (!(this.commander === 'martyr' && this._martyrPrimed)) this.hp += rankRules.hpBonusAtFirstRank; break;
+            case 1: {
+                const previousMaxHp = this.maxHp;
+                if (this._campaignBaseMaxHp != null) {
+                    this._campaignBaseMaxHp += rankRules.hpBonusAtFirstRank;
+                    this.refreshCampaignEffectState();
+                } else this.maxHp += rankRules.hpBonusAtFirstRank;
+                if (!(this.commander === 'martyr' && this._martyrPrimed)) {
+                    this.hp = Math.min(this._campaignMaxHp || this.maxHp, this.maxHp, this.hp + this.maxHp - previousMaxHp);
+                }
+                break;
+            }
             case 2: this._atkBonus += rankRules.atkBonusAtSecondRank; break;
             case 3: this._rankDefBonus = rankRules.defBonusAtThirdRank; this._rankCritBonus = rankRules.critBonusAtThirdRank; break;
             case 4: this._rankRegenPct = rankRules.regenPctAtFourthRank; break;

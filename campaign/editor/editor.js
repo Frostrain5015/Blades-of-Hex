@@ -39,7 +39,7 @@ let pendingPick = null; // { mode:'tile'|'tiles', callback, picked:Set, label }
 let pendingHighlight = null; // { q, r } | [{q,r}] | Set — 鼠标悬停图钉时高亮
 let pendingUnitFlag = null; // { q, r } — 单位图钉悬停时在棋盘上显示🚩
 
-const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast', 'eventCardIs']);
+const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'flagSet', 'flagUnset', 'turnAtLeast', 'eventCardIs']);
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => item && (!LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current)); }
 function authorActions() { return TRIGGER_ACTIONS; }
 
@@ -1055,9 +1055,12 @@ function tilesPickerRow(labelText, tiles, onChange) {
 
 function conditionDefaults(kind) {
     switch (kind) {
+        case 'all': return { conditions: [] };
+        case 'any': return { conditions: [] };
+        case 'not': return { condition: { kind: 'levelStarted' } };
         case 'levelStarted': return {};
         case 'unitSelected': return { target: { unit: config.units[0]?.id || '' } };
-        case 'unitMovesToTile': return { target: { unit: config.units[0]?.id || '' }, q: 0, r: 0 };
+        case 'unitMovesToTile': return { target: { unit: config.units[0]?.id || '' }, tiles: [] };
         case 'unitMovesToArea': return { target: { unit: config.units[0]?.id || '' }, tiles: [] };
         case 'unitAttacksUnit': return { attacker: { unit: config.units[0]?.id || '' }, defender: { unit: config.units[1]?.id || config.units[0]?.id || '' } };
         case 'unitKilled': return { target: { unit: config.units[0]?.id || '' } };
@@ -1066,6 +1069,7 @@ function conditionDefaults(kind) {
         case 'cardUsed': return { value: CARD_IDS[0] };
         case 'skillUsed': return { target: { unit: config.units[0]?.id || '' }, skill: '', skillType: '', stacks: undefined };
         case 'eventCardIs': return { value: CARD_IDS[0] };
+        case 'eventChoiceIs': return { value: '' };
         case 'cityOwnedBy': return { q: 0, r: 0, camp: primaryFactionId() };
         case 'turnAtLeast': return { value: 1 };
         case 'unitExists': return { unit: config.units[0]?.id || '', alive: true };
@@ -1091,6 +1095,8 @@ function actionDefaults(kind) {
     switch (kind) {
         case 'showStep': return { mode: 'narrator', text: '', next: '' };
         case 'spawnUnits': return { units: [] };
+        case 'unlockInput': return {};
+        case 'lockInput': return { highlight: {} };
         case 'setVariable': return { variable: config.variables[0]?.id || '', operation: 'set', value: 0 };
         case 'setTriggerEnabled': return { trigger: config.triggers[0]?.id || '', enabled: true };
         case 'setObjectiveStatus': return { objective: Object.keys(config.objectives)[0] || '', status: 'active' };
@@ -1233,10 +1239,15 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(selectRow('受击方阵营', cond.defenderCamp || '', { '': '任意', ...factionLabels() }, camp => patch({ defenderCamp: camp || undefined })));
             box.appendChild(targetEditor(cond.defender, defender => patch({ defender }), { label: '受击方单位' }));
             break;
-        case 'eventCamp':
+        case 'eventCityCapture':
+            box.appendChild(coordRow('城市坐标', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
+            box.appendChild(selectRow('占领阵营', cond.camp || '', { '': '任意', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
+            break;
         case 'eventCampTurn':
             box.appendChild(selectRow('阵营（留空=每轮首位）', cond.camp || '', { '': '（每轮首位）', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
-            box.appendChild(numRow('从触发器启动起 N 回合后', cond.turn ?? 1, v => patch({ turn: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
+            box.appendChild(checkRow('延后若干轮才触发', cond.turn != null, enabled => patch({ turn: enabled ? 1 : undefined })));
+            if (cond.turn != null) box.appendChild(numRow('延后回合数', cond.turn, v => patch({ turn: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
+            break;
         case 'eventUnitSkill':
             box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '施放单位' }));
@@ -1246,7 +1257,6 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
                 box.appendChild(selectRow('叠层比较', cond.stackOp || '>=', { '>=': '不少于', '<=': '不多于', '==': '等于' }, v => patch({ stackOp: v })));
                 box.appendChild(numRow('叠层数', cond.stacks ?? 1, v => patch({ stacks: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
             }
-            break;
             break;
         case 'step':
             box.appendChild(selectRow('步骤', cond.value || '', stepOptions(true), v => patch({ value: v }))); break;
@@ -1277,6 +1287,13 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'conditionGroup':
             box.appendChild(conditionListEditor(cond.conditions || [], conditions => patch({ conditions }), { parentIsAny: meta.kind === 'any' })); break;
         case 'conditionSingle':
+            box.appendChild(conditionEditor(
+                cond.condition || { kind: 'levelStarted' },
+                condition => patch({ condition }),
+                null,
+                false
+            ));
+            break;
         case 'unitExists': {
             const uRow = el('div', 'ed-row');
             uRow.appendChild(el('label', null, '单位'));
@@ -1351,15 +1368,26 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(selectRow('阵营', cond.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
             box.appendChild(selectRow('比较', cond.op || '>=', { '<': '少于', '<=': '不多于', '==': '等于', '>=': '不少于', '>': '多于' }, v => patch({ op: v })));
             box.appendChild(numRow('金币', cond.value ?? 1, v => patch({ value: Math.max(0, v) }))); break;
-        case 'variableCompare':
+        case 'variableCompare': {
             box.appendChild(selectRow('作用域', cond.scope || 'level', { level: '本关', campaign: '战役' }, v => patch({ scope: v, variable: '' })));
             const scopeVars = config.variables.filter(item => item.scope === (cond.scope || 'level'));
             box.appendChild(selectRow('变量', cond.variable || '', Object.fromEntries(scopeVars.map(item => [item.id, item.id])), v => patch({ variable: v })));
-            box.appendChild(selectRow('比较', cond.op || '==', { '==': '等于', '!=': '不等于', '<': '小于', '<=': '小于等于', '>=': '大于等于', '>': '大于' }, v => patch({ op: v })));
+            const variable = scopeVars.find(item => item.id === cond.variable) || scopeVars[0];
+            if (variable?.type === 'number') {
+                box.appendChild(selectRow('比较', cond.op || '==', { '==': '等于', '!=': '不等于', '<': '小于', '<=': '小于等于', '>=': '大于等于', '>': '大于' }, v => patch({ op: v })));
+                box.appendChild(numRow('数值', Number(cond.value) || 0, v => patch({ value: v })));
+            } else if (variable?.type === 'boolean') {
+                box.appendChild(selectRow('比较', cond.op || '==', { '==': '是', '!=': '不是' }, v => patch({ op: v })));
+                box.appendChild(selectRow('数值', cond.value === true ? 'true' : 'false', { true: '是', false: '否' }, v => patch({ value: v === 'true' })));
+            } else {
+                box.appendChild(selectRow('比较', cond.op || '==', { '==': '等于', '!=': '不等于' }, v => patch({ op: v })));
+                box.appendChild(textRow('数值', String(cond.value ?? ''), v => patch({ value: v })));
+            }
+            break;
+        }
         case 'triggerBoolean':
             box.appendChild(selectRow('触发器', cond.trigger || '', Object.fromEntries(config.triggers.map(t => [t.id, t.title || t.id])), v => patch({ trigger: v })));
             box.appendChild(checkRow('已启用（勾=启用，不勾=禁用）', cond.enabled !== false, v => patch({ enabled: v }))); break;
-            box.appendChild(textRow('值', String(cond.value ?? 0), v => patch({ value: v }))); break;
         case 'mechanicBoolean':
             box.appendChild(selectRow('机制', cond.mechanic || MECHANIC_KEYS[0], MECHANIC_LABELS, v => patch({ mechanic: v })));
             box.appendChild(selectRow('要求', cond.enabled === false ? 'off' : 'on', { on: '已启用', off: '已禁用' }, v => patch({ enabled: v === 'on' }))); break;
@@ -1480,11 +1508,23 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(numRow('延迟(ms)', action.ms ?? 1000, v => patch({ ms: Math.max(0, Math.round(v)) })));
             box.appendChild(actionListEditor(action.then || [], list => patch({ then: list }), false));
             break;
-        case 'variableOperation':
-            box.appendChild(selectRow('变量', action.variable || '', Object.fromEntries(config.variables.map(item => [item.id, `${item.id}（${item.scope === 'campaign' ? '战役' : '本关'}）`])), v => patch({ variable: v })));
-            box.appendChild(selectRow('操作', action.operation || 'set', { set: '设为', add: '增加', subtract: '减少', multiply: '乘以', divide: '除以', min: '取较小值', max: '取较大值' }, v => patch({ operation: v })));
-            box.appendChild(numRow('数值', Number(action.value) || 0, v => patch({ value: v }))); break;
-            box.appendChild(checkRow('设为“是”', action.value !== false, v => patch({ value: v }))); break;
+        case 'variableOperation': {
+            const variable = config.variables.find(item => item.id === action.variable) || config.variables[0];
+            const type = variable?.type || 'number';
+            box.appendChild(selectRow('变量', action.variable || variable?.id || '', Object.fromEntries(config.variables.map(item => [item.id, `${item.id}（${item.scope === 'campaign' ? '战役' : '本关'}）`])), v => {
+                const next = config.variables.find(item => item.id === v);
+                patch({ variable: v, operation: 'set', value: next?.type === 'boolean' ? false : next?.type === 'string' ? '' : 0 });
+            }));
+            if (type === 'number') {
+                box.appendChild(selectRow('操作', action.operation || 'set', { set: '设为', add: '增加', subtract: '减少', multiply: '乘以', divide: '除以', min: '取较小值', max: '取较大值' }, v => patch({ operation: v })));
+                box.appendChild(numRow('数值', Number(action.value) || 0, v => patch({ value: v })));
+            } else if (type === 'boolean') {
+                box.appendChild(selectRow('数值', action.value === true ? 'true' : 'false', { true: '是', false: '否' }, v => patch({ operation: 'set', value: v === 'true' })));
+            } else {
+                box.appendChild(textRow('数值', String(action.value ?? ''), v => patch({ operation: 'set', value: v })));
+            }
+            break;
+        }
         case 'timer': return { value: 1000 };
         case 'triggerEnabled':
             box.appendChild(selectRow('触发器', action.trigger || '', Object.fromEntries(config.triggers.map(item => [item.id, item.title || item.id])), v => patch({ trigger: v })));
@@ -1554,14 +1594,20 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                 box.appendChild(numRow('阈值百分比', action.rulePercent ?? 50, v => patch({ rulePercent: Math.max(1, Math.min(100, Math.round(v))) }), { min: 1, max: 100 }));
             }
             const sec = section('属性修正（留空=不修正）');
-            sec.appendChild(numRow('攻击力%', action.statMods?.atkPct ?? '', v => (() => { const __m = { ...action.statMods, atkPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
-            sec.appendChild(numRow('攻击力(点)', action.statMods?.atkFlat ?? '', v => (() => { const __m = { ...action.statMods, atkFlat: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -999, max: 999 }));
-            sec.appendChild(numRow('防御力%', action.statMods?.defPct ?? '', v => (() => { const __m = { ...action.statMods, defPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
-            sec.appendChild(numRow('对近战攻击防御力%', action.statMods?.meleeDefPct ?? '', v => (() => { const __m = { ...action.statMods, meleeDefPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
-            sec.appendChild(numRow('对远程攻击防御力%', action.statMods?.rangeDefPct ?? '', v => (() => { const __m = { ...action.statMods, rangeDefPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
-            sec.appendChild(numRow('行动力', action.statMods?.spdFlat ?? '', v => (() => { const __m = { ...action.statMods, spdFlat: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -99, max: 99 }));
-            sec.appendChild(numRow('生命上限%', action.statMods?.hpPct ?? '', v => (() => { const __m = { ...action.statMods, hpPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
-            sec.appendChild(numRow('生命上限(点)', action.statMods?.hpFlat ?? '', v => (() => { const __m = { ...action.statMods, hpFlat: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -999, max: 999 }));
+            const patchStatMod = (key, value) => {
+                const statMods = { ...(action.statMods || {}) };
+                if (!Number.isFinite(value) || value === 0) delete statMods[key];
+                else statMods[key] = value;
+                patch({ statMods, desc: _buildEffectDesc(statMods) || undefined });
+            };
+            sec.appendChild(numRow('攻击力%', action.statMods?.atkPct ?? '', v => patchStatMod('atkPct', v), { min: -100, max: 500 }));
+            sec.appendChild(numRow('攻击力(点)', action.statMods?.atkFlat ?? '', v => patchStatMod('atkFlat', v), { min: -999, max: 999 }));
+            sec.appendChild(numRow('防御力%', action.statMods?.defPct ?? '', v => patchStatMod('defPct', v), { min: -100, max: 500 }));
+            sec.appendChild(numRow('对近战攻击防御力%', action.statMods?.meleeDefPct ?? '', v => patchStatMod('meleeDefPct', v), { min: -100, max: 500 }));
+            sec.appendChild(numRow('对远程攻击防御力%', action.statMods?.rangeDefPct ?? '', v => patchStatMod('rangeDefPct', v), { min: -100, max: 500 }));
+            sec.appendChild(numRow('行动力', action.statMods?.spdFlat ?? '', v => patchStatMod('spdFlat', v), { min: -99, max: 99 }));
+            sec.appendChild(numRow('生命上限%', action.statMods?.hpPct ?? '', v => patchStatMod('hpPct', v), { min: -100, max: 500 }));
+            sec.appendChild(numRow('生命上限(点)', action.statMods?.hpFlat ?? '', v => patchStatMod('hpFlat', v), { min: -999, max: 999 }));
             box.appendChild(sec);
             break;
         }

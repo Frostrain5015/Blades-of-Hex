@@ -52,11 +52,12 @@ export function createCampaignController({ onRetry, onReturn }) {
         const hasSpeaker = action.speaker?.name || action.speaker?.portrait;
         return {
             phase: hasNext ? 'dialog' : 'wait',
-            mode: hasSpeaker ? 'character' : 'narrator',
+            mode: hasSpeaker ? 'character' : (action.mode || 'narrator'),
             text: action.text || '',
             speaker: hasSpeaker ? { name: action.speaker.name || '', portrait: action.speaker.portrait || '' } : undefined,
             next: action.next || undefined,
             highlight: action.highlight,
+            dialogLock: action.dialogLock === true,
             ruleStep: action.ruleStep
         };
     }
@@ -189,10 +190,13 @@ export function createCampaignController({ onRetry, onReturn }) {
         // 显示当前目标之外的其他目标（含支线）
         const allObj = activeScenario?.objectives || {};
         const statuses = gameState.objectiveStates || {};
-        optionalList.innerHTML = Object.keys(allObj).filter(id => id !== key && (statuses[id] || 'hidden') !== 'hidden').map(id => {
+        optionalList.replaceChildren(...Object.keys(allObj).filter(id => id !== key && (statuses[id] || 'hidden') !== 'hidden').map(id => {
             const o = allObj[id];
-            return `<span data-objective="${id}">${o.main ? '★' : '◇'} ${o.title || o.detail || id}</span>`;
-        }).join('');
+            const item = document.createElement('span');
+            item.dataset.objective = id;
+            item.textContent = `${o.main ? '★' : '◇'} ${o.title || o.detail || id}`;
+            return item;
+        }));
         optionalList.querySelectorAll('[data-objective]').forEach(item => {
             const status = statuses[item.dataset.objective] || 'active';
             const icon = status === 'completed' ? '✓' : status === 'failed' ? '✕' : '○';
@@ -229,7 +233,7 @@ export function createCampaignController({ onRetry, onReturn }) {
             const label = obj?.title || obj?.detail || id;
             const icon = status === 'completed' ? '✓' : '✗';
             const prefix = obj?.main ? '★' : '◇';
-            window._showObjectiveToast?.(`<div class="objective-toast-item">${prefix} ${label} — ${status === 'completed' ? '已完成' : '已失败'}</div>`);
+            window._showObjectiveToast?.(`${prefix} ${label} — ${status === 'completed' ? '已完成' : '已失败'}`);
         }
         emit('campaign:objectiveChanged', { objectiveId: id, previous, status });
     }
@@ -338,7 +342,7 @@ export function createCampaignController({ onRetry, onReturn }) {
         resultOverlay.setAttribute('aria-hidden', 'false');
     }
 
-    function win() { showResult(true); }
+    function win(reason = '') { showResult(true, reason); }
     function fail(reason) { showResult(false, reason); }
 
     // 传给 scenario.createFlow 的能力面：只暴露控制器内部机制，不含关卡知识。
@@ -397,6 +401,8 @@ export function createCampaignController({ onRetry, onReturn }) {
         activeFlow?.dispose?.();
         activeFlow = null;
         activeScenario = null;
+        delete gameState._inlineStepData;
+        delete gameState._campaignInputLock;
         hideGuidance();
         objectiveHud?.classList.remove('show');
         resultOverlay.classList.remove('show');
@@ -453,13 +459,25 @@ export function createCampaignController({ onRetry, onReturn }) {
         if (!activeScenario?.objectives) return;
         const allObj = activeScenario.objectives;
         const statuses = gameState.objectiveStates || {};
-        objPopupBody.innerHTML = Object.keys(allObj).map(id => {
+        objPopupBody.replaceChildren(...Object.keys(allObj).map(id => {
             const o = allObj[id];
             const st = statuses[id] || 'hidden';
             const icon = st === 'completed' ? '✓' : st === 'failed' ? '✗' : o.main ? '★' : '◇';
             const cls = st === 'completed' ? 'complete' : st === 'failed' ? 'failed' : '';
-            return `<div class="faction-list-row ${cls}" style="border-left-color:${o.main ? '#ffd866' : '#777'}"><span class="faction-list-swatch"></span><span class="faction-list-name">${icon} ${o.title || id}</span><span class="faction-list-meta">${st}</span></div>`;
-        }).join('');
+            const row = document.createElement('div');
+            row.className = `faction-list-row ${cls}`;
+            row.style.borderLeftColor = o.main ? '#ffd866' : '#777';
+            const swatch = document.createElement('span');
+            swatch.className = 'faction-list-swatch';
+            const name = document.createElement('span');
+            name.className = 'faction-list-name';
+            name.textContent = `${icon} ${o.title || id}`;
+            const meta = document.createElement('span');
+            meta.className = 'faction-list-meta';
+            meta.textContent = st;
+            row.append(swatch, name, meta);
+            return row;
+        }));
         objPopup.classList.add('show');
     });
     document.getElementById('objectivePopupClose')?.addEventListener('click', () => objPopup.classList.remove('show'));
@@ -468,7 +486,7 @@ export function createCampaignController({ onRetry, onReturn }) {
     // 任务通知卡片（弹出式 toast）
     window._showObjectiveToast = (text) => {
         if (!objToast || !objToastBody) return;
-        objToastBody.innerHTML = text;
+        objToastBody.textContent = text;
         objToast.classList.add('show');
         clearTimeout(objToast._timer);
         objToast._timer = setTimeout(() => objToast.classList.remove('show'), 4000);
