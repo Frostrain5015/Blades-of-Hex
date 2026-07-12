@@ -393,7 +393,7 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.counterAttackCount >= 1 || (isMechanicEnabled(_gameState, 'morale') && this.morale === 0)) {
+        if (this.counterAttackCount >= 1 || this._campaignNoCounter || (isMechanicEnabled(_gameState, 'morale') && this.morale === 0)) {
             return { dmg: 0, isCrit: false };
         }
         // 无人机攻击地面单位时，地面单位无法反击

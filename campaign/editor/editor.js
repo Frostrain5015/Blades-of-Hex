@@ -1214,7 +1214,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             const unitRow = el('div', 'ed-row');
             unitRow.appendChild(el('label', null, '单位'));
             unitRow.appendChild(pickUnitButton(id => patch({ unit: id }), cond.unit));
-            unitRow.appendChild(el('span', null, cond.unit || '未选择'));
+            unitRow.appendChild(Object.assign(el('span', null, cond.unit || '未选择'), {style: {fontSize: '11px'}}));
             box.appendChild(unitRow);
             break;
         }
@@ -1241,7 +1241,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             const uRow = el('div', 'ed-row');
             uRow.appendChild(el('label', null, '单位'));
             uRow.appendChild(pickUnitButton(id => patch({ unit: id })));
-            uRow.appendChild(el('span', null, cond.unit || '未选择'));
+            uRow.appendChild(Object.assign(el('span', null, cond.unit || '未选择'), {style: {fontSize: '11px'}}));
             box.appendChild(uRow);
             box.appendChild(selectRow('要求', cond.alive === false ? 'dead' : 'alive', { alive: '仍在场', dead: '已阵亡/不存在' }, v => patch({ alive: v === 'alive' }))); break;
         }
@@ -1249,7 +1249,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             const uRow = el('div', 'ed-row');
             uRow.appendChild(el('label', null, '单位'));
             uRow.appendChild(pickUnitButton(id => patch({ unit: id })));
-            uRow.appendChild(el('span', null, cond.unit || '未选择'));
+            uRow.appendChild(Object.assign(el('span', null, cond.unit || '未选择'), {style: {fontSize: '11px'}}));
             box.appendChild(uRow);
             box.appendChild(selectRow('数值类型', cond.mode || 'percent', { percent: '生命百分比', value: '生命点数' }, v => patch({ mode: v })));
             box.appendChild(selectRow('比较', cond.op || '<=', { '<': '小于', '<=': '小于等于', '==': '等于', '>=': '大于等于', '>': '大于' }, v => patch({ op: v })));
@@ -1364,7 +1364,7 @@ function targetEditor(target, onChange, { label = '作用对象' } = {}) {
         const uRow = el('div', 'ed-row');
         uRow.appendChild(el('label', null, '单位'));
         uRow.appendChild(pickUnitButton(id => onChange({ unit: id }), target?.unit));
-        uRow.appendChild(el('span', null, target?.unit || '未选择'));
+        uRow.appendChild(Object.assign(el('span', null, target?.unit || '未选择'), {style: {fontSize: '11px'}}));
         wrap.appendChild(uRow);
     }
     return wrap;
@@ -1468,7 +1468,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(selectRow('新阵营', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v }))); break;
         case 'unitState':
             box.appendChild(targetEditor(action.target, target => patch({ target })));
-            box.appendChild(selectRow('能力', action.state || 'canAct', { canAct: '本回合可行动', canMove: '允许移动', canAttack: '允许攻击', selectable: '允许玩家选择', targetable: '允许成为目标', invulnerable: '无敌' }, v => patch({ state: v })));
+            box.appendChild(selectRow('能力', action.state || 'canAct', { canAct: '本回合可行动', canMove: '允许移动', canAttack: '允许攻击', selectable: '允许玩家选择', targetable: '允许成为目标', invulnerable: '无敌', canCounterattack: '允许反击' }, v => patch({ state: v })));
             box.appendChild(checkRow('启用', action.value !== false, v => patch({ value: v }))); break;
         case 'effectApply': {
             box.appendChild(targetEditor(action.target, target => patch({ target }), { label: '施加目标' }));

@@ -287,6 +287,7 @@ function runAction(action, ctx) {
             else if (action.state === 'selectable') unit._campaignSelectable = action.value !== false;
             else if (action.state === 'targetable') unit._campaignTargetable = action.value !== false;
             else if (action.state === 'invulnerable') unit.godMode = action.value !== false;
+            else if (action.state === 'canCounterattack') unit._campaignNoCounter = action.value === false;
         } break;
         case 'applyEffect': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
             if (!Array.isArray(unit._campaignEffects)) unit._campaignEffects = [];
