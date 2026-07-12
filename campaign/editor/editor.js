@@ -440,7 +440,6 @@ function renderToolPanel() {
     body.innerHTML = '';
     if (activeTab === 'board') body.appendChild(buildBoardTools());
     else if (activeTab === 'units') body.appendChild(buildUnitTools());
-    else if (activeTab === 'story') body.appendChild(buildStoryList());
     else if (activeTab === 'triggers') body.appendChild(buildTriggerList());
     else if (activeTab === 'factions') body.appendChild(buildFactionBasics());
     else body.appendChild(buildMetaBasics());
@@ -1166,10 +1165,50 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
     box.appendChild(selectRow('动作', action.kind, Object.fromEntries(kinds.map(a => [a.kind, a.label])), v => onChange({ kind: v, ...actionDefaults(v) })));
     const patch = (fields) => onChange({ ...action, ...fields });
     switch (meta.arg) {
-        case 'step':
-            box.appendChild(selectRow('步骤', action.step || '', stepOptions(true), v => patch({ step: v })));
+        case 'step': {
+            const stepId = action.step || '';
+            const step = config.steps[stepId];
+            box.appendChild(selectRow('步骤', stepId, {
+                ...Object.fromEntries(Object.keys(config.steps).map(id => [id, id])),
+                '__new__': '── 新建步骤 ──'
+            }, v => {
+                if (v === '__new__') {
+                    let n = 1; while (config.steps[`page${n}`]) n++;
+                    const newId = `page${n}`;
+                    mutate(c => { c.steps[newId] = { mode: 'narrator', text: '', next: null }; }, { rebuildPanels: false, snapshot: false });
+                    // 自动接在上一步之后构成连续对话
+                    if (stepId && config.steps[stepId] && !config.steps[stepId].next) {
+                        mutate(c => { c.steps[stepId].next = newId; }, { rebuildPanels: false, snapshot: false });
+                    }
+                    patch({ step: newId });
+                    renderInspector();
+                } else { patch({ step: v || '' }); }
+            }));
+            if (step) {
+                const preview = el('div', 'ed-card');
+                preview.style.cssText = 'margin:4px 0;padding:6px;background:rgba(255,255,255,0.04);font-size:12px;';
+                preview.innerHTML = `<div style="color:#ffd866;font-weight:bold">${step.mode === 'character' ? '🗣 ' + (step.speaker?.name || '') : '📖 旁白'}</div><div style="color:rgba(255,255,255,0.7);margin-top:2px">${(step.text || '（空）').slice(0, 80)}${(step.text || '').length > 80 ? '…' : ''}</div>`;
+                preview.addEventListener('click', () => { selection = { kind: 'step', id: stepId }; renderInspector(); });
+                preview.style.cursor = 'pointer';
+                box.appendChild(preview);
+                box.appendChild(hint('点击预览编辑步骤内容'));
+            }
             box.appendChild(checkRow('立即显示', !!action.immediate, v => patch({ immediate: v || undefined })));
+            // 在上述步骤之后追加一页（自动设置 next 形成连续对话）
+            if (step && !step.next) {
+                const addPage = el('button', 'ed-add-btn', '➕ 加一页（自动续接）');
+                addPage.addEventListener('click', () => mutate(c => {
+                    let n = 1; while (c.steps[`page${n}`]) n++;
+                    const newId = `page${n}`;
+                    c.steps[newId] = { mode: 'narrator', text: '', next: null };
+                    c.steps[stepId].next = newId;
+                    patch({ step: stepId });
+                    renderInspector();
+                }, { rebuildPanels: false }));
+                box.appendChild(addPage);
+            }
             break;
+        }
         case 'objective':
             box.appendChild(selectRow('目标', action.objective || '', { '': '（选择）', ...Object.fromEntries(Object.keys(config.objectives).map(id => [id, config.objectives[id].title || id])) }, v => patch({ objective: v })));
             break;
