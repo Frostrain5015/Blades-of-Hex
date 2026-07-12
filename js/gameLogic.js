@@ -2078,20 +2078,26 @@ async function handleSurrender() {
     if (gameState.gameMode === 'pve') {
         const confirmed = await showConfirm('确定要退出当前游戏吗？\n进度将不会保存。');
         if (!confirmed) return;
+        const fromEditor = gameState.campaignId === '__editor__';
         gameState.gameOver = true;
         resetGameState();
-        document.getElementById('gameWrapper').style.display = 'none';
-        const fromEditor = gameState.campaignId === '__editor__'; if (fromEditor) {
+        const gameWrapper = document.getElementById('gameWrapper');
+        if (gameWrapper) gameWrapper.style.display = 'none';
+        if (fromEditor) {
             // 编辑器测试 → 返回编辑器
             const editor = await import('../campaign/editor/editor.js');
             editor.reopenEditorAfterPlaytest();
         } else {
             const lobby = document.getElementById('lobbyOverlay');
-            lobby.style.display = '';
-            document.getElementById('lobbyHome').style.display = '';
-            document.getElementById('multiplayerLobby').style.display = 'none';
-            document.getElementById('roomWaiting').style.display = 'none';
-            document.getElementById('lobbyReady').style.display = 'none';
+            if (lobby) lobby.style.display = '';
+            const lobbyHome = document.getElementById('lobbyHome');
+            if (lobbyHome) lobbyHome.style.display = '';
+            const multiplayerLobby = document.getElementById('multiplayerLobby');
+            if (multiplayerLobby) multiplayerLobby.style.display = 'none';
+            const roomWaiting = document.getElementById('roomWaiting');
+            if (roomWaiting) roomWaiting.style.display = 'none';
+            const lobbyReady = document.getElementById('lobbyReady');
+            if (lobbyReady) lobbyReady.style.display = 'none';
         }
         return;
     }

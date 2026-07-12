@@ -87,7 +87,7 @@ export function spawnUnitsInto(state, specs) {
 
 function evalCondition(cond, ctx) {
     if (!cond || typeof cond !== 'object') return false;
-    const { api, event, eventId, flags, config, enabled } = ctx;
+    const { api, event, eventId, flags, config, enabled, state = { _timerStarts: {} } } = ctx;
     switch (cond.kind) {
         case 'all': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.every(child => evalCondition(child, ctx));
         case 'any': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.some(child => evalCondition(child, ctx));
@@ -498,7 +498,7 @@ export function createTriggerFlow(config, api) {
         const needsTick = triggers.some(t => {
             if (enabled.get(t._id) === false) return false;
             if (t.once && state.fired.has(t._id)) return false;
-            return (t.when || []).some(c => c.kind === 'timer');
+            return (t.when || []).some(c => c?.kind === 'timer');
         });
         if (needsTick) dispatch('_timerTick', {});
     }, 100);
