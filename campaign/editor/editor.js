@@ -507,9 +507,9 @@ function updateHint(tile, modeInfo) {
     if (!hintEl) return;
     if (pendingPick) {
         if (pendingPick.mode === 'tile') {
-            hintEl.textContent = '📌 点击棋盘上的目标地块（单击即确认）';
+            hintEl.textContent = '📌 选择目标地块';
         } else {
-            hintEl.textContent = `📌 ${pendingPick.label || '涂抹选择区域'} — 已选 ${pendingPick.picked.size} 格，点「✓ 确认」完成`;
+            hintEl.textContent = `📌 ${pendingPick.label || '涂抹选择区域'}`;
         }
         return;
     }
@@ -594,25 +594,20 @@ function buildBoardTools() {
         secParam.appendChild(selectRow('阵营', boardTool.camp, factionLabels(), v => { boardTool.camp = v; }));
     }
     if (boardTool.mode === 'city' || boardTool.mode === 'district') {
-        secParam.appendChild(numRow('行政区号', boardTool.districtId, v => { boardTool.districtId = Math.max(0, Math.round(v)); }, { min: 0, max: 99, step: 1 }));
+        secParam.appendChild(numRow('行政区 ID', boardTool.districtId, v => { boardTool.districtId = Math.max(0, Math.round(v)); }, { min: 0, max: 99, step: 1 }));
     }
     if (boardTool.mode === 'erase') {
         const opt = boardTool.erase;
         const toggle = (key) => (v) => { opt[key] = v; renderToolPanel(); };
-        secParam.appendChild(checkRow('擦除地形', opt.terrain, toggle('terrain')));
-        secParam.appendChild(checkRow('擦除城市', opt.city, toggle('city')));
-        secParam.appendChild(checkRow('擦除村庄', opt.village, toggle('village')));
-        secParam.appendChild(checkRow('擦除工事', opt.fortification, toggle('fortification')));
-        secParam.appendChild(checkRow('擦除区划范围', opt.district, toggle('district')));
-        secParam.appendChild(checkRow('擦除单位', opt.unit, toggle('unit')));
+        secParam.appendChild(checkRow('地形', opt.terrain, toggle('terrain')));
+        secParam.appendChild(checkRow('城市', opt.city, toggle('city')));
+        secParam.appendChild(checkRow('村庄', opt.village, toggle('village')));
+        secParam.appendChild(checkRow('工事', opt.fortification, toggle('fortification')));
+        secParam.appendChild(checkRow('区划范围', opt.district, toggle('district')));
+        secParam.appendChild(checkRow('单位', opt.unit, toggle('unit')));
     }
     if (secParam.childElementCount > 1) wrap.appendChild(secParam);
 
-    wrap.appendChild(hint(
-        boardTool.mode === 'city' ? '放置/更新城市或村庄（由笔刷类型决定）。城市是该行政区的颜色来源——全区划的阵营颜色永远跟随城市阵营，改阵营直接在此重涂即可，删除请用橡皮擦。'
-        : boardTool.mode === 'erase' ? '勾选下方要清除的内容类型后点击地块即可定向擦除。'
-        : boardTool.mode === 'district' ? '涂区划范围：把地块划入指定行政区号（默认由最近城市决定）。地块本身不会因此变色，颜色仍由该行政区的城市决定；若该行政区没有城市，会显示为中立。'
-        : '点击或拖动在棋盘上绘制。'));
     return wrap;
 }
 
@@ -641,7 +636,6 @@ function buildUnitTools() {
         })
     }));
     wrap.appendChild(secList);
-    wrap.appendChild(hint('点击画布空格放置模板单位；点击已有单位选中并在右侧编辑。'));
     return wrap;
 }
 
@@ -823,7 +817,7 @@ function buildFactionBasics() {
 function buildMetaBasics() {
     const wrap = el('div');
     const secId = section('关卡标识');
-    secId.appendChild(textRow('关卡 id', config.id, v => mutate(c => { c.id = v; }, { rebuildPanels: false }), '如 i1-2'));
+    secId.appendChild(textRow('关卡 ID', config.id, v => mutate(c => { c.id = v; }, { rebuildPanels: false }), '如 i1-2'));
     secId.appendChild(textRow('关卡名称', config.title, v => mutate(c => { c.title = v; }, { rebuildPanels: false })));
     secId.appendChild(textRow('传记名称', config.chronicleId, v => mutate(c => { c.chronicleId = v; }, { rebuildPanels: false })));
     secId.appendChild(textRow('章节标题', config.intro.chapterTitle || '', v => mutate(c => { c.intro.chapterTitle = v; }, { rebuildPanels: false }), '如 暮雨孤城'));
@@ -835,8 +829,6 @@ function buildMetaBasics() {
     secEnv.appendChild(selectRow('天气', config.weather, WEATHER_LABELS, v => mutate(c => { c.weather = v; }, { rebuildPanels: false })));
     secEnv.appendChild(numRow('AI 难度', config.aiDifficulty, v => mutate(c => { c.aiDifficulty = Math.max(0.1, v); }, { rebuildPanels: false }), { min: 0.1, max: 3, step: 0.1 }));
     wrap.appendChild(secEnv);
-
-    wrap.appendChild(hint('章节标题、调查点与变量在右侧检查器中设置。'));
     return wrap;
 }
 
@@ -1533,14 +1525,14 @@ function buildObjectiveInspector(id) {
     wrap.appendChild(textRow('标题', obj.title, v => mutate(c => { c.objectives[id].title = v; })));
     wrap.appendChild(textareaRow('描述', obj.detail, v => mutate(c => { c.objectives[id].detail = v; }, { rebuildPanels: false }), 3));
     wrap.appendChild(checkRow('开场时显示为“进行中”', obj.active !== false, v => mutate(c => { c.objectives[id].active = v; }, { rebuildPanels: false })));
-    wrap.appendChild(checkRow('主要目标（纳入胜负判定）', obj.main === true, v => mutate(c => { c.objectives[id].main = v || undefined; }, { rebuildPanels: false })));
+    wrap.appendChild(checkRow('主要目标', obj.main === true, v => mutate(c => { c.objectives[id].main = v || undefined; }, { rebuildPanels: false })));
     return wrap;
 }
 
 function buildMetaInspector() {
     const wrap = el('div');
     const res = config.result;
-    const secMechanics = section('本关开放机制');
+    const secMechanics = section('开放机制');
     for (const key of MECHANIC_KEYS) {
         secMechanics.appendChild(checkRow(MECHANIC_LABELS[key], config.mechanics[key] !== false,
             value => mutate(c => { c.mechanics[key] = value; }, { rebuildPanels: false })));
@@ -1564,7 +1556,7 @@ function buildMetaInspector() {
     const secGroups = section(`单位组（${config.unitGroups.length}）`);
     config.unitGroups.forEach((group, index) => {
         const box = card(group.id || `单位组 ${index + 1}`, () => mutate(c => { c.unitGroups.splice(index, 1); }));
-        box.appendChild(textRow('组 id', group.id, value => mutate(c => { c.unitGroups[index].id = value; })));
+        box.appendChild(textRow('组 ID', group.id, value => mutate(c => { c.unitGroups[index].id = value; })));
         box.appendChild(checkGroup('成员', Object.entries(unitOptions(false)).map(([value, label]) => ({ value, label })), group.unitIds,
             value => mutate(c => { c.unitGroups[index].unitIds = value; })));
         secGroups.appendChild(box);
@@ -1576,11 +1568,11 @@ function buildMetaInspector() {
     const secInteractions = section(`调查点（${config.interactables.length}）`);
     config.interactables.forEach((item, index) => {
         const box = card(item.label || item.id || `调查点 ${index + 1}`, () => mutate(c => { c.interactables.splice(index, 1); }));
-        box.appendChild(textRow('调查点 id', item.id, value => mutate(c => { c.interactables[index].id = value; })));
+        box.appendChild(textRow('调查点 ID', item.id, value => mutate(c => { c.interactables[index].id = value; })));
         box.appendChild(textRow('显示文案', item.label || '', value => mutate(c => { c.interactables[index].label = value; })));
         box.appendChild(coordRow('坐标', item.q, item.r, tile => mutate(c => { c.interactables[index].q = tile.q; c.interactables[index].r = tile.r; })));
         box.appendChild(checkRow('开场可用', item.enabled !== false, value => mutate(c => { c.interactables[index].enabled = value; })));
-        box.appendChild(checkRow('只能完成一次', item.once !== false, value => mutate(c => { c.interactables[index].once = value; })));
+        box.appendChild(checkRow('一次性触发', item.once !== false, value => mutate(c => { c.interactables[index].once = value; })));
         secInteractions.appendChild(box);
     });
     const addInteraction = el('button', 'ed-add-btn', '+ 新增调查点');
@@ -1590,7 +1582,7 @@ function buildMetaInspector() {
     const secVariables = section(`变量（${config.variables.length}）`);
     config.variables.forEach((variable, index) => {
         const box = card(variable.id || `变量 ${index + 1}`, () => mutate(c => { c.variables.splice(index, 1); }));
-        box.appendChild(textRow('变量 id', variable.id, value => mutate(c => { c.variables[index].id = value; })));
+        box.appendChild(textRow('变量 ID', variable.id, value => mutate(c => { c.variables[index].id = value; })));
         box.appendChild(selectRow('作用域', variable.scope, { level: '本关', campaign: '整部战役' }, value => mutate(c => { c.variables[index].scope = value; })));
         box.appendChild(selectRow('类型', variable.type, { number: '数字', boolean: '是/否', string: '文本' }, value => mutate(c => { c.variables[index].type = value; c.variables[index].initial = value === 'boolean' ? false : value === 'string' ? '' : 0; })));
         if (variable.type === 'boolean') box.appendChild(checkRow('初始值', variable.initial === true, value => mutate(c => { c.variables[index].initial = value; })));
@@ -1742,7 +1734,7 @@ export function initEditor(cbs = {}) {
 
 export function openEditor() {
     $id('editorOverlay').style.display = '';
-    refreshAll('就绪 · 左侧选择工具，画布上直接绘制；Ctrl+Z 撤销');
+    refreshAll('就绪 按下 Ctrl+Z 撤销上一个操作');
 }
 
 export function closeEditor() {
