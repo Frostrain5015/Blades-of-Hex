@@ -318,17 +318,12 @@ function runAction(action, ctx) {
             break;
         }
         case 'assignCommander': {
-            const cmdId = action.commander;
-            if (!cmdId) break;
+            if (!action.commander) break;
             for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-                unit.commander = cmdId;
+                unit.commander = action.commander;
+                if (unit.tile) emit('fx:commanderSkill', { x: unit.tile.x, y: unit.tile.y, glyph: '🎖️', label: action.commander });
             }
-            updateUI();
-            // 触发部署将领的视觉特效（金色辉光 + 🎖️勋章标志）
-            for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-                spawnCommanderSkillEffect(unit.tile?.x || 0, unit.tile?.y || 0, '🎖️', cmdId);
-            }
-            break;
+            updateUI(); break;
         }
         case 'setWeather':
             if (action.weather === 'cycle') { gameState.weather = 'clear'; gameState.lastWeather = null; }
