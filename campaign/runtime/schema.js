@@ -73,13 +73,12 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'unitAttacksUnit', label: '指定单位攻击指定单位/单位组', arg: 'eventCombatPair', event: true },
     { kind: 'unitKilled', label: '指定单位/单位组被击败', arg: 'eventTarget', event: true },
     { kind: 'cityCaptured', label: '指定城市被占领', arg: 'eventCityCapture', event: true },
-    { kind: 'turnStarted', label: '指定阵营回合开始时', arg: 'eventCamp', event: true },
+    { kind: 'turnStarted', label: '指定阵营回合开始时', arg: 'eventCampTurn', event: true },
     { kind: 'cardUsed', label: '使用指定对策卡', arg: 'card', event: true },
     { kind: 'skillUsed', label: '指定单位使用技能', arg: 'eventUnitSkill', event: true },
     { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值', event: true },
     ,{ kind: 'timer',        label: '计时器到期',   arg: 'number', note: '关卡开始后经过指定毫秒时触发一次' }
     ,{ kind: 'cityOwnedBy',  label: '城市归属于',   arg: 'cityOwner' },
-    { kind: 'turnAtLeast',  label: '回合数≥',      arg: 'number' },
     ,{ kind: 'unitExists', label: '单位存在/存活', arg: 'unitExists' }
     ,{ kind: 'unitHpCompare', label: '单位生命比较', arg: 'unitHpCompare' }
     ,{ kind: 'factionUnitCount', label: '阵营单位数量', arg: 'campCompare' }

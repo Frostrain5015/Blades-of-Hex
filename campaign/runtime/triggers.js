@@ -109,7 +109,19 @@ function evalCondition(cond, ctx) {
         case 'cityCaptured': return eventId === 'tileCaptured'
             && event?.q === cond.q && event?.r === cond.r
             && (!cond.camp || event?.newCamp === cond.camp);
-        case 'turnStarted': return eventId === 'turnStarted' && event?.camp === cond.camp;
+        case 'turnStarted': {
+            if (eventId !== 'turnStarted') return false;
+            if (cond.camp && event?.camp !== cond.camp) return false;
+            if (cond.turn != null && cond.turn > 0) {
+                const timerId = `turn:${ctx.triggerId}`;
+                if (!state._timerStarts) state._timerStarts = {};
+                if (!state._timerStarts[timerId]) state._timerStarts[timerId] = getRound(gameState);
+                if (state._timerStarts[timerId] === -1) return false;
+                if (getRound(gameState) - state._timerStarts[timerId] < Number(cond.turn)) return false;
+                state._timerStarts[timerId] = -1;
+            }
+            return true;
+        }
         case 'cardUsed': return eventId === 'cardUsed' && event?.cardId === cond.value;
         case 'skillUsed': {
             if (eventId !== 'skillUsed') return false;
@@ -152,7 +164,6 @@ function evalCondition(cond, ctx) {
             const value = cond.mode === 'percent' ? unit.hp / unit.maxHp * 100 : unit.hp;
             return compareValues(value, cond.op || '<=', Number(cond.value));
         }
-        case 'turnAtLeast': return getRound(gameState) >= (cond.value || 0);
         case 'weatherIs': return gameState.weather === cond.weather;
         case 'relationIs': return getRelation(gameState, cond.camp, cond.targetCamp) === cond.relation;
         case 'objectiveStatusIs': return gameState.objectiveStates?.[cond.objective] === cond.status;

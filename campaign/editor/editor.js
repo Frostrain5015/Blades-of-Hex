@@ -1165,7 +1165,15 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(selectRow('占领阵营', cond.camp || '', { '': '任意阵营', ...factionLabels() }, camp => patch({ camp })));
             break;
         case 'eventCamp':
+        case 'eventCampTurn':
+            box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意阵营', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
+            box.appendChild(numRow('从触发器启动起 N 回合后', cond.turn ?? 1, v => patch({ turn: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
+            break;
             box.appendChild(selectRow('阵营', cond.camp || primaryFactionId(), factionLabels(), camp => patch({ camp })));
+        case 'eventCampTurn':
+            box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意阵营', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
+            box.appendChild(numRow('从触发器启动起 N 回合后', cond.turn ?? 1, v => patch({ turn: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
+            break;
             break;
         case 'eventUnitSkill':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '施放单位' }));
