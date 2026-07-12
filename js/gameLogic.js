@@ -7,6 +7,7 @@ import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, 
 import { neutralDriverRole } from '../protocol/messages.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
+import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
@@ -325,82 +326,57 @@ export function initMap() {
     if (isNetworkGame()) seedMatchRng(getMatchSeed() ?? `room:${getMyRoomId() || '0'}`);
     gameState.tiles = [];
 
-    // City definitions: each city anchors a Voronoi district
     const is3P = gameState.isThreePlayer;
-    const cityDefs = is3P ? [
-        // 三人对称地图：每人双城 + 中央中立城
-        { q: -3, r: -3, s: 6,  districtId: 1, camp: CAMP.player1 },
-        { q: 3,  r: -6, s: 3,  districtId: 2, camp: CAMP.player1 },
-        { q: -6, r: 3,  s: 3,  districtId: 3, camp: CAMP.player2 },
-        { q: -3, r: 6,  s: -3, districtId: 4, camp: CAMP.player2 },
-        { q: 0,  r: 0,  s: 0,  districtId: 5, camp: CAMP.neutral },
-        { q: 3,  r: 3,  s: -6, districtId: 6, camp: CAMP.player3 },
-        { q: 6,  r: -3, s: -3, districtId: 7, camp: CAMP.player3 },
-    ] : [
-        { q: -5, r: 0,  s: 5,  districtId: 1, camp: CAMP.player1 },
-        { q: 5,  r: 0,  s: -5, districtId: 2, camp: CAMP.player2 },
-        { q: 2,  r: -4, s: 2,  districtId: 3, camp: CAMP.neutral },
-        { q: -2, r: 4,  s: -2, districtId: 4, camp: CAMP.neutral },
-        { q: 0,  r: 0,  s: 0,  districtId: 5, camp: CAMP.neutral },
-    ];
+    // 使用地图编辑器导出的标准对局配置
+    const boardConfig = is3P ? {
+        radius: 7,
+        cities: [
+            { q: -3, r: -3, districtId: 1, camp: 'player1' }, { q: 3, r: -6, districtId: 2, camp: 'player1' },
+            { q: -6, r: 3, districtId: 3, camp: 'player2' }, { q: -3, r: 6, districtId: 4, camp: 'player2' },
+            { q: 0, r: 0, districtId: 5, camp: 'neutral' },
+            { q: 3, r: 3, districtId: 6, camp: 'player3' }, { q: 6, r: -3, districtId: 7, camp: 'player3' },
+        ],
+        districts: [
+            { q: -4, r: 0, districtId: 1 }, { q: -5, r: 0, districtId: 1 }, { q: -6, r: 0, districtId: 1 }, { q: -7, r: 0, districtId: 1 },
+            { q: 0, r: -7, districtId: 2 }, { q: 1, r: -7, districtId: 2 }, { q: 0, r: -6, districtId: 2 }, { q: 1, r: -6, districtId: 2 },
+            { q: 0, r: -5, districtId: 2 }, { q: 1, r: -5, districtId: 2 }, { q: 0, r: -4, districtId: 2 }, { q: 1, r: -4, districtId: 2 },
+            { q: -3, r: 2, districtId: 5 }, { q: -3, r: 1, districtId: 5 }, { q: -3, r: 0, districtId: 5 },
+            { q: -1, r: -1, districtId: 5 }, { q: -1, r: -2, districtId: 5 }, { q: 0, r: -3, districtId: 5 },
+            { q: 1, r: -3, districtId: 5 }, { q: 2, r: -3, districtId: 5 }, { q: 3, r: -3, districtId: 5 },
+            { q: 3, r: -2, districtId: 5 }, { q: 3, r: -1, districtId: 5 }, { q: 3, r: 0, districtId: 5 },
+            { q: 2, r: 1, districtId: 5 }, { q: 1, r: 1, districtId: 5 }, { q: 1, r: 2, districtId: 5 },
+            { q: -2, r: 3, districtId: 5 }, { q: -1, r: 3, districtId: 5 }, { q: 0, r: 3, districtId: 5 },
+            { q: 4, r: -4, districtId: 7 }, { q: 5, r: -5, districtId: 7 }, { q: 6, r: -6, districtId: 7 }, { q: 7, r: -7, districtId: 7 },
+        ],
+        villages: [
+            { q: 1, r: -6, districtId: 2 }, { q: -6, r: 5, districtId: 3 }, { q: -1, r: 6, districtId: 4 },
+            { q: 5, r: 1, districtId: 6 }, { q: 0, r: 2, districtId: 5 }, { q: 2, r: -2, districtId: 5 },
+            { q: -2, r: 0, districtId: 5 }, { q: -4, r: -2, districtId: 1 }, { q: 6, r: -4, districtId: 7 },
+        ],
+        terrain: [],
+        fortifications: [],
+    } : {
+        radius: 7,
+        cities: [
+            { q: -5, r: 0, districtId: 1, camp: 'player1' }, { q: 5, r: 0, districtId: 2, camp: 'player2' },
+            { q: 2, r: -4, districtId: 3, camp: 'neutral' }, { q: -2, r: 4, districtId: 4, camp: 'neutral' },
+            { q: 0, r: 0, districtId: 5, camp: 'neutral' },
+        ],
+        districts: [
+            { q: 2, r: 5, districtId: 2 }, { q: 4, r: -2, districtId: 2 }, { q: 5, r: -2, districtId: 2 }, { q: 6, r: -3, districtId: 2 },
+        ],
+        villages: [
+            { q: -5, r: 6, districtId: 4 }, { q: -1, r: 6, districtId: 4 }, { q: -1, r: -1, districtId: 5 },
+            { q: 1, r: 1, districtId: 5 }, { q: 1, r: -6, districtId: 3 }, { q: 5, r: -6, districtId: 3 },
+            { q: -6, r: 3, districtId: 1 }, { q: -3, r: -3, districtId: 1 },
+            { q: 6, r: -3, districtId: 2 }, { q: 3, r: 3, districtId: 2 },
+        ],
+        terrain: [],
+        fortifications: [],
+    };
 
-    // Create all hex tiles
-    const allTiles = [];
-    for (let q = -7; q <= 7; q++) {
-        for (let r = -7; r <= 7; r++) {
-            if (Math.abs(q + r) <= 7) {
-                allTiles.push(new HexTile(q, r));
-            }
-        }
-    }
-
-    // 建立区划覆盖索引（设计文件中指定的边界优先于 Voronoi）
-    const overrideMap = new Map();
-    const overrides = is3P ? [
-        ['-4,0',1],['-5,0',1],['-6,0',1],['-7,0',1],
-        ['0,-7',2],['1,-7',2],['0,-6',2],['1,-6',2],['0,-5',2],['1,-5',2],['0,-4',2],['1,-4',2],
-        ['-3,2',5],['-3,1',5],['-3,0',5],['-1,-1',5],['-1,-2',5],['0,-3',5],
-        ['1,-3',5],['2,-3',5],['3,-3',5],['3,-2',5],['3,-1',5],['3,0',5],
-        ['2,1',5],['1,1',5],['1,2',5],['-2,3',5],['-1,3',5],['0,3',5],
-        ['4,-4',7],['5,-5',7],['6,-6',7],['7,-7',7],
-    ] : [
-        ['2,5',2],['4,-2',2],['5,-2',2],['6,-3',2],
-    ];
-    for (const [k, d] of overrides) overrideMap.set(k, d);
-
-    // 按配置分配地块：有覆盖用覆盖，无覆盖用 Voronoi 兜底
-    for (const tile of allTiles) {
-        const key = `${tile.q},${tile.r}`;
-        const overrideId = overrideMap.get(key);
-        if (overrideId != null) {
-            tile.districtId = overrideId;
-            tile.camp = cityDefs.find(c => c.districtId === overrideId)?.camp || CAMP.neutral;
-        } else {
-            let bestDist = Infinity;
-            let bestCity = null;
-            for (const city of cityDefs) {
-                const dist = hexDistance(tile, city);
-                if (dist < bestDist) { bestDist = dist; bestCity = city; }
-            }
-            tile.districtId = bestCity.districtId;
-            tile.camp = bestCity.camp;
-        }
-        tile.currentColor = tile.camp.color;
-        tile.targetColor = tile.camp.color;
-        gameState.tiles.push(tile);
-    }
-
-    // Mark city tiles
-    for (const city of cityDefs) {
-        const cityTile = gameState.tiles.find(t => t.q === city.q && t.r === city.r);
-        if (cityTile) cityTile.isCity = true;
-    }
-
+    buildBoardFromConfig({ board: boardConfig }, gameState);
     updateButtonColors();
-    rebuildTileMap();
-    generateTerrain(gameState.tiles);
-    gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
-    gameState.districtBorderEdges = computeDistrictBorders(gameState.tiles, gameState.tileMap);
     initInitialUnits();
 
     // 遭遇战迷雾：初始化（支持联机遭遇战与 PVE 遭遇战）
