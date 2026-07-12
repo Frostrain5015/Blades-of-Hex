@@ -1483,21 +1483,21 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                 godMode: '✨ 无敌'
             };
             const PRESET_VALUES = {
-                atkUp: { name: '攻击上升', emoji: '⚔️', statMods: { atkPct: 30 }, rule: null },
-                defUp: { name: '防御上升', emoji: '🛡️', statMods: { defPct: 30 }, rule: null },
-                atkDown: { name: '攻击下降', emoji: '⬇️', statMods: { atkPct: -20 }, rule: null },
-                defDown: { name: '防御下降', emoji: '🔻', statMods: { defPct: -20 }, rule: null },
-                spdUp: { name: '迅捷', emoji: '⚡', statMods: { spdPct: 40 }, rule: null },
-                spdDown: { name: '迟缓', emoji: '🐢', statMods: { spdPct: -30 }, rule: null },
-                hpUp: { name: '丰饶', emoji: '💚', statMods: { hpPct: 30 }, rule: null },
-                hpDown: { name: '脆弱', emoji: '💔', statMods: { hpPct: -30 }, rule: null },
-                minHp: { name: '不可言说的力量', emoji: '❓', statMods: {}, rule: 'minHp' },
-                maxHp: { name: '不可言说的边界', emoji: '🔒', statMods: {}, rule: 'maxHp' },
-                godMode: { name: '无敌', emoji: '✨', statMods: {}, rule: 'godMode' }
+                atkUp: { name: '攻击上升', emoji: '⚔️', desc: '攻击力提高', statMods: { atkPct: '' }, rule: null },
+                defUp: { name: '防御上升', emoji: '🛡️', desc: '防御力提高', statMods: { defPct: '' }, rule: null },
+                atkDown: { name: '攻击下降', emoji: '⬇️', desc: '攻击力降低', statMods: { atkPct: '' }, rule: null },
+                defDown: { name: '防御下降', emoji: '🔻', desc: '防御力降低', statMods: { defPct: '' }, rule: null },
+                spdUp: { name: '迅捷', emoji: '⚡', desc: '行动力提高', statMods: { spdFlat: '' }, rule: null },
+                spdDown: { name: '迟缓', emoji: '🐢', desc: '行动力降低', statMods: { spdFlat: '' }, rule: null },
+                hpUp: { name: '丰饶', emoji: '💚', desc: '生命上限提高', statMods: { hpPct: '' }, rule: null },
+                hpDown: { name: '脆弱', emoji: '💔', desc: '生命上限降低', statMods: { hpPct: '' }, rule: null },
+                minHp: { name: '不可言说的力量', emoji: '❓', desc: '锁下限', statMods: {}, rule: 'minHp' },
+                maxHp: { name: '不可言说的边界', emoji: '🔒', desc: '锁上限', statMods: {}, rule: 'maxHp' },
+                godMode: { name: '无敌', emoji: '✨', desc: '免疫所有伤害', statMods: {}, rule: 'godMode' }
             };
             box.appendChild(selectRow('预设效果', action.preset || '', PRESETS, v => {
                 const p = PRESET_VALUES[v];
-                if (p) patch({ preset: v, name: p.name, emoji: p.emoji, statMods: p.statMods, rule: p.rule, ...(p.rule === 'minHp' || p.rule === 'maxHp' ? { rulePercent: 50 } : {}) });
+                if (p) patch({ preset: v, name: p.name, emoji: p.emoji, desc: p.desc, statMods: p.statMods, rule: p.rule, ...(p.rule === 'minHp' || p.rule === 'maxHp' ? { rulePercent: 50 } : {}) });
                 else patch({ preset: '', name: action.name || '', emoji: action.emoji || '✨', statMods: action.statMods || {}, rule: undefined });
             }));
             box.appendChild(textRow('效果名称', action.name || '', v => patch({ name: v })));
@@ -1512,7 +1512,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             sec.appendChild(numRow('通用防御 ±%', action.statMods?.defPct ?? '', v => patch({ statMods: { ...action.statMods, defPct: v || undefined } }), { min: -100, max: 500 }));
             sec.appendChild(numRow('近战防御 ±%', action.statMods?.meleeDefPct ?? '', v => patch({ statMods: { ...action.statMods, meleeDefPct: v || undefined } }), { min: -100, max: 500 }));
             sec.appendChild(numRow('远程防御 ±%', action.statMods?.rangeDefPct ?? '', v => patch({ statMods: { ...action.statMods, rangeDefPct: v || undefined } }), { min: -100, max: 500 }));
-            sec.appendChild(numRow('速度 ±%', action.statMods?.spdPct ?? '', v => patch({ statMods: { ...action.statMods, spdPct: v || undefined } }), { min: -100, max: 500 }));
+            sec.appendChild(numRow('行动力', action.statMods?.spdFlat ?? '', v => patch({ statMods: { ...action.statMods, spdFlat: v || undefined } }), { min: -99, max: 99 }));
             sec.appendChild(numRow('生命上限 ±%', action.statMods?.hpPct ?? '', v => patch({ statMods: { ...action.statMods, hpPct: v || undefined } }), { min: -100, max: 500 }));
             box.appendChild(sec);
             break;
