@@ -292,7 +292,7 @@ function render() {
     // 单位图钉悬停时在棋盘上显示🚩
     if (pendingUnitFlag) {
         const t = preview.tileMap.get(tileKey(pendingUnitFlag.q, pendingUnitFlag.r));
-        if (t) { ctx.save(); ctx.font = '32px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🚩', t.x, t.y); ctx.restore(); }
+        if (t) { ctx.save(); ctx.globalAlpha = 1; ctx.font = '40px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🚩', t.x, t.y); ctx.restore(); }
     }
     const selTile = selectionTile();
     if (selTile) drawHexagonOutline(ctx, selTile.x, selTile.y, HEX_SIZE, '#e6c200', 2.4);
