@@ -157,24 +157,20 @@ export const config = {
         }
     },
 
-    // ── 触发器（全部使用内联 showStep，不再有独立的 steps 表）───
-    // 同一触发器的 do 数组中，有 _id 的内联步骤会预注册到 _inlineStepMap，
-    // 供 next 链查找；每次触发只执行第一个内联 showStep，其余由点击推进。
+    // ── 触发器（内联 showStep 按 do 数组顺序自动编排+自动挂钩）
     triggers: [
-        // 0. 关卡开始时展示开场对话（含连续三页）
+        // 0. 关卡开始时展示开场对话（三页自动连播）
         {
             id: 'start_dialogue',
             when: [{ kind: 'levelStarted' }],
             do: [
-                { kind: 'showStep', _id: 'intro1', mode: 'character',
+                { kind: 'showStep', mode: 'character',
                   speaker: { name: '马库斯', portrait: '百夫长' },
-                  text: '新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。',
-                  next: 'intro2' },
-                { kind: 'showStep', _id: 'intro2', mode: 'character',
+                  text: '新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。' },
+                { kind: 'showStep', mode: 'character',
                   speaker: { name: '马库斯', portrait: '百夫长' },
-                  text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。',
-                  next: 'select_guide' },
-                { kind: 'showStep', _id: 'select_guide', mode: 'narrator',
+                  text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。' },
+                { kind: 'showStep', mode: 'narrator',
                   text: '点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。',
                   lock: true, highlight: { unit: 'recruit1', hint: '请点击你的步兵' } }
             ],
@@ -188,7 +184,7 @@ export const config = {
                 kind: 'unitSelected',
                 target: { unit: 'recruit1' }
             }],
-            do: [{ kind: 'showStep', _id: 'move_guide', mode: 'narrator',
+            do: [{ kind: 'showStep', mode: 'narrator',
                    text: '好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。',
                    lock: true, highlight: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' } }],
             once: true,
@@ -203,13 +199,13 @@ export const config = {
                 q: 0,
                 r: 0
             }],
-            do: [{ kind: 'showStep', _id: 'attack_guide', mode: 'narrator',
+            do: [{ kind: 'showStep', mode: 'narrator',
                    text: '现在攻击训练草靶。点击假人所在位置进行攻击。',
                    lock: true, highlight: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' } }],
             once: true,
             enabled: true
         },
-        // 3. recruit1 攻击 target1 → 展示收束剧情（含两页）
+        // 3. recruit1 攻击 target1 → 展示收束剧情（两页自动连播）
         {
             id: 'advance_to_outro',
             when: [{
@@ -218,22 +214,20 @@ export const config = {
                 defender: { unit: 'target1' }
             }],
             do: [
-                { kind: 'showStep', _id: 'outro1', mode: 'character',
+                { kind: 'showStep', mode: 'character',
                   speaker: { name: '马库斯', portrait: '百夫长' },
-                  text: '很好。选择——移动——攻击。这是战场上的三个基本动作。你们已经掌握了。',
-                  next: 'outro2' },
-                { kind: 'showStep', _id: 'outro2', mode: 'character',
+                  text: '很好。选择——移动——攻击。这是战场上的三个基本动作。你们已经掌握了。' },
+                { kind: 'showStep', mode: 'character',
                   speaker: { name: '马库斯', portrait: '百夫长' },
-                  text: '刀剑无影，重要的是谁拿着他们。今天就到这里。',
-                  next: '__complete__' }
+                  text: '刀剑无影，重要的是谁拿着他们。今天就到这里。' }
             ],
             once: true,
             enabled: true
         },
-        // 4. __complete__ 信号 → 完成关卡
+        // 4. 收束对话结束后（无下一张卡片）→ 完成关卡
         {
-            id: 'complete_level',
-            when: [{ kind: 'eventNextIs', value: '__complete__' }],
+            id: 'check_complete',
+            when: [{ kind: 'eventNextIs', value: '__chain_end__' }],
             do: [
                 { kind: 'setObjectiveStatus', objective: 'main_training', status: 'completed' },
                 { kind: 'unlockInput' },

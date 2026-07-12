@@ -64,9 +64,14 @@ export function createCampaignController({ onRetry, onReturn }) {
     function _advanceFromClick() {
         if (!active) return;
         const step = gameState._inlineStepData;
-        if (!step || !step.next) return;
-        if (step.next.startsWith('__')) activeFlow?.onAdvance?.(step.next);
-        else if (gameState._inlineStepMap?.[step.next]) showStep(gameState._inlineStepMap[step.next]);
+        if (!step) return;
+        if (step.next) {
+            if (step.next.startsWith('__')) activeFlow?.onAdvance?.(step.next);
+            else if (gameState._inlineStepMap?.[step.next]) showStep(gameState._inlineStepMap[step.next]);
+        } else {
+            // 没有 next = 链尾，发送链结束信号
+            activeFlow?.onAdvance?.('__chain_end__');
+        }
     }
 
     function tileForTarget(target) {

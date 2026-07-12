@@ -1110,7 +1110,6 @@ function _paramLine(obj) {
     if (obj.area) parts.push(`区域:${obj.area}`);
     if (obj.tiles?.length) parts.push(`📍${obj.tiles.length}格`);
     if (obj.step) parts.push(`步骤:${obj.step}`);
-    if (obj.text) parts.push(`"${obj.text.slice(0, 30)}"`);
     if (obj.objective) parts.push(`目标:${obj.objective}`);
     if (obj.status) parts.push(`→${obj.status}`);
     // highlight 嵌套字段（showStep 专用）
@@ -1561,11 +1560,27 @@ function conditionListEditor(list, onChange, { parentIsAny = false } = {}) {
 
 function actionListEditor(list, onChange, allowNested = true) {
     const wrap = el('div');
+    let dragIndex = -1;
     (list || []).forEach((action, i) => {
-        wrap.appendChild(actionEditor(action,
+        const editor = actionEditor(action,
             next => { const arr = list.slice(); arr[i] = next; onChange(arr); },
             () => { const arr = list.slice(); arr.splice(i, 1); onChange(arr); },
-            allowNested));
+            allowNested);
+        editor.draggable = true;
+        editor.dataset.index = i;
+        editor.addEventListener('dragstart', (e) => { dragIndex = Number(editor.dataset.index); e.dataTransfer.effectAllowed = 'move'; });
+        editor.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+        editor.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (dragIndex < 0 || dragIndex === i) return;
+            const arr = list.slice();
+            const [moved] = arr.splice(dragIndex, 1);
+            arr.splice(i, 0, moved);
+            onChange(arr);
+            dragIndex = -1;
+        });
+        editor.addEventListener('dragend', () => { dragIndex = -1; });
+        wrap.appendChild(editor);
     });
     const add = el('button', 'ed-add-btn', '+ 添加动作（依次执行）');
     add.addEventListener('click', () => onChange([...(list || []), { kind: 'showStep', ...actionDefaults('showStep') }]));

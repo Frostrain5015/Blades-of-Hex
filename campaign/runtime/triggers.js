@@ -358,22 +358,26 @@ export function createTriggerFlow(config, api) {
     const enabled = new Map(triggers.map(trigger => [trigger._id, trigger.enabled !== false]));
     const result = config.result || {};
 
-    // 预注册所有内联 showStep 的 _id，供 next 链查找
+    // 自动编排内联 showStep：按 do 数组顺序分配 _id，相邻自动挂钩
+    // 第一个执行，点击后自动推进到下一个，最后一个点击后结束（无 next）
     if (!gameState._inlineStepMap) gameState._inlineStepMap = {};
+    let seq = 0;
     for (const trigger of triggers) {
-        for (const action of (trigger.do || [])) {
-            if (action.kind === 'showStep' && action._id) {
-                const hasNext = action.next != null && action.next !== '';
-                gameState._inlineStepMap[action._id] = {
-                    phase: hasNext ? 'dialog' : 'wait',
-                    mode: action.mode || 'narrator',
-                    text: action.text || '',
-                    speaker: action.mode === 'character' && action.speaker ? { name: action.speaker.name, portrait: action.speaker.portrait } : undefined,
-                    next: action.next || undefined,
-                    highlight: action.highlight,
-                    lock: action.lock
-                };
-            }
+        const steps = (trigger.do || []).filter(a => a.kind === 'showStep' && !a.step);
+        for (let i = 0; i < steps.length; i++) {
+            const action = steps[i];
+            if (!action._id) action._id = `_auto_${++seq}`;
+            // 自动设置 next：最后一个没有 next，之前的指向下一个
+            const hasNext = i < steps.length - 1;
+            gameState._inlineStepMap[action._id] = {
+                phase: hasNext ? 'dialog' : 'wait',
+                mode: action.mode || 'narrator',
+                text: action.text || '',
+                speaker: action.mode === 'character' && action.speaker ? { name: action.speaker.name, portrait: action.speaker.portrait } : undefined,
+                next: hasNext ? steps[i + 1]._id : undefined,
+                highlight: action.highlight,
+                lock: action.lock
+            };
         }
     }
 

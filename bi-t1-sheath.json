@@ -167,29 +167,24 @@
       "do": [
         {
           "kind": "showStep",
-          "_id": "intro1",
           "mode": "character",
           "speaker": {
             "name": "马库斯",
             "portrait": "百夫长"
           },
-          "text": "新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。",
-          "next": "intro2"
+          "text": "新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。"
         },
         {
           "kind": "showStep",
-          "_id": "intro2",
           "mode": "character",
           "speaker": {
             "name": "马库斯",
             "portrait": "百夫长"
           },
-          "text": "我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。",
-          "next": "select_guide"
+          "text": "我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。"
         },
         {
           "kind": "showStep",
-          "_id": "select_guide",
           "mode": "narrator",
           "text": "点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。",
           "lock": true,
@@ -215,7 +210,6 @@
       "do": [
         {
           "kind": "showStep",
-          "_id": "move_guide",
           "mode": "narrator",
           "text": "好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。",
           "lock": true,
@@ -248,7 +242,6 @@
       "do": [
         {
           "kind": "showStep",
-          "_id": "attack_guide",
           "mode": "narrator",
           "text": "现在攻击训练草靶。点击假人所在位置进行攻击。",
           "lock": true,
@@ -282,36 +275,32 @@
       "do": [
         {
           "kind": "showStep",
-          "_id": "outro1",
           "mode": "character",
           "speaker": {
             "name": "马库斯",
             "portrait": "百夫长"
           },
-          "text": "很好。选择——移动——攻击。这是战场上的三个基本动作。你们已经掌握了。",
-          "next": "outro2"
+          "text": "很好。选择——移动——攻击。这是战场上的三个基本动作。你们已经掌握了。"
         },
         {
           "kind": "showStep",
-          "_id": "outro2",
           "mode": "character",
           "speaker": {
             "name": "马库斯",
             "portrait": "百夫长"
           },
-          "text": "刀剑无影，重要的是谁拿着他们。今天就到这里。",
-          "next": "__complete__"
+          "text": "刀剑无影，重要的是谁拿着他们。今天就到这里。"
         }
       ],
       "once": true,
       "enabled": true
     },
     {
-      "id": "complete_level",
+      "id": "check_complete",
       "when": [
         {
           "kind": "eventNextIs",
-          "value": "__complete__"
+          "value": "__chain_end__"
         }
       ],
       "do": [
