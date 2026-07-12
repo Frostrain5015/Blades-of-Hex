@@ -115,7 +115,10 @@ function evalCondition(cond, ctx) {
             && targetIncludesUnit(config, cond.target, event?.unitId)
             && (!cond.skill || event?.skillId === cond.skill);
         case 'goldCompare': return compareValues(gameState.playerGold[cond.camp] || 0, cond.op || '>=', Number(cond.value));
-        case 'variableCompare': return compareValues(gameState.levelVariables?.[cond.variable], cond.op || '==', cond.value);
+        case 'variableCompare': {
+            const vars = cond.scope === 'campaign' ? gameState.campaignVariables : gameState.levelVariables;
+            return compareValues(vars?.[cond.variable], cond.op || '==', cond.value);
+        }
         case 'eventNextIs': case 'eventChoiceIs': return eventId === 'advance' && (event?.next === cond.value || event?.choiceId === cond.value);
         case 'eventInteractionIs': return eventId === 'interactionCompleted' && event?.interactableId === cond.interactable;
         case 'timer': {

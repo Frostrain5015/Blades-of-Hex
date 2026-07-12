@@ -1273,7 +1273,9 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(selectRow('比较', cond.op || '>=', { '<': '少于', '<=': '不多于', '==': '等于', '>=': '不少于', '>': '多于' }, v => patch({ op: v })));
             box.appendChild(numRow('金币', cond.value ?? 1, v => patch({ value: Math.max(0, v) }))); break;
         case 'variableCompare':
-            box.appendChild(selectRow('变量', cond.variable || '', Object.fromEntries(config.variables.filter(item => item.scope === 'level').map(item => [item.id, item.id])), v => patch({ variable: v })));
+            box.appendChild(selectRow('作用域', cond.scope || 'level', { level: '本关', campaign: '战役' }, v => patch({ scope: v, variable: '' })));
+            const scopeVars = config.variables.filter(item => item.scope === (cond.scope || 'level'));
+            box.appendChild(selectRow('变量', cond.variable || '', Object.fromEntries(scopeVars.map(item => [item.id, item.id])), v => patch({ variable: v })));
             box.appendChild(selectRow('比较', cond.op || '==', { '==': '等于', '!=': '不等于', '<': '小于', '<=': '小于等于', '>=': '大于等于', '>': '大于' }, v => patch({ op: v })));
             box.appendChild(textRow('值', String(cond.value ?? 0), v => patch({ value: v }))); break;
         case 'mechanicBoolean':
