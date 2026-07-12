@@ -7,7 +7,7 @@ import { EMOJI } from './symbols.js';
 
 /** 阵营的显示名、底色和旗帜 emoji。 */
 export const CAMP_DATA = deepFreeze({
-    player1: { name: '红军', color: '#ffaaaa', flag: EMOJI.camp.player1 },
+    player1: { name: '红军', color: '#e05050', flag: EMOJI.camp.player1 },
     player2: { name: '蓝军', color: '#aaaaff', flag: EMOJI.camp.player2 },
     player3: { name: '绿军', color: '#aaffaa', flag: EMOJI.camp.player3 },
     neutral: { name: '中立', color: '#c0c0c0', flag: EMOJI.camp.neutral }

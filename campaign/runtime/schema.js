@@ -139,7 +139,7 @@ export function createDefaultLevel() {
         intro: { campaignTitle: '将星列传', scenarioSubtitle: '新关卡' },
         weather: 'clear',
         localPlayerCamp: 'player1',
-        factions: [{ id: 'player1', name: '红军', color: '#ffaaaa', controller: 'human', participatesInTurns: true, active: true }],
+        factions: [{ id: 'player1', name: '红军', color: '#e05050', controller: 'human', participatesInTurns: true, active: true }],
         diplomacy: {},
         mechanics: createDefaultMechanics(),
         aiOpponentCamp: 'player2',
