@@ -1147,6 +1147,19 @@ function _addCardClickHighlight(box, obj) {
 }
 
 // 从条件/动作萃取棋盘高亮数据（用于点击卡片后在棋盘上回显）
+
+// 根据 statMods 自动生成效果描述文本
+function _buildEffectDesc(m) {
+    if (!m || typeof m !== 'object') return '';
+    const parts = [];
+    if (m.atkPct) parts.push(`攻击力 ${m.atkPct > 0 ? '+' : ''}${m.atkPct}%`);
+    if (m.defPct) parts.push(`通用防御 ${m.defPct > 0 ? '+' : ''}${m.defPct}%`);
+    if (m.meleeDefPct) parts.push(`近防 ${m.meleeDefPct > 0 ? '+' : ''}${m.meleeDefPct}%`);
+    if (m.rangeDefPct) parts.push(`远防 ${m.rangeDefPct > 0 ? '+' : ''}${m.rangeDefPct}%`);
+    if (m.spdFlat) parts.push(`行动力 ${m.spdFlat > 0 ? '+' : ''}${m.spdFlat}`);
+    if (m.hpPct) parts.push(`血量 ${m.hpPct > 0 ? '+' : ''}${m.hpPct}%`);
+    return parts.length ? parts.join(' ') : '';
+}
 function _extractHighlights(obj) {
     if (!obj || typeof obj !== 'object') return null;
     const tiles = [];
@@ -1470,10 +1483,10 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             // 预设效果（自动填充名称/表情/修正/特殊规则）
             const PRESETS = {
                 '': '── 自定义 ──',
-                atkUp: '⚔️ 攻击上升',
-                defUp: '🛡️ 防御上升',
-                atkDown: '💔 攻击下降',
-                defDown: '🔻 防御下降',
+                atkUp: '⚔️ 攻击++',
+                defUp: '🛡️ 防御++',
+                atkDown: '💔 攻击--',
+                defDown: '🔻 防御--',
                 spdUp: '💨 迅捷',
                 spdDown: '🐢 迟缓',
                 hpUp: '❤️ 生命上限提升',
@@ -1508,12 +1521,12 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                 box.appendChild(numRow('阈值百分比', action.rulePercent ?? 50, v => patch({ rulePercent: Math.max(1, Math.min(100, Math.round(v))) }), { min: 1, max: 100 }));
             }
             const sec = section('属性修正（留空=不修正）');
-            sec.appendChild(numRow('攻击力 ±%', action.statMods?.atkPct ?? '', v => patch({ statMods: { ...action.statMods, atkPct: v || undefined } }), { min: -100, max: 500 }));
-            sec.appendChild(numRow('通用防御 ±%', action.statMods?.defPct ?? '', v => patch({ statMods: { ...action.statMods, defPct: v || undefined } }), { min: -100, max: 500 }));
-            sec.appendChild(numRow('近战防御 ±%', action.statMods?.meleeDefPct ?? '', v => patch({ statMods: { ...action.statMods, meleeDefPct: v || undefined } }), { min: -100, max: 500 }));
-            sec.appendChild(numRow('远程防御 ±%', action.statMods?.rangeDefPct ?? '', v => patch({ statMods: { ...action.statMods, rangeDefPct: v || undefined } }), { min: -100, max: 500 }));
-            sec.appendChild(numRow('行动力', action.statMods?.spdFlat ?? '', v => patch({ statMods: { ...action.statMods, spdFlat: v || undefined } }), { min: -99, max: 99 }));
-            sec.appendChild(numRow('生命上限 ±%', action.statMods?.hpPct ?? '', v => patch({ statMods: { ...action.statMods, hpPct: v || undefined } }), { min: -100, max: 500 }));
+            sec.appendChild(numRow('攻击力 ±%', action.statMods?.atkPct ?? '', v => (() => { const __m = { ...action.statMods, atkPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
+            sec.appendChild(numRow('通用防御 ±%', action.statMods?.defPct ?? '', v => (() => { const __m = { ...action.statMods, defPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
+            sec.appendChild(numRow('近战防御 ±%', action.statMods?.meleeDefPct ?? '', v => (() => { const __m = { ...action.statMods, meleeDefPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
+            sec.appendChild(numRow('远程防御 ±%', action.statMods?.rangeDefPct ?? '', v => (() => { const __m = { ...action.statMods, rangeDefPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
+            sec.appendChild(numRow('行动力', action.statMods?.spdFlat ?? '', v => (() => { const __m = { ...action.statMods, spdFlat: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -99, max: 99 }));
+            sec.appendChild(numRow('生命上限 ±%', action.statMods?.hpPct ?? '', v => (() => { const __m = { ...action.statMods, hpPct: v || undefined }; patch({ statMods: __m, desc: _buildEffectDesc(__m) || undefined }); })(), { min: -100, max: 500 }));
             box.appendChild(sec);
             break;
         }
