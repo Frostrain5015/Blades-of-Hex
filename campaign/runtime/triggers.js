@@ -111,9 +111,17 @@ function evalCondition(cond, ctx) {
             && (!cond.camp || event?.newCamp === cond.camp);
         case 'turnStarted': return eventId === 'turnStarted' && event?.camp === cond.camp;
         case 'cardUsed': return eventId === 'cardUsed' && event?.cardId === cond.value;
-        case 'skillUsed': return eventId === 'skillUsed'
-            && targetIncludesUnit(config, cond.target, event?.unitId)
-            && (!cond.skill || event?.skillId === cond.skill);
+        case 'skillUsed': {
+            if (eventId !== 'skillUsed') return false;
+            if (!targetIncludesUnit(config, cond.target, event?.unitId)) return false;
+            if (cond.skill && event?.skillId !== cond.skill) return false;
+            if (cond.skillType && event?.skillType !== cond.skillType) return false;
+            // 被动技能叠层检查：stacks 满足比较条件时才触发
+            if (cond.stacks != null && event?.stacks != null) {
+                return compareValues(event.stacks, cond.stackOp || '>=', Number(cond.stacks));
+            }
+            return true;
+        }
         case 'goldCompare': return compareValues(gameState.playerGold[cond.camp] || 0, cond.op || '>=', Number(cond.value));
         case 'variableCompare': {
             const vars = cond.scope === 'campaign' ? gameState.campaignVariables : gameState.levelVariables;
@@ -392,7 +400,7 @@ export function createTriggerFlow(config, api) {
         onTileSelected({ tile, unit }) { dispatch('tileSelected', { q: tile?.q, r: tile?.r, unitId: unit?.id, camp: campKeyOf(unit?.camp) }); if (unit) dispatch('unitSelected', { unitId: unit.id, camp: campKeyOf(unit.camp) }); },
         onCardUsed({ cardId, targetUnitId, targetTile }) { dispatch('cardUsed', { cardId, targetUnitId, q: targetTile?.q, r: targetTile?.r }); },
         onUnitMoved({ unit, targetTile, fromQ, fromR }) { dispatch('unitMoved', { unitId: unit?.id, camp: campKeyOf(unit?.camp), fromQ, fromR, q: targetTile?.q, r: targetTile?.r }); },
-        onSkillUsed({ unit, skillId }) { dispatch('skillUsed', { unitId: unit?.id, skillId, camp: campKeyOf(unit?.camp) }); },
+        onSkillUsed({ unit, skillId, skillType, stacks }) { dispatch('skillUsed', { unitId: unit?.id, skillId, skillType, stacks, camp: campKeyOf(unit?.camp) }); },
         onCityCaptured({ cityTile, campKey }) { dispatch('tileCaptured', { q: cityTile?.q, r: cityTile?.r, newCamp: campKey }); },
         onTurnStarted({ camp, campKey }) {
             const key = campKey || campKeyOf(camp);

@@ -1051,7 +1051,7 @@ function conditionDefaults(kind) {
         case 'cityCaptured': return { q: 0, r: 0, camp: '' };
         case 'turnStarted': return { camp: primaryFactionId() };
         case 'cardUsed': return { value: CARD_IDS[0] };
-        case 'skillUsed': return { target: { unit: config.units[0]?.id || '' }, skill: '' };
+        case 'skillUsed': return { target: { unit: config.units[0]?.id || '' }, skill: '', skillType: '', stacks: undefined };
         case 'eventCardIs': return { value: CARD_IDS[0] };
         case 'cityOwnedBy': return { q: 0, r: 0, camp: primaryFactionId() };
         case 'turnAtLeast': return { value: 1 };
@@ -1169,7 +1169,12 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             break;
         case 'eventUnitSkill':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '施放单位' }));
-            box.appendChild(textRow('技能 id（留空=任意）', cond.skill || '', skill => patch({ skill })));
+            box.appendChild(selectRow('技能类型', cond.skillType || '', { '': '任意', active: '主动技能', passive: '被动技能' }, v => patch({ skillType: v || undefined })));
+            box.appendChild(textRow('技能 id（留空=任意）', cond.skill || '', skill => patch({ skill: skill || undefined })));
+            if (cond.skillType === 'passive') {
+                box.appendChild(selectRow('叠层比较', cond.stackOp || '>=', { '>=': '不少于', '<=': '不多于', '==': '等于' }, v => patch({ stackOp: v })));
+                box.appendChild(numRow('叠层数', cond.stacks ?? 1, v => patch({ stacks: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
+            }
             break;
         case 'step':
             box.appendChild(selectRow('步骤', cond.value || '', stepOptions(true), v => patch({ value: v }))); break;
