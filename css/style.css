@@ -4442,7 +4442,10 @@ body.campaign-lobby-active .chronicle-nav-btn { display: flex; }
 #notificationBanner.notify-success { color: #6fcf7a; border-color: rgba(111, 207, 122, 0.35); text-shadow: 0 0 6px rgba(111, 207, 122, 0.30); }
 #notificationBanner.notify-warn  { color: #e8a840; border-color: rgba(232, 168, 64, 0.35);  text-shadow: 0 0 6px rgba(232, 168, 64, 0.30); }
 #notificationBanner.notify-error { color: #e8a840; border-color: rgba(232, 168, 64, 0.40);  text-shadow: 0 0 6px rgba(232, 168, 64, 0.35); }
-
+/* 战役模式下下移胶囊提示，避免与任务 HUD 重叠 */
+body.campaign-game-active #notificationBanner {
+    top: 140px;
+}
 
 /* ============================================================
    PORTRAIT WARNING & MOBILE LANDSCAPE
