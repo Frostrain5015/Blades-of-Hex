@@ -183,6 +183,13 @@ function render() {
             const t = preview.tileMap.get(key);
             if (t) drawHexagonOutline(ctx, t.x, t.y, HEX_SIZE, 'rgba(255,200,50,0.8)', 2.8);
         }
+        for (const flagKey of (pendingPick.flags || [])) {
+            const m = flagKey.match(/^flag:(.+)$/);
+            if (m) {
+                const t = preview.tileMap.get(m[1]);
+                if (t) { ctx.font = '28px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🚩', t.x, t.y); }
+            }
+        }
         if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.8)', 2);
     } else {
         if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.55)', 1.6);
@@ -880,16 +887,21 @@ function unitOptions(includeEmpty = true) {
     const opts = Object.fromEntries(config.units.map(u => [u.id, `${u.id}（${CAMP_LABELS[u.camp]}${UNIT_LABELS[u.type]}）`]));
     return includeEmpty ? { '': '（无）', ...opts } : opts;
 }
-/** 生成一个「📌 选单位」按钮，点击后进入画布点选模式。 */
-function pickUnitButton(onChange) {
+/** 生成一个「📌 选单位」按钮，点击后进入画布点选模式。currentId 为已选单位 id。 */
+function pickUnitButton(onChange, currentId) {
     const btn = el('button', 'ed-pick-btn', '📌');
     btn.title = '点击棋盘上的单位';
     btn.addEventListener('click', () => {
+        const flags = new Set();
+        if (currentId) {
+            const u = config.units.find(u => u.id === currentId);
+            if (u) flags.add(`flag:${u.q},${u.r}`);
+        }
         pendingPick = { mode: 'tile', callback: (tile) => {
             const hit = unitsByCoord().get(tileKey(tile.q, tile.r));
             if (hit) { onChange(hit.unit.id); renderInspector(); render(); }
             else { setStatus('该格没有单位', 'error'); render(); }
-        }, picked: new Set(), label: '点击棋盘上的单位' };
+        }, picked: new Set(), flags, label: '点击棋盘上的单位' };
         showPickBar('tile', '点击棋盘上的目标单位', null, () => {});
         render();
     });
@@ -1047,7 +1059,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'unitRef': {
             const unitRow = el('div', 'ed-row');
             unitRow.appendChild(el('label', null, '单位'));
-            unitRow.appendChild(pickUnitButton(id => patch({ unit: id })));
+            unitRow.appendChild(pickUnitButton(id => patch({ unit: id }), cond.unit));
             unitRow.appendChild(el('span', null, cond.unit || '未选择'));
             box.appendChild(unitRow);
         } break;
