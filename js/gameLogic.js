@@ -334,10 +334,10 @@ export function initMap() {
         { q: 0,  r: -6, s: 6,  districtId: 3, camp: CAMP.player3 },
         { q: 0,  r: 0,  s: 0,  districtId: 5, camp: CAMP.neutral },
     ] : [
-        { q: -6, r: 0,  s: 6,  districtId: 1, camp: CAMP.player1 },
-        { q: 6,  r: 0,  s: -6, districtId: 2, camp: CAMP.player2 },
-        { q: 0,  r: -6, s: 6,  districtId: 3, camp: CAMP.neutral },
-        { q: 0,  r: 6,  s: -6, districtId: 4, camp: CAMP.neutral },
+        { q: -5, r: 0,  s: 5,  districtId: 1, camp: CAMP.player1 },
+        { q: 5,  r: 0,  s: -5, districtId: 2, camp: CAMP.player2 },
+        { q: 2,  r: -4, s: 2,  districtId: 3, camp: CAMP.neutral },
+        { q: -2, r: 4,  s: -2, districtId: 4, camp: CAMP.neutral },
         { q: 0,  r: 0,  s: 0,  districtId: 5, camp: CAMP.neutral },
     ];
 
