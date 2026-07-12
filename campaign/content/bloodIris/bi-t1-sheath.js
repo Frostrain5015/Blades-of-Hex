@@ -172,7 +172,7 @@ export const config = {
                   text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。' },
                 { kind: 'showStep',
                   text: '点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。',
-                  lock: true, highlight: { unit: 'recruit1', hint: '请点击你的步兵' } }
+                  boardLock: true, dialogLock: true, highlight: { unit: 'recruit1', hint: '请点击你的步兵' } }
             ],
             once: true,
             enabled: true
@@ -186,7 +186,7 @@ export const config = {
             }],
             do: [{ kind: 'showStep',
                    text: '好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。',
-                   lock: true, highlight: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' } }],
+                   boardLock: true, dialogLock: true, highlight: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' } }],
             once: true,
             enabled: true
         },
@@ -201,7 +201,7 @@ export const config = {
             }],
             do: [{ kind: 'showStep',
                    text: '现在攻击训练草靶。点击假人所在位置进行攻击。',
-                   lock: true, highlight: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' } }],
+                   boardLock: true, dialogLock: true, highlight: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' } }],
             once: true,
             enabled: true
         },
