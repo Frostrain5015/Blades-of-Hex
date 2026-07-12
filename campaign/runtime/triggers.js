@@ -284,7 +284,6 @@ function runAction(action, ctx) {
             if (action.state === 'canAct') unit.canAct = action.value !== false;
             else if (action.state === 'canMove') unit._campaignCanMove = action.value !== false;
             else if (action.state === 'canAttack') unit._campaignCanAttack = action.value !== false;
-            else if (action.state === 'selectable') unit._campaignSelectable = action.value !== false;
             else if (action.state === 'targetable') unit._campaignTargetable = action.value !== false;
             else if (action.state === 'invulnerable') unit.godMode = action.value !== false;
             else if (action.state === 'canCounterattack') unit._campaignNoCounter = action.value === false;
@@ -457,7 +456,6 @@ export function createTriggerFlow(config, api) {
         onAdvance(next) { dispatch('advance', { next, choiceId: next }); },
         validateCanvasClick(tile) {
             if (!api.isActive() || !gameState.tutorialMode) return true;
-            if (tile?.unit?._campaignSelectable === false) { api.showHint('当前单位不可选择'); return false; }
             const allow = currentAllow();
             // 没有选中单位 = 查看信息，始终放行
             if (!gameState.selectedUnit) return true;

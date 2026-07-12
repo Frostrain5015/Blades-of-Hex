@@ -1468,7 +1468,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(selectRow('新阵营', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v }))); break;
         case 'unitState':
             box.appendChild(targetEditor(action.target, target => patch({ target })));
-            box.appendChild(selectRow('能力', action.state || 'canAct', { canAct: '本回合可行动', canMove: '允许移动', canAttack: '允许攻击', selectable: '允许玩家选择', targetable: '允许成为目标', invulnerable: '无敌', canCounterattack: '允许反击' }, v => patch({ state: v })));
+            box.appendChild(selectRow('能力', action.state || 'canAct', { canAct: '本回合可行动', canMove: '允许移动', canAttack: '允许攻击', targetable: '允许成为目标', invulnerable: '无敌', canCounterattack: '允许反击' }, v => patch({ state: v })));
             box.appendChild(checkRow('启用', action.value !== false, v => patch({ value: v }))); break;
         case 'effectApply': {
             box.appendChild(targetEditor(action.target, target => patch({ target }), { label: '施加目标' }));
