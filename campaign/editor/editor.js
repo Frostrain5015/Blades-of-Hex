@@ -1398,8 +1398,8 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                 }
             }
             const dialogue = section('对话框内容');
-            dialogue.appendChild(selectRow('类型', action.mode || 'narrator', { narrator: '旁白', character: '台词' }, v => patch({ mode: v, ...(v === 'character' && !action.speaker ? { speaker: { name: '', portrait: '' } } : {}) })));
-            if (action.mode === 'character') {
+            dialogue.appendChild(textRow('说话人', action.speaker?.name || '', v => patch({ speaker: { ...(action.speaker || {}), name: v } })));
+            dialogue.appendChild(selectRow('立绘', action.speaker?.portrait || '', { '': '（无立绘）', ...COMMANDER_LABELS }, v => patch({ speaker: { ...(action.speaker || {}), portrait: v || undefined } })));
                 dialogue.appendChild(textRow('说话人', action.speaker?.name || '', v => patch({ speaker: { ...(action.speaker || {}), name: v } })));
                 dialogue.appendChild(selectRow('立绘', action.speaker?.portrait || '', { '': '（无）', ...COMMANDER_LABELS }, v => patch({ speaker: { ...(action.speaker || {}), portrait: v } })));
             }
@@ -1408,7 +1408,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             // 高亮 = 操作放行 + 视觉指示一体化
             const hl = action.highlight || {};
             const secHl = section('高亮（放行 + 指示）');
-            secHl.appendChild(textRow('提示文字(锁定时显示)', hl.hint || '', v => patch({ highlight: { ...hl, hint: v || undefined } })));
+            secHl.appendChild(textRow('提示文字', hl.hint || '', v => patch({ highlight: { ...hl, hint: v || undefined } })));
             secHl.appendChild(targetEditor(hl.unit ? { unit: hl.unit } : null, target => patch({ highlight: { ...hl, unit: target?.unit || undefined } }), { label: '单位出环' }));
             secHl.appendChild(tilesPickerRow('地块高亮', hl.tiles || [], tiles => patch({ highlight: { ...hl, tiles: tiles.length ? tiles : undefined } })));
             box.appendChild(secHl);

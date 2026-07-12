@@ -167,7 +167,6 @@
       "do": [
         {
           "kind": "showStep",
-          "mode": "character",
           "speaker": {
             "name": "马库斯",
             "portrait": "百夫长"
@@ -176,7 +175,6 @@
         },
         {
           "kind": "showStep",
-          "mode": "character",
           "speaker": {
             "name": "马库斯",
             "portrait": "百夫长"
@@ -185,7 +183,6 @@
         },
         {
           "kind": "showStep",
-          "mode": "narrator",
           "text": "点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。",
           "lock": true,
           "highlight": {
@@ -210,7 +207,6 @@
       "do": [
         {
           "kind": "showStep",
-          "mode": "narrator",
           "text": "好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。",
           "lock": true,
           "highlight": {
@@ -242,7 +238,6 @@
       "do": [
         {
           "kind": "showStep",
-          "mode": "narrator",
           "text": "现在攻击训练草靶。点击假人所在位置进行攻击。",
           "lock": true,
           "highlight": {
@@ -275,7 +270,6 @@
       "do": [
         {
           "kind": "showStep",
-          "mode": "character",
           "speaker": {
             "name": "马库斯",
             "portrait": "百夫长"
@@ -284,7 +278,6 @@
         },
         {
           "kind": "showStep",
-          "mode": "character",
           "speaker": {
             "name": "马库斯",
             "portrait": "百夫长"

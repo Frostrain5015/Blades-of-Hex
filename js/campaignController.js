@@ -49,11 +49,12 @@ export function createCampaignController({ onRetry, onReturn }) {
     // 将触发器动作中的内联字段归一化为步骤对象
     function _inlineStepFromAction(action) {
         const hasNext = action.next != null && action.next !== '';
+        const hasSpeaker = action.speaker?.name || action.speaker?.portrait;
         return {
             phase: hasNext ? 'dialog' : 'wait',
-            mode: action.mode || 'narrator',
+            mode: hasSpeaker ? 'character' : 'narrator',
             text: action.text || '',
-            speaker: action.mode === 'character' && action.speaker ? { name: action.speaker.name, portrait: action.speaker.portrait } : undefined,
+            speaker: hasSpeaker ? { name: action.speaker.name || '', portrait: action.speaker.portrait || '' } : undefined,
             next: action.next || undefined,
             highlight: action.highlight,
             ruleStep: action.ruleStep

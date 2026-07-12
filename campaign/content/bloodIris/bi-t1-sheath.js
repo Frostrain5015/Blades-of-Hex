@@ -164,13 +164,13 @@ export const config = {
             id: 'start_dialogue',
             when: [{ kind: 'levelStarted' }],
             do: [
-                { kind: 'showStep', mode: 'character',
+                { kind: 'showStep',
                   speaker: { name: '马库斯', portrait: '百夫长' },
                   text: '新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。' },
-                { kind: 'showStep', mode: 'character',
+                { kind: 'showStep',
                   speaker: { name: '马库斯', portrait: '百夫长' },
                   text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。' },
-                { kind: 'showStep', mode: 'narrator',
+                { kind: 'showStep',
                   text: '点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。',
                   lock: true, highlight: { unit: 'recruit1', hint: '请点击你的步兵' } }
             ],
@@ -184,7 +184,7 @@ export const config = {
                 kind: 'unitSelected',
                 target: { unit: 'recruit1' }
             }],
-            do: [{ kind: 'showStep', mode: 'narrator',
+            do: [{ kind: 'showStep',
                    text: '好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。',
                    lock: true, highlight: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' } }],
             once: true,
@@ -199,7 +199,7 @@ export const config = {
                 q: 0,
                 r: 0
             }],
-            do: [{ kind: 'showStep', mode: 'narrator',
+            do: [{ kind: 'showStep',
                    text: '现在攻击训练草靶。点击假人所在位置进行攻击。',
                    lock: true, highlight: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' } }],
             once: true,
@@ -214,10 +214,10 @@ export const config = {
                 defender: { unit: 'target1' }
             }],
             do: [
-                { kind: 'showStep', mode: 'character',
+                { kind: 'showStep',
                   speaker: { name: '马库斯', portrait: '百夫长' },
                   text: '很好。选择——移动——攻击。这是战场上的三个基本动作。你们已经掌握了。' },
-                { kind: 'showStep', mode: 'character',
+                { kind: 'showStep',
                   speaker: { name: '马库斯', portrait: '百夫长' },
                   text: '刀剑无影，重要的是谁拿着他们。今天就到这里。' }
             ],
