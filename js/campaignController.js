@@ -55,8 +55,7 @@ export function createCampaignController({ onRetry, onReturn }) {
             text: action.text || '',
             speaker: action.mode === 'character' && action.speaker ? { name: action.speaker.name, portrait: action.speaker.portrait } : undefined,
             next: action.next || undefined,
-            target: action.target,
-            allow: action.allow,
+            highlight: action.highlight,
             ruleStep: action.ruleStep
         };
     }
@@ -107,29 +106,30 @@ export function createCampaignController({ onRetry, onReturn }) {
             _clearAreaHighlights();
             return;
         }
-        const target = step.target;
-        if (!target) { ring?.classList.remove('visible'); _clearAreaHighlights(); return; }
+        const hl = step.highlight;
+        if (!hl) { ring?.classList.remove('visible'); _clearAreaHighlights(); return; }
 
-        // 区域目标：对每个地块绘制正旋高亮边框
-        if (target.tiles) {
-            ring?.classList.remove('visible');
-            _drawAreaHighlights(target.tiles);
-            return;
+        // 地块高亮 → 正旋脉冲边框
+        if (hl.tiles) _drawAreaHighlights(hl.tiles);
+        else _clearAreaHighlights();
+
+        // 单位高亮 → 单格圆环（与地块高亮可并存）
+        if (hl.unit) {
+            const tile = tileForTarget(hl.unit);
+            if (tile) {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = rect.width / LOGICAL_W;
+                const scaleY = rect.height / LOGICAL_H;
+                const size = Math.max(56, Math.min(rect.width, rect.height) * 0.09);
+                ring.style.width = `${size}px`;
+                ring.style.height = `${size}px`;
+                ring.style.left = `${rect.left + tile.x * scaleX - size / 2}px`;
+                ring.style.top = `${rect.top + tile.y * scaleY - size / 2}px`;
+                ring.classList.add('visible');
+                return;
+            }
         }
-
-        // 单一目标：现有圆环
-        _clearAreaHighlights();
-        const tile = tileForTarget(target);
-        if (!tile) { ring?.classList.remove('visible'); return; }
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = rect.width / LOGICAL_W;
-        const scaleY = rect.height / LOGICAL_H;
-        const size = Math.max(56, Math.min(rect.width, rect.height) * 0.09);
-        ring.style.width = `${size}px`;
-        ring.style.height = `${size}px`;
-        ring.style.left = `${rect.left + tile.x * scaleX - size / 2}px`;
-        ring.style.top = `${rect.top + tile.y * scaleY - size / 2}px`;
-        ring.classList.add('visible');
+        ring?.classList.remove('visible');
     }
 
     // 区域高亮：在画布上为每个地块绘制正旋脉冲边框

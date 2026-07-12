@@ -307,8 +307,7 @@ export function createTriggerFlow(config, api) {
                     text: action.text || '',
                     speaker: action.mode === 'character' && action.speaker ? { name: action.speaker.name, portrait: action.speaker.portrait } : undefined,
                     next: action.next || undefined,
-                    target: action.target,
-                    allow: action.allow
+                    highlight: action.highlight
                 };
             }
         }
@@ -354,7 +353,17 @@ export function createTriggerFlow(config, api) {
         }
     }
 
-    function currentAllow() { return gameState._inlineStepData?.allow || config.steps?.[api.getStepId()]?.allow || null; }
+    function currentAllow() {
+        const hl = gameState._inlineStepData?.highlight;
+        if (hl) {
+            const allow = {};
+            if (hl.unit) allow.units = [hl.unit];
+            if (hl.tiles) allow.tiles = hl.tiles;
+            if (hl.hint) allow.hint = hl.hint;
+            return Object.keys(allow).length ? allow : null;
+        }
+        return null;
+    }
     return {
         dispatch,
         onLevelStarted() { dispatch('levelStarted', {}); dispatch('levelStart', {}); },

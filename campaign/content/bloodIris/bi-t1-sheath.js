@@ -176,7 +176,7 @@ export const config = {
                   next: 'select_guide' },
                 { kind: 'showStep', _id: 'select_guide', mode: 'narrator',
                   text: '点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。',
-                  allow: { units: ['recruit1'], hint: '请点击你的步兵' } }
+                  highlight: { units: ['recruit1'], hint: '请点击你的步兵' } }
             ],
             once: true,
             enabled: true
@@ -190,7 +190,7 @@ export const config = {
             }],
             do: [{ kind: 'showStep', _id: 'move_guide', mode: 'narrator',
                    text: '好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。',
-                   allow: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' } }],
+                   highlight: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' } }],
             once: true,
             enabled: true
         },
@@ -205,7 +205,7 @@ export const config = {
             }],
             do: [{ kind: 'showStep', _id: 'attack_guide', mode: 'narrator',
                    text: '现在攻击训练草靶。点击假人所在位置进行攻击。',
-                   allow: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' } }],
+                   highlight: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' } }],
             once: true,
             enabled: true
         },

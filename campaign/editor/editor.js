@@ -1306,20 +1306,24 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
         case 'inlineStep': {
             // 向后兼容：旧格式 action 含有 step 字段引用步表
             if (action.step) {
-                const step = config.steps[action.step];
                 box.appendChild(selectRow('步骤', action.step, {
-                    ...Object.fromEntries(Object.keys(config.steps).map(id => [id, id])),
+                    ...Object.fromEntries(Object.keys(config.steps || {}).map(id => [id, id])),
                     '__inline__': '── 转为内联格式 ──'
                 }, v => {
                     if (v === '__inline__') {
-                        const s = config.steps[action.step];
-                        onChange({ kind: 'showStep', mode: s.mode, text: s.text, speaker: s.speaker, next: s.next, allow: s.allow, target: s.target, immediate: action.immediate });
-                        if (!Object.keys(config.steps).length) return;
-                        const { [action.step]: _, ...rest } = config.steps;
-                        mutate(c => { c.steps = rest; }, { rebuildPanels: true, snapshot: false });
+                        const s = (config.steps || {})[action.step] || {};
+                        const hl = {};
+                        if (s.allow?.units?.length) hl.unit = s.allow.units[0];
+                        if (s.allow?.tiles?.length) hl.tiles = s.allow.tiles;
+                        if (s.allow?.hint) hl.hint = s.allow.hint;
+                        if (s.target?.q != null) { if (!hl.tiles) hl.tiles = []; hl.tiles.push({ q: s.target.q, r: s.target.r }); }
+                        onChange({ kind: 'showStep', mode: s.mode, text: s.text, speaker: s.speaker, next: s.next, highlight: Object.keys(hl).length ? hl : undefined, immediate: action.immediate });
                     } else { patch({ step: v || '' }); }
                 }));
-                if (step) box.appendChild(hint(`步骤「${action.step}」${step.mode === 'character' ? '🗣 ' + (step.speaker?.name || '') : '📖 旁白'}：${(step.text || '').slice(0, 60)}`));
+                if (action.step && config.steps?.[action.step]) {
+                    const s = config.steps[action.step];
+                    box.appendChild(hint(`旧格式步骤「${action.step}」${s.mode === 'character' ? '🗣 ' + (s.speaker?.name || '') : '📖 旁白'}。选"转为内联格式"将其合并到触发器。`));
+                }
                 break;
             }
             const dialogue = section('对话框内容');
@@ -1330,18 +1334,16 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             }
             dialogue.appendChild(textareaRow('台词', action.text || '', v => patch({ text: v }), 3));
             dialogue.appendChild(textRow('推进目标（next）', action.next || '', v => patch({ next: v || undefined }), '留空=等待触发器; __前缀=触发信号'));
-            dialogue.appendChild(hint('对话框任意点击推进: 填了 next 就跳转到指定 ID, __开头发给触发器。留空则需其他触发器主动推进。'));
+            dialogue.appendChild(hint('对话框任意点击推进。'));
             box.appendChild(dialogue);
-            const secAllow = section('输入白名单（仅教程等待态有效）');
-            const allow = action.allow || {};
-            secAllow.appendChild(textRow('提示文字', allow.hint || '', v => patch({ allow: { ...allow, hint: v || undefined } })));
-            secAllow.appendChild(textRow('白名单单位 ID', (allow.units || []).join(', '), v => patch({ allow: { ...allow, units: v ? v.split(/[,，]\s*/).filter(Boolean) : undefined } }), '逗号分隔'));
-            secAllow.appendChild(textRow('白名单地块', (allow.tiles || []).map(t => `${t.q},${t.r}`).join('; '), v => patch({ allow: { ...allow, tiles: v ? parseCoordList(v) : undefined } }), 'q,r; q,r'));
-            box.appendChild(secAllow);
-            const secTarget = section('目标环（坐标拾取）');
-            secTarget.appendChild(coordRow('目标坐标', action.target?.q ?? '', action.target?.r ?? '', tile => patch({ target: { q: tile.q, r: tile.r } })));
-            secTarget.appendChild(hint('在画布上右键点击地块可拾取目标坐标。'));
-            box.appendChild(secTarget);
+            // 高亮 = 操作放行 + 视觉指示一体化
+            const hl = action.highlight || {};
+            const secHl = section('高亮（放行 + 指示）');
+            secHl.appendChild(textRow('提示文字(锁定时显示)', hl.hint || '', v => patch({ highlight: { ...hl, hint: v || undefined } })));
+            secHl.appendChild(targetEditor(hl.unit ? { unit: hl.unit } : null, target => patch({ highlight: { ...hl, unit: target?.unit || undefined } }), { label: '单位出环' }));
+            secHl.appendChild(tilesPickerRow('地块高亮', hl.tiles || [], tiles => patch({ highlight: { ...hl, tiles: tiles.length ? tiles : undefined } })));
+            secHl.appendChild(hint('单位出环 = 单格金色圆环；地块高亮 = 所有格正旋脉冲边框。两者可并存。'));
+            box.appendChild(secHl);
             box.appendChild(checkRow('立即显示', !!action.immediate, v => patch({ immediate: v || undefined })));
             break;
         }
