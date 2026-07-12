@@ -1300,7 +1300,7 @@ function conditionListEditor(list, onChange, { parentIsAny = false } = {}) {
             () => { const arr = list.slice(); arr.splice(i, 1); onChange(arr); },
             parentIsAny));
     });
-    const add = el('button', 'ed-add-btn', '+ 添加条件（全部满足才触发）');
+    const add = el('button', 'ed-add-btn', '+ 添加条件');
     add.addEventListener('click', () => onChange([...(list || []), { kind: 'unitAlive', ...conditionDefaults('unitAlive') }]));
     wrap.appendChild(add);
     return wrap;
