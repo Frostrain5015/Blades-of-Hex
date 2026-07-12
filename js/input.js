@@ -2153,9 +2153,17 @@ export function initSettingsPanel() {
             row.style.setProperty('--flag-main', flagMain);
             row.style.setProperty('--relation-color', meta.color);
             const flag = document.createElement('span'); flag.className = 'faction-list-flag';
-            const pole = document.createElement('span'); pole.className = 'faction-list-flag-pole';
-            const cloth = document.createElement('span'); cloth.className = 'faction-list-flag-cloth';
-            flag.append(pole, cloth);
+            if (faction.name === '塞雷利亚王国') {
+                const emblem = document.createElement('span');
+                emblem.className = 'faction-list-flag-emblem';
+                emblem.textContent = '⚜️';
+                flag.appendChild(emblem);
+            } else if (faction.name.includes('训练')) {
+                const emblem = document.createElement('span');
+                emblem.className = 'faction-list-flag-emblem';
+                emblem.textContent = '🔰';
+                flag.appendChild(emblem);
+            }
             const copy = document.createElement('div');
             const name = document.createElement('div'); name.className = 'faction-list-name'; name.textContent = faction.name;
             const detail = document.createElement('div'); detail.className = 'faction-list-meta';
