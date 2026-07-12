@@ -876,9 +876,10 @@ function pickTilesButton(initial, onChange, { hoverTiles } = {}) {
     return btn;
 }
 
-function unitOptions(includeEmpty = true) {
+function unitOptions(includeEmpty = true, includeEvent = false) {
     const opts = Object.fromEntries(config.units.map(u => [u.id, `${u.id}（${CAMP_LABELS[u.camp]}${UNIT_LABELS[u.type]}）`]));
-    return includeEmpty ? { '': '（无）', ...opts } : opts;
+    const eventOpt = includeEvent ? { __event__: '🎯 事件单位' } : {};
+    return includeEmpty ? { '': '（无）', ...eventOpt, ...opts } : { ...eventOpt, ...opts };
 }
 
 function buildStepInspector(stepId) {
@@ -971,10 +972,8 @@ function buildStepInspector(stepId) {
 function conditionDefaults(kind) {
     switch (kind) {
         case 'eventCardIs': return { value: CARD_IDS[0] };
-        case 'eventCampIs': return { value: 'player1' };
         case 'cityOwnedBy': return { q: 0, r: 0, camp: 'player1' };
         case 'turnAtLeast': return { value: 1 };
-        case 'eventUnitIs': case 'unitAlive': case 'unitDead': return { unit: config.units[0]?.id || '' };
         case 'unitExists': return { unit: config.units[0]?.id || '', alive: true };
         case 'unitHpCompare': return { unit: config.units[0]?.id || '', mode: 'percent', op: '<=', value: 50 };
         case 'factionUnitCount': return { camp: 'player2', op: '<=', value: 0 };
@@ -985,7 +984,6 @@ function conditionDefaults(kind) {
         case 'interactionStateIs': return { interactable: config.interactables[0]?.id || '', state: 'available' };
         case 'groupState': return { group: config.unitGroups[0]?.id || '', state: 'anyAlive' };
         case 'unitsInArea': return { area: config.areas[0]?.id || '', camp: '', op: '>=', value: 1 };
-        case 'eventTileIs': return { q: 0, r: 0 };
         case 'eventInteractionIs': return { interactable: config.interactables[0]?.id || '' };
         case 'mechanicEnabled': return { mechanic: MECHANIC_KEYS[0], enabled: true };
         case 'compare': return { left: { source: 'round' }, op: '>=', right: { source: 'constant', value: 1 } };
@@ -1032,7 +1030,9 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'step':
             box.appendChild(selectRow('步骤', cond.value || '', stepOptions(true), v => patch({ value: v }))); break;
         case 'unitRef':
-            box.appendChild(selectRow('单位', cond.unit || '', unitOptions(), v => patch({ unit: v }))); break;
+            box.appendChild(selectRow('单位', cond.source === 'event' ? '__event__' : (cond.unit || ''), unitOptions(true, true), v => {
+                if (v === '__event__') patch({ unit: '', source: 'event' }); else patch({ unit: v, source: undefined });
+            })); break;
         case 'card':
             box.appendChild(selectRow('卡牌', cond.value || CARD_IDS[0], CARD_LABELS, v => patch({ value: v }))); break;
         case 'camp':
@@ -1049,10 +1049,14 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(conditionListEditor(cond.conditions || [], conditions => patch({ conditions }), { parentIsAny: meta.kind === 'any' })); break;
         case 'conditionSingle':
         case 'unitExists':
-            box.appendChild(selectRow('单位', cond.unit || '', unitOptions(), v => patch({ unit: v })));
+            box.appendChild(selectRow('单位', cond.source === 'event' ? '__event__' : (cond.unit || ''), unitOptions(true, true), v => {
+                if (v === '__event__') patch({ unit: '', source: 'event' }); else patch({ unit: v, source: undefined });
+            }));
             box.appendChild(selectRow('要求', cond.alive === false ? 'dead' : 'alive', { alive: '仍在场', dead: '已阵亡/不存在' }, v => patch({ alive: v === 'alive' }))); break;
         case 'unitHpCompare':
-            box.appendChild(selectRow('单位', cond.unit || '', unitOptions(), v => patch({ unit: v })));
+            box.appendChild(selectRow('单位', cond.source === 'event' ? '__event__' : (cond.unit || ''), unitOptions(true, true), v => {
+                if (v === '__event__') patch({ unit: '', source: 'event' }); else patch({ unit: v, source: undefined });
+            }));
             box.appendChild(selectRow('数值类型', cond.mode || 'percent', { percent: '生命百分比', value: '生命点数' }, v => patch({ mode: v })));
             box.appendChild(selectRow('比较', cond.op || '<=', { '<': '小于', '<=': '小于等于', '==': '等于', '>=': '大于等于', '>': '大于' }, v => patch({ op: v })));
             box.appendChild(numRow('数值', cond.value ?? 50, v => patch({ value: v }))); break;

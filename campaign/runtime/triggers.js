@@ -25,6 +25,14 @@ function resolveUnit(id) {
     if (!id) return null;
     return gameState.tiles.find(tile => tile.unit?.id === id)?.unit || null;
 }
+/** 从条件中解析单位：若 source='event' 则从事件上下文取，否则取静态 id。 */
+function unitFromCond(cond, ctx, field = 'unit') {
+    if (cond.source === 'event') {
+        const ids = [ctx.event?.unitId, ctx.event?.attackerId, ctx.event?.defenderId, ctx.event?.killerId, ctx.event?.sourceUnitId];
+        return ids.reduce((found, id) => found || resolveUnit(id), null);
+    }
+    return resolveUnit(cond[field]);
+}
 
 function groupById(config, id) { return (config.unitGroups || []).find(group => group.id === id) || null; }
 function areaById(config, id) { return (config.areas || []).find(area => area.id === id) || null; }
@@ -87,23 +95,23 @@ function evalCondition(cond, ctx) {
         case 'any': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.some(child => evalCondition(child, ctx));
         case 'not': return !!cond.condition && !evalCondition(cond.condition, ctx);
         case 'compare': return compareValues(readOperand(cond.left, ctx), cond.op || '==', readOperand(cond.right, ctx));
-        case 'eventUnitIs': return [event?.unitId, event?.attackerId, event?.defenderId, event?.killerId, event?.sourceUnitId].includes(cond.unit);
         case 'eventCardIs': return event?.cardId === cond.value;
-        case 'eventCampIs': return [event?.camp, event?.attackerCamp, event?.defenderCamp, event?.killerCamp, event?.newCamp, event?.oldCamp].map(campKeyOf).includes(cond.value);
         case 'eventNextIs': case 'eventChoiceIs': return event?.next === cond.value || event?.choiceId === cond.value;
-        case 'eventTileIs': return event?.q === cond.q && event?.r === cond.r;
         case 'eventInteractionIs': return event?.interactableId === cond.interactable;
         case 'eventSignalIs': return event?.signal === cond.value;
-        case 'unitAlive': return !!resolveUnit(cond.unit);
-        case 'unitDead': return !resolveUnit(cond.unit);
-        case 'unitExists': return cond.alive === false ? !resolveUnit(cond.unit) : !!resolveUnit(cond.unit);
+        case 'unitAlive': return !!unitFromCond(cond, ctx);
+        case 'unitDead': return !unitFromCond(cond, ctx);
+        case 'unitExists': {
+            const u = unitFromCond(cond, ctx);
+            return cond.alive === false ? !u : !!u;
+        }
         case 'unitHpCompare': {
-            const unit = resolveUnit(cond.unit);
+            const unit = unitFromCond(cond, ctx);
             if (!unit) return false;
             const value = cond.mode === 'percent' ? unit.hp / unit.maxHp * 100 : unit.hp;
             return compareValues(value, cond.op || '<=', Number(cond.value));
         }
-        case 'cityOwnedBy': case 'tileOwnedBy': {
+        case 'factionUnitCount': {
             const tile = gameState.tileMap.get(coordKey(cond.q, cond.r));
             return !!tile && campKeyOf(tile.camp) === cond.camp;
         }

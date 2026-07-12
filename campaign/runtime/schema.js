@@ -64,9 +64,7 @@ export const BOARD_RADIUS_DEFAULT = 4;
 export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'any', label: '满足任一（OR）', arg: 'conditionGroup' },
     { kind: 'compare', label: '比较数值/变量', arg: 'compare' },
-    { kind: 'eventUnitIs',  label: '事件单位是',   arg: 'unitRef', note: '触发事件涉及的单位其编辑器 id' },
     { kind: 'eventCardIs',  label: '事件卡牌是',   arg: 'card' },
-    { kind: 'eventCampIs',  label: '事件阵营是',   arg: 'camp' },
     { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值' },
     { kind: 'unitAlive',    label: '单位存活',     arg: 'unitRef' },
     { kind: 'unitDead',     label: '单位阵亡',     arg: 'unitRef' },
@@ -84,7 +82,6 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     ,{ kind: 'interactionStateIs', label: '调查点状态为', arg: 'interactionState' }
     ,{ kind: 'groupState', label: '单位组状态为', arg: 'groupState' }
     ,{ kind: 'unitsInArea', label: '区域内单位数量', arg: 'areaCount' }
-    ,{ kind: 'eventTileIs', label: '事件坐标是', arg: 'coord' }
     ,{ kind: 'eventInteractionIs', label: '事件调查点是', arg: 'interaction' }
     ,{ kind: 'eventSignalIs', label: '事件信号是', arg: 'text' }
     ,{ kind: 'mechanicEnabled', label: '机制已启用/禁用', arg: 'mechanicBoolean' }
@@ -331,7 +328,6 @@ export function validateLevel(config) {
         if (condition.kind === 'not') {
             if (!condition.condition) errors.push(`${path} 的 NOT 缺少子条件。`); else validateCondition(condition.condition, `${path}/NOT`);
         }
-        if (['eventUnitIs', 'unitExists', 'unitHpCompare'].includes(condition.kind) && condition.unit && !unitIds.has(condition.unit)) errors.push(`${path} 引用不存在的单位「${condition.unit}」。`);
         if (condition.kind === 'groupState' && !groupIds.has(condition.group)) errors.push(`${path} 引用不存在的单位组「${condition.group}」。`);
         if (condition.kind === 'unitsInArea' && !areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
         if (['eventInteractionIs', 'interactionStateIs'].includes(condition.kind) && !interactionIds.has(condition.interactable)) errors.push(`${path} 引用不存在的调查点「${condition.interactable}」。`);
