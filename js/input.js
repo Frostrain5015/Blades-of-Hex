@@ -2153,7 +2153,7 @@ export function initSettingsPanel() {
             row.style.setProperty('--flag-main', flagMain);
             row.style.setProperty('--relation-color', meta.color);
             const flag = document.createElement('span'); flag.className = 'faction-list-flag';
-            if (faction.name === '塞雷利亚王国') {
+            if (faction.name === '奥雷利亚王国') {
                 const emblem = document.createElement('span');
                 emblem.className = 'faction-list-flag-emblem';
                 emblem.textContent = '⚜️';

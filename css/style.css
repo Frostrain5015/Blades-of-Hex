@@ -1674,12 +1674,18 @@ body {
     background: var(--flag-main);
     border-radius: 2px;
     position: relative;
+    overflow: visible;
     font-size: 14px;
     line-height: 1;
 }
 .faction-list-flag-emblem {
     position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     pointer-events: none;
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+    line-height: 1;
 }
 .faction-list-name { min-width: 0; font: 700 13px 'Noto Serif SC', serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .faction-list-meta { margin-top: 3px; color: rgba(255,255,255,.42); font-size: 10px; }
