@@ -1366,9 +1366,10 @@ function buildObjectiveInspector(id) {
 }
 
 function buildMetaInspector() {
+    const wrap = el('div');
+    const res = config.result;
     const secIntro = section('开场遮罩');
     secIntro.appendChild(hint('遮罩上方：传记名称 · 章节标题；下方大字：关卡ID大写 + 关卡名称。'));
-    wrap.appendChild(secIntro);
     wrap.appendChild(secIntro);
 
     const secMechanics = section('本关开放机制');
