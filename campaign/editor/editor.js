@@ -984,6 +984,13 @@ function unitOptions(includeEmpty = true) {
 function pickUnitButton(onChange, currentId) {
     const btn = el('button', 'ed-pick-btn', '📌');
     btn.title = '点击棋盘上的单位';
+    // 悬停时在棋盘上高亮该单位位置
+    btn.addEventListener('mouseenter', () => {
+        if (!currentId) return;
+        const u = config.units.find(u => u.id === currentId);
+        if (u) { pendingHighlight = { q: u.q, r: u.r }; render(); }
+    });
+    btn.addEventListener('mouseleave', () => { pendingHighlight = null; render(); });
     btn.addEventListener('click', () => {
         const flags = new Set();
         if (currentId) {
@@ -1426,7 +1433,8 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             secHl.appendChild(targetEditor(hl.unit ? { unit: hl.unit } : null, target => patch({ highlight: { ...hl, unit: target?.unit || undefined } }), { label: '单位出环' }));
             secHl.appendChild(tilesPickerRow('地块高亮', hl.tiles || [], tiles => patch({ highlight: { ...hl, tiles: tiles.length ? tiles : undefined } })));
             box.appendChild(secHl);
-            box.appendChild(checkRow('启用操作锁', !!action.lock, v => patch({ lock: v || undefined })));
+            box.appendChild(checkRow('棋盘操作锁（限制棋盘点击）', !!action.boardLock, v => patch({ boardLock: v || undefined })));
+            box.appendChild(checkRow('对话框点击锁（禁止点击推进）', !!action.dialogLock, v => patch({ dialogLock: v || undefined })));
             break;
         }
         case 'lockStep': {

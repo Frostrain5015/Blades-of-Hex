@@ -61,13 +61,11 @@ export function createCampaignController({ onRetry, onReturn }) {
         };
     }
 
-    // 对话框点击推进
+    // 对话框点击推进（受 dialogLock 控制）
     function _advanceFromClick() {
         if (!active) return;
         const step = gameState._inlineStepData;
-        if (!step) return;
-        // 操作锁开启时点击对话框不推进（需玩家完成指定操作）
-        if (gameState.tutorialMode) return;
+        if (!step || step.dialogLock) return;
         if (step.next) {
             if (step.next.startsWith('__')) activeFlow?.onAdvance?.(step.next);
             else if (gameState._inlineStepMap?.[step.next]) showStep(gameState._inlineStepMap[step.next]);
@@ -278,8 +276,8 @@ export function createCampaignController({ onRetry, onReturn }) {
         stepId = id;
         gameState.tutorialStep = nextOrStep.ruleStep ?? id;
         gameState.campaignPhase = id;
-        // lock: true → 启用操作锁（严格按高摆放行），false 或未设 → 不改变当前锁状态
-        if (nextOrStep.lock === true) gameState.tutorialMode = true;
+        // boardLock: true → 棋盘操作锁；dialogLock: true → 对话框点击锁
+        if (nextOrStep.boardLock === true) gameState.tutorialMode = true;
         // 存到 gameState 供 trigger 的 currentAllow/validateCanvasClick 查找
         gameState._inlineStepData = step;
         // 注册到内联步骤映射（供 next 链查找）

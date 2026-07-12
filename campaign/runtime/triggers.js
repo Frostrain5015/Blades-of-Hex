@@ -377,7 +377,7 @@ export function createTriggerFlow(config, api) {
                 speaker: (action.speaker?.name || action.speaker?.portrait) ? { name: action.speaker.name || '', portrait: action.speaker.portrait || '' } : undefined,
                 next: hasNext ? steps[i + 1]._id : undefined,
                 highlight: action.highlight,
-                lock: action.lock
+                dialogLock: action.dialogLock
             };
         }
     }
