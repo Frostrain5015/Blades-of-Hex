@@ -16,7 +16,7 @@ import {
 import { buildBoardFromConfig } from '../runtime/mapBuilder.js';
 import {
     el, section, textRow, numRow, selectRow, checkRow, textareaRow,
-    checkGroup, itemList, card, hint, parseCoordList, coordListToText
+    checkGroup, itemList, card, hint
 } from './forms.js';
 
 // ── 模块状态 ─────────────────────────────────────────────────
@@ -34,6 +34,7 @@ let unitSeq = 1;
 let callbacks = { onPlaytest: null, onBack: null };
 let initialized = false;
 let showCoords = false;
+let pendingPick = null; // { mode:'tile'|'tiles', callback, picked:Set, label }
 
 const LEGACY_EVENT_IDS = new Set(['levelStart', 'cityCaptured']);
 const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast']);
@@ -169,7 +170,15 @@ function render() {
     }
 
     // 悬浮与选中高亮
-    if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.55)', 1.6);
+    // 取色/涂抹模式：高亮已选地块
+    if (pendingPick) {
+        for (const key of (pendingPick.picked || [])) {
+            const t = preview.tileMap.get(key);
+            if (t) drawHexagonOutline(ctx, t.x, t.y, HEX_SIZE, 'rgba(255,200,50,0.8)', 2.8);
+        }
+        if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.8)', 2);
+    }
+    if (hoverTile && !pendingPick) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.55)', 1.6);
     const selTile = selectionTile();
     if (selTile) drawHexagonOutline(ctx, selTile.x, selTile.y, HEX_SIZE, '#e6c200', 2.4);
 }
@@ -307,6 +316,23 @@ function onPointerDown(e) {
     if (!tile) return;
     canvas.setPointerCapture?.(e.pointerId);
 
+    // 画布取色/涂抹模式：先于页签逻辑处理
+    if (pendingPick) {
+        const key = tileKey(tile.q, tile.r);
+        if (pendingPick.mode === 'tile') {
+            const cb = pendingPick.callback;
+            pendingPick = null;
+            cb({ q: tile.q, r: tile.r });
+            return;
+        }
+        if (pendingPick.mode === 'tiles') {
+            if (pendingPick.picked.has(key)) pendingPick.picked.delete(key);
+            else pendingPick.picked.add(key);
+            render();
+            return;
+        }
+    }
+
     if (activeTab === 'board') {
         painting = true;
         lastPaintKey = '';
@@ -367,9 +393,17 @@ function onPointerUp() {
     if (painting) { painting = false; renderInspector(); }
 }
 
-function updateHint(tile) {
+function updateHint(tile, modeInfo) {
     const hintEl = $id('editorCanvasHint');
     if (!hintEl) return;
+    if (pendingPick) {
+        if (pendingPick.mode === 'tile') {
+            hintEl.textContent = '📌 点击棋盘上的目标地块（单击即确认）';
+        } else {
+            hintEl.textContent = `📌 ${pendingPick.label || '涂抹选择区域'} — 已选 ${pendingPick.picked.size} 格，点「✓ 确认」完成`;
+        }
+        return;
+    }
     if (!tile) { hintEl.textContent = ''; return; }
     const unit = unitsByCoord().get(tileKey(tile.q, tile.r))?.unit;
     const parts = [
@@ -708,8 +742,7 @@ function buildUnitInspector(index) {
     wrap.appendChild(numRow('生命%', u.hpPct ?? 100, v => mutate(c => { c.units[index].hpPct = Math.max(1, Math.min(100, Math.round(v))); }), { min: 1, max: 100 }));
     wrap.appendChild(selectRow('士气', String(u.morale ?? 2), { 3: '上升', 2: '正常', 1: '下降', 0: '混乱' }, v => mutate(c => { c.units[index].morale = Number(v); })));
     wrap.appendChild(checkRow('本回合可行动', u.canAct !== false, set('canAct')));
-    wrap.appendChild(numRow('坐标 q', u.q, v => mutate(c => { c.units[index].q = Math.round(v); })));
-    wrap.appendChild(numRow('坐标 r', u.r, v => mutate(c => { c.units[index].r = Math.round(v); })));
+    wrap.appendChild(coordRow('坐标', u.q, u.r, tile => mutate(c => { c.units[index].q = tile.q; c.units[index].r = tile.r; })));
     const del = el('button', 'ed-add-btn', '🗑 删除该单位');
     del.addEventListener('click', () => mutate(c => { c.units.splice(index, 1); selection = null; }));
     wrap.appendChild(del);
@@ -717,11 +750,80 @@ function buildUnitInspector(index) {
     return wrap;
 }
 
+/** 带「📌 点选」的坐标行（q, r 输入 + 画布取色按钮）。 */
+function coordRow(labelText, q, r, onChange) {
+    const r2 = el('div', 'ed-row');
+    if (labelText != null) r2.appendChild(el('label', null, labelText));
+    function makeNum(key) {
+        const input = el('input');
+        input.type = 'number'; input.value = (key === 'q' ? q : r) ?? 0;
+        input.addEventListener('change', () => {
+            const next = { q, r, [key]: Math.round(Number(input.value)) };
+            onChange(next);
+        });
+        return input;
+    }
+    r2.appendChild(makeNum('q'));
+    r2.appendChild(makeNum('r'));
+    r2.appendChild(pickTileButton({ q, r }, onChange));
+    return r2;
+}
+
 function stepOptions(includeEmpty) {
     const ids = Object.keys(config.steps);
     const opts = Object.fromEntries(ids.map(id => [id, id]));
     return includeEmpty ? { '': '（无）', ...opts } : opts;
 }
+// ── 画布取色/涂抹工具 ──
+let _pickBar = null;
+function clearPickBar() {
+    if (_pickBar) { _pickBar.remove(); _pickBar = null; }
+}
+function showPickBar(mode, label, onConfirm, onCancel) {
+    clearPickBar();
+    const bar = el('div', 'editor-pick-bar');
+    bar.innerHTML = `<span>${label}</span>`;
+    if (mode === 'tiles') {
+        const confirmBtn = el('button', 'ed-add-btn', '✓ 确认');
+        confirmBtn.addEventListener('click', () => { clearPickBar(); pendingPick = null; onConfirm(); });
+        bar.appendChild(confirmBtn);
+    }
+    const cancelBtn = el('button', 'ed-add-btn', '✕ 取消');
+    cancelBtn.addEventListener('click', () => { clearPickBar(); pendingPick = null; onCancel?.(); render(); renderInspector(); });
+    bar.appendChild(cancelBtn);
+    document.querySelector('.editor-canvas-wrap')?.appendChild(bar);
+    _pickBar = bar;
+}
+
+/** 生成一个「📌 点选」按钮，点击后进入单点取色模式。 */
+function pickTileButton(current, onChange) {
+    const btn = el('button', 'ed-pick-btn', '📌');
+    btn.title = '点击棋盘选择坐标';
+    btn.addEventListener('click', () => {
+        pendingPick = { mode: 'tile', callback: (tile) => { onChange(tile); renderInspector(); render(); }, picked: null, label: '点击地块选择坐标' };
+        showPickBar('tile', '点击棋盘上的目标地块', null, () => {});
+        render();
+    });
+    return btn;
+}
+
+/** 生成一个「📌 涂抹区域」按钮，点击后进入多选模式。 */
+function pickTilesButton(initial, onChange) {
+    const btn = el('button', 'ed-pick-btn', '📌');
+    btn.title = '点击棋盘涂抹选择区域';
+    btn.addEventListener('click', () => {
+        const picked = new Set((initial || []).map(p => tileKey(p.q, p.r)));
+        pendingPick = { mode: 'tiles', callback: null, picked, label: '涂抹选择区域' };
+        showPickBar('tiles', `涂抹选择区域 — 已选 ${picked.size} 格`, () => {
+            const list = [...picked].map(k => { const [q, r] = k.split(',').map(Number); return { q, r }; });
+            onChange(list);
+            renderInspector();
+        }, () => {});
+        render();
+    });
+    return btn;
+}
+
 function unitOptions(includeEmpty = true) {
     const opts = Object.fromEntries(config.units.map(u => [u.id, `${u.id}（${CAMP_LABELS[u.camp]}${UNIT_LABELS[u.type]}）`]));
     return includeEmpty ? { '': '（无）', ...opts } : opts;
@@ -772,11 +874,15 @@ function buildStepInspector(stepId) {
         if (v) c.steps[stepId].target = v;
         else if (typeof c.steps[stepId].target === 'string') delete c.steps[stepId].target;
     }, { rebuildPanels: false })));
-    wrap.appendChild(textRow('目标环·坐标', targetCoord ? `${targetCoord.q},${targetCoord.r}` : '', v => mutate(c => {
-        const list = parseCoordList(v);
-        if (list.length) c.steps[stepId].target = list[0];
-        else if (typeof c.steps[stepId].target === 'object') delete c.steps[stepId].target;
-    }, { rebuildPanels: false }), '如 0,0（优先于单位）'));
+    if (targetCoord) {
+        wrap.appendChild(coordRow('目标环·坐标', targetCoord.q, targetCoord.r, tile => mutate(c => {
+            c.steps[stepId].target = tile;
+        }, { rebuildPanels: false })));
+    } else {
+        wrap.appendChild(coordRow('目标环·坐标', 0, 0, tile => mutate(c => {
+            c.steps[stepId].target = tile;
+        }, { rebuildPanels: false })));
+    }
 
     // 输入白名单（等待步骤时的引导锁）
     const allow = step.allow || {};
@@ -788,7 +894,15 @@ function buildStepInspector(stepId) {
         if (Object.keys(a).length) c.steps[stepId].allow = a; else delete c.steps[stepId].allow;
     }, { rebuildPanels: false });
     secAllow.appendChild(checkGroup('可点单位', Object.entries(unitOptions(false)).map(([value, label]) => ({ value, label })), allow.units, v => setAllow('units', v)));
-    secAllow.appendChild(textRow('可点坐标', coordListToText(allow.tiles), v => setAllow('tiles', parseCoordList(v)), 'q,r; q,r'));
+    const tileRow = el('div', 'ed-row');
+    tileRow.appendChild(el('label', null, '可点坐标'));
+    tileRow.appendChild(pickTilesButton(allow.tiles || [], list => setAllow('tiles', list)));
+    const coordLabel = el('span', null, (allow.tiles || []).length ? `${allow.tiles.length} 格已选` : '未选择');
+    coordLabel.style.cssText = 'color:rgba(255,255,255,0.5);font-size:12px;margin-left:6px;';
+    tileRow.appendChild(coordLabel);
+    // 更新标签的 hack
+    const origPush = Array.prototype.push;
+    secAllow.appendChild(tileRow);
     secAllow.appendChild(checkGroup('可用卡牌', CARD_IDS.map(id => ({ value: id, label: CARD_LABELS[id] })), allow.cards, v => setAllow('cards', v)));
     secAllow.appendChild(textRow('可用技能', (allow.actions || []).join('; '), v => setAllow('actions', v.split(/[;；]/).map(s => s.trim()).filter(Boolean)), '如 commander:'));
     secAllow.appendChild(textRow('提示语', allow.hint || '', v => mutate(c => {
@@ -877,8 +991,7 @@ function conditionEditor(cond, onChange, onRemove) {
         case 'camp':
             box.appendChild(selectRow('阵营', cond.value || 'player1', CAMP_LABELS, v => patch({ value: v }))); break;
         case 'cityOwner':
-            box.appendChild(numRow('q', cond.q ?? 0, v => patch({ q: Math.round(v) })));
-            box.appendChild(numRow('r', cond.r ?? 0, v => patch({ r: Math.round(v) })));
+            box.appendChild(coordRow('坐标', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
             box.appendChild(selectRow('归属', cond.camp || 'player1', CAMP_LABELS, v => patch({ camp: v })));
             break;
         case 'number':
@@ -921,8 +1034,7 @@ function conditionEditor(cond, onChange, onRemove) {
             box.appendChild(selectRow('比较', cond.op || '>=', { '<=': '不多于', '==': '正好', '>=': '不少于' }, v => patch({ op: v })));
             box.appendChild(numRow('单位数', cond.value ?? 1, v => patch({ value: Math.max(0, Math.round(v)) }))); break;
         case 'coord':
-            box.appendChild(numRow('q', cond.q ?? 0, v => patch({ q: Math.round(v) })));
-            box.appendChild(numRow('r', cond.r ?? 0, v => patch({ r: Math.round(v) }))); break;
+            box.appendChild(coordRow('坐标', cond.q ?? 0, cond.r ?? 0, tile => patch(tile))); break;
         case 'interaction': box.appendChild(selectRow('调查点', cond.interactable || '', Object.fromEntries(config.interactables.map(item => [item.id, item.label || item.id])), v => patch({ interactable: v }))); break;
         case 'flagBoolean':
             box.appendChild(textRow('标记名', cond.flag || '', v => patch({ flag: v })));
@@ -956,8 +1068,7 @@ function spawnGroupEditor(units, onChange) {
         box.appendChild(selectRow('兵种', u.type || 'infantry', UNIT_LABELS, v => patch({ type: v })));
         box.appendChild(selectRow('阵营', u.camp || 'player2', CAMP_LABELS, v => patch({ camp: v })));
         box.appendChild(selectRow('将领', u.commander || '', { '': '（无）', ...COMMANDER_LABELS }, v => patch({ commander: v || undefined })));
-        box.appendChild(numRow('q', u.q ?? 0, v => patch({ q: Math.round(v) })));
-        box.appendChild(numRow('r', u.r ?? 0, v => patch({ r: Math.round(v) })));
+        box.appendChild(coordRow('坐标', u.q ?? 0, u.r ?? 0, tile => patch(tile)));
         box.appendChild(numRow('生命%', u.hpPct ?? 100, v => patch({ hpPct: Math.max(1, Math.min(100, Math.round(v))) })));
         wrap.appendChild(box);
     });
@@ -1261,7 +1372,13 @@ function buildMetaInspector() {
     config.areas.forEach((area, index) => {
         const box = card(area.id || `区域 ${index + 1}`, () => mutate(c => { c.areas.splice(index, 1); }));
         box.appendChild(textRow('区域 id', area.id, value => mutate(c => { c.areas[index].id = value; })));
-        box.appendChild(textareaRow('包含坐标', coordListToText(area.tiles), value => mutate(c => { c.areas[index].tiles = parseCoordList(value); }), 3));
+        const tileRow = el('div', 'ed-row');
+        tileRow.appendChild(el('label', null, '包含坐标'));
+        tileRow.appendChild(pickTilesButton(area.tiles || [], list => mutate(c => { c.areas[index].tiles = list; }, { rebuildPanels: true })));
+        const label = el('span', null, (area.tiles || []).length ? `${area.tiles.length} 格` : '未选择');
+        label.style.cssText = 'color:rgba(255,255,255,0.5);font-size:12px;margin-left:6px;';
+        tileRow.appendChild(label);
+        box.appendChild(tileRow);
         secAreas.appendChild(box);
     });
     const addArea = el('button', 'ed-add-btn', '+ 新增区域');
@@ -1274,7 +1391,7 @@ function buildMetaInspector() {
         const box = card(item.label || item.id || `调查点 ${index + 1}`, () => mutate(c => { c.interactables.splice(index, 1); }));
         box.appendChild(textRow('调查点 id', item.id, value => mutate(c => { c.interactables[index].id = value; })));
         box.appendChild(textRow('显示文案', item.label || '', value => mutate(c => { c.interactables[index].label = value; })));
-        box.appendChild(textRow('坐标', `${item.q},${item.r}`, value => mutate(c => { const point = parseCoordList(value)[0]; if (point) Object.assign(c.interactables[index], point); }), 'q,r'));
+        box.appendChild(coordRow('坐标', item.q, item.r, tile => mutate(c => { c.interactables[index].q = tile.q; c.interactables[index].r = tile.r; })));
         box.appendChild(checkRow('开场可用', item.enabled !== false, value => mutate(c => { c.interactables[index].enabled = value; })));
         box.appendChild(checkRow('只能完成一次', item.once !== false, value => mutate(c => { c.interactables[index].once = value; })));
         secInteractions.appendChild(box);
@@ -1415,6 +1532,7 @@ export function initEditor(cbs = {}) {
             activeTab = tab.dataset.tab;
             document.querySelectorAll('.editor-tab').forEach(t => t.classList.toggle('active', t === tab));
             selection = null;
+            if (pendingPick) { clearPickBar(); pendingPick = null; }
             renderToolPanel();
             renderInspector();
             render();

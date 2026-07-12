@@ -135,6 +135,41 @@
     pointer-events: none;
 }
 
+/* 画布取色/涂抹确认栏 */
+.editor-pick-bar {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(10, 13, 20, 0.88);
+    border: 1px solid rgba(255, 200, 50, 0.5);
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    color: #ffd866;
+    z-index: 10;
+    pointer-events: auto;
+}
+.editor-pick-bar .ed-add-btn {
+    font-size: 12px;
+    padding: 2px 10px;
+}
+.ed-pick-btn {
+    background: rgba(255,200,50,0.15);
+    border: 1px solid rgba(255,200,50,0.4);
+    border-radius: 4px;
+    color: #ffd866;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 1px 5px;
+    margin-left: 4px;
+    line-height: 1.4;
+}
+.ed-pick-btn:hover { background: rgba(255,200,50,0.3); }
+
 /* 右：检查器 */
 .editor-inspector {
     display: flex;
