@@ -1150,6 +1150,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             break;
         case 'eventTarget':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '指定单位' }));
+            box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
             break;
         case 'eventTargetArea':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
@@ -1166,23 +1167,8 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             break;
         case 'eventCamp':
         case 'eventCampTurn':
-            box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意阵营', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
+            box.appendChild(selectRow('阵营（留空=每轮首位）', cond.camp || '', { '': '（每轮首位）', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
             box.appendChild(numRow('从触发器启动起 N 回合后', cond.turn ?? 1, v => patch({ turn: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
-            break;
-            box.appendChild(selectRow('阵营', cond.camp || primaryFactionId(), factionLabels(), camp => patch({ camp })));
-        case 'eventCampTurn':
-            box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意阵营', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
-            box.appendChild(numRow('从触发器启动起 N 回合后', cond.turn ?? 1, v => patch({ turn: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
-            break;
-            break;
-        case 'eventUnitSkill':
-            box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '施放单位' }));
-            box.appendChild(selectRow('技能类型', cond.skillType || '', { '': '任意', active: '主动技能', passive: '被动技能' }, v => patch({ skillType: v || undefined })));
-            box.appendChild(textRow('技能 id（留空=任意）', cond.skill || '', skill => patch({ skill: skill || undefined })));
-            if (cond.skillType === 'passive') {
-                box.appendChild(selectRow('叠层比较', cond.stackOp || '>=', { '>=': '不少于', '<=': '不多于', '==': '等于' }, v => patch({ stackOp: v })));
-                box.appendChild(numRow('叠层数', cond.stacks ?? 1, v => patch({ stacks: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
-            }
             break;
         case 'step':
             box.appendChild(selectRow('步骤', cond.value || '', stepOptions(true), v => patch({ value: v }))); break;
@@ -1192,9 +1178,14 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             unitRow.appendChild(pickUnitButton(id => patch({ unit: id }), cond.unit));
             unitRow.appendChild(el('span', null, cond.unit || '未选择'));
             box.appendChild(unitRow);
-        } break;
+            break;
+        }
         case 'card':
             box.appendChild(selectRow('卡牌', cond.value || CARD_IDS[0], CARD_LABELS, v => patch({ value: v }))); break;
+        case 'cardCamp':
+            box.appendChild(selectRow('卡牌', cond.value || CARD_IDS[0], CARD_LABELS, v => patch({ value: v })));
+            box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
+            break;
         case 'camp':
             box.appendChild(selectRow('阵营', cond.value || primaryFactionId(), factionLabels(), v => patch({ value: v }))); break;
         case 'cityOwner':

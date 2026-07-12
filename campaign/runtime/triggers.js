@@ -93,7 +93,12 @@ function evalCondition(cond, ctx) {
         case 'any': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.some(child => evalCondition(child, ctx));
         case 'not': return !!cond.condition && !evalCondition(cond.condition, ctx);
         case 'levelStarted': return eventId === 'levelStarted';
-        case 'unitSelected': return eventId === 'unitSelected' && targetIncludesUnit(config, cond.target, event?.unitId);
+        case 'unitSelected': {
+            if (eventId !== 'unitSelected') return false;
+            if (!targetIncludesUnit(config, cond.target, event?.unitId)) return false;
+            if (cond.camp && event?.camp !== cond.camp) return false;
+            return true;
+        }
         case 'unitMovesToTile':
         case 'unitMovesToArea': {
             if (eventId !== 'unitMoved' || !targetIncludesUnit(config, cond.target, event?.unitId)) return false;
@@ -105,13 +110,21 @@ function evalCondition(cond, ctx) {
         case 'unitAttacksUnit': return eventId === 'combatStarted'
             && targetIncludesUnit(config, cond.attacker, event?.attackerId)
             && targetIncludesUnit(config, cond.defender, event?.defenderId);
-        case 'unitKilled': return eventId === 'unitKilled' && targetIncludesUnit(config, cond.target, event?.unitId);
+        case 'unitKilled': {
+            if (eventId !== 'unitKilled') return false;
+            if (!targetIncludesUnit(config, cond.target, event?.unitId)) return false;
+            if (cond.camp && event?.camp !== cond.camp) return false;
+            return true;
+        }
         case 'cityCaptured': return eventId === 'tileCaptured'
             && event?.q === cond.q && event?.r === cond.r
             && (!cond.camp || event?.newCamp === cond.camp);
         case 'turnStarted': {
             if (eventId !== 'turnStarted') return false;
-            if (cond.camp && event?.camp !== cond.camp) return false;
+            // 留空 = 每轮首个阵营回合开始时（新的一轮）
+            if (!cond.camp) {
+                if (event?.camp !== gameState.turnOrder?.[0]) return false;
+            } else if (event?.camp !== cond.camp) return false;
             if (cond.turn != null && cond.turn > 0) {
                 const timerId = `turn:${ctx.triggerId}`;
                 if (!state._timerStarts) state._timerStarts = {};
@@ -122,7 +135,12 @@ function evalCondition(cond, ctx) {
             }
             return true;
         }
-        case 'cardUsed': return eventId === 'cardUsed' && event?.cardId === cond.value;
+        case 'cardUsed': {
+            if (eventId !== 'cardUsed') return false;
+            if (event?.cardId !== cond.value) return false;
+            if (cond.camp && event?.camp !== cond.camp) return false;
+            return true;
+        }
         case 'skillUsed': {
             if (eventId !== 'skillUsed') return false;
             if (!targetIncludesUnit(config, cond.target, event?.unitId)) return false;
@@ -409,7 +427,7 @@ export function createTriggerFlow(config, api) {
         dispatch,
         onLevelStarted() { dispatch('levelStarted', {}); dispatch('levelStart', {}); },
         onTileSelected({ tile, unit }) { dispatch('tileSelected', { q: tile?.q, r: tile?.r, unitId: unit?.id, camp: campKeyOf(unit?.camp) }); if (unit) dispatch('unitSelected', { unitId: unit.id, camp: campKeyOf(unit.camp) }); },
-        onCardUsed({ cardId, targetUnitId, targetTile }) { dispatch('cardUsed', { cardId, targetUnitId, q: targetTile?.q, r: targetTile?.r }); },
+        onCardUsed({ cardId, targetUnitId, targetTile }) { dispatch('cardUsed', { cardId, targetUnitId, q: targetTile?.q, r: targetTile?.r, camp: campKeyOf(gameState.currentCamp) }); },
         onUnitMoved({ unit, targetTile, fromQ, fromR }) { dispatch('unitMoved', { unitId: unit?.id, camp: campKeyOf(unit?.camp), fromQ, fromR, q: targetTile?.q, r: targetTile?.r }); },
         onSkillUsed({ unit, skillId, skillType, stacks }) { dispatch('skillUsed', { unitId: unit?.id, skillId, skillType, stacks, camp: campKeyOf(unit?.camp) }); },
         onCityCaptured({ cityTile, campKey }) { dispatch('tileCaptured', { q: cityTile?.q, r: cityTile?.r, newCamp: campKey }); },
