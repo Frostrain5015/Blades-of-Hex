@@ -328,11 +328,14 @@ export function initMap() {
     // City definitions: each city anchors a Voronoi district
     const is3P = gameState.isThreePlayer;
     const cityDefs = is3P ? [
-        // 三人对称地图：三座主城120°对称分布 + 中央中立城
-        { q: 6,  r: 0,  s: -6, districtId: 1, camp: CAMP.player1 },
-        { q: -6, r: 6,  s: 0,  districtId: 2, camp: CAMP.player2 },
-        { q: 0,  r: -6, s: 6,  districtId: 3, camp: CAMP.player3 },
+        // 三人对称地图：每人双城 + 中央中立城
+        { q: -3, r: -3, s: 6,  districtId: 1, camp: CAMP.player1 },
+        { q: 3,  r: -6, s: 3,  districtId: 2, camp: CAMP.player1 },
+        { q: -6, r: 3,  s: 3,  districtId: 3, camp: CAMP.player2 },
+        { q: -3, r: 6,  s: -3, districtId: 4, camp: CAMP.player2 },
         { q: 0,  r: 0,  s: 0,  districtId: 5, camp: CAMP.neutral },
+        { q: 3,  r: 3,  s: -6, districtId: 6, camp: CAMP.player3 },
+        { q: 6,  r: -3, s: -3, districtId: 7, camp: CAMP.player3 },
     ] : [
         { q: -5, r: 0,  s: 5,  districtId: 1, camp: CAMP.player1 },
         { q: 5,  r: 0,  s: -5, districtId: 2, camp: CAMP.player2 },
@@ -521,34 +524,42 @@ function initInitialUnits() {
         const tile = map.get(`${q},${r}`);
         if (tile && !tile.unit) new Unit(type, camp, tile, false);
     }
-
-    // ── 玩家阵型（各 3步 2骑 1炮） ──
-    const formation = [
-        ['infantry', 0, 0],    // 城市驻军
-        ['cavalry',  1, 0],    // 前锋
-        ['archer',   0, 1],    // 右翼火力
-        ['infantry', -1, 1],   // 右翼后卫
-        ['cavalry',  1, -1],   // 游击斥候
-        ['infantry', 0, -1],   // 左翼步兵
-    ];
-
-    const p1City = gameState.tiles.find(t => t.isCity && t.districtId === 1);
-    const p2City = gameState.tiles.find(t => t.isCity && t.districtId === 2);
-    const p3City = gameState.tiles.find(t => t.isCity && t.districtId === 3);
-
     if (gameState.isThreePlayer) {
-        // 三人模式：每方独立生成阵型
-        for (const [type, dq, dr] of formation) {
-            if (p1City) spawn(type, CAMP.player1, p1City.q + dq, p1City.r + dr);
-            if (p2City) spawn(type, CAMP.player2, p2City.q + dq, p2City.r + dr);
-            if (p3City) spawn(type, CAMP.player3, p3City.q + dq, p3City.r + dr);
-        }
-        // 中立·中央（district 5）—— 120° 旋转对称布防
-        const centerCity = gameState.tiles.find(t => t.isCity && t.districtId === 5);
-        if (centerCity) new Unit('infantry', CAMP.neutral, centerCity, false);
-        spawn('infantry', CAMP.neutral, -1, 1);
-        spawn('archer',   CAMP.neutral, 1, 0);
-        spawn('infantry', CAMP.neutral, 0, -1);      // 对称第三翼
+        // 红军
+        spawn('infantry', CAMP.player1, -3, -3);
+        spawn('infantry', CAMP.player1, 3, -6);
+        spawn('infantry', CAMP.player1, 2, -6);
+        spawn('infantry', CAMP.player1, -2, -4);
+        spawn('archer',   CAMP.player1, -3, -4);
+        spawn('archer',   CAMP.player1, 3, -7);
+        spawn('cavalry',  CAMP.player1, 2, -5);
+        spawn('cavalry',  CAMP.player1, -2, -3);
+        // 蓝军
+        spawn('infantry', CAMP.player2, -6, 3);
+        spawn('infantry', CAMP.player2, -3, 6);
+        spawn('infantry', CAMP.player2, -2, 6);
+        spawn('infantry', CAMP.player2, -6, 4);
+        spawn('archer',   CAMP.player2, -7, 4);
+        spawn('archer',   CAMP.player2, -3, 7);
+        spawn('cavalry',  CAMP.player2, -5, 3);
+        spawn('cavalry',  CAMP.player2, -2, 5);
+        // 绿军
+        spawn('infantry', CAMP.player3, 3, 3);
+        spawn('infantry', CAMP.player3, 6, -3);
+        spawn('infantry', CAMP.player3, 6, -2);
+        spawn('infantry', CAMP.player3, 4, 2);
+        spawn('archer',   CAMP.player3, 4, 3);
+        spawn('archer',   CAMP.player3, 7, -3);
+        spawn('cavalry',  CAMP.player3, 3, 2);
+        spawn('cavalry',  CAMP.player3, 5, -2);
+        // 中立
+        spawn('infantry', CAMP.neutral, 0, 0);
+        spawn('infantry', CAMP.neutral, 2, -2);
+        spawn('infantry', CAMP.neutral, 0, 2);
+        spawn('infantry', CAMP.neutral, -2, 0);
+        spawn('archer',   CAMP.neutral, 0, -1);
+        spawn('cavalry',  CAMP.neutral, -1, 1);
+        spawn('cavalry',  CAMP.neutral, 1, 0);
     } else {
         // 红军
         spawn('infantry', CAMP.player1, -5, 0);
