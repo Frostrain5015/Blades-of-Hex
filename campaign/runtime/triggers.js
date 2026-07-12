@@ -317,21 +317,31 @@ export function createTriggerFlow(config, api) {
             if (!api.isActive() || !gameState.tutorialMode) return true;
             if (tile?.unit?._campaignSelectable === false) { api.showHint('当前单位不可选择'); return false; }
             const allow = currentAllow();
-            if (!allow || (!allow.units && !allow.tiles)) return true;
-            // 查看信息始终放行（棋子、空地均可点击）
+            // 没有选中单位 = 查看信息，始终放行
             if (!gameState.selectedUnit) return true;
-            // 有选中单位时，如果点击的是可移动/攻击目标但不在白名单中 → 拦截
-            const isMoveTarget = gameState.movableTiles?.includes(tile);
-            const isAtkTarget = gameState.attackableTiles?.includes(tile);
-            if (isMoveTarget || isAtkTarget) {
-                const whitelisted = allow.tiles?.some(p => p.q === tile?.q && p.r === tile?.r)
-                    || (tile?.unit && allow.units?.includes(tile.unit.id));
-                if (!whitelisted) { api.showHint(allow.hint || '请按剧情指引操作'); return false; }
-            }
+            const isAction = gameState.movableTiles?.includes(tile) || gameState.attackableTiles?.includes(tile);
+            if (!isAction) return true; // 点击非操作目标 → 放行
+            // 有操作点击时：无白名单 = 全部锁定；有白名单 = 只放行白名单内
+            if (!allow || (!allow.units && !allow.tiles)) { api.showHint('当前操作已被锁定'); return false; }
+            const ok = allow.tiles?.some(p => p.q === tile?.q && p.r === tile?.r)
+                || (tile?.unit && allow.units?.includes(tile.unit.id));
+            if (!ok) { api.showHint(allow.hint || '请按剧情指引操作'); return false; }
             return true;
         },
-        validateCardClick(cardId) { const allow = currentAllow(); if (!api.isActive() || !gameState.tutorialMode || !allow?.cards || allow.cards.includes(cardId)) return true; api.showHint(allow.hint || '当前无法使用这张对策卡'); return false; },
-        validateAction(actionKey) { const allow = currentAllow(); if (!api.isActive() || !gameState.tutorialMode || !allow?.actions || allow.actions.some(value => actionKey?.startsWith(value))) return true; api.showHint(allow.hint || '当前无法发动该技能'); return false; },
+        validateCardClick(cardId) {
+            if (!api.isActive() || !gameState.tutorialMode) return true;
+            const allow = currentAllow();
+            if (!allow?.cards) { api.showHint('当前无法使用对策卡'); return false; }
+            if (allow.cards.includes(cardId)) return true;
+            api.showHint(allow.hint || '当前无法使用这张对策卡'); return false;
+        },
+        validateAction(actionKey) {
+            if (!api.isActive() || !gameState.tutorialMode) return true;
+            const allow = currentAllow();
+            if (!allow?.actions) { api.showHint('当前操作已被锁定'); return false; }
+            if (allow.actions.some(value => actionKey?.startsWith(value))) return true;
+            api.showHint(allow.hint || '当前无法发动该技能'); return false;
+        },
         dispose() { for (const timer of state.timers) clearTimeout(timer); state.timers.clear(); },
         _flags: state.flags
     };
