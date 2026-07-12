@@ -9,6 +9,7 @@ import {
     serializeMatchState, restoreMatchState
 } from '../engine/matchState.js';
 import { campFromKey, getFaction, getRelation, getViewingCampKey } from '../rules/diplomacy.js';
+import { CAMP_FLAG_COLORS } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 
 // ===== 计数器滚动动画工具 =====================
@@ -287,10 +288,16 @@ export function updateUI() {
         const card = document.getElementById(cardId);
         const faction = getFaction(gameState, key);
         if (!card || !faction) continue;
+        // 三人模式下所有阵营卡左对齐（取消 player2 的右对齐）
+        if (key === 'player2') card.classList.toggle('align-right', !gameState.isThreePlayer);
         const label = card.querySelector('.camp-label');
         const emblem = card.querySelector('.camp-emblem');
         if (label) label.textContent = faction.name;
-        if (emblem) emblem.style.background = faction.color;
+        if (emblem) {
+            const shortKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : 'neu';
+            const flag = CAMP_FLAG_COLORS[shortKey];
+            emblem.style.background = flag ? flag.dark : faction.color;
+        }
         // 战役模式：只显示玩家所属阵营，其余位置显示传记/关卡信息
         if (gameState.campaignMode) {
             const isLocal = key === getViewingCampKey(gameState);
