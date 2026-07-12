@@ -116,10 +116,8 @@ function evalCondition(cond, ctx) {
             && (!cond.skill || event?.skillId === cond.skill);
         case 'goldCompare': return compareValues(gameState.playerGold[cond.camp] || 0, cond.op || '>=', Number(cond.value));
         case 'variableCompare': return compareValues(gameState.levelVariables?.[cond.variable], cond.op || '==', cond.value);
-        case 'eventCardIs': return eventId === 'cardUsed' && event?.cardId === cond.value;
         case 'eventNextIs': case 'eventChoiceIs': return eventId === 'advance' && (event?.next === cond.value || event?.choiceId === cond.value);
         case 'eventInteractionIs': return eventId === 'interactionCompleted' && event?.interactableId === cond.interactable;
-        case 'eventSignalIs': return eventId === 'triggerSignal' && event?.signal === cond.value;
         case 'timer': {
             const timerId = ctx.triggerId;
             if (!timerId || !cond.value || cond.value <= 0) return false;

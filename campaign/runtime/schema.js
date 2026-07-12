@@ -77,7 +77,6 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'turnStarted', label: '指定阵营回合开始时', arg: 'eventCamp', event: true },
     { kind: 'cardUsed', label: '使用指定对策卡', arg: 'card', event: true },
     { kind: 'skillUsed', label: '指定单位使用技能', arg: 'eventUnitSkill', event: true },
-    { kind: 'eventCardIs',  label: '事件卡牌是',   arg: 'card', event: true },
     { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值', event: true },
     ,{ kind: 'timer',        label: '计时器到期',   arg: 'number', note: '关卡开始后经过指定毫秒时触发一次' }
     ,{ kind: 'cityOwnedBy',  label: '城市归属于',   arg: 'cityOwner' },
@@ -97,7 +96,6 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     ,{ kind: 'groupState', label: '单位组状态为', arg: 'groupState' }
     ,{ kind: 'unitsInArea', label: '区域内单位数量', arg: 'areaCount' }
     ,{ kind: 'eventInteractionIs', label: '事件调查点是', arg: 'interaction', event: true }
-    ,{ kind: 'eventSignalIs', label: '事件信号是', arg: 'text', event: true }
     ,{ kind: 'mechanicEnabled', label: '机制已启用/禁用', arg: 'mechanicBoolean' }
 ]);
 
