@@ -327,56 +327,14 @@ export function initMap() {
     gameState.tiles = [];
 
     const is3P = gameState.isThreePlayer;
-    // 使用地图编辑器导出的标准对局配置
-    const boardConfig = is3P ? {
-        radius: 7,
-        cities: [
-            { q: -3, r: -3, districtId: 1, camp: 'player1' }, { q: 3, r: -6, districtId: 2, camp: 'player1' },
-            { q: -6, r: 3, districtId: 3, camp: 'player2' }, { q: -3, r: 6, districtId: 4, camp: 'player2' },
-            { q: 0, r: 0, districtId: 5, camp: 'neutral' },
-            { q: 3, r: 3, districtId: 6, camp: 'player3' }, { q: 6, r: -3, districtId: 7, camp: 'player3' },
-        ],
-        districts: [
-            { q: -4, r: 0, districtId: 1 }, { q: -5, r: 0, districtId: 1 }, { q: -6, r: 0, districtId: 1 }, { q: -7, r: 0, districtId: 1 },
-            { q: 0, r: -7, districtId: 2 }, { q: 1, r: -7, districtId: 2 }, { q: 0, r: -6, districtId: 2 }, { q: 1, r: -6, districtId: 2 },
-            { q: 0, r: -5, districtId: 2 }, { q: 1, r: -5, districtId: 2 }, { q: 0, r: -4, districtId: 2 }, { q: 1, r: -4, districtId: 2 },
-            { q: -3, r: 3, districtId: 5 }, { q: -3, r: 2, districtId: 5 }, { q: -3, r: 1, districtId: 5 }, { q: -3, r: 0, districtId: 5 },
-            { q: -2, r: -1, districtId: 5 }, { q: -1, r: -1, districtId: 5 }, { q: -1, r: -2, districtId: 5 }, { q: 0, r: -3, districtId: 5 },
-            { q: 1, r: -3, districtId: 5 }, { q: 2, r: -3, districtId: 5 }, { q: 3, r: -3, districtId: 5 },
-            { q: 3, r: -2, districtId: 5 }, { q: 3, r: -1, districtId: 5 }, { q: 3, r: 0, districtId: 5 },
-            { q: 2, r: 1, districtId: 5 }, { q: 1, r: 1, districtId: 5 }, { q: 1, r: 2, districtId: 5 },
-            { q: -2, r: 3, districtId: 5 }, { q: -1, r: 3, districtId: 5 }, { q: 0, r: 3, districtId: 5 },
-            { q: 4, r: -4, districtId: 7 }, { q: 5, r: -5, districtId: 7 }, { q: 6, r: -6, districtId: 7 }, { q: 7, r: -7, districtId: 7 },
-        ],
-        villages: [
-            { q: 1, r: -6, districtId: 2 }, { q: -6, r: 5, districtId: 3 }, { q: -1, r: 6, districtId: 4 },
-            { q: 5, r: 1, districtId: 6 }, { q: 0, r: 2, districtId: 5 }, { q: 2, r: -2, districtId: 5 },
-            { q: -2, r: 0, districtId: 5 }, { q: -4, r: -2, districtId: 1 }, { q: 6, r: -4, districtId: 7 },
-        ],
-        terrain: [],
-        fortifications: [],
-    } : {
-        radius: 7,
-        cities: [
-            { q: -5, r: 0, districtId: 1, camp: 'player1' }, { q: 5, r: 0, districtId: 2, camp: 'player2' },
-            { q: 2, r: -4, districtId: 3, camp: 'neutral' }, { q: -2, r: 4, districtId: 4, camp: 'neutral' },
-            { q: 0, r: 0, districtId: 5, camp: 'neutral' },
-        ],
-        districts: [
-            { q: 2, r: 5, districtId: 2 }, { q: 4, r: -2, districtId: 2 }, { q: 5, r: -2, districtId: 2 }, { q: 6, r: -3, districtId: 2 },
-        ],
-        villages: [
-            { q: -5, r: 6, districtId: 4 }, { q: -1, r: 6, districtId: 4 }, { q: -1, r: -1, districtId: 5 },
-            { q: 1, r: 1, districtId: 5 }, { q: 1, r: -6, districtId: 3 }, { q: 5, r: -6, districtId: 3 },
-            { q: -6, r: 3, districtId: 1 }, { q: -3, r: -3, districtId: 1 },
-            { q: 6, r: -3, districtId: 2 }, { q: 3, r: 3, districtId: 2 },
-        ],
-        terrain: [],
-        fortifications: [],
-    };
+    // 直接从编辑器导出的配置嵌入（JSON字符串，保证与文件完全一致）
+    const boardJSON = is3P
+        ? '{"radius":7,"cities":[{"q":0,"r":0,"districtId":5,"camp":"neutral"},{"q":-3,"r":-3,"districtId":1,"camp":"player1"},{"q":-6,"r":3,"districtId":3,"camp":"player2"},{"q":-3,"r":6,"districtId":4,"camp":"player2"},{"q":3,"r":3,"districtId":6,"camp":"player3"},{"q":6,"r":-3,"districtId":7,"camp":"player3"},{"q":3,"r":-6,"districtId":2,"camp":"player1"}],"terrain":[],"villages":[{"q":1,"r":-6,"districtId":2},{"q":-6,"r":5,"districtId":3},{"q":-1,"r":6,"districtId":4},{"q":5,"r":1,"districtId":6},{"q":0,"r":2,"districtId":5},{"q":2,"r":-2,"districtId":5},{"q":-2,"r":0,"districtId":5},{"q":-4,"r":-2,"districtId":1},{"q":6,"r":-4,"districtId":7}],"fortifications":[],"districts":[{"q":-4,"r":0,"districtId":1},{"q":-5,"r":0,"districtId":1},{"q":-6,"r":0,"districtId":1},{"q":-7,"r":0,"districtId":1},{"q":0,"r":-7,"districtId":2},{"q":1,"r":-7,"districtId":2},{"q":0,"r":-6,"districtId":2},{"q":1,"r":-6,"districtId":2},{"q":0,"r":-5,"districtId":2},{"q":1,"r":-5,"districtId":2},{"q":0,"r":-4,"districtId":2},{"q":1,"r":-4,"districtId":2},{"q":-3,"r":2,"districtId":5},{"q":-3,"r":1,"districtId":5},{"q":-3,"r":0,"districtId":5},{"q":-1,"r":-1,"districtId":5},{"q":-1,"r":-2,"districtId":5},{"q":0,"r":-3,"districtId":5},{"q":1,"r":-3,"districtId":5},{"q":2,"r":-3,"districtId":5},{"q":3,"r":-3,"districtId":5},{"q":3,"r":-2,"districtId":5},{"q":3,"r":-1,"districtId":5},{"q":3,"r":0,"districtId":5},{"q":2,"r":1,"districtId":5},{"q":1,"r":1,"districtId":5},{"q":1,"r":2,"districtId":5},{"q":-2,"r":3,"districtId":5},{"q":-1,"r":3,"districtId":5},{"q":0,"r":3,"districtId":5},{"q":4,"r":-4,"districtId":7},{"q":5,"r":-5,"districtId":7},{"q":6,"r":-6,"districtId":7},{"q":7,"r":-7,"districtId":7}]}'
+        : '{"radius":7,"cities":[{"q":0,"r":0,"districtId":5,"camp":"neutral"},{"q":-5,"r":0,"districtId":1,"camp":"player1"},{"q":5,"r":0,"districtId":2,"camp":"player2"},{"q":-2,"r":4,"districtId":4,"camp":"neutral"},{"q":2,"r":-4,"districtId":3,"camp":"neutral"}],"terrain":[],"villages":[{"q":-5,"r":6,"districtId":4},{"q":-1,"r":6,"districtId":4},{"q":-1,"r":-1,"districtId":5},{"q":1,"r":1,"districtId":5},{"q":1,"r":-6,"districtId":3},{"q":5,"r":-6,"districtId":3},{"q":-6,"r":3,"districtId":1},{"q":-3,"r":-3,"districtId":1},{"q":6,"r":-3,"districtId":2},{"q":3,"r":3,"districtId":2}],"fortifications":[],"districts":[{"q":2,"r":5,"districtId":2},{"q":4,"r":-2,"districtId":2},{"q":5,"r":-2,"districtId":2},{"q":6,"r":-3,"districtId":2}]}';
 
-    buildBoardFromConfig({ board: boardConfig }, gameState);
+    buildBoardFromConfig({ board: JSON.parse(boardJSON) }, gameState);
     updateButtonColors();
+    generateTerrain(gameState.tiles);
     initInitialUnits();
 
     // 遭遇战迷雾：初始化（支持联机遭遇战与 PVE 遭遇战）
