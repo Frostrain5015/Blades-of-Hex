@@ -1135,6 +1135,21 @@ function _buildEffectItems(tile, unit) {
             kind: 'effect'
         });
     }
+    // 战役触发器施加的效果
+    if (unit && Array.isArray(unit._campaignEffects) && unit._campaignEffects.length) {
+        for (const eff of unit._campaignEffects) {
+            items.push({
+                key: "campaign:" + eff.name + ":" + eff.id,
+                icon: eff.emoji || "✨",
+                label: eff.name,
+                desc: "战役效果" + (eff.duration ? " · 剩余" + eff.duration + "回合" : ""),
+                color: "#ffd866",
+                count: eff.duration ? "⏳" + eff.duration : "",
+                status: eff.duration ? "持续" + eff.duration + "回合" : "持续生效",
+                kind: "effect"
+            });
+        }
+    }
     return items;
 }
 

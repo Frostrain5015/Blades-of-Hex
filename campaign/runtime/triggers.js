@@ -235,10 +235,45 @@ function runAction(action, ctx) {
             else if (action.state === 'targetable') unit._campaignTargetable = action.value !== false;
             else if (action.state === 'invulnerable') unit.godMode = action.value !== false;
         } break;
+        case 'applyEffect': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
+            if (!Array.isArray(unit._campaignEffects)) unit._campaignEffects = [];
+            // 特殊规则（minHp/maxHp/godMode）直接写 unit 属性
+            if (action.rule === 'minHp') {
+                unit._campaignMinHp = Math.max(0, Math.min(100, Number(action.rulePercent) || 0)) / 100 * unit.maxHp;
+            } else if (action.rule === 'maxHp') {
+                unit._campaignMaxHp = Math.max(0, Math.min(100, Number(action.rulePercent) || 0)) / 100 * unit.maxHp;
+            } else if (action.rule === 'godMode') {
+                unit.godMode = true;
+            }
+            // 常规 statMods 效果存入 effects 数组（用于显示徽章 + 修正面板）
+            const mods = action.statMods || {};
+            if (Object.keys(mods).length || action.name) {
+                const existing = Array.isArray(unit._campaignEffects) ? unit._campaignEffects.find(e => e.id === action.effectId) : null;
+                const effect = {
+                    id: action.effectId || `effect_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                    name: action.name || '',
+                    emoji: action.emoji || '✨',
+                    duration: action.duration || 0,
+                    statMods: { ...mods }
+                };
+                if (existing) Object.assign(existing, effect);
+                else unit._campaignEffects.push(effect);
+            }
+            updateUI();
+            break;
+        }
         case 'setUnitDefeatRule': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-            unit._campaignMinHp = Math.max(0, Number(action.minHp) || 0);
-            unit._campaignNonLethal = !!action.nonLethal;
-            unit._campaignFailOnDeath = !!action.failOnDeath;
+            // mode: 'normal' | 'minHp' | 'maxHp'，分别对应正常/设下限/设上限
+            if (action.mode === 'normal' || !action.mode) {
+                unit._campaignMinHp = 0;
+                unit._campaignMaxHp = 0;
+            } else if (action.mode === 'minHp') {
+                unit._campaignMinHp = Math.max(0, Math.min(100, Number(action.percent) || 0)) / 100 * unit.maxHp;
+                unit._campaignMaxHp = 0;
+            } else if (action.mode === 'maxHp') {
+                unit._campaignMaxHp = Math.max(0, Math.min(100, Number(action.percent) || 0)) / 100 * unit.maxHp;
+                unit._campaignMinHp = 0;
+            }
         } break;
         case 'setDiplomacy': {
             const change = setRelation(gameState, action.camp, action.targetCamp, action.relation);

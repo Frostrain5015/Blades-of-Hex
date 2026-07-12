@@ -59,6 +59,7 @@ export class Unit {
         this._imprisoned = false;
         this._isImmobile = false;
         this._engineerConstruction = null;
+        this._campaignEffects = [];  // [{id,name,emoji,duration,statMods:{atkPct,defPct,spdPct,hpPct}}]
         this._engineerScaffold = null;
         this._engineerBunkerCD = 0;
         this._phantomStacks = 0;
@@ -450,7 +451,7 @@ export class Unit {
         } = opts;
         const log = _logMessage;
         const oldHp = this.hp;
-        const effectiveMinHp = Math.max(minHp, this._campaignNonLethal ? 1 : 0, Number(this._campaignMinHp) || 0);
+        const effectiveMinHp = Math.max(minHp, Number(this._campaignMinHp) || 0);
 
         if (this.godMode) return false;
 
@@ -553,7 +554,8 @@ export class Unit {
             killerType: attackerUnit?.type || null,
             killerCamp: attackerUnit?.camp || null,
             reason: attackerUnit ? 'combat' : 'effect',
-            failOnDeath: !!this._campaignFailOnDeath
+            campaignMinHp: this._campaignMinHp || 0,
+            campaignMaxHp: this._campaignMaxHp || 0
         };
         // 工程师脚手架被摧毁：立即解除对应工程师的施工锁定（金币不返还）
         if (this._engineerScaffold && _gameState) {
@@ -699,7 +701,8 @@ export class Unit {
         if (this.commander === 'martyr' && this._martyrPrimed) return 0;
         const gs = _gameState;
         const oldHp = this.hp;
-        this.hp = Math.min(this.maxHp, this.hp + amount);
+        const cap = this._campaignMaxHp || this.maxHp;
+        this.hp = Math.min(this.maxHp, Math.min(cap, this.hp + amount));
         const actualHeal = this.hp - oldHp;
 
         if (actualHeal > 0) {

@@ -121,6 +121,7 @@ export const TRIGGER_ACTIONS = Object.freeze([
     ,{ kind: 'changeUnitFaction', label: '改变单位阵营', arg: 'unitCamp' }
     ,{ kind: 'setUnitState', label: '设置单位状态', arg: 'unitState' }
     ,{ kind: 'setUnitDefeatRule', label: '设置单位战败规则', arg: 'unitDefeatRule' }
+    ,{ kind: 'applyEffect', label: '施加效果', arg: 'effectApply', note: '为指定单位添加临时效果（攻防速HP修正），效果会显示在左上角徽章栏' }
     ,{ kind: 'setDiplomacy', label: '改变外交关系', arg: 'relation' }
     ,{ kind: 'setWeather', label: '改变天气', arg: 'weather' }
     ,{ kind: 'setInteractionState', label: '设置调查点状态', arg: 'interactionState' }
