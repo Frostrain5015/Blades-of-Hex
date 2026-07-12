@@ -318,11 +318,9 @@ export function createTriggerFlow(config, api) {
             if (tile?.unit?._campaignSelectable === false) { api.showHint('当前单位不可选择'); return false; }
             const allow = currentAllow();
             if (!allow || (!allow.units && !allow.tiles)) return true;
-            // 允许查看任何单位的信息（点击棋子），仅拦截非白名单的地块点击（移动/攻击等操作）
-            if (tile?.unit && allow.units?.includes(tile.unit.id)) return true;
-            if (tile?.unit && !allow.units) return true;
+            // 点击任何棋子都允许（查看信息），仅拦截非白名单的空地（防止误操作触发移动/攻击）
+            if (tile?.unit) return true;
             if (allow.tiles?.some(point => point.q === tile?.q && point.r === tile?.r)) return true;
-            if (tile?.unit) return true; // 不在白名单中的单位仍可查看信息
             api.showHint(allow.hint || '请按剧情指引操作'); return false;
         },
         validateCardClick(cardId) { const allow = currentAllow(); if (!api.isActive() || !gameState.tutorialMode || !allow?.cards || allow.cards.includes(cardId)) return true; api.showHint(allow.hint || '当前无法使用这张对策卡'); return false; },
