@@ -139,25 +139,14 @@ export function createDefaultLevel() {
         intro: { campaignTitle: '将星列传', scenarioSubtitle: '新关卡' },
         weather: 'clear',
         localPlayerCamp: 'player1',
-        factions: CAMP_KEYS.map(id => ({
-            id,
-            name: CAMP_LABELS[id],
-            color: id === 'player1' ? '#ffaaaa' : id === 'player2' ? '#aaaaff' : id === 'player3' ? '#aaffaa' : '#c0c0c0',
-            controller: id === 'player1' ? 'human' : 'ai',
-            participatesInTurns: true,
-            active: true
-        })),
-        diplomacy: {
-            player1: { player2: 'enemy', player3: 'enemy', neutral: 'neutral' },
-            player2: { player3: 'enemy', neutral: 'neutral' },
-            player3: { neutral: 'neutral' }
-        },
+        factions: [{ id: 'player1', name: '红军', color: '#ffaaaa', controller: 'human', participatesInTurns: true, active: true }],
+        diplomacy: {},
         mechanics: createDefaultMechanics(),
         aiOpponentCamp: 'player2',
         aiDifficulty: 1.0,
-        gold: { player1: 6, player2: 6, player3: 6 },
-        commanders: { player1: null, player2: null, player3: null },
-        hands: { player1: [], player2: [], player3: [] },
+        gold: { player1: 6 },
+        commanders: {},
+        hands: { player1: [] },
         // 阵营不是逐格独立属性：每个 districtId 的阵营由该区划内的城市（颜色来源）单向决定，
         // 与 gameLogic.updateDistrictColor 的运行时规则一致——城市变色，全区划跟着变色。
         // 因此棋盘只需描述「区划范围」(districts) 与「区划颜色来源」(cities.camp)，

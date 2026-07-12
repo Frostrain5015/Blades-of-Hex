@@ -731,6 +731,7 @@ function _launchScenario(scenario) {
 	gameState.campaignId = _playtestConfig ? '__editor__' : _currentChronicleId;
 	gameState.scenarioId = scenario.id;
 	gameState.campaignPhase = scenario.initialStep;
+		gameState._campaignIntro = scenario.intro || {};
 	gameState.tutorialMode = true; // 触发 step.allow 输入白名单；由 trigger.unlockInput 关闭。
 	gameState.isThreePlayer = false;
 	gameState.skirmishFog = false;

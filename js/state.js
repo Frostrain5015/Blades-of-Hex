@@ -281,6 +281,7 @@ export function updateUI() {
         ['player2', 'campCard2', gold2El],
         ['player3', 'campCard3', gold3El]
     ];
+    const campaignInfoBar = document.getElementById('campaignInfoBar');
     for (const [key, cardId] of campUi) {
         const card = document.getElementById(cardId);
         const faction = getFaction(gameState, key);
@@ -289,10 +290,26 @@ export function updateUI() {
         const emblem = card.querySelector('.camp-emblem');
         if (label) label.textContent = faction.name;
         if (emblem) emblem.style.background = faction.color;
-        card.style.display = faction.active && (key !== 'player3' || gameState.isThreePlayer || gameState.campaignMode) ? '' : 'none';
+        // 战役模式：只显示玩家所属阵营，其余位置显示传记/关卡信息
         if (gameState.campaignMode) {
-            const relation = getRelation(gameState, getViewingCampKey(gameState), key);
-            card.dataset.relation = relation;
+            const isLocal = key === getViewingCampKey(gameState);
+            card.style.display = isLocal ? '' : 'none';
+            if (isLocal) {
+                const relation = getRelation(gameState, getViewingCampKey(gameState), key);
+                card.dataset.relation = relation;
+            }
+            if (campaignInfoBar) {
+                campaignInfoBar.style.display = '';
+                const intro = gameState._campaignIntro || {};
+                const chronicleEl = document.getElementById('campaignInfoChronicle');
+                const chapterEl = document.getElementById('campaignInfoChapter');
+                const levelEl = document.getElementById('campaignInfoLevel');
+                if (chronicleEl) chronicleEl.textContent = intro.campaignTitle || gameState.campaignId || '';
+                if (chapterEl) chapterEl.textContent = intro.scenarioSubtitle || '';
+                if (levelEl) levelEl.textContent = gameState.scenarioId || '';
+            }
+        } else {
+            card.style.display = faction.active && key !== 'player3' || gameState.isThreePlayer ? '' : 'none';
         }
     }
     const newGold1 = gameState.playerGold.player1;

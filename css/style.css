@@ -143,6 +143,46 @@ body {
 .camp-card[data-relation="neutral"] { box-shadow: inset 0 -2px 0 rgba(251,192,45,.72); }
 .camp-card[data-relation="enemy"] { box-shadow: inset 0 -2px 0 rgba(239,83,80,.72); }
 
+/* 战役信息栏（替换右侧阵营卡显示传记/章节/关卡名） */
+.campaign-info-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 1px;
+    margin-left: auto;
+    padding: 0 14px;
+    border-left: 1px solid rgba(255,255,255,0.08);
+    min-height: 38px;
+}
+.campaign-info-section {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.3;
+}
+.campaign-info-chronicle {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: rgba(255,215,0,0.7);
+}
+.campaign-info-chapter {
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.8);
+}
+.campaign-info-sep {
+    color: rgba(255,255,255,0.2);
+    font-size: 10px;
+}
+.campaign-info-level {
+    font-size: 11px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.55);
+}
+
 #campCard1.active {
     background: rgba(130, 26, 20, 0.20);
     border-color: var(--red-border);
