@@ -1206,6 +1206,7 @@ function _extractHighlights(obj) {
 }
 
 function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
+    if (!cond || typeof cond !== 'object') { console.warn('[编辑器] 非法条件', cond); return el('div'); }
     const meta = TRIGGER_CONDITIONS.find(c => c.kind === cond.kind) || TRIGGER_CONDITIONS[0];
     const box = card(meta.label, onRemove);
     _addCardClickHighlight(box, cond);
