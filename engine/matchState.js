@@ -119,7 +119,6 @@ export function createMatchState() {
 
 // 重置对局字段（再来一局时调用）。
 // 模式字段必须在新对局时归零；训练场与教程会在启动流程中显式恢复自身模式。
-// 【老练】是单局叠层，绝不能跨对局保留。
 export function resetMatchState(match) {
     match.tiles = [];
     match.tileMap = new Map();
@@ -209,7 +208,6 @@ export function resetMatchState(match) {
 
 // ===== ClientUiState =====================
 // 本地查看/选中/动画状态。阶段 3 会进一步拆出独立的查看目标持久化
-// （联机观察态 HUD 不丢失需求）；当前先固定字段归属。
 export function createClientUiState() {
     return {
         selectedUnit: null,
@@ -588,10 +586,7 @@ export function restoreMatchState(match, data, deps) {
             tile.fadeStartTime = null;
         }
         tile._minePlanted = td.minePlanted || false;
-        tile._mineCampKey = td.mineCampKey === 'p1' ? 'player1'
-            : td.mineCampKey === 'p2' ? 'player2'
-                : td.mineCampKey === 'p3' ? 'player3'
-                    : td.mineCampKey || null;
+        tile._mineCampKey = td.mineCampKey || null;
         tile._cityDisabledUntil = td.cityDisabledUntil || 0;
         tile._reinforcedThisTurn = td.reinforcedThisTurn || false;
         if (td.unit) {

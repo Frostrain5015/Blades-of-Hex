@@ -1509,7 +1509,6 @@ function buildTriggerInspector(index) {
     wrap.appendChild(checkRow('开场启用', trig.enabled !== false, set('enabled')));
 
     const secWhen = section('条件（AND）');
-    secWhen.appendChild(hint('先选择“关卡开始时”“单位移动到地块/区域”等事件条件，再叠加金币、目标、外交等状态条件。根层全部满足；需要“或”时添加“满足任一（OR）”。'));
     secWhen.appendChild(conditionListEditor(trig.when || [], list => mutate(c => { c.triggers[index].when = list; })));
     wrap.appendChild(secWhen);
 
@@ -1535,7 +1534,6 @@ function buildObjectiveInspector(id) {
     wrap.appendChild(textareaRow('描述', obj.detail, v => mutate(c => { c.objectives[id].detail = v; }, { rebuildPanels: false }), 3));
     wrap.appendChild(checkRow('开场时显示为“进行中”', obj.active !== false, v => mutate(c => { c.objectives[id].active = v; }, { rebuildPanels: false })));
     wrap.appendChild(checkRow('主要目标（纳入胜负判定）', obj.main === true, v => mutate(c => { c.objectives[id].main = v || undefined; }, { rebuildPanels: false })));
-    wrap.appendChild(hint('所有非隐藏的主要目标完成 → 胜利；任一主要目标失败 → 失败。后续阶段目标先设为“开场不显示”，再通过触发器设为“进行中”。'));
     return wrap;
 }
 
@@ -1543,7 +1541,6 @@ function buildMetaInspector() {
     const wrap = el('div');
     const res = config.result;
     const secMechanics = section('本关开放机制');
-    secMechanics.appendChild(hint('关闭的机制会隐藏或禁用入口，并由规则层拦截。需要中途教学解锁时，先关闭，再使用触发器“启用/禁用机制”。'));
     for (const key of MECHANIC_KEYS) {
         secMechanics.appendChild(checkRow(MECHANIC_LABELS[key], config.mechanics[key] !== false,
             value => mutate(c => { c.mechanics[key] = value; }, { rebuildPanels: false })));
@@ -1565,7 +1562,6 @@ function buildMetaInspector() {
 
 
     const secGroups = section(`单位组（${config.unitGroups.length}）`);
-    secGroups.appendChild(hint('用于整队全灭、增援、收编和批量改状态。组内引用稳定单位 id。'));
     config.unitGroups.forEach((group, index) => {
         const box = card(group.id || `单位组 ${index + 1}`, () => mutate(c => { c.unitGroups.splice(index, 1); }));
         box.appendChild(textRow('组 id', group.id, value => mutate(c => { c.unitGroups[index].id = value; })));
@@ -1578,7 +1574,6 @@ function buildMetaInspector() {
     secGroups.appendChild(addGroup); wrap.appendChild(secGroups);
 
     const secInteractions = section(`调查点（${config.interactables.length}）`);
-    secInteractions.appendChild(hint('调查点是剧情交互，不是单位：不阻挡移动，也不会被 AI 攻击。'));
     config.interactables.forEach((item, index) => {
         const box = card(item.label || item.id || `调查点 ${index + 1}`, () => mutate(c => { c.interactables.splice(index, 1); }));
         box.appendChild(textRow('调查点 id', item.id, value => mutate(c => { c.interactables[index].id = value; })));
@@ -1593,7 +1588,6 @@ function buildMetaInspector() {
     secInteractions.appendChild(addInteraction); wrap.appendChild(secInteractions);
 
     const secVariables = section(`变量（${config.variables.length}）`);
-    secVariables.appendChild(hint('关卡变量在重试时重置；战役变量仅在胜利结算时提交。'));
     config.variables.forEach((variable, index) => {
         const box = card(variable.id || `变量 ${index + 1}`, () => mutate(c => { c.variables.splice(index, 1); }));
         box.appendChild(textRow('变量 id', variable.id, value => mutate(c => { c.variables[index].id = value; })));
@@ -1669,9 +1663,6 @@ function newLevel() {
 
 function playtest() {
     if (!runValidation()) return;
-    if (!config.initialStep && !Object.keys(config.steps).length) {
-        setStatus('提示：本关没有剧情步骤，将直接进入对局', '');
-    }
     callbacks.onPlaytest?.(clone(config));
 }
 
