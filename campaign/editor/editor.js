@@ -1488,14 +1488,14 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             const PRESET_VALUES = {
                 atkUp: { name: '攻击上升', emoji: '⚔️', statMods: { atkPct: 30 }, rule: null },
                 defUp: { name: '防御上升', emoji: '🛡️', statMods: { defPct: 30 }, rule: null },
-                atkDown: { name: '攻击下降', emoji: '💔', statMods: { atkPct: -20 }, rule: null },
+                atkDown: { name: '攻击下降', emoji: '⬇️', statMods: { atkPct: -20 }, rule: null },
                 defDown: { name: '防御下降', emoji: '🔻', statMods: { defPct: -20 }, rule: null },
-                spdUp: { name: '迅捷', emoji: '💨', statMods: { spdPct: 40 }, rule: null },
+                spdUp: { name: '迅捷', emoji: '⚡', statMods: { spdPct: 40 }, rule: null },
                 spdDown: { name: '迟缓', emoji: '🐢', statMods: { spdPct: -30 }, rule: null },
-                hpUp: { name: '生命上限提升', emoji: '❤️', statMods: { hpPct: 30 }, rule: null },
-                hpDown: { name: '生命上限降低', emoji: '💀', statMods: { hpPct: -30 }, rule: null },
-                minHp: { name: '锁下限', emoji: '🛡️', statMods: {}, rule: 'minHp' },
-                maxHp: { name: '锁上限', emoji: '🔒', statMods: {}, rule: 'maxHp' },
+                hpUp: { name: '丰饶', emoji: '💚', statMods: { hpPct: 30 }, rule: null },
+                hpDown: { name: '脆弱', emoji: '💔', statMods: { hpPct: -30 }, rule: null },
+                minHp: { name: '不可言说的力量', emoji: '❓', statMods: {}, rule: 'minHp' },
+                maxHp: { name: '不可言说的边界', emoji: '🔒', statMods: {}, rule: 'maxHp' },
                 godMode: { name: '无敌', emoji: '✨', statMods: {}, rule: 'godMode' }
             };
             box.appendChild(selectRow('预设效果', action.preset || '', PRESETS, v => {
