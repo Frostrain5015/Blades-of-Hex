@@ -262,8 +262,12 @@ function runAction(action, ctx) {
             if (action.mode === 'kill') unit.destroy(null); else if (unit.tile) unit.tile.unit = null;
         } invalidateBoard(); break;
         case 'hideGuidance': api.hideGuidance(); break;
-        case 'unlockInput': gameState.tutorialMode = false; gameState.tutorialStep = ''; api.hideGuidance(); break;
-        case 'lockInput': gameState.tutorialMode = true; api.hideGuidance(); break;
+        case 'unlockInput': gameState.tutorialMode = false; gameState.tutorialStep = ''; gameState._inlineStepData = null; api.hideGuidance(); break;
+        case 'lockInput':
+            gameState.tutorialMode = true;
+            // support highlight-based whitelist without visual feedback (for special cases)
+            if (action.highlight && !gameState._inlineStepData) gameState._inlineStepData = { highlight: action.highlight };
+            break;
         case 'log': if (action.text) logMessage(action.text); break;
         case 'endScenario': action.result === 'lose' ? api.fail(action.reason || '') : api.win(action.ending || ''); break;
         case 'delay': {
@@ -307,7 +311,8 @@ export function createTriggerFlow(config, api) {
                     text: action.text || '',
                     speaker: action.mode === 'character' && action.speaker ? { name: action.speaker.name, portrait: action.speaker.portrait } : undefined,
                     next: action.next || undefined,
-                    highlight: action.highlight
+                    highlight: action.highlight,
+                    lock: action.lock
                 };
             }
         }
@@ -356,6 +361,8 @@ export function createTriggerFlow(config, api) {
     function currentAllow() {
         const hl = gameState._inlineStepData?.highlight;
         if (hl) {
+            // "all" 后门：允许所有操作
+            if (hl.unit === 'all' || hl.tiles === 'all') return { units: ['all'], tiles: ['all'], hint: hl.hint };
             const allow = {};
             if (hl.unit) allow.units = [hl.unit];
             if (hl.tiles) allow.tiles = hl.tiles;

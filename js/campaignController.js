@@ -270,6 +270,8 @@ export function createCampaignController({ onRetry, onReturn }) {
         stepId = id;
         gameState.tutorialStep = nextOrStep.ruleStep ?? id;
         gameState.campaignPhase = id;
+        // lock: true → 启用操作锁（严格按高摆放行），false 或未设 → 不改变当前锁状态
+        if (nextOrStep.lock === true) gameState.tutorialMode = true;
         // 存到 gameState 供 trigger 的 currentAllow/validateCanvasClick 查找
         gameState._inlineStepData = step;
         // 注册到内联步骤映射（供 next 链查找）

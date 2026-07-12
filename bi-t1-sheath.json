@@ -192,10 +192,9 @@
           "_id": "select_guide",
           "mode": "narrator",
           "text": "点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。",
+          "lock": true,
           "highlight": {
-            "units": [
-              "recruit1"
-            ],
+            "unit": "recruit1",
             "hint": "请点击你的步兵"
           }
         }
@@ -219,6 +218,7 @@
           "_id": "move_guide",
           "mode": "narrator",
           "text": "好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。",
+          "lock": true,
           "highlight": {
             "tiles": [
               {
@@ -251,6 +251,7 @@
           "_id": "attack_guide",
           "mode": "narrator",
           "text": "现在攻击训练草靶。点击假人所在位置进行攻击。",
+          "lock": true,
           "highlight": {
             "tiles": [
               {

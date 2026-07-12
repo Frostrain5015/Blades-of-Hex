@@ -243,10 +243,17 @@ function render() {
 
     // 悬浮与选中高亮
     // 取色/涂抹模式：高亮已选地块 + 已配置的坐标
+    const now = performance.now();
+    const pulse = (Math.sin(now / 400) + 1) / 2;
     if (pendingPick) {
         for (const key of (pendingPick.picked || [])) {
             const t = preview.tileMap.get(key);
-            if (t) drawHexagonOutline(ctx, t.x, t.y, HEX_SIZE, 'rgba(255,200,50,0.8)', 2.8);
+            if (t) {
+                hexPath(ctx, t.x, t.y, HEX_SIZE);
+                ctx.fillStyle = `rgba(255,200,50,${0.15 + pulse * 0.25})`;
+                ctx.fill();
+                drawHexagonOutline(ctx, t.x, t.y, HEX_SIZE, `rgba(255,200,50,${0.5 + pulse * 0.3})`, 2);
+            }
         }
         for (const flagKey of (pendingPick.flags || [])) {
             const m = flagKey.match(/^flag:(.+)$/);
@@ -255,15 +262,30 @@ function render() {
                 if (t) { ctx.font = '28px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🚩', t.x, t.y); }
             }
         }
-        if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.8)', 2);
+        if (hoverTile) {
+            hexPath(ctx, hoverTile.x, hoverTile.y, HEX_SIZE);
+            ctx.fillStyle = `rgba(255,255,255,${0.08 + pulse * 0.1})`;
+            ctx.fill();
+            drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, `rgba(255,255,255,${0.5 + pulse * 0.3})`, 1.8);
+        }
     } else {
-        if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.55)', 1.6);
+        if (hoverTile) {
+            hexPath(ctx, hoverTile.x, hoverTile.y, HEX_SIZE);
+            ctx.fillStyle = `rgba(255,255,255,${0.06 + pulse * 0.08})`;
+            ctx.fill();
+            drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, `rgba(255,255,255,${0.35 + pulse * 0.2})`, 1.4);
+        }
     }
     // 悬停图钉时回显已存坐标
     if (pendingHighlight) {
         for (const key of (pendingHighlight.tiles || [pendingHighlight])) {
             const t = preview.tileMap.get(typeof key === 'string' ? key : tileKey(key.q, key.r));
-            if (t) drawHexagonOutline(ctx, t.x, t.y, HEX_SIZE, 'rgba(100,200,255,0.7)', 2.4);
+            if (t) {
+                hexPath(ctx, t.x, t.y, HEX_SIZE);
+                ctx.fillStyle = `rgba(100,200,255,${0.1 + pulse * 0.2})`;
+                ctx.fill();
+                drawHexagonOutline(ctx, t.x, t.y, HEX_SIZE, `rgba(100,200,255,${0.45 + pulse * 0.25})`, 2);
+            }
         }
     }
     const selTile = selectionTile();
@@ -1085,9 +1107,45 @@ function actionDefaults(kind) {
     }
 }
 
+// 从条件/动作对象中提取参数摘要（🚩 + 地块高亮 格式）
+function _paramLine(obj) {
+    if (!obj || typeof obj !== 'object') return '';
+    const parts = [];
+    if (obj.unit != null) parts.push(`单位:${obj.unit}`);
+    if (obj.value != null) parts.push(`值:${obj.value}`);
+    if (obj.target?.unit) parts.push(`目标:${obj.target.unit}`);
+    if (typeof obj.q === 'number' && typeof obj.r === 'number') parts.push(`📍${obj.q},${obj.r}`);
+    if (obj.area) parts.push(`区域:${obj.area}`);
+    if (obj.tiles?.length) parts.push(`📍${obj.tiles.length}格`);
+    if (obj.step) parts.push(`步骤:${obj.step}`);
+    if (obj.text) parts.push(`"${obj.text.slice(0, 30)}"`);
+    if (obj.objective) parts.push(`目标:${obj.objective}`);
+    if (obj.status) parts.push(`→${obj.status}`);
+    return parts.length ? `🚩 ${parts.join(' ')}` : '';
+}
+// 卡片空白处点击 → 高亮 + 参数预览
+function _addCardClickHighlight(box, obj) {
+    const line = _paramLine(obj);
+    if (!line) return;
+    const info = el('div', 'ed-card-info');
+    info.textContent = line;
+    info.style.cssText = 'display:none;padding:4px 8px;font-size:11px;color:rgba(255,215,0,0.7);border-top:1px solid rgba(255,215,0,0.15);margin-top:4px;';
+    box.appendChild(info);
+    let active = false;
+    box.addEventListener('click', (e) => {
+        // 忽略对交互元素（select/input/button/textarea/checkbox）的点击
+        const tag = e.target?.tagName;
+        if (['SELECT', 'INPUT', 'BUTTON', 'TEXTAREA'].includes(tag)) return;
+        active = !active;
+        box.style.boxShadow = active ? 'inset 0 0 0 1px rgba(255,215,0,0.4)' : '';
+        info.style.display = active ? '' : 'none';
+    });
+}
+
 function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
     const meta = TRIGGER_CONDITIONS.find(c => c.kind === cond.kind) || TRIGGER_CONDITIONS[0];
     const box = card(meta.label, onRemove);
+    _addCardClickHighlight(box, cond);
     const conditionKinds = authorConditions(cond.kind).filter(c => !parentIsAny || c.kind !== 'any');
     box.appendChild(selectRow('条件', cond.kind, Object.fromEntries(conditionKinds.map(c => [c.kind, c.label])), v => {
         onChange({ kind: v, ...conditionDefaults(v) });
@@ -1280,6 +1338,7 @@ function targetEditor(target, onChange, { label = '作用对象' } = {}) {
 function actionEditor(action, onChange, onRemove, allowNested = true) {
     const meta = TRIGGER_ACTIONS.find(a => a.kind === action.kind) || TRIGGER_ACTIONS[0];
     const box = card(meta.label, onRemove);
+    _addCardClickHighlight(box, action);
     const kinds = authorActions(action.kind).filter(a => allowNested || a.kind !== 'delay');
     box.appendChild(selectRow('动作', action.kind, Object.fromEntries(kinds.map(a => [a.kind, a.label])), v => onChange({ kind: v, ...actionDefaults(v) })));
     const patch = (fields) => onChange({ ...action, ...fields });
@@ -1344,7 +1403,19 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             secHl.appendChild(tilesPickerRow('地块高亮', hl.tiles || [], tiles => patch({ highlight: { ...hl, tiles: tiles.length ? tiles : undefined } })));
             secHl.appendChild(hint('单位出环 = 单格金色圆环；地块高亮 = 所有格正旋脉冲边框。两者可并存。'));
             box.appendChild(secHl);
+            box.appendChild(checkRow('启用操作锁', !!action.lock, v => patch({ lock: v || undefined })));
             box.appendChild(checkRow('立即显示', !!action.immediate, v => patch({ immediate: v || undefined })));
+            break;
+        }
+        case 'lockStep': {
+            // lockInput 的白名单（不产生视觉高亮）
+            const hl = action.highlight || {};
+            const sec = section('白名单（不产生视觉高亮）');
+            sec.appendChild(textRow('提示文字', hl.hint || '', v => patch({ highlight: { ...hl, hint: v || undefined } })));
+            sec.appendChild(textRow('放行单位', hl.unit || '', v => patch({ highlight: { ...hl, unit: v || undefined } }), '单位 ID 或 all'));
+            sec.appendChild(tilesPickerRow('放行地块', hl.tiles || [], tiles => patch({ highlight: { ...hl, tiles: tiles.length ? tiles : undefined } })));
+            sec.appendChild(hint('输入 all 放行所有操作；留空则全部锁定。'));
+            box.appendChild(sec);
             break;
         }
         case 'objective':

@@ -734,7 +734,7 @@ function _launchScenario(scenario) {
 	gameState.scenarioDisplayId = scenario.displayId || (scenario.id || '').toUpperCase();
 	gameState.campaignPhase = scenario.initialStep;
 		gameState._campaignIntro = scenario.intro || {};
-	gameState.tutorialMode = true; // 触发 step.allow 输入白名单；由 trigger.unlockInput 关闭。
+	// tutorialMode 默认 false；需要锁定操作时在触发器 showStep 中设 lock: true。
 	gameState.isThreePlayer = false;
 	gameState.skirmishFog = false;
 	gameState.doubleCommanderMode = false;
