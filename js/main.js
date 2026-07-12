@@ -457,6 +457,7 @@ document.getElementById('exitToLobbyBtn').addEventListener('click', () => {
     vo.style.backgroundColor = '';
     document.body.style.pointerEvents = '';
     const fromEditor = gameState.campaignId === '__editor__';
+    if (gameState.campaignMode) _campaignController.stop();
     resetGameState();
     updateChatAvailability();
     document.getElementById('gameWrapper').style.display = 'none';
@@ -703,12 +704,13 @@ async function startScenarioFromConfig(config) {
 	let scenario;
 	try {
 		const { scenarioFromConfig } = await import('../campaign/runtime/scenarioFromConfig.js');
-		scenario = scenarioFromConfig(config, { storageKey: '' });
+		// 保留编辑器当前快照，并用另一份副本编译运行时，避免运行时字段回写到下次试玩。
+		_playtestConfig = structuredClone(config);
+		scenario = scenarioFromConfig(structuredClone(_playtestConfig), { storageKey: '' });
 	} catch (err) {
 		console.error('[editor] 试玩关卡构建失败', err);
 		return;
 	}
-	_playtestConfig = config;
 	document.getElementById('editorOverlay').style.display = 'none';
 	_launchScenario(scenario);
 }

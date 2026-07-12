@@ -435,6 +435,18 @@ export function createTriggerFlow(config, api) {
         }
         return null;
     }
+    // 计时器条件轮询（每 100ms 检查一次，确保 timer 条件及时触发）。
+    // 必须在 return 前创建；return 后的代码不会执行。
+    let _tickTimer = setInterval(() => {
+        if (!gameState.campaignMode || !api.isActive() || api.isResultShown()) return;
+        const needsTick = triggers.some(t => {
+            if (enabled.get(t._id) === false) return false;
+            if (t.once && state.fired.has(t._id)) return false;
+            return (t.when || []).some(c => c?.kind === 'timer');
+        });
+        if (needsTick) dispatch('_timerTick', {});
+    }, 100);
+
     return {
         dispatch,
         onLevelStarted() { dispatch('levelStarted', {}); dispatch('levelStart', {}); },
@@ -491,17 +503,6 @@ export function createTriggerFlow(config, api) {
         _flags: state.flags
     };
 
-    // 计时器条件轮询（每 100ms 检查一次，确保 timer 条件及时触发）
-    let _tickTimer = setInterval(() => {
-        if (!gameState.campaignMode || !api.isActive() || api.isResultShown()) return;
-        const now = Date.now();
-        const needsTick = triggers.some(t => {
-            if (enabled.get(t._id) === false) return false;
-            if (t.once && state.fired.has(t._id)) return false;
-            return (t.when || []).some(c => c?.kind === 'timer');
-        });
-        if (needsTick) dispatch('_timerTick', {});
-    }, 100);
 }
 
 export { canAttack };

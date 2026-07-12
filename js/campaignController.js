@@ -395,6 +395,8 @@ export function createCampaignController({ onRetry, onReturn }) {
         stepId = '';
         activeObjectiveId = '';
         activeFlow?.dispose?.();
+        activeFlow = null;
+        activeScenario = null;
         hideGuidance();
         objectiveHud?.classList.remove('show');
         resultOverlay.classList.remove('show');
@@ -480,6 +482,7 @@ export function createCampaignController({ onRetry, onReturn }) {
 }
 
 export function setCampaignControllerRef(controller) { sharedController = controller; }
+export function stopCampaignRuntime() { sharedController?.stop(); }
 export function campaignValidateCanvasClick(tile) { return sharedController?.validateCanvasClick(tile) ?? true; }
 export function campaignValidateCardClick(cardId) { return sharedController?.validateCardClick(cardId) ?? true; }
 export function campaignValidateAction(actionKey) { return sharedController?.validateAction(actionKey) ?? true; }

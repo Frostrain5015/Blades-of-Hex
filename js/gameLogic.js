@@ -6,6 +6,7 @@ import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, co
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState, seedMatchRng } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
 import { neutralDriverRole } from '../protocol/messages.js';
+import { stopCampaignRuntime } from './campaignController.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
@@ -2079,6 +2080,7 @@ async function handleSurrender() {
         const confirmed = await showConfirm('确定要退出当前游戏吗？\n进度将不会保存。');
         if (!confirmed) return;
         const fromEditor = gameState.campaignId === '__editor__';
+        if (gameState.campaignMode) stopCampaignRuntime();
         gameState.gameOver = true;
         resetGameState();
         const gameWrapper = document.getElementById('gameWrapper');
