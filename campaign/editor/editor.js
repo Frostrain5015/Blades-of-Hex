@@ -1418,9 +1418,6 @@ function buildOptionalInspector(index) {
 function buildResultInspector() {
     const wrap = el('div');
     const res = config.result;
-    wrap.appendChild(textareaRow('胜利文案', res.winText, v => mutate(c => { c.result.winText = v; }, { rebuildPanels: false }), 3));
-    wrap.appendChild(textareaRow('失败文案', res.loseText, v => mutate(c => { c.result.loseText = v; }, { rebuildPanels: false }), 3));
-
     wrap.appendChild(checkRow('歼灭敌军即胜', !!res.eliminateEnemy, v => mutate(c => { c.result.eliminateEnemy = v || undefined; }, { rebuildPanels: false })));
     wrap.appendChild(hint('胜负由触发器「判定胜利」/「判定失败」效果控制；勾选此项则敌军全灭时自动胜利。'));
 
