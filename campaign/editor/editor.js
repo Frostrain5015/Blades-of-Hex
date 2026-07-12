@@ -1421,12 +1421,8 @@ function buildResultInspector() {
     wrap.appendChild(textareaRow('胜利文案', res.winText, v => mutate(c => { c.result.winText = v; }, { rebuildPanels: false }), 3));
     wrap.appendChild(textareaRow('失败文案', res.loseText, v => mutate(c => { c.result.loseText = v; }, { rebuildPanels: false }), 3));
 
-    const secAuto = section('内置胜负判定（可选）');
-    secAuto.appendChild(checkRow('歼灭敌军即胜', !!res.eliminateEnemy, v => mutate(c => { c.result.eliminateEnemy = v || undefined; }, { rebuildPanels: false })));
-    secAuto.appendChild(numRow('存活至回合', res.surviveToTurn ?? 0, v => mutate(c => { c.result.surviveToTurn = v > 0 ? Math.round(v) : undefined; }, { rebuildPanels: false }), { min: 0, max: 99 }));
-    secAuto.appendChild(checkGroup('保护单位（阵亡即败）', Object.entries(unitOptions(false)).map(([value, label]) => ({ value, label })), res.protectUnits, v => mutate(c => { c.result.protectUnits = v.length ? v : undefined; }, { rebuildPanels: false })));
-    secAuto.appendChild(textRow('保护失败文案', res.protectFailText || '', v => mutate(c => { c.result.protectFailText = v || undefined; }, { rebuildPanels: false })));
-    wrap.appendChild(secAuto);
+    wrap.appendChild(checkRow('歼灭敌军即胜', !!res.eliminateEnemy, v => mutate(c => { c.result.eliminateEnemy = v || undefined; }, { rebuildPanels: false })));
+    wrap.appendChild(hint('胜负由触发器「判定胜利」/「判定失败」效果控制；勾选此项则敌军全灭时自动胜利。'));
 
     const secStars = section('星级规则（基础 1 星；每满足一条 +1，封顶 3）');
     (res.starRules || []).forEach((rule, i) => {

@@ -180,6 +180,7 @@ export function createDefaultLevel() {
         result: {
             winText: '任务完成。',
             loseText: '任务失败，重新整顿部队。',
+            eliminateEnemy: true,
             starRules: []           // [{ when:[], label }] 每满足一条 +1 星（基础 1 星，上限 3）
         }
     };

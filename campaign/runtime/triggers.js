@@ -283,8 +283,12 @@ export function createTriggerFlow(config, api) {
 
     function autoResolve() {
         if (!api.isActive() || api.isResultShown()) return;
-        for (const uid of (result.protectUnits || [])) if (!resolveUnit(uid)) { api.fail(result.protectFailText || result.loseText || ''); return; }
-        for (const tile of gameState.tiles) if (tile.unit?._campaignFailOnDeath && tile.unit.hp <= 0) { api.fail(result.protectFailText || result.loseText || ''); return; }
+        const localPlayerKey = gameState.localPlayerCampKey || 'player1';
+        // 玩家被消灭：无存活单位且无领地 → 失败
+        const hasPlayerUnit = gameState.tiles.some(t => t.unit && campKeyOf(t.unit.camp) === localPlayerKey && t.unit.hp > 0);
+        const hasPlayerTile = gameState.tiles.some(t => campKeyOf(t.camp) === localPlayerKey);
+        if (!hasPlayerUnit && !hasPlayerTile) { api.fail(result.loseText); return; }
+        // 歼灭目标敌军 → 胜利
         if (result.eliminateEnemy) {
             const enemy = campFromKey(config.aiOpponentCamp || 'player2');
             if (!gameState.tiles.some(tile => tile.unit && tile.unit.camp === enemy && tile.unit.hp > 0)) { api.win(); return; }
@@ -293,7 +297,6 @@ export function createTriggerFlow(config, api) {
             const viewer = gameState.localPlayerCampKey || 'player1';
             if (!gameState.tiles.some(tile => tile.unit && getRelation(gameState, viewer, tile.unit.camp) === 'enemy')) { api.win(); return; }
         }
-        if (result.surviveToTurn && getRound(gameState) >= result.surviveToTurn) api.win();
     }
 
     function currentAllow() { return config.steps?.[api.getStepId()]?.allow || null; }
@@ -312,7 +315,6 @@ export function createTriggerFlow(config, api) {
         onUnitHpChanged(event) { dispatch('unitHpChanged', event); },
         onUnitKilled(event) {
             dispatch('unitKilled', { ...event, camp: campKeyOf(event.camp), killerCamp: campKeyOf(event.killerCamp) });
-            if (event.failOnDeath && !api.isResultShown()) api.fail(result.protectFailText || result.loseText || '关键单位阵亡');
         },
         onDiplomacyChanged(event) { dispatch('diplomacyChanged', event); },
         onObjectiveChanged(event) { dispatch('objectiveChanged', event); },
