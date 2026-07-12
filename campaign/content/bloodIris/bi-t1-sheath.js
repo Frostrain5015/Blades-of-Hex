@@ -44,7 +44,7 @@ export const config = {
         {
             id: 'targets',
             name: '训练靶',
-            color: '#b0b0b0', // 调色板 gray.tile
+            color: '#b0b0b0',
             controller: 'ai',
             participatesInTurns: false,
             active: true
@@ -75,21 +75,17 @@ export const config = {
     aiDifficulty: 1.0,
 
     gold: { player1: 0 },
-    commanders: { player1: 'centurion' }, // 红方主将百夫长（对策卡被禁用，仅标识不部署）
+    commanders: { player1: 'centurion' },
     hands: {},
 
     // ── 棋盘 ────────────────────────────────────────────────
-    // 战神校场：中央指挥哨(城市)，四周平原开阔地，
-    // 边缘点缀林地，远端立着训练草靶。
     board: {
         radius: 3,
 
-        // 中央指挥哨（阵营颜色来源）
         cities: [
             { q: 0, r: 0, districtId: 1, camp: 'player1' }
         ],
 
-        // 装饰性林地——为空旷的校场提供视觉纵深
         terrain: [
             { q: -3, r:  0, type: 'forest' },
             { q: -2, r:  1, type: 'forest' },
@@ -104,7 +100,6 @@ export const config = {
     },
 
     // ── 单位 ────────────────────────────────────────────────
-    // 玩家操控一名新兵，对面立着两个训练靶（不可行动）
     units: [
         {
             id: 'recruit1',
@@ -157,22 +152,28 @@ export const config = {
         }
     },
 
-    // ── 触发器（内联 showStep 按 do 数组顺序自动编排+自动挂钩）
+    // ── 触发器（新版异步链条：timer 开场 → 链式 setTriggerEnabled 推进）─
     triggers: [
-        // 0. 关卡开始时展示开场对话（三页自动连播）
+        // 0. 开场对话（延时触发，替代 levelStarted 以兼容编辑器测试）
         {
             id: 'start_dialogue',
-            when: [{ kind: 'levelStarted' }],
+            when: [{ kind: 'timer', value: 1500 }],
             do: [
                 { kind: 'showStep',
-                  speaker: { name: '马库斯', portrait: '百夫长' },
-                  text: '新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。' },
+                  speaker: { name: '马库斯', portrait: 'centurion' },
+                  text: '新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。',
+                  boardLock: true },
                 { kind: 'showStep',
-                  speaker: { name: '马库斯', portrait: '百夫长' },
-                  text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。' },
+                  speaker: { name: '马库斯', portrait: 'centurion' },
+                  text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。',
+                  boardLock: true },
                 { kind: 'showStep',
                   text: '点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。',
-                  boardLock: true, dialogLock: true, highlight: { unit: 'recruit1', hint: '请点击你的步兵' } }
+                  boardLock: true, dialogLock: true,
+                  highlight: { unit: 'recruit1', hint: '请点击你的步兵' } },
+                // 训练靶禁用反击，避免教学期间意外伤害玩家
+                { kind: 'setUnitState', target: { group: 'training_targets' }, state: 'canCounterattack', value: false },
+                { kind: 'setTriggerEnabled', trigger: 'advance_to_move', enabled: true }
             ],
             once: true,
             enabled: true
@@ -180,51 +181,49 @@ export const config = {
         // 1. 选中 recruit1 → 展示移动引导
         {
             id: 'advance_to_move',
-            when: [{
-                kind: 'unitSelected',
-                target: { unit: 'recruit1' }
-            }],
-            do: [{ kind: 'showStep',
-                   text: '好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。',
-                   boardLock: true, dialogLock: true, highlight: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' } }],
+            when: [{ kind: 'unitSelected', target: { unit: 'recruit1' } }],
+            do: [
+                { kind: 'showStep',
+                  text: '好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。',
+                  boardLock: true, dialogLock: true,
+                  highlight: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' } },
+                { kind: 'setTriggerEnabled', trigger: 'advance_to_attack', enabled: true }
+            ],
             once: true,
-            enabled: true
+            enabled: false
         },
         // 2. recruit1 移动到 (0,0) → 展示攻击引导
         {
             id: 'advance_to_attack',
-            when: [{
-                kind: 'unitMovesToTile',
-                target: { unit: 'recruit1' },
-                q: 0,
-                r: 0
-            }],
-            do: [{ kind: 'showStep',
-                   text: '现在攻击训练草靶。点击假人所在位置进行攻击。',
-                   boardLock: true, dialogLock: true, highlight: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' } }],
-            once: true,
-            enabled: true
-        },
-        // 3. recruit1 攻击 target1 → 展示收束剧情（两页自动连播）
-        {
-            id: 'advance_to_outro',
-            when: [{
-                kind: 'unitAttacksUnit',
-                attacker: { unit: 'recruit1' },
-                defender: { unit: 'target1' }
-            }],
+            when: [{ kind: 'unitMovesToTile', target: { unit: 'recruit1' }, q: 0, r: 0 }],
             do: [
                 { kind: 'showStep',
-                  speaker: { name: '马库斯', portrait: '百夫长' },
+                  text: '现在攻击训练草靶。点击假人所在位置进行攻击。',
+                  boardLock: true, dialogLock: true,
+                  highlight: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' } },
+                { kind: 'setTriggerEnabled', trigger: 'advance_to_outro', enabled: true }
+            ],
+            once: true,
+            enabled: false
+        },
+        // 3. 攻击任一训练靶 → 展示收束剧情（通过 unit group 引用，不绑死单个单位 id）
+        {
+            id: 'advance_to_outro',
+            when: [{ kind: 'unitAttacksUnit', attacker: { unit: 'recruit1' }, defender: { group: 'training_targets' } }],
+            do: [
+                { kind: 'showStep',
+                  speaker: { name: '马库斯', portrait: 'centurion' },
                   text: '很好。选择——移动——攻击。这是战场上的三个基本动作。你们已经掌握了。' },
                 { kind: 'showStep',
                   speaker: { name: '马库斯', portrait: '百夫长' },
-                  text: '刀剑无影，重要的是谁拿着他们。今天就到这里。' }
+                  text: '刀剑无影，重要的是谁拿着他们。今天就到这里。',
+                  boardLock: true },
+                { kind: 'setTriggerEnabled', trigger: 'check_complete', enabled: true }
             ],
             once: true,
-            enabled: true
+            enabled: false
         },
-        // 4. 收束对话结束后（无下一张卡片）→ 完成关卡
+        // 4. showStep 连播结束 → 完成关卡
         {
             id: 'check_complete',
             when: [{ kind: 'eventNextIs', value: '__chain_end__' }],
@@ -234,7 +233,7 @@ export const config = {
                 { kind: 'endScenario', result: 'win', ending: '' }
             ],
             once: true,
-            enabled: true
+            enabled: false
         }
     ],
 
@@ -246,6 +245,3 @@ export const config = {
         starRules: []
     }
 };
-
-// 注意：不要加 export default config，否则 catalog.js 的 loadScenario 会误判为手写 scenario，
-// 直接返回原始配置对象而不经 scenarioFromConfig 包装（缺失 buildBattlefield 等方法）。
