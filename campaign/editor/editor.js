@@ -712,6 +712,7 @@ function buildMetaBasics() {
     secId.appendChild(textRow('关卡 id', config.id, v => mutate(c => { c.id = v; }, { rebuildPanels: false }), '如 i1-2'));
     secId.appendChild(textRow('关卡名称', config.title, v => mutate(c => { c.title = v; }, { rebuildPanels: false })));
     secId.appendChild(textRow('传记名称', config.chronicleId, v => mutate(c => { c.chronicleId = v; }, { rebuildPanels: false })));
+    secId.appendChild(textRow('章节标题', config.intro.chapterTitle || '', v => mutate(c => { c.intro.chapterTitle = v; }, { rebuildPanels: false }), '如 暮雨孤城'));
     secId.appendChild(numRow('随机种子', config.seed, v => mutate(c => { c.seed = Math.round(v); }, { rebuildPanels: false })));
     secId.appendChild(numRow('回合上限', config.turnLimit, v => mutate(c => { c.turnLimit = Math.max(0, Math.round(v)); }, { rebuildPanels: false }), { min: 0, max: 99 }));
     wrap.appendChild(secId);
@@ -1365,10 +1366,9 @@ function buildObjectiveInspector(id) {
 }
 
 function buildMetaInspector() {
-    const wrap = el('div');
     const secIntro = section('开场遮罩');
-    secIntro.appendChild(textRow('章节标题', config.intro.chapterTitle || '', v => mutate(c => { c.intro.chapterTitle = v; }, { rebuildPanels: false }), '如 暮雨孤城'));
     secIntro.appendChild(hint('遮罩上方：传记名称 · 章节标题；下方大字：关卡ID大写 + 关卡名称。'));
+    wrap.appendChild(secIntro);
     wrap.appendChild(secIntro);
 
     const secMechanics = section('本关开放机制');
