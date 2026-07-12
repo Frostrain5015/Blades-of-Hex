@@ -3,7 +3,6 @@ import { computeCampBorders } from '../../js/HexTile.js';
 import { invalidateBoard } from '../../js/config.js';
 import { emit } from '../../js/eventBus.js';
 import { gameState, logMessage, updateUI, clearselection } from '../../js/state.js';
-import { spawnCommanderSkillEffect } from '../../js/effects.js';
 import { getRound } from '../../rules/turns.js';
 import {
     campFromKey, canAttack, createDefaultDiplomacy, getRelation, normalizeCampKey, setRelation
