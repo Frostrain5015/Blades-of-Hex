@@ -22,6 +22,8 @@ import {
 let config = createDefaultLevel();
 let preview = { tiles: [], tileMap: new Map(), villageTiles: new Map(), campBorderEdges: [], districtBorderEdges: [] };
 let canvas = null, ctx = null;
+const EDITOR_LOGICAL_W = 1000;
+const EDITOR_LOGICAL_H = 750;
 let activeTab = 'board';
 let selection = null;              // {kind:'tile',q,r} | {kind:'unit',index} | {kind:'step',id} | {kind:'trigger',index} | {kind:'objective',id} | {kind:'optional',index} | {kind:'result'}
 let hoverTile = null;
@@ -104,7 +106,7 @@ function unitsByCoord() {
 // ── 渲染 ────────────────────────────────────────────────────
 function render() {
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, EDITOR_LOGICAL_W, EDITOR_LOGICAL_H);
 
     for (const tile of preview.tiles) tile.drawBase(ctx);
     drawAllBorders(ctx, preview.tiles, preview.tileMap);
@@ -186,8 +188,9 @@ function drawUnitMarker(tile, unit, index) {
 // ── 命中测试 ─────────────────────────────────────────────────
 function eventToTile(e) {
     const rect = canvas.getBoundingClientRect();
-    const px = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const py = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const px = (e.clientX - rect.left) * (canvas.width / rect.width) / dpr;
+    const py = (e.clientY - rect.top) * (canvas.height / rect.height) / dpr;
     let best = null, bestDist = Infinity;
     for (const tile of preview.tiles) {
         const d = (tile.x - px) ** 2 + (tile.y - py) ** 2;
@@ -1105,6 +1108,13 @@ export function initEditor(cbs = {}) {
 
     canvas = $id('editorCanvas');
     ctx = canvas.getContext('2d');
+    // 与主游戏画布一致：按 devicePixelRatio 缩放宽高，保证 Retina 屏不模糊
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = EDITOR_LOGICAL_W * dpr;
+    canvas.height = EDITOR_LOGICAL_H * dpr;
+    canvas.style.width = EDITOR_LOGICAL_W + 'px';
+    canvas.style.height = EDITOR_LOGICAL_H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
