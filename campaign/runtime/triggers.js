@@ -318,10 +318,17 @@ export function createTriggerFlow(config, api) {
             if (tile?.unit?._campaignSelectable === false) { api.showHint('当前单位不可选择'); return false; }
             const allow = currentAllow();
             if (!allow || (!allow.units && !allow.tiles)) return true;
-            // 点击任何棋子都允许（查看信息），仅拦截非白名单的空地（防止误操作触发移动/攻击）
-            if (tile?.unit) return true;
-            if (allow.tiles?.some(point => point.q === tile?.q && point.r === tile?.r)) return true;
-            api.showHint(allow.hint || '请按剧情指引操作'); return false;
+            // 查看信息始终放行（棋子、空地均可点击）
+            if (!gameState.selectedUnit) return true;
+            // 有选中单位时，如果点击的是可移动/攻击目标但不在白名单中 → 拦截
+            const isMoveTarget = gameState.movableTiles?.includes(tile);
+            const isAtkTarget = gameState.attackableTiles?.includes(tile);
+            if (isMoveTarget || isAtkTarget) {
+                const whitelisted = allow.tiles?.some(p => p.q === tile?.q && p.r === tile?.r)
+                    || (tile?.unit && allow.units?.includes(tile.unit.id));
+                if (!whitelisted) { api.showHint(allow.hint || '请按剧情指引操作'); return false; }
+            }
+            return true;
         },
         validateCardClick(cardId) { const allow = currentAllow(); if (!api.isActive() || !gameState.tutorialMode || !allow?.cards || allow.cards.includes(cardId)) return true; api.showHint(allow.hint || '当前无法使用这张对策卡'); return false; },
         validateAction(actionKey) { const allow = currentAllow(); if (!api.isActive() || !gameState.tutorialMode || !allow?.actions || allow.actions.some(value => actionKey?.startsWith(value))) return true; api.showHint(allow.hint || '当前无法发动该技能'); return false; },
