@@ -1045,7 +1045,7 @@ function conditionDefaults(kind) {
         case 'levelStarted': return {};
         case 'unitSelected': return { target: { unit: config.units[0]?.id || '' } };
         case 'unitMovesToTile': return { target: { unit: config.units[0]?.id || '' }, q: 0, r: 0 };
-        case 'unitMovesToArea': return { target: { unit: config.units[0]?.id || '' }, area: config.areas[0]?.id || '' };
+        case 'unitMovesToArea': return { target: { unit: config.units[0]?.id || '' }, tiles: [] };
         case 'unitAttacksUnit': return { attacker: { unit: config.units[0]?.id || '' }, defender: { unit: config.units[1]?.id || config.units[0]?.id || '' } };
         case 'unitKilled': return { target: { unit: config.units[0]?.id || '' } };
         case 'cityCaptured': return { q: 0, r: 0, camp: '' };
@@ -1151,13 +1151,10 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'eventTarget':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '指定单位' }));
             break;
-        case 'eventTargetTile':
-            box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
-            box.appendChild(coordRow('目标地块', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
-            break;
         case 'eventTargetArea':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
-            box.appendChild(tilesPickerRow('目标区域', cond.tiles || [], list => patch({ tiles: list, area: undefined })));
+            box.appendChild(coordRow('目标单格', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
+            box.appendChild(tilesPickerRow('目标区域', cond.tiles || [], list => patch({ tiles: list.length ? list : undefined })));
             break;
         case 'eventCombatPair':
             box.appendChild(targetEditor(cond.attacker, attacker => patch({ attacker }), { label: '攻击方' }));
@@ -1405,7 +1402,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(selectRow('变量', action.variable || '', Object.fromEntries(config.variables.map(item => [item.id, `${item.id}（${item.scope === 'campaign' ? '战役' : '本关'}）`])), v => patch({ variable: v })));
             box.appendChild(selectRow('操作', action.operation || 'set', { set: '设为', add: '增加', subtract: '减少', multiply: '乘以', divide: '除以', min: '取较小值', max: '取较大值' }, v => patch({ operation: v })));
             box.appendChild(numRow('数值', Number(action.value) || 0, v => patch({ value: v }))); break;
-            box.appendChild(textRow('标记名', action.flag || '', v => patch({ flag: v })));
             box.appendChild(checkRow('设为“是”', action.value !== false, v => patch({ value: v }))); break;
         case 'triggerEnabled':
             box.appendChild(selectRow('触发器', action.trigger || '', Object.fromEntries(config.triggers.map(item => [item.id, item.title || item.id])), v => patch({ trigger: v })));

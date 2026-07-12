@@ -69,8 +69,7 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'any', label: '满足任一（OR）', arg: 'conditionGroup' },
     { kind: 'levelStarted', label: '关卡开始时', arg: 'none', event: true },
     { kind: 'unitSelected', label: '指定单位被选中', arg: 'eventTarget', event: true },
-    { kind: 'unitMovesToTile', label: '指定单位/单位组移动到指定地块', arg: 'eventTargetTile', event: true },
-    { kind: 'unitMovesToArea', label: '指定单位/单位组进入指定区域', arg: 'eventTargetArea', event: true },
+    { kind: 'unitMovesToTile', label: '指定单位/单位组移动到指定地块/区域', arg: 'eventTargetArea', event: true },
     { kind: 'unitAttacksUnit', label: '指定单位攻击指定单位/单位组', arg: 'eventCombatPair', event: true },
     { kind: 'unitKilled', label: '指定单位/单位组被击败', arg: 'eventTarget', event: true },
     { kind: 'cityCaptured', label: '指定城市被占领', arg: 'eventCityCapture', event: true },
@@ -81,14 +80,12 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     ,{ kind: 'timer',        label: '计时器到期',   arg: 'number', note: '关卡开始后经过指定毫秒时触发一次' }
     ,{ kind: 'cityOwnedBy',  label: '城市归属于',   arg: 'cityOwner' },
     { kind: 'turnAtLeast',  label: '回合数≥',      arg: 'number' },
-    { kind: 'flagSet',      label: '标记已置位',   arg: 'text' },
-    { kind: 'flagUnset',    label: '标记未置位',   arg: 'text' }
     ,{ kind: 'unitExists', label: '单位存在/存活', arg: 'unitExists' }
     ,{ kind: 'unitHpCompare', label: '单位生命比较', arg: 'unitHpCompare' }
     ,{ kind: 'factionUnitCount', label: '阵营单位数量', arg: 'campCompare' }
     ,{ kind: 'goldCompare', label: '阵营金币比较', arg: 'goldCompare' }
     ,{ kind: 'variableCompare', label: '关卡变量比较', arg: 'variableCompare' }
-    ,{ kind: 'tileOwnedBy', label: '地块归属于', arg: 'cityOwner' }
+    ,{ kind: 'tileOwnedBy', label: '地块当前归属于', arg: 'cityOwner' }
     ,{ kind: 'relationIs', label: '外交关系为', arg: 'relation' }
     ,{ kind: 'weatherIs', label: '当前天气为', arg: 'weather' }
     ,{ kind: 'objectiveStatusIs', label: '目标状态为', arg: 'objectiveStatus' }

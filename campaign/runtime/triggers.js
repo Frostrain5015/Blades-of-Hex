@@ -94,13 +94,13 @@ function evalCondition(cond, ctx) {
         case 'not': return !!cond.condition && !evalCondition(cond.condition, ctx);
         case 'levelStarted': return eventId === 'levelStarted';
         case 'unitSelected': return eventId === 'unitSelected' && targetIncludesUnit(config, cond.target, event?.unitId);
-        case 'unitMovesToTile': return eventId === 'unitMoved'
-            && targetIncludesUnit(config, cond.target, event?.unitId)
-            && event?.q === cond.q && event?.r === cond.r;
+        case 'unitMovesToTile':
         case 'unitMovesToArea': {
             if (eventId !== 'unitMoved' || !targetIncludesUnit(config, cond.target, event?.unitId)) return false;
-            const tiles = cond.tiles || areaById(config, cond.area)?.tiles || [];
-            return tiles.some(tile => tile.q === event?.q && tile.r === event?.r);
+            // 区域匹配：传入 tiles 数组
+            if (cond.tiles) return cond.tiles.some(tile => tile.q === event?.q && tile.r === event?.r);
+            // 单格匹配：传入 q, r
+            return event?.q === cond.q && event?.r === cond.r;
         }
         case 'unitAttacksUnit': return eventId === 'combatStarted'
             && targetIncludesUnit(config, cond.attacker, event?.attackerId)
