@@ -88,7 +88,6 @@ function evalCondition(cond, ctx) {
         case 'not': return !!cond.condition && !evalCondition(cond.condition, ctx);
         case 'compare': return compareValues(readOperand(cond.left, ctx), cond.op || '==', readOperand(cond.right, ctx));
         case 'stepIs': return api.getStepId() === cond.value;
-        case 'phaseIs': return gameState.campaignPhase === cond.value;
         case 'eventUnitIs': return [event?.unitId, event?.attackerId, event?.defenderId, event?.killerId, event?.sourceUnitId].includes(cond.unit);
         case 'eventCardIs': return event?.cardId === cond.value;
         case 'eventCampIs': return [event?.camp, event?.attackerCamp, event?.defenderCamp, event?.killerCamp, event?.newCamp, event?.oldCamp].map(campKeyOf).includes(cond.value);

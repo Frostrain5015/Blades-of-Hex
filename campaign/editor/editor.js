@@ -1022,10 +1022,10 @@ function actionDefaults(kind) {
     }
 }
 
-function conditionEditor(cond, onChange, onRemove) {
+function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
     const meta = TRIGGER_CONDITIONS.find(c => c.kind === cond.kind) || TRIGGER_CONDITIONS[0];
     const box = card(meta.label, onRemove);
-    const conditionKinds = authorConditions(cond.kind);
+    const conditionKinds = authorConditions(cond.kind).filter(c => !parentIsAny || c.kind !== 'any');
     box.appendChild(selectRow('条件', cond.kind, Object.fromEntries(conditionKinds.map(c => [c.kind, c.label])), v => {
         onChange({ kind: v, ...conditionDefaults(v) });
     }));
