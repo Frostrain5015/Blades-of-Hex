@@ -509,7 +509,9 @@ document.getElementById('campaignBtn').addEventListener('click', showCampaignLob
 document.getElementById('campaignBackBtn').addEventListener('click', () => {
     // 将星列传隶属单人游戏 → 返回上级二级菜单，并恢复立绘轮播
     showSoloMenu();
-    // 恢复立绘可见性（传记页若有电影海报会将立绘 opacity 设为 0）
+    // 隐藏电影海报，恢复立绘可见性
+    const poster = document.getElementById('campaignPoster');
+    if (poster) poster.classList.remove('active');
     for (const id of ['heroPortraitA', 'heroPortraitB']) {
         const el = document.getElementById(id);
         if (el) el.style.opacity = '';
