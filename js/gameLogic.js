@@ -372,6 +372,27 @@ export function initMap() {
         gameState.tiles.push(tile);
     }
 
+    // 区划范围覆盖：按设计的边界修正 Voronoi
+    const districtOverrides = is3P ? [
+        { q: -4, r: 0, d: 1 }, { q: -5, r: 0, d: 1 }, { q: -6, r: 0, d: 1 }, { q: -7, r: 0, d: 1 },
+        { q: 0, r: -7, d: 2 }, { q: 1, r: -7, d: 2 }, { q: 0, r: -6, d: 2 }, { q: 1, r: -6, d: 2 },
+        { q: 0, r: -5, d: 2 }, { q: 1, r: -5, d: 2 }, { q: 0, r: -4, d: 2 }, { q: 1, r: -4, d: 2 },
+        { q: -3, r: 2, d: 5 }, { q: -3, r: 1, d: 5 }, { q: -3, r: 0, d: 5 },
+        { q: -1, r: -1, d: 5 }, { q: -1, r: -2, d: 5 }, { q: 0, r: -3, d: 5 },
+        { q: 1, r: -3, d: 5 }, { q: 2, r: -3, d: 5 }, { q: 3, r: -3, d: 5 },
+        { q: 3, r: -2, d: 5 }, { q: 3, r: -1, d: 5 }, { q: 3, r: 0, d: 5 },
+        { q: 2, r: 1, d: 5 }, { q: 1, r: 1, d: 5 }, { q: 1, r: 2, d: 5 },
+        { q: -2, r: 3, d: 5 }, { q: -1, r: 3, d: 5 }, { q: 0, r: 3, d: 5 },
+        { q: 4, r: -4, d: 7 }, { q: 5, r: -5, d: 7 }, { q: 6, r: -6, d: 7 }, { q: 7, r: -7, d: 7 },
+    ] : [
+        { q: 2, r: 5, d: 2 }, { q: 4, r: -2, d: 2 }, { q: 5, r: -2, d: 2 }, { q: 6, r: -3, d: 2 },
+    ];
+    const tileMap = new Map(gameState.tiles.map(t => [`${t.q},${t.r}`, t]));
+    for (const ov of districtOverrides) {
+        const t = tileMap.get(`${ov.q},${ov.r}`);
+        if (t) { t.districtId = ov.d; t.camp = cityDefs.find(c => c.districtId === ov.d)?.camp || t.camp; }
+    }
+
     // Mark city tiles
     for (const city of cityDefs) {
         const cityTile = gameState.tiles.find(t => t.q === city.q && t.r === city.r);
