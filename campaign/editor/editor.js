@@ -1102,6 +1102,10 @@ function _paramLine(obj) {
     if (obj.unit != null) parts.push(`单位:${obj.unit}`);
     if (obj.value != null) parts.push(`值:${obj.value}`);
     if (obj.target?.unit) parts.push(`目标:${obj.target.unit}`);
+    if (obj.attacker?.unit) parts.push(`攻:${obj.attacker.unit}`);
+    if (obj.attackerCamp) parts.push(`攻营:${obj.attackerCamp}`);
+    if (obj.defender?.unit) parts.push(`守:${obj.defender.unit}`);
+    if (obj.defenderCamp) parts.push(`守营:${obj.defenderCamp}`);
     if (typeof obj.q === 'number' && typeof obj.r === 'number') parts.push(`📍${obj.q},${obj.r}`);
     if (obj.area) parts.push(`区域:${obj.area}`);
     if (obj.tiles?.length) parts.push(`📍${obj.tiles.length}格`);
