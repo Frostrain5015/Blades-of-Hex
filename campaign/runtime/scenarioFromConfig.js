@@ -101,15 +101,17 @@ export function scenarioFromConfig(rawConfig, options = {}) {
             .join('');
     }
 
+    const displayId = config.displayId || (config.id || '').toUpperCase();
     return {
         id: config.id,
         title: config.title,
+        displayId,
         seed: config.seed || 1,   // 0 会让 xorshift RNG 卡死在零态
         turnLimit: config.turnLimit || 0,
         storageKey,
         initialStep: config.initialStep || '',
         initialObjective: Object.keys(config.objectives || {}).find(id => config.objectives[id].active !== false) || '',
-        intro: { campaignTitle: config.intro?.campaignTitle || '', chapterTitle: '', scenarioSubtitle: config.title || '' },
+        intro: { campaignTitle: config.intro?.campaignTitle || '', chapterTitle: '', scenarioSubtitle: `${displayId} ${config.title || ''}` },
         aiOpponentCampKey: config.aiOpponentCamp || '',
         aiDifficulty: config.aiDifficulty ?? 1.0,
         steps: controllerSteps,

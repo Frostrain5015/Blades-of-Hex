@@ -315,7 +315,7 @@ export function updateUI() {
                 const levelEl = document.getElementById('campaignInfoLevel');
                 if (chronicleEl) chronicleEl.textContent = intro.campaignTitle || gameState.campaignId || '';
                 if (chapterEl) chapterEl.textContent = intro.scenarioSubtitle || '';
-                if (levelEl) levelEl.textContent = gameState.scenarioId || '';
+                if (levelEl) levelEl.textContent = gameState.scenarioDisplayId || gameState.scenarioId || '';
             }
         } else {
             card.style.display = faction.active && key !== 'player3' || gameState.isThreePlayer ? '' : 'none';

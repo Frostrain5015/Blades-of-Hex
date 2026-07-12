@@ -17,6 +17,7 @@ export const config = {
     schemaVersion: 2,
     id: 'bi-t1-sheath',
     title: '出鞘',
+    displayId: 'BI-T1',
     chronicleId: 'blood-iris',
     seed: 0x1234,
     turnLimit: 2,
