@@ -1046,7 +1046,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'text':
             box.appendChild(textRow('值', cond.value || '', v => patch({ value: v }))); break;
         case 'conditionGroup':
-            box.appendChild(conditionListEditor(cond.conditions || [], conditions => patch({ conditions }), { parentIsAny: cond.kind === 'any' })); break;
+            box.appendChild(conditionListEditor(cond.conditions || [], conditions => patch({ conditions }), { parentIsAny: meta.kind === 'any' })); break;
         case 'conditionSingle':
         case 'unitExists':
             box.appendChild(selectRow('单位', cond.unit || '', unitOptions(), v => patch({ unit: v })));
@@ -1292,14 +1292,16 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
     return box;
 }
 
-function conditionListEditor(list, onChange) {
+function conditionListEditor(list, onChange, { parentIsAny = false } = {}) {
     const wrap = el('div');
     (list || []).forEach((cond, i) => {
         wrap.appendChild(conditionEditor(cond,
             next => { const arr = list.slice(); arr[i] = next; onChange(arr); },
-            () => { const arr = list.slice(); arr.splice(i, 1); onChange(arr); }));
+            () => { const arr = list.slice(); arr.splice(i, 1); onChange(arr); },
+            parentIsAny));
     });
     const add = el('button', 'ed-add-btn', '+ 添加条件（全部满足才触发）');
+    add.addEventListener('click', () => onChange([...(list || []), { kind: 'unitAlive', ...conditionDefaults('unitAlive') }]));
     wrap.appendChild(add);
     return wrap;
 }
