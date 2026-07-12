@@ -176,15 +176,16 @@ function render() {
     }
 
     // 悬浮与选中高亮
-    // 取色/涂抹模式：高亮已选地块
+    // 取色/涂抹模式：高亮已选地块 + 已配置的坐标
     if (pendingPick) {
         for (const key of (pendingPick.picked || [])) {
             const t = preview.tileMap.get(key);
             if (t) drawHexagonOutline(ctx, t.x, t.y, HEX_SIZE, 'rgba(255,200,50,0.8)', 2.8);
         }
         if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.8)', 2);
+    } else {
+        if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.55)', 1.6);
     }
-    if (hoverTile && !pendingPick) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.55)', 1.6);
     const selTile = selectionTile();
     if (selTile) drawHexagonOutline(ctx, selTile.x, selTile.y, HEX_SIZE, '#e6c200', 2.4);
 }
@@ -817,22 +818,16 @@ function buildUnitInspector(index) {
     return wrap;
 }
 
-/** 带「📌 点选」的坐标行（q, r 输入 + 画布取色按钮）。 */
+/** 仅带「📌 点选」的坐标行（无手动输入框，仅用画布取色）。 */
 function coordRow(labelText, q, r, onChange) {
     const r2 = el('div', 'ed-row');
-    if (labelText != null) r2.appendChild(el('label', null, labelText));
-    function makeNum(key) {
-        const input = el('input');
-        input.type = 'number'; input.value = (key === 'q' ? q : r) ?? 0;
-        input.addEventListener('change', () => {
-            const next = { q, r, [key]: Math.round(Number(input.value)) };
-            onChange(next);
-        });
-        return input;
-    }
-    r2.appendChild(makeNum('q'));
-    r2.appendChild(makeNum('r'));
-    r2.appendChild(pickTileButton({ q, r }, onChange));
+    const label = el('label', null, labelText + '　');
+    label.style.cssText = 'min-width:60px;color:rgba(255,255,255,0.6);font-size:12px;';
+    r2.appendChild(label);
+    const display = el('span', null, q != null ? `(${q}, ${r})` : '未选择');
+    display.style.cssText = 'color:rgba(255,255,255,0.5);font-size:12px;margin-right:6px;';
+    r2.appendChild(display);
+    r2.appendChild(pickTileButton({ q, r }, tile => { display.textContent = `(${tile.q}, ${tile.r})`; onChange(tile); }));
     return r2;
 }
 
@@ -867,7 +862,9 @@ function pickTileButton(current, onChange) {
     const btn = el('button', 'ed-pick-btn', '📌');
     btn.title = '点击棋盘选择坐标';
     btn.addEventListener('click', () => {
-        pendingPick = { mode: 'tile', callback: (tile) => { onChange(tile); renderInspector(); render(); }, picked: null, label: '点击地块选择坐标' };
+        const picked = new Set();
+        if (current && current.q != null) picked.add(tileKey(current.q, current.r));
+        pendingPick = { mode: 'tile', callback: (tile) => { onChange(tile); renderInspector(); render(); }, picked, label: '点击地块选择坐标' };
         showPickBar('tile', '点击棋盘上的目标地块', null, () => {});
         render();
     });
@@ -1094,11 +1091,36 @@ function conditionEditor(cond, onChange, onRemove) {
         case 'groupState':
             box.appendChild(selectRow('单位组', cond.group || '', Object.fromEntries(config.unitGroups.map(item => [item.id, item.id])), v => patch({ group: v })));
             box.appendChild(selectRow('状态', cond.state || 'anyAlive', { anyAlive: '至少一员存活', allAlive: '全员存活', allDead: '全员阵亡' }, v => patch({ state: v }))); break;
-        case 'areaCount':
-            box.appendChild(selectRow('区域', cond.area || '', Object.fromEntries(config.areas.map(item => [item.id, item.id])), v => patch({ area: v })));
+        case 'areaCount': {
+            // 区域选择：下拉选已有区域 或 📌 画布涂抹后自动创建/复用
+            const areaRow = el('div', 'ed-row');
+            areaRow.appendChild(el('label', null, '区域'));
+            const areaSel = el('select');
+            const areaOpts = config.areas.map((item, i) => { const o = el('option'); o.value = item.id; o.textContent = item.id; return o; });
+            areaOpts.forEach(o => areaSel.appendChild(o));
+            if (!areaOpts.some(o => o.value === cond.area) && areaOpts[0]) areaSel.value = areaOpts[0].value;
+            else areaSel.value = cond.area || '';
+            areaSel.addEventListener('change', () => patch({ area: areaSel.value }));
+            areaRow.appendChild(areaSel);
+            areaRow.appendChild(pickTilesButton(config.areas.find(a => a.id === cond.area)?.tiles || [], list => {
+                // 查找坐标完全匹配的已有区域，没有则新建
+                const key = list.map(t => `${t.q},${t.r}`).sort().join(';');
+                let area = config.areas.find(a => a.tiles.map(t => `${t.q},${t.r}`).sort().join(';') === key);
+                if (!area) {
+                    let n = 1; while (config.areas.some(a => a.id === `area${n}`)) n++;
+                    mutate(c => { c.areas.push({ id: `area${n}`, tiles: list }); }, { rebuildPanels: true, snapshot: false });
+                    area = config.areas[config.areas.length - 1];
+                } else {
+                    mutate(c => { }, { rebuildPanels: false }); // 触发重绘
+                }
+                patch({ area: area.id });
+                areaSel.value = area.id;
+            }));
+            box.appendChild(areaRow);
             box.appendChild(selectRow('阵营筛选', cond.camp || '', { '': '任意阵营', ...CAMP_LABELS }, v => patch({ camp: v })));
             box.appendChild(selectRow('比较', cond.op || '>=', { '<=': '不多于', '==': '正好', '>=': '不少于' }, v => patch({ op: v })));
             box.appendChild(numRow('单位数', cond.value ?? 1, v => patch({ value: Math.max(0, Math.round(v)) }))); break;
+        }
         case 'coord':
             box.appendChild(coordRow('坐标', cond.q ?? 0, cond.r ?? 0, tile => patch(tile))); break;
         case 'interaction': box.appendChild(selectRow('调查点', cond.interactable || '', Object.fromEntries(config.interactables.map(item => [item.id, item.label || item.id])), v => patch({ interactable: v }))); break;
