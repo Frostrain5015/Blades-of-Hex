@@ -74,7 +74,7 @@ export const config = {
     aiDifficulty: 1.0,
 
     gold: { player1: 0 },
-    commanders: {},
+    commanders: { player1: 'centurion' }, // 红方主将百夫长（对策卡被禁用，仅标识不部署）
     hands: {},
 
     // ── 棋盘 ────────────────────────────────────────────────

@@ -3125,16 +3125,16 @@ body.campaign-lobby-active .chronicle-nav-btn { display: flex; }
     position: absolute;
     z-index: 120;
     top: 16px;
-    left: 16px;
+    right: 16px;
     width: min(255px, 32%);
     padding: 11px 13px 10px;
     opacity: 0;
-    transform: translateX(-14px);
+    transform: translateX(14px);
     pointer-events: none;
     color: #f4dfc6;
     border: 1px solid rgba(225, 100, 51, 0.42);
-    border-left: 3px solid #d84b23;
-    border-radius: 2px 9px 2px 2px;
+    border-right: 3px solid #d84b23;
+    border-radius: 9px 2px 2px 2px;
     background: linear-gradient(110deg, rgba(43, 14, 8, 0.93), rgba(15, 9, 7, 0.87));
     box-shadow: 0 8px 25px rgba(0,0,0,0.42);
     transition: opacity 0.25s, transform 0.25s;
@@ -3145,7 +3145,7 @@ body.campaign-lobby-active .chronicle-nav-btn { display: flex; }
 .campaign-objective-detail { margin-top: 4px; color: rgba(244, 222, 199, 0.62); font: 9px/1.5 'Noto Serif SC', serif; }
 .campaign-optional-objectives { display: flex; flex-direction: column; gap: 2px; margin-top: 7px; color: rgba(238, 172, 128, 0.48); font-size: 8px; }
 
-#tutorialCoach[data-campaign="heart-as-fire"] {
+#tutorialCoach[data-campaign] {
     display: flex;
     align-items: stretch;
     gap: 18px;
@@ -3157,28 +3157,28 @@ body.campaign-lobby-active .chronicle-nav-btn { display: flex; }
         linear-gradient(126deg, rgba(64, 19, 10, 0.985), rgba(22, 10, 7, 0.99)),
         repeating-linear-gradient(0deg, transparent 0 5px, rgba(255, 170, 104, 0.025) 6px);
 }
-#tutorialCoach[data-campaign="heart-as-fire"]::before { display: none; }
-#tutorialCoach[data-campaign="heart-as-fire"] .tutorial-progress,
-#tutorialCoach[data-campaign="heart-as-fire"] h2 { display: none; }
-#tutorialCoach[data-campaign="heart-as-fire"] .tutorial-coach-copy {
+#tutorialCoach[data-campaign]::before { display: none; }
+#tutorialCoach[data-campaign] .tutorial-progress,
+#tutorialCoach[data-campaign] h2 { display: none; }
+#tutorialCoach[data-campaign] .tutorial-coach-copy {
     display: flex;
     flex: 1;
     min-width: 0;
     flex-direction: column;
     justify-content: center;
 }
-#tutorialCoach[data-campaign="heart-as-fire"] p {
+#tutorialCoach[data-campaign] p {
     color: rgba(255, 238, 215, 0.9);
     font-size: 14px;
     line-height: 1.75;
 }
-#tutorialCoach[data-campaign="heart-as-fire"] #tutorialNextBtn {
+#tutorialCoach[data-campaign] #tutorialNextBtn {
     align-self: flex-start;
     color: #2b0d04;
     border-color: #ffbf8d;
     background: linear-gradient(135deg, #f19a5a, #c84320);
 }
-#tutorialCoach[data-campaign="heart-as-fire"][data-campaign-phase="action"] {
+#tutorialCoach[data-campaign][data-campaign-phase="action"] {
     left: 24px;
     width: min(500px, calc(100vw - 96px));
     transform: none;
@@ -3223,13 +3223,13 @@ body.campaign-lobby-active .chronicle-nav-btn { display: flex; }
     letter-spacing: 2px;
     text-shadow: 0 2px 5px #000;
 }
-#tutorialCoach[data-campaign="heart-as-fire"].campaign-dialog-out {
+#tutorialCoach[data-campaign].campaign-dialog-out {
     opacity: 0;
     filter: blur(4px);
     bottom: 14px;
     transition: opacity 0.18s ease, filter 0.18s ease, bottom 0.18s ease;
 }
-#tutorialCoach[data-campaign="heart-as-fire"].campaign-dialog-in {
+#tutorialCoach[data-campaign].campaign-dialog-in {
     animation: campaignDialogueIn 0.4s cubic-bezier(0.2, 0.75, 0.2, 1) both;
 }
 @keyframes campaignDialogueIn {
@@ -3289,7 +3289,7 @@ body.campaign-lobby-active .chronicle-nav-btn { display: flex; }
     .campaign-chronicle-card { padding: 12px 13px 11px 15px; }
     .campaign-chronicle-card h3 { font-size: 23px; }
     .campaign-chronicle-card p { font-size: 9px; line-height: 1.5; }
-    .campaign-objective-hud { top: 8px; left: 8px; width: min(220px, 45%); }
+    .campaign-objective-hud { top: 8px; right: 8px; width: min(220px, 45%); }
     .campaign-result-panel { padding: 24px 20px 22px; }
     #tutorialCoach[data-campaign="heart-as-fire"] { gap: 12px; padding: 13px; }
     .campaign-speaker-card { flex-basis: 86px; min-height: 116px; }
