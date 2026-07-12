@@ -64,7 +64,6 @@ export const BOARD_RADIUS_DEFAULT = 4;
 export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'any', label: '满足任一（OR）', arg: 'conditionGroup' },
     { kind: 'compare', label: '比较数值/变量', arg: 'compare' },
-    { kind: 'stepIs',       label: '当前步骤为',   arg: 'step' },
     { kind: 'eventUnitIs',  label: '事件单位是',   arg: 'unitRef', note: '触发事件涉及的单位其编辑器 id' },
     { kind: 'eventCardIs',  label: '事件卡牌是',   arg: 'card' },
     { kind: 'eventCampIs',  label: '事件阵营是',   arg: 'camp' },

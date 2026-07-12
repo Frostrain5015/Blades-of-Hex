@@ -974,7 +974,6 @@ function conditionDefaults(kind) {
         case 'eventCampIs': return { value: 'player1' };
         case 'cityOwnedBy': return { q: 0, r: 0, camp: 'player1' };
         case 'turnAtLeast': return { value: 1 };
-        case 'stepIs': return { value: Object.keys(config.steps)[0] || '' };
         case 'eventUnitIs': case 'unitAlive': case 'unitDead': return { unit: config.units[0]?.id || '' };
         case 'unitExists': return { unit: config.units[0]?.id || '', alive: true };
         case 'unitHpCompare': return { unit: config.units[0]?.id || '', mode: 'percent', op: '<=', value: 50 };
@@ -989,7 +988,6 @@ function conditionDefaults(kind) {
         case 'eventTileIs': return { q: 0, r: 0 };
         case 'eventInteractionIs': return { interactable: config.interactables[0]?.id || '' };
         case 'mechanicEnabled': return { mechanic: MECHANIC_KEYS[0], enabled: true };
-        case 'any': return { conditions: [{ kind: 'stepIs', ...conditionDefaults('stepIs') }] };
         case 'compare': return { left: { source: 'round' }, op: '>=', right: { source: 'constant', value: 1 } };
         default: return { value: '' };
     }
@@ -1048,9 +1046,8 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'text':
             box.appendChild(textRow('值', cond.value || '', v => patch({ value: v }))); break;
         case 'conditionGroup':
-            box.appendChild(conditionListEditor(cond.conditions || [], conditions => patch({ conditions }))); break;
+            box.appendChild(conditionListEditor(cond.conditions || [], conditions => patch({ conditions }), { parentIsAny: cond.kind === 'any' })); break;
         case 'conditionSingle':
-            box.appendChild(conditionEditor(cond.condition || { kind: 'stepIs', ...conditionDefaults('stepIs') }, condition => patch({ condition }), null)); break;
         case 'unitExists':
             box.appendChild(selectRow('单位', cond.unit || '', unitOptions(), v => patch({ unit: v })));
             box.appendChild(selectRow('要求', cond.alive === false ? 'dead' : 'alive', { alive: '仍在场', dead: '已阵亡/不存在' }, v => patch({ alive: v === 'alive' }))); break;
@@ -1303,7 +1300,6 @@ function conditionListEditor(list, onChange) {
             () => { const arr = list.slice(); arr.splice(i, 1); onChange(arr); }));
     });
     const add = el('button', 'ed-add-btn', '+ 添加条件（全部满足才触发）');
-    add.addEventListener('click', () => onChange([...(list || []), { kind: 'stepIs', ...conditionDefaults('stepIs') }]));
     wrap.appendChild(add);
     return wrap;
 }
