@@ -79,9 +79,8 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'skillUsed', label: '指定单位使用技能', arg: 'eventUnitSkill', event: true },
     { kind: 'eventCardIs',  label: '事件卡牌是',   arg: 'card', event: true },
     { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值', event: true },
-    { kind: 'unitAlive',    label: '单位存活',     arg: 'unitRef' },
-    { kind: 'unitDead',     label: '单位阵亡',     arg: 'unitRef' },
-    { kind: 'cityOwnedBy',  label: '城市归属于',   arg: 'cityOwner' },
+    ,{ kind: 'timer',        label: '计时器到期',   arg: 'number', note: '关卡开始后经过指定毫秒时触发一次' }
+    ,{ kind: 'cityOwnedBy',  label: '城市归属于',   arg: 'cityOwner' },
     { kind: 'turnAtLeast',  label: '回合数≥',      arg: 'number' },
     { kind: 'flagSet',      label: '标记已置位',   arg: 'text' },
     { kind: 'flagUnset',    label: '标记未置位',   arg: 'text' }
@@ -107,20 +106,15 @@ export const TRIGGER_CONDITIONS = Object.freeze([
 export const TRIGGER_ACTIONS = Object.freeze([
     { kind: 'showStep',      label: '显示步骤',     arg: 'inlineStep', note: '对话框内容直接写在动作中，不再使用独立的 steps 表' }
     ,{ kind: 'spawnUnits',    label: '生成单位',     arg: 'spawnGroup' }
-    ,{ kind: 'hideGuidance',  label: '隐藏引导对白', arg: 'none' }
     ,{ kind: 'unlockInput',   label: '解除输入锁',   arg: 'none', note: '关闭严格引导，玩家自由操作' }
     ,{ kind: 'lockInput',     label: '开启输入锁',   arg: 'lockStep', note: '恢复严格引导模式，可选配白名单（不产生视觉高亮）' }
-    ,{ kind: 'log',           label: '写战报',       arg: 'text' }
-    ,{ kind: 'delay',         label: '延迟后执行',   arg: 'delayGroup', note: '毫秒后执行一组子动作（演出用）' }
     ,{ kind: 'setVariable', label: '修改变量', arg: 'variableOperation' }
     ,{ kind: 'setTriggerEnabled', label: '启用/禁用触发器', arg: 'triggerEnabled' }
-    ,{ kind: 'emitSignal', label: '发送信号', arg: 'text' }
     ,{ kind: 'setObjectiveStatus', label: '设置目标状态', arg: 'objectiveStatus' }
     ,{ kind: 'changeGold', label: '修改金币', arg: 'campOperation' }
     ,{ kind: 'changeUnitHp', label: '修改单位生命', arg: 'unitOperation' }
     ,{ kind: 'changeUnitFaction', label: '改变单位阵营', arg: 'unitCamp' }
     ,{ kind: 'setUnitState', label: '设置单位状态', arg: 'unitState' }
-    ,{ kind: 'setUnitDefeatRule', label: '设置单位战败规则', arg: 'unitDefeatRule' }
     ,{ kind: 'applyEffect', label: '施加效果', arg: 'effectApply', note: '为指定单位添加临时效果（攻防速HP修正），效果会显示在左上角徽章栏' }
     ,{ kind: 'setDiplomacy', label: '改变外交关系', arg: 'relation' }
     ,{ kind: 'setWeather', label: '改变天气', arg: 'weather' }

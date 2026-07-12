@@ -120,8 +120,19 @@ function evalCondition(cond, ctx) {
         case 'eventNextIs': case 'eventChoiceIs': return eventId === 'advance' && (event?.next === cond.value || event?.choiceId === cond.value);
         case 'eventInteractionIs': return eventId === 'interactionCompleted' && event?.interactableId === cond.interactable;
         case 'eventSignalIs': return eventId === 'triggerSignal' && event?.signal === cond.value;
-        case 'unitAlive': return !!resolveUnit(cond.unit);
-        case 'unitDead': return !resolveUnit(cond.unit);
+        case 'timer': {
+            const timerId = ctx.triggerId;
+            if (!timerId || !cond.value || cond.value <= 0) return false;
+            if (!state._timerStarts) state._timerStarts = {};
+            if (!state._timerStarts[timerId]) state._timerStarts[timerId] = Date.now();
+            // 已触发的计时器不再重复满足
+            if (state._timerStarts[timerId] === -1) return false;
+            if (Date.now() - state._timerStarts[timerId] >= Number(cond.value)) {
+                state._timerStarts[timerId] = -1;  // 标记为已触发
+                return true;
+            }
+            return false;
+        }
         case 'unitExists': {
             const u = resolveUnit(cond.unit);
             return cond.alive === false ? !u : !!u;
@@ -205,7 +216,6 @@ function runAction(action, ctx) {
             break;
         }
         case 'setTriggerEnabled': enabled.set(action.trigger, action.enabled !== false); break;
-        case 'emitSignal': dispatch('triggerSignal', { signal: action.value, payload: action.payload }); break;
         case 'changeGold': {
             gameState.playerGold[action.camp] = Math.max(0, applyOperation(gameState.playerGold[action.camp] || 0, action.operation || 'add', action.value));
             updateUI(); break;
@@ -263,20 +273,6 @@ function runAction(action, ctx) {
             break;
         }
         case 'setUnitDefeatRule': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-            // mode: 'normal' | 'minHp' | 'maxHp'，分别对应正常/设下限/设上限
-            if (action.mode === 'normal' || !action.mode) {
-                unit._campaignMinHp = 0;
-                unit._campaignMaxHp = 0;
-            } else if (action.mode === 'minHp') {
-                unit._campaignMinHp = Math.max(0, Math.min(100, Number(action.percent) || 0)) / 100 * unit.maxHp;
-                unit._campaignMaxHp = 0;
-            } else if (action.mode === 'maxHp') {
-                unit._campaignMaxHp = Math.max(0, Math.min(100, Number(action.percent) || 0)) / 100 * unit.maxHp;
-                unit._campaignMinHp = 0;
-            }
-        } break;
-        case 'setDiplomacy': {
-            const change = setRelation(gameState, action.camp, action.targetCamp, action.relation);
             if (change && change.previous !== change.relation) {
                 clearselection(); invalidateBoard(); updateUI();
                 emit('match:diplomacyChanged', { ...change, reason: 'trigger' });
@@ -295,21 +291,6 @@ function runAction(action, ctx) {
             break;
         case 'removeUnits': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
             if (action.mode === 'kill') unit.destroy(null); else if (unit.tile) unit.tile.unit = null;
-        } invalidateBoard(); break;
-        case 'hideGuidance': api.hideGuidance(); break;
-        case 'unlockInput': gameState.tutorialMode = false; gameState.tutorialStep = ''; gameState._inlineStepData = null; api.hideGuidance(); break;
-        case 'lockInput':
-            gameState.tutorialMode = true;
-            // support highlight-based whitelist without visual feedback (for special cases)
-            if (action.highlight && !gameState._inlineStepData) gameState._inlineStepData = { highlight: action.highlight };
-            break;
-        case 'log': if (action.text) logMessage(action.text); break;
-        case 'endScenario': action.result === 'lose' ? api.fail(action.reason || '') : api.win(action.ending || ''); break;
-        case 'delay': {
-            const timer = setTimeout(() => {
-                if (api.isActive() && !api.isResultShown() && (!ctx.triggerId || enabled.get(ctx.triggerId) !== false)) runActions(action.then, ctx);
-            }, Math.max(0, action.ms || 0));
-            state.timers.add(timer); break;
         }
         default: console.warn(`[campaign] 未知效果「${action.kind}」，已跳过。`);
     }
@@ -459,9 +440,21 @@ export function createTriggerFlow(config, api) {
             if (allow.actions.some(value => actionKey?.startsWith(value))) return true;
             api.showHint(allow.hint || '当前无法发动该技能'); return false;
         },
-        dispose() { for (const timer of state.timers) clearTimeout(timer); state.timers.clear(); },
+        dispose() { for (const timer of state.timers) clearTimeout(timer); state.timers.clear(); if (_tickTimer) { clearInterval(_tickTimer); _tickTimer = null; } },
         _flags: state.flags
     };
+
+    // 计时器条件轮询（每 100ms 检查一次，确保 timer 条件及时触发）
+    let _tickTimer = setInterval(() => {
+        if (!gameState.campaignMode || !api.isActive() || api.isResultShown()) return;
+        const now = Date.now();
+        const needsTick = triggers.some(t => {
+            if (enabled.get(t._id) === false) return false;
+            if (t.once && state.fired.has(t._id)) return false;
+            return (t.when || []).some(c => c.kind === 'timer');
+        });
+        if (needsTick) dispatch('_timerTick', {});
+    }, 100);
 }
 
 export { canAttack };

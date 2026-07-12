@@ -1076,17 +1076,13 @@ function actionDefaults(kind) {
     switch (kind) {
         case 'showStep': return { mode: 'narrator', text: '', next: '' };
         case 'spawnUnits': return { units: [] };
-        case 'delay': return { ms: 1000, then: [] };
-        case 'log': case 'fail': return { text: '' };
         case 'setVariable': return { variable: config.variables[0]?.id || '', operation: 'set', value: 0 };
         case 'setTriggerEnabled': return { trigger: config.triggers[0]?.id || '', enabled: true };
         case 'setObjectiveStatus': return { objective: Object.keys(config.objectives)[0] || '', status: 'active' };
-        case 'emitSignal': return { value: '' };
         case 'changeGold': return { camp: primaryFactionId(), operation: 'add', value: 1 };
         case 'changeUnitHp': return { target: { unit: config.units[0]?.id || '' }, operation: 'subtract', mode: 'value', value: 1 };
         case 'changeUnitFaction': return { target: { unit: config.units[0]?.id || '' }, camp: primaryFactionId() };
         case 'setUnitState': return { target: { unit: config.units[0]?.id || '' }, state: 'canAct', value: true };
-        case 'setUnitDefeatRule': return { target: { unit: config.units[0]?.id || '' }, minHp: 1, nonLethal: true };
         case 'setDiplomacy': return { camp: primaryFactionId(), targetCamp: nonLocalFactionId(), relation: 'enemy' };
         case 'setWeather': return { weather: 'clear' };
         case 'setInteractionState': return { interactable: config.interactables[0]?.id || '', state: 'available' };
@@ -1432,11 +1428,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(targetEditor(action.target, target => patch({ target })));
             box.appendChild(selectRow('能力', action.state || 'canAct', { canAct: '本回合可行动', canMove: '允许移动', canAttack: '允许攻击', selectable: '允许玩家选择', targetable: '允许成为目标', invulnerable: '无敌' }, v => patch({ state: v })));
             box.appendChild(checkRow('启用', action.value !== false, v => patch({ value: v }))); break;
-        case 'unitDefeatRule':
-            box.appendChild(targetEditor(action.target, target => patch({ target })));
-            box.appendChild(numRow('最低生命', action.minHp ?? 0, v => patch({ minHp: Math.max(0, Math.round(v)) })));
-            box.appendChild(checkRow('致命伤保留 1 HP', !!action.nonLethal, v => patch({ nonLethal: v })));
-            box.appendChild(checkRow('阵亡立即失败', !!action.failOnDeath, v => patch({ failOnDeath: v }))); break;
         case 'effectApply': {
             box.appendChild(targetEditor(action.target, target => patch({ target }), { label: '施加目标' }));
             // 预设效果（自动填充名称/表情/修正/特殊规则）
