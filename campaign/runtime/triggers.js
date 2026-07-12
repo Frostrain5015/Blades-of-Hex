@@ -191,7 +191,10 @@ function runAction(action, ctx) {
     if (!action || typeof action !== 'object') return;
     const { api, flags, state, config, dispatch, enabled } = ctx;
     switch (action.kind) {
-        case 'showStep': api.showStep(action.step, { immediate: !!action.immediate }); break;
+        case 'showStep':
+            if (action.step) api.showStep(action.step, { immediate: !!action.immediate });
+            else api.showInlineStep?.(action, { immediate: !!action.immediate });
+            break;
         case 'setObjectiveStatus': api.setObjectiveStatus?.(action.objective, action.status); break;
         case 'spawnUnits': spawnUnitsInto(gameState, action.units); updateUI(); break;
         case 'setPhase': gameState.campaignPhase = action.value; break;
@@ -322,7 +325,7 @@ export function createTriggerFlow(config, api) {
         }
     }
 
-    function currentAllow() { return config.steps?.[api.getStepId()]?.allow || null; }
+    function currentAllow() { return gameState._inlineStepData?.allow || config.steps?.[api.getStepId()]?.allow || null; }
     return {
         dispatch,
         onLevelStarted() { dispatch('levelStarted', {}); dispatch('levelStart', {}); },

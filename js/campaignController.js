@@ -41,9 +41,34 @@ export function createCampaignController({ onRetry, onReturn }) {
     let transitionToken = 0;
     let transitionTimer = null;
     let transitionCleanupTimer = null;
+    let _inlineStepCounter = 0;
 
     let activeScenario = null;
     let activeFlow = null;
+
+    // 将触发器动作中的内联字段归一化为步骤对象
+    function _inlineStepFromAction(action) {
+        const hasNext = action.next != null && action.next !== '';
+        return {
+            phase: hasNext ? 'dialog' : 'wait',
+            mode: action.mode || 'narrator',
+            text: action.text || '',
+            speaker: action.mode === 'character' && action.speaker ? { name: action.speaker.name, portrait: action.speaker.portrait } : undefined,
+            next: action.next || undefined,
+            target: action.target,
+            allow: action.allow,
+            ruleStep: action.ruleStep
+        };
+    }
+
+    // 对话框点击推进
+    function _advanceFromClick() {
+        if (!active) return;
+        const step = activeScenario?.steps?.[stepId] || gameState._inlineStepData;
+        if (!step || !step.next) return;
+        if (step.next.startsWith('__')) activeFlow?.onAdvance?.(step.next);
+        else showStep(step.next);
+    }
 
     function tileForTarget(target) {
         return activeScenario?.tileForTarget?.(target) || null;
@@ -165,12 +190,12 @@ export function createCampaignController({ onRetry, onReturn }) {
             speakerName.textContent = '';
             coach.setAttribute('aria-label', '剧情旁白');
         }
-        button.hidden = !step.button;
-        button.disabled = false;
-        button.textContent = step.button || '';
-        button.dataset.campaignNext = step.next || '';
+        // 不再使用"下一步"按钮，点击对话框任意处推进
+        button.hidden = true;
         coach.dataset.campaign = activeScenario?.id || '';
         coach.dataset.campaignPhase = step.phase;
+        // 有 next 时对话框可点击推进，无 next 时等待触发器
+        coach.style.cursor = step.next ? 'pointer' : '';
         setModalBlock(step.phase === 'dialog');
         overlay.classList.add('show');
         coach.classList.remove('campaign-dialog-out');
@@ -180,16 +205,30 @@ export function createCampaignController({ onRetry, onReturn }) {
         requestAnimationFrame(syncRing);
     }
 
-    function showStep(nextId, { immediate = false } = {}) {
-        const step = activeScenario?.steps?.[nextId];
+    function showStep(nextOrStep, { immediate = false } = {}) {
+        let step;
+        if (typeof nextOrStep === 'string') {
+            // 按名称查找步骤（向后兼容 config.steps）
+            step = activeScenario?.steps?.[nextOrStep];
+            if (step) {
+                stepId = nextOrStep;
+                gameState.tutorialStep = step.ruleStep ?? nextOrStep;
+                gameState.campaignPhase = nextOrStep;
+                gameState._inlineStepData = null;
+            }
+        } else if (nextOrStep && typeof nextOrStep === 'object') {
+            // 内联步骤：触发器动作直接携带所有字段
+            step = _inlineStepFromAction(nextOrStep);
+            const id = `__inline_${++_inlineStepCounter}`;
+            stepId = id;
+            gameState.tutorialStep = nextOrStep.ruleStep ?? id;
+            gameState.campaignPhase = id;
+            // 存到 gameState 供 trigger 的 currentAllow/validateCanvasClick 查找
+            gameState._inlineStepData = step;
+        }
         if (!active || !step) return;
-        stepId = nextId;
-        // 步骤名 → 规则层名（默认同名；个别步骤用 ruleStep 声明规则别名，如 approach→move）。
-        gameState.tutorialStep = step.ruleStep ?? nextId;
-        gameState.campaignPhase = nextId;
         const token = ++transitionToken;
         clearTimeout(transitionTimer);
-        button.disabled = true;
         if (immediate || !overlay.classList.contains('show')) {
             renderStep(step);
             return;
@@ -250,6 +289,7 @@ export function createCampaignController({ onRetry, onReturn }) {
         getStepId: () => stepId,
         setStepId: (id) => { stepId = id; },
         showStep,
+        showInlineStep: (action, opts) => showStep(action, opts),
         updateObjectives,
         setActiveObjective: updateObjectives,
         setObjectiveStatus,
@@ -313,6 +353,8 @@ export function createCampaignController({ onRetry, onReturn }) {
         else if (next) showStep(next);
     });
     document.getElementById('campaignRetryBtn').addEventListener('click', () => { stop(); onRetry(); });
+    // 点击对话框任意处推进（替代"下一步"按钮）
+    coach.addEventListener('click', _advanceFromClick);
     document.getElementById('campaignReturnBtn').addEventListener('click', () => { stop(); onReturn(); });
     window.addEventListener('resize', () => { if (active) requestAnimationFrame(syncRing); });
 

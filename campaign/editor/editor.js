@@ -1177,7 +1177,7 @@ function conditionDefaults(kind) {
 }
 function actionDefaults(kind) {
     switch (kind) {
-        case 'showStep': return { step: Object.keys(config.steps)[0] || '' };
+        case 'showStep': return { mode: 'narrator', text: '', next: '' };
         case 'spawnUnits': return { units: [] };
         case 'delay': return { ms: 1000, then: [] };
         case 'log': case 'fail': return { text: '' };
@@ -1458,6 +1458,48 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                 }, { rebuildPanels: false }));
                 box.appendChild(addPage);
             }
+            break;
+        }
+        case 'inlineStep': {
+            // 向后兼容：旧格式 action 含有 step 字段引用步表
+            if (action.step) {
+                const step = config.steps[action.step];
+                box.appendChild(selectRow('步骤', action.step, {
+                    ...Object.fromEntries(Object.keys(config.steps).map(id => [id, id])),
+                    '__inline__': '── 转为内联格式 ──'
+                }, v => {
+                    if (v === '__inline__') {
+                        const s = config.steps[action.step];
+                        onChange({ kind: 'showStep', mode: s.mode, text: s.text, speaker: s.speaker, next: s.next, allow: s.allow, target: s.target, immediate: action.immediate });
+                        if (!Object.keys(config.steps).length) return;
+                        const { [action.step]: _, ...rest } = config.steps;
+                        mutate(c => { c.steps = rest; }, { rebuildPanels: true, snapshot: false });
+                    } else { patch({ step: v || '' }); }
+                }));
+                if (step) box.appendChild(hint(`步骤「${action.step}」${step.mode === 'character' ? '🗣 ' + (step.speaker?.name || '') : '📖 旁白'}：${(step.text || '').slice(0, 60)}`));
+                break;
+            }
+            const dialogue = section('对话框内容');
+            dialogue.appendChild(selectRow('类型', action.mode || 'narrator', { narrator: '旁白', character: '台词' }, v => patch({ mode: v, ...(v === 'character' && !action.speaker ? { speaker: { name: '', portrait: '' } } : {}) })));
+            if (action.mode === 'character') {
+                dialogue.appendChild(textRow('说话人', action.speaker?.name || '', v => patch({ speaker: { ...(action.speaker || {}), name: v } })));
+                dialogue.appendChild(selectRow('立绘', action.speaker?.portrait || '', { '': '（无）', ...COMMANDER_LABELS }, v => patch({ speaker: { ...(action.speaker || {}), portrait: v } })));
+            }
+            dialogue.appendChild(textareaRow('台词', action.text || '', v => patch({ text: v }), 3));
+            dialogue.appendChild(textRow('推进目标（next）', action.next || '', v => patch({ next: v || undefined }), '留空=等待触发器; __前缀=触发信号'));
+            dialogue.appendChild(hint('对话框任意点击推进: 填了 next 就跳转到指定 ID, __开头发给触发器。留空则需其他触发器主动推进。'));
+            box.appendChild(dialogue);
+            const secAllow = section('输入白名单（仅教程等待态有效）');
+            const allow = action.allow || {};
+            secAllow.appendChild(textRow('提示文字', allow.hint || '', v => patch({ allow: { ...allow, hint: v || undefined } })));
+            secAllow.appendChild(textRow('白名单单位 ID', (allow.units || []).join(', '), v => patch({ allow: { ...allow, units: v ? v.split(/[,，]\s*/).filter(Boolean) : undefined } }), '逗号分隔'));
+            secAllow.appendChild(textRow('白名单地块', (allow.tiles || []).map(t => `${t.q},${t.r}`).join('; '), v => patch({ allow: { ...allow, tiles: v ? parseCoordList(v) : undefined } }), 'q,r; q,r'));
+            box.appendChild(secAllow);
+            const secTarget = section('目标环（坐标拾取）');
+            secTarget.appendChild(coordRow('目标坐标', action.target?.q ?? '', action.target?.r ?? '', tile => patch({ target: { q: tile.q, r: tile.r } })));
+            secTarget.appendChild(hint('在画布上右键点击地块可拾取目标坐标。'));
+            box.appendChild(secTarget);
+            box.appendChild(checkRow('立即显示', !!action.immediate, v => patch({ immediate: v || undefined })));
             break;
         }
         case 'objective':
