@@ -129,8 +129,8 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex: 0 0 auto;
-    padding: 5px 10px;
+    flex: 0 0 150px;
+    padding: 5px 12px;
     border-radius: var(--radius-sm);
     border: 1px solid transparent;
     transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
@@ -146,44 +146,38 @@ body {
 /* 战役信息栏（替换右侧阵营卡显示传记/章节/关卡名） */
 .campaign-info-bar {
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 2px;
+    align-items: center;
+    gap: 12px;
     flex: 1;
     min-width: 0;
-    padding: 0 18px;
+    padding: 0 20px;
     margin-left: auto;
     border-left: 1px solid rgba(255,255,255,0.08);
-}
-.campaign-info-section {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    line-height: 1.2;
+    height: 100%;
 }
 .campaign-info-chronicle {
-    font-size: 14px;
+    font-size: 18px;
     font-weight: 700;
     letter-spacing: 2px;
-    color: rgba(255,215,0,0.85);
+    color: rgba(255,215,0,0.9);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .campaign-info-chapter {
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 500;
-    color: rgba(255,255,255,0.8);
+    color: rgba(255,255,255,0.85);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .campaign-info-sep {
     color: rgba(255,255,255,0.2);
-    font-size: 11px;
+    font-size: 14px;
 }
 .campaign-info-level {
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 400;
     color: rgba(255,255,255,0.5);
     white-space: nowrap;
