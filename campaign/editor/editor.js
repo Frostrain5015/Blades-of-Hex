@@ -35,6 +35,7 @@ let callbacks = { onPlaytest: null, onBack: null };
 let initialized = false;
 let showCoords = false;
 let pendingPick = null; // { mode:'tile'|'tiles', callback, picked:Set, label }
+let pendingHighlight = null; // { q, r } | [{q,r}] | Set — 鼠标悬停图钉时高亮
 
 const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast']);
 const LEGACY_ACTION_KINDS = new Set(['setObjective', 'setOptional', 'setFlag', 'clearFlag', 'win', 'fail']);
@@ -185,6 +186,13 @@ function render() {
         if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.8)', 2);
     } else {
         if (hoverTile) drawHexagonOutline(ctx, hoverTile.x, hoverTile.y, HEX_SIZE, 'rgba(255,255,255,0.55)', 1.6);
+    }
+    // 悬停图钉时回显已存坐标
+    if (pendingHighlight) {
+        for (const key of (pendingHighlight.tiles || [pendingHighlight])) {
+            const t = preview.tileMap.get(typeof key === 'string' ? key : tileKey(key.q, key.r));
+            if (t) drawHexagonOutline(ctx, t.x, t.y, HEX_SIZE, 'rgba(100,200,255,0.7)', 2.4);
+        }
     }
     const selTile = selectionTile();
     if (selTile) drawHexagonOutline(ctx, selTile.x, selTile.y, HEX_SIZE, '#e6c200', 2.4);
@@ -818,16 +826,17 @@ function buildUnitInspector(index) {
     return wrap;
 }
 
-/** 仅带「📌 点选」的坐标行（无手动输入框，仅用画布取色）。 */
+/** 仅带「📌 点选」的坐标行（无文本标签，悬停图钉时高亮已存坐标）。 */
 function coordRow(labelText, q, r, onChange) {
     const r2 = el('div', 'ed-row');
-    const label = el('label', null, labelText + '　');
-    label.style.cssText = 'min-width:60px;color:rgba(255,255,255,0.6);font-size:12px;';
+    const label = el('label', null, labelText);
+    label.style.cssText = 'min-width:50px;color:rgba(255,255,255,0.6);font-size:12px;';
     r2.appendChild(label);
-    const display = el('span', null, q != null ? `(${q}, ${r})` : '未选择');
-    display.style.cssText = 'color:rgba(255,255,255,0.5);font-size:12px;margin-right:6px;';
-    r2.appendChild(display);
-    r2.appendChild(pickTileButton({ q, r }, tile => { display.textContent = `(${tile.q}, ${tile.r})`; onChange(tile); }));
+    const btn = pickTileButton({ q, r }, onChange);
+    // 悬停时回显已保存的坐标
+    btn.addEventListener('mouseenter', () => { pendingHighlight = { q, r }; render(); });
+    btn.addEventListener('mouseleave', () => { pendingHighlight = null; render(); });
+    r2.appendChild(btn);
     return r2;
 }
 
@@ -872,9 +881,13 @@ function pickTileButton(current, onChange) {
 }
 
 /** 生成一个「📌 涂抹区域」按钮，点击后进入多选模式。 */
-function pickTilesButton(initial, onChange) {
+function pickTilesButton(initial, onChange, { hoverTiles } = {}) {
     const btn = el('button', 'ed-pick-btn', '📌');
     btn.title = '点击棋盘涂抹选择区域';
+    btn.addEventListener('mouseenter', () => {
+        if (hoverTiles) { pendingHighlight = { tiles: hoverTiles }; render(); }
+    });
+    btn.addEventListener('mouseleave', () => { pendingHighlight = null; render(); });
     btn.addEventListener('click', () => {
         const picked = new Set((initial || []).map(p => tileKey(p.q, p.r)));
         pendingPick = { mode: 'tiles', callback: null, picked, label: '涂抹选择区域' };
@@ -1102,7 +1115,8 @@ function conditionEditor(cond, onChange, onRemove) {
             else areaSel.value = cond.area || '';
             areaSel.addEventListener('change', () => patch({ area: areaSel.value }));
             areaRow.appendChild(areaSel);
-            areaRow.appendChild(pickTilesButton(config.areas.find(a => a.id === cond.area)?.tiles || [], list => {
+            const currentAreaTiles = config.areas.find(a => a.id === cond.area)?.tiles || [];
+            areaRow.appendChild(pickTilesButton(currentAreaTiles, list => {
                 // 查找坐标完全匹配的已有区域，没有则新建
                 const key = list.map(t => `${t.q},${t.r}`).sort().join(';');
                 let area = config.areas.find(a => a.tiles.map(t => `${t.q},${t.r}`).sort().join(';') === key);
