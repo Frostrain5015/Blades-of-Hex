@@ -320,7 +320,6 @@ function runAction(action, ctx) {
             if (!action.commander) break;
             for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
                 unit.commander = action.commander;
-                if (unit.tile) emit('fx:commanderSkill', { x: unit.tile.x, y: unit.tile.y, glyph: '🎖️', label: action.commander });
             }
             updateUI(); break;
         }
