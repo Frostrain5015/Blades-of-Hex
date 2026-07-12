@@ -550,30 +550,38 @@ function initInitialUnits() {
         spawn('archer',   CAMP.neutral, 1, 0);
         spawn('infantry', CAMP.neutral, 0, -1);      // 对称第三翼
     } else {
-        for (const [type, dq, dr] of formation) {
-            if (p1City) spawn(type, CAMP.player1, p1City.q + dq, p1City.r + dr);
-            if (p2City) spawn(type, CAMP.player2, p2City.q - dq, p2City.r - dr);
-        }
+        // 红军
+        spawn('infantry', CAMP.player1, -5, 0);
+        spawn('infantry', CAMP.player1, -4, 0);
+        spawn('infantry', CAMP.player1, -6, 3);
+        spawn('infantry', CAMP.player1, -3, -3);
+        spawn('cavalry',  CAMP.player1, -4, -1);
+        spawn('cavalry',  CAMP.player1, -5, 1);
+        spawn('archer',   CAMP.player1, -5, -1);
+        spawn('archer',   CAMP.player1, -6, 1);
 
-        // ── 中立·中央（district 5）── 重兵把守
-        const centerCity = gameState.tiles.find(t => t.isCity && t.districtId === 5);
-        if (centerCity) new Unit('infantry', CAMP.neutral, centerCity, false);
-        spawn('infantry', CAMP.neutral, -1, 1);
-        spawn('infantry', CAMP.neutral, 1, 0);
-        spawn('archer',   CAMP.neutral, 0, 2);      // 中央炮台
-        spawn('infantry', CAMP.neutral, -1, 0);
-        spawn('archer',   CAMP.neutral, 0, -2);
-        spawn('infantry', CAMP.neutral, 1, -1);
+        // 蓝军（镜像对称）
+        spawn('infantry', CAMP.player2, 5, 0);
+        spawn('infantry', CAMP.player2, 4, 0);
+        spawn('infantry', CAMP.player2, 6, -3);
+        spawn('infantry', CAMP.player2, 3, 3);
+        spawn('cavalry',  CAMP.player2, 5, -1);
+        spawn('cavalry',  CAMP.player2, 4, 1);
+        spawn('archer',   CAMP.player2, 6, -1);
+        spawn('archer',   CAMP.player2, 5, 1);
 
-        // ── 中立·上（district 3）
-        const topCity = gameState.tiles.find(t => t.isCity && t.districtId === 3);
-        if (topCity) new Unit('infantry', CAMP.neutral, topCity, false);
-        spawn('archer', CAMP.neutral, 1, -5);
-
-        // ── 中立·下（district 4）
-        const bottomCity = gameState.tiles.find(t => t.isCity && t.districtId === 4);
-        if (bottomCity) new Unit('infantry', CAMP.neutral, bottomCity, false);
-        spawn('archer', CAMP.neutral, -1, 5);
+        // 中立
+        spawn('infantry', CAMP.neutral, 0, 0);
+        spawn('infantry', CAMP.neutral, 2, -4);
+        spawn('infantry', CAMP.neutral, -2, 4);
+        spawn('infantry', CAMP.neutral, 2, -5);
+        spawn('infantry', CAMP.neutral, -2, 5);
+        spawn('infantry', CAMP.neutral, 1, 1);
+        spawn('infantry', CAMP.neutral, -1, -1);
+        spawn('archer',   CAMP.neutral, 3, -5);
+        spawn('archer',   CAMP.neutral, -3, 5);
+        spawn('cavalry',  CAMP.neutral, -2, 1);
+        spawn('cavalry',  CAMP.neutral, 2, -1);
     }
 }
 
