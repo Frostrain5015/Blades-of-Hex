@@ -133,7 +133,8 @@ export function drawUnit(unit, gameState) {
             ctx.fillStyle = '#ffd700';
             ctx.fill();
 
-            const wave = Math.sin(time * 7 + unit.id * 1.3) * 2.0;
+            const idSeed = typeof unit.id === 'number' ? unit.id : [...String(unit.id)].reduce((a, c) => a + c.charCodeAt(0), 0);
+            const wave = Math.sin(time * 7 + idSeed * 1.3) * 2.0;
             const flagLeft = poleX + 1;
             const flagRight = flagLeft + 10;
             const flagTop = poleTop + 2;
@@ -158,7 +159,7 @@ export function drawUnit(unit, gameState) {
             if (unit.commander) {
                 ctx.save();
                 ctx.translate(flagLeft + 5, flagTop + 5 + wave * 0.5);
-                const waveTilt = Math.cos(time * 7 + unit.id * 1.3) * 0.14;
+                const waveTilt = Math.cos(time * 7 + idSeed * 1.3) * 0.14;
                 ctx.rotate(waveTilt);
                 ctx.fillStyle = '#ffd700';
                 ctx.font = 'bold 9px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
