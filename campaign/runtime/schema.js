@@ -115,16 +115,19 @@ export function createDefaultLevel() {
         gold: { player1: 6, player2: 6, player3: 6 },
         commanders: { player1: null, player2: null, player3: null },
         hands: { player1: [], player2: [], player3: [] },
+        // 阵营不是逐格独立属性：每个 districtId 的阵营由该区划内的城市（颜色来源）单向决定，
+        // 与 gameLogic.updateDistrictColor 的运行时规则一致——城市变色，全区划跟着变色。
+        // 因此棋盘只需描述「区划范围」(districts) 与「区划颜色来源」(cities.camp)，
+        // 不存在独立的逐格阵营覆盖表。
         board: {
             radius: BOARD_RADIUS_DEFAULT,
             cities: [
-                { q: 0, r: 0, districtId: 5, camp: 'neutral' }
+                { q: 0, r: 0, districtId: 5, camp: 'neutral' }   // 城市即该区划的颜色来源
             ],
             terrain: [],            // [{ q, r, type }]  非 plains 的地块
             villages: [],           // [{ q, r, districtId }]
             fortifications: [],     // [{ q, r, type }]  trench/flak
-            camps: [],              // [{ q, r, camp }]  覆盖 Voronoi 归属
-            districts: []           // [{ q, r, districtId }] 覆盖 Voronoi 归属
+            districts: []           // [{ q, r, districtId }] 覆盖 Voronoi 归属，用于手绘不规则边界
         },
         units: [],                  // [{ id, type, camp, q, r, commander, hpPct, morale, canAct }]
         // 剧情步骤（简化模型）：只有台词/旁白两种，按钮统一为「下一步」。
@@ -157,7 +160,7 @@ export function normalizeLevel(raw) {
     merged.commanders = { ...def.commanders, ...(raw.commanders || {}) };
     merged.hands = { ...def.hands, ...(raw.hands || {}) };
     merged.board = { ...def.board, ...(raw.board || {}) };
-    for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'camps', 'districts']) {
+    for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts']) {
         merged.board[key] = Array.isArray(merged.board[key]) ? merged.board[key] : [];
     }
     merged.units = Array.isArray(raw.units) ? raw.units : [];
@@ -187,8 +190,19 @@ export function validateLevel(config) {
 
     const cities = c.board?.cities || [];
     if (cities.length === 0) warnings.push('棋盘没有任何城市，玩家可能无法获得收入或胜负判定。');
+    const districtCityCount = new Map();
     for (const city of cities) {
         if (!inBoard(city.q, city.r)) errors.push(`城市 (${city.q},${city.r}) 落在棋盘之外。`);
+        districtCityCount.set(city.districtId, (districtCityCount.get(city.districtId) || 0) + 1);
+    }
+    // 阵营由区划内唯一的城市（颜色来源）派生，一个 districtId 不能有两座颜色来源冲突的城市。
+    for (const [districtId, count] of districtCityCount) {
+        if (count > 1) errors.push(`行政区 ${districtId} 有 ${count} 座城市，颜色来源不唯一。`);
+    }
+    for (const entry of (c.board?.districts || [])) {
+        if (!districtCityCount.has(entry.districtId)) {
+            warnings.push(`区划范围 (${entry.q},${entry.r}) 指定为行政区 ${entry.districtId}，但该行政区没有城市作为颜色来源，将显示为中立。`);
+        }
     }
 
     const seen = new Set();

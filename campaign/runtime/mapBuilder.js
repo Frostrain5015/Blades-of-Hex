@@ -30,7 +30,7 @@ export function buildBoardFromConfig(config, gameState) {
         }
     }
 
-    // 2) Voronoi：每块归最近城市（决定 districtId 与底色阵营）。
+    // 2) Voronoi：每块归最近城市，决定 districtId（阵营在下面单独派生，不在此处赋值）。
     const cities = board.cities || [];
     for (const tile of tiles) {
         let bestDist = Infinity;
@@ -39,14 +39,7 @@ export function buildBoardFromConfig(config, gameState) {
             const d = hexDistance(tile, city);
             if (d < bestDist) { bestDist = d; best = city; }
         }
-        if (best) {
-            tile.districtId = best.districtId ?? 0;
-            const camp = campFromKey(best.camp);
-            tile.camp = camp;
-            tile.startColor = camp.color;
-            tile.targetColor = camp.color;
-            tile.currentColor = camp.color;
-        }
+        if (best) tile.districtId = best.districtId ?? 0;
     }
 
     // 建立坐标索引（后续覆盖表按坐标定位）。
@@ -60,17 +53,19 @@ export function buildBoardFromConfig(config, gameState) {
         if (tile) tile.terrain = entry.type || 'plains';
     }
 
-    // 4) 行政区覆盖（少数情况下地块归属与 Voronoi 不同）。
+    // 4) 行政区范围覆盖（少数情况下地块归属与 Voronoi 不同，用于手绘不规则边界）。
     for (const entry of (board.districts || [])) {
         const tile = at(entry.q, entry.r);
         if (tile) tile.districtId = entry.districtId ?? tile.districtId;
     }
 
-    // 5) 阵营覆盖（争夺区：底色阵营独立于行政区归属）。
-    for (const entry of (board.camps || [])) {
-        const tile = at(entry.q, entry.r);
-        if (!tile) continue;
-        const camp = campFromKey(entry.camp);
+    // 5) 阵营派生：与游戏内 updateDistrictColor 同一条规则——阵营从来不是逐格独立属性，
+    // 而是由该区划的颜色来源（城市）单向决定。districtId 已在上面定稿，这里统一回填。
+    // 若某 districtId 没有城市（无颜色来源），落回中立（编辑器会在校验中提示）。
+    const districtCampMap = new Map();
+    for (const city of cities) districtCampMap.set(city.districtId, campFromKey(city.camp));
+    for (const tile of tiles) {
+        const camp = districtCampMap.get(tile.districtId) || CAMP.neutral;
         tile.camp = camp;
         tile.startColor = camp.color;
         tile.targetColor = camp.color;

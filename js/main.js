@@ -508,7 +508,7 @@ function showSoloMenu() {
     connectionBar.classList.add('visible');
 }
 document.getElementById('soloGameBtn').addEventListener('click', showSoloMenu);
-document.getElementById('soloBackBtn').addEventListener('click', showHome);
+document.getElementById('soloBackBtn').addEventListener('click', () => showHome());
 
 document.getElementById('campaignBtn').addEventListener('click', showCampaignLobby);
 document.getElementById('campaignBackBtn').addEventListener('click', () => {

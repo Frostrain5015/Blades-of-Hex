@@ -213,12 +213,12 @@ function applyBrush(tile) {
             break;
         }
         case 'city': {
-            if (b.cities.some(c => c.q === q && c.r === r)) {
-                removeFromList(b.cities, q, r);      // 再点一次移除城市
-            } else {
-                removeFromList(b.villages, q, r);    // 城市与村庄互斥
-                b.cities.push({ q, r, districtId: boardTool.districtId, camp: boardTool.camp });
-            }
+            // 城市 = 该行政区的颜色来源：再次点击既有城市会用当前笔刷参数更新它
+            // （改变阵营即改变整个区划的颜色），而不是删除——删除请用橡皮擦。
+            removeFromList(b.villages, q, r);    // 城市与村庄互斥
+            removeFromList(b.districts, q, r);   // 城市自身的行政区号由 cities[].districtId 决定，清掉此格的范围覆盖残留
+            removeFromList(b.cities, q, r);
+            b.cities.push({ q, r, districtId: boardTool.districtId, camp: boardTool.camp });
             break;
         }
         case 'village': {
@@ -239,11 +239,6 @@ function applyBrush(tile) {
             }
             break;
         }
-        case 'camp': {
-            removeFromList(b.camps, q, r);
-            b.camps.push({ q, r, camp: boardTool.camp });
-            break;
-        }
         case 'district': {
             removeFromList(b.districts, q, r);
             b.districts.push({ q, r, districtId: boardTool.districtId });
@@ -253,7 +248,6 @@ function applyBrush(tile) {
             removeFromList(b.terrain, q, r);
             removeFromList(b.villages, q, r);
             removeFromList(b.fortifications, q, r);
-            removeFromList(b.camps, q, r);
             removeFromList(b.districts, q, r);
             removeFromList(b.cities, q, r);
             config.units = config.units.filter(u => !(u.q === q && u.r === r));
@@ -267,7 +261,7 @@ function pruneOutOfBoard() {
     const radius = config.board.radius;
     const inside = (p) => boardContains(radius, p.q, p.r);
     let pruned = 0;
-    for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'camps', 'districts']) {
+    for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts']) {
         const before = config.board[key].length;
         config.board[key] = config.board[key].filter(inside);
         pruned += before - config.board[key].length;
@@ -411,8 +405,7 @@ function buildBoardTools() {
         { value: 'city', label: '城市' },
         { value: 'village', label: '村庄' },
         { value: 'fortification', label: '工事' },
-        { value: 'camp', label: '阵营涂色' },
-        { value: 'district', label: '区划涂色' },
+        { value: 'district', label: '区划范围' },
         { value: 'erase', label: '橡皮擦' }
     ], boardTool.mode, v => { boardTool.mode = v; }));
     wrap.appendChild(secBrush);
@@ -429,7 +422,7 @@ function buildBoardTools() {
             FORTIFICATION_KEYS.map(value => ({ value, label: FORTIFICATION_LABELS[value] })),
             boardTool.fortification, v => { boardTool.fortification = v; }));
     }
-    if (boardTool.mode === 'city' || boardTool.mode === 'camp') {
+    if (boardTool.mode === 'city') {
         secParam.appendChild(selectRow('阵营', boardTool.camp, CAMP_LABELS, v => { boardTool.camp = v; }));
     }
     if (boardTool.mode === 'city' || boardTool.mode === 'district' || boardTool.mode === 'village') {
@@ -438,10 +431,9 @@ function buildBoardTools() {
     if (secParam.childElementCount > 1) wrap.appendChild(secParam);
 
     wrap.appendChild(hint(
-        boardTool.mode === 'city' ? '点击放置城市（再点一次移除）。城市是行政区的锚点：全图按最近城市划分区划与初始归属。'
-        : boardTool.mode === 'erase' ? '清除该格全部覆盖（地形/村庄/工事/涂色/城市/单位）。'
-        : boardTool.mode === 'camp' ? '覆盖单格底色阵营（默认由最近城市决定）。'
-        : boardTool.mode === 'district' ? '覆盖单格行政区归属（默认由最近城市决定）。'
+        boardTool.mode === 'city' ? '放置/更新城市：城市是该行政区的颜色来源——全区划的阵营颜色永远跟随城市阵营（与对局中夺城变色同一条规则），改阵营直接在此重涂城市即可，删除请用橡皮擦。'
+        : boardTool.mode === 'erase' ? '清除该格全部内容（地形/村庄/工事/区划范围/城市/单位）。'
+        : boardTool.mode === 'district' ? '涂区划范围：把地块划入指定行政区号（默认由最近城市决定）。地块本身不会因此变色，颜色仍由该行政区的城市决定；若该行政区没有城市，会显示为中立。'
         : '点击或拖动在棋盘上绘制。'));
     return wrap;
 }
