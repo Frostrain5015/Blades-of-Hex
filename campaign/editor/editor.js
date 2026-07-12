@@ -38,9 +38,7 @@ let pendingPick = null; // { mode:'tile'|'tiles', callback, picked:Set, label }
 let pendingHighlight = null; // { q, r } | [{q,r}] | Set — 鼠标悬停图钉时高亮
 
 const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast']);
-const LEGACY_ACTION_KINDS = new Set(['setObjective', 'setOptional', 'setFlag', 'clearFlag', 'win', 'fail']);
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => !LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current); }
-function authorActions(current = '') { return TRIGGER_ACTIONS.filter(item => !LEGACY_ACTION_KINDS.has(item.kind) || item.kind === current); }
 
 const FACTION_COLORS = [
     { value: '#e05050', label: '红' }, { value: '#f09a40', label: '橙' },
@@ -1020,16 +1018,12 @@ function conditionDefaults(kind) {
 function actionDefaults(kind) {
     switch (kind) {
         case 'showStep': return { step: Object.keys(config.steps)[0] || '' };
-        case 'setObjective': return { objective: Object.keys(config.objectives)[0] || '' };
-        case 'setOptional': return { id: config.optionalObjectives[0]?.id || '' };
         case 'spawnUnits': return { units: [] };
         case 'delay': return { ms: 1000, then: [] };
         case 'log': case 'fail': return { text: '' };
-        case 'setFlag': case 'clearFlag': case 'setPhase': return { value: '' };
         case 'setVariable': return { variable: config.variables[0]?.id || '', operation: 'set', value: 0 };
         case 'setTriggerEnabled': return { trigger: config.triggers[0]?.id || '', enabled: true };
         case 'emitSignal': return { value: '' };
-        case 'setObjectiveStatus': return { objective: Object.keys(config.objectives)[0] || '', status: 'active' };
         case 'changeGold': return { camp: 'player1', operation: 'add', value: 1 };
         case 'changeUnitHp': return { target: { unit: config.units[0]?.id || '' }, operation: 'subtract', mode: 'value', value: 1 };
         case 'changeUnitFaction': return { target: { unit: config.units[0]?.id || '' }, camp: 'player1' };
@@ -1197,7 +1191,11 @@ function targetEditor(target, onChange) {
     if (mode === 'group') {
         wrap.appendChild(selectRow('单位组', target?.group || '', Object.fromEntries(config.unitGroups.map(group => [group.id, group.id])), value => onChange({ group: value })));
     } else {
-        wrap.appendChild(selectRow('单位', target?.unit || '', unitOptions(), value => onChange({ unit: value })));
+        const uRow = el('div', 'ed-row');
+        uRow.appendChild(el('label', null, '单位'));
+        uRow.appendChild(pickUnitButton(id => onChange({ unit: id }), target?.unit));
+        uRow.appendChild(el('span', null, target?.unit || '未选择'));
+        wrap.appendChild(uRow);
     }
     return wrap;
 }
@@ -1263,10 +1261,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(spawnGroupEditor(action.units || [], units => patch({ units })));
             break;
         case 'text':
-            box.appendChild(textareaRow('文本', action.kind === 'setFlag' || action.kind === 'clearFlag' || action.kind === 'setPhase' ? action.value || '' : action.text || '', v => {
-                if (action.kind === 'setFlag' || action.kind === 'clearFlag' || action.kind === 'setPhase') patch({ value: v });
-                else patch({ text: v });
-            }, 2));
+            box.appendChild(textareaRow('文本', action.text || '', v => patch({ text: v }), 2));
             break;
         case 'delayGroup':
             box.appendChild(numRow('延迟(ms)', action.ms ?? 1000, v => patch({ ms: Math.max(0, Math.round(v)) })));

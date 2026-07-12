@@ -91,19 +91,12 @@ export const TRIGGER_CONDITIONS = Object.freeze([
 // 动作：对关卡状态/UI 的副作用。每条形如 { kind, ...字段 }；kind 必须与
 // triggers.js 的 runAction 分支一致。
 export const TRIGGER_ACTIONS = Object.freeze([
-    { kind: 'showStep',      label: '显示步骤',     arg: 'step' },
-    { kind: 'setObjective',  label: '切换主目标',   arg: 'objective' },
-    { kind: 'setOptional',   label: '标记支线完成', arg: 'optional' },
-    { kind: 'spawnUnits',    label: '生成单位',     arg: 'spawnGroup' },
-    { kind: 'setFlag',       label: '置位标记',     arg: 'text' },
-    { kind: 'clearFlag',     label: '清除标记',     arg: 'text' },
-    { kind: 'setPhase',      label: '设置关卡阶段', arg: 'text' },
-    { kind: 'hideGuidance',  label: '隐藏引导对白', arg: 'none' },
-    { kind: 'unlockInput',   label: '解除输入锁',   arg: 'none', note: '关闭严格引导，玩家自由操作' },
-    { kind: 'log',           label: '写战报',       arg: 'text' },
-    { kind: 'win',           label: '判定胜利',     arg: 'none' },
-    { kind: 'fail',          label: '判定失败',     arg: 'text' },
-    { kind: 'delay',         label: '延迟后执行',   arg: 'delayGroup', note: '毫秒后执行一组子动作（演出用）' }
+    { kind: 'showStep',      label: '显示步骤',     arg: 'step' }
+    ,{ kind: 'spawnUnits',    label: '生成单位',     arg: 'spawnGroup' }
+    ,{ kind: 'hideGuidance',  label: '隐藏引导对白', arg: 'none' }
+    ,{ kind: 'unlockInput',   label: '解除输入锁',   arg: 'none', note: '关闭严格引导，玩家自由操作' }
+    ,{ kind: 'log',           label: '写战报',       arg: 'text' }
+    ,{ kind: 'delay',         label: '延迟后执行',   arg: 'delayGroup', note: '毫秒后执行一组子动作（演出用）' }
     ,{ kind: 'setVariable', label: '修改变量', arg: 'variableOperation' }
     ,{ kind: 'setTriggerEnabled', label: '启用/禁用触发器', arg: 'triggerEnabled' }
     ,{ kind: 'emitSignal', label: '发送信号', arg: 'text' }

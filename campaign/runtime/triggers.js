@@ -104,10 +104,6 @@ function evalCondition(cond, ctx) {
             const value = cond.mode === 'percent' ? unit.hp / unit.maxHp * 100 : unit.hp;
             return compareValues(value, cond.op || '<=', Number(cond.value));
         }
-        case 'factionUnitCount': {
-            const tile = gameState.tileMap.get(coordKey(cond.q, cond.r));
-            return !!tile && campKeyOf(tile.camp) === cond.camp;
-        }
         case 'turnAtLeast': return getRound(gameState) >= (cond.value || 0);
         case 'flagSet': return flags.has(cond.value);
         case 'flagUnset': return !flags.has(cond.value);
@@ -168,12 +164,8 @@ function runAction(action, ctx) {
     const { api, flags, state, config, dispatch, enabled } = ctx;
     switch (action.kind) {
         case 'showStep': api.showStep(action.step, { immediate: !!action.immediate }); break;
-        case 'setObjective': api.setActiveObjective?.(action.objective); break;
-        case 'setOptional': api.setObjectiveStatus?.(action.id, 'completed'); flags.add(`optional:${action.id}`); break;
         case 'setObjectiveStatus': api.setObjectiveStatus?.(action.objective, action.status); break;
         case 'spawnUnits': spawnUnitsInto(gameState, action.units); updateUI(); break;
-        case 'setFlag': flags.add(action.value); break;
-        case 'clearFlag': flags.delete(action.value); break;
         case 'setPhase': gameState.campaignPhase = action.value; break;
         case 'setVariable': {
             const variable = (config.variables || []).find(item => item.id === action.variable);
@@ -241,8 +233,6 @@ function runAction(action, ctx) {
         case 'hideGuidance': api.hideGuidance(); break;
         case 'unlockInput': gameState.tutorialMode = false; gameState.tutorialStep = ''; api.hideGuidance(); break;
         case 'log': if (action.text) logMessage(action.text); break;
-        case 'win': api.win(); break;
-        case 'fail': api.fail(action.text || ''); break;
         case 'endScenario': action.result === 'lose' ? api.fail(action.reason || '') : api.win(action.ending || ''); break;
         case 'delay': {
             const timer = setTimeout(() => {
