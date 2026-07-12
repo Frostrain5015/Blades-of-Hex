@@ -386,7 +386,39 @@ export function validateLevel(config) {
         if (action.kind === 'setMechanicEnabled' && !MECHANIC_KEYS.includes(action.mechanic)) errors.push(`${path} 引用不存在的机制「${action.mechanic}」。`);
         if (['changeGold', 'changeUnitFaction'].includes(action.kind) && !factionIds.has(action.camp)) errors.push(`${path} 的阵营「${action.camp}」未在本关阵营列表中声明。`);
         if (action.kind === 'setDiplomacy' && (!factionIds.has(action.camp) || !factionIds.has(action.targetCamp))) errors.push(`${path} 的外交阵营引用未在本关阵营列表中声明。`);
-        if (action.kind === 'delay') (action.then || []).forEach((child, index) => validateAction(child, `${path}/延迟${index + 1}`));
+        // ── 内联 showStep 参数完整性 ──
+        if (action.kind === 'showStep' && !action.step) {
+            if (!action.text) errors.push(`${path} 的 showStep 缺少台词。`);
+            if (action.mode === 'character' && !action.speaker?.name) errors.push(`${path} 的台词模式缺少说话人。`);
+            // next 不校验引用（可能是本触发器内其他 _id 或后续注册的步骤）
+            // lock:true 时必须配 highlight
+            if (action.lock && !action.highlight) warnings.push(`${path} 启用了操作锁但未配 highlight，所有操作将被锁定。`);
+        }
+        // ── 施加效果名称 ──
+        if (action.kind === 'applyEffect' && !action.name && !action.rule && (!action.statMods || !Object.keys(action.statMods).length)) {
+            errors.push(`${path} 施加效果缺少效果名称和任何属性修正。`);
+        }
+        // ── 改变外交 ──
+        if (action.kind === 'setDiplomacy' && (!action.camp || !action.targetCamp)) errors.push(`${path} 改变外交关系缺少阵营 A 或阵营 B。`);
+    };
+    // ── 条件参数完整性（非事件条件不需要全部验证，留空=不限制） ──
+    const minConditionChecks = (cond, path) => {
+        if (cond.kind === 'unitMovesToTile' && cond.q == null && cond.r == null && !cond.tiles?.length && !cond.area) {
+            errors.push(`${path} 缺少目标位置（请填坐标或涂抹区域）。`);
+        }
+        if (cond.kind === 'unitAttacksUnit' && !cond.attacker?.unit && !cond.attacker?.group && !cond.attackerCamp
+            && !cond.defender?.unit && !cond.defender?.group && !cond.defenderCamp) {
+            errors.push(`${path} 至少需要指定攻击方或受击方的单位/阵营。`);
+        }
+        if (cond.kind === 'eventNextIs' && !cond.value) errors.push(`${path} 缺少跳转值。`);
+        if (cond.kind === 'timer' && (!cond.value || cond.value <= 0)) errors.push(`${path} 计时器到期时间必须大于 0 毫秒。`);
+        if (cond.kind === 'turnStarted' && cond.turn != null && cond.turn <= 0) errors.push(`${path} 回合数必须大于 0。`);
+        if (cond.kind === 'cityCaptured' && (cond.q == null || cond.r == null)) errors.push(`${path} 缺少城市坐标。`);
+        if (cond.kind === 'goldCompare' && cond.value == null) errors.push(`${path} 缺少金币比较值。`);
+        if (cond.kind === 'variableCompare' && !cond.variable) errors.push(`${path} 缺少变量名。`);
+        if (cond.kind === 'triggerEnabled' && !cond.trigger) errors.push(`${path} 缺少触发器 ID。`);
+        if (cond.kind === 'groupState' && !cond.group) errors.push(`${path} 缺少单位组 ID。`);
+        if (cond.kind === 'unitsInArea' && !cond.tiles?.length && !cond.area) errors.push(`${path} 缺少区域或地块。`);
     };
     const seenTriggerIds = new Set();
     for (const t of (c.triggers || [])) {
@@ -395,7 +427,10 @@ export function validateLevel(config) {
         if (!t.when?.length) warnings.push(`触发器「${t.id || '?'}」没有条件，将在下一次任意事件后触发。请显式使用「关卡开始时」或其他事件条件。`);
         if (!t.do?.length) warnings.push(`触发器「${t.id || '?'}」没有动作，不会产生任何效果。`);
         if (t.once === false && !(t.when || []).some(conditionContainsEvent)) warnings.push(`重复触发器「${t.id || '?'}」只包含状态条件，可能在每次事件后重复执行。`);
-        (t.when || []).forEach((condition, index) => validateCondition(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`));
+        (t.when || []).forEach((condition, index) => {
+            validateCondition(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`);
+            minConditionChecks(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`);
+        });
         (t.do || []).forEach((action, index) => validateAction(action, `触发器「${t.id || '?'}」效果 ${index + 1}`));
     }
     for (const [key, value] of Object.entries(c.mechanics || {})) {
