@@ -340,7 +340,7 @@ export function initMap() {
             { q: -4, r: 0, districtId: 1 }, { q: -5, r: 0, districtId: 1 }, { q: -6, r: 0, districtId: 1 }, { q: -7, r: 0, districtId: 1 },
             { q: 0, r: -7, districtId: 2 }, { q: 1, r: -7, districtId: 2 }, { q: 0, r: -6, districtId: 2 }, { q: 1, r: -6, districtId: 2 },
             { q: 0, r: -5, districtId: 2 }, { q: 1, r: -5, districtId: 2 }, { q: 0, r: -4, districtId: 2 }, { q: 1, r: -4, districtId: 2 },
-            { q: -3, r: 2, districtId: 5 }, { q: -3, r: 1, districtId: 5 }, { q: -3, r: 0, districtId: 5 },
+            { q: -3, r: 3, districtId: 5 }, { q: -3, r: 2, districtId: 5 }, { q: -3, r: 1, districtId: 5 }, { q: -3, r: 0, districtId: 5 },
             { q: -1, r: -1, districtId: 5 }, { q: -1, r: -2, districtId: 5 }, { q: 0, r: -3, districtId: 5 },
             { q: 1, r: -3, districtId: 5 }, { q: 2, r: -3, districtId: 5 }, { q: 3, r: -3, districtId: 5 },
             { q: 3, r: -2, districtId: 5 }, { q: 3, r: -1, districtId: 5 }, { q: 3, r: 0, districtId: 5 },
