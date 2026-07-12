@@ -129,8 +129,9 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex: 0 0 150px;
+    flex: 1;
     padding: 5px 12px;
+    min-width: 0;
     border-radius: var(--radius-sm);
     border: 1px solid transparent;
     transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
@@ -139,6 +140,8 @@ body {
     flex-direction: row-reverse;
 }
 .camp-card[data-relation="self"] { box-shadow: inset 0 -2px 0 rgba(76,175,80,.72); }
+.campaign-lobby-active .camp-card,
+.campaign-game-active .camp-card { flex: 0 0 auto; min-width: 150px; }
 .camp-card[data-relation="ally"] { box-shadow: inset 0 -2px 0 rgba(66,165,245,.72); }
 .camp-card[data-relation="neutral"] { box-shadow: inset 0 -2px 0 rgba(251,192,45,.72); }
 .camp-card[data-relation="enemy"] { box-shadow: inset 0 -2px 0 rgba(239,83,80,.72); }

@@ -282,6 +282,7 @@ export function updateUI() {
         ['player3', 'campCard3', gold3El]
     ];
     const campaignInfoBar = document.getElementById('campaignInfoBar');
+    document.body.classList.toggle('campaign-game-active', !!gameState.campaignMode);
     for (const [key, cardId] of campUi) {
         const card = document.getElementById(cardId);
         const faction = getFaction(gameState, key);
