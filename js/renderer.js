@@ -79,14 +79,11 @@ export function renderGame() {
     ctx.translate(screenShake.x, screenShake.y);
     ctx.clearRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
 
-    // Draw tile bases (fill + star only, no borders)
+    // Draw tile bases
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawBase(ctx);
-
-    // Borders — standalone per-edge pass
+    // 国界线/区划线紧贴地块着色层（旗杆与单位之下）
     drawAllBorders(ctx, tiles, gameState.tileMap);
-    // District borders — slightly bolder than grid lines, within same camp
     drawDistrictBorders(ctx, gameState.districtBorderEdges);
-    // Camp borders (national boundaries) — thick dashed lines along territory edges
     drawCampBorders(ctx, gameState.campBorderEdges);
     // Flag poles (before units)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
