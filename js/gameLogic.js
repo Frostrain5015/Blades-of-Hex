@@ -354,43 +354,40 @@ export function initMap() {
         }
     }
 
-    // Voronoi assignment: each tile belongs to the nearest city's district
-    for (const tile of allTiles) {
-        let bestDist = Infinity;
-        let bestCity = null;
-        for (const city of cityDefs) {
-            const dist = hexDistance(tile, city);
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestCity = city;
-            }
-        }
-        tile.districtId = bestCity.districtId;
-        tile.camp = bestCity.camp;
-        tile.currentColor = bestCity.camp.color;
-        tile.targetColor = bestCity.camp.color;
-        gameState.tiles.push(tile);
-    }
-
-    // 区划范围覆盖：按设计的边界修正 Voronoi
-    const districtOverrides = is3P ? [
-        { q: -4, r: 0, d: 1 }, { q: -5, r: 0, d: 1 }, { q: -6, r: 0, d: 1 }, { q: -7, r: 0, d: 1 },
-        { q: 0, r: -7, d: 2 }, { q: 1, r: -7, d: 2 }, { q: 0, r: -6, d: 2 }, { q: 1, r: -6, d: 2 },
-        { q: 0, r: -5, d: 2 }, { q: 1, r: -5, d: 2 }, { q: 0, r: -4, d: 2 }, { q: 1, r: -4, d: 2 },
-        { q: -3, r: 2, d: 5 }, { q: -3, r: 1, d: 5 }, { q: -3, r: 0, d: 5 },
-        { q: -1, r: -1, d: 5 }, { q: -1, r: -2, d: 5 }, { q: 0, r: -3, d: 5 },
-        { q: 1, r: -3, d: 5 }, { q: 2, r: -3, d: 5 }, { q: 3, r: -3, d: 5 },
-        { q: 3, r: -2, d: 5 }, { q: 3, r: -1, d: 5 }, { q: 3, r: 0, d: 5 },
-        { q: 2, r: 1, d: 5 }, { q: 1, r: 1, d: 5 }, { q: 1, r: 2, d: 5 },
-        { q: -2, r: 3, d: 5 }, { q: -1, r: 3, d: 5 }, { q: 0, r: 3, d: 5 },
-        { q: 4, r: -4, d: 7 }, { q: 5, r: -5, d: 7 }, { q: 6, r: -6, d: 7 }, { q: 7, r: -7, d: 7 },
+    // 建立区划覆盖索引（设计文件中指定的边界优先于 Voronoi）
+    const overrideMap = new Map();
+    const overrides = is3P ? [
+        ['-4,0',1],['-5,0',1],['-6,0',1],['-7,0',1],
+        ['0,-7',2],['1,-7',2],['0,-6',2],['1,-6',2],['0,-5',2],['1,-5',2],['0,-4',2],['1,-4',2],
+        ['-3,2',5],['-3,1',5],['-3,0',5],['-1,-1',5],['-1,-2',5],['0,-3',5],
+        ['1,-3',5],['2,-3',5],['3,-3',5],['3,-2',5],['3,-1',5],['3,0',5],
+        ['2,1',5],['1,1',5],['1,2',5],['-2,3',5],['-1,3',5],['0,3',5],
+        ['4,-4',7],['5,-5',7],['6,-6',7],['7,-7',7],
     ] : [
-        { q: 2, r: 5, d: 2 }, { q: 4, r: -2, d: 2 }, { q: 5, r: -2, d: 2 }, { q: 6, r: -3, d: 2 },
+        ['2,5',2],['4,-2',2],['5,-2',2],['6,-3',2],
     ];
-    const tileMap = new Map(gameState.tiles.map(t => [`${t.q},${t.r}`, t]));
-    for (const ov of districtOverrides) {
-        const t = tileMap.get(`${ov.q},${ov.r}`);
-        if (t) { t.districtId = ov.d; t.camp = cityDefs.find(c => c.districtId === ov.d)?.camp || t.camp; }
+    for (const [k, d] of overrides) overrideMap.set(k, d);
+
+    // 按配置分配地块：有覆盖用覆盖，无覆盖用 Voronoi 兜底
+    for (const tile of allTiles) {
+        const key = `${tile.q},${tile.r}`;
+        const overrideId = overrideMap.get(key);
+        if (overrideId != null) {
+            tile.districtId = overrideId;
+            tile.camp = cityDefs.find(c => c.districtId === overrideId)?.camp || CAMP.neutral;
+        } else {
+            let bestDist = Infinity;
+            let bestCity = null;
+            for (const city of cityDefs) {
+                const dist = hexDistance(tile, city);
+                if (dist < bestDist) { bestDist = dist; bestCity = city; }
+            }
+            tile.districtId = bestCity.districtId;
+            tile.camp = bestCity.camp;
+        }
+        tile.currentColor = tile.camp.color;
+        tile.targetColor = tile.camp.color;
+        gameState.tiles.push(tile);
     }
 
     // Mark city tiles
