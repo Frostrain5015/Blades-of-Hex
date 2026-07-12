@@ -1109,6 +1109,7 @@ function actionDefaults(kind) {
 function _paramLine(obj) {
     if (!obj || typeof obj !== 'object') return '';
     const parts = [];
+    // 顶层字段
     if (obj.unit != null) parts.push(`单位:${obj.unit}`);
     if (obj.value != null) parts.push(`值:${obj.value}`);
     if (obj.target?.unit) parts.push(`目标:${obj.target.unit}`);
@@ -1119,6 +1120,13 @@ function _paramLine(obj) {
     if (obj.text) parts.push(`"${obj.text.slice(0, 30)}"`);
     if (obj.objective) parts.push(`目标:${obj.objective}`);
     if (obj.status) parts.push(`→${obj.status}`);
+    // highlight 嵌套字段（showStep 专用）
+    if (obj.highlight) {
+        const hl = obj.highlight;
+        if (hl.unit) parts.push(`🔵${hl.unit}`);
+        if (hl.tiles?.length) parts.push(`📍${hl.tiles.map(t => `${t.q},${t.r}`).join(';')}`);
+        if (hl.hint) parts.push(`💬${hl.hint}`);
+    }
     return parts.length ? `🚩 ${parts.join(' ')}` : '';
 }
 // 卡片空白处点击 → 高亮 + 参数预览
