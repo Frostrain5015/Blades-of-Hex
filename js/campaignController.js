@@ -2,7 +2,7 @@
 // 具体关卡的剧本、目标、流程、结算文案全部来自 scenario 模块（见 campaign/content/**）。
 // 本文件只负责：渲染步骤对白、目标 HUD、目标环/提示、结算面板、事件订阅与输入校验的分发。
 import { canvas, HEX_SIZE, LOGICAL_W, LOGICAL_H, CAMP, invalidateBoard, hexPath } from './config.js';
-import { gameState, logMessage, updateUI } from './state.js';
+import { gameState, logMessage, updateUI, notify } from './state.js';
 import { emit, on } from './eventBus.js';
 import { saveVictory } from '../campaign/progress.js';
 import { campFromKey, getFaction } from '../rules/diplomacy.js';
@@ -450,7 +450,19 @@ export function createCampaignController({ onRetry, onReturn }) {
     on('match:combatResolved', (p) => activeFlow?.onCombatResolved?.(p));
     on('match:unitHpChanged', (p) => activeFlow?.onUnitHpChanged?.(p));
     on('match:unitKilled', (p) => activeFlow?.onUnitKilled?.(p));
-    on('match:diplomacyChanged', (p) => activeFlow?.onDiplomacyChanged?.(p));
+    on('match:diplomacyChanged', (p) => {
+        // 右上角胶囊提示：外交关系变更
+        const playerCamp = gameState.localPlayerCampKey;
+        const isPlayerInvolved = p.camp === playerCamp || p.targetCamp === playerCamp;
+        if (isPlayerInvolved) {
+            const other = p.camp === playerCamp ? p.targetCamp : p.camp;
+            const faction = getFaction(gameState, other);
+            const name = faction?.name || other;
+            const labels = { ally: '联盟🤝', neutral: '中立😑', enemy: '敌对👊' };
+            notify(`${name} 与你的关系已变更为${labels[p.relation] || p.relation}`, 'info');
+        }
+        activeFlow?.onDiplomacyChanged?.(p);
+    });
     on('campaign:objectiveChanged', (p) => activeFlow?.onObjectiveChanged?.(p));
     on('campaign:interactionCompleted', (p) => activeFlow?.onInteractionCompleted?.(p));
 
