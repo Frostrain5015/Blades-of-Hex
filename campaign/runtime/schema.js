@@ -42,9 +42,9 @@ export const FORTIFICATION_LABELS = Object.freeze(
     Object.fromEntries(FORTIFICATION_KEYS.map(f => [f, FORTIFICATION_CONFIG[f].name]))
 );
 
-export const WEATHER_KEYS = Object.freeze(Object.keys(WEATHER_CONFIG)); // clear/rain/fog/wind
+export const WEATHER_KEYS = Object.freeze(['cycle', ...Object.keys(WEATHER_CONFIG)]); // cycle/clear/rain/fog/wind
 export const WEATHER_LABELS = Object.freeze(
-    Object.fromEntries(WEATHER_KEYS.map(w => [w, WEATHER_CONFIG[w].name]))
+    Object.fromEntries(WEATHER_KEYS.map(w => [w, w === 'cycle' ? '标准循环' : WEATHER_CONFIG[w]?.name || w]))
 );
 
 export const CARD_IDS = Object.freeze(Object.keys(TACTICAL_CARD_CONFIG));

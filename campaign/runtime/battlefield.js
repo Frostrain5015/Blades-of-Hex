@@ -38,9 +38,9 @@ export function buildBattlefieldFromConfig(config, gameState) {
     gameState.interactionStates = Object.fromEntries((config.interactables || [])
         .map(item => [item.id, item.enabled === false ? 'disabled' : 'available']));
 
-    // ── 天气 ──
-    gameState.weather = config.weather || 'clear';
-    gameState.lastWeather = gameState.weather;
+    // ── 天气（'cycle'=标准循环，从晴天开始）──
+    gameState.weather = config.weather === 'cycle' ? 'clear' : (config.weather || 'clear');
+    gameState.lastWeather = config.weather === 'cycle' ? null : gameState.weather;
 
     // ── 金币 ──
     const gold = config.gold || {};

@@ -227,7 +227,10 @@ function runAction(action, ctx) {
             }
             break;
         }
-        case 'setWeather': gameState.lastWeather = gameState.weather; gameState.weather = action.weather; invalidateBoard(); updateUI(); break;
+        case 'setWeather':
+            if (action.weather === 'cycle') { gameState.weather = 'clear'; gameState.lastWeather = null; }
+            else { gameState.lastWeather = gameState.weather; gameState.weather = action.weather; }
+            invalidateBoard(); updateUI(); break;
         case 'setInteractionState': gameState.interactionStates[action.interactable] = action.state; break;
         case 'setMechanicEnabled':
             if (setMechanicEnabled(gameState, action.mechanic, action.enabled)) {
