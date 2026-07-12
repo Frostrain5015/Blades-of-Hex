@@ -331,9 +331,10 @@ export function createCampaignController({ onRetry, onReturn }) {
         const playerCamp = gameState.localPlayerCampKey || 'player1';
         const playerFaction = getFaction(gameState, playerCamp);
         const playerColor = playerFaction?.color || '#e05050';
-        document.getElementById('campaignResultKicker').textContent = victory ? '任务完成' : '任务失败';
+        document.getElementById('campaignResultKicker').textContent = victory ? '任务成功' : '任务失败';
         document.getElementById('campaignResultKicker').style.color = victory ? playerColor : '';
         document.getElementById('campaignResultKicker').classList.toggle('defeat', !victory);
+        document.getElementById('campaignResultTitle').textContent = activeScenario.title || '';
         document.getElementById('campaignResultStars').textContent = victory
             ? `${'★'.repeat(res.stars)}${'☆'.repeat(3 - res.stars)}` : '———';
         document.getElementById('campaignResultText').textContent = activeScenario.resultText(victory, res, reason);
