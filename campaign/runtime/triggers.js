@@ -142,8 +142,6 @@ function evalCondition(cond, ctx) {
             return compareValues(value, cond.op || '<=', Number(cond.value));
         }
         case 'turnAtLeast': return getRound(gameState) >= (cond.value || 0);
-        case 'flagSet': return flags.has(cond.value);
-        case 'flagUnset': return !flags.has(cond.value);
         case 'weatherIs': return gameState.weather === cond.weather;
         case 'relationIs': return getRelation(gameState, cond.camp, cond.targetCamp) === cond.relation;
         case 'objectiveStatusIs': return gameState.objectiveStates?.[cond.objective] === cond.status;

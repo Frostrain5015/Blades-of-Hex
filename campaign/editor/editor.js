@@ -1403,7 +1403,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(selectRow('变量', action.variable || '', Object.fromEntries(config.variables.map(item => [item.id, `${item.id}（${item.scope === 'campaign' ? '战役' : '本关'}）`])), v => patch({ variable: v })));
             box.appendChild(selectRow('操作', action.operation || 'set', { set: '设为', add: '增加', subtract: '减少', multiply: '乘以', divide: '除以', min: '取较小值', max: '取较大值' }, v => patch({ operation: v })));
             box.appendChild(numRow('数值', Number(action.value) || 0, v => patch({ value: v }))); break;
-        case 'flagBoolean':
             box.appendChild(textRow('标记名', action.flag || '', v => patch({ flag: v })));
             box.appendChild(checkRow('设为“是”', action.value !== false, v => patch({ value: v }))); break;
         case 'triggerEnabled':
