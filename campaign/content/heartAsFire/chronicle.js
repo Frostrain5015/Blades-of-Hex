@@ -7,18 +7,6 @@
 
 export const CAMPAIGN_STORAGE_KEY = 'bladesOfHex.campaign.heartAsFire';
 
-// 关卡目录：只描述元信息与懒加载器，不含局内脚本。
-const SCENARIOS = Object.freeze([
-    Object.freeze({
-        id: 'rain-city',
-        title: '雨幕下的孤城',
-        label: '序章',
-        elementKey: 'rainCity',            // 生成 DOM id：rainCityLevelBtn / rainCityRating / startRainCityBtn
-        seed: 0x5241494E,
-        load: () => import('./rainCity/scenario.js')
-    })
-]);
-
 const CHRONICLE = Object.freeze({
     id: 'heart-as-fire',
     title: '我心如火',
@@ -30,7 +18,7 @@ const CHRONICLE = Object.freeze({
         { characterId: 'berserker', commanderId: 'berserker', role: 'viewpoint' },
         { characterId: 'centurion', commanderId: 'centurion', role: 'opponent' }
     ]),
-    scenarios: SCENARIOS
+    scenarios: Object.freeze([])
 });
 
 export default CHRONICLE;

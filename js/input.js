@@ -5,7 +5,6 @@ import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, upd
 import { on, emit } from './eventBus.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
-import { tutorialValidateCanvasClick, tutorialValidateCardCanvasClick, tutorialValidateActionButton } from './tutorialController.js';
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
 import {
     getMovableTiles, getAttackableTiles,
@@ -1687,10 +1686,9 @@ function _bindBoardAbilityControls() {
         item => {
             const action = item.action;
             if (!action?.canUse) return;
-            // 教程模式拦截：只允许指定的操作按钮
+            // 战役/教程输入白名单校验
             if (gameState.tutorialMode && gameState.tutorialStep) {
                 if (gameState.campaignMode && !campaignValidateAction(action.key)) return;
-                if (!tutorialValidateActionButton(action.key)) return;
             }
             _activateBoardAction(action);
             _closeBoardDetail();
@@ -1777,8 +1775,8 @@ export function initInput() {
         });
         cardCanvas.addEventListener('click', (e) => {
             if (gameState.gameOver) return;
-            // 教程模式拦截：检查卡牌点击是否为步骤允许的目标
-            if (gameState.tutorialMode && gameState.tutorialStep) {
+            // 战役输入白名单校验
+            if (gameState.tutorialMode && gameState.tutorialStep && gameState.campaignMode) {
                 const rect = cardCanvas.getBoundingClientRect();
                 const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
                 const W = cardCanvas.clientWidth, H = cardCanvas.clientHeight;
@@ -1793,9 +1791,7 @@ export function initInput() {
                         const bx = 8 + (hand2.length - 1 - i) * peekW;
                         const by = H - 120;
                         if (cx >= bx && cx <= bx + cardW && cy >= by && cy <= by + cardH) {
-                            if (gameState.campaignMode) {
-                                if (!campaignValidateCardClick(cardId)) return;
-                            } else if (!tutorialValidateCardCanvasClick(cardId)) return;
+                            if (!campaignValidateCardClick(cardId)) return;
                             break;
                         }
                     }
@@ -1811,11 +1807,9 @@ export function initInput() {
 
         const clickedTile = getTileAtPixel(clickX, clickY);
 
-        // 教程模式拦截：检查当前点击是否为步骤允许的目标
-        if (gameState.tutorialMode && gameState.tutorialStep) {
-            if (gameState.campaignMode) {
-                if (!campaignValidateCanvasClick(clickedTile)) return;
-            } else if (!tutorialValidateCanvasClick(clickedTile)) return;
+        // 战役输入白名单校验
+        if (gameState.tutorialMode && gameState.tutorialStep && gameState.campaignMode) {
+            if (!campaignValidateCanvasClick(clickedTile)) return;
         }
         if (!clickedTile) {
             if (gameState.cardTargeting) { cancelCardTargeting(); return; }

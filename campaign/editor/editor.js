@@ -32,7 +32,7 @@ let callbacks = { onPlaytest: null, onBack: null };
 let initialized = false;
 let showCoords = false;
 
-const boardTool = { mode: 'terrain', terrain: 'forest', camp: 'player1', districtId: 1, fortification: 'trench' };
+const boardTool = { mode: 'terrain', terrain: 'forest', camp: 'player1', districtId: 1, fortification: 'trench', cityType: 'city', erase: { terrain: true, city: true, village: true, fortification: true, district: true, unit: true } };
 const unitTemplate = { type: 'infantry', camp: 'player1', commander: '', hpPct: 100, morale: 2, canAct: true };
 
 const undoStack = [];
@@ -213,18 +213,13 @@ function applyBrush(tile) {
             break;
         }
         case 'city': {
-            // 城市 = 该行政区的颜色来源：再次点击既有城市会用当前笔刷参数更新它
-            // （改变阵营即改变整个区划的颜色），而不是删除——删除请用橡皮擦。
-            removeFromList(b.villages, q, r);    // 城市与村庄互斥
-            removeFromList(b.districts, q, r);   // 城市自身的行政区号由 cities[].districtId 决定，清掉此格的范围覆盖残留
+            // 城市/村庄二合一笔刷：由 boardTool.cityType 区分（'city' | 'village'），两者互斥。
             removeFromList(b.cities, q, r);
-            b.cities.push({ q, r, districtId: boardTool.districtId, camp: boardTool.camp });
-            break;
-        }
-        case 'village': {
-            if (b.villages.some(v => v.q === q && v.r === r)) {
-                removeFromList(b.villages, q, r);
-            } else if (!b.cities.some(c => c.q === q && c.r === r)) {
+            removeFromList(b.villages, q, r);
+            if (boardTool.cityType === 'city') {
+                removeFromList(b.districts, q, r);   // 清掉此格的范围覆盖残留
+                b.cities.push({ q, r, districtId: boardTool.districtId, camp: boardTool.camp });
+            } else {
                 b.villages.push({ q, r, districtId: preview.tileMap.get(tileKey(q, r))?.districtId ?? boardTool.districtId });
             }
             break;
@@ -245,12 +240,13 @@ function applyBrush(tile) {
             break;
         }
         case 'erase': {
-            removeFromList(b.terrain, q, r);
-            removeFromList(b.villages, q, r);
-            removeFromList(b.fortifications, q, r);
-            removeFromList(b.districts, q, r);
-            removeFromList(b.cities, q, r);
-            config.units = config.units.filter(u => !(u.q === q && u.r === r));
+            const opt = boardTool.erase;
+            if (opt.terrain) removeFromList(b.terrain, q, r);
+            if (opt.city) removeFromList(b.cities, q, r);
+            if (opt.village) removeFromList(b.villages, q, r);
+            if (opt.fortification) removeFromList(b.fortifications, q, r);
+            if (opt.district) removeFromList(b.districts, q, r);
+            if (opt.unit) config.units = config.units.filter(u => !(u.q === q && u.r === r));
             break;
         }
     }
@@ -402,8 +398,7 @@ function buildBoardTools() {
     const secBrush = section('笔刷');
     secBrush.appendChild(brushGrid([
         { value: 'terrain', label: '地形' },
-        { value: 'city', label: '城市' },
-        { value: 'village', label: '村庄' },
+        { value: 'city', label: '城市/村庄' },
         { value: 'fortification', label: '工事' },
         { value: 'district', label: '区划范围' },
         { value: 'erase', label: '橡皮擦' }
@@ -423,16 +418,27 @@ function buildBoardTools() {
             boardTool.fortification, v => { boardTool.fortification = v; }));
     }
     if (boardTool.mode === 'city') {
+        secParam.appendChild(selectRow('类型', boardTool.cityType, { city: '城市', village: '村庄' }, v => { boardTool.cityType = v; }));
         secParam.appendChild(selectRow('阵营', boardTool.camp, CAMP_LABELS, v => { boardTool.camp = v; }));
     }
-    if (boardTool.mode === 'city' || boardTool.mode === 'district' || boardTool.mode === 'village') {
+    if (boardTool.mode === 'city' || boardTool.mode === 'district') {
         secParam.appendChild(numRow('行政区号', boardTool.districtId, v => { boardTool.districtId = Math.max(0, Math.round(v)); }, { min: 0, max: 99, step: 1 }));
+    }
+    if (boardTool.mode === 'erase') {
+        const opt = boardTool.erase;
+        const toggle = (key) => (v) => { opt[key] = v; renderToolPanel(); };
+        secParam.appendChild(checkRow('擦除地形', opt.terrain, toggle('terrain')));
+        secParam.appendChild(checkRow('擦除城市', opt.city, toggle('city')));
+        secParam.appendChild(checkRow('擦除村庄', opt.village, toggle('village')));
+        secParam.appendChild(checkRow('擦除工事', opt.fortification, toggle('fortification')));
+        secParam.appendChild(checkRow('擦除区划范围', opt.district, toggle('district')));
+        secParam.appendChild(checkRow('擦除单位', opt.unit, toggle('unit')));
     }
     if (secParam.childElementCount > 1) wrap.appendChild(secParam);
 
     wrap.appendChild(hint(
-        boardTool.mode === 'city' ? '放置/更新城市：城市是该行政区的颜色来源——全区划的阵营颜色永远跟随城市阵营（与对局中夺城变色同一条规则），改阵营直接在此重涂城市即可，删除请用橡皮擦。'
-        : boardTool.mode === 'erase' ? '清除该格全部内容（地形/村庄/工事/区划范围/城市/单位）。'
+        boardTool.mode === 'city' ? '放置/更新城市或村庄（由笔刷类型决定）。城市是该行政区的颜色来源——全区划的阵营颜色永远跟随城市阵营，改阵营直接在此重涂即可，删除请用橡皮擦。'
+        : boardTool.mode === 'erase' ? '勾选下方要清除的内容类型后点击地块即可定向擦除。'
         : boardTool.mode === 'district' ? '涂区划范围：把地块划入指定行政区号（默认由最近城市决定）。地块本身不会因此变色，颜色仍由该行政区的城市决定；若该行政区没有城市，会显示为中立。'
         : '点击或拖动在棋盘上绘制。'));
     return wrap;

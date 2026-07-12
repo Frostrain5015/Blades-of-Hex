@@ -39,8 +39,6 @@ import { emit } from './eventBus.js';
 import { createHeroCarousel } from './heroCarousel.js';
 import { createPreparationController } from './preparationController.js';
 import { initChat, updateChatAvailability, initEmblemChatClicks, addChatMessage, openChat, isChatViewing } from './chatController.js';
-import { setupTutorialBattlefield, runTutorialOpponentScript } from './tutorialScenario.js';
-import { createTutorialController, setTutorialControllerRef } from './tutorialController.js';
 import { createCampaignController, setCampaignControllerRef } from './campaignController.js';
 import { loadScenario } from '../campaign/catalog.js';
 import { renderCampaignLobby } from '../campaign/lobby.js';
@@ -62,8 +60,6 @@ setClearOrbitBeamsRef(clearPaladinOrbitBeams);
 setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
 setLaunchOrbitSwordsRef(launchPaladinOrbitSwords);
 setSpawnHealingChainRef(spawnHealingChain);
-	const _tutorialController = createTutorialController();
-	setTutorialControllerRef(_tutorialController);
 	// 编辑器试玩中的关卡配置；非空时结算面板的重试/返回路由到编辑器而非战役大厅。
 	let _playtestConfig = null;
 	const _campaignController = createCampaignController({
@@ -429,7 +425,6 @@ document.getElementById('lobbyReadyBtn').addEventListener('click', () => {
 
 // ==== 再来一局 ----
 document.getElementById('rematchBtn').addEventListener('click', () => {
-    if (gameState.tutorialMode) return; // 教程模式禁止重新开局
     document.getElementById('backToVictoryBtn').style.display = 'none';
     if (isNetworkGame()) {
         document.getElementById('rematchStatus').textContent = '等待对手确认...';
@@ -669,65 +664,6 @@ function beginTrainingCountdown() {
 
 // ==== 固定剧本教程 ==========================================================
 // 跳过选将与部署：仍沿用 PVE 的本地操作权限和胜利结算，但 AI 由教程脚本接管。
-function beginTutorial() {
-	_tutorialController.stop();
-	_stopHeroCarousel();
-	_deploymentStarted = true;
-	resetGameState();
-	document.getElementById('networkIndicator').style.display = 'none';
-	gameState.gameMode = 'pve';
-	gameState._trainingMode = true;
-	gameState.tutorialMode = true;
-	gameState.isThreePlayer = false;
-	gameState.skirmishFog = false;
-	gameState.doubleCommanderMode = false;
-	gameState.aiOpponentCamp = CAMP.player2;
-	gameState.aiDifficulty = 1.0;
-	gameState.commanderPhase = 'done';
-	gameState.commanderP1 = 'berserker';
-	gameState.commanderP2 = 'centurion';
-	gameState.commanderP1Confirmed = true;
-	gameState.commanderP2Confirmed = true;
-	gameState.commanderP1Deployed = true;
-	gameState.commanderP2Deployed = true;
-
-	document.getElementById('lobbyOverlay').style.display = 'none';
-	document.getElementById('gameWrapper').style.display = '';
-	document.getElementById('backToVictoryBtn').style.display = 'none';
-	document.body.style.pointerEvents = '';
-	const victoryOverlay = document.getElementById('victoryOverlay');
-	victoryOverlay.classList.remove('show');
-	victoryOverlay.style.opacity = '';
-	victoryOverlay.style.backgroundColor = '';
-	dismissToast();
-	applyTopbarLayout();
-	fitCanvas();
-	stopLobbyBGM();
-	stopBattleBGM();
-	loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 教程将领特效加载失败:', err));
-
-		// 在倒计时前预先加载棋盘，避免玩家看到空棋盘
-		initMap();
-		setupTutorialBattlefield();
-		runTutorialOpponentScript().catch(err => console.warn('[tutorial] AI 脚本初始化失败:', err));
-		initInput();
-		initKeyboard();
-		initSettingsPanel();
-		setOnFogUpdated(updateCampEmblems);
-		updateCampEmblems();
-		updateChatAvailability();
-		initEmblemChatClicks();
-		gameState.currentCamp = CAMP.player1;
-		grantTurnStartIncome(CAMP.player1);
-		updateUI();
-		updateButtonColors();
-		renderGame();
-		_runCountdown(() => {
-			startBattleBGM();
-			playSound('turnEnd');
-			_tutorialController.start();
-		});
-}
 
 // ==== 单人战役：通用关卡启动（懒加载关卡内容 → 建图 → 交由通用控制器驱动）====
 let _currentChronicleId = null;
@@ -775,7 +711,6 @@ function returnToEditorFromPlaytest() {
 
 function _launchScenario(scenario) {
 	_campaignController.stop();
-	_tutorialController.stop();
 	_stopHeroCarousel();
 	_deploymentStarted = true;
 	resetGameState();
@@ -784,9 +719,7 @@ function _launchScenario(scenario) {
 	gameState.campaignId = _playtestConfig ? '__editor__' : _currentChronicleId;
 	gameState.scenarioId = scenario.id;
 	gameState.campaignPhase = scenario.initialStep;
-	gameState.tutorialMode = true; // 首阶段使用严格引导锁；夺城后由战役控制器解除。
-	gameState.tutorialStep = scenario.initialStep;
-	gameState._trainingMode = false;
+	gameState.tutorialMode = true; // 触发 step.allow 输入白名单；由 trigger.unlockInput 关闭。
 	gameState.isThreePlayer = false;
 	gameState.skirmishFog = false;
 	gameState.doubleCommanderMode = false;

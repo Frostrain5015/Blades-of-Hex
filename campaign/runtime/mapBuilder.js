@@ -36,7 +36,7 @@ export function buildBoardFromConfig(config, gameState) {
         let bestDist = Infinity;
         let best = null;
         for (const city of cities) {
-            const d = hexDistance(tile, city);
+            const d = hexDistance(tile, { q: city.q, r: city.r, s: -city.q - city.r });
             if (d < bestDist) { bestDist = d; best = city; }
         }
         if (best) tile.districtId = best.districtId ?? 0;
