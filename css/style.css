@@ -1655,16 +1655,42 @@ body {
 .faction-list-body { display: grid; gap: 8px; margin-top: 20px; }
 .faction-list-row {
     display: grid;
-    grid-template-columns: 14px minmax(0, 1fr) auto;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
     padding: 12px 13px;
     background: rgba(255,255,255,.035);
     border: 1px solid rgba(255,255,255,.08);
-    border-left: 3px solid var(--faction-color);
+    border-left: 3px solid var(--flag-main);
     border-radius: 8px;
 }
-.faction-list-swatch { width: 12px; height: 12px; border-radius: 50%; background: var(--faction-color); box-shadow: 0 0 10px color-mix(in srgb, var(--faction-color) 45%, transparent); }
+.faction-list-flag {
+    display: flex;
+    align-items: flex-start;
+    width: 22px;
+    height: 16px;
+    flex-shrink: 0;
+}
+.faction-list-flag-pole {
+    width: 2px;
+    height: 100%;
+    background: rgba(255,255,255,0.25);
+    border-radius: 1px;
+    flex-shrink: 0;
+}
+.faction-list-flag-cloth {
+    width: 16px;
+    height: 10px;
+    margin-top: 2px;
+    margin-left: -1px;
+    background: var(--flag-main);
+    border-radius: 0 2px 2px 0;
+    animation: factionFlagWave 2s ease-in-out infinite alternate;
+}
+@keyframes factionFlagWave {
+    0%   { transform: skewX(0deg) scaleX(1); }
+    100% { transform: skewX(5deg) scaleX(0.85); }
+}
 .faction-list-name { min-width: 0; font: 700 13px 'Noto Serif SC', serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .faction-list-meta { margin-top: 3px; color: rgba(255,255,255,.42); font-size: 10px; }
 .faction-list-relation { padding: 4px 8px; color: var(--relation-color); border: 1px solid color-mix(in srgb, var(--relation-color) 38%, transparent); border-radius: 999px; font-size: 10px; }

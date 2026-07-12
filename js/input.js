@@ -2149,16 +2149,20 @@ export function initSettingsPanel() {
             const meta = RELATION_META[relation] || RELATION_META.unknown;
             const row = document.createElement('div');
             row.className = 'faction-list-row';
-            row.style.setProperty('--faction-color', faction.color);
+            const flagMain = getFlagColors(faction.color).main;
+            row.style.setProperty('--flag-main', flagMain);
             row.style.setProperty('--relation-color', meta.color);
-            const swatch = document.createElement('span'); swatch.className = 'faction-list-swatch';
+            const flag = document.createElement('span'); flag.className = 'faction-list-flag';
+            const pole = document.createElement('span'); pole.className = 'faction-list-flag-pole';
+            const cloth = document.createElement('span'); cloth.className = 'faction-list-flag-cloth';
+            flag.append(pole, cloth);
             const copy = document.createElement('div');
             const name = document.createElement('div'); name.className = 'faction-list-name'; name.textContent = faction.name;
             const detail = document.createElement('div'); detail.className = 'faction-list-meta';
             detail.textContent = `${faction.controller === 'human' ? '玩家控制' : faction.controller === 'scripted' ? '剧情控制' : 'AI 控制'} · ${faction.participatesInTurns ? '参与回合' : '不参与回合'}`;
             copy.append(name, detail);
             const badge = document.createElement('span'); badge.className = 'faction-list-relation'; badge.textContent = meta.label;
-            row.append(swatch, copy, badge); factionBody.appendChild(row);
+            row.append(flag, copy, badge); factionBody.appendChild(row);
         }
     }
     const closeFactionList = () => { factionOverlay?.classList.remove('show'); factionOverlay?.setAttribute('aria-hidden', 'true'); };
