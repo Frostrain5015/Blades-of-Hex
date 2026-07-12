@@ -1400,9 +1400,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             const dialogue = section('对话框内容');
             dialogue.appendChild(textRow('说话人', action.speaker?.name || '', v => patch({ speaker: { ...(action.speaker || {}), name: v } })));
             dialogue.appendChild(selectRow('立绘', action.speaker?.portrait || '', { '': '（无立绘）', ...COMMANDER_LABELS }, v => patch({ speaker: { ...(action.speaker || {}), portrait: v || undefined } })));
-                dialogue.appendChild(textRow('说话人', action.speaker?.name || '', v => patch({ speaker: { ...(action.speaker || {}), name: v } })));
-                dialogue.appendChild(selectRow('立绘', action.speaker?.portrait || '', { '': '（无）', ...COMMANDER_LABELS }, v => patch({ speaker: { ...(action.speaker || {}), portrait: v } })));
-            }
             dialogue.appendChild(textareaRow('台词', action.text || '', v => patch({ text: v }), 3));
             box.appendChild(dialogue);
             // 高亮 = 操作放行 + 视觉指示一体化
@@ -1504,6 +1501,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                 else patch({ preset: '', name: action.name || '', emoji: action.emoji || '✨', statMods: action.statMods || {}, rule: undefined });
             }));
             box.appendChild(textRow('效果名称', action.name || '', v => patch({ name: v })));
+            box.appendChild(textareaRow('效果描述', action.desc || '', v => patch({ desc: v }), 2));
             box.appendChild(textRow('徽章Emoji', action.emoji || '✨', v => patch({ emoji: v || '✨' })));
             box.appendChild(numRow('持续回合(0=永久)', action.duration ?? 0, v => patch({ duration: Math.max(0, Math.round(v)) }), { min: 0, max: 99 }));
             if (action.rule === 'minHp' || action.rule === 'maxHp') {

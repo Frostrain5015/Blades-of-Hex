@@ -305,6 +305,7 @@ function runAction(action, ctx) {
                 const effect = {
                     id: action.effectId || `effect_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
                     name: action.name || '',
+                    desc: action.desc || '', 
                     emoji: action.emoji || '✨',
                     duration: action.duration || 0,
                     statMods: { ...mods }

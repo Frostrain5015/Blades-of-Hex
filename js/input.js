@@ -1142,7 +1142,7 @@ function _buildEffectItems(tile, unit) {
                 key: "campaign:" + eff.name + ":" + eff.id,
                 icon: eff.emoji || "✨",
                 label: eff.name,
-                desc: "战役效果" + (eff.duration ? " · 剩余" + eff.duration + "回合" : ""),
+                desc: (eff.desc || "战役效果") + (eff.duration ? " · 剩余" + eff.duration + "回合" : ""),
                 color: "#ffd866",
                 count: eff.duration ? "⏳" + eff.duration : "",
                 status: eff.duration ? "持续" + eff.duration + "回合" : "持续生效",
