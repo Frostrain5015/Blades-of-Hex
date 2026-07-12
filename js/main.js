@@ -509,6 +509,11 @@ document.getElementById('campaignBtn').addEventListener('click', showCampaignLob
 document.getElementById('campaignBackBtn').addEventListener('click', () => {
     // 将星列传隶属单人游戏 → 返回上级二级菜单，并恢复立绘轮播
     showSoloMenu();
+    // 恢复立绘可见性（传记页若有电影海报会将立绘 opacity 设为 0）
+    for (const id of ['heroPortraitA', 'heroPortraitB']) {
+        const el = document.getElementById(id);
+        if (el) el.style.opacity = '';
+    }
     _startHeroCarousel().catch(err => console.warn('[轮播] 恢复失败:', err));
 });
 // 关卡卡/进入按钮由 campaign/lobby.js 依数据生成并绑定（见 showCampaignLobby）。
