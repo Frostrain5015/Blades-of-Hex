@@ -1,6 +1,7 @@
 ﻿import { HEX_SIZE, HEX_WIDTH, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, hexToRgb, rgbToHex, frameInfo, CAMP_FLAG_COLORS, HEX_NEIGHBORS, hexEdge, TERRAIN_CONFIG, CAMP, settings } from './config.js';
 import { FORTIFICATION_CONFIG } from './config.js';
 import { EngineHexTile } from '../engine/HexTile.js';
+import { campToKey } from '../rules/camps.js';
 
 let _gameState = null;
 export function setGameStateRef(ref) { _gameState = ref; }
@@ -133,13 +134,11 @@ export class HexTile extends EngineHexTile {
                 }
             }
         }
-        const isP1 = effectiveCamp === CAMP.player1;
-        const isP2 = effectiveCamp === CAMP.player2;
-        const isP3 = effectiveCamp === CAMP.player3;
-        const campKey = isP1 ? 'p1' : isP2 ? 'p2' : isP3 ? 'p3' : 'neu';
+        const key = campToKey(effectiveCamp);
+        const campKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
         return {
             poleX: flagCx, poleTop: flagCy - 16, poleBottom: flagCy + 10,
-            fc: CAMP_FLAG_COLORS[campKey],
+            fc: CAMP_FLAG_COLORS[campKey] || { main: effectiveCamp?.color || '#777', dark: effectiveCamp?.color || '#555', light: effectiveCamp?.color || '#999' },
             flagLeft: flagCx + 1.5, flagRight: flagCx + 1.5 + 18,
             flagTop: flagCy - 16 + 3, flagMid: flagCy - 16 + 3 + 7, flagBot: flagCy - 16 + 3 + 16
         };

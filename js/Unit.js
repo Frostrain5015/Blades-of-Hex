@@ -1,4 +1,4 @@
-import { CAMP } from '../rules/camps.js';
+import { CAMP, campToKey } from '../rules/camps.js';
 import { UNIT_CONFIG, COUNTER_RELATION } from '../rules/units.js';
 import { MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG } from '../rules/terrain.js';
 import { hexDistance, HEX_NEIGHBORS } from '../rules/hex.js';
@@ -570,8 +570,7 @@ export class Unit {
         if (this.commander) {
             // 空军上校阵亡 → 禁用对应玩家的专属空军卡
             if (this.commander === 'colonel' && _gameState && _gameState._colonelDeployed) {
-                const campKey = this.camp === CAMP.player1 ? 'player1' :
-                                this.camp === CAMP.player2 ? 'player2' : 'player3';
+                const campKey = campToKey(this.camp);
                 _gameState._colonelDeployed[campKey] = false;
                 // 上校阵亡：收回所有空军对策卡（仅保留部署卡）
                 if (_gameState.playerHands && _gameState.playerHands[campKey]) {
@@ -584,13 +583,15 @@ export class Unit {
                     }
                 }
             }
-            const slots = this.camp === CAMP.player1
+            const commanderSlots = campToKey(this.camp) === 'player1'
                 ? ['commanderP1', 'commanderP1Secondary']
-                : this.camp === CAMP.player2
+                : campToKey(this.camp) === 'player2'
                     ? ['commanderP2', 'commanderP2Secondary']
-                    : ['commanderP3', 'commanderP3Secondary'];
-            if (_gameState[slots[0]] === this.commander) _gameState[slots[0]] = null;
-            else if (_gameState[slots[1]] === this.commander) _gameState[slots[1]] = null;
+                    : campToKey(this.camp) === 'player3'
+                        ? ['commanderP3', 'commanderP3Secondary']
+                        : null;
+            if (commanderSlots && _gameState[commanderSlots[0]] === this.commander) _gameState[commanderSlots[0]] = null;
+            else if (commanderSlots && _gameState[commanderSlots[1]] === this.commander) _gameState[commanderSlots[1]] = null;
             const cmdInfo = getCommander(this.commander);
             log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
         }
@@ -604,7 +605,7 @@ export class Unit {
                 killerCamp = _gameState.currentCamp;
             }
             if (killerCamp) {
-                const kKey = killerCamp === CAMP.player1 ? 'player1' : killerCamp === CAMP.player2 ? 'player2' : killerCamp === CAMP.player3 ? 'player3' : null;
+                const kKey = campToKey(killerCamp);
                 if (kKey) {
                     if (!_gameState.factionMoraleBoost) _gameState.factionMoraleBoost = {};
                     _gameState.factionMoraleBoost[kKey] = getRoundIndex(_gameState) + COMMANDER_CONFIG.martyr.balance.moraleBoostRounds;
@@ -624,7 +625,7 @@ export class Unit {
         }
 
         // 己方阵营 key（供留魂标记 + 殉道者挽歌被动共用）
-        const ownKey = this.camp === CAMP.player1 ? 'player1' : this.camp === CAMP.player2 ? 'player2' : this.camp === CAMP.player3 ? 'player3' : null;
+        const ownKey = campToKey(this.camp) === 'neutral' ? null : campToKey(this.camp);
 
         // E2 亡灵法师留魂：非魂卒、非将领单位阵亡时留下亡魂标记（脚手架不留魂）
         if (!this._isSoulMinion && !this.commander && !this._engineerScaffold && this.tile && _gameState && _gameState.tileMap) {
@@ -659,8 +660,8 @@ export class Unit {
         this.tile.unit = null;
         log(`${this.camp.name} ${this.config.name}兵被消灭`);
         if (attackerUnit) {
-            const key = attackerUnit.camp === CAMP.player1 ? 'player1' : attackerUnit.camp === CAMP.player2 ? 'player2' : attackerUnit.camp === CAMP.player3 ? 'player3' : 'neutral';
-            _gameState.killCount[key]++;
+            const key = campToKey(attackerUnit.camp);
+            _gameState.killCount[key] = (_gameState.killCount[key] || 0) + 1;
         }
         emit('fx:explosion', { x: this.tile.x, y: this.tile.y, color: '#ff2200', count: 30 });
         emit('fx:explosion', { x: this.tile.x, y: this.tile.y, color: '#ffaa00', count: 15 });

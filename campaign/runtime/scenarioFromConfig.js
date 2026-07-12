@@ -3,7 +3,7 @@
 import { gameState } from '../../js/state.js';
 import { normalizeLevel } from './schema.js';
 import { buildBoardFromConfig } from './mapBuilder.js';
-import { buildBattlefieldFromConfig } from './battlefield.js';
+import { buildBattlefieldFromConfig, prepareCampaignFactions } from './battlefield.js';
 import { createTriggerFlow, evaluateConditions } from './triggers.js';
 import { readProgress } from '../progress.js';
 
@@ -49,6 +49,7 @@ export function scenarioFromConfig(rawConfig, options = {}) {
     }
 
     function buildBattlefield() {
+        prepareCampaignFactions(config, gameState);
         buildBoardFromConfig(config, gameState);
         gameState._campaignFlags = new Set();
         const built = buildBattlefieldFromConfig(config, gameState);
@@ -109,7 +110,7 @@ export function scenarioFromConfig(rawConfig, options = {}) {
         initialStep: config.initialStep || '',
         initialObjective: Object.keys(config.objectives || {}).find(id => config.objectives[id].active !== false) || '',
         intro: { campaignTitle: config.intro?.campaignTitle || '', chapterTitle: config.intro?.chapterTitle || '', scenarioSubtitle: (config.id || '').toUpperCase() + ' ' + (config.title || '') },
-        aiOpponentCampKey: config.aiOpponentCamp || 'player2',
+        aiOpponentCampKey: config.aiOpponentCamp || '',
         aiDifficulty: config.aiDifficulty ?? 1.0,
         steps: controllerSteps,
         objectives: config.objectives || {},

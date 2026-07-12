@@ -1,7 +1,7 @@
 // 将领通用接口 —— 游戏主体通过此模块调用将领钩子
 import { getCommander } from '../commander/index.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
-import { CAMP } from '../rules/camps.js';
+import { CAMP, campToKey } from '../rules/camps.js';
 import stallerDef from '../commander/staller.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
@@ -49,6 +49,9 @@ function _findCommanderUnit(camp, commanderId) {
 function _getCommanderIdForCamp(camp) {
   const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
   if (!gs) return null;
+  if (gs.campaignMode) {
+    return gs.tiles.find(tile => tile.unit?.commander && campToKey(tile.unit.camp) === campToKey(camp))?.unit.commander || null;
+  }
   if (camp === CAMP.player1) return gs.commanderP1;
   if (camp === CAMP.player2) return gs.commanderP2;
   if (camp === CAMP.player3) return gs.commanderP3;
@@ -118,10 +121,11 @@ function _helpers(cmdId) {
 // ---- 回合钩子 ----
 
 export function triggerCommanderTurnStart(gameState, camp) {
-  const campKey = camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : camp === CAMP.player3 ? 'player3' : 'neutral';
+  const campKey = campToKey(camp);
   const seen = new Set();
   for (const tile of gameState.tiles) {
     if (!tile.unit || !tile.unit.commander) continue;
+    if (gameState.campaignMode && campToKey(tile.unit.camp) !== campKey) continue;
     const cid = tile.unit.commander;
     if (seen.has(cid)) continue;
     seen.add(cid);
@@ -137,6 +141,21 @@ export function triggerCommanderTurnStart(gameState, camp) {
 }
 
 export function triggerCommanderTurnEnd(gameState, camp, campKey) {
+  if (gameState.campaignMode) {
+    const seen = new Set();
+    for (const tile of gameState.tiles) {
+      const cmdId = tile.unit?.commander;
+      if (!cmdId || campToKey(tile.unit.camp) !== campKey || seen.has(cmdId)) continue;
+      seen.add(cmdId);
+      const cmd = getCommander(cmdId);
+      if (!cmd?.onTurnEnd) continue;
+      const h = _helpers(cmdId);
+      h.campKey = campKey;
+      h.addGold = (amount) => { gameState.playerGold[campKey] += amount; };
+      cmd.onTurnEnd(gameState, camp, h);
+    }
+    return;
+  }
   const cmdId = _getCommanderIdForCamp(camp);
   if (!cmdId) return;
   const cmd = getCommander(cmdId);

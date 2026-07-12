@@ -5,7 +5,7 @@ import { HEX_SIZE, hexPath, drawHexagonOutline, CAMP_FLAG_COLORS } from '../../j
 import { drawAllBorders, drawCampBorders, drawDistrictBorders } from '../../js/HexTile.js';
 import {
     createDefaultLevel, normalizeLevel, validateLevel, boardContains,
-    CAMP_KEYS, CAMP_LABELS, UNIT_TYPES, UNIT_LABELS,
+    UNIT_TYPES, UNIT_LABELS,
     COMMANDER_IDS, COMMANDER_LABELS, TERRAIN_LABELS,
     FORTIFICATION_KEYS, FORTIFICATION_LABELS, WEATHER_LABELS,
     CARD_IDS, CARD_LABELS,
@@ -37,7 +37,7 @@ let showCoords = false;
 let pendingPick = null; // { mode:'tile'|'tiles', callback, picked:Set, label }
 let pendingHighlight = null; // { q, r } | [{q,r}] | Set — 鼠标悬停图钉时高亮
 
-const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast']);
+const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast', 'eventCardIs']);
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => !LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current); }
 function authorActions() { return TRIGGER_ACTIONS; }
 
@@ -60,6 +60,76 @@ const UNDO_LIMIT = 60;
 const $id = (id) => document.getElementById(id);
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
 const tileKey = (q, r) => `${q},${r}`;
+
+function factionLabels() {
+    const labels = Object.fromEntries(config.factions.map(faction => [faction.id, faction.name || faction.id]));
+    if (!labels.neutral) labels.neutral = '中立';
+    return labels;
+}
+function factionById(id) { return config.factions.find(faction => faction.id === id) || (id === 'neutral' ? { id: 'neutral', name: '中立', color: '#777777' } : null); }
+function primaryFactionId() { return config.localPlayerCamp || config.factions.find(faction => faction.controller === 'human')?.id || config.factions[0]?.id || 'player1'; }
+function nonLocalFactionId() { return config.factions.find(faction => faction.id !== primaryFactionId() && faction.id !== 'neutral')?.id || primaryFactionId(); }
+function syncTurnOrder(level) {
+    const eligible = level.factions.filter(faction => faction.active !== false && faction.participatesInTurns !== false).map(faction => faction.id);
+    const existing = Array.isArray(level.turnOrder) ? level.turnOrder : [];
+    level.turnOrder = [...existing.filter(id => eligible.includes(id)), ...eligible.filter(id => !existing.includes(id))];
+}
+
+function renameMapKey(map, from, to) {
+    if (!map || typeof map !== 'object' || from === to || !(from in map)) return;
+    map[to] = map[from];
+    delete map[from];
+}
+
+function replaceFactionReferences(level, from, to, { remove = false } = {}) {
+    if (!from || from === to) return;
+    const replacement = remove ? 'neutral' : to;
+    if (level.localPlayerCamp === from) level.localPlayerCamp = remove ? level.factions[0]?.id || '' : to;
+    if (level.aiOpponentCamp === from) level.aiOpponentCamp = remove ? '' : to;
+    level.turnOrder = (level.turnOrder || []).map(id => id === from ? replacement : id);
+    for (const city of (level.board?.cities || [])) if (city.camp === from) city.camp = replacement;
+    for (const unit of (level.units || [])) if (unit.camp === from) unit.camp = replacement;
+
+    for (const map of [level.gold, level.hands, level.commanders]) {
+        if (!map || typeof map !== 'object') continue;
+        if (remove) delete map[from];
+        else renameMapKey(map, from, to);
+    }
+
+    const previousDiplomacy = level.diplomacy || {};
+    const nextDiplomacy = {};
+    for (const [left, relations] of Object.entries(previousDiplomacy)) {
+        if (remove && left === from) continue;
+        const nextLeft = left === from ? to : left;
+        nextDiplomacy[nextLeft] ||= {};
+        for (const [right, relation] of Object.entries(relations || {})) {
+            if (remove && right === from) continue;
+            nextDiplomacy[nextLeft][right === from ? to : right] = relation;
+        }
+    }
+    level.diplomacy = nextDiplomacy;
+
+    const rewriteTriggerReferences = value => {
+        if (Array.isArray(value)) { value.forEach(rewriteTriggerReferences); return; }
+        if (!value || typeof value !== 'object') return;
+        for (const [key, child] of Object.entries(value)) {
+            if ((key === 'camp' || key === 'targetCamp') && child === from) value[key] = replacement;
+            else rewriteTriggerReferences(child);
+        }
+    };
+    rewriteTriggerReferences(level.triggers);
+    rewriteTriggerReferences(level.optionalObjectives);
+    rewriteTriggerReferences(level.result?.starRules);
+    syncTurnOrder(level);
+}
+
+function setLocalPlayerFaction(level, factionId) {
+    level.localPlayerCamp = factionId;
+    for (const faction of level.factions) {
+        if (faction.id === factionId) faction.controller = 'human';
+        else if (faction.controller === 'human') faction.controller = 'ai';
+    }
+}
 
 function setStatus(text, kind = '') {
     const bar = $id('editorStatusBar');
@@ -214,8 +284,8 @@ function selectionTile() {
 }
 
 function drawUnitMarker(tile, unit, index) {
-    const campKey = unit.camp === 'player1' ? 'p1' : unit.camp === 'player2' ? 'p2' : unit.camp === 'player3' ? 'p3' : 'neu';
-    const fc = CAMP_FLAG_COLORS[campKey];
+    const campKey = unit.camp === 'player1' ? 'p1' : unit.camp === 'player2' ? 'p2' : unit.camp === 'player3' ? 'p3' : unit.camp === 'neutral' ? 'neu' : unit.camp;
+    const fc = CAMP_FLAG_COLORS[campKey] || { main: factionById(unit.camp)?.color || '#777777' };
     const x = tile.x, y = tile.y;
     ctx.save();
     ctx.beginPath();
@@ -430,7 +500,7 @@ function updateHint(tile, modeInfo) {
     const parts = [
         `(${tile.q}, ${tile.r})`,
         `区${tile.districtId}`,
-        CAMP_LABELS[campKeyOfTile(tile)] || '',
+        factionLabels()[campKeyOfTile(tile)] || '',
         TERRAIN_LABELS[tile.terrain] || '',
         tile.isCity ? '城市' : '',
         tile.isVillage ? '村庄' : '',
@@ -441,11 +511,7 @@ function updateHint(tile, modeInfo) {
 }
 
 function campKeyOfTile(tile) {
-    // preview tile.camp 是 CAMP 对象；用名字反查 key
-    for (const key of CAMP_KEYS) {
-        if (CAMP_LABELS[key] === tile.camp?.name) return key;
-    }
-    return 'neutral';
+    return tile.camp?.id || config.factions.find(faction => faction.name === tile.camp?.name)?.id || 'neutral';
 }
 
 // ═══════════════════ 左侧工具面板 ═══════════════════
@@ -507,7 +573,7 @@ function buildBoardTools() {
     }
     if (boardTool.mode === 'city') {
         secParam.appendChild(selectRow('类型', boardTool.cityType, { city: '城市', village: '村庄' }, v => { boardTool.cityType = v; }));
-        secParam.appendChild(selectRow('阵营', boardTool.camp, CAMP_LABELS, v => { boardTool.camp = v; }));
+        secParam.appendChild(selectRow('阵营', boardTool.camp, factionLabels(), v => { boardTool.camp = v; }));
     }
     if (boardTool.mode === 'city' || boardTool.mode === 'district') {
         secParam.appendChild(numRow('行政区号', boardTool.districtId, v => { boardTool.districtId = Math.max(0, Math.round(v)); }, { min: 0, max: 99, step: 1 }));
@@ -536,7 +602,7 @@ function buildUnitTools() {
     const wrap = el('div');
     const sec = section('单位模板（点击空格放置）');
     sec.appendChild(selectRow('兵种', unitTemplate.type, UNIT_LABELS, v => { unitTemplate.type = v; }));
-    sec.appendChild(selectRow('阵营', unitTemplate.camp, CAMP_LABELS, v => { unitTemplate.camp = v; }));
+    sec.appendChild(selectRow('阵营', unitTemplate.camp, factionLabels(), v => { unitTemplate.camp = v; }));
     sec.appendChild(selectRow('将领', unitTemplate.commander, { '': '（无）', ...COMMANDER_LABELS }, v => { unitTemplate.commander = v; }));
     sec.appendChild(numRow('生命%', unitTemplate.hpPct, v => { unitTemplate.hpPct = Math.max(1, Math.min(100, Math.round(v))); }, { min: 1, max: 100 }));
     sec.appendChild(selectRow('士气', String(unitTemplate.morale), { 3: '上升', 2: '正常', 1: '下降', 0: '混乱' }, v => { unitTemplate.morale = Number(v); }));
@@ -547,7 +613,7 @@ function buildUnitTools() {
     secList.appendChild(itemList({
         items: config.units.map((u, i) => ({
             key: String(i),
-            label: `${u.id} · ${CAMP_LABELS[u.camp]}${UNIT_LABELS[u.type]}${u.commander ? '·' + COMMANDER_LABELS[u.commander] : ''} (${u.q},${u.r})`
+            label: `${u.id} · ${factionLabels()[u.camp] || u.camp}${UNIT_LABELS[u.type]}${u.commander ? '·' + COMMANDER_LABELS[u.commander] : ''} (${u.q},${u.r})`
         })),
         activeKey: selection?.kind === 'unit' ? String(selection.index) : null,
         onSelect: (key) => { selection = { kind: 'unit', index: Number(key) }; renderToolPanel(); renderInspector(); render(); },
@@ -614,7 +680,7 @@ function buildTriggerList() {
         }),
         addLabel: '+ 新增触发器',
         onAdd: () => mutate(c => {
-            c.triggers.push({ id: `trigger_${c.triggers.length + 1}`, title: '', note: '', enabled: true, once: true, when: [], do: [] });
+            c.triggers.push({ id: `trigger_${c.triggers.length + 1}`, title: '', note: '', enabled: true, once: true, when: [{ kind: 'levelStarted' }], do: [] });
             selection = { kind: 'trigger', index: c.triggers.length - 1 };
         })
     }));
@@ -641,38 +707,96 @@ function buildTriggerList() {
     wrap.appendChild(secObj);
 
     return wrap;
+
+}
+
+function buildFactionBasics() {
+    const wrap = el('div');
+    const factionOpts = Object.fromEntries(config.factions.map(faction => [faction.id, faction.name || faction.id]));
+    const relationLabels = { ally: '联盟', neutral: '中立', enemy: '敌对' };
     const secPlayer = section('玩家视角');
     secPlayer.appendChild(selectRow('所属阵营', config.localPlayerCamp, factionOpts,
-        value => mutate(c => { c.localPlayerCamp = value; }, { rebuildPanels: false })));
+        value => mutate(c => { setLocalPlayerFaction(c, value); }, { rebuildPanels: true })));
     wrap.appendChild(secPlayer);
 
     const secFactions = section('阵营');
     config.factions.forEach((faction, idx) => {
-        const delBtn = idx > 0 ? (() => mutate(c => { c.factions.splice(idx, 1); }, { rebuildPanels: true })) : null;
+        const delBtn = idx > 0 ? (() => mutate(c => {
+            const removed = c.factions[idx]?.id;
+            c.factions.splice(idx, 1);
+            replaceFactionReferences(c, removed, 'neutral', { remove: true });
+            if (!c.factions.some(item => item.controller === 'human')) setLocalPlayerFaction(c, c.factions[0]?.id || '');
+        }, { rebuildPanels: true })) : null;
         const box = card(faction.name || faction.id, delBtn);
-        box.appendChild(textRow('id', faction.id, value => mutate(c => { c.factions[idx].id = value; }, { rebuildPanels: false })));
+        box.appendChild(textRow('id', faction.id, value => {
+            const nextId = value.trim();
+            if (!/^[a-z][a-z0-9_-]{0,31}$/i.test(nextId)) {
+                setStatus('阵营 ID 须以字母开头，且只含字母、数字、_ 或 -。', 'error');
+                renderInspector();
+                return;
+            }
+            if (nextId === 'neutral' || config.factions.some((item, itemIndex) => itemIndex !== idx && item.id === nextId)) {
+                setStatus('阵营 ID 已存在，或使用了保留 ID neutral。', 'error');
+                renderInspector();
+                return;
+            }
+            mutate(c => {
+                const oldId = c.factions[idx].id;
+                replaceFactionReferences(c, oldId, nextId);
+                c.factions[idx].id = nextId;
+            }, { rebuildPanels: true });
+        }));
         box.appendChild(textRow('显示名', faction.name || faction.id, value => mutate(c => { c.factions[idx].name = value; }, { rebuildPanels: false })));
         box.appendChild(selectRow('颜色', faction.color, Object.fromEntries(FACTION_COLORS.map(c => [c.value, c.label])),
             value => mutate(c => { c.factions[idx].color = value; }, { rebuildPanels: false })));
         box.appendChild(selectRow('控制方式', faction.controller || 'ai', { human: '玩家', ai: 'AI', scripted: '剧情控制' },
-            value => mutate(c => { c.factions[idx].controller = value; }, { rebuildPanels: false })));
+            value => mutate(c => {
+                c.factions[idx].controller = value;
+                if (value === 'human') setLocalPlayerFaction(c, c.factions[idx].id);
+            }, { rebuildPanels: true })));
         box.appendChild(checkRow('参与回合', faction.participatesInTurns !== false,
-            value => mutate(c => { c.factions[idx].participatesInTurns = value; }, { rebuildPanels: false })));
+            value => mutate(c => { c.factions[idx].participatesInTurns = value; syncTurnOrder(c); }, { rebuildPanels: true })));
         box.appendChild(checkRow('本关启用', faction.active !== false,
-            value => mutate(c => { c.factions[idx].active = value; }, { rebuildPanels: false })));
+            value => mutate(c => { c.factions[idx].active = value; syncTurnOrder(c); }, { rebuildPanels: true })));
         secFactions.appendChild(box);
     });
     const addFaction = el('button', 'ed-add-btn', '+ 新增阵营');
     addFaction.addEventListener('click', () => mutate(c => {
-        let n = c.factions.length;
-        while (c.factions.some(f => f.id === `player${n}`)) n++;
-        c.factions.push({ id: `player${n}`, name: `新阵营${n}`, color: FACTION_COLORS[(n - 1) % FACTION_COLORS.length].value, controller: 'ai', participatesInTurns: true, active: true });
+        let n = 1;
+        while (c.factions.some(faction => faction.id === `faction${n}`)) n++;
+        c.factions.push({ id: `faction${n}`, name: `新阵营${n}`, color: FACTION_COLORS[(c.factions.length - 1) % FACTION_COLORS.length].value, controller: 'ai', participatesInTurns: true, active: true });
+        syncTurnOrder(c);
     }, { rebuildPanels: true }));
     secFactions.appendChild(addFaction);
     wrap.appendChild(secFactions);
 
+    const secTurnOrder = section('回合行动顺序');
+    secTurnOrder.appendChild(hint('仅列出“本关启用”且“参与回合”的阵营。由上至下依次行动；回到第一项时进入下一完整回合。'));
+    const orderedIds = config.turnOrder?.filter(id => config.factions.some(faction => faction.id === id && faction.active !== false && faction.participatesInTurns !== false)) || [];
+    orderedIds.forEach((id, index) => {
+        const row = el('div', 'ed-row');
+        row.appendChild(el('label', null, `${index + 1}. ${factionLabels()[id] || id}`));
+        const up = el('button', 'ed-pick-btn', '↑');
+        const down = el('button', 'ed-pick-btn', '↓');
+        up.disabled = index === 0;
+        down.disabled = index === orderedIds.length - 1;
+        up.addEventListener('click', () => mutate(c => {
+            [c.turnOrder[index - 1], c.turnOrder[index]] = [c.turnOrder[index], c.turnOrder[index - 1]];
+        }));
+        down.addEventListener('click', () => mutate(c => {
+            [c.turnOrder[index], c.turnOrder[index + 1]] = [c.turnOrder[index + 1], c.turnOrder[index]];
+        }));
+        row.append(up, down); secTurnOrder.appendChild(row);
+    });
+    if (!orderedIds.length) secTurnOrder.appendChild(hint('至少启用一个参与回合的阵营。'));
+    wrap.appendChild(secTurnOrder);
+
     // 外交关系：仅列出启用的阵营对
-    const activeFactions = config.factions.filter(f => f.active !== false);
+    const activeFactions = [
+        ...config.factions.filter(f => f.active !== false),
+        ...(config.factions.some(f => f.id === 'neutral') ? [] : [{ id: 'neutral', name: '中立', color: '#777777', active: true }])
+    ];
+    const authorFactions = config.factions.filter(f => f.active !== false);
     const secDiplomacy = section('初始外交关系（双向）');
     secDiplomacy.appendChild(hint('只编辑每对阵营一次；运行时自动双向生效。不同玩家阵营默认敌对。'));
     for (let i = 0; i < activeFactions.length; i++) {
@@ -690,20 +814,21 @@ function buildTriggerList() {
     wrap.appendChild(secDiplomacy);
 
     const secGold = section('初始金币');
-    activeFactions.forEach(f => {
+    authorFactions.forEach(f => {
         secGold.appendChild(numRow(f.name, config.gold[f.id] ?? 4, v => mutate(c => { c.gold[f.id] = Math.max(0, Math.round(v)); }, { rebuildPanels: false }), { min: 0, max: 99 }));
     });
     wrap.appendChild(secGold);
 
     const secCmd = section('阵营主将（HUD/技能条）');
-    activeFactions.filter(f => f.id !== 'neutral').forEach(f => {
+    authorFactions.filter(f => ['player1', 'player2', 'player3'].includes(f.id)).forEach(f => {
         secCmd.appendChild(selectRow(f.name, config.commanders[f.id] || '', { '': '（无，或由单位自动补全）', ...COMMANDER_LABELS },
             v => mutate(c => { c.commanders[f.id] = v || null; }, { rebuildPanels: false })));
     });
+    secCmd.appendChild(hint('自定义阵营的将领请直接挂载到单位；这里仅配置传统部署牌所使用的将领槽。'));
     wrap.appendChild(secCmd);
 
     const secHands = section('初始手牌');
-    activeFactions.filter(f => f.id !== 'neutral').forEach(f => {
+    authorFactions.forEach(f => {
         secHands.appendChild(checkGroup(f.name, CARD_IDS.map(id => ({ value: id, label: CARD_LABELS[id] })), config.hands[f.id] || [],
             v => mutate(c => { c.hands[f.id] = v; }, { rebuildPanels: false })));
     });
@@ -725,7 +850,6 @@ function buildMetaBasics() {
 
     const secEnv = section('环境');
     secEnv.appendChild(selectRow('天气', config.weather, WEATHER_LABELS, v => mutate(c => { c.weather = v; }, { rebuildPanels: false })));
-    secEnv.appendChild(selectRow('AI 阵营', config.aiOpponentCamp, { player1: '红军', player2: '蓝军' }, v => mutate(c => { c.aiOpponentCamp = v; }, { rebuildPanels: false })));
     secEnv.appendChild(numRow('AI 难度', config.aiDifficulty, v => mutate(c => { c.aiDifficulty = Math.max(0.1, v); }, { rebuildPanels: false }), { min: 0.1, max: 3, step: 0.1 }));
     wrap.appendChild(secEnv);
 
@@ -778,7 +902,7 @@ function buildTileInspector(q, r) {
     const wrap = el('div');
     const tile = preview.tileMap.get(tileKey(q, r));
     if (!tile) { wrap.appendChild(hint('该地块不在棋盘内。')); return wrap; }
-    wrap.appendChild(hint(`行政区 ${tile.districtId} · ${CAMP_LABELS[campKeyOfTile(tile)]} · ${TERRAIN_LABELS[tile.terrain]}`
+    wrap.appendChild(hint(`行政区 ${tile.districtId} · ${factionLabels()[campKeyOfTile(tile)] || campKeyOfTile(tile)} · ${TERRAIN_LABELS[tile.terrain]}`
         + `${tile.isCity ? ' · 城市' : ''}${tile.isVillage ? ' · 村庄' : ''}${tile.fortification ? ' · ' + FORTIFICATION_LABELS[tile.fortification] : ''}`));
     wrap.appendChild(hint('切换到「棋盘」页签用笔刷修改此格；切换到「单位」页签在此放置单位。'));
     return wrap;
@@ -794,7 +918,7 @@ function buildUnitInspector(index) {
         mutate(c => { c.units[index].id = v; });
     }));
     wrap.appendChild(selectRow('兵种', u.type, UNIT_LABELS, set('type')));
-    wrap.appendChild(selectRow('阵营', u.camp, CAMP_LABELS, set('camp')));
+    wrap.appendChild(selectRow('阵营', u.camp, factionLabels(), set('camp')));
     wrap.appendChild(selectRow('将领', u.commander || '', { '': '（无）', ...COMMANDER_LABELS }, v => mutate(c => { c.units[index].commander = v || null; })));
     wrap.appendChild(numRow('生命%', u.hpPct ?? 100, v => mutate(c => { c.units[index].hpPct = Math.max(1, Math.min(100, Math.round(v))); }), { min: 1, max: 100 }));
     wrap.appendChild(selectRow('士气', String(u.morale ?? 2), { 3: '上升', 2: '正常', 1: '下降', 0: '混乱' }, v => mutate(c => { c.units[index].morale = Number(v); })));
@@ -883,7 +1007,7 @@ function pickTilesButton(initial, onChange, { hoverTiles } = {}) {
 }
 
 function unitOptions(includeEmpty = true) {
-    const opts = Object.fromEntries(config.units.map(u => [u.id, `${u.id}（${CAMP_LABELS[u.camp]}${UNIT_LABELS[u.type]}）`]));
+    const opts = Object.fromEntries(config.units.map(u => [u.id, `${u.id}（${factionLabels()[u.camp] || u.camp}${UNIT_LABELS[u.type]}）`]));
     return includeEmpty ? { '': '（无）', ...opts } : opts;
 }
 /** 生成一个「📌 选单位」按钮，点击后进入画布点选模式。currentId 为已选单位 id。 */
@@ -905,6 +1029,34 @@ function pickUnitButton(onChange, currentId) {
         render();
     });
     return btn;
+}
+
+function areaPickerRow(labelText, areaId, onChange) {
+    const row = el('div', 'ed-row');
+    row.appendChild(el('label', null, labelText));
+    const select = el('select');
+    select.appendChild(new Option('（选择已有区域）', ''));
+    for (const area of config.areas) select.appendChild(new Option(area.id, area.id));
+    select.value = config.areas.some(area => area.id === areaId) ? areaId : '';
+    select.addEventListener('change', () => onChange(select.value));
+    row.appendChild(select);
+
+    const tiles = config.areas.find(area => area.id === areaId)?.tiles || [];
+    row.appendChild(pickTilesButton(tiles, list => {
+        if (!list.length) { setStatus('区域至少需要选择一块地块', 'error'); return; }
+        const key = list.map(tile => `${tile.q},${tile.r}`).sort().join(';');
+        const existing = config.areas.find(area => area.tiles.map(tile => `${tile.q},${tile.r}`).sort().join(';') === key);
+        if (existing) { onChange(existing.id); return; }
+        let newId = '';
+        mutate(c => {
+            let n = 1;
+            while (c.areas.some(area => area.id === `area${n}`)) n++;
+            newId = `area${n}`;
+            c.areas.push({ id: newId, tiles: list });
+        }, { rebuildPanels: false });
+        onChange(newId);
+    }));
+    return row;
 }
 
 function buildStepInspector(stepId) {
@@ -931,7 +1083,7 @@ function buildStepInspector(stepId) {
         wrap.appendChild(textRow('说话人', step.speaker?.name || '', v => mutate(c => {
             c.steps[stepId].speaker = { ...(c.steps[stepId].speaker || {}), name: v };
         }, { rebuildPanels: false })));
-        wrap.appendChild(selectRow('立绘', step.speaker?.portrait || '', { '': '（无）', ...Object.fromEntries(Object.values(COMMANDER_LABELS).map(n => [n, n])) },
+        wrap.appendChild(selectRow('立绘', step.speaker?.portrait || '', { '': '（无）', ...COMMANDER_LABELS },
             v => mutate(c => { c.steps[stepId].speaker = { ...(c.steps[stepId].speaker || {}), portrait: v }; }, { rebuildPanels: false })));
     }
     wrap.appendChild(textareaRow('文本', step.text, set('text'), 4));
@@ -948,10 +1100,11 @@ function buildStepInspector(stepId) {
     // 目标环
     const targetUnit = typeof step.target === 'string' ? step.target : '';
     const targetCoord = step.target && typeof step.target === 'object' ? step.target : null;
-    wrap.appendChild(selectRow('目标环·单位', targetUnit, unitOptions(), v => mutate(c => {
-        if (v) c.steps[stepId].target = v;
-        else if (typeof c.steps[stepId].target === 'string') delete c.steps[stepId].target;
-    }, { rebuildPanels: false })));
+    const targetUnitRow = el('div', 'ed-row');
+    targetUnitRow.appendChild(el('label', null, '目标环·单位'));
+    targetUnitRow.appendChild(pickUnitButton(id => mutate(c => { c.steps[stepId].target = id; }, { rebuildPanels: false }), targetUnit));
+    targetUnitRow.appendChild(el('span', null, targetUnit || '未选择'));
+    wrap.appendChild(targetUnitRow);
     if (targetCoord) {
         wrap.appendChild(coordRow('目标环·坐标', targetCoord.q, targetCoord.r, tile => mutate(c => {
             c.steps[stepId].target = tile;
@@ -964,8 +1117,8 @@ function buildStepInspector(stepId) {
 
     // 输入白名单（等待步骤时的引导锁）
     const allow = step.allow || {};
-    const secAllow = section('输入白名单（留空=不限制）');
-    secAllow.appendChild(hint('等待步骤显示时，玩家只能点击白名单内的对象；对白步骤无需设置。'));
+    const secAllow = section('输入白名单（留空=锁定全部操作）');
+    secAllow.appendChild(hint('仅在严格教学模式下生效：查看单位/地块始终允许，移动、攻击、对策卡和技能只允许白名单内项目。需要自由操作时使用触发器「解除输入锁」。'));
     const setAllow = (key, list) => mutate(c => {
         const a = { ...(c.steps[stepId].allow || {}) };
         if (list && list.length) a[key] = list; else delete a[key];
@@ -996,16 +1149,26 @@ function buildStepInspector(stepId) {
 // 切换类型时预置默认参数，防止“新建即空参永不生效”。
 function conditionDefaults(kind) {
     switch (kind) {
+        case 'levelStarted': return {};
+        case 'unitSelected': return { target: { unit: config.units[0]?.id || '' } };
+        case 'unitMovesToTile': return { target: { unit: config.units[0]?.id || '' }, q: 0, r: 0 };
+        case 'unitMovesToArea': return { target: { unit: config.units[0]?.id || '' }, area: config.areas[0]?.id || '' };
+        case 'unitAttacksUnit': return { attacker: { unit: config.units[0]?.id || '' }, defender: { unit: config.units[1]?.id || config.units[0]?.id || '' } };
+        case 'unitKilled': return { target: { unit: config.units[0]?.id || '' } };
+        case 'cityCaptured': return { q: 0, r: 0, camp: '' };
+        case 'turnStarted': return { camp: primaryFactionId() };
+        case 'cardUsed': return { value: CARD_IDS[0] };
+        case 'skillUsed': return { target: { unit: config.units[0]?.id || '' }, skill: '' };
         case 'eventCardIs': return { value: CARD_IDS[0] };
-        case 'cityOwnedBy': return { q: 0, r: 0, camp: 'player1' };
+        case 'cityOwnedBy': return { q: 0, r: 0, camp: primaryFactionId() };
         case 'turnAtLeast': return { value: 1 };
         case 'unitExists': return { unit: config.units[0]?.id || '', alive: true };
         case 'unitHpCompare': return { unit: config.units[0]?.id || '', mode: 'percent', op: '<=', value: 50 };
-        case 'factionUnitCount': return { camp: 'player2', op: '<=', value: 0 };
-        case 'goldCompare': return { camp: 'player1', op: '>=', value: 1 };
+        case 'factionUnitCount': return { camp: nonLocalFactionId(), op: '<=', value: 0 };
+        case 'goldCompare': return { camp: primaryFactionId(), op: '>=', value: 1 };
         case 'variableCompare': return { variable: config.variables[0]?.id || '', op: '==', value: 0 };
-        case 'tileOwnedBy': return { q: 0, r: 0, camp: 'player1' };
-        case 'relationIs': return { camp: 'player1', targetCamp: 'player2', relation: 'enemy' };
+        case 'tileOwnedBy': return { q: 0, r: 0, camp: primaryFactionId() };
+        case 'relationIs': return { camp: primaryFactionId(), targetCamp: nonLocalFactionId(), relation: 'enemy' };
         case 'weatherIs': return { weather: 'clear' };
         case 'objectiveStatusIs': return { objective: Object.keys(config.objectives)[0] || '', status: 'active' };
         case 'interactionStateIs': return { interactable: config.interactables[0]?.id || '', state: 'available' };
@@ -1024,13 +1187,14 @@ function actionDefaults(kind) {
         case 'log': case 'fail': return { text: '' };
         case 'setVariable': return { variable: config.variables[0]?.id || '', operation: 'set', value: 0 };
         case 'setTriggerEnabled': return { trigger: config.triggers[0]?.id || '', enabled: true };
+        case 'setObjectiveStatus': return { objective: Object.keys(config.objectives)[0] || '', status: 'active' };
         case 'emitSignal': return { value: '' };
-        case 'changeGold': return { camp: 'player1', operation: 'add', value: 1 };
+        case 'changeGold': return { camp: primaryFactionId(), operation: 'add', value: 1 };
         case 'changeUnitHp': return { target: { unit: config.units[0]?.id || '' }, operation: 'subtract', mode: 'value', value: 1 };
-        case 'changeUnitFaction': return { target: { unit: config.units[0]?.id || '' }, camp: 'player1' };
+        case 'changeUnitFaction': return { target: { unit: config.units[0]?.id || '' }, camp: primaryFactionId() };
         case 'setUnitState': return { target: { unit: config.units[0]?.id || '' }, state: 'canAct', value: true };
         case 'setUnitDefeatRule': return { target: { unit: config.units[0]?.id || '' }, minHp: 1, nonLethal: true };
-        case 'setDiplomacy': return { camp: 'player1', targetCamp: 'player2', relation: 'enemy' };
+        case 'setDiplomacy': return { camp: primaryFactionId(), targetCamp: nonLocalFactionId(), relation: 'enemy' };
         case 'setWeather': return { weather: 'clear' };
         case 'setInteractionState': return { interactable: config.interactables[0]?.id || '', state: 'available' };
         case 'removeUnits': return { target: { unit: config.units[0]?.id || '' }, mode: 'despawn' };
@@ -1049,6 +1213,37 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
     }));
     const patch = (fields) => onChange({ ...cond, ...fields });
     switch (meta.arg) {
+        case 'none':
+            box.appendChild(hint('只会在关卡初始化完成后满足一次。'));
+            break;
+        case 'eventTarget':
+            box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '指定单位' }));
+            break;
+        case 'eventTargetTile':
+            box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
+            box.appendChild(coordRow('目标地块', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
+            box.appendChild(hint('仅在该单位完成一次移动，且落点正好是目标地块时满足。'));
+            break;
+        case 'eventTargetArea':
+            box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
+            box.appendChild(areaPickerRow('目标区域', cond.area || '', area => patch({ area })));
+            box.appendChild(hint('通过图钉框选区域；任一指定单位移动进入其中任意地块时满足。'));
+            break;
+        case 'eventCombatPair':
+            box.appendChild(targetEditor(cond.attacker, attacker => patch({ attacker }), { label: '攻击方' }));
+            box.appendChild(targetEditor(cond.defender, defender => patch({ defender }), { label: '受击方' }));
+            break;
+        case 'eventCityCapture':
+            box.appendChild(coordRow('城市地块', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
+            box.appendChild(selectRow('占领阵营', cond.camp || '', { '': '任意阵营', ...factionLabels() }, camp => patch({ camp })));
+            break;
+        case 'eventCamp':
+            box.appendChild(selectRow('阵营', cond.camp || primaryFactionId(), factionLabels(), camp => patch({ camp })));
+            break;
+        case 'eventUnitSkill':
+            box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '施放单位' }));
+            box.appendChild(textRow('技能 id（留空=任意）', cond.skill || '', skill => patch({ skill })));
+            break;
         case 'step':
             box.appendChild(selectRow('步骤', cond.value || '', stepOptions(true), v => patch({ value: v }))); break;
         case 'unitRef': {
@@ -1061,10 +1256,10 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'card':
             box.appendChild(selectRow('卡牌', cond.value || CARD_IDS[0], CARD_LABELS, v => patch({ value: v }))); break;
         case 'camp':
-            box.appendChild(selectRow('阵营', cond.value || 'player1', CAMP_LABELS, v => patch({ value: v }))); break;
+            box.appendChild(selectRow('阵营', cond.value || primaryFactionId(), factionLabels(), v => patch({ value: v }))); break;
         case 'cityOwner':
             box.appendChild(coordRow('坐标', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
-            box.appendChild(selectRow('归属', cond.camp || 'player1', CAMP_LABELS, v => patch({ camp: v })));
+            box.appendChild(selectRow('归属', cond.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
             break;
         case 'number':
             box.appendChild(numRow('数值', cond.value ?? 1, v => patch({ value: Math.round(v) }))); break;
@@ -1092,17 +1287,17 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(numRow('数值', cond.value ?? 50, v => patch({ value: v }))); break;
         }
         case 'campCompare':
-            box.appendChild(selectRow('阵营', cond.camp || 'player2', CAMP_LABELS, v => patch({ camp: v })));
+            box.appendChild(selectRow('阵营', cond.camp || nonLocalFactionId(), factionLabels(), v => patch({ camp: v })));
             box.appendChild(selectRow('比较', cond.op || '<=', { '<=': '不多于', '==': '正好', '>=': '不少于' }, v => patch({ op: v })));
             box.appendChild(numRow('单位数', cond.value ?? 0, v => patch({ value: Math.max(0, Math.round(v)) }))); break;
         case 'relation':
-            box.appendChild(selectRow('阵营 A', cond.camp || 'player1', CAMP_LABELS, v => patch({ camp: v })));
-            box.appendChild(selectRow('阵营 B', cond.targetCamp || 'player2', CAMP_LABELS, v => patch({ targetCamp: v })));
+            box.appendChild(selectRow('阵营 A', cond.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
+            box.appendChild(selectRow('阵营 B', cond.targetCamp || nonLocalFactionId(), factionLabels(), v => patch({ targetCamp: v })));
             box.appendChild(selectRow('关系', cond.relation || 'enemy', { ally: '联盟', neutral: '中立', enemy: '敌对' }, v => patch({ relation: v }))); break;
         case 'weather': box.appendChild(selectRow('天气', cond.weather || 'clear', WEATHER_LABELS, v => patch({ weather: v }))); break;
         case 'objectiveStatus':
             box.appendChild(selectRow('目标', cond.objective || '', Object.fromEntries(Object.keys(config.objectives).map(id => [id, config.objectives[id].title || id])), v => patch({ objective: v })));
-            box.appendChild(selectRow('状态', cond.status || 'active', { hidden: '隐藏', active: '进行中', completed: '已完成', failed: '已失败' }, v => patch({ status: v }))); break;
+            box.appendChild(selectRow('状态', cond.status || 'active', { hidden: '隐藏（未启用）', active: '进行中', completed: '已完成', failed: '已失败' }, v => patch({ status: v }))); break;
         case 'interactionState':
             box.appendChild(selectRow('调查点', cond.interactable || '', Object.fromEntries(config.interactables.map(item => [item.id, item.label || item.id])), v => patch({ interactable: v })));
             box.appendChild(selectRow('状态', cond.state || 'available', { disabled: '不可用', available: '可调查', completed: '已完成' }, v => patch({ state: v }))); break;
@@ -1136,7 +1331,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
                 areaSel.value = area.id;
             }));
             box.appendChild(areaRow);
-            box.appendChild(selectRow('阵营筛选', cond.camp || '', { '': '任意阵营', ...CAMP_LABELS }, v => patch({ camp: v })));
+            box.appendChild(selectRow('阵营筛选', cond.camp || '', { '': '任意阵营', ...factionLabels() }, v => patch({ camp: v })));
             box.appendChild(selectRow('比较', cond.op || '>=', { '<=': '不多于', '==': '正好', '>=': '不少于' }, v => patch({ op: v })));
             box.appendChild(numRow('单位数', cond.value ?? 1, v => patch({ value: Math.max(0, Math.round(v)) }))); break;
         }
@@ -1144,7 +1339,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(coordRow('坐标', cond.q ?? 0, cond.r ?? 0, tile => patch(tile))); break;
         case 'interaction': box.appendChild(selectRow('调查点', cond.interactable || '', Object.fromEntries(config.interactables.map(item => [item.id, item.label || item.id])), v => patch({ interactable: v }))); break;
         case 'goldCompare':
-            box.appendChild(selectRow('阵营', cond.camp || 'player1', CAMP_LABELS, v => patch({ camp: v })));
+            box.appendChild(selectRow('阵营', cond.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
             box.appendChild(selectRow('比较', cond.op || '>=', { '<': '少于', '<=': '不多于', '==': '等于', '>=': '不少于', '>': '多于' }, v => patch({ op: v })));
             box.appendChild(numRow('金币', cond.value ?? 1, v => patch({ value: Math.max(0, v) }))); break;
         case 'variableCompare':
@@ -1171,22 +1366,22 @@ function spawnGroupEditor(units, onChange) {
         };
         box.appendChild(textRow('id', u.id || '', v => patch({ id: v || undefined })));
         box.appendChild(selectRow('兵种', u.type || 'infantry', UNIT_LABELS, v => patch({ type: v })));
-        box.appendChild(selectRow('阵营', u.camp || 'player2', CAMP_LABELS, v => patch({ camp: v })));
+        box.appendChild(selectRow('阵营', u.camp || nonLocalFactionId(), factionLabels(), v => patch({ camp: v })));
         box.appendChild(selectRow('将领', u.commander || '', { '': '（无）', ...COMMANDER_LABELS }, v => patch({ commander: v || undefined })));
         box.appendChild(coordRow('坐标', u.q ?? 0, u.r ?? 0, tile => patch(tile)));
         box.appendChild(numRow('生命%', u.hpPct ?? 100, v => patch({ hpPct: Math.max(1, Math.min(100, Math.round(v))) })));
         wrap.appendChild(box);
     });
     const add = el('button', 'ed-add-btn', '+ 添加生成单位');
-    add.addEventListener('click', () => onChange([...(units || []), { type: 'infantry', camp: 'player2', q: 0, r: 0 }]));
+    add.addEventListener('click', () => onChange([...(units || []), { type: 'infantry', camp: nonLocalFactionId(), q: 0, r: 0 }]));
     wrap.appendChild(add);
     return wrap;
 }
 
-function targetEditor(target, onChange) {
+function targetEditor(target, onChange, { label = '作用对象' } = {}) {
     const wrap = el('div');
     const mode = target?.group ? 'group' : 'unit';
-    wrap.appendChild(selectRow('作用对象', mode, { unit: '单个单位', group: '单位组' }, value => {
+    wrap.appendChild(selectRow(label, mode, { unit: '单个单位', group: '单位组' }, value => {
         onChange(value === 'group' ? { group: config.unitGroups[0]?.id || '' } : { unit: config.units[0]?.id || '' });
     }));
     if (mode === 'group') {
@@ -1234,7 +1429,24 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                 preview.addEventListener('click', () => { selection = { kind: 'step', id: stepId }; renderInspector(); });
                 preview.style.cursor = 'pointer';
                 box.appendChild(preview);
-                box.appendChild(hint('点击预览编辑步骤内容'));
+                const dialogue = section('本动作显示的对白');
+                dialogue.appendChild(selectRow('类型', step.mode, { narrator: '旁白', character: '台词' }, value => mutate(c => {
+                    c.steps[stepId].mode = value;
+                    if (value === 'character' && !c.steps[stepId].speaker) c.steps[stepId].speaker = { name: '', portrait: '' };
+                }, { rebuildPanels: true })));
+                if (step.mode === 'character') {
+                    dialogue.appendChild(textRow('说话人', step.speaker?.name || '', value => mutate(c => {
+                        c.steps[stepId].speaker = { ...(c.steps[stepId].speaker || {}), name: value };
+                    }, { rebuildPanels: false })));
+                    dialogue.appendChild(selectRow('立绘', step.speaker?.portrait || '', { '': '（无）', ...COMMANDER_LABELS }, value => mutate(c => {
+                        c.steps[stepId].speaker = { ...(c.steps[stepId].speaker || {}), portrait: value };
+                    }, { rebuildPanels: false })));
+                }
+                dialogue.appendChild(textareaRow('台词', step.text || '', value => mutate(c => {
+                    c.steps[stepId].text = value;
+                }, { rebuildPanels: false }), 3));
+                box.appendChild(dialogue);
+                box.appendChild(hint('这里可直接写对白；需要目标环、输入白名单或连续页面时，再点击上方预览进入完整步骤编辑。'));
             }
             box.appendChild(checkRow('立即显示', !!action.immediate, v => patch({ immediate: v || undefined })));
             // 在上述步骤之后追加一页（自动设置 next 形成连续对话）
@@ -1280,9 +1492,9 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(selectRow('状态', action.enabled === false ? 'off' : 'on', { on: '启用', off: '禁用' }, v => patch({ enabled: v === 'on' }))); break;
         case 'objectiveStatus':
             box.appendChild(selectRow('目标', action.objective || '', Object.fromEntries(Object.keys(config.objectives).map(id => [id, config.objectives[id].title || id])), v => patch({ objective: v })));
-            box.appendChild(selectRow('状态', action.status || 'active', { hidden: '隐藏', active: '进行中', completed: '已完成', failed: '已失败' }, v => patch({ status: v }))); break;
+            box.appendChild(selectRow('状态', action.status || 'active', { hidden: '隐藏（未启用）', active: '进行中', completed: '已完成', failed: '已失败' }, v => patch({ status: v }))); break;
         case 'campOperation':
-            box.appendChild(selectRow('阵营', action.camp || 'player1', CAMP_LABELS, v => patch({ camp: v })));
+            box.appendChild(selectRow('阵营', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
             box.appendChild(selectRow('操作', action.operation || 'add', { set: '设为', add: '增加', subtract: '减少' }, v => patch({ operation: v })));
             box.appendChild(numRow('金币', action.value ?? 1, v => patch({ value: v }))); break;
         case 'unitOperation':
@@ -1292,7 +1504,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(numRow('数值', action.value ?? 1, v => patch({ value: Math.max(0, v) }))); break;
         case 'unitCamp':
             box.appendChild(targetEditor(action.target, target => patch({ target })));
-            box.appendChild(selectRow('新阵营', action.camp || 'player1', CAMP_LABELS, v => patch({ camp: v }))); break;
+            box.appendChild(selectRow('新阵营', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v }))); break;
         case 'unitState':
             box.appendChild(targetEditor(action.target, target => patch({ target })));
             box.appendChild(selectRow('能力', action.state || 'canAct', { canAct: '本回合可行动', canMove: '允许移动', canAttack: '允许攻击', selectable: '允许玩家选择', targetable: '允许成为目标', invulnerable: '无敌' }, v => patch({ state: v })));
@@ -1303,8 +1515,8 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(checkRow('致命伤保留 1 HP', !!action.nonLethal, v => patch({ nonLethal: v })));
             box.appendChild(checkRow('阵亡立即失败', !!action.failOnDeath, v => patch({ failOnDeath: v }))); break;
         case 'relation':
-            box.appendChild(selectRow('阵营 A', action.camp || 'player1', CAMP_LABELS, v => patch({ camp: v })));
-            box.appendChild(selectRow('阵营 B', action.targetCamp || 'player2', CAMP_LABELS, v => patch({ targetCamp: v })));
+            box.appendChild(selectRow('阵营 A', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
+            box.appendChild(selectRow('阵营 B', action.targetCamp || nonLocalFactionId(), factionLabels(), v => patch({ targetCamp: v })));
             box.appendChild(selectRow('新关系', action.relation || 'enemy', { ally: '联盟', neutral: '中立', enemy: '敌对' }, v => patch({ relation: v }))); break;
         case 'weather': box.appendChild(selectRow('天气', action.weather || 'clear', WEATHER_LABELS, v => patch({ weather: v }))); break;
         case 'interactionState':
@@ -1335,7 +1547,7 @@ function conditionListEditor(list, onChange, { parentIsAny = false } = {}) {
             parentIsAny));
     });
     const add = el('button', 'ed-add-btn', '+ 添加条件');
-    add.addEventListener('click', () => onChange([...(list || []), { kind: 'unitAlive', ...conditionDefaults('unitAlive') }]));
+    add.addEventListener('click', () => onChange([...(list || []), { kind: 'levelStarted', ...conditionDefaults('levelStarted') }]));
     wrap.appendChild(add);
     return wrap;
 }
@@ -1366,6 +1578,7 @@ function buildTriggerInspector(index) {
     wrap.appendChild(checkRow('开场启用', trig.enabled !== false, set('enabled')));
 
     const secWhen = section('条件（AND）');
+    secWhen.appendChild(hint('先选择“关卡开始时”“单位移动到地块/区域”等事件条件，再叠加金币、目标、外交等状态条件。根层全部满足；需要“或”时添加“满足任一（OR）”。'));
     secWhen.appendChild(conditionListEditor(trig.when || [], list => mutate(c => { c.triggers[index].when = list; })));
     wrap.appendChild(secWhen);
 
@@ -1389,9 +1602,9 @@ function buildObjectiveInspector(id) {
     const obj = config.objectives[id];
     wrap.appendChild(textRow('标题', obj.title, v => mutate(c => { c.objectives[id].title = v; })));
     wrap.appendChild(textareaRow('描述', obj.detail, v => mutate(c => { c.objectives[id].detail = v; }, { rebuildPanels: false }), 3));
-    wrap.appendChild(checkRow('开场时启用', obj.active !== false, v => mutate(c => { c.objectives[id].active = v; }, { rebuildPanels: false })));
-    wrap.appendChild(checkRow('主要目标（全部完成即胜利）', obj.main === true, v => mutate(c => { c.objectives[id].main = v || undefined; }, { rebuildPanels: false })));
-    wrap.appendChild(hint('主要目标全部完成 → 胜利；任一主要目标失败 → 失败。通过触发器「设置目标状态」改变。'));
+    wrap.appendChild(checkRow('开场时显示为“进行中”', obj.active !== false, v => mutate(c => { c.objectives[id].active = v; }, { rebuildPanels: false })));
+    wrap.appendChild(checkRow('主要目标（纳入胜负判定）', obj.main === true, v => mutate(c => { c.objectives[id].main = v || undefined; }, { rebuildPanels: false })));
+    wrap.appendChild(hint('所有非隐藏的主要目标完成 → 胜利；任一主要目标失败 → 失败。后续阶段目标先设为“开场不显示”，再通过触发器设为“进行中”。'));
     return wrap;
 }
 

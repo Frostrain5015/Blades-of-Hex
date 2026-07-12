@@ -1,9 +1,10 @@
 ﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
+import { campToKey } from '../rules/camps.js';
 import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
 import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState, seedMatchRng } from './state.js';
-import { isNetworkGame, sendAction, getMyRole, sendMessage, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
+import { isNetworkGame, sendAction, getMyRole, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
 import { neutralDriverRole } from '../protocol/messages.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
@@ -32,6 +33,7 @@ import { COMBAT_BALANCE } from '../rules/constants.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
 import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
+import { campFromKey, getFactionKeys } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 
 // ===== 联机广播 =====================
@@ -427,7 +429,7 @@ function initCardDeck() {
 
 export function drawCard(camp) {
     if (gameState.campaignMode && !isMechanicEnabled(gameState, 'tacticalCards')) { notify('本关尚未开放对策卡', 'info'); return false; }
-    const campKey = camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : camp === CAMP.player3 ? 'player3' : 'neutral';
+    const campKey = _campKey(camp);
     if (campKey === 'neutral') return null;
 
     if (gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
@@ -553,10 +555,18 @@ let _turnProcessing = false;
 let _neutralAiLock = false; // 防止AI在非中立回合异常触发
 
 function _campKey(camp) {
-    return camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : camp === CAMP.player3 ? 'player3' : 'neutral';
+    return campToKey(camp);
 }
 
 function _updateSkirmishFogAll() {
+    if (gameState.campaignMode) {
+        for (const key of getFactionKeys(gameState)) {
+            const faction = gameState.factions[key];
+            if (key !== 'neutral' && faction?.active !== false) updateFogOfWar(gameState, campFromKey(key, gameState));
+        }
+        if (_onFogUpdated) _onFogUpdated();
+        return;
+    }
     updateFogOfWar(gameState, CAMP.player1);
     updateFogOfWar(gameState, CAMP.player2);
     if (gameState.isThreePlayer) updateFogOfWar(gameState, CAMP.player3);
@@ -570,8 +580,8 @@ function _showTurnTransition(camp) {
     return new Promise(resolve => {
         const overlay = document.getElementById('turnTransitionOverlay');
         const text = document.getElementById('turnTransitionText');
-        const name = camp === CAMP.player1 ? '红军' : camp === CAMP.player2 ? '蓝军' : '绿军';
-        const color = camp === CAMP.player1 ? '#ffaaaa' : camp === CAMP.player2 ? '#aaaaff' : '#aaffaa';
+        const name = camp?.name || _campKey(camp);
+        const color = camp?.color || '#ffffff';
         text.textContent = `${name} 的回合`;
         text.style.color = color;
         overlay.classList.add('show');
@@ -599,12 +609,13 @@ function _skipToNextActiveCamp(fromCamp) {
 // 获取下一个未投降的阵营（用于回合轮转）
 function _nextActiveCamp(camp) {
     if (gameState.campaignMode && gameState.factions) {
-        const order = [CAMP.player1, CAMP.player2, CAMP.player3, CAMP.neutral];
-        const idx = order.indexOf(camp);
+        const order = gameState.turnOrder?.length ? gameState.turnOrder : getFactionKeys(gameState)
+            .filter(key => gameState.factions[key]?.active !== false && gameState.factions[key]?.participatesInTurns !== false);
+        const idx = order.indexOf(_campKey(camp));
         for (let i = 1; i <= order.length; i++) {
-            const next = order[(idx + i) % order.length];
-            const key = _campKey(next);
+            const key = order[((idx < 0 ? 0 : idx) + i) % order.length];
             const faction = gameState.factions[key];
+            const next = campFromKey(key, gameState);
             if (faction?.active !== false && faction?.participatesInTurns !== false && !gameState.surrenderedCamps.includes(next)) return next;
         }
         return camp;
@@ -735,8 +746,9 @@ export function grantTurnStartIncome(camp) {
     const key = _campKey(camp);
     const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp && !(t._cityDisabledUntil > 0 && t._cityDisabledUntil > getRoundIndex(gameState)));
     const cityCount = cities.length;
-    let income = camp === CAMP.neutral ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
-    if (gameState.gameMode === 'pve' && camp === gameState.aiOpponentCamp) {
+    let income = _campKey(camp) === 'neutral' ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
+    const isCampaignAi = gameState.campaignMode && gameState.factions?.[key]?.controller === 'ai';
+    if (isCampaignAi || (gameState.gameMode === 'pve' && camp === gameState.aiOpponentCamp)) {
         income = Math.floor(income * gameState.aiDifficulty);
     }
     gameState.playerGold[key] += income;
@@ -899,7 +911,10 @@ async function _doEndTurnPhase() {
     }
     // 新回合（P1开始）→ 限时效果到期检查
     // 天气在新回合开始时更新
-    if (gameState.currentCamp === CAMP.player1) {
+    const isRoundAnchor = gameState.campaignMode
+        ? _campKey(gameState.currentCamp) === (gameState.turnOrder?.[0] || gameState.localPlayerCampKey)
+        : gameState.currentCamp === CAMP.player1;
+    if (isRoundAnchor) {
         checkTurnLimitVictory();
         if (gameState.gameOver) {
             broadcastAction('endTurn', {
@@ -914,17 +929,20 @@ async function _doEndTurnPhase() {
         // 每5回合：全员免费对策卡（第5/10/15…回合发放）
         const roundNum = getRound(gameState);  // 1-indexed 回合数
         if (roundNum % 5 === 0 && gameState.cardDrawPile.length > 0) {
-            for (const key of ['player1', 'player2', 'player3']) {
+            const cardRecipients = gameState.campaignMode
+                ? (gameState.turnOrder || []).filter(key => key !== 'neutral')
+                : ['player1', 'player2', 'player3'];
+            for (const key of cardRecipients) {
                 const h = gameState.playerHands[key];
                 // E3 纵横家合纵：手牌上限覆盖
                 const hBonus = (gameState._cardOverrides && gameState._cardOverrides[key]) ? gameState._cardOverrides[key].handSizeBonus || 0 : 0;
                 if (!h || h.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
                 if (gameState.cardDrawPile.length === 0) break;
-                if (key === 'player3' && !gameState.isThreePlayer) continue;
+                if (!gameState.campaignMode && key === 'player3' && !gameState.isThreePlayer) continue;
                 const card = gameState.cardDrawPile.pop();
                 h.push(card);
                 const cfg = TACTICAL_CARD_CONFIG[card];
-                logMessage(`${key === 'player1' ? '红军' : key === 'player2' ? '蓝军' : '绿军'}获得免费对策卡【${cfg?.name || card}】`);
+                logMessage(`${gameState.factions?.[key]?.name || key}获得免费对策卡【${cfg?.name || card}】`);
             }
         }
         // E4 空军上校：空军卡改为金币消耗，不再发放燃料
@@ -958,7 +976,7 @@ export async function endTurn(options = {}) {
 
     try {
         const currentFaction = gameState.factions?.[_campKey(gameState.currentCamp)];
-        const isAITurn = gameState.currentCamp === CAMP.neutral ||
+        const isAITurn = _campKey(gameState.currentCamp) === 'neutral' ||
             (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp) ||
             (gameState.campaignMode && currentFaction?.controller !== 'human');
         const hasActionable = gameState.tiles.some(t =>
@@ -977,22 +995,22 @@ export async function endTurn(options = {}) {
         const isLocalSkirmish = gameState.skirmishFog && !isNetworkGame() && gameState.gameMode !== 'pve';
         if (isLocalSkirmish) {
             const nextCamp = gameState.currentCamp;
-            if (nextCamp !== CAMP.neutral) {
+            if (_campKey(nextCamp) !== 'neutral') {
                 await _showTurnTransition(nextCamp);
             }
         }
 
         // 链式处理 AI 回合（对手 AI → 中立 AI），直到人类回合
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < Math.max(3, (gameState.turnOrder?.length || 0) + 1); i++) {
             if (gameState.gameOver) break;
 
             const currentKey = _campKey(gameState.currentCamp);
             const currentFaction = gameState.factions?.[currentKey];
-            const isAIOpponent = gameState.currentCamp !== CAMP.neutral && !gameState.aiActing && (
+            const isAIOpponent = currentKey !== 'neutral' && !gameState.aiActing && (
                 (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp)
                 || (gameState.campaignMode && currentFaction?.controller === 'ai')
             );
-            const isNeutral = gameState.currentCamp === CAMP.neutral &&
+            const isNeutral = currentKey === 'neutral' &&
                 !gameState.aiActing && !_neutralAiLock;
             const isScripted = gameState.campaignMode && currentFaction?.controller === 'scripted';
 
@@ -1032,6 +1050,32 @@ export async function endTurn(options = {}) {
     } finally {
         _turnProcessing = false;
     }
+}
+
+/** 战役可由作者把任意 AI/剧情阵营排在回合队列首位；启动时完整处理该首回合。 */
+export async function runCampaignOpeningTurn() {
+    if (!gameState.campaignMode || gameState.gameOver || _turnProcessing) return;
+    const faction = gameState.factions?.[_campKey(gameState.currentCamp)];
+    if (!faction || faction.controller === 'human') return;
+
+    if (faction.controller === 'ai') {
+        gameState.aiActing = true;
+        try {
+            const { processOpponentTurn } = await import('./ai.js');
+            await Promise.race([
+                processOpponentTurn(gameState.currentCamp),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 18000))
+            ]);
+        } catch (error) {
+            logMessage(error?.message === 'AI_TIMEOUT' ? 'AI 对手超时，跳过回合' : 'AI 对手执行出错，跳过回合');
+            console.warn('Campaign opening AI error:', error);
+        } finally {
+            gameState.aiActing = false;
+        }
+    } else {
+        await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    if (!gameState.gameOver) await endTurn({ skipConfirmation: true });
 }
 
 // 中立 AI 回合（Claude 防御型人格）：执行 AI 行动后推进回合。
@@ -1074,7 +1118,6 @@ async function _processNeutralTurn(isLocalSkirmish) {
         }
         notify('本轮行动完毕 即将进入下一轮', 'info');
         logMessage('本轮行动完毕 即将进入下一轮');
-        if (isNetworkGame()) sendMessage({ type: 'toast', text: '本轮行动完毕 即将进入下一轮', toastType: 'info' });
         await new Promise(r => setTimeout(r, 2500));
     }
     // 无论如何都要推进回合
@@ -1381,7 +1424,7 @@ export function moveUnit(unit, targetTile) {
     let _mineTrigger = null;
     if (targetTile._minePlanted) {
         const mineCampKey = targetTile._mineCampKey;
-        const unitCampKey = unit.camp === CAMP.player1 ? 'p1' : unit.camp === CAMP.player2 ? 'p2' : unit.camp === CAMP.player3 ? 'p3' : 'neutral';
+        const unitCampKey = _campKey(unit.camp);
         if (mineCampKey !== unitCampKey) {
             const oldHp = unit.hp;
             unit.applyDamage(100, { source: 'true' });
@@ -1675,13 +1718,10 @@ export function attackUnit(attackerUnit, targetUnit) {
             if (targetUnit.commander) {
                 // 空军上校阵亡 → 禁用对应玩家的空军卡
                 if (targetUnit.commander === 'colonel') {
-                    const defKey = targetUnit.camp === CAMP.player1 ? 'player1' :
-                                   targetUnit.camp === CAMP.player2 ? 'player2' : 'player3';
+                    const defKey = _campKey(targetUnit.camp);
                     if (gameState._colonelDeployed) gameState._colonelDeployed[defKey] = false;
                 }
-                const killerKey = attackerUnit.camp === CAMP.player1 ? 'player1' :
-                                  attackerUnit.camp === CAMP.player2 ? 'player2' :
-                                  attackerUnit.camp === CAMP.player3 ? 'player3' : 'neutral';
+                const killerKey = _campKey(attackerUnit.camp);
                 if (killerKey !== 'neutral') {
                     gameState.factionMoraleBoost[killerKey] = getRoundIndex(gameState) + 2;
                     for (const tile of gameState.tiles) {
@@ -2399,7 +2439,7 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     }
 
     // 视觉效果：无人机棋子飞向目标
-    const dCampKey = droneUnit.camp === CAMP.player1 ? 'p1' : droneUnit.camp === CAMP.player2 ? 'p2' : 'p3';
+    const dCampKey = _campKey(droneUnit.camp);
     spawnDroneDive(fromTile.x, fromTile.y, targetTile.x, targetTile.y, dCampKey);
 
     const pierceTexts = results.filter(r => !(r.q === targetTile.q && r.r === targetTile.r));
@@ -2438,7 +2478,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     if (!cfg) return;
 
     const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
-    const campKey = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
+    const campKey = _campKey(myCamp);
 
     // validate targeting
     const tg = cfg.targeting;
@@ -2746,7 +2786,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     const dc = victim.camp;
                     const killed = victim.applyDamage(dmg, { source: 'true' });
                     if (killed) {
-                        const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                        const dck = _campKey(dc);
                         gameState.killCount[dck]++;
                         logMessage(`${dc.name}${victim.config.name}兵被雷击消灭`);
                     }
@@ -2997,7 +3037,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     updateUI();
     // 烧牌动画 — 人类玩家从手牌飞到中央；AI/中立/远端在中央直接出现
     const isAI = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
-    const isHumanLocal = !isAI && gameState.currentCamp !== CAMP.neutral;
+    const isHumanLocal = !isAI && _campKey(gameState.currentCamp) !== 'neutral';
     // 部署将领的烧牌动画显示所选将领名（遭遇战模式下不广播将领名）
     const burnDisplayName = (cardId === 'commanderDeploy' && result.commander && !gameState.skirmishFog)
         ? (COMMANDER_CONFIG[result.commander]?.name || null) : null;

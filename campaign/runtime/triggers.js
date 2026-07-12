@@ -9,7 +9,7 @@ import {
 } from '../../rules/diplomacy.js';
 import { isMechanicEnabled, setMechanicEnabled } from '../../rules/mechanics.js';
 
-function campKeyOf(camp) { return normalizeCampKey(camp); }
+function campKeyOf(camp) { return normalizeCampKey(camp, gameState); }
 function coordKey(q, r) { return `${q},${r}`; }
 function compareValues(left, op, right) {
     if (op === '==') return left === right;
@@ -28,6 +28,12 @@ function resolveUnit(id) {
 
 function groupById(config, id) { return (config.unitGroups || []).find(group => group.id === id) || null; }
 function areaById(config, id) { return (config.areas || []).find(area => area.id === id) || null; }
+function targetIncludesUnit(config, target, unitId) {
+    if (!target || !unitId) return false;
+    if (typeof target === 'string') return target === unitId;
+    if (target.unit) return target.unit === unitId;
+    return !!target.group && (groupById(config, target.group)?.unitIds || []).includes(unitId);
+}
 function unitsForTarget(config, target) {
     if (!target) return [];
     if (typeof target === 'string') return [resolveUnit(target)].filter(Boolean);
@@ -58,7 +64,7 @@ export function spawnUnitsInto(state, specs) {
     for (const spec of (specs || [])) {
         const tile = state.tileMap.get(coordKey(spec.q, spec.r));
         if (!tile || tile.unit) continue;
-        const camp = campFromKey(spec.camp);
+        const camp = campFromKey(spec.camp, state);
         tile.camp = camp;
         tile.startColor = camp.color;
         tile.targetColor = camp.color;
@@ -81,17 +87,39 @@ export function spawnUnitsInto(state, specs) {
 
 function evalCondition(cond, ctx) {
     if (!cond || typeof cond !== 'object') return false;
-    const { api, event, flags, config, enabled } = ctx;
+    const { api, event, eventId, flags, config, enabled } = ctx;
     switch (cond.kind) {
         case 'all': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.every(child => evalCondition(child, ctx));
         case 'any': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.some(child => evalCondition(child, ctx));
         case 'not': return !!cond.condition && !evalCondition(cond.condition, ctx);
+        case 'levelStarted': return eventId === 'levelStarted';
+        case 'unitSelected': return eventId === 'unitSelected' && targetIncludesUnit(config, cond.target, event?.unitId);
+        case 'unitMovesToTile': return eventId === 'unitMoved'
+            && targetIncludesUnit(config, cond.target, event?.unitId)
+            && event?.q === cond.q && event?.r === cond.r;
+        case 'unitMovesToArea': {
+            if (eventId !== 'unitMoved' || !targetIncludesUnit(config, cond.target, event?.unitId)) return false;
+            const area = areaById(config, cond.area);
+            return !!area?.tiles?.some(tile => tile.q === event?.q && tile.r === event?.r);
+        }
+        case 'unitAttacksUnit': return eventId === 'combatStarted'
+            && targetIncludesUnit(config, cond.attacker, event?.attackerId)
+            && targetIncludesUnit(config, cond.defender, event?.defenderId);
+        case 'unitKilled': return eventId === 'unitKilled' && targetIncludesUnit(config, cond.target, event?.unitId);
+        case 'cityCaptured': return eventId === 'tileCaptured'
+            && event?.q === cond.q && event?.r === cond.r
+            && (!cond.camp || event?.newCamp === cond.camp);
+        case 'turnStarted': return eventId === 'turnStarted' && event?.camp === cond.camp;
+        case 'cardUsed': return eventId === 'cardUsed' && event?.cardId === cond.value;
+        case 'skillUsed': return eventId === 'skillUsed'
+            && targetIncludesUnit(config, cond.target, event?.unitId)
+            && (!cond.skill || event?.skillId === cond.skill);
         case 'goldCompare': return compareValues(gameState.playerGold[cond.camp] || 0, cond.op || '>=', Number(cond.value));
         case 'variableCompare': return compareValues(gameState.levelVariables?.[cond.variable], cond.op || '==', cond.value);
-        case 'eventCardIs': return event?.cardId === cond.value;
-        case 'eventNextIs': case 'eventChoiceIs': return event?.next === cond.value || event?.choiceId === cond.value;
-        case 'eventInteractionIs': return event?.interactableId === cond.interactable;
-        case 'eventSignalIs': return event?.signal === cond.value;
+        case 'eventCardIs': return eventId === 'cardUsed' && event?.cardId === cond.value;
+        case 'eventNextIs': case 'eventChoiceIs': return eventId === 'advance' && (event?.next === cond.value || event?.choiceId === cond.value);
+        case 'eventInteractionIs': return eventId === 'interactionCompleted' && event?.interactableId === cond.interactable;
+        case 'eventSignalIs': return eventId === 'triggerSignal' && event?.signal === cond.value;
         case 'unitAlive': return !!resolveUnit(cond.unit);
         case 'unitDead': return !resolveUnit(cond.unit);
         case 'unitExists': {
@@ -145,7 +173,7 @@ function evalAll(conditions, ctx) {
 }
 
 export function evaluateConditions(conditions, api, flags, config = {}) {
-    return evalAll(conditions, { api, event: {}, flags: flags || new Set(), config, enabled: new Map() });
+    return evalAll(conditions, { api, event: {}, eventId: '', flags: flags || new Set(), config, enabled: new Map() });
 }
 
 function applyOperation(current, operation, value) {
@@ -191,7 +219,7 @@ function runAction(action, ctx) {
             break;
         }
         case 'changeUnitFaction': {
-            const nextCamp = campFromKey(action.camp);
+            const nextCamp = campFromKey(action.camp, gameState);
             for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) unit.camp = nextCamp;
             gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
             clearselection(); invalidateBoard(); updateUI(); break;
@@ -254,7 +282,9 @@ export function createTriggerFlow(config, api) {
     const enabled = new Map(triggers.map(trigger => [trigger._id, trigger.enabled !== false]));
     const result = config.result || {};
 
-    function ctxFor(event, triggerId = '') { return { api, event: event || {}, flags: state.flags, state, config, dispatch, enabled, triggerId }; }
+    function ctxFor(eventId, event, triggerId = '') {
+        return { api, event: event || {}, eventId, flags: state.flags, state, config, dispatch, enabled, triggerId };
+    }
     function dispatch(eventId, event = {}) {
         if (!api.isActive() || api.isResultShown()) return;
         if (state.dispatching.length > 32) { console.error('[campaign] 触发器递归超过 32 层，已中止。'); return; }
@@ -263,7 +293,7 @@ export function createTriggerFlow(config, api) {
             for (const trigger of triggers) {
                 if (enabled.get(trigger._id) === false) continue;
                 if (trigger.once && state.fired.has(trigger._id)) continue;
-                const ctx = ctxFor(event, trigger._id);
+                const ctx = ctxFor(eventId, event, trigger._id);
                 if (!evalAll(trigger.when, ctx)) continue;
                 if (trigger.once) state.fired.add(trigger._id);
                 runActions(trigger.do, ctx);
@@ -283,9 +313,9 @@ export function createTriggerFlow(config, api) {
         // 目标状态自动判定（主要目标全部完成→胜利，任一失败→失败）
         const objConfig = config.objectives;
         if (objConfig && typeof objConfig === 'object') {
-            const mainIds = Object.keys(objConfig).filter(id => objConfig[id].main);
+            const states = gameState.objectiveStates || {};
+            const mainIds = Object.keys(objConfig).filter(id => objConfig[id].main && states[id] !== 'hidden');
             if (mainIds.length > 0) {
-                const states = gameState.objectiveStates || {};
                 if (mainIds.every(id => states[id] === 'completed')) { api.win(); return; }
                 if (mainIds.some(id => states[id] === 'failed')) { api.fail(result.loseText); return; }
             }
@@ -301,7 +331,11 @@ export function createTriggerFlow(config, api) {
         onUnitMoved({ unit, targetTile, fromQ, fromR }) { dispatch('unitMoved', { unitId: unit?.id, camp: campKeyOf(unit?.camp), fromQ, fromR, q: targetTile?.q, r: targetTile?.r }); },
         onSkillUsed({ unit, skillId }) { dispatch('skillUsed', { unitId: unit?.id, skillId, camp: campKeyOf(unit?.camp) }); },
         onCityCaptured({ cityTile, campKey }) { dispatch('tileCaptured', { q: cityTile?.q, r: cityTile?.r, newCamp: campKey }); },
-        onTurnStarted({ camp, campKey }) { dispatch('turnStarted', { camp: campKey || campKeyOf(camp), round: getRound(gameState) }); },
+        onTurnStarted({ camp, campKey }) {
+            const key = campKey || campKeyOf(camp);
+            if (gameState.campaignMode && key !== campKeyOf(gameState.currentCamp)) return;
+            dispatch('turnStarted', { camp: key, round: getRound(gameState) });
+        },
         onTurnEnded(event) { dispatch('turnEnded', event); },
         onCombatStarted(event) { dispatch('combatStarted', event); },
         onCombatResolved(event) { dispatch('combatResolved', event); },

@@ -9,7 +9,7 @@
 //
 // 本模块不得 import DOM、Canvas、音频或 effects。
 
-import { CAMP } from '../rules/camps.js';
+import { CAMP, campToKey } from '../rules/camps.js';
 import { createDefaultDiplomacy, createDefaultFactions } from '../rules/diplomacy.js';
 import { createDefaultMechanics } from '../rules/mechanics.js';
 import { createRng } from '../core/rng.js';
@@ -43,6 +43,7 @@ export function createMatchState() {
         campaignPhase: '',
         localPlayerCampKey: 'player1',
         factions: createDefaultFactions(),
+        turnOrder: [],
         diplomacy: createDefaultDiplomacy(),
         campaignVariables: {},
         levelVariables: {},
@@ -145,6 +146,7 @@ export function resetMatchState(match) {
     match.campaignPhase = '';
     match.localPlayerCampKey = 'player1';
     match.factions = createDefaultFactions();
+    match.turnOrder = [];
     match.diplomacy = createDefaultDiplomacy();
     match.campaignVariables = {};
     match.levelVariables = {};
@@ -271,7 +273,13 @@ export function resetClientUiState(ui) {
 // ===== 序列化 / 快照（联机同步 + 断线重连用） =====================
 // 只处理 MatchState；选择、浮层、动画与 DOM 状态一概不进快照。
 
-function _campToKey(c) { return c === CAMP.player1 ? 'p1' : c === CAMP.player2 ? 'p2' : c === CAMP.player3 ? 'p3' : 'neutral'; }
+function _campToKey(c) {
+    const key = campToKey(c);
+    if (key === 'player1') return 'p1';
+    if (key === 'player2') return 'p2';
+    if (key === 'player3') return 'p3';
+    return key;
+}
 
 export function serializeMatchState(match) {
     const tilesData = match.tiles.map(t => ({
@@ -362,6 +370,7 @@ export function serializeMatchState(match) {
         campaignPhase: match.campaignPhase || '',
         localPlayerCampKey: match.localPlayerCampKey || 'player1',
         factions: structuredClone(match.factions || createDefaultFactions()),
+        turnOrder: [...(match.turnOrder || [])],
         diplomacy: structuredClone(match.diplomacy || createDefaultDiplomacy()),
         campaignVariables: structuredClone(match.campaignVariables || {}),
         levelVariables: structuredClone(match.levelVariables || {}),
@@ -421,21 +430,9 @@ export function serializeMatchState(match) {
         surrenderedCampKeys: match.surrenderedCamps.map(c => _campToKey(c)),
         skirmishFog: match.skirmishFog || false,
         aiDifficulty: match.aiDifficulty || 1.0,
-        visibleTiles: match.visibleTiles ? {
-            player1: [...match.visibleTiles.player1],
-            player2: [...match.visibleTiles.player2],
-            player3: [...match.visibleTiles.player3]
-        } : { player1: [], player2: [], player3: [] },
-        exploredTiles: match.exploredTiles ? {
-            player1: [...match.exploredTiles.player1],
-            player2: [...match.exploredTiles.player2],
-            player3: [...match.exploredTiles.player3]
-        } : { player1: [], player2: [], player3: [] },
-        scoutReveals: match.scoutReveals ? {
-            player1: [...match.scoutReveals.player1],
-            player2: [...match.scoutReveals.player2],
-            player3: [...match.scoutReveals.player3]
-        } : { player1: [], player2: [], player3: [] },
+        visibleTiles: Object.fromEntries(Object.entries(match.visibleTiles || {}).map(([key, tiles]) => [key, [...tiles]])),
+        exploredTiles: Object.fromEntries(Object.entries(match.exploredTiles || {}).map(([key, tiles]) => [key, [...tiles]])),
+        scoutReveals: Object.fromEntries(Object.entries(match.scoutReveals || {}).map(([key, reveals]) => [key, [...reveals]])),
         villageTiles: [...match.villageTiles]
     };
 }
@@ -459,13 +456,21 @@ export function restoreMatchState(match, data, deps) {
     match.campaignPhase = data.campaignPhase || '';
     match.localPlayerCampKey = data.localPlayerCampKey || 'player1';
     match.factions = data.factions ? structuredClone(data.factions) : createDefaultFactions();
+    match.turnOrder = Array.isArray(data.turnOrder) ? [...data.turnOrder] : [];
+    for (const [key, faction] of Object.entries(match.factions)) {
+        campMap[key] = faction;
+        if (key === 'player1') campMap.p1 = faction;
+        if (key === 'player2') campMap.p2 = faction;
+        if (key === 'player3') campMap.p3 = faction;
+    }
     match.diplomacy = data.diplomacy ? structuredClone(data.diplomacy) : createDefaultDiplomacy();
     match.campaignVariables = data.campaignVariables ? structuredClone(data.campaignVariables) : {};
     match.levelVariables = data.levelVariables ? structuredClone(data.levelVariables) : {};
     match.objectiveStates = data.objectiveStates ? structuredClone(data.objectiveStates) : {};
     match.interactionStates = data.interactionStates ? structuredClone(data.interactionStates) : {};
     match.mechanics = data.mechanics ? { ...data.mechanics } : createDefaultMechanics();
-    match.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
+    match.currentCamp = campMap[data.currentCampKey] || campMap[match.turnOrder[0]] || CAMP.player1;
+    match.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] || null : null;
     match.playerGold = { player1: 4, player2: 4, player3: 4, neutral: 4, ...data.playerGold };
     // previousGold 不参与同步，保持本地值用于计数器动画
     match.turnCounter = data.turnCounter;
@@ -533,27 +538,9 @@ export function restoreMatchState(match, data, deps) {
     match.skirmishFog = data.skirmishFog || false;
     match.villageTiles = new Map(data.villageTiles || []);
     match.aiDifficulty = data.aiDifficulty || 1.0;
-    if (data.visibleTiles) {
-        match.visibleTiles = {
-            player1: new Set(data.visibleTiles.player1 || []),
-            player2: new Set(data.visibleTiles.player2 || []),
-            player3: new Set(data.visibleTiles.player3 || [])
-        };
-    }
-    if (data.exploredTiles) {
-        match.exploredTiles = {
-            player1: new Set(data.exploredTiles.player1 || []),
-            player2: new Set(data.exploredTiles.player2 || []),
-            player3: new Set(data.exploredTiles.player3 || [])
-        };
-    }
-    if (data.scoutReveals) {
-        match.scoutReveals = {
-            player1: new Map(data.scoutReveals.player1 || []),
-            player2: new Map(data.scoutReveals.player2 || []),
-            player3: new Map(data.scoutReveals.player3 || [])
-        };
-    }
+    if (data.visibleTiles) match.visibleTiles = Object.fromEntries(Object.entries(data.visibleTiles).map(([key, tiles]) => [key, new Set(tiles || [])]));
+    if (data.exploredTiles) match.exploredTiles = Object.fromEntries(Object.entries(data.exploredTiles).map(([key, tiles]) => [key, new Set(tiles || [])]));
+    if (data.scoutReveals) match.scoutReveals = Object.fromEntries(Object.entries(data.scoutReveals).map(([key, reveals]) => [key, new Map(reveals || [])]));
 
     // Preserve displayHp & commander for units (prevents flicker & commander loss on sync)
     const oldDisplayHp = new Map();
@@ -601,7 +588,10 @@ export function restoreMatchState(match, data, deps) {
             tile.fadeStartTime = null;
         }
         tile._minePlanted = td.minePlanted || false;
-        tile._mineCampKey = td.mineCampKey || null;
+        tile._mineCampKey = td.mineCampKey === 'p1' ? 'player1'
+            : td.mineCampKey === 'p2' ? 'player2'
+                : td.mineCampKey === 'p3' ? 'player3'
+                    : td.mineCampKey || null;
         tile._cityDisabledUntil = td.cityDisabledUntil || 0;
         tile._reinforcedThisTurn = td.reinforcedThisTurn || false;
         if (td.unit) {

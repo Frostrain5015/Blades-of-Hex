@@ -1,23 +1,47 @@
 // 依配置部署战场 —— 单位、将领绑定、天气、金币、初始手牌。
 // 与建图分离：mapBuilder 先铺好地块，本模块在其上放单位并写对局参数。
-import { CAMP } from '../../rules/camps.js';
-import { createDefaultDiplomacy, createDefaultFactions } from '../../rules/diplomacy.js';
+import { campFromKey, createDefaultDiplomacy, createDefaultFactions, getFactionKeys } from '../../rules/diplomacy.js';
 import { createDefaultMechanics } from '../../rules/mechanics.js';
 import { Unit } from '../../js/Unit.js';
 import { computeCampBorders } from '../../js/HexTile.js';
-
-function campFromKey(key) {
-    if (key === 'player1') return CAMP.player1;
-    if (key === 'player2') return CAMP.player2;
-    if (key === 'player3') return CAMP.player3;
-    return CAMP.neutral;
-}
 
 const COMMANDER_SLOTS = {
     player1: { id: 'commanderP1', confirmed: 'commanderP1Confirmed', deployed: 'commanderP1Deployed' },
     player2: { id: 'commanderP2', confirmed: 'commanderP2Confirmed', deployed: 'commanderP2Deployed' },
     player3: { id: 'commanderP3', confirmed: 'commanderP3Confirmed', deployed: 'commanderP3Deployed' }
 };
+
+/** 在建图前建立本关唯一的阵营对象、回合顺序和阵营相关容器。 */
+export function prepareCampaignFactions(config, gameState) {
+    gameState.factions = createDefaultFactions(config.factions || []);
+    gameState.diplomacy = createDefaultDiplomacy(config.diplomacy || {}, gameState);
+    gameState.localPlayerCampKey = gameState.factions[config.localPlayerCamp]
+        ? config.localPlayerCamp
+        : getFactionKeys(gameState).find(key => gameState.factions[key]?.controller === 'human') || getFactionKeys(gameState)[0] || 'player1';
+
+    const eligibleTurnIds = getFactionKeys(gameState).filter(key => {
+        const faction = gameState.factions[key];
+        return faction?.active !== false && faction?.participatesInTurns !== false;
+    });
+    const configuredTurnOrder = Array.isArray(config.turnOrder) ? config.turnOrder : [];
+    gameState.turnOrder = configuredTurnOrder.filter(key => eligibleTurnIds.includes(key));
+    for (const key of eligibleTurnIds) if (!gameState.turnOrder.includes(key)) gameState.turnOrder.push(key);
+    if (!gameState.turnOrder.length) gameState.turnOrder = [gameState.localPlayerCampKey];
+    gameState.currentCamp = campFromKey(gameState.turnOrder[0], gameState);
+    gameState.aiOpponentCamp = config.aiOpponentCamp ? campFromKey(config.aiOpponentCamp, gameState) : null;
+
+    const keys = [...new Set([...getFactionKeys(gameState), 'player1', 'player2', 'player3', 'neutral'])];
+    gameState.playerGold = Object.fromEntries(keys.map(key => [key, config.gold?.[key] ?? 4]));
+    gameState.playerHands = Object.fromEntries(keys.map(key => [key, []]));
+    gameState.playerDrawsThisTurn = Object.fromEntries(keys.map(key => [key, 0]));
+    gameState.playerUsesThisTurn = Object.fromEntries(keys.map(key => [key, 0]));
+    gameState.killCount = Object.fromEntries(keys.map(key => [key, 0]));
+    gameState.visibleTiles = Object.fromEntries(keys.map(key => [key, new Set()]));
+    gameState.exploredTiles = Object.fromEntries(keys.map(key => [key, new Set()]));
+    gameState.scoutReveals = Object.fromEntries(keys.map(key => [key, new Map()]));
+    gameState._prevVisibleTiles = Object.fromEntries(keys.map(key => [key, new Set()]));
+    gameState._campaignFactionConfig = config;
+}
 
 /**
  * 依配置在已建好的棋盘上放置单位并写入对局参数。
@@ -26,9 +50,7 @@ const COMMANDER_SLOTS = {
 export function buildBattlefieldFromConfig(config, gameState) {
     const placedIds = [];
 
-    gameState.localPlayerCampKey = config.localPlayerCamp || 'player1';
-    gameState.factions = createDefaultFactions(config.factions || []);
-    gameState.diplomacy = createDefaultDiplomacy(config.diplomacy || {});
+    if (gameState._campaignFactionConfig !== config) prepareCampaignFactions(config, gameState);
     gameState.mechanics = createDefaultMechanics(config.mechanics || {});
     gameState.levelVariables = Object.fromEntries((config.variables || [])
         .filter(variable => variable.scope !== 'campaign')
@@ -41,12 +63,6 @@ export function buildBattlefieldFromConfig(config, gameState) {
     // ── 天气（'cycle'=标准循环，从晴天开始）──
     gameState.weather = config.weather === 'cycle' ? 'clear' : (config.weather || 'clear');
     gameState.lastWeather = config.weather === 'cycle' ? null : gameState.weather;
-
-    // ── 金币 ──
-    const gold = config.gold || {};
-    gameState.playerGold.player1 = gold.player1 ?? 4;
-    gameState.playerGold.player2 = gold.player2 ?? 4;
-    gameState.playerGold.player3 = gold.player3 ?? 4;
 
     // ── 将领绑定（每阵营主将；标记为已确认/已部署，跳过选将阶段）──
     const commanders = config.commanders || {};
@@ -65,7 +81,7 @@ export function buildBattlefieldFromConfig(config, gameState) {
         const tile = gameState.tileMap.get(`${spec.q},${spec.r}`);
         if (!tile) continue;                 // 越界或坐标无效，跳过
         if (tile.unit) continue;             // 该格已被占用
-        const camp = campFromKey(spec.camp);
+        const camp = campFromKey(spec.camp, gameState);
         const unit = new Unit(
             spec.type,
             camp,
@@ -96,7 +112,7 @@ export function buildBattlefieldFromConfig(config, gameState) {
 
     // ── 初始手牌 ──
     const hands = config.hands || {};
-    for (const camp of ['player1', 'player2', 'player3']) {
+    for (const camp of getFactionKeys(gameState)) {
         const list = Array.isArray(hands[camp]) ? hands[camp] : [];
         gameState.playerHands[camp] = list.map(id => ({ id }));
     }

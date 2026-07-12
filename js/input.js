@@ -22,6 +22,9 @@ import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commander
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { EMOJI_FONT_STACK } from '../rules/symbols.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
+import { campToKey } from '../rules/camps.js';
+import { campFromKey } from '../rules/diplomacy.js';
+import { getFactionKeys } from '../rules/diplomacy.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
@@ -104,6 +107,10 @@ function _getMyCampInput() {
 
 function _campKeyInput(camp) {
     if (!camp) return null;
+    if (gameState.campaignMode) {
+        const key = campToKey(camp);
+        return gameState.factions?.[key] ? key : null;
+    }
     if (camp === CAMP.player1 || camp.name === CAMP.player1.name) return 'player1';
     if (camp === CAMP.player2 || camp.name === CAMP.player2.name) return 'player2';
     if (camp === CAMP.player3 || camp.name === CAMP.player3.name) return 'player3';
@@ -111,6 +118,7 @@ function _campKeyInput(camp) {
 }
 
 function _campFromKeyInput(key) {
+    if (gameState.campaignMode) return gameState.factions?.[key] ? campFromKey(key, gameState) : null;
     if (key === 'player1') return CAMP.player1;
     if (key === 'player2') return CAMP.player2;
     if (key === 'player3') return CAMP.player3;
@@ -123,7 +131,7 @@ function _sameCampInput(a, b) {
 }
 
 function _isLocalActionTurn() {
-    if (gameState.gameOver || gameState.currentCamp === CAMP.neutral) return false;
+    if (gameState.gameOver || campToKey(gameState.currentCamp) === 'neutral') return false;
     const myCamp = _getMyCampInput();
     if (!myCamp) return false;
     if (isNetworkGame()) return _sameCampInput(gameState.currentCamp, myCamp) && isMyTurn(gameState.currentCamp);
@@ -538,9 +546,9 @@ function _handleCardCanvasClick(e) {
 
     const myCamp = _getMyCampInput();
     if (!myCamp) return;
-    const campKey = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
+    const campKey = _campKeyInput(myCamp);
     const hand = gameState.playerHands[campKey] || [];
-    const isNeutralTurn = !isNetworkGame() && gameState.currentCamp === CAMP.neutral;
+    const isNeutralTurn = !isNetworkGame() && campToKey(gameState.currentCamp) === 'neutral';
     if (isNeutralTurn) return;
 
     const cardW = 90, cardH = 130, peekW = 72;
@@ -938,9 +946,7 @@ function _getPassiveRuntimeState(unit, skill) {
 function _getTerrainEffect(tile) {
     const terrain = TERRAIN_CONFIG[tile.terrain];
     if (tile.isCity) {
-        const ownerName = tile.camp === CAMP.player1 ? '红军'
-            : tile.camp === CAMP.player2 ? '蓝军'
-                : tile.camp === CAMP.player3 ? '绿军' : '中立';
+        const ownerName = getFaction(gameState, tile.camp)?.name || tile.camp?.name || '中立';
         let desc = '由' + ownerName + '控制';
         if (tile._cityDisabledUntil > getRoundIndex(gameState)) {
             desc += '。遭到空袭，暂时无法产出资源或招募部队';
@@ -1735,7 +1741,7 @@ export function initInput() {
             const W = cardCanvas.clientWidth, H = cardCanvas.clientHeight;
             const myCamp2 = _getMyCampInput();
             if (!myCamp2) return;
-            const ck = myCamp2 === CAMP.player1 ? 'player1' : myCamp2 === CAMP.player2 ? 'player2' : 'player3';
+            const ck = _campKeyInput(myCamp2);
             const hand2 = gameState.playerHands[ck] || [];
             const n2 = hand2.length;
             if (n2 === 0) return;
@@ -1790,7 +1796,7 @@ export function initInput() {
                 const W = cardCanvas.clientWidth, H = cardCanvas.clientHeight;
                 const myCamp2 = _getMyCampInput();
                 if (myCamp2) {
-                    const ck = myCamp2 === CAMP.player1 ? 'player1' : myCamp2 === CAMP.player2 ? 'player2' : 'player3';
+                    const ck = _campKeyInput(myCamp2);
                     const hand2 = gameState.playerHands[ck] || [];
                     for (let i = hand2.length - 1; i >= 0; i--) {
                         const cardEntry = hand2[i];
@@ -2118,9 +2124,9 @@ export function initSettingsPanel() {
         if (!factionBody) return;
         const viewer = getViewingCampKey(gameState);
         factionBody.replaceChildren();
-        for (const key of ['player1', 'player2', 'player3', 'neutral']) {
+        for (const key of getFactionKeys(gameState)) {
             const faction = getFaction(gameState, key);
-            if (!faction?.active) continue;
+            if (!faction || (faction.active === false && key !== 'neutral')) continue;
             const relation = getRelation(gameState, viewer, key);
             const meta = RELATION_META[relation] || RELATION_META.unknown;
             const row = document.createElement('div');

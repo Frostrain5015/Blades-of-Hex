@@ -5,8 +5,10 @@ import { isNetworkGame, getMyRole } from './network.js';
 import { moraleEffects, getRecoilOffset, getChargeOffset } from './effects.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { getRelationToViewer, RELATION_META } from '../rules/diplomacy.js';
+import { campToKey } from '../rules/camps.js';
 
 function isHumanTurn(gameState) {
+    if (gameState.campaignMode) return gameState.factions?.[campToKey(gameState.currentCamp)]?.controller === 'human';
     if (isNetworkGame()) {
         const role = getMyRole();
         if (role === 'player1') return gameState.currentCamp === CAMP.player1;
@@ -107,11 +109,9 @@ export function drawUnit(unit, gameState) {
         const gs = gameState;
         const time = now / 1000;
 
-        const isP1 = unit.camp === CAMP.player1;
-        const isP2 = unit.camp === CAMP.player2;
-        const isP3 = unit.camp === CAMP.player3;
-        const campKey = isP1 ? 'p1' : isP2 ? 'p2' : isP3 ? 'p3' : 'neu';
-        const cc = CAMP_FLAG_COLORS[campKey];
+        const key = campToKey(unit.camp);
+        const campKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
+        const cc = CAMP_FLAG_COLORS[campKey] || { main: unit.camp?.color || '#777', dark: unit.camp?.color || '#555', light: unit.camp?.color || '#999' };
 
         ctx.save();
         ctx.translate(visualX, visualY);

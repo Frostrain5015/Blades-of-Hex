@@ -24,6 +24,7 @@ import {
 } from './effects.js';
 import { isTileVisible, getTileVisibilityState, getTileVisibilityStateByCoord, getFogAlpha } from './fogOfWar.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
+import { campToKey } from '../rules/camps.js';
 import { getViewingCamp } from './state.js';
 import { drawFxLayer, updateFxFns } from './fxRegistry.js';
 
@@ -937,6 +938,7 @@ function drawMoraleIndicators() {
 
 // 判断当前回合是否为人类玩家（用于隐藏 AI/中立回合的光圈等）
 function _isHumanTurn() {
+    if (gameState.campaignMode) return gameState.factions?.[campToKey(gameState.currentCamp)]?.controller === 'human';
     if (isNetworkGame()) {
         const role = getMyRole();
         if (role === 'player1') return gameState.currentCamp === CAMP.player1;
@@ -1604,6 +1606,7 @@ let _shiftOffset = 0;  // lerps to 0: negative when card added, positive when re
 let _lastTurnCounter = -1;  // guard: detect turn change to reset draw pile UI
 
 function _getMyCampForUI() {
+    if (gameState.campaignMode) return getViewingCamp();
     if (isNetworkGame()) {
         const role = getMyRole();
         return role === 'player1' ? CAMP.player1 : role === 'player2' ? CAMP.player2 : role === 'player3' ? CAMP.player3 : null;
@@ -1724,9 +1727,9 @@ export function drawCardCanvas(now) {
     if (!myCamp) { cardCanvas.style.display = 'none'; return; }
     if (gameState.commanderPhase !== 'done' || gameState.gameOver) { cardCanvas.style.display = 'none'; return; }
 
-    const campKey = myCamp === CAMP.player1 ? 'player1' : myCamp === CAMP.player2 ? 'player2' : 'player3';
+    const campKey = campToKey(myCamp);
     const hand = gameState.playerHands[campKey] || [];
-    const isNeutralTurn = gameState.currentCamp === CAMP.neutral && !isNetworkGame();
+    const isNeutralTurn = campToKey(gameState.currentCamp) === 'neutral' && !isNetworkGame();
 
     // ---- per-card slide animation (lerp toward target each frame) ----
     const n = hand.length;
@@ -1770,11 +1773,13 @@ export function drawCardCanvas(now) {
     const cardW = 90, cardH = 130, peekW = 72;
     const liftAmount = 25; // how far hovered card rises upward
 
-    const isMyTurn = isNetworkGame()
-        ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
-        : (gameState.gameMode === 'pve'
-            ? (gameState.currentCamp === CAMP.player1 && !isNeutralTurn)
-            : (gameState.currentCamp === myCamp && !isNeutralTurn));
+    const isMyTurn = gameState.campaignMode
+        ? (campToKey(gameState.currentCamp) === campKey && gameState.factions?.[campKey]?.controller === 'human')
+        : isNetworkGame()
+            ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
+            : (gameState.gameMode === 'pve'
+                ? (gameState.currentCamp === CAMP.player1 && !isNeutralTurn)
+                : (gameState.currentCamp === myCamp && !isNeutralTurn));
     const currentDrawCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
     const canDraw = isMyTurn && !gameState.cardTargeting
         && hand.length < CARD_SYSTEM_CONFIG.maxHandSize

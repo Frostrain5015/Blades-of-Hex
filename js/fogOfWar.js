@@ -1,9 +1,11 @@
 // 战争迷雾引擎 —— 视野计算、状态管理、过渡动画
-import { hexDistance, CAMP, getRoundIndex } from './config.js';
+import { hexDistance, getRoundIndex } from './config.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { SKIRMISH_VISION } from '../rules/constants.js';
-import { FACTION_KEYS, getRelation } from '../rules/diplomacy.js';
+import { getRelation } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
+import { campToKey } from '../rules/camps.js';
+import { getFactionKeys } from '../rules/diplomacy.js';
 
 // 视野范围：各兵种能看到的格子数（规则键：GAME_RULES.skirmishVision）
 export const UNIT_VISION = SKIRMISH_VISION.unitVision;
@@ -16,9 +18,7 @@ const FOG_TRANSITION_MS = 500;
 
 // camp → playerGold key 映射
 const _campKey = (camp) =>
-    camp === CAMP.player1 ? 'player1' :
-    camp === CAMP.player2 ? 'player2' :
-    camp === CAMP.player3 ? 'player3' : 'neutral';
+    campToKey(camp);
 
 // ---- 核心：计算一个阵营当前能看到的所有地块 ----
 function _getEffectiveVision(unit, gs) {
@@ -155,7 +155,7 @@ export function isTileVisible(tile, camp, gameState) {
     if (gameState.visibleTiles[key].has(`${tile.q},${tile.r}`)) return true;
     if (isMechanicEnabled(gameState, 'alliedVision')) {
         const coord = `${tile.q},${tile.r}`;
-        for (const allyKey of FACTION_KEYS) {
+        for (const allyKey of getFactionKeys(gameState)) {
             if (allyKey !== key && getRelation(gameState, key, allyKey) === 'ally' && gameState.visibleTiles?.[allyKey]?.has(coord)) return true;
         }
     }
@@ -171,7 +171,7 @@ export function isTileExplored(tile, camp, gameState) {
     const coord = `${tile.q},${tile.r}`;
     if (gameState.exploredTiles[key].has(coord)) return true;
     if (isMechanicEnabled(gameState, 'alliedVision')) {
-        for (const allyKey of FACTION_KEYS) {
+        for (const allyKey of getFactionKeys(gameState)) {
             if (allyKey !== key && getRelation(gameState, key, allyKey) === 'ally' && gameState.exploredTiles?.[allyKey]?.has(coord)) return true;
         }
     }

@@ -6,7 +6,7 @@ import { deepFreeze } from './freeze.js';
 import { percent, rangeText } from './format.js';
 import { EMOJI } from './symbols.js';
 import { UNIT_CONFIG } from './units.js';
-import { CAMP } from './camps.js';
+import { CAMP, campToKey } from './camps.js';
 import { getRoundIndex } from './turns.js';
 
 export const TACTICAL_CARD_DATA = (() => {
@@ -181,7 +181,7 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
         ...TACTICAL_CARD_DATA.landmine,
         execute(targetTile, gameState, helpers) {
             targetTile._minePlanted = true;
-            targetTile._mineCampKey = helpers.getMyCamp ? (helpers.getMyCamp() === CAMP.player1 ? 'p1' : helpers.getMyCamp() === CAMP.player2 ? 'p2' : 'p3') : 'p1';
+            targetTile._mineCampKey = helpers.getMyCamp ? campToKey(helpers.getMyCamp()) : 'player1';
             return { landmine: true, tileQ: targetTile.q, tileR: targetTile.r };
         }
     },

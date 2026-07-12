@@ -1,17 +1,10 @@
 // 参数化建图 —— 把 config.board 变成一整套 gameState.tiles（含区划/地形/城市/村庄/工事）。
 // 完全确定性：不依赖 RNG，同一份 config 每次生成完全相同的棋盘。
 // 这是 gameLogic.initMap 的战役版替身：initMap 写死半径 7 与固定城市表，本函数按配置生成。
-import { CAMP } from '../../rules/camps.js';
+import { campFromKey, createDefaultFactions } from '../../rules/diplomacy.js';
 import { hexDistance } from '../../rules/hex.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from '../../js/HexTile.js';
 import { boardContains, BOARD_RADIUS_DEFAULT } from './schema.js';
-
-function campFromKey(key) {
-    if (key === 'player1') return CAMP.player1;
-    if (key === 'player2') return CAMP.player2;
-    if (key === 'player3') return CAMP.player3;
-    return CAMP.neutral;
-}
 
 /**
  * 依配置构建棋盘，写入 gameState.tiles / tileMap / villageTiles / 边界缓存。
@@ -21,6 +14,10 @@ function campFromKey(key) {
 export function buildBoardFromConfig(config, gameState) {
     const board = config.board || {};
     const radius = board.radius ?? BOARD_RADIUS_DEFAULT;
+    const factions = gameState.factions && Object.keys(gameState.factions).length
+        ? gameState.factions
+        : createDefaultFactions(config.factions || []);
+    const campFor = (key) => campFromKey(key, { factions });
 
     // 1) 生成半径 R 的六边形所有地块。
     const tiles = [];
@@ -63,9 +60,9 @@ export function buildBoardFromConfig(config, gameState) {
     // 而是由该区划的颜色来源（城市）单向决定。districtId 已在上面定稿，这里统一回填。
     // 若某 districtId 没有城市（无颜色来源），落回中立（编辑器会在校验中提示）。
     const districtCampMap = new Map();
-    for (const city of cities) districtCampMap.set(city.districtId, campFromKey(city.camp));
+    for (const city of cities) districtCampMap.set(city.districtId, campFor(city.camp));
     for (const tile of tiles) {
-        const camp = districtCampMap.get(tile.districtId) || CAMP.neutral;
+        const camp = districtCampMap.get(tile.districtId) || campFor('neutral');
         tile.camp = camp;
         tile.startColor = camp.color;
         tile.targetColor = camp.color;

@@ -63,8 +63,18 @@ export const BOARD_RADIUS_DEFAULT = 4;
 // 每条条件形如 { kind, ...字段 }；kind 必须与 triggers.js 的 evalCondition 分支一致。
 export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'any', label: '满足任一（OR）', arg: 'conditionGroup' },
-    { kind: 'eventCardIs',  label: '事件卡牌是',   arg: 'card' },
-    { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值' },
+    { kind: 'levelStarted', label: '关卡开始时', arg: 'none', event: true },
+    { kind: 'unitSelected', label: '指定单位被选中', arg: 'eventTarget', event: true },
+    { kind: 'unitMovesToTile', label: '指定单位/单位组移动到指定地块', arg: 'eventTargetTile', event: true },
+    { kind: 'unitMovesToArea', label: '指定单位/单位组进入指定区域', arg: 'eventTargetArea', event: true },
+    { kind: 'unitAttacksUnit', label: '指定单位攻击指定单位/单位组', arg: 'eventCombatPair', event: true },
+    { kind: 'unitKilled', label: '指定单位/单位组被击败', arg: 'eventTarget', event: true },
+    { kind: 'cityCaptured', label: '指定城市被占领', arg: 'eventCityCapture', event: true },
+    { kind: 'turnStarted', label: '指定阵营回合开始时', arg: 'eventCamp', event: true },
+    { kind: 'cardUsed', label: '使用指定对策卡', arg: 'card', event: true },
+    { kind: 'skillUsed', label: '指定单位使用技能', arg: 'eventUnitSkill', event: true },
+    { kind: 'eventCardIs',  label: '事件卡牌是',   arg: 'card', event: true },
+    { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值', event: true },
     { kind: 'unitAlive',    label: '单位存活',     arg: 'unitRef' },
     { kind: 'unitDead',     label: '单位阵亡',     arg: 'unitRef' },
     { kind: 'cityOwnedBy',  label: '城市归属于',   arg: 'cityOwner' },
@@ -83,8 +93,8 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     ,{ kind: 'interactionStateIs', label: '调查点状态为', arg: 'interactionState' }
     ,{ kind: 'groupState', label: '单位组状态为', arg: 'groupState' }
     ,{ kind: 'unitsInArea', label: '区域内单位数量', arg: 'areaCount' }
-    ,{ kind: 'eventInteractionIs', label: '事件调查点是', arg: 'interaction' }
-    ,{ kind: 'eventSignalIs', label: '事件信号是', arg: 'text' }
+    ,{ kind: 'eventInteractionIs', label: '事件调查点是', arg: 'interaction', event: true }
+    ,{ kind: 'eventSignalIs', label: '事件信号是', arg: 'text', event: true }
     ,{ kind: 'mechanicEnabled', label: '机制已启用/禁用', arg: 'mechanicBoolean' }
 ]);
 
@@ -128,9 +138,10 @@ export function createDefaultLevel() {
         weather: 'clear',
         localPlayerCamp: 'player1',
         factions: [{ id: 'player1', name: '红军', color: '#e05050', controller: 'human', participatesInTurns: true, active: true }],
+        turnOrder: ['player1'],
         diplomacy: {},
         mechanics: createDefaultMechanics(),
-        aiOpponentCamp: 'player2',
+        aiOpponentCamp: '',
         aiDifficulty: 1.0,
         gold: { player1: 6 },
         commanders: {},
@@ -182,8 +193,10 @@ export function normalizeLevel(raw) {
     merged.gold = { ...def.gold, ...(raw.gold || {}) };
     merged.commanders = { ...def.commanders, ...(raw.commanders || {}) };
     merged.hands = { ...def.hands, ...(raw.hands || {}) };
-    merged.localPlayerCamp = CAMP_KEYS.includes(raw.localPlayerCamp) ? raw.localPlayerCamp : def.localPlayerCamp;
     merged.factions = Array.isArray(raw.factions) ? raw.factions.map(item => ({ ...item })) : def.factions.map(item => ({ ...item }));
+    const configuredFactionIds = new Set(merged.factions.map(item => item.id));
+    merged.localPlayerCamp = configuredFactionIds.has(raw.localPlayerCamp) ? raw.localPlayerCamp : def.localPlayerCamp;
+    merged.turnOrder = Array.isArray(raw.turnOrder) ? [...raw.turnOrder] : [merged.localPlayerCamp];
     merged.diplomacy = raw.diplomacy && typeof raw.diplomacy === 'object' ? structuredClone(raw.diplomacy) : structuredClone(def.diplomacy);
     merged.mechanics = createDefaultMechanics(raw.mechanics || {});
     merged.board = { ...def.board, ...(raw.board || {}) };
@@ -195,7 +208,13 @@ export function normalizeLevel(raw) {
     merged.areas = Array.isArray(raw.areas) ? raw.areas : [];
     merged.interactables = Array.isArray(raw.interactables) ? raw.interactables : [];
     merged.variables = Array.isArray(raw.variables) ? raw.variables : [];
-    merged.steps = raw.steps && typeof raw.steps === 'object' ? raw.steps : {};
+    merged.steps = raw.steps && typeof raw.steps === 'object' ? structuredClone(raw.steps) : {};
+    for (const step of Object.values(merged.steps)) {
+        const portrait = step?.speaker?.portrait;
+        if (!portrait || COMMANDER_IDS.includes(portrait)) continue;
+        const legacyEntry = Object.entries(COMMANDER_LABELS).find(([, label]) => label === portrait);
+        if (legacyEntry) step.speaker.portrait = legacyEntry[0];
+    }
     merged.objectives = raw.objectives && typeof raw.objectives === 'object' ? raw.objectives : {};
     merged.triggers = Array.isArray(raw.triggers) ? raw.triggers : [];
     merged.result = { ...def.result, ...(raw.result || {}) };
@@ -208,6 +227,8 @@ export function validateLevel(config) {
     const errors = [];
     const warnings = [];
     const c = config || {};
+    const declaredFactionIds = new Set((c.factions || []).map(faction => faction?.id).filter(Boolean));
+    const factionIds = new Set([...declaredFactionIds, 'neutral']);
 
     if (!c.id || !/^[a-z0-9-]+$/i.test(c.id)) errors.push('关卡 id 缺失或含非法字符（仅允许字母/数字/连字符）。');
     if (!c.title) warnings.push('关卡缺少标题。');
@@ -223,6 +244,7 @@ export function validateLevel(config) {
     const districtCityCount = new Map();
     for (const city of cities) {
         if (!inBoard(city.q, city.r)) errors.push(`城市 (${city.q},${city.r}) 落在棋盘之外。`);
+        if (!factionIds.has(city.camp || 'neutral')) errors.push(`城市 (${city.q},${city.r}) 的阵营「${city.camp}」未在本关阵营列表中声明。`);
         districtCityCount.set(city.districtId, (districtCityCount.get(city.districtId) || 0) + 1);
     }
     // 阵营由区划内唯一的城市（颜色来源）派生，一个 districtId 不能有两座颜色来源冲突的城市。
@@ -239,7 +261,7 @@ export function validateLevel(config) {
     const unitIds = new Set();
     for (const u of (c.units || [])) {
         if (!UNIT_TYPES.includes(u.type)) errors.push(`单位使用了未知兵种「${u.type}」。`);
-        if (!CAMP_KEYS.includes(u.camp)) errors.push(`单位阵营「${u.camp}」非法。`);
+        if (!factionIds.has(u.camp)) errors.push(`单位阵营「${u.camp}」未在本关阵营列表中声明。`);
         if (!inBoard(u.q, u.r)) errors.push(`单位 (${u.q},${u.r}) 落在棋盘之外。`);
         const key = `${u.q},${u.r}`;
         if (seen.has(key)) errors.push(`坐标 (${key}) 上有多个单位重叠。`);
@@ -251,17 +273,27 @@ export function validateLevel(config) {
         if (u.id && u.id.startsWith('__')) warnings.push(`单位 id「${u.id}」以 __ 开头，可能与内部保留冲突。`);
     }
 
-    if (!CAMP_KEYS.includes(c.localPlayerCamp)) errors.push(`本地玩家阵营「${c.localPlayerCamp}」非法。`);
-    const factionIds = new Set();
+    if (!declaredFactionIds.has(c.localPlayerCamp)) errors.push(`本地玩家阵营「${c.localPlayerCamp}」未在本关阵营列表中声明。`);
+    const seenFactionIds = new Set();
     for (const faction of (c.factions || [])) {
-        if (!CAMP_KEYS.includes(faction.id)) errors.push(`阵营定义 id「${faction.id}」非法。`);
-        if (factionIds.has(faction.id)) errors.push(`阵营定义「${faction.id}」重复。`);
-        factionIds.add(faction.id);
+        if (!/^[a-z][a-z0-9_-]{0,31}$/i.test(faction.id || '')) errors.push(`阵营定义 id「${faction.id}」非法（使用字母开头，后续仅限字母、数字、_、-）。`);
+        if (seenFactionIds.has(faction.id)) errors.push(`阵营定义「${faction.id}」重复。`);
+        if (faction.id === 'neutral') errors.push('neutral 是系统保留阵营，不能在作者阵营列表中重复定义。');
+        seenFactionIds.add(faction.id);
         if (!faction.name) warnings.push(`阵营「${faction.id}」没有显示名。`);
         if (!/^#[0-9a-f]{6}$/i.test(faction.color || '')) errors.push(`阵营「${faction.id}」颜色必须是 #RRGGBB。`);
     }
-    for (const left of CAMP_KEYS) for (const [right, relation] of Object.entries(c.diplomacy?.[left] || {})) {
-        if (!CAMP_KEYS.includes(right) || left === right) errors.push(`外交关系「${left}→${right}」引用非法。`);
+    const humanFactions = (c.factions || []).filter(faction => faction.controller === 'human');
+    if (humanFactions.length !== 1) errors.push('单人战役必须恰好指定一个“玩家”控制阵营。');
+    if (humanFactions.length === 1 && humanFactions[0].id !== c.localPlayerCamp) errors.push('玩家视角阵营必须与唯一的“玩家”控制阵营一致。');
+    const expectedTurnIds = (c.factions || []).filter(faction => faction.active !== false && faction.participatesInTurns !== false).map(faction => faction.id);
+    const turnOrder = Array.isArray(c.turnOrder) ? c.turnOrder : [];
+    if (!turnOrder.length) errors.push('回合行动顺序不能为空。');
+    if (new Set(turnOrder).size !== turnOrder.length) errors.push('回合行动顺序包含重复阵营。');
+    for (const id of turnOrder) if (!expectedTurnIds.includes(id)) errors.push(`回合行动顺序包含未启用或不参与回合的阵营「${id}」。`);
+    for (const id of expectedTurnIds) if (!turnOrder.includes(id)) errors.push(`参与回合的阵营「${id}」没有加入回合行动顺序。`);
+    for (const [left, relations] of Object.entries(c.diplomacy || {})) for (const [right, relation] of Object.entries(relations || {})) {
+        if (!factionIds.has(left) || !factionIds.has(right) || left === right) errors.push(`外交关系「${left}→${right}」引用非法。`);
         if (!RELATION_KEYS.includes(relation)) errors.push(`外交关系「${left}→${right}」值「${relation}」非法。`);
         const reverse = c.diplomacy?.[right]?.[left];
         if (reverse && reverse !== relation) errors.push(`外交关系「${left}↔${right}」不对称。`);
@@ -313,6 +345,13 @@ export function validateLevel(config) {
 
     const triggerIds = new Set((c.triggers || []).map(t => t.id).filter(Boolean));
     const objectiveIds = new Set(Object.keys(c.objectives || {}));
+    const conditionMeta = (kind) => TRIGGER_CONDITIONS.find(item => item.kind === kind);
+    const conditionContainsEvent = (condition) => {
+        if (!condition || typeof condition !== 'object') return false;
+        if (conditionMeta(condition.kind)?.event) return true;
+        if (Array.isArray(condition.conditions)) return condition.conditions.some(conditionContainsEvent);
+        return condition.kind === 'not' && conditionContainsEvent(condition.condition);
+    };
     const validateCondition = (condition, path) => {
         if (!condition || typeof condition !== 'object') { errors.push(`${path} 条件为空。`); return; }
         if (!TRIGGER_CONDITIONS.some(item => item.kind === condition.kind)) { errors.push(`${path} 使用未知条件「${condition.kind}」。`); return; }
@@ -323,6 +362,36 @@ export function validateLevel(config) {
         if (condition.kind === 'not') {
             if (!condition.condition) errors.push(`${path} 的 NOT 缺少子条件。`); else validateCondition(condition.condition, `${path}/NOT`);
         }
+        const target = condition.target;
+        if (['unitAlive', 'unitDead', 'unitExists', 'unitHpCompare'].includes(condition.kind) && !unitIds.has(condition.unit)) {
+            errors.push(`${path} 引用不存在的单位「${condition.unit}」。`);
+        }
+        if (target?.unit && !unitIds.has(target.unit)) errors.push(`${path} 引用不存在的单位「${target.unit}」。`);
+        if (target?.group && !groupIds.has(target.group)) errors.push(`${path} 引用不存在的单位组「${target.group}」。`);
+        if (['unitSelected', 'unitMovesToTile', 'unitMovesToArea', 'unitKilled', 'skillUsed'].includes(condition.kind)
+            && !target?.unit && !target?.group) errors.push(`${path} 必须选择一个单位或单位组。`);
+        if (condition.kind === 'unitMovesToTile' && (!Number.isInteger(condition.q) || !Number.isInteger(condition.r) || !inBoard(condition.q, condition.r))) {
+            errors.push(`${path} 的目标地块 (${condition.q},${condition.r}) 不在棋盘内。`);
+        }
+        if (condition.kind === 'unitMovesToArea' && !areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
+        if (condition.kind === 'unitAttacksUnit') {
+            if (!condition.attacker?.unit && !condition.attacker?.group) errors.push(`${path} 必须选择攻击方单位或单位组。`);
+            if (!condition.defender?.unit && !condition.defender?.group) errors.push(`${path} 必须选择受击方单位或单位组。`);
+            if (condition.attacker?.unit && !unitIds.has(condition.attacker.unit)) errors.push(`${path} 引用不存在的攻击单位「${condition.attacker.unit}」。`);
+            if (condition.attacker?.group && !groupIds.has(condition.attacker.group)) errors.push(`${path} 引用不存在的攻击单位组「${condition.attacker.group}」。`);
+            if (condition.defender?.unit && !unitIds.has(condition.defender.unit)) errors.push(`${path} 引用不存在的受击单位「${condition.defender.unit}」。`);
+            if (condition.defender?.group && !groupIds.has(condition.defender.group)) errors.push(`${path} 引用不存在的受击单位组「${condition.defender.group}」。`);
+        }
+        if (condition.kind === 'cityCaptured') {
+            if (!Number.isInteger(condition.q) || !Number.isInteger(condition.r) || !inBoard(condition.q, condition.r)) errors.push(`${path} 的城市地块 (${condition.q},${condition.r}) 不在棋盘内。`);
+            if (!(c.board?.cities || []).some(city => city.q === condition.q && city.r === condition.r)) warnings.push(`${path} 指向的地块不是已配置城市。`);
+            if (condition.camp && !factionIds.has(condition.camp)) errors.push(`${path} 的占领阵营「${condition.camp}」未在本关阵营列表中声明。`);
+        }
+        if (condition.kind === 'turnStarted' && !factionIds.has(condition.camp)) errors.push(`${path} 的阵营「${condition.camp}」未在本关阵营列表中声明。`);
+        if (['cityOwnedBy', 'tileOwnedBy', 'factionUnitCount', 'goldCompare'].includes(condition.kind) && !factionIds.has(condition.camp)) errors.push(`${path} 的阵营「${condition.camp}」未在本关阵营列表中声明。`);
+        if (condition.kind === 'relationIs' && (!factionIds.has(condition.camp) || !factionIds.has(condition.targetCamp))) errors.push(`${path} 的外交阵营引用未在本关阵营列表中声明。`);
+        if (condition.kind === 'unitsInArea' && condition.camp && !factionIds.has(condition.camp)) errors.push(`${path} 的阵营筛选「${condition.camp}」未在本关阵营列表中声明。`);
+        if (['cardUsed', 'eventCardIs'].includes(condition.kind) && !CARD_IDS.includes(condition.value)) errors.push(`${path} 引用不存在的对策卡「${condition.value}」。`);
         if (condition.kind === 'groupState' && !groupIds.has(condition.group)) errors.push(`${path} 引用不存在的单位组「${condition.group}」。`);
         if (condition.kind === 'unitsInArea' && !areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
         if (['eventInteractionIs', 'interactionStateIs'].includes(condition.kind) && !interactionIds.has(condition.interactable)) errors.push(`${path} 引用不存在的调查点「${condition.interactable}」。`);
@@ -337,15 +406,24 @@ export function validateLevel(config) {
         if (target?.group && !groupIds.has(target.group)) errors.push(`${path} 引用不存在的单位组「${target.group}」。`);
         if (action.kind === 'setVariable' && !variableIds.has(action.variable)) errors.push(`${path} 引用不存在的变量「${action.variable}」。`);
         if (action.kind === 'setTriggerEnabled' && !triggerIds.has(action.trigger)) errors.push(`${path} 引用不存在的触发器「${action.trigger}」。`);
-        if (action.kind === 'setObjectiveStatus' && !objectiveIds.has(action.objective)) errors.push(`${path} 引用不存在的目标「${action.objective}」。`);
+        if (action.kind === 'showStep' && !c.steps?.[action.step]) errors.push(`${path} 引用不存在的剧情步骤「${action.step || '未选择'}」。`);
+        if (action.kind === 'setObjectiveStatus') {
+            if (!objectiveIds.has(action.objective)) errors.push(`${path} 引用不存在的目标「${action.objective}」。`);
+            if (!OBJECTIVE_STATUS_KEYS.includes(action.status)) errors.push(`${path} 设置了非法目标状态「${action.status}」。`);
+        }
         if (action.kind === 'setInteractionState' && !interactionIds.has(action.interactable)) errors.push(`${path} 引用不存在的调查点「${action.interactable}」。`);
         if (action.kind === 'setMechanicEnabled' && !MECHANIC_KEYS.includes(action.mechanic)) errors.push(`${path} 引用不存在的机制「${action.mechanic}」。`);
+        if (['changeGold', 'changeUnitFaction'].includes(action.kind) && !factionIds.has(action.camp)) errors.push(`${path} 的阵营「${action.camp}」未在本关阵营列表中声明。`);
+        if (action.kind === 'setDiplomacy' && (!factionIds.has(action.camp) || !factionIds.has(action.targetCamp))) errors.push(`${path} 的外交阵营引用未在本关阵营列表中声明。`);
         if (action.kind === 'delay') (action.then || []).forEach((child, index) => validateAction(child, `${path}/延迟${index + 1}`));
     };
     const seenTriggerIds = new Set();
     for (const t of (c.triggers || [])) {
         if (!t.id || seenTriggerIds.has(t.id)) errors.push(`触发器 id「${t.id || '空'}」缺失或重复。`);
         seenTriggerIds.add(t.id);
+        if (!t.when?.length) warnings.push(`触发器「${t.id || '?'}」没有条件，将在下一次任意事件后触发。请显式使用「关卡开始时」或其他事件条件。`);
+        if (!t.do?.length) warnings.push(`触发器「${t.id || '?'}」没有动作，不会产生任何效果。`);
+        if (t.once === false && !(t.when || []).some(conditionContainsEvent)) warnings.push(`重复触发器「${t.id || '?'}」只包含状态条件，可能在每次事件后重复执行。`);
         (t.when || []).forEach((condition, index) => validateCondition(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`));
         (t.do || []).forEach((action, index) => validateAction(action, `触发器「${t.id || '?'}」效果 ${index + 1}`));
     }

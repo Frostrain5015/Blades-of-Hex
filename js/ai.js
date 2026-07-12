@@ -8,7 +8,7 @@ import {
 } from './gameLogic.js';
 import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
 import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
-import { isNetworkGame, sendMessage } from './network.js';
+import { isNetworkGame } from './network.js';
 import { getCommander } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
 import { updateFogOfWar, isTileVisible } from './fogOfWar.js';
@@ -16,6 +16,7 @@ import { updateFogOfWar, isTileVisible } from './fogOfWar.js';
 import * as claudePersonality from '../ai/claude.js';
 import * as grokPersonality from '../ai/grok.js';
 import { canAttack, isHostile } from '../rules/diplomacy.js';
+import { campToKey } from '../rules/camps.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -43,7 +44,7 @@ function resolveTile(q, r) {
 }
 
 function planEngineerAction(aiCamp) {
-    const campKey = aiCamp === CAMP.neutral ? 'neutral' : aiCamp === CAMP.player1 ? 'player1' : aiCamp === CAMP.player2 ? 'player2' : 'player3';
+    const campKey = campToKey(aiCamp);
     const engineer = gameState.tiles.reduce((found, tile) => found || (
         tile.unit && tile.unit.commander === 'engineer' && tile.unit.camp === aiCamp && tile.unit.canAct && !tile.unit._engineerConstruction
             ? tile.unit : null
@@ -125,8 +126,8 @@ async function executeAction(action, aiCamp) {
 async function _executeActionInner(action, aiCamp) {
     if (gameState.gameOver) return;
 
-    const isNeutral = aiCamp === CAMP.neutral;
-    const campKey = isNeutral ? 'neutral' : (aiCamp === CAMP.player1 ? 'player1' : aiCamp === CAMP.player2 ? 'player2' : 'player3');
+    const isNeutral = campToKey(aiCamp) === 'neutral';
+    const campKey = campToKey(aiCamp);
 
     // 自动攻击辅助：从可攻击目标中选最优，返回是否执行了攻击
     async function _autoAttack(unit) {
@@ -386,7 +387,7 @@ export async function processNeutralTurn() {
 
 export async function processOpponentTurn(aiCamp) {
     if (gameState.gameOver) return;
-    if (aiCamp === CAMP.neutral) return; // 中立用 Claude
+    if (campToKey(aiCamp) === 'neutral') return; // 中立用 Claude
 
     gameState.aiActing = true;
     // 遭遇战迷雾：AI 也需要更新视野
@@ -394,7 +395,7 @@ export async function processOpponentTurn(aiCamp) {
         updateFogOfWar(gameState, aiCamp);
         // 困难模式 AI 拥有全局视野（隐藏作弊）
         if (gameState.aiDifficulty >= 2.0) {
-            const campKey = aiCamp === CAMP.player1 ? 'player1' : aiCamp === CAMP.player2 ? 'player2' : 'player3';
+            const campKey = campToKey(aiCamp);
             for (const tile of gameState.tiles) {
                 gameState.visibleTiles[campKey].add(`${tile.q},${tile.r}`);
                 gameState.exploredTiles[campKey].add(`${tile.q},${tile.r}`);
@@ -422,7 +423,7 @@ export async function processOpponentTurn(aiCamp) {
         const emptyCities = gameState.tiles.filter(t =>
             t.isCity && !t.unit && t.camp === aiCamp
         );
-        const campKey = aiCamp === CAMP.player1 ? 'player1' : 'player2';
+        const campKey = campToKey(aiCamp);
         for (const city of emptyCities) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
             if (gameState.playerGold[campKey] >= UNIT_CONFIG.infantry.cost) {

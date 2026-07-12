@@ -7,10 +7,10 @@ import { EMOJI } from './symbols.js';
 
 /** 阵营的显示名、底色和旗帜 emoji。 */
 export const CAMP_DATA = deepFreeze({
-    player1: { name: '红军', color: '#ffaaaa', flag: EMOJI.camp.player1 },
-    player2: { name: '蓝军', color: '#aaaaff', flag: EMOJI.camp.player2 },
-    player3: { name: '绿军', color: '#aaffaa', flag: EMOJI.camp.player3 },
-    neutral: { name: '中立', color: '#c0c0c0', flag: EMOJI.camp.neutral }
+    player1: { id: 'player1', name: '红军', color: '#ffaaaa', flag: EMOJI.camp.player1 },
+    player2: { id: 'player2', name: '蓝军', color: '#aaaaff', flag: EMOJI.camp.player2 },
+    player3: { id: 'player3', name: '绿军', color: '#aaffaa', flag: EMOJI.camp.player3 },
+    neutral: { id: 'neutral', name: '中立', color: '#c0c0c0', flag: EMOJI.camp.neutral }
 });
 
 export const CAMP = CAMP_DATA;
@@ -23,8 +23,15 @@ export const CAMP_FLAG_COLORS = deepFreeze({
 });
 
 export function campToKey(camp, mode = 'full') {
-    if (camp === CAMP.player1) return mode === 'short' ? 'p1' : 'player1';
-    if (camp === CAMP.player2) return mode === 'short' ? 'p2' : 'player2';
-    if (camp === CAMP.player3) return mode === 'short' ? 'p3' : 'player3';
-    return 'neutral';
+    const key = typeof camp === 'string' ? camp
+        : typeof camp?.id === 'string' ? camp.id
+            : camp === CAMP.player1 ? 'player1'
+                : camp === CAMP.player2 ? 'player2'
+                    : camp === CAMP.player3 ? 'player3'
+                        : 'neutral';
+    if (mode !== 'short') return key;
+    if (key === 'player1') return 'p1';
+    if (key === 'player2') return 'p2';
+    if (key === 'player3') return 'p3';
+    return key === 'neutral' ? 'neu' : key;
 }

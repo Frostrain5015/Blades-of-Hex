@@ -5,6 +5,7 @@ import { canvas, LOGICAL_W, LOGICAL_H, CAMP, invalidateBoard } from './config.js
 import { gameState, logMessage, updateUI } from './state.js';
 import { emit, on } from './eventBus.js';
 import { saveVictory } from '../campaign/progress.js';
+import { campFromKey } from '../rules/diplomacy.js';
 
 let sharedController = null;
 
@@ -35,6 +36,7 @@ export function createCampaignController({ onRetry, onReturn }) {
 
     let active = false;
     let stepId = '';
+    let activeObjectiveId = '';
     let resultShown = false;
     let transitionToken = 0;
     let transitionTimer = null;
@@ -93,14 +95,23 @@ export function createCampaignController({ onRetry, onReturn }) {
     function updateObjectives(key) {
         const objective = activeScenario?.objectives?.[key];
         if (!objectiveHud || !objective) return;
+        activeObjectiveId = key;
         objectiveTitle.textContent = objective.title;
         objectiveDetail.textContent = objective.detail;
         // 显示当前目标之外的其他目标（含支线）
         const allObj = activeScenario?.objectives || {};
-        optionalList.innerHTML = Object.keys(allObj).filter(id => id !== key).map(id => {
+        const statuses = gameState.objectiveStates || {};
+        optionalList.innerHTML = Object.keys(allObj).filter(id => id !== key && (statuses[id] || 'hidden') !== 'hidden').map(id => {
             const o = allObj[id];
             return `<span data-objective="${id}">${o.main ? '★' : '◇'} ${o.title || o.detail || id}</span>`;
         }).join('');
+        optionalList.querySelectorAll('[data-objective]').forEach(item => {
+            const status = statuses[item.dataset.objective] || 'active';
+            const icon = status === 'completed' ? '✓' : status === 'failed' ? '✕' : '○';
+            item.classList.toggle('complete', status === 'completed');
+            item.classList.toggle('failed', status === 'failed');
+            item.textContent = `${icon} ${item.textContent.replace(/^[^\s]+\s*/, '')}`;
+        });
         objectiveHud.classList.add('show');
     }
 
@@ -109,6 +120,16 @@ export function createCampaignController({ onRetry, onReturn }) {
         const previous = gameState.objectiveStates?.[id] || 'hidden';
         if (!gameState.objectiveStates) gameState.objectiveStates = {};
         gameState.objectiveStates[id] = status;
+        const allObj = activeScenario?.objectives || {};
+        if (status === 'active') {
+            updateObjectives(id);
+        } else if (activeObjectiveId === id) {
+            const nextActive = Object.keys(allObj).find(key => gameState.objectiveStates[key] === 'active') || '';
+            if (nextActive) updateObjectives(nextActive);
+            else objectiveHud?.classList.remove('show');
+        } else if (activeObjectiveId) {
+            updateObjectives(activeObjectiveId);
+        }
         const el = optionalList?.querySelector(`[data-objective="${CSS.escape(id)}"]`);
         if (el) {
             el.classList.toggle('complete', status === 'completed');
@@ -116,7 +137,6 @@ export function createCampaignController({ onRetry, onReturn }) {
         }
         // 弹出任务通知卡片
         if (status === 'completed' || status === 'failed') {
-            const allObj = activeScenario?.objectives || {};
             const obj = allObj[id];
             const label = obj?.title || obj?.detail || id;
             const icon = status === 'completed' ? '✓' : '✗';
@@ -247,6 +267,13 @@ export function createCampaignController({ onRetry, onReturn }) {
 
     function start() {
         if (!activeScenario) return;
+        const firstTurnKey = gameState.turnOrder?.[0];
+        if (gameState.campaignMode && firstTurnKey) {
+            gameState.currentCamp = campFromKey(firstTurnKey, gameState);
+            // 战役中的 AI 由阵营控制方式决定；忽略旧 PVE 启动流程遗留的固定对手槽位。
+            gameState.aiOpponentCamp = null;
+            updateUI();
+        }
         active = true;
         resultShown = false;
         resultOverlay.classList.remove('show');
@@ -255,11 +282,19 @@ export function createCampaignController({ onRetry, onReturn }) {
         updateObjectives(firstActive);
         showStep(activeScenario.initialStep, { immediate: true });
         activeFlow?.onLevelStarted?.();
+        if (gameState.campaignMode && firstTurnKey) {
+            emit('turn:started', { camp: gameState.currentCamp, campKey: firstTurnKey, turnCounter: gameState.turnCounter });
+            const firstFaction = gameState.factions?.[firstTurnKey];
+            if (firstFaction?.controller && firstFaction.controller !== 'human') {
+                queueMicrotask(() => import('./gameLogic.js').then(({ runCampaignOpeningTurn }) => runCampaignOpeningTurn()));
+            }
+        }
     }
 
     function stop() {
         active = false;
         stepId = '';
+        activeObjectiveId = '';
         activeFlow?.dispose?.();
         hideGuidance();
         objectiveHud?.classList.remove('show');

@@ -4,6 +4,9 @@
 
 /** 一回合包含的阵营数（步数）。 */
 export function getFactionCount(gameState) {
+    if (gameState?.campaignMode && Array.isArray(gameState.turnOrder) && gameState.turnOrder.length) {
+        return gameState.turnOrder.length;
+    }
     return gameState.isThreePlayer ? 4 : 3;
 }
 

@@ -10,6 +10,7 @@ import {
 } from '../engine/matchState.js';
 import { campFromKey, getFaction, getRelation, getViewingCampKey } from '../rules/diplomacy.js';
 import { CAMP_FLAG_COLORS } from '../rules/camps.js';
+import { campToKey } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 
 // ===== 计数器滚动动画工具 =====================
@@ -89,15 +90,12 @@ function _getLegacyInspectionTarget() {
 // idCounter 和 nextId 已移至 uid.js
 
 function _campKeyStr(camp) {
-    if (camp === CAMP.player1) return 'player1';
-    if (camp === CAMP.player2) return 'player2';
-    if (camp === CAMP.player3) return 'player3';
-    return 'neutral';
+    return campToKey(camp);
 }
 
 // 返回当前客户端应使用的观察阵营（遭遇战/多人模式迷雾渲染用）
 export function getViewingCamp() {
-    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey);
+    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey, gameState);
     if (isNetworkGame()) {
         const role = getMyRole();
         let camp = CAMP.player1;
@@ -134,7 +132,7 @@ export function updateButtonColors() {
 }
 
 function _getMyCamp() {
-    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey);
+    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey, gameState);
     if (isNetworkGame()) {
         const role = getMyRole();
         if (role === 'player1') return CAMP.player1;
@@ -149,7 +147,7 @@ function _getMyCamp() {
 }
 
 function _getHumanCamp() {
-    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey);
+    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey, gameState);
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
         return gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
     }
@@ -199,9 +197,11 @@ export function updateRecruitButtonStates() {
     };
 
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
-    const isNeutralTurn = gameState.currentCamp === CAMP.neutral;
+    const isNeutralTurn = campToKey(gameState.currentCamp) === 'neutral';
+    const isCampaignAiTurn = gameState.campaignMode
+        && gameState.factions?.[campToKey(gameState.currentCamp)]?.controller !== 'human';
     const inCommanderSetup = gameState.commanderPhase === 'selection';
-    if (opponentTurn || isNeutralTurn || gameState.gameOver || inCommanderSetup) {
+    if (opponentTurn || isNeutralTurn || isCampaignAiTurn || gameState.gameOver || inCommanderSetup) {
         for (const btn of Object.values(btns)) {
             if (btn) { btn.disabled = true; btn.classList.remove('available'); }
         }
@@ -320,13 +320,30 @@ export function updateUI() {
             card.style.display = faction.active && key !== 'player3' || gameState.isThreePlayer ? '' : 'none';
         }
     }
-    const newGold1 = gameState.playerGold.player1;
+    const campaignGoldKey = gameState.campaignMode ? getViewingCampKey(gameState) : 'player1';
+    if (gameState.campaignMode) {
+        const localFaction = getFaction(gameState, campaignGoldKey);
+        const localCard = document.getElementById('campCard1');
+        if (localCard && localFaction) {
+            localCard.style.display = '';
+            localCard.dataset.relation = 'self';
+            const label = localCard.querySelector('.camp-label');
+            const emblem = localCard.querySelector('.camp-emblem');
+            if (label) label.textContent = localFaction.name;
+            if (emblem) emblem.style.background = localFaction.color;
+        }
+        document.getElementById('campCard2')?.style.setProperty('display', 'none');
+        document.getElementById('campCard3')?.style.setProperty('display', 'none');
+    }
+    const newGold1 = gameState.playerGold[campaignGoldKey] ?? 0;
     const newGold2 = gameState.playerGold.player2;
     const newGold3 = gameState.playerGold.player3;
     // 联机/中立/AI对手回合：禁用操作按钮、显示提示条
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
-    const isNeutralTurn = gameState.currentCamp === CAMP.neutral;
-    const isAIOpponentTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
+    const isNeutralTurn = campToKey(gameState.currentCamp) === 'neutral';
+    const isCampaignAiTurn = gameState.campaignMode
+        && gameState.factions?.[campToKey(gameState.currentCamp)]?.controller !== 'human';
+    const isAIOpponentTurn = isCampaignAiTurn || (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp);
     const inCommanderSetup = gameState.commanderPhase === 'selection';
     const disableBtns = opponentTurn || isNeutralTurn || isAIOpponentTurn || gameState.gameOver || inCommanderSetup;
     ['endTurnBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher'].forEach(id => {
@@ -373,17 +390,18 @@ export function updateUI() {
         }
     }
 
-    if (newGold1 !== gameState.previousGold.player1) {
-        const delta1 = newGold1 - gameState.previousGold.player1;
+    const gold1Previous = gameState.previousGold[campaignGoldKey] ?? -1;
+    if (newGold1 !== gold1Previous) {
+        const delta1 = newGold1 - gold1Previous;
         const fogHide1 = (gameState.skirmishFog && getViewingCamp() !== CAMP.player1)
-            || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player1') === 'enemy');
+            || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), campaignGoldKey) === 'enemy');
         if (gold1El) animateCounter(gold1El, fogHide1 ? -1 : newGold1, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide1 && gold1El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold1El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
                 { scale: 1, textShadow: '0 0 0px rgba(255,215,0,0)', duration: 0.45, ease: 'back.out(1.7)' });
         }
-        if (!fogHide1 && gameState.previousGold.player1 >= 0) _spawnGoldDelta(gold1El, delta1);
-        gameState.previousGold.player1 = newGold1;
+        if (!fogHide1 && gold1Previous >= 0) _spawnGoldDelta(gold1El, delta1);
+        gameState.previousGold[campaignGoldKey] = newGold1;
     }
     if (newGold2 !== gameState.previousGold.player2) {
         const delta2 = newGold2 - gameState.previousGold.player2;

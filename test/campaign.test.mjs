@@ -46,8 +46,13 @@ export async function run(browser) {
         await page.locator('#editorOverlay').waitFor({ state: 'visible' });
         await page.click('.editor-tab[data-tab="meta"]');
         R.assert(await page.getByText('本关开放机制', { exact: true }).count() === 1, '编辑器提供关卡机制开关');
+        await page.click('.editor-tab[data-tab="factions"]');
         R.assert(await page.getByText('初始外交关系（双向）', { exact: true }).count() === 1, '编辑器提供双向外交配置');
+        await page.click('.editor-tab[data-tab="meta"]');
         R.assert(await page.getByText(/联盟共享视野/).count() >= 1, '联盟共享视野为独立开关');
+        await page.click('.editor-tab[data-tab="triggers"]');
+        await page.getByText('+ 新增触发器', { exact: true }).click();
+        R.assert(await page.getByText('指定单位/单位组移动到指定地块', { exact: true }).count() >= 1, '触发器编辑器提供单位进入指定地块条件');
         const infrastructure = await page.evaluate(async () => {
             const schema = await import('/campaign/runtime/schema.js');
             const diplomacy = await import('/rules/diplomacy.js');
@@ -56,16 +61,58 @@ export async function run(browser) {
             const validation = schema.validateLevel(level);
             const state = { diplomacy: diplomacy.createDefaultDiplomacy(), mechanics: mechanics.createDefaultMechanics() };
             const change = diplomacy.setRelation(state, 'player1', 'neutral', 'enemy');
+            const triggers = await import('/campaign/runtime/triggers.js');
+            const { gameState } = await import('/js/state.js');
+            const flowLevel = schema.createDefaultLevel();
+            flowLevel.units = [{ id: 'centurion', type: 'infantry', camp: 'player1', q: -1, r: 0 }];
+            flowLevel.steps = { centurionAtGate: { mode: 'character', text: '终于到了。', speaker: { name: '百夫长', portrait: 'centurion' }, next: null } };
+            flowLevel.objectives = {
+                takeCity: { title: '攻占主城', detail: '', active: true, main: true },
+                holdCity: { title: '防守主城', detail: '', active: false, main: true }
+            };
+            flowLevel.triggers = [{
+                id: 'centurion-enters-city', once: true,
+                when: [{ kind: 'unitMovesToTile', target: { unit: 'centurion' }, q: 0, r: 0 }],
+                do: [
+                    { kind: 'showStep', step: 'centurionAtGate' },
+                    { kind: 'setObjectiveStatus', objective: 'takeCity', status: 'completed' },
+                    { kind: 'setObjectiveStatus', objective: 'holdCity', status: 'active' }
+                ]
+            }];
+            const shownSteps = [];
+            const changedObjectives = [];
+            let wins = 0;
+            gameState.tiles = [{ unit: { id: 'centurion', camp: diplomacy.campFromKey('player1'), hp: 1 }, camp: diplomacy.campFromKey('player1') }];
+            gameState.localPlayerCampKey = 'player1';
+            gameState.objectiveStates = { takeCity: 'active', holdCity: 'hidden' };
+            const flow = triggers.createTriggerFlow(flowLevel, {
+                isActive: () => true,
+                isResultShown: () => false,
+                showStep: id => shownSteps.push(id),
+                setObjectiveStatus: (id, status) => { gameState.objectiveStates[id] = status; changedObjectives.push(`${id}:${status}`); },
+                hideGuidance: () => {}, showHint: () => {}, fail: () => {}, win: () => { wins++; }, getStepId: () => ''
+            });
+            flow.dispatch('tileSelected', { unitId: 'centurion', q: 0, r: 0 });
+            const ignoredNonMove = shownSteps.length === 0;
+            flow.dispatch('unitMoved', { unitId: 'centurion', q: 0, r: 0 });
             return {
                 schemaOk: validation.errors.length === 0,
                 symmetric: change?.previous === 'neutral' && diplomacy.getRelation(state, 'neutral', 'player1') === 'enemy',
                 alliedVisionDefault: mechanics.isMechanicEnabled(state, 'alliedVision'),
-                cardDefault: mechanics.isMechanicEnabled(state, 'tacticalCards')
+                cardDefault: mechanics.isMechanicEnabled(state, 'tacticalCards'),
+                flowSchemaOk: schema.validateLevel(flowLevel).errors.length === 0,
+                ignoredNonMove,
+                movementTriggerWorked: shownSteps[0] === 'centurionAtGate'
+                    && changedObjectives.join(',') === 'takeCity:completed,holdCity:active'
+                    && gameState.objectiveStates.holdCity === 'active'
+                    && wins === 0
             };
         });
         R.assert(infrastructure.schemaOk, '新版默认 Schema 可直接编译');
         R.assert(infrastructure.symmetric, '外交修改保持双向对称');
         R.assert(!infrastructure.alliedVisionDefault && infrastructure.cardDefault, '机制默认值正确（共享视野关、对策卡开）');
+        R.assert(infrastructure.flowSchemaOk, 'AoE 式“单位移动到地块→对白→切换主要目标”配置可通过校验');
+        R.assert(infrastructure.ignoredNonMove && infrastructure.movementTriggerWorked, '移动事件条件只响应实际移动，并按动作顺序显示对白、完成旧目标、启用新目标');
         R.assert(page._errors.length === 0, `编辑器基础设施无页面异常${page._errors.length ? `：${page._errors.join(' | ')}` : ''}`);
         await page.context().close();
         return R.summary();
