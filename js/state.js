@@ -270,10 +270,11 @@ export function updateUI() {
     const turnEl = document.getElementById('currentTurn');
     const currentFaction = getFaction(gameState, gameState.currentCamp);
     turnEl.textContent = currentFaction?.name || gameState.currentCamp.name;
+    const turnFlag = getFlagColors(gameState.currentCamp?.color);
     if (typeof gsap !== 'undefined') {
-        gsap.to(turnEl, { color: gameState.currentCamp.color, duration: 0.35 });
+        gsap.to(turnEl, { color: turnFlag.main, duration: 0.35 });
     } else {
-        turnEl.style.color = gameState.currentCamp.color;
+        turnEl.style.color = turnFlag.main;
     }
     const gold1El = document.getElementById('player1Gold');
     const gold2El = document.getElementById('player2Gold');

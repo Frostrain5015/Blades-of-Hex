@@ -4446,6 +4446,10 @@ body.campaign-lobby-active .chronicle-nav-btn { display: flex; }
 body.campaign-game-active #notificationBanner {
     top: 140px;
 }
+/* 战役模式下隐藏阵营卡上的文本名（徽章色已足够标识） */
+body.campaign-game-active .camp-card .camp-label {
+    display: none;
+}
 
 /* ============================================================
    PORTRAIT WARNING & MOBILE LANDSCAPE
