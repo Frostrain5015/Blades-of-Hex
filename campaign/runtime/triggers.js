@@ -99,8 +99,8 @@ function evalCondition(cond, ctx) {
             && event?.q === cond.q && event?.r === cond.r;
         case 'unitMovesToArea': {
             if (eventId !== 'unitMoved' || !targetIncludesUnit(config, cond.target, event?.unitId)) return false;
-            const area = areaById(config, cond.area);
-            return !!area?.tiles?.some(tile => tile.q === event?.q && tile.r === event?.r);
+            const tiles = cond.tiles || areaById(config, cond.area)?.tiles || [];
+            return tiles.some(tile => tile.q === event?.q && tile.r === event?.r);
         }
         case 'unitAttacksUnit': return eventId === 'combatStarted'
             && targetIncludesUnit(config, cond.attacker, event?.attackerId)
@@ -275,7 +275,17 @@ function runAction(action, ctx) {
         default: console.warn(`[campaign] 未知效果「${action.kind}」，已跳过。`);
     }
 }
-function runActions(actions, ctx) { for (const action of (actions || [])) runAction(action, ctx); }
+function runActions(actions, ctx) {
+    let shownFirstStep = false;
+    for (const action of (actions || [])) {
+        // 同一触发器内有多个内联 showStep 时，只执行第一个（其余由 next 链驱动）
+        if (action.kind === 'showStep' && !action.step) {
+            if (shownFirstStep) continue;
+            shownFirstStep = true;
+        }
+        runAction(action, ctx);
+    }
+}
 
 export function createTriggerFlow(config, api) {
     if (!(gameState._campaignFlags instanceof Set)) gameState._campaignFlags = new Set();
@@ -284,6 +294,25 @@ export function createTriggerFlow(config, api) {
     const triggers = (config.triggers || []).map((trigger, index) => ({ ...trigger, _id: trigger.id || `trigger_${index}` }));
     const enabled = new Map(triggers.map(trigger => [trigger._id, trigger.enabled !== false]));
     const result = config.result || {};
+
+    // 预注册所有内联 showStep 的 _id，供 next 链查找
+    if (!gameState._inlineStepMap) gameState._inlineStepMap = {};
+    for (const trigger of triggers) {
+        for (const action of (trigger.do || [])) {
+            if (action.kind === 'showStep' && action._id) {
+                const hasNext = action.next != null && action.next !== '';
+                gameState._inlineStepMap[action._id] = {
+                    phase: hasNext ? 'dialog' : 'wait',
+                    mode: action.mode || 'narrator',
+                    text: action.text || '',
+                    speaker: action.mode === 'character' && action.speaker ? { name: action.speaker.name, portrait: action.speaker.portrait } : undefined,
+                    next: action.next || undefined,
+                    target: action.target,
+                    allow: action.allow
+                };
+            }
+        }
+    }
 
     function ctxFor(eventId, event, triggerId = '') {
         return { api, event: event || {}, eventId, flags: state.flags, state, config, dispatch, enabled, triggerId };

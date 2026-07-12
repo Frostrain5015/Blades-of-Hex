@@ -169,14 +169,7 @@ export function createDefaultLevel() {
         areas: [],                  // [{ id, tiles:[{q,r}] }]
         interactables: [],          // [{ id, q, r, label, enabled, once, icon? }]
         variables: [],              // [{ id, scope:'level'|'campaign', type, initial }]
-        // 剧情步骤（简化模型）：只有台词/旁白两种，按钮统一为「下一步」。
-        //   { mode: 'narrator'|'character', text, speaker?: {name, portrait},
-        //     next?: stepId|'__自定义__'|null,  // 有值→显示「下一步」；null→等待触发器推进
-        //     target?: unitId|{q,r},            // 可选：目标环
-        //     allow?: { units:[], tiles:[{q,r}], cards:[], actions:[], hint } } // 可选：输入白名单
-        steps: {},
         objectives: {},             // { objId: { title, detail, active, main } }
-        initialStep: '',
         triggers: [],               // [{ id, when:[], do:[], once, enabled }]
         result: {
             winText: '任务完成。',
@@ -212,13 +205,6 @@ export function normalizeLevel(raw) {
     merged.areas = Array.isArray(raw.areas) ? raw.areas : [];
     merged.interactables = Array.isArray(raw.interactables) ? raw.interactables : [];
     merged.variables = Array.isArray(raw.variables) ? raw.variables : [];
-    merged.steps = raw.steps && typeof raw.steps === 'object' ? structuredClone(raw.steps) : {};
-    for (const step of Object.values(merged.steps)) {
-        const portrait = step?.speaker?.portrait;
-        if (!portrait || COMMANDER_IDS.includes(portrait)) continue;
-        const legacyEntry = Object.entries(COMMANDER_LABELS).find(([, label]) => label === portrait);
-        if (legacyEntry) step.speaker.portrait = legacyEntry[0];
-    }
     merged.objectives = raw.objectives && typeof raw.objectives === 'object' ? raw.objectives : {};
     merged.triggers = Array.isArray(raw.triggers) ? raw.triggers : [];
     merged.result = { ...def.result, ...(raw.result || {}) };
@@ -334,17 +320,6 @@ export function validateLevel(config) {
         if (!VARIABLE_SCOPES.includes(variable.scope)) errors.push(`变量「${variable.id}」作用域非法。`);
     }
 
-    if (c.initialStep && !c.steps?.[c.initialStep]) {
-        errors.push(`initialStep「${c.initialStep}」在 steps 中不存在。`);
-    }
-    for (const [stepId, step] of Object.entries(c.steps || {})) {
-        if (step.mode === 'character' && !step.speaker?.name) {
-            warnings.push(`台词步骤「${stepId}」缺少说话人。`);
-        }
-        if (step.next && !step.next.startsWith('__') && !c.steps[step.next]) {
-            errors.push(`步骤「${stepId}」的 next「${step.next}」不存在（自定义跳转请用 __ 前缀）。`);
-        }
-    }
     const activeMainCount = Object.values(c.objectives || {}).filter(o => o.main && o.active !== false).length;
     if (activeMainCount === 0 && Object.keys(c.objectives || {}).length > 0) {
         warnings.push('没有设置任何主要目标，玩家将无法通过目标完成获得胜利。');
@@ -413,7 +388,6 @@ export function validateLevel(config) {
         if (target?.group && !groupIds.has(target.group)) errors.push(`${path} 引用不存在的单位组「${target.group}」。`);
         if (action.kind === 'setVariable' && !variableIds.has(action.variable)) errors.push(`${path} 引用不存在的变量「${action.variable}」。`);
         if (action.kind === 'setTriggerEnabled' && !triggerIds.has(action.trigger)) errors.push(`${path} 引用不存在的触发器「${action.trigger}」。`);
-        if (action.kind === 'showStep' && !c.steps?.[action.step]) errors.push(`${path} 引用不存在的剧情步骤「${action.step || '未选择'}」。`);
         if (action.kind === 'setObjectiveStatus') {
             if (!objectiveIds.has(action.objective)) errors.push(`${path} 引用不存在的目标「${action.objective}」。`);
             if (!OBJECTIVE_STATUS_KEYS.includes(action.status)) errors.push(`${path} 设置了非法目标状态「${action.status}」。`);

@@ -623,41 +623,6 @@ function buildUnitTools() {
     return wrap;
 }
 
-function buildStoryList() {
-    const wrap = el('div');
-    const ids = Object.keys(config.steps);
-
-    const secInit = section('初始步骤');
-    secInit.appendChild(selectRow('开场', config.initialStep, { '': '（无）', ...Object.fromEntries(ids.map(id => [id, id])) },
-        v => mutate(c => { c.initialStep = v; }, { rebuildPanels: false })));
-    wrap.appendChild(secInit);
-
-    const secSteps = section(`剧情步骤（${ids.length}）`);
-    secSteps.appendChild(itemList({
-        items: ids.map(id => {
-            const s = config.steps[id];
-            return { key: id, label: `${id} · ${s.mode === 'character' ? '台词' : '旁白'}${s.next ? '' : '（等待）'}` };
-        }),
-        activeKey: selection?.kind === 'step' ? selection.id : null,
-        onSelect: (id) => { selection = { kind: 'step', id }; renderToolPanel(); renderInspector(); },
-        onDelete: (id) => mutate(c => {
-            delete c.steps[id];
-            if (c.initialStep === id) c.initialStep = '';
-            if (selection?.kind === 'step' && selection.id === id) selection = null;
-        }),
-        addLabel: '+ 新增步骤',
-        onAdd: () => mutate(c => {
-            let n = 1;
-            while (c.steps[`step${n}`]) n++;
-            c.steps[`step${n}`] = { mode: 'narrator', text: '', next: null };
-            selection = { kind: 'step', id: `step${n}` };
-            if (!c.initialStep) c.initialStep = `step${n}`;
-        })
-    }));
-    wrap.appendChild(secSteps);
-    wrap.appendChild(hint('步骤统一使用「下一步」按钮推进：填了跳转目标就显示按钮；留空则等待触发器推进（可配输入白名单）。'));
-    return wrap;
-}
 
 function buildTriggerList() {
     const wrap = el('div');
@@ -870,9 +835,6 @@ function renderInspector() {
         body.appendChild(buildUnitInspector(selection.index));
         return;
     }
-    if (selection?.kind === 'step' && config.steps[selection.id]) {
-        title.textContent = `步骤 · ${selection.id}`;
-        body.appendChild(buildStepInspector(selection.id));
         return;
     }
     if (selection?.kind === 'trigger' && config.triggers[selection.index]) {
@@ -1055,94 +1017,17 @@ function areaPickerRow(labelText, areaId, onChange) {
     return row;
 }
 
-function buildStepInspector(stepId) {
-    const wrap = el('div');
-    const step = config.steps[stepId];
-    const set = (key) => (v) => mutate(c => { c.steps[stepId][key] = v; }, { rebuildPanels: false });
-
-    wrap.appendChild(textRow('步骤 id', stepId, v => {
-        if (!v || v === stepId) return;
-        if (config.steps[v]) { setStatus(`步骤 id「${v}」已存在`, 'error'); renderInspector(); return; }
-        mutate(c => {
-            c.steps[v] = c.steps[stepId];
-            delete c.steps[stepId];
-            if (c.initialStep === stepId) c.initialStep = v;
-            for (const s of Object.values(c.steps)) if (s.next === stepId) s.next = v;
-            selection = { kind: 'step', id: v };
-        });
-    }));
-    wrap.appendChild(selectRow('类型', step.mode, { narrator: '旁白', character: '台词' }, v => mutate(c => {
-        c.steps[stepId].mode = v;
-        if (v === 'character' && !c.steps[stepId].speaker) c.steps[stepId].speaker = { name: '', portrait: '' };
-    })));
-    if (step.mode === 'character') {
-        wrap.appendChild(textRow('说话人', step.speaker?.name || '', v => mutate(c => {
-            c.steps[stepId].speaker = { ...(c.steps[stepId].speaker || {}), name: v };
-        }, { rebuildPanels: false })));
-        wrap.appendChild(selectRow('立绘', step.speaker?.portrait || '', { '': '（无）', ...COMMANDER_LABELS },
-            v => mutate(c => { c.steps[stepId].speaker = { ...(c.steps[stepId].speaker || {}), portrait: v }; }, { rebuildPanels: false })));
-    }
-    wrap.appendChild(textareaRow('文本', step.text, set('text'), 4));
-    wrap.appendChild(selectRow('下一步', step.next || '', { '': '（等待触发器）', ...stepOptions(false), '__custom__': '自定义跳转值…' }, v => {
-        if (v === '__custom__') {
-            const custom = prompt('输入自定义跳转值（供触发器「点击按钮」事件匹配，建议 __ 前缀）', step.next || '__');
-            if (custom != null) mutate(c => { c.steps[stepId].next = custom || null; });
-            else renderInspector();
-            return;
-        }
-        mutate(c => { c.steps[stepId].next = v || null; });
-    }));
-
-    // 目标环
-    const targetUnit = typeof step.target === 'string' ? step.target : '';
-    const targetCoord = step.target && typeof step.target === 'object' ? step.target : null;
-    const targetUnitRow = el('div', 'ed-row');
-    targetUnitRow.appendChild(el('label', null, '目标环·单位'));
-    targetUnitRow.appendChild(pickUnitButton(id => mutate(c => { c.steps[stepId].target = id; }, { rebuildPanels: false }), targetUnit));
-    targetUnitRow.appendChild(el('span', null, targetUnit || '未选择'));
-    wrap.appendChild(targetUnitRow);
-    if (targetCoord) {
-        wrap.appendChild(coordRow('目标环·坐标', targetCoord.q, targetCoord.r, tile => mutate(c => {
-            c.steps[stepId].target = tile;
-        }, { rebuildPanels: false })));
-    } else {
-        wrap.appendChild(coordRow('目标环·坐标', 0, 0, tile => mutate(c => {
-            c.steps[stepId].target = tile;
-        }, { rebuildPanels: false })));
-    }
-
-    // 输入白名单（等待步骤时的引导锁）
-    const allow = step.allow || {};
-    const secAllow = section('输入白名单（留空=锁定全部操作）');
-    secAllow.appendChild(hint('仅在严格教学模式下生效：查看单位/地块始终允许，移动、攻击、对策卡和技能只允许白名单内项目。需要自由操作时使用触发器「解除输入锁」。'));
-    const setAllow = (key, list) => mutate(c => {
-        const a = { ...(c.steps[stepId].allow || {}) };
-        if (list && list.length) a[key] = list; else delete a[key];
-        if (Object.keys(a).length) c.steps[stepId].allow = a; else delete c.steps[stepId].allow;
-    }, { rebuildPanels: false });
-    secAllow.appendChild(checkGroup('可点单位', Object.entries(unitOptions(false)).map(([value, label]) => ({ value, label })), allow.units, v => setAllow('units', v)));
-    const tileRow = el('div', 'ed-row');
-    tileRow.appendChild(el('label', null, '可点坐标'));
-    tileRow.appendChild(pickTilesButton(allow.tiles || [], list => setAllow('tiles', list)));
-    const coordLabel = el('span', null, (allow.tiles || []).length ? `${allow.tiles.length} 格已选` : '未选择');
-    coordLabel.style.cssText = 'color:rgba(255,255,255,0.5);font-size:12px;margin-left:6px;';
-    tileRow.appendChild(coordLabel);
-    // 更新标签的 hack
-    const origPush = Array.prototype.push;
-    secAllow.appendChild(tileRow);
-    secAllow.appendChild(checkGroup('可用卡牌', CARD_IDS.map(id => ({ value: id, label: CARD_LABELS[id] })), allow.cards, v => setAllow('cards', v)));
-    secAllow.appendChild(textRow('可用技能', (allow.actions || []).join('; '), v => setAllow('actions', v.split(/[;；]/).map(s => s.trim()).filter(Boolean)), '如 commander:'));
-    secAllow.appendChild(textRow('提示语', allow.hint || '', v => mutate(c => {
-        const a = { ...(c.steps[stepId].allow || {}) };
-        if (v) a.hint = v; else delete a.hint;
-        if (Object.keys(a).length) c.steps[stepId].allow = a; else delete c.steps[stepId].allow;
-    }, { rebuildPanels: false }), '误点时显示'));
-    wrap.appendChild(secAllow);
-    return wrap;
+/** 内联区域行：点选按钮 + 已选格数，不依赖 config.areas 表。 */
+function tilesPickerRow(labelText, tiles, onChange) {
+    const row = el('div', 'ed-row');
+    row.appendChild(el('label', null, labelText));
+    row.appendChild(pickTilesButton(tiles || [], list => { onChange(list); renderInspector(); }));
+    const label = el('span', null, (tiles || []).length ? `${tiles.length} 格已选` : '未选择');
+    label.style.cssText = 'color:rgba(255,255,255,0.5);font-size:12px;margin-left:6px;';
+    row.appendChild(label);
+    return row;
 }
 
-// ── 触发器条件/动作编辑 ──
-// 切换类型时预置默认参数，防止“新建即空参永不生效”。
 function conditionDefaults(kind) {
     switch (kind) {
         case 'levelStarted': return {};
@@ -1222,8 +1107,8 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             break;
         case 'eventTargetArea':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
-            box.appendChild(areaPickerRow('目标区域', cond.area || '', area => patch({ area })));
-            box.appendChild(hint('通过图钉框选区域；任一指定单位移动进入其中任意地块时满足。'));
+            box.appendChild(tilesPickerRow('目标区域', cond.tiles || [], list => patch({ tiles: list, area: undefined })));
+            box.appendChild(hint('通过图钉涂抹区域；任一指定单位移动进入其中任意地块时满足。'));
             break;
         case 'eventCombatPair':
             box.appendChild(targetEditor(cond.attacker, attacker => patch({ attacker }), { label: '攻击方' }));
@@ -1399,48 +1284,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
     box.appendChild(selectRow('动作', action.kind, Object.fromEntries(kinds.map(a => [a.kind, a.label])), v => onChange({ kind: v, ...actionDefaults(v) })));
     const patch = (fields) => onChange({ ...action, ...fields });
     switch (meta.arg) {
-        case 'step': {
-            const stepId = action.step || '';
-            const step = config.steps[stepId];
-            box.appendChild(selectRow('步骤', stepId, {
-                ...Object.fromEntries(Object.keys(config.steps).map(id => [id, id])),
-                '__new__': '── 新建步骤 ──'
-            }, v => {
-                if (v === '__new__') {
-                    let n = 1; while (config.steps[`page${n}`]) n++;
-                    const newId = `page${n}`;
-                    mutate(c => { c.steps[newId] = { mode: 'narrator', text: '', next: null }; }, { rebuildPanels: false, snapshot: false });
-                    // 自动接在上一步之后构成连续对话
-                    if (stepId && config.steps[stepId] && !config.steps[stepId].next) {
-                        mutate(c => { c.steps[stepId].next = newId; }, { rebuildPanels: false, snapshot: false });
-                    }
-                    patch({ step: newId });
-                    renderInspector();
-                } else { patch({ step: v || '' }); }
-            }));
-            if (step) {
-                const preview = el('div', 'ed-card');
-                preview.style.cssText = 'margin:4px 0;padding:6px;background:rgba(255,255,255,0.04);font-size:12px;';
-                preview.innerHTML = `<div style="color:#ffd866;font-weight:bold">${step.mode === 'character' ? '🗣 ' + (step.speaker?.name || '') : '📖 旁白'}</div><div style="color:rgba(255,255,255,0.7);margin-top:2px">${(step.text || '（空）').slice(0, 80)}${(step.text || '').length > 80 ? '…' : ''}</div>`;
-                preview.addEventListener('click', () => { selection = { kind: 'step', id: stepId }; renderInspector(); });
-                preview.style.cursor = 'pointer';
-                box.appendChild(preview);
-                const dialogue = section('本动作显示的对白');
-                dialogue.appendChild(selectRow('类型', step.mode, { narrator: '旁白', character: '台词' }, value => mutate(c => {
-                    c.steps[stepId].mode = value;
-                    if (value === 'character' && !c.steps[stepId].speaker) c.steps[stepId].speaker = { name: '', portrait: '' };
-                }, { rebuildPanels: true })));
-                if (step.mode === 'character') {
-                    dialogue.appendChild(textRow('说话人', step.speaker?.name || '', value => mutate(c => {
-                        c.steps[stepId].speaker = { ...(c.steps[stepId].speaker || {}), name: value };
-                    }, { rebuildPanels: false })));
-                    dialogue.appendChild(selectRow('立绘', step.speaker?.portrait || '', { '': '（无）', ...COMMANDER_LABELS }, value => mutate(c => {
-                        c.steps[stepId].speaker = { ...(c.steps[stepId].speaker || {}), portrait: value };
-                    }, { rebuildPanels: false })));
-                }
-                dialogue.appendChild(textareaRow('台词', step.text || '', value => mutate(c => {
-                    c.steps[stepId].text = value;
-                }, { rebuildPanels: false }), 3));
                 box.appendChild(dialogue);
                 box.appendChild(hint('这里可直接写对白；需要目标环、输入白名单或连续页面时，再点击上方预览进入完整步骤编辑。'));
             }

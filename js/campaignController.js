@@ -1,7 +1,7 @@
 // 通用战役控制器（内容无关引擎）。
 // 具体关卡的剧本、目标、流程、结算文案全部来自 scenario 模块（见 campaign/content/**）。
 // 本文件只负责：渲染步骤对白、目标 HUD、目标环/提示、结算面板、事件订阅与输入校验的分发。
-import { canvas, LOGICAL_W, LOGICAL_H, CAMP, invalidateBoard } from './config.js';
+import { canvas, HEX_SIZE, LOGICAL_W, LOGICAL_H, CAMP, invalidateBoard, hexPath } from './config.js';
 import { gameState, logMessage, updateUI } from './state.js';
 import { emit, on } from './eventBus.js';
 import { saveVictory } from '../campaign/progress.js';
@@ -64,14 +64,23 @@ export function createCampaignController({ onRetry, onReturn }) {
     // 对话框点击推进
     function _advanceFromClick() {
         if (!active) return;
-        const step = activeScenario?.steps?.[stepId] || gameState._inlineStepData;
+        const step = gameState._inlineStepData;
         if (!step || !step.next) return;
         if (step.next.startsWith('__')) activeFlow?.onAdvance?.(step.next);
-        else showStep(step.next);
+        else if (gameState._inlineStepMap?.[step.next]) showStep(gameState._inlineStepMap[step.next]);
     }
 
     function tileForTarget(target) {
         return activeScenario?.tileForTarget?.(target) || null;
+    }
+
+    // 从 step.target 或 step.target.tiles 获取当前高亮的地块列表
+    function _targetTiles(step) {
+        if (!step || !step.target) return null;
+        const t = step.target;
+        if (t.tiles) return t.tiles.map(tile => gameState.tileMap.get(`${tile.q},${tile.r}`)).filter(Boolean);
+        const single = tileForTarget(t);
+        return single ? [single] : null;
     }
 
     function findUnit(id) {
@@ -92,12 +101,26 @@ export function createCampaignController({ onRetry, onReturn }) {
     }
 
     function syncRing() {
-        const step = activeScenario?.steps?.[stepId];
-        const tile = step ? tileForTarget(step.target) : null;
-        if (!active || !tile || step?.phase === 'dialog' || step?.phase === 'card' || step?.phase === 'action') {
+        const step = gameState._inlineStepData;
+        if (!active || !step || step?.phase === 'dialog' || step?.phase === 'card' || step?.phase === 'action') {
             ring?.classList.remove('visible');
+            _clearAreaHighlights();
             return;
         }
+        const target = step.target;
+        if (!target) { ring?.classList.remove('visible'); _clearAreaHighlights(); return; }
+
+        // 区域目标：对每个地块绘制正旋高亮边框
+        if (target.tiles) {
+            ring?.classList.remove('visible');
+            _drawAreaHighlights(target.tiles);
+            return;
+        }
+
+        // 单一目标：现有圆环
+        _clearAreaHighlights();
+        const tile = tileForTarget(target);
+        if (!tile) { ring?.classList.remove('visible'); return; }
         const rect = canvas.getBoundingClientRect();
         const scaleX = rect.width / LOGICAL_W;
         const scaleY = rect.height / LOGICAL_H;
@@ -107,6 +130,40 @@ export function createCampaignController({ onRetry, onReturn }) {
         ring.style.left = `${rect.left + tile.x * scaleX - size / 2}px`;
         ring.style.top = `${rect.top + tile.y * scaleY - size / 2}px`;
         ring.classList.add('visible');
+    }
+
+    // 区域高亮：在画布上为每个地块绘制正旋脉冲边框
+    let _areaHighlightTiles = [];
+    let _areaHighlightFrame = 0;
+    function _drawAreaHighlights(tiles) {
+        const renderFn = () => {
+            if (!active) return;
+            const c = canvas.getContext('2d');
+            _areaHighlightTiles = tiles;
+            const now = performance.now();
+            const pulse = (Math.sin(now / 350) + 1) / 2;
+            const alpha = 0.5 + pulse * 0.4;
+            c.save();
+            for (const t of tiles) {
+                const tile = gameState.tileMap.get(`${t.q},${t.r}`);
+                if (!tile) continue;
+                const cx = tile.x, cy = tile.y;
+                hexPath(c, cx, cy, HEX_SIZE + 2);
+                c.strokeStyle = `rgba(255,215,0,${alpha})`;
+                c.lineWidth = 2.5 + pulse * 1.5;
+                c.shadowColor = `rgba(255,215,0,${0.5 + pulse * 0.3})`;
+                c.shadowBlur = 8 + pulse * 6;
+                c.stroke();
+            }
+            c.restore();
+            _areaHighlightFrame = requestAnimationFrame(renderFn);
+        };
+        if (_areaHighlightFrame) cancelAnimationFrame(_areaHighlightFrame);
+        _areaHighlightFrame = requestAnimationFrame(renderFn);
+    }
+    function _clearAreaHighlights() {
+        if (_areaHighlightFrame) { cancelAnimationFrame(_areaHighlightFrame); _areaHighlightFrame = 0; }
+        _areaHighlightTiles = [];
     }
 
     function showHint(message) {
@@ -206,25 +263,19 @@ export function createCampaignController({ onRetry, onReturn }) {
     }
 
     function showStep(nextOrStep, { immediate = false } = {}) {
-        let step;
-        if (typeof nextOrStep === 'string') {
-            // 按名称查找步骤（向后兼容 config.steps）
-            step = activeScenario?.steps?.[nextOrStep];
-            if (step) {
-                stepId = nextOrStep;
-                gameState.tutorialStep = step.ruleStep ?? nextOrStep;
-                gameState.campaignPhase = nextOrStep;
-                gameState._inlineStepData = null;
-            }
-        } else if (nextOrStep && typeof nextOrStep === 'object') {
-            // 内联步骤：触发器动作直接携带所有字段
-            step = _inlineStepFromAction(nextOrStep);
-            const id = `__inline_${++_inlineStepCounter}`;
-            stepId = id;
-            gameState.tutorialStep = nextOrStep.ruleStep ?? id;
-            gameState.campaignPhase = id;
-            // 存到 gameState 供 trigger 的 currentAllow/validateCanvasClick 查找
-            gameState._inlineStepData = step;
+        if (!active || !nextOrStep) return;
+        // 内联步骤：触发器动作直接携带所有字段
+        const step = _inlineStepFromAction(nextOrStep);
+        const id = nextOrStep._id || `__inline_${++_inlineStepCounter}`;
+        stepId = id;
+        gameState.tutorialStep = nextOrStep.ruleStep ?? id;
+        gameState.campaignPhase = id;
+        // 存到 gameState 供 trigger 的 currentAllow/validateCanvasClick 查找
+        gameState._inlineStepData = step;
+        // 注册到内联步骤映射（供 next 链查找）
+        if (nextOrStep._id) {
+            if (!gameState._inlineStepMap) gameState._inlineStepMap = {};
+            gameState._inlineStepMap[nextOrStep._id] = step;
         }
         if (!active || !step) return;
         const token = ++transitionToken;
@@ -320,7 +371,7 @@ export function createCampaignController({ onRetry, onReturn }) {
         resultOverlay.setAttribute('aria-hidden', 'true');
         const firstActive = Object.keys(activeScenario?.objectives || {}).find(id => activeScenario.objectives[id].active !== false) || '';
         updateObjectives(firstActive);
-        showStep(activeScenario.initialStep, { immediate: true });
+        // initialStep 已废弃，开场由触发器 levelStarted → showStep 驱动
         activeFlow?.onLevelStarted?.();
         if (gameState.campaignMode && firstTurnKey) {
             emit('turn:started', { camp: gameState.currentCamp, campKey: firstTurnKey, turnCounter: gameState.turnCounter });

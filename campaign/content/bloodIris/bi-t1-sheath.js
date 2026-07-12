@@ -147,62 +147,6 @@ export const config = {
     interactables: [],
     variables: [],
 
-    // ── 剧情步骤 ─────────────────────────────────────────────
-    // 步骤分两类：
-    //   有 next → 对话框，显示「下一步」按钮，控制器自动推进
-    //   无 next → 等待态，由触发器捕捉玩家操作后 showStep 推进
-    //   allow 定义该步骤下的输入白名单（仅等待态有效）
-    steps: {
-        // 【开场】马库斯授予血印金币
-        'intro1': {
-            mode: 'character',
-            speaker: { name: '马库斯', portrait: '百夫长' },
-            text: '新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。',
-            next: 'intro2'
-        },
-        'intro2': {
-            mode: 'character',
-            speaker: { name: '马库斯', portrait: '百夫长' },
-            text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。',
-            next: 'select_guide'
-        },
-
-        // 【教学一：选择】让玩家点击选中 recruit1
-        'select_guide': {
-            mode: 'narrator',
-            text: '点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。',
-            allow: { units: ['recruit1'], hint: '请点击你的步兵' }
-        },
-
-        // 【教学二：移动】让玩家将 recruit1 移动到指定位置
-        'move_guide': {
-            mode: 'narrator',
-            text: '好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。',
-            allow: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' }
-        },
-
-        // 【教学三：攻击】让玩家攻击训练靶
-        'attack_guide': {
-            mode: 'narrator',
-            text: '现在攻击训练草靶。点击假人所在位置进行攻击。',
-            allow: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' }
-        },
-
-        // 【收束】马库斯点评
-        'outro1': {
-            mode: 'character',
-            speaker: { name: '马库斯', portrait: '百夫长' },
-            text: '很好。选择——移动——攻击。这是战场上的三个基本动作。你们已经掌握了。',
-            next: 'outro2'
-        },
-        'outro2': {
-            mode: 'character',
-            speaker: { name: '马库斯', portrait: '百夫长' },
-            text: '刀剑无影，重要的是谁拿着他们。今天就到这里。',
-            next: '__complete__'
-        }
-    },
-
     // ── 目标 ────────────────────────────────────────────────
     objectives: {
         'main_training': {
@@ -213,16 +157,27 @@ export const config = {
         }
     },
 
-    initialStep: '',
-
-    // ── 触发器 ──────────────────────────────────────────────
-    // 教学关的核心流程由触发器驱动：玩家动作 → 条件匹配 → 推进到下一步
+    // ── 触发器（全部使用内联 showStep，不再有独立的 steps 表）───
+    // 同一触发器的 do 数组中，有 _id 的内联步骤会预注册到 _inlineStepMap，
+    // 供 next 链查找；每次触发只执行第一个内联 showStep，其余由点击推进。
     triggers: [
-        // 0. 关卡开始时展示开场对话
+        // 0. 关卡开始时展示开场对话（含连续三页）
         {
             id: 'start_dialogue',
             when: [{ kind: 'levelStarted' }],
-            do: [{ kind: 'showStep', step: 'intro1' }],
+            do: [
+                { kind: 'showStep', _id: 'intro1', mode: 'character',
+                  speaker: { name: '马库斯', portrait: '百夫长' },
+                  text: '新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。',
+                  next: 'intro2' },
+                { kind: 'showStep', _id: 'intro2', mode: 'character',
+                  speaker: { name: '马库斯', portrait: '百夫长' },
+                  text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。',
+                  next: 'select_guide' },
+                { kind: 'showStep', _id: 'select_guide', mode: 'narrator',
+                  text: '点击你的单位将其选中。选中的单位会高亮显示，同时面板会展示它的状态。',
+                  allow: { units: ['recruit1'], hint: '请点击你的步兵' } }
+            ],
             once: true,
             enabled: true
         },
@@ -233,11 +188,12 @@ export const config = {
                 kind: 'unitSelected',
                 target: { unit: 'recruit1' }
             }],
-            do: [{ kind: 'showStep', step: 'move_guide' }],
+            do: [{ kind: 'showStep', _id: 'move_guide', mode: 'narrator',
+                   text: '好。现在点击高亮地块，命令单位前进。移动后可以继续执行其他指令。',
+                   allow: { tiles: [{ q: 0, r: 0 }], hint: '点击高亮地块移动到这里' } }],
             once: true,
             enabled: true
         },
-
         // 2. recruit1 移动到 (0,0) → 展示攻击引导
         {
             id: 'advance_to_attack',
@@ -247,12 +203,13 @@ export const config = {
                 q: 0,
                 r: 0
             }],
-            do: [{ kind: 'showStep', step: 'attack_guide' }],
+            do: [{ kind: 'showStep', _id: 'attack_guide', mode: 'narrator',
+                   text: '现在攻击训练草靶。点击假人所在位置进行攻击。',
+                   allow: { tiles: [{ q: 1, r: 0 }], hint: '攻击训练草靶' } }],
             once: true,
             enabled: true
         },
-
-        // 3. recruit1 攻击 target1 → 展示收束剧情
+        // 3. recruit1 攻击 target1 → 展示收束剧情（含两页）
         {
             id: 'advance_to_outro',
             when: [{
@@ -260,18 +217,23 @@ export const config = {
                 attacker: { unit: 'recruit1' },
                 defender: { unit: 'target1' }
             }],
-            do: [{ kind: 'showStep', step: 'outro1' }],
+            do: [
+                { kind: 'showStep', _id: 'outro1', mode: 'character',
+                  speaker: { name: '马库斯', portrait: '百夫长' },
+                  text: '很好。选择——移动——攻击。这是战场上的三个基本动作。你们已经掌握了。',
+                  next: 'outro2' },
+                { kind: 'showStep', _id: 'outro2', mode: 'character',
+                  speaker: { name: '马库斯', portrait: '百夫长' },
+                  text: '刀剑无影，重要的是谁拿着他们。今天就到这里。',
+                  next: '__complete__' }
+            ],
             once: true,
             enabled: true
         },
-
-        // 4. 收束剧情结束（点击"下一步"触发 __complete__）→ 完成关卡
+        // 4. __complete__ 信号 → 完成关卡
         {
             id: 'complete_level',
-            when: [{
-                kind: 'eventNextIs',
-                value: '__complete__'
-            }],
+            when: [{ kind: 'eventNextIs', value: '__complete__' }],
             do: [
                 { kind: 'setObjectiveStatus', objective: 'main_training', status: 'completed' },
                 { kind: 'unlockInput' },
