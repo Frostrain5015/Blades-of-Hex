@@ -10,7 +10,7 @@ import {
     FORTIFICATION_KEYS, FORTIFICATION_LABELS, WEATHER_LABELS,
     CARD_IDS, CARD_LABELS,
     MECHANIC_KEYS, MECHANIC_LABELS, RELATION_KEYS, OBJECTIVE_STATUS_KEYS,
-    TRIGGER_EVENTS, TRIGGER_CONDITIONS, TRIGGER_ACTIONS,
+    TRIGGER_CONDITIONS, TRIGGER_ACTIONS,
     BOARD_RADIUS_MIN, BOARD_RADIUS_MAX
 } from '../runtime/schema.js';
 import { buildBoardFromConfig } from '../runtime/mapBuilder.js';
@@ -36,10 +36,8 @@ let initialized = false;
 let showCoords = false;
 let pendingPick = null; // { mode:'tile'|'tiles', callback, picked:Set, label }
 
-const LEGACY_EVENT_IDS = new Set(['levelStart', 'cityCaptured']);
 const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast']);
 const LEGACY_ACTION_KINDS = new Set(['setObjective', 'setOptional', 'setFlag', 'clearFlag', 'win', 'fail']);
-function authorEvents(current = '') { return TRIGGER_EVENTS.filter(item => !LEGACY_EVENT_IDS.has(item.id) || item.id === current); }
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => !LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current); }
 function authorActions(current = '') { return TRIGGER_ACTIONS.filter(item => !LEGACY_ACTION_KINDS.has(item.kind) || item.kind === current); }
 
@@ -583,7 +581,7 @@ function buildTriggerList() {
     secTrig.appendChild(itemList({
         items: config.triggers.map((t, i) => ({
             key: String(i),
-            label: `${t.enabled === false ? '⏸ ' : ''}${t.title || t.id || 'trigger_' + i} · ${TRIGGER_EVENTS.find(e => e.id === t.on)?.label || t.on}`
+            label: `${t.enabled === false ? '⏸ ' : ''}${t.title || t.id || 'trigger_' + i}`
         })),
         activeKey: selection?.kind === 'trigger' ? String(selection.index) : null,
         onSelect: (key) => { selection = { kind: 'trigger', index: Number(key) }; renderToolPanel(); renderInspector(); },
@@ -593,7 +591,7 @@ function buildTriggerList() {
         }),
         addLabel: '+ 新增触发器',
         onAdd: () => mutate(c => {
-            c.triggers.push({ id: `trigger_${c.triggers.length + 1}`, title: '', note: '', enabled: true, on: 'levelStarted', once: true, when: [], do: [] });
+            c.triggers.push({ id: `trigger_${c.triggers.length + 1}`, title: '', note: '', enabled: true, once: true, when: [], do: [] });
             selection = { kind: 'trigger', index: c.triggers.length - 1 };
         })
     }));
@@ -1215,9 +1213,6 @@ function buildTriggerInspector(index) {
     wrap.appendChild(textRow('触发器 id', trig.id || '', set('id')));
     wrap.appendChild(textRow('列表标题', trig.title || '', set('title'), '给社区作者看的名称，如“第一批增援”'));
     wrap.appendChild(textareaRow('设计备注', trig.note || '', set('note'), 2));
-    wrap.appendChild(selectRow('何时检查', trig.on, Object.fromEntries(authorEvents(trig.on).map(e => [e.id, e.label])), v => mutate(c => { c.triggers[index].on = v; })));
-    const evMeta = TRIGGER_EVENTS.find(e => e.id === trig.on);
-    if (evMeta?.note) wrap.appendChild(hint(evMeta.note));
     wrap.appendChild(checkRow('只触发一次', trig.once !== false, set('once')));
     wrap.appendChild(checkRow('开场启用', trig.enabled !== false, set('enabled')));
 

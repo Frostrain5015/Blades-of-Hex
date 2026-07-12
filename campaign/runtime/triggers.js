@@ -269,7 +269,7 @@ export function createTriggerFlow(config, api) {
         state.dispatching.push(eventId);
         try {
             for (const trigger of triggers) {
-                if (trigger.on !== eventId || enabled.get(trigger._id) === false) continue;
+                if (enabled.get(trigger._id) === false) continue;
                 if (trigger.once && state.fired.has(trigger._id)) continue;
                 const ctx = ctxFor(event, trigger._id);
                 if (!evalAll(trigger.when, ctx)) continue;

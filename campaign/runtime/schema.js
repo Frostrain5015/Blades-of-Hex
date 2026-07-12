@@ -57,32 +57,9 @@ export const BOARD_RADIUS_MIN = 2;
 export const BOARD_RADIUS_MAX = 7;
 export const BOARD_RADIUS_DEFAULT = 4;
 
-// ── 触发器 DSL 词汇表（编辑器据此渲染下拉；运行时据此解释）──────────
-// 事件：领域事件总线上的关卡钩子。
-export const TRIGGER_EVENTS = Object.freeze([
-    { id: 'levelStarted', label: '关卡开始',   note: '地图、阵营、单位和界面初始化完成后触发一次' },
-    { id: 'levelStart',   label: '关卡开始（旧版）', note: '兼容旧配置；保存时建议改为 levelStarted' },
-    { id: 'stepShown',    label: '步骤显示时', note: '某剧情步骤展示时（配合 step 条件）' },
-    { id: 'advance',      label: '点击按钮',   note: '玩家点击对白的继续按钮（配合 next 值）' },
-    { id: 'tileSelected', label: '选中地块',   note: '玩家点击选中一个单位/地块' },
-    { id: 'cardUsed',     label: '使用对策卡', note: '玩家打出一张对策卡' },
-    { id: 'unitMoved',    label: '单位移动后', note: '任一单位完成移动' },
-    { id: 'skillUsed',    label: '发动主动技', note: '将领主动技能被发动' },
-    { id: 'cityCaptured', label: '城市易主',   note: '一座城市被占领' },
-    { id: 'turnStarted',  label: '回合开始',   note: '某阵营回合开始' }
-    ,{ id: 'turnEnded', label: '回合结束', note: '某阵营回合完成结算' }
-    ,{ id: 'combatStarted', label: '战斗开始', note: '攻击成立、伤害结算之前' }
-    ,{ id: 'combatResolved', label: '战斗结束', note: '攻击与反击结算完成' }
-    ,{ id: 'unitHpChanged', label: '单位生命变化', note: '伤害、治疗或剧情修改生命后' }
-    ,{ id: 'unitKilled', label: '单位阵亡', note: '任意死因，只派发一次' }
-    ,{ id: 'tileCaptured', label: '地块易主', note: '城市、村庄或普通地块归属变化' }
-    ,{ id: 'interactionCompleted', label: '完成调查', note: '玩家完成一个调查点交互' }
-    ,{ id: 'diplomacyChanged', label: '外交变化', note: '两个阵营的关系发生改变' }
-    ,{ id: 'objectiveChanged', label: '目标状态变化', note: '目标被发现、完成、失败或隐藏' }
-    ,{ id: 'triggerSignal', label: '收到信号', note: '由“发送信号”效果显式派发' }
-]);
-
-// 条件：布尔判定。engine 另支持 all/any/not 组合（手写 JSON 用，编辑器不直接暴露）。
+// ── 触发器条件/动作词汇表（编辑器据此渲染下拉；运行时据此解释）──────────
+// 事件已取消显式配置：所有触发器每次事件后都会尝试求值，由条件决定是否触发。
+// 条件：布尔判定。
 // 每条条件形如 { kind, ...字段 }；kind 必须与 triggers.js 的 evalCondition 分支一致。
 export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'all', label: '全部满足（AND）', arg: 'conditionGroup' },
@@ -212,7 +189,7 @@ export function createDefaultLevel() {
         optionalObjectives: [],     // [{ id, text }]
         initialStep: '',
         initialObjective: '',
-        triggers: [],               // [{ id, on, when:[], do:[], once }]
+        triggers: [],               // [{ id, when:[], do:[], once, enabled }]
         result: {
             winText: '任务完成。',
             loseText: '任务失败，重新整顿部队。',
@@ -396,7 +373,6 @@ export function validateLevel(config) {
     for (const t of (c.triggers || [])) {
         if (!t.id || seenTriggerIds.has(t.id)) errors.push(`触发器 id「${t.id || '空'}」缺失或重复。`);
         seenTriggerIds.add(t.id);
-        if (!TRIGGER_EVENTS.some(e => e.id === t.on)) errors.push(`触发器「${t.id || '?'}」使用了未知事件「${t.on}」。`);
         (t.when || []).forEach((condition, index) => validateCondition(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`));
         (t.do || []).forEach((action, index) => validateAction(action, `触发器「${t.id || '?'}」效果 ${index + 1}`));
     }
