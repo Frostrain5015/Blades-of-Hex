@@ -930,7 +930,6 @@ async function _doEndTurnPhase() {
 
 export async function endTurn(options = {}) {
     if (gameState.gameOver || _turnProcessing) return;
-    }
     // 网络游戏中仅当前回合方可结束回合
     if (isNetworkGame() && !isMyTurn(gameState.currentCamp)) return;
     _turnProcessing = true;
