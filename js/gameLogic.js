@@ -186,6 +186,38 @@ function generateTerrain(tiles) {
         }
     }
 
+    // 镜像对称：非战役模式下，确保各玩家地形公平
+    if (!gameState.campaignMode) {
+        if (gameState.isThreePlayer) {
+            // 三人 120° 旋转对称：以 P1 所在楔形（右上 120° 扇区）为源，旋转生成其他两翼
+            function rot120(q, r) { return { q: -q - r, r: q }; }
+            function canonical(q, r) {
+                // 定义 P1 的楔形：从 P1(6,0) 到 P2(-6,6) 之间的区域
+                // 即 angle(q,r) 在 [0°, 120°) 区间；使用 kv 比较
+                const k1 = (q * 10000 + r) | 0;
+                const r1 = rot120(q, r); const k2 = (r1.q * 10000 + r1.r) | 0;
+                const r2 = rot120(r1.q, r1.r); const k3 = (r2.q * 10000 + r2.r) | 0;
+                if (k2 < k1 && k2 < k3) return r1;
+                if (k3 < k1 && k3 < k2) return r2;
+                return { q, r };
+            }
+            for (const tile of tiles) {
+                const src = canonical(tile.q, tile.r);
+                if (src.q !== tile.q || src.r !== tile.r) {
+                    const srcTile = map.get(`${src.q},${src.r}`);
+                    if (srcTile) tile.terrain = srcTile.terrain;
+                }
+            }
+        } else {
+            // 双人 180° 点对称
+            for (const tile of tiles) {
+                if (tile.q < 0 || (tile.q === 0 && tile.r < 0)) continue;
+                const mirror = map.get(`${-tile.q},${-tile.r}`);
+                if (mirror) tile.terrain = mirror.terrain;
+            }
+        }
+    }
+
     // 村庄：每个行政区 1 个，距本区城市 ≥ VILLAGE_MIN_DIST
     const villageEntries = [];
     const cities = tiles.filter(t => t.isCity);
@@ -511,11 +543,12 @@ function initInitialUnits() {
             if (p2City) spawn(type, CAMP.player2, p2City.q + dq, p2City.r + dr);
             if (p3City) spawn(type, CAMP.player3, p3City.q + dq, p3City.r + dr);
         }
-        // 中立·中央（district 5）—— 轻兵驻守
+        // 中立·中央（district 5）—— 120° 旋转对称布防
         const centerCity = gameState.tiles.find(t => t.isCity && t.districtId === 5);
         if (centerCity) new Unit('infantry', CAMP.neutral, centerCity, false);
         spawn('infantry', CAMP.neutral, -1, 1);
         spawn('archer',   CAMP.neutral, 1, 0);
+        spawn('infantry', CAMP.neutral, 0, -1);      // 对称第三翼
     } else {
         for (const [type, dq, dr] of formation) {
             if (p1City) spawn(type, CAMP.player1, p1City.q + dq, p1City.r + dr);
@@ -528,6 +561,9 @@ function initInitialUnits() {
         spawn('infantry', CAMP.neutral, -1, 1);
         spawn('infantry', CAMP.neutral, 1, 0);
         spawn('archer',   CAMP.neutral, 0, 2);      // 中央炮台
+        spawn('infantry', CAMP.neutral, -1, 0);
+        spawn('archer',   CAMP.neutral, 0, -2);
+        spawn('infantry', CAMP.neutral, 1, -1);
 
         // ── 中立·上（district 3）
         const topCity = gameState.tiles.find(t => t.isCity && t.districtId === 3);
