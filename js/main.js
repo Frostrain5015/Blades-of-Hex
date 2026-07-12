@@ -643,6 +643,7 @@ function beginTrainingCountdown() {
     preloadPortraits();
     initMap();
     initInput();
+	rebindGameEvents();
     initKeyboard();
     initSettingsPanel();
     setOnFogUpdated(updateCampEmblems);
@@ -765,6 +766,7 @@ function _launchScenario(scenario) {
 	scenario.buildBattlefield();
 	loadCommanderFx(gameState).catch(err => console.warn('[campaign] 将领特效加载失败:', err));
 	initInput();
+	rebindGameEvents();
 	initKeyboard();
 	initSettingsPanel();
 	setOnFogUpdated(updateCampEmblems);
@@ -1704,6 +1706,7 @@ function startGame() {
     preloadPortraits();
     initMap();
     initInput();
+	rebindGameEvents();
     initKeyboard();
     initSettingsPanel();
     setOnFogUpdated(updateCampEmblems);
