@@ -260,7 +260,7 @@ function render() {
             const m = flagKey.match(/^flag:(.+)$/);
             if (m) {
                 const t = preview.tileMap.get(m[1]);
-                if (t) { ctx.save(); var fx2 = t.x, fy2 = t.y - 12; ctx.fillStyle = '#ff4444'; ctx.fillRect(fx2 - 1, fy2 + 12, 2, 16); ctx.beginPath(); ctx.moveTo(fx2, fy2); ctx.lineTo(fx2 + 14, fy2 + 5); ctx.lineTo(fx2, fy2 + 10); ctx.closePath(); ctx.fillStyle = '#ffd700'; ctx.fill(); ctx.strokeStyle = '#cc9900'; ctx.lineWidth = 1; ctx.stroke(); ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('★', fx2 + 5, fy2 + 5); ctx.restore(); }
+                if (t) { ctx.save(); var cr = HEX_SIZE * 0.4; ctx.beginPath(); ctx.arc(t.x, t.y, cr, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,215,0,0.85)'; ctx.fill(); ctx.strokeStyle = '#c8a030'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); }
             }
         }
         if (hoverTile) {
@@ -292,7 +292,7 @@ function render() {
     // 单位图钉悬停时在棋盘上显示🚩
     if (pendingUnitFlag) {
         const t = preview.tileMap.get(tileKey(pendingUnitFlag.q, pendingUnitFlag.r));
-        if (t) { ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 4; var fx = t.x, fy = t.y - 16; ctx.fillStyle = '#ff4444'; ctx.fillRect(fx - 1, fy + 16, 2, 20); ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx + 16, fy + 6); ctx.lineTo(fx, fy + 12); ctx.closePath(); ctx.fillStyle = '#ffd700'; ctx.fill(); ctx.strokeStyle = '#cc9900'; ctx.lineWidth = 1; ctx.stroke(); ctx.shadowBlur = 0; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('★', fx + 6, fy + 6); ctx.restore(); }
+        if (t) { ctx.save(); var cx = t.x, cy = t.y; var r = HEX_SIZE * 0.45; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,215,0,0.85)'; ctx.fill(); ctx.strokeStyle = '#c8a030'; ctx.lineWidth = 2.5; ctx.stroke(); ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#543c00'; ctx.fillText('●', cx, cy); ctx.restore(); }
     }
     const selTile = selectionTile();
     if (selTile) drawHexagonOutline(ctx, selTile.x, selTile.y, HEX_SIZE, '#e6c200', 2.4);
@@ -1223,8 +1223,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'eventTargetArea':
             box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
-            box.appendChild(coordRow('目标单格', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
-            box.appendChild(tilesPickerRow('目标区域', cond.tiles || [], list => patch({ tiles: list.length ? list : undefined })));
+            box.appendChild(tilesPickerRow('目标位置', cond.tiles || [], list => patch({ tiles: list.length ? list : undefined, q: undefined, r: undefined })));
             break;
         case 'eventCombatPair':
             box.appendChild(selectRow('攻击方阵营', cond.attackerCamp || '', { '': '任意', ...factionLabels() }, camp => patch({ attackerCamp: camp || undefined })));
