@@ -835,7 +835,6 @@ function buildFactionBasics() {
 
 function buildMetaBasics() {
     const wrap = el('div');
-    wrap.appendChild(buildStoryList());
     const secId = section('关卡标识');
     secId.appendChild(textRow('关卡 id', config.id, v => mutate(c => { c.id = v; }, { rebuildPanels: false }), '如 i1-2'));
     secId.appendChild(textRow('关卡名称', config.title, v => mutate(c => { c.title = v; }, { rebuildPanels: false })));

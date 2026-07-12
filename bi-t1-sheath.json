@@ -230,8 +230,24 @@
       "main": true
     }
   },
-  "initialStep": "intro1",
+  "initialStep": "",
   "triggers": [
+    {
+      "id": "start_dialogue",
+      "when": [
+        {
+          "kind": "levelStarted"
+        }
+      ],
+      "do": [
+        {
+          "kind": "showStep",
+          "step": "intro1"
+        }
+      ],
+      "once": true,
+      "enabled": true
+    },
     {
       "id": "advance_to_move",
       "when": [

@@ -213,13 +213,19 @@ export const config = {
         }
     },
 
-    initialStep: 'intro1',
+    initialStep: '',
 
     // ── 触发器 ──────────────────────────────────────────────
     // 教学关的核心流程由触发器驱动：玩家动作 → 条件匹配 → 推进到下一步
-    // 注：tutorialMode 已在 _launchScenario 中设为 true，无需 lockInput 触发器
-    // （lockInput 内部会调用 hideGuidance，反而会隐藏开场对话框）
     triggers: [
+        // 0. 关卡开始时展示开场对话
+        {
+            id: 'start_dialogue',
+            when: [{ kind: 'levelStarted' }],
+            do: [{ kind: 'showStep', step: 'intro1' }],
+            once: true,
+            enabled: true
+        },
         // 1. 选中 recruit1 → 展示移动引导
         {
             id: 'advance_to_move',
