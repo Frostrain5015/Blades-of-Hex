@@ -1172,7 +1172,6 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'eventTargetArea':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
             box.appendChild(tilesPickerRow('目标区域', cond.tiles || [], list => patch({ tiles: list, area: undefined })));
-            box.appendChild(hint('通过图钉涂抹区域；任一指定单位移动进入其中任意地块时满足。'));
             break;
         case 'eventCombatPair':
             box.appendChild(targetEditor(cond.attacker, attacker => patch({ attacker }), { label: '攻击方' }));
@@ -1367,10 +1366,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                     } else { patch({ step: v || '' }); }
                 }));
                 if (action.step && config.steps?.[action.step]) {
-                    const s = config.steps[action.step];
-                    box.appendChild(hint(`旧格式步骤「${action.step}」${s.mode === 'character' ? '🗣 ' + (s.speaker?.name || '') : '📖 旁白'}。选"转为内联格式"将其合并到触发器。`));
-                }
-                break;
             }
             const dialogue = section('对话框内容');
             dialogue.appendChild(selectRow('类型', action.mode || 'narrator', { narrator: '旁白', character: '台词' }, v => patch({ mode: v, ...(v === 'character' && !action.speaker ? { speaker: { name: '', portrait: '' } } : {}) })));
@@ -1388,7 +1383,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             secHl.appendChild(textRow('提示文字(锁定时显示)', hl.hint || '', v => patch({ highlight: { ...hl, hint: v || undefined } })));
             secHl.appendChild(targetEditor(hl.unit ? { unit: hl.unit } : null, target => patch({ highlight: { ...hl, unit: target?.unit || undefined } }), { label: '单位出环' }));
             secHl.appendChild(tilesPickerRow('地块高亮', hl.tiles || [], tiles => patch({ highlight: { ...hl, tiles: tiles.length ? tiles : undefined } })));
-            secHl.appendChild(hint('单位出环 = 单格金色圆环；地块高亮 = 所有格正旋脉冲边框。两者可并存。'));
             box.appendChild(secHl);
             box.appendChild(checkRow('启用操作锁', !!action.lock, v => patch({ lock: v || undefined })));
             box.appendChild(checkRow('立即显示', !!action.immediate, v => patch({ immediate: v || undefined })));
