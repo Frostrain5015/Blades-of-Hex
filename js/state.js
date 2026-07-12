@@ -9,7 +9,7 @@ import {
     serializeMatchState, restoreMatchState
 } from '../engine/matchState.js';
 import { campFromKey, getFaction, getRelation, getViewingCampKey } from '../rules/diplomacy.js';
-import { CAMP_FLAG_COLORS, getFlagColors } from '../rules/camps.js';
+import { CAMP_FLAG_COLORS } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 
@@ -295,9 +295,9 @@ export function updateUI() {
         const emblem = card.querySelector('.camp-emblem');
         if (label) label.textContent = faction.name;
         if (emblem) {
-            const shortKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key;
-            const flag = CAMP_FLAG_COLORS[shortKey] || getFlagColors(faction.color);
-            emblem.style.background = flag.main;
+            const shortKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : 'neu';
+            const flag = CAMP_FLAG_COLORS[shortKey];
+            emblem.style.background = flag ? flag.main : faction.color;
         }
         // 战役模式：只显示玩家所属阵营，其余位置显示传记/关卡信息
         if (gameState.campaignMode) {
@@ -328,14 +328,14 @@ export function updateUI() {
         if (localCard && localFaction) {
             localCard.style.display = '';
             localCard.dataset.relation = 'self';
-            const shortKey = campaignGoldKey === 'player1' ? 'p1' : campaignGoldKey === 'player2' ? 'p2' : campaignGoldKey === 'player3' ? 'p3' : campaignGoldKey;
-            const flag = CAMP_FLAG_COLORS[shortKey] || getFlagColors(localFaction.color);
+            const shortKey = campaignGoldKey === 'player1' ? 'p1' : campaignGoldKey === 'player2' ? 'p2' : campaignGoldKey === 'player3' ? 'p3' : 'neu';
+            const flag = CAMP_FLAG_COLORS[shortKey];
             const label = localCard.querySelector('.camp-label');
             const emblem = localCard.querySelector('.camp-emblem');
             if (label) label.textContent = localFaction.name;
-            if (emblem) emblem.style.background = flag.main;
+            if (emblem) emblem.style.background = flag ? flag.main : localFaction.color;
             // 信息卡底部分隔色 = 玩家阵营的主旗色（替代 CSS 硬编码绿色）
-            localCard.style.boxShadow = `inset 0 -3px 0 ${flag.main}`;
+            localCard.style.boxShadow = `inset 0 -3px 0 ${flag ? flag.main : localFaction.color}`;
         }
         document.getElementById('campCard2')?.style.setProperty('display', 'none');
         document.getElementById('campCard3')?.style.setProperty('display', 'none');

@@ -1,0 +1,313 @@
+{
+  "schemaVersion": 2,
+  "id": "bi-t1-extended",
+  "title": "三种兵种",
+  "chronicleId": "blood-iris",
+  "seed": 4660,
+  "turnLimit": 0,
+  "intro": {
+    "campaignTitle": "战术训练场",
+    "chapterTitle": "基础兵种教学",
+    "scenarioSubtitle": "步兵·骑兵·炮兵"
+  },
+  "weather": "clear",
+  "localPlayerCamp": "player1",
+  "factions": [
+    {
+      "id": "player1",
+      "name": "红军",
+      "color": "#ffaaaa",
+      "controller": "human",
+      "participatesInTurns": true,
+      "active": true
+    },
+    {
+      "id": "targets",
+      "name": "训练靶",
+      "color": "#b0b0b0",
+      "controller": "ai",
+      "participatesInTurns": false,
+      "active": true
+    }
+  ],
+  "turnOrder": ["player1"],
+  "diplomacy": {
+    "player1": { "targets": "enemy" },
+    "targets": { "player1": "enemy" }
+  },
+  "mechanics": {
+    "tacticalCards": false,
+    "recruitment": false,
+    "reinforcement": false,
+    "commanderSkills": false,
+    "weatherEffects": false,
+    "morale": false,
+    "fortifications": false,
+    "fogOfWar": false,
+    "alliedVision": false
+  },
+  "aiOpponentCamp": "",
+  "aiDifficulty": 1.0,
+  "gold": { "player1": 0 },
+  "commanders": {},
+  "hands": {},
+
+  "board": {
+    "radius": 4,
+    "cities": [
+      { "q": 0, "r": 0, "districtId": 1, "camp": "player1" }
+    ],
+    "terrain": [
+      { "q": -4, "r":  1, "type": "forest" },
+      { "q": -3, "r":  2, "type": "forest" },
+      { "q": -4, "r":  3, "type": "forest" },
+      { "q":  4, "r": -1, "type": "forest" },
+      { "q":  3, "r": -3, "type": "forest" },
+      { "q":  2, "r": -4, "type": "forest" },
+      { "q": -1, "r":  4, "type": "forest" },
+      { "q": -3, "r": -1, "type": "plains" },
+      { "q": -2, "r":  2, "type": "plains" }
+    ],
+    "villages": [],
+    "fortifications": [],
+    "districts": []
+  },
+
+  "units": [
+    {
+      "id": "recruit1",
+      "type": "infantry",
+      "camp": "player1",
+      "q": -2,
+      "r": 1,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true,
+      "commander": ""
+    },
+    {
+      "id": "cavalry1",
+      "type": "cavalry",
+      "camp": "player1",
+      "q": -3,
+      "r": -1,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "archer1",
+      "type": "archer",
+      "camp": "player1",
+      "q": -2,
+      "r": 3,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "inf_target",
+      "type": "infantry",
+      "camp": "targets",
+      "q": 2,
+      "r": 1,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": false
+    },
+    {
+      "id": "cav_target",
+      "type": "infantry",
+      "camp": "targets",
+      "q": 3,
+      "r": -1,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": false
+    },
+    {
+      "id": "arch_target",
+      "type": "infantry",
+      "camp": "targets",
+      "q": 0,
+      "r": 3,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": false
+    }
+  ],
+
+  "unitGroups": [
+    { "id": "training_targets", "unitIds": ["inf_target", "cav_target", "arch_target"] }
+  ],
+
+  "areas": [],
+  "interactables": [],
+  "variables": [],
+
+  "objectives": {
+    "main_training": {
+      "title": "完成三种兵种的战术训练",
+      "detail": "依次操作步兵、骑兵、炮兵完成攻击训练",
+      "active": true,
+      "main": true
+    }
+  },
+
+  "triggers": [
+    {
+      "id": "start_dialogue",
+      "when": [{ "kind": "timer", "value": 1500 }],
+      "do": [
+        {
+          "kind": "showStep",
+          "text": "欢迎来到战术训练场。今天你将了解三种主力兵种的区别与用法。",
+          "boardLock": true
+        },
+        {
+          "kind": "showStep",
+          "text": "你所指挥的三支部队已经部署在阵地左侧。对面是三个训练靶标，各自对应一种兵种的展示。\n\n先看向左下角——那名手持剑盾的步兵。",
+          "boardLock": true
+        },
+        {
+          "kind": "setUnitState",
+          "target": { "group": "training_targets" },
+          "state": "canCounterattack",
+          "value": false
+        },
+        { "kind": "setTriggerEnabled", "trigger": "inf_select", "enabled": true }
+      ],
+      "once": true,
+      "enabled": true
+    },
+
+    {
+      "id": "inf_select",
+      "when": [{ "kind": "unitSelected", "target": { "unit": "recruit1" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "text": "【步兵】移动 5 · 近战 · HP 200\n\n步兵是战场上的中坚力量。他们移动距离适中，擅长稳步推进、攻占并据守阵地。\n\n现在，将步兵移动到训练靶旁边的格子，然后发起攻击。",
+          "boardLock": true,
+          "dialogLock": true,
+          "highlight": { "tiles": [{ "q": 1, "r": 1 }], "hint": "先移动到这里，再攻击相邻的训练靶" }
+        },
+        { "kind": "setTriggerEnabled", "trigger": "inf_attack", "enabled": true }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "inf_attack",
+      "when": [{ "kind": "unitAttacksUnit", "attacker": { "unit": "recruit1" }, "defender": { "unit": "inf_target" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "text": "步兵攻击完成。流程就是如此：选择单位 → 移动到位 → 攻击。\n\n步兵的速度为 5，意味着每回合可移动 5 格。配合近战攻击（射程 1），你需要让步兵走到敌人身边才能挥出武器。",
+          "boardLock": true
+        },
+        {
+          "kind": "showStep",
+          "text": "下面轮到骑兵。注意看地图上方——那支骑马的部队。",
+          "boardLock": true
+        },
+        { "kind": "setTriggerEnabled", "trigger": "cav_select", "enabled": true }
+      ],
+      "once": true,
+      "enabled": false
+    },
+
+    {
+      "id": "cav_select",
+      "when": [{ "kind": "unitSelected", "target": { "unit": "cavalry1" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "text": "【骑兵】移动 8 · 近战 · HP 150\n\n骑兵以速度见长。移动力 8，比步兵多出整整 3 格。这意味着骑兵能快速包抄侧翼、追击溃敌、抢占关键位置。\n\n注意看远处的训练靶——步兵要花一整个回合才能勉强走到，但骑兵可以轻松到达并发起突击。",
+          "boardLock": true,
+          "dialogLock": true,
+          "highlight": { "tiles": [{ "q": 2, "r": -1 }], "hint": "策马冲到这里，然后攻击训练靶" }
+        },
+        { "kind": "setTriggerEnabled", "trigger": "cav_attack", "enabled": true }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "cav_attack",
+      "when": [{ "kind": "unitAttacksUnit", "attacker": { "unit": "cavalry1" }, "defender": { "unit": "cav_target" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "text": "骑兵冲锋完成！同样是近战攻击，但骑兵的覆盖范围远超步兵。这就是「行动力」的价值——谁能更快到达战场，谁就掌握主动权。",
+          "boardLock": true
+        },
+        {
+          "kind": "showStep",
+          "text": "最后来看炮兵——阵地右下角那门远程火力。",
+          "boardLock": true
+        },
+        { "kind": "setTriggerEnabled", "trigger": "arch_select", "enabled": true }
+      ],
+      "once": true,
+      "enabled": false
+    },
+
+    {
+      "id": "arch_select",
+      "when": [{ "kind": "unitSelected", "target": { "unit": "archer1" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "text": "【炮兵】移动 3 · 射程 2 · HP 100\n\n炮兵虽然移动缓慢，但它有一个其他兵种没有的优势——射程。\n\n射程为 2，意味着炮兵可以隔着一条街开火。你看，2 格外就有一个训练靶——炮兵站在原地就可以攻击它，不需要挪动一步。",
+          "boardLock": true,
+          "dialogLock": true,
+          "highlight": { "tiles": [{ "q": 0, "r": 3 }], "hint": "直接攻击那个训练靶——不用移动" }
+        },
+        { "kind": "setTriggerEnabled", "trigger": "arch_attack", "enabled": true }
+      ],
+      "once": true,
+      "enabled": false
+    },
+    {
+      "id": "arch_attack",
+      "when": [{ "kind": "unitAttacksUnit", "attacker": { "unit": "archer1" }, "defender": { "unit": "arch_target" } }],
+      "do": [
+        {
+          "kind": "showStep",
+          "text": "漂亮！炮兵在安全距离外就能消灭敌人。如果面对无法靠近的强敌，远程火力就是打破僵局的关键。",
+          "boardLock": true
+        },
+        {
+          "kind": "showStep",
+          "text": "三种兵种的全部训练已完成。来回顾一下：\n\n▪ 步兵 —— 均衡之选，前线主力\n  移动 5 · 近战 · 能攻能守\n\n▪ 骑兵 —— 速度之王，战场利刃\n  移动 8 · 近战 · 包抄追击\n\n▪ 炮兵 —— 远程压制，以远制近\n  移动 3 · 射程 2 · 隔山打牛",
+          "boardLock": true
+        },
+        { "kind": "setTriggerEnabled", "trigger": "check_complete", "enabled": true }
+      ],
+      "once": true,
+      "enabled": false
+    },
+
+    {
+      "id": "check_complete",
+      "when": [{ "kind": "eventNextIs", "value": "__chain_end__" }],
+      "do": [
+        { "kind": "setObjectiveStatus", "objective": "main_training", "status": "completed" },
+        { "kind": "unlockInput" },
+        { "kind": "endScenario", "result": "win", "ending": "" }
+      ],
+      "once": true,
+      "enabled": false
+    }
+  ],
+
+  "result": {
+    "winText": "战术训练完成。三种兵种各有所长，合理搭配才能百战不殆。",
+    "loseText": "训练中断。重新集结，再来一次。",
+    "eliminateEnemy": false,
+    "starRules": []
+  },
+
+  "displayId": "EXT-T1"
+}
