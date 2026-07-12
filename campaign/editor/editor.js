@@ -936,8 +936,7 @@ function conditionDefaults(kind) {
         case 'eventInteractionIs': return { interactable: config.interactables[0]?.id || '' };
         case 'flagIs': return { flag: '', value: true };
         case 'mechanicEnabled': return { mechanic: MECHANIC_KEYS[0], enabled: true };
-        case 'all': case 'any': return { conditions: [{ kind: 'stepIs', ...conditionDefaults('stepIs') }] };
-        case 'not': return { condition: { kind: 'stepIs', ...conditionDefaults('stepIs') } };
+        case 'any': return { conditions: [{ kind: 'stepIs', ...conditionDefaults('stepIs') }] };
         case 'compare': return { left: { source: 'round' }, op: '>=', right: { source: 'constant', value: 1 } };
         default: return { value: '' };
     }

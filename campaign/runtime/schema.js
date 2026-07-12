@@ -62,9 +62,7 @@ export const BOARD_RADIUS_DEFAULT = 4;
 // 条件：布尔判定。
 // 每条条件形如 { kind, ...字段 }；kind 必须与 triggers.js 的 evalCondition 分支一致。
 export const TRIGGER_CONDITIONS = Object.freeze([
-    { kind: 'all', label: '全部满足（AND）', arg: 'conditionGroup' },
     { kind: 'any', label: '满足任一（OR）', arg: 'conditionGroup' },
-    { kind: 'not', label: '结果取反（NOT）', arg: 'conditionSingle' },
     { kind: 'compare', label: '比较数值/变量', arg: 'compare' },
     { kind: 'stepIs',       label: '当前步骤为',   arg: 'step' },
     { kind: 'phaseIs',      label: '关卡阶段为',   arg: 'text' },
