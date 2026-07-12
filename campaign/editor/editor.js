@@ -857,8 +857,6 @@ function renderInspector() {
         body.appendChild(buildUnitInspector(selection.index));
         return;
     }
-        return;
-    }
     if (selection?.kind === 'trigger' && config.triggers[selection.index]) {
         title.textContent = '触发器';
         body.appendChild(buildTriggerInspector(selection.index));
@@ -1343,25 +1341,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
     box.appendChild(selectRow('动作', action.kind, Object.fromEntries(kinds.map(a => [a.kind, a.label])), v => onChange({ kind: v, ...actionDefaults(v) })));
     const patch = (fields) => onChange({ ...action, ...fields });
     switch (meta.arg) {
-                box.appendChild(dialogue);
-                box.appendChild(hint('这里可直接写对白；需要目标环、输入白名单或连续页面时，再点击上方预览进入完整步骤编辑。'));
-            }
-            box.appendChild(checkRow('立即显示', !!action.immediate, v => patch({ immediate: v || undefined })));
-            // 在上述步骤之后追加一页（自动设置 next 形成连续对话）
-            if (step && !step.next) {
-                const addPage = el('button', 'ed-add-btn', '➕ 加一页（自动续接）');
-                addPage.addEventListener('click', () => mutate(c => {
-                    let n = 1; while (c.steps[`page${n}`]) n++;
-                    const newId = `page${n}`;
-                    c.steps[newId] = { mode: 'narrator', text: '', next: null };
-                    c.steps[stepId].next = newId;
-                    patch({ step: stepId });
-                    renderInspector();
-                }, { rebuildPanels: false }));
-                box.appendChild(addPage);
-            }
-            break;
-        }
         case 'inlineStep': {
             // 向后兼容：旧格式 action 含有 step 字段引用步表
             if (action.step) {
