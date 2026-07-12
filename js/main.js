@@ -1746,7 +1746,7 @@ function _showCampaignIntro(config, onDismiss) {
 
 	const subtitle = document.createElement('div');
 	subtitle.className = 'campaign-intro-subtitle';
-	subtitle.textContent = config.campaignTitle || '';
+	subtitle.textContent = config.campaignTitle + (config.chapterTitle ? ' · ' + config.chapterTitle : '');
 
 	const title = document.createElement('div');
 	title.className = 'campaign-intro-title';

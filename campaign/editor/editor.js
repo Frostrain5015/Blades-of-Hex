@@ -634,9 +634,6 @@ function buildTriggerList() {
     }));
     wrap.appendChild(secObj);
 
-    const resBtn = el('button', 'ed-add-btn', '⚖ 编辑结算与星级规则');
-    resBtn.addEventListener('click', () => { selection = { kind: 'result' }; renderInspector(); });
-    wrap.appendChild(resBtn);
     return wrap;
     const secPlayer = section('玩家视角');
     secPlayer.appendChild(selectRow('所属阵营', config.localPlayerCamp, factionOpts,
@@ -712,8 +709,9 @@ function buildTriggerList() {
 function buildMetaBasics() {
     const wrap = el('div');
     const secId = section('关卡标识');
-    secId.appendChild(textRow('关卡 id', config.id, v => mutate(c => { c.id = v; }, { rebuildPanels: false }), '如 petra-siege'));
-    secId.appendChild(textRow('所属传记', config.chronicleId, v => mutate(c => { c.chronicleId = v; }, { rebuildPanels: false })));
+    secId.appendChild(textRow('关卡 id', config.id, v => mutate(c => { c.id = v; }, { rebuildPanels: false }), '如 i1-2'));
+    secId.appendChild(textRow('关卡名称', config.title, v => mutate(c => { c.title = v; }, { rebuildPanels: false })));
+    secId.appendChild(textRow('传记名称', config.chronicleId, v => mutate(c => { c.chronicleId = v; }, { rebuildPanels: false })));
     secId.appendChild(numRow('随机种子', config.seed, v => mutate(c => { c.seed = Math.round(v); }, { rebuildPanels: false })));
     secId.appendChild(numRow('回合上限', config.turnLimit, v => mutate(c => { c.turnLimit = Math.max(0, Math.round(v)); }, { rebuildPanels: false }), { min: 0, max: 99 }));
     wrap.appendChild(secId);
@@ -724,7 +722,7 @@ function buildMetaBasics() {
     secEnv.appendChild(numRow('AI 难度', config.aiDifficulty, v => mutate(c => { c.aiDifficulty = Math.max(0.1, v); }, { rebuildPanels: false }), { min: 0.1, max: 3, step: 0.1 }));
     wrap.appendChild(secEnv);
 
-    wrap.appendChild(hint('开场标题、调查点与变量在右侧检查器中设置。'));
+    wrap.appendChild(hint('章节标题、调查点与变量在右侧检查器中设置。'));
     return wrap;
 }
 
@@ -758,11 +756,6 @@ function renderInspector() {
     if (selection?.kind === 'objective' && config.objectives[selection.id]) {
         title.textContent = `主目标 · ${selection.id}`;
         body.appendChild(buildObjectiveInspector(selection.id));
-        return;
-    }
-    if (selection?.kind === 'result') {
-        title.textContent = '结算与星级';
-        body.appendChild(buildResultInspector());
         return;
     }
     if (selection?.kind === 'tile') {
@@ -1371,31 +1364,11 @@ function buildObjectiveInspector(id) {
     return wrap;
 }
 
-function buildResultInspector() {
-    const wrap = el('div');
-    const res = config.result;
-    wrap.appendChild(checkRow('歼灭敌军即胜', !!res.eliminateEnemy, v => mutate(c => { c.result.eliminateEnemy = v || undefined; }, { rebuildPanels: false })));
-    wrap.appendChild(hint('胜负由触发器「判定胜利」/「判定失败」效果控制；勾选此项则敌军全灭时自动胜利。'));
-
-    const secStars = section('星级规则（基础 1 星；每满足一条 +1，封顶 3）');
-    (res.starRules || []).forEach((rule, i) => {
-        const box = card(rule.label || `规则 ${i + 1}`, () => mutate(c => { c.result.starRules.splice(i, 1); }));
-        box.appendChild(textRow('说明', rule.label || '', v => mutate(c => { c.result.starRules[i].label = v; }, { rebuildPanels: false })));
-        box.appendChild(conditionListEditor(rule.when || [], list => mutate(c => { c.result.starRules[i].when = list; })));
-        secStars.appendChild(box);
-    });
-    const add = el('button', 'ed-add-btn', '+ 添加星级规则');
-    add.addEventListener('click', () => mutate(c => { c.result.starRules.push({ label: '', when: [] }); }));
-    secStars.appendChild(add);
-    wrap.appendChild(secStars);
-    return wrap;
-}
-
 function buildMetaInspector() {
     const wrap = el('div');
     const secIntro = section('开场遮罩');
-    secIntro.appendChild(textRow('战役标题', config.intro.campaignTitle, v => mutate(c => { c.intro.campaignTitle = v; }, { rebuildPanels: false }), '如 将星列传 · 染血的鸢尾花'));
-    secIntro.appendChild(textRow('关卡副题', config.intro.scenarioSubtitle, v => mutate(c => { c.intro.scenarioSubtitle = v; }, { rebuildPanels: false }), '如 第一章 雨夜孤城'));
+    secIntro.appendChild(textRow('章节标题', config.intro.chapterTitle || '', v => mutate(c => { c.intro.chapterTitle = v; }, { rebuildPanels: false }), '如 暮雨孤城'));
+    secIntro.appendChild(hint('遮罩上方：传记名称 · 章节标题；下方大字：关卡ID大写 + 关卡名称。'));
     wrap.appendChild(secIntro);
 
     const secMechanics = section('本关开放机制');
@@ -1405,6 +1378,19 @@ function buildMetaInspector() {
             value => mutate(c => { c.mechanics[key] = value; }, { rebuildPanels: false })));
     }
     wrap.appendChild(secMechanics);
+    wrap.appendChild(checkRow('歼灭敌军即胜', !!res.eliminateEnemy, v => mutate(c => { c.result.eliminateEnemy = v || undefined; }, { rebuildPanels: false })));
+
+    const secStars = section('星级规则（基础 1 星；每满足一条 +1，封顶 3）');
+    (res.starRules || []).forEach((rule, i) => {
+        const box = card(rule.label || `规则 ${i + 1}`, () => mutate(c => { c.result.starRules.splice(i, 1); }));
+        box.appendChild(textRow('说明', rule.label || '', v => mutate(c => { c.result.starRules[i].label = v; }, { rebuildPanels: false })));
+        box.appendChild(conditionListEditor(rule.when || [], list => mutate(c => { c.result.starRules[i].when = list; })));
+        secStars.appendChild(box);
+    });
+    const addStar = el('button', 'ed-add-btn', '+ 添加星级规则');
+    addStar.addEventListener('click', () => mutate(c => { c.result.starRules.push({ label: '', when: [] }); }));
+    secStars.appendChild(addStar);
+    wrap.appendChild(secStars);
 
 
     const secGroups = section(`单位组（${config.unitGroups.length}）`);
