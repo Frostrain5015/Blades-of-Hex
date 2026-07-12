@@ -217,7 +217,7 @@
     margin: 4px 0 6px;
 }
 .ed-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.ed-row label { flex: 0 0 64px; font-size: 12px; color: #aab3c0; }
+.ed-row label { flex: 0 0 80px; font-size: 12px; color: #aab3c0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ed-row input[type="text"], .ed-row input[type="number"], .ed-row select, .ed-row textarea {
     flex: 1 1 auto;
     min-width: 0;

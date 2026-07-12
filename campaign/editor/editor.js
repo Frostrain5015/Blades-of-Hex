@@ -1368,10 +1368,6 @@ function buildObjectiveInspector(id) {
 function buildMetaInspector() {
     const wrap = el('div');
     const res = config.result;
-    const secIntro = section('开场遮罩');
-    secIntro.appendChild(hint('遮罩上方：传记名称 · 章节标题；下方大字：关卡ID大写 + 关卡名称。'));
-    wrap.appendChild(secIntro);
-
     const secMechanics = section('本关开放机制');
     secMechanics.appendChild(hint('关闭的机制会隐藏或禁用入口，并由规则层拦截。需要中途教学解锁时，先关闭，再使用触发器“启用/禁用机制”。'));
     for (const key of MECHANIC_KEYS) {
