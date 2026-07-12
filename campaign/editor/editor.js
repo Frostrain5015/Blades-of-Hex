@@ -39,6 +39,7 @@ let pendingHighlight = null; // { q, r } | [{q,r}] | Set — 鼠标悬停图钉�
 
 const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast']);
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => !LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current); }
+function authorActions() { return TRIGGER_ACTIONS; }
 
 const FACTION_COLORS = [
     { value: '#e05050', label: '红' }, { value: '#f09a40', label: '橙' },
