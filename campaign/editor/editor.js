@@ -260,7 +260,7 @@ function render() {
             const m = flagKey.match(/^flag:(.+)$/);
             if (m) {
                 const t = preview.tileMap.get(m[1]);
-                if (t) { ctx.font = '28px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🚩', t.x, t.y); }
+                if (t) { ctx.save(); var fx2 = t.x, fy2 = t.y - 12; ctx.fillStyle = '#ff4444'; ctx.fillRect(fx2 - 1, fy2 + 12, 2, 16); ctx.beginPath(); ctx.moveTo(fx2, fy2); ctx.lineTo(fx2 + 14, fy2 + 5); ctx.lineTo(fx2, fy2 + 10); ctx.closePath(); ctx.fillStyle = '#ffd700'; ctx.fill(); ctx.strokeStyle = '#cc9900'; ctx.lineWidth = 1; ctx.stroke(); ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('★', fx2 + 5, fy2 + 5); ctx.restore(); }
             }
         }
         if (hoverTile) {
@@ -292,7 +292,7 @@ function render() {
     // 单位图钉悬停时在棋盘上显示🚩
     if (pendingUnitFlag) {
         const t = preview.tileMap.get(tileKey(pendingUnitFlag.q, pendingUnitFlag.r));
-        if (t) { ctx.save(); ctx.globalAlpha = 1; ctx.font = '40px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🚩', t.x, t.y); ctx.restore(); }
+        if (t) { ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 4; var fx = t.x, fy = t.y - 16; ctx.fillStyle = '#ff4444'; ctx.fillRect(fx - 1, fy + 16, 2, 20); ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx + 16, fy + 6); ctx.lineTo(fx, fy + 12); ctx.closePath(); ctx.fillStyle = '#ffd700'; ctx.fill(); ctx.strokeStyle = '#cc9900'; ctx.lineWidth = 1; ctx.stroke(); ctx.shadowBlur = 0; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('★', fx + 6, fy + 6); ctx.restore(); }
     }
     const selTile = selectionTile();
     if (selTile) drawHexagonOutline(ctx, selTile.x, selTile.y, HEX_SIZE, '#e6c200', 2.4);
