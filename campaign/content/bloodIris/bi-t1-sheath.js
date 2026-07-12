@@ -291,4 +291,5 @@ export const config = {
     }
 };
 
-export default config;
+// 注意：不要加 export default config，否则 catalog.js 的 loadScenario 会误判为手写 scenario，
+// 直接返回原始配置对象而不经 scenarioFromConfig 包装（缺失 buildBattlefield 等方法）。
