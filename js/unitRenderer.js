@@ -1,5 +1,5 @@
 // Unit canvas rendering and visual interpolation. This module intentionally owns all Canvas/effect imports.
-import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, settings, frameInfo, CAMP_FLAG_COLORS, MORALE_CONFIG, roundRectPath, getRoundIndex } from './config.js';
+import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, settings, frameInfo, CAMP_FLAG_COLORS, getFlagColors, MORALE_CONFIG, roundRectPath, getRoundIndex } from './config.js';
 import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { moraleEffects, getRecoilOffset, getChargeOffset } from './effects.js';
@@ -111,7 +111,7 @@ export function drawUnit(unit, gameState) {
 
         const key = campToKey(unit.camp);
         const campKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
-        const cc = CAMP_FLAG_COLORS[campKey] || { main: unit.camp?.color || '#777', dark: unit.camp?.color || '#555', light: unit.camp?.color || '#999' };
+        const cc = CAMP_FLAG_COLORS[campKey] || getFlagColors(unit.camp?.color);
 
         ctx.save();
         ctx.translate(visualX, visualY);
