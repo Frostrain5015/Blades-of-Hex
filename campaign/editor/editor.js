@@ -41,6 +41,14 @@ const LEGACY_ACTION_KINDS = new Set(['setObjective', 'setOptional', 'setFlag', '
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => !LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current); }
 function authorActions(current = '') { return TRIGGER_ACTIONS.filter(item => !LEGACY_ACTION_KINDS.has(item.kind) || item.kind === current); }
 
+const FACTION_COLORS = [
+    { value: '#e05050', label: '红' }, { value: '#f09a40', label: '橙' },
+    { value: '#edd43c', label: '黄' }, { value: '#5cbf5c', label: '绿' },
+    { value: '#40b8b8', label: '青' }, { value: '#5090e0', label: '蓝' },
+    { value: '#b070e0', label: '紫' }, { value: '#666666', label: '深灰' },
+    { value: '#dddddd', label: '白' }
+];
+
 const boardTool = { mode: 'terrain', terrain: 'forest', camp: 'player1', districtId: 1, fortification: 'trench', cityType: 'city', erase: { terrain: true, city: true, village: true, fortification: true, district: true, unit: true } };
 const unitTemplate = { type: 'infantry', camp: 'player1', commander: '', hpPct: 100, morale: 2, canAct: true };
 
@@ -434,6 +442,7 @@ function renderToolPanel() {
     else if (activeTab === 'units') body.appendChild(buildUnitTools());
     else if (activeTab === 'story') body.appendChild(buildStoryList());
     else if (activeTab === 'triggers') body.appendChild(buildTriggerList());
+    else if (activeTab === 'factions') body.appendChild(buildFactionBasics());
     else body.appendChild(buildMetaBasics());
 }
 
@@ -645,6 +654,67 @@ function buildTriggerList() {
     return wrap;
 }
 
+function buildFactionBasics() {
+    const wrap = el('div');
+    const relationLabels = { ally: '联盟', neutral: '中立', enemy: '敌对' };
+
+    const secFactions = section('阵营设置');
+    secFactions.appendChild(selectRow('玩家所属阵营', config.localPlayerCamp, CAMP_LABELS,
+        value => mutate(c => { c.localPlayerCamp = value; }, { rebuildPanels: false })));
+    for (const key of CAMP_KEYS) {
+        const faction = config.factions.find(item => item.id === key);
+        if (!faction) continue;
+        const box = card(CAMP_LABELS[key]);
+        box.appendChild(textRow('显示名', faction.name, value => mutate(c => { c.factions.find(item => item.id === key).name = value; }, { rebuildPanels: false })));
+        box.appendChild(selectRow('颜色', faction.color, Object.fromEntries(FACTION_COLORS.map(c => [c.value, c.label])),
+            value => mutate(c => { c.factions.find(item => item.id === key).color = value; }, { rebuildPanels: false })));
+        box.appendChild(selectRow('控制方式', faction.controller, { human: '玩家', ai: 'AI', scripted: '剧情控制' },
+            value => mutate(c => { c.factions.find(item => item.id === key).controller = value; }, { rebuildPanels: false })));
+        box.appendChild(checkRow('参与回合', faction.participatesInTurns !== false,
+            value => mutate(c => { c.factions.find(item => item.id === key).participatesInTurns = value; }, { rebuildPanels: false })));
+        box.appendChild(checkRow('本关启用', faction.active !== false,
+            value => mutate(c => { c.factions.find(item => item.id === key).active = value; }, { rebuildPanels: false })));
+        secFactions.appendChild(box);
+    }
+    wrap.appendChild(secFactions);
+
+    const secDiplomacy = section('初始外交关系（双向）');
+    secDiplomacy.appendChild(hint('只编辑每对阵营一次；运行时自动双向生效。不同玩家阵营默认敌对，与中立阵营默认中立。'));
+    for (let i = 0; i < CAMP_KEYS.length; i++) for (let j = i + 1; j < CAMP_KEYS.length; j++) {
+        const left = CAMP_KEYS[i], right = CAMP_KEYS[j];
+        const value = config.diplomacy?.[left]?.[right] ?? config.diplomacy?.[right]?.[left] ?? (left === 'neutral' || right === 'neutral' ? 'neutral' : 'enemy');
+        secDiplomacy.appendChild(selectRow(`${CAMP_LABELS[left]} ↔ ${CAMP_LABELS[right]}`, value, relationLabels, relation => mutate(c => {
+            if (!c.diplomacy[left]) c.diplomacy[left] = {};
+            if (!c.diplomacy[right]) c.diplomacy[right] = {};
+            c.diplomacy[left][right] = relation;
+            c.diplomacy[right][left] = relation;
+        }, { rebuildPanels: false })));
+    }
+    wrap.appendChild(secDiplomacy);
+
+    const secGold = section('初始金币');
+    for (const key of ['player1', 'player2', 'player3']) {
+        secGold.appendChild(numRow(CAMP_LABELS[key], config.gold[key] ?? 4, v => mutate(c => { c.gold[key] = Math.max(0, Math.round(v)); }, { rebuildPanels: false }), { min: 0, max: 99 }));
+    }
+    wrap.appendChild(secGold);
+
+    const secCmd = section('阵营主将（HUD/技能条）');
+    for (const key of ['player1', 'player2']) {
+        secCmd.appendChild(selectRow(CAMP_LABELS[key], config.commanders[key] || '', { '': '（无，或由单位自动补全）', ...COMMANDER_LABELS },
+            v => mutate(c => { c.commanders[key] = v || null; }, { rebuildPanels: false })));
+    }
+    wrap.appendChild(secCmd);
+
+    const secHands = section('初始手牌');
+    for (const key of ['player1', 'player2']) {
+        secHands.appendChild(checkGroup(CAMP_LABELS[key], CARD_IDS.map(id => ({ value: id, label: CARD_LABELS[id] })), config.hands[key],
+            v => mutate(c => { c.hands[key] = v; }, { rebuildPanels: false })));
+    }
+    wrap.appendChild(secHands);
+
+    return wrap;
+}
+
 function buildMetaBasics() {
     const wrap = el('div');
     const secId = section('关卡标识');
@@ -660,7 +730,7 @@ function buildMetaBasics() {
     secEnv.appendChild(numRow('AI 难度', config.aiDifficulty, v => mutate(c => { c.aiDifficulty = Math.max(0.1, v); }, { rebuildPanels: false }), { min: 0.1, max: 3, step: 0.1 }));
     wrap.appendChild(secEnv);
 
-    wrap.appendChild(hint('开场标题、金币、将领与初始手牌在右侧检查器中设置。'));
+    wrap.appendChild(hint('开场标题、调查点与变量在右侧检查器中设置。'));
     return wrap;
 }
 
@@ -1296,57 +1366,6 @@ function buildMetaInspector() {
     }
     wrap.appendChild(secMechanics);
 
-    const secFactions = section('阵营与玩家视角');
-    secFactions.appendChild(selectRow('玩家所属阵营', config.localPlayerCamp, CAMP_LABELS,
-        value => mutate(c => { c.localPlayerCamp = value; }, { rebuildPanels: false })));
-    secFactions.appendChild(hint('内部槽位用于规则引用；显示名和颜色可以按本关剧情自定义。'));
-    for (const key of CAMP_KEYS) {
-        const faction = config.factions.find(item => item.id === key);
-        if (!faction) continue;
-        const box = card(CAMP_LABELS[key]);
-        box.appendChild(textRow('显示名', faction.name, value => mutate(c => { c.factions.find(item => item.id === key).name = value; }, { rebuildPanels: false })));
-        box.appendChild(textRow('颜色', faction.color, value => mutate(c => { c.factions.find(item => item.id === key).color = value; }, { rebuildPanels: false }), '#RRGGBB'));
-        box.appendChild(selectRow('控制方式', faction.controller, { human: '玩家', ai: 'AI', scripted: '剧情控制' }, value => mutate(c => { c.factions.find(item => item.id === key).controller = value; }, { rebuildPanels: false })));
-        box.appendChild(checkRow('参与回合', faction.participatesInTurns !== false, value => mutate(c => { c.factions.find(item => item.id === key).participatesInTurns = value; }, { rebuildPanels: false })));
-        box.appendChild(checkRow('本关启用', faction.active !== false, value => mutate(c => { c.factions.find(item => item.id === key).active = value; }, { rebuildPanels: false })));
-        secFactions.appendChild(box);
-    }
-    wrap.appendChild(secFactions);
-
-    const secDiplomacy = section('初始外交关系（双向）');
-    secDiplomacy.appendChild(hint('只编辑每对阵营一次；运行时自动双向生效。不同玩家阵营默认敌对，与中立阵营默认中立。'));
-    const relationLabels = { ally: '联盟', neutral: '中立', enemy: '敌对' };
-    for (let i = 0; i < CAMP_KEYS.length; i++) for (let j = i + 1; j < CAMP_KEYS.length; j++) {
-        const left = CAMP_KEYS[i], right = CAMP_KEYS[j];
-        const value = config.diplomacy?.[left]?.[right] ?? config.diplomacy?.[right]?.[left] ?? (left === 'neutral' || right === 'neutral' ? 'neutral' : 'enemy');
-        secDiplomacy.appendChild(selectRow(`${CAMP_LABELS[left]} ↔ ${CAMP_LABELS[right]}`, value, relationLabels, relation => mutate(c => {
-            if (!c.diplomacy[left]) c.diplomacy[left] = {};
-            if (!c.diplomacy[right]) c.diplomacy[right] = {};
-            c.diplomacy[left][right] = relation;
-            c.diplomacy[right][left] = relation;
-        }, { rebuildPanels: false })));
-    }
-    wrap.appendChild(secDiplomacy);
-
-    const secGold = section('初始金币');
-    for (const key of ['player1', 'player2', 'player3']) {
-        secGold.appendChild(numRow(CAMP_LABELS[key], config.gold[key] ?? 4, v => mutate(c => { c.gold[key] = Math.max(0, Math.round(v)); }, { rebuildPanels: false }), { min: 0, max: 99 }));
-    }
-    wrap.appendChild(secGold);
-
-    const secCmd = section('阵营主将（HUD/技能条）');
-    for (const key of ['player1', 'player2']) {
-        secCmd.appendChild(selectRow(CAMP_LABELS[key], config.commanders[key] || '', { '': '（无，或由单位自动补全）', ...COMMANDER_LABELS },
-            v => mutate(c => { c.commanders[key] = v || null; }, { rebuildPanels: false })));
-    }
-    wrap.appendChild(secCmd);
-
-    const secHands = section('初始手牌');
-    for (const key of ['player1', 'player2']) {
-        secHands.appendChild(checkGroup(CAMP_LABELS[key], CARD_IDS.map(id => ({ value: id, label: CARD_LABELS[id] })), config.hands[key],
-            v => mutate(c => { c.hands[key] = v; }, { rebuildPanels: false })));
-    }
-    wrap.appendChild(secHands);
 
     const secGroups = section(`单位组（${config.unitGroups.length}）`);
     secGroups.appendChild(hint('用于整队全灭、增援、收编和批量改状态。组内引用稳定单位 id。'));
