@@ -1159,7 +1159,6 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
     const patch = (fields) => onChange({ ...cond, ...fields });
     switch (meta.arg) {
         case 'none':
-            box.appendChild(hint('只会在关卡初始化完成后满足一次。'));
             break;
         case 'eventTarget':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '指定单位' }));
@@ -1167,7 +1166,6 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'eventTargetTile':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
             box.appendChild(coordRow('目标地块', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
-            box.appendChild(hint('仅在该单位完成一次移动，且落点正好是目标地块时满足。'));
             break;
         case 'eventTargetArea':
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
@@ -1366,6 +1364,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
                     } else { patch({ step: v || '' }); }
                 }));
                 if (action.step && config.steps?.[action.step]) {
+                }
             }
             const dialogue = section('对话框内容');
             dialogue.appendChild(selectRow('类型', action.mode || 'narrator', { narrator: '旁白', character: '台词' }, v => patch({ mode: v, ...(v === 'character' && !action.speaker ? { speaker: { name: '', portrait: '' } } : {}) })));
@@ -1375,7 +1374,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             }
             dialogue.appendChild(textareaRow('台词', action.text || '', v => patch({ text: v }), 3));
             dialogue.appendChild(textRow('推进目标（next）', action.next || '', v => patch({ next: v || undefined }), '留空=等待触发器; __前缀=触发信号'));
-            dialogue.appendChild(hint('对话框任意点击推进。'));
             box.appendChild(dialogue);
             // 高亮 = 操作放行 + 视觉指示一体化
             const hl = action.highlight || {};
@@ -1385,7 +1383,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             secHl.appendChild(tilesPickerRow('地块高亮', hl.tiles || [], tiles => patch({ highlight: { ...hl, tiles: tiles.length ? tiles : undefined } })));
             box.appendChild(secHl);
             box.appendChild(checkRow('启用操作锁', !!action.lock, v => patch({ lock: v || undefined })));
-            box.appendChild(checkRow('立即显示', !!action.immediate, v => patch({ immediate: v || undefined })));
             break;
         }
         case 'lockStep': {
@@ -1395,7 +1392,6 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             sec.appendChild(textRow('提示文字', hl.hint || '', v => patch({ highlight: { ...hl, hint: v || undefined } })));
             sec.appendChild(textRow('放行单位', hl.unit || '', v => patch({ highlight: { ...hl, unit: v || undefined } }), '单位 ID 或 all'));
             sec.appendChild(tilesPickerRow('放行地块', hl.tiles || [], tiles => patch({ highlight: { ...hl, tiles: tiles.length ? tiles : undefined } })));
-            sec.appendChild(hint('输入 all 放行所有操作；留空则全部锁定。'));
             box.appendChild(sec);
             break;
         }
