@@ -59,13 +59,11 @@ const clone = (obj) => JSON.parse(JSON.stringify(obj));
 const tileKey = (q, r) => `${q},${r}`;
 
 function factionLabels() {
-    const labels = Object.fromEntries(config.factions.map(faction => [faction.id, faction.name || faction.id]));
-    if (!labels.neutral) labels.neutral = '中立';
-    return labels;
+    return Object.fromEntries(config.factions.map(faction => [faction.id, faction.name || faction.id]));
 }
-function factionById(id) { return config.factions.find(faction => faction.id === id) || (id === 'neutral' ? { id: 'neutral', name: '中立', color: '#777777' } : null); }
+function factionById(id) { return config.factions.find(faction => faction.id === id) || null; }
 function primaryFactionId() { return config.localPlayerCamp || config.factions.find(faction => faction.controller === 'human')?.id || config.factions[0]?.id || 'player1'; }
-function nonLocalFactionId() { return config.factions.find(faction => faction.id !== primaryFactionId() && faction.id !== 'neutral')?.id || primaryFactionId(); }
+function nonLocalFactionId() { return config.factions.find(faction => faction.id !== primaryFactionId())?.id || primaryFactionId(); }
 function syncTurnOrder(level) {
     const eligible = level.factions.filter(faction => faction.active !== false && faction.participatesInTurns !== false).map(faction => faction.id);
     const existing = Array.isArray(level.turnOrder) ? level.turnOrder : [];
@@ -80,7 +78,7 @@ function renameMapKey(map, from, to) {
 
 function replaceFactionReferences(level, from, to, { remove = false } = {}) {
     if (!from || from === to) return;
-    const replacement = remove ? 'neutral' : to;
+    const replacement = to || '';
     if (level.localPlayerCamp === from) level.localPlayerCamp = remove ? level.factions[0]?.id || '' : to;
     if (level.aiOpponentCamp === from) level.aiOpponentCamp = remove ? '' : to;
     level.turnOrder = (level.turnOrder || []).map(id => id === from ? replacement : id);
@@ -535,7 +533,7 @@ function updateHint(tile, modeInfo) {
 }
 
 function campKeyOfTile(tile) {
-    return tile.camp?.id || config.factions.find(faction => faction.name === tile.camp?.name)?.id || 'neutral';
+    return tile.camp?.id || config.factions.find(faction => faction.name === tile.camp?.name)?.id || config.factions[0]?.id || '';
 }
 
 // ═══════════════════ 左侧工具面板 ═══════════════════
@@ -707,7 +705,7 @@ function buildFactionBasics() {
         const delBtn = idx > 0 ? (() => mutate(c => {
             const removed = c.factions[idx]?.id;
             c.factions.splice(idx, 1);
-            replaceFactionReferences(c, removed, 'neutral', { remove: true });
+            replaceFactionReferences(c, removed, c.factions[0]?.id || '', { remove: true });
             if (!c.factions.some(item => item.controller === 'human')) setLocalPlayerFaction(c, c.factions[0]?.id || '');
         }, { rebuildPanels: true })) : null;
         const box = card(faction.name || faction.id, delBtn);
@@ -754,7 +752,6 @@ function buildFactionBasics() {
     wrap.appendChild(secFactions);
 
     const secTurnOrder = section('回合行动顺序');
-    secTurnOrder.appendChild(hint('仅列出“本关启用”且“参与回合”的阵营。由上至下依次行动；回到第一项时进入下一完整回合。'));
     const orderedIds = config.turnOrder?.filter(id => config.factions.some(faction => faction.id === id && faction.active !== false && faction.participatesInTurns !== false)) || [];
     orderedIds.forEach((id, index) => {
         const row = el('div', 'ed-row');
@@ -774,14 +771,10 @@ function buildFactionBasics() {
     if (!orderedIds.length) secTurnOrder.appendChild(hint('至少启用一个参与回合的阵营。'));
     wrap.appendChild(secTurnOrder);
 
-    // 外交关系：仅列出启用的阵营对
-    const activeFactions = [
-        ...config.factions.filter(f => f.active !== false),
-        ...(config.factions.some(f => f.id === 'neutral') ? [] : [{ id: 'neutral', name: '中立', color: '#777777', active: true }])
-    ];
+    // 外交关系：仅列出启用的阵营对（不再自动包含"中立"，完全交由作者排布）
+    const activeFactions = config.factions.filter(f => f.active !== false);
     const authorFactions = config.factions.filter(f => f.active !== false);
-    const secDiplomacy = section('初始外交关系（双向）');
-    secDiplomacy.appendChild(hint('只编辑每对阵营一次；运行时自动双向生效。不同玩家阵营默认敌对。'));
+    const secDiplomacy = section('初始外交关系');
     for (let i = 0; i < activeFactions.length; i++) {
         for (let j = i + 1; j < activeFactions.length; j++) {
             const left = activeFactions[i].id, right = activeFactions[j].id;
@@ -802,12 +795,11 @@ function buildFactionBasics() {
     });
     wrap.appendChild(secGold);
 
-    const secCmd = section('阵营主将（HUD/技能条）');
+    const secCmd = section('阵营主将');
     authorFactions.filter(f => ['player1', 'player2', 'player3'].includes(f.id)).forEach(f => {
         secCmd.appendChild(selectRow(f.name, config.commanders[f.id] || '', { '': '（无，或由单位自动补全）', ...COMMANDER_LABELS },
             v => mutate(c => { c.commanders[f.id] = v || null; }, { rebuildPanels: false })));
     });
-    secCmd.appendChild(hint('自定义阵营的将领请直接挂载到单位；这里仅配置传统部署牌所使用的将领槽。'));
     wrap.appendChild(secCmd);
 
     const secHands = section('初始手牌');

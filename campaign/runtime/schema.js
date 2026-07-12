@@ -21,9 +21,10 @@ export const MECHANIC_LABELS = Object.freeze(Object.fromEntries(MECHANIC_KEYS.ma
 export { FACTION_PALETTE, getPaletteEntry } from '../../rules/camps.js';
 
 // ── 枚举（派生自规则层，附中文标签供编辑器下拉）───────────────────
-export const CAMP_KEYS = Object.freeze(['player1', 'player2', 'player3', 'neutral']);
+// 注意：动态阵营体系不再默认包含"中立"，完全交由作者排布。
+export const CAMP_KEYS = Object.freeze(['player1', 'player2', 'player3']);
 export const CAMP_LABELS = Object.freeze({
-    player1: '红军', player2: '蓝军', player3: '绿军', neutral: '中立'
+    player1: '红军', player2: '蓝军', player3: '绿军'
 });
 
 export const UNIT_TYPES = Object.freeze(Object.keys(UNIT_CONFIG));
@@ -212,7 +213,7 @@ export function validateLevel(config) {
     const warnings = [];
     const c = config || {};
     const declaredFactionIds = new Set((c.factions || []).map(faction => faction?.id).filter(Boolean));
-    const factionIds = new Set([...declaredFactionIds, 'neutral']);
+    const factionIds = declaredFactionIds;
 
     if (!c.id || !/^[a-z0-9-]+$/i.test(c.id)) errors.push('关卡 id 缺失或含非法字符（仅允许字母/数字/连字符）。');
     if (!c.title) warnings.push('关卡缺少标题。');
@@ -228,7 +229,8 @@ export function validateLevel(config) {
     const districtCityCount = new Map();
     for (const city of cities) {
         if (!inBoard(city.q, city.r)) errors.push(`城市 (${city.q},${city.r}) 落在棋盘之外。`);
-        if (!factionIds.has(city.camp || 'neutral')) errors.push(`城市 (${city.q},${city.r}) 的阵营「${city.camp}」未在本关阵营列表中声明。`);
+        if (!city.camp) errors.push(`城市 (${city.q},${city.r}) 缺少阵营归属，请在城市属性中指定。`);
+        else if (!factionIds.has(city.camp)) errors.push(`城市 (${city.q},${city.r}) 的阵营「${city.camp}」未在本关阵营列表中声明。`);
         districtCityCount.set(city.districtId, (districtCityCount.get(city.districtId) || 0) + 1);
     }
     // 阵营由区划内唯一的城市（颜色来源）派生，一个 districtId 不能有两座颜色来源冲突的城市。
