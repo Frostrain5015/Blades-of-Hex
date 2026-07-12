@@ -2034,7 +2034,7 @@ async function handleSurrender() {
         gameState.gameOver = true;
         resetGameState();
         document.getElementById('gameWrapper').style.display = 'none';
-        if (gameState.campaignId === '__editor__') {
+        const fromEditor = gameState.campaignId === '__editor__'; if (fromEditor) {
             // 编辑器测试 → 返回编辑器
             const editor = await import('../campaign/editor/editor.js');
             editor.reopenEditorAfterPlaytest();

@@ -460,7 +460,7 @@ document.getElementById('exitToLobbyBtn').addEventListener('click', () => {
     updateChatAvailability();
     document.getElementById('gameWrapper').style.display = 'none';
     document.getElementById('backToVictoryBtn').style.display = 'none';
-    if (gameState.campaignId === '__editor__') {
+    const fromEditor = gameState.campaignId === '__editor__'; if (fromEditor) {
         // 编辑器测试 → 返回编辑器
         import('../campaign/editor/editor.js').then(m => m.reopenEditorAfterPlaytest());
     } else {
