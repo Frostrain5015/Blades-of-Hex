@@ -109,7 +109,7 @@ export function scenarioFromConfig(rawConfig, options = {}) {
         storageKey,
         initialStep: config.initialStep || '',
         initialObjective: Object.keys(config.objectives || {}).find(id => config.objectives[id].active !== false) || '',
-        intro: { campaignTitle: config.intro?.campaignTitle || '', chapterTitle: config.intro?.chapterTitle || '', scenarioSubtitle: (config.id || '').toUpperCase() + ' ' + (config.title || '') },
+        intro: { campaignTitle: config.intro?.campaignTitle || '', chapterTitle: '', scenarioSubtitle: config.title || '' },
         aiOpponentCampKey: config.aiOpponentCamp || '',
         aiDifficulty: config.aiDifficulty ?? 1.0,
         steps: controllerSteps,

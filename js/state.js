@@ -119,16 +119,17 @@ export function getViewingCamp() {
 export function updateButtonColors() {
     const myCamp = _getMyCamp();
     const displayCamp = isNetworkGame() ? myCamp : (gameState.gameMode === 'pve' ? _getHumanCamp() : gameState.currentCamp);
+    const campKey = campToKey(displayCamp);
     const panel = document.getElementById('commandPanel');
     if (panel) {
-        panel.setAttribute('data-camp', displayCamp === CAMP.player1 ? 'p1' : displayCamp === CAMP.player2 ? 'p2' : 'p3');
+        panel.setAttribute('data-camp', campKey === 'player1' ? 'p1' : campKey === 'player2' ? 'p2' : campKey === 'player3' ? 'p3' : 'neu');
     }
     const card1 = document.getElementById('campCard1');
     const card2 = document.getElementById('campCard2');
     const card3 = document.getElementById('campCard3');
-    if (card1) card1.classList.toggle('active', displayCamp === CAMP.player1);
-    if (card2) card2.classList.toggle('active', displayCamp === CAMP.player2);
-    if (card3) card3.classList.toggle('active', displayCamp === CAMP.player3);
+    if (card1) card1.classList.toggle('active', campKey === 'player1');
+    if (card2) card2.classList.toggle('active', campKey === 'player2');
+    if (card3) card3.classList.toggle('active', campKey === 'player3');
 }
 
 function _getMyCamp() {
@@ -296,7 +297,7 @@ export function updateUI() {
         if (emblem) {
             const shortKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : 'neu';
             const flag = CAMP_FLAG_COLORS[shortKey];
-            emblem.style.background = flag ? flag.dark : faction.color;
+            emblem.style.background = flag ? flag.main : faction.color;
         }
         // 战役模式：只显示玩家所属阵营，其余位置显示传记/关卡信息
         if (gameState.campaignMode) {
@@ -327,10 +328,14 @@ export function updateUI() {
         if (localCard && localFaction) {
             localCard.style.display = '';
             localCard.dataset.relation = 'self';
+            const shortKey = campaignGoldKey === 'player1' ? 'p1' : campaignGoldKey === 'player2' ? 'p2' : campaignGoldKey === 'player3' ? 'p3' : 'neu';
+            const flag = CAMP_FLAG_COLORS[shortKey];
             const label = localCard.querySelector('.camp-label');
             const emblem = localCard.querySelector('.camp-emblem');
             if (label) label.textContent = localFaction.name;
-            if (emblem) emblem.style.background = localFaction.color;
+            if (emblem) emblem.style.background = flag ? flag.main : localFaction.color;
+            // 信息卡底部分隔色 = 玩家阵营的主旗色（替代 CSS 硬编码绿色）
+            localCard.style.boxShadow = `inset 0 -3px 0 ${flag ? flag.main : localFaction.color}`;
         }
         document.getElementById('campCard2')?.style.setProperty('display', 'none');
         document.getElementById('campCard3')?.style.setProperty('display', 'none');
