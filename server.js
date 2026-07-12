@@ -240,9 +240,9 @@ function staticHandler(req, res) {
             res.writeHead(200, {
                 'Content-Type': contentType,
                 'Content-Length': fileSize,
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
+
+
+
             });
             fs.createReadStream(filePath).on('error', onStreamError).pipe(res);
         }
