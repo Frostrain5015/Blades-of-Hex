@@ -12,7 +12,21 @@
 
 export const CAMPAIGN_STORAGE_KEY = 'bladesOfHex.campaign.bloodIris';
 
-const SCENARIOS = Object.freeze([]); // 待关卡设计完成后逐步填充
+// 关卡注册表（lobby 按此顺序渲染关卡卡）。新关卡在此登记 + 建模块文件即自动载入。
+// 每关卡元字段：id/title/label/elementKey → lobby 渲染；type/order → 排序分类；
+// load → 懒加载函数，模块需 export config（配置关卡）或 export default（手写 scenario）。
+const SCENARIOS = Object.freeze([
+    {
+        id: 'bi-t1-sheath',
+        title: '入鞘',
+        label: 'T1',
+        elementKey: 'bi-t1-sheath',
+        type: 'teaching',
+        chapter: 1,
+        order: 1,
+        load: () => import('./bi-t1-sheath.js')
+    }
+]);
 
 const CHRONICLE = Object.freeze({
     id: 'blood-iris',
