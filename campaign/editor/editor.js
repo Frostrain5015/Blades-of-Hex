@@ -1082,6 +1082,7 @@ function conditionDefaults(kind) {
         case 'unitsInArea': return { area: config.areas[0]?.id || '', camp: '', op: '>=', value: 1 };
         case 'eventInteractionIs': return { interactable: config.interactables[0]?.id || '' };
         case 'mechanicEnabled': return { mechanic: MECHANIC_KEYS[0], enabled: true };
+        case 'timer': return { value: 1000 };
         case 'triggerEnabled': return { trigger: config.triggers[0]?.id || '', enabled: true };
         default: return { value: '' };
     }
@@ -1269,7 +1270,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(selectRow('归属', cond.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
             break;
         case 'number':
-            box.appendChild(numRow('数值', cond.value ?? 1, v => patch({ value: Math.round(v) }))); break;
+            box.appendChild(numRow('毫秒', cond.value ?? 1000, v => patch({ value: Math.round(v) }))); break;
         case 'text':
             box.appendChild(textRow('值', cond.value || '', v => patch({ value: v }))); break;
         case 'conditionGroup':
@@ -1483,6 +1484,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(selectRow('操作', action.operation || 'set', { set: '设为', add: '增加', subtract: '减少', multiply: '乘以', divide: '除以', min: '取较小值', max: '取较大值' }, v => patch({ operation: v })));
             box.appendChild(numRow('数值', Number(action.value) || 0, v => patch({ value: v }))); break;
             box.appendChild(checkRow('设为“是”', action.value !== false, v => patch({ value: v }))); break;
+        case 'timer': return { value: 1000 };
         case 'triggerEnabled':
             box.appendChild(selectRow('触发器', action.trigger || '', Object.fromEntries(config.triggers.map(item => [item.id, item.title || item.id])), v => patch({ trigger: v })));
             box.appendChild(selectRow('状态', action.enabled === false ? 'off' : 'on', { on: '启用', off: '禁用' }, v => patch({ enabled: v === 'on' }))); break;
@@ -1589,6 +1591,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
 function conditionListEditor(list, onChange, { parentIsAny = false } = {}) {
     const wrap = el('div');
     (list || []).forEach((cond, i) => {
+        if (!cond) { console.warn(`[编辑器] 条件 ${i} 为空，已跳过`); return; }
         wrap.appendChild(conditionEditor(cond,
             next => { const arr = list.slice(); arr[i] = next; onChange(arr); },
             () => { const arr = list.slice(); arr.splice(i, 1); onChange(arr); },
