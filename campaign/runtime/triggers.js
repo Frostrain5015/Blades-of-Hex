@@ -101,15 +101,22 @@ function evalCondition(cond, ctx) {
         }
         case 'unitMovesToTile':
         case 'unitMovesToArea': {
-            if (eventId !== 'unitMoved' || !targetIncludesUnit(config, cond.target, event?.unitId)) return false;
+            if (eventId !== 'unitMoved') return false;
+            if (cond.target && !targetIncludesUnit(config, cond.target, event?.unitId)) return false;
+            if (cond.camp && event?.camp !== cond.camp) return false;
             // 区域匹配：传入 tiles 数组
             if (cond.tiles) return cond.tiles.some(tile => tile.q === event?.q && tile.r === event?.r);
             // 单格匹配：传入 q, r
             return event?.q === cond.q && event?.r === cond.r;
         }
-        case 'unitAttacksUnit': return eventId === 'combatStarted'
-            && targetIncludesUnit(config, cond.attacker, event?.attackerId)
-            && targetIncludesUnit(config, cond.defender, event?.defenderId);
+        case 'unitAttacksUnit': {
+            if (eventId !== 'combatStarted') return false;
+            if (cond.attacker && !targetIncludesUnit(config, cond.attacker, event?.attackerId)) return false;
+            if (cond.attackerCamp && event?.attackerCamp !== cond.attackerCamp) return false;
+            if (cond.defender && !targetIncludesUnit(config, cond.defender, event?.defenderId)) return false;
+            if (cond.defenderCamp && event?.defenderCamp !== cond.defenderCamp) return false;
+            return true;
+        }
         case 'unitKilled': {
             if (eventId !== 'unitKilled') return false;
             if (!targetIncludesUnit(config, cond.target, event?.unitId)) return false;
@@ -143,10 +150,10 @@ function evalCondition(cond, ctx) {
         }
         case 'skillUsed': {
             if (eventId !== 'skillUsed') return false;
-            if (!targetIncludesUnit(config, cond.target, event?.unitId)) return false;
+            if (cond.target && !targetIncludesUnit(config, cond.target, event?.unitId)) return false;
+            if (cond.camp && event?.camp !== cond.camp) return false;
             if (cond.skill && event?.skillId !== cond.skill) return false;
             if (cond.skillType && event?.skillType !== cond.skillType) return false;
-            // 被动技能叠层检查：stacks 满足比较条件时才触发
             if (cond.stacks != null && event?.stacks != null) {
                 return compareValues(event.stacks, cond.stackOp || '>=', Number(cond.stacks));
             }
@@ -207,7 +214,7 @@ function evalCondition(cond, ctx) {
                 && (!cond.camp || campKeyOf(tile.unit.camp) === cond.camp)).length;
             return compareValues(count, cond.op || '>=', Number(cond.value));
         }
-        case 'triggerEnabled': return enabled.get(cond.trigger) !== false;
+        case 'triggerEnabled': return (enabled.get(cond.trigger) !== false) === (cond.enabled !== false);
         case 'mechanicEnabled': return isMechanicEnabled(gameState, cond.mechanic) === (cond.enabled !== false);
         default:
             console.warn(`[campaign] 未知条件「${cond.kind}」，按不满足处理。`);

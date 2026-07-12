@@ -93,6 +93,7 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     ,{ kind: 'unitsInArea', label: '区域内单位数量', arg: 'areaCount' }
     ,{ kind: 'eventInteractionIs', label: '事件调查点是', arg: 'interaction', event: true }
     ,{ kind: 'mechanicEnabled', label: '机制已启用/禁用', arg: 'mechanicBoolean' }
+    ,{ kind: 'triggerEnabled', label: '触发器已启用/禁用', arg: 'triggerBoolean' }
 ]);
 
 // 动作：对关卡状态/UI 的副作用。每条形如 { kind, ...字段 }；kind 必须与

@@ -1069,6 +1069,7 @@ function conditionDefaults(kind) {
         case 'unitsInArea': return { area: config.areas[0]?.id || '', camp: '', op: '>=', value: 1 };
         case 'eventInteractionIs': return { interactable: config.interactables[0]?.id || '' };
         case 'mechanicEnabled': return { mechanic: MECHANIC_KEYS[0], enabled: true };
+        case 'triggerEnabled': return { trigger: config.triggers[0]?.id || '', enabled: true };
         default: return { value: '' };
     }
 }
@@ -1127,13 +1128,37 @@ function _addCardClickHighlight(box, obj) {
     box.appendChild(info);
     let active = false;
     box.addEventListener('click', (e) => {
-        // 忽略对交互元素（select/input/button/textarea/checkbox）的点击
         const tag = e.target?.tagName;
         if (['SELECT', 'INPUT', 'BUTTON', 'TEXTAREA'].includes(tag)) return;
         active = !active;
         box.style.boxShadow = active ? 'inset 0 0 0 1px rgba(255,215,0,0.4)' : '';
         info.style.display = active ? '' : 'none';
+        if (active) {
+            const hl = _extractHighlights(obj);
+            pendingHighlight = hl;
+        } else {
+            pendingHighlight = null;
+        }
+        render();
     });
+}
+
+// 从条件/动作萃取棋盘高亮数据（用于点击卡片后在棋盘上回显）
+function _extractHighlights(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    const tiles = [];
+    const add = (q, r) => { if (q != null && r != null) tiles.push({ q, r }); };
+    if (obj.q != null) add(obj.q, obj.r);
+    if (obj.tiles) tiles.push(...obj.tiles);
+    if (obj.target?.q != null) add(obj.target.q, obj.target.r);
+    for (const key of ['target', 'attacker', 'defender']) {
+        const t = obj[key];
+        if (t?.unit) { const u = config.units.find(u => u.id === t.unit); if (u) add(u.q, u.r); }
+        if (t?.group) { const g = config.unitGroups.find(g => g.id === t.group); if (g) g.unitIds.forEach(id => { const u = config.units.find(u => u.id === id); if (u) add(u.q, u.r); }); }
+    }
+    if (obj.highlight?.tiles) tiles.push(...obj.highlight.tiles);
+    if (obj.highlight?.unit) { const u = config.units.find(u => u.id === obj.highlight.unit); if (u) add(u.q, u.r); }
+    return tiles.length ? { tiles } : null;
 }
 
 function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
@@ -1153,22 +1178,31 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
             break;
         case 'eventTargetArea':
+            box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
             box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '移动单位' }));
             box.appendChild(coordRow('目标单格', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
             box.appendChild(tilesPickerRow('目标区域', cond.tiles || [], list => patch({ tiles: list.length ? list : undefined })));
             break;
         case 'eventCombatPair':
-            box.appendChild(targetEditor(cond.attacker, attacker => patch({ attacker }), { label: '攻击方' }));
-            box.appendChild(targetEditor(cond.defender, defender => patch({ defender }), { label: '受击方' }));
-            break;
-        case 'eventCityCapture':
-            box.appendChild(coordRow('城市地块', cond.q ?? 0, cond.r ?? 0, tile => patch(tile)));
-            box.appendChild(selectRow('占领阵营', cond.camp || '', { '': '任意阵营', ...factionLabels() }, camp => patch({ camp })));
+            box.appendChild(selectRow('攻击方阵营', cond.attackerCamp || '', { '': '任意', ...factionLabels() }, camp => patch({ attackerCamp: camp || undefined })));
+            box.appendChild(targetEditor(cond.attacker, attacker => patch({ attacker }), { label: '攻击方单位' }));
+            box.appendChild(selectRow('受击方阵营', cond.defenderCamp || '', { '': '任意', ...factionLabels() }, camp => patch({ defenderCamp: camp || undefined })));
+            box.appendChild(targetEditor(cond.defender, defender => patch({ defender }), { label: '受击方单位' }));
             break;
         case 'eventCamp':
         case 'eventCampTurn':
             box.appendChild(selectRow('阵营（留空=每轮首位）', cond.camp || '', { '': '（每轮首位）', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
             box.appendChild(numRow('从触发器启动起 N 回合后', cond.turn ?? 1, v => patch({ turn: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
+        case 'eventUnitSkill':
+            box.appendChild(selectRow('阵营', cond.camp || '', { '': '任意', ...factionLabels() }, camp => patch({ camp: camp || undefined })));
+            box.appendChild(targetEditor(cond.target, target => patch({ target }), { label: '施放单位' }));
+            box.appendChild(selectRow('技能类型', cond.skillType || '', { '': '任意', active: '主动技能', passive: '被动技能' }, v => patch({ skillType: v || undefined })));
+            box.appendChild(textRow('技能 id（留空=任意）', cond.skill || '', skill => patch({ skill: skill || undefined })));
+            if (cond.skillType === 'passive') {
+                box.appendChild(selectRow('叠层比较', cond.stackOp || '>=', { '>=': '不少于', '<=': '不多于', '==': '等于' }, v => patch({ stackOp: v })));
+                box.appendChild(numRow('叠层数', cond.stacks ?? 1, v => patch({ stacks: Math.max(1, Math.round(v)) }), { min: 1, max: 99 }));
+            }
+            break;
             break;
         case 'step':
             box.appendChild(selectRow('步骤', cond.value || '', stepOptions(true), v => patch({ value: v }))); break;
@@ -1278,6 +1312,9 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             const scopeVars = config.variables.filter(item => item.scope === (cond.scope || 'level'));
             box.appendChild(selectRow('变量', cond.variable || '', Object.fromEntries(scopeVars.map(item => [item.id, item.id])), v => patch({ variable: v })));
             box.appendChild(selectRow('比较', cond.op || '==', { '==': '等于', '!=': '不等于', '<': '小于', '<=': '小于等于', '>=': '大于等于', '>': '大于' }, v => patch({ op: v })));
+        case 'triggerBoolean':
+            box.appendChild(selectRow('触发器', cond.trigger || '', Object.fromEntries(config.triggers.map(t => [t.id, t.title || t.id])), v => patch({ trigger: v })));
+            box.appendChild(checkRow('已启用（勾=启用，不勾=禁用）', cond.enabled !== false, v => patch({ enabled: v }))); break;
             box.appendChild(textRow('值', String(cond.value ?? 0), v => patch({ value: v }))); break;
         case 'mechanicBoolean':
             box.appendChild(selectRow('机制', cond.mechanic || MECHANIC_KEYS[0], MECHANIC_LABELS, v => patch({ mechanic: v })));
