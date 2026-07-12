@@ -77,9 +77,9 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'cardUsed', label: '使用指定对策卡', arg: 'cardCamp', event: true },
     { kind: 'skillUsed', label: '指定单位使用技能', arg: 'eventUnitSkill', event: true },
     { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值', event: true },
-    ,{ kind: 'timer',        label: '计时器到期',   arg: 'number', note: '关卡开始后经过指定毫秒时触发一次' }
+    { kind: 'timer',        label: '计时器到期',   arg: 'number', note: '关卡开始后经过指定毫秒时触发一次' }
     ,{ kind: 'cityOwnedBy',  label: '城市归属于',   arg: 'cityOwner' },
-    ,{ kind: 'unitExists', label: '单位存在/存活', arg: 'unitExists' }
+    { kind: 'unitExists', label: '单位存在/存活', arg: 'unitExists' }
     ,{ kind: 'unitHpCompare', label: '单位生命比较', arg: 'unitHpCompare' }
     ,{ kind: 'factionUnitCount', label: '阵营单位数量', arg: 'campCompare' }
     ,{ kind: 'goldCompare', label: '阵营金币比较', arg: 'goldCompare' }
@@ -318,7 +318,7 @@ export function validateLevel(config) {
 
     const triggerIds = new Set((c.triggers || []).map(t => t.id).filter(Boolean));
     const objectiveIds = new Set(Object.keys(c.objectives || {}));
-    const conditionMeta = (kind) => TRIGGER_CONDITIONS.find(item => item.kind === kind);
+    const conditionMeta = (kind) => TRIGGER_CONDITIONS.find(item => item?.kind === kind);
     const conditionContainsEvent = (condition) => {
         if (!condition || typeof condition !== 'object') return false;
         if (conditionMeta(condition.kind)?.event) return true;
@@ -327,7 +327,7 @@ export function validateLevel(config) {
     };
     const validateCondition = (condition, path) => {
         if (!condition || typeof condition !== 'object') { errors.push(`${path} 条件为空。`); return; }
-        if (!TRIGGER_CONDITIONS.some(item => item.kind === condition.kind)) { errors.push(`${path} 使用未知条件「${condition.kind}」。`); return; }
+        if (!TRIGGER_CONDITIONS.some(item => item?.kind === condition.kind)) { errors.push(`${path} 使用未知条件「${condition.kind}」。`); return; }
         if (condition.kind === 'all' || condition.kind === 'any') {
             if (!Array.isArray(condition.conditions) || condition.conditions.length === 0) errors.push(`${path} 的 ${condition.kind.toUpperCase()} 组不能为空。`);
             else condition.conditions.forEach((child, index) => validateCondition(child, `${path}/${index + 1}`));

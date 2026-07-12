@@ -40,7 +40,7 @@ let pendingHighlight = null; // { q, r } | [{q,r}] | Set — 鼠标悬停图钉�
 let pendingUnitFlag = null; // { q, r } — 单位图钉悬停时在棋盘上显示🚩
 
 const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast', 'eventCardIs']);
-function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => !LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current); }
+function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => item && (!LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current)); }
 function authorActions() { return TRIGGER_ACTIONS; }
 
 // 阵营颜色下拉从 FACTION_PALETTE 派生，确保关卡的 faction.color 取自调色板。
@@ -1207,7 +1207,7 @@ function _extractHighlights(obj) {
 
 function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
     if (!cond || typeof cond !== 'object') { console.warn('[编辑器] 非法条件', cond); return el('div'); }
-    const meta = TRIGGER_CONDITIONS.find(c => c.kind === cond.kind) || TRIGGER_CONDITIONS[0];
+    const meta = TRIGGER_CONDITIONS.find(c => c?.kind === cond.kind) || TRIGGER_CONDITIONS[0];
     const box = card(meta.label, onRemove);
     _addCardClickHighlight(box, cond);
     const conditionKinds = authorConditions(cond.kind).filter(c => !parentIsAny || c.kind !== 'any');
