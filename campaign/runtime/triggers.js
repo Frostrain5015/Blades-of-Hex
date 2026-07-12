@@ -3,6 +3,7 @@ import { computeCampBorders } from '../../js/HexTile.js';
 import { invalidateBoard } from '../../js/config.js';
 import { emit } from '../../js/eventBus.js';
 import { gameState, logMessage, updateUI, clearselection } from '../../js/state.js';
+import { spawnCommanderSkillEffect } from '../../js/effects.js';
 import { getRound } from '../../rules/turns.js';
 import {
     campFromKey, canAttack, createDefaultDiplomacy, getRelation, normalizeCampKey, setRelation
@@ -316,10 +317,16 @@ function runAction(action, ctx) {
             updateUI();
             break;
         }
-        case 'setUnitDefeatRule': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-            if (change && change.previous !== change.relation) {
-                clearselection(); invalidateBoard(); updateUI();
-                emit('match:diplomacyChanged', { ...change, reason: 'trigger' });
+        case 'assignCommander': {
+            const cmdId = action.commander;
+            if (!cmdId) break;
+            for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
+                unit.commander = cmdId;
+            }
+            updateUI();
+            // 触发部署将领的视觉特效（金色辉光 + 🎖️勋章标志）
+            for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
+                spawnCommanderSkillEffect(unit.tile?.x || 0, unit.tile?.y || 0, '🎖️', cmdId);
             }
             break;
         }

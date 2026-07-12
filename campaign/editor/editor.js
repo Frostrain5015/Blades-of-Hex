@@ -37,6 +37,7 @@ let initialized = false;
 let showCoords = false;
 let pendingPick = null; // { mode:'tile'|'tiles', callback, picked:Set, label }
 let pendingHighlight = null; // { q, r } | [{q,r}] | Set — 鼠标悬停图钉时高亮
+let pendingUnitFlag = null; // { q, r } — 单位图钉悬停时在棋盘上显示🚩
 
 const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 'flagSet', 'flagUnset', 'turnAtLeast', 'eventCardIs']);
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => !LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current); }
@@ -287,6 +288,11 @@ function render() {
                 drawHexagonOutline(ctx, t.x, t.y, HEX_SIZE, `rgba(100,200,255,${0.45 + pulse * 0.25})`, 2);
             }
         }
+    }
+    // 单位图钉悬停时在棋盘上显示🚩
+    if (pendingUnitFlag) {
+        const t = preview.tileMap.get(tileKey(pendingUnitFlag.q, pendingUnitFlag.r));
+        if (t) { ctx.save(); ctx.font = '32px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🚩', t.x, t.y); ctx.restore(); }
     }
     const selTile = selectionTile();
     if (selTile) drawHexagonOutline(ctx, selTile.x, selTile.y, HEX_SIZE, '#e6c200', 2.4);
@@ -943,7 +949,7 @@ function showPickBar(mode, label, onConfirm, onCancel) {
 
 /** 生成一个「📌 点选」按钮，点击后进入单点取色模式。 */
 function pickTileButton(current, onChange) {
-    const btn = el('button', 'ed-pick-btn', '📌');
+    const btn = el('button', 'ed-pick-btn', '🚩');
     btn.title = '点击棋盘选择坐标';
     btn.addEventListener('click', () => {
         const picked = new Set();
@@ -957,7 +963,7 @@ function pickTileButton(current, onChange) {
 
 /** 生成一个「📌 涂抹区域」按钮，点击后进入多选模式。 */
 function pickTilesButton(initial, onChange, { hoverTiles } = {}) {
-    const btn = el('button', 'ed-pick-btn', '📌');
+    const btn = el('button', 'ed-pick-btn', '🚩');
     btn.title = '点击棋盘涂抹选择区域';
     btn.addEventListener('mouseenter', () => {
         if (hoverTiles) { pendingHighlight = { tiles: hoverTiles }; render(); }
@@ -982,15 +988,15 @@ function unitOptions(includeEmpty = true) {
 }
 /** 生成一个「📌 选单位」按钮，点击后进入画布点选模式。currentId 为已选单位 id。 */
 function pickUnitButton(onChange, currentId) {
-    const btn = el('button', 'ed-pick-btn', '📌');
+    const btn = el('button', 'ed-pick-btn', '🚩');
     btn.title = '点击棋盘上的单位';
     // 悬停时在棋盘上高亮该单位位置
     btn.addEventListener('mouseenter', () => {
         if (!currentId) return;
         const u = config.units.find(u => u.id === currentId);
-        if (u) { pendingHighlight = { q: u.q, r: u.r }; render(); }
+        if (u) { pendingUnitFlag = { q: u.q, r: u.r }; render(); }
     });
-    btn.addEventListener('mouseleave', () => { pendingHighlight = null; render(); });
+    btn.addEventListener('mouseleave', () => { pendingUnitFlag = null; render(); });
     btn.addEventListener('click', () => {
         const flags = new Set();
         if (currentId) {
@@ -1095,6 +1101,7 @@ function actionDefaults(kind) {
         case 'setWeather': return { weather: 'clear' };
         case 'setInteractionState': return { interactable: config.interactables[0]?.id || '', state: 'available' };
         case 'removeUnits': return { target: { unit: config.units[0]?.id || '' }, mode: 'despawn' };
+        case 'assignCommander': return { target: { unit: config.units[0]?.id || '' }, commander: '' };
         case 'endScenario': return { result: 'win', reason: '' };
         case 'setMechanicEnabled': return { mechanic: MECHANIC_KEYS[0], enabled: true };
         default: return {};
@@ -1143,17 +1150,19 @@ function _addCardClickHighlight(box, obj) {
         active = !active;
         box.style.boxShadow = active ? 'inset 0 0 0 1px rgba(255,215,0,0.4)' : '';
         info.style.display = active ? '' : 'none';
-        if (active) {
-            const hl = _extractHighlights(obj);
-            pendingHighlight = hl;
-        } else {
-            pendingHighlight = null;
-        }
+	        if (active) {
+	            const hl = _extractHighlights(obj);
+	            pendingHighlight = hl?.tiles ? { tiles: hl.tiles } : null;
+	            pendingUnitFlag = hl?.flag?.q != null ? hl.flag : null;
+	        } else {
+	            pendingHighlight = null;
+	            pendingUnitFlag = null;
+	        }
         render();
     });
 }
 
-// 从条件/动作萃取棋盘高亮数据（用于点击卡片后在棋盘上回显）
+// 从条件/动作萃取棋盘高亮数据（返回 { tiles, flag }，用于点击卡片后在棋盘上回显）
 
 // 根据 statMods 自动生成效果描述文本
 function _buildEffectDesc(m) {
@@ -1184,8 +1193,15 @@ function _extractHighlights(obj) {
         if (t?.group) { const g = config.unitGroups.find(g => g.id === t.group); if (g) g.unitIds.forEach(id => { const u = config.units.find(u => u.id === id); if (u) add(u.q, u.r); }); }
     }
     if (obj.highlight?.tiles) tiles.push(...obj.highlight.tiles);
-    if (obj.highlight?.unit) { const u = config.units.find(u => u.id === obj.highlight.unit); if (u) add(u.q, u.r); }
-    return tiles.length ? { tiles } : null;
+    let flag = null;
+    if (obj.highlight?.unit) { const u = config.units.find(u => u.id === obj.highlight.unit); if (u) flag = { q: u.q, r: u.r }; }
+    // 从 target/attacker/defender 提取第一个单位作为🚩
+    if (!flag) for (const key of ['target', 'attacker', 'defender']) {
+        const t = obj[key];
+        if (t?.unit) { const u = config.units.find(u => u.id === t.unit); if (u) { flag = { q: u.q, r: u.r }; break; } }
+    }
+    if (!flag && obj.highlight?.unit) flag = { unit: obj.highlight.unit };
+    return { tiles: tiles.length ? tiles : undefined, flag };
 }
 
 function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
@@ -1486,6 +1502,9 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
         case 'unitCamp':
             box.appendChild(targetEditor(action.target, target => patch({ target })));
             box.appendChild(selectRow('新阵营', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v }))); break;
+        case 'unitCommander':
+            box.appendChild(targetEditor(action.target, target => patch({ target })));
+            box.appendChild(selectRow('将领', action.commander || '', { '': '（无）', ...COMMANDER_LABELS }, v => patch({ commander: v || undefined }))); break;
         case 'unitState':
             box.appendChild(targetEditor(action.target, target => patch({ target })));
             box.appendChild(selectRow('能力', action.state || 'canAct', { canAct: '本回合可行动', canMove: '允许移动', canAttack: '允许攻击', targetable: '允许成为目标', invulnerable: '无敌', canCounterattack: '允许反击' }, v => patch({ state: v })));
