@@ -25,8 +25,6 @@ export function createCampaignController({ onRetry, onReturn }) {
     const objectiveTitle = document.getElementById('campaignObjectiveTitle');
     const objectiveDetail = document.getElementById('campaignObjectiveDetail');
     const optionalList = document.getElementById('campaignOptionalObjectives');
-    const objPopup = document.getElementById('objectivePopupOverlay');
-    const objPopupBody = document.getElementById('objectivePopupBody');
     const objToast = document.getElementById('objectiveToast');
     const objToastBody = document.getElementById('objectiveToastBody');
     const resultOverlay = document.getElementById('campaignResultOverlay');
@@ -466,35 +464,6 @@ export function createCampaignController({ onRetry, onReturn }) {
     });
     on('campaign:objectiveChanged', (p) => activeFlow?.onObjectiveChanged?.(p));
     on('campaign:interactionCompleted', (p) => activeFlow?.onInteractionCompleted?.(p));
-
-    // 任务目标弹窗
-    document.getElementById('objectivePopupBtn')?.addEventListener('click', () => {
-        if (!activeScenario?.objectives) return;
-        const allObj = activeScenario.objectives;
-        const statuses = gameState.objectiveStates || {};
-        objPopupBody.replaceChildren(...Object.keys(allObj).map(id => {
-            const o = allObj[id];
-            const st = statuses[id] || 'hidden';
-            const icon = st === 'completed' ? '✓' : st === 'failed' ? '✗' : o.main ? '★' : '◇';
-            const cls = st === 'completed' ? 'complete' : st === 'failed' ? 'failed' : '';
-            const row = document.createElement('div');
-            row.className = `faction-list-row ${cls}`;
-            row.style.borderLeftColor = o.main ? '#ffd866' : '#777';
-            const swatch = document.createElement('span');
-            swatch.className = 'faction-list-swatch';
-            const name = document.createElement('span');
-            name.className = 'faction-list-name';
-            name.textContent = `${icon} ${o.title || id}`;
-            const meta = document.createElement('span');
-            meta.className = 'faction-list-meta';
-            meta.textContent = st;
-            row.append(swatch, name, meta);
-            return row;
-        }));
-        objPopup.classList.add('show');
-    });
-    document.getElementById('objectivePopupClose')?.addEventListener('click', () => objPopup.classList.remove('show'));
-    objPopup?.addEventListener('click', (e) => { if (e.target === objPopup) objPopup.classList.remove('show'); });
 
     // 任务通知卡片（弹出式 toast）
     window._showObjectiveToast = (text) => {

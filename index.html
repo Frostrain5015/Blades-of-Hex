@@ -337,7 +337,6 @@
                     <span id="networkRoleText"></span>
                 </div>
                 <button class="tool-btn" id="chatToggleBtn" title="聊天 (Ctrl+Enter)" style="display:none">💬</button>
-                <button class="tool-btn" id="objectivePopupBtn" title="任务目标" style="display:none">📋</button>
                 <button class="tool-btn" id="factionListBtn" title="外交菜单" style="display:none">🤝</button>
                 <button class="tool-btn" id="settingsBtn" title="设置">⚙</button>
             </div>
@@ -535,16 +534,7 @@
     </section>
 </div>
 
-<!-- 任务目标弹窗 -->
-<div id="objectivePopupOverlay" aria-hidden="true">
-    <section id="objectivePopupPanel" role="dialog" aria-modal="true" aria-labelledby="objectivePopupTitle">
-        <div class="faction-list-header">
-            <div><small>当前关卡</small><h3 id="objectivePopupTitle">任务目标</h3></div>
-            <button id="objectivePopupClose" type="button" aria-label="关闭任务目标">×</button>
-        </div>
-        <div id="objectivePopupBody" class="faction-list-body"></div>
-    </section>
-</div>
+
 
 <!-- 任务通知卡片（从右上角弹出，临时显示） -->
 <div id="objectiveToast" class="objective-toast" aria-live="polite">

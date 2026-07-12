@@ -2144,7 +2144,7 @@ export function initSettingsPanel() {
         factionBody.replaceChildren();
         for (const key of getFactionKeys(gameState)) {
             const faction = getFaction(gameState, key);
-            if (!faction || (faction.active === false && key !== 'neutral')) continue;
+            if (!faction || faction.active === false) continue;
             const relation = getRelation(gameState, viewer, key);
             const meta = RELATION_META[relation] || RELATION_META.unknown;
             const row = document.createElement('div');
