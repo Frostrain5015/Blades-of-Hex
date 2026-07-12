@@ -10,6 +10,8 @@
 // 本模块不得 import DOM、Canvas、音频或 effects。
 
 import { CAMP } from '../rules/camps.js';
+import { createDefaultDiplomacy, createDefaultFactions } from '../rules/diplomacy.js';
+import { createDefaultMechanics } from '../rules/mechanics.js';
 import { createRng } from '../core/rng.js';
 import { getCounter, setCounter } from '../js/uid.js';
 
@@ -39,6 +41,14 @@ export function createMatchState() {
         campaignId: null,
         scenarioId: null,
         campaignPhase: '',
+        localPlayerCampKey: 'player1',
+        factions: createDefaultFactions(),
+        diplomacy: createDefaultDiplomacy(),
+        campaignVariables: {},
+        levelVariables: {},
+        objectiveStates: {},
+        interactionStates: {},
+        mechanics: createDefaultMechanics(),
         aiOpponentCamp: null,   // PVE 模式下 AI 对手的阵营（CAMP.player1 或 CAMP.player2）
         isThreePlayer: false,   // 三人模式
         surrenderedCamps: [],   // 三人模式中已投降的阵营
@@ -133,6 +143,14 @@ export function resetMatchState(match) {
     match.campaignId = null;
     match.scenarioId = null;
     match.campaignPhase = '';
+    match.localPlayerCampKey = 'player1';
+    match.factions = createDefaultFactions();
+    match.diplomacy = createDefaultDiplomacy();
+    match.campaignVariables = {};
+    match.levelVariables = {};
+    match.objectiveStates = {};
+    match.interactionStates = {};
+    match.mechanics = createDefaultMechanics();
     match.aiOpponentCamp = null;
     match.isThreePlayer = false;
     match.surrenderedCamps = [];
@@ -342,6 +360,14 @@ export function serializeMatchState(match) {
         campaignId: match.campaignId || null,
         scenarioId: match.scenarioId || null,
         campaignPhase: match.campaignPhase || '',
+        localPlayerCampKey: match.localPlayerCampKey || 'player1',
+        factions: structuredClone(match.factions || createDefaultFactions()),
+        diplomacy: structuredClone(match.diplomacy || createDefaultDiplomacy()),
+        campaignVariables: structuredClone(match.campaignVariables || {}),
+        levelVariables: structuredClone(match.levelVariables || {}),
+        objectiveStates: structuredClone(match.objectiveStates || {}),
+        interactionStates: structuredClone(match.interactionStates || {}),
+        mechanics: { ...(match.mechanics || createDefaultMechanics()) },
         logHistory: [...match.logHistory],
         idCounter: getCounter(),
         weather: match.weather,
@@ -431,6 +457,14 @@ export function restoreMatchState(match, data, deps) {
     match.campaignId = data.campaignId || null;
     match.scenarioId = data.scenarioId || null;
     match.campaignPhase = data.campaignPhase || '';
+    match.localPlayerCampKey = data.localPlayerCampKey || 'player1';
+    match.factions = data.factions ? structuredClone(data.factions) : createDefaultFactions();
+    match.diplomacy = data.diplomacy ? structuredClone(data.diplomacy) : createDefaultDiplomacy();
+    match.campaignVariables = data.campaignVariables ? structuredClone(data.campaignVariables) : {};
+    match.levelVariables = data.levelVariables ? structuredClone(data.levelVariables) : {};
+    match.objectiveStates = data.objectiveStates ? structuredClone(data.objectiveStates) : {};
+    match.interactionStates = data.interactionStates ? structuredClone(data.interactionStates) : {};
+    match.mechanics = data.mechanics ? { ...data.mechanics } : createDefaultMechanics();
     match.currentCamp = campMap[data.currentCampKey] || CAMP.player1;
     match.playerGold = { player1: 4, player2: 4, player3: 4, neutral: 4, ...data.playerGold };
     // previousGold 不参与同步，保持本地值用于计数器动画

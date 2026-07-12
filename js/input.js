@@ -6,6 +6,8 @@ import { on, emit } from './eventBus.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
+import { getFaction, getRelation, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
+import { isMechanicEnabled } from '../rules/mechanics.js';
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
@@ -89,6 +91,7 @@ const boardDetailDesc = document.getElementById('boardDetailDesc');
 const boardDetailStatus = document.getElementById('boardDetailStatus');
 
 function _getMyCampInput() {
+    if (gameState.campaignMode && gameState.localPlayerCampKey) return _campFromKeyInput(gameState.localPlayerCampKey);
     if (isNetworkGame()) {
         const role = getMyRole();
         return _campFromKeyInput(role);
@@ -1433,8 +1436,12 @@ function _syncSelectionHud(tile) {
     if (unit) {
         const commander = unit.commander ? getCommander(unit.commander) : null;
         const typeName = unit._isDrone ? '无人机' : (UNIT_TYPE_NAMES[unit.type] || unit.config.name);
-        _setHudTitle(unit.camp.name + ' · ' + typeName + (commander ? ' · ' + commander.name : ''), unit._rank || 0);
-        selectionHudEl.style.setProperty('--selection-camp-color', unit.camp.color);
+        const faction = getFaction(gameState, unit.camp);
+        const relation = getRelation(gameState, getViewingCampKey(gameState), unit.camp);
+        const relationMeta = RELATION_META[relation] || RELATION_META.unknown;
+        _setHudTitle((faction?.name || unit.camp.name) + ' · ' + relationMeta.label + ' · ' + typeName + (commander ? ' · ' + commander.name : ''), unit._rank || 0);
+        selectionHudEl.style.setProperty('--selection-camp-color', faction?.color || unit.camp.color);
+        selectionHudEl.style.setProperty('--selection-relation-color', relationMeta.color);
         selectionHudHp.hidden = false;
         // 血条长度正比于 maxHp + 护盾 × 0.5（最小 80px），护盾适当撑宽但不过度
         const barTotal = unit.maxHp + Math.max(0, (unit._shield || 0) * 0.5);
@@ -1688,6 +1695,7 @@ function _bindBoardAbilityControls() {
             if (!action?.canUse) return;
             // 战役/教程输入白名单校验
             if (gameState.tutorialMode && gameState.tutorialStep) {
+                if (gameState.campaignMode && !isMechanicEnabled(gameState, 'commanderSkills')) { notify('本关尚未开放将领主动技', 'info'); return; }
                 if (gameState.campaignMode && !campaignValidateAction(action.key)) return;
             }
             _activateBoardAction(action);
@@ -1791,6 +1799,7 @@ export function initInput() {
                         const bx = 8 + (hand2.length - 1 - i) * peekW;
                         const by = H - 120;
                         if (cx >= bx && cx <= bx + cardW && cy >= by && cy <= by + cardH) {
+                            if (!isMechanicEnabled(gameState, 'tacticalCards')) { notify('本关尚未开放对策卡', 'info'); return; }
                             if (!campaignValidateCardClick(cardId)) return;
                             break;
                         }
@@ -2098,8 +2107,42 @@ export function initSettingsPanel() {
     const settingsBtn = document.getElementById('settingsBtn');
     const settingsOverlay = document.getElementById('settingsOverlay');
     const settingsClose = document.getElementById('settingsClose');
+    const factionBtn = document.getElementById('factionListBtn');
+    const factionOverlay = document.getElementById('factionListOverlay');
+    const factionClose = document.getElementById('factionListClose');
+    const factionBody = document.getElementById('factionListBody');
 
     if (!settingsBtn || !settingsOverlay || !settingsClose) return;
+
+    function renderFactionList() {
+        if (!factionBody) return;
+        const viewer = getViewingCampKey(gameState);
+        factionBody.replaceChildren();
+        for (const key of ['player1', 'player2', 'player3', 'neutral']) {
+            const faction = getFaction(gameState, key);
+            if (!faction?.active) continue;
+            const relation = getRelation(gameState, viewer, key);
+            const meta = RELATION_META[relation] || RELATION_META.unknown;
+            const row = document.createElement('div');
+            row.className = 'faction-list-row';
+            row.style.setProperty('--faction-color', faction.color);
+            row.style.setProperty('--relation-color', meta.color);
+            const swatch = document.createElement('span'); swatch.className = 'faction-list-swatch';
+            const copy = document.createElement('div');
+            const name = document.createElement('div'); name.className = 'faction-list-name'; name.textContent = faction.name;
+            const detail = document.createElement('div'); detail.className = 'faction-list-meta';
+            detail.textContent = `${faction.controller === 'human' ? '玩家控制' : faction.controller === 'scripted' ? '剧情控制' : 'AI 控制'} · ${faction.participatesInTurns ? '参与回合' : '不参与回合'}`;
+            copy.append(name, detail);
+            const badge = document.createElement('span'); badge.className = 'faction-list-relation'; badge.textContent = meta.label;
+            row.append(swatch, copy, badge); factionBody.appendChild(row);
+        }
+    }
+    const closeFactionList = () => { factionOverlay?.classList.remove('show'); factionOverlay?.setAttribute('aria-hidden', 'true'); };
+    factionBtn?.addEventListener('click', () => { renderFactionList(); factionOverlay?.classList.add('show'); factionOverlay?.setAttribute('aria-hidden', 'false'); });
+    factionClose?.addEventListener('click', closeFactionList);
+    factionOverlay?.addEventListener('click', event => { if (event.target === factionOverlay) closeFactionList(); });
+    on('campaign:mechanicsChanged', () => { if (factionOverlay?.classList.contains('show')) renderFactionList(); });
+    on('match:diplomacyChanged', () => { if (factionOverlay?.classList.contains('show')) renderFactionList(); });
 
     const speedBtns = document.querySelectorAll('.speed-btn');
     const exitBtn = document.getElementById('settingsExit');

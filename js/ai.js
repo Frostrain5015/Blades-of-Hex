@@ -15,6 +15,7 @@ import { updateFogOfWar, isTileVisible } from './fogOfWar.js';
 // 人格脚本位于可见目录 ai/（勿用隐藏目录：静态白名单、资源清单与部署工具都会跳过点开头路径）
 import * as claudePersonality from '../ai/claude.js';
 import * as grokPersonality from '../ai/grok.js';
+import { canAttack, isHostile } from '../rules/diplomacy.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -42,14 +43,14 @@ function resolveTile(q, r) {
 }
 
 function planEngineerAction(aiCamp) {
-    const campKey = aiCamp === CAMP.neutral ? 'neutral' : aiCamp === CAMP.player1 ? 'player1' : 'player2';
+    const campKey = aiCamp === CAMP.neutral ? 'neutral' : aiCamp === CAMP.player1 ? 'player1' : aiCamp === CAMP.player2 ? 'player2' : 'player3';
     const engineer = gameState.tiles.reduce((found, tile) => found || (
         tile.unit && tile.unit.commander === 'engineer' && tile.unit.camp === aiCamp && tile.unit.canAct && !tile.unit._engineerConstruction
             ? tile.unit : null
     ), null);
     if (!engineer || !engineer.tile) return null;
 
-    const hostileTiles = gameState.tiles.filter(tile => tile.unit && tile.unit.camp !== aiCamp);
+    const hostileTiles = gameState.tiles.filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp));
     const isThreatened = hostileTiles.some(tile => hexDistance(engineer.tile, tile) <= 2);
     if (!engineer.tile.fortification && (engineer.tile.isCity || engineer.tile.isVillage || isThreatened)) {
         // 附近以远程/空军威胁为主 → 架高射机枪；否则挖战壕（定向选择）
@@ -125,7 +126,7 @@ async function _executeActionInner(action, aiCamp) {
     if (gameState.gameOver) return;
 
     const isNeutral = aiCamp === CAMP.neutral;
-    const campKey = isNeutral ? 'neutral' : (aiCamp === CAMP.player1 ? 'player1' : 'player2');
+    const campKey = isNeutral ? 'neutral' : (aiCamp === CAMP.player1 ? 'player1' : aiCamp === CAMP.player2 ? 'player2' : 'player3');
 
     // 自动攻击辅助：从可攻击目标中选最优，返回是否执行了攻击
     async function _autoAttack(unit) {
@@ -134,13 +135,12 @@ async function _executeActionInner(action, aiCamp) {
         let targets;
         if (isNeutral) {
             const MY_DISTRICTS = new Set([3, 4, 5]);
-            targets = atkTiles.filter(t => t.unit && t.unit.camp !== CAMP.neutral && MY_DISTRICTS.has(t.districtId));
+            targets = atkTiles.filter(t => t.unit && isHostile(gameState, aiCamp, t.unit.camp) && MY_DISTRICTS.has(t.districtId));
             if (targets.length === 0) {
-                targets = atkTiles.filter(t => t.unit && t.unit.camp !== CAMP.neutral);
+                targets = atkTiles.filter(t => t.unit && isHostile(gameState, aiCamp, t.unit.camp));
             }
         } else {
-            const enemyCamp = aiCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
-            targets = atkTiles.filter(t => t.unit && (t.unit.camp === enemyCamp || t.unit.camp === CAMP.neutral));
+            targets = atkTiles.filter(t => t.unit && isHostile(gameState, aiCamp, t.unit.camp));
         }
         if (targets.length === 0) return false;
 

@@ -23,6 +23,7 @@ import {
     airstrikeEffects, airliftEffects
 } from './effects.js';
 import { isTileVisible, getTileVisibilityState, getTileVisibilityStateByCoord, getFogAlpha } from './fogOfWar.js';
+import { isMechanicEnabled } from '../rules/mechanics.js';
 import { getViewingCamp } from './state.js';
 import { drawFxLayer, updateFxFns } from './fxRegistry.js';
 
@@ -1721,6 +1722,7 @@ function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
 
 export function drawCardCanvas(now) {
     if (!cardCanvas || !cardCtx) return;
+    if (gameState.campaignMode && !isMechanicEnabled(gameState, 'tacticalCards')) { cardCanvas.style.display = 'none'; return; }
     const myCamp = _getMyCampForUI();
     if (!myCamp) { cardCanvas.style.display = 'none'; return; }
     if (gameState.commanderPhase !== 'done' || gameState.gameOver) { cardCanvas.style.display = 'none'; return; }

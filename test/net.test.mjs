@@ -28,16 +28,16 @@ async function getCurrentTurnRole(page) {
 async function ensureTurnFor(targetPage, otherPage) {
     const targetRole = await getMyRole(targetPage);
     const otherRole = await getMyRole(otherPage);
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 20; i++) {
         const turnRole = await getCurrentTurnRole(targetPage);
         if (turnRole === targetRole) return;
         if (turnRole === 'neutral') {
-            await sleep(1200);
+            await sleep(1500);
             continue;
         }
         const mover = turnRole === targetRole ? targetPage : turnRole === otherRole ? otherPage : null;
         if (mover) await clickEndTurn(mover);
-        await sleep(1200);
+        await sleep(1500);
     }
     throw new Error(`无法推进到重连玩家回合: target=${targetRole}, turn=${await getCurrentTurnRole(targetPage)}`);
 }
@@ -241,7 +241,12 @@ export async function run(browser) {
     // B 端角色在等待对手操作，就是对家在轮
     const waitForCamp = bRole ? camps[bRole] : null;
     const currentStarts = bSnap.currentCamp; // 谁该行动
-    const whoMoves = currentStarts === camps[bRole] ? B : A;
+    const [aCanMove, bCanMove] = await Promise.all([A, B].map(page => page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        const network = await import('/js/network.js');
+        return network.isMyTurn(gameState.currentCamp);
+    })));
+    const whoMoves = bCanMove ? B : A;
     const whoWatches = whoMoves === A ? B : A;
     const tk = bSnap.turnCounter;
     await clickEndTurn(whoMoves);

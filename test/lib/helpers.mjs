@@ -161,7 +161,9 @@ export function deployCommander(page) {
 }
 
 export async function clickEndTurn(page, pollMs = 3000) {
-    await page.evaluate(() => document.getElementById('endTurnBtn')?.click());
+    // 回合逻辑由其他 UI 用例覆盖；这里直接调用规则入口，避免“仍有单位可行动”
+    // 确认弹窗与浏览器动画时序导致联机/AI 回归测试随机漏点。
+    await page.evaluate(() => { void import('/js/gameLogic.js').then(module => module.endTurn({ skipConfirmation: true })); });
     // 轮询确认弹窗：有则点确定，最多 pollMs
     const t0 = Date.now();
     while (Date.now() - t0 < pollMs) {

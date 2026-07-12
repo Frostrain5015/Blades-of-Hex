@@ -4,7 +4,7 @@
 /**
  * 读取某传记的进度。
  * @param {string} storageKey
- * @returns {{ completedScenarioIds: string[], bestStars: number }}
+ * @returns {{ completedScenarioIds: string[], bestStars: number, variables: object, completedOptionalObjectives: string[] }}
  */
 export function readProgress(storageKey) {
     try {
@@ -14,10 +14,13 @@ export function readProgress(storageKey) {
             : [];
         return {
             completedScenarioIds,
-            bestStars: Math.max(0, Math.min(3, Number(parsed.bestStars) || 0))
+            bestStars: Math.max(0, Math.min(3, Number(parsed.bestStars) || 0)),
+            variables: parsed.variables && typeof parsed.variables === 'object' ? { ...parsed.variables } : {},
+            completedOptionalObjectives: Array.isArray(parsed.completedOptionalObjectives)
+                ? [...new Set(parsed.completedOptionalObjectives.filter(id => typeof id === 'string'))] : []
         };
     } catch (_) {
-        return { completedScenarioIds: [], bestStars: 0 };
+        return { completedScenarioIds: [], bestStars: 0, variables: {}, completedOptionalObjectives: [] };
     }
 }
 
@@ -27,13 +30,18 @@ export function readProgress(storageKey) {
  * @param {string} scenarioId
  * @param {number} stars
  */
-export function saveVictory(storageKey, scenarioId, stars) {
+export function saveVictory(storageKey, scenarioId, stars, details = {}) {
     const previous = readProgress(storageKey);
     const completedScenarioIds = [...new Set([...previous.completedScenarioIds, scenarioId])];
     localStorage.setItem(storageKey, JSON.stringify({
         completed: true,
         completedScenarioIds,
         bestStars: Math.max(previous.bestStars, Math.max(0, Math.min(3, Number(stars) || 0))),
+        variables: { ...previous.variables, ...(details.variables || {}) },
+        completedOptionalObjectives: [...new Set([
+            ...previous.completedOptionalObjectives,
+            ...(details.completedOptionalObjectives || []).map(id => `${scenarioId}/${id}`)
+        ])],
         completedAt: new Date().toISOString()
     }));
 }

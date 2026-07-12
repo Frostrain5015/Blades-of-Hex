@@ -5,6 +5,7 @@ import { normalizeLevel } from './schema.js';
 import { buildBoardFromConfig } from './mapBuilder.js';
 import { buildBattlefieldFromConfig } from './battlefield.js';
 import { createTriggerFlow, evaluateConditions } from './triggers.js';
+import { readProgress } from '../progress.js';
 
 /**
  * @param {object} rawConfig  level 配置（未归一化亦可）
@@ -50,7 +51,14 @@ export function scenarioFromConfig(rawConfig, options = {}) {
     function buildBattlefield() {
         buildBoardFromConfig(config, gameState);
         gameState._campaignFlags = new Set();
-        return buildBattlefieldFromConfig(config, gameState);
+        const built = buildBattlefieldFromConfig(config, gameState);
+        gameState.campaignVariables = storageKey ? { ...readProgress(storageKey).variables } : {};
+        for (const variable of (config.variables || [])) {
+            if (variable.scope === 'campaign' && !(variable.id in gameState.campaignVariables)) {
+                gameState.campaignVariables[variable.id] = variable.initial ?? (variable.type === 'boolean' ? false : variable.type === 'string' ? '' : 0);
+            }
+        }
+        return built;
     }
 
     function calculateResult(victory, api) {
@@ -60,18 +68,23 @@ export function scenarioFromConfig(rawConfig, options = {}) {
             text: opt.text,
             // 有显式条件按条件判定；否则看触发器是否打过「支线完成」标记。
             done: (opt.when && opt.when.length)
-                ? evaluateConditions(opt.when, api, flags)
+                ? evaluateConditions(opt.when, api, flags, config)
                 : flags.has(`optional:${opt.id}`)
         }));
         let stars = 0;
         if (victory) {
             stars = 1;
             for (const rule of (config.result?.starRules || [])) {
-                if (evaluateConditions(rule.when, api, flags)) stars++;
+                if (evaluateConditions(rule.when, api, flags, config)) stars++;
             }
             stars = Math.max(1, Math.min(3, stars));
         }
-        return { stars, optionals };
+        return {
+            stars,
+            optionals,
+            variables: { ...(gameState.campaignVariables || {}) },
+            completedOptionalObjectives: optionals.filter(item => item.done).map(item => item.id)
+        };
     }
 
     function resultText(victory, res, reason) {

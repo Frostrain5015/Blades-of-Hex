@@ -9,6 +9,8 @@ import { emit } from './eventBus.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
+import { isFriendly, isHostile } from '../rules/diplomacy.js';
+import { isMechanicEnabled } from '../rules/mechanics.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -165,7 +167,7 @@ export class Unit {
             let hasPaladinAura = false;
             for (const [dq, dr] of HEX_NEIGHBORS) {
                 const nb = gameState.tileMap.get(`${this.tile.q + dq},${this.tile.r + dr}`);
-                if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === this.camp) {
+                if (nb && nb.unit && nb.unit.commander === 'paladin' && isFriendly(_gameState, nb.unit.camp, this.camp)) {
                     hasPaladinAura = true;
                     break;
                 }
@@ -208,9 +210,11 @@ export class Unit {
         }
 
         // 士气影响浮动区间（进而改变暴击概率与伤害浮动）
-        if (this.morale === 3)      { lo += floatBalance.morale.up.min; hi += floatBalance.morale.up.max; }
-        else if (this.morale === 1) { lo += floatBalance.morale.down.min; hi += floatBalance.morale.down.max; }
-        else if (this.morale === 0) { lo += floatBalance.morale.confused.min; hi += floatBalance.morale.confused.max; }
+        if (isMechanicEnabled(_gameState, 'morale')) {
+            if (this.morale === 3)      { lo += floatBalance.morale.up.min; hi += floatBalance.morale.up.max; }
+            else if (this.morale === 1) { lo += floatBalance.morale.down.min; hi += floatBalance.morale.down.max; }
+            else if (this.morale === 0) { lo += floatBalance.morale.confused.min; hi += floatBalance.morale.confused.max; }
+        }
 
         const threshold = isCounter ? floatBalance.counter.critThreshold : floatBalance.attack.critThreshold;
         if (noCrit) {
@@ -273,7 +277,7 @@ export class Unit {
         let defSum = TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
         // 工事定向减伤：战壕仅挡近战（步/骑）、高射机枪仅挡地面远程（炮/碉堡）。
         // 空军(isAirDamage，含无人机)不吃工事定向加成，改由下方防空层处理。
-        const fortification = defender.tile.fortification ? FORTIFICATION_CONFIG[defender.tile.fortification] : null;
+        const fortification = isMechanicEnabled(_gameState, 'fortifications') && defender.tile.fortification ? FORTIFICATION_CONFIG[defender.tile.fortification] : null;
         if (fortification && !isAirDamage) {
             const isMeleeAtk = attacker.type === 'infantry' || attacker.type === 'cavalry';
             const isGroundRangedAtk = attacker.type === 'archer' || attacker.type === 'mgNest';
@@ -285,20 +289,20 @@ export class Unit {
             defSum += COMBAT_BALANCE.defense.forestVsRangedBonus;
         }
         // 风天：步兵防御-15%（星移期间扩展至敌方全兵种；占星者星光力场免疫）；星移减益区内额外-15%
-        if (_gameState.weather === 'wind' && (defender.type === 'infantry' || (_gameState.weatherLockUntil > 0 && getRoundIndex(_gameState) < _gameState.weatherLockUntil && defender.camp !== attacker.camp))
+        if (isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'wind' && (defender.type === 'infantry' || (_gameState.weatherLockUntil > 0 && getRoundIndex(_gameState) < _gameState.weatherLockUntil && defender.camp !== attacker.camp))
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
             if (getCommanderWeatherDebuff(defender.tile, defender.camp, _gameState)) defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
         }
         if (defender.type === 'infantry' && defender.tile.isCity) defSum += COMBAT_BALANCE.defense.cityInfantryBonus;
         // 雨天：步兵守城防御力额外+10%（占星者星光力场免疫）
-        if (_gameState.weather === 'rain' && defender.type === 'infantry' && defender.tile.isCity
+        if (isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'rain' && defender.type === 'infantry' && defender.tile.isCity
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum += COMBAT_BALANCE.defense.rainCityInfantryBonus;
         }
         defSum += (defender.config.defense || 0);
         defSum += (defender._rankDefBonus || 0);
-        defSum += MORALE_CONFIG[defender.morale].defBonus;
+        if (isMechanicEnabled(_gameState, 'morale')) defSum += MORALE_CONFIG[defender.morale].defBonus;
         defSum += getCommanderDefenseBonus(defender);
         // 魔术师·千面：被克制目标攻击时受伤降低15%
         if (defender.commander === 'magician' && counterCoeff > 1) defSum += COMMANDER_CONFIG.magician.balance.counterDefenseBonus;
@@ -362,13 +366,13 @@ export class Unit {
 
         // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高10%（上限30%），雾天额外+5%/格
         // moveDistance 随回合重置，势能回合结束消失
-        const chargeRate = gs && gs.weather === 'fog'
+        const chargeRate = gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog'
             ? COMBAT_BALANCE.cavalry.fogChargeDamagePerStep
             : COMBAT_BALANCE.cavalry.normalChargeDamagePerStep;
         const cavBonus = this.type === 'cavalry' ? Math.min(this.moveDistance, COMBAT_BALANCE.cavalry.maxChargeSteps) * chargeRate : 0;
         const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? COMBAT_BALANCE.infantry.cityDamageBonus : 0;
         // 天气条件增伤：雾天骑兵+20%、风天炮兵+20%（归入②增伤乘区）
-        const weatherBonus = (gs && gs.weather === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
+        const weatherBonus = (gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
             : 0;
 
         const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus + weatherBonus);
@@ -388,7 +392,7 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.counterAttackCount >= 1 || this.morale === 0) {
+        if (this.counterAttackCount >= 1 || (isMechanicEnabled(_gameState, 'morale') && this.morale === 0)) {
             return { dmg: 0, isCrit: false };
         }
         // 无人机攻击地面单位时，地面单位无法反击
@@ -445,6 +449,8 @@ export class Unit {
             minHp = 0
         } = opts;
         const log = _logMessage;
+        const oldHp = this.hp;
+        const effectiveMinHp = Math.max(minHp, this._campaignNonLethal ? 1 : 0, Number(this._campaignMinHp) || 0);
 
         if (this.godMode) return false;
 
@@ -487,7 +493,7 @@ export class Unit {
         // 牧师治愈灵光·临终迸发：致命一击时提前释放剩余 HoT，若仍不足抵扣或治疗后
         // 仍低于20%最大生命，则血量固定为20%最大生命；灵光随之消耗。
         // （minHp>0 的伤害本就不致死，如堕天使灼烧，不触发此保底）
-        if (this._healingAura > 0 && minHp <= 0 && (this.hp - actualDmg) <= 0) {
+        if (this._healingAura > 0 && effectiveMinHp <= 0 && (this.hp - actualDmg) <= 0) {
             const balance = COMMANDER_CONFIG.priest.balance;
             const burst = Math.round(this.maxHp * balance.auraHealPct * this._healingAura);
             const floor = Math.round(this.maxHp * balance.minimumHpPct);
@@ -506,7 +512,11 @@ export class Unit {
             return false;
         }
 
-        this.hp = Math.round(Math.max(minHp, this.hp - actualDmg));
+        this.hp = Math.round(Math.max(effectiveMinHp, this.hp - actualDmg));
+        if (this.hp !== oldHp) emit('match:unitHpChanged', {
+            unit: this, unitId: this.id, oldHp, newHp: this.hp, delta: this.hp - oldHp,
+            source, sourceUnit: attacker, sourceUnitId: attacker?.id || null
+        });
         // 殉道者：HP≤1时进入自爆倒计时（包括致死伤害）
         if (this.commander === 'martyr' && !this._martyrPrimed && this.hp <= COMMANDER_CONFIG.martyr.balance.triggerHp) {
             this._martyrPrimed = true;
@@ -533,6 +543,18 @@ export class Unit {
     // （殉道者自爆的自毁也走这里，保证 commanderP1/P2/P3 引用被清除）
     destroy(attackerUnit = null) {
         const log = _logMessage;
+        if (this._campaignDeathEmitted) return;
+        this._campaignDeathEmitted = true;
+        const deathSnapshot = {
+            unitId: this.id,
+            unitType: this.type,
+            camp: this.camp,
+            killerId: attackerUnit?.id || null,
+            killerType: attackerUnit?.type || null,
+            killerCamp: attackerUnit?.camp || null,
+            reason: attackerUnit ? 'combat' : 'effect',
+            failOnDeath: !!this._campaignFailOnDeath
+        };
         // 工程师脚手架被摧毁：立即解除对应工程师的施工锁定（金币不返还）
         if (this._engineerScaffold && _gameState) {
             const builderId = this._engineerScaffold.builderId;
@@ -576,7 +598,7 @@ export class Unit {
         // 所有来源击杀将领：全军士气+1（攻击方阵营；无明确攻击者时以当前回合阵营为准）
         if (this.commander) {
             let killerCamp = null;
-            if (attackerUnit && attackerUnit.camp !== this.camp) {
+            if (attackerUnit && isHostile(_gameState, attackerUnit.camp, this.camp)) {
                 killerCamp = attackerUnit.camp;
             } else if (!attackerUnit && _gameState && _gameState.currentCamp !== this.camp) {
                 killerCamp = _gameState.currentCamp;
@@ -610,7 +632,7 @@ export class Unit {
             let hasNecromancer = false;
             for (const t of _gameState.tiles) {
                 // 仅同阵营亡灵法师能牵引本方亡魂 → 只有同阵营在场才留标记
-                if (t.unit && t.unit.commander === 'necromancer' && t.unit.camp === this.camp && t.unit.hp > 0) {
+                if (t.unit && t.unit.commander === 'necromancer' && isFriendly(_gameState, t.unit.camp, this.camp) && t.unit.hp > 0) {
                     hasNecromancer = true;
                     break;
                 }
@@ -643,6 +665,7 @@ export class Unit {
         emit('fx:explosion', { x: this.tile.x, y: this.tile.y, color: '#ff2200', count: 30 });
         emit('fx:explosion', { x: this.tile.x, y: this.tile.y, color: '#ffaa00', count: 15 });
         emit('fx:screenShake', { strength: 4, duration: 150 });
+        emit('match:unitKilled', deathSnapshot);
     }
 
     // 普攻/反击入口（保留旧签名，内部转入 applyDamage）
@@ -663,7 +686,7 @@ export class Unit {
         const dirs = HEX_NEIGHBORS;
         for (const [dq, dr] of dirs) {
             const neighbor = tileMap.get(`${this.tile.q + dq},${this.tile.r + dr}`);
-            if (neighbor && neighbor.unit && neighbor.unit.commander === 'ironGuard' && neighbor.unit.camp === this.camp && neighbor.unit._shield > 0) {
+            if (neighbor && neighbor.unit && neighbor.unit.commander === 'ironGuard' && isFriendly(_gameState, neighbor.unit.camp, this.camp) && neighbor.unit._shield > 0) {
                 return neighbor.unit;
             }
         }
@@ -679,6 +702,10 @@ export class Unit {
         const actualHeal = this.hp - oldHp;
 
         if (actualHeal > 0) {
+            emit('match:unitHpChanged', {
+                unit: this, unitId: this.id, oldHp, newHp: this.hp, delta: actualHeal,
+                source: 'heal', sourceUnit: null, sourceUnitId: null
+            });
             gs.healTexts.push({
                 x: this.tile.x,
                 y: this.tile.y,

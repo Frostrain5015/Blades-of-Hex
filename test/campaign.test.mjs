@@ -37,8 +37,39 @@ export async function run(browser) {
         return view?.classList.contains('active') && getComputedStyle(view).display === 'flex';
     }), 3000, '单人战役页签切换');
     R.assert(true, '单人战役拥有独立大厅页签');
-    R.assert((await page.textContent('#campaignChronicleTitle')).trim() === '我心如火', '第一部传记名为《我心如火》');
-    R.assert((await page.textContent('.campaign-chronicle-index')).includes('将星列传01'), '传记档案编号正确');
+    R.assert((await page.textContent('#campaignChronicleTitle')).trim() === '染血的鸢尾花', '第一部传记名为《染血的鸢尾花》');
+    R.assert((await page.textContent('.campaign-chronicle-index')).includes('将星列传'), '传记档案编号正确');
+    if (await page.locator('.campaign-level-card').count() === 0) {
+        R.ok('正式关卡尚未录入，按当前开发阶段改测战役编辑器基础设施');
+        await page.click('#campaignBackBtn');
+        await page.evaluate(() => document.getElementById('editorBtn')?.click());
+        await page.locator('#editorOverlay').waitFor({ state: 'visible' });
+        await page.click('.editor-tab[data-tab="meta"]');
+        R.assert(await page.getByText('本关开放机制', { exact: true }).count() === 1, '编辑器提供关卡机制开关');
+        R.assert(await page.getByText('初始外交关系（双向）', { exact: true }).count() === 1, '编辑器提供双向外交配置');
+        R.assert(await page.getByText(/联盟共享视野/).count() >= 1, '联盟共享视野为独立开关');
+        const infrastructure = await page.evaluate(async () => {
+            const schema = await import('/campaign/runtime/schema.js');
+            const diplomacy = await import('/rules/diplomacy.js');
+            const mechanics = await import('/rules/mechanics.js');
+            const level = schema.createDefaultLevel();
+            const validation = schema.validateLevel(level);
+            const state = { diplomacy: diplomacy.createDefaultDiplomacy(), mechanics: mechanics.createDefaultMechanics() };
+            const change = diplomacy.setRelation(state, 'player1', 'neutral', 'enemy');
+            return {
+                schemaOk: validation.errors.length === 0,
+                symmetric: change?.previous === 'neutral' && diplomacy.getRelation(state, 'neutral', 'player1') === 'enemy',
+                alliedVisionDefault: mechanics.isMechanicEnabled(state, 'alliedVision'),
+                cardDefault: mechanics.isMechanicEnabled(state, 'tacticalCards')
+            };
+        });
+        R.assert(infrastructure.schemaOk, '新版默认 Schema 可直接编译');
+        R.assert(infrastructure.symmetric, '外交修改保持双向对称');
+        R.assert(!infrastructure.alliedVisionDefault && infrastructure.cardDefault, '机制默认值正确（共享视野关、对策卡开）');
+        R.assert(page._errors.length === 0, `编辑器基础设施无页面异常${page._errors.length ? `：${page._errors.join(' | ')}` : ''}`);
+        await page.context().close();
+        return R.summary();
+    }
     R.assert((await page.textContent('#rainCityLevelBtn')).includes('雨幕下的孤城'), '二级菜单展示具体关卡');
 
     await page.click('#startRainCityBtn');

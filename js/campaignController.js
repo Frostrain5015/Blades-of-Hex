@@ -3,7 +3,7 @@
 // 本文件只负责：渲染步骤对白、目标 HUD、目标环/提示、结算面板、事件订阅与输入校验的分发。
 import { canvas, LOGICAL_W, LOGICAL_H, CAMP, invalidateBoard } from './config.js';
 import { gameState, logMessage, updateUI } from './state.js';
-import { on } from './eventBus.js';
+import { emit, on } from './eventBus.js';
 import { saveVictory } from '../campaign/progress.js';
 
 let sharedController = null;
@@ -96,6 +96,19 @@ export function createCampaignController({ onRetry, onReturn }) {
         objectiveHud.classList.add('show');
     }
 
+    function setObjectiveStatus(id, status) {
+        if (!id) return;
+        const previous = gameState.objectiveStates?.[id] || 'hidden';
+        if (!gameState.objectiveStates) gameState.objectiveStates = {};
+        gameState.objectiveStates[id] = status;
+        const optional = optionalList?.querySelector(`[data-objective="${CSS.escape(id)}"]`);
+        if (optional) {
+            optional.classList.toggle('complete', status === 'completed');
+            optional.textContent = `${status === 'completed' ? '✓' : status === 'failed' ? '✕' : '◇'} ${optional.textContent.replace(/^[◇✓✕]\s*/, '')}`;
+        }
+        emit('campaign:objectiveChanged', { objectiveId: id, previous, status });
+    }
+
     function renderStep(step) {
         title.textContent = '';
         progress.textContent = '';
@@ -172,7 +185,10 @@ export function createCampaignController({ onRetry, onReturn }) {
         objectiveHud?.classList.remove('show');
         const res = activeScenario.calculateResult(victory, api);
         // 编辑器测试（storageKey 为空）不写通关进度。
-        if (victory && activeScenario.storageKey) saveVictory(activeScenario.storageKey, activeScenario.id, res.stars);
+        if (victory && activeScenario.storageKey) saveVictory(activeScenario.storageKey, activeScenario.id, res.stars, {
+            variables: res.variables,
+            completedOptionalObjectives: res.completedOptionalObjectives
+        });
         document.getElementById('campaignResultKicker').textContent = victory ? '战役完成' : '任务失败';
         document.getElementById('campaignResultKicker').classList.toggle('defeat', !victory);
         document.getElementById('campaignResultStars').textContent = victory
@@ -194,6 +210,8 @@ export function createCampaignController({ onRetry, onReturn }) {
         setStepId: (id) => { stepId = id; },
         showStep,
         updateObjectives,
+        setActiveObjective: updateObjectives,
+        setObjectiveStatus,
         hideGuidance,
         showHint,
         findUnit,
@@ -214,6 +232,7 @@ export function createCampaignController({ onRetry, onReturn }) {
         resultOverlay.setAttribute('aria-hidden', 'true');
         updateObjectives(activeScenario.initialObjective);
         showStep(activeScenario.initialStep, { immediate: true });
+        activeFlow?.onLevelStarted?.();
     }
 
     function stop() {
@@ -241,12 +260,33 @@ export function createCampaignController({ onRetry, onReturn }) {
     window.addEventListener('resize', () => { if (active) requestAnimationFrame(syncRing); });
 
     // 领域事件 → 委托当前关卡流程（未加载关卡或非激活时由 flow 内部守卫短路）。
-    on('input:tileSelected', (p) => activeFlow?.onTileSelected?.(p));
+    on('input:tileSelected', (p) => {
+        activeFlow?.onTileSelected?.(p);
+        const item = activeScenario?._config?.interactables?.find(candidate => candidate.q === p.tile?.q && candidate.r === p.tile?.r);
+        if (!item || gameState.interactionStates?.[item.id] !== 'available') return;
+        gameState.interactionStates[item.id] = 'completed';
+        showHint(`已完成：${item.label || '调查'}`);
+        emit('campaign:interactionCompleted', {
+            interactableId: item.id,
+            unitId: p.unit?.id || null,
+            camp: p.unit?.camp || gameState.localPlayerCampKey,
+            q: item.q,
+            r: item.r
+        });
+    });
     on('input:cardUsed', (p) => activeFlow?.onCardUsed?.(p));
     on('match:unitMoved', (p) => activeFlow?.onUnitMoved?.(p));
     on('input:commanderSkillUsed', (p) => activeFlow?.onSkillUsed?.(p));
     on('match:cityCaptured', (p) => activeFlow?.onCityCaptured?.(p));
     on('turn:started', (p) => activeFlow?.onTurnStarted?.(p));
+    on('turn:ended', (p) => activeFlow?.onTurnEnded?.(p));
+    on('match:combatStarted', (p) => activeFlow?.onCombatStarted?.(p));
+    on('match:combatResolved', (p) => activeFlow?.onCombatResolved?.(p));
+    on('match:unitHpChanged', (p) => activeFlow?.onUnitHpChanged?.(p));
+    on('match:unitKilled', (p) => activeFlow?.onUnitKilled?.(p));
+    on('match:diplomacyChanged', (p) => activeFlow?.onDiplomacyChanged?.(p));
+    on('campaign:objectiveChanged', (p) => activeFlow?.onObjectiveChanged?.(p));
+    on('campaign:interactionCompleted', (p) => activeFlow?.onInteractionCompleted?.(p));
 
     function validateCanvasClick(tile) { return activeFlow?.validateCanvasClick?.(tile) ?? true; }
     function validateCardClick(cardId) { return activeFlow?.validateCardClick?.(cardId) ?? true; }

@@ -30,6 +30,8 @@ import { COLONEL_CARD_DATA } from '../rules/cards.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
+import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
+import { isMechanicEnabled } from '../rules/mechanics.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
@@ -214,7 +216,7 @@ function countAdjacentNonFriendlies(unit, tileMap) {
     let count = 0;
     for (const [dq, dr] of HEX_NEIGHBORS) {
         const nb = tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
-        if (nb && nb.unit && nb.unit.camp !== unit.camp) count++;
+        if (nb && nb.unit && isHostile(gameState, unit.camp, nb.unit.camp)) count++;
     }
     return count;
 }
@@ -223,8 +225,8 @@ function isFlanked(unit, tileMap) {
     for (const [[dq1, dr1], [dq2, dr2]] of HEX_AXES) {
         const nb1 = tileMap.get(`${unit.tile.q + dq1},${unit.tile.r + dr1}`);
         const nb2 = tileMap.get(`${unit.tile.q + dq2},${unit.tile.r + dr2}`);
-        if (nb1 && nb1.unit && nb1.unit.camp !== unit.camp &&
-            nb2 && nb2.unit && nb2.unit.camp !== unit.camp) {
+        if (nb1 && nb1.unit && isHostile(gameState, unit.camp, nb1.unit.camp) &&
+            nb2 && nb2.unit && isHostile(gameState, unit.camp, nb2.unit.camp)) {
             return true;
         }
     }
@@ -240,7 +242,7 @@ export function recalcAllFlankingMorale() {
     function hasCourageAura(u) {
         for (const [dq, dr] of HEX_NEIGHBORS) {
             const nb = gameState.tileMap.get(`${u.tile.q + dq},${u.tile.r + dr}`);
-            if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === u.camp) {
+            if (nb && nb.unit && nb.unit.commander === 'paladin' && isFriendly(gameState, nb.unit.camp, u.camp)) {
                 return true;
             }
         }
@@ -278,7 +280,7 @@ export function recalcAllFlankingMorale() {
         if (!tile.unit || tile.unit.morale >= 2) continue;
         for (const [dq, dr] of HEX_NEIGHBORS) {
             const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-            if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === tile.unit.camp) {
+            if (nb && nb.unit && nb.unit.commander === 'paladin' && isFriendly(gameState, nb.unit.camp, tile.unit.camp)) {
                 tile.unit.morale = 2;
                 break;
             }
@@ -437,6 +439,7 @@ function initCardDeck() {
 }
 
 export function drawCard(camp) {
+    if (gameState.campaignMode && !isMechanicEnabled(gameState, 'tacticalCards')) { notify('本关尚未开放对策卡', 'info'); return false; }
     const campKey = camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : camp === CAMP.player3 ? 'player3' : 'neutral';
     if (campKey === 'neutral') return null;
 
@@ -588,6 +591,17 @@ function _skipToNextActiveCamp(fromCamp) {
 
 // 获取下一个未投降的阵营（用于回合轮转）
 function _nextActiveCamp(camp) {
+    if (gameState.campaignMode && gameState.factions) {
+        const order = [CAMP.player1, CAMP.player2, CAMP.player3, CAMP.neutral];
+        const idx = order.indexOf(camp);
+        for (let i = 1; i <= order.length; i++) {
+            const next = order[(idx + i) % order.length];
+            const key = _campKey(next);
+            const faction = gameState.factions[key];
+            if (faction?.active !== false && faction?.participatesInTurns !== false && !gameState.surrenderedCamps.includes(next)) return next;
+        }
+        return camp;
+    }
     if (!gameState.isThreePlayer || gameState.surrenderedCamps.length === 0) {
         // 双人模式或无人投降，使用原有逻辑
         if (gameState.isThreePlayer) {
@@ -676,7 +690,7 @@ function _expireTimedEffects() {
         }
 
         // 雨天：守城单位每回合回复15%最大生命值
-        if (gameState.weather === 'rain' && u.tile.isCity) {
+        if (isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'rain' && u.tile.isCity) {
             u.heal(Math.round(u.maxHp * COMBAT_BALANCE.weather.rainCityHealPct));
         }
 
@@ -803,7 +817,7 @@ async function _doEndTurnPhase() {
     // Unit reset + infantry city heal + 将领回合开始效果
     gameState.tiles.forEach(tile => {
         if (tile.unit) {
-            tile.unit.canAct = tile.unit.morale !== 0;
+            tile.unit.canAct = !isMechanicEnabled(gameState, 'morale') || tile.unit.morale !== 0;
             // 工程师脚手架：建造中始终不能行动（既不能攻击也不能移动）
             if (tile.unit._engineerScaffold) tile.unit.canAct = false;
             // mgNest: disable if no enemies in range
@@ -840,6 +854,7 @@ async function _doEndTurnPhase() {
 
     // 将领回合结束效果（牧师圣疗链式群疗等）—— 在结束方阵营、治疗链特效收集窗口内触发
     triggerCommanderTurnEnd(gameState, camp, _campKey(camp));
+    emit('turn:ended', { camp, campKey: _campKey(camp), turnCounter: gameState.turnCounter });
 
     // Turn toggle（三人模式自动跳过已投降阵营）
     gameState.currentCamp = _nextActiveCamp(camp);
@@ -935,8 +950,10 @@ export async function endTurn(options = {}) {
     _turnProcessing = true;
 
     try {
+        const currentFaction = gameState.factions?.[_campKey(gameState.currentCamp)];
         const isAITurn = gameState.currentCamp === CAMP.neutral ||
-            (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp);
+            (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp) ||
+            (gameState.campaignMode && currentFaction?.controller !== 'human');
         const hasActionable = gameState.tiles.some(t =>
             t.unit && t.unit.camp === gameState.currentCamp && t.unit.canAct && !t.unit.isNewRecruit
         );
@@ -962,11 +979,15 @@ export async function endTurn(options = {}) {
         for (let i = 0; i < 3; i++) {
             if (gameState.gameOver) break;
 
-            const isAIOpponent = gameState.gameMode === 'pve' &&
-                gameState.currentCamp === gameState.aiOpponentCamp &&
-                !gameState.aiActing;
+            const currentKey = _campKey(gameState.currentCamp);
+            const currentFaction = gameState.factions?.[currentKey];
+            const isAIOpponent = gameState.currentCamp !== CAMP.neutral && !gameState.aiActing && (
+                (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp)
+                || (gameState.campaignMode && currentFaction?.controller === 'ai')
+            );
             const isNeutral = gameState.currentCamp === CAMP.neutral &&
                 !gameState.aiActing && !_neutralAiLock;
+            const isScripted = gameState.campaignMode && currentFaction?.controller === 'scripted';
 
             if (isAIOpponent) {
                 // PVE 对手 AI（Grok 进攻型人格）
@@ -974,7 +995,7 @@ export async function endTurn(options = {}) {
                 try {
                     const { processOpponentTurn } = await import('./ai.js');
                     await Promise.race([
-                        processOpponentTurn(gameState.aiOpponentCamp),
+                        processOpponentTurn(gameState.currentCamp),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 18000))
                     ]);
                 } catch (e) {
@@ -992,6 +1013,10 @@ export async function endTurn(options = {}) {
 
             } else if (isNeutral) {
                 await _processNeutralTurn(isLocalSkirmish);
+
+            } else if (isScripted) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+                if (!gameState.gameOver) await _doEndTurnPhase();
 
             } else {
                 break; // 人类回合
@@ -1079,6 +1104,7 @@ export async function resumeNeutralTurnIfNeeded() {
 
 // ===== 招募 =====================
 export function recruitUnit(type) {
+    if (gameState.campaignMode && !isMechanicEnabled(gameState, 'recruitment')) { notify('本关尚未开放招募', 'info'); return; }
     if (gameState.gameOver) return;
     const config = UNIT_CONFIG[type];
     const currentPlayerKey = _campKey(gameState.currentCamp);
@@ -1132,6 +1158,7 @@ export function recruitUnit(type) {
 // ===== E5 补员系统 =====================
 
 export function reinforceUnit(unit) {
+    if (gameState.campaignMode && !isMechanicEnabled(gameState, 'reinforcement')) { notify('本关尚未开放补员', 'info'); return; }
     if (!unit || !unit.tile || unit.hp >= unit.maxHp) return;
     const tile = unit.tile;
     if (!tile.isCity && !tile.isVillage) { notify('需在城市或村庄上补员', 'error'); return; }
@@ -1210,7 +1237,7 @@ export function getMovableTiles(unit) {
 
             let stepCost = unit._isDrone ? 2 : TERRAIN_CONFIG[neighbor.terrain].stepCost;
             // 雨天泥泞：骑兵步耗+1，末步豁免失效
-            const _isMuddyTarget = gameState.weather === "rain" && unit.type === "cavalry"
+            const _isMuddyTarget = isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === "rain" && unit.type === "cavalry"
                 && !getCommanderWeatherImmunity(neighbor, friendlyCamp, gameState.tileMap);
             if (_isMuddyTarget) stepCost += 1;
             // 星移减益区：处于敌方占星者3格内的敌对方额外+1（此处用于敌方 AI 移动计算）
@@ -1256,14 +1283,14 @@ export function getAttackableTiles(unit) {
     // 无人机固定射程2
     if (unit._isDrone) range = DRONE_RANGE;
     // 雾天炮兵射程-1（占星者星光力场免疫）
-    if (gameState.weather === 'fog' && unit.type === 'archer'
+    if (isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'fog' && unit.type === 'archer'
         && !getCommanderWeatherImmunity(unit.tile, unit.camp, gameState.tileMap)) {
         range = Math.min(range, 1);
     }
     if (unit.type === 'archer') {
         let bonus = 0;
         if (unit.tile.terrain === 'mountain') bonus = 1;
-        if (gameState.weather === 'wind') bonus = Math.max(bonus, 1);
+        if (isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'wind') bonus = Math.max(bonus, 1);
         range += bonus;
     }
     range = Math.max(1, Math.min(4, range));
@@ -1271,7 +1298,8 @@ export function getAttackableTiles(unit) {
     const targets = gameState.tiles.filter(tile =>
         hexDistance(tile, startTile) <= range
         && tile.unit
-        && tile.unit.camp !== unit.camp
+        && canAttack(gameState, unit.camp, tile.unit.camp)
+        && tile.unit._campaignTargetable !== false
     );
     // 遭遇战迷雾：只能攻击视野内的敌方单位
     if (gameState.skirmishFog && targets.length) {
@@ -1298,13 +1326,15 @@ function _reconstructPath(parents, startTile, targetTile) {
 export function moveUnit(unit, targetTile) {
     if (gameState.gameOver) return;
     if (unit.camp !== gameState.currentCamp) return;
-    if (unit.isNewRecruit || !unit.canAct || !gameState.movableTiles.includes(targetTile) || targetTile.unit) {
+    if (unit._campaignCanMove === false || unit.isNewRecruit || !unit.canAct || !gameState.movableTiles.includes(targetTile) || targetTile.unit) {
         notify('该单位本回合无法移动', 'error');
         return;
     }
 
     const fromX = unit.tile.x;
     const fromY = unit.tile.y;
+    const fromQ = unit.tile.q;
+    const fromR = unit.tile.r;
 
     // Reconstruct path for step-by-step animation
     const path = _reconstructPath(gameState.moveParents, unit.tile, targetTile);
@@ -1384,13 +1414,21 @@ export function moveUnit(unit, targetTile) {
     const rankUpsMove = _pendingRankUps.splice(0);
     broadcastAction('move', { unitId: unit.id, fromX, fromY, q: targetTile.q, r: targetTile.r, path, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger, capturedCity: _capturedCityOnMove });
     _capturedCityOnMove = null;
-    emit('match:unitMoved', { unit, targetTile, fromX, fromY });
+    emit('match:unitMoved', { unit, targetTile, fromX, fromY, fromQ, fromR });
 }
 
 // ===== 攻击 =====================
 export function attackUnit(attackerUnit, targetUnit) {
     if (gameState.gameOver) return;
     if (attackerUnit.camp !== gameState.currentCamp) return;
+    if (attackerUnit._campaignCanAttack === false || targetUnit._campaignTargetable === false) {
+        notify('当前剧情状态不允许攻击该目标', 'error');
+        return;
+    }
+    if (!canAttack(gameState, attackerUnit.camp, targetUnit.camp)) {
+        notify('不能攻击自身或盟军单位', 'error');
+        return;
+    }
     if (attackerUnit._isDrone) refreshDroneSignal(gameState, attackerUnit.camp);
     if (!attackerUnit.canAct || !gameState.attackableTiles.includes(targetUnit.tile)) {
         notify('无法攻击：超出射程或单位已行动', 'error');
@@ -1404,6 +1442,19 @@ export function attackUnit(attackerUnit, targetUnit) {
     const _smiteLabel = _hasSmite ? (attackerUnit._smiteCharged ? '至圣斩·誓约' : '至圣斩') : '';
     const qixueActive = attackerUnit.commander === 'berserker' && attackerUnit._berserkerQixue;
     const qixueAttackCamp = attackerUnit.camp;
+
+    const relationBeforeAttack = getRelation(gameState, attackerUnit.camp, targetUnit.camp);
+    if (relationBeforeAttack === 'neutral') {
+        const change = setRelation(gameState, attackerUnit.camp, targetUnit.camp, 'enemy');
+        if (change) {
+            clearselection();
+            emit('match:diplomacyChanged', { ...change, reason: 'provokedByAttack' });
+        }
+    }
+    emit('match:combatStarted', {
+        attackerId: attackerUnit.id, defenderId: targetUnit.id,
+        attackerCamp: attackerUnit.camp, defenderCamp: targetUnit.camp
+    });
 
     const _executeAttack = () => {
 
@@ -1729,6 +1780,15 @@ export function attackUnit(attackerUnit, targetUnit) {
             ctrMoraleFxUnitId: _ctrMoraleFxUnitId || null,
             berserkerQixue: qixueActive,
             berserkerSplash: qixueSplashResults.length ? qixueSplashResults : null
+        });
+        emit('match:combatResolved', {
+            attackerId: attackerUnit.id,
+            defenderId: targetUnit.id,
+            attackerCamp: attackerUnit.camp,
+            defenderCamp: targetUnit.camp,
+            damage: _attackDmg,
+            counterDamage: _counterDmg,
+            killedIds: isTargetDead ? [targetUnit.id] : []
         });
         _cityCapturedInAttack = false;
         _moraleFxUnitId = null;
@@ -2361,6 +2421,7 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     return true;
 }
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
+    if (gameState.campaignMode && !isMechanicEnabled(gameState, 'tacticalCards')) { notify('本关尚未开放对策卡', 'info'); return; }
     // E4 空运第二段：直接执行空运（跳过正常卡牌验证）
     if (cardId === 'airlift_dest') {
         _executeAirliftDest(targetTile);
@@ -2456,7 +2517,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
     }
     // 雾天停飞（所有空军卡）
-    if (isAirCard && gameState.weather === 'fog') {
+    if (isAirCard && isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'fog') {
         notify('雾天停飞，无法使用空军卡', 'error');
         if (isColonelCard) cancelCardTargeting();
         return;

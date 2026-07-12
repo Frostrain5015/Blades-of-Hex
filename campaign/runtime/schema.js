@@ -6,8 +6,15 @@ import { UNIT_CONFIG } from '../../rules/units.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 import { TERRAIN_CONFIG, FORTIFICATION_CONFIG, WEATHER_CONFIG } from '../../rules/terrain.js';
 import { TACTICAL_CARD_CONFIG } from '../../rules/cards.js';
+import { MECHANIC_DEFINITIONS, MECHANIC_KEYS, createDefaultMechanics } from '../../rules/mechanics.js';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+export const RELATION_KEYS = Object.freeze(['ally', 'neutral', 'enemy']);
+export const OBJECTIVE_STATUS_KEYS = Object.freeze(['hidden', 'active', 'completed', 'failed']);
+export const VARIABLE_TYPES = Object.freeze(['number', 'boolean', 'string']);
+export const VARIABLE_SCOPES = Object.freeze(['level', 'campaign']);
+export { MECHANIC_KEYS };
+export const MECHANIC_LABELS = Object.freeze(Object.fromEntries(MECHANIC_KEYS.map(key => [key, MECHANIC_DEFINITIONS[key].label])));
 
 // ── 枚举（派生自规则层，附中文标签供编辑器下拉）───────────────────
 export const CAMP_KEYS = Object.freeze(['player1', 'player2', 'player3', 'neutral']);
@@ -53,7 +60,8 @@ export const BOARD_RADIUS_DEFAULT = 4;
 // ── 触发器 DSL 词汇表（编辑器据此渲染下拉；运行时据此解释）──────────
 // 事件：领域事件总线上的关卡钩子。
 export const TRIGGER_EVENTS = Object.freeze([
-    { id: 'levelStart',   label: '关卡开始',   note: '进入关卡、首个步骤显示后触发一次' },
+    { id: 'levelStarted', label: '关卡开始',   note: '地图、阵营、单位和界面初始化完成后触发一次' },
+    { id: 'levelStart',   label: '关卡开始（旧版）', note: '兼容旧配置；保存时建议改为 levelStarted' },
     { id: 'stepShown',    label: '步骤显示时', note: '某剧情步骤展示时（配合 step 条件）' },
     { id: 'advance',      label: '点击按钮',   note: '玩家点击对白的继续按钮（配合 next 值）' },
     { id: 'tileSelected', label: '选中地块',   note: '玩家点击选中一个单位/地块' },
@@ -62,11 +70,25 @@ export const TRIGGER_EVENTS = Object.freeze([
     { id: 'skillUsed',    label: '发动主动技', note: '将领主动技能被发动' },
     { id: 'cityCaptured', label: '城市易主',   note: '一座城市被占领' },
     { id: 'turnStarted',  label: '回合开始',   note: '某阵营回合开始' }
+    ,{ id: 'turnEnded', label: '回合结束', note: '某阵营回合完成结算' }
+    ,{ id: 'combatStarted', label: '战斗开始', note: '攻击成立、伤害结算之前' }
+    ,{ id: 'combatResolved', label: '战斗结束', note: '攻击与反击结算完成' }
+    ,{ id: 'unitHpChanged', label: '单位生命变化', note: '伤害、治疗或剧情修改生命后' }
+    ,{ id: 'unitKilled', label: '单位阵亡', note: '任意死因，只派发一次' }
+    ,{ id: 'tileCaptured', label: '地块易主', note: '城市、村庄或普通地块归属变化' }
+    ,{ id: 'interactionCompleted', label: '完成调查', note: '玩家完成一个调查点交互' }
+    ,{ id: 'diplomacyChanged', label: '外交变化', note: '两个阵营的关系发生改变' }
+    ,{ id: 'objectiveChanged', label: '目标状态变化', note: '目标被发现、完成、失败或隐藏' }
+    ,{ id: 'triggerSignal', label: '收到信号', note: '由“发送信号”效果显式派发' }
 ]);
 
 // 条件：布尔判定。engine 另支持 all/any/not 组合（手写 JSON 用，编辑器不直接暴露）。
 // 每条条件形如 { kind, ...字段 }；kind 必须与 triggers.js 的 evalCondition 分支一致。
 export const TRIGGER_CONDITIONS = Object.freeze([
+    { kind: 'all', label: '全部满足（AND）', arg: 'conditionGroup' },
+    { kind: 'any', label: '满足任一（OR）', arg: 'conditionGroup' },
+    { kind: 'not', label: '结果取反（NOT）', arg: 'conditionSingle' },
+    { kind: 'compare', label: '比较数值/变量', arg: 'compare' },
     { kind: 'stepIs',       label: '当前步骤为',   arg: 'step' },
     { kind: 'phaseIs',      label: '关卡阶段为',   arg: 'text' },
     { kind: 'eventUnitIs',  label: '事件单位是',   arg: 'unitRef', note: '触发事件涉及的单位其编辑器 id' },
@@ -79,6 +101,21 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'turnAtLeast',  label: '回合数≥',      arg: 'number' },
     { kind: 'flagSet',      label: '标记已置位',   arg: 'text' },
     { kind: 'flagUnset',    label: '标记未置位',   arg: 'text' }
+    ,{ kind: 'flagIs', label: '布尔标记为', arg: 'flagBoolean' }
+    ,{ kind: 'unitExists', label: '单位存在/存活', arg: 'unitExists' }
+    ,{ kind: 'unitHpCompare', label: '单位生命比较', arg: 'unitHpCompare' }
+    ,{ kind: 'factionUnitCount', label: '阵营单位数量', arg: 'campCompare' }
+    ,{ kind: 'tileOwnedBy', label: '地块归属于', arg: 'cityOwner' }
+    ,{ kind: 'relationIs', label: '外交关系为', arg: 'relation' }
+    ,{ kind: 'weatherIs', label: '当前天气为', arg: 'weather' }
+    ,{ kind: 'objectiveStatusIs', label: '目标状态为', arg: 'objectiveStatus' }
+    ,{ kind: 'interactionStateIs', label: '调查点状态为', arg: 'interactionState' }
+    ,{ kind: 'groupState', label: '单位组状态为', arg: 'groupState' }
+    ,{ kind: 'unitsInArea', label: '区域内单位数量', arg: 'areaCount' }
+    ,{ kind: 'eventTileIs', label: '事件坐标是', arg: 'coord' }
+    ,{ kind: 'eventInteractionIs', label: '事件调查点是', arg: 'interaction' }
+    ,{ kind: 'eventSignalIs', label: '事件信号是', arg: 'text' }
+    ,{ kind: 'mechanicEnabled', label: '机制已启用/禁用', arg: 'mechanicBoolean' }
 ]);
 
 // 动作：对关卡状态/UI 的副作用。每条形如 { kind, ...字段 }；kind 必须与
@@ -97,6 +134,22 @@ export const TRIGGER_ACTIONS = Object.freeze([
     { kind: 'win',           label: '判定胜利',     arg: 'none' },
     { kind: 'fail',          label: '判定失败',     arg: 'text' },
     { kind: 'delay',         label: '延迟后执行',   arg: 'delayGroup', note: '毫秒后执行一组子动作（演出用）' }
+    ,{ kind: 'setVariable', label: '修改变量', arg: 'variableOperation' }
+    ,{ kind: 'setFlagValue', label: '设置布尔标记', arg: 'flagBoolean' }
+    ,{ kind: 'setTriggerEnabled', label: '启用/禁用触发器', arg: 'triggerEnabled' }
+    ,{ kind: 'emitSignal', label: '发送信号', arg: 'text' }
+    ,{ kind: 'setObjectiveStatus', label: '设置目标状态', arg: 'objectiveStatus' }
+    ,{ kind: 'changeGold', label: '修改金币', arg: 'campOperation' }
+    ,{ kind: 'changeUnitHp', label: '修改单位生命', arg: 'unitOperation' }
+    ,{ kind: 'changeUnitFaction', label: '改变单位阵营', arg: 'unitCamp' }
+    ,{ kind: 'setUnitState', label: '设置单位状态', arg: 'unitState' }
+    ,{ kind: 'setUnitDefeatRule', label: '设置单位战败规则', arg: 'unitDefeatRule' }
+    ,{ kind: 'setDiplomacy', label: '改变外交关系', arg: 'relation' }
+    ,{ kind: 'setWeather', label: '改变天气', arg: 'weather' }
+    ,{ kind: 'setInteractionState', label: '设置调查点状态', arg: 'interactionState' }
+    ,{ kind: 'removeUnits', label: '移除/处决单位', arg: 'unitRemove' }
+    ,{ kind: 'endScenario', label: '结束关卡', arg: 'scenarioResult' }
+    ,{ kind: 'setMechanicEnabled', label: '启用/禁用机制', arg: 'mechanicBoolean' }
 ]);
 
 // ── 默认空关卡 ───────────────────────────────────────────────
@@ -110,6 +163,21 @@ export function createDefaultLevel() {
         turnLimit: 0,               // 0 = 不限回合
         intro: { campaignTitle: '将星列传', scenarioSubtitle: '新关卡' },
         weather: 'clear',
+        localPlayerCamp: 'player1',
+        factions: CAMP_KEYS.map(id => ({
+            id,
+            name: CAMP_LABELS[id],
+            color: id === 'player1' ? '#ffaaaa' : id === 'player2' ? '#aaaaff' : id === 'player3' ? '#aaffaa' : '#c0c0c0',
+            controller: id === 'player1' ? 'human' : 'ai',
+            participatesInTurns: true,
+            active: true
+        })),
+        diplomacy: {
+            player1: { player2: 'enemy', player3: 'enemy', neutral: 'neutral' },
+            player2: { player3: 'enemy', neutral: 'neutral' },
+            player3: { neutral: 'neutral' }
+        },
+        mechanics: createDefaultMechanics(),
         aiOpponentCamp: 'player2',
         aiDifficulty: 1.0,
         gold: { player1: 6, player2: 6, player3: 6 },
@@ -130,6 +198,10 @@ export function createDefaultLevel() {
             districts: []           // [{ q, r, districtId }] 覆盖 Voronoi 归属，用于手绘不规则边界
         },
         units: [],                  // [{ id, type, camp, q, r, commander, hpPct, morale, canAct }]
+        unitGroups: [],             // [{ id, unitIds:[] }]
+        areas: [],                  // [{ id, tiles:[{q,r}] }]
+        interactables: [],          // [{ id, q, r, label, enabled, once, icon? }]
+        variables: [],              // [{ id, scope:'level'|'campaign', type, initial }]
         // 剧情步骤（简化模型）：只有台词/旁白两种，按钮统一为「下一步」。
         //   { mode: 'narrator'|'character', text, speaker?: {name, portrait},
         //     next?: stepId|'__自定义__'|null,  // 有值→显示「下一步」；null→等待触发器推进
@@ -159,11 +231,19 @@ export function normalizeLevel(raw) {
     merged.gold = { ...def.gold, ...(raw.gold || {}) };
     merged.commanders = { ...def.commanders, ...(raw.commanders || {}) };
     merged.hands = { ...def.hands, ...(raw.hands || {}) };
+    merged.localPlayerCamp = CAMP_KEYS.includes(raw.localPlayerCamp) ? raw.localPlayerCamp : def.localPlayerCamp;
+    merged.factions = Array.isArray(raw.factions) ? raw.factions.map(item => ({ ...item })) : def.factions.map(item => ({ ...item }));
+    merged.diplomacy = raw.diplomacy && typeof raw.diplomacy === 'object' ? structuredClone(raw.diplomacy) : structuredClone(def.diplomacy);
+    merged.mechanics = createDefaultMechanics(raw.mechanics || {});
     merged.board = { ...def.board, ...(raw.board || {}) };
     for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts']) {
         merged.board[key] = Array.isArray(merged.board[key]) ? merged.board[key] : [];
     }
     merged.units = Array.isArray(raw.units) ? raw.units : [];
+    merged.unitGroups = Array.isArray(raw.unitGroups) ? raw.unitGroups : [];
+    merged.areas = Array.isArray(raw.areas) ? raw.areas : [];
+    merged.interactables = Array.isArray(raw.interactables) ? raw.interactables : [];
+    merged.variables = Array.isArray(raw.variables) ? raw.variables : [];
     merged.steps = raw.steps && typeof raw.steps === 'object' ? raw.steps : {};
     merged.objectives = raw.objectives && typeof raw.objectives === 'object' ? raw.objectives : {};
     merged.optionalObjectives = Array.isArray(raw.optionalObjectives) ? raw.optionalObjectives : [];
@@ -206,6 +286,7 @@ export function validateLevel(config) {
     }
 
     const seen = new Set();
+    const unitIds = new Set();
     for (const u of (c.units || [])) {
         if (!UNIT_TYPES.includes(u.type)) errors.push(`单位使用了未知兵种「${u.type}」。`);
         if (!CAMP_KEYS.includes(u.camp)) errors.push(`单位阵营「${u.camp}」非法。`);
@@ -213,8 +294,55 @@ export function validateLevel(config) {
         const key = `${u.q},${u.r}`;
         if (seen.has(key)) errors.push(`坐标 (${key}) 上有多个单位重叠。`);
         seen.add(key);
+        if (!u.id) errors.push(`坐标 (${key}) 的单位缺少 id。`);
+        else if (unitIds.has(u.id)) errors.push(`单位 id「${u.id}」重复。`);
+        else unitIds.add(u.id);
         if (u.commander && !COMMANDER_IDS.includes(u.commander)) errors.push(`单位绑定了未知将领「${u.commander}」。`);
         if (u.id && u.id.startsWith('__')) warnings.push(`单位 id「${u.id}」以 __ 开头，可能与内部保留冲突。`);
+    }
+
+    if (!CAMP_KEYS.includes(c.localPlayerCamp)) errors.push(`本地玩家阵营「${c.localPlayerCamp}」非法。`);
+    const factionIds = new Set();
+    for (const faction of (c.factions || [])) {
+        if (!CAMP_KEYS.includes(faction.id)) errors.push(`阵营定义 id「${faction.id}」非法。`);
+        if (factionIds.has(faction.id)) errors.push(`阵营定义「${faction.id}」重复。`);
+        factionIds.add(faction.id);
+        if (!faction.name) warnings.push(`阵营「${faction.id}」没有显示名。`);
+        if (!/^#[0-9a-f]{6}$/i.test(faction.color || '')) errors.push(`阵营「${faction.id}」颜色必须是 #RRGGBB。`);
+    }
+    for (const left of CAMP_KEYS) for (const [right, relation] of Object.entries(c.diplomacy?.[left] || {})) {
+        if (!CAMP_KEYS.includes(right) || left === right) errors.push(`外交关系「${left}→${right}」引用非法。`);
+        if (!RELATION_KEYS.includes(relation)) errors.push(`外交关系「${left}→${right}」值「${relation}」非法。`);
+        const reverse = c.diplomacy?.[right]?.[left];
+        if (reverse && reverse !== relation) errors.push(`外交关系「${left}↔${right}」不对称。`);
+    }
+
+    const groupIds = new Set();
+    for (const group of (c.unitGroups || [])) {
+        if (!group.id || groupIds.has(group.id)) errors.push(`单位组 id「${group.id || '空'}」缺失或重复。`);
+        groupIds.add(group.id);
+        for (const id of (group.unitIds || [])) if (!unitIds.has(id)) errors.push(`单位组「${group.id}」引用不存在的单位「${id}」。`);
+    }
+    const areaIds = new Set();
+    for (const area of (c.areas || [])) {
+        if (!area.id || areaIds.has(area.id)) errors.push(`区域 id「${area.id || '空'}」缺失或重复。`);
+        areaIds.add(area.id);
+        if (!Array.isArray(area.tiles) || area.tiles.length === 0) warnings.push(`区域「${area.id}」没有地块。`);
+        for (const tile of (area.tiles || [])) if (!inBoard(tile.q, tile.r)) errors.push(`区域「${area.id}」包含棋盘外坐标 (${tile.q},${tile.r})。`);
+    }
+    const interactionIds = new Set();
+    for (const item of (c.interactables || [])) {
+        if (!item.id || interactionIds.has(item.id)) errors.push(`调查点 id「${item.id || '空'}」缺失或重复。`);
+        interactionIds.add(item.id);
+        if (!inBoard(item.q, item.r)) errors.push(`调查点「${item.id}」位于棋盘外。`);
+        if (!item.label) warnings.push(`调查点「${item.id}」没有显示文案。`);
+    }
+    const variableIds = new Set();
+    for (const variable of (c.variables || [])) {
+        if (!variable.id || variableIds.has(variable.id)) errors.push(`变量 id「${variable.id || '空'}」缺失或重复。`);
+        variableIds.add(variable.id);
+        if (!VARIABLE_TYPES.includes(variable.type)) errors.push(`变量「${variable.id}」类型非法。`);
+        if (!VARIABLE_SCOPES.includes(variable.scope)) errors.push(`变量「${variable.id}」作用域非法。`);
     }
 
     if (c.initialStep && !c.steps?.[c.initialStep]) {
@@ -232,8 +360,49 @@ export function validateLevel(config) {
         warnings.push(`initialObjective「${c.initialObjective}」在 objectives 中不存在。`);
     }
 
+    const triggerIds = new Set((c.triggers || []).map(t => t.id).filter(Boolean));
+    const objectiveIds = new Set(Object.keys(c.objectives || {}));
+    const validateCondition = (condition, path) => {
+        if (!condition || typeof condition !== 'object') { errors.push(`${path} 条件为空。`); return; }
+        if (!TRIGGER_CONDITIONS.some(item => item.kind === condition.kind)) { errors.push(`${path} 使用未知条件「${condition.kind}」。`); return; }
+        if (condition.kind === 'all' || condition.kind === 'any') {
+            if (!Array.isArray(condition.conditions) || condition.conditions.length === 0) errors.push(`${path} 的 ${condition.kind.toUpperCase()} 组不能为空。`);
+            else condition.conditions.forEach((child, index) => validateCondition(child, `${path}/${index + 1}`));
+        }
+        if (condition.kind === 'not') {
+            if (!condition.condition) errors.push(`${path} 的 NOT 缺少子条件。`); else validateCondition(condition.condition, `${path}/NOT`);
+        }
+        if (['eventUnitIs', 'unitExists', 'unitHpCompare'].includes(condition.kind) && condition.unit && !unitIds.has(condition.unit)) errors.push(`${path} 引用不存在的单位「${condition.unit}」。`);
+        if (condition.kind === 'groupState' && !groupIds.has(condition.group)) errors.push(`${path} 引用不存在的单位组「${condition.group}」。`);
+        if (condition.kind === 'unitsInArea' && !areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
+        if (['eventInteractionIs', 'interactionStateIs'].includes(condition.kind) && !interactionIds.has(condition.interactable)) errors.push(`${path} 引用不存在的调查点「${condition.interactable}」。`);
+        if (condition.kind === 'objectiveStatusIs' && !objectiveIds.has(condition.objective)) errors.push(`${path} 引用不存在的目标「${condition.objective}」。`);
+        if (condition.kind === 'mechanicEnabled' && !MECHANIC_KEYS.includes(condition.mechanic)) errors.push(`${path} 引用不存在的机制「${condition.mechanic}」。`);
+    };
+    const validateAction = (action, path) => {
+        if (!action || typeof action !== 'object') { errors.push(`${path} 效果为空。`); return; }
+        if (!TRIGGER_ACTIONS.some(item => item.kind === action.kind)) { errors.push(`${path} 使用未知效果「${action.kind}」。`); return; }
+        const target = action.target;
+        if (target?.unit && !unitIds.has(target.unit)) errors.push(`${path} 引用不存在的单位「${target.unit}」。`);
+        if (target?.group && !groupIds.has(target.group)) errors.push(`${path} 引用不存在的单位组「${target.group}」。`);
+        if (action.kind === 'setVariable' && !variableIds.has(action.variable)) errors.push(`${path} 引用不存在的变量「${action.variable}」。`);
+        if (action.kind === 'setTriggerEnabled' && !triggerIds.has(action.trigger)) errors.push(`${path} 引用不存在的触发器「${action.trigger}」。`);
+        if (action.kind === 'setObjectiveStatus' && !objectiveIds.has(action.objective)) errors.push(`${path} 引用不存在的目标「${action.objective}」。`);
+        if (action.kind === 'setInteractionState' && !interactionIds.has(action.interactable)) errors.push(`${path} 引用不存在的调查点「${action.interactable}」。`);
+        if (action.kind === 'setMechanicEnabled' && !MECHANIC_KEYS.includes(action.mechanic)) errors.push(`${path} 引用不存在的机制「${action.mechanic}」。`);
+        if (action.kind === 'delay') (action.then || []).forEach((child, index) => validateAction(child, `${path}/延迟${index + 1}`));
+    };
+    const seenTriggerIds = new Set();
     for (const t of (c.triggers || [])) {
+        if (!t.id || seenTriggerIds.has(t.id)) errors.push(`触发器 id「${t.id || '空'}」缺失或重复。`);
+        seenTriggerIds.add(t.id);
         if (!TRIGGER_EVENTS.some(e => e.id === t.on)) errors.push(`触发器「${t.id || '?'}」使用了未知事件「${t.on}」。`);
+        (t.when || []).forEach((condition, index) => validateCondition(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`));
+        (t.do || []).forEach((action, index) => validateAction(action, `触发器「${t.id || '?'}」效果 ${index + 1}`));
+    }
+    for (const [key, value] of Object.entries(c.mechanics || {})) {
+        if (!MECHANIC_KEYS.includes(key)) warnings.push(`未知机制开关「${key}」，运行时将忽略。`);
+        if (typeof value !== 'boolean') errors.push(`机制开关「${key}」必须是布尔值。`);
     }
 
     return { errors, warnings };

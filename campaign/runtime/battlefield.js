@@ -1,6 +1,8 @@
 // 依配置部署战场 —— 单位、将领绑定、天气、金币、初始手牌。
 // 与建图分离：mapBuilder 先铺好地块，本模块在其上放单位并写对局参数。
 import { CAMP } from '../../rules/camps.js';
+import { createDefaultDiplomacy, createDefaultFactions } from '../../rules/diplomacy.js';
+import { createDefaultMechanics } from '../../rules/mechanics.js';
 import { Unit } from '../../js/Unit.js';
 import { computeCampBorders } from '../../js/HexTile.js';
 
@@ -23,6 +25,18 @@ const COMMANDER_SLOTS = {
  */
 export function buildBattlefieldFromConfig(config, gameState) {
     const placedIds = [];
+
+    gameState.localPlayerCampKey = config.localPlayerCamp || 'player1';
+    gameState.factions = createDefaultFactions(config.factions || []);
+    gameState.diplomacy = createDefaultDiplomacy(config.diplomacy || {});
+    gameState.mechanics = createDefaultMechanics(config.mechanics || {});
+    gameState.levelVariables = Object.fromEntries((config.variables || [])
+        .filter(variable => variable.scope !== 'campaign')
+        .map(variable => [variable.id, variable.initial ?? (variable.type === 'boolean' ? false : variable.type === 'string' ? '' : 0)]));
+    gameState.objectiveStates = Object.fromEntries(Object.keys(config.objectives || {})
+        .map(id => [id, id === config.initialObjective ? 'active' : (config.objectives[id]?.status || 'hidden')]));
+    gameState.interactionStates = Object.fromEntries((config.interactables || [])
+        .map(item => [item.id, item.enabled === false ? 'disabled' : 'available']));
 
     // ── 天气 ──
     gameState.weather = config.weather || 'clear';

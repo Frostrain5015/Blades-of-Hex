@@ -8,6 +8,8 @@ import {
     createMatchState, resetMatchState, createClientUiState, resetClientUiState,
     serializeMatchState, restoreMatchState
 } from '../engine/matchState.js';
+import { campFromKey, getFaction, getRelation, getViewingCampKey } from '../rules/diplomacy.js';
+import { isMechanicEnabled } from '../rules/mechanics.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
@@ -94,6 +96,7 @@ function _campKeyStr(camp) {
 
 // 返回当前客户端应使用的观察阵营（遭遇战/多人模式迷雾渲染用）
 export function getViewingCamp() {
+    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey);
     if (isNetworkGame()) {
         const role = getMyRole();
         let camp = CAMP.player1;
@@ -130,6 +133,7 @@ export function updateButtonColors() {
 }
 
 function _getMyCamp() {
+    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey);
     if (isNetworkGame()) {
         const role = getMyRole();
         if (role === 'player1') return CAMP.player1;
@@ -144,6 +148,7 @@ function _getMyCamp() {
 }
 
 function _getHumanCamp() {
+    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey);
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
         return gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
     }
@@ -261,7 +266,8 @@ function _spawnGoldDelta(el, delta) {
 
 export function updateUI() {
     const turnEl = document.getElementById('currentTurn');
-    turnEl.textContent = gameState.currentCamp.name;
+    const currentFaction = getFaction(gameState, gameState.currentCamp);
+    turnEl.textContent = currentFaction?.name || gameState.currentCamp.name;
     if (typeof gsap !== 'undefined') {
         gsap.to(turnEl, { color: gameState.currentCamp.color, duration: 0.35 });
     } else {
@@ -270,6 +276,25 @@ export function updateUI() {
     const gold1El = document.getElementById('player1Gold');
     const gold2El = document.getElementById('player2Gold');
     const gold3El = document.getElementById('player3Gold');
+    const campUi = [
+        ['player1', 'campCard1', gold1El],
+        ['player2', 'campCard2', gold2El],
+        ['player3', 'campCard3', gold3El]
+    ];
+    for (const [key, cardId] of campUi) {
+        const card = document.getElementById(cardId);
+        const faction = getFaction(gameState, key);
+        if (!card || !faction) continue;
+        const label = card.querySelector('.camp-label');
+        const emblem = card.querySelector('.camp-emblem');
+        if (label) label.textContent = faction.name;
+        if (emblem) emblem.style.background = faction.color;
+        card.style.display = faction.active && (key !== 'player3' || gameState.isThreePlayer || gameState.campaignMode) ? '' : 'none';
+        if (gameState.campaignMode) {
+            const relation = getRelation(gameState, getViewingCampKey(gameState), key);
+            card.dataset.relation = relation;
+        }
+    }
     const newGold1 = gameState.playerGold.player1;
     const newGold2 = gameState.playerGold.player2;
     const newGold3 = gameState.playerGold.player3;
@@ -281,8 +306,12 @@ export function updateUI() {
     const disableBtns = opponentTurn || isNeutralTurn || isAIOpponentTurn || gameState.gameOver || inCommanderSetup;
     ['endTurnBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher'].forEach(id => {
         const btn = document.getElementById(id);
-        if (btn) btn.disabled = disableBtns;
+        if (btn) btn.disabled = disableBtns || (id.startsWith('recruit') && !isMechanicEnabled(gameState, 'recruitment'));
     });
+    const factionListBtn = document.getElementById('factionListBtn');
+    if (factionListBtn) factionListBtn.style.display = gameState.campaignMode ? '' : 'none';
+    const recruitSection = document.querySelector('.recruit-section');
+    if (recruitSection) recruitSection.hidden = gameState.campaignMode && !isMechanicEnabled(gameState, 'recruitment');
     // 投降/退出：PVE 模式下按钮改为"退出"，始终可用（AI 回合也可退出）
     const surrenderBtn = document.getElementById('surrenderBtn');
     if (surrenderBtn) {
@@ -319,7 +348,8 @@ export function updateUI() {
 
     if (newGold1 !== gameState.previousGold.player1) {
         const delta1 = newGold1 - gameState.previousGold.player1;
-        const fogHide1 = gameState.skirmishFog && getViewingCamp() !== CAMP.player1;
+        const fogHide1 = (gameState.skirmishFog && getViewingCamp() !== CAMP.player1)
+            || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player1') === 'enemy');
         if (gold1El) animateCounter(gold1El, fogHide1 ? -1 : newGold1, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide1 && gold1El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold1El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
@@ -330,7 +360,8 @@ export function updateUI() {
     }
     if (newGold2 !== gameState.previousGold.player2) {
         const delta2 = newGold2 - gameState.previousGold.player2;
-        const fogHide2 = gameState.skirmishFog && getViewingCamp() !== CAMP.player2;
+        const fogHide2 = (gameState.skirmishFog && getViewingCamp() !== CAMP.player2)
+            || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player2') === 'enemy');
         if (gold2El) animateCounter(gold2El, fogHide2 ? -1 : newGold2, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide2 && gold2El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold2El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
@@ -341,7 +372,8 @@ export function updateUI() {
     }
     if (newGold3 !== gameState.previousGold.player3) {
         const delta3 = newGold3 - gameState.previousGold.player3;
-        const fogHide3 = gameState.skirmishFog && getViewingCamp() !== CAMP.player3;
+        const fogHide3 = (gameState.skirmishFog && getViewingCamp() !== CAMP.player3)
+            || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player3') === 'enemy');
         if (gold3El) animateCounter(gold3El, fogHide3 ? -1 : newGold3, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide3 && gold3El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold3El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },

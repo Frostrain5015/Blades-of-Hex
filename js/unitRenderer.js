@@ -4,6 +4,7 @@ import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { moraleEffects, getRecoilOffset, getChargeOffset } from './effects.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { getRelationToViewer, RELATION_META } from '../rules/diplomacy.js';
 
 function isHumanTurn(gameState) {
     if (isNetworkGame()) {
@@ -229,7 +230,10 @@ export function drawUnit(unit, gameState) {
         // HP arc
         if (hpRatio > 0.005) {
             let hpColor;
-            if (hpRatio > 0.7) hpColor = '#4CAF50';
+            if (gameState.campaignMode) {
+                const relation = getRelationToViewer(gameState, unit.camp);
+                hpColor = (RELATION_META[relation] || RELATION_META.unknown).color;
+            } else if (hpRatio > 0.7) hpColor = '#4CAF50';
             else if (hpRatio > 0.35) hpColor = '#FFC107';
             else hpColor = '#f44336';
 
@@ -245,11 +249,11 @@ export function drawUnit(unit, gameState) {
         const shieldRatio = unit._displayShield > 0.5 ? unit._displayShield / unit.maxHp : 0;
         if (shieldRatio > 0.003) {
             const shieldSweep = shieldRatio * Math.PI * 2;
-            const shieldStart = startAngle + sweepAngle;
+            const shieldStart = startAngle;
             ctx.beginPath();
-            ctx.arc(0, badgeY, ringR, shieldStart, shieldStart + shieldSweep);
+            ctx.arc(0, badgeY, ringR + 4, shieldStart, shieldStart + shieldSweep);
             ctx.strokeStyle = '#66bbff';
-            ctx.lineWidth = ringW;
+            ctx.lineWidth = 2.4;
             ctx.lineCap = 'round';
             ctx.stroke();
         }

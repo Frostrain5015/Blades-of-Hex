@@ -2,6 +2,8 @@
 import { hexDistance, CAMP, getRoundIndex } from './config.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { SKIRMISH_VISION } from '../rules/constants.js';
+import { FACTION_KEYS, getRelation } from '../rules/diplomacy.js';
+import { isMechanicEnabled } from '../rules/mechanics.js';
 
 // 视野范围：各兵种能看到的格子数（规则键：GAME_RULES.skirmishVision）
 export const UNIT_VISION = SKIRMISH_VISION.unitVision;
@@ -23,7 +25,7 @@ function _getEffectiveVision(unit, gs) {
     let range;
     if (unit.type === 'archer') {
         range = unit.config.range;
-        if (gs.weather === 'fog') range -= 1;
+        if (isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog') range -= 1;
         let bonus = 0;
         if (unit.tile.terrain === 'mountain') bonus = 1;
         if (gs.weather === 'wind') bonus = Math.max(bonus, 1);
@@ -84,7 +86,7 @@ export function computeVisionForCamp(camp, tiles, tileMap, gameState) {
 
 // ---- 更新迷雾状态（回合开始/行动后调用）----
 export function updateFogOfWar(gameState, camp) {
-    if (!gameState.skirmishFog) return;
+    if (!gameState.skirmishFog || !isMechanicEnabled(gameState, 'fogOfWar')) return;
     const key = _campKey(camp);
     if (key === 'neutral') return;
 
@@ -147,20 +149,33 @@ function isScoutRevealed(tile, camp, gameState) {
 
 // ---- 查询辅助 ----
 export function isTileVisible(tile, camp, gameState) {
-    if (!gameState.skirmishFog) return true;
+    if (!gameState.skirmishFog || !isMechanicEnabled(gameState, 'fogOfWar')) return true;
     const key = _campKey(camp);
     if (key === 'neutral') return true;
     if (gameState.visibleTiles[key].has(`${tile.q},${tile.r}`)) return true;
+    if (isMechanicEnabled(gameState, 'alliedVision')) {
+        const coord = `${tile.q},${tile.r}`;
+        for (const allyKey of FACTION_KEYS) {
+            if (allyKey !== key && getRelation(gameState, key, allyKey) === 'ally' && gameState.visibleTiles?.[allyKey]?.has(coord)) return true;
+        }
+    }
     // 侦察揭示的地块也视为可见
     if (isScoutRevealed(tile, camp, gameState)) return true;
     return false;
 }
 
 export function isTileExplored(tile, camp, gameState) {
-    if (!gameState.skirmishFog) return true;
+    if (!gameState.skirmishFog || !isMechanicEnabled(gameState, 'fogOfWar')) return true;
     const key = _campKey(camp);
     if (key === 'neutral') return true;
-    return gameState.exploredTiles[key].has(`${tile.q},${tile.r}`);
+    const coord = `${tile.q},${tile.r}`;
+    if (gameState.exploredTiles[key].has(coord)) return true;
+    if (isMechanicEnabled(gameState, 'alliedVision')) {
+        for (const allyKey of FACTION_KEYS) {
+            if (allyKey !== key && getRelation(gameState, key, allyKey) === 'ally' && gameState.exploredTiles?.[allyKey]?.has(coord)) return true;
+        }
+    }
+    return false;
 }
 
 export function getTileVisibilityState(tile, camp, gameState) {
@@ -172,17 +187,9 @@ export function getTileVisibilityState(tile, camp, gameState) {
 
 export function getTileVisibilityStateByCoord(q, r, camp, gs) {
     if (!gs || !gs.skirmishFog) return 'visible';
-    const key = _campKey(camp);
-    if (key === 'neutral') return 'visible';
-    const coord = `${q},${r}`;
-    if (gs.visibleTiles[key].has(coord)) return 'visible';
-    // also check scout reveals
-    if (gs.scoutReveals && gs.scoutReveals[key]) {
-        for (const [sc, expires] of gs.scoutReveals[key]) {
-            if (sc === coord && Date.now() < expires) return 'visible';
-        }
-    }
-    if (gs.exploredTiles[key].has(coord)) return 'explored';
+    const tile = { q, r };
+    if (isTileVisible(tile, camp, gs)) return 'visible';
+    if (isTileExplored(tile, camp, gs)) return 'explored';
     return 'unexplored';
 }
 

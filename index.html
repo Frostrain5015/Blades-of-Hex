@@ -325,6 +325,7 @@
                     <span id="networkRoleText"></span>
                 </div>
                 <button class="tool-btn" id="chatToggleBtn" title="聊天 (Ctrl+Enter)" style="display:none">💬</button>
+                <button class="tool-btn" id="factionListBtn" title="阵营列表" style="display:none">旗</button>
                 <button class="tool-btn" id="settingsBtn" title="设置">⚙</button>
             </div>
 
@@ -508,6 +509,17 @@
         <button id="settingsClose">完成</button>
         <button id="settingsExit" class="settings-exit-btn" style="display:none">退出</button>
     </div>
+</div>
+
+<div id="factionListOverlay" aria-hidden="true">
+    <section id="factionListPanel" role="dialog" aria-modal="true" aria-labelledby="factionListTitle">
+        <div class="faction-list-header">
+            <div><small>当前对局</small><h3 id="factionListTitle">阵营列表</h3></div>
+            <button id="factionListClose" type="button" aria-label="关闭阵营列表">×</button>
+        </div>
+        <div id="factionListBody" class="faction-list-body"></div>
+        <p class="faction-list-note">关系以你的阵营为视角；颜色之外同时标注关系文字。</p>
+    </section>
 </div>
 
 <!-- 阵营揭示遮罩 -->
