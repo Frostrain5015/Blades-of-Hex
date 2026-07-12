@@ -35,7 +35,7 @@ export const config = {
         {
             id: 'player1',
             name: '奥雷利亚王国',
-            color: '#c0392b',
+            color: '#ffaaaa',
             controller: 'human',
             participatesInTurns: true,
             active: true
@@ -43,7 +43,7 @@ export const config = {
         {
             id: 'targets',
             name: '训练靶',
-            color: '#888888',
+            color: '#b0b0b0', // 调色板 gray.tile
             controller: 'ai',
             participatesInTurns: false,
             active: true
@@ -155,13 +155,13 @@ export const config = {
         // 【开场】马库斯授予血印金币
         'intro1': {
             mode: 'character',
-            speaker: { name: '马库斯', portrait: 'centurion' },
+            speaker: { name: '马库斯', portrait: '百夫长' },
             text: '新兵，欢迎来到塞雷利亚王国的北境校场。\n这枚血印金币是你们与王国的契约，选择走上这条路的那一刻起，你就要随时准备为它献出生命。',
             next: 'intro2'
         },
         'intro2': {
             mode: 'character',
-            speaker: { name: '马库斯', portrait: 'centurion' },
+            speaker: { name: '马库斯', portrait: '百夫长' },
             text: '我的职责是教会你们在战场上活下去。我们会从最基本的内容开始。',
             next: 'select_guide'
         },
@@ -190,13 +190,13 @@ export const config = {
         // 【收束】马库斯点评
         'outro1': {
             mode: 'character',
-            speaker: { name: '马库斯', portrait: 'centurion' },
+            speaker: { name: '马库斯', portrait: '百夫长' },
             text: '很好。选择——移动——攻击。这是战场上的三个基本动作。你们已经掌握了。',
             next: 'outro2'
         },
         'outro2': {
             mode: 'character',
-            speaker: { name: '马库斯', portrait: 'centurion' },
+            speaker: { name: '马库斯', portrait: '百夫长' },
             text: '刀剑无影，重要的是谁拿着他们。今天就到这里。',
             next: '__complete__'
         }

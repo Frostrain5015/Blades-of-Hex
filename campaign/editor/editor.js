@@ -11,7 +11,8 @@ import {
     CARD_IDS, CARD_LABELS,
     MECHANIC_KEYS, MECHANIC_LABELS, RELATION_KEYS, OBJECTIVE_STATUS_KEYS,
     TRIGGER_CONDITIONS, TRIGGER_ACTIONS,
-    BOARD_RADIUS_MIN, BOARD_RADIUS_MAX
+    BOARD_RADIUS_MIN, BOARD_RADIUS_MAX,
+    FACTION_PALETTE
 } from '../runtime/schema.js';
 import { buildBoardFromConfig } from '../runtime/mapBuilder.js';
 import {
@@ -41,13 +42,8 @@ const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'cityOwnedBy', 
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => !LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current); }
 function authorActions() { return TRIGGER_ACTIONS; }
 
-const FACTION_COLORS = [
-    { value: '#e05050', label: '红' }, { value: '#f09a40', label: '橙' },
-    { value: '#edd43c', label: '黄' }, { value: '#5cbf5c', label: '绿' },
-    { value: '#40b8b8', label: '青' }, { value: '#5090e0', label: '蓝' },
-    { value: '#b070e0', label: '紫' }, { value: '#666666', label: '深灰' },
-    { value: '#dddddd', label: '白' }
-];
+// 阵营颜色下拉从 FACTION_PALETTE 派生，确保关卡的 faction.color 取自调色板。
+const FACTION_COLOR_OPTIONS = Object.fromEntries(FACTION_PALETTE.map(p => [p.tile, p.label]));
 
 const boardTool = { mode: 'terrain', terrain: 'forest', camp: 'player1', districtId: 1, fortification: 'trench', cityType: 'city', erase: { terrain: true, city: true, village: true, fortification: true, district: true, unit: true } };
 const unitTemplate = { type: 'infantry', camp: 'player1', commander: '', hpPct: 100, morale: 2, canAct: true };
@@ -747,7 +743,7 @@ function buildFactionBasics() {
             }, { rebuildPanels: true });
         }));
         box.appendChild(textRow('显示名', faction.name || faction.id, value => mutate(c => { c.factions[idx].name = value; }, { rebuildPanels: false })));
-        box.appendChild(selectRow('颜色', faction.color, Object.fromEntries(FACTION_COLORS.map(c => [c.value, c.label])),
+        box.appendChild(selectRow('颜色', faction.color, FACTION_COLOR_OPTIONS,
             value => mutate(c => { c.factions[idx].color = value; }, { rebuildPanels: false })));
         box.appendChild(selectRow('控制方式', faction.controller || 'ai', { human: '玩家', ai: 'AI', scripted: '剧情控制' },
             value => mutate(c => {
@@ -764,7 +760,7 @@ function buildFactionBasics() {
     addFaction.addEventListener('click', () => mutate(c => {
         let n = 1;
         while (c.factions.some(faction => faction.id === `faction${n}`)) n++;
-        c.factions.push({ id: `faction${n}`, name: `新阵营${n}`, color: FACTION_COLORS[(c.factions.length - 1) % FACTION_COLORS.length].value, controller: 'ai', participatesInTurns: true, active: true });
+        c.factions.push({ id: `faction${n}`, name: `新阵营${n}`, color: FACTION_PALETTE[(c.factions.length - 1) % FACTION_PALETTE.length].tile, controller: 'ai', participatesInTurns: true, active: true });
         syncTurnOrder(c);
     }, { rebuildPanels: true }));
     secFactions.appendChild(addFaction);

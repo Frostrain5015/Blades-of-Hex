@@ -5,7 +5,7 @@ import { canvas, LOGICAL_W, LOGICAL_H, CAMP, invalidateBoard } from './config.js
 import { gameState, logMessage, updateUI } from './state.js';
 import { emit, on } from './eventBus.js';
 import { saveVictory } from '../campaign/progress.js';
-import { campFromKey } from '../rules/diplomacy.js';
+import { campFromKey, getFaction } from '../rules/diplomacy.js';
 
 let sharedController = null;
 

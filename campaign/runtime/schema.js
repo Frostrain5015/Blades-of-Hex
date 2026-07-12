@@ -7,6 +7,7 @@ import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 import { TERRAIN_CONFIG, FORTIFICATION_CONFIG, WEATHER_CONFIG } from '../../rules/terrain.js';
 import { TACTICAL_CARD_CONFIG } from '../../rules/cards.js';
 import { MECHANIC_DEFINITIONS, MECHANIC_KEYS, createDefaultMechanics } from '../../rules/mechanics.js';
+import { FACTION_PALETTE, getPaletteEntry } from '../../rules/camps.js';
 
 export const SCHEMA_VERSION = 2;
 export const RELATION_KEYS = Object.freeze(['ally', 'neutral', 'enemy']);
@@ -15,6 +16,9 @@ export const VARIABLE_TYPES = Object.freeze(['number', 'boolean', 'string']);
 export const VARIABLE_SCOPES = Object.freeze(['level', 'campaign']);
 export { MECHANIC_KEYS };
 export const MECHANIC_LABELS = Object.freeze(Object.fromEntries(MECHANIC_KEYS.map(key => [key, MECHANIC_DEFINITIONS[key].label])));
+
+/** 编辑器阵营色下拉、关卡校验共用的九色调色板（地块色 + 旗帜三阶）。 */
+export { FACTION_PALETTE, getPaletteEntry } from '../../rules/camps.js';
 
 // ── 枚举（派生自规则层，附中文标签供编辑器下拉）───────────────────
 export const CAMP_KEYS = Object.freeze(['player1', 'player2', 'player3', 'neutral']);
@@ -282,6 +286,9 @@ export function validateLevel(config) {
         seenFactionIds.add(faction.id);
         if (!faction.name) warnings.push(`阵营「${faction.id}」没有显示名。`);
         if (!/^#[0-9a-f]{6}$/i.test(faction.color || '')) errors.push(`阵营「${faction.id}」颜色必须是 #RRGGBB。`);
+        if (faction.color && !getPaletteEntry(faction.color)) {
+            errors.push(`阵营「${faction.id}」颜色 ${faction.color} 不在 FACTION_PALETTE 中（可用色：${FACTION_PALETTE.map(p => `${p.label}=${p.tile}`).join('、')}）。`);
+        }
     }
     const humanFactions = (c.factions || []).filter(faction => faction.controller === 'human');
     if (humanFactions.length !== 1) errors.push('单人战役必须恰好指定一个“玩家”控制阵营。');
