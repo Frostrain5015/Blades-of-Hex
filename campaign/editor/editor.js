@@ -876,10 +876,24 @@ function pickTilesButton(initial, onChange, { hoverTiles } = {}) {
     return btn;
 }
 
-function unitOptions(includeEmpty = true, includeEvent = false) {
+function unitOptions(includeEmpty = true) {
     const opts = Object.fromEntries(config.units.map(u => [u.id, `${u.id}（${CAMP_LABELS[u.camp]}${UNIT_LABELS[u.type]}）`]));
-    const eventOpt = includeEvent ? { __event__: '🎯 事件单位' } : {};
-    return includeEmpty ? { '': '（无）', ...eventOpt, ...opts } : { ...eventOpt, ...opts };
+    return includeEmpty ? { '': '（无）', ...opts } : opts;
+}
+/** 生成一个「📌 选单位」按钮，点击后进入画布点选模式。 */
+function pickUnitButton(onChange) {
+    const btn = el('button', 'ed-pick-btn', '📌');
+    btn.title = '点击棋盘上的单位';
+    btn.addEventListener('click', () => {
+        pendingPick = { mode: 'tile', callback: (tile) => {
+            const hit = unitsByCoord().get(tileKey(tile.q, tile.r));
+            if (hit) { onChange(hit.unit.id); renderInspector(); render(); }
+            else { setStatus('该格没有单位', 'error'); render(); }
+        }, picked: new Set(), label: '点击棋盘上的单位' };
+        showPickBar('tile', '点击棋盘上的目标单位', null, () => {});
+        render();
+    });
+    return btn;
 }
 
 function buildStepInspector(stepId) {
@@ -977,6 +991,8 @@ function conditionDefaults(kind) {
         case 'unitExists': return { unit: config.units[0]?.id || '', alive: true };
         case 'unitHpCompare': return { unit: config.units[0]?.id || '', mode: 'percent', op: '<=', value: 50 };
         case 'factionUnitCount': return { camp: 'player2', op: '<=', value: 0 };
+        case 'goldCompare': return { camp: 'player1', op: '>=', value: 1 };
+        case 'variableCompare': return { variable: config.variables[0]?.id || '', op: '==', value: 0 };
         case 'tileOwnedBy': return { q: 0, r: 0, camp: 'player1' };
         case 'relationIs': return { camp: 'player1', targetCamp: 'player2', relation: 'enemy' };
         case 'weatherIs': return { weather: 'clear' };
@@ -986,7 +1002,6 @@ function conditionDefaults(kind) {
         case 'unitsInArea': return { area: config.areas[0]?.id || '', camp: '', op: '>=', value: 1 };
         case 'eventInteractionIs': return { interactable: config.interactables[0]?.id || '' };
         case 'mechanicEnabled': return { mechanic: MECHANIC_KEYS[0], enabled: true };
-        case 'compare': return { left: { source: 'round' }, op: '>=', right: { source: 'constant', value: 1 } };
         default: return { value: '' };
     }
 }
@@ -1029,10 +1044,13 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
     switch (meta.arg) {
         case 'step':
             box.appendChild(selectRow('步骤', cond.value || '', stepOptions(true), v => patch({ value: v }))); break;
-        case 'unitRef':
-            box.appendChild(selectRow('单位', cond.source === 'event' ? '__event__' : (cond.unit || ''), unitOptions(true, true), v => {
-                if (v === '__event__') patch({ unit: '', source: 'event' }); else patch({ unit: v, source: undefined });
-            })); break;
+        case 'unitRef': {
+            const unitRow = el('div', 'ed-row');
+            unitRow.appendChild(el('label', null, '单位'));
+            unitRow.appendChild(pickUnitButton(id => patch({ unit: id })));
+            unitRow.appendChild(el('span', null, cond.unit || '未选择'));
+            box.appendChild(unitRow);
+        } break;
         case 'card':
             box.appendChild(selectRow('卡牌', cond.value || CARD_IDS[0], CARD_LABELS, v => patch({ value: v }))); break;
         case 'camp':
@@ -1048,18 +1066,24 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'conditionGroup':
             box.appendChild(conditionListEditor(cond.conditions || [], conditions => patch({ conditions }), { parentIsAny: meta.kind === 'any' })); break;
         case 'conditionSingle':
-        case 'unitExists':
-            box.appendChild(selectRow('单位', cond.source === 'event' ? '__event__' : (cond.unit || ''), unitOptions(true, true), v => {
-                if (v === '__event__') patch({ unit: '', source: 'event' }); else patch({ unit: v, source: undefined });
-            }));
+        case 'unitExists': {
+            const uRow = el('div', 'ed-row');
+            uRow.appendChild(el('label', null, '单位'));
+            uRow.appendChild(pickUnitButton(id => patch({ unit: id })));
+            uRow.appendChild(el('span', null, cond.unit || '未选择'));
+            box.appendChild(uRow);
             box.appendChild(selectRow('要求', cond.alive === false ? 'dead' : 'alive', { alive: '仍在场', dead: '已阵亡/不存在' }, v => patch({ alive: v === 'alive' }))); break;
-        case 'unitHpCompare':
-            box.appendChild(selectRow('单位', cond.source === 'event' ? '__event__' : (cond.unit || ''), unitOptions(true, true), v => {
-                if (v === '__event__') patch({ unit: '', source: 'event' }); else patch({ unit: v, source: undefined });
-            }));
+        }
+        case 'unitHpCompare': {
+            const uRow = el('div', 'ed-row');
+            uRow.appendChild(el('label', null, '单位'));
+            uRow.appendChild(pickUnitButton(id => patch({ unit: id })));
+            uRow.appendChild(el('span', null, cond.unit || '未选择'));
+            box.appendChild(uRow);
             box.appendChild(selectRow('数值类型', cond.mode || 'percent', { percent: '生命百分比', value: '生命点数' }, v => patch({ mode: v })));
             box.appendChild(selectRow('比较', cond.op || '<=', { '<': '小于', '<=': '小于等于', '==': '等于', '>=': '大于等于', '>': '大于' }, v => patch({ op: v })));
             box.appendChild(numRow('数值', cond.value ?? 50, v => patch({ value: v }))); break;
+        }
         case 'campCompare':
             box.appendChild(selectRow('阵营', cond.camp || 'player2', CAMP_LABELS, v => patch({ camp: v })));
             box.appendChild(selectRow('比较', cond.op || '<=', { '<=': '不多于', '==': '正好', '>=': '不少于' }, v => patch({ op: v })));
@@ -1077,7 +1101,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(selectRow('状态', cond.state || 'available', { disabled: '不可用', available: '可调查', completed: '已完成' }, v => patch({ state: v }))); break;
         case 'groupState':
             box.appendChild(selectRow('单位组', cond.group || '', Object.fromEntries(config.unitGroups.map(item => [item.id, item.id])), v => patch({ group: v })));
-            box.appendChild(selectRow('状态', cond.state || 'anyAlive', { anyAlive: '至少一员存活', allAlive: '全员存活', allDead: '全员阵亡' }, v => patch({ state: v }))); break;
+            box.appendChild(selectRow('状态', cond.state || 'anyAlive', { anyAlive: '至少一员存活', allAlive: '全员存活', allDead: '全员阵亡', casualty: '出现减员（非全员存活但非全员阵亡）' }, v => patch({ state: v }))); break;
         case 'areaCount': {
             // 区域选择：下拉选已有区域 或 📌 画布涂抹后自动创建/复用
             const areaRow = el('div', 'ed-row');
@@ -1112,19 +1136,17 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'coord':
             box.appendChild(coordRow('坐标', cond.q ?? 0, cond.r ?? 0, tile => patch(tile))); break;
         case 'interaction': box.appendChild(selectRow('调查点', cond.interactable || '', Object.fromEntries(config.interactables.map(item => [item.id, item.label || item.id])), v => patch({ interactable: v }))); break;
-        case 'flagBoolean':
-            box.appendChild(textRow('标记名', cond.flag || '', v => patch({ flag: v })));
-            box.appendChild(checkRow('要求为“是”', cond.value !== false, v => patch({ value: v }))); break;
+        case 'goldCompare':
+            box.appendChild(selectRow('阵营', cond.camp || 'player1', CAMP_LABELS, v => patch({ camp: v })));
+            box.appendChild(selectRow('比较', cond.op || '>=', { '<': '少于', '<=': '不多于', '==': '等于', '>=': '不少于', '>': '多于' }, v => patch({ op: v })));
+            box.appendChild(numRow('金币', cond.value ?? 1, v => patch({ value: Math.max(0, v) }))); break;
+        case 'variableCompare':
+            box.appendChild(selectRow('变量', cond.variable || '', Object.fromEntries(config.variables.filter(item => item.scope === 'level').map(item => [item.id, item.id])), v => patch({ variable: v })));
+            box.appendChild(selectRow('比较', cond.op || '==', { '==': '等于', '!=': '不等于', '<': '小于', '<=': '小于等于', '>=': '大于等于', '>': '大于' }, v => patch({ op: v })));
+            box.appendChild(textRow('值', String(cond.value ?? 0), v => patch({ value: v }))); break;
         case 'mechanicBoolean':
             box.appendChild(selectRow('机制', cond.mechanic || MECHANIC_KEYS[0], MECHANIC_LABELS, v => patch({ mechanic: v })));
             box.appendChild(selectRow('要求', cond.enabled === false ? 'off' : 'on', { on: '已启用', off: '已禁用' }, v => patch({ enabled: v === 'on' }))); break;
-        case 'compare':
-            box.appendChild(hint('高级比较用于回合、金币和变量。社区作者通常优先使用上面的专用条件。'));
-            box.appendChild(selectRow('左值', cond.left?.source || 'round', { round: '当前回合', gold: '阵营金币', levelVariable: '本关变量', campaignVariable: '战役变量' }, v => patch({ left: { source: v } })));
-            if (cond.left?.source === 'gold') box.appendChild(selectRow('阵营', cond.left.camp || 'player1', CAMP_LABELS, v => patch({ left: { ...cond.left, camp: v } })));
-            if (cond.left?.source === 'levelVariable' || cond.left?.source === 'campaignVariable') box.appendChild(selectRow('变量', cond.left.variable || '', Object.fromEntries(config.variables.filter(item => item.scope === (cond.left.source === 'levelVariable' ? 'level' : 'campaign')).map(item => [item.id, item.id])), v => patch({ left: { ...cond.left, variable: v } })));
-            box.appendChild(selectRow('比较', cond.op || '>=', { '==': '等于', '!=': '不等于', '<': '小于', '<=': '小于等于', '>=': '大于等于', '>': '大于' }, v => patch({ op: v })));
-            box.appendChild(numRow('右侧常量', cond.right?.value ?? 1, v => patch({ right: { source: 'constant', value: v } }))); break;
         default: break;
     }
     if (meta.note) box.appendChild(hint(meta.note));

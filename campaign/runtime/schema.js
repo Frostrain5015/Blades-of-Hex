@@ -63,7 +63,6 @@ export const BOARD_RADIUS_DEFAULT = 4;
 // 每条条件形如 { kind, ...字段 }；kind 必须与 triggers.js 的 evalCondition 分支一致。
 export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'any', label: '满足任一（OR）', arg: 'conditionGroup' },
-    { kind: 'compare', label: '比较数值/变量', arg: 'compare' },
     { kind: 'eventCardIs',  label: '事件卡牌是',   arg: 'card' },
     { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值' },
     { kind: 'unitAlive',    label: '单位存活',     arg: 'unitRef' },
@@ -75,6 +74,8 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     ,{ kind: 'unitExists', label: '单位存在/存活', arg: 'unitExists' }
     ,{ kind: 'unitHpCompare', label: '单位生命比较', arg: 'unitHpCompare' }
     ,{ kind: 'factionUnitCount', label: '阵营单位数量', arg: 'campCompare' }
+    ,{ kind: 'goldCompare', label: '阵营金币比较', arg: 'goldCompare' }
+    ,{ kind: 'variableCompare', label: '关卡变量比较', arg: 'variableCompare' }
     ,{ kind: 'tileOwnedBy', label: '地块归属于', arg: 'cityOwner' }
     ,{ kind: 'relationIs', label: '外交关系为', arg: 'relation' }
     ,{ kind: 'weatherIs', label: '当前天气为', arg: 'weather' }

@@ -25,14 +25,6 @@ function resolveUnit(id) {
     if (!id) return null;
     return gameState.tiles.find(tile => tile.unit?.id === id)?.unit || null;
 }
-/** 从条件中解析单位：若 source='event' 则从事件上下文取，否则取静态 id。 */
-function unitFromCond(cond, ctx, field = 'unit') {
-    if (cond.source === 'event') {
-        const ids = [ctx.event?.unitId, ctx.event?.attackerId, ctx.event?.defenderId, ctx.event?.killerId, ctx.event?.sourceUnitId];
-        return ids.reduce((found, id) => found || resolveUnit(id), null);
-    }
-    return resolveUnit(cond[field]);
-}
 
 function groupById(config, id) { return (config.unitGroups || []).find(group => group.id === id) || null; }
 function areaById(config, id) { return (config.areas || []).find(area => area.id === id) || null; }
@@ -94,19 +86,20 @@ function evalCondition(cond, ctx) {
         case 'all': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.every(child => evalCondition(child, ctx));
         case 'any': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.some(child => evalCondition(child, ctx));
         case 'not': return !!cond.condition && !evalCondition(cond.condition, ctx);
-        case 'compare': return compareValues(readOperand(cond.left, ctx), cond.op || '==', readOperand(cond.right, ctx));
+        case 'goldCompare': return compareValues(gameState.playerGold[cond.camp] || 0, cond.op || '>=', Number(cond.value));
+        case 'variableCompare': return compareValues(gameState.levelVariables?.[cond.variable], cond.op || '==', cond.value);
         case 'eventCardIs': return event?.cardId === cond.value;
         case 'eventNextIs': case 'eventChoiceIs': return event?.next === cond.value || event?.choiceId === cond.value;
         case 'eventInteractionIs': return event?.interactableId === cond.interactable;
         case 'eventSignalIs': return event?.signal === cond.value;
-        case 'unitAlive': return !!unitFromCond(cond, ctx);
-        case 'unitDead': return !unitFromCond(cond, ctx);
+        case 'unitAlive': return !!resolveUnit(cond.unit);
+        case 'unitDead': return !resolveUnit(cond.unit);
         case 'unitExists': {
-            const u = unitFromCond(cond, ctx);
+            const u = resolveUnit(cond.unit);
             return cond.alive === false ? !u : !!u;
         }
         case 'unitHpCompare': {
-            const unit = unitFromCond(cond, ctx);
+            const unit = resolveUnit(cond.unit);
             if (!unit) return false;
             const value = cond.mode === 'percent' ? unit.hp / unit.maxHp * 100 : unit.hp;
             return compareValues(value, cond.op || '<=', Number(cond.value));
@@ -132,6 +125,7 @@ function evalCondition(cond, ctx) {
             if (cond.state === 'allDead') return ids.length > 0 && alive.length === 0;
             if (cond.state === 'anyAlive') return alive.length > 0;
             if (cond.state === 'allAlive') return ids.length > 0 && alive.length === ids.length;
+            if (cond.state === 'casualty') return ids.length > 0 && alive.length > 0 && alive.length < ids.length;
             return false;
         }
         case 'unitsInArea': {
