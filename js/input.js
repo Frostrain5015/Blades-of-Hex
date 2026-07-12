@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, hexDistance } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget } from './state.js';
@@ -742,13 +742,14 @@ function _drawHudRank(cv, rank) {
     ctx.shadowOffsetY = 0;
 }
 
-function _setHudTitle(text, rank = 0) {
+function _setHudTitle(text, rank = 0, relationEmoji = '') {
     selectionHudTitle.replaceChildren(document.createTextNode(text));
     if (rank > 0) {
         const rankCanvas = _getHudRankCanvas();
         _drawHudRank(rankCanvas, rank);
         selectionHudTitle.appendChild(rankCanvas);
     }
+    if (relationEmoji) selectionHudTitle.appendChild(document.createTextNode(relationEmoji));
 }
 
 const UNIT_TYPE_NAMES = {
@@ -1441,7 +1442,7 @@ function _syncSelectionHud(tile) {
         + '|' + (unit ? [
             unit.hp, unit.maxHp, unit._shield || 0, unit.remainingMP, unit.canAct,
             unit._faith || 0, unit.moralePenaltyUntil || 0, unit._rank || 0,
-            attack, defense, hoverMoveCost
+            attack, defense, hoverMoveCost, getRelation(gameState, getViewingCampKey(gameState), unit.camp)
         ].join(':') : '');
     if (signature === _lastHudSignature) return;
     const selectionChanged = _lastHudSelectionKey && _lastHudSelectionKey !== selectionKey;
@@ -1460,8 +1461,9 @@ function _syncSelectionHud(tile) {
         const faction = getFaction(gameState, unit.camp);
         const relation = getRelation(gameState, getViewingCampKey(gameState), unit.camp);
         const relationMeta = RELATION_META[relation] || RELATION_META.unknown;
-        _setHudTitle((faction?.name || unit.camp.name) + ' · ' + relationMeta.label + ' · ' + typeName + (commander ? ' · ' + commander.name : ''), unit._rank || 0);
-        selectionHudEl.style.setProperty('--selection-camp-color', faction?.color || unit.camp.color);
+        const relationEmoji = { self: '👤', ally: '🤝', neutral: '😑', enemy: '👊', unknown: '❔' }[relation] || '❔';
+        _setHudTitle(`${faction?.name || unit.camp.name} ${typeName}`, unit._rank || 0, relationEmoji);
+        selectionHudEl.style.setProperty('--selection-camp-color', getFlagColors(faction?.color || unit.camp?.color).main);
         selectionHudEl.style.setProperty('--selection-relation-color', relationMeta.color);
         selectionHudHp.hidden = false;
         // 血条长度正比于 maxHp + 护盾 × 0.5（最小 80px），护盾适当撑宽但不过度
