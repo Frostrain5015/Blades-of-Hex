@@ -1403,24 +1403,6 @@ function buildMetaInspector() {
     addGroup.addEventListener('click', () => mutate(c => { c.unitGroups.push({ id: `group${c.unitGroups.length + 1}`, unitIds: [] }); }));
     secGroups.appendChild(addGroup); wrap.appendChild(secGroups);
 
-    const secAreas = section(`命名区域（${config.areas.length}）`);
-    secAreas.appendChild(hint('输入明确的六边格坐标，适合峡谷、街道等不规则区域。格式：q,r; q,r。'));
-    config.areas.forEach((area, index) => {
-        const box = card(area.id || `区域 ${index + 1}`, () => mutate(c => { c.areas.splice(index, 1); }));
-        box.appendChild(textRow('区域 id', area.id, value => mutate(c => { c.areas[index].id = value; })));
-        const tileRow = el('div', 'ed-row');
-        tileRow.appendChild(el('label', null, '包含坐标'));
-        tileRow.appendChild(pickTilesButton(area.tiles || [], list => mutate(c => { c.areas[index].tiles = list; }, { rebuildPanels: true })));
-        const label = el('span', null, (area.tiles || []).length ? `${area.tiles.length} 格` : '未选择');
-        label.style.cssText = 'color:rgba(255,255,255,0.5);font-size:12px;margin-left:6px;';
-        tileRow.appendChild(label);
-        box.appendChild(tileRow);
-        secAreas.appendChild(box);
-    });
-    const addArea = el('button', 'ed-add-btn', '+ 新增区域');
-    addArea.addEventListener('click', () => mutate(c => { c.areas.push({ id: `area${c.areas.length + 1}`, tiles: [] }); }));
-    secAreas.appendChild(addArea); wrap.appendChild(secAreas);
-
     const secInteractions = section(`调查点（${config.interactables.length}）`);
     secInteractions.appendChild(hint('调查点是剧情交互，不是单位：不阻挡移动，也不会被 AI 攻击。'));
     config.interactables.forEach((item, index) => {
