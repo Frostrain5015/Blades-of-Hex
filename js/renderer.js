@@ -81,11 +81,7 @@ export function renderGame() {
 
     // Draw tile bases
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawBase(ctx);
-    // 国界线/区划线紧贴地块着色层（旗杆与单位之下）
-    drawAllBorders(ctx, tiles, gameState.tileMap);
-    drawDistrictBorders(ctx, gameState.districtBorderEdges);
-    drawCampBorders(ctx, gameState.campBorderEdges);
-    // Flag poles (before units)
+    // Flag poles (before pennants and borders)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     // Overlays (hover/selection)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
@@ -97,6 +93,10 @@ export function renderGame() {
     drawUnitHexAuras(now);
     // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
     drawCommanderPennants();
+    // 国界线/区划线（先锋旗之下、单位之上）
+    drawAllBorders(ctx, tiles, gameState.tileMap);
+    drawDistrictBorders(ctx, gameState.districtBorderEdges);
+    drawCampBorders(ctx, gameState.campBorderEdges);
     // ── 将领特效图层：underUnits（立绘之后、单位徽章之前；圣骑士剑环后半圈）──
     drawFxLayer('underUnits', ctx, now);
     // Units — 全部绘制，非可见地块会在后续迷雾阶段被地形覆绘+遮罩覆盖
