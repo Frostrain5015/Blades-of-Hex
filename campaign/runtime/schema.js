@@ -76,7 +76,6 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'turnAtLeast',  label: '回合数≥',      arg: 'number' },
     { kind: 'flagSet',      label: '标记已置位',   arg: 'text' },
     { kind: 'flagUnset',    label: '标记未置位',   arg: 'text' }
-    ,{ kind: 'flagIs', label: '布尔标记为', arg: 'flagBoolean' }
     ,{ kind: 'unitExists', label: '单位存在/存活', arg: 'unitExists' }
     ,{ kind: 'unitHpCompare', label: '单位生命比较', arg: 'unitHpCompare' }
     ,{ kind: 'factionUnitCount', label: '阵营单位数量', arg: 'campCompare' }
@@ -110,7 +109,6 @@ export const TRIGGER_ACTIONS = Object.freeze([
     { kind: 'fail',          label: '判定失败',     arg: 'text' },
     { kind: 'delay',         label: '延迟后执行',   arg: 'delayGroup', note: '毫秒后执行一组子动作（演出用）' }
     ,{ kind: 'setVariable', label: '修改变量', arg: 'variableOperation' }
-    ,{ kind: 'setFlagValue', label: '设置布尔标记', arg: 'flagBoolean' }
     ,{ kind: 'setTriggerEnabled', label: '启用/禁用触发器', arg: 'triggerEnabled' }
     ,{ kind: 'emitSignal', label: '发送信号', arg: 'text' }
     ,{ kind: 'setObjectiveStatus', label: '设置目标状态', arg: 'objectiveStatus' }

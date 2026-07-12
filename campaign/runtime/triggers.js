@@ -112,7 +112,6 @@ function evalCondition(cond, ctx) {
         case 'turnAtLeast': return getRound(gameState) >= (cond.value || 0);
         case 'flagSet': return flags.has(cond.value);
         case 'flagUnset': return !flags.has(cond.value);
-        case 'flagIs': return flags.has(cond.flag) === (cond.value !== false);
         case 'weatherIs': return gameState.weather === cond.weather;
         case 'relationIs': return getRelation(gameState, cond.camp, cond.targetCamp) === cond.relation;
         case 'objectiveStatusIs': return gameState.objectiveStates?.[cond.objective] === cond.status;
@@ -175,7 +174,6 @@ function runAction(action, ctx) {
         case 'spawnUnits': spawnUnitsInto(gameState, action.units); updateUI(); break;
         case 'setFlag': flags.add(action.value); break;
         case 'clearFlag': flags.delete(action.value); break;
-        case 'setFlagValue': action.value === false ? flags.delete(action.flag) : flags.add(action.flag); break;
         case 'setPhase': gameState.campaignPhase = action.value; break;
         case 'setVariable': {
             const variable = (config.variables || []).find(item => item.id === action.variable);

@@ -988,7 +988,6 @@ function conditionDefaults(kind) {
         case 'unitsInArea': return { area: config.areas[0]?.id || '', camp: '', op: '>=', value: 1 };
         case 'eventTileIs': return { q: 0, r: 0 };
         case 'eventInteractionIs': return { interactable: config.interactables[0]?.id || '' };
-        case 'flagIs': return { flag: '', value: true };
         case 'mechanicEnabled': return { mechanic: MECHANIC_KEYS[0], enabled: true };
         case 'any': return { conditions: [{ kind: 'stepIs', ...conditionDefaults('stepIs') }] };
         case 'compare': return { left: { source: 'round' }, op: '>=', right: { source: 'constant', value: 1 } };
@@ -1005,7 +1004,6 @@ function actionDefaults(kind) {
         case 'log': case 'fail': return { text: '' };
         case 'setFlag': case 'clearFlag': case 'setPhase': return { value: '' };
         case 'setVariable': return { variable: config.variables[0]?.id || '', operation: 'set', value: 0 };
-        case 'setFlagValue': return { flag: '', value: true };
         case 'setTriggerEnabled': return { trigger: config.triggers[0]?.id || '', enabled: true };
         case 'emitSignal': return { value: '' };
         case 'setObjectiveStatus': return { objective: Object.keys(config.objectives)[0] || '', status: 'active' };
