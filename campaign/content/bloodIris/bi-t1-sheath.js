@@ -154,7 +154,7 @@ export const config = {
 
     // ── 触发器（新版异步链条：timer 开场 → 链式 setTriggerEnabled 推进）─
     triggers: [
-        // 0. 开场对话（延时触发，替代 levelStarted 以兼容编辑器测试）
+        // 0. 开场对话（开场启用的计时器从关卡开始时计时）
         {
             id: 'start_dialogue',
             when: [{ kind: 'timer', value: 1500 }],

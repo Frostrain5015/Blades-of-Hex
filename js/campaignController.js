@@ -408,7 +408,7 @@ export function createCampaignController({ onRetry, onReturn }) {
         resultOverlay.setAttribute('aria-hidden', 'true');
         const firstActive = Object.keys(activeScenario?.objectives || {}).find(id => activeScenario.objectives[id].active !== false) || '';
         updateObjectives(firstActive);
-        // initialStep 已废弃，开场由触发器 levelStarted → showStep 驱动
+        // initialStep 已废弃；开场启用且条件为空的触发器会在首次统一求值时执行。
         activeFlow?.onLevelStarted?.();
         if (gameState.campaignMode && firstTurnKey) {
             emit('turn:started', { camp: gameState.currentCamp, campKey: firstTurnKey, turnCounter: gameState.turnCounter });

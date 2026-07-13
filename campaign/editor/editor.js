@@ -661,7 +661,7 @@ function buildTriggerList() {
         }),
         addLabel: '+ 新增触发器',
         onAdd: () => mutate(c => {
-            c.triggers.push({ id: `trigger_${c.triggers.length + 1}`, title: '', note: '', enabled: true, once: true, when: [{ kind: 'levelStarted' }], do: [] });
+            c.triggers.push({ id: `trigger_${c.triggers.length + 1}`, title: '', note: '', enabled: true, once: true, when: [], do: [] });
             selection = { kind: 'trigger', index: c.triggers.length - 1 };
         })
     }));
@@ -1049,8 +1049,7 @@ function conditionDefaults(kind) {
     switch (kind) {
         case 'all': return { conditions: [] };
         case 'any': return { conditions: [] };
-        case 'not': return { condition: { kind: 'levelStarted' } };
-        case 'levelStarted': return {};
+        case 'not': return { condition: { kind: 'timer', value: 1000 } };
         case 'unitSelected': return { target: { unit: config.units[0]?.id || '' } };
         case 'unitMovesToTile': return { target: { unit: config.units[0]?.id || '' }, tiles: [] };
         case 'unitMovesToArea': return { target: { unit: config.units[0]?.id || '' }, tiles: [] };
@@ -1273,14 +1272,14 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             box.appendChild(selectRow('归属', cond.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
             break;
         case 'number':
-            box.appendChild(numRow('毫秒', cond.value ?? 1000, v => patch({ value: Math.round(v) }))); break;
+            box.appendChild(numRow('启用后等待（毫秒）', cond.value ?? 1000, v => patch({ value: Math.round(v) }))); break;
         case 'text':
             box.appendChild(textRow('值', cond.value || '', v => patch({ value: v }))); break;
         case 'conditionGroup':
             box.appendChild(conditionListEditor(cond.conditions || [], conditions => patch({ conditions }), { parentIsAny: meta.kind === 'any' })); break;
         case 'conditionSingle':
             box.appendChild(conditionEditor(
-                cond.condition || { kind: 'levelStarted' },
+                cond.condition || { kind: 'timer', value: 1000 },
                 condition => patch({ condition }),
                 null,
                 false
@@ -1637,7 +1636,7 @@ function conditionListEditor(list, onChange, { parentIsAny = false } = {}) {
             parentIsAny));
     });
     const add = el('button', 'ed-add-btn', '+ 添加条件');
-    add.addEventListener('click', () => onChange([...(list || []), { kind: 'levelStarted', ...conditionDefaults('levelStarted') }]));
+    add.addEventListener('click', () => onChange([...(list || []), { kind: 'timer', ...conditionDefaults('timer') }]));
     wrap.appendChild(add);
     return wrap;
 }
@@ -1683,7 +1682,7 @@ function buildTriggerInspector(index) {
     wrap.appendChild(checkRow('只触发一次', trig.once !== false, set('once')));
     wrap.appendChild(checkRow('开场启用', trig.enabled !== false, set('enabled')));
 
-    const secWhen = section('条件（AND）');
+    const secWhen = section('条件（AND；留空 = 启用即执行）');
     secWhen.appendChild(conditionListEditor(trig.when || [], list => mutate(c => { c.triggers[index].when = list; })));
     wrap.appendChild(secWhen);
 

@@ -70,7 +70,6 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'any', label: '满足任一（OR）', arg: 'conditionGroup' },
     { kind: 'all', label: '满足全部（AND）', arg: 'conditionGroup' },
     { kind: 'not', label: '不满足（NOT）', arg: 'conditionSingle' },
-    { kind: 'levelStarted', label: '关卡开始时', arg: 'none', event: true },
     { kind: 'unitSelected', label: '指定单位被选中', arg: 'eventTarget', event: true },
     { kind: 'unitMovesToTile', label: '指定单位/单位组移动到指定地块/区域', arg: 'eventTargetArea', event: true },
     { kind: 'unitAttacksUnit', label: '指定单位攻击指定单位/单位组', arg: 'eventCombatPair', event: true },
@@ -81,7 +80,7 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'skillUsed', label: '指定单位使用技能', arg: 'eventUnitSkill', event: true },
     { kind: 'eventNextIs',  label: '按钮跳转值为', arg: 'text', note: '配合「点击按钮」事件，匹配 step.next 的 __ 值', event: true },
     { kind: 'eventChoiceIs', label: '对话选项结果为', arg: 'text', event: true },
-    { kind: 'timer',        label: '计时器到期',   arg: 'number', note: '关卡开始后经过指定毫秒时触发一次' }
+    { kind: 'timer',        label: '触发器启用后计时', arg: 'number', note: '本触发器每次启用后经过指定毫秒自动满足；开场启用时从关卡开始计时' }
     ,{ kind: 'cityOwnedBy',  label: '城市归属于',   arg: 'cityOwner' },
     { kind: 'unitExists', label: '单位存在/存活', arg: 'unitExists' }
     ,{ kind: 'unitHpCompare', label: '单位生命比较', arg: 'unitHpCompare' }
@@ -201,7 +200,12 @@ export function normalizeLevel(raw) {
     merged.interactables = Array.isArray(raw.interactables) ? raw.interactables : [];
     merged.variables = Array.isArray(raw.variables) ? raw.variables : [];
     merged.objectives = raw.objectives && typeof raw.objectives === 'object' ? raw.objectives : {};
-    merged.triggers = Array.isArray(raw.triggers) ? raw.triggers : [];
+    merged.triggers = Array.isArray(raw.triggers) ? raw.triggers.map(trigger => {
+        const when = Array.isArray(trigger?.when) ? trigger.when : [];
+        // v2 早期版本曾公开 levelStarted；唯一常见写法可无损迁移为 AoE 式空条件开场触发器。
+        if (when.length === 1 && when[0]?.kind === 'levelStarted') return { ...trigger, when: [] };
+        return trigger;
+    }) : [];
     merged.result = { ...def.result, ...(raw.result || {}) };
     merged.result.starRules = Array.isArray(merged.result.starRules) ? merged.result.starRules : [];
     return merged;
@@ -333,19 +337,11 @@ export function validateLevel(config) {
         if (Array.isArray(condition.conditions)) return condition.conditions.some(conditionContainsEvent);
         return condition.kind === 'not' && conditionContainsEvent(condition.condition);
     };
-    const conditionRequiresTimer = (condition) => {
+    const conditionContainsTimer = (condition) => {
         if (!condition || typeof condition !== 'object') return false;
         if (condition.kind === 'timer') return true;
-        if (condition.kind === 'all') return (condition.conditions || []).some(conditionRequiresTimer);
-        if (condition.kind === 'any') return condition.conditions?.length > 0 && condition.conditions.every(conditionRequiresTimer);
-        return false;
-    };
-    const conditionRequiresEvent = (condition) => {
-        if (!condition || typeof condition !== 'object') return false;
-        if (conditionMeta(condition.kind)?.event) return true;
-        if (condition.kind === 'all') return (condition.conditions || []).some(conditionRequiresEvent);
-        if (condition.kind === 'any') return condition.conditions?.length > 0 && condition.conditions.every(conditionRequiresEvent);
-        return false;
+        if (Array.isArray(condition.conditions)) return condition.conditions.some(conditionContainsTimer);
+        return condition.kind === 'not' && conditionContainsTimer(condition.condition);
     };
     const validateCondition = (condition, path) => {
         if (!condition || typeof condition !== 'object') { errors.push(`${path} 条件为空。`); return; }
@@ -519,7 +515,7 @@ export function validateLevel(config) {
             errors.push(`${path} 至少需要指定攻击方或受击方的单位/阵营。`);
         }
         if (['eventNextIs', 'eventChoiceIs'].includes(cond.kind) && !cond.value) errors.push(`${path} 缺少跳转值。`);
-        if (cond.kind === 'timer' && (!cond.value || cond.value <= 0)) errors.push(`${path} 计时器到期时间必须大于 0 毫秒。`);
+        if (cond.kind === 'timer' && (!cond.value || cond.value <= 0)) errors.push(`${path} 启用后等待时间必须大于 0 毫秒。`);
         if (cond.kind === 'turnStarted' && cond.turn != null && cond.turn <= 0) errors.push(`${path} 回合数必须大于 0。`);
         if (cond.kind === 'cityCaptured' && (cond.q == null || cond.r == null)) errors.push(`${path} 缺少城市坐标。`);
         if (cond.kind === 'goldCompare' && cond.value == null) errors.push(`${path} 缺少金币比较值。`);
@@ -532,12 +528,10 @@ export function validateLevel(config) {
     for (const t of (c.triggers || [])) {
         if (!t.id || seenTriggerIds.has(t.id)) errors.push(`触发器 id「${t.id || '空'}」缺失或重复。`);
         seenTriggerIds.add(t.id);
-        if (!t.when?.length) warnings.push(`触发器「${t.id || '?'}」没有条件，将在下一次任意事件后触发。请显式使用「关卡开始时」或其他事件条件。`);
-        if (!t.do?.length) warnings.push(`触发器「${t.id || '?'}」没有动作，不会产生任何效果。`);
-        if (t.once === false && !(t.when || []).some(conditionContainsEvent)) warnings.push(`重复触发器「${t.id || '?'}」只包含状态条件，可能在每次事件后重复执行。`);
-        const requiresTimer = (t.when || []).some(conditionRequiresTimer);
-        const requiresEvent = (t.when || []).some(conditionRequiresEvent);
-        if (requiresTimer && requiresEvent) errors.push(`触发器「${t.id || '?'}」不能要求“计时器到期”和事件条件同时成立；它们不会在同一次事件中同时成立，请拆成两个触发器。`);
+        if (!t.do?.length) errors.push(`触发器「${t.id || '?'}」没有动作；无动作触发器没有意义。`);
+        if (t.once === false && !(t.when || []).some(condition => conditionContainsEvent(condition) || conditionContainsTimer(condition))) {
+            warnings.push(`重复触发器「${t.id || '?'}」只包含状态条件，可能在每次事件后重复执行。`);
+        }
         (t.when || []).forEach((condition, index) => {
             validateCondition(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`);
             minConditionChecks(condition, `触发器「${t.id || '?'}」条件 ${index + 1}`);

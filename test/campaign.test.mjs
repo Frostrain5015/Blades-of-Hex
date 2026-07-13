@@ -39,6 +39,105 @@ export async function run(browser) {
     R.assert(true, '单人战役拥有独立大厅页签');
     R.assert((await page.textContent('#campaignChronicleTitle')).trim() === '染血的鸢尾花', '第一部传记名为《染血的鸢尾花》');
     R.assert((await page.textContent('.campaign-chronicle-index')).includes('将星列传'), '传记档案编号正确');
+    const timerLifecycle = await page.evaluate(async () => {
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const { createDefaultLevel } = await import('/campaign/runtime/schema.js');
+        const { createTriggerFlow } = await import('/campaign/runtime/triggers.js');
+        const { gameState } = await import('/js/state.js');
+        const { HexTile } = await import('/js/HexTile.js');
+        const { CAMP } = await import('/rules/camps.js');
+        const previousState = {
+            campaignMode: gameState.campaignMode,
+            tiles: gameState.tiles,
+            tileMap: gameState.tileMap,
+            levelVariables: gameState.levelVariables,
+            localPlayerCampKey: gameState.localPlayerCampKey,
+            objectiveStates: gameState.objectiveStates
+        };
+        const level = createDefaultLevel();
+        level.variables = [
+            { id: 'opening_done', scope: 'level', type: 'boolean', initial: false },
+            { id: 'dynamic_done', scope: 'level', type: 'boolean', initial: false },
+            { id: 'empty_activation_done', scope: 'level', type: 'boolean', initial: false },
+            { id: 'repeat_count', scope: 'level', type: 'number', initial: 0 }
+        ];
+        level.triggers = [
+            {
+                id: 'empty_activation_target', enabled: false, once: true,
+                when: [],
+                do: [{ kind: 'setVariable', variable: 'empty_activation_done', operation: 'set', value: true }]
+            },
+            {
+                id: 'arm_dynamic', enabled: true, once: true,
+                when: [],
+                do: [
+                    { kind: 'setTriggerEnabled', trigger: 'dynamic_timer', enabled: true },
+                    { kind: 'setTriggerEnabled', trigger: 'empty_activation_target', enabled: true }
+                ]
+            },
+            {
+                id: 'opening_timer', enabled: true, once: true,
+                when: [{ kind: 'timer', value: 180 }],
+                do: [{ kind: 'setVariable', variable: 'opening_done', operation: 'set', value: true }]
+            },
+            {
+                id: 'dynamic_timer', enabled: false, once: true,
+                when: [{ kind: 'timer', value: 180 }],
+                do: [{ kind: 'setVariable', variable: 'dynamic_done', operation: 'set', value: true }]
+            },
+            {
+                id: 'arm_repeat', enabled: true, once: false,
+                when: [{ kind: 'eventNextIs', value: '__arm_repeat' }],
+                do: [{ kind: 'setTriggerEnabled', trigger: 'repeat_timer', enabled: true }]
+            },
+            {
+                id: 'repeat_timer', enabled: false, once: false,
+                when: [{ kind: 'timer', value: 180 }],
+                do: [{ kind: 'setVariable', variable: 'repeat_count', operation: 'add', value: 1 }]
+            }
+        ];
+        gameState.campaignMode = true;
+        gameState.levelVariables = { opening_done: false, dynamic_done: false, empty_activation_done: false, repeat_count: 0 };
+        const guardTile = new HexTile(0, 0);
+        guardTile.camp = CAMP.player1;
+        guardTile.startColor = CAMP.player1.color;
+        guardTile.targetColor = CAMP.player1.color;
+        guardTile.currentColor = CAMP.player1.color;
+        gameState.tiles = [guardTile];
+        gameState.tileMap = new Map([['0,0', guardTile]]);
+        gameState.localPlayerCampKey = 'player1';
+        gameState.objectiveStates = {};
+        const flow = createTriggerFlow(level, {
+            isActive: () => true,
+            isResultShown: () => false,
+            showStep: () => {}, showInlineStep: () => {}, setObjectiveStatus: () => {},
+            showHint: () => {}, fail: () => {}, win: () => {}
+        });
+
+        await sleep(240);
+        const waitsForLevelStart = !gameState.levelVariables.opening_done;
+        flow.onLevelStarted();
+        const emptyActivationWorked = gameState.levelVariables.empty_activation_done;
+        await sleep(320);
+        const openingAndDynamicWorked = gameState.levelVariables.opening_done && gameState.levelVariables.dynamic_done;
+
+        flow.onAdvance('__arm_repeat');
+        await sleep(120);
+        flow.onAdvance('__arm_repeat');
+        await sleep(120);
+        const explicitEnableRestarts = gameState.levelVariables.repeat_count === 0;
+        await sleep(180);
+        const firedOnce = gameState.levelVariables.repeat_count === 1;
+        await sleep(240);
+        const consumedUntilReenabled = gameState.levelVariables.repeat_count === 1;
+        flow.onAdvance('__arm_repeat');
+        await sleep(320);
+        const canRearm = gameState.levelVariables.repeat_count === 2;
+        flow.dispose();
+        Object.assign(gameState, previousState);
+        return { waitsForLevelStart, emptyActivationWorked, openingAndDynamicWorked, explicitEnableRestarts, firedOnce, consumedUntilReenabled, canRearm };
+    });
+    R.assert(Object.values(timerLifecycle).every(Boolean), '空条件触发器启用即执行；计时器支持开场计时、运行中启用、重启与再次装填');
     if (await page.locator('.campaign-level-card').count() === 0) {
         R.ok('正式关卡尚未录入，按当前开发阶段改测战役编辑器基础设施');
         await page.click('#campaignBackBtn');
@@ -117,6 +216,21 @@ export async function run(browser) {
         await page.context().close();
         return R.summary();
     }
+    if (await page.locator('#rainCityLevelBtn').count() === 0) {
+        R.assert((await page.textContent('.campaign-level-card')).includes('出鞘'), '战役大厅展示当前正式教学关《出鞘》');
+        await page.click('.campaign-start-btn');
+        await waitFor(() => page.evaluate(async () => {
+            const { gameState } = await import('/js/state.js');
+            return gameState.campaignMode && gameState.scenarioId === 'bi-t1-sheath' && gameState.tiles.length > 0;
+        }), 10000, '《出鞘》加载');
+        await page.click('#turnTransitionOverlay');
+        await waitFor(() => page.evaluate(() => document.getElementById('campaignSpeakerCard')?.classList.contains('show')), 5000, '开场计时对白');
+        R.assert((await page.textContent('#campaignSpeakerName')).trim() === '马库斯', '开场计时器正确显示马库斯对白');
+        R.assert(page._errors.length === 0, `当前正式教学关启动无页面异常${page._errors.length ? `：${page._errors.join(' | ')}` : ''}`);
+        await page.context().close();
+        return R.summary();
+    }
+
     R.assert((await page.textContent('#rainCityLevelBtn')).includes('雨幕下的孤城'), '二级菜单展示具体关卡');
 
     await page.click('#startRainCityBtn');

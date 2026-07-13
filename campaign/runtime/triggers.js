@@ -87,7 +87,6 @@ function evalCondition(cond, ctx) {
         case 'all': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.every(child => evalCondition(child, ctx));
         case 'any': return Array.isArray(cond.conditions) && cond.conditions.length > 0 && cond.conditions.some(child => evalCondition(child, ctx));
         case 'not': return !!cond.condition && !evalCondition(cond.condition, ctx);
-        case 'levelStarted': return eventId === 'levelStarted';
         case 'unitSelected': {
             if (eventId !== 'unitSelected') return false;
             if (!targetIncludesUnit(config, cond.target, event?.unitId)) return false;
@@ -174,18 +173,9 @@ function evalCondition(cond, ctx) {
         case 'eventInteractionIs': return eventId === 'interactionCompleted' && event?.interactableId === cond.interactable;
         case 'timer': {
             if (!cond.value || cond.value <= 0) return false;
-            if (!state.timerStarts) state.timerStarts = new WeakMap();
-            const startedAt = state.timerStarts.get(cond);
-            if (startedAt === -1) return false;
-            if (startedAt == null) {
-                state.timerStarts.set(cond, Date.now());
-                return false;
-            }
-            if (Date.now() - startedAt >= Number(cond.value)) {
-                state.timerStarts.set(cond, -1);
-                return true;
-            }
-            return false;
+            if (!ctx.triggerId || state.timerConsumed?.has(ctx.triggerId)) return false;
+            const enabledAt = state.triggerEnabledAt?.get(ctx.triggerId);
+            return Number.isFinite(enabledAt) && Date.now() - enabledAt >= Number(cond.value);
         }
         case 'unitExists': {
             const u = resolveUnit(cond.unit);
@@ -251,7 +241,7 @@ function applyOperation(current, operation, value) {
 
 function runAction(action, ctx) {
     if (!action || typeof action !== 'object') return;
-    const { api, flags, state, config, dispatch, enabled } = ctx;
+    const { api, flags, state, config, dispatch, setTriggerEnabled } = ctx;
     switch (action.kind) {
         case 'showStep':
             if (action.boardLock === true) {
@@ -282,7 +272,7 @@ function runAction(action, ctx) {
             target[action.variable] = applyOperation(target[action.variable], action.operation || 'set', action.value);
             break;
         }
-        case 'setTriggerEnabled': enabled.set(action.trigger, action.enabled !== false); break;
+        case 'setTriggerEnabled': setTriggerEnabled(action.trigger, action.enabled !== false); break;
         case 'changeGold': {
             gameState.playerGold[action.camp] = Math.max(0, applyOperation(gameState.playerGold[action.camp] || 0, action.operation || 'add', action.value));
             updateUI(); break;
@@ -400,7 +390,19 @@ function runActions(actions, ctx) {
 export function createTriggerFlow(config, api) {
     if (!(gameState._campaignFlags instanceof Set)) gameState._campaignFlags = new Set();
     if (!gameState.diplomacy) gameState.diplomacy = createDefaultDiplomacy(config.diplomacy);
-    const state = { flags: gameState._campaignFlags, fired: new Set(), timers: new Set(), dispatching: [] };
+    const state = {
+        flags: gameState._campaignFlags,
+        fired: new Set(),
+        timers: new Set(),
+        dispatching: [],
+        triggerEnabledAt: new Map(),
+        timerConsumed: new Set(),
+        levelStarted: false,
+        dispatchFrames: [],
+        nextDispatchFrame: 0,
+        lastFiredFrame: new Map(),
+        executing: []
+    };
     const triggers = (config.triggers || []).map((trigger, index) => ({ ...trigger, _id: trigger.id || `trigger_${index}` }));
     const enabled = new Map(triggers.map(trigger => [trigger._id, trigger.enabled !== false]));
     const result = config.result || {};
@@ -431,28 +433,71 @@ export function createTriggerFlow(config, api) {
         }
     }
 
+    const containsTimer = (condition) => condition?.kind === 'timer'
+        || (Array.isArray(condition?.conditions) && condition.conditions.some(containsTimer))
+        || (condition?.kind === 'not' && containsTimer(condition.condition));
+    const triggerHasTimer = new Map(triggers.map(trigger => [
+        trigger._id,
+        (trigger.when || []).some(containsTimer)
+    ]));
+
+    function setTriggerEnabled(triggerId, nextEnabled) {
+        enabled.set(triggerId, nextEnabled);
+        state.timerConsumed.delete(triggerId);
+        if (nextEnabled && state.levelStarted) state.triggerEnabledAt.set(triggerId, Date.now());
+        else state.triggerEnabledAt.delete(triggerId);
+        if (nextEnabled && state.levelStarted) {
+            const trigger = triggers.find(item => item._id === triggerId);
+            if (trigger && (trigger.when || []).length === 0) fireTrigger(trigger, '_triggerEnabled', { triggerId }, true);
+        }
+    }
+
     function ctxFor(eventId, event, triggerId = '') {
-        return { api, event: event || {}, eventId, flags: state.flags, state, config, dispatch, enabled, triggerId };
+        return { api, event: event || {}, eventId, flags: state.flags, state, config, dispatch, enabled, setTriggerEnabled, triggerId };
+    }
+    function fireTrigger(trigger, eventId, event, skipConditions = false) {
+        if (enabled.get(trigger._id) === false) return false;
+        if (trigger.once && state.fired.has(trigger._id)) return false;
+        const frameId = state.dispatchFrames.at(-1) || 0;
+        if (frameId && state.lastFiredFrame.get(trigger._id) === frameId) return false;
+        const ctx = ctxFor(eventId, event, trigger._id);
+        if (!skipConditions && !evalAll(trigger.when, ctx)) return false;
+        if (state.executing.length >= 32) {
+            console.error('[campaign] 触发器递归执行超过 32 层，已中止。');
+            return false;
+        }
+        if (frameId) state.lastFiredFrame.set(trigger._id, frameId);
+        if (trigger.once) state.fired.add(trigger._id);
+        // timer 是一次“启用周期”内的到期信号。先标记已消费，避免动作递归派发时重入；
+        // 动作若显式再次启用该触发器，setTriggerEnabled 会清除标记并重新计时。
+        if (triggerHasTimer.get(trigger._id)) state.timerConsumed.add(trigger._id);
+        state.executing.push(trigger._id);
+        try {
+            runActions(trigger.do, ctx);
+        } finally {
+            state.executing.pop();
+        }
+        return true;
     }
     function dispatch(eventId, event = {}) {
         if (!api.isActive() || api.isResultShown()) return false;
         if (state.dispatching.length > 32) { console.error('[campaign] 触发器递归超过 32 层，已中止。'); return false; }
         let handled = false;
+        const frameId = ++state.nextDispatchFrame;
         state.dispatching.push(eventId);
+        state.dispatchFrames.push(frameId);
         try {
             for (const trigger of triggers) {
-                if (enabled.get(trigger._id) === false) continue;
-                if (trigger.once && state.fired.has(trigger._id)) continue;
-                const ctx = ctxFor(eventId, event, trigger._id);
-                if (!evalAll(trigger.when, ctx)) continue;
+                if (!fireTrigger(trigger, eventId, event)) continue;
                 handled = true;
-                if (trigger.once) state.fired.add(trigger._id);
-                runActions(trigger.do, ctx);
                 if (api.isResultShown()) return true;
             }
             autoResolve();
             return handled || api.isResultShown();
-        } finally { state.dispatching.pop(); }
+        } finally {
+            state.dispatchFrames.pop();
+            state.dispatching.pop();
+        }
     }
 
     function autoResolve() {
@@ -487,9 +532,6 @@ export function createTriggerFlow(config, api) {
         }
         return null;
     }
-    const containsTimer = (condition) => condition?.kind === 'timer'
-        || (Array.isArray(condition?.conditions) && condition.conditions.some(containsTimer))
-        || (condition?.kind === 'not' && containsTimer(condition.condition));
     // 计时器条件轮询（每 100ms 检查一次，确保 timer 条件及时触发）。
     // 必须在 return 前创建；return 后的代码不会执行。
     let _tickTimer = setInterval(() => {
@@ -504,7 +546,14 @@ export function createTriggerFlow(config, api) {
 
     return {
         dispatch,
-        onLevelStarted() { dispatch('levelStarted', {}); dispatch('levelStart', {}); },
+        onLevelStarted() {
+            state.levelStarted = true;
+            const startedAt = Date.now();
+            for (const trigger of triggers) {
+                if (enabled.get(trigger._id) !== false) state.triggerEnabledAt.set(trigger._id, startedAt);
+            }
+            dispatch('_levelStarted', {});
+        },
         onTileSelected({ tile, unit }) { dispatch('tileSelected', { q: tile?.q, r: tile?.r, unitId: unit?.id, camp: campKeyOf(unit?.camp) }); if (unit) dispatch('unitSelected', { unitId: unit.id, camp: campKeyOf(unit.camp) }); },
         onCardUsed({ cardId, targetUnitId, targetTile }) { dispatch('cardUsed', { cardId, targetUnitId, q: targetTile?.q, r: targetTile?.r, camp: campKeyOf(gameState.currentCamp) }); },
         onUnitMoved({ unit, targetTile, fromQ, fromR }) { dispatch('unitMoved', { unitId: unit?.id, camp: campKeyOf(unit?.camp), fromQ, fromR, q: targetTile?.q, r: targetTile?.r }); },
