@@ -3205,10 +3205,42 @@ body {
     50% { transform: scale(1.12); opacity: 0.88; }
 }
 .campaign-level-label {
-    margin: 20px 0 7px;
+    margin: 0;
     color: rgba(255, 255, 255, 0.36);
     font-size: 9px;
     letter-spacing: 2.5px;
+}
+.campaign-level-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 18px 0 1px;
+}
+.campaign-collectibles-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 9px;
+    color: #efc28f;
+    font: 700 10px 'Noto Serif SC', serif;
+    letter-spacing: 1px;
+    cursor: pointer;
+    border: 1px solid rgba(222, 117, 68, 0.38);
+    border-radius: 3px;
+    background: rgba(90, 30, 14, 0.3);
+    transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.campaign-collectibles-btn:hover,
+.campaign-collectibles-btn:focus-visible {
+    outline: none;
+    transform: translateY(-1px);
+    border-color: rgba(244, 154, 94, .74);
+    background: rgba(131, 39, 17, .48);
+}
+.campaign-collectibles-btn small {
+    color: rgba(255, 228, 194, .52);
+    font: 700 9px/1 ui-monospace, monospace;
 }
 .campaign-level-card {
     width: 100%;
@@ -3261,6 +3293,124 @@ body {
 
 /* 数据驱动关卡列表容器 */
 .campaign-chronicle-list { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+
+.campaign-collectibles-modal {
+    position: fixed;
+    z-index: 50000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 22px;
+    background: rgba(5, 4, 3, .76);
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+}
+.campaign-collectibles-modal[hidden] { display: none; }
+.campaign-collectibles-panel {
+    width: min(680px, calc(100vw - 32px));
+    max-height: min(720px, calc(100vh - 40px));
+    overflow: auto;
+    padding: 22px;
+    border: 1px solid rgba(224, 116, 62, .5);
+    border-left: 3px solid #c94520;
+    border-radius: 3px 17px 3px 3px;
+    background:
+        radial-gradient(circle at 90% 0, rgba(217, 88, 35, .14), transparent 34%),
+        linear-gradient(132deg, rgba(51, 18, 10, .98), rgba(15, 10, 8, .99));
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .7), inset 0 1px rgba(255, 228, 190, .05);
+}
+.campaign-collectibles-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 18px;
+}
+.campaign-collectibles-kicker {
+    color: #d67846;
+    font: 700 9px 'Noto Serif SC', serif;
+    letter-spacing: 2.5px;
+}
+.campaign-collectibles-header h3 {
+    margin: 4px 0 0;
+    color: #ffe3b6;
+    font: 900 24px 'Noto Serif SC', serif;
+    letter-spacing: 4px;
+}
+.campaign-collectibles-close {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    place-items: center;
+    color: rgba(255, 224, 188, .68);
+    font: 300 25px/1 sans-serif;
+    cursor: pointer;
+    border: 1px solid rgba(222, 117, 68, .28);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, .025);
+}
+.campaign-collectibles-close:hover,
+.campaign-collectibles-close:focus-visible { color: #fff1d5; outline: none; border-color: rgba(241, 145, 87, .7); }
+.campaign-collectibles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+    gap: 10px;
+}
+.campaign-collectible-slot {
+    display: flex;
+    min-height: 118px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 11px;
+    padding: 13px 10px;
+    color: #f4d7b2;
+    text-align: center;
+    border: 1px solid rgba(222, 117, 68, .24);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, .025);
+    transition: transform .18s ease, border-color .18s ease, background .18s ease;
+}
+.campaign-collectible-slot.is-unlocked { cursor: pointer; }
+.campaign-collectible-slot.is-unlocked:hover,
+.campaign-collectible-slot.is-unlocked:focus-visible {
+    outline: none;
+    transform: translateY(-3px);
+    border-color: rgba(240, 126, 66, .7);
+    background: rgba(126, 39, 18, .24);
+}
+.campaign-collectible-slot.is-locked {
+    color: rgba(232, 211, 190, .27);
+    filter: grayscale(1);
+}
+.campaign-collectible-emoji,
+.campaign-collectible-detail-emoji {
+    font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+}
+.campaign-collectible-emoji { font-size: 35px; filter: drop-shadow(0 5px 8px rgba(0,0,0,.4)); }
+.campaign-collectible-name { font: 700 11px/1.4 'Noto Serif SC', serif; letter-spacing: .5px; }
+.campaign-collectible-detail {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 15px;
+    align-items: center;
+    min-height: 92px;
+    margin-top: 18px;
+    padding: 14px 16px;
+    border-top: 1px solid rgba(222, 117, 68, .22);
+    background: linear-gradient(90deg, rgba(138, 43, 19, .13), transparent);
+}
+.campaign-collectible-detail-emoji { font-size: 38px; text-align: center; }
+.campaign-collectible-detail strong { color: #f3c99d; font: 800 14px 'Noto Serif SC', serif; letter-spacing: 1px; }
+.campaign-collectible-detail p { margin: 5px 0 0; color: rgba(242, 218, 190, .62); font: 11px/1.7 'Noto Serif SC', serif; }
+.campaign-collectibles-empty { grid-column: 1 / -1; color: rgba(242, 218, 190, .46); text-align: center; }
+
+@media (max-width: 520px) {
+    .campaign-collectibles-panel { padding: 17px 14px; }
+    .campaign-collectibles-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .campaign-collectible-detail { grid-template-columns: 42px 1fr; padding-inline: 8px; }
+}
 
 /* 立绘区：切换上一部/下一部将星列传（默认隐藏，仅战役大厅显示） */
 .chronicle-nav-btn {

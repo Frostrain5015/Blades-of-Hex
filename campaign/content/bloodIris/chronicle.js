@@ -1,4 +1,5 @@
 // 传记《染血的鸢尾花》—— 王国宫廷政变群像
+import { BLOOD_IRIS_COLLECTIBLES } from './collectibles.js';
 // 三年前的弑君之夜，一句谎言烧尽了整座王国的夏天。
 //
 // 四章结构：
@@ -120,9 +121,10 @@ const CHRONICLE = Object.freeze({
     id: 'blood-iris',
     title: '染血的鸢尾花',
     index: '将星列传',
-    description: '三年前先王暴毙，一句谎言如铁幕般覆盖了奥雷利亚全境。百夫长、铁卫、狂战士、尚书、谋士——五个按同一枚血印起誓的人，走向了五种对誓约的解释。',
+    description: '以血印此花：我守奥雷利亚，不负陛下，不负众民。',
     posterUrl: 'img/campaign/染血的鸢尾花.webp',
     storageKey: CAMPAIGN_STORAGE_KEY,
+    collectibles: BLOOD_IRIS_COLLECTIBLES,
     cast: Object.freeze([
         { characterId: 'marcus',   commanderId: 'centurion',   role: 'viewpoint' },
         { characterId: 'varo',     commanderId: 'ironGuard',   role: 'opponent' },

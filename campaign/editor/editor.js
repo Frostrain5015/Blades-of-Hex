@@ -161,6 +161,32 @@ function replaceStoryCommanderReferences(level, from, to = '') {
     rewrite(level.triggers);
 }
 
+function replaceCollectibleReferences(level, from, to = '') {
+    if (!from || from === to) return;
+    for (const item of (level.interactables || [])) {
+        if (item.collectibleId !== from) continue;
+        if (to) item.collectibleId = to;
+        else delete item.collectibleId;
+    }
+    const rewrite = value => {
+        if (Array.isArray(value)) { value.forEach(rewrite); return; }
+        if (!value || typeof value !== 'object') return;
+        for (const [key, child] of Object.entries(value)) {
+            if (key === 'collectible' && child === from) value[key] = to;
+            else rewrite(child);
+        }
+    };
+    rewrite(level.triggers);
+    rewrite(level.result?.starRules);
+}
+
+function replaceInteractableUnitReference(level, from, to = '') {
+    if (!from || from === to) return;
+    for (const item of (level.interactables || [])) {
+        item.unitIds = [...new Set((item.unitIds || []).map(id => id === from ? to : id).filter(Boolean))];
+    }
+}
+
 function setLocalPlayerFaction(level, factionId) {
     level.localPlayerCamp = factionId;
     for (const faction of level.factions) {
@@ -981,7 +1007,11 @@ function buildUnitInspector(index) {
     wrap.appendChild(textRow('单位 id', u.id, v => {
         if (!v) { setStatus('单位 id 不能为空', 'error'); renderInspector(); return; }
         if (config.units.some((other, i) => i !== index && other.id === v)) { setStatus(`单位 id「${v}」已存在`, 'error'); renderInspector(); return; }
-        mutate(c => { c.units[index].id = v; });
+        mutate(c => {
+            const previous = c.units[index].id;
+            c.units[index].id = v;
+            replaceInteractableUnitReference(c, previous, v);
+        });
     }));
     wrap.appendChild(selectRow('兵种', u.type, UNIT_LABELS, set('type')));
     wrap.appendChild(selectRow('阵营', u.camp, factionLabels(), set('camp')));
@@ -991,7 +1021,12 @@ function buildUnitInspector(index) {
     wrap.appendChild(checkRow('本回合可行动', u.canAct !== false, set('canAct')));
     wrap.appendChild(coordRow('坐标', u.q, u.r, tile => mutate(c => { c.units[index].q = tile.q; c.units[index].r = tile.r; })));
     const del = el('button', 'ed-add-btn', '🗑 删除该单位');
-    del.addEventListener('click', () => mutate(c => { c.units.splice(index, 1); selection = null; }));
+    del.addEventListener('click', () => mutate(c => {
+        const removed = c.units[index]?.id;
+        c.units.splice(index, 1);
+        replaceInteractableUnitReference(c, removed);
+        selection = null;
+    }));
     wrap.appendChild(del);
     wrap.appendChild(hint('剧情将领需先在左侧“剧情将领库”创建；剧情名会覆盖玩法原型名。单位 id 供触发器、目标环和存活判定引用。'));
     return wrap;
@@ -1208,6 +1243,7 @@ function conditionDefaults(kind) {
         case 'weatherIs': return { weather: 'clear' };
         case 'objectiveStatusIs': return { objective: Object.keys(config.objectives)[0] || '', status: 'active' };
         case 'interactionStateIs': return { interactable: config.interactables[0]?.id || '', state: 'available' };
+        case 'collectibleUnlocked': return { collectible: config.collectibles[0]?.id || '', unlocked: true };
         case 'groupState': return { group: config.unitGroups[0]?.id || '', state: 'anyAlive' };
         case 'unitsInArea': return { area: config.areas[0]?.id || '', camp: '', op: '>=', value: 1 };
         case 'eventInteractionIs': return { interactable: config.interactables[0]?.id || '' };
@@ -1453,6 +1489,10 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         case 'interactionState':
             box.appendChild(selectRow('调查点', cond.interactable || '', Object.fromEntries(config.interactables.map(item => [item.id, item.label || item.id])), v => patch({ interactable: v })));
             box.appendChild(selectRow('状态', cond.state || 'available', { disabled: '不可用', available: '可调查', completed: '已完成' }, v => patch({ state: v }))); break;
+        case 'collectibleState':
+            box.appendChild(textRow('收藏物 ID', cond.collectible || '', v => patch({ collectible: v }), '可填写前序关卡收藏物 ID'));
+            box.appendChild(selectRow('要求', cond.unlocked === false ? 'missing' : 'owned', { owned: '已经获得', missing: '尚未获得' }, v => patch({ unlocked: v === 'owned' })));
+            break;
         case 'groupState':
             box.appendChild(selectRow('单位组', cond.group || '', Object.fromEntries(config.unitGroups.map(item => [item.id, item.id])), v => patch({ group: v })));
             box.appendChild(selectRow('状态', cond.state || 'anyAlive', { anyAlive: '至少一员存活', allAlive: '全员存活', allDead: '全员阵亡', casualty: '出现减员（非全员存活但非全员阵亡）' }, v => patch({ state: v }))); break;
@@ -1915,18 +1955,60 @@ function buildMetaInspector() {
     addGroup.addEventListener('click', () => mutate(c => { c.unitGroups.push({ id: `group${c.unitGroups.length + 1}`, unitIds: [] }); }));
     secGroups.appendChild(addGroup); wrap.appendChild(secGroups);
 
+    const secCollectibles = section(`收藏物库（${config.collectibles.length}）`);
+    secCollectibles.appendChild(hint('收藏物用于跨关卡线索与结局判断，当前以 Emoji 作为陈列符号。只有确实会留下证据或物件的调查点才绑定收藏物；焚毁、开门、启动机关等任务交互不要绑定。'));
+    config.collectibles.forEach((collectible, index) => {
+        const box = card(`${collectible.emoji || '❔'} ${collectible.name || collectible.id || `收藏物 ${index + 1}`}`, () => mutate(c => {
+            const removed = c.collectibles[index]?.id;
+            c.collectibles.splice(index, 1);
+            replaceCollectibleReferences(c, removed);
+        }));
+        box.appendChild(textRow('收藏物 ID', collectible.id || '', value => mutate(c => {
+            const previous = c.collectibles[index].id;
+            c.collectibles[index].id = value;
+            replaceCollectibleReferences(c, previous, value);
+        }), '如 sealed_letter'));
+        box.appendChild(textRow('名称', collectible.name || '', value => mutate(c => { c.collectibles[index].name = value; })));
+        box.appendChild(textRow('Emoji', collectible.emoji || '', value => mutate(c => { c.collectibles[index].emoji = value; }), '如 📜'));
+        box.appendChild(textareaRow('剧情说明', collectible.description || '', value => mutate(c => { c.collectibles[index].description = value; }), 3));
+        secCollectibles.appendChild(box);
+    });
+    const addCollectible = el('button', 'ed-add-btn', '+ 新增收藏物');
+    addCollectible.addEventListener('click', () => mutate(c => {
+        let index = c.collectibles.length + 1;
+        while (c.collectibles.some(item => item.id === `collectible${index}`)) index++;
+        c.collectibles.push({ id: `collectible${index}`, name: '未命名收藏物', emoji: '📜', description: '填写玩家获得后可查看的剧情线索。' });
+    }));
+    secCollectibles.appendChild(addCollectible);
+    wrap.appendChild(secCollectibles);
+
     const secInteractions = section(`调查点（${config.interactables.length}）`);
+    secInteractions.appendChild(hint('调查点不是点击按钮：只有下方勾选的任一单位实际移动到精确地块时才会完成；若绑定收藏物则在此时获得。作者规范要求：调查点处于“可调查”状态期间，必须由进行中的任务目标高亮这个精确坐标。'));
     config.interactables.forEach((item, index) => {
         const box = card(item.label || item.id || `调查点 ${index + 1}`, () => mutate(c => { c.interactables.splice(index, 1); }));
         box.appendChild(textRow('调查点 ID', item.id, value => mutate(c => { c.interactables[index].id = value; })));
         box.appendChild(textRow('显示文案', item.label || '', value => mutate(c => { c.interactables[index].label = value; })));
-        box.appendChild(coordRow('坐标', item.q, item.r, tile => mutate(c => { c.interactables[index].q = tile.q; c.interactables[index].r = tile.r; })));
+        box.appendChild(coordRow('精确地块', item.q, item.r, tile => mutate(c => { c.interactables[index].q = tile.q; c.interactables[index].r = tile.r; })));
+        box.appendChild(checkGroup('允许执行的特殊单位（至少一名）', Object.entries(unitOptions(false)).map(([value, label]) => ({ value, label })), item.unitIds || [],
+            value => mutate(c => { c.interactables[index].unitIds = value; })));
+        box.appendChild(selectRow('绑定收藏物（可选）', item.collectibleId || '', {
+            '': config.collectibles.length ? '（不产出收藏物）' : '（没有可绑定的收藏物）',
+            ...Object.fromEntries(config.collectibles.map(collectible => [collectible.id, `${collectible.emoji || '❔'} ${collectible.name || collectible.id}`]))
+        }, value => mutate(c => { c.interactables[index].collectibleId = value || undefined; })));
         box.appendChild(checkRow('开场可用', item.enabled !== false, value => mutate(c => { c.interactables[index].enabled = value; })));
-        box.appendChild(checkRow('一次性触发', item.once !== false, value => mutate(c => { c.interactables[index].once = value; })));
         secInteractions.appendChild(box);
     });
     const addInteraction = el('button', 'ed-add-btn', '+ 新增调查点');
-    addInteraction.addEventListener('click', () => mutate(c => { c.interactables.push({ id: `clue${c.interactables.length + 1}`, q: 0, r: 0, label: '调查', enabled: true, once: true }); }));
+    addInteraction.addEventListener('click', () => mutate(c => {
+        c.interactables.push({
+            id: `clue${c.interactables.length + 1}`,
+            q: 0,
+            r: 0,
+            label: '调查',
+            enabled: true,
+            unitIds: c.units[0]?.id ? [c.units[0].id] : []
+        });
+    }));
     secInteractions.appendChild(addInteraction); wrap.appendChild(secInteractions);
 
     const secVariables = section(`变量（${config.variables.length}）`);

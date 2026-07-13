@@ -15,6 +15,7 @@
     "test:quick": "node test/run-all.mjs --quick"
   },
   "dependencies": {
+    "mysql2": "^3.22.6",
     "sharp": "^0.35.3",
     "ws": "^8.17.0"
   },

@@ -4,10 +4,11 @@
 import { canvas, HEX_SIZE, LOGICAL_W, LOGICAL_H, CAMP, invalidateBoard, hexPath } from './config.js';
 import { gameState, logMessage, updateUI, notify } from './state.js';
 import { emit, on } from './eventBus.js';
-import { saveVictory } from '../campaign/progress.js';
+import { saveVictory, unlockCollectible } from '../campaign/progress.js';
 import { NPC_DIALOGUE_PORTRAITS } from '../campaign/portraits.js';
 import { campFromKey, getFaction } from '../rules/diplomacy.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { resolveInteractableMove } from '../campaign/runtime/interactions.js';
 
 let sharedController = null;
 
@@ -477,22 +478,52 @@ export function createCampaignController({ onRetry, onReturn }) {
     window.addEventListener('resize', () => { if (active) requestAnimationFrame(syncRing); });
 
     // 领域事件 → 委托当前关卡流程（未加载关卡或非激活时由 flow 内部守卫短路）。
-    on('input:tileSelected', (p) => {
-        activeFlow?.onTileSelected?.(p);
-        const item = activeScenario?._config?.interactables?.find(candidate => candidate.q === p.tile?.q && candidate.r === p.tile?.r);
-        if (!item || gameState.interactionStates?.[item.id] !== 'available') return;
+    on('input:tileSelected', (p) => activeFlow?.onTileSelected?.(p));
+    on('input:cardUsed', (p) => activeFlow?.onCardUsed?.(p));
+    on('match:unitMoved', (p) => {
+        activeFlow?.onUnitMoved?.(p);
+        const unit = p.unit;
+        const tile = p.targetTile;
+        const match = resolveInteractableMove(activeScenario?._config, gameState.interactionStates, unit?.id, tile);
+        if (!match) return;
+        const { item, allowedUnitIds } = match;
+
+        if (!match.allowed) {
+            const names = allowedUnitIds.map(id => {
+                const allowed = findUnit(id);
+                return allowed?.getCommanderDisplayName?.() || allowed?.config?.name || id;
+            });
+            showHint(`${item.label || '该调查'}只能由${names.join('、') || '指定单位'}执行`);
+            return;
+        }
+
         gameState.interactionStates[item.id] = 'completed';
-        showHint(`已完成：${item.label || '调查'}`);
+        const collectible = activeScenario?._config?.collectibles?.find(entry => entry.id === item.collectibleId);
+        const owned = gameState.campaignCollectibleIds instanceof Set
+            ? gameState.campaignCollectibleIds
+            : (gameState.campaignCollectibleIds = new Set());
+        const firstInSession = item.collectibleId && !owned.has(item.collectibleId);
+        if (item.collectibleId) owned.add(item.collectibleId);
+        const persisted = activeScenario?.storageKey
+            ? unlockCollectible(activeScenario.storageKey, item.collectibleId)
+            : firstInSession;
+        if (collectible && persisted) {
+            const message = `获得收藏物：${collectible.emoji} ${collectible.name}`;
+            showHint(message);
+            notify(message, 'info');
+            logMessage(message);
+        } else {
+            showHint(`已完成：${item.label || '调查'}`);
+        }
         emit('campaign:interactionCompleted', {
             interactableId: item.id,
-            unitId: p.unit?.id || null,
-            camp: p.unit?.camp || gameState.localPlayerCampKey,
+            collectibleId: item.collectibleId || '',
+            unitId: unit.id,
+            camp: unit.camp,
             q: item.q,
             r: item.r
         });
     });
-    on('input:cardUsed', (p) => activeFlow?.onCardUsed?.(p));
-    on('match:unitMoved', (p) => activeFlow?.onUnitMoved?.(p));
     on('input:commanderSkillUsed', (p) => activeFlow?.onSkillUsed?.(p));
     on('match:cityCaptured', (p) => activeFlow?.onCityCaptured?.(p));
     on('turn:started', (p) => activeFlow?.onTurnStarted?.(p));

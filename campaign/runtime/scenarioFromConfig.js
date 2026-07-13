@@ -44,7 +44,9 @@ export function scenarioFromConfig(rawConfig, options = {}) {
         if (gameState._campaignFlags instanceof Set) gameState._campaignFlags.clear();
         else gameState._campaignFlags = new Set();
         const built = buildBattlefieldFromConfig(config, gameState);
-        gameState.campaignVariables = storageKey ? { ...readProgress(storageKey).variables } : {};
+        const campaignProgress = storageKey ? readProgress(storageKey) : { variables: {}, collectibleIds: [] };
+        gameState.campaignVariables = { ...campaignProgress.variables };
+        gameState.campaignCollectibleIds = new Set(campaignProgress.collectibleIds || []);
         for (const variable of (config.variables || [])) {
             if (variable.scope === 'campaign' && !(variable.id in gameState.campaignVariables)) {
                 gameState.campaignVariables[variable.id] = variable.initial ?? (variable.type === 'boolean' ? false : variable.type === 'string' ? '' : 0);

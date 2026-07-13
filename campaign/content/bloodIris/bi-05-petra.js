@@ -4,6 +4,7 @@
 // 被踩弯的誓章里看见第一道裂缝；这些还不足以让他给任何人定罪。
 
 import { BLOOD_IRIS_FACTION_PRESETS } from './chronicle.js';
+import { collectiblesForScenario } from './collectibles.js';
 
 const MARCUS = Object.freeze({ name: '马库斯', portrait: 'centurion' });
 const CATO = Object.freeze({ name: '卡托', portrait: 'minister' });
@@ -71,6 +72,7 @@ export const config = {
         { id: 'marcus', name: '马库斯', archetype: 'centurion' },
         { id: 'cato', name: '卡托', archetype: 'minister' }
     ],
+    collectibles: collectiblesForScenario('bi-05-petra'),
 
     board: {
         radius: 4,
@@ -141,7 +143,10 @@ export const config = {
         { id: 'archive_ashes_area', tiles: [{ q: 0, r: 0 }, { q: 1, r: 0 }] }
     ],
     interactables: [
-        { id: 'archive_ashes', q: 0, r: 0, label: '调查档案厅灰烬', enabled: false, once: true }
+        {
+            id: 'archive_ashes', q: 0, r: 0, label: '调查档案厅灰烬', enabled: false,
+            unitIds: ['marcus_assault', 'elian_assault'], collectibleId: 'bi05_charred_silk'
+        }
     ],
     variables: [
         { id: 'evidence_taken', scope: 'campaign', type: 'boolean', initial: false },
@@ -158,7 +163,7 @@ export const config = {
         },
         inspect_ashes: {
             title: '调查档案厅灰烬',
-            detail: '在特使焚尽一切前，找出未燃尽的东西。',
+            detail: '让马库斯或艾利安走到高亮的档案厅地块（0,0），找出未燃尽的东西。',
             active: false,
             main: true,
             highlight: { tiles: [{ q: 0, r: 0 }] }
@@ -242,7 +247,8 @@ export const config = {
                 },
                 {
                     kind: 'showStep', speaker: MARCUS,
-                    text: '进去看看。别踩乱灰。我们至少该知道自己打完了什么。'
+                    text: '进去看看。别踩乱灰。由我或艾利安走到那堆灰上，其他人守住门口。我们至少该知道自己打完了什么。',
+                    highlight: { tiles: [{ q: 0, r: 0 }] }
                 }
             ]
         },

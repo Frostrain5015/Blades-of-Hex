@@ -1,14 +1,15 @@
-// 战役进度存取 —— 通用 localStorage 读写，以传记(chronicle)的 storageKey 为键。
+// 战役进度存取 —— 登录玩家写入 Frost ID 档案，访客回退到统一 localStorage 档案。
 // 与具体关卡/传记解耦：调用方传入 storageKey 与 scenarioId 即可，便于多传记各存各的。
+import { readCampaignProfile, writeCampaignProfile } from '../js/playerProfile.js';
 
 /**
  * 读取某传记的进度。
  * @param {string} storageKey
- * @returns {{ completedScenarioIds: string[], scenarioStars: Record<string, number>, bestStars: number, variables: object, completedOptionalObjectives: string[] }}
+ * @returns {{ completedScenarioIds: string[], scenarioStars: Record<string, number>, bestStars: number, variables: object, completedOptionalObjectives: string[], collectibleIds: string[] }}
  */
 export function readProgress(storageKey) {
     try {
-        const parsed = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        const parsed = readCampaignProfile(storageKey);
         const storedCompletedScenarioIds = Array.isArray(parsed.completedScenarioIds)
             ? parsed.completedScenarioIds.filter(id => typeof id === 'string')
             : [];
@@ -41,10 +42,34 @@ export function readProgress(storageKey) {
             bestStars,
             variables: parsed.variables && typeof parsed.variables === 'object' ? { ...parsed.variables } : {},
             completedOptionalObjectives: Array.isArray(parsed.completedOptionalObjectives)
-                ? [...new Set(parsed.completedOptionalObjectives.filter(id => typeof id === 'string'))] : []
+                ? [...new Set(parsed.completedOptionalObjectives.filter(id => typeof id === 'string'))] : [],
+            collectibleIds: Array.isArray(parsed.collectibleIds)
+                ? [...new Set(parsed.collectibleIds.filter(id => typeof id === 'string' && id))] : []
         };
     } catch (_) {
-        return { completedScenarioIds: [], scenarioStars: {}, bestStars: 0, variables: {}, completedOptionalObjectives: [] };
+        return { completedScenarioIds: [], scenarioStars: {}, bestStars: 0, variables: {}, completedOptionalObjectives: [], collectibleIds: [] };
+    }
+}
+
+/** 调查成功时立即把收藏物写入整部传记的持久进度；返回本次是否首次获得。 */
+export function unlockCollectible(storageKey, collectibleId) {
+    if (!storageKey || !collectibleId) return false;
+    const previous = readProgress(storageKey);
+    if (previous.collectibleIds.includes(collectibleId)) return false;
+    try {
+        writeCampaignProfile(storageKey, {
+            completed: previous.completedScenarioIds.length > 0,
+            completedScenarioIds: previous.completedScenarioIds,
+            scenarioStars: previous.scenarioStars,
+            bestStars: previous.bestStars,
+            variables: previous.variables,
+            completedOptionalObjectives: previous.completedOptionalObjectives,
+            collectibleIds: [...previous.collectibleIds, collectibleId],
+            updatedAt: new Date().toISOString()
+        });
+        return true;
+    } catch (_) {
+        return false;
     }
 }
 
@@ -76,16 +101,17 @@ export function saveVictory(storageKey, scenarioId, stars, details = {}) {
         ...previous.scenarioStars,
         [scenarioId]: Math.max(previous.scenarioStars[scenarioId] || 0, earnedStars)
     };
-    localStorage.setItem(storageKey, JSON.stringify({
+    writeCampaignProfile(storageKey, {
         completed: true,
         completedScenarioIds,
         scenarioStars,
         bestStars: Math.max(previous.bestStars, earnedStars),
         variables: { ...previous.variables, ...(details.variables || {}) },
+        collectibleIds: previous.collectibleIds,
         completedOptionalObjectives: [...new Set([
             ...previous.completedOptionalObjectives,
             ...(details.completedOptionalObjectives || []).map(id => `${scenarioId}/${id}`)
         ])],
         completedAt: new Date().toISOString()
-    }));
+    });
 }

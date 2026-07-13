@@ -7,6 +7,7 @@ let _index = 0;
 let _onStart = null;
 let _onPortrait = null;
 let _navBound = false;
+let _collectionBound = false;
 
 function _currentChronicle() {
     return CHRONICLES[_index] || null;
@@ -31,7 +32,14 @@ function _renderInto(container, chronicle) {
             <h3 id="campaignChronicleTitle">${chronicle.title}</h3>
             <p>${chronicle.description}</p>
         </section>
-        <div class="campaign-level-label">选择关卡</div>
+        <div class="campaign-level-toolbar">
+            <div class="campaign-level-label">选择关卡</div>
+            <button id="campaignCollectiblesBtn" class="campaign-collectibles-btn" type="button">
+                <span aria-hidden="true">🏺</span>
+                <span>收藏物</span>
+                <small id="campaignCollectiblesCount">0/0</small>
+            </button>
+        </div>
         ${chronicle.scenarios.map(_levelCardHtml).join('')}`;
 
     // 关卡卡本身就是唯一入口，避免“先选中、再进入”的重复操作。
@@ -40,6 +48,86 @@ function _renderInto(container, chronicle) {
         const levelBtn = document.getElementById(`${ek}LevelBtn`);
         levelBtn?.addEventListener('click', () => _onStart?.(chronicle.id, level.id));
     }
+    document.getElementById('campaignCollectiblesBtn')?.addEventListener('click', _openCollection);
+}
+
+function _setCollectionDetail(collectible) {
+    const emoji = document.getElementById('campaignCollectibleDetailEmoji');
+    const name = document.getElementById('campaignCollectibleDetailName');
+    const description = document.getElementById('campaignCollectibleDetailDescription');
+    if (!emoji || !name || !description) return;
+    emoji.textContent = collectible?.emoji || '❔';
+    name.textContent = collectible?.name || '尚未选择收藏物';
+    description.textContent = collectible?.description || '获得收藏物后，将鼠标移到陈列格上查看它留下的剧情线索。';
+}
+
+function _closeCollection() {
+    const modal = document.getElementById('campaignCollectiblesModal');
+    if (!modal) return;
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+    document.getElementById('campaignCollectiblesBtn')?.focus();
+}
+
+function _openCollection() {
+    const chronicle = _currentChronicle();
+    const modal = document.getElementById('campaignCollectiblesModal');
+    const grid = document.getElementById('campaignCollectiblesGrid');
+    if (!chronicle || !modal || !grid) return;
+    const progress = readProgress(chronicle.storageKey);
+    const unlocked = new Set(progress.collectibleIds || []);
+    const collectibles = chronicle.collectibles || [];
+    grid.replaceChildren();
+
+    let firstUnlocked = null;
+    for (const collectible of collectibles) {
+        const owned = unlocked.has(collectible.id);
+        if (owned && !firstUnlocked) firstUnlocked = collectible;
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = `campaign-collectible-slot${owned ? ' is-unlocked' : ' is-locked'}`;
+        item.setAttribute('aria-label', owned ? collectible.name : '尚未获得的收藏物');
+
+        const icon = document.createElement('span');
+        icon.className = 'campaign-collectible-emoji';
+        icon.textContent = owned ? collectible.emoji : '❔';
+        const label = document.createElement('span');
+        label.className = 'campaign-collectible-name';
+        label.textContent = owned ? collectible.name : '未知收藏物';
+        item.append(icon, label);
+
+        if (owned) {
+            const reveal = () => _setCollectionDetail(collectible);
+            item.addEventListener('pointerenter', reveal);
+            item.addEventListener('focus', reveal);
+            item.addEventListener('click', reveal);
+        } else {
+            item.disabled = true;
+        }
+        grid.appendChild(item);
+    }
+
+    if (!collectibles.length) {
+        const empty = document.createElement('p');
+        empty.className = 'campaign-collectibles-empty';
+        empty.textContent = '这部传记尚未设置收藏物。';
+        grid.appendChild(empty);
+    }
+    _setCollectionDetail(firstUnlocked);
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    document.getElementById('campaignCollectiblesCloseBtn')?.focus();
+}
+
+function _bindCollectionModal() {
+    if (_collectionBound) return;
+    const modal = document.getElementById('campaignCollectiblesModal');
+    document.getElementById('campaignCollectiblesCloseBtn')?.addEventListener('click', _closeCollection);
+    modal?.addEventListener('click', event => { if (event.target === modal) _closeCollection(); });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !modal?.hidden) _closeCollection();
+    });
+    _collectionBound = true;
 }
 
 function _updateNavButtons() {
@@ -95,6 +183,7 @@ export function renderCampaignLobby({ onStartScenario, onPortraitChange } = {}) 
     if (onStartScenario) _onStart = onStartScenario;
     if (onPortraitChange) _onPortrait = onPortraitChange;
 
+    _bindCollectionModal();
     if (!_navBound) {
         document.getElementById('campaignChroniclePrevBtn')?.addEventListener('click', () => _switchChronicle(-1));
         document.getElementById('campaignChronicleNextBtn')?.addEventListener('click', () => _switchChronicle(1));
@@ -109,6 +198,13 @@ export function refreshCampaignLobbyProgress() {
     const chronicle = _currentChronicle();
     if (!chronicle) return;
     const progress = readProgress(chronicle.storageKey);
+
+    const collectibleCount = document.getElementById('campaignCollectiblesCount');
+    if (collectibleCount) {
+        const owned = new Set(progress.collectibleIds || []);
+        const total = (chronicle.collectibles || []).length;
+        collectibleCount.textContent = `${(chronicle.collectibles || []).filter(item => owned.has(item.id)).length}/${total}`;
+    }
 
     const mark = document.getElementById('campaignProgressMark');
     if (mark) {

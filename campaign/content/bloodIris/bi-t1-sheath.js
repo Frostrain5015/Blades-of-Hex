@@ -73,6 +73,7 @@ export const config = {
         { id: 'severus', name: '塞维鲁', archetype: 'advisor' },
         { id: 'marcus', name: '马库斯', archetype: 'centurion' }
     ],
+    collectibles: [],
 
     board: {
         radius: 3,
@@ -399,7 +400,7 @@ export const config = {
                 },
                 {
                     kind: 'showStep',
-                    text: '三根拇指依次按进军籍上的红蜡。\n\n“以血印此花：我守奥雷利亚，奥雷利亚不负于我。”'
+                    text: '三根拇指依次按进军籍上的红蜡。\n\n“以血印此花：我守奥雷利亚，不负陛下，不负众民。”'
                 },
                 {
                     kind: 'showStep',

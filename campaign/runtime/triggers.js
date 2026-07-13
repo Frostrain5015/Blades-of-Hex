@@ -194,6 +194,11 @@ function evalCondition(cond, ctx) {
         case 'relationIs': return getRelation(gameState, cond.camp, cond.targetCamp) === cond.relation;
         case 'objectiveStatusIs': return gameState.objectiveStates?.[cond.objective] === cond.status;
         case 'interactionStateIs': return gameState.interactionStates?.[cond.interactable] === cond.state;
+        case 'collectibleUnlocked': {
+            const unlocked = gameState.campaignCollectibleIds instanceof Set
+                && gameState.campaignCollectibleIds.has(cond.collectible);
+            return cond.unlocked === false ? !unlocked : unlocked;
+        }
         case 'factionUnitCount': {
             const count = gameState.tiles.filter(tile => tile.unit && campKeyOf(tile.unit.camp) === cond.camp && tile.unit.hp > 0).length;
             return compareValues(count, cond.op || '>=', Number(cond.value));

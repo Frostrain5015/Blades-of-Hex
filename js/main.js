@@ -49,32 +49,23 @@ import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } 
 import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { createFlagPreview } from './flagRenderer.js';
+import {
+    ensurePlayerProfileReady,
+    readStandardFlagPreferences,
+    writeStandardFlagPreference
+} from './playerProfile.js';
 
-const FLAG_CUSTOMIZATION_STORAGE_KEY = 'blades-of-hex.standard-flag-customizations.v1';
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
 let _factionRevealTimer = null;
 
 function _readSavedFlagCustomizations() {
-    try {
-        const raw = window.localStorage.getItem(FLAG_CUSTOMIZATION_STORAGE_KEY);
-        const parsed = raw ? JSON.parse(raw) : {};
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch (error) {
-        console.warn('[flags] 无法读取本地旗帜设置:', error);
-        return {};
-    }
+    return readStandardFlagPreferences();
 }
 
 function _saveFlagCustomization(factionKey) {
     const faction = gameState.factions?.[factionKey];
     if (!faction) return;
-    const saved = _readSavedFlagCustomizations();
-    saved[factionKey] = { colorId: faction.colorId, emoji: faction.flagEmoji };
-    try {
-        window.localStorage.setItem(FLAG_CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
-    } catch (error) {
-        console.warn('[flags] 无法保存本地旗帜设置:', error);
-    }
+    writeStandardFlagPreference(factionKey, { colorId: faction.colorId, emoji: faction.flagEmoji });
 }
 
 function _savedFlagEmojisFromState() {
@@ -98,6 +89,7 @@ function _applySavedFlagCustomizations(factionKeys) {
     return changed;
 }
 
+await ensurePlayerProfileReady();
 loadSettings();
 initCanvas();
 initAudio();

@@ -96,6 +96,7 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     ,{ kind: 'weatherIs', label: '当前天气为', arg: 'weather' }
     ,{ kind: 'objectiveStatusIs', label: '目标状态为', arg: 'objectiveStatus' }
     ,{ kind: 'interactionStateIs', label: '调查点状态为', arg: 'interactionState' }
+    ,{ kind: 'collectibleUnlocked', label: '已获得/未获得收藏物', arg: 'collectibleState' }
     ,{ kind: 'groupState', label: '单位组状态为', arg: 'groupState' }
     ,{ kind: 'unitsInArea', label: '区域内单位数量', arg: 'areaCount' }
     ,{ kind: 'eventInteractionIs', label: '事件调查点是', arg: 'interaction', event: true }
@@ -149,6 +150,7 @@ export function createDefaultLevel() {
         commanders: {},
         hands: { player1: [] },
         storyCommanders: [],        // [{ id, name, archetype?, portrait? }]
+        collectibles: [],           // [{ id, name, emoji, description }]
         // 阵营不是逐格独立属性：每个 districtId 的阵营由该区划内的城市（颜色来源）单向决定，
         // 与 gameLogic.updateDistrictColor 的运行时规则一致——城市变色，全区划跟着变色。
         // 因此棋盘只需描述「区划范围」(districts) 与「区划颜色来源」(cities.camp)，
@@ -166,7 +168,7 @@ export function createDefaultLevel() {
         units: [],                  // [{ id, type, camp, q, r, commander?|storyCommander?, hpPct, morale, canAct }]
         unitGroups: [],             // [{ id, unitIds:[] }]
         areas: [],                  // [{ id, tiles:[{q,r}] }]
-        interactables: [],          // [{ id, q, r, label, enabled, once, icon? }]
+        interactables: [],          // [{ id, q, r, label, enabled, unitIds:[...], collectibleId? }]
         variables: [],              // [{ id, scope:'level'|'campaign', type, initial }]
         objectives: {},             // { objId: { title, detail, active, main, highlight?:{unit,tiles,area} } }
         triggers: [],               // [{ id, when:[], do:[], once, enabled }]
@@ -190,6 +192,7 @@ export function normalizeLevel(raw) {
     merged.commanders = { ...def.commanders, ...(raw.commanders || {}) };
     merged.hands = { ...def.hands, ...(raw.hands || {}) };
     merged.storyCommanders = Array.isArray(raw.storyCommanders) ? raw.storyCommanders : [];
+    merged.collectibles = Array.isArray(raw.collectibles) ? raw.collectibles : [];
     merged.factions = Array.isArray(raw.factions) ? raw.factions.map(item => {
         const palette = getPaletteEntry(item?.color);
         return { ...item, note: typeof item?.note === 'string' ? item.note.trim() : '', color: palette?.id || item?.color };
@@ -206,7 +209,11 @@ export function normalizeLevel(raw) {
     merged.units = Array.isArray(raw.units) ? raw.units : [];
     merged.unitGroups = Array.isArray(raw.unitGroups) ? raw.unitGroups : [];
     merged.areas = Array.isArray(raw.areas) ? raw.areas : [];
-    merged.interactables = Array.isArray(raw.interactables) ? raw.interactables : [];
+    merged.interactables = Array.isArray(raw.interactables) ? raw.interactables.map(item => {
+        const normalized = { ...item, unitIds: Array.isArray(item?.unitIds) ? [...new Set(item.unitIds)] : [] };
+        delete normalized.once; // 旧字段从未参与运行时；重复调查统一由状态重新设为 available 控制。
+        return normalized;
+    }) : [];
     merged.variables = Array.isArray(raw.variables) ? raw.variables : [];
     merged.objectives = raw.objectives && typeof raw.objectives === 'object' ? raw.objectives : {};
     merged.triggers = Array.isArray(raw.triggers) ? raw.triggers.map(trigger => {
@@ -330,12 +337,29 @@ export function validateLevel(config) {
         if (!Array.isArray(area.tiles) || area.tiles.length === 0) warnings.push(`区域「${area.id}」没有地块。`);
         for (const tile of (area.tiles || [])) if (!inBoard(tile.q, tile.r)) errors.push(`区域「${area.id}」包含棋盘外坐标 (${tile.q},${tile.r})。`);
     }
+    const collectibleIds = new Set();
+    for (const collectible of (c.collectibles || [])) {
+        const id = collectible?.id || '';
+        if (!/^[a-z][a-z0-9_-]{0,63}$/i.test(id)) errors.push(`收藏物 id「${id || '空'}」非法（使用字母开头，后续仅限字母、数字、_、-）。`);
+        if (collectibleIds.has(id)) errors.push(`收藏物 id「${id}」重复。`);
+        collectibleIds.add(id);
+        if (!collectible?.name?.trim()) errors.push(`收藏物「${id || '未命名'}」缺少名称。`);
+        if (!collectible?.emoji?.trim()) errors.push(`收藏物「${id || '未命名'}」缺少 Emoji 符号。`);
+        if (!collectible?.description?.trim()) errors.push(`收藏物「${id || '未命名'}」缺少剧情说明。`);
+    }
     const interactionIds = new Set();
+    const interactionTiles = new Set();
     for (const item of (c.interactables || [])) {
         if (!item.id || interactionIds.has(item.id)) errors.push(`调查点 id「${item.id || '空'}」缺失或重复。`);
         interactionIds.add(item.id);
         if (!inBoard(item.q, item.r)) errors.push(`调查点「${item.id}」位于棋盘外。`);
         if (!item.label) warnings.push(`调查点「${item.id}」没有显示文案。`);
+        const point = `${item.q},${item.r}`;
+        if (interactionTiles.has(point)) errors.push(`调查点「${item.id}」与另一调查点重叠在 (${point})；调查点必须各自占用一个精确地块。`);
+        interactionTiles.add(point);
+        if (!Array.isArray(item.unitIds) || item.unitIds.length === 0) errors.push(`调查点「${item.id}」必须指定至少一个执行单位。`);
+        for (const unitId of (item.unitIds || [])) if (!unitIds.has(unitId)) errors.push(`调查点「${item.id}」引用不存在的执行单位「${unitId}」。`);
+        if (item.collectibleId && !collectibleIds.has(item.collectibleId)) errors.push(`调查点「${item.id}」绑定了本关未定义的收藏物「${item.collectibleId}」。`);
     }
     const variableIds = new Set();
     for (const variable of (c.variables || [])) {
@@ -462,6 +486,7 @@ export function validateLevel(config) {
         if (condition.kind === 'unitsInArea' && condition.area && !areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
         if (['eventInteractionIs', 'interactionStateIs'].includes(condition.kind) && !interactionIds.has(condition.interactable)) errors.push(`${path} 引用不存在的调查点「${condition.interactable}」。`);
         if (condition.kind === 'objectiveStatusIs' && !objectiveIds.has(condition.objective)) errors.push(`${path} 引用不存在的目标「${condition.objective}」。`);
+        if (condition.kind === 'collectibleUnlocked' && !condition.collectible) errors.push(`${path} 必须填写收藏物 ID。`);
         if (condition.kind === 'mechanicEnabled' && !MECHANIC_KEYS.includes(condition.mechanic)) errors.push(`${path} 引用不存在的机制「${condition.mechanic}」。`);
         if (condition.kind === 'variableCompare') {
             const variable = (c.variables || []).find(item => item.id === condition.variable && item.scope === (condition.scope || 'level'));

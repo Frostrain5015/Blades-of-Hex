@@ -62,11 +62,11 @@ export async function run(browser, { quick = false } = {}) {
     const selectedFlag = await page.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
         const faction = gameState.factions.player1;
-        return { color: faction.colorId, emoji: faction.flagEmoji, flagUrl: faction.flagUrl, saved: localStorage.getItem('blades-of-hex.standard-flag-customizations.v1') };
+        return { color: faction.colorId, emoji: faction.flagEmoji, flagUrl: faction.flagUrl, saved: localStorage.getItem('blades-of-hex.player-profile.v2') };
     });
     R.assert(selectedFlag.color === 'purple' && selectedFlag.emoji === '🐉'
         && selectedFlag.flagUrl?.startsWith('data:image/svg+xml') && selectedFlag.saved?.includes('🐉'),
-    '选将页可组合阵营色与旗面徽记，并在确认后保存到本地');
+    '选将页可组合阵营色与旗面徽记，并写入统一玩家档案（访客回退本地）');
     await pickCommander(page);
     await waitFor(() => page.evaluate(() => document.getElementById('factionReveal')?.classList.contains('show')
         && document.querySelectorAll('.faction-reveal-flag').length === 2), 10000, '回合准备旗帜展示');

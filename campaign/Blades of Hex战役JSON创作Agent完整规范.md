@@ -14,7 +14,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 - `schemaVersion` 必须是 `2`。
 - 所有引用必须使用配置中已经声明的 ID。
 - 所有坐标必须在棋盘半径内。
-- 只使用本文列出的 30 种条件和 19 种动作。
+- 只使用本文列出的 31 种条件和 19 种动作。
 - 不得生成旧 `steps` 表、旧 `showStep.step` 引用或内部 `_id`。
 - 不得使用 `levelStarted`、`sendMessage`、`flagSet`、`flagUnset`、`turnAtLeast`、`unitAlive`、`unitDead`、`eventCardIs`、`delay`、`setPhase` 等遗留或内部接口。开场立即执行使用 `enabled:true, once:true, when:[]`。
 
@@ -43,6 +43,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 | `commanders` | object | 是 | 传统阵营主将映射；动态阵营通常在单位上绑定将领 |
 | `hands` | object | 是 | `{阵营ID: [卡牌ID...]}` |
 | `storyCommanders` | array | 是 | 剧情将领身份库；无内容时写 `[]` |
+| `collectibles` | array | 是 | 本关可能获得的收藏物；无内容时写 `[]` |
 | `board` | object | 是 | 棋盘定义 |
 | `units` | array | 是 | 开场单位 |
 | `unitGroups` | array | 是 | 单位 ID 集合 |
@@ -124,6 +125,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
   "commanders": {},
   "hands": { "player1": [], "north_guard": [] },
   "storyCommanders": [],
+  "collectibles": [],
   "board": {
     "radius": 2,
     "cities": [
@@ -462,7 +464,29 @@ Faction 对象：
 
 区域 ID 必须唯一，`tiles` 至少一格，坐标全部合法。
 
-### 8.4 interactables
+### 8.4 collectibles
+
+收藏物是跨关卡永久线索。符号当前必须使用一个 Emoji；`description` 是玩家获得后在收藏陈列中悬停查看的说明。
+
+```json
+{
+  "collectibles": [
+    {
+      "id": "charred_silk_fragment",
+      "name": "焦黑帛书残片",
+      "emoji": "📜",
+      "description": "灰烬中留下的半片帛书，断句的真意仍无法确定。"
+    }
+  ]
+}
+```
+
+- `id` 必须以字母开头，只能含字母、数字、`_`、`-`，本关内唯一。
+- `name`、`emoji`、`description` 均不得为空。
+- 收藏物在调查完成时立即持久化，不要求玩家先通关；已登录用户写入 Frost ID 玩家档案，访客写入 localStorage。
+- 跨关结局判断使用 `collectibleUnlocked` 条件。生产注册时还必须把该条目加入所属传记的收藏物总表，才能在关卡列表陈列。
+
+### 8.5 interactables
 
 ```json
 {
@@ -473,15 +497,26 @@ Faction 对象：
       "r": -1,
       "label": "调查断旗",
       "enabled": true,
-      "once": true
+      "unitIds": ["scout", "captain"],
+      "collectibleId": "charred_silk_fragment"
     }
   ]
 }
 ```
 
-运行时状态为 `disabled/available/completed`。点击可用调查点后自动变为 `completed` 并发出调查事件；要重复使用，触发器将其改回 `available`。当前 `once` 是编辑器描述字段，重复能力以状态为准。
+运行时状态为 `disabled/available/completed`。调查点只在以下条件全部成立时完成：
 
-### 8.5 variables
+1. 状态为 `available`；
+2. `unitIds` 中任一指定单位实际完成移动；
+3. 该单位落在调查点唯一的精确坐标 `(q,r)` 上。
+
+点击地块、进入相邻格、进入一个区域、或由未列入 `unitIds` 的单位抵达都不会完成。完成后状态自动变为 `completed` 并发出 `eventInteractionIs`；要再次使用，动作 `setInteractionState` 必须把它改回 `available`。不要输出废弃字段 `once`。
+
+`collectibleId` 可选。只有会留下证据、物件或永久线索的调查点才绑定本关 `collectibles` 中的 ID；焚毁档案、开门、启动机关等任务交互不得为了“有奖励”而虚构收藏物。
+
+**规范性可读性要求（编辑器不会强制报错）：调查点只要处于 `available`，就必须有一个状态为 `active` 的任务目标，其 `highlight.tiles` 明确包含该精确坐标。** 若调查点中途启用，应在同一阶段动作中同时启用对应目标；完成时同时完成或切换目标。玩家不能靠猜坐标发现调查点。
+
+### 8.6 variables
 
 ```json
 {
@@ -497,7 +532,7 @@ Faction 对象：
 - `type`：`number`、`boolean`、`string`。
 - `initial` 的 JSON 类型必须与 `type` 完全一致。
 
-### 8.6 objectives
+### 8.7 objectives
 
 ```json
 {
@@ -614,7 +649,7 @@ Faction 对象：
 ]
 ```
 
-## 11. 全部公开条件：30 种
+## 11. 全部公开条件：31 种
 
 比较操作符：数字通常支持 `<`、`<=`、`==`、`!=`、`>=`、`>`；具体以各条件说明为准。
 
@@ -670,6 +705,7 @@ Faction 对象：
 | `weatherIs` | `weather` | 当前天气；使用 `cycle` 没有意义，运行时 cycle 从 `clear` 开始 |
 | `objectiveStatusIs` | `objective,status` | status 为 `hidden/active/completed/failed` |
 | `interactionStateIs` | `interactable,state` | state 为 `disabled/available/completed` |
+| `collectibleUnlocked` | `collectible,unlocked` | 判断玩家是否已永久获得指定收藏物；`unlocked` 为布尔值，可跨关用于分支和结局 |
 | `groupState` | `group,state` | state 为 `anyAlive/allAlive/allDead/casualty` |
 | `unitsInArea` | `area,op,value` | 可选 `camp`；统计区域格上的单位数；op 为 `<=,==,>=` |
 | `mechanicEnabled` | `mechanic,enabled` | 指定机制当前是否启用 |
@@ -985,13 +1021,14 @@ Faction 对象：
 6. 恰好一个 `human`，等于 `localPlayerCamp`。
 7. `turnOrder` 无重复，完整覆盖所有启用且参与回合的阵营。
 8. 外交引用合法、关系合法、双向对称。
-9. 单位组、区域、调查点、变量、触发器 ID 非空且各自唯一。
-10. 所有 TargetRef、变量、目标、触发器、机制、调查点、区域及目标提示光圈引用存在。
-11. `all/any` 非空，`not` 有子条件；每个触发器至少一个动作。空 `when` 表示“启用即执行”，既可用于开场启用，也可用于中途启用。
-12. 变量初始值、比较值和写入值类型一致。
-13. `showStep.text` 非空；人物模式有 `speaker.name`；操作锁有真实高亮目标。
-14. 生成单位类型、阵营、坐标、ID、玩法/剧情将领和生命值合法。
-15. `applyEffect` 字段、持续回合、特殊规则和修正值合法。
+9. 单位组、区域、调查点、收藏物、变量、触发器 ID 非空且各自唯一。
+10. 所有 TargetRef、变量、目标、触发器、机制、调查点、收藏物、区域及目标提示光圈引用存在。
+11. 每个调查点至少指定一个开场单位，且可用期间有进行中目标用 `highlight.tiles` 标亮精确坐标；只在确实取得物件时绑定收藏物。
+12. `all/any` 非空，`not` 有子条件；每个触发器至少一个动作。空 `when` 表示“启用即执行”，既可用于开场启用，也可用于中途启用。
+13. 变量初始值、比较值和写入值类型一致。
+14. `showStep.text` 非空；人物模式有 `speaker.name`；操作锁有真实高亮目标。
+15. 生成单位类型、阵营、坐标、ID、玩法/剧情将领和生命值合法。
+16. `applyEffect` 字段、持续回合、特殊规则和修正值合法。
 
 ## 16. 编译命令与交付流程
 
@@ -1016,7 +1053,7 @@ Agent 的验收顺序必须是：
 可以在最终输出前执行以下自检：
 
 ```text
-我只使用 Schema v2 的公开根字段、30 种条件和 19 种动作。
+我只使用 Schema v2 的公开根字段、31 种条件和 19 种动作。
 我没有创建 steps 表、内部 _id 或未公开 kind。
 所有 ID 唯一，所有引用存在，所有坐标满足六边形半径公式。
 未来阶段触发器默认关闭，并由上一阶段显式启用。

@@ -44,6 +44,13 @@ export async function run(browser) {
     R.assert(true, '单人战役拥有独立大厅页签');
     R.assert((await page.textContent('#campaignChronicleTitle')).trim() === '染血的鸢尾花', '第一部传记名为《染血的鸢尾花》');
     R.assert((await page.textContent('.campaign-chronicle-index')).includes('将星列传'), '传记档案编号正确');
+    R.assert((await page.textContent('#campaignCollectiblesBtn')).includes('0/1'), '关卡列表右上角显示收藏物入口与当前收集进度');
+    await page.click('#campaignCollectiblesBtn');
+    R.assert(await page.locator('#campaignCollectiblesModal').isVisible()
+        && await page.locator('.campaign-collectible-slot.is-locked').count() === 1
+        && (await page.textContent('.campaign-collectible-name')).trim() === '未知收藏物',
+    '未获得的收藏物在陈列页保持未知，不提前泄露剧情说明');
+    await page.click('#campaignCollectiblesCloseBtn');
     const objectiveHighlightContract = await page.evaluate(async () => {
         const { resolveActiveObjectiveHighlightTiles } = await import('/campaign/runtime/objectiveHighlights.js');
         const unitTile = { q: 0, r: 0, unit: { id: 'escort' } };
@@ -88,6 +95,16 @@ export async function run(browser) {
         };
         const cato = createUnit(config.units.find(unit => unit.id === 'cato_defender'));
         const captain = createUnit(config.units.find(unit => unit.id === 'petra_gate_guard'));
+        const ireneSpec = config.units.find(unit => unit.id === 'irene_courier');
+        const irene = createUnit(ireneSpec);
+        const beginEvacuation = config.triggers.find(trigger => trigger.id === 'begin_evacuation');
+        const archivesDestroyed = config.triggers.find(trigger => trigger.id === 'archives_destroyed');
+        const reachesTunnel = config.triggers.find(trigger => trigger.id === 'irene_reaches_tunnel');
+        const tunnelTiles = config.areas.find(area => area.id === 'secret_tunnel')?.tiles || [];
+        const reinforcementWaves = config.triggers.filter(trigger => trigger.id.startsWith('expedition_wave_'));
+        const reinforcementIds = reinforcementWaves.flatMap(trigger => trigger.do
+            .filter(action => action.kind === 'spawnUnits')
+            .flatMap(action => action.units.map(unit => unit.id)));
         const inspectAlpha = async source => {
             const image = new Image();
             image.src = source;
@@ -104,6 +121,31 @@ export async function run(browser) {
         return {
             cato: { commander: cato.commander, name: cato.getCommanderDisplayName(), portrait: cato.getCommanderPortraitId() },
             captain: { commander: captain.commander, name: captain.getCommanderDisplayName(), portrait: captain.getCommanderPortraitId(), identity: captain.isCommanderUnit },
+            irene: { commander: irene.commander, name: irene.getCommanderDisplayName(), portrait: irene.getCommanderPortraitId(), identity: irene.isCommanderUnit },
+            ireneGuidance: {
+                readyToInvestigate: ireneSpec.canAct === true,
+                objectiveNamesUnit: config.objectives.escort_irene.detail.includes('标有“伊蕾妮”'),
+                singlePlainEntrance: tunnelTiles.length === 1
+                    && tunnelTiles[0].q === 2 && tunnelTiles[0].r === -2
+                    && !config.board.terrain.some(tile => tile.q === 2 && tile.r === -2),
+                noMisleadingEnemyCity: config.board.cities.every(city => city.camp !== 'expedition'),
+                escalatingReinforcements: reinforcementWaves.length === 3
+                    && reinforcementWaves.map(trigger => trigger.when[0].turn || 0).join(',') === '0,1,2'
+                    && reinforcementIds.length === 4 && new Set(reinforcementIds).size === 4
+                    && config.objectives.hold_west_gate.detail.includes('每个东征军回合'),
+                identifiesAndHighlights: beginEvacuation.do[0]?.highlight?.unit === 'irene_courier'
+                    && beginEvacuation.do[0]?.highlight?.tiles?.length === 1,
+                archivesHighlighted: beginEvacuation.do[1]?.highlight?.tiles?.length === 3,
+                archivesRequireSpecialMovement: config.interactables.length === 3
+                    && config.collectibles.length === 0
+                    && config.interactables.every(item => item.unitIds?.join(',') === 'cato_defender,irene_courier'
+                        && !item.collectibleId),
+                tunnelTriggerInitiallyOff: reachesTunnel.enabled === false,
+                unlocksAfterArchives: !archivesDestroyed.do.some(action => action.kind === 'setUnitState'
+                    && action.target?.unit === 'irene_courier' && action.state === 'canAct')
+                    && archivesDestroyed.do.some(action => action.kind === 'setTriggerEnabled'
+                        && action.trigger === 'irene_reaches_tunnel' && action.enabled === true)
+            },
             male: await inspectAlpha('/img/commander_tr/NPC男.webp'),
             female: await inspectAlpha('/img/commander_tr/NPC女.webp')
         };
@@ -117,9 +159,36 @@ export async function run(browser) {
         && storyCommanderContract.captain.portrait === 'npcMale'
         && storyCommanderContract.captain.identity,
     '无玩法原型的自创人物仍作为剧情将领挂载');
+    R.assert(storyCommanderContract.irene.commander === null
+        && storyCommanderContract.irene.name === '伊蕾妮'
+        && storyCommanderContract.irene.portrait === 'npcFemale'
+        && storyCommanderContract.irene.identity
+        && Object.values(storyCommanderContract.ireneGuidance).every(Boolean),
+    '《不归城》明确标识伊蕾妮、解释护送操作，并在档案焚毁后才开放撤离');
     R.assert(storyCommanderContract.male.corner === 0 && storyCommanderContract.male.center > 0
         && storyCommanderContract.female.corner === 0 && storyCommanderContract.female.center > 0,
     'NPC 男女战场兜底立绘均使用真实透明背景资源');
+    const collectibleContract = await page.evaluate(async () => {
+        const { config } = await import('/campaign/content/bloodIris/bi-05-petra.js');
+        const { BLOOD_IRIS_COLLECTIBLES } = await import('/campaign/content/bloodIris/collectibles.js');
+        const { resolveInteractableMove } = await import('/campaign/runtime/interactions.js');
+        const interaction = config.interactables[0];
+        const states = { [interaction.id]: 'available' };
+        const exact = resolveInteractableMove(config, states, 'marcus_assault', { q: 0, r: 0 });
+        const wrongUnit = resolveInteractableMove(config, states, 'titus_assault', { q: 0, r: 0 });
+        const adjacent = resolveInteractableMove(config, states, 'marcus_assault', { q: 1, r: 0 });
+        return {
+            oneEvidenceOnly: BLOOD_IRIS_COLLECTIBLES.length === 1
+                && config.collectibles.length === 1
+                && config.collectibles[0].id === 'bi05_charred_silk',
+            exactSpecialUnitWorks: exact?.allowed === true && exact.item.collectibleId === 'bi05_charred_silk',
+            wrongUnitBlocked: wrongUnit?.allowed === false,
+            adjacentBlocked: adjacent === null,
+            objectiveHighlightsExactPoint: config.objectives.inspect_ashes.highlight?.tiles?.some(tile => tile.q === 0 && tile.r === 0)
+        };
+    });
+    R.assert(Object.values(collectibleContract).every(Boolean),
+    '第一章仅马库斯一方的灰烬证据成为收藏物，且只能由指定单位移动到精确高亮地块取得');
     const objectiveEditorPage = await newGamePage(browser);
     await objectiveEditorPage.click('#soloGameBtn');
     await objectiveEditorPage.evaluate(() => document.getElementById('editorBtn')?.click());
@@ -138,6 +207,12 @@ export async function run(browser) {
         && await objectiveEditorPage.getByText('玩法原型', { exact: true }).count() === 1
         && await objectiveEditorPage.getByText('人物立绘', { exact: true }).count() === 1,
     '编辑器可创建带可选玩法原型和兜底立绘的剧情将领');
+    await objectiveEditorPage.click('.editor-tab[data-tab="meta"]');
+    R.assert(await objectiveEditorPage.getByText(/收藏物库/).count() === 1
+        && await objectiveEditorPage.getByText('+ 新增收藏物', { exact: true }).count() === 1
+        && await objectiveEditorPage.getByText(/调查点不是点击按钮/).count() === 1
+        && await objectiveEditorPage.getByText('+ 新增调查点', { exact: true }).count() === 1,
+    '编辑器提供 Emoji 收藏物库，并明确调查点必须由指定单位移动到精确地块');
     R.assert(objectiveEditorPage._errors.length === 0,
         `目标提示光圈编辑器无页面异常${objectiveEditorPage._errors.length ? `：${objectiveEditorPage._errors.join(' | ')}` : ''}`);
     await objectiveEditorPage.context().close();
@@ -463,18 +538,19 @@ export async function run(browser) {
         const sequentialLock = await page.evaluate(async () => {
             const storageKey = 'bladesOfHex.campaign.bloodIris';
             const { refreshCampaignLobbyProgress } = await import('/campaign/lobby.js');
-            localStorage.removeItem(storageKey);
+            const { writeCampaignProfile } = await import('/js/playerProfile.js');
+            writeCampaignProfile(storageKey, {});
             refreshCampaignLobbyProgress();
             const first = document.getElementById('bi-t1-sheathLevelBtn');
             const second = document.getElementById('bi-02-flagLevelBtn');
             const initiallyLocked = !first.disabled && second.disabled
                 && document.getElementById('bi-02-flagRating')?.textContent === '🔒';
 
-            localStorage.setItem(storageKey, JSON.stringify({
+            writeCampaignProfile(storageKey, {
                 completedScenarioIds: ['bi-t1-sheath'],
                 scenarioStars: { 'bi-t1-sheath': 1 },
                 bestStars: 1
-            }));
+            });
             refreshCampaignLobbyProgress();
             return {
                 initiallyLocked,
@@ -486,21 +562,40 @@ export async function run(browser) {
             && sequentialLock.secondUnlockedAtOneStar
             && sequentialLock.thirdStillLocked,
         '关卡按目录顺序逐关解锁：首关开放，前一关至少一星后仅开放下一关');
+        await page.evaluate(async () => {
+            const { writeCampaignProfile } = await import('/js/playerProfile.js');
+            const { refreshCampaignLobbyProgress } = await import('/campaign/lobby.js');
+            writeCampaignProfile('bladesOfHex.campaign.bloodIris', {
+                completedScenarioIds: ['bi-t1-sheath'],
+                scenarioStars: { 'bi-t1-sheath': 1 },
+                bestStars: 1,
+                collectibleIds: ['bi05_charred_silk']
+            });
+            refreshCampaignLobbyProgress();
+        });
+        await page.click('#campaignCollectiblesBtn');
+        await page.locator('.campaign-collectible-slot.is-unlocked').hover();
+        R.assert((await page.textContent('#campaignCollectibleDetailName')).trim() === '焦黑帛书残片'
+            && (await page.textContent('#campaignCollectibleDetailDescription')).includes('君侧之人'),
+        '已获得收藏物以 Emoji 陈列，悬停可查看剧情说明');
+        await page.click('#campaignCollectiblesCloseBtn');
         const perScenarioProgress = await page.evaluate(async () => {
             const { readProgress, saveVictory } = await import('/campaign/progress.js');
+            const { writeCampaignProfile } = await import('/js/playerProfile.js');
             const key = '__campaign_progress_contract__';
-            localStorage.removeItem(key);
+            writeCampaignProfile(key, {});
             saveVictory(key, 'first', 3);
             saveVictory(key, 'second', 1);
             const progress = readProgress(key);
-            localStorage.removeItem(key);
+            writeCampaignProfile(key, {});
             return progress.scenarioStars;
         });
         R.assert(perScenarioProgress.first === 3 && perScenarioProgress.second === 1,
             '每个关卡分别保存最佳星级，解锁判断不会误用整部传记的最高分');
-        await page.evaluate(() => localStorage.setItem('blades-of-hex.standard-flag-customizations.v1', JSON.stringify({
-            player1: { colorId: 'purple', emoji: '🐉' }
-        })));
+        await page.evaluate(async () => {
+            const { writeStandardFlagPreference } = await import('/js/playerProfile.js');
+            writeStandardFlagPreference('player1', { colorId: 'purple', emoji: '🐉' });
+        });
         await page.click('.campaign-level-card');
         await waitFor(() => page.evaluate(async () => {
             const { gameState } = await import('/js/state.js');

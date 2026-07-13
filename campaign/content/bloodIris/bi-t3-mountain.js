@@ -67,6 +67,7 @@ export const config = {
     commanders: { expedition: 'centurion' },
     hands: { expedition: [], targets: [] },
     storyCommanders: [{ id: 'marcus', name: '马库斯', archetype: 'centurion' }],
+    collectibles: [],
 
     board: {
         radius: 3,

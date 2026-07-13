@@ -4,6 +4,7 @@
 // 卡托命人烧掉名字、送走封蜡匣、守住西门；他的理由仍被刻意留在画外。
 
 import { BLOOD_IRIS_FACTION_PRESETS } from './chronicle.js';
+import { collectiblesForScenario } from './collectibles.js';
 
 const CATO = Object.freeze({ name: '卡托', portrait: 'minister' });
 const IRENE = Object.freeze({ name: '伊蕾妮', portrait: 'npcFemale' });
@@ -69,14 +70,15 @@ export const config = {
     hands: { petra: [], expedition: [] },
     storyCommanders: [
         { id: 'cato', name: '卡托', archetype: 'minister' },
+        { id: 'irene', name: '伊蕾妮', portrait: 'npcFemale' },
         { id: 'gate_captain', name: '佩特拉守备队长', portrait: 'npcMale' }
     ],
+    collectibles: collectiblesForScenario('bi-04-gate'),
 
     board: {
         radius: 4,
         cities: [
-            { q: -3, r: 0, districtId: 1, camp: 'petra' },
-            { q: 3, r: -3, districtId: 2, camp: 'expedition' }
+            { q: -3, r: 0, districtId: 1, camp: 'petra' }
         ],
         terrain: [
             { q: -4, r: 2, type: 'forest' },
@@ -103,7 +105,7 @@ export const config = {
         },
         {
             id: 'irene_courier', type: 'infantry', camp: 'petra', q: -1, r: -1,
-            commander: '', hpPct: 80, morale: 2, canAct: true
+            storyCommander: 'irene', hpPct: 80, morale: 2, canAct: true
         },
         {
             id: 'petra_gate_guard', type: 'infantry', camp: 'petra', q: -3, r: 1,
@@ -140,13 +142,22 @@ export const config = {
         { id: 'western_assault', unitIds: ['expedition_spear', 'expedition_bow', 'expedition_rider', 'expedition_reserve'] }
     ],
     areas: [
-        { id: 'secret_tunnel', tiles: [{ q: 2, r: -3 }, { q: 3, r: -3 }] },
+        { id: 'secret_tunnel', tiles: [{ q: 2, r: -2 }] },
         { id: 'archive_hall', tiles: [{ q: -1, r: 0 }, { q: 0, r: -1 }, { q: 0, r: 0 }] }
     ],
     interactables: [
-        { id: 'tax_register', q: -1, r: 0, label: '焚毁税粮名册', enabled: true, once: true },
-        { id: 'garrison_roll', q: 0, r: -1, label: '焚毁守军名册', enabled: true, once: true },
-        { id: 'family_letters', q: 0, r: 0, label: '焚毁东境往来簿', enabled: true, once: true }
+        {
+            id: 'tax_register', q: -1, r: 0, label: '焚毁税粮名册', enabled: true,
+            unitIds: ['cato_defender', 'irene_courier']
+        },
+        {
+            id: 'garrison_roll', q: 0, r: -1, label: '焚毁守军名册', enabled: true,
+            unitIds: ['cato_defender', 'irene_courier']
+        },
+        {
+            id: 'family_letters', q: 0, r: 0, label: '焚毁东境往来簿', enabled: true,
+            unitIds: ['cato_defender', 'irene_courier']
+        }
     ],
     variables: [
         { id: 'archives_burned', scope: 'level', type: 'number', initial: 0 },
@@ -156,21 +167,21 @@ export const config = {
     objectives: {
         burn_archives: {
             title: '焚毁档案厅名册',
-            detail: '完成三处档案焚毁，别让任何名字留给来者。',
+            detail: '用卡托或伊蕾妮依次走到三处高亮地块完成焚毁；这些档案不会成为收藏物。',
             active: true,
             main: true,
             highlight: { tiles: [{ q: -1, r: 0 }, { q: 0, r: -1 }, { q: 0, r: 0 }] }
         },
         hold_west_gate: {
             title: '坚守西门',
-            detail: '守住西门三轮，直到城内的撤离完成。',
+            detail: '守住西门三轮，直到城内撤离完成；每个东征军回合开始时，西侧都会出现新的攻城部队。',
             active: true,
             main: true,
             highlight: { tiles: [{ q: -3, r: 0 }] }
         },
         escort_irene: {
-            title: '护送伊蕾妮进入密道',
-            detail: '让执卷人带着封蜡匣抵达东侧密道。',
+            title: '让伊蕾妮抵达东侧密道',
+            detail: '选中地图上标有“伊蕾妮”的步兵，将她移动到右上角持续闪烁的密道地块；她在抵达前阵亡则失败。',
             active: false,
             main: true,
             highlight: { unit: 'irene_courier', area: 'secret_tunnel' }
@@ -225,7 +236,13 @@ export const config = {
             do: [
                 {
                     kind: 'showStep',
-                    text: '依次点击档案厅的三处名册将其焚毁；完成后，护送伊蕾妮向东侧密道撤离。西门必须坚守至第三轮结束。'
+                    text: '伊蕾妮就是地图上标有“伊蕾妮”的步兵。所谓护送，不要求其他部队与她保持相邻：你需要保护她存活，并在档案焚毁后直接操控她抵达右上角唯一标亮的密道入口。此刻她与入口都已标亮。',
+                    highlight: { unit: 'irene_courier', tiles: [{ q: 2, r: -2 }] }
+                },
+                {
+                    kind: 'showStep',
+                    text: '当前先操控卡托或伊蕾妮，亲自走到地图中央三处持续闪烁的档案地块，将税粮名册、守军名册和往来簿全部焚毁。不能隔空点击，也不能由普通守军代劳；西门必须坚守三轮，而东征军每回合都会从西侧获得增援。',
+                    highlight: { tiles: [{ q: -1, r: 0 }, { q: 0, r: -1 }, { q: 0, r: 0 }] }
                 }
             ]
         },
@@ -261,15 +278,21 @@ export const config = {
             do: [
                 { kind: 'setObjectiveStatus', objective: 'escort_irene', status: 'active' },
                 { kind: 'setObjectiveStatus', objective: 'burn_archives', status: 'completed' },
+                { kind: 'setTriggerEnabled', trigger: 'irene_reaches_tunnel', enabled: true },
                 {
                     kind: 'showStep',
                     text: '火从档案厅的窗缝里吐出来。伊蕾妮将一只封蜡匣塞进衣襟，东侧密道仍开着。'
+                },
+                {
+                    kind: 'showStep',
+                    text: '现在选中标有“伊蕾妮”的步兵，将她移动到右上角唯一的金色脉冲地块。其他部队不必跟随，只需挡住沿途敌军；在她抵达前，务必阻止东征军将她击杀。',
+                    highlight: { unit: 'irene_courier', tiles: [{ q: 2, r: -2 }] }
                 }
             ]
         },
         {
-            id: 'irene_reaches_tunnel', enabled: true, once: true,
-            when: [{ kind: 'unitMovesToTile', target: { unit: 'irene_courier' }, tiles: [{ q: 2, r: -3 }, { q: 3, r: -3 }], camp: 'petra' }],
+            id: 'irene_reaches_tunnel', enabled: false, once: true,
+            when: [{ kind: 'unitMovesToTile', target: { unit: 'irene_courier' }, tiles: [{ q: 2, r: -2 }], camp: 'petra' }],
             do: [
                 {
                     kind: 'showStep', speaker: IRENE,
@@ -289,6 +312,58 @@ export const config = {
             do: [
                 { kind: 'setObjectiveStatus', objective: 'escort_irene', status: 'completed' },
                 { kind: 'removeUnits', target: { unit: 'irene_courier' }, mode: 'despawn' }
+            ]
+        },
+        {
+            id: 'expedition_wave_1', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'expedition' }],
+            do: [
+                {
+                    kind: 'spawnUnits',
+                    units: [
+                        { id: 'expedition_wave1_spear', type: 'infantry', camp: 'expedition', q: -4, r: 2, hpPct: 100, morale: 2, canAct: true }
+                    ]
+                },
+                {
+                    kind: 'showStep', speaker: CAPTAIN,
+                    text: '西坡又起尘了——不是散兵，是第二列旗。只要西门还站着，他们就会一批批压上来！',
+                    highlight: { tiles: [{ q: -4, r: 2 }] }
+                }
+            ]
+        },
+        {
+            id: 'expedition_wave_2', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'expedition', turn: 1 }],
+            do: [
+                {
+                    kind: 'spawnUnits',
+                    units: [
+                        { id: 'expedition_wave2_bow', type: 'archer', camp: 'expedition', q: -4, r: 3, hpPct: 100, morale: 2, canAct: true }
+                    ]
+                },
+                {
+                    kind: 'showStep',
+                    text: '第二批东征军踏过西坡，弓手开始寻找越过壕沟的射界。西门前没有真正的喘息。',
+                    highlight: { tiles: [{ q: -4, r: 3 }] }
+                }
+            ]
+        },
+        {
+            id: 'expedition_wave_3', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'expedition', turn: 2 }],
+            do: [
+                {
+                    kind: 'spawnUnits',
+                    units: [
+                        { id: 'expedition_wave3_rider', type: 'cavalry', camp: 'expedition', q: -4, r: 2, hpPct: 100, morale: 3, canAct: true },
+                        { id: 'expedition_wave3_spear', type: 'infantry', camp: 'expedition', q: -4, r: 3, hpPct: 100, morale: 2, canAct: true }
+                    ]
+                },
+                {
+                    kind: 'showStep', speaker: CAPTAIN,
+                    text: '第三批！骑兵也压上来了。守住门前最后这段路——城里的人就快走完了！',
+                    highlight: { tiles: [{ q: -4, r: 2 }, { q: -4, r: 3 }] }
+                }
             ]
         },
         {

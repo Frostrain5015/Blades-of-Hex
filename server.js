@@ -6,6 +6,7 @@ const os    = require('os');
 const crypto = require('crypto');
 const WebSocket = require('ws');
 const protocolReady = import('./protocol/messages.js');
+const { createPlayerProfileStore, normalizeProfile } = require('./server/playerProfileStore.js');
 
 const HTTP_PORT  = process.env.PORT || process.env.HTTP_PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
@@ -28,6 +29,7 @@ try {
 
 const ADMIN_TOKEN = process.env.BOH_ADMIN_TOKEN || adminConfig.adminToken || null;
 const PUBLIC_ROOT = path.resolve(__dirname);
+const playerProfileStore = createPlayerProfileStore({ databaseUrl: AUTH_CFG?.databaseUrl || '' });
 
 function isAdminToken(token) {
     if (!ADMIN_TOKEN || typeof token !== 'string') return false;
@@ -54,6 +56,80 @@ function verifyJWT(token) {
     if (payload.exp < Date.now() / 1000) return null;
     return payload;
   } catch { return null; }
+}
+
+function sendApiJson(res, status, value) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store'
+  });
+  res.end(JSON.stringify(value));
+}
+
+function bearerPayload(req) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Bearer ')) return null;
+  return verifyJWT(header.slice(7).trim());
+}
+
+function readJsonBody(req, maxBytes = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(Object.assign(new Error('payload_too_large'), { statusCode: 413 }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+      } catch {
+        reject(Object.assign(new Error('invalid_json'), { statusCode: 400 }));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+async function handlePlayerProfileApi(req, res) {
+  if (!playerProfileStore.configured) {
+    sendApiJson(res, 503, { error: 'profile_database_unavailable' });
+    return;
+  }
+  const payload = bearerPayload(req);
+  const userId = typeof payload?.sub === 'string' ? payload.sub : '';
+  if (!userId || userId.length > 36) {
+    sendApiJson(res, 401, { error: 'invalid_token' });
+    return;
+  }
+
+  try {
+    if (req.method === 'GET') {
+      sendApiJson(res, 200, await playerProfileStore.read(userId));
+      return;
+    }
+    if (req.method === 'PUT') {
+      const raw = await readJsonBody(req);
+      const serialized = JSON.stringify(raw);
+      if (Buffer.byteLength(serialized, 'utf8') > 64 * 1024) {
+        sendApiJson(res, 413, { error: 'profile_too_large' });
+        return;
+      }
+      sendApiJson(res, 200, await playerProfileStore.write(userId, normalizeProfile(raw)));
+      return;
+    }
+    res.setHeader('Allow', 'GET, PUT');
+    sendApiJson(res, 405, { error: 'method_not_allowed' });
+  } catch (error) {
+    console.error('[profile] Frost ID database operation failed:', error?.message || error);
+    if (!res.headersSent) sendApiJson(res, error?.statusCode || 500, { error: 'profile_operation_failed' });
+    else res.end();
+  }
 }
 // ─────────────────────────────────────────────────────────
 
@@ -124,6 +200,10 @@ function staticHandler(req, res) {
     const query = new URLSearchParams(rawQuery);
     let urlPath = req.url.split('?')[0];
     try { urlPath = decodeURIComponent(urlPath); } catch (_) {}
+    if (urlPath === '/api/player-profile') {
+      handlePlayerProfileApi(req, res);
+      return;
+    }
     // Map the root (and any directory path) to its index file. Must run AFTER
     // stripping the query string, otherwise "/?token=..." stays as "/" and
     // path.join() resolves to the project directory → fs read → EISDIR crash.
