@@ -14,6 +14,7 @@ const ATLAS_CELL_W = 256;
 const ATLAS_CELL_H = 171;
 const INSTANCE_FLOATS = 13;
 export const FLAG_WIND_STRENGTH = Object.freeze({ normal: 0.7, wind: 1.5 });
+export const FLAG_CLOTH_PHYSICS = Object.freeze({ gravitySag: 0.055, windFlattening: 0.22 });
 
 export function getFlagWindStrength(weather) {
     return weather === 'wind' ? FLAG_WIND_STRENGTH.wind : FLAG_WIND_STRENGTH.normal;
@@ -95,8 +96,11 @@ void main() {
     float depth = travel * strength * (primary * 0.115 + ripple * 0.027);
     float vertical = travel * strength * (primary * 0.072 + ripple * 0.020);
     float torsion = (v - 0.5) * travel * strength * cos(twistPhase) * 0.055;
+    // 重力形成从固定端到自由端逐渐增加的静态弧垂；风越强，旗面被拉得越平。
+    float windLift = 1.0 - clamp(strength / 2.5, 0.0, 1.0) * ${FLAG_CLOTH_PHYSICS.windFlattening.toFixed(3)};
+    float gravitySag = travel * ${FLAG_CLOTH_PHYSICS.gravitySag.toFixed(3)} * windLift;
     vec2 local = vec2(u, v);
-    local.y += vertical + torsion;
+    local.y += gravitySag + vertical + torsion;
     local.x += depth * 0.11 - travel * abs(depth) * 0.055;
     local.y = 0.5 + (local.y - 0.5) / (1.0 - depth * 0.12);
     vec2 pixel = aAnchor + local * aSize;
@@ -378,10 +382,11 @@ export function createFlagPreview(canvas) {
     return {
         setFaction(faction) {
             const colors = getFlagColors(faction?.colorId || faction?.color);
-            const height = logicalHeight - 10;
+            // 为自由端的重力下垂和上下摆动预留透明空间，避免预览旗被画布裁切。
+            const height = logicalHeight - 12;
             const width = height * 1.5;
             renderer.setInstances([{
-                x: (logicalWidth - width) / 2, y: 5, width, height,
+                x: (logicalWidth - width) / 2, y: 3, width, height,
                 phase: 1.7, colors, flagUrl: faction?.flagUrl || null
             }]);
         },

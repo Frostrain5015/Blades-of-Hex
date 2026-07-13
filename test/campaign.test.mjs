@@ -188,12 +188,15 @@ export async function run(browser) {
             clear: flags.getFlagWindStrength('clear'),
             rain: flags.getFlagWindStrength('rain'),
             fog: flags.getFlagWindStrength('fog'),
-            wind: flags.getFlagWindStrength('wind')
+            wind: flags.getFlagWindStrength('wind'),
+            gravitySag: flags.FLAG_CLOTH_PHYSICS.gravitySag,
+            windFlattening: flags.FLAG_CLOTH_PHYSICS.windFlattening
         };
     });
     R.assert(flagWindContract.clear === 0.7 && flagWindContract.rain === 0.7
-        && flagWindContract.fog === 0.7 && flagWindContract.wind === 1.5,
-    '旗帜沿用原型风力倍率：常态 0.7×，仅风天 1.5×');
+        && flagWindContract.fog === 0.7 && flagWindContract.wind === 1.5
+        && flagWindContract.gravitySag === 0.055 && flagWindContract.windFlattening === 0.22,
+    '旗帜保持常态/风天倍率，并以轻微重力弧垂配合强风拉平效果');
     const flagLayoutContract = await page.evaluate(async () => {
         const { UNIT_FLAG_LAYOUT, CITY_FLAG_LAYOUT } = await import('/js/flagLayout.js');
         return { unit: UNIT_FLAG_LAYOUT, city: CITY_FLAG_LAYOUT };
