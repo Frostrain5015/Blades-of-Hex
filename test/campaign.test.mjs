@@ -160,6 +160,11 @@ export async function run(browser) {
         }]).storyGuard;
         const standard = diplomacy.createStandardFactions({ playerCount: 2, colors: { player1: 'white', player2: 'gray' } });
         const playerColorState = { factions: diplomacy.createStandardFactions({ playerCount: 2 }) };
+        const campaignFlagState = { campaignMode: true, factions: diplomacy.createStandardFactions({ playerCount: 2 }) };
+        const defaultFlagUrl = playerColorState.factions.player1.flagUrl;
+        const validEmojiApplied = diplomacy.setPlayerFactionFlagEmoji(playerColorState, 'player1', '🐉');
+        const emojiUrl = playerColorState.factions.player1.flagUrl;
+        const recoloredFlag = diplomacy.setPlayerFactionColor(playerColorState, 'player1', 'purple');
         return {
             defaultUsesId: schema.createDefaultLevel().factions[0].color === 'red',
             legacyMigrates: migrated.factions[0].color === 'red',
@@ -176,6 +181,16 @@ export async function run(browser) {
             }),
             campaignCanUseReservedColors: authoredReserved.colorId === 'white',
             standardRejectsReservedColors: standard.player1.colorId === 'red' && standard.player2.colorId === 'blue',
+            standardFlagsUseRuleGeneratedSvg: standard.player1.flagEmoji === '⚜️'
+                && standard.player2.flagEmoji === '🛡️'
+                && standard.player1.flagUrl?.startsWith('data:image/svg+xml'),
+            flagEmojiSetterIsWhitelisted: validEmojiApplied
+                && playerColorState.factions.player1.flagEmoji === '🐉'
+                && !diplomacy.setPlayerFactionFlagEmoji(playerColorState, 'player1', 'not-an-emoji'),
+            campaignRejectsStandardFlagEmoji: !diplomacy.setPlayerFactionFlagEmoji(campaignFlagState, 'player1', '🐉'),
+            flagSvgRegeneratesWithColor: recoloredFlag
+                && defaultFlagUrl !== emojiUrl
+                && emojiUrl !== playerColorState.factions.player1.flagUrl,
             playerSetterRejectsReservedColors: diplomacy.setPlayerFactionColor(playerColorState, 'player1', 'gray') === false
                 && diplomacy.setPlayerFactionColor(playerColorState, 'player1', 'white') === false
                 && diplomacy.setPlayerFactionColor(playerColorState, 'player1', 'purple') === true
@@ -184,19 +199,23 @@ export async function run(browser) {
     R.assert(Object.values(factionColorContract).every(Boolean), '全局九色由规则层统一解析；战役可用九色，普通玩家对局只开放七种彩虹色');
     const flagWindContract = await page.evaluate(async () => {
         const flags = await import('/js/flagRenderer.js');
+        const rendererSource = await fetch('/js/flagRenderer.js').then(response => response.text());
         return {
             clear: flags.getFlagWindStrength('clear'),
             rain: flags.getFlagWindStrength('rain'),
             fog: flags.getFlagWindStrength('fog'),
             wind: flags.getFlagWindStrength('wind'),
             gravitySag: flags.FLAG_CLOTH_PHYSICS.gravitySag,
-            windFlattening: flags.FLAG_CLOTH_PHYSICS.windFlattening
+            windFlattening: flags.FLAG_CLOTH_PHYSICS.windFlattening,
+            usesCommandSash: rendererSource.includes('commandSashMask'),
+            hasNoStarOverlay: !rendererSource.includes('starMask')
         };
     });
     R.assert(flagWindContract.clear === 0.7 && flagWindContract.rain === 0.7
         && flagWindContract.fog === 0.7 && flagWindContract.wind === 1.5
-        && flagWindContract.gravitySag === 0.1 && flagWindContract.windFlattening === 0.22,
-    '旗帜保持常态/风天倍率，并以明显重力弧垂配合强风拉平效果');
+        && flagWindContract.gravitySag === 0.1 && flagWindContract.windFlattening === 0.22
+        && flagWindContract.usesCommandSash && flagWindContract.hasNoStarOverlay,
+    '旗帜保持风力与重力效果；将领旗使用右上斜向绶带且不再叠加五角星');
     const flagArtworkContract = await page.evaluate(async () => {
         const readTextMetrics = async url => {
             const source = await fetch(url).then(response => response.text());
@@ -343,11 +362,20 @@ export async function run(browser) {
     }
     if (await page.locator('#rainCityLevelBtn').count() === 0) {
         R.assert((await page.textContent('.campaign-level-card')).includes('花与剑'), '战役大厅展示当前正式教学关《花与剑》');
+        await page.evaluate(() => localStorage.setItem('blades-of-hex.standard-flag-customizations.v1', JSON.stringify({
+            player1: { colorId: 'purple', emoji: '🐉' }
+        })));
         await page.click('.campaign-start-btn');
         await waitFor(() => page.evaluate(async () => {
             const { gameState } = await import('/js/state.js');
             return gameState.campaignMode && gameState.scenarioId === 'bi-t1-sheath' && gameState.tiles.length > 0;
         }), 10000, '《花与剑》加载');
+        const campaignFlagLock = await page.evaluate(async () => {
+            const { gameState } = await import('/js/state.js');
+            const faction = gameState.factions.player1;
+            return faction?.flagUrl === 'img/flags/aurelia-kingdom.svg' && !faction.flagEmoji;
+        });
+        R.assert(campaignFlagLock, '战役模式忽略标准对局的本地旗帜偏好，强制使用关卡指定剧情旗帜');
         await page.click('#turnTransitionOverlay');
         await waitFor(() => page.evaluate(() => document.getElementById('campaignSpeakerCard')?.classList.contains('show')), 5000, '开场计时对白');
         R.assert((await page.textContent('#campaignSpeakerName')).trim() === '马库斯', '《花与剑》开场正确显示马库斯对白');

@@ -1846,33 +1846,74 @@ body {
 #factionReveal.show { display: flex; }
 
 #factionRevealInner {
+    width: min(920px, calc(100vw - 32px));
     text-align: center;
 }
 
-#factionRevealDice {
-    font-size: 72px;
-    animation: diceRoll 0.15s steps(3) infinite;
-    margin-bottom: 24px;
+.faction-reveal-flags {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: clamp(12px, 3vw, 34px);
+    min-height: 180px;
+    margin: 0 auto;
 }
-
-#factionRevealDice.landed {
-    animation: none;
-    transform: scale(1.2);
-    transition: transform 0.3s ease;
-}
-
-#factionRevealText {
-    font-size: 28px;
-    font-weight: bold;
-    letter-spacing: 4px;
+.faction-reveal-flag {
+    --flag-accent: #f2d38a;
+    position: relative;
+    display: grid;
+    grid-template-rows: auto auto;
+    width: clamp(88px, 24vw, 224px);
     opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.5s ease, transform 0.5s ease;
+    transform: translateY(28px) scale(.84);
+    filter: drop-shadow(0 14px 16px rgba(0,0,0,.45));
 }
-
-#factionRevealText.show {
-    opacity: 1;
-    transform: translateY(0);
+.faction-reveal-flag.reveal {
+    animation: faction-reveal-flag-in .62s cubic-bezier(.2,.85,.25,1.15) forwards;
+    animation-delay: var(--reveal-delay, 0ms);
+}
+.faction-reveal-cloth {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    overflow: hidden;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--flag-accent) 70%, #fff), var(--flag-accent));
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.24), inset -16px -8px 20px rgba(0,0,0,.2);
+}
+.faction-reveal-cloth::after {
+    content: '';
+    position: absolute;
+    z-index: 2;
+    top: -9%;
+    right: 15%;
+    width: 18%;
+    height: 48%;
+    transform: rotate(-35deg);
+    background: linear-gradient(90deg, #4b2b0a 0 10%, #f4d37b 14% 55%, #8f5814 88% 100%);
+    box-shadow: 0 1px 2px rgba(0,0,0,.58);
+}
+.faction-reveal-cloth img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    animation: faction-reveal-cloth-wave 2.2s ease-in-out infinite alternate;
+}
+.faction-reveal-name {
+    min-height: 24px;
+    padding-top: 8px;
+    color: #f4ead1;
+    font-size: clamp(12px, 1.7vw, 16px);
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-shadow: 0 2px 6px #000;
+}
+@keyframes faction-reveal-flag-in {
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes faction-reveal-cloth-wave {
+    from { transform: perspective(220px) rotateY(-2deg) translateY(0); }
+    to { transform: perspective(220px) rotateY(2deg) translateY(2px); }
 }
 
 /* =============================================================
@@ -1926,16 +1967,35 @@ body {
     left: 50%;
     transform: translateX(-50%);
     display: none;
-    grid-template-columns: repeat(7, 28px);
-    justify-content: center;
-    gap: 7px;
-    padding: 9px 11px;
+    width: 282px;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 10px;
+    padding: 11px 13px 13px;
     border: 1px solid rgba(214, 176, 102, .34);
     border-radius: 10px;
     background: rgba(10, 8, 7, .94);
     box-shadow: 0 14px 32px rgba(0,0,0,.55);
 }
 .commander-color-picker.open { display: grid; }
+.commander-picker-section {
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+}
+.commander-picker-label {
+    color: rgba(244,234,209,.72);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+}
+.commander-picker-options {
+    display: grid;
+    justify-content: center;
+    gap: 7px;
+}
+.commander-picker-options.colors { grid-template-columns: repeat(7, 28px); }
+.commander-picker-options.emojis { grid-template-columns: repeat(7, 28px); }
 .commander-color-swatch {
     width: 28px;
     height: 28px;
@@ -1947,6 +2007,23 @@ body {
 }
 .commander-color-swatch.selected { border-color: #f3d17d; box-shadow: 0 0 11px rgba(243,209,125,.62); }
 .commander-color-swatch:disabled { cursor: not-allowed; opacity: .2; filter: grayscale(.8); }
+.commander-emoji-option {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 5px;
+    background: rgba(255,255,255,.055);
+    color: #fff;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+}
+.commander-emoji-option:hover:not(:disabled) { background: rgba(244,211,125,.18); transform: translateY(-1px); }
+.commander-emoji-option.selected { border-color: #f3d17d; box-shadow: 0 0 10px rgba(243,209,125,.55); background: rgba(243,209,125,.16); }
+.commander-emoji-option:disabled { cursor: not-allowed; opacity: .32; }
 .commander-camp-name,
 .commander-subtitle { pointer-events: none; }
 .commander-camp-name {

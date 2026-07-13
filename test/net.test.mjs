@@ -141,6 +141,35 @@ export async function run(browser) {
     ]);
     await A.click('#readyBtn');
     await B.click('#readyBtn');
+    await Promise.all([
+        A.waitForSelector('#commanderLogo:not([disabled])', { timeout: 15000 }),
+        B.waitForSelector('#commanderLogo:not([disabled])', { timeout: 15000 })
+    ]);
+    await A.click('#commanderLogo');
+    await A.click('#commanderColorPicker .commander-color-swatch[data-color-id="purple"]');
+    await A.click('#commanderColorPicker .commander-emoji-option[data-emoji="🐉"]');
+    await B.click('#commanderLogo');
+    await B.click('#commanderColorPicker .commander-color-swatch[data-color-id="cyan"]');
+    await B.click('#commanderColorPicker .commander-emoji-option[data-emoji="🦅"]');
+    await waitFor(async () => A.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        return gameState.factions.player1?.colorId === 'purple'
+            && gameState.factions.player1?.flagEmoji === '🐉'
+            && gameState.factions.player2?.colorId === 'cyan'
+            && gameState.factions.player2?.flagEmoji === '🦅';
+    }), 10000, '联机旗帜外观同步');
+    const syncedFlags = await B.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        return {
+            p1: gameState.factions.player1,
+            p2: gameState.factions.player2
+        };
+    });
+    R.assert(syncedFlags.p1.colorId === 'purple' && syncedFlags.p1.flagEmoji === '🐉'
+        && syncedFlags.p2.colorId === 'cyan' && syncedFlags.p2.flagEmoji === '🦅'
+        && syncedFlags.p1.flagUrl?.startsWith('data:image/svg+xml')
+        && syncedFlags.p2.flagUrl?.startsWith('data:image/svg+xml'),
+    '联机房间同步阵营色与旗面徽记，双方使用同一面规则生成旗帜');
     await pickCommander(A);
     console.log('[test] A 选将完成');
     await sleep(500);

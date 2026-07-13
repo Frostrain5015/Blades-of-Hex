@@ -150,11 +150,12 @@ export function connectToServer(url) {
                         turnOrder: msg.turnOrder,
                         turnOrderRolls: msg.turnOrderRolls,
                         factionColors: msg.factionColors,
+                        factionEmojis: msg.factionEmojis,
                         roleAssignments: msg.roleAssignments
                     });
                     break;
                 case 'factionColors':
-                    _cb.onFactionColors?.(msg.factionColors || {});
+                    _cb.onFactionColors?.(msg.factionColors || {}, msg.factionEmojis || {});
                     break;
                 case 'error':
                     _cb.onError?.(msg.message);

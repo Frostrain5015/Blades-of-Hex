@@ -544,18 +544,17 @@
 <!-- 阵营揭示遮罩 -->
 <div id="factionReveal">
     <div id="factionRevealInner">
-        <div id="factionRevealDice">🎲</div>
-        <div id="factionRevealText"></div>
+        <div id="factionRevealFlags" class="faction-reveal-flags" aria-live="polite"></div>
     </div>
 </div>
 
 <!-- 将领选择浮层 -->
 <div id="commanderOverlay">
     <div class="commander-header">
-        <button class="commander-logo" id="commanderLogo" type="button" aria-label="选择阵营颜色" aria-expanded="false">
+        <button class="commander-logo" id="commanderLogo" type="button" aria-label="编辑阵营旗帜" aria-expanded="false">
             <canvas id="commanderFlagCanvas" width="112" height="80" aria-hidden="true"></canvas>
         </button>
-        <div id="commanderColorPicker" class="commander-color-picker" aria-label="阵营颜色"></div>
+        <div id="commanderColorPicker" class="commander-color-picker" aria-label="阵营旗帜外观"></div>
         <div class="commander-camp-name" id="commanderCampName">选择将领</div>
         <div class="commander-subtitle" id="commanderSubtitle">请选择出战将领</div>
     </div>

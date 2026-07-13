@@ -256,7 +256,8 @@ function staticHandler(req, res) {
 const rooms = new Map(); // roomId → { id, players: Map<ws, {ready, role}>, gameStarted }
 
 // 房间号池：1-9，取最小可用
-const ZOMBIE_TIMEOUT = 2 * 60 * 1000; // 2 分钟
+// 选旗、选将与五秒准备展示期间，浏览器切后台也应有充足的断线恢复窗口。
+const ZOMBIE_TIMEOUT = 10 * 60 * 1000; // 10 分钟
 
 const availableIds = new Set(['1','2','3','4','5','6','7','8','9']);
 
@@ -306,6 +307,8 @@ function createRoomAuthority() {
 
 const PLAYER_FACTION_COLORS = new Set(['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple']);
 const DEFAULT_ROLE_COLORS = { player1: 'red', player2: 'blue', player3: 'green' };
+const STANDARD_FLAG_EMOJIS = new Set(['⚜️', '🦅', '🦁', '🐺', '🐉', '⚔️', '🛡️', '👑', '☀️', '🌙', '🔥', '🌿', '⚓']);
+const DEFAULT_ROLE_FLAG_EMOJIS = { player1: '⚜️', player2: '🛡️', player3: '🦅' };
 
 function rollNetworkTurnOrder(roles) {
     const histories = Object.fromEntries(roles.map(role => [role, []]));
@@ -341,10 +344,15 @@ function createNetworkMatchSetup(room) {
     room.turnOrderRolls = rolled.turnOrderRolls;
     room.roleAssignments = Object.fromEntries(roles.map(role => [role, role]));
     room.factionColors = Object.fromEntries(roles.map(role => [role, room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]]));
+    room.factionEmojis = Object.fromEntries(roles.map(role => [
+        role,
+        STANDARD_FLAG_EMOJIS.has(room.factionEmojis?.[role]) ? room.factionEmojis[role] : DEFAULT_ROLE_FLAG_EMOJIS[role]
+    ]));
     return {
         ...rolled,
         roleAssignments: room.roleAssignments,
-        factionColors: room.factionColors
+        factionColors: room.factionColors,
+        factionEmojis: room.factionEmojis
     };
 }
 
@@ -358,7 +366,10 @@ function snapshotMatchesRoomSetup(room, snapshot) {
     for (const [role, colorId] of Object.entries(room.factionColors || {})) {
         if (!PLAYER_FACTION_COLORS.has(colorId)) return false;
         const factionKey = assignments[role];
-        if (!factionKey || snapshot.factions?.[factionKey]?.colorId !== colorId) return false;
+        const emoji = room.factionEmojis?.[role];
+        if (!factionKey || snapshot.factions?.[factionKey]?.colorId !== colorId
+            || !STANDARD_FLAG_EMOJIS.has(emoji)
+            || snapshot.factions?.[factionKey]?.flagEmoji !== emoji) return false;
     }
     return true;
 }
@@ -388,7 +399,7 @@ function startZombieTimer(room) {
             console.log(`[房间 ${room.id}] 僵尸超时，已释放`);
         }
     }, ZOMBIE_TIMEOUT);
-    console.log(`[房间 ${room.id}] 双方断开，15 分钟后释放（可重连恢复）`);
+    console.log(`[房间 ${room.id}] 全员断开，${ZOMBIE_TIMEOUT / 60000} 分钟后释放（可重连恢复）`);
 }
 
 function clearZombieTimer(room) {
@@ -701,15 +712,33 @@ async function handleMessage(ws, rawData) {
         case 'factionColor': {
             const room = ws._room;
             const role = room?.players.get(ws)?.role;
-            if (!room || !role || !PLAYER_FACTION_COLORS.has(msg.colorId)) break;
-            const occupied = Object.entries(room.factionColors || {}).some(([otherRole, color]) => otherRole !== role && color === msg.colorId);
+            if (!room || !role) break;
+            const hasColor = PLAYER_FACTION_COLORS.has(msg.colorId);
+            const hasEmoji = STANDARD_FLAG_EMOJIS.has(msg.flagEmoji);
+            const invalidColor = msg.colorId !== undefined && !hasColor;
+            const invalidEmoji = msg.flagEmoji !== undefined && !hasEmoji;
+            if (invalidColor || invalidEmoji || (!hasColor && !hasEmoji)) break;
+            const nextColor = hasColor ? msg.colorId : (room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]);
+            const occupied = hasColor && Object.entries(room.factionColors || {}).some(([otherRole, color]) => otherRole !== role && color === nextColor);
             if (occupied) {
                 sendJson(ws, { type: 'error', message: '该阵营色已被其他玩家选择' });
-                sendJson(ws, { type: 'factionColors', factionColors: room.factionColors || {} });
+                sendJson(ws, {
+                    type: 'factionColors',
+                    factionColors: room.factionColors || {},
+                    factionEmojis: room.factionEmojis || {}
+                });
                 break;
             }
-            room.factionColors = { ...(room.factionColors || {}), [role]: msg.colorId };
-            broadcastRoom(room, { type: 'factionColors', factionColors: room.factionColors });
+            room.factionColors = { ...(room.factionColors || {}), [role]: nextColor };
+            room.factionEmojis = {
+                ...(room.factionEmojis || {}),
+                [role]: hasEmoji ? msg.flagEmoji : (room.factionEmojis?.[role] || DEFAULT_ROLE_FLAG_EMOJIS[role])
+            };
+            broadcastRoom(room, {
+                type: 'factionColors',
+                factionColors: room.factionColors,
+                factionEmojis: room.factionEmojis
+            });
             break;
         }
 

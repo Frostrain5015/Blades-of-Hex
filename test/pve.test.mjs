@@ -22,16 +22,17 @@ export async function run(browser, { quick = false } = {}) {
         const panelRect = document.querySelector('.commander-panel').getBoundingClientRect();
         return {
             colors: swatches.map(element => element.dataset.colorId),
+            emojis: [...picker.querySelectorAll('.commander-emoji-option')].map(element => element.dataset.emoji),
             blueEnabled: !swatches.find(element => element.dataset.colorId === 'blue')?.disabled,
             pickerPosition: getComputedStyle(picker).position,
             headerHeight: headerRect.height,
             panelTop: panelRect.top
         };
     });
-    R.assert(colorPickerInitial.colors.length === 7
+    R.assert(colorPickerInitial.colors.length === 7 && colorPickerInitial.emojis.length === 13
         && !colorPickerInitial.colors.includes('gray') && !colorPickerInitial.colors.includes('white')
         && colorPickerInitial.blueEnabled,
-    `普通对局选将页显示七种可选彩虹色，未完成选将的 AI 不会占用蓝色（${colorPickerInitial.colors.join('、')}）`);
+    `普通对局选将页显示七种颜色与十三种旗面徽记，未完成选将的 AI 不会占用蓝色（${colorPickerInitial.colors.join('、')}）`);
     await page.click('#commanderLogo');
     const colorPickerOpen = await page.evaluate((initial) => {
         const picker = document.getElementById('commanderColorPicker');
@@ -46,20 +47,49 @@ export async function run(browser, { quick = false } = {}) {
             noLayoutShift: Math.abs(headerRect.height - initial.headerHeight) < 1
                 && Math.abs(panelRect.top - initial.panelTop) < 1,
             popupPosition: getComputedStyle(picker).position,
-            columns: getComputedStyle(picker).gridTemplateColumns.split(' ').length,
+            colorColumns: getComputedStyle(picker.querySelector('.commander-picker-options.colors')).gridTemplateColumns.split(' ').length,
+            emojiColumns: getComputedStyle(picker.querySelector('.commander-picker-options.emojis')).gridTemplateColumns.split(' ').length,
             noPole: !document.querySelector('.commander-flag-pole'),
             noFlagFrame: style.borderTopWidth === '0px' && style.backgroundColor === 'rgba(0, 0, 0, 0)'
         };
     }, colorPickerInitial);
-    R.assert(colorPickerOpen.centered && colorPickerOpen.columns === 7
+    R.assert(colorPickerOpen.centered && colorPickerOpen.colorColumns === 7 && colorPickerOpen.emojiColumns === 7
         && colorPickerOpen.noLayoutShift && colorPickerOpen.popupPosition === 'absolute'
         && colorPickerOpen.noPole && colorPickerOpen.noFlagFrame,
-    '指挥官预览仅显示旗面；七个颜色按钮在居中叠加弹层中排列且不挤动布局');
+    '指挥官预览仅显示旗面；颜色和徽记按钮在居中叠加弹层中排列且不挤动布局');
     await page.click('#commanderColorPicker .commander-color-swatch[data-color-id="purple"]');
-    const selectedColor = await page.evaluate(async () => (await import('/js/state.js')).gameState.factions.player1.colorId);
-    R.assert(selectedColor === 'purple', '选将页点击飘动旗帜可切换玩家阵营色');
+    await page.click('#commanderColorPicker .commander-emoji-option[data-emoji="🐉"]');
+    const selectedFlag = await page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        const faction = gameState.factions.player1;
+        return { color: faction.colorId, emoji: faction.flagEmoji, flagUrl: faction.flagUrl, saved: localStorage.getItem('blades-of-hex.standard-flag-customizations.v1') };
+    });
+    R.assert(selectedFlag.color === 'purple' && selectedFlag.emoji === '🐉'
+        && selectedFlag.flagUrl?.startsWith('data:image/svg+xml') && selectedFlag.saved?.includes('🐉'),
+    '选将页可组合阵营色与旗面徽记，并在确认后保存到本地');
     await pickCommander(page);
+    await waitFor(() => page.evaluate(() => document.getElementById('factionReveal')?.classList.contains('show')
+        && document.querySelectorAll('.faction-reveal-flag').length === 2), 10000, '回合准备旗帜展示');
+    const revealStartedAt = Date.now();
+    const revealPresentation = await page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        const expectedNames = gameState.turnOrder
+            .filter(key => key !== 'neutral')
+            .map(key => gameState.factions[key]?.name || key);
+        return {
+            expectedNames,
+            names: [...document.querySelectorAll('.faction-reveal-name')].map(element => element.textContent),
+            onlyFlagCards: document.getElementById('factionRevealInner')?.children.length === 1,
+            noDice: !document.getElementById('factionRevealDice'),
+            noTextBanner: !document.getElementById('factionRevealText')
+        };
+    });
+    R.assert(JSON.stringify(revealPresentation.names) === JSON.stringify(revealPresentation.expectedNames)
+        && revealPresentation.onlyFlagCards && revealPresentation.noDice && revealPresentation.noTextBanner,
+    '准备动画仅按随机行动顺序从左至右展示预览旗帜及阵营名，不显示骰子或标题');
     await waitGameStart(page);
+    const revealDuration = Date.now() - revealStartedAt;
+    R.assert(revealDuration >= 3600 && revealDuration <= 8000, `准备旗帜展示约 5 秒后进入对局（${revealDuration}ms）`);
     let snap = await gameSnapshot(page);
     R.assert(snap.tiles > 0, `对局开始（地图 ${snap.tiles} 格，P1=${snap.commanderP1}，P2=${snap.commanderP2}）`);
 

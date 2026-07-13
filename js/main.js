@@ -45,9 +45,57 @@ import { renderCampaignLobby } from '../campaign/lobby.js';
 import './visualEventBridge.js';
 import './cheat.js';
 import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
-import { campFromKey, getRoleCamp, setPlayerFactionColor } from '../rules/diplomacy.js';
+import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { createFlagPreview } from './flagRenderer.js';
+
+const FLAG_CUSTOMIZATION_STORAGE_KEY = 'blades-of-hex.standard-flag-customizations.v1';
+const TURN_ORDER_REVEAL_DURATION_MS = 5000;
+let _factionRevealTimer = null;
+
+function _readSavedFlagCustomizations() {
+    try {
+        const raw = window.localStorage.getItem(FLAG_CUSTOMIZATION_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (error) {
+        console.warn('[flags] 无法读取本地旗帜设置:', error);
+        return {};
+    }
+}
+
+function _saveFlagCustomization(factionKey) {
+    const faction = gameState.factions?.[factionKey];
+    if (!faction) return;
+    const saved = _readSavedFlagCustomizations();
+    saved[factionKey] = { colorId: faction.colorId, emoji: faction.flagEmoji };
+    try {
+        window.localStorage.setItem(FLAG_CUSTOMIZATION_STORAGE_KEY, JSON.stringify(saved));
+    } catch (error) {
+        console.warn('[flags] 无法保存本地旗帜设置:', error);
+    }
+}
+
+function _savedFlagEmojisFromState() {
+    return Object.fromEntries(['player1', 'player2', 'player3']
+        .filter(key => gameState.factions?.[key]?.flagEmoji)
+        .map(key => [key, gameState.factions[key].flagEmoji]));
+}
+
+function _applySavedFlagCustomizations(factionKeys) {
+    const saved = _readSavedFlagCustomizations();
+    let changed = false;
+    for (const factionKey of factionKeys) {
+        const entry = saved[factionKey];
+        if (!entry || typeof entry !== 'object') continue;
+        if (setPlayerFactionColor(gameState, factionKey, entry.colorId)) changed = true;
+        if (setPlayerFactionFlagEmoji(gameState, factionKey, entry.emoji)) changed = true;
+        if (gameState.factions?.[factionKey]?.colorId) {
+            gameState.factionColorSelections[factionKey] = gameState.factions[factionKey].colorId;
+        }
+    }
+    return changed;
+}
 
 loadSettings();
 initCanvas();
@@ -394,24 +442,49 @@ function _revealTurnOrder(onComplete) {
     _assignAutomaticFactionColors();
     if (!isNetworkGame()) rollFactionTurnOrder(gameState, gameState.rng);
     const overlay = document.getElementById('factionReveal');
-    const dice = document.getElementById('factionRevealDice');
-    const text = document.getElementById('factionRevealText');
+    const flags = document.getElementById('factionRevealFlags');
     const players = (gameState.turnOrder || []).filter(key => key !== 'neutral');
-    const orderText = players.map((key, index) => `${index + 1}. ${gameState.factions?.[key]?.name || key}`).join('　');
-    overlay.classList.add('show');
-    dice.classList.remove('landed');
-    text.classList.remove('show');
-    text.textContent = '';
-    setTimeout(() => {
-        dice.classList.add('landed');
-        text.textContent = `行动顺序　${orderText}`;
-        text.style.color = gameState.factions?.[players[0]]?.color || '#f2d38a';
-        text.classList.add('show');
-    }, 800);
-    setTimeout(() => {
-        overlay.classList.remove('show');
+    if (!overlay || !flags || players.length === 0) {
         onComplete();
-    }, 2100);
+        return;
+    }
+    if (_factionRevealTimer) window.clearTimeout(_factionRevealTimer);
+    flags.replaceChildren();
+    players.forEach((key, index) => {
+        const faction = gameState.factions?.[key] || {};
+        const colors = getFlagColors(faction.colorId || faction.color);
+        const card = document.createElement('div');
+        card.className = 'faction-reveal-flag';
+        card.style.setProperty('--flag-accent', colors.light);
+        card.style.setProperty('--reveal-delay', `${360 + index * 520}ms`);
+
+        const cloth = document.createElement('div');
+        cloth.className = 'faction-reveal-cloth';
+        if (faction.flagUrl) {
+            const image = document.createElement('img');
+            image.src = faction.flagUrl;
+            image.alt = '';
+            cloth.appendChild(image);
+        } else {
+            cloth.textContent = faction.flag || '⚑';
+            cloth.style.display = 'grid';
+            cloth.style.placeItems = 'center';
+            cloth.style.fontSize = 'clamp(42px, 7vw, 74px)';
+        }
+
+        const name = document.createElement('div');
+        name.className = 'faction-reveal-name';
+        name.textContent = faction.name || key;
+        card.append(cloth, name);
+        flags.appendChild(card);
+        requestAnimationFrame(() => card.classList.add('reveal'));
+    });
+    overlay.classList.add('show');
+    _factionRevealTimer = window.setTimeout(() => {
+        overlay.classList.remove('show');
+        _factionRevealTimer = null;
+        onComplete();
+    }, TURN_ORDER_REVEAL_DURATION_MS);
 }
 
 // ==== 准备按钮 ----
@@ -611,6 +684,7 @@ function beginTrainingCountdown() {
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     const savedThreePlayer = gameState.isThreePlayer;
     const savedColors = { ...(gameState.factionColorSelections || {}) };
+    const savedFlagEmojis = _savedFlagEmojisFromState();
     const savedOrder = [...(gameState.turnOrder || [])];
     const savedRolls = { ...(gameState.turnOrderRolls || {}) };
     const savedAssignments = { ...(gameState.roleAssignments || {}) };
@@ -623,6 +697,7 @@ function beginTrainingCountdown() {
     configureSkirmishState({
         playerCount: savedThreePlayer ? 3 : 2,
         colors: savedColors,
+        flagEmojis: savedFlagEmojis,
         controllers: savedThreePlayer
             ? { player1: 'human', player2: 'human', player3: 'human' }
             : { player1: 'human', player2: savedDoubleCommanderMode ? 'ai' : 'human' }
@@ -858,6 +933,7 @@ function beginCommanderPhase() {
         playerCount: savedThreePlayer ? 3 : 2,
         controllers: { player1: 'human', player2: 'human', player3: 'human' }
     });
+    _applySavedFlagCustomizations(savedThreePlayer ? ['player1', 'player2', 'player3'] : ['player1', 'player2']);
     _commanderTransitioning = false;
     const pool = shuffleAndSplitPool(savedThreePlayer, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
     gameState.commanderPoolP1 = pool.p1;
@@ -888,6 +964,7 @@ function beginTrainingCommanderPhase(humanRole) {
             ? { player1: 'human', player2: 'human', player3: 'human' }
             : { player1: 'human', player2: 'ai' }
     });
+    _applySavedFlagCustomizations(savedThreePlayer ? ['player1', 'player2', 'player3'] : ['player1']);
     gameState.aiOpponentCamp = savedThreePlayer ? null : campFromKey('player2', gameState);
     gameState._trainingMode = true;
     _commanderTransitioning = false;
@@ -923,6 +1000,7 @@ function beginPVECommanderPhase(humanRole) {
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
     gameState.aiDifficulty = savedDiff;
     configureSkirmishState({ playerCount: 2, controllers: { player1: 'human', player2: 'ai' } });
+    _applySavedFlagCustomizations(['player1']);
     gameState.aiOpponentCamp = campFromKey('player2', gameState);
     _commanderTransitioning = false;
     const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
@@ -1004,6 +1082,19 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
         })
         .map(([, colorId]) => colorId));
     picker.innerHTML = '';
+    const makeSection = (label, kind) => {
+        const section = document.createElement('div');
+        section.className = 'commander-picker-section';
+        const heading = document.createElement('div');
+        heading.className = 'commander-picker-label';
+        heading.textContent = label;
+        const options = document.createElement('div');
+        options.className = `commander-picker-options ${kind}`;
+        section.append(heading, options);
+        picker.appendChild(section);
+        return options;
+    };
+    const colorOptions = makeSection('旗帜颜色', 'colors');
     for (const entry of FACTION_PALETTE.filter(item => PLAYER_FACTION_COLOR_KEYS.includes(item.id))) {
         const swatch = document.createElement('button');
         swatch.type = 'button';
@@ -1018,17 +1109,36 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
             event.stopPropagation();
             if (!setPlayerFactionColor(gameState, forPlayer, entry.id)) return;
             gameState.factionColorSelections[forPlayer] = entry.id;
+            _saveFlagCustomization(forPlayer);
             if (isNetworkGame()) sendMessage({ type: 'factionColor', colorId: entry.id });
-            _configureCommanderFactionHeader(forPlayer, { locked });
-            picker.classList.remove('open');
-            logo.setAttribute('aria-expanded', 'false');
+            _configureCommanderFactionHeader(forPlayer, { locked, keepPickerOpen: true });
         });
-        picker.appendChild(swatch);
+        colorOptions.appendChild(swatch);
+    }
+    const emojiOptions = makeSection('旗面徽记', 'emojis');
+    for (const entry of STANDARD_FLAG_EMOJIS) {
+        const emojiButton = document.createElement('button');
+        emojiButton.type = 'button';
+        emojiButton.className = 'commander-emoji-option';
+        emojiButton.dataset.emoji = entry.emoji;
+        emojiButton.textContent = entry.emoji;
+        emojiButton.setAttribute('aria-label', `旗面徽记：${entry.label}`);
+        emojiButton.title = entry.label;
+        emojiButton.classList.toggle('selected', gameState.factions?.[forPlayer]?.flagEmoji === entry.emoji);
+        emojiButton.disabled = !canChoose;
+        emojiButton.addEventListener('click', event => {
+            event.stopPropagation();
+            if (!setPlayerFactionFlagEmoji(gameState, forPlayer, entry.emoji)) return;
+            _saveFlagCustomization(forPlayer);
+            if (isNetworkGame()) sendMessage({ type: 'factionColor', flagEmoji: entry.emoji });
+            _configureCommanderFactionHeader(forPlayer, { locked, keepPickerOpen: true });
+        });
+        emojiOptions.appendChild(emojiButton);
     }
     logo.disabled = !canChoose;
 }
 
-function _configureCommanderFactionHeader(forPlayer, { locked = false, nameOverride = null } = {}) {
+function _configureCommanderFactionHeader(forPlayer, { locked = false, nameOverride = null, keepPickerOpen = false } = {}) {
     _commanderHeaderFactionKey = forPlayer;
     const ci = _forPlayerCampName(forPlayer);
     const campName = document.getElementById('commanderCampName');
@@ -1038,8 +1148,8 @@ function _configureCommanderFactionHeader(forPlayer, { locked = false, nameOverr
     campName.style.color = ci.color;
     logo.style.setProperty('--camp-color', ci.color);
     _ensureCommanderFlagPreview()?.setFaction(ci.faction);
-    picker.classList.remove('open');
-    logo.setAttribute('aria-expanded', 'false');
+    picker.classList.toggle('open', keepPickerOpen);
+    logo.setAttribute('aria-expanded', String(keepPickerOpen));
     logo.onclick = () => {
         if (logo.disabled) return;
         const open = !picker.classList.contains('open');
@@ -1075,6 +1185,7 @@ function beginNetworkCommanderFlow(role) {
     const wasDoubleCommanderMode = gameState.doubleCommanderMode;
     const wasMode = gameState.gameMode;
     const wasColors = { ...(gameState.factionColorSelections || {}) };
+    const wasFlagEmojis = _savedFlagEmojisFromState();
     const wasOrder = [...(gameState.turnOrder || [])];
     const wasRolls = { ...(gameState.turnOrderRolls || {}) };
     const wasAssignments = { ...(gameState.roleAssignments || {}) };
@@ -1083,7 +1194,7 @@ function beginNetworkCommanderFlow(role) {
     gameState.skirmishFog = wasSkirmish;
     gameState.doubleCommanderMode = wasDoubleCommanderMode;
     gameState.gameMode = wasMode;
-    configureSkirmishState({ playerCount: wasThreePlayer ? 3 : 2, colors: wasColors });
+    configureSkirmishState({ playerCount: wasThreePlayer ? 3 : 2, colors: wasColors, flagEmojis: wasFlagEmojis });
     if (wasOrder.length) gameState.turnOrder = wasOrder;
     gameState.turnOrderRolls = wasRolls;
     if (Object.keys(wasAssignments).length) gameState.roleAssignments = wasAssignments;
@@ -2107,20 +2218,29 @@ function registerNetworkCallbacks() {
             configureSkirmishState({
                 playerCount: isThreePlayer ? 3 : 2,
                 colors: setup.factionColors || {},
+                flagEmojis: setup.factionEmojis || {},
                 controllers: { player1: 'human', player2: 'human', player3: 'human' }
             });
             if (Array.isArray(setup.turnOrder) && setup.turnOrder.length) gameState.turnOrder = [...setup.turnOrder];
             gameState.turnOrderRolls = { ...(setup.turnOrderRolls || {}) };
             gameState.roleAssignments = { ...(setup.roleAssignments || gameState.roleAssignments) };
+            if (_applySavedFlagCustomizations([role])) {
+                const faction = gameState.factions?.[role];
+                sendMessage({ type: 'factionColor', colorId: faction?.colorId, flagEmoji: faction?.flagEmoji });
+            }
             showFactionReveal(role);
         },
 
-        onFactionColors: (colors) => {
+        onFactionColors: (colors, flagEmojis) => {
             for (const [key, colorId] of Object.entries(colors || {})) {
                 if (setPlayerFactionColor(gameState, key, colorId)) gameState.factionColorSelections[key] = colorId;
             }
+            for (const [key, emoji] of Object.entries(flagEmojis || {})) {
+                setPlayerFactionFlagEmoji(gameState, key, emoji);
+            }
             if (document.getElementById('commanderOverlay')?.classList.contains('show')) {
-                _configureCommanderFactionHeader(_commanderHeaderFactionKey);
+                const pickerOpen = document.getElementById('commanderColorPicker')?.classList.contains('open');
+                _configureCommanderFactionHeader(_commanderHeaderFactionKey, { keepPickerOpen: pickerOpen });
             }
         },
 

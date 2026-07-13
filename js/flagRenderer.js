@@ -123,12 +123,13 @@ flat in vec3 vMainColor;
 flat in vec3 vDarkColor;
 flat in float vCommander;
 out vec4 outColor;
-float starMask(vec2 uv) {
-    vec2 p = (uv - vec2(0.5)) * vec2(1.0, 0.68);
-    float angle = atan(p.y, p.x) + 1.5707963;
-    float radius = length(p);
-    float boundary = mix(0.105, 0.235, 0.5 + 0.5 * cos(angle * 5.0));
-    return 1.0 - smoothstep(boundary - 0.025, boundary + 0.015, radius);
+float commandSashMask(vec2 uv, float padding) {
+    float gate = smoothstep(0.635 - padding, 0.645 + padding, uv.x);
+    float top = (uv.x - 0.645) * 0.84 - padding;
+    float bottom = top + 0.13 + padding * 2.0;
+    float begins = smoothstep(top - 0.006, top + 0.006, uv.y);
+    float ends = 1.0 - smoothstep(bottom - 0.006, bottom + 0.006, uv.y);
+    return gate * begins * ends;
 }
 void main() {
     vec4 texel;
@@ -141,12 +142,20 @@ void main() {
     } else {
         texel = vec4(mix(vMainColor, vDarkColor, smoothstep(0.05, 1.0, vUv.x) * 0.45), 1.0);
     }
+    vec3 color = texel.rgb;
+    if (vCommander > 0.5) {
+        float sashOutline = commandSashMask(vUv, 0.025);
+        float sash = commandSashMask(vUv, 0.0);
+        vec3 darkThread = vec3(0.16, 0.09, 0.035);
+        vec3 goldThread = mix(vec3(1.0, 0.89, 0.58), vec3(0.55, 0.31, 0.08), vUv.x);
+        color = mix(color, darkThread, sashOutline * 0.96);
+        color = mix(color, goldThread, sash);
+    }
     float foldLight = 0.90 + vFold * 0.115;
-    vec3 color = texel.rgb * foldLight;
+    color *= foldLight;
     float edgeDistance = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
     float edge = 1.0 - smoothstep(0.0, 0.025, edgeDistance);
     color = mix(color, vec3(1.0), edge * 0.20);
-    if (vCommander > 0.5) color = mix(color, vec3(1.0, 0.78, 0.04), starMask(vUv) * 0.95);
     outColor = vec4(color, texel.a);
 }`;
 
@@ -379,17 +388,23 @@ export function createFlagPreview(canvas) {
     const logicalWidth = Number(canvas.getAttribute('width')) || canvas.width;
     const logicalHeight = Number(canvas.getAttribute('height')) || canvas.height;
     const renderer = new BatchedFlagRenderer(logicalWidth, logicalHeight, canvas, getCanvasPixelRatio());
+    let previewInstance = null;
     return {
         setFaction(faction) {
             const colors = getFlagColors(faction?.colorId || faction?.color);
             // 为自由端的重力下垂和上下摆动预留透明空间，避免预览旗被画布裁切。
             const height = logicalHeight - 16;
             const width = height * 1.5;
-            renderer.setInstances([{
+            previewInstance = {
                 x: (logicalWidth - width) / 2, y: 3, width, height,
                 phase: 1.7, colors, flagUrl: faction?.flagUrl || null
-            }]);
+            };
+            renderer.setInstances([previewInstance]);
         },
-        render(now) { renderer.render(now / 1000, FLAG_WIND_STRENGTH.normal); }
+        render(now) {
+            // 数据 SVG 异步装入纹理图集后需要重新写入图集索引，才能从渐变旗切换到自定义徽记。
+            if (previewInstance) renderer.setInstances([previewInstance]);
+            renderer.render(now / 1000, FLAG_WIND_STRENGTH.normal);
+        }
     };
 }
