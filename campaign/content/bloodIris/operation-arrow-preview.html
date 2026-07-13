@@ -1,0 +1,1907 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Blades of Hex · 作战箭头原型</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;max-width:736px;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Blades of Hex · 作战箭头原型" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Blades of Hex · 作战箭头原型&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(--background) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: light-dark(rgb(255 255 255), rgb(24 24 24));
+  --foreground: light-dark(rgb(26 28 31), rgb(255 255 255));
+  --card: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --card-foreground: var(--foreground);
+  --popover: light-dark(rgb(255 255 255), rgb(45 45 45));
+  --popover-foreground: var(--foreground);
+  --primary: light-dark(rgb(51 156 255), rgb(131 195 255));
+  --primary-foreground: light-dark(rgb(255 255 255), rgb(13 13 13));
+  --secondary: light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: light-dark(
+    rgb(26 28 31 / 49.4%),
+    rgb(255 255 255 / 49.8%)
+  );
+  --accent: light-dark(rgb(229 242 255), rgb(13 39 63));
+  --accent-foreground: var(--primary);
+  --destructive: light-dark(rgb(226 85 7), rgb(255 133 73));
+  --border: light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%));
+  --input: light-dark(
+    rgb(26 28 31 / 11.8%),
+    color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+  );
+  --ring: light-dark(rgb(51 156 255), rgb(131 195 255 / 76%));
+  --font-size-base: 14px;
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --radius: 12.5px;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+  --color-background-primary: var(--background);
+  --color-text-primary: var(--foreground);
+  --color-border-secondary: var(--border);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  margin: 0;
+  padding: 5px;
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--viz-font-weight-medium);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: superellipse(1.5);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: superellipse(1.5);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+    [aria-pressed=&quot;true&quot;],
+    [aria-selected=&quot;true&quot;],
+    .is-selected
+  ) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div id=&quot;operation-arrow-lab&quot;&gt;
+  &lt;div class=&quot;viz-controls&quot; aria-label=&quot;作战箭头原型控制&quot;&gt;
+    &lt;div class=&quot;arrow-filter&quot; role=&quot;group&quot; aria-label=&quot;箭头类型&quot;&gt;
+      &lt;button class=&quot;btn&quot; type=&quot;button&quot; data-filter=&quot;all&quot; aria-pressed=&quot;true&quot;&gt;全部&lt;/button&gt;
+      &lt;button class=&quot;btn&quot; type=&quot;button&quot; data-filter=&quot;march&quot; aria-pressed=&quot;false&quot;&gt;行军&lt;/button&gt;
+      &lt;button class=&quot;btn&quot; type=&quot;button&quot; data-filter=&quot;assault&quot; aria-pressed=&quot;false&quot;&gt;强袭&lt;/button&gt;
+      &lt;button class=&quot;btn&quot; type=&quot;button&quot; data-filter=&quot;fire&quot; aria-pressed=&quot;false&quot;&gt;远程打击&lt;/button&gt;
+      &lt;button class=&quot;btn&quot; type=&quot;button&quot; data-filter=&quot;escort&quot; aria-pressed=&quot;false&quot;&gt;护送&lt;/button&gt;
+      &lt;button class=&quot;btn&quot; type=&quot;button&quot; data-filter=&quot;retreat&quot; aria-pressed=&quot;false&quot;&gt;撤退&lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;label class=&quot;form-label&quot; for=&quot;arrow-accent&quot;&gt;
+      阵营色
+      &lt;input class=&quot;form-control form-control-color&quot; id=&quot;arrow-accent&quot; type=&quot;color&quot; value=&quot;#b64045&quot;&gt;
+    &lt;/label&gt;
+
+    &lt;label class=&quot;form-label&quot; for=&quot;arrow-speed&quot;&gt;
+      动画速度
+      &lt;select class=&quot;form-select&quot; id=&quot;arrow-speed&quot;&gt;
+        &lt;option value=&quot;0.7&quot;&gt;0.7×&lt;/option&gt;
+        &lt;option value=&quot;1&quot; selected&gt;1.0×&lt;/option&gt;
+        &lt;option value=&quot;1.5&quot;&gt;1.5×&lt;/option&gt;
+      &lt;/select&gt;
+    &lt;/label&gt;
+
+    &lt;label class=&quot;form-check form-switch&quot; for=&quot;arrow-stress&quot;&gt;
+      &lt;input class=&quot;form-check-input&quot; id=&quot;arrow-stress&quot; type=&quot;checkbox&quot;&gt;
+      &lt;span class=&quot;form-check-label&quot;&gt;50 路压力预览&lt;/span&gt;
+    &lt;/label&gt;
+
+    &lt;button class=&quot;btn btn-ghost&quot; id=&quot;arrow-pause&quot; type=&quot;button&quot; aria-pressed=&quot;false&quot;&gt;暂停&lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;card arrow-map&quot;&gt;
+    &lt;canvas id=&quot;arrow-map-base&quot; width=&quot;1200&quot; height=&quot;680&quot; aria-hidden=&quot;true&quot;&gt;&lt;/canvas&gt;
+    &lt;canvas
+      id=&quot;arrow-map-fx&quot;
+      width=&quot;1200&quot;
+      height=&quot;680&quot;
+      role=&quot;img&quot;
+      aria-label=&quot;六角战场上的行军、强袭、远程打击、护送和撤退动态箭头&quot;
+    &gt;&lt;/canvas&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;arrow-status text-small&quot; aria-live=&quot;polite&quot;&gt;
+    &lt;span id=&quot;arrow-status&quot;&gt;5 条动态路径&lt;/span&gt;
+    &lt;span class=&quot;text-muted&quot;&gt;单一 Canvas 动画层 · 静态地图缓存&lt;/span&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;style&gt;
+  #operation-arrow-lab {
+    display: grid;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  #operation-arrow-lab .arrow-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  #operation-arrow-lab .arrow-map {
+    position: relative;
+    overflow: hidden;
+    line-height: 0;
+  }
+
+  #operation-arrow-lab canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  #operation-arrow-lab #arrow-map-fx {
+    position: absolute;
+    inset: 0;
+  }
+
+  #operation-arrow-lab .arrow-status {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  @media (max-width: 520px) {
+    #operation-arrow-lab .arrow-status {
+      display: grid;
+    }
+  }
+&lt;/style&gt;
+
+&lt;script&gt;
+(() =&gt; {
+  const root = document.getElementById(&#x27;operation-arrow-lab&#x27;);
+  const baseCanvas = document.getElementById(&#x27;arrow-map-base&#x27;);
+  const fxCanvas = document.getElementById(&#x27;arrow-map-fx&#x27;);
+  const base = baseCanvas.getContext(&#x27;2d&#x27;);
+  const fx = fxCanvas.getContext(&#x27;2d&#x27;);
+  const accentInput = document.getElementById(&#x27;arrow-accent&#x27;);
+  const speedInput = document.getElementById(&#x27;arrow-speed&#x27;);
+  const stressInput = document.getElementById(&#x27;arrow-stress&#x27;);
+  const pauseButton = document.getElementById(&#x27;arrow-pause&#x27;);
+  const status = document.getElementById(&#x27;arrow-status&#x27;);
+  const filterButtons = Array.from(root.querySelectorAll(&#x27;[data-filter]&#x27;));
+  const reducedMotion = window.matchMedia(&#x27;(prefers-reduced-motion: reduce)&#x27;);
+
+  const WIDTH = 1200;
+  const HEIGHT = 680;
+  const TYPES = [&#x27;march&#x27;, &#x27;assault&#x27;, &#x27;fire&#x27;, &#x27;escort&#x27;, &#x27;retreat&#x27;];
+  const TYPE_LABELS = {
+    march: &#x27;行军&#x27;,
+    assault: &#x27;强袭&#x27;,
+    fire: &#x27;远程打击&#x27;,
+    escort: &#x27;护送&#x27;,
+    retreat: &#x27;撤退&#x27;
+  };
+
+  const state = {
+    filter: &#x27;all&#x27;,
+    speed: Number(speedInput.value),
+    stress: false,
+    running: !reducedMotion.matches,
+    accent: accentInput.value,
+    elapsed: 0,
+    lastFrame: performance.now(),
+    fps: 60,
+    fpsFrames: 0,
+    fpsStamp: performance.now()
+  };
+
+  const colorProbe = document.createElement(&#x27;span&#x27;);
+  colorProbe.setAttribute(&#x27;aria-hidden&#x27;, &#x27;true&#x27;);
+  colorProbe.style.position = &#x27;absolute&#x27;;
+  colorProbe.style.width = &#x27;0&#x27;;
+  colorProbe.style.height = &#x27;0&#x27;;
+  colorProbe.style.overflow = &#x27;hidden&#x27;;
+  root.appendChild(colorProbe);
+
+  function token(name, fallback) {
+    const styles = getComputedStyle(root);
+    if (!styles.getPropertyValue(name).trim()) return fallback || styles.color;
+    colorProbe.style.color = &#x27;var(&#x27; + name + &#x27;)&#x27;;
+    const resolved = getComputedStyle(colorProbe).color;
+    colorProbe.style.color = &#x27;&#x27;;
+    return resolved || fallback || styles.color;
+  }
+
+  function palette() {
+    const styles = getComputedStyle(root);
+    return {
+      surface: token(&#x27;--card&#x27;, styles.backgroundColor),
+      foreground: token(&#x27;--card-foreground&#x27;, styles.color),
+      muted: token(&#x27;--muted&#x27;, styles.backgroundColor),
+      mutedForeground: token(&#x27;--muted-foreground&#x27;, styles.color),
+      secondary: token(&#x27;--secondary&#x27;, styles.backgroundColor),
+      border: token(&#x27;--border&#x27;, styles.color),
+      enemy: token(&#x27;--viz-series-2&#x27;, styles.color),
+      river: token(&#x27;--viz-series-3&#x27;, styles.color),
+      objective: token(&#x27;--viz-series-4&#x27;, styles.color),
+      accent: state.accent
+    };
+  }
+
+  function withAlpha(ctx, alpha, callback) {
+    const old = ctx.globalAlpha;
+    ctx.globalAlpha = old * alpha;
+    callback();
+    ctx.globalAlpha = old;
+  }
+
+  function cubicPoint(segment, t) {
+    const u = 1 - t;
+    const tt = t * t;
+    const uu = u * u;
+    const uuu = uu * u;
+    const ttt = tt * t;
+    return {
+      x: uuu * segment.p0.x
+        + 3 * uu * t * segment.p1.x
+        + 3 * u * tt * segment.p2.x
+        + ttt * segment.p3.x,
+      y: uuu * segment.p0.y
+        + 3 * uu * t * segment.p1.y
+        + 3 * u * tt * segment.p2.y
+        + ttt * segment.p3.y
+    };
+  }
+
+  function makePath(segments, stepsPerSegment) {
+    const points = [];
+    let total = 0;
+    segments.forEach((segment, segmentIndex) =&gt; {
+      for (let step = 0; step &lt;= stepsPerSegment; step += 1) {
+        if (segmentIndex &gt; 0 &amp;&amp; step === 0) continue;
+        const point = cubicPoint(segment, step / stepsPerSegment);
+        if (points.length) {
+          const previous = points[points.length - 1];
+          total += Math.hypot(point.x - previous.x, point.y - previous.y);
+        }
+        points.push({ x: point.x, y: point.y, distance: total });
+      }
+    });
+
+    const canvasPath = new Path2D();
+    canvasPath.moveTo(segments[0].p0.x, segments[0].p0.y);
+    segments.forEach((segment) =&gt; {
+      canvasPath.bezierCurveTo(
+        segment.p1.x,
+        segment.p1.y,
+        segment.p2.x,
+        segment.p2.y,
+        segment.p3.x,
+        segment.p3.y
+      );
+    });
+
+    return { segments, points, total, canvasPath };
+  }
+
+  function pointAt(path, fraction) {
+    const target = Math.max(0, Math.min(1, fraction)) * path.total;
+    let low = 0;
+    let high = path.points.length - 1;
+    while (low &lt; high) {
+      const middle = Math.floor((low + high) / 2);
+      if (path.points[middle].distance &lt; target) low = middle + 1;
+      else high = middle;
+    }
+
+    const index = Math.max(1, low);
+    const previous = path.points[index - 1];
+    const current = path.points[index];
+    const span = Math.max(0.001, current.distance - previous.distance);
+    const mix = (target - previous.distance) / span;
+    const x = previous.x + (current.x - previous.x) * mix;
+    const y = previous.y + (current.y - previous.y) * mix;
+    const angle = Math.atan2(current.y - previous.y, current.x - previous.x);
+    return { x, y, angle };
+  }
+
+  function offsetPoints(path, offset) {
+    return path.points.map((point, index, points) =&gt; {
+      const previous = points[Math.max(0, index - 1)];
+      const next = points[Math.min(points.length - 1, index + 1)];
+      const angle = Math.atan2(next.y - previous.y, next.x - previous.x);
+      return {
+        x: point.x - Math.sin(angle) * offset,
+        y: point.y + Math.cos(angle) * offset
+      };
+    });
+  }
+
+  function strokePolyline(ctx, points) {
+    ctx.beginPath();
+    points.forEach((point, index) =&gt; {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.stroke();
+  }
+
+  function drawArrowHead(ctx, path, color, size, open) {
+    const tip = pointAt(path, 1);
+    ctx.save();
+    ctx.translate(tip.x, tip.y);
+    ctx.rotate(tip.angle);
+    ctx.lineJoin = &#x27;round&#x27;;
+    ctx.lineCap = &#x27;round&#x27;;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-size, size * 0.58);
+    if (!open) ctx.lineTo(-size * 0.7, 0);
+    ctx.lineTo(-size, -size * 0.58);
+    if (!open) ctx.closePath();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = open ? 3.4 : 2;
+    if (open) ctx.stroke();
+    else ctx.fill();
+    ctx.restore();
+  }
+
+  function drawChevron(ctx, path, fraction, color, size, alpha) {
+    const point = pointAt(path, fraction);
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.rotate(point.angle);
+    ctx.beginPath();
+    ctx.moveTo(-size, -size * 0.56);
+    ctx.lineTo(0, 0);
+    ctx.lineTo(-size, size * 0.56);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = &#x27;round&#x27;;
+    ctx.lineJoin = &#x27;round&#x27;;
+    withAlpha(ctx, alpha, () =&gt; ctx.stroke());
+    ctx.restore();
+  }
+
+  function drawShield(ctx, point, color, scale, alpha) {
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.rotate(point.angle);
+    ctx.beginPath();
+    ctx.moveTo(-8 * scale, -10 * scale);
+    ctx.lineTo(8 * scale, -10 * scale);
+    ctx.lineTo(7 * scale, 2 * scale);
+    ctx.quadraticCurveTo(0, 12 * scale, -7 * scale, 2 * scale);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    withAlpha(ctx, alpha * 0.24, () =&gt; ctx.fill());
+    withAlpha(ctx, alpha, () =&gt; ctx.stroke());
+    ctx.restore();
+  }
+
+  function drawMarch(ctx, route, time, compact) {
+    const color = state.accent;
+    ctx.save();
+    ctx.lineCap = &#x27;round&#x27;;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = compact ? 8 : 13;
+    withAlpha(ctx, compact ? 0.1 : 0.14, () =&gt; ctx.stroke(route.path.canvasPath));
+
+    ctx.lineWidth = compact ? 2.1 : 3.6;
+    ctx.setLineDash(compact ? [10, 8] : [18, 11]);
+    ctx.lineDashOffset = -time * (compact ? 30 : 46);
+    withAlpha(ctx, compact ? 0.52 : 0.9, () =&gt; ctx.stroke(route.path.canvasPath));
+    ctx.setLineDash([]);
+
+    if (!compact) {
+      for (let index = 0; index &lt; 3; index += 1) {
+        const fraction = (time * 0.115 + index / 3) % 0.92;
+        drawChevron(ctx, route.path, fraction, color, 9, 0.72);
+      }
+    }
+    drawArrowHead(ctx, route.path, color, compact ? 11 : 18, false);
+    ctx.restore();
+  }
+
+  function drawAssault(ctx, route, time, compact) {
+    const color = state.accent;
+    const points = route.path.points;
+    const left = [];
+    const right = [];
+    points.forEach((point, index) =&gt; {
+      if (index % (compact ? 6 : 3) !== 0 &amp;&amp; index !== points.length - 1) return;
+      const previous = points[Math.max(0, index - 1)];
+      const next = points[Math.min(points.length - 1, index + 1)];
+      const angle = Math.atan2(next.y - previous.y, next.x - previous.x);
+      const progress = index / Math.max(1, points.length - 1);
+      const width = (compact ? 3.5 : 6) + progress * (compact ? 5 : 10);
+      left.push({
+        x: point.x - Math.sin(angle) * width,
+        y: point.y + Math.cos(angle) * width
+      });
+      right.push({
+        x: point.x + Math.sin(angle) * width,
+        y: point.y - Math.cos(angle) * width
+      });
+    });
+
+    ctx.save();
+    ctx.beginPath();
+    left.forEach((point, index) =&gt; {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    right.reverse().forEach((point) =&gt; ctx.lineTo(point.x, point.y));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    withAlpha(ctx, compact ? 0.16 : 0.25, () =&gt; ctx.fill());
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = compact ? 1.6 : 2.3;
+    withAlpha(ctx, compact ? 0.58 : 0.88, () =&gt; ctx.stroke());
+    drawArrowHead(ctx, route.path, color, compact ? 15 : 25, false);
+
+    const waveCount = compact ? 2 : 4;
+    for (let index = 0; index &lt; waveCount; index += 1) {
+      const fraction = (time * 0.2 + index / waveCount) % 0.9;
+      drawChevron(
+        ctx,
+        route.path,
+        fraction,
+        color,
+        compact ? 7 : 13,
+        compact ? 0.4 : 0.86
+      );
+    }
+
+    const pulse = (time * 0.78) % 1;
+    const target = pointAt(route.path, 1);
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, (compact ? 8 : 13) + pulse * (compact ? 14 : 28), 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = compact ? 1.4 : 2.5;
+    withAlpha(ctx, (1 - pulse) * (compact ? 0.28 : 0.62), () =&gt; ctx.stroke());
+    ctx.restore();
+  }
+
+  function drawFire(ctx, route, time, compact) {
+    const color = state.accent;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = compact ? 1.6 : 2.7;
+    ctx.lineCap = &#x27;round&#x27;;
+    ctx.setLineDash(compact ? [2, 8] : [3, 12]);
+    ctx.lineDashOffset = -time * (compact ? 22 : 34);
+    withAlpha(ctx, compact ? 0.5 : 0.78, () =&gt; ctx.stroke(route.path.canvasPath));
+    ctx.setLineDash([]);
+    drawArrowHead(ctx, route.path, color, compact ? 8 : 13, true);
+
+    const tracerPhase = (time * 0.42) % 1;
+    const tracer = pointAt(route.path, tracerPhase);
+    [10, 6, 3].forEach((radius, index) =&gt; {
+      ctx.beginPath();
+      ctx.arc(tracer.x, tracer.y, radius * (compact ? 0.55 : 1), 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      withAlpha(ctx, compact ? 0.08 + index * 0.1 : 0.1 + index * 0.18, () =&gt; ctx.fill());
+    });
+
+    const target = pointAt(route.path, 1);
+    const impact = tracerPhase &lt; 0.24 ? tracerPhase / 0.24 : 1;
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, (compact ? 7 : 12) + impact * (compact ? 14 : 26), 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = compact ? 1.3 : 2.2;
+    withAlpha(ctx, impact &lt; 1 ? 0.65 * (1 - impact) : 0.16, () =&gt; ctx.stroke());
+    ctx.beginPath();
+    ctx.moveTo(target.x - (compact ? 7 : 13), target.y);
+    ctx.lineTo(target.x + (compact ? 7 : 13), target.y);
+    ctx.moveTo(target.x, target.y - (compact ? 7 : 13));
+    ctx.lineTo(target.x, target.y + (compact ? 7 : 13));
+    withAlpha(ctx, compact ? 0.42 : 0.78, () =&gt; ctx.stroke());
+    ctx.restore();
+  }
+
+  function drawEscort(ctx, route, time, compact) {
+    const color = state.accent;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = compact ? 1.6 : 2.5;
+    ctx.lineCap = &#x27;round&#x27;;
+    ctx.setLineDash(compact ? [8, 7] : [14, 8]);
+    ctx.lineDashOffset = -time * (compact ? 20 : 28);
+    [-1, 1].forEach((side) =&gt; {
+      const points = offsetPoints(route.path, side * (compact ? 3.5 : 6));
+      withAlpha(ctx, compact ? 0.5 : 0.82, () =&gt; strokePolyline(ctx, points));
+    });
+    ctx.setLineDash([]);
+    drawArrowHead(ctx, route.path, color, compact ? 10 : 16, true);
+
+    const mover = pointAt(route.path, (time * 0.13) % 0.96);
+    drawShield(ctx, mover, color, compact ? 0.52 : 0.9, compact ? 0.62 : 0.96);
+
+    if (!compact) {
+      [0.34, 0.67].forEach((fraction, index) =&gt; {
+        const waypoint = pointAt(route.path, fraction);
+        const pulse = (time * 0.75 + index * 0.38) % 1;
+        ctx.beginPath();
+        ctx.arc(waypoint.x, waypoint.y, 6 + pulse * 7, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        withAlpha(ctx, 0.72 * (1 - pulse), () =&gt; ctx.stroke());
+        ctx.beginPath();
+        ctx.arc(waypoint.x, waypoint.y, 3.2, 0, Math.PI * 2);
+        withAlpha(ctx, 0.9, () =&gt; ctx.fill());
+      });
+    }
+    ctx.restore();
+  }
+
+  function drawRetreat(ctx, route, time, compact) {
+    const color = state.accent;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = &#x27;round&#x27;;
+    ctx.lineWidth = compact ? 1.5 : 2.7;
+    ctx.setLineDash(compact ? [7, 8] : [11, 9]);
+    ctx.lineDashOffset = -time * (compact ? 23 : 31);
+    [-1, 1].forEach((side) =&gt; {
+      const points = offsetPoints(route.path, side * (compact ? 3 : 5.5));
+      withAlpha(ctx, compact ? 0.42 : 0.72, () =&gt; strokePolyline(ctx, points));
+    });
+    ctx.setLineDash([]);
+    drawArrowHead(ctx, route.path, color, compact ? 11 : 18, true);
+
+    const leadFraction = (time * 0.16) % 0.9;
+    for (let trail = 0; trail &lt; (compact ? 2 : 5); trail += 1) {
+      let fraction = leadFraction - trail * 0.035;
+      if (fraction &lt; 0) fraction += 0.9;
+      const point = pointAt(route.path, fraction);
+      const radius = (compact ? 2.6 : 4.5) * (1 - trail / (compact ? 3 : 6));
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      withAlpha(ctx, (compact ? 0.48 : 0.72) * (1 - trail / (compact ? 3 : 6)), () =&gt; ctx.fill());
+    }
+
+    if (!compact) {
+      for (let index = 0; index &lt; 3; index += 1) {
+        const fraction = (time * 0.12 + index * 0.25) % 0.82;
+        drawChevron(ctx, route.path, fraction, color, 8, 0.5);
+      }
+    }
+    ctx.restore();
+  }
+
+  const drawers = {
+    march: drawMarch,
+    assault: drawAssault,
+    fire: drawFire,
+    escort: drawEscort,
+    retreat: drawRetreat
+  };
+
+  function segment(p0, p1, p2, p3) {
+    return { p0, p1, p2, p3 };
+  }
+
+  const mainRoutes = [
+    {
+      type: &#x27;escort&#x27;,
+      labelFraction: 0.48,
+      labelOffset: { x: 0, y: -26 },
+      path: makePath([
+        segment(
+          { x: 92, y: 184 },
+          { x: 165, y: 80 },
+          { x: 270, y: 82 },
+          { x: 332, y: 132 }
+        ),
+        segment(
+          { x: 332, y: 132 },
+          { x: 390, y: 178 },
+          { x: 442, y: 166 },
+          { x: 492, y: 146 }
+        )
+      ], 42)
+    },
+    {
+      type: &#x27;fire&#x27;,
+      labelFraction: 0.45,
+      labelOffset: { x: 4, y: -25 },
+      path: makePath([
+        segment(
+          { x: 748, y: 252 },
+          { x: 830, y: 80 },
+          { x: 982, y: 58 },
+          { x: 1064, y: 120 }
+        )
+      ], 72)
+    },
+    {
+      type: &#x27;march&#x27;,
+      labelFraction: 0.51,
+      labelOffset: { x: 0, y: -28 },
+      path: makePath([
+        segment(
+          { x: 92, y: 548 },
+          { x: 194, y: 454 },
+          { x: 315, y: 560 },
+          { x: 432, y: 492 }
+        )
+      ], 72)
+    },
+    {
+      type: &#x27;assault&#x27;,
+      labelFraction: 0.52,
+      labelOffset: { x: 30, y: 4 },
+      path: makePath([
+        segment(
+          { x: 502, y: 600 },
+          { x: 530, y: 500 },
+          { x: 616, y: 438 },
+          { x: 676, y: 348 }
+        )
+      ], 72)
+    },
+    {
+      type: &#x27;retreat&#x27;,
+      labelFraction: 0.48,
+      labelOffset: { x: 0, y: -28 },
+      path: makePath([
+        segment(
+          { x: 1095, y: 542 },
+          { x: 1018, y: 620 },
+          { x: 900, y: 612 },
+          { x: 816, y: 570 }
+        )
+      ], 72)
+    }
+  ];
+
+  function seededRandom() {
+    let seed = 0x5eeda11;
+    return () =&gt; {
+      seed = (seed * 1664525 + 1013904223) &gt;&gt;&gt; 0;
+      return seed / 4294967296;
+    };
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.max(minimum, Math.min(maximum, value));
+  }
+
+  function createStressRoutes() {
+    const random = seededRandom();
+    const routes = [];
+    for (let index = 0; index &lt; 50; index += 1) {
+      const type = TYPES[index % TYPES.length];
+      const start = {
+        x: 45 + random() * (WIDTH - 90),
+        y: 42 + random() * (HEIGHT - 84)
+      };
+      const angle = random() * Math.PI * 2;
+      const distance = 115 + random() * 185;
+      const end = {
+        x: clamp(start.x + Math.cos(angle) * distance, 34, WIDTH - 34),
+        y: clamp(start.y + Math.sin(angle) * distance, 34, HEIGHT - 34)
+      };
+      const bend = (random() - 0.5) * 130;
+      const normal = { x: -Math.sin(angle), y: Math.cos(angle) };
+      const first = {
+        x: start.x + (end.x - start.x) * 0.34 + normal.x * bend,
+        y: start.y + (end.y - start.y) * 0.34 + normal.y * bend
+      };
+      const second = {
+        x: start.x + (end.x - start.x) * 0.7 + normal.x * bend * 0.65,
+        y: start.y + (end.y - start.y) * 0.7 + normal.y * bend * 0.65
+      };
+      routes.push({
+        type,
+        path: makePath([segment(start, first, second, end)], 34)
+      });
+    }
+    return routes;
+  }
+
+  const stressRoutes = createStressRoutes();
+
+  function hexPath(ctx, centerX, centerY, radius) {
+    ctx.beginPath();
+    for (let corner = 0; corner &lt; 6; corner += 1) {
+      const angle = Math.PI / 3 * corner - Math.PI / 2;
+      const x = centerX + Math.cos(angle) * radius;
+      const y = centerY + Math.sin(angle) * radius;
+      if (corner === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  }
+
+  function drawBaseMap() {
+    const colors = palette();
+    base.clearRect(0, 0, WIDTH, HEIGHT);
+    base.fillStyle = colors.surface;
+    base.fillRect(0, 0, WIDTH, HEIGHT);
+
+    const radius = 47;
+    const horizontal = Math.sqrt(3) * radius;
+    const vertical = radius * 1.5;
+    let row = 0;
+    for (let y = -radius; y &lt; HEIGHT + radius; y += vertical) {
+      let column = 0;
+      for (let x = -horizontal; x &lt; WIDTH + horizontal; x += horizontal) {
+        const centerX = x + (row % 2 ? horizontal / 2 : 0);
+        const noise = (row * 17 + column * 31) % 9;
+        hexPath(base, centerX, y, radius);
+        base.fillStyle = noise &lt; 2 ? colors.secondary : colors.muted;
+        withAlpha(base, noise &lt; 2 ? 0.44 : 0.28, () =&gt; base.fill());
+        base.strokeStyle = colors.border;
+        base.lineWidth = 1;
+        withAlpha(base, 0.42, () =&gt; base.stroke());
+        column += 1;
+      }
+      row += 1;
+    }
+
+    base.save();
+    base.beginPath();
+    base.moveTo(-30, 378);
+    base.bezierCurveTo(220, 322, 390, 434, 610, 370);
+    base.bezierCurveTo(790, 316, 972, 350, 1230, 286);
+    base.strokeStyle = colors.river;
+    base.lineCap = &#x27;round&#x27;;
+    base.lineWidth = 34;
+    withAlpha(base, 0.11, () =&gt; base.stroke());
+    base.lineWidth = 4;
+    withAlpha(base, 0.42, () =&gt; base.stroke());
+    base.restore();
+
+    base.save();
+    base.beginPath();
+    base.moveTo(40, 628);
+    base.bezierCurveTo(310, 575, 516, 590, 726, 470);
+    base.bezierCurveTo(902, 370, 1005, 250, 1180, 214);
+    base.strokeStyle = colors.mutedForeground;
+    base.lineWidth = 7;
+    base.lineCap = &#x27;round&#x27;;
+    withAlpha(base, 0.12, () =&gt; base.stroke());
+    base.setLineDash([8, 13]);
+    base.lineWidth = 1.5;
+    withAlpha(base, 0.35, () =&gt; base.stroke());
+    base.restore();
+
+    base.save();
+    base.strokeStyle = colors.mutedForeground;
+    base.lineWidth = 1.4;
+    for (let ridge = 0; ridge &lt; 11; ridge += 1) {
+      const x = 325 + ridge * 34;
+      const y = 250 + Math.sin(ridge * 0.8) * 20;
+      base.beginPath();
+      base.moveTo(x - 13, y + 10);
+      base.quadraticCurveTo(x, y - 16, x + 13, y + 10);
+      withAlpha(base, 0.26, () =&gt; base.stroke());
+    }
+    base.restore();
+  }
+
+  function drawUnit(ctx, x, y, color, symbol, selected) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.arc(0, 0, selected ? 20 : 17, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    withAlpha(ctx, selected ? 0.26 : 0.18, () =&gt; ctx.fill());
+    ctx.strokeStyle = color;
+    ctx.lineWidth = selected ? 3 : 2;
+    withAlpha(ctx, 0.9, () =&gt; ctx.stroke());
+    ctx.fillStyle = palette().foreground;
+    ctx.font = &#x27;500 15px system-ui, sans-serif&#x27;;
+    ctx.textAlign = &#x27;center&#x27;;
+    ctx.textBaseline = &#x27;middle&#x27;;
+    withAlpha(ctx, 0.92, () =&gt; ctx.fillText(symbol, 0, 1));
+    if (selected) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 25, 0, Math.PI * 2);
+      ctx.setLineDash([3, 5]);
+      withAlpha(ctx, 0.58, () =&gt; ctx.stroke());
+    }
+    ctx.restore();
+  }
+
+  function drawCity(ctx, x, y, color, capital) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.2;
+    const points = capital ? 12 : 8;
+    ctx.beginPath();
+    for (let index = 0; index &lt; points; index += 1) {
+      const angle = index / points * Math.PI * 2 - Math.PI / 2;
+      const radius = index % 2 === 0 ? (capital ? 24 : 19) : (capital ? 18 : 14);
+      const xPoint = Math.cos(angle) * radius;
+      const yPoint = Math.sin(angle) * radius;
+      if (index === 0) ctx.moveTo(xPoint, yPoint);
+      else ctx.lineTo(xPoint, yPoint);
+    }
+    ctx.closePath();
+    withAlpha(ctx, 0.16, () =&gt; {
+      ctx.fillStyle = color;
+      ctx.fill();
+    });
+    withAlpha(ctx, 0.78, () =&gt; ctx.stroke());
+    if (capital) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0, Math.PI * 2);
+      withAlpha(ctx, 0.55, () =&gt; ctx.stroke());
+    }
+    ctx.restore();
+  }
+
+  function drawSceneObjects(ctx) {
+    const colors = palette();
+    drawUnit(ctx, 72, 196, state.accent, &#x27;I&#x27;, true);
+    drawCity(ctx, 516, 136, state.accent, true);
+    drawUnit(ctx, 730, 270, state.accent, &#x27;R&#x27;, false);
+    drawCity(ctx, 1084, 112, colors.enemy, false);
+    drawUnit(ctx, 70, 565, state.accent, &#x27;II&#x27;, true);
+    drawCity(ctx, 454, 482, state.accent, false);
+    drawUnit(ctx, 488, 616, state.accent, &#x27;III&#x27;, true);
+    drawCity(ctx, 694, 330, colors.enemy, true);
+    drawUnit(ctx, 1114, 551, state.accent, &#x27;IV&#x27;, true);
+    drawCity(ctx, 794, 579, state.accent, false);
+
+    ctx.save();
+    ctx.strokeStyle = colors.enemy;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(1134, 510);
+    ctx.lineTo(1119, 527);
+    ctx.moveTo(1119, 510);
+    ctx.lineTo(1134, 527);
+    withAlpha(ctx, 0.7, () =&gt; ctx.stroke());
+    ctx.restore();
+  }
+
+  function drawRouteLabel(ctx, route) {
+    const colors = palette();
+    const point = pointAt(route.path, route.labelFraction);
+    const label = TYPE_LABELS[route.type];
+    ctx.save();
+    ctx.font = &#x27;500 13px system-ui, sans-serif&#x27;;
+    ctx.textAlign = &#x27;center&#x27;;
+    ctx.textBaseline = &#x27;middle&#x27;;
+    const x = point.x + route.labelOffset.x;
+    const y = point.y + route.labelOffset.y;
+    const width = ctx.measureText(label).width + 18;
+    ctx.beginPath();
+    ctx.roundRect(x - width / 2, y - 12, width, 24, 8);
+    ctx.fillStyle = colors.secondary;
+    withAlpha(ctx, 0.88, () =&gt; ctx.fill());
+    ctx.strokeStyle = state.accent;
+    ctx.lineWidth = 1.4;
+    withAlpha(ctx, 0.62, () =&gt; ctx.stroke());
+    ctx.fillStyle = colors.foreground;
+    withAlpha(ctx, 0.95, () =&gt; ctx.fillText(label, x, y + 0.5));
+    ctx.restore();
+  }
+
+  function currentRoutes() {
+    const source = state.stress ? stressRoutes : mainRoutes;
+    if (state.filter === &#x27;all&#x27;) return source;
+    return source.filter((route) =&gt; route.type === state.filter);
+  }
+
+  function renderFrame(now) {
+    const delta = Math.min(0.05, (now - state.lastFrame) / 1000);
+    state.lastFrame = now;
+    if (state.running) state.elapsed += delta * state.speed;
+
+    fx.clearRect(0, 0, WIDTH, HEIGHT);
+    const routes = currentRoutes();
+    routes.forEach((route) =&gt; {
+      drawers[route.type](fx, route, state.elapsed, state.stress);
+    });
+
+    if (!state.stress) {
+      drawSceneObjects(fx);
+      routes.forEach((route) =&gt; drawRouteLabel(fx, route));
+    }
+
+    state.fpsFrames += 1;
+    if (now - state.fpsStamp &gt;= 600) {
+      state.fps = Math.round(state.fpsFrames * 1000 / (now - state.fpsStamp));
+      state.fpsFrames = 0;
+      state.fpsStamp = now;
+      const typeText = state.filter === &#x27;all&#x27; ? &#x27;全部类型&#x27; : TYPE_LABELS[state.filter];
+      status.textContent = routes.length + &#x27; 条动态路径 · &#x27; + typeText + &#x27; · &#x27; + state.fps + &#x27; FPS&#x27;;
+    }
+    requestAnimationFrame(renderFrame);
+  }
+
+  filterButtons.forEach((button) =&gt; {
+    button.addEventListener(&#x27;click&#x27;, () =&gt; {
+      state.filter = button.dataset.filter;
+      filterButtons.forEach((candidate) =&gt; {
+        candidate.setAttribute(&#x27;aria-pressed&#x27;, String(candidate === button));
+      });
+      status.textContent = currentRoutes().length + &#x27; 条动态路径&#x27;;
+    });
+  });
+
+  accentInput.addEventListener(&#x27;input&#x27;, () =&gt; {
+    state.accent = accentInput.value;
+  });
+
+  speedInput.addEventListener(&#x27;change&#x27;, () =&gt; {
+    state.speed = Number(speedInput.value);
+  });
+
+  stressInput.addEventListener(&#x27;change&#x27;, () =&gt; {
+    state.stress = stressInput.checked;
+    status.textContent = currentRoutes().length + &#x27; 条动态路径&#x27;;
+  });
+
+  pauseButton.addEventListener(&#x27;click&#x27;, () =&gt; {
+    state.running = !state.running;
+    pauseButton.textContent = state.running ? &#x27;暂停&#x27; : &#x27;继续&#x27;;
+    pauseButton.setAttribute(&#x27;aria-pressed&#x27;, String(!state.running));
+  });
+
+  reducedMotion.addEventListener(&#x27;change&#x27;, (event) =&gt; {
+    if (event.matches) {
+      state.running = false;
+      pauseButton.textContent = &#x27;继续&#x27;;
+      pauseButton.setAttribute(&#x27;aria-pressed&#x27;, &#x27;true&#x27;);
+    }
+  });
+
+  const redrawBase = () =&gt; drawBaseMap();
+  window.matchMedia(&#x27;(prefers-color-scheme: dark)&#x27;).addEventListener(&#x27;change&#x27;, redrawBase);
+  new MutationObserver(redrawBase).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: [&#x27;class&#x27;, &#x27;style&#x27;, &#x27;data-theme&#x27;]
+  });
+
+  if (!state.running) {
+    pauseButton.textContent = &#x27;继续&#x27;;
+    pauseButton.setAttribute(&#x27;aria-pressed&#x27;, &#x27;true&#x27;);
+  }
+
+  drawBaseMap();
+  requestAnimationFrame(renderFrame);
+})();
+&lt;/script&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handleLeave = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>
