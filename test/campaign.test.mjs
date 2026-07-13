@@ -195,8 +195,25 @@ export async function run(browser) {
     });
     R.assert(flagWindContract.clear === 0.7 && flagWindContract.rain === 0.7
         && flagWindContract.fog === 0.7 && flagWindContract.wind === 1.5
-        && flagWindContract.gravitySag === 0.055 && flagWindContract.windFlattening === 0.22,
-    '旗帜保持常态/风天倍率，并以轻微重力弧垂配合强风拉平效果');
+        && flagWindContract.gravitySag === 0.1 && flagWindContract.windFlattening === 0.22,
+    '旗帜保持常态/风天倍率，并以明显重力弧垂配合强风拉平效果');
+    const flagArtworkContract = await page.evaluate(async () => {
+        const readTextMetrics = async url => {
+            const source = await fetch(url).then(response => response.text());
+            const text = new DOMParser().parseFromString(source, 'image/svg+xml').querySelector('text');
+            return { size: Number(text?.getAttribute('font-size')), y: Number(text?.getAttribute('y')) };
+        };
+        return {
+            kingdom: await readTextMetrics('/img/flags/aurelia-kingdom.svg'),
+            regency: await readTextMetrics('/img/flags/aurelia-regency.svg'),
+            petra: await readTextMetrics('/img/flags/petra-autonomy.svg'),
+            targets: await readTextMetrics('/img/flags/training-targets.svg')
+        };
+    });
+    R.assert(['kingdom', 'regency', 'targets'].every(key => flagArtworkContract[key].size === 380
+        && flagArtworkContract[key].y === 420)
+        && flagArtworkContract.petra.size === 230 && flagArtworkContract.petra.y === 237,
+    '现有旗帜徽章统一放大并下移基线，保持视觉居中');
     const flagLayoutContract = await page.evaluate(async () => {
         const { UNIT_FLAG_LAYOUT, CITY_FLAG_LAYOUT } = await import('/js/flagLayout.js');
         return { unit: UNIT_FLAG_LAYOUT, city: CITY_FLAG_LAYOUT };
@@ -334,6 +351,20 @@ export async function run(browser) {
         await page.click('#turnTransitionOverlay');
         await waitFor(() => page.evaluate(() => document.getElementById('campaignSpeakerCard')?.classList.contains('show')), 5000, '开场计时对白');
         R.assert((await page.textContent('#campaignSpeakerName')).trim() === '马库斯', '《花与剑》开场正确显示马库斯对白');
+        const openingCharacterPresentation = await page.evaluate(async () => {
+            const { gameState } = await import('/js/state.js');
+            const severus = gameState.tileMap.get('0,-3')?.unit;
+            const portrait = document.getElementById('campaignSpeakerPortrait');
+            await portrait.decode();
+            return {
+                marcusPortraitLoaded: portrait.naturalWidth > 0 && decodeURI(portrait.src).endsWith('/img/commander/百夫长.webp'),
+                severusOnAwardPlatform: severus?.id === 'severus_regent'
+                    && severus.commander === 'advisor' && severus.canAct === false
+            };
+        });
+        R.assert(openingCharacterPresentation.marcusPortraitLoaded
+            && openingCharacterPresentation.severusOnAwardPlatform,
+        '人物立绘按将领 ID 映射到中文资源；塞维鲁以谋士单位从开场驻留授章台');
         const campaignInfo = await page.evaluate(() => ({
             chronicle: document.getElementById('campaignInfoChronicle')?.textContent.trim(),
             chapter: document.getElementById('campaignInfoChapter')?.textContent.trim(),
@@ -412,7 +443,19 @@ export async function run(browser) {
         await sleep(260);
         await clickTile(page, 1, -1);
         await sleep(260);
-        for (let index = 0; index < 7; index++) await advanceCampaignDialogue(page);
+        await advanceCampaignDialogue(page);
+        const severusDialoguePresentation = await page.evaluate(async () => {
+            const portrait = document.getElementById('campaignSpeakerPortrait');
+            await portrait.decode();
+            return {
+                speaker: document.getElementById('campaignSpeakerName').textContent.trim(),
+                portraitLoaded: portrait.naturalWidth > 0 && decodeURI(portrait.src).endsWith('/img/commander/谋士.webp')
+            };
+        });
+        R.assert(severusDialoguePresentation.speaker === '塞维鲁'
+            && severusDialoguePresentation.portraitLoaded,
+        '授章对白由地图上的塞维鲁发言，并正确使用谋士立绘');
+        for (let index = 0; index < 6; index++) await advanceCampaignDialogue(page);
         await waitFor(() => page.evaluate(() => document.getElementById('campaignResultOverlay')?.classList.contains('show')), 5000, '《花与剑》完成结算');
         R.assert((await page.textContent('#campaignResultTitle')).includes('花与剑'), '《花与剑》v3 可按教学路径完整通关');
         const standardTopbarAfterCampaign = await page.evaluate(async () => {

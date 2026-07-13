@@ -89,6 +89,18 @@ export const config = {
 
     units: [
         {
+            // 塞维鲁亲临校场主持授章：从开场就在北端授章台上，避免对白角色凭空入场。
+            id: 'severus_regent',
+            type: 'infantry',
+            camp: 'player1',
+            q: 0,
+            r: -3,
+            hpPct: 100,
+            morale: 2,
+            canAct: false,
+            commander: 'advisor'
+        },
+        {
             id: 'marcus_instructor',
             type: 'infantry',
             camp: 'player1',

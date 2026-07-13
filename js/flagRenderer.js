@@ -14,7 +14,7 @@ const ATLAS_CELL_W = 256;
 const ATLAS_CELL_H = 171;
 const INSTANCE_FLOATS = 13;
 export const FLAG_WIND_STRENGTH = Object.freeze({ normal: 0.7, wind: 1.5 });
-export const FLAG_CLOTH_PHYSICS = Object.freeze({ gravitySag: 0.055, windFlattening: 0.22 });
+export const FLAG_CLOTH_PHYSICS = Object.freeze({ gravitySag: 0.1, windFlattening: 0.22 });
 
 export function getFlagWindStrength(weather) {
     return weather === 'wind' ? FLAG_WIND_STRENGTH.wind : FLAG_WIND_STRENGTH.normal;
@@ -383,7 +383,7 @@ export function createFlagPreview(canvas) {
         setFaction(faction) {
             const colors = getFlagColors(faction?.colorId || faction?.color);
             // 为自由端的重力下垂和上下摆动预留透明空间，避免预览旗被画布裁切。
-            const height = logicalHeight - 12;
+            const height = logicalHeight - 16;
             const width = height * 1.5;
             renderer.setInstances([{
                 x: (logicalWidth - width) / 2, y: 3, width, height,

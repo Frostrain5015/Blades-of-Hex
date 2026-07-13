@@ -6,6 +6,7 @@ import { gameState, logMessage, updateUI, notify } from './state.js';
 import { emit, on } from './eventBus.js';
 import { saveVictory } from '../campaign/progress.js';
 import { campFromKey, getFaction } from '../rules/diplomacy.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 let sharedController = null;
 
@@ -272,7 +273,9 @@ export function createCampaignController({ onRetry, onReturn }) {
         speakerCard.setAttribute('aria-hidden', hasSpeaker ? 'false' : 'true');
         coach.classList.toggle('has-speaker', !!hasSpeaker);
         if (hasSpeaker) {
-            speakerPortrait.src = `img/commander/${step.speaker.portrait}.webp`;
+            const portraitId = step.speaker.portrait;
+            const portraitName = COMMANDER_CONFIG[portraitId]?.definition?.name || portraitId;
+            speakerPortrait.src = `img/commander/${portraitName}.webp`;
             speakerPortrait.alt = `${step.speaker.name}立绘`;
             speakerName.textContent = step.speaker.name;
             coach.setAttribute('aria-label', `${step.speaker.name}对话`);

@@ -1907,7 +1907,7 @@ body {
 .commander-logo {
     position: relative;
     width: 112px;
-    height: 72px;
+    height: 80px;
     padding: 0;
     border: 0;
     cursor: pointer;
@@ -1918,11 +1918,11 @@ body {
 .commander-logo:hover { transform: translateY(-1px); }
 .commander-logo:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .commander-logo:disabled { cursor: default; filter: saturate(.55); }
-.commander-logo canvas { position: absolute; inset: 0; width: 112px; height: 72px; }
+.commander-logo canvas { position: absolute; inset: 0; width: 112px; height: 80px; }
 .commander-color-picker {
     position: absolute;
     z-index: 4;
-    top: 78px;
+    top: 86px;
     left: 50%;
     transform: translateX(-50%);
     display: none;
