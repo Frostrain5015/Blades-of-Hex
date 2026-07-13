@@ -12,6 +12,54 @@
 
 export const CAMPAIGN_STORAGE_KEY = 'bladesOfHex.campaign.bloodIris';
 
+// 战役旗帜资产：关卡按阵营预设取用，避免在关卡或 UI 中重复硬编码路径与徽章。
+export const BLOOD_IRIS_FLAG_ASSETS = Object.freeze({
+    aureliaKingdom: Object.freeze({
+        url: 'img/flags/aurelia-kingdom.svg',
+        alt: '奥雷利亚王国旗'
+    }),
+    regency: Object.freeze({
+        url: 'img/flags/aurelia-regency.svg',
+        alt: '奥雷利亚摄政府旗'
+    }),
+    petraAutonomy: Object.freeze({
+        url: 'img/flags/petra-autonomy.svg',
+        alt: '佩特拉自治领旗'
+    }),
+    trainingTargets: Object.freeze({
+        url: 'img/flags/training-targets.svg',
+        alt: '训练靶旗'
+    })
+});
+
+// 战役阵营预设：只包含跨关复用的显示数据；每关仍负责 id、控制方式与回合参与等战术配置。
+export const BLOOD_IRIS_FACTION_PRESETS = Object.freeze({
+    aureliaKingdom: Object.freeze({
+        name: '奥雷利亚王国',
+        color: 'red',
+        flagUrl: BLOOD_IRIS_FLAG_ASSETS.aureliaKingdom.url,
+        flagAlt: BLOOD_IRIS_FLAG_ASSETS.aureliaKingdom.alt
+    }),
+    regency: Object.freeze({
+        name: '摄政府',
+        color: 'purple',
+        flagUrl: BLOOD_IRIS_FLAG_ASSETS.regency.url,
+        flagAlt: BLOOD_IRIS_FLAG_ASSETS.regency.alt
+    }),
+    petraAutonomy: Object.freeze({
+        name: '佩特拉自治领',
+        color: 'yellow',
+        flagUrl: BLOOD_IRIS_FLAG_ASSETS.petraAutonomy.url,
+        flagAlt: BLOOD_IRIS_FLAG_ASSETS.petraAutonomy.alt
+    }),
+    trainingTargets: Object.freeze({
+        name: '训练靶',
+        color: 'gray',
+        flagUrl: BLOOD_IRIS_FLAG_ASSETS.trainingTargets.url,
+        flagAlt: BLOOD_IRIS_FLAG_ASSETS.trainingTargets.alt
+    })
+});
+
 // 关卡注册表（lobby 按此顺序渲染关卡卡）。新关卡在此登记 + 建模块文件即自动载入。
 // 每关卡元字段：id/title/label/elementKey → lobby 渲染；type/order → 排序分类；
 // load → 懒加载函数，模块需 export config（配置关卡）或 export default（手写 scenario）。

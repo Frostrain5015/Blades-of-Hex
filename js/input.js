@@ -2153,15 +2153,16 @@ export function initSettingsPanel() {
             row.style.setProperty('--flag-main', flagMain);
             row.style.setProperty('--relation-color', meta.color);
             const flag = document.createElement('span'); flag.className = 'faction-list-flag';
-            if (faction.name === '奥雷利亚王国') {
+            if (faction.flagUrl) {
+                const image = document.createElement('img');
+                image.className = 'faction-list-flag-image';
+                image.src = faction.flagUrl;
+                image.alt = faction.flagAlt || `${faction.name}旗帜`;
+                flag.appendChild(image);
+            } else if (faction.flag) {
                 const emblem = document.createElement('span');
                 emblem.className = 'faction-list-flag-emblem';
-                emblem.textContent = '⚜️';
-                flag.appendChild(emblem);
-            } else if (faction.name.includes('训练')) {
-                const emblem = document.createElement('span');
-                emblem.className = 'faction-list-flag-emblem';
-                emblem.textContent = '🔰';
+                emblem.textContent = faction.flag;
                 flag.appendChild(emblem);
             }
             const copy = document.createElement('div');

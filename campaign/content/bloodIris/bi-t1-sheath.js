@@ -13,6 +13,8 @@
 // 回合：2
 // 难度：★
 
+import { BLOOD_IRIS_FACTION_PRESETS } from './chronicle.js';
+
 export const config = {
     schemaVersion: 2,
     id: 'bi-t1-sheath',
@@ -35,16 +37,14 @@ export const config = {
     factions: [
         {
             id: 'player1',
-            name: '奥雷利亚王国',
-            color: 'red',
+            ...BLOOD_IRIS_FACTION_PRESETS.aureliaKingdom,
             controller: 'human',
             participatesInTurns: true,
             active: true
         },
         {
             id: 'targets',
-            name: '训练靶',
-            color: 'gray',
+            ...BLOOD_IRIS_FACTION_PRESETS.trainingTargets,
             controller: 'ai',
             participatesInTurns: false,
             active: true

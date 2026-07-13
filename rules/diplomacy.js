@@ -76,6 +76,8 @@ export function createDefaultFactions(overrides = []) {
             colorId: palette?.id || null,
             color: getTileColor(override.color, base.color),
             flag: typeof override.flag === 'string' && override.flag ? override.flag : base.flag,
+            flagUrl: typeof override.flagUrl === 'string' && override.flagUrl ? override.flagUrl : null,
+            flagAlt: typeof override.flagAlt === 'string' && override.flagAlt ? override.flagAlt : '',
             controller: ['human', 'ai', 'scripted'].includes(override.controller) ? override.controller : base.controller,
             participatesInTurns: typeof override.participatesInTurns === 'boolean' ? override.participatesInTurns : base.participatesInTurns,
             active: typeof override.active === 'boolean' ? override.active : base.active
