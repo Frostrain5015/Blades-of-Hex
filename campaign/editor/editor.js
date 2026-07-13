@@ -2,7 +2,11 @@
 // 数据源是一份 level 配置（schema.js 定义），一切编辑都是对配置的修改；
 // 画布只是配置经 mapBuilder 重建后的预览。导出即下载该配置 JSON。
 import { HEX_SIZE, hexPath, drawHexagonOutline, CAMP_FLAG_COLORS } from '../../js/config.js';
-import { drawAllBorders, drawCampBorders, drawDistrictBorders } from '../../js/HexTile.js';
+import {
+    drawAllBorders, drawCampBorders, drawDistrictBorders,
+    computeCampBorders, computeDistrictBorders
+} from '../../js/HexTile.js';
+import { getBorderlessVisualGrid, drawVisualFillerTiles } from '../../js/militaryMap.js';
 import {
     createDefaultLevel, normalizeLevel, validateLevel, boardContains,
     UNIT_TYPES, UNIT_LABELS,
@@ -11,7 +15,7 @@ import {
     CARD_IDS, CARD_LABELS,
     MECHANIC_KEYS, MECHANIC_LABELS, RELATION_KEYS, OBJECTIVE_STATUS_KEYS,
     TRIGGER_CONDITIONS, TRIGGER_ACTIONS,
-    BOARD_RADIUS_MIN, BOARD_RADIUS_MAX,
+    BOARD_LAYOUT, BOARD_LAYOUT_LABELS, BOARD_RADIUS_MIN, BOARD_RADIUS_MAX,
     FACTION_PALETTE, getFlagColors
 } from '../runtime/schema.js';
 import { buildBoardFromConfig } from '../runtime/mapBuilder.js';
@@ -257,10 +261,16 @@ function render() {
     if (!ctx) return;
     ctx.clearRect(0, 0, EDITOR_LOGICAL_W, EDITOR_LOGICAL_H);
 
+    const visualGrid = preview.boardLayout === BOARD_LAYOUT.BORDERLESS
+        ? getBorderlessVisualGrid(preview.tiles, preview.tileMap)
+        : null;
+    const borderTiles = visualGrid?.tiles || preview.tiles;
+    const borderTileMap = visualGrid?.tileMap || preview.tileMap;
+    if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
     for (const tile of preview.tiles) tile.drawBase(ctx);
-    drawAllBorders(ctx, preview.tiles, preview.tileMap);
-    drawCampBorders(ctx, preview.campBorderEdges);
-    drawDistrictBorders(ctx, preview.districtBorderEdges);
+    drawAllBorders(ctx, borderTiles, borderTileMap);
+    drawCampBorders(ctx, visualGrid ? computeCampBorders(borderTiles, borderTileMap) : preview.campBorderEdges);
+    drawDistrictBorders(ctx, visualGrid ? computeDistrictBorders(borderTiles, borderTileMap) : preview.districtBorderEdges);
 
     // 城市行政区编号
     ctx.save();
@@ -498,10 +508,9 @@ function applyBrush(tile) {
     }
 }
 
-// 半径变化时裁剪棋盘外的内容，避免遗留非法条目。
+// 布局或半径变化时裁剪棋盘外的内容，避免遗留非法条目。
 function pruneOutOfBoard() {
-    const radius = config.board.radius;
-    const inside = (p) => boardContains(radius, p.q, p.r);
+    const inside = (p) => boardContains(config.board, p.q, p.r);
     let pruned = 0;
     for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts']) {
         const before = config.board[key].length;
@@ -511,7 +520,7 @@ function pruneOutOfBoard() {
     const beforeUnits = config.units.length;
     config.units = config.units.filter(inside);
     pruned += beforeUnits - config.units.length;
-    if (pruned > 0) setStatus(`半径调整：已移除 ${pruned} 个棋盘外条目`);
+    if (pruned > 0) setStatus(`棋盘调整：已移除 ${pruned} 个棋盘外条目`);
 }
 
 // ── 画布交互 ─────────────────────────────────────────────────
@@ -654,12 +663,23 @@ function buildBoardTools() {
     const wrap = el('div');
 
     const secRadius = section('棋盘');
-    secRadius.appendChild(numRow('半径', config.board.radius, v => {
+    secRadius.appendChild(selectRow('地图布局', config.board.layout, BOARD_LAYOUT_LABELS, value => {
         mutate(c => {
-            c.board.radius = Math.max(BOARD_RADIUS_MIN, Math.min(BOARD_RADIUS_MAX, Math.round(v)));
+            c.board.layout = value;
             pruneOutOfBoard();
         });
-    }, { min: BOARD_RADIUS_MIN, max: BOARD_RADIUS_MAX, step: 1 }));
+    }));
+    if (config.board.layout === BOARD_LAYOUT.HEX) {
+        secRadius.appendChild(numRow('半径', config.board.radius, v => {
+            mutate(c => {
+                c.board.radius = Math.max(BOARD_RADIUS_MIN, Math.min(BOARD_RADIUS_MAX, Math.round(v)));
+                pruneOutOfBoard();
+            });
+        }, { min: BOARD_RADIUS_MIN, max: BOARD_RADIUS_MAX, step: 1 }));
+        secRadius.appendChild(hint('经典模式仅生成半径内地块；标准对局与旧战役均保持此布局。'));
+    } else {
+        secRadius.appendChild(hint('画布内完整六角格均为可玩地块；边缘残缺格仅视觉填充，不能点击、编辑或作为移动与触发器目标。'));
+    }
     secRadius.appendChild(checkRow('显示坐标', showCoords, v => { showCoords = v; render(); }));
     wrap.appendChild(secRadius);
 

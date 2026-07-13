@@ -193,10 +193,86 @@ export async function run(browser) {
     });
     R.assert(Object.values(collectibleContract).every(Boolean),
     '第一章仅马库斯一方的灰烬证据成为收藏物，且只能由指定单位移动到精确高亮地块取得');
+    const boardLayoutContract = await page.evaluate(async () => {
+        const schema = await import('/campaign/runtime/schema.js');
+        const layoutRules = await import('/rules/boardLayout.js');
+        const { buildBoardFromConfig } = await import('/campaign/runtime/mapBuilder.js');
+        const { getBorderlessVisualGrid, drawVisualFillerTiles } = await import('/js/militaryMap.js');
+
+        const legacy = schema.createDefaultLevel();
+        delete legacy.board.layout;
+        const migrated = schema.normalizeLevel(legacy);
+        const classicState = {};
+        buildBoardFromConfig(migrated, classicState);
+
+        const borderless = schema.createDefaultLevel();
+        borderless.board.layout = 'borderless';
+        const borderlessState = {};
+        buildBoardFromConfig(borderless, borderlessState);
+        const visualGrid = getBorderlessVisualGrid(borderlessState.tiles, borderlessState.tileMap);
+        const filler = visualGrid.fillers[0];
+        const inheritedBefore = filler.currentColor;
+        filler.sourceTile.currentColor = '#123456';
+        const inheritsDynamicColor = filler.currentColor === '#123456';
+        filler.sourceTile.currentColor = inheritedBefore;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 1000;
+        canvas.height = 750;
+        const context = canvas.getContext('2d');
+        drawVisualFillerTiles(context, visualGrid.fillers);
+        for (const tile of borderlessState.tiles) tile.drawBase(context);
+        const covered = [[2, 2], [997, 2], [2, 747], [997, 747]].every(([x, y]) =>
+            context.getImageData(x, y, 1, 1).data[3] > 0);
+
+        const validBorderless = schema.createDefaultLevel();
+        validBorderless.board.layout = 'borderless';
+        validBorderless.units = [{ id: 'edge-unit', type: 'infantry', camp: 'player1', q: 9, r: 0 }];
+        const clippedBorderless = structuredClone(validBorderless);
+        clippedBorderless.units[0].q = 10;
+        const invalidClassic = structuredClone(validBorderless);
+        invalidClassic.board.layout = 'hex';
+
+        return {
+            legacyDefaultsClassic: migrated.board.layout === 'hex'
+                && classicState.boardLayout === 'hex' && classicState.tiles.length === 61,
+            realCoordinateCount: layoutRules.getViewportHexCoordinates().length,
+            visualCoordinateCount: layoutRules.getViewportHexCoordinates({ includePartial: true }).length,
+            realTileCount: borderlessState.tiles.length,
+            fillerCount: visualGrid.fillers.length,
+            fillersStayVisualOnly: visualGrid.tiles.length === 349
+                && visualGrid.fillers.every(tile => !borderlessState.tileMap.has(`${tile.q},${tile.r}`)),
+            inheritsDynamicColor,
+            covered,
+            fullEdgeCellAccepted: schema.validateLevel(validBorderless).errors.every(message => !message.includes('棋盘之外')),
+            clippedCellRejected: schema.validateLevel(clippedBorderless).errors.some(message => message.includes('棋盘之外')),
+            classicStillUsesRadius: schema.validateLevel(invalidClassic).errors.some(message => message.includes('棋盘之外'))
+        };
+    });
+    R.assert(boardLayoutContract.legacyDefaultsClassic
+        && boardLayoutContract.realCoordinateCount === 277
+        && boardLayoutContract.visualCoordinateCount === 349
+        && boardLayoutContract.realTileCount === 277
+        && boardLayoutContract.fillerCount === 72
+        && boardLayoutContract.fillersStayVisualOnly
+        && boardLayoutContract.inheritsDynamicColor
+        && boardLayoutContract.covered
+        && boardLayoutContract.fullEdgeCellAccepted
+        && boardLayoutContract.clippedCellRejected
+        && boardLayoutContract.classicStillUsesRadius,
+    `棋盘双模式兼容：经典半径不变，无边地图由 277 个真地块和 72 个不可交互假地块铺满画布（${JSON.stringify(boardLayoutContract)}）`);
     const objectiveEditorPage = await newGamePage(browser);
     await objectiveEditorPage.click('#soloGameBtn');
     await objectiveEditorPage.evaluate(() => document.getElementById('editorBtn')?.click());
     await objectiveEditorPage.locator('#editorOverlay').waitFor({ state: 'visible' });
+    await objectiveEditorPage.click('.editor-tab[data-tab="board"]');
+    R.assert(await objectiveEditorPage.getByText('地图布局', { exact: true }).count() === 1
+        && await objectiveEditorPage.getByText('经典六边形', { exact: true }).count() === 1,
+    '编辑器默认保留经典六边形布局');
+    await objectiveEditorPage.locator('.ed-row').filter({ hasText: '地图布局' }).locator('select').selectOption('borderless');
+    R.assert(await objectiveEditorPage.getByText('画布内完整六角格均为可玩地块', { exact: false }).count() === 1
+        && await objectiveEditorPage.locator('.ed-row > label').filter({ hasText: /^半径$/ }).count() === 0,
+    '编辑器可切换无边军事地图，并隐藏不再生效的半径选项');
     await objectiveEditorPage.click('.editor-tab[data-tab="triggers"]');
     await objectiveEditorPage.getByText('+ 新增目标', { exact: true }).click();
     R.assert(await objectiveEditorPage.getByText('任务提示光圈（仅“进行中”时常驻）', { exact: true }).count() === 1

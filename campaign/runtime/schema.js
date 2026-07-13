@@ -8,6 +8,9 @@ import { TERRAIN_CONFIG, FORTIFICATION_CONFIG, WEATHER_CONFIG } from '../../rule
 import { TACTICAL_CARD_CONFIG } from '../../rules/cards.js';
 import { MECHANIC_DEFINITIONS, MECHANIC_KEYS, createDefaultMechanics } from '../../rules/mechanics.js';
 import { FACTION_COLOR_KEYS, FACTION_PALETTE, getFlagColors, getPaletteEntry, getTileColor } from '../../rules/camps.js';
+import {
+    BOARD_LAYOUT, BOARD_LAYOUT_KEYS, normalizeBoardLayout, isBoardCoordinatePlayable
+} from '../../rules/boardLayout.js';
 import { NPC_DIALOGUE_PORTRAIT_IDS, NPC_DIALOGUE_PORTRAIT_LABELS } from '../portraits.js';
 
 export const SCHEMA_VERSION = 2;
@@ -65,6 +68,11 @@ export const CARD_LABELS = Object.freeze(
 export const BOARD_RADIUS_MIN = 2;
 export const BOARD_RADIUS_MAX = 7;
 export const BOARD_RADIUS_DEFAULT = 4;
+export { BOARD_LAYOUT, BOARD_LAYOUT_KEYS };
+export const BOARD_LAYOUT_LABELS = Object.freeze({
+    [BOARD_LAYOUT.HEX]: '经典六边形',
+    [BOARD_LAYOUT.BORDERLESS]: '无边军事地图'
+});
 
 // ── 触发器条件/动作词汇表（编辑器据此渲染下拉；运行时据此解释）──────────
 // 事件已取消显式配置：所有触发器每次事件后都会尝试求值，由条件决定是否触发。
@@ -156,6 +164,7 @@ export function createDefaultLevel() {
         // 因此棋盘只需描述「区划范围」(districts) 与「区划颜色来源」(cities.camp)，
         // 不存在独立的逐格阵营覆盖表。
         board: {
+            layout: BOARD_LAYOUT.HEX,
             radius: BOARD_RADIUS_DEFAULT,
             cities: [
                 { q: 0, r: 0, districtId: 5, camp: 'player1' }   // 城市即该区划的颜色来源
@@ -203,6 +212,9 @@ export function normalizeLevel(raw) {
     merged.diplomacy = raw.diplomacy && typeof raw.diplomacy === 'object' ? structuredClone(raw.diplomacy) : structuredClone(def.diplomacy);
     merged.mechanics = createDefaultMechanics(raw.mechanics || {});
     merged.board = { ...def.board, ...(raw.board || {}) };
+    // 旧关卡缺字段时补经典布局；未知显式值原样保留，让编译器能够给出准确错误，
+    // 运行时 mapBuilder 仍会安全降级到经典布局。
+    merged.board.layout = raw.board?.layout == null ? BOARD_LAYOUT.HEX : raw.board.layout;
     for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts']) {
         merged.board[key] = Array.isArray(merged.board[key]) ? merged.board[key] : [];
     }
@@ -238,11 +250,16 @@ export function validateLevel(config) {
     if (!c.id || !/^[a-z0-9-]+$/i.test(c.id)) errors.push('关卡 id 缺失或含非法字符（仅允许字母/数字/连字符）。');
     if (!c.title) warnings.push('关卡缺少标题。');
 
+    const rawLayout = c.board?.layout ?? BOARD_LAYOUT.HEX;
+    if (!BOARD_LAYOUT_KEYS.includes(rawLayout)) {
+        errors.push(`未知棋盘布局「${rawLayout}」。`);
+    }
+    const layout = normalizeBoardLayout(rawLayout);
     const radius = c.board?.radius ?? BOARD_RADIUS_DEFAULT;
-    if (radius < BOARD_RADIUS_MIN || radius > BOARD_RADIUS_MAX) {
+    if (layout === BOARD_LAYOUT.HEX && (radius < BOARD_RADIUS_MIN || radius > BOARD_RADIUS_MAX)) {
         errors.push(`棋盘半径 ${radius} 超出允许范围 ${BOARD_RADIUS_MIN}~${BOARD_RADIUS_MAX}。`);
     }
-    const inBoard = (q, r) => Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) <= radius;
+    const inBoard = (q, r) => isBoardCoordinatePlayable({ layout, radius }, q, r);
 
     const cities = c.board?.cities || [];
     if (cities.length === 0) warnings.push('棋盘没有任何城市，玩家可能无法获得收入或胜负判定。');
@@ -637,6 +654,9 @@ export function validateLevel(config) {
 }
 
 // 单位在指定坐标是否合法落子（供编辑器 placement 校验复用）。
-export function boardContains(radius, q, r) {
-    return Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) <= radius;
+export function boardContains(boardOrRadius, q, r) {
+    const board = typeof boardOrRadius === 'number'
+        ? { layout: BOARD_LAYOUT.HEX, radius: boardOrRadius }
+        : boardOrRadius;
+    return isBoardCoordinatePlayable(board, q, r);
 }

@@ -3,7 +3,13 @@ import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/in
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
-import { drawAllBorders, drawDistrictBorders, drawCampBorders } from './HexTile.js';
+import {
+    drawAllBorders, drawDistrictBorders, drawCampBorders,
+    computeDistrictBorders, computeCampBorders
+} from './HexTile.js';
+import {
+    getBorderlessVisualGrid, drawVisualFillerTile, drawVisualFillerTiles
+} from './militaryMap.js';
 import { isColonelTargetBlocked, getColonelUnit, isAntiAirUnit, COLONEL_AIR_RANGE, ANTIAIR_RADIUS } from './gameLogic.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
@@ -34,6 +40,25 @@ import { resolveActiveObjectiveHighlightTiles } from '../campaign/runtime/object
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
+const borderlessBorderCache = new WeakMap();
+
+function getBorderlessBorderEdges(visualGrid) {
+    let cached = borderlessBorderCache.get(visualGrid);
+    if (!cached) {
+        cached = {
+            campSource: null,
+            camp: [],
+            district: computeDistrictBorders(visualGrid.tiles, visualGrid.tileMap)
+        };
+        borderlessBorderCache.set(visualGrid, cached);
+    }
+    // 所有领土变更入口都会替换 gameState.campBorderEdges 数组；以其引用作为低成本版本号。
+    if (cached.campSource !== gameState.campBorderEdges) {
+        cached.campSource = gameState.campBorderEdges;
+        cached.camp = computeCampBorders(visualGrid.tiles, visualGrid.tileMap);
+    }
+    return cached;
+}
 
 function _lerpColor(aHex, bHex, t) {
     const ar = parseInt(aHex.slice(1, 3), 16), ag = parseInt(aHex.slice(3, 5), 16), ab = parseInt(aHex.slice(5, 7), 16);
@@ -124,12 +149,21 @@ export function renderGame() {
     // Update territory fade
     const tiles = gameState.tiles;
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].updateFadeColor(now);
+    const visualGrid = gameState.campaignMode && gameState.boardLayout === 'borderless'
+        ? getBorderlessVisualGrid(tiles, gameState.tileMap)
+        : null;
+    const borderTiles = visualGrid?.tiles || tiles;
+    const borderTileMap = visualGrid?.tileMap || gameState.tileMap;
+    const visualBorderEdges = visualGrid ? getBorderlessBorderEdges(visualGrid) : null;
+    const campBorderEdges = visualBorderEdges?.camp || gameState.campBorderEdges;
+    const districtBorderEdges = visualBorderEdges?.district || gameState.districtBorderEdges;
 
     ctx.save();
     ctx.translate(screenShake.x, screenShake.y);
     ctx.clearRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
 
     // Draw tile bases
+    if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawBase(ctx);
     // Faction-tinted military-map city outline stays below every object, but
     // remains visible around a unit that covers the central castle glyph.
@@ -147,9 +181,9 @@ export function renderGame() {
     // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
     drawCommanderPennants();
     // 国界线/区划线（先锋旗之下、单位之上）
-    drawAllBorders(ctx, tiles, gameState.tileMap);
-    drawDistrictBorders(ctx, gameState.districtBorderEdges);
-    drawCampBorders(ctx, gameState.campBorderEdges);
+    drawAllBorders(ctx, borderTiles, borderTileMap);
+    drawDistrictBorders(ctx, districtBorderEdges);
+    drawCampBorders(ctx, campBorderEdges);
     // ── 将领特效图层：underUnits（立绘之后、单位徽章之前；圣骑士剑环后半圈）──
     drawFxLayer('underUnits', ctx, now);
     // Units — 全部绘制，非可见地块会在后续迷雾阶段被地形覆绘+遮罩覆盖
@@ -481,11 +515,40 @@ export function renderGame() {
                 ctx.fill();
             }
         }
+        if (visualGrid) {
+            for (const tile of visualGrid.fillers) {
+                const { alpha, state } = getFogAlpha(tile.sourceTile, viewingCamp, gameState, nowPerf);
+                if (alpha <= 0) continue;
+                if (state === 'unexplored') {
+                    hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+                    const grad = ctx.createRadialGradient(tile.x, tile.y, HEX_SIZE * 0.1, tile.x, tile.y, HEX_SIZE * 1.05);
+                    const a = Math.min(1, alpha);
+                    grad.addColorStop(0, `rgba(6,7,14,${a})`);
+                    grad.addColorStop(0.6, `rgba(8,9,17,${a})`);
+                    grad.addColorStop(1, `rgba(12,13,22,${a * 0.95})`);
+                    ctx.fillStyle = grad;
+                    ctx.fill();
+                } else {
+                    drawVisualFillerTile(ctx, tile);
+                    hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+                    const grad = ctx.createRadialGradient(tile.x, tile.y, HEX_SIZE * 0.3, tile.x, tile.y, HEX_SIZE * 1.05);
+                    grad.addColorStop(0, `rgba(0,0,0,${alpha})`);
+                    grad.addColorStop(1, `rgba(0,0,0,${alpha * 0.7})`);
+                    ctx.fillStyle = grad;
+                    ctx.fill();
+                }
+            }
+        }
+        const visibilityStateForCoord = (q, r) => {
+            const visualTile = visualGrid?.tileMap.get(`${q},${r}`);
+            if (visualTile?.isVisualFiller) return getTileVisibilityState(visualTile.sourceTile, viewingCamp, gameState);
+            return getTileVisibilityStateByCoord(q, r, viewingCamp, gameState);
+        };
         // 迷雾覆绘会盖住之前画的国界线/行政区界线 —— 对已探索（无视野）地块的边线重绘
-        if (gameState.campBorderEdges && gameState.campBorderEdges.length > 0) {
-            for (const edge of gameState.campBorderEdges) {
-                const sA = getTileVisibilityStateByCoord(edge.qa, edge.ra, viewingCamp, gameState);
-                const sB = getTileVisibilityStateByCoord(edge.qb, edge.rb, viewingCamp, gameState);
+        if (campBorderEdges && campBorderEdges.length > 0) {
+            for (const edge of campBorderEdges) {
+                const sA = visibilityStateForCoord(edge.qa, edge.ra);
+                const sB = visibilityStateForCoord(edge.qb, edge.rb);
                 if (sA === 'unexplored' || sB === 'unexplored') continue;
                 const bothExplored = sA !== 'visible' && sB !== 'visible';
                 const alpha = bothExplored ? 0.25 : 1.0;
@@ -514,10 +577,10 @@ export function renderGame() {
                 ctx.restore();
             }
         }
-        if (gameState.districtBorderEdges && gameState.districtBorderEdges.length > 0) {
-            for (const edge of gameState.districtBorderEdges) {
-                const sA = getTileVisibilityStateByCoord(edge.qa, edge.ra, viewingCamp, gameState);
-                const sB = getTileVisibilityStateByCoord(edge.qb, edge.rb, viewingCamp, gameState);
+        if (districtBorderEdges && districtBorderEdges.length > 0) {
+            for (const edge of districtBorderEdges) {
+                const sA = visibilityStateForCoord(edge.qa, edge.ra);
+                const sB = visibilityStateForCoord(edge.qb, edge.rb);
                 if (sA === 'unexplored' || sB === 'unexplored') continue;
                 const bothExplored = sA !== 'visible' && sB !== 'visible';
                 ctx.save();

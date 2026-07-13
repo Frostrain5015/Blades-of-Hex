@@ -3,8 +3,8 @@
 // 这是 gameLogic.initMap 的战役版替身：initMap 写死半径 7 与固定城市表，本函数按配置生成。
 import { campFromKey, createDefaultFactions } from '../../rules/diplomacy.js';
 import { hexDistance } from '../../rules/hex.js';
+import { getPlayableBoardCoordinates, normalizeBoardLayout } from '../../rules/boardLayout.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from '../../js/HexTile.js';
-import { boardContains, BOARD_RADIUS_DEFAULT } from './schema.js';
 
 /**
  * 依配置构建棋盘，写入 gameState.tiles / tileMap / villageTiles / 边界缓存。
@@ -13,19 +13,16 @@ import { boardContains, BOARD_RADIUS_DEFAULT } from './schema.js';
  */
 export function buildBoardFromConfig(config, gameState) {
     const board = config.board || {};
-    const radius = board.radius ?? BOARD_RADIUS_DEFAULT;
+    const layout = normalizeBoardLayout(board.layout);
     const factions = gameState.factions && Object.keys(gameState.factions).length
         ? gameState.factions
         : createDefaultFactions(config.factions || []);
     const campFor = (key) => campFromKey(key, { factions });
 
-    // 1) 生成半径 R 的六边形所有地块。
-    const tiles = [];
-    for (let q = -radius; q <= radius; q++) {
-        for (let r = -radius; r <= radius; r++) {
-            if (boardContains(radius, q, r)) tiles.push(new HexTile(q, r));
-        }
-    }
+    // 1) 经典布局生成半径 R 的六边形；无边布局生成画布内完整可见的真地块。
+    // 画布边缘被裁切的假地块属于纯渲染层，绝不进入 tiles / tileMap。
+    const tiles = getPlayableBoardCoordinates({ ...board, layout })
+        .map(({ q, r }) => new HexTile(q, r));
 
     // 2) Voronoi：每块归最近城市，决定 districtId（阵营在下面单独派生，不在此处赋值）。
     const cities = board.cities || [];
@@ -94,6 +91,7 @@ export function buildBoardFromConfig(config, gameState) {
     // 9) 写回状态并计算边界缓存。
     gameState.tiles = tiles;
     gameState.tileMap = tileMap;
+    gameState.boardLayout = layout;
     gameState.villageTiles = new Map(villageEntries);
     gameState.campBorderEdges = computeCampBorders(tiles, tileMap);
     gameState.districtBorderEdges = computeDistrictBorders(tiles, tileMap);

@@ -13,7 +13,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 - 不得包含注释、尾随逗号、`undefined`、`NaN` 或函数。
 - `schemaVersion` 必须是 `2`。
 - 所有引用必须使用配置中已经声明的 ID。
-- 所有坐标必须在棋盘半径内。
+- 所有坐标必须在所选 `board.layout` 的真实可玩地块内；禁止引用边缘假地块。
 - 只使用本文列出的 31 种条件和 19 种动作。
 - 不得生成旧 `steps` 表、旧 `showStep.step` 引用或内部 `_id`。
 - 不得使用 `levelStarted`、`sendMessage`、`flagSet`、`flagUnset`、`turnAtLeast`、`unitAlive`、`unitDead`、`eventCardIs`、`delay`、`setPhase` 等遗留或内部接口。开场立即执行使用 `enabled:true, once:true, when:[]`。
@@ -127,6 +127,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
   "storyCommanders": [],
   "collectibles": [],
   "board": {
+    "layout": "hex",
     "radius": 2,
     "cities": [
       { "q": -1, "r": 0, "districtId": 1, "camp": "player1" },
@@ -211,18 +212,37 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 
 ### 4.1 坐标合法性
 
-六边形轴坐标为 `{ "q": 整数, "r": 整数 }`。半径为 `R` 时必须满足：
+六边形轴坐标为 `{ "q": 整数, "r": 整数 }`。坐标是否合法取决于 `board.layout`。
+
+`layout:"hex"` 是经典六边形，也是旧 JSON 缺少 `layout` 时的兼容默认值。半径为 `R` 时必须满足：
 
 ```text
 max(abs(q), abs(r), abs(q + r)) <= R
 ```
 
-`board.radius` 允许 `2` 到 `7`。
+此时 `board.radius` 允许 `2` 到 `7`。
+
+`layout:"borderless"` 是铺满 1000×750 逻辑画布的无边军事地图。六角边长固定为 30，某坐标的中心为：
+
+```text
+x = 500 + 30 * sqrt(3) * (q + r / 2)
+y = 375 + 45 * r
+```
+
+只有六角形完整落在画布内才是真地块，因此必须同时满足：
+
+```text
+15 * sqrt(3) <= x <= 1000 - 15 * sqrt(3)
+30 <= y <= 720
+```
+
+当前参数下共有 277 个真地块。与画布边缘相交但显示不完整的 72 个六角形由引擎自动生成假地块：它们继承最近真地块的动态阵营色、行政区边界和迷雾状态，但不会进入 `tiles`/`tileMap`，不可点击、不可寻路、不可序列化，也绝不能出现在任何地图对象、单位、区域、调查点、目标高亮或触发器坐标中。`borderless` 模式仍建议保留合法的 `radius` 字段以便编辑器切回经典模式，但运行时不使用它决定范围。
 
 ### 4.2 board
 
 ```json
 {
+  "layout": "hex",
   "radius": 4,
   "cities": [{ "q": 0, "r": 0, "districtId": 1, "camp": "player1" }],
   "terrain": [{ "q": 1, "r": 0, "type": "forest" }],
@@ -234,6 +254,8 @@ max(abs(q), abs(r), abs(q + r)) <= R
 
 字段规则：
 
+- `layout`：只允许 `hex` 或 `borderless`；省略时兼容为 `hex`。
+- `radius`：`hex` 模式控制范围；`borderless` 模式不参与建图，但仍写入 `2..7` 的合法值。
 - `cities`：每项必须有坐标、`districtId` 和已声明的 `camp`。
 - 一个 `districtId` 必须只有一座城市；城市是整个行政区的归属和颜色来源。
 - `terrain`：只需列出覆盖项；未列出的格子默认 `plains`。
@@ -1014,7 +1036,7 @@ Faction 对象：
 生成后逐项检查：
 
 1. 关卡 ID 只含字母、数字、连字符。
-2. 半径 `2..7`，所有地图、单位、区域、调查点和触发器坐标在棋盘内。
+2. `layout` 仅为 `hex/borderless`；`radius` 保持 `2..7`；所有地图、单位、区域、调查点和触发器坐标在相应布局的真地块内。
 3. 每个行政区只有一座城市；每座城市和每个单位引用已声明阵营。
 4. 单位坐标不重叠；单位 ID 唯一；兵种、玩法将领与剧情将领 ID 合法。
 5. faction ID 合法、唯一且不是 `neutral`；`color` 是九个规范 ID 之一，不含任何手写颜色值。
@@ -1055,7 +1077,7 @@ Agent 的验收顺序必须是：
 ```text
 我只使用 Schema v2 的公开根字段、31 种条件和 19 种动作。
 我没有创建 steps 表、内部 _id 或未公开 kind。
-所有 ID 唯一，所有引用存在，所有坐标满足六边形半径公式。
+所有 ID 唯一，所有引用存在；所有坐标满足所选布局公式，无边模式没有引用边缘假地块。
 未来阶段触发器默认关闭，并由上一阶段显式启用。
 每个中途倒计时触发器初始关闭，在剧情节点启用，在成功路线禁用。
 每张 boardLock 对白都有具体单位、可达地块和错误提示。
