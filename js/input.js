@@ -1469,8 +1469,7 @@ function _syncSelectionHud(tile) {
         const faction = getFaction(gameState, unit.camp);
         const relation = getRelation(gameState, getViewingCampKey(gameState), unit.camp);
         const relationMeta = RELATION_META[relation] || RELATION_META.unknown;
-        const relationEmoji = { self: '👤', ally: '🤝', neutral: '😑', enemy: '👊', unknown: '❔' }[relation] || '❔';
-        _setHudTitle(`${faction?.name || unit.camp.name} ${typeName}`, unit._rank || 0, relationEmoji, faction || unit.camp);
+        _setHudTitle(`${faction?.name || unit.camp.name} ${typeName}`, unit._rank || 0, relationMeta.emoji, faction || unit.camp);
         selectionHudEl.style.setProperty('--selection-camp-color', getFlagColors(faction?.color || unit.camp?.color).main);
         selectionHudEl.style.setProperty('--selection-relation-color', relationMeta.color);
         selectionHudHp.hidden = false;
@@ -2174,10 +2173,14 @@ export function initSettingsPanel() {
             }
             const copy = document.createElement('div');
             const name = document.createElement('div'); name.className = 'faction-list-name'; name.textContent = faction.name;
-            const detail = document.createElement('div'); detail.className = 'faction-list-meta';
-            detail.textContent = `${faction.controller === 'human' ? '玩家控制' : faction.controller === 'scripted' ? '剧情控制' : 'AI 控制'} · ${faction.participatesInTurns ? '参与回合' : '不参与回合'}`;
-            copy.append(name, detail);
-            const badge = document.createElement('span'); badge.className = 'faction-list-relation'; badge.textContent = meta.label;
+            copy.appendChild(name);
+            if (faction.note) {
+                const detail = document.createElement('div');
+                detail.className = 'faction-list-meta';
+                detail.textContent = faction.note;
+                copy.appendChild(detail);
+            }
+            const badge = document.createElement('span'); badge.className = 'faction-list-relation'; badge.textContent = `${meta.emoji} ${meta.label}`;
             row.append(flag, copy, badge); factionBody.appendChild(row);
         }
     }

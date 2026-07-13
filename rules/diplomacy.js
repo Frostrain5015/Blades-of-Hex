@@ -12,11 +12,11 @@ import {
 export const RELATIONS = Object.freeze(['ally', 'neutral', 'enemy']);
 
 export const RELATION_META = Object.freeze({
-    self: Object.freeze({ label: '自身', color: '#4caf50' }),
-    ally: Object.freeze({ label: '联盟', color: '#42a5f5' }),
-    neutral: Object.freeze({ label: '中立', color: '#fbc02d' }),
-    enemy: Object.freeze({ label: '敌对', color: '#ef5350' }),
-    unknown: Object.freeze({ label: '未知', color: '#9e9e9e' })
+    self: Object.freeze({ label: '自身', emoji: '👤', color: '#4caf50' }),
+    ally: Object.freeze({ label: '联盟', emoji: '🤝', color: '#42a5f5' }),
+    neutral: Object.freeze({ label: '中立', emoji: '😑', color: '#fbc02d' }),
+    enemy: Object.freeze({ label: '敌对', emoji: '👊', color: '#ef5350' }),
+    unknown: Object.freeze({ label: '未知', emoji: '❔', color: '#9e9e9e' })
 });
 
 // playerN 是稳定席位 ID，不再隐含红/蓝/绿或行动顺序；战役可声明任意阵营 ID。
@@ -155,6 +155,7 @@ export function createDefaultFactions(overrides = []) {
         return [id, {
             ...base,
             name: typeof override.name === 'string' && override.name.trim() ? override.name.trim() : base.name,
+            note: typeof override.note === 'string' ? override.note.trim() : '',
             colorId: palette?.id || null,
             color: getTileColor(override.color, base.color),
             flag: typeof override.flag === 'string' && override.flag ? override.flag : base.flag,

@@ -728,6 +728,7 @@ function buildFactionBasics() {
             }, { rebuildPanels: true });
         }));
         box.appendChild(textRow('显示名', faction.name || faction.id, value => mutate(c => { c.factions[idx].name = value; }, { rebuildPanels: false })));
+        box.appendChild(textareaRow('剧情备注（留空不显示）', faction.note || '', value => mutate(c => { c.factions[idx].note = value; }, { rebuildPanels: false }), 2));
         box.appendChild(selectRow('颜色', faction.color, FACTION_COLOR_OPTIONS,
             value => mutate(c => { c.factions[idx].color = value; }, { rebuildPanels: false })));
         box.appendChild(selectRow('控制方式', faction.controller || 'ai', { human: '玩家', ai: 'AI', scripted: '剧情控制' },
@@ -745,7 +746,7 @@ function buildFactionBasics() {
     addFaction.addEventListener('click', () => mutate(c => {
         let n = 1;
         while (c.factions.some(faction => faction.id === `faction${n}`)) n++;
-        c.factions.push({ id: `faction${n}`, name: `新阵营${n}`, color: FACTION_PALETTE[(c.factions.length - 1) % FACTION_PALETTE.length].id, controller: 'ai', participatesInTurns: true, active: true });
+        c.factions.push({ id: `faction${n}`, name: `新阵营${n}`, note: '', color: FACTION_PALETTE[(c.factions.length - 1) % FACTION_PALETTE.length].id, controller: 'ai', participatesInTurns: true, active: true });
         syncTurnOrder(c);
     }, { rebuildPanels: true }));
     secFactions.appendChild(addFaction);

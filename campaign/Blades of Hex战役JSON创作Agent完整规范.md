@@ -267,6 +267,7 @@ Faction 对象：
 {
   "id": "royal_guard",
   "name": "王家卫队",
+  "note": "仍向失踪的老国王效忠",
   "color": "purple",
   "controller": "scripted",
   "participatesInTurns": false,
@@ -279,6 +280,7 @@ Faction 对象：
 - `id` 必须以字母开头，后续只允许字母、数字、`_`、`-`，最长 32 字符。
 - `neutral` 是系统保留 ID，禁止在 `factions` 中声明。
 - `controller` 只能为 `human`、`ai`、`scripted`。
+- `note` 是可选的剧情备注字符串；非空时显示为局内阵营列表的第二行，留空或省略则不显示。不要在这里填写“AI 控制”“参与回合”等规则信息。
 - 全关必须恰好一个 `human`，且其 ID 等于 `localPlayerCamp`。
 - `active !== false && participatesInTurns !== false` 的每个阵营必须恰好出现于 `turnOrder`。
 - `scripted` 适合剧情控制阵营；若参与回合，引擎会跳过其自动决策。

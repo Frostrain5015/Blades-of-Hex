@@ -135,7 +135,7 @@ export function createDefaultLevel() {
         intro: { campaignTitle: '将星列传', chapterTitle: '', scenarioSubtitle: '新关卡' },
         weather: 'clear',
         localPlayerCamp: 'player1',
-        factions: [{ id: 'player1', name: '第一阵营', color: 'red', controller: 'human', participatesInTurns: true, active: true }],
+        factions: [{ id: 'player1', name: '第一阵营', note: '', color: 'red', controller: 'human', participatesInTurns: true, active: true }],
         turnOrder: ['player1'],
         diplomacy: {},
         mechanics: createDefaultMechanics(),
@@ -186,7 +186,7 @@ export function normalizeLevel(raw) {
     merged.hands = { ...def.hands, ...(raw.hands || {}) };
     merged.factions = Array.isArray(raw.factions) ? raw.factions.map(item => {
         const palette = getPaletteEntry(item?.color);
-        return { ...item, color: palette?.id || item?.color };
+        return { ...item, note: typeof item?.note === 'string' ? item.note.trim() : '', color: palette?.id || item?.color };
     }) : def.factions.map(item => ({ ...item }));
     const configuredFactionIds = new Set(merged.factions.map(item => item.id));
     merged.localPlayerCamp = configuredFactionIds.has(raw.localPlayerCamp) ? raw.localPlayerCamp : def.localPlayerCamp;
@@ -274,6 +274,7 @@ export function validateLevel(config) {
         if (faction.id === 'neutral') errors.push('neutral 是系统保留阵营，不能在作者阵营列表中重复定义。');
         seenFactionIds.add(faction.id);
         if (!faction.name) warnings.push(`阵营「${faction.id}」没有显示名。`);
+        if (faction.note !== undefined && typeof faction.note !== 'string') errors.push(`阵营「${faction.id}」剧情备注必须是文本。`);
         if (!FACTION_COLOR_KEYS.includes(faction.color)) {
             errors.push(`阵营「${faction.id}」颜色选项「${faction.color}」无效（可用：${FACTION_COLOR_KEYS.join('、')}）。`);
         }

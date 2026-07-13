@@ -340,12 +340,61 @@ export async function run(browser) {
             && campaignInfo.chapter === '花旗向东'
             && campaignInfo.level === 'BI-T1 花与剑', '局内信息卡按“传记 · 章节 / 编号 关名”显示且不重复编号');
 
+        await page.click('#factionListBtn');
+        const factionListPresentation = await page.evaluate(() => {
+            const rows = [...document.querySelectorAll('.faction-list-row')];
+            const images = [...document.querySelectorAll('.faction-list-flag-image')];
+            return {
+                visible: document.getElementById('factionListOverlay')?.classList.contains('show'),
+                noUnusedFooter: !document.querySelector('.faction-list-note'),
+                noEmptyNotes: document.querySelectorAll('.faction-list-meta').length === 0,
+                relationLabels: [...document.querySelectorAll('.faction-list-relation')].map(item => item.textContent.trim()),
+                flagSizes: images.map(image => {
+                    const style = getComputedStyle(image.parentElement);
+                    const rect = image.parentElement.getBoundingClientRect();
+                    return {
+                        width: Math.round(rect.width), height: Math.round(rect.height),
+                        naturalRatio: image.naturalWidth / image.naturalHeight,
+                        borderRadius: style.borderRadius
+                    };
+                }),
+                rowCount: rows.length
+            };
+        });
+        R.assert(factionListPresentation.visible
+            && factionListPresentation.noUnusedFooter
+            && factionListPresentation.noEmptyNotes
+            && factionListPresentation.rowCount === 2
+            && factionListPresentation.relationLabels.includes('👤 自身')
+            && factionListPresentation.relationLabels.includes('👊 敌对')
+            && factionListPresentation.flagSizes.every(flag => flag.width === 42 && flag.height === 28
+                && flag.naturalRatio === 1.5 && flag.borderRadius === '0px'),
+        '阵营列表隐藏空备注并显示外交 emoji；SVG 旗帜以无圆角 3:2 大尺寸呈现');
+        await page.click('#factionListClose');
+
         // v3 教学关完整路径：开场三页 → 选择 → 移动 → 攻击 → 两名新兵列队 → 授章七页。
         await advanceCampaignDialogue(page);
         await advanceCampaignDialogue(page);
         await advanceCampaignDialogue(page);
         await clickTile(page, -2, 0);
         await sleep(260);
+        const selectionFlagPresentation = await page.evaluate(() => {
+            const image = document.querySelector('.selection-hud-flag:not(.selection-hud-flag-color)');
+            if (!image) return null;
+            const style = getComputedStyle(image);
+            const rect = image.getBoundingClientRect();
+            return {
+                width: Math.round(rect.width), height: Math.round(rect.height),
+                naturalRatio: image.naturalWidth / image.naturalHeight,
+                borderRadius: style.borderRadius,
+                objectFit: style.objectFit
+            };
+        });
+        R.assert(selectionFlagPresentation?.width === 27 && selectionFlagPresentation?.height === 18
+            && selectionFlagPresentation?.naturalRatio === 1.5
+            && selectionFlagPresentation?.borderRadius === '0px'
+            && selectionFlagPresentation?.objectFit === 'contain',
+        '左上角属性栏直接使用原始 900×600 SVG，保持无圆角 3:2 矢量显示');
         await clickTile(page, 0, 0);
         await sleep(260);
         await clickTile(page, 1, 0);
