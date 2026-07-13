@@ -254,10 +254,12 @@ function runAction(action, ctx) {
         case 'unlockInput':
             gameState.tutorialMode = false;
             delete gameState._campaignInputLock;
+            delete gameState._campaignStepOwnsInputLock;
             break;
         case 'lockInput':
             gameState.tutorialMode = true;
             gameState._campaignInputLock = action.highlight || {};
+            delete gameState._campaignStepOwnsInputLock;
             break;
         case 'setObjectiveStatus': api.setObjectiveStatus?.(action.objective, action.status); break;
         case 'spawnUnits': spawnUnitsInto(gameState, action.units); updateUI(); break;
@@ -411,6 +413,7 @@ export function createTriggerFlow(config, api) {
     // 第一个执行，点击后自动推进到下一个，最后一个点击后结束（无 next）
     gameState._inlineStepMap = {};
     delete gameState._campaignInputLock;
+    delete gameState._campaignStepOwnsInputLock;
     let seq = 0;
     for (const trigger of triggers) {
         const steps = (trigger.do || []).filter(a => a.kind === 'showStep' && !a.step);
@@ -565,7 +568,13 @@ export function createTriggerFlow(config, api) {
             dispatch('turnStarted', { camp: key, round: getRound(gameState) });
         },
         onTurnEnded(event) { dispatch('turnEnded', event); },
-        onCombatStarted(event) { dispatch('combatStarted', event); },
+        onCombatStarted(event) {
+            dispatch('combatStarted', {
+                ...event,
+                attackerCamp: campKeyOf(event?.attackerCamp),
+                defenderCamp: campKeyOf(event?.defenderCamp)
+            });
+        },
         onCombatResolved(event) { dispatch('combatResolved', event); },
         onUnitHpChanged(event) { dispatch('unitHpChanged', event); },
         onUnitKilled(event) {

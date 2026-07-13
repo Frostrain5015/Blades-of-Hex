@@ -751,6 +751,7 @@ function _launchScenario(scenario) {
 	gameState.campaignId = _playtestConfig ? '__editor__' : _currentChronicleId;
 	gameState.scenarioId = scenario.id;
 	gameState.scenarioDisplayId = scenario.displayId || (scenario.id || '').toUpperCase();
+	gameState.scenarioTitle = scenario.title || '';
 	gameState.campaignPhase = scenario.initialStep;
 		gameState._campaignIntro = scenario.intro || {};
 	// tutorialMode 默认 false；需要锁定操作时在触发器 showStep 中设 lock: true。

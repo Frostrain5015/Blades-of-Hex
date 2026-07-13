@@ -313,8 +313,13 @@ export function updateUI() {
                 const chapterEl = document.getElementById('campaignInfoChapter');
                 const levelEl = document.getElementById('campaignInfoLevel');
                 if (chronicleEl) chronicleEl.textContent = intro.campaignTitle || gameState.campaignId || '';
-                if (chapterEl) chapterEl.textContent = intro.scenarioSubtitle || '';
-                if (levelEl) levelEl.textContent = gameState.scenarioDisplayId || gameState.scenarioId || '';
+                if (chapterEl) chapterEl.textContent = intro.chapterTitle || '';
+                if (levelEl) {
+                    levelEl.textContent = intro.scenarioSubtitle
+                        || [gameState.scenarioDisplayId, gameState.scenarioTitle].filter(Boolean).join(' ')
+                        || gameState.scenarioId
+                        || '';
+                }
             }
         } else {
             card.style.display = faction.active && (key !== 'player3' || gameState.isThreePlayer) ? '' : 'none';

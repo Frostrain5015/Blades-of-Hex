@@ -2,7 +2,7 @@
 // 三年前的弑君之夜，一句谎言烧尽了整座王国的夏天。
 //
 // 四章结构：
-//   第一章「雨夜孤城」—— 佩特拉围城，百夫长马库斯视角（T1-T5）
+//   第一章「花旗向东」—— 看似正义的东征，百夫长马库斯视角（T1-T5）
 //   第二章「我心如火」—— 猎宫转折，狂战士阿格里乌斯真相线（T6-T9）
 //   第三章「同一个誓言」—— 集结反正，城门之战（T10-T13）
 //   第四章「鸢尾落处」—— 复都，王座最终决战（T14-T15）
@@ -66,7 +66,7 @@ export const BLOOD_IRIS_FACTION_PRESETS = Object.freeze({
 const SCENARIOS = Object.freeze([
     {
         id: 'bi-t1-sheath',
-        title: '出鞘',
+        title: '花与剑',
         label: 'T1',
         elementKey: 'bi-t1-sheath',
         type: 'teaching',

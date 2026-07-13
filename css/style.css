@@ -158,6 +158,13 @@ body {
     border-left: 1px solid rgba(255,255,255,0.08);
     height: 100%;
 }
+.campaign-info-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.campaign-info-scenario { margin-left: 4px; }
 .campaign-info-chronicle {
     font-size: 18px;
     font-weight: 700;
@@ -180,9 +187,9 @@ body {
     font-size: 14px;
 }
 .campaign-info-level {
-    font-size: 14px;
-    font-weight: 400;
-    color: rgba(255,255,255,0.5);
+    font-size: 15px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.72);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

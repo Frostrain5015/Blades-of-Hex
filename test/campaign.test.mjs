@@ -26,6 +26,11 @@ async function clickVisibleButton(page, text) {
     }, text);
 }
 
+async function advanceCampaignDialogue(page) {
+    await page.click('#tutorialCoach');
+    await sleep(260);
+}
+
 export async function run(browser) {
     const R = new Reporter('campaign');
     const page = await newGamePage(browser);
@@ -317,15 +322,47 @@ export async function run(browser) {
         return R.summary();
     }
     if (await page.locator('#rainCityLevelBtn').count() === 0) {
-        R.assert((await page.textContent('.campaign-level-card')).includes('出鞘'), '战役大厅展示当前正式教学关《出鞘》');
+        R.assert((await page.textContent('.campaign-level-card')).includes('花与剑'), '战役大厅展示当前正式教学关《花与剑》');
         await page.click('.campaign-start-btn');
         await waitFor(() => page.evaluate(async () => {
             const { gameState } = await import('/js/state.js');
             return gameState.campaignMode && gameState.scenarioId === 'bi-t1-sheath' && gameState.tiles.length > 0;
-        }), 10000, '《出鞘》加载');
+        }), 10000, '《花与剑》加载');
         await page.click('#turnTransitionOverlay');
         await waitFor(() => page.evaluate(() => document.getElementById('campaignSpeakerCard')?.classList.contains('show')), 5000, '开场计时对白');
-        R.assert((await page.textContent('#campaignSpeakerName')).trim() === '马库斯', '开场计时器正确显示马库斯对白');
+        R.assert((await page.textContent('#campaignSpeakerName')).trim() === '马库斯', '《花与剑》开场正确显示马库斯对白');
+        const campaignInfo = await page.evaluate(() => ({
+            chronicle: document.getElementById('campaignInfoChronicle')?.textContent.trim(),
+            chapter: document.getElementById('campaignInfoChapter')?.textContent.trim(),
+            level: document.getElementById('campaignInfoLevel')?.textContent.trim()
+        }));
+        R.assert(campaignInfo.chronicle === '染血的鸢尾花'
+            && campaignInfo.chapter === '花旗向东'
+            && campaignInfo.level === 'BI-T1 花与剑', '局内信息卡按“传记 · 章节 / 编号 关名”显示且不重复编号');
+
+        // v3 教学关完整路径：开场三页 → 选择 → 移动 → 攻击 → 两名新兵列队 → 授章七页。
+        await advanceCampaignDialogue(page);
+        await advanceCampaignDialogue(page);
+        await advanceCampaignDialogue(page);
+        await clickTile(page, -2, 0);
+        await sleep(260);
+        await clickTile(page, 0, 0);
+        await sleep(260);
+        await clickTile(page, 1, 0);
+        await sleep(260);
+        await advanceCampaignDialogue(page);
+        await clickTile(page, -2, 1);
+        await sleep(260);
+        await clickTile(page, 0, 1);
+        await sleep(260);
+        await advanceCampaignDialogue(page);
+        await clickTile(page, -1, -1);
+        await sleep(260);
+        await clickTile(page, 1, -1);
+        await sleep(260);
+        for (let index = 0; index < 7; index++) await advanceCampaignDialogue(page);
+        await waitFor(() => page.evaluate(() => document.getElementById('campaignResultOverlay')?.classList.contains('show')), 5000, '《花与剑》完成结算');
+        R.assert((await page.textContent('#campaignResultTitle')).includes('花与剑'), '《花与剑》v3 可按教学路径完整通关');
         R.assert(page._errors.length === 0, `当前正式教学关启动无页面异常${page._errors.length ? `：${page._errors.join(' | ')}` : ''}`);
         await page.context().close();
         return R.summary();

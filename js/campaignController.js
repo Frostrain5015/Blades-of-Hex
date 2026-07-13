@@ -73,6 +73,7 @@ export function createCampaignController({ onRetry, onReturn }) {
             if (!active || token !== transitionToken || gameState._inlineStepData !== unresolvedStep) return;
             gameState.tutorialMode = false;
             delete gameState._campaignInputLock;
+            delete gameState._campaignStepOwnsInputLock;
             delete gameState._inlineStepData;
             hideGuidance();
         }, 190);
@@ -304,8 +305,17 @@ export function createCampaignController({ onRetry, onReturn }) {
         stepId = id;
         gameState.tutorialStep = nextOrStep.ruleStep ?? id;
         gameState.campaignPhase = id;
-        // boardLock: true → 棋盘操作锁；dialogLock: true → 对话框点击锁
-        if (nextOrStep.boardLock === true) gameState.tutorialMode = true;
+        // 每张 showStep 独立拥有自己的操作锁。进入下一张卡片时必须更新或释放，
+        // 否则上一阶段的白名单会错误拦截当前阶段的合法操作。
+        if (nextOrStep.boardLock === true) {
+            gameState.tutorialMode = true;
+            gameState._campaignInputLock = step.highlight || {};
+            gameState._campaignStepOwnsInputLock = true;
+        } else if (gameState._campaignStepOwnsInputLock) {
+            gameState.tutorialMode = false;
+            delete gameState._campaignInputLock;
+            delete gameState._campaignStepOwnsInputLock;
+        }
         // 存到 gameState 供 trigger 的 currentAllow/validateCanvasClick 查找
         gameState._inlineStepData = step;
         // 注册到内联步骤映射（供 next 链查找）
@@ -428,6 +438,7 @@ export function createCampaignController({ onRetry, onReturn }) {
         activeScenario = null;
         delete gameState._inlineStepData;
         delete gameState._campaignInputLock;
+        delete gameState._campaignStepOwnsInputLock;
         hideGuidance();
         objectiveHud?.classList.remove('show');
         resultOverlay.classList.remove('show');

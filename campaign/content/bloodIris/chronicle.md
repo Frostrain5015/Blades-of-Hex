@@ -16,7 +16,7 @@ This is the sole star chronicle (将星列传) for the Blades of Hex campaign sy
 **Chapter structure:**
 | Chapter | Name | Levels | Story |
 |---------|------|--------|-------|
-| 1 | 雨夜孤城 | T1-5 | Eastern expedition, siege of Petra, Cato's death. Marcus discovers first crack (edict fragment) |
+| 1 | 花旗向东 | T1-5 | A seemingly righteous eastern expedition, the siege of Petra, and the first crack in Marcus's certainty |
 | 2 | 我心如火 | 6-9 | King escapes, hunt in snow, Agrius standoff (non-lethal boss). Truth revealed in hunting lodge |
 | 3 | 同一个誓言 | 10-13 | Defection, assembling forces, Varo's city gate battle. "We made the same oath." |
 | 4 | 鸢尾落处 | 14-15 | Street fight, Severus throne room final boss, branching ending |
