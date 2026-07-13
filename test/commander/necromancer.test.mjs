@@ -7,6 +7,20 @@ export async function run(browser) {
         const cmdr = (await import('/commander/necromancer.js')).default;
         const R = { passed: 0, failed: 0, logs: [] };
         const assert = (cond, msg) => { if (cond) R.passed++; else R.failed++; R.logs.push((cond ? "✓" : "✗") + " " + msg); };
+        class TestUnit {
+            constructor(type, camp, tile) {
+                this.type = type;
+                this.camp = camp;
+                this.tile = tile;
+                this.config = { name: '步兵', speed: 3, attack: 50 };
+                this.hp = 200;
+                this.maxHp = 200;
+                this.displayHp = 200;
+                this.canAct = true;
+                this.remainingMP = 3;
+                if (tile) tile.unit = this;
+            }
+        }
 
         // check 1
         try {
@@ -53,11 +67,15 @@ export async function run(browser) {
                 const mark = { q: 5, r: 5, campKey: 'player1', origType: 'infantry', origMaxHp: 200, origAtkBonus: 0 };
                 gs._soulMarks.push(mark);
                 gs.tileMap.set('5,5', { q: 5, r: 5, x: 450, y: 350, unit: null });
-                const u = { commander: 'necromancer', camp: { name: '红军' }, hp: 100, tile: { x: 300, y: 200, q: 2, r: 2 } };
-                gs.tiles.push({ q: 2, r: 2, x: 300, y: 200, unit: u });
+                const camp = { name: '红军' };
+                const commanderTile = { q: 2, r: 2, x: 300, y: 200, unit: null };
+                const u = new TestUnit('infantry', camp, commanderTile);
+                u.commander = 'necromancer';
+                u.hp = 100;
+                gs.tiles.push(commanderTile);
                 let soulCreated = false;
                 const log = [];
-                cmdr.onTurnStart(gs, { name: '红军' }, {
+                cmdr.onTurnStart(gs, camp, {
                     findCommanderUnit: (camp, id) => u,
                     logMessage: m => log.push(m),
                     spawnFx: () => {},
@@ -79,7 +97,7 @@ export async function run(browser) {
         try {
             {
                 // 亡魂诅咒致死：亡灵法师本人获得普通击杀奖励
-                const gs = { tiles: [], tileMap: new Map(), _soulMarks: [], damageTexts: [], turnCounter: 3, isThreePlayer: false };
+                const gs = { tiles: [], tileMap: new Map(), _soulMarks: [], damageTexts: [], turnCounter: 3, turnOrder: ['player1', 'player2', 'neutral'], isThreePlayer: false };
                 const mark = { q: 6, r: 6, campKey: 'player1', origType: 'infantry', origMaxHp: 200 };
                 gs._soulMarks.push(mark);
                 const victim = {

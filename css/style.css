@@ -3294,18 +3294,19 @@ body {
 /* 数据驱动关卡列表容器 */
 .campaign-chronicle-list { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 
-.campaign-collectibles-modal {
+#campaignCollectiblesOverlay {
     position: fixed;
-    z-index: 50000;
     inset: 0;
-    display: grid;
+    /* 战役大厅本身位于 20000；收藏物是大厅之上的独立模态层。 */
+    z-index: 21010;
+    display: none;
     place-items: center;
     padding: 22px;
     background: rgba(5, 4, 3, .76);
     backdrop-filter: blur(7px);
     -webkit-backdrop-filter: blur(7px);
 }
-.campaign-collectibles-modal[hidden] { display: none; }
+#campaignCollectiblesOverlay.show { display: grid; }
 .campaign-collectibles-panel {
     width: min(680px, calc(100vw - 32px));
     max-height: min(720px, calc(100vh - 40px));

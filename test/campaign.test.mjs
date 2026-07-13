@@ -46,10 +46,11 @@ export async function run(browser) {
     R.assert((await page.textContent('.campaign-chronicle-index')).includes('将星列传'), '传记档案编号正确');
     R.assert((await page.textContent('#campaignCollectiblesBtn')).includes('0/1'), '关卡列表右上角显示收藏物入口与当前收集进度');
     await page.click('#campaignCollectiblesBtn');
-    R.assert(await page.locator('#campaignCollectiblesModal').isVisible()
+    R.assert(await page.locator('#campaignCollectiblesOverlay').isVisible()
+        && await page.locator('#campaignLobbyContent #campaignCollectiblesOverlay').count() === 0
         && await page.locator('.campaign-collectible-slot.is-locked').count() === 1
         && (await page.textContent('.campaign-collectible-name')).trim() === '未知收藏物',
-    '未获得的收藏物在陈列页保持未知，不提前泄露剧情说明');
+    '收藏物以根层独立弹窗展示，未获得条目保持未知且不提前泄露剧情说明');
     await page.click('#campaignCollectiblesCloseBtn');
     const objectiveHighlightContract = await page.evaluate(async () => {
         const { resolveActiveObjectiveHighlightTiles } = await import('/campaign/runtime/objectiveHighlights.js');
@@ -88,6 +89,7 @@ export async function run(browser) {
         const { resolveCommanderMount, applyCommanderMount } = await import('/campaign/runtime/storyCommanders.js');
         const { Unit } = await import('/js/Unit.js');
         const { CAMP } = await import('/rules/camps.js');
+        const { getCommanderPennantCrop } = await import('/js/renderer.js');
         const createUnit = spec => {
             const mount = resolveCommanderMount(config, spec);
             const tile = { q: 0, r: 0, x: 400, y: 300, unit: null };
@@ -147,7 +149,8 @@ export async function run(browser) {
                         && action.trigger === 'irene_reaches_tunnel' && action.enabled === true)
             },
             male: await inspectAlpha('/img/commander_tr/NPC男.webp'),
-            female: await inspectAlpha('/img/commander_tr/NPC女.webp')
+            female: await inspectAlpha('/img/commander_tr/NPC女.webp'),
+            npcPennantCrop: getCommanderPennantCrop(1024, 1536)
         };
     });
     R.assert(storyCommanderContract.cato.commander === 'minister'
@@ -166,8 +169,9 @@ export async function run(browser) {
         && Object.values(storyCommanderContract.ireneGuidance).every(Boolean),
     '《不归城》明确标识伊蕾妮、解释护送操作，并在档案焚毁后才开放撤离');
     R.assert(storyCommanderContract.male.corner === 0 && storyCommanderContract.male.center > 0
-        && storyCommanderContract.female.corner === 0 && storyCommanderContract.female.center > 0,
-    'NPC 男女战场兜底立绘均使用真实透明背景资源');
+        && storyCommanderContract.female.corner === 0 && storyCommanderContract.female.center > 0
+        && storyCommanderContract.npcPennantCrop.width === storyCommanderContract.npcPennantCrop.height,
+    'NPC 男女战场兜底立绘使用真实透明背景，并以无拉伸的方形裁片绘制先锋旗');
     const collectibleContract = await page.evaluate(async () => {
         const { config } = await import('/campaign/content/bloodIris/bi-05-petra.js');
         const { BLOOD_IRIS_COLLECTIBLES } = await import('/campaign/content/bloodIris/collectibles.js');

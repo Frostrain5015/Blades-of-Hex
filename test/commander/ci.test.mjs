@@ -107,7 +107,7 @@ export async function run(browser) {
             cent.remainingMP = 0;
             const target = { hp: 100, tile: { x: 435, y: 310 } };
             // 用 rng 覆盖确保触发（vampire 看 rng.range）
-            gsRef.rng = { range: () => 0.45, between: () => 30, chance: () => true };
+            gsRef.rng = { range: () => 0.45, between: () => 30, chance: () => true, int: () => 1 };
             const result = ci.triggerCommanderOnAttack(cent, target, 50);
             if (result && result.extraMP) {
                 assert(cent.remainingMP > 0, '百夫长 onAttack 增加 MP');
@@ -225,15 +225,20 @@ export async function run(browser) {
         } catch(e) { assert(false, 'moraleChange 异常: ' + e.message); }
 
         // ==============================
-        // 14) triggerCommanderOnDamageTaken — 谋士攻心
+        // 14) triggerCommanderOnAttack — 谋士攻心
         // ==============================
         try {
             fxLog.length = 0; logMsg.length = 0;
-            const advisor = { commander: 'advisor', tile: { x: 400, y: 300 } };
-            const attacker = { morale: 2, hp: 100, maxHp: 200, tile: { x: 430, y: 320 } };
-            const r = ci.triggerCommanderOnDamageTaken(advisor, attacker, 30);
-            assert(r !== null, '谋士受击触发攻心');
-        } catch(e) { assert(false, 'damageTaken 异常: ' + e.message); }
+            gsRef.tiles.length = 0; gsRef.tileMap.clear();
+            const advisor = addUnit('advisor', CAMP.player1, 0, 0);
+            const target = addUnit(null, CAMP.player2, 1, 0);
+            target.morale = 2;
+            target.moralePenaltyUntil = 0;
+            target.canAct = true;
+            const r = ci.triggerCommanderOnAttack(advisor, target, 30);
+            assert(r?.moraleDropped === true && target.morale === 1, '谋士攻击命中触发攻心');
+            assert(fxLog.some(line => line.startsWith('gx:')), '攻心波纹特效经中间层分派');
+        } catch(e) { assert(false, '谋士 onAttack 异常: ' + e.message); }
 
         // ==============================
         // 15) getStallerSnareLayers / getCommanderRangeReduction

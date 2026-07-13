@@ -5,7 +5,7 @@ export async function run(browser) {
     const R = await page.evaluate(async () => {
         const state = await import('/js/state.js');
         const input = await import('/js/input.js');
-        const { CAMP, TERRAIN_CONFIG } = await import('/js/config.js');
+        const { CAMP, TERRAIN_CONFIG, FORTIFICATION_CONFIG } = await import('/js/config.js');
         const { HexTile } = await import('/js/HexTile.js');
         const { Unit } = await import('/js/Unit.js');
         const results = { passed: 0, failed: 0, logs: [] };
@@ -33,31 +33,35 @@ export async function run(browser) {
         engineer.displayHp = engineer.hp;
         engineer.canAct = true;
         gameState.selectedUnit = engineer;
+        gameState.selectedTile = city;
 
-        input.showTooltipForTile(city);
+        input.syncBoardActionBar();
         const actionBar = document.getElementById('canvasActionButtons');
         const actionButtons = document.querySelectorAll('#canvasActionButtons button');
-        const trench = document.getElementById('tooltipActiveSkill');
-        const bunker = document.getElementById('tooltipSecondarySkill');
-        const reinforce = document.getElementById('tooltipReinforce');
-        assert(actionButtons.length === 3, '工程师驻城可注册两项技能与补员共3项动作');
+        const trench = document.getElementById('boardActiveSkill');
+        const flak = document.getElementById('boardSecondarySkill');
+        const bunker = document.getElementById('boardCommanderSkill2');
+        const reinforce = document.getElementById('boardReinforce');
+        assert(actionButtons.length === 4, '工程师驻城可注册三项技能与补员共4项动作');
         assert(actionBar?.classList.contains('visible'), '选中单位时画布内动作条淡入');
-        assert(!!trench && !!bunker && !!reinforce, '队列保留兼容按钮标识');
-        assert(!trench?.disabled && !bunker?.disabled && !reinforce?.disabled, '满足条件时三项动作均可用');
+        assert(!!trench && !!flak && !!bunker && !!reinforce, '队列使用当前画布动作按钮标识');
+        assert([trench, flak, bunker, reinforce].every(button => button?.getAttribute('aria-disabled') === 'false'), '满足条件时四项动作均可用');
         assert(trench?.style.getPropertyValue('--board-action-background').includes('#947026'), '工程师技能使用工程主题色');
         assert(trench?.querySelector('.canvas-action-cost')?.textContent === '$2', '战壕动作显示$2成本');
 
         city.fortification = 'trench';
-        input.showTooltipForTile(city);
-        assert(document.getElementById('tooltipActiveSkill')?.disabled === true, '已有战壕时挖掘按钮直接变灰');
-        assert(document.getElementById('tooltipSecondarySkill')?.disabled === false, '其他工程师技能保持可用');
+        input.syncBoardActionBar();
+        assert(document.getElementById('boardActiveSkill')?.classList.contains('is-disabled'), '已有工事时战壕按钮变灰');
+        assert(document.getElementById('boardSecondarySkill')?.classList.contains('is-disabled'), '已有工事时高射机枪按钮变灰');
+        assert(!document.getElementById('boardCommanderSkill2')?.classList.contains('is-disabled'), '碉堡施工仍可指定相邻空地');
 
         gameState.playerGold.player1 = 0;
-        input.showTooltipForTile(city);
-        assert(document.getElementById('tooltipSecondarySkill')?.disabled === true, '金币不足时碉堡按钮直接变灰');
-        assert(document.getElementById('tooltipReinforce')?.disabled === true, '金币不足时补员按钮直接变灰');
+        input.syncBoardActionBar();
+        assert(document.getElementById('boardCommanderSkill2')?.classList.contains('is-disabled'), '金币不足时碉堡按钮变灰');
+        assert(document.getElementById('boardReinforce')?.classList.contains('is-disabled'), '金币不足时补员按钮变灰');
 
         gameState.selectedUnit = null;
+        gameState.selectedTile = null;
         input.syncBoardActionBar();
         assert(!actionBar?.classList.contains('visible'), '取消选中后画布内动作条淡出');
 
@@ -73,7 +77,7 @@ export async function run(browser) {
         terrainTile.fortification = 'trench';
         terrainTile.drawBase(fakeContext);
         const glyphs = glyphCalls.slice(-3);
-        assert(glyphs.join('|') === `🏡|${TERRAIN_CONFIG.forest.icon}|🕳️`, '地物图标按村庄、地形、战壕顺序横向绘制');
+        assert(glyphs.join('|') === `🏡|${TERRAIN_CONFIG.forest.icon}|${FORTIFICATION_CONFIG.trench.icon}`, '地物图标按村庄、地形、战壕顺序横向绘制');
 
         return results;
     });

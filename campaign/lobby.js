@@ -62,18 +62,18 @@ function _setCollectionDetail(collectible) {
 }
 
 function _closeCollection() {
-    const modal = document.getElementById('campaignCollectiblesModal');
-    if (!modal) return;
-    modal.hidden = true;
-    modal.setAttribute('aria-hidden', 'true');
+    const overlay = document.getElementById('campaignCollectiblesOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('show');
+    overlay.setAttribute('aria-hidden', 'true');
     document.getElementById('campaignCollectiblesBtn')?.focus();
 }
 
 function _openCollection() {
     const chronicle = _currentChronicle();
-    const modal = document.getElementById('campaignCollectiblesModal');
+    const overlay = document.getElementById('campaignCollectiblesOverlay');
     const grid = document.getElementById('campaignCollectiblesGrid');
-    if (!chronicle || !modal || !grid) return;
+    if (!chronicle || !overlay || !grid) return;
     const progress = readProgress(chronicle.storageKey);
     const unlocked = new Set(progress.collectibleIds || []);
     const collectibles = chronicle.collectibles || [];
@@ -114,18 +114,18 @@ function _openCollection() {
         grid.appendChild(empty);
     }
     _setCollectionDetail(firstUnlocked);
-    modal.hidden = false;
-    modal.setAttribute('aria-hidden', 'false');
+    overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
     document.getElementById('campaignCollectiblesCloseBtn')?.focus();
 }
 
 function _bindCollectionModal() {
     if (_collectionBound) return;
-    const modal = document.getElementById('campaignCollectiblesModal');
+    const overlay = document.getElementById('campaignCollectiblesOverlay');
     document.getElementById('campaignCollectiblesCloseBtn')?.addEventListener('click', _closeCollection);
-    modal?.addEventListener('click', event => { if (event.target === modal) _closeCollection(); });
+    overlay?.addEventListener('click', event => { if (event.target === overlay) _closeCollection(); });
     document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && !modal?.hidden) _closeCollection();
+        if (event.key === 'Escape' && overlay?.classList.contains('show')) _closeCollection();
     });
     _collectionBound = true;
 }

@@ -109,25 +109,6 @@
                     </div>
                     <!-- 传记卡与关卡卡由 campaign/lobby.js 依 catalog 数据驱动生成 -->
                     <div id="campaignChronicleList" class="campaign-chronicle-list"></div>
-                    <div id="campaignCollectiblesModal" class="campaign-collectibles-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="campaignCollectiblesTitle">
-                        <div class="campaign-collectibles-panel">
-                            <header class="campaign-collectibles-header">
-                                <div>
-                                    <span class="campaign-collectibles-kicker">CHRONICLE ARCHIVE</span>
-                                    <h3 id="campaignCollectiblesTitle">收藏物陈列</h3>
-                                </div>
-                                <button id="campaignCollectiblesCloseBtn" class="campaign-collectibles-close" type="button" aria-label="关闭收藏物陈列">×</button>
-                            </header>
-                            <div id="campaignCollectiblesGrid" class="campaign-collectibles-grid"></div>
-                            <div id="campaignCollectibleDetail" class="campaign-collectible-detail" aria-live="polite">
-                                <span id="campaignCollectibleDetailEmoji" class="campaign-collectible-detail-emoji">❔</span>
-                                <div>
-                                    <strong id="campaignCollectibleDetailName">尚未选择收藏物</strong>
-                                    <p id="campaignCollectibleDetailDescription">获得收藏物后，将鼠标移到陈列格上查看它留下的剧情线索。</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- 联机大厅 -->
@@ -549,6 +530,26 @@
             <button id="factionListClose" type="button" aria-label="关闭阵营列表">×</button>
         </div>
         <div id="factionListBody" class="faction-list-body"></div>
+    </section>
+</div>
+
+<div id="campaignCollectiblesOverlay" aria-hidden="true">
+    <section id="campaignCollectiblesPanel" class="campaign-collectibles-panel" role="dialog" aria-modal="true" aria-labelledby="campaignCollectiblesTitle">
+        <header class="campaign-collectibles-header">
+            <div>
+                <span class="campaign-collectibles-kicker">CHRONICLE ARCHIVE</span>
+                <h3 id="campaignCollectiblesTitle">收藏物陈列</h3>
+            </div>
+            <button id="campaignCollectiblesCloseBtn" class="campaign-collectibles-close" type="button" aria-label="关闭收藏物陈列">×</button>
+        </header>
+        <div id="campaignCollectiblesGrid" class="campaign-collectibles-grid"></div>
+        <div id="campaignCollectibleDetail" class="campaign-collectible-detail" aria-live="polite">
+            <span id="campaignCollectibleDetailEmoji" class="campaign-collectible-detail-emoji">❔</span>
+            <div>
+                <strong id="campaignCollectibleDetailName">尚未选择收藏物</strong>
+                <p id="campaignCollectibleDetailDescription">获得收藏物后，将鼠标移到陈列格上查看它留下的剧情线索。</p>
+            </div>
+        </div>
     </section>
 </div>
 

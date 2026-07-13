@@ -12,11 +12,10 @@ export async function run(browser) {
         // 1) _getHeal: 30%~60% 区间
         {
             const dmg = 100;
-            for (let i = 0; i < 50; i++) {
-                const h = cmdr._getHeal(dmg, null);
-                if (h < 30 || h > 60) { assert(false, '_getHeal 超出 30-60 范围: ' + h); break; }
-            }
-            assert(true, '_getHeal 返回 30%-60% 区间');
+            const minimum = cmdr._getHeal(dmg, { range: min => min });
+            const midpoint = cmdr._getHeal(dmg, { range: (min, max) => (min + max) / 2 });
+            const maximum = cmdr._getHeal(dmg, { range: (min, max) => max });
+            assert(minimum === 30 && midpoint === 45 && maximum === 60, '_getHeal 使用注入 RNG 返回 30%-60% 区间');
         }
 
         // 2) _applyHealAndShield: 正常回血

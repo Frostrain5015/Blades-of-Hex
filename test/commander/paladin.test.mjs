@@ -57,10 +57,10 @@ export async function run(browser) {
                 const u = { _faith: 0, _smiteReady: true, _smiteCharged: false, activeSkillCD: 0, id: 'p1', tile: { x: 400, y: 300 } };
                 const target = { tile: { x: 450, y: 350 } };
                 const log = [];
-                const h = { logMessage: m => log.push(m), spawnGoldenBeam: () => {}, launchOrbitSwords: () => [], spawnOrbitBeams: () => {}, rng: null };
+                const h = { logMessage: m => log.push(m), spawnGoldenBeam: () => {}, launchOrbitSwords: () => [], spawnOrbitBeams: () => {}, rng: { between: (min) => min } };
                 const r = cmdr.onAttack(u, target, 50, h);
                 assert(r !== null, '至圣斩触发');
-                if (r) assert(r.smiteDmg >= 25 && r.smiteDmg <= 40, '至圣斩伤害 25-40');
+                if (r) assert(r.smiteDmg === 25, '至圣斩使用注入 RNG，最低伤害为 25');
             }
             
         } catch(e) { assert(false, '第 5 项异常: ' + e.message); }

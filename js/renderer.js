@@ -2223,6 +2223,11 @@ function drawCardUseAnimation(now) {
 
 // ===== 空袭 / 空降飞机特效 =====================
 // ===== 将领透明底立绘（先锋旗） =====================
+export function getCommanderPennantCrop(imageWidth, imageHeight) {
+    const size = Math.min(imageHeight * 0.60, imageWidth);
+    return { x: (imageWidth - size) / 2, y: 0, width: size, height: size };
+}
+
 function drawCommanderPennants() {
     const viewingCamp = getViewingCamp();
     for (const tile of gameState.tiles) {
@@ -2247,17 +2252,21 @@ function drawCommanderPennants() {
         const pw = 55 * scale;
         const iw = portrait.naturalWidth;
         const ih = portrait.naturalHeight;
-        const ph = pw * (ih / iw);
+
+        // 先锋旗统一使用源图顶部的正方形头肩裁片。目标尺寸必须跟随裁片比例，
+        // 不能跟随整张立绘比例：NPC 兜底立绘是 2:3，按整图比例会把方形裁片纵向拉伸。
+        const crop = getCommanderPennantCrop(iw, ih);
+        const cropW = crop.width;
+        const cropH = crop.height;
+        const ph = pw * (cropH / cropW);
         const cutIn = 16 * scale;
         const pointExtend = 7 * scale;
         const pX = vx - pw / 2;
         const pY = vy - ph - 14;
 
-        // 裁剪源图顶部方形区域（折中：头肩半身），60%高度裁为正方形
-        const cropH = ih * 0.60;
-        const cropW = cropH; // square crop for square headshot
-        const sx = (iw - cropW) / 2;
-        const sy = 0;
+        // 裁剪源图顶部方形区域（折中：头肩半身）
+        const sx = crop.x;
+        const sy = crop.y;
 
         // 部署过渡：从底部尖端缩放展开 + 淡入
         const anchorX = pX + pw / 2;

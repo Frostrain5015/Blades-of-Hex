@@ -47,7 +47,7 @@ export async function run(browser) {
             _atkBonus: 15, _rankDefBonus: 5, _rankCritBonus: 3, _rankRegenPct: 0,
             displaySpeed: 4, _xp: 20, _rank: 1, _fallen: false, activeSkillCD: 0, activeSkillDur: 0,
             _engineerConstruction: { targetQ: 2, targetR: 0 },
-            _phantomStacks: 0, _gongxinStacks: 0, _gongxinCamp: null, _imprisoned: false,
+            _phantomStacks: 0, _imprisoned: false,
             _isImmobile: false, _airdropWaiting: false, _soulRecallLandAt: 0, _airliftLandAt: 0,
             _martyrPrimed: false, _elegyBonus: 0, _elegyProcessed: 0, _isSoulMinion: false,
             _shield: 120, _shieldMax: 120, _shieldTurns: 999,
@@ -63,7 +63,7 @@ export async function run(browser) {
             remainingMP: 3, commander: 'fallenAngel', _centurionTriggered: false,
             _atkBonus: 30, _rankDefBonus: 0, _rankCritBonus: 0, _rankRegenPct: 0,
             displaySpeed: 3, _xp: 0, _rank: 0, _fallen: true, activeSkillCD: 0, activeSkillDur: 0,
-            _phantomStacks: 0, _gongxinStacks: 0, _gongxinCamp: null, _imprisoned: false,
+            _phantomStacks: 0, _imprisoned: false,
             _isImmobile: false, _airdropWaiting: false, _soulRecallLandAt: 0, _airliftLandAt: 0,
             _martyrPrimed: false, _elegyBonus: 0, _elegyProcessed: 0, _isSoulMinion: false,
             _shield: 0, _shieldMax: 0, _shieldTurns: 0,
@@ -75,11 +75,11 @@ export async function run(browser) {
         };
         const uSoul = {
             id: 'u_soul', type: 'infantry', hp: 80, maxHp: 200, canAct: true, movedThisTurn: false,
-            counterAttackCount: 0, isNewRecruit: false, morale: 2, moraleBoostUntil: 0,
+            counterAttackCount: 0, isNewRecruit: false, morale: 2, moraleBoostUntil: 0, moralePenaltyUntil: 4,
             remainingMP: 3, commander: null, _centurionTriggered: false,
             _atkBonus: 0, _rankDefBonus: 0, _rankCritBonus: 0, _rankRegenPct: 0,
             displaySpeed: 3, _xp: 0, _rank: 0, _fallen: false, activeSkillCD: 0, activeSkillDur: 0,
-            _phantomStacks: 0, _gongxinStacks: 3, _gongxinCamp: CAMP.player1,
+            _phantomStacks: 0,
             _imprisoned: false, _isImmobile: false, _airdropWaiting: false,
             _soulRecallLandAt: 12345, _airliftLandAt: 0,
             _martyrPrimed: true, _elegyBonus: 15, _elegyProcessed: 3,
@@ -149,7 +149,7 @@ export async function run(browser) {
         if (soulUnit && soulUnit.unit) {
             const u = soulUnit.unit;
             assert(u.isSoulMinion === true, 'isSoulMinion');
-            assert(u.gongxinStacks === 3, 'gongxinStacks');
+            assert(u.moralePenaltyUntil === 4, 'moralePenaltyUntil');
             assert(u.martyrPrimed === true, 'martyrPrimed');
             assert(u.elegyBonus === 15, 'elegyBonus');
             assert(u.elegyProcessed === 3, 'elegyProcessed');
@@ -190,7 +190,7 @@ export async function run(browser) {
             const restoredSoul = gs.tiles.find(t => t.unit?.id === 'u_soul');
             if (restoredSoul?.unit) {
                 assert(restoredSoul.unit._isSoulMinion === true, '反序列化 isSoulMinion');
-                assert(restoredSoul.unit._gongxinStacks === 3, '反序列化 gongxinStacks');
+                assert(restoredSoul.unit.moralePenaltyUntil === 4, '反序列化 moralePenaltyUntil');
                 assert(restoredSoul.unit._healingAura === 2, '反序列化 healingAura');
                 assert(Array.isArray(restoredSoul.unit._activeSkillBuffs), '反序列化 activeSkillBuffs');
             }
