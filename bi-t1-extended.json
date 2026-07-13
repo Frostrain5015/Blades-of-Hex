@@ -115,7 +115,7 @@
       "id": "target_cavalry",
       "type": "infantry",
       "camp": "targets",
-      "q": 3,
+      "q": 2,
       "r": -1,
       "hpPct": 100,
       "morale": 2,
@@ -399,7 +399,7 @@
           "dialogLock": true,
           "highlight": {
             "unit": "recruit_cavalry",
-            "tiles": [{ "q": 2, "r": -1 }],
+            "tiles": [{ "q": 1, "r": -1 }],
             "hint": "利用骑兵的高行动力切入目标侧面"
           }
         },
@@ -414,7 +414,7 @@
     },
     {
       "id": "cavalry_moved",
-      "when": [{ "kind": "unitMovesToTile", "target": { "unit": "recruit_cavalry" }, "q": 2, "r": -1 }],
+      "when": [{ "kind": "unitMovesToTile", "target": { "unit": "recruit_cavalry" }, "q": 1, "r": -1 }],
       "do": [
         {
           "kind": "showStep",
@@ -424,7 +424,7 @@
           "dialogLock": true,
           "highlight": {
             "unit": "recruit_cavalry",
-            "tiles": [{ "q": 3, "r": -1 }],
+            "tiles": [{ "q": 2, "r": -1 }],
             "hint": "攻击骑兵训练草靶"
           }
         },
