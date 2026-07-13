@@ -1,7 +1,8 @@
-﻿import { HEX_SIZE, HEX_WIDTH, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, hexToRgb, rgbToHex, frameInfo, CAMP_FLAG_COLORS, HEX_NEIGHBORS, hexEdge, TERRAIN_CONFIG, CAMP, settings, getFlagColors } from './config.js';
+﻿import { HEX_SIZE, HEX_WIDTH, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, hexToRgb, rgbToHex, HEX_NEIGHBORS, hexEdge, TERRAIN_CONFIG, settings } from './config.js';
 import { FORTIFICATION_CONFIG } from './config.js';
 import { EngineHexTile } from '../engine/HexTile.js';
-import { campToKey } from '../rules/camps.js';
+import { CITY_FLAG_LAYOUT } from './flagLayout.js';
+import { getCityMarkerColors } from '../rules/camps.js';
 
 let _gameState = null;
 export function setGameStateRef(ref) { _gameState = ref; }
@@ -134,13 +135,13 @@ export class HexTile extends EngineHexTile {
                 }
             }
         }
-        const key = campToKey(effectiveCamp);
-        const campKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
         return {
-            poleX: flagCx, poleTop: flagCy - 16, poleBottom: flagCy + 10,
-            fc: campKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(effectiveCamp?.color),
-            flagLeft: flagCx + 1.5, flagRight: flagCx + 1.5 + 18,
-            flagTop: flagCy - 16 + 3, flagMid: flagCy - 16 + 3 + 7, flagBot: flagCy - 16 + 3 + 16
+            poleX: flagCx,
+            poleTop: flagCy + CITY_FLAG_LAYOUT.poleTopOffset,
+            poleBottom: flagCy + CITY_FLAG_LAYOUT.poleBottomOffset,
+            camp: effectiveCamp,
+            flagLeft: flagCx + CITY_FLAG_LAYOUT.clothOffsetX,
+            flagTop: flagCy + CITY_FLAG_LAYOUT.poleTopOffset + CITY_FLAG_LAYOUT.clothOffsetY
         };
     }
 
@@ -155,15 +156,58 @@ export class HexTile extends EngineHexTile {
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.stroke();
+
+        // Only city standards use a grounded pedestal; village and unit poles
+        // stay visually light so the ownership hierarchy remains obvious.
+        if (this.isCity) {
+            const halfBase = CITY_FLAG_LAYOUT.baseWidth / 2;
+            const baseTop = p.poleBottom - CITY_FLAG_LAYOUT.baseHeight * 0.4;
+            const baseBottom = p.poleBottom + CITY_FLAG_LAYOUT.baseHeight * 0.6;
+            ctx.beginPath();
+            ctx.ellipse(p.poleX, baseBottom + 0.8, halfBase + 0.8, 1.4, 0, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(25,18,10,0.35)';
+            ctx.fill();
+
+            const baseGradient = ctx.createLinearGradient(p.poleX - halfBase, 0, p.poleX + halfBase, 0);
+            baseGradient.addColorStop(0, '#72501c');
+            baseGradient.addColorStop(0.48, '#e3c567');
+            baseGradient.addColorStop(1, '#684516');
+            ctx.beginPath();
+            ctx.moveTo(p.poleX - halfBase, baseBottom);
+            ctx.lineTo(p.poleX + halfBase, baseBottom);
+            ctx.lineTo(p.poleX + halfBase * 0.58, baseTop);
+            ctx.lineTo(p.poleX - halfBase * 0.58, baseTop);
+            ctx.closePath();
+            ctx.fillStyle = baseGradient;
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(55,36,12,0.8)';
+            ctx.lineWidth = 0.7;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.ellipse(p.poleX, baseTop, halfBase * 0.58, 0.75, 0, 0, Math.PI * 2);
+            ctx.fillStyle = '#efd987';
+            ctx.fill();
+        }
         ctx.restore();
     }
 
-    drawFlagFinialAndCloth() {
+    getFlagRenderData() {
+        const p = this._flagParams();
+        if (!p) return null;
+        return {
+            x: p.flagLeft,
+            y: p.flagTop,
+            width: CITY_FLAG_LAYOUT.width,
+            height: CITY_FLAG_LAYOUT.height,
+            camp: p.camp,
+            commander: !!this.unit?.commander
+        };
+    }
+
+    drawFlagFinial() {
         const p = this._flagParams();
         if (!p) return;
-        const gs = _gameState;
-        const now = frameInfo.now;
-        const time = now / 1000;
         ctx.save();
 
         // Pole finial
@@ -172,42 +216,62 @@ export class HexTile extends EngineHexTile {
         ctx.fillStyle = '#ffd700';
         ctx.fill();
 
-        // Waving flag (animated)
-        const windMult = (gs && gs.weather === 'wind') ? 2.5 : 1.0;
-        const wave = Math.sin(time * 5 * windMult + this.id * 0.7) * 2.5;
+        ctx.restore();
+    }
+
+    // Military-map city symbol. Its hue follows the occupying faction while
+    // using palette light/dark accents instead of the main flag color.
+    drawCityMapMarker() {
+        if (!this.isCity) return;
+        const occupied = !!this.unit;
+        const outerRadius = 22.5;
+        const innerRadius = 19.5;
+        const marker = getCityMarkerColors(this.camp?.colorId || this.camp?.color);
+        const lineRgb = hexToRgb(marker.line);
+        const shadowRgb = hexToRgb(marker.shadow);
+        const line = alpha => `rgba(${lineRgb.r},${lineRgb.g},${lineRgb.b},${alpha})`;
+        const shadow = alpha => `rgba(${shadowRgb.r},${shadowRgb.g},${shadowRgb.b},${alpha})`;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.lineJoin = 'round';
+
+        // Eight low bastions form a compact fortified-settlement outline.
         ctx.beginPath();
-        ctx.moveTo(p.flagLeft, p.flagTop);
-        ctx.quadraticCurveTo(p.flagLeft + 6, p.flagMid - 3 + wave, p.flagRight, p.flagMid + wave);
-        ctx.lineTo(p.flagRight, p.flagBot + wave * 0.6);
-        ctx.quadraticCurveTo(p.flagLeft + 6, p.flagMid + 3 + wave * 0.6, p.flagLeft, p.flagBot);
+        for (let i = 0; i < 16; i++) {
+            const angle = -Math.PI / 2 + i * Math.PI / 8;
+            const radius = i % 2 === 0 ? outerRadius : innerRadius;
+            const px = Math.cos(angle) * radius;
+            const py = Math.sin(angle) * radius;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
         ctx.closePath();
-        const flagGrad = ctx.createLinearGradient(p.flagLeft, 0, p.flagRight, 0);
-        flagGrad.addColorStop(0, p.fc.main);
-        flagGrad.addColorStop(1, p.fc.dark);
-        ctx.fillStyle = flagGrad;
+        ctx.fillStyle = shadow(occupied ? 0.16 : 0.09);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-        ctx.lineWidth = 0.8;
+        ctx.strokeStyle = shadow(occupied ? 0.72 : 0.55);
+        ctx.lineWidth = occupied ? 3.1 : 2.6;
+        ctx.shadowColor = 'rgba(20,16,12,0.42)';
+        ctx.shadowBlur = 1.5;
+        ctx.stroke();
+        ctx.strokeStyle = line(occupied ? 0.96 : 0.78);
+        ctx.lineWidth = occupied ? 1.45 : 1.15;
         ctx.stroke();
 
-        // 灏嗛鏄熸爣锛堝煄鍐呮湁灏嗛鍗曚綅鏃讹紝璺熼殢鏃楀笢椋樺姩+鎵洸锛?
-        if (this.unit && this.unit.commander) {
-            ctx.save();
-            const starX = p.flagLeft + 9;
-            const starY = p.flagTop + 9 + wave * 0.5;
-            ctx.translate(starX, starY);
-            const waveTilt = Math.cos(time * 5 * windMult + this.id * 0.7) * 0.14;
-            ctx.rotate(waveTilt);
-            ctx.fillStyle = '#ffd700';
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ffd700';
-            ctx.shadowBlur = 6;
-            ctx.fillText('★', 0, 0);
-            ctx.restore();
-        }
+        // A dashed inner enceinte and tiny south gate make the symbol read as
+        // a mapped city/fortification rather than another selection ring.
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(0, 0, 18.3, 0, Math.PI * 2);
+        ctx.setLineDash([2.4, 2.2]);
+        ctx.strokeStyle = line(occupied ? 0.72 : 0.52);
+        ctx.lineWidth = 0.85;
+        ctx.stroke();
+        ctx.setLineDash([]);
 
+        ctx.fillStyle = line(0.96);
+        ctx.fillRect(-3.2, 19.1, 6.4, 3.4);
+        ctx.fillStyle = shadow(0.94);
+        ctx.fillRect(-1.05, 20.15, 2.1, 2.35);
         ctx.restore();
     }
 

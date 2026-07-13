@@ -1,6 +1,7 @@
 // 依配置部署战场 —— 单位、将领绑定、天气、金币、初始手牌。
 // 与建图分离：mapBuilder 先铺好地块，本模块在其上放单位并写对局参数。
-import { campFromKey, createDefaultDiplomacy, createDefaultFactions, getFactionKeys } from '../../rules/diplomacy.js';
+import { campFromKey, getFactionKeys } from '../../rules/diplomacy.js';
+import { configureMatchFactions } from '../../engine/matchState.js';
 import { createDefaultMechanics } from '../../rules/mechanics.js';
 import { Unit } from '../../js/Unit.js';
 import { computeCampBorders } from '../../js/HexTile.js';
@@ -13,32 +14,17 @@ const COMMANDER_SLOTS = {
 
 /** 在建图前建立本关唯一的阵营对象、回合顺序和阵营相关容器。 */
 export function prepareCampaignFactions(config, gameState) {
-    gameState.factions = createDefaultFactions(config.factions || []);
-    gameState.diplomacy = createDefaultDiplomacy(config.diplomacy || {}, gameState);
-    gameState.localPlayerCampKey = gameState.factions[config.localPlayerCamp]
-        ? config.localPlayerCamp
-        : getFactionKeys(gameState).find(key => gameState.factions[key]?.controller === 'human') || getFactionKeys(gameState)[0] || 'player1';
-
-    const eligibleTurnIds = getFactionKeys(gameState).filter(key => {
-        const faction = gameState.factions[key];
-        return faction?.active !== false && faction?.participatesInTurns !== false;
+    configureMatchFactions(gameState, {
+        factionDefinitions: config.factions || [],
+        diplomacy: config.diplomacy || {},
+        turnOrder: config.turnOrder || [],
+        localPlayerCampKey: config.localPlayerCamp,
+        defaultGold: 4
     });
-    const configuredTurnOrder = Array.isArray(config.turnOrder) ? config.turnOrder : [];
-    gameState.turnOrder = configuredTurnOrder.filter(key => eligibleTurnIds.includes(key));
-    for (const key of eligibleTurnIds) if (!gameState.turnOrder.includes(key)) gameState.turnOrder.push(key);
-    if (!gameState.turnOrder.length) gameState.turnOrder = [gameState.localPlayerCampKey];
-    gameState.currentCamp = campFromKey(gameState.turnOrder[0], gameState);
     gameState.aiOpponentCamp = config.aiOpponentCamp ? campFromKey(config.aiOpponentCamp, gameState) : null;
 
-    const keys = [...new Set([...getFactionKeys(gameState), 'player1', 'player2', 'player3', 'neutral'])];
-    gameState.playerGold = Object.fromEntries(keys.map(key => [key, config.gold?.[key] ?? 4]));
-    gameState.playerHands = Object.fromEntries(keys.map(key => [key, []]));
-    gameState.playerDrawsThisTurn = Object.fromEntries(keys.map(key => [key, 0]));
-    gameState.playerUsesThisTurn = Object.fromEntries(keys.map(key => [key, 0]));
-    gameState.killCount = Object.fromEntries(keys.map(key => [key, 0]));
-    gameState.visibleTiles = Object.fromEntries(keys.map(key => [key, new Set()]));
-    gameState.exploredTiles = Object.fromEntries(keys.map(key => [key, new Set()]));
-    gameState.scoutReveals = Object.fromEntries(keys.map(key => [key, new Map()]));
+    const keys = getFactionKeys(gameState);
+    for (const key of keys) gameState.playerGold[key] = config.gold?.[key] ?? 4;
     gameState._prevVisibleTiles = Object.fromEntries(keys.map(key => [key, new Set()]));
     gameState._campaignFactionConfig = config;
 }

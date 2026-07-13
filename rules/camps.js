@@ -1,29 +1,24 @@
-// rules/camps.js — 阵营定义。
-// 阵营对象在模块加载时创建一次，其他模块按引用比较 CAMP.player1 等；
-// 对象已冻结，昵称等运行时信息应存放在对局状态而非此处。
+// rules/camps.js — 阵营外观定义。
+// CAMP 仅作为旧存档/未初始化状态的席位占位对象；运行中应从
+// gameState.factions 读取真正阵营，禁止用 CAMP.playerN 推断颜色或行动顺序。
 
 import { deepFreeze } from './freeze.js';
-import { EMOJI } from './symbols.js';
-
-/** 阵营的显示名、底色和旗帜 emoji。 */
+/** 传统席位占位对象。全部使用无色占位外观，不能据此推断阵营色或先后手。 */
 export const CAMP_DATA = deepFreeze({
-    player1: { id: 'player1', name: '红军', color: '#ffaaaa', flag: EMOJI.camp.player1 },
-    player2: { id: 'player2', name: '蓝军', color: '#aaaaff', flag: EMOJI.camp.player2 },
-    player3: { id: 'player3', name: '绿军', color: '#aaffaa', flag: EMOJI.camp.player3 },
-    neutral: { id: 'neutral', name: '中立', color: '#c0c0c0', flag: EMOJI.camp.neutral }
+    player1: { id: 'player1', name: '第一阵营', colorId: null, color: '#c0c0c0', flag: '' },
+    player2: { id: 'player2', name: '第二阵营', colorId: null, color: '#c0c0c0', flag: '' },
+    player3: { id: 'player3', name: '第三阵营', colorId: null, color: '#c0c0c0', flag: '' },
+    neutral: { id: 'neutral', name: '中立', colorId: 'gray', color: '#b0b0b0', flag: '' }
 });
 
 export const CAMP = CAMP_DATA;
 
 export const CAMP_FLAG_COLORS = deepFreeze({
-    p1: { main: '#d44040', dark: '#8b1a1a', light: '#f06060' },
-    p2: { main: '#4060d0', dark: '#1a2a80', light: '#6080f0' },
-    p3: { main: '#40a040', dark: '#1a601a', light: '#60d060' },
     neu: { main: '#777', dark: '#444', light: '#999' }
 });
 
 /**
- * 九色调色板 —— 战役编辑器中阵营可选色的完整定义。
+ * 全局九色调色板 —— 所有模式共用的阵营外观唯一数据源。
  * 每色包含：地块底色（浅） + 旗帜三阶色（主/暗/亮）。
  * 关卡配置只保存稳定的 id；tile/flag 是运行时表现值，不属于作者数据契约。
  */
@@ -40,6 +35,16 @@ export const FACTION_PALETTE = deepFreeze([
 ]);
 
 export const FACTION_COLOR_KEYS = deepFreeze(FACTION_PALETTE.map(entry => entry.id));
+/** 普通玩家对局仅开放七种彩虹色；深灰与白保留给中立、训练靶及剧情阵营。 */
+export const PLAYER_FACTION_COLOR_KEYS = deepFreeze(
+    FACTION_PALETTE.filter(entry => entry.id !== 'gray' && entry.id !== 'white').map(entry => entry.id)
+);
+export const DEFAULT_SEAT_COLOR_IDS = deepFreeze(['red', 'blue', 'green']);
+
+export function isPlayerFactionColor(colorValue) {
+    const id = getPaletteEntry(colorValue)?.id;
+    return !!id && PLAYER_FACTION_COLOR_KEYS.includes(id);
+}
 
 /** 根据规范 id 或旧地块色查找调色板条目；旧色值仅用于配置迁移。 */
 export function getPaletteEntry(colorValue) {
@@ -61,13 +66,25 @@ export function getFlagColors(colorValue) {
     return { main: fallback, dark: fallback, light: fallback };
 }
 
+/**
+ * 城郭环与阵营共享色相，但刻意避开主旗色：亮阶用于轮廓，暗阶用于压边与门洞。
+ * 这使城市标记能跟随动态阵营，又不会被误读为第二面旗帜。
+ */
+export function getCityMarkerColors(colorValue) {
+    const flag = getFlagColors(colorValue);
+    return { line: flag.light, shadow: flag.dark, fill: flag.dark };
+}
+
+/** 由阵营色生成默认名称；名称随颜色走，而不是随 player1/2/3 席位走。 */
+export function getFactionColorName(colorValue, fallback = '未命名阵营') {
+    const entry = getPaletteEntry(colorValue);
+    return entry ? `${entry.label}军` : fallback;
+}
+
 export function campToKey(camp, mode = 'full') {
     const key = typeof camp === 'string' ? camp
         : typeof camp?.id === 'string' ? camp.id
-            : camp === CAMP.player1 ? 'player1'
-                : camp === CAMP.player2 ? 'player2'
-                    : camp === CAMP.player3 ? 'player3'
-                        : 'neutral';
+            : 'neutral';
     if (mode !== 'short') return key;
     if (key === 'player1') return 'p1';
     if (key === 'player2') return 'p2';

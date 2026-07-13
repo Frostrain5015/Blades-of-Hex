@@ -1,6 +1,6 @@
 import { gameState, notify, updateUI } from './state.js';
 import { isNetworkGame } from './network.js';
-import { CAMP, MORALE_CONFIG, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG } from './config.js';
+import { MORALE_CONFIG, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, campToKey } from './config.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { Unit } from './Unit.js';
 import { spawnMoraleEffect } from './effects.js';
@@ -129,7 +129,7 @@ function exec(cmd) {
     const args = cmd.trim().split(/\s+/);
     const op = args[0].toLowerCase();
     const unit = gameState.selectedUnit;
-    const campKey = gameState.currentCamp === CAMP.player1 ? 'player1' : 'player2';
+    const campKey = campToKey(gameState.currentCamp);
 
     switch (op) {
         case '/kill':

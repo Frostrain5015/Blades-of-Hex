@@ -1,7 +1,7 @@
 // 将领通用接口 —— 游戏主体通过此模块调用将领钩子
 import { getCommander } from '../commander/index.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
-import { CAMP, campToKey } from '../rules/camps.js';
+import { campToKey } from '../rules/camps.js';
 import stallerDef from '../commander/staller.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
@@ -49,13 +49,10 @@ function _findCommanderUnit(camp, commanderId) {
 function _getCommanderIdForCamp(camp) {
   const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
   if (!gs) return null;
-  if (gs.campaignMode) {
-    return gs.tiles.find(tile => tile.unit?.commander && campToKey(tile.unit.camp) === campToKey(camp))?.unit.commander || null;
-  }
-  if (camp === CAMP.player1) return gs.commanderP1;
-  if (camp === CAMP.player2) return gs.commanderP2;
-  if (camp === CAMP.player3) return gs.commanderP3;
-  return null;
+  const key = campToKey(camp);
+  const slot = key === 'player1' ? 'commanderP1' : key === 'player2' ? 'commanderP2' : key === 'player3' ? 'commanderP3' : null;
+  if (slot && gs[slot]) return gs[slot];
+  return gs.tiles.find(tile => tile.unit?.commander && campToKey(tile.unit.camp) === key)?.unit.commander || null;
 }
 
 function _helpers(cmdId) {

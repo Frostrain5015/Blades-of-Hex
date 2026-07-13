@@ -8,7 +8,6 @@ import { deepFreeze } from './freeze.js';
 export const EMOJI_FONT_STACK = '"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
 
 export const EMOJI = deepFreeze({
-    camp: { player1: '🔴', player2: '🔵', player3: '🟢', neutral: '⚫' },
     terrain: { plains: '🌾', forest: '🌲', mountain: '⛰️' },
     fortification: { trench: '🚧', trenchBadge: '🪖', flak: '🔫' },
     moraleBadge: { up: '⬆️', down: '⬇️', confused: '❓' },

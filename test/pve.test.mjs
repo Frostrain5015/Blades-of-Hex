@@ -15,10 +15,32 @@ export async function run(browser, { quick = false } = {}) {
 
     // ── 1. 开局流程 ──
     await startSolo(page);
+    const selectableColors = await page.evaluate(() =>
+        [...document.querySelectorAll('#commanderColorPicker .commander-color-swatch')]
+            .map(element => element.dataset.colorId));
+    R.assert(selectableColors.length === 7 && !selectableColors.includes('gray') && !selectableColors.includes('white'),
+        `普通对局选将页只显示七种彩虹阵营色（${selectableColors.join('、')}）`);
+    await page.click('#commanderLogo');
+    await page.click('#commanderColorPicker .commander-color-swatch[data-color-id="purple"]');
+    const selectedColor = await page.evaluate(async () => (await import('/js/state.js')).gameState.factions.player1.colorId);
+    R.assert(selectedColor === 'purple', '选将页点击飘动旗帜可切换玩家阵营色');
     await pickCommander(page);
     await waitGameStart(page);
     let snap = await gameSnapshot(page);
     R.assert(snap.tiles > 0, `对局开始（地图 ${snap.tiles} 格，P1=${snap.commanderP1}，P2=${snap.commanderP2}）`);
+
+    // 行动顺序由掷骰决定，AI 可能拿到先手。测试以稳定的 human controller
+    // 识别本地玩家，不再把“当前轮到谁”误当成玩家身份。
+    const humanCampKey = await page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        return Object.entries(gameState.factions || {})
+            .find(([, faction]) => faction.controller === 'human')?.[0] || 'player1';
+    });
+    await waitFor(async () => page.evaluate(async (campKey) => {
+        const { gameState } = await import('/js/state.js');
+        const { campToKey } = await import('/rules/camps.js');
+        return !gameState.aiActing && campToKey(gameState.currentCamp) === campKey;
+    }, humanCampKey), 50000, '开局先手 AI 回合完成');
 
     // ── 2. 懒加载断言：只请求了在场将领的 fx 模块 ──
     const expected = [snap.commanderP1, snap.commanderP2].filter(id => FX_MANIFEST.includes(id));
@@ -82,7 +104,6 @@ export async function run(browser, { quick = false } = {}) {
     const dep = await deployCommander(page);
     R.assert(dep.ok, `部署将领（${dep.unit || dep.reason}）`);
 
-    const myCamp = (await gameSnapshot(page)).currentCamp;
     const maxCycles = quick ? 3 : 60;
     let cycles = 0, victory = false, stuck = false;
     while (cycles < maxCycles) {
@@ -92,7 +113,7 @@ export async function run(browser, { quick = false } = {}) {
         try {
             await waitFor(async () => {
                 const s = await gameSnapshot(page);
-                return s.victory || (s.currentCamp === myCamp && s.turnCounter > before.turnCounter);
+                return s.victory || (s.currentCampKey === humanCampKey && s.turnCounter > before.turnCounter);
             }, 60000, `第 ${cycles + 1} 轮 AI 回合完成`);
         } catch (e) { stuck = true; R.fail(e.message); break; }
         cycles++;

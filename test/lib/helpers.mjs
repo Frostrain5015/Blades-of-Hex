@@ -129,9 +129,11 @@ export async function waitGameStart(page, timeoutMs = 40000) {
 export function gameSnapshot(page) {
     return page.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
+        const { campToKey } = await import('/rules/camps.js');
         return {
             turnCounter: gameState.turnCounter,
             currentCamp: gameState.currentCamp?.name || null,
+            currentCampKey: campToKey(gameState.currentCamp),
             commanderP1: gameState.commanderP1,
             commanderP2: gameState.commanderP2,
             commanderPhase: gameState.commanderPhase,
@@ -149,10 +151,11 @@ export function deployCommander(page) {
         const { gameState } = await import('/js/state.js');
         const gl = await import('/js/gameLogic.js');
         const net = await import('/js/network.js');
-        const cfg = await import('/js/config.js');
         const myCamp = net.isNetworkGame()
-            ? (net.getMyRole() === 'player1' ? cfg.CAMP.player1 : net.getMyRole() === 'player2' ? cfg.CAMP.player2 : cfg.CAMP.player3)
-            : gameState.currentCamp;
+            ? net.roleToCamp(net.getMyRole())
+            : gameState.gameMode === 'pve'
+                ? Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp
+                : gameState.currentCamp;
         const tile = gameState.tiles.find(t => t.unit && t.unit.camp === myCamp && !t.unit.commander);
         if (!tile) return { ok: false, reason: '找不到己方单位' };
         gl.executeTacticalCard('commanderDeploy', tile);

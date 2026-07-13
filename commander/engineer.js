@@ -1,4 +1,4 @@
-import { CAMP } from '../rules/camps.js';
+import { campToKey } from '../rules/camps.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.engineer;
@@ -22,13 +22,6 @@ function hexDistanceQR(a, b) {
 export function isEngineerBunkerAdjacent(engineerUnit, tile) {
     return !!engineerUnit && !!engineerUnit.tile && !!tile
         && hexDistanceQR(engineerUnit.tile, tile) === BALANCE.bunkerRange;
-}
-
-function campToKey(camp) {
-    if (camp === CAMP.player1) return 'player1';
-    if (camp === CAMP.player2) return 'player2';
-    if (camp === CAMP.player3) return 'player3';
-    return 'neutral';
 }
 
 function consumeEngineerAction(unit) {

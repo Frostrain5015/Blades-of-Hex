@@ -1,5 +1,4 @@
 // Network chat UI controller. Keeps DOM state out of the application bootstrap.
-import { CAMP } from '../rules/camps.js';
 import { getMyRole, isNetworkGame, sendChatMessage, roleToCamp } from './network.js';
 
 const _chatHistory = { room: [], player1: [], player2: [], player3: [] };
@@ -224,11 +223,11 @@ export function initEmblemChatClicks() {
     const myCamp = roleToCamp(myRole);
     if (!myCamp) return;
 
-    const cardMappings = [
-        { cardId: 'campCard1', camp: CAMP.player1, role: 'player1' },
-        { cardId: 'campCard2', camp: CAMP.player2, role: 'player2' },
-        { cardId: 'campCard3', camp: CAMP.player3, role: 'player3' },
-    ];
+    const cardMappings = ['player1', 'player2', 'player3'].map((role, index) => ({
+        cardId: `campCard${index + 1}`,
+        camp: roleToCamp(role),
+        role
+    }));
 
     for (const { cardId, camp, role } of cardMappings) {
         const card = document.getElementById(cardId);
@@ -250,7 +249,7 @@ export function initEmblemChatClicks() {
             e.stopPropagation();
             e.preventDefault();
             if (!isNetworkGame()) return;
-            if (camp === myCamp) {
+            if (camp?.id === myCamp.id) {
                 openChat('room');
             } else {
                 openChat('private', role);

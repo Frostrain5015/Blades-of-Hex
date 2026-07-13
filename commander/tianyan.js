@@ -1,6 +1,6 @@
 // 天眼 —— 无人机指挥官
 // 本体：HP+30% / ATK+15% / 移速+1，核心战力集中在无人机上。
-import { CAMP } from '../rules/camps.js';
+import { campToKey } from '../rules/camps.js';
 import { hexDistance, HEX_NEIGHBORS } from '../rules/hex.js';
 import { emit } from '../js/eventBus.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
@@ -19,7 +19,7 @@ export const DRONE_RANGE = BALANCE.attackRange;
 export const DRONE_SUICIDE_RANGE = BALANCE.suicideRange;
 
 function _campToKey(camp) {
-    return camp === CAMP.player1 ? 'player1' : camp === CAMP.player2 ? 'player2' : camp === CAMP.player3 ? 'player3' : 'neutral';
+    return campToKey(camp);
 }
 
 export function _findTianyanUnit(gameState, camp) {

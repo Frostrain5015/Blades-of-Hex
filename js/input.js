@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, CAMP, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget } from './state.js';
@@ -6,7 +6,7 @@ import { on, emit } from './eventBus.js';
 import { isTileVisible } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
-import { getFaction, getRelation, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
+import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import {
     getMovableTiles, getAttackableTiles,
@@ -96,33 +96,22 @@ const boardDetailStatus = document.getElementById('boardDetailStatus');
 function _getMyCampInput() {
     if (gameState.campaignMode && gameState.localPlayerCampKey) return _campFromKeyInput(gameState.localPlayerCampKey);
     if (isNetworkGame()) {
-        const role = getMyRole();
-        return _campFromKeyInput(role);
+        return getRoleCamp(gameState, getMyRole());
     }
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
-        return gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
+        return Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;
     }
     return gameState.currentCamp;
 }
 
 function _campKeyInput(camp) {
     if (!camp) return null;
-    if (gameState.campaignMode) {
-        const key = campToKey(camp);
-        return gameState.factions?.[key] ? key : null;
-    }
-    if (camp === CAMP.player1 || camp.name === CAMP.player1.name) return 'player1';
-    if (camp === CAMP.player2 || camp.name === CAMP.player2.name) return 'player2';
-    if (camp === CAMP.player3 || camp.name === CAMP.player3.name) return 'player3';
-    return null;
+    const key = campToKey(camp);
+    return gameState.factions?.[key] ? key : null;
 }
 
 function _campFromKeyInput(key) {
-    if (gameState.campaignMode) return gameState.factions?.[key] ? campFromKey(key, gameState) : null;
-    if (key === 'player1') return CAMP.player1;
-    if (key === 'player2') return CAMP.player2;
-    if (key === 'player3') return CAMP.player3;
-    return null;
+    return gameState.factions?.[key] ? campFromKey(key, gameState) : null;
 }
 
 function _sameCampInput(a, b) {
@@ -601,7 +590,7 @@ function _handleCardCanvasClick(e) {
             const cardId = typeof cardEntry === 'object' ? cardEntry.id : cardEntry;
             const isCopyCard = typeof cardEntry === 'object' && cardEntry._copy;
             const isDeploy = cardId === 'commanderDeploy';
-            const primaryKey = myCamp === CAMP.player1 ? 'commanderP1' : myCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+            const primaryKey = campToKey(myCamp) === 'player1' ? 'commanderP1' : campToKey(myCamp) === 'player2' ? 'commanderP2' : 'commanderP3';
             const deployCommanderId = isDeploy && typeof cardEntry === 'object' ? cardEntry.commanderId : null;
             const deployedKey = deployCommanderId && gameState[`${primaryKey}Secondary`] === deployCommanderId
                 ? `${primaryKey}SecondaryDeployed`
@@ -742,8 +731,26 @@ function _drawHudRank(cv, rank) {
     ctx.shadowOffsetY = 0;
 }
 
-function _setHudTitle(text, rank = 0, relationEmoji = '') {
-    selectionHudTitle.replaceChildren(document.createTextNode(text));
+function _setHudTitle(text, rank = 0, relationEmoji = '', faction = null) {
+    const children = [];
+    if (faction) {
+        if (faction.flagUrl) {
+            const flag = document.createElement('img');
+            flag.className = 'selection-hud-flag';
+            flag.src = faction.flagUrl;
+            flag.alt = faction.flagAlt || `${faction.name || '阵营'}旗帜`;
+            children.push(flag);
+        } else {
+            const flag = document.createElement('span');
+            const colors = getFlagColors(faction.colorId || faction.color);
+            flag.className = 'selection-hud-flag selection-hud-flag-color';
+            flag.style.background = `linear-gradient(135deg, ${colors.light}, ${colors.main} 55%, ${colors.dark})`;
+            flag.setAttribute('aria-label', `${faction.name || '阵营'}纯色旗帜`);
+            children.push(flag);
+        }
+    }
+    children.push(document.createTextNode(text));
+    selectionHudTitle.replaceChildren(...children);
     if (rank > 0) {
         const rankCanvas = _getHudRankCanvas();
         _drawHudRank(rankCanvas, rank);
@@ -1463,7 +1470,7 @@ function _syncSelectionHud(tile) {
         const relation = getRelation(gameState, getViewingCampKey(gameState), unit.camp);
         const relationMeta = RELATION_META[relation] || RELATION_META.unknown;
         const relationEmoji = { self: '👤', ally: '🤝', neutral: '😑', enemy: '👊', unknown: '❔' }[relation] || '❔';
-        _setHudTitle(`${faction?.name || unit.camp.name} ${typeName}`, unit._rank || 0, relationEmoji);
+        _setHudTitle(`${faction?.name || unit.camp.name} ${typeName}`, unit._rank || 0, relationEmoji, faction || unit.camp);
         selectionHudEl.style.setProperty('--selection-camp-color', getFlagColors(faction?.color || unit.camp?.color).main);
         selectionHudEl.style.setProperty('--selection-relation-color', relationMeta.color);
         selectionHudHp.hidden = false;

@@ -9,26 +9,105 @@
 //
 // 本模块不得 import DOM、Canvas、音频或 effects。
 
-import { CAMP, campToKey } from '../rules/camps.js';
-import { createDefaultDiplomacy, createDefaultFactions } from '../rules/diplomacy.js';
+import { campToKey } from '../rules/camps.js';
+import { createDefaultDiplomacy, createDefaultFactions, createStandardFactions } from '../rules/diplomacy.js';
 import { createDefaultMechanics } from '../rules/mechanics.js';
 import { createRng } from '../core/rng.js';
 import { getCounter, setCounter } from '../js/uid.js';
 
 let resetSeedCounter = 0;
 
+function keyedRecord(factions, factory) {
+    return Object.fromEntries(Object.keys(factions).map(key => [key, factory(key)]));
+}
+
+function createStandardRuntime(playerCount = 2) {
+    const factions = createStandardFactions({ playerCount });
+    const activePlayers = ['player1', 'player2', ...(playerCount === 3 ? ['player3'] : [])];
+    const turnOrder = [...activePlayers, 'neutral'];
+    return {
+        factions,
+        turnOrder,
+        roleAssignments: Object.fromEntries(activePlayers.map(key => [key, key])),
+        factionColorSelections: Object.fromEntries(activePlayers.map(key => [key, factions[key].colorId])),
+        playerGold: keyedRecord(factions, () => 4),
+        killCount: keyedRecord(factions, () => 0),
+        factionMoraleBoost: keyedRecord(factions, () => 0),
+        playerHands: keyedRecord(factions, () => []),
+        playerDrawsThisTurn: keyedRecord(factions, () => 0),
+        playerUsesThisTurn: keyedRecord(factions, () => 0),
+        visibleTiles: keyedRecord(factions, () => new Set()),
+        exploredTiles: keyedRecord(factions, () => new Set()),
+        scoutReveals: keyedRecord(factions, () => new Map())
+    };
+}
+
+/**
+ * The single runtime entry point used by skirmish, network and editor-authored campaigns.
+ * Authoring layers provide definitions; rules always consume the normalized state below.
+ */
+export function configureMatchFactions(match, {
+    factionDefinitions = [],
+    diplomacy = {},
+    turnOrder = [],
+    localPlayerCampKey = null,
+    roleAssignments = {},
+    defaultGold = 4
+} = {}) {
+    const factions = createDefaultFactions(factionDefinitions);
+    const keys = Object.keys(factions);
+    const eligible = keys.filter(key => factions[key]?.active !== false && factions[key]?.participatesInTurns !== false);
+    const normalizedOrder = [...new Set((turnOrder || []).filter(key => eligible.includes(key)))];
+    for (const key of eligible) if (!normalizedOrder.includes(key)) normalizedOrder.push(key);
+    const humanKey = keys.find(key => factions[key]?.controller === 'human');
+    const localKey = factions[localPlayerCampKey] ? localPlayerCampKey : humanKey || normalizedOrder[0] || keys[0];
+    match.factions = factions;
+    match.roleAssignments = Object.keys(roleAssignments).length
+        ? { ...roleAssignments }
+        : Object.fromEntries(keys.filter(key => /^player\d+$/.test(key)).map(key => [key, key]));
+    match.factionColorSelections = Object.fromEntries(keys.filter(key => key !== 'neutral').map(key => [key, factions[key].colorId]));
+    match.turnOrder = normalizedOrder.length ? normalizedOrder : [localKey];
+    match.turnOrderRolls = {};
+    match.diplomacy = createDefaultDiplomacy(diplomacy, factions);
+    match.localPlayerCampKey = localKey;
+    match.currentCamp = factions[match.turnOrder[0]] || factions[localKey];
+    match.playerGold = keyedRecord(factions, () => defaultGold);
+    match.killCount = keyedRecord(factions, () => 0);
+    match.factionMoraleBoost = keyedRecord(factions, () => 0);
+    match.playerHands = keyedRecord(factions, () => []);
+    match.playerDrawsThisTurn = keyedRecord(factions, () => 0);
+    match.playerUsesThisTurn = keyedRecord(factions, () => 0);
+    match.visibleTiles = keyedRecord(factions, () => new Set());
+    match.exploredTiles = keyedRecord(factions, () => new Set());
+    match.scoutReveals = keyedRecord(factions, () => new Map());
+    return factions;
+}
+
+/** Configure a skirmish runtime. Seat IDs remain stable while colors and order stay mutable. */
+export function configureStandardMatch(match, { playerCount = 2, colors = {}, controllers = {} } = {}) {
+    const definitions = Object.values(createStandardFactions({ playerCount, colors, controllers }));
+    const players = ['player1', 'player2', ...(Number(playerCount) === 3 ? ['player3'] : [])];
+    return configureMatchFactions(match, {
+        factionDefinitions: definitions,
+        turnOrder: [...players, 'neutral'],
+        localPlayerCampKey: players.find(key => controllers[key] === 'human') || 'player1',
+        roleAssignments: Object.fromEntries(players.map(key => [key, key]))
+    });
+}
+
 // ===== MatchState =====================
 export function createMatchState() {
+    const standard = createStandardRuntime(2);
     return {
         tiles: [],
         tileMap: new Map(),
-        currentCamp: CAMP.player1,
-        playerGold: { player1: 4, player2: 4, player3: 4, neutral: 4 },
+        currentCamp: standard.factions[standard.turnOrder[0]],
+        playerGold: standard.playerGold,
         turnCounter: 0,
         gameOver: false,
         victoryCamp: null,
         logHistory: [],
-        killCount: { player1: 0, player2: 0, player3: 0, neutral: 0 },
+        killCount: standard.killCount,
         _friendlyDeathCount: {},
         gameMode: 'local',      // 'local' | 'pve' | 'network'
         _trainingMode: false,
@@ -42,15 +121,18 @@ export function createMatchState() {
         scenarioId: null,
         campaignPhase: '',
         localPlayerCampKey: 'player1',
-        factions: createDefaultFactions(),
-        turnOrder: [],
-        diplomacy: createDefaultDiplomacy(),
+        factions: standard.factions,
+        roleAssignments: standard.roleAssignments,
+        factionColorSelections: standard.factionColorSelections,
+        turnOrder: standard.turnOrder,
+        turnOrderRolls: {},
+        diplomacy: createDefaultDiplomacy({}, standard.factions),
         campaignVariables: {},
         levelVariables: {},
         objectiveStates: {},
         interactionStates: {},
         mechanics: createDefaultMechanics(),
-        aiOpponentCamp: null,   // PVE 模式下 AI 对手的阵营（CAMP.player1 或 CAMP.player2）
+        aiOpponentCamp: null,   // PVE 模式下 AI 对手的运行时阵营对象
         isThreePlayer: false,   // 三人模式
         surrenderedCamps: [],   // 三人模式中已投降的阵营
         weather: 'clear',
@@ -94,19 +176,19 @@ export function createMatchState() {
         commanderRerolled: { player1: false, player2: false, player3: false },
         _rerollPenaltyApplied: { player1: false, player2: false, player3: false },
         commanderPhase: 'done',  // 'selection' | 'deployment' | 'done'
-        factionMoraleBoost: { player1: 0, player2: 0, player3: 0 },
+        factionMoraleBoost: standard.factionMoraleBoost,
         // 对策卡系统 v2
         cardDrawPile: [],
         cardDiscardPile: [],
-        playerHands: { player1: [], player2: [], player3: [] },
-        playerDrawsThisTurn: { player1: 0, player2: 0, player3: 0 },
-        playerUsesThisTurn: { player1: 0, player2: 0, player3: 0 },
+        playerHands: standard.playerHands,
+        playerDrawsThisTurn: standard.playerDrawsThisTurn,
+        playerUsesThisTurn: standard.playerUsesThisTurn,
         // 战争迷雾（遭遇战模式）
         skirmishFog: false,
-        visibleTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
-        exploredTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
+        visibleTiles: standard.visibleTiles,
+        exploredTiles: standard.exploredTiles,
         // 侦察揭示：{ player1: Map("q,r" → expiresAt), ... }
-        scoutReveals: { player1: new Map(), player2: new Map(), player3: new Map() },
+        scoutReveals: standard.scoutReveals,
         // 国界线（阵营交界边集）/ 行政区界线 —— 由 tiles 派生的缓存
         campBorderEdges: [],
         districtBorderEdges: [],
@@ -120,10 +202,11 @@ export function createMatchState() {
 // 重置对局字段（再来一局时调用）。
 // 模式字段必须在新对局时归零；训练场与教程会在启动流程中显式恢复自身模式。
 export function resetMatchState(match) {
+    const standard = createStandardRuntime(2);
     match.tiles = [];
     match.tileMap = new Map();
-    match.currentCamp = CAMP.player1;
-    match.playerGold = { player1: 4, player2: 4, player3: 4, neutral: 4 };
+    match.currentCamp = standard.factions[standard.turnOrder[0]];
+    match.playerGold = standard.playerGold;
     match.turnCounter = 0;
     // 新对局重新播种模拟 RNG(联机模式随后会被 state-sync 对齐;可由
     // seedMatchRng 显式指定共享种子以做到开局即跨端确定)。
@@ -132,7 +215,7 @@ export function resetMatchState(match) {
     match.gameOver = false;
     match.victoryCamp = null;
     match.logHistory = [];
-    match.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0 };
+    match.killCount = standard.killCount;
     match._friendlyDeathCount = {};
     match.gameMode = 'local';
     match._trainingMode = false;
@@ -144,9 +227,12 @@ export function resetMatchState(match) {
     match.scenarioId = null;
     match.campaignPhase = '';
     match.localPlayerCampKey = 'player1';
-    match.factions = createDefaultFactions();
-    match.turnOrder = [];
-    match.diplomacy = createDefaultDiplomacy();
+    match.factions = standard.factions;
+    match.roleAssignments = standard.roleAssignments;
+    match.factionColorSelections = standard.factionColorSelections;
+    match.turnOrder = standard.turnOrder;
+    match.turnOrderRolls = {};
+    match.diplomacy = createDefaultDiplomacy({}, standard.factions);
     match.campaignVariables = {};
     match.levelVariables = {};
     match.objectiveStates = {};
@@ -166,9 +252,9 @@ export function resetMatchState(match) {
     match._droneDeployCount = {};
     match._colonelAirStacks = {};
     match.skirmishFog = false;
-    match.visibleTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
-    match.exploredTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
-    match.scoutReveals = { player1: new Map(), player2: new Map(), player3: new Map() };
+    match.visibleTiles = standard.visibleTiles;
+    match.exploredTiles = standard.exploredTiles;
+    match.scoutReveals = standard.scoutReveals;
     match.campBorderEdges = [];
     match.districtBorderEdges = [];
     match.villageTiles = new Map();
@@ -198,12 +284,12 @@ export function resetMatchState(match) {
     match.commanderRerolled = { player1: false, player2: false, player3: false };
     match._rerollPenaltyApplied = { player1: false, player2: false, player3: false };
     match.commanderPhase = 'done';
-    match.factionMoraleBoost = { player1: 0, player2: 0, player3: 0 };
+    match.factionMoraleBoost = standard.factionMoraleBoost;
     match.cardDrawPile = [];
     match.cardDiscardPile = [];
-    match.playerHands = { player1: [], player2: [], player3: [] };
-    match.playerDrawsThisTurn = { player1: 0, player2: 0, player3: 0 };
-    match.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0 };
+    match.playerHands = standard.playerHands;
+    match.playerDrawsThisTurn = standard.playerDrawsThisTurn;
+    match.playerUsesThisTurn = standard.playerUsesThisTurn;
 }
 
 // ===== ClientUiState =====================
@@ -272,11 +358,7 @@ export function resetClientUiState(ui) {
 // 只处理 MatchState；选择、浮层、动画与 DOM 状态一概不进快照。
 
 function _campToKey(c) {
-    const key = campToKey(c);
-    if (key === 'player1') return 'p1';
-    if (key === 'player2') return 'p2';
-    if (key === 'player3') return 'p3';
-    return key;
+    return campToKey(c);
 }
 
 export function serializeMatchState(match) {
@@ -368,7 +450,10 @@ export function serializeMatchState(match) {
         campaignPhase: match.campaignPhase || '',
         localPlayerCampKey: match.localPlayerCampKey || 'player1',
         factions: structuredClone(match.factions || createDefaultFactions()),
+        roleAssignments: { ...(match.roleAssignments || {}) },
+        factionColorSelections: { ...(match.factionColorSelections || {}) },
         turnOrder: [...(match.turnOrder || [])],
+        turnOrderRolls: { ...(match.turnOrderRolls || {}) },
         diplomacy: structuredClone(match.diplomacy || createDefaultDiplomacy()),
         campaignVariables: structuredClone(match.campaignVariables || {}),
         levelVariables: structuredClone(match.levelVariables || {}),
@@ -418,7 +503,7 @@ export function serializeMatchState(match) {
         factionMoraleBoost: { ...match.factionMoraleBoost },
         cardDrawPile: [...match.cardDrawPile],
         cardDiscardPile: [...match.cardDiscardPile],
-        playerHands: { player1: [...match.playerHands.player1], player2: [...match.playerHands.player2], player3: [...match.playerHands.player3] },
+        playerHands: Object.fromEntries(Object.entries(match.playerHands || {}).map(([key, hand]) => [key, [...(hand || [])]])),
         playerDrawsThisTurn: { ...match.playerDrawsThisTurn },
         playerUsesThisTurn: { ...match.playerUsesThisTurn },
         gameMode: match.gameMode || 'local',
@@ -443,33 +528,43 @@ export function serializeMatchState(match) {
  */
 export function restoreMatchState(match, data, deps) {
     const { HexTileClass, UnitClass, computeCampBorders, computeDistrictBorders } = deps;
-    const campMap = { p1: CAMP.player1, p2: CAMP.player2, p3: CAMP.player3, neutral: CAMP.neutral };
+    const fallbackFactions = createStandardFactions({ playerCount: data.isThreePlayer ? 3 : 2 });
+    match.factions = data.factions ? structuredClone(data.factions) : fallbackFactions;
+    const campMap = Object.fromEntries(Object.entries(match.factions));
+    const resolveCamp = key => campMap[key] || null;
+    const factionKeys = Object.keys(match.factions);
+    const record = (value, fallbackFactory) => Object.fromEntries(factionKeys.map(key => [
+        key,
+        Object.prototype.hasOwnProperty.call(value || {}, key) ? value[key] : fallbackFactory(key)
+    ]));
 
     setCounter(data.idCounter);
     match.gameOver = data.gameOver;
-    match.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] : null;
     match.campaignMode = !!data.campaignMode;
     match.campaignId = data.campaignId || null;
     match.scenarioId = data.scenarioId || null;
     match.campaignPhase = data.campaignPhase || '';
     match.localPlayerCampKey = data.localPlayerCampKey || 'player1';
-    match.factions = data.factions ? structuredClone(data.factions) : createDefaultFactions();
-    match.turnOrder = Array.isArray(data.turnOrder) ? [...data.turnOrder] : [];
-    for (const [key, faction] of Object.entries(match.factions)) {
-        campMap[key] = faction;
-        if (key === 'player1') campMap.p1 = faction;
-        if (key === 'player2') campMap.p2 = faction;
-        if (key === 'player3') campMap.p3 = faction;
-    }
-    match.diplomacy = data.diplomacy ? structuredClone(data.diplomacy) : createDefaultDiplomacy();
+    match.roleAssignments = data.roleAssignments
+        ? { ...data.roleAssignments }
+        : Object.fromEntries(['player1', 'player2', 'player3'].filter(key => match.factions[key]?.active !== false).map(key => [key, key]));
+    match.factionColorSelections = data.factionColorSelections
+        ? { ...data.factionColorSelections }
+        : Object.fromEntries(factionKeys.filter(key => key !== 'neutral').map(key => [key, match.factions[key]?.colorId || null]));
+    const restoredOrder = Array.isArray(data.turnOrder) ? data.turnOrder.filter(key => campMap[key]) : [];
+    match.turnOrder = restoredOrder.length
+        ? restoredOrder
+        : factionKeys.filter(key => match.factions[key]?.active !== false && match.factions[key]?.participatesInTurns !== false);
+    match.turnOrderRolls = { ...(data.turnOrderRolls || {}) };
+    match.diplomacy = data.diplomacy ? structuredClone(data.diplomacy) : createDefaultDiplomacy({}, match.factions);
     match.campaignVariables = data.campaignVariables ? structuredClone(data.campaignVariables) : {};
     match.levelVariables = data.levelVariables ? structuredClone(data.levelVariables) : {};
     match.objectiveStates = data.objectiveStates ? structuredClone(data.objectiveStates) : {};
     match.interactionStates = data.interactionStates ? structuredClone(data.interactionStates) : {};
     match.mechanics = data.mechanics ? { ...data.mechanics } : createDefaultMechanics();
-    match.currentCamp = campMap[data.currentCampKey] || campMap[match.turnOrder[0]] || CAMP.player1;
-    match.victoryCamp = data.victoryCampKey ? campMap[data.victoryCampKey] || null : null;
-    match.playerGold = { player1: 4, player2: 4, player3: 4, neutral: 4, ...data.playerGold };
+    match.currentCamp = resolveCamp(data.currentCampKey) || campMap[match.turnOrder[0]] || Object.values(match.factions)[0];
+    match.victoryCamp = data.victoryCampKey ? resolveCamp(data.victoryCampKey) : null;
+    match.playerGold = record(data.playerGold, () => 4);
     // previousGold 不参与同步，保持本地值用于计数器动画
     match.turnCounter = data.turnCounter;
     match.logHistory = [...data.logHistory];
@@ -485,7 +580,7 @@ export function restoreMatchState(match, data, deps) {
     match._colonelAirStacks = data.colonelAirStacks || {};
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
     if (data.rngState != null) match.rng.setState(data.rngState);
-    if (data.killCount) match.killCount = { player1: 0, player2: 0, player3: 0, neutral: 0, ...data.killCount };
+    match.killCount = record(data.killCount, () => 0);
     match._friendlyDeathCount = data.friendlyDeathCount || {};
     match.commanderPoolP1 = data.commanderPoolP1 || [];
     match.commanderPoolP2 = data.commanderPoolP2 || [];
@@ -512,33 +607,29 @@ export function restoreMatchState(match, data, deps) {
     match.commanderRerolled = { player1: false, player2: false, player3: false, ...(data.commanderRerolled || {}) };
     match._rerollPenaltyApplied = { player1: false, player2: false, player3: false, ...(data.rerollPenaltyApplied || {}) };
     match.commanderPhase = data.commanderPhase || 'done';
-    if (data.factionMoraleBoost) {
-        match.factionMoraleBoost = { player1: 0, player2: 0, player3: 0, ...data.factionMoraleBoost };
-    } else {
-        match.factionMoraleBoost = { player1: 0, player2: 0, player3: 0 };
-    }
+    match.factionMoraleBoost = record(data.factionMoraleBoost, () => 0);
     if (data.cardDrawPile) match.cardDrawPile = [...data.cardDrawPile];
     if (data.cardDiscardPile) match.cardDiscardPile = [...data.cardDiscardPile];
-    if (data.playerHands) {
-        match.playerHands = {
-            player1: [...(data.playerHands.player1 || [])],
-            player2: [...(data.playerHands.player2 || [])],
-            player3: [...(data.playerHands.player3 || [])]
-        };
-    }
-    if (data.playerDrawsThisTurn) match.playerDrawsThisTurn = { player1: 0, player2: 0, player3: 0, ...data.playerDrawsThisTurn };
-    if (data.playerUsesThisTurn) match.playerUsesThisTurn = { player1: 0, player2: 0, player3: 0, ...data.playerUsesThisTurn };
+    match.playerHands = record(data.playerHands, () => []);
+    for (const key of factionKeys) match.playerHands[key] = [...(match.playerHands[key] || [])];
+    match.playerDrawsThisTurn = record(data.playerDrawsThisTurn, () => 0);
+    match.playerUsesThisTurn = record(data.playerUsesThisTurn, () => 0);
     match.gameMode = data.gameMode || 'local';
     match._trainingMode = data.trainingMode || false;
     match.isThreePlayer = data.isThreePlayer || false;
-    match.aiOpponentCamp = data.aiOpponentCampKey ? campMap[data.aiOpponentCampKey] : null;
-    match.surrenderedCamps = (data.surrenderedCampKeys || []).map(k => campMap[k]).filter(Boolean);
+    match.aiOpponentCamp = data.aiOpponentCampKey ? resolveCamp(data.aiOpponentCampKey) : null;
+    match.surrenderedCamps = (data.surrenderedCampKeys || []).map(resolveCamp).filter(Boolean);
     match.skirmishFog = data.skirmishFog || false;
     match.villageTiles = new Map(data.villageTiles || []);
     match.aiDifficulty = data.aiDifficulty || 1.0;
-    if (data.visibleTiles) match.visibleTiles = Object.fromEntries(Object.entries(data.visibleTiles).map(([key, tiles]) => [key, new Set(tiles || [])]));
-    if (data.exploredTiles) match.exploredTiles = Object.fromEntries(Object.entries(data.exploredTiles).map(([key, tiles]) => [key, new Set(tiles || [])]));
-    if (data.scoutReveals) match.scoutReveals = Object.fromEntries(Object.entries(data.scoutReveals).map(([key, reveals]) => [key, new Map(reveals || [])]));
+    match.visibleTiles = record(data.visibleTiles, () => []);
+    match.exploredTiles = record(data.exploredTiles, () => []);
+    match.scoutReveals = record(data.scoutReveals, () => []);
+    for (const key of factionKeys) {
+        match.visibleTiles[key] = new Set(match.visibleTiles[key] || []);
+        match.exploredTiles[key] = new Set(match.exploredTiles[key] || []);
+        match.scoutReveals[key] = new Map(match.scoutReveals[key] || []);
+    }
 
     // Preserve displayHp & commander for units (prevents flicker & commander loss on sync)
     const oldDisplayHp = new Map();

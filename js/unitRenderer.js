@@ -1,25 +1,23 @@
 // Unit canvas rendering and visual interpolation. This module intentionally owns all Canvas/effect imports.
-import { HEX_SIZE, ctx, drawHexagonOutline, CAMP, settings, frameInfo, CAMP_FLAG_COLORS, getFlagColors, MORALE_CONFIG, roundRectPath, getRoundIndex } from './config.js';
+import { HEX_SIZE, ctx, drawHexagonOutline, settings, frameInfo, MORALE_CONFIG, roundRectPath, getRoundIndex } from './config.js';
 import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { moraleEffects, getRecoilOffset, getChargeOffset } from './effects.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { getRelationToViewer, RELATION_META } from '../rules/diplomacy.js';
-import { campToKey } from '../rules/camps.js';
+import { getRoleCamp } from '../rules/diplomacy.js';
+import { campToKey, getFlagColors } from '../rules/camps.js';
+import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
 
 function isHumanTurn(gameState) {
     if (gameState.campaignMode) return gameState.factions?.[campToKey(gameState.currentCamp)]?.controller === 'human';
     if (isNetworkGame()) {
-        const role = getMyRole();
-        if (role === 'player1') return gameState.currentCamp === CAMP.player1;
-        if (role === 'player2') return gameState.currentCamp === CAMP.player2;
-        if (role === 'player3') return gameState.currentCamp === CAMP.player3;
-        return false;
+        return campToKey(gameState.currentCamp) === campToKey(getRoleCamp(gameState, getMyRole()));
     }
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
-        return gameState.currentCamp !== CAMP.neutral && gameState.currentCamp !== gameState.aiOpponentCamp;
+        return campToKey(gameState.currentCamp) !== 'neutral' && gameState.currentCamp !== gameState.aiOpponentCamp;
     }
-    return gameState.currentCamp !== CAMP.neutral;
+    return campToKey(gameState.currentCamp) !== 'neutral';
 }
 
 export function getUnitVisualPos(unit) {
@@ -87,6 +85,23 @@ export function startUnitMovePath(unit, path) {
         unit.movePathDuration = (path.length - 1) * 120 / (settings.animationSpeed || 1);
     }
 
+// Draw after the WebGL cloth composite so the finial always caps the fabric
+// instead of being partially covered by it.
+export function drawUnitFlagFinial(unit) {
+    if (!unit || unit._airdropWaiting || unit.tile.isCity || unit.tile.isVillage) return;
+    const now = frameInfo.now;
+    if ((unit._airliftLandAt && now < unit._airliftLandAt)
+        || (unit._soulRecallLandAt && now < unit._soulRecallLandAt)) return;
+    const pos = getUnitVisualPos(unit);
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    ctx.beginPath();
+    ctx.arc(UNIT_FLAG_LAYOUT.poleX, UNIT_FLAG_LAYOUT.poleTop, 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffd700';
+    ctx.fill();
+    ctx.restore();
+}
+
 export function drawUnit(unit, gameState) {
         if (unit._airdropWaiting) return; // invisible until parachute lands
         if (unit._airliftLandAt) {         // E4 空运途中：落地前隐藏，落地时现身
@@ -108,19 +123,14 @@ export function drawUnit(unit, gameState) {
 
         const gs = gameState;
         const time = now / 1000;
-
-        const key = campToKey(unit.camp);
-        const campKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
-        const cc = campKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(unit.camp?.color);
+        const cc = getFlagColors(unit.camp?.colorId || unit.camp?.color);
 
         ctx.save();
         ctx.translate(visualX, visualY);
 
-        // ── Flag (below badge and ring) ──
+        // ── Flag pole. Cloth is rendered for all units in one WebGL batch. ──
         if (!unit.tile.isCity && !unit.tile.isVillage) {
-            const poleX = -13;
-            const poleTop = -30;
-            const poleBottom = 2;
+            const { poleX, poleTop, poleBottom } = UNIT_FLAG_LAYOUT;
             ctx.beginPath();
             ctx.moveTo(poleX, poleTop);
             ctx.lineTo(poleX, poleBottom);
@@ -128,48 +138,7 @@ export function drawUnit(unit, gameState) {
             ctx.lineWidth = 1.5;
             ctx.lineCap = 'round';
             ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(poleX, poleTop, 1.5, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffd700';
-            ctx.fill();
 
-            const idSeed = typeof unit.id === 'number' ? unit.id : [...String(unit.id)].reduce((a, c) => a + c.charCodeAt(0), 0);
-            const wave = Math.sin(time * 7 + idSeed * 1.3) * 2.0;
-            const flagLeft = poleX + 1;
-            const flagRight = flagLeft + 10;
-            const flagTop = poleTop + 2;
-            const flagMid = flagTop + 4;
-            const flagBot = flagTop + 10;
-            ctx.beginPath();
-            ctx.moveTo(flagLeft, flagTop);
-            ctx.quadraticCurveTo(flagLeft + 3, flagMid - 2 + wave, flagRight, flagMid + wave);
-            ctx.lineTo(flagRight, flagBot + wave * 0.7);
-            ctx.quadraticCurveTo(flagLeft + 3, flagMid + 2 + wave * 0.7, flagLeft, flagBot);
-            ctx.closePath();
-            const flagGrad = ctx.createLinearGradient(flagLeft, 0, flagRight, 0);
-            flagGrad.addColorStop(0, cc.main);
-            flagGrad.addColorStop(1, cc.dark);
-            ctx.fillStyle = flagGrad;
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-            ctx.lineWidth = 0.6;
-            ctx.stroke();
-
-            // 将领星标（跟随旗帜飘动+扭曲）
-            if (unit.commander) {
-                ctx.save();
-                ctx.translate(flagLeft + 5, flagTop + 5 + wave * 0.5);
-                const waveTilt = Math.cos(time * 7 + idSeed * 1.3) * 0.14;
-                ctx.rotate(waveTilt);
-                ctx.fillStyle = '#ffd700';
-                ctx.font = 'bold 9px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.shadowColor = '#ffd700';
-                ctx.shadowBlur = 5;
-                ctx.fillText('★', 0, 0);
-                ctx.restore();
-            }
         }
 
         // ── Badge ──
@@ -177,7 +146,7 @@ export function drawUnit(unit, gameState) {
         ctx.save();
         if (unit._isDrone || unit.type === 'drone') {
             ctx.translate(0, Math.sin(time * 2.5) * 3);
-        }
+}
         ctx.shadowColor = 'rgba(0,0,0,0.3)';
         ctx.shadowBlur = 6;
         ctx.shadowOffsetY = 2;

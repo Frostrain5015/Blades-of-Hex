@@ -1,5 +1,4 @@
 // Lobby preparation dialog. It owns DOM selection state and delegates game starts to main.js.
-import { CAMP } from '../rules/camps.js';
 import { COMMANDER_DRAFT } from '../rules/constants.js';
 import { gameState } from './state.js';
 import { createRoom } from './network.js';
@@ -123,7 +122,7 @@ export function createPreparationController({
             gameState.isThreePlayer = selectedType === '3p';
             gameState.skirmishFog = skirmishFog;
             gameState.doubleCommanderMode = doubleCommanderMode;
-            gameState.aiOpponentCamp = CAMP.player2;
+            gameState.aiOpponentCamp = null;
             gameState.aiDifficulty = 1.0;
             beginTrainingCommanderPhase('player1');
             return;
@@ -133,7 +132,7 @@ export function createPreparationController({
             gameState.gameMode = 'pve';
             gameState.skirmishFog = skirmishFog;
             gameState.doubleCommanderMode = doubleCommanderMode;
-            gameState.aiOpponentCamp = CAMP.player2;
+            gameState.aiOpponentCamp = null;
             const difficulty = getSelection('prepOptionsDiff');
             gameState.aiDifficulty = difficulty === 'medium' ? 1.5 : difficulty === 'hard' ? 2.0 : 1.0;
             beginPVECommanderPhase('player1');

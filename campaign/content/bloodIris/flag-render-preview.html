@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>染血的鸢尾花：批量布料旗帜预览</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Noto Serif SC", "Microsoft YaHei", serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; color: #f5ead2; background: radial-gradient(circle at 50% 0%, #382a28 0, #171315 56%, #0e0c0e 100%); }
+    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 48px; }
+    h1 { margin: 0; font-size: clamp(26px, 4vw, 40px); letter-spacing: .06em; }
+    .lead { max-width: 900px; margin: 12px 0 22px; color: #c7b9aa; line-height: 1.75; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; margin: 0 0 18px; padding: 12px 14px; border: 1px solid #ffffff1c; border-radius: 10px; background: #ffffff08; }
+    label { display: flex; gap: 9px; align-items: center; font-size: 14px; color: #e8d8c2; }
+    select, input { accent-color: #d6ae59; }
+    select { min-width: 150px; color: #f5ead2; background: #251d20; border: 1px solid #ffffff30; border-radius: 6px; padding: 5px 8px; font: inherit; }
+    input[type="range"] { width: 140px; }
+    output { color: #f0d494; font-variant-numeric: tabular-nums; }
+    .performance { margin-left: auto; color: #d6c7b5; font-size: 13px; font-variant-numeric: tabular-nums; }
+    .canvas-shell { overflow: hidden; border: 1px solid #ffffff22; border-radius: 16px; background: linear-gradient(145deg, #1e252b, #111316); box-shadow: 0 20px 55px #0008; }
+    .canvas-stack { position: relative; }
+    .canvas-stack canvas { display: block; width: 100%; height: auto; }
+    .canvas-stack canvas + canvas { position: absolute; inset: 0; pointer-events: none; }
+    .note { margin: 14px 2px 0; color: #a99b91; font-size: 13px; line-height: 1.7; }
+    code { color: #f0d494; }
+    @media (max-width: 720px) { .performance { width: 100%; margin-left: 0; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>完整旗帜 × WebGL 批量布料</h1>
+    <p class="lead">所有旗帜共享一张细分网格和一张四阵营纹理图集，通过 WebGL2 实例化一次性提交。SVG 图案仍随旗面整体弯曲，但棋子从 10 个增加到 50 个时，不会变成 50 次离屏渲染与 50 次画布拷贝。</p>
+    <div class="controls">
+      <label>旗帜
+        <select id="flagSelect">
+          <option value="kingdom">奥雷利亚王国 · 红旗</option>
+          <option value="regency">摄政府 · 紫旗</option>
+          <option value="petra">佩特拉自治领 · 坎顿旗</option>
+          <option value="targets">训练靶 · 灰旗</option>
+        </select>
+      </label>
+      <label>额外棋子
+        <select id="unitLoad">
+          <option value="10">10</option>
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+        </select>
+      </label>
+      <label>风力 <input id="wind" type="range" min="0" max="2.5" step="0.1" value="1"><output id="windValue">1.0×</output></label>
+      <label><input id="meshToggle" type="checkbox"> 显示网格</label>
+      <output id="performance" class="performance">准备批量渲染器…</output>
+    </div>
+    <div class="canvas-shell">
+      <div class="canvas-stack" role="img" aria-label="完整 SVG 旗帜在两个主预览和最多五十个棋子上的 WebGL 批量布料渲染">
+        <canvas id="sceneLayer" width="1180" height="960"></canvas>
+        <canvas id="flagLayer" width="1180" height="960" aria-hidden="true"></canvas>
+        <canvas id="overlayLayer" width="1180" height="960" aria-hidden="true"></canvas>
+      </div>
+    </div>
+    <p class="note">性能结构：静态地块、旗杆和徽章分别缓存于上下两个 Canvas 2D 图层，中间的 WebGL2 图层只执行一次 <code>drawElementsInstanced</code>。旗帜数量变化时才更新实例缓冲；动画帧只更新时间、风力等 uniform，不重新上传 SVG，也不逐旗创建画布。</p>
+  </main>
+
+  <script>
+    const FLAGS = Object.freeze({
+      kingdom: {
+        label: '奥雷利亚王国',
+        colors: ['#d44040', '#8b1a1a'],
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600"><rect width="900" height="600" fill="#c8102e"/><text x="450" y="365" text-anchor="middle" font-size="250" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, serif">⚜️</text></svg>`
+      },
+      regency: {
+        label: '摄政府',
+        colors: ['#9050c8', '#602890'],
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600"><rect width="900" height="600" fill="#5b2a86"/><text x="450" y="365" text-anchor="middle" font-size="250" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, serif">⚜️</text></svg>`
+      },
+      petra: {
+        label: '佩特拉自治领',
+        colors: ['#d4c420', '#908010'],
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600"><rect width="900" height="600" fill="#f2c230"/><rect width="450" height="300" fill="#c8102e"/><text x="225" y="207" text-anchor="middle" font-size="155" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, serif">⚜️</text></svg>`
+      },
+      targets: {
+        label: '训练靶',
+        colors: ['#666666', '#444444'],
+        svg: `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600"><rect width="900" height="600" fill="#6b7280"/><text x="450" y="365" text-anchor="middle" font-size="250" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, serif">🔰</text></svg>`
+      }
+    });
+    const FLAG_KEYS = Object.freeze(Object.keys(FLAGS));
+    const MESH_COLUMNS = 24;
+    const MESH_ROWS = 12;
+
+    const sceneCanvas = document.getElementById('sceneLayer');
+    const flagCanvas = document.getElementById('flagLayer');
+    const overlayCanvas = document.getElementById('overlayLayer');
+    const scene = sceneCanvas.getContext('2d');
+    const overlay = overlayCanvas.getContext('2d');
+    const flagSelect = document.getElementById('flagSelect');
+    const unitLoad = document.getElementById('unitLoad');
+    const wind = document.getElementById('wind');
+    const windValue = document.getElementById('windValue');
+    const meshToggle = document.getElementById('meshToggle');
+    const performanceOutput = document.getElementById('performance');
+
+    const images = new Map();
+    let activeKey = flagSelect.value;
+    let stressCount = Number(unitLoad.value);
+    let windScale = Number(wind.value);
+    let showMesh = meshToggle.checked;
+    let stressUnits = [];
+    let flagInstances = [];
+    let rendererError = '';
+    let frameCount = 0;
+    let frameWindowStart = performance.now();
+    let measuredFps = 0;
+
+    class BatchedClothRenderer {
+      constructor(canvas) {
+        this.canvas = canvas;
+        this.gl = canvas.getContext('webgl2', {
+          alpha: true,
+          antialias: true,
+          depth: false,
+          desynchronized: true,
+          powerPreference: 'high-performance',
+          premultipliedAlpha: true,
+          preserveDrawingBuffer: false
+        });
+        if (!this.gl) throw new Error('当前浏览器不支持 WebGL2');
+
+        this.instanceCount = 0;
+        this.atlasReady = false;
+        this.program = this.createProgram();
+        this.locations = this.getLocations();
+        this.indexCount = this.createMesh(MESH_COLUMNS, MESH_ROWS);
+        this.configureState();
+      }
+
+      compileShader(type, source) {
+        const gl = this.gl;
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          const message = gl.getShaderInfoLog(shader) || '着色器编译失败';
+          gl.deleteShader(shader);
+          throw new Error(message);
+        }
+        return shader;
+      }
+
+      createProgram() {
+        const gl = this.gl;
+        const vertexSource = `#version 300 es
+          precision highp float;
+
+          in vec2 aUv;
+          in vec2 aAnchor;
+          in vec2 aSize;
+          in float aPhase;
+          in float aAtlasIndex;
+
+          uniform vec2 uResolution;
+          uniform float uTime;
+          uniform float uWind;
+
+          out vec2 vUv;
+          out float vFold;
+          flat out float vAtlasIndex;
+
+          void main() {
+            float u = aUv.x;
+            float v = aUv.y;
+            float strength = min(uWind, 2.5);
+            float travel = smoothstep(0.0, 0.13, u) * pow(u, 0.82);
+            float t = uTime * (1.75 + strength * 0.34);
+
+            float primaryPhase = t * 1.75 - u * 7.2 + aPhase;
+            float ripplePhase = t * 3.05 - u * 14.5 + v * 3.1 + aPhase * 1.37;
+            float twistPhase = t * 1.35 - u * 5.6 + aPhase * 0.73;
+            float primary = sin(primaryPhase);
+            float ripple = sin(ripplePhase);
+            float twist = cos(twistPhase);
+
+            float depth = travel * strength * (primary * 0.115 + ripple * 0.027);
+            float vertical = travel * strength * (primary * 0.072 + ripple * 0.020);
+            float torsion = (v - 0.5) * travel * strength * twist * 0.055;
+
+            vec2 local = vec2(u, v);
+            local.y += vertical + torsion;
+            local.x += depth * 0.11 - travel * abs(depth) * 0.055;
+            float perspective = 1.0 / (1.0 - depth * 0.12);
+            local.y = 0.5 + (local.y - 0.5) * perspective;
+
+            vec2 pixel = aAnchor + local * aSize;
+            vec2 clip = vec2(
+              pixel.x / uResolution.x * 2.0 - 1.0,
+              1.0 - pixel.y / uResolution.y * 2.0
+            );
+
+            gl_Position = vec4(clip, 0.0, 1.0);
+            vUv = aUv;
+            vFold = clamp(cos(primaryPhase) * 0.78 + cos(ripplePhase) * 0.22, -1.0, 1.0) * min(strength, 1.4);
+            vAtlasIndex = aAtlasIndex;
+          }
+        `;
+
+        const fragmentSource = `#version 300 es
+          precision highp float;
+
+          uniform sampler2D uAtlas;
+          uniform float uShowMesh;
+          in vec2 vUv;
+          in float vFold;
+          flat in float vAtlasIndex;
+          out vec4 outColor;
+
+          void main() {
+            float column = mod(vAtlasIndex, 2.0);
+            float row = floor(vAtlasIndex / 2.0);
+            vec2 safeUv = mix(vec2(0.0025), vec2(0.9975), vUv);
+            vec2 atlasUv = vec2(
+              (column + safeUv.x) * 0.5,
+              1.0 - (row + safeUv.y) * 0.5
+            );
+            vec4 texel = texture(uAtlas, atlasUv);
+            float foldLight = 0.90 + vFold * 0.115;
+            vec3 color = texel.rgb * foldLight;
+
+            float edgeDistance = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
+            float edge = 1.0 - smoothstep(0.0, 0.012, edgeDistance);
+            color = mix(color, vec3(1.0), edge * 0.22);
+
+            vec2 gridUv = vUv * vec2(24.0, 12.0);
+            vec2 gridDistance = abs(fract(gridUv - 0.5) - 0.5) / fwidth(gridUv);
+            float gridLine = 1.0 - min(min(gridDistance.x, gridDistance.y), 1.0);
+            color = mix(color, vec3(0.04, 0.045, 0.05), gridLine * 0.56 * uShowMesh);
+
+            outColor = vec4(color, texel.a);
+          }
+        `;
+
+        const vertexShader = this.compileShader(gl.VERTEX_SHADER, vertexSource);
+        const fragmentShader = this.compileShader(gl.FRAGMENT_SHADER, fragmentSource);
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        gl.deleteShader(vertexShader);
+        gl.deleteShader(fragmentShader);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          const message = gl.getProgramInfoLog(program) || '着色器链接失败';
+          gl.deleteProgram(program);
+          throw new Error(message);
+        }
+        return program;
+      }
+
+      getLocations() {
+        const gl = this.gl;
+        return {
+          aUv: gl.getAttribLocation(this.program, 'aUv'),
+          aAnchor: gl.getAttribLocation(this.program, 'aAnchor'),
+          aSize: gl.getAttribLocation(this.program, 'aSize'),
+          aPhase: gl.getAttribLocation(this.program, 'aPhase'),
+          aAtlasIndex: gl.getAttribLocation(this.program, 'aAtlasIndex'),
+          uResolution: gl.getUniformLocation(this.program, 'uResolution'),
+          uTime: gl.getUniformLocation(this.program, 'uTime'),
+          uWind: gl.getUniformLocation(this.program, 'uWind'),
+          uAtlas: gl.getUniformLocation(this.program, 'uAtlas'),
+          uShowMesh: gl.getUniformLocation(this.program, 'uShowMesh')
+        };
+      }
+
+      createMesh(columns, rows) {
+        const gl = this.gl;
+        const vertices = [];
+        const indices = [];
+        for (let row = 0; row <= rows; row++) {
+          for (let column = 0; column <= columns; column++) {
+            vertices.push(column / columns, row / rows);
+          }
+        }
+        for (let row = 0; row < rows; row++) {
+          for (let column = 0; column < columns; column++) {
+            const topLeft = row * (columns + 1) + column;
+            const topRight = topLeft + 1;
+            const bottomLeft = topLeft + columns + 1;
+            const bottomRight = bottomLeft + 1;
+            indices.push(topLeft, bottomLeft, topRight, topRight, bottomLeft, bottomRight);
+          }
+        }
+
+        this.vao = gl.createVertexArray();
+        gl.bindVertexArray(this.vao);
+
+        const vertexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(this.locations.aUv);
+        gl.vertexAttribPointer(this.locations.aUv, 2, gl.FLOAT, false, 0, 0);
+
+        const indexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+        this.instanceBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, 6 * Float32Array.BYTES_PER_ELEMENT, gl.DYNAMIC_DRAW);
+        const stride = 6 * Float32Array.BYTES_PER_ELEMENT;
+        this.enableInstanceAttribute(this.locations.aAnchor, 2, stride, 0);
+        this.enableInstanceAttribute(this.locations.aSize, 2, stride, 2 * Float32Array.BYTES_PER_ELEMENT);
+        this.enableInstanceAttribute(this.locations.aPhase, 1, stride, 4 * Float32Array.BYTES_PER_ELEMENT);
+        this.enableInstanceAttribute(this.locations.aAtlasIndex, 1, stride, 5 * Float32Array.BYTES_PER_ELEMENT);
+
+        gl.bindVertexArray(null);
+        return indices.length;
+      }
+
+      enableInstanceAttribute(location, size, stride, offset) {
+        const gl = this.gl;
+        gl.enableVertexAttribArray(location);
+        gl.vertexAttribPointer(location, size, gl.FLOAT, false, stride, offset);
+        gl.vertexAttribDivisor(location, 1);
+      }
+
+      configureState() {
+        const gl = this.gl;
+        gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+        gl.disable(gl.DEPTH_TEST);
+        gl.disable(gl.CULL_FACE);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.clearColor(0, 0, 0, 0);
+      }
+
+      setAtlas(loadedImages) {
+        const atlas = document.createElement('canvas');
+        atlas.width = 900;
+        atlas.height = 600;
+        const atlasContext = atlas.getContext('2d');
+        FLAG_KEYS.forEach((key, index) => {
+          const column = index % 2;
+          const row = Math.floor(index / 2);
+          atlasContext.drawImage(loadedImages.get(key), column * 450, row * 300, 450, 300);
+        });
+
+        const gl = this.gl;
+        this.texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlas);
+        this.atlasReady = true;
+      }
+
+      setInstances(instances) {
+        const data = new Float32Array(instances.length * 6);
+        instances.forEach((instance, index) => {
+          const offset = index * 6;
+          data[offset] = instance.x;
+          data[offset + 1] = instance.y;
+          data[offset + 2] = instance.width;
+          data[offset + 3] = instance.height;
+          data[offset + 4] = instance.phase;
+          data[offset + 5] = instance.atlasIndex;
+        });
+        const gl = this.gl;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+        this.instanceCount = instances.length;
+      }
+
+      render(time, windStrength, meshVisible) {
+        const gl = this.gl;
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        if (!this.atlasReady || this.instanceCount === 0) return;
+        gl.useProgram(this.program);
+        gl.bindVertexArray(this.vao);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.texture);
+        gl.uniform1i(this.locations.uAtlas, 0);
+        gl.uniform2f(this.locations.uResolution, this.canvas.width, this.canvas.height);
+        gl.uniform1f(this.locations.uTime, time);
+        gl.uniform1f(this.locations.uWind, windStrength);
+        gl.uniform1f(this.locations.uShowMesh, meshVisible ? 1 : 0);
+        gl.drawElementsInstanced(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0, this.instanceCount);
+        gl.bindVertexArray(null);
+      }
+    }
+
+    let flagRenderer = null;
+    try {
+      flagRenderer = new BatchedClothRenderer(flagCanvas);
+    } catch (error) {
+      rendererError = error instanceof Error ? error.message : String(error);
+    }
+
+    function preload() {
+      return Promise.all(Object.entries(FLAGS).map(([key, spec]) => new Promise((resolve) => {
+        const image = new Image();
+        image.onload = () => { images.set(key, image); resolve(); };
+        image.onerror = () => resolve();
+        image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(spec.svg)}`;
+      })));
+    }
+
+    function panelPath(context, x, y, width, height, radius = 16) {
+      context.beginPath();
+      context.roundRect(x, y, width, height, radius);
+    }
+
+    function hexPath(context, x, y, radius) {
+      context.beginPath();
+      for (let index = 0; index < 6; index++) {
+        const angle = Math.PI / 180 * (60 * index - 30);
+        const pointX = x + Math.cos(angle) * radius;
+        const pointY = y + Math.sin(angle) * radius;
+        if (index === 0) context.moveTo(pointX, pointY); else context.lineTo(pointX, pointY);
+      }
+      context.closePath();
+    }
+
+    function drawPole(context, x, top, bottom, scale = 1) {
+      context.save();
+      context.strokeStyle = '#cfc8bd';
+      context.lineWidth = Math.max(1, 3 * scale);
+      context.lineCap = 'round';
+      context.beginPath();
+      context.moveTo(x, top);
+      context.lineTo(x, bottom);
+      context.stroke();
+      context.beginPath();
+      context.arc(x, top, Math.max(1.5, 4 * scale), 0, Math.PI * 2);
+      context.fillStyle = '#ffd66b';
+      context.fill();
+      context.restore();
+    }
+
+    function drawBadge(context, x, y, colors, commander = true, radius = 48) {
+      context.save();
+      context.shadowColor = 'rgba(0,0,0,.48)';
+      context.shadowBlur = radius * .38;
+      context.shadowOffsetY = radius * .15;
+      const gradient = context.createRadialGradient(x - radius * .2, y - radius * .29, 2, x, y, radius);
+      gradient.addColorStop(0, '#ffffff');
+      gradient.addColorStop(.12, colors[0]);
+      gradient.addColorStop(1, colors[1]);
+      context.fillStyle = gradient;
+      context.beginPath();
+      context.arc(x, y, radius, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = 'rgba(255,255,255,.56)';
+      context.lineWidth = Math.max(1, radius / 24);
+      context.stroke();
+      context.shadowColor = 'transparent';
+      context.fillStyle = '#fff';
+      context.font = `bold ${Math.max(9, radius * .96)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText('⚔', x, y + radius * .04);
+      context.strokeStyle = '#63d989';
+      context.lineWidth = Math.max(1.5, radius * .105);
+      context.beginPath();
+      context.arc(x, y, radius * 1.12, -Math.PI / 2, Math.PI * .58);
+      context.stroke();
+      if (commander && radius > 20) {
+        context.fillStyle = '#ffd66b';
+        context.shadowColor = '#ffd66b';
+        context.shadowBlur = radius * .27;
+        context.font = `bold ${radius * .58}px Arial`;
+        context.fillText('★', x + radius * .79, y - radius * .77);
+      }
+      context.restore();
+    }
+
+    function buildStressUnits(count) {
+      const units = [];
+      const columns = 10;
+      const startX = 82;
+      const startY = 708;
+      const columnGap = 104;
+      const rowGap = 41;
+      for (let index = 0; index < count; index++) {
+        const column = index % columns;
+        const row = Math.floor(index / columns);
+        const poleX = startX + column * columnGap;
+        const flagY = startY + row * rowGap;
+        units.push({
+          poleX,
+          poleTop: flagY - 4,
+          poleBottom: flagY + 31,
+          flagX: poleX + 3,
+          flagY,
+          flagWidth: 38,
+          flagHeight: 25.33,
+          badgeX: poleX + 60,
+          badgeY: flagY + 17,
+          phase: index * 1.618 + row * .37
+        });
+      }
+      return units;
+    }
+
+    function rebuildScene() {
+      stressUnits = buildStressUnits(stressCount);
+      const atlasIndex = FLAG_KEYS.indexOf(activeKey);
+      flagInstances = [
+        { x: 187, y: 177, width: 178, height: 119, phase: 1.4, atlasIndex },
+        { x: 758, y: 173, width: 224, height: 149, phase: 3.2, atlasIndex },
+        ...stressUnits.map((unit) => ({
+          x: unit.flagX,
+          y: unit.flagY,
+          width: unit.flagWidth,
+          height: unit.flagHeight,
+          phase: unit.phase,
+          atlasIndex
+        }))
+      ];
+      if (flagRenderer?.atlasReady) flagRenderer.setInstances(flagInstances);
+      drawSceneLayer();
+      drawOverlayLayer();
+      updatePerformanceText();
+    }
+
+    function drawSceneLayer() {
+      const context = scene;
+      context.clearRect(0, 0, sceneCanvas.width, sceneCanvas.height);
+      const backdrop = context.createLinearGradient(0, 0, 0, sceneCanvas.height);
+      backdrop.addColorStop(0, '#242c32');
+      backdrop.addColorStop(1, '#111719');
+      context.fillStyle = backdrop;
+      context.fillRect(0, 0, sceneCanvas.width, sceneCanvas.height);
+      for (let index = 0; index < 110; index++) {
+        const x = (index * 151) % sceneCanvas.width;
+        const y = (index * 83) % sceneCanvas.height;
+        context.fillStyle = 'rgba(255,255,255,.025)';
+        context.fillRect(x, y, 1, 1);
+      }
+
+      context.fillStyle = 'rgba(255,255,255,.035)';
+      context.strokeStyle = 'rgba(255,255,255,.14)';
+      context.lineWidth = 1;
+      panelPath(context, 52, 74, 465, 540);
+      context.fill();
+      context.stroke();
+      panelPath(context, 664, 74, 465, 540);
+      context.fill();
+      context.stroke();
+      panelPath(context, 52, 642, 1077, 286);
+      context.fill();
+      context.stroke();
+
+      hexPath(context, 863, 435, 132);
+      context.fillStyle = '#536d48';
+      context.fill();
+      context.strokeStyle = '#a8c18b';
+      context.lineWidth = 3;
+      context.stroke();
+      hexPath(context, 863, 435, 108);
+      context.fillStyle = '#6d8a57';
+      context.fill();
+      context.font = '64px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText('🏰', 863, 445);
+
+      drawPole(context, 183, 165, 377);
+      drawPole(context, 753, 160, 452);
+      stressUnits.forEach((unit) => drawPole(context, unit.poleX, unit.poleTop, unit.poleBottom, .42));
+    }
+
+    function drawOverlayLayer() {
+      const context = overlay;
+      const spec = FLAGS[activeKey];
+      context.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      context.fillStyle = '#e7d5b8';
+      context.font = '700 17px "Noto Serif SC", serif';
+      context.textAlign = 'center';
+      context.textBaseline = 'alphabetic';
+      context.fillText('野外部队 · 完整旗帜', 285, 116);
+      context.fillText('单个城市地块 · 完整旗帜', 863, 116);
+      context.fillText(`批量压力预览 · ${stressCount} 个额外棋子`, 590, 681);
+
+      drawBadge(context, 285, 400, spec.colors, true);
+      drawBadge(context, 863, 528, spec.colors, false);
+      stressUnits.forEach((unit) => drawBadge(context, unit.badgeX, unit.badgeY, spec.colors, false, 10.5));
+
+      context.fillStyle = '#bcae9d';
+      context.font = '14px "Noto Serif SC", serif';
+      context.fillText(spec.label, 285, 524);
+      context.fillStyle = '#7e756d';
+      context.font = '12px sans-serif';
+      context.fillText('单位徽章 · 生命环 · 将领星标 · 网格形变国旗', 285, 551);
+      context.fillStyle = '#bcae9d';
+      context.font = '14px "Noto Serif SC", serif';
+      context.fillText('城市旗与棋子旗共享同一次实例化提交', 863, 598);
+
+      if (rendererError) {
+        context.fillStyle = '#efc16e';
+        context.font = '18px sans-serif';
+        context.fillText('WebGL2 批量布料渲染器初始化失败。', 590, 480);
+        context.fillStyle = '#a99b91';
+        context.font = '13px sans-serif';
+        context.fillText(rendererError.slice(0, 130), 590, 510);
+      }
+    }
+
+    function updatePerformanceText() {
+      if (rendererError) {
+        performanceOutput.textContent = 'WebGL2 不可用';
+        return;
+      }
+      const triangles = flagInstances.length * MESH_COLUMNS * MESH_ROWS * 2;
+      const fpsText = measuredFps ? ` · ${measuredFps} FPS` : '';
+      performanceOutput.textContent = `${flagInstances.length} 面旗 · 1 次批绘 · ${triangles.toLocaleString()} 三角形${fpsText}`;
+    }
+
+    function animate(timeMs) {
+      try {
+        flagRenderer?.render(timeMs / 1000, windScale, showMesh);
+      } catch (error) {
+        rendererError = error instanceof Error ? error.message : String(error);
+        drawOverlayLayer();
+      }
+
+      frameCount++;
+      const elapsed = timeMs - frameWindowStart;
+      if (elapsed >= 600) {
+        measuredFps = Math.round(frameCount * 1000 / elapsed);
+        frameCount = 0;
+        frameWindowStart = timeMs;
+        updatePerformanceText();
+      }
+      requestAnimationFrame(animate);
+    }
+
+    flagSelect.addEventListener('change', () => {
+      activeKey = flagSelect.value;
+      rebuildScene();
+    });
+    unitLoad.addEventListener('change', () => {
+      stressCount = Number(unitLoad.value);
+      rebuildScene();
+    });
+    wind.addEventListener('input', () => {
+      windScale = Number(wind.value);
+      windValue.textContent = `${windScale.toFixed(1)}×`;
+    });
+    meshToggle.addEventListener('change', () => { showMesh = meshToggle.checked; });
+
+    stressUnits = buildStressUnits(stressCount);
+    drawSceneLayer();
+    drawOverlayLayer();
+    preload().then(() => {
+      if (images.size !== FLAG_KEYS.length) {
+        rendererError = 'SVG 旗帜素材加载失败，请通过项目静态服务器打开此文件。';
+      } else if (flagRenderer) {
+        try {
+          flagRenderer.setAtlas(images);
+        } catch (error) {
+          rendererError = error instanceof Error ? error.message : String(error);
+        }
+      }
+      rebuildScene();
+      requestAnimationFrame(animate);
+    });
+  </script>
+</body>
+</html>

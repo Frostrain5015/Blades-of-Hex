@@ -1,6 +1,7 @@
-import { CAMP } from './config.js';
 import { gameState } from './state.js';
 import { buildActionMessage } from '../protocol/messages.js';
+import { campToKey } from '../rules/camps.js';
+import { getFactionRole, getRoleCamp } from '../rules/diplomacy.js';
 
 let _ws = null;
 let _myRole = null;   // 'player1' | 'player2' | 'player3' | null
@@ -63,10 +64,7 @@ export function isNetworkGame() { return _myRole !== null; }
 
 export function isMyTurn(currentCamp) {
     if (!isNetworkGame()) return true;
-    if (_myRole === 'player1') return currentCamp === CAMP.player1;
-    if (_myRole === 'player2') return currentCamp === CAMP.player2;
-    if (_myRole === 'player3') return currentCamp === CAMP.player3;
-    return false;
+    return campToKey(currentCamp) === campToKey(getRoleCamp(gameState, _myRole));
 }
 
 export function connectToServer(url) {
@@ -142,14 +140,21 @@ export function connectToServer(url) {
                     _cb.onReconnected?.(msg.role);
                     break;
                 case 'opponentReconnected':
-                    if (msg.role) _myRole = msg.role;
                     _cb.onOpponentReconnected?.(msg.role);
                     break;
                 case 'start':
                     _myRole = msg.role;
                     _revision = Number.isInteger(msg.revision) ? msg.revision : 0;
                     _matchSeed = Number.isInteger(msg.matchSeed) ? msg.matchSeed : null;
-                    _cb.onStart?.(msg.role, msg.isThreePlayer, msg.skirmishFog, msg.doubleCommanderMode, _matchSeed);
+                    _cb.onStart?.(msg.role, msg.isThreePlayer, msg.skirmishFog, msg.doubleCommanderMode, _matchSeed, {
+                        turnOrder: msg.turnOrder,
+                        turnOrderRolls: msg.turnOrderRolls,
+                        factionColors: msg.factionColors,
+                        roleAssignments: msg.roleAssignments
+                    });
+                    break;
+                case 'factionColors':
+                    _cb.onFactionColors?.(msg.factionColors || {});
                     break;
                 case 'error':
                     _cb.onError?.(msg.message);
@@ -321,17 +326,11 @@ export function sendChatMessage(channel, text, targetRole = null) {
 }
 
 export function roleToCamp(role) {
-    if (role === 'player1') return CAMP.player1;
-    if (role === 'player2') return CAMP.player2;
-    if (role === 'player3') return CAMP.player3;
-    return null;
+    return getRoleCamp(gameState, role);
 }
 
 export function campToRole(camp) {
-    if (camp === CAMP.player1) return 'player1';
-    if (camp === CAMP.player2) return 'player2';
-    if (camp === CAMP.player3) return 'player3';
-    return null;
+    return getFactionRole(gameState, campToKey(camp));
 }
 
 export function syncCommanderState(poolP1, poolP2, cmdP1, cmdP2, p1Confirmed, p2Confirmed, p1Deployed, p2Deployed, phase, deployedUnitP1 = null, deployedUnitP2 = null, poolP3 = [], cmdP3 = null, p3Confirmed = false, p3Deployed = false, deployedUnitP3 = null, commanderDeployment = null) {

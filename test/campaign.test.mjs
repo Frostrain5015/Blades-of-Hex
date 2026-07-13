@@ -150,15 +150,94 @@ export async function run(browser) {
         const runtime = diplomacy.createDefaultFactions([{
             id: 'player1', name: '测试阵营', color: 'purple', controller: 'human', participatesInTurns: true, active: true
         }]).player1;
+        const authoredReserved = diplomacy.createDefaultFactions([{
+            id: 'storyGuard', name: '剧情卫队', color: 'white', controller: 'scripted', participatesInTurns: true, active: true
+        }]).storyGuard;
+        const standard = diplomacy.createStandardFactions({ playerCount: 2, colors: { player1: 'white', player2: 'gray' } });
+        const playerColorState = { factions: diplomacy.createStandardFactions({ playerCount: 2 }) };
         return {
             defaultUsesId: schema.createDefaultLevel().factions[0].color === 'red',
             legacyMigrates: migrated.factions[0].color === 'red',
             arbitraryHexRejected: schema.validateLevel(invalid).errors.some(message => message.includes('颜色选项')),
             runtimeResolved: runtime.colorId === 'purple' && runtime.color === '#d8aaff',
-            paletteResolved: camps.getTileColor('purple') === '#d8aaff' && camps.getFlagColors('purple').main === '#9050c8'
+            paletteResolved: camps.getTileColor('purple') === '#d8aaff' && camps.getFlagColors('purple').main === '#9050c8',
+            globalPaletteHasNine: camps.FACTION_PALETTE.length === 9,
+            playerPaletteHasSeven: camps.PLAYER_FACTION_COLOR_KEYS.length === 7
+                && !camps.PLAYER_FACTION_COLOR_KEYS.includes('gray')
+                && !camps.PLAYER_FACTION_COLOR_KEYS.includes('white'),
+            cityMarkersAvoidMainFlagColor: camps.FACTION_PALETTE.every(entry => {
+                const marker = camps.getCityMarkerColors(entry.id);
+                return marker.line !== camps.getFlagColors(entry.id).main;
+            }),
+            campaignCanUseReservedColors: authoredReserved.colorId === 'white',
+            standardRejectsReservedColors: standard.player1.colorId === 'red' && standard.player2.colorId === 'blue',
+            playerSetterRejectsReservedColors: diplomacy.setPlayerFactionColor(playerColorState, 'player1', 'gray') === false
+                && diplomacy.setPlayerFactionColor(playerColorState, 'player1', 'white') === false
+                && diplomacy.setPlayerFactionColor(playerColorState, 'player1', 'purple') === true
         };
     });
-    R.assert(Object.values(factionColorContract).every(Boolean), '阵营配置只保存颜色选项，旧色值可迁移，运行时统一解析地块色与旗色');
+    R.assert(Object.values(factionColorContract).every(Boolean), '全局九色由规则层统一解析；战役可用九色，普通玩家对局只开放七种彩虹色');
+    const flagWindContract = await page.evaluate(async () => {
+        const flags = await import('/js/flagRenderer.js');
+        return {
+            clear: flags.getFlagWindStrength('clear'),
+            rain: flags.getFlagWindStrength('rain'),
+            fog: flags.getFlagWindStrength('fog'),
+            wind: flags.getFlagWindStrength('wind')
+        };
+    });
+    R.assert(flagWindContract.clear === 0.7 && flagWindContract.rain === 0.7
+        && flagWindContract.fog === 0.7 && flagWindContract.wind === 1.5,
+    '旗帜沿用原型风力倍率：常态 0.7×，仅风天 1.5×');
+    const flagLayoutContract = await page.evaluate(async () => {
+        const { UNIT_FLAG_LAYOUT, CITY_FLAG_LAYOUT } = await import('/js/flagLayout.js');
+        return { unit: UNIT_FLAG_LAYOUT, city: CITY_FLAG_LAYOUT };
+    });
+    R.assert(
+        flagLayoutContract.unit.width === 15 && flagLayoutContract.unit.height === 10
+            && flagLayoutContract.unit.poleX === -15
+            && flagLayoutContract.city.width === 24 && flagLayoutContract.city.height === 16
+            && flagLayoutContract.city.poleTopOffset === -18
+            && flagLayoutContract.city.clothOffsetY === 1
+            && flagLayoutContract.city.width > flagLayoutContract.unit.width,
+        '城市旗与部队旗均保持 3:2；城市旗更大，部队旗杆贴近血条左缘'
+    );
+    const flagBatchContract = await page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        const { ctx } = await import('/js/config.js');
+        const flags = await import('/js/flagRenderer.js');
+        const faction = gameState.factions.player1;
+        const tiles = Array.from({ length: 50 }, (_, index) => {
+            const tile = {
+                id: `stress-tile-${index}`,
+                x: 80 + (index % 10) * 82,
+                y: 120 + Math.floor(index / 10) * 105,
+                isCity: false,
+                isVillage: false,
+                unit: null
+            };
+            tile.unit = { id: `stress-unit-${index}`, camp: faction, tile, commander: null };
+            return tile;
+        });
+        const state = { tiles, factions: gameState.factions, weather: 'wind' };
+        const prototype = WebGL2RenderingContext.prototype;
+        const original = prototype.drawElementsInstanced;
+        let drawCalls = 0;
+        let instances = 0;
+        prototype.drawElementsInstanced = function (...args) {
+            drawCalls++;
+            instances += Number(args[4]) || 0;
+            return original.apply(this, args);
+        };
+        try {
+            flags.drawBattlefieldFlags(ctx, state, performance.now());
+        } finally {
+            prototype.drawElementsInstanced = original;
+        }
+        return { drawCalls, instances, collected: flags.collectBattlefieldFlags(state, performance.now()).length };
+    });
+    R.assert(flagBatchContract.collected === 50 && flagBatchContract.instances === 50 && flagBatchContract.drawCalls === 1,
+        `50 面部队旗保持单次 WebGL 实例化绘制（draw=${flagBatchContract.drawCalls}, instances=${flagBatchContract.instances}）`);
     if (await page.locator('.campaign-level-card').count() === 0) {
         R.ok('正式关卡尚未录入，按当前开发阶段改测战役编辑器基础设施');
         await page.click('#campaignBackBtn');

@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, CAMP, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, hexDistance } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, hexDistance } from './config.js';
 import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
@@ -26,7 +26,10 @@ import { isTileVisible, getTileVisibilityState, getTileVisibilityStateByCoord, g
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { campToKey } from '../rules/camps.js';
 import { getViewingCamp } from './state.js';
+import { getRoleCamp } from '../rules/diplomacy.js';
 import { drawFxLayer, updateFxFns } from './fxRegistry.js';
+import { drawBattlefieldFlags } from './flagRenderer.js';
+import { drawUnitFlagFinial } from './unitRenderer.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
@@ -82,6 +85,9 @@ export function renderGame() {
 
     // Draw tile bases
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawBase(ctx);
+    // Faction-tinted military-map city outline stays below every object, but
+    // remains visible around a unit that covers the central castle glyph.
+    for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawCityMapMarker();
     // Flag poles (before pennants and borders)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     // Overlays (hover/selection)
@@ -115,8 +121,14 @@ export function renderGame() {
         ctx.fillText('🚫', tile.x, tile.y - HEX_SIZE - 16);
         ctx.restore();
     }
-    // Flag finials + cloth (after units, overlays the badge)
-    for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagFinialAndCloth();
+    // Every cloth surface is deformed in one WebGL2 batch. Canvas2D finials
+    // are deliberately composited afterwards so the cloth cannot cover them.
+    drawBattlefieldFlags(ctx, gameState, now);
+    for (let i = 0, len = tiles.length; i < len; i++) {
+        const tile = tiles[i];
+        tile.drawFlagFinial();
+        if (tile.unit) drawUnitFlagFinial(tile.unit);
+    }
 
     // ── 将领特效图层：aboveUnits（单位与旗帜之后）──
     drawFxLayer('aboveUnits', ctx, now);
@@ -164,8 +176,9 @@ export function renderGame() {
     if (gameState.commanderPhase === 'deployment') {
         const alpha = 0.55 + Math.sin(now / 600) * 0.08;
         // 联机模式以玩家自身阵营为准
-        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
-        const iAmDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : myCamp === CAMP.player2 ? gameState.commanderP2Deployed : gameState.commanderP3Deployed;
+        const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
+        const myKey = campToKey(myCamp);
+        const iAmDeployed = myKey === 'player1' ? gameState.commanderP1Deployed : myKey === 'player2' ? gameState.commanderP2Deployed : gameState.commanderP3Deployed;
         ctx.save();
         // 逐格暗色蒙层：跳过己方可部署单位（已部署则全屏暗色）
         for (const tile of gameState.tiles) {
@@ -940,16 +953,12 @@ function drawMoraleIndicators() {
 function _isHumanTurn() {
     if (gameState.campaignMode) return gameState.factions?.[campToKey(gameState.currentCamp)]?.controller === 'human';
     if (isNetworkGame()) {
-        const role = getMyRole();
-        if (role === 'player1') return gameState.currentCamp === CAMP.player1;
-        if (role === 'player2') return gameState.currentCamp === CAMP.player2;
-        if (role === 'player3') return gameState.currentCamp === CAMP.player3;
-        return false;
+        return campToKey(gameState.currentCamp) === campToKey(getRoleCamp(gameState, getMyRole()));
     }
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
-        return gameState.currentCamp !== CAMP.neutral && gameState.currentCamp !== gameState.aiOpponentCamp;
+        return campToKey(gameState.currentCamp) !== 'neutral' && gameState.currentCamp !== gameState.aiOpponentCamp;
     }
-    return gameState.currentCamp !== CAMP.neutral;
+    return campToKey(gameState.currentCamp) !== 'neutral';
 }
 
 function drawSelectionHighlights() {
@@ -1198,7 +1207,7 @@ function drawRangeApertures(now) {
         const pulse = (Math.sin(now / 280) + 1) / 2;
         const baseAlpha = 0.35 + pulse * 0.55;
         const ct = gameState.cardTargeting;
-        const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
+        const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
         const isAirCardTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest' || ct.cardId === 'airstrike' || ct.cardId === 'airdrop' || ct.cardId === 'drone_suicide';
         const isColTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest';
         const time = now / 1000;
@@ -1607,11 +1616,8 @@ let _lastTurnCounter = -1;  // guard: detect turn change to reset draw pile UI
 
 function _getMyCampForUI() {
     if (gameState.campaignMode) return getViewingCamp();
-    if (isNetworkGame()) {
-        const role = getMyRole();
-        return role === 'player1' ? CAMP.player1 : role === 'player2' ? CAMP.player2 : role === 'player3' ? CAMP.player3 : null;
-    }
-    if (gameState.gameMode === 'pve') return CAMP.player1;
+    if (isNetworkGame()) return getRoleCamp(gameState, getMyRole());
+    if (gameState.gameMode === 'pve') return Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;
     return gameState.currentCamp;
 }
 
@@ -1776,9 +1782,9 @@ export function drawCardCanvas(now) {
     const isMyTurn = gameState.campaignMode
         ? (campToKey(gameState.currentCamp) === campKey && gameState.factions?.[campKey]?.controller === 'human')
         : isNetworkGame()
-            ? (getMyRole() === 'player1' ? gameState.currentCamp === CAMP.player1 : getMyRole() === 'player2' ? gameState.currentCamp === CAMP.player2 : gameState.currentCamp === CAMP.player3)
+            ? (campToKey(gameState.currentCamp) === campToKey(getRoleCamp(gameState, getMyRole())))
             : (gameState.gameMode === 'pve'
-                ? (gameState.currentCamp === CAMP.player1 && !isNeutralTurn)
+                ? (campToKey(gameState.currentCamp) === campKey && !isNeutralTurn)
                 : (gameState.currentCamp === myCamp && !isNeutralTurn));
     const currentDrawCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
     const canDraw = isMyTurn && !gameState.cardTargeting
@@ -1894,7 +1900,7 @@ export function drawCardCanvas(now) {
         // 部署将领显示所选将领名 + 头像
         let deployCmdId = null;
         if (cardId === 'commanderDeploy') {
-            const primaryKey = myCamp === CAMP.player1 ? 'commanderP1' : myCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+            const primaryKey = campToKey(myCamp) === 'player1' ? 'commanderP1' : campToKey(myCamp) === 'player2' ? 'commanderP2' : 'commanderP3';
             deployCmdId = typeof cardEntry === 'object' ? cardEntry.commanderId : null;
             deployCmdId ||= gameState[primaryKey];
             const cmdCfg = COMMANDER_CONFIG[deployCmdId];
@@ -1908,7 +1914,7 @@ export function drawCardCanvas(now) {
         const isTargeting = gameState.cardTargeting && gameState.cardTargeting.cardId === cardId
             && (gameState.cardTargeting.handIndex == null || gameState.cardTargeting.handIndex === i);
         const isDeploy = cardId === 'commanderDeploy';
-        const primaryKey = myCamp === CAMP.player1 ? 'commanderP1' : myCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+        const primaryKey = campToKey(myCamp) === 'player1' ? 'commanderP1' : campToKey(myCamp) === 'player2' ? 'commanderP2' : 'commanderP3';
         const deployedKey = deployCmdId && gameState[`${primaryKey}Secondary`] === deployCmdId
             ? `${primaryKey}SecondaryDeployed`
             : `${primaryKey}Deployed`;

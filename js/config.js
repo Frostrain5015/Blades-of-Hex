@@ -6,7 +6,7 @@ import { BOARD_RULES } from '../rules/constants.js';
 export const LOG_LIMIT = BOARD_RULES.logLimit;
 
 export { UNIT_CONFIG, COUNTER_RELATION } from '../rules/units.js';
-export { CAMP, CAMP_FLAG_COLORS, FACTION_PALETTE, getPaletteEntry, getFlagColors, campToKey } from '../rules/camps.js';
+export { CAMP, CAMP_FLAG_COLORS, FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, isPlayerFactionColor, getPaletteEntry, getFlagColors, getCityMarkerColors, campToKey } from '../rules/camps.js';
 export { TERRAIN_CONFIG, FORTIFICATION_CONFIG, MORALE_CONFIG, WEATHER_CONFIG } from '../rules/terrain.js';
 export { HEX_NEIGHBORS, hexDistance } from '../rules/hex.js';
 export { getFactionCount, getRoundIndex, getRound } from '../rules/turns.js';

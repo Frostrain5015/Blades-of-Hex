@@ -982,7 +982,17 @@ body {
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
+    padding: 10px 12px 9px;
     color: var(--text-bright);
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--selection-camp-color, #fff) 22%, rgba(255,255,255,.08));
+    border-radius: 11px;
+    background:
+        linear-gradient(135deg, rgba(19, 18, 20, .84), rgba(7, 8, 10, .68)),
+        radial-gradient(circle at 0 0, color-mix(in srgb, var(--selection-camp-color, #fff) 13%, transparent), transparent 60%);
+    box-shadow: 0 10px 28px rgba(0,0,0,.34), inset 0 1px rgba(255,255,255,.055);
+    backdrop-filter: blur(8px) saturate(1.08);
+    -webkit-backdrop-filter: blur(8px) saturate(1.08);
     opacity: 0;
     transform: translate3d(-8px, -4px, 0);
     pointer-events: none;
@@ -1687,6 +1697,20 @@ body {
     font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
     line-height: 1;
 }
+
+.selection-hud-flag {
+    flex: 0 0 auto;
+    width: 27px;
+    height: 18px;
+    margin-right: 6px;
+    border: 1px solid rgba(255,255,255,.34);
+    border-radius: 2px;
+    object-fit: cover;
+    box-sizing: border-box;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,.55));
+}
+
+.selection-hud-flag-color { display: inline-block; }
 .faction-list-flag-image {
     display: block;
     width: 100%;
@@ -1871,23 +1895,71 @@ body {
     flex-direction: column;
     align-items: center;
     gap: 6px;
-    pointer-events: none;
     user-select: none;
     margin-top: -40px;
 }
 .commander-logo {
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 24px;
+    position: relative;
+    width: 124px;
+    height: 76px;
+    padding: 0;
+    border-radius: 9px;
+    cursor: pointer;
     box-shadow: 0 0 20px color-mix(in srgb, var(--camp-color) 40%, transparent);
-    border: 2px solid color-mix(in srgb, var(--camp-color) 60%, var(--gold));
-    background: color-mix(in srgb, var(--camp-color) 70%, #000);
+    border: 1px solid color-mix(in srgb, var(--camp-color) 60%, var(--gold));
+    background: rgba(8, 8, 9, .74);
+    overflow: hidden;
     transition: background 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease;
 }
+.commander-logo:hover { transform: translateY(-1px); }
+.commander-logo:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.commander-logo:disabled { cursor: default; filter: saturate(.55); }
+.commander-logo canvas { position: absolute; inset: 0; width: 112px; height: 72px; margin-left: 8px; }
+.commander-flag-pole {
+    position: absolute;
+    z-index: 2;
+    left: 11px;
+    top: 8px;
+    width: 2px;
+    height: 62px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #87745b, #ead7aa, #6f5c45);
+}
+.commander-flag-pole::before {
+    content: '';
+    position: absolute;
+    left: -2px;
+    top: -3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f0c95d;
+    box-shadow: 0 0 7px rgba(240, 201, 93, .6);
+}
+.commander-color-picker {
+    display: none;
+    grid-template-columns: repeat(9, 28px);
+    gap: 7px;
+    padding: 9px 11px;
+    border: 1px solid rgba(214, 176, 102, .34);
+    border-radius: 10px;
+    background: rgba(10, 8, 7, .94);
+    box-shadow: 0 14px 32px rgba(0,0,0,.55);
+}
+.commander-color-picker.open { display: grid; }
+.commander-color-swatch {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 2px solid rgba(255,255,255,.18);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 2px rgba(0,0,0,.18);
+}
+.commander-color-swatch.selected { border-color: #f3d17d; box-shadow: 0 0 11px rgba(243,209,125,.62); }
+.commander-color-swatch:disabled { cursor: not-allowed; opacity: .2; filter: grayscale(.8); }
+.commander-camp-name,
+.commander-subtitle { pointer-events: none; }
 .commander-camp-name {
     font-size: 22px;
     font-weight: bold;

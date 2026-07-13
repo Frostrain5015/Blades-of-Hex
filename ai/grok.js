@@ -58,16 +58,22 @@ export function selectCommander(pool) {
 }
 
 export function planActions(gameState, helpers, myCamp) {
-    const { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG } = helpers;
+    const { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, isHostileFaction } = helpers;
     const tileMap = gameState.tileMap;
     const actions = [];
     const processed = new Set();
 
     const weather = gameState.weather || 'clear';
 
-    const enemyCamp = myCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
-    const enemyCapitalDistrict = enemyCamp === CAMP.player1 ? 1 : 2;
-    const myCapitalDistrict = myCamp === CAMP.player1 ? 1 : 2;
+    const enemyKey = (gameState.turnOrder || Object.keys(CAMP)).find(key => {
+        const faction = CAMP[key];
+        return faction && faction !== myCamp && key !== 'neutral'
+            && (!isHostileFaction || isHostileFaction(myCamp, faction));
+    });
+    const enemyCamp = enemyKey ? CAMP[enemyKey] : null;
+    if (!enemyCamp) return actions;
+    const enemyCapitalDistrict = gameState.tiles.find(tile => tile.isCity && tile.camp === enemyCamp)?.districtId;
+    const myCapitalDistrict = gameState.tiles.find(tile => tile.isCity && tile.camp === myCamp)?.districtId;
 
     // ═══════════════════════════════════════════
     // 辅助函数
@@ -242,8 +248,9 @@ export function planActions(gameState, helpers, myCamp) {
         return false;
     }
 
-    // 获取己方指挥官 key
-    const myCmdKey = myCamp === CAMP.player1 ? gameState.commanderP1 : gameState.commanderP2;
+    // 将领从运行中单位解析，不再从固定玩家席位推断。
+    const myCommanderUnit = gameState.tiles.find(tile => tile.unit?.camp === myCamp && tile.unit.commander)?.unit;
+    const myCmdKey = myCommanderUnit?.commander || null;
     const cmdStrat = COMMANDER_STRATEGY[myCmdKey] || {};
 
     // ═══════════════════════════════════════════
@@ -264,7 +271,7 @@ export function planActions(gameState, helpers, myCamp) {
     const enemyCities = gameState.tiles.filter(t => t.isCity && t.camp === enemyCamp);
     const neutralCities = gameState.tiles.filter(t => t.isCity && t.camp === CAMP.neutral);
     const allEnemyUnits = gameState.tiles.filter(t => t.unit && t.unit.camp === enemyCamp);
-    const campKey = myCamp === CAMP.player1 ? 'player1' : 'player2';
+    const campKey = myCamp.id;
     let gold = gameState.playerGold[campKey];
 
     const NEUTRAL_DISTRICTS = new Set([3, 4, 5]);
@@ -364,7 +371,7 @@ export function planActions(gameState, helpers, myCamp) {
     // 第零轮：对策卡 — 抽牌 + 使用
     // ═══════════════════════════════════════════
 
-    const isDeployed = myCamp === CAMP.player1 ? gameState.commanderP1Deployed : gameState.commanderP2Deployed;
+    const isDeployed = !!myCommanderUnit;
     const hand = gameState.playerHands[campKey] || [];
     let cardUses = gameState.playerUsesThisTurn[campKey] || 0;
     let drawsUsed = gameState.playerDrawsThisTurn[campKey] || 0;

@@ -1,6 +1,6 @@
 ﻿import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, invalidateBoard, getRoundIndex } from './config.js';
 import { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../commander/index.js';
-import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp } from './state.js';
+import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp, configureSkirmishState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
@@ -8,7 +8,7 @@ import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDi
 import { renderGame, drawCardCanvas } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
-import { CAMP, COMMANDER_REROLL_COST } from './config.js';
+import { COMMANDER_REROLL_COST } from './config.js';
 import { COMMANDER_DRAFT } from '../rules/constants.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
 import {
@@ -44,6 +44,10 @@ import { loadScenario } from '../campaign/catalog.js';
 import { renderCampaignLobby } from '../campaign/lobby.js';
 import './visualEventBridge.js';
 import './cheat.js';
+import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
+import { campFromKey, getRoleCamp, setPlayerFactionColor } from '../rules/diplomacy.js';
+import { rollFactionTurnOrder } from '../rules/turns.js';
+import { createFlagPreview } from './flagRenderer.js';
 
 loadSettings();
 initCanvas();
@@ -362,7 +366,7 @@ function _checkSpectatorBanner() {
     if (!gameState.isThreePlayer || !isNetworkGame()) return;
     const role = getMyRole();
     if (!role) return;
-    const myCamp = role === 'player1' ? CAMP.player1 : role === 'player2' ? CAMP.player2 : role === 'player3' ? CAMP.player3 : null;
+    const myCamp = roleToCamp(role);
     if (!myCamp) return;
     const banner = document.getElementById('opponentTurnBanner');
     if (!banner) return;
@@ -372,7 +376,7 @@ function _checkSpectatorBanner() {
     }
 }
 
-// ==== 阵营揭示动画（联机模式开局前） ----
+// ==== 进入选将。阵营颜色在选将页选择，掷骰只决定行动顺序。 ----
 function showFactionReveal(role) {
     // 清除胜利遮罩残留（GSAP inline style）
     const vo = document.getElementById('victoryOverlay');
@@ -381,38 +385,33 @@ function showFactionReveal(role) {
     vo.style.backgroundColor = '';
     document.body.style.pointerEvents = '';
 
+    if (isNetworkGame()) beginNetworkCommanderFlow(role);
+    else if (gameState.gameMode === 'pve') beginPVECommanderPhase('player1');
+    else beginCommanderPhase();
+}
+
+function _revealTurnOrder(onComplete) {
+    _assignAutomaticFactionColors();
+    if (!isNetworkGame()) rollFactionTurnOrder(gameState, gameState.rng);
     const overlay = document.getElementById('factionReveal');
     const dice = document.getElementById('factionRevealDice');
     const text = document.getElementById('factionRevealText');
-    const ci = _forPlayerCampName(role);
-    const campName = ci.name;
-    const campColor = ci.color;
-
+    const players = (gameState.turnOrder || []).filter(key => key !== 'neutral');
+    const orderText = players.map((key, index) => `${index + 1}. ${gameState.factions?.[key]?.name || key}`).join('　');
     overlay.classList.add('show');
     dice.classList.remove('landed');
     text.classList.remove('show');
     text.textContent = '';
-
-    // Phase 1: dice spinning (~1.2s)
     setTimeout(() => {
-        // Phase 2: dice lands, reveal faction
         dice.classList.add('landed');
-        text.textContent = `你是指挥官 · ${campName}`;
-        text.style.color = campColor;
+        text.textContent = `行动顺序　${orderText}`;
+        text.style.color = gameState.factions?.[players[0]]?.color || '#f2d38a';
         text.classList.add('show');
-    }, 1200);
-
-    // Phase 3: dismiss and start (~2.5s total)
+    }, 800);
     setTimeout(() => {
         overlay.classList.remove('show');
-        if (isNetworkGame()) {
-            beginNetworkCommanderFlow(role);
-        } else if (gameState.gameMode === 'pve') {
-            beginPVECommanderPhase(role);
-        } else {
-            beginCommanderPhase();
-        }
-    }, 2500);
+        onComplete();
+    }, 2100);
 }
 
 // ==== 准备按钮 ----
@@ -430,13 +429,13 @@ document.getElementById('rematchBtn').addEventListener('click', () => {
         document.getElementById('rematchStatus').textContent = '等待对手确认...';
         sendMessage({ type: 'rematch' });
     } else if (gameState.gameMode === 'pve') {
-        // PVE 模式：清除胜利遮罩，强制人类为红军→选将→对局
+        // PVE 模式：清除胜利遮罩，保留稳定人类席位后重新选将
         const overlay = document.getElementById('victoryOverlay');
         overlay.classList.remove('show');
         overlay.style.opacity = '';
         overlay.style.backgroundColor = '';
         document.body.style.pointerEvents = '';
-        gameState.aiOpponentCamp = CAMP.player2;
+        gameState.aiOpponentCamp = null;
         beginPVECommanderPhase('player1');
     } else {
         // 本地模式：清除胜利遮罩，重新走骰子→选将→部署→对局
@@ -611,13 +610,29 @@ function beginTrainingCountdown() {
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     const savedThreePlayer = gameState.isThreePlayer;
+    const savedColors = { ...(gameState.factionColorSelections || {}) };
+    const savedOrder = [...(gameState.turnOrder || [])];
+    const savedRolls = { ...(gameState.turnOrderRolls || {}) };
+    const savedAssignments = { ...(gameState.roleAssignments || {}) };
     resetGameState();
     // 双人双将训练场沿用 PVE 回合逻辑；三人训练场保持同设备本地对战。
     gameState.gameMode = savedDoubleCommanderMode && !savedThreePlayer ? 'pve' : 'training';
     gameState.isThreePlayer = savedThreePlayer;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
-    gameState.aiOpponentCamp = savedDoubleCommanderMode && !savedThreePlayer ? CAMP.player2 : null;
+    configureSkirmishState({
+        playerCount: savedThreePlayer ? 3 : 2,
+        colors: savedColors,
+        controllers: savedThreePlayer
+            ? { player1: 'human', player2: 'human', player3: 'human' }
+            : { player1: 'human', player2: savedDoubleCommanderMode ? 'ai' : 'human' }
+    });
+    if (savedOrder.length) gameState.turnOrder = savedOrder;
+    gameState.turnOrderRolls = savedRolls;
+    if (Object.keys(savedAssignments).length) gameState.roleAssignments = savedAssignments;
+    gameState.aiOpponentCamp = savedDoubleCommanderMode && !savedThreePlayer
+        ? campFromKey('player2', gameState)
+        : null;
     gameState.aiDifficulty = 1.0;
     gameState._trainingMode = true;
     gameState.commanderPhase = 'done';
@@ -652,8 +667,9 @@ function beginTrainingCountdown() {
     updateCampEmblems();
     updateChatAvailability();
     initEmblemChatClicks();
-    gameState.currentCamp = CAMP.player1;
-    grantTurnStartIncome(CAMP.player1);
+    const firstCamp = campFromKey(gameState.turnOrder?.[0], gameState) || campFromKey('player1', gameState);
+    gameState.currentCamp = firstCamp;
+    grantTurnStartIncome(firstCamp);
     updateUI();
     updateButtonColors();
     renderGame();
@@ -832,14 +848,20 @@ function beginCommanderPhase() {
     const savedMode = gameState.gameMode;
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
+    const savedThreePlayer = gameState.isThreePlayer;
     resetGameState();
     gameState.gameMode = savedMode;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
+    configureSkirmishState({
+        playerCount: savedThreePlayer ? 3 : 2,
+        controllers: { player1: 'human', player2: 'human', player3: 'human' }
+    });
     _commanderTransitioning = false;
-    const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
+    const pool = shuffleAndSplitPool(savedThreePlayer, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
     gameState.commanderPoolP1 = pool.p1;
     gameState.commanderPoolP2 = pool.p2;
+    if (savedThreePlayer) gameState.commanderPoolP3 = pool.p3 || [];
     gameState.commanderPhase = 'selection';
     _showCommanderSelection('player1');
 }
@@ -859,7 +881,13 @@ function beginTrainingCommanderPhase(humanRole) {
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
     gameState.aiDifficulty = savedDiff;
-    gameState.aiOpponentCamp = savedThreePlayer ? null : CAMP.player2;
+    configureSkirmishState({
+        playerCount: savedThreePlayer ? 3 : 2,
+        controllers: savedThreePlayer
+            ? { player1: 'human', player2: 'human', player3: 'human' }
+            : { player1: 'human', player2: 'ai' }
+    });
+    gameState.aiOpponentCamp = savedThreePlayer ? null : campFromKey('player2', gameState);
     gameState._trainingMode = true;
     _commanderTransitioning = false;
     if (savedDoubleCommanderMode) {
@@ -893,27 +921,17 @@ function beginPVECommanderPhase(humanRole) {
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
     gameState.aiDifficulty = savedDiff;
-    gameState.aiOpponentCamp = humanRole === 'player1' ? CAMP.player2 : CAMP.player1;
+    configureSkirmishState({ playerCount: 2, controllers: { player1: 'human', player2: 'ai' } });
+    gameState.aiOpponentCamp = campFromKey('player2', gameState);
     _commanderTransitioning = false;
     const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
     gameState.commanderPoolP1 = pool.p1;
     gameState.commanderPoolP2 = pool.p2;
     gameState.commanderPhase = 'selection';
 
-    if (humanRole === 'player1') {
-        // 人类是 P1：人类先选 → AI 后选
-        _pveHumanRole = 'player1';
-        _showCommanderSelection('player1');
-    } else {
-        // 人类是 P2：AI 先选 → 人类后选（立刻显示遮罩避免闪屏）
-        _pveHumanRole = 'player2';
-        _showCommanderWaiting('player2');
-        _pveAIQuickPick('player1');
-        setTimeout(() => {
-            _showCommanderSelection('player2');
-            _commanderTransitioning = false;
-        }, 600);
-    }
+    // 玩家身份固定为第一席位；阵营色与先后手分别在选将页和掷骰阶段决定。
+    _pveHumanRole = 'player1';
+    _showCommanderSelection('player1');
 }
 
 let _pveHumanRole = null;
@@ -935,9 +953,107 @@ function _pveAIQuickPick(forPlayer) {
 }
 
 function _forPlayerCampName(forPlayer) {
-    if (forPlayer === 'player1') return { name: '红军', color: '#cc4444' };
-    if (forPlayer === 'player2') return { name: '蓝军', color: '#4488cc' };
-    return { name: '绿军', color: '#44aa44' };
+    const faction = gameState.factions?.[forPlayer] || campFromKey(forPlayer, gameState);
+    const colors = getFlagColors(faction?.colorId || faction?.color);
+    return { name: faction?.name || forPlayer, color: colors.main, faction };
+}
+
+let _commanderFlagPreview = null;
+let _commanderFlagAnimationStarted = false;
+let _commanderHeaderFactionKey = 'player1';
+
+function _ensureCommanderFlagPreview() {
+    if (_commanderFlagPreview) return _commanderFlagPreview;
+    const canvas = document.getElementById('commanderFlagCanvas');
+    try {
+        _commanderFlagPreview = createFlagPreview(canvas);
+        if (!_commanderFlagAnimationStarted) {
+            _commanderFlagAnimationStarted = true;
+            const animate = now => {
+                if (document.getElementById('commanderOverlay')?.classList.contains('show')) {
+                    _commanderFlagPreview?.render(now);
+                }
+                requestAnimationFrame(animate);
+            };
+            requestAnimationFrame(animate);
+        }
+    } catch (error) {
+        console.warn('[commander] WebGL2 旗帜预览不可用:', error);
+    }
+    return _commanderFlagPreview;
+}
+
+function _canChooseFactionColor(forPlayer, locked = false) {
+    if (locked) return false;
+    if (isNetworkGame()) return getMyRole() === forPlayer;
+    if (gameState.gameMode === 'pve') return _pveHumanRole === forPlayer;
+    return true;
+}
+
+function _renderFactionColorPicker(forPlayer, locked = false) {
+    const picker = document.getElementById('commanderColorPicker');
+    const logo = document.getElementById('commanderLogo');
+    const canChoose = _canChooseFactionColor(forPlayer, locked);
+    const occupied = new Set(Object.entries(gameState.factionColorSelections || {})
+        .filter(([key]) => key !== forPlayer && gameState.factions?.[key]?.active !== false)
+        .map(([, colorId]) => colorId));
+    picker.innerHTML = '';
+    for (const entry of FACTION_PALETTE.filter(item => PLAYER_FACTION_COLOR_KEYS.includes(item.id))) {
+        const swatch = document.createElement('button');
+        swatch.type = 'button';
+        swatch.className = 'commander-color-swatch';
+        swatch.dataset.colorId = entry.id;
+        swatch.setAttribute('aria-label', `${entry.label}色阵营`);
+        swatch.title = `${entry.label}色阵营`;
+        swatch.style.background = `linear-gradient(135deg, ${entry.flag.light}, ${entry.flag.main} 52%, ${entry.flag.dark})`;
+        swatch.classList.toggle('selected', gameState.factions?.[forPlayer]?.colorId === entry.id);
+        swatch.disabled = !canChoose || occupied.has(entry.id);
+        swatch.addEventListener('click', event => {
+            event.stopPropagation();
+            if (!setPlayerFactionColor(gameState, forPlayer, entry.id)) return;
+            gameState.factionColorSelections[forPlayer] = entry.id;
+            if (isNetworkGame()) sendMessage({ type: 'factionColor', colorId: entry.id });
+            _configureCommanderFactionHeader(forPlayer, { locked });
+            picker.classList.remove('open');
+            logo.setAttribute('aria-expanded', 'false');
+        });
+        picker.appendChild(swatch);
+    }
+    logo.disabled = !canChoose;
+}
+
+function _configureCommanderFactionHeader(forPlayer, { locked = false, nameOverride = null } = {}) {
+    _commanderHeaderFactionKey = forPlayer;
+    const ci = _forPlayerCampName(forPlayer);
+    const campName = document.getElementById('commanderCampName');
+    const logo = document.getElementById('commanderLogo');
+    const picker = document.getElementById('commanderColorPicker');
+    campName.textContent = nameOverride || ci.name;
+    campName.style.color = ci.color;
+    logo.style.setProperty('--camp-color', ci.color);
+    _ensureCommanderFlagPreview()?.setFaction(ci.faction);
+    picker.classList.remove('open');
+    logo.setAttribute('aria-expanded', 'false');
+    logo.onclick = () => {
+        if (logo.disabled) return;
+        const open = !picker.classList.contains('open');
+        picker.classList.toggle('open', open);
+        logo.setAttribute('aria-expanded', String(open));
+    };
+    _renderFactionColorPicker(forPlayer, locked);
+}
+
+function _assignAutomaticFactionColors() {
+    const used = new Set();
+    for (const key of ['player1', 'player2', 'player3']) {
+        const faction = gameState.factions?.[key];
+        if (!faction || faction.active === false) continue;
+        let colorId = faction.colorId;
+        if (used.has(colorId)) colorId = FACTION_PALETTE.find(entry => PLAYER_FACTION_COLOR_KEYS.includes(entry.id) && !used.has(entry.id))?.id || colorId;
+        setPlayerFactionColor(gameState, key, colorId);
+        gameState.factionColorSelections[key] = colorId;
+        used.add(colorId);
+    }
 }
 function _forPlayerPool(forPlayer) {
     if (forPlayer === 'player1') return gameState.commanderPoolP1;
@@ -952,11 +1068,19 @@ function beginNetworkCommanderFlow(role) {
     const wasSkirmish = gameState.skirmishFog;
     const wasDoubleCommanderMode = gameState.doubleCommanderMode;
     const wasMode = gameState.gameMode;
+    const wasColors = { ...(gameState.factionColorSelections || {}) };
+    const wasOrder = [...(gameState.turnOrder || [])];
+    const wasRolls = { ...(gameState.turnOrderRolls || {}) };
+    const wasAssignments = { ...(gameState.roleAssignments || {}) };
     resetGameState();
     gameState.isThreePlayer = wasThreePlayer;
     gameState.skirmishFog = wasSkirmish;
     gameState.doubleCommanderMode = wasDoubleCommanderMode;
     gameState.gameMode = wasMode;
+    configureSkirmishState({ playerCount: wasThreePlayer ? 3 : 2, colors: wasColors });
+    if (wasOrder.length) gameState.turnOrder = wasOrder;
+    gameState.turnOrderRolls = wasRolls;
+    if (Object.keys(wasAssignments).length) gameState.roleAssignments = wasAssignments;
     _commanderTransitioning = false;
     gameState.commanderPhase = 'selection';
 
@@ -989,16 +1113,11 @@ function _waitForNetworkPool(forPlayer) {
 
 function _showCommanderWaiting(forPlayer) {
     const overlay = document.getElementById('commanderOverlay');
-    const campName = document.getElementById('commanderCampName');
-    const logo = document.getElementById('commanderLogo');
     const cardsDiv = document.getElementById('commanderCards');
     const subtitle = document.getElementById('commanderSubtitle');
-    const ci = _forPlayerCampName(forPlayer);
 
     _commanderPending = null;
-    campName.textContent = `${ci.name}`;
-    campName.style.color = ci.color;
-    logo.style.setProperty('--camp-color', ci.color);
+    _configureCommanderFactionHeader(forPlayer, { locked: true });
     subtitle.textContent = 'AI 正在选择将领...';
     subtitle.style.color = '#aaa';
     cardsDiv.querySelectorAll('.commander-card').forEach(c => c.remove());
@@ -1033,20 +1152,15 @@ function _buildSkillHTML(cfg) {
 
 function _showTrainingCommanderSelection(forPlayer) {
     const overlay = document.getElementById('commanderOverlay');
-    const campName = document.getElementById('commanderCampName');
-    const logo = document.getElementById('commanderLogo');
     const cardsDiv = document.getElementById('commanderCards');
     const subtitle = document.getElementById('commanderSubtitle');
     const deckEl = document.getElementById('commanderDeck');
     const pool = Object.keys(COMMANDER_CONFIG);
-    const ci = _forPlayerCampName(forPlayer);
 
     _commanderPending = null;
     const _trainRerollBtn = document.getElementById('commanderRerollBtn');
     if (_trainRerollBtn) _trainRerollBtn.classList.remove('visible');
-    campName.textContent = '训练场';
-    campName.style.color = ci.color;
-    logo.style.setProperty('--camp-color', ci.color);
+    _configureCommanderFactionHeader(forPlayer, { nameOverride: '训练场' });
     subtitle.textContent = '点击将领预选，再次点击确认';
     subtitle.style.color = '#888';
     subtitle.style.opacity = '0';
@@ -1155,10 +1269,10 @@ function _showTrainingCommanderSelection(forPlayer) {
             });
         }, null, "+=");
     });
-    // 两阶段选将：先点一张卡选红军，再点另一张选蓝军
+    // 多席位依次选将；席位颜色由当前页面上的旗帜选择器决定。
     let _trainPhase = 'player1'; // 'player1' | 'player2'
-    subtitle.textContent = '请为红军选择将领';
-    subtitle.style.color = ci.color;
+    subtitle.textContent = `请为${_forPlayerCampName(_trainPhase).name}选择将领`;
+    subtitle.style.color = _forPlayerCampName(_trainPhase).color;
     cardsDiv.addEventListener('click', function _handler(e) {
         const cardEl = e.target.closest('.commander-card');
         if (!cardEl) return;
@@ -1182,27 +1296,29 @@ function _showTrainingCommanderSelection(forPlayer) {
                 : (_trainPhase === 'player2' && gameState.isThreePlayer ? 'player3' : null);
             if (nextPhase) {
                 cardEl.classList.remove('selected');
-                const campLabel = _trainPhase === 'player1' ? '红军' : _trainPhase === 'player2' ? '蓝军' : '绿军';
-                const campHex = _trainPhase === 'player1' ? '#cc4444' : _trainPhase === 'player2' ? '#4488cc' : '#44aa44';
+                const currentInfo = _forPlayerCampName(_trainPhase);
+                const campLabel = currentInfo.name;
+                const campHex = currentInfo.color;
                 cardEl.style.setProperty('--camp-color', campHex);
                 cardEl.style.setProperty('--camp-label', "'" + campLabel + "'");
                 cardEl.classList.add('camp-selected');
                 cardEl.style.pointerEvents = 'none';
-                const nextName = nextPhase === 'player2' ? '蓝军' : '绿军';
+                const nextName = _forPlayerCampName(nextPhase).name;
                 subtitle.textContent = `${campLabel}已选 ${cfg.name}，请为${nextName}选择将领`;
                 subtitle.style.color = '#4CAF50';
                 _trainPhase = nextPhase;
+                _configureCommanderFactionHeader(nextPhase, { nameOverride: '训练场' });
             } else {
                 const selectedNames = [
-                    `红军：${gameState.commanderP1}`,
-                    `蓝军：${gameState.commanderP2}`
+                    `${_forPlayerCampName('player1').name}：${gameState.commanderP1}`,
+                    `${_forPlayerCampName('player2').name}：${gameState.commanderP2}`
                 ];
-                if (gameState.isThreePlayer) selectedNames.push(`绿军：${gameState.commanderP3}`);
+                if (gameState.isThreePlayer) selectedNames.push(`${_forPlayerCampName('player3').name}：${gameState.commanderP3}`);
                 subtitle.textContent = selectedNames.join(' ／ ');
                 subtitle.style.color = '#4CAF50';
                 cardsDiv.querySelectorAll('.commander-card').forEach(c => c.style.pointerEvents = 'none');
                 setTimeout(() => {
-                    beginTrainingCountdown();
+                    _revealTurnOrder(beginTrainingCountdown);
                 }, 300);
                 cardsDiv.removeEventListener('click', _handler);
             }
@@ -1218,20 +1334,15 @@ function _showTrainingCommanderSelection(forPlayer) {
 
 function _showCommanderSelection(forPlayer) {
     const overlay = document.getElementById('commanderOverlay');
-    const campName = document.getElementById('commanderCampName');
-    const logo = document.getElementById('commanderLogo');
     const cardsDiv = document.getElementById('commanderCards');
     const subtitle = document.getElementById('commanderSubtitle');
     const deckEl = document.getElementById('commanderDeck');
     const pool = _forPlayerPool(forPlayer);
-    const ci = _forPlayerCampName(forPlayer);
     const rerollBtn = document.getElementById('commanderRerollBtn');
     if (rerollBtn) rerollBtn.classList.remove('visible', 'armed');
 
     _commanderPending = null;
-    campName.textContent = `${ci.name}`;
-    campName.style.color = ci.color;
-    logo.style.setProperty('--camp-color', ci.color);
+    _configureCommanderFactionHeader(forPlayer);
     subtitle.textContent = gameState.doubleCommanderMode
         ? '点击将领预选，再次点击确认；请选择 2 名将领'
         : '点击将领预选，再次点击确认';
@@ -1482,13 +1593,13 @@ function _rerollCommanders(forPlayer) {
 // 更新上方信息卡阵营徽章为将领透明底立绘
 function updateCampEmblems() {
     const camps = [
-        { id: 'emblemP1', cmdKey: gameState.commanderP1 || gameState.commanderP1Secondary, camp: CAMP.player1, textDefault: '红' },
-        { id: 'emblemP2', cmdKey: gameState.commanderP2 || gameState.commanderP2Secondary, camp: CAMP.player2, textDefault: '蓝' },
-        { id: 'emblemP3', cmdKey: gameState.commanderP3 || gameState.commanderP3Secondary, camp: CAMP.player3, textDefault: '绿' },
+        { id: 'emblemP1', cmdKey: gameState.commanderP1 || gameState.commanderP1Secondary, camp: campFromKey('player1', gameState) },
+        { id: 'emblemP2', cmdKey: gameState.commanderP2 || gameState.commanderP2Secondary, camp: campFromKey('player2', gameState) },
+        { id: 'emblemP3', cmdKey: gameState.commanderP3 || gameState.commanderP3Secondary, camp: campFromKey('player3', gameState) },
     ];
     const viewingCamp = gameState.skirmishFog ? getViewingCamp() : null;
 
-    for (const { id, cmdKey, camp, textDefault } of camps) {
+    for (const { id, cmdKey, camp } of camps) {
         const el = document.getElementById(id);
         if (!el) continue;
         const emblem = el.closest('.camp-emblem');
@@ -1513,7 +1624,7 @@ function updateCampEmblems() {
         el.src = '';
         el.classList.remove('iron-guard-crop');
         emblem.classList.remove('has-portrait');
-        if (textEl) textEl.textContent = hidden ? '?' : textDefault;
+        if (textEl) textEl.textContent = hidden ? '?' : (camp?.name?.[0] || '阵');
     }
 }
 
@@ -1539,10 +1650,12 @@ function _onCommanderSelected(forPlayer) {
             document.getElementById('commanderOverlay').classList.remove('show');
             gameState.commanderPhase = 'done';
             if (gameState.gameMode === 'training') {
-                beginTrainingCountdown();
+                _revealTurnOrder(beginTrainingCountdown);
             } else {
-                startGame();
-                _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
+                _revealTurnOrder(() => {
+                    startGame();
+                    _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
+                });
             }
             _commanderTransitioning = false;
         };
@@ -1568,8 +1681,8 @@ function _onCommanderSelected(forPlayer) {
             setTimeout(() => {
                 document.getElementById('commanderOverlay').classList.remove('show');
                 gameState.commanderPhase = 'done';
-                if (gameState.gameMode === 'training') beginTrainingCountdown();
-                else startGame();
+                if (gameState.gameMode === 'training') _revealTurnOrder(beginTrainingCountdown);
+                else _revealTurnOrder(startGame);
                 _commanderTransitioning = false;
             }, 800);
         }
@@ -1579,7 +1692,7 @@ function _onCommanderSelected(forPlayer) {
         setTimeout(() => {
             document.getElementById('commanderOverlay').classList.remove('show');
             gameState.commanderPhase = 'done';
-            startGame();
+            _revealTurnOrder(startGame);
             _commanderTransitioning = false;
         }, 800);
     }
@@ -1649,13 +1762,13 @@ function _checkBothConfirmed() {
         setTimeout(() => {
             document.getElementById('commanderOverlay').classList.remove('show');
             gameState.commanderPhase = 'done';
-            startGame();
+            _revealTurnOrder(startGame);
         }, 800);
     }
 }
 
 function _roleToCampInfo(role) {
-    const camp = roleToCamp(role);
+    const camp = getRoleCamp(gameState, role);
     if (!camp) return { name: '未知', color: '#888888' };
     return { name: camp.name, color: camp.color };
 }
@@ -1663,7 +1776,7 @@ function _roleToCampInfo(role) {
 let _deploymentStarted = false;
 let _opponentCount = 0;
 
-// 三人模式：显示绿军面板，蓝军卡统一左对齐（开局与重连恢复共用）
+// 三人模式：显示第三席位面板（开局与重连恢复共用）
 function applyTopbarLayout() {
     const camp3 = document.getElementById('campCard3');
     if (camp3) camp3.style.display = gameState.isThreePlayer ? '' : 'none';
@@ -1716,8 +1829,9 @@ function startGame() {
     updateCampEmblems();
     updateChatAvailability();
     initEmblemChatClicks();
-    gameState.currentCamp = CAMP.player1;
-    grantTurnStartIncome(CAMP.player1);
+    const firstCamp = campFromKey(gameState.turnOrder?.[0], gameState) || campFromKey('player1', gameState);
+    gameState.currentCamp = firstCamp;
+    grantTurnStartIncome(firstCamp);
     updateUI();
     updateButtonColors();
     renderGame();
@@ -1980,11 +2094,28 @@ function registerNetworkCallbacks() {
             reconnectBtn.style.display = '';
         },
 
-        onStart: (role, isThreePlayer, skirmishFog, doubleCommanderMode) => {
+        onStart: (role, isThreePlayer, skirmishFog, doubleCommanderMode, matchSeed, setup = {}) => {
             if (isThreePlayer !== undefined) gameState.isThreePlayer = isThreePlayer;
             if (skirmishFog !== undefined) gameState.skirmishFog = skirmishFog;
             if (doubleCommanderMode !== undefined) gameState.doubleCommanderMode = doubleCommanderMode;
+            configureSkirmishState({
+                playerCount: isThreePlayer ? 3 : 2,
+                colors: setup.factionColors || {},
+                controllers: { player1: 'human', player2: 'human', player3: 'human' }
+            });
+            if (Array.isArray(setup.turnOrder) && setup.turnOrder.length) gameState.turnOrder = [...setup.turnOrder];
+            gameState.turnOrderRolls = { ...(setup.turnOrderRolls || {}) };
+            gameState.roleAssignments = { ...(setup.roleAssignments || gameState.roleAssignments) };
             showFactionReveal(role);
+        },
+
+        onFactionColors: (colors) => {
+            for (const [key, colorId] of Object.entries(colors || {})) {
+                if (setPlayerFactionColor(gameState, key, colorId)) gameState.factionColorSelections[key] = colorId;
+            }
+            if (document.getElementById('commanderOverlay')?.classList.contains('show')) {
+                _configureCommanderFactionHeader(_commanderHeaderFactionKey);
+            }
         },
 
         onRemoteAction: handleRemoteAction,
@@ -2037,8 +2168,7 @@ function registerNetworkCallbacks() {
                 document.getElementById('gameWrapper').style.display = '';
                 document.getElementById('opponentTurnBanner').style.display = '';
                 document.getElementById('networkIndicator').style.display = 'flex';
-                document.getElementById('networkRoleText').textContent =
-                    role === 'player1' ? '红军' : role === 'player2' ? '蓝军' : '绿军';
+                document.getElementById('networkRoleText').textContent = roleToCamp(role)?.name || role;
                 updateChatAvailability();
                 setTimeout(() => {
                     const wrapper = document.getElementById('canvasWrapper');
@@ -2172,7 +2302,7 @@ function registerNetworkCallbacks() {
 // 中立回合接管：远端状态落在中立阵营且本机是驱动方（回合序最后一名存活玩家）时，
 // 由本机代理中立 AI。gameLogic 内部有 _turnProcessing/aiActing 互斥，重复调用安全。
 function _maybeResumeNeutralTurn() {
-    if (gameState.gameOver || gameState.currentCamp !== CAMP.neutral) return;
+    if (gameState.gameOver || campToKey(gameState.currentCamp) !== 'neutral') return;
     import('./gameLogic.js')
         .then(({ resumeNeutralTurnIfNeeded }) => resumeNeutralTurnIfNeeded())
         .catch(e => console.warn('Neutral resume error:', e));
@@ -2255,8 +2385,7 @@ async function handleRemoteAction(msg) {
                     const cc = e.capturedCity;
                     const cityTile = gameState.tileMap.get(`${cc.q},${cc.r}`);
                     if (cityTile && cc.campKey) {
-                        const campMap = { player1: CAMP.player1, player2: CAMP.player2, player3: CAMP.player3 };
-                        forceDistrictFade(cityTile, campMap[cc.campKey] || cityTile.camp);
+                        forceDistrictFade(cityTile, campFromKey(cc.campKey, gameState) || cityTile.camp);
                     }
                 }
                 if (e.cmdFx) {
@@ -2318,7 +2447,7 @@ async function handleRemoteAction(msg) {
                                 const dc = lt.unit.camp;
                                 const killed = lt.unit.applyDamage(e.dmg, { source: 'true' });
                                 if (killed) {
-                                    const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                                    const dck = campToKey(dc);
                                     gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
                                 }
                             }
@@ -2411,7 +2540,7 @@ async function handleRemoteAction(msg) {
                                         const dc = tile.unit.camp;
                                         const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
                                         if (killed) {
-                                            const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                                            const dck = campToKey(dc);
                                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
                                         }
                                     }
@@ -2462,9 +2591,9 @@ async function handleRemoteAction(msg) {
                                     const _isCmdR = !!dt.unit.commander;
                                     const killed = dt.unit.applyDamage(e.dmg, { source: 'ranged' });
                                     if (killed) {
-                                        const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                                        const dck = campToKey(dc);
                                         gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
-                                        const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && t.unit.camp !== CAMP.neutral && t.unit.hp > 0 ? t.unit : null), null);
+                                        const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && campToKey(t.unit.camp) !== 'neutral' && t.unit.hp > 0 ? t.unit : null), null);
                                         if (_colR) reapColonelKill(_colR, _isCmdR);
                                     }
                                 }
@@ -2490,9 +2619,9 @@ async function handleRemoteAction(msg) {
                                         const _isCmdR = !!tile.unit.commander;
                                         const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
                                         if (killed) {
-                                            const dck = dc === CAMP.player1 ? 'player1' : dc === CAMP.player2 ? 'player2' : dc === CAMP.player3 ? 'player3' : 'neutral';
+                                            const dck = campToKey(dc);
                                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
-                                            const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && t.unit.camp !== CAMP.neutral && t.unit.hp > 0 ? t.unit : null), null);
+                                            const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && campToKey(t.unit.camp) !== 'neutral' && t.unit.hp > 0 ? t.unit : null), null);
                                             if (_colR) reapColonelKill(_colR, _isCmdR);
                                         }
                                         gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });

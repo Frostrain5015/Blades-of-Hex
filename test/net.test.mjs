@@ -16,12 +16,7 @@ async function getMyRole(page) {
 async function getCurrentTurnRole(page) {
     return page.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
-        const { CAMP } = await import('/js/config.js');
-        const camp = gameState.currentCamp;
-        if (camp === CAMP.player1 || camp?.name === CAMP.player1.name) return 'player1';
-        if (camp === CAMP.player2 || camp?.name === CAMP.player2.name) return 'player2';
-        if (camp === CAMP.player3 || camp?.name === CAMP.player3.name) return 'player3';
-        return 'neutral';
+        return (await import('/js/network.js')).campToRole(gameState.currentCamp) || 'neutral';
     });
 }
 
@@ -45,14 +40,16 @@ async function ensureTurnFor(targetPage, otherPage) {
 async function probeReconnectActionButtons(page) {
     return page.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
-        const { CAMP, LOGICAL_W, LOGICAL_H } = await import('/js/config.js');
+        const { LOGICAL_W, LOGICAL_H } = await import('/js/config.js');
+        const { campToKey } = await import('/rules/camps.js');
         const net = await import('/js/network.js');
         const role = net.getMyRole();
-        const camp = role === 'player1' ? CAMP.player1 : role === 'player2' ? CAMP.player2 : role === 'player3' ? CAMP.player3 : null;
+        const camp = net.roleToCamp(role);
         if (!camp) return { ok: false, reason: 'no role' };
 
-        const sameCamp = (value, expected) => value === expected || value?.name === expected.name;
-        const tile = gameState.tiles.find(t => t.unit && sameCamp(t.unit.camp, camp) && (t.isCity || t.isVillage));
+        const tile = gameState.tiles.find(t => t.unit
+            && campToKey(t.unit.camp) === campToKey(camp)
+            && (t.isCity || t.isVillage));
         if (!tile || !tile.unit) return { ok: false, reason: 'no city unit' };
 
         const unit = tile.unit;
@@ -61,9 +58,11 @@ async function probeReconnectActionButtons(page) {
         unit.isNewRecruit = false;
         unit.activeSkillCD = 0;
         unit.activeSkillDur = 0;
+        unit._healingAura = 0;
         unit.hp = Math.max(1, unit.maxHp - 40);
         unit.displayHp = unit.hp;
         tile._reinforcedThisTurn = false;
+        gameState.playerGold[campToKey(unit.camp)] = 99;
 
         const canvas = document.getElementById('gameCanvas');
         const rect = canvas.getBoundingClientRect();
@@ -73,20 +72,24 @@ async function probeReconnectActionButtons(page) {
             clientY: rect.top + tile.y * (rect.height / LOGICAL_H),
         }));
 
-        const skillBtn = document.getElementById('tooltipActiveSkill');
-        const reinforceBtn = document.getElementById('tooltipReinforce');
+        const skillBtn = document.getElementById('boardActiveSkill');
+        const reinforceBtn = document.getElementById('boardReinforce');
+        const isUnavailable = button => !button
+            || button.classList.contains('is-disabled')
+            || button.getAttribute('aria-disabled') === 'true';
         const before = {
             ok: true,
             selected: gameState.selectedUnit?.id === unit.id,
-            skillVisible: skillBtn && skillBtn.style.display !== 'none',
-            skillDisabled: skillBtn ? skillBtn.disabled : true,
-            reinforceVisible: reinforceBtn && reinforceBtn.style.display !== 'none',
-            reinforceDisabled: reinforceBtn ? reinforceBtn.disabled : true,
+            skillVisible: !!skillBtn && skillBtn.offsetParent !== null,
+            skillDisabled: isUnavailable(skillBtn),
+            reinforceVisible: !!reinforceBtn && reinforceBtn.offsetParent !== null,
+            reinforceDisabled: isUnavailable(reinforceBtn),
         };
 
-        skillBtn?.click();
+        const activate = button => button?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        activate(skillBtn);
         const activeSkillCD = unit.activeSkillCD;
-        reinforceBtn?.click();
+        activate(document.getElementById('boardReinforce'));
 
         return {
             ...before,
@@ -149,7 +152,7 @@ export async function run(browser) {
     R.assert(sa.tiles > 0 && sb.tiles > 0 && sa.commanderP1 === sb.commanderP1 && sa.commanderP2 === sb.commanderP2,
         `双端开局一致（P1=${sa.commanderP1}，P2=${sa.commanderP2}）`);
 
-    // ── 确定双方实际角色（服务器随机分配，不假定 A=P1 / B=P2）──
+    // ── 确定双方稳定席位；阵营颜色和行动顺序与席位相互独立 ──
     const roleA = await getMyRole(A);
     const roleB = await getMyRole(B);
     const pageP1 = roleA === 'player1' ? A : B;
@@ -171,27 +174,31 @@ export async function run(browser) {
     R.assert(da.ok && db.ok, `双方部署将领（P1→${da.unit}，P2→${db.unit}）`);
     await sleep(1500);
 
-    // 双人联机回合顺序：P1 → P2 → 中立(AI自动过) → P1 → ...
-    // 每轮完整圈 = 两个玩家操作 + 中立过渡，turnCounter +2
+    const pageByRole = { [roleA]: A, [roleB]: B };
+    // 双人联机回合顺序由开局掷骰决定，随后经过中立 AI 回合形成完整一圈。
     for (let round = 1; round <= 2; round++) {
         const snap0 = await gameSnapshot(pageP1);
         const t0 = snap0.turnCounter;
-        console.log(`[test] Round ${round}: P1 turnCounter=${t0}, camp=${snap0.currentCamp}`);
+        const startingRole = await getCurrentTurnRole(pageP1);
+        console.log(`[test] Round ${round}: turnCounter=${t0}, role=${startingRole}, camp=${snap0.currentCamp}`);
 
-        // P1 结束回合 → P2 收到变化
-        await clickEndTurn(pageP1);
-        await waitFor(async () => {
-            const s = await gameSnapshot(pageP2);
-            return s.turnCounter > t0;
-        }, 25000, `P2 收到第 ${round} 轮回合`);
+        for (let action = 0; action < 2; action++) {
+            await waitFor(async () => pageByRole[await getCurrentTurnRole(pageP1)] != null,
+                40000, `第 ${round} 轮第 ${action + 1} 个玩家回合出现`);
+            const actingRole = await getCurrentTurnRole(pageP1);
+            const mover = pageByRole[actingRole];
+            const watcher = mover === A ? B : A;
+            const before = (await gameSnapshot(mover)).turnCounter;
+            await clickEndTurn(mover);
+            await waitFor(async () => (await gameSnapshot(watcher)).turnCounter > before,
+                25000, `${actingRole} 结束回合后双端同步`);
+        }
 
-        // P2 结束回合 → 游戏通过中立过渡回 P1
-        await clickEndTurn(pageP2);
-        // 等待完整一圈：P1 阵营重新成为当前回合方
+        // 中立 AI 自动结束后，应回到本轮起始玩家。
         await waitFor(async () => {
             const s = await gameSnapshot(pageP1);
-            return s.currentCamp === '红军' && s.turnCounter > t0 + 1;
-        }, 40000, `P1 重新开始回合（第 ${round} 轮完成）`);
+            return await getCurrentTurnRole(pageP1) === startingRole && s.turnCounter > t0 + 1;
+        }, 40000, `掷骰顺序完成第 ${round} 个完整轮转`);
         R.ok(`第 ${round} 轮回合轮转同步`);
     }
     const [ta, tb] = [(await gameSnapshot(pageP1)).turnCounter, (await gameSnapshot(pageP2)).turnCounter];
@@ -237,10 +244,7 @@ export async function run(browser) {
     const bSnap = await gameSnapshot(B);
     // B 重连了自己的角色；看 B 端 gameState.currentCamp 与角色匹配来确定是谁的回合
     const bRole = await getMyRole(B);
-    const camps = { player1: '红军', player2: '蓝军', player3: '绿军' };
-    // B 端角色在等待对手操作，就是对家在轮
-    const waitForCamp = bRole ? camps[bRole] : null;
-    const currentStarts = bSnap.currentCamp; // 谁该行动
+    // B 端角色在等待对手操作，就是对家在轮。
     const [aCanMove, bCanMove] = await Promise.all([A, B].map(page => page.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
         const network = await import('/js/network.js');

@@ -6,7 +6,7 @@ import { deepFreeze } from './freeze.js';
 import { percent, rangeText } from './format.js';
 import { EMOJI } from './symbols.js';
 import { UNIT_CONFIG } from './units.js';
-import { CAMP, campToKey } from './camps.js';
+import { campToKey } from './camps.js';
 import { getRoundIndex } from './turns.js';
 
 export const TACTICAL_CARD_DATA = (() => {
@@ -189,7 +189,8 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
         ...TACTICAL_CARD_DATA.commanderDeploy,
         execute(targetTile, gameState, helpers) {
             const unitCamp = targetTile.unit.camp;
-            const primaryKey = unitCamp === CAMP.player1 ? 'commanderP1' : unitCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+            const campKey = campToKey(unitCamp);
+            const primaryKey = campKey === 'player1' ? 'commanderP1' : campKey === 'player2' ? 'commanderP2' : 'commanderP3';
             const secondaryKey = `${primaryKey}Secondary`;
             const cmdKey = helpers.deployCommanderId || gameState[primaryKey];
             if (!cmdKey || targetTile.unit.commander) return { deployed: false, commander: cmdKey };

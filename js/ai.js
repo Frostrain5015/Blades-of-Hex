@@ -6,7 +6,7 @@ import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit, reinforceUnit,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction, recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
-import { CAMP, HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
+import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
 import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
 import { isNetworkGame } from './network.js';
 import { getCommander } from './commanderInterface.js';
@@ -85,11 +85,23 @@ function planEngineerAction(aiCamp) {
 
 // 创建 helpers（每次执行时刷新 weather 等动态值）
 function makeHelpers() {
-    return { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, weather: gameState.weather, isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState), CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD };
+    return {
+        getMovableTiles,
+        getAttackableTiles,
+        hexDistance,
+        HEX_NEIGHBORS,
+        CAMP: gameState.factions,
+        UNIT_CONFIG,
+        weather: gameState.weather,
+        isHostileFaction: (left, right) => isHostile(gameState, left, right),
+        isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState),
+        CARD_SYSTEM_CONFIG,
+        COLONEL_CARD_GOLD
+    };
 }
 
 async function deployAvailableCommanders(aiCamp) {
-    const prefix = aiCamp === CAMP.player1 ? 'commanderP1' : aiCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+    const prefix = campToKey(aiCamp) === 'player1' ? 'commanderP1' : campToKey(aiCamp) === 'player2' ? 'commanderP2' : 'commanderP3';
     const commanders = [
         { commanderId: gameState[prefix], deployedKey: `${prefix}Deployed` },
         { commanderId: gameState[`${prefix}Secondary`], deployedKey: `${prefix}SecondaryDeployed` }
@@ -240,7 +252,7 @@ async function _executeActionInner(action, aiCamp) {
             const unit = resolveUnit(action.unitId);
             if (!unit || !unit.tile || unit.commander) return;
             const myCamp = aiCamp;
-            const prefix = myCamp === CAMP.player1 ? 'commanderP1' : myCamp === CAMP.player2 ? 'commanderP2' : 'commanderP3';
+            const prefix = campToKey(myCamp) === 'player1' ? 'commanderP1' : campToKey(myCamp) === 'player2' ? 'commanderP2' : 'commanderP3';
             const cmdKey = action.commanderId || gameState[prefix];
             if (!cmdKey) return;
             const cmdCfg = getCommander(cmdKey);
@@ -345,7 +357,7 @@ export async function processNeutralTurn() {
     if (gameState.gameOver) return;
 
     gameState.aiActing = true;
-    const aiCamp = CAMP.neutral;
+    const aiCamp = gameState.factions.neutral;
     // 遭遇战迷雾：AI 也需要更新视野
     if (gameState.skirmishFog) updateFogOfWar(gameState, aiCamp);
     try {
@@ -368,7 +380,7 @@ export async function processNeutralTurn() {
         const emptyCities = gameState.tiles.filter(t =>
             t.isCity && !t.unit &&
             MY_DISTRICTS.has(t.districtId) &&
-            t.camp === CAMP.neutral
+            t.camp === aiCamp
         );
         for (const city of emptyCities) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;

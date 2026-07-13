@@ -2,7 +2,7 @@
 // 选将时替换牌库为3张空军卡，部署前禁用
 // 空军卡直接消耗金币；伤害以上校自身攻击力走标准管线（越强的上校空军越猛）
 // 雾天停飞
-import { CAMP } from '../rules/camps.js';
+import { campToKey } from '../rules/camps.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 const { definition: DEFINITION } = COMMANDER_CONFIG.colonel;
@@ -11,8 +11,7 @@ export default {
     ...DEFINITION,
 
     onDeploy(unit, gameState, helpers) {
-        const campKey = unit.camp === CAMP.player1 ? 'player1'
-            : unit.camp === CAMP.player2 ? 'player2' : 'player3';
+        const campKey = campToKey(unit.camp);
         if (!gameState._colonelDeployed) gameState._colonelDeployed = {};
         gameState._colonelDeployed[campKey] = true;
         // 部署后立即从共享牌堆发放3张常驻空军卡（手牌不足才补）

@@ -85,6 +85,7 @@ const MIME = {
     '.jpeg': 'image/jpeg',
     '.webp': 'image/webp',
     '.png':  'image/png',
+    '.svg':  'image/svg+xml',
     '.ico':  'image/x-icon',
     '.mp3':  'audio/mpeg',
     '.wav':  'audio/wav',
@@ -301,6 +302,65 @@ function createRoomAuthority() {
         state: null,
         matchSeed: crypto.randomBytes(4).readUInt32LE(0)
     };
+}
+
+const PLAYER_FACTION_COLORS = new Set(['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple']);
+const DEFAULT_ROLE_COLORS = { player1: 'red', player2: 'blue', player3: 'green' };
+
+function rollNetworkTurnOrder(roles) {
+    const histories = Object.fromEntries(roles.map(role => [role, []]));
+    let groups = [roles];
+    for (let round = 0; round < 12 && groups.some(group => group.length > 1); round++) {
+        const next = [];
+        for (const group of groups) {
+            if (group.length <= 1) { next.push(group); continue; }
+            const byRoll = new Map();
+            for (const role of group) {
+                const roll = crypto.randomInt(1, 7);
+                histories[role].push(roll);
+                if (!byRoll.has(roll)) byRoll.set(roll, []);
+                byRoll.get(roll).push(role);
+            }
+            for (const roll of [...byRoll.keys()].sort((a, b) => b - a)) next.push(byRoll.get(roll));
+        }
+        groups = next;
+    }
+    for (const group of groups) {
+        for (let i = group.length - 1; i > 0; i--) {
+            const j = crypto.randomInt(0, i + 1);
+            [group[i], group[j]] = [group[j], group[i]];
+        }
+    }
+    return { turnOrder: [...groups.flat(), 'neutral'], turnOrderRolls: histories };
+}
+
+function createNetworkMatchSetup(room) {
+    const roles = [...room.players.values()].map(info => info.role).sort();
+    const rolled = rollNetworkTurnOrder(roles);
+    room.turnOrder = rolled.turnOrder;
+    room.turnOrderRolls = rolled.turnOrderRolls;
+    room.roleAssignments = Object.fromEntries(roles.map(role => [role, role]));
+    room.factionColors = Object.fromEntries(roles.map(role => [role, room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]]));
+    return {
+        ...rolled,
+        roleAssignments: room.roleAssignments,
+        factionColors: room.factionColors
+    };
+}
+
+function snapshotMatchesRoomSetup(room, snapshot) {
+    const assignments = room.roleAssignments || {};
+    const snapshotAssignments = snapshot.roleAssignments || {};
+    const assignmentKeys = Object.keys(assignments);
+    if (Object.keys(snapshotAssignments).length !== assignmentKeys.length
+        || assignmentKeys.some(role => snapshotAssignments[role] !== assignments[role])) return false;
+    if (JSON.stringify(snapshot.turnOrder || []) !== JSON.stringify(room.turnOrder || [])) return false;
+    for (const [role, colorId] of Object.entries(room.factionColors || {})) {
+        if (!PLAYER_FACTION_COLORS.has(colorId)) return false;
+        const factionKey = assignments[role];
+        if (!factionKey || snapshot.factions?.[factionKey]?.colorId !== colorId) return false;
+    }
+    return true;
 }
 
 function sendAuthoritativeSnapshot(ws, room, reason) {
@@ -587,25 +647,19 @@ async function handleMessage(ws, rawData) {
                 room.gameStarted = true;
                 room.authority = createRoomAuthority();
                 const players = [...room.players.keys()];
-                const roles = room.maxPlayers === 3
-                    ? ['player1', 'player2', 'player3']
-                    : ['player1', 'player2'];
-                // 随机打乱角色
-                for (let i = roles.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [roles[i], roles[j]] = [roles[j], roles[i]];
-                }
+                const setup = createNetworkMatchSetup(room);
                 for (let i = 0; i < players.length; i++) {
-                    room.players.set(players[i], { ...room.players.get(players[i]), role: roles[i] });
+                    const role = room.players.get(players[i]).role;
                     sendJson(players[i], {
                         type: 'start',
                         protocolVersion: protocol.PROTOCOL_VERSION,
-                        role: roles[i],
+                        role,
                         isThreePlayer: room.maxPlayers === 3,
                         skirmishFog: room.skirmishFog || false,
                         doubleCommanderMode: room.doubleCommanderMode || false,
                         revision: room.authority.revision,
-                        matchSeed: room.authority.matchSeed
+                        matchSeed: room.authority.matchSeed,
+                        ...setup
                     });
                 }
                 console.log(`[房间 ${room.id}] ${room.maxPlayers}人准备完毕，游戏开始`);
@@ -617,30 +671,52 @@ async function handleMessage(ws, rawData) {
             const room = ws._room;
             if (!room) break;
             ws._rematchReady = true;
-            const other = [...room.players.keys()].find(p => p !== ws);
-            if (other) sendJson(other, { type: 'rematchPending' });
-            if (ws._rematchReady && other && other._rematchReady) {
-                ws._rematchReady = false;
-                other._rematchReady = false;
-                ws._ready = false;
-                other._ready = false;
+            const players = [...room.players.keys()];
+            for (const player of players) if (player !== ws) sendJson(player, { type: 'rematchPending' });
+            if (players.length === room.maxPlayers && players.every(player => player._rematchReady)) {
+                for (const player of players) {
+                    player._rematchReady = false;
+                    player._ready = false;
+                }
                 room.gameStarted = true;
                 room.authority = createRoomAuthority();
-                const roleA = Math.random() < 0.5 ? 'player1' : 'player2';
-                const roleB = roleA === 'player1' ? 'player2' : 'player1';
-                room.players.set(ws, { role: roleA });
-                room.players.set(other, { role: roleB });
-                sendJson(ws, { type: 'start', protocolVersion: protocol.PROTOCOL_VERSION, role: roleA, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false, revision: room.authority.revision, matchSeed: room.authority.matchSeed });
-                sendJson(other, { type: 'start', protocolVersion: protocol.PROTOCOL_VERSION, role: roleB, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false, revision: room.authority.revision, matchSeed: room.authority.matchSeed });
+                const setup = createNetworkMatchSetup(room);
+                for (const player of players) {
+                    sendJson(player, {
+                        type: 'start', protocolVersion: protocol.PROTOCOL_VERSION,
+                        role: room.players.get(player).role,
+                        isThreePlayer: room.maxPlayers === 3,
+                        skirmishFog: room.skirmishFog || false,
+                        doubleCommanderMode: room.doubleCommanderMode || false,
+                        revision: room.authority.revision,
+                        matchSeed: room.authority.matchSeed,
+                        ...setup
+                    });
+                }
                 console.log(`[房间 ${room.id}] 再来一局`);
             }
+            break;
+        }
+
+        case 'factionColor': {
+            const room = ws._room;
+            const role = room?.players.get(ws)?.role;
+            if (!room || !role || !PLAYER_FACTION_COLORS.has(msg.colorId)) break;
+            const occupied = Object.entries(room.factionColors || {}).some(([otherRole, color]) => otherRole !== role && color === msg.colorId);
+            if (occupied) {
+                sendJson(ws, { type: 'error', message: '该阵营色已被其他玩家选择' });
+                sendJson(ws, { type: 'factionColors', factionColors: room.factionColors || {} });
+                break;
+            }
+            room.factionColors = { ...(room.factionColors || {}), [role]: msg.colorId };
+            broadcastRoom(room, { type: 'factionColors', factionColors: room.factionColors });
             break;
         }
 
         case 'saveState': {
             const room = ws._room;
             if (!room || !room.gameStarted) break;
-            if (protocol.isValidSnapshot(msg.state) && !room.authority.state) {
+            if (protocol.isValidSnapshot(msg.state) && snapshotMatchesRoomSetup(room, msg.state) && !room.authority.state) {
                 room.authority.state = msg.state;
                 room._savedState = msg.state;
             }
@@ -672,8 +748,12 @@ async function handleMessage(ws, rawData) {
                 sendAuthoritativeSnapshot(ws, room, '操作已过期，已恢复服务端状态');
                 break;
             }
+            if (!snapshotMatchesRoomSetup(room, msg.state)) {
+                sendAuthoritativeSnapshot(ws, room, '阵营颜色、席位或行动顺序与房间设置不一致');
+                break;
+            }
             const senderRole = room.players.get(ws)?.role;
-            const expectedCamp = protocol.roleToCampKey(senderRole);
+            const expectedCamp = protocol.roleToCampKey(senderRole, authority.state || msg.state);
             if (!senderRole || !expectedCamp) {
                 sendAuthoritativeSnapshot(ws, room, '无效的玩家身份');
                 break;

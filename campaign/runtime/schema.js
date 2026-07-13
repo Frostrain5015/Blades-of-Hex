@@ -24,7 +24,7 @@ export { FACTION_COLOR_KEYS, FACTION_PALETTE, getFlagColors, getPaletteEntry, ge
 // 注意：动态阵营体系不再默认包含"中立"，完全交由作者排布。
 export const CAMP_KEYS = Object.freeze(['player1', 'player2', 'player3']);
 export const CAMP_LABELS = Object.freeze({
-    player1: '红军', player2: '蓝军', player3: '绿军'
+    player1: '第一阵营', player2: '第二阵营', player3: '第三阵营'
 });
 
 export const UNIT_TYPES = Object.freeze(Object.keys(UNIT_CONFIG));
@@ -135,7 +135,7 @@ export function createDefaultLevel() {
         intro: { campaignTitle: '将星列传', chapterTitle: '', scenarioSubtitle: '新关卡' },
         weather: 'clear',
         localPlayerCamp: 'player1',
-        factions: [{ id: 'player1', name: '红军', color: 'red', controller: 'human', participatesInTurns: true, active: true }],
+        factions: [{ id: 'player1', name: '第一阵营', color: 'red', controller: 'human', participatesInTurns: true, active: true }],
         turnOrder: ['player1'],
         diplomacy: {},
         mechanics: createDefaultMechanics(),

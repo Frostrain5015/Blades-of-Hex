@@ -1,4 +1,4 @@
-import { CAMP, LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE, getRound } from './config.js';
+import { LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE, getRound } from './config.js';
 import { computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
@@ -6,9 +6,9 @@ import { emit } from './eventBus.js';
 import { isTileVisible } from './fogOfWar.js';
 import {
     createMatchState, resetMatchState, createClientUiState, resetClientUiState,
-    serializeMatchState, restoreMatchState
+    serializeMatchState, restoreMatchState, configureStandardMatch
 } from '../engine/matchState.js';
-import { campFromKey, getFaction, getRelation, getViewingCampKey } from '../rules/diplomacy.js';
+import { campFromKey, getFaction, getRelation, getRoleCamp, getViewingCampKey } from '../rules/diplomacy.js';
 import { CAMP_FLAG_COLORS, getFlagColors } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
@@ -44,6 +44,12 @@ export function resetGameState() {
     resetClientUiState(gameState);
     // 清除计数器动画记忆
     for (const k of Object.keys(_counterStore)) delete _counterStore[k];
+}
+
+export function configureSkirmishState(options = {}) {
+    const factions = configureStandardMatch(gameState, options);
+    gameState.isThreePlayer = Number(options.playerCount) === 3;
+    return factions;
 }
 
 export function rebuildTileMap() {
@@ -97,19 +103,15 @@ function _campKeyStr(camp) {
 export function getViewingCamp() {
     if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey, gameState);
     if (isNetworkGame()) {
-        const role = getMyRole();
-        let camp = CAMP.player1;
-        if (role === 'player1') camp = CAMP.player1;
-        else if (role === 'player2') camp = CAMP.player2;
-        else if (role === 'player3') camp = CAMP.player3;
+        const camp = getRoleCamp(gameState, getMyRole()) || gameState.currentCamp;
         // 已投降/战败：切换为观战视角，揭示全图视野
-        if (gameState.surrenderedCamps.includes(camp)) return CAMP.neutral;
+        if (gameState.surrenderedCamps.includes(camp)) return campFromKey('neutral', gameState);
         return camp;
     }
     // PVE 模式人类固定观察己方（无论当前回合是谁）
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
-        const humanCamp = gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
-        if (gameState.surrenderedCamps.includes(humanCamp)) return CAMP.neutral;
+        const humanCamp = Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;
+        if (gameState.surrenderedCamps.includes(humanCamp)) return campFromKey('neutral', gameState);
         return humanCamp;
     }
     return gameState.currentCamp;
@@ -135,14 +137,10 @@ export function updateButtonColors() {
 function _getMyCamp() {
     if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey, gameState);
     if (isNetworkGame()) {
-        const role = getMyRole();
-        if (role === 'player1') return CAMP.player1;
-        if (role === 'player2') return CAMP.player2;
-        if (role === 'player3') return CAMP.player3;
-        return CAMP.player1;
+        return getRoleCamp(gameState, getMyRole()) || gameState.currentCamp;
     }
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
-        return gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
+        return Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;
     }
     return gameState.currentCamp;
 }
@@ -150,7 +148,7 @@ function _getMyCamp() {
 function _getHumanCamp() {
     if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey, gameState);
     if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
-        return gameState.aiOpponentCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
+        return Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;
     }
     return gameState.currentCamp;
 }
@@ -270,7 +268,7 @@ export function updateUI() {
     const turnEl = document.getElementById('currentTurn');
     const currentFaction = getFaction(gameState, gameState.currentCamp);
     turnEl.textContent = currentFaction?.name || gameState.currentCamp.name;
-    const turnFlag = getFlagColors(gameState.currentCamp?.color);
+    const turnFlag = getFlagColors(currentFaction?.colorId || currentFaction?.color);
     if (typeof gsap !== 'undefined') {
         gsap.to(turnEl, { color: turnFlag.main, duration: 0.35 });
     } else {
@@ -319,7 +317,7 @@ export function updateUI() {
                 if (levelEl) levelEl.textContent = gameState.scenarioDisplayId || gameState.scenarioId || '';
             }
         } else {
-            card.style.display = faction.active && key !== 'player3' || gameState.isThreePlayer ? '' : 'none';
+            card.style.display = faction.active && (key !== 'player3' || gameState.isThreePlayer) ? '' : 'none';
         }
     }
     const campaignGoldKey = gameState.campaignMode ? getViewingCampKey(gameState) : 'player1';
@@ -397,7 +395,7 @@ export function updateUI() {
     const gold1Previous = gameState.previousGold[campaignGoldKey] ?? -1;
     if (newGold1 !== gold1Previous) {
         const delta1 = newGold1 - gold1Previous;
-        const fogHide1 = (gameState.skirmishFog && getViewingCamp() !== CAMP.player1)
+        const fogHide1 = (gameState.skirmishFog && campToKey(getViewingCamp()) !== campaignGoldKey)
             || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), campaignGoldKey) === 'enemy');
         if (gold1El) animateCounter(gold1El, fogHide1 ? -1 : newGold1, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide1 && gold1El && typeof gsap !== 'undefined') {
@@ -409,7 +407,7 @@ export function updateUI() {
     }
     if (newGold2 !== gameState.previousGold.player2) {
         const delta2 = newGold2 - gameState.previousGold.player2;
-        const fogHide2 = (gameState.skirmishFog && getViewingCamp() !== CAMP.player2)
+        const fogHide2 = (gameState.skirmishFog && campToKey(getViewingCamp()) !== 'player2')
             || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player2') === 'enemy');
         if (gold2El) animateCounter(gold2El, fogHide2 ? -1 : newGold2, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide2 && gold2El && typeof gsap !== 'undefined') {
@@ -421,7 +419,7 @@ export function updateUI() {
     }
     if (newGold3 !== gameState.previousGold.player3) {
         const delta3 = newGold3 - gameState.previousGold.player3;
-        const fogHide3 = (gameState.skirmishFog && getViewingCamp() !== CAMP.player3)
+        const fogHide3 = (gameState.skirmishFog && campToKey(getViewingCamp()) !== 'player3')
             || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player3') === 'enemy');
         if (gold3El) animateCounter(gold3El, fogHide3 ? -1 : newGold3, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide3 && gold3El && typeof gsap !== 'undefined') {
@@ -483,7 +481,7 @@ export function finalizeDeployment() {
     notify('游戏开始', 'info');
     // 联机：广播部署完成
     if (isNetworkGame()) sendAction('deployDone', serializeState());
-    gameState.currentCamp = CAMP.player1;
+    gameState.currentCamp = campFromKey(gameState.turnOrder?.[0], gameState) || gameState.currentCamp;
     for (const tile of gameState.tiles) {
         if (tile.unit && tile.unit.commander) {
             tile.unit.canAct = true;
@@ -497,7 +495,10 @@ export function finalizeDeployment() {
     });
     // 强制UI刷新
     const turnEl = document.getElementById('currentTurn');
-    if (turnEl) { turnEl.textContent = '红军'; turnEl.style.color = '#ffaaaa'; }
+    if (turnEl) {
+        turnEl.textContent = gameState.currentCamp?.name || '行动方';
+        turnEl.style.color = gameState.currentCamp?.color || '#ffffff';
+    }
     updateButtonColors();
     updateUI();
     notify('双方将领已部署，战斗开始！');

@@ -1,4 +1,4 @@
-﻿import { CAMP, UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
+﻿import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { campToKey } from '../rules/camps.js';
 import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
@@ -34,7 +34,7 @@ import { COMBAT_BALANCE } from '../rules/constants.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
 import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
-import { campFromKey, getFactionKeys } from '../rules/diplomacy.js';
+import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 
 // ===== 联机广播 =====================
@@ -342,12 +342,12 @@ export function initMap() {
 
     // 遭遇战迷雾：初始化（支持联机遭遇战与 PVE 遭遇战）
     if (gameState.skirmishFog) {
-        updateFogOfWar(gameState, CAMP.player1);
-        updateFogOfWar(gameState, CAMP.player2);
-        if (is3P) updateFogOfWar(gameState, CAMP.player3);
+        for (const key of (gameState.turnOrder || []).filter(key => key !== 'neutral')) {
+            updateFogOfWar(gameState, campFromKey(key, gameState));
+        }
     }
 
-    logMessage(is3P ? '三人模式开始，红军先手' : '游戏开始，红军先手');
+    logMessage(`${is3P ? '三人模式' : '游戏'}开始，${gameState.factions?.[gameState.turnOrder?.[0]]?.name || '首个阵营'}先手`);
 
     // 绑定按钮事件（仅首次，避免重开时重复绑定）
     _bindGameButtons();
@@ -477,77 +477,75 @@ function initInitialUnits() {
     const map = gameState.tileMap;
     function spawn(type, camp, q, r) {
         const tile = map.get(`${q},${r}`);
-        if (tile && !tile.unit) new Unit(type, camp, tile, false);
+        const runtimeCamp = campFromKey(campToKey(camp), gameState);
+        if (tile && !tile.unit) new Unit(type, runtimeCamp, tile, false);
     }
     if (gameState.isThreePlayer) {
-        // 红军
-        spawn('infantry', CAMP.player1, -3, -3);
-        spawn('infantry', CAMP.player1, 3, -6);
-        spawn('infantry', CAMP.player1, 2, -6);
-        spawn('infantry', CAMP.player1, -2, -4);
-        spawn('archer',   CAMP.player1, -3, -4);
-        spawn('archer',   CAMP.player1, 3, -7);
-        spawn('cavalry',  CAMP.player1, 2, -5);
-        spawn('cavalry',  CAMP.player1, -2, -3);
-        // 蓝军
-        spawn('infantry', CAMP.player2, -6, 3);
-        spawn('infantry', CAMP.player2, -3, 6);
-        spawn('infantry', CAMP.player2, -2, 6);
-        spawn('infantry', CAMP.player2, -6, 4);
-        spawn('archer',   CAMP.player2, -7, 4);
-        spawn('archer',   CAMP.player2, -3, 7);
-        spawn('cavalry',  CAMP.player2, -5, 3);
-        spawn('cavalry',  CAMP.player2, -2, 5);
-        // 绿军
-        spawn('infantry', CAMP.player3, 3, 3);
-        spawn('infantry', CAMP.player3, 6, -3);
-        spawn('infantry', CAMP.player3, 6, -2);
-        spawn('infantry', CAMP.player3, 4, 2);
-        spawn('archer',   CAMP.player3, 4, 3);
-        spawn('archer',   CAMP.player3, 7, -3);
-        spawn('cavalry',  CAMP.player3, 3, 2);
-        spawn('cavalry',  CAMP.player3, 5, -2);
+        // 三个稳定席位的初始部署；外观颜色由运行时阵营配置决定。
+        spawn('infantry', 'player1', -3, -3);
+        spawn('infantry', 'player1', 3, -6);
+        spawn('infantry', 'player1', 2, -6);
+        spawn('infantry', 'player1', -2, -4);
+        spawn('archer',   'player1', -3, -4);
+        spawn('archer',   'player1', 3, -7);
+        spawn('cavalry',  'player1', 2, -5);
+        spawn('cavalry',  'player1', -2, -3);
+        spawn('infantry', 'player2', -6, 3);
+        spawn('infantry', 'player2', -3, 6);
+        spawn('infantry', 'player2', -2, 6);
+        spawn('infantry', 'player2', -6, 4);
+        spawn('archer',   'player2', -7, 4);
+        spawn('archer',   'player2', -3, 7);
+        spawn('cavalry',  'player2', -5, 3);
+        spawn('cavalry',  'player2', -2, 5);
+        spawn('infantry', 'player3', 3, 3);
+        spawn('infantry', 'player3', 6, -3);
+        spawn('infantry', 'player3', 6, -2);
+        spawn('infantry', 'player3', 4, 2);
+        spawn('archer',   'player3', 4, 3);
+        spawn('archer',   'player3', 7, -3);
+        spawn('cavalry',  'player3', 3, 2);
+        spawn('cavalry',  'player3', 5, -2);
         // 中立
-        spawn('infantry', CAMP.neutral, 0, 0);
-        spawn('infantry', CAMP.neutral, 2, -2);
-        spawn('infantry', CAMP.neutral, 0, 2);
-        spawn('infantry', CAMP.neutral, -2, 0);
-        spawn('archer',   CAMP.neutral, 0, -1);
-        spawn('cavalry',  CAMP.neutral, -1, 1);
-        spawn('cavalry',  CAMP.neutral, 1, 0);
+        spawn('infantry', 'neutral', 0, 0);
+        spawn('infantry', 'neutral', 2, -2);
+        spawn('infantry', 'neutral', 0, 2);
+        spawn('infantry', 'neutral', -2, 0);
+        spawn('archer',   'neutral', 0, -1);
+        spawn('cavalry',  'neutral', -1, 1);
+        spawn('cavalry',  'neutral', 1, 0);
     } else {
-        // 红军
-        spawn('infantry', CAMP.player1, -5, 0);
-        spawn('infantry', CAMP.player1, -4, 0);
-        spawn('infantry', CAMP.player1, -6, 3);
-        spawn('infantry', CAMP.player1, -3, -3);
-        spawn('cavalry',  CAMP.player1, -4, -1);
-        spawn('cavalry',  CAMP.player1, -5, 1);
-        spawn('archer',   CAMP.player1, -5, -1);
-        spawn('archer',   CAMP.player1, -6, 1);
+        // 双方席位的镜像部署；席位不再暗含阵营色。
+        spawn('infantry', 'player1', -5, 0);
+        spawn('infantry', 'player1', -4, 0);
+        spawn('infantry', 'player1', -6, 3);
+        spawn('infantry', 'player1', -3, -3);
+        spawn('cavalry',  'player1', -4, -1);
+        spawn('cavalry',  'player1', -5, 1);
+        spawn('archer',   'player1', -5, -1);
+        spawn('archer',   'player1', -6, 1);
 
-        // 蓝军（镜像对称）
-        spawn('infantry', CAMP.player2, 5, 0);
-        spawn('infantry', CAMP.player2, 4, 0);
-        spawn('infantry', CAMP.player2, 6, -3);
-        spawn('infantry', CAMP.player2, 3, 3);
-        spawn('cavalry',  CAMP.player2, 5, -1);
-        spawn('cavalry',  CAMP.player2, 4, 1);
-        spawn('archer',   CAMP.player2, 6, -1);
-        spawn('archer',   CAMP.player2, 5, 1);
+        spawn('infantry', 'player2', 5, 0);
+        spawn('infantry', 'player2', 4, 0);
+        spawn('infantry', 'player2', 6, -3);
+        spawn('infantry', 'player2', 3, 3);
+        spawn('cavalry',  'player2', 5, -1);
+        spawn('cavalry',  'player2', 4, 1);
+        spawn('archer',   'player2', 6, -1);
+        spawn('archer',   'player2', 5, 1);
 
         // 中立
-        spawn('infantry', CAMP.neutral, 0, 0);
-        spawn('infantry', CAMP.neutral, 2, -4);
-        spawn('infantry', CAMP.neutral, -2, 4);
-        spawn('infantry', CAMP.neutral, 2, -5);
-        spawn('infantry', CAMP.neutral, -2, 5);
-        spawn('infantry', CAMP.neutral, 1, 1);
-        spawn('infantry', CAMP.neutral, -1, -1);
-        spawn('archer',   CAMP.neutral, 3, -5);
-        spawn('archer',   CAMP.neutral, -3, 5);
-        spawn('cavalry',  CAMP.neutral, -2, 1);
-        spawn('cavalry',  CAMP.neutral, 2, -1);
+        spawn('infantry', 'neutral', 0, 0);
+        spawn('infantry', 'neutral', 2, -4);
+        spawn('infantry', 'neutral', -2, 4);
+        spawn('infantry', 'neutral', 2, -5);
+        spawn('infantry', 'neutral', -2, 5);
+        spawn('infantry', 'neutral', 1, 1);
+        spawn('infantry', 'neutral', -1, -1);
+        spawn('archer',   'neutral', 3, -5);
+        spawn('archer',   'neutral', -3, 5);
+        spawn('cavalry',  'neutral', -2, 1);
+        spawn('cavalry',  'neutral', 2, -1);
     }
 }
 
@@ -560,17 +558,10 @@ function _campKey(camp) {
 }
 
 function _updateSkirmishFogAll() {
-    if (gameState.campaignMode) {
-        for (const key of getFactionKeys(gameState)) {
-            const faction = gameState.factions[key];
-            if (key !== 'neutral' && faction?.active !== false) updateFogOfWar(gameState, campFromKey(key, gameState));
-        }
-        if (_onFogUpdated) _onFogUpdated();
-        return;
+    for (const key of getFactionKeys(gameState)) {
+        const faction = gameState.factions[key];
+        if (key !== 'neutral' && faction?.active !== false) updateFogOfWar(gameState, campFromKey(key, gameState));
     }
-    updateFogOfWar(gameState, CAMP.player1);
-    updateFogOfWar(gameState, CAMP.player2);
-    if (gameState.isThreePlayer) updateFogOfWar(gameState, CAMP.player3);
     if (_onFogUpdated) _onFogUpdated();
 }
 
@@ -596,51 +587,21 @@ function _showTurnTransition(camp) {
 
 // 三人模式中跳过已投降阵营，切换到下一个活跃阵营
 function _skipToNextActiveCamp(fromCamp) {
-    const order = [CAMP.player1, CAMP.player2, CAMP.player3, CAMP.neutral];
-    const idx = order.indexOf(fromCamp);
-    for (let i = 1; i <= 4; i++) {
-        const next = order[(idx + i) % 4];
-        if (!gameState.surrenderedCamps.includes(next)) {
-            gameState.currentCamp = next;
-            return;
-        }
-    }
+    gameState.currentCamp = _nextActiveCamp(fromCamp);
 }
 
 // 获取下一个未投降的阵营（用于回合轮转）
 function _nextActiveCamp(camp) {
-    if (gameState.campaignMode && gameState.factions) {
-        const order = gameState.turnOrder?.length ? gameState.turnOrder : getFactionKeys(gameState)
-            .filter(key => gameState.factions[key]?.active !== false && gameState.factions[key]?.participatesInTurns !== false);
-        const idx = order.indexOf(_campKey(camp));
-        for (let i = 1; i <= order.length; i++) {
-            const key = order[((idx < 0 ? 0 : idx) + i) % order.length];
-            const faction = gameState.factions[key];
-            const next = campFromKey(key, gameState);
-            if (faction?.active !== false && faction?.participatesInTurns !== false && !gameState.surrenderedCamps.includes(next)) return next;
-        }
-        return camp;
+    const order = gameState.turnOrder?.length ? gameState.turnOrder : getFactionKeys(gameState)
+        .filter(key => gameState.factions[key]?.active !== false && gameState.factions[key]?.participatesInTurns !== false);
+    const idx = order.indexOf(_campKey(camp));
+    for (let i = 1; i <= order.length; i++) {
+        const key = order[((idx < 0 ? -1 : idx) + i) % order.length];
+        const faction = gameState.factions[key];
+        const next = campFromKey(key, gameState);
+        if (faction?.active !== false && faction?.participatesInTurns !== false && !gameState.surrenderedCamps.includes(next)) return next;
     }
-    if (!gameState.isThreePlayer || gameState.surrenderedCamps.length === 0) {
-        // 双人模式或无人投降，使用原有逻辑
-        if (gameState.isThreePlayer) {
-            if (camp === CAMP.player1) return CAMP.player2;
-            if (camp === CAMP.player2) return CAMP.player3;
-            if (camp === CAMP.player3) return CAMP.neutral;
-            return CAMP.player1;
-        }
-        if (camp === CAMP.player1) return CAMP.player2;
-        if (camp === CAMP.player2) return CAMP.neutral;
-        return CAMP.player1;
-    }
-    // 三人模式有玩家已投降：跳过已投降阵营
-    const order = [CAMP.player1, CAMP.player2, CAMP.player3, CAMP.neutral];
-    const idx = order.indexOf(camp);
-    for (let i = 1; i <= 4; i++) {
-        const next = order[(idx + i) % 4];
-        if (!gameState.surrenderedCamps.includes(next)) return next;
-    }
-    return CAMP.player1; // 不应到达
+    return camp;
 }
 
 function _updateWeather() {
@@ -788,7 +749,7 @@ export function grantTurnStartIncome(camp) {
             beneficiaryCamp = vTile.unit.camp;
         } else {
             const cityTile = gameState.tiles.find(t => t.isCity && t.districtId === v.districtId);
-            beneficiaryCamp = cityTile ? cityTile.camp : CAMP.neutral;
+            beneficiaryCamp = cityTile ? cityTile.camp : campFromKey('neutral', gameState);
         }
         if (beneficiaryCamp !== camp) continue;
         const idx = _villageCounts.get(beneficiaryCamp) || 0;
@@ -918,9 +879,7 @@ async function _doEndTurnPhase() {
     }
     // 新回合（P1开始）→ 限时效果到期检查
     // 天气在新回合开始时更新
-    const isRoundAnchor = gameState.campaignMode
-        ? _campKey(gameState.currentCamp) === (gameState.turnOrder?.[0] || gameState.localPlayerCampKey)
-        : gameState.currentCamp === CAMP.player1;
+    const isRoundAnchor = _campKey(gameState.currentCamp) === (gameState.turnOrder?.[0] || gameState.localPlayerCampKey);
     if (isRoundAnchor) {
         checkTurnLimitVictory();
         if (gameState.gameOver) {
@@ -936,16 +895,13 @@ async function _doEndTurnPhase() {
         // 每5回合：全员免费对策卡（第5/10/15…回合发放）
         const roundNum = getRound(gameState);  // 1-indexed 回合数
         if (roundNum % 5 === 0 && gameState.cardDrawPile.length > 0) {
-            const cardRecipients = gameState.campaignMode
-                ? (gameState.turnOrder || []).filter(key => key !== 'neutral')
-                : ['player1', 'player2', 'player3'];
+            const cardRecipients = (gameState.turnOrder || []).filter(key => key !== 'neutral');
             for (const key of cardRecipients) {
                 const h = gameState.playerHands[key];
                 // E3 纵横家合纵：手牌上限覆盖
                 const hBonus = (gameState._cardOverrides && gameState._cardOverrides[key]) ? gameState._cardOverrides[key].handSizeBonus || 0 : 0;
                 if (!h || h.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
                 if (gameState.cardDrawPile.length === 0) break;
-                if (!gameState.campaignMode && key === 'player3' && !gameState.isThreePlayer) continue;
                 const card = gameState.cardDrawPile.pop();
                 h.push(card);
                 const cfg = TACTICAL_CARD_CONFIG[card];
@@ -1088,10 +1044,11 @@ export async function runCampaignOpeningTurn() {
 // 中立 AI 回合（Claude 防御型人格）：执行 AI 行动后推进回合。
 // 调用方负责 _turnProcessing 互斥（endTurn 链 / resumeNeutralTurnIfNeeded）。
 async function _processNeutralTurn(isLocalSkirmish) {
-    const neutUnits = gameState.tiles.filter(t => t.unit && t.unit.camp === CAMP.neutral);
+    const neutralCamp = campFromKey('neutral', gameState);
+    const neutUnits = gameState.tiles.filter(t => t.unit && t.unit.camp === neutralCamp);
     const hasNeutralUnits = neutUnits.some(t => t.unit.canAct);
-    const hasNeutralCities = gameState.tiles.some(t => t.isCity && t.camp === CAMP.neutral && !t.unit);
-    console.warn('[neutral] units:', neutUnits.length, 'canAct:', neutUnits.filter(t=>t.unit.canAct).length, 'cities:', gameState.tiles.filter(t=>t.isCity&&t.camp===CAMP.neutral).length, 'emptyCities:', gameState.tiles.filter(t=>t.isCity&&t.camp===CAMP.neutral&&!t.unit).length);
+    const hasNeutralCities = gameState.tiles.some(t => t.isCity && t.camp === neutralCamp && !t.unit);
+    console.warn('[neutral] units:', neutUnits.length, 'canAct:', neutUnits.filter(t=>t.unit.canAct).length, 'cities:', gameState.tiles.filter(t=>t.isCity&&t.camp===neutralCamp).length, 'emptyCities:', gameState.tiles.filter(t=>t.isCity&&t.camp===neutralCamp&&!t.unit).length);
     if (hasNeutralUnits || hasNeutralCities) {
         // 遭遇战热座：中立 AI 回合也遮罩，防止两边玩家偷看
         let neutralOverlay = null;
@@ -1135,10 +1092,10 @@ async function _processNeutralTurn(isLocalSkirmish) {
 // 由回合序上最后一名存活玩家的客户端代理执行（与服务器校验规则一致）。
 function _isNeutralDriverClient() {
     if (!isNetworkGame()) return true;
-    const surrenderedKeys = gameState.surrenderedCamps.map(c =>
-        c === CAMP.player1 ? 'p1' : c === CAMP.player2 ? 'p2' : 'p3');
+    const surrenderedKeys = gameState.surrenderedCamps.map(_campKey);
     return getMyRole() === neutralDriverRole({
-        isThreePlayer: gameState.isThreePlayer,
+        turnOrder: gameState.turnOrder,
+        roleAssignments: gameState.roleAssignments,
         surrenderedCampKeys: surrenderedKeys
     });
 }
@@ -1148,7 +1105,7 @@ function _isNeutralDriverClient() {
 // 由 _turnProcessing / aiActing / _neutralAiLock 三重互斥防止与 endTurn 链并跑。
 export async function resumeNeutralTurnIfNeeded() {
     if (gameState.gameOver || _turnProcessing) return;
-    if (gameState.currentCamp !== CAMP.neutral) return;
+    if (_campKey(gameState.currentCamp) !== 'neutral') return;
     if (gameState.aiActing || _neutralAiLock) return;
     if (!_isNeutralDriverClient()) return;
     _turnProcessing = true;
@@ -1910,69 +1867,44 @@ function checkVictory() {
     if (gameState.gameOver) return;
     // 战役由 ObjectiveManager/关卡控制器裁决，常规行政区歼灭不能提前截断剧情阶段。
     if (gameState.campaignMode) return;
+    const playerKeys = (gameState.turnOrder || Object.keys(gameState.factions || {})).filter(key => key !== 'neutral');
+    const districtMap = new Map(playerKeys.map(key => [key, new Set()]));
+    for (const tile of gameState.tiles) districtMap.get(_campKey(tile.camp))?.add(tile.districtId);
+    const neutral = campFromKey('neutral', gameState);
 
-    const player1Districts = new Set();
-    const player2Districts = new Set();
-    const player3Districts = new Set();
-
-    gameState.tiles.forEach(tile => {
-        if (tile.camp === CAMP.player1) {
-            player1Districts.add(tile.districtId);
-        } else if (tile.camp === CAMP.player2) {
-            player2Districts.add(tile.districtId);
-        } else if (tile.camp === CAMP.player3) {
-            player3Districts.add(tile.districtId);
-        }
-    });
-
-    if (gameState.isThreePlayer) {
-        // 三人模式：失去所有行政区即淘汰
-        const districtMap = new Map([
-            [CAMP.player1, player1Districts],
-            [CAMP.player2, player2Districts],
-            [CAMP.player3, player3Districts]
-        ]);
-        // 检测新被淘汰的玩家（尚未在 surrenderedCamps 中）
-        for (const camp of [CAMP.player1, CAMP.player2, CAMP.player3]) {
-            if (districtMap.get(camp).size === 0 && !gameState.surrenderedCamps.includes(camp)) {
-                gameState.surrenderedCamps.push(camp);
-                // 剩余部队移交中立AI
-                let remainingUnits = 0;
-                for (const tile of gameState.tiles) {
-                    if (tile.unit && tile.unit.camp === camp) {
-                        tile.unit.camp = CAMP.neutral;
-                        remainingUnits++;
-                    }
-                }
-                logMessage(`${camp.name}失去所有行政区，已被淘汰！剩余${remainingUnits}支部队移交中立AI`);
-                notify(`${camp.name}已战败`, 'info');
+    if (playerKeys.length > 2) {
+        for (const key of playerKeys) {
+            const camp = campFromKey(key, gameState);
+            if (districtMap.get(key).size !== 0 || gameState.surrenderedCamps.includes(camp)) continue;
+            gameState.surrenderedCamps.push(camp);
+            let remainingUnits = 0;
+            for (const tile of gameState.tiles) {
+                if (tile.unit?.camp !== camp) continue;
+                tile.unit.camp = neutral;
+                remainingUnits++;
             }
+            logMessage(`${camp.name}失去所有行政区，已被淘汰！剩余${remainingUnits}支部队移交中立AI`);
+            notify(`${camp.name}已战败`, 'info');
         }
-        // 最后幸存者胜利
-        const alive = [];
-        if (player1Districts.size > 0) alive.push(CAMP.player1);
-        if (player2Districts.size > 0) alive.push(CAMP.player2);
-        if (player3Districts.size > 0) alive.push(CAMP.player3);
+        const alive = playerKeys.filter(key => districtMap.get(key).size > 0).map(key => campFromKey(key, gameState));
         if (alive.length <= 1) {
             gameState.gameOver = true;
-            gameState.victoryCamp = alive.length === 1 ? alive[0] : CAMP.neutral;
-            const winnerName = alive.length === 1 ? alive[0].name : '中立';
-            logMessage(`${winnerName}获得最终胜利`);
+            gameState.victoryCamp = alive[0] || neutral;
+            logMessage(`${gameState.victoryCamp.name}获得最终胜利`);
             setTimeout(() => triggerVictoryEffect(), 1500);
         }
-    } else {
-        if (player1Districts.size === 0) {
-            gameState.gameOver = true;
-            gameState.victoryCamp = CAMP.player2;
-            logMessage('红军失去所有行政区，蓝军胜利');
-            if (!gameState._trainingMode) setTimeout(() => triggerVictoryEffect(), 1500);
-        } else if (player2Districts.size === 0) {
-            gameState.gameOver = true;
-            gameState.victoryCamp = CAMP.player1;
-            logMessage('蓝军失去所有行政区，红军胜利');
-            if (!gameState._trainingMode) setTimeout(() => triggerVictoryEffect(), 1500);
-        }
+        return;
     }
+
+    const defeatedKey = playerKeys.find(key => districtMap.get(key).size === 0);
+    if (!defeatedKey) return;
+    const winnerKey = playerKeys.find(key => key !== defeatedKey);
+    const defeated = campFromKey(defeatedKey, gameState);
+    const winner = campFromKey(winnerKey, gameState);
+    gameState.gameOver = true;
+    gameState.victoryCamp = winner;
+    logMessage(`${defeated.name}失去所有行政区，${winner.name}胜利`);
+    if (!gameState._trainingMode) setTimeout(() => triggerVictoryEffect(), 1500);
 }
 
 // ===== 回合限制胜利检测 =====================
@@ -1987,15 +1919,15 @@ function checkTurnLimitVictory() {
     // 统计各非中立阵营控制的城市数
     const cityCounts = {};
     for (const tile of gameState.tiles) {
-        if (tile.isCity && tile.camp !== CAMP.neutral) {
+        if (tile.isCity && _campKey(tile.camp) !== 'neutral') {
             const key = _campKey(tile.camp);
             cityCounts[key] = (cityCounts[key] || 0) + 1;
         }
     }
 
-    const players = gameState.isThreePlayer
-        ? [CAMP.player1, CAMP.player2, CAMP.player3].filter(c => !gameState.surrenderedCamps.includes(c))
-        : [CAMP.player1, CAMP.player2];
+    const players = (gameState.turnOrder || []).filter(key => key !== 'neutral')
+        .map(key => campFromKey(key, gameState))
+        .filter(camp => !gameState.surrenderedCamps.includes(camp));
 
     const maxCities = Math.max(...players.map(c => cityCounts[_campKey(c)] || 0));
     const leaders = players.filter(c => (cityCounts[_campKey(c)] || 0) === maxCities);
@@ -2042,22 +1974,11 @@ export function triggerVictoryEffect() {
         victoryCampText.textContent = '平局';
         victoryCampText.style.color = '#e6c560';
         victoryCampText.style.textShadow = '0 0 24px rgba(230,197,96,0.55), 0 0 50px rgba(200,160,60,0.25)';
-    } else if (vc === CAMP.player1) {
-        victoryCampText.textContent = '红军胜利';
-        victoryCampText.style.color = '#ff7777';
-        victoryCampText.style.textShadow = '0 0 24px rgba(255,120,120,0.55), 0 0 50px rgba(220,80,80,0.25)';
-    } else if (vc === CAMP.player2) {
-        victoryCampText.textContent = '蓝军胜利';
-        victoryCampText.style.color = '#7799ff';
-        victoryCampText.style.textShadow = '0 0 24px rgba(120,140,255,0.55), 0 0 50px rgba(80,100,220,0.25)';
-    } else if (vc === CAMP.player3) {
-        victoryCampText.textContent = '绿军胜利';
-        victoryCampText.style.color = '#77dd77';
-        victoryCampText.style.textShadow = '0 0 24px rgba(120,220,120,0.55), 0 0 50px rgba(80,180,80,0.25)';
     } else {
-        victoryCampText.textContent = '中立胜利';
-        victoryCampText.style.color = '#aaaaaa';
-        victoryCampText.style.textShadow = '0 0 24px rgba(180,180,180,0.55)';
+        const winner = vc && typeof vc === 'object' ? vc : campFromKey(String(vc || 'neutral'), gameState);
+        victoryCampText.textContent = `${winner?.name || '中立'}胜利`;
+        victoryCampText.style.color = winner?.color || '#aaaaaa';
+        victoryCampText.style.textShadow = `0 0 24px ${winner?.color || 'rgba(180,180,180,0.55)'}`;
     }
 
     if (typeof gsap !== 'undefined') {
@@ -2112,9 +2033,7 @@ async function handleSurrender() {
 
     // 联机：根据角色判断投降方；本地：根据当前回合判断
     const myRole = getMyRole();
-    const surrenderCamp = isNetworkGame()
-        ? (myRole === 'player1' ? CAMP.player1 : myRole === 'player2' ? CAMP.player2 : myRole === 'player3' ? CAMP.player3 : CAMP.player1)
-        : gameState.currentCamp;
+    const surrenderCamp = isNetworkGame() ? (getRoleCamp(gameState, myRole) || gameState.currentCamp) : gameState.currentCamp;
 
     // 三人模式中已投降玩家：按钮变为"退出"，点击后退出至大厅
     if (gameState.isThreePlayer && gameState.surrenderedCamps.includes(surrenderCamp)) {
@@ -2140,7 +2059,8 @@ async function handleSurrender() {
     if (gameState.isThreePlayer) {
         // 三人模式：投降方出局，游戏继续（若只剩一人则该人胜利）
         const alive = [];
-        for (const c of [CAMP.player1, CAMP.player2, CAMP.player3]) {
+        for (const key of (gameState.turnOrder || []).filter(key => key !== 'neutral')) {
+            const c = campFromKey(key, gameState);
             if (c !== surrenderCamp) {
                 const hasDistrict = gameState.tiles.some(t => t.isCity && t.camp === c);
                 alive.push(c);
@@ -2148,7 +2068,8 @@ async function handleSurrender() {
         }
         victoryCamp = alive.length === 1 ? alive[0] : null;
     } else {
-        victoryCamp = surrenderCamp === CAMP.player1 ? CAMP.player2 : CAMP.player1;
+        victoryCamp = (gameState.turnOrder || []).filter(key => key !== 'neutral')
+            .map(key => campFromKey(key, gameState)).find(camp => camp !== surrenderCamp) || null;
     }
 
     if (gameState.isThreePlayer && victoryCamp === null) {
@@ -2159,10 +2080,11 @@ async function handleSurrender() {
         if (!confirmed) return;
         logMessage(`${surrenderCamp.name}选择投降，领土与部队归属中立！`);
         gameState.surrenderedCamps.push(surrenderCamp);
+        const neutralCamp = campFromKey('neutral', gameState);
         for (const tile of gameState.tiles) {
-            if (tile.camp === surrenderCamp) tile.setCampWithFade(CAMP.neutral);
+            if (tile.camp === surrenderCamp) tile.setCampWithFade(neutralCamp);
             if (tile.unit && tile.unit.camp === surrenderCamp) {
-                tile.unit.camp = CAMP.neutral;
+                tile.unit.camp = neutralCamp;
             }
         }
         // 跳过该阵营回合，切换到下一个未投降阵营
@@ -2174,7 +2096,7 @@ async function handleSurrender() {
         // 投降方显示观战横幅
         const banner = document.getElementById('opponentTurnBanner');
         if (banner && isNetworkGame()) {
-            const myCamp = myRole === 'player1' ? CAMP.player1 : myRole === 'player2' ? CAMP.player2 : myRole === 'player3' ? CAMP.player3 : null;
+            const myCamp = getRoleCamp(gameState, myRole);
             if (myCamp === surrenderCamp) {
                 banner.innerHTML = '<span>👁</span><span>您已战败，观战中</span>';
                 banner.classList.add('visible');
@@ -2185,7 +2107,7 @@ async function handleSurrender() {
         broadcastAction('surrender');
         // 投降可能把回合直接切到中立（未经过 endTurn 的 AI 链）：
         // 本地由本机立即接管；联机时非驱动方此调用为空操作，驱动方在收到广播后接管
-        if (!gameState.gameOver && gameState.currentCamp === CAMP.neutral) {
+        if (!gameState.gameOver && _campKey(gameState.currentCamp) === 'neutral') {
             resumeNeutralTurnIfNeeded().catch(e => console.warn('Neutral resume error:', e));
         }
         return;
@@ -2491,7 +2413,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
     if (!cfg) return;
 
-    const myCamp = isNetworkGame() ? (getMyRole() === 'player1' ? CAMP.player1 : getMyRole() === 'player2' ? CAMP.player2 : CAMP.player3) : gameState.currentCamp;
+    const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
     const campKey = _campKey(myCamp);
 
     // validate targeting
@@ -3026,11 +2948,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     gameState.commanderP1Confirmed, gameState.commanderP2Confirmed,
                     gameState.commanderP1Deployed, gameState.commanderP2Deployed,
                     gameState.commanderPhase,
-                    myCamp === CAMP.player1 ? targetTile.unit.id : null,
-                    myCamp === CAMP.player2 ? targetTile.unit.id : null,
+                    _campKey(myCamp) === 'player1' ? targetTile.unit.id : null,
+                    _campKey(myCamp) === 'player2' ? targetTile.unit.id : null,
                     gameState.commanderPoolP3, gameState.commanderP3,
                     gameState.commanderP3Confirmed, gameState.commanderP3Deployed,
-                    myCamp === CAMP.player3 ? targetTile.unit.id : null,
+                    _campKey(myCamp) === 'player3' ? targetTile.unit.id : null,
                     { campKey, unitId: targetTile.unit.id, commanderId: result.commander }
                 );
             }
@@ -3059,7 +2981,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     if (gameState.tileMap && gameState._cardOverrides && !isCopyCard) {
         for (const [ck, co] of Object.entries(gameState._cardOverrides)) {
             if (!co) continue;
-            const dipCamp = ck === 'player1' ? CAMP.player1 : ck === 'player2' ? CAMP.player2 : CAMP.player3;
+            const dipCamp = campFromKey(ck, gameState);
             if (!dipCamp || dipCamp === gameState.currentCamp) continue;
             for (const t of gameState.tiles) {
                 if (!t.unit || t.unit.commander !== 'diplomat' || t.unit.camp !== dipCamp || t.unit.hp <= 0) continue;
