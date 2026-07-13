@@ -123,6 +123,9 @@
     cursor: crosshair;
     touch-action: none;
 }
+#editorCanvas.borderless-board {
+    border: 0;
+}
 .editor-canvas-hint {
     position: absolute;
     left: 18px;

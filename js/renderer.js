@@ -41,6 +41,14 @@ import { resolveActiveObjectiveHighlightTiles } from '../campaign/runtime/object
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
 const borderlessBorderCache = new WeakMap();
+const FLAT_TILE_BASE_OPTIONS = Object.freeze({ drawShadow: false });
+let canvasFrameIsBorderless = null;
+
+function syncCanvasFrameStyle(isBorderless) {
+    if (canvasFrameIsBorderless === isBorderless) return;
+    canvasFrameIsBorderless = isBorderless;
+    ctx.canvas.parentElement?.classList.toggle('borderless-board', isBorderless);
+}
 
 function getBorderlessBorderEdges(visualGrid) {
     let cached = borderlessBorderCache.get(visualGrid);
@@ -152,6 +160,7 @@ export function renderGame() {
     const visualGrid = gameState.campaignMode && gameState.boardLayout === 'borderless'
         ? getBorderlessVisualGrid(tiles, gameState.tileMap)
         : null;
+    syncCanvasFrameStyle(Boolean(visualGrid));
     const borderTiles = visualGrid?.tiles || tiles;
     const borderTileMap = visualGrid?.tileMap || gameState.tileMap;
     const visualBorderEdges = visualGrid ? getBorderlessBorderEdges(visualGrid) : null;
@@ -164,7 +173,10 @@ export function renderGame() {
 
     // Draw tile bases
     if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
-    for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawBase(ctx);
+    const tileBaseOptions = visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined;
+    for (let i = 0, len = tiles.length; i < len; i++) {
+        tiles[i].drawBase(ctx, tileBaseOptions);
+    }
     // Faction-tinted military-map city outline stays below every object, but
     // remains visible around a unit that covers the central castle glyph.
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawCityMapMarker();
@@ -506,7 +518,7 @@ export function renderGame() {
                 ctx.fill();
             } else {
                 // explored：覆绘地形基底遮盖部队/特效，再叠加暗色遮罩
-                tile.drawBase(ctx);
+                tile.drawBase(ctx, tileBaseOptions);
                 hexPath(ctx, tile.x, tile.y, HEX_SIZE);
                 const grad = ctx.createRadialGradient(tile.x, tile.y, HEX_SIZE * 0.3, tile.x, tile.y, HEX_SIZE * 1.05);
                 grad.addColorStop(0, `rgba(0,0,0,${alpha})`);

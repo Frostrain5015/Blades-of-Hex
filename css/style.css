@@ -101,6 +101,13 @@ body {
     border: 1px solid var(--border);
 }
 
+#canvasStage.borderless-board {
+    border: 0;
+    box-shadow:
+        0 0 32px rgba(0, 0, 0, 0.85),
+        0 0 64px rgba(0, 0, 0, 0.40);
+}
+
 #gameCanvas {
     display: block;
     border-radius: 0;

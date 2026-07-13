@@ -90,12 +90,15 @@ export class HexTile extends EngineHexTile {
     }
 
     // Fill, shadow, and ordered terrain glyphs.
-    drawBase(c) {
+    drawBase(c, options) {
+        const drawShadow = options?.drawShadow !== false;
         const cx = this.x, cy = this.y;
         c.save();
-        hexPath(c, cx + 1.5, cy + 2, HEX_SIZE);
-        c.fillStyle = 'rgba(0,0,0,0.14)';
-        c.fill();
+        if (drawShadow) {
+            hexPath(c, cx + 1.5, cy + 2, HEX_SIZE);
+            c.fillStyle = 'rgba(0,0,0,0.14)';
+            c.fill();
+        }
         hexPath(c, cx, cy, HEX_SIZE);
         c.fillStyle = this.currentColor;
         c.fill();

@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-13T23:05:27.411Z",
-  "entryVersion": "fae0a059ec",
+  "generatedAt": "2026-07-13T23:24:19.512Z",
+  "entryVersion": "3e1dc06cf1",
   "files": {
     "js/ai.js": "4331897ae0",
     "js/audio.js": "e9d0efd96c",
@@ -22,18 +22,18 @@
     "js/gameData.js": "88ed95339b",
     "js/gameLogic.js": "d36e9492d0",
     "js/heroCarousel.js": "b43e52c1f5",
-    "js/HexTile.js": "e319f368c5",
+    "js/HexTile.js": "eaa7a2dfd7",
     "js/input.js": "35d9be4ddb",
     "js/lib/gsap.min.js": "e208f4c759",
     "js/lib/howler.min.js": "47318d3eef",
     "js/main.js": "df62727fea",
-    "js/militaryMap.js": "462c66df02",
+    "js/militaryMap.js": "f1de92969a",
     "js/network.js": "ad96464c6f",
     "js/package.json": "50faeb965b",
     "js/playerProfile.js": "59e266011e",
     "js/portraitLoader.js": "4e649938fe",
     "js/preparationController.js": "f446ea8bd3",
-    "js/renderer.js": "7feab6cd71",
+    "js/renderer.js": "817b5bb424",
     "js/settingsRuntime.js": "a1b4e57738",
     "js/state.js": "250ecba828",
     "js/uid.js": "6c403d03e7",
@@ -109,7 +109,7 @@
     "campaign/content/bloodIris/bi-t3-mountain.js": "b688f1be0b",
     "campaign/content/bloodIris/chronicle.js": "6f76b8a579",
     "campaign/content/bloodIris/collectibles.js": "edfcc3a705",
-    "campaign/editor/editor.js": "aaf3849a15",
+    "campaign/editor/editor.js": "7ef2d762ca",
     "campaign/editor/forms.js": "407c4e1269",
     "campaign/lobby.js": "71ad3a7563",
     "campaign/package.json": "50faeb965b",
@@ -123,6 +123,6 @@
     "campaign/runtime/schema.js": "fc0d55c9e7",
     "campaign/runtime/storyCommanders.js": "ab1c47f5c5",
     "campaign/runtime/triggers.js": "f067b08fa9",
-    "index.html": "baf0b829bb"
+    "index.html": "c8888c334b"
   }
 }

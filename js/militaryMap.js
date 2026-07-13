@@ -63,12 +63,9 @@ export function getBorderlessVisualGrid(realTiles, realTileMap) {
     return grid;
 }
 
-/** 只画阵营底色和阴影，不画地形、城镇、工事、单位或交互覆盖层。 */
+/** 只画连续的阵营底色，不画单格阴影、地形、城镇、工事、单位或交互覆盖层。 */
 export function drawVisualFillerTile(context, tile) {
     context.save();
-    hexPath(context, tile.x + 1.5, tile.y + 2, HEX_SIZE);
-    context.fillStyle = 'rgba(0,0,0,0.14)';
-    context.fill();
     hexPath(context, tile.x, tile.y, HEX_SIZE);
     context.fillStyle = tile.currentColor;
     context.fill();

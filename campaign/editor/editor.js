@@ -30,6 +30,7 @@ let preview = { tiles: [], tileMap: new Map(), villageTiles: new Map(), campBord
 let canvas = null, ctx = null;
 const EDITOR_LOGICAL_W = 1000;
 const EDITOR_LOGICAL_H = 750;
+const FLAT_TILE_BASE_OPTIONS = Object.freeze({ drawShadow: false });
 let activeTab = 'board';
 let selection = null;              // {kind:'tile',q,r} | {kind:'unit',index} | {kind:'storyCommander',index} | {kind:'trigger',index} | {kind:'objective',id}
 let hoverTile = null;
@@ -264,10 +265,12 @@ function render() {
     const visualGrid = preview.boardLayout === BOARD_LAYOUT.BORDERLESS
         ? getBorderlessVisualGrid(preview.tiles, preview.tileMap)
         : null;
+    canvas.classList.toggle('borderless-board', Boolean(visualGrid));
     const borderTiles = visualGrid?.tiles || preview.tiles;
     const borderTileMap = visualGrid?.tileMap || preview.tileMap;
     if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
-    for (const tile of preview.tiles) tile.drawBase(ctx);
+    const tileBaseOptions = visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined;
+    for (const tile of preview.tiles) tile.drawBase(ctx, tileBaseOptions);
     drawAllBorders(ctx, borderTiles, borderTileMap);
     drawCampBorders(ctx, visualGrid ? computeCampBorders(borderTiles, borderTileMap) : preview.campBorderEdges);
     drawDistrictBorders(ctx, visualGrid ? computeDistrictBorders(borderTiles, borderTileMap) : preview.districtBorderEdges);

@@ -233,12 +233,29 @@ export async function run(browser) {
         const inheritsDynamicColor = filler.currentColor === '#123456';
         filler.sourceTile.currentColor = inheritedBefore;
 
+        const plainTile = borderlessState.tiles.find(tile => !tile.isCity && !tile.isVillage && tile.terrain === 'plains');
+        const makeFillCounter = () => {
+            let fills = 0;
+            return {
+                context: {
+                    save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
+                    fill() { fills++; },
+                    fillStyle: ''
+                },
+                get fills() { return fills; }
+            };
+        };
+        const flatBase = makeFillCounter();
+        plainTile.drawBase(flatBase.context, { drawShadow: false });
+        const classicBase = makeFillCounter();
+        plainTile.drawBase(classicBase.context);
+
         const canvas = document.createElement('canvas');
         canvas.width = 1000;
         canvas.height = 750;
         const context = canvas.getContext('2d');
         drawVisualFillerTiles(context, visualGrid.fillers);
-        for (const tile of borderlessState.tiles) tile.drawBase(context);
+        for (const tile of borderlessState.tiles) tile.drawBase(context, { drawShadow: false });
         const covered = [[2, 2], [997, 2], [2, 747], [997, 747]].every(([x, y]) =>
             context.getImageData(x, y, 1, 1).data[3] > 0);
 
@@ -260,6 +277,7 @@ export async function run(browser) {
             fillersStayVisualOnly: visualGrid.tiles.length === 349
                 && visualGrid.fillers.every(tile => !borderlessState.tileMap.has(`${tile.q},${tile.r}`)),
             gridEdgesDrawnOnce: strokes.length === 1122 && new Set(canonicalSegments).size === strokes.length,
+            borderlessBasesStayFlat: flatBase.fills === 1 && classicBase.fills === 2,
             inheritsDynamicColor,
             covered,
             fullEdgeCellAccepted: schema.validateLevel(validBorderless).errors.every(message => !message.includes('棋盘之外')),
@@ -274,6 +292,7 @@ export async function run(browser) {
         && boardLayoutContract.fillerCount === 72
         && boardLayoutContract.fillersStayVisualOnly
         && boardLayoutContract.gridEdgesDrawnOnce
+        && boardLayoutContract.borderlessBasesStayFlat
         && boardLayoutContract.inheritsDynamicColor
         && boardLayoutContract.covered
         && boardLayoutContract.fullEdgeCellAccepted
