@@ -13,6 +13,10 @@ export const cardCtx = cardCanvas ? cardCanvas.getContext('2d') : null;
 let dpr = 1;
 export let HEX_WIDTH;
 
+export function getCanvasPixelRatio() {
+    return dpr;
+}
+
 export function initCanvas() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = LOGICAL_W * dpr;

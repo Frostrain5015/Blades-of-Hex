@@ -1,6 +1,6 @@
 // WebGL2 batched cloth flags. One context and one instanced draw call render every
 // battlefield flag; SVG artwork and the cloth mesh deform together in the vertex shader.
-import { LOGICAL_W, LOGICAL_H } from './canvasRuntime.js';
+import { LOGICAL_W, LOGICAL_H, getCanvasPixelRatio } from './canvasRuntime.js';
 import { getFlagColors } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
 import { getUnitVisualPos } from './unitRenderer.js';
@@ -147,10 +147,13 @@ void main() {
 }`;
 
 export class BatchedFlagRenderer {
-    constructor(width = LOGICAL_W, height = LOGICAL_H, canvas = null) {
+    constructor(width = LOGICAL_W, height = LOGICAL_H, canvas = null, pixelRatio = 1) {
+        this.logicalWidth = width;
+        this.logicalHeight = height;
+        this.pixelRatio = Math.max(1, pixelRatio || 1);
         this.canvas = canvas || document.createElement('canvas');
-        this.canvas.width = width;
-        this.canvas.height = height;
+        this.canvas.width = Math.round(width * this.pixelRatio);
+        this.canvas.height = Math.round(height * this.pixelRatio);
         this.gl = this.canvas.getContext('webgl2', {
             alpha: true,
             antialias: true,
@@ -307,7 +310,7 @@ export class BatchedFlagRenderer {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
         gl.uniform1i(this.locations.uAtlas, 0);
-        gl.uniform2f(this.locations.uResolution, this.canvas.width, this.canvas.height);
+        gl.uniform2f(this.locations.uResolution, this.logicalWidth, this.logicalHeight);
         gl.uniform1f(this.locations.uTime, timeSeconds);
         gl.uniform1f(this.locations.uWind, wind);
         gl.drawElementsInstanced(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0, this.instanceCount);
@@ -356,7 +359,9 @@ export function collectBattlefieldFlags(gameState, now) {
 export function drawBattlefieldFlags(ctx, gameState, now) {
     if (battlefieldFailed) return;
     try {
-        if (!battlefieldRenderer) battlefieldRenderer = new BatchedFlagRenderer(LOGICAL_W, LOGICAL_H);
+        if (!battlefieldRenderer) {
+            battlefieldRenderer = new BatchedFlagRenderer(LOGICAL_W, LOGICAL_H, null, getCanvasPixelRatio());
+        }
         battlefieldRenderer.setInstances(collectBattlefieldFlags(gameState, now));
         battlefieldRenderer.render(now / 1000, getFlagWindStrength(gameState.weather));
         ctx.drawImage(battlefieldRenderer.canvas, 0, 0, LOGICAL_W, LOGICAL_H);
@@ -367,14 +372,16 @@ export function drawBattlefieldFlags(ctx, gameState, now) {
 }
 
 export function createFlagPreview(canvas) {
-    const renderer = new BatchedFlagRenderer(canvas.width, canvas.height, canvas);
+    const logicalWidth = Number(canvas.getAttribute('width')) || canvas.width;
+    const logicalHeight = Number(canvas.getAttribute('height')) || canvas.height;
+    const renderer = new BatchedFlagRenderer(logicalWidth, logicalHeight, canvas, getCanvasPixelRatio());
     return {
         setFaction(faction) {
             const colors = getFlagColors(faction?.colorId || faction?.color);
-            const height = canvas.height - 10;
+            const height = logicalHeight - 10;
             const width = height * 1.5;
             renderer.setInstances([{
-                x: (canvas.width - width) / 2, y: 5, width, height,
+                x: (logicalWidth - width) / 2, y: 5, width, height,
                 phase: 1.7, colors, flagUrl: faction?.flagUrl || null
             }]);
         },
