@@ -361,7 +361,7 @@ export function collectBattlefieldFlags(gameState, now) {
             y: pos.y + UNIT_FLAG_LAYOUT.poleTop + UNIT_FLAG_LAYOUT.clothOffsetY,
             width: UNIT_FLAG_LAYOUT.width,
             height: UNIT_FLAG_LAYOUT.height,
-            commander: !!unit.commander,
+            commander: Boolean(unit.isCommanderUnit ?? unit.commander),
             phase: phaseFrom(`unit:${unit.id}`),
             ...appearance
         });

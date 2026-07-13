@@ -42,6 +42,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 | `gold` | object | 是 | `{阵营ID: 非负数字}` |
 | `commanders` | object | 是 | 传统阵营主将映射；动态阵营通常在单位上绑定将领 |
 | `hands` | object | 是 | `{阵营ID: [卡牌ID...]}` |
+| `storyCommanders` | array | 是 | 剧情将领身份库；无内容时写 `[]` |
 | `board` | object | 是 | 棋盘定义 |
 | `units` | array | 是 | 开场单位 |
 | `unitGroups` | array | 是 | 单位 ID 集合 |
@@ -122,6 +123,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
   "gold": { "player1": 4, "north_guard": 4 },
   "commanders": {},
   "hands": { "player1": [], "north_guard": [] },
+  "storyCommanders": [],
   "board": {
     "radius": 2,
     "cities": [
@@ -344,7 +346,7 @@ Faction 对象：
   "camp": "player1",
   "q": 0,
   "r": 0,
-  "commander": "centurion",
+  "storyCommander": "marcus",
   "hpPct": 100,
   "morale": 2,
   "canAct": true
@@ -359,6 +361,33 @@ Faction 对象：
 - `hpPct` 为 `1..100`；也可使用绝对 `hp`，但不要同时写两者。
 - `morale`：`0` 混乱、`1` 下降、`2` 正常、`3` 上升。
 - `canAct` 只表示初始本回合能否行动。
+- `storyCommander` 引用下述剧情将领身份；不要与 `commander` 同时出现。
+- `commander` 是兼容用的标准玩法将领直挂字段。正式战役中有姓名的人物优先使用 `storyCommander`，否则战场只会显示“百夫长”“尚书”等原型名。
+
+### 7.2 剧情将领身份
+
+```json
+{
+  "storyCommanders": [
+    {
+      "id": "marcus",
+      "name": "马库斯",
+      "archetype": "centurion"
+    },
+    {
+      "id": "gate_captain",
+      "name": "佩特拉守备队长",
+      "portrait": "npcMale"
+    }
+  ]
+}
+```
+
+- `id`：字母开头，仅字母、数字、`_`、`-`，全关唯一。
+- `name`：剧情显示名，覆盖玩法原型的名字，用于战场名牌与阵亡日志。
+- `archetype`：可选的标准将领 ID；决定属性、技能和玩法规则。省略后为纯剧情将领，仍显示将领旗与立绘，但没有技能或属性加成。
+- `portrait`：可选。省略时自动使用玩法原型立绘；没有玩法原型时应明确写 `npcMale` 或 `npcFemale`。
+- 一个剧情将领不能在开场同时绑定到多个单位。
 
 兵种：
 
@@ -477,13 +506,25 @@ Faction 对象：
       "title": "救回国王",
       "detail": "在十分钟内抵达猎宫。",
       "active": false,
-      "main": true
+      "main": true,
+      "highlight": {
+        "unit": "king",
+        "tiles": [{ "q": 2, "r": -1 }],
+        "area": "safe_zone"
+      }
     }
   }
 }
 ```
 
 `active:false` 表示初始 `hidden`；否则初始 `active`。目标运行时状态只能是 `hidden/active/completed/failed`。全部可见主要目标完成会胜利；任一可见主要目标失败会失败。
+
+可选的 `highlight` 是目标级常驻提示光圈，只在该目标状态为 `active` 时显示：
+
+- `unit`：开场单位 ID；单位移动时光圈随单位移动，单位离场后不再显示。
+- `tiles`：一个或多个合法坐标，适合调查点、城门等独立位置。
+- `area`：已在 `areas` 中声明的区域 ID，适合范围目标。
+- 三者可以组合，重复地块会由运行时去重。没有需要提示的位置时省略整个 `highlight`，不要输出空对象。
 
 ## 9. 触发器通用语义
 
@@ -793,7 +834,13 @@ Faction 对象：
 { "kind": "assignCommander", "target": { "unit": "marcus_unit" }, "commander": "centurion" }
 ```
 
-`commander` 省略或空值表示移除将领。
+正式剧情人物优先写：
+
+```json
+{ "kind": "assignCommander", "target": { "unit": "marcus_unit" }, "storyCommander": "marcus" }
+```
+
+`commander` 与 `storyCommander` 二选一；两者都省略或为空表示移除将领。`storyCommander` 会同时挂载身份库中声明的玩法原型、剧情名字和立绘。
 
 #### removeUnits
 
@@ -933,17 +980,17 @@ Faction 对象：
 1. 关卡 ID 只含字母、数字、连字符。
 2. 半径 `2..7`，所有地图、单位、区域、调查点和触发器坐标在棋盘内。
 3. 每个行政区只有一座城市；每座城市和每个单位引用已声明阵营。
-4. 单位坐标不重叠；单位 ID 唯一；兵种和将领 ID 合法。
+4. 单位坐标不重叠；单位 ID 唯一；兵种、玩法将领与剧情将领 ID 合法。
 5. faction ID 合法、唯一且不是 `neutral`；`color` 是九个规范 ID 之一，不含任何手写颜色值。
 6. 恰好一个 `human`，等于 `localPlayerCamp`。
 7. `turnOrder` 无重复，完整覆盖所有启用且参与回合的阵营。
 8. 外交引用合法、关系合法、双向对称。
 9. 单位组、区域、调查点、变量、触发器 ID 非空且各自唯一。
-10. 所有 TargetRef、变量、目标、触发器、机制、调查点、区域引用存在。
+10. 所有 TargetRef、变量、目标、触发器、机制、调查点、区域及目标提示光圈引用存在。
 11. `all/any` 非空，`not` 有子条件；每个触发器至少一个动作。空 `when` 表示“启用即执行”，既可用于开场启用，也可用于中途启用。
 12. 变量初始值、比较值和写入值类型一致。
 13. `showStep.text` 非空；人物模式有 `speaker.name`；操作锁有真实高亮目标。
-14. 生成单位类型、阵营、坐标、ID、将领和生命值合法。
+14. 生成单位类型、阵营、坐标、ID、玩法/剧情将领和生命值合法。
 15. `applyEffect` 字段、持续回合、特殊规则和修正值合法。
 
 ## 16. 编译命令与交付流程

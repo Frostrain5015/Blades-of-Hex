@@ -38,7 +38,7 @@ export default {
       return { moraleDropped: true };
     }
 
-    if (roll === BALANCE.confusedOutcome || enemy.commander) {
+    if (roll === BALANCE.confusedOutcome || (enemy.isCommanderUnit ?? Boolean(enemy.commander))) {
       enemy.morale = BALANCE.confusedLevel;
       enemy.moralePenaltyUntil = Math.max(enemy.moralePenaltyUntil || 0, expiresAt);
       enemy.canAct = false;

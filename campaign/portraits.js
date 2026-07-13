@@ -3,11 +3,13 @@
 export const NPC_DIALOGUE_PORTRAITS = Object.freeze({
     npcMale: Object.freeze({
         label: 'NPC 男性（兜底立绘）',
-        source: 'img/commander/NPC男.webp'
+        source: 'img/commander/NPC男.webp',
+        transparentSource: 'img/commander_tr/NPC男.webp'
     }),
     npcFemale: Object.freeze({
         label: 'NPC 女性（兜底立绘）',
-        source: 'img/commander/NPC女.webp'
+        source: 'img/commander/NPC女.webp',
+        transparentSource: 'img/commander_tr/NPC女.webp'
     })
 });
 

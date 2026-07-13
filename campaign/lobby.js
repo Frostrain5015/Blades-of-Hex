@@ -1,16 +1,12 @@
 // 单人战役大厅 —— 由 catalog 数据驱动渲染传记卡/关卡卡，并支持 ◀/▶ 切换传记。
 // 新增关卡/传记无需改 HTML：登记进 catalog 即自动出现。
 import { CHRONICLES } from './catalog.js';
-import { readProgress } from './progress.js';
+import { isScenarioUnlocked, readProgress } from './progress.js';
 
 let _index = 0;
 let _onStart = null;
 let _onPortrait = null;
 let _navBound = false;
-
-function _cap(s) {
-    return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 function _currentChronicle() {
     return CHRONICLES[_index] || null;
@@ -19,12 +15,12 @@ function _currentChronicle() {
 function _levelCardHtml(level) {
     const ek = level.elementKey;
     return `
-        <button id="${ek}LevelBtn" class="campaign-level-card" type="button">
+        <button id="${ek}LevelBtn" class="campaign-level-card" type="button"
+                aria-label="进入关卡：${level.label} ${level.title}">
             <span class="campaign-level-number">${level.label}</span>
             <span class="campaign-level-copy"><strong>${level.title}</strong></span>
             <span class="campaign-level-rating" id="${ek}Rating" aria-label="尚未完成">☆☆☆</span>
-        </button>
-        <button id="start${_cap(ek)}Btn" class="campaign-start-btn" type="button"><span>进入战役</span></button>`;
+        </button>`;
 }
 
 function _renderInto(container, chronicle) {
@@ -38,13 +34,11 @@ function _renderInto(container, chronicle) {
         <div class="campaign-level-label">选择关卡</div>
         ${chronicle.scenarios.map(_levelCardHtml).join('')}`;
 
-    // 绑定每个关卡卡：卡片聚焦其进入按钮；进入按钮启动关卡。
+    // 关卡卡本身就是唯一入口，避免“先选中、再进入”的重复操作。
     for (const level of chronicle.scenarios) {
         const ek = level.elementKey;
-        const startBtn = document.getElementById(`start${_cap(ek)}Btn`);
         const levelBtn = document.getElementById(`${ek}LevelBtn`);
-        levelBtn?.addEventListener('click', () => startBtn?.focus());
-        startBtn?.addEventListener('click', () => _onStart?.(chronicle.id, level.id));
+        levelBtn?.addEventListener('click', () => _onStart?.(chronicle.id, level.id));
     }
 }
 
@@ -123,11 +117,29 @@ export function refreshCampaignLobbyProgress() {
         mark.textContent = `当前进度 ${Math.round((done / total) * 100)}%`;
     }
 
-    for (const level of chronicle.scenarios) {
+    for (const [index, level] of chronicle.scenarios.entries()) {
+        const previousLevel = chronicle.scenarios[index - 1];
+        const unlocked = isScenarioUnlocked(chronicle.scenarios, level.id, progress);
+        const levelBtn = document.getElementById(`${level.elementKey}LevelBtn`);
         const rating = document.getElementById(`${level.elementKey}Rating`);
-        if (!rating) continue;
+        if (!levelBtn || !rating) continue;
+
+        levelBtn.disabled = !unlocked;
+        levelBtn.classList.toggle('locked', !unlocked);
+        levelBtn.setAttribute('aria-disabled', String(!unlocked));
+        if (!unlocked) {
+            const reason = `上一关“${previousLevel.title}”至少获得 1 星后解锁`;
+            levelBtn.setAttribute('aria-label', `${level.label} ${level.title}，未解锁：${reason}`);
+            levelBtn.title = reason;
+            rating.textContent = '🔒';
+            rating.setAttribute('aria-label', reason);
+            continue;
+        }
+
+        levelBtn.setAttribute('aria-label', `进入关卡：${level.label} ${level.title}`);
+        levelBtn.removeAttribute('title');
         const completed = progress.completedScenarioIds.includes(level.id);
-        const stars = completed ? progress.bestStars : 0;
+        const stars = completed ? (progress.scenarioStars[level.id] || 0) : 0;
         rating.textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
         rating.setAttribute('aria-label', completed ? `最佳评价 ${stars} 星` : '尚未完成');
     }

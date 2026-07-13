@@ -69,6 +69,10 @@ export const config = {
     gold: { player1: 0, targets: 0 },
     commanders: { player1: 'centurion' },
     hands: { player1: [] },
+    storyCommanders: [
+        { id: 'severus', name: '塞维鲁', archetype: 'advisor' },
+        { id: 'marcus', name: '马库斯', archetype: 'centurion' }
+    ],
 
     board: {
         radius: 3,
@@ -98,7 +102,7 @@ export const config = {
             hpPct: 100,
             morale: 2,
             canAct: false,
-            commander: 'advisor'
+            storyCommander: 'severus'
         },
         {
             id: 'marcus_instructor',
@@ -109,7 +113,7 @@ export const config = {
             hpPct: 100,
             morale: 2,
             canAct: false,
-            commander: 'centurion'
+            storyCommander: 'marcus'
         },
         {
             id: 'recruit_sword',
@@ -187,7 +191,8 @@ export const config = {
             detail: '让三名新兵全部抵达红旗前的指定位置',
             active: false,
             status: 'hidden',
-            main: true
+            main: true,
+            highlight: { area: 'oath_line' }
         }
     },
 

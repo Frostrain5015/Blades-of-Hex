@@ -4,24 +4,62 @@
 /**
  * 读取某传记的进度。
  * @param {string} storageKey
- * @returns {{ completedScenarioIds: string[], bestStars: number, variables: object, completedOptionalObjectives: string[] }}
+ * @returns {{ completedScenarioIds: string[], scenarioStars: Record<string, number>, bestStars: number, variables: object, completedOptionalObjectives: string[] }}
  */
 export function readProgress(storageKey) {
     try {
         const parsed = JSON.parse(localStorage.getItem(storageKey) || '{}');
-        const completedScenarioIds = Array.isArray(parsed.completedScenarioIds)
+        const storedCompletedScenarioIds = Array.isArray(parsed.completedScenarioIds)
             ? parsed.completedScenarioIds.filter(id => typeof id === 'string')
             : [];
+        const scenarioStars = {};
+        if (parsed.scenarioStars && typeof parsed.scenarioStars === 'object' && !Array.isArray(parsed.scenarioStars)) {
+            for (const [scenarioId, value] of Object.entries(parsed.scenarioStars)) {
+                if (!scenarioId) continue;
+                const stars = Math.max(0, Math.min(3, Number(value) || 0));
+                if (stars > 0) scenarioStars[scenarioId] = stars;
+            }
+        }
+
+        // 兼容旧存档：旧结构只记录“已完成集合”和传记级最高星，无法还原每关星级。
+        // 已完成至少能确定为一星，因此仅补一星，不把某一关的高分错误复制给所有关卡。
+        for (const scenarioId of storedCompletedScenarioIds) {
+            if (!scenarioStars[scenarioId]) scenarioStars[scenarioId] = 1;
+        }
+        const completedScenarioIds = [...new Set([
+            ...storedCompletedScenarioIds,
+            ...Object.keys(scenarioStars).filter(id => scenarioStars[id] >= 1)
+        ])];
+        const bestStars = Math.max(
+            Math.max(0, Math.min(3, Number(parsed.bestStars) || 0)),
+            0,
+            ...Object.values(scenarioStars)
+        );
         return {
             completedScenarioIds,
-            bestStars: Math.max(0, Math.min(3, Number(parsed.bestStars) || 0)),
+            scenarioStars,
+            bestStars,
             variables: parsed.variables && typeof parsed.variables === 'object' ? { ...parsed.variables } : {},
             completedOptionalObjectives: Array.isArray(parsed.completedOptionalObjectives)
                 ? [...new Set(parsed.completedOptionalObjectives.filter(id => typeof id === 'string'))] : []
         };
     } catch (_) {
-        return { completedScenarioIds: [], bestStars: 0, variables: {}, completedOptionalObjectives: [] };
+        return { completedScenarioIds: [], scenarioStars: {}, bestStars: 0, variables: {}, completedOptionalObjectives: [] };
     }
+}
+
+/**
+ * 按目录顺序判断关卡是否开放：首关始终开放，其余关卡要求紧邻的上一关至少一星。
+ * @param {{ id: string }[]} scenarios
+ * @param {string} scenarioId
+ * @param {{ scenarioStars?: Record<string, number> }} progress
+ */
+export function isScenarioUnlocked(scenarios, scenarioId, progress) {
+    const index = scenarios.findIndex(scenario => scenario.id === scenarioId);
+    if (index < 0) return false;
+    if (index === 0) return true;
+    const previousScenario = scenarios[index - 1];
+    return (progress?.scenarioStars?.[previousScenario.id] || 0) >= 1;
 }
 
 /**
@@ -32,11 +70,17 @@ export function readProgress(storageKey) {
  */
 export function saveVictory(storageKey, scenarioId, stars, details = {}) {
     const previous = readProgress(storageKey);
+    const earnedStars = Math.max(1, Math.min(3, Number(stars) || 1));
     const completedScenarioIds = [...new Set([...previous.completedScenarioIds, scenarioId])];
+    const scenarioStars = {
+        ...previous.scenarioStars,
+        [scenarioId]: Math.max(previous.scenarioStars[scenarioId] || 0, earnedStars)
+    };
     localStorage.setItem(storageKey, JSON.stringify({
         completed: true,
         completedScenarioIds,
-        bestStars: Math.max(previous.bestStars, Math.max(0, Math.min(3, Number(stars) || 0))),
+        scenarioStars,
+        bestStars: Math.max(previous.bestStars, earnedStars),
         variables: { ...previous.variables, ...(details.variables || {}) },
         completedOptionalObjectives: [...new Set([
             ...previous.completedOptionalObjectives,

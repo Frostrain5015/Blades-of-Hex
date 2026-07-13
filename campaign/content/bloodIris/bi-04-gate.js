@@ -67,6 +67,10 @@ export const config = {
     gold: { petra: 0, expedition: 0 },
     commanders: { petra: 'minister' },
     hands: { petra: [], expedition: [] },
+    storyCommanders: [
+        { id: 'cato', name: '卡托', archetype: 'minister' },
+        { id: 'gate_captain', name: '佩特拉守备队长', portrait: 'npcMale' }
+    ],
 
     board: {
         radius: 4,
@@ -95,7 +99,7 @@ export const config = {
     units: [
         {
             id: 'cato_defender', type: 'infantry', camp: 'petra', q: -2, r: 0,
-            commander: 'minister', hpPct: 100, morale: 2, canAct: true
+            storyCommander: 'cato', hpPct: 100, morale: 2, canAct: true
         },
         {
             id: 'irene_courier', type: 'infantry', camp: 'petra', q: -1, r: -1,
@@ -103,7 +107,7 @@ export const config = {
         },
         {
             id: 'petra_gate_guard', type: 'infantry', camp: 'petra', q: -3, r: 1,
-            commander: '', hpPct: 100, morale: 3, canAct: true
+            storyCommander: 'gate_captain', hpPct: 100, morale: 3, canAct: true
         },
         {
             id: 'petra_archer', type: 'archer', camp: 'petra', q: -2, r: 1,
@@ -154,19 +158,22 @@ export const config = {
             title: '焚毁档案厅名册',
             detail: '完成三处档案焚毁，别让任何名字留给来者。',
             active: true,
-            main: true
+            main: true,
+            highlight: { tiles: [{ q: -1, r: 0 }, { q: 0, r: -1 }, { q: 0, r: 0 }] }
         },
         hold_west_gate: {
             title: '坚守西门',
             detail: '守住西门三轮，直到城内的撤离完成。',
             active: true,
-            main: true
+            main: true,
+            highlight: { tiles: [{ q: -3, r: 0 }] }
         },
         escort_irene: {
             title: '护送伊蕾妮进入密道',
             detail: '让执卷人带着封蜡匣抵达东侧密道。',
             active: false,
-            main: true
+            main: true,
+            highlight: { unit: 'irene_courier', area: 'secret_tunnel' }
         }
     },
 

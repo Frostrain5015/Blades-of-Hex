@@ -80,6 +80,7 @@ export const config = {
     gold: { expedition: 0, roadblock: 0, villagers: 0 },
     commanders: { expedition: 'centurion' },
     hands: { expedition: [], roadblock: [], villagers: [] },
+    storyCommanders: [{ id: 'marcus', name: '马库斯', archetype: 'centurion' }],
 
     board: {
         radius: 3,
@@ -103,7 +104,7 @@ export const config = {
     units: [
         {
             id: 'marcus_vanguard', type: 'infantry', camp: 'expedition', q: -3, r: 1,
-            commander: 'centurion', hpPct: 100, morale: 2, canAct: true
+            storyCommander: 'marcus', hpPct: 100, morale: 2, canAct: true
         },
         {
             id: 'shieldman_titus', type: 'infantry', camp: 'expedition', q: -3, r: 2,
@@ -158,13 +159,15 @@ export const config = {
             title: '清除驿道路障',
             detail: '击退占据中央驿道的峡谷前哨。',
             active: true,
-            main: true
+            main: true,
+            highlight: { tiles: [{ q: 0, r: 0 }, { q: 1, r: -1 }, { q: 1, r: 0 }] }
         },
         reach_canyon: {
             title: '将前卫旗带到峡谷入口',
             detail: '让马库斯抵达东侧的峡谷入口。',
             active: false,
-            main: true
+            main: true,
+            highlight: { area: 'canyon_entrance' }
         }
     },
 

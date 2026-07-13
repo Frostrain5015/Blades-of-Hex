@@ -193,7 +193,7 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
             const primaryKey = campKey === 'player1' ? 'commanderP1' : campKey === 'player2' ? 'commanderP2' : 'commanderP3';
             const secondaryKey = `${primaryKey}Secondary`;
             const cmdKey = helpers.deployCommanderId || gameState[primaryKey];
-            if (!cmdKey || targetTile.unit.commander) return { deployed: false, commander: cmdKey };
+            if (!cmdKey || (targetTile.unit.isCommanderUnit ?? Boolean(targetTile.unit.commander))) return { deployed: false, commander: cmdKey };
             targetTile.unit.commander = cmdKey;
             targetTile.unit._cmdrAssignedAt = performance.now();
             const cmdCfg = helpers.getCommander(cmdKey);

@@ -1,5 +1,6 @@
 // 将领头像预加载器
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
+import { NPC_DIALOGUE_PORTRAITS } from '../campaign/portraits.js';
 
 const _portraits = new Map();   // commanderId → Image (选将/手牌)
 const _trPortraits = new Map(); // commanderId → Image (透明底战场立绘)
@@ -13,9 +14,21 @@ function _loadOne(id, cfg) {
     _trPortraits.set(id, trImg);
 }
 
+function _loadNpcFallback(id, cfg) {
+    const img = new Image();
+    img.src = cfg.source;
+    _portraits.set(id, img);
+    const trImg = new Image();
+    trImg.src = cfg.transparentSource;
+    _trPortraits.set(id, trImg);
+}
+
 export function preloadPortraits() {
     for (const [id, cfg] of Object.entries(COMMANDER_CONFIG)) {
         if (!_portraits.has(id)) _loadOne(id, cfg);
+    }
+    for (const [id, cfg] of Object.entries(NPC_DIALOGUE_PORTRAITS)) {
+        if (!_portraits.has(id)) _loadNpcFallback(id, cfg);
     }
 }
 
@@ -24,6 +37,7 @@ export function reloadPortraits() {
     for (const [id, cfg] of Object.entries(COMMANDER_CONFIG)) {
         _loadOne(id, cfg);
     }
+    for (const [id, cfg] of Object.entries(NPC_DIALOGUE_PORTRAITS)) _loadNpcFallback(id, cfg);
 }
 
 export function getPortrait(commanderId) {

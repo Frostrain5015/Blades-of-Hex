@@ -27,7 +27,7 @@ let canvas = null, ctx = null;
 const EDITOR_LOGICAL_W = 1000;
 const EDITOR_LOGICAL_H = 750;
 let activeTab = 'board';
-let selection = null;              // {kind:'tile',q,r} | {kind:'unit',index} | {kind:'step',id} | {kind:'trigger',index} | {kind:'objective',id} | {kind:'optional',index} | {kind:'result'}
+let selection = null;              // {kind:'tile',q,r} | {kind:'unit',index} | {kind:'storyCommander',index} | {kind:'trigger',index} | {kind:'objective',id}
 let hoverTile = null;
 let painting = false;
 let lastPaintKey = '';
@@ -47,7 +47,7 @@ function authorActions() { return TRIGGER_ACTIONS; }
 const FACTION_COLOR_OPTIONS = Object.fromEntries(FACTION_PALETTE.map(p => [p.id, p.label]));
 
 const boardTool = { mode: 'terrain', terrain: 'forest', camp: 'player1', districtId: 1, fortification: 'trench', cityType: 'city', erase: { terrain: true, city: true, village: true, fortification: true, district: true, unit: true } };
-const unitTemplate = { type: 'infantry', camp: 'player1', commander: '', hpPct: 100, morale: 2, canAct: true };
+const unitTemplate = { type: 'infantry', camp: 'player1', commander: '', storyCommander: '', hpPct: 100, morale: 2, canAct: true };
 
 const undoStack = [];
 const redoStack = [];
@@ -62,6 +62,34 @@ function factionLabels() {
     return Object.fromEntries(config.factions.map(faction => [faction.id, faction.name || faction.id]));
 }
 function factionById(id) { return config.factions.find(faction => faction.id === id) || null; }
+function storyCommanderById(id) { return config.storyCommanders.find(commander => commander.id === id) || null; }
+function commanderMountValue(spec) {
+    if (spec?.storyCommander) return `story:${spec.storyCommander}`;
+    if (spec?.commander) return `base:${spec.commander}`;
+    return '';
+}
+function commanderMountOptions() {
+    const options = { '': '（无将领）' };
+    for (const commander of config.storyCommanders) {
+        const archetype = commander.archetype ? COMMANDER_LABELS[commander.archetype] || commander.archetype : '无玩法技能';
+        options[`story:${commander.id}`] = `剧情 · ${commander.name || commander.id}（${archetype}）`;
+    }
+    for (const id of COMMANDER_IDS) options[`base:${id}`] = `标准 · ${COMMANDER_LABELS[id]}`;
+    return options;
+}
+function setCommanderMount(spec, value) {
+    delete spec.commander;
+    delete spec.storyCommander;
+    if (value.startsWith('story:')) spec.storyCommander = value.slice(6);
+    else if (value.startsWith('base:')) spec.commander = value.slice(5);
+}
+function commanderMountLabel(spec) {
+    if (spec?.storyCommander) {
+        const story = storyCommanderById(spec.storyCommander);
+        return story?.name || spec.storyCommander;
+    }
+    return spec?.commander ? COMMANDER_LABELS[spec.commander] || spec.commander : '';
+}
 function primaryFactionId() { return config.localPlayerCamp || config.factions.find(faction => faction.controller === 'human')?.id || config.factions[0]?.id || 'player1'; }
 function nonLocalFactionId() { return config.factions.find(faction => faction.id !== primaryFactionId())?.id || primaryFactionId(); }
 function syncTurnOrder(level) {
@@ -116,6 +144,21 @@ function replaceFactionReferences(level, from, to, { remove = false } = {}) {
     rewriteTriggerReferences(level.optionalObjectives);
     rewriteTriggerReferences(level.result?.starRules);
     syncTurnOrder(level);
+}
+
+function replaceStoryCommanderReferences(level, from, to = '') {
+    const rewrite = value => {
+        if (Array.isArray(value)) { value.forEach(rewrite); return; }
+        if (!value || typeof value !== 'object') return;
+        for (const [key, child] of Object.entries(value)) {
+            if (key === 'storyCommander' && child === from) {
+                if (to) value[key] = to;
+                else delete value[key];
+            } else rewrite(child);
+        }
+    };
+    rewrite(level.units);
+    rewrite(level.triggers);
 }
 
 function setLocalPlayerFaction(level, factionId) {
@@ -292,6 +335,28 @@ function render() {
         const t = preview.tileMap.get(tileKey(pendingUnitFlag.q, pendingUnitFlag.r));
         if (t) { ctx.save(); var cx = t.x, cy = t.y; var r = HEX_SIZE * 0.45; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,215,0,0.85)'; ctx.fill(); ctx.strokeStyle = '#c8a030'; ctx.lineWidth = 2.5; ctx.stroke(); ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#543c00'; ctx.fillText('●', cx, cy); ctx.restore(); }
     }
+    // 选中目标时常驻预览其单位、位置和区域提示，便于作者核对配置。
+    if (selection?.kind === 'objective') {
+        const highlight = config.objectives[selection.id]?.highlight;
+        const keys = new Set((highlight?.tiles || []).map(point => tileKey(point.q, point.r)));
+        const area = config.areas.find(item => item.id === highlight?.area);
+        for (const point of (area?.tiles || [])) keys.add(tileKey(point.q, point.r));
+        const unit = config.units.find(item => item.id === highlight?.unit);
+        if (unit) keys.add(tileKey(unit.q, unit.r));
+        for (const key of keys) {
+            const t = preview.tileMap.get(key);
+            if (!t) continue;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(t.x, t.y, HEX_SIZE * (0.72 + pulse * 0.08), 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255,205,78,${0.58 + pulse * 0.28})`;
+            ctx.lineWidth = 2.2 + pulse;
+            ctx.shadowColor = 'rgba(255,179,45,0.7)';
+            ctx.shadowBlur = 6 + pulse * 5;
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
     const selTile = selectionTile();
     if (selTile) drawHexagonOutline(ctx, selTile.x, selTile.y, HEX_SIZE, '#e6c200', 2.4);
 }
@@ -322,7 +387,7 @@ function drawUnitMarker(tile, unit, index) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(UNIT_LABELS[unit.type]?.[0] || '?', x, y + 0.5);
-    if (unit.commander) {
+    if (unit.commander || unit.storyCommander) {
         ctx.font = '10px sans-serif';
         ctx.fillStyle = '#ffd700';
         ctx.fillText('★', x + 10, y - 10);
@@ -465,6 +530,7 @@ function onPointerDown(e) {
                 camp: unitTemplate.camp,
                 q: tile.q, r: tile.r,
                 commander: unitTemplate.commander || null,
+                storyCommander: unitTemplate.storyCommander || null,
                 hpPct: unitTemplate.hpPct,
                 morale: unitTemplate.morale,
                 canAct: unitTemplate.canAct
@@ -527,7 +593,7 @@ function updateHint(tile, modeInfo) {
         tile.isCity ? '城市' : '',
         tile.isVillage ? '村庄' : '',
         tile.fortification ? FORTIFICATION_LABELS[tile.fortification] : '',
-        unit ? `单位:${UNIT_LABELS[unit.type]}${unit.commander ? '·' + COMMANDER_LABELS[unit.commander] : ''}(${unit.id})` : ''
+        unit ? `单位:${UNIT_LABELS[unit.type]}${commanderMountLabel(unit) ? '·' + commanderMountLabel(unit) : ''}(${unit.id})` : ''
     ].filter(Boolean);
     hintEl.textContent = parts.join('　');
 }
@@ -620,17 +686,43 @@ function buildUnitTools() {
     const sec = section('单位模板（点击空格放置）');
     sec.appendChild(selectRow('兵种', unitTemplate.type, UNIT_LABELS, v => { unitTemplate.type = v; }));
     sec.appendChild(selectRow('阵营', unitTemplate.camp, factionLabels(), v => { unitTemplate.camp = v; }));
-    sec.appendChild(selectRow('将领', unitTemplate.commander, { '': '（无）', ...COMMANDER_LABELS }, v => { unitTemplate.commander = v; }));
+    sec.appendChild(selectRow('挂载将领', commanderMountValue(unitTemplate), commanderMountOptions(), v => { setCommanderMount(unitTemplate, v); }));
     sec.appendChild(numRow('生命%', unitTemplate.hpPct, v => { unitTemplate.hpPct = Math.max(1, Math.min(100, Math.round(v))); }, { min: 1, max: 100 }));
     sec.appendChild(selectRow('士气', String(unitTemplate.morale), { 3: '上升', 2: '正常', 1: '下降', 0: '混乱' }, v => { unitTemplate.morale = Number(v); }));
     sec.appendChild(checkRow('本回合可行动', unitTemplate.canAct, v => { unitTemplate.canAct = v; }));
     wrap.appendChild(sec);
 
+    const secStory = section(`剧情将领库（${config.storyCommanders.length}）`);
+    secStory.appendChild(itemList({
+        items: config.storyCommanders.map((commander, index) => ({
+            key: String(index),
+            label: `${commander.name || commander.id} · ${commander.archetype ? COMMANDER_LABELS[commander.archetype] : '纯剧情'}`
+        })),
+        activeKey: selection?.kind === 'storyCommander' ? String(selection.index) : null,
+        onSelect: key => { selection = { kind: 'storyCommander', index: Number(key) }; renderToolPanel(); renderInspector(); render(); },
+        onDelete: key => mutate(c => {
+            const index = Number(key);
+            const id = c.storyCommanders[index]?.id;
+            c.storyCommanders.splice(index, 1);
+            if (id) replaceStoryCommanderReferences(c, id);
+            if (selection?.kind === 'storyCommander') selection = null;
+        }),
+        addLabel: '+ 新建剧情将领',
+        onAdd: () => mutate(c => {
+            let n = 1;
+            while (c.storyCommanders.some(item => item.id === `story_commander_${n}`)) n++;
+            c.storyCommanders.push({ id: `story_commander_${n}`, name: '新剧情将领', archetype: '', portrait: 'npcMale' });
+            selection = { kind: 'storyCommander', index: c.storyCommanders.length - 1 };
+        })
+    }));
+    secStory.appendChild(hint('剧情名覆盖战场上的原型名；选择玩法原型可继承技能与数值，留空则是只有将领身份和立绘的剧情人物。'));
+    wrap.appendChild(secStory);
+
     const secList = section(`已放置单位（${config.units.length}）`);
     secList.appendChild(itemList({
         items: config.units.map((u, i) => ({
             key: String(i),
-            label: `${u.id} · ${factionLabels()[u.camp] || u.camp}${UNIT_LABELS[u.type]}${u.commander ? '·' + COMMANDER_LABELS[u.commander] : ''} (${u.q},${u.r})`
+            label: `${u.id} · ${factionLabels()[u.camp] || u.camp}${UNIT_LABELS[u.type]}${commanderMountLabel(u) ? '·' + commanderMountLabel(u) : ''} (${u.q},${u.r})`
         })),
         activeKey: selection?.kind === 'unit' ? String(selection.index) : null,
         onSelect: (key) => { selection = { kind: 'unit', index: Number(key) }; renderToolPanel(); renderInspector(); render(); },
@@ -848,6 +940,11 @@ function renderInspector() {
         body.appendChild(buildUnitInspector(selection.index));
         return;
     }
+    if (selection?.kind === 'storyCommander' && config.storyCommanders[selection.index]) {
+        title.textContent = '剧情将领身份';
+        body.appendChild(buildStoryCommanderInspector(selection.index));
+        return;
+    }
     if (selection?.kind === 'trigger' && config.triggers[selection.index]) {
         title.textContent = '触发器';
         body.appendChild(buildTriggerInspector(selection.index));
@@ -888,7 +985,7 @@ function buildUnitInspector(index) {
     }));
     wrap.appendChild(selectRow('兵种', u.type, UNIT_LABELS, set('type')));
     wrap.appendChild(selectRow('阵营', u.camp, factionLabels(), set('camp')));
-    wrap.appendChild(selectRow('将领', u.commander || '', { '': '（无）', ...COMMANDER_LABELS }, v => mutate(c => { c.units[index].commander = v || null; })));
+    wrap.appendChild(selectRow('挂载将领', commanderMountValue(u), commanderMountOptions(), v => mutate(c => { setCommanderMount(c.units[index], v); })));
     wrap.appendChild(numRow('生命%', u.hpPct ?? 100, v => mutate(c => { c.units[index].hpPct = Math.max(1, Math.min(100, Math.round(v))); }), { min: 1, max: 100 }));
     wrap.appendChild(selectRow('士气', String(u.morale ?? 2), { 3: '上升', 2: '正常', 1: '下降', 0: '混乱' }, v => mutate(c => { c.units[index].morale = Number(v); })));
     wrap.appendChild(checkRow('本回合可行动', u.canAct !== false, set('canAct')));
@@ -896,7 +993,44 @@ function buildUnitInspector(index) {
     const del = el('button', 'ed-add-btn', '🗑 删除该单位');
     del.addEventListener('click', () => mutate(c => { c.units.splice(index, 1); selection = null; }));
     wrap.appendChild(del);
-    wrap.appendChild(hint('单位 id 供剧情/触发器引用（目标环、存活判定、白名单）。'));
+    wrap.appendChild(hint('剧情将领需先在左侧“剧情将领库”创建；剧情名会覆盖玩法原型名。单位 id 供触发器、目标环和存活判定引用。'));
+    return wrap;
+}
+
+function buildStoryCommanderInspector(index) {
+    const wrap = el('div');
+    const commander = config.storyCommanders[index];
+    wrap.appendChild(textRow('身份 id', commander.id, value => {
+        if (!value) { setStatus('剧情将领 id 不能为空', 'error'); renderInspector(); return; }
+        if (config.storyCommanders.some((other, i) => i !== index && other.id === value)) {
+            setStatus(`剧情将领 id「${value}」已存在`, 'error'); renderInspector(); return;
+        }
+        mutate(c => {
+            const previous = c.storyCommanders[index].id;
+            c.storyCommanders[index].id = value;
+            replaceStoryCommanderReferences(c, previous, value);
+        });
+    }, '如 marcus'));
+    wrap.appendChild(textRow('剧情名字', commander.name, value => mutate(c => { c.storyCommanders[index].name = value; }), '如 马库斯'));
+    wrap.appendChild(selectRow('玩法原型', commander.archetype || '', { '': '（无技能，仅剧情身份）', ...COMMANDER_LABELS }, value => mutate(c => {
+        c.storyCommanders[index].archetype = value || undefined;
+        if (!value && !c.storyCommanders[index].portrait) c.storyCommanders[index].portrait = 'npcMale';
+    })));
+    const portraitOptions = commander.archetype
+        ? { '': '（自动使用玩法原型立绘）', ...DIALOGUE_PORTRAIT_LABELS }
+        : { npcMale: DIALOGUE_PORTRAIT_LABELS.npcMale, npcFemale: DIALOGUE_PORTRAIT_LABELS.npcFemale };
+    wrap.appendChild(selectRow('人物立绘', commander.portrait || (commander.archetype ? '' : 'npcMale'), portraitOptions, value => mutate(c => {
+        c.storyCommanders[index].portrait = value || undefined;
+    })));
+    wrap.appendChild(hint('“玩法原型”决定属性、技能和规则身份；“剧情名字”决定战场名牌与阵亡日志。无专属立绘的人物请选择 NPC 男性或 NPC 女性兜底立绘。'));
+    const del = el('button', 'ed-add-btn', '🗑 删除该剧情将领');
+    del.addEventListener('click', () => mutate(c => {
+        const id = c.storyCommanders[index]?.id;
+        c.storyCommanders.splice(index, 1);
+        if (id) replaceStoryCommanderReferences(c, id);
+        selection = null;
+    }));
+    wrap.appendChild(del);
     return wrap;
 }
 
@@ -1401,7 +1535,11 @@ function spawnGroupEditor(units, onChange) {
         box.appendChild(textRow('id', u.id || '', v => patch({ id: v || undefined })));
         box.appendChild(selectRow('兵种', u.type || 'infantry', UNIT_LABELS, v => patch({ type: v })));
         box.appendChild(selectRow('阵营', u.camp || nonLocalFactionId(), factionLabels(), v => patch({ camp: v })));
-        box.appendChild(selectRow('将领', u.commander || '', { '': '（无）', ...COMMANDER_LABELS }, v => patch({ commander: v || undefined })));
+        box.appendChild(selectRow('挂载将领', commanderMountValue(u), commanderMountOptions(), value => {
+            const mounted = { ...u };
+            setCommanderMount(mounted, value);
+            patch({ commander: mounted.commander, storyCommander: mounted.storyCommander });
+        }));
         box.appendChild(coordRow('坐标', u.q ?? 0, u.r ?? 0, tile => patch(tile)));
         box.appendChild(numRow('生命%', u.hpPct ?? 100, v => patch({ hpPct: Math.max(1, Math.min(100, Math.round(v))) })));
         wrap.appendChild(box);
@@ -1538,7 +1676,13 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(selectRow('新阵营', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v }))); break;
         case 'unitCommander':
             box.appendChild(targetEditor(action.target, target => patch({ target })));
-            box.appendChild(selectRow('将领', action.commander || '', { '': '（无）', ...COMMANDER_LABELS }, v => patch({ commander: v || undefined }))); break;
+            box.appendChild(selectRow('挂载将领', commanderMountValue(action), commanderMountOptions(), value => {
+                const mounted = { ...action };
+                setCommanderMount(mounted, value);
+                patch({ commander: mounted.commander, storyCommander: mounted.storyCommander });
+            }));
+            box.appendChild(hint('剧情将领沿用将领库中的名字、立绘与玩法原型；选择“无将领”会卸下现有挂载。'));
+            break;
         case 'unitState':
             box.appendChild(targetEditor(action.target, target => patch({ target })));
             box.appendChild(selectRow('能力', action.state || 'canAct', { canAct: '本回合可行动', canMove: '允许移动', canAttack: '允许攻击', targetable: '允许成为目标', invulnerable: '无敌', canCounterattack: '允许反击' }, v => patch({ state: v })));
@@ -1709,6 +1853,29 @@ function buildObjectiveInspector(id) {
     wrap.appendChild(textareaRow('描述', obj.detail, v => mutate(c => { c.objectives[id].detail = v; }, { rebuildPanels: false }), 3));
     wrap.appendChild(checkRow('开场时显示为“进行中”', obj.active !== false, v => mutate(c => { c.objectives[id].active = v; }, { rebuildPanels: false })));
     wrap.appendChild(checkRow('主要目标', obj.main === true, v => mutate(c => { c.objectives[id].main = v || undefined; }, { rebuildPanels: false })));
+
+    const updateHighlight = (fields) => mutate(c => {
+        const current = { ...(c.objectives[id].highlight || {}), ...fields };
+        if (!current.unit) delete current.unit;
+        if (!current.area) delete current.area;
+        if (!current.tiles?.length) delete current.tiles;
+        c.objectives[id].highlight = Object.keys(current).length ? current : undefined;
+    });
+    const highlight = obj.highlight || {};
+    const secHighlight = section('任务提示光圈（仅“进行中”时常驻）');
+    const unitRow = el('div', 'ed-row');
+    unitRow.appendChild(el('label', null, '跟随单位'));
+    const unitSelect = el('select');
+    for (const [value, label] of Object.entries(unitOptions(true))) unitSelect.appendChild(new Option(label, value));
+    unitSelect.value = highlight.unit || '';
+    unitSelect.addEventListener('change', () => updateHighlight({ unit: unitSelect.value || undefined }));
+    unitRow.appendChild(unitSelect);
+    unitRow.appendChild(pickUnitButton(unit => updateHighlight({ unit }), highlight.unit));
+    secHighlight.appendChild(unitRow);
+    secHighlight.appendChild(tilesPickerRow('指定位置', highlight.tiles || [], tiles => updateHighlight({ tiles: tiles.length ? tiles : undefined })));
+    secHighlight.appendChild(areaPickerRow('命名区域', highlight.area || '', area => updateHighlight({ area: area || undefined })));
+    secHighlight.appendChild(hint('可单独或组合指定：单位光圈会跟随移动；位置适合少量独立地块；区域适合可复用的一组地块。目标完成、失败或隐藏后自动停止显示。'));
+    wrap.appendChild(secHighlight);
     return wrap;
 }
 

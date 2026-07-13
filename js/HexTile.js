@@ -201,7 +201,7 @@ export class HexTile extends EngineHexTile {
             width: CITY_FLAG_LAYOUT.width,
             height: CITY_FLAG_LAYOUT.height,
             camp: p.camp,
-            commander: !!this.unit?.commander
+            commander: Boolean(this.unit?.isCommanderUnit ?? this.unit?.commander)
         };
     }
 

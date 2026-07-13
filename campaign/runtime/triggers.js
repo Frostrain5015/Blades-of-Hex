@@ -8,6 +8,7 @@ import {
     campFromKey, canAttack, createDefaultDiplomacy, getRelation, normalizeCampKey, setRelation
 } from '../../rules/diplomacy.js';
 import { isMechanicEnabled, setMechanicEnabled } from '../../rules/mechanics.js';
+import { applyCommanderMount, resolveCommanderMount } from './storyCommanders.js';
 
 function campKeyOf(camp) { return normalizeCampKey(camp, gameState); }
 function coordKey(q, r) { return `${q},${r}`; }
@@ -59,13 +60,15 @@ function readOperand(operand, ctx) {
     return undefined;
 }
 
-export function spawnUnitsInto(state, specs) {
+export function spawnUnitsInto(state, specs, config = null) {
     const created = [];
     for (const spec of (specs || [])) {
         const tile = state.tileMap.get(coordKey(spec.q, spec.r));
         if (!tile || tile.unit) continue;
         const camp = campFromKey(spec.camp, state);
-        const unit = new Unit(spec.type, camp, tile, false, spec.id || null, spec.commander || null);
+        const mount = resolveCommanderMount(config, spec);
+        const unit = new Unit(spec.type, camp, tile, false, spec.id || null, mount.commander);
+        applyCommanderMount(unit, mount);
         if (typeof spec.hp === 'number') unit.hp = Math.max(1, Math.min(unit.maxHp, Math.round(spec.hp)));
         else if (typeof spec.hpPct === 'number') unit.hp = Math.max(1, Math.min(unit.maxHp, Math.round(unit.maxHp * spec.hpPct / 100)));
         unit.displayHp = unit.hp;
@@ -262,7 +265,7 @@ function runAction(action, ctx) {
             delete gameState._campaignStepOwnsInputLock;
             break;
         case 'setObjectiveStatus': api.setObjectiveStatus?.(action.objective, action.status); break;
-        case 'spawnUnits': spawnUnitsInto(gameState, action.units); updateUI(); break;
+        case 'spawnUnits': spawnUnitsInto(gameState, action.units, config); updateUI(); break;
         case 'setPhase': gameState.campaignPhase = action.value; break;
         case 'setVariable': {
             const variable = (config.variables || []).find(item => item.id === action.variable);
@@ -339,8 +342,10 @@ function runAction(action, ctx) {
             break;
         }
         case 'assignCommander': {
+            const mount = resolveCommanderMount(config, action);
             for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
-                unit.assignCampaignCommander?.(action.commander || null);
+                unit.assignCampaignCommander?.(mount.commander);
+                applyCommanderMount(unit, mount);
             }
             updateUI(); break;
         }

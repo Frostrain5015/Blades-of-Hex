@@ -1679,7 +1679,7 @@ export function attackUnit(attackerUnit, targetUnit) {
                     _cmdFxExtra = { x: targetTile.x, y: targetTile.y, glyph: '🎖️', label: '屯田' };
                 }
             }
-            if (targetUnit.commander) {
+            if (targetUnit.isCommanderUnit ?? Boolean(targetUnit.commander)) {
                 // 空军上校阵亡 → 禁用对应玩家的空军卡
                 if (targetUnit.commander === 'colonel') {
                     const defKey = _campKey(targetUnit.camp);
@@ -1723,7 +1723,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             if (_atkCmdFxCapture && !_cmdFxData) _cmdFxData = _atkCmdFxCapture;
             const rankExtra = [0, 2, 5, 12, 20];
             const killXp = 3 + (rankExtra[targetUnit._rank] || 0);
-            const bonusXp = targetUnit.commander ? 10 : 0;
+            const bonusXp = (targetUnit.isCommanderUnit ?? Boolean(targetUnit.commander)) ? 10 : 0;
             attackerUnit.addXP(killXp + bonusXp);
         }
 
@@ -2209,7 +2209,7 @@ export function reapColonelKill(colonel, targetUnit) {
     // 击杀经验：基础3 + 目标等级加成（与普攻击杀一致）+ 将领额外10
     const rankExtra = [0, 2, 5, 12, 20];
     const rankBonus = rankExtra[targetUnit._rank] || 0;
-    const cmdBonus = targetUnit.commander ? 10 : 0;
+    const cmdBonus = (targetUnit.isCommanderUnit ?? Boolean(targetUnit.commander)) ? 10 : 0;
     colonel.addXP(3 + rankBonus + cmdBonus);
 }
 
@@ -2424,7 +2424,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('无效目标'); return; }
     } else if (tg === 'friendlyAny') {
         if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('请选择友方单位'); return; }
-        if (cardId === 'commanderDeploy' && targetTile.unit.commander) { notify('将领必须部署到未配属将领的单位'); return; }
+        if (cardId === 'commanderDeploy' && (targetTile.unit.isCommanderUnit ?? Boolean(targetTile.unit.commander))) { notify('将领必须部署到未配属将领的单位'); return; }
         // E4 空运：被禁锢的单位不可被空运
         if (cardId === 'airlift' && targetTile.unit._imprisoned) { notify('被禁锢的单位无法空运'); return; }
     } else if (tg === 'emptyTile') {

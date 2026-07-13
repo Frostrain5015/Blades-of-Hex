@@ -56,7 +56,7 @@ export default {
           });
           if (killed) {
             helpers.logMessage(`殉道者自爆击杀${victim.camp.name}${victim.config.name}兵 ${dmg}伤害`);
-            if (victim.commander) killedCommander = true;
+            if (victim.isCommanderUnit ?? Boolean(victim.commander)) killedCommander = true;
           } else {
             helpers.logMessage(`殉道者自爆对${victim.camp.name}${victim.config.name}兵造成${dmg}伤害`);
           }

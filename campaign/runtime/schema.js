@@ -148,6 +148,7 @@ export function createDefaultLevel() {
         gold: { player1: 6 },
         commanders: {},
         hands: { player1: [] },
+        storyCommanders: [],        // [{ id, name, archetype?, portrait? }]
         // 阵营不是逐格独立属性：每个 districtId 的阵营由该区划内的城市（颜色来源）单向决定，
         // 与 gameLogic.updateDistrictColor 的运行时规则一致——城市变色，全区划跟着变色。
         // 因此棋盘只需描述「区划范围」(districts) 与「区划颜色来源」(cities.camp)，
@@ -162,12 +163,12 @@ export function createDefaultLevel() {
             fortifications: [],     // [{ q, r, type }]  trench/flak
             districts: []           // [{ q, r, districtId }] 覆盖 Voronoi 归属，用于手绘不规则边界
         },
-        units: [],                  // [{ id, type, camp, q, r, commander, hpPct, morale, canAct }]
+        units: [],                  // [{ id, type, camp, q, r, commander?|storyCommander?, hpPct, morale, canAct }]
         unitGroups: [],             // [{ id, unitIds:[] }]
         areas: [],                  // [{ id, tiles:[{q,r}] }]
         interactables: [],          // [{ id, q, r, label, enabled, once, icon? }]
         variables: [],              // [{ id, scope:'level'|'campaign', type, initial }]
-        objectives: {},             // { objId: { title, detail, active, main } }
+        objectives: {},             // { objId: { title, detail, active, main, highlight?:{unit,tiles,area} } }
         triggers: [],               // [{ id, when:[], do:[], once, enabled }]
         result: {
             winText: '任务完成。',
@@ -188,6 +189,7 @@ export function normalizeLevel(raw) {
     merged.gold = { ...def.gold, ...(raw.gold || {}) };
     merged.commanders = { ...def.commanders, ...(raw.commanders || {}) };
     merged.hands = { ...def.hands, ...(raw.hands || {}) };
+    merged.storyCommanders = Array.isArray(raw.storyCommanders) ? raw.storyCommanders : [];
     merged.factions = Array.isArray(raw.factions) ? raw.factions.map(item => {
         const palette = getPaletteEntry(item?.color);
         return { ...item, note: typeof item?.note === 'string' ? item.note.trim() : '', color: palette?.id || item?.color };
@@ -254,8 +256,20 @@ export function validateLevel(config) {
         }
     }
 
+    const storyCommanderIds = new Set();
+    for (const commander of (c.storyCommanders || [])) {
+        const id = commander?.id || '';
+        if (!/^[a-z][a-z0-9_-]{0,47}$/i.test(id)) errors.push(`剧情将领 id「${id || '空'}」非法（使用字母开头，后续仅限字母、数字、_、-）。`);
+        if (storyCommanderIds.has(id)) errors.push(`剧情将领 id「${id}」重复。`);
+        storyCommanderIds.add(id);
+        if (!commander?.name?.trim()) errors.push(`剧情将领「${id || '未命名'}」缺少剧情名字。`);
+        if (commander?.archetype && !COMMANDER_IDS.includes(commander.archetype)) errors.push(`剧情将领「${id}」引用未知玩法原型「${commander.archetype}」。`);
+        if (commander?.portrait && !DIALOGUE_PORTRAIT_IDS.includes(commander.portrait)) errors.push(`剧情将领「${id}」引用不存在的立绘「${commander.portrait}」。`);
+    }
+
     const seen = new Set();
     const unitIds = new Set();
+    const mountedStoryCommanders = new Set();
     for (const u of (c.units || [])) {
         if (!UNIT_TYPES.includes(u.type)) errors.push(`单位使用了未知兵种「${u.type}」。`);
         if (!factionIds.has(u.camp)) errors.push(`单位阵营「${u.camp}」未在本关阵营列表中声明。`);
@@ -267,6 +281,10 @@ export function validateLevel(config) {
         else if (unitIds.has(u.id)) errors.push(`单位 id「${u.id}」重复。`);
         else unitIds.add(u.id);
         if (u.commander && !COMMANDER_IDS.includes(u.commander)) errors.push(`单位绑定了未知将领「${u.commander}」。`);
+        if (u.storyCommander && !storyCommanderIds.has(u.storyCommander)) errors.push(`单位「${u.id || key}」绑定了不存在的剧情将领「${u.storyCommander}」。`);
+        if (u.storyCommander && u.commander) errors.push(`单位「${u.id || key}」不能同时直挂玩法将领与剧情将领。`);
+        if (u.storyCommander && mountedStoryCommanders.has(u.storyCommander)) errors.push(`剧情将领「${u.storyCommander}」不能在开场同时挂载到多个单位。`);
+        if (u.storyCommander) mountedStoryCommanders.add(u.storyCommander);
         if (u.id && u.id.startsWith('__')) warnings.push(`单位 id「${u.id}」以 __ 开头，可能与内部保留冲突。`);
     }
 
@@ -337,6 +355,36 @@ export function validateLevel(config) {
 
     const triggerIds = new Set((c.triggers || []).map(t => t.id).filter(Boolean));
     const objectiveIds = new Set(Object.keys(c.objectives || {}));
+    for (const [objectiveId, objective] of Object.entries(c.objectives || {})) {
+        if (!objective || typeof objective !== 'object' || Array.isArray(objective)) {
+            errors.push(`目标「${objectiveId}」配置必须是对象。`);
+            continue;
+        }
+        const highlight = objective.highlight;
+        if (highlight == null) continue;
+        if (typeof highlight !== 'object' || Array.isArray(highlight)) {
+            errors.push(`目标「${objectiveId}」的提示光圈配置必须是对象。`);
+            continue;
+        }
+        if (highlight.unit && !unitIds.has(highlight.unit)) {
+            errors.push(`目标「${objectiveId}」的提示光圈引用不存在的单位「${highlight.unit}」。`);
+        }
+        if (highlight.area && !areaIds.has(highlight.area)) {
+            errors.push(`目标「${objectiveId}」的提示光圈引用不存在的区域「${highlight.area}」。`);
+        }
+        if (highlight.tiles != null && !Array.isArray(highlight.tiles)) {
+            errors.push(`目标「${objectiveId}」的提示光圈地块必须是数组。`);
+        } else {
+            for (const point of (highlight.tiles || [])) {
+                if (!Number.isInteger(point?.q) || !Number.isInteger(point?.r) || !inBoard(point.q, point.r)) {
+                    errors.push(`目标「${objectiveId}」的提示光圈包含棋盘外坐标 (${point?.q},${point?.r})。`);
+                }
+            }
+        }
+        if (!highlight.unit && !highlight.area && !(highlight.tiles || []).length) {
+            warnings.push(`目标「${objectiveId}」启用了提示光圈，但没有指定单位、位置或区域。`);
+        }
+    }
     const conditionMeta = (kind) => TRIGGER_CONDITIONS.find(item => item?.kind === kind);
     const conditionContainsEvent = (condition) => {
         if (!condition || typeof condition !== 'object') return false;
@@ -466,6 +514,8 @@ export function validateLevel(config) {
         }
         if (action.kind === 'setUnitState' && !['canAct', 'canMove', 'canAttack', 'targetable', 'invulnerable', 'canCounterattack'].includes(action.state)) errors.push(`${path} 的单位状态「${action.state}」无效。`);
         if (action.kind === 'assignCommander' && action.commander && !COMMANDER_IDS.includes(action.commander)) errors.push(`${path} 引用不存在的将领「${action.commander}」。`);
+        if (action.kind === 'assignCommander' && action.storyCommander && !storyCommanderIds.has(action.storyCommander)) errors.push(`${path} 引用不存在的剧情将领「${action.storyCommander}」。`);
+        if (action.kind === 'assignCommander' && action.commander && action.storyCommander) errors.push(`${path} 不能同时部署玩法将领与剧情将领。`);
         if (action.kind === 'setWeather' && !WEATHER_KEYS.includes(action.weather)) errors.push(`${path} 的天气「${action.weather}」无效。`);
         if (action.kind === 'removeUnits' && !['despawn', 'kill'].includes(action.mode || 'despawn')) errors.push(`${path} 的移除方式无效。`);
         if (action.kind === 'applyEffect') {
@@ -480,12 +530,17 @@ export function validateLevel(config) {
         if (action.kind === 'spawnUnits') {
             const seenSpawnTiles = new Set();
             const seenSpawnIds = new Set();
+            const seenSpawnStoryCommanders = new Set();
             for (const [index, spec] of (action.units || []).entries()) {
                 const specPath = `${path} 的生成单位 ${index + 1}`;
                 if (!UNIT_TYPES.includes(spec?.type)) errors.push(`${specPath} 的单位类型「${spec?.type}」不存在。`);
                 if (!factionIds.has(spec?.camp)) errors.push(`${specPath} 的阵营「${spec?.camp}」未在本关阵营列表中声明。`);
                 if (!Number.isInteger(spec?.q) || !Number.isInteger(spec?.r) || !inBoard(spec.q, spec.r)) errors.push(`${specPath} 的坐标不在棋盘内。`);
                 if (spec?.commander && !COMMANDER_IDS.includes(spec.commander)) errors.push(`${specPath} 引用不存在的将领「${spec.commander}」。`);
+                if (spec?.storyCommander && !storyCommanderIds.has(spec.storyCommander)) errors.push(`${specPath} 引用不存在的剧情将领「${spec.storyCommander}」。`);
+                if (spec?.commander && spec?.storyCommander) errors.push(`${specPath} 不能同时直挂玩法将领与剧情将领。`);
+                if (spec?.storyCommander && seenSpawnStoryCommanders.has(spec.storyCommander)) errors.push(`${path} 同一次生成不能把剧情将领「${spec.storyCommander}」挂载到多个单位。`);
+                if (spec?.storyCommander) seenSpawnStoryCommanders.add(spec.storyCommander);
                 if (spec?.hp != null && (!Number.isFinite(spec.hp) || spec.hp <= 0)) errors.push(`${specPath} 的生命值必须是正数。`);
                 if (spec?.hpPct != null && (!Number.isFinite(spec.hpPct) || spec.hpPct <= 0 || spec.hpPct > 100)) errors.push(`${specPath} 的生命百分比必须在 1 到 100 之间。`);
                 const tileKey = `${spec?.q},${spec?.r}`;

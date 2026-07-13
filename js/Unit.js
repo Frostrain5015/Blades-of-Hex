@@ -27,6 +27,10 @@ export class Unit {
         this.config = UNIT_CONFIG[type];
         this.camp = camp;
         this.commander = commander;
+        // 战役剧情身份与玩法将领原型分离；标准对局保持这些字段为空。
+        this.storyCommanderId = null;
+        this.commanderName = '';
+        this.commanderPortrait = commander || null;
         this._centurionTriggered = false;
         // 应用将领属性加成（百分比化：基于兵种基础面板）
         const cmdCfg = commander ? getCommander(commander) : null;
@@ -191,6 +195,16 @@ export class Unit {
         return this.activeSkillCD > 0 ? this.activeSkillCD : 0;
     }
 
+    get isCommanderUnit() { return Boolean(this.commander || this.commanderName); }
+
+    getCommanderDisplayName() {
+        return this.commanderName || getCommander(this.commander)?.name || this.commander || '';
+    }
+
+    getCommanderPortraitId() {
+        return this.commanderPortrait || this.commander || null;
+    }
+
     getCampaignEffectMods() {
         const total = {
             atkPct: 0, atkFlat: 0, defPct: 0, meleeDefPct: 0,
@@ -270,6 +284,7 @@ export class Unit {
         const oldAtk = oldConfig ? Math.round(this.config.attack * (oldConfig.atkBonusPct || 0)) : 0;
         const nextAtk = nextConfig ? Math.round(this.config.attack * (nextConfig.atkBonusPct || 0)) : 0;
         this.commander = nextCommander;
+        if (!this.storyCommanderId) this.commanderPortrait = nextCommander;
         if (this._campaignBaseMaxHp != null) this._campaignBaseMaxHp += nextHp - oldHp;
         else this.maxHp = Math.max(1, this.maxHp + nextHp - oldHp);
         this._atkBonus = (this._atkBonus || 0) + nextAtk - oldAtk;
@@ -685,12 +700,11 @@ export class Unit {
                         : null;
             if (commanderSlots && _gameState[commanderSlots[0]] === this.commander) _gameState[commanderSlots[0]] = null;
             else if (commanderSlots && _gameState[commanderSlots[1]] === this.commander) _gameState[commanderSlots[1]] = null;
-            const cmdInfo = getCommander(this.commander);
-            log(`${this.camp.name}将领【${cmdInfo?.name || this.commander}】阵亡，效果消失`);
         }
+        if (this.isCommanderUnit && log) log(`${this.camp.name}将领【${this.getCommanderDisplayName()}】阵亡${this.commander ? '，效果消失' : ''}`);
 
         // 所有来源击杀将领：全军士气+1（攻击方阵营；无明确攻击者时以当前回合阵营为准）
-        if (this.commander) {
+        if (this.isCommanderUnit) {
             let killerCamp = null;
             if (attackerUnit && isHostile(_gameState, attackerUnit.camp, this.camp)) {
                 killerCamp = attackerUnit.camp;
@@ -721,7 +735,7 @@ export class Unit {
         const ownKey = campToKey(this.camp) === 'neutral' ? null : campToKey(this.camp);
 
         // E2 亡灵法师留魂：非魂卒、非将领单位阵亡时留下亡魂标记（脚手架不留魂）
-        if (!this._isSoulMinion && !this.commander && !this._engineerScaffold && this.tile && _gameState && _gameState.tileMap) {
+        if (!this._isSoulMinion && !this.isCommanderUnit && !this._engineerScaffold && this.tile && _gameState && _gameState.tileMap) {
             // 检查是否有亡灵法师在场上
             let hasNecromancer = false;
             for (const t of _gameState.tiles) {

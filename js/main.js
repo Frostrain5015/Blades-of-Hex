@@ -40,8 +40,9 @@ import { createHeroCarousel } from './heroCarousel.js';
 import { createPreparationController } from './preparationController.js';
 import { initChat, updateChatAvailability, initEmblemChatClicks, addChatMessage, openChat, isChatViewing } from './chatController.js';
 import { createCampaignController, setCampaignControllerRef } from './campaignController.js';
-import { loadScenario } from '../campaign/catalog.js';
+import { getChronicle, loadScenario } from '../campaign/catalog.js';
 import { renderCampaignLobby } from '../campaign/lobby.js';
+import { isScenarioUnlocked, readProgress } from '../campaign/progress.js';
 import './visualEventBridge.js';
 import './cheat.js';
 import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
@@ -776,6 +777,11 @@ let _currentChronicleId = null;
 let _currentScenarioId = null;
 
 async function startScenario(chronicleId, scenarioId) {
+	const chronicle = getChronicle(chronicleId);
+	if (!chronicle || !isScenarioUnlocked(chronicle.scenarios, scenarioId, readProgress(chronicle.storageKey))) {
+		console.warn(`[campaign] 关卡尚未解锁：${chronicleId}/${scenarioId}`);
+		return;
+	}
 	let scenario;
 	try {
 		scenario = await loadScenario(chronicleId, scenarioId);

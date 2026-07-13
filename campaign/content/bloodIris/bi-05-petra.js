@@ -67,6 +67,10 @@ export const config = {
     gold: { expedition: 0, petra: 0 },
     commanders: { expedition: 'centurion', petra: 'minister' },
     hands: { expedition: [], petra: [] },
+    storyCommanders: [
+        { id: 'marcus', name: '马库斯', archetype: 'centurion' },
+        { id: 'cato', name: '卡托', archetype: 'minister' }
+    ],
 
     board: {
         radius: 4,
@@ -96,7 +100,7 @@ export const config = {
     units: [
         {
             id: 'marcus_assault', type: 'infantry', camp: 'expedition', q: -3, r: 1,
-            commander: 'centurion', hpPct: 100, morale: 3, canAct: true
+            storyCommander: 'marcus', hpPct: 100, morale: 3, canAct: true
         },
         {
             id: 'titus_assault', type: 'infantry', camp: 'expedition', q: -3, r: 0,
@@ -112,7 +116,7 @@ export const config = {
         },
         {
             id: 'cato_boss', type: 'infantry', camp: 'petra', q: 1, r: -1,
-            commander: 'minister', hpPct: 100, morale: 3, canAct: true
+            storyCommander: 'cato', hpPct: 100, morale: 3, canAct: true
         },
         {
             id: 'petra_wall_guard', type: 'infantry', camp: 'petra', q: 0, r: -1,
@@ -149,13 +153,15 @@ export const config = {
             title: '攻破内城高台',
             detail: '将卡托逼至无法继续指挥。',
             active: true,
-            main: true
+            main: true,
+            highlight: { unit: 'cato_boss' }
         },
         inspect_ashes: {
             title: '调查档案厅灰烬',
             detail: '在特使焚尽一切前，找出未燃尽的东西。',
             active: false,
-            main: true
+            main: true,
+            highlight: { tiles: [{ q: 0, r: 0 }] }
         }
     },
 

@@ -36,7 +36,8 @@ function _grantCurseKillCredit(killer, victim, gameState, helpers) {
 
     const rankExtra = BALANCE.rankXp;
     const victimRank = Math.max(0, Math.min(4, victim._rank || 0));
-    const xp = BALANCE.killBaseXp + (rankExtra[victimRank] || 0) + (victim.commander ? BALANCE.commanderKillXp : 0);
+    const isCommander = victim.isCommanderUnit ?? Boolean(victim.commander);
+    const xp = BALANCE.killBaseXp + (rankExtra[victimRank] || 0) + (isCommander ? BALANCE.commanderKillXp : 0);
     if (typeof killer.addXP === 'function') {
         killer.addXP(xp);
     } else {

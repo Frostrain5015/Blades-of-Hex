@@ -5,6 +5,7 @@ import { configureMatchFactions } from '../../engine/matchState.js';
 import { createDefaultMechanics } from '../../rules/mechanics.js';
 import { Unit } from '../../js/Unit.js';
 import { computeCampBorders } from '../../js/HexTile.js';
+import { applyCommanderMount, resolveCommanderMount } from './storyCommanders.js';
 
 const COMMANDER_SLOTS = {
     player1: { id: 'commanderP1', confirmed: 'commanderP1Confirmed', deployed: 'commanderP1Deployed' },
@@ -68,14 +69,16 @@ export function buildBattlefieldFromConfig(config, gameState) {
         if (!tile) continue;                 // 越界或坐标无效，跳过
         if (tile.unit) continue;             // 该格已被占用
         const camp = campFromKey(spec.camp, gameState);
+        const mount = resolveCommanderMount(config, spec);
         const unit = new Unit(
             spec.type,
             camp,
             tile,
             false,
             spec.id || null,                 // 用编辑器 id 作为单位 id，触发器据此引用
-            spec.commander || null
+            mount.commander
         );
+        applyCommanderMount(unit, mount);
         // 生命值：优先绝对 hp，其次 hpPct（1~100 百分比），默认满血。
         if (typeof spec.hp === 'number') {
             unit.hp = Math.max(1, Math.min(unit.maxHp, Math.round(spec.hp)));
@@ -89,8 +92,8 @@ export function buildBattlefieldFromConfig(config, gameState) {
 
         // 若单位携带将领而该阵营未显式配置主将，用它补上（保证 HUD 与技能条正确）。
         const slot = COMMANDER_SLOTS[spec.camp];
-        if (spec.commander && slot && !gameState[slot.id]) {
-            gameState[slot.id] = spec.commander;
+        if (mount.commander && slot && !gameState[slot.id]) {
+            gameState[slot.id] = mount.commander;
             gameState[slot.confirmed] = true;
             gameState[slot.deployed] = true;
         }

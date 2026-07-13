@@ -395,6 +395,9 @@ export function serializeMatchState(match) {
             moralePenaltyUntil: t.unit.moralePenaltyUntil || 0,
             remainingMP: t.unit.remainingMP,
             commander: t.unit.commander,
+            storyCommanderId: t.unit.storyCommanderId || null,
+            commanderName: t.unit.commanderName || '',
+            commanderPortrait: t.unit.commanderPortrait || null,
             _centurionTriggered: t.unit._centurionTriggered,
             _atkBonus: t.unit._atkBonus,
             _rankDefBonus: t.unit._rankDefBonus || 0,
@@ -637,9 +640,12 @@ export function restoreMatchState(match, data, deps) {
     for (const tile of match.tiles) {
         if (tile.unit) {
             oldDisplayHp.set(tile.unit.id, { hp: tile.unit.hp, displayHp: tile.unit.displayHp });
-            if (tile.unit.commander) {
+            if (tile.unit.isCommanderUnit) {
                 oldCommander.set(tile.unit.id, {
                     commander: tile.unit.commander,
+                    storyCommanderId: tile.unit.storyCommanderId,
+                    commanderName: tile.unit.commanderName,
+                    commanderPortrait: tile.unit.commanderPortrait,
                     _atkBonus: tile.unit._atkBonus,
                     displaySpeed: tile.unit.displaySpeed
                 });
@@ -698,6 +704,9 @@ export function restoreMatchState(match, data, deps) {
             unit.moralePenaltyUntil = td.unit.moralePenaltyUntil || 0;
             unit.remainingMP = td.unit.remainingMP ?? unit.config.speed;
             unit.commander = td.unit.commander || null;
+            unit.storyCommanderId = td.unit.storyCommanderId || null;
+            unit.commanderName = td.unit.commanderName || '';
+            unit.commanderPortrait = td.unit.commanderPortrait || unit.commander || null;
             unit._centurionTriggered = td.unit._centurionTriggered || false;
             unit._atkBonus = td.unit._atkBonus || 0;
             unit._rankDefBonus = td.unit._rankDefBonus || 0;
@@ -737,10 +746,13 @@ export function restoreMatchState(match, data, deps) {
             unit._engineerScaffold = td.unit.engineerScaffold ? { ...td.unit.engineerScaffold } : null;
             unit._engineerBunkerCD = td.unit.engineerBunkerCD || 0;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
-            if (!unit.commander) {
+            if (!unit.isCommanderUnit) {
                 const saved = oldCommander.get(unit.id);
                 if (saved) {
                     unit.commander = saved.commander;
+                    unit.storyCommanderId = saved.storyCommanderId || null;
+                    unit.commanderName = saved.commanderName || '';
+                    unit.commanderPortrait = saved.commanderPortrait || saved.commander || null;
                     unit._atkBonus = saved._atkBonus;
                     unit.displaySpeed = saved.displaySpeed;
                 }

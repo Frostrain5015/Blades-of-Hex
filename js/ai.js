@@ -108,7 +108,7 @@ async function deployAvailableCommanders(aiCamp) {
     ].filter(({ commanderId, deployedKey }) => commanderId && !gameState[deployedKey]);
     const availableUnits = gameState.tiles
         .map(tile => tile.unit)
-        .filter(unit => unit && unit.camp === aiCamp && !unit.commander && unit.tile && unit.hp > 0)
+        .filter(unit => unit && unit.camp === aiCamp && !(unit.isCommanderUnit ?? Boolean(unit.commander)) && unit.tile && unit.hp > 0)
         .sort((left, right) => right.getEffectiveAttack() - left.getEffectiveAttack());
 
     for (let i = 0; i < commanders.length && i < availableUnits.length; i++) {
@@ -250,7 +250,7 @@ async function _executeActionInner(action, aiCamp) {
         }
         case 'deployCommander': {
             const unit = resolveUnit(action.unitId);
-            if (!unit || !unit.tile || unit.commander) return;
+            if (!unit || !unit.tile || (unit.isCommanderUnit ?? Boolean(unit.commander))) return;
             const myCamp = aiCamp;
             const prefix = campToKey(myCamp) === 'player1' ? 'commanderP1' : campToKey(myCamp) === 'player2' ? 'commanderP2' : 'commanderP3';
             const cmdKey = action.commanderId || gameState[prefix];

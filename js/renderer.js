@@ -30,6 +30,7 @@ import { getRoleCamp } from '../rules/diplomacy.js';
 import { drawFxLayer, updateFxFns } from './fxRegistry.js';
 import { drawBattlefieldFlags } from './flagRenderer.js';
 import { drawUnitFlagFinial } from './unitRenderer.js';
+import { resolveActiveObjectiveHighlightTiles } from '../campaign/runtime/objectiveHighlights.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
@@ -56,6 +57,51 @@ function _drawBorderGlow(ctx, color, bw, w, h) {
     const gR = ctx.createLinearGradient(w, 0, w - bw, 0);
     gR.addColorStop(0, color); gR.addColorStop(1, 'transparent');
     ctx.fillStyle = gR; ctx.fillRect(w - bw, 0, bw, h);
+}
+
+// EasyTech 式任务信标：低饱和金色内环负责定位，两道外扩波纹负责吸引余光。
+// 它独立于对白教学高亮，只由“进行中”的目标状态驱动。
+function drawCampaignObjectiveHighlights(now) {
+    if (!gameState.campaignMode || gameState.gameOver) return;
+    const config = gameState._campaignFactionConfig;
+    const targets = resolveActiveObjectiveHighlightTiles(config, gameState.objectiveStates, gameState.tileMap);
+    if (!targets.length) return;
+
+    const baseRadius = HEX_SIZE * 0.78;
+    const cycle = 1700;
+    for (let index = 0; index < targets.length; index++) {
+        const tile = targets[index];
+        const breathe = (Math.sin(now / 430 + index * 0.7) + 1) / 2;
+        ctx.save();
+
+        const glow = ctx.createRadialGradient(tile.x, tile.y, baseRadius * 0.35, tile.x, tile.y, baseRadius * 1.12);
+        glow.addColorStop(0, 'rgba(255,214,100,0)');
+        glow.addColorStop(0.72, `rgba(255,196,64,${0.025 + breathe * 0.025})`);
+        glow.addColorStop(1, 'rgba(255,183,48,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(tile.x, tile.y, baseRadius * 1.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(tile.x, tile.y, baseRadius + breathe * 1.8, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,218,118,${0.62 + breathe * 0.2})`;
+        ctx.lineWidth = 2.1 + breathe * 0.7;
+        ctx.shadowColor = 'rgba(255,177,42,0.72)';
+        ctx.shadowBlur = 7 + breathe * 5;
+        ctx.stroke();
+
+        for (const offset of [0, 0.5]) {
+            const wave = ((now / cycle) + offset + index * 0.11) % 1;
+            ctx.beginPath();
+            ctx.arc(tile.x, tile.y, baseRadius + 3 + wave * 15, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255,195,62,${(1 - wave) * 0.48})`;
+            ctx.lineWidth = 2.2 - wave * 1.1;
+            ctx.shadowBlur = 3 + (1 - wave) * 5;
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
 }
 
 export function renderGame() {
@@ -490,6 +536,10 @@ export function renderGame() {
             }
         }
     }
+
+    // 任务信标是作者主动公开的导航信息：覆在战争迷雾之上，但只画光圈，
+    // 不穿透显示目标格内的地形或单位。
+    drawCampaignObjectiveHighlights(now);
 
     ctx.restore();
 
@@ -2177,9 +2227,9 @@ function drawCommanderPennants() {
     const viewingCamp = getViewingCamp();
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
-        if (!unit || !unit.commander) continue;
+        if (!unit || !unit.isCommanderUnit) continue;
         if (gameState.skirmishFog && !isTileVisible(tile, viewingCamp, gameState)) continue;
-        const portrait = getTransparentPortrait(unit.commander);
+        const portrait = getTransparentPortrait(unit.getCommanderPortraitId());
         if (!portrait) continue;
 
         // 部署过渡动画：1600ms 内淡入+缩放

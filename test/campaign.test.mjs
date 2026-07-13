@@ -44,6 +44,103 @@ export async function run(browser) {
     R.assert(true, '单人战役拥有独立大厅页签');
     R.assert((await page.textContent('#campaignChronicleTitle')).trim() === '染血的鸢尾花', '第一部传记名为《染血的鸢尾花》');
     R.assert((await page.textContent('.campaign-chronicle-index')).includes('将星列传'), '传记档案编号正确');
+    const objectiveHighlightContract = await page.evaluate(async () => {
+        const { resolveActiveObjectiveHighlightTiles } = await import('/campaign/runtime/objectiveHighlights.js');
+        const unitTile = { q: 0, r: 0, unit: { id: 'escort' } };
+        const pointTile = { q: 1, r: 0, unit: null };
+        const areaTile = { q: 1, r: -1, unit: null };
+        const hiddenTile = { q: -1, r: 0, unit: null };
+        const tileMap = new Map([
+            ['0,0', unitTile], ['1,0', pointTile], ['1,-1', areaTile], ['-1,0', hiddenTile]
+        ]);
+        const config = {
+            units: [{ id: 'escort' }],
+            areas: [{ id: 'exit', tiles: [{ q: 1, r: -1 }, { q: 1, r: 0 }] }],
+            objectives: {
+                active: { active: true, highlight: { unit: 'escort', tiles: [{ q: 1, r: 0 }], area: 'exit' } },
+                hidden: { active: false, highlight: { tiles: [{ q: -1, r: 0 }] } }
+            }
+        };
+        const active = resolveActiveObjectiveHighlightTiles(config, { active: 'active', hidden: 'hidden' }, tileMap);
+        unitTile.unit = null;
+        hiddenTile.unit = { id: 'escort' };
+        const moved = resolveActiveObjectiveHighlightTiles(config, { active: 'active', hidden: 'completed' }, tileMap);
+        const ended = resolveActiveObjectiveHighlightTiles(config, { active: 'completed', hidden: 'hidden' }, tileMap);
+        return {
+            active: active.map(tile => `${tile.q},${tile.r}`).sort(),
+            moved: moved.map(tile => `${tile.q},${tile.r}`).sort(),
+            ended: ended.length
+        };
+    });
+    R.assert(objectiveHighlightContract.active.join('|') === '0,0|1,-1|1,0'
+        && objectiveHighlightContract.moved.join('|') === '-1,0|1,-1|1,0'
+        && objectiveHighlightContract.ended === 0,
+    '目标提示光圈仅在进行中显示、自动去重并跟随单位移动');
+    const storyCommanderContract = await page.evaluate(async () => {
+        const { config } = await import('/campaign/content/bloodIris/bi-04-gate.js');
+        const { resolveCommanderMount, applyCommanderMount } = await import('/campaign/runtime/storyCommanders.js');
+        const { Unit } = await import('/js/Unit.js');
+        const { CAMP } = await import('/rules/camps.js');
+        const createUnit = spec => {
+            const mount = resolveCommanderMount(config, spec);
+            const tile = { q: 0, r: 0, x: 400, y: 300, unit: null };
+            return applyCommanderMount(new Unit('infantry', CAMP.player1, tile, false, spec.id, mount.commander), mount);
+        };
+        const cato = createUnit(config.units.find(unit => unit.id === 'cato_defender'));
+        const captain = createUnit(config.units.find(unit => unit.id === 'petra_gate_guard'));
+        const inspectAlpha = async source => {
+            const image = new Image();
+            image.src = source;
+            await image.decode();
+            const canvas = document.createElement('canvas');
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            const corner = context.getImageData(0, 0, 1, 1).data[3];
+            const center = context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height * 0.55), 1, 1).data[3];
+            return { width: image.naturalWidth, height: image.naturalHeight, corner, center };
+        };
+        return {
+            cato: { commander: cato.commander, name: cato.getCommanderDisplayName(), portrait: cato.getCommanderPortraitId() },
+            captain: { commander: captain.commander, name: captain.getCommanderDisplayName(), portrait: captain.getCommanderPortraitId(), identity: captain.isCommanderUnit },
+            male: await inspectAlpha('/img/commander_tr/NPC男.webp'),
+            female: await inspectAlpha('/img/commander_tr/NPC女.webp')
+        };
+    });
+    R.assert(storyCommanderContract.cato.commander === 'minister'
+        && storyCommanderContract.cato.name === '卡托'
+        && storyCommanderContract.cato.portrait === 'minister',
+    '剧情将领名字覆盖玩法原型名，同时保留原型技能与立绘');
+    R.assert(storyCommanderContract.captain.commander === null
+        && storyCommanderContract.captain.name === '佩特拉守备队长'
+        && storyCommanderContract.captain.portrait === 'npcMale'
+        && storyCommanderContract.captain.identity,
+    '无玩法原型的自创人物仍作为剧情将领挂载');
+    R.assert(storyCommanderContract.male.corner === 0 && storyCommanderContract.male.center > 0
+        && storyCommanderContract.female.corner === 0 && storyCommanderContract.female.center > 0,
+    'NPC 男女战场兜底立绘均使用真实透明背景资源');
+    const objectiveEditorPage = await newGamePage(browser);
+    await objectiveEditorPage.click('#soloGameBtn');
+    await objectiveEditorPage.evaluate(() => document.getElementById('editorBtn')?.click());
+    await objectiveEditorPage.locator('#editorOverlay').waitFor({ state: 'visible' });
+    await objectiveEditorPage.click('.editor-tab[data-tab="triggers"]');
+    await objectiveEditorPage.getByText('+ 新增目标', { exact: true }).click();
+    R.assert(await objectiveEditorPage.getByText('任务提示光圈（仅“进行中”时常驻）', { exact: true }).count() === 1
+        && await objectiveEditorPage.getByText('跟随单位', { exact: true }).count() === 1
+        && await objectiveEditorPage.getByText('指定位置', { exact: true }).count() === 1
+        && await objectiveEditorPage.getByText('命名区域', { exact: true }).count() === 1,
+    '编辑器目标页提供单位、位置与区域三类图钉入口');
+    await objectiveEditorPage.click('.editor-tab[data-tab="units"]');
+    await objectiveEditorPage.getByText('+ 新建剧情将领', { exact: true }).click();
+    R.assert(await objectiveEditorPage.getByText('剧情将领身份', { exact: true }).count() === 1
+        && await objectiveEditorPage.getByText('剧情名字', { exact: true }).count() === 1
+        && await objectiveEditorPage.getByText('玩法原型', { exact: true }).count() === 1
+        && await objectiveEditorPage.getByText('人物立绘', { exact: true }).count() === 1,
+    '编辑器可创建带可选玩法原型和兜底立绘的剧情将领');
+    R.assert(objectiveEditorPage._errors.length === 0,
+        `目标提示光圈编辑器无页面异常${objectiveEditorPage._errors.length ? `：${objectiveEditorPage._errors.join(' | ')}` : ''}`);
+    await objectiveEditorPage.context().close();
     const timerLifecycle = await page.evaluate(async () => {
         const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         const { createDefaultLevel } = await import('/campaign/runtime/schema.js');
@@ -362,10 +459,49 @@ export async function run(browser) {
     }
     if (await page.locator('#rainCityLevelBtn').count() === 0) {
         R.assert((await page.textContent('.campaign-level-card')).includes('花与剑'), '战役大厅展示当前正式教学关《花与剑》');
+        R.assert(await page.locator('.campaign-start-btn').count() === 0, '关卡卡片直接进入战役，不再渲染重复的进入按钮');
+        const sequentialLock = await page.evaluate(async () => {
+            const storageKey = 'bladesOfHex.campaign.bloodIris';
+            const { refreshCampaignLobbyProgress } = await import('/campaign/lobby.js');
+            localStorage.removeItem(storageKey);
+            refreshCampaignLobbyProgress();
+            const first = document.getElementById('bi-t1-sheathLevelBtn');
+            const second = document.getElementById('bi-02-flagLevelBtn');
+            const initiallyLocked = !first.disabled && second.disabled
+                && document.getElementById('bi-02-flagRating')?.textContent === '🔒';
+
+            localStorage.setItem(storageKey, JSON.stringify({
+                completedScenarioIds: ['bi-t1-sheath'],
+                scenarioStars: { 'bi-t1-sheath': 1 },
+                bestStars: 1
+            }));
+            refreshCampaignLobbyProgress();
+            return {
+                initiallyLocked,
+                secondUnlockedAtOneStar: !second.disabled,
+                thirdStillLocked: document.getElementById('bi-t3-mountainLevelBtn')?.disabled === true
+            };
+        });
+        R.assert(sequentialLock.initiallyLocked
+            && sequentialLock.secondUnlockedAtOneStar
+            && sequentialLock.thirdStillLocked,
+        '关卡按目录顺序逐关解锁：首关开放，前一关至少一星后仅开放下一关');
+        const perScenarioProgress = await page.evaluate(async () => {
+            const { readProgress, saveVictory } = await import('/campaign/progress.js');
+            const key = '__campaign_progress_contract__';
+            localStorage.removeItem(key);
+            saveVictory(key, 'first', 3);
+            saveVictory(key, 'second', 1);
+            const progress = readProgress(key);
+            localStorage.removeItem(key);
+            return progress.scenarioStars;
+        });
+        R.assert(perScenarioProgress.first === 3 && perScenarioProgress.second === 1,
+            '每个关卡分别保存最佳星级，解锁判断不会误用整部传记的最高分');
         await page.evaluate(() => localStorage.setItem('blades-of-hex.standard-flag-customizations.v1', JSON.stringify({
             player1: { colorId: 'purple', emoji: '🐉' }
         })));
-        await page.click('.campaign-start-btn');
+        await page.click('.campaign-level-card');
         await waitFor(() => page.evaluate(async () => {
             const { gameState } = await import('/js/state.js');
             return gameState.campaignMode && gameState.scenarioId === 'bi-t1-sheath' && gameState.tiles.length > 0;
@@ -382,17 +518,20 @@ export async function run(browser) {
         const openingCharacterPresentation = await page.evaluate(async () => {
             const { gameState } = await import('/js/state.js');
             const severus = gameState.tileMap.get('0,-3')?.unit;
+            const marcus = gameState.tileMap.get('0,-2')?.unit;
             const portrait = document.getElementById('campaignSpeakerPortrait');
             await portrait.decode();
             return {
                 marcusPortraitLoaded: portrait.naturalWidth > 0 && decodeURI(portrait.src).endsWith('/img/commander/百夫长.webp'),
                 severusOnAwardPlatform: severus?.id === 'severus_regent'
-                    && severus.commander === 'advisor' && severus.canAct === false
+                    && severus.commander === 'advisor' && severus.getCommanderDisplayName() === '塞维鲁' && severus.canAct === false,
+                storyNamesApplied: marcus?.commander === 'centurion' && marcus.getCommanderDisplayName() === '马库斯'
             };
         });
         R.assert(openingCharacterPresentation.marcusPortraitLoaded
-            && openingCharacterPresentation.severusOnAwardPlatform,
-        '人物立绘按将领 ID 映射到中文资源；塞维鲁以谋士单位从开场驻留授章台');
+            && openingCharacterPresentation.severusOnAwardPlatform
+            && openingCharacterPresentation.storyNamesApplied,
+        '人物立绘按玩法原型加载，马库斯与塞维鲁使用剧情名字覆盖原型名');
         const campaignInfo = await page.evaluate(() => ({
             chronicle: document.getElementById('campaignInfoChronicle')?.textContent.trim(),
             chapter: document.getElementById('campaignInfoChapter')?.textContent.trim(),
@@ -531,7 +670,7 @@ export async function run(browser) {
 
     R.assert((await page.textContent('#rainCityLevelBtn')).includes('雨幕下的孤城'), '二级菜单展示具体关卡');
 
-    await page.click('#startRainCityBtn');
+    await page.click('#rainCityLevelBtn');
     await waitFor(() => page.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
         return gameState.campaignMode && gameState.scenarioId === 'rain-city' && gameState.tiles.length > 0;

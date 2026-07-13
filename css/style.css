@@ -3225,12 +3225,26 @@ body {
     background: rgba(255, 255, 255, 0.025);
     transition: background 0.2s, border-color 0.2s, transform 0.2s;
 }
-.campaign-level-card:hover,
+.campaign-level-card:not(:disabled):hover,
 .campaign-level-card:focus-visible {
     outline: none;
     transform: translateX(3px);
     border-color: rgba(240, 122, 65, 0.62);
     background: rgba(131, 39, 17, 0.19);
+}
+.campaign-level-card:disabled {
+    color: rgba(244, 215, 178, 0.42);
+    cursor: not-allowed;
+    border-color: rgba(186, 145, 117, 0.13);
+    background: rgba(33, 27, 24, 0.18);
+}
+.campaign-level-card:disabled .campaign-level-number {
+    color: rgba(237, 154, 101, 0.34);
+    border-right-color: rgba(234, 113, 58, 0.12);
+}
+.campaign-level-card:disabled .campaign-level-rating {
+    color: rgba(244, 215, 178, 0.45);
+    filter: grayscale(1);
 }
 .campaign-level-number {
     display: grid;
@@ -3244,24 +3258,6 @@ body {
 .campaign-level-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .campaign-level-copy strong { font: 700 14px 'Noto Serif SC', serif; letter-spacing: 1px; }
 .campaign-level-rating { color: #e97842; font-size: 13px; letter-spacing: 1px; white-space: nowrap; }
-.campaign-start-btn {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    margin-top: auto;
-    padding: 10px 14px;
-    color: #2b0e05;
-    cursor: pointer;
-    border: 1px solid #ffb273;
-    border-radius: 2px;
-    background: linear-gradient(100deg, #d75428, #f2a15d 52%, #cf4520);
-    box-shadow: 0 6px 22px rgba(167, 45, 11, 0.25);
-    font: 900 13px 'Noto Serif SC', serif;
-    letter-spacing: 2px;
-    transition: filter 0.2s, transform 0.2s;
-}
-.campaign-start-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
 
 /* 数据驱动关卡列表容器 */
 .campaign-chronicle-list { display: flex; flex-direction: column; gap: 10px; width: 100%; }

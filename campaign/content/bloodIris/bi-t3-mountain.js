@@ -66,6 +66,7 @@ export const config = {
     gold: { expedition: 0, targets: 0 },
     commanders: { expedition: 'centurion' },
     hands: { expedition: [], targets: [] },
+    storyCommanders: [{ id: 'marcus', name: '马库斯', archetype: 'centurion' }],
 
     board: {
         radius: 3,
@@ -86,7 +87,7 @@ export const config = {
     units: [
         {
             id: 'marcus_observer', type: 'infantry', camp: 'expedition', q: -2, r: -1,
-            commander: 'centurion', hpPct: 100, morale: 2, canAct: false
+            storyCommander: 'marcus', hpPct: 100, morale: 2, canAct: false
         },
         {
             id: 'ridge_infantry', type: 'infantry', camp: 'expedition', q: -2, r: 0,

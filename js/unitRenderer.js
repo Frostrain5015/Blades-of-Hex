@@ -483,14 +483,18 @@ export function drawUnit(unit, gameState) {
         }
 
         // ── Commander name badge ──
-        if (unit.commander) {
-            const cmdCfg = getCommander(unit.commander);
-            if (cmdCfg) {
+        if (unit.isCommanderUnit) {
+            const text = unit.getCommanderDisplayName();
+            if (text) {
                 const cx = visualX - HEX_SIZE * 0.40;
                 const cy = visualY + HEX_SIZE * 0.22;
-                const text = cmdCfg.name;
                 ctx.save();
-                ctx.font = 'bold 7.5px Arial';
+                let fontSize = 7.5;
+                ctx.font = `bold ${fontSize}px "Noto Serif SC", "Microsoft YaHei", serif`;
+                while (ctx.measureText(text).width > 48 && fontSize > 5.5) {
+                    fontSize -= 0.5;
+                    ctx.font = `bold ${fontSize}px "Noto Serif SC", "Microsoft YaHei", serif`;
+                }
                 const m = ctx.measureText(text);
                 const bw = m.width + 8;
                 const bh = 13;
