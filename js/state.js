@@ -284,6 +284,15 @@ export function updateUI() {
     ];
     const campaignInfoBar = document.getElementById('campaignInfoBar');
     document.body.classList.toggle('campaign-game-active', !!gameState.campaignMode);
+    if (campaignInfoBar) {
+        campaignInfoBar.style.display = gameState.campaignMode ? '' : 'none';
+        if (!gameState.campaignMode) {
+            for (const id of ['campaignInfoChronicle', 'campaignInfoChapter', 'campaignInfoLevel']) {
+                const element = document.getElementById(id);
+                if (element) element.textContent = '';
+            }
+        }
+    }
     for (const [key, cardId] of campUi) {
         const card = document.getElementById(cardId);
         const faction = getFaction(gameState, key);
@@ -323,6 +332,8 @@ export function updateUI() {
             }
         } else {
             card.style.display = faction.active && (key !== 'player3' || gameState.isThreePlayer) ? '' : 'none';
+            card.style.removeProperty('box-shadow');
+            delete card.dataset.relation;
         }
     }
     const campaignGoldKey = gameState.campaignMode ? getViewingCampKey(gameState) : 'player1';

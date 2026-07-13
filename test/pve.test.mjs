@@ -15,12 +15,46 @@ export async function run(browser, { quick = false } = {}) {
 
     // ── 1. 开局流程 ──
     await startSolo(page);
-    const selectableColors = await page.evaluate(() =>
-        [...document.querySelectorAll('#commanderColorPicker .commander-color-swatch')]
-            .map(element => element.dataset.colorId));
-    R.assert(selectableColors.length === 7 && !selectableColors.includes('gray') && !selectableColors.includes('white'),
-        `普通对局选将页只显示七种彩虹阵营色（${selectableColors.join('、')}）`);
+    const colorPickerInitial = await page.evaluate(() => {
+        const picker = document.getElementById('commanderColorPicker');
+        const swatches = [...picker.querySelectorAll('.commander-color-swatch')];
+        const headerRect = document.querySelector('.commander-header').getBoundingClientRect();
+        const panelRect = document.querySelector('.commander-panel').getBoundingClientRect();
+        return {
+            colors: swatches.map(element => element.dataset.colorId),
+            blueEnabled: !swatches.find(element => element.dataset.colorId === 'blue')?.disabled,
+            pickerPosition: getComputedStyle(picker).position,
+            headerHeight: headerRect.height,
+            panelTop: panelRect.top
+        };
+    });
+    R.assert(colorPickerInitial.colors.length === 7
+        && !colorPickerInitial.colors.includes('gray') && !colorPickerInitial.colors.includes('white')
+        && colorPickerInitial.blueEnabled,
+    `普通对局选将页显示七种可选彩虹色，未完成选将的 AI 不会占用蓝色（${colorPickerInitial.colors.join('、')}）`);
     await page.click('#commanderLogo');
+    const colorPickerOpen = await page.evaluate((initial) => {
+        const picker = document.getElementById('commanderColorPicker');
+        const logo = document.getElementById('commanderLogo');
+        const pickerRect = picker.getBoundingClientRect();
+        const logoRect = logo.getBoundingClientRect();
+        const headerRect = document.querySelector('.commander-header').getBoundingClientRect();
+        const panelRect = document.querySelector('.commander-panel').getBoundingClientRect();
+        const style = getComputedStyle(logo);
+        return {
+            centered: Math.abs((pickerRect.left + pickerRect.width / 2) - (logoRect.left + logoRect.width / 2)) < 1,
+            noLayoutShift: Math.abs(headerRect.height - initial.headerHeight) < 1
+                && Math.abs(panelRect.top - initial.panelTop) < 1,
+            popupPosition: getComputedStyle(picker).position,
+            columns: getComputedStyle(picker).gridTemplateColumns.split(' ').length,
+            noPole: !document.querySelector('.commander-flag-pole'),
+            noFlagFrame: style.borderTopWidth === '0px' && style.backgroundColor === 'rgba(0, 0, 0, 0)'
+        };
+    }, colorPickerInitial);
+    R.assert(colorPickerOpen.centered && colorPickerOpen.columns === 7
+        && colorPickerOpen.noLayoutShift && colorPickerOpen.popupPosition === 'absolute'
+        && colorPickerOpen.noPole && colorPickerOpen.noFlagFrame,
+    '指挥官预览仅显示旗面；七个颜色按钮在居中叠加弹层中排列且不挤动布局');
     await page.click('#commanderColorPicker .commander-color-swatch[data-color-id="purple"]');
     const selectedColor = await page.evaluate(async () => (await import('/js/state.js')).gameState.factions.player1.colorId);
     R.assert(selectedColor === 'purple', '选将页点击飘动旗帜可切换玩家阵营色');

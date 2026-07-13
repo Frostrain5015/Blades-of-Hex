@@ -412,6 +412,44 @@ export async function run(browser) {
         for (let index = 0; index < 7; index++) await advanceCampaignDialogue(page);
         await waitFor(() => page.evaluate(() => document.getElementById('campaignResultOverlay')?.classList.contains('show')), 5000, '《花与剑》完成结算');
         R.assert((await page.textContent('#campaignResultTitle')).includes('花与剑'), '《花与剑》v3 可按教学路径完整通关');
+        const standardTopbarAfterCampaign = await page.evaluate(async () => {
+            const state = await import('/js/state.js');
+            const { updateUI } = state;
+            state.resetGameState();
+            state.configureSkirmishState({
+                playerCount: 2,
+                controllers: { player1: 'human', player2: 'ai' }
+            });
+            updateUI();
+            const display = id => getComputedStyle(document.getElementById(id)).display;
+            const twoPlayer = {
+                campaign: display('campaignInfoBar'),
+                p1: display('campCard1'), p2: display('campCard2'), p3: display('campCard3'),
+                campaignFieldsCleared: ['campaignInfoChronicle', 'campaignInfoChapter', 'campaignInfoLevel']
+                    .every(id => document.getElementById(id).textContent === '')
+            };
+            state.configureSkirmishState({
+                playerCount: 3,
+                controllers: { player1: 'human', player2: 'ai', player3: 'ai' }
+            });
+            state.gameState.isThreePlayer = true;
+            updateUI();
+            const threePlayer = {
+                campaign: display('campaignInfoBar'),
+                p1: display('campCard1'), p2: display('campCard2'), p3: display('campCard3')
+            };
+            return { twoPlayer, threePlayer };
+        });
+        R.assert(standardTopbarAfterCampaign.twoPlayer.campaign === 'none'
+            && standardTopbarAfterCampaign.twoPlayer.campaignFieldsCleared
+            && standardTopbarAfterCampaign.twoPlayer.p1 !== 'none'
+            && standardTopbarAfterCampaign.twoPlayer.p2 !== 'none'
+            && standardTopbarAfterCampaign.twoPlayer.p3 === 'none'
+            && standardTopbarAfterCampaign.threePlayer.campaign === 'none'
+            && standardTopbarAfterCampaign.threePlayer.p1 !== 'none'
+            && standardTopbarAfterCampaign.threePlayer.p2 !== 'none'
+            && standardTopbarAfterCampaign.threePlayer.p3 !== 'none',
+        '退出战役后清除标题栏，标准双人/三人对局恢复对应阵营信息卡');
         R.assert(page._errors.length === 0, `当前正式教学关启动无页面异常${page._errors.length ? `：${page._errors.join(' | ')}` : ''}`);
         await page.context().close();
         return R.summary();

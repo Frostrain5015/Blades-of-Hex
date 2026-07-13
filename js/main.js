@@ -996,7 +996,12 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
     const logo = document.getElementById('commanderLogo');
     const canChoose = _canChooseFactionColor(forPlayer, locked);
     const occupied = new Set(Object.entries(gameState.factionColorSelections || {})
-        .filter(([key]) => key !== forPlayer && gameState.factions?.[key]?.active !== false)
+        .filter(([key]) => {
+            if (key === forPlayer || gameState.factions?.[key]?.active === false) return false;
+            if (isNetworkGame()) return true;
+            const slots = _commanderSlots[key];
+            return slots ? gameState[slots.primaryConfirmed] === true : false;
+        })
         .map(([, colorId]) => colorId));
     picker.innerHTML = '';
     for (const entry of FACTION_PALETTE.filter(item => PLAYER_FACTION_COLOR_KEYS.includes(item.id))) {
