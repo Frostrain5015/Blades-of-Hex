@@ -1011,6 +1011,19 @@ body {
     transform: translate3d(0, 0, 0);
 }
 
+/* 空地块没有单位属性；仅把效果队列作为悬浮控件展示，不制造无内容的玻璃卡片。 */
+.selection-hud.is-effects-only {
+    gap: 0;
+    padding: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
 .selection-hud.is-swapping {
     animation: selectionHudSwap 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
 }

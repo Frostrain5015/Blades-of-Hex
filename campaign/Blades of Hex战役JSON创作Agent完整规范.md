@@ -675,7 +675,7 @@ Faction 对象：
 
 - `text` 必须非空。
 - `mode` 使用 `narrator` 或 `character`；有 speaker 时运行时按人物对白显示。
-- `speaker.name` 为人物对白必需；`speaker.portrait` 必须是将领 ID，或省略。
+- `speaker.name` 为人物对白必需；`speaker.portrait` 可为将领 ID，或通用 NPC 立绘 `npcMale`（男性）、`npcFemale`（女性），也可省略。对有姓名但无专属立绘的配角，必须优先选择对应性别的 NPC 立绘；省略时运行时会以男性兜底图防止破图。
 - `next` 可省略；自定义阶段跳转建议使用唯一、以 `__` 开头的值。
 - `highlight.unit` 是一个开场单位 ID；`highlight.tiles` 是允许并高亮的地块；`highlight.hint` 是错误操作提示。
 - `boardLock:true` 会限制棋盘操作；必须提供真实可执行的 `unit` 或 `tiles`，最好两者都有。

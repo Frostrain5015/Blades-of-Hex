@@ -1410,7 +1410,7 @@ function _renderEffectQueue(items, selectionKey) {
 function _syncSelectionHud(tile) {
     if (!selectionHudEl) return;
     if (!tile || (gameState.skirmishFog && !isTileVisible(tile, getViewingCamp(), gameState))) {
-        selectionHudEl.classList.remove('visible');
+        selectionHudEl.classList.remove('visible', 'is-effects-only');
         _renderEffectQueue([], '');
         if (_boardDetailState) _closeBoardDetail();
         _lastHudSignature = null;
@@ -1503,6 +1503,8 @@ function _syncSelectionHud(tile) {
         selectionHudStats.replaceChildren();
     }
 
+    // 空地块只需展示地形、城防等效果队列，不应额外包一层半透明单位信息卡。
+    selectionHudEl.classList.toggle('is-effects-only', !unit && effects.length > 0);
     selectionHudEl.classList.toggle('visible', !!unit || effects.length > 0);
     _renderEffectQueue(effects, selectionKey);
 }

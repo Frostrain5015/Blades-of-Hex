@@ -5,10 +5,18 @@ import { canvas, HEX_SIZE, LOGICAL_W, LOGICAL_H, CAMP, invalidateBoard, hexPath 
 import { gameState, logMessage, updateUI, notify } from './state.js';
 import { emit, on } from './eventBus.js';
 import { saveVictory } from '../campaign/progress.js';
+import { NPC_DIALOGUE_PORTRAITS } from '../campaign/portraits.js';
 import { campFromKey, getFaction } from '../rules/diplomacy.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 let sharedController = null;
+
+function dialoguePortraitSource(portraitId) {
+    const npcPortrait = NPC_DIALOGUE_PORTRAITS[portraitId];
+    if (npcPortrait) return npcPortrait.source;
+    const commanderName = COMMANDER_CONFIG[portraitId]?.definition?.name;
+    return commanderName ? `img/commander/${commanderName}.webp` : NPC_DIALOGUE_PORTRAITS.npcMale.source;
+}
 
 export function createCampaignController({ onRetry, onReturn }) {
     const overlay = document.getElementById('tutorialOverlay');
@@ -274,8 +282,12 @@ export function createCampaignController({ onRetry, onReturn }) {
         coach.classList.toggle('has-speaker', !!hasSpeaker);
         if (hasSpeaker) {
             const portraitId = step.speaker.portrait;
-            const portraitName = COMMANDER_CONFIG[portraitId]?.definition?.name || portraitId;
-            speakerPortrait.src = `img/commander/${portraitName}.webp`;
+            speakerPortrait.onerror = () => {
+                // 兼容旧 JSON 中已失效的将领 ID；兜底图自身失败时不再循环重试。
+                speakerPortrait.onerror = null;
+                speakerPortrait.src = NPC_DIALOGUE_PORTRAITS.npcMale.source;
+            };
+            speakerPortrait.src = dialoguePortraitSource(portraitId);
             speakerPortrait.alt = `${step.speaker.name}立绘`;
             speakerName.textContent = step.speaker.name;
             coach.setAttribute('aria-label', `${step.speaker.name}对话`);

@@ -73,6 +73,46 @@ const SCENARIOS = Object.freeze([
         chapter: 1,
         order: 1,
         load: () => import('./bi-t1-sheath.js')
+    },
+    {
+        id: 'bi-02-flag',
+        title: '向东的旗',
+        label: '02',
+        elementKey: 'bi-02-flag',
+        type: 'normal',
+        chapter: 1,
+        order: 2,
+        load: () => import('./bi-02-flag.js')
+    },
+    {
+        id: 'bi-t3-mountain',
+        title: '山有回声',
+        label: 'T3',
+        elementKey: 'bi-t3-mountain',
+        type: 'teaching',
+        chapter: 1,
+        order: 3,
+        load: () => import('./bi-t3-mountain.js')
+    },
+    {
+        id: 'bi-04-gate',
+        title: '不归城',
+        label: '04',
+        elementKey: 'bi-04-gate',
+        type: 'normal',
+        chapter: 1,
+        order: 4,
+        load: () => import('./bi-04-gate.js')
+    },
+    {
+        id: 'bi-05-petra',
+        title: '灰烬作证',
+        label: '05',
+        elementKey: 'bi-05-petra',
+        type: 'boss',
+        chapter: 1,
+        order: 5,
+        load: () => import('./bi-05-petra.js')
     }
 ]);
 

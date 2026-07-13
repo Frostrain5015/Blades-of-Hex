@@ -8,6 +8,7 @@ import { TERRAIN_CONFIG, FORTIFICATION_CONFIG, WEATHER_CONFIG } from '../../rule
 import { TACTICAL_CARD_CONFIG } from '../../rules/cards.js';
 import { MECHANIC_DEFINITIONS, MECHANIC_KEYS, createDefaultMechanics } from '../../rules/mechanics.js';
 import { FACTION_COLOR_KEYS, FACTION_PALETTE, getFlagColors, getPaletteEntry, getTileColor } from '../../rules/camps.js';
+import { NPC_DIALOGUE_PORTRAIT_IDS, NPC_DIALOGUE_PORTRAIT_LABELS } from '../portraits.js';
 
 export const SCHEMA_VERSION = 2;
 export const RELATION_KEYS = Object.freeze(['ally', 'neutral', 'enemy']);
@@ -36,6 +37,9 @@ export const COMMANDER_IDS = Object.freeze(Object.keys(COMMANDER_CONFIG));
 export const COMMANDER_LABELS = Object.freeze(
     Object.fromEntries(COMMANDER_IDS.map(id => [id, COMMANDER_CONFIG[id].definition.name]))
 );
+// 对白立绘除了将领 ID，也允许两张通用 NPC 兜底肖像。
+export const DIALOGUE_PORTRAIT_IDS = Object.freeze([...COMMANDER_IDS, ...NPC_DIALOGUE_PORTRAIT_IDS]);
+export const DIALOGUE_PORTRAIT_LABELS = Object.freeze({ ...COMMANDER_LABELS, ...NPC_DIALOGUE_PORTRAIT_LABELS });
 
 export const TERRAIN_KEYS = Object.freeze(Object.keys(TERRAIN_CONFIG)); // plains/forest/mountain
 export const TERRAIN_LABELS = Object.freeze(
@@ -497,6 +501,9 @@ export function validateLevel(config) {
         if (action.kind === 'showStep' && !action.step) {
             if (!action.text) errors.push(`${path} 的 showStep 缺少台词。`);
             if (action.mode === 'character' && !action.speaker?.name) errors.push(`${path} 的台词模式缺少说话人。`);
+            if (action.speaker?.portrait && !DIALOGUE_PORTRAIT_IDS.includes(action.speaker.portrait)) {
+                errors.push(`${path} 的对白立绘「${action.speaker.portrait}」不存在。`);
+            }
             // next 不校验引用（可能是本触发器内其他 _id 或后续注册的步骤）
             // boardLock:true 时建议配 highlight；否则会锁定全部操作。
             if (action.boardLock && !action.highlight) warnings.push(`${path} 启用了操作锁但未配高亮目标，所有操作将被锁定。`);

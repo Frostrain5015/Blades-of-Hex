@@ -6,7 +6,7 @@ import { drawAllBorders, drawCampBorders, drawDistrictBorders } from '../../js/H
 import {
     createDefaultLevel, normalizeLevel, validateLevel, boardContains,
     UNIT_TYPES, UNIT_LABELS,
-    COMMANDER_IDS, COMMANDER_LABELS, TERRAIN_LABELS,
+    COMMANDER_IDS, COMMANDER_LABELS, DIALOGUE_PORTRAIT_LABELS, TERRAIN_LABELS,
     FORTIFICATION_KEYS, FORTIFICATION_LABELS, WEATHER_LABELS,
     CARD_IDS, CARD_LABELS,
     MECHANIC_KEYS, MECHANIC_LABELS, RELATION_KEYS, OBJECTIVE_STATUS_KEYS,
@@ -1460,7 +1460,7 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             }
             const dialogue = section('对话框内容');
             dialogue.appendChild(textRow('说话人', action.speaker?.name || '', v => patch({ speaker: { ...(action.speaker || {}), name: v } })));
-            dialogue.appendChild(selectRow('立绘', action.speaker?.portrait || '', { '': '（无立绘）', ...COMMANDER_LABELS }, v => patch({ speaker: { ...(action.speaker || {}), portrait: v || undefined } })));
+            dialogue.appendChild(selectRow('立绘', action.speaker?.portrait || '', { '': '（无立绘）', ...DIALOGUE_PORTRAIT_LABELS }, v => patch({ speaker: { ...(action.speaker || {}), portrait: v || undefined } })));
             dialogue.appendChild(textareaRow('台词', action.text || '', v => patch({ text: v }), 3));
             box.appendChild(dialogue);
             // 高亮 = 操作放行 + 视觉指示一体化
