@@ -1,4 +1,4 @@
-import { CAMP, CAMP_DATA, campToKey } from './camps.js';
+import { CAMP, CAMP_DATA, campToKey, getPaletteEntry, getTileColor } from './camps.js';
 
 export const RELATIONS = Object.freeze(['ally', 'neutral', 'enemy']);
 
@@ -69,10 +69,12 @@ export function createDefaultFactions(overrides = []) {
     return Object.fromEntries(ids.map((id, index) => {
         const base = fallbackFaction(id, index);
         const override = byId.get(id) || {};
+        const palette = getPaletteEntry(override.color) || getPaletteEntry(base.color);
         return [id, {
             ...base,
             name: typeof override.name === 'string' && override.name.trim() ? override.name.trim() : base.name,
-            color: typeof override.color === 'string' && /^#[0-9a-f]{6}$/i.test(override.color) ? override.color : base.color,
+            colorId: palette?.id || null,
+            color: getTileColor(override.color, base.color),
             flag: typeof override.flag === 'string' && override.flag ? override.flag : base.flag,
             controller: ['human', 'ai', 'scripted'].includes(override.controller) ? override.controller : base.controller,
             participatesInTurns: typeof override.participatesInTurns === 'boolean' ? override.participatesInTurns : base.participatesInTurns,

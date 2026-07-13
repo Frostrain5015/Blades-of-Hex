@@ -138,7 +138,7 @@ export class HexTile extends EngineHexTile {
         const campKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
         return {
             poleX: flagCx, poleTop: flagCy - 16, poleBottom: flagCy + 10,
-            fc: CAMP_FLAG_COLORS[campKey] || getFlagColors(effectiveCamp?.color),
+            fc: campKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(effectiveCamp?.color),
             flagLeft: flagCx + 1.5, flagRight: flagCx + 1.5 + 18,
             flagTop: flagCy - 16 + 3, flagMid: flagCy - 16 + 3 + 7, flagBot: flagCy - 16 + 3 + 16
         };

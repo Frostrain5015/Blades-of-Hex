@@ -87,7 +87,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
     {
       "id": "player1",
       "name": "王国军",
-      "color": "#ffaaaa",
+      "color": "red",
       "controller": "human",
       "participatesInTurns": true,
       "active": true
@@ -95,7 +95,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
     {
       "id": "north_guard",
       "name": "北境守军",
-      "color": "#aaaaff",
+      "color": "blue",
       "controller": "ai",
       "participatesInTurns": true,
       "active": true
@@ -267,7 +267,7 @@ Faction 对象：
 {
   "id": "royal_guard",
   "name": "王家卫队",
-  "color": "#d8aaff",
+  "color": "purple",
   "controller": "scripted",
   "participatesInTurns": false,
   "active": true
@@ -283,19 +283,19 @@ Faction 对象：
 - `active !== false && participatesInTurns !== false` 的每个阵营必须恰好出现于 `turnOrder`。
 - `scripted` 适合剧情控制阵营；若参与回合，引擎会跳过其自动决策。
 
-颜色只能使用下列 `color` 地块色值：
+`color` 只能选择下列规范 ID。Agent 不得输出任何十六进制色值，也不得分别编写旗色、地块色、深色或亮色；规则层会由一个 ID 统一解析所有表现形式。
 
-| 颜色 | 值 |
+| ID | 颜色 |
 |---|---|
-| 红 | `#ffaaaa` |
-| 橙 | `#fcd6b0` |
-| 黄 | `#fff5c0` |
-| 绿 | `#aaffaa` |
-| 青 | `#aaffdd` |
-| 蓝 | `#aaaaff` |
-| 紫 | `#d8aaff` |
-| 深灰 | `#b0b0b0` |
-| 白 | `#e8e8e8` |
+| `red` | 红 |
+| `orange` | 橙 |
+| `yellow` | 黄 |
+| `green` | 绿 |
+| `cyan` | 青 |
+| `blue` | 蓝 |
+| `purple` | 紫 |
+| `gray` | 深灰 |
+| `white` | 白 |
 
 外交关系只能为 `ally`、`neutral`、`enemy`。必须双向写成相同值：
 
@@ -932,7 +932,7 @@ Faction 对象：
 2. 半径 `2..7`，所有地图、单位、区域、调查点和触发器坐标在棋盘内。
 3. 每个行政区只有一座城市；每座城市和每个单位引用已声明阵营。
 4. 单位坐标不重叠；单位 ID 唯一；兵种和将领 ID 合法。
-5. faction ID 合法、唯一且不是 `neutral`；颜色来自九色调色板。
+5. faction ID 合法、唯一且不是 `neutral`；`color` 是九个规范 ID 之一，不含任何手写颜色值。
 6. 恰好一个 `human`，等于 `localPlayerCamp`。
 7. `turnOrder` 无重复，完整覆盖所有启用且参与回合的阵营。
 8. 外交引用合法、关系合法、双向对称。

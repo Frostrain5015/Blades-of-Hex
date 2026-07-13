@@ -12,7 +12,7 @@ import {
     MECHANIC_KEYS, MECHANIC_LABELS, RELATION_KEYS, OBJECTIVE_STATUS_KEYS,
     TRIGGER_CONDITIONS, TRIGGER_ACTIONS,
     BOARD_RADIUS_MIN, BOARD_RADIUS_MAX,
-    FACTION_PALETTE
+    FACTION_PALETTE, getFlagColors
 } from '../runtime/schema.js';
 import { buildBoardFromConfig } from '../runtime/mapBuilder.js';
 import {
@@ -43,8 +43,8 @@ const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'flagSet', 'fla
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => item && (!LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current)); }
 function authorActions() { return TRIGGER_ACTIONS; }
 
-// 阵营颜色下拉从 FACTION_PALETTE 派生，确保关卡的 faction.color 取自调色板。
-const FACTION_COLOR_OPTIONS = Object.fromEntries(FACTION_PALETTE.map(p => [p.tile, p.label]));
+// 阵营配置只保存 palette id；具体地块色与旗色由规则层统一解析。
+const FACTION_COLOR_OPTIONS = Object.fromEntries(FACTION_PALETTE.map(p => [p.id, p.label]));
 
 const boardTool = { mode: 'terrain', terrain: 'forest', camp: 'player1', districtId: 1, fortification: 'trench', cityType: 'city', erase: { terrain: true, city: true, village: true, fortification: true, district: true, unit: true } };
 const unitTemplate = { type: 'infantry', camp: 'player1', commander: '', hpPct: 100, morale: 2, canAct: true };
@@ -307,7 +307,7 @@ function selectionTile() {
 
 function drawUnitMarker(tile, unit, index) {
     const campKey = unit.camp === 'player1' ? 'p1' : unit.camp === 'player2' ? 'p2' : unit.camp === 'player3' ? 'p3' : unit.camp === 'neutral' ? 'neu' : unit.camp;
-    const fc = CAMP_FLAG_COLORS[campKey] || { main: factionById(unit.camp)?.color || '#777777' };
+    const fc = campKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(factionById(unit.camp)?.color);
     const x = tile.x, y = tile.y;
     ctx.save();
     ctx.beginPath();
@@ -745,7 +745,7 @@ function buildFactionBasics() {
     addFaction.addEventListener('click', () => mutate(c => {
         let n = 1;
         while (c.factions.some(faction => faction.id === `faction${n}`)) n++;
-        c.factions.push({ id: `faction${n}`, name: `新阵营${n}`, color: FACTION_PALETTE[(c.factions.length - 1) % FACTION_PALETTE.length].tile, controller: 'ai', participatesInTurns: true, active: true });
+        c.factions.push({ id: `faction${n}`, name: `新阵营${n}`, color: FACTION_PALETTE[(c.factions.length - 1) % FACTION_PALETTE.length].id, controller: 'ai', participatesInTurns: true, active: true });
         syncTurnOrder(c);
     }, { rebuildPanels: true }));
     secFactions.appendChild(addFaction);

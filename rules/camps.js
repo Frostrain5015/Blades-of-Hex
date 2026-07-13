@@ -25,7 +25,7 @@ export const CAMP_FLAG_COLORS = deepFreeze({
 /**
  * 九色调色板 —— 战役编辑器中阵营可选色的完整定义。
  * 每色包含：地块底色（浅） + 旗帜三阶色（主/暗/亮）。
- * 写新关卡时必须从 palette 中取用 tile 值作为 faction.color。
+ * 关卡配置只保存稳定的 id；tile/flag 是运行时表现值，不属于作者数据契约。
  */
 export const FACTION_PALETTE = deepFreeze([
     { id: 'red',    label: '红', tile: '#ffaaaa', flag: { main: '#d44040', dark: '#8b1a1a', light: '#f06060' } },
@@ -39,16 +39,26 @@ export const FACTION_PALETTE = deepFreeze([
     { id: 'white',  label: '白', tile: '#e8e8e8', flag: { main: '#bbbbbb', dark: '#888888', light: '#dddddd' } }
 ]);
 
-/** 根据地块色（tile）在调色板中找出对应条目，找不到返回 null。 */
+export const FACTION_COLOR_KEYS = deepFreeze(FACTION_PALETTE.map(entry => entry.id));
+
+/** 根据规范 id 或旧地块色查找调色板条目；旧色值仅用于配置迁移。 */
 export function getPaletteEntry(colorValue) {
-    return FACTION_PALETTE.find(p => p.tile === colorValue) || null;
+    return FACTION_PALETTE.find(entry => entry.id === colorValue || entry.tile === colorValue) || null;
 }
 
-/** 根据地块色获取旗帜三阶色，不在调色板中时 fallback 到单色平铺。 */
+/** 把规范 id（或旧地块色）解析为地块色。 */
+export function getTileColor(colorValue, fallback = '#777777') {
+    const entry = getPaletteEntry(colorValue);
+    if (entry) return entry.tile;
+    return typeof colorValue === 'string' && /^#[0-9a-f]{6}$/i.test(colorValue) ? colorValue : fallback;
+}
+
+/** 根据规范 id（或旧地块色）获取旗帜三阶色。 */
 export function getFlagColors(colorValue) {
     const entry = getPaletteEntry(colorValue);
     if (entry) return entry.flag;
-    return { main: colorValue || '#777', dark: colorValue || '#555', light: colorValue || '#999' };
+    const fallback = getTileColor(colorValue);
+    return { main: fallback, dark: fallback, light: fallback };
 }
 
 export function campToKey(camp, mode = 'full') {

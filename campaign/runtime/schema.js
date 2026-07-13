@@ -7,7 +7,7 @@ import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 import { TERRAIN_CONFIG, FORTIFICATION_CONFIG, WEATHER_CONFIG } from '../../rules/terrain.js';
 import { TACTICAL_CARD_CONFIG } from '../../rules/cards.js';
 import { MECHANIC_DEFINITIONS, MECHANIC_KEYS, createDefaultMechanics } from '../../rules/mechanics.js';
-import { FACTION_PALETTE, getPaletteEntry } from '../../rules/camps.js';
+import { FACTION_COLOR_KEYS, FACTION_PALETTE, getFlagColors, getPaletteEntry, getTileColor } from '../../rules/camps.js';
 
 export const SCHEMA_VERSION = 2;
 export const RELATION_KEYS = Object.freeze(['ally', 'neutral', 'enemy']);
@@ -17,8 +17,8 @@ export const VARIABLE_SCOPES = Object.freeze(['level', 'campaign']);
 export { MECHANIC_KEYS };
 export const MECHANIC_LABELS = Object.freeze(Object.fromEntries(MECHANIC_KEYS.map(key => [key, MECHANIC_DEFINITIONS[key].label])));
 
-/** 编辑器阵营色下拉、关卡校验共用的九色调色板（地块色 + 旗帜三阶）。 */
-export { FACTION_PALETTE, getPaletteEntry } from '../../rules/camps.js';
+/** 编辑器只保存颜色 id；规则层调色板负责解析地块色与旗帜三阶色。 */
+export { FACTION_COLOR_KEYS, FACTION_PALETTE, getFlagColors, getPaletteEntry, getTileColor } from '../../rules/camps.js';
 
 // ── 枚举（派生自规则层，附中文标签供编辑器下拉）───────────────────
 // 注意：动态阵营体系不再默认包含"中立"，完全交由作者排布。
@@ -135,7 +135,7 @@ export function createDefaultLevel() {
         intro: { campaignTitle: '将星列传', chapterTitle: '', scenarioSubtitle: '新关卡' },
         weather: 'clear',
         localPlayerCamp: 'player1',
-        factions: [{ id: 'player1', name: '红军', color: '#ffaaaa', controller: 'human', participatesInTurns: true, active: true }],
+        factions: [{ id: 'player1', name: '红军', color: 'red', controller: 'human', participatesInTurns: true, active: true }],
         turnOrder: ['player1'],
         diplomacy: {},
         mechanics: createDefaultMechanics(),
@@ -184,7 +184,10 @@ export function normalizeLevel(raw) {
     merged.gold = { ...def.gold, ...(raw.gold || {}) };
     merged.commanders = { ...def.commanders, ...(raw.commanders || {}) };
     merged.hands = { ...def.hands, ...(raw.hands || {}) };
-    merged.factions = Array.isArray(raw.factions) ? raw.factions.map(item => ({ ...item })) : def.factions.map(item => ({ ...item }));
+    merged.factions = Array.isArray(raw.factions) ? raw.factions.map(item => {
+        const palette = getPaletteEntry(item?.color);
+        return { ...item, color: palette?.id || item?.color };
+    }) : def.factions.map(item => ({ ...item }));
     const configuredFactionIds = new Set(merged.factions.map(item => item.id));
     merged.localPlayerCamp = configuredFactionIds.has(raw.localPlayerCamp) ? raw.localPlayerCamp : def.localPlayerCamp;
     merged.turnOrder = Array.isArray(raw.turnOrder) ? [...raw.turnOrder] : [merged.localPlayerCamp];
@@ -271,9 +274,8 @@ export function validateLevel(config) {
         if (faction.id === 'neutral') errors.push('neutral 是系统保留阵营，不能在作者阵营列表中重复定义。');
         seenFactionIds.add(faction.id);
         if (!faction.name) warnings.push(`阵营「${faction.id}」没有显示名。`);
-        if (!/^#[0-9a-f]{6}$/i.test(faction.color || '')) errors.push(`阵营「${faction.id}」颜色必须是 #RRGGBB。`);
-        if (faction.color && !getPaletteEntry(faction.color)) {
-            errors.push(`阵营「${faction.id}」颜色 ${faction.color} 不在 FACTION_PALETTE 中（可用色：${FACTION_PALETTE.map(p => `${p.label}=${p.tile}`).join('、')}）。`);
+        if (!FACTION_COLOR_KEYS.includes(faction.color)) {
+            errors.push(`阵营「${faction.id}」颜色选项「${faction.color}」无效（可用：${FACTION_COLOR_KEYS.join('、')}）。`);
         }
     }
     const humanFactions = (c.factions || []).filter(faction => faction.controller === 'human');

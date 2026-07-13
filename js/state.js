@@ -296,8 +296,8 @@ export function updateUI() {
         const emblem = card.querySelector('.camp-emblem');
         if (label) label.textContent = faction.name;
         if (emblem) {
-            const shortKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key;
-            const flag = CAMP_FLAG_COLORS[shortKey] || getFlagColors(faction.color);
+            const shortKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
+            const flag = shortKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(faction.color);
             emblem.style.background = flag.main;
         }
         // 战役模式：只显示玩家所属阵营，其余位置显示传记/关卡信息
@@ -329,8 +329,8 @@ export function updateUI() {
         if (localCard && localFaction) {
             localCard.style.display = '';
             localCard.dataset.relation = 'self';
-            const shortKey = campaignGoldKey === 'player1' ? 'p1' : campaignGoldKey === 'player2' ? 'p2' : campaignGoldKey === 'player3' ? 'p3' : campaignGoldKey;
-            const flag = CAMP_FLAG_COLORS[shortKey] || getFlagColors(localFaction.color);
+            const shortKey = campaignGoldKey === 'player1' ? 'p1' : campaignGoldKey === 'player2' ? 'p2' : campaignGoldKey === 'player3' ? 'p3' : campaignGoldKey === 'neutral' ? 'neu' : campaignGoldKey;
+            const flag = shortKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(localFaction.color);
             const label = localCard.querySelector('.camp-label');
             const emblem = localCard.querySelector('.camp-emblem');
             if (label) label.textContent = localFaction.name;

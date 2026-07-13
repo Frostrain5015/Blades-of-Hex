@@ -138,6 +138,27 @@ export async function run(browser) {
         return { waitsForLevelStart, emptyActivationWorked, openingAndDynamicWorked, explicitEnableRestarts, firedOnce, consumedUntilReenabled, canRearm };
     });
     R.assert(Object.values(timerLifecycle).every(Boolean), '空条件触发器启用即执行；计时器支持开场计时、运行中启用、重启与再次装填');
+    const factionColorContract = await page.evaluate(async () => {
+        const schema = await import('/campaign/runtime/schema.js');
+        const diplomacy = await import('/rules/diplomacy.js');
+        const camps = await import('/rules/camps.js');
+        const legacy = schema.createDefaultLevel();
+        legacy.factions[0].color = '#ffaaaa';
+        const migrated = schema.normalizeLevel(legacy);
+        const invalid = schema.createDefaultLevel();
+        invalid.factions[0].color = '#123456';
+        const runtime = diplomacy.createDefaultFactions([{
+            id: 'player1', name: '测试阵营', color: 'purple', controller: 'human', participatesInTurns: true, active: true
+        }]).player1;
+        return {
+            defaultUsesId: schema.createDefaultLevel().factions[0].color === 'red',
+            legacyMigrates: migrated.factions[0].color === 'red',
+            arbitraryHexRejected: schema.validateLevel(invalid).errors.some(message => message.includes('颜色选项')),
+            runtimeResolved: runtime.colorId === 'purple' && runtime.color === '#d8aaff',
+            paletteResolved: camps.getTileColor('purple') === '#d8aaff' && camps.getFlagColors('purple').main === '#9050c8'
+        };
+    });
+    R.assert(Object.values(factionColorContract).every(Boolean), '阵营配置只保存颜色选项，旧色值可迁移，运行时统一解析地块色与旗色');
     if (await page.locator('.campaign-level-card').count() === 0) {
         R.ok('正式关卡尚未录入，按当前开发阶段改测战役编辑器基础设施');
         await page.click('#campaignBackBtn');

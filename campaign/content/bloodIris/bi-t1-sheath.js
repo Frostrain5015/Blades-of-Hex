@@ -36,7 +36,7 @@ export const config = {
         {
             id: 'player1',
             name: '奥雷利亚王国',
-            color: '#ffaaaa',
+            color: 'red',
             controller: 'human',
             participatesInTurns: true,
             active: true
@@ -44,7 +44,7 @@ export const config = {
         {
             id: 'targets',
             name: '训练靶',
-            color: '#b0b0b0',
+            color: 'gray',
             controller: 'ai',
             participatesInTurns: false,
             active: true

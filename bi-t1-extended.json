@@ -17,7 +17,7 @@
     {
       "id": "player1",
       "name": "奥雷利亚王国",
-      "color": "#ffaaaa",
+      "color": "red",
       "controller": "human",
       "participatesInTurns": true,
       "active": true
@@ -25,7 +25,7 @@
     {
       "id": "targets",
       "name": "校场草靶",
-      "color": "#b0b0b0",
+      "color": "gray",
       "controller": "ai",
       "participatesInTurns": false,
       "active": true

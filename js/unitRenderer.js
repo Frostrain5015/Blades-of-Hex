@@ -111,7 +111,7 @@ export function drawUnit(unit, gameState) {
 
         const key = campToKey(unit.camp);
         const campKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
-        const cc = CAMP_FLAG_COLORS[campKey] || getFlagColors(unit.camp?.color);
+        const cc = campKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(unit.camp?.color);
 
         ctx.save();
         ctx.translate(visualX, visualY);
