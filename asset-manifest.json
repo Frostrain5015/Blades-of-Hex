@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-13T15:17:03.442Z",
-  "entryVersion": "2a5a4e844c",
+  "generatedAt": "2026-07-13T23:05:27.411Z",
+  "entryVersion": "fae0a059ec",
   "files": {
     "js/ai.js": "4331897ae0",
     "js/audio.js": "e9d0efd96c",
@@ -22,7 +22,7 @@
     "js/gameData.js": "88ed95339b",
     "js/gameLogic.js": "d36e9492d0",
     "js/heroCarousel.js": "b43e52c1f5",
-    "js/HexTile.js": "cd9978af1f",
+    "js/HexTile.js": "e319f368c5",
     "js/input.js": "35d9be4ddb",
     "js/lib/gsap.min.js": "e208f4c759",
     "js/lib/howler.min.js": "47318d3eef",
@@ -123,6 +123,6 @@
     "campaign/runtime/schema.js": "fc0d55c9e7",
     "campaign/runtime/storyCommanders.js": "ab1c47f5c5",
     "campaign/runtime/triggers.js": "f067b08fa9",
-    "index.html": "694e7f5d7a"
+    "index.html": "baf0b829bb"
   }
 }

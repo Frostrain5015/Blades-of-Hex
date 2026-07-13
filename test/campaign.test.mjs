@@ -198,6 +198,7 @@ export async function run(browser) {
         const layoutRules = await import('/rules/boardLayout.js');
         const { buildBoardFromConfig } = await import('/campaign/runtime/mapBuilder.js');
         const { getBorderlessVisualGrid, drawVisualFillerTiles } = await import('/js/militaryMap.js');
+        const { drawAllBorders } = await import('/js/HexTile.js');
 
         const legacy = schema.createDefaultLevel();
         delete legacy.board.layout;
@@ -210,6 +211,22 @@ export async function run(browser) {
         const borderlessState = {};
         buildBoardFromConfig(borderless, borderlessState);
         const visualGrid = getBorderlessVisualGrid(borderlessState.tiles, borderlessState.tileMap);
+        const strokes = [];
+        let segmentStart = null;
+        let segmentEnd = null;
+        const borderContext = {
+            beginPath() { segmentStart = null; segmentEnd = null; },
+            moveTo(x, y) { segmentStart = [x, y]; },
+            lineTo(x, y) { segmentEnd = [x, y]; },
+            stroke() { strokes.push([...segmentStart, ...segmentEnd]); },
+            strokeStyle: '',
+            lineWidth: 0
+        };
+        drawAllBorders(borderContext, visualGrid.tiles, visualGrid.tileMap);
+        const canonicalSegments = strokes.map(([x0, y0, x1, y1]) => [
+            `${x0.toFixed(4)},${y0.toFixed(4)}`,
+            `${x1.toFixed(4)},${y1.toFixed(4)}`
+        ].sort().join('|'));
         const filler = visualGrid.fillers[0];
         const inheritedBefore = filler.currentColor;
         filler.sourceTile.currentColor = '#123456';
@@ -242,6 +259,7 @@ export async function run(browser) {
             fillerCount: visualGrid.fillers.length,
             fillersStayVisualOnly: visualGrid.tiles.length === 349
                 && visualGrid.fillers.every(tile => !borderlessState.tileMap.has(`${tile.q},${tile.r}`)),
+            gridEdgesDrawnOnce: strokes.length === 1122 && new Set(canonicalSegments).size === strokes.length,
             inheritsDynamicColor,
             covered,
             fullEdgeCellAccepted: schema.validateLevel(validBorderless).errors.every(message => !message.includes('棋盘之外')),
@@ -255,6 +273,7 @@ export async function run(browser) {
         && boardLayoutContract.realTileCount === 277
         && boardLayoutContract.fillerCount === 72
         && boardLayoutContract.fillersStayVisualOnly
+        && boardLayoutContract.gridEdgesDrawnOnce
         && boardLayoutContract.inheritsDynamicColor
         && boardLayoutContract.covered
         && boardLayoutContract.fullEdgeCellAccepted

@@ -304,13 +304,19 @@ export class HexTile extends EngineHexTile {
     }
 }
 
+function edgeNeighborOffset(edgeIndex) {
+    return HEX_NEIGHBORS[(5 - edgeIndex) % 6];
+}
+
 // ==== 杈圭晫缁樺埗 ====
 export function drawAllBorders(c, tiles, tileMap) {
     for (const tile of tiles) {
         const cx = tile.x, cy = tile.y;
 
         for (let e = 0; e < 6; e++) {
-            const [dq, dr] = HEX_NEIGHBORS[(e + 1) % 6];
+            // hexEdge 的顶点按顺时针排列；edge e 面向的轴坐标邻居是 5 - e。
+            // 使用错误邻居做去重会让一部分共享边重复描画、另一部分被漏掉。
+            const [dq, dr] = edgeNeighborOffset(e);
             const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
             if (nb && tile.id > nb.id) continue;
 
@@ -328,7 +334,7 @@ export function drawAllBorders(c, tiles, tileMap) {
 // 鎵惧埌 tileA 鐨勫摢鏉¤竟闈㈠悜 tileB锛堜粎鐢ㄤ簬娓℃渤娑堣€楁煡鎵撅紝娓叉煋涓嶄緷璧栨鍑芥暟锛?
 function findSharedEdge(tileA, tileB) {
     for (let e = 0; e < 6; e++) {
-        const [dq, dr] = HEX_NEIGHBORS[(e + 1) % 6];
+        const [dq, dr] = edgeNeighborOffset(e);
         if (tileA.q + dq === tileB.q && tileA.r + dr === tileB.r) return e;
     }
     return -1;
@@ -341,7 +347,7 @@ export function computeCampBorders(tiles, tileMap) {
         const cx = tile.x, cy = tile.y;
         for (let e = 0; e < 6; e++) {
             // edge e faces neighbor at HEX_NEIGHBORS[(5 - e) % 6]
-            const [dq, dr] = HEX_NEIGHBORS[(5 - e) % 6];
+            const [dq, dr] = edgeNeighborOffset(e);
             const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
             if (!nb) continue;
             if (tile.camp === nb.camp) continue;
@@ -395,7 +401,7 @@ export function computeDistrictBorders(tiles, tileMap) {
     for (const tile of tiles) {
         const cx = tile.x, cy = tile.y;
         for (let e = 0; e < 6; e++) {
-            const [dq, dr] = HEX_NEIGHBORS[(5 - e) % 6];
+            const [dq, dr] = edgeNeighborOffset(e);
             const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
             if (!nb) continue;
             if (tile.camp !== nb.camp) continue;        // 涓嶅悓闃佃惀 鈫?鐢卞浗鐣岀嚎澶勭悊
