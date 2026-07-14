@@ -11,9 +11,52 @@ import {
     riverVertexToPixel,
     snapRiverVertex,
     surfaceKindAt,
+    toggleCityFootprint,
     togglePort,
     toggleRiverCrossing
 } from '../campaign/editor/boardModel.js';
+
+test('large-city footprint authoring attaches unambiguously and toggles existing cells', () => {
+    const level = createDefaultLevel();
+    level.board.cities = [{ q: 0, r: 0, districtId: 1, camp: 'player1' }];
+
+    const first = toggleCityFootprint(level, 1, 0);
+    assert.equal(first.changed, true);
+    assert.equal(first.placed, true);
+    assert.deepEqual(level.board.cities[0].footprint, [{ q: 1, r: 0 }]);
+
+    const chained = toggleCityFootprint(level, 2, 0);
+    assert.equal(chained.placed, true, 'a footprint can grow outward from its existing edge');
+    assert.deepEqual(level.board.cities[0].footprint, [{ q: 1, r: 0 }, { q: 2, r: 0 }]);
+
+    const removed = toggleCityFootprint(level, 2, 0);
+    assert.equal(removed.placed, false);
+    assert.deepEqual(level.board.cities[0].footprint, [{ q: 1, r: 0 }]);
+    assert.match(toggleCityFootprint(level, 0, 0).error, /城市中心/);
+
+    toggleCityFootprint(level, 2, 0);
+    assert.match(toggleCityFootprint(level, 1, 0).error, /城郭外缘/);
+    assert.match(applySurfaceBrush(level, 1, 0, 'shallowWater').error, /城郭外缘/);
+    assert.equal(surfaceKindAt(level.board, 1, 0), 'land');
+
+    applySurfaceBrush(level, 0, 1, 'shallowWater');
+    assert.match(toggleCityFootprint(level, 0, 1).error, /水域/);
+});
+
+test('large-city footprint refuses detached, village and ambiguous ownership cells', () => {
+    const level = createDefaultLevel();
+    level.board.radius = 4;
+    level.board.cities = [
+        { q: 0, r: 0, districtId: 1, camp: 'player1' },
+        { q: 2, r: 0, districtId: 2, camp: 'player2' }
+    ];
+    assert.match(toggleCityFootprint(level, 4, 0).error, /紧邻/);
+    assert.match(toggleCityFootprint(level, 1, 0).error, /多个城市/);
+
+    level.board.cities.pop();
+    level.board.villages = [{ q: 1, r: 0, districtId: 1 }];
+    assert.match(toggleCityFootprint(level, 1, 0).error, /村庄/);
+});
 
 test('surface brush persists water sparsely and removes illegal land overlays', () => {
     const level = createDefaultLevel();

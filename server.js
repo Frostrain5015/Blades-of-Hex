@@ -30,8 +30,11 @@ try {
 const ADMIN_TOKEN = process.env.BOH_ADMIN_TOKEN || adminConfig.adminToken || null;
 const SOURCE_PUBLIC_ROOT = path.resolve(__dirname);
 const BUILD_PUBLIC_ROOT = path.join(SOURCE_PUBLIC_ROOT, 'dist');
-const SERVE_BUILD_OUTPUT = process.env.BOH_SERVE_DIST === '1'
-    || (process.env.BOH_SERVE_DIST !== '0' && process.env.NODE_ENV === 'production');
+// A git-only deployment does not refresh the ignored dist/ directory. Never
+// infer that it is current from NODE_ENV alone: doing so can silently serve an
+// older client after the server has already moved to a newer protocol. Built
+// assets are opt-in until the deployment pipeline runs `npm ci && npm run build`.
+const SERVE_BUILD_OUTPUT = process.env.BOH_SERVE_DIST === '1';
 const playerProfileStore = createPlayerProfileStore({ databaseUrl: AUTH_CFG?.databaseUrl || '' });
 
 function isAdminToken(token) {

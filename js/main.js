@@ -63,6 +63,7 @@ import {
     createBattlefieldRenderer,
     shouldSyncBattlefieldSnapshot
 } from './rendering/index.js';
+import { VITE_RUNTIME_AVAILABLE } from './rendering/viteRuntime.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
 const TURN_ORDER_COUNTDOWN_DELAY_MS = 2000;
@@ -129,7 +130,7 @@ let _battlefieldFrameId = 0;
 let _battlefieldLastFrameAt = performance.now();
 
 function _preferredBattlefieldBackend() {
-    return settings.rendererBackend === RENDERER_BACKEND.PIXI_WEBGL
+    return VITE_RUNTIME_AVAILABLE && settings.rendererBackend === RENDERER_BACKEND.PIXI_WEBGL
         ? RENDERER_BACKEND.PIXI_WEBGL
         : RENDERER_BACKEND.CANVAS_2D;
 }

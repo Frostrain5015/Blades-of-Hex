@@ -26,6 +26,7 @@ import { campFromKey } from '../rules/diplomacy.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import { RECRUITMENT_OPTIONS } from './recruitmentUi.js';
+import { VITE_RUNTIME_AVAILABLE } from './rendering/viteRuntime.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
@@ -2201,7 +2202,16 @@ export function initSettingsPanel() {
         document.getElementById('screenShake').checked = settings.screenShake;
         document.getElementById('soundEnabled').checked = settings.soundEnabled;
         document.getElementById('soundVolume').value = Math.round((settings.soundVolume ?? 0.7) * 100);
-        if (rendererBackend) rendererBackend.value = settings.rendererBackend || 'canvas2d';
+        if (rendererBackend) {
+            const pixiOption = rendererBackend.querySelector('option[value="pixi-webgl"]');
+            if (pixiOption) {
+                pixiOption.disabled = !VITE_RUNTIME_AVAILABLE;
+                pixiOption.title = VITE_RUNTIME_AVAILABLE ? '' : '需要通过 Vite 开发服务器或生产构建运行';
+            }
+            rendererBackend.value = VITE_RUNTIME_AVAILABLE
+                ? (settings.rendererBackend || 'canvas2d')
+                : 'canvas2d';
+        }
         if (performanceProfile) performanceProfile.value = settings.performanceProfile || 'auto';
         if (reducedMotion) reducedMotion.checked = Boolean(settings.reducedMotion);
         if (showGrid) showGrid.checked = settings.showGrid !== false;

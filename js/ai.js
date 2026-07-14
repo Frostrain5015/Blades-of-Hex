@@ -17,6 +17,7 @@ import * as claudePersonality from '../ai/claude.js';
 import * as grokPersonality from '../ai/grok.js';
 import { canAttack, isHostile } from '../rules/diplomacy.js';
 import { campToKey } from '../rules/camps.js';
+import { prioritizeNavalRecruitment } from '../rules/aiRecruitment.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -84,7 +85,7 @@ function planEngineerAction(aiCamp) {
 }
 
 // 创建 helpers（每次执行时刷新 weather 等动态值）
-function makeHelpers() {
+function makeHelpers(aiCamp) {
     return {
         getMovableTiles,
         getAttackableTiles,
@@ -94,6 +95,13 @@ function makeHelpers() {
         UNIT_CONFIG,
         weather: gameState.weather,
         isHostileFaction: (left, right) => isHostile(gameState, left, right),
+        recruitTypesForCity: (city, baseTypes) => prioritizeNavalRecruitment(
+            city,
+            baseTypes,
+            gameState.tiles,
+            aiCamp,
+            (left, right) => isHostile(gameState, left, right)
+        ),
         isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState),
         CARD_SYSTEM_CONFIG,
         COLONEL_CARD_GOLD
@@ -362,7 +370,7 @@ export async function processNeutralTurn() {
     if (gameState.skirmishFog) updateFogOfWar(gameState, aiCamp);
     try {
 
-        const helpers = makeHelpers();
+        const helpers = makeHelpers(aiCamp);
         const actions = claudePersonality.planActions(gameState, helpers);
         const engineerAction = planEngineerAction(aiCamp);
         if (engineerAction) actions.unshift(engineerAction);
@@ -384,8 +392,10 @@ export async function processNeutralTurn() {
         );
         for (const city of emptyCities) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-            if (gameState.playerGold.neutral >= UNIT_CONFIG.infantry.cost) {
-                await executeAction({ type: 'recruit', unitType: 'infantry', tileQ: city.q, tileR: city.r }, aiCamp);
+            const unitType = helpers.recruitTypesForCity(city, ['infantry'])
+                .find(type => gameState.playerGold.neutral >= UNIT_CONFIG[type].cost);
+            if (unitType) {
+                await executeAction({ type: 'recruit', unitType, tileQ: city.q, tileR: city.r }, aiCamp);
             }
         }
     } finally {
@@ -418,7 +428,7 @@ export async function processOpponentTurn(aiCamp) {
 
         if (gameState.doubleCommanderMode) await deployAvailableCommanders(aiCamp);
 
-        const helpers = makeHelpers();
+        const helpers = makeHelpers(aiCamp);
         const actions = grokPersonality.planActions(gameState, helpers, aiCamp);
         const engineerAction = planEngineerAction(aiCamp);
         if (engineerAction) actions.unshift(engineerAction);
@@ -438,8 +448,10 @@ export async function processOpponentTurn(aiCamp) {
         const campKey = campToKey(aiCamp);
         for (const city of emptyCities) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-            if (gameState.playerGold[campKey] >= UNIT_CONFIG.infantry.cost) {
-                await executeAction({ type: 'recruit', unitType: 'infantry', tileQ: city.q, tileR: city.r }, aiCamp);
+            const unitType = helpers.recruitTypesForCity(city, ['infantry'])
+                .find(type => gameState.playerGold[campKey] >= UNIT_CONFIG[type].cost);
+            if (unitType) {
+                await executeAction({ type: 'recruit', unitType, tileQ: city.q, tileR: city.r }, aiCamp);
             }
         }
     } finally {

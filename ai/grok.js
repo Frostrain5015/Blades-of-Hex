@@ -58,7 +58,7 @@ export function selectCommander(pool) {
 }
 
 export function planActions(gameState, helpers, myCamp) {
-    const { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, isHostileFaction } = helpers;
+    const { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, isHostileFaction, recruitTypesForCity } = helpers;
     const tileMap = gameState.tileMap;
     const actions = [];
     const processed = new Set();
@@ -1120,7 +1120,8 @@ export function planActions(gameState, helpers, myCamp) {
         if (recruitCount >= maxRecruits) break;
         const city = emptyOwnCities[i];
         const isFrontline = primaryObjective && hexDistance(city, primaryObjective) <= 4;
-        const types = isFrontline ? ['infantry', ...recruitPriority.filter(t => t !== 'infantry')] : recruitPriority;
+        const landTypes = isFrontline ? ['infantry', ...recruitPriority.filter(t => t !== 'infantry')] : recruitPriority;
+        const types = recruitTypesForCity ? recruitTypesForCity(city, landTypes) : landTypes;
         for (const type of types) {
             if (gold >= UNIT_CONFIG[type].cost) {
                 actions.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });

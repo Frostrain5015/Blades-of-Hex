@@ -34,6 +34,7 @@ import {
     riverVertexToPixel,
     snapRiverVertex,
     surfaceKindAt,
+    toggleCityFootprint,
     togglePort,
     toggleRiverCrossing
 } from './boardModel.js';
@@ -634,6 +635,12 @@ function applyBrush(tile) {
         }
         case 'city': {
             if (water) { setStatus('水域不能放置城市或村庄。', 'error'); return false; }
+            if (boardTool.cityType === 'footprint') {
+                const result = toggleCityFootprint(config, q, r);
+                if (result.error) setStatus(result.error, 'error');
+                else setStatus(result.placed ? '已扩展大型城市范围。' : '已从大型城市范围移除该地块。');
+                return result.changed;
+            }
             // 城市/村庄二合一笔刷：由 boardTool.cityType 区分（'city' | 'village'），两者互斥。
             removeFromList(b.cities, q, r);
             removeFromList(b.villages, q, r);
@@ -1011,16 +1018,24 @@ function buildBoardTools() {
             boardTool.fortification, v => { boardTool.fortification = v; }));
     }
     if (boardTool.mode === 'city') {
-        secParam.appendChild(selectRow('类型', boardTool.cityType, { city: '城市', village: '村庄' }, v => { boardTool.cityType = v; }));
-        secParam.appendChild(selectRow('阵营', boardTool.camp, factionLabels(), v => { boardTool.camp = v; }));
+        secParam.appendChild(selectRow('类型', boardTool.cityType, {
+            city: '城市中心',
+            footprint: '扩展大型城市范围',
+            village: '村庄'
+        }, v => { boardTool.cityType = v; renderInspector(); }));
+        if (boardTool.cityType !== 'footprint') {
+            secParam.appendChild(selectRow('阵营', boardTool.camp, factionLabels(), v => { boardTool.camp = v; }));
+        } else {
+            secParam.appendChild(hint('点击紧邻现有城市的陆地以扩展城郭；再次点击已有范围地块可移除。若同时邻接多个城市，编辑器会拒绝含糊归属。'));
+        }
     }
-    if (boardTool.mode === 'city' || boardTool.mode === 'district') {
+    if ((boardTool.mode === 'city' && boardTool.cityType !== 'footprint') || boardTool.mode === 'district') {
         secParam.appendChild(numRow('行政区 ID', boardTool.districtId, v => { boardTool.districtId = Math.max(0, Math.round(v)); }, { min: 0, max: 99, step: 1 }));
     }
     if (boardTool.mode === 'river') {
         secParam.appendChild(textRow('河流 ID', boardTool.riverId, v => { boardTool.riverId = v.trim() || 'river'; }));
         secParam.appendChild(selectRow('宽度', boardTool.riverWidth, { stream: '溪流', river: '河流' }, v => { boardTool.riverWidth = v; render(); }));
-        secParam.appendChild(checkRow('可通航', boardTool.riverNavigable, v => { boardTool.riverNavigable = v; }));
+        secParam.appendChild(hint('河流位于地块边界：溪流增加移动消耗，河流必须经桥梁或浅滩通过。舰船航行请使用浅水/深水地块；旧 JSON 的 navigable 字段继续兼容，但当前不改变移动规则。'));
         secParam.appendChild(hint(`顶点吸附绘制：单击续点，双击结束，Backspace 撤点。${riverDraft?.points?.length ? `当前草稿 ${riverDraft.points.length} 点。` : '尚未开始草稿。'}`));
         const actions = el('div', 'ed-grid');
         const finish = el('button', 'ed-add-btn', '完成河流');

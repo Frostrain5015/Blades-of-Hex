@@ -53,7 +53,7 @@ const WEATHER_UNIT_PREF = {
 };
 
 export function planActions(gameState, helpers) {
-    const { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG } = helpers;
+    const { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, recruitTypesForCity } = helpers;
     const tileMap = gameState.tileMap;
     const actions = [];
     const processed = new Set();
@@ -642,7 +642,8 @@ export function planActions(gameState, helpers) {
         if (recruitCount >= maxRecruits) break;
         const city = cityQueue[i];
         const isEmergency = emergencySwapCities.has(`${city.q},${city.r}`);
-        const types = isEmergency ? ['infantry'] : recruitPriority;
+        const landTypes = isEmergency ? ['infantry'] : recruitPriority;
+        const types = recruitTypesForCity ? recruitTypesForCity(city, landTypes) : landTypes;
         for (const type of types) {
             if (gold >= UNIT_CONFIG[type].cost) {
                 actions.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });

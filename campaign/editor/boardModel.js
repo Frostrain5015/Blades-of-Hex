@@ -2,6 +2,7 @@
 // The editor mutates its level in place, while tests can exercise every rule
 // without booting the canvas UI.
 import { BOARD_RULES } from '../../rules/constants.js';
+import { HEX_NEIGHBORS } from '../../rules/hex.js';
 import { axialToBoardPixel, isBoardCoordinatePlayable } from '../../rules/boardLayout.js';
 import { canUnitOccupyTile } from '../../rules/movement.js';
 import {
@@ -47,6 +48,79 @@ export function isEditableBoardCoordinate(board, q, r) {
 
 export function surfaceKindAt(board, q, r) {
     return getSurfaceKindAt(buildSurfaceMap(board?.surface), q, r);
+}
+
+function cityCells(city) {
+    return [city, ...asArray(city?.footprint)];
+}
+
+function isAdjacentToCity(city, q, r) {
+    return cityCells(city).some(value => HEX_NEIGHBORS.some(([dq, dr]) => (
+        value.q + dq === q && value.r + dr === r
+    )));
+}
+
+function cityRemainsConnected(city, footprint) {
+    const keys = new Set([city, ...footprint].map(tileCoordinateKey));
+    const visited = new Set([tileCoordinateKey(city)]);
+    const queue = [city];
+    while (queue.length) {
+        const current = queue.shift();
+        for (const [dq, dr] of HEX_NEIGHBORS) {
+            const key = `${current.q + dq},${current.r + dr}`;
+            if (!keys.has(key) || visited.has(key)) continue;
+            visited.add(key);
+            queue.push({ q: current.q + dq, r: current.r + dr });
+        }
+    }
+    return visited.size === keys.size;
+}
+
+/**
+ * Toggle one non-centre cell in a multi-hex city footprint. New cells attach
+ * only when exactly one existing city is adjacent, so authors never have to
+ * choose from an ambiguous hidden owner and two cities cannot merge by
+ * accident. Clicking an existing footprint cell removes it again.
+ */
+export function toggleCityFootprint(level, q, r) {
+    const board = ensureBoardAuthoringModel(level?.board);
+    if (!isEditableBoardCoordinate(board, q, r)) {
+        return { changed: false, placed: false, error: `地块 (${q},${r}) 不属于可编辑棋盘。` };
+    }
+    if (isWaterSurface(surfaceKindAt(board, q, r))) {
+        return { changed: false, placed: false, error: '城市范围不能覆盖水域。' };
+    }
+
+    const existingOwner = board.cities.find(city => asArray(city.footprint)
+        .some(value => sameCoordinate(value, q, r)));
+    if (existingOwner) {
+        const nextFootprint = existingOwner.footprint
+            .filter(value => !sameCoordinate(value, q, r));
+        if (!cityRemainsConnected(existingOwner, nextFootprint)) {
+            return { changed: false, placed: true, error: '不能移除连接城市其他范围的地块；请先从城郭外缘缩减。' };
+        }
+        existingOwner.footprint = nextFootprint;
+        if (!existingOwner.footprint.length) delete existingOwner.footprint;
+        return { changed: true, placed: false, city: existingOwner, error: '' };
+    }
+    if (board.cities.some(city => sameCoordinate(city, q, r))) {
+        return { changed: false, placed: false, error: '城市中心不能加入或移出范围；请使用城市画笔处理中心。' };
+    }
+    if (board.villages.some(village => sameCoordinate(village, q, r))) {
+        return { changed: false, placed: false, error: '城市范围不能覆盖村庄；请先移除村庄。' };
+    }
+
+    const candidates = board.cities.filter(city => isAdjacentToCity(city, q, r));
+    if (candidates.length === 0) {
+        return { changed: false, placed: false, error: '城市范围必须紧邻一个现有城市中心或范围地块。' };
+    }
+    if (candidates.length > 1) {
+        return { changed: false, placed: false, error: '该地块同时邻接多个城市，归属不明确；请从其他方向扩展。' };
+    }
+
+    const city = candidates[0];
+    city.footprint = [...asArray(city.footprint), { q, r }];
+    return { changed: true, placed: true, city, error: '' };
 }
 
 function removeCoordinate(list, q, r) {
@@ -109,6 +183,21 @@ export function applySurfaceBrush(level, q, r, kind) {
     }
     if (!SURFACE_KINDS.includes(kind)) {
         return { changed: false, removed: 0, error: `未知表面类型「${kind}」。` };
+    }
+
+    if (isWaterSurface(kind)) {
+        const footprintOwner = board.cities.find(city => asArray(city.footprint)
+            .some(value => sameCoordinate(value, q, r)));
+        if (footprintOwner) {
+            const remaining = footprintOwner.footprint.filter(value => !sameCoordinate(value, q, r));
+            if (!cityRemainsConnected(footprintOwner, remaining)) {
+                return {
+                    changed: false,
+                    removed: 0,
+                    error: '该地块连接城市的其他范围；请先从城郭外缘缩减，再改为水域。'
+                };
+            }
+        }
     }
 
     const before = surfaceKindAt(board, q, r);

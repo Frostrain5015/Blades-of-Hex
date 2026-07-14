@@ -244,11 +244,31 @@ y = 375 + 45 * r
 {
   "layout": "hex",
   "radius": 4,
-  "cities": [{ "q": 0, "r": 0, "districtId": 1, "camp": "player1" }],
-  "terrain": [{ "q": 1, "r": 0, "type": "forest" }],
+  "cities": [{
+    "q": 0,
+    "r": 0,
+    "districtId": 1,
+    "camp": "player1",
+    "footprint": [{ "q": 1, "r": 0 }]
+  }],
+  "surface": [
+    { "q": 2, "r": -1, "kind": "shallowWater" },
+    { "q": 2, "r": 0, "kind": "deepWater" }
+  ],
+  "terrain": [{ "q": -1, "r": 0, "type": "forest" }],
   "villages": [{ "q": 0, "r": 1, "districtId": 1 }],
-  "fortifications": [{ "q": 1, "r": -1, "type": "trench" }],
-  "districts": [{ "q": 2, "r": -1, "districtId": 1 }]
+  "fortifications": [{ "q": 0, "r": -1, "type": "trench" }],
+  "districts": [{ "q": -1, "r": 1, "districtId": 1 }],
+  "rivers": [{
+    "id": "river-north",
+    "width": "river",
+    "points": [
+      { "q": -1, "r": 0, "vertex": 0 },
+      { "q": -1, "r": 0, "vertex": 1 }
+    ]
+  }],
+  "crossings": [{ "riverId": "river-north", "segmentIndex": 0, "kind": "bridge" }],
+  "ports": [{ "q": 1, "r": -1 }]
 }
 ```
 
@@ -256,12 +276,18 @@ y = 375 + 45 * r
 
 - `layout`：只允许 `hex` 或 `borderless`；省略时兼容为 `hex`。
 - `radius`：`hex` 模式控制范围；`borderless` 模式不参与建图，但仍写入 `2..7` 的合法值。
-- `cities`：每项必须有坐标、`districtId` 和已声明的 `camp`。
+- `cities`：每项必须有坐标、`districtId` 和已声明的 `camp`；可选 `footprint` 是同一大型城市的额外陆地坐标，不是额外城市中心。
 - 一个 `districtId` 必须只有一座城市；城市是整个行政区的归属和颜色来源。
+- `surface`：稀疏覆盖表，只写水域；未列出的真地块默认陆地。`kind` 只允许 `shallowWater/deepWater`。
 - `terrain`：只需列出覆盖项；未列出的格子默认 `plains`。
-- `villages`：不能与城市重叠。
+- `villages`：不能与城市中心或城市 `footprint` 重叠。
 - `fortifications`：每格最多一个。
 - `districts`：覆盖自动 Voronoi 行政区，用于手绘边界；每个被使用的 `districtId` 应有城市。
+- `rivers`：边界折线；`id` 唯一，`width` 只允许 `stream/river`，`points` 至少两个相邻且不自交的吸附顶点。每个顶点的 `vertex` 为 `0..5`。
+- `crossings`：引用真实河流的零基 `segmentIndex`；`kind` 只允许 `bridge/ford`，同一河段最多一个通行点。
+- `ports`：只能位于至少邻接一个浅水或深水格的陆地真地块，坐标不得重复。
+
+地图对象约束：水域不能叠加城市、城市 `footprint`、村庄、陆地地形、工事、行政区覆盖或港口。城市 footprint 之间不能重叠。`navigable?: boolean` 是旧 JSON 兼容字段，当前仅保留数据，不改变舰船移动；可航行水道必须由实体水域地块构成。
 
 枚举与规则：
 
@@ -272,6 +298,21 @@ y = 375 + 45 * r
 | 地形 | `mountain` | 山地，移动消耗 6，防御 +5% |
 | 工事 | `trench` | 战壕，对近战防御 +25% |
 | 工事 | `flak` | 高射机枪，对远程防御 +25%，自身防空 |
+| 表面 | `shallowWater` | 浅水，无阵营底色，仅海军/两栖域单位可进入 |
+| 表面 | `deepWater` | 深水，无阵营底色，仅海军/两栖域单位可进入 |
+| 河宽 | `stream` | 溪流，陆军跨越额外消耗 1 行动力 |
+| 河宽 | `river` | 河流，默认阻断陆军跨越 |
+| 通行点 | `bridge` | 桥梁，取消该河段阻挡和额外消耗 |
+| 通行点 | `ford` | 浅滩，允许跨越并额外消耗 2 行动力 |
+
+### 4.3 水陆单位放置
+
+- `warship` 是当前公开海军兵种，`movementDomain` 为 `naval`；初始坐标必须是浅水、深水或港口。
+- `infantry/archer/cavalry/mgNest` 等陆军必须放在陆地，不能放在实体水域。
+- 当前 schema 已兼容 `amphibious` 移动域，但没有可供关卡 JSON 直接选择的公开两栖兵种，也没有登船/运输状态接口；不得自行杜撰这些字段。
+- 港口允许舰船与陆地之间的规则衔接，但一个地块仍然最多只有一个单位。
+
+### 4.4 天气
 
 天气：
 
@@ -1037,8 +1078,8 @@ Faction 对象：
 
 1. 关卡 ID 只含字母、数字、连字符。
 2. `layout` 仅为 `hex/borderless`；`radius` 保持 `2..7`；所有地图、单位、区域、调查点和触发器坐标在相应布局的真地块内。
-3. 每个行政区只有一座城市；每座城市和每个单位引用已声明阵营。
-4. 单位坐标不重叠；单位 ID 唯一；兵种、玩法将领与剧情将领 ID 合法。
+3. 每个行政区只有一座城市；每座城市和每个单位引用已声明阵营；大型城市 footprint 连续、不重叠且不覆盖水域/村庄。
+4. 单位坐标不重叠；单位 ID 唯一；兵种、玩法将领与剧情将领 ID 合法；陆军位于陆地，舰船位于水域或港口。
 5. faction ID 合法、唯一且不是 `neutral`；`color` 是九个规范 ID 之一，不含任何手写颜色值。
 6. 恰好一个 `human`，等于 `localPlayerCamp`。
 7. `turnOrder` 无重复，完整覆盖所有启用且参与回合的阵营。
@@ -1051,6 +1092,7 @@ Faction 对象：
 14. `showStep.text` 非空；人物模式有 `speaker.name`；操作锁有真实高亮目标。
 15. 生成单位类型、阵营、坐标、ID、玩法/剧情将领和生命值合法。
 16. `applyEffect` 字段、持续回合、特殊规则和修正值合法。
+17. 水域、河流、桥梁/浅滩和港口引用合法；不要依赖 `navigable` 实现沿河航行，也不要生成尚未公开的运输/两栖状态字段。
 
 ## 16. 编译命令与交付流程
 
