@@ -128,6 +128,7 @@ let _battlefieldSnapshot = null;
 let _battlefieldSnapshotCheckedAt = -Infinity;
 let _battlefieldFrameId = 0;
 let _battlefieldLastFrameAt = performance.now();
+let _pixiHandlesTerrain = false;
 
 function _preferredBattlefieldBackend() {
     return VITE_RUNTIME_AVAILABLE && settings.rendererBackend === RENDERER_BACKEND.PIXI_WEBGL
@@ -142,6 +143,18 @@ function _syncBattlefieldRendererDom(boundary = _battlefieldRenderer) {
         ? boundary?.renderer?.canvas
         : null;
     pixiCanvas?.classList?.add('battlefield-pixi-canvas');
+    // 地形模式下 Pixi canvas 在 Canvas canvas 之下
+    if (settings.pixiTerrainMode && pixiCanvas) {
+        pixiCanvas.style.zIndex = '0';
+        canvas.style.zIndex = '2';
+        canvas.style.position = 'absolute';
+        canvas.style.inset = '0';
+    } else if (pixiCanvas) {
+        pixiCanvas.style.zIndex = '2';
+        canvas.style.zIndex = '1';
+        canvas.style.position = '';
+        canvas.style.inset = '';
+    }
 }
 
 async function _fallbackBattlefieldRenderer(boundary, error, reason) {
@@ -178,6 +191,7 @@ async function _replaceBattlefieldRenderer() {
             capabilities,
             performanceProfile: settings.performanceProfile || 'auto',
             reducedMotion: settings.reducedMotion ? true : undefined,
+            terrainMode: Boolean(settings.pixiTerrainMode),
             onContextLost: error => {
                 queueMicrotask(() => _fallbackBattlefieldRenderer(boundary, error, 'webgl-context-lost'));
             },
@@ -217,7 +231,7 @@ function _syncPixiBattlefieldScene(now) {
         if (!shouldSyncBattlefieldSnapshot(_battlefieldSnapshot, next)) return;
         _battlefieldSnapshot = next;
         _battlefieldRenderer.syncScene(battlefieldSnapshotToPixi(next, {
-            overlayOnly: true,
+            overlayOnly: !settings.pixiTerrainMode,
             showGrid: settings.showGrid !== false,
             performanceProfile: _battlefieldRenderer.policy?.profile || 'balanced'
         }));

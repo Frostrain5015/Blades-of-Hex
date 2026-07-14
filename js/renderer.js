@@ -188,8 +188,10 @@ export function renderGame() {
     ctx.translate(screenShake.x, screenShake.y);
     ctx.clearRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
 
-    // Draw tile bases
-    if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
+    // Draw tile bases (skipped when Pixi handles static terrain)
+    const materialOptions = { now, reducedMotion: settings.reducedMotion === true };
+    if (!settings.pixiTerrainMode) {
+        if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
     const tileBaseOptions = layeredTerrain
         ? (visualGrid ? FLAT_LAYERED_TILE_BASE_OPTIONS : LAYERED_TILE_BASE_OPTIONS)
         : (visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined);
@@ -199,7 +201,6 @@ export function renderGame() {
     // Fixed map-material order: neutral water, terrain floor, coast/river,
     // terrain relief, then fortifications/bridges/ports. Every phase shares
     // the cached real-board clip (plus render-only fillers in borderless mode).
-    const materialOptions = { now, reducedMotion: settings.reducedMotion === true };
     canvasBattlefieldLayers.renderGround(ctx, materialOptions);
     canvasBattlefieldLayers.renderWaterways(ctx, materialOptions);
     canvasBattlefieldLayers.renderRelief(ctx, materialOptions);
@@ -214,6 +215,7 @@ export function renderGame() {
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     // Overlays (hover/selection)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
+    }
 
     // ── 将领特效图层：ground（地块覆盖层之后、先锋旗立绘之前）──
     drawFxLayer('ground', ctx, now);
@@ -229,28 +231,31 @@ export function renderGame() {
     // ── 将领特效图层：underUnits（立绘之后、单位徽章之前；圣骑士剑环后半圈）──
     drawFxLayer('underUnits', ctx, now);
     // 纯本地操作预览先画到单位之下，球体自然遮住路线内部，避免起终点断口。
-    drawOperationInteractionRoute(now);
+    // Pixi 后端下交互提示由 PixiBattlefieldRenderer 绘制，跳过 Canvas 版本避免双重绘制。
+    if (settings.rendererBackend !== 'pixi-webgl') drawOperationInteractionRoute(now);
     // Units — 全部绘制，非可见地块会在后续迷雾阶段被地形覆绘+遮罩覆盖
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
     // Fortification foreground: front trench banks and flak parapets seat the
     // sphere inside the terrain instead of letting it float above the whole
     // emplacement. These paths remain board-clipped and contain no game state.
-    canvasBattlefieldLayers.renderForeground(ctx, materialOptions);
-    if (layeredTerrain) {
-        for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawForegroundMapDetails(ctx);
-    }
-    // City disabled indicator (same layer as Iron Guard shield)
-    for (let i = 0, len = tiles.length; i < len; i++) {
-        const tile = tiles[i];
-        if (!tile.isCity || !tile._cityDisabledUntil || tile._cityDisabledUntil <= getRoundIndex(gameState)) continue;
-        const pulse = (Math.sin(now / 400) + 1) / 2;
-        ctx.save();
-        ctx.font = '18px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = `rgba(255,80,80,${0.6 + pulse * 0.4})`;
-        ctx.fillText('🚫', tile.x, tile.y - HEX_SIZE - 16);
-        ctx.restore();
+    if (!settings.pixiTerrainMode) {
+        canvasBattlefieldLayers.renderForeground(ctx, materialOptions);
+        if (layeredTerrain) {
+            for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawForegroundMapDetails(ctx);
+        }
+        // City disabled indicator (same layer as Iron Guard shield)
+        for (let i = 0, len = tiles.length; i < len; i++) {
+            const tile = tiles[i];
+            if (!tile.isCity || !tile._cityDisabledUntil || tile._cityDisabledUntil <= getRoundIndex(gameState)) continue;
+            const pulse = (Math.sin(now / 400) + 1) / 2;
+            ctx.save();
+            ctx.font = '18px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = `rgba(255,80,80,${0.6 + pulse * 0.4})`;
+            ctx.fillText('🚫', tile.x, tile.y - HEX_SIZE - 16);
+            ctx.restore();
+        }
     }
     // Every cloth surface is deformed in one WebGL2 batch. Canvas2D finials
     // are deliberately composited afterwards so the cloth cannot cover them.
@@ -279,7 +284,8 @@ export function renderGame() {
     drawMoraleIndicators();
 
     // 范围光圈
-    drawRangeApertures(now);
+    // Pixi 后端下交互提示由 PixiBattlefieldRenderer 绘制，跳过 Canvas 版本避免双重绘制。
+    if (settings.rendererBackend !== 'pixi-webgl') drawRangeApertures(now);
 
     // 文字特效
     drawDamageTexts(now);

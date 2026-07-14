@@ -248,6 +248,7 @@ export class PixiBattlefieldRenderer {
     constructor(options = {}) {
         this.backend = RENDERER_BACKEND.PIXI_WEBGL;
         this.lifecycle = RENDERER_LIFECYCLE.NEW;
+        this.terrainMode = Boolean(options.terrainMode);
         this._pixiLoader = options.pixiLoader || (() => import('pixi.js'));
         this._createApplication = options.createApplication || null;
         this._performanceProfile = options.performanceProfile || PERFORMANCE_PROFILE.AUTO;
@@ -350,7 +351,14 @@ export class PixiBattlefieldRenderer {
             this._app.stage.addChild(this._root);
 
             if (!hostIsCanvas && host && typeof host.appendChild === 'function' && this._canvas.parentNode !== host) {
-                host.appendChild(this._canvas);
+                if (options.terrainMode) {
+                    // Pixi handles terrain → canvas goes behind the existing Canvas2D canvas
+                    const first = host.firstChild;
+                    if (first) host.insertBefore(this._canvas, first);
+                    else host.appendChild(this._canvas);
+                } else {
+                    host.appendChild(this._canvas);
+                }
                 this._attachedCanvas = true;
             }
             this._listenForContextLoss();
@@ -384,6 +392,12 @@ export class PixiBattlefieldRenderer {
                 antiAirCells: mergeExitingDescriptors(
                     this._scene.antiAirCells,
                     next.antiAirCells,
+                    nowMs,
+                    220
+                ),
+                routePaths: mergeExitingDescriptors(
+                    this._scene.routePaths,
+                    next.routePaths,
                     nowMs,
                     220
                 )
@@ -426,6 +440,7 @@ export class PixiBattlefieldRenderer {
             || this._scene?.targetFrames?.some(descriptor => descriptorStillAnimating(descriptor, normalizedFrame.motionNowMs))
             || this._scene?.rangeRegions?.some(descriptor => descriptorStillAnimating(descriptor, normalizedFrame.motionNowMs))
             || this._scene?.antiAirCells?.some(descriptor => descriptorStillAnimating(descriptor, normalizedFrame.motionNowMs))
+            || this._scene?.routePaths?.some(descriptor => descriptorStillAnimating(descriptor, normalizedFrame.motionNowMs))
         );
         if (!this._sceneDirty && this._events.length === 0) {
             if (!hasAnimatedInteraction) {
@@ -564,8 +579,10 @@ export class PixiBattlefieldRenderer {
     _drawInteractionLayers(frame) {
         const ground = this._graphics.interactionGround;
         const top = this._graphics.interactionTop;
+        const route = this._graphics.interactionRoute;
         ground.clear();
         top.clear();
+        route.clear();
         if (!this._scene) return;
 
         for (const region of this._scene.rangeRegions || []) {
@@ -645,6 +662,8 @@ export class PixiBattlefieldRenderer {
             });
             drawFrameMotif(top, target, size, alphaValue);
         }
+
+        this._drawRoutePaths(frame);
     }
 
     _drawOriginMarker(frame) {
@@ -694,6 +713,136 @@ export class PixiBattlefieldRenderer {
                 width: marker.ringWidth * 0.9
             });
         }
+    }
+
+    _drawRoutePaths(frame) {
+        const graphics = this._graphics.interactionRoute;
+        const paths = this._scene?.routePaths || [];
+        if (!paths.length) return;
+
+        for (const path of paths) {
+            const entry = entryState(frame, path);
+            const visibility = entry.alpha * exitAlpha(frame, path);
+            if (visibility <= 0 || path.points.length < 2) continue;
+
+            const color = path.color;
+            const target = path.target;
+            const totalLength = path.totalLength || 1;
+            const now = frame.motionEnabled ? frame.motionNowMs : 0;
+
+            if (path.action === 'move') {
+                // Solid route path: thick low-alpha background + thin bright overlay
+                drawPath(graphics, path.points, false);
+                graphics.stroke({ color, alpha: 0.30 * visibility, width: 3.4 });
+                drawPath(graphics, path.points, false);
+                graphics.stroke({ color, alpha: visibility * 0.90, width: 1.5 });
+                // Arrowhead at destination
+                this._drawArrowhead(graphics, path, 1, color, visibility);
+
+            } else if (path.action === 'melee') {
+                // Tapered wedge: wider at source, narrower at target
+                const numPoints = path.points.length;
+                const wedgeAlpha = 0.26 * visibility;
+                if (numPoints >= 2) {
+                    const left = [];
+                    const right = [];
+                    for (let i = 0; i < numPoints; i++) {
+                        const p = path.points[i];
+                        const prev = path.points[Math.max(0, i - 1)];
+                        const next = path.points[Math.min(numPoints - 1, i + 1)];
+                        const angle = Math.atan2(next.y - prev.y, next.x - prev.x);
+                        const progress = i / (numPoints - 1);
+                        const halfWidth = 8 * (1 - progress * 0.6);
+                        left.push({ x: p.x - Math.sin(angle) * halfWidth, y: p.y + Math.cos(angle) * halfWidth });
+                        right.push({ x: p.x + Math.sin(angle) * halfWidth, y: p.y - Math.cos(angle) * halfWidth });
+                    }
+                    graphics.moveTo(left[0].x, left[0].y);
+                    for (let i = 1; i < left.length; i++) graphics.lineTo(left[i].x, left[i].y);
+                    for (let i = right.length - 1; i >= 0; i--) graphics.lineTo(right[i].x, right[i].y);
+                    graphics.closePath();
+                    graphics.fill({ color, alpha: wedgeAlpha });
+                    graphics.stroke({ color, alpha: 0.80 * visibility, width: 1.1 });
+                }
+                this._drawArrowhead(graphics, path, 0.94, color, visibility);
+
+            } else if (path.action === 'ranged') {
+                const pulse = frame.motionEnabled
+                    ? (Math.sin(now / 550) + 1) / 2
+                    : 0.5;
+
+                // Arc rail
+                drawPath(graphics, path.points, false);
+                graphics.stroke({ color, alpha: 0.88 * visibility, width: 1.2 });
+
+                // Carrier pulse: small circle that travels along the path
+                if (frame.motionEnabled) {
+                    const carrierFrac = ((now / 1550) % 1) * 0.88;
+                    this._sampleRoutePosition(graphics, path, carrierFrac, color, visibility);
+                }
+
+                // Impact ring at target
+                const impactAlpha = (1 - pulse) * 0.5 * visibility;
+                const ringRadius = 10 + pulse * 12;
+                if (impactAlpha > 0.01) {
+                    graphics.circle(target.x, target.y, ringRadius);
+                    graphics.stroke({
+                        color,
+                        alpha: impactAlpha,
+                        width: 1.8
+                    });
+                }
+            }
+        }
+    }
+
+    _drawArrowhead(graphics, path, fraction, color, visibility) {
+        const tip = this._sampleRoutePoint(path, fraction);
+        if (!tip) return;
+        const prev = this._sampleRoutePoint(path, Math.max(0, fraction - 0.04));
+        if (!prev) return;
+        const angle = Math.atan2(tip.y - prev.y, tip.x - prev.x);
+        const size = 14;
+        graphics.moveTo(tip.x, tip.y);
+        graphics.lineTo(
+            tip.x - Math.cos(angle - 0.52) * size,
+            tip.y - Math.sin(angle - 0.52) * size
+        );
+        graphics.lineTo(
+            tip.x - Math.cos(angle + 0.52) * size,
+            tip.y - Math.sin(angle + 0.52) * size
+        );
+        graphics.closePath();
+        graphics.fill({ color, alpha: 0.88 * visibility });
+    }
+
+    _sampleRoutePoint(path, fraction) {
+        const points = path.points;
+        const totalLength = path.totalLength;
+        if (!points || points.length < 2 || !totalLength) return null;
+        const clamped = Math.max(0, Math.min(1, fraction));
+        const targetDist = clamped * totalLength;
+        for (let i = 1; i < points.length; i++) {
+            if (points[i].distance >= targetDist) {
+                const prev = points[i - 1];
+                const span = Math.max(1, points[i].distance - prev.distance);
+                const t = (targetDist - prev.distance) / span;
+                return {
+                    x: prev.x + (points[i].x - prev.x) * t,
+                    y: prev.y + (points[i].y - prev.y) * t
+                };
+            }
+        }
+        return { x: points[points.length - 1].x, y: points[points.length - 1].y };
+    }
+
+    _sampleRoutePosition(graphics, path, fraction, color, visibility) {
+        const point = this._sampleRoutePoint(path, fraction);
+        if (!point) return;
+        const alpha = (0.5 + Math.sin(fraction * Math.PI * 6) * 0.3) * visibility;
+        graphics.circle(point.x, point.y, 5);
+        graphics.fill({ color, alpha: alpha * 0.7 });
+        graphics.circle(point.x, point.y, 8);
+        graphics.fill({ color, alpha: alpha * 0.15 });
     }
 
     _listenForContextLoss() {

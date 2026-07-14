@@ -225,6 +225,46 @@ function normalizeAntiAirCell(source, index) {
     };
 }
 
+const ROUTE_ACTIONS = new Set(['move', 'melee', 'ranged']);
+const ROUTE_TRAJECTORIES = new Set(['arc', 'straight']);
+
+function normalizeRoutePath(source, index) {
+    if (!source || !ROUTE_ACTIONS.has(source.action)) return null;
+    const action = source.action;
+    const points = (source.points || []).map((entry, pi) => {
+        const x = Number.isFinite(entry?.x) ? entry.x : NaN;
+        const y = Number.isFinite(entry?.y) ? entry.y : NaN;
+        const distance = Number.isFinite(entry?.distance) ? entry.distance : 0;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            throw new TypeError(`routePaths[${index}].points[${pi}] must contain finite x and y`);
+        }
+        return { x, y, distance };
+    });
+    if (points.length < 2) return null;
+    const sx = Number.isFinite(source?.source?.x) ? source.source.x : points[0].x;
+    const sy = Number.isFinite(source?.source?.y) ? source.source.y : points[0].y;
+    const tx = Number.isFinite(source?.target?.x) ? source.target.x : points[points.length - 1].x;
+    const ty = Number.isFinite(source?.target?.y) ? source.target.y : points[points.length - 1].y;
+    return {
+        id: String(source?.id ?? `route-path-${index}`),
+        action,
+        points,
+        source: { x: sx, y: sy },
+        target: { x: tx, y: ty },
+        color: color(source?.color, action === 'move' ? 0x58c9b3 : 0xe95b50),
+        alpha: alpha(source?.alpha, 1),
+        trajectory: ROUTE_TRAJECTORIES.has(source?.trajectory) ? source.trajectory : null,
+        startedAtMs: Math.max(0, finite(source?.startedAtMs, 0)),
+        delayMs: Math.max(0, finite(source?.delayMs, 0)),
+        durationMs: Math.max(1, positive(source?.durationMs, 400)),
+        endingStartedAtMs: Math.max(0, finite(source?.endingStartedAtMs, 0)),
+        endingDurationMs: Math.max(1, positive(source?.endingDurationMs, 220)),
+        totalLength: Math.max(0, finite(source?.totalLength,
+            points.reduce((acc, p, i) => i > 0 ? acc + Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) : 0, 0)
+        ))
+    };
+}
+
 function normalizeWorld(source = {}) {
     const scale = finite(source.scale, 1);
     if (scale <= 0) throw new TypeError('world.scale must be positive');
@@ -252,7 +292,10 @@ export function createPixiSceneSnapshot(source = {}) {
         originMarker: normalizeOriginMarker(source.originMarker),
         targetFrames: (source.targetFrames || []).map(normalizeTargetFrame),
         rangeRegions: (source.rangeRegions || []).map(normalizeRangeRegion),
-        antiAirCells: (source.antiAirCells || []).map(normalizeAntiAirCell)
+        antiAirCells: (source.antiAirCells || []).map(normalizeAntiAirCell),
+        routePaths: (source.routePaths || [])
+            .map(normalizeRoutePath)
+            .filter(Boolean)
     };
     return createImmutableRenderValue(normalized, 'pixiSceneSnapshot');
 }

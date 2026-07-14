@@ -1,4 +1,9 @@
 import { createPixiSceneSnapshot } from './pixiSceneSnapshot.js';
+import {
+    buildMoveOperationAnchors,
+    buildSmoothOperationRoute,
+    buildRangedOperationRoute
+} from '../operationPreviewRenderer.js';
 
 const RELATION_COLORS = Object.freeze({
     self: '#72e18b',
@@ -301,6 +306,83 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
         };
     }).filter(Boolean);
 
+    // ── Route paths (movement / melee / ranged) ────────────────
+    const routePaths = [];
+    const route = interaction.route || null;
+    if (route && !overlayOnly) {
+        const sourceTile = route.sourceKey ? tilesByKey.get(route.sourceKey) : null;
+        const targetTile = route.targetKey ? tilesByKey.get(route.targetKey) : null;
+        const sourceUnit = route.sourceKey
+            ? snapshot.units.find(u => u.tileKey === route.sourceKey && u.renderable)
+            : null;
+        const targetUnit = route.targetKey
+            ? snapshot.units.find(u => u.tileKey === route.targetKey && u.renderable)
+            : null;
+        const sourcePos = (route.action === 'melee' || route.action === 'ranged') && sourceUnit?.visualCenter
+            ? { x: sourceUnit.visualCenter.x, y: sourceUnit.visualCenter.y }
+            : sourceTile?.center ? { x: sourceTile.center.x, y: sourceTile.center.y } : null;
+        const targetPos = (route.action === 'melee' || route.action === 'ranged') && targetUnit?.visualCenter
+            ? { x: targetUnit.visualCenter.x, y: targetUnit.visualCenter.y }
+            : targetTile?.center ? { x: targetTile.center.x, y: targetTile.center.y } : null;
+
+        if (sourcePos && targetPos) {
+            const color = route.action === 'move' ? '#58c9b3' : '#e95b50';
+            const selectedAtMs = selection.selectedAtMs || 0;
+
+            if (route.action === 'move' && Array.isArray(route.bfsKeys) && route.bfsKeys.length >= 2) {
+                const bfsPixelPath = route.bfsKeys
+                    .map(key => tilesByKey.get(key))
+                    .filter(t => t && t.center)
+                    .map(t => ({ x: t.center.x, y: t.center.y }));
+                if (bfsPixelPath.length >= 2) {
+                    const anchors = buildMoveOperationAnchors(sourcePos, targetPos, bfsPixelPath);
+                    const smooth = buildSmoothOperationRoute(anchors, { tension: 0.78, samplesPerSegment: 20 });
+                    if (smooth.points.length >= 2) {
+                        routePaths.push({
+                            action: 'move',
+                            points: smooth.points,
+                            source: sourcePos,
+                            target: targetPos,
+                            color,
+                            startedAtMs: selectedAtMs,
+                            durationMs: 340,
+                            totalLength: smooth.totalLength
+                        });
+                    }
+                }
+            } else if (route.action === 'melee') {
+                const smoothed = buildSmoothOperationRoute([sourcePos, targetPos], { tension: 0.4, samplesPerSegment: 12 });
+                if (smoothed.points.length >= 2) {
+                    routePaths.push({
+                        action: 'melee',
+                        points: smoothed.points,
+                        source: sourcePos,
+                        target: targetPos,
+                        color,
+                        startedAtMs: selectedAtMs,
+                        durationMs: 300,
+                        totalLength: smoothed.totalLength
+                    });
+                }
+            } else if (route.action === 'ranged') {
+                const ranged = buildRangedOperationRoute(sourcePos, targetPos, 15, 'arc');
+                if (ranged.points.length >= 2) {
+                    routePaths.push({
+                        action: 'ranged',
+                        points: ranged.points,
+                        source: sourcePos,
+                        target: targetPos,
+                        color,
+                        trajectory: 'arc',
+                        startedAtMs: selectedAtMs,
+                        durationMs: 380,
+                        totalLength: ranged.totalLength
+                    });
+                }
+            }
+        }
+    }
+
     return createPixiSceneSnapshot({
         revision: signatureRevision(snapshot.signature),
         world: options.world || { x: 0, y: 0, scale: 1 },
@@ -323,6 +405,7 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
         originMarker,
         targetFrames,
         rangeRegions,
-        antiAirCells
+        antiAirCells,
+        routePaths
     });
 }

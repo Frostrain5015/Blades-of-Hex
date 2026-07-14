@@ -508,6 +508,55 @@ function buildAirDto(air, playableKeySet) {
     };
 }
 
+function reconstructBfsKeys(gameState, startTileKey, endTileKey, sourceByKey) {
+    if (!(gameState.moveParents instanceof Map)) return [];
+    const startTile = startTileKey ? sourceByKey.get(startTileKey) : null;
+    const endTile = endTileKey ? sourceByKey.get(endTileKey) : null;
+    if (!startTile || !endTile) return [];
+    const reversed = [];
+    const visited = new Set();
+    let current = endTile;
+    while (current && !visited.has(current)) {
+        visited.add(current);
+        const key = keyFromTile(current);
+        if (!key) break;
+        reversed.push(key);
+        if (current === startTile) return reversed.reverse();
+        current = gameState.moveParents.get(current)?.parent || null;
+    }
+    return [];
+}
+
+function buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTileKey, selectedUnit, hoveredTileKey, moveTileKeys, attackTileKeys) {
+    if (!selectedUnitTileKey || !hoveredTileKey) return null;
+    const selectedTile = sourceByKey.get(selectedUnitTileKey);
+    if (!selectedTile?.unit || selectedUnit?.action?.isNewRecruit) return null;
+    if (gameState.aiActing || gameState.cardTargeting) return null;
+
+    const isMove = moveTileKeys.includes(hoveredTileKey) && !sourceByKey.get(hoveredTileKey)?.unit;
+    const isAttack = attackTileKeys.includes(hoveredTileKey) && sourceByKey.get(hoveredTileKey)?.unit;
+    if (!isMove && !isAttack) return null;
+
+    if (isMove) {
+        const bfsKeys = reconstructBfsKeys(gameState, selectedUnitTileKey, hoveredTileKey, sourceByKey);
+        if (bfsKeys.length < 2) return null;
+        return { action: 'move', sourceKey: selectedUnitTileKey, targetKey: hoveredTileKey, bfsKeys };
+    }
+
+    // Determine melee vs ranged from the unit type / presentation rules
+    const attackerUnit = selectedTile.unit;
+    const targetUnit = sourceByKey.get(hoveredTileKey)?.unit;
+    if (!targetUnit) return null;
+    const isRanged = String(targetUnit.type || '').toLowerCase() === 'fire'
+        || String(attackerUnit.type || '').toLowerCase() === 'fire'
+        || (targetUnit.presentation?.fallen);
+    return {
+        action: isRanged ? 'ranged' : 'melee',
+        sourceKey: selectedUnitTileKey,
+        targetKey: hoveredTileKey
+    };
+}
+
 function buildInteraction(gameState, playableEntries, playableKeySet, viewerCampKey, options) {
     const sourceByKey = new Map(playableEntries.map(entry => [entry.key, entry.tile]));
     const validKey = tile => {
@@ -554,6 +603,8 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
 
     const selectedUnitTileKey = validKey(gameState.selectedUnit?.tile);
     const selectedUnit = selectedUnitTileKey ? sourceByKey.get(selectedUnitTileKey)?.unit : null;
+    const route = buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTileKey, selectedUnit,
+        hoveredTileKey, moveTileKeys, attackTileKeys);
     return {
         selection: {
             unitId: primitiveId(selectedUnit?.id),
@@ -586,7 +637,8 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
             affectedTileKeys,
             air: buildAirDto(preview?.air, playableKeySet)
         },
-        targetCandidates
+        targetCandidates,
+        route
     };
 }
 
