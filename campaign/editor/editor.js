@@ -705,8 +705,18 @@ function completeRiverDraft() {
     renderToolPanel();
     renderInspector();
     render();
-    setStatus(`河流「${result.id}」已完成`, 'ok');
+    setStatus(`河流「${result.id}」已完成；下一步可选择“桥梁/浅滩”并点击河段`, 'ok');
     return true;
+}
+
+function flushRiverDraft(nextAction = '继续') {
+    if (!riverDraft) return true;
+    const pointCount = riverDraft.points?.length || 0;
+    if (pointCount < 2) {
+        setStatus(`河流草稿只有 ${pointCount} 个顶点，至少需要 2 个顶点；请继续绘制或取消草稿后再${nextAction}。`, 'error');
+        return false;
+    }
+    return completeRiverDraft();
 }
 
 function cancelRiverDraft() {
@@ -968,10 +978,11 @@ function buildBoardTools() {
         { value: 'fortification', label: '工事' },
         { value: 'district', label: '区划范围' },
         { value: 'river', label: '河流' },
-        { value: 'crossing', label: '桥/浅滩' },
+        { value: 'crossing', label: '桥梁/浅滩' },
         { value: 'port', label: '港口' },
         { value: 'erase', label: '橡皮擦' }
     ], boardTool.mode, v => {
+        if (boardTool.mode === 'river' && v !== 'river' && !flushRiverDraft('切换工具')) return;
         boardTool.mode = v;
         hoverRiverVertex = null;
         hoverRiverSegment = null;
@@ -1044,6 +1055,18 @@ function buildBoardTools() {
 
     if ((config.board.rivers || []).length) {
         const secRivers = section(`已绘河流（${config.board.rivers.length}）`);
+        const addCrossing = el('button', 'ed-add-btn', '＋ 在河段上添加桥梁 / 浅滩');
+        addCrossing.addEventListener('click', () => {
+            if (!flushRiverDraft('放置桥梁')) return;
+            boardTool.mode = 'crossing';
+            boardTool.crossingKind = 'bridge';
+            hoverRiverVertex = null;
+            hoverRiverSegment = null;
+            renderToolPanel();
+            render();
+            setStatus('桥梁工具已启用：直接点击已有河段放置桥梁；再次点击可移除。', 'ok');
+        });
+        secRivers.appendChild(addCrossing);
         for (const river of config.board.rivers) {
             const row = el('div', 'ed-list-item');
             row.appendChild(el('span', 'ed-item-label', `${river.id} · ${river.width === 'river' ? '河流' : '溪流'} · ${river.points.length} 点`));
@@ -2397,6 +2420,7 @@ function runValidation({ silent = false } = {}) {
 }
 
 function exportLevel() {
+    if (!flushRiverDraft('导出')) return;
     if (!runValidation()) return;
     // 调用浏览器下载 API 存到本地
     const json = JSON.stringify(config, null, 2);
@@ -2443,6 +2467,7 @@ function newLevel() {
 }
 
 function playtest() {
+    if (!flushRiverDraft('进入试玩')) return;
     if (!runValidation()) return;
     callbacks.onPlaytest?.(clone(config));
 }

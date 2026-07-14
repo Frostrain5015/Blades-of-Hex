@@ -66,6 +66,24 @@ function makeScene() {
     };
 }
 
+function assertIsolatedClosedPrimitives(commands, primitiveName) {
+    const primitiveIndices = commands
+        .map((command, index) => command[0] === primitiveName ? index : -1)
+        .filter(index => index >= 0);
+    assert.ok(primitiveIndices.length > 1, `fixture must compile multiple ${primitiveName} primitives`);
+    for (const index of primitiveIndices) {
+        const command = commands[index];
+        const previous = commands[index - 1];
+        const next = commands[index + 1];
+        assert.equal(previous?.[0], 'moveTo', `${primitiveName} must start a fresh Canvas sub-path`);
+        assert.equal(next?.[0], 'closePath', `${primitiveName} must close before the next primitive`);
+        const expectedStartX = command[1] + command[3];
+        const expectedStartY = command[2];
+        assert.ok(Math.abs(previous[1] - expectedStartX) < 1e-9, `${primitiveName} moveTo x must match its start point`);
+        assert.ok(Math.abs(previous[2] - expectedStartY) < 1e-9, `${primitiveName} moveTo y must match its start point`);
+    }
+}
+
 test('terrain layer compiles continuous features from playable tiles and consumes both projections', () => {
     const scene = makeScene();
     let playableProjectionCalls = 0;
@@ -100,6 +118,37 @@ test('terrain layer compiles continuous features from playable tiles and consume
     assert.equal(renderProjectionCalls, 1);
     assert.ok(pathCount > 10);
     assert.ok(layer.paths.forestCanopy.native.commands.some(command => command[0] === 'arc'));
+});
+
+test('batched circles and ellipses never create implicit cross-tile fill connectors', () => {
+    const playableTiles = [
+        tile(0, 0, { terrain: 'forest' }),
+        tile(4, 0, { terrain: 'forest' }),
+        tile(0, 4, { fortification: 'trench' }),
+        tile(4, 4, { fortification: 'trench' })
+    ];
+    const scene = {
+        playableTiles,
+        renderTiles: playableTiles,
+        tileMap: new Map(playableTiles.map(value => [`${value.q},${value.r}`, value]))
+    };
+    const layer = createCanvasTerrainLayer(scene, { pathFactory: () => new FakePath() });
+
+    assertIsolatedClosedPrimitives(layer.paths.forestCanopyDark.commands, 'arc');
+    assertIsolatedClosedPrimitives(layer.paths.forestCanopy.commands, 'arc');
+    assertIsolatedClosedPrimitives(layer.paths.trenchIslands.commands, 'ellipse');
+});
+
+test('continuous terrain uses joined ground faces without painting dark centre links', () => {
+    const layer = createCanvasTerrainLayer(makeScene(), { pathFactory: () => new FakePath() });
+    const context = new RecordingContext();
+    drawCanvasTerrainLayer(context, layer, { phase: CANVAS_TERRAIN_PHASE.GROUND });
+
+    const strokedPaths = context.calls
+        .filter(call => call.name === 'stroke')
+        .map(call => call.args[0]);
+    assert.ok(!strokedPaths.includes(layer.paths.forestLinks.native));
+    assert.ok(!strokedPaths.includes(layer.paths.mountainRidges.native));
 });
 
 test('CanvasTerrainRenderer rebuilds only for board/projection invalidation, never while rendering', () => {

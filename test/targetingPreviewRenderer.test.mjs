@@ -26,11 +26,16 @@ function createContext() {
     };
     for (const method of [
         'beginPath', 'closePath', 'moveTo', 'lineTo', 'arc', 'rect',
-        'bezierCurveTo', 'quadraticCurveTo', 'fill', 'stroke', 'clip',
+        'bezierCurveTo', 'quadraticCurveTo', 'fill', 'clip',
         'fillRect', 'translate', 'scale'
     ]) {
         ctx[method] = (...args) => calls.push([method, ...args]);
     }
+    ctx.stroke = (...args) => calls.push(['stroke', ...args, {
+        strokeStyle: ctx.strokeStyle,
+        shadowColor: ctx.shadowColor,
+        globalCompositeOperation: ctx.globalCompositeOperation
+    }]);
     ctx.setLineDash = (...args) => calls.push(['setLineDash', ...args]);
     return ctx;
 }
@@ -47,6 +52,16 @@ for (const kind of TARGETING_PREVIEW_KINDS) {
     const descriptor = freeze({ center, size: 30, kind, active: true, time: 1.25, phase: 0.5 });
     assert.equal(drawUnitTargetPreview(ctx, descriptor), true);
     assert.ok(ctx.calls.some(call => call[0] === 'stroke'), `${kind} should draw strokes`);
+}
+
+{
+    const ctx = createContext();
+    drawUnitTargetPreview(ctx, freeze({ center, size: 30, kind: 'attack', active: true, time: 1.25 }));
+    const attackStrokes = ctx.calls.filter(call => call[0] === 'stroke');
+    assert.ok(attackStrokes.length > 4);
+    assert.ok(attackStrokes.every(call => call.at(-1).strokeStyle === '#f03b32'));
+    assert.ok(attackStrokes.every(call => call.at(-1).shadowColor === '#f03b32'));
+    assert.ok(attackStrokes.every(call => call.at(-1).globalCompositeOperation !== 'screen'));
 }
 
 {

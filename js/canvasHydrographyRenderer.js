@@ -35,9 +35,11 @@ const DEFAULT_PALETTE = Object.freeze({
     coastShadow: 'rgba(35,29,21,0.94)',
     coastSand: '#d5c89f',
     coastFoam: 'rgba(216,239,230,0.80)',
-    riverBank: 'rgba(42,39,31,0.78)',
-    riverWater: '#496d73',
-    riverHighlight: 'rgba(190,221,216,0.52)',
+    riverBankShadow: 'rgba(52,43,31,0.62)',
+    riverBank: '#aa9872',
+    riverInnerEdge: 'rgba(218,205,167,0.72)',
+    riverWater: '#3f737c',
+    riverHighlight: 'rgba(207,239,232,0.72)',
     bridgeShadow: 'rgba(49,37,25,0.92)',
     bridgeDeck: '#b28c55',
     bridgeTie: 'rgba(55,41,27,0.78)',
@@ -160,6 +162,29 @@ function addPolygon(path, points) {
 function addLine(path, from, to) {
     path.moveTo(from.x, from.y);
     path.lineTo(to.x, to.y);
+}
+
+function addSmoothPolyline(path, points) {
+    if (!Array.isArray(points) || points.length < 2) return;
+    path.moveTo(points[0].x, points[0].y);
+    for (let index = 0; index < points.length - 1; index++) {
+        const p0 = points[Math.max(0, index - 1)];
+        const p1 = points[index];
+        const p2 = points[index + 1];
+        const p3 = points[Math.min(points.length - 1, index + 2)];
+        // Restrained Catmull-Rom conversion: the authored canonical vertices
+        // remain exact, while the watercourse passes them with continuous
+        // tangents instead of looking like a second hex-border polyline.
+        const tangent = 0.145;
+        path.bezierCurveTo(
+            p1.x + (p2.x - p0.x) * tangent,
+            p1.y + (p2.y - p0.y) * tangent,
+            p2.x - (p3.x - p1.x) * tangent,
+            p2.y - (p3.y - p1.y) * tangent,
+            p2.x,
+            p2.y
+        );
+    }
 }
 
 function projectionFunction(projection, channel) {
@@ -435,6 +460,7 @@ function buildPaths(scene, options, pathFactory) {
     const topology = scene?.riverTopology
         || buildRiverTopology(scene?.rivers || [], scene?.riverCrossings || scene?.crossings || []);
     const projectedSegments = new Map();
+    const projectedRiverGroups = new Map();
     let streamSegmentCount = 0;
     let riverSegmentCount = 0;
     for (const segment of topology?.segments || []) {
@@ -442,11 +468,31 @@ function buildPaths(scene, options, pathFactory) {
         const from = projectRiverVertex(segment.from, projection, projectedPlayable, fallbackSize);
         const to = projectRiverVertex(segment.to, projection, projectedPlayable, fallbackSize);
         if (!from || !to) continue;
-        const path = segment.width === 'river' ? paths.river : paths.stream;
-        addLine(path, from, to);
+        const groupKey = `${segment.riverId}:${segment.width === 'river' ? 'river' : 'stream'}`;
+        if (!projectedRiverGroups.has(groupKey)) projectedRiverGroups.set(groupKey, []);
+        projectedRiverGroups.get(groupKey).push({ segment, from, to });
         projectedSegments.set(`${segment.riverId}:${segment.segmentIndex}`, { from, to, segment });
         if (segment.width === 'river') riverSegmentCount++;
         else streamSegmentCount++;
+    }
+    for (const entries of projectedRiverGroups.values()) {
+        entries.sort((left, right) => left.segment.segmentIndex - right.segment.segmentIndex);
+        let stretch = [];
+        const flush = () => {
+            if (stretch.length < 2) return;
+            const path = entries[0].segment.width === 'river' ? paths.river : paths.stream;
+            addSmoothPolyline(path, stretch);
+        };
+        for (const entry of entries) {
+            const previous = stretch[stretch.length - 1];
+            if (previous && (Math.abs(previous.x - entry.from.x) > 0.01 || Math.abs(previous.y - entry.from.y) > 0.01)) {
+                flush();
+                stretch = [];
+            }
+            if (stretch.length === 0) stretch.push(entry.from);
+            stretch.push(entry.to);
+        }
+        flush();
     }
 
     let bridgeCount = 0;
@@ -566,18 +612,26 @@ function drawWaterways(context, layer) {
     context.setLineDash([]);
 
     const drawRiverPath = (path, waterWidth) => {
+        context.strokeStyle = palette.riverBankShadow;
+        context.lineWidth = waterWidth + size * 0.15;
+        strokePath(context, path);
         context.strokeStyle = palette.riverBank;
-        context.lineWidth = waterWidth + size * 0.075;
+        context.lineWidth = waterWidth + size * 0.10;
+        strokePath(context, path);
+        context.strokeStyle = palette.riverInnerEdge;
+        context.lineWidth = waterWidth + size * 0.045;
         strokePath(context, path);
         context.strokeStyle = palette.riverWater;
         context.lineWidth = waterWidth;
         strokePath(context, path);
         context.strokeStyle = palette.riverHighlight;
         context.lineWidth = Math.max(0.7, size * 0.022);
+        context.setLineDash([size * 0.12, size * 0.16]);
         strokePath(context, path);
+        context.setLineDash([]);
     };
-    drawRiverPath(paths.stream, size * 0.075);
-    drawRiverPath(paths.river, size * 0.14);
+    drawRiverPath(paths.stream, size * 0.095);
+    drawRiverPath(paths.river, size * 0.19);
 }
 
 function drawDetails(context, layer) {

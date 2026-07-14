@@ -133,6 +133,9 @@ test('hydro layer extends neutral water into render-only fillers without creatin
     assert.ok(playableProjectionCalls >= 4);
     assert.equal(layer.paths.shallowMask.native.commands.filter(command => command[0] === 'closePath').length, 2);
     assert.ok(layer.paths.shallowWaves.native.commands.some(command => command[0] === 'bezierCurveTo'));
+    assert.ok(layer.paths.river.native.commands.some(command => command[0] === 'bezierCurveTo'),
+        'river geometry must be a smooth authored curve instead of a hex-border-like polyline');
+    assert.ok(layer.paths.stream.native.commands.some(command => command[0] === 'bezierCurveTo'));
 });
 
 test('CanvasHydrographyRenderer caches geometry by board/projection revision and clips every phase', () => {

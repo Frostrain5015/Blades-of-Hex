@@ -270,6 +270,15 @@ export class CanvasBattlefieldLayers {
         }
     }
 
+    renderForeground(context, options = {}) {
+        if (!this.terrainActive) return;
+        this.terrainRenderer.render(context, {
+            ...options,
+            clip: this.boardClip,
+            phase: CANVAS_TERRAIN_PHASE.FORTIFICATIONS_FRONT
+        });
+    }
+
     getStats() {
         return Object.freeze({
             syncCount: this.syncCount,

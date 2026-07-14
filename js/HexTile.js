@@ -96,64 +96,69 @@ export class HexTile extends EngineHexTile {
         if (drawsFlakTexture) this._drawFlakFortification(c, cx, cy);
     }
 
-    _drawFlakFortification(c, cx, cy) {
+    _drawFlakFortification(c, cx, cy, phase = 'all') {
         const size = HEX_SIZE;
         c.save();
         c.translate(cx, cy + size * 0.06);
         c.lineCap = 'round';
         c.lineJoin = 'round';
 
-        // Earthen emplacement: the two semicircles remain readable around a
-        // production-size unit badge while keeping the military-map palette.
-        c.beginPath();
-        c.ellipse(0, 0, size * 0.6, size * 0.36, 0, Math.PI, Math.PI * 2);
-        c.strokeStyle = 'rgba(68,52,34,0.72)';
-        c.lineWidth = size * 0.16;
-        c.stroke();
-        c.strokeStyle = 'rgba(193,158,97,0.88)';
-        c.lineWidth = size * 0.035;
-        c.setLineDash([size * 0.08, size * 0.045]);
-        c.stroke();
-        c.setLineDash([]);
+        if (phase !== 'front') {
+            // Rear bank and guns sit below the unit sphere.
+            c.beginPath();
+            c.ellipse(0, 0, size * 0.6, size * 0.36, 0, Math.PI, Math.PI * 2);
+            c.strokeStyle = 'rgba(68,52,34,0.72)';
+            c.lineWidth = size * 0.16;
+            c.stroke();
+            c.strokeStyle = 'rgba(193,158,97,0.88)';
+            c.lineWidth = size * 0.035;
+            c.setLineDash([size * 0.08, size * 0.045]);
+            c.stroke();
+            c.setLineDash([]);
 
-        // Positive rotation turns an upward barrel toward the upper-right in
-        // Canvas coordinates. The longer muzzles clear the unit HUD footprint.
-        c.save();
-        c.rotate(0.34);
-        c.strokeStyle = 'rgba(34,37,36,0.48)';
-        c.lineWidth = size * 0.15;
-        c.beginPath();
-        c.moveTo(-size * 0.065, size * 0.02);
-        c.lineTo(-size * 0.065, -size * 0.88);
-        c.moveTo(size * 0.095, size * 0.02);
-        c.lineTo(size * 0.095, -size * 0.83);
-        c.stroke();
-        c.strokeStyle = '#4a4d48';
-        c.lineWidth = size * 0.09;
-        c.stroke();
-        c.strokeStyle = 'rgba(181,183,166,0.72)';
-        c.lineWidth = size * 0.018;
-        c.stroke();
-        c.restore();
+            // Positive rotation turns an upward barrel toward the upper-right
+            // in Canvas coordinates. Long muzzles clear the unit HUD.
+            c.save();
+            c.rotate(0.34);
+            c.strokeStyle = 'rgba(34,37,36,0.48)';
+            c.lineWidth = size * 0.15;
+            c.beginPath();
+            c.moveTo(-size * 0.065, size * 0.02);
+            c.lineTo(-size * 0.065, -size * 0.88);
+            c.moveTo(size * 0.095, size * 0.02);
+            c.lineTo(size * 0.095, -size * 0.83);
+            c.stroke();
+            c.strokeStyle = '#4a4d48';
+            c.lineWidth = size * 0.09;
+            c.stroke();
+            c.strokeStyle = 'rgba(181,183,166,0.72)';
+            c.lineWidth = size * 0.018;
+            c.stroke();
+            c.restore();
 
-        c.fillStyle = '#645d50';
-        c.strokeStyle = 'rgba(37,35,31,0.9)';
-        c.lineWidth = 1;
-        c.beginPath();
-        c.arc(0, 0, size * 0.19, 0, Math.PI * 2);
-        c.fill();
-        c.stroke();
+            c.fillStyle = '#645d50';
+            c.strokeStyle = 'rgba(37,35,31,0.9)';
+            c.lineWidth = 1;
+            c.beginPath();
+            c.arc(0, 0, size * 0.19, 0, Math.PI * 2);
+            c.fill();
+            c.stroke();
+        }
 
-        c.beginPath();
-        c.ellipse(0, 0, size * 0.6, size * 0.36, 0, 0, Math.PI);
-        c.strokeStyle = '#826b47';
-        c.lineWidth = size * 0.13;
-        c.stroke();
-        c.strokeStyle = 'rgba(213,190,135,0.8)';
-        c.lineWidth = size * 0.025;
-        c.setLineDash([size * 0.08, size * 0.04]);
-        c.stroke();
-        c.setLineDash([]);
+        if (phase !== 'back') {
+            // Front parapet is composited after units so the lower part of a
+            // sphere is physically seated inside the emplacement.
+            c.beginPath();
+            c.ellipse(0, 0, size * 0.6, size * 0.36, 0, 0, Math.PI);
+            c.strokeStyle = '#826b47';
+            c.lineWidth = size * 0.13;
+            c.stroke();
+            c.strokeStyle = 'rgba(213,190,135,0.8)';
+            c.lineWidth = size * 0.025;
+            c.setLineDash([size * 0.08, size * 0.04]);
+            c.stroke();
+            c.setLineDash([]);
+        }
         c.restore();
     }
 
@@ -193,7 +198,12 @@ export class HexTile extends EngineHexTile {
     // beneath a forest canopy or port detail.
     drawDeferredMapDetails(c) {
         if (this.fortification !== 'flak') return;
-        this._drawFlakFortification(c, this.x, this.y);
+        this._drawFlakFortification(c, this.x, this.y, 'back');
+    }
+
+    drawForegroundMapDetails(c) {
+        if (this.fortification !== 'flak') return;
+        this._drawFlakFortification(c, this.x, this.y, 'front');
     }
 
     // Per-frame: animated city flag drawn AFTER all hex bases (avoids being covered)

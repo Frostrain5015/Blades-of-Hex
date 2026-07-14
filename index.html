@@ -252,12 +252,6 @@
     <input type="file" id="editorImportInput" accept=".json,application/json" style="display:none" />
 </div>
 
-<!-- 开局倒计时 -->
-<div id="countdownOverlay">
-    <div id="countdownNumber">3</div>
-    <div id="countdownLabel">准备战斗</div>
-</div>
-
 <!-- ===== 游戏主体（开始后显示） ===== -->
 <div id="gameWrapper" style="display:none">
 
@@ -594,6 +588,10 @@
 <div id="factionReveal">
     <div id="factionRevealInner">
         <div id="factionRevealFlags" class="faction-reveal-flags" aria-live="polite"></div>
+        <div id="factionRevealCountdown" class="faction-reveal-countdown" aria-live="polite">
+            <div id="factionRevealCountdownNumber" class="faction-reveal-countdown-number">3</div>
+            <div class="faction-reveal-countdown-label">准备战斗</div>
+        </div>
     </div>
 </div>
 

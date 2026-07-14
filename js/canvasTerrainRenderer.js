@@ -14,6 +14,7 @@ export const CANVAS_TERRAIN_PHASE = Object.freeze({
     GROUND: 'ground',
     RELIEF: 'relief',
     FORTIFICATIONS: 'fortifications',
+    FORTIFICATIONS_FRONT: 'fortificationsFront',
     ALL: 'all'
 });
 
@@ -165,6 +166,29 @@ function addLine(path, from, to) {
     path.lineTo(to.x, to.y);
 }
 
+// Canvas arc()/ellipse() continue the current sub-path by inserting a straight
+// segment when its start point differs from the previous current point.  The
+// terrain layer batches every tree crown (and isolated trench) into shared
+// paths, so each closed primitive must explicitly start its own sub-path.
+// Otherwise distant circles are joined and fill() turns those connectors into
+// large triangles spanning unrelated tiles.
+function addCircle(path, x, y, radius) {
+    path.moveTo(x + radius, y);
+    path.arc(x, y, radius, 0, Math.PI * 2);
+    path.closePath();
+}
+
+function addEllipse(path, x, y, radiusX, radiusY) {
+    path.moveTo(x + radiusX, y);
+    path.ellipse(x, y, radiusX, radiusY, 0, 0, Math.PI * 2);
+    path.closePath();
+}
+
+function addEllipseArc(path, x, y, radiusX, radiusY, startAngle, endAngle) {
+    path.moveTo(x + Math.cos(startAngle) * radiusX, y + Math.sin(startAngle) * radiusY);
+    path.ellipse(x, y, radiusX, radiusY, 0, startAngle, endAngle);
+}
+
 function addHouse(paths, x, y, size, rotation = 0) {
     const cos = Math.cos(rotation);
     const sin = Math.sin(rotation);
@@ -305,15 +329,19 @@ function buildPaths(scene, options, pathFactory) {
         cityWalls: new CompiledPath(pathFactory),
         villageFences: new CompiledPath(pathFactory),
         trenchLines: new CompiledPath(pathFactory),
-        trenchIslands: new CompiledPath(pathFactory)
+        trenchIslands: new CompiledPath(pathFactory),
+        trenchFronts: new CompiledPath(pathFactory)
     };
 
     for (const tileRef of topology.forest.tiles) {
         const point = projected.get(tileRef.key);
         if (!point) continue;
+        // Slightly overlap authored neighbours so the terrain reads as one
+        // continuous surface. The old centre-to-centre stroke made a dark bar
+        // through every forest cluster and obscured the actual tree language.
         addPolygon(paths.forestGround, point.vertices.map(vertex => ({
-            x: point.x + (vertex.x - point.x) * 0.94,
-            y: point.y + (vertex.y - point.y) * 0.94
+            x: point.x + (vertex.x - point.x) * 1.01,
+            y: point.y + (vertex.y - point.y) * 1.01
         })));
         for (let index = 0; index < 3; index++) {
             const offsetX = (pseudoRandom(tileRef.q, tileRef.r, 110 + index) - 0.5) * point.size * 1.05;
@@ -322,9 +350,9 @@ function buildPaths(scene, options, pathFactory) {
             const x = point.x + offsetX;
             const y = point.y + offsetY;
             paths.forestTrunks.rect(x - scale * 0.08, y, scale * 0.16, scale * 0.58);
-            paths.forestCanopyDark.arc(x + scale * 0.08, y - scale * 0.08, scale * 0.72, 0, Math.PI * 2);
-            paths.forestCanopy.arc(x - scale * 0.18, y - scale * 0.22, scale * 0.55, 0, Math.PI * 2);
-            paths.forestCanopy.arc(x + scale * 0.27, y - scale * 0.19, scale * 0.48, 0, Math.PI * 2);
+            addCircle(paths.forestCanopyDark, x + scale * 0.08, y - scale * 0.08, scale * 0.72);
+            addCircle(paths.forestCanopy, x - scale * 0.18, y - scale * 0.22, scale * 0.55);
+            addCircle(paths.forestCanopy, x + scale * 0.27, y - scale * 0.19, scale * 0.48);
         }
     }
     for (const link of topology.forest.links) {
@@ -337,8 +365,8 @@ function buildPaths(scene, options, pathFactory) {
         const point = projected.get(tileRef.key);
         if (!point) continue;
         addPolygon(paths.mountainGround, point.vertices.map(vertex => ({
-            x: point.x + (vertex.x - point.x) * 0.94,
-            y: point.y + (vertex.y - point.y) * 0.94
+            x: point.x + (vertex.x - point.x) * 1.01,
+            y: point.y + (vertex.y - point.y) * 1.01
         })));
         const lean = pseudoRandom(tileRef.q, tileRef.r, 411) > 0.5 ? 1 : -1;
         addPeak(paths, point.x, point.y + point.size * 0.12, point.size * 0.54, point.size * 0.78, lean);
@@ -368,11 +396,10 @@ function buildPaths(scene, options, pathFactory) {
 
     for (const footprint of topology.urbanFootprints) {
         for (const tileRef of footprint.tiles) addSettlementTile(tileRef, 'urban');
-        for (const link of footprint.links) {
-            const from = projected.get(link.from.key);
-            const to = projected.get(link.to.key);
-            if (from && to) addLine(paths.roads, from, to);
-        }
+        // The large-city footprint is already unified by one outer wall and a
+        // shared ground material. Centre-to-centre roads read as unexplained
+        // dark bars (and form a star in seven-cell cities), so urban links are
+        // topology-only. Villages retain their lighter connecting tracks.
         for (const edge of footprint.boundaryEdges) {
             const point = projected.get(edge.tile.key);
             if (!point) continue;
@@ -409,21 +436,27 @@ function buildPaths(scene, options, pathFactory) {
         const normalX = -dy / length;
         const normalY = dx / length;
         const steps = 8;
-        paths.trenchLines.moveTo(from.x, from.y);
+        const groundOffsetY = from.size * 0.12;
+        paths.trenchLines.moveTo(from.x, from.y + groundOffsetY);
         for (let step = 1; step <= steps; step++) {
             const ratio = step / steps;
             const zigzag = step === steps ? 0 : (step % 2 ? 1 : -1) * from.size * 0.055;
             paths.trenchLines.lineTo(
                 from.x + dx * ratio + normalX * zigzag,
-                from.y + dy * ratio + normalY * zigzag
+                from.y + dy * ratio + normalY * zigzag + groundOffsetY
             );
         }
     }
     for (const tileRef of topology.trench.tiles) {
-        if ((trenchDegree.get(tileRef.key) || 0) > 0) continue;
         const point = projected.get(tileRef.key);
         if (!point) continue;
-        paths.trenchIslands.ellipse(point.x, point.y + point.size * 0.08, point.size * 0.58, point.size * 0.34, 0, 0, Math.PI * 2);
+        const centerY = point.y + point.size * 0.08;
+        if ((trenchDegree.get(tileRef.key) || 0) === 0) {
+            addEllipse(paths.trenchIslands, point.x, centerY, point.size * 0.58, point.size * 0.34);
+        }
+        // Bottom bank is drawn again after units. This is the production
+        // version of the prototype's rear-bank -> sphere -> front-bank stack.
+        addEllipseArc(paths.trenchFronts, point.x, centerY, point.size * 0.58, point.size * 0.34, 0, Math.PI);
     }
 
     for (const path of Object.values(paths)) path.seal();
@@ -467,17 +500,13 @@ function drawGround(context, layer) {
     const { paths, palette, hexSize: size } = layer;
     context.fillStyle = palette.forestGround;
     fillPath(context, paths.forestGround);
-    context.strokeStyle = palette.forestLink;
-    context.lineWidth = size * 0.78;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    strokePath(context, paths.forestLinks);
 
     context.fillStyle = palette.mountainGround;
     fillPath(context, paths.mountainGround);
-    context.strokeStyle = palette.mountainLink;
-    context.lineWidth = size * 0.28;
-    strokePath(context, paths.mountainRidges);
+
+    // Topology links remain compiled for metrics and future contour work, but
+    // are intentionally not painted: full-cell ground faces now provide the
+    // continuity without unexplained centre-to-centre strips.
 
     context.fillStyle = palette.settlementGround;
     fillPath(context, paths.settlementGround);
@@ -538,19 +567,43 @@ function drawFortifications(context, layer) {
     const { paths, palette, hexSize: size } = layer;
     context.lineCap = 'round';
     context.lineJoin = 'round';
+    // A trench is a dark cut flanked by earthworks, not a brown connector
+    // between units. Build the banks first and leave the recessed channel as
+    // the visually dominant final pass.
     context.strokeStyle = palette.trenchOuter;
-    context.lineWidth = size * 0.20;
+    context.lineWidth = size * 0.24;
     strokePath(context, paths.trenchLines);
     strokePath(context, paths.trenchIslands);
     context.strokeStyle = palette.trenchEarth;
-    context.lineWidth = size * 0.12;
+    context.lineWidth = size * 0.19;
     strokePath(context, paths.trenchLines);
     strokePath(context, paths.trenchIslands);
     context.strokeStyle = palette.trenchLight;
-    context.lineWidth = Math.max(0.7, size * 0.025);
+    context.lineWidth = size * 0.145;
     context.setLineDash([size * 0.09, size * 0.05]);
     strokePath(context, paths.trenchLines);
     strokePath(context, paths.trenchIslands);
+    context.setLineDash([]);
+    context.strokeStyle = palette.trenchOuter;
+    context.lineWidth = size * 0.085;
+    strokePath(context, paths.trenchLines);
+    strokePath(context, paths.trenchIslands);
+}
+
+function drawFortificationFronts(context, layer) {
+    const { paths, palette, hexSize: size } = layer;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.strokeStyle = palette.trenchOuter;
+    context.lineWidth = size * 0.19;
+    strokePath(context, paths.trenchFronts);
+    context.strokeStyle = palette.trenchEarth;
+    context.lineWidth = size * 0.125;
+    strokePath(context, paths.trenchFronts);
+    context.strokeStyle = palette.trenchLight;
+    context.lineWidth = Math.max(0.7, size * 0.022);
+    context.setLineDash([size * 0.09, size * 0.055]);
+    strokePath(context, paths.trenchFronts);
     context.setLineDash([]);
 }
 
@@ -565,6 +618,7 @@ export function drawCanvasTerrainLayer(context, layer, options = {}) {
     if (phase === CANVAS_TERRAIN_PHASE.ALL || phase === CANVAS_TERRAIN_PHASE.GROUND) drawGround(context, layer);
     if (phase === CANVAS_TERRAIN_PHASE.ALL || phase === CANVAS_TERRAIN_PHASE.RELIEF) drawRelief(context, layer);
     if (phase === CANVAS_TERRAIN_PHASE.ALL || phase === CANVAS_TERRAIN_PHASE.FORTIFICATIONS) drawFortifications(context, layer);
+    if (phase === CANVAS_TERRAIN_PHASE.ALL || phase === CANVAS_TERRAIN_PHASE.FORTIFICATIONS_FRONT) drawFortificationFronts(context, layer);
     context.restore();
     return true;
 }

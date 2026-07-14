@@ -76,20 +76,57 @@ export async function run(browser, { quick = false } = {}) {
         const expectedNames = gameState.turnOrder
             .filter(key => key !== 'neutral')
             .map(key => gameState.factions[key]?.name || key);
+        const reveal = document.getElementById('factionReveal');
+        const observer = new MutationObserver(() => {
+            if (reveal.classList.contains('show')) return;
+            window.__factionRevealDismissSnapshot = {
+                tiles: gameState.tiles.length,
+                gameVisible: document.getElementById('gameWrapper')?.style.display !== 'none',
+                aiActing: gameState.aiActing
+            };
+            observer.disconnect();
+        });
+        observer.observe(reveal, { attributes: true, attributeFilter: ['class'] });
         return {
             expectedNames,
             names: [...document.querySelectorAll('.faction-reveal-name')].map(element => element.textContent),
-            onlyFlagCards: document.getElementById('factionRevealInner')?.children.length === 1,
             noDice: !document.getElementById('factionRevealDice'),
-            noTextBanner: !document.getElementById('factionRevealText')
+            noTextBanner: !document.getElementById('factionRevealText'),
+            previewCanvases: document.querySelectorAll('.faction-reveal-flag-canvas').length,
+            noLegacyCloth: !document.querySelector('.faction-reveal-cloth'),
+            countdownInsideReveal: reveal.contains(document.getElementById('factionRevealCountdown')),
+            noStandaloneCountdown: !document.getElementById('countdownOverlay')
         };
     });
     R.assert(JSON.stringify(revealPresentation.names) === JSON.stringify(revealPresentation.expectedNames)
-        && revealPresentation.onlyFlagCards && revealPresentation.noDice && revealPresentation.noTextBanner,
-    '准备动画仅按随机行动顺序从左至右展示预览旗帜及阵营名，不显示骰子或标题');
+        && revealPresentation.noDice && revealPresentation.noTextBanner
+        && revealPresentation.previewCanvases === 2 && revealPresentation.noLegacyCloth,
+    '准备动画按随机行动顺序从左至右复用选将页 WebGL 旗帜及阵营名，不附加渐变旗布或绶带');
+    R.assert(revealPresentation.countdownInsideReveal && revealPresentation.noStandaloneCountdown,
+    '3/2/1 倒计时合并在行动顺序遮罩内，不再保留独立倒计时遮罩');
+    await waitFor(() => page.evaluate(() => {
+        const reveal = document.getElementById('factionReveal');
+        const countdown = document.getElementById('factionRevealCountdown');
+        const number = document.getElementById('factionRevealCountdownNumber');
+        return reveal?.classList.contains('show') && countdown?.classList.contains('show')
+            && ['3', '2', '1'].includes(number?.textContent || '');
+    }), 4000, '准备界面内倒计时叠入');
+    const countdownSafety = await page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        return {
+            revealVisible: document.getElementById('factionReveal')?.classList.contains('show'),
+            gameHidden: document.getElementById('gameWrapper')?.style.display === 'none',
+            aiIdle: !gameState.aiActing
+        };
+    });
+    R.assert(countdownSafety.revealVisible && countdownSafety.gameHidden && countdownSafety.aiIdle,
+    '倒计时期间准备遮罩持续覆盖，棋盘与先手 AI 均不会提前启动');
     await waitGameStart(page);
     const revealDuration = Date.now() - revealStartedAt;
-    R.assert(revealDuration >= 3600 && revealDuration <= 8000, `准备旗帜展示约 5 秒后进入对局（${revealDuration}ms）`);
+    const dismissSnapshot = await page.evaluate(() => window.__factionRevealDismissSnapshot);
+    R.assert(revealDuration >= 4500 && revealDuration <= 8000, `旗帜持续展示、约 2 秒后叠入倒计时，总准备时长约 5 秒（${revealDuration}ms）`);
+    R.assert(dismissSnapshot?.tiles > 0 && dismissSnapshot.gameVisible && !dismissSnapshot.aiActing,
+    '准备遮罩移除前已同步完成棋盘和首回合初始化，且 AI 尚未行动');
     let snap = await gameSnapshot(page);
     R.assert(snap.tiles > 0, `对局开始（地图 ${snap.tiles} 格，P1=${snap.commanderP1}，P2=${snap.commanderP2}）`);
 

@@ -16,7 +16,7 @@ export const TARGETING_PREVIEW_KINDS = Object.freeze([
 ]);
 
 export const TARGETING_PREVIEW_COLORS = Object.freeze({
-    attack: '#e95b50',
+    attack: '#f03b32',
     heal: '#62d98b',
     mobility: '#58c9b3',
     attach: '#d9b55c',
@@ -335,7 +335,10 @@ function drawHologramMotifResolved(ctx, descriptor, kind, size, active, wave, co
     const baseAlpha = ctx.globalAlpha;
     ctx.translate(descriptor.center.x, descriptor.center.y);
     ctx.scale(scale, scale);
-    ctx.globalCompositeOperation = 'screen';
+    // Screen blending washed the attack crosshair toward pale pink while its
+    // corner frame stayed saturated. Keep attack in source-over so motif,
+    // frame and glow share one aggressive warning red.
+    ctx.globalCompositeOperation = kind === 'attack' ? 'source-over' : 'screen';
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
     ctx.shadowColor = color;

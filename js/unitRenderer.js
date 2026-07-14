@@ -7,14 +7,20 @@ import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { getRelationToViewer, RELATION_META } from '../rules/diplomacy.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
 import { campToKey, getFlagColors } from '../rules/camps.js';
+import { getSurfaceBaseColor, getTileSurface, isWaterTile } from '../rules/surfaces.js';
 import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
+import {
+    UNIT_BADGE_CENTER_Y,
+    UNIT_BADGE_RADIUS,
+    UNIT_HUD_OUTER_RADIUS,
+    drawUnitBadge,
+    resolveUnitBadgeGlyph
+} from './unitBadgeRenderer.js';
 
 // Shared read-only visual metrics. Interaction previews must anchor to these
 // values instead of duplicating the local badge geometry or adding rule fields
 // to Unit/network snapshots.
-export const UNIT_BADGE_RADIUS = 15;
-export const UNIT_BADGE_CENTER_Y = 1;
-export const UNIT_HUD_OUTER_RADIUS = 20.2;
+export { UNIT_BADGE_RADIUS, UNIT_BADGE_CENTER_Y, UNIT_HUD_OUTER_RADIUS };
 
 function isHumanTurn(gameState) {
     if (gameState.campaignMode) return gameState.factions?.[campToKey(gameState.currentCamp)]?.controller === 'human';
@@ -148,43 +154,16 @@ export function drawUnit(unit, gameState) {
 
         }
 
-        // ── Badge ──
-        // ── Floating shadow for entire badge+ring group ──
+        // ── Production 2.5D sphere + outer instrument ──
         ctx.save();
         if (unit._isDrone || unit.type === 'drone') {
             ctx.translate(0, Math.sin(time * 2.5) * 3);
-}
-        ctx.shadowColor = 'rgba(0,0,0,0.3)';
-        ctx.shadowBlur = 6;
-        ctx.shadowOffsetY = 2;
+        }
 
         const badgeR = UNIT_BADGE_RADIUS;
-        const badgeY = UNIT_BADGE_CENTER_Y;
-        ctx.beginPath();
-        ctx.arc(0, badgeY, badgeR, 0, Math.PI * 2);
-        const badgeGrad = ctx.createRadialGradient(-1, badgeY - 2, badgeR * 0.05, 0, badgeY, badgeR);
-        badgeGrad.addColorStop(0, cc.light);
-        badgeGrad.addColorStop(1, cc.dark);
-        ctx.fillStyle = badgeGrad;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // ── Unit type character ──
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 15px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const glyphs = { infantry: '⚔', cavalry: '🐎', archer: '🎯', mgNest: '🏰', drone: '✈' };
-        ctx.fillText(unit._engineerScaffold ? '🧱' : (glyphs[unit.type] || '?'), 0, badgeY + 1);
-
-        // ── Ring HP bar ──
         const lerpFactor = 0.18;
         unit.displayHp += (unit.hp - unit.displayHp) * lerpFactor;
         if (Math.abs(unit.hp - unit.displayHp) < 0.3) unit.displayHp = unit.hp;
-        unit._displayShield += (unit._shield - unit._displayShield) * lerpFactor;
-        if (Math.abs(unit._shield - unit._displayShield) < 0.3) unit._displayShield = unit._shield;
         unit._displayShield += (unit._shield - unit._displayShield) * lerpFactor;
         if (Math.abs(unit._shield - unit._displayShield) < 0.3) unit._displayShield = unit._shield;
 
@@ -192,50 +171,27 @@ export function drawUnit(unit, gameState) {
         if (Math.abs(unit.remainingMP - unit.displaySpeed) < 0.3) unit.displaySpeed = unit.remainingMP;
 
         const hpRatio = unit.displayHp / unit.maxHp;
-        const ringR = badgeR;
-        const ringW = 3.5;
-        const startAngle = -Math.PI / 2;
-        const sweepAngle = hpRatio * Math.PI * 2;
-
-        // Background ring
-        ctx.beginPath();
-        ctx.arc(0, badgeY, ringR, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-        ctx.lineWidth = ringW;
-        ctx.stroke();
-
-        // HP arc
-        if (hpRatio > 0.005) {
-            let hpColor;
-            if (gameState.campaignMode) {
-                const relation = getRelationToViewer(gameState, unit.camp);
-                hpColor = (RELATION_META[relation] || RELATION_META.unknown).color;
-            } else if (hpRatio > 0.7) hpColor = '#4CAF50';
-            else if (hpRatio > 0.35) hpColor = '#FFC107';
-            else hpColor = '#f44336';
-
-            ctx.beginPath();
-            ctx.arc(0, badgeY, ringR, startAngle, startAngle + sweepAngle);
-            ctx.strokeStyle = hpColor;
-            ctx.lineWidth = ringW;
-            ctx.lineCap = 'round';
-            ctx.stroke();
-        }
-
-        // Shield overlay arc
         const shieldRatio = unit._displayShield > 0.5 ? unit._displayShield / unit.maxHp : 0;
-        if (shieldRatio > 0.003) {
-            const shieldSweep = shieldRatio * Math.PI * 2;
-            const shieldStart = startAngle;
-            ctx.beginPath();
-            ctx.arc(0, badgeY, ringR + 4, shieldStart, shieldStart + shieldSweep);
-            ctx.strokeStyle = '#66bbff';
-            ctx.lineWidth = 2.4;
-            ctx.lineCap = 'round';
-            ctx.stroke();
-        }
+        let hpColor;
+        if (gameState.campaignMode) {
+            const relation = getRelationToViewer(gameState, unit.camp);
+            hpColor = (RELATION_META[relation] || RELATION_META.unknown).color;
+        } else if (hpRatio > 0.7) hpColor = '#4CAF50';
+        else if (hpRatio > 0.35) hpColor = '#FFC107';
+        else hpColor = '#f44336';
 
-        ctx.restore(); // end floating shadow group
+        drawUnitBadge(ctx, {
+            radius: badgeR,
+            centerY: UNIT_BADGE_CENTER_Y,
+            flagColors: cc,
+            relationColor: hpColor,
+            hpRatio,
+            shieldRatio,
+            waterColor: isWaterTile(unit.tile) ? getSurfaceBaseColor(getTileSurface(unit.tile)) : null,
+            glyph: resolveUnitBadgeGlyph(unit.type, Boolean(unit._engineerScaffold))
+        });
+
+        ctx.restore();
 
         // Morale marker — hex corner badge (top-right)
         const hasMoraleAnim = moraleEffects.some(fx => fx.unitId === unit.id);

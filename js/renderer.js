@@ -232,6 +232,13 @@ export function renderGame() {
     drawOperationInteractionRoute(now);
     // Units — 全部绘制，非可见地块会在后续迷雾阶段被地形覆绘+遮罩覆盖
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
+    // Fortification foreground: front trench banks and flak parapets seat the
+    // sphere inside the terrain instead of letting it float above the whole
+    // emplacement. These paths remain board-clipped and contain no game state.
+    canvasBattlefieldLayers.renderForeground(ctx, materialOptions);
+    if (layeredTerrain) {
+        for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawForegroundMapDetails(ctx);
+    }
     // City disabled indicator (same layer as Iron Guard shield)
     for (let i = 0, len = tiles.length; i < len; i++) {
         const tile = tiles[i];

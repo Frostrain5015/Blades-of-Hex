@@ -65,7 +65,10 @@ import {
 } from './rendering/index.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
+const TURN_ORDER_COUNTDOWN_DELAY_MS = 2000;
 let _factionRevealTimer = null;
+let _factionRevealCountdownTimers = [];
+let _factionRevealAnimationFrame = null;
 
 function _readSavedFlagCustomizations() {
     return readStandardFlagPreferences();
@@ -592,41 +595,70 @@ function _revealTurnOrder(onComplete) {
         return;
     }
     if (_factionRevealTimer) window.clearTimeout(_factionRevealTimer);
+    _factionRevealCountdownTimers.forEach(timer => window.clearTimeout(timer));
+    _factionRevealCountdownTimers = [];
+    if (_factionRevealAnimationFrame) window.cancelAnimationFrame(_factionRevealAnimationFrame);
+    _factionRevealAnimationFrame = null;
     flags.replaceChildren();
+    const previews = [];
     players.forEach((key, index) => {
         const faction = gameState.factions?.[key] || {};
-        const colors = getFlagColors(faction.colorId || faction.color);
         const card = document.createElement('div');
         card.className = 'faction-reveal-flag';
-        card.style.setProperty('--flag-accent', colors.light);
         card.style.setProperty('--reveal-delay', `${360 + index * 520}ms`);
 
-        const cloth = document.createElement('div');
-        cloth.className = 'faction-reveal-cloth';
-        if (faction.flagUrl) {
-            const image = document.createElement('img');
-            image.src = faction.flagUrl;
-            image.alt = '';
-            cloth.appendChild(image);
-        } else {
-            cloth.textContent = faction.flag || '⚑';
-            cloth.style.display = 'grid';
-            cloth.style.placeItems = 'center';
-            cloth.style.fontSize = 'clamp(42px, 7vw, 74px)';
-        }
+        const canvas = document.createElement('canvas');
+        canvas.className = 'faction-reveal-flag-canvas';
+        canvas.width = 224;
+        canvas.height = 160;
+        canvas.setAttribute('aria-hidden', 'true');
+        const preview = createFlagPreview(canvas);
+        preview.setFaction(faction);
+        previews.push(preview);
 
         const name = document.createElement('div');
         name.className = 'faction-reveal-name';
         name.textContent = faction.name || key;
-        card.append(cloth, name);
+        card.append(canvas, name);
         flags.appendChild(card);
         requestAnimationFrame(() => card.classList.add('reveal'));
     });
+    const renderFlagPreviews = (now) => {
+        previews.forEach(preview => preview.render(now));
+        _factionRevealAnimationFrame = window.requestAnimationFrame(renderFlagPreviews);
+    };
+    _factionRevealAnimationFrame = window.requestAnimationFrame(renderFlagPreviews);
+
+    const countdown = document.getElementById('factionRevealCountdown');
+    const countdownNumber = document.getElementById('factionRevealCountdownNumber');
+    countdown?.classList.remove('show');
+    countdownNumber?.classList.remove('pulse');
+    [3, 2, 1].forEach((number, index) => {
+        const timer = window.setTimeout(() => {
+            if (!countdown || !countdownNumber) return;
+            countdownNumber.textContent = String(number);
+            countdown.classList.add('show');
+            countdownNumber.classList.remove('pulse');
+            void countdownNumber.offsetWidth;
+            countdownNumber.classList.add('pulse');
+            playSound('countdown');
+        }, TURN_ORDER_COUNTDOWN_DELAY_MS + index * 1000);
+        _factionRevealCountdownTimers.push(timer);
+    });
     overlay.classList.add('show');
     _factionRevealTimer = window.setTimeout(() => {
-        overlay.classList.remove('show');
         _factionRevealTimer = null;
-        onComplete();
+        _factionRevealCountdownTimers = [];
+        try {
+            // 保持准备遮罩覆盖，在其下同步建图并完成首回合初始化，避免露出空棋盘。
+            onComplete();
+        } finally {
+            overlay.classList.remove('show');
+            countdown?.classList.remove('show');
+            countdownNumber?.classList.remove('pulse');
+            if (_factionRevealAnimationFrame) window.cancelAnimationFrame(_factionRevealAnimationFrame);
+            _factionRevealAnimationFrame = null;
+        }
     }, TURN_ORDER_REVEAL_DURATION_MS);
 }
 
@@ -813,7 +845,7 @@ lobbyMuteBtn.addEventListener('click', () => {
 });
 
 // ==== 聊天系统状态变量（必须在 showHome() 前初始化，避免 TDZ 错误） =====
-function beginTrainingCountdown() {
+function beginTrainingMatch() {
     _stopHeroCarousel();
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
@@ -872,7 +904,7 @@ function beginTrainingCountdown() {
     gameState.commanderP2SecondaryDeployed = false;
     gameState.commanderP3Deployed = false;
     gameState.commanderP3SecondaryDeployed = false;
-    // 预先加载棋盘，避免玩家在倒计时后看到空棋盘
+    // 准备遮罩仍覆盖时预先加载棋盘，移除遮罩后直接进入训练场。
     _deploymentStarted = true;
     loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 加载失败:', err));
     preloadPortraits();
@@ -894,21 +926,8 @@ function beginTrainingCountdown() {
     const overlay = document.getElementById('commanderOverlay');
     overlay.classList.remove('show');
     document.getElementById('gameWrapper').style.display = '';
-    const cb = document.getElementById('turnTransitionText');
-    let count = 3;
-    cb.textContent = '训练场 - ' + count;
-    cb.style.color = '#ffd700';
-    document.getElementById('turnTransitionOverlay').classList.add('show');
-    const timer = setInterval(() => {
-        count--;
-        if (count > 0) { cb.textContent = '训练场 - ' + count; }
-        else {
-            clearInterval(timer);
-            document.getElementById('turnTransitionOverlay').classList.remove('show');
-            startBattleBGM();
-            playSound('turnEnd');
-        }
-    }, 1000);
+    startBattleBGM();
+    playSound('turnEnd');
 }
 
 // ==== 固定剧本教程 ==========================================================
@@ -1583,7 +1602,7 @@ function _showTrainingCommanderSelection(forPlayer) {
                 subtitle.style.color = '#4CAF50';
                 cardsDiv.querySelectorAll('.commander-card').forEach(c => c.style.pointerEvents = 'none');
                 setTimeout(() => {
-                    _revealTurnOrder(beginTrainingCountdown);
+                    _revealTurnOrder(beginTrainingMatch);
                 }, 300);
                 cardsDiv.removeEventListener('click', _handler);
             }
@@ -1915,11 +1934,14 @@ function _onCommanderSelected(forPlayer) {
             document.getElementById('commanderOverlay').classList.remove('show');
             gameState.commanderPhase = 'done';
             if (gameState.gameMode === 'training') {
-                _revealTurnOrder(beginTrainingCountdown);
+                _revealTurnOrder(beginTrainingMatch);
             } else {
                 _revealTurnOrder(() => {
                     startGame();
-                    _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
+                    // 下一任务再启动 AI，确保准备遮罩已完成移除，玩家不会错过先手行动。
+                    window.setTimeout(() => {
+                        _triggerInitialAITurn().catch(err => console.error('initialAI error:', err));
+                    }, 0);
                 });
             }
             _commanderTransitioning = false;
@@ -1946,7 +1968,7 @@ function _onCommanderSelected(forPlayer) {
             setTimeout(() => {
                 document.getElementById('commanderOverlay').classList.remove('show');
                 gameState.commanderPhase = 'done';
-                if (gameState.gameMode === 'training') _revealTurnOrder(beginTrainingCountdown);
+                if (gameState.gameMode === 'training') _revealTurnOrder(beginTrainingMatch);
                 else _revealTurnOrder(startGame);
                 _commanderTransitioning = false;
             }, 800);
@@ -2081,7 +2103,7 @@ function startGame() {
     stopLobbyBGM();
     stopBattleBGM();
 
-    // 在倒计时前预先加载棋盘，避免玩家看到空棋盘
+    // 在准备遮罩移除前同步加载棋盘，避免玩家看到空棋盘。
     loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 加载失败:', err));
 
     preloadPortraits();
@@ -2101,15 +2123,12 @@ function startGame() {
     updateButtonColors();
     renderGame();
 
-    // 3秒全屏倒计时
-    _runCountdown(() => {
-        startBattleBGM();
-        playSound('turnEnd');
+    startBattleBGM();
+    playSound('turnEnd');
 
-        const limitRound = gameState.isThreePlayer ? 25 : 18;
-        const factionName = gameState.isThreePlayer ? '三人' : '双人';
-        showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得游戏胜利`);
-    });
+    const limitRound = gameState.isThreePlayer ? 25 : 18;
+    const factionName = gameState.isThreePlayer ? '三人' : '双人';
+    showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得游戏胜利`);
 }
 
 // ---- 战役剧情开场遮罩（通用接口） ----
@@ -2157,40 +2176,6 @@ function _showCampaignIntro(config, onDismiss) {
 		// 给淡出留时间再启动
 		setTimeout(() => onDismiss(), 350);
 	};
-}
-
-// ---- 3-2-1 全屏倒计时 ----
-function _runCountdown(onDone) {
-    const overlay = document.getElementById('countdownOverlay');
-    const numEl = document.getElementById('countdownNumber');
-    overlay.classList.add('show');
-
-    if (typeof gsap === 'undefined') {
-        setTimeout(() => { overlay.classList.remove('show'); onDone(); }, 3000);
-        return;
-    }
-
-    function _tick(n) {
-        numEl.textContent = n;
-        playSound('countdown');
-        gsap.fromTo(numEl, { scale: 1.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: 'power2.out' });
-        if (n > 1) {
-            setTimeout(() => {
-                gsap.to(numEl, { scale: 0.5, opacity: 0, duration: 0.25, ease: 'power2.in', onComplete: () => _tick(n - 1) });
-            }, 650);
-        } else {
-            setTimeout(() => {
-                gsap.to([overlay, numEl], { opacity: 0, duration: 0.35, ease: 'power2.in', onComplete: () => {
-                    overlay.classList.remove('show');
-                    overlay.style.opacity = '';
-                    numEl.style.opacity = '';
-                    numEl.style.transform = '';
-                    onDone();
-                }});
-            }, 700);
-        }
-    }
-    _tick(3);
 }
 
 // 根据当前页面协议和端口推导 WebSocket 地址

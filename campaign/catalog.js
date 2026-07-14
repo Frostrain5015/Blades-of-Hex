@@ -1,10 +1,12 @@
 // 将星列传目录（总集，轻量 eager）—— 汇总各传记元数据，提供查询与关卡懒加载。
 // 新增一部传记/一个关卡：建 content 模块 + 在此登记，即被大厅自动收录、按需加载。
 import BLOOD_IRIS from './content/bloodIris/chronicle.js';
+import VISUAL_QA from './content/visualQa/chronicle.js';
 
 // 传记按展示顺序排列（对应大厅 ◀/▶ 切换）。
 export const CHRONICLES = Object.freeze([
-    BLOOD_IRIS
+    BLOOD_IRIS,
+    VISUAL_QA
 ]);
 
 export function listChronicles() {
