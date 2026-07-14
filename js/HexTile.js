@@ -233,7 +233,8 @@ export class HexTile extends EngineHexTile {
             poleBottom: flagCy + layout.poleBottomOffset,
             camp: effectiveCamp,
             flagLeft: flagCx + layout.clothOffsetX,
-            flagTop: flagCy + CITY_FLAG_LAYOUT.poleTopOffset + layout.clothOffsetY
+            flagTop: flagCy + CITY_FLAG_LAYOUT.poleTopOffset + layout.clothOffsetY,
+            layout
         };
     }
 
