@@ -5,7 +5,7 @@ import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
 import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill } from './gameLogic.js';
-import { renderGame, drawCardCanvas } from './renderer.js';
+import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { COMMANDER_REROLL_COST } from './config.js';
@@ -64,6 +64,7 @@ import {
     shouldSyncBattlefieldSnapshot
 } from './rendering/index.js';
 import { VITE_RUNTIME_AVAILABLE } from './rendering/viteRuntime.js';
+import { battlefieldDelegation, setBattlefieldDelegation } from './rendering/delegation.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
 const TURN_ORDER_COUNTDOWN_DELAY_MS = 2000;
@@ -139,12 +140,14 @@ function _preferredBattlefieldBackend() {
 function _syncBattlefieldRendererDom(boundary = _battlefieldRenderer) {
     const backend = boundary?.backend || RENDERER_BACKEND.CANVAS_2D;
     if (_battlefieldStage) _battlefieldStage.dataset.renderBackend = backend;
-    const pixiCanvas = backend === RENDERER_BACKEND.PIXI_WEBGL
-        ? boundary?.renderer?.canvas
-        : null;
+    const isPixi = backend === RENDERER_BACKEND.PIXI_WEBGL;
+    const pixiCanvas = isPixi ? boundary?.renderer?.canvas : null;
+    const terrainDelegated = Boolean(isPixi && settings.pixiTerrainMode);
     pixiCanvas?.classList?.add('battlefield-pixi-canvas');
+    // 委托状态以实际后端为准：Pixi 掉线/回退时 Canvas 必须重新画全量。
+    setBattlefieldDelegation({ interactionHints: isPixi, terrain: terrainDelegated });
     // 地形模式下 Pixi canvas 在 Canvas canvas 之下
-    if (settings.pixiTerrainMode && pixiCanvas) {
+    if (terrainDelegated && pixiCanvas) {
         pixiCanvas.style.zIndex = '0';
         canvas.style.zIndex = '2';
         canvas.style.position = 'absolute';
@@ -154,11 +157,17 @@ function _syncBattlefieldRendererDom(boundary = _battlefieldRenderer) {
         canvas.style.zIndex = '1';
         canvas.style.position = '';
         canvas.style.inset = '';
+    } else {
+        canvas.style.zIndex = '1';
+        canvas.style.position = '';
+        canvas.style.inset = '';
     }
 }
 
 async function _fallbackBattlefieldRenderer(boundary, error, reason) {
     if (!boundary || boundary !== _battlefieldRenderer) return;
+    // Pixi 已不可用：立即恢复 Canvas 全量绘制，不等待异步回退完成。
+    setBattlefieldDelegation({});
     try {
         if (await boundary.fallbackToCanvas(error, reason)) {
             _battlefieldSnapshot = null;
@@ -174,6 +183,8 @@ async function _replaceBattlefieldRenderer() {
     const previous = _battlefieldRenderer;
     _battlefieldRenderer = null;
     previous?.destroy();
+    // Pixi 异步初始化期间以及初始化失败后，Canvas 都必须画全量。
+    setBattlefieldDelegation({});
     _battlefieldSnapshot = null;
     _battlefieldSnapshotCheckedAt = -Infinity;
 
@@ -227,11 +238,16 @@ function _syncPixiBattlefieldScene(now) {
     if (now - _battlefieldSnapshotCheckedAt < 50) return;
     _battlefieldSnapshotCheckedAt = now;
     try {
-        const next = buildBattlefieldSnapshot(gameState, { viewingCamp: getViewingCamp() });
+        const next = buildBattlefieldSnapshot(gameState, {
+            viewingCamp: getViewingCamp(),
+            humanTurn: isHumanTurnForInteractionHints()
+        });
         if (!shouldSyncBattlefieldSnapshot(_battlefieldSnapshot, next)) return;
         _battlefieldSnapshot = next;
         _battlefieldRenderer.syncScene(battlefieldSnapshotToPixi(next, {
-            overlayOnly: !settings.pixiTerrainMode,
+            overlayOnly: !battlefieldDelegation.terrain,
+            // 混合模式下真实单位始终由 Canvas 绘制，Pixi 不画占位圆球。
+            includeUnits: false,
             showGrid: settings.showGrid !== false,
             performanceProfile: _battlefieldRenderer.policy?.profile || 'balanced'
         }));

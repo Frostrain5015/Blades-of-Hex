@@ -13,7 +13,7 @@ const snapshot = Object.freeze({
     ],
     units: [{ id: 'u1', campKey: 'player1', visualCenter: { x: 500, y: 375 }, renderable: true, relationToViewer: 'self', health: { ratio: 0.68, max: 100 }, shield: { current: 20 } }],
     borders: { camp: [], district: [] },
-    interaction: { selection: { unitId: 'u1', attackTileKeys: [], moveTileKeys: ['1,0'] } }
+    interaction: { selection: { unitId: 'u1', unitTileKey: '0,0', attackTileKeys: [], moveTileKeys: ['1,0'] } }
 });
 
 const converted = battlefieldSnapshotToPixi(snapshot, { showGrid: false });
@@ -28,7 +28,11 @@ assert.ok(converted.units[0].health.shieldRadius + converted.units[0].health.shi
 assert.equal(converted.originMarker.x, 500);
 assert.equal(converted.rangeRegions[0].id, 'movement-range');
 assert.equal(converted.rangeRegions[0].cells.length, 1);
-assert.equal(converted.rangeRegions[0].edges.length, 6);
+// The exterior border encloses the origin tile too (Canvas parity): two
+// adjacent hexes share one edge, leaving 5 + 5 outline segments.
+assert.equal(converted.rangeRegions[0].edges.length, 10);
+assert.equal(converted.rangeRegions[0].cells[0].distance, 1);
+assert.equal(converted.routePaths.length, 0);
 assert.equal(Object.isFrozen(converted), true);
 assert.throws(() => battlefieldSnapshotToPixi({}), /battlefield snapshot/);
 

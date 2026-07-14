@@ -8,6 +8,8 @@ import {
     resolveRenderPolicy
 } from './renderBackend.js';
 import { createPixiSceneSnapshot } from './pixiSceneSnapshot.js';
+import { resolveMovementTileReveal } from '../movementRegionAnimation.js';
+import { getRangedPreviewTiming, sampleOperationRoute } from '../operationPreviewRenderer.js';
 
 export const PIXI_BATTLEFIELD_LAYER_ORDER = Object.freeze([
     'surface',
@@ -65,6 +67,91 @@ function drawArcPath(graphics, centerX, centerY, radius, startAngle, endAngle) {
     return true;
 }
 
+const HEX_UNIT_VERTICES = Object.freeze(Array.from({ length: 6 }, (_, index) => {
+    const angle = Math.PI / 3 * (index + 0.5);
+    return Object.freeze({ x: Math.cos(angle), y: Math.sin(angle) });
+}));
+
+function drawHexagonPath(graphics, cx, cy, size) {
+    graphics.moveTo(cx + HEX_UNIT_VERTICES[0].x * size, cy + HEX_UNIT_VERTICES[0].y * size);
+    for (let index = 1; index < 6; index += 1) {
+        graphics.lineTo(cx + HEX_UNIT_VERTICES[index].x * size, cy + HEX_UNIT_VERTICES[index].y * size);
+    }
+    graphics.closePath();
+}
+
+// Pixi v8 Graphics has no setLineDash: dashes are emitted as explicit
+// sub-segments so marching-ants offsets stay identical to Canvas.
+function drawDashedSegment(graphics, x0, y0, x1, y1, dash, gap, offset) {
+    const length = Math.hypot(x1 - x0, y1 - y0);
+    if (length <= 0.0001) return;
+    const ux = (x1 - x0) / length;
+    const uy = (y1 - y0) / length;
+    const period = dash + gap;
+    let position = -((offset % period) + period) % period;
+    while (position < length) {
+        const start = Math.max(0, position);
+        const end = Math.min(length, position + dash);
+        if (end > start) {
+            graphics.moveTo(x0 + ux * start, y0 + uy * start);
+            graphics.lineTo(x0 + ux * end, y0 + uy * end);
+        }
+        position += period;
+    }
+}
+
+function drawDashedPolyline(graphics, points, dash, gap, offset) {
+    let travelled = 0;
+    for (let index = 1; index < points.length; index += 1) {
+        const previous = points[index - 1];
+        const current = points[index];
+        drawDashedSegment(graphics, previous.x, previous.y, current.x, current.y, dash, gap, offset - travelled);
+        travelled += Math.hypot(current.x - previous.x, current.y - previous.y);
+    }
+}
+
+function drawDashedCircle(graphics, cx, cy, radius, dash, gap, offset) {
+    const circumference = Math.PI * 2 * radius;
+    const period = dash + gap;
+    const count = Math.max(4, Math.floor(circumference / period));
+    const anglePerUnit = Math.PI * 2 / circumference;
+    for (let index = 0; index < count; index += 1) {
+        const startLen = index * circumference / count + offset;
+        const a0 = startLen * anglePerUnit;
+        const a1 = (startLen + dash) * anglePerUnit;
+        const segments = 4;
+        for (let s = 0; s <= segments; s += 1) {
+            const angle = a0 + (a1 - a0) * s / segments;
+            const x = cx + Math.cos(angle) * radius;
+            const y = cy + Math.sin(angle) * radius;
+            if (s === 0) graphics.moveTo(x, y);
+            else graphics.lineTo(x, y);
+        }
+    }
+}
+
+// Clip an infinite hatch line to a circle so the Pixi origin marker matches
+// Canvas's clipped diagonal hatching without a mask object.
+function clipSegmentToCircle(x0, y0, x1, y1, cx, cy, radius) {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const fx = x0 - cx;
+    const fy = y0 - cy;
+    const a = dx * dx + dy * dy;
+    const b = 2 * (fx * dx + fy * dy);
+    const c = fx * fx + fy * fy - radius * radius;
+    const discriminant = b * b - 4 * a * c;
+    if (discriminant <= 0 || a === 0) return null;
+    const root = Math.sqrt(discriminant);
+    const t0 = Math.max(0, (-b - root) / (2 * a));
+    const t1 = Math.min(1, (-b + root) / (2 * a));
+    if (t1 <= t0) return null;
+    return {
+        x0: x0 + dx * t0, y0: y0 + dy * t0,
+        x1: x0 + dx * t1, y1: y0 + dy * t1
+    };
+}
+
 function drawOriginHatching(graphics, marker, radius) {
     const invSqrt2 = Math.SQRT1_2;
     for (let offset = -radius + marker.hatchSpacing; offset < radius; offset += marker.hatchSpacing) {
@@ -98,11 +185,12 @@ function entryState(frame, descriptor) {
 function exitAlpha(frame, descriptor) {
     if (!descriptor.endingStartedAtMs) return 1;
     if (!frame.motionEnabled) return 0;
+    // Linear fade, matching Canvas _drawDeselectingActionPreview (1 - t/220).
     const progress = clamp01(
         (frame.motionNowMs - descriptor.endingStartedAtMs)
         / Math.max(1, descriptor.endingDurationMs || 220)
     );
-    return 1 - progress * progress;
+    return 1 - progress;
 }
 
 function breatheAt(frame, phase = 0, periodMs = 1500) {
@@ -394,13 +482,9 @@ export class PixiBattlefieldRenderer {
                     next.antiAirCells,
                     nowMs,
                     220
-                ),
-                routePaths: mergeExitingDescriptors(
-                    this._scene.routePaths,
-                    next.routePaths,
-                    nowMs,
-                    220
                 )
+                // routePaths deliberately not merged: Canvas removes the hover
+                // route on the exact frame the pointer leaves, with no fade.
             });
         }
         this._scene = next;
@@ -436,11 +520,12 @@ export class PixiBattlefieldRenderer {
         }
 
         const hasAnimatedInteraction = normalizedFrame.motionEnabled && Boolean(
-            this._scene?.originMarker?.pulse
+            this._scene?.originMarker
+            || this._scene?.routePaths?.length
             || this._scene?.targetFrames?.some(descriptor => descriptorStillAnimating(descriptor, normalizedFrame.motionNowMs))
             || this._scene?.rangeRegions?.some(descriptor => descriptorStillAnimating(descriptor, normalizedFrame.motionNowMs))
+            || this._scene?.rangeRegions?.length
             || this._scene?.antiAirCells?.some(descriptor => descriptorStillAnimating(descriptor, normalizedFrame.motionNowMs))
-            || this._scene?.routePaths?.some(descriptor => descriptorStillAnimating(descriptor, normalizedFrame.motionNowMs))
         );
         if (!this._sceneDirty && this._events.length === 0) {
             if (!hasAnimatedInteraction) {
@@ -586,31 +671,74 @@ export class PixiBattlefieldRenderer {
         if (!this._scene) return;
 
         for (const region of this._scene.rangeRegions || []) {
-            const entry = entryState(frame, region);
-            const visibility = entry.alpha * exitAlpha(frame, region);
-            if (visibility <= 0) continue;
-            const breathe = 0.82 + breatheAt(frame, region.phase, 1850) * 0.18;
-            for (const polygon of region.cells) {
-                drawPath(ground, polygon, true);
-                ground.fill({
-                    color: region.color,
-                    alpha: region.fillAlpha * visibility * breathe
-                });
+            const exiting = Boolean(region.endingStartedAtMs);
+            const exit = exitAlpha(frame, region);
+            if (exit <= 0) continue;
+            const nowMs = frame.motionNowMs;
+
+            // Jelly fill: each reachable cell scales in with the shared
+            // movement-region reveal, exactly like the Canvas renderer.
+            for (const cell of region.cells) {
+                if (cell.polygon) {
+                    drawPath(ground, cell.polygon, true);
+                    ground.fill({ color: region.color, alpha: region.fillAlpha * exit });
+                    continue;
+                }
+                const reveal = exiting || !frame.motionEnabled
+                    ? { scale: 1.008, alpha: 0.13 }
+                    : resolveMovementTileReveal(
+                        { q: 0, r: 0 },
+                        { q: cell.distance, r: 0 },
+                        nowMs,
+                        region.startedAtMs
+                    );
+                if (reveal.alpha <= 0) continue;
+                drawHexagonPath(ground, cell.x, cell.y, cell.size * reveal.scale);
+                ground.fill({ color: region.color, alpha: reveal.alpha * exit });
             }
-            for (const edge of region.edges) drawPath(ground, edge, false);
+
+            if (!region.edges.length) continue;
+            // Exterior border: marching-ants dashes ([14,9] period, -now/22
+            // offset), soft glow halo, then inner pale line on the same dashes.
+            const pulse = exiting || !frame.motionEnabled ? 0 : (Math.sin(nowMs / 420) + 1) / 2;
+            const entryAlpha = exiting || !frame.motionEnabled
+                ? 1
+                : clamp01(((nowMs - region.startedAtMs) / 220) * 1.65);
+            const borderAlpha = entryAlpha * exit;
+            const dashOffset = frame.motionEnabled ? nowMs / 22 : 0;
+            const blur = 6 + pulse * 2.5;
+
+            const buildDashes = () => {
+                for (const edge of region.edges) {
+                    for (let i = 1; i < edge.length; i += 1) {
+                        drawDashedSegment(ground, edge[i - 1].x, edge[i - 1].y, edge[i].x, edge[i].y, 14, 9, dashOffset);
+                    }
+                }
+            };
+            buildDashes();
             ground.stroke({
-                color: region.color,
-                alpha: region.lineAlpha * visibility * breathe,
-                width: region.lineWidth
+                color: 0x3ccdb9,
+                alpha: 0.42 * 0.38 * borderAlpha,
+                width: 2.6 + blur * 1.6,
+                cap: 'round',
+                join: 'round'
             });
-            if (this._policy?.effects === 'full') {
-                for (const edge of region.edges) drawPath(ground, edge, false);
-                ground.stroke({
-                    color: 0xe8fbff,
-                    alpha: region.lineAlpha * visibility * 0.28,
-                    width: Math.max(0.8, region.lineWidth * 0.42)
-                });
-            }
+            buildDashes();
+            ground.stroke({
+                color: region.borderColor,
+                alpha: (exiting ? 0.78 : 0.72 + pulse * 0.14) * borderAlpha,
+                width: 2.6,
+                cap: 'round',
+                join: 'round'
+            });
+            buildDashes();
+            ground.stroke({
+                color: region.innerLineColor,
+                alpha: 0.34 * borderAlpha,
+                width: 0.75,
+                cap: 'round',
+                join: 'round'
+            });
         }
 
         for (const cell of this._scene.antiAirCells || []) {
@@ -666,183 +794,300 @@ export class PixiBattlefieldRenderer {
         this._drawRoutePaths(frame);
     }
 
+    // Faithful port of Canvas drawOperationOrigin: same radii, hatch clip,
+    // dashed animated outer ring and per-action wave speed.
     _drawOriginMarker(frame) {
         const graphics = this._graphics.interactionGround;
         const marker = this._scene?.originMarker;
         if (!marker) return;
 
-        const phase = marker.pulse && frame.motionEnabled
-            ? (frame.motionNowMs % marker.pulsePeriodMs) / marker.pulsePeriodMs
-            : 0;
-        const wave = marker.pulse && frame.motionEnabled
-            ? (Math.sin(phase * Math.PI * 2) + 1) / 2
-            : 0;
-        const radius = marker.radius * (1 + wave * marker.pulseAmount);
-        const ringAlpha = marker.alpha * (0.74 + wave * 0.26);
+        const r = marker.unitRadius || marker.radius / 1.32;
+        const seconds = frame.motionEnabled ? frame.motionNowMs / 1000 : 0;
+        const waveSpeed = marker.action === 'move' ? 2.1 : 2.65;
+        const wave = (Math.sin(seconds * waveSpeed) + 1) / 2;
+        const innerRadius = r * (1.32 + wave * 0.036);
+        const outerRadius = r * (1.66 + wave * 0.05);
+        const blur = r * (0.12 + wave * 0.11);
 
-        graphics.circle(marker.x, marker.y, radius)
-            .fill({ color: marker.color, alpha: marker.fillAlpha });
-        drawOriginHatching(graphics, marker, radius * 0.82);
+        // Fill
+        graphics.circle(marker.x, marker.y, innerRadius)
+            .fill({ color: marker.color, alpha: 0.14 + wave * 0.025 });
+
+        // Diagonal hatch clipped inside the inner disc (slope matches Canvas:
+        // 4r horizontal span, -2.8r vertical drop, spacing 0.36r).
+        const clipRadius = innerRadius * 0.94;
+        const spacing = r * 0.36;
+        for (let offset = -r * 2.7; offset <= r * 2.7; offset += spacing) {
+            const clipped = clipSegmentToCircle(
+                marker.x - r * 2, marker.y + offset + r * 1.4,
+                marker.x + r * 2, marker.y + offset - r * 1.4,
+                marker.x, marker.y, clipRadius
+            );
+            if (!clipped) continue;
+            graphics.moveTo(clipped.x0, clipped.y0);
+            graphics.lineTo(clipped.x1, clipped.y1);
+        }
         graphics.stroke({
             color: marker.color,
-            alpha: marker.alpha * 0.5,
-            width: marker.hatchWidth
+            alpha: 0.28 + wave * 0.05,
+            width: Math.max(1, r * 0.052)
         });
-        graphics.circle(marker.x, marker.y, radius)
-            .stroke({ color: marker.color, alpha: ringAlpha, width: marker.ringWidth });
-        graphics.circle(marker.x, marker.y, radius * 0.72)
-            .stroke({ color: marker.color, alpha: ringAlpha * 0.58, width: marker.ringWidth * 0.75 });
-        if (marker.motif === 'plane') {
-            const size = radius * 0.72;
-            graphics.moveTo(marker.x, marker.y - size * 0.56);
-            graphics.lineTo(marker.x + size * 0.09, marker.y - size * 0.08);
-            graphics.lineTo(marker.x + size * 0.48, marker.y + size * 0.12);
-            graphics.lineTo(marker.x + size * 0.45, marker.y + size * 0.25);
-            graphics.lineTo(marker.x + size * 0.08, marker.y + size * 0.14);
-            graphics.lineTo(marker.x + size * 0.07, marker.y + size * 0.5);
-            graphics.lineTo(marker.x, marker.y + size * 0.59);
-            graphics.lineTo(marker.x - size * 0.07, marker.y + size * 0.5);
-            graphics.lineTo(marker.x - size * 0.08, marker.y + size * 0.14);
-            graphics.lineTo(marker.x - size * 0.45, marker.y + size * 0.25);
-            graphics.lineTo(marker.x - size * 0.48, marker.y + size * 0.12);
-            graphics.lineTo(marker.x - size * 0.09, marker.y - size * 0.08);
-            graphics.closePath();
-            graphics.stroke({
-                color: marker.color,
-                alpha: ringAlpha * 0.9,
-                width: marker.ringWidth * 0.9
-            });
-        }
+
+        // Inner solid ring with glow halo
+        graphics.circle(marker.x, marker.y, innerRadius)
+            .stroke({ color: marker.color, alpha: 0.24, width: r * 0.164 + blur * 1.6 });
+        graphics.circle(marker.x, marker.y, innerRadius)
+            .stroke({ color: marker.color, alpha: 0.90, width: r * 0.164 });
+
+        // Outer dashed marching ring
+        drawDashedCircle(
+            graphics,
+            marker.x, marker.y, outerRadius,
+            r * 0.2, r * 0.32,
+            seconds * r * 0.24
+        );
+        graphics.stroke({
+            color: marker.color,
+            alpha: 0.50 + wave * 0.09,
+            width: r * 0.11,
+            cap: 'round'
+        });
     }
 
+    // Faithful ports of operationPreviewRenderer's drawMoveRoute /
+    // drawMeleeRoute / drawRangedRoute. All widths, dash patterns, chevron
+    // cadences and the ranged carrier/impact cycle reuse the same constants.
     _drawRoutePaths(frame) {
         const graphics = this._graphics.interactionRoute;
         const paths = this._scene?.routePaths || [];
         if (!paths.length) return;
+        const seconds = frame.motionEnabled ? frame.motionNowMs / 1000 : 0;
 
         for (const path of paths) {
-            const entry = entryState(frame, path);
-            const visibility = entry.alpha * exitAlpha(frame, path);
-            if (visibility <= 0 || path.points.length < 2) continue;
-
-            const color = path.color;
-            const target = path.target;
-            const totalLength = path.totalLength || 1;
-            const now = frame.motionEnabled ? frame.motionNowMs : 0;
-
-            if (path.action === 'move') {
-                // Solid route path: thick low-alpha background + thin bright overlay
-                drawPath(graphics, path.points, false);
-                graphics.stroke({ color, alpha: 0.30 * visibility, width: 3.4 });
-                drawPath(graphics, path.points, false);
-                graphics.stroke({ color, alpha: visibility * 0.90, width: 1.5 });
-                // Arrowhead at destination
-                this._drawArrowhead(graphics, path, 1, color, visibility);
-
-            } else if (path.action === 'melee') {
-                // Tapered wedge: wider at source, narrower at target
-                const numPoints = path.points.length;
-                const wedgeAlpha = 0.26 * visibility;
-                if (numPoints >= 2) {
-                    const left = [];
-                    const right = [];
-                    for (let i = 0; i < numPoints; i++) {
-                        const p = path.points[i];
-                        const prev = path.points[Math.max(0, i - 1)];
-                        const next = path.points[Math.min(numPoints - 1, i + 1)];
-                        const angle = Math.atan2(next.y - prev.y, next.x - prev.x);
-                        const progress = i / (numPoints - 1);
-                        const halfWidth = 8 * (1 - progress * 0.6);
-                        left.push({ x: p.x - Math.sin(angle) * halfWidth, y: p.y + Math.cos(angle) * halfWidth });
-                        right.push({ x: p.x + Math.sin(angle) * halfWidth, y: p.y - Math.cos(angle) * halfWidth });
-                    }
-                    graphics.moveTo(left[0].x, left[0].y);
-                    for (let i = 1; i < left.length; i++) graphics.lineTo(left[i].x, left[i].y);
-                    for (let i = right.length - 1; i >= 0; i--) graphics.lineTo(right[i].x, right[i].y);
-                    graphics.closePath();
-                    graphics.fill({ color, alpha: wedgeAlpha });
-                    graphics.stroke({ color, alpha: 0.80 * visibility, width: 1.1 });
-                }
-                this._drawArrowhead(graphics, path, 0.94, color, visibility);
-
-            } else if (path.action === 'ranged') {
-                const pulse = frame.motionEnabled
-                    ? (Math.sin(now / 550) + 1) / 2
-                    : 0.5;
-
-                // Arc rail
-                drawPath(graphics, path.points, false);
-                graphics.stroke({ color, alpha: 0.88 * visibility, width: 1.2 });
-
-                // Carrier pulse: small circle that travels along the path
-                if (frame.motionEnabled) {
-                    const carrierFrac = ((now / 1550) % 1) * 0.88;
-                    this._sampleRoutePosition(graphics, path, carrierFrac, color, visibility);
-                }
-
-                // Impact ring at target
-                const impactAlpha = (1 - pulse) * 0.5 * visibility;
-                const ringRadius = 10 + pulse * 12;
-                if (impactAlpha > 0.01) {
-                    graphics.circle(target.x, target.y, ringRadius);
-                    graphics.stroke({
-                        color,
-                        alpha: impactAlpha,
-                        width: 1.8
-                    });
-                }
-            }
+            if (path.points.length < 2 || !path.totalLength) continue;
+            if (path.action === 'move') this._drawMoveRoute(graphics, path, seconds);
+            else if (path.action === 'melee') this._drawMeleeRoute(graphics, path, seconds);
+            else if (path.action === 'ranged') this._drawRangedRoute(graphics, path, seconds);
         }
     }
 
-    _drawArrowhead(graphics, path, fraction, color, visibility) {
-        const tip = this._sampleRoutePoint(path, fraction);
-        if (!tip) return;
-        const prev = this._sampleRoutePoint(path, Math.max(0, fraction - 0.04));
-        if (!prev) return;
-        const angle = Math.atan2(tip.y - prev.y, tip.x - prev.x);
-        const size = 14;
-        graphics.moveTo(tip.x, tip.y);
-        graphics.lineTo(
-            tip.x - Math.cos(angle - 0.52) * size,
-            tip.y - Math.sin(angle - 0.52) * size
-        );
-        graphics.lineTo(
-            tip.x - Math.cos(angle + 0.52) * size,
-            tip.y - Math.sin(angle + 0.52) * size
-        );
-        graphics.closePath();
-        graphics.fill({ color, alpha: 0.88 * visibility });
-    }
-
-    _sampleRoutePoint(path, fraction) {
+    _traceRoute(graphics, path, endFraction = 1) {
+        const capped = Math.max(0, Math.min(1, endFraction));
+        const cappedDistance = path.totalLength * capped;
         const points = path.points;
-        const totalLength = path.totalLength;
-        if (!points || points.length < 2 || !totalLength) return null;
-        const clamped = Math.max(0, Math.min(1, fraction));
-        const targetDist = clamped * totalLength;
-        for (let i = 1; i < points.length; i++) {
-            if (points[i].distance >= targetDist) {
-                const prev = points[i - 1];
-                const span = Math.max(1, points[i].distance - prev.distance);
-                const t = (targetDist - prev.distance) / span;
-                return {
-                    x: prev.x + (points[i].x - prev.x) * t,
-                    y: prev.y + (points[i].y - prev.y) * t
-                };
+        graphics.moveTo(points[0].x, points[0].y);
+        for (let index = 1; index < points.length; index += 1) {
+            const point = points[index];
+            if (point.distance <= cappedDistance) {
+                graphics.lineTo(point.x, point.y);
+                continue;
             }
+            const end = sampleOperationRoute(path, capped);
+            if (end) graphics.lineTo(end.x, end.y);
+            break;
         }
-        return { x: points[points.length - 1].x, y: points[points.length - 1].y };
     }
 
-    _sampleRoutePosition(graphics, path, fraction, color, visibility) {
-        const point = this._sampleRoutePoint(path, fraction);
+    _dashRoute(graphics, path, dash, gap, offset, endFraction = 1) {
+        const cappedDistance = path.totalLength * Math.max(0, Math.min(1, endFraction));
+        const points = path.points;
+        let travelled = 0;
+        for (let index = 1; index < points.length; index += 1) {
+            const previous = points[index - 1];
+            let current = points[index];
+            let segmentEnd = current.distance;
+            if (previous.distance >= cappedDistance) break;
+            if (segmentEnd > cappedDistance) {
+                const end = sampleOperationRoute(path, cappedDistance / path.totalLength);
+                if (!end) break;
+                current = { ...end, distance: cappedDistance };
+                segmentEnd = cappedDistance;
+            }
+            drawDashedSegment(graphics, previous.x, previous.y, current.x, current.y, dash, gap, offset - travelled);
+            travelled += segmentEnd - previous.distance;
+        }
+    }
+
+    _drawRouteArrowhead(graphics, path, fraction, color, length, open = false, alphaValue = 1) {
+        const tip = sampleOperationRoute(path, fraction);
+        if (!tip) return;
+        const cos = Math.cos(tip.angle);
+        const sin = Math.sin(tip.angle);
+        const local = (lx, ly) => ({
+            x: tip.x + lx * cos - ly * sin,
+            y: tip.y + lx * sin + ly * cos
+        });
+        const wingA = local(-length, length * 0.58);
+        const wingB = local(-length, -length * 0.58);
+        graphics.moveTo(tip.x, tip.y);
+        graphics.lineTo(wingA.x, wingA.y);
+        if (!open) {
+            const notch = local(-length * 0.68, 0);
+            graphics.lineTo(notch.x, notch.y);
+            graphics.lineTo(wingB.x, wingB.y);
+            graphics.closePath();
+            graphics.fill({ color, alpha: alphaValue });
+        } else {
+            graphics.moveTo(tip.x, tip.y);
+            graphics.lineTo(wingB.x, wingB.y);
+            graphics.stroke({
+                color,
+                alpha: alphaValue,
+                width: Math.max(2, length * 0.26),
+                cap: 'round',
+                join: 'round'
+            });
+        }
+    }
+
+    _drawRouteChevron(graphics, path, fraction, color, size, alphaValue) {
+        const point = sampleOperationRoute(path, fraction);
         if (!point) return;
-        const alpha = (0.5 + Math.sin(fraction * Math.PI * 6) * 0.3) * visibility;
-        graphics.circle(point.x, point.y, 5);
-        graphics.fill({ color, alpha: alpha * 0.7 });
-        graphics.circle(point.x, point.y, 8);
-        graphics.fill({ color, alpha: alpha * 0.15 });
+        const cos = Math.cos(point.angle);
+        const sin = Math.sin(point.angle);
+        const local = (lx, ly) => ({
+            x: point.x + lx * cos - ly * sin,
+            y: point.y + lx * sin + ly * cos
+        });
+        const a = local(-size, -size * 0.56);
+        const b = local(0, 0);
+        const c = local(-size, size * 0.56);
+        graphics.moveTo(a.x, a.y);
+        graphics.lineTo(b.x, b.y);
+        graphics.lineTo(c.x, c.y);
+        graphics.stroke({
+            color,
+            alpha: alphaValue,
+            width: Math.max(1.5, size * 0.29),
+            cap: 'round',
+            join: 'round'
+        });
+    }
+
+    _drawMoveRoute(graphics, path, seconds) {
+        const r = path.unitRadius;
+        const color = path.color;
+        const pulseProgress = ((seconds * 0.68) % 1 + 1) % 1;
+
+        // Same-hue wide foundation
+        this._traceRoute(graphics, path);
+        graphics.stroke({ color, alpha: 0.10, width: r * 0.866, cap: 'round', join: 'round' });
+
+        // Marching dashed overlay with glow halo
+        const dash = r * 1.2;
+        const gap = r * 0.734;
+        const offset = seconds * r * 3.066;
+        this._dashRoute(graphics, path, dash, gap, offset);
+        graphics.stroke({ color, alpha: 0.30, width: r * 0.24 + r * 0.32, cap: 'round', join: 'round' });
+        this._dashRoute(graphics, path, dash, gap, offset);
+        graphics.stroke({ color, alpha: 0.92, width: r * 0.24, cap: 'round', join: 'round' });
+
+        // Traveling chevrons
+        for (const chevronOffset of [0, 1 / 3, 2 / 3]) {
+            const fraction = ((seconds * 0.115 + chevronOffset) % 0.92 + 0.92) % 0.92;
+            this._drawRouteChevron(graphics, path, fraction, color, r * 0.6, 0.72);
+        }
+
+        // Destination pulse ring
+        const destination = sampleOperationRoute(path, 1);
+        if (destination) {
+            graphics.circle(destination.x, destination.y, r * (0.64 + pulseProgress * 0.84));
+            graphics.stroke({ color, alpha: (1 - pulseProgress) * 0.58, width: r * 0.10 });
+        }
+
+        this._drawRouteArrowhead(graphics, path, 1, color, r * 1.08, false, 1);
+    }
+
+    _drawMeleeRoute(graphics, path, seconds) {
+        const r = path.unitRadius;
+        const color = path.color;
+        const targetContactFraction = path.totalLength
+            ? Math.max(0, Math.min(1, (path.totalLength - r) / path.totalLength))
+            : 1;
+        const bodyEnd = Math.max(0.08, targetContactFraction - r * 1.24 / path.totalLength);
+        const bodyPoints = path.points.filter(point => point.distance < path.totalLength * bodyEnd);
+        const bodyTip = sampleOperationRoute(path, bodyEnd);
+        if (bodyTip) bodyPoints.push({ ...bodyTip, distance: path.totalLength * bodyEnd });
+        if (bodyPoints.length < 2) return;
+
+        const left = [];
+        const right = [];
+        bodyPoints.forEach((point, index) => {
+            const previous = bodyPoints[Math.max(0, index - 1)];
+            const next = bodyPoints[Math.min(bodyPoints.length - 1, index + 1)];
+            const angle = Math.atan2(next.y - previous.y, next.x - previous.x);
+            const progress = index / Math.max(1, bodyPoints.length - 1);
+            const halfWidth = r * (0.68 - progress * 0.44);
+            left.push({ x: point.x - Math.sin(angle) * halfWidth, y: point.y + Math.cos(angle) * halfWidth });
+            right.push({ x: point.x + Math.sin(angle) * halfWidth, y: point.y - Math.cos(angle) * halfWidth });
+        });
+
+        graphics.moveTo(left[0].x, left[0].y);
+        for (let index = 1; index < left.length; index += 1) graphics.lineTo(left[index].x, left[index].y);
+        for (let index = right.length - 1; index >= 0; index -= 1) graphics.lineTo(right[index].x, right[index].y);
+        graphics.closePath();
+        graphics.fill({ color, alpha: 0.30 });
+        graphics.stroke({ color, alpha: 0.88, width: r * 0.12, join: 'round' });
+
+        for (const chevronOffset of [0, 0.26, 0.52]) {
+            const cadence = Math.max(bodyEnd, 0.0001);
+            const fraction = ((seconds * 0.2 + chevronOffset) % cadence + cadence) % cadence;
+            this._drawRouteChevron(graphics, path, fraction, 0xffffff, r * 0.5, 0.86);
+        }
+
+        this._drawRouteArrowhead(graphics, path, targetContactFraction, color, r * 1.84, false, 1);
+    }
+
+    _drawRangedRoute(graphics, path, seconds) {
+        const r = path.unitRadius;
+        const color = path.color;
+        const target = path.target;
+        const timing = getRangedPreviewTiming(seconds);
+        const targetContactFraction = path.totalLength
+            ? Math.max(0, Math.min(1, (path.totalLength - r) / path.totalLength))
+            : 1;
+
+        // One bright dashed rail with glow halo (no dark under-track).
+        const dash = r * 0.15;
+        const gap = r * 0.44;
+        const offset = seconds * r * 1.44;
+        this._dashRoute(graphics, path, dash, gap, offset, targetContactFraction);
+        graphics.stroke({ color, alpha: 0.30, width: r * 0.172 + r * 0.36, cap: 'round' });
+        this._dashRoute(graphics, path, dash, gap, offset, targetContactFraction);
+        graphics.stroke({ color, alpha: 0.96, width: r * 0.172, cap: 'round' });
+
+        this._drawRouteArrowhead(graphics, path, targetContactFraction, color, r * 0.554, true, 1);
+
+        if (timing.carrierVisible) {
+            const carrier = sampleOperationRoute(path, timing.flightProgress * targetContactFraction);
+            if (carrier) {
+                const cos = Math.cos(carrier.angle);
+                const sin = Math.sin(carrier.angle);
+                // Trail
+                graphics.moveTo(carrier.x - cos * r * 0.62, carrier.y - sin * r * 0.62);
+                graphics.lineTo(carrier.x - cos * r * 0.16, carrier.y - sin * r * 0.16);
+                graphics.stroke({ color, alpha: 0.34, width: Math.max(1.2, r * 0.12), cap: 'round' });
+                // Glow halo + concentric body
+                graphics.circle(carrier.x, carrier.y, r * 0.6)
+                    .fill({ color, alpha: 0.10 });
+                const scales = [0.426, 0.256, 0.128];
+                for (let index = 0; index < scales.length; index += 1) {
+                    graphics.circle(carrier.x, carrier.y, r * scales[index])
+                        .fill({ color, alpha: 0.10 + index * 0.18 });
+                }
+            }
+        }
+
+        if (timing.impactVisible) {
+            const progress = Math.max(0, Math.min(1, timing.impactProgress));
+            const eased = 1 - (1 - progress) * (1 - progress);
+            graphics.circle(target.x, target.y, r * (1.08 + eased * 1.28));
+            graphics.stroke({
+                color,
+                alpha: (1 - progress) * 0.76,
+                width: r * (0.12 - progress * 0.05)
+            });
+        }
     }
 
     _listenForContextLoss() {

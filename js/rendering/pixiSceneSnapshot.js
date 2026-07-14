@@ -142,12 +142,15 @@ function normalizeUnit(source, index) {
 function normalizeOriginMarker(source) {
     if (!source) return null;
     const location = point(source, 'originMarker');
-    const radius = positive(source.radius, 21);
+    const unitRadius = positive(source.unitRadius, 15);
+    const radius = positive(source.radius, unitRadius * 1.32);
     if (radius <= 0) throw new TypeError('originMarker.radius must be positive');
     return {
         x: location.x,
         y: location.y,
         radius,
+        unitRadius,
+        action: source.action === 'attack' ? 'attack' : 'move',
         color: color(source.color, DEFAULTS.originColor),
         alpha: alpha(source.alpha, 0.9),
         fillAlpha: alpha(source.fillAlpha, 0.1),
@@ -187,21 +190,42 @@ function normalizeTargetFrame(source, index) {
     };
 }
 
+function normalizeRegionCell(source, index, cellIndex) {
+    // Legacy shape: plain polygon (array of points) — kept for tests/tools.
+    // `.polygon` re-enters when an already-normalized scene is merged for
+    // exit animations and normalized again.
+    const polygon = Array.isArray(source) ? source : (source?.points ?? source?.polygon);
+    if (Array.isArray(polygon)) {
+        return { polygon: points(polygon, `rangeRegions[${index}].cells[${cellIndex}]`, 3) };
+    }
+    // Jelly-reveal cell: hexagon rebuilt per frame around its center.
+    const location = point(source, `rangeRegions[${index}].cells[${cellIndex}]`);
+    return {
+        x: location.x,
+        y: location.y,
+        size: positive(source?.size, 30),
+        distance: Math.max(0, finite(source?.distance, 0))
+    };
+}
+
 function normalizeRangeRegion(source, index) {
     return {
         id: id(source?.id, `range-region-${index}`),
-        cells: (source?.cells || []).map((cell, cellIndex) =>
-            points(cell?.points || cell, `rangeRegions[${index}].cells[${cellIndex}]`, 3)),
+        cells: (source?.cells || []).map((cell, cellIndex) => normalizeRegionCell(cell, index, cellIndex)),
+        fillPolygons: (source?.fillPolygons || []).map((cell, cellIndex) =>
+            points(cell?.points || cell, `rangeRegions[${index}].fillPolygons[${cellIndex}]`, 3)),
         edges: (source?.edges || []).map((edge, edgeIndex) =>
             points(edge?.points || edge, `rangeRegions[${index}].edges[${edgeIndex}]`, 2)),
-        color: color(source?.color, 0x6ec8ff),
-        fillAlpha: alpha(source?.fillAlpha, 0.035),
-        lineAlpha: alpha(source?.lineAlpha, 0.76),
-        lineWidth: positive(source?.lineWidth, 2.2),
+        color: color(source?.color, 0x41cdb9),
+        borderColor: color(source?.borderColor, 0x50e1cd),
+        innerLineColor: color(source?.innerLineColor, 0xd7fff8),
+        fillAlpha: alpha(source?.fillAlpha, 0.13),
+        lineAlpha: alpha(source?.lineAlpha, 0.72),
+        lineWidth: positive(source?.lineWidth, 2.6),
         startedAtMs: Math.max(0, finite(source?.startedAtMs, 0)),
         durationMs: Math.max(1, positive(source?.durationMs, 360)),
         endingStartedAtMs: Math.max(0, finite(source?.endingStartedAtMs, 0)),
-        endingDurationMs: Math.max(1, positive(source?.endingDurationMs, 240)),
+        endingDurationMs: Math.max(1, positive(source?.endingDurationMs, 220)),
         phase: finite(source?.phase, index * 0.47)
     };
 }
@@ -253,12 +277,8 @@ function normalizeRoutePath(source, index) {
         target: { x: tx, y: ty },
         color: color(source?.color, action === 'move' ? 0x58c9b3 : 0xe95b50),
         alpha: alpha(source?.alpha, 1),
+        unitRadius: positive(source?.unitRadius, 15),
         trajectory: ROUTE_TRAJECTORIES.has(source?.trajectory) ? source.trajectory : null,
-        startedAtMs: Math.max(0, finite(source?.startedAtMs, 0)),
-        delayMs: Math.max(0, finite(source?.delayMs, 0)),
-        durationMs: Math.max(1, positive(source?.durationMs, 400)),
-        endingStartedAtMs: Math.max(0, finite(source?.endingStartedAtMs, 0)),
-        endingDurationMs: Math.max(1, positive(source?.endingDurationMs, 220)),
         totalLength: Math.max(0, finite(source?.totalLength,
             points.reduce((acc, p, i) => i > 0 ? acc + Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) : 0, 0)
         ))

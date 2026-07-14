@@ -4,6 +4,7 @@ import {
     buildSmoothOperationRoute,
     buildRangedOperationRoute
 } from '../operationPreviewRenderer.js';
+import { UNIT_BADGE_RADIUS } from '../unitBadgeRenderer.js';
 
 const RELATION_COLORS = Object.freeze({
     self: '#72e18b',
@@ -161,7 +162,10 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
         };
     });
 
-    const pixiUnits = overlayOnly ? [] : snapshot.units
+    // Hybrid deployments keep real units on Canvas; placeholder spheres are
+    // only for standalone/test rendering of the full Pixi slice.
+    const includeUnits = options.includeUnits !== false;
+    const pixiUnits = (overlayOnly || !includeUnits) ? [] : snapshot.units
         .filter(unit => unit.renderable)
         .map(unit => {
             const relation = unit.relationToViewer || (unit.campKey === snapshot.viewerCampKey ? 'self' : 'enemy');
@@ -189,30 +193,41 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
             };
         });
 
+    // ── Interaction hints ──────────────────────────────────────
+    // Pixi owns only the selection/hover hot path (movement region, attack
+    // frames, origin marker, operation routes). Card targeting keeps its rich
+    // Canvas renderer (structure previews, AA markers, paratrooper badges…),
+    // so nothing card-related is emitted here.
     const interaction = snapshot.interaction || {};
     const selection = interaction.selection || {};
     const targeting = interaction.targeting || {};
-    const airOriginId = targeting.air?.colonelOriginUnitId;
-    const originUnit = airOriginId != null
-        ? units.get(String(airOriginId))
-        : units.get(String(selection.unitId));
-    const originMarker = originUnit ? {
+    const humanTurn = interaction.humanTurn !== false;
+    const cardTargetingActive = Boolean(targeting.active);
+    const interactionVisible = humanTurn && !cardTargetingActive;
+    const originUnit = units.get(String(selection.unitId));
+
+    const route = interactionVisible ? (interaction.route || null) : null;
+    const unitRadius = UNIT_BADGE_RADIUS;
+
+    // Origin marker mirrors Canvas drawOperationOrigin: red only while the
+    // hovered tile is an attack target, teal otherwise.
+    const originAction = route && route.action !== 'move' ? 'attack' : 'move';
+    const showOrigin = interactionVisible
+        && originUnit
+        && (originUnit.action ? originUnit.action.canAct && !originUnit.action.isNewRecruit : true);
+    const originMarker = showOrigin ? {
         x: originUnit.visualCenter.x,
         y: originUnit.visualCenter.y,
-        radius: 22,
-        color: airOriginId != null
-            ? '#8ce8ff'
-            : (selection.attackTileKeys?.length ? '#e95b50' : '#58c9b3'),
-        motif: airOriginId != null ? 'plane' : 'origin',
-        pulse: true,
-        fillAlpha: highBudget ? 0.14 : 0.1,
-        ringWidth: highBudget ? 2.1 : 1.75,
-        hatchWidth: 1,
-        hatchSpacing: 6
+        unitRadius,
+        radius: unitRadius * 1.32,
+        color: originAction === 'attack' ? '#e95b50' : '#58c9b3',
+        action: originAction,
+        motif: 'origin',
+        pulse: true
     } : null;
 
     const targetFrames = [];
-    const normalAttackKeys = selection.attackTileKeys || [];
+    const normalAttackKeys = interactionVisible ? (selection.attackTileKeys || []) : [];
     const closingAttackKeys = normalAttackKeys.length ? [] : (selection.deselectAttackTileKeys || []);
     const attackKeys = normalAttackKeys.length ? normalAttackKeys : closingAttackKeys;
     const attackOriginKey = selection.unitTileKey || selection.deselectOriginTileKey;
@@ -231,104 +246,62 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
         if (frame) targetFrames.push(frame);
     }
 
-    if (targeting.active) {
-        const style = TARGET_STYLE[targeting.intent] || TARGET_STYLE.hostile;
-        const sourceUnit = targeting.sourceUnitId == null ? null : units.get(String(targeting.sourceUnitId));
-        const sourceKey = sourceUnit?.tileKey || originUnit?.tileKey || null;
-        const unitShape = targeting.shape === 'unit';
-        for (const key of targeting.candidateTileKeys || []) {
-            const frame = targetFrame(key, {
-                prefix: `card-${targeting.cardId || 'target'}`,
-                tiles: tilesByKey,
-                units,
-                originKey: sourceKey,
-                activeKey: targeting.hoveredTileKey || interaction.hover?.tileKey,
-                size: unitShape ? (highBudget ? 35 : 32) : (highBudget ? 29 : 27),
-                style,
-                startedAtMs: targeting.startedAtMs || 0
-            });
-            if (frame) targetFrames.push(frame);
-        }
-    }
-
+    // Movement region: fills animate per tile (jelly reveal); the exterior
+    // border also encloses the origin tile, exactly like Canvas
+    // drawUnitActionTargetingPreview.
     const rangeRegions = [];
-    const normalMoveKeys = selection.moveTileKeys || [];
+    const normalMoveKeys = interactionVisible ? (selection.moveTileKeys || []) : [];
     const closingMoveKeys = normalMoveKeys.length ? [] : (selection.deselectMoveTileKeys || []);
     const moveKeys = normalMoveKeys.length ? normalMoveKeys : closingMoveKeys;
     if (moveKeys.length) {
-        const geometry = outerRegionGeometry(moveKeys, tilesByKey, hexSize * 1.008);
+        const originKey = selection.unitTileKey || selection.deselectOriginTileKey;
+        const originCoord = coordinatesFromKey(originKey);
+        const fillGeometry = outerRegionGeometry(moveKeys, tilesByKey, hexSize * 1.008);
+        const borderKeys = originKey ? [...moveKeys, originKey] : moveKeys;
+        const borderGeometry = outerRegionGeometry(borderKeys, tilesByKey, hexSize);
+        const cells = moveKeys.map(key => {
+            const tile = tilesByKey.get(key);
+            const coord = coordinatesFromKey(key);
+            if (!tile || tile.renderOnly || !coord) return null;
+            return {
+                x: tile.center.x,
+                y: tile.center.y,
+                size: hexSize,
+                distance: originCoord ? hexDistanceByKey(originKey, key) : 0
+            };
+        }).filter(Boolean);
         rangeRegions.push({
             id: 'movement-range',
-            ...geometry,
-            color: '#58d8d3',
-            fillAlpha: highBudget ? 0.075 : 0.045,
-            lineAlpha: highBudget ? 0.86 : 0.68,
-            lineWidth: highBudget ? 3.1 : 2.5,
+            cells,
+            edges: borderGeometry.edges,
+            fillPolygons: fillGeometry.cells,
+            color: '#41cdb9',
+            borderColor: '#50e1cd',
+            innerLineColor: '#d7fff8',
             startedAtMs: selection.selectedAtMs || 0,
-            durationMs: 340,
             endingStartedAtMs: closingMoveKeys.length ? selection.deselectionStartedAtMs : 0,
-            endingDurationMs: 240,
-            phase: 0.18
+            endingDurationMs: 220
         });
     }
 
-    const rangeKeys = targeting.air?.rangeTileKeys || [];
-    if (rangeKeys.length) {
-        const geometry = outerRegionGeometry(rangeKeys, tilesByKey, hexSize * 1.008);
-        rangeRegions.push({
-            id: 'air-operation-range',
-            ...geometry,
-            color: '#70cfff',
-            fillAlpha: highBudget ? 0.05 : 0.032,
-            lineAlpha: highBudget ? 0.86 : 0.72,
-            lineWidth: highBudget ? 2.8 : 2.2,
-            startedAtMs: targeting.startedAtMs || 0,
-            durationMs: 380
-        });
-    }
-
-    const antiAirCells = (targeting.air?.aaCoverage || []).map((entry, index) => {
-        const tile = tilesByKey.get(entry.tileKey);
-        if (!tile || tile.renderOnly) return null;
-        return {
-            id: `aa-${entry.tileKey}`,
-            points: hexPoints(tile.center, hexSize * 0.97),
-            x: tile.center.x,
-            y: tile.center.y,
-            radius: hexSize * 0.78,
-            level: entry.layers,
-            color: '#efb54c',
-            alpha: highBudget ? 0.68 : 0.54,
-            startedAtMs: targeting.startedAtMs || 0,
-            delayMs: hexDistanceByKey(originUnit?.tileKey, entry.tileKey) * 22,
-            durationMs: 310,
-            phase: index * 0.19
-        };
-    }).filter(Boolean);
-
-    // ── Route paths (movement / melee / ranged) ────────────────
+    // ── Operation routes (movement / melee / ranged) ───────────
     const routePaths = [];
-    const route = interaction.route || null;
-    if (route && !overlayOnly) {
-        const sourceTile = route.sourceKey ? tilesByKey.get(route.sourceKey) : null;
+    if (route) {
+        const sourceUnitDto = originUnit || null;
         const targetTile = route.targetKey ? tilesByKey.get(route.targetKey) : null;
-        const sourceUnit = route.sourceKey
-            ? snapshot.units.find(u => u.tileKey === route.sourceKey && u.renderable)
-            : null;
-        const targetUnit = route.targetKey
+        const targetUnitDto = route.targetKey
             ? snapshot.units.find(u => u.tileKey === route.targetKey && u.renderable)
             : null;
-        const sourcePos = (route.action === 'melee' || route.action === 'ranged') && sourceUnit?.visualCenter
-            ? { x: sourceUnit.visualCenter.x, y: sourceUnit.visualCenter.y }
-            : sourceTile?.center ? { x: sourceTile.center.x, y: sourceTile.center.y } : null;
-        const targetPos = (route.action === 'melee' || route.action === 'ranged') && targetUnit?.visualCenter
-            ? { x: targetUnit.visualCenter.x, y: targetUnit.visualCenter.y }
-            : targetTile?.center ? { x: targetTile.center.x, y: targetTile.center.y } : null;
+        const sourcePos = sourceUnitDto?.visualCenter
+            ? { x: sourceUnitDto.visualCenter.x, y: sourceUnitDto.visualCenter.y }
+            : null;
+        const targetPos = route.action === 'move'
+            ? (targetTile?.center ? { x: targetTile.center.x, y: targetTile.center.y } : null)
+            : (targetUnitDto?.visualCenter
+                ? { x: targetUnitDto.visualCenter.x, y: targetUnitDto.visualCenter.y }
+                : null);
 
         if (sourcePos && targetPos) {
-            const color = route.action === 'move' ? '#58c9b3' : '#e95b50';
-            const selectedAtMs = selection.selectedAtMs || 0;
-
             if (route.action === 'move' && Array.isArray(route.bfsKeys) && route.bfsKeys.length >= 2) {
                 const bfsPixelPath = route.bfsKeys
                     .map(key => tilesByKey.get(key))
@@ -336,46 +309,43 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
                     .map(t => ({ x: t.center.x, y: t.center.y }));
                 if (bfsPixelPath.length >= 2) {
                     const anchors = buildMoveOperationAnchors(sourcePos, targetPos, bfsPixelPath);
-                    const smooth = buildSmoothOperationRoute(anchors, { tension: 0.78, samplesPerSegment: 20 });
+                    const smooth = buildSmoothOperationRoute(anchors);
                     if (smooth.points.length >= 2) {
                         routePaths.push({
                             action: 'move',
                             points: smooth.points,
                             source: sourcePos,
                             target: targetPos,
-                            color,
-                            startedAtMs: selectedAtMs,
-                            durationMs: 340,
+                            color: '#58c9b3',
+                            unitRadius,
                             totalLength: smooth.totalLength
                         });
                     }
                 }
             } else if (route.action === 'melee') {
-                const smoothed = buildSmoothOperationRoute([sourcePos, targetPos], { tension: 0.4, samplesPerSegment: 12 });
+                const smoothed = buildSmoothOperationRoute([sourcePos, targetPos]);
                 if (smoothed.points.length >= 2) {
                     routePaths.push({
                         action: 'melee',
                         points: smoothed.points,
                         source: sourcePos,
                         target: targetPos,
-                        color,
-                        startedAtMs: selectedAtMs,
-                        durationMs: 300,
+                        color: '#e95b50',
+                        unitRadius,
                         totalLength: smoothed.totalLength
                     });
                 }
             } else if (route.action === 'ranged') {
-                const ranged = buildRangedOperationRoute(sourcePos, targetPos, 15, 'arc');
+                const ranged = buildRangedOperationRoute(sourcePos, targetPos, unitRadius, 'arc');
                 if (ranged.points.length >= 2) {
                     routePaths.push({
                         action: 'ranged',
                         points: ranged.points,
                         source: sourcePos,
                         target: targetPos,
-                        color,
+                        color: '#e95b50',
+                        unitRadius,
                         trajectory: 'arc',
-                        startedAtMs: selectedAtMs,
-                        durationMs: 380,
                         totalLength: ranged.totalLength
                     });
                 }
@@ -394,7 +364,10 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
                 height: snapshot.board.logicalHeight
             },
             color: options.backgroundColor || '#0c1518',
-            alpha: overlayOnly ? 0 : 1
+            // Hybrid modes must keep the page background visible behind the
+            // board exactly like the transparent Canvas, otherwise switching
+            // backends mid-game turns the stage black.
+            alpha: (overlayOnly || !includeUnits) ? 0 : 1
         },
         tiles,
         boundaries: overlayOnly ? [] : [
@@ -405,7 +378,6 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
         originMarker,
         targetFrames,
         rangeRegions,
-        antiAirCells,
         routePaths
     });
 }

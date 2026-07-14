@@ -54,6 +54,7 @@ import {
 } from './targetingPreviewRenderer.js';
 import { resolveMovementTileReveal } from './movementRegionAnimation.js';
 import { CanvasBattlefieldLayers } from './canvasBattlefieldLayers.js';
+import { battlefieldDelegation } from './rendering/delegation.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
@@ -188,34 +189,36 @@ export function renderGame() {
     ctx.translate(screenShake.x, screenShake.y);
     ctx.clearRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
 
-    // Draw tile bases (skipped when Pixi handles static terrain)
+    // Terrain materials are skipped only while the Pixi adapter actually owns
+    // the static terrain slice (never inferred from settings, which can point
+    // at a backend that failed to initialize or has fallen back mid-game).
     const materialOptions = { now, reducedMotion: settings.reducedMotion === true };
-    if (!settings.pixiTerrainMode) {
-        if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
     const tileBaseOptions = layeredTerrain
         ? (visualGrid ? FLAT_LAYERED_TILE_BASE_OPTIONS : LAYERED_TILE_BASE_OPTIONS)
         : (visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined);
-    for (let i = 0, len = tiles.length; i < len; i++) {
-        tiles[i].drawBase(ctx, tileBaseOptions);
-    }
-    // Fixed map-material order: neutral water, terrain floor, coast/river,
-    // terrain relief, then fortifications/bridges/ports. Every phase shares
-    // the cached real-board clip (plus render-only fillers in borderless mode).
-    canvasBattlefieldLayers.renderGround(ctx, materialOptions);
-    canvasBattlefieldLayers.renderWaterways(ctx, materialOptions);
-    canvasBattlefieldLayers.renderRelief(ctx, materialOptions);
-    canvasBattlefieldLayers.renderDetails(ctx, materialOptions);
-    if (layeredTerrain) {
-        for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawDeferredMapDetails(ctx);
+    if (!battlefieldDelegation.terrain) {
+        if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
+        for (let i = 0, len = tiles.length; i < len; i++) {
+            tiles[i].drawBase(ctx, tileBaseOptions);
+        }
+        // Fixed map-material order: neutral water, terrain floor, coast/river,
+        // terrain relief, then fortifications/bridges/ports. Every phase shares
+        // the cached real-board clip (plus render-only fillers in borderless mode).
+        canvasBattlefieldLayers.renderGround(ctx, materialOptions);
+        canvasBattlefieldLayers.renderWaterways(ctx, materialOptions);
+        canvasBattlefieldLayers.renderRelief(ctx, materialOptions);
+        canvasBattlefieldLayers.renderDetails(ctx, materialOptions);
+        if (layeredTerrain) {
+            for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawDeferredMapDetails(ctx);
+        }
     }
     // Faction-tinted military-map city outline stays below every object, but
     // remains visible around a unit that covers the central castle glyph.
+    // City markers, flag poles and hover/selection overlays have no Pixi
+    // equivalent, so they stay on Canvas in every delegation mode.
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawCityMapMarker();
-    // Flag poles (before pennants and borders)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
-    // Overlays (hover/selection)
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
-    }
 
     // ── 将领特效图层：ground（地块覆盖层之后、先锋旗立绘之前）──
     drawFxLayer('ground', ctx, now);
@@ -231,8 +234,8 @@ export function renderGame() {
     // ── 将领特效图层：underUnits（立绘之后、单位徽章之前；圣骑士剑环后半圈）──
     drawFxLayer('underUnits', ctx, now);
     // 纯本地操作预览先画到单位之下，球体自然遮住路线内部，避免起终点断口。
-    // Pixi 后端下交互提示由 PixiBattlefieldRenderer 绘制，跳过 Canvas 版本避免双重绘制。
-    if (settings.rendererBackend !== 'pixi-webgl') drawOperationInteractionRoute(now);
+    // 委托 Pixi 时由 PixiBattlefieldRenderer 绘制，跳过 Canvas 版本避免双重绘制。
+    if (!battlefieldDelegation.interactionHints) drawOperationInteractionRoute(now);
     // Units — 全部绘制，非可见地块会在后续迷雾阶段被地形覆绘+遮罩覆盖
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
     // Fortification foreground: front trench banks and flak parapets seat the
@@ -284,8 +287,7 @@ export function renderGame() {
     drawMoraleIndicators();
 
     // 范围光圈
-    // Pixi 后端下交互提示由 PixiBattlefieldRenderer 绘制，跳过 Canvas 版本避免双重绘制。
-    if (settings.rendererBackend !== 'pixi-webgl') drawRangeApertures(now);
+    drawRangeApertures(now);
 
     // 文字特效
     drawDamageTexts(now);
@@ -1079,6 +1081,11 @@ function drawMoraleIndicators() {
 }
 
 // 判断当前回合是否为人类玩家（用于隐藏 AI/中立回合的光圈等）
+// 同时供 main.js 注入战场快照，保证 Pixi 交互提示遵守同一条规则。
+export function isHumanTurnForInteractionHints() {
+    return _isHumanTurn();
+}
+
 function _isHumanTurn() {
     if (gameState.campaignMode) return gameState.factions?.[campToKey(gameState.currentCamp)]?.controller === 'human';
     if (isNetworkGame()) {
@@ -1827,10 +1834,14 @@ function drawRangeApertures(now) {
     if (!deselecting && !gameState.cardTargeting && (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit)) return;
 
     if (gameState.cardTargeting) {
+        // 卡牌交互（结构预览/伞兵徽章/防空来源标/溅射范围等）视觉最复杂且低频，
+        // 始终由 Canvas 绘制以保证与单机表现逐像素一致。
         drawCardTargetingPreview(now);
         return;
     }
 
+    // 选中/悬停热路径（移动范围、攻击目标框、退选淡出）可委托给 Pixi。
+    if (battlefieldDelegation.interactionHints) return;
     drawUnitActionTargetingPreview(now, deselecting);
 }
 // ===== 伤害文本（弹跳+强击特效） =====================

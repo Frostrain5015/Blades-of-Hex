@@ -18,6 +18,7 @@ import { HEX_NEIGHBORS } from '../../rules/hex.js';
 import { isMechanicEnabled } from '../../rules/mechanics.js';
 import { getSurfaceBaseColor, getTileSurface, isWaterSurface } from '../../rules/surfaces.js';
 import { resolveTargetingPreview, targetingTileKey } from '../../rules/targeting.js';
+import { operationArrowStyleForAttacker } from '../../rules/attackPresentation.js';
 
 export const BATTLEFIELD_SNAPSHOT_VERSION = 1;
 export const BATTLEFIELD_SNAPSHOT_KIND = 'blades-of-hex/battlefield';
@@ -529,12 +530,15 @@ function reconstructBfsKeys(gameState, startTileKey, endTileKey, sourceByKey) {
 
 function buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTileKey, selectedUnit, hoveredTileKey, moveTileKeys, attackTileKeys) {
     if (!selectedUnitTileKey || !hoveredTileKey) return null;
-    const selectedTile = sourceByKey.get(selectedUnitTileKey);
-    if (!selectedTile?.unit || selectedUnit?.action?.isNewRecruit) return null;
+    // `selectedUnit` here is the runtime Unit instance, so gate on its direct
+    // fields exactly like Canvas drawOperationInteractionRoute does.
+    if (!selectedUnit || !selectedUnit.canAct || selectedUnit.isNewRecruit) return null;
     if (gameState.aiActing || gameState.cardTargeting) return null;
 
-    const isMove = moveTileKeys.includes(hoveredTileKey) && !sourceByKey.get(hoveredTileKey)?.unit;
-    const isAttack = attackTileKeys.includes(hoveredTileKey) && sourceByKey.get(hoveredTileKey)?.unit;
+    const hoveredUnit = sourceByKey.get(hoveredTileKey)?.unit || null;
+    const isMove = !hoveredUnit && moveTileKeys.includes(hoveredTileKey)
+        && Math.max(0, finite(selectedUnit.remainingMP, 0)) > 0;
+    const isAttack = Boolean(hoveredUnit) && attackTileKeys.includes(hoveredTileKey);
     if (!isMove && !isAttack) return null;
 
     if (isMove) {
@@ -543,13 +547,8 @@ function buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTile
         return { action: 'move', sourceKey: selectedUnitTileKey, targetKey: hoveredTileKey, bfsKeys };
     }
 
-    // Determine melee vs ranged from the unit type / presentation rules
-    const attackerUnit = selectedTile.unit;
-    const targetUnit = sourceByKey.get(hoveredTileKey)?.unit;
-    if (!targetUnit) return null;
-    const isRanged = String(targetUnit.type || '').toLowerCase() === 'fire'
-        || String(attackerUnit.type || '').toLowerCase() === 'fire'
-        || (targetUnit.presentation?.fallen);
+    // Shared presentation classifier: archer/warship/drone/mgNest → ranged.
+    const isRanged = operationArrowStyleForAttacker(selectedUnit) === 'fire';
     return {
         action: isRanged ? 'ranged' : 'melee',
         sourceKey: selectedUnitTileKey,
@@ -603,9 +602,13 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
 
     const selectedUnitTileKey = validKey(gameState.selectedUnit?.tile);
     const selectedUnit = selectedUnitTileKey ? sourceByKey.get(selectedUnitTileKey)?.unit : null;
-    const route = buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTileKey, selectedUnit,
-        hoveredTileKey, moveTileKeys, attackTileKeys);
+    // Canvas gates every interaction hint on the local player's turn; the DTO
+    // carries the caller-resolved flag so Pixi honours the same rule.
+    const humanTurn = options.humanTurn !== false && !gameState.aiActing;
+    const route = humanTurn ? buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTileKey, selectedUnit,
+        hoveredTileKey, moveTileKeys, attackTileKeys) : null;
     return {
+        humanTurn,
         selection: {
             unitId: primitiveId(selectedUnit?.id),
             unitTileKey: selectedUnitTileKey,
