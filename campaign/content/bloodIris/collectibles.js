@@ -4,8 +4,8 @@ export const BLOOD_IRIS_COLLECTIBLES = Object.freeze([
         id: 'bi05_charred_silk',
         scenarioId: 'bi-05-petra',
         name: '焦黑帛书残片',
-        emoji: '🔥',
-        description: '佩特拉档案厅灰烬中留下的半片帛书，只能辨出“君侧之人，实非忠良”。它既可能是证词，也可能是诱饵。'
+        emoji: '📃',
+        description: '佩特拉自治领档案厅灰烬中发现的半片帛书，只能依稀辨出“君侧之人，实非忠良”几个字。'
     })
 ]);
 
