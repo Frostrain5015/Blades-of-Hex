@@ -1,5 +1,6 @@
-// 一键全量测试入口：node test/run-all.mjs [--quick] [--suite=static|campaign|pve|net|cmdr|fx]
+// 一键全量测试入口：node test/run-all.mjs [--quick] [--suite=static|unit|campaign|pve|net|cmdr|fx]
 //   static — 语法 + import/export 审计（无浏览器）
+//   unit   — 战场渲染、水域、目标选择等根级 Node 回归测试
 //   pve    — 单机完整对局（--quick 只跑 3 轮回合循环）
 //   net    — WebSocket 双人对局 + 断线重连
 //   cmdr   — 16 名将领技能逻辑单元测试（浏览器）
@@ -7,6 +8,7 @@
 // 自动启动测试服务器（端口 TEST_PORT，默认 3199），全程无需人工。
 import { readdirSync } from 'fs';
 import { join } from 'path';
+import { spawnSync } from 'child_process';
 import { startServer, launchBrowser } from './lib/helpers.mjs';
 
 const args = process.argv.slice(2);
@@ -20,10 +22,30 @@ let stopServer = null, browser = null;
 function banner(name) { console.log(`\n══════════ 套件: ${name} ══════════`); }
 function needServer(s) { return !s || s === 'campaign' || s === 'pve' || s === 'net' || s === 'cmdr' || s === 'fx'; }
 
+function runRootUnitTests() {
+    const excluded = new Set(['campaign.test.mjs', 'net.test.mjs', 'pve.test.mjs', 'static.test.mjs']);
+    const files = readdirSync(import.meta.dirname)
+        .filter(file => file.endsWith('.test.mjs') && !excluded.has(file))
+        .sort()
+        .map(file => join(import.meta.dirname, file));
+    const child = spawnSync(process.execPath, ['--test', ...files], {
+        cwd: join(import.meta.dirname, '..'),
+        stdio: 'inherit'
+    });
+    if (child.error) throw child.error;
+    console.log(`  —— unit: ${files.length} 个测试文件，退出码 ${child.status}`);
+    return child.status === 0;
+}
+
 try {
     if (!only || only === 'static') {
         banner('static（静态审计）');
         results.static = await (await import('./static.test.mjs')).run();
+    }
+
+    if (!only || only === 'unit') {
+        banner('unit（战场渲染与水域规则）');
+        results.unit = runRootUnitTests();
     }
 
     if (needServer(only)) {
