@@ -24,3 +24,16 @@ export const CITY_FLAG_LAYOUT = Object.freeze({
     width: 24,
     height: 16
 });
+
+// Village flags sit between unit and city size — large enough for the cloth
+// flag renderer, small enough to not compete with the nearest city standard.
+export const VILLAGE_FLAG_LAYOUT = Object.freeze({
+    poleTopOffset: -18,
+    poleBottomOffset: 10,
+    clothOffsetX: 1.5,
+    clothOffsetY: 1,
+    baseWidth: 5.5,
+    baseHeight: 3,
+    width: 20,
+    height: 13
+});

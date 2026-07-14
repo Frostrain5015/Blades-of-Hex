@@ -1,7 +1,7 @@
 ﻿import { HEX_SIZE, HEX_WIDTH, LOGICAL_W, LOGICAL_H, ctx, hexPath, drawHexagonOutline, hexToRgb, rgbToHex, HEX_NEIGHBORS, hexEdge, TERRAIN_CONFIG, settings } from './config.js';
 import { FORTIFICATION_CONFIG } from './config.js';
 import { EngineHexTile } from '../engine/HexTile.js';
-import { CITY_FLAG_LAYOUT } from './flagLayout.js';
+import { CITY_FLAG_LAYOUT, VILLAGE_FLAG_LAYOUT } from './flagLayout.js';
 import { getCityMarkerColors } from '../rules/camps.js';
 import { isLandTile } from '../rules/surfaces.js';
 
@@ -212,6 +212,7 @@ export class HexTile extends EngineHexTile {
         const cx = this.x, cy = this.y;
         const flagCx = cx - HEX_SIZE * 0.55;
         const flagCy = cy - HEX_SIZE * 0.50;
+        const layout = this.isVillage ? VILLAGE_FLAG_LAYOUT : CITY_FLAG_LAYOUT;
         let effectiveCamp = this.camp;
         if (this.isVillage) {
             // 鏉戝簞鏃楀笢棰滆壊鍙栧喅浜庡綋鍓嶅彈鐩婇樀钀?
@@ -228,11 +229,11 @@ export class HexTile extends EngineHexTile {
         }
         return {
             poleX: flagCx,
-            poleTop: flagCy + CITY_FLAG_LAYOUT.poleTopOffset,
-            poleBottom: flagCy + CITY_FLAG_LAYOUT.poleBottomOffset,
+            poleTop: flagCy + layout.poleTopOffset,
+            poleBottom: flagCy + layout.poleBottomOffset,
             camp: effectiveCamp,
-            flagLeft: flagCx + CITY_FLAG_LAYOUT.clothOffsetX,
-            flagTop: flagCy + CITY_FLAG_LAYOUT.poleTopOffset + CITY_FLAG_LAYOUT.clothOffsetY
+            flagLeft: flagCx + layout.clothOffsetX,
+            flagTop: flagCy + CITY_FLAG_LAYOUT.poleTopOffset + layout.clothOffsetY
         };
     }
 
@@ -248,12 +249,12 @@ export class HexTile extends EngineHexTile {
         ctx.lineCap = 'round';
         ctx.stroke();
 
-        // Only city standards use a grounded pedestal; village and unit poles
-        // stay visually light so the ownership hierarchy remains obvious.
-        if (this.isCity) {
-            const halfBase = CITY_FLAG_LAYOUT.baseWidth / 2;
-            const baseTop = p.poleBottom - CITY_FLAG_LAYOUT.baseHeight * 0.4;
-            const baseBottom = p.poleBottom + CITY_FLAG_LAYOUT.baseHeight * 0.6;
+        // City and village standards use a grounded pedestal; unit poles stay light.
+
+        if (this.isCity || this.isVillage) {
+            const halfBase = p.layout.baseWidth / 2;
+            const baseTop = p.poleBottom - p.layout.baseHeight * 0.4;
+            const baseBottom = p.poleBottom + p.layout.baseHeight * 0.6;
             ctx.beginPath();
             ctx.ellipse(p.poleX, baseBottom + 0.8, halfBase + 0.8, 1.4, 0, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(25,18,10,0.35)';
@@ -289,8 +290,8 @@ export class HexTile extends EngineHexTile {
         return {
             x: p.flagLeft,
             y: p.flagTop,
-            width: CITY_FLAG_LAYOUT.width,
-            height: CITY_FLAG_LAYOUT.height,
+            width: p.layout.width,
+            height: p.layout.height,
             camp: p.camp,
             commander: Boolean(this.unit?.isCommanderUnit ?? this.unit?.commander)
         };

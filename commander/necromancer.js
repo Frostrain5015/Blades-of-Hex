@@ -3,6 +3,7 @@ import { UNIT_CONFIG } from '../rules/units.js';
 import { getRoundIndex } from '../rules/turns.js';
 import { emit } from '../js/eventBus.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { canUnitOccupyTile } from '../rules/movement.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.necromancer;
 // 被动【留魂】：己方单位阵亡后原地留下亡魂标记，存在3回合后消失
@@ -101,14 +102,20 @@ export default {
         // 选格阶段虽已过滤被占据的标记，此处落地前再确认一次，杜绝任何时序漏洞吞将领。
         if (targetTile.unit) return;
 
+        const origType = best.origType || 'infantry';
+        const origMaxHp = best.origMaxHp || UNIT_CONFIG.infantry.hp;
+        const origAtkBonus = best.origAtkBonus || 0;
+
+        // 检查地块是否允许该兵种落位（港口已被改为浅水，原有陆兵不可落位 → 跳过此次召回）
+        if (!canUnitOccupyTile({ type: origType, config: UNIT_CONFIG[origType] || UNIT_CONFIG.infantry }, targetTile)) {
+            helpers.logMessage(`亡灵法师【回魂】失败：${targetTile.q},${targetTile.r} 不可落位`);
+            return;
+        }
+
         // 移除亡魂标记
         const idx = gameState._soulMarks.indexOf(best);
         if (idx >= 0) gameState._soulMarks.splice(idx, 1);
 
-        // 唤起魂卒：保留原兵种和生命上限，当前HP=40%原上限，攻击=70%原攻击
-        const origType = best.origType || 'infantry';
-        const origMaxHp = best.origMaxHp || UNIT_CONFIG.infantry.hp;
-        const origAtkBonus = best.origAtkBonus || 0;
         const baseAtk = (UNIT_CONFIG[origType] && UNIT_CONFIG[origType].attack) || UNIT_CONFIG.infantry.attack;
         const soulHp = Math.round(origMaxHp * BALANCE.soulHpPct);
         const soulAtk = Math.round((baseAtk + origAtkBonus) * BALANCE.soulAttackPct);
