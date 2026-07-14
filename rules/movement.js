@@ -44,12 +44,21 @@ export function isPortTile(tile, state = null) {
     return state?.portTiles?.has?.(tileCoordinateKey(tile)) === true;
 }
 
+/**
+ * Movement-surface check: port tiles count as water so that naval domain
+ * never gets a surface bridge to adjacent land tiles.  The tile's visual
+ * surface (land with port buildings) is intentionally unchanged.
+ */
+export function isMovementWaterTile(tile, state = null) {
+    return isWaterTile(tile) || isPortTile(tile, state);
+}
+
 /** Whether the unit may legally finish an action on this real board tile. */
 export function canUnitOccupyTile(unitOrType, tile, state = null) {
     if (!isPlayableTile(tile)) return false;
     const domain = getUnitMovementDomain(unitOrType);
     if (domain === MOVEMENT_DOMAIN.NAVAL) {
-        return isWaterTile(tile) || isPortTile(tile, state);
+        return isMovementWaterTile(tile, state);
     }
     if (domain === MOVEMENT_DOMAIN.AMPHIBIOUS) {
         return isLandTile(tile) || isWaterTile(tile);
