@@ -28,7 +28,10 @@ try {
 }
 
 const ADMIN_TOKEN = process.env.BOH_ADMIN_TOKEN || adminConfig.adminToken || null;
-const PUBLIC_ROOT = path.resolve(__dirname);
+const SOURCE_PUBLIC_ROOT = path.resolve(__dirname);
+const BUILD_PUBLIC_ROOT = path.join(SOURCE_PUBLIC_ROOT, 'dist');
+const SERVE_BUILD_OUTPUT = process.env.BOH_SERVE_DIST === '1'
+    || (process.env.BOH_SERVE_DIST !== '0' && process.env.NODE_ENV === 'production');
 const playerProfileStore = createPlayerProfileStore({ databaseUrl: AUTH_CFG?.databaseUrl || '' });
 
 function isAdminToken(token) {
@@ -167,11 +170,29 @@ const MIME = {
     '.wav':  'audio/wav',
     '.ogg':  'audio/ogg',
     '.oga':  'audio/ogg',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.map': 'application/json; charset=utf-8',
 };
 // 浏览器入口引用的根级背景图，以及被 ESM 状态模型导入的纯算法模块，都属于公开静态资源。
 // 其余根级文件仍默认拒绝，避免把服务器代码和本地配置暴露出去。
 const STATIC_ROOT_FILES = new Set(['/index.html', '/favicon.ico', '/bg.jpg']);
-const STATIC_DIRECTORIES = ['/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/', '/core/', '/ai/', '/campaign/'];
+const STATIC_DIRECTORIES = ['/assets/', '/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/', '/core/', '/ai/', '/campaign/'];
+
+function resolvePublicFile(urlPath) {
+    const relative = `.${urlPath.startsWith('/') ? urlPath : `/${urlPath}`}`;
+    const roots = SERVE_BUILD_OUTPUT
+        ? [BUILD_PUBLIC_ROOT, SOURCE_PUBLIC_ROOT]
+        : [SOURCE_PUBLIC_ROOT];
+    for (const root of roots) {
+        const candidate = path.resolve(root, relative);
+        if (candidate !== root && !candidate.startsWith(root + path.sep)) continue;
+        try {
+            if (fs.statSync(candidate).isFile()) return { filePath: candidate, built: root === BUILD_PUBLIC_ROOT };
+        } catch {}
+    }
+    return { filePath: path.resolve(SOURCE_PUBLIC_ROOT, relative), built: false };
+}
 
 // ── Frost ID OAuth config ──────────────────────────────
 const verifierStore = new Map();
@@ -263,8 +284,8 @@ function staticHandler(req, res) {
         return;
     }
 
-    const filePath = path.resolve(PUBLIC_ROOT, `.${urlPath.startsWith('/') ? urlPath : `/${urlPath}`}`);
-    if (filePath !== PUBLIC_ROOT && !filePath.startsWith(PUBLIC_ROOT + path.sep)) {
+    const { filePath, built } = resolvePublicFile(urlPath);
+    if (filePath !== SOURCE_PUBLIC_ROOT && !filePath.startsWith(SOURCE_PUBLIC_ROOT + path.sep)) {
         res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('403 Forbidden');
         return;
@@ -296,16 +317,24 @@ function staticHandler(req, res) {
         };
 
         if (range) {
-            const parts = range.replace(/bytes=/, '').split('-');
-            const start = parseInt(parts[0], 10);
-            const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-            const chunkSize = end - start + 1;
-
-            if (start >= fileSize) {
+            const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+            let start;
+            let end;
+            if (match && match[1]) {
+                start = Number(match[1]);
+                end = match[2] ? Math.min(Number(match[2]), fileSize - 1) : fileSize - 1;
+            } else if (match && match[2]) {
+                const suffixLength = Number(match[2]);
+                start = Math.max(0, fileSize - suffixLength);
+                end = fileSize - 1;
+            }
+            if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+                || start < 0 || end < start || start >= fileSize) {
                 res.writeHead(416, { 'Content-Range': `bytes */${fileSize}` });
                 res.end();
                 return;
             }
+            const chunkSize = end - start + 1;
 
             const stream = fs.createReadStream(filePath, { start, end });
             stream.on('error', onStreamError);
@@ -321,9 +350,9 @@ function staticHandler(req, res) {
             res.writeHead(200, {
                 'Content-Type': contentType,
                 'Content-Length': fileSize,
-
-
-
+                'Cache-Control': built && urlPath.startsWith('/assets/')
+                    ? 'public, max-age=31536000, immutable'
+                    : 'no-cache'
             });
             fs.createReadStream(filePath).on('error', onStreamError).pipe(res);
         }

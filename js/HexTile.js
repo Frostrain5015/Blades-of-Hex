@@ -3,6 +3,7 @@ import { FORTIFICATION_CONFIG } from './config.js';
 import { EngineHexTile } from '../engine/HexTile.js';
 import { CITY_FLAG_LAYOUT } from './flagLayout.js';
 import { getCityMarkerColors } from '../rules/camps.js';
+import { isLandTile } from '../rules/surfaces.js';
 
 let _gameState = null;
 export function setGameStateRef(ref) { _gameState = ref; }
@@ -38,6 +39,7 @@ export class HexTile extends EngineHexTile {
 
     _drawTerrainGlyphs(c, cx, cy) {
         const glyphs = [];
+        const drawsFlakTexture = this.fortification === 'flak';
         if (this.isVillage) {
             glyphs.push({
                 icon: '🏡',
@@ -56,7 +58,7 @@ export class HexTile extends EngineHexTile {
         }
 
         const fortification = FORTIFICATION_CONFIG[this.fortification];
-        if (fortification?.icon) {
+        if (fortification?.icon && !drawsFlakTexture) {
             glyphs.push({
                 icon: fortification.icon,
                 font: fortification.iconFont,
@@ -64,7 +66,10 @@ export class HexTile extends EngineHexTile {
             });
         }
 
-        if (glyphs.length === 0) return;
+        if (glyphs.length === 0) {
+            if (drawsFlakTexture) this._drawFlakFortification(c, cx, cy);
+            return;
+        }
 
         const gap = 3;
         const widths = glyphs.map(glyph => {
@@ -87,11 +92,75 @@ export class HexTile extends EngineHexTile {
             glyphX += widths[index] + gap;
         }
         c.restore();
+
+        if (drawsFlakTexture) this._drawFlakFortification(c, cx, cy);
+    }
+
+    _drawFlakFortification(c, cx, cy) {
+        const size = HEX_SIZE;
+        c.save();
+        c.translate(cx, cy + size * 0.06);
+        c.lineCap = 'round';
+        c.lineJoin = 'round';
+
+        // Earthen emplacement: the two semicircles remain readable around a
+        // production-size unit badge while keeping the military-map palette.
+        c.beginPath();
+        c.ellipse(0, 0, size * 0.6, size * 0.36, 0, Math.PI, Math.PI * 2);
+        c.strokeStyle = 'rgba(68,52,34,0.72)';
+        c.lineWidth = size * 0.16;
+        c.stroke();
+        c.strokeStyle = 'rgba(193,158,97,0.88)';
+        c.lineWidth = size * 0.035;
+        c.setLineDash([size * 0.08, size * 0.045]);
+        c.stroke();
+        c.setLineDash([]);
+
+        // Positive rotation turns an upward barrel toward the upper-right in
+        // Canvas coordinates. The longer muzzles clear the unit HUD footprint.
+        c.save();
+        c.rotate(0.34);
+        c.strokeStyle = 'rgba(34,37,36,0.48)';
+        c.lineWidth = size * 0.15;
+        c.beginPath();
+        c.moveTo(-size * 0.065, size * 0.02);
+        c.lineTo(-size * 0.065, -size * 0.88);
+        c.moveTo(size * 0.095, size * 0.02);
+        c.lineTo(size * 0.095, -size * 0.83);
+        c.stroke();
+        c.strokeStyle = '#4a4d48';
+        c.lineWidth = size * 0.09;
+        c.stroke();
+        c.strokeStyle = 'rgba(181,183,166,0.72)';
+        c.lineWidth = size * 0.018;
+        c.stroke();
+        c.restore();
+
+        c.fillStyle = '#645d50';
+        c.strokeStyle = 'rgba(37,35,31,0.9)';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.arc(0, 0, size * 0.19, 0, Math.PI * 2);
+        c.fill();
+        c.stroke();
+
+        c.beginPath();
+        c.ellipse(0, 0, size * 0.6, size * 0.36, 0, 0, Math.PI);
+        c.strokeStyle = '#826b47';
+        c.lineWidth = size * 0.13;
+        c.stroke();
+        c.strokeStyle = 'rgba(213,190,135,0.8)';
+        c.lineWidth = size * 0.025;
+        c.setLineDash([size * 0.08, size * 0.04]);
+        c.stroke();
+        c.setLineDash([]);
+        c.restore();
     }
 
     // Fill, shadow, and ordered terrain glyphs.
     drawBase(c, options) {
         const drawShadow = options?.drawShadow !== false;
+        const drawLegacyMapDetails = options?.drawLegacyMapDetails !== false;
         const cx = this.x, cy = this.y;
         c.save();
         if (drawShadow) {
@@ -103,7 +172,7 @@ export class HexTile extends EngineHexTile {
         c.fillStyle = this.currentColor;
         c.fill();
 
-        if (this.isCity) {
+        if (drawLegacyMapDetails && this.isCity) {
             c.fillStyle = '#e6c200';
             c.font = 'bold 16px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
             c.textAlign = 'center';
@@ -114,8 +183,17 @@ export class HexTile extends EngineHexTile {
             c.shadowColor = 'transparent';
             c.shadowBlur = 0;
         }
-        this._drawTerrainGlyphs(c, cx, cy);
+        if (drawLegacyMapDetails) this._drawTerrainGlyphs(c, cx, cy);
         c.restore();
+    }
+
+    // Continuous terrain replaces the old per-cell emoji/glyph layer.  Flak
+    // remains a deliberately bespoke map texture, so it is deferred until the
+    // cached terrain/hydrography layers have been drawn instead of disappearing
+    // beneath a forest canopy or port detail.
+    drawDeferredMapDetails(c) {
+        if (this.fortification !== 'flak') return;
+        this._drawFlakFortification(c, this.x, this.y);
     }
 
     // Per-frame: animated city flag drawn AFTER all hex bases (avoids being covered)
@@ -282,23 +360,14 @@ export class HexTile extends EngineHexTile {
     drawOverlay() {
         const gs = _gameState;
         const cx = this.x, cy = this.y;
-        const isSelected = gs && !gs.aiActing && gs.selectedUnit && gs.selectedUnit.tile === this;
         const isHovered = gs && gs.hoveredTile === this;
-        if (!isHovered && !isSelected) return;
+        if (!isHovered) return;
 
         ctx.save();
-        if (isHovered && !isSelected) {
-            hexPath(ctx, cx, cy, HEX_SIZE);
-            ctx.fillStyle = 'rgba(255,255,255,0.14)';
-            ctx.fill();
-            drawHexagonOutline(ctx, cx, cy, HEX_SIZE, 'rgba(255,255,255,0.30)', 1.3);
-        }
-        if (isSelected) {
-            hexPath(ctx, cx, cy, HEX_SIZE);
-            ctx.fillStyle = 'rgba(255,215,0,0.14)';
-            ctx.fill();
-            drawHexagonOutline(ctx, cx, cy, HEX_SIZE, '#e6c200', 2);
-        }
+        hexPath(ctx, cx, cy, HEX_SIZE);
+        ctx.fillStyle = 'rgba(255,255,255,0.14)';
+        ctx.fill();
+        drawHexagonOutline(ctx, cx, cy, HEX_SIZE, 'rgba(255,255,255,0.30)', 1.3);
         ctx.restore();
     }
 
@@ -347,12 +416,13 @@ function findSharedEdge(tileA, tileB) {
 export function computeCampBorders(tiles, tileMap) {
     const borders = [];
     for (const tile of tiles) {
+        if (tile?.renderOnly === true || tile?.playable === false || !isLandTile(tile)) continue;
         const cx = tile.x, cy = tile.y;
         for (let e = 0; e < 6; e++) {
             // edge e faces neighbor at HEX_NEIGHBORS[(5 - e) % 6]
             const [dq, dr] = edgeNeighborOffset(e);
             const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-            if (!nb) continue;
+            if (!nb || nb.renderOnly === true || nb.playable === false || !isLandTile(nb)) continue;
             if (tile.camp === nb.camp) continue;
             if (tile.id > nb.id) continue;
             const ep = hexEdge(cx, cy, HEX_SIZE, e);
@@ -402,11 +472,12 @@ export function drawCampBorders(ctx2d, borderEdges) {
 export function computeDistrictBorders(tiles, tileMap) {
     const borders = [];
     for (const tile of tiles) {
+        if (tile?.renderOnly === true || tile?.playable === false || !isLandTile(tile)) continue;
         const cx = tile.x, cy = tile.y;
         for (let e = 0; e < 6; e++) {
             const [dq, dr] = edgeNeighborOffset(e);
             const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-            if (!nb) continue;
+            if (!nb || nb.renderOnly === true || nb.playable === false || !isLandTile(nb)) continue;
             if (tile.camp !== nb.camp) continue;        // 涓嶅悓闃佃惀 鈫?鐢卞浗鐣岀嚎澶勭悊
             if (tile.districtId === nb.districtId) continue; // 鍚岃鏀垮尯 鈫?涓嶇敾
             if (tile.id > nb.id) continue;

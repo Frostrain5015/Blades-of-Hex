@@ -121,7 +121,9 @@ export function deployDrone(tianyanUnit, targetTile, helpers) {
     const gs = helpers.gameState;
     const campKey = _campToKey(tianyanUnit.camp);
 
-    if (!_isValidDeployTile(targetTile || hexDistance(tianyanUnit.tile, targetTile) > DRONE_DEPLOY_RANGE)) {
+    if (!_isValidDeployTile(targetTile)
+        || !tianyanUnit.tile
+        || hexDistance(tianyanUnit.tile, targetTile) > DRONE_DEPLOY_RANGE) {
         helpers.logMessage('该位置无法部署');
         return null;
     }

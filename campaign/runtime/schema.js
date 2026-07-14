@@ -11,9 +11,19 @@ import { FACTION_COLOR_KEYS, FACTION_PALETTE, getFlagColors, getPaletteEntry, ge
 import {
     BOARD_LAYOUT, BOARD_LAYOUT_KEYS, normalizeBoardLayout, isBoardCoordinatePlayable
 } from '../../rules/boardLayout.js';
+import {
+    SURFACE_KIND, SURFACE_KINDS, SURFACE_SPEC_KINDS,
+    hasAdjacentWater, isWaterSurface, tileCoordinateKey
+} from '../../rules/surfaces.js';
+import {
+    RIVER_CROSSING_KINDS, RIVER_WIDTHS,
+    areCanonicalRiverVerticesAdjacent, canonicalRiverSegmentKey,
+    canonicalRiverVertex, canonicalRiverVertexKey, findRiverPathSelfIntersections
+} from '../../rules/hydrography.js';
+import { canUnitOccupyTile } from '../../rules/movement.js';
 import { NPC_DIALOGUE_PORTRAIT_IDS, NPC_DIALOGUE_PORTRAIT_LABELS } from '../portraits.js';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const RELATION_KEYS = Object.freeze(['ally', 'neutral', 'enemy']);
 export const OBJECTIVE_STATUS_KEYS = Object.freeze(['hidden', 'active', 'completed', 'failed']);
 export const VARIABLE_TYPES = Object.freeze(['number', 'boolean', 'string']);
@@ -69,6 +79,7 @@ export const BOARD_RADIUS_MIN = 2;
 export const BOARD_RADIUS_MAX = 7;
 export const BOARD_RADIUS_DEFAULT = 4;
 export { BOARD_LAYOUT, BOARD_LAYOUT_KEYS };
+export { SURFACE_KIND, SURFACE_KINDS, SURFACE_SPEC_KINDS, RIVER_WIDTHS, RIVER_CROSSING_KINDS };
 export const BOARD_LAYOUT_LABELS = Object.freeze({
     [BOARD_LAYOUT.HEX]: '经典六边形',
     [BOARD_LAYOUT.BORDERLESS]: '无边军事地图'
@@ -169,10 +180,14 @@ export function createDefaultLevel() {
             cities: [
                 { q: 0, r: 0, districtId: 5, camp: 'player1' }   // 城市即该区划的颜色来源
             ],
+            surface: [],            // 稀疏表：[{ q, r, kind:'shallowWater'|'deepWater' }]；缺省 land
             terrain: [],            // [{ q, r, type }]  非 plains 的地块
             villages: [],           // [{ q, r, districtId }]
             fortifications: [],     // [{ q, r, type }]  trench/flak
-            districts: []           // [{ q, r, districtId }] 覆盖 Voronoi 归属，用于手绘不规则边界
+            districts: [],          // [{ q, r, districtId }] 覆盖 Voronoi 归属，用于手绘不规则边界
+            rivers: [],             // [{ id, width, points:[{q,r,vertex}], navigable? }]
+            crossings: [],          // [{ riverId, segmentIndex, kind:'ford'|'bridge' }]
+            ports: []               // [{ q, r }]，必须为邻接实体水域的陆格
         },
         units: [],                  // [{ id, type, camp, q, r, commander?|storyCommander?, hpPct, morale, canAct }]
         unitGroups: [],             // [{ id, unitIds:[] }]
@@ -215,7 +230,7 @@ export function normalizeLevel(raw) {
     // 旧关卡缺字段时补经典布局；未知显式值原样保留，让编译器能够给出准确错误，
     // 运行时 mapBuilder 仍会安全降级到经典布局。
     merged.board.layout = raw.board?.layout == null ? BOARD_LAYOUT.HEX : raw.board.layout;
-    for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts']) {
+    for (const key of ['cities', 'surface', 'terrain', 'villages', 'fortifications', 'districts', 'rivers', 'crossings', 'ports']) {
         merged.board[key] = Array.isArray(merged.board[key]) ? merged.board[key] : [];
     }
     merged.units = Array.isArray(raw.units) ? raw.units : [];
@@ -261,23 +276,194 @@ export function validateLevel(config) {
     }
     const inBoard = (q, r) => isBoardCoordinatePlayable({ layout, radius }, q, r);
 
+    // Surface is a sparse water-only table. It is resolved before every other
+    // board feature so invalid ownership/urban overlays cannot leak onto water.
+    const surfaceSpecs = c.board?.surface || [];
+    const surfaceMap = new Map();
+    const seenSurfaceCoordinates = new Set();
+    for (const surface of surfaceSpecs) {
+        const validCoordinate = Number.isInteger(surface?.q) && Number.isInteger(surface?.r);
+        if (!validCoordinate) {
+            errors.push(`表面坐标 (${surface?.q},${surface?.r}) 必须是整数。`);
+            continue;
+        }
+        const key = tileCoordinateKey(surface.q, surface.r);
+        if (seenSurfaceCoordinates.has(key)) errors.push(`地块 (${key}) 重复声明了表面类型。`);
+        seenSurfaceCoordinates.add(key);
+        if (!inBoard(surface.q, surface.r)) errors.push(`表面地块 (${key}) 落在棋盘之外。`);
+        if (!SURFACE_SPEC_KINDS.includes(surface.kind)) {
+            errors.push(`地块 (${key}) 的表面类型「${surface.kind}」无效；稀疏表只保存 shallowWater/deepWater。`);
+            continue;
+        }
+        if (inBoard(surface.q, surface.r)) surfaceMap.set(key, surface.kind);
+    }
+    const isWaterAt = (q, r) => isWaterSurface(surfaceMap.get(tileCoordinateKey(q, r)));
+
+    // River paths are checked on the canonical integer vertex lattice. This
+    // makes physically coincident refs compare exactly, without pixel epsilon.
+    const riverIds = new Set();
+    const riverById = new Map();
+    const globalSegments = new Map();
+    for (const river of (c.board?.rivers || [])) {
+        const riverId = river?.id || '';
+        if (!/^[a-z][a-z0-9_-]{0,63}$/i.test(riverId)) errors.push(`河流 id「${riverId || '空'}」非法。`);
+        if (riverIds.has(riverId)) errors.push(`河流 id「${riverId}」重复。`);
+        riverIds.add(riverId);
+        if (!RIVER_WIDTHS.includes(river?.width)) errors.push(`河流「${riverId || '未命名'}」宽度「${river?.width}」无效。`);
+        if (river?.navigable != null && typeof river.navigable !== 'boolean') errors.push(`河流「${riverId || '未命名'}」的 navigable 必须是布尔值。`);
+        const points = Array.isArray(river?.points) ? river.points : [];
+        if (!Array.isArray(river?.points) || points.length < 2) errors.push(`河流「${riverId || '未命名'}」至少需要两个顶点。`);
+        const canonicalPoints = [];
+        const seenVertices = new Set();
+        for (let pointIndex = 0; pointIndex < points.length; pointIndex++) {
+            const point = points[pointIndex];
+            const coordinateValid = Number.isInteger(point?.q) && Number.isInteger(point?.r);
+            const vertexValid = Number.isInteger(point?.vertex) && point.vertex >= 0 && point.vertex <= 5;
+            if (!coordinateValid || !vertexValid) {
+                errors.push(`河流「${riverId || '未命名'}」第 ${pointIndex + 1} 个顶点引用非法。`);
+                canonicalPoints.push(null);
+                continue;
+            }
+            if (!inBoard(point.q, point.r)) errors.push(`河流「${riverId || '未命名'}」第 ${pointIndex + 1} 个顶点引用棋盘外地块 (${point.q},${point.r})。`);
+            const canonical = canonicalRiverVertex(point);
+            canonicalPoints.push(canonical);
+            const vertexKey = canonicalRiverVertexKey(point);
+            if (seenVertices.has(vertexKey)) errors.push(`河流「${riverId || '未命名'}」重复经过 canonical 顶点 ${vertexKey}，形成自交或回环。`);
+            seenVertices.add(vertexKey);
+        }
+        for (let segmentIndex = 0; segmentIndex < canonicalPoints.length - 1; segmentIndex++) {
+            const from = canonicalPoints[segmentIndex];
+            const to = canonicalPoints[segmentIndex + 1];
+            if (!from || !to) continue;
+            if (from.key === to.key) {
+                errors.push(`河流「${riverId || '未命名'}」第 ${segmentIndex + 1} 段为零长度。`);
+                continue;
+            }
+            if (!areCanonicalRiverVerticesAdjacent(from, to)) {
+                errors.push(`河流「${riverId || '未命名'}」第 ${segmentIndex + 1} 段跨越了非相邻 canonical 顶点。`);
+            }
+            const segmentKey = canonicalRiverSegmentKey(from, to);
+            if (globalSegments.has(segmentKey)) {
+                const previous = globalSegments.get(segmentKey);
+                errors.push(`河流「${riverId || '未命名'}」第 ${segmentIndex + 1} 段与「${previous.riverId}」第 ${previous.segmentIndex + 1} 段重复。`);
+            } else {
+                globalSegments.set(segmentKey, { riverId, segmentIndex });
+            }
+        }
+        const intersections = findRiverPathSelfIntersections(points);
+        if (intersections.length) {
+            const first = intersections[0];
+            errors.push(`河流「${riverId || '未命名'}」第 ${first.leftSegmentIndex + 1} 段与第 ${first.rightSegmentIndex + 1} 段自交。`);
+        }
+        if (!riverById.has(riverId)) riverById.set(riverId, river);
+    }
+
+    const seenCrossings = new Set();
+    for (const crossing of (c.board?.crossings || [])) {
+        const river = riverById.get(crossing?.riverId);
+        if (!river) errors.push(`河流通行点引用了不存在的河流「${crossing?.riverId}」。`);
+        if (!Number.isInteger(crossing?.segmentIndex)
+            || crossing.segmentIndex < 0
+            || crossing.segmentIndex >= Math.max(0, (river?.points?.length || 0) - 1)) {
+            errors.push(`河流「${crossing?.riverId}」的通行点引用了无效河段 ${crossing?.segmentIndex}。`);
+        }
+        if (!RIVER_CROSSING_KINDS.includes(crossing?.kind)) {
+            errors.push(`河流「${crossing?.riverId}」河段 ${crossing?.segmentIndex} 的通行点类型「${crossing?.kind}」无效。`);
+        }
+        const key = `${crossing?.riverId}:${crossing?.segmentIndex}`;
+        if (seenCrossings.has(key)) errors.push(`河流「${crossing?.riverId}」河段 ${crossing?.segmentIndex} 重复设置了通行点。`);
+        seenCrossings.add(key);
+    }
+
+    const seenPorts = new Set();
+    for (const port of (c.board?.ports || [])) {
+        if (!Number.isInteger(port?.q) || !Number.isInteger(port?.r)) {
+            errors.push(`港口坐标 (${port?.q},${port?.r}) 必须是整数。`);
+            continue;
+        }
+        const key = tileCoordinateKey(port.q, port.r);
+        if (seenPorts.has(key)) errors.push(`港口 (${key}) 重复。`);
+        seenPorts.add(key);
+        if (!inBoard(port.q, port.r)) errors.push(`港口 (${key}) 落在棋盘之外。`);
+        if (isWaterAt(port.q, port.r)) errors.push(`港口 (${key}) 必须放在陆地上。`);
+        if (inBoard(port.q, port.r) && !hasAdjacentWater(surfaceMap, port.q, port.r)) {
+            errors.push(`港口 (${key}) 必须邻接至少一个实体水域地块。`);
+        }
+    }
+
     const cities = c.board?.cities || [];
     if (cities.length === 0) warnings.push('棋盘没有任何城市，玩家可能无法获得收入或胜负判定。');
     const districtCityCount = new Map();
+    const cityCenters = new Set();
+    const urbanCoordinates = new Map();
     for (const city of cities) {
-        if (!inBoard(city.q, city.r)) errors.push(`城市 (${city.q},${city.r}) 落在棋盘之外。`);
-        if (!city.camp) errors.push(`城市 (${city.q},${city.r}) 缺少阵营归属，请在城市属性中指定。`);
+        const cityCoordinateValid = Number.isInteger(city?.q) && Number.isInteger(city?.r);
+        if (!cityCoordinateValid || !inBoard(city.q, city.r)) errors.push(`城市 (${city?.q},${city?.r}) 落在棋盘之外或坐标不是整数。`);
+        const centerKey = cityCoordinateValid ? tileCoordinateKey(city.q, city.r) : null;
+        if (centerKey && cityCenters.has(centerKey)) errors.push(`坐标 (${centerKey}) 上有多个城市中心。`);
+        if (centerKey) cityCenters.add(centerKey);
+        if (!city?.camp) errors.push(`城市 (${city?.q},${city?.r}) 缺少阵营归属，请在城市属性中指定。`);
         else if (!factionIds.has(city.camp)) errors.push(`城市 (${city.q},${city.r}) 的阵营「${city.camp}」未在本关阵营列表中声明。`);
-        districtCityCount.set(city.districtId, (districtCityCount.get(city.districtId) || 0) + 1);
+        districtCityCount.set(city?.districtId, (districtCityCount.get(city?.districtId) || 0) + 1);
+
+        let authoredFootprint = [];
+        if (city?.footprint != null && !Array.isArray(city.footprint)) {
+            errors.push(`城市 (${city?.q},${city?.r}) 的 footprint 必须是坐标数组。`);
+        } else if (Array.isArray(city?.footprint)) {
+            authoredFootprint = city.footprint;
+        }
+        const footprint = [{ q: city?.q, r: city?.r }, ...authoredFootprint];
+        const localFootprint = new Set();
+        for (const point of footprint) {
+            if (!Number.isInteger(point?.q) || !Number.isInteger(point?.r) || !inBoard(point.q, point.r)) {
+                errors.push(`城市 (${city?.q},${city?.r}) 的 footprint 包含棋盘外或非整数坐标 (${point?.q},${point?.r})。`);
+                continue;
+            }
+            const pointKey = tileCoordinateKey(point.q, point.r);
+            if (localFootprint.has(pointKey)) continue; // 中心可显式出现在 footprint 中。
+            localFootprint.add(pointKey);
+            if (isWaterAt(point.q, point.r)) errors.push(`城市 (${city?.q},${city?.r}) 的 footprint 不能覆盖水域地块 (${pointKey})。`);
+            const existingCity = urbanCoordinates.get(pointKey);
+            if (existingCity && existingCity !== centerKey) errors.push(`城市 footprint 在地块 (${pointKey}) 发生重叠。`);
+            else urbanCoordinates.set(pointKey, centerKey);
+        }
     }
     // 阵营由区划内唯一的城市（颜色来源）派生，一个 districtId 不能有两座颜色来源冲突的城市。
     for (const [districtId, count] of districtCityCount) {
         if (count > 1) errors.push(`行政区 ${districtId} 有 ${count} 座城市，颜色来源不唯一。`);
     }
     for (const entry of (c.board?.districts || [])) {
+        if (!Number.isInteger(entry?.q) || !Number.isInteger(entry?.r) || !inBoard(entry.q, entry.r)) {
+            errors.push(`区划范围 (${entry?.q},${entry?.r}) 落在棋盘之外或坐标不是整数。`);
+            continue;
+        }
+        if (isWaterAt(entry.q, entry.r)) errors.push(`水域地块 (${entry.q},${entry.r}) 不能声明行政区。`);
         if (!districtCityCount.has(entry.districtId)) {
             warnings.push(`区划范围 (${entry.q},${entry.r}) 指定为行政区 ${entry.districtId}，但该行政区没有城市作为颜色来源，将显示为中立。`);
         }
+    }
+    for (const entry of (c.board?.terrain || [])) {
+        if (Number.isInteger(entry?.q) && Number.isInteger(entry?.r) && isWaterAt(entry.q, entry.r)) {
+            errors.push(`水域地块 (${entry.q},${entry.r}) 不能叠加陆地地形。`);
+        }
+    }
+    for (const village of (c.board?.villages || [])) {
+        if (!Number.isInteger(village?.q) || !Number.isInteger(village?.r) || !inBoard(village.q, village.r)) {
+            errors.push(`村庄 (${village?.q},${village?.r}) 落在棋盘之外或坐标不是整数。`);
+            continue;
+        }
+        if (isWaterAt(village.q, village.r)) errors.push(`水域地块 (${village.q},${village.r}) 不能放置村庄。`);
+        const villageKey = tileCoordinateKey(village.q, village.r);
+        if (urbanCoordinates.has(villageKey)) {
+            errors.push(`村庄 (${villageKey}) 不能与城市 footprint 重叠。`);
+        }
+    }
+    for (const fortification of (c.board?.fortifications || [])) {
+        if (!Number.isInteger(fortification?.q) || !Number.isInteger(fortification?.r) || !inBoard(fortification.q, fortification.r)) {
+            errors.push(`工事 (${fortification?.q},${fortification?.r}) 落在棋盘之外或坐标不是整数。`);
+            continue;
+        }
+        if (isWaterAt(fortification.q, fortification.r)) errors.push(`水域地块 (${fortification.q},${fortification.r}) 不能放置工事。`);
     }
 
     const storyCommanderIds = new Set();
@@ -299,6 +485,19 @@ export function validateLevel(config) {
         if (!factionIds.has(u.camp)) errors.push(`单位阵营「${u.camp}」未在本关阵营列表中声明。`);
         if (!inBoard(u.q, u.r)) errors.push(`单位 (${u.q},${u.r}) 落在棋盘之外。`);
         const key = `${u.q},${u.r}`;
+        if (UNIT_TYPES.includes(u.type) && Number.isInteger(u.q) && Number.isInteger(u.r) && inBoard(u.q, u.r)) {
+            const authoredTile = {
+                q: u.q,
+                r: u.r,
+                s: -u.q - u.r,
+                surface: surfaceMap.get(key) || SURFACE_KIND.LAND,
+                isPort: seenPorts.has(key)
+            };
+            if (!canUnitOccupyTile({ type: u.type }, authoredTile)) {
+                const domain = UNIT_CONFIG[u.type].movementDomain || 'land';
+                errors.push(`单位「${u.id || key}」的移动域 ${domain} 无法部署在地块 (${key}) 的表面上。`);
+            }
+        }
         if (seen.has(key)) errors.push(`坐标 (${key}) 上有多个单位重叠。`);
         seen.add(key);
         if (!u.id) errors.push(`坐标 (${key}) 的单位缺少 id。`);
@@ -578,6 +777,23 @@ export function validateLevel(config) {
                 if (!UNIT_TYPES.includes(spec?.type)) errors.push(`${specPath} 的单位类型「${spec?.type}」不存在。`);
                 if (!factionIds.has(spec?.camp)) errors.push(`${specPath} 的阵营「${spec?.camp}」未在本关阵营列表中声明。`);
                 if (!Number.isInteger(spec?.q) || !Number.isInteger(spec?.r) || !inBoard(spec.q, spec.r)) errors.push(`${specPath} 的坐标不在棋盘内。`);
+                if (UNIT_TYPES.includes(spec?.type)
+                    && Number.isInteger(spec?.q)
+                    && Number.isInteger(spec?.r)
+                    && inBoard(spec.q, spec.r)) {
+                    const spawnKey = tileCoordinateKey(spec.q, spec.r);
+                    const authoredTile = {
+                        q: spec.q,
+                        r: spec.r,
+                        s: -spec.q - spec.r,
+                        surface: surfaceMap.get(spawnKey) || SURFACE_KIND.LAND,
+                        isPort: seenPorts.has(spawnKey)
+                    };
+                    if (!canUnitOccupyTile({ type: spec.type }, authoredTile)) {
+                        const domain = UNIT_CONFIG[spec.type].movementDomain || 'land';
+                        errors.push(`${specPath} 的移动域 ${domain} 无法部署在地块 (${spawnKey}) 的表面上。`);
+                    }
+                }
                 if (spec?.commander && !COMMANDER_IDS.includes(spec.commander)) errors.push(`${specPath} 引用不存在的将领「${spec.commander}」。`);
                 if (spec?.storyCommander && !storyCommanderIds.has(spec.storyCommander)) errors.push(`${specPath} 引用不存在的剧情将领「${spec.storyCommander}」。`);
                 if (spec?.commander && spec?.storyCommander) errors.push(`${specPath} 不能同时直挂玩法将领与剧情将领。`);

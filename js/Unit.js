@@ -11,6 +11,9 @@ import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
 import { isFriendly, isHostile } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
+import { isRangedAttackPresentation } from '../rules/attackPresentation.js';
+import { getAntiAirLayers } from '../rules/antiAir.js';
+import { canUnitOccupyTile, getUnitMovementDomain } from '../rules/movement.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -25,6 +28,11 @@ export class Unit {
         this.id = idOverride ?? nextId();
         this.type = type;
         this.config = UNIT_CONFIG[type];
+        if (!this.config) throw new TypeError(`Unknown unit type: ${type}`);
+        if (!canUnitOccupyTile({ type, config: this.config }, tile)) {
+            throw new TypeError(`Unit ${type} cannot occupy tile ${tile?.q},${tile?.r}`);
+        }
+        this.movementDomain = getUnitMovementDomain({ type, config: this.config });
         this.camp = camp;
         this.commander = commander;
         // 战役剧情身份与玩法将领原型分离；标准对局保持这些字段为空。
@@ -428,18 +436,9 @@ export class Unit {
         }
         // 防空火力：2格内友军 炮兵/碉堡/停滞者单位 → 仅对空军(上校空军卡)伤害 +25%/层（封顶2层=50%）
         if (isAirDamage && _gameState && _gameState.tileMap) {
-            const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-            const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
-            let aaCount = 0;
-            for (const [dq, dr] of [...dirs, ...dirs2]) {
-                const nb = _gameState.tileMap.get(`${defender.tile.q + dq},${defender.tile.r + dr}`);
-                if (!nb || !nb.unit || nb.unit.camp !== defender.camp) continue;
-                if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest' || nb.unit.commander === 'staller') {
-                    if (aaCount < COMBAT_BALANCE.defense.antiairMaxLayers) aaCount++;
-                }
-            }
-            // 高射机枪工事：为站在其上的单位额外提供自身1层防空（仅覆盖自身1格）
-            if (fortification && fortification.providesSelfAA && aaCount < COMBAT_BALANCE.defense.antiairMaxLayers) aaCount++;
+            const aaCount = getAntiAirLayers(defender.tile, attacker.camp, _gameState.tileMap, {
+                state: _gameState
+            });
             if (aaCount > 0) defSum += aaCount * COMBAT_BALANCE.defense.antiairPerLayer;
         }
         defSum += getCommanderAuraDefenseBonus(defender);
@@ -509,8 +508,15 @@ export class Unit {
         // 反击可达性：攻击者必须落在防守方自身射程内才能还击
         //   近战单位(步/骑) 射程1 → 仅贴脸攻击可被反击
         //   远程单位(炮/碉堡) 射程2 → 2格内的攻击者（含远程炮击/近战贴脸）均可被反击
-        const counterRange = this._isDrone ? 2 : ((this.type === 'archer' || this.type === 'mgNest') ? 2 : 1);
+        const counterIsRanged = isRangedAttackPresentation(this);
+        const counterRange = this._isDrone ? 2 : (counterIsRanged ? Math.max(1, this.config.range || 1) : 1);
         if (hexDistance(attackerUnit.tile, this.tile) > counterRange) {
+            return { dmg: 0, isCrit: false };
+        }
+        // Melee retaliation follows the same surface-domain rule as a normal
+        // assault. For example, infantry on land cannot counter a warship that
+        // fired from an adjacent water cell, while ranged defenders still can.
+        if (!counterIsRanged && !canUnitOccupyTile(this, attackerUnit.tile, gs)) {
             return { dmg: 0, isCrit: false };
         }
 
@@ -779,11 +785,7 @@ export class Unit {
     // 普攻/反击入口（保留旧签名，内部转入 applyDamage）
     takeDamage(dmg, attackerUnit, _skipAura = false) {
         let source = 'true';
-        if (attackerUnit) {
-            if (attackerUnit._isDrone || attackerUnit.type === 'drone') source = 'ranged';
-            else if (attackerUnit.type === 'archer' || attackerUnit.type === 'mgNest') source = 'ranged';
-            else source = 'melee';
-        }
+        if (attackerUnit) source = isRangedAttackPresentation(attackerUnit) ? 'ranged' : 'melee';
         return this.applyDamage(dmg, { source, attacker: attackerUnit, skipAura: _skipAura });
     }
 

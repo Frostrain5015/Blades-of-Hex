@@ -7,7 +7,11 @@ const DEFAULT_SETTINGS = {
     screenShake: true,
     turnFlash: true,
     soundEnabled: true,
-    soundVolume: 0.7
+    soundVolume: 0.7,
+    rendererBackend: 'canvas2d',
+    performanceProfile: 'auto',
+    reducedMotion: false,
+    showGrid: true
 };
 
 export let settings = { ...DEFAULT_SETTINGS };

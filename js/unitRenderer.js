@@ -9,6 +9,13 @@ import { getRoleCamp } from '../rules/diplomacy.js';
 import { campToKey, getFlagColors } from '../rules/camps.js';
 import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
 
+// Shared read-only visual metrics. Interaction previews must anchor to these
+// values instead of duplicating the local badge geometry or adding rule fields
+// to Unit/network snapshots.
+export const UNIT_BADGE_RADIUS = 15;
+export const UNIT_BADGE_CENTER_Y = 1;
+export const UNIT_HUD_OUTER_RADIUS = 20.2;
+
 function isHumanTurn(gameState) {
     if (gameState.campaignMode) return gameState.factions?.[campToKey(gameState.currentCamp)]?.controller === 'human';
     if (isNetworkGame()) {
@@ -151,8 +158,8 @@ export function drawUnit(unit, gameState) {
         ctx.shadowBlur = 6;
         ctx.shadowOffsetY = 2;
 
-        const badgeR = 15;
-        const badgeY = 1;
+        const badgeR = UNIT_BADGE_RADIUS;
+        const badgeY = UNIT_BADGE_CENTER_Y;
         ctx.beginPath();
         ctx.arc(0, badgeY, badgeR, 0, Math.PI * 2);
         const badgeGrad = ctx.createRadialGradient(-1, badgeY - 2, badgeR * 0.05, 0, badgeY, badgeR);

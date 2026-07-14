@@ -48,12 +48,21 @@ import './cheat.js';
 import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
 import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
+import { ATTACK_PRESENTATION, classifyAttackPresentation } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
 import {
     ensurePlayerProfileReady,
     readStandardFlagPreferences,
     writeStandardFlagPreference
 } from './playerProfile.js';
+import {
+    RENDERER_BACKEND,
+    PixiBattlefieldRenderer,
+    battlefieldSnapshotToPixi,
+    buildBattlefieldSnapshot,
+    createBattlefieldRenderer,
+    shouldSyncBattlefieldSnapshot
+} from './rendering/index.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
 let _factionRevealTimer = null;
@@ -105,6 +114,127 @@ setClearOrbitBeamsRef(clearPaladinOrbitBeams);
 setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
 setLaunchOrbitSwordsRef(launchPaladinOrbitSwords);
 setSpawnHealingChainRef(spawnHealingChain);
+
+// 战场渲染边界：Canvas2D 始终保留完整画面；PixiJS 作为可回退的
+// GPU 交互/特效叠加层渐进接管，避免迁移期间丢失既有表现。
+const _battlefieldStage = document.getElementById('canvasStage');
+let _battlefieldRenderer = null;
+let _battlefieldRendererGeneration = 0;
+let _battlefieldSnapshot = null;
+let _battlefieldSnapshotCheckedAt = -Infinity;
+let _battlefieldFrameId = 0;
+let _battlefieldLastFrameAt = performance.now();
+
+function _preferredBattlefieldBackend() {
+    return settings.rendererBackend === RENDERER_BACKEND.PIXI_WEBGL
+        ? RENDERER_BACKEND.PIXI_WEBGL
+        : RENDERER_BACKEND.CANVAS_2D;
+}
+
+function _syncBattlefieldRendererDom(boundary = _battlefieldRenderer) {
+    const backend = boundary?.backend || RENDERER_BACKEND.CANVAS_2D;
+    if (_battlefieldStage) _battlefieldStage.dataset.renderBackend = backend;
+    const pixiCanvas = backend === RENDERER_BACKEND.PIXI_WEBGL
+        ? boundary?.renderer?.canvas
+        : null;
+    pixiCanvas?.classList?.add('battlefield-pixi-canvas');
+}
+
+async function _fallbackBattlefieldRenderer(boundary, error, reason) {
+    if (!boundary || boundary !== _battlefieldRenderer) return;
+    try {
+        if (await boundary.fallbackToCanvas(error, reason)) {
+            _battlefieldSnapshot = null;
+            _syncBattlefieldRendererDom(boundary);
+        }
+    } catch (fallbackError) {
+        console.error('[渲染] Canvas2D 回退失败:', fallbackError);
+    }
+}
+
+async function _replaceBattlefieldRenderer() {
+    const generation = ++_battlefieldRendererGeneration;
+    const previous = _battlefieldRenderer;
+    _battlefieldRenderer = null;
+    previous?.destroy();
+    _battlefieldSnapshot = null;
+    _battlefieldSnapshotCheckedAt = -Infinity;
+
+    let boundary = null;
+    boundary = createBattlefieldRenderer({
+        preferredBackend: _preferredBattlefieldBackend(),
+        performanceProfile: settings.performanceProfile || 'auto',
+        reducedMotion: settings.reducedMotion ? true : undefined,
+        canvasOptions: {
+            canvas,
+            context: canvas.getContext('2d'),
+            drawFrame: () => renderGame()
+        },
+        pixiRendererFactory: ({ capabilities }) => new PixiBattlefieldRenderer({
+            capabilities,
+            performanceProfile: settings.performanceProfile || 'auto',
+            reducedMotion: settings.reducedMotion ? true : undefined,
+            onContextLost: error => {
+                queueMicrotask(() => _fallbackBattlefieldRenderer(boundary, error, 'webgl-context-lost'));
+            },
+            onNotificationError: error => console.error('[渲染] 上下文通知失败:', error)
+        }),
+        onFallback: record => {
+            console.warn(`[渲染] ${record.from} → ${record.to} (${record.reason})`, record.error || '');
+        }
+    });
+
+    try {
+        await boundary.initialize(_battlefieldStage, {
+            width: LOGICAL_W,
+            height: LOGICAL_H,
+            devicePixelRatio: window.devicePixelRatio || 1,
+            backgroundAlpha: 0
+        });
+    } catch (error) {
+        boundary.destroy();
+        console.error('[渲染] 初始化失败，继续使用直接 Canvas2D 绘制:', error);
+        return;
+    }
+    if (generation !== _battlefieldRendererGeneration) {
+        boundary.destroy();
+        return;
+    }
+    _battlefieldRenderer = boundary;
+    _syncBattlefieldRendererDom(boundary);
+}
+
+function _syncPixiBattlefieldScene(now) {
+    if (_battlefieldRenderer?.backend !== RENDERER_BACKEND.PIXI_WEBGL) return;
+    if (now - _battlefieldSnapshotCheckedAt < 50) return;
+    _battlefieldSnapshotCheckedAt = now;
+    try {
+        const next = buildBattlefieldSnapshot(gameState, { viewingCamp: getViewingCamp() });
+        if (!shouldSyncBattlefieldSnapshot(_battlefieldSnapshot, next)) return;
+        _battlefieldSnapshot = next;
+        _battlefieldRenderer.syncScene(battlefieldSnapshotToPixi(next, {
+            overlayOnly: true,
+            showGrid: settings.showGrid !== false,
+            performanceProfile: _battlefieldRenderer.policy?.profile || 'balanced'
+        }));
+    } catch (error) {
+        console.error('[渲染] Pixi 场景同步失败，正在回退:', error);
+        void _fallbackBattlefieldRenderer(_battlefieldRenderer, error, 'scene-sync-failed');
+    }
+}
+
+await _replaceBattlefieldRenderer();
+
+window.addEventListener('battlefield-renderer-settings-changed', event => {
+    const changed = event.detail?.changed;
+    invalidateBoard();
+    if (changed === 'showGrid' && _battlefieldRenderer?.backend === RENDERER_BACKEND.PIXI_WEBGL) {
+        _battlefieldSnapshot = null;
+        _battlefieldSnapshotCheckedAt = -Infinity;
+        return;
+    }
+    void _replaceBattlefieldRenderer();
+});
 	// 编辑器测试中的关卡配置；非空时结算面板的重试/返回路由到编辑器而非战役大厅。
 	let _playtestConfig = null;
 	const _campaignController = createCampaignController({
@@ -125,6 +255,10 @@ function fitCanvas() {
     const scale = Math.min(cw / LOGICAL_W, ch / LOGICAL_H);
     canvas.style.width  = Math.floor(LOGICAL_W * scale) + 'px';
     canvas.style.height = Math.floor(LOGICAL_H * scale) + 'px';
+    if (_battlefieldStage) {
+        _battlefieldStage.style.width = canvas.style.width;
+        _battlefieldStage.style.height = canvas.style.height;
+    }
 }
 
 window.addEventListener('resize', fitCanvas);
@@ -148,7 +282,23 @@ window.addEventListener('beforeunload', (e) => {
 // ==== 游戏循环（始终运行，画布隐藏时无开销） ===================
 function gameLoop() {
     const now = performance.now();
-    renderGame();
+    const deltaMs = Math.min(50, Math.max(0, now - _battlefieldLastFrameAt));
+    _battlefieldLastFrameAt = now;
+    const renderer = _battlefieldRenderer;
+    if (renderer?.backend === RENDERER_BACKEND.PIXI_WEBGL) {
+        // 迁移期混合渲染：Canvas 保持全量战场，Pixi 只绘制高预算交互层。
+        renderGame();
+        _syncPixiBattlefieldScene(now);
+        try {
+            renderer.render({ nowMs: now, deltaMs, frameId: ++_battlefieldFrameId });
+        } catch (error) {
+            void _fallbackBattlefieldRenderer(renderer, error, 'frame-render-failed');
+        }
+    } else if (renderer) {
+        renderer.render({ nowMs: now, deltaMs, frameId: ++_battlefieldFrameId });
+    } else {
+        renderGame();
+    }
     syncBoardActionBar();
 
     // 对策卡手牌独立画布
@@ -2782,19 +2932,24 @@ async function handleRemoteAction(msg) {
                 const _rmSmiteLabel = e?.smiteLabel || '至圣斩';
                 const _rmFromX = e?.fromX ?? e?.x;
                 const _rmFromY = e?.fromY ?? e?.y;
+                const _rmPresentation = classifyAttackPresentation(e);
 
                 const _execAttackFx = () => {
                 if (_rmSmite) {
                     setTimeout(() => playSound('lightning'), 500);
                 } else {
-                    playSound(e.attackerIsDrone || e.attackerType === 'mgNest' ? 'machinegun' : e.attackerType === 'archer' ? 'cannon' : (e?.isCrit ? 'crit' : 'attack'));
+                    playSound(_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER
+                        ? 'machinegun'
+                        : _rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON
+                            ? 'cannon'
+                            : (e?.isCrit ? 'crit' : 'attack'));
                 }
                 if (e) {
                     triggerAttackFlash(e.x, e.y, e.isCrit);
-                    if (e.attackerIsDrone || e.attackerType === 'mgNest') {
+                    if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
                         spawnDroneProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
-                    } else if (e.attackerType === 'archer') {
+                    } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
                         spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                         triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);

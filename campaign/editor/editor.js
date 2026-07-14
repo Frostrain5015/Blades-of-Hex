@@ -2,13 +2,15 @@
 // 数据源是一份 level 配置（schema.js 定义），一切编辑都是对配置的修改；
 // 画布只是配置经 mapBuilder 重建后的预览。导出即下载该配置 JSON。
 import { HEX_SIZE, hexPath, drawHexagonOutline, CAMP_FLAG_COLORS } from '../../js/config.js';
+import { canUnitOccupyTile, getUnitMovementDomain } from '../../rules/movement.js';
+import { SURFACE_KIND, isWaterSurface } from '../../rules/surfaces.js';
 import {
-    drawAllBorders, drawCampBorders, drawDistrictBorders,
-    computeCampBorders, computeDistrictBorders
+    drawAllBorders, drawCampBorders, drawDistrictBorders
 } from '../../js/HexTile.js';
 import { getBorderlessVisualGrid, drawVisualFillerTiles } from '../../js/militaryMap.js';
+import { CanvasBattlefieldLayers } from '../../js/canvasBattlefieldLayers.js';
 import {
-    createDefaultLevel, normalizeLevel, validateLevel, boardContains,
+    createDefaultLevel, normalizeLevel, validateLevel,
     UNIT_TYPES, UNIT_LABELS,
     COMMANDER_IDS, COMMANDER_LABELS, DIALOGUE_PORTRAIT_LABELS, TERRAIN_LABELS,
     FORTIFICATION_KEYS, FORTIFICATION_LABELS, WEATHER_LABELS,
@@ -23,6 +25,18 @@ import {
     el, section, textRow, numRow, selectRow, checkRow, textareaRow,
     checkGroup, itemList, card, hint
 } from './forms.js';
+import {
+    appendRiverDraftPoint,
+    applySurfaceBrush,
+    commitRiverDraft,
+    hitRiverSegment,
+    pruneLevelToBoard,
+    riverVertexToPixel,
+    snapRiverVertex,
+    surfaceKindAt,
+    togglePort,
+    toggleRiverCrossing
+} from './boardModel.js';
 
 // ── 模块状态 ─────────────────────────────────────────────────
 let config = createDefaultLevel();
@@ -31,6 +45,12 @@ let canvas = null, ctx = null;
 const EDITOR_LOGICAL_W = 1000;
 const EDITOR_LOGICAL_H = 750;
 const FLAT_TILE_BASE_OPTIONS = Object.freeze({ drawShadow: false });
+const LAYERED_TILE_BASE_OPTIONS = Object.freeze({ drawLegacyMapDetails: false });
+const FLAT_LAYERED_TILE_BASE_OPTIONS = Object.freeze({
+    drawShadow: false,
+    drawLegacyMapDetails: false
+});
+const canvasBattlefieldLayers = new CanvasBattlefieldLayers({ hexSize: HEX_SIZE });
 let activeTab = 'board';
 let selection = null;              // {kind:'tile',q,r} | {kind:'unit',index} | {kind:'storyCommander',index} | {kind:'trigger',index} | {kind:'objective',id}
 let hoverTile = null;
@@ -43,6 +63,9 @@ let showCoords = false;
 let pendingPick = null; // { mode:'tile'|'tiles', callback, picked:Set, label }
 let pendingHighlight = null; // { q, r } | [{q,r}] | Set — 鼠标悬停图钉时高亮
 let pendingUnitFlag = null; // { q, r } — 单位图钉悬停时在棋盘上显示🚩
+let riverDraft = null; // { points:[{q,r,vertex}] }，双击/按钮完成后才写入 config
+let hoverRiverVertex = null;
+let hoverRiverSegment = null;
 
 const LEGACY_CONDITION_KINDS = new Set(['unitAlive', 'unitDead', 'flagSet', 'flagUnset', 'turnAtLeast', 'eventCardIs']);
 function authorConditions(current = '') { return TRIGGER_CONDITIONS.filter(item => item && (!LEGACY_CONDITION_KINDS.has(item.kind) || item.kind === current)); }
@@ -51,7 +74,20 @@ function authorActions() { return TRIGGER_ACTIONS; }
 // 阵营配置只保存 palette id；具体地块色与旗色由规则层统一解析。
 const FACTION_COLOR_OPTIONS = Object.fromEntries(FACTION_PALETTE.map(p => [p.id, p.label]));
 
-const boardTool = { mode: 'terrain', terrain: 'forest', camp: 'player1', districtId: 1, fortification: 'trench', cityType: 'city', erase: { terrain: true, city: true, village: true, fortification: true, district: true, unit: true } };
+const boardTool = {
+    mode: 'terrain',
+    terrain: 'forest',
+    surface: SURFACE_KIND.SHALLOW_WATER,
+    camp: 'player1',
+    districtId: 1,
+    fortification: 'trench',
+    cityType: 'city',
+    riverId: 'river',
+    riverWidth: 'river',
+    riverNavigable: false,
+    crossingKind: 'bridge',
+    erase: { surface: false, terrain: true, city: true, village: true, fortification: true, district: true, port: true, unit: true }
+};
 const unitTemplate = { type: 'infantry', camp: 'player1', commander: '', storyCommander: '', hpPct: 100, morale: 2, canAct: true };
 
 const undoStack = [];
@@ -214,16 +250,19 @@ function nextUnitId() {
 }
 
 // ── 快照与撤销 ───────────────────────────────────────────────
-function pushUndo() {
-    undoStack.push(JSON.stringify(config));
+function pushUndoSnapshot(snapshot = JSON.stringify(config)) {
+    undoStack.push(snapshot);
     if (undoStack.length > UNDO_LIMIT) undoStack.shift();
     redoStack.length = 0;
 }
+
+function pushUndo() { pushUndoSnapshot(); }
 
 function undo() {
     if (!undoStack.length) { setStatus('没有可撤销的操作'); return; }
     redoStack.push(JSON.stringify(config));
     config = normalizeLevel(JSON.parse(undoStack.pop()));
+    riverDraft = null;
     selection = null;
     refreshAll('已撤销');
 }
@@ -232,6 +271,7 @@ function redo() {
     if (!redoStack.length) { setStatus('没有可重做的操作'); return; }
     undoStack.push(JSON.stringify(config));
     config = normalizeLevel(JSON.parse(redoStack.pop()));
+    riverDraft = null;
     selection = null;
     refreshAll('已重做');
 }
@@ -257,6 +297,92 @@ function unitsByCoord() {
     return map;
 }
 
+function strokeRiverPath(points, { width = 'river', draft = false } = {}) {
+    if (!points?.length) return;
+    const pixels = points.map(point => riverVertexToPixel(point)).filter(Boolean);
+    if (!pixels.length) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(pixels[0].x, pixels[0].y);
+    for (let index = 1; index < pixels.length; index++) ctx.lineTo(pixels[index].x, pixels[index].y);
+    if (draft) {
+        ctx.setLineDash([7, 5]);
+        ctx.strokeStyle = 'rgba(120,236,255,.95)';
+        ctx.lineWidth = width === 'river' ? 4.2 : 2.6;
+        ctx.shadowColor = 'rgba(57,205,255,.8)';
+        ctx.shadowBlur = 7;
+    } else {
+        ctx.strokeStyle = width === 'river' ? 'rgba(20,65,82,.76)' : 'rgba(28,77,92,.68)';
+        ctx.lineWidth = width === 'river' ? 8.5 : 5.2;
+        ctx.stroke();
+        ctx.setLineDash(width === 'river' ? [7, 5] : [4, 5]);
+        ctx.strokeStyle = width === 'river' ? 'rgba(117,213,226,.9)' : 'rgba(141,221,229,.86)';
+        ctx.lineWidth = width === 'river' ? 4.5 : 2.5;
+    }
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawHydrographyAuthoring() {
+    // Persisted rivers, crossings and ports are rendered by the exact same
+    // cached production layers as play mode. This function only adds authoring
+    // affordances (drafts and hover feedback) above that material stack.
+    if (activeTab === 'board' && riverDraft?.points?.length) {
+        strokeRiverPath(riverDraft.points, { width: boardTool.riverWidth, draft: true });
+        for (const ref of riverDraft.points) {
+            const point = riverVertexToPixel(ref);
+            if (!point) continue;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 4.5, 0, Math.PI * 2);
+            ctx.fillStyle = '#bdf7ff';
+            ctx.fill();
+            ctx.strokeStyle = '#168fa7';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.restore();
+        }
+        const last = riverVertexToPixel(riverDraft.points[riverDraft.points.length - 1]);
+        if (last && hoverRiverVertex) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(last.x, last.y);
+            ctx.lineTo(hoverRiverVertex.x, hoverRiverVertex.y);
+            ctx.setLineDash([4, 5]);
+            ctx.strokeStyle = 'rgba(183,246,255,.7)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    if (hoverRiverVertex && boardTool.mode === 'river') {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(hoverRiverVertex.x, hoverRiverVertex.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(92,229,255,.28)';
+        ctx.fill();
+        ctx.strokeStyle = '#a9f4ff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+    }
+    if (hoverRiverSegment && boardTool.mode === 'crossing') {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(hoverRiverSegment.from.x, hoverRiverSegment.from.y);
+        ctx.lineTo(hoverRiverSegment.to.x, hoverRiverSegment.to.y);
+        ctx.strokeStyle = 'rgba(255,219,127,.98)';
+        ctx.lineWidth = 7;
+        ctx.shadowColor = 'rgba(255,185,60,.75)';
+        ctx.shadowBlur = 8;
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
 // ── 渲染 ────────────────────────────────────────────────────
 function render() {
     if (!ctx) return;
@@ -268,12 +394,34 @@ function render() {
     canvas.classList.toggle('borderless-board', Boolean(visualGrid));
     const borderTiles = visualGrid?.tiles || preview.tiles;
     const borderTileMap = visualGrid?.tileMap || preview.tileMap;
+    canvasBattlefieldLayers.sync({
+        playableTiles: preview.tiles,
+        renderTiles: borderTiles,
+        tileMap: preview.tileMap,
+        coastEdges: preview.coastEdges,
+        rivers: preview.rivers,
+        riverCrossings: preview.riverCrossings,
+        riverTopology: preview.riverTopology,
+        ports: preview.ports
+    });
+    const layeredTerrain = canvasBattlefieldLayers.terrainActive;
     if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
-    const tileBaseOptions = visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined;
+    const tileBaseOptions = layeredTerrain
+        ? (visualGrid ? FLAT_LAYERED_TILE_BASE_OPTIONS : LAYERED_TILE_BASE_OPTIONS)
+        : (visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined);
     for (const tile of preview.tiles) tile.drawBase(ctx, tileBaseOptions);
+    const materialOptions = { now: performance.now(), reducedMotion: true };
+    canvasBattlefieldLayers.renderGround(ctx, materialOptions);
+    canvasBattlefieldLayers.renderWaterways(ctx, materialOptions);
+    canvasBattlefieldLayers.renderRelief(ctx, materialOptions);
+    canvasBattlefieldLayers.renderDetails(ctx, materialOptions);
+    if (layeredTerrain) {
+        for (const tile of preview.tiles) tile.drawDeferredMapDetails(ctx);
+    }
     drawAllBorders(ctx, borderTiles, borderTileMap);
-    drawCampBorders(ctx, visualGrid ? computeCampBorders(borderTiles, borderTileMap) : preview.campBorderEdges);
-    drawDistrictBorders(ctx, visualGrid ? computeDistrictBorders(borderTiles, borderTileMap) : preview.districtBorderEdges);
+    drawCampBorders(ctx, preview.campBorderEdges);
+    drawDistrictBorders(ctx, preview.districtBorderEdges);
+    drawHydrographyAuthoring();
 
     // 城市行政区编号
     ctx.save();
@@ -442,11 +590,16 @@ function drawUnitMarker(tile, unit, index) {
 }
 
 // ── 命中测试 ─────────────────────────────────────────────────
-function eventToTile(e) {
+function eventToCanvasPoint(e) {
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const px = (e.clientX - rect.left) * (canvas.width / rect.width) / dpr;
     const py = (e.clientY - rect.top) * (canvas.height / rect.height) / dpr;
+    return { x: px, y: py };
+}
+
+function eventToTile(e) {
+    const { x: px, y: py } = eventToCanvasPoint(e);
     let best = null, bestDist = Infinity;
     for (const tile of preview.tiles) {
         const d = (tile.x - px) ** 2 + (tile.y - py) ** 2;
@@ -465,13 +618,22 @@ function removeFromList(list, q, r) {
 function applyBrush(tile) {
     const { q, r } = tile;
     const b = config.board;
+    const water = isWaterSurface(surfaceKindAt(b, q, r));
     switch (boardTool.mode) {
+        case 'surface': {
+            const result = applySurfaceBrush(config, q, r, boardTool.surface);
+            if (result.error) setStatus(result.error, 'error');
+            else if (result.removed) setStatus(`表面已更新，并清理 ${result.removed} 个不兼容的陆地条目`);
+            return result.changed;
+        }
         case 'terrain': {
+            if (water) { setStatus('水域不能叠加陆地地形；请先用“陆地”表面笔刷恢复。', 'error'); return false; }
             removeFromList(b.terrain, q, r);
             if (boardTool.terrain !== 'plains') b.terrain.push({ q, r, type: boardTool.terrain });
-            break;
+            return true;
         }
         case 'city': {
+            if (water) { setStatus('水域不能放置城市或村庄。', 'error'); return false; }
             // 城市/村庄二合一笔刷：由 boardTool.cityType 区分（'city' | 'village'），两者互斥。
             removeFromList(b.cities, q, r);
             removeFromList(b.villages, q, r);
@@ -481,9 +643,10 @@ function applyBrush(tile) {
             } else {
                 b.villages.push({ q, r, districtId: preview.tileMap.get(tileKey(q, r))?.districtId ?? boardTool.districtId });
             }
-            break;
+            return true;
         }
         case 'fortification': {
+            if (water) { setStatus('水域不能放置陆地工事。', 'error'); return false; }
             const exist = b.fortifications.find(f => f.q === q && f.r === r);
             if (exist && exist.type === boardTool.fortification) {
                 removeFromList(b.fortifications, q, r);
@@ -491,42 +654,118 @@ function applyBrush(tile) {
                 removeFromList(b.fortifications, q, r);
                 b.fortifications.push({ q, r, type: boardTool.fortification });
             }
-            break;
+            return true;
         }
         case 'district': {
+            if (water) { setStatus('水域不能声明行政区。', 'error'); return false; }
             removeFromList(b.districts, q, r);
             b.districts.push({ q, r, districtId: boardTool.districtId });
-            break;
+            return true;
         }
         case 'erase': {
             const opt = boardTool.erase;
+            if (opt.surface) applySurfaceBrush(config, q, r, SURFACE_KIND.LAND);
             if (opt.terrain) removeFromList(b.terrain, q, r);
             if (opt.city) removeFromList(b.cities, q, r);
             if (opt.village) removeFromList(b.villages, q, r);
             if (opt.fortification) removeFromList(b.fortifications, q, r);
             if (opt.district) removeFromList(b.districts, q, r);
+            if (opt.port) removeFromList(b.ports, q, r);
             if (opt.unit) config.units = config.units.filter(u => !(u.q === q && u.r === r));
-            break;
+            return true;
         }
     }
+    return false;
 }
 
 // 布局或半径变化时裁剪棋盘外的内容，避免遗留非法条目。
 function pruneOutOfBoard() {
-    const inside = (p) => boardContains(config.board, p.q, p.r);
-    let pruned = 0;
-    for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts']) {
-        const before = config.board[key].length;
-        config.board[key] = config.board[key].filter(inside);
-        pruned += before - config.board[key].length;
+    const result = pruneLevelToBoard(config);
+    if (result.removed > 0 || result.remappedCrossings > 0) {
+        setStatus(`棋盘调整：已清理 ${result.removed} 个越界条目`
+            + (result.remappedCrossings ? `，重映射 ${result.remappedCrossings} 个河流通行点` : ''));
     }
-    const beforeUnits = config.units.length;
-    config.units = config.units.filter(inside);
-    pruned += beforeUnits - config.units.length;
-    if (pruned > 0) setStatus(`棋盘调整：已移除 ${pruned} 个棋盘外条目`);
 }
 
 // ── 画布交互 ─────────────────────────────────────────────────
+function completeRiverDraft() {
+    if (!riverDraft?.points?.length) { setStatus('尚未开始绘制河流。'); return false; }
+    const snapshot = JSON.stringify(config);
+    const result = commitRiverDraft(config, {
+        id: boardTool.riverId,
+        width: boardTool.riverWidth,
+        navigable: boardTool.riverNavigable,
+        points: riverDraft.points
+    });
+    if (!result.changed) { setStatus(result.error, 'error'); return false; }
+    pushUndoSnapshot(snapshot);
+    riverDraft = null;
+    hoverRiverVertex = null;
+    rebuildPreview();
+    renderToolPanel();
+    renderInspector();
+    render();
+    setStatus(`河流「${result.id}」已完成`, 'ok');
+    return true;
+}
+
+function cancelRiverDraft() {
+    if (!riverDraft) return;
+    riverDraft = null;
+    hoverRiverVertex = null;
+    renderToolPanel();
+    render();
+    setStatus('已取消未完成的河流草稿');
+}
+
+function handleRiverPointer(e) {
+    const point = eventToCanvasPoint(e);
+    const snapped = snapRiverVertex(preview.tiles, point.x, point.y);
+    if (!snapped) { setStatus('请点击真实地块的六边形顶点；棋盘外假格不可编辑。', 'error'); return; }
+    const previous = riverDraft?.points || [];
+    const result = appendRiverDraftPoint(previous, snapped);
+    if (!result.changed) {
+        if (result.error) setStatus(result.error, 'error');
+        return;
+    }
+    riverDraft = { points: result.points };
+    renderToolPanel();
+    render();
+    setStatus(`河流草稿：${result.points.length} 个顶点（单击续点，双击完成，Backspace 撤点）`);
+}
+
+function handleCrossingPointer(e) {
+    const point = eventToCanvasPoint(e);
+    const segment = hitRiverSegment(config.board, point.x, point.y);
+    if (!segment) { setStatus('通行点必须直接点击已有河段。', 'error'); return; }
+    const snapshot = JSON.stringify(config);
+    const result = toggleRiverCrossing(config, segment, boardTool.crossingKind);
+    if (!result.changed) { setStatus(result.error, 'error'); return; }
+    pushUndoSnapshot(snapshot);
+    rebuildPreview();
+    render();
+    setStatus(result.placed
+        ? `已在 ${segment.riverId} 第 ${segment.segmentIndex + 1} 段放置${boardTool.crossingKind === 'bridge' ? '桥梁' : '浅滩'}`
+        : '已移除河流通行点', 'ok');
+}
+
+function handlePortPointer(tile) {
+    const snapshot = JSON.stringify(config);
+    const result = togglePort(config, tile.q, tile.r);
+    if (!result.changed) { setStatus(result.error, 'error'); return; }
+    pushUndoSnapshot(snapshot);
+    rebuildPreview();
+    render();
+    setStatus(result.placed ? '已放置港口' : '已移除港口', 'ok');
+}
+
+function unitPlacementError(tile, type) {
+    if (canUnitOccupyTile({ type }, tile, preview)) return '';
+    if (getUnitMovementDomain(type) === 'naval') return '海军单位只能部署在水域或港口。';
+    if (isWaterSurface(surfaceKindAt(config.board, tile.q, tile.r))) return '陆军单位不能部署在水域。';
+    return '该兵种不能部署到这个地块。';
+}
+
 function onPointerDown(e) {
     const tile = eventToTile(e);
     if (!tile) return;
@@ -550,6 +789,9 @@ function onPointerDown(e) {
     }
 
     if (activeTab === 'board') {
+        if (boardTool.mode === 'river') { handleRiverPointer(e); return; }
+        if (boardTool.mode === 'crossing') { handleCrossingPointer(e); return; }
+        if (boardTool.mode === 'port') { handlePortPointer(tile); return; }
         painting = true;
         lastPaintKey = '';
         pushUndo();                                  // 一次笔画一条撤销记录
@@ -561,6 +803,8 @@ function onPointerDown(e) {
         if (hit) {
             selection = { kind: 'unit', index: hit.index };
         } else {
+            const placementError = unitPlacementError(tile, unitTemplate.type);
+            if (placementError) { setStatus(placementError, 'error'); render(); return; }
             pushUndo();
             config.units.push({
                 id: nextUnitId(),
@@ -600,7 +844,14 @@ function paintAt(tile) {
 
 function onPointerMove(e) {
     const tile = eventToTile(e);
+    const point = eventToCanvasPoint(e);
     hoverTile = tile;
+    hoverRiverVertex = activeTab === 'board' && boardTool.mode === 'river'
+        ? snapRiverVertex(preview.tiles, point.x, point.y)
+        : null;
+    hoverRiverSegment = activeTab === 'board' && boardTool.mode === 'crossing'
+        ? hitRiverSegment(config.board, point.x, point.y)
+        : null;
     updateHint(tile);
     if (painting && tile && activeTab === 'board') paintAt(tile);
     else render();
@@ -608,6 +859,12 @@ function onPointerMove(e) {
 
 function onPointerUp() {
     if (painting) { painting = false; renderInspector(); }
+}
+
+function onDoubleClick(e) {
+    if (activeTab !== 'board' || boardTool.mode !== 'river') return;
+    e.preventDefault();
+    completeRiverDraft();
 }
 
 function updateHint(tile, modeInfo) {
@@ -622,14 +879,29 @@ function updateHint(tile, modeInfo) {
         return;
     }
     if (!tile) { hintEl.textContent = ''; return; }
+    if (activeTab === 'board' && boardTool.mode === 'river') {
+        hintEl.textContent = hoverRiverVertex
+            ? `河流顶点 ${hoverRiverVertex.canonicalKey}　单击续点 · 双击完成 · Backspace 撤点`
+            : '靠近真实地块顶点以吸附河流；棋盘外假格不可编辑';
+        return;
+    }
+    if (activeTab === 'board' && boardTool.mode === 'crossing') {
+        hintEl.textContent = hoverRiverSegment
+            ? `${hoverRiverSegment.riverId} · 第 ${hoverRiverSegment.segmentIndex + 1} 河段　点击切换${boardTool.crossingKind === 'bridge' ? '桥梁' : '浅滩'}`
+            : '直接悬停并点击已有河段放置通行点';
+        return;
+    }
     const unit = unitsByCoord().get(tileKey(tile.q, tile.r))?.unit;
+    const surface = surfaceKindAt(config.board, tile.q, tile.r);
     const parts = [
         `(${tile.q}, ${tile.r})`,
+        surface === SURFACE_KIND.DEEP_WATER ? '深水' : surface === SURFACE_KIND.SHALLOW_WATER ? '浅水' : '陆地',
         `区${tile.districtId}`,
         factionLabels()[campKeyOfTile(tile)] || '',
         TERRAIN_LABELS[tile.terrain] || '',
         tile.isCity ? '城市' : '',
         tile.isVillage ? '村庄' : '',
+        tile.isPort ? '港口' : '',
         tile.fortification ? FORTIFICATION_LABELS[tile.fortification] : '',
         unit ? `单位:${UNIT_LABELS[unit.type]}${commanderMountLabel(unit) ? '·' + commanderMountLabel(unit) : ''}(${unit.id})` : ''
     ].filter(Boolean);
@@ -669,6 +941,7 @@ function buildBoardTools() {
     secRadius.appendChild(selectRow('地图布局', config.board.layout, BOARD_LAYOUT_LABELS, value => {
         mutate(c => {
             c.board.layout = value;
+            riverDraft = null;
             pruneOutOfBoard();
         });
     }));
@@ -676,6 +949,7 @@ function buildBoardTools() {
         secRadius.appendChild(numRow('半径', config.board.radius, v => {
             mutate(c => {
                 c.board.radius = Math.max(BOARD_RADIUS_MIN, Math.min(BOARD_RADIUS_MAX, Math.round(v)));
+                riverDraft = null;
                 pruneOutOfBoard();
             });
         }, { min: BOARD_RADIUS_MIN, max: BOARD_RADIUS_MAX, step: 1 }));
@@ -688,16 +962,33 @@ function buildBoardTools() {
 
     const secBrush = section('笔刷');
     secBrush.appendChild(brushGrid([
+        { value: 'surface', label: '水陆表面' },
         { value: 'terrain', label: '地形' },
         { value: 'city', label: '城市/村庄' },
         { value: 'fortification', label: '工事' },
         { value: 'district', label: '区划范围' },
+        { value: 'river', label: '河流' },
+        { value: 'crossing', label: '桥/浅滩' },
+        { value: 'port', label: '港口' },
         { value: 'erase', label: '橡皮擦' }
-    ], boardTool.mode, v => { boardTool.mode = v; }));
+    ], boardTool.mode, v => {
+        boardTool.mode = v;
+        hoverRiverVertex = null;
+        hoverRiverSegment = null;
+        render();
+    }, true));
     wrap.appendChild(secBrush);
 
     // 笔刷参数
     const secParam = section('笔刷参数');
+    if (boardTool.mode === 'surface') {
+        secParam.appendChild(brushGrid([
+            { value: SURFACE_KIND.LAND, label: '陆地' },
+            { value: SURFACE_KIND.SHALLOW_WATER, label: '浅水' },
+            { value: SURFACE_KIND.DEEP_WATER, label: '深水' }
+        ], boardTool.surface, v => { boardTool.surface = v; }, true));
+        secParam.appendChild(hint('水域采用稀疏保存；改成水面会同步清理该格上不兼容的地形、城镇、工事、区划、港口和陆军单位。'));
+    }
     if (boardTool.mode === 'terrain') {
         secParam.appendChild(brushGrid(
             Object.entries(TERRAIN_LABELS).map(([value, label]) => ({ value, label })),
@@ -715,17 +1006,58 @@ function buildBoardTools() {
     if (boardTool.mode === 'city' || boardTool.mode === 'district') {
         secParam.appendChild(numRow('行政区 ID', boardTool.districtId, v => { boardTool.districtId = Math.max(0, Math.round(v)); }, { min: 0, max: 99, step: 1 }));
     }
+    if (boardTool.mode === 'river') {
+        secParam.appendChild(textRow('河流 ID', boardTool.riverId, v => { boardTool.riverId = v.trim() || 'river'; }));
+        secParam.appendChild(selectRow('宽度', boardTool.riverWidth, { stream: '溪流', river: '河流' }, v => { boardTool.riverWidth = v; render(); }));
+        secParam.appendChild(checkRow('可通航', boardTool.riverNavigable, v => { boardTool.riverNavigable = v; }));
+        secParam.appendChild(hint(`顶点吸附绘制：单击续点，双击结束，Backspace 撤点。${riverDraft?.points?.length ? `当前草稿 ${riverDraft.points.length} 点。` : '尚未开始草稿。'}`));
+        const actions = el('div', 'ed-grid');
+        const finish = el('button', 'ed-add-btn', '完成河流');
+        finish.disabled = (riverDraft?.points?.length || 0) < 2;
+        finish.addEventListener('click', completeRiverDraft);
+        const cancel = el('button', 'ed-add-btn', '取消草稿');
+        cancel.disabled = !riverDraft;
+        cancel.addEventListener('click', cancelRiverDraft);
+        actions.append(finish, cancel);
+        secParam.appendChild(actions);
+    }
+    if (boardTool.mode === 'crossing') {
+        secParam.appendChild(selectRow('通行点', boardTool.crossingKind, { bridge: '桥梁', ford: '浅滩' }, v => { boardTool.crossingKind = v; }));
+        secParam.appendChild(hint('通行点只接受已有河段命中；再次点击同类通行点可移除，切换类型后点击可替换。'));
+    }
+    if (boardTool.mode === 'port') {
+        secParam.appendChild(hint('点击放置/移除港口。港口必须位于陆地，并邻接至少一个真实浅水或深水地块。'));
+    }
     if (boardTool.mode === 'erase') {
         const opt = boardTool.erase;
         const toggle = (key) => (v) => { opt[key] = v; renderToolPanel(); };
+        secParam.appendChild(checkRow('恢复陆地', opt.surface, toggle('surface')));
         secParam.appendChild(checkRow('地形', opt.terrain, toggle('terrain')));
         secParam.appendChild(checkRow('城市', opt.city, toggle('city')));
         secParam.appendChild(checkRow('村庄', opt.village, toggle('village')));
         secParam.appendChild(checkRow('工事', opt.fortification, toggle('fortification')));
         secParam.appendChild(checkRow('区划范围', opt.district, toggle('district')));
+        secParam.appendChild(checkRow('港口', opt.port, toggle('port')));
         secParam.appendChild(checkRow('单位', opt.unit, toggle('unit')));
     }
     if (secParam.childElementCount > 1) wrap.appendChild(secParam);
+
+    if ((config.board.rivers || []).length) {
+        const secRivers = section(`已绘河流（${config.board.rivers.length}）`);
+        for (const river of config.board.rivers) {
+            const row = el('div', 'ed-list-item');
+            row.appendChild(el('span', 'ed-item-label', `${river.id} · ${river.width === 'river' ? '河流' : '溪流'} · ${river.points.length} 点`));
+            const remove = el('button', 'ed-item-del', '✕');
+            remove.title = '删除河流及其桥梁/浅滩';
+            remove.addEventListener('click', () => mutate(c => {
+                c.board.rivers = c.board.rivers.filter(item => item.id !== river.id);
+                c.board.crossings = c.board.crossings.filter(item => item.riverId !== river.id);
+            }));
+            row.appendChild(remove);
+            secRivers.appendChild(row);
+        }
+        wrap.appendChild(secRivers);
+    }
 
     return wrap;
 }
@@ -2087,6 +2419,7 @@ function importLevel(file) {
             const raw = JSON.parse(reader.result);
             pushUndo();
             config = normalizeLevel(raw);
+            riverDraft = null;
             selection = null;
             unitSeq = 1;
             refreshAll(`✓ 已导入 ${file.name}`);
@@ -2101,6 +2434,7 @@ function importLevel(file) {
 function newLevel() {
     if (!confirm('新建空白关卡？当前未导出的修改将丢失。')) return;
     config = createDefaultLevel();
+    riverDraft = null;
     selection = null;
     undoStack.length = 0;
     redoStack.length = 0;
@@ -2133,7 +2467,17 @@ function onKeyDown(e) {
     // 输入框聚焦时不劫持快捷键
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+    if (activeTab === 'board' && boardTool.mode === 'river' && riverDraft && e.key === 'Backspace') {
+        e.preventDefault();
+        riverDraft.points.pop();
+        if (!riverDraft.points.length) riverDraft = null;
+        renderToolPanel();
+        render();
+        setStatus(riverDraft ? `河流草稿已撤回到 ${riverDraft.points.length} 个顶点` : '河流草稿已清空');
+    } else if (activeTab === 'board' && boardTool.mode === 'river' && riverDraft && e.key === 'Escape') {
+        e.preventDefault();
+        cancelRiverDraft();
+    } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
     else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); }
 }
 
@@ -2155,7 +2499,14 @@ export function initEditor(cbs = {}) {
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUp);
-    canvas.addEventListener('pointerleave', () => { hoverTile = null; onPointerUp(); render(); });
+    canvas.addEventListener('dblclick', onDoubleClick);
+    canvas.addEventListener('pointerleave', () => {
+        hoverTile = null;
+        hoverRiverVertex = null;
+        hoverRiverSegment = null;
+        onPointerUp();
+        render();
+    });
 
     for (const tab of document.querySelectorAll('.editor-tab')) {
         tab.addEventListener('click', () => {

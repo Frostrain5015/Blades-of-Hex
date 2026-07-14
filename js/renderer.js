@@ -1,16 +1,15 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, hexDistance } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, settings } from './config.js';
 import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import {
-    drawAllBorders, drawDistrictBorders, drawCampBorders,
-    computeDistrictBorders, computeCampBorders
+    drawAllBorders, drawDistrictBorders, drawCampBorders
 } from './HexTile.js';
 import {
     getBorderlessVisualGrid, drawVisualFillerTile, drawVisualFillerTiles
 } from './militaryMap.js';
-import { isColonelTargetBlocked, getColonelUnit, isAntiAirUnit, COLONEL_AIR_RANGE, ANTIAIR_RADIUS } from './gameLogic.js';
+import { resolveAntiAirCoverage } from '../rules/antiAir.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
@@ -35,37 +34,42 @@ import { getViewingCamp } from './state.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
 import { drawFxLayer, updateFxFns } from './fxRegistry.js';
 import { drawBattlefieldFlags } from './flagRenderer.js';
-import { drawUnitFlagFinial } from './unitRenderer.js';
+import { drawUnitFlagFinial, getUnitVisualPos, UNIT_BADGE_RADIUS, UNIT_HUD_OUTER_RADIUS } from './unitRenderer.js';
 import { resolveActiveObjectiveHighlightTiles } from '../campaign/runtime/objectiveHighlights.js';
+import {
+    drawOperationOrigin,
+    drawOperationPreview,
+    OPERATION_PREVIEW_ACTIONS
+} from './operationPreviewRenderer.js';
+import { operationArrowStyleForAttacker } from '../rules/attackPresentation.js';
+import {
+    resolveTargetingPreview,
+    TARGET_INTENTS,
+    TARGET_SHAPES,
+    targetingTileKey
+} from '../rules/targeting.js';
+import {
+    drawHologramMotif,
+    renderTargetingPreview
+} from './targetingPreviewRenderer.js';
+import { resolveMovementTileReveal } from './movementRegionAnimation.js';
+import { CanvasBattlefieldLayers } from './canvasBattlefieldLayers.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
-const borderlessBorderCache = new WeakMap();
 const FLAT_TILE_BASE_OPTIONS = Object.freeze({ drawShadow: false });
+const LAYERED_TILE_BASE_OPTIONS = Object.freeze({ drawLegacyMapDetails: false });
+const FLAT_LAYERED_TILE_BASE_OPTIONS = Object.freeze({
+    drawShadow: false,
+    drawLegacyMapDetails: false
+});
+const canvasBattlefieldLayers = new CanvasBattlefieldLayers({ hexSize: HEX_SIZE });
 let canvasFrameIsBorderless = null;
 
 function syncCanvasFrameStyle(isBorderless) {
     if (canvasFrameIsBorderless === isBorderless) return;
     canvasFrameIsBorderless = isBorderless;
     ctx.canvas.parentElement?.classList.toggle('borderless-board', isBorderless);
-}
-
-function getBorderlessBorderEdges(visualGrid) {
-    let cached = borderlessBorderCache.get(visualGrid);
-    if (!cached) {
-        cached = {
-            campSource: null,
-            camp: [],
-            district: computeDistrictBorders(visualGrid.tiles, visualGrid.tileMap)
-        };
-        borderlessBorderCache.set(visualGrid, cached);
-    }
-    // 所有领土变更入口都会替换 gameState.campBorderEdges 数组；以其引用作为低成本版本号。
-    if (cached.campSource !== gameState.campBorderEdges) {
-        cached.campSource = gameState.campBorderEdges;
-        cached.camp = computeCampBorders(visualGrid.tiles, visualGrid.tileMap);
-    }
-    return cached;
 }
 
 function _lerpColor(aHex, bHex, t) {
@@ -163,9 +167,22 @@ export function renderGame() {
     syncCanvasFrameStyle(Boolean(visualGrid));
     const borderTiles = visualGrid?.tiles || tiles;
     const borderTileMap = visualGrid?.tileMap || gameState.tileMap;
-    const visualBorderEdges = visualGrid ? getBorderlessBorderEdges(visualGrid) : null;
-    const campBorderEdges = visualBorderEdges?.camp || gameState.campBorderEdges;
-    const districtBorderEdges = visualBorderEdges?.district || gameState.districtBorderEdges;
+    // Ownership and district boundaries are gameplay topology: only the real
+    // land subgraph may contribute. Borderless fillers extend materials/grid,
+    // never faction or district data.
+    const campBorderEdges = gameState.campBorderEdges;
+    const districtBorderEdges = gameState.districtBorderEdges;
+    canvasBattlefieldLayers.sync({
+        playableTiles: tiles,
+        renderTiles: borderTiles,
+        tileMap: gameState.tileMap,
+        coastEdges: gameState.coastEdges,
+        rivers: gameState.rivers,
+        riverCrossings: gameState.riverCrossings,
+        riverTopology: gameState.riverTopology,
+        ports: gameState.ports
+    });
+    const layeredTerrain = canvasBattlefieldLayers.terrainActive;
 
     ctx.save();
     ctx.translate(screenShake.x, screenShake.y);
@@ -173,9 +190,22 @@ export function renderGame() {
 
     // Draw tile bases
     if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
-    const tileBaseOptions = visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined;
+    const tileBaseOptions = layeredTerrain
+        ? (visualGrid ? FLAT_LAYERED_TILE_BASE_OPTIONS : LAYERED_TILE_BASE_OPTIONS)
+        : (visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined);
     for (let i = 0, len = tiles.length; i < len; i++) {
         tiles[i].drawBase(ctx, tileBaseOptions);
+    }
+    // Fixed map-material order: neutral water, terrain floor, coast/river,
+    // terrain relief, then fortifications/bridges/ports. Every phase shares
+    // the cached real-board clip (plus render-only fillers in borderless mode).
+    const materialOptions = { now, reducedMotion: settings.reducedMotion === true };
+    canvasBattlefieldLayers.renderGround(ctx, materialOptions);
+    canvasBattlefieldLayers.renderWaterways(ctx, materialOptions);
+    canvasBattlefieldLayers.renderRelief(ctx, materialOptions);
+    canvasBattlefieldLayers.renderDetails(ctx, materialOptions);
+    if (layeredTerrain) {
+        for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawDeferredMapDetails(ctx);
     }
     // Faction-tinted military-map city outline stays below every object, but
     // remains visible around a unit that covers the central castle glyph.
@@ -193,11 +223,13 @@ export function renderGame() {
     // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
     drawCommanderPennants();
     // 国界线/区划线（先锋旗之下、单位之上）
-    drawAllBorders(ctx, borderTiles, borderTileMap);
+    if (settings.showGrid !== false) drawAllBorders(ctx, borderTiles, borderTileMap);
     drawDistrictBorders(ctx, districtBorderEdges);
     drawCampBorders(ctx, campBorderEdges);
     // ── 将领特效图层：underUnits（立绘之后、单位徽章之前；圣骑士剑环后半圈）──
     drawFxLayer('underUnits', ctx, now);
+    // 纯本地操作预览先画到单位之下，球体自然遮住路线内部，避免起终点断口。
+    drawOperationInteractionRoute(now);
     // Units — 全部绘制，非可见地块会在后续迷雾阶段被地形覆绘+遮罩覆盖
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
     // City disabled indicator (same layer as Iron Guard shield)
@@ -246,10 +278,6 @@ export function renderGame() {
     drawDamageTexts(now);
     drawHealTexts(now);
     drawGoldTexts(now);
-    drawCounterText();
-
-    // 选中高亮
-    drawSelectionHighlights();
 
     // 对策卡手牌 — 独立 canvas 渲染（见 drawCardCanvas）
     // 暗角 — 仅雨天生效
@@ -640,20 +668,14 @@ export function renderGame() {
 
 // 通用防空炮火特效：从AA单位射向飞行器的曳光弹流
 function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) {
-    const targetS = -(targetQ + targetR);
-    const _sources = [];
-    for (const _t of gameState.tiles) {
-        const _u = _t.unit;
-        if (!_u || !_u.camp || _u.camp === friendlyCamp || !isAntiAirUnit(_u)) continue;
-        if (hexDistance(_t, { q: targetQ, r: targetR, s: targetS }) > ANTIAIR_RADIUS) continue;
-        _sources.push(_t);
-    }
-    // 高射机枪工事：目标格自身作为防空源（仅覆盖自身1格），敌方空军来袭时照常射出曳光弹流
-    const _flakTile = gameState.tileMap.get(`${targetQ},${targetR}`);
-    if (_flakTile && _flakTile.fortification === 'flak' && _flakTile.unit
-        && _flakTile.unit.camp !== friendlyCamp && !_sources.includes(_flakTile)) {
-        _sources.push(_flakTile);
-    }
+    const targetTile = gameState.tileMap.get(`${targetQ},${targetR}`);
+    if (!targetTile) return;
+    const coverage = resolveAntiAirCoverage(targetTile, friendlyCamp, gameState.tileMap, {
+        state: gameState,
+        includeSources: true
+    });
+    const sourceKeys = new Set(coverage.sources.map(source => source.tileKey));
+    const _sources = [...sourceKeys].map(key => gameState.tileMap.get(key)).filter(Boolean);
     for (const _t of _sources) {
         ctx.save();
         const sx2 = _t.x, sy2 = _t.y;
@@ -865,38 +887,7 @@ function drawAirliftEffects(now) {
             // 防空炮火（空运阶段A）
             if (fx.q != null && p > 0.1 && p < 0.9) {
                 const seed = (fx.fromX | 0) * 7 + (fx.toY | 0) * 13;
-                const as = -(fx.q + fx.r);
-                for (const _t of gameState.tiles) {
-                    const _u = _t.unit;
-                    if (!_u || !_u.camp || _u.camp === _alc || !isAntiAirUnit(_u)) continue;
-                    if (hexDistance(_t, { q: fx.q, r: fx.r, s: as }) > ANTIAIR_RADIUS) continue;
-                    ctx.save();
-                    const sx2 = _t.x, sy2 = _t.y;
-                    const dx = px - sx2, dy = py - sy2;
-                    for (let tr = 0; tr < 3; tr++) {
-                        const phase = (t * 6 + tr * 0.5 + seed * 0.02) % 1;
-                        const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
-                        const tx = sx2 + dx * tp;
-                        const ty = sy2 + dy * tp;
-                        const ta = 0.8 * (1 - tp);
-                        ctx.shadowColor = 'rgba(255,200,60,0.7)';
-                        ctx.shadowBlur = 5;
-                        ctx.fillStyle = `rgba(255,230,120,${ta})`;
-                        ctx.beginPath();
-                        ctx.arc(tx, ty, 1.8 + (1 - tp) * 1.5, 0, Math.PI * 2);
-                        ctx.fill();
-                        if (tp < 0.6) {
-                            ctx.strokeStyle = `rgba(255,200,60,${ta * 0.6})`;
-                            ctx.lineWidth = 1.5;
-                            ctx.beginPath();
-                            ctx.moveTo(tx, ty);
-                            ctx.lineTo(tx - dx * 0.06, ty - dy * 0.06);
-                            ctx.stroke();
-                        }
-                    }
-                    ctx.shadowBlur = 0;
-                    ctx.restore();
-                }
+                _renderAAFlak(px, py, fx.q, fx.r, t, seed, _alc);
             }
         } else if (t < land) {
             // 阶段B：降落伞自终点上空垂直下降
@@ -1084,6 +1075,73 @@ function _isHumanTurn() {
         return campToKey(gameState.currentCamp) !== 'neutral' && gameState.currentCamp !== gameState.aiOpponentCamp;
     }
     return campToKey(gameState.currentCamp) !== 'neutral';
+}
+
+function _reconstructPreviewPath(startTile, targetTile) {
+    if (!startTile || !targetTile || !(gameState.moveParents instanceof Map)) return [];
+    const reversed = [];
+    const visited = new Set();
+    let current = targetTile;
+    while (current && !visited.has(current)) {
+        visited.add(current);
+        reversed.push({ x: current.x, y: current.y });
+        if (current === startTile) return reversed.reverse();
+        current = gameState.moveParents.get(current)?.parent || null;
+    }
+    return [];
+}
+
+function drawOperationInteractionRoute(now) {
+    if (!_isHumanTurn() || gameState.aiActing || gameState.cardTargeting) return;
+    const unit = gameState.selectedUnit;
+    if (!unit?.tile || !unit.canAct || unit.isNewRecruit) return;
+
+    const source = getUnitVisualPos(unit);
+    const hovered = gameState.hoveredTile;
+    let action = OPERATION_PREVIEW_ACTIONS.MOVE;
+    let color = '#58c9b3';
+
+    if (hovered && gameState.movableTiles.includes(hovered) && !hovered.unit) {
+        const bfsPath = _reconstructPreviewPath(unit.tile, hovered);
+        if (bfsPath.length >= 2) {
+            drawOperationPreview(ctx, {
+                action,
+                source,
+                target: { x: hovered.x, y: hovered.y },
+                bfsPath,
+                unitRadius: UNIT_BADGE_RADIUS,
+                time: now / 1000,
+                color
+            });
+            return;
+        }
+    }
+
+    if (hovered?.unit && gameState.attackableTiles.includes(hovered)) {
+        const style = operationArrowStyleForAttacker(unit);
+        action = style === 'fire'
+            ? OPERATION_PREVIEW_ACTIONS.RANGED
+            : OPERATION_PREVIEW_ACTIONS.MELEE;
+        color = '#e95b50';
+        drawOperationPreview(ctx, {
+            action,
+            source,
+            target: getUnitVisualPos(hovered.unit),
+            unitRadius: UNIT_BADGE_RADIUS,
+            time: now / 1000,
+            color,
+            trajectory: 'arc'
+        });
+        return;
+    }
+
+    drawOperationOrigin(ctx, {
+        center: source,
+        unitRadius: UNIT_BADGE_RADIUS,
+        color,
+        action,
+        time: now / 1000
+    });
 }
 
 function drawSelectionHighlights() {
@@ -1313,6 +1371,441 @@ function _strokeHexRegionBorder(tiles, insideFn, now, pulse, outer, inner) {
     ctx.restore();
 }
 
+let _targetingPreviewCache = null;
+
+function _hexScreenShape(tile, size = HEX_SIZE) {
+    const points = [];
+    for (let index = 0; index < 6; index++) {
+        const angle = (Math.PI / 180) * (60 * index - 30);
+        points.push({
+            x: tile.x + size * Math.cos(angle),
+            y: tile.y + size * Math.sin(angle)
+        });
+    }
+    return { center: { x: tile.x, y: tile.y }, size, points };
+}
+
+function _getTargetingBoardClipShapes() {
+    const renderTiles = gameState.campaignMode && gameState.boardLayout === 'borderless'
+        ? getBorderlessVisualGrid(gameState.tiles, gameState.tileMap).tiles
+        : gameState.tiles;
+    return renderTiles.map(tile => _hexScreenShape(tile, HEX_SIZE * 1.01));
+}
+
+function _getResolvedTargetingPreview(myCamp) {
+    const cardTargeting = gameState.cardTargeting;
+    const campKey = campToKey(myCamp);
+    if (_targetingPreviewCache?.cardTargeting === cardTargeting
+        && _targetingPreviewCache.campKey === campKey) {
+        return _targetingPreviewCache.preview;
+    }
+    const preview = resolveTargetingPreview(gameState, cardTargeting, {
+        myCamp,
+        hoveredTile: null,
+        isTileVisible
+    });
+    _targetingPreviewCache = { cardTargeting, campKey, preview };
+    return preview;
+}
+
+function _targetingUnitKind(preview) {
+    if (preview.intent === TARGET_INTENTS.HEAL) return 'heal';
+    if (preview.intent === TARGET_INTENTS.MOBILITY) return 'mobility';
+    if (preview.intent === TARGET_INTENTS.ATTACH) return 'attach';
+    if (preview.intent === TARGET_INTENTS.SHIELD) return 'shield';
+    if (preview.intent === TARGET_INTENTS.TRANSPORT) return 'paratrooper';
+    return 'attack';
+}
+
+const TARGET_ENTRY_OPTIONS = Object.freeze({
+    stepDelayMs: 26,
+    tileDurationMs: 220,
+    startScale: 0.82,
+    settledScale: 1,
+    settledAlpha: 1
+});
+
+function _targetEntry(originTile, tile, now, startedAt) {
+    // Global cards have no battlefield source: their candidates enter together
+    // and then continue with the renderer's stable per-tile breathing phase.
+    const origin = originTile || tile;
+    return resolveMovementTileReveal(origin, tile, now, startedAt, TARGET_ENTRY_OPTIONS);
+}
+
+function _drawTargetingRegion(keys, now, options = {}) {
+    if (!keys?.size) return;
+    const tiles = [];
+    ctx.save();
+    ctx.globalAlpha *= Math.max(0, Math.min(1, options.alpha ?? 1));
+    ctx.fillStyle = options.fill || 'rgba(255,80,70,0.09)';
+    for (const key of keys) {
+        const tile = gameState.tileMap.get(key);
+        if (!tile) continue;
+        tiles.push(tile);
+        hexPath(ctx, tile.x, tile.y, HEX_SIZE * 0.96);
+        ctx.fill();
+    }
+    const pulse = (Math.sin(now / 340) + 1) / 2;
+    _strokeHexRegionBorder(
+        tiles,
+        (q, r) => keys.has(`${q},${r}`),
+        now,
+        pulse,
+        {
+            color: options.stroke || `rgba(255,96,80,${0.82 + pulse * 0.15})`,
+            w: 2.6,
+            glow: options.glow || 'rgba(255,70,55,0.68)',
+            blur: 7 + pulse * 3
+        },
+        { color: options.inner || 'rgba(255,235,225,0.62)', w: 0.9 }
+    );
+    ctx.restore();
+}
+
+function _drawAntiAirSourceMarkers(preview, now, entryAlpha = 1) {
+    const sourceKeys = new Set();
+    for (const sources of preview.air?.aaSourcesByTileKey?.values?.() || []) {
+        for (const source of sources) sourceKeys.add(source.tileKey);
+    }
+    for (const key of sourceKeys) {
+        const tile = gameState.tileMap.get(key);
+        if (!tile) continue;
+        const wave = (Math.sin(now / 460 + tile.q * 0.5) + 1) / 2;
+        ctx.save();
+        ctx.translate(tile.x, tile.y - HEX_SIZE * 0.77);
+        ctx.fillStyle = '#ff6e61';
+        ctx.strokeStyle = '#ffe0dc';
+        ctx.lineWidth = 1.1;
+        ctx.globalAlpha = entryAlpha * (0.78 + wave * 0.2);
+        ctx.shadowColor = '#ff4636';
+        ctx.shadowBlur = 4 + wave * 3;
+        ctx.beginPath();
+        ctx.moveTo(0, -4.5);
+        ctx.lineTo(5.5, 4.3);
+        ctx.lineTo(-5.5, 4.3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, -1.8);
+        ctx.lineTo(0, 1.4);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+function _drawAirliftDestinationLink(preview, hoveredTile) {
+    if (preview.cardId !== 'airlift_dest' || !hoveredTile) return;
+    const sourceId = preview.air?.transportSourceUnitId;
+    const source = gameState.tiles.find(tile => tile.unit?.id === sourceId)?.unit;
+    if (!source || !preview.candidateTileKeys.has(targetingTileKey(hoveredTile))) return;
+    const from = getUnitVisualPos(source);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(hoveredTile.x, hoveredTile.y);
+    ctx.strokeStyle = '#69c7e8';
+    ctx.lineWidth = 2.6;
+    ctx.setLineDash([5, 7]);
+    ctx.lineDashOffset = -(frameInfo.now / 34) % 12;
+    ctx.shadowColor = '#69c7e8';
+    ctx.shadowBlur = 4;
+    ctx.globalAlpha = 0.9;
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawCardTargetingPreview(now) {
+    const cardTargeting = gameState.cardTargeting;
+    if (!cardTargeting) return;
+    const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
+    const preview = _getResolvedTargetingPreview(myCamp);
+    const hovered = gameState.hoveredTile;
+    const hoveredKey = targetingTileKey(hovered);
+    const activeKey = hoveredKey && preview.candidateTileKeys.has(hoveredKey) ? hoveredKey : null;
+    const time = now / 1000;
+    const boardClip = { shapes: _getTargetingBoardClipShapes() };
+    const colonelUnit = preview.air?.colonelOriginUnitId
+        ? gameState.tiles.find(tile => tile.unit?.id === preview.air.colonelOriginUnitId)?.unit
+        : null;
+    const transportSource = preview.air?.transportSourceUnitId
+        ? gameState.tiles.find(tile => tile.unit?.id === preview.air.transportSourceUnitId)?.unit
+        : null;
+    const entryOriginTile = colonelUnit?.tile || transportSource?.tile || null;
+    const entryStart = cardTargeting.startedAt;
+    const groupEntry = _targetEntry(entryOriginTile, entryOriginTile || gameState.tiles[0], now, entryStart);
+    const scene = {
+        boardClip,
+        antiAir: preview.air ? {
+            cells: [...preview.air.aaLayersByTileKey.entries()].map(([key, level]) => {
+                const tile = gameState.tileMap.get(key);
+                if (!tile) return null;
+                const entry = _targetEntry(entryOriginTile, tile, now, entryStart);
+                return { ..._hexScreenShape(tile, HEX_SIZE), level, alpha: entry.alpha };
+            }).filter(Boolean),
+            size: HEX_SIZE,
+            alpha: 0.92 * groupEntry.alpha
+        } : null,
+        origins: [],
+        tileDeployments: [],
+        areaCenters: [],
+        unitTargets: []
+    };
+
+    for (const tile of preview.candidateTiles) {
+        const key = targetingTileKey(tile);
+        const active = key === activeKey;
+        const phase = tile.q * 0.43 + tile.r * 0.29;
+        const entry = _targetEntry(entryOriginTile, tile, now, entryStart);
+        if (preview.shape === TARGET_SHAPES.UNIT && tile.unit) {
+            scene.unitTargets.push({
+                center: getUnitVisualPos(tile.unit),
+                size: UNIT_HUD_OUTER_RADIUS * 1.72 * entry.scale,
+                kind: _targetingUnitKind(preview),
+                active,
+                time,
+                phase,
+                alpha: entry.alpha
+            });
+        } else if (preview.shape === TARGET_SHAPES.AREA_CENTER) {
+            scene.areaCenters.push({
+                center: { x: tile.x, y: tile.y },
+                size: HEX_SIZE * entry.scale,
+                active,
+                time,
+                phase,
+                color: preview.cardId === 'scout' ? '#9ad8ff' : '#e95b50',
+                alpha: entry.alpha
+            });
+        } else {
+            scene.tileDeployments.push({
+                ..._hexScreenShape(tile, HEX_SIZE),
+                size: HEX_SIZE * entry.scale,
+                active,
+                time,
+                phase,
+                alpha: entry.alpha,
+                showStructure: cardTargeting.cardId === 'mgNest' || cardTargeting.cardId === 'engineer_bunker'
+            });
+        }
+    }
+
+    if (preview.air?.colonelOriginUnitId) {
+        const colonel = colonelUnit;
+        if (colonel) {
+            scene.origins.push({
+                center: getUnitVisualPos(colonel),
+                size: UNIT_BADGE_RADIUS * 2 * groupEntry.scale,
+                time,
+                color: '#69c7e8',
+                alpha: groupEntry.alpha
+            });
+        }
+    }
+
+    if (preview.cardId === 'airlift_dest' && preview.air?.transportSourceUnitId) {
+        const source = transportSource;
+        if (source) {
+            scene.unitTargets.push({
+                center: getUnitVisualPos(source),
+                size: UNIT_HUD_OUTER_RADIUS * 1.72 * groupEntry.scale,
+                kind: 'paratrooper',
+                active: true,
+                time,
+                alpha: 0.95 * groupEntry.alpha
+            });
+        }
+    }
+
+    renderTargetingPreview(ctx, scene);
+
+    // 上校专属卡才有真实棋盘起点；普通空袭/空降不得伪造飞机位置。
+    if (preview.air?.colonelOriginUnitId) {
+        const colonel = colonelUnit;
+        if (colonel) drawHologramMotif(ctx, {
+            center: getUnitVisualPos(colonel),
+            size: UNIT_BADGE_RADIUS * 1.75 * groupEntry.scale,
+            kind: 'plane',
+            active: true,
+            time,
+            color: '#9bdcff',
+            alpha: groupEntry.alpha
+        });
+    }
+
+    // 空降与空运落点在地块插槽中央复用同一伞兵徽章。
+    if (preview.cardId === 'airdrop' || preview.cardId === 'airlift_dest') {
+        for (const tile of preview.candidateTiles) {
+            const entry = _targetEntry(entryOriginTile, tile, now, entryStart);
+            drawHologramMotif(ctx, {
+                center: { x: tile.x, y: tile.y },
+                size: HEX_SIZE * 0.72 * entry.scale,
+                kind: 'paratrooper',
+                active: targetingTileKey(tile) === activeKey,
+                time,
+                phase: tile.q * 0.43 + tile.r * 0.29,
+                color: '#69c7e8',
+                alpha: 0.86 * entry.alpha
+            });
+        }
+    }
+
+    if (preview.air?.rangeTileKeys?.size) {
+        _drawTargetingRegion(preview.air.rangeTileKeys, now, {
+            fill: 'rgba(80,170,255,0.035)',
+            stroke: 'rgba(110,200,255,0.72)',
+            glow: 'rgba(80,175,255,0.48)',
+            inner: 'rgba(225,245,255,0.48)',
+            alpha: groupEntry.alpha
+        });
+    }
+
+    if (activeKey && (preview.cardId === 'airstrike' || preview.cardId === 'carpetBomb' || preview.cardId === 'scout')) {
+        const affectedKeys = new Set([activeKey]);
+        for (const [dq, dr] of HEX_NEIGHBORS) {
+            const key = `${hovered.q + dq},${hovered.r + dr}`;
+            if (gameState.tileMap.has(key)) affectedKeys.add(key);
+        }
+        _drawTargetingRegion(affectedKeys, now, preview.cardId === 'scout' ? {
+            fill: 'rgba(120,190,255,0.07)',
+            stroke: 'rgba(155,220,255,0.86)',
+            glow: 'rgba(100,190,255,0.55)',
+            inner: 'rgba(235,250,255,0.55)',
+            alpha: groupEntry.alpha
+        } : { alpha: groupEntry.alpha });
+    }
+
+    _drawAirliftDestinationLink(preview, hovered);
+    _drawAntiAirSourceMarkers(preview, now, groupEntry.alpha);
+}
+
+function _drawDeselectingActionPreview(now) {
+    const elapsed = now - gameState.deselectionTime;
+    if (elapsed >= 220) {
+        gameState.deselecting = false;
+        gameState.deselectMoveTiles = [];
+        gameState.deselectAtkTiles = [];
+        gameState.deselectOrigin = null;
+        return;
+    }
+    const exitAlpha = Math.max(0, 1 - elapsed / 220);
+    const origin = gameState.deselectOrigin;
+    const moveTiles = gameState.deselectMoveTiles || [];
+    if (origin && moveTiles.length) {
+        const moveKeys = new Set(moveTiles.map(targetingTileKey).filter(Boolean));
+        moveKeys.add(targetingTileKey(origin));
+        ctx.save();
+        ctx.fillStyle = '#41cdb9';
+        ctx.globalAlpha = 0.13 * exitAlpha;
+        for (const tile of moveTiles) {
+            hexPath(ctx, tile.x, tile.y, HEX_SIZE * 1.008);
+            ctx.fill();
+        }
+        ctx.restore();
+        ctx.save();
+        ctx.globalAlpha = exitAlpha;
+        _strokeHexRegionBorder(
+            [origin, ...moveTiles],
+            (q, r) => moveKeys.has(`${q},${r}`),
+            now,
+            0,
+            { color: 'rgba(80,225,205,0.78)', w: 2.6, glow: 'rgba(60,205,185,0.42)', blur: 6 },
+            { color: 'rgba(215,255,248,0.34)', w: 0.75 }
+        );
+        ctx.restore();
+    }
+
+    const attackTiles = (gameState.deselectAtkTiles || []).filter(tile => tile?.unit);
+    if (attackTiles.length) {
+        renderTargetingPreview(ctx, {
+            boardClip: { shapes: _getTargetingBoardClipShapes() },
+            unitTargets: attackTiles.map(tile => ({
+                center: getUnitVisualPos(tile.unit),
+                size: UNIT_HUD_OUTER_RADIUS * 1.72 * (0.86 + exitAlpha * 0.14),
+                kind: 'attack',
+                active: false,
+                time: now / 1000,
+                phase: tile.q * 0.43 + tile.r * 0.29,
+                color: '#e95b50',
+                alpha: exitAlpha
+            }))
+        });
+    }
+}
+
+function drawUnitActionTargetingPreview(now, deselecting) {
+    if (deselecting) {
+        _drawDeselectingActionPreview(now);
+        return;
+    }
+    const unit = gameState.selectedUnit;
+    if (!unit?.tile || !unit.canAct || unit.isNewRecruit) return;
+
+    const moveTiles = unit.remainingMP > 0 ? gameState.movableTiles : [];
+    if (moveTiles.length) {
+        const moveKeys = new Set(moveTiles.map(targetingTileKey).filter(Boolean));
+        moveKeys.add(targetingTileKey(unit.tile));
+        ctx.save();
+        // Reuse the old distance ripple as a fill-only jelly reveal.  Adjacent
+        // cells overlap when settled, so no internal honeycomb survives; only
+        // _strokeHexRegionBorder owns a thick outline.
+        ctx.fillStyle = '#41cdb9';
+        for (const tile of moveTiles) {
+            const reveal = resolveMovementTileReveal(
+                unit.tile,
+                tile,
+                now,
+                gameState.selectionTime
+            );
+            if (reveal.alpha <= 0) continue;
+            ctx.save();
+            ctx.globalAlpha = reveal.alpha;
+            hexPath(ctx, tile.x, tile.y, HEX_SIZE * reveal.scale);
+            ctx.fill();
+            ctx.restore();
+        }
+        ctx.restore();
+        const pulse = (Math.sin(now / 420) + 1) / 2;
+        const regionEntry = _targetEntry(unit.tile, unit.tile, now, gameState.selectionTime);
+        ctx.save();
+        ctx.globalAlpha = regionEntry.alpha;
+        _strokeHexRegionBorder(
+            [unit.tile, ...moveTiles],
+            (q, r) => moveKeys.has(`${q},${r}`),
+            now,
+            pulse,
+            {
+                color: `rgba(80,225,205,${0.72 + pulse * 0.14})`,
+                w: 2.6,
+                glow: 'rgba(60,205,185,0.42)',
+                blur: 6 + pulse * 2.5
+            },
+            { color: 'rgba(215,255,248,0.34)', w: 0.75 }
+        );
+        ctx.restore();
+    }
+
+    const attackTiles = gameState.attackableTiles.filter(tile => tile.unit);
+    if (!attackTiles.length) return;
+    const hovered = gameState.hoveredTile;
+    renderTargetingPreview(ctx, {
+        boardClip: { shapes: _getTargetingBoardClipShapes() },
+        unitTargets: attackTiles.map(tile => {
+            const entry = _targetEntry(unit.tile, tile, now, gameState.selectionTime);
+            return {
+                center: getUnitVisualPos(tile.unit),
+                size: UNIT_HUD_OUTER_RADIUS * 1.72 * entry.scale,
+                kind: 'attack',
+                active: tile === hovered,
+                time: now / 1000,
+                phase: tile.q * 0.43 + tile.r * 0.29,
+                color: '#e95b50',
+                alpha: entry.alpha
+            };
+        })
+    });
+}
+
 // ===== 范围涟漪展开 =====================
 function drawRangeApertures(now) {
     if (gameState.aiActing || !_isHumanTurn()) return;
@@ -1320,314 +1813,13 @@ function drawRangeApertures(now) {
     const deselecting = gameState.deselecting;
     if (!deselecting && !gameState.cardTargeting && (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit)) return;
 
-    const pulse = (Math.sin(now / 300) + 1) / 2;
-    const ease = p => 1 + 2.70158 * Math.pow(p - 1, 3) + 1.70158 * Math.pow(p - 1, 2);
-
-    const stepDelay = 70;
-    const hexExpandDuration = 100;
-    const elapsed = now - gameState.selectionTime;
-
-    // 对策卡选择目标高亮
     if (gameState.cardTargeting) {
-        const pulse = (Math.sin(now / 280) + 1) / 2;
-        const baseAlpha = 0.35 + pulse * 0.55;
-        const ct = gameState.cardTargeting;
-        const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
-        const isAirCardTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest' || ct.cardId === 'airstrike' || ct.cardId === 'airdrop' || ct.cardId === 'drone_suicide';
-        const isColTargeting = !!COLONEL_CARDS[ct.cardId] || ct.cardId === 'airlift_dest';
-        const time = now / 1000;
-        const isHeal = ct.targeting === 'friendlyAny' || ct.targeting === 'anyUnit';
-        const isShield = ct.targeting === 'shieldTarget';
-        const isEmpty = ct.targeting === 'emptyTile' || ct.targeting === 'emptyFriendlyNonCityNonMountain'
-            || ct.targeting === 'emptyFriendlyNonCity' || ct.targeting === 'emptyFriendlyLandmine' || ct.cardId === 'engineer_bunker';
-        const isFriendly = ct.targeting === 'friendlyAlive' || ct.targeting === 'friendlyAny' || isShield;
-        const skipsFogTargeting = ct.targeting === 'anyTileGlobal' && ct.cardId !== 'drone_suicide';
-
-        // 空军卡（上校/空袭/空降）：防空覆盖层——画在目标高亮【之下】
-        if (isAirCardTargeting) {
-            const AR = ANTIAIR_RADIUS;
-            // 防空区并集（"q,r" 键）
-            const aaSet = new Set();
-            for (const t of gameState.tiles) {
-                const u = t.unit;
-                if (!u || u.camp === myCamp || !isAntiAirUnit(u)) continue;
-                for (let dq = -AR; dq <= AR; dq++) {
-                    for (let dr = Math.max(-AR, -dq - AR); dr <= Math.min(AR, -dq + AR); dr++) {
-                        const nb = gameState.tileMap.get(`${t.q + dq},${t.r + dr}`);
-                        if (nb) aaSet.add(`${nb.q},${nb.r}`);
-                    }
-                }
-            }
-            // 敌方高射机枪工事：防空圈仅覆盖自身1格
-            for (const t of gameState.tiles) {
-                if (t.fortification === 'flak' && t.unit && t.unit.camp !== myCamp) aaSet.add(`${t.q},${t.r}`);
-            }
-            // 红色防空区填充
-            ctx.save();
-            ctx.globalAlpha = 0.10 + pulse * 0.06;
-            ctx.fillStyle = '#ff4636';
-            const aaTiles = [];
-            for (const key of aaSet) {
-                const nb = gameState.tileMap.get(key);
-                if (nb) { aaTiles.push(nb); hexPath(ctx, nb.x, nb.y, HEX_SIZE + 1); ctx.fill(); }
-            }
-            ctx.restore();
-            // 红色防空区外边界线
-            _strokeHexRegionBorder(aaTiles, (q, r) => aaSet.has(`${q},${r}`), now, pulse,
-                { color: `rgba(255,80,70,${0.85 + pulse * 0.15})`, w: 3, glow: 'rgba(255,60,50,0.95)', blur: 12 + pulse * 6 },
-                { color: `rgba(255,225,215,${0.5 + pulse * 0.3})`, w: 1.2 });
-            // 上校专属：蓝色航程 + 起飞位标志
-            if (isColTargeting) {
-                const colonel = getColonelUnit(myCamp);
-                if (colonel && colonel.tile) {
-                    const R = COLONEL_AIR_RANGE, cq = colonel.tile.q, cr = colonel.tile.r;
-                    const rangeTiles = [];
-                    for (let dq = -R; dq <= R; dq++) {
-                        for (let dr = Math.max(-R, -dq - R); dr <= Math.min(R, -dq + R); dr++) {
-                            const ht = gameState.tileMap.get(`${cq + dq},${cr + dr}`);
-                            if (ht) rangeTiles.push(ht);
-                        }
-                    }
-                    const inRangeFn = (q, r) => Math.max(Math.abs(q - cq), Math.abs(r - cr), Math.abs((q + r) - (cq + cr))) <= R;
-                    _strokeHexRegionBorder(rangeTiles, inRangeFn, now, pulse,
-                        { color: `rgba(120,200,255,${0.62 + pulse * 0.13})`, w: 2.6, glow: 'rgba(90,180,255,0.55)', blur: 7 + pulse * 4 },
-                        { color: `rgba(230,245,255,${0.4 + pulse * 0.2})`, w: 1 });
-                    // 上校起飞位标志
-                    ctx.save();
-                    const colCx = colonel.tile.x, colCy = colonel.tile.y;
-                    const colPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
-                    ctx.globalAlpha = 0.7 + colPulse * 0.25;
-                    ctx.shadowColor = 'rgba(100,180,255,0.6)'; ctx.shadowBlur = 14 + colPulse * 6;
-                    ctx.font = '36px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
-                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                    ctx.fillText('✈️', colCx, colCy);
-                    ctx.shadowBlur = 0;
-                    ctx.globalAlpha = 0.3 + colPulse * 0.15;
-                    ctx.strokeStyle = 'rgba(100,200,255,0.5)';
-                    ctx.lineWidth = 1.5;
-                    ctx.setLineDash([4, 5]);
-                    ctx.beginPath();
-                    ctx.arc(colCx, colCy, HEX_SIZE * 0.85, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-                    ctx.restore();
-                }
-            }
-            // 防空单位标志（每个敌方炮兵/碉堡/停滞者）
-            ctx.save();
-            ctx.font = '20px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            for (const t of gameState.tiles) {
-                    const u = t.unit;
-                    const isFlakTile = t.fortification === 'flak' && u && u.camp !== myCamp;
-                    if (!isFlakTile && (!u || u.camp === myCamp || !isAntiAirUnit(u))) continue;
-                    const aaPulse = (Math.sin(time * 2.0 + t.q) + 1) / 2;
-                    ctx.globalAlpha = 0.6 + aaPulse * 0.3;
-                    ctx.shadowColor = 'rgba(255,60,40,0.5)'; ctx.shadowBlur = 10 + aaPulse * 5;
-                    ctx.fillText('⚠️', t.x, t.y);
-                }
-                ctx.shadowBlur = 0;
-                ctx.restore();
-            }
-
-        for (const tile of gameState.tiles) {
-            if (ct.targeting === 'enemyGlobal') {
-                if (!tile.unit) continue;
-                if (tile.unit.camp === myCamp) continue;
-            } else if (ct.targeting === 'enemyCity') {
-                if (!tile.isCity || tile.camp === myCamp) continue;
-            } else if (ct.targeting === 'friendlyAlive') {
-                if (!tile.unit || !tile.unit.canAct || tile.unit.camp !== myCamp) continue;
-            } else if (ct.targeting === 'friendlyAny') {
-                if (!tile.unit || tile.unit.camp !== myCamp) continue;
-            } else if (ct.targeting === 'anyUnit') {
-                if (!tile.unit) continue;
-            } else if (ct.targeting === 'shieldTarget') {
-                if (!tile.unit) continue;
-            } else if (ct.cardId === 'drone_deploy') {
-                if (tile.unit || tile.isCity || tile.terrain === 'mountain') continue;
-                const _ty = gameState.tiles.reduce((f, tx) => f || (tx.unit && tx.unit.commander === 'tianyan' && tx.unit.camp === myCamp && tx.unit.hp > 0 ? tx.unit : null), null);
-                if (!_ty || hexDistance(_ty.tile, tile) > 1) continue;
-            } else if (ct.cardId === 'drone_suicide') {
-                const drone = gameState.tiles.reduce((f, tx) => f || (tx.unit && tx.unit.id === ct.droneId ? tx.unit : null), null);
-                if (!drone || !drone._isDrone || !drone.tile) continue;
-                if (!tile.unit || tile.unit.camp === myCamp) continue;
-                if (hexDistance(drone.tile, tile) > 3) continue;
-            } else if (ct.cardId === 'engineer_bunker') {
-                if (tile.unit || tile.isCity || tile.isVillage) continue;
-                const _eng = gameState.tiles.reduce((f, tx) => f || (tx.unit && tx.unit.id === ct.engineerUnitId ? tx.unit : null), null);
-                if (!_eng || !_eng.tile || hexDistance(_eng.tile, tile) > 1) continue;
-            } else if (ct.targeting === 'emptyTile') {
-            } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
-                if (tile.unit || tile.isCity || tile.terrain === 'mountain' || tile.camp !== myCamp) continue;
-            } else if (ct.targeting === 'emptyFriendlyNonCity') {
-                if (tile.unit || tile.isCity || tile.camp !== myCamp) continue;
-            } else if (ct.targeting === 'emptyFriendlyLandmine') {
-                if (tile.unit || tile.isCity || tile.camp !== myCamp) continue;
-            } else if (ct.targeting === 'anyTileGlobal') {
-                // 侦察卡：全图任何地块都可选
-            } else { continue; }
-
-            // 遭遇战迷雾：对策卡仅高亮视野内目标（侦察卡除外）
-            if (gameState.skirmishFog && !skipsFogTargeting) {
-                const viewingCamp = getViewingCamp();
-                if (!isTileVisible(tile, viewingCamp, gameState)) continue;
-            }
-
-            // E4 上校空军卡：超出航程的目标不高亮（含空运；防空区仍高亮，只是降伤）
-            if (isColTargeting && isColonelTargetBlocked(tile, myCamp)) continue;
-            // E4 空运：不能运送上校自己，且被禁锢的单位不可被空运
-            if (ct.cardId === 'airlift' && tile.unit && (tile.unit.commander === 'colonel' || tile.unit._imprisoned)) continue;
-
-            let r, g, b;
-            if (isHeal)       { r = 80;  g = 255; b = 100; }
-            else if (isShield) { r = 100; g = 180; b = 255; } // light blue for shield
-            else if (ct.targeting === 'enemyCity') { r = 255; g = 120; b = 30; } // orange for airstrike
-            else if (ct.targeting === 'anyTileGlobal' && ct.cardId !== 'drone_suicide') { r = 160; g = 200; b = 255; } // light cyan for scout
-            else if (isEmpty) { r = 100; g = 200; b = 255; } // blue for deploy/landmine
-            else if (isFriendly) { r = 255; g = 200; b = 50; } // gold for friendly
-            else              { r = 255; g = 50;  b = 50; } // red for enemy
-
-            const fillA = baseAlpha * 0.25;
-            const strokeA = baseAlpha * (0.3 + 0.7);
-            ctx.save();
-            hexPath(ctx, tile.x, tile.y, HEX_SIZE);
-            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${fillA})`;
-            ctx.fill();
-            hexPath(ctx, tile.x, tile.y, HEX_SIZE);
-            ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeA})`;
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            hexPath(ctx, tile.x, tile.y, HEX_SIZE + 3);
-            ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeA * 0.3})`;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            // X / + marker
-            if (!isFriendly && !isEmpty) {
-                const mA = 0.2 + pulse * 0.55;
-                ctx.strokeStyle = `rgba(255, 0, 0, ${mA})`;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(tile.x - 8, tile.y - 8);
-                ctx.lineTo(tile.x + 8, tile.y + 8);
-                ctx.moveTo(tile.x + 8, tile.y - 8);
-                ctx.lineTo(tile.x - 8, tile.y + 8);
-                ctx.stroke();
-            } else if (isEmpty) {
-                const pA = 0.2 + pulse * 0.55;
-                ctx.strokeStyle = `rgba(100, 200, 255, ${pA})`;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(tile.x - 8, tile.y); ctx.lineTo(tile.x + 8, tile.y);
-                ctx.moveTo(tile.x, tile.y - 8); ctx.lineTo(tile.x, tile.y + 8);
-                ctx.stroke();
-            } else if (isHeal) {
-                const pA = 0.2 + pulse * 0.55;
-                ctx.strokeStyle = `rgba(80, 255, 100, ${pA})`;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(tile.x - 8, tile.y); ctx.lineTo(tile.x + 8, tile.y);
-                ctx.moveTo(tile.x, tile.y - 8); ctx.lineTo(tile.x, tile.y + 8);
-                ctx.stroke();
-            }
-            ctx.restore();
-        }
+        drawCardTargetingPreview(now);
+        return;
     }
 
-    // 无选中单位 → 跳过正常范围涟漪
-    if (!gameState.selectedUnit) return;
-
-    let startTile, moveTiles, atkTiles;
-    let shrinkP = 0;
-
-    if (deselecting) {
-        const shrinkDuration = 350;
-        shrinkP = Math.min(1, (now - gameState.deselectionTime) / shrinkDuration);
-        if (shrinkP >= 1) {
-            gameState.deselecting = false;
-            gameState.deselectMoveTiles = [];
-            gameState.deselectAtkTiles = [];
-            gameState.deselectOrigin = null;
-            return;
-        }
-        startTile = gameState.deselectOrigin;
-        moveTiles = gameState.deselectMoveTiles;
-        atkTiles = gameState.deselectAtkTiles;
-    } else {
-        startTile = gameState.selectedUnit.tile;
-        moveTiles = gameState.selectedUnit.remainingMP > 0 ? gameState.movableTiles : [];
-        atkTiles = gameState.attackableTiles;
-    }
-
-    function getHexProgress(tile) {
-        const dist = (Math.abs(tile.q - startTile.q) + Math.abs(tile.r - startTile.r) + Math.abs(tile.s - startTile.s)) / 2;
-        if (deselecting) return 1;
-        const delay = dist * stepDelay;
-        const raw = (elapsed - delay) / hexExpandDuration;
-        return Math.max(0, Math.min(raw, 1));
-    }
-
-    function drawExpandingHex(tile, r, g, b, baseAlpha) {
-        let p = getHexProgress(tile);
-        if (p <= 0) return;
-
-        let ep = ease(p);
-        if (deselecting) ep *= (1 - ease(shrinkP));
-        if (ep <= 0.001) return;
-
-        const currentSize = HEX_SIZE * ep;
-        const fillA = baseAlpha * 0.25 * ep;
-        const strokeA = baseAlpha * (0.3 + 0.7 * ep);
-        const lineW = 1 + ep * 2;
-
-        ctx.save();
-        hexPath(ctx, tile.x, tile.y, currentSize);
-        ctx.fillStyle = `rgba(${r},${g},${b},${fillA})`;
-        ctx.fill();
-
-        hexPath(ctx, tile.x, tile.y, currentSize);
-        ctx.strokeStyle = `rgba(${r},${g},${b},${strokeA})`;
-        ctx.lineWidth = lineW;
-        ctx.stroke();
-
-        if (ep > 0.7) {
-            const glowA = strokeA * (ep - 0.7) / 0.3 * 0.3;
-            hexPath(ctx, tile.x, tile.y, currentSize + 3);
-            ctx.strokeStyle = `rgba(${r},${g},${b},${glowA})`;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-        }
-        ctx.restore();
-    }
-
-    for (const tile of moveTiles) {
-        drawExpandingHex(tile, 0, 200, 255, 0.6 + pulse * 0.15);
-    }
-
-    for (const tile of atkTiles) {
-        drawExpandingHex(tile, 255, 50, 50, 0.6 + pulse * 0.15);
-        if (tile.unit) {
-            const p = getHexProgress(tile);
-            if (p > 0) {
-                const ep = ease(p) * (deselecting ? (1 - ease(shrinkP)) : 1);
-                if (ep <= 0.001) continue;
-                const xAlpha = 0.2 + 0.4 * ep;
-                ctx.save();
-                ctx.strokeStyle = `rgba(255, 0, 0, ${xAlpha})`;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(tile.x - 8, tile.y - 8);
-                ctx.lineTo(tile.x + 8, tile.y + 8);
-                ctx.moveTo(tile.x + 8, tile.y - 8);
-                ctx.lineTo(tile.x - 8, tile.y + 8);
-                ctx.stroke();
-                ctx.restore();
-            }
-        }
-    }
-
+    drawUnitActionTargetingPreview(now, deselecting);
 }
-
 // ===== 伤害文本（弹跳+强击特效） =====================
 function drawDamageTexts(now) {
     gameState.damageTexts = gameState.damageTexts.filter(text => {

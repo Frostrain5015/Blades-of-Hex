@@ -11,8 +11,7 @@ import { isMechanicEnabled } from '../rules/mechanics.js';
 import {
     getMovableTiles, getAttackableTiles,
     moveUnit, attackUnit, recruitUnit, endTurn,
-    executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit,
-    isColonelTargetBlocked
+    executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
@@ -25,6 +24,8 @@ import { FRONTEND_TEXT } from '../rules/uiText.js';
 import { campToKey } from '../rules/camps.js';
 import { campFromKey } from '../rules/diplomacy.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
+import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
+import { RECRUITMENT_OPTIONS } from './recruitmentUi.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
@@ -117,6 +118,22 @@ function _campFromKeyInput(key) {
 function _sameCampInput(a, b) {
     const ak = _campKeyInput(a);
     return ak !== null && ak === _campKeyInput(b);
+}
+
+let _inputTargetingPreviewCache = null;
+function _getInputTargetingPreview(cardTargeting, myCamp) {
+    const campKey = campToKey(myCamp);
+    if (_inputTargetingPreviewCache?.cardTargeting === cardTargeting
+        && _inputTargetingPreviewCache.campKey === campKey) {
+        return _inputTargetingPreviewCache.preview;
+    }
+    const preview = resolveTargetingPreview(gameState, cardTargeting, {
+        myCamp,
+        hoveredTile: null,
+        isTileVisible
+    });
+    _inputTargetingPreviewCache = { cardTargeting, campKey, preview };
+    return preview;
 }
 
 function _isLocalActionTurn() {
@@ -450,7 +467,7 @@ function _activateBoardAction(action) {
             return;
         }
         showTargetingBanner('请选择目标');
-        gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id };
+        gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id, startedAt: performance.now() };
         updateUI();
         return;
     }
@@ -495,7 +512,7 @@ function _activateBoardAction(action) {
         unit._pendingDroneDeploy = false;
         clearselection();
         showTargetingBanner('请选择目标');
-        gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1 };
+        gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1, startedAt: performance.now() };
         updateUI();
         return;
     }
@@ -521,7 +538,7 @@ function _beginEngineerBunkerTargeting(unit) {
 
     clearselection();
     showTargetingBanner('请选择目标');
-    gameState.cardTargeting = { cardId: 'engineer_bunker', targeting: 'emptyTile', handIndex: -1, engineerUnitId: unit.id };
+    gameState.cardTargeting = { cardId: 'engineer_bunker', targeting: 'emptyTile', handIndex: -1, engineerUnitId: unit.id, startedAt: performance.now() };
     updateUI();
 }
 
@@ -632,7 +649,7 @@ function _handleCardCanvasClick(e) {
                 _cardFromX = (screenX - gameRect.left) * scaleX;
                 _cardFromY = (screenY - gameRect.top) * scaleY;
             }
-            gameState.cardTargeting = { cardId, targeting: cfg.targeting, handIndex: i, commanderId: deployCommanderId };
+            gameState.cardTargeting = { cardId, targeting: cfg.targeting, handIndex: i, commanderId: deployCommanderId, startedAt: performance.now() };
             if (cardId === 'commanderDeploy') {
                 const cmdKey = deployCommanderId || gameState[primaryKey];
                 const cmdCfg = COMMANDER_CONFIG[cmdKey];
@@ -1864,9 +1881,10 @@ export function initInput() {
         if (gameState.cardTargeting) {
             const ct = gameState.cardTargeting;
             const myCamp = _getMyCampInput();
+            const targetingPreview = _getInputTargetingPreview(ct, myCamp);
             // E4 空运第二段：直接执行空运（不取消，_executeAirliftDest 内部会清理）
             if (ct.cardId === 'airlift_dest') {
-                if (isColonelTargetBlocked(clickedTile, myCamp)) return;
+                if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
                 executeTacticalCard('airlift_dest', clickedTile);
                 return;
             }
@@ -1874,7 +1892,7 @@ export function initInput() {
             if (ct.cardId === 'drone_deploy') {
                 const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && _sameCampInput(t.unit.camp, myCamp) && t.unit.hp > 0 ? t.unit : null), null);
                 if (!tianyanUnit) { notify('天眼已阵亡', 'error'); cancelCardTargeting(); return; }
-                if (clickedTile.unit) { notify('目标地块已有单位', 'error'); return; }
+                if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
                 const drone = executeDroneDeploy(tianyanUnit, clickedTile);
                 if (drone) {
                     gameState.cardTargeting = null;
@@ -1886,6 +1904,7 @@ export function initInput() {
             if (ct.cardId === 'drone_suicide') {
                 const drone = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.id === ct.droneId ? t.unit : null), null);
                 if (!drone || !drone._isDrone) { notify('无人机无效', 'error'); cancelCardTargeting(); return; }
+                if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
                 if (executeDroneSuicide(drone, clickedTile)) {
                     gameState.cardTargeting = null;
                     hideTargetingBanner();
@@ -1903,6 +1922,7 @@ export function initInput() {
                     notify('目标不在视野范围内', 'error');
                     return;
                 }
+                if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
                 if (executeEngineerBunkerConstruction(engineer, clickedTile)) {
                     gameState.cardTargeting = null;
                     hideTargetingBanner();
@@ -1912,41 +1932,7 @@ export function initInput() {
             }
             const cfg = TACTICAL_CARD_CONFIG[ct.cardId] || COLONEL_CARDS[ct.cardId];
             if (!cfg) { cancelCardTargeting(); return; }
-
-            let isValid = false;
-            if (ct.targeting === 'enemyGlobal') {
-                isValid = clickedTile.unit && !_sameCampInput(clickedTile.unit.camp, myCamp);
-            } else if (ct.targeting === 'friendlyAlive') {
-                isValid = clickedTile.unit && _sameCampInput(clickedTile.unit.camp, myCamp) && clickedTile.unit.canAct;
-            } else if (ct.targeting === 'friendlyAny') {
-                isValid = clickedTile.unit && _sameCampInput(clickedTile.unit.camp, myCamp)
-                    // E4 空运：不能运送上校自己，且被禁锢的单位不可被空运
-                    && !(ct.cardId === 'airlift' && (clickedTile.unit.commander === 'colonel' || clickedTile.unit._imprisoned));
-            } else if (ct.targeting === 'emptyTile') {
-                isValid = !clickedTile.unit;
-            } else if (ct.targeting === 'emptyFriendlyNonCityNonMountain') {
-                isValid = !clickedTile.unit && !clickedTile.isCity
-                    && clickedTile.terrain !== 'mountain' && _sameCampInput(clickedTile.camp, myCamp);
-            } else if (ct.targeting === 'emptyFriendlyNonCity') {
-                isValid = !clickedTile.unit && !clickedTile.isCity && _sameCampInput(clickedTile.camp, myCamp);
-            } else if (ct.targeting === 'emptyFriendlyLandmine') {
-                isValid = !clickedTile.unit && !clickedTile.isCity && _sameCampInput(clickedTile.camp, myCamp);
-            } else if (ct.targeting === 'enemyCity') {
-                isValid = clickedTile.isCity && !_sameCampInput(clickedTile.camp, myCamp);
-            } else if (ct.targeting === 'shieldTarget') {
-                isValid = clickedTile.unit != null;
-            } else if (ct.targeting === 'anyUnit') {
-                isValid = clickedTile.unit != null;
-            } else if (ct.targeting === 'anyTileGlobal') {
-                isValid = true; // 侦察卡：全图任意地块均可选
-            }
-
-            // E4 上校空军卡：目标须在上校6格航程内（含空运拾取/落点；防空区不阻挡，仅降伤）
-            if (isValid && COLONEL_CARDS[ct.cardId] && isColonelTargetBlocked(clickedTile, myCamp)) {
-                isValid = false;
-            }
-
-            if (isValid) {
+            if (isResolvedTargetingCandidate(targetingPreview, clickedTile)) {
                 executeTacticalCard(ct.cardId, clickedTile, _cardFromX, _cardFromY);
             }
             return;
@@ -2066,6 +2052,12 @@ export function initInput() {
 
         const hovered = gameState.hoveredTile;
         if (hovered) {
+            if (gameState.cardTargeting) {
+                const myCamp = _getMyCampInput();
+                const preview = _getInputTargetingPreview(gameState.cardTargeting, myCamp);
+                canvas.style.cursor = isResolvedTargetingCandidate(preview, hovered) ? 'crosshair' : 'not-allowed';
+                return;
+            }
             const isOwnUnit = hovered.unit && _isLocalActionCamp(hovered.unit.camp) && !hovered.unit.isNewRecruit;
             const isOwnCity = hovered.isCity && _isLocalActionCamp(hovered.camp) && !hovered.unit && !gameState.selectedUnit;
             const isMovable = gameState.selectedUnit && gameState.movableTiles.includes(hovered) && !hovered.unit;
@@ -2112,19 +2104,10 @@ export function initKeyboard() {
                 return;
             }
 
-            if (e.key === '1') {
+            const recruitmentOption = RECRUITMENT_OPTIONS.find(option => option.shortcut === e.key);
+            if (recruitmentOption) {
                 e.preventDefault();
-                recruitUnit('infantry');
-                return;
-            }
-            if (e.key === '2') {
-                e.preventDefault();
-                recruitUnit('cavalry');
-                return;
-            }
-            if (e.key === '3') {
-                e.preventDefault();
-                recruitUnit('archer');
+                recruitUnit(recruitmentOption.type);
                 return;
             }
         }
@@ -2195,6 +2178,16 @@ export function initSettingsPanel() {
 
     const speedBtns = document.querySelectorAll('.speed-btn');
     const exitBtn = document.getElementById('settingsExit');
+    const rendererBackend = document.getElementById('rendererBackend');
+    const performanceProfile = document.getElementById('performanceProfile');
+    const reducedMotion = document.getElementById('reducedMotion');
+    const showGrid = document.getElementById('showGrid');
+
+    function notifyRendererSettingsChanged(changed) {
+        window.dispatchEvent(new CustomEvent('battlefield-renderer-settings-changed', {
+            detail: { changed, settings: { ...settings } }
+        }));
+    }
 
     function updateSpeedBtns() {
         speedBtns.forEach(b => {
@@ -2208,6 +2201,10 @@ export function initSettingsPanel() {
         document.getElementById('screenShake').checked = settings.screenShake;
         document.getElementById('soundEnabled').checked = settings.soundEnabled;
         document.getElementById('soundVolume').value = Math.round((settings.soundVolume ?? 0.7) * 100);
+        if (rendererBackend) rendererBackend.value = settings.rendererBackend || 'canvas2d';
+        if (performanceProfile) performanceProfile.value = settings.performanceProfile || 'auto';
+        if (reducedMotion) reducedMotion.checked = Boolean(settings.reducedMotion);
+        if (showGrid) showGrid.checked = settings.showGrid !== false;
         // 单人模式显示退出按钮
         exitBtn.style.display = isNetworkGame() ? 'none' : '';
     });
@@ -2233,6 +2230,30 @@ export function initSettingsPanel() {
     document.getElementById('screenShake').addEventListener('change', (e) => {
         settings.screenShake = e.target.checked;
         saveSettings();
+    });
+
+    rendererBackend?.addEventListener('change', event => {
+        settings.rendererBackend = event.target.value;
+        saveSettings();
+        notifyRendererSettingsChanged('rendererBackend');
+    });
+
+    performanceProfile?.addEventListener('change', event => {
+        settings.performanceProfile = event.target.value;
+        saveSettings();
+        notifyRendererSettingsChanged('performanceProfile');
+    });
+
+    reducedMotion?.addEventListener('change', event => {
+        settings.reducedMotion = event.target.checked;
+        saveSettings();
+        notifyRendererSettingsChanged('reducedMotion');
+    });
+
+    showGrid?.addEventListener('change', event => {
+        settings.showGrid = event.target.checked;
+        saveSettings();
+        notifyRendererSettingsChanged('showGrid');
     });
 
     document.getElementById('soundEnabled').addEventListener('change', (e) => {

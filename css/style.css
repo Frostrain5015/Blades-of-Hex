@@ -109,7 +109,19 @@ body {
 }
 
 #gameCanvas {
+    position: relative;
+    z-index: 1;
     display: block;
+    border-radius: 0;
+}
+
+.battlefield-pixi-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100% !important;
+    height: 100% !important;
+    pointer-events: none;
     border-radius: 0;
 }
 
@@ -451,6 +463,9 @@ body {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 7px;
+}
+.recruit-grid.has-port-recruitment {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 /* Shared button base */
@@ -1798,6 +1813,20 @@ body {
     accent-color: var(--gold);
     width: 16px;
     height: 16px;
+}
+.setting-row select {
+    min-width: 138px;
+    padding: 6px 26px 6px 9px;
+    color: var(--text-body);
+    background: rgba(8, 15, 19, 0.92);
+    border: 1px solid var(--gold-border);
+    border-radius: var(--radius-sm);
+    font: inherit;
+    outline: none;
+}
+.setting-row select:focus-visible {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.16);
 }
 .setting-value {
     color: var(--gold);

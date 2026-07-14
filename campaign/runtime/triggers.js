@@ -9,9 +9,16 @@ import {
 } from '../../rules/diplomacy.js';
 import { isMechanicEnabled, setMechanicEnabled } from '../../rules/mechanics.js';
 import { applyCommanderMount, resolveCommanderMount } from './storyCommanders.js';
+import { canUnitOccupyTile } from '../../rules/movement.js';
+import { isLandTile } from '../../rules/surfaces.js';
 
 function campKeyOf(camp) { return normalizeCampKey(camp, gameState); }
 function coordKey(q, r) { return `${q},${r}`; }
+function refreshLandCampBorders(state) {
+    const landTiles = (state.tiles || []).filter(isLandTile);
+    const landTileMap = new Map(landTiles.map(tile => [coordKey(tile.q, tile.r), tile]));
+    state.campBorderEdges = computeCampBorders(landTiles, landTileMap);
+}
 function compareValues(left, op, right) {
     if (op === '==') return left === right;
     if (op === '!=') return left !== right;
@@ -65,6 +72,7 @@ export function spawnUnitsInto(state, specs, config = null) {
     for (const spec of (specs || [])) {
         const tile = state.tileMap.get(coordKey(spec.q, spec.r));
         if (!tile || tile.unit) continue;
+        if (!canUnitOccupyTile({ type: spec.type }, tile, state)) continue;
         const camp = campFromKey(spec.camp, state);
         const mount = resolveCommanderMount(config, spec);
         const unit = new Unit(spec.type, camp, tile, false, spec.id || null, mount.commander);
@@ -77,7 +85,7 @@ export function spawnUnitsInto(state, specs, config = null) {
         created.push(unit);
     }
     if (created.length) {
-        state.campBorderEdges = computeCampBorders(state.tiles, state.tileMap);
+        refreshLandCampBorders(state);
         invalidateBoard();
     }
     return created;
@@ -301,7 +309,7 @@ function runAction(action, ctx) {
         case 'changeUnitFaction': {
             const nextCamp = campFromKey(action.camp, gameState);
             for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) unit.camp = nextCamp;
-            gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
+            refreshLandCampBorders(gameState);
             clearselection(); invalidateBoard(); updateUI(); break;
         }
         case 'setUnitState': for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {

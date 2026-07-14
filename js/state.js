@@ -1,4 +1,4 @@
-import { LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE, getRound } from './config.js';
+import { LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE, getRound, getRoundIndex } from './config.js';
 import { computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
@@ -12,6 +12,7 @@ import { campFromKey, getFaction, getRelation, getRoleCamp, getViewingCampKey } 
 import { CAMP_FLAG_COLORS, getFlagColors } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
+import { RECRUITMENT_OPTIONS, canRecruitTypeAtSelectedCity, shouldShowRecruitmentOption } from './recruitmentUi.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
@@ -162,45 +163,46 @@ function _getRecruitCost(type) {
 
 export function updateRecruitCostDisplay() {
     const tile = gameState.selectedCityTile;
-    const isVillage = tile && tile.isVillage;
-    const types = isVillage ? [null, null, null] : ['infantry', 'cavalry', 'archer'];
-    const btnIds = ['recruitInfantry', 'recruitCavalry', 'recruitArcher'];
-    const glyphs = ['⚔️', '🐎', '🎯'];
-    const names  = ['步兵', '骑兵', '炮兵'];
-    for (let i = 0; i < btnIds.length; i++) {
-        const btn = document.getElementById(btnIds[i]);
+    let showsPortRecruitment = false;
+    for (const option of RECRUITMENT_OPTIONS) {
+        const btn = document.getElementById(option.buttonId);
         if (!btn) continue;
-        if (!types[i]) { btn.style.display = 'none'; continue; }
+        const visible = shouldShowRecruitmentOption(option, tile, gameState, gameState.currentCamp);
+        if (!visible) { btn.style.display = 'none'; continue; }
         btn.style.display = '';
+        if (option.portOnly) showsPortRecruitment = true;
         const glyphEl = btn.querySelector('.unit-glyph');
         const typeEl = btn.querySelector('.unit-type');
         const costSpan = btn.querySelector('.unit-cost');
-        if (glyphEl && glyphs[i]) glyphEl.textContent = glyphs[i];
-        if (typeEl && names[i]) typeEl.textContent = names[i];
+        if (glyphEl) glyphEl.textContent = option.glyph;
+        if (typeEl) typeEl.textContent = option.label;
         if (!costSpan) continue;
-        const baseCost = UNIT_CONFIG[types[i]].cost;
-        const cost = _getRecruitCost(types[i]);
+        const baseCost = UNIT_CONFIG[option.type].cost;
+        const cost = _getRecruitCost(option.type);
         const discountPct = cost < baseCost ? Math.round((1 - cost / baseCost) * 100) : 0;
         const discountSuffix = discountPct > 0 ? `<small> (-${discountPct}%)</small>` : '';
         costSpan.innerHTML = `<small>$</small><span class="unit-cost-num">${cost}</span>${discountSuffix}`;
         const numEl = costSpan.querySelector('.unit-cost-num');
-        if (numEl) animateCounter(numEl, cost, n => String(n), `cost_${types[i]}`);
+        if (numEl) animateCounter(numEl, cost, n => String(n), `cost_${option.type}`);
     }
+    document.querySelector('.recruit-grid')?.classList.toggle('has-port-recruitment', showsPortRecruitment);
 }
 
 export function updateRecruitButtonStates() {
-    const btns = {
-        infantry: document.getElementById('recruitInfantry'),
-        cavalry: document.getElementById('recruitCavalry'),
-        archer: document.getElementById('recruitArcher')
-    };
+    const btns = Object.fromEntries(RECRUITMENT_OPTIONS.map(option => [
+        option.type,
+        document.getElementById(option.buttonId)
+    ]));
 
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
     const isNeutralTurn = campToKey(gameState.currentCamp) === 'neutral';
     const isCampaignAiTurn = gameState.campaignMode
         && gameState.factions?.[campToKey(gameState.currentCamp)]?.controller !== 'human';
+    const isSkirmishAiTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
     const inCommanderSetup = gameState.commanderPhase === 'selection';
-    if (opponentTurn || isNeutralTurn || isCampaignAiTurn || gameState.gameOver || inCommanderSetup) {
+    const recruitmentDisabled = !isMechanicEnabled(gameState, 'recruitment');
+    if (opponentTurn || isNeutralTurn || isCampaignAiTurn || isSkirmishAiTurn
+        || gameState.gameOver || inCommanderSetup || recruitmentDisabled) {
         for (const btn of Object.values(btns)) {
             if (btn) { btn.disabled = true; btn.classList.remove('available'); }
         }
@@ -209,11 +211,9 @@ export function updateRecruitButtonStates() {
 
     const tile = gameState.selectedCityTile;
     const isVillage = tile && tile.isVillage;
-    const isCity = tile && tile.isCity;
-    const canRecruitCity = isCity && tile.camp === gameState.currentCamp && !tile.unit;
-    const canRecruitVillage = isVillage && tile.camp === gameState.currentCamp && !tile.unit;
     const currentKey = _campKeyStr(gameState.currentCamp);
     const gold = gameState.playerGold[currentKey];
+    const cityTemporarilyDisabled = tile?._cityDisabledUntil > getRoundIndex(gameState);
 
     // 村庄不可招募（仅保留产币+补员功能）
     if (isVillage) {
@@ -227,7 +227,9 @@ export function updateRecruitButtonStates() {
         if (!btn) continue;
         const cost = _getRecruitCost(type);
         const affordable = gold >= cost;
-        const available = canRecruitCity && affordable;
+        const available = !cityTemporarilyDisabled
+            && canRecruitTypeAtSelectedCity(type, tile, gameState, gameState.currentCamp)
+            && affordable;
         btn.disabled = !available;
         if (available) {
             btn.classList.add('available');
@@ -366,7 +368,7 @@ export function updateUI() {
     const isAIOpponentTurn = isCampaignAiTurn || (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp);
     const inCommanderSetup = gameState.commanderPhase === 'selection';
     const disableBtns = opponentTurn || isNeutralTurn || isAIOpponentTurn || gameState.gameOver || inCommanderSetup;
-    ['endTurnBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher'].forEach(id => {
+    ['endTurnBtn', ...RECRUITMENT_OPTIONS.map(option => option.buttonId)].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = disableBtns || (id.startsWith('recruit') && !isMechanicEnabled(gameState, 'recruitment'));
     });
@@ -505,7 +507,7 @@ export function finalizeDeployment() {
         }
     }
     // 启用按钮（同步，避免移动端setTimeout延迟）
-    ['endTurnBtn', 'surrenderBtn', 'recruitInfantry', 'recruitCavalry', 'recruitArcher'].forEach(id => {
+    ['endTurnBtn', 'surrenderBtn', ...RECRUITMENT_OPTIONS.map(option => option.buttonId)].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = false;
     });

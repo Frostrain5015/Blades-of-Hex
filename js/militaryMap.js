@@ -32,9 +32,15 @@ function createVisualFiller(q, r, sourceTile, index) {
         x,
         y,
         isVisualFiller: true,
+        // These cells exist exclusively in the render footprint.  Explicit
+        // flags keep every topology/cache consumer from accidentally treating
+        // a filler as playable data.
+        renderOnly: true,
+        playable: false,
         sourceTile,
         get camp() { return sourceTile.camp; },
         get districtId() { return sourceTile.districtId; },
+        get surface() { return sourceTile.surface; },
         get currentColor() { return sourceTile.currentColor; }
     });
 }

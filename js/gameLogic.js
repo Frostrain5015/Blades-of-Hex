@@ -1,7 +1,7 @@
 ﻿import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { campToKey } from '../rules/camps.js';
-import { DRONE_RANGE, DRONE_SUICIDE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
+import { DRONE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
 import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState, seedMatchRng } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
@@ -36,6 +36,19 @@ import { emit } from './eventBus.js';
 import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
 import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
+import { ATTACK_PRESENTATION, classifyAttackPresentation } from '../rules/attackPresentation.js';
+import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
+import {
+    ANTI_AIR_RADIUS,
+    getAntiAirLayers,
+    isAntiAirUnit as isAntiAirUnitRule
+} from '../rules/antiAir.js';
+import {
+    canUnitOccupyTile,
+    isLandDeploymentTile,
+    resolveMovementStep
+} from '../rules/movement.js';
+import { isLandTile } from '../rules/surfaces.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
@@ -379,11 +392,13 @@ function _bindGameButtons() {
     document.getElementById('recruitInfantry').addEventListener('click', _onRecruitInfantry);
     document.getElementById('recruitCavalry').addEventListener('click', _onRecruitCavalry);
     document.getElementById('recruitArcher').addEventListener('click', _onRecruitArcher);
+    document.getElementById('recruitWarship').addEventListener('click', _onRecruitWarship);
 }
 
 const _onRecruitInfantry = () => recruitUnit('infantry');
 const _onRecruitCavalry = () => recruitUnit('cavalry');
 const _onRecruitArcher = () => recruitUnit('archer');
+const _onRecruitWarship = () => recruitUnit('warship');
 
 function initCardDeck() {
     const deck = [...DECK_COMPOSITION];
@@ -1136,6 +1151,10 @@ export function recruitUnit(type) {
         notify('只能在城市招募', 'error');
         return;
     }
+    if (!canUnitOccupyTile({ type, config }, selectedCityTile, gameState)) {
+        notify(type === 'warship' ? '舰船只能在港口招募' : '该兵种无法部署在此地形', 'error');
+        return;
+    }
     if (selectedCityTile._cityDisabledUntil > 0 && selectedCityTile._cityDisabledUntil > getRoundIndex(gameState)) {
         notify('该城市遭到空袭 无法招募', 'error');
         return;
@@ -1206,14 +1225,17 @@ function _getStallerSnareLayers(tile, friendlyCamp) {
     return getStallerSnareLayers(tile, friendlyCamp, gameState.tileMap);
 }
 
-// Check if a tile is in enemy Zone of Control (adjacent to hostile unit)
-function _isInEnemyZoC(tile, friendlyCamp) {
+// Check if a tile is in enemy Zone of Control (adjacent to a unit that can
+// actually threaten this movement surface).
+function _isInEnemyZoC(tile, friendlyCamp, movingUnit = null) {
     const map = gameState.tileMap;
     for (const [dq, dr] of HEX_NEIGHBORS) {
         const neighbor = map.get(`${tile.q + dq},${tile.r + dr}`);
-        if (neighbor && neighbor.unit && neighbor.unit.camp !== friendlyCamp) {
-            return true;
-        }
+        const enemy = neighbor?.unit;
+        if (!enemy || !canAttack(gameState, enemy.camp, friendlyCamp)) continue;
+        if (!movingUnit
+            || classifyAttackPresentation(enemy) !== ATTACK_PRESENTATION.ASSAULT
+            || canUnitOccupyTile(enemy, tile, gameState)) return true;
     }
     return false;
 }
@@ -1231,11 +1253,15 @@ export function getMovableTiles(unit) {
     const startTile = unit.tile;
     const friendlyCamp = unit.camp;
     const map = gameState.tileMap;
+    if (!startTile || !canUnitOccupyTile(unit, startTile, gameState)) {
+        gameState.moveParents = new Map();
+        return [];
+    }
 
     // BFS queue: [tile, remainingMP, cameFromZoC]
-    const queue = [{ tile: startTile, remaining: speed, fromZoC: _isInEnemyZoC(startTile, friendlyCamp) }];
+    const queue = [{ tile: startTile, remaining: speed, fromZoC: _isInEnemyZoC(startTile, friendlyCamp, unit) }];
     const visited = new Map();
-    visited.set(startTile, { remaining: speed, fromZoC: _isInEnemyZoC(startTile, friendlyCamp), parent: null });
+    visited.set(startTile, { remaining: speed, fromZoC: _isInEnemyZoC(startTile, friendlyCamp, unit), parent: null });
     const result = [];
 
     let head = 0;
@@ -1249,7 +1275,10 @@ export function getMovableTiles(unit) {
             if (neighbor.unit) continue; // occupied → impassable
             if (unit._isDrone && !isTileInDroneSignal(gameState, unit.camp, neighbor)) continue;
 
-            let stepCost = unit._isDrone ? 2 : TERRAIN_CONFIG[neighbor.terrain].stepCost;
+            let stepCost = unit._isDrone ? 2 : (TERRAIN_CONFIG[neighbor.terrain]?.stepCost ?? 1);
+            const movementStep = resolveMovementStep(unit, cur, neighbor, gameState, { baseCost: stepCost });
+            if (!movementStep.allowed) continue;
+            stepCost = movementStep.cost;
             // 雨天泥泞：骑兵步耗+1，末步豁免失效
             const _isMuddyTarget = isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === "rain" && unit.type === "cavalry"
                 && !getCommanderWeatherImmunity(neighbor, friendlyCamp, gameState.tileMap);
@@ -1261,11 +1290,12 @@ export function getMovableTiles(unit) {
             if (snareLayers > 0) stepCost += snareLayers * 2;
             if (curRem < 1) continue;
             // 末步豁免失效：泥泞/缚足下若行动力不足全额支付则无法到达
-            if ((_isMuddyTarget || snareLayers > 0) && curRem < stepCost && cur !== startTile) continue;
+            if ((movementStep.requiresFullCost || _isMuddyTarget || snareLayers > 0)
+                && curRem < stepCost) continue;
             let newRem = curRem >= stepCost ? curRem - stepCost : 0;
 
             // Zone of Control: entering a ZoC tile costs all remaining MP (must stop)
-            const neighborInZoC = _isInEnemyZoC(neighbor, friendlyCamp);
+            const neighborInZoC = _isInEnemyZoC(neighbor, friendlyCamp, unit);
             // Cannot move from one ZoC directly into another (prevents sliding along lines)
             if (curFromZoC && neighborInZoC && cur !== startTile) continue;
             if (neighborInZoC && !curFromZoC) {
@@ -1309,12 +1339,18 @@ export function getAttackableTiles(unit) {
     }
     range = Math.max(1, Math.min(4, range));
     const startTile = unit.tile;
-    const targets = gameState.tiles.filter(tile =>
+    const isRanged = classifyAttackPresentation(unit) !== ATTACK_PRESENTATION.ASSAULT;
+    const surfaceLegal = isRanged || canUnitOccupyTile(unit, startTile, gameState);
+    const targets = surfaceLegal ? gameState.tiles.filter(tile =>
         hexDistance(tile, startTile) <= range
         && tile.unit
         && canAttack(gameState, unit.camp, tile.unit.camp)
         && tile.unit._campaignTargetable !== false
-    );
+        // An assault must be able to occupy the defender's surface. This
+        // prevents land melee units from attacking ships across a coast while
+        // retaining unrestricted artillery/naval fire across domains.
+        && (isRanged || canUnitOccupyTile(unit, tile, gameState))
+    ) : [];
     // 遭遇战迷雾：只能攻击视野内的敌方单位
     if (gameState.skirmishFog && targets.length) {
         return targets.filter(tile => isTileVisible(tile, unit.camp, gameState));
@@ -1340,7 +1376,9 @@ function _reconstructPath(parents, startTile, targetTile) {
 export function moveUnit(unit, targetTile) {
     if (gameState.gameOver) return;
     if (unit.camp !== gameState.currentCamp) return;
-    if (unit._campaignCanMove === false || unit.isNewRecruit || !unit.canAct || !gameState.movableTiles.includes(targetTile) || targetTile.unit) {
+    const legalMoves = unit?.tile ? getMovableTiles(unit) : [];
+    gameState.movableTiles = legalMoves;
+    if (unit._campaignCanMove === false || unit.isNewRecruit || !unit.canAct || !legalMoves.includes(targetTile) || targetTile.unit) {
         notify('该单位本回合无法移动', 'error');
         return;
     }
@@ -1444,7 +1482,9 @@ export function attackUnit(attackerUnit, targetUnit) {
         return;
     }
     if (attackerUnit._isDrone) refreshDroneSignal(gameState, attackerUnit.camp);
-    if (!attackerUnit.canAct || !gameState.attackableTiles.includes(targetUnit.tile)) {
+    const legalTargets = attackerUnit?.tile ? getAttackableTiles(attackerUnit) : [];
+    gameState.attackableTiles = legalTargets;
+    if (!attackerUnit.canAct || !legalTargets.includes(targetUnit.tile)) {
         notify('无法攻击：超出射程或单位已行动', 'error');
         return;
     }
@@ -1508,7 +1548,12 @@ export function attackUnit(attackerUnit, targetUnit) {
     if (attackerUnit._smiteReady) {
         setTimeout(() => playSound('lightning'), 500);
     } else {
-        playSound(attackerUnit._isDrone || attackerUnit.type === 'mgNest' ? 'machinegun' : attackerUnit.type === 'archer' ? 'cannon' : (attackResult.isCrit ? 'crit' : 'attack'));
+        const soundPresentation = classifyAttackPresentation(attackerUnit);
+        playSound(soundPresentation === ATTACK_PRESENTATION.FIRE_TRACER
+            ? 'machinegun'
+            : soundPresentation === ATTACK_PRESENTATION.FIRE_CANNON
+                ? 'cannon'
+                : (attackResult.isCrit ? 'crit' : 'attack'));
     }
     const isCrit = attackResult.isCrit;
 
@@ -1538,15 +1583,16 @@ export function attackUnit(attackerUnit, targetUnit) {
     }
 
     let atkCmdResult = null, ctrCmdResult = null;
+    const attackPresentation = classifyAttackPresentation(attackerUnit);
     try {
-        if (attackerUnit.type === 'archer') {
+        if (attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
             spawnProjectile(fromX, fromY, toX, toY, isCrit, () => {
                 triggerAttackFlash(toX, toY, isCrit);
                 triggerRecoil(fromX, fromY, toX, toY);
                 spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
                 triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
             });
-        } else if (attackerUnit._isDrone || attackerUnit.type === 'mgNest') {
+        } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
             spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {
                 triggerAttackFlash(toX, toY, isCrit);
                 spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 4 : 2);
@@ -1570,7 +1616,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             triggerScreenShake(8, 260);
         }
         // 近战突进特效（击杀时由 movePath 处理位移，不重复触发；碉堡/无人机不可移动，无突进）
-        if (attackerUnit.type !== 'archer' && attackerUnit.type !== 'mgNest' && !attackerUnit._isDrone && !isTargetDead) {
+        if (attackPresentation === ATTACK_PRESENTATION.ASSAULT && !isTargetDead) {
             triggerCharge(attackerUnit.id, fromX, fromY, toX, toY);
         }
         logMessage(`${attackerUnit.camp.name}的${attackerUnit.config.name}兵攻击造成${Math.round(attackResult.dmg)}伤害${attackResult.isCrit ? '（强击）' : ''}`);
@@ -1632,11 +1678,12 @@ export function attackUnit(attackerUnit, targetUnit) {
                 attackerUnit.takeDamage(counterResult.dmg, targetUnit);
                 // 远程单位(炮/碉堡/无人机)反击 → 复用炮弹/子弹飞行动画（近战反击维持原本仅伤害数字）
                 _counterIsCrit = counterResult.isCrit;
-                _counterIsRanged = targetUnit.type === 'archer' || targetUnit.type === 'mgNest' || targetUnit._isDrone;
+                const counterPresentation = classifyAttackPresentation(targetUnit);
+                _counterIsRanged = counterPresentation !== ATTACK_PRESENTATION.ASSAULT;
                 if (_counterIsRanged) {
                     const _cfx = targetUnit.tile.x, _cfy = targetUnit.tile.y;
-                    playSound(targetUnit._isDrone || targetUnit.type === 'mgNest' ? 'machinegun' : 'cannon');
-                    if (targetUnit._isDrone || targetUnit.type === 'mgNest') {
+                    playSound(counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER ? 'machinegun' : 'cannon');
+                    if (counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
                         spawnDroneProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, () => {
                             triggerAttackFlash(_counterX, _counterY, counterResult.isCrit);
                             spawnDirectionalParticles(_cfx, _cfy, _counterX, _counterY, '#ff8844', counterResult.isCrit ? 8 : 4);
@@ -1667,7 +1714,9 @@ export function attackUnit(attackerUnit, targetUnit) {
             attackerUnit.canAct = false;
         } else {
             const targetTile = targetUnit.tile;
-            if (attackerUnit.type !== 'archer' && attackerUnit.type !== 'mgNest' && !attackerUnit._isDrone && !attackerUnit._imprisoned && !attackerUnit._isImmobile) {
+            if (classifyAttackPresentation(attackerUnit) === ATTACK_PRESENTATION.ASSAULT
+                && !attackerUnit._imprisoned && !attackerUnit._isImmobile
+                && canUnitOccupyTile(attackerUnit, targetTile, gameState)) {
                 attackerUnit.tile.unit = null;
                 attackerUnit.tile = targetTile;
                 targetTile.unit = attackerUnit;
@@ -1853,8 +1902,10 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
         }
     });
 
-    gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
-    gameState.districtBorderEdges = computeDistrictBorders(gameState.tiles, gameState.tileMap);
+    const landTiles = gameState.tiles.filter(isLandTile);
+    const landTileMap = new Map(landTiles.map(tile => [`${tile.q},${tile.r}`, tile]));
+    gameState.campBorderEdges = computeCampBorders(landTiles, landTileMap);
+    gameState.districtBorderEdges = computeDistrictBorders(landTiles, landTileMap);
     logMessage(`${camp.name}占领的(${cityTile.q},${cityTile.r})城市所属行政区已归属${camp.name}`);
     if (attackerUnit) attackerUnit.addXP(5);
     invalidateBoard();
@@ -2130,50 +2181,37 @@ async function handleSurrender() {
 
 // ==== E4 空军上校：航程 + 防空火力 目标约束 =====================
 export const COLONEL_AIR_RANGE = COLONEL_CARD_DATA.range;
-export const ANTIAIR_RADIUS = COLONEL_CARD_DATA.antiairRadius;
+export const ANTIAIR_RADIUS = ANTI_AIR_RADIUS;
 
 // 找到某阵营在场的上校单位（无则 null）
 export function getColonelUnit(camp) {
     for (const t of gameState.tiles) {
-        if (t.unit && t.unit.commander === 'colonel' && t.unit.camp === camp && t.unit.hp > 0) return t.unit;
+        if (t.unit && t.unit.commander === 'colonel' && campToKey(t.unit.camp) === campToKey(camp) && t.unit.hp > 0) return t.unit;
     }
     return null;
 }
 
-// 是否为防空火力单位：炮兵(archer)/碉堡(mgNest)/挂停滞者的单位
-export function isAntiAirUnit(u) {
-    return !!u && (u.type === 'archer' || u.type === 'mgNest' || u.commander === 'staller');
-}
+// 兼容旧导入；实现来自 rules/antiAir.js 的单一规则源。
+export const isAntiAirUnit = isAntiAirUnitRule;
 
-// 计算目标地块被敌方防空火力覆盖的层数（0~2，2格半径内每1个防空单位=1层）
-export function getAALayers(tile, camp, tileMap) {
-    if (!tile || !tileMap) return 0;
-    let count = 0;
-    // 高射机枪工事：为站在其上的单位提供自身1层防空（仅覆盖自身1格）
-    if (tile.fortification === 'flak') count++;
-    for (const t of tileMap.values()) {
-        if (!t || !t.unit || t.unit.camp === camp || !isAntiAirUnit(t.unit)) continue;
-        if (hexDistance(t, tile) <= ANTIAIR_RADIUS) {
-            count++;
-            if (count >= COMBAT_BALANCE.defense.antiairMaxLayers) break;
-        }
-    }
-    return Math.min(count, COMBAT_BALANCE.defense.antiairMaxLayers);
+// 计算目标地块被敌方防空火力覆盖的层数（0~2）。
+export function getAALayers(tile, camp, tileMap, state = gameState) {
+    return getAntiAirLayers(tile, camp, tileMap, { state });
 }
 
 // ==== 通用防空接口 =====================
 // 接口1：对空防御——所有空袭伤害卡（俯冲扫射/地毯轰炸/空袭）共用
 // 每层防空提供+25%防御，伤害 = 原伤害 × (1 − 层数×0.25)
-export function applyAADefense(dmg, tile, camp, tileMap) {
-    const aa = getAALayers(tile, camp, tileMap);
+export function applyAADefense(dmg, tile, camp, tileMap, state = gameState) {
+    const aa = getAALayers(tile, camp, tileMap, state);
     if (aa > 0) return Math.round(dmg * (1 - aa * COMBAT_BALANCE.defense.antiairPerLayer));
     return dmg;
 }
 
 // 接口2：空降减血——所有空降/空运卡（空降步兵/上校空运）共用
 // 每层防空降低25%最大生命值（不低于1），保持生命上限不变
-export function applyAADropHP(unit, tile, camp, tileMap) {
-    const aa = getAALayers(tile, camp, tileMap);
+export function applyAADropHP(unit, tile, camp, tileMap, state = gameState) {
+    const aa = getAALayers(tile, camp, tileMap, state);
     if (aa > 0) {
         const hpLoss = Math.round(unit.maxHp * aa * COMBAT_BALANCE.defense.antiairPerLayer);
         unit.hp = Math.max(1, unit.hp - hpLoss);
@@ -2245,6 +2283,14 @@ export function executeDroneDeploy(tianyanUnit, targetTile) {
         notify('当前不是你的回合', 'error');
         return null;
     }
+    const targetingPreview = resolveTargetingPreview(gameState, {
+        cardId: 'drone_deploy',
+        targeting: 'emptyTile'
+    }, { myCamp: tianyanUnit.camp, hoveredTile: targetTile, isTileVisible });
+    if (!isResolvedTargetingCandidate(targetingPreview, targetTile)) {
+        notify('该位置无法部署', 'error');
+        return null;
+    }
 
     const drone = deployDrone(tianyanUnit, targetTile, {
         gameState,
@@ -2270,6 +2316,10 @@ export function executeDroneDeploy(tianyanUnit, targetTile) {
 }
 
 export function executeEngineerTrench(engineerUnit) {
+    if (!isLandDeploymentTile(engineerUnit?.tile)) {
+        notify('水域地块无法修筑工事', 'error');
+        return false;
+    }
     const result = digEngineerTrench(engineerUnit, { gameState, logMessage });
     if (!result.ok) {
         notify(result.message, 'error');
@@ -2288,6 +2338,10 @@ export function executeEngineerTrench(engineerUnit) {
 }
 
 export function executeEngineerFlak(engineerUnit) {
+    if (!isLandDeploymentTile(engineerUnit?.tile)) {
+        notify('水域地块无法修筑工事', 'error');
+        return false;
+    }
     const result = digEngineerFlak(engineerUnit, { gameState, logMessage });
     if (!result.ok) {
         notify(result.message, 'error');
@@ -2306,6 +2360,15 @@ export function executeEngineerFlak(engineerUnit) {
 }
 
 export function executeEngineerBunkerConstruction(engineerUnit, targetTile) {
+    const targetingPreview = resolveTargetingPreview(gameState, {
+        cardId: 'engineer_bunker',
+        targeting: 'emptyTile',
+        engineerUnitId: engineerUnit?.id
+    }, { myCamp: engineerUnit?.camp, hoveredTile: targetTile, isTileVisible });
+    if (!isResolvedTargetingCandidate(targetingPreview, targetTile)) {
+        notify('无法建造在该位置', 'error');
+        return false;
+    }
     const result = beginEngineerBunkerConstruction(engineerUnit, targetTile, { gameState, logMessage, Unit });
     if (!result.ok) {
         notify(result.message, 'error');
@@ -2334,12 +2397,13 @@ export function executeDroneSuicide(droneUnit, targetTile) {
         notify('哨机当前无法行动', 'error');
         return false;
     }
-    if (!targetTile || !targetTile.unit || targetTile.unit.camp === droneUnit.camp) {
+    const targetingPreview = resolveTargetingPreview(gameState, {
+        cardId: 'drone_suicide',
+        targeting: 'anyTileGlobal',
+        droneId: droneUnit.id
+    }, { myCamp: droneUnit.camp, hoveredTile: targetTile, isTileVisible });
+    if (!isResolvedTargetingCandidate(targetingPreview, targetTile)) {
         notify('无法对该目标释放自爆', 'error');
-        return false;
-    }
-    if (hexDistance(droneUnit.tile, targetTile) > DRONE_SUICIDE_RANGE) {
-        notify('目标超出最大射程', 'error');
         return false;
     }
     const gs = gameState;
@@ -2416,46 +2480,23 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
     const campKey = _campKey(myCamp);
 
-    // validate targeting
-    const tg = cfg.targeting;
-    if (tg === 'enemyGlobal') {
-        if (!targetTile || !targetTile.unit || targetTile.unit.camp === myCamp) { notify('无效目标'); return; }
-    } else if (tg === 'friendlyAlive') {
-        if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('无效目标'); return; }
-    } else if (tg === 'friendlyAny') {
-        if (!targetTile || !targetTile.unit || targetTile.unit.camp !== myCamp) { notify('请选择友方单位'); return; }
-        if (cardId === 'commanderDeploy' && (targetTile.unit.isCommanderUnit ?? Boolean(targetTile.unit.commander))) { notify('将领必须部署到未配属将领的单位'); return; }
-        // E4 空运：被禁锢的单位不可被空运
-        if (cardId === 'airlift' && targetTile.unit._imprisoned) { notify('被禁锢的单位无法空运'); return; }
-    } else if (tg === 'emptyTile') {
-        if (!targetTile || targetTile.unit) { notify('该格已占用'); return; }
-    } else if (tg === 'emptyFriendlyNonCityNonMountain') {
-        if (!targetTile || targetTile.unit) { notify('该格已占用'); return; }
-        if (targetTile.isCity) { notify('不能部署在城市'); return; }
-        if (targetTile.terrain === 'mountain') { notify('不能部署在山地'); return; }
-        if (targetTile.camp !== myCamp) { notify('只能部署在己方领土'); return; }
-    } else if (tg === 'emptyFriendlyNonCity') {
-        if (!targetTile || targetTile.unit) { notify('该格已占用'); return; }
-        if (targetTile.isCity) { notify('不能部署在城市'); return; }
-        if (targetTile.camp !== myCamp) { notify('只能部署在己方领土'); return; }
-    } else if (tg === 'emptyFriendlyLandmine') {
-        if (!targetTile || targetTile.unit) { notify('该格已占用'); return; }
-        if (targetTile.isCity) { notify('不能部署在城市'); return; }
-        if (targetTile.camp !== myCamp) { notify('只能部署在己方领土'); return; }
-    } else if (tg === 'enemyCity') {
-        if (!targetTile || !targetTile.isCity || targetTile.camp === myCamp)
-            { notify('请选择敌方城市'); return; }
-    } else if (tg === 'shieldTarget') {
-        if (!targetTile || !targetTile.unit) { notify('请选择单位'); return; }
-    } else if (tg === 'anyUnit') {
-        if (!targetTile || !targetTile.unit) { notify('请选择单位'); return; }
-    } else if (tg === 'anyTileGlobal') {
-        if (!targetTile) { notify('请选择目标地块'); return; }
-    }
-
-    // 遭遇战迷雾：对策卡只能对视野内目标释放（侦察卡除外）
-    if (gameState.skirmishFog && tg !== 'anyTileGlobal' && targetTile && !isTileVisible(targetTile, myCamp, gameState)) {
-        notify('目标不在视野范围内'); return;
+    // 候选集合是渲染、点击与执行终检的共同真源；执行层仍在扣牌/扣金前复核一次。
+    const activeTargeting = gameState.cardTargeting?.cardId === cardId
+        ? gameState.cardTargeting
+        : null;
+    const targetingPreview = resolveTargetingPreview(gameState, {
+        ...(activeTargeting || {}),
+        cardId,
+        targeting: cfg.targeting
+    }, {
+        myCamp,
+        hoveredTile: targetTile,
+        isTileVisible
+    });
+    if (!isResolvedTargetingCandidate(targetingPreview, targetTile)) {
+        if (targetingPreview.air?.grounded) notify('雾天停飞，无法使用空军卡', 'error');
+        else notify('无效目标');
+        return;
     }
 
     // validate hand + capture card position for burn anim
@@ -2588,7 +2629,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     if (cardId === 'airlift' && targetTile && targetTile.unit) {
         gameState._airliftTarget = { unitId: targetTile.unit.id };
         showTargetingBanner('请选择目标');
-        gameState.cardTargeting = { cardId: 'airlift_dest', targeting: 'emptyTile', handIndex: idx };
+        gameState.cardTargeting = { cardId: 'airlift_dest', targeting: 'emptyTile', handIndex: idx, startedAt: performance.now() };
         updateUI();
         return;
     }
@@ -2598,14 +2639,30 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
 
     function _executeAirliftDest(targetTile) {
     if (!gameState._airliftTarget) { notify('请先选择空运单位', 'error'); return; }
-    const myCamp = gameState.currentCamp;
+    const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
     const aCampKey = _campKey(myCamp);
     const airUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === gameState._airliftTarget.unitId ? t.unit : null), null);
     if (!airUnit || !airUnit.tile) { notify('空运单位已不存在', 'error'); gameState._airliftTarget = null; gameState.cardTargeting = null; hideTargetingBanner(); updateUI(); return; }
-    if (targetTile.unit) { notify('目的地已有单位', 'error'); return; }
-    if (gameState.skirmishFog && !isTileVisible(targetTile, myCamp, gameState)) { notify('目的地不在视野内', 'error'); return; }
+    const destinationPreview = resolveTargetingPreview(gameState, {
+        cardId: 'airlift_dest',
+        targeting: 'emptyTile'
+    }, { myCamp, hoveredTile: targetTile, isTileVisible });
+    if (!isResolvedTargetingCandidate(destinationPreview, targetTile)) {
+        if (destinationPreview.air?.grounded) notify('雾天停飞，无法使用空运', 'error');
+        else notify('空运目的地无效、不可见或超出上校航程', 'error');
+        return;
+    }
     // 扣金币 + 计入本回合用卡次数（空军卡不消耗手牌，故在此统一结算）
     const aGoldCost = COLONEL_CARD_GOLD.airlift || 0;
+    if ((gameState.playerGold[aCampKey] || 0) < aGoldCost) {
+        notify('金币不足', 'error');
+        return;
+    }
+    const aUseBonus = gameState._cardOverrides?.[aCampKey]?.useBonus || 0;
+    if ((gameState.playerUsesThisTurn[aCampKey] || 0) >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + aUseBonus) {
+        notify('本回合已达到使用上限', 'error');
+        return;
+    }
     gameState.playerGold[aCampKey] = (gameState.playerGold[aCampKey] || 0) - aGoldCost;
     gameState.playerUsesThisTurn[aCampKey] = (gameState.playerUsesThisTurn[aCampKey] || 0) + 1;
     logMessage(`空军上校消耗${aGoldCost}$`);
@@ -2625,7 +2682,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     airUnit.canAct = false;
     const hpLoss = Math.min(Math.round(airUnit.hp * 0.20), Math.round(airUnit.maxHp * 0.40));
     if (hpLoss > 0) airUnit.applyDamage(hpLoss, { source: 'true', minHp: 1 });
-    // 通用防空接口：空运落入防空区 → 每层-20%最大生命值（上限不变）
+    // 通用防空接口：空运落入防空区 → 每层-25%最大生命值（上限不变）
     applyAADropHP(airUnit, targetTile, myCamp, gameState.tileMap);
     const aa = getAALayers(targetTile, myCamp, gameState.tileMap);
     if (aa > 0) logMessage(`🪂 空运落入防空火力：损失${aa * 25}%最大生命值`);

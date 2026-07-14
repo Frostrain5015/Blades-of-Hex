@@ -6,6 +6,8 @@ import { createDefaultMechanics } from '../../rules/mechanics.js';
 import { Unit } from '../../js/Unit.js';
 import { computeCampBorders } from '../../js/HexTile.js';
 import { applyCommanderMount, resolveCommanderMount } from './storyCommanders.js';
+import { canUnitOccupyTile } from '../../rules/movement.js';
+import { isLandTile } from '../../rules/surfaces.js';
 
 const COMMANDER_SLOTS = {
     player1: { id: 'commanderP1', confirmed: 'commanderP1Confirmed', deployed: 'commanderP1Deployed' },
@@ -68,6 +70,7 @@ export function buildBattlefieldFromConfig(config, gameState) {
         const tile = gameState.tileMap.get(`${spec.q},${spec.r}`);
         if (!tile) continue;                 // 越界或坐标无效，跳过
         if (tile.unit) continue;             // 该格已被占用
+        if (!canUnitOccupyTile({ type: spec.type }, tile, gameState)) continue;
         const camp = campFromKey(spec.camp, gameState);
         const mount = resolveCommanderMount(config, spec);
         const unit = new Unit(
@@ -107,7 +110,9 @@ export function buildBattlefieldFromConfig(config, gameState) {
     }
 
     // 放置单位后城市/村庄旗帜的归属可能变化，刷新阵营边界缓存。
-    gameState.campBorderEdges = computeCampBorders(gameState.tiles, gameState.tileMap);
+    const landTiles = gameState.tiles.filter(isLandTile);
+    const landTileMap = new Map(landTiles.map(tile => [`${tile.q},${tile.r}`, tile]));
+    gameState.campBorderEdges = computeCampBorders(landTiles, landTileMap);
 
     return { unitIds: placedIds };
 }

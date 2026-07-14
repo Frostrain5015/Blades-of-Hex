@@ -5,6 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc -p tsconfig.rendering.json --pretty false",
     "setup": "npm install --production && node server.js",
     "generate-cert": "node generate-cert.js",
     "setup-https": "node generate-cert.js && node server.js",
@@ -16,6 +20,7 @@
   },
   "dependencies": {
     "mysql2": "^3.22.6",
+    "pixi.js": "^8.19.0",
     "sharp": "^0.35.3",
     "ws": "^8.17.0"
   },
@@ -24,6 +29,8 @@
   },
   "devDependencies": {
     "jsdom": "^29.1.1",
-    "playwright": "^1.61.1"
+    "playwright": "^1.61.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6"
   }
 }

@@ -4,6 +4,11 @@
 import { campFromKey, createDefaultFactions } from '../../rules/diplomacy.js';
 import { hexDistance } from '../../rules/hex.js';
 import { getPlayableBoardCoordinates, normalizeBoardLayout } from '../../rules/boardLayout.js';
+import {
+    buildCoastTopology, buildSurfaceMap, getSurfaceBaseColor, getSurfaceKindAt,
+    hasAdjacentWater, isLandTile, isWaterTile, tileCoordinateKey
+} from '../../rules/surfaces.js';
+import { buildRiverTopology } from '../../rules/hydrography.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from '../../js/HexTile.js';
 
 /**
@@ -24,41 +29,62 @@ export function buildBoardFromConfig(config, gameState) {
     const tiles = getPlayableBoardCoordinates({ ...board, layout })
         .map(({ q, r }) => new HexTile(q, r));
 
-    // 2) Voronoi：每块归最近城市，决定 districtId（阵营在下面单独派生，不在此处赋值）。
-    const cities = board.cities || [];
+    // 建立坐标索引（后续所有稀疏表仅能命中真实地块）。
+    const tileMap = new Map();
+    for (const tile of tiles) tileMap.set(tileCoordinateKey(tile), tile);
+    const at = (q, r) => tileMap.get(tileCoordinateKey(q, r)) || null;
+
+    // 2) 表面先于阵营、区划和地物落位。旧地图没有 surface 时全部
+    // 自然归一化为 land；水域使用材质色且永远不带 camp。
+    const authoredSurfaceMap = buildSurfaceMap(board.surface || []);
     for (const tile of tiles) {
+        tile.surface = getSurfaceKindAt(authoredSurfaceMap, tile.q, tile.r);
+        if (!isWaterTile(tile)) continue;
+        tile.camp = null;
+        tile.districtId = null;
+        const waterColor = getSurfaceBaseColor(tile.surface);
+        tile.startColor = waterColor;
+        tile.targetColor = waterColor;
+        tile.currentColor = waterColor;
+    }
+    const surfaceMap = new Map(tiles.filter(isWaterTile).map(tile => [tileCoordinateKey(tile), tile.surface]));
+
+    // 3) Voronoi：每块陆地归最近的合法城市中心，决定 districtId。
+    const cities = board.cities || [];
+    const landCities = cities.filter(city => {
+        const centre = at(city?.q, city?.r);
+        return centre && isLandTile(centre);
+    });
+    for (const tile of tiles) {
+        if (!isLandTile(tile)) continue;
         let bestDist = Infinity;
         let best = null;
-        for (const city of cities) {
+        for (const city of landCities) {
             const d = hexDistance(tile, { q: city.q, r: city.r, s: -city.q - city.r });
             if (d < bestDist) { bestDist = d; best = city; }
         }
         if (best) tile.districtId = best.districtId ?? 0;
     }
 
-    // 建立坐标索引（后续覆盖表按坐标定位）。
-    const tileMap = new Map();
-    for (const tile of tiles) tileMap.set(`${tile.q},${tile.r}`, tile);
-    const at = (q, r) => tileMap.get(`${q},${r}`) || null;
-
-    // 3) 地形覆盖。
+    // 4) 陆地地形覆盖。
     for (const entry of (board.terrain || [])) {
         const tile = at(entry.q, entry.r);
-        if (tile) tile.terrain = entry.type || 'plains';
+        if (tile && isLandTile(tile)) tile.terrain = entry.type || 'plains';
     }
 
-    // 4) 行政区范围覆盖（少数情况下地块归属与 Voronoi 不同，用于手绘不规则边界）。
+    // 5) 行政区范围覆盖；水格没有 districtId。
     for (const entry of (board.districts || [])) {
         const tile = at(entry.q, entry.r);
-        if (tile) tile.districtId = entry.districtId ?? tile.districtId;
+        if (tile && isLandTile(tile)) tile.districtId = entry.districtId ?? tile.districtId;
     }
 
-    // 5) 阵营派生：与游戏内 updateDistrictColor 同一条规则——阵营从来不是逐格独立属性，
+    // 6) 阵营派生：与游戏内 updateDistrictColor 同一条规则——阵营从来不是逐格独立属性，
     // 而是由该区划的颜色来源（城市）单向决定。districtId 已在上面定稿，这里统一回填。
     // 若某 districtId 没有城市（无颜色来源），落回中立（编辑器会在校验中提示）。
     const districtCampMap = new Map();
-    for (const city of cities) districtCampMap.set(city.districtId, campFor(city.camp));
+    for (const city of landCities) districtCampMap.set(city.districtId, campFor(city.camp));
     for (const tile of tiles) {
+        if (!isLandTile(tile)) continue;
         const camp = districtCampMap.get(tile.districtId) || campFor('neutral');
         tile.camp = camp;
         tile.startColor = camp.color;
@@ -66,35 +92,81 @@ export function buildBoardFromConfig(config, gameState) {
         tile.currentColor = camp.color;
     }
 
-    // 6) 标记城市。
-    for (const city of cities) {
-        const tile = at(city.q, city.r);
-        if (tile) tile.isCity = true;
+    // 7) 标记城市中心与多格 footprint。中心仍是唯一 isCity；城郭范围
+    // 只设置 isUrban，以兼容所有依赖单格城市中心的旧规则。
+    for (const city of landCities) {
+        const centre = at(city.q, city.r);
+        const centreKey = tileCoordinateKey(city.q, city.r);
+        centre.isCity = true;
+        const footprint = [{ q: city.q, r: city.r }, ...(Array.isArray(city.footprint) ? city.footprint : [])];
+        const seen = new Set();
+        for (const point of footprint) {
+            const key = tileCoordinateKey(point?.q, point?.r);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const tile = at(point?.q, point?.r);
+            if (!tile || !isLandTile(tile)) continue;
+            tile.isUrban = true;
+            tile.urbanCenterKey = centreKey;
+        }
     }
 
-    // 7) 村庄（携行政区归属；构建 villageTiles 索引）。
+    // 8) 村庄（携行政区归属；构建 villageTiles 索引）。
     const villageEntries = [];
     for (const v of (board.villages || [])) {
         const tile = at(v.q, v.r);
-        if (!tile || tile.isCity) continue;
+        if (!tile || !isLandTile(tile) || tile.isUrban) continue;
         tile.isVillage = true;
         tile.villageDistrictId = v.districtId ?? tile.districtId;
         villageEntries.push([`${v.q},${v.r}`, { districtId: tile.villageDistrictId, q: v.q, r: v.r }]);
     }
 
-    // 8) 工事。
+    // 9) 工事。无论输入是否先经过校验，水格都不会落入工事状态。
     for (const f of (board.fortifications || [])) {
         const tile = at(f.q, f.r);
-        if (tile) tile.fortification = f.type || null;
+        if (tile && isLandTile(tile)) tile.fortification = f.type || null;
     }
 
-    // 9) 写回状态并计算边界缓存。
+    // 10) 港口仅在真实陆格上成立；邻水约束由 schema 阻断校验。
+    const ports = [];
+    const portTiles = new Map();
+    for (const port of (board.ports || [])) {
+        const tile = at(port?.q, port?.r);
+        if (!tile || !isLandTile(tile) || !hasAdjacentWater(surfaceMap, tile.q, tile.r)) continue;
+        const key = tileCoordinateKey(tile);
+        if (portTiles.has(key)) continue;
+        tile.isPort = true;
+        const value = Object.freeze({ q: tile.q, r: tile.r });
+        ports.push(value);
+        portTiles.set(key, tile);
+    }
+
+    // 11) 河网使用 canonical integer topology；地图加载不因坏输入抛错，
+    // 导出/运行前的 validateLevel 会把非法河段作为阻断错误报告。
+    const rivers = (board.rivers || []).map(river => ({
+        ...river,
+        points: (river?.points || []).map(point => ({ ...point }))
+    }));
+    const riverCrossings = (board.crossings || []).map(crossing => ({ ...crossing }));
+    const riverTopology = buildRiverTopology(rivers, riverCrossings);
+
+    // 12) 写回状态并计算派生拓扑/边界缓存。国界和区划只消费
+    // 陆地子图；海岸只消费真实陆水邻边，因此不会在棋盘边缘造假边界。
     gameState.tiles = tiles;
     gameState.tileMap = tileMap;
     gameState.boardLayout = layout;
     gameState.villageTiles = new Map(villageEntries);
-    gameState.campBorderEdges = computeCampBorders(tiles, tileMap);
-    gameState.districtBorderEdges = computeDistrictBorders(tiles, tileMap);
+    gameState.surfaceMap = surfaceMap;
+    gameState.coastEdges = buildCoastTopology(tiles, tileMap);
+    gameState.rivers = rivers;
+    gameState.riverCrossings = riverCrossings;
+    gameState.riverTopology = riverTopology;
+    gameState.ports = ports;
+    gameState.portTiles = portTiles;
+    const landTiles = tiles.filter(isLandTile);
+    const landTileMap = new Map(landTiles.map(tile => [tileCoordinateKey(tile), tile]));
+    gameState.campBorderEdges = computeCampBorders(landTiles, landTileMap);
+    gameState.districtBorderEdges = computeDistrictBorders(landTiles, landTileMap);
 
     return tiles;
 }

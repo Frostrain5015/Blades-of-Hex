@@ -411,6 +411,11 @@
                         <span class="unit-type">炮兵</span>
                         <span class="unit-cost"><small>$</small>12</span>
                     </button>
+                    <button class="recruit-btn btn" id="recruitWarship" style="display: none" title="战舰（快捷键 4）">
+                        <span class="unit-glyph">🚢</span>
+                        <span class="unit-type">战舰</span>
+                        <span class="unit-cost"><small>$</small>14</span>
+                    </button>
                 </div>
             </div>
 
@@ -509,6 +514,30 @@
         <div class="setting-row">
             <label>屏幕震动</label>
             <input type="checkbox" id="screenShake" checked>
+        </div>
+        <div class="setting-row">
+            <label for="rendererBackend">战场渲染</label>
+            <select id="rendererBackend">
+                <option value="canvas2d">Canvas2D · 稳定</option>
+                <option value="pixi-webgl">PixiJS · 增强</option>
+            </select>
+        </div>
+        <div class="setting-row">
+            <label for="performanceProfile">视觉预算</label>
+            <select id="performanceProfile">
+                <option value="auto">自动</option>
+                <option value="high">高</option>
+                <option value="balanced">均衡</option>
+                <option value="low">低</option>
+            </select>
+        </div>
+        <div class="setting-row">
+            <label for="reducedMotion">减少动态效果</label>
+            <input type="checkbox" id="reducedMotion">
+        </div>
+        <div class="setting-row">
+            <label for="showGrid">显示普通网格</label>
+            <input type="checkbox" id="showGrid" checked>
         </div>
         <div class="setting-row">
             <label>音效</label>
