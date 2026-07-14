@@ -76,6 +76,7 @@ in float aCommander;
 uniform vec2 uResolution;
 uniform float uTime;
 uniform float uWind;
+uniform float uGravitySag;
 out vec2 vUv;
 out float vFold;
 flat out float vAtlasIndex;
@@ -98,7 +99,7 @@ void main() {
     float torsion = (v - 0.5) * travel * strength * cos(twistPhase) * 0.055;
     // 重力形成从固定端到自由端逐渐增加的静态弧垂；风越强，旗面被拉得越平。
     float windLift = 1.0 - clamp(strength / 2.5, 0.0, 1.0) * ${FLAG_CLOTH_PHYSICS.windFlattening.toFixed(3)};
-    float gravitySag = travel * ${FLAG_CLOTH_PHYSICS.gravitySag.toFixed(3)} * windLift;
+    float gravitySag = travel * uGravitySag * windLift;
     vec2 local = vec2(u, v);
     local.y += gravitySag + vertical + torsion;
     local.x += depth * 0.11 - travel * abs(depth) * 0.055;
@@ -177,6 +178,7 @@ export class BatchedFlagRenderer {
         });
         if (!this.gl) throw new Error('WebGL2 不可用');
         this.instanceCount = 0;
+        this._gravitySag = FLAG_CLOTH_PHYSICS.gravitySag;
         this.textureSlots = new Map();
         this.readyTextures = new Set();
         this.failedTextures = new Set();
@@ -201,6 +203,7 @@ export class BatchedFlagRenderer {
             uResolution: gl.getUniformLocation(this.program, 'uResolution'),
             uTime: gl.getUniformLocation(this.program, 'uTime'),
             uWind: gl.getUniformLocation(this.program, 'uWind'),
+            uGravitySag: gl.getUniformLocation(this.program, 'uGravitySag'),
             uAtlas: gl.getUniformLocation(this.program, 'uAtlas')
         };
     }
@@ -314,6 +317,10 @@ export class BatchedFlagRenderer {
         this.instanceCount = instances.length;
     }
 
+    setGravitySag(value) {
+        this._gravitySag = value;
+    }
+
     render(timeSeconds, wind = FLAG_WIND_STRENGTH.normal) {
         const gl = this.gl;
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -326,6 +333,7 @@ export class BatchedFlagRenderer {
         gl.uniform2f(this.locations.uResolution, this.logicalWidth, this.logicalHeight);
         gl.uniform1f(this.locations.uTime, timeSeconds);
         gl.uniform1f(this.locations.uWind, wind);
+        gl.uniform1f(this.locations.uGravitySag, this._gravitySag);
         gl.drawElementsInstanced(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0, this.instanceCount);
         gl.bindVertexArray(null);
     }
@@ -388,15 +396,14 @@ export function createFlagPreview(canvas) {
     const logicalWidth = Number(canvas.getAttribute('width')) || canvas.width;
     const logicalHeight = Number(canvas.getAttribute('height')) || canvas.height;
     const renderer = new BatchedFlagRenderer(logicalWidth, logicalHeight, canvas, getCanvasPixelRatio());
+    // 预览旗去掉重力下垂，旗帜向正右方自然飘动。
+    renderer.setGravitySag(0);
     let previewInstance = null;
     return {
         setFaction(faction) {
             const colors = getFlagColors(faction?.colorId || faction?.color);
-            // 为自由端的重力下垂和上下摆动预留透明空间，避免预览旗被画布裁切。
-            const height = logicalHeight - 16;
-            const width = height * 1.5;
             previewInstance = {
-                x: (logicalWidth - width) / 2, y: 3, width, height,
+                x: 0, y: 0, width: logicalWidth, height: logicalHeight,
                 phase: 1.7, colors, flagUrl: faction?.flagUrl || null
             };
             renderer.setInstances([previewInstance]);

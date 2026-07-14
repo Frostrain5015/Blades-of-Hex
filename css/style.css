@@ -295,6 +295,14 @@ body {
     box-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
 }
 
+.camp-flag-preview {
+    flex-shrink: 0;
+    width: 84px;
+    height: 56px;
+    border-radius: 6px;
+    display: block;
+}
+
 .camp-info {
     display: flex;
     flex-direction: column;
@@ -4866,6 +4874,7 @@ body.campaign-game-active .camp-card .camp-label {
     #topBar { padding: 4px 8px; gap: 4px; }
     .camp-emblem { width: 28px; height: 28px; font-size: 13px; }
     .camp-emblem-portrait { width: 28px; height: 28px; }
+    .camp-flag-preview { width: 42px; height: 28px; }
     .camp-label { font-size: 8px; letter-spacing: 1px; }
     #player1Gold, #player2Gold, #player3Gold { font-size: 17px; }
     .turn-label { font-size: 7px; }

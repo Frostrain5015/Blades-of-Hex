@@ -266,6 +266,9 @@ function _spawnGoldDelta(el, delta) {
     requestAnimationFrame(tick);
 }
 
+let _onUIUpdate = null;
+export function setOnUIUpdate(callback) { _onUIUpdate = callback; }
+
 export function updateUI() {
     const turnEl = document.getElementById('currentTurn');
     const currentFaction = getFaction(gameState, gameState.currentCamp);
@@ -452,6 +455,7 @@ export function updateUI() {
     updateRecruitCostDisplay();
     updateStatsPanel();
     _updateWeatherUI();
+    if (typeof _onUIUpdate === 'function') _onUIUpdate();
 }
 
 let _prevWeather = 'clear';

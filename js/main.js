@@ -1,6 +1,6 @@
 ﻿import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, invalidateBoard, getRoundIndex } from './config.js';
 import { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../commander/index.js';
-import { gameState, updateUI, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp, configureSkirmishState } from './state.js';
+import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp, configureSkirmishState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
@@ -46,7 +46,7 @@ import { isScenarioUnlocked, readProgress } from '../campaign/progress.js';
 import './visualEventBridge.js';
 import './cheat.js';
 import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
-import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
+import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, getViewingCampKey, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { ATTACK_PRESENTATION, classifyAttackPresentation } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
@@ -368,6 +368,11 @@ function gameLoop() {
 
     // 对策卡手牌独立画布
     drawCardCanvas(now);
+
+    // 顶部阵营信息卡旗帜预览渲染
+    if (_campFlagAnimationStarted) {
+        _renderCampFlagPreviews(now);
+    }
 
     requestAnimationFrame(gameLoop);
 }
@@ -1097,6 +1102,13 @@ function _launchScenario(scenario) {
 	initSettingsPanel();
 	setOnFogUpdated(updateCampEmblems);
 	updateCampEmblems();
+	setOnUIUpdate(() => {
+	    _updateCampFlagPreviews();
+	    _syncCampFlagVisibility();
+	});
+	_ensureCampFlagPreviews();
+	_updateCampFlagPreviews();
+	_syncCampFlagVisibility();
 	updateChatAvailability();
 	initEmblemChatClicks();
 	// 配置关卡：初始金币以配置为准，不叠加首回合收入（编辑器所见即所得）。
@@ -1289,6 +1301,81 @@ function _ensureCommanderFlagPreview() {
         console.warn('[commander] WebGL2 旗帜预览不可用:', error);
     }
     return _commanderFlagPreview;
+}
+
+// ── 顶部阵营信息卡旗帜预览 ──────────────────────────────
+
+let _campFlagPreviews = { p1: null, p2: null, p3: null };
+let _campFlagAnimationStarted = false;
+
+function _ensureCampFlagPreviews() {
+    const canvasIds = { p1: 'campFlagPreview1', p2: 'campFlagPreview2', p3: 'campFlagPreview3' };
+    let anyNew = false;
+    for (const [key, id] of Object.entries(canvasIds)) {
+        if (_campFlagPreviews[key]) continue;
+        const canvas = document.getElementById(id);
+        if (!canvas) continue;
+        try {
+            _campFlagPreviews[key] = createFlagPreview(canvas);
+            anyNew = true;
+        } catch (error) {
+            console.warn(`[campFlag] WebGL2 旗帜预览不可用 (${key}):`, error);
+        }
+    }
+    if (anyNew && !_campFlagAnimationStarted) {
+        _campFlagAnimationStarted = true;
+    }
+}
+
+function _updateCampFlagPreviews() {
+    if (!gameState) return;
+    _ensureCampFlagPreviews();
+    // 标准模式：player1/p2/p3 对应三张阵营卡
+    // 战役模式：本地阵营数据映射到 campCard1（右卡替换为战役信息栏）
+    const localKey = getViewingCampKey(gameState);
+    const campKeys = gameState.campaignMode
+        ? [[localKey, 'p1']]
+        : [['player1', 'p1'], ['player2', 'p2'], ['player3', 'p3']];
+    for (const [gameKey, previewKey] of campKeys) {
+        const preview = _campFlagPreviews[previewKey];
+        if (!preview) continue;
+        const faction = campFromKey(gameKey, gameState);
+        if (faction) preview.setFaction(faction);
+    }
+}
+
+function _renderCampFlagPreviews(now) {
+    for (const preview of Object.values(_campFlagPreviews)) {
+        if (preview) preview.render(now);
+    }
+}
+
+function _syncCampFlagVisibility() {
+    const cards = [
+        { cardId: 'campCard1', gameKey: 'player1' },
+        { cardId: 'campCard2', gameKey: 'player2' },
+        { cardId: 'campCard3', gameKey: 'player3' },
+    ];
+    for (const { cardId, gameKey } of cards) {
+        const card = document.getElementById(cardId);
+        const canvas = card?.querySelector('.camp-flag-preview');
+        if (!canvas) continue;
+        // 战役模式：campCard1 展示本地阵营旗帜，其余隐藏；
+        // 标准对局（本地/联机/遭遇战/训练）：全部展示
+        if (gameState.campaignMode) {
+            canvas.style.display = cardId === 'campCard1' ? '' : 'none';
+        } else {
+            canvas.style.display = '';
+        }
+    }
+}
+
+function _canShowCampFlagCards() {
+    if (!gameState) return false;
+    const overlay = document.getElementById('commanderOverlay');
+    if (overlay?.classList.contains('show')) return false;  // 选将界面由 commanderFlagCanvas 展示
+    // 游戏进行中且地图已初始化
+    return !!gameState.currentCamp;
 }
 
 function _canChooseFactionColor(forPlayer, locked = false) {
@@ -2181,7 +2268,15 @@ function startGame() {
     const firstCamp = campFromKey(gameState.turnOrder?.[0], gameState) || campFromKey('player1', gameState);
     gameState.currentCamp = firstCamp;
     grantTurnStartIncome(firstCamp);
+    // UI 更新后同步阵营旗帜预览
+    setOnUIUpdate(() => {
+        _updateCampFlagPreviews();
+        _syncCampFlagVisibility();
+    });
     updateUI();
+    _ensureCampFlagPreviews();
+    _updateCampFlagPreviews();
+    _syncCampFlagVisibility();
     updateButtonColors();
     renderGame();
 
