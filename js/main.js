@@ -132,10 +132,7 @@ let _battlefieldLastFrameAt = performance.now();
 // Pixi 地形贴图：Canvas 用同一套地形代码画进离屏画布，Pixi 仅作为纹理显示。
 let _terrainCanvas = null;
 let _terrainCanvasRatio = 1;
-let _terrainPaintedAt = -Infinity;
 let _terrainTextureDirty = true;
-// 水面等材质动画的快照刷新周期；静态棋盘状态变化会立即置脏。
-const TERRAIN_SNAPSHOT_INTERVAL_MS = 250;
 
 function _preferredBattlefieldBackend() {
     return VITE_RUNTIME_AVAILABLE && settings.rendererBackend === RENDERER_BACKEND.PIXI_WEBGL
@@ -194,7 +191,6 @@ async function _replaceBattlefieldRenderer() {
     setBattlefieldDelegation({});
     _battlefieldSnapshot = null;
     _battlefieldSnapshotCheckedAt = -Infinity;
-    _terrainPaintedAt = -Infinity;
     _terrainTextureDirty = true;
 
     let boundary = null;
@@ -273,8 +269,7 @@ function _syncPixiBattlefieldScene(now) {
 function _syncPixiTerrainTexture(now) {
     const renderer = _battlefieldRenderer?.renderer;
     if (!battlefieldDelegation.terrain || typeof renderer?.syncTerrainTexture !== 'function') return;
-    if (!_terrainTextureDirty && now - _terrainPaintedAt < TERRAIN_SNAPSHOT_INTERVAL_MS) return;
-    _terrainPaintedAt = now;
+    if (!_terrainTextureDirty) return;
     _terrainTextureDirty = false;
     try {
         const ratio = Math.min(window.devicePixelRatio || 1, 2);

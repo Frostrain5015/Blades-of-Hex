@@ -25,7 +25,6 @@ const HEX_UNIT_VERTICES = Object.freeze(Array.from({ length: 6 }, (_, index) => 
 }));
 
 const DEFAULT_PALETTE = Object.freeze({
-    plainsGround: 'rgba(152,172,112,0.16)',
     plainsSpeck: 'rgba(132,152,96,0.12)',
     forestGround: 'rgba(49,73,48,0.34)',
     forestLink: 'rgba(54,78,51,0.38)',
@@ -523,8 +522,7 @@ export function createCanvasTerrainLayer(scene, options = {}) {
 
 function drawGround(context, layer) {
     const { paths, palette, hexSize: size } = layer;
-    context.fillStyle = palette.plainsGround;
-    fillPath(context, paths.plainsGround);
+    // Plains has no ground tint — only random specks break up the faction wash.
     context.fillStyle = palette.plainsSpeck;
     fillPath(context, paths.plainsSpecks);
 

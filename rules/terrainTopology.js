@@ -4,7 +4,7 @@
 // ridge, settlement wall, or trench connection.
 
 import { HEX_NEIGHBORS } from './hex.js';
-import { tileCoordinateKey } from './surfaces.js';
+import { tileCoordinateKey, isWaterTile } from './surfaces.js';
 
 export const TERRAIN_TOPOLOGY_VERSION = 1;
 
@@ -268,7 +268,7 @@ export function buildTerrainTopology(tiles = [], tileMap = null) {
     const forest = featureBundle(playableTiles, playableMap, tile => terrainType(tile) === 'forest');
     const mountain = featureBundle(playableTiles, playableMap, tile => terrainType(tile) === 'mountain');
     const plains = featureBundle(playableTiles, playableMap, tile => terrainType(tile) === 'plains'
-        && !isUrbanTile(tile) && !isVillageTile(tile));
+        && !isUrbanTile(tile) && !isVillageTile(tile) && !isWaterTile(tile));
     const trench = featureBundle(playableTiles, playableMap, tile => fortificationType(tile) === 'trench');
     const urbanTiles = playableTiles.filter(isUrbanTile);
     const villageTiles = playableTiles.filter(isVillageTile);
