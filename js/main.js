@@ -135,9 +135,10 @@ let _terrainCanvasRatio = 1;
 let _terrainTextureDirty = true;
 
 function _preferredBattlefieldBackend() {
-    return VITE_RUNTIME_AVAILABLE && settings.rendererBackend === RENDERER_BACKEND.PIXI_WEBGL
-        ? RENDERER_BACKEND.PIXI_WEBGL
-        : RENDERER_BACKEND.CANVAS_2D;
+    // Pixi 为默认渲染引擎；仅当 Vite 不可用或用户手动切回 Canvas2D 时才回退。
+    if (!VITE_RUNTIME_AVAILABLE) return RENDERER_BACKEND.CANVAS_2D;
+    if (settings.rendererBackend === RENDERER_BACKEND.CANVAS_2D) return RENDERER_BACKEND.CANVAS_2D;
+    return RENDERER_BACKEND.PIXI_WEBGL;
 }
 
 function _syncBattlefieldRendererDom(boundary = _battlefieldRenderer) {

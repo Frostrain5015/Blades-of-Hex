@@ -8,7 +8,7 @@ const DEFAULT_SETTINGS = {
     turnFlash: true,
     soundEnabled: true,
     soundVolume: 0.7,
-    rendererBackend: 'canvas2d',
+    rendererBackend: 'pixi-webgl',
     performanceProfile: 'auto',
     reducedMotion: false,
     showGrid: true
