@@ -85,7 +85,6 @@ const boardTool = {
     cityType: 'city',
     riverId: 'river',
     riverWidth: 'river',
-    riverNavigable: false,
     crossingKind: 'bridge',
     erase: { surface: false, terrain: true, city: true, village: true, fortification: true, district: true, port: true, unit: true }
 };
@@ -701,7 +700,6 @@ function completeRiverDraft() {
     const result = commitRiverDraft(config, {
         id: boardTool.riverId,
         width: boardTool.riverWidth,
-        navigable: boardTool.riverNavigable,
         points: riverDraft.points
     });
     if (!result.changed) { setStatus(result.error, 'error'); return false; }
@@ -1035,7 +1033,7 @@ function buildBoardTools() {
     if (boardTool.mode === 'river') {
         secParam.appendChild(textRow('河流 ID', boardTool.riverId, v => { boardTool.riverId = v.trim() || 'river'; }));
         secParam.appendChild(selectRow('宽度', boardTool.riverWidth, { stream: '溪流', river: '河流' }, v => { boardTool.riverWidth = v; render(); }));
-        secParam.appendChild(hint('河流位于地块边界：溪流增加移动消耗，河流必须经桥梁或浅滩通过。舰船航行请使用浅水/深水地块；旧 JSON 的 navigable 字段继续兼容，但当前不改变移动规则。'));
+        secParam.appendChild(hint('河流位于地块边界：溪流增加移动消耗，河流必须经桥梁或浅滩通过。'));
         secParam.appendChild(hint(`顶点吸附绘制：单击续点，双击结束，Backspace 撤点。${riverDraft?.points?.length ? `当前草稿 ${riverDraft.points.length} 点。` : '尚未开始草稿。'}`));
         const actions = el('div', 'ed-grid');
         const finish = el('button', 'ed-add-btn', '完成河流');

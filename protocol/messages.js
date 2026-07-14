@@ -108,7 +108,6 @@ function hasValidBoardMetadata(snapshot) {
             || !/^[a-z][a-z0-9_-]{0,63}$/i.test(river.id)
             || riverSegmentsById.has(river.id)) return false;
         if (!RIVER_WIDTHS.has(river.width)) return false;
-        if (river.navigable != null && typeof river.navigable !== 'boolean') return false;
         if (!Array.isArray(river.points) || river.points.length < 2) return false;
         const canonicalPoints = [];
         const seenVertices = new Set();

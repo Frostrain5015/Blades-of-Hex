@@ -43,7 +43,8 @@ const DEFAULT_PALETTE = Object.freeze({
     bridgeShadow: 'rgba(49,37,25,0.92)',
     bridgeDeck: '#b28c55',
     bridgeTie: 'rgba(55,41,27,0.78)',
-    ford: 'rgba(220,208,169,0.82)',
+    ford: 'rgba(210,185,100,0.70)',
+    fordHighlight: 'rgba(235,215,130,0.50)',
     portShadow: 'rgba(34,28,23,0.82)',
     portDeck: '#a8804d',
     portLight: 'rgba(232,211,164,0.72)'
@@ -336,14 +337,21 @@ function addFord(paths, from, to, size) {
     const tangentY = dy / length;
     const normalX = -tangentY;
     const normalY = tangentX;
-    const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
-    for (let step = -1; step <= 1; step++) {
-        const offset = step * size * 0.15;
-        const cx = midpoint.x + tangentX * offset;
-        const cy = midpoint.y + tangentY * offset;
+    // Sandbanks: two thick bands parallel to the river, one on each bank
+    for (const side of [-1, 1]) {
+        const ox = normalX * size * 0.25 * side;
+        const oy = normalY * size * 0.25 * side;
         addLine(paths.fords,
-            { x: cx - normalX * size * 0.20, y: cy - normalY * size * 0.20 },
-            { x: cx + normalX * size * 0.20, y: cy + normalY * size * 0.20 });
+            { x: from.x + ox, y: from.y + oy },
+            { x: to.x + ox, y: to.y + oy });
+    }
+    // Inner bank highlight (narrower, on top of the outer bands)
+    for (const side of [-1, 1]) {
+        const ox = normalX * size * 0.18 * side;
+        const oy = normalY * size * 0.18 * side;
+        addLine(paths.fordHighlights,
+            { x: from.x + ox, y: from.y + oy },
+            { x: to.x + ox, y: to.y + oy });
     }
 }
 
@@ -414,6 +422,7 @@ function buildPaths(scene, options, pathFactory) {
         bridgeDeck: new CompiledPath(pathFactory),
         bridgeTies: new CompiledPath(pathFactory),
         fords: new CompiledPath(pathFactory),
+        fordHighlights: new CompiledPath(pathFactory),
         portPiers: new CompiledPath(pathFactory),
         portDetails: new CompiledPath(pathFactory)
     };
@@ -516,7 +525,7 @@ function buildPaths(scene, options, pathFactory) {
         const key = tileCoordinateKey(port);
         const tile = playableByKey.get(key);
         const land = projectedPlayable.get(key);
-        if (!tile || !land || isWaterSurface(surfaceKind(tile, playableByKey))) continue;
+        if (!tile || !land || (isWaterSurface(surfaceKind(tile, playableByKey)) && !tile.isPort)) continue;
         let water = null;
         for (const [dq, dr] of HEX_NEIGHBORS) {
             const neighborKey = tileCoordinateKey(tile.q + dq, tile.r + dr);
@@ -649,11 +658,15 @@ function drawDetails(context, layer) {
     context.lineWidth = Math.max(0.8, size * 0.025);
     strokePath(context, paths.bridgeTies);
 
+    // Sandbank outer bands (two lines parallel to river, one per bank)
     context.strokeStyle = palette.ford;
-    context.lineWidth = Math.max(1, size * 0.035);
-    context.setLineDash([size * 0.055, size * 0.038]);
+    context.lineWidth = Math.max(2, size * 0.09);
+    context.lineCap = 'round';
     strokePath(context, paths.fords);
-    context.setLineDash([]);
+    // Sandbank inner highlights (narrower, lighter, on top of outer)
+    context.strokeStyle = palette.fordHighlight;
+    context.lineWidth = Math.max(1.5, size * 0.055);
+    strokePath(context, paths.fordHighlights);
 
     context.strokeStyle = palette.portShadow;
     context.lineWidth = size * 0.18;

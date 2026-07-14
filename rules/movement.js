@@ -134,15 +134,8 @@ export function resolveRiverMovement(fromTile, toTile, state = null) {
             extraCost: RIVER_MOVEMENT.FORD_EXTRA_COST
         });
     }
-    if (segments.some(segment => segment?.width === 'river')) {
-        return Object.freeze({ segmentKey, kind: 'river', blocked: true, extraCost: 0 });
-    }
-    return Object.freeze({
-        segmentKey,
-        kind: 'stream',
-        blocked: false,
-        extraCost: RIVER_MOVEMENT.STREAM_EXTRA_COST
-    });
+    // Direct river crossing (no bridge/ford): costs all remaining movement.
+    return Object.freeze({ segmentKey, kind: 'river', blocked: false, extraCost: 0, drainRemaining: true });
 }
 
 /**
@@ -178,6 +171,7 @@ export function resolveMovementStep(unitOrType, fromTile, toTile, state = null, 
         reason: null,
         cost: baseCost + river.extraCost,
         requiresFullCost: river.extraCost > 0,
+        drainRemaining: river.drainRemaining === true,
         river
     });
 }

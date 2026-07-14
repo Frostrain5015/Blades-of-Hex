@@ -185,9 +185,9 @@ export function createDefaultLevel() {
             villages: [],           // [{ q, r, districtId }]
             fortifications: [],     // [{ q, r, type }]  trench/flak
             districts: [],          // [{ q, r, districtId }] 覆盖 Voronoi 归属，用于手绘不规则边界
-            rivers: [],             // [{ id, width, points:[{q,r,vertex}], navigable? }]
+            rivers: [],             // [{ id, width, points:[{q,r,vertex}] }]
             crossings: [],          // [{ riverId, segmentIndex, kind:'ford'|'bridge' }]
-            ports: []               // [{ q, r }]，必须为邻接实体水域的陆格
+            ports: []               // [{ q, r }]，邻接实体水域的格，建为浅水港口
         },
         units: [],                  // [{ id, type, camp, q, r, commander?|storyCommander?, hpPct, morale, canAct }]
         unitGroups: [],             // [{ id, unitIds:[] }]
@@ -310,7 +310,6 @@ export function validateLevel(config) {
         if (riverIds.has(riverId)) errors.push(`河流 id「${riverId}」重复。`);
         riverIds.add(riverId);
         if (!RIVER_WIDTHS.includes(river?.width)) errors.push(`河流「${riverId || '未命名'}」宽度「${river?.width}」无效。`);
-        if (river?.navigable != null && typeof river.navigable !== 'boolean') errors.push(`河流「${riverId || '未命名'}」的 navigable 必须是布尔值。`);
         const points = Array.isArray(river?.points) ? river.points : [];
         if (!Array.isArray(river?.points) || points.length < 2) errors.push(`河流「${riverId || '未命名'}」至少需要两个顶点。`);
         const canonicalPoints = [];

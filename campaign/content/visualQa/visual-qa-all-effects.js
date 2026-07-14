@@ -149,8 +149,8 @@ export const config = {
         ],
         districts: [],
         rivers: [
-            { id: 'qa-main', width: 'river', points: MAIN_RIVER, navigable: false },
-            { id: 'qa-stream', width: 'stream', points: SOUTH_STREAM, navigable: false }
+            { id: 'qa-main', width: 'river', points: MAIN_RIVER },
+            { id: 'qa-stream', width: 'stream', points: SOUTH_STREAM }
         ],
         crossings: [
             { riverId: 'qa-main', segmentIndex: 10, kind: 'bridge' },

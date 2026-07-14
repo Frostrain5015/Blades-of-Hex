@@ -4,7 +4,7 @@ import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import {
-    drawAllBorders, drawDistrictBorders, drawCampBorders
+    drawAllBorders, drawDistrictBorders, drawCampBorders, computeCampBorders
 } from './HexTile.js';
 import {
     getBorderlessVisualGrid, drawVisualFillerTile, drawVisualFillerTiles
@@ -55,6 +55,7 @@ import {
 import { resolveMovementTileReveal } from './movementRegionAnimation.js';
 import { CanvasBattlefieldLayers } from './canvasBattlefieldLayers.js';
 import { battlefieldDelegation } from './rendering/delegation.js';
+import { sharedHexEdgeSegmentKey } from '../rules/movement.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
@@ -257,8 +258,62 @@ export function renderGame() {
     drawCommanderPennants();
     // 国界线/区划线（先锋旗之下、单位之上）
     if (settings.showGrid !== false) drawAllBorders(ctx, borderTiles, borderTileMap);
-    drawDistrictBorders(ctx, districtBorderEdges);
-    drawCampBorders(ctx, campBorderEdges);
+    const districtBorderNoRiver = riverSegments
+        ? districtBorderEdges.filter(edge => {
+            const key = sharedHexEdgeSegmentKey(
+                { q: edge.qa, r: edge.ra },
+                { q: edge.qb, r: edge.rb }
+            );
+            return !key || !riverSegments.has(key);
+          })
+        : districtBorderEdges;
+    drawDistrictBorders(ctx, districtBorderNoRiver);
+    // 为无限/无边模式的假地块补充边界线：假地块从 sourceTile 继承阵营与地表，
+    // 若相邻假地块阵营不同，在边界处绘制国界线避免视觉断裂。
+    let extendedBorders = campBorderEdges;
+    if (visualGrid?.fillers?.length) {
+        const fillerEdges = [];
+        const allFillerTiles = [...borderTiles, ...visualGrid.fillers];
+        const fillerTileMap = new Map(borderTileMap);
+        for (const filler of visualGrid.fillers) {
+            fillerTileMap.set(`${filler.q},${filler.r}`, filler);
+        }
+        // 对每个假地块检查相邻格：若相邻格阵营不同且另一端不是完全不存在，画国界。
+        for (const filler of visualGrid.fillers) {
+            const src = filler.sourceTile || {};
+            const fc = src.camp;
+            if (fc == null) continue;
+            for (let e = 0; e < 6; e++) {
+                const [dq, dr] = [[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]];
+                const nk = `${filler.q + dq[e]},${filler.r + dr[e]}`;
+                const nb = fillerTileMap.get(nk);
+                if (!nb) continue;
+                const nbc = nb.isVisualFiller
+                    ? (nb.sourceTile?.camp ?? null)
+                    : (nb.camp ?? null);
+                if (fc === nbc) continue;
+                if (filler.id > nb.id) continue;
+                const ep = hexEdge(filler.x, filler.y, HEX_SIZE, (5 - e + 6) % 6);
+                fillerEdges.push({
+                    x0: ep.x0, y0: ep.y0, x1: ep.x1, y1: ep.y1,
+                    qa: filler.q, ra: filler.r, qb: nb.q, rb: nb.r
+                });
+            }
+        }
+        if (fillerEdges.length) extendedBorders = [...campBorderEdges, ...fillerEdges];
+    }
+    // 跳过与河段重合的国界：(qa,ra)↔(qb,rb) 边上有河流则跳过，让河段视觉清晰。
+    const riverSegments = gameState?.riverTopology?.segmentsByKey;
+    const campBorderNoRiver = riverSegments
+        ? extendedBorders.filter(edge => {
+            const key = sharedHexEdgeSegmentKey(
+                { q: edge.qa, r: edge.ra },
+                { q: edge.qb, r: edge.rb }
+            );
+            return !key || !riverSegments.has(key);
+          })
+        : extendedBorders;
+    drawCampBorders(ctx, campBorderNoRiver);
     // ── 将领特效图层：underUnits（立绘之后、单位徽章之前；圣骑士剑环后半圈）──
     drawFxLayer('underUnits', ctx, now);
     // 纯本地操作预览先画到单位之下，球体自然遮住路线内部，避免起终点断口。

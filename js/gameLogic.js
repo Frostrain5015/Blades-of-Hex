@@ -1293,6 +1293,8 @@ export function getMovableTiles(unit) {
             if ((movementStep.requiresFullCost || _isMuddyTarget || snareLayers > 0)
                 && curRem < stepCost) continue;
             let newRem = curRem >= stepCost ? curRem - stepCost : 0;
+            // 渡河（无桥梁/浅滩）消耗所有剩余行动力
+            if (movementStep.drainRemaining) newRem = 0;
 
             // Zone of Control: entering a ZoC tile costs all remaining MP (must stop)
             const neighborInZoC = _isInEnemyZoC(neighbor, friendlyCamp, unit);

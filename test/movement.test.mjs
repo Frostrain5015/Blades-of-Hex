@@ -69,33 +69,31 @@ test('shared movement edge maps exactly to authored river segment', () => {
     assert.equal(sharedHexEdgeSegmentKey(from, to), state.riverTopology.segments[0].key);
 });
 
-test('stream costs +1, river blocks, bridge is normal and ford costs +2', () => {
+test('bridge costs +0, ford costs +2, direct crossing drains all MP', () => {
     const from = tile(0, 0);
     const to = tile(1, 0);
-    const makeRiver = width => ({
+    const makeRiver = () => ({
         id: 'main',
-        width,
+        width: 'river',
         points: [{ q: 0, r: 0, vertex: 5 }, { q: 0, r: 0, vertex: 0 }]
     });
 
-    const streamStep = resolveMovementStep('infantry', from, to, stateFor([from, to], makeRiver('stream')), { baseCost: 1 });
-    assert.equal(streamStep.allowed, true);
-    assert.equal(streamStep.cost, 2);
-    assert.equal(streamStep.requiresFullCost, true);
-
-    const riverStep = resolveMovementStep('infantry', from, to, stateFor([from, to], makeRiver('river')), { baseCost: 1 });
-    assert.equal(riverStep.allowed, false);
-    assert.equal(riverStep.reason, 'river');
+    const directStep = resolveMovementStep('infantry', from, to, stateFor([from, to], makeRiver()), { baseCost: 1 });
+    assert.equal(directStep.allowed, true);
+    assert.equal(directStep.drainRemaining, true);
+    assert.equal(directStep.cost, 1);
 
     const bridge = { riverId: 'main', segmentIndex: 0, kind: 'bridge' };
-    const bridgeStep = resolveMovementStep('infantry', from, to, stateFor([from, to], makeRiver('river'), bridge), { baseCost: 1 });
+    const bridgeStep = resolveMovementStep('infantry', from, to, stateFor([from, to], makeRiver(), bridge), { baseCost: 1 });
     assert.equal(bridgeStep.allowed, true);
     assert.equal(bridgeStep.cost, 1);
+    assert.equal(bridgeStep.drainRemaining, false);
 
     const ford = { riverId: 'main', segmentIndex: 0, kind: 'ford' };
-    const fordStep = resolveMovementStep('infantry', from, to, stateFor([from, to], makeRiver('river'), ford), { baseCost: 1 });
+    const fordStep = resolveMovementStep('infantry', from, to, stateFor([from, to], makeRiver(), ford), { baseCost: 1 });
     assert.equal(fordStep.allowed, true);
     assert.equal(fordStep.cost, 3);
+    assert.equal(fordStep.drainRemaining, false);
 });
 
 test('naval movement ignores land river crossing costs while staying on water/ports', () => {

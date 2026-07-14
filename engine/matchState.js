@@ -854,10 +854,11 @@ export function restoreMatchState(match, data, deps) {
         const validPorts = [];
         for (const port of match.ports) {
             const tile = match.tileMap.get(tileCoordinateKey(port));
-            if (!tile || isWaterTile(tile) || !hasAdjacentWater(match.surfaceMap, tile.q, tile.r)) continue;
+            if (!tile || !hasAdjacentWater(match.surfaceMap, tile.q, tile.r)) continue;
             const key = tileCoordinateKey(tile);
             if (match.portTiles.has(key)) continue;
             tile.isPort = true;
+            tile.surface = { kind: 'shallowWater' };
             match.portTiles.set(key, tile);
             validPorts.push({ q: tile.q, r: tile.r });
         }
@@ -865,10 +866,13 @@ export function restoreMatchState(match, data, deps) {
     } else {
         // Transitional snapshots may contain per-tile port flags but no list.
         match.ports = match.tiles
-            .filter(tile => tile.isPort && isLandTile(tile) && hasAdjacentWater(match.surfaceMap, tile.q, tile.r))
+            .filter(tile => tile.isPort && hasAdjacentWater(match.surfaceMap, tile.q, tile.r))
             .map(tile => ({ q: tile.q, r: tile.r }));
         for (const port of match.ports) {
             const tile = match.tileMap.get(tileCoordinateKey(port));
+            if (!tile) continue;
+            tile.isPort = true;
+            tile.surface = tile.surface || { kind: 'shallowWater' };
             match.portTiles.set(tileCoordinateKey(port), tile);
         }
     }

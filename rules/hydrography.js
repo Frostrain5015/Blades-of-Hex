@@ -157,7 +157,6 @@ export function buildRiverTopology(rivers = [], crossings = []) {
                 riverId: river?.id || '',
                 segmentIndex,
                 width: river?.width || 'stream',
-                navigable: river?.navigable === true,
                 from,
                 to,
                 zeroLength: !!from && !!to && from.key === to.key,
@@ -176,7 +175,6 @@ export function buildRiverTopology(rivers = [], crossings = []) {
         riversById.set(river?.id || '', Object.freeze({
             id: river?.id || '',
             width: river?.width || 'stream',
-            navigable: river?.navigable === true,
             points: Object.freeze(resolvedPoints),
             segments: Object.freeze(riverSegments)
         }));

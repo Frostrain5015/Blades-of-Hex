@@ -345,8 +345,7 @@ export function commitRiverDraft(level, draft) {
     board.rivers.push({
         id,
         width: draft.width,
-        points,
-        navigable: draft.navigable === true
+        points
     });
     return { changed: true, id, error: '' };
 }

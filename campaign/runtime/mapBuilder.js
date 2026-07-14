@@ -132,10 +132,11 @@ export function buildBoardFromConfig(config, gameState) {
     const portTiles = new Map();
     for (const port of (board.ports || [])) {
         const tile = at(port?.q, port?.r);
-        if (!tile || !isLandTile(tile) || !hasAdjacentWater(surfaceMap, tile.q, tile.r)) continue;
+        if (!tile || !hasAdjacentWater(surfaceMap, tile.q, tile.r)) continue;
         const key = tileCoordinateKey(tile);
         if (portTiles.has(key)) continue;
         tile.isPort = true;
+        tile.surface = { kind: 'shallowWater' };
         const value = Object.freeze({ q: tile.q, r: tile.r });
         ports.push(value);
         portTiles.set(key, tile);
