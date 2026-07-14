@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blades of Hex · 通用目标选择原型</title>
+<link rel="stylesheet" href="terrain-preview-shared.css">
+</head>
+<body>
+<main class="shell preview-single">
+  <header class="masthead">
+    <div>
+      <p class="kicker">Blades of Hex · Target Selection</p>
+      <h1>全图合法<span>目标</span></h1>
+    </div>
+    <p class="intro">五类单位目标统一采用<strong>方形角框、呼吸和全息中心图案</strong>；全部合法候选常驻可见，悬停只负责增强，不承担首次发现。</p>
+  </header>
+
+  <nav class="preview-nav" aria-label="原型页面导航">
+    <a href="terrain-texture-preview.html">← 返回目录</a>
+    <a href="terrain-preview-terrain.html">战场与地形</a>
+    <a href="terrain-preview-actions.html">动作意图</a>
+    <a href="terrain-preview-targeting.html" aria-current="page">目标选择</a>
+    <a href="terrain-preview-air.html">空军选点</a>
+    <a href="terrain-preview-water.html">水域系统</a>
+  </nav>
+
+  <section class="control-deck" aria-label="目标选择背景控制">
+    <div class="control-group">
+      <span class="control-label">Rendering language / 绘制语言</span>
+      <div class="segments" id="styleControls">
+        <button class="segment active" data-style="relief">沙盘浮雕</button>
+        <button class="segment" data-style="chronicle">战史线描</button>
+        <button class="segment" data-style="texture">纯纹理</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Friendly color / 友方色相</span>
+      <div class="segments" id="paletteControls">
+        <button class="segment swatch active" data-palette="red" style="--swatch:#ffaaaa" aria-label="红色阵营"></button>
+        <button class="segment swatch" data-palette="orange" style="--swatch:#fcd6b0" aria-label="橙色阵营"></button>
+        <button class="segment swatch" data-palette="yellow" style="--swatch:#fff5c0" aria-label="黄色阵营"></button>
+        <button class="segment swatch" data-palette="green" style="--swatch:#aaffaa" aria-label="绿色阵营"></button>
+        <button class="segment swatch" data-palette="cyan" style="--swatch:#aaffdd" aria-label="青色阵营"></button>
+        <button class="segment swatch" data-palette="blue" style="--swatch:#aaaaff" aria-label="蓝色阵营"></button>
+        <button class="segment swatch" data-palette="purple" style="--swatch:#d8aaff" aria-label="紫色阵营"></button>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Texture opacity / 地表干扰</span>
+      <div class="range-row"><input id="textureRange" type="range" min="25" max="100" step="1" value="72"><output id="textureValue">72%</output></div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Grid / 网格</span>
+      <div class="segments"><button class="toggle active" id="gridToggle">显示网格</button></div>
+    </div>
+  </section>
+
+  <div class="section-head">
+    <span class="section-index">03</span>
+    <h2>选择语义集中在中央全息图案</h2>
+    <span class="section-note">在画布中移动指针检查合法候选与悬停层级</span>
+  </div>
+
+  <section class="system-grid" aria-label="通用目标选择原型">
+    <article class="system-panel targeting-panel">
+      <div class="system-panel-header">
+        <div class="system-panel-title">
+          <span>Target selection grammar</span>
+          <strong>统一骨架，差异化中心符号</strong>
+          <small>攻击使用准星十字；治疗使用绿色粗实心十字；增益使用向上双折形；护盾使用盾形；选中状态统一增强辉光、放大角框并强化全息图案。地块部署与区域中心保留地块插槽语法。</small>
+        </div>
+        <div class="segments" id="targetingControls">
+          <button class="segment active" data-targeting="attack">敌方单位</button>
+          <button class="segment" data-targeting="heal">疗愈</button>
+          <button class="segment" data-targeting="forceMarch">强行军</button>
+          <button class="segment" data-targeting="commanderDeploy">将领部署</button>
+          <button class="segment" data-targeting="shield">护盾</button>
+          <button class="segment" data-targeting="tileDeploy">地块部署</button>
+          <button class="segment" data-targeting="area">区域中心</button>
+          <label class="segment-toggle"><input id="interactionMotion" type="checkbox" checked>动态预览</label>
+        </div>
+      </div>
+      <canvas id="targetingPreview" role="img" aria-label="对策卡与主动技能的单位目标和地块目标选择原型"></canvas>
+      <div class="system-legend" aria-hidden="true"><span>角框 + 呼吸：全部候选</span><span>中央图案：效果语义</span><span>放大 + 辉光：当前悬停</span></div>
+    </article>
+  </section>
+
+  <footer>
+    <span><strong>可见性原则：</strong>玩家选中单位后应一眼看清全图合法目标，悬停不是发现目标的前置条件。</span>
+    <span>Animated preview · pointer inspection</span>
+  </footer>
+</main>
+<script src="terrain-preview-shared.js"></script>
+</body>
+</html>

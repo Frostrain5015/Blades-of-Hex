@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blades of Hex · 动作意图原型</title>
+<link rel="stylesheet" href="terrain-preview-shared.css">
+</head>
+<body>
+<main class="shell preview-single">
+  <header class="masthead">
+    <div>
+      <p class="kicker">Blades of Hex · Action Intent</p>
+      <h1>移动与<span>攻击</span></h1>
+    </div>
+    <p class="intro">只保留<strong>移动、近战攻击、远程攻击</strong>三种后端动作语义。路径连接球状单位本体，动态仅用于选择预览，不触发实际攻击特效。</p>
+  </header>
+
+  <nav class="preview-nav" aria-label="原型页面导航">
+    <a href="terrain-texture-preview.html">← 返回目录</a>
+    <a href="terrain-preview-terrain.html">战场与地形</a>
+    <a href="terrain-preview-actions.html" aria-current="page">动作意图</a>
+    <a href="terrain-preview-targeting.html">目标选择</a>
+    <a href="terrain-preview-air.html">空军选点</a>
+    <a href="terrain-preview-water.html">水域系统</a>
+  </nav>
+
+  <section class="control-deck" aria-label="动作背景控制">
+    <div class="control-group">
+      <span class="control-label">Rendering language / 绘制语言</span>
+      <div class="segments" id="styleControls">
+        <button class="segment active" data-style="relief">沙盘浮雕</button>
+        <button class="segment" data-style="chronicle">战史线描</button>
+        <button class="segment" data-style="texture">纯纹理</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Faction color / 行动方色相</span>
+      <div class="segments" id="paletteControls">
+        <button class="segment swatch active" data-palette="red" style="--swatch:#ffaaaa" aria-label="红色阵营"></button>
+        <button class="segment swatch" data-palette="orange" style="--swatch:#fcd6b0" aria-label="橙色阵营"></button>
+        <button class="segment swatch" data-palette="yellow" style="--swatch:#fff5c0" aria-label="黄色阵营"></button>
+        <button class="segment swatch" data-palette="green" style="--swatch:#aaffaa" aria-label="绿色阵营"></button>
+        <button class="segment swatch" data-palette="cyan" style="--swatch:#aaffdd" aria-label="青色阵营"></button>
+        <button class="segment swatch" data-palette="blue" style="--swatch:#aaaaff" aria-label="蓝色阵营"></button>
+        <button class="segment swatch" data-palette="purple" style="--swatch:#d8aaff" aria-label="紫色阵营"></button>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Texture opacity / 地表干扰</span>
+      <div class="range-row"><input id="textureRange" type="range" min="25" max="100" step="1" value="72"><output id="textureValue">72%</output></div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Grid / 网格</span>
+      <div class="segments"><button class="toggle active" id="gridToggle">显示网格</button></div>
+    </div>
+  </section>
+
+  <div class="section-head">
+    <span class="section-index">02</span>
+    <h2>一个区域，一条意图路径</h2>
+    <span class="section-note">动态载荷抵达目标时才触发终点脉冲</span>
+  </div>
+
+  <section class="system-grid" aria-label="移动与攻击意图原型">
+    <article class="system-panel">
+      <div class="system-panel-header">
+        <div class="system-panel-title">
+          <span>Interaction grammar</span>
+          <strong>军事地图式动作意图</strong>
+          <small>移动采用同色相暗底轨、亮主线和行进折形；近战攻击采用起点宽、终点窄的进攻线与独立大箭头；远程攻击使用直达目标的动态弹体和同步命中脉冲。</small>
+        </div>
+        <div class="segments" id="interactionControls">
+          <button class="segment active" data-interaction="march">移动</button>
+          <button class="segment" data-interaction="assault">近战攻击</button>
+          <button class="segment" data-interaction="fire">远程攻击</button>
+          <label class="segment-toggle"><input id="interactionMotion" type="checkbox" checked>动态预览</label>
+        </div>
+      </div>
+      <canvas id="interactionPreview" role="img" aria-label="移动、近战攻击与远程攻击的意图路径"></canvas>
+      <div class="system-legend" aria-hidden="true"><span>连通可达区</span><span>球状单位起止点</span><span>动作独立端型</span></div>
+    </article>
+  </section>
+
+  <footer>
+    <span><strong>时序原则：</strong>远程载荷到达目标的同一帧才炸开命中脉冲。</span>
+    <span>Animated preview · motion can be paused</span>
+  </footer>
+</main>
+<script src="terrain-preview-shared.js"></script>
+</body>
+</html>

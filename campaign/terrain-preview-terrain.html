@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blades of Hex · 战场与地形原型</title>
+<link rel="stylesheet" href="terrain-preview-shared.css">
+</head>
+<body>
+<main class="shell preview-single">
+  <header class="masthead">
+    <div>
+      <p class="kicker">Blades of Hex · Terrain Study</p>
+      <h1>战场与<span>地形</span></h1>
+    </div>
+    <p class="intro">阵营色继续承担<strong>归属识别</strong>，透明纹理与低矮贴花负责地形。生产尺寸驻军用于检验真实遮挡下的可读性。</p>
+  </header>
+
+  <nav class="preview-nav" aria-label="原型页面导航">
+    <a href="terrain-texture-preview.html">← 返回目录</a>
+    <a href="terrain-preview-terrain.html" aria-current="page">战场与地形</a>
+    <a href="terrain-preview-actions.html">动作意图</a>
+    <a href="terrain-preview-targeting.html">目标选择</a>
+    <a href="terrain-preview-air.html">空军选点</a>
+    <a href="terrain-preview-water.html">水域系统</a>
+  </nav>
+
+  <section class="control-deck" aria-label="地貌预览控制">
+    <div class="control-group">
+      <span class="control-label">Rendering language / 绘制语言</span>
+      <div class="segments" id="styleControls">
+        <button class="segment active" data-style="relief">沙盘浮雕</button>
+        <button class="segment" data-style="chronicle">战史线描</button>
+        <button class="segment" data-style="texture">纯纹理</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Faction ground / 阵营底色</span>
+      <div class="segments" id="paletteControls">
+        <button class="segment swatch active" data-palette="red" style="--swatch:#ffaaaa" aria-label="红色阵营"></button>
+        <button class="segment swatch" data-palette="orange" style="--swatch:#fcd6b0" aria-label="橙色阵营"></button>
+        <button class="segment swatch" data-palette="yellow" style="--swatch:#fff5c0" aria-label="黄色阵营"></button>
+        <button class="segment swatch" data-palette="green" style="--swatch:#aaffaa" aria-label="绿色阵营"></button>
+        <button class="segment swatch" data-palette="cyan" style="--swatch:#aaffdd" aria-label="青色阵营"></button>
+        <button class="segment swatch" data-palette="blue" style="--swatch:#aaaaff" aria-label="蓝色阵营"></button>
+        <button class="segment swatch" data-palette="purple" style="--swatch:#d8aaff" aria-label="紫色阵营"></button>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Texture opacity / 纹理强度</span>
+      <div class="range-row">
+        <input id="textureRange" type="range" min="25" max="100" step="1" value="72">
+        <output id="textureValue">72%</output>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Battle state / 战场状态</span>
+      <div class="segments">
+        <button class="toggle active" id="unitToggle">显示驻军</button>
+        <button class="toggle active" id="gridToggle">显示网格</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="stage" aria-labelledby="stageTitle">
+    <div class="stage-header">
+      <strong id="stageTitle">战场合成预览</strong>
+      <span>Contiguous terrain · seven-hex city</span>
+    </div>
+    <canvas id="battlefield" role="img" aria-label="包含平原、森林、山地、村庄、七格城市、战壕和高射工事的六边形战场"></canvas>
+    <div class="stage-legend" aria-hidden="true">
+      <span>连续森林</span><span>跨格山脊</span><span>村庄与农田</span><span>七格城郭</span><span>战壕</span><span>高射阵地</span>
+    </div>
+  </section>
+
+  <div class="section-head">
+    <span class="section-index">02</span>
+    <h2>球状棋子的生命信息实验</h2>
+    <span class="section-note">点击卡片应用方案；拖动生命值观察残血状态</span>
+  </div>
+
+  <section class="hud-lab" aria-label="球状棋子生命信息方案对比">
+    <div class="hud-toolbar">
+      <div class="control-group">
+        <span class="control-label">Hit points / 当前生命</span>
+        <div class="range-row">
+          <input id="healthRange" type="range" min="1" max="100" step="1" value="68">
+          <output id="healthValue">68%</output>
+        </div>
+      </div>
+      <div class="control-group">
+        <span class="control-label">Diplomacy / 与我的关系</span>
+        <div class="segments" id="relationControls">
+          <button class="segment relation-button" data-relation="self" style="--relation:#55c66a">自身</button>
+          <button class="segment relation-button" data-relation="ally" style="--relation:#5a8dff">联盟</button>
+          <button class="segment relation-button" data-relation="neutral" style="--relation:#dfb844">中立</button>
+          <button class="segment relation-button active" data-relation="enemy" style="--relation:#e04c45">敌对</button>
+        </div>
+      </div>
+      <div class="control-group">
+        <span class="control-label">Shield / 独立护盾</span>
+        <div class="range-row">
+          <input id="shieldRange" type="range" min="0" max="100" step="1" value="42">
+          <output id="shieldValue">42%</output>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-grid" id="hudGrid">
+      <button class="hud-card active" type="button" data-health-style="dial">
+        <span class="hud-card-copy"><span>01 · recommended</span><strong>外缘仪表环</strong><small>外交底轨承载阵营关系，高亮弧段表示剩余生命，护盾使用更外侧的青色短弧。</small></span>
+        <canvas aria-label="外缘仪表环生命值方案"></canvas>
+      </button>
+      <button class="hud-card" type="button" data-health-style="ground">
+        <span class="hud-card-copy"><span>02 · spatial</span><strong>脚下椭圆环</strong><small>空间感最强，但会与地形前景、区域边界和移动范围争夺地面空间。</small></span>
+        <canvas aria-label="脚下椭圆环生命值方案"></canvas>
+      </button>
+      <button class="hud-card" type="button" data-health-style="crescent">
+        <span class="hud-card-copy"><span>03 · minimal</span><strong>下方弧形槽</strong><small>最少破坏球状质感，但残血比例与外交关系不如完整仪表环醒目。</small></span>
+        <canvas aria-label="下方弧形槽生命值方案"></canvas>
+      </button>
+    </div>
+    <div class="hud-verdict">
+      <strong>DESIGN VERDICT</strong>
+      <span>建议把环状血条定义为<strong>球状单位徽章的外缘仪表框</strong>；选择框、移动范围与攻击提示不再复用圆环，避免视觉语义冲突。</span>
+    </div>
+  </section>
+
+  <div class="section-head">
+    <span class="section-index">03</span>
+    <h2>单格纹理与驻军遮挡</h2>
+    <span class="section-note">HEX_SIZE 30 · badgeR 15 · 中央区域不承载关键信息</span>
+  </div>
+
+  <section class="specimen-grid" id="specimenGrid">
+    <article class="specimen" data-kind="plains"><div class="specimen-copy"><strong>平原</strong><span>plains</span></div><canvas aria-label="平原纹理"></canvas></article>
+    <article class="specimen" data-kind="forest"><div class="specimen-copy"><strong>森林</strong><span>forest</span></div><canvas aria-label="森林纹理"></canvas></article>
+    <article class="specimen" data-kind="mountain"><div class="specimen-copy"><strong>山地</strong><span>mountain</span></div><canvas aria-label="山地纹理"></canvas></article>
+    <article class="specimen" data-kind="village"><div class="specimen-copy"><strong>村庄</strong><span>village</span></div><canvas aria-label="村庄纹理"></canvas></article>
+    <article class="specimen" data-kind="city"><div class="specimen-copy"><strong>城市核心</strong><span>city core</span></div><canvas aria-label="城市核心纹理"></canvas></article>
+    <article class="specimen" data-kind="urban"><div class="specimen-copy"><strong>城内街区</strong><span>urban block</span></div><canvas aria-label="城内街区纹理"></canvas></article>
+    <article class="specimen" data-kind="trench"><div class="specimen-copy"><strong>战壕</strong><span>trench</span></div><canvas aria-label="战壕纹理"></canvas></article>
+    <article class="specimen" data-kind="flak"><div class="specimen-copy"><strong>高射阵地</strong><span>flak</span></div><canvas aria-label="高射阵地纹理"></canvas></article>
+  </section>
+
+  <footer>
+    <span><strong>验收原则：</strong>默认开启生产尺寸驻军；关闭驻军只用于检查素材完整性。</span>
+    <span>Static preview · no animation loop</span>
+  </footer>
+</main>
+<script src="terrain-preview-shared.js"></script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blades of Hex · 水域系统原型</title>
+<link rel="stylesheet" href="terrain-preview-shared.css">
+</head>
+<body>
+<main class="shell preview-single">
+  <header class="masthead">
+    <div>
+      <p class="kicker">Blades of Hex · Hydrography</p>
+      <h1>水域与<span>河网</span></h1>
+    </div>
+    <p class="intro">浅水与深水不继承阵营色；海岸从陆海邻接自动生成，河流吸附六边格顶点，桥梁只落在已有河段。</p>
+  </header>
+
+  <nav class="preview-nav" aria-label="原型页面导航">
+    <a href="terrain-texture-preview.html">← 返回目录</a>
+    <a href="terrain-preview-terrain.html">战场与地形</a>
+    <a href="terrain-preview-actions.html">动作意图</a>
+    <a href="terrain-preview-targeting.html">目标选择</a>
+    <a href="terrain-preview-air.html">空军选点</a>
+    <a href="terrain-preview-water.html" aria-current="page">水域系统</a>
+  </nav>
+
+  <div class="section-head">
+    <span class="section-index">05</span>
+    <h2>河流是线网，海域是表面</h2>
+    <span class="section-note">静态页只创建一个水域画布</span>
+  </div>
+
+  <section class="system-grid" aria-label="水域系统原型">
+    <article class="system-panel">
+      <div class="system-panel-header">
+        <div class="system-panel-title">
+          <span>Hydrography</span>
+          <strong>无归属水域与自动海岸</strong>
+          <small>以格面表达浅深海域，以陆海邻接边表达海岸，以顶点线网表达河流，并在既有河段上布置桥梁。</small>
+        </div>
+      </div>
+      <canvas id="waterPreview" role="img" aria-label="无阵营水域、自动海岸、顶点河流与基础舰船"></canvas>
+      <div class="system-legend" aria-hidden="true"><span>无归属水域</span><span>自动海岸</span><span>顶点河流</span><span>基础舰船</span></div>
+    </article>
+  </section>
+
+  <footer>
+    <span><strong>结构原则：</strong>海域属于表面类型，河流属于跨格线网，两者不复用阵营填色。</span>
+    <span>Static preview · one canvas</span>
+  </footer>
+</main>
+<script src="terrain-preview-shared.js"></script>
+</body>
+</html>

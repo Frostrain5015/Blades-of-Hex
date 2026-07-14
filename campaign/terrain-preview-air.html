@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blades of Hex · 空军选点原型</title>
+<link rel="stylesheet" href="terrain-preview-shared.css">
+</head>
+<body>
+<main class="shell preview-single">
+  <header class="masthead">
+    <div>
+      <p class="kicker">Blades of Hex · Air Card Targeting</p>
+      <h1>空军选点与<span>防空</span></h1>
+    </div>
+    <p class="intro">同时表达<strong>合法候选、航程、作用范围与防空火力</strong>。防空纹理不阻止选择，所有区域都按真实棋盘格裁剪。</p>
+  </header>
+
+  <nav class="preview-nav" aria-label="原型页面导航">
+    <a href="terrain-texture-preview.html">← 返回目录</a>
+    <a href="terrain-preview-terrain.html">战场与地形</a>
+    <a href="terrain-preview-actions.html">动作意图</a>
+    <a href="terrain-preview-targeting.html">目标选择</a>
+    <a href="terrain-preview-air.html" aria-current="page">空军选点</a>
+    <a href="terrain-preview-water.html">水域系统</a>
+  </nav>
+
+  <section class="control-deck" aria-label="空军选点背景控制">
+    <div class="control-group">
+      <span class="control-label">Rendering language / 绘制语言</span>
+      <div class="segments" id="styleControls">
+        <button class="segment active" data-style="relief">沙盘浮雕</button>
+        <button class="segment" data-style="chronicle">战史线描</button>
+        <button class="segment" data-style="texture">纯纹理</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Friendly color / 友方色相</span>
+      <div class="segments" id="paletteControls">
+        <button class="segment swatch active" data-palette="red" style="--swatch:#ffaaaa" aria-label="红色阵营"></button>
+        <button class="segment swatch" data-palette="orange" style="--swatch:#fcd6b0" aria-label="橙色阵营"></button>
+        <button class="segment swatch" data-palette="yellow" style="--swatch:#fff5c0" aria-label="黄色阵营"></button>
+        <button class="segment swatch" data-palette="green" style="--swatch:#aaffaa" aria-label="绿色阵营"></button>
+        <button class="segment swatch" data-palette="cyan" style="--swatch:#aaffdd" aria-label="青色阵营"></button>
+        <button class="segment swatch" data-palette="blue" style="--swatch:#aaaaff" aria-label="蓝色阵营"></button>
+        <button class="segment swatch" data-palette="purple" style="--swatch:#d8aaff" aria-label="紫色阵营"></button>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Texture opacity / 地表干扰</span>
+      <div class="range-row"><input id="textureRange" type="range" min="25" max="100" step="1" value="72"><output id="textureValue">72%</output></div>
+    </div>
+    <div class="control-group">
+      <span class="control-label">Grid / 网格</span>
+      <div class="segments"><button class="toggle active" id="gridToggle">显示网格</button></div>
+    </div>
+  </section>
+
+  <div class="section-head">
+    <span class="section-index">04</span>
+    <h2>空军对策卡目标语言</h2>
+    <span class="section-note">在画布中悬停合法候选检查范围与层级</span>
+  </div>
+
+  <section class="system-grid" aria-label="空军对策卡目标选择原型">
+    <article class="system-panel targeting-panel air-targeting-panel">
+      <div class="system-panel-header">
+        <div class="system-panel-title">
+          <span>Air card targeting grammar</span>
+          <strong>目标、航程、防空与作用范围同时成立</strong>
+          <small>空袭复用区域中心；扫射复用攻击角框；轰炸使用红色区域选择；空运与空降使用伞兵徽章。仅上校专属的扫射、轰炸与空运在真实上校格显示飞机全息发起标记；普通空袭/空降不伪造棋盘起点或航程。一层防空采用单向斜纹，两层采用双向交叉斜纹。</small>
+        </div>
+        <div class="segments" id="airTargetingControls">
+          <button class="segment active" data-air-targeting="airstrike">空袭</button>
+          <button class="segment" data-air-targeting="airdrop">空降</button>
+          <button class="segment" data-air-targeting="diveStrafe">扫射</button>
+          <button class="segment" data-air-targeting="carpetBomb">轰炸</button>
+          <button class="segment" data-air-targeting="airliftPickup">空运·选单位</button>
+          <button class="segment" data-air-targeting="airliftDestination">空运·落点</button>
+          <label class="segment-toggle"><input id="interactionMotion" type="checkbox" checked>动态预览</label>
+        </div>
+      </div>
+      <canvas id="airTargetingPreview" role="img" aria-label="空袭、空降、扫射、轰炸与空运两阶段目标选择原型"></canvas>
+      <div class="system-legend" aria-hidden="true">
+        <span>单向斜纹：1 层防空 / 25%</span><span>交叉斜纹：2 层防空 / 50%</span><span>飞机：上校专属卡发起者</span><span>蓝色：上校六格航程</span><span>亮红白边：实际作用范围</span>
+      </div>
+    </article>
+  </section>
+
+  <footer>
+    <span><strong>边缘原则：</strong>棋盘外区域直接跳过，不沿地图边缘补画航程圈或作用范围边界。</span>
+    <span>Animated preview · board-clipped regions</span>
+  </footer>
+</main>
+<script src="terrain-preview-shared.js"></script>
+</body>
+</html>
