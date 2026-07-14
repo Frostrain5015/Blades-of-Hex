@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, settings } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, hexEdge, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, settings } from './config.js';
 import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
