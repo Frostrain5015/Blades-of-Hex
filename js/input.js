@@ -2180,18 +2180,7 @@ export function initSettingsPanel() {
     const speedBtns = document.querySelectorAll('.speed-btn');
     const exitBtn = document.getElementById('settingsExit');
     const rendererBackend = document.getElementById('rendererBackend');
-    const performanceProfile = document.getElementById('performanceProfile');
-    const reducedMotion = document.getElementById('reducedMotion');
     const showGrid = document.getElementById('showGrid');
-    const pixiTerrainCheckbox = document.getElementById('pixiTerrainMode');
-    const pixiTerrainRow = document.getElementById('pixiTerrainRow');
-
-    function togglePixiTerrainRow() {
-        if (!pixiTerrainRow) return;
-        const isPixi = rendererBackend && rendererBackend.value === 'pixi-webgl' && VITE_RUNTIME_AVAILABLE;
-        pixiTerrainRow.style.opacity = isPixi ? '1' : '0.5';
-        if (pixiTerrainCheckbox) pixiTerrainCheckbox.disabled = !isPixi;
-    }
 
     function notifyRendererSettingsChanged(changed) {
         window.dispatchEvent(new CustomEvent('battlefield-renderer-settings-changed', {
@@ -2221,11 +2210,7 @@ export function initSettingsPanel() {
                 ? (settings.rendererBackend || 'canvas2d')
                 : 'canvas2d';
         }
-        if (performanceProfile) performanceProfile.value = settings.performanceProfile || 'auto';
-        if (reducedMotion) reducedMotion.checked = Boolean(settings.reducedMotion);
         if (showGrid) showGrid.checked = settings.showGrid !== false;
-        if (pixiTerrainCheckbox) pixiTerrainCheckbox.checked = Boolean(settings.pixiTerrainMode);
-        togglePixiTerrainRow();
         // 单人模式显示退出按钮
         exitBtn.style.display = isNetworkGame() ? 'none' : '';
     });
@@ -2257,25 +2242,6 @@ export function initSettingsPanel() {
         settings.rendererBackend = event.target.value;
         saveSettings();
         notifyRendererSettingsChanged('rendererBackend');
-        togglePixiTerrainRow();
-    });
-
-    pixiTerrainCheckbox?.addEventListener('change', event => {
-        settings.pixiTerrainMode = event.target.checked;
-        saveSettings();
-        notifyRendererSettingsChanged('pixiTerrainMode');
-    });
-
-    performanceProfile?.addEventListener('change', event => {
-        settings.performanceProfile = event.target.value;
-        saveSettings();
-        notifyRendererSettingsChanged('performanceProfile');
-    });
-
-    reducedMotion?.addEventListener('change', event => {
-        settings.reducedMotion = event.target.checked;
-        saveSettings();
-        notifyRendererSettingsChanged('reducedMotion');
     });
 
     showGrid?.addEventListener('change', event => {

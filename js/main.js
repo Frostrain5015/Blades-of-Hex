@@ -129,7 +129,6 @@ let _battlefieldSnapshot = null;
 let _battlefieldSnapshotCheckedAt = -Infinity;
 let _battlefieldFrameId = 0;
 let _battlefieldLastFrameAt = performance.now();
-let _pixiHandlesTerrain = false;
 // Pixi 地形贴图：Canvas 用同一套地形代码画进离屏画布，Pixi 仅作为纹理显示。
 let _terrainCanvas = null;
 let _terrainCanvasRatio = 1;
@@ -149,7 +148,8 @@ function _syncBattlefieldRendererDom(boundary = _battlefieldRenderer) {
     if (_battlefieldStage) _battlefieldStage.dataset.renderBackend = backend;
     const isPixi = backend === RENDERER_BACKEND.PIXI_WEBGL;
     const pixiCanvas = isPixi ? boundary?.renderer?.canvas : null;
-    const terrainDelegated = Boolean(isPixi && settings.pixiTerrainMode);
+    // Pixi 静态地形层是纯性能优化：离屏 Canvas 画地形→Pixi 纹理，始终开启。
+    const terrainDelegated = Boolean(isPixi);
     pixiCanvas?.classList?.add('battlefield-pixi-canvas');
     // 委托状态以实际后端为准：Pixi 掉线/回退时 Canvas 必须重新画全量。
     setBattlefieldDelegation({ interactionHints: isPixi, terrain: terrainDelegated });
@@ -211,7 +211,6 @@ async function _replaceBattlefieldRenderer() {
             capabilities,
             performanceProfile: settings.performanceProfile || 'auto',
             reducedMotion: settings.reducedMotion ? true : undefined,
-            terrainMode: Boolean(settings.pixiTerrainMode),
             onContextLost: error => {
                 queueMicrotask(() => _fallbackBattlefieldRenderer(boundary, error, 'webgl-context-lost'));
             },

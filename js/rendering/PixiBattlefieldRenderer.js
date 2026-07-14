@@ -336,7 +336,6 @@ export class PixiBattlefieldRenderer {
     constructor(options = {}) {
         this.backend = RENDERER_BACKEND.PIXI_WEBGL;
         this.lifecycle = RENDERER_LIFECYCLE.NEW;
-        this.terrainMode = Boolean(options.terrainMode);
         this._pixiLoader = options.pixiLoader || (() => import('pixi.js'));
         this._createApplication = options.createApplication || null;
         this._performanceProfile = options.performanceProfile || PERFORMANCE_PROFILE.AUTO;

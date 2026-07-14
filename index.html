@@ -512,27 +512,9 @@
         <div class="setting-row">
             <label for="rendererBackend">战场渲染</label>
             <select id="rendererBackend">
-                <option value="canvas2d">Canvas2D · 稳定</option>
-                <option value="pixi-webgl">PixiJS · 实验性增强</option>
+                <option value="canvas2d">Canvas2D · 经典</option>
+                <option value="pixi-webgl">PixiJS · 增强性能</option>
             </select>
-        </div>
-        <div class="setting-row" id="pixiTerrainRow" style="opacity:0.5;transition:opacity 0.2s">
-            <label for="pixiTerrainMode">Pixi 静态地貌层</label>
-            <input type="checkbox" id="pixiTerrainMode">
-            <span class="setting-note">Pixi 渲染地形，Canvas 仅画单位/特效（提升帧率）</span>
-        </div>
-        <div class="setting-row">
-            <label for="performanceProfile">视觉预算</label>
-            <select id="performanceProfile">
-                <option value="auto">自动</option>
-                <option value="high">高</option>
-                <option value="balanced">均衡</option>
-                <option value="low">低</option>
-            </select>
-        </div>
-        <div class="setting-row">
-            <label for="reducedMotion">减少动态效果</label>
-            <input type="checkbox" id="reducedMotion">
         </div>
         <div class="setting-row">
             <label for="showGrid">显示普通网格</label>
