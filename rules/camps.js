@@ -14,7 +14,7 @@ export const CAMP_DATA = deepFreeze({
 export const CAMP = CAMP_DATA;
 
 export const CAMP_FLAG_COLORS = deepFreeze({
-    neu: { main: '#777', dark: '#444', light: '#999' }
+    neu: { main: '#888', dark: '#444', light: '#aaa' }
 });
 
 /**
@@ -30,7 +30,7 @@ export const FACTION_PALETTE = deepFreeze([
     { id: 'cyan',   label: '青', tile: '#aaffdd', flag: { main: '#30b8a0', dark: '#107060', light: '#60d8c0' } },
     { id: 'blue',   label: '蓝', tile: '#aaaaff', flag: { main: '#4060d0', dark: '#1a2a80', light: '#6080f0' } },
     { id: 'purple', label: '紫', tile: '#d8aaff', flag: { main: '#9050c8', dark: '#602890', light: '#b878e0' } },
-    { id: 'gray',   label: '深灰', tile: '#b0b0b0', flag: { main: '#666666', dark: '#444444', light: '#888888' } },
+    { id: 'gray',   label: '深灰', tile: '#b0b0b0', flag: { main: '#888888', dark: '#444444', light: '#aaaaaa' } },
     { id: 'white',  label: '白', tile: '#e8e8e8', flag: { main: '#bbbbbb', dark: '#888888', light: '#dddddd' } }
 ]);
 
