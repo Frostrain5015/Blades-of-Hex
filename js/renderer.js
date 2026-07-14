@@ -258,6 +258,7 @@ export function renderGame() {
     drawCommanderPennants();
     // 国界线/区划线（先锋旗之下、单位之上）
     if (settings.showGrid !== false) drawAllBorders(ctx, borderTiles, borderTileMap);
+    const riverSegments = gameState?.riverTopology?.segmentsByKey;
     const districtBorderNoRiver = riverSegments
         ? districtBorderEdges.filter(edge => {
             const key = sharedHexEdgeSegmentKey(
@@ -303,7 +304,6 @@ export function renderGame() {
         if (fillerEdges.length) extendedBorders = [...campBorderEdges, ...fillerEdges];
     }
     // 跳过与河段重合的国界：(qa,ra)↔(qb,rb) 边上有河流则跳过，让河段视觉清晰。
-    const riverSegments = gameState?.riverTopology?.segmentsByKey;
     const campBorderNoRiver = riverSegments
         ? extendedBorders.filter(edge => {
             const key = sharedHexEdgeSegmentKey(
