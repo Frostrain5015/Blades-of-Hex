@@ -142,6 +142,47 @@ function drawCampaignObjectiveHighlights(now) {
     }
 }
 
+// Shared terrain-material pass: tile bases, ground, waterways, relief and
+// deferred details in the canonical order. Draws into any 2D context so the
+// Pixi terrain snapshot is produced by exactly the same code as direct
+// Canvas rendering — the two backends can never diverge visually.
+function _drawTerrainMaterials(targetCtx, now, { tiles, visualGrid, layeredTerrain, materialOptions, tileBaseOptions }) {
+    if (visualGrid) drawVisualFillerTiles(targetCtx, visualGrid.fillers);
+    for (let i = 0, len = tiles.length; i < len; i++) {
+        tiles[i].drawBase(targetCtx, tileBaseOptions);
+    }
+    // Fixed map-material order: neutral water, terrain floor, coast/river,
+    // terrain relief, then fortifications/bridges/ports. Every phase shares
+    // the cached real-board clip (plus render-only fillers in borderless mode).
+    canvasBattlefieldLayers.renderGround(targetCtx, materialOptions);
+    canvasBattlefieldLayers.renderWaterways(targetCtx, materialOptions);
+    canvasBattlefieldLayers.renderRelief(targetCtx, materialOptions);
+    canvasBattlefieldLayers.renderDetails(targetCtx, materialOptions);
+    if (layeredTerrain) {
+        for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawDeferredMapDetails(targetCtx);
+    }
+}
+
+/**
+ * Paint the full terrain slice into an offscreen 2D context for the Pixi
+ * terrain texture. Assumes renderGame() has already synced
+ * canvasBattlefieldLayers this frame (it runs unconditionally each frame).
+ */
+export function renderTerrainSnapshot(targetCtx, now, pixelRatio = 1) {
+    const tiles = gameState.tiles;
+    const visualGrid = gameState.campaignMode && gameState.boardLayout === 'borderless'
+        ? getBorderlessVisualGrid(tiles, gameState.tileMap)
+        : null;
+    const layeredTerrain = canvasBattlefieldLayers.terrainActive;
+    const materialOptions = { now, reducedMotion: settings.reducedMotion === true };
+    const tileBaseOptions = layeredTerrain
+        ? (visualGrid ? FLAT_LAYERED_TILE_BASE_OPTIONS : LAYERED_TILE_BASE_OPTIONS)
+        : (visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined);
+    targetCtx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    targetCtx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
+    _drawTerrainMaterials(targetCtx, now, { tiles, visualGrid, layeredTerrain, materialOptions, tileBaseOptions });
+}
+
 export function renderGame() {
     const now = performance.now();
     const dt = Math.min((now - lastTime) / 1000, 0.05);
@@ -197,20 +238,7 @@ export function renderGame() {
         ? (visualGrid ? FLAT_LAYERED_TILE_BASE_OPTIONS : LAYERED_TILE_BASE_OPTIONS)
         : (visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined);
     if (!battlefieldDelegation.terrain) {
-        if (visualGrid) drawVisualFillerTiles(ctx, visualGrid.fillers);
-        for (let i = 0, len = tiles.length; i < len; i++) {
-            tiles[i].drawBase(ctx, tileBaseOptions);
-        }
-        // Fixed map-material order: neutral water, terrain floor, coast/river,
-        // terrain relief, then fortifications/bridges/ports. Every phase shares
-        // the cached real-board clip (plus render-only fillers in borderless mode).
-        canvasBattlefieldLayers.renderGround(ctx, materialOptions);
-        canvasBattlefieldLayers.renderWaterways(ctx, materialOptions);
-        canvasBattlefieldLayers.renderRelief(ctx, materialOptions);
-        canvasBattlefieldLayers.renderDetails(ctx, materialOptions);
-        if (layeredTerrain) {
-            for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawDeferredMapDetails(ctx);
-        }
+        _drawTerrainMaterials(ctx, now, { tiles, visualGrid, layeredTerrain, materialOptions, tileBaseOptions });
     }
     // Faction-tinted military-map city outline stays below every object, but
     // remains visible around a unit that covers the central castle glyph.

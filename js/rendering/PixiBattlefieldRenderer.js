@@ -366,6 +366,9 @@ export class PixiBattlefieldRenderer {
         this._handleContextLost = null;
         this._handleContextRestored = null;
         this._lastRenderedAtMs = -Infinity;
+        this._terrainSprite = null;
+        this._terrainTexture = null;
+        this._terrainSource = null;
     }
 
     get app() { return this._app; }
@@ -439,7 +442,7 @@ export class PixiBattlefieldRenderer {
             this._app.stage.addChild(this._root);
 
             if (!hostIsCanvas && host && typeof host.appendChild === 'function' && this._canvas.parentNode !== host) {
-                if (options.terrainMode) {
+                if (this.terrainMode || options.terrainMode) {
                     // Pixi handles terrain → canvas goes behind the existing Canvas2D canvas
                     const first = host.firstChild;
                     if (first) host.insertBefore(this._canvas, first);
@@ -456,6 +459,49 @@ export class PixiBattlefieldRenderer {
             this.lifecycle = RENDERER_LIFECYCLE.NEW;
             throw error;
         }
+    }
+
+    /**
+     * Display a Canvas-painted terrain snapshot as the bottom layer. The
+     * source canvas is produced by the exact same Canvas2D terrain code, so
+     * the two backends stay pixel-identical while Pixi handles compositing.
+     */
+    syncTerrainTexture(source, scale = 1) {
+        assertReady(this);
+        const { Texture, Sprite } = this._pixi;
+        if (typeof Texture?.from !== 'function' || typeof Sprite !== 'function') return false;
+        if (this._terrainSprite && this._terrainSource !== source) {
+            this._releaseTerrainTexture();
+        }
+        if (!this._terrainSprite) {
+            this._terrainTexture = Texture.from(source);
+            this._terrainSprite = new Sprite(this._terrainTexture);
+            this._terrainSprite.label = 'battlefield-terrain-snapshot';
+            this._terrainSource = source;
+            this._layers.surface.addChildAt(this._terrainSprite, 0);
+        } else {
+            this._terrainTexture?.source?.update?.();
+        }
+        this._terrainSprite.scale.set(scale);
+        this._sceneDirty = true;
+        return true;
+    }
+
+    clearTerrainTexture() {
+        this._releaseTerrainTexture();
+        this._sceneDirty = true;
+    }
+
+    _releaseTerrainTexture() {
+        if (this._terrainSprite) {
+            try { this._terrainSprite.destroy(); } catch {}
+        }
+        if (this._terrainTexture) {
+            try { this._terrainTexture.destroy(true); } catch {}
+        }
+        this._terrainSprite = null;
+        this._terrainTexture = null;
+        this._terrainSource = null;
     }
 
     syncScene(snapshot) {
@@ -1116,6 +1162,7 @@ export class PixiBattlefieldRenderer {
     }
 
     _releaseResources() {
+        this._releaseTerrainTexture();
         const canvas = this._canvas || readApplicationCanvas(this._app);
         if (canvas && typeof canvas.removeEventListener === 'function') {
             if (this._handleContextLost) {

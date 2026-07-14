@@ -5,7 +5,7 @@ import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
 import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill } from './gameLogic.js';
-import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints } from './renderer.js';
+import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { COMMANDER_REROLL_COST } from './config.js';
@@ -130,6 +130,13 @@ let _battlefieldSnapshotCheckedAt = -Infinity;
 let _battlefieldFrameId = 0;
 let _battlefieldLastFrameAt = performance.now();
 let _pixiHandlesTerrain = false;
+// Pixi 地形贴图：Canvas 用同一套地形代码画进离屏画布，Pixi 仅作为纹理显示。
+let _terrainCanvas = null;
+let _terrainCanvasRatio = 1;
+let _terrainPaintedAt = -Infinity;
+let _terrainTextureDirty = true;
+// 水面等材质动画的快照刷新周期；静态棋盘状态变化会立即置脏。
+const TERRAIN_SNAPSHOT_INTERVAL_MS = 250;
 
 function _preferredBattlefieldBackend() {
     return VITE_RUNTIME_AVAILABLE && settings.rendererBackend === RENDERER_BACKEND.PIXI_WEBGL
@@ -187,6 +194,8 @@ async function _replaceBattlefieldRenderer() {
     setBattlefieldDelegation({});
     _battlefieldSnapshot = null;
     _battlefieldSnapshotCheckedAt = -Infinity;
+    _terrainPaintedAt = -Infinity;
+    _terrainTextureDirty = true;
 
     let boundary = null;
     boundary = createBattlefieldRenderer({
@@ -244,9 +253,12 @@ function _syncPixiBattlefieldScene(now) {
         });
         if (!shouldSyncBattlefieldSnapshot(_battlefieldSnapshot, next)) return;
         _battlefieldSnapshot = next;
+        // 棋盘状态变化 → 地形贴图立即重画，避免占领变色等滞后于单位层。
+        _terrainTextureDirty = true;
+        // 地形走 Canvas 快照贴图（见 _syncPixiTerrainTexture），Graphics 场景
+        // 恒为叠加层：只承载交互提示，绝不自绘平面色块地形。
         _battlefieldRenderer.syncScene(battlefieldSnapshotToPixi(next, {
-            overlayOnly: !battlefieldDelegation.terrain,
-            // 混合模式下真实单位始终由 Canvas 绘制，Pixi 不画占位圆球。
+            overlayOnly: true,
             includeUnits: false,
             showGrid: settings.showGrid !== false,
             performanceProfile: _battlefieldRenderer.policy?.profile || 'balanced'
@@ -254,6 +266,30 @@ function _syncPixiBattlefieldScene(now) {
     } catch (error) {
         console.error('[渲染] Pixi 场景同步失败，正在回退:', error);
         void _fallbackBattlefieldRenderer(_battlefieldRenderer, error, 'scene-sync-failed');
+    }
+}
+
+// 地形贴图同步：委托生效时把 Canvas 地形画进离屏画布，交给 Pixi 显示。
+// 依赖 renderGame() 已在本帧执行（材质层缓存已同步）。
+function _syncPixiTerrainTexture(now) {
+    const renderer = _battlefieldRenderer?.renderer;
+    if (!battlefieldDelegation.terrain || typeof renderer?.syncTerrainTexture !== 'function') return;
+    if (!_terrainTextureDirty && now - _terrainPaintedAt < TERRAIN_SNAPSHOT_INTERVAL_MS) return;
+    _terrainPaintedAt = now;
+    _terrainTextureDirty = false;
+    try {
+        const ratio = Math.min(window.devicePixelRatio || 1, 2);
+        if (!_terrainCanvas || _terrainCanvasRatio !== ratio) {
+            _terrainCanvas = document.createElement('canvas');
+            _terrainCanvas.width = Math.round(LOGICAL_W * ratio);
+            _terrainCanvas.height = Math.round(LOGICAL_H * ratio);
+            _terrainCanvasRatio = ratio;
+        }
+        renderTerrainSnapshot(_terrainCanvas.getContext('2d'), now, ratio);
+        renderer.syncTerrainTexture(_terrainCanvas, 1 / ratio);
+    } catch (error) {
+        console.error('[渲染] 地形贴图同步失败，正在回退:', error);
+        void _fallbackBattlefieldRenderer(_battlefieldRenderer, error, 'terrain-texture-failed');
     }
 }
 
@@ -323,6 +359,7 @@ function gameLoop() {
         // 迁移期混合渲染：Canvas 保持全量战场，Pixi 只绘制高预算交互层。
         renderGame();
         _syncPixiBattlefieldScene(now);
+        _syncPixiTerrainTexture(now);
         try {
             renderer.render({ nowMs: now, deltaMs, frameId: ++_battlefieldFrameId });
         } catch (error) {
