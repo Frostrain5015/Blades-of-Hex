@@ -285,18 +285,19 @@
                 </div>
             </div>
 
-            <!-- 蓝军信息卡（双人模式右对齐，三人模式左对齐统一） -->
+            <!-- 蓝军信息卡（双人模式右对齐 = row-reverse 呈现 [info→flag→emblem] 镜像 -->
+            <!--           三人模式移除 align-right，还原为 [emblem→flag→info]）  -->
             <div class="camp-card align-right" id="campCard2">
+                <div class="camp-emblem" style="background:rgba(28,100,160,0.9);">
+                    <img class="camp-emblem-portrait" id="emblemP2" src="" alt="" />
+                    <span class="camp-emblem-text">蓝</span>
+                </div>
+                <canvas class="camp-flag-preview" id="campFlagPreview2" width="84" height="56" aria-hidden="true"></canvas>
                 <div class="camp-info align-right">
                     <div class="camp-label">蓝军</div>
                     <div class="camp-treasury">
                         <span id="player2Gold">$4</span>
                     </div>
-                </div>
-                <canvas class="camp-flag-preview" id="campFlagPreview2" width="84" height="56" aria-hidden="true"></canvas>
-                <div class="camp-emblem" style="background:rgba(28,100,160,0.9);">
-                    <img class="camp-emblem-portrait" id="emblemP2" src="" alt="" />
-                    <span class="camp-emblem-text">蓝</span>
                 </div>
             </div>
 

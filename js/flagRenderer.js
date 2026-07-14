@@ -402,8 +402,16 @@ export function createFlagPreview(canvas) {
     return {
         setFaction(faction) {
             const colors = getFlagColors(faction?.colorId || faction?.color);
+            // 四边留出边距，避免飘动动画穿帮
+            const padX = 4, padY = 4;
+            const maxW = logicalWidth - padX * 2;
+            const maxH = logicalHeight - padY * 2;
+            const width = Math.min(maxW, maxH * 1.5);
+            const height = Math.round(width / 1.5);
             previewInstance = {
-                x: 0, y: 0, width: logicalWidth, height: logicalHeight,
+                x: Math.round((logicalWidth - width) / 2),
+                y: Math.round((logicalHeight - height) / 2),
+                width, height,
                 phase: 1.7, colors, flagUrl: faction?.flagUrl || null
             };
             renderer.setInstances([previewInstance]);
