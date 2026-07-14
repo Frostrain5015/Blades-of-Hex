@@ -1019,12 +1019,11 @@ export class PixiBattlefieldRenderer {
         this._traceRoute(graphics, path);
         graphics.stroke({ color, alpha: 0.10, width: r * 0.866, cap: 'round', join: 'round' });
 
-        // Marching dashed overlay with glow halo
+        // Marching dashed overlay — exactly one stroke matching Canvas:
+        // width 0.24r, alpha 0.92, no separate glow layer.
         const dash = r * 1.2;
         const gap = r * 0.734;
         const offset = seconds * r * 3.066;
-        this._dashRoute(graphics, path, dash, gap, offset);
-        graphics.stroke({ color, alpha: 0.30, width: r * 0.24 + r * 0.32, cap: 'round', join: 'round' });
         this._dashRoute(graphics, path, dash, gap, offset);
         graphics.stroke({ color, alpha: 0.92, width: r * 0.24, cap: 'round', join: 'round' });
 
@@ -1093,12 +1092,10 @@ export class PixiBattlefieldRenderer {
             ? Math.max(0, Math.min(1, (path.totalLength - r) / path.totalLength))
             : 1;
 
-        // One bright dashed rail with glow halo (no dark under-track).
+        // Single dashed rail (no separate glow layer — matches Canvas).
         const dash = r * 0.15;
         const gap = r * 0.44;
         const offset = seconds * r * 1.44;
-        this._dashRoute(graphics, path, dash, gap, offset, targetContactFraction);
-        graphics.stroke({ color, alpha: 0.30, width: r * 0.172 + r * 0.36, cap: 'round' });
         this._dashRoute(graphics, path, dash, gap, offset, targetContactFraction);
         graphics.stroke({ color, alpha: 0.96, width: r * 0.172, cap: 'round' });
 
