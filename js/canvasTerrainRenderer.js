@@ -25,6 +25,8 @@ const HEX_UNIT_VERTICES = Object.freeze(Array.from({ length: 6 }, (_, index) => 
 }));
 
 const DEFAULT_PALETTE = Object.freeze({
+    plainsGround: 'rgba(152,172,112,0.16)',
+    plainsSpeck: 'rgba(132,152,96,0.12)',
     forestGround: 'rgba(49,73,48,0.34)',
     forestLink: 'rgba(54,78,51,0.38)',
     forestTrunk: '#65503b',
@@ -312,6 +314,8 @@ function buildPaths(scene, options, pathFactory) {
     }
 
     const paths = {
+        plainsGround: new CompiledPath(pathFactory),
+        plainsSpecks: new CompiledPath(pathFactory),
         forestGround: new CompiledPath(pathFactory),
         forestLinks: new CompiledPath(pathFactory),
         forestTrunks: new CompiledPath(pathFactory),
@@ -375,6 +379,27 @@ function buildPaths(scene, options, pathFactory) {
         const from = projected.get(link.from.key);
         const to = projected.get(link.to.key);
         if (from && to) addLine(paths.mountainRidges, from, to);
+    }
+
+    for (const tileRef of topology.plains.tiles) {
+        const point = projected.get(tileRef.key);
+        if (!point) continue;
+        // A soft grass-soil base that sits behind forest/mountain overlays and
+        // keeps empty tiles from reading as pure faction wash. Subtle random
+        // specks break up the large solid-colour area without crossing to a
+        // full tiled texture.
+        addPolygon(paths.plainsGround, point.vertices.map(vertex => ({
+            x: point.x + (vertex.x - point.x) * 1.01,
+            y: point.y + (vertex.y - point.y) * 1.01
+        })));
+        // 2-3 tiny grass specks per tile for organic variation
+        const speckCount = 2 + Math.round(pseudoRandom(tileRef.q, tileRef.r, 510) * 1.5);
+        for (let index = 0; index < speckCount; index++) {
+            const ox = (pseudoRandom(tileRef.q, tileRef.r, 610 + index) - 0.5) * point.size * 1.2;
+            const oy = (pseudoRandom(tileRef.q, tileRef.r, 710 + index) - 0.5) * point.size * 0.9;
+            const r = point.size * (0.03 + pseudoRandom(tileRef.q, tileRef.r, 810 + index) * 0.04);
+            addCircle(paths.plainsSpecks, point.x + ox, point.y + oy, r);
+        }
     }
 
     const addSettlementTile = (tileRef, kind) => {
@@ -498,6 +523,11 @@ export function createCanvasTerrainLayer(scene, options = {}) {
 
 function drawGround(context, layer) {
     const { paths, palette, hexSize: size } = layer;
+    context.fillStyle = palette.plainsGround;
+    fillPath(context, paths.plainsGround);
+    context.fillStyle = palette.plainsSpeck;
+    fillPath(context, paths.plainsSpecks);
+
     context.fillStyle = palette.forestGround;
     fillPath(context, paths.forestGround);
 

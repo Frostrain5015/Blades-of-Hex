@@ -267,6 +267,8 @@ export function buildTerrainTopology(tiles = [], tileMap = null) {
     const { playableTiles, tileMap: playableMap } = indexed;
     const forest = featureBundle(playableTiles, playableMap, tile => terrainType(tile) === 'forest');
     const mountain = featureBundle(playableTiles, playableMap, tile => terrainType(tile) === 'mountain');
+    const plains = featureBundle(playableTiles, playableMap, tile => terrainType(tile) === 'plains'
+        && !isUrbanTile(tile) && !isVillageTile(tile));
     const trench = featureBundle(playableTiles, playableMap, tile => fortificationType(tile) === 'trench');
     const urbanTiles = playableTiles.filter(isUrbanTile);
     const villageTiles = playableTiles.filter(isVillageTile);
@@ -276,6 +278,7 @@ export function buildTerrainTopology(tiles = [], tileMap = null) {
         playableTileKeys: Object.freeze(playableTiles.map(keyOf)),
         forest,
         mountain,
+        plains,
         trench,
         urbanFootprints: buildUrbanFootprints(urbanTiles, playableMap),
         villageFootprints: buildVillageFootprints(villageTiles, playableMap)
