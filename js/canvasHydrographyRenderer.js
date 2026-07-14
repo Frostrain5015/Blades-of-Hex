@@ -524,18 +524,21 @@ function buildPaths(scene, options, pathFactory) {
     for (const port of ports || []) {
         const key = tileCoordinateKey(port);
         const tile = playableByKey.get(key);
-        const land = projectedPlayable.get(key);
-        if (!tile || !land || (isWaterSurface(surfaceKind(tile, playableByKey)) && !tile.isPort)) continue;
-        let water = null;
+        const portPos = projectedPlayable.get(key);
+        if (!tile || !portPos || !tile.isPort) continue;
+        // 港口已是浅水地块：栈桥从最近的真陆地画向港口水域。
+        // 取港口六邻中第一个真陆地作为栈桥起点。
+        let land = null;
         for (const [dq, dr] of HEX_NEIGHBORS) {
             const neighborKey = tileCoordinateKey(tile.q + dq, tile.r + dr);
             const neighbor = playableByKey.get(neighborKey);
-            if (!neighbor || !isWaterSurface(surfaceKind(neighbor, playableByKey))) continue;
-            water = projectedPlayable.get(neighborKey) || null;
-            if (water) break;
+            if (!neighbor || isWaterSurface(surfaceKind(neighbor, playableByKey))) continue;
+            land = projectedPlayable.get(neighborKey) || null;
+            if (land) break;
         }
-        if (!water) continue;
-        addPort(paths, land, water);
+        if (!land) continue;
+        // 港口自身作为水面端
+        addPort(paths, land, portPos);
         portCount++;
     }
 
