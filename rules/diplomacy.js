@@ -68,6 +68,70 @@ export function createStandardFlagUrl(colorValue, emoji) {
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+/**
+ * 自定义旗帜 SVG 生成器。支持四种图案类型，每种可选叠加 emoji 徽记。
+ * 返回 data:image/svg+xml URL。
+ *
+ * @param {Object} fc - flagConfig
+ * @param {string} fc.pattern - 'solid'|'canton'|'h_split'|'v_split'
+ * @param {string} [fc.color1] - 主色/纯色/上半/左半（palette id 或 hex）
+ * @param {string} [fc.color2] - 坎顿色/下半/右半（palette id 或 hex）
+ * @param {string} [fc.centralEmoji] - 中央徽记 emoji
+ * @param {string} [fc.cantonEmoji] - 坎顿区徽记 emoji（仅 canton 图案）
+ * @param {string} [fallbackColor] - 回退色（palette id），fc.color1 无值时使用
+ */
+export function createFlagSvgUrl(fc, fallbackColor) {
+    if (!fc || typeof fc !== 'object') return null;
+    const pattern = fc.pattern || 'solid';
+    const c1 = getFlagColors(fc.color1 || fallbackColor);
+    const c2 = fc.color2 ? getFlagColors(fc.color2) : null;
+    const centerEmoji = fc.centralEmoji || '';
+    const cantonEmoji = fc.cantonEmoji || '';
+
+    let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">';
+
+    switch (pattern) {
+        case 'canton':
+            svg += `<rect width="900" height="600" fill="${c2 ? c2.main : c1.main}"/>`;   // field
+            svg += `<rect width="450" height="300" fill="${c1.main}"/>`;                    // canton (top-left)
+            if (cantonEmoji) {
+                svg += `<text x="225" y="237" text-anchor="middle" font-size="230" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, serif">${cantonEmoji}</text>`;
+            }
+            if (centerEmoji) {
+                svg += `<text x="675" y="370" text-anchor="middle" font-size="200" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, serif">${centerEmoji}</text>`;
+            }
+            break;
+        case 'h_split':
+            svg += `<rect width="900" height="300" fill="${c1.main}"/>`;
+            svg += `<rect y="300" width="900" height="300" fill="${c2 ? c2.main : c1.main}"/>`;
+            if (centerEmoji) {
+                svg += `<text x="450" y="420" text-anchor="middle" font-size="330" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, serif">${centerEmoji}</text>`;
+            }
+            break;
+        case 'v_split':
+            svg += `<rect width="450" height="600" fill="${c1.main}"/>`;
+            svg += `<rect x="450" width="450" height="600" fill="${c2 ? c2.main : c1.main}"/>`;
+            if (centerEmoji) {
+                svg += `<text x="450" y="420" text-anchor="middle" font-size="330" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, serif">${centerEmoji}</text>`;
+            }
+            break;
+        case 'solid':
+        default:
+            svg += `<rect width="900" height="600" fill="${c1.main}"/>`;
+            if (centerEmoji) {
+                svg += `<text x="450" y="420" text-anchor="middle" font-size="380" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, serif">${centerEmoji}</text>`;
+            }
+            break;
+    }
+
+    // 布料褶皱光影（所有图案共用）
+    svg += '<path d="M0 110C185 70 335 150 520 110S745 75 900 125V0H0Z" fill="#fff" opacity=".09"/>';
+    svg += '<path d="M0 490C170 430 370 530 570 470S760 420 900 480V600H0Z" fill="#000" opacity=".11"/>';
+    svg += '</svg>';
+
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 function fallbackFaction(id, index = 0) {
     const base = CAMP_DATA[id];
     const defaultColorId = id === 'neutral' ? 'gray' : null;
@@ -213,6 +277,7 @@ export function createDefaultFactions(overrides = []) {
         const palette = getPaletteEntry(override.color) || getPaletteEntry(base.color);
         const flagEmoji = isStandardFlagEmoji(override.flagEmoji) ? override.flagEmoji : null;
         const providedFlagUrl = typeof override.flagUrl === 'string' && override.flagUrl ? override.flagUrl : null;
+        const flagConfig = override.flagConfig && typeof override.flagConfig === 'object' ? override.flagConfig : null;
         return [id, {
             ...base,
             name: typeof override.name === 'string' && override.name.trim() ? override.name.trim() : base.name,
@@ -221,8 +286,11 @@ export function createDefaultFactions(overrides = []) {
             color: getTileColor(override.color, base.color),
             flag: flagEmoji || (typeof override.flag === 'string' && override.flag ? override.flag : base.flag),
             flagEmoji,
-            flagUrl: providedFlagUrl || (flagEmoji ? createStandardFlagUrl(palette?.id || override.color, flagEmoji) : null),
+            flagUrl: providedFlagUrl
+                || (flagConfig ? createFlagSvgUrl(flagConfig, palette?.id || override.color) : null)
+                || (flagEmoji ? createStandardFlagUrl(palette?.id || override.color, flagEmoji) : null),
             flagAlt: typeof override.flagAlt === 'string' && override.flagAlt ? override.flagAlt : (flagEmoji ? `${override.name || base.name}·${flagEmoji}` : ''),
+            flagConfig: flagConfig, // 保留原始配置供编辑器回读
             controller: ['human', 'ai', 'scripted'].includes(override.controller) ? override.controller : base.controller,
             participatesInTurns: typeof override.participatesInTurns === 'boolean' ? override.participatesInTurns : base.participatesInTurns,
             active: typeof override.active === 'boolean' ? override.active : base.active

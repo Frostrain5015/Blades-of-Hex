@@ -21,6 +21,7 @@ import {
     BOARD_LAYOUT, BOARD_LAYOUT_LABELS, BOARD_RADIUS_MIN, BOARD_RADIUS_MAX,
     FACTION_PALETTE, getFlagColors
 } from '../runtime/schema.js';
+import { createFlagSvgUrl, STANDARD_FLAG_EMOJIS } from '../../rules/diplomacy.js';
 import { buildBoardFromConfig } from '../runtime/mapBuilder.js';
 import {
     el, section, textRow, numRow, selectRow, checkRow, textareaRow,
@@ -76,6 +77,7 @@ function authorActions() { return TRIGGER_ACTIONS; }
 
 // 阵营配置只保存 palette id；具体地块色与旗色由规则层统一解析。
 const FACTION_COLOR_OPTIONS = Object.fromEntries(FACTION_PALETTE.map(p => [p.id, p.label]));
+const FLAG_EMOJI_OPTIONS = Object.fromEntries(STANDARD_FLAG_EMOJIS.map(e => [e.emoji, e.label]));
 
 const boardTool = {
     mode: 'terrain',
@@ -1248,21 +1250,51 @@ function buildFactionBasics() {
         box.appendChild(textareaRow('剧情备注（留空不显示）', faction.note || '', value => mutate(c => { c.factions[idx].note = value; }, { rebuildPanels: false }), 2));
         box.appendChild(selectRow('颜色', faction.color, FACTION_COLOR_OPTIONS,
             value => mutate(c => { c.factions[idx].color = value; }, { rebuildPanels: false })));
-        box.appendChild(selectRow('旗帜', faction.flagUrl || '', {
-            '': '自动生成（颜色+徽记）',
-            'img/flags/aurelia-kingdom.svg': '奥雷利亚王国旗',
-            'img/flags/aurelia-regency.svg': '摄政府旗',
-            'img/flags/petra-autonomy.svg': '佩特拉自治领旗',
-            'img/flags/training-targets.svg': '训练靶旗'
-        }, value => mutate(c => {
-            c.factions[idx].flagUrl = value || null;
-            c.factions[idx].flagAlt = value ? ({
-                'img/flags/aurelia-kingdom.svg': '奥雷利亚王国旗',
-                'img/flags/aurelia-regency.svg': '摄政府旗',
-                'img/flags/petra-autonomy.svg': '佩特拉自治领旗',
-                'img/flags/training-targets.svg': '训练靶旗'
-            })[value] || '' : '';
-        }, { rebuildPanels: false })));
+        // ── 旗帜设计器 ──
+        const flagBox = el('div', 'ed-card');
+        const fc = faction.flagConfig || {};
+        const setFlag = (patch) => mutate(c => {
+            const merged = { ...(c.factions[idx].flagConfig || {}), ...patch };
+            c.factions[idx].flagConfig = merged;
+            // 清除旧 flagUrl 使运行时使用 flagConfig 生成
+            c.factions[idx].flagUrl = null;
+            c.factions[idx].flagAlt = '';
+        }, { rebuildPanels: false });
+        flagBox.appendChild(selectRow('图案', fc.pattern || 'solid', {
+            solid: '纯色底',
+            canton: '坎顿（左上角分区）',
+            h_split: '上下半分色',
+            v_split: '左右半分色'
+        }, v => setFlag({ pattern: v })));
+        // 色1：纯色/主色/上半/左半
+        flagBox.appendChild(selectRow((fc.pattern || 'solid') === 'solid' ? '底色'
+            : (fc.pattern || 'solid') === 'canton' ? '坎顿区色'
+            : fc.pattern === 'h_split' ? '上半色' : '左半色',
+            fc.color1 || faction.color, FACTION_COLOR_OPTIONS, v => setFlag({ color1: v })));
+        // 色2（纯色无第二色）
+        if (fc.pattern && fc.pattern !== 'solid') {
+            flagBox.appendChild(selectRow(fc.pattern === 'canton' ? '主区色'
+                : fc.pattern === 'h_split' ? '下半色' : '右半色',
+                fc.color2 || faction.color, FACTION_COLOR_OPTIONS, v => setFlag({ color2: v })));
+        }
+        // 中央徽记
+        flagBox.appendChild(selectRow('中央徽记', fc.centralEmoji || '', { '': '无', ...FLAG_EMOJI_OPTIONS },
+            v => setFlag({ centralEmoji: v || null })));
+        // 坎顿徽记（仅 canton 图案）
+        if (fc.pattern === 'canton') {
+            flagBox.appendChild(selectRow('坎顿徽记', fc.cantonEmoji || '', { '': '无', ...FLAG_EMOJI_OPTIONS },
+                v => setFlag({ cantonEmoji: v || null })));
+        }
+        // 预览
+        const previewUrl = createFlagSvgUrl(fc, faction.color);
+        if (previewUrl) {
+            const img = el('img');
+            img.src = previewUrl;
+            img.alt = faction.name + '旗预览';
+            img.style.cssText = 'display:block;width:100%;margin-top:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1);';
+            flagBox.appendChild(img);
+        }
+        box.appendChild(flagBox);
         box.appendChild(selectRow('控制方式', faction.controller || 'ai', { human: '玩家', ai: 'AI', scripted: '剧情控制' },
             value => mutate(c => {
                 c.factions[idx].controller = value;
