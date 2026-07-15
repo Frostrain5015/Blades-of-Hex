@@ -518,7 +518,7 @@ export class Unit {
         const weatherBonus = (!this.isEmbarked && gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
             : 0;
 
-        const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus + weatherBonus);
+        const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus + weatherBonus, false, false, false, this.type === 'submarine' ? 0.10 : 0);
 
         gs.damageTexts.push({
             x: targetUnit.tile.x,
