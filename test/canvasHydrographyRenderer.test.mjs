@@ -56,7 +56,9 @@ function tile(q, r, surface = SURFACE_KIND.LAND, overrides = {}) {
 
 function makeScene() {
     const land = tile(0, 0);
-    const shallow = tile(1, 0, SURFACE_KIND.SHALLOW_WATER);
+    // 生产语义（matchState/mapBuilder）：港口地块本身是浅水且 isPort=true，
+    // 栈桥由渲染器从邻近真陆地画向港口水域。
+    const shallow = tile(1, 0, SURFACE_KIND.SHALLOW_WATER, { isPort: true });
     const deep = tile(1, -1, SURFACE_KIND.DEEP_WATER);
     const lowerLand = tile(0, 1);
     const playableTiles = [land, shallow, deep, lowerLand];
@@ -95,7 +97,7 @@ function makeScene() {
             { land: { q: 0, r: 0 }, water: { q: 2, r: 0 }, landEdge: 5 }
         ],
         riverTopology: buildRiverTopology(rivers, crossings),
-        ports: [{ q: 0, r: 0 }]
+        ports: [{ q: 1, r: 0 }]
     };
 }
 

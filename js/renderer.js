@@ -79,19 +79,14 @@ function _filterEdgesSkippingRivers(edges, riverSegments) {
     return result;
 }
 
-const _fillerBorderCache = new WeakMap();
-
 // 为无限/无边模式的假地块补充边界线：假地块从 sourceTile 继承阵营与地表，
 // 若相邻假地块阵营不同，在边界处绘制国界线避免视觉断裂。
-// 注意：邻接方向表刻意保留历史行为（仅 (1,0)/(0,1) 两个方向有效）；
-// filler 阵营随 sourceTile 占领变化，而占领必然替换 campBorderEdges 数组，
-// 因此以 (visualGrid, campBorderEdges) 二元组作缓存键是安全的。
-function _extendedCampBorders(visualGrid, campBorderEdges, borderTileMap) {
-    if (!visualGrid?.fillers?.length) return campBorderEdges;
-    const cached = _fillerBorderCache.get(visualGrid);
-    if (cached?.campBorderEdges === campBorderEdges) return cached.result;
-
-    const fillerEdges = [];
+// 每帧实时计算（filler 阵营可能在不重建 campBorderEdges 的路径上变化，
+// 如投降转中立），但不再像旧实现那样每帧复制整个 tileMap；
+// 邻接方向表刻意保留历史行为（仅 (1,0)/(0,1) 两个方向有效）。
+function _fillerCampBorderEdges(visualGrid, borderTileMap) {
+    if (!visualGrid?.fillers?.length) return null;
+    let fillerEdges = null;
     for (const filler of visualGrid.fillers) {
         const fc = filler.sourceTile?.camp;
         if (fc == null) continue;
@@ -107,15 +102,13 @@ function _extendedCampBorders(visualGrid, campBorderEdges, borderTileMap) {
             if (fc === nbc) continue;
             if (filler.id > nb.id) continue;
             const ep = hexEdge(filler.x, filler.y, HEX_SIZE, (5 - e + 6) % 6);
-            fillerEdges.push({
+            (fillerEdges ??= []).push({
                 x0: ep.x0, y0: ep.y0, x1: ep.x1, y1: ep.y1,
                 qa: filler.q, ra: filler.r, qb: nb.q, rb: nb.r
             });
         }
     }
-    const result = fillerEdges.length ? [...campBorderEdges, ...fillerEdges] : campBorderEdges;
-    _fillerBorderCache.set(visualGrid, { campBorderEdges, result });
-    return result;
+    return fillerEdges;
 }
 const FLAT_TILE_BASE_OPTIONS = Object.freeze({ drawShadow: false });
 const LAYERED_TILE_BASE_OPTIONS = Object.freeze({ drawLegacyMapDetails: false });
@@ -318,9 +311,21 @@ export function renderGame() {
     if (settings.showGrid !== false) drawAllBorders(ctx, borderTiles, borderTileMap);
     const riverSegments = gameState?.riverTopology?.segmentsByKey;
     drawDistrictBorders(ctx, _filterEdgesSkippingRivers(districtBorderEdges, riverSegments));
-    const extendedBorders = _extendedCampBorders(visualGrid, campBorderEdges, borderTileMap);
     // 跳过与河段重合的国界：(qa,ra)↔(qb,rb) 边上有河流则跳过，让河段视觉清晰。
-    drawCampBorders(ctx, _filterEdgesSkippingRivers(extendedBorders, riverSegments));
+    // 稳定的 campBorderEdges 走缓存过滤；每帧重算的 filler 边单独过滤后合并。
+    const campNoRiver = _filterEdgesSkippingRivers(campBorderEdges, riverSegments);
+    const fillerEdges = _fillerCampBorderEdges(visualGrid, borderTileMap);
+    drawCampBorders(ctx, fillerEdges
+        ? [...campNoRiver, ...(riverSegments
+            ? fillerEdges.filter(edge => {
+                const key = sharedHexEdgeSegmentKey(
+                    { q: edge.qa, r: edge.ra },
+                    { q: edge.qb, r: edge.rb }
+                );
+                return !key || !riverSegments.has(key);
+              })
+            : fillerEdges)]
+        : campNoRiver);
     // ── 将领特效图层：underUnits（立绘之后、单位徽章之前；圣骑士剑环后半圈）──
     drawFxLayer('underUnits', ctx, now);
     // 纯本地操作预览先画到单位之下，球体自然遮住路线内部，避免起终点断口。
