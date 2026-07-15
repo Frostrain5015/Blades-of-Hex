@@ -256,6 +256,20 @@ export function drawUnit(unit, gameState) {
 
         ctx.restore();
 
+        // ── 潜艇潜航标记：未暴露时不可被非反潜单位选中 ──
+        if (unit.type === 'submarine' && !unit._submarineAttackExposed) {
+            ctx.save();
+            const wavePhase = (time * 3.8) % (Math.PI * 2);
+            ctx.globalAlpha = 0.55 + Math.sin(wavePhase) * 0.2;
+            ctx.font = '14px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(30,140,200,0.8)';
+            ctx.shadowBlur = 8;
+            ctx.fillText('🌊', visualX + Math.sin(wavePhase * 1.3) * 3, visualY - HEX_SIZE * 0.85);
+            ctx.restore();
+        }
+
         // ── 工程师脚手架：建造中标记（🚧 + 剩余回合） ──
         if (unit._engineerScaffold) {
             ctx.save();

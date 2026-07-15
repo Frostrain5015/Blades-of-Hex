@@ -99,6 +99,8 @@ export function isMovementWaterTile(tile, state = null) {
 /** Whether the unit may legally finish an action on this real board tile. */
 export function canUnitOccupyTile(unitOrType, tile, state = null) {
     if (!isPlayableTile(tile)) return false;
+    // 无人机（天眼哨机）是空军单位，不受陆地/水域限制
+    if (unitOrType?._isDrone) return true;
     const domain = getUnitMovementDomain(unitOrType);
     if (domain === MOVEMENT_DOMAIN.NAVAL) {
         return isMovementWaterTile(tile, state);

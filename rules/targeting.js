@@ -106,7 +106,6 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
         const source = sources.sourceUnit;
         return !!source?.tile
             && !unit
-            && isLandDeploymentTile(tile)
             && !tile.isCity
             && tile.terrain !== 'mountain'
             && hexDistance(source.tile, tile) <= DRONE_DEPLOY_RANGE;

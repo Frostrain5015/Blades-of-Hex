@@ -586,39 +586,64 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
     const color = colorFor('antiAir', descriptor.color);
     const groupAlpha = opacity(descriptor.alpha, 1);
     const groupHatchAlpha = opacity(descriptor.hatchAlpha, 0.78);
-    let drawn = 0;
+    if (!cells.length) return 0;
 
+    // Group cells by level so we batch-fill and batch-hatch per level,
+    // eliminating per-cell save/restore/clip overhead.
+    const byLevel = new Map();
     for (const cell of cells) {
         const points = pointsFor(cell, fallbackSize);
         if (points.length < 3) continue;
-        const size = shapeSize(cell, points, fallbackSize);
         const level = Math.max(1, Math.floor(finite(cell.level, 1)));
-        const cellAlpha = opacity(cell.alpha, 1);
-        const hatchAlpha = opacity(cell.hatchAlpha, groupHatchAlpha);
-        const spacing = positive(cell.spacing, positive(descriptor.spacing, size * 0.25));
-        const lineWidth = positive(cell.lineWidth, positive(descriptor.lineWidth, Math.max(2.2, size * 0.065)));
-
-        ctx.save();
-        const baseAlpha = ctx.globalAlpha * groupAlpha * cellAlpha;
-        ctx.beginPath();
-        appendPolygonPath(ctx, scaledPoints(points, positive(cell.scale, 0.89)));
-        ctx.fillStyle = cell.fillColor || descriptor.fillColor || color;
-        ctx.globalAlpha = baseAlpha * opacity(cell.fillAlpha, level >= 2 ? 0.18 : 0.1);
-        ctx.fill();
-        ctx.clip();
-        ctx.strokeStyle = cell.color || color;
-        ctx.lineWidth = lineWidth;
-        ctx.globalAlpha = baseAlpha * hatchAlpha;
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.shadowColor = cell.color || color;
-        ctx.shadowBlur = Math.max(2, size * 0.08);
-        const bounds = boundsOf(points);
-        drawHatchLines(ctx, bounds, spacing, false);
-        if (level >= 2) drawHatchLines(ctx, bounds, spacing, true);
-        ctx.restore();
-        drawn++;
+        if (!byLevel.has(level)) byLevel.set(level, []);
+        byLevel.get(level).push({ cell, points });
     }
+    if (!byLevel.size) return 0;
+
+    ctx.save();
+    let drawn = 0;
+
+    for (const [level, entries] of byLevel) {
+        const cross = level >= 2;
+        const size = entries[0].cell.size || fallbackSize;
+        const spacing = positive(descriptor.spacing, size * 0.25);
+        const lineWidth = positive(descriptor.lineWidth, Math.max(2.2, size * 0.065));
+
+        // ① Batch fill: one path through all cells of this level
+        ctx.beginPath();
+        for (const { points } of entries) {
+            appendPolygonPath(ctx, scaledPoints(points, 0.89));
+        }
+        ctx.fillStyle = descriptor.fillColor || color;
+        ctx.globalAlpha = groupAlpha * (cross ? 0.18 : 0.10);
+        ctx.fill();
+
+        // ② Single clip for the entire level → all hatches under one clip
+        ctx.save();
+        ctx.beginPath();
+        for (const { points } of entries) {
+            appendPolygonPath(ctx, scaledPoints(points, 0.89));
+        }
+        ctx.clip();
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.globalAlpha = groupAlpha * groupHatchAlpha;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = Math.max(2, size * 0.08);
+
+        for (const { points } of entries) {
+            const bounds = boundsOf(points);
+            drawHatchLines(ctx, bounds, spacing, false);
+            if (cross) drawHatchLines(ctx, bounds, spacing, true);
+        }
+        ctx.restore(); // clip
+        drawn += entries.length;
+    }
+
+    // ③ Perimeter already draws the union edge in one pass
     drawAntiAirPerimeter(ctx, cells, descriptor, fallbackSize, groupAlpha);
+    ctx.restore();
     return drawn;
 }
 

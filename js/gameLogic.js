@@ -155,6 +155,60 @@ function showConfirm(message) {
     });
 }
 
+/**
+ * 阵营选择器：弹出一组按钮让用户选择要投降的阵营。
+ * 只在热座等共享屏幕模式下使用。返回选中的 camp 或 null（取消）。
+ */
+function _showCampPicker(message, camps) {
+    if (camps.length === 0) return Promise.resolve(null);
+    if (camps.length === 1) return showConfirm(message + '\n\n' + camps[0].name).then(ok => ok ? camps[0] : null);
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('confirmOverlay');
+        const msgEl = document.getElementById('confirmMessage');
+        const yesBtn = document.getElementById('confirmYes');
+        const noBtn = document.getElementById('confirmNo');
+        const btnBox = yesBtn.parentElement;
+
+        // 隐藏原有按钮，改放阵营选择按钮
+        yesBtn.style.display = 'none';
+        noBtn.style.display = 'none';
+        msgEl.textContent = message;
+
+        const pickerBtns = camps.map(camp => {
+            const btn = document.createElement('button');
+            btn.textContent = '投降 · ' + camp.name;
+            btn.style.cssText = 'display:block;width:100%;padding:10px;margin:6px 0;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(200,50,40,0.7);color:#fff;font:600 15px/1.4 sans-serif;cursor:pointer;';
+            btn.addEventListener('click', () => {
+                cleanup();
+                resolve(camp);
+            });
+            btnBox.appendChild(btn);
+            return btn;
+        });
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = '取消';
+        cancelBtn.style.cssText = 'display:block;width:100%;padding:8px;margin:4px 0;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.08);color:#aaa;font:600 14px/1.4 sans-serif;cursor:pointer;';
+        cancelBtn.addEventListener('click', () => { cleanup(); resolve(null); });
+        btnBox.appendChild(cancelBtn);
+
+        overlay.classList.add('show');
+
+        function cleanup() {
+            overlay.classList.remove('show');
+            yesBtn.style.display = '';
+            noBtn.style.display = '';
+            for (const b of pickerBtns) b.remove();
+            cancelBtn.remove();
+            document.removeEventListener('keydown', onKey);
+            _confirmActive = false;
+        }
+        function onKey(e) {
+            if (e.key === 'Escape') { e.preventDefault(); cleanup(); resolve(null); }
+        }
+        document.addEventListener('keydown', onKey);
+    });
+}
+
 export function showInfo(message) {
     if (_confirmActive) return Promise.resolve();
     _confirmActive = true;
@@ -2349,9 +2403,24 @@ async function handleSurrender() {
         return;
     }
 
-    // 联机：根据角色判断投降方；本地：根据当前回合判断
+    // 联机：根据角色判断投降方；本地热座：弹出阵营选择器
     const myRole = getMyRole();
-    const surrenderCamp = isNetworkGame() ? (getRoleCamp(gameState, myRole) || gameState.currentCamp) : gameState.currentCamp;
+    let surrenderCamp;
+    if (isNetworkGame()) {
+        surrenderCamp = getRoleCamp(gameState, myRole) || gameState.currentCamp;
+    } else if (gameState.gameMode === 'pve') {
+        // PVE 走上方退出分支，不会到达此处
+        return;
+    } else {
+        // 热座 / 本地共享屏幕：让用户选择要投降的阵营
+        const activeCamps = (gameState.turnOrder || getFactionKeys(gameState))
+            .filter(key => key !== 'neutral')
+            .map(key => campFromKey(key, gameState))
+            .filter(Boolean)
+            .filter(camp => !gameState.surrenderedCamps.includes(camp));
+        surrenderCamp = await _showCampPicker('选择要投降的阵营：', activeCamps);
+        if (!surrenderCamp) return;
+    }
 
     // 三人模式中已投降玩家：按钮变为"退出"，点击后退出至大厅
     if (gameState.isThreePlayer && gameState.surrenderedCamps.includes(surrenderCamp)) {
