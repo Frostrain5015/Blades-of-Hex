@@ -13,6 +13,7 @@ import { CAMP_FLAG_COLORS, getFlagColors } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { RECRUITMENT_OPTIONS, canRecruitTypeAtSelectedCity, shouldShowRecruitmentOption } from './recruitmentUi.js';
+import { hasFactionSurrendered } from '../rules/matchOutcome.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
@@ -309,9 +310,12 @@ export function updateUI() {
         if (label) label.textContent = faction.name;
         if (emblem) {
             const shortKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
-            const flag = shortKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(faction.color);
+            const flag = shortKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(faction.colorId || faction.color);
             emblem.style.background = flag.main;
+            card.style.setProperty('--camp-card-color', flag.main);
+            card.style.setProperty('--camp-card-dark', flag.dark);
         }
+        card.classList.toggle('defeated', !gameState.campaignMode && hasFactionSurrendered(gameState, faction));
         // 战役模式：只显示玩家所属阵营，其余位置显示传记/关卡信息
         if (gameState.campaignMode) {
             const isLocal = key === getViewingCampKey(gameState);
@@ -349,7 +353,7 @@ export function updateUI() {
             localCard.style.display = '';
             localCard.dataset.relation = 'self';
             const shortKey = campaignGoldKey === 'player1' ? 'p1' : campaignGoldKey === 'player2' ? 'p2' : campaignGoldKey === 'player3' ? 'p3' : campaignGoldKey === 'neutral' ? 'neu' : campaignGoldKey;
-            const flag = shortKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(localFaction.color);
+            const flag = shortKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(localFaction.colorId || localFaction.color);
             const label = localCard.querySelector('.camp-label');
             const emblem = localCard.querySelector('.camp-emblem');
             if (label) label.textContent = localFaction.name;

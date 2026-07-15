@@ -50,6 +50,7 @@ import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEm
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { ATTACK_PRESENTATION, classifyAttackPresentation } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
+import { renderResultFlagPreviews } from './resultFlagPreview.js';
 import {
     ensurePlayerProfileReady,
     readStandardFlagPreferences,
@@ -386,6 +387,7 @@ function gameLoop() {
     if (_campFlagAnimationStarted) {
         _renderCampFlagPreviews(now);
     }
+    renderResultFlagPreviews(now);
 
     requestAnimationFrame(gameLoop);
 }

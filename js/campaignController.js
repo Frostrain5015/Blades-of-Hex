@@ -6,9 +6,10 @@ import { gameState, logMessage, updateUI, notify } from './state.js';
 import { emit, on } from './eventBus.js';
 import { saveVictory, unlockCollectible } from '../campaign/progress.js';
 import { NPC_DIALOGUE_PORTRAITS } from '../campaign/portraits.js';
-import { campFromKey, getFaction } from '../rules/diplomacy.js';
+import { campFromKey, getFaction, getRelation } from '../rules/diplomacy.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { resolveInteractableMove } from '../campaign/runtime/interactions.js';
+import { setResultFlagPreview } from './resultFlagPreview.js';
 
 let sharedController = null;
 
@@ -381,6 +382,11 @@ export function createCampaignController({ onRetry, onReturn }) {
         const playerCamp = gameState.localPlayerCampKey || 'player1';
         const playerFaction = getFaction(gameState, playerCamp);
         const playerColor = playerFaction?.color || '#e05050';
+        const victoriousFaction = victory ? playerFaction : Object.entries(gameState.factions || {})
+            .find(([key, faction]) => key !== 'neutral'
+                && faction?.active !== false
+                && getRelation(gameState, playerCamp, key) === 'enemy')?.[1] || null;
+        setResultFlagPreview(document.getElementById('campaignResultFlagPreview'), victoriousFaction);
         document.getElementById('campaignResultKicker').textContent = victory ? '任务成功' : '任务失败';
         document.getElementById('campaignResultKicker').style.color = victory ? playerColor : '';
         document.getElementById('campaignResultKicker').classList.toggle('defeat', !victory);

@@ -33,6 +33,8 @@ function createContext() {
     }
     ctx.stroke = (...args) => calls.push(['stroke', ...args, {
         strokeStyle: ctx.strokeStyle,
+        lineWidth: ctx.lineWidth,
+        lineDashOffset: ctx.lineDashOffset,
         shadowColor: ctx.shadowColor,
         globalCompositeOperation: ctx.globalCompositeOperation
     }]);
@@ -75,12 +77,18 @@ for (const kind of TARGETING_PREVIEW_KINDS) {
 {
     const levelOne = createContext();
     const levelTwo = createContext();
-    const base = { center, size: 30 };
-    drawAntiAirCoveragePreview(levelOne, freeze({ cells: [{ ...base, level: 1 }] }));
-    drawAntiAirCoveragePreview(levelTwo, freeze({ cells: [{ ...base, level: 2 }] }));
+    const base = { center, size: 30, q: 0, r: 0 };
+    const boardKeys = new Set(['0,0', '1,0', '0,1', '-1,1', '-1,0', '0,-1', '1,-1']);
+    drawAntiAirCoveragePreview(levelOne, freeze({ cells: [{ ...base, level: 1 }], boardKeys, time: 1 }));
+    drawAntiAirCoveragePreview(levelTwo, freeze({ cells: [{ ...base, level: 2 }], boardKeys, time: 2 }));
     const oneStrokes = levelOne.calls.filter(call => call[0] === 'stroke').length;
     const twoStrokes = levelTwo.calls.filter(call => call[0] === 'stroke').length;
     assert.ok(twoStrokes > oneStrokes * 1.8, 'level 2 AA should add the crossing hatch pass');
+    const perimeterStrokes = levelOne.calls.filter(call => call[0] === 'stroke' && call.at(-1).lineDashOffset != null);
+    assert.equal(perimeterStrokes.length, 2, 'AA coverage should restore the animated double-stroke perimeter');
+    assert.ok(levelOne.calls.some(call => call[0] === 'stroke'
+        && call.at(-1).strokeStyle === '#ff4636'
+        && call.at(-1).lineWidth >= 2.2), 'AA hatching should be bold red');
 }
 
 {

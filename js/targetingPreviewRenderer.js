@@ -25,7 +25,7 @@ export const TARGETING_PREVIEW_COLORS = Object.freeze({
     plane: '#f0c86f',
     deployment: '#69c7e8',
     area: '#a0c8ff',
-    antiAir: '#ffb4aa',
+    antiAir: '#ff4636',
     origin: '#58c9b3'
 });
 
@@ -517,16 +517,75 @@ function drawHatchLines(ctx, bounds, spacing, reverse = false) {
     }
 }
 
+const HEX_EDGE_NEIGHBORS = Object.freeze([
+    Object.freeze({ dq: 1, dr: 0, edge: 1 }),
+    Object.freeze({ dq: 0, dr: 1, edge: 2 }),
+    Object.freeze({ dq: -1, dr: 1, edge: 3 }),
+    Object.freeze({ dq: -1, dr: 0, edge: 4 }),
+    Object.freeze({ dq: 0, dr: -1, edge: 5 }),
+    Object.freeze({ dq: 1, dr: -1, edge: 0 })
+]);
+
+function drawAntiAirPerimeter(ctx, cells, descriptor, fallbackSize, groupAlpha) {
+    const keyedCells = cells.filter(cell => Number.isFinite(cell.q) && Number.isFinite(cell.r));
+    if (keyedCells.length === 0) return false;
+    const covered = new Set(keyedCells.map(cell => `${cell.q},${cell.r}`));
+    const board = descriptor.boardKeys;
+    let hasEdges = false;
+
+    ctx.save();
+    ctx.beginPath();
+    for (const cell of keyedCells) {
+        const points = pointsFor(cell, fallbackSize);
+        if (points.length !== 6) continue;
+        for (const { dq, dr, edge } of HEX_EDGE_NEIGHBORS) {
+            const neighborKey = `${cell.q + dq},${cell.r + dr}`;
+            // Match the legacy presentation: the board edge itself is not mistaken for an AA contour.
+            if (board?.has && !board.has(neighborKey)) continue;
+            if (covered.has(neighborKey)) continue;
+            const start = points[edge];
+            const end = points[(edge + 1) % points.length];
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+            hasEdges = true;
+        }
+    }
+
+    if (hasEdges) {
+        const size = positive(descriptor.size, fallbackSize);
+        const pulse = waveAt(descriptor.time, 3.6, descriptor.phase);
+        const color = colorFor('antiAir', descriptor.perimeterColor || descriptor.color);
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.setLineDash([Math.max(10, size * 0.46), Math.max(6, size * 0.3)]);
+        ctx.lineDashOffset = -(finite(descriptor.time) * 42) % Math.max(16, size * 0.76);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = positive(descriptor.perimeterWidth, Math.max(3, size * 0.075));
+        ctx.shadowColor = descriptor.perimeterGlow || '#ff3c2f';
+        ctx.shadowBlur = size * (0.34 + pulse * 0.16);
+        ctx.globalAlpha = groupAlpha * (0.86 + pulse * 0.14);
+        ctx.stroke();
+        ctx.strokeStyle = descriptor.perimeterInnerColor || '#ffe1dc';
+        ctx.lineWidth = Math.max(1, size * 0.03);
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = groupAlpha * (0.48 + pulse * 0.28);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+    ctx.restore();
+    return hasEdges;
+}
+
 /**
- * Draw anti-air coverage as single hatching for level 1 and cross-hatching for
- * level 2+. No perimeter is drawn, so board-edge range contours cannot appear.
+ * Draw anti-air coverage as bold red single hatching for level 1 and obvious
+ * cross-hatching for level 2+, plus the legacy animated red union perimeter.
  */
 export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
     const cells = Array.isArray(descriptor.cells) ? descriptor.cells : [];
     const fallbackSize = positive(descriptor.size, 30);
     const color = colorFor('antiAir', descriptor.color);
     const groupAlpha = opacity(descriptor.alpha, 1);
-    const groupHatchAlpha = opacity(descriptor.hatchAlpha, 0.38);
+    const groupHatchAlpha = opacity(descriptor.hatchAlpha, 0.78);
     let drawn = 0;
 
     for (const cell of cells) {
@@ -536,27 +595,30 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
         const level = Math.max(1, Math.floor(finite(cell.level, 1)));
         const cellAlpha = opacity(cell.alpha, 1);
         const hatchAlpha = opacity(cell.hatchAlpha, groupHatchAlpha);
-        const spacing = positive(cell.spacing, positive(descriptor.spacing, size * 0.27));
-        const lineWidth = positive(cell.lineWidth, positive(descriptor.lineWidth, Math.max(1, size * 0.025)));
+        const spacing = positive(cell.spacing, positive(descriptor.spacing, size * 0.25));
+        const lineWidth = positive(cell.lineWidth, positive(descriptor.lineWidth, Math.max(2.2, size * 0.065)));
 
         ctx.save();
         const baseAlpha = ctx.globalAlpha * groupAlpha * cellAlpha;
         ctx.beginPath();
         appendPolygonPath(ctx, scaledPoints(points, positive(cell.scale, 0.89)));
         ctx.fillStyle = cell.fillColor || descriptor.fillColor || color;
-        ctx.globalAlpha = baseAlpha * opacity(cell.fillAlpha, level >= 2 ? 0.085 : 0.045);
+        ctx.globalAlpha = baseAlpha * opacity(cell.fillAlpha, level >= 2 ? 0.18 : 0.1);
         ctx.fill();
         ctx.clip();
         ctx.strokeStyle = cell.color || color;
         ctx.lineWidth = lineWidth;
         ctx.globalAlpha = baseAlpha * hatchAlpha;
-        ctx.globalCompositeOperation = 'screen';
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.shadowColor = cell.color || color;
+        ctx.shadowBlur = Math.max(2, size * 0.08);
         const bounds = boundsOf(points);
         drawHatchLines(ctx, bounds, spacing, false);
         if (level >= 2) drawHatchLines(ctx, bounds, spacing, true);
         ctx.restore();
         drawn++;
     }
+    drawAntiAirPerimeter(ctx, cells, descriptor, fallbackSize, groupAlpha);
     return drawn;
 }
 

@@ -214,20 +214,10 @@ body {
     text-overflow: ellipsis;
 }
 
-#campCard1.active {
-    background: rgba(130, 26, 20, 0.20);
-    border-color: var(--red-border);
-    box-shadow: 0 0 12px var(--red-glow);
-}
-#campCard2.active {
-    background: rgba(20, 44, 120, 0.20);
-    border-color: var(--blue-border);
-    box-shadow: 0 0 12px var(--blue-glow);
-}
-#campCard3.active {
-    background: rgba(20, 100, 20, 0.20);
-    border-color: rgba(40, 180, 40, 0.50);
-    box-shadow: 0 0 12px rgba(40, 180, 40, 0.30);
+.camp-card.active {
+    background: color-mix(in srgb, var(--camp-card-color, #888) 20%, transparent);
+    border-color: color-mix(in srgb, var(--camp-card-color, #888) 58%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--camp-card-color, #888) 38%, transparent);
 }
 
 .camp-emblem {
@@ -295,12 +285,35 @@ body {
     box-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
 }
 
-.camp-flag-preview {
+.camp-flag-wrap {
     flex-shrink: 0;
     width: 84px;
     height: 56px;
+    position: relative;
+}
+
+.camp-flag-preview {
+    width: 100%;
+    height: 100%;
     border-radius: 6px;
     display: block;
+}
+
+.camp-card.defeated .camp-flag-preview {
+    filter: grayscale(1) brightness(0.52) contrast(0.88);
+    opacity: 0.72;
+}
+
+.camp-card.defeated .camp-flag-wrap::after {
+    content: '❌';
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 32px;
+    line-height: 1;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.9));
+    pointer-events: none;
 }
 
 .camp-info {
@@ -802,6 +815,25 @@ body {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, transparent 100%);
     pointer-events: none;
 }
+
+.result-flag-preview {
+    position: relative;
+    display: block;
+    width: 224px;
+    height: 160px;
+    margin: -8px auto 10px;
+    overflow: visible;
+    filter: drop-shadow(0 12px 12px rgba(0,0,0,.58));
+}
+
+.result-flag-preview[hidden] { display: none; }
+.result-flag-preview canvas,
+.result-flag-preview img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
+.result-flag-preview canvas[hidden],
+.result-flag-preview img[hidden] { display: none; }
+.result-flag-fallback { display: grid; width: 100%; height: 100%; place-items: center; font-size: 62px; }
+.result-flag-fallback[hidden] { display: none; }
+.campaign-result-flag { width: 196px; height: 140px; margin-top: -2px; margin-bottom: 2px; }
 
 .victory-sub {
     font-size: 10px;
@@ -4874,7 +4906,8 @@ body.campaign-game-active .camp-card .camp-label {
     #topBar { padding: 4px 8px; gap: 4px; }
     .camp-emblem { width: 28px; height: 28px; font-size: 13px; }
     .camp-emblem-portrait { width: 28px; height: 28px; }
-    .camp-flag-preview { width: 42px; height: 28px; }
+    .camp-flag-wrap { width: 42px; height: 28px; }
+    .camp-card.defeated .camp-flag-wrap::after { font-size: 19px; }
     .camp-label { font-size: 8px; letter-spacing: 1px; }
     #player1Gold, #player2Gold, #player3Gold { font-size: 17px; }
     .turn-label { font-size: 7px; }

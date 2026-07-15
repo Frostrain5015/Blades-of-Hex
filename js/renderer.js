@@ -1627,10 +1627,12 @@ function drawCardTargetingPreview(now) {
                 const tile = gameState.tileMap.get(key);
                 if (!tile) return null;
                 const entry = _targetEntry(entryOriginTile, tile, now, entryStart);
-                return { ..._hexScreenShape(tile, HEX_SIZE), level, alpha: entry.alpha };
+                return { ..._hexScreenShape(tile, HEX_SIZE), q: tile.q, r: tile.r, level, alpha: entry.alpha };
             }).filter(Boolean),
             size: HEX_SIZE,
-            alpha: 0.92 * groupEntry.alpha
+            alpha: 0.96 * groupEntry.alpha,
+            time,
+            boardKeys: gameState.tileMap
         } : null,
         origins: [],
         tileDeployments: [],

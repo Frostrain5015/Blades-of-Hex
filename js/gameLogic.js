@@ -57,6 +57,8 @@ import {
     resolveMovementStep
 } from '../rules/movement.js';
 import { isLandTile } from '../rules/surfaces.js';
+import { getActivePlayerKeys, getSurvivingPlayerKeys, hasFactionSurrendered } from '../rules/matchOutcome.js';
+import { setResultFlagPreview } from './resultFlagPreview.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
@@ -1971,7 +1973,7 @@ function checkVictory() {
     if (gameState.gameOver) return;
     // 战役由 ObjectiveManager/关卡控制器裁决，常规行政区歼灭不能提前截断剧情阶段。
     if (gameState.campaignMode) return;
-    const playerKeys = (gameState.turnOrder || Object.keys(gameState.factions || {})).filter(key => key !== 'neutral');
+    const playerKeys = getActivePlayerKeys(gameState);
     const districtMap = new Map(playerKeys.map(key => [key, new Set()]));
     for (const tile of gameState.tiles) districtMap.get(_campKey(tile.camp))?.add(tile.districtId);
     const neutral = campFromKey('neutral', gameState);
@@ -1979,7 +1981,7 @@ function checkVictory() {
     if (playerKeys.length > 2) {
         for (const key of playerKeys) {
             const camp = campFromKey(key, gameState);
-            if (districtMap.get(key).size !== 0 || gameState.surrenderedCamps.includes(camp)) continue;
+            if (districtMap.get(key).size !== 0 || hasFactionSurrendered(gameState, camp)) continue;
             gameState.surrenderedCamps.push(camp);
             let remainingUnits = 0;
             for (const tile of gameState.tiles) {
@@ -1990,7 +1992,9 @@ function checkVictory() {
             logMessage(`${camp.name}失去所有行政区，已被淘汰！剩余${remainingUnits}支部队移交中立AI`);
             notify(`${camp.name}已战败`, 'info');
         }
-        const alive = playerKeys.filter(key => districtMap.get(key).size > 0).map(key => campFromKey(key, gameState));
+        const alive = getSurvivingPlayerKeys(gameState)
+            .filter(key => districtMap.get(key)?.size > 0)
+            .map(key => campFromKey(key, gameState));
         if (alive.length <= 1) {
             gameState.gameOver = true;
             gameState.victoryCamp = alive[0] || neutral;
@@ -2057,6 +2061,7 @@ export function triggerVictoryEffect() {
     const victoryCampText = document.getElementById('victoryCampText');
     const viewBoardBtn = document.getElementById('viewFullBoardBtn');
     const gameOverSub = document.getElementById('gameOverSub');
+    const victoryFlag = document.getElementById('victoryFlagPreview');
 
     playSound('victory');
     spawnConfetti(150);
@@ -2075,11 +2080,13 @@ export function triggerVictoryEffect() {
     if (gameOverSub) gameOverSub.textContent = '对局结束';
     gameOverText.textContent = '游戏结束';
     if (vc === 'draw') {
+        setResultFlagPreview(victoryFlag, null);
         victoryCampText.textContent = '平局';
         victoryCampText.style.color = '#e6c560';
         victoryCampText.style.textShadow = '0 0 24px rgba(230,197,96,0.55), 0 0 50px rgba(200,160,60,0.25)';
     } else {
         const winner = vc && typeof vc === 'object' ? vc : campFromKey(String(vc || 'neutral'), gameState);
+        setResultFlagPreview(victoryFlag, winner);
         victoryCampText.textContent = `${winner?.name || '中立'}胜利`;
         victoryCampText.style.color = winner?.color || '#aaaaaa';
         victoryCampText.style.textShadow = `0 0 24px ${winner?.color || 'rgba(180,180,180,0.55)'}`;
@@ -2159,22 +2166,9 @@ async function handleSurrender() {
         return;
     }
 
-    let victoryCamp;
-    if (gameState.isThreePlayer) {
-        // 三人模式：投降方出局，游戏继续（若只剩一人则该人胜利）
-        const alive = [];
-        for (const key of (gameState.turnOrder || []).filter(key => key !== 'neutral')) {
-            const c = campFromKey(key, gameState);
-            if (c !== surrenderCamp) {
-                const hasDistrict = gameState.tiles.some(t => t.isCity && t.camp === c);
-                alive.push(c);
-            }
-        }
-        victoryCamp = alive.length === 1 ? alive[0] : null;
-    } else {
-        victoryCamp = (gameState.turnOrder || []).filter(key => key !== 'neutral')
-            .map(key => campFromKey(key, gameState)).find(camp => camp !== surrenderCamp) || null;
-    }
+    // 只按稳定阵营 ID 与投降记录判断存活者；领地会在投降后转为中立，不能反过来参与胜者身份计算。
+    const survivingKeys = getSurvivingPlayerKeys(gameState, surrenderCamp);
+    const victoryCamp = survivingKeys.length === 1 ? campFromKey(survivingKeys[0], gameState) : null;
 
     if (gameState.isThreePlayer && victoryCamp === null) {
         // 三人投降：城市、行政区、部队全部归属中立AI
@@ -2183,7 +2177,7 @@ async function handleSurrender() {
         );
         if (!confirmed) return;
         logMessage(`${surrenderCamp.name}选择投降，领土与部队归属中立！`);
-        gameState.surrenderedCamps.push(surrenderCamp);
+        if (!hasFactionSurrendered(gameState, surrenderCamp)) gameState.surrenderedCamps.push(surrenderCamp);
         const neutralCamp = campFromKey('neutral', gameState);
         for (const tile of gameState.tiles) {
             if (tile.camp === surrenderCamp) tile.setCampWithFade(neutralCamp);
@@ -2207,6 +2201,7 @@ async function handleSurrender() {
             }
         }
         checkVictory();
+        updateUI();
         updateButtonColors();
         broadcastAction('surrender');
         // 投降可能把回合直接切到中立（未经过 endTurn 的 AI 链）：
@@ -2224,10 +2219,12 @@ async function handleSurrender() {
 
     logMessage(`${surrenderCamp.name}选择投降，${victoryCamp.name}获得最终胜利！`);
 
+    if (!hasFactionSurrendered(gameState, surrenderCamp)) gameState.surrenderedCamps.push(surrenderCamp);
     gameState.gameOver = true;
     gameState.victoryCamp = victoryCamp;
 
     setTimeout(() => triggerVictoryEffect(), 1500);
+    updateUI();
     updateButtonColors();
     broadcastAction('surrender');
 }
