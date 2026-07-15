@@ -360,7 +360,7 @@ export function collectBattlefieldFlags(gameState, now) {
             flags.push({ ...cityFlag, ...appearance, phase: phaseFrom(`tile:${tile.id}`) });
         }
         const unit = tile.unit;
-        if (!unit || tile.isCity || tile.isVillage || unit._airdropWaiting) continue;
+        if (!unit || tile.isCity || tile.isVillage || tile.isPort || unit._airdropWaiting) continue;
         if ((unit._airliftLandAt && now < unit._airliftLandAt) || (unit._soulRecallLandAt && now < unit._soulRecallLandAt)) continue;
         const pos = getUnitVisualPos(unit);
         const appearance = factionAppearance(unit.camp, gameState);

@@ -102,7 +102,7 @@ export function startUnitMovePath(unit, path) {
 // Draw after the WebGL cloth composite so the finial always caps the fabric
 // instead of being partially covered by it.
 export function drawUnitFlagFinial(unit) {
-    if (!unit || unit._airdropWaiting || unit.tile.isCity || unit.tile.isVillage) return;
+    if (!unit || unit._airdropWaiting || unit.tile.isCity || unit.tile.isVillage || unit.tile.isPort) return;
     const now = frameInfo.now;
     if ((unit._airliftLandAt && now < unit._airliftLandAt)
         || (unit._soulRecallLandAt && now < unit._soulRecallLandAt)) return;
