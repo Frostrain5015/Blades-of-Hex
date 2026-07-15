@@ -8,6 +8,7 @@ import {
     commitRiverDraft,
     hitRiverSegment,
     pruneLevelToBoard,
+    refreshPortAssignments,
     riverVertexToPixel,
     snapRiverVertex,
     surfaceKindAt,
@@ -84,25 +85,29 @@ test('surface brush persists water sparsely and removes illegal land overlays', 
     assert.deepEqual(level.board.surface, []);
 });
 
-test('port toggle accepts only a real land tile next to authored water', () => {
+test('port toggle creates an independent shallow-water tile with district ownership', () => {
     const level = createDefaultLevel();
-    assert.match(togglePort(level, 0, 0).error, /邻接/);
+    level.board.cities.push({ q: 2, r: 0, districtId: 7, camp: 'player2' });
+    assert.match(togglePort(level, 0, 0).error, /浅水/);
     applySurfaceBrush(level, 1, 0, 'shallowWater');
-    assert.deepEqual(togglePort(level, 0, 0), { changed: true, placed: true, error: '' });
-    assert.deepEqual(level.board.ports, [{ q: 0, r: 0 }]);
-    level.units.push({ id: 'ship', type: 'warship', q: 0, r: 0 });
-    assert.match(togglePort(level, 0, 0).error, /先移走/);
+    assert.deepEqual(togglePort(level, 1, 0), { changed: true, placed: true, error: '' });
+    assert.deepEqual(level.board.ports, [{ q: 1, r: 0, districtId: 7, landQ: 2, landR: 0 }]);
+    level.board.districts.push({ q: 2, r: 0, districtId: 8 });
+    refreshPortAssignments(level);
+    assert.equal(level.board.ports[0].districtId, 8, 'port follows the gangway land tile when its district changes');
+    level.units.push({ id: 'ship', type: 'warship', q: 1, r: 0 });
+    assert.deepEqual(togglePort(level, 1, 0), { changed: true, placed: false, error: '' });
+    assert.deepEqual(level.units.map(unit => unit.id), ['ship'], 'removing the facility does not strand a ship on navigable water');
     level.units = [];
-    assert.deepEqual(togglePort(level, 0, 0), { changed: true, placed: false, error: '' });
-    assert.match(togglePort(level, 1, 0).error, /陆地/);
+    assert.match(togglePort(level, 0, 0).error, /浅水/);
     assert.match(togglePort(level, 99, 99).error, /可编辑棋盘/);
 });
 
 test('surface and board edits prune stranded ports and naval occupants', () => {
     const level = createDefaultLevel();
     applySurfaceBrush(level, 1, 0, 'shallowWater');
-    assert.equal(togglePort(level, 0, 0).placed, true);
-    level.units.push({ id: 'ship-at-port', type: 'warship', q: 0, r: 0 });
+    assert.equal(togglePort(level, 1, 0).placed, true);
+    level.units.push({ id: 'ship-at-port', type: 'warship', q: 1, r: 0 });
 
     const restoredLand = applySurfaceBrush(level, 1, 0, 'land');
     assert.deepEqual(level.board.ports, []);
@@ -110,9 +115,9 @@ test('surface and board edits prune stranded ports and naval occupants', () => {
     assert.equal(restoredLand.removed, 2, 'one stranded port and its naval occupant are removed');
 
     level.board.radius = 2;
-    applySurfaceBrush(level, 2, 0, 'deepWater');
-    assert.equal(togglePort(level, 1, 0).placed, true);
-    level.units.push({ id: 'resize-ship', type: 'warship', q: 1, r: 0 });
+    applySurfaceBrush(level, 2, 0, 'shallowWater');
+    assert.equal(togglePort(level, 2, 0).placed, true);
+    level.units.push({ id: 'resize-ship', type: 'warship', q: 2, r: 0 });
     level.board.radius = 1;
     pruneLevelToBoard(level);
     assert.deepEqual(level.board.surface, []);

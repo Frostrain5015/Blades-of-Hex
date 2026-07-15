@@ -13,7 +13,9 @@ import { isFriendly, isHostile } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { isRangedAttackPresentation } from '../rules/attackPresentation.js';
 import { getAntiAirLayers } from '../rules/antiAir.js';
-import { canUnitOccupyTile, getUnitMovementDomain } from '../rules/movement.js';
+import { areCommanderMechanicsSuppressed, canUnitOccupyTile, getTransportBaseDefense, getUnitCombatRange, getUnitMovementDomain, isEmbarkableLandUnit, TRANSPORT_RULES, TRANSPORT_SPEED_CAP } from '../rules/movement.js';
+import { isWaterTile } from '../rules/surfaces.js';
+import { canUnitTargetUnit, getCrossDomainDamageBonus } from '../rules/naval.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -24,12 +26,16 @@ export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setGameStateRef(ref) { _gameState = ref; }
 
 export class Unit {
-    constructor(type, camp, tile, isNewRecruit = false, idOverride = null, commander = null) {
+    constructor(type, camp, tile, isNewRecruit = false, idOverride = null, commander = null, transportState = null) {
         this.id = idOverride ?? nextId();
         this.type = type;
         this.config = UNIT_CONFIG[type];
         if (!this.config) throw new TypeError(`Unknown unit type: ${type}`);
-        if (!canUnitOccupyTile({ type, config: this.config }, tile)) {
+        this.isEmbarked = transportState?.isEmbarked === true
+            && isWaterTile(tile)
+            && isEmbarkableLandUnit({ type, config: this.config });
+        this._transportTransitionedThisTurn = transportState?.transitionedThisTurn === true;
+        if (!canUnitOccupyTile({ type, config: this.config, isEmbarked: this.isEmbarked }, tile)) {
             throw new TypeError(`Unit ${type} cannot occupy tile ${tile?.q},${tile?.r}`);
         }
         this.movementDomain = getUnitMovementDomain({ type, config: this.config });
@@ -104,6 +110,16 @@ export class Unit {
         const effects = [];
         const curRound = gameState ? getRoundIndex(gameState) : 0;
 
+        if (this.isEmbarked && isEmbarkableLandUnit(this)) {
+            effects.push({
+                label: TRANSPORT_RULES.effectLabel,
+                desc: getTransportBaseDefense(this) === TRANSPORT_RULES.deepWaterBaseDefense
+                    ? TRANSPORT_RULES.deepWaterEffectDescription
+                    : TRANSPORT_RULES.effectDescription,
+                color: '#4f91bd'
+            });
+        }
+
         // 击杀士气上升（moraleBoostUntil 为回合数, 0-indexed）
         if (this.morale === 3 && this.moraleBoostUntil > curRound) {
             const remainingRounds = this.moraleBoostUntil - curRound;
@@ -171,7 +187,7 @@ export class Unit {
         }
 
         // 勇气灵光（自身）
-        if (this.commander === 'paladin') {
+        if (this.commander === 'paladin' && !areCommanderMechanicsSuppressed(this)) {
             effects.push({ label: '勇气灵光', desc: FRONTEND_TEXT.effectDescriptions.courageAura, color: '#ffd700' });
         }
 
@@ -180,7 +196,7 @@ export class Unit {
             let hasPaladinAura = false;
             for (const [dq, dr] of HEX_NEIGHBORS) {
                 const nb = gameState.tileMap.get(`${this.tile.q + dq},${this.tile.r + dr}`);
-                if (nb && nb.unit && nb.unit.commander === 'paladin' && isFriendly(_gameState, nb.unit.camp, this.camp)) {
+                if (nb && nb.unit && nb.unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(nb.unit) && isFriendly(_gameState, nb.unit.camp, this.camp)) {
                     hasPaladinAura = true;
                     break;
                 }
@@ -227,7 +243,8 @@ export class Unit {
 
     getEffectiveSpeed() {
         const commander = this.commander ? getCommander(this.commander) : null;
-        return Math.max(0, this.config.speed + (commander?.spdBonus || 0) + this.getCampaignEffectMods().spdFlat);
+        const speed = Math.max(0, this.config.speed + (commander?.spdBonus || 0) + this.getCampaignEffectMods().spdFlat);
+        return this.isEmbarked ? Math.min(TRANSPORT_SPEED_CAP, speed) : speed;
     }
 
     getCampaignDefenseBonus(attacker = null) {
@@ -304,9 +321,26 @@ export class Unit {
 
     getEffectiveAttack() {
         const auraAtk = getCommanderAuraAttackBonus(this);
-        const base = this.config.attack * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this);
+        let base;
+        if (this.isEmbarked && isEmbarkableLandUnit(this)) {
+            const commander = this.commander ? getCommander(this.commander) : null;
+            const originalCommanderBonus = commander
+                ? Math.round(this.config.attack * (commander.atkBonusPct || 0))
+                : 0;
+            const transportCommanderBonus = commander
+                ? Math.round(TRANSPORT_RULES.baseAttack * (commander.atkBonusPct || 0))
+                : 0;
+            const nonCommanderFlat = (this._atkBonus || 0) - originalCommanderBonus;
+            base = TRANSPORT_RULES.baseAttack * (1 + auraAtk) + transportCommanderBonus + nonCommanderFlat;
+        } else {
+            base = this.config.attack * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this);
+        }
         const mods = this.getCampaignEffectMods();
         return Math.round(base * (1 + mods.atkPct / 100) + mods.atkFlat);
+    }
+
+    getEffectiveRange() {
+        return getUnitCombatRange(this);
     }
 
     // 伤害浮动倍率（替代 critRate + critMulti 二值系统）
@@ -359,18 +393,20 @@ export class Unit {
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
                    isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0, attackFlatBonus = 0) {
         const counterCoeff = COUNTER_RELATION[attacker.type]?.[defender.type] ?? 1;
-        const qixueActive = attacker.commander === 'berserker' && attacker._berserkerQixue && !isCounter;
+        const attackerCommanderSuppressed = areCommanderMechanicsSuppressed(attacker);
+        const defenderCommanderSuppressed = areCommanderMechanicsSuppressed(defender);
+        const qixueActive = !attackerCommanderSuppressed && attacker.commander === 'berserker' && attacker._berserkerQixue && !isCounter;
 
         // ② 增伤乘区
-        let dmgUp = extraBonus;
+        let dmgUp = extraBonus + getCrossDomainDamageBonus(attacker, defender);
         if (qixueActive) dmgUp += COMMANDER_CONFIG.berserker.balance.qixueDamageBonus;
         // 兵种克制：顺克 +20% / 逆克 −20%（归入②增伤乘区）；暴击率另在③处理（顺克+25%/逆克锁0）
         if (counterCoeff > 1) dmgUp += COMBAT_BALANCE.counter.advantageDamage;
         else if (counterCoeff < 1) dmgUp += COMBAT_BALANCE.counter.disadvantageDamage;
         // 魔术师·千面：攻击克制目标时伤害提高25%（与基础顺克+20%叠加→+45%）
-        if (attacker.commander === 'magician' && counterCoeff > 1) dmgUp += COMMANDER_CONFIG.magician.balance.counterDamageBonus;
+        if (!attackerCommanderSuppressed && attacker.commander === 'magician' && counterCoeff > 1) dmgUp += COMMANDER_CONFIG.magician.balance.counterDamageBonus;
         // 魔术师幻形：每层+5%增伤（上限30%），归入②乘区
-        if (attacker.commander === 'magician' && attacker._phantomStacks) {
+        if (!attackerCommanderSuppressed && attacker.commander === 'magician' && attacker._phantomStacks) {
             const balance = COMMANDER_CONFIG.magician.balance;
             dmgUp += Math.min(attacker._phantomStacks * balance.damagePerStack, balance.maxStacks * balance.damagePerStack);
         }
@@ -378,7 +414,7 @@ export class Unit {
 
         // ③ 暴击/浮动乘区：暴击率完全由浮动区间体现，无独立随机判定
         //    各暴击率来源累加 → 在 _calcFloat 内整体上移浮动区间，使阈值以上占比≈基础+加成
-        const phantomCrit = (attacker._phantomStacks || 0) * COMMANDER_CONFIG.magician.balance.critPerStack;
+        const phantomCrit = attackerCommanderSuppressed ? 0 : (attacker._phantomStacks || 0) * COMMANDER_CONFIG.magician.balance.critPerStack;
         const cmdCrit = getCommanderCritRateBonus(attacker);            // 堕天使黑形态 +60% 等
         const counterCrit = counterCoeff > 1 ? COMBAT_BALANCE.counter.advantageCrit : 0;
         const counterNoCrit = counterCoeff < 1;                        // 逆克 无法暴击
@@ -388,38 +424,39 @@ export class Unit {
         const isCrit = floatMult > (isCounter ? COMBAT_BALANCE.float.counter.critThreshold : COMBAT_BALANCE.float.attack.critThreshold);
 
         // ④ 防御乘区
-        let defSum = TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
+        const transportedDefender = defender.isEmbarked && isEmbarkableLandUnit(defender);
+        let defSum = transportedDefender ? getTransportBaseDefense(defender) : TERRAIN_CONFIG[defender.tile.terrain].defenseBonus;
         // 工事定向减伤：战壕仅挡近战（步/骑）、高射机枪仅挡地面远程（炮/碉堡）。
         // 空军(isAirDamage，含无人机)不吃工事定向加成，改由下方防空层处理。
         const fortification = isMechanicEnabled(_gameState, 'fortifications') && defender.tile.fortification ? FORTIFICATION_CONFIG[defender.tile.fortification] : null;
-        if (fortification && !isAirDamage) {
+        if (!transportedDefender && fortification && !isAirDamage) {
             const isMeleeAtk = attacker.type === 'infantry' || attacker.type === 'cavalry';
             const isGroundRangedAtk = attacker.type === 'archer' || attacker.type === 'mgNest';
             if (fortification.appliesTo === 'melee' && isMeleeAtk) defSum += fortification.defenseBonus;
             else if (fortification.appliesTo === 'ranged' && isGroundRangedAtk) defSum += fortification.defenseBonus;
         }
         // 森林掩蔽：对远程攻击（炮兵/碉堡/无人机）额外+15%防御，与地形自带10%加算
-        if (defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest' || attacker.type === 'drone')) {
+        if (!transportedDefender && defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest' || attacker.type === 'drone')) {
             defSum += COMBAT_BALANCE.defense.forestVsRangedBonus;
         }
         // 风天：步兵防御-15%（星移期间扩展至敌方全兵种；占星者星光力场免疫）；星移减益区内额外-15%
-        if (isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'wind' && (defender.type === 'infantry' || (_gameState.weatherLockUntil > 0 && getRoundIndex(_gameState) < _gameState.weatherLockUntil && defender.camp !== attacker.camp))
+        if (!transportedDefender && isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'wind' && (defender.type === 'infantry' || (_gameState.weatherLockUntil > 0 && getRoundIndex(_gameState) < _gameState.weatherLockUntil && defender.camp !== attacker.camp))
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
             if (getCommanderWeatherDebuff(defender.tile, defender.camp, _gameState)) defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
         }
-        if (defender.type === 'infantry' && defender.tile.isCity) defSum += COMBAT_BALANCE.defense.cityInfantryBonus;
+        if (!transportedDefender && defender.type === 'infantry' && defender.tile.isCity) defSum += COMBAT_BALANCE.defense.cityInfantryBonus;
         // 雨天：步兵守城防御力额外+10%（占星者星光力场免疫）
-        if (isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'rain' && defender.type === 'infantry' && defender.tile.isCity
+        if (!transportedDefender && isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'rain' && defender.type === 'infantry' && defender.tile.isCity
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum += COMBAT_BALANCE.defense.rainCityInfantryBonus;
         }
-        defSum += (defender.config.defense || 0);
+        if (!transportedDefender) defSum += (defender.config.defense || 0);
         defSum += (defender._rankDefBonus || 0);
         if (isMechanicEnabled(_gameState, 'morale')) defSum += MORALE_CONFIG[defender.morale].defBonus;
         defSum += getCommanderDefenseBonus(defender);
         // 魔术师·千面：被克制目标攻击时受伤降低15%
-        if (defender.commander === 'magician' && counterCoeff > 1) defSum += COMMANDER_CONFIG.magician.balance.counterDefenseBonus;
+        if (!defenderCommanderSuppressed && defender.commander === 'magician' && counterCoeff > 1) defSum += COMMANDER_CONFIG.magician.balance.counterDefenseBonus;
         // 停滞者力场：2格内友军停滞者 → 对远程攻击(炮兵/碉堡)防御 +25%（单层）
         // 空军伤害(isAirDamage)不走此分支：停滞者已作为防空层在下方计入 +25%，
         // 否则炮兵载体的上校空军卡会被同一个停滞者叠加 15%+25% 双重加防
@@ -430,7 +467,7 @@ export class Unit {
             for (const [dq, dr] of [...dirs, ...dirs2]) {
                 const nb = _gameState.tileMap.get(`${defender.tile.q + dq},${defender.tile.r + dr}`);
                 if (!nb || !nb.unit || nb.unit.camp !== defender.camp) continue;
-                if (nb.unit.commander === 'staller') { hasStaller = true; break; }
+                if (nb.unit.commander === 'staller' && !areCommanderMechanicsSuppressed(nb.unit)) { hasStaller = true; break; }
             }
             if (hasStaller) defSum += COMMANDER_CONFIG.staller.balance.rangedDefenseBonus;
         }
@@ -475,10 +512,10 @@ export class Unit {
         const chargeRate = gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog'
             ? COMBAT_BALANCE.cavalry.fogChargeDamagePerStep
             : COMBAT_BALANCE.cavalry.normalChargeDamagePerStep;
-        const cavBonus = this.type === 'cavalry' ? Math.min(this.moveDistance, COMBAT_BALANCE.cavalry.maxChargeSteps) * chargeRate : 0;
-        const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? COMBAT_BALANCE.infantry.cityDamageBonus : 0;
+        const cavBonus = !this.isEmbarked && this.type === 'cavalry' ? Math.min(this.moveDistance, COMBAT_BALANCE.cavalry.maxChargeSteps) * chargeRate : 0;
+        const cityAtkBonus = (!this.isEmbarked && this.type === 'infantry' && this.tile.isCity) ? COMBAT_BALANCE.infantry.cityDamageBonus : 0;
         // 天气条件增伤：雾天骑兵+20%、风天炮兵+20%（归入②增伤乘区）
-        const weatherBonus = (gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
+        const weatherBonus = (!this.isEmbarked && gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
             : 0;
 
         const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus + weatherBonus);
@@ -498,7 +535,10 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.counterAttackCount >= 1 || this._campaignNoCounter || (isMechanicEnabled(_gameState, 'morale') && this.morale === 0)) {
+        if (this._transportTransitionedThisTurn || this.counterAttackCount >= 1 || this._campaignNoCounter || (isMechanicEnabled(_gameState, 'morale') && this.morale === 0)) {
+            return { dmg: 0, isCrit: false };
+        }
+        if (attackerUnit?.type === 'submarine' && this.type !== 'submarine') {
             return { dmg: 0, isCrit: false };
         }
         // 无人机攻击地面单位时，地面单位无法反击
@@ -509,19 +549,19 @@ export class Unit {
         //   近战单位(步/骑) 射程1 → 仅贴脸攻击可被反击
         //   远程单位(炮/碉堡) 射程2 → 2格内的攻击者（含远程炮击/近战贴脸）均可被反击
         const counterIsRanged = isRangedAttackPresentation(this);
-        const counterRange = this._isDrone ? 2 : (counterIsRanged ? Math.max(1, this.config.range || 1) : 1);
+        const counterRange = this._isDrone ? 2 : (counterIsRanged ? this.getEffectiveRange() : 1);
         if (hexDistance(attackerUnit.tile, this.tile) > counterRange) {
             return { dmg: 0, isCrit: false };
         }
         // Melee retaliation follows the same surface-domain rule as a normal
         // assault. For example, infantry on land cannot counter a warship that
         // fired from an adjacent water cell, while ranged defenders still can.
-        if (!counterIsRanged && !canUnitOccupyTile(this, attackerUnit.tile, gs)) {
+        if (!canUnitTargetUnit(this, attackerUnit, gs)) {
             return { dmg: 0, isCrit: false };
         }
 
-        const isCityCounter = this.type === 'infantry' && this.tile.isCity;
-        const cityAtkBonus = (this.type === 'infantry' && this.tile.isCity) ? COMBAT_BALANCE.infantry.cityDamageBonus : 0;
+        const isCityCounter = !this.isEmbarked && this.type === 'infantry' && this.tile.isCity;
+        const cityAtkBonus = isCityCounter ? COMBAT_BALANCE.infantry.cityDamageBonus : 0;
 
         const result = this._resolveDamage(this, attackerUnit, COMBAT_BALANCE.float.counter.baseMultiplier, cityAtkBonus, true, isCityCounter, this._isDrone);
 
@@ -570,7 +610,8 @@ export class Unit {
         let actualDmg = dmg;
 
         // 护盾优先吸收伤害（真实伤害绕过）
-        if (!ignoreShield && this._shield > 0 && actualDmg > 0) {
+        const suppressedIronGuardShield = areCommanderMechanicsSuppressed(this) && this.commander === 'ironGuard' && this._shieldTurns >= 999;
+        if (!ignoreShield && !suppressedIronGuardShield && this._shield > 0 && actualDmg > 0) {
             const absorbed = Math.min(this._shield, actualDmg);
             this._shield -= absorbed;
             actualDmg -= absorbed;
@@ -631,7 +672,7 @@ export class Unit {
             source, sourceUnit: attacker, sourceUnitId: attacker?.id || null
         });
         // 殉道者：HP≤1时进入自爆倒计时（包括致死伤害）
-        if (this.commander === 'martyr' && !this._martyrPrimed && this.hp <= COMMANDER_CONFIG.martyr.balance.triggerHp) {
+        if (!areCommanderMechanicsSuppressed(this) && this.commander === 'martyr' && !this._martyrPrimed && this.hp <= COMMANDER_CONFIG.martyr.balance.triggerHp) {
             this._martyrPrimed = true;
             this.hp = COMMANDER_CONFIG.martyr.balance.triggerHp;
             this.canAct = false;
@@ -746,7 +787,7 @@ export class Unit {
             let hasNecromancer = false;
             for (const t of _gameState.tiles) {
                 // 仅同阵营亡灵法师能牵引本方亡魂 → 只有同阵营在场才留标记
-                if (t.unit && t.unit.commander === 'necromancer' && isFriendly(_gameState, t.unit.camp, this.camp) && t.unit.hp > 0) {
+                if (t.unit && t.unit.commander === 'necromancer' && !areCommanderMechanicsSuppressed(t.unit) && isFriendly(_gameState, t.unit.camp, this.camp) && t.unit.hp > 0) {
                     hasNecromancer = true;
                     break;
                 }
@@ -796,7 +837,7 @@ export class Unit {
         const dirs = HEX_NEIGHBORS;
         for (const [dq, dr] of dirs) {
             const neighbor = tileMap.get(`${this.tile.q + dq},${this.tile.r + dr}`);
-            if (neighbor && neighbor.unit && neighbor.unit.commander === 'ironGuard' && isFriendly(_gameState, neighbor.unit.camp, this.camp) && neighbor.unit._shield > 0) {
+            if (neighbor && neighbor.unit && neighbor.unit.commander === 'ironGuard' && !areCommanderMechanicsSuppressed(neighbor.unit) && isFriendly(_gameState, neighbor.unit.camp, this.camp) && neighbor.unit._shield > 0) {
                 return neighbor.unit;
             }
         }
@@ -833,7 +874,7 @@ export class Unit {
 
     addXP(amount) {
         if (this._rank >= 4 || amount <= 0) return;
-        if (this.commander === 'centurion') amount *= COMMANDER_CONFIG.centurion.balance.veteranXpMultiplier;
+        if (this.commander === 'centurion' && !areCommanderMechanicsSuppressed(this)) amount *= COMMANDER_CONFIG.centurion.balance.veteranXpMultiplier;
         this._xp += amount;
         this._checkRankUp();
     }

@@ -4,6 +4,7 @@ import { GAME_RULES } from '../rules/constants.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
 import { getPlayableBoardCoordinates } from '../rules/boardLayout.js';
 import { STANDARD_MAP_POOL, getStandardMap } from '../rules/standardMaps.js';
+import { UNIT_CONFIG } from '../rules/units.js';
 
 const key = ({ q, r }) => `${q},${r}`;
 const distance = (a, b) => Math.max(
@@ -42,7 +43,7 @@ for (const playerCount of [2, 3]) {
         const map = getStandardMap(playerCount);
         const board = map.board;
         const water = new Map(board.surface.map(tile => [key(tile), tile.kind]));
-        const cities = new Map(board.cities.map(city => [key(city), city]));
+        const cityDistricts = new Set(board.cities.map(city => city.districtId));
 
         assert.equal(STANDARD_MAP_POOL[playerCount].length, 1);
         assert.equal(board.layout, 'borderless');
@@ -58,9 +59,13 @@ for (const playerCount of [2, 3]) {
 
         assert.equal(new Set(board.ports.map(key)).size, board.ports.length);
         for (const port of board.ports) {
-            assert.ok(cities.has(key(port)), `port ${key(port)} must be a city`);
-            assert.ok(HEX_NEIGHBORS.some(([dq, dr]) => water.has(`${port.q + dq},${port.r + dr}`)),
-                `port ${key(port)} must touch authored water`);
+            assert.equal(water.get(key(port)), 'shallowWater', `port ${key(port)} must be its own shallow-water tile`);
+            assert.ok(HEX_NEIGHBORS.some(([dq, dr]) => !water.has(`${port.q + dq},${port.r + dr}`)),
+                `port ${key(port)} must connect visually to adjacent land`);
+            assert.ok(cityDistricts.has(port.districtId), `port ${key(port)} must belong to a city district`);
+            assert.ok(HEX_NEIGHBORS.some(([dq, dr]) => port.q + dq === port.landQ && port.r + dr === port.landR),
+                `port ${key(port)} must persist its adjacent gangway anchor`);
+            assert.equal(water.has(`${port.landQ},${port.landR}`), false, `port ${key(port)} gangway must end on land`);
         }
 
         assert.equal(new Set(board.villages.map(key)).size, board.villages.length);
@@ -87,9 +92,34 @@ for (const playerCount of [2, 3]) {
 
         const occupied = new Set();
         for (const unit of map.initialUnits) {
-            assert.equal(water.has(key(unit)), false, `initial unit ${key(unit)} must be on land`);
+            const naval = UNIT_CONFIG[unit.type]?.movementDomain === 'naval';
+            assert.equal(water.has(key(unit)), naval, `initial unit ${unit.type}@${key(unit)} must match its movement domain`);
+            if (naval) {
+                const guardsPort = board.ports.some(port => key(port) === key(unit)
+                    || HEX_NEIGHBORS.some(([dq, dr]) => port.q + dq === unit.q && port.r + dr === unit.r));
+                assert.ok(guardsPort, `initial naval unit ${key(unit)} must guard a port or its adjacent waters`);
+            }
             assert.equal(occupied.has(key(unit)), false, `initial unit coordinate ${key(unit)} must be unique`);
             occupied.add(key(unit));
+        }
+
+        const cityCampByDistrict = new Map(board.cities.map(city => [city.districtId, city.camp]));
+        for (const port of board.ports) {
+            const owner = cityCampByDistrict.get(port.districtId);
+            const occupants = map.initialUnits.filter(unit => key(unit) === key(port));
+            assert.equal(occupants.length, 1, `port ${key(port)} must start with exactly one ship`);
+            assert.equal(occupants[0].camp, owner, `port ${key(port)} ship must match its administrative owner`);
+            assert.equal(occupants[0].type, owner === 'neutral' ? 'destroyer' : 'warship',
+                `port ${key(port)} must receive the correct initial ship class`);
+            if (owner !== 'neutral') {
+                const adjacentUnits = map.initialUnits.filter(unit => unit.camp === owner
+                    && UNIT_CONFIG[unit.type]?.movementDomain === 'naval'
+                    && HEX_NEIGHBORS.some(([dq, dr]) => port.q + dq === unit.q && port.r + dr === unit.r));
+                assert.deepEqual(adjacentUnits.map(unit => unit.type).sort(), ['destroyer', 'submarine'],
+                    `player port ${key(port)} must have one destroyer and one submarine outside`);
+                assert.ok(adjacentUnits.every(unit => water.has(key(unit))),
+                    `player port ${key(port)} escorts must stay on water`);
+            }
         }
 
         const transform = playerCount === 3 ? rotate120 : rotate180;

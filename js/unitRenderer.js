@@ -9,6 +9,7 @@ import { getRoleCamp } from '../rules/diplomacy.js';
 import { campToKey, getFlagColors } from '../rules/camps.js';
 import { getSurfaceBaseColor, getTileSurface, isWaterTile } from '../rules/surfaces.js';
 import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
+import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import {
     UNIT_BADGE_CENTER_Y,
     UNIT_BADGE_RADIUS,
@@ -289,7 +290,7 @@ export function drawUnit(unit, gameState) {
         }
 
         // ── Berserker blood rage glow（已损HP越多越明显） ──
-        if (unit.commander === 'berserker' && unit.hp < unit.maxHp) {
+        if (unit.commander === 'berserker' && !areCommanderMechanicsSuppressed(unit) && unit.hp < unit.maxHp) {
             const balance = COMMANDER_CONFIG.berserker.balance;
             const hpLostRatio = (unit.maxHp - unit.hp) / unit.maxHp;
             const stacks = Math.min(balance.maxStacks, Math.floor(hpLostRatio / balance.hpLossPerStackPct));
@@ -309,7 +310,7 @@ export function drawUnit(unit, gameState) {
         }
 
         // ── Iron Guard shield marker (above flag, same layer as berserker rage) ──
-        if (unit.commander === 'ironGuard') {
+        if (unit.commander === 'ironGuard' && !areCommanderMechanicsSuppressed(unit)) {
             ctx.save();
             const shieldRatio = Math.min(1, unit._shield / Math.max(unit._shieldMax, 1));
             const shieldPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
@@ -380,7 +381,7 @@ export function drawUnit(unit, gameState) {
         }
 
         // ── E3 纵横家标记 📜 ──
-        if (unit.commander === 'diplomat') {
+        if (unit.commander === 'diplomat' && !areCommanderMechanicsSuppressed(unit) && !isWaterTile(unit.tile)) {
             ctx.save();
             const dipY = visualY - HEX_SIZE * 0.55;
             const inEnemyTerritory = unit.tile && unit.tile.camp !== unit.camp;
@@ -412,7 +413,7 @@ export function drawUnit(unit, gameState) {
         }
 
         // ── E3 纵横家连横提示 ⚡（仅处于非己方地块时展示） ──
-        if (unit.commander === 'diplomat' && unit.tile && unit.tile.camp !== unit.camp) {
+        if (unit.commander === 'diplomat' && !areCommanderMechanicsSuppressed(unit) && unit.tile && !isWaterTile(unit.tile) && unit.tile.camp !== unit.camp) {
             ctx.save();
             const dipY = visualY - HEX_SIZE * 0.55;
             const dipPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;

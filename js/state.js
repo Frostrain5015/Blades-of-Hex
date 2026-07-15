@@ -12,7 +12,7 @@ import { campFromKey, getFaction, getRelation, getRoleCamp, getViewingCampKey } 
 import { CAMP_FLAG_COLORS, getFlagColors } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { RECRUITMENT_OPTIONS, canRecruitTypeAtSelectedCity, shouldShowRecruitmentOption } from './recruitmentUi.js';
+import { RECRUITMENT_OPTIONS, canRecruitTypeAtSelectedCity, getRecruitmentSiteKind, shouldShowRecruitmentOption } from './recruitmentUi.js';
 import { hasFactionSurrendered } from '../rules/matchOutcome.js';
 
 // ===== 计数器滚动动画工具 =====================
@@ -164,6 +164,13 @@ function _getRecruitCost(type) {
 
 export function updateRecruitCostDisplay() {
     const tile = gameState.selectedCityTile;
+    const siteKind = getRecruitmentSiteKind(tile, gameState);
+    const sectionLabel = document.getElementById('recruitSectionLabel');
+    if (sectionLabel) sectionLabel.textContent = siteKind === 'port'
+        ? '招募海军'
+        : siteKind === 'coast'
+            ? '建造防御'
+            : '招募陆军';
     let showsPortRecruitment = false;
     for (const option of RECRUITMENT_OPTIONS) {
         const btn = document.getElementById(option.buttonId);

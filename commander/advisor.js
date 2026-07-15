@@ -2,6 +2,7 @@
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 import { HEX_NEIGHBORS } from '../rules/hex.js';
+import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 const CONFIG = COMMANDER_CONFIG.advisor;
 const { definition: DEFINITION, balance: BALANCE } = CONFIG;
 
@@ -14,7 +15,7 @@ export default {
     if (gs && gs.tileMap && enemy.tile) {
       for (const [dq, dr] of HEX_NEIGHBORS) {
         const nb = gs.tileMap.get(`${enemy.tile.q + dq},${enemy.tile.r + dr}`);
-        if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === enemy.camp) {
+        if (nb && nb.unit && nb.unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(nb.unit) && nb.unit.camp === enemy.camp) {
           helpers.logMessage(`勇气灵光护体，${enemy.config.name}兵免疫攻心`);
           return null;
         }

@@ -44,17 +44,24 @@ test('warships occupy only water or authored land ports', () => {
     assert.equal(canUnitOccupyTile('warship', deep), true);
 });
 
-test('amphibious movement switches surface only across a coast or port edge', () => {
+test('land armies embark from any coast, normal beaches drain movement and ports waive the extra cost', () => {
     const coast = tile(0, 0);
     const water = tile(1, 0, SURFACE_KIND.SHALLOW_WATER);
     const state = stateFor([coast, water]);
     const amphibious = { movementDomain: MOVEMENT_DOMAIN.AMPHIBIOUS };
     assert.equal(resolveMovementStep(amphibious, coast, water, state).allowed, true);
-    assert.equal(resolveMovementStep('infantry', coast, water, state).allowed, false);
+    const beachEmbark = resolveMovementStep('infantry', coast, water, state);
+    assert.equal(beachEmbark.allowed, true);
+    assert.equal(beachEmbark.drainRemaining, true);
+    assert.equal(beachEmbark.transportSpeedCap, 4);
     assert.equal(resolveMovementStep('warship', coast, water, state).allowed, false);
 
-    coast.isPort = true;
-    assert.equal(resolveMovementStep('warship', coast, water, state).allowed, true);
+    water.isPort = true;
+    const portEmbark = resolveMovementStep('infantry', coast, water, state);
+    assert.equal(portEmbark.allowed, true);
+    assert.equal(portEmbark.drainRemaining, false);
+    assert.equal(portEmbark.transportSpeedCap, 4);
+    assert.equal(canUnitOccupyTile({ type: 'infantry', isEmbarked: true }, water, state), true);
 });
 
 test('shared movement edge maps exactly to authored river segment', () => {

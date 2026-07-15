@@ -2,6 +2,7 @@
 import { HEX_SIZE, hexPath, ctx } from '../../js/config.js';
 import { gameState } from '../../js/state.js';
 import { registerFxLayer } from '../../js/fxRegistry.js';
+import { areCommanderMechanicsSuppressed } from '../../rules/movement.js';
 
 // 铁卫灵光（7格集群外边界）
 function _drawIronGuardAura(now) {
@@ -9,7 +10,7 @@ function _drawIronGuardAura(now) {
 
     for (const tile of gameState.tiles) {
         const u = tile.unit;
-        if (!u || u.commander !== 'ironGuard' || u._shield <= 0) continue;
+        if (!u || u.commander !== 'ironGuard' || areCommanderMechanicsSuppressed(u) || u._shield <= 0) continue;
         const shieldRatio = Math.min(1, u._shield / Math.max(u._shieldMax, 1));
         const alpha = (0.45 + pulse * 0.30) * shieldRatio;
         const fillAlpha = (0.04 + pulse * 0.04) * shieldRatio;

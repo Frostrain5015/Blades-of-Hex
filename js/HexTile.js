@@ -15,6 +15,10 @@ export class HexTile extends EngineHexTile {
     }
 
     setCampWithFade(newCamp) {
+        if (!isLandTile(this)) {
+            this.camp = newCamp;
+            return;
+        }
         if (this.camp === newCamp && this.targetColor === newCamp.color) return;
         this.camp = newCamp;
         this.startColor = this.currentColor;
@@ -208,11 +212,11 @@ export class HexTile extends EngineHexTile {
 
     // Per-frame: animated city flag drawn AFTER all hex bases (avoids being covered)
     _flagParams() {
-        if (!this.isCity && !this.isVillage) return null;
+        if (!this.isCity && !this.isVillage && !this.isPort) return null;
         const cx = this.x, cy = this.y;
         const flagCx = cx - HEX_SIZE * 0.55;
         const flagCy = cy - HEX_SIZE * 0.50;
-        const layout = this.isVillage ? VILLAGE_FLAG_LAYOUT : CITY_FLAG_LAYOUT;
+        const layout = (this.isVillage || this.isPort) ? VILLAGE_FLAG_LAYOUT : CITY_FLAG_LAYOUT;
         let effectiveCamp = this.camp;
         if (this.isVillage) {
             // 鏉戝簞鏃楀笢棰滆壊鍙栧喅浜庡綋鍓嶅彈鐩婇樀钀?
@@ -252,7 +256,30 @@ export class HexTile extends EngineHexTile {
 
         // City and village standards use a grounded pedestal; unit poles stay light.
 
-        if (this.isCity || this.isVillage) {
+        if (this.isPort) {
+            const halfBase = p.layout.baseWidth * 0.52;
+            const baseY = p.poleBottom + p.layout.baseHeight * 0.2;
+            ctx.beginPath();
+            ctx.ellipse(p.poleX, baseY + 3.2, halfBase * 1.7, 2.7, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(190,235,245,0.65)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            const buoy = ctx.createLinearGradient(p.poleX - halfBase, 0, p.poleX + halfBase, 0);
+            buoy.addColorStop(0, '#7d241d');
+            buoy.addColorStop(0.48, '#f3e5bb');
+            buoy.addColorStop(1, '#9f2d23');
+            ctx.beginPath();
+            ctx.moveTo(p.poleX - halfBase * 0.65, baseY - 3);
+            ctx.lineTo(p.poleX + halfBase * 0.65, baseY - 3);
+            ctx.lineTo(p.poleX + halfBase, baseY + 3);
+            ctx.lineTo(p.poleX - halfBase, baseY + 3);
+            ctx.closePath();
+            ctx.fillStyle = buoy;
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(48,38,28,0.82)';
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+        } else if (this.isCity || this.isVillage) {
             const halfBase = p.layout.baseWidth / 2;
             const baseTop = p.poleBottom - p.layout.baseHeight * 0.4;
             const baseBottom = p.poleBottom + p.layout.baseHeight * 0.6;

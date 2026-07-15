@@ -3,6 +3,7 @@ import { HEX_SIZE, HEX_NEIGHBORS, drawHexagonOutline, hexPath, settings, ctx } f
 import { gameState } from '../../js/state.js';
 import { VisualParticle, particles, attackFlashes, goldenBeams, paladinOrbitBeams, paladinBeamProjectiles } from '../../js/effects.js';
 import { registerFxLayer, registerFxUpdate } from '../../js/fxRegistry.js';
+import { areCommanderMechanicsSuppressed } from '../../rules/movement.js';
 
 // ===== 勇气灵光环（ground 图层） =====
 function _drawCourageAura(now) {
@@ -11,7 +12,7 @@ function _drawCourageAura(now) {
         if (!u) continue;
         const pos = u.getVisualPos();
         const vx = pos.x, vy = pos.y;
-        if (u.commander === 'paladin') {
+        if (u.commander === 'paladin' && !areCommanderMechanicsSuppressed(u)) {
             ctx.save();
             const cp = (Math.sin(now / 400) + 1) / 2;
             const g = ctx.createRadialGradient(vx, vy, HEX_SIZE * 0.15, vx, vy, HEX_SIZE);
@@ -27,7 +28,7 @@ function _drawCourageAura(now) {
             let hasPaladin = false;
             for (const [dq, dr] of HEX_NEIGHBORS) {
                 const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-                if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === u.camp) {
+                if (nb && nb.unit && nb.unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(nb.unit) && nb.unit.camp === u.camp) {
                     hasPaladin = true; break;
                 }
             }

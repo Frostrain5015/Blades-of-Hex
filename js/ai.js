@@ -18,6 +18,8 @@ import * as grokPersonality from '../ai/grok.js';
 import { canAttack, isHostile } from '../rules/diplomacy.js';
 import { campToKey } from '../rules/camps.js';
 import { prioritizeNavalRecruitment } from '../rules/aiRecruitment.js';
+import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
+import { canRecruitTypeAtSelectedSite } from './recruitmentUi.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -47,7 +49,7 @@ function resolveTile(q, r) {
 function planEngineerAction(aiCamp) {
     const campKey = campToKey(aiCamp);
     const engineer = gameState.tiles.reduce((found, tile) => found || (
-        tile.unit && tile.unit.commander === 'engineer' && tile.unit.camp === aiCamp && tile.unit.canAct && !tile.unit._engineerConstruction
+        tile.unit && tile.unit.commander === 'engineer' && !areCommanderMechanicsSuppressed(tile.unit) && tile.unit.camp === aiCamp && tile.unit.canAct && !tile.unit._engineerConstruction
             ? tile.unit : null
     ), null);
     if (!engineer || !engineer.tile) return null;
@@ -239,7 +241,7 @@ async function _executeActionInner(action, aiCamp) {
         }
         case 'recruit': {
             const cityTile = resolveTile(action.tileQ, action.tileR);
-            if (!cityTile || !cityTile.isCity || cityTile.unit) return;
+            if (!cityTile || !canRecruitTypeAtSelectedSite(action.unitType, cityTile, gameState, aiCamp)) return;
             const gold = gameState.playerGold[campKey];
             if (gold < UNIT_CONFIG[action.unitType].cost) return;
             gameState.selectedCityTile = cityTile;
@@ -290,7 +292,7 @@ async function _executeActionInner(action, aiCamp) {
         }
         case 'activateSkill': {
             const unit = resolveUnit(action.unitId);
-            if (!unit || !unit.tile || !unit.commander || !unit.canAct) return;
+            if (!unit || !unit.tile || !unit.commander || areCommanderMechanicsSuppressed(unit) || !unit.canAct) return;
             const cmdCfg = getCommander(unit.commander);
             if (!cmdCfg || !cmdCfg.activeSkill) return;
             if (unit.activeSkillCD > 0 || unit.activeSkillDur > 0) return;
@@ -445,6 +447,7 @@ export async function processOpponentTurn(aiCamp) {
         const emptyCities = gameState.tiles.filter(t =>
             t.isCity && !t.unit && t.camp === aiCamp
         );
+        const emptyPorts = gameState.tiles.filter(t => t.isPort && !t.unit && t.camp === aiCamp);
         const campKey = campToKey(aiCamp);
         for (const city of emptyCities) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
@@ -452,6 +455,25 @@ export async function processOpponentTurn(aiCamp) {
                 .find(type => gameState.playerGold[campKey] >= UNIT_CONFIG[type].cost);
             if (unitType) {
                 await executeAction({ type: 'recruit', unitType, tileQ: city.q, tileR: city.r }, aiCamp);
+            }
+        }
+        for (const port of emptyPorts) {
+            if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
+            const hostileTypes = new Set(gameState.tiles
+                .map(tile => tile.unit)
+                .filter(unit => unit && isHostile(gameState, aiCamp, unit.camp))
+                .map(unit => unit.type));
+            const navalOrder = hostileTypes.has('submarine')
+                ? ['destroyer', 'submarine', 'warship']
+                : hostileTypes.has('warship')
+                    ? ['submarine', 'destroyer', 'warship']
+                    : hostileTypes.has('destroyer')
+                        ? ['warship', 'destroyer', 'submarine']
+                        : ['destroyer', 'submarine', 'warship'];
+            const unitType = navalOrder.find(type => gameState.playerGold[campKey] >= UNIT_CONFIG[type].cost
+                && canRecruitTypeAtSelectedSite(type, port, gameState, aiCamp));
+            if (unitType) {
+                await executeAction({ type: 'recruit', unitType, tileQ: port.q, tileR: port.r }, aiCamp);
             }
         }
     } finally {

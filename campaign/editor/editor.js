@@ -3,6 +3,7 @@
 // 画布只是配置经 mapBuilder 重建后的预览。导出即下载该配置 JSON。
 import { HEX_SIZE, hexPath, drawHexagonOutline, CAMP_FLAG_COLORS } from '../../js/config.js';
 import { canUnitOccupyTile, getUnitMovementDomain } from '../../rules/movement.js';
+import { isCoastalLandTile } from '../../rules/naval.js';
 import { SURFACE_KIND, isWaterSurface } from '../../rules/surfaces.js';
 import {
     drawAllBorders, drawCampBorders, drawDistrictBorders
@@ -31,6 +32,7 @@ import {
     commitRiverDraft,
     hitRiverSegment,
     pruneLevelToBoard,
+    refreshPortAssignments,
     riverVertexToPixel,
     snapRiverVertex,
     surfaceKindAt,
@@ -649,6 +651,7 @@ function applyBrush(tile) {
             } else {
                 b.villages.push({ q, r, districtId: preview.tileMap.get(tileKey(q, r))?.districtId ?? boardTool.districtId });
             }
+            refreshPortAssignments(config);
             return true;
         }
         case 'fortification': {
@@ -666,6 +669,7 @@ function applyBrush(tile) {
             if (water) { setStatus('水域不能声明行政区。', 'error'); return false; }
             removeFromList(b.districts, q, r);
             b.districts.push({ q, r, districtId: boardTool.districtId });
+            refreshPortAssignments(config);
             return true;
         }
         case 'erase': {
@@ -678,6 +682,7 @@ function applyBrush(tile) {
             if (opt.district) removeFromList(b.districts, q, r);
             if (opt.port) removeFromList(b.ports, q, r);
             if (opt.unit) config.units = config.units.filter(u => !(u.q === q && u.r === r));
+            if (opt.city || opt.district) refreshPortAssignments(config);
             return true;
         }
     }
@@ -775,6 +780,9 @@ function handlePortPointer(tile) {
 }
 
 function unitPlacementError(tile, type) {
+    if (type === 'shoreBattery' && !isCoastalLandTile(tile, preview)) {
+        return '岸防炮只能部署在沿海陆地。';
+    }
     if (canUnitOccupyTile({ type }, tile, preview)) return '';
     if (getUnitMovementDomain(type) === 'naval') return '海军单位只能部署在水域或港口。';
     if (isWaterSurface(surfaceKindAt(config.board, tile.q, tile.r))) return '陆军单位不能部署在水域。';
@@ -1003,7 +1011,7 @@ function buildBoardTools() {
             { value: SURFACE_KIND.SHALLOW_WATER, label: '浅水' },
             { value: SURFACE_KIND.DEEP_WATER, label: '深水' }
         ], boardTool.surface, v => { boardTool.surface = v; }, true));
-        secParam.appendChild(hint('水域采用稀疏保存；改成水面会同步清理该格上不兼容的地形、城镇、工事、区划、港口和陆军单位。'));
+        secParam.appendChild(hint('水域采用稀疏保存；改成水面会同步清理不兼容的地形、城镇、工事、区划和陆军单位。独立港口只能保留在临岸浅水格上。'));
     }
     if (boardTool.mode === 'terrain') {
         secParam.appendChild(brushGrid(
@@ -1050,7 +1058,7 @@ function buildBoardTools() {
         secParam.appendChild(hint('通行点只接受已有河段命中；再次点击同类通行点可移除，切换类型后点击可替换。'));
     }
     if (boardTool.mode === 'port') {
-        secParam.appendChild(hint('点击放置/移除港口。港口必须位于陆地，并邻接至少一个真实浅水或深水地块。'));
+        secParam.appendChild(hint('点击放置/移除港口。请先用表面工具刷出临岸浅水格；港口是独立海洋地块，必须邻接大陆，并自动归属栈桥连接陆格的行政区。'));
     }
     if (boardTool.mode === 'erase') {
         const opt = boardTool.erase;

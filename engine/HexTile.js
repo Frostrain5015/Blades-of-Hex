@@ -26,6 +26,8 @@ export class EngineHexTile {
         this.terrain = 'plains';
         this.fortification = null;
         this.isPort = false;
+        this._portCapturedIndependent = false;
+        this._portOperationalAtRound = 0;
         this.unit = null;
         this.startColor = this.camp.color;
         this.targetColor = this.camp.color;

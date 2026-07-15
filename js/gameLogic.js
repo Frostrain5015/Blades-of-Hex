@@ -53,13 +53,31 @@ import {
     isAntiAirUnit as isAntiAirUnitRule
 } from '../rules/antiAir.js';
 import {
+    areCommanderMechanicsSuppressed,
+    canUnitAssaultOccupiedTile,
     canUnitOccupyTile,
+    isEmbarkableLandUnit,
     isLandDeploymentTile,
     resolveMovementStep
 } from '../rules/movement.js';
-import { isLandTile } from '../rules/surfaces.js';
+import { isLandTile, isWaterTile } from '../rules/surfaces.js';
 import { getActivePlayerKeys, getSurvivingPlayerKeys, hasFactionSurrendered } from '../rules/matchOutcome.js';
 import { setResultFlagPreview } from './resultFlagPreview.js';
+import {
+    canBuildShoreBattery,
+    canUnitTargetUnit,
+    capturePort,
+    clearExpiredSubmarineReveals,
+    clearPortDepartureState,
+    isCoastalLandTile,
+    isPortGuarded,
+    isPortOperationalFor,
+    isRegularNavalUnit,
+    markSubmarinesRevealedInArea,
+    recordShoreBatteryBuilt,
+    repairShipsAtTurnStart,
+    restoreSurrenderedPorts
+} from '../rules/naval.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
@@ -82,6 +100,15 @@ export function resetConfirmActive() {
 let _cityCapturedInAttack = false;
 let _capturedCityOnMove = null;
 let _moraleFxUnitId = null;
+
+function _getActiveDiplomatOverride(campKey) {
+    const override = gameState._cardOverrides?.[campKey];
+    if (!override) return null;
+    const diplomat = gameState.tiles.find(tile => tile.unit?.commander === 'diplomat'
+        && campToKey(tile.unit.camp) === campKey
+        && tile.unit.hp > 0);
+    return diplomat && !areCommanderMechanicsSuppressed(diplomat.unit) ? override : null;
+}
 let _ctrMoraleFxUnitId = null; // 反击攻心目标士气特效
 let _cmdFxData = null;     // 攻击将领特效 { x, y, glyph, label }
 let _ctrCmdFxData = null;  // 反击将领特效 { x, y, glyph, label }
@@ -278,7 +305,7 @@ export function recalcAllFlankingMorale() {
     function hasCourageAura(u) {
         for (const [dq, dr] of HEX_NEIGHBORS) {
             const nb = gameState.tileMap.get(`${u.tile.q + dq},${u.tile.r + dr}`);
-            if (nb && nb.unit && nb.unit.commander === 'paladin' && isFriendly(gameState, nb.unit.camp, u.camp)) {
+            if (nb && nb.unit && nb.unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(nb.unit) && isFriendly(gameState, nb.unit.camp, u.camp)) {
                 return true;
             }
         }
@@ -316,7 +343,7 @@ export function recalcAllFlankingMorale() {
         if (!tile.unit || tile.unit.morale >= 2) continue;
         for (const [dq, dr] of HEX_NEIGHBORS) {
             const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-            if (nb && nb.unit && nb.unit.commander === 'paladin' && isFriendly(gameState, nb.unit.camp, tile.unit.camp)) {
+            if (nb && nb.unit && nb.unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(nb.unit) && isFriendly(gameState, nb.unit.camp, tile.unit.camp)) {
                 tile.unit.morale = 2;
                 break;
             }
@@ -381,13 +408,19 @@ function _bindGameButtons() {
     document.getElementById('recruitInfantry').addEventListener('click', _onRecruitInfantry);
     document.getElementById('recruitCavalry').addEventListener('click', _onRecruitCavalry);
     document.getElementById('recruitArcher').addEventListener('click', _onRecruitArcher);
+    document.getElementById('recruitDestroyer').addEventListener('click', _onRecruitDestroyer);
     document.getElementById('recruitWarship').addEventListener('click', _onRecruitWarship);
+    document.getElementById('recruitSubmarine').addEventListener('click', _onRecruitSubmarine);
+    document.getElementById('recruitShoreBattery').addEventListener('click', _onRecruitShoreBattery);
 }
 
 const _onRecruitInfantry = () => recruitUnit('infantry');
 const _onRecruitCavalry = () => recruitUnit('cavalry');
 const _onRecruitArcher = () => recruitUnit('archer');
+const _onRecruitDestroyer = () => recruitUnit('destroyer');
 const _onRecruitWarship = () => recruitUnit('warship');
+const _onRecruitSubmarine = () => recruitUnit('submarine');
+const _onRecruitShoreBattery = () => recruitUnit('shoreBattery');
 
 function initCardDeck() {
     const deck = [...DECK_COMPOSITION];
@@ -441,7 +474,7 @@ export function drawCard(camp) {
         notify('本回合已达到抽牌上限', 'error'); return null;
     }
     // E3 纵横家合纵：手牌上限覆盖
-    const handSizeBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].handSizeBonus || 0 : 0;
+    const handSizeBonus = _getActiveDiplomatOverride(campKey)?.handSizeBonus || 0;
     const maxHand = CARD_SYSTEM_CONFIG.maxHandSize + handSizeBonus;
     if (gameState.playerHands[campKey].length >= maxHand) {
         notify(`当前手牌队列已满`, 'error'); return null;
@@ -830,6 +863,7 @@ async function _doEndTurnPhase() {
             tile.unit.moveDistance = 0;
             tile.unit.counterAttackCount = 0;
             tile.unit._timesAttackedThisTurn = 0;
+            tile.unit._transportTransitionedThisTurn = false;
             tile.unit.remainingMP = tile.unit.getEffectiveSpeed?.() ?? tile.unit.config.speed;
             tile.unit.displaySpeed = tile.unit.remainingMP;
             tile.unit.isNewRecruit = false;
@@ -857,8 +891,25 @@ async function _doEndTurnPhase() {
     gameState.currentCamp = _nextActiveCamp(camp);
     gameState.turnCounter++;
 
+    // A submarine that attacked stays exposed through every enemy action and
+    // submerges again only when its own next turn begins.
+    for (const tile of gameState.tiles) {
+        if (tile.unit?.type === 'submarine' && tile.unit.camp === gameState.currentCamp) {
+            tile.unit._submarineAttackExposed = false;
+        }
+    }
+    clearExpiredSubmarineReveals(gameState);
+
     // ==== 回合开始：收入结算 ====================
     const dmgTextsBefore = grantTurnStartIncome(gameState.currentCamp);
+    for (const repair of repairShipsAtTurnStart(gameState, gameState.currentCamp)) {
+        gameState.healTexts.push({
+            x: repair.tile.x, y: repair.tile.y, value: repair.amount,
+            timeLeft: 1000, lastUpdate: performance.now()
+        });
+        spawnHealParticles(repair.tile.x, repair.tile.y);
+        logMessage(`${repair.unit.camp.name}${repair.unit.config.name}在港口维修 +${repair.amount}HP`);
+    }
     // E5：重置新回合阵营的城市/村庄补员标记（含占据的非己方村庄，与补员判定一致）
     for (const t of gameState.tiles) {
         if (t.camp === gameState.currentCamp
@@ -909,7 +960,7 @@ async function _doEndTurnPhase() {
             for (const key of cardRecipients) {
                 const h = gameState.playerHands[key];
                 // E3 纵横家合纵：手牌上限覆盖
-                const hBonus = (gameState._cardOverrides && gameState._cardOverrides[key]) ? gameState._cardOverrides[key].handSizeBonus || 0 : 0;
+                const hBonus = _getActiveDiplomatOverride(key)?.handSizeBonus || 0;
                 if (!h || h.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
                 if (gameState.cardDrawPile.length === 0) break;
                 const card = gameState.cardDrawPile.pop();
@@ -1134,7 +1185,7 @@ export function recruitUnit(type) {
     const currentPlayerKey = _campKey(gameState.currentCamp);
 
     if (!gameState.selectedCityTile) {
-        notify('请先选中己方控制的空城市或村庄', 'error');
+        notify('请先选中己方控制的空城市或港口', 'error');
         return;
     }
     const selectedCityTile = gameState.selectedCityTile;
@@ -1142,15 +1193,30 @@ export function recruitUnit(type) {
         notify('该地块不属于当前阵营 无法招募', 'error');
         return;
     }
-    if (!selectedCityTile.isCity) {
-        notify('只能在城市招募', 'error');
+    const navalRecruit = isRegularNavalUnit(type);
+    const shoreBatteryRecruit = type === 'shoreBattery';
+    const validRecruitSite = navalRecruit
+        ? selectedCityTile.isPort && isWaterTile(selectedCityTile)
+            && isPortOperationalFor(selectedCityTile, gameState.currentCamp, gameState)
+        : shoreBatteryRecruit
+            ? isCoastalLandTile(selectedCityTile, gameState)
+                && !selectedCityTile.isCity && !selectedCityTile.isVillage
+                && !selectedCityTile.isPort && !selectedCityTile.fortification
+                && canBuildShoreBattery(gameState, gameState.currentCamp)
+            : selectedCityTile.isCity;
+    if (!validRecruitSite) {
+        notify(navalRecruit
+            ? '舰船只能在已启用的己方港口招募'
+            : shoreBatteryRecruit
+                ? '岸防炮只能部署在己方空沿海陆地，且建造冷却必须结束'
+                : '陆军只能在城市招募', 'error');
         return;
     }
     if (!canUnitOccupyTile({ type, config }, selectedCityTile, gameState)) {
-        notify(type === 'warship' ? '舰船只能在港口招募' : '该兵种无法部署在此地形', 'error');
+        notify(navalRecruit ? '舰船只能在港口招募' : '该兵种无法部署在此地形', 'error');
         return;
     }
-    if (selectedCityTile._cityDisabledUntil > 0 && selectedCityTile._cityDisabledUntil > getRoundIndex(gameState)) {
+    if (selectedCityTile.isCity && selectedCityTile._cityDisabledUntil > 0 && selectedCityTile._cityDisabledUntil > getRoundIndex(gameState)) {
         notify('该城市遭到空袭 无法招募', 'error');
         return;
     }
@@ -1166,6 +1232,7 @@ export function recruitUnit(type) {
 
     gameState.playerGold[currentPlayerKey] -= effectiveCost;
     new Unit(type, gameState.currentCamp, selectedCityTile, true);
+    if (shoreBatteryRecruit) recordShoreBatteryBuilt(gameState, gameState.currentCamp);
     triggerRecruitFlash(selectedCityTile.x, selectedCityTile.y);
     spawnRecruitEffect(selectedCityTile.x, selectedCityTile.y);
     logMessage(`${gameState.currentCamp.name}成功招募${config.name}兵，-$${effectiveCost}`);
@@ -1246,7 +1313,7 @@ function _computeMovableTiles(unit, fogSafePreview = false) {
         if (!fogSafePreview) unit.morale = inSignal ? 2 : 0;
         if (!inSignal) return { tiles: [], parents: new Map() };
     }
-    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile) {
+    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile || isPortGuarded(unit, gameState)) {
         return { tiles: [], parents: new Map() };
     }
 
@@ -1296,6 +1363,9 @@ function _computeMovableTiles(unit, fogSafePreview = false) {
             if ((movementStep.requiresFullCost || _isMuddyTarget || snareLayers > 0)
                 && curRem < stepCost) continue;
             let newRem = curRem >= stepCost ? curRem - stepCost : 0;
+            if (Number.isFinite(movementStep.transportSpeedCap)) {
+                newRem = Math.min(newRem, movementStep.transportSpeedCap);
+            }
             // 渡河（无桥梁/浅滩）消耗所有剩余行动力
             if (movementStep.drainRemaining) newRem = 0;
 
@@ -1344,16 +1414,17 @@ export function getAttackableTiles(unit) {
         if (unit.morale === 0) return [];
     }
     if (unit.morale === 0) return [];
+    if (unit._transportTransitionedThisTurn) return [];
     if (unit.commander === 'martyr' && unit._martyrPrimed) return [];
-    let range = unit.config.range;
+    let range = unit.getEffectiveRange?.() ?? unit.config.range;
     // 无人机固定射程2
     if (unit._isDrone) range = DRONE_RANGE;
     // 雾天炮兵射程-1（占星者星光力场免疫）
-    if (isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'fog' && unit.type === 'archer'
+    if (!unit.isEmbarked && isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'fog' && unit.type === 'archer'
         && !getCommanderWeatherImmunity(unit.tile, unit.camp, gameState.tileMap)) {
         range = Math.min(range, 1);
     }
-    if (unit.type === 'archer') {
+    if (!unit.isEmbarked && unit.type === 'archer') {
         let bonus = 0;
         if (unit.tile.terrain === 'mountain') bonus = 1;
         if (isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'wind') bonus = Math.max(bonus, 1);
@@ -1368,10 +1439,8 @@ export function getAttackableTiles(unit) {
         && tile.unit
         && canAttack(gameState, unit.camp, tile.unit.camp)
         && tile.unit._campaignTargetable !== false
-        // An assault must be able to occupy the defender's surface. This
-        // prevents land melee units from attacking ships across a coast while
-        // retaining unrestricted artillery/naval fire across domains.
-        && (isRanged || canUnitOccupyTile(unit, tile, gameState))
+        && canUnitTargetUnit(unit, tile.unit, gameState)
+        && (isRanged || canUnitAssaultOccupiedTile(unit, tile))
     ) : [];
     // 遭遇战迷雾：只能攻击视野内的敌方单位
     if (gameState.skirmishFog && targets.length) {
@@ -1411,7 +1480,22 @@ export function moveUnit(unit, targetTile) {
     const fromR = unit.tile.r;
 
     // Reconstruct path for step-by-step animation
-    const path = _reconstructPath(gameState.moveParents, unit.tile, targetTile);
+    const startTile = unit.tile;
+    const path = _reconstructPath(gameState.moveParents, startTile, targetTile);
+    let crossedSurface = false;
+    let embarkedDuringMove = false;
+    let disembarkedDuringMove = false;
+    let cursor = targetTile;
+    while (cursor && cursor !== startTile) {
+        const parent = gameState.moveParents.get(cursor)?.parent || null;
+        if (parent && isWaterTile(parent) !== isWaterTile(cursor)) {
+            crossedSurface = true;
+            if (!isWaterTile(parent) && isWaterTile(cursor)) embarkedDuringMove = true;
+            if (isWaterTile(parent) && !isWaterTile(cursor)) disembarkedDuringMove = true;
+        }
+        cursor = parent;
+    }
+    const departureTile = unit.tile;
     unit.tile.unit = null;
     unit.tile = targetTile;
     targetTile.unit = unit;
@@ -1422,7 +1506,27 @@ export function moveUnit(unit, targetTile) {
 
     const mpEntry = gameState.moveParents.get(targetTile);
     if (mpEntry) unit.remainingMP = mpEntry.remaining;
-    if (unit._isDrone) refreshDroneSignal(gameState, unit.camp);
+    if (isEmbarkableLandUnit(unit)) {
+        // Boarding only spends movement. Landing keeps the existing no-attack
+        // transition lock for the remainder of the current round.
+        if (disembarkedDuringMove) unit._transportTransitionedThisTurn = true;
+        if (embarkedDuringMove) {
+            unit._berserkerQixue = false;
+            if (unit.commander === 'paladin' && unit._smiteReady) {
+                const refund = unit._smiteCharged ? 2 : 1;
+                unit._faith = Math.min(COMMANDER_BALANCE_CONFIG.paladin.balance.faithMax, (unit._faith || 0) + refund);
+                unit._smiteReady = false;
+                unit._smiteCharged = false;
+                spawnPaladinOrbitBeams(unit.id, targetTile.x, targetTile.y, unit._faith);
+            }
+        }
+        unit.isEmbarked = isWaterTile(targetTile);
+        if (!unit.isEmbarked && unit.commander === 'fallenAngel') {
+            unit._fallen = COMMANDER_BALANCE_CONFIG.fallenAngel.balance.blackMoraleLevels.includes(unit.morale);
+        }
+    }
+    clearPortDepartureState(unit, departureTile, targetTile);
+    if (unit._isDrone || unit.commander === 'tianyan') refreshDroneSignal(gameState, unit.camp);
 
     // Simulation vision updates immediately so combat legality/network state
     // stay deterministic. Presentation keeps the old fog until the badge has
@@ -1488,6 +1592,11 @@ export function moveUnit(unit, targetTile) {
             _capturedCityOnMove = { q: targetTile.q, r: targetTile.r, campKey: _campKey(unit.camp) };
         }
     }
+    if (targetTile.isPort && !unit._isDrone && capturePort(gameState, targetTile, unit)) {
+        gameState.movableTiles = [];
+        gameState.attackableTiles = getAttackableTiles(unit);
+        logMessage(`${unit.camp.name}占领了港口(${targetTile.q},${targetTile.r})`);
+    }
     // 尚书进驻城市：触发技能特效
     let _cmdFxForMove = null;
     if (targetTile.isCity && unit.commander === 'minister') {
@@ -1522,13 +1631,14 @@ export function attackUnit(attackerUnit, targetUnit) {
         notify('无法攻击：超出射程或单位已行动', 'error');
         return;
     }
+    if (attackerUnit.type === 'submarine') attackerUnit._submarineAttackExposed = true;
 
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
     const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
     const primaryTargetTile = targetUnit.tile;
     const _hasSmite = attackerUnit._smiteReady;
     const _smiteLabel = _hasSmite ? (attackerUnit._smiteCharged ? '至圣斩·誓约' : '至圣斩') : '';
-    const qixueActive = attackerUnit.commander === 'berserker' && attackerUnit._berserkerQixue;
+    const qixueActive = !areCommanderMechanicsSuppressed(attackerUnit) && attackerUnit.commander === 'berserker' && attackerUnit._berserkerQixue;
     const qixueAttackCamp = attackerUnit.camp;
 
     const relationBeforeAttack = getRelation(gameState, attackerUnit.camp, targetUnit.camp);
@@ -1620,12 +1730,21 @@ export function attackUnit(attackerUnit, targetUnit) {
     const attackPresentation = classifyAttackPresentation(attackerUnit);
     try {
         if (attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
-            spawnProjectile(fromX, fromY, toX, toY, isCrit, () => {
+            const impact = () => {
                 triggerAttackFlash(toX, toY, isCrit);
                 triggerRecoil(fromX, fromY, toX, toY);
                 spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
                 triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
-            });
+            };
+            if (attackerUnit.type === 'warship') {
+                spawnProjectile(fromX, fromY, toX, toY, isCrit);
+                setTimeout(() => {
+                    playSound('cannon');
+                    spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
+                }, 140);
+            } else {
+                spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
+            }
         } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
             spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {
                 triggerAttackFlash(toX, toY, isCrit);
@@ -1724,12 +1843,21 @@ export function attackUnit(attackerUnit, targetUnit) {
                             triggerScreenShake(counterResult.isCrit ? 6 : 3, counterResult.isCrit ? 200 : 120);
                         });
                     } else {
-                        spawnProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, () => {
+                        const counterImpact = () => {
                             triggerAttackFlash(_counterX, _counterY, counterResult.isCrit);
                             triggerRecoil(_cfx, _cfy, _counterX, _counterY);
                             spawnDirectionalParticles(_cfx, _cfy, _counterX, _counterY, '#ff8844', counterResult.isCrit ? 8 : 4);
                             triggerScreenShake(counterResult.isCrit ? 6 : 3, counterResult.isCrit ? 200 : 120);
-                        });
+                        };
+                        if (targetUnit.type === 'warship') {
+                            spawnProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit);
+                            setTimeout(() => {
+                                playSound('cannon');
+                                spawnProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, counterImpact);
+                            }, 140);
+                        } else {
+                            spawnProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, counterImpact);
+                        }
                     }
                 }
                 _atkCmdFxCapture = null;
@@ -1750,6 +1878,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             const targetTile = targetUnit.tile;
             if (classifyAttackPresentation(attackerUnit) === ATTACK_PRESENTATION.ASSAULT
                 && !attackerUnit._imprisoned && !attackerUnit._isImmobile
+                && canUnitAssaultOccupiedTile(attackerUnit, targetTile)
                 && canUnitOccupyTile(attackerUnit, targetTile, gameState)) {
                 attackerUnit.tile.unit = null;
                 attackerUnit.tile = targetTile;
@@ -1757,6 +1886,9 @@ export function attackUnit(attackerUnit, targetUnit) {
                 attackerUnit.moveDistance++;
                 attackerUnit.startMovePath?.([{ x: fromX, y: fromY }, { x: toX, y: toY }]);
                 if (targetTile.isCity) { updateDistrictColor(targetTile, attackerUnit.camp, attackerUnit); _cityCapturedInAttack = true; }
+                if (targetTile.isPort && capturePort(gameState, targetTile, attackerUnit)) {
+                    logMessage(`${attackerUnit.camp.name}占领了港口(${targetTile.q},${targetTile.r})`);
+                }
                 if (targetTile.isCity && attackerUnit.commander === 'minister') {
                     spawnCommanderSkillEffect(targetTile.x, targetTile.y, '🎖️', '屯田');
                     _cmdFxExtra = { x: targetTile.x, y: targetTile.y, glyph: '🎖️', label: '屯田' };
@@ -1850,6 +1982,7 @@ export function attackUnit(attackerUnit, targetUnit) {
             attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
             counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
             counterIsRanged: _counterIsRanged, counterIsCrit: _counterIsCrit,
+            counterType: targetUnit.type,
             counterIsDrone: !!targetUnit._isDrone,
             counterUsesDroneProjectile: !!(targetUnit._isDrone || targetUnit.type === 'mgNest'),
             healAmt: _healAmtRemote, healX: _healX, healY: _healY,
@@ -1932,6 +2065,7 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     const districtId = cityTile.districtId;
     gameState.tiles.forEach(tile => {
         if (tile.districtId === districtId) {
+            if (tile.isPort && tile._portCapturedIndependent) return;
             tile.setCampWithFade(camp);
         }
     });
@@ -1962,6 +2096,7 @@ function checkVictory() {
             const camp = campFromKey(key, gameState);
             if (districtMap.get(key).size !== 0 || hasFactionSurrendered(gameState, camp)) continue;
             gameState.surrenderedCamps.push(camp);
+            restoreSurrenderedPorts(gameState, camp);
             let remainingUnits = 0;
             for (const tile of gameState.tiles) {
                 if (tile.unit?.camp !== camp) continue;
@@ -2158,6 +2293,7 @@ async function handleSurrender() {
         logMessage(`${surrenderCamp.name}选择投降，领土与部队归属中立！`);
         if (!hasFactionSurrendered(gameState, surrenderCamp)) gameState.surrenderedCamps.push(surrenderCamp);
         const neutralCamp = campFromKey('neutral', gameState);
+        restoreSurrenderedPorts(gameState, surrenderCamp);
         for (const tile of gameState.tiles) {
             if (tile.camp === surrenderCamp) tile.setCampWithFade(neutralCamp);
             if (tile.unit && tile.unit.camp === surrenderCamp) {
@@ -2199,6 +2335,7 @@ async function handleSurrender() {
     logMessage(`${surrenderCamp.name}选择投降，${victoryCamp.name}获得最终胜利！`);
 
     if (!hasFactionSurrendered(gameState, surrenderCamp)) gameState.surrenderedCamps.push(surrenderCamp);
+    restoreSurrenderedPorts(gameState, surrenderCamp);
     gameState.gameOver = true;
     gameState.victoryCamp = victoryCamp;
 
@@ -2304,7 +2441,7 @@ function _getSuicidePiercingTiles(fromTile, targetTile) {
 }
 
 export function executeDroneDeploy(tianyanUnit, targetTile) {
-    if (!tianyanUnit || tianyanUnit.commander !== 'tianyan' || tianyanUnit.hp <= 0) {
+    if (!tianyanUnit || tianyanUnit.commander !== 'tianyan' || areCommanderMechanicsSuppressed(tianyanUnit) || tianyanUnit.hp <= 0) {
         notify('当前无法部署天眼哨机', 'error');
         return null;
     }
@@ -2345,7 +2482,7 @@ export function executeDroneDeploy(tianyanUnit, targetTile) {
 }
 
 export function executeEngineerTrench(engineerUnit) {
-    if (!isLandDeploymentTile(engineerUnit?.tile)) {
+    if (areCommanderMechanicsSuppressed(engineerUnit) || !isLandDeploymentTile(engineerUnit?.tile)) {
         notify('水域地块无法修筑工事', 'error');
         return false;
     }
@@ -2367,7 +2504,7 @@ export function executeEngineerTrench(engineerUnit) {
 }
 
 export function executeEngineerFlak(engineerUnit) {
-    if (!isLandDeploymentTile(engineerUnit?.tile)) {
+    if (areCommanderMechanicsSuppressed(engineerUnit) || !isLandDeploymentTile(engineerUnit?.tile)) {
         notify('水域地块无法修筑工事', 'error');
         return false;
     }
@@ -2389,6 +2526,10 @@ export function executeEngineerFlak(engineerUnit) {
 }
 
 export function executeEngineerBunkerConstruction(engineerUnit, targetTile) {
+    if (areCommanderMechanicsSuppressed(engineerUnit) || !isLandDeploymentTile(engineerUnit?.tile)) {
+        notify('水域地块无法修筑工事', 'error');
+        return false;
+    }
     const targetingPreview = resolveTargetingPreview(gameState, {
         cardId: 'engineer_bunker',
         targeting: 'emptyTile',
@@ -2545,7 +2686,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         : null;
 
     // E3 纵横家合纵：用卡次数上限覆盖
-    const useBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].useBonus || 0 : 0;
+    const useBonus = _getActiveDiplomatOverride(campKey)?.useBonus || 0;
     if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
         notify('本回合已达到使用上限', 'error'); return;
     }
@@ -2687,7 +2828,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         notify('金币不足', 'error');
         return;
     }
-    const aUseBonus = gameState._cardOverrides?.[aCampKey]?.useBonus || 0;
+    const aUseBonus = _getActiveDiplomatOverride(aCampKey)?.useBonus || 0;
     if ((gameState.playerUsesThisTurn[aCampKey] || 0) >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + aUseBonus) {
         notify('本回合已达到使用上限', 'error');
         return;
@@ -2735,6 +2876,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // 侦察卡：立即揭示目标区域
     if (cardId === 'scout' && result.scoutQ != null) {
         applyScoutReveal(gameState, myCamp, result.scoutQ, result.scoutR);
+        const scoutTile = gameState.tileMap.get(`${result.scoutQ},${result.scoutR}`);
+        if (scoutTile) markSubmarinesRevealedInArea(gameState, myCamp, scoutTile, 1, 2);
         updateFogOfWar(gameState, myCamp);
         logMessage(`${myCamp.name}使用了【侦察】卡，揭示了目标区域`);
     }
@@ -3070,7 +3213,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             const dipCamp = campFromKey(ck, gameState);
             if (!dipCamp || dipCamp === gameState.currentCamp) continue;
             for (const t of gameState.tiles) {
-                if (!t.unit || t.unit.commander !== 'diplomat' || t.unit.camp !== dipCamp || t.unit.hp <= 0) continue;
+                if (!t.unit || t.unit.commander !== 'diplomat' || areCommanderMechanicsSuppressed(t.unit) || t.unit.camp !== dipCamp || t.unit.hp <= 0) continue;
+                if (!isLandTile(t)) continue;
                 if (t.camp === dipCamp) continue;
                 if (!gameState.rng.chance(0.50)) continue;
                 const hand = gameState.playerHands[ck] || [];

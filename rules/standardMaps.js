@@ -44,9 +44,20 @@ const TWO_PLAYER_ISLAND = {
         ],
         fortifications: [],
         districts: [],
-        ports: [{ q: -5, r: 0 }, { q: 5, r: 0 }, { q: 2, r: -5 }, { q: -2, r: 5 }]
+        ports: [
+            { q: -6, r: 0, districtId: 1, landQ: -5, landR: 0 }, { q: 6, r: 0, districtId: 2, landQ: 5, landR: 0 },
+            { q: 2, r: -6, districtId: 3, landQ: 2, landR: -5 }, { q: -2, r: 6, districtId: 4, landQ: -2, landR: 5 }
+        ]
     },
     initialUnits: [
+        { type: 'warship', camp: 'player1', q: -6, r: 0 },
+        { type: 'destroyer', camp: 'player1', q: -5, r: -1 },
+        { type: 'submarine', camp: 'player1', q: -6, r: 1 },
+        { type: 'warship', camp: 'player2', q: 6, r: 0 },
+        { type: 'destroyer', camp: 'player2', q: 5, r: 1 },
+        { type: 'submarine', camp: 'player2', q: 6, r: -1 },
+        { type: 'destroyer', camp: 'neutral', q: 2, r: -6 },
+        { type: 'destroyer', camp: 'neutral', q: -2, r: 6 },
         { type: 'infantry', camp: 'player1', q: -5, r: 0 }, { type: 'infantry', camp: 'player1', q: -4, r: 0 },
         { type: 'infantry', camp: 'player1', q: -5, r: 1 }, { type: 'infantry', camp: 'player1', q: -3, r: -2 },
         { type: 'archer', camp: 'player1', q: -5, r: 2 }, { type: 'archer', camp: 'player1', q: -4, r: -1 },
@@ -84,9 +95,22 @@ const THREE_PLAYER_ISLAND = {
         ],
         fortifications: [],
         districts: [],
-        ports: [{ q: -5, r: 0 }, { q: 0, r: -5 }, { q: -5, r: 5 }, { q: 0, r: 5 }, { q: 5, r: 0 }, { q: 5, r: -5 }]
+        ports: [
+            { q: -6, r: 0, districtId: 1, landQ: -5, landR: 0 }, { q: 0, r: -6, districtId: 2, landQ: 0, landR: -5 },
+            { q: -6, r: 6, districtId: 3, landQ: -5, landR: 5 }, { q: 0, r: 6, districtId: 4, landQ: 0, landR: 5 },
+            { q: 6, r: 0, districtId: 6, landQ: 5, landR: 0 }, { q: 6, r: -6, districtId: 7, landQ: 5, landR: -5 }
+        ]
     },
     initialUnits: [
+        { type: 'warship', camp: 'player1', q: -6, r: 0 }, { type: 'warship', camp: 'player1', q: 0, r: -6 },
+        { type: 'destroyer', camp: 'player1', q: -5, r: -1 }, { type: 'submarine', camp: 'player1', q: -6, r: 1 },
+        { type: 'destroyer', camp: 'player1', q: 1, r: -6 }, { type: 'submarine', camp: 'player1', q: -1, r: -5 },
+        { type: 'warship', camp: 'player2', q: -6, r: 6 }, { type: 'warship', camp: 'player2', q: 0, r: 6 },
+        { type: 'destroyer', camp: 'player2', q: -6, r: 5 }, { type: 'submarine', camp: 'player2', q: -5, r: 6 },
+        { type: 'destroyer', camp: 'player2', q: -1, r: 6 }, { type: 'submarine', camp: 'player2', q: 1, r: 5 },
+        { type: 'warship', camp: 'player3', q: 6, r: 0 }, { type: 'warship', camp: 'player3', q: 6, r: -6 },
+        { type: 'destroyer', camp: 'player3', q: 5, r: 1 }, { type: 'submarine', camp: 'player3', q: 6, r: -1 },
+        { type: 'destroyer', camp: 'player3', q: 6, r: -5 }, { type: 'submarine', camp: 'player3', q: 5, r: -6 },
         { type: 'infantry', camp: 'player1', q: -5, r: 0 }, { type: 'infantry', camp: 'player1', q: 0, r: -5 },
         { type: 'infantry', camp: 'player1', q: -4, r: 0 }, { type: 'infantry', camp: 'player1', q: 0, r: -4 },
         { type: 'archer', camp: 'player1', q: -4, r: -1 }, { type: 'archer', camp: 'player1', q: 1, r: -5 },

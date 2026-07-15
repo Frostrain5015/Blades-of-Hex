@@ -1,5 +1,6 @@
 import { getRoundIndex } from '../rules/turns.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 // 占星者 —— 夜观 + 星移
 // 被动：3格内友军免疫天气不利效果
 // 主动：强制指定当前天气并锁定2回合（CD4）
@@ -47,7 +48,7 @@ export default {
         for (let d = 0; d <= BALANCE.auraRange; d++) {
             for (const [dq, dr] of RINGS[d]) {
                 const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-                if (nb && nb.unit && nb.unit.commander === 'astrologer' &&
+                if (nb && nb.unit && nb.unit.commander === 'astrologer' && !areCommanderMechanicsSuppressed(nb.unit) &&
                     nb.unit.camp === friendlyCamp && nb.unit.hp > 0) {
                     return true;
                 }
@@ -64,7 +65,7 @@ export default {
         for (let d = 0; d <= BALANCE.auraRange; d++) {
             for (const [dq, dr] of RINGS[d]) {
                 const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-                if (nb && nb.unit && nb.unit.commander === 'astrologer' &&
+                if (nb && nb.unit && nb.unit.commander === 'astrologer' && !areCommanderMechanicsSuppressed(nb.unit) &&
                     nb.unit.camp !== camp && nb.unit.hp > 0) {
                     return true;
                 }

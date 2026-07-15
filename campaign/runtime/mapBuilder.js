@@ -6,9 +6,10 @@ import { hexDistance } from '../../rules/hex.js';
 import { getPlayableBoardCoordinates, normalizeBoardLayout } from '../../rules/boardLayout.js';
 import {
     buildCoastTopology, buildSurfaceMap, getSurfaceBaseColor, getSurfaceKindAt,
-    hasAdjacentWater, isLandTile, isWaterTile, tileCoordinateKey
+    isLandTile, isWaterTile, tileCoordinateKey
 } from '../../rules/surfaces.js';
 import { buildRiverTopology } from '../../rules/hydrography.js';
+import { resolvePortLandAnchor } from '../../rules/ports.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from '../../js/HexTile.js';
 
 /**
@@ -127,17 +128,31 @@ export function buildBoardFromConfig(config, gameState) {
         if (tile && isLandTile(tile)) tile.fortification = f.type || null;
     }
 
-    // 10) 港口仅在真实陆格上成立；邻水约束由 schema 阻断校验。
+    // 10) 港口是独立的受控浅水格，通过 districtId 跟随所属行政区变色。
     const ports = [];
     const portTiles = new Map();
     for (const port of (board.ports || [])) {
         const tile = at(port?.q, port?.r);
-        if (!tile || !hasAdjacentWater(surfaceMap, tile.q, tile.r)) continue;
+        if (!tile || !isWaterTile(tile)) continue;
         const key = tileCoordinateKey(tile);
         if (portTiles.has(key)) continue;
+        const authoredAnchor = at(port.landQ, port.landR);
+        const landAnchor = authoredAnchor && isLandTile(authoredAnchor)
+            ? authoredAnchor
+            : resolvePortLandAnchor(tile, at, isWaterTile);
+        if (!landAnchor) continue;
         tile.isPort = true;
-        tile.surface = { kind: 'shallowWater' };
-        const value = Object.freeze({ q: tile.q, r: tile.r });
+        tile.surface = 'shallowWater';
+        tile.districtId = landAnchor.districtId ?? null;
+        tile.camp = districtCampMap.get(tile.districtId) || campFor('neutral');
+        const waterColor = getSurfaceBaseColor(tile.surface);
+        tile.startColor = waterColor;
+        tile.targetColor = waterColor;
+        tile.currentColor = waterColor;
+        const value = Object.freeze({
+            q: tile.q, r: tile.r, districtId: tile.districtId,
+            landQ: landAnchor.q, landR: landAnchor.r
+        });
         ports.push(value);
         portTiles.set(key, tile);
     }

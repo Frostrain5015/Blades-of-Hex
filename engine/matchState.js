@@ -14,9 +14,10 @@ import { createDefaultDiplomacy, createDefaultFactions, createStandardFactions }
 import { createDefaultMechanics } from '../rules/mechanics.js';
 import {
     SURFACE_KIND, buildCoastTopology, getSurfaceBaseColor,
-    hasAdjacentWater, isLandTile, isWaterSurface, isWaterTile, normalizeSurfaceKind, tileCoordinateKey
+    isLandTile, isWaterSurface, isWaterTile, normalizeSurfaceKind, tileCoordinateKey
 } from '../rules/surfaces.js';
 import { buildRiverTopology } from '../rules/hydrography.js';
+import { HEX_NEIGHBORS } from '../rules/hex.js';
 import { canUnitOccupyTile } from '../rules/movement.js';
 import { createRng } from '../core/rng.js';
 import { getCounter, setCounter } from '../js/uid.js';
@@ -44,7 +45,8 @@ function createStandardRuntime(playerCount = 2) {
         playerUsesThisTurn: keyedRecord(factions, () => 0),
         visibleTiles: keyedRecord(factions, () => new Set()),
         exploredTiles: keyedRecord(factions, () => new Set()),
-        scoutReveals: keyedRecord(factions, () => new Map())
+        scoutReveals: keyedRecord(factions, () => new Map()),
+        submarineReveals: keyedRecord(factions, () => ({}))
     };
 }
 
@@ -86,6 +88,7 @@ export function configureMatchFactions(match, {
     match.visibleTiles = keyedRecord(factions, () => new Set());
     match.exploredTiles = keyedRecord(factions, () => new Set());
     match.scoutReveals = keyedRecord(factions, () => new Map());
+    match.submarineReveals = keyedRecord(factions, () => ({}));
     return factions;
 }
 
@@ -117,6 +120,8 @@ export function createMatchState() {
         riverTopology: buildRiverTopology(),
         ports: [],
         portTiles: new Map(),
+        submarineReveals: standard.submarineReveals,
+        shoreBatteryBuiltRound: {},
         currentCamp: standard.factions[standard.turnOrder[0]],
         playerGold: standard.playerGold,
         turnCounter: 0,
@@ -396,17 +401,19 @@ export function serializeMatchState(match) {
         return {
         id: t.id,
         q: t.q, r: t.r, s: t.s,
-        campKey: waterTile ? null : (t.camp ? _campToKey(t.camp) : null),
+        campKey: waterTile && !t.isPort ? null : (t.camp ? _campToKey(t.camp) : null),
         surface,
         isCity: waterTile ? false : !!t.isCity,
         isUrban: waterTile ? false : (t.isUrban || false),
         urbanCenterKey: waterTile ? null : (t.urbanCenterKey || null),
         isVillage: waterTile ? false : !!t.isVillage,
         villageDistrictId: waterTile ? 0 : t.villageDistrictId,
-        districtId: waterTile ? null : t.districtId,
+        districtId: waterTile && !t.isPort ? null : t.districtId,
         terrain: waterTile ? 'plains' : t.terrain,
         fortification: waterTile ? null : (t.fortification || null),
-        isPort: waterTile ? false : (t.isPort || false),
+        isPort: !!t.isPort,
+        portCapturedIndependent: !!t._portCapturedIndependent,
+        portOperationalAtRound: t._portOperationalAtRound || 0,
         startColor: t.startColor,
         targetColor: t.targetColor,
         currentColor: t.currentColor,
@@ -429,6 +436,11 @@ export function serializeMatchState(match) {
             moraleBoostUntil: t.unit.moraleBoostUntil,
             moralePenaltyUntil: t.unit.moralePenaltyUntil || 0,
             remainingMP: t.unit.remainingMP,
+              isEmbarked: t.unit.isEmbarked === true,
+              transportTransitionedThisTurn: t.unit._transportTransitionedThisTurn === true,
+            portGuardUntilRound: t.unit._portGuardUntilRound || 0,
+            submarineAttackExposed: t.unit._submarineAttackExposed === true,
+            submarinePortRevealUntilRound: t.unit._submarinePortRevealUntilRound || 0,
             commander: t.unit.commander,
             storyCommanderId: t.unit.storyCommanderId || null,
             commanderName: t.unit.commanderName || '',
@@ -484,7 +496,10 @@ export function serializeMatchState(match) {
         })),
         riverCrossings: (match.riverCrossings || []).map(crossing => ({ ...crossing })),
         crossings: (match.riverCrossings || []).map(crossing => ({ ...crossing })),
-        ports: (match.ports || []).map(port => ({ q: port.q, r: port.r })),
+        ports: (match.ports || []).map(port => ({
+            q: port.q, r: port.r, districtId: port.districtId,
+            landQ: port.landQ, landR: port.landR
+        })),
         serializedAt: Date.now(),
         currentCampKey: _campToKey(match.currentCamp),
         playerGold: { ...match.playerGold },
@@ -563,6 +578,8 @@ export function serializeMatchState(match) {
         visibleTiles: Object.fromEntries(Object.entries(match.visibleTiles || {}).map(([key, tiles]) => [key, [...tiles]])),
         exploredTiles: Object.fromEntries(Object.entries(match.exploredTiles || {}).map(([key, tiles]) => [key, [...tiles]])),
         scoutReveals: Object.fromEntries(Object.entries(match.scoutReveals || {}).map(([key, reveals]) => [key, [...reveals]])),
+        submarineReveals: structuredClone(match.submarineReveals || {}),
+        shoreBatteryBuiltRound: { ...(match.shoreBatteryBuiltRound || {}) },
         villageTiles: [...match.villageTiles]
     };
 }
@@ -616,7 +633,10 @@ export function restoreMatchState(match, data, deps) {
     }));
     const serializedCrossings = Array.isArray(data.crossings) ? data.crossings : data.riverCrossings;
     match.riverCrossings = (serializedCrossings || []).map(crossing => ({ ...crossing }));
-    match.ports = (data.ports || []).map(port => ({ q: port.q, r: port.r }));
+    match.ports = (data.ports || []).map(port => ({
+        q: port.q, r: port.r, districtId: port.districtId,
+        landQ: port.landQ, landR: port.landR
+    }));
     match.riverTopology = buildRiverTopology(match.rivers, match.riverCrossings);
     match.currentCamp = resolveCamp(data.currentCampKey) || campMap[match.turnOrder[0]] || Object.values(match.factions)[0];
     match.victoryCamp = data.victoryCampKey ? resolveCamp(data.victoryCampKey) : null;
@@ -634,6 +654,8 @@ export function restoreMatchState(match, data, deps) {
     match._droneDeployTurn = data.droneDeployTurn || {};
     match._droneDeployCount = data.droneDeployCount || {};
     match._colonelAirStacks = data.colonelAirStacks || {};
+    match.submarineReveals = record(data.submarineReveals, () => ({}));
+    match.shoreBatteryBuiltRound = { ...(data.shoreBatteryBuiltRound || {}) };
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
     if (data.rngState != null) match.rng.setState(data.rngState);
     match.killCount = record(data.killCount, () => 0);
@@ -718,17 +740,26 @@ export function restoreMatchState(match, data, deps) {
         .map(tile => [tileCoordinateKey(tile), normalizeSurfaceKind(tile.surface)]));
     const portCandidates = match.ports.length
         ? match.ports
-        : (data.tiles || []).filter(tile => tile?.isPort === true).map(tile => ({ q: tile.q, r: tile.r }));
+        : (data.tiles || []).filter(tile => tile?.isPort === true)
+            .map(tile => ({ q: tile.q, r: tile.r, districtId: tile.districtId }));
     const restoredPortKeys = new Set();
+    const hasSerializedAdjacentLand = port => HEX_NEIGHBORS.some(([dq, dr]) => {
+        const neighborKey = tileCoordinateKey(port.q + dq, port.r + dr);
+        return serializedTileKeys.has(neighborKey) && !serializedSurfaceMap.has(neighborKey);
+    });
     const restoredPorts = [];
     for (const port of portCandidates) {
         const key = tileCoordinateKey(port);
         if (restoredPortKeys.has(key)
             || !serializedTileKeys.has(key)
-            || isWaterSurface(serializedSurfaceMap.get(key))
-            || !hasAdjacentWater(serializedSurfaceMap, port.q, port.r)) continue;
+            || serializedSurfaceMap.get(key) !== SURFACE_KIND.SHALLOW_WATER
+            || !hasSerializedAdjacentLand(port)
+            || !Number.isInteger(port.districtId)) continue;
         restoredPortKeys.add(key);
-        restoredPorts.push({ q: port.q, r: port.r });
+        restoredPorts.push({
+            q: port.q, r: port.r, districtId: port.districtId,
+            landQ: port.landQ, landR: port.landR
+        });
     }
     match.ports = restoredPorts;
     match.portTiles = new Map();
@@ -738,16 +769,19 @@ export function restoreMatchState(match, data, deps) {
         tile.s = td.s;
         tile.surface = normalizeSurfaceKind(td.surface);
         const waterTile = isWaterSurface(tile.surface);
-        tile.camp = waterTile ? null : (campMap[td.campKey] || campMap.neutral || null);
+        const restoredPort = waterTile && restoredPortKeys.has(tileCoordinateKey(td.q, td.r));
+        tile.camp = waterTile && !restoredPort ? null : (campMap[td.campKey] || campMap.neutral || null);
         tile.isCity = waterTile ? false : !!td.isCity;
         tile.isUrban = waterTile ? false : (td.isUrban ?? !!td.isCity);
         tile.urbanCenterKey = waterTile ? null : (td.urbanCenterKey || (td.isCity ? tileCoordinateKey(td.q, td.r) : null));
         tile.isVillage = waterTile ? false : (td.isVillage || false);
         tile.villageDistrictId = waterTile ? 0 : (td.villageDistrictId || 0);
-        tile.districtId = waterTile ? null : td.districtId;
+        tile.districtId = waterTile && !restoredPort ? null : td.districtId;
         tile.terrain = waterTile ? 'plains' : (td.terrain || 'plains');
         tile.fortification = waterTile ? null : (td.fortification || null);
-        tile.isPort = !waterTile && restoredPortKeys.has(tileCoordinateKey(td.q, td.r));
+        tile.isPort = restoredPort;
+        tile._portCapturedIndependent = restoredPort && td.portCapturedIndependent === true;
+        tile._portOperationalAtRound = restoredPort ? (td.portOperationalAtRound || 0) : 0;
         const surfaceColor = getSurfaceBaseColor(tile.surface);
         tile.startColor = waterTile ? surfaceColor : (td.startColor || tile.camp?.color);
         tile.targetColor = waterTile ? surfaceColor : (td.targetColor || tile.camp?.color);
@@ -770,8 +804,19 @@ export function restoreMatchState(match, data, deps) {
         tile._cityDisabledUntil = waterTile ? 0 : (td.cityDisabledUntil || 0);
         tile._reinforcedThisTurn = waterTile ? false : (td.reinforcedThisTurn || false);
         const unitType = td.unit ? (td.unit.isDrone ? 'drone' : td.unit.type) : null;
-        if (td.unit && canUnitOccupyTile({ type: unitType }, tile, match)) {
-            const unit = new UnitClass(unitType, campMap[td.unit.campKey], tile, td.unit.isNewRecruit, td.unit.id);
+        if (td.unit && canUnitOccupyTile({ type: unitType, isEmbarked: td.unit.isEmbarked === true }, tile, match)) {
+            const unit = new UnitClass(
+                unitType,
+                campMap[td.unit.campKey],
+                tile,
+                td.unit.isNewRecruit,
+                td.unit.id,
+                null,
+                {
+                    isEmbarked: td.unit.isEmbarked === true,
+                    transitionedThisTurn: td.unit.transportTransitionedThisTurn === true
+                }
+            );
             unit.hp = td.unit.hp;
             unit.maxHp = td.unit.maxHp;
             unit.canAct = td.unit.canAct;
@@ -786,6 +831,11 @@ export function restoreMatchState(match, data, deps) {
             unit.moraleBoostUntil = td.unit.moraleBoostUntil || 0;
             unit.moralePenaltyUntil = td.unit.moralePenaltyUntil || 0;
             unit.remainingMP = td.unit.remainingMP ?? unit.config.speed;
+              unit.isEmbarked = td.unit.isEmbarked === true;
+              unit._transportTransitionedThisTurn = td.unit.transportTransitionedThisTurn === true;
+            unit._portGuardUntilRound = td.unit.portGuardUntilRound || 0;
+            unit._submarineAttackExposed = td.unit.submarineAttackExposed === true;
+            unit._submarinePortRevealUntilRound = td.unit.submarinePortRevealUntilRound || 0;
             unit.commander = td.unit.commander || null;
             unit.storyCommanderId = td.unit.storyCommanderId || null;
             unit.commanderName = td.unit.commanderName || '';
@@ -858,25 +908,29 @@ export function restoreMatchState(match, data, deps) {
         const validPorts = [];
         for (const port of match.ports) {
             const tile = match.tileMap.get(tileCoordinateKey(port));
-            if (!tile || !hasAdjacentWater(match.surfaceMap, tile.q, tile.r)) continue;
+            if (!tile || !isWaterTile(tile)) continue;
             const key = tileCoordinateKey(tile);
             if (match.portTiles.has(key)) continue;
             tile.isPort = true;
-            tile.surface = { kind: 'shallowWater' };
+            tile.surface = SURFACE_KIND.SHALLOW_WATER;
+            tile.districtId = port.districtId;
             match.portTiles.set(key, tile);
-            validPorts.push({ q: tile.q, r: tile.r });
+            validPorts.push({
+                q: tile.q, r: tile.r, districtId: tile.districtId,
+                landQ: port.landQ, landR: port.landR
+            });
         }
         match.ports = validPorts;
     } else {
         // Transitional snapshots may contain per-tile port flags but no list.
         match.ports = match.tiles
-            .filter(tile => tile.isPort && hasAdjacentWater(match.surfaceMap, tile.q, tile.r))
-            .map(tile => ({ q: tile.q, r: tile.r }));
+            .filter(tile => tile.isPort && isWaterTile(tile))
+            .map(tile => ({ q: tile.q, r: tile.r, districtId: tile.districtId }));
         for (const port of match.ports) {
             const tile = match.tileMap.get(tileCoordinateKey(port));
             if (!tile) continue;
             tile.isPort = true;
-            tile.surface = tile.surface || { kind: 'shallowWater' };
+            tile.surface = SURFACE_KIND.SHALLOW_WATER;
             match.portTiles.set(tileCoordinateKey(port), tile);
         }
     }

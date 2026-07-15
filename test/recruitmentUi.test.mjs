@@ -3,13 +3,15 @@ import { test } from 'node:test';
 
 import {
     RECRUITMENT_OPTIONS,
-    canRecruitTypeAtSelectedCity,
+    canRecruitTypeAtSelectedSite,
+    getRecruitmentOptionsForTile,
+    getRecruitmentSiteKind,
     shouldShowRecruitmentOption
 } from '../js/recruitmentUi.js';
 
 const player1 = { id: 'player1', name: 'P1' };
 const player2 = { id: 'player2', name: 'P2' };
-const state = { currentCamp: player1, portTiles: new Map() };
+const state = { currentCamp: player1, portTiles: new Map(), turnCounter: 0, turnOrder: ['player1', 'player2'] };
 const shipOption = RECRUITMENT_OPTIONS.find(option => option.type === 'warship');
 
 function city(extra = {}) {
@@ -26,37 +28,52 @@ function city(extra = {}) {
     };
 }
 
-test('warship recruitment is structurally legal only at an own empty port city', () => {
-    const port = city({ isPort: true });
-    assert.equal(canRecruitTypeAtSelectedCity('warship', port, state), true);
-    assert.equal(canRecruitTypeAtSelectedCity('warship', city(), state), false);
-    assert.equal(canRecruitTypeAtSelectedCity('warship', city({ camp: player2, isPort: true }), state), false);
-    assert.equal(canRecruitTypeAtSelectedCity('warship', city({ unit: {}, isPort: true }), state), false);
-    assert.equal(canRecruitTypeAtSelectedCity('warship', city({ isCity: false, isPort: true }), state), false);
+test('warship recruitment is structurally legal only at an own empty independent water port', () => {
+    const port = city({ surface: 'shallowWater', isCity: false, isPort: true });
+    assert.equal(canRecruitTypeAtSelectedSite('warship', port, state), true);
+    assert.equal(canRecruitTypeAtSelectedSite('warship', city(), state), false);
+    assert.equal(canRecruitTypeAtSelectedSite('warship', { ...port, camp: player2 }, state), false);
+    assert.equal(canRecruitTypeAtSelectedSite('warship', { ...port, unit: {} }, state), false);
+    assert.equal(canRecruitTypeAtSelectedSite('warship', city({ isPort: true }), state), false);
 });
 
 test('port-only option stays hidden until the selected city is a legal warship origin', () => {
     assert.equal(shouldShowRecruitmentOption(shipOption, null, state), false);
     assert.equal(shouldShowRecruitmentOption(shipOption, city(), state), false);
-    assert.equal(shouldShowRecruitmentOption(shipOption, city({ isPort: true }), state), true);
+    assert.equal(shouldShowRecruitmentOption(shipOption, city({ surface: 'shallowWater', isCity: false, isPort: true }), state), true);
 });
 
-test('authored port map is honored even before the tile flag is materialized', () => {
-    const authoredPort = city({ q: 4, r: -2 });
-    const authoredState = {
-        currentCamp: player1,
-        portTiles: new Map([['4,-2', authoredPort]])
-    };
-    assert.equal(canRecruitTypeAtSelectedCity('warship', authoredPort, authoredState), true);
+test('a water tile without the port flag is not a recruitment site', () => {
+    const water = city({ q: 4, r: -2, surface: 'shallowWater', isCity: false });
+    assert.equal(canRecruitTypeAtSelectedSite('warship', water, state), false);
 });
 
 test('land recruitment remains available at ordinary own empty cities', () => {
     const ordinaryCity = city();
-    assert.equal(canRecruitTypeAtSelectedCity('infantry', ordinaryCity, state), true);
+    assert.equal(canRecruitTypeAtSelectedSite('infantry', ordinaryCity, state), true);
     assert.equal(shouldShowRecruitmentOption(RECRUITMENT_OPTIONS[0], ordinaryCity, state), true);
-    assert.equal(shouldShowRecruitmentOption(RECRUITMENT_OPTIONS[0], city({ isVillage: true }), state), false);
+    assert.equal(shouldShowRecruitmentOption(RECRUITMENT_OPTIONS[0], city({ isCity: false, isVillage: true }), state), false);
 });
 
-test('the fourth recruitment shortcut is reserved for warships', () => {
-    assert.equal(RECRUITMENT_OPTIONS.find(option => option.shortcut === '4')?.type, 'warship');
+test('one generic interface switches its options by city, port and empty coast', () => {
+    const ordinaryCity = city();
+    const port = city({ q: 1, surface: 'shallowWater', isCity: false, isPort: true });
+    const coast = city({ q: 2, isCity: false });
+    const adjacentWater = city({ q: 3, isCity: false, surface: 'shallowWater' });
+    const siteState = {
+        ...state,
+        tiles: [ordinaryCity, port, coast, adjacentWater],
+        tileMap: new Map([
+            ['0,0', ordinaryCity], ['1,0', port], ['2,0', coast], ['3,0', adjacentWater]
+        ])
+    };
+
+    assert.equal(getRecruitmentSiteKind(ordinaryCity, siteState), 'city');
+    assert.equal(getRecruitmentSiteKind(port, siteState), 'port');
+    assert.equal(getRecruitmentSiteKind(coast, siteState), 'coast');
+    assert.deepEqual(getRecruitmentOptionsForTile(ordinaryCity, siteState).map(option => option.type), ['infantry', 'cavalry', 'archer']);
+    assert.deepEqual(getRecruitmentOptionsForTile(port, siteState).map(option => option.type), ['destroyer', 'warship', 'submarine']);
+    assert.deepEqual(getRecruitmentOptionsForTile(coast, siteState).map(option => option.type), ['shoreBattery']);
+    assert.equal(canRecruitTypeAtSelectedSite('shoreBattery', coast, siteState), true);
+    assert.equal(canRecruitTypeAtSelectedSite('infantry', coast, siteState), false);
 });

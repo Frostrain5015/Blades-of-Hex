@@ -22,10 +22,10 @@ function landTile(id, q, r) {
     return { id, q, r, s: -q - r, campKey: 'player1' };
 }
 
-test('protocol keeps the exact MAX_TILES=256 boundary', () => {
-    const exact = Array.from({ length: 256 }, (_, index) => landTile(index + 1, index, 0));
+test('protocol keeps the exact MAX_TILES=512 boundary for borderless maps', () => {
+    const exact = Array.from({ length: 512 }, (_, index) => landTile(index + 1, index, 0));
     assert.equal(isValidSnapshot(snapshotWithTiles(exact)), true);
-    assert.equal(isValidSnapshot(snapshotWithTiles([...exact, landTile(999, 256, 0)])), false);
+    assert.equal(isValidSnapshot(snapshotWithTiles([...exact, landTile(999, 512, 0)])), false);
 });
 
 test('missing surface remains land while water requires campKey=null', () => {
@@ -38,8 +38,8 @@ test('missing surface remains land while water requires campKey=null', () => {
 
 test('protocol validates board layout, rivers, crossings, ports and rejects render-only tiles', () => {
     const tiles = [
-        { ...landTile(1, 0, 0), surface: SURFACE_KIND.LAND },
-        { id: 2, q: 1, r: 0, s: -1, surface: SURFACE_KIND.DEEP_WATER, campKey: null }
+        { ...landTile(1, 0, 0), surface: SURFACE_KIND.LAND, districtId: 1 },
+        { id: 2, q: 1, r: 0, s: -1, surface: SURFACE_KIND.SHALLOW_WATER, campKey: 'player1', districtId: 1, isPort: true }
     ];
     const metadata = {
         boardLayout: 'borderless',
@@ -50,7 +50,7 @@ test('protocol validates board layout, rivers, crossings, ports and rejects rend
             points: [{ q: 0, r: 0, vertex: 5 }, { q: 0, r: 0, vertex: 0 }]
         }],
         crossings: [{ riverId: 'main', segmentIndex: 0, kind: 'bridge' }],
-        ports: [{ q: 0, r: 0 }]
+        ports: [{ q: 1, r: 0, districtId: 1, landQ: 0, landR: 0 }]
     };
     assert.equal(isValidSnapshot(snapshotWithTiles(tiles, metadata)), true);
     assert.equal(isValidSnapshot(snapshotWithTiles([{ ...tiles[0], renderOnly: true }, tiles[1]], metadata)), false);
@@ -71,7 +71,7 @@ test('protocol validates board layout, rivers, crossings, ports and rejects rend
     })), false, 'canonical and legacy crossing fields may not disagree');
     assert.equal(isValidSnapshot(snapshotWithTiles([
         { ...tiles[0], isPort: true },
-        { ...tiles[1], q: 2, s: -2 }
+        { ...tiles[1], q: 2, s: -2, isPort: false, campKey: null, districtId: null }
     ])), false, 'per-tile inland port flags are not trusted');
     assert.equal(isValidSnapshot(snapshotWithTiles([
         tiles[0],
@@ -82,23 +82,25 @@ test('protocol validates board layout, rivers, crossings, ports and rejects rend
 test('match snapshot round-trips canonical water metadata through protocol validation', () => {
     const match = createMatchState();
     match.boardLayout = 'borderless';
-    const port = new EngineHexTile(0, 0, 101);
+    const land = new EngineHexTile(0, 0, 101);
+    land.camp = match.factions.player1;
+    land.districtId = 1;
+    const port = new EngineHexTile(1, 0, 102);
+    port.surface = SURFACE_KIND.SHALLOW_WATER;
     port.camp = match.factions.player1;
+    port.districtId = 1;
     port.isPort = true;
-    port.startColor = port.camp.color;
-    port.targetColor = port.camp.color;
-    port.currentColor = port.camp.color;
-    const water = new EngineHexTile(1, 0, 102);
-    water.surface = SURFACE_KIND.SHALLOW_WATER;
-    water.camp = null;
-    match.tiles = [port, water];
-    match.tileMap = new Map([['0,0', port], ['1,0', water]]);
+    port.startColor = '#4e8794';
+    port.targetColor = '#4e8794';
+    port.currentColor = '#4e8794';
+    match.tiles = [land, port];
+    match.tileMap = new Map([['0,0', land], ['1,0', port]]);
     match.rivers = [{
         id: 'main', width: 'stream', navigable: false,
         points: [{ q: 0, r: 0, vertex: 5 }, { q: 0, r: 0, vertex: 0 }]
     }];
     match.riverCrossings = [{ riverId: 'main', segmentIndex: 0, kind: 'ford' }];
-    match.ports = [{ q: 0, r: 0 }];
+    match.ports = [{ q: 1, r: 0, districtId: 1, landQ: 0, landR: 0 }];
 
     const snapshot = serializeMatchState(match);
     assert.deepEqual(snapshot.crossings, match.riverCrossings);
@@ -113,7 +115,8 @@ test('match snapshot round-trips canonical water metadata through protocol valid
     });
     assert.equal(restored.boardLayout, 'borderless');
     assert.equal(restored.tileMap.get('1,0').surface, SURFACE_KIND.SHALLOW_WATER);
-    assert.equal(restored.tileMap.get('1,0').camp, null);
+    assert.equal(restored.tileMap.get('1,0').camp.id, 'player1');
+    assert.equal(restored.tileMap.get('1,0').currentColor, '#4e8794');
     assert.deepEqual(restored.riverCrossings, match.riverCrossings);
     assert.deepEqual(restored.ports, match.ports);
 });

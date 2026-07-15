@@ -100,8 +100,8 @@ test('半径外来源忽略，层数封顶但可选来源保留完整命中列�
         { includeSources: true }
     );
 
-    assert.equal(ANTI_AIR_MAX_LAYERS, 2);
-    assert.equal(result.layers, 2);
+    assert.equal(ANTI_AIR_MAX_LAYERS, 3);
+    assert.equal(result.layers, 3);
     assert.equal(result.sources.length, 4);
     assert.equal(result.sources.some(source => source.unitId === 'far'), false);
 });

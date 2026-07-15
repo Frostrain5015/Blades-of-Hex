@@ -47,7 +47,11 @@ const DEFAULT_PALETTE = Object.freeze({
     fordHighlight: 'rgba(235,215,130,0.50)',
     portShadow: 'rgba(34,28,23,0.82)',
     portDeck: '#a8804d',
-    portLight: 'rgba(232,211,164,0.72)'
+    portLight: 'rgba(232,211,164,0.72)',
+    portPlatform: '#b99967',
+    portWall: '#d7c69a',
+    portRoof: '#8b4030',
+    portWindow: '#ffe59b'
 });
 
 function finite(value, fallback) {
@@ -364,12 +368,31 @@ function addPort(paths, land, water) {
     const normalX = -tangentY;
     const normalY = tangentX;
     const size = land.size;
+    const point = (along, across) => ({
+        x: land.x + tangentX * along + normalX * across,
+        y: land.y + tangentY * along + normalY * across
+    });
+    const box = (path, along, across, lengthAlong, widthAcross) => addPolygon(path, [
+        point(along - lengthAlong / 2, across - widthAcross / 2),
+        point(along + lengthAlong / 2, across - widthAcross / 2),
+        point(along + lengthAlong / 2, across + widthAcross / 2),
+        point(along - lengthAlong / 2, across + widthAcross / 2)
+    ]);
     // Begin just inland of the shared coast and reach well into the port cell.
     // The legacy 0.35→0.98 span stopped almost at the coast itself.
     const startDistance = Math.max(size * 0.72, length * 0.5 - size * 0.12);
     const endDistance = Math.max(startDistance + size * 0.5, length - size * 0.2);
     const start = { x: land.x + tangentX * startDistance, y: land.y + tangentY * startDistance };
     const end = { x: land.x + tangentX * endDistance, y: land.y + tangentY * endDistance };
+    // A broad quay visually extends the continent into the independent port
+    // water cell while leaving most of the hex visibly navigable water.
+    box(paths.portPlatforms, startDistance + size * 0.10, 0, size * 0.64, size * 0.78);
+    box(paths.portBuildings, startDistance - size * 0.10, -size * 0.20, size * 0.25, size * 0.25);
+    box(paths.portBuildings, startDistance - size * 0.04, size * 0.21, size * 0.22, size * 0.21);
+    box(paths.portRoofs, startDistance - size * 0.13, -size * 0.20, size * 0.15, size * 0.31);
+    box(paths.portRoofs, startDistance - size * 0.07, size * 0.21, size * 0.13, size * 0.27);
+    box(paths.portWindows, startDistance + size * 0.03, -size * 0.20, size * 0.035, size * 0.07);
+    box(paths.portWindows, startDistance + size * 0.06, size * 0.21, size * 0.035, size * 0.06);
     addLine(paths.portPiers, start, end);
     addLine(paths.portPiers,
         { x: end.x - normalX * size * 0.24, y: end.y - normalY * size * 0.24 },
@@ -468,7 +491,11 @@ function buildPaths(scene, options, pathFactory) {
         fords: new CompiledPath(pathFactory),
         fordHighlights: new CompiledPath(pathFactory),
         portPiers: new CompiledPath(pathFactory),
-        portDetails: new CompiledPath(pathFactory)
+        portDetails: new CompiledPath(pathFactory),
+        portPlatforms: new CompiledPath(pathFactory),
+        portBuildings: new CompiledPath(pathFactory),
+        portRoofs: new CompiledPath(pathFactory),
+        portWindows: new CompiledPath(pathFactory)
     };
 
     const shallowProjected = [];
@@ -576,7 +603,13 @@ function buildPaths(scene, options, pathFactory) {
         const tile = playableByKey.get(key);
         const portPos = projectedPlayable.get(key);
         if (!tile || !portPos || !tile.isPort) continue;
-        const land = resolvePortLandAnchor(tile, portPos, playableByKey, projectedPlayable);
+        const authoredLandKey = Number.isInteger(port?.landQ) && Number.isInteger(port?.landR)
+            ? tileCoordinateKey(port.landQ, port.landR)
+            : null;
+        const authoredLandTile = authoredLandKey ? playableByKey.get(authoredLandKey) : null;
+        const land = authoredLandTile && !isWaterSurface(surfaceKind(authoredLandTile, playableByKey))
+            ? projectedPlayable.get(authoredLandKey)
+            : resolvePortLandAnchor(tile, portPos, playableByKey, projectedPlayable);
         if (!land) continue;
         // 港口自身作为水面端
         addPort(paths, land, portPos);
@@ -711,6 +744,20 @@ function drawDetails(context, layer) {
     context.strokeStyle = palette.fordHighlight;
     context.lineWidth = Math.max(1.5, size * 0.055);
     strokePath(context, paths.fordHighlights);
+
+    context.strokeStyle = palette.portShadow;
+    context.lineWidth = Math.max(1.2, size * 0.045);
+    context.fillStyle = palette.portPlatform;
+    fillPath(context, paths.portPlatforms);
+    strokePath(context, paths.portPlatforms);
+    context.fillStyle = palette.portWall;
+    fillPath(context, paths.portBuildings);
+    strokePath(context, paths.portBuildings);
+    context.fillStyle = palette.portRoof;
+    fillPath(context, paths.portRoofs);
+    strokePath(context, paths.portRoofs);
+    context.fillStyle = palette.portWindow;
+    fillPath(context, paths.portWindows);
 
     context.strokeStyle = palette.portShadow;
     context.lineWidth = size * 0.18;

@@ -62,7 +62,7 @@ import {
 import { resolveMovementTileReveal } from './movementRegionAnimation.js';
 import { CanvasBattlefieldLayers } from './canvasBattlefieldLayers.js';
 import { battlefieldDelegation } from './rendering/delegation.js';
-import { sharedHexEdgeSegmentKey } from '../rules/movement.js';
+import { areCommanderMechanicsSuppressed, sharedHexEdgeSegmentKey } from '../rules/movement.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
@@ -1405,7 +1405,7 @@ function drawUnitHexAuras(now) {
         }
 
         // 铁卫护盾基底环（仅六边形外轮廓，glyph 保留在 Unit.draw 中）
-        if (u.commander === 'ironGuard' && u._shield > 0) {
+        if (u.commander === 'ironGuard' && !areCommanderMechanicsSuppressed(u) && u._shield > 0) {
             ctx.save();
             const shieldRatio = Math.min(1, u._shield / Math.max(u._shieldMax, 1));
             const shieldPulse = (Math.sin(now / 953) + 1) / 2;

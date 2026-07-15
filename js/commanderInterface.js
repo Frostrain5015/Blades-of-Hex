@@ -5,6 +5,7 @@ import { campToKey } from '../rules/camps.js';
 import stallerDef from '../commander/staller.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
+import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 
 // 延迟引用，由 main.js 初始化（避免循环依赖）
 let _gameState = null;
@@ -44,6 +45,10 @@ function _findCommanderUnit(camp, commanderId) {
     }
   }
   return null;
+}
+
+function _commanderEnabled(unit) {
+  return !!unit && !areCommanderMechanicsSuppressed(unit);
 }
 
 function _getCommanderIdForCamp(camp) {
@@ -121,8 +126,8 @@ export function triggerCommanderTurnStart(gameState, camp) {
   const campKey = campToKey(camp);
   const seen = new Set();
   for (const tile of gameState.tiles) {
-    if (!tile.unit || !tile.unit.commander) continue;
-    if (gameState.campaignMode && campToKey(tile.unit.camp) !== campKey) continue;
+    if (!tile.unit || !tile.unit.commander || !_commanderEnabled(tile.unit)) continue;
+    if (campToKey(tile.unit.camp) !== campKey) continue;
     const cid = tile.unit.commander;
     if (seen.has(cid)) continue;
     seen.add(cid);
@@ -138,25 +143,13 @@ export function triggerCommanderTurnStart(gameState, camp) {
 }
 
 export function triggerCommanderTurnEnd(gameState, camp, campKey) {
-  if (gameState.campaignMode) {
-    const seen = new Set();
-    for (const tile of gameState.tiles) {
-      const cmdId = tile.unit?.commander;
-      if (!cmdId || campToKey(tile.unit.camp) !== campKey || seen.has(cmdId)) continue;
-      seen.add(cmdId);
-      const cmd = getCommander(cmdId);
-      if (!cmd?.onTurnEnd) continue;
-      const h = _helpers(cmdId);
-      h.campKey = campKey;
-      h.addGold = (amount) => { gameState.playerGold[campKey] += amount; };
-      cmd.onTurnEnd(gameState, camp, h);
-    }
-    return;
-  }
-  const cmdId = _getCommanderIdForCamp(camp);
-  if (!cmdId) return;
-  const cmd = getCommander(cmdId);
-  if (cmd && cmd.onTurnEnd) {
+  const seen = new Set();
+  for (const tile of gameState.tiles) {
+    const cmdId = tile.unit?.commander;
+    if (!cmdId || !_commanderEnabled(tile.unit) || campToKey(tile.unit.camp) !== campKey || seen.has(cmdId)) continue;
+    seen.add(cmdId);
+    const cmd = getCommander(cmdId);
+    if (!cmd?.onTurnEnd) continue;
     const h = _helpers(cmdId);
     h.campKey = campKey;
     h.addGold = (amount) => { gameState.playerGold[campKey] += amount; };
@@ -179,7 +172,7 @@ export function getCommanderRecruitCost(baseCost, gameState, camp) {
 // ---- 攻击钩子 ----
 
 export function triggerCommanderOnAttack(attacker, target, dmg, isCrit = false) {
-  if (!attacker.commander) return null;
+  if (!attacker.commander || !_commanderEnabled(attacker)) return null;
   const cmd = getCommander(attacker.commander);
   if (cmd && cmd.onAttack) {
     const h = _helpers(attacker.commander);
@@ -191,7 +184,7 @@ export function triggerCommanderOnAttack(attacker, target, dmg, isCrit = false) 
 
 /** triggerCommanderOnAttack 的增强版，包含击杀状态，供 gameLogic 调用 */
 export function triggerCommanderOnAttackEx(attacker, target, dmg, isCrit, isTargetDead) {
-  if (!attacker.commander) return null;
+  if (!attacker.commander || !_commanderEnabled(attacker)) return null;
   const cmd = getCommander(attacker.commander);
   if (cmd && cmd.onAttack) {
     const h = _helpers(attacker.commander);
@@ -206,7 +199,7 @@ export function triggerCommanderOnAttackEx(attacker, target, dmg, isCrit, isTarg
 }
 
 export function triggerCommanderOnCounterAttack(attacker, target, dmg) {
-  if (!target.commander) return null;
+  if (!target.commander || !_commanderEnabled(target)) return null;
   const cmd = getCommander(target.commander);
   if (cmd && cmd.onCounterAttack) {
     const h = _helpers(target.commander);
@@ -221,7 +214,7 @@ export function triggerCommanderOnCounterAttack(attacker, target, dmg) {
 // ---- 击杀钩子 ----
 
 export function triggerCommanderOnKill(killer, victim) {
-  if (!killer.commander) return null;
+  if (!killer.commander || !_commanderEnabled(killer)) return null;
   const cmd = getCommander(killer.commander);
   if (cmd && cmd.onKill) {
     return cmd.onKill(killer, victim, _helpers(killer.commander));
@@ -232,7 +225,7 @@ export function triggerCommanderOnKill(killer, victim) {
 // ---- 防御加成（铁卫等） ----
 
 export function getCommanderDefenseBonus(unit) {
-  if (!unit.commander) return 0;
+  if (!unit.commander || !_commanderEnabled(unit)) return 0;
   const cmd = getCommander(unit.commander);
   if (cmd && cmd.getDefenseBonus) {
     return cmd.getDefenseBonus(unit);
@@ -248,7 +241,7 @@ export function findAdjacentCommander(unit, commanderId) {
   if (!gs || !gs.tileMap) return null;
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
-    if (nb && nb.unit && nb.unit.commander === commanderId && nb.unit.camp === unit.camp) {
+    if (nb && nb.unit && nb.unit.commander === commanderId && _commanderEnabled(nb.unit) && nb.unit.camp === unit.camp) {
       return nb.unit;
     }
   }
@@ -256,7 +249,7 @@ export function findAdjacentCommander(unit, commanderId) {
 }
 
 export function getCommanderAttackBonus(unit) {
-  if (!unit.commander) return 0;
+  if (!unit.commander || !_commanderEnabled(unit)) return 0;
   const cmd = getCommander(unit.commander);
   if (cmd && cmd.getAttackBonus) return cmd.getAttackBonus(unit);
   return 0;
@@ -267,7 +260,7 @@ export function getCommanderAuraDefenseBonus(unit) {
   const igCmd = getCommander('ironGuard');
   if (!igCmd || !igCmd.getAuraDefenseBonus) return 0;
   // 铁卫自身也受灵光保护
-  if (unit.commander === 'ironGuard' && unit._shield > 0) {
+  if (unit.commander === 'ironGuard' && _commanderEnabled(unit) && unit._shield > 0) {
     return igCmd.getAuraDefenseBonus(unit);
   }
   // 相邻友军
@@ -275,7 +268,7 @@ export function getCommanderAuraDefenseBonus(unit) {
   if (!tileMap) return 0;
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nb = tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
-    if (nb && nb.unit && nb.unit.commander === 'ironGuard' && nb.unit.camp === unit.camp && nb.unit._shield > 0) {
+    if (nb && nb.unit && nb.unit.commander === 'ironGuard' && _commanderEnabled(nb.unit) && nb.unit.camp === unit.camp && nb.unit._shield > 0) {
       return igCmd.getAuraDefenseBonus(unit);
     }
   }
@@ -290,11 +283,11 @@ export function getCommanderAuraAttackBonus(unit) {
   if (!gs || !gs.tileMap) return 0;
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
-    if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === unit.camp) {
+    if (nb && nb.unit && nb.unit.commander === 'paladin' && _commanderEnabled(nb.unit) && nb.unit.camp === unit.camp) {
       return COMMANDER_CONFIG.paladin.balance.auraAttackBonus;
     }
   }
-  if (unit.commander === 'paladin') return COMMANDER_CONFIG.paladin.balance.auraAttackBonus;
+  if (unit.commander === 'paladin' && _commanderEnabled(unit)) return COMMANDER_CONFIG.paladin.balance.auraAttackBonus;
   return 0;
 }
 
@@ -307,14 +300,14 @@ export function triggerCommanderAllyDamage(unit, actualDmg) {
   const palCmd = getCommander('paladin');
   if (!palCmd || !palCmd.onAllyDamage) return;
   // 受击单位自身是圣骑士
-  if (unit.commander === 'paladin') {
+  if (unit.commander === 'paladin' && _commanderEnabled(unit)) {
     palCmd.onAllyDamage(unit, actualDmg, unit, _helpers('paladin'));
     return;
   }
   // 受击单位相邻6格有圣骑士
   for (const [dq, dr] of HEX_NEIGHBORS) {
     const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
-    if (nb && nb.unit && nb.unit.commander === 'paladin' && nb.unit.camp === unit.camp) {
+    if (nb && nb.unit && nb.unit.commander === 'paladin' && _commanderEnabled(nb.unit) && nb.unit.camp === unit.camp) {
       palCmd.onAllyDamage(unit, actualDmg, nb.unit, _helpers('paladin'));
       return;
     }
@@ -324,6 +317,7 @@ export function triggerCommanderAllyDamage(unit, actualDmg) {
 // ---- 伤害转移（铁卫灵光） ----
 
 export function getCommanderAllyAuraDamage(ally, actualDmg, ironGuardUnit) {
+  if (!_commanderEnabled(ironGuardUnit)) return actualDmg;
   const cmd = getCommander('ironGuard');
   if (cmd && cmd.onDamageTakenAlly) {
     return cmd.onDamageTakenAlly(ally, actualDmg, ironGuardUnit, _helpers('ironGuard'));
@@ -334,7 +328,7 @@ export function getCommanderAllyAuraDamage(ally, actualDmg, ironGuardUnit) {
 // ---- 必定暴击（保留接口，供将领扩展） ----
 
 export function isCommanderGuaranteedCrit(unit) {
-  if (!unit.commander) return false;
+  if (!unit.commander || !_commanderEnabled(unit)) return false;
   const cmd = getCommander(unit.commander);
   if (cmd && cmd.guaranteesCrit) return cmd.guaranteesCrit(unit);
   return false;
@@ -343,7 +337,7 @@ export function isCommanderGuaranteedCrit(unit) {
 // ---- 暴击率加成（堕天使黑形态 +60% 等）：并入③浮动乘区的暴击概率池 ----
 
 export function getCommanderCritRateBonus(unit) {
-  if (!unit.commander) return 0;
+  if (!unit.commander || !_commanderEnabled(unit)) return 0;
   const cmd = getCommander(unit.commander);
   if (cmd && cmd.getCritRateBonus) return cmd.getCritRateBonus(unit);
   return 0;
@@ -352,7 +346,7 @@ export function getCommanderCritRateBonus(unit) {
 // ---- 士气变化钩子（堕天使等） ----
 
 export function triggerCommanderOnMoraleChange(unit, oldMorale, newMorale) {
-  if (!unit.commander) return;
+  if (!unit.commander || !_commanderEnabled(unit)) return;
   const cmd = getCommander(unit.commander);
   if (cmd && cmd.onMoraleChange) {
     cmd.onMoraleChange(unit, oldMorale, newMorale, _helpers(unit.commander));

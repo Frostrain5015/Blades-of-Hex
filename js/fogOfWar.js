@@ -6,6 +6,7 @@ import { getRelation } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { campToKey } from '../rules/camps.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
+import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 
 // 视野范围：各兵种能看到的格子数（规则键：GAME_RULES.skirmishVision）
 export const UNIT_VISION = SKIRMISH_VISION.unitVision;
@@ -33,7 +34,7 @@ function _getEffectiveVision(unit, gs) {
     } else {
         range = UNIT_VISION[unit.type] || 1;
     }
-    if (unit.commander === 'tianyan') range += COMMANDER_CONFIG.tianyan.balance.visionBonus;
+    if (unit.commander === 'tianyan' && !areCommanderMechanicsSuppressed(unit)) range += COMMANDER_CONFIG.tianyan.balance.visionBonus;
     return Math.max(1, Math.min(5, range));
 }
 

@@ -5,12 +5,12 @@ import { BOARD_RULES } from '../../rules/constants.js';
 import { HEX_NEIGHBORS } from '../../rules/hex.js';
 import { axialToBoardPixel, isBoardCoordinatePlayable } from '../../rules/boardLayout.js';
 import { canUnitOccupyTile } from '../../rules/movement.js';
+import { resolvePortLandAnchor } from '../../rules/ports.js';
 import {
     SURFACE_KIND,
     SURFACE_KINDS,
     buildSurfaceMap,
     getSurfaceKindAt,
-    hasAdjacentWater,
     isWaterSurface,
     tileCoordinateKey
 } from '../../rules/surfaces.js';
@@ -76,6 +76,33 @@ function cityRemainsConnected(city, footprint) {
     return visited.size === keys.size;
 }
 
+function hasAdjacentLand(surfaceMap, q, r) {
+    return HEX_NEIGHBORS.some(([dq, dr]) => !isWaterSurface(getSurfaceKindAt(surfaceMap, q + dq, r + dr)));
+}
+
+function districtAtLandCoordinate(board, q, r) {
+    const explicit = board.districts.find(entry => sameCoordinate(entry, q, r));
+    if (Number.isInteger(explicit?.districtId)) return explicit.districtId;
+    let best = null;
+    let bestDistance = Infinity;
+    for (const city of board.cities) {
+        const distance = Math.max(Math.abs(city.q - q), Math.abs(city.r - r), Math.abs((-city.q - city.r) - (-q - r)));
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = city;
+        }
+    }
+    return best?.districtId;
+}
+
+function portLandAnchor(board, surfaceMap, q, r) {
+    return resolvePortLandAnchor(
+        { q, r },
+        (tileQ, tileR) => isEditableBoardCoordinate(board, tileQ, tileR) ? { q: tileQ, r: tileR } : null,
+        tile => isWaterSurface(getSurfaceKindAt(surfaceMap, tile.q, tile.r))
+    );
+}
+
 /**
  * Toggle one non-centre cell in a multi-hex city footprint. New cells attach
  * only when exactly one existing city is adjacent, so authors never have to
@@ -130,8 +157,8 @@ function removeCoordinate(list, q, r) {
 }
 
 /**
- * Surface edits and board resizes can strand a previously valid port after
- * its last adjacent water cell disappears. Keep authoring state aligned with
+ * Surface edits and board resizes can strand a previously valid shallow-water
+ * port after its last adjacent land cell disappears. Keep authoring state aligned with
  * runtime loading by pruning those ports first, then any unit that can no
  * longer occupy its resulting surface/port tile.
  */
@@ -142,16 +169,19 @@ function reconcileSurfaceOccupancy(level, board) {
     let removed = 0;
     for (const port of asArray(board.ports)) {
         const key = tileCoordinateKey(port);
+        const anchor = portLandAnchor(board, surfaceMap, port?.q, port?.r);
+        const districtId = anchor ? districtAtLandCoordinate(board, anchor.q, anchor.r) : null;
         const valid = isEditableBoardCoordinate(board, port?.q, port?.r)
-            && !isWaterSurface(getSurfaceKindAt(surfaceMap, port.q, port.r))
-            && hasAdjacentWater(surfaceMap, port.q, port.r)
+            && getSurfaceKindAt(surfaceMap, port.q, port.r) === SURFACE_KIND.SHALLOW_WATER
+            && hasAdjacentLand(surfaceMap, port.q, port.r)
+            && Number.isInteger(districtId)
             && !portKeys.has(key);
         if (!valid) {
             removed++;
             continue;
         }
         portKeys.add(key);
-        nextPorts.push(port);
+        nextPorts.push({ q: port.q, r: port.r, districtId, landQ: anchor.q, landR: anchor.r });
     }
     board.ports = nextPorts;
 
@@ -170,6 +200,11 @@ function reconcileSurfaceOccupancy(level, board) {
         level.units = nextUnits;
     }
     return removed;
+}
+
+export function refreshPortAssignments(level) {
+    const board = ensureBoardAuthoringModel(level?.board);
+    return reconcileSurfaceOccupancy(level, board);
 }
 
 /**
@@ -206,7 +241,7 @@ export function applySurfaceBrush(level, q, r, kind) {
 
     let removed = 0;
     if (isWaterSurface(kind)) {
-        for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts', 'ports']) {
+        for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts']) {
             const result = removeCoordinate(board[key], q, r);
             board[key] = result.next;
             removed += result.removed;
@@ -232,7 +267,7 @@ export function togglePort(level, q, r) {
     const existingIndex = board.ports.findIndex(value => sameCoordinate(value, q, r));
     if (existingIndex >= 0) {
         const strandedUnit = asArray(level.units).find(unit => sameCoordinate(unit, q, r)
-            && !canUnitOccupyTile(unit, { q, r, surface: SURFACE_KIND.LAND, isPort: false, playable: true }));
+            && !canUnitOccupyTile(unit, { q, r, surface: surfaceKindAt(board, q, r), isPort: false, playable: true }));
         if (strandedUnit) {
             return { changed: false, placed: true, error: `请先移走港口上的单位「${strandedUnit.id || strandedUnit.type}」。` };
         }
@@ -240,13 +275,18 @@ export function togglePort(level, q, r) {
         return { changed: true, placed: false, error: '' };
     }
     const surfaceMap = buildSurfaceMap(board.surface);
-    if (isWaterSurface(getSurfaceKindAt(surfaceMap, q, r))) {
-        return { changed: false, placed: false, error: '港口只能放在陆地格。' };
+    if (getSurfaceKindAt(surfaceMap, q, r) !== SURFACE_KIND.SHALLOW_WATER) {
+        return { changed: false, placed: false, error: '港口必须放在独立的浅水格。' };
     }
-    if (!hasAdjacentWater(surfaceMap, q, r)) {
-        return { changed: false, placed: false, error: '港口必须邻接至少一个实体浅水或深水地块。' };
+    if (!hasAdjacentLand(surfaceMap, q, r)) {
+        return { changed: false, placed: false, error: '港口必须邻接至少一个大陆地块。' };
     }
-    board.ports.push({ q, r });
+    const landAnchor = portLandAnchor(board, surfaceMap, q, r);
+    const districtId = landAnchor ? districtAtLandCoordinate(board, landAnchor.q, landAnchor.r) : null;
+    if (!Number.isInteger(districtId)) {
+        return { changed: false, placed: false, error: '请先建立一座主城，以确定港口所属行政区。' };
+    }
+    board.ports.push({ q, r, districtId, landQ: landAnchor.q, landR: landAnchor.r });
     return { changed: true, placed: true, error: '' };
 }
 

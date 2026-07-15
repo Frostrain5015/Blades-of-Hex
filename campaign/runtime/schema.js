@@ -13,8 +13,9 @@ import {
 } from '../../rules/boardLayout.js';
 import {
     SURFACE_KIND, SURFACE_KINDS, SURFACE_SPEC_KINDS,
-    hasAdjacentWater, isWaterSurface, tileCoordinateKey
+    getSurfaceKindAt, isWaterSurface, tileCoordinateKey
 } from '../../rules/surfaces.js';
+import { HEX_NEIGHBORS } from '../../rules/hex.js';
 import {
     RIVER_CROSSING_KINDS, RIVER_WIDTHS,
     areCanonicalRiverVerticesAdjacent, canonicalRiverSegmentKey,
@@ -188,7 +189,7 @@ export function createDefaultLevel() {
             districts: [],          // [{ q, r, districtId }] 覆盖 Voronoi 归属，用于手绘不规则边界
             rivers: [],             // [{ id, width, points:[{q,r,vertex}] }]
             crossings: [],          // [{ riverId, segmentIndex, kind:'ford'|'bridge' }]
-            ports: []               // [{ q, r }]，邻接实体水域的格，建为浅水港口
+            ports: []               // [{ q, r, districtId }]，独立的临岸浅水港口格
         },
         units: [],                  // [{ id, type, camp, q, r, commander?|storyCommander?, hpPct, morale, canAct }]
         unitGroups: [],             // [{ id, unitIds:[] }]
@@ -299,6 +300,8 @@ export function validateLevel(config) {
         if (inBoard(surface.q, surface.r)) surfaceMap.set(key, surface.kind);
     }
     const isWaterAt = (q, r) => isWaterSurface(surfaceMap.get(tileCoordinateKey(q, r)));
+    const isCoastalLandAt = (q, r) => !isWaterAt(q, r)
+        && HEX_NEIGHBORS.some(([dq, dr]) => inBoard(q + dq, r + dr) && isWaterAt(q + dq, r + dr));
 
     // River paths are checked on the canonical integer vertex lattice. This
     // makes physically coincident refs compare exactly, without pixel epsilon.
@@ -376,6 +379,9 @@ export function validateLevel(config) {
     }
 
     const seenPorts = new Set();
+    const hasAdjacentLand = (q, r) => HEX_NEIGHBORS.some(([dq, dr]) => (
+        inBoard(q + dq, r + dr) && !isWaterAt(q + dq, r + dr)
+    ));
     for (const port of (c.board?.ports || [])) {
         if (!Number.isInteger(port?.q) || !Number.isInteger(port?.r)) {
             errors.push(`港口坐标 (${port?.q},${port?.r}) 必须是整数。`);
@@ -385,9 +391,19 @@ export function validateLevel(config) {
         if (seenPorts.has(key)) errors.push(`港口 (${key}) 重复。`);
         seenPorts.add(key);
         if (!inBoard(port.q, port.r)) errors.push(`港口 (${key}) 落在棋盘之外。`);
-        if (isWaterAt(port.q, port.r)) errors.push(`港口 (${key}) 必须放在陆地上。`);
-        if (inBoard(port.q, port.r) && !hasAdjacentWater(surfaceMap, port.q, port.r)) {
-            errors.push(`港口 (${key}) 必须邻接至少一个实体水域地块。`);
+        if (getSurfaceKindAt(surfaceMap, port.q, port.r) !== SURFACE_KIND.SHALLOW_WATER) {
+            errors.push(`港口 (${key}) 必须是独立的浅水地块。`);
+        }
+        if (inBoard(port.q, port.r) && !hasAdjacentLand(port.q, port.r)) {
+            errors.push(`港口 (${key}) 必须邻接至少一个大陆地块以形成码头连接。`);
+        }
+        if (!Number.isInteger(port?.districtId)) {
+            errors.push(`港口 (${key}) 必须指定所属行政区 districtId。`);
+        }
+        const anchorAdjacent = Number.isInteger(port?.landQ) && Number.isInteger(port?.landR)
+            && HEX_NEIGHBORS.some(([dq, dr]) => port.q + dq === port.landQ && port.r + dr === port.landR);
+        if (!anchorAdjacent || !inBoard(port?.landQ, port?.landR) || isWaterAt(port?.landQ, port?.landR)) {
+            errors.push(`港口 (${key}) 必须指定一个相邻大陆格作为栈桥锚点 landQ/landR。`);
         }
     }
 
@@ -431,6 +447,32 @@ export function validateLevel(config) {
     // 阵营由区划内唯一的城市（颜色来源）派生，一个 districtId 不能有两座颜色来源冲突的城市。
     for (const [districtId, count] of districtCityCount) {
         if (count > 1) errors.push(`行政区 ${districtId} 有 ${count} 座城市，颜色来源不唯一。`);
+    }
+    for (const port of (c.board?.ports || [])) {
+        if (Number.isInteger(port?.districtId) && !districtCityCount.has(port.districtId)) {
+            errors.push(`港口 (${port.q},${port.r}) 指向了没有主城的行政区 ${port.districtId}。`);
+        }
+        if (Number.isInteger(port?.landQ) && Number.isInteger(port?.landR) && !isWaterAt(port.landQ, port.landR)) {
+            const explicit = (c.board?.districts || []).find(entry => entry.q === port.landQ && entry.r === port.landR);
+            let expectedDistrictId = explicit?.districtId;
+            if (!Number.isInteger(expectedDistrictId)) {
+                let bestDistance = Infinity;
+                for (const city of cities) {
+                    const distance = Math.max(
+                        Math.abs(city.q - port.landQ),
+                        Math.abs(city.r - port.landR),
+                        Math.abs((-city.q - city.r) - (-port.landQ - port.landR))
+                    );
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        expectedDistrictId = city.districtId;
+                    }
+                }
+            }
+            if (Number.isInteger(expectedDistrictId) && port.districtId !== expectedDistrictId) {
+                errors.push(`港口 (${port.q},${port.r}) 必须归属栈桥陆格 (${port.landQ},${port.landR}) 的行政区 ${expectedDistrictId}。`);
+            }
+        }
     }
     for (const entry of (c.board?.districts || [])) {
         if (!Number.isInteger(entry?.q) || !Number.isInteger(entry?.r) || !inBoard(entry.q, entry.r)) {
@@ -496,6 +538,9 @@ export function validateLevel(config) {
             if (!canUnitOccupyTile({ type: u.type }, authoredTile)) {
                 const domain = UNIT_CONFIG[u.type].movementDomain || 'land';
                 errors.push(`单位「${u.id || key}」的移动域 ${domain} 无法部署在地块 (${key}) 的表面上。`);
+            }
+            if (u.type === 'shoreBattery' && !isCoastalLandAt(u.q, u.r)) {
+                errors.push(`岸防炮「${u.id || key}」只能部署在沿海陆地。`);
             }
         }
         if (seen.has(key)) errors.push(`坐标 (${key}) 上有多个单位重叠。`);
@@ -811,6 +856,9 @@ export function validateLevel(config) {
                     if (!canUnitOccupyTile({ type: spec.type }, authoredTile)) {
                         const domain = UNIT_CONFIG[spec.type].movementDomain || 'land';
                         errors.push(`${specPath} 的移动域 ${domain} 无法部署在地块 (${spawnKey}) 的表面上。`);
+                    }
+                    if (spec.type === 'shoreBattery' && !isCoastalLandAt(spec.q, spec.r)) {
+                        errors.push(`${specPath} 的岸防炮只能部署在沿海陆地。`);
                     }
                 }
                 if (spec?.commander && !COMMANDER_IDS.includes(spec.commander)) errors.push(`${specPath} 引用不存在的将领「${spec.commander}」。`);

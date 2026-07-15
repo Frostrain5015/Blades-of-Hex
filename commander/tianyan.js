@@ -4,6 +4,7 @@ import { campToKey } from '../rules/camps.js';
 import { hexDistance, HEX_NEIGHBORS } from '../rules/hex.js';
 import { emit } from '../js/eventBus.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.tianyan;
 
@@ -24,7 +25,7 @@ function _campToKey(camp) {
 
 export function _findTianyanUnit(gameState, camp) {
     for (const t of gameState.tiles) {
-        if (t.unit && t.unit.commander === 'tianyan' && t.unit.camp === camp && t.unit.hp > 0) {
+        if (t.unit && t.unit.commander === 'tianyan' && !areCommanderMechanicsSuppressed(t.unit) && t.unit.camp === camp && t.unit.hp > 0) {
             return t.unit;
         }
     }

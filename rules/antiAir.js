@@ -8,15 +8,16 @@ import { campToKey } from './camps.js';
 import { COLONEL_CARD_DATA } from './cards.js';
 import { COMBAT_BALANCE } from './constants.js';
 import { isMechanicEnabled } from './mechanics.js';
+import { areCommanderMechanicsSuppressed } from './movement.js';
 
 export const ANTI_AIR_RADIUS = COLONEL_CARD_DATA.antiairRadius;
 export const ANTI_AIR_MAX_LAYERS = COMBAT_BALANCE.defense.antiairMaxLayers;
 
-const UNIT_PROVIDER_TYPES = Object.freeze(new Set(['archer', 'mgNest']));
+const UNIT_PROVIDER_TYPES = Object.freeze(new Set(['archer', 'mgNest', 'destroyer']));
 
 /** 炮兵、碉堡或挂载停滞者的单位各自提供 1 个防空来源。 */
 export function isAntiAirUnit(unit) {
-    return !!unit && (UNIT_PROVIDER_TYPES.has(unit.type) || unit.commander === 'staller');
+    return !!unit && (UNIT_PROVIDER_TYPES.has(unit.type) || (unit.commander === 'staller' && !areCommanderMechanicsSuppressed(unit)));
 }
 
 function axialDistance(a, b) {
@@ -34,7 +35,8 @@ function getUnitProviderKinds(unit) {
     const kinds = [];
     if (unit.type === 'archer') kinds.push('archer');
     if (unit.type === 'mgNest') kinds.push('mgNest');
-    if (unit.commander === 'staller') kinds.push('staller');
+    if (unit.type === 'destroyer') kinds.push('destroyer');
+    if (unit.commander === 'staller' && !areCommanderMechanicsSuppressed(unit)) kinds.push('staller');
     return kinds;
 }
 
@@ -96,11 +98,12 @@ export function resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, optio
         const unit = tile?.unit;
         if (!isAntiAirUnit(unit)) continue;
         if (campToKey(unit.camp) === attackingCampKey) continue;
-        if (axialDistance(tile, targetTile) > ANTI_AIR_RADIUS) continue;
+        const providerRadius = unit.type === 'destroyer' ? 1 : ANTI_AIR_RADIUS;
+        if (axialDistance(tile, targetTile) > providerRadius) continue;
         addSource(makeUnitSource(tile, unit));
     }
 
-    const layers = /** @type {0|1|2} */ (Math.min(sourceCount, ANTI_AIR_MAX_LAYERS));
+    const layers = /** @type {0|1|2|3} */ (Math.min(sourceCount, ANTI_AIR_MAX_LAYERS));
     return includeSources ? { layers, sources } : { layers };
 }
 

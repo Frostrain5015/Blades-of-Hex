@@ -4,6 +4,7 @@
 //   2. 友军单位对远程攻击（炮兵/碉堡/空军）防御力+25%（单层；对空时作为防空层计入，不与力场叠加）
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
+import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 
 const RANGE2 = (() => {
     const set = new Set(HEX_NEIGHBORS.map(([q, r]) => `${q},${r}`));
@@ -31,7 +32,7 @@ export default {
     for (let d = 0; d <= BALANCE.range; d++) {
       for (const [dq, dr] of RINGS[d]) {
         const nb = tileMap.get(`${tile.q - dq},${tile.r - dr}`);
-        if (nb && nb.unit && nb.unit.commander === 'staller' &&
+        if (nb && nb.unit && nb.unit.commander === 'staller' && !areCommanderMechanicsSuppressed(nb.unit) &&
             nb.unit.camp !== friendlyCamp && nb.unit.hp > 0) {
           best = Math.max(best, BALANCE.range + 1 - d);
         }
@@ -53,7 +54,7 @@ export default {
     for (let d = 1; d <= BALANCE.range; d++) {
       for (const [dq, dr] of RINGS[d]) {
         const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-        if (nb && nb.unit && nb.unit.commander === 'staller' &&
+        if (nb && nb.unit && nb.unit.commander === 'staller' && !areCommanderMechanicsSuppressed(nb.unit) &&
             nb.unit.camp !== unit.camp && nb.unit.hp > 0) {
           return BALANCE.rangeReduction;
         }
@@ -68,7 +69,7 @@ export default {
     for (let d = 0; d <= BALANCE.range; d++) {
       for (const [dq, dr] of RINGS[d]) {
         const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-        if (nb && nb.unit && nb.unit.commander === 'staller' &&
+        if (nb && nb.unit && nb.unit.commander === 'staller' && !areCommanderMechanicsSuppressed(nb.unit) &&
             nb.unit.camp === friendlyCamp && nb.unit.hp > 0) {
           return true;
         }

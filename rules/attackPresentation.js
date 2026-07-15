@@ -19,8 +19,8 @@ function readAttackSource(source) {
  */
 export function classifyAttackPresentation(source) {
     const { type, isDrone } = readAttackSource(source);
-    if (isDrone || type === 'drone' || type === 'mgNest') return ATTACK_PRESENTATION.FIRE_TRACER;
-    if (type === 'archer' || type === 'warship') return ATTACK_PRESENTATION.FIRE_CANNON;
+    if (isDrone || type === 'drone' || type === 'mgNest' || type === 'destroyer') return ATTACK_PRESENTATION.FIRE_TRACER;
+    if (type === 'archer' || type === 'warship' || type === 'shoreBattery') return ATTACK_PRESENTATION.FIRE_CANNON;
     return ATTACK_PRESENTATION.ASSAULT;
 }
 

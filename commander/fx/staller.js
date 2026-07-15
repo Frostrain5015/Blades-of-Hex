@@ -2,6 +2,7 @@
 import { HEX_SIZE, HEX_NEIGHBORS, hexPath, ctx } from '../../js/config.js';
 import { gameState } from '../../js/state.js';
 import { registerFxLayer } from '../../js/fxRegistry.js';
+import { areCommanderMechanicsSuppressed } from '../../rules/movement.js';
 
 function _drawStallerZone(now) {
     const ring1 = new Set();
@@ -12,7 +13,7 @@ function _drawStallerZone(now) {
 
     for (const tile of gameState.tiles) {
         const u = tile.unit;
-        if (!u || u.commander !== 'staller' || u.hp <= 0) continue;
+        if (!u || u.commander !== 'staller' || areCommanderMechanicsSuppressed(u) || u.hp <= 0) continue;
         const vp = u.getVisualPos();
         let centerTile = tile;
         let minDist = Infinity;

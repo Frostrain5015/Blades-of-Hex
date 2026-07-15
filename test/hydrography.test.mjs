@@ -135,7 +135,7 @@ test('schema accepts a valid sparse-water, footprint, river, crossing and port b
         navigable: false
     }];
     level.board.crossings = [{ riverId: 'main-river', segmentIndex: 1, kind: 'bridge' }];
-    level.board.ports = [{ q: 0, r: 0 }];
+    level.board.ports = [{ q: 1, r: 0, districtId: 5, landQ: 0, landR: 0 }];
     assert.deepEqual(validateLevel(level).errors, []);
 });
 
@@ -189,7 +189,7 @@ test('schema blocks water overlays, malformed river topology, bad crossings and 
     const { errors } = validateLevel(level);
 
     for (const fragment of ['footprint 不能覆盖水域', '不能放置村庄', '不能放置工事', '不能声明行政区',
-        '零长度', '非相邻 canonical 顶点', '不存在的河流', '通行点类型', '必须放在陆地']) {
+        '零长度', '非相邻 canonical 顶点', '不存在的河流', '通行点类型', '必须是独立的浅水地块']) {
         assert.ok(errors.some(message => message.includes(fragment)), `missing validation: ${fragment}\n${errors.join('\n')}`);
     }
 });
@@ -209,7 +209,7 @@ test('map builder applies water before ownership and keeps city footprint centre
     level.board.villages = [{ q: 1, r: 0, districtId: 5 }];
     level.board.fortifications = [{ q: 1, r: 0, type: 'trench' }];
     level.board.districts = [{ q: 1, r: 0, districtId: 5 }];
-    level.board.ports = [{ q: 0, r: 0 }];
+    level.board.ports = [{ q: 1, r: 0, districtId: 5, landQ: 0, landR: 0 }];
     level.board.rivers = [{
         id: 'main-river',
         width: 'river',
@@ -222,8 +222,9 @@ test('map builder applies water before ownership and keeps city footprint centre
     const centre = state.tileMap.get('0,0');
     const footprint = state.tileMap.get('0,1');
     assert.equal(water.surface, SURFACE_KIND.SHALLOW_WATER);
-    assert.equal(water.camp, null);
-    assert.equal(water.districtId, null);
+    assert.equal(water.camp.id, 'player1');
+    assert.equal(water.districtId, 5);
+    assert.equal(water.currentColor, '#4e8794');
     assert.equal(water.isVillage, false);
     assert.equal(water.fortification, null);
     assert.equal(centre.isCity, true);
@@ -232,7 +233,7 @@ test('map builder applies water before ownership and keeps city footprint centre
     assert.equal(footprint.isUrban, true);
     assert.equal(state.surfaceMap.get('1,0'), SURFACE_KIND.SHALLOW_WATER);
     assert.ok(state.coastEdges.length > 0);
-    assert.equal(state.portTiles.get('0,0'), centre);
+    assert.equal(state.portTiles.get('1,0'), water);
     assert.equal(state.riverTopology.rivers.has('main-river'), true);
     assert.equal(state.campBorderEdges.some(edge => `${edge.qa},${edge.ra}` === '1,0' || `${edge.qb},${edge.rb}` === '1,0'), false);
 });
@@ -247,14 +248,15 @@ test('match snapshots round-trip surfaces and rebuild derived hydrography', () =
     land.isCity = true;
     land.isUrban = true;
     land.urbanCenterKey = '0,0';
-    land.isPort = true;
+    land.districtId = 5;
     const water = new EngineHexTile(1, 0, 1002);
-    water.surface = SURFACE_KIND.DEEP_WATER;
-    water.camp = null;
-    water.districtId = null;
-    water.startColor = '#294f67';
-    water.targetColor = '#294f67';
-    water.currentColor = '#294f67';
+    water.surface = SURFACE_KIND.SHALLOW_WATER;
+    water.camp = match.factions.player1;
+    water.districtId = 5;
+    water.isPort = true;
+    water.startColor = '#4e8794';
+    water.targetColor = '#4e8794';
+    water.currentColor = '#4e8794';
     match.tiles = [land, water];
     match.tileMap = new Map([['0,0', land], ['1,0', water]]);
     match.rivers = [{
@@ -263,9 +265,9 @@ test('match snapshots round-trip surfaces and rebuild derived hydrography', () =
         points: [{ q: 0, r: 0, vertex: 5 }, { q: 0, r: 0, vertex: 0 }]
     }];
     match.riverCrossings = [{ riverId: 'snapshot-river', segmentIndex: 0, kind: 'ford' }];
-    match.ports = [{ q: 0, r: 0 }];
+    match.ports = [{ q: 1, r: 0, districtId: 5, landQ: 0, landR: 0 }];
     const snapshot = serializeMatchState(match);
-    assert.equal(snapshot.tiles[1].campKey, null);
+    assert.equal(snapshot.tiles[1].campKey, 'player1');
 
     const restored = createMatchState();
     restoreMatchState(restored, snapshot, {
@@ -274,11 +276,12 @@ test('match snapshots round-trip surfaces and rebuild derived hydrography', () =
         computeCampBorders: tiles => [{ landTileCount: tiles.length }],
         computeDistrictBorders: tiles => [{ landTileCount: tiles.length }]
     });
-    assert.equal(restored.tileMap.get('1,0').surface, SURFACE_KIND.DEEP_WATER);
-    assert.equal(restored.tileMap.get('1,0').camp, null);
+    assert.equal(restored.tileMap.get('1,0').surface, SURFACE_KIND.SHALLOW_WATER);
+    assert.equal(restored.tileMap.get('1,0').camp.id, 'player1');
+    assert.equal(restored.tileMap.get('1,0').currentColor, '#4e8794');
     assert.equal(restored.coastEdges.length, 1);
     assert.equal(restored.riverTopology.rivers.has('snapshot-river'), true);
     assert.equal(restored.riverTopology.crossings[0].kind, 'ford');
-    assert.equal(restored.portTiles.get('0,0').isPort, true);
+    assert.equal(restored.portTiles.get('1,0').isPort, true);
     assert.deepEqual(restored.campBorderEdges, [{ landTileCount: 1 }]);
 });

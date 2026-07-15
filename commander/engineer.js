@@ -1,5 +1,6 @@
 import { campToKey } from '../rules/camps.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.engineer;
 
@@ -36,6 +37,7 @@ function fail(message) {
 function canActAsEngineer(unit, gameState) {
     return !!unit
         && unit.commander === 'engineer'
+        && !areCommanderMechanicsSuppressed(unit)
         && unit.hp > 0
         && unit.tile
         && unit.camp === gameState.currentCamp

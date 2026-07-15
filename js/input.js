@@ -27,6 +27,8 @@ import { getFactionKeys } from '../rules/diplomacy.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import { RECRUITMENT_OPTIONS } from './recruitmentUi.js';
 import { VITE_RUNTIME_AVAILABLE } from './rendering/viteRuntime.js';
+import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
+import { isCoastalLandTile } from '../rules/naval.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
@@ -154,6 +156,15 @@ function _isLocalActionUnit(unit) {
     return !!unit && unit.hp > 0 && _isLocalActionCamp(unit.camp);
 }
 
+function _getActiveDiplomatOverride(campKey) {
+    const override = gameState._cardOverrides?.[campKey];
+    if (!override) return null;
+    const diplomat = gameState.tiles.find(tile => tile.unit?.commander === 'diplomat'
+        && _campKeyInput(tile.unit.camp) === campKey
+        && tile.unit.hp > 0)?.unit;
+    return diplomat && !areCommanderMechanicsSuppressed(diplomat) ? override : null;
+}
+
 function _canUseDroneSkill(unit) {
     return _isLocalActionUnit(unit);
 }
@@ -170,6 +181,7 @@ function _canUseDroneSuicide(unit) {
 
 function _canUseCommanderActiveSkill(unit) {
     if (!_isLocalActionUnit(unit) || !unit.commander) return false;
+    if (areCommanderMechanicsSuppressed(unit)) return false;
     const cmdCfg = getCommander(unit.commander);
     const hasActiveSkill = !!(cmdCfg && (cmdCfg.activeSkill || (Array.isArray(cmdCfg.activeSkills) && cmdCfg.activeSkills.length > 0)));
     if (!hasActiveSkill || unit._engineerConstruction) return false;
@@ -573,7 +585,7 @@ function _handleCardCanvasClick(e) {
 
         // 普通抽牌（E3 纵横家合纵：手牌上限覆盖）
         const _dcCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
-        const handSizeBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].handSizeBonus || 0 : 0;
+        const handSizeBonus = _getActiveDiplomatOverride(campKey)?.handSizeBonus || 0;
         if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + handSizeBonus ||
             gameState.playerGold[campKey] < _dcCost ||
             gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) {
@@ -625,7 +637,7 @@ function _handleCardCanvasClick(e) {
                 return;
             }
             // E3 纵横家合纵：用卡次数上限覆盖
-            const useBonus = (gameState._cardOverrides && gameState._cardOverrides[campKey]) ? gameState._cardOverrides[campKey].useBonus || 0 : 0;
+            const useBonus = _getActiveDiplomatOverride(campKey)?.useBonus || 0;
             if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
                 notify('本回合已达到使用上限', 'error'); return;
             }
@@ -670,7 +682,11 @@ function _handleCardCanvasClick(e) {
 const PASSIVE_DEFS = {
     infantry: { ...FRONTEND_TEXT.unitPassives.infantry, active: (u) => u.tile.isCity },
     cavalry: { ...FRONTEND_TEXT.unitPassives.cavalry, active: (u) => u.moveDistance >= 1 },
-    archer: { ...FRONTEND_TEXT.unitPassives.archer, active: (u) => u.tile.terrain === 'mountain' }
+    archer: { ...FRONTEND_TEXT.unitPassives.archer, active: (u) => u.tile.terrain === 'mountain' },
+    shoreBattery: { ...FRONTEND_TEXT.unitPassives.shoreBattery, active: () => true },
+    destroyer: { ...FRONTEND_TEXT.unitPassives.destroyer, active: () => true },
+    warship: { ...FRONTEND_TEXT.unitPassives.warship, active: () => true },
+    submarine: { ...FRONTEND_TEXT.unitPassives.submarine, active: () => true }
 };
 
 // 军衔折形沿用战场单位的图形语言：1–3 阶为折形，4 阶及以上为金色星章。
@@ -782,7 +798,11 @@ const UNIT_TYPE_NAMES = {
     cavalry: '骑兵',
     archer: '炮兵',
     mgNest: '碉堡',
-    drone: '天眼哨机'
+    drone: '天眼哨机',
+    shoreBattery: '岸防炮',
+    destroyer: '驱逐舰',
+    warship: '巡洋舰',
+    submarine: '潜艇'
 };
 
 const PASSIVE_ICONS = FRONTEND_TEXT.icons.unitPassive;
@@ -1218,6 +1238,7 @@ function _buildPassiveItems(unit) {
     }
 
     if (!unit.commander) return items;
+    if (areCommanderMechanicsSuppressed(unit) && unit.commander !== 'colonel') return items;
     const commander = getCommander(unit.commander);
     if (!commander) return items;
 
@@ -1449,12 +1470,13 @@ function _syncSelectionHud(tile) {
         const moraleDefBonus = MORALE_CONFIG[unit.morale].defBonus;
         const auraDefBonus = getCommanderAuraDefenseBonus(unit);
         const commanderDefBonus = getCommanderDefenseBonus(unit);
-        const cityDefBonus = unit.type === 'infantry' && tile.isCity ? 0.10 : 0;
-        const terrainDefBonus = TERRAIN_CONFIG[tile.terrain].defenseBonus;
-        const fortificationDefBonus = tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
+        const cityDefBonus = !unit.isEmbarked && unit.type === 'infantry' && tile.isCity ? 0.10 : 0;
+        const terrainDefBonus = unit.isEmbarked ? 0 : TERRAIN_CONFIG[tile.terrain].defenseBonus;
+        const fortificationDefBonus = !unit.isEmbarked && tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
         const rankDefBonus = unit._rankDefBonus || 0;
         const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
-        defense = Math.round(((unit.config.defense || 0) + moraleDefBonus + terrainDefBonus
+        const baseDefense = unit.isEmbarked ? getTransportBaseDefense(unit) : (unit.config.defense || 0);
+        defense = Math.round((baseDefense + moraleDefBonus + terrainDefBonus
             + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + cityDefBonus + campaignDefBonus) * 100);
         // 悬浮可走地块时预览本次移动的行动力消耗
         if (gameState.selectedUnit === unit && gameState.hoveredTile && !gameState.hoveredTile.unit
@@ -1513,7 +1535,7 @@ function _syncSelectionHud(tile) {
             _textSpan('⚔ ' + attack + (attackDelta ? ' (' + (attackDelta > 0 ? '+' : '') + attackDelta + ')' : ''), attackDelta > 0 ? '#ffe875' : '#ffdf70'),
             _textSpan('🛡 ' + defense + '%(' + (defense + _calcAADefense(tile, unit) * 25) + '%)', defense > 0 ? '#9be5df' : defense < 0 ? '#ff8f96' : '#b3b3b3'),
             _textSpan(mpText, '#87d5ff'),
-            _textSpan('📡 ' + unit.config.range, '#f4a8d4')
+            _textSpan('📡 ' + (unit.getEffectiveRange?.() ?? unit.config.range), '#f4a8d4')
         );
     } else {
         _setHudTitle('');
@@ -1536,7 +1558,8 @@ function _calcAADefense(tile, unit) {
     for (const [dq, dr] of [...dirs, ...dirs2]) {
         const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
         if (!nb || !nb.unit || nb.unit.camp !== unit.camp) continue;
-        if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest' || nb.unit.commander === 'staller') {
+        if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest'
+            || (nb.unit.commander === 'staller' && !areCommanderMechanicsSuppressed(nb.unit))) {
             if (++aaCount >= 2) break;
         }
     }
@@ -1891,7 +1914,7 @@ export function initInput() {
             }
             // 天眼无人机部署：跳过 cfg 检查（非真实卡牌）
             if (ct.cardId === 'drone_deploy') {
-                const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && _sameCampInput(t.unit.camp, myCamp) && t.unit.hp > 0 ? t.unit : null), null);
+                const tianyanUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'tianyan' && !areCommanderMechanicsSuppressed(t.unit) && _sameCampInput(t.unit.camp, myCamp) && t.unit.hp > 0 ? t.unit : null), null);
                 if (!tianyanUnit) { notify('天眼已阵亡', 'error'); cancelCardTargeting(); return; }
                 if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
                 const drone = executeDroneDeploy(tianyanUnit, clickedTile);
@@ -1988,6 +2011,10 @@ export function initInput() {
         const ownActionable = isOwnUnit && clickedTile.unit.canAct;
         const ownEmptyCity = clickedTile.isCity && _isLocalActionCamp(clickedTile.camp) && !clickedTile.unit;
         const ownEmptyVillage = clickedTile.isVillage && _isLocalActionCamp(clickedTile.camp) && !clickedTile.unit;
+        const ownEmptyPort = clickedTile.isPort && _isLocalActionCamp(clickedTile.camp) && !clickedTile.unit;
+        const ownEmptyCoast = !clickedTile.isCity && !clickedTile.isVillage && !clickedTile.isPort
+            && _isLocalActionCamp(clickedTile.camp) && !clickedTile.unit
+            && isCoastalLandTile(clickedTile, gameState);
 
         if (isOwnUnit) {
             gameState.selectedUnit = clickedTile.unit;
@@ -2005,7 +2032,7 @@ export function initInput() {
                 gameState.movableTiles = [];
                 gameState.attackableTiles = [];
             }
-        } else if (ownEmptyCity || ownEmptyVillage) {
+        } else if (ownEmptyCity || ownEmptyVillage || ownEmptyPort || ownEmptyCoast) {
             gameState.selectedCityTile = clickedTile;
         } else if (clickedTile.unit) {
             // 敌方/中立/不可行动单位：可选中查看 HUD 信息，不显示行动范围

@@ -32,7 +32,7 @@ export const GAME_RULES = deepFreeze({
     commanderDraft: { candidatesPerPlayer: 3, dualCandidatesPerPlayer: 5, dualCommanderCount: 2 },
     // 遭遇战（战争迷雾）视野：各兵种可见格数；己方城市提供相邻格视野。
     skirmishVision: {
-        unitVision: { infantry: 1, cavalry: 2, archer: 2, mgNest: 2, drone: 2 },
+        unitVision: { infantry: 1, cavalry: 2, archer: 2, mgNest: 2, shoreBattery: 2, drone: 2, destroyer: 2, warship: 3, submarine: 2 },
         cityVisionRange: 1
     }
 });
@@ -66,7 +66,7 @@ export const COMBAT_BALANCE = deepFreeze({
         morale: { up: { min: 0.05, max: 0.10 }, down: { min: -0.05, max: -0.10 }, confused: { min: -0.10, max: -0.20 } }
     },
     counter: { advantageDamage: 0.20, disadvantageDamage: -0.20, advantageCrit: 0.25 },
-    defense: { minimumMultiplier: 0.30, forestVsRangedBonus: 0.15, cityInfantryBonus: 0.10, windInfantryPenalty: 0.15, rainCityInfantryBonus: 0.10, antiairPerLayer: 0.25, antiairMaxLayers: 2 },
+    defense: { minimumMultiplier: 0.20, forestVsRangedBonus: 0.15, cityInfantryBonus: 0.10, windInfantryPenalty: 0.15, rainCityInfantryBonus: 0.10, antiairPerLayer: 0.25, antiairMaxLayers: 3 },
     cavalry: { normalChargeDamagePerStep: 0.10, fogChargeDamagePerStep: 0.15, maxChargeSteps: 3, fogDamageBonus: 0.20 },
     infantry: { cityHealPct: 0.10, cityDamageBonus: 0.15 },
     weather: { rainCityHealPct: 0.15, rainCavalryMovementCost: 1, fogArcherRangeDelta: -1, windArcherRangeDelta: 1, windArcherDamageBonus: 0.20 },

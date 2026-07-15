@@ -8,8 +8,9 @@ import { COLONEL_CARD_DATA } from './cards.js';
 import { hexDistance, HEX_NEIGHBORS } from './hex.js';
 import { isMechanicEnabled } from './mechanics.js';
 import { resolveAntiAirCoverage } from './antiAir.js';
+import { isSubmarineTargetableBy } from './naval.js';
 import { COMMANDER_CONFIG } from './commanders.js';
-import { getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN } from './movement.js';
+import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN } from './movement.js';
 
 export const TARGET_INTENTS = Object.freeze({
     HOSTILE: 'hostile',
@@ -123,6 +124,7 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
         const source = sources.sourceUnit;
         return !!source?.tile
             && source.commander === 'engineer'
+            && !areCommanderMechanicsSuppressed(source)
             && sameCamp(source.camp, myCamp)
             && !unit
             && isLandDeploymentTile(tile)
@@ -179,6 +181,7 @@ function resolveSources(gameState, cardTargeting, myCamp) {
     let sourceUnit = null;
     if (cardId === 'drone_deploy') {
         sourceUnit = findUnit(gameState, unit => unit.commander === 'tianyan'
+            && !areCommanderMechanicsSuppressed(unit)
             && sameCamp(unit.camp, myCamp)
             && unit.hp > 0);
     } else if (cardId === 'drone_suicide') {
@@ -278,6 +281,9 @@ export function resolveTargetingPreview(gameState, cardTargeting, options = {}) 
             if (!key || gameState.tileMap?.get(key) !== tile) continue;
             if (!isVisibleCandidate(gameState, cardTargeting, tile, myCamp, isTileVisible)) continue;
             if (!isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, sources)) continue;
+            if (intent === TARGET_INTENTS.HOSTILE
+                && tile.unit?.type === 'submarine'
+                && !isSubmarineTargetableBy(tile.unit, myCamp, gameState)) continue;
             if (COLONEL_TARGETING_CARD_IDS.has(cardTargeting.cardId)
                 && hexDistance(sources.colonel.tile, tile) > COLONEL_CARD_DATA.range) continue;
             candidateTileKeys.add(key);

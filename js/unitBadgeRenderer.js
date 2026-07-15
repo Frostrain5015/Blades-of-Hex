@@ -17,8 +17,11 @@ export const UNIT_BADGE_GLYPHS = Object.freeze({
     cavalry: '\u265E',
     archer: '\u2316',
     mgNest: '\u25A3',
+    shoreBattery: '\u25C8',
     drone: '\u2708\uFE0E',
-    warship: '\u2693\uFE0E'
+    destroyer: '🛡',
+    warship: '\u2693\uFE0E',
+    submarine: '\u25BC'
 });
 
 function clamp(value, minimum = 0, maximum = 1) {

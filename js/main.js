@@ -3108,6 +3108,12 @@ async function handleRemoteAction(msg) {
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
                         spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                        if (e.attackerType === 'warship') {
+                            setTimeout(() => {
+                                playSound('cannon');
+                                spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                            }, 140);
+                        }
                         triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                     } else {
@@ -3195,6 +3201,12 @@ async function handleRemoteAction(msg) {
                                 spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
                             } else {
                                 spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                                if (e.counterType === 'warship') {
+                                    setTimeout(() => {
+                                        playSound('cannon');
+                                        spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                                    }, 140);
+                                }
                                 triggerRecoil(e.x, e.y, e.counterX, e.counterY);
                             }
                             spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);

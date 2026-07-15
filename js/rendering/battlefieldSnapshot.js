@@ -363,7 +363,8 @@ function buildUnitDto(unit, tileDto, relationToViewer) {
             fallen: Boolean(unit._fallen),
             airdropWaiting: Boolean(unit._airdropWaiting),
             airliftLandAtMs: optionalFinite(unit._airliftLandAt),
-            soulRecallLandAtMs: optionalFinite(unit._soulRecallLandAt)
+            soulRecallLandAtMs: optionalFinite(unit._soulRecallLandAt),
+            embarked: Boolean(unit.isEmbarked)
         }
     };
 }

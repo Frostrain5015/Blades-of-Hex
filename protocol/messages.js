@@ -20,7 +20,7 @@ export const ACTION_TYPES = new Set([
 ]);
 
 const MAX_ACTION_BYTES = 1024 * 1024;
-const MAX_TILES = 256;
+const MAX_TILES = 512;
 const BOARD_LAYOUTS = new Set(['hex', 'borderless']);
 const SURFACES = new Set(['land', 'shallowWater', 'deepWater']);
 const WATER_SURFACES = new Set(['shallowWater', 'deepWater']);
@@ -68,9 +68,12 @@ function hasValidTiles(snapshot, factionKeys) {
         const surface = tile.surface ?? 'land';
         if (!SURFACES.has(surface)) return false;
         if (WATER_SURFACES.has(surface)) {
-            if (tile.campKey !== null) return false;
-            if (tile.isCity || tile.isUrban || tile.isVillage || tile.isPort
-                || tile.fortification || tile.districtId != null || tile.minePlanted) return false;
+            const controlledPort = tile.isPort === true;
+            if (controlledPort) {
+                if (surface !== 'shallowWater' || !factionKeys.has(tile.campKey) || !Number.isInteger(tile.districtId)) return false;
+            } else if (tile.campKey !== null || tile.districtId != null) return false;
+            if (tile.isCity || tile.isUrban || tile.isVillage
+                || tile.fortification || tile.minePlanted) return false;
         } else if (!factionKeys.has(tile.campKey)) return false;
     }
     return true;
@@ -157,25 +160,30 @@ function hasValidBoardMetadata(snapshot) {
     if (snapshot.ports != null && !Array.isArray(snapshot.ports)) return false;
     const seenPorts = new Set();
     for (const port of snapshot.ports || []) {
-        if (!Number.isInteger(port?.q) || !Number.isInteger(port?.r)) return false;
+        if (!Number.isInteger(port?.q) || !Number.isInteger(port?.r) || !Number.isInteger(port?.districtId)
+            || !Number.isInteger(port?.landQ) || !Number.isInteger(port?.landR)) return false;
         const key = `${port.q},${port.r}`;
         const tile = tileByKey.get(key);
-        if (!tile || WATER_SURFACES.has(tile.surface ?? 'land') || seenPorts.has(key)) return false;
-        const adjacentWater = HEX_NEIGHBORS.some(([dq, dr]) => {
+        if (!tile || tile.surface !== 'shallowWater' || tile.isPort !== true
+            || tile.districtId !== port.districtId || seenPorts.has(key)) return false;
+        const adjacentLand = HEX_NEIGHBORS.some(([dq, dr]) => {
             const neighbor = tileByKey.get(`${port.q + dq},${port.r + dr}`);
-            return !!neighbor && WATER_SURFACES.has(neighbor.surface ?? 'land');
+            return !!neighbor && !WATER_SURFACES.has(neighbor.surface ?? 'land');
         });
-        if (!adjacentWater) return false;
+        if (!adjacentLand) return false;
+        const anchor = tileByKey.get(`${port.landQ},${port.landR}`);
+        const anchorAdjacent = HEX_NEIGHBORS.some(([dq, dr]) => port.q + dq === port.landQ && port.r + dr === port.landR);
+        if (!anchor || WATER_SURFACES.has(anchor.surface ?? 'land') || !anchorAdjacent || anchor.districtId !== port.districtId) return false;
         seenPorts.add(key);
     }
     for (const tile of snapshot.tiles) {
         if (tile.isPort !== true) continue;
-        if (WATER_SURFACES.has(tile.surface ?? 'land')) return false;
-        const adjacentWater = HEX_NEIGHBORS.some(([dq, dr]) => {
+        if (tile.surface !== 'shallowWater' || !seenPorts.has(`${tile.q},${tile.r}`)) return false;
+        const adjacentLand = HEX_NEIGHBORS.some(([dq, dr]) => {
             const neighbor = tileByKey.get(`${tile.q + dq},${tile.r + dr}`);
-            return !!neighbor && WATER_SURFACES.has(neighbor.surface ?? 'land');
+            return !!neighbor && !WATER_SURFACES.has(neighbor.surface ?? 'land');
         });
-        if (!adjacentWater) return false;
+        if (!adjacentLand) return false;
     }
     return true;
 }

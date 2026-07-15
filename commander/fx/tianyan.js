@@ -3,6 +3,7 @@ import { gameState, getViewingCamp } from '../../js/state.js';
 import { isTileVisible } from '../../js/fogOfWar.js';
 import { registerFxLayer, registerFxListener, registerFxUpdate } from '../../js/fxRegistry.js';
 import { DRONE_SIGNAL_RANGE } from '../tianyan.js';
+import { areCommanderMechanicsSuppressed } from '../../rules/movement.js';
 
 const deployEffects = [];
 
@@ -23,7 +24,7 @@ function _visibleTianyans() {
     const out = [];
     for (const tile of gameState.tiles) {
         const u = tile.unit;
-        if (u && u.commander === 'tianyan' && u.hp > 0 && _isUnitVisible(tile)) out.push({ tile, unit: u });
+        if (u && u.commander === 'tianyan' && !areCommanderMechanicsSuppressed(u) && u.hp > 0 && _isUnitVisible(tile)) out.push({ tile, unit: u });
     }
     return out;
 }
