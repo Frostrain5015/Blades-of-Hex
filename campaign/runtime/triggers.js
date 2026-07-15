@@ -11,7 +11,7 @@ import { isMechanicEnabled, setMechanicEnabled } from '../../rules/mechanics.js'
 import { applyCommanderMount, resolveCommanderMount } from './storyCommanders.js';
 import { canUnitOccupyTile } from '../../rules/movement.js';
 import { isLandTile } from '../../rules/surfaces.js';
-import { revealFogTiles, updateAllFogOfWar } from '../../js/fogOfWar.js';
+import { revealFogTiles, updateAllFogOfWar, setOnTilesRevealed } from '../../js/fogOfWar.js';
 
 function campKeyOf(camp) { return normalizeCampKey(camp, gameState); }
 function coordKey(q, r) { return `${q},${r}`; }
@@ -147,6 +147,20 @@ function evalCondition(cond, ctx) {
             if (eventId !== 'unitKilled') return false;
             if (!targetIncludesUnit(config, cond.target, event?.unitId)) return false;
             if (cond.camp && event?.camp !== cond.camp) return false;
+            return true;
+        }
+        case 'tileRevealed': {
+            if (eventId !== 'tileRevealed') return false;
+            if (cond.camp && event?.camp !== cond.camp) return false;
+            if (cond.q != null && event?.q !== cond.q) return false;
+            if (cond.r != null && event?.r !== cond.r) return false;
+            if (cond.tiles) return cond.tiles.some(tile => tile.q === event?.q && tile.r === event?.r);
+            return true;
+        }
+        case 'unitRevealed': {
+            if (eventId !== 'unitRevealed') return false;
+            if (cond.camp && event?.camp !== cond.camp) return false;
+            if (!targetIncludesUnit(config, cond.target, event?.unitId)) return false;
             return true;
         }
         case 'cityCaptured': return eventId === 'tileCaptured'
@@ -604,6 +618,18 @@ export function createTriggerFlow(config, api) {
         });
         if (needsTick) dispatch('_timerTick', {});
     }, 100);
+
+    // 注册迷雾揭示回调 → 转译为触发器事件
+    setOnTilesRevealed((campKey, tiles) => {
+        if (!gameState.campaignMode || !api.isActive() || api.isResultShown()) return;
+        for (const { q, r } of tiles) {
+            dispatch('tileRevealed', { q, r, camp: campKey });
+            const tile = gameState.tileMap?.get(`${q},${r}`);
+            if (tile?.unit) {
+                dispatch('unitRevealed', { q, r, unitId: tile.unit.id, camp: campKey });
+            }
+        }
+    });
 
     return {
         dispatch,

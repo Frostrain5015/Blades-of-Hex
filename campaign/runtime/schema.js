@@ -98,6 +98,8 @@ export const TRIGGER_CONDITIONS = Object.freeze([
     { kind: 'unitMovesToTile', label: '指定单位/单位组移动到指定地块/区域', arg: 'eventTargetArea', event: true },
     { kind: 'unitAttacksUnit', label: '指定单位攻击指定单位/单位组', arg: 'eventCombatPair', event: true },
     { kind: 'unitKilled', label: '指定单位/单位组被击败', arg: 'eventTarget', event: true },
+    { kind: 'tileRevealed', label: '指定地块被迷雾揭示（首次可见）', arg: 'tileCoords', event: true },
+    { kind: 'unitRevealed', label: '指定单位/单位组被迷雾揭示', arg: 'eventTarget', event: true },
     { kind: 'cityCaptured', label: '指定城市被占领', arg: 'eventCityCapture', event: true },
     { kind: 'turnStarted', label: '新回合/指定阵营回合开始时', arg: 'eventCampTurn', event: true },
     { kind: 'cardUsed', label: '使用指定对策卡', arg: 'cardCamp', event: true },
@@ -908,6 +910,7 @@ export function validateLevel(config) {
         if (cond.kind === 'timer' && (!cond.value || cond.value <= 0)) errors.push(`${path} 启用后等待时间必须大于 0 毫秒。`);
         if (cond.kind === 'turnStarted' && cond.turn != null && cond.turn <= 0) errors.push(`${path} 回合数必须大于 0。`);
         if (cond.kind === 'cityCaptured' && (cond.q == null || cond.r == null)) errors.push(`${path} 缺少城市坐标。`);
+        if (cond.kind === 'tileRevealed' && cond.q == null && cond.r == null && !cond.tiles?.length) errors.push(`${path} 缺少目标坐标或区域。`);
         if (cond.kind === 'goldCompare' && cond.value == null) errors.push(`${path} 缺少金币比较值。`);
         if (cond.kind === 'variableCompare' && !cond.variable) errors.push(`${path} 缺少变量名。`);
         if (cond.kind === 'triggerEnabled' && !cond.trigger) errors.push(`${path} 缺少触发器 ID。`);

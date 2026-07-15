@@ -86,6 +86,15 @@ export function computeVisionForCamp(camp, tiles, tileMap, gameState) {
 }
 
 // ---- 更新迷雾状态（回合开始/行动后调用）----
+
+let _onTilesRevealed = null;
+/**
+ * 设置地块揭示回调。每次 updateFogOfWar 发现新可见地块时触发，
+ * 供战役触发器系统消费。
+ * @param {function} cb - (campKey: string, tiles: {q:number,r:number}[]) => void
+ */
+export function setOnTilesRevealed(cb) { _onTilesRevealed = cb; }
+
 export function updateFogOfWar(gameState, camp) {
     if (!gameState.skirmishFog || !isMechanicEnabled(gameState, 'fogOfWar')) return;
     const key = _campKey(camp);
@@ -106,11 +115,27 @@ export function updateFogOfWar(gameState, camp) {
         }
     }
 
+    // 计算新揭示的地块（用于战役触发器条件）
+    const newlyRevealed = [];
+    if (_onTilesRevealed && prevVisible) {
+        for (const coord of newVisible) {
+            if (!prevVisible.has(coord)) {
+                const [q, r] = coord.split(',').map(Number);
+                if (Number.isInteger(q) && Number.isInteger(r)) newlyRevealed.push({ q, r });
+            }
+        }
+    }
+
     // 将新看到的加入已探索集合
     const explored = gameState.exploredTiles[key];
     for (const k of newVisible) explored.add(k);
 
     gameState.visibleTiles[key] = newVisible;
+
+    // 触发揭示回调（在 visibleTiles 写入后，保证触发器读取到最新状态）
+    if (_onTilesRevealed && newlyRevealed.length > 0) {
+        _onTilesRevealed(key, newlyRevealed);
+    }
 }
 
 export function updateAllFogOfWar(gameState) {
