@@ -1259,7 +1259,7 @@ function buildFactionBasics() {
             // 清除旧 flagUrl 使运行时使用 flagConfig 生成
             c.factions[idx].flagUrl = null;
             c.factions[idx].flagAlt = '';
-        }, { rebuildPanels: false });
+        }, { rebuildPanels: true });
         flagBox.appendChild(selectRow('预设国旗（覆盖下方设计）', fc.preset || '', {
             '': '无（使用下方设计器）',
             'img/flags/svg/cn.svg': '🇨🇳 中国',
