@@ -4,6 +4,7 @@ import { getRoundIndex } from '../rules/turns.js';
 import { emit } from '../js/eventBus.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { canUnitOccupyTile } from '../rules/movement.js';
+import { campToKey } from '../rules/camps.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.necromancer;
 // 被动【留魂】：己方单位阵亡后原地留下亡魂标记，存在3回合后消失
@@ -63,7 +64,7 @@ export default {
         for (const mark of gameState._soulMarks.slice()) {
             if (mark.campKey !== campKey) continue;
             const mt = tileMap.get(`${mark.q},${mark.r}`);
-            if (!mt || !mt.unit || mt.unit.camp === unit.camp || mt.unit.hp <= 0) continue;
+            if (!mt || !mt.unit || campToKey(mt.unit.camp) === campToKey(unit.camp) || mt.unit.hp <= 0) continue;
             const victim = mt.unit;
             const curse = _getCurseDamage(victim);
             if (!gameState.damageTexts) gameState.damageTexts = [];

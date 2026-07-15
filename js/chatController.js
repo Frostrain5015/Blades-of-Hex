@@ -1,5 +1,8 @@
 // Network chat UI controller. Keeps DOM state out of the application bootstrap.
 import { getMyRole, isNetworkGame, sendChatMessage, roleToCamp } from './network.js';
+import { gameState } from './state.js';
+import { showSelectionHudForTile } from './input.js';
+import { campToKey } from '../rules/camps.js';
 
 const _chatHistory = { room: [], player1: [], player2: [], player3: [] };
 let _chatChannel = 'room';
@@ -219,9 +222,7 @@ export function initChat() {
 
 export function initEmblemChatClicks() {
     const myRole = getMyRole();
-    if (!myRole) return;
-    const myCamp = roleToCamp(myRole);
-    if (!myCamp) return;
+    const myCamp = myRole ? roleToCamp(myRole) : null;
 
     const cardMappings = ['player1', 'player2', 'player3'].map((role, index) => ({
         cardId: `campCard${index + 1}`,
@@ -248,7 +249,21 @@ export function initEmblemChatClicks() {
         freshEmblem.addEventListener('click', (e) => {
             e.stopPropagation();
             e.preventDefault();
-            if (!isNetworkGame()) return;
+
+            // 寻找该阵营的将领单位并聚焦查看（任何回合均可用）
+            const campKey = campToKey(camp);
+            for (const tile of gameState.tiles) {
+                if (!tile.unit || campToKey(tile.unit.camp) !== campKey) continue;
+                if (tile.unit.commander) {
+                    gameState.selectedTile = tile;
+                    gameState.selectedUnit = tile.unit;
+                    showSelectionHudForTile(tile);
+                    break;
+                }
+            }
+
+            // 联机模式额外打开聊天
+            if (!isNetworkGame() || !myCamp || !role) return;
             if (camp?.id === myCamp.id) {
                 openChat('room');
             } else {
