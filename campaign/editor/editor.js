@@ -285,7 +285,8 @@ function mutate(fn, { snapshot = true, rebuildPanels = true } = {}) {
     if (snapshot) pushUndo();
     fn(config);
     rebuildPreview();
-    if (rebuildPanels) { renderToolPanel(); renderInspector(); }
+    renderToolPanel();
+    renderInspector();
     render();
 }
 
