@@ -74,6 +74,11 @@ export default defineConfig({
                     if (id.includes('/node_modules/pixi.js/') || id.includes('\\node_modules\\pixi.js\\')) return 'pixi';
                     if (id.includes('/campaign/editor/') || id.includes('\\campaign\\editor\\')) return 'campaign-editor';
                     if (id.includes('/campaign/runtime/') || id.includes('\\campaign\\runtime\\')) return 'campaign-runtime';
+                    if (id.includes('/node_modules/ai/')) return 'campaign-ai';
+                    // Rules modules go to a shared chunk to prevent circular
+                    // dependencies between campaign-editor and campaign-runtime
+                    // (both import rules/ modules like naval.js).
+                    if (id.includes('/rules/') || id.includes('\\rules\\')) return 'game-rules';
                     return undefined;
                 }
             }
