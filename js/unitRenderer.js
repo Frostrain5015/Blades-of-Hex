@@ -115,6 +115,42 @@ export function drawUnitFlagFinial(unit) {
     ctx.restore();
 }
 
+function resolveUnitHudColor(gameState, unit, hpRatio) {
+    if (gameState.campaignMode) {
+        const relation = getRelationToViewer(gameState, unit.camp);
+        return (RELATION_META[relation] || RELATION_META.unknown).color;
+    }
+    if (hpRatio > 0.7) return '#4CAF50';
+    if (hpRatio > 0.35) return '#FFC107';
+    return '#f44336';
+}
+
+/** Draw only the friendly moving counter above a held fog mask. */
+export function drawUnitBadgeAboveFog(unit, gameState) {
+    if (!unit || unit._airdropWaiting || !unit.tile) return;
+    const pos = getUnitVisualPos(unit);
+    const hpRatio = unit.displayHp / unit.maxHp;
+    const shieldRatio = unit._displayShield > 0.5 ? unit._displayShield / unit.maxHp : 0;
+    const flagColors = getFlagColors(unit.camp?.colorId || unit.camp?.color);
+
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+    if (unit._isDrone || unit.type === 'drone') {
+        ctx.translate(0, Math.sin(frameInfo.now / 1000 * 2.5) * 3);
+    }
+    drawUnitBadge(ctx, {
+        radius: UNIT_BADGE_RADIUS,
+        centerY: UNIT_BADGE_CENTER_Y,
+        flagColors,
+        relationColor: resolveUnitHudColor(gameState, unit, hpRatio),
+        hpRatio,
+        shieldRatio,
+        waterColor: isWaterTile(unit.tile) ? getSurfaceBaseColor(getTileSurface(unit.tile)) : null,
+        glyph: resolveUnitBadgeGlyph(unit.type, Boolean(unit._engineerScaffold))
+    });
+    ctx.restore();
+}
+
 export function drawUnit(unit, gameState) {
         if (unit._airdropWaiting) return; // invisible until parachute lands
         if (unit._airliftLandAt) {         // E4 空运途中：落地前隐藏，落地时现身
@@ -172,13 +208,7 @@ export function drawUnit(unit, gameState) {
 
         const hpRatio = unit.displayHp / unit.maxHp;
         const shieldRatio = unit._displayShield > 0.5 ? unit._displayShield / unit.maxHp : 0;
-        let hpColor;
-        if (gameState.campaignMode) {
-            const relation = getRelationToViewer(gameState, unit.camp);
-            hpColor = (RELATION_META[relation] || RELATION_META.unknown).color;
-        } else if (hpRatio > 0.7) hpColor = '#4CAF50';
-        else if (hpRatio > 0.35) hpColor = '#FFC107';
-        else hpColor = '#f44336';
+        const hpColor = resolveUnitHudColor(gameState, unit, hpRatio);
 
         drawUnitBadge(ctx, {
             radius: badgeR,

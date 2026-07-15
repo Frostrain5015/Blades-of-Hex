@@ -4,6 +4,7 @@ import { MORALE_CONFIG, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { Unit } from './Unit.js';
 import { spawnMoraleEffect } from './effects.js';
+import { updateAllFogOfWar } from './fogOfWar.js';
 
 const consoleEl = document.getElementById('cheatConsole');
 const inputEl = document.getElementById('cheatInput');
@@ -213,6 +214,7 @@ function exec(cmd) {
             }
             gameState.weather = args[1];
             gameState.lastWeather = args[1] === 'clear' ? gameState.lastWeather : args[1];
+            updateAllFogOfWar(gameState);
             updateUI();
             notify(`天气已切换为 ${WEATHER_CONFIG[args[1]].icon} ${WEATHER_CONFIG[args[1]].name}`);
             break;

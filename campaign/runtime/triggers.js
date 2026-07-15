@@ -11,6 +11,7 @@ import { isMechanicEnabled, setMechanicEnabled } from '../../rules/mechanics.js'
 import { applyCommanderMount, resolveCommanderMount } from './storyCommanders.js';
 import { canUnitOccupyTile } from '../../rules/movement.js';
 import { isLandTile } from '../../rules/surfaces.js';
+import { revealFogTiles, updateAllFogOfWar } from '../../js/fogOfWar.js';
 
 function campKeyOf(camp) { return normalizeCampKey(camp, gameState); }
 function coordKey(q, r) { return `${q},${r}`; }
@@ -48,6 +49,26 @@ function unitsForTarget(config, target) {
     if (target.unit) return [resolveUnit(target.unit)].filter(Boolean);
     if (target.group) return (groupById(config, target.group)?.unitIds || []).map(resolveUnit).filter(Boolean);
     return [];
+}
+
+function tilesForRevealTarget(config, target) {
+    const result = [];
+    const seen = new Set();
+    const add = tile => {
+        if (!tile || !Number.isInteger(tile.q) || !Number.isInteger(tile.r)) return;
+        const key = coordKey(tile.q, tile.r);
+        if (seen.has(key)) return;
+        const realTile = gameState.tileMap.get(key);
+        if (!realTile) return;
+        seen.add(key);
+        result.push(realTile);
+    };
+    for (const unit of unitsForTarget(config, target)) add(unit.tile);
+    for (const tile of target?.tiles || []) add(tile);
+    if (target?.area) {
+        for (const tile of areaById(config, target.area)?.tiles || []) add(tile);
+    }
+    return result;
 }
 
 function readOperand(operand, ctx) {
@@ -372,13 +393,32 @@ function runAction(action, ctx) {
             }
             break;
         }
-        case 'setWeather':
+        case 'setWeather': {
+            const previousWeather = gameState.weather;
             if (action.weather === 'cycle') { gameState.weather = 'clear'; gameState.lastWeather = null; }
             else { gameState.lastWeather = gameState.weather; gameState.weather = action.weather; }
+            if (gameState.weather !== previousWeather) updateAllFogOfWar(gameState);
             invalidateBoard(); updateUI(); break;
+        }
+        case 'revealTiles': {
+            const camp = campFromKey(action.camp || config.localPlayerCamp || gameState.localPlayerCampKey, gameState);
+            const tiles = tilesForRevealTarget(config, action.target || {});
+            if (camp && revealFogTiles(gameState, camp, tiles, action.durationRounds ?? null)) {
+                invalidateBoard();
+                emit('campaign:tilesRevealed', {
+                    camp: campKeyOf(camp),
+                    tiles: tiles.map(tile => ({ q: tile.q, r: tile.r })),
+                    durationRounds: action.durationRounds ?? null
+                });
+            }
+            break;
+        }
         case 'setInteractionState': gameState.interactionStates[action.interactable] = action.state; break;
         case 'setMechanicEnabled':
             if (setMechanicEnabled(gameState, action.mechanic, action.enabled)) {
+                if (['fogOfWar', 'weatherEffects', 'alliedVision'].includes(action.mechanic)) {
+                    updateAllFogOfWar(gameState);
+                }
                 clearselection(); invalidateBoard(); updateUI(); emit('campaign:mechanicsChanged', { mechanic: action.mechanic, enabled: action.enabled !== false });
             }
             break;

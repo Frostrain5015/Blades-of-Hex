@@ -3,7 +3,7 @@ import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget } from './state.js';
 import { on, emit } from './eventBus.js';
-import { isTileVisible } from './fogOfWar.js';
+import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
 import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
@@ -2315,6 +2315,7 @@ function _applyWeatherChoice(chosenWeather) {
     gameState.weather = chosenWeather;
     gameState._starlightResume = true;
     gameState.weatherLockUntil = getRoundIndex(gameState) + 2;
+    updateAllFogOfWar(gameState);
 
     logMessage(`占星者【星移】：天气强制为${chosenWeather === 'clear' ? '晴' : chosenWeather === 'rain' ? '雨' : chosenWeather === 'fog' ? '雾' : '风'}，锁定2回合`);
     spawnAstrologerEffect(unit.tile.x, unit.tile.y);

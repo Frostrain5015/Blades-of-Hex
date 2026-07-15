@@ -112,6 +112,59 @@ export function updateFogOfWar(gameState, camp) {
     gameState.visibleTiles[key] = newVisible;
 }
 
+export function updateAllFogOfWar(gameState) {
+    if (!gameState?.skirmishFog || !isMechanicEnabled(gameState, 'fogOfWar')) return false;
+    let updated = false;
+    for (const key of getFactionKeys(gameState)) {
+        const faction = gameState.factions?.[key];
+        if (key === 'neutral' || faction?.active === false) continue;
+        updateFogOfWar(gameState, faction || key);
+        updated = true;
+    }
+    return updated;
+}
+
+function activePresentationHold(gameState, camp, now) {
+    const key = _campKey(camp);
+    const holds = gameState?._fogPresentationHolds;
+    const hold = holds?.[key];
+    if (!hold) return null;
+    if (now < hold.until) return hold;
+    delete holds[key];
+    // Start the ordinary fog fade when the moving badge reaches its logical
+    // destination, not when the move command mutates simulation state.
+    gameState._prevVisibleTiles[key] = new Set(hold.visible);
+    gameState._fogTransitionStart = hold.until;
+    return null;
+}
+
+/** Keep newly revealed battlefield information covered during move animation. */
+export function beginFogPresentationHold(gameState, camp, durationMs) {
+    if (!gameState?.skirmishFog || !isMechanicEnabled(gameState, 'fogOfWar')) return false;
+    const duration = Math.max(0, Number(durationMs) || 0);
+    if (duration <= 0) return false;
+    const key = _campKey(camp);
+    if (key === 'neutral') return false;
+    const visible = new Set();
+    const explored = new Set();
+    for (const tile of gameState.tiles || []) {
+        const coord = `${tile.q},${tile.r}`;
+        if (isTileVisible(tile, camp, gameState)) visible.add(coord);
+        else if (isTileExplored(tile, camp, gameState)) explored.add(coord);
+    }
+    gameState._fogPresentationHolds ||= {};
+    gameState._fogPresentationHolds[key] = {
+        visible,
+        explored,
+        until: performance.now() + duration
+    };
+    return true;
+}
+
+export function hasActiveFogPresentationHold(gameState, camp, now = performance.now()) {
+    return Boolean(activePresentationHold(gameState, camp, now));
+}
+
 // ---- 侦察揭示 ----
 export function applyScoutReveal(gameState, camp, q, r) {
     if (!gameState.skirmishFog) return;
@@ -178,10 +231,42 @@ export function isTileExplored(tile, camp, gameState) {
     return false;
 }
 
+export function revealFogTiles(gameState, camp, tiles, durationRounds = null) {
+    const key = _campKey(camp);
+    if (key === 'neutral') return 0;
+    gameState.scoutReveals ||= {};
+    gameState.scoutReveals[key] ||= new Map();
+    const rounds = Number(durationRounds);
+    const expiresAt = durationRounds == null
+        ? Number.MAX_SAFE_INTEGER
+        : getRoundIndex(gameState) + Math.max(1, Math.round(Number.isFinite(rounds) ? rounds : 1));
+    let changed = 0;
+    for (const tile of tiles || []) {
+        if (!Number.isInteger(tile?.q) || !Number.isInteger(tile?.r)) continue;
+        const coord = `${tile.q},${tile.r}`;
+        const previous = gameState.scoutReveals[key].get(coord);
+        if (previous !== undefined && previous >= expiresAt) continue;
+        gameState.scoutReveals[key].set(coord, expiresAt);
+        changed++;
+    }
+    if (changed && gameState.skirmishFog) updateFogOfWar(gameState, camp);
+    return changed;
+}
+
 export function getTileVisibilityState(tile, camp, gameState) {
     if (!gameState.skirmishFog) return 'visible';
     if (isTileVisible(tile, camp, gameState)) return 'visible';
     if (isTileExplored(tile, camp, gameState)) return 'explored';
+    return 'unexplored';
+}
+
+export function getPresentedTileVisibilityState(tile, camp, gameState, now = performance.now()) {
+    if (!gameState?.skirmishFog) return 'visible';
+    const hold = activePresentationHold(gameState, camp, now);
+    if (!hold) return getTileVisibilityState(tile, camp, gameState);
+    const coord = `${tile.q},${tile.r}`;
+    if (hold.visible.has(coord)) return 'visible';
+    if (hold.explored.has(coord)) return 'explored';
     return 'unexplored';
 }
 
@@ -201,12 +286,21 @@ export function getFogAlpha(tile, camp, gameState, now) {
     const key = _campKey(camp);
     if (key === 'neutral') return { alpha: 0, state: 'visible' };
 
-    // 己方部队所在格永远可见，避免部队走入迷雾时被过渡遮罩短暂盖住
-    if (tile.unit && tile.unit.camp === camp) return { alpha: 0, state: 'visible' };
-
-    const curState = getTileVisibilityState(tile, camp, gameState);
     const coord = `${tile.q},${tile.r}`;
-    const wasVisible = gameState._prevVisibleTiles[key].has(coord);
+    const hold = activePresentationHold(gameState, camp, now);
+    // A stationary friendly unit guarantees visibility. During a movement
+    // hold the logical destination remains covered; its moving badge is drawn
+    // separately above the fog layer.
+    if (tile.unit && tile.unit.camp === camp && (!hold || hold.visible.has(coord))) {
+        return { alpha: 0, state: 'visible' };
+    }
+
+    const curState = hold
+        ? (hold.visible.has(coord) ? 'visible' : hold.explored.has(coord) ? 'explored' : 'unexplored')
+        : getTileVisibilityState(tile, camp, gameState);
+    const wasVisible = hold
+        ? hold.visible.has(coord)
+        : gameState._prevVisibleTiles[key].has(coord);
     const isVisible = curState === 'visible';
     const isExplored = curState === 'explored';
 

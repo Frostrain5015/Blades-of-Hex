@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, hexEdge, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, settings } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, settings } from './config.js';
 import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
@@ -7,7 +7,7 @@ import {
     drawAllBorders, drawDistrictBorders, drawCampBorders, computeCampBorders
 } from './HexTile.js';
 import {
-    getBorderlessVisualGrid, drawVisualFillerTile, drawVisualFillerTiles
+    getBorderlessBoundaryTopology, getBorderlessVisualGrid, drawVisualFillerTile, drawVisualFillerTiles
 } from './militaryMap.js';
 import { resolveAntiAirCoverage } from '../rules/antiAir.js';
 import {
@@ -27,14 +27,21 @@ import {
     coinParticles, updateCoinParticles, drawCoinParticles,
     airstrikeEffects, airliftEffects
 } from './effects.js';
-import { isTileVisible, getTileVisibilityState, getTileVisibilityStateByCoord, getFogAlpha } from './fogOfWar.js';
+import {
+    getFogAlpha,
+    getPresentedTileVisibilityState,
+    getTileVisibilityState,
+    getTileVisibilityStateByCoord,
+    hasActiveFogPresentationHold,
+    isTileVisible
+} from './fogOfWar.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { campToKey } from '../rules/camps.js';
 import { getViewingCamp } from './state.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
 import { drawFxLayer, updateFxFns } from './fxRegistry.js';
 import { drawBattlefieldFlags } from './flagRenderer.js';
-import { drawUnitFlagFinial, getUnitVisualPos, UNIT_BADGE_RADIUS, UNIT_HUD_OUTER_RADIUS } from './unitRenderer.js';
+import { drawUnitBadgeAboveFog, drawUnitFlagFinial, getUnitVisualPos, UNIT_BADGE_RADIUS, UNIT_HUD_OUTER_RADIUS } from './unitRenderer.js';
 import { resolveActiveObjectiveHighlightTiles } from '../campaign/runtime/objectiveHighlights.js';
 import {
     drawOperationOrigin,
@@ -79,37 +86,6 @@ function _filterEdgesSkippingRivers(edges, riverSegments) {
     return result;
 }
 
-// 为无限/无边模式的假地块补充边界线：假地块从 sourceTile 继承阵营与地表，
-// 若相邻假地块阵营不同，在边界处绘制国界线避免视觉断裂。
-// 每帧实时计算（filler 阵营可能在不重建 campBorderEdges 的路径上变化，
-// 如投降转中立），但不再像旧实现那样每帧复制整个 tileMap；
-// 邻接方向表刻意保留历史行为（仅 (1,0)/(0,1) 两个方向有效）。
-function _fillerCampBorderEdges(visualGrid, borderTileMap) {
-    if (!visualGrid?.fillers?.length) return null;
-    let fillerEdges = null;
-    for (const filler of visualGrid.fillers) {
-        const fc = filler.sourceTile?.camp;
-        if (fc == null) continue;
-        for (let e = 0; e < 2; e++) {
-            const nk = e === 0
-                ? `${filler.q + 1},${filler.r}`
-                : `${filler.q},${filler.r + 1}`;
-            const nb = borderTileMap.get(nk);
-            if (!nb) continue;
-            const nbc = nb.isVisualFiller
-                ? (nb.sourceTile?.camp ?? null)
-                : (nb.camp ?? null);
-            if (fc === nbc) continue;
-            if (filler.id > nb.id) continue;
-            const ep = hexEdge(filler.x, filler.y, HEX_SIZE, (5 - e + 6) % 6);
-            (fillerEdges ??= []).push({
-                x0: ep.x0, y0: ep.y0, x1: ep.x1, y1: ep.y1,
-                qa: filler.q, ra: filler.r, qb: nb.q, rb: nb.r
-            });
-        }
-    }
-    return fillerEdges;
-}
 const FLAT_TILE_BASE_OPTIONS = Object.freeze({ drawShadow: false });
 const LAYERED_TILE_BASE_OPTIONS = Object.freeze({ drawLegacyMapDetails: false });
 const FLAT_LAYERED_TILE_BASE_OPTIONS = Object.freeze({
@@ -261,16 +237,15 @@ export function renderGame() {
     syncCanvasFrameStyle(Boolean(visualGrid));
     const borderTiles = visualGrid?.tiles || tiles;
     const borderTileMap = visualGrid?.tileMap || gameState.tileMap;
-    // Ownership and district boundaries are gameplay topology: only the real
-    // land subgraph may contribute. Borderless fillers extend materials/grid,
-    // never faction or district data.
-    const campBorderEdges = gameState.campBorderEdges;
-    const districtBorderEdges = gameState.districtBorderEdges;
+    const visualBoundaries = getBorderlessBoundaryTopology(visualGrid);
+    const campBorderEdges = visualBoundaries?.campEdges || gameState.campBorderEdges;
+    const districtBorderEdges = visualBoundaries?.districtEdges || gameState.districtBorderEdges;
+    const coastEdges = visualBoundaries?.coastEdges || gameState.coastEdges;
     canvasBattlefieldLayers.sync({
         playableTiles: tiles,
         renderTiles: borderTiles,
         tileMap: gameState.tileMap,
-        coastEdges: gameState.coastEdges,
+        coastEdges,
         rivers: gameState.rivers,
         riverCrossings: gameState.riverCrossings,
         riverTopology: gameState.riverTopology,
@@ -312,20 +287,8 @@ export function renderGame() {
     const riverSegments = gameState?.riverTopology?.segmentsByKey;
     drawDistrictBorders(ctx, _filterEdgesSkippingRivers(districtBorderEdges, riverSegments));
     // 跳过与河段重合的国界：(qa,ra)↔(qb,rb) 边上有河流则跳过，让河段视觉清晰。
-    // 稳定的 campBorderEdges 走缓存过滤；每帧重算的 filler 边单独过滤后合并。
     const campNoRiver = _filterEdgesSkippingRivers(campBorderEdges, riverSegments);
-    const fillerEdges = _fillerCampBorderEdges(visualGrid, borderTileMap);
-    drawCampBorders(ctx, fillerEdges
-        ? [...campNoRiver, ...(riverSegments
-            ? fillerEdges.filter(edge => {
-                const key = sharedHexEdgeSegmentKey(
-                    { q: edge.qa, r: edge.ra },
-                    { q: edge.qb, r: edge.rb }
-                );
-                return !key || !riverSegments.has(key);
-              })
-            : fillerEdges)]
-        : campNoRiver);
+    drawCampBorders(ctx, campNoRiver);
     // ── 将领特效图层：underUnits（立绘之后、单位徽章之前；圣骑士剑环后半圈）──
     drawFxLayer('underUnits', ctx, now);
     // 纯本地操作预览先画到单位之下，球体自然遮住路线内部，避免起终点断口。
@@ -690,8 +653,11 @@ export function renderGame() {
             }
         }
         const visibilityStateForCoord = (q, r) => {
-            const visualTile = visualGrid?.tileMap.get(`${q},${r}`);
-            if (visualTile?.isVisualFiller) return getTileVisibilityState(visualTile.sourceTile, viewingCamp, gameState);
+            const visualTile = visualGrid?.tileMap.get(`${q},${r}`) || gameState.tileMap.get(`${q},${r}`);
+            if (visualTile?.isVisualFiller) {
+                return getPresentedTileVisibilityState(visualTile.sourceTile, viewingCamp, gameState, nowPerf);
+            }
+            if (visualTile) return getPresentedTileVisibilityState(visualTile, viewingCamp, gameState, nowPerf);
             return getTileVisibilityStateByCoord(q, r, viewingCamp, gameState);
         };
         // 迷雾覆绘会盖住之前画的国界线/行政区界线 —— 对已探索（无视野）地块的边线重绘
@@ -748,6 +714,11 @@ export function renderGame() {
                 ctx.restore();
             }
         }
+        // Navigation affordance is public interaction information, not map
+        // intelligence. Keep only the fog-safe region and the moving friendly
+        // badge above the mask; attack frames, terrain and occupants stay below.
+        drawFogSafeMovementPreview(now, viewingCamp);
+        drawFogMovementScout(now, viewingCamp);
     }
 
     // 任务信标是作者主动公开的导航信息：覆在战争迷雾之上，但只画光圈，
@@ -1922,6 +1893,56 @@ function drawUnitActionTargetingPreview(now, deselecting) {
 }
 
 // ===== 范围涟漪展开 =====================
+function drawFogMovementScout(now, viewingCamp) {
+    if (!hasActiveFogPresentationHold(gameState, viewingCamp, now)) return;
+    const viewingKey = campToKey(viewingCamp);
+    for (const tile of gameState.tiles) {
+        const unit = tile.unit;
+        if (!unit?.movePath || campToKey(unit.camp) !== viewingKey) continue;
+        // Only the player's moving counter crosses the fog. Terrain, flags and
+        // occupants remain below it until the presentation hold is released.
+        drawUnitBadgeAboveFog(unit, gameState);
+    }
+}
+
+function drawFogSafeMovementPreview(now, viewingCamp) {
+    if (gameState.aiActing || !_isHumanTurn() || gameState.cardTargeting) return;
+    const unit = gameState.selectedUnit;
+    const preview = gameState._fogSafeMovablePreview;
+    if (!unit?.canAct || unit.isNewRecruit || preview?.unitId !== unit.id) return;
+    const tiles = (preview.tiles || []).filter(tile =>
+        getPresentedTileVisibilityState(tile, viewingCamp, gameState, now) !== 'visible');
+    if (!tiles.length) return;
+
+    const keys = new Set(tiles.map(targetingTileKey).filter(Boolean));
+    ctx.save();
+    ctx.fillStyle = '#55d8c6';
+    for (const tile of tiles) {
+        const reveal = resolveMovementTileReveal(unit.tile, tile, now, gameState.selectionTime);
+        if (reveal.alpha <= 0) continue;
+        ctx.save();
+        ctx.globalAlpha = 0.2 * reveal.alpha;
+        hexPath(ctx, tile.x, tile.y, HEX_SIZE * reveal.scale);
+        ctx.fill();
+        ctx.restore();
+    }
+    const pulse = (Math.sin(now / 420) + 1) / 2;
+    _strokeHexRegionBorder(
+        tiles,
+        (q, r) => keys.has(`${q},${r}`),
+        now,
+        pulse,
+        {
+            color: `rgba(100,235,218,${0.62 + pulse * 0.12})`,
+            w: 2.2,
+            glow: 'rgba(70,215,195,0.32)',
+            blur: 5 + pulse * 2
+        },
+        { color: 'rgba(225,255,250,0.28)', w: 0.7 }
+    );
+    ctx.restore();
+}
+
 function drawRangeApertures(now) {
     if (gameState.aiActing || !_isHumanTurn()) return;
 

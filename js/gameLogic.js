@@ -28,7 +28,15 @@ import {
     spawnReinforceEffect, spawnCardCopyEffect
 } from './effects.js';
 import { playSound } from './audio.js';
-import { updateFogOfWar, isTileVisible, applyScoutReveal, expireScoutReveals } from './fogOfWar.js';
+import {
+    applyScoutReveal,
+    beginFogPresentationHold,
+    expireScoutReveals,
+    getPresentedTileVisibilityState,
+    isTileVisible,
+    updateAllFogOfWar,
+    updateFogOfWar
+} from './fogOfWar.js';
 import { COLONEL_CARD_DATA } from '../rules/cards.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
@@ -573,10 +581,7 @@ function _campKey(camp) {
 }
 
 function _updateSkirmishFogAll() {
-    for (const key of getFactionKeys(gameState)) {
-        const faction = gameState.factions[key];
-        if (key !== 'neutral' && faction?.active !== false) updateFogOfWar(gameState, campFromKey(key, gameState));
-    }
+    updateAllFogOfWar(gameState);
     if (_onFogUpdated) _onFogUpdated();
 }
 
@@ -620,6 +625,12 @@ function _nextActiveCamp(camp) {
 }
 
 function _updateWeather() {
+    const previousWeather = gameState.weather;
+    const refreshVision = () => {
+        if (gameState.weather !== previousWeather && gameState.skirmishFog) {
+            _updateSkirmishFogAll();
+        }
+    };
     // E1 占星者星移：锁定期间跳过天气循环
     if (gameState.weatherLockUntil > 0 && getRoundIndex(gameState) < gameState.weatherLockUntil) {
         return;
@@ -630,11 +641,13 @@ function _updateWeather() {
         const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
         gameState.lastWeather = pool[gameState.rng.int(pool.length)];
         gameState.weather = gameState.lastWeather;
+        refreshVision();
         return;
     }
     const round = getRoundIndex(gameState);  // 0-indexed full round
     if (round < WEATHER_CYCLE.warmupRounds) {
         gameState.weather = 'clear';
+        refreshVision();
         return;
     }
     const cycleRound = round - WEATHER_CYCLE.warmupRounds;
@@ -649,6 +662,7 @@ function _updateWeather() {
     } else {
         gameState.weather = 'clear';
     }
+    refreshVision();
 }
 
 // 限时效果到期检查（每回合 P1 开始时调用一次）
@@ -1227,12 +1241,14 @@ function _getStallerSnareLayers(tile, friendlyCamp) {
 
 // Check if a tile is in enemy Zone of Control (adjacent to a unit that can
 // actually threaten this movement surface).
-function _isInEnemyZoC(tile, friendlyCamp, movingUnit = null) {
+function _isInEnemyZoC(tile, friendlyCamp, movingUnit = null, ignoreHiddenEnemies = false) {
     const map = gameState.tileMap;
     for (const [dq, dr] of HEX_NEIGHBORS) {
         const neighbor = map.get(`${tile.q + dq},${tile.r + dr}`);
         const enemy = neighbor?.unit;
         if (!enemy || !canAttack(gameState, enemy.camp, friendlyCamp)) continue;
+        if (ignoreHiddenEnemies
+            && getPresentedTileVisibilityState(neighbor, friendlyCamp, gameState) !== 'visible') continue;
         if (!movingUnit
             || classifyAttackPresentation(enemy) !== ATTACK_PRESENTATION.ASSAULT
             || canUnitOccupyTile(enemy, tile, gameState)) return true;
@@ -1240,28 +1256,32 @@ function _isInEnemyZoC(tile, friendlyCamp, movingUnit = null) {
     return false;
 }
 
-// BFS pathfinding: returns tiles reachable without passing through enemy lines
-export function getMovableTiles(unit) {
+// BFS pathfinding. The fog-safe presentation pass ignores information supplied
+// only by unseen units so the range silhouette cannot disclose an ambush.
+function _computeMovableTiles(unit, fogSafePreview = false) {
     // 无人机：实时检查信号范围，同步士气状态（不刷新其他无人机）
     if (unit._isDrone) {
-        unit.morale = isDroneInSignal(gameState, unit) ? 2 : 0;
-        if (unit.morale === 0) return [];
+        const inSignal = isDroneInSignal(gameState, unit);
+        if (!fogSafePreview) unit.morale = inSignal ? 2 : 0;
+        if (!inSignal) return { tiles: [], parents: new Map() };
     }
-    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile) return [];
+    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile) {
+        return { tiles: [], parents: new Map() };
+    }
 
     const speed = unit.remainingMP;
     const startTile = unit.tile;
     const friendlyCamp = unit.camp;
     const map = gameState.tileMap;
     if (!startTile || !canUnitOccupyTile(unit, startTile, gameState)) {
-        gameState.moveParents = new Map();
-        return [];
+        return { tiles: [], parents: new Map() };
     }
 
     // BFS queue: [tile, remainingMP, cameFromZoC]
-    const queue = [{ tile: startTile, remaining: speed, fromZoC: _isInEnemyZoC(startTile, friendlyCamp, unit) }];
+    const startInZoC = _isInEnemyZoC(startTile, friendlyCamp, unit, fogSafePreview);
+    const queue = [{ tile: startTile, remaining: speed, fromZoC: startInZoC }];
     const visited = new Map();
-    visited.set(startTile, { remaining: speed, fromZoC: _isInEnemyZoC(startTile, friendlyCamp, unit), parent: null });
+    visited.set(startTile, { remaining: speed, fromZoC: startInZoC, parent: null });
     const result = [];
 
     let head = 0;
@@ -1272,7 +1292,9 @@ export function getMovableTiles(unit) {
         for (const [dq, dr] of HEX_NEIGHBORS) {
             const neighbor = map.get(`${cur.q + dq},${cur.r + dr}`);
             if (!neighbor) continue;
-            if (neighbor.unit) continue; // occupied → impassable
+            if (neighbor.unit
+                && (!fogSafePreview
+                    || getPresentedTileVisibilityState(neighbor, friendlyCamp, gameState) === 'visible')) continue;
             if (unit._isDrone && !isTileInDroneSignal(gameState, unit.camp, neighbor)) continue;
 
             let stepCost = unit._isDrone ? 2 : (TERRAIN_CONFIG[neighbor.terrain]?.stepCost ?? 1);
@@ -1284,9 +1306,9 @@ export function getMovableTiles(unit) {
                 && !getCommanderWeatherImmunity(neighbor, friendlyCamp, gameState.tileMap);
             if (_isMuddyTarget) stepCost += 1;
             // 星移减益区：处于敌方占星者3格内的敌对方额外+1（此处用于敌方 AI 移动计算）
-            if (_isMuddyTarget && getCommanderWeatherDebuff(neighbor, friendlyCamp, gameState)) stepCost += 1;
+            if (_isMuddyTarget && !fogSafePreview && getCommanderWeatherDebuff(neighbor, friendlyCamp, gameState)) stepCost += 1;
             // 停滞者【缚足】：每层行动消耗+2
-            const snareLayers = _getStallerSnareLayers(neighbor, friendlyCamp);
+            const snareLayers = fogSafePreview ? 0 : _getStallerSnareLayers(neighbor, friendlyCamp);
             if (snareLayers > 0) stepCost += snareLayers * 2;
             if (curRem < 1) continue;
             // 末步豁免失效：泥泞/缚足下若行动力不足全额支付则无法到达
@@ -1297,7 +1319,7 @@ export function getMovableTiles(unit) {
             if (movementStep.drainRemaining) newRem = 0;
 
             // Zone of Control: entering a ZoC tile costs all remaining MP (must stop)
-            const neighborInZoC = _isInEnemyZoC(neighbor, friendlyCamp, unit);
+            const neighborInZoC = _isInEnemyZoC(neighbor, friendlyCamp, unit, fogSafePreview);
             // Cannot move from one ZoC directly into another (prevents sliding along lines)
             if (curFromZoC && neighborInZoC && cur !== startTile) continue;
             if (neighborInZoC && !curFromZoC) {
@@ -1313,8 +1335,25 @@ export function getMovableTiles(unit) {
         }
     }
 
-    gameState.moveParents = visited;
-    return result;
+    return { tiles: result, parents: visited };
+}
+
+export function getFogSafeMovableTiles(unit) {
+    return _computeMovableTiles(unit, true).tiles;
+}
+
+export function getMovableTiles(unit) {
+    const exact = _computeMovableTiles(unit, false);
+    gameState.moveParents = exact.parents;
+    if (gameState.skirmishFog && unit?.id != null) {
+        gameState._fogSafeMovablePreview = {
+            unitId: unit.id,
+            tiles: getFogSafeMovableTiles(unit)
+        };
+    } else {
+        gameState._fogSafeMovablePreview = null;
+    }
+    return exact.tiles;
 }
 
 export function getAttackableTiles(unit) {
@@ -1404,8 +1443,20 @@ export function moveUnit(unit, targetTile) {
     if (mpEntry) unit.remainingMP = mpEntry.remaining;
     if (unit._isDrone) refreshDroneSignal(gameState, unit.camp);
 
-    // 迷雾模式下先更新视野，确保新发现的敌人出现在可攻击列表中
-    if (gameState.skirmishFog) _updateSkirmishFogAll();
+    // Simulation vision updates immediately so combat legality/network state
+    // stay deterministic. Presentation keeps the old fog until the badge has
+    // physically reached its destination, revealing terrain and occupants in
+    // one coherent transition instead of flashing an empty tile first.
+    if (gameState.skirmishFog) {
+        const moveAnimationEndsAt = (unit.movePathStart || performance.now())
+            + (unit.movePathDuration || 0);
+        beginFogPresentationHold(
+            gameState,
+            unit.camp,
+            Math.max(0, moveAnimationEndsAt - performance.now())
+        );
+        _updateSkirmishFogAll();
+    }
 
     gameState.movableTiles = [];
     gameState.attackableTiles = getAttackableTiles(unit);

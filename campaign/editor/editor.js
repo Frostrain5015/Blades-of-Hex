@@ -1659,6 +1659,7 @@ function actionDefaults(kind) {
         case 'setUnitState': return { target: { unit: config.units[0]?.id || '' }, state: 'canAct', value: true };
         case 'setDiplomacy': return { camp: primaryFactionId(), targetCamp: nonLocalFactionId(), relation: 'enemy' };
         case 'setWeather': return { weather: 'clear' };
+        case 'revealTiles': return { camp: primaryFactionId(), target: { tiles: [] } };
         case 'setInteractionState': return { interactable: config.interactables[0]?.id || '', state: 'available' };
         case 'removeUnits': return { target: { unit: config.units[0]?.id || '' }, mode: 'despawn' };
         case 'assignCommander': return { target: { unit: config.units[0]?.id || '' }, commander: '' };
@@ -1676,6 +1677,9 @@ function _paramLine(obj) {
     if (obj.unit != null) parts.push(`单位:${obj.unit}`);
     if (obj.value != null) parts.push(`值:${obj.value}`);
     if (obj.target?.unit) parts.push(`目标:${obj.target.unit}`);
+    if (obj.target?.group) parts.push(`单位组:${obj.target.group}`);
+    if (obj.target?.tiles?.length) parts.push(`揭示:${obj.target.tiles.length}格`);
+    if (obj.target?.area) parts.push(`区域:${obj.target.area}`);
     if (obj.attacker?.unit) parts.push(`攻:${obj.attacker.unit}`);
     if (obj.attackerCamp) parts.push(`攻营:${obj.attackerCamp}`);
     if (obj.defender?.unit) parts.push(`守:${obj.defender.unit}`);
@@ -1747,6 +1751,11 @@ function _extractHighlights(obj) {
     if (obj.q != null) add(obj.q, obj.r);
     if (obj.tiles) tiles.push(...obj.tiles);
     if (obj.target?.q != null) add(obj.target.q, obj.target.r);
+    if (obj.target?.tiles) tiles.push(...obj.target.tiles);
+    if (obj.target?.area) {
+        const area = config.areas.find(item => item.id === obj.target.area);
+        if (area?.tiles) tiles.push(...area.tiles);
+    }
     for (const key of ['target', 'attacker', 'defender']) {
         const t = obj[key];
         if (t?.unit) { const u = config.units.find(u => u.id === t.unit); if (u) add(u.q, u.r); }
@@ -2183,6 +2192,35 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(selectRow('阵营 B', action.targetCamp || nonLocalFactionId(), factionLabels(), v => patch({ targetCamp: v })));
             box.appendChild(selectRow('新关系', action.relation || 'enemy', { ally: '联盟', neutral: '中立', enemy: '敌对' }, v => patch({ relation: v }))); break;
         case 'weather': box.appendChild(selectRow('天气', action.weather || 'clear', WEATHER_LABELS, v => patch({ weather: v }))); break;
+        case 'fogReveal': {
+            const target = action.target || { tiles: [] };
+            const mode = target.unit || target.group ? 'unit' : target.area ? 'area' : 'tiles';
+            box.appendChild(selectRow('受益阵营', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
+            box.appendChild(selectRow('揭示对象', mode, {
+                unit: '单位/单位组当前所在地',
+                tiles: '指定地块',
+                area: '命名区域'
+            }, value => {
+                if (value === 'unit') patch({ target: { unit: config.units[0]?.id || '' } });
+                else if (value === 'area') patch({ target: { area: config.areas[0]?.id || '' } });
+                else patch({ target: { tiles: [] } });
+            }));
+            if (mode === 'unit') {
+                box.appendChild(targetEditor(target, next => patch({ target: next }), { label: '跟随对象' }));
+            } else if (mode === 'area') {
+                box.appendChild(areaPickerRow('命名区域', target.area || '', area => patch({ target: { area } })));
+            } else {
+                box.appendChild(tilesPickerRow('揭示地块', target.tiles || [], tiles => patch({ target: { tiles } })));
+            }
+            const permanent = action.durationRounds == null;
+            box.appendChild(checkRow('永久揭示', permanent, checked => patch({ durationRounds: checked ? undefined : 1 })));
+            if (!permanent) {
+                box.appendChild(numRow('持续回合', action.durationRounds ?? 1,
+                    value => patch({ durationRounds: Math.max(1, Math.round(value)) })));
+            }
+            box.appendChild(hint('仅公开所选位置本身的信息；若目标是单位，将在动作发动时读取该单位当时所在格。'));
+            break;
+        }
         case 'interactionState':
             box.appendChild(selectRow('调查点', action.interactable || '', Object.fromEntries(config.interactables.map(item => [item.id, item.label || item.id])), v => patch({ interactable: v })));
             box.appendChild(selectRow('状态', action.state || 'available', { disabled: '不可用', available: '可调查', completed: '已完成' }, v => patch({ state: v }))); break;

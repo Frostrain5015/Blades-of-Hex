@@ -322,6 +322,7 @@ export function createClientUiState() {
     return {
         selectedUnit: null,
         movableTiles: [],
+        _fogSafeMovablePreview: null,
         moveParents: new Map(),
         attackableTiles: [],
         damageTexts: [],
@@ -342,6 +343,7 @@ export function createClientUiState() {
         cardTargeting: null,
         _prevVisibleTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
         _fogTransitionStart: 0,
+        _fogPresentationHolds: {},
         // 遭遇战胜利时保存的完整棋盘快照（用于查看完整棋局）
         _victoryBoardSnapshot: null,
         // 纯本地的查看目标；同步 MatchState 时按这个稳定标识重新解析。
@@ -353,6 +355,7 @@ export function createClientUiState() {
 export function resetClientUiState(ui) {
     ui.selectedUnit = null;
     ui.movableTiles = [];
+    ui._fogSafeMovablePreview = null;
     ui.moveParents = new Map();
     ui.attackableTiles = [];
     ui.damageTexts = [];
@@ -374,6 +377,7 @@ export function resetClientUiState(ui) {
     ui.cardTargeting = null;
     ui._prevVisibleTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
     ui._fogTransitionStart = 0;
+    ui._fogPresentationHolds = {};
     ui._victoryBoardSnapshot = null;
     ui.inspectionTarget = null;
 }

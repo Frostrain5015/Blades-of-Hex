@@ -1,6 +1,6 @@
 # 《Blades of Hex》战役 JSON 创作 Agent 完整规范
 
-版本：Schema v2
+版本：Schema v3
 
 本文是面向大模型与自动化创作 Agent 的规范性文档。目标是：即使模型没有接触过本项目代码，也能只依据本文生成可被当前战役编辑器导入、通过编译并完整运行的关卡 JSON。
 
@@ -11,10 +11,10 @@
 Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 
 - 不得包含注释、尾随逗号、`undefined`、`NaN` 或函数。
-- `schemaVersion` 必须是 `2`。
+- `schemaVersion` 必须是 `3`。
 - 所有引用必须使用配置中已经声明的 ID。
 - 所有坐标必须在所选 `board.layout` 的真实可玩地块内；禁止引用边缘假地块。
-- 只使用本文列出的 31 种条件和 19 种动作。
+- 只使用本文列出的 31 种条件和 20 种动作。
 - 不得生成旧 `steps` 表、旧 `showStep.step` 引用或内部 `_id`。
 - 不得使用 `levelStarted`、`sendMessage`、`flagSet`、`flagUnset`、`turnAtLeast`、`unitAlive`、`unitDead`、`eventCardIs`、`delay`、`setPhase` 等遗留或内部接口。开场立即执行使用 `enabled:true, once:true, when:[]`。
 
@@ -24,7 +24,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 
 | 字段 | 类型 | 必须 | 规则 |
 |---|---|---:|---|
-| `schemaVersion` | number | 是 | 固定为 `2` |
+| `schemaVersion` | number | 是 | 固定为 `3` |
 | `id` | string | 是 | 仅字母、数字、连字符；例如 `bi-t2-rescue` |
 | `title` | string | 是 | 关卡显示名 |
 | `chronicleId` | string | 是 | 所属传记 ID |
@@ -72,7 +72,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "sample-level",
   "title": "样例关卡",
   "chronicleId": "community",
@@ -788,7 +788,7 @@ Faction 对象：
 { "kind": "variableCompare", "scope": "campaign", "variable": "saved_scout", "op": "==", "value": true }
 ```
 
-## 12. 全部公开动作：19 种
+## 12. 全部公开动作：20 种
 
 ### 12.1 对白与输入控制
 
@@ -959,6 +959,7 @@ Faction 对象：
 | `changeGold` | `camp,operation,value` | operation 为 `set/add/subtract`，结果不低于 0 |
 | `setDiplomacy` | `camp,targetCamp,relation` | 两阵营不同；关系对称更新，并取消当前单位选择 |
 | `setWeather` | `weather` | `cycle` 会重置为晴；其他值直接切换 |
+| `revealTiles` | `camp,target,durationRounds?` | 为阵营揭示单位/单位组当时所在地、指定地块或命名区域；省略持续回合即永久 |
 | `setInteractionState` | `interactable,state` | state 为 `disabled/available/completed` |
 | `setMechanicEnabled` | `mechanic,enabled` | 动态开关机制并刷新界面 |
 | `endScenario` | `result` | result 为 `win/lose`；失败可写 `reason`，胜利可写 `ending` |
@@ -972,6 +973,17 @@ Faction 对象：
 ```json
 { "kind": "setDiplomacy", "camp": "player1", "targetCamp": "villagers", "relation": "ally" }
 ```
+
+```json
+{
+  "kind": "revealTiles",
+  "camp": "player1",
+  "target": { "area": "enemy_harbor" },
+  "durationRounds": 2
+}
+```
+
+`revealTiles.target` 四选一：`{ "unit":"id" }`、`{ "group":"id" }`、`{ "tiles":[{"q":0,"r":0}] }`、`{ "area":"area_id" }`。单位目标在动作发动时读取其当前所在地，不会持续跟随。`durationRounds` 必须是正整数；省略表示永久揭示。
 
 ```json
 { "kind": "endScenario", "result": "lose", "reason": "国王未能获救。" }
@@ -1117,7 +1129,7 @@ Agent 的验收顺序必须是：
 可以在最终输出前执行以下自检：
 
 ```text
-我只使用 Schema v2 的公开根字段、31 种条件和 19 种动作。
+我只使用 Schema v3 的公开根字段、31 种条件和 20 种动作。
 我没有创建 steps 表、内部 _id 或未公开 kind。
 所有 ID 唯一，所有引用存在；所有坐标满足所选布局公式，无边模式没有引用边缘假地块。
 未来阶段触发器默认关闭，并由上一阶段显式启用。

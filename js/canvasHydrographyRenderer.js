@@ -364,8 +364,12 @@ function addPort(paths, land, water) {
     const normalX = -tangentY;
     const normalY = tangentX;
     const size = land.size;
-    const start = { x: land.x + tangentX * size * 0.35, y: land.y + tangentY * size * 0.35 };
-    const end = { x: land.x + tangentX * size * 0.98, y: land.y + tangentY * size * 0.98 };
+    // Begin just inland of the shared coast and reach well into the port cell.
+    // The legacy 0.35→0.98 span stopped almost at the coast itself.
+    const startDistance = Math.max(size * 0.72, length * 0.5 - size * 0.12);
+    const endDistance = Math.max(startDistance + size * 0.5, length - size * 0.2);
+    const start = { x: land.x + tangentX * startDistance, y: land.y + tangentY * startDistance };
+    const end = { x: land.x + tangentX * endDistance, y: land.y + tangentY * endDistance };
     addLine(paths.portPiers, start, end);
     addLine(paths.portPiers,
         { x: end.x - normalX * size * 0.24, y: end.y - normalY * size * 0.24 },
@@ -376,6 +380,46 @@ function addPort(paths, land, water) {
     paths.portDetails.moveTo(craneBase.x, craneBase.y);
     paths.portDetails.lineTo(craneTop.x, craneTop.y);
     paths.portDetails.lineTo(craneTop.x + normalX * size * 0.28, craneTop.y + normalY * size * 0.28);
+}
+
+function resolvePortLandAnchor(tile, portPos, playableByKey, projectedPlayable) {
+    const landCandidates = [];
+    let seaX = 0;
+    let seaY = 0;
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+        const neighborKey = tileCoordinateKey(tile.q + dq, tile.r + dr);
+        const neighbor = playableByKey.get(neighborKey);
+        const projected = projectedPlayable.get(neighborKey);
+        if (!neighbor || !projected) continue;
+        if (isWaterSurface(surfaceKind(neighbor, playableByKey))) {
+            seaX += projected.x - portPos.x;
+            seaY += projected.y - portPos.y;
+        } else {
+            landCandidates.push(projected);
+        }
+    }
+    if (!landCandidates.length) return null;
+    const seaLength = Math.hypot(seaX, seaY);
+    if (seaLength < 0.001) return landCandidates[0];
+    seaX /= seaLength;
+    seaY /= seaLength;
+
+    // Pick the land neighbour opposite the surrounding water centroid. This
+    // remains stable on diagonal and concave coasts instead of depending on
+    // HEX_NEIGHBORS iteration order.
+    let best = landCandidates[0];
+    let bestScore = Infinity;
+    for (const land of landCandidates) {
+        const dx = land.x - portPos.x;
+        const dy = land.y - portPos.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const score = dx / length * seaX + dy / length * seaY;
+        if (score < bestScore) {
+            best = land;
+            bestScore = score;
+        }
+    }
+    return best;
 }
 
 function revisionOf(scene, options) {
@@ -457,9 +501,15 @@ function buildPaths(scene, options, pathFactory) {
     for (const coast of coasts) {
         const landKey = tileCoordinateKey(coast?.land);
         const waterKey = tileCoordinateKey(coast?.water);
-        // This is the critical map-edge guard: both sides must be real.
-        if (!playableKeys.has(landKey) || !playableKeys.has(waterKey)) continue;
-        const land = projectedPlayable.get(landKey);
+        const visualOnly = coast?.visualOnly === true;
+        // Authored topology stays real-cell-only. Borderless presentation
+        // topology may explicitly extend a coast through render-only fillers.
+        if (visualOnly) {
+            if (!projectedRender.has(landKey) || !projectedRender.has(waterKey)) continue;
+        } else if (!playableKeys.has(landKey) || !playableKeys.has(waterKey)) {
+            continue;
+        }
+        const land = visualOnly ? projectedRender.get(landKey) : projectedPlayable.get(landKey);
         if (!land || !Number.isInteger(coast?.landEdge)) continue;
         const [from, to] = edgePoints(land, coast.landEdge);
         addLine(paths.coasts, from, to);
@@ -526,16 +576,7 @@ function buildPaths(scene, options, pathFactory) {
         const tile = playableByKey.get(key);
         const portPos = projectedPlayable.get(key);
         if (!tile || !portPos || !tile.isPort) continue;
-        // 港口已是浅水地块：栈桥从最近的真陆地画向港口水域。
-        // 取港口六邻中第一个真陆地作为栈桥起点。
-        let land = null;
-        for (const [dq, dr] of HEX_NEIGHBORS) {
-            const neighborKey = tileCoordinateKey(tile.q + dq, tile.r + dr);
-            const neighbor = playableByKey.get(neighborKey);
-            if (!neighbor || isWaterSurface(surfaceKind(neighbor, playableByKey))) continue;
-            land = projectedPlayable.get(neighborKey) || null;
-            if (land) break;
-        }
+        const land = resolvePortLandAnchor(tile, portPos, playableByKey, projectedPlayable);
         if (!land) continue;
         // 港口自身作为水面端
         addPort(paths, land, portPos);

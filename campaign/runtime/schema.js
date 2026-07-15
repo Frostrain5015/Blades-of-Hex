@@ -141,6 +141,7 @@ export const TRIGGER_ACTIONS = Object.freeze([
     ,{ kind: 'assignCommander', label: '部署将领', arg: 'unitCommander' }
     ,{ kind: 'setDiplomacy', label: '改变外交关系', arg: 'relation' }
     ,{ kind: 'setWeather', label: '改变天气', arg: 'weather' }
+    ,{ kind: 'revealTiles', label: '揭示地块', arg: 'fogReveal', note: '向指定阵营揭示单位所在地、指定地块或命名区域；默认永久' }
     ,{ kind: 'setInteractionState', label: '设置调查点状态', arg: 'interactionState' }
     ,{ kind: 'removeUnits', label: '移除/处决单位', arg: 'unitRemove' }
     ,{ kind: 'endScenario', label: '结束关卡', arg: 'scenarioResult' }
@@ -757,6 +758,25 @@ export function validateLevel(config) {
         if (action.kind === 'assignCommander' && action.storyCommander && !storyCommanderIds.has(action.storyCommander)) errors.push(`${path} 引用不存在的剧情将领「${action.storyCommander}」。`);
         if (action.kind === 'assignCommander' && action.commander && action.storyCommander) errors.push(`${path} 不能同时部署玩法将领与剧情将领。`);
         if (action.kind === 'setWeather' && !WEATHER_KEYS.includes(action.weather)) errors.push(`${path} 的天气「${action.weather}」无效。`);
+        if (action.kind === 'revealTiles') {
+            if (!factionIds.has(action.camp)) errors.push(`${path} 的受益阵营「${action.camp}」未在本关阵营列表中声明。`);
+            const hasUnitTarget = !!target?.unit || !!target?.group;
+            const hasTileTarget = Array.isArray(target?.tiles) && target.tiles.length > 0;
+            const hasAreaTarget = !!target?.area;
+            if (!hasUnitTarget && !hasTileTarget && !hasAreaTarget) {
+                errors.push(`${path} 必须选择单位、单位组、地块或命名区域。`);
+            }
+            if (target?.area && !areaIds.has(target.area)) errors.push(`${path} 引用不存在的区域「${target.area}」。`);
+            for (const tile of target?.tiles || []) {
+                if (!Number.isInteger(tile?.q) || !Number.isInteger(tile?.r) || !inBoard(tile.q, tile.r)) {
+                    errors.push(`${path} 的揭示坐标不在棋盘内。`);
+                }
+            }
+            if (action.durationRounds != null
+                && (!Number.isInteger(action.durationRounds) || action.durationRounds <= 0)) {
+                errors.push(`${path} 的持续回合必须是正整数；留空表示永久。`);
+            }
+        }
         if (action.kind === 'removeUnits' && !['despawn', 'kill'].includes(action.mode || 'despawn')) errors.push(`${path} 的移除方式无效。`);
         if (action.kind === 'applyEffect') {
             if (action.duration != null && (!Number.isInteger(action.duration) || action.duration < 0)) errors.push(`${path} 的效果持续回合必须是非负整数。`);

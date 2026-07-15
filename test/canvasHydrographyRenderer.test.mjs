@@ -138,6 +138,16 @@ test('hydro layer extends neutral water into render-only fillers without creatin
     assert.ok(layer.paths.river.native.commands.some(command => command[0] === 'bezierCurveTo'),
         'river geometry must be a smooth authored curve instead of a hex-border-like polyline');
     assert.ok(layer.paths.stream.native.commands.some(command => command[0] === 'bezierCurveTo'));
+    const pierCommands = layer.paths.portPiers.native.commands;
+    const pierStart = pierCommands.find(command => command[0] === 'moveTo');
+    const pierEnd = pierCommands.find(command => command[0] === 'lineTo');
+    const portTile = scene.playableTiles.find(value => value.isPort);
+    assert.ok(pierStart && pierEnd);
+    assert.ok(pierStart[2] > 10,
+        'the inland anchor is selected opposite the surrounding water instead of taking the first land neighbour');
+    assert.ok(Math.hypot(pierEnd[1] - portTile.x, pierEnd[2] - portTile.y)
+        < Math.hypot(pierStart[1] - portTile.x, pierStart[2] - portTile.y),
+    'the quay reaches into the port cell instead of hanging almost entirely outside the coast');
 });
 
 test('CanvasHydrographyRenderer caches geometry by board/projection revision and clips every phase', () => {
