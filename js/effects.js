@@ -580,6 +580,161 @@ function spawnCannonImpact(x, y, isCrit) {
     }
 }
 
+// ===== 鱼雷（水下安静推进 → 目标处水柱爆炸） =====================
+export const torpedoes = [];
+export const torpedoSplashes = [];
+
+export function spawnTorpedo(fromX, fromY, toX, toY, isCrit, onImpact) {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    // 比炮弹慢约四倍；相邻海格也能清楚读出完整推进过程。
+    const duration = Math.max(620, Math.min(860, 520 + dist * 1.55));
+    torpedoes.push({
+        fromX, fromY,
+        toX, toY,
+        dx, dy, dist,
+        startTime: performance.now(),
+        duration,
+        isCrit,
+        impactSpawned: false,
+        onImpact: onImpact || null
+    });
+}
+
+function spawnTorpedoImpact(x, y, isCrit, startTime = performance.now()) {
+    torpedoSplashes.push({
+        x, y,
+        startTime,
+        duration: isCrit ? 780 : 680,
+        isCrit
+    });
+
+    // 水滴仍走通用粒子更新，但只使用冷色并向屏幕上方喷起，避免看成舰炮火球。
+    const count = particleCount(isCrit ? 42 : 30);
+    const colors = ['#effcff', '#bdefff', '#76cae8', '#3b9fc4'];
+    for (let i = 0; i < count; i++) {
+        const side = (Math.random() - 0.5) * (isCrit ? 1.7 : 1.35);
+        const speed = 90 + Math.random() * (isCrit ? 280 : 220);
+        particles.push(new VisualParticle(
+            x + (Math.random() - 0.5) * 12,
+            y + (Math.random() - 0.5) * 7,
+            Math.sin(side) * speed,
+            -Math.cos(side) * speed * (0.65 + Math.random() * 0.55),
+            colors[Math.floor(Math.random() * colors.length)],
+            2 + Math.random() * (isCrit ? 5 : 3.8),
+            0.36 + Math.random() * 0.45,
+            260 + Math.random() * 180
+        ));
+    }
+
+    triggerScreenShake(isCrit ? 7 : 4, isCrit ? 260 : 180);
+    playSound('explosion');
+}
+
+export function updateTorpedoes(now) {
+    for (let i = torpedoes.length - 1; i >= 0; i--) {
+        const torpedo = torpedoes[i];
+        if (!torpedo.impactSpawned && now - torpedo.startTime >= torpedo.duration) {
+            torpedo.impactSpawned = true;
+            spawnTorpedoImpact(torpedo.toX, torpedo.toY, torpedo.isCrit, now);
+            if (torpedo.onImpact) torpedo.onImpact();
+            torpedoes.splice(i, 1);
+        }
+    }
+    for (let i = torpedoSplashes.length - 1; i >= 0; i--) {
+        if (now - torpedoSplashes[i].startTime >= torpedoSplashes[i].duration) {
+            torpedoSplashes.splice(i, 1);
+        }
+    }
+}
+
+export function drawTorpedoes(ctx2d, now) {
+    for (const torpedo of torpedoes) {
+        const t = Math.min(1, Math.max(0, (now - torpedo.startTime) / torpedo.duration));
+        if (t >= 1 || torpedo.dist <= 0) continue;
+
+        const ux = torpedo.dx / torpedo.dist;
+        const uy = torpedo.dy / torpedo.dist;
+        const nx = -uy;
+        const ny = ux;
+        const sway = Math.sin(t * Math.PI * 2) * Math.sin(t * Math.PI) * Math.min(3.5, torpedo.dist * 0.025);
+        const headX = torpedo.fromX + torpedo.dx * t + nx * sway;
+        const headY = torpedo.fromY + torpedo.dy * t + ny * sway;
+        const trailLength = Math.min(30, 12 + torpedo.dist * 0.10);
+        const tailX = headX - ux * trailLength;
+        const tailY = headY - uy * trailLength;
+        const angle = Math.atan2(torpedo.dy, torpedo.dx);
+
+        ctx2d.save();
+        // 水下尾迹刻意压低亮度和宽度，前段没有炮口闪光或爆炸声。
+        const wake = ctx2d.createLinearGradient(tailX, tailY, headX, headY);
+        wake.addColorStop(0, 'rgba(150, 224, 242, 0)');
+        wake.addColorStop(0.55, 'rgba(150, 224, 242, 0.20)');
+        wake.addColorStop(1, torpedo.isCrit ? 'rgba(225, 252, 255, 0.72)' : 'rgba(205, 245, 250, 0.52)');
+        ctx2d.strokeStyle = wake;
+        ctx2d.lineWidth = torpedo.isCrit ? 3 : 2;
+        ctx2d.lineCap = 'round';
+        ctx2d.beginPath();
+        ctx2d.moveTo(tailX, tailY);
+        ctx2d.lineTo(headX, headY);
+        ctx2d.stroke();
+
+        ctx2d.translate(headX, headY);
+        ctx2d.rotate(angle);
+        ctx2d.fillStyle = torpedo.isCrit ? 'rgba(214, 247, 251, 0.78)' : 'rgba(39, 82, 96, 0.78)';
+        ctx2d.strokeStyle = 'rgba(228, 252, 255, 0.76)';
+        ctx2d.lineWidth = 1;
+        ctx2d.beginPath();
+        ctx2d.ellipse(0, 0, torpedo.isCrit ? 9 : 7, torpedo.isCrit ? 3.2 : 2.6, 0, 0, Math.PI * 2);
+        ctx2d.fill();
+        ctx2d.stroke();
+        ctx2d.beginPath();
+        ctx2d.moveTo(-5, 0);
+        ctx2d.lineTo(-10, -4);
+        ctx2d.lineTo(-10, 4);
+        ctx2d.closePath();
+        ctx2d.fill();
+        ctx2d.restore();
+    }
+
+    for (const splash of torpedoSplashes) {
+        const p = Math.min(1, Math.max(0, (now - splash.startTime) / splash.duration));
+        const alpha = 1 - p * p;
+        const scale = splash.isCrit ? 1.25 : 1;
+        const ringRadius = HEX_SIZE * scale * (0.22 + p * 0.78);
+        const plume = Math.sin(Math.min(1, p * 1.45) * Math.PI) * HEX_SIZE * 0.95 * scale;
+
+        ctx2d.save();
+        ctx2d.globalAlpha = alpha;
+        ctx2d.strokeStyle = 'rgba(183, 239, 255, 0.92)';
+        ctx2d.lineWidth = Math.max(1.5, 5 * (1 - p));
+        ctx2d.beginPath();
+        ctx2d.ellipse(splash.x, splash.y + 4, ringRadius, ringRadius * 0.34, 0, 0, Math.PI * 2);
+        ctx2d.stroke();
+
+        // 向屏幕上方抬升的三股水柱，为俯视 2D 提供明确的“炸起”高度感。
+        ctx2d.lineCap = 'round';
+        for (let i = -1; i <= 1; i++) {
+            const spread = i * 13 * scale;
+            ctx2d.strokeStyle = i === 0
+                ? 'rgba(239, 253, 255, 0.95)'
+                : 'rgba(117, 207, 236, 0.82)';
+            ctx2d.lineWidth = (i === 0 ? 10 : 7) * (1 - p * 0.65) * scale;
+            ctx2d.beginPath();
+            ctx2d.moveTo(splash.x + spread * 0.25, splash.y + 2);
+            ctx2d.quadraticCurveTo(
+                splash.x + spread * 0.8,
+                splash.y - plume * 0.45,
+                splash.x + spread,
+                splash.y - plume
+            );
+            ctx2d.stroke();
+        }
+        ctx2d.restore();
+    }
+}
+
 // ===== 无人机机枪弹道（比防空曳光弹更醒目，但避免激光感） =====================
 export const droneProjectiles = [];
 
@@ -1396,6 +1551,8 @@ export function clearTransientEffects() {
     fogBlobs.length = 0;
     windStreaks.length = 0;
     projectiles.length = 0;
+    torpedoes.length = 0;
+    torpedoSplashes.length = 0;
     recoils.length = 0;
     charges.length = 0;
     lightningBolts.length = 0;

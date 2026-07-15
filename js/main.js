@@ -17,7 +17,7 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
-    spawnProjectile, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnTorpedo, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
@@ -3094,7 +3094,7 @@ async function handleRemoteAction(msg) {
                 const _execAttackFx = () => {
                 if (_rmSmite) {
                     setTimeout(() => playSound('lightning'), 500);
-                } else {
+                } else if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
                     playSound(_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER
                         ? 'machinegun'
                         : _rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON
@@ -3102,11 +3102,14 @@ async function handleRemoteAction(msg) {
                             : (e?.isCrit ? 'crit' : 'attack'));
                 }
                 if (e) {
-                    triggerAttackFlash(e.x, e.y, e.isCrit);
-                    if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
+                    if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                        spawnTorpedo(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                    } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
+                        triggerAttackFlash(e.x, e.y, e.isCrit);
                         spawnDroneProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
+                        triggerAttackFlash(e.x, e.y, e.isCrit);
                         spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                         if (e.attackerType === 'warship') {
                             setTimeout(() => {
@@ -3117,11 +3120,14 @@ async function handleRemoteAction(msg) {
                         triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                     } else {
+                        triggerAttackFlash(e.x, e.y, e.isCrit);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 22 : 10);
                         spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
                         if (!e.killed && e.attackerType !== 'mgNest') triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                     }
-                    triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
+                    if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                        triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
+                    }
                     if (e.killed) {
                         spawnExplosionParticles(e.x, e.y, '#ff2200', 30);
                         spawnExplosionParticles(e.x, e.y, '#ffaa00', 15);
@@ -3195,11 +3201,19 @@ async function handleRemoteAction(msg) {
                             timeLeft: 750, lastUpdate: performance.now()
                         });
                         if (e.counterIsRanged) {
-                            playSound(e.counterUsesDroneProjectile ? 'machinegun' : 'cannon');
-                            triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
-                            if (e.counterUsesDroneProjectile || e.counterIsDrone) {
+                            const counterPresentation = classifyAttackPresentation({
+                                attackerType: e.counterType,
+                                attackerIsDrone: e.counterIsDrone
+                            });
+                            if (counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                                spawnTorpedo(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                            } else if (e.counterUsesDroneProjectile || e.counterIsDrone) {
+                                playSound('machinegun');
+                                triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
                                 spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
                             } else {
+                                playSound('cannon');
+                                triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
                                 spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
                                 if (e.counterType === 'warship') {
                                     setTimeout(() => {
@@ -3209,8 +3223,10 @@ async function handleRemoteAction(msg) {
                                 }
                                 triggerRecoil(e.x, e.y, e.counterX, e.counterY);
                             }
-                            spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);
-                            triggerScreenShake(e.counterIsCrit ? 6 : 3, e.counterIsCrit ? 200 : 120);
+                            if (counterPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                                spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);
+                                triggerScreenShake(e.counterIsCrit ? 6 : 3, e.counterIsCrit ? 200 : 120);
+                            }
                         }
                     }
                     // 至圣斩真伤数字（金色真实伤害样式）

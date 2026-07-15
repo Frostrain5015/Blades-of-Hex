@@ -19,7 +19,7 @@ import {
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
-    spawnProjectile, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnTorpedo, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing,
@@ -1693,11 +1693,14 @@ export function attackUnit(attackerUnit, targetUnit) {
         setTimeout(() => playSound('lightning'), 500);
     } else {
         const soundPresentation = classifyAttackPresentation(attackerUnit);
-        playSound(soundPresentation === ATTACK_PRESENTATION.FIRE_TRACER
-            ? 'machinegun'
-            : soundPresentation === ATTACK_PRESENTATION.FIRE_CANNON
-                ? 'cannon'
-                : (attackResult.isCrit ? 'crit' : 'attack'));
+        // 鱼雷发射阶段保持安静，explosion 只在弹体抵达目标时播放。
+        if (soundPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+            playSound(soundPresentation === ATTACK_PRESENTATION.FIRE_TRACER
+                ? 'machinegun'
+                : soundPresentation === ATTACK_PRESENTATION.FIRE_CANNON
+                    ? 'cannon'
+                    : (attackResult.isCrit ? 'crit' : 'attack'));
+        }
     }
     const isCrit = attackResult.isCrit;
 
@@ -1729,7 +1732,9 @@ export function attackUnit(attackerUnit, targetUnit) {
     let atkCmdResult = null, ctrCmdResult = null;
     const attackPresentation = classifyAttackPresentation(attackerUnit);
     try {
-        if (attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
+        if (attackPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
+            spawnTorpedo(fromX, fromY, toX, toY, isCrit);
+        } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
             const impact = () => {
                 triggerAttackFlash(toX, toY, isCrit);
                 triggerRecoil(fromX, fromY, toX, toY);
@@ -1835,14 +1840,17 @@ export function attackUnit(attackerUnit, targetUnit) {
                 _counterIsRanged = counterPresentation !== ATTACK_PRESENTATION.ASSAULT;
                 if (_counterIsRanged) {
                     const _cfx = targetUnit.tile.x, _cfy = targetUnit.tile.y;
-                    playSound(counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER ? 'machinegun' : 'cannon');
-                    if (counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
+                    if (counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                        spawnTorpedo(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit);
+                    } else if (counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
+                        playSound('machinegun');
                         spawnDroneProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, () => {
                             triggerAttackFlash(_counterX, _counterY, counterResult.isCrit);
                             spawnDirectionalParticles(_cfx, _cfy, _counterX, _counterY, '#ff8844', counterResult.isCrit ? 8 : 4);
                             triggerScreenShake(counterResult.isCrit ? 6 : 3, counterResult.isCrit ? 200 : 120);
                         });
                     } else {
+                        playSound('cannon');
                         const counterImpact = () => {
                             triggerAttackFlash(_counterX, _counterY, counterResult.isCrit);
                             triggerRecoil(_cfx, _cfy, _counterX, _counterY);

@@ -11,12 +11,16 @@ assert.equal(classifyAttackPresentation({ type: 'cavalry' }), ATTACK_PRESENTATIO
 assert.equal(classifyAttackPresentation({ type: 'archer' }), ATTACK_PRESENTATION.FIRE_CANNON);
 assert.equal(classifyAttackPresentation({ type: 'warship' }), ATTACK_PRESENTATION.FIRE_CANNON);
 assert.equal(classifyAttackPresentation({ type: 'mgNest' }), ATTACK_PRESENTATION.FIRE_TRACER);
+assert.equal(classifyAttackPresentation({ type: 'submarine' }), ATTACK_PRESENTATION.FIRE_TORPEDO);
 assert.equal(classifyAttackPresentation({ type: 'infantry', _isDrone: true }), ATTACK_PRESENTATION.FIRE_TRACER);
 assert.equal(classifyAttackPresentation({ attackerType: 'archer', attackerIsDrone: false }), ATTACK_PRESENTATION.FIRE_CANNON);
 assert.equal(classifyAttackPresentation({ attackerType: 'infantry', attackerIsDrone: true }), ATTACK_PRESENTATION.FIRE_TRACER);
+assert.equal(classifyAttackPresentation({ attackerType: 'submarine', attackerIsDrone: false }), ATTACK_PRESENTATION.FIRE_TORPEDO);
 assert.equal(isRangedAttackPresentation('drone'), true);
+assert.equal(isRangedAttackPresentation('submarine'), true);
 assert.equal(operationArrowStyleForAttacker({ type: 'cavalry' }), 'assault');
 assert.equal(operationArrowStyleForAttacker({ type: 'archer' }), 'fire');
 assert.equal(operationArrowStyleForAttacker({ type: 'warship' }), 'fire');
+assert.equal(operationArrowStyleForAttacker({ type: 'submarine' }), 'fire');
 
 console.log('attackPresentation tests passed');

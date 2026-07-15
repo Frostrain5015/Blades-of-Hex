@@ -1,7 +1,8 @@
 export const ATTACK_PRESENTATION = Object.freeze({
     ASSAULT: 'assault',
     FIRE_CANNON: 'fire-cannon',
-    FIRE_TRACER: 'fire-tracer'
+    FIRE_TRACER: 'fire-tracer',
+    FIRE_TORPEDO: 'fire-torpedo'
 });
 
 function readAttackSource(source) {
@@ -19,6 +20,7 @@ function readAttackSource(source) {
  */
 export function classifyAttackPresentation(source) {
     const { type, isDrone } = readAttackSource(source);
+    if (type === 'submarine') return ATTACK_PRESENTATION.FIRE_TORPEDO;
     if (isDrone || type === 'drone' || type === 'mgNest' || type === 'destroyer') return ATTACK_PRESENTATION.FIRE_TRACER;
     if (type === 'archer' || type === 'warship' || type === 'shoreBattery') return ATTACK_PRESENTATION.FIRE_CANNON;
     return ATTACK_PRESENTATION.ASSAULT;

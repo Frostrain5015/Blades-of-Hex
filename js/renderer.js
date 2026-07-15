@@ -18,6 +18,7 @@ import {
     commanderSkillEffects, commanderFlash,
     factionMoraleFlash,
     drawProjectiles, updateProjectiles,
+    drawTorpedoes, updateTorpedoes,
     droneProjectiles, updateDroneProjectiles, drawDroneProjectiles,
     droneSuicideFlak, updateDroneSuicideFlak, drawDroneSuicideFlak,
     droneDives, updateDroneDives, drawDroneDives,
@@ -566,6 +567,9 @@ export function renderGame() {
     // 炮弹飞行特效
     updateProjectiles(now);
     drawProjectiles(ctx, now);
+    // 鱼雷与水柱在单位上方表现，确保低对比度水下轨迹仍可辨识。
+    updateTorpedoes(now);
+    drawTorpedoes(ctx, now);
     // 无人机弹道
     updateDroneProjectiles(now);
     drawDroneProjectiles(ctx, now);
