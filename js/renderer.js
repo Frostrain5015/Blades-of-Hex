@@ -175,6 +175,33 @@ function drawCampaignObjectiveHighlights(now) {
 // deferred details in the canonical order. Draws into any 2D context so the
 // Pixi terrain snapshot is produced by exactly the same code as direct
 // Canvas rendering — the two backends can never diverge visually.
+function _drawHoneycombOverlay(targetCtx, tiles, visualGrid) {
+    const renderTiles = visualGrid?.tiles || tiles;
+    targetCtx.save();
+    for (let i = 0, len = renderTiles.length; i < len; i++) {
+        const tile = renderTiles[i];
+        if (tile.renderOnly || tile.playable === false) continue;
+        if (!tile.camp || tile.camp.colorId === 'gray') continue; // 中立/无色跳过
+        // 径向渐变：中央暖白高光向边缘渐隐，叠加出六边形蜂窝质感
+        const gradient = targetCtx.createRadialGradient(
+            tile.x, tile.y, HEX_SIZE * 0.08,
+            tile.x, tile.y, HEX_SIZE * 0.88
+        );
+        gradient.addColorStop(0, 'rgba(255,255,240,0.14)');
+        gradient.addColorStop(0.4, 'rgba(255,255,240,0.06)');
+        gradient.addColorStop(1, 'rgba(255,255,240,0)');
+        targetCtx.beginPath();
+        hexPath(targetCtx, tile.x, tile.y, HEX_SIZE);
+        targetCtx.fillStyle = gradient;
+        targetCtx.fill();
+        // 六边形边线极细高光
+        targetCtx.strokeStyle = 'rgba(255,255,240,0.05)';
+        targetCtx.lineWidth = 0.5;
+        targetCtx.stroke();
+    }
+    targetCtx.restore();
+}
+
 function _drawTerrainMaterials(targetCtx, now, { tiles, visualGrid, layeredTerrain, materialOptions, tileBaseOptions }) {
     if (visualGrid) drawVisualFillerTiles(targetCtx, visualGrid.fillers);
     for (let i = 0, len = tiles.length; i < len; i++) {
@@ -190,6 +217,9 @@ function _drawTerrainMaterials(targetCtx, now, { tiles, visualGrid, layeredTerra
     if (layeredTerrain) {
         for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawDeferredMapDetails(targetCtx);
     }
+    // 蜂窝高光叠层：归属地块上叠加暖白径向渐变，整片领地呈现六边形蜂窝质感。
+    // 在 Pixi 委托模式下，此函数绘制进离屏 canvas → 静态纹理一次上传，无每帧开销。
+    _drawHoneycombOverlay(targetCtx, tiles, visualGrid);
 }
 
 /**
