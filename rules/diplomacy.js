@@ -277,7 +277,8 @@ export function createDefaultFactions(overrides = []) {
             flagUrl: providedFlagUrl
                 || (flagConfig?.preset ? flagConfig.preset : null)
                 || (flagConfig ? createFlagSvgUrl(flagConfig, palette?.id || override.color) : null)
-                || (flagEmoji ? createStandardFlagUrl(palette?.id || override.color, flagEmoji) : null),
+                || (flagEmoji ? createStandardFlagUrl(palette?.id || override.color, flagEmoji) : null)
+                || (id === 'neutral' ? 'img/flags/training-targets.svg' : null),
             flagAlt: typeof override.flagAlt === 'string' && override.flagAlt ? override.flagAlt : (flagEmoji ? `${override.name || base.name}·${flagEmoji}` : ''),
             flagConfig: flagConfig, // 保留原始配置供编辑器回读
             controller: ['human', 'ai', 'scripted'].includes(override.controller) ? override.controller : base.controller,

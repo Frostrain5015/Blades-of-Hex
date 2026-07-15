@@ -1778,12 +1778,15 @@ export function attackUnit(attackerUnit, targetUnit) {
     const qixueActive = !areCommanderMechanicsSuppressed(attackerUnit) && attackerUnit.commander === 'berserker' && attackerUnit._berserkerQixue;
     const qixueAttackCamp = attackerUnit.camp;
 
-    const relationBeforeAttack = getRelation(gameState, attackerUnit.camp, targetUnit.camp);
-    if (relationBeforeAttack === 'neutral') {
-        const change = setRelation(gameState, attackerUnit.camp, targetUnit.camp, 'enemy');
-        if (change) {
-            clearselection();
-            emit('match:diplomacyChanged', { ...change, reason: 'provokedByAttack' });
+    // 战役模式才允许攻击触发外交变更（标准对局外交关系固定）
+    if (gameState.campaignMode) {
+        const relationBeforeAttack = getRelation(gameState, attackerUnit.camp, targetUnit.camp);
+        if (relationBeforeAttack === 'neutral') {
+            const change = setRelation(gameState, attackerUnit.camp, targetUnit.camp, 'enemy');
+            if (change) {
+                clearselection();
+                emit('match:diplomacyChanged', { ...change, reason: 'provokedByAttack' });
+            }
         }
     }
     emit('match:combatStarted', {
