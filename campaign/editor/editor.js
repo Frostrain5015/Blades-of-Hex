@@ -1248,6 +1248,21 @@ function buildFactionBasics() {
         box.appendChild(textareaRow('剧情备注（留空不显示）', faction.note || '', value => mutate(c => { c.factions[idx].note = value; }, { rebuildPanels: false }), 2));
         box.appendChild(selectRow('颜色', faction.color, FACTION_COLOR_OPTIONS,
             value => mutate(c => { c.factions[idx].color = value; }, { rebuildPanels: false })));
+        box.appendChild(selectRow('旗帜', faction.flagUrl || '', {
+            '': '自动生成（颜色+徽记）',
+            'img/flags/aurelia-kingdom.svg': '奥雷利亚王国旗',
+            'img/flags/aurelia-regency.svg': '摄政府旗',
+            'img/flags/petra-autonomy.svg': '佩特拉自治领旗',
+            'img/flags/training-targets.svg': '训练靶旗'
+        }, value => mutate(c => {
+            c.factions[idx].flagUrl = value || null;
+            c.factions[idx].flagAlt = value ? ({
+                'img/flags/aurelia-kingdom.svg': '奥雷利亚王国旗',
+                'img/flags/aurelia-regency.svg': '摄政府旗',
+                'img/flags/petra-autonomy.svg': '佩特拉自治领旗',
+                'img/flags/training-targets.svg': '训练靶旗'
+            })[value] || '' : '';
+        }, { rebuildPanels: false })));
         box.appendChild(selectRow('控制方式', faction.controller || 'ai', { human: '玩家', ai: 'AI', scripted: '剧情控制' },
             value => mutate(c => {
                 c.factions[idx].controller = value;
