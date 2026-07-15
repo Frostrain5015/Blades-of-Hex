@@ -53,16 +53,7 @@ export function createStandardFlagUrl(colorValue, emoji) {
     if (!isStandardFlagEmoji(emoji)) return null;
     const colors = getFlagColors(colorValue);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
-        <defs>
-            <linearGradient id="cloth" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stop-color="${colors.light}"/>
-                <stop offset="0.52" stop-color="${colors.main}"/>
-                <stop offset="1" stop-color="${colors.dark}"/>
-            </linearGradient>
-        </defs>
-        <rect width="900" height="600" fill="url(#cloth)"/>
-        <path d="M0 110C185 70 335 150 520 110S745 75 900 125V0H0Z" fill="#fff" opacity=".09"/>
-        <path d="M0 490C170 430 370 530 570 470S760 420 900 480V600H0Z" fill="#000" opacity=".11"/>
+        <rect width="900" height="600" fill="${colors.main}"/>
         <text x="450" y="390" text-anchor="middle" font-size="330" font-family="Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif">${emoji}</text>
     </svg>`;
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
@@ -124,9 +115,6 @@ export function createFlagSvgUrl(fc, fallbackColor) {
             break;
     }
 
-    // 布料褶皱光影（所有图案共用）
-    svg += '<path d="M0 110C185 70 335 150 520 110S745 75 900 125V0H0Z" fill="#fff" opacity=".09"/>';
-    svg += '<path d="M0 490C170 430 370 530 570 470S760 420 900 480V600H0Z" fill="#000" opacity=".11"/>';
     svg += '</svg>';
 
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
@@ -287,6 +275,7 @@ export function createDefaultFactions(overrides = []) {
             flag: flagEmoji || (typeof override.flag === 'string' && override.flag ? override.flag : base.flag),
             flagEmoji,
             flagUrl: providedFlagUrl
+                || (flagConfig?.preset ? flagConfig.preset : null)
                 || (flagConfig ? createFlagSvgUrl(flagConfig, palette?.id || override.color) : null)
                 || (flagEmoji ? createStandardFlagUrl(palette?.id || override.color, flagEmoji) : null),
             flagAlt: typeof override.flagAlt === 'string' && override.flagAlt ? override.flagAlt : (flagEmoji ? `${override.name || base.name}·${flagEmoji}` : ''),

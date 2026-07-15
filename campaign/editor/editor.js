@@ -1260,6 +1260,14 @@ function buildFactionBasics() {
             c.factions[idx].flagUrl = null;
             c.factions[idx].flagAlt = '';
         }, { rebuildPanels: false });
+        flagBox.appendChild(selectRow('预设国旗（覆盖下方设计）', fc.preset || '', {
+            '': '无（使用下方设计器）',
+            'img/flags/svg/cn.svg': '🇨🇳 中国',
+            'img/flags/svg/us.svg': '🇺🇸 美国',
+            'img/flags/svg/gb.svg': '🇬🇧 英国',
+            'img/flags/svg/fr.svg': '🇫🇷 法国',
+            'img/flags/svg/ru.svg': '🇷🇺 俄罗斯'
+        }, v => setFlag({ preset: v || null })));
         flagBox.appendChild(selectRow('图案', fc.pattern || 'solid', {
             solid: '纯色底',
             canton: '坎顿（左上角分区）',
@@ -1285,8 +1293,8 @@ function buildFactionBasics() {
             flagBox.appendChild(selectRow('坎顿徽记', fc.cantonEmoji || '', { '': '无', ...FLAG_EMOJI_OPTIONS },
                 v => setFlag({ cantonEmoji: v || null })));
         }
-        // 预览
-        const previewUrl = createFlagSvgUrl(fc, faction.color);
+        // 预览（预设旗帜直接加载 SVG，自定义图案由 createFlagSvgUrl 生成）
+        const previewUrl = fc.preset ? '../' + fc.preset : createFlagSvgUrl(fc, faction.color);
         if (previewUrl) {
             const img = el('img');
             img.src = previewUrl;

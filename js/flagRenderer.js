@@ -395,31 +395,53 @@ export function drawBattlefieldFlags(ctx, gameState, now) {
 export function createFlagPreview(canvas) {
     const logicalWidth = Number(canvas.getAttribute('width')) || canvas.width;
     const logicalHeight = Number(canvas.getAttribute('height')) || canvas.height;
-    const renderer = new BatchedFlagRenderer(logicalWidth, logicalHeight, canvas, getCanvasPixelRatio());
-    // 预览旗去掉重力下垂，旗帜向正右方自然飘动。
-    renderer.setGravitySag(0);
+    const ratio = getCanvasPixelRatio();
+    let useWebGL = true;
+    let renderer, ctx2d;
+    try {
+        renderer = new BatchedFlagRenderer(logicalWidth, logicalHeight, canvas, ratio);
+        renderer.setGravitySag(0);
+    } catch (e) {
+        // WebGL2 不可用或构造失败 → 回退 Canvas2D
+        useWebGL = false;
+        canvas.width = Math.round(logicalWidth * ratio);
+        canvas.height = Math.round(logicalHeight * ratio);
+        ctx2d = canvas.getContext('2d');
+    }
     let previewInstance = null;
     return {
         setFaction(faction) {
-            const colors = getFlagColors(faction?.colorId || faction?.color);
-            // 四边留出边距，避免飘动动画穿帮
-            const padX = 4, padY = 4;
-            const maxW = logicalWidth - padX * 2;
-            const maxH = logicalHeight - padY * 2;
-            const width = Math.min(maxW, maxH * 1.5);
-            const height = Math.round(width / 1.5);
-            previewInstance = {
-                x: Math.round((logicalWidth - width) / 2),
-                y: Math.round((logicalHeight - height) / 2),
-                width, height,
-                phase: 1.7, colors, flagUrl: faction?.flagUrl || null
-            };
-            renderer.setInstances([previewInstance]);
+            if (useWebGL) {
+                const colors = getFlagColors(faction?.colorId || faction?.color);
+                const padX = 4, padY = 4;
+                const maxW = logicalWidth - padX * 2;
+                const maxH = logicalHeight - padY * 2;
+                const width = Math.min(maxW, maxH * 1.5);
+                const height = Math.round(width / 1.5);
+                previewInstance = {
+                    x: Math.round((logicalWidth - width) / 2),
+                    y: Math.round((logicalHeight - height) / 2),
+                    width, height,
+                    phase: 1.7, colors, flagUrl: faction?.flagUrl || null
+                };
+                renderer.setInstances([previewInstance]);
+            } else if (ctx2d) {
+                // Canvas2D 回退：仅显示主色块
+                const colors = getFlagColors(faction?.colorId || faction?.color);
+                previewInstance = colors;
+            }
         },
         render(now) {
-            // 数据 SVG 异步装入纹理图集后需要重新写入图集索引，才能从渐变旗切换到自定义徽记。
-            if (previewInstance) renderer.setInstances([previewInstance]);
-            renderer.render(now / 1000, FLAG_WIND_STRENGTH.normal);
+            if (useWebGL) {
+                if (previewInstance) renderer.setInstances([previewInstance]);
+                renderer.render(now / 1000, FLAG_WIND_STRENGTH.normal);
+            } else if (ctx2d && previewInstance) {
+                const c = previewInstance;
+                ctx2d.setTransform(ratio, 0, 0, ratio, 0, 0);
+                ctx2d.clearRect(0, 0, logicalWidth, logicalHeight);
+                ctx2d.fillStyle = c.main || '#888';
+                ctx2d.fillRect(0, 0, logicalWidth, logicalHeight);
+            }
         }
     };
 }
