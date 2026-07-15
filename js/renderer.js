@@ -198,7 +198,7 @@ function _drawTerrainMaterials(targetCtx, now, { tiles, visualGrid, layeredTerra
  */
 export function renderTerrainSnapshot(targetCtx, now, pixelRatio = 1) {
     const tiles = gameState.tiles;
-    const visualGrid = gameState.campaignMode && gameState.boardLayout === 'borderless'
+    const visualGrid = gameState.boardLayout === 'borderless'
         ? getBorderlessVisualGrid(tiles, gameState.tileMap)
         : null;
     const layeredTerrain = canvasBattlefieldLayers.terrainActive;
@@ -231,7 +231,7 @@ export function renderGame() {
     // Update territory fade
     const tiles = gameState.tiles;
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].updateFadeColor(now);
-    const visualGrid = gameState.campaignMode && gameState.boardLayout === 'borderless'
+    const visualGrid = gameState.boardLayout === 'borderless'
         ? getBorderlessVisualGrid(tiles, gameState.tileMap)
         : null;
     syncCanvasFrameStyle(Boolean(visualGrid));
@@ -1472,7 +1472,7 @@ function _hexScreenShape(tile, size = HEX_SIZE) {
 }
 
 function _getTargetingBoardClipShapes() {
-    const renderTiles = gameState.campaignMode && gameState.boardLayout === 'borderless'
+    const renderTiles = gameState.boardLayout === 'borderless'
         ? getBorderlessVisualGrid(gameState.tiles, gameState.tileMap).tiles
         : gameState.tiles;
     return renderTiles.map(tile => _hexScreenShape(tile, HEX_SIZE * 1.01));

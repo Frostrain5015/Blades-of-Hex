@@ -10,6 +10,7 @@ import { stopCampaignRuntime } from './campaignController.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
+import { getStandardMap } from '../rules/standardMaps.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
@@ -171,7 +172,7 @@ const HEX_AXES = [
 ];
 
 function generateTerrain(tiles) {
-    const nonCityTiles = tiles.filter(t => !t.isCity);
+    const nonCityTiles = tiles.filter(t => isLandTile(t) && !t.isCity && !t.isVillage);
     const total = nonCityTiles.length;
     if (total === 0) return;
 
@@ -245,30 +246,6 @@ function generateTerrain(tiles) {
         }
     }
 
-    // 村庄：每个行政区 1 个，距本区城市 ≥ VILLAGE_MIN_DIST
-    const villageEntries = [];
-    const cities = tiles.filter(t => t.isCity);
-    const districtCityMap = new Map();
-    for (const c of cities) {
-        if (!districtCityMap.has(c.districtId)) districtCityMap.set(c.districtId, []);
-        districtCityMap.get(c.districtId).push(c);
-    }
-    for (const [districtId, districtCities] of districtCityMap) {
-        const city = districtCities[0];
-        const candidates = tiles.filter(t =>
-            t.districtId === districtId &&
-            !t.isCity &&
-            !t.isVillage &&
-            hexDistance(t, city) >= VILLAGE_MIN_DIST
-        );
-        if (candidates.length === 0) continue;
-        const idx = rng.int(candidates.length);
-        const t = candidates[idx];
-        t.isVillage = true;
-        t.villageDistrictId = districtId;
-        villageEntries.push([`${t.q},${t.r}`, { districtId, q: t.q, r: t.r }]);
-    }
-    gameState.villageTiles = new Map(villageEntries);
 }
 
 function countAdjacentNonFriendlies(unit, tileMap) {
@@ -353,12 +330,14 @@ export function initMap() {
     gameState.tiles = [];
 
     const is3P = gameState.isThreePlayer;
+    const standardMap = getStandardMap(is3P ? 3 : 2);
     // 直接从编辑器导出的配置嵌入（JSON字符串，保证与文件完全一致）
     const boardJSON = is3P
         ? '{"radius":7,"cities":[{"q":0,"r":0,"districtId":5,"camp":"neutral"},{"q":-3,"r":-3,"districtId":1,"camp":"player1"},{"q":-6,"r":3,"districtId":3,"camp":"player2"},{"q":-3,"r":6,"districtId":4,"camp":"player2"},{"q":3,"r":3,"districtId":6,"camp":"player3"},{"q":6,"r":-3,"districtId":7,"camp":"player3"},{"q":3,"r":-6,"districtId":2,"camp":"player1"}],"terrain":[],"villages":[{"q":1,"r":-6,"districtId":2},{"q":-6,"r":5,"districtId":3},{"q":-1,"r":6,"districtId":4},{"q":5,"r":1,"districtId":6},{"q":0,"r":2,"districtId":5},{"q":2,"r":-2,"districtId":5},{"q":-2,"r":0,"districtId":5},{"q":-4,"r":-2,"districtId":1},{"q":6,"r":-4,"districtId":7}],"fortifications":[],"districts":[{"q":-4,"r":0,"districtId":1},{"q":-5,"r":0,"districtId":1},{"q":-6,"r":0,"districtId":1},{"q":-7,"r":0,"districtId":1},{"q":0,"r":-7,"districtId":2},{"q":1,"r":-7,"districtId":2},{"q":0,"r":-6,"districtId":2},{"q":1,"r":-6,"districtId":2},{"q":0,"r":-5,"districtId":2},{"q":1,"r":-5,"districtId":2},{"q":0,"r":-4,"districtId":2},{"q":1,"r":-4,"districtId":2},{"q":-3,"r":2,"districtId":5},{"q":-3,"r":1,"districtId":5},{"q":-3,"r":0,"districtId":5},{"q":-1,"r":-1,"districtId":5},{"q":-1,"r":-2,"districtId":5},{"q":0,"r":-3,"districtId":5},{"q":1,"r":-3,"districtId":5},{"q":2,"r":-3,"districtId":5},{"q":3,"r":-3,"districtId":5},{"q":3,"r":-2,"districtId":5},{"q":3,"r":-1,"districtId":5},{"q":3,"r":0,"districtId":5},{"q":2,"r":1,"districtId":5},{"q":1,"r":1,"districtId":5},{"q":1,"r":2,"districtId":5},{"q":-2,"r":3,"districtId":5},{"q":-1,"r":3,"districtId":5},{"q":0,"r":3,"districtId":5},{"q":4,"r":-4,"districtId":7},{"q":5,"r":-5,"districtId":7},{"q":6,"r":-6,"districtId":7},{"q":7,"r":-7,"districtId":7}]}'
         : '{"radius":7,"cities":[{"q":0,"r":0,"districtId":5,"camp":"neutral"},{"q":-5,"r":0,"districtId":1,"camp":"player1"},{"q":5,"r":0,"districtId":2,"camp":"player2"},{"q":-2,"r":4,"districtId":4,"camp":"neutral"},{"q":2,"r":-4,"districtId":3,"camp":"neutral"}],"terrain":[],"villages":[{"q":-5,"r":6,"districtId":4},{"q":-1,"r":6,"districtId":4},{"q":-1,"r":-1,"districtId":5},{"q":1,"r":1,"districtId":5},{"q":1,"r":-6,"districtId":3},{"q":5,"r":-6,"districtId":3},{"q":-6,"r":3,"districtId":1},{"q":-3,"r":-3,"districtId":1},{"q":6,"r":-3,"districtId":2},{"q":3,"r":3,"districtId":2}],"fortifications":[],"districts":[{"q":2,"r":5,"districtId":2},{"q":4,"r":-2,"districtId":2},{"q":5,"r":-2,"districtId":2},{"q":6,"r":-3,"districtId":2}]}';
 
-    buildBoardFromConfig({ board: JSON.parse(boardJSON) }, gameState);
+    // 标准地图池优先使用海岛竞技图；旧纯陆配置保留为兼容降级入口。
+    buildBoardFromConfig(standardMap || { board: JSON.parse(boardJSON) }, gameState);
     updateButtonColors();
     generateTerrain(gameState.tiles);
     initInitialUnits();
@@ -504,6 +483,11 @@ function initInitialUnits() {
         const tile = map.get(`${q},${r}`);
         const runtimeCamp = campFromKey(campToKey(camp), gameState);
         if (tile && !tile.unit) new Unit(type, runtimeCamp, tile, false);
+    }
+    const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2);
+    if (Array.isArray(standardMap?.initialUnits)) {
+        for (const unit of standardMap.initialUnits) spawn(unit.type, unit.camp, unit.q, unit.r);
+        return;
     }
     if (gameState.isThreePlayer) {
         // 三个稳定席位的初始部署；外观颜色由运行时阵营配置决定。
@@ -771,7 +755,6 @@ export function grantTurnStartIncome(camp) {
     }
 
     // 村庄结算
-    const _villageCounts = new Map();
     for (const [vk, v] of gameState.villageTiles) {
         const vTile = gameState.tileMap.get(vk);
         if (!vTile) continue;
@@ -783,14 +766,10 @@ export function grantTurnStartIncome(camp) {
             beneficiaryCamp = cityTile ? cityTile.camp : campFromKey('neutral', gameState);
         }
         if (beneficiaryCamp !== camp) continue;
-        const idx = _villageCounts.get(beneficiaryCamp) || 0;
-        let villageGold = idx === 0 ? VILLAGE_GOLD : idx === 1 ? 1 : 0;
-        _villageCounts.set(beneficiaryCamp, idx + 1);
-        if (villageGold <= 0) continue;
-        gameState.playerGold[_campKey(beneficiaryCamp)] += villageGold;
+        gameState.playerGold[_campKey(beneficiaryCamp)] += VILLAGE_GOLD;
         gameState.goldTexts.push({
             x: vTile.x, y: vTile.y,
-            value: villageGold, prefix: '+', color: '#ffcc00',
+            value: VILLAGE_GOLD, prefix: '+', color: '#ffcc00',
             timeLeft: 1800, lastUpdate: performance.now()
         });
         spawnCoinRain(vTile.x, vTile.y, 1);

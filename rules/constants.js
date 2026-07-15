@@ -16,7 +16,7 @@ export const BOARD_RULES = deepFreeze({
 
 /** 全局经济、卡牌与天气循环参数。 */
 export const GAME_RULES = deepFreeze({
-    villageGold: 2,
+    villageGold: 1,
     villageMinDistance: 3,
     commanderRerollCost: 3,
     income: { firstCityGold: 4, secondCityGold: 3, additionalCityGold: 2 },
