@@ -29,14 +29,21 @@ const TARGET_STYLE = Object.freeze({
     area: Object.freeze({ motif: 'area', color: '#f05b52' })
 });
 
+const HEX_UNIT_VERTICES = Array.from({ length: 6 }, (_, index) => {
+    const angle = Math.PI / 3 * (index + 0.5);
+    return Object.freeze({ x: Math.cos(angle), y: Math.sin(angle) });
+});
+
 function hexPoints(center, size) {
-    return Array.from({ length: 6 }, (_, index) => {
-        const angle = Math.PI / 3 * (index + 0.5);
-        return {
-            x: center.x + Math.cos(angle) * size,
-            y: center.y + Math.sin(angle) * size
+    const points = new Array(6);
+    for (let index = 0; index < 6; index += 1) {
+        const vertex = HEX_UNIT_VERTICES[index];
+        points[index] = {
+            x: center.x + vertex.x * size,
+            y: center.y + vertex.y * size
         };
-    });
+    }
+    return points;
 }
 
 function signatureRevision(signature) {
@@ -62,9 +69,17 @@ function tileByKey(snapshot) {
     return new Map((snapshot.tiles || []).map(tile => [tile.key, tile]));
 }
 
+// Memoized: called for every tile and interaction key at the sync cadence,
+// and the key space is bounded by board size.
+const coordinatesFromKeyCache = new Map();
+
 function coordinatesFromKey(key) {
+    const cached = coordinatesFromKeyCache.get(key);
+    if (cached !== undefined) return cached;
     const [q, r] = String(key || '').split(',').map(Number);
-    return Number.isFinite(q) && Number.isFinite(r) ? { q, r } : null;
+    const parsed = Number.isFinite(q) && Number.isFinite(r) ? { q, r } : null;
+    coordinatesFromKeyCache.set(key, parsed);
+    return parsed;
 }
 
 function hexDistanceByKey(leftKey, rightKey) {

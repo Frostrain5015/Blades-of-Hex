@@ -307,17 +307,20 @@ function readApplicationCanvas(app) {
     try { return app.canvas || app.view || null; } catch { return null; }
 }
 
+// Returns `next` by reference when no exiting descriptor needs to be carried
+// over, so callers can cheaply detect the no-op case and skip re-normalizing.
 function mergeExitingDescriptors(previous = [], next = [], nowMs, fallbackDurationMs) {
+    let merged = null;
     const nextIds = new Set(next.map(descriptor => descriptor.id));
-    const merged = [...next];
     for (const descriptor of previous) {
         if (nextIds.has(descriptor.id)) continue;
         const endingStartedAtMs = descriptor.endingStartedAtMs || nowMs;
         const endingDurationMs = descriptor.endingDurationMs || fallbackDurationMs;
         if (nowMs - endingStartedAtMs >= endingDurationMs) continue;
+        if (!merged) merged = [...next];
         merged.push({ ...descriptor, endingStartedAtMs, endingDurationMs });
     }
-    return merged;
+    return merged || next;
 }
 
 function descriptorStillAnimating(descriptor, nowMs) {
@@ -508,29 +511,18 @@ export class PixiBattlefieldRenderer {
         let next = createPixiSceneSnapshot(snapshot);
         if (this._scene) {
             const nowMs = this._now();
-            next = createPixiSceneSnapshot({
-                ...next,
-                targetFrames: mergeExitingDescriptors(
-                    this._scene.targetFrames,
-                    next.targetFrames,
-                    nowMs,
-                    220
-                ),
-                rangeRegions: mergeExitingDescriptors(
-                    this._scene.rangeRegions,
-                    next.rangeRegions,
-                    nowMs,
-                    240
-                ),
-                antiAirCells: mergeExitingDescriptors(
-                    this._scene.antiAirCells,
-                    next.antiAirCells,
-                    nowMs,
-                    220
-                )
-                // routePaths deliberately not merged: Canvas removes the hover
-                // route on the exact frame the pointer leaves, with no fade.
-            });
+            const targetFrames = mergeExitingDescriptors(this._scene.targetFrames, next.targetFrames, nowMs, 220);
+            const rangeRegions = mergeExitingDescriptors(this._scene.rangeRegions, next.rangeRegions, nowMs, 240);
+            const antiAirCells = mergeExitingDescriptors(this._scene.antiAirCells, next.antiAirCells, nowMs, 220);
+            // routePaths deliberately not merged: Canvas removes the hover
+            // route on the exact frame the pointer leaves, with no fade.
+            // Re-normalize only when an exit animation was actually carried
+            // over; the common hover-sync path reuses the snapshot as-is.
+            if (targetFrames !== next.targetFrames
+                || rangeRegions !== next.rangeRegions
+                || antiAirCells !== next.antiAirCells) {
+                next = createPixiSceneSnapshot({ ...next, targetFrames, rangeRegions, antiAirCells });
+            }
         }
         this._scene = next;
         this._sceneDirty = true;

@@ -133,6 +133,8 @@ let _battlefieldLastFrameAt = performance.now();
 let _terrainCanvas = null;
 let _terrainCanvasRatio = 1;
 let _terrainTextureDirty = true;
+// 有地块颜色渐变进行中：贴图按 50ms 快照节拍持续重画，渐变结束后自动停。
+let _terrainFadeActive = false;
 
 function _preferredBattlefieldBackend() {
     // Pixi 为默认渲染引擎；仅当 Vite 不可用或用户手动切回 Canvas2D 时才回退。
@@ -193,6 +195,7 @@ async function _replaceBattlefieldRenderer() {
     _battlefieldSnapshot = null;
     _battlefieldSnapshotCheckedAt = -Infinity;
     _terrainTextureDirty = true;
+    _terrainFadeActive = false;
 
     let boundary = null;
     boundary = createBattlefieldRenderer({
@@ -247,10 +250,19 @@ function _syncPixiBattlefieldScene(now) {
             viewingCamp: getViewingCamp(),
             humanTurn: isHumanTurnForInteractionHints()
         });
-        if (!shouldSyncBattlefieldSnapshot(_battlefieldSnapshot, next)) return;
+        if (!shouldSyncBattlefieldSnapshot(_battlefieldSnapshot, next)) {
+            // 渐变进行中签名不变，但贴图颜色在动 → 按快照节拍重画。
+            if (_terrainFadeActive) _terrainTextureDirty = true;
+            return;
+        }
+        // 地形贴图只在地形相关状态（占领变色/地表/工事/城镇）变化时重画。
+        // hover/选中/单位移动等交互变化不再触发全图重画 + GPU 纹理上传。
+        if (_battlefieldSnapshot?.terrainSignature !== next.terrainSignature) {
+            _terrainTextureDirty = true;
+        }
         _battlefieldSnapshot = next;
-        // 棋盘状态变化 → 地形贴图立即重画，避免占领变色等滞后于单位层。
-        _terrainTextureDirty = true;
+        _terrainFadeActive = next.tiles.some(tile => tile.surface?.transition);
+        if (_terrainFadeActive) _terrainTextureDirty = true;
         // 地形走 Canvas 快照贴图（见 _syncPixiTerrainTexture），Graphics 场景
         // 恒为叠加层：只承载交互提示，绝不自绘平面色块地形。
         _battlefieldRenderer.syncScene(battlefieldSnapshotToPixi(next, {

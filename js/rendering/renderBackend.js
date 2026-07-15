@@ -51,51 +51,73 @@ function pathForProperty(path, property) {
         : `${path}[${JSON.stringify(property)}]`;
 }
 
-function clonePlainRenderValue(value, path, ancestors) {
+// Error paths reconstruct the offending DTO path from the frame stack, so the
+// hot path never allocates path strings (this clone runs on every scene sync).
+function renderPathFromFrames(root, frames) {
+    let path = root;
+    for (const frame of frames) {
+        path = typeof frame === 'number' ? `${path}[${frame}]` : pathForProperty(path, frame);
+    }
+    return path;
+}
+
+function clonePlainRenderValue(value, root, frames, ancestors) {
     if (value === null || value === undefined) return value;
 
     const kind = typeof value;
     if (kind === 'string' || kind === 'boolean' || kind === 'bigint') return value;
     if (kind === 'number') {
         if (!Number.isFinite(value)) {
-            throw new TypeError(`${path} must contain only finite numbers`);
+            throw new TypeError(`${renderPathFromFrames(root, frames)} must contain only finite numbers`);
         }
         return value;
     }
     if (kind === 'function' || kind === 'symbol') {
-        throw new TypeError(`${path} is not a serializable render DTO value`);
+        throw new TypeError(`${renderPathFromFrames(root, frames)} is not a serializable render DTO value`);
     }
     if (kind !== 'object') return value;
 
     if (ancestors.has(value)) {
-        throw new TypeError(`${path} contains a cyclic reference`);
+        throw new TypeError(`${renderPathFromFrames(root, frames)} contains a cyclic reference`);
     }
     ancestors.add(value);
 
     let copy;
     if (Array.isArray(value)) {
-        copy = value.map((item, index) => clonePlainRenderValue(item, `${path}[${index}]`, ancestors));
+        copy = new Array(value.length);
+        for (let index = 0; index < value.length; index += 1) {
+            frames.push(index);
+            copy[index] = clonePlainRenderValue(value[index], root, frames, ancestors);
+            frames.pop();
+        }
     } else {
         const prototype = Object.getPrototypeOf(value);
         if (prototype !== Object.prototype && prototype !== null) {
-            throw new TypeError(`${path} must be a plain object or array`);
+            throw new TypeError(`${renderPathFromFrames(root, frames)} must be a plain object or array`);
         }
         if (Object.getOwnPropertySymbols(value).length) {
-            throw new TypeError(`${path} must not contain symbol-keyed properties`);
+            throw new TypeError(`${renderPathFromFrames(root, frames)} must not contain symbol-keyed properties`);
         }
 
         copy = Object.create(prototype === null ? null : Object.prototype);
         for (const property of Object.keys(value)) {
             const descriptor = Object.getOwnPropertyDescriptor(value, property);
             if (descriptor?.get || descriptor?.set) {
-                throw new TypeError(`${pathForProperty(path, property)} must not be an accessor`);
+                frames.push(property);
+                throw new TypeError(`${renderPathFromFrames(root, frames)} must not be an accessor`);
             }
-            Object.defineProperty(copy, property, {
-                value: clonePlainRenderValue(value[property], pathForProperty(path, property), ancestors),
-                enumerable: true,
-                configurable: false,
-                writable: false
-            });
+            frames.push(property);
+            const cloned = clonePlainRenderValue(value[property], root, frames, ancestors);
+            // Plain assignment of a literal "__proto__" key would rewrite the
+            // prototype instead of creating an own property.
+            if (property === '__proto__') {
+                Object.defineProperty(copy, property, {
+                    value: cloned, enumerable: true, configurable: true, writable: true
+                });
+            } else {
+                copy[property] = cloned;
+            }
+            frames.pop();
         }
     }
 
@@ -112,7 +134,7 @@ function clonePlainRenderValue(value, path, ancestors) {
  */
 export function createImmutableRenderValue(value, label = 'renderDto') {
     if (value && typeof value === 'object' && immutableRoots.has(value)) return value;
-    const copy = clonePlainRenderValue(value, label, new WeakSet());
+    const copy = clonePlainRenderValue(value, label, [], new WeakSet());
     if (copy && typeof copy === 'object') immutableRoots.add(copy);
     return copy;
 }

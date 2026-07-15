@@ -55,9 +55,17 @@ function keyFromTile(tile) {
     return targetingTileKey(tile);
 }
 
+// Sort comparators call this O(n log n) times per snapshot at a 20Hz cadence;
+// the key space is bounded by board size, so memoization is safe and hot.
+const parsedTileKeyCache = new Map();
+
 function parseTileKey(key) {
+    const cached = parsedTileKeyCache.get(key);
+    if (cached !== undefined) return cached;
     const [q, r] = String(key).split(',').map(Number);
-    return Number.isFinite(q) && Number.isFinite(r) ? { q, r } : null;
+    const parsed = Number.isFinite(q) && Number.isFinite(r) ? { q, r } : null;
+    parsedTileKeyCache.set(key, parsed);
+    return parsed;
 }
 
 function compareTileKeys(left, right) {
@@ -393,34 +401,49 @@ function buildCamps(gameState, playableEntries) {
         }));
 }
 
+// Hex vertex offsets precomputed once: the border scan runs at the snapshot
+// cadence and previously paid four trig calls per emitted edge.
+const HEX_EDGE_OFFSETS = Array.from({ length: 6 }, (_, index) => {
+    const firstAngle = Math.PI / 3 * (index + 0.5);
+    const secondAngle = Math.PI / 3 * (((index + 1) % 6) + 0.5);
+    return Object.freeze({
+        x0: Math.cos(firstAngle) * BOARD_RULES.hexSize,
+        y0: Math.sin(firstAngle) * BOARD_RULES.hexSize,
+        x1: Math.cos(secondAngle) * BOARD_RULES.hexSize,
+        y1: Math.sin(secondAngle) * BOARD_RULES.hexSize
+    });
+});
+
 function hexEdge(center, edgeIndex) {
-    const firstAngle = Math.PI / 3 * (edgeIndex + 0.5);
-    const secondAngle = Math.PI / 3 * (((edgeIndex + 1) % 6) + 0.5);
+    const offset = HEX_EDGE_OFFSETS[edgeIndex];
     return {
-        x0: center.x + Math.cos(firstAngle) * BOARD_RULES.hexSize,
-        y0: center.y + Math.sin(firstAngle) * BOARD_RULES.hexSize,
-        x1: center.x + Math.cos(secondAngle) * BOARD_RULES.hexSize,
-        y1: center.y + Math.sin(secondAngle) * BOARD_RULES.hexSize
+        x0: center.x + offset.x0,
+        y0: center.y + offset.y0,
+        x1: center.x + offset.x1,
+        y1: center.y + offset.y1
     };
 }
 
-function computeBorders(renderTiles, kind) {
-    const byKey = new Map(renderTiles.map(tile => [tile.key, tile]));
-    const edges = [];
+// Single neighbor scan produces both border kinds; the previous per-kind
+// implementation walked all tiles twice and rebuilt the key map both times.
+function computeBorders(renderTiles, byKey) {
+    const camp = [];
+    const district = [];
     for (const tile of renderTiles) {
+        const tileWater = isWaterSurface(tile.surface?.kind);
         for (let neighborIndex = 0; neighborIndex < HEX_NEIGHBORS.length; neighborIndex++) {
             const [dq, dr] = HEX_NEIGHBORS[neighborIndex];
             const neighborKey = tileKey(tile.q + dq, tile.r + dr);
             const neighbor = byKey.get(neighborKey);
             if (!neighbor || tile.key.localeCompare(neighbor.key) >= 0) continue;
-            if (isWaterSurface(tile.surface?.kind) || isWaterSurface(neighbor.surface?.kind)) continue;
+            if (tileWater || isWaterSurface(neighbor.surface?.kind)) continue;
             const differentCamp = tile.campKey !== neighbor.campKey;
-            const included = kind === 'camp'
-                ? differentCamp
-                : !differentCamp && tile.districtId !== neighbor.districtId;
-            if (!included) continue;
+            const target = differentCamp
+                ? camp
+                : (tile.districtId !== neighbor.districtId ? district : null);
+            if (!target) continue;
             const edgeIndex = (5 - neighborIndex + 6) % 6;
-            edges.push({
+            target.push({
                 ...hexEdge(tile.center, edgeIndex),
                 aKey: tile.key,
                 bKey: neighbor.key,
@@ -431,7 +454,7 @@ function computeBorders(renderTiles, kind) {
             });
         }
     }
-    return sortBorderEdges(edges);
+    return { camp: sortBorderEdges(camp), district: sortBorderEdges(district) };
 }
 
 function cloneBorderEdges(source, renderKeySet, renderByKey) {
@@ -651,6 +674,27 @@ function inferRadius(realTiles) {
     return radius;
 }
 
+// Hash only what the Canvas-painted terrain texture actually reads: tile
+// ownership colors, surfaces (incl. fade transitions), terrain, fortifications
+// and city topology. Interaction, units, fog visibility and border overlays
+// are painted by other layers, so they must not invalidate the texture.
+function computeTerrainSignature(layout, camps, renderTiles) {
+    const parts = [`layout:${layout}`];
+    for (const camp of camps) parts.push(`${camp.key}=${camp.color}`);
+    for (const tile of renderTiles) {
+        const surface = tile.surface;
+        const transition = surface.transition
+            ? `${surface.transition.from}>${surface.transition.to}@${surface.transition.startedAtMs}/${surface.transition.durationMs}`
+            : '';
+        parts.push(
+            `${tile.key}|${tile.campKey ?? ''}|${surface.kind}|${surface.color}|${transition}`
+            + `|${tile.terrain?.type ?? ''}|${tile.fortification?.type ?? ''}`
+            + `|${tile.city ? `${tile.city.kind}#${tile.city.districtId}` : ''}`
+        );
+    }
+    return `terrain-v${BATTLEFIELD_SNAPSHOT_VERSION}:${fnv1a32(parts.join('\n'))}`;
+}
+
 /**
  * Build a detached scene snapshot suitable for Canvas2D, Pixi/WebGL or tests.
  *
@@ -674,8 +718,7 @@ export function buildBattlefieldSnapshot(gameState, options = {}) {
     const renderKeys = renderTiles.map(tile => tile.key);
     const renderKeySet = new Set(renderKeys);
     const renderByKey = new Map(renderTiles.map(tile => [tile.key, tile]));
-    const computedCampBorders = computeBorders(renderTiles, 'camp');
-    const computedDistrictBorders = computeBorders(renderTiles, 'district');
+    const { camp: computedCampBorders, district: computedDistrictBorders } = computeBorders(renderTiles, renderByKey);
     const campBorders = layout === BOARD_LAYOUT.BORDERLESS
         ? computedCampBorders
         : (Array.isArray(gameState.campBorderEdges) && gameState.campBorderEdges.length
@@ -712,7 +755,8 @@ export function buildBattlefieldSnapshot(gameState, options = {}) {
         interaction: buildInteraction(gameState, playableEntries, playableKeySet, viewerCampKey, options)
     };
     const signature = `battlefield-v${BATTLEFIELD_SNAPSHOT_VERSION}:${fnv1a32(JSON.stringify(payload))}`;
-    return deepFreeze({ ...payload, signature });
+    const terrainSignature = computeTerrainSignature(layout, payload.camps, renderTiles);
+    return deepFreeze({ ...payload, signature, terrainSignature });
 }
 
 /** Return true when a backend needs a new syncScene call. */
