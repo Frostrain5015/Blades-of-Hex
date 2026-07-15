@@ -585,66 +585,23 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
     const fallbackSize = positive(descriptor.size, 30);
     const color = colorFor('antiAir', descriptor.color);
     const groupAlpha = opacity(descriptor.alpha, 1);
-    const groupHatchAlpha = opacity(descriptor.hatchAlpha, 0.78);
     if (!cells.length) return 0;
 
-    // Group cells by level so we batch-fill and batch-hatch per level,
-    // eliminating per-cell save/restore/clip overhead.
-    const byLevel = new Map();
+    // 简单填充 + 外框，无斜纹批处理（斜纹渲染在防空圈较多时性能开销过大）
+    ctx.save();
+    ctx.beginPath();
     for (const cell of cells) {
         const points = pointsFor(cell, fallbackSize);
         if (points.length < 3) continue;
-        const level = Math.max(1, Math.floor(finite(cell.level, 1)));
-        if (!byLevel.has(level)) byLevel.set(level, []);
-        byLevel.get(level).push({ cell, points });
+        appendPolygonPath(ctx, scaledPoints(points, 0.89));
     }
-    if (!byLevel.size) return 0;
-
-    ctx.save();
-    let drawn = 0;
-
-    for (const [level, entries] of byLevel) {
-        const cross = level >= 2;
-        const size = entries[0].cell.size || fallbackSize;
-        const spacing = positive(descriptor.spacing, size * 0.25);
-        const lineWidth = positive(descriptor.lineWidth, Math.max(2.2, size * 0.065));
-
-        // ① Batch fill: one path through all cells of this level
-        ctx.beginPath();
-        for (const { points } of entries) {
-            appendPolygonPath(ctx, scaledPoints(points, 0.89));
-        }
-        ctx.fillStyle = descriptor.fillColor || color;
-        ctx.globalAlpha = groupAlpha * (cross ? 0.18 : 0.10);
-        ctx.fill();
-
-        // ② Single clip for the entire level → all hatches under one clip
-        ctx.save();
-        ctx.beginPath();
-        for (const { points } of entries) {
-            appendPolygonPath(ctx, scaledPoints(points, 0.89));
-        }
-        ctx.clip();
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = lineWidth;
-        ctx.globalAlpha = groupAlpha * groupHatchAlpha;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = Math.max(2, size * 0.08);
-
-        for (const { points } of entries) {
-            const bounds = boundsOf(points);
-            drawHatchLines(ctx, bounds, spacing, false);
-            if (cross) drawHatchLines(ctx, bounds, spacing, true);
-        }
-        ctx.restore(); // clip
-        drawn += entries.length;
-    }
-
-    // ③ Perimeter already draws the union edge in one pass
-    drawAntiAirPerimeter(ctx, cells, descriptor, fallbackSize, groupAlpha);
+    ctx.fillStyle = descriptor.fillColor || color;
+    ctx.globalAlpha = groupAlpha * 0.12;
+    ctx.fill();
     ctx.restore();
-    return drawn;
+
+    drawAntiAirPerimeter(ctx, cells, descriptor, fallbackSize, groupAlpha);
+    return cells.length;
 }
 
 /** Draw the accepted circular, diagonally-hatched action-origin marker. */
