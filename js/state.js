@@ -545,6 +545,8 @@ export function clearselection() {
     gameState.movableTiles = [];
     gameState._fogSafeMovablePreview = null;
     gameState.attackableTiles = [];
+    gameState.chainAttackTiles = [];
+    gameState.chainAttackPlans = new Map();
     gameState.selectionTime = 0;
     gameState.deselecting = false;
     setInspectionTarget(null);
@@ -562,6 +564,8 @@ export function deselectUnit() {
     gameState.movableTiles = [];
     gameState._fogSafeMovablePreview = null;
     gameState.attackableTiles = [];
+    gameState.chainAttackTiles = [];
+    gameState.chainAttackPlans = new Map();
     gameState.selectionTime = 0;
     setInspectionTarget(null);
     updateRecruitButtonStates();
@@ -667,6 +671,9 @@ export function applyRemoteState(data, HexTileClass, UnitClass) {
     gameState.selectedTile = null;
     gameState.movableTiles = [];
     gameState.attackableTiles = [];
+    gameState.chainAttackTiles = [];
+    gameState.chainAttackPlans = new Map();
+    gameState.pendingChainAttack = null;
     gameState.moveParents = new Map();
     gameState.cardTargeting = null;
 

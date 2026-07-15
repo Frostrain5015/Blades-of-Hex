@@ -131,11 +131,14 @@ let _battlefieldSnapshotCheckedAt = -Infinity;
 let _battlefieldFrameId = 0;
 let _battlefieldLastFrameAt = performance.now();
 // Pixi 地形贴图：Canvas 用同一套地形代码画进离屏画布，Pixi 仅作为纹理显示。
-let _terrainCanvas = null;
-let _terrainCanvasRatio = 1;
+// 双缓冲：占领渐变把终态画进背面画布并一次性上传，随后由 GPU 对两张静态
+// 纹理做 alpha 交叉淡化——渐变期间零全图重画、零纹理上传。
+let _terrainCanvases = [null, null];
+let _terrainCanvasRatios = [1, 1];
+let _terrainFrontIndex = 0;
 let _terrainTextureDirty = true;
-// 有地块颜色渐变进行中：贴图按 50ms 快照节拍持续重画，渐变结束后自动停。
-let _terrainFadeActive = false;
+// 非空时：下一次贴图同步渲染渐变终态并启动 GPU 交叉淡化，而非全量重画。
+let _terrainPendingFade = null;
 
 function _preferredBattlefieldBackend() {
     // Pixi 为默认渲染引擎；仅当 Vite 不可用或用户手动切回 Canvas2D 时才回退。
@@ -196,7 +199,7 @@ async function _replaceBattlefieldRenderer() {
     _battlefieldSnapshot = null;
     _battlefieldSnapshotCheckedAt = -Infinity;
     _terrainTextureDirty = true;
-    _terrainFadeActive = false;
+    _terrainPendingFade = null;
 
     let boundary = null;
     boundary = createBattlefieldRenderer({
@@ -252,18 +255,18 @@ function _syncPixiBattlefieldScene(now) {
             humanTurn: isHumanTurnForInteractionHints()
         });
         if (!shouldSyncBattlefieldSnapshot(_battlefieldSnapshot, next)) {
-            // 渐变进行中签名不变，但贴图颜色在动 → 按快照节拍重画。
-            if (_terrainFadeActive) _terrainTextureDirty = true;
             return;
         }
         // 地形贴图只在地形相关状态（占领变色/地表/工事/城镇）变化时重画。
         // hover/选中/单位移动等交互变化不再触发全图重画 + GPU 纹理上传。
         if (_battlefieldSnapshot?.terrainSignature !== next.terrainSignature) {
-            _terrainTextureDirty = true;
+            // 占领变色自带 1.5s 地块渐变：不再按 50ms 节拍整幅重画，改为
+            // 渲染一次终态贴图并交给 GPU 交叉淡化（见 _syncPixiTerrainTexture）。
+            const fadeMs = _maxSurfaceTransitionRemainingMs(next.tiles, now);
+            if (fadeMs > 0) _terrainPendingFade = { durationMs: fadeMs };
+            else _terrainTextureDirty = true;
         }
         _battlefieldSnapshot = next;
-        _terrainFadeActive = next.tiles.some(tile => tile.surface?.transition);
-        if (_terrainFadeActive) _terrainTextureDirty = true;
         // 地形走 Canvas 快照贴图（见 _syncPixiTerrainTexture），Graphics 场景
         // 恒为叠加层：只承载交互提示，绝不自绘平面色块地形。
         _battlefieldRenderer.syncScene(battlefieldSnapshotToPixi(next, {
@@ -278,23 +281,53 @@ function _syncPixiBattlefieldScene(now) {
     }
 }
 
+// 快照地块上仍在进行中的地表渐变的最长剩余时长（ms），无渐变返回 0。
+function _maxSurfaceTransitionRemainingMs(tiles, now) {
+    let max = 0;
+    for (const tile of tiles) {
+        const transition = tile.surface?.transition;
+        if (!transition) continue;
+        const remaining = transition.startedAtMs + transition.durationMs - now;
+        if (remaining > max) max = remaining;
+    }
+    return max;
+}
+
+function _ensureTerrainCanvas(index, ratio) {
+    if (!_terrainCanvases[index] || _terrainCanvasRatios[index] !== ratio) {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(LOGICAL_W * ratio);
+        canvas.height = Math.round(LOGICAL_H * ratio);
+        _terrainCanvases[index] = canvas;
+        _terrainCanvasRatios[index] = ratio;
+    }
+    return _terrainCanvases[index];
+}
+
 // 地形贴图同步：委托生效时把 Canvas 地形画进离屏画布，交给 Pixi 显示。
 // 依赖 renderGame() 已在本帧执行（材质层缓存已同步）。
 function _syncPixiTerrainTexture(now) {
     const renderer = _battlefieldRenderer?.renderer;
     if (!battlefieldDelegation.terrain || typeof renderer?.syncTerrainTexture !== 'function') return;
-    if (!_terrainTextureDirty) return;
+    const pendingFade = _terrainPendingFade;
+    _terrainPendingFade = null;
+    if (!_terrainTextureDirty && !pendingFade) return;
     _terrainTextureDirty = false;
     try {
         const ratio = Math.min(window.devicePixelRatio || 1, 2);
-        if (!_terrainCanvas || _terrainCanvasRatio !== ratio) {
-            _terrainCanvas = document.createElement('canvas');
-            _terrainCanvas.width = Math.round(LOGICAL_W * ratio);
-            _terrainCanvas.height = Math.round(LOGICAL_H * ratio);
-            _terrainCanvasRatio = ratio;
+        if (pendingFade && typeof renderer.beginTerrainCrossfade === 'function') {
+            // 渐变终态画进背面画布 → 一次上传 → GPU alpha 淡入。正面画布
+            // 支撑的旧纹理在渐变期间原样保留，淡化结束后由渲染器接管为新基底。
+            const backIndex = 1 - _terrainFrontIndex;
+            const back = _ensureTerrainCanvas(backIndex, ratio);
+            renderTerrainSnapshot(back.getContext('2d'), now, ratio, { finalizeFades: true });
+            renderer.beginTerrainCrossfade(back, 1 / ratio, pendingFade.durationMs, now);
+            _terrainFrontIndex = backIndex;
+        } else {
+            const front = _ensureTerrainCanvas(_terrainFrontIndex, ratio);
+            renderTerrainSnapshot(front.getContext('2d'), now, ratio);
+            renderer.syncTerrainTexture(front, 1 / ratio);
         }
-        renderTerrainSnapshot(_terrainCanvas.getContext('2d'), now, ratio);
-        renderer.syncTerrainTexture(_terrainCanvas, 1 / ratio);
     } catch (error) {
         console.error('[渲染] 地形贴图同步失败，正在回退:', error);
         void _fallbackBattlefieldRenderer(_battlefieldRenderer, error, 'terrain-texture-failed');

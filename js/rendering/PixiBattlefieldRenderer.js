@@ -371,6 +371,7 @@ export class PixiBattlefieldRenderer {
         this._terrainSprite = null;
         this._terrainTexture = null;
         this._terrainSource = null;
+        this._terrainFade = null;
     }
 
     get app() { return this._app; }
@@ -472,6 +473,8 @@ export class PixiBattlefieldRenderer {
         assertReady(this);
         const { Texture, Sprite } = this._pixi;
         if (typeof Texture?.from !== 'function' || typeof Sprite !== 'function') return false;
+        // 瞬时全量同步会覆盖淡入结果：先把进行中的渐变直接推进到终态。
+        this._finishTerrainFade();
         if (this._terrainSprite && this._terrainSource !== source) {
             this._releaseTerrainTexture();
         }
@@ -494,7 +497,70 @@ export class PixiBattlefieldRenderer {
         this._sceneDirty = true;
     }
 
+    /**
+     * GPU 交叉淡化到一张新的地形快照：新纹理只上传一次，随后每帧仅动
+     * alpha，替代“渐变期间每 50ms 重画整幅离屏地形 + 全量纹理上传”。
+     * 要求 source 与当前基底贴图使用不同的画布（调用方双缓冲）；没有
+     * 基底、时长非法或画布相同时退化为瞬时同步。
+     */
+    beginTerrainCrossfade(source, scale = 1, durationMs = 1500, nowMs = this._now()) {
+        assertReady(this);
+        const { Texture, Sprite } = this._pixi;
+        if (typeof Texture?.from !== 'function' || typeof Sprite !== 'function') return false;
+        if (!this._terrainSprite || !(durationMs > 0) || this._terrainSource === source) {
+            return this.syncTerrainTexture(source, scale);
+        }
+        // 渐变期间又来一次占领：直接把上一次推到终态，再叠加新渐变。
+        this._finishTerrainFade();
+        const texture = Texture.from(source);
+        const sprite = new Sprite(texture);
+        sprite.label = 'battlefield-terrain-fade';
+        sprite.alpha = 0;
+        sprite.scale.set(scale);
+        const surfaceLayer = this._layers.surface;
+        surfaceLayer.addChildAt(sprite, surfaceLayer.getChildIndex(this._terrainSprite) + 1);
+        this._terrainFade = { sprite, texture, source, scale, startedAtMs: nowMs, durationMs };
+        this._sceneDirty = true;
+        return true;
+    }
+
+    _advanceTerrainFade(nowMs) {
+        const fade = this._terrainFade;
+        if (!fade) return;
+        const progress = (nowMs - fade.startedAtMs) / fade.durationMs;
+        if (progress >= 1) {
+            this._finishTerrainFade();
+            return;
+        }
+        // 地块渐变本身是线性 lerp；上层材质纯静态时 alpha 线性混合与
+        // 逐地块颜色插值逐像素等价。
+        fade.sprite.alpha = Math.max(0, progress);
+    }
+
+    _finishTerrainFade() {
+        const fade = this._terrainFade;
+        if (!fade) return;
+        this._terrainFade = null;
+        if (this._terrainSprite) {
+            try { this._terrainSprite.destroy(); } catch {}
+        }
+        if (this._terrainTexture) {
+            try { this._terrainTexture.destroy(true); } catch {}
+        }
+        fade.sprite.alpha = 1;
+        this._terrainSprite = fade.sprite;
+        this._terrainTexture = fade.texture;
+        this._terrainSource = fade.source;
+        this._sceneDirty = true;
+    }
+
     _releaseTerrainTexture() {
+        if (this._terrainFade) {
+            const fade = this._terrainFade;
+            this._terrainFade = null;
+            try { fade.sprite.destroy(); } catch {}
+            try { fade.texture.destroy(true); } catch {}
+        }
         if (this._terrainSprite) {
             try { this._terrainSprite.destroy(); } catch {}
         }
@@ -564,7 +630,10 @@ export class PixiBattlefieldRenderer {
             || this._scene?.rangeRegions?.length
             || this._scene?.antiAirCells?.some(descriptor => descriptorStillAnimating(descriptor, normalizedFrame.motionNowMs))
         );
-        if (!this._sceneDirty && this._events.length === 0) {
+        // 地形交叉淡化不受 motionEnabled/节流约束：只改一个 sprite 的
+        // alpha，跳帧反而会让渐变卡在半途。
+        if (this._terrainFade) this._advanceTerrainFade(normalizedFrame.nowMs);
+        if (!this._sceneDirty && this._events.length === 0 && !this._terrainFade) {
             if (!hasAnimatedInteraction) {
                 return Object.freeze({
                     backend: this.backend,

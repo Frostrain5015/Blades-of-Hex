@@ -486,7 +486,7 @@ body {
     gap: 7px;
 }
 .recruit-grid.has-port-recruitment {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 /* Shared button base */

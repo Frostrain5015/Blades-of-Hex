@@ -552,18 +552,34 @@ function reconstructBfsKeys(gameState, startTileKey, endTileKey, sourceByKey) {
     return [];
 }
 
-function buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTileKey, selectedUnit, hoveredTileKey, moveTileKeys, attackTileKeys) {
-    if (!selectedUnitTileKey || !hoveredTileKey) return null;
+function buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTileKey, selectedUnit, hoveredTileKey, moveTileKeys, attackTileKeys, chainTileKeys) {
+    if (!selectedUnitTileKey) return null;
     // `selectedUnit` here is the runtime Unit instance, so gate on its direct
     // fields exactly like Canvas drawOperationInteractionRoute does.
     if (!selectedUnit || !selectedUnit.canAct || selectedUnit.isNewRecruit) return null;
     if (gameState.aiActing || gameState.cardTargeting) return null;
 
+    const isRanged = operationArrowStyleForAttacker(selectedUnit) === 'fire';
+    const attackAction = isRanged ? 'ranged' : 'melee';
+
+    // 连招执行中（与 hover 无关）：攻击段锚定落点 B，等待单位抵达开火。
+    const pending = gameState.pendingChainAttack;
+    if (pending && pending.unit === selectedUnit
+        && pending.targetUnit?.tile?.unit === pending.targetUnit) {
+        const viaKey = keyFromTile(pending.viaTile);
+        const targetKey = keyFromTile(pending.targetUnit.tile);
+        if (viaKey && targetKey && playableKeySet.has(viaKey) && playableKeySet.has(targetKey)) {
+            return { action: attackAction, sourceKey: viaKey, targetKey, anchor: 'tile' };
+        }
+    }
+
+    if (!hoveredTileKey) return null;
     const hoveredUnit = sourceByKey.get(hoveredTileKey)?.unit || null;
     const isMove = !hoveredUnit && moveTileKeys.includes(hoveredTileKey)
         && Math.max(0, finite(selectedUnit.remainingMP, 0)) > 0;
     const isAttack = Boolean(hoveredUnit) && attackTileKeys.includes(hoveredTileKey);
-    if (!isMove && !isAttack) return null;
+    const isChain = Boolean(hoveredUnit) && !isAttack && chainTileKeys.includes(hoveredTileKey);
+    if (!isMove && !isAttack && !isChain) return null;
 
     if (isMove) {
         const bfsKeys = reconstructBfsKeys(gameState, selectedUnitTileKey, hoveredTileKey, sourceByKey);
@@ -571,12 +587,31 @@ function buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTile
         return { action: 'move', sourceKey: selectedUnitTileKey, targetKey: hoveredTileKey, bfsKeys };
     }
 
-    // Shared presentation classifier: archer/warship/drone/mgNest → ranged.
-    const isRanged = operationArrowStyleForAttacker(selectedUnit) === 'fire';
+    if (isChain) {
+        // 预演连招：A→B 行进段 + B→C 攻击段（B 为预演落点）
+        const viaTile = gameState.chainAttackPlans?.get(sourceByKey.get(hoveredTileKey)) || null;
+        const viaKey = viaTile ? keyFromTile(viaTile) : null;
+        if (!viaKey || !playableKeySet.has(viaKey)) return null;
+        const bfsKeys = reconstructBfsKeys(gameState, selectedUnitTileKey, viaKey, sourceByKey);
+        return {
+            action: 'chain',
+            sourceKey: selectedUnitTileKey,
+            viaKey,
+            targetKey: hoveredTileKey,
+            bfsKeys,
+            attackAction
+        };
+    }
+
+    // 移动动画尚未走完时，攻击线锚定逻辑落点而非飞行中的单位（防抖）。
+    const nowMs = globalThis.performance?.now?.() ?? Date.now();
+    const moveAnimating = Boolean(selectedUnit.movePath)
+        && nowMs - finite(selectedUnit.movePathStart, 0) < finite(selectedUnit.movePathDuration, 0);
     return {
-        action: isRanged ? 'ranged' : 'melee',
+        action: attackAction,
         sourceKey: selectedUnitTileKey,
-        targetKey: hoveredTileKey
+        targetKey: hoveredTileKey,
+        ...(moveAnimating ? { anchor: 'tile' } : {})
     };
 }
 
@@ -588,6 +623,7 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
     };
     const moveTileKeys = sortedUniqueKeys(gameState.movableTiles, playableKeySet);
     const attackTileKeys = sortedUniqueKeys(gameState.attackableTiles, playableKeySet);
+    const chainAttackTileKeys = sortedUniqueKeys(gameState.chainAttackTiles, playableKeySet);
     const deselectMoveTileKeys = sortedUniqueKeys(gameState.deselectMoveTiles, playableKeySet);
     const deselectAttackTileKeys = sortedUniqueKeys(gameState.deselectAtkTiles, playableKeySet);
     const hoveredTileKey = validKey(gameState.hoveredTile);
@@ -630,7 +666,7 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
     // carries the caller-resolved flag so Pixi honours the same rule.
     const humanTurn = options.humanTurn !== false && !gameState.aiActing;
     const route = humanTurn ? buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTileKey, selectedUnit,
-        hoveredTileKey, moveTileKeys, attackTileKeys) : null;
+        hoveredTileKey, moveTileKeys, attackTileKeys, chainAttackTileKeys) : null;
     return {
         humanTurn,
         selection: {
@@ -641,6 +677,7 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
             selectedAtMs: finite(gameState.selectionTime, 0),
             moveTileKeys,
             attackTileKeys,
+            chainAttackTileKeys,
             deselecting: Boolean(gameState.deselecting),
             deselectionStartedAtMs: finite(gameState.deselectionTime, 0),
             deselectOriginTileKey: validKey(gameState.deselectOrigin),

@@ -1,7 +1,7 @@
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
-import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget } from './state.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, updateButtonColors, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget } from './state.js';
 import { on, emit } from './eventBus.js';
 import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
@@ -9,7 +9,7 @@ import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidat
 import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import {
-    getMovableTiles, getAttackableTiles,
+    getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, recruitUnit, endTurn,
     executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit
 } from './gameLogic.js';
@@ -1786,6 +1786,61 @@ function _bindBoardAbilityControls() {
 }
 
 let _inputInitialized = false;
+// ===== 移动+攻击连招（预演目标点击后一口气执行） =====================
+// 左键点中预演目标 C：立即执行 moveUnit(A→B)，把攻击段挂到移动动画结束后
+// 开火；期间任何新的棋盘点击都会取消未开火的攻击段（新指令覆盖旧指令）。
+let _pendingChainTimer = null;
+
+export function cancelPendingChainAttack() {
+    if (_pendingChainTimer !== null) {
+        clearTimeout(_pendingChainTimer);
+        _pendingChainTimer = null;
+    }
+    gameState.pendingChainAttack = null;
+}
+
+function _firePendingChainAttack(pending) {
+    const { unit, viaTile, targetUnit } = pending;
+    // 下半场重验证：回合/存活/站位/攻击合法性任一失效则静默放弃
+    if (gameState.gameOver || unit.camp !== gameState.currentCamp) return;
+    if (unit.hp <= 0 || !unit.canAct || unit.tile !== viaTile) return;
+    if (!targetUnit.tile || targetUnit.hp <= 0 || targetUnit.tile.unit !== targetUnit) return;
+    if (!getAttackableTiles(unit).includes(targetUnit.tile)) return;
+    const targetTile = targetUnit.tile;
+    attackUnit(unit, targetUnit);
+    // 与手动攻击分支一致的选中善后；玩家若已改选其他对象则不打扰
+    if (gameState.selectedUnit !== unit) return;
+    if (unit.canAct) {
+        gameState.selectedTile = unit.tile;
+        showSelectionHudForTile(unit.tile);
+    } else {
+        clearselection();
+        gameState.selectedTile = targetTile;
+        showSelectionHudForTile(targetTile);
+    }
+}
+
+function _beginChainAttack(attacker, viaTile, targetUnit) {
+    cancelPendingChainAttack();
+    const fromTile = attacker.tile;
+    moveUnit(attacker, viaTile);
+    if (attacker.tile === fromTile) return false;         // 移动被拒绝（非法/状态变化）
+    if (attacker.tile !== viaTile) return true;           // 移动到了别处（不应发生），放弃攻击段
+    if (attacker.hp <= 0 || !attacker.canAct) return true; // 地雷阵亡/状态剥夺 → 只移动
+    if (!targetUnit?.tile || targetUnit.hp <= 0) return true;
+    const arriveAt = (attacker.movePathStart || 0) + (attacker.movePathDuration || 0);
+    const delayMs = Math.max(0, arriveAt - performance.now()) + 30;
+    const pending = { unit: attacker, viaTile, targetUnit };
+    gameState.pendingChainAttack = pending;
+    _pendingChainTimer = setTimeout(() => {
+        _pendingChainTimer = null;
+        if (gameState.pendingChainAttack !== pending) return;
+        gameState.pendingChainAttack = null;
+        _firePendingChainAttack(pending);
+    }, delayMs);
+    return true;
+}
+
 export function rebindInputEvents() { _inputInitialized = false; initInput(); }
 export function initInput() {
     if (_inputInitialized) return;
@@ -1885,6 +1940,8 @@ export function initInput() {
 
     canvas.addEventListener('click', (e) => {
         if (gameState.gameOver) return;
+        // 新的棋盘点击覆盖尚未开火的连招攻击段
+        cancelPendingChainAttack();
         const { x: clickX, y: clickY } = toLogical(e);
 
         const clickedTile = getTileAtPixel(clickX, clickY);
@@ -2003,6 +2060,19 @@ export function initInput() {
             return;
         }
 
+        // Action: friendly unit selected, clicking a chained move+attack target
+        // → 一口气执行：先移动到预演落点 B，动画走完自动对 C 开火
+        if (gameState.selectedUnit && clickedTile.unit
+            && gameState.chainAttackTiles?.includes(clickedTile)) {
+            const attacker = gameState.selectedUnit;
+            const viaTile = gameState.chainAttackPlans?.get(clickedTile);
+            if (viaTile && _beginChainAttack(attacker, viaTile, clickedTile.unit)) {
+                gameState.selectedTile = gameState.selectedUnit ? gameState.selectedUnit.tile : clickedTile;
+                showSelectionHudForTile(gameState.selectedTile);
+                return;
+            }
+        }
+
         // Select: pick any tile
         clearselection();
         gameState.selectedTile = clickedTile;
@@ -2021,6 +2091,7 @@ export function initInput() {
             if (ownActionable) {
                 gameState.movableTiles = getMovableTiles(clickedTile.unit);
                 gameState.attackableTiles = getAttackableTiles(clickedTile.unit);
+                refreshChainAttackPlans(clickedTile.unit);
                 // 碉堡等不可移动单位：若无攻击目标则直接标记为不可行动
                 if (gameState.movableTiles.length === 0 && gameState.attackableTiles.length === 0) {
                     clickedTile.unit.canAct = false;
@@ -2034,6 +2105,8 @@ export function initInput() {
             }
         } else if (ownEmptyCity || ownEmptyVillage || ownEmptyPort || ownEmptyCoast) {
             gameState.selectedCityTile = clickedTile;
+            // 选中城市后刷新 commandPanel 的 data-camp，保证招募按钮色与当前阵营一致
+            updateButtonColors();
         } else if (clickedTile.unit) {
             // 敌方/中立/不可行动单位：可选中查看 HUD 信息，不显示行动范围
             gameState.selectedUnit = clickedTile.unit;
@@ -2089,7 +2162,8 @@ export function initInput() {
             const isOwnUnit = hovered.unit && _isLocalActionCamp(hovered.unit.camp) && !hovered.unit.isNewRecruit;
             const isOwnCity = hovered.isCity && _isLocalActionCamp(hovered.camp) && !hovered.unit && !gameState.selectedUnit;
             const isMovable = gameState.selectedUnit && gameState.movableTiles.includes(hovered) && !hovered.unit;
-            const isAttackable = gameState.selectedUnit && gameState.attackableTiles.includes(hovered) && hovered.unit;
+            const isAttackable = gameState.selectedUnit && hovered.unit
+                && (gameState.attackableTiles.includes(hovered) || gameState.chainAttackTiles?.includes(hovered));
             if (isOwnUnit || isOwnCity) canvas.style.cursor = 'pointer';
             else if (isMovable) canvas.style.cursor = 'move';
             else if (isAttackable) canvas.style.cursor = 'crosshair';

@@ -1449,6 +1449,87 @@ export function getAttackableTiles(unit) {
     return targets;
 }
 
+// ===== 移动+攻击预演（连招） =====================
+
+/**
+ * 假想单位站在 fromTile 上时的合法攻击目标。临时换位后复用
+ * getAttackableTiles，保证射程加成（山地炮兵/天气）、上舰形态、
+ * 阵营视野过滤等规则永不与真实攻击分叉。fromTile 必须为空地块。
+ */
+export function getAttackableTilesFrom(unit, fromTile) {
+    if (!unit?.tile || !fromTile || fromTile.unit) return [];
+    if (fromTile === unit.tile) return getAttackableTiles(unit);
+    const realTile = unit.tile;
+    const realEmbarked = unit.isEmbarked;
+    unit.tile = fromTile;
+    if (isEmbarkableLandUnit(unit)) unit.isEmbarked = isWaterTile(fromTile);
+    try {
+        return getAttackableTiles(unit);
+    } finally {
+        unit.tile = realTile;
+        unit.isEmbarked = realEmbarked;
+    }
+}
+
+// 路径 A→B 上是否发生了登陆（水→陆）。登陆后本回合禁止攻击，
+// 与 moveUnit 设置 _transportTransitionedThisTurn 的判定保持一致。
+function _pathDisembarks(parents, startTile, endTile) {
+    let cursor = endTile;
+    while (cursor && cursor !== startTile) {
+        const parent = parents.get(cursor)?.parent || null;
+        if (parent && isWaterTile(parent) && !isWaterTile(cursor)) return true;
+        cursor = parent;
+    }
+    return false;
+}
+
+/**
+ * 计算「先移动到 B、再攻击 C」的连招预演方案。
+ * 只纳入从当前位置无法直接攻击的目标；目标可见性由 getAttackableTiles
+ * 内部的阵营视野过滤保证（视野基于移动前的真实局面，不含移动后新开视野）。
+ * 每个目标绑定行动力花费最小的落点，同费优先保持更远的攻击距离。
+ * 依赖 gameState.movableTiles / moveParents / attackableTiles 已按该单位刷新。
+ */
+export function computeChainAttackPlans(unit) {
+    const empty = { tiles: [], plans: new Map() };
+    if (!unit?.tile || !unit.canAct || unit.isNewRecruit) return empty;
+    // 无人机的攻击合法性依赖信号区并伴随士气副作用，不做假想位评估
+    if (unit._isDrone) return empty;
+    if (unit._campaignCanAttack === false || unit._campaignCanMove === false) return empty;
+    const movable = gameState.movableTiles;
+    const parents = gameState.moveParents;
+    if (!movable?.length || !(parents instanceof Map)) return empty;
+
+    const directTargets = new Set(gameState.attackableTiles || []);
+    const embarkable = isEmbarkableLandUnit(unit);
+    const best = new Map(); // targetTile -> { via, cost, dist }
+    for (const via of movable) {
+        if (via.unit) continue;
+        const entry = parents.get(via);
+        if (!entry) continue;
+        if (embarkable && _pathDisembarks(parents, unit.tile, via)) continue;
+        const cost = unit.remainingMP - entry.remaining;
+        for (const targetTile of getAttackableTilesFrom(unit, via)) {
+            if (directTargets.has(targetTile)) continue;
+            const dist = hexDistance(via, targetTile);
+            const prev = best.get(targetTile);
+            if (!prev || cost < prev.cost || (cost === prev.cost && dist > prev.dist)) {
+                best.set(targetTile, { via, cost, dist });
+            }
+        }
+    }
+    const plans = new Map();
+    for (const [targetTile, choice] of best) plans.set(targetTile, choice.via);
+    return { tiles: [...plans.keys()], plans };
+}
+
+/** 刷新连招预演状态；传 null 清空。选中、部分移动、乘胜续动后调用。 */
+export function refreshChainAttackPlans(unit) {
+    const result = unit ? computeChainAttackPlans(unit) : { tiles: [], plans: new Map() };
+    gameState.chainAttackTiles = result.tiles;
+    gameState.chainAttackPlans = result.plans;
+}
+
 // ===== 移动 =====================
 
 // Reconstruct path from BFS parent map
@@ -1597,6 +1678,8 @@ export function moveUnit(unit, targetTile) {
         gameState.attackableTiles = getAttackableTiles(unit);
         logMessage(`${unit.camp.name}占领了港口(${targetTile.q},${targetTile.r})`);
     }
+    // 部分移动后仍可行动：以新位置重算连招预演（AI/远端回合 selectedUnit 为空则清空）
+    refreshChainAttackPlans(gameState.selectedUnit === unit && unit.canAct ? unit : null);
     // 尚书进驻城市：触发技能特效
     let _cmdFxForMove = null;
     if (targetTile.isCity && unit.commander === 'minister') {
@@ -1959,8 +2042,10 @@ export function attackUnit(attackerUnit, targetUnit) {
             gameState.attackableTiles = getAttackableTiles(attackerUnit);
             gameState.movableTiles = getMovableTiles(attackerUnit);
             gameState.selectionTime = performance.now();
+            refreshChainAttackPlans(gameState.selectedUnit === attackerUnit ? attackerUnit : null);
         } else {
             gameState.attackableTiles = [];
+            refreshChainAttackPlans(null);
         }
         recalcAllFlankingMorale();
         if (gameState.skirmishFog) _updateSkirmishFogAll();

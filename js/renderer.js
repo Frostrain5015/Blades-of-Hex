@@ -196,8 +196,12 @@ function _drawTerrainMaterials(targetCtx, now, { tiles, visualGrid, layeredTerra
  * Paint the full terrain slice into an offscreen 2D context for the Pixi
  * terrain texture. Assumes renderGame() has already synced
  * canvasBattlefieldLayers this frame (it runs unconditionally each frame).
+ *
+ * options.finalizeFades: paint every fading tile at its fade TARGET color.
+ * Used as the far end of the GPU terrain crossfade — the texture must show
+ * the post-capture state while on-screen tiles are still mid-transition.
  */
-export function renderTerrainSnapshot(targetCtx, now, pixelRatio = 1) {
+export function renderTerrainSnapshot(targetCtx, now, pixelRatio = 1, options = undefined) {
     const tiles = gameState.tiles;
     const visualGrid = gameState.boardLayout === 'borderless'
         ? getBorderlessVisualGrid(tiles, gameState.tileMap)
@@ -207,9 +211,27 @@ export function renderTerrainSnapshot(targetCtx, now, pixelRatio = 1) {
     const tileBaseOptions = layeredTerrain
         ? (visualGrid ? FLAT_LAYERED_TILE_BASE_OPTIONS : LAYERED_TILE_BASE_OPTIONS)
         : (visualGrid ? FLAT_TILE_BASE_OPTIONS : undefined);
-    targetCtx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    targetCtx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
-    _drawTerrainMaterials(targetCtx, now, { tiles, visualGrid, layeredTerrain, materialOptions, tileBaseOptions });
+    // 临时把渐变中的地块推到目标色再绘制；filler 地块经 getter 代理
+    // 源地块的 currentColor，同样被覆盖。绘制后原样恢复。
+    const restore = options?.finalizeFades === true ? [] : null;
+    if (restore) {
+        for (let i = 0, len = tiles.length; i < len; i++) {
+            const tile = tiles[i];
+            if (tile.fadeStartTime && tile.targetColor && tile.currentColor !== tile.targetColor) {
+                restore.push(tile, tile.currentColor);
+                tile.currentColor = tile.targetColor;
+            }
+        }
+    }
+    try {
+        targetCtx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        targetCtx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
+        _drawTerrainMaterials(targetCtx, now, { tiles, visualGrid, layeredTerrain, materialOptions, tileBaseOptions });
+    } finally {
+        if (restore) {
+            for (let i = 0; i < restore.length; i += 2) restore[i].currentColor = restore[i + 1];
+        }
+    }
 }
 
 export function renderGame() {
@@ -1181,6 +1203,21 @@ function _reconstructPreviewPath(startTile, targetTile) {
     return [];
 }
 
+function _drawAttackRouteSegment(now, attacker, source, targetUnit) {
+    const style = operationArrowStyleForAttacker(attacker);
+    drawOperationPreview(ctx, {
+        action: style === 'fire'
+            ? OPERATION_PREVIEW_ACTIONS.RANGED
+            : OPERATION_PREVIEW_ACTIONS.MELEE,
+        source,
+        target: getUnitVisualPos(targetUnit),
+        unitRadius: UNIT_BADGE_RADIUS,
+        time: now / 1000,
+        color: '#e95b50',
+        trajectory: 'arc'
+    });
+}
+
 function drawOperationInteractionRoute(now) {
     if (!_isHumanTurn() || gameState.aiActing || gameState.cardTargeting) return;
     const unit = gameState.selectedUnit;
@@ -1188,48 +1225,64 @@ function drawOperationInteractionRoute(now) {
 
     const source = getUnitVisualPos(unit);
     const hovered = gameState.hoveredTile;
-    let action = OPERATION_PREVIEW_ACTIONS.MOVE;
-    let color = '#58c9b3';
+    const moveAnimating = Boolean(unit.movePath) && (now - unit.movePathStart < unit.movePathDuration);
+
+    // 连招执行中：攻击线固定锚在落点 B，单位滑向 B 时线不跟着抖
+    const pending = gameState.pendingChainAttack;
+    if (pending?.unit === unit && pending.targetUnit?.tile?.unit === pending.targetUnit) {
+        _drawAttackRouteSegment(now, unit, { x: pending.viaTile.x, y: pending.viaTile.y }, pending.targetUnit);
+        return;
+    }
 
     if (hovered && gameState.movableTiles.includes(hovered) && !hovered.unit) {
         const bfsPath = _reconstructPreviewPath(unit.tile, hovered);
         if (bfsPath.length >= 2) {
             drawOperationPreview(ctx, {
-                action,
+                action: OPERATION_PREVIEW_ACTIONS.MOVE,
                 source,
                 target: { x: hovered.x, y: hovered.y },
                 bfsPath,
                 unitRadius: UNIT_BADGE_RADIUS,
                 time: now / 1000,
-                color
+                color: '#58c9b3'
             });
             return;
         }
     }
 
+    // 预演连招目标：拼接 A→B 行进线 + B→C 红色攻击线
+    if (!moveAnimating && hovered?.unit && gameState.chainAttackTiles?.includes(hovered)) {
+        const viaTile = gameState.chainAttackPlans?.get(hovered);
+        if (viaTile) {
+            const bfsPath = _reconstructPreviewPath(unit.tile, viaTile);
+            if (bfsPath.length >= 2) {
+                drawOperationPreview(ctx, {
+                    action: OPERATION_PREVIEW_ACTIONS.MOVE,
+                    source,
+                    target: { x: viaTile.x, y: viaTile.y },
+                    bfsPath,
+                    unitRadius: UNIT_BADGE_RADIUS,
+                    time: now / 1000,
+                    color: '#58c9b3'
+                });
+            }
+            _drawAttackRouteSegment(now, unit, { x: viaTile.x, y: viaTile.y }, hovered.unit);
+            return;
+        }
+    }
+
     if (hovered?.unit && gameState.attackableTiles.includes(hovered)) {
-        const style = operationArrowStyleForAttacker(unit);
-        action = style === 'fire'
-            ? OPERATION_PREVIEW_ACTIONS.RANGED
-            : OPERATION_PREVIEW_ACTIONS.MELEE;
-        color = '#e95b50';
-        drawOperationPreview(ctx, {
-            action,
-            source,
-            target: getUnitVisualPos(hovered.unit),
-            unitRadius: UNIT_BADGE_RADIUS,
-            time: now / 1000,
-            color,
-            trajectory: 'arc'
-        });
+        // 移动动画未走完时锚定逻辑落点：行进线不会突变成从半路射出的攻击线
+        const attackSource = moveAnimating ? { x: unit.tile.x, y: unit.tile.y } : source;
+        _drawAttackRouteSegment(now, unit, attackSource, hovered.unit);
         return;
     }
 
     drawOperationOrigin(ctx, {
         center: source,
         unitRadius: UNIT_BADGE_RADIUS,
-        color,
-        action,
+        color: '#58c9b3',
+        action: OPERATION_PREVIEW_ACTIONS.MOVE,
         time: now / 1000
     });
 }
@@ -1272,7 +1325,11 @@ function drawCounterText() {
     if (gameState.aiActing || !_isHumanTurn()) return;
     if (!gameState.selectedUnit || !gameState.selectedUnit.canAct) return;
 
-    gameState.attackableTiles.forEach(tile => {
+    // 连招预演目标仅在悬停时标注克制关系，避免远处目标常驻标签造成噪音
+    const hoveredChain = gameState.hoveredTile && gameState.chainAttackTiles?.includes(gameState.hoveredTile)
+        ? [gameState.hoveredTile]
+        : [];
+    [...gameState.attackableTiles, ...hoveredChain].forEach(tile => {
         const targetUnit = tile.unit;
         if (!targetUnit) return;
         const counterCoeff = COUNTER_RELATION[gameState.selectedUnit.type]?.[targetUnit.type] ?? 1;
@@ -1878,23 +1935,40 @@ function drawUnitActionTargetingPreview(now, deselecting) {
     }
 
     const attackTiles = gameState.attackableTiles.filter(tile => tile.unit);
-    if (!attackTiles.length) return;
+    const chainTiles = (gameState.chainAttackTiles || []).filter(tile => tile.unit);
+    if (!attackTiles.length && !chainTiles.length) return;
     const hovered = gameState.hoveredTile;
     renderTargetingPreview(ctx, {
         boardClip: { shapes: _getTargetingBoardClipShapes() },
-        unitTargets: attackTiles.map(tile => {
-            const entry = _targetEntry(unit.tile, tile, now, gameState.selectionTime);
-            return {
-                center: getUnitVisualPos(tile.unit),
-                size: UNIT_HUD_OUTER_RADIUS * 1.72 * entry.scale,
-                kind: 'attack',
-                active: tile === hovered,
-                time: now / 1000,
-                phase: tile.q * 0.43 + tile.r * 0.29,
-                color: '#e95b50',
-                alpha: entry.alpha
-            };
-        })
+        unitTargets: [
+            ...attackTiles.map(tile => {
+                const entry = _targetEntry(unit.tile, tile, now, gameState.selectionTime);
+                return {
+                    center: getUnitVisualPos(tile.unit),
+                    size: UNIT_HUD_OUTER_RADIUS * 1.72 * entry.scale,
+                    kind: 'attack',
+                    active: tile === hovered,
+                    time: now / 1000,
+                    phase: tile.q * 0.43 + tile.r * 0.29,
+                    color: '#e95b50',
+                    alpha: entry.alpha
+                };
+            }),
+            // 连招预演目标：同为红色敌意框，缩小+降透明度示意"移动后可达"
+            ...chainTiles.map(tile => {
+                const entry = _targetEntry(unit.tile, tile, now, gameState.selectionTime);
+                return {
+                    center: getUnitVisualPos(tile.unit),
+                    size: UNIT_HUD_OUTER_RADIUS * 1.52 * entry.scale,
+                    kind: 'attack',
+                    active: tile === hovered,
+                    time: now / 1000,
+                    phase: tile.q * 0.43 + tile.r * 0.29,
+                    color: '#e95b50',
+                    alpha: entry.alpha * (tile === hovered ? 1 : 0.62)
+                };
+            })
+        ]
     });
 }
 

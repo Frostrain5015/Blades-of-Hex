@@ -261,6 +261,23 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
         if (frame) targetFrames.push(frame);
     }
 
+    // 连招预演目标：同敌意样式、缩小一号，与 Canvas 版本保持一致语义。
+    const chainAttackKeys = interactionVisible ? (selection.chainAttackTileKeys || []) : [];
+    for (const key of chainAttackKeys) {
+        const frame = targetFrame(key, {
+            prefix: 'chain-attack',
+            tiles: tilesByKey,
+            units,
+            originKey: attackOriginKey,
+            activeKey: interaction.hover?.tileKey,
+            size: highBudget ? 30 : 28,
+            style: TARGET_STYLE.hostile,
+            startedAtMs: selection.selectedAtMs || 0,
+            endingStartedAtMs: 0
+        });
+        if (frame) targetFrames.push(frame);
+    }
+
     // Movement region: fills animate per tile (jelly reveal); the exterior
     // border also encloses the origin tile, exactly like Canvas
     // drawUnitActionTargetingPreview.
@@ -301,69 +318,93 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
 
     // ── Operation routes (movement / melee / ranged) ───────────
     const routePaths = [];
+    const pushAttackRoutePath = (action, sourcePos, targetPos) => {
+        if (!sourcePos || !targetPos) return;
+        if (action === 'melee') {
+            const smoothed = buildSmoothOperationRoute([sourcePos, targetPos]);
+            if (smoothed.points.length >= 2) {
+                routePaths.push({
+                    action: 'melee',
+                    points: smoothed.points,
+                    source: sourcePos,
+                    target: targetPos,
+                    color: '#e95b50',
+                    unitRadius,
+                    totalLength: smoothed.totalLength
+                });
+            }
+            return;
+        }
+        const ranged = buildRangedOperationRoute(sourcePos, targetPos, unitRadius, 'arc');
+        if (ranged.points.length >= 2) {
+            routePaths.push({
+                action: 'ranged',
+                points: ranged.points,
+                source: sourcePos,
+                target: targetPos,
+                color: '#e95b50',
+                unitRadius,
+                trajectory: 'arc',
+                totalLength: ranged.totalLength
+            });
+        }
+    };
+    const pushMoveRoutePath = (sourcePos, targetPos, bfsKeys) => {
+        if (!sourcePos || !targetPos || !Array.isArray(bfsKeys) || bfsKeys.length < 2) return;
+        const bfsPixelPath = bfsKeys
+            .map(key => tilesByKey.get(key))
+            .filter(t => t && t.center)
+            .map(t => ({ x: t.center.x, y: t.center.y }));
+        if (bfsPixelPath.length < 2) return;
+        const anchors = buildMoveOperationAnchors(sourcePos, targetPos, bfsPixelPath);
+        const smooth = buildSmoothOperationRoute(anchors);
+        if (smooth.points.length < 2) return;
+        routePaths.push({
+            action: 'move',
+            points: smooth.points,
+            source: sourcePos,
+            target: targetPos,
+            color: '#58c9b3',
+            unitRadius,
+            totalLength: smooth.totalLength
+        });
+    };
     if (route) {
         const sourceUnitDto = originUnit || null;
         const targetTile = route.targetKey ? tilesByKey.get(route.targetKey) : null;
         const targetUnitDto = route.targetKey
             ? snapshot.units.find(u => u.tileKey === route.targetKey && u.renderable)
             : null;
-        const sourcePos = sourceUnitDto?.visualCenter
-            ? { x: sourceUnitDto.visualCenter.x, y: sourceUnitDto.visualCenter.y }
+        // anchor:'tile'：攻击段从地块中心（预演落点/移动逻辑终点）出发，
+        // 而不是跟随飞行中的单位徽章 —— 连招执行与移动动画期间防抖。
+        const anchorTileCenter = route.anchor === 'tile' && route.sourceKey
+            ? tilesByKey.get(route.sourceKey)?.center || null
+            : null;
+        const sourcePos = anchorTileCenter
+            ? { x: anchorTileCenter.x, y: anchorTileCenter.y }
+            : (sourceUnitDto?.visualCenter
+                ? { x: sourceUnitDto.visualCenter.x, y: sourceUnitDto.visualCenter.y }
+                : null);
+        const targetUnitPos = targetUnitDto?.visualCenter
+            ? { x: targetUnitDto.visualCenter.x, y: targetUnitDto.visualCenter.y }
             : null;
         const targetPos = route.action === 'move'
             ? (targetTile?.center ? { x: targetTile.center.x, y: targetTile.center.y } : null)
-            : (targetUnitDto?.visualCenter
-                ? { x: targetUnitDto.visualCenter.x, y: targetUnitDto.visualCenter.y }
-                : null);
+            : targetUnitPos;
 
-        if (sourcePos && targetPos) {
-            if (route.action === 'move' && Array.isArray(route.bfsKeys) && route.bfsKeys.length >= 2) {
-                const bfsPixelPath = route.bfsKeys
-                    .map(key => tilesByKey.get(key))
-                    .filter(t => t && t.center)
-                    .map(t => ({ x: t.center.x, y: t.center.y }));
-                if (bfsPixelPath.length >= 2) {
-                    const anchors = buildMoveOperationAnchors(sourcePos, targetPos, bfsPixelPath);
-                    const smooth = buildSmoothOperationRoute(anchors);
-                    if (smooth.points.length >= 2) {
-                        routePaths.push({
-                            action: 'move',
-                            points: smooth.points,
-                            source: sourcePos,
-                            target: targetPos,
-                            color: '#58c9b3',
-                            unitRadius,
-                            totalLength: smooth.totalLength
-                        });
-                    }
-                }
-            } else if (route.action === 'melee') {
-                const smoothed = buildSmoothOperationRoute([sourcePos, targetPos]);
-                if (smoothed.points.length >= 2) {
-                    routePaths.push({
-                        action: 'melee',
-                        points: smoothed.points,
-                        source: sourcePos,
-                        target: targetPos,
-                        color: '#e95b50',
-                        unitRadius,
-                        totalLength: smoothed.totalLength
-                    });
-                }
-            } else if (route.action === 'ranged') {
-                const ranged = buildRangedOperationRoute(sourcePos, targetPos, unitRadius, 'arc');
-                if (ranged.points.length >= 2) {
-                    routePaths.push({
-                        action: 'ranged',
-                        points: ranged.points,
-                        source: sourcePos,
-                        target: targetPos,
-                        color: '#e95b50',
-                        unitRadius,
-                        trajectory: 'arc',
-                        totalLength: ranged.totalLength
-                    });
-                }
+        if (route.action === 'chain') {
+            // 预演连招：A→B 行进段 + B→C 攻击段
+            const viaCenter = route.viaKey ? tilesByKey.get(route.viaKey)?.center || null : null;
+            const viaPos = viaCenter ? { x: viaCenter.x, y: viaCenter.y } : null;
+            if (viaPos) {
+                pushMoveRoutePath(sourcePos, viaPos, route.bfsKeys);
+                pushAttackRoutePath(route.attackAction === 'melee' ? 'melee' : 'ranged', viaPos, targetUnitPos);
+            }
+        } else if (sourcePos && targetPos) {
+            if (route.action === 'move') {
+                pushMoveRoutePath(sourcePos, targetPos, route.bfsKeys);
+            } else if (route.action === 'melee' || route.action === 'ranged') {
+                pushAttackRoutePath(route.action, sourcePos, targetPos);
             }
         }
     }
