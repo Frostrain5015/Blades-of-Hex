@@ -65,11 +65,18 @@ export function planActions(gameState, helpers, myCamp) {
 
     const weather = gameState.weather || 'clear';
 
-    const enemyKey = (gameState.turnOrder || Object.keys(CAMP)).find(key => {
+    let enemyKey = (gameState.turnOrder || Object.keys(CAMP)).find(key => {
         const faction = CAMP[key];
         return faction && faction !== myCamp && key !== 'neutral'
             && (!isHostileFaction || isHostileFaction(myCamp, faction));
     });
+    // 兜底：若未找到敌对阵营（如外交未初始化），取第一个非自身、非中立阵营
+    if (!enemyKey) {
+        enemyKey = (gameState.turnOrder || Object.keys(CAMP)).find(key => {
+            const faction = CAMP[key];
+            return faction && faction !== myCamp && key !== 'neutral';
+        });
+    }
     const enemyCamp = enemyKey ? CAMP[enemyKey] : null;
     if (!enemyCamp) return actions;
     const enemyCapitalDistrict = gameState.tiles.find(tile => tile.isCity && tile.camp === enemyCamp)?.districtId;
