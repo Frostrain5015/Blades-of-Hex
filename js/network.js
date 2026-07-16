@@ -37,6 +37,33 @@ function _enqueueRemoteAction(msg) {
     _drainActionQueue();
 }
 
+// 本地动作同样必须串行发送。服务端以 revision 做乐观并发校验；若两个动作
+// 在第一个 actionAccepted 返回前连续发出，二者会携带同一个 baseRevision，
+// 后一个必然被判为过期并触发权威快照回滚。中立 AI 一回合会连续产生多个
+// 动作，因此这里不能依赖调用方自行等待。
+let _outboundActionQueue = [];
+let _outboundActionInFlight = null;
+
+function _resetOutboundActionQueue() {
+    _outboundActionQueue = [];
+    _outboundActionInFlight = null;
+}
+
+function _drainOutboundActionQueue() {
+    if (_outboundActionInFlight || _outboundActionQueue.length === 0) return;
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+
+    const action = _outboundActionQueue.shift();
+    const msg = buildActionMessage(action.actionType, action.serializedState, action.effectData, _revision);
+    _outboundActionInFlight = action;
+    try {
+        _ws.send(JSON.stringify(msg));
+    } catch (e) {
+        _outboundActionInFlight = null;
+        console.warn(`[WS] sendAction(${action.actionType}) failed:`, e.message);
+    }
+}
+
 // 客户端唯一标识（隧道场景下区分不同用户）
 // 存 sessionStorage 保证每个标签页独立：同机多开时各标签页ID不同，
 // 避免服务器按 clientId 找回断线角色时错配到同浏览器的另一名玩家；
@@ -87,6 +114,7 @@ export function connectToServer(url) {
             // 清除上一次连接的残留队列
             _actionQueue = [];
             _processingQueue = false;
+            _resetOutboundActionQueue();
             // 向服务器注册客户端ID
             _ws.send(JSON.stringify({ type: 'hello', clientId: _clientId }));
             _cb.onConnected?.();
@@ -120,6 +148,7 @@ export function connectToServer(url) {
                     _myRole = null;
                     _revision = 0;
                     _matchSeed = null;
+                    _resetOutboundActionQueue();
                     _cb.onRoomLeft?.();
                     break;
                 case 'opponentJoined':
@@ -146,6 +175,7 @@ export function connectToServer(url) {
                     _myRole = msg.role;
                     _revision = Number.isInteger(msg.revision) ? msg.revision : 0;
                     _matchSeed = Number.isInteger(msg.matchSeed) ? msg.matchSeed : null;
+                    _resetOutboundActionQueue();
                     _cb.onStart?.(msg.role, msg.isThreePlayer, msg.skirmishFog, msg.doubleCommanderMode, _matchSeed, {
                         turnOrder: msg.turnOrder,
                         turnOrderRolls: msg.turnOrderRolls,
@@ -171,11 +201,16 @@ export function connectToServer(url) {
                     _cb.onBanned?.(msg.message);
                     break;
                 case 'action':
+                    // 收到他方动作（包括服务端拒绝后发来的 stateSync）意味着本地
+                    // 尚未确认的动作已不再基于最新局面，不能继续补发旧快照。
+                    _resetOutboundActionQueue();
                     if (Number.isInteger(msg.revision)) _revision = msg.revision;
                     _enqueueRemoteAction(msg);
                     break;
                 case 'actionAccepted':
                     if (Number.isInteger(msg.revision)) _revision = msg.revision;
+                    _outboundActionInFlight = null;
+                    _drainOutboundActionQueue();
                     break;
                 case 'rematchPending':
                     _cb.onRematchPending?.();
@@ -199,6 +234,7 @@ export function connectToServer(url) {
             _myRoomId = null;
             _revision = 0;
             _matchSeed = null;
+            _resetOutboundActionQueue();
             _cb.onDisconnected?.();
             if (!_intentionalClose && _reconnectUrl) {
                 _startAutoReconnect();
@@ -253,6 +289,7 @@ export function disconnect() {
     _myRoomId = null;
     _revision = 0;
     _matchSeed = null;
+    _resetOutboundActionQueue();
     if (_ws) { try { _ws.close(); } catch(e) {}; _ws = null; }
 }
 
@@ -298,14 +335,11 @@ export function sendUnready() {
 export function sendAction(actionType, serializedState, effectData = null) {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) {
         console.warn(`[WS] sendAction(${actionType}) skipped: socket not open (readyState=${_ws ? _ws.readyState : 'null'})`);
-        return;
+        return false;
     }
-    const msg = buildActionMessage(actionType, serializedState, effectData, _revision);
-    try {
-        _ws.send(JSON.stringify(msg));
-    } catch (e) {
-        console.warn(`[WS] sendAction(${actionType}) failed:`, e.message);
-    }
+    _outboundActionQueue.push({ actionType, serializedState, effectData });
+    _drainOutboundActionQueue();
+    return true;
 }
 
 export function sendMessage(msg) {

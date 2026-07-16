@@ -11,11 +11,17 @@ export const ACTION_TYPES = new Set([
     'reinforce',
     'surrender',
     'activateSkill',
+    'chooseSpecialization',
     'droneDeploy',
     'droneSuicide',
     'engineerTrench',
     'engineerFlak',
     'engineerBunkerStart',
+    'buildFortification',
+    'buildBunker',
+    'buildAirfield',
+    'fieldRepair',
+    'airCommand',
     'tacticalCard'
 ]);
 

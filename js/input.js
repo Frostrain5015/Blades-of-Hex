@@ -1924,8 +1924,24 @@ function hideSelectionHud() {
 
 // 收到对手操作时，state 只恢复本地观察目标；HUD 由输入层重新绘制，避免状态层反向依赖 DOM。
 on('client:inspectionRestored', (tile) => {
-    if (tile) showSelectionHudForTile(tile);
-    else hideSelectionHud();
+    if (!tile) {
+        hideSelectionHud();
+        return;
+    }
+
+    // 快照恢复会重建 Tile / Unit 实例并主动清掉旧实例计算出的范围。若恢复后
+    // 仍轮到本地玩家、观察目标仍是可行动的己方单位，则基于新实例完整重算，
+    // 避免“点中单位后范围一闪即逝”以及随后无法继续操作。
+    const unit = tile.unit;
+    if (_isLocalActionUnit(unit) && unit.canAct && !unit.isNewRecruit) {
+        gameState.selectedTile = tile;
+        gameState.selectedUnit = unit;
+        gameState.movableTiles = getMovableTiles(unit);
+        gameState.attackableTiles = getAttackableTiles(unit);
+        refreshChainAttackPlans(unit);
+        gameState.selectionTime = performance.now();
+    }
+    showSelectionHudForTile(tile);
 });
 // ==== 像素 → 地块 =====================
 function getTileAtPixel(px, py) {

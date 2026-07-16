@@ -667,7 +667,8 @@ export function applyRemoteState(data, HexTileClass, UnitClass) {
     const inspectionTarget = gameState.inspectionTarget || _getLegacyInspectionTarget();
     deserializeState(data, HexTileClass, UnitClass, { preserveClientUi: true });
 
-    // 远端操作期间不能保留可行动范围或卡牌瞄准，但可以继续查看有效且可见的目标。
+    // 旧实例计算出的行动范围和卡牌目标均不可复用；输入层会在恢复观察目标后，
+    // 按当前回合与新 Unit/Tile 实例判断是否需要重新计算本地行动范围。
     gameState.selectedUnit = null;
     gameState.selectedCityTile = null;
     gameState.selectedTile = null;

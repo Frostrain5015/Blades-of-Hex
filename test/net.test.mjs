@@ -20,6 +20,10 @@ async function getCurrentTurnRole(page) {
     });
 }
 
+async function getMatchRevision(page) {
+    return page.evaluate(async () => (await import('/js/network.js')).getMatchRevision());
+}
+
 async function ensureTurnFor(targetPage, otherPage) {
     const targetRole = await getMyRole(targetPage);
     const otherRole = await getMyRole(otherPage);
@@ -92,12 +96,68 @@ async function probeReconnectActionButtons(page) {
 
         return {
             ...before,
+            unitId: unit.id,
             activeSkillCD,
             reinforced: !!tile._reinforcedThisTurn,
             hp: unit.hp,
             maxHp: unit.maxHp,
         };
     });
+}
+
+async function probeSelectionRestore(page) {
+    return page.evaluate(async () => {
+        const { gameState, applyRemoteState, serializeState } = await import('/js/state.js');
+        const input = await import('/js/input.js');
+        const logic = await import('/js/gameLogic.js');
+        const net = await import('/js/network.js');
+        const { campToKey } = await import('/rules/camps.js');
+        const { HexTile } = await import('/js/HexTile.js');
+        const { Unit } = await import('/js/Unit.js');
+        const camp = net.roleToCamp(net.getMyRole());
+        const candidate = gameState.tiles.find(tile => {
+            const unit = tile.unit;
+            if (!unit || campToKey(unit.camp) !== campToKey(camp) || !unit.canAct || unit.isNewRecruit) return false;
+            return logic.getMovableTiles(unit).length + logic.getAttackableTiles(unit).length > 0;
+        });
+        if (!candidate?.unit) return { ok: false, reason: 'no actionable unit' };
+
+        const unitId = candidate.unit.id;
+        gameState.selectedTile = candidate;
+        gameState.selectedUnit = candidate.unit;
+        gameState.movableTiles = logic.getMovableTiles(candidate.unit);
+        gameState.attackableTiles = logic.getAttackableTiles(candidate.unit);
+        logic.refreshChainAttackPlans(candidate.unit);
+        input.showSelectionHudForTile(candidate);
+        const beforeRange = gameState.movableTiles.length + gameState.attackableTiles.length;
+
+        // 模拟一次晚到的权威快照。快照会重建全部实例，不能沿用旧范围引用。
+        applyRemoteState(serializeState(), HexTile, Unit);
+        const afterRange = gameState.movableTiles.length + gameState.attackableTiles.length;
+        return {
+            ok: true,
+            unitId,
+            beforeRange,
+            afterRange,
+            selected: gameState.selectedUnit?.id === unitId,
+            usesCurrentInstances: [...gameState.movableTiles, ...gameState.attackableTiles]
+                .every(tile => gameState.tiles.includes(tile))
+        };
+    });
+}
+
+async function readQueuedActionResult(page, unitId) {
+    return page.evaluate(async (id) => {
+        const { gameState } = await import('/js/state.js');
+        const tile = gameState.tiles.find(candidate => candidate.unit?.id === id);
+        return tile?.unit ? {
+            found: true,
+            activeSkillCD: tile.unit.activeSkillCD,
+            reinforced: !!tile._reinforcedThisTurn,
+            hp: tile.unit.hp,
+            maxHp: tile.unit.maxHp
+        } : { found: false };
+    }, unitId);
 }
 
 export async function run(browser) {
@@ -209,6 +269,7 @@ export async function run(browser) {
         const snap0 = await gameSnapshot(pageP1);
         const t0 = snap0.turnCounter;
         const startingRole = await getCurrentTurnRole(pageP1);
+        let neutralSequenceBaseRevision = null;
         console.log(`[test] Round ${round}: turnCounter=${t0}, role=${startingRole}, camp=${snap0.currentCamp}`);
 
         for (let action = 0; action < 2; action++) {
@@ -218,6 +279,7 @@ export async function run(browser) {
             const mover = pageByRole[actingRole];
             const watcher = mover === A ? B : A;
             const before = (await gameSnapshot(mover)).turnCounter;
+            if (action === 1) neutralSequenceBaseRevision = await getMatchRevision(pageP1);
             await clickEndTurn(mover);
             await waitFor(async () => (await gameSnapshot(watcher)).turnCounter > before,
                 25000, `${actingRole} 结束回合后双端同步`);
@@ -228,6 +290,9 @@ export async function run(browser) {
             const s = await gameSnapshot(pageP1);
             return await getCurrentTurnRole(pageP1) === startingRole && s.turnCounter > t0 + 1;
         }, 40000, `掷骰顺序完成第 ${round} 个完整轮转`);
+        const neutralSequenceRevisionDelta = (await getMatchRevision(pageP1)) - neutralSequenceBaseRevision;
+        R.assert(neutralSequenceRevisionDelta >= 3,
+            `第 ${round} 轮中立 AI 至少完成一个有效动作后再结束回合（revision +${neutralSequenceRevisionDelta}）`);
         R.ok(`第 ${round} 轮回合轮转同步`);
     }
     const [ta, tb] = [(await gameSnapshot(pageP1)).turnCounter, (await gameSnapshot(pageP2)).turnCounter];
@@ -288,12 +353,28 @@ export async function run(browser) {
     R.assertNoPageErrors(B, 'B 端重连');
 
     await ensureTurnFor(B, A);
+    const selectionProbe = await probeSelectionRestore(B);
+    R.assert(selectionProbe.ok && selectionProbe.selected
+        && selectionProbe.beforeRange > 0 && selectionProbe.afterRange > 0
+        && selectionProbe.usesCurrentInstances,
+    `权威快照后保持己方选择并重算行动范围（before=${selectionProbe.beforeRange || 0}, after=${selectionProbe.afterRange || 0}）`);
+
     const buttonProbe = await probeReconnectActionButtons(B);
     R.assert(buttonProbe.ok && buttonProbe.selected, `重连后可重新选中己方单位（${buttonProbe.reason || 'ok'}）`);
     R.assert(buttonProbe.skillVisible && !buttonProbe.skillDisabled && buttonProbe.activeSkillCD > 0,
         `重连后主动技能按钮可点击（visible=${buttonProbe.skillVisible}, disabled=${buttonProbe.skillDisabled}, cd=${buttonProbe.activeSkillCD}）`);
     R.assert(buttonProbe.reinforceVisible && !buttonProbe.reinforceDisabled && buttonProbe.reinforced,
         `重连后补充兵员按钮可点击（visible=${buttonProbe.reinforceVisible}, disabled=${buttonProbe.reinforceDisabled}, reinforced=${buttonProbe.reinforced}）`);
+
+    // 主动技能与补员会在同一个同步帧内连续广播；观察端必须最终收到两个动作，
+    // 证明第二个快照是在首个 actionAccepted 后使用新 revision 发出的。
+    await waitFor(async () => {
+        const result = await readQueuedActionResult(A, buttonProbe.unitId);
+        return result.found && result.activeSkillCD > 0 && result.reinforced;
+    }, 12000, '连续本地动作按 revision 串行同步');
+    const queuedResult = await readQueuedActionResult(A, buttonProbe.unitId);
+    R.assert(queuedResult.activeSkillCD > 0 && queuedResult.reinforced,
+        `连续主动技能与补员均到达观察端（cd=${queuedResult.activeSkillCD}, reinforced=${queuedResult.reinforced}）`);
 
     await A.context().close();
     await B.context().close();

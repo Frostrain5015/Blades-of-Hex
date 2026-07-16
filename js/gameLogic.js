@@ -1281,7 +1281,6 @@ async function _processNeutralTurn(isLocalSkirmish) {
     const neutUnits = gameState.tiles.filter(t => t.unit && t.unit.camp === neutralCamp);
     const hasNeutralUnits = neutUnits.some(t => t.unit.canAct);
     const hasNeutralCities = gameState.tiles.some(t => t.isCity && t.camp === neutralCamp && !t.unit);
-    console.warn('[neutral] units:', neutUnits.length, 'canAct:', neutUnits.filter(t=>t.unit.canAct).length, 'cities:', gameState.tiles.filter(t=>t.isCity&&t.camp===neutralCamp).length, 'emptyCities:', gameState.tiles.filter(t=>t.isCity&&t.camp===neutralCamp&&!t.unit).length);
     if (hasNeutralUnits || hasNeutralCities) {
         // 遭遇战热座：中立 AI 回合也遮罩，防止两边玩家偷看
         let neutralOverlay = null;
