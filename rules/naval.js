@@ -6,7 +6,6 @@ import { isLandTile, isWaterTile } from './surfaces.js';
 export const NAVAL_RULES = Object.freeze({
     shipVsLandDamage: -0.50,
     landVsShipDamage: -0.50,
-    cruiserShoreBombardment: 0.50,
     shoreBatteryVsShipDamage: 0.30,
     shoreBatteryVsLandDamage: -0.60,
     detectorRadius: 2,
@@ -16,8 +15,7 @@ export const NAVAL_RULES = Object.freeze({
     shoreBatteryCooldownRounds: 2
 });
 
-export const NAVAL_UNIT_TYPES = Object.freeze(new Set(['destroyer', 'warship', 'submarine']));
-export const SUBMARINE_DETECTOR_TYPES = Object.freeze(new Set(['destroyer', 'shoreBattery']));
+export const NAVAL_UNIT_TYPES = Object.freeze(new Set(['destroyer', 'warship', 'submarine', 'carrier']));
 
 export function isRegularNavalUnit(unitOrType) {
     const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
@@ -41,8 +39,7 @@ export function getCrossDomainDamageBonus(attacker, defender) {
             : NAVAL_RULES.shoreBatteryVsLandDamage;
     }
     if (isRegularNavalUnit(attacker) && isLandTile(defender.tile)) {
-        return NAVAL_RULES.shipVsLandDamage
-            + (attacker.type === 'warship' ? NAVAL_RULES.cruiserShoreBombardment : 0);
+        return NAVAL_RULES.shipVsLandDamage;
     }
     if (!isRegularNavalUnit(attacker) && attacker.type !== 'drone' && isRegularNavalUnit(defender)) {
         return NAVAL_RULES.landVsShipDamage;
@@ -60,7 +57,10 @@ function roundIndex(state) {
 }
 
 export function isSubmarineDetector(unit) {
-    return !!unit && SUBMARINE_DETECTOR_TYPES.has(unit.type) && unit.hp > 0;
+    return !!unit && unit.hp > 0 && (
+        unit.type === 'shoreBattery'
+        || unit.getSpecializationAbility?.('submarineDetectionRadius') > 0
+    );
 }
 
 export function hasSubmarineDetectorInRange(submarine, detectingCamp, state) {
@@ -82,6 +82,7 @@ function hasFactionReveal(submarine, detectingCamp, state) {
 
 export function isSubmarineTargetableBy(submarine, detectingCamp, state) {
     if (submarine?.type !== 'submarine') return true;
+    if ((submarine._rank || 0) < 1) return true;
     if (campKey(submarine.camp) === campKey(detectingCamp)) return true;
     if (submarine._submarineAttackExposed === true) return true;
     const round = roundIndex(state);

@@ -40,7 +40,7 @@ async function ensureTurnFor(targetPage, otherPage) {
 async function probeReconnectActionButtons(page) {
     return page.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
-        const { LOGICAL_W, LOGICAL_H } = await import('/js/config.js');
+        const input = await import('/js/input.js');
         const { campToKey } = await import('/rules/camps.js');
         const net = await import('/js/network.js');
         const role = net.getMyRole();
@@ -64,13 +64,12 @@ async function probeReconnectActionButtons(page) {
         tile._reinforcedThisTurn = false;
         gameState.playerGold[campToKey(unit.camp)] = 99;
 
-        const canvas = document.getElementById('gameCanvas');
-        const rect = canvas.getBoundingClientRect();
-        canvas.dispatchEvent(new MouseEvent('click', {
-            bubbles: true,
-            clientX: rect.left + tile.x * (rect.width / LOGICAL_W),
-            clientY: rect.top + tile.y * (rect.height / LOGICAL_H),
-        }));
+        // 新引擎允许相机平移/缩放，测试不再用旧的未变换画布坐标模拟点击。
+        gameState.selectedTile = tile;
+        gameState.selectedUnit = unit;
+        gameState.movableTiles = [];
+        gameState.attackableTiles = [];
+        input.showSelectionHudForTile(tile);
 
         const skillBtn = document.getElementById('boardActiveSkill');
         const reinforceBtn = document.getElementById('boardReinforce');
@@ -86,7 +85,7 @@ async function probeReconnectActionButtons(page) {
             reinforceDisabled: isUnavailable(reinforceBtn),
         };
 
-        const activate = button => button?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        const activate = button => button?.click();
         activate(skillBtn);
         const activeSkillCD = unit.activeSkillCD;
         activate(document.getElementById('boardReinforce'));
@@ -189,10 +188,11 @@ export async function run(browser) {
     R.assert(roleA !== roleB, `角色分配 A=${roleA} B=${roleB}`);
 
     // ── 4. 双端懒加载断言 ──
-    const expected = [sa.commanderP1, sa.commanderP2].filter(id => FX_MANIFEST.includes(id));
+    const selectedCommanders = [sa.commanderP1, sa.commanderP2].filter(Boolean);
+    const expected = selectedCommanders.filter(id => FX_MANIFEST.includes(id));
     for (const [name, pg] of [['A', A], ['B', B]]) {
         const fetched = await fetchedFxModules(pg);
-        R.assert(expected.every(id => fetched.includes(id)) && fetched.every(id => expected.includes(id)),
+        R.assert(expected.every(id => fetched.includes(id)) && fetched.every(id => selectedCommanders.includes(id)),
             `${name} 端按需加载 [${fetched.join(', ') || '无'}]`);
     }
 

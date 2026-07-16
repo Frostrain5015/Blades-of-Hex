@@ -25,6 +25,8 @@ export class EngineHexTile {
         this.districtId = 0;
         this.terrain = 'plains';
         this.fortification = null;
+        this.fieldFortification = null;
+        this.installation = null;
         this.isPort = false;
         this._portCapturedIndependent = false;
         this._portOperationalAtRound = 0;
@@ -36,6 +38,7 @@ export class EngineHexTile {
         this.fadeStartTime = null;
         this._minePlanted = false;
         this._mineCampKey = null;
+        this._mineType = null;
         this._cityDisabledUntil = 0;
         this._reinforcedThisTurn = false;
         this.x = BOARD_RULES.logicalWidth / 2 + HEX_WIDTH * (q + r * 0.5);

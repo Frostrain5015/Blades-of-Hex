@@ -236,6 +236,10 @@ function buildRealTileDto(entry, gameState, viewerCampKey, options) {
         surface,
         terrain: { type: text(tile.terrain, 'plains') },
         fortification: tile.fortification ? { type: text(tile.fortification) } : null,
+        installation: tile.installation ? {
+            type: text(tile.installation.type),
+            status: text(tile.installation.status, 'ready')
+        } : null,
         city: cityFromTile(tile),
         unitId: primitiveId(tile.unit?.id)
     };
@@ -286,6 +290,7 @@ function buildBorderlessFillers(realTiles, realKeySet) {
             },
             terrain: null,
             fortification: null,
+            installation: null,
             city: null,
             unitId: null
         });
@@ -361,6 +366,8 @@ function buildUnitDto(unit, tileDto, relationToViewer) {
         commander,
         presentation: {
             fallen: Boolean(unit._fallen),
+            poisoned: Boolean(unit._poison),
+            poisonTicks: Math.max(0, finite(unit._poison?.remainingTicks, 0)),
             airdropWaiting: Boolean(unit._airdropWaiting),
             airliftLandAtMs: optionalFinite(unit._airliftLandAt),
             soulRecallLandAtMs: optionalFinite(unit._soulRecallLandAt),
@@ -503,7 +510,9 @@ function cloneAirSource(source) {
         ownerKnown: source?.ownerKnown === undefined ? null : Boolean(source.ownerKnown),
         providers: Array.isArray(source?.providers)
             ? source.providers.filter(value => typeof value === 'string').slice().sort()
-            : []
+            : [],
+        provider: typeof source?.provider === 'string' ? source.provider : null,
+        reduction: Math.max(0, finite(source?.reduction, 0))
     };
 }
 
@@ -727,6 +736,7 @@ function computeTerrainSignature(layout, camps, renderTiles) {
         parts.push(
             `${tile.key}|${tile.campKey ?? ''}|${surface.kind}|${surface.color}|${transition}`
             + `|${tile.terrain?.type ?? ''}|${tile.fortification?.type ?? ''}`
+            + `|${tile.installation?.type ?? ''}:${tile.installation?.status ?? ''}`
             + `|${tile.city ? `${tile.city.kind}#${tile.city.districtId}` : ''}`
         );
     }

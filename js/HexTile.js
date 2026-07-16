@@ -51,6 +51,13 @@ export class HexTile extends EngineHexTile {
                 color: 'rgba(255,255,255,0.8)'
             });
         }
+        if (this.installation?.type === 'airfield') {
+            glyphs.push({
+                icon: this.installation.status === 'ready' ? '🛫' : '🏗️',
+                font: '13px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif',
+                color: this.installation.status === 'ready' ? '#9fd7ff' : '#e8c477'
+            });
+        }
 
         const terrain = TERRAIN_CONFIG[this.terrain];
         if (this.terrain !== 'plains' && terrain?.icon) {
@@ -201,8 +208,22 @@ export class HexTile extends EngineHexTile {
     // cached terrain/hydrography layers have been drawn instead of disappearing
     // beneath a forest canopy or port detail.
     drawDeferredMapDetails(c) {
-        if (this.fortification !== 'flak') return;
-        this._drawFlakFortification(c, this.x, this.y, 'back');
+        if (this.installation?.type === 'airfield') {
+            c.save();
+            c.translate(this.x + HEX_SIZE * 0.28, this.y + HEX_SIZE * 0.20);
+            c.rotate(-Math.PI / 6);
+            c.fillStyle = this.installation.status === 'ready' ? 'rgba(194,218,220,0.84)' : 'rgba(218,183,112,0.78)';
+            c.strokeStyle = 'rgba(43,55,58,0.88)';
+            c.lineWidth = 1.2;
+            c.fillRect(-10, -3.2, 20, 6.4);
+            c.strokeRect(-10, -3.2, 20, 6.4);
+            c.setLineDash([3, 2]);
+            c.strokeStyle = 'rgba(255,247,214,0.82)';
+            c.lineWidth = 0.8;
+            c.beginPath(); c.moveTo(-7, 0); c.lineTo(7, 0); c.stroke();
+            c.restore();
+        }
+        if (this.fortification === 'flak') this._drawFlakFortification(c, this.x, this.y, 'back');
     }
 
     drawForegroundMapDetails(c) {

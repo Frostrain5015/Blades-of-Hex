@@ -67,7 +67,7 @@ export function areCommanderMechanicsSuppressed(unit) {
 
 export function getUnitCombatRange(unit) {
     if (unit?.isEmbarked === true && isEmbarkableLandUnit(unit)) return TRANSPORT_RULES.range;
-    return Math.max(1, Number(unit?.config?.range) || 1);
+    return Math.max(1, (Number(unit?.config?.range) || 1) + (Number(unit?._rankPanelRangeBonus) || 0));
 }
 
 export function getTransportBaseDefense(unit) {

@@ -66,6 +66,10 @@ import {
 } from './rendering/index.js';
 import { VITE_RUNTIME_AVAILABLE } from './rendering/viteRuntime.js';
 import { battlefieldDelegation, setBattlefieldDelegation } from './rendering/delegation.js';
+import {
+    AIR_COMMAND_IMPACT_DELAY_MS,
+    buildAirCommandDamageTexts
+} from '../rules/airCommands.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
 const TURN_ORDER_COUNTDOWN_DELAY_MS = 2000;
@@ -1278,6 +1282,8 @@ function beginTrainingCommanderPhase(humanRole) {
 function beginPVECommanderPhase(humanRole) {
     _stopHeroCarousel();
     document.getElementById('lobbyOverlay').style.display = 'none';
+    // 再来一局时不能让上一局的画布继续作为“已开局”信号留在选将层下方。
+    document.getElementById('gameWrapper').style.display = 'none';
     _deploymentStarted = false;
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
@@ -2935,8 +2941,13 @@ async function handleRemoteAction(msg) {
                                 spawnHealParticles(e.x, e.y);
                                 triggerHealFlash(e.x, e.y);
                             }
+                            if (e.purifiedPoison) spawnCommanderSkillEffect(e.x, e.y, '✨', '净化中毒');
                             break;
                         }
+                        case 'poison':
+                            spawnCommanderSkillEffect(e.x, e.y, '☣️', '中毒');
+                            spawnExplosionParticles(e.x, e.y, '#6ea52c', 14);
+                            break;
                         case 'shield': {
                             const st = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
                             if (st && st.unit) {
@@ -3128,7 +3139,9 @@ async function handleRemoteAction(msg) {
                 if (_rmSmite) {
                     setTimeout(() => playSound('lightning'), 500);
                 } else if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
-                    playSound(_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER
+                    playSound(_rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
+                        ? 'airstrike'
+                        : _rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER
                         ? 'machinegun'
                         : _rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON
                             ? 'cannon'
@@ -3137,6 +3150,14 @@ async function handleRemoteAction(msg) {
                 if (e) {
                     if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
                         spawnTorpedo(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                    } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
+                        spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.attackDmg }], 'diveStrafe', e.q, e.r);
+                        setTimeout(() => {
+                            playSound('machinegun');
+                            for (let i = 0; i < 12; i++) {
+                                setTimeout(() => spawnStrafeTracer(_rmFromX, _rmFromY, e.x, e.y), i * 24);
+                            }
+                        }, 500);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
                         triggerAttackFlash(e.x, e.y, e.isCrit);
                         spawnDroneProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
@@ -3160,6 +3181,16 @@ async function handleRemoteAction(msg) {
                     }
                     if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
                         triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
+                    }
+                    if (e.extraSalvoResult) {
+                        setTimeout(() => {
+                            playSound('cannon');
+                            spawnProjectile(_rmFromX, _rmFromY, e.x, e.y, false);
+                        }, 140);
+                    }
+                    for (const splash of e.specializationSplashResults || []) {
+                        spawnDirectionalParticles(e.x, e.y, splash.x, splash.y, '#ffb35c', 8);
+                        spawnExplosionParticles(splash.x, splash.y, '#ff8a3d', 8);
                     }
                     if (e.killed) {
                         spawnExplosionParticles(e.x, e.y, '#ff2200', 30);
@@ -3305,6 +3336,50 @@ async function handleRemoteAction(msg) {
                 console.warn('Remote attack effects error:', err);
             }
             break;
+        case 'airCommand': {
+            if (!e) break;
+            const target = gameState.tileMap.get(`${e.targetQ},${e.targetR}`);
+            if (!target) break;
+            if (e.kind === 'strafe') {
+                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'diveStrafe', target.q, target.r);
+                playSound('airstrike');
+            } else if (e.kind === 'bombing') {
+                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'carpetBomb', target.q, target.r);
+                playSound('airstrike');
+            } else if (e.kind === 'airdrop') {
+                spawnAirstrikeEffect(target.x, target.y, [], 'airdrop', target.q, target.r);
+                playSound('airstrike');
+            } else if (e.kind === 'recon') {
+                spawnCommanderSkillEffect(target.x, target.y, '🔭', '侦察机');
+            }
+            const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[e.kind];
+            if (Number.isFinite(impactDelay)) {
+                setTimeout(() => {
+                    gameState.damageTexts.push(...buildAirCommandDamageTexts(
+                        e.results,
+                        gameState.tileMap,
+                        performance.now()
+                    ));
+                }, impactDelay);
+            }
+            break;
+        }
+        case 'buildFortification':
+        case 'buildBunker':
+        case 'buildAirfield':
+        case 'fieldRepair': {
+            if (!e) break;
+            const target = e.targetId
+                ? gameState.tiles.find(tile => tile.unit?.id === e.targetId)
+                : gameState.tileMap.get(`${e.q},${e.r}`);
+            if (target) spawnCommanderSkillEffect(target.x, target.y, msg.actionType === 'fieldRepair' ? '🛠️' : '🏗️', msg.actionType === 'fieldRepair' ? '战地抢修' : '建设');
+            break;
+        }
+        case 'chooseSpecialization': {
+            const unit = e?.unitId ? gameState.tiles.find(tile => tile.unit?.id === e.unitId)?.unit : null;
+            if (unit?.tile) spawnCommanderSkillEffect(unit.tile.x, unit.tile.y, '✦', '专精');
+            break;
+        }
         case 'droneDeploy':
             if (e) {
                 emit('tianyan:droneDeploy', e);

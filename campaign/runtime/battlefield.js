@@ -8,6 +8,7 @@ import { computeCampBorders } from '../../js/HexTile.js';
 import { applyCommanderMount, resolveCommanderMount } from './storyCommanders.js';
 import { canUnitOccupyTile } from '../../rules/movement.js';
 import { isLandTile } from '../../rules/surfaces.js';
+import { chooseDefaultSpecialization } from '../../rules/units.js';
 
 const COMMANDER_SLOTS = {
     player1: { id: 'commanderP1', confirmed: 'commanderP1Confirmed', deployed: 'commanderP1Deployed' },
@@ -29,6 +30,9 @@ export function prepareCampaignFactions(config, gameState) {
     const keys = getFactionKeys(gameState);
     for (const key of keys) gameState.playerGold[key] = config.gold?.[key] ?? 4;
     gameState._prevVisibleTiles = Object.fromEntries(keys.map(key => [key, new Set()]));
+    gameState.airfieldCapOverrides = Object.fromEntries((config.factions || [])
+        .filter(faction => Number.isInteger(faction.airfieldCap) && faction.airfieldCap >= 0)
+        .map(faction => [faction.id, faction.airfieldCap]));
     gameState._campaignFactionConfig = config;
 }
 
@@ -82,6 +86,14 @@ export function buildBattlefieldFromConfig(config, gameState) {
             mount.commander
         );
         applyCommanderMount(unit, mount);
+        unit._rank = unit._rankLocked ? 0 : Math.max(0, Math.min(4, Math.trunc(Number(spec.rank) || 0)));
+        unit._xp = Math.max(0, Number(spec.xp) || 0);
+        unit.specializationKey = spec.specializationKey || null;
+        unit._rebuildRankProfile({ adjustResources: false });
+        const controller = gameState.factions?.[spec.camp]?.controller;
+        if (unit.pendingSpecialization && controller !== 'human') {
+            unit.chooseSpecialization(chooseDefaultSpecialization(unit, gameState));
+        }
         // 生命值：优先绝对 hp，其次 hpPct（1~100 百分比），默认满血。
         if (typeof spec.hp === 'number') {
             unit.hp = Math.max(1, Math.min(unit.maxHp, Math.round(spec.hp)));

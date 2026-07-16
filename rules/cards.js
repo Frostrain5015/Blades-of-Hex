@@ -21,6 +21,7 @@ export const TACTICAL_CARD_DATA = (() => {
         airstrike: { id: 'airstrike', name: '空袭', icon: EMOJI.cards.airstrike, targeting: 'enemyGlobal', balance: { minDamage: 35, maxDamage: 50, forestMultiplier: 0.8, cityDisableRounds: 2 } },
         shield: { id: 'shield', name: '护盾', icon: EMOJI.cards.shield, targeting: 'shieldTarget', balance: { shield: 50, duration: 3 } },
         landmine: { id: 'landmine', name: '地雷', icon: EMOJI.cards.landmine, targeting: 'emptyFriendlyLandmine', desc: '【地雷】\n在己方空地部署地雷，敌方单位经过时触发造成伤害' },
+        poison: { id: 'poison', name: '投毒', icon: '☣️', targeting: 'anyUnit', balance: { ticks: 3, damageMaxHpPct: 0.15 } },
         commanderDeploy: { id: 'commanderDeploy', name: '部署将领', icon: EMOJI.cards.commanderDeploy, targeting: 'friendlyAny', desc: '【部署将领】\n将所选将领挂载到指定己方单位上' }
     };
     cards.heal.desc = `【疗愈】\n对指定单位释放，立即恢复其${percent(cards.heal.balance.healMaxHpPct)}最大生命值`;
@@ -31,6 +32,7 @@ export const TACTICAL_CARD_DATA = (() => {
     cards.scout.desc = `【侦察】\n对指定位置释放，揭示目标及其周围6格区域的战争迷雾，持续${cards.scout.balance.duration}回合`;
     cards.airstrike.desc = `【空袭】\n对指定敌方目标及周边6格造成${rangeText(cards.airstrike.balance.minDamage, cards.airstrike.balance.maxDamage)}范围伤害，命中城市时其${cards.airstrike.balance.cityDisableRounds}回合内无法产出资源或招募部队`;
     cards.shield.desc = `【护盾】\n对指定目标释放，使其获得${cards.shield.balance.shield}点护盾值，持续${cards.shield.balance.duration}回合`;
+    cards.poison.desc = `【投毒】\n使任意可见单位中毒；在其所属阵营回合开始流失${percent(cards.poison.balance.damageMaxHpPct)}最大生命，持续${cards.poison.balance.ticks}次并会传播至相邻单位`;
     return deepFreeze(cards);
 })();
 
@@ -69,7 +71,7 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
             const healAmt = Math.round(unit.maxHp * TACTICAL_CARD_DATA.heal.balance.healMaxHpPct);
             const oldHp = unit.hp;
             const maxHeal = Math.min(unit.maxHp - oldHp, healAmt);
-            return { healAmt: maxHeal, targetTile };
+            return { healAmt: maxHeal, purifiedPoison: !!unit._poison, targetTile };
         }
     },
     lightning: {
@@ -182,7 +184,22 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
         execute(targetTile, gameState, helpers) {
             targetTile._minePlanted = true;
             targetTile._mineCampKey = helpers.getMyCamp ? campToKey(helpers.getMyCamp()) : 'player1';
-            return { landmine: true, tileQ: targetTile.q, tileR: targetTile.r };
+            targetTile._mineType = targetTile.surface === 'water' ? 'water' : 'land';
+            return { landmine: true, mineType: targetTile._mineType, tileQ: targetTile.q, tileR: targetTile.r };
+        }
+    },
+    poison: {
+        ...TACTICAL_CARD_DATA.poison,
+        execute(targetTile, gameState, helpers) {
+            const target = targetTile.unit;
+            if (!target || target._poison) return { poisoned: false, targetTile };
+            target._poison = {
+                remainingTicks: TACTICAL_CARD_DATA.poison.balance.ticks,
+                sourceCampKey: helpers.getMyCamp ? campToKey(helpers.getMyCamp()) : null,
+                infectedAtTurnCounter: gameState.turnCounter,
+                lastResolvedTurnCounter: null
+            };
+            return { poisoned: true, targetTile };
         }
     },
     commanderDeploy: {

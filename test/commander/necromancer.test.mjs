@@ -5,6 +5,7 @@ export async function run(browser) {
     const page = await newTestPage(browser);
     const R = await page.evaluate(async () => {
         const cmdr = (await import('/commander/necromancer.js')).default;
+        const { CAMP } = await import('/js/config.js');
         const R = { passed: 0, failed: 0, logs: [] };
         const assert = (cond, msg) => { if (cond) R.passed++; else R.failed++; R.logs.push((cond ? "✓" : "✗") + " " + msg); };
         class TestUnit {
@@ -32,7 +33,7 @@ export async function run(browser) {
                 const victim = {
                     hp: 100,
                     maxHp: 200,
-                    camp: { name: '蓝军' },
+                    camp: CAMP.player2,
                     config: { name: '步' },
                     lastDamage: 0,
                     applyDamage(d) {
@@ -43,9 +44,9 @@ export async function run(browser) {
                 };
                 gs.tileMap.set('3,3', { q: 3, r: 3, x: 400, y: 300, unit: victim });
                 const log = [];
-                const u = { commander: 'necromancer', camp: { name: '红军' }, hp: 100, tile: { x: 300, y: 200 } };
+                const u = { commander: 'necromancer', camp: CAMP.player1, hp: 100, tile: { x: 300, y: 200 } };
                 gs.tiles.push({ q: 0, r: 0, x: 300, y: 200, unit: u });
-                cmdr.onTurnStart(gs, { name: '红军' }, {
+                cmdr.onTurnStart(gs, CAMP.player1, {
                     findCommanderUnit: (camp, id) => u,
                     logMessage: m => log.push(m),
                     spawnFx: () => {},
@@ -104,7 +105,7 @@ export async function run(browser) {
                     hp: 30,
                     maxHp: 200,
                     _rank: 2,
-                    camp: { name: '蓝军' },
+                    camp: CAMP.player2,
                     config: { name: '骑' },
                     lastDamage: 0,
                     lastAttacker: null,
@@ -118,7 +119,7 @@ export async function run(browser) {
                 gs.tileMap.set('6,6', { q: 6, r: 6, x: 500, y: 360, unit: victim });
                 const u = {
                     commander: 'necromancer',
-                    camp: { name: '红军' },
+                    camp: CAMP.player1,
                     config: { name: '步' },
                     hp: 100,
                     morale: 2,
@@ -130,7 +131,7 @@ export async function run(browser) {
                 gs.tiles.push({ q: 2, r: 2, x: 300, y: 200, unit: u });
                 let moraleFx = 0;
                 let onKillCalled = false;
-                cmdr.onTurnStart(gs, { name: '红军' }, {
+                cmdr.onTurnStart(gs, CAMP.player1, {
                     findCommanderUnit: (camp, id) => u,
                     logMessage: () => {},
                     spawnFx: () => {},

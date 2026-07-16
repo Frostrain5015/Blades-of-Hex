@@ -472,7 +472,7 @@ export function planActions(gameState, helpers, myCamp) {
         } else if (cardId === 'heal') {
             // 疗愈：优先残血指挥官
             const healable = allUnits
-                .filter(u => u.hp < u.maxHp * 0.4)
+                .filter(u => u._poison || u.hp < u.maxHp * 0.4)
                 .sort((a, b) => {
                     const aCmd = a.commander ? 100 : 0;
                     const bCmd = b.commander ? 100 : 0;
@@ -480,6 +480,27 @@ export function planActions(gameState, helpers, myCamp) {
                 });
             if (healable.length > 0) {
                 actions.push({ type: 'tacticalCard', cardId: 'heal', targetId: healable[0].id });
+                cardUses++;
+            }
+        } else if (cardId === 'poison') {
+            let best = null, bestScore = -Infinity;
+            for (const tile of gameState.tiles) {
+                const target = tile.unit;
+                if (!target || target._poison || target.camp === myCamp) continue;
+                const adjacentEnemies = HEX_NEIGHBORS.reduce((count, [dq, dr]) => {
+                    const neighbor = tileMap.get(`${tile.q + dq},${tile.r + dr}`)?.unit;
+                    return count + (neighbor && neighbor.camp !== myCamp ? 1 : 0);
+                }, 0);
+                const adjacentFriendlies = HEX_NEIGHBORS.reduce((count, [dq, dr]) => {
+                    const neighbor = tileMap.get(`${tile.q + dq},${tile.r + dr}`)?.unit;
+                    return count + (neighbor && neighbor.camp === myCamp ? 1 : 0);
+                }, 0);
+                const score = target.maxHp * 0.45 + adjacentEnemies * 45 - adjacentFriendlies * 65
+                    + (target.commander ? 70 : 0);
+                if (score > bestScore) { best = target; bestScore = score; }
+            }
+            if (best && bestScore > 45) {
+                actions.push({ type: 'tacticalCard', cardId: 'poison', targetId: best.id });
                 cardUses++;
             }
         } else if (cardId === 'imprison') {

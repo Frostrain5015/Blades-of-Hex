@@ -96,20 +96,14 @@ export async function run(browser) {
             assert(scaffold.hp === 150, '碉堡继承脚手架剩余HP');
             assert(scaffold.canAct === false, '新碉堡本回合不可行动');
             assert(!unit._engineerConstruction, '完工后清除工程师施工状态');
-            assert(unit._engineerBunkerCD === engineer.ENGINEER_BUNKER_CD_TURNS, '建成后进入建造冷却');
+            assert(unit._engineerBunkerCD === 0, '工程师碉堡立即完工且不再进入旧建造冷却');
 
-            // 冷却期内不能再建
+            // 工程师的竞争力来自折扣和立即完工，不再使用旧独占冷却。
             const target2 = { q: 0, r: 1, isCity: false, isVillage: false, unit: null };
             gameState.tiles.push(target2); gameState.tileMap.set('0,1', target2);
-            const cdBlocked = engineer.beginEngineerBunkerConstruction(unit, target2, { gameState, logMessage, Unit: StubUnit });
-            assert(!cdBlocked.ok, '冷却期内不能再次建造碉堡');
-            // 冷却递减到 0 后可再建
-            engineer.completeEngineerBunkerConstructions(gameState, CAMP.player1, { Unit: StubUnit, logMessage });
-            engineer.completeEngineerBunkerConstructions(gameState, CAMP.player1, { Unit: StubUnit, logMessage });
-            assert(unit._engineerBunkerCD === 0, '冷却递减到0');
             unit.canAct = true; unit.remainingMP = 5;
             const rebuildOk = engineer.beginEngineerBunkerConstruction(unit, target2, { gameState, logMessage, Unit: StubUnit });
-            assert(rebuildOk.ok, '冷却结束后可再次建造');
+            assert(rebuildOk.ok, '后续回合可以再次建造');
         } catch (error) {
             assert(false, '碉堡异常: ' + error.message);
         }

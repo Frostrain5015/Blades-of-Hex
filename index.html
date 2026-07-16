@@ -424,11 +424,6 @@
                         <span class="unit-type">潜艇</span>
                         <span class="unit-cost"><small>$</small>12</span>
                     </button>
-                    <button class="recruit-btn btn" id="recruitShoreBattery" style="display: none" title="岸防炮（快捷键 7）">
-                        <span class="unit-glyph">🏯</span>
-                        <span class="unit-type">岸防炮</span>
-                        <span class="unit-cost"><small>$</small>10</span>
-                    </button>
                 </div>
             </div>
 
@@ -485,32 +480,13 @@
 <!-- 查看完整棋局时的返回按钮 -->
 <button id="backToVictoryBtn" class="back-to-victory-btn" style="display:none">返回结算</button>
 
-<!-- E1 占星者星移天气选择 -->
-<div id="weatherChoiceOverlay">
+<!-- 通用战场选择弹窗：占星者天气 / 兵种专精共用 -->
+<div id="weatherChoiceOverlay" aria-hidden="true">
     <div class="weather-choice-panel">
-        <div class="weather-choice-header">🔮 星移 · 选择天气</div>
-        <div class="weather-choice-grid">
-            <button class="weather-card" data-weather="clear">
-                <span class="wc-icon">☀️</span>
-                <span class="wc-name">晴</span>
-                <span class="wc-desc">无特殊效果</span>
-            </button>
-            <button class="weather-card" data-weather="rain">
-                <span class="wc-icon">🌧️</span>
-                <span class="wc-name">雨</span>
-                <span class="wc-desc">骑兵减速 · 步兵城防</span>
-            </button>
-            <button class="weather-card" data-weather="fog">
-                <span class="wc-icon">🌫️</span>
-                <span class="wc-name">雾</span>
-                <span class="wc-desc">火炮受限 · 骑兵冲锋</span>
-            </button>
-            <button class="weather-card" data-weather="wind">
-                <span class="wc-icon">💨</span>
-                <span class="wc-name">风</span>
-                <span class="wc-desc">炮击强化 · 步兵脆弱</span>
-            </button>
-        </div>
+        <div id="choiceModalHeader" class="weather-choice-header"></div>
+        <div id="choiceModalSubtitle" class="choice-modal-subtitle"></div>
+        <div id="choiceModalGrid" class="weather-choice-grid"></div>
+        <button id="choiceModalCancel" class="choice-modal-cancel" type="button">暂不选择</button>
     </div>
 </div>
 

@@ -4,7 +4,9 @@
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit, reinforceUnit,
-    executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction, recalcAllFlankingMorale, drawCard
+    executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
+    executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
+    recalcAllFlankingMorale, drawCard
 } from './gameLogic.js';
 import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
 import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
@@ -20,6 +22,9 @@ import { campToKey } from '../rules/camps.js';
 import { prioritizeNavalRecruitment } from '../rules/aiRecruitment.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { canRecruitTypeAtSelectedSite } from './recruitmentUi.js';
+import { chooseDefaultSpecialization } from '../rules/units.js';
+import { canBuildFieldFortification, canFieldRepair, isOrdinaryGroundBuilder } from '../rules/construction.js';
+import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange } from '../rules/airCommands.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -44,6 +49,77 @@ function resolveUnit(id) {
 
 function resolveTile(q, r) {
     return gameState.tileMap.get(`${q},${r}`);
+}
+
+async function runV2Infrastructure(aiCamp) {
+    const campKey = campToKey(aiCamp);
+    for (const tile of gameState.tiles) {
+        const unit = tile.unit;
+        if (!unit || unit.camp !== aiCamp || !unit.pendingSpecialization) continue;
+        const choice = chooseDefaultSpecialization(unit, gameState);
+        if (choice && unit.chooseSpecialization(choice)) {
+            logMessage(`${aiCamp.name}${unit.config.name}选择了专精`);
+        }
+    }
+
+    const engineer = gameState.tiles.find(tile => tile.unit?.camp === aiCamp
+        && tile.unit.commander === 'engineer' && tile.unit.canAct)?.unit;
+    if (engineer) {
+        const repairTarget = gameState.tiles
+            .map(tile => tile.unit)
+            .find(unit => unit && canFieldRepair(engineer, unit, gameState));
+        if (repairTarget && (gameState.playerGold[campKey] || 0) >= 3) {
+            executeFieldRepair(engineer, repairTarget);
+            await delay(AI_DELAY * 0.4);
+        }
+    }
+
+    for (const city of gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp && tile.installation?.status === 'ready')) {
+        const enemies = gameState.tiles.filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
+            && hexDistance(city, tile) <= getAirCommandRange(city)
+            && (!gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState)));
+        const bombing = getAirCommandAvailability('bombing', city, gameState);
+        let bombingTarget = null;
+        let bombingScore = 0;
+        for (const tile of gameState.tiles) {
+            if (hexDistance(city, tile) > getAirCommandRange(city)) continue;
+            const score = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr)).filter(Boolean)]
+                .filter(candidate => candidate.unit && isHostile(gameState, aiCamp, candidate.unit.camp)).length
+                + (tile.isCity && tile.camp !== aiCamp ? 1 : 0);
+            if (score > bombingScore) { bombingScore = score; bombingTarget = tile; }
+        }
+        if (bombing.available && bombingTarget && bombingScore >= 3) {
+            executeAirCommand('bombing', city, bombingTarget);
+            await delay(AI_DELAY * 0.5);
+            continue;
+        }
+        const strafe = getAirCommandAvailability('strafe', city, gameState);
+        if (strafe.available && enemies.length) {
+            enemies.sort((a, b) => (a.unit.hp / a.unit.maxHp) - (b.unit.hp / b.unit.maxHp));
+            executeAirCommand('strafe', city, enemies[0]);
+            await delay(AI_DELAY * 0.5);
+            continue;
+        }
+        const recon = getAirCommandAvailability('recon', city, gameState);
+        if (recon.available) {
+            const unexplored = gameState.tiles.find(tile => hexDistance(city, tile) <= getAirCommandRange(city)
+                && !gameState.exploredTiles?.[campKey]?.has?.(`${tile.q},${tile.r}`));
+            if (unexplored) executeAirCommand('recon', city, unexplored);
+        }
+    }
+
+    const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
+    if (ownedCities.length && !ownedCities.some(tile => tile.installation)) {
+        const candidate = ownedCities.find(tile => !tile.installation);
+        if (candidate && (gameState.playerGold[campKey] || 0) >= 10) executeAirfieldConstruction(candidate);
+    }
+
+    const hostileAir = gameState.tiles.some(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
+        && (tile.unit.type === 'carrier' || tile.unit._isDrone));
+    const builder = gameState.tiles.map(tile => tile.unit).find(unit => unit?.camp === aiCamp
+        && unit.canAct && !unit.isNewRecruit && isOrdinaryGroundBuilder(unit)
+        && canBuildFieldFortification(unit, hostileAir ? 'flak' : 'trench', gameState));
+    if (builder) executeFieldConstruction(builder, hostileAir ? 'flak' : 'trench');
 }
 
 function planEngineerAction(aiCamp) {
@@ -340,8 +416,9 @@ async function _executeActionInner(action, aiCamp) {
             break;
         }
         case 'tacticalCard': {
-            const target = resolveUnit(action.targetId);
-            if (!target || !target.tile) return;
+            const targetUnit = resolveUnit(action.targetId);
+            const targetTile = targetUnit?.tile || gameState.tiles.find(tile => tile.id === action.targetId);
+            if (!targetTile) return;
             const cardId = action.cardId;
             if (!cardId) return;
             const hand = gameState.playerHands[campKey] || [];
@@ -349,7 +426,7 @@ async function _executeActionInner(action, aiCamp) {
             if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn) return;
             gameState.currentCamp = aiCamp;
             try {
-                executeTacticalCard(cardId, target.tile);
+                executeTacticalCard(cardId, targetTile);
             } finally {
                 gameState.currentCamp = aiCamp;
             }
@@ -372,10 +449,10 @@ export async function processNeutralTurn() {
     if (gameState.skirmishFog) updateFogOfWar(gameState, aiCamp);
     try {
 
+        await runV2Infrastructure(aiCamp);
+
         const helpers = makeHelpers(aiCamp);
         const actions = claudePersonality.planActions(gameState, helpers);
-        const engineerAction = planEngineerAction(aiCamp);
-        if (engineerAction) actions.unshift(engineerAction);
 
         // 回合首次行动前延迟 2s
         if (actions.length > 0) { await delay(AI_DELAY); }
@@ -428,12 +505,12 @@ export async function processOpponentTurn(aiCamp) {
     }
     try {
 
+        await runV2Infrastructure(aiCamp);
+
         if (gameState.doubleCommanderMode) await deployAvailableCommanders(aiCamp);
 
         const helpers = makeHelpers(aiCamp);
         const actions = grokPersonality.planActions(gameState, helpers, aiCamp);
-        const engineerAction = planEngineerAction(aiCamp);
-        if (engineerAction) actions.unshift(engineerAction);
 
         // 回合首次行动前延迟 2s
         if (actions.length > 0) { await delay(AI_DELAY); }

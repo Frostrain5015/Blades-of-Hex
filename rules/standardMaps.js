@@ -43,6 +43,10 @@ const TWO_PLAYER_ISLAND = {
             { q: 0, r: 2, districtId: 5 }, { q: 0, r: -2, districtId: 5 }
         ],
         fortifications: [],
+        installations: [
+            { q: -5, r: 0, type: 'airfield', camp: 'player1' },
+            { q: 5, r: 0, type: 'airfield', camp: 'player2' }
+        ],
         districts: [],
         ports: [
             { q: -6, r: 0, districtId: 1, landQ: -5, landR: 0 }, { q: 6, r: 0, districtId: 2, landQ: 5, landR: 0 },
@@ -94,6 +98,11 @@ const THREE_PLAYER_ISLAND = {
             { q: 3, r: 0, districtId: 6 }, { q: 3, r: -3, districtId: 7 }
         ],
         fortifications: [],
+        installations: [
+            { q: -5, r: 0, type: 'airfield', camp: 'player1' },
+            { q: -5, r: 5, type: 'airfield', camp: 'player2' },
+            { q: 5, r: 0, type: 'airfield', camp: 'player3' }
+        ],
         districts: [],
         ports: [
             { q: -6, r: 0, districtId: 1, landQ: -5, landR: 0 }, { q: 0, r: -6, districtId: 2, landQ: 0, landR: -5 },

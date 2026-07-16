@@ -171,6 +171,28 @@ function drawCampaignObjectiveHighlights(now) {
     }
 }
 
+function drawOwnedMineMarkers(now) {
+    const viewerKey = campToKey(getViewingCamp());
+    const omniscient = gameState.omniscientView === true;
+    for (const tile of gameState.tiles) {
+        if (!tile._minePlanted || (!omniscient && tile._mineCampKey !== viewerKey)) continue;
+        const water = tile._mineType === 'water';
+        const pulse = 0.72 + Math.sin(now / 420 + tile.q * 0.7 + tile.r) * 0.16;
+        ctx.save();
+        ctx.translate(tile.x + 11, tile.y + 11);
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = water ? 'rgba(80,190,210,0.92)' : 'rgba(226,180,72,0.92)';
+        ctx.strokeStyle = 'rgba(15,24,26,0.86)';
+        ctx.lineWidth = 1.3;
+        ctx.beginPath(); ctx.arc(0, 0, 5.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#102126';
+        ctx.font = 'bold 8px "Segoe UI Symbol", sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(water ? '≈' : '×', 0, 0.3);
+        ctx.restore();
+    }
+}
+
 // Shared terrain-material pass: tile bases, ground, waterways, relief and
 // deferred details in the canonical order. Draws into any 2D context so the
 // Pixi terrain snapshot is produced by exactly the same code as direct
@@ -330,6 +352,15 @@ export function renderGame() {
         // City disabled indicator (same layer as Iron Guard shield)
         for (let i = 0, len = tiles.length; i < len; i++) {
             const tile = tiles[i];
+            if (tile.isCity && (tile._cityFireStacks || 0) > 0) {
+                const flamePulse = (Math.sin(now / 180 + tile.q) + 1) / 2;
+                ctx.save();
+                ctx.font = `${18 + flamePulse * 3}px "Segoe UI Emoji", sans-serif`;
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.globalAlpha = 0.78 + flamePulse * 0.2;
+                ctx.fillText('🔥', tile.x + 12, tile.y - 17);
+                ctx.restore();
+            }
             if (!tile.isCity || !tile._cityDisabledUntil || tile._cityDisabledUntil <= getRoundIndex(gameState)) continue;
             const pulse = (Math.sin(now / 400) + 1) / 2;
             ctx.save();
@@ -750,6 +781,8 @@ export function renderGame() {
     // 任务信标是作者主动公开的导航信息：覆在战争迷雾之上，但只画光圈，
     // 不穿透显示目标格内的地形或单位。
     drawCampaignObjectiveHighlights(now);
+    // 己方布雷信息属于私有战术标记：覆在迷雾之上，但只向所属阵营或显式全知视角显示。
+    drawOwnedMineMarkers(now);
 
     ctx.restore();
 
@@ -1461,6 +1494,19 @@ function drawUnitHexAuras(now) {
             ctx.strokeStyle = `rgba(255,136,68,${0.4 + pulse * 0.4})`;
             ctx.lineWidth = 3;
             hexPath(ctx, vx, vy, HEX_SIZE + 4);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+
+        if (u._poison) {
+            ctx.save();
+            const pulse = (Math.sin(now / 360) + 1) / 2;
+            ctx.strokeStyle = `rgba(135,196,66,${0.28 + pulse * 0.24})`;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([3, 5]);
+            ctx.lineDashOffset = -now / 90;
+            hexPath(ctx, vx, vy, HEX_SIZE + 1);
             ctx.stroke();
             ctx.restore();
         }

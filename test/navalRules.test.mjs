@@ -42,7 +42,7 @@ test('cross-domain damage bonuses share the additive damage-up bucket', () => {
     const transport = { type: 'infantry', tile: sea, isEmbarked: true };
 
     assert.equal(getCrossDomainDamageBonus(destroyer, infantry), -0.5);
-    assert.equal(getCrossDomainDamageBonus(cruiser, infantry), 0);
+    assert.equal(getCrossDomainDamageBonus(cruiser, infantry), -0.5);
     assert.equal(getCrossDomainDamageBonus(infantry, destroyer), -0.5);
     assert.equal(getCrossDomainDamageBonus(battery, destroyer), 0.3);
     assert.equal(getCrossDomainDamageBonus(battery, transport), 0.3);
@@ -52,18 +52,23 @@ test('cross-domain damage bonuses share the additive damage-up bucket', () => {
 test('submarines stay visible but cannot be primary targets until exposed or detected', () => {
     const subTile = tile(0, 0, 'deepWater');
     const attackerTile = tile(3, 0, 'deepWater');
-    const sub = { id: 9, type: 'submarine', camp: p2, tile: subTile, hp: 100 };
+    const sub = { id: 9, type: 'submarine', camp: p2, tile: subTile, hp: 100, _rank: 0 };
     const attacker = { type: 'warship', camp: p1, tile: attackerTile, hp: 200 };
     subTile.unit = sub;
     attackerTile.unit = attacker;
     const match = state([subTile, attackerTile]);
 
+    assert.equal(isSubmarineTargetableBy(sub, p1, match), true);
+    assert.equal(canUnitTargetUnit(attacker, sub, match), true);
+    sub._rank = 1;
     assert.equal(isSubmarineTargetableBy(sub, p1, match), false);
     assert.equal(canUnitTargetUnit(attacker, sub, match), false);
     sub._submarineAttackExposed = true;
     assert.equal(canUnitTargetUnit(attacker, sub, match), true);
     sub._submarineAttackExposed = false;
     attacker.type = 'destroyer';
+    attacker.specializationKey = 'antiSubDestroyer';
+    attacker.getSpecializationAbility = key => key === 'submarineDetectionRadius' ? 2 : null;
     attackerTile.q = 2;
     attackerTile.s = -2;
     match.tileMap = new Map(match.tiles.map(value => [`${value.q},${value.r}`, value]));

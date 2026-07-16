@@ -26,7 +26,7 @@ import {
 
 const SQRT3 = Math.sqrt(3);
 const COORDINATE_LISTS = Object.freeze([
-    'cities', 'surface', 'terrain', 'villages', 'fortifications', 'districts', 'ports'
+    'cities', 'surface', 'terrain', 'villages', 'fortifications', 'installations', 'districts', 'ports'
 ]);
 
 function asArray(value) { return Array.isArray(value) ? value : []; }
@@ -241,7 +241,7 @@ export function applySurfaceBrush(level, q, r, kind) {
 
     let removed = 0;
     if (isWaterSurface(kind)) {
-        for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'districts']) {
+        for (const key of ['cities', 'terrain', 'villages', 'fortifications', 'installations', 'districts']) {
             const result = removeCoordinate(board[key], q, r);
             board[key] = result.next;
             removed += result.removed;
@@ -463,7 +463,7 @@ export function pruneLevelToBoard(level) {
     let removed = 0;
     let remappedCrossings = 0;
 
-    for (const key of ['cities', 'surface', 'terrain', 'villages', 'fortifications', 'districts', 'ports']) {
+    for (const key of ['cities', 'surface', 'terrain', 'villages', 'fortifications', 'installations', 'districts', 'ports']) {
         const before = board[key].length;
         board[key] = board[key].filter(inside);
         removed += before - board[key].length;

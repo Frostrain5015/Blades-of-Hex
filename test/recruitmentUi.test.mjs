@@ -55,7 +55,7 @@ test('land recruitment remains available at ordinary own empty cities', () => {
     assert.equal(shouldShowRecruitmentOption(RECRUITMENT_OPTIONS[0], city({ isCity: false, isVillage: true }), state), false);
 });
 
-test('one generic interface switches its options by city, port and empty coast', () => {
+test('recruitment interface only exposes units at cities and ports; coastal defense uses construction', () => {
     const ordinaryCity = city();
     const port = city({ q: 1, surface: 'shallowWater', isCity: false, isPort: true });
     const coast = city({ q: 2, isCity: false });
@@ -70,10 +70,11 @@ test('one generic interface switches its options by city, port and empty coast',
 
     assert.equal(getRecruitmentSiteKind(ordinaryCity, siteState), 'city');
     assert.equal(getRecruitmentSiteKind(port, siteState), 'port');
-    assert.equal(getRecruitmentSiteKind(coast, siteState), 'coast');
+    assert.equal(getRecruitmentSiteKind(coast, siteState), null);
     assert.deepEqual(getRecruitmentOptionsForTile(ordinaryCity, siteState).map(option => option.type), ['infantry', 'cavalry', 'archer']);
     assert.deepEqual(getRecruitmentOptionsForTile(port, siteState).map(option => option.type), ['destroyer', 'warship', 'submarine']);
-    assert.deepEqual(getRecruitmentOptionsForTile(coast, siteState).map(option => option.type), ['shoreBattery']);
-    assert.equal(canRecruitTypeAtSelectedSite('shoreBattery', coast, siteState), true);
+    assert.equal(canRecruitTypeAtSelectedSite('carrier', port, siteState), false);
+    assert.deepEqual(getRecruitmentOptionsForTile(coast, siteState), []);
+    assert.equal(canRecruitTypeAtSelectedSite('shoreBattery', coast, siteState), false);
     assert.equal(canRecruitTypeAtSelectedSite('infantry', coast, siteState), false);
 });

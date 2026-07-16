@@ -1,5 +1,14 @@
 import { CAMP, campToKey } from '../rules/camps.js';
-import { UNIT_CONFIG, COUNTER_RELATION } from '../rules/units.js';
+import {
+    UNIT_CONFIG,
+    COUNTER_RELATION,
+    chooseDefaultSpecialization,
+    getSpecializationAbilityValue,
+    isRankLockedUnit,
+    isValidSpecialization,
+    resolveUnitRankProfile,
+    unitNeedsSpecialization
+} from '../rules/units.js';
 import { MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG } from '../rules/terrain.js';
 import { hexDistance, HEX_NEIGHBORS } from '../rules/hex.js';
 import { getRoundIndex } from '../rules/turns.js';
@@ -12,7 +21,15 @@ import { FRONTEND_TEXT } from '../rules/uiText.js';
 import { isFriendly, isHostile } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { isRangedAttackPresentation } from '../rules/attackPresentation.js';
-import { getAntiAirLayers } from '../rules/antiAir.js';
+import { getAntiAirReduction } from '../rules/antiAir.js';
+import {
+    COLONEL_AIR_DAMAGE_BONUS,
+    COLONEL_AIR_MAX_STACKS,
+    COLONEL_AIR_RANGE_BONUS,
+    COLONEL_AIR_STACK_BONUS,
+    COLONEL_ANTI_AIR_PIERCE,
+    getMountedCommanderAirAttackBonus
+} from '../rules/airCommands.js';
 import { areCommanderMechanicsSuppressed, canUnitOccupyTile, getTransportBaseDefense, getUnitCombatRange, getUnitMovementDomain, isEmbarkableLandUnit, TRANSPORT_RULES, TRANSPORT_SPEED_CAP } from '../rules/movement.js';
 import { isWaterTile } from '../rules/surfaces.js';
 import { canUnitTargetUnit, getCrossDomainDamageBonus } from '../rules/naval.js';
@@ -26,7 +43,7 @@ export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setGameStateRef(ref) { _gameState = ref; }
 
 export class Unit {
-    constructor(type, camp, tile, isNewRecruit = false, idOverride = null, commander = null, transportState = null) {
+    constructor(type, camp, tile, isNewRecruit = false, idOverride = null, commander = null, transportState = null, specializationKey = null) {
         this.id = idOverride ?? nextId();
         this.type = type;
         this.config = UNIT_CONFIG[type];
@@ -67,6 +84,15 @@ export class Unit {
         this.godMode = false;
         this._xp = 0;
         this._rank = 0;
+        this.specializationKey = null;
+        this._pendingSpecialization = false;
+        this._rankLocked = isRankLockedUnit(type);
+        this._rankPanelHpBonus = 0;
+        this._rankPanelAttackBonus = 0;
+        this._rankPanelDefenseBonus = 0;
+        this._rankPanelSpeedBonus = 0;
+        this._rankPanelRangeBonus = 0;
+        // 旧字段暂留为只读兼容槽；v2 的防御全部由面板差值派生。
         this._rankDefBonus = 0;
         this._rankCritBonus = 0;
         this._rankRegenPct = 0;
@@ -85,6 +111,7 @@ export class Unit {
         this._shield = 0;
         this._shieldMax = 0;
         this._shieldTurns = 0;
+        this._poison = null;
         this._displayShield = 0;
         this.remainingMP = this.config.speed + spdBonus;
         this.displaySpeed = this.config.speed + spdBonus;
@@ -95,6 +122,7 @@ export class Unit {
         // HP 显示平滑过渡
         this.displayHp = this.hp;
         tile.unit = this;
+        if (specializationKey) this._setRestoredSpecialization(specializationKey);
     }
 
     get morale() { return this._morale; }
@@ -229,6 +257,79 @@ export class Unit {
         return this.commanderPortrait || this.commander || null;
     }
 
+    get pendingSpecialization() {
+        return unitNeedsSpecialization(this);
+    }
+
+    getSpecializationAbility(abilityKey) {
+        return getSpecializationAbilityValue(this, abilityKey);
+    }
+
+    _setRestoredSpecialization(specializationKey) {
+        this.specializationKey = this._rank >= 1 && isValidSpecialization(this.type, specializationKey)
+            ? specializationKey
+            : null;
+        this._rebuildRankProfile({ adjustResources: false });
+    }
+
+    /**
+     * 从基础兵种、当前军衔和专精重建派生面板。
+     * 这是晋升、战役预设和快照恢复共用的唯一入口，避免重复累计奖励。
+     */
+    _rebuildRankProfile({ adjustResources = true } = {}) {
+        const profile = resolveUnitRankProfile(this.type, this._rank, this.specializationKey);
+        if (!profile) return false;
+
+        const previousHpBonus = this._rankPanelHpBonus || 0;
+        const previousSpeed = this.getEffectiveSpeed();
+        this.specializationKey = profile.specializationKey;
+        this._pendingSpecialization = profile.pendingSpecialization;
+        this._rankPanelHpBonus = profile.hp - this.config.hp;
+        this._rankPanelAttackBonus = profile.attack - this.config.attack;
+        this._rankPanelDefenseBonus = profile.defense - (this.config.defense || 0);
+        this._rankPanelSpeedBonus = profile.speed - this.config.speed;
+        this._rankPanelRangeBonus = profile.range - this.config.range;
+        this._rankCritBonus = profile.rankCritBonus;
+        this._rankRegenPct = profile.rankRegenPct;
+        this._rankDefBonus = 0;
+        this._unbranchedRankReward = profile.unbranchedReward;
+
+        const hpDelta = this._rankPanelHpBonus - previousHpBonus;
+        if (hpDelta !== 0) {
+            if (this._campaignBaseMaxHp != null) {
+                this._campaignBaseMaxHp = Math.max(1, this._campaignBaseMaxHp + hpDelta);
+                this.refreshCampaignEffectState();
+            } else {
+                this.maxHp = Math.max(1, this.maxHp + hpDelta);
+            }
+            if (adjustResources && hpDelta > 0 && !(this.commander === 'martyr' && this._martyrPrimed)) {
+                this.hp = Math.min(this._campaignMaxHp || this.maxHp, this.maxHp, this.hp + hpDelta);
+            } else {
+                this.hp = Math.min(this.hp, this._campaignMaxHp || this.maxHp, this.maxHp);
+            }
+        }
+
+        const nextSpeed = this.getEffectiveSpeed();
+        if (adjustResources) this.remainingMP = Math.max(0, (this.remainingMP || 0) + nextSpeed - previousSpeed);
+        this.displaySpeed = nextSpeed;
+        this.displayHp = Math.min(this.displayHp ?? this.hp, this.maxHp);
+        return true;
+    }
+
+    chooseSpecialization(specializationKey) {
+        if (this._rankLocked || this._rank < 1 || this.specializationKey) return false;
+        if (!isValidSpecialization(this.type, specializationKey)) return false;
+        this.specializationKey = specializationKey;
+        this._rebuildRankProfile();
+        emit('match:unitSpecialized', {
+            unit: this,
+            unitId: this.id,
+            specializationKey,
+            rank: this._rank
+        });
+        return true;
+    }
+
     getCampaignEffectMods() {
         const total = {
             atkPct: 0, atkFlat: 0, defPct: 0, meleeDefPct: 0,
@@ -243,7 +344,7 @@ export class Unit {
 
     getEffectiveSpeed() {
         const commander = this.commander ? getCommander(this.commander) : null;
-        const speed = Math.max(0, this.config.speed + (commander?.spdBonus || 0) + this.getCampaignEffectMods().spdFlat);
+        const speed = Math.max(0, this.config.speed + (this._rankPanelSpeedBonus || 0) + (commander?.spdBonus || 0) + this.getCampaignEffectMods().spdFlat);
         return this.isEmbarked ? Math.min(TRANSPORT_SPEED_CAP, speed) : speed;
     }
 
@@ -320,6 +421,7 @@ export class Unit {
     }
 
     getEffectiveAttack() {
+        if (this.type === 'carrier') return this.config.attack + (this._rankPanelAttackBonus || 0);
         const auraAtk = getCommanderAuraAttackBonus(this);
         let base;
         if (this.isEmbarked && isEmbarkableLandUnit(this)) {
@@ -333,14 +435,17 @@ export class Unit {
             const nonCommanderFlat = (this._atkBonus || 0) - originalCommanderBonus;
             base = TRANSPORT_RULES.baseAttack * (1 + auraAtk) + transportCommanderBonus + nonCommanderFlat;
         } else {
-            base = this.config.attack * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this);
+            base = (this.config.attack + (this._rankPanelAttackBonus || 0)) * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this);
         }
         const mods = this.getCampaignEffectMods();
         return Math.round(base * (1 + mods.atkPct / 100) + mods.atkFlat);
     }
 
     getEffectiveRange() {
-        return getUnitCombatRange(this);
+        const base = getUnitCombatRange(this);
+        return this.type === 'carrier' && this.commander === 'colonel' && !areCommanderMechanicsSuppressed(this)
+            ? base + COLONEL_AIR_RANGE_BONUS
+            : base;
     }
 
     // 伤害浮动倍率（替代 critRate + critMulti 二值系统）
@@ -391,7 +496,8 @@ export class Unit {
     //   ③ 暴击/浮动：_calcFloat()，「暴击率提高/降低xx%」
     //   ④ 防御（层内加算后 1-Σ）：地形/守城/兵种/军衔/士气/将领/灵光，「防御力提高xx%」
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
-                   isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0, attackFlatBonus = 0) {
+                   isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0, attackFlatBonus = 0,
+                   forceNoCrit = false) {
         const counterCoeff = COUNTER_RELATION[attacker.type]?.[defender.type] ?? 1;
         const attackerCommanderSuppressed = areCommanderMechanicsSuppressed(attacker);
         const defenderCommanderSuppressed = areCommanderMechanicsSuppressed(defender);
@@ -399,6 +505,10 @@ export class Unit {
 
         // ② 增伤乘区
         let dmgUp = extraBonus + getCrossDomainDamageBonus(attacker, defender);
+        const firstHitReduction = defender.getSpecializationAbility?.('holdFirstHitReduction') || 0;
+        if (firstHitReduction > 0 && !defender.movedThisTurn && (defender._timesAttackedThisTurn || 0) === 0) {
+            dmgUp -= firstHitReduction;
+        }
         if (qixueActive) dmgUp += COMMANDER_CONFIG.berserker.balance.qixueDamageBonus;
         // 兵种克制：顺克 +20% / 逆克 −20%（归入②增伤乘区）；暴击率另在③处理（顺克+25%/逆克锁0）
         if (counterCoeff > 1) dmgUp += COMBAT_BALANCE.counter.advantageDamage;
@@ -420,7 +530,7 @@ export class Unit {
         const counterNoCrit = counterCoeff < 1;                        // 逆克 无法暴击
         const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit + (qixueActive ? COMMANDER_CONFIG.berserker.balance.qixueCritBonus : 0);
         const forceCrit = !counterNoCrit && isCommanderGuaranteedCrit(attacker);
-        const floatMult = attacker._calcFloat(isCounter, isCityCounter, critRateBonus, counterNoCrit, forceCrit);
+        const floatMult = attacker._calcFloat(isCounter, isCityCounter, critRateBonus, counterNoCrit || forceNoCrit, forceCrit && !forceNoCrit);
         const isCrit = floatMult > (isCounter ? COMBAT_BALANCE.float.counter.critThreshold : COMBAT_BALANCE.float.attack.critThreshold);
 
         // ④ 防御乘区
@@ -445,14 +555,12 @@ export class Unit {
             defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
             if (getCommanderWeatherDebuff(defender.tile, defender.camp, _gameState)) defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
         }
-        if (!transportedDefender && defender.type === 'infantry' && defender.tile.isCity) defSum += COMBAT_BALANCE.defense.cityInfantryBonus;
         // 雨天：步兵守城防御力额外+10%（占星者星光力场免疫）
         if (!transportedDefender && isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'rain' && defender.type === 'infantry' && defender.tile.isCity
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum += COMBAT_BALANCE.defense.rainCityInfantryBonus;
         }
-        if (!transportedDefender) defSum += (defender.config.defense || 0);
-        defSum += (defender._rankDefBonus || 0);
+        if (!transportedDefender) defSum += (defender.config.defense || 0) + (defender._rankPanelDefenseBonus || 0);
         if (isMechanicEnabled(_gameState, 'morale')) defSum += MORALE_CONFIG[defender.morale].defBonus;
         defSum += getCommanderDefenseBonus(defender);
         // 魔术师·千面：被克制目标攻击时受伤降低15%
@@ -473,16 +581,16 @@ export class Unit {
         }
         // 防空火力：2格内友军 炮兵/碉堡/停滞者单位 → 仅对空军(上校空军卡)伤害 +25%/层（封顶2层=50%）
         if (isAirDamage && _gameState && _gameState.tileMap) {
-            const aaCount = getAntiAirLayers(defender.tile, attacker.camp, _gameState.tileMap, {
+            const antiAirReduction = getAntiAirReduction(defender.tile, attacker.camp, _gameState.tileMap, {
                 state: _gameState
             });
-            if (aaCount > 0) defSum += aaCount * COMBAT_BALANCE.defense.antiairPerLayer;
+            if (antiAirReduction > 0) defSum += antiAirReduction;
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         defSum += defender.getCampaignDefenseBonus(attacker);
         // 空军上校俯冲扫射：无视目标防御力
         if (ignoreDef > 0) defSum -= ignoreDef;
-        const defenseMulti = Math.max(COMBAT_BALANCE.defense.minimumMultiplier, 1 - defSum);
+        const defenseMulti = Math.max(COMBAT_BALANCE.defense.minimumMultiplier, 1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, defSum));
 
         return {
             dmg: (attacker.getEffectiveAttack() + attackFlatBonus) * baseMulti * offenseMulti * floatMult * defenseMulti,
@@ -492,6 +600,49 @@ export class Unit {
 
     calculateDamage(targetUnit) {
         const gs = _gameState;
+
+        if (this.type === 'carrier') {
+            const colonelActive = this.commander === 'colonel' && !areCommanderMechanicsSuppressed(this);
+            const campKey = campToKey(this.camp);
+            const stacks = colonelActive
+                ? Math.min(COLONEL_AIR_MAX_STACKS, gs?._colonelAirStacks?.[campKey] || 0)
+                : 0;
+            const carrierRankBonus = this._rank >= 3 ? 0.30 : this._rank >= 1 ? 0.15 : 0;
+            const colonelBonus = colonelActive
+                ? COLONEL_AIR_DAMAGE_BONUS + stacks * COLONEL_AIR_STACK_BONUS
+                : 0;
+            const missingHpPower = Math.min(15, Math.floor(((targetUnit.maxHp - targetUnit.hp) / targetUnit.maxHp) * 20));
+            // 舰载机读取所挂将领自身的攻击修正，但不读取宿主舰体的其他单位属性修正。
+            const commanderAttackBonus = getMountedCommanderAirAttackBonus(this, this.config.attack);
+            const power = this.config.attack + (this._rankPanelAttackBonus || 0) + commanderAttackBonus + missingHpPower;
+            const floatMult = colonelActive || this._rank >= 4
+                ? this._calcFloat(false, false, this._rankCritBonus || 0)
+                : gs.rng.range(0.95, 1.05);
+            let defense = (TERRAIN_CONFIG[targetUnit.tile.terrain]?.defenseBonus || 0)
+                + (targetUnit.config.defense || 0)
+                + (targetUnit._rankPanelDefenseBonus || 0)
+                + (isMechanicEnabled(gs, 'morale') ? (MORALE_CONFIG[targetUnit.morale]?.defBonus || 0) : 0)
+                + getCommanderDefenseBonus(targetUnit)
+                + getCommanderAuraDefenseBonus(targetUnit)
+                + (targetUnit.getCampaignDefenseBonus?.(this) || 0);
+            let antiAir = getAntiAirReduction(targetUnit.tile, this.camp, gs.tileMap, { state: gs });
+            if (colonelActive) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
+            defense += antiAir;
+            const defenseMulti = Math.max(
+                COMBAT_BALANCE.defense.minimumMultiplier,
+                1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, defense)
+            );
+            const result = {
+                dmg: power * (1 + carrierRankBonus + colonelBonus) * floatMult * defenseMulti,
+                isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold,
+                antiAir
+            };
+            gs.damageTexts.push({
+                x: targetUnit.tile.x, y: targetUnit.tile.y, value: result.dmg, isCrit: result.isCrit,
+                isAirDamage: true, timeLeft: 900, lastUpdate: performance.now()
+            });
+            return result;
+        }
 
         // 无人机机枪射击：走标准四大乘区，空军伤害（受防空减免），克制关系由 COUNTER_RELATION.drone 决定
         if (this._isDrone) {
@@ -509,16 +660,43 @@ export class Unit {
 
         // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高10%（上限30%），雾天额外+5%/格
         // moveDistance 随回合重置，势能回合结束消失
-        const chargeRate = gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog'
-            ? COMBAT_BALANCE.cavalry.fogChargeDamagePerStep
-            : COMBAT_BALANCE.cavalry.normalChargeDamagePerStep;
-        const cavBonus = !this.isEmbarked && this.type === 'cavalry' ? Math.min(this.moveDistance, COMBAT_BALANCE.cavalry.maxChargeSteps) * chargeRate : 0;
-        const cityAtkBonus = (!this.isEmbarked && this.type === 'infantry' && this.tile.isCity) ? COMBAT_BALANCE.infantry.cityDamageBonus : 0;
+        const baseChargeRate = this.getSpecializationAbility('chargePerStep') || 0;
+        const fogChargeDelta = gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog' && baseChargeRate > 0
+            ? COMBAT_BALANCE.cavalry.fogChargeDamagePerStep - COMBAT_BALANCE.cavalry.normalChargeDamagePerStep
+            : 0;
+        const cavBonus = !this.isEmbarked && baseChargeRate > 0
+            ? Math.min(this.moveDistance, COMBAT_BALANCE.cavalry.maxChargeSteps) * (baseChargeRate + fogChargeDelta)
+            : 0;
+        const fortificationTarget = !!(targetUnit.config?.building || targetUnit.tile?.isCity || targetUnit.tile?.fortification);
+        const assaultBonus = fortificationTarget ? (this.getSpecializationAbility('fortificationDamage') || 0) : 0;
+        const antiSubBonus = targetUnit.type === 'submarine' ? (this.getSpecializationAbility('submarineDamage') || 0) : 0;
+        const fleetBonus = targetUnit.config?.movementDomain === 'naval' && !targetUnit.isEmbarked
+            ? (this.getSpecializationAbility('shipDamage') || 0) : 0;
+        const supportLandBonus = targetUnit.config?.movementDomain !== 'naval'
+            ? (this.getSpecializationAbility('landDamage') || 0) : 0;
+        const submergedBonus = this.type === 'submarine' && this._submarineChargedAttack
+            ? (this._rank >= 3 ? 0.40 : this._rank >= 1 ? 0.25 : 0) : 0;
         // 天气条件增伤：雾天骑兵+20%、风天炮兵+20%（归入②增伤乘区）
         const weatherBonus = (!this.isEmbarked && gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
             : 0;
 
-        const result = this._resolveDamage(this, targetUnit, 1, cavBonus + cityAtkBonus + weatherBonus, false, false, false, this.type === 'submarine' ? 0.10 : 0);
+        let ignoreDef = this.getSpecializationAbility('armorPierce') || 0;
+        if (ignoreDef > 0 && (this.tile.terrain === 'mountain' || (gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'wind'))) {
+            ignoreDef *= 2;
+        }
+        const targetIsRanged = targetUnit.type === 'archer' || targetUnit.type === 'mgNest' || targetUnit.type === 'drone' || targetUnit.type === 'carrier';
+        if (targetIsRanged) ignoreDef += this.getSpecializationAbility('rangedArmorPierce') || 0;
+        const result = this._resolveDamage(
+            this,
+            targetUnit,
+            1,
+            cavBonus + assaultBonus + antiSubBonus + fleetBonus + supportLandBonus + submergedBonus + weatherBonus,
+            false,
+            false,
+            false,
+            ignoreDef,
+            0
+        );
 
         gs.damageTexts.push({
             x: targetUnit.tile.x,
@@ -535,7 +713,9 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this._transportTransitionedThisTurn || this.counterAttackCount >= 1 || this._campaignNoCounter || (isMechanicEnabled(_gameState, 'morale') && this.morale === 0)) {
+        if (this.type === 'carrier' || attackerUnit?.type === 'carrier' || this.getSpecializationAbility('cannotAttack') === true
+            || this._transportTransitionedThisTurn || this.counterAttackCount >= 1 || this._campaignNoCounter
+            || (isMechanicEnabled(_gameState, 'morale') && this.morale === 0)) {
             return { dmg: 0, isCrit: false };
         }
         if (attackerUnit?.type === 'submarine' && this.type !== 'submarine') {
@@ -560,10 +740,9 @@ export class Unit {
             return { dmg: 0, isCrit: false };
         }
 
-        const isCityCounter = !this.isEmbarked && this.type === 'infantry' && this.tile.isCity;
-        const cityAtkBonus = isCityCounter ? COMBAT_BALANCE.infantry.cityDamageBonus : 0;
-
-        const result = this._resolveDamage(this, attackerUnit, COMBAT_BALANCE.float.counter.baseMultiplier, cityAtkBonus, true, isCityCounter, this._isDrone);
+        const result = this._resolveDamage(this, attackerUnit, COMBAT_BALANCE.float.counter.baseMultiplier, 0, true, false, this._isDrone);
+        const counterReduction = attackerUnit.getSpecializationAbility?.('counterDamageReduction') || 0;
+        if (counterReduction > 0) result.dmg *= 1 - counterReduction;
 
         if (this.hp > 0) {
             this.counterAttackCount++;
@@ -873,7 +1052,7 @@ export class Unit {
     }
 
     addXP(amount) {
-        if (this._rank >= 4 || amount <= 0) return;
+        if (this._rankLocked || this._rank >= 4 || amount <= 0) return;
         if (this.commander === 'centurion' && !areCommanderMechanicsSuppressed(this)) amount *= COMMANDER_CONFIG.centurion.balance.veteranXpMultiplier;
         this._xp += amount;
         this._checkRankUp();
@@ -882,38 +1061,29 @@ export class Unit {
     _checkRankUp() {
         const rankRules = COMBAT_BALANCE.rank;
         const thresholds = rankRules.xpThresholds;
+        const previousRank = this._rank;
         while (this._rank < thresholds.length && this._xp >= thresholds[this._rank]) {
             this._rank++;
-            this._applyRankBonus(this._rank);
-            // 晋升时恢复已损失生命值（殉道者倒计时中不回复）
-            if (!(this.commander === 'martyr' && this._martyrPrimed)) {
-                const lostHp = this.maxHp - this.hp;
-                if (lostHp > 0) {
-                    this.hp = Math.min(this.maxHp, this.hp + Math.round(lostHp * rankRules.rankUpHealLostPct));
-                }
-            }
             _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
             emit('fx:rankUp', { x: this.tile.x, y: this.tile.y, rank: this._rank });
         }
+        if (this._rank === previousRank) return;
+
+        this._rebuildRankProfile();
+        const campKey = campToKey(this.camp);
+        const controller = _gameState?.factions?.[campKey]?.controller;
+        if (this.pendingSpecialization && (controller === 'ai' || campKey === 'neutral')) {
+            const defaultSpecialization = chooseDefaultSpecialization(this, _gameState);
+            if (defaultSpecialization) this.chooseSpecialization(defaultSpecialization);
+        }
+        // 一次经验结算即使跨越多阶，也只按最终面板恢复一次已损失生命值。
+        if (!(this.commander === 'martyr' && this._martyrPrimed)) {
+            const lostHp = this.maxHp - this.hp;
+            if (lostHp > 0) this.heal(Math.round(lostHp * rankRules.rankUpHealLostPct));
+        }
     }
 
-    _applyRankBonus(rank) {
-        const rankRules = COMBAT_BALANCE.rank;
-        switch (rank) {
-            case 1: {
-                const previousMaxHp = this.maxHp;
-                if (this._campaignBaseMaxHp != null) {
-                    this._campaignBaseMaxHp += rankRules.hpBonusAtFirstRank;
-                    this.refreshCampaignEffectState();
-                } else this.maxHp += rankRules.hpBonusAtFirstRank;
-                if (!(this.commander === 'martyr' && this._martyrPrimed)) {
-                    this.hp = Math.min(this._campaignMaxHp || this.maxHp, this.maxHp, this.hp + this.maxHp - previousMaxHp);
-                }
-                break;
-            }
-            case 2: this._atkBonus += rankRules.atkBonusAtSecondRank; break;
-            case 3: this._rankDefBonus = rankRules.defBonusAtThirdRank; this._rankCritBonus = rankRules.critBonusAtThirdRank; break;
-            case 4: this._rankRegenPct = rankRules.regenPctAtFourthRank; break;
-        }
+    _applyRankBonus() {
+        return this._rebuildRankProfile();
     }
 }

@@ -2,7 +2,7 @@
 // 一个 level 配置（下称 config）是纯 JSON 可序列化对象：编辑器产出它，
 // scenarioFromConfig 把它包装成通用控制器认识的 scenario 接口来运行。
 // 枚举尽量从规则层派生，保证与游戏本体同步（单一数据源）。
-import { UNIT_CONFIG } from '../../rules/units.js';
+import { UNIT_CONFIG, getSpecializationOptions, isRankLockedUnit, isValidSpecialization } from '../../rules/units.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 import { TERRAIN_CONFIG, FORTIFICATION_CONFIG, WEATHER_CONFIG } from '../../rules/terrain.js';
 import { TACTICAL_CARD_CONFIG } from '../../rules/cards.js';
@@ -24,7 +24,7 @@ import {
 import { canUnitOccupyTile } from '../../rules/movement.js';
 import { NPC_DIALOGUE_PORTRAIT_IDS, NPC_DIALOGUE_PORTRAIT_LABELS } from '../portraits.js';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const RELATION_KEYS = Object.freeze(['ally', 'neutral', 'enemy']);
 export const OBJECTIVE_STATUS_KEYS = Object.freeze(['hidden', 'active', 'completed', 'failed']);
 export const VARIABLE_TYPES = Object.freeze(['number', 'boolean', 'string']);
@@ -188,6 +188,7 @@ export function createDefaultLevel() {
             terrain: [],            // [{ q, r, type }]  非 plains 的地块
             villages: [],           // [{ q, r, districtId }]
             fortifications: [],     // [{ q, r, type }]  trench/flak
+            installations: [],      // [{ q, r, type:'airfield', status? }]
             districts: [],          // [{ q, r, districtId }] 覆盖 Voronoi 归属，用于手绘不规则边界
             rivers: [],             // [{ id, width, points:[{q,r,vertex}] }]
             crossings: [],          // [{ riverId, segmentIndex, kind:'ford'|'bridge' }]
@@ -234,7 +235,7 @@ export function normalizeLevel(raw) {
     // 旧关卡缺字段时补经典布局；未知显式值原样保留，让编译器能够给出准确错误，
     // 运行时 mapBuilder 仍会安全降级到经典布局。
     merged.board.layout = raw.board?.layout == null ? BOARD_LAYOUT.HEX : raw.board.layout;
-    for (const key of ['cities', 'surface', 'terrain', 'villages', 'fortifications', 'districts', 'rivers', 'crossings', 'ports']) {
+    for (const key of ['cities', 'surface', 'terrain', 'villages', 'fortifications', 'installations', 'districts', 'rivers', 'crossings', 'ports']) {
         merged.board[key] = Array.isArray(merged.board[key]) ? merged.board[key] : [];
     }
     merged.units = Array.isArray(raw.units) ? raw.units : [];
@@ -509,6 +510,28 @@ export function validateLevel(config) {
         }
         if (isWaterAt(fortification.q, fortification.r)) errors.push(`水域地块 (${fortification.q},${fortification.r}) 不能放置工事。`);
     }
+    const cityCoordinates = new Set((c.board?.cities || []).map(city => `${city.q},${city.r}`));
+    const installationCoordinates = new Set();
+    for (const installation of (c.board?.installations || [])) {
+        const key = `${installation?.q},${installation?.r}`;
+        if (!cityCoordinates.has(key)) errors.push(`设施 (${key}) 必须放置在城市中心格。`);
+        if (installation?.type !== 'airfield') errors.push(`设施 (${key}) 使用了未知类型「${installation?.type}」。`);
+        if (installation?.status != null && !['ready', 'constructing'].includes(installation.status)) {
+            errors.push(`机场 (${key}) 使用了未知状态「${installation.status}」。`);
+        }
+        if (installation?.status === 'constructing'
+            && (!Number.isInteger(installation.constructionReadyRound) || installation.constructionReadyRound < 1)) {
+            errors.push(`施工中的机场 (${key}) 必须设置大于0的 constructionReadyRound。`);
+        }
+        for (const [command, readyRound] of Object.entries(installation?.airCommandReadyRound || {})) {
+            if (!['strafe', 'bombing', 'airdrop', 'recon'].includes(command)
+                || !Number.isInteger(readyRound) || readyRound < 0) {
+                errors.push(`机场 (${key}) 的初始空军冷却「${command}:${readyRound}」无效。`);
+            }
+        }
+        if (installationCoordinates.has(key)) errors.push(`城市 (${key}) 上存在多个设施。`);
+        installationCoordinates.add(key);
+    }
 
     const storyCommanderIds = new Set();
     for (const commander of (c.storyCommanders || [])) {
@@ -551,6 +574,16 @@ export function validateLevel(config) {
         else if (unitIds.has(u.id)) errors.push(`单位 id「${u.id}」重复。`);
         else unitIds.add(u.id);
         if (u.commander && !COMMANDER_IDS.includes(u.commander)) errors.push(`单位绑定了未知将领「${u.commander}」。`);
+        const rank = Number(u.rank || 0);
+        if (!Number.isInteger(rank) || rank < 0 || rank > 4) errors.push(`单位「${u.id || key}」的军衔必须是 0–4 的整数。`);
+        if (isRankLockedUnit(u.type) && rank !== 0) errors.push(`建筑单位「${u.id || key}」不能拥有军衔。`);
+        if (u.specializationKey && rank < 1) errors.push(`单位「${u.id || key}」在 0 阶不能预设专精。`);
+        if (u.specializationKey && !isValidSpecialization(u.type, u.specializationKey)) {
+            errors.push(`单位「${u.id || key}」的专精「${u.specializationKey}」不属于基础兵种「${u.type}」。`);
+        }
+        if (rank >= 1 && getSpecializationOptions(u.type).length > 0 && !u.specializationKey) {
+            warnings.push(`单位「${u.id || key}」达到 ${rank} 阶但未预设专精；玩家单位将待选，AI/脚本单位使用确定性默认分支。`);
+        }
         if (u.storyCommander && !storyCommanderIds.has(u.storyCommander)) errors.push(`单位「${u.id || key}」绑定了不存在的剧情将领「${u.storyCommander}」。`);
         if (u.storyCommander && u.commander) errors.push(`单位「${u.id || key}」不能同时直挂玩法将领与剧情将领。`);
         if (u.storyCommander && mountedStoryCommanders.has(u.storyCommander)) errors.push(`剧情将领「${u.storyCommander}」不能在开场同时挂载到多个单位。`);
@@ -567,6 +600,9 @@ export function validateLevel(config) {
         seenFactionIds.add(faction.id);
         if (!faction.name) warnings.push(`阵营「${faction.id}」没有显示名。`);
         if (faction.note !== undefined && typeof faction.note !== 'string') errors.push(`阵营「${faction.id}」剧情备注必须是文本。`);
+        if (faction.airfieldCap != null && (!Number.isInteger(faction.airfieldCap) || faction.airfieldCap < 0)) {
+            errors.push(`阵营「${faction.id}」的机场上限必须是非负整数；留空表示按城市数量自动计算。`);
+        }
         if (!FACTION_COLOR_KEYS.includes(faction.color)) {
             errors.push(`阵营「${faction.id}」颜色选项「${faction.color}」无效（可用：${FACTION_COLOR_KEYS.join('、')}）。`);
         }
@@ -744,6 +780,13 @@ export function validateLevel(config) {
         if (condition.kind === 'relationIs' && condition.camp === condition.targetCamp) errors.push(`${path} 不能比较同一阵营与自身的外交关系。`);
         if (condition.kind === 'relationIs' && !RELATION_KEYS.includes(condition.relation)) errors.push(`${path} 的外交关系「${condition.relation}」无效。`);
         if (condition.kind === 'unitsInArea' && condition.camp && !factionIds.has(condition.camp)) errors.push(`${path} 的阵营筛选「${condition.camp}」未在本关阵营列表中声明。`);
+        if (['factionUnitCount', 'unitsInArea'].includes(condition.kind) && condition.type && !UNIT_TYPES.includes(condition.type)) {
+            errors.push(`${path} 的基础兵种筛选「${condition.type}」无效。`);
+        }
+        if (['factionUnitCount', 'unitsInArea'].includes(condition.kind) && condition.specializationKey
+            && (!condition.type || !isValidSpecialization(condition.type, condition.specializationKey))) {
+            errors.push(`${path} 的专精筛选「${condition.specializationKey}」不属于基础兵种「${condition.type || '未指定'}」。`);
+        }
         if (['cardUsed', 'eventCardIs'].includes(condition.kind) && !CARD_IDS.includes(condition.value)) errors.push(`${path} 引用不存在的对策卡「${condition.value}」。`);
         if (condition.kind === 'groupState' && !groupIds.has(condition.group)) errors.push(`${path} 引用不存在的单位组「${condition.group}」。`);
         if (condition.kind === 'unitsInArea' && condition.area && !areaIds.has(condition.area)) errors.push(`${path} 引用不存在的区域「${condition.area}」。`);
@@ -864,6 +907,13 @@ export function validateLevel(config) {
                     }
                 }
                 if (spec?.commander && !COMMANDER_IDS.includes(spec.commander)) errors.push(`${specPath} 引用不存在的将领「${spec.commander}」。`);
+                const rank = Number(spec?.rank || 0);
+                if (!Number.isInteger(rank) || rank < 0 || rank > 4) errors.push(`${specPath} 的军衔必须是 0–4 的整数。`);
+                if (isRankLockedUnit(spec?.type) && rank !== 0) errors.push(`${specPath} 的建筑单位不能拥有军衔。`);
+                if (spec?.specializationKey && rank < 1) errors.push(`${specPath} 在 0 阶不能预设专精。`);
+                if (spec?.specializationKey && !isValidSpecialization(spec?.type, spec.specializationKey)) {
+                    errors.push(`${specPath} 的专精「${spec.specializationKey}」不属于基础兵种「${spec?.type}」。`);
+                }
                 if (spec?.storyCommander && !storyCommanderIds.has(spec.storyCommander)) errors.push(`${specPath} 引用不存在的剧情将领「${spec.storyCommander}」。`);
                 if (spec?.commander && spec?.storyCommander) errors.push(`${specPath} 不能同时直挂玩法将领与剧情将领。`);
                 if (spec?.storyCommander && seenSpawnStoryCommanders.has(spec.storyCommander)) errors.push(`${path} 同一次生成不能把剧情将领「${spec.storyCommander}」挂载到多个单位。`);

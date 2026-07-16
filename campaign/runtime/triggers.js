@@ -1,4 +1,5 @@
 import { Unit } from '../../js/Unit.js';
+import { chooseDefaultSpecialization } from '../../rules/units.js';
 import { computeCampBorders } from '../../js/HexTile.js';
 import { invalidateBoard } from '../../js/config.js';
 import { emit } from '../../js/eventBus.js';
@@ -98,6 +99,14 @@ export function spawnUnitsInto(state, specs, config = null) {
         const mount = resolveCommanderMount(config, spec);
         const unit = new Unit(spec.type, camp, tile, false, spec.id || null, mount.commander);
         applyCommanderMount(unit, mount);
+        unit._rank = unit._rankLocked ? 0 : Math.max(0, Math.min(4, Math.trunc(Number(spec.rank) || 0)));
+        unit._xp = Math.max(0, Number(spec.xp) || 0);
+        unit.specializationKey = spec.specializationKey || null;
+        unit._rebuildRankProfile({ adjustResources: false });
+        const controller = state.factions?.[spec.camp]?.controller;
+        if (unit.pendingSpecialization && controller !== 'human') {
+            unit.chooseSpecialization(chooseDefaultSpecialization(unit, state));
+        }
         if (typeof spec.hp === 'number') unit.hp = Math.max(1, Math.min(unit.maxHp, Math.round(spec.hp)));
         else if (typeof spec.hpPct === 'number') unit.hp = Math.max(1, Math.min(unit.maxHp, Math.round(unit.maxHp * spec.hpPct / 100)));
         unit.displayHp = unit.hp;
@@ -243,7 +252,11 @@ function evalCondition(cond, ctx) {
             return cond.unlocked === false ? !unlocked : unlocked;
         }
         case 'factionUnitCount': {
-            const count = gameState.tiles.filter(tile => tile.unit && campKeyOf(tile.unit.camp) === cond.camp && tile.unit.hp > 0).length;
+            const count = gameState.tiles.filter(tile => tile.unit
+                && campKeyOf(tile.unit.camp) === cond.camp
+                && tile.unit.hp > 0
+                && (!cond.type || tile.unit.type === cond.type)
+                && (!cond.specializationKey || tile.unit.specializationKey === cond.specializationKey)).length;
             return compareValues(count, cond.op || '>=', Number(cond.value));
         }
         case 'groupState': {
@@ -260,7 +273,9 @@ function evalCondition(cond, ctx) {
             if (!area) return false;
             const keys = new Set((area.tiles || []).map(tile => coordKey(tile.q, tile.r)));
             const count = gameState.tiles.filter(tile => keys.has(coordKey(tile.q, tile.r)) && tile.unit
-                && (!cond.camp || campKeyOf(tile.unit.camp) === cond.camp)).length;
+                && (!cond.camp || campKeyOf(tile.unit.camp) === cond.camp)
+                && (!cond.type || tile.unit.type === cond.type)
+                && (!cond.specializationKey || tile.unit.specializationKey === cond.specializationKey)).length;
             return compareValues(count, cond.op || '>=', Number(cond.value));
         }
         case 'triggerEnabled': return (enabled.get(cond.trigger) !== false) === (cond.enabled !== false);

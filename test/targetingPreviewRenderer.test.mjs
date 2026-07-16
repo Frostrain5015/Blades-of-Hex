@@ -83,7 +83,7 @@ for (const kind of TARGETING_PREVIEW_KINDS) {
     drawAntiAirCoveragePreview(levelTwo, freeze({ cells: [{ ...base, level: 2 }], boardKeys, time: 2 }));
     const oneStrokes = levelOne.calls.filter(call => call[0] === 'stroke').length;
     const twoStrokes = levelTwo.calls.filter(call => call[0] === 'stroke').length;
-    assert.ok(twoStrokes > oneStrokes * 1.8, 'level 2 AA should add the crossing hatch pass');
+    assert.equal(twoStrokes, oneStrokes, 'Canvas fallback keeps one batched fill/perimeter pass at every AA strength');
     const perimeterStrokes = levelOne.calls.filter(call => call[0] === 'stroke' && call.at(-1).lineDashOffset != null);
     assert.equal(perimeterStrokes.length, 2, 'AA coverage should restore the animated double-stroke perimeter');
     assert.ok(levelOne.calls.some(call => call[0] === 'stroke'

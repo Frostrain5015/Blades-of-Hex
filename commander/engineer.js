@@ -69,6 +69,7 @@ export function digEngineerTrench(unit, helpers) {
 
     gameState.playerGold[campKey] -= ENGINEER_TRENCH_GOLD_COST;
     tile.fortification = 'trench';
+    tile.fieldFortification = { type: 'trench', campKey, ownerKnown: true };
     consumeEngineerAction(unit);
     return { ok: true, tile };
 }
@@ -88,6 +89,7 @@ export function digEngineerFlak(unit, helpers) {
 
     gameState.playerGold[campKey] -= ENGINEER_FLAK_GOLD_COST;
     tile.fortification = 'flak';
+    tile.fieldFortification = { type: 'flak', campKey, ownerKnown: true };
     consumeEngineerAction(unit);
     return { ok: true, tile };
 }

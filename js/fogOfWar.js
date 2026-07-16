@@ -192,13 +192,18 @@ export function hasActiveFogPresentationHold(gameState, camp, now = performance.
 }
 
 // ---- 侦察揭示 ----
-export function applyScoutReveal(gameState, camp, q, r) {
+export function applyScoutReveal(gameState, camp, q, r, radius = 1, durationRounds = 1) {
     if (!gameState.skirmishFog) return;
     const key = _campKey(camp);
     if (key === 'neutral') return;
-    const expiresAt = getRoundIndex(gameState) + 1; // 持续到下一回合开始（回合数, 0-indexed）
-    // 揭示目标及周围6格
-    const reveals = [[0,0], [1,0], [1,-1], [0,-1], [-1,0], [-1,1], [0,1]];
+    const expiresAt = getRoundIndex(gameState) + Math.max(1, Math.trunc(durationRounds));
+    const reveals = [];
+    const safeRadius = Math.max(0, Math.trunc(radius));
+    for (let dq = -safeRadius; dq <= safeRadius; dq++) {
+        for (let dr = -safeRadius; dr <= safeRadius; dr++) {
+            if ((Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2 <= safeRadius) reveals.push([dq, dr]);
+        }
+    }
     for (const [dq, dr] of reveals) {
         const coord = `${q + dq},${r + dr}`;
         // 仅记录当前回合数更高的过期时间（重复侦察刷新持续时间）

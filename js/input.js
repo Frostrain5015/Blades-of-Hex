@@ -11,7 +11,9 @@ import { isMechanicEnabled } from '../rules/mechanics.js';
 import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, recruitUnit, endTurn,
-    executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction, cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit
+    executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
+    executeFieldConstruction, executeBunkerConstruction, executeShoreBatteryConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
+    cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
@@ -29,6 +31,10 @@ import { RECRUITMENT_OPTIONS } from './recruitmentUi.js';
 import { VITE_RUNTIME_AVAILABLE } from './rendering/viteRuntime.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
 import { isCoastalLandTile } from '../rules/naval.js';
+import { getSpecialization, getSpecializationOptions, getUnitDisplayName, resolveUnitRankProfile } from '../rules/units.js';
+import { getAntiAirReduction } from '../rules/antiAir.js';
+import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortification, canBuildShoreBatteryAt, canFieldRepair, constructionCost, isFieldRepairTarget, isOrdinaryGroundBuilder } from '../rules/construction.js';
+import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange, getAirfieldColonel } from '../rules/airCommands.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
@@ -70,6 +76,16 @@ const BOARD_ACTION_THEMES = {
         background: 'linear-gradient(135deg, #3a8a54, #28623d)',
         hover: 'linear-gradient(135deg, #51aa6d, #347b4d)',
         border: '#9ae2aa'
+    },
+    specialization: {
+        background: 'linear-gradient(135deg, #7258a8, #44326f)',
+        hover: 'linear-gradient(135deg, #8d70c8, #5a438d)',
+        border: '#c9b1ff'
+    },
+    construction: {
+        background: 'linear-gradient(135deg, #8c6a2e, #554019)',
+        hover: 'linear-gradient(135deg, #aa843d, #705423)',
+        border: '#e2c56e'
     }
 };
 
@@ -314,14 +330,97 @@ function _getCommanderActionIcon(commanderId, skillId) {
     return '✦';
 }
 
-function _collectBoardActions(unit) {
+function _collectBoardActions(unit, tile = null) {
     const actions = [];
+    if (isMechanicEnabled(gameState, 'airCommands')
+        && tile?.installation?.type === 'airfield' && gameState.selectedInstallation === tile.installation) {
+        for (const [airKind, config] of Object.entries(AIR_COMMAND_CONFIG)) {
+            if (airKind === 'recon' && (!gameState.skirmishFog || gameState.campaignMode)) continue;
+            const availability = getAirCommandAvailability(airKind, tile, gameState);
+            actions.push({
+                key: `airCommand:${tile.q}:${tile.r}:${airKind}`,
+                buttonId: `boardAirCommand-${airKind}`, kind: 'airCommand', airKind,
+                tileQ: tile.q, tileR: tile.r, icon: config.icon, label: config.name,
+                goldCost: config.cost, cooldown: availability.cooldown || 0,
+                range: getAirCommandRange(tile), canUse: availability.available,
+                reason: availability.reason, theme: 'default'
+            });
+        }
+        return actions;
+    }
+    if (isMechanicEnabled(gameState, 'airCommands')
+        && tile?.isCity && _isLocalActionCamp(tile.camp) && !tile.installation) {
+        const cost = constructionCost('airfield', null, tile);
+        const structurallyAvailable = canBuildAirfieldAt(tile, tile.camp, gameState);
+        const affordable = (gameState.playerGold[_campKeyInput(tile.camp)] || 0) >= cost;
+        const canUse = structurallyAvailable && affordable;
+        actions.push({
+            key: `construction:city:${tile.q}:${tile.r}:airfield`, buttonId: 'boardBuild-airfield',
+            kind: 'buildAirfield', tileQ: tile.q, tileR: tile.r, icon: '🛫', label: '建设机场',
+            goldCost: cost,
+            canUse,
+            reason: canUse ? '' : (affordable ? '当前城市不可建设或已达到机场上限' : '金币不足'),
+            theme: 'construction'
+        });
+    }
+    const isEmptyOwnedCoast = !unit && !!tile && !tile.isCity && !tile.isVillage && !tile.isPort
+        && _isLocalActionCamp(tile.camp) && isCoastalLandTile(tile, gameState);
+    if (isMechanicEnabled(gameState, 'fortifications') && isEmptyOwnedCoast) {
+        actions.push({
+            key: `construction:coast:${tile.q}:${tile.r}`,
+            buttonId: 'boardConstructionMenu',
+            kind: 'openConstruction', tileQ: tile.q, tileR: tile.r,
+            icon: '🛠️', label: '建造工事', canUse: true, reason: '', theme: 'construction'
+        });
+    }
     if (!unit) return actions;
 
     const isControllable = _isLocalActionCamp(unit.camp);
     const unavailableReason = _sameCampInput(unit.camp, _getMyCampInput())
         ? '当前不是你的行动回合'
         : '非己方单位，无法施放';
+    if (unit.pendingSpecialization) {
+        actions.push({
+            key: `specialization:${unit.id}`,
+            buttonId: 'boardChooseSpecialization',
+            kind: 'chooseSpecialization',
+            unitId: unit.id,
+            icon: '✦',
+            label: '选择专精',
+            canUse: isControllable,
+            reason: isControllable ? '' : unavailableReason,
+            theme: 'specialization'
+        });
+    }
+    if (isMechanicEnabled(gameState, 'fortifications')
+        && isOrdinaryGroundBuilder(unit) && _sameCampInput(unit.camp, _getMyCampInput())) {
+        actions.push({
+            key: `construction:${unit.id}`, buttonId: 'boardConstructionMenu',
+            kind: 'openConstruction', unitId: unit.id, icon: '🛠️', label: '建设',
+            canUse: isControllable && unit.canAct && !unit.isNewRecruit && !unit._constructionScaffold,
+            reason: isControllable && unit.canAct && !unit.isNewRecruit && !unit._constructionScaffold
+                ? '' : isControllable ? '当前单位已经无法行动' : unavailableReason,
+            theme: 'construction'
+        });
+    }
+    if (isMechanicEnabled(gameState, 'fortifications') && unit.commander === 'engineer') {
+        const hasRepairTarget = gameState.tiles.some(tile => isFieldRepairTarget(unit, tile.unit, gameState));
+        const currentRound = getRoundIndex(gameState);
+        const cooldown = Number.isFinite(unit._engineerFieldRepairReadyRound)
+            ? Math.max(0, unit._engineerFieldRepairReadyRound - currentRound)
+            : Math.max(0, unit._fieldRepairCooldown || 0);
+        const canRepair = hasRepairTarget && cooldown === 0
+            && (gameState.playerGold[_campKeyInput(unit.camp)] || 0) >= CONSTRUCTION_CONFIG.fieldRepair.cost;
+        actions.push({
+            key: `construction:${unit.id}:fieldRepair`, buttonId: 'boardFieldRepair',
+            kind: 'fieldRepair', unitId: unit.id, icon: '🛠️', label: '战地抢修',
+            goldCost: CONSTRUCTION_CONFIG.fieldRepair.cost,
+            cooldown,
+            canUse: canRepair,
+            reason: canRepair ? '' : !hasRepairTarget ? '相邻没有受损建筑'
+                : cooldown > 0 ? `冷却${cooldown}回合` : '金币不足', theme: 'construction'
+        });
+    }
     if (unit._isDrone) {
         actions.push({
             key: `droneSuicide:${unit.id}`,
@@ -465,11 +564,37 @@ export function syncBoardActionBar() {
     _syncSelectionHud(tile);
     const inFog = gameState.skirmishFog && tile && !isTileVisible(tile, getViewingCamp(), gameState);
     const unit = !gameState.cardTargeting && !inFog ? tile?.unit || null : null;
-    _renderBoardActionQueue(_collectBoardActions(unit));
+    _renderBoardActionQueue(_collectBoardActions(unit, tile));
     _renderPassiveQueue(!gameState.cardTargeting && !inFog ? _buildPassiveItems(unit) : []);
 }
 
 function _activateBoardAction(action) {
+    if (action.kind === 'buildAirfield') {
+        const tile = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
+        if (tile && executeAirfieldConstruction(tile)) showSelectionHudForTile(tile);
+        return;
+    }
+    if (action.kind === 'airCommand') {
+        const launcher = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
+        const availability = getAirCommandAvailability(action.airKind, launcher, gameState);
+        if (!availability.available) return;
+        clearselection();
+        showTargetingBanner(`请选择${AIR_COMMAND_CONFIG[action.airKind].name}目标`);
+        gameState.cardTargeting = {
+            cardId: `air_command_${action.airKind}`,
+            targeting: AIR_COMMAND_CONFIG[action.airKind].targeting,
+            handIndex: -1, airKind: action.airKind,
+            launcherQ: action.tileQ, launcherR: action.tileR,
+            startedAt: performance.now()
+        };
+        updateUI();
+        return;
+    }
+    if (action.kind === 'openConstruction' && Number.isInteger(action.tileQ) && Number.isInteger(action.tileR)) {
+        const tile = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
+        if (tile) _showConstructionChoice(null, tile);
+        return;
+    }
     const unit = _findUnitById(action.unitId);
     if (!unit) return;
 
@@ -490,6 +615,41 @@ function _activateBoardAction(action) {
         if (!reinforcement?.canUse) return;
         reinforceUnit(unit);
         showSelectionHudForTile(unit.tile);
+        return;
+    }
+
+    if (action.kind === 'chooseSpecialization') {
+        if (_isLocalActionUnit(unit)) _showSpecializationChoice(unit);
+        return;
+    }
+
+    if (action.kind === 'openConstruction') {
+        _showConstructionChoice(unit);
+        return;
+    }
+
+    if (action.kind === 'buildFieldFortification') {
+        if (executeFieldConstruction(unit, action.constructionKind)) showSelectionHudForTile(unit.tile);
+        return;
+    }
+    if (action.kind === 'buildBunker') {
+        clearselection();
+        showTargetingBanner('请选择相邻的己方空地');
+        gameState.cardTargeting = {
+            cardId: 'build_bunker', targeting: 'emptyTile', handIndex: -1,
+            builderUnitId: unit.id, startedAt: performance.now()
+        };
+        updateUI();
+        return;
+    }
+    if (action.kind === 'fieldRepair') {
+        clearselection();
+        showTargetingBanner('请选择相邻的受损建筑');
+        gameState.cardTargeting = {
+            cardId: 'field_repair', targeting: 'friendlyAny', handIndex: -1,
+            engineerUnitId: unit.id, startedAt: performance.now()
+        };
+        updateUI();
         return;
     }
 
@@ -680,13 +840,21 @@ function _handleCardCanvasClick(e) {
 }
 
 const PASSIVE_DEFS = {
-    infantry: { ...FRONTEND_TEXT.unitPassives.infantry, active: (u) => u.tile.isCity },
-    cavalry: { ...FRONTEND_TEXT.unitPassives.cavalry, active: (u) => u.moveDistance >= 1 },
-    archer: { ...FRONTEND_TEXT.unitPassives.archer, active: (u) => u.tile.terrain === 'mountain' },
-    shoreBattery: { ...FRONTEND_TEXT.unitPassives.shoreBattery, active: () => true },
-    destroyer: { ...FRONTEND_TEXT.unitPassives.destroyer, active: () => true },
-    warship: { ...FRONTEND_TEXT.unitPassives.warship, active: () => true },
-    submarine: { ...FRONTEND_TEXT.unitPassives.submarine, active: () => true }
+    shoreBattery: { ...FRONTEND_TEXT.unitPassives.shoreBattery, active: () => true }
+};
+
+const SPECIALIZATION_PASSIVES = {
+    garrisonInfantry: { name: '固守', icon: '🏰' },
+    assaultInfantry: { name: '攻坚', icon: '⚔️' },
+    lightCavalry: { name: '冲锋', icon: '🐎' },
+    heavyCavalry: { name: '铁蹄', icon: '🛡️' },
+    fieldGun: { name: '穿甲榴弹', icon: '🎯' },
+    rocketArtillery: { name: '齐射', icon: '💥' },
+    antiAirArtillery: { name: '高射', icon: '🔫' },
+    antiAirDestroyer: { name: '防空机枪', icon: '🛡️' },
+    antiSubDestroyer: { name: '猎潜', icon: '🔎' },
+    fleetCruiser: { name: '大口径舰炮', icon: '💣' },
+    supportCruiser: { name: '火控雷达', icon: '📡' }
 };
 
 // 军衔折形沿用战场单位的图形语言：1–3 阶为折形，4 阶及以上为金色星章。
@@ -802,7 +970,8 @@ const UNIT_TYPE_NAMES = {
     shoreBattery: '岸防炮',
     destroyer: '驱逐舰',
     warship: '巡洋舰',
-    submarine: '潜艇'
+    submarine: '潜艇',
+    carrier: '航母'
 };
 
 const PASSIVE_ICONS = FRONTEND_TEXT.icons.unitPassive;
@@ -1058,6 +1227,17 @@ function _buildEffectItems(tile, unit) {
     if (!tile) return [];
     const terrainEffect = _getTerrainEffect(tile);
     const items = terrainEffect ? [terrainEffect] : [];
+    if (tile.installation?.type === 'airfield') {
+        const ready = tile.installation.status === 'ready';
+        items.push({
+            key: `installation:airfield:${tile.q}:${tile.r}`,
+            icon: ready ? '🛫' : '🏗️',
+            label: ready ? '机场' : '机场施工中',
+            desc: ready ? '再次点击当前城市地块可选中机场并展开空军指令。' : `还需${tile.installation.turnsRemaining || 1}回合完工。`,
+            color: ready ? '#9fd7ff' : '#e8c477',
+            kind: 'effect'
+        });
+    }
     const fortification = tile.fortification ? FORTIFICATION_CONFIG[tile.fortification] : null;
     if (fortification) {
         items.push({
@@ -1219,8 +1399,48 @@ function _buildPassiveItems(unit) {
         return items;
     }
 
-    const unitPassive = PASSIVE_DEFS[unit.type];
-    if (unitPassive) {
+    const specialization = unit.specializationKey ? getSpecialization(unit.type, unit.specializationKey) : null;
+    const specializationPassive = SPECIALIZATION_PASSIVES[unit.specializationKey];
+    if (specialization && specializationPassive) {
+        const rankTier = unit._rank >= 3 ? 'rank3' : 'rank1';
+        const abilityNumbers = Object.values(specialization.abilities || {})
+            .filter(value => value && typeof value === 'object' && Number.isFinite(value[rankTier]))
+            .map(value => Math.round(value[rankTier] * 100) + '%');
+        const stacks = unit.specializationKey === 'lightCavalry'
+            ? Math.min(3, Math.max(0, unit.moveDistance || 0))
+            : 0;
+        items.push({
+            key: 'specialization:' + unit.id + ':' + unit.specializationKey,
+            icon: specializationPassive.icon,
+            label: specializationPassive.name,
+            desc: specialization.description + (abilityNumbers.length ? `（当前 ${abilityNumbers.join(' / ')}）` : ''),
+            color: '#a9d8ff',
+            status: stacks > 0 ? `当前生效 ${stacks}层` : '当前生效',
+            count: stacks || '',
+            kicker: '兵种被动',
+            active: true,
+            intensity: stacks > 0 ? stacks / 3 : 1,
+            kind: 'passive'
+        });
+    } else if ((unit.type === 'submarine' || unit.type === 'carrier') && unit._rank >= 1) {
+        const isSubmarine = unit.type === 'submarine';
+        items.push({
+            key: 'unit:' + unit.id + ':' + unit.type,
+            icon: isSubmarine ? '🌊' : '✈️',
+            label: isSubmarine ? '潜航' : '舰载航空',
+            desc: isSubmarine
+                ? `脱离暴露后潜航，下一次攻击伤害提高${Math.round((unit._rank >= 3 ? 0.40 : 0.25) * 100)}%。`
+                : `舰载机攻击伤害提高${Math.round((unit._rank >= 3 ? 0.30 : 0.15) * 100)}%。`,
+            color: '#88ccff',
+            status: '当前生效',
+            kicker: '兵种被动',
+            active: true,
+            intensity: 1,
+            kind: 'passive'
+        });
+    } else {
+        const unitPassive = PASSIVE_DEFS[unit.type];
+        if (unitPassive) {
         const runtime = _getUnitPassiveRuntimeState(unit, unitPassive);
         items.push({
             key: 'unit:' + unit.id + ':' + unit.type,
@@ -1234,6 +1454,25 @@ function _buildPassiveItems(unit) {
             active: runtime.active,
             intensity: runtime.intensity,
             kind: 'passive'
+        });
+        }
+    }
+    if (unit._constructionScaffold) {
+        const remain = Number.isFinite(unit._constructionScaffold.readyRound)
+            ? Math.max(0, unit._constructionScaffold.readyRound - getRoundIndex(gameState))
+            : Math.max(1, unit._constructionScaffold.turnsRemaining || 1);
+        items.push({
+            key: 'construction:scaffold', icon: '🏗️', label: '碉堡脚手架',
+            desc: `还需${remain}回合完工；施工期间不能攻击，可被敌军摧毁。`,
+            color: '#e8c477', count: '⏳' + remain, status: '施工中', kind: 'effect'
+        });
+    }
+    if (unit._poison) {
+        const remain = Math.max(0, unit._poison.remainingTicks || 0);
+        items.push({
+            key: 'status:poison', icon: '☣️', label: '中毒',
+            desc: '所属阵营回合开始流失15%最大生命，可致死，并向相邻未中毒单位传播；疗愈卡可净化。',
+            color: '#9bcf55', count: '⏳' + remain, status: `剩余${remain}次结算`, kind: 'effect'
         });
     }
 
@@ -1328,6 +1567,26 @@ function _buildPassiveItems(unit) {
 }
 
 function _describeBoardAction(action) {
+    if (action.kind === 'buildAirfield') {
+        return {
+            key: action.key, icon: action.icon, label: action.label,
+            desc: '城市设施，下一次所属阵营回合开始时完工；不消耗驻军行动。',
+            color: BOARD_ACTION_THEMES.construction.border,
+            status: action.canUse ? `消耗 $${action.goldCost}` : action.reason,
+            kicker: '城市建设', kind: 'action', action
+        };
+    }
+    if (action.kind === 'airCommand') {
+        const launcher = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
+        const colonel = getAirfieldColonel(launcher);
+        return {
+            key: action.key, icon: action.icon, label: action.label,
+            desc: `${AIR_COMMAND_CONFIG[action.airKind].name} · 航程${action.range}格${colonel ? ' · 将领强化' : ''}`,
+            color: BOARD_ACTION_THEMES.default.border,
+            status: action.canUse ? `消耗 $${action.goldCost}` : action.reason,
+            kicker: '机场空军指令', kind: 'action', action
+        };
+    }
     const unit = _findUnitById(action.unitId);
     if (!unit) return null;
     let desc = '';
@@ -1349,6 +1608,20 @@ function _describeBoardAction(action) {
     } else if (action.kind === 'reinforce') {
         kicker = '单位操作';
         desc = '在城市或村庄消耗金币补充兵员，最多恢复至满生命。';
+    } else if (action.kind === 'chooseSpecialization') {
+        kicker = '兵种专精';
+        desc = '打开专精选择，比较分支面板与独特被动。选择后不可逆。';
+    } else if (action.kind === 'openConstruction') {
+        kicker = '建设';
+        desc = '打开建设菜单，查看可修建工事的费用、工期与目标限制。';
+    } else if (action.kind === 'buildFieldFortification' || action.kind === 'buildBunker') {
+        kicker = '建设';
+        desc = action.kind === 'buildBunker'
+            ? '在相邻己方空地搭建脚手架，下一次己方回合开始时完工。'
+            : '在当前己方陆地立即修建，消耗建造者本回合全部行动。';
+    } else if (action.kind === 'fieldRepair') {
+        kicker = '工程师技能';
+        desc = '修复相邻己方建筑或碉堡脚手架50%最大生命值。';
     }
 
     const statusParts = [];
@@ -1470,14 +1743,13 @@ function _syncSelectionHud(tile) {
         const moraleDefBonus = MORALE_CONFIG[unit.morale].defBonus;
         const auraDefBonus = getCommanderAuraDefenseBonus(unit);
         const commanderDefBonus = getCommanderDefenseBonus(unit);
-        const cityDefBonus = !unit.isEmbarked && unit.type === 'infantry' && tile.isCity ? 0.10 : 0;
         const terrainDefBonus = unit.isEmbarked ? 0 : TERRAIN_CONFIG[tile.terrain].defenseBonus;
         const fortificationDefBonus = !unit.isEmbarked && tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
-        const rankDefBonus = unit._rankDefBonus || 0;
+        const rankDefBonus = unit._rankPanelDefenseBonus || 0;
         const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
         const baseDefense = unit.isEmbarked ? getTransportBaseDefense(unit) : (unit.config.defense || 0);
         defense = Math.round((baseDefense + moraleDefBonus + terrainDefBonus
-            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + cityDefBonus + campaignDefBonus) * 100);
+            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + campaignDefBonus) * 100);
         // 悬浮可走地块时预览本次移动的行动力消耗
         if (gameState.selectedUnit === unit && gameState.hoveredTile && !gameState.hoveredTile.unit
             && gameState.movableTiles.includes(gameState.hoveredTile)) {
@@ -1489,7 +1761,7 @@ function _syncSelectionHud(tile) {
     const signature = selectionKey + '|' + effects.map(effect => effect.key + ':' + (effect.count || '') + ':' + effect.desc).join('|')
         + '|' + (unit ? [
             unit.hp, unit.maxHp, unit._shield || 0, unit.remainingMP, unit.canAct,
-            unit._faith || 0, unit.moralePenaltyUntil || 0, unit._rank || 0,
+            unit._faith || 0, unit.moralePenaltyUntil || 0, unit._rank || 0, unit.specializationKey || 'pending',
             attack, defense, hoverMoveCost, getRelation(gameState, getViewingCampKey(gameState), unit.camp)
         ].join(':') : '');
     if (signature === _lastHudSignature) return;
@@ -1505,7 +1777,7 @@ function _syncSelectionHud(tile) {
 
     if (unit) {
         const commander = unit.commander ? getCommander(unit.commander) : null;
-        const typeName = unit._isDrone ? '无人机' : (UNIT_TYPE_NAMES[unit.type] || unit.config.name);
+        const typeName = unit._isDrone ? '无人机' : (unit.specializationKey ? getUnitDisplayName(unit) : (UNIT_TYPE_NAMES[unit.type] || unit.config.name));
         const faction = getFaction(gameState, unit.camp);
         const relation = getRelation(gameState, getViewingCampKey(gameState), unit.camp);
         const relationMeta = RELATION_META[relation] || RELATION_META.unknown;
@@ -1533,7 +1805,7 @@ function _syncSelectionHud(tile) {
             + (hoverMoveCost > 0 ? '(-' + hoverMoveCost + ')' : '') + '/' + (unit.getEffectiveSpeed?.() ?? unit.config.speed);
         selectionHudStats.replaceChildren(
             _textSpan('⚔ ' + attack + (attackDelta ? ' (' + (attackDelta > 0 ? '+' : '') + attackDelta + ')' : ''), attackDelta > 0 ? '#ffe875' : '#ffdf70'),
-            _textSpan('🛡 ' + defense + '%(' + (defense + _calcAADefense(tile, unit) * 25) + '%)', defense > 0 ? '#9be5df' : defense < 0 ? '#ff8f96' : '#b3b3b3'),
+            _textSpan('🛡 ' + defense + '%（防空 ' + Math.round(_calcAADefense(tile, unit) * 100) + '%）', defense > 0 ? '#9be5df' : defense < 0 ? '#ff8f96' : '#b3b3b3'),
             _textSpan(mpText, '#87d5ff'),
             _textSpan('📡 ' + (unit.getEffectiveRange?.() ?? unit.config.range), '#f4a8d4')
         );
@@ -1552,23 +1824,7 @@ function _syncSelectionHud(tile) {
 // 计算该地块的防空层数（0~2，与 Unit.js 防空逻辑一致：友军AA单位2格内 + 己方高射机枪）
 function _calcAADefense(tile, unit) {
     if (!gameState.tileMap) return 0;
-    let aaCount = 0;
-    const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-    const dirs2 = [[2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
-    for (const [dq, dr] of [...dirs, ...dirs2]) {
-        const nb = gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`);
-        if (!nb || !nb.unit || nb.unit.camp !== unit.camp) continue;
-        if (nb.unit.type === 'archer' || nb.unit.type === 'mgNest'
-            || (nb.unit.commander === 'staller' && !areCommanderMechanicsSuppressed(nb.unit))) {
-            if (++aaCount >= 2) break;
-        }
-    }
-    // 高射机枪工事：为站在其上的单位额外提供自身1层防空
-    if (aaCount < 2 && tile.fortification) {
-        const fc = FORTIFICATION_CONFIG[tile.fortification];
-        if (fc && fc.providesSelfAA) aaCount++;
-    }
-    return Math.min(aaCount, 2);
+    return getAntiAirReduction(tile, null, gameState.tileMap, { state: gameState });
 }
 
 function _textSpan(text, color) {
@@ -1688,11 +1944,10 @@ function getTileAtPixel(px, py) {
 }
 
 // ==== 鼠标输入 =====================
-function _bindDetailQueue(containerId, queue, source, itemForKey, keyAttribute = 'abilityKey', onDoubleActivate = null) {
+function _bindDetailQueue(containerId, queue, source, itemForKey, keyAttribute = 'abilityKey', onActivate = null) {
     const container = document.getElementById(containerId);
     if (!container || container._detailBound) return;
     container._detailBound = true;
-    let singleClickTimer = null;
 
     const getButton = (target) => {
         if (!(target instanceof HTMLElement)) return null;
@@ -1727,30 +1982,12 @@ function _bindDetailQueue(containerId, queue, source, itemForKey, keyAttribute =
         if (!item) return;
         e.preventDefault();
         e.stopPropagation();
-        if (onDoubleActivate) {
-            if (singleClickTimer) return;
-            singleClickTimer = window.setTimeout(() => {
-                singleClickTimer = null;
-                _toggleBoardDetail(item, source);
-            }, 230);
+        if (onActivate) {
+            onActivate(item);
             return;
         }
         _toggleBoardDetail(item, source);
     });
-    if (onDoubleActivate) {
-        container.addEventListener('dblclick', (e) => {
-            const button = getButton(e.target);
-            const item = getItem(button);
-            if (!item) return;
-            e.preventDefault();
-            e.stopPropagation();
-            if (singleClickTimer) {
-                window.clearTimeout(singleClickTimer);
-                singleClickTimer = null;
-            }
-            onDoubleActivate(item);
-        });
-    }
 }
 
 function _bindBoardAbilityControls() {
@@ -2011,6 +2248,37 @@ export function initInput() {
                 }
                 return;
             }
+            if (ct.cardId === 'build_bunker') {
+                const builder = _findUnitById(ct.builderUnitId);
+                if (!builder) { cancelCardTargeting(); return; }
+                if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
+                if (executeBunkerConstruction(builder, clickedTile)) {
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                    showSelectionHudForTile(builder.tile);
+                }
+                return;
+            }
+            if (ct.cardId === 'field_repair') {
+                const engineer = _findUnitById(ct.engineerUnitId);
+                if (!engineer || !isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
+                if (executeFieldRepair(engineer, clickedTile.unit)) {
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                    showSelectionHudForTile(engineer.tile);
+                }
+                return;
+            }
+            if (ct.cardId.startsWith('air_command_')) {
+                const launcher = gameState.tileMap.get(`${ct.launcherQ},${ct.launcherR}`);
+                if (!launcher || !isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
+                if (executeAirCommand(ct.airKind, launcher, clickedTile)) {
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                    showSelectionHudForTile(launcher);
+                }
+                return;
+            }
             const cfg = TACTICAL_CARD_CONFIG[ct.cardId] || COLONEL_CARDS[ct.cardId];
             if (!cfg) { cancelCardTargeting(); return; }
             if (isResolvedTargetingCandidate(targetingPreview, clickedTile)) {
@@ -2021,6 +2289,13 @@ export function initInput() {
 
         // 点选已选中单位/地块 → 取消选中（己方可操作单位有光圈倒放动画）
         if (gameState.selectedTile === clickedTile) {
+            if (clickedTile.installation?.type === 'airfield'
+                && _isLocalActionCamp(clickedTile.camp) && gameState.selectedInstallation !== clickedTile.installation) {
+                gameState.selectedInstallation = clickedTile.installation;
+                showSelectionHudForTile(clickedTile);
+                syncBoardActionBar();
+                return;
+            }
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
             hideSelectionHud();
             gameState.selectedTile = null;
@@ -2375,26 +2650,185 @@ export function initSettingsPanel() {
         window.location.reload();
     });
 
-    // HUD 动作队列：所有按钮均由当前描述数组渲染，并由此处统一分发。
-    // E1 占星者星移天气选择按钮
-    const weatherBtns = document.querySelectorAll('.weather-card');
-    weatherBtns.forEach(btn => {
-        if (!btn._bound) {
-            btn._bound = true;
-            btn.addEventListener('click', () => {
-                const weather = btn.dataset.weather;
-                _applyWeatherChoice(weather);
-            });
+    const choiceOverlay = document.getElementById('weatherChoiceOverlay');
+    const choiceCancel = document.getElementById('choiceModalCancel');
+    if (choiceCancel && !choiceCancel._bound) {
+        choiceCancel._bound = true;
+        choiceCancel.addEventListener('click', _closeChoiceModal);
+    }
+    if (choiceOverlay && !choiceOverlay._dismissBound) {
+        choiceOverlay._dismissBound = true;
+        choiceOverlay.addEventListener('click', event => {
+            if (event.target === choiceOverlay) _closeChoiceModal();
+        });
+    }
+}
+
+function _closeChoiceModal() {
+    const overlay = document.getElementById('weatherChoiceOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('show');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay._astrologerUnitId = null;
+    overlay._specializationUnitId = null;
+}
+
+function _prepareChoiceModal(title, subtitle, wide = false) {
+    const overlay = document.getElementById('weatherChoiceOverlay');
+    const panel = overlay?.querySelector('.weather-choice-panel');
+    const header = document.getElementById('choiceModalHeader');
+    const subtitleElement = document.getElementById('choiceModalSubtitle');
+    const grid = document.getElementById('choiceModalGrid');
+    if (!overlay || !panel || !header || !subtitleElement || !grid) return null;
+    header.textContent = title;
+    subtitleElement.textContent = subtitle;
+    grid.replaceChildren();
+    panel.classList.toggle('is-wide', wide);
+    overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
+    return { overlay, grid };
+}
+
+const SPECIALIZATION_DETAILS = {
+    garrisonInfantry: unit => `固守城市时每回合恢复${Math.round((unit.getSpecializationAbility('cityRegen') || 0) * 100)}%最大生命；本回合未移动时，首次受击伤害降低${Math.round((unit.getSpecializationAbility('holdFirstHitReduction') || 0) * 100)}%。`,
+    assaultInfantry: unit => `攻击建筑、城市或工事驻军时伤害提高${Math.round((unit.getSpecializationAbility('fortificationDamage') || 0) * 100)}%；击败敌军恢复${Math.round((unit.getSpecializationAbility('killHeal') || 0) * 100)}%最大生命。`,
+    lightCavalry: unit => `每移动1格伤害提高${Math.round((unit.getSpecializationAbility('chargePerStep') || 0) * 100)}%，最多3层；未击败目标时可用剩余行动力撤退。`,
+    heavyCavalry: unit => `受到的反击伤害降低${Math.round((unit.getSpecializationAbility('counterDamageReduction') || 0) * 100)}%；攻击远程单位无视${Math.round((unit.getSpecializationAbility('rangedArmorPierce') || 0) * 100)}%防御。`,
+    fieldGun: unit => `攻击无视${Math.round((unit.getSpecializationAbility('armorPierce') || 0) * 100)}%防御；位于山地或风天时效果翻倍。`,
+    rocketArtillery: unit => `对主目标相邻敌军造成${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%倍率溅射。`,
+    antiAirArtillery: unit => `不能普通攻击；为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`,
+    antiAirDestroyer: unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`,
+    antiSubDestroyer: unit => `侦测2格内潜艇，对潜艇伤害提高${Math.round((unit.getSpecializationAbility('submarineDamage') || 0) * 100)}%。`,
+    fleetCruiser: unit => `攻击舰船伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率追加半伤齐射。`,
+    supportCruiser: unit => `抵消对岸攻击减伤；攻城时有${Math.round((unit.getSpecializationAbility('shoreSplashChance') || 0) * 100)}%概率产生30%溅射。`
+};
+
+function _showSpecializationChoice(unit) {
+    if (!unit?.pendingSpecialization) return;
+    const modal = _prepareChoiceModal('✦ 选择兵种专精', `当前 ${unit._rank} 阶 · 选择不可逆；未选择前不会获得任何军衔奖励。`, true);
+    if (!modal) return;
+    modal.overlay._specializationUnitId = unit.id;
+    const icons = { infantry: '⚔️', cavalry: '🐎', archer: '💥', destroyer: '⚓', warship: '🚢' };
+    for (const option of getSpecializationOptions(unit)) {
+        const profile = resolveUnitRankProfile(unit.type, unit._rank, option.key);
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'weather-card specialization-card';
+        const icon = document.createElement('span'); icon.className = 'wc-icon'; icon.textContent = icons[unit.type] || '✦';
+        const name = document.createElement('span'); name.className = 'wc-name'; name.textContent = option.name;
+        const stats = document.createElement('span'); stats.className = 'specialization-stats';
+        const values = [
+            ['HP', profile.hp, unit.config.hp], ['ATK', profile.attack, unit.config.attack],
+            ['DEF', `${Math.round(profile.defense * 100)}%`, `${Math.round((unit.config.defense || 0) * 100)}%`],
+            ['SPD', profile.speed, unit.config.speed], ['RNG', profile.range, unit.config.range]
+        ];
+        for (const [label, value, base] of values) {
+            const stat = document.createElement('span');
+            stat.className = 'specialization-stat' + (String(value) !== String(base) ? ' is-bonus' : '');
+            stat.textContent = `${label} ${value}`;
+            stats.appendChild(stat);
         }
+        const passive = document.createElement('span'); passive.className = 'specialization-passive';
+        // 临时套用候选键读取当前阶能力，展示完成后立即还原，不修改派生面板。
+        const originalKey = unit.specializationKey;
+        unit.specializationKey = option.key;
+        passive.textContent = SPECIALIZATION_DETAILS[option.key]?.(unit) || option.description;
+        unit.specializationKey = originalKey;
+        card.append(icon, name, stats, passive);
+        card.addEventListener('click', () => _applySpecializationChoice(unit.id, option.key));
+        modal.grid.appendChild(card);
+    }
+}
+
+function _applySpecializationChoice(unitId, specializationKey) {
+    const unit = _findUnitById(unitId);
+    if (!unit || !_isLocalActionUnit(unit) || !unit.chooseSpecialization(specializationKey)) return;
+    _closeChoiceModal();
+    const name = getSpecialization(unit.type, unit.specializationKey)?.name || '新兵种';
+    notify(`已专精为${name}`, 'success');
+    emit('fx:unitSpecialized', { x: unit.tile.x, y: unit.tile.y, unitId: unit.id, specializationKey });
+    showSelectionHudForTile(unit.tile);
+    updateUI();
+    if (isNetworkGame()) sendAction('chooseSpecialization', serializeState(), {
+        unitId: unit.id, type: unit.type, rank: unit._rank, specializationKey
     });
 }
 
-// E1 占星者：显示天气选择覆盖层（存 unit.id 而非引用，防序列化后悬空指针）
+function _showConstructionChoice(unit, siteTile = null) {
+    if (!isOrdinaryGroundBuilder(unit) && !siteTile) return;
+    const engineer = unit?.commander === 'engineer';
+    const modal = _prepareChoiceModal('🛠️ 战场建设', siteTile
+        ? '岸防炮属于阵营工事，建造后进入两回合共享冷却。'
+        : engineer ? '工兵指挥已生效：折扣价格已直接计入。' : '选择工事后将消耗本回合全部行动。', true);
+    if (!modal) return;
+    const camp = unit?.camp || siteTile?.camp;
+    const campKey = _campKeyInput(camp);
+    const gold = gameState.playerGold[campKey] || 0;
+    const definitions = siteTile ? [
+        { kind: 'shoreBattery', icon: '🏯', detail: '在当前己方空沿海陆地立即建成；擅长攻击舰船并可侦测潜艇。' }
+    ] : [
+        { kind: 'trench', icon: '🚧', detail: '在当前己方陆地立即完成；对近战攻击提供25%防御。' },
+        { kind: 'flak', icon: '🔫', detail: '在当前己方陆地立即完成；为本格提供30%防空火力。' },
+        { kind: 'bunker', icon: '🏰', detail: engineer ? '选择相邻己方空地，工程师立即完成。' : '选择相邻己方空地搭建脚手架，下次己方回合完工。' }
+    ];
+    for (const definition of definitions) {
+        const cost = constructionCost(definition.kind, unit);
+        const structurallyAvailable = definition.kind === 'shoreBattery'
+            ? canBuildShoreBatteryAt(siteTile, camp, gameState)
+            : definition.kind === 'bunker'
+                ? gameState.tiles.some(tile => canBuildBunkerAt(unit, tile, gameState))
+                : canBuildFieldFortification(unit, definition.kind, gameState);
+        const available = structurallyAvailable && gold >= cost;
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'weather-card specialization-card';
+        card.disabled = !available;
+        const icon = document.createElement('span'); icon.className = 'wc-icon'; icon.textContent = definition.icon;
+        const name = document.createElement('span'); name.className = 'wc-name'; name.textContent = CONSTRUCTION_CONFIG[definition.kind].name;
+        const costLabel = document.createElement('span'); costLabel.className = 'specialization-stat is-bonus'; costLabel.textContent = `费用 $${cost}`;
+        const detail = document.createElement('span'); detail.className = 'specialization-passive';
+        detail.textContent = available ? definition.detail : `${definition.detail}（${structurallyAvailable ? '金币不足' : '当前位置不可建造'}）`;
+        card.append(icon, name, costLabel, detail);
+        card.addEventListener('click', () => {
+            _closeChoiceModal();
+            if (definition.kind === 'shoreBattery') {
+                executeShoreBatteryConstruction(siteTile);
+                showSelectionHudForTile(siteTile);
+            } else if (definition.kind === 'bunker') {
+                clearselection();
+                showTargetingBanner('请选择相邻的己方空地');
+                gameState.cardTargeting = {
+                    cardId: 'build_bunker', targeting: 'emptyTile', handIndex: -1,
+                    builderUnitId: unit.id, startedAt: performance.now()
+                };
+                updateUI();
+            } else {
+                executeFieldConstruction(unit, definition.kind);
+                showSelectionHudForTile(unit.tile);
+            }
+        });
+        modal.grid.appendChild(card);
+    }
+}
+
+// E1 占星者：显示与专精共用的选择覆盖层。
 function _showWeatherChoice(unit) {
-    const overlay = document.getElementById('weatherChoiceOverlay');
-    if (!overlay) return;
-    overlay.classList.add('show');
-    overlay._astrologerUnitId = unit ? unit.id : null;
+    const modal = _prepareChoiceModal('🔮 星移 · 选择天气', '天气锁定2回合；自然天气循环将在锁定结束后继续。');
+    if (!modal) return;
+    modal.overlay._astrologerUnitId = unit ? unit.id : null;
+    const choices = [
+        ['clear', '☀️', '晴', '无特殊效果'], ['rain', '🌧️', '雨', '骑兵减速 · 步兵城防'],
+        ['fog', '🌫️', '雾', '火炮受限 · 骑兵冲锋'], ['wind', '💨', '风', '炮击强化 · 步兵脆弱']
+    ];
+    for (const [weather, glyph, name, desc] of choices) {
+        const card = document.createElement('button'); card.type = 'button'; card.className = 'weather-card';
+        const icon = document.createElement('span'); icon.className = 'wc-icon'; icon.textContent = glyph;
+        const title = document.createElement('span'); title.className = 'wc-name'; title.textContent = name;
+        const detail = document.createElement('span'); detail.className = 'wc-desc'; detail.textContent = desc;
+        card.append(icon, title, detail);
+        card.addEventListener('click', () => _applyWeatherChoice(weather));
+        modal.grid.appendChild(card);
+    }
 }
 
 // E1 占星者：应用天气选择
@@ -2402,6 +2836,7 @@ function _applyWeatherChoice(chosenWeather) {
     const overlay = document.getElementById('weatherChoiceOverlay');
     if (!overlay) return;
     overlay.classList.remove('show');
+    overlay.setAttribute('aria-hidden', 'true');
     // 通过 ID 重新查找 unit，防止网络同步后引用悬空
     let unit = null;
     if (overlay._astrologerUnitId != null) {

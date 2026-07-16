@@ -3,6 +3,8 @@
 // 画布只是配置经 mapBuilder 重建后的预览。导出即下载该配置 JSON。
 import { HEX_SIZE, hexPath, drawHexagonOutline, CAMP_FLAG_COLORS } from '../../js/config.js';
 import { canUnitOccupyTile, getUnitMovementDomain } from '../../rules/movement.js';
+import { getSpecializationOptions, isRankLockedUnit } from '../../rules/units.js';
+import { AIR_COMMAND_CONFIG } from '../../rules/airCommands.js';
 import { isCoastalLandTile } from '../../rules/naval.js';
 import { SURFACE_KIND, isWaterSurface } from '../../rules/surfaces.js';
 import {
@@ -86,13 +88,14 @@ const boardTool = {
     camp: 'player1',
     districtId: 1,
     fortification: 'trench',
+    installation: 'airfield',
     cityType: 'city',
     riverId: 'river',
     riverWidth: 'river',
     crossingKind: 'bridge',
-    erase: { surface: false, terrain: true, city: true, village: true, fortification: true, district: true, port: true, unit: true }
+    erase: { surface: false, terrain: true, city: true, village: true, fortification: true, installation: true, district: true, port: true, unit: true }
 };
-const unitTemplate = { type: 'infantry', camp: 'player1', commander: '', storyCommander: '', hpPct: 100, morale: 2, canAct: true };
+const unitTemplate = { type: 'infantry', camp: 'player1', commander: '', storyCommander: '', rank: 0, specializationKey: '', hpPct: 100, morale: 2, canAct: true };
 
 const undoStack = [];
 const redoStack = [];
@@ -105,6 +108,9 @@ const tileKey = (q, r) => `${q},${r}`;
 
 function factionLabels() {
     return Object.fromEntries(config.factions.map(faction => [faction.id, faction.name || faction.id]));
+}
+function specializationOptions(type) {
+    return Object.fromEntries(getSpecializationOptions(type).map(option => [option.key, option.name]));
 }
 function factionById(id) { return config.factions.find(faction => faction.id === id) || null; }
 function storyCommanderById(id) { return config.storyCommanders.find(commander => commander.id === id) || null; }
@@ -664,8 +670,25 @@ function applyBrush(tile) {
                 removeFromList(b.fortifications, q, r);
             } else {
                 removeFromList(b.fortifications, q, r);
-                b.fortifications.push({ q, r, type: boardTool.fortification });
+                b.fortifications.push({
+                    q, r, type: boardTool.fortification,
+                    camp: campKeyOfTile(preview.tileMap.get(tileKey(q, r)))
+                });
             }
+            return true;
+        }
+        case 'installation': {
+            if (water) { setStatus('水域不能放置城市设施。', 'error'); return false; }
+            if (!b.cities.some(city => city.q === q && city.r === r)) {
+                setStatus('机场只能放置在城市中心格。', 'error');
+                return false;
+            }
+            const exist = b.installations.find(item => item.q === q && item.r === r);
+            removeFromList(b.installations, q, r);
+            if (!exist) b.installations.push({
+                q, r, type: 'airfield', status: 'ready',
+                camp: campKeyOfTile(preview.tileMap.get(tileKey(q, r)))
+            });
             return true;
         }
         case 'district': {
@@ -682,6 +705,7 @@ function applyBrush(tile) {
             if (opt.city) removeFromList(b.cities, q, r);
             if (opt.village) removeFromList(b.villages, q, r);
             if (opt.fortification) removeFromList(b.fortifications, q, r);
+            if (opt.installation) removeFromList(b.installations, q, r);
             if (opt.district) removeFromList(b.districts, q, r);
             if (opt.port) removeFromList(b.ports, q, r);
             if (opt.unit) config.units = config.units.filter(u => !(u.q === q && u.r === r));
@@ -839,6 +863,8 @@ function onPointerDown(e) {
                 q: tile.q, r: tile.r,
                 commander: unitTemplate.commander || null,
                 storyCommander: unitTemplate.storyCommander || null,
+                rank: unitTemplate.rank || 0,
+                specializationKey: unitTemplate.specializationKey || null,
                 hpPct: unitTemplate.hpPct,
                 morale: unitTemplate.morale,
                 canAct: unitTemplate.canAct
@@ -992,6 +1018,7 @@ function buildBoardTools() {
         { value: 'terrain', label: '地形' },
         { value: 'city', label: '城市/村庄' },
         { value: 'fortification', label: '工事' },
+        { value: 'installation', label: '城市设施' },
         { value: 'district', label: '区划范围' },
         { value: 'river', label: '河流' },
         { value: 'crossing', label: '桥梁/浅滩' },
@@ -1025,6 +1052,9 @@ function buildBoardTools() {
         secParam.appendChild(brushGrid(
             FORTIFICATION_KEYS.map(value => ({ value, label: FORTIFICATION_LABELS[value] })),
             boardTool.fortification, v => { boardTool.fortification = v; }));
+    }
+    if (boardTool.mode === 'installation') {
+        secParam.appendChild(hint('点击城市中心放置/移除一座已建成机场；机场与地面工事使用不同槽位，可以共存。'));
     }
     if (boardTool.mode === 'city') {
         secParam.appendChild(selectRow('类型', boardTool.cityType, {
@@ -1071,6 +1101,7 @@ function buildBoardTools() {
         secParam.appendChild(checkRow('城市', opt.city, toggle('city')));
         secParam.appendChild(checkRow('村庄', opt.village, toggle('village')));
         secParam.appendChild(checkRow('工事', opt.fortification, toggle('fortification')));
+        secParam.appendChild(checkRow('城市设施', opt.installation, toggle('installation')));
         secParam.appendChild(checkRow('区划范围', opt.district, toggle('district')));
         secParam.appendChild(checkRow('港口', opt.port, toggle('port')));
         secParam.appendChild(checkRow('单位', opt.unit, toggle('unit')));
@@ -1112,9 +1143,25 @@ function buildBoardTools() {
 function buildUnitTools() {
     const wrap = el('div');
     const sec = section('单位模板（点击空格放置）');
-    sec.appendChild(selectRow('兵种', unitTemplate.type, UNIT_LABELS, v => { unitTemplate.type = v; }));
+    sec.appendChild(selectRow('兵种', unitTemplate.type, UNIT_LABELS, v => {
+        unitTemplate.type = v;
+        if (isRankLockedUnit(v)) unitTemplate.rank = 0;
+        unitTemplate.specializationKey = '';
+        renderToolPanel();
+    }));
     sec.appendChild(selectRow('阵营', unitTemplate.camp, factionLabels(), v => { unitTemplate.camp = v; }));
     sec.appendChild(selectRow('挂载将领', commanderMountValue(unitTemplate), commanderMountOptions(), v => { setCommanderMount(unitTemplate, v); }));
+    if (!isRankLockedUnit(unitTemplate.type)) {
+        sec.appendChild(numRow('军衔', unitTemplate.rank || 0, v => {
+            unitTemplate.rank = Math.max(0, Math.min(4, Math.round(v)));
+            if (unitTemplate.rank === 0) unitTemplate.specializationKey = '';
+            renderToolPanel();
+        }, { min: 0, max: 4, step: 1 }));
+        const specs = specializationOptions(unitTemplate.type);
+        if (unitTemplate.rank >= 1 && Object.keys(specs).length) {
+            sec.appendChild(selectRow('预设专精', unitTemplate.specializationKey || '', { '': '由玩家/AI选择', ...specs }, v => { unitTemplate.specializationKey = v; }));
+        }
+    }
     sec.appendChild(numRow('生命%', unitTemplate.hpPct, v => { unitTemplate.hpPct = Math.max(1, Math.min(100, Math.round(v))); }, { min: 1, max: 100 }));
     sec.appendChild(selectRow('士气', String(unitTemplate.morale), { 3: '上升', 2: '正常', 1: '下降', 0: '混乱' }, v => { unitTemplate.morale = Number(v); }));
     sec.appendChild(checkRow('本回合可行动', unitTemplate.canAct, v => { unitTemplate.canAct = v; }));
@@ -1309,6 +1356,9 @@ function buildFactionBasics() {
                 c.factions[idx].controller = value;
                 if (value === 'human') setLocalPlayerFaction(c, c.factions[idx].id);
             }, { rebuildPanels: true })));
+        box.appendChild(numRow('机场上限（-1=自动）', Number.isInteger(faction.airfieldCap) ? faction.airfieldCap : -1,
+            value => mutate(c => { c.factions[idx].airfieldCap = value < 0 ? undefined : Math.round(value); }, { rebuildPanels: false }),
+            { min: -1, max: 99, step: 1 }));
         box.appendChild(checkRow('参与回合', faction.participatesInTurns !== false,
             value => mutate(c => { c.factions[idx].participatesInTurns = value; syncTurnOrder(c); }, { rebuildPanels: true })));
         box.appendChild(checkRow('本关启用', faction.active !== false,
@@ -1451,6 +1501,37 @@ function buildTileInspector(q, r) {
     if (!tile) { wrap.appendChild(hint('该地块不在棋盘内。')); return wrap; }
     wrap.appendChild(hint(`行政区 ${tile.districtId} · ${factionLabels()[campKeyOfTile(tile)] || campKeyOfTile(tile)} · ${TERRAIN_LABELS[tile.terrain]}`
         + `${tile.isCity ? ' · 城市' : ''}${tile.isVillage ? ' · 村庄' : ''}${tile.fortification ? ' · ' + FORTIFICATION_LABELS[tile.fortification] : ''}`));
+    const installationIndex = config.board.installations.findIndex(item => item.q === q && item.r === r);
+    const installation = config.board.installations[installationIndex];
+    if (installation?.type === 'airfield') {
+        const sec = section('机场初始状态');
+        sec.appendChild(selectRow('状态', installation.status || 'ready', {
+            ready: '已建成', constructing: '施工中'
+        }, value => mutate(c => {
+            const target = c.board.installations[installationIndex];
+            target.status = value;
+            target.constructionReadyRound = value === 'constructing'
+                ? Math.max(1, Number(target.constructionReadyRound) || 1)
+                : undefined;
+        }, { rebuildPanels: true })));
+        if ((installation.status || 'ready') === 'constructing') {
+            sec.appendChild(numRow('开场后第几回合完工', installation.constructionReadyRound ?? 1,
+                value => mutate(c => { c.board.installations[installationIndex].constructionReadyRound = Math.max(1, Math.round(value)); }),
+                { min: 1, max: 99, step: 1 }));
+        }
+        for (const [kind, command] of Object.entries(AIR_COMMAND_CONFIG)) {
+            sec.appendChild(numRow(`${command.name}开场冷却`, installation.airCommandReadyRound?.[kind] || 0,
+                value => mutate(c => {
+                    const target = c.board.installations[installationIndex];
+                    target.airCommandReadyRound ||= {};
+                    const rounds = Math.max(0, Math.round(value));
+                    if (rounds === 0) delete target.airCommandReadyRound[kind];
+                    else target.airCommandReadyRound[kind] = rounds;
+                }), { min: 0, max: 99, step: 1 }));
+        }
+        sec.appendChild(hint('冷却值为0表示开场可用；数值N表示经过N个完整回合后可用。'));
+        wrap.appendChild(sec);
+    }
     wrap.appendChild(hint('切换到「棋盘」页签用笔刷修改此格；切换到「单位」页签在此放置单位。'));
     return wrap;
 }
@@ -1468,9 +1549,23 @@ function buildUnitInspector(index) {
             replaceInteractableUnitReference(c, previous, v);
         });
     }));
-    wrap.appendChild(selectRow('兵种', u.type, UNIT_LABELS, set('type')));
+    wrap.appendChild(selectRow('兵种', u.type, UNIT_LABELS, v => mutate(c => {
+        c.units[index].type = v;
+        if (isRankLockedUnit(v)) c.units[index].rank = 0;
+        c.units[index].specializationKey = null;
+    })));
     wrap.appendChild(selectRow('阵营', u.camp, factionLabels(), set('camp')));
     wrap.appendChild(selectRow('挂载将领', commanderMountValue(u), commanderMountOptions(), v => mutate(c => { setCommanderMount(c.units[index], v); })));
+    if (!isRankLockedUnit(u.type)) {
+        wrap.appendChild(numRow('军衔', u.rank || 0, v => mutate(c => {
+            c.units[index].rank = Math.max(0, Math.min(4, Math.round(v)));
+            if (c.units[index].rank === 0) c.units[index].specializationKey = null;
+        }), { min: 0, max: 4, step: 1 }));
+        const specs = specializationOptions(u.type);
+        if ((u.rank || 0) >= 1 && Object.keys(specs).length) {
+            wrap.appendChild(selectRow('预设专精', u.specializationKey || '', { '': '由玩家/AI选择', ...specs }, v => mutate(c => { c.units[index].specializationKey = v || null; })));
+        }
+    }
     wrap.appendChild(numRow('生命%', u.hpPct ?? 100, v => mutate(c => { c.units[index].hpPct = Math.max(1, Math.min(100, Math.round(v))); }), { min: 1, max: 100 }));
     wrap.appendChild(selectRow('士气', String(u.morale ?? 2), { 3: '上升', 2: '正常', 1: '下降', 0: '混乱' }, v => mutate(c => { c.units[index].morale = Number(v); })));
     wrap.appendChild(checkRow('本回合可行动', u.canAct !== false, set('canAct')));
@@ -1708,6 +1803,21 @@ function conditionDefaults(kind) {
         default: return { value: '' };
     }
 }
+
+function appendUnitFilterRows(box, cond, patch) {
+    box.appendChild(selectRow('基础兵种筛选', cond.type || '', { '': '任意兵种', ...UNIT_LABELS }, type => {
+        patch({ type: type || undefined, specializationKey: undefined });
+    }));
+    if (!cond.type) return;
+    const specializationOptions = Object.fromEntries(
+        getSpecializationOptions(cond.type).map(option => [option.key, option.name])
+    );
+    if (!Object.keys(specializationOptions).length) return;
+    box.appendChild(selectRow('专精筛选', cond.specializationKey || '', {
+        '': '任意专精（含标准型）',
+        ...specializationOptions
+    }, specializationKey => patch({ specializationKey: specializationKey || undefined })));
+}
 function actionDefaults(kind) {
     switch (kind) {
         case 'showStep': return { mode: 'narrator', text: '', next: '' };
@@ -1940,6 +2050,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
         }
         case 'campCompare':
             box.appendChild(selectRow('阵营', cond.camp || nonLocalFactionId(), factionLabels(), v => patch({ camp: v })));
+            appendUnitFilterRows(box, cond, patch);
             box.appendChild(selectRow('比较', cond.op || '<=', { '<=': '不多于', '==': '正好', '>=': '不少于' }, v => patch({ op: v })));
             box.appendChild(numRow('单位数', cond.value ?? 0, v => patch({ value: Math.max(0, Math.round(v)) }))); break;
         case 'relation':
@@ -1988,6 +2099,7 @@ function conditionEditor(cond, onChange, onRemove, parentIsAny = false) {
             }));
             box.appendChild(areaRow);
             box.appendChild(selectRow('阵营筛选', cond.camp || '', { '': '任意阵营', ...factionLabels() }, v => patch({ camp: v })));
+            appendUnitFilterRows(box, cond, patch);
             box.appendChild(selectRow('比较', cond.op || '>=', { '<=': '不多于', '==': '正好', '>=': '不少于' }, v => patch({ op: v })));
             box.appendChild(numRow('单位数', cond.value ?? 1, v => patch({ value: Math.max(0, Math.round(v)) }))); break;
         }
@@ -2044,6 +2156,17 @@ function spawnGroupEditor(units, onChange) {
             setCommanderMount(mounted, value);
             patch({ commander: mounted.commander, storyCommander: mounted.storyCommander });
         }));
+        if (!isRankLockedUnit(u.type || 'infantry')) {
+            box.appendChild(numRow('军衔', u.rank || 0, v => patch({
+                rank: Math.max(0, Math.min(4, Math.round(v))),
+                specializationKey: v < 1 ? null : u.specializationKey
+            }), { min: 0, max: 4, step: 1 }));
+            const specs = specializationOptions(u.type || 'infantry');
+            if ((u.rank || 0) >= 1 && Object.keys(specs).length) {
+                box.appendChild(selectRow('预设专精', u.specializationKey || '', { '': '由玩家/AI选择', ...specs },
+                    v => patch({ specializationKey: v || null })));
+            }
+        }
         box.appendChild(coordRow('坐标', u.q ?? 0, u.r ?? 0, tile => patch(tile)));
         box.appendChild(numRow('生命%', u.hpPct ?? 100, v => patch({ hpPct: Math.max(1, Math.min(100, Math.round(v))) })));
         wrap.appendChild(box);

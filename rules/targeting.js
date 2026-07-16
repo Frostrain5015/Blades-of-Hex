@@ -11,6 +11,8 @@ import { resolveAntiAirCoverage } from './antiAir.js';
 import { isSubmarineTargetableBy } from './naval.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN } from './movement.js';
+import { isBuildingUnit } from './units.js';
+import { getAirCommandRange } from './airCommands.js';
 
 export const TARGET_INTENTS = Object.freeze({
     HOSTILE: 'hostile',
@@ -72,6 +74,10 @@ export function findLivingColonel(gameState, camp) {
 
 function resolveIntent(cardTargeting) {
     const cardId = cardTargeting?.cardId;
+    if (cardId === 'air_command_bombing' || cardId === 'air_command_recon') {
+        return { intent: TARGET_INTENTS.AREA, shape: TARGET_SHAPES.AREA_CENTER };
+    }
+    if (cardId === 'air_command_airdrop') return { intent: TARGET_INTENTS.TRANSPORT, shape: TARGET_SHAPES.TILE };
     if (cardId === 'airstrike' || cardId === 'carpetBomb' || cardId === 'scout') {
         return { intent: TARGET_INTENTS.AREA, shape: TARGET_SHAPES.AREA_CENTER };
     }
@@ -83,7 +89,7 @@ function resolveIntent(cardTargeting) {
     if (cardId === 'airlift_dest' || cardId === 'airdrop') {
         return { intent: TARGET_INTENTS.TRANSPORT, shape: TARGET_SHAPES.TILE };
     }
-    if (cardId === 'drone_deploy' || cardId === 'engineer_bunker') {
+    if (cardId === 'drone_deploy' || cardId === 'engineer_bunker' || cardId === 'build_bunker') {
         return { intent: TARGET_INTENTS.DEPLOY, shape: TARGET_SHAPES.TILE };
     }
     if (cardTargeting?.targeting?.startsWith('empty')) {
@@ -94,13 +100,23 @@ function resolveIntent(cardTargeting) {
 
 function isVisibleCandidate(gameState, cardTargeting, tile, myCamp, isTileVisible) {
     if (!gameState.skirmishFog) return true;
-    if (cardTargeting.cardId === 'scout' && cardTargeting.targeting === 'anyTileGlobal') return true;
+    if ((cardTargeting.cardId === 'scout' || cardTargeting.cardId === 'air_command_recon') && cardTargeting.targeting === 'anyTileGlobal') return true;
     return isTileVisible(tile, myCamp, gameState);
 }
 
 function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, sources) {
     const { cardId, targeting } = cardTargeting;
     const unit = tile.unit;
+
+    if (cardId?.startsWith('air_command_')) {
+        const launcher = sources.launcherTile;
+        if (!launcher || hexDistance(launcher, tile) > getAirCommandRange(launcher)) return false;
+        if (cardId === 'air_command_strafe') return !!unit && !sameCamp(unit.camp, myCamp);
+        if (cardId === 'air_command_airdrop') {
+            return !unit && isLandDeploymentTile(tile) && !tile.isCity && !tile.isPort;
+        }
+        return true;
+    }
 
     if (cardId === 'drone_deploy') {
         const source = sources.sourceUnit;
@@ -131,6 +147,20 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
             && !tile.isVillage
             && hexDistance(source.tile, tile) === 1;
     }
+    if (cardId === 'build_bunker') {
+        const source = sources.sourceUnit;
+        return !!source?.tile && sameCamp(source.camp, myCamp) && !unit
+            && isLandDeploymentTile(tile) && sameCamp(tile.camp, myCamp)
+            && !tile.isCity && !tile.isVillage && !tile.isPort
+            && hexDistance(source.tile, tile) === 1;
+    }
+    if (cardId === 'field_repair') {
+        const source = sources.sourceUnit;
+        return !!source?.tile && source.commander === 'engineer' && !!unit
+            && sameCamp(unit.camp, myCamp) && unit.hp < unit.maxHp
+            && (isBuildingUnit(unit) || unit._constructionScaffold)
+            && hexDistance(source.tile, tile) <= 1;
+    }
     if (cardId === 'airlift_dest') {
         return !!sources.transportUnit?.tile
             && sources.transportUnit.hp > 0
@@ -158,11 +188,26 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
     if (targeting === 'emptyFriendlyNonCityNonMountain') {
         return !unit && isLandDeploymentTile(tile) && !tile.isCity && tile.terrain !== 'mountain' && sameCamp(tile.camp, myCamp);
     }
-    if (targeting === 'emptyFriendlyNonCity' || targeting === 'emptyFriendlyLandmine') {
+    if (targeting === 'emptyFriendlyLandmine') {
+        if (unit || tile._minePlanted || tile.isCity) return false;
+        if (isLandDeploymentTile(tile)) return sameCamp(tile.camp, myCamp);
+        const adjacentFriendlyShip = HEX_NEIGHBORS.some(([dq, dr]) => {
+            const support = gameState.tileMap?.get(`${tile.q + dq},${tile.r + dr}`)?.unit;
+            return support && sameCamp(support.camp, myCamp)
+                && ['destroyer', 'warship', 'submarine', 'carrier'].includes(support.type)
+                && support.isEmbarked !== true;
+        });
+        return adjacentFriendlyShip;
+    }
+    if (targeting === 'emptyFriendlyNonCity') {
         return !unit && isLandDeploymentTile(tile) && !tile.isCity && sameCamp(tile.camp, myCamp);
     }
     if (targeting === 'enemyCity') return tile.isCity && !sameCamp(tile.camp, myCamp);
-    if (targeting === 'shieldTarget' || targeting === 'anyUnit') return !!unit;
+    if (targeting === 'anyUnit') {
+        if (cardId === 'poison') return !!unit && !unit._poison;
+        return !!unit;
+    }
+    if (targeting === 'shieldTarget') return !!unit;
     if (targeting === 'anyTileGlobal') return true;
     return false;
 }
@@ -178,6 +223,9 @@ function canUnitOccupyTileForTransport(unit, tile, gameState) {
 function resolveSources(gameState, cardTargeting, myCamp) {
     const cardId = cardTargeting.cardId;
     let sourceUnit = null;
+    const launcherTile = cardId.startsWith('air_command_')
+        ? gameState?.tileMap?.get?.(`${cardTargeting.launcherQ},${cardTargeting.launcherR}`) || null
+        : null;
     if (cardId === 'drone_deploy') {
         sourceUnit = findUnit(gameState, unit => unit.commander === 'tianyan'
             && !areCommanderMechanicsSuppressed(unit)
@@ -185,15 +233,17 @@ function resolveSources(gameState, cardTargeting, myCamp) {
             && unit.hp > 0);
     } else if (cardId === 'drone_suicide') {
         sourceUnit = findUnitById(gameState, cardTargeting.droneId);
-    } else if (cardId === 'engineer_bunker') {
+    } else if (cardId === 'engineer_bunker' || cardId === 'field_repair') {
         sourceUnit = findUnitById(gameState, cardTargeting.engineerUnitId);
+    } else if (cardId === 'build_bunker') {
+        sourceUnit = findUnitById(gameState, cardTargeting.builderUnitId);
     }
 
     const colonel = COLONEL_TARGETING_CARD_IDS.has(cardId) ? findLivingColonel(gameState, myCamp) : null;
     const transportUnit = cardId === 'airlift_dest'
         ? findUnitById(gameState, gameState._airliftTarget?.unitId)
         : null;
-    return { sourceUnit, colonel, transportUnit };
+    return { sourceUnit, colonel, transportUnit, launcherTile };
 }
 
 function colonelTargetingAvailable(gameState, cardId, myCamp, colonel) {
@@ -224,8 +274,9 @@ function resolveAirOverlay(gameState, cardId, myCamp, sources, isTileVisible) {
             state: gameState,
             includeSources: true
         });
-        if (coverage.layers > 0) {
-            aaLayersByTileKey.set(key, coverage.layers);
+        if (coverage.reduction > 0) {
+            // 渲染器仍使用两档纹理强度；规则值本身保留在 source.reduction 中。
+            aaLayersByTileKey.set(key, coverage.reduction >= 0.50 ? 2 : 1);
             aaSourcesByTileKey.set(key, coverage.sources);
         }
     }

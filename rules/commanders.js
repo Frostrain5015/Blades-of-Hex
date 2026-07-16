@@ -71,16 +71,18 @@ function buildCenturion() {
 }
 
 function buildColonel() {
-    const balance = { ...COLONEL_CARD_DATA };
+    const balance = {
+        ...COLONEL_CARD_DATA,
+        baseAirDamageBonus: 0.20,
+        antiAirPierce: 0.15,
+        rangeBonus: 1
+    };
     return {
         definition: {
             id: 'colonel', name: '空军上校', hpBonusPct: 0.30, atkBonusPct: 0.30, spdBonus: 1,
             skills: [
-                { name: '制空', desc: `无法使用普通对策卡；上校存活且部署时可消耗金币使用专属空军对策卡；最大航程为${balance.range}格；雾天停飞无法使用`, type: 'passive' },
-                { name: '老练', desc: `每使用1张空军卡使本场空军伤害提高${percent(balance.airDamagePerStack)}，最多叠加${balance.maxAirDamageStacks}层`, type: 'passive' },
-                { name: '扫射', desc: COLONEL_CARD_DATA.diveStrafe.desc.replace('【扫射】', ''), type: 'active' },
-                { name: '轰炸', desc: COLONEL_CARD_DATA.carpetBomb.desc.replace('【轰炸】', ''), type: 'active' },
-                { name: '空运', desc: COLONEL_CARD_DATA.airlift.desc.replace('【空运】', ''), type: 'active' }
+                { name: '制空', desc: `驻扎己方机场城市或挂载航母时，空军伤害提高${percent(balance.baseAirDamageBonus)}、射程+${balance.rangeBonus}并无视${percent(balance.antiAirPierce)}防空；雾天停飞`, type: 'passive' },
+                { name: '老练', desc: `每发动1次受强化的空军行动，空军伤害再提高${percent(balance.airDamagePerStack)}，最多叠加${balance.maxAirDamageStacks}层`, type: 'passive' }
             ]
         },
         balance
@@ -102,19 +104,13 @@ function buildDiplomat() {
 }
 
 function buildEngineer() {
-    const balance = { trenchGoldCost: 2, flakGoldCost: 2, bunkerGoldCost: 5, bunkerBuildRounds: 1, bunkerCooldownRounds: 2, bunkerHp: 200, bunkerRange: 1 };
+    const balance = { trenchGoldCost: 1, flakGoldCost: 1, bunkerGoldCost: 7, airfieldGoldCost: 7, fieldRepairGoldCost: 3, fieldRepairCooldown: 2, fieldRepairHealPct: 0.50, bunkerBuildRounds: 0, bunkerCooldownRounds: 0, bunkerHp: 200, bunkerRange: 1 };
     return {
         definition: {
-            id: 'engineer', name: '工程师', hpBonusPct: 0.30, atkBonusPct: 0.15, spdBonus: 0,
+            id: 'engineer', name: '工程师', hpBonusPct: 0.30, atkBonusPct: 0.25, spdBonus: 0,
             skills: [
-                { name: '挖掘战壕', desc: `$${balance.trenchGoldCost} 在自身所在格挖掘永久【战壕】：处于其中的单位对近战攻击防御力提高${percent(FORTIFICATION_CONFIG.trench.defenseBonus)}`, type: 'active' },
-                { name: '高射机枪', desc: `$${balance.flakGoldCost} 在自身所在格架设永久【高射机枪】：处于其中的任何单位对远程攻击防御力提高${percent(FORTIFICATION_CONFIG.flak.defenseBonus)}`, type: 'active' },
-                { name: '建造碉堡', desc: `$${balance.bunkerGoldCost} 对指定位置施工，花费${balance.bunkerBuildRounds}个己方回合（期间工程师无法行动、同时只能修建1座碉堡）建成1座碉堡`, type: 'active' }
-            ],
-            activeSkills: [
-                { id: 'trench', name: '战壕', goldCost: balance.trenchGoldCost },
-                { id: 'flak', name: '高射机枪', goldCost: balance.flakGoldCost },
-                { id: 'bunker', name: '碉堡', goldCost: balance.bunkerGoldCost }
+                { name: '工兵指挥', desc: '建造工事时获得专属折扣；建造碉堡立即完成，驻城时该城市建设机场也享受折扣。', type: 'passive' },
+                { name: '战地抢修', desc: '消耗3金币修复相邻己方建筑或碉堡脚手架50%最大生命值，冷却2回合。', type: 'passive' }
             ]
         },
         balance

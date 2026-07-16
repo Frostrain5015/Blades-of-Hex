@@ -15,10 +15,8 @@ export async function run(browser) {
                 const u = { camp: CAMP.player1 };
                 cmdr.onDeploy(u, gs, {});
                 assert(gs._colonelDeployed.player1 === true, '_colonelDeployed.player1=true');
-                assert(gs.playerHands.player1.length === 3, '发放 3 张空军卡');
-                assert(gs.playerHands.player1.includes('diveStrafe'), '含扫射');
-                assert(gs.playerHands.player1.includes('carpetBomb'), '含轰炸');
-                assert(gs.playerHands.player1.includes('airlift'), '含空运');
+                assert(gs.playerHands.player1.length === 0, '部署上校不再向手牌注入旧空军卡');
+                assert(cmdr.skills.length === 2, '上校保留制空与老练两项航空被动');
             }
         } catch(e) { assert(false, '第 1 项异常: ' + e.message); }
         try {
@@ -27,7 +25,7 @@ export async function run(browser) {
                 const u = { camp: CAMP.player2 };
                 cmdr.onDeploy(u, gs, {});
                 assert(gs._colonelDeployed.player2 === true, '蓝军 campKey=player2');
-                assert(gs.playerHands.player2.length === 3, '蓝军也获得 3 卡');
+                assert(gs.playerHands.player2.length === 0, '蓝军同样不注入旧空军卡');
             }
         } catch(e) { assert(false, '第 2 项异常: ' + e.message); }
         { assert(true, '不抛异常'); }

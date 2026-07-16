@@ -35,29 +35,36 @@ export async function run(browser) {
         gameState.selectedUnit = engineer;
         gameState.selectedTile = city;
 
+        input.initInput();
         input.syncBoardActionBar();
         const actionBar = document.getElementById('canvasActionButtons');
         const actionButtons = document.querySelectorAll('#canvasActionButtons button');
-        const trench = document.getElementById('boardActiveSkill');
-        const flak = document.getElementById('boardSecondarySkill');
-        const bunker = document.getElementById('boardCommanderSkill2');
+        const airfield = document.getElementById('boardBuild-airfield');
+        const construction = document.getElementById('boardConstructionMenu');
+        const repair = document.getElementById('boardFieldRepair');
         const reinforce = document.getElementById('boardReinforce');
-        assert(actionButtons.length === 4, '工程师驻城可注册三项技能与补员共4项动作');
+        assert(actionButtons.length === 4, '工程师驻城显示机场、建设、抢修与补员共4项动作');
         assert(actionBar?.classList.contains('visible'), '选中单位时画布内动作条淡入');
-        assert(!!trench && !!flak && !!bunker && !!reinforce, '队列使用当前画布动作按钮标识');
-        assert([trench, flak, bunker, reinforce].every(button => button?.getAttribute('aria-disabled') === 'false'), '满足条件时四项动作均可用');
-        assert(trench?.style.getPropertyValue('--board-action-background').includes('#947026'), '工程师技能使用工程主题色');
-        assert(trench?.querySelector('.canvas-action-cost')?.textContent === '$2', '战壕动作显示$2成本');
+        assert(!!airfield && !!construction && !!repair && !!reinforce, '队列使用新版统一建设动作标识');
+        assert(construction?.getAttribute('aria-disabled') === 'false' && repair?.getAttribute('aria-disabled') === 'true', '建设可用；没有相邻受损建筑时抢修明确禁用');
+        assert(construction?.style.getPropertyValue('--board-action-background').includes('#8c6a2e'), '统一建设入口使用工程主题色');
+        construction?.click();
+        assert(document.getElementById('weatherChoiceOverlay')?.classList.contains('show')
+            && document.querySelectorAll('#choiceModalGrid .specialization-card').length === 3,
+        '单击建设按钮打开包含三种工事的二级弹窗');
+        const constructionCards = [...document.querySelectorAll('#choiceModalGrid .specialization-card')];
+        assert(constructionCards[0]?.disabled === false && constructionCards[1]?.disabled === false,
+        '可行动地面单位的战壕与高射机枪选项正常启用');
+        assert([...document.querySelectorAll('#choiceModalGrid .specialization-stat')].map(node => node.textContent).join('|') === '费用 $1|费用 $1|费用 $7', '工程师折扣在二级弹窗中统一展示');
+        document.getElementById('choiceModalCancel')?.click();
 
         city.fortification = 'trench';
         input.syncBoardActionBar();
-        assert(document.getElementById('boardActiveSkill')?.classList.contains('is-disabled'), '已有工事时战壕按钮变灰');
-        assert(document.getElementById('boardSecondarySkill')?.classList.contains('is-disabled'), '已有工事时高射机枪按钮变灰');
-        assert(!document.getElementById('boardCommanderSkill2')?.classList.contains('is-disabled'), '碉堡施工仍可指定相邻空地');
+        assert(!document.getElementById('boardConstructionMenu')?.classList.contains('is-disabled'), '已有本格工事时仍可从建设菜单选择相邻碉堡');
 
         gameState.playerGold.player1 = 0;
         input.syncBoardActionBar();
-        assert(document.getElementById('boardCommanderSkill2')?.classList.contains('is-disabled'), '金币不足时碉堡按钮变灰');
+        assert(!document.getElementById('boardConstructionMenu')?.classList.contains('is-disabled'), '金币不足仍允许打开建设菜单查看规则与禁用原因');
         assert(document.getElementById('boardReinforce')?.classList.contains('is-disabled'), '金币不足时补员按钮变灰');
 
         gameState.selectedUnit = null;

@@ -4,6 +4,7 @@
 
 import { deepFreeze } from './freeze.js';
 import { HEX_NEIGHBORS } from './hex.js';
+import { UNIT_RANK_CONFIG } from './units.js';
 
 /** 棋盘和回合的基础规则。一般无需为了平衡而修改像素尺寸。 */
 export const BOARD_RULES = deepFreeze({
@@ -24,15 +25,16 @@ export const GAME_RULES = deepFreeze({
     weatherCycle: { warmupRounds: 2, weatherDuration: 2, clearDuration: 1 },
     deckComposition: [
         'heal', 'heal', 'heal', 'heal', 'lightning', 'lightning', 'lightning',
-        'airstrike', 'airstrike', 'airdrop', 'airdrop', 'mgNest', 'shield', 'shield',
-        'landmine', 'landmine', 'imprison', 'imprison', 'forceMarch'
+        'mgNest', 'mgNest', 'shield', 'shield', 'shield',
+        'landmine', 'landmine', 'landmine', 'landmine',
+        'imprison', 'imprison', 'forceMarch', 'poison'
     ],
-    skirmishExtras: ['scout', 'scout', 'scout', 'scout', 'scout'],
+    skirmishExtras: [],
     // 选将：普通模式每人 3 候选选 1；双将模式每人 5 候选选 2 分别部署。
     commanderDraft: { candidatesPerPlayer: 3, dualCandidatesPerPlayer: 5, dualCommanderCount: 2 },
     // 遭遇战（战争迷雾）视野：各兵种可见格数；己方城市提供相邻格视野。
     skirmishVision: {
-        unitVision: { infantry: 1, cavalry: 2, archer: 2, mgNest: 2, shoreBattery: 2, drone: 2, destroyer: 2, warship: 3, submarine: 2 },
+        unitVision: { infantry: 1, cavalry: 2, archer: 2, mgNest: 2, shoreBattery: 2, drone: 2, destroyer: 2, warship: 3, submarine: 2, carrier: 3 },
         cityVisionRange: 1
     }
 });
@@ -66,17 +68,16 @@ export const COMBAT_BALANCE = deepFreeze({
         morale: { up: { min: 0.05, max: 0.10 }, down: { min: -0.05, max: -0.10 }, confused: { min: -0.10, max: -0.20 } }
     },
     counter: { advantageDamage: 0.20, disadvantageDamage: -0.20, advantageCrit: 0.25 },
-    defense: { minimumMultiplier: 0.20, forestVsRangedBonus: 0.15, cityInfantryBonus: 0.10, windInfantryPenalty: 0.15, rainCityInfantryBonus: 0.10, antiairPerLayer: 0.25, antiairMaxLayers: 3 },
+    defense: { minimumMultiplier: 0.15, maximumReduction: 0.85, forestVsRangedBonus: 0.15, cityInfantryBonus: 0.10, windInfantryPenalty: 0.15, rainCityInfantryBonus: 0.10 },
     cavalry: { normalChargeDamagePerStep: 0.10, fogChargeDamagePerStep: 0.15, maxChargeSteps: 3, fogDamageBonus: 0.20 },
     infantry: { cityHealPct: 0.10, cityDamageBonus: 0.15 },
     weather: { rainCityHealPct: 0.15, rainCavalryMovementCost: 1, fogArcherRangeDelta: -1, windArcherRangeDelta: 1, windArcherDamageBonus: 0.20 },
     rank: {
-        xpThresholds: [8, 18, 30, 48],
-        rankUpHealLostPct: 0.30,
-        hpBonusAtFirstRank: 20,
-        atkBonusAtSecondRank: 10,
-        defBonusAtThirdRank: 0.10,
-        critBonusAtThirdRank: 0.25,
-        regenPctAtFourthRank: 0.15
+        xpThresholds: UNIT_RANK_CONFIG.xpThresholds,
+        rankUpHealLostPct: UNIT_RANK_CONFIG.rankUpHealLostPct,
+        hpBonusAtSecondRank: UNIT_RANK_CONFIG.rank2.hp,
+        atkBonusAtSecondRank: UNIT_RANK_CONFIG.rank2.attack,
+        critBonusAtFourthRank: UNIT_RANK_CONFIG.rank4.critBonus,
+        regenPctAtFourthRank: UNIT_RANK_CONFIG.rank4.regenPct
     }
 });

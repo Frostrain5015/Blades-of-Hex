@@ -125,7 +125,31 @@ export function buildBoardFromConfig(config, gameState) {
     // 9) 工事。无论输入是否先经过校验，水格都不会落入工事状态。
     for (const f of (board.fortifications || [])) {
         const tile = at(f.q, f.r);
-        if (tile && isLandTile(tile)) tile.fortification = f.type || null;
+        if (tile && isLandTile(tile)) {
+            tile.fortification = f.type || null;
+            tile.fieldFortification = f.type ? {
+                type: f.type,
+                campKey: f.campKey || f.camp || tile.camp?.id || null,
+                ownerKnown: !!(f.campKey || f.camp || tile.camp?.id)
+            } : null;
+        }
+    }
+
+    for (const installation of (board.installations || [])) {
+        const tile = at(installation.q, installation.r);
+        if (!tile?.isCity || !installation.type) continue;
+        tile.installation = {
+            type: installation.type,
+            campKey: installation.campKey || installation.camp || tile.camp?.id || null,
+            status: installation.status || 'ready',
+            turnsRemaining: Math.max(0, Number(installation.turnsRemaining) || 0),
+            constructionReadyRound: Number.isFinite(installation.constructionReadyRound)
+                ? installation.constructionReadyRound
+                : undefined,
+            airCommandUsedThisTurn: false,
+            airCommandReadyRound: { ...(installation.airCommandReadyRound || {}) },
+            cooldowns: { ...(installation.cooldowns || {}) }
+        };
     }
 
     // 10) 港口是独立的受控浅水格，通过 districtId 跟随所属行政区变色。

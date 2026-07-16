@@ -3,6 +3,7 @@ export const MECHANIC_DEFINITIONS = Object.freeze({
     recruitment: Object.freeze({ label: '招募单位', defaultEnabled: true }),
     reinforcement: Object.freeze({ label: '补员', defaultEnabled: true }),
     commanderSkills: Object.freeze({ label: '将领主动技', defaultEnabled: true }),
+    airCommands: Object.freeze({ label: '空军指令与舰载机', defaultEnabled: true }),
     weatherEffects: Object.freeze({ label: '天气规则效果', defaultEnabled: true }),
     morale: Object.freeze({ label: '士气系统', defaultEnabled: true }),
     fortifications: Object.freeze({ label: '工事系统', defaultEnabled: true }),

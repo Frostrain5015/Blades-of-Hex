@@ -257,7 +257,7 @@ export function drawUnit(unit, gameState) {
         ctx.restore();
 
         // ── 潜艇潜航标记：未暴露时不可被非反潜单位选中 ──
-        if (unit.type === 'submarine' && !unit._submarineAttackExposed) {
+        if (unit.type === 'submarine' && unit._rank >= 1 && !unit._submarineAttackExposed) {
             ctx.save();
             const subPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
             ctx.globalAlpha = 0.5 + subPulse * 0.3;
@@ -267,6 +267,32 @@ export function drawUnit(unit, gameState) {
             ctx.shadowColor = 'rgba(30,140,200,0.8)';
             ctx.shadowBlur = 6 + subPulse * 4;
             ctx.fillText('🌊', visualX, visualY - HEX_SIZE * 0.85);
+            ctx.restore();
+        }
+
+        if (unit._poison) {
+            ctx.fillStyle = '#a9db5f';
+            ctx.font = 'bold 13px "Segoe UI Emoji", Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(28,52,10,0.9)';
+            ctx.shadowBlur = 5;
+            ctx.fillText(`☣️${Math.max(0, unit._poison.remainingTicks || 0)}`, HEX_SIZE * 0.5, HEX_SIZE * 0.4);
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+        }
+
+        if (unit.pendingSpecialization) {
+            ctx.save();
+            const pulse = (Math.sin(time * 3.2 * Math.PI) + 1) / 2;
+            ctx.globalAlpha = 0.78 + pulse * 0.22;
+            ctx.fillStyle = '#f1d7ff';
+            ctx.font = 'bold 15px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#8d63d8';
+            ctx.shadowBlur = 5 + pulse * 4;
+            ctx.fillText('!', visualX, visualY - HEX_SIZE * 0.86);
             ctx.restore();
         }
 

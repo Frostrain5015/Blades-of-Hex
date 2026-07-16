@@ -46,7 +46,7 @@ export async function run(browser) {
             remainingMP: 3, commander: 'paladin', _centurionTriggered: false,
             _atkBonus: 15, _rankDefBonus: 5, _rankCritBonus: 3, _rankRegenPct: 0,
             displaySpeed: 4, _xp: 20, _rank: 1, _fallen: false, activeSkillCD: 0, activeSkillDur: 0,
-            _engineerConstruction: { targetQ: 2, targetR: 0 },
+            _engineerFieldRepairReadyRound: 8,
             _phantomStacks: 0, _imprisoned: false,
             _isImmobile: false, _airdropWaiting: false, _soulRecallLandAt: 0, _airliftLandAt: 0,
             _martyrPrimed: false, _elegyBonus: 0, _elegyProcessed: 0, _isSoulMinion: false,
@@ -135,7 +135,7 @@ export async function run(browser) {
             assert(u.smiteCharged === false, 'smiteCharged');
             assert(u._atkBonus === 15 || u.atkBonus === 15, 'atkBonus');
             assert(palUnit.fortification === 'trench', 'fortification');
-            assert(u.engineerConstruction?.targetQ === 2, 'engineerConstruction');
+            assert(u.engineerFieldRepairReadyRound === 8, 'engineerFieldRepairReadyRound');
         }
 
         const fallenUnit = serialized.tiles.find(t => t.unit?.id === 'u_fallen');
@@ -184,7 +184,7 @@ export async function run(browser) {
                 assert(restoredPal.unit._smiteReady === true, '反序列化 smiteReady');
                 assert(restoredPal.unit._shield === 120, '反序列化 shield=120');
                 assert(restoredPal.fortification === 'trench', '反序列化 fortification=trench');
-                assert(restoredPal.unit._engineerConstruction?.targetQ === 2, '反序列化 engineerConstruction');
+                assert(restoredPal.unit._engineerFieldRepairReadyRound === 8, '反序列化 engineerFieldRepairReadyRound');
             }
 
             const restoredSoul = gs.tiles.find(t => t.unit?.id === 'u_soul');

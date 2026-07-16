@@ -20,12 +20,12 @@ export const FORTIFICATION_CONFIG = (() => {
         iconFont: `14px ${EMOJI_FONT_STACK}`
     };
     const flak = {
-        name: '高射机枪', defenseBonus: 0.25, appliesTo: 'ranged', providesSelfAA: true,
+        name: '高射机枪', defenseBonus: 0, appliesTo: 'air', providesSelfAA: true, antiAirReduction: 0.30,
         icon: EMOJI.fortification.flak,
         iconFont: `14px ${EMOJI_FONT_STACK}`
     };
     trench.desc = `对近战攻击防御力提高${percent(trench.defenseBonus)}`;
-    flak.desc = `对远程攻击防御力提高${percent(flak.defenseBonus)}`;
+    flak.desc = `为本格单位提供${percent(flak.antiAirReduction)}防空火力`;
     return deepFreeze({ trench, flak });
 })();
 

@@ -24,7 +24,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 
 | 字段 | 类型 | 必须 | 规则 |
 |---|---|---:|---|
-| `schemaVersion` | number | 是 | 固定为 `3` |
+| `schemaVersion` | number | 是 | 固定为 `4` |
 | `id` | string | 是 | 仅字母、数字、连字符；例如 `bi-t2-rescue` |
 | `title` | string | 是 | 关卡显示名 |
 | `chronicleId` | string | 是 | 所属传记 ID |
@@ -36,7 +36,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 | `factions` | array | 是 | 动态阵营定义，至少一个 |
 | `turnOrder` | string[] | 是 | 所有启用且参与回合的阵营，各出现一次 |
 | `diplomacy` | object | 是 | 对称外交矩阵 |
-| `mechanics` | object | 是 | 九个机制的布尔开关 |
+| `mechanics` | object | 是 | 十个机制的布尔开关 |
 | `aiOpponentCamp` | string | 是 | 兼容字段；通常写 `""`，战役 AI 由 faction.controller 决定 |
 | `aiDifficulty` | number | 是 | 建议 `0.1` 到 `3.0` |
 | `gold` | object | 是 | `{阵营ID: 非负数字}` |
@@ -72,7 +72,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "id": "sample-level",
   "title": "样例关卡",
   "chronicleId": "community",
@@ -116,6 +116,7 @@ Agent 必须输出一个 UTF-8、严格 JSON、顶层为对象的文件：
     "weatherEffects": true,
     "morale": true,
     "fortifications": true,
+    "airCommands": true,
     "fogOfWar": false,
     "alliedVision": false
   },
@@ -258,6 +259,13 @@ y = 375 + 45 * r
   "terrain": [{ "q": -1, "r": 0, "type": "forest" }],
   "villages": [{ "q": 0, "r": 1, "districtId": 1 }],
   "fortifications": [{ "q": 0, "r": -1, "type": "trench" }],
+  "installations": [{
+    "q": 0,
+    "r": 0,
+    "type": "airfield",
+    "status": "ready",
+    "airCommandReadyRound": { "bombing": 2 }
+  }],
   "districts": [{ "q": -1, "r": 1, "districtId": 1 }],
   "rivers": [{
     "id": "river-north",
@@ -268,7 +276,7 @@ y = 375 + 45 * r
     ]
   }],
   "crossings": [{ "riverId": "river-north", "segmentIndex": 0, "kind": "bridge" }],
-  "ports": [{ "q": 1, "r": -1 }]
+  "ports": [{ "q": 2, "r": -1, "districtId": 1, "landQ": 1, "landR": -1 }]
 }
 ```
 
@@ -282,12 +290,13 @@ y = 375 + 45 * r
 - `terrain`：只需列出覆盖项；未列出的格子默认 `plains`。
 - `villages`：不能与城市中心或城市 `footprint` 重叠。
 - `fortifications`：每格最多一个。
+- `installations`：目前只允许城市中心格上的 `airfield`。`status` 为 `ready/constructing`；施工中必须给出正整数 `constructionReadyRound`。`airCommandReadyRound` 可分别设置 `strafe/bombing/airdrop/recon` 的初始绝对可用轮次，0 或省略表示开场可用。
 - `districts`：覆盖自动 Voronoi 行政区，用于手绘边界；每个被使用的 `districtId` 应有城市。
 - `rivers`：边界折线；`id` 唯一，`width` 只允许 `stream/river`，`points` 至少两个相邻且不自交的吸附顶点。每个顶点的 `vertex` 为 `0..5`。
 - `crossings`：引用真实河流的零基 `segmentIndex`；`kind` 只允许 `bridge/ford`，同一河段最多一个通行点。
-- `ports`：只能位于至少邻接一个浅水或深水格的陆地真地块，坐标不得重复。
+- `ports`：港口本身是独立浅水格，必须邻接大陆；填写其 `districtId`，并用相邻大陆锚点 `landQ/landR` 指定栈桥朝向和行政归属。
 
-地图对象约束：水域不能叠加城市、城市 `footprint`、村庄、陆地地形、工事、行政区覆盖或港口。城市 footprint 之间不能重叠。`navigable?: boolean` 是旧 JSON 兼容字段，当前仅保留数据，不改变舰船移动；可航行水道必须由实体水域地块构成。
+地图对象约束：普通水域不能叠加城市、城市 `footprint`、村庄、陆地地形、工事或行政区覆盖；港口是唯一带行政区的浅水设施格。城市 footprint 之间不能重叠。`navigable?: boolean` 是旧 JSON 兼容字段，当前仅保留数据，不改变舰船移动；可航行水道必须由实体水域地块构成。
 
 枚举与规则：
 
@@ -338,6 +347,7 @@ Faction 对象：
   "color": "purple",
   "controller": "scripted",
   "participatesInTurns": false,
+  "airfieldCap": 1,
   "active": true
 }
 ```
@@ -351,6 +361,7 @@ Faction 对象：
 - 全关必须恰好一个 `human`，且其 ID 等于 `localPlayerCamp`。
 - `active !== false && participatesInTurns !== false` 的每个阵营必须恰好出现于 `turnOrder`。
 - `scripted` 适合剧情控制阵营；若参与回合，引擎会跳过其自动决策。
+- `airfieldCap` 可选，必须是非负整数；省略时按该阵营城市数自动计算 `ceil(城市数 / 3)`。
 
 `color` 只能选择下列规范 ID。Agent 不得输出任何十六进制色值，也不得分别编写旗色、地块色、深色或亮色；规则层会由一个 ID 统一解析所有表现形式。
 
@@ -393,12 +404,13 @@ Faction 对象：
   "weatherEffects": true,
   "morale": true,
   "fortifications": true,
+  "airCommands": true,
   "fogOfWar": true,
   "alliedVision": false
 }
 ```
 
-它们依次表示：对策卡、招募、补员、将领主动技、天气规则、士气、工事、战争迷雾、联盟共享视野。触发器可用 `setMechanicEnabled` 动态改变任一项。
+它们依次表示：对策卡、招募、补员、将领主动技、天气规则、士气、工事、机场空军指令与舰载机、战争迷雾、联盟共享视野。触发器可用 `setMechanicEnabled` 动态改变任一项。
 
 ## 7. 单位、主将和卡牌枚举
 
@@ -412,6 +424,8 @@ Faction 对象：
   "q": 0,
   "r": 0,
   "storyCommander": "marcus",
+  "rank": 1,
+  "specializationKey": "garrisonInfantry",
   "hpPct": 100,
   "morale": 2,
   "canAct": true
@@ -426,6 +440,8 @@ Faction 对象：
 - `hpPct` 为 `1..100`；也可使用绝对 `hp`，但不要同时写两者。
 - `morale`：`0` 混乱、`1` 下降、`2` 正常、`3` 上升。
 - `canAct` 只表示初始本回合能否行动。
+- `rank` 是 `0..4` 整数。0 阶只能是标准型；`mgNest/shoreBattery/drone` 等建筑单位必须保持 0 阶。
+- `specializationKey` 仅能在 `rank >= 1` 时填写，并且必须属于该基础兵种。高阶玩家单位留空会在局内等待玩家选择；AI/剧情单位留空会走确定性默认分支。
 - `storyCommander` 引用下述剧情将领身份；不要与 `commander` 同时出现。
 - `commander` 是兼容用的标准玩法将领直挂字段。正式战役中有姓名的人物优先使用 `storyCommander`，否则战场只会显示“百夫长”“尚书”等原型名。
 
@@ -458,11 +474,28 @@ Faction 对象：
 
 | ID | 显示名 | 基础生命 | 基础行动力 | 基础射程 |
 |---|---|---:|---:|---:|
-| `infantry` | 步 | 200 | 5 | 1 |
+| `infantry` | 步 | 180 | 4 | 1 |
 | `cavalry` | 骑 | 150 | 8 | 1 |
-| `archer` | 炮 | 100 | 3 | 2 |
+| `archer` | 炮 | 90 | 3 | 2 |
 | `mgNest` | 碉堡 | 200 | 0 | 2 |
+| `shoreBattery` | 岸防炮 | 150 | 0 | 2 |
 | `drone` | 无人机 | 75 | 8 | 2 |
+| `destroyer` | 驱逐舰 | 140 | 6 | 1 |
+| `warship` | 巡洋舰 | 180 | 4 | 2 |
+| `submarine` | 潜艇 | 100 | 8 | 1 |
+| `carrier` | 航母 | 250 | 3 | 5 |
+
+专精键：
+
+| 基础兵种 | 合法 `specializationKey` |
+|---|---|
+| `infantry` | `garrisonInfantry`、`assaultInfantry` |
+| `cavalry` | `lightCavalry`、`heavyCavalry` |
+| `archer` | `fieldGun`、`rocketArtillery`、`antiAirArtillery` |
+| `destroyer` | `antiAirDestroyer`、`antiSubDestroyer` |
+| `warship` | `fleetCruiser`、`supportCruiser` |
+
+`submarine` 与 `carrier` 达到 1/3 阶后自动强化固有职能，没有 `specializationKey`。航母不能从港口直接招募，只能由地图预置或触发器生成。
 
 将领 ID：
 
@@ -478,7 +511,7 @@ Faction 对象：
 | `priest` | 牧师 | `staller` | 停滞者 |
 | `tianyan` | 天眼 | `vampire` | 吸血鬼 |
 
-卡牌 ID：`heal`、`lightning`、`mgNest`、`airdrop`、`imprison`、`forceMarch`、`scout`、`airstrike`、`shield`、`landmine`、`commanderDeploy`。
+卡牌 ID：`heal`、`lightning`、`mgNest`、`airdrop`、`imprison`、`forceMarch`、`scout`、`airstrike`、`shield`、`landmine`、`poison`、`commanderDeploy`。空军扫射、轰炸、空降与侦察机是机场指令，不是手牌卡牌。
 
 `hands` 的每个值是卡牌 ID 数组。若 `tacticalCards` 为 `false`，可以保留空数组。
 
@@ -760,7 +793,7 @@ Faction 对象：
 | `cityOwnedBy` | `q,r,camp` | 指定坐标必须是城市且当前属于阵营 |
 | `unitExists` | `unit,alive:boolean` | `true`=仍在场；`false`=阵亡或不存在 |
 | `unitHpCompare` | `unit,mode,op,value` | `mode` 为 `percent/value`；op 为 `<,<=,==,>=,>` |
-| `factionUnitCount` | `camp,op,value` | 存活单位数；op 使用 `<=,==,>=` |
+| `factionUnitCount` | `camp,op,value` | 存活单位数；可选 `type,specializationKey` 精确筛选，op 使用 `<=,==,>=` |
 | `goldCompare` | `camp,op,value` | 金币比较；op 使用 `<,<=,==,>=,>` |
 | `variableCompare` | `scope,variable,op,value` | scope 为 `level/campaign`；数字支持六种比较，布尔/文本只用 `==/!=` |
 | `tileOwnedBy` | `q,r,camp` | 任意地块当前归属 |
@@ -770,7 +803,7 @@ Faction 对象：
 | `interactionStateIs` | `interactable,state` | state 为 `disabled/available/completed` |
 | `collectibleUnlocked` | `collectible,unlocked` | 判断玩家是否已永久获得指定收藏物；`unlocked` 为布尔值，可跨关用于分支和结局 |
 | `groupState` | `group,state` | state 为 `anyAlive/allAlive/allDead/casualty` |
-| `unitsInArea` | `area,op,value` | 可选 `camp`；统计区域格上的单位数；op 为 `<=,==,>=` |
+| `unitsInArea` | `area,op,value` | 可选 `camp,type,specializationKey`；统计区域格上的单位数；op 为 `<=,==,>=` |
 | `mechanicEnabled` | `mechanic,enabled` | 指定机制当前是否启用 |
 | `triggerEnabled` | `trigger,enabled` | 指定触发器当前是否启用 |
 
@@ -859,6 +892,8 @@ Faction 对象：
       "type": "cavalry",
       "camp": "player1",
       "commander": "paladin",
+      "rank": 1,
+      "specializationKey": "heavyCavalry",
       "q": -2,
       "r": 1,
       "hpPct": 100

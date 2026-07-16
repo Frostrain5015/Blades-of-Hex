@@ -153,6 +153,7 @@ export function createMatchState() {
         objectiveStates: {},
         interactionStates: {},
         mechanics: createDefaultMechanics(),
+        airfieldCapOverrides: {},
         aiOpponentCamp: null,   // PVE 模式下 AI 对手的运行时阵营对象
         isThreePlayer: false,   // 三人模式
         surrenderedCamps: [],   // 三人模式中已投降的阵营
@@ -411,6 +412,8 @@ export function serializeMatchState(match) {
         districtId: waterTile && !t.isPort ? null : t.districtId,
         terrain: waterTile ? 'plains' : t.terrain,
         fortification: waterTile ? null : (t.fortification || null),
+        fieldFortification: waterTile ? null : (t.fieldFortification ? { ...t.fieldFortification } : null),
+        installation: waterTile ? null : (t.installation ? structuredClone(t.installation) : null),
         isPort: !!t.isPort,
         portCapturedIndependent: !!t._portCapturedIndependent,
         portOperationalAtRound: t._portOperationalAtRound || 0,
@@ -418,9 +421,11 @@ export function serializeMatchState(match) {
         targetColor: t.targetColor,
         currentColor: t.currentColor,
         fadeStartTime: t.fadeStartTime,
-        minePlanted: waterTile ? false : (t._minePlanted || false),
-        mineCampKey: waterTile ? null : (t._mineCampKey || null),
+        minePlanted: t._minePlanted || false,
+        mineCampKey: t._mineCampKey || null,
+        mineType: t._mineType || (t._minePlanted ? (waterTile ? 'water' : 'land') : null),
         cityDisabledUntil: waterTile ? 0 : (t._cityDisabledUntil || 0),
+        cityFireStacks: waterTile ? 0 : (t._cityFireStacks || 0),
         reinforcedThisTurn: waterTile ? false : (t._reinforcedThisTurn || false),
         unit: t.unit ? {
             id: t.unit.id,
@@ -447,6 +452,8 @@ export function serializeMatchState(match) {
             commanderPortrait: t.unit.commanderPortrait || null,
             _centurionTriggered: t.unit._centurionTriggered,
             _atkBonus: t.unit._atkBonus,
+            rankModelVersion: 2,
+            specializationKey: t.unit.specializationKey || null,
             _rankDefBonus: t.unit._rankDefBonus || 0,
             _rankCritBonus: t.unit._rankCritBonus || 0,
             _rankRegenPct: t.unit._rankRegenPct || 0,
@@ -470,6 +477,7 @@ export function serializeMatchState(match) {
             shield: t.unit._shield || 0,
             shieldMax: t.unit._shieldMax || 0,
             shieldTurns: t.unit._shieldTurns || 0,
+            poison: t.unit._poison ? { ...t.unit._poison } : null,
             faith: t.unit._faith || 0,
             oathGainTurn: t.unit._oathGainTurn ?? null,
             smiteReady: t.unit._smiteReady || false,
@@ -480,9 +488,11 @@ export function serializeMatchState(match) {
             droneSignalDisabled: t.unit._droneSignalDisabled || false,
             droneCampKey: t.unit._droneCampKey || null,
             droneBornAt: t.unit._droneBornAt || 0,
-            engineerConstruction: t.unit._engineerConstruction ? { ...t.unit._engineerConstruction } : null,
-            engineerScaffold: t.unit._engineerScaffold ? { ...t.unit._engineerScaffold } : null,
-            engineerBunkerCD: t.unit._engineerBunkerCD || 0
+            constructionScaffold: t.unit._constructionScaffold ? { ...t.unit._constructionScaffold } : null,
+            fieldRepairCooldown: t.unit._fieldRepairCooldown || 0,
+            engineerFieldRepairReadyRound: Number.isFinite(t.unit._engineerFieldRepairReadyRound)
+                ? t.unit._engineerFieldRepairReadyRound
+                : null
         } : null
         };
     });
@@ -522,6 +532,7 @@ export function serializeMatchState(match) {
         objectiveStates: structuredClone(match.objectiveStates || {}),
         interactionStates: structuredClone(match.interactionStates || {}),
         mechanics: { ...(match.mechanics || createDefaultMechanics()) },
+        airfieldCapOverrides: { ...(match.airfieldCapOverrides || {}) },
         logHistory: [...match.logHistory],
         idCounter: getCounter(),
         weather: match.weather,
@@ -626,6 +637,7 @@ export function restoreMatchState(match, data, deps) {
     match.objectiveStates = data.objectiveStates ? structuredClone(data.objectiveStates) : {};
     match.interactionStates = data.interactionStates ? structuredClone(data.interactionStates) : {};
     match.mechanics = data.mechanics ? { ...data.mechanics } : createDefaultMechanics();
+    match.airfieldCapOverrides = { ...(data.airfieldCapOverrides || {}) };
     match.boardLayout = data.boardLayout || 'hex';
     match.rivers = (data.rivers || []).map(river => ({
         ...river,
@@ -686,10 +698,14 @@ export function restoreMatchState(match, data, deps) {
     match._rerollPenaltyApplied = { player1: false, player2: false, player3: false, ...(data.rerollPenaltyApplied || {}) };
     match.commanderPhase = data.commanderPhase || 'done';
     match.factionMoraleBoost = record(data.factionMoraleBoost, () => 0);
-    if (data.cardDrawPile) match.cardDrawPile = [...data.cardDrawPile];
-    if (data.cardDiscardPile) match.cardDiscardPile = [...data.cardDiscardPile];
+    const obsoleteAirCards = new Set(['diveStrafe', 'carpetBomb', 'airlift', 'airstrike', 'airdrop', 'scout']);
+    const cardId = card => typeof card === 'object' && card ? card.id : card;
+    if (data.cardDrawPile) match.cardDrawPile = data.cardDrawPile.filter(card => !obsoleteAirCards.has(cardId(card)));
+    if (data.cardDiscardPile) match.cardDiscardPile = data.cardDiscardPile.filter(card => !obsoleteAirCards.has(cardId(card)));
     match.playerHands = record(data.playerHands, () => []);
-    for (const key of factionKeys) match.playerHands[key] = [...(match.playerHands[key] || [])];
+    for (const key of factionKeys) {
+        match.playerHands[key] = (match.playerHands[key] || []).filter(card => !obsoleteAirCards.has(cardId(card)));
+    }
     match.playerDrawsThisTurn = record(data.playerDrawsThisTurn, () => 0);
     match.playerUsesThisTurn = record(data.playerUsesThisTurn, () => 0);
     match.gameMode = data.gameMode || 'local';
@@ -778,7 +794,11 @@ export function restoreMatchState(match, data, deps) {
         tile.villageDistrictId = waterTile ? 0 : (td.villageDistrictId || 0);
         tile.districtId = waterTile && !restoredPort ? null : td.districtId;
         tile.terrain = waterTile ? 'plains' : (td.terrain || 'plains');
-        tile.fortification = waterTile ? null : (td.fortification || null);
+        tile.fortification = waterTile ? null : (td.fieldFortification?.type || td.fortification || null);
+        tile.fieldFortification = waterTile || !tile.fortification ? null : (td.fieldFortification
+            ? { ...td.fieldFortification }
+            : { type: tile.fortification, campKey: null, ownerKnown: false });
+        tile.installation = waterTile || !td.installation ? null : structuredClone(td.installation);
         tile.isPort = restoredPort;
         tile._portCapturedIndependent = restoredPort && td.portCapturedIndependent === true;
         tile._portOperationalAtRound = restoredPort ? (td.portOperationalAtRound || 0) : 0;
@@ -799,9 +819,11 @@ export function restoreMatchState(match, data, deps) {
         } else {
             tile.fadeStartTime = null;
         }
-        tile._minePlanted = waterTile ? false : (td.minePlanted || false);
-        tile._mineCampKey = waterTile ? null : (td.mineCampKey || null);
+        tile._minePlanted = td.minePlanted || false;
+        tile._mineCampKey = td.mineCampKey || null;
+        tile._mineType = td.mineType || (tile._minePlanted ? (waterTile ? 'water' : 'land') : null);
         tile._cityDisabledUntil = waterTile ? 0 : (td.cityDisabledUntil || 0);
+        tile._cityFireStacks = waterTile ? 0 : (td.cityFireStacks || 0);
         tile._reinforcedThisTurn = waterTile ? false : (td.reinforcedThisTurn || false);
         const unitType = td.unit ? (td.unit.isDrone ? 'drone' : td.unit.type) : null;
         if (td.unit && canUnitOccupyTile({ type: unitType, isEmbarked: td.unit.isEmbarked === true }, tile, match)) {
@@ -811,14 +833,17 @@ export function restoreMatchState(match, data, deps) {
                 tile,
                 td.unit.isNewRecruit,
                 td.unit.id,
-                null,
+                td.unit.commander || null,
                 {
                     isEmbarked: td.unit.isEmbarked === true,
                     transitionedThisTurn: td.unit.transportTransitionedThisTurn === true
                 }
             );
-            unit.hp = td.unit.hp;
-            unit.maxHp = td.unit.maxHp;
+            unit._xp = Math.max(0, Number(td.unit.xp) || 0);
+            unit._rank = unit._rankLocked ? 0 : Math.max(0, Math.min(4, Math.trunc(Number(td.unit.rank) || 0)));
+            unit.specializationKey = td.unit.specializationKey || null;
+            unit._rebuildRankProfile({ adjustResources: false });
+            unit.hp = Math.max(0, Math.min(unit.maxHp, Number(td.unit.hp) || 0));
             unit.canAct = td.unit.canAct;
             unit.movedThisTurn = td.unit.movedThisTurn;
             unit.counterAttackCount = td.unit.counterAttackCount;
@@ -830,7 +855,7 @@ export function restoreMatchState(match, data, deps) {
             else unit.morale = 2;
             unit.moraleBoostUntil = td.unit.moraleBoostUntil || 0;
             unit.moralePenaltyUntil = td.unit.moralePenaltyUntil || 0;
-            unit.remainingMP = td.unit.remainingMP ?? unit.config.speed;
+            unit.remainingMP = td.unit.remainingMP ?? unit.getEffectiveSpeed();
               unit.isEmbarked = td.unit.isEmbarked === true;
               unit._transportTransitionedThisTurn = td.unit.transportTransitionedThisTurn === true;
             unit._portGuardUntilRound = td.unit.portGuardUntilRound || 0;
@@ -841,13 +866,9 @@ export function restoreMatchState(match, data, deps) {
             unit.commanderName = td.unit.commanderName || '';
             unit.commanderPortrait = td.unit.commanderPortrait || unit.commander || null;
             unit._centurionTriggered = td.unit._centurionTriggered || false;
-            unit._atkBonus = td.unit._atkBonus || 0;
-            unit._rankDefBonus = td.unit._rankDefBonus || 0;
-            unit._rankCritBonus = td.unit._rankCritBonus || 0;
-            unit._rankRegenPct = td.unit._rankRegenPct || 0;
-            unit.displaySpeed = td.unit.displaySpeed ?? unit.config.speed;
-            unit._xp = td.unit.xp || 0;
-            unit._rank = td.unit.rank || 0;
+            const legacyRankAttack = !td.unit.rankModelVersion && unit._rank >= 2 ? 10 : 0;
+            unit._atkBonus = Math.max(0, (Number(td.unit._atkBonus) || 0) - legacyRankAttack);
+            unit.displaySpeed = unit.getEffectiveSpeed();
             unit._fallen = td.unit.fallen || false;
             unit.activeSkillCD = td.unit.activeSkillCD || 0;
             unit.activeSkillDur = td.unit.activeSkillDur || 0;
@@ -865,6 +886,7 @@ export function restoreMatchState(match, data, deps) {
             unit._shield = td.unit.shield || 0;
             unit._shieldMax = td.unit.shieldMax || 0;
             unit._shieldTurns = td.unit.shieldTurns || 0;
+            unit._poison = td.unit.poison ? { ...td.unit.poison } : null;
             unit._faith = td.unit.faith || 0;
             unit._oathGainTurn = td.unit.oathGainTurn ?? undefined;
             unit._smiteReady = td.unit.smiteReady || false;
@@ -878,6 +900,13 @@ export function restoreMatchState(match, data, deps) {
             unit._engineerConstruction = td.unit.engineerConstruction ? { ...td.unit.engineerConstruction } : null;
             unit._engineerScaffold = td.unit.engineerScaffold ? { ...td.unit.engineerScaffold } : null;
             unit._engineerBunkerCD = td.unit.engineerBunkerCD || 0;
+            unit._constructionScaffold = td.unit.constructionScaffold ? { ...td.unit.constructionScaffold } : null;
+            unit._fieldRepairCooldown = td.unit.fieldRepairCooldown || 0;
+            unit._engineerFieldRepairReadyRound = Number.isFinite(td.unit.engineerFieldRepairReadyRound)
+                ? td.unit.engineerFieldRepairReadyRound
+                : Number.isFinite(td.unit.fieldRepairReadyRound)
+                    ? td.unit.fieldRepairReadyRound
+                : undefined;
             // 保留本地已知的将领数据（对方状态同步中可能缺失我方部署的将领）
             if (!unit.isCommanderUnit) {
                 const saved = oldCommander.get(unit.id);
@@ -900,6 +929,19 @@ export function restoreMatchState(match, data, deps) {
     match.tileMap = new Map();
     for (const tile of match.tiles) {
         match.tileMap.set(tileCoordinateKey(tile), tile);
+    }
+    const snapshotHasInstallations = (data.tiles || []).some(tile =>
+        Object.prototype.hasOwnProperty.call(tile || {}, 'installation')
+    );
+    if (!snapshotHasInstallations && !match.campaignMode) {
+        for (const key of factionKeys.filter(key => key !== 'neutral')) {
+            const city = match.tiles.find(tile => tile.isCity && _campToKey(tile.camp) === key);
+            if (!city) continue;
+            city.installation = {
+                type: 'airfield', campKey: key, status: 'ready', turnsRemaining: 0,
+                airCommandUsedThisTurn: false, airCommandReadyRound: {}, cooldowns: {}
+            };
+        }
     }
     match.surfaceMap = new Map(match.tiles.filter(isWaterTile).map(tile => [tileCoordinateKey(tile), tile.surface]));
     match.coastEdges = buildCoastTopology(match.tiles, match.tileMap);

@@ -542,6 +542,7 @@ export function clearselection() {
     gameState.selectedUnit = null;
     gameState.selectedCityTile = null;
     gameState.selectedTile = null;
+    gameState.selectedInstallation = null;
     gameState.movableTiles = [];
     gameState._fogSafeMovablePreview = null;
     gameState.attackableTiles = [];
@@ -561,6 +562,7 @@ export function deselectUnit() {
     gameState.deselectionTime = performance.now();
     gameState.selectedUnit = null;
     gameState.selectedCityTile = null;
+    gameState.selectedInstallation = null;
     gameState.movableTiles = [];
     gameState._fogSafeMovablePreview = null;
     gameState.attackableTiles = [];
