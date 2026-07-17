@@ -1441,20 +1441,24 @@ function _buildPassiveItems(unit) {
         const abilityNumbers = Object.values(specialization.abilities || {})
             .filter(value => value && typeof value === 'object' && Number.isFinite(value[rankTier]))
             .map(value => Math.round(value[rankTier] * 100) + '%');
-        const stacks = unit.specializationKey === 'lightCavalry'
-            ? Math.min(3, Math.max(0, unit.moveDistance || 0))
+        // 统一使用专精弹窗中的详细技能描述（含实时百分比数值）
+        const detailDesc = SPECIALIZATION_DETAILS[unit.specializationKey]?.(unit);
+        // 层数追踪：自动检测能力中是否有 maxStacks，有则接入 moveDistance
+        const maxStacks = Object.values(specialization.abilities || {}).find(a => a?.maxStacks)?.maxStacks || 0;
+        const stacks = maxStacks > 0
+            ? Math.min(maxStacks, Math.max(0, unit.moveDistance || 0))
             : 0;
         items.push({
             key: 'specialization:' + unit.id + ':' + unit.specializationKey,
             icon: specializationPassive.icon,
             label: specializationPassive.name,
-            desc: specialization.description + (abilityNumbers.length ? `（当前 ${abilityNumbers.join(' / ')}）` : ''),
+            desc: detailDesc || specialization.description,
             color: '#a9d8ff',
-            status: stacks > 0 ? `当前生效 ${stacks}层` : '当前生效',
+            status: stacks > 0 ? `当前 ${stacks}/${maxStacks} 层` : (stacks === 0 && maxStacks > 0 ? '0 层' : '当前生效'),
             count: stacks || '',
             kicker: '兵种被动',
             active: true,
-            intensity: stacks > 0 ? stacks / 3 : 1,
+            intensity: maxStacks > 0 ? stacks / maxStacks : 1,
             kind: 'passive'
         });
     } else if ((unit.type === 'submarine' || unit.type === 'carrier') && unit._rank >= 1) {
