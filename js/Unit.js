@@ -319,6 +319,13 @@ export class Unit {
     chooseSpecialization(specializationKey) {
         if (this._rankLocked || this._rank < 1 || this.specializationKey) return false;
         if (!isValidSpecialization(this.type, specializationKey)) return false;
+        // 防守：非 AI/中立单位在 UI 路径以外不应自动选择专精
+        const campKey = campToKey(this.camp);
+        const controller = _gameState?.factions?.[campKey]?.controller;
+        if (controller !== 'ai' && campKey !== 'neutral') {
+            const stk = new Error().stack;
+            if (!stk?.includes('_applySpecializationChoice')) return false;
+        }
         this.specializationKey = specializationKey;
         this._rebuildRankProfile();
         emit('match:unitSpecialized', {
