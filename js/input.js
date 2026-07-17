@@ -570,6 +570,11 @@ export function syncBoardActionBar() {
 
 function _activateBoardAction(action) {
     if (action.kind === 'openAirCommands') {
+        // 再次点击已激活的空军按钮 → 取消目标选择
+        if (gameState.cardTargeting?.cardId?.startsWith('air_command_')) {
+            cancelCardTargeting();
+            return;
+        }
         const tile = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
         if (tile?.installation?.type !== 'airfield' || tile.installation.status !== 'ready') return;
         _showAirCommandChoice(tile);
@@ -597,6 +602,11 @@ function _activateBoardAction(action) {
         return;
     }
     if (action.kind === 'openConstruction' && Number.isInteger(action.tileQ) && Number.isInteger(action.tileR)) {
+        // 再次点击已激活的建造按钮 → 取消目标选择（如碉堡选址中）
+        if (gameState.cardTargeting?.cardId === 'build_bunker') {
+            cancelCardTargeting();
+            return;
+        }
         const tile = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
         if (tile) _showConstructionChoice(null, tile);
         return;
@@ -630,6 +640,11 @@ function _activateBoardAction(action) {
     }
 
     if (action.kind === 'openConstruction') {
+        // 再次点击已激活的建造按钮 → 取消目标选择（如碉堡选址中）
+        if (gameState.cardTargeting?.cardId === 'build_bunker') {
+            cancelCardTargeting();
+            return;
+        }
         _showConstructionChoice(unit);
         return;
     }
