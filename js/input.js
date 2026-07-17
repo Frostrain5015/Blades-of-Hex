@@ -385,7 +385,7 @@ function _collectBoardActions(unit, tile = null) {
             buttonId: 'boardChooseSpecialization',
             kind: 'chooseSpecialization',
             unitId: unit.id,
-            icon: '✦',
+            icon: '🎖',
             label: '选择专精',
             canUse: isControllable,
             reason: isControllable ? '' : unavailableReason,
@@ -1361,6 +1361,20 @@ function _buildEffectItems(tile, unit) {
             kind: 'effect'
         });
     }
+    if (unit._poison) {
+        const remain = Math.max(0, unit._poison.remainingTicks || 0);
+        items.push({
+            key: 'status:poison',
+            icon: '☣️',
+            label: '中毒',
+            desc: '所属阵营回合开始流失15%最大生命，可致死，并向相邻未中毒单位传播；疗愈卡可净化。',
+            color: '#9bcf55',
+            count: '⏳' + remain,
+            status: `剩余${remain}次结算`,
+            kind: 'effect'
+        });
+    }
+
     // 战役触发器施加的效果
     if (unit && Array.isArray(unit._campaignEffects) && unit._campaignEffects.length) {
         for (const eff of unit._campaignEffects) {
@@ -1468,15 +1482,6 @@ function _buildPassiveItems(unit) {
             color: '#e8c477', count: '⏳' + remain, status: '施工中', kind: 'effect'
         });
     }
-    if (unit._poison) {
-        const remain = Math.max(0, unit._poison.remainingTicks || 0);
-        items.push({
-            key: 'status:poison', icon: '☣️', label: '中毒',
-            desc: '所属阵营回合开始流失15%最大生命，可致死，并向相邻未中毒单位传播；疗愈卡可净化。',
-            color: '#9bcf55', count: '⏳' + remain, status: `剩余${remain}次结算`, kind: 'effect'
-        });
-    }
-
     if (!unit.commander) return items;
     if (areCommanderMechanicsSuppressed(unit) && unit.commander !== 'colonel') return items;
     const commander = getCommander(unit.commander);

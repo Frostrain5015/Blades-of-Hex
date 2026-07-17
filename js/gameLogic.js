@@ -943,15 +943,19 @@ export function grantTurnStartIncome(camp) {
     return dmgTextsBefore;
 }
 
-/** 在所属阵营回合开始时按快照结算毒素；新感染单位不会在本次继续传播。 */
+/** 在所属阵营回合开始时按快照结算毒素；新感染单位不会在本次继续传播。
+ *  每个单位每回合只处理一次，传播仅限相邻地块不分阵营，避免二次传染。 */
 export function resolvePoisonAtTurnStart(camp) {
     const poisonBalance = TACTICAL_CARD_CONFIG.poison.balance;
     const snapshot = gameState.tiles
         .map(tile => tile.unit)
         .filter(unit => unit?.camp === camp && unit._poison && unit.hp > 0);
     const newlyInfected = [];
+    const processedIds = new Set();
     for (const unit of snapshot) {
-        if (!unit.tile || unit._poison?.lastResolvedTurnCounter === gameState.turnCounter) continue;
+        if (!unit.tile || processedIds.has(unit.id)) continue;
+        if (unit._poison?.lastResolvedTurnCounter === gameState.turnCounter) continue;
+        processedIds.add(unit.id);
         const poison = unit._poison;
         poison.lastResolvedTurnCounter = gameState.turnCounter;
         const originTile = unit.tile;
@@ -966,7 +970,9 @@ export function resolvePoisonAtTurnStart(camp) {
         if (!killed && originTile.unit === unit) {
             for (const [dq, dr] of HEX_NEIGHBORS) {
                 const target = gameState.tileMap.get(`${originTile.q + dq},${originTile.r + dr}`)?.unit;
-                if (!target || target._poison || target.hp <= 0) continue;
+                if (!target || target.hp <= 0) continue;
+                // 不分阵营传播给相邻的未中毒单位，且同一回合不会二次感染
+                if (target._poison) continue;
                 target._poison = {
                     remainingTicks: poisonBalance.ticks,
                     sourceCampKey: poison.sourceCampKey,
