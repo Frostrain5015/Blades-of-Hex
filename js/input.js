@@ -2840,8 +2840,15 @@ function _showConstructionChoice(unit, siteTile = null) {
                 executeShoreBatteryConstruction(siteTile);
                 showSelectionHudForTile(siteTile);
             } else if (definition.kind === 'bunker') {
-                clearselection();
-                showTargetingBanner('请选择相邻的己方空地');
+                // 保持已选单位不放，让建设按钮继续可见以便再次点击取消
+                gameState.selectedCityTile = null;
+                gameState.movableTiles = [];
+                gameState._fogSafeMovablePreview = null;
+                gameState.attackableTiles = [];
+                gameState.chainAttackTiles = [];
+                gameState.chainAttackPlans = new Map();
+                gameState.selectionTime = 0;
+                showTargetingBanner('请选择相邻的己方空地（再次点击建设按钮取消）');
                 gameState.cardTargeting = {
                     cardId: 'build_bunker', targeting: 'emptyTile', handIndex: -1,
                     builderUnitId: unit.id, startedAt: performance.now()
@@ -2877,7 +2884,15 @@ function _showAirCommandChoice(launcherTile) {
         card.addEventListener('click', () => {
             _closeChoiceModal();
             if (!availability.available) return;
-            clearselection();
+            // 保持已选地块不放，让✈按钮继续可见以便再次点击取消
+            gameState.selectedUnit = null;
+            gameState.selectedCityTile = null;
+            gameState.movableTiles = [];
+            gameState._fogSafeMovablePreview = null;
+            gameState.attackableTiles = [];
+            gameState.chainAttackTiles = [];
+            gameState.chainAttackPlans = new Map();
+            gameState.selectionTime = 0;
             showTargetingBanner(`请选择${config.name}目标`);
             gameState.cardTargeting = {
                 cardId: `air_command_${airKind}`,
