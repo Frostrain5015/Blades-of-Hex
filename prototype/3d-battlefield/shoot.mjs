@@ -75,10 +75,10 @@ await page.waitForTimeout(1100);
 await shot('02-artillery.png');
 await page.waitForTimeout(1500);
 
-// —— 03 战舰齐射 ——
-await page.evaluate(() => window.__proto.demo.debugAttack(4, 3));  // 蓝战舰 → 红碉堡
+// —— 03 航母舰载机扫射 ——
+await page.evaluate(() => window.__proto.demo.debugAttack(4, 3));  // 蓝航母 → 红碉堡
 await page.waitForTimeout(1250);
-await shot('03-warship.png');
+await shot('03-carrier.png');
 await page.waitForTimeout(1600);
 
 // —— 05 选中骑兵：选择环 + 移动范围高亮 ——
@@ -222,6 +222,20 @@ await page.evaluate(() => {
 await page.waitForTimeout(700);
 await shot('14b-engine-fire.png');
 await page.waitForTimeout(1200);
+
+
+// —— 15 航母舰载机扫射特写 ——
+await page.evaluate(() => {
+  const p = window.__proto;
+  // 贴近航母侧上方，能看到甲板与起飞中的舰载机
+  p.camera.position.set(5.5, 4.2, 3.5);
+  p.controls.target.set(2.5, 0.3, -1.0);
+  p.controls.update();
+  p.demo.debugAttack(4, 3);
+});
+await page.waitForTimeout(1450);
+await shot('15-carrier-strike.png');
+await page.waitForTimeout(1500);
 
 // —— 04 夜晚 + 鱼雷 ——
 await page.evaluate(() => {

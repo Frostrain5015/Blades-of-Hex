@@ -460,6 +460,73 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
     return unit.group.position.clone().add(new THREE.Vector3(0, unit.stats.naval ? 0.35 : 0.45, 0));
   }
 
+  
+  // ============ 航母舰载机扫射：甲板起飞 → 低空突防 → 扫射链 → 离场 ============
+  function carrierStrike(att, tgt, done) {
+    const fromDeck = att.muzzle ? att.muzzle.getWorldPosition(new THREE.Vector3()) : att.group.position.clone().add(new THREE.Vector3(0, 0.5, 0));
+    const to = targetPoint(tgt);
+    const flyY = 2.4;
+    const dir = new THREE.Vector3().subVectors(to, fromDeck).normalize();
+    dir.y = 0; dir.normalize();
+    const perp = new THREE.Vector3(-dir.z, 0, dir.x);
+
+    const flight = new THREE.Group();
+    scene.add(flight);
+    const planes = [];
+    for (let i = 0; i < 2; i++) {
+      const { group, prop } = buildPlane(att.faction);
+      group.position.copy(fromDeck).add(new THREE.Vector3((i - 0.5) * 0.35, 0, -0.2 - i * 0.25));
+      group.lookAt(group.position.clone().add(dir));
+      flight.add(group);
+      planes.push({ group, prop, launched: false });
+    }
+
+    const DUR = 3.2;
+    // 起飞 → 平飞 → 扫射 → 爬升离场
+    const p0 = fromDeck.clone();
+    const pStrafe = to.clone().addScaledVector(dir, -1.2).setY(flyY);
+    const pExit = to.clone().addScaledVector(dir, 2.5).setY(flyY + 1.8);
+    const curve = new THREE.CatmullRomCurve3([p0, p0.clone().add(new THREE.Vector3(0, 0.8, 0)), pStrafe, pExit]);
+
+    tween({
+      dur: DUR, ease: EASE.inOut,
+      onUpdate: (k) => {
+        const tNow = k * DUR;
+        for (let i = 0; i < planes.length; i++) {
+          const pl = planes[i];
+          const offset = (i - 0.5) * 0.55;
+          const kk = Math.max(0, Math.min(1, k * 1.1 - i * 0.08));
+          const pos = curve.getPointAt(kk).addScaledVector(perp, offset);
+          if (kk < 0.15) pos.y = p0.y + kk / 0.15 * 0.8; // 起飞段
+          pl.group.position.copy(pos);
+          const tan = curve.getTangentAt(kk);
+          pl.group.lookAt(pos.clone().add(tan));
+          pl.prop.rotation.y += 0.6;
+        }
+        // 扫射段：过目标前 0.3s 开始沿攻线炸点
+        if (k > 0.45 && k < 0.72) {
+          const strafeK = (k - 0.45) / 0.27;
+          if (Math.floor(strafeK * 8) > (carrierStrike._last || -1)) {
+            carrierStrike._last = Math.floor(strafeK * 8);
+            const ip = to.clone().addScaledVector(dir, (strafeK - 0.5) * 1.6).addScaledVector(perp, rand(-0.25, 0.25));
+            ip.y = tgt.groundY + 0.1;
+            fx.spawnTracer(ip.clone().add(new THREE.Vector3(0, flyY - 0.5, 0)), ip);
+            fx.spawnExplosion(ip, { scale: 0.5 });
+            fx.spawnDustPuff(ip, { scale: 0.9, n: 3 });
+          }
+        }
+      },
+      onDone: () => {
+        carrierStrike._last = -1;
+        scene.remove(flight);
+        flight.traverse((o) => { if (o.isMesh || o.isPoints) { o.geometry?.dispose(); o.material?.dispose(); } });
+        dealDamage(tgt, { min: 38, max: 68 });
+        done();
+      },
+    });
+  }
+  carrierStrike._last = -1;
+
   // 远程：炮兵/战舰 = 抛物线炮弹；潜艇 = 鱼雷；碉堡 = 曳光扫射
   function rangedAttack(att, tgt, { big = false } = {}) {
     if (!att.alive || !tgt.alive) return false;
@@ -494,6 +561,8 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
           else { dealDamage(tgt, { min: 20, max: 40 }); done(); }
         };
         fireOne();
+      } else if (att.type === 'carrier') {
+        carrierStrike(att, tgt, done);
       } else if (att.spec === 'rocket') {
         // 火箭炮齐射：4 发小抛物线连射，集火爆炸链，伤害分摊到每发
         const roll = rollDamage({ min: 30, max: 58 });
@@ -1313,6 +1382,12 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
       fx.flashUnit(u);
       damageHpArcFeedback(u, oldFrac, u.hp / u.maxHp);
       return 'ok';
+    },
+    debugCarrierStrike(ai, ti) {
+      const a = units[ai], t = units[ti];
+      if (!a || !t) return 'bad-index';
+      rangedAttack(a, t);
+      return 'carrier strike';
     },
     debugAirstrike(faction, q, r) {
       const t = board.tiles.get(hexKey(q, r));

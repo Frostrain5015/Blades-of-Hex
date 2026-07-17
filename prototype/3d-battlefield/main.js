@@ -84,7 +84,7 @@ initEffects(scene, camera);
 // 第 5 列为专精分支（战斗单位也带变体：蓝军火箭炮可在自动演示中齐射）
 const unitDefs = [
   ['infantry', 'red', -3, 1, 'assault'], ['cavalry', 'red', -2, 0, 'heavy'], ['artillery', 'red', -2, -1, 'field'], ['mgNest', 'red', 1, 0],
-  ['warship', 'blue', 3, -1, 'sea'], ['submarine', 'blue', 3, 0], ['infantry', 'blue', 0, 2, 'garrison'], ['artillery', 'blue', 0, -2, 'rocket'],
+  ['carrier', 'blue', 3, -1], ['submarine', 'blue', 3, 0], ['infantry', 'blue', 0, 2, 'garrison'], ['artillery', 'blue', 0, -2, 'rocket'],
   ['artillery', 'blue', 1, -2, 'aa'],   // 蓝军防空炮：为东侧提供区域防空（不能普攻）
 ];
 const units = unitDefs.map(([type, fac, q, r, spec]) =>

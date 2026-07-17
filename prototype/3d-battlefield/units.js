@@ -20,6 +20,7 @@ export const UNIT_STATS = {
   mgNest: { name: '碉堡', hp: 150, range: 2, move: 0, ringY: 1.0, naval: false },
   warship: { name: '战舰', hp: 160, range: 3, move: 2, ringY: 1.6, naval: true },
   submarine: { name: '潜艇', hp: 110, range: 3, move: 2, ringY: 0.95, naval: true },
+  carrier: { name: '航母', hp: 250, range: 5, move: 2, ringY: 1.8, naval: true },
 };
 
 const mat = (color, rough = 0.8, metal = 0.15) =>
@@ -465,7 +466,52 @@ function buildSubmarine(fac) {
   return { body: b, muzzle, anim: { peri } };
 }
 
-const BUILDERS = { infantry: buildInfantry, cavalry: buildCavalry, artillery: buildArtillery, mgNest: buildMgNest, warship: buildWarship, submarine: buildSubmarine };
+const BUILDERS = { infantry: buildInfantry, cavalry: buildCavalry, artillery: buildArtillery, mgNest: buildMgNest, warship: buildWarship, submarine: buildSubmarine, carrier: buildCarrier };
+
+function buildCarrier(fac, nightMats) {
+  const b = new THREE.Group();
+  const steel = mat(0x46505e, 0.6, 0.45), dk = mat(METAL, 0.45, 0.75), deckM = mat(0x333a44, 0.85);
+  // 大型舰体：扁平长箱 + 舰艏斜坡
+  const hull = box(1.1, 0.42, 2.6, steel); hull.position.y = 0.12; b.add(hull);
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(0.56, 0.7, 4), steel);
+  bow.rotation.x = Math.PI / 2; bow.rotation.y = Math.PI / 4; bow.scale.set(1.45, 1, 0.55);
+  bow.position.set(0, 0.12, 1.55); b.add(bow);
+  // 飞行甲板
+  const deck = box(1.0, 0.06, 2.35, deckM); deck.position.y = 0.36; b.add(deck);
+  const deckLine = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 1.6), new THREE.MeshBasicMaterial({ color: 0xd8d0b8, transparent: true, opacity: 0.5, depthWrite: false }));
+  deckLine.rotation.x = -Math.PI / 2; deckLine.position.set(0, 0.395, 0.1); b.add(deckLine);
+  // 岛式舰桥（右舷偏后）
+  const island = box(0.32, 0.55, 0.55, steel); island.position.set(0.32, 0.65, -0.35); b.add(island);
+  const islandTop = box(0.22, 0.12, 0.38, deckM); islandTop.position.set(0.32, 0.94, -0.35); b.add(islandTop);
+  const stack = cyl(0.08, 0.10, 0.42, dk, 8); stack.position.set(0.32, 0.72, -0.55); b.add(stack);
+  const radar = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.08, 10), deckM);
+  radar.rotation.x = -0.4; radar.position.set(0.32, 1.02, -0.25); b.add(radar);
+  // 甲板舰载机：3 架小型双翼机，起飞时由动画隐藏/移动
+  const planes = [];
+  for (let i = 0; i < 3; i++) {
+    const g = new THREE.Group();
+    const fuselage = box(0.12, 0.06, 0.38, mat(fac.main));
+    const wing = box(0.42, 0.02, 0.12, mat(fac.main));
+    wing.position.y = 0.03;
+    const tail = box(0.1, 0.06, 0.04, mat(fac.main)); tail.position.set(0, 0.04, -0.2);
+    const prop = new THREE.Mesh(new THREE.CircleGeometry(0.055, 8), new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
+    prop.rotation.y = Math.PI / 2; prop.position.set(0, 0.03, 0.21);
+    g.add(fuselage, wing, tail, prop);
+    g.position.set(-0.28 + i * 0.28, 0.42, 0.5 - i * 0.35);
+    b.add(g);
+    planes.push({ group: g, prop });
+  }
+  // 起飞弹射点 / 远程攻击枪口
+  const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0.42, 0.9); b.add(muzzle);
+  const banner = buildBanner(fac, 'warship', 0.55); banner.position.set(0.45, 0.6, -0.1); b.add(banner);
+  // 夜航舰桥窗
+  const winM = new THREE.MeshBasicMaterial({ color: 0xffd37a, transparent: true, opacity: 0 });
+  nightMats.push(winM);
+  const win = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.06), winM);
+  win.position.set(0.32, 0.78, -0.05); b.add(win);
+  return { body: b, muzzle, anim: { planes } };
+}
+
 
 // ============================================================
 let nextId = 0;
@@ -611,6 +657,11 @@ export function updateUnits(units, dt, time, nightT) {
       u.group.position.y = WATER_Y + Math.sin(t * 1.1) * 0.035;
       u.group.rotation.z = Math.sin(t * 0.9) * 0.03;
       u.group.rotation.x = Math.sin(t * 0.7) * 0.018;
+    } else if (u.type === 'carrier') {
+      u.group.position.y = WATER_Y + Math.sin(t * 0.9) * 0.045;
+      u.group.rotation.z = Math.sin(t * 0.75) * 0.025;
+      u.group.rotation.x = Math.sin(t * 0.55) * 0.015;
+      u.anim.planes.forEach((pl, i) => { pl.prop.rotation.y += 0.25 + i * 0.05; });
     } else if (u.type === 'submarine') {
       u.group.position.y = (u.moving ? WATER_Y : u.group.position.y);
       if (!u.moving) u.group.position.y = WATER_Y - 0.06 + Math.sin(t * 0.8) * 0.02; // 半潜浮沉
