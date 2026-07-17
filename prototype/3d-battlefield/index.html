@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blades of Hex · 3D 渲染原型</title>
+<link rel="icon" href="data:,">
+<style>
+  /* —— 游戏视觉语言：暗色羊皮纸 + 黄铜描边 + 金色点缀 —— */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #14110c; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  .hud {
+    position: fixed; z-index: 10; pointer-events: none;
+    font-family: "KaiTi", "STKaiti", "SimSun", serif;
+    color: #e8d9a8; text-shadow: 0 1px 2px rgba(0,0,0,.8);
+    user-select: none;
+  }
+  .panel {
+    background: linear-gradient(160deg, rgba(30,24,15,.88), rgba(18,14,9,.82));
+    border: 1px solid #8a6d3b; border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.55), inset 0 0 12px rgba(138,109,59,.15);
+  }
+  #hud-title { top: 14px; left: 16px; padding: 8px 16px; font-size: 20px; letter-spacing: 2px; }
+  #hud-title b { color: #ffd700; font-weight: 700; }
+  #hud-title span { font-size: 13px; color: #c9b37a; margin-left: 6px; }
+
+  #hud-buttons { top: 14px; right: 16px; display: flex; gap: 8px; pointer-events: auto; }
+  #hud-buttons button {
+    font-family: inherit; font-size: 14px; letter-spacing: 1px; cursor: pointer;
+    color: #ffd700; padding: 7px 14px; border: 1px solid #8a6d3b; border-radius: 3px;
+    background: linear-gradient(180deg, #3a2f1c, #241c10);
+    text-shadow: 0 1px 2px rgba(0,0,0,.8);
+    transition: filter .15s, transform .05s;
+  }
+  #hud-buttons button:hover { filter: brightness(1.35); }
+  #hud-buttons button:active { transform: translateY(1px); }
+  #hud-buttons button.off { color: #9b8a5e; }
+
+  #hud-info { left: 16px; bottom: 46px; padding: 6px 14px; font-size: 14px; min-width: 150px; }
+  #hud-info .fac-r { color: #ff8a75; }
+  #hud-info .fac-b { color: #8fc3ff; }
+  #hud-info .hp { color: #a8d97c; }
+
+  #hud-hint {
+    left: 50%; bottom: 12px; transform: translateX(-50%);
+    font-size: 13px; color: #cbb887; opacity: .85; letter-spacing: 1px; white-space: nowrap;
+  }
+
+  .overlay {
+    position: fixed; inset: 0; z-index: 20; display: flex;
+    align-items: center; justify-content: center;
+    background: rgba(10,8,5,.75); color: #ffd700;
+    font-family: "KaiTi", "STKaiti", serif; font-size: 22px; letter-spacing: 3px;
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="hud-title" class="hud panel"><b>Blades of Hex</b><span>· 3D 渲染原型</span></div>
+<div id="hud-buttons" class="hud">
+  <button id="btn-air">✈ 空袭指令</button>
+  <button id="btn-demo">自动演示：开</button>
+  <button id="btn-night">昼夜切换</button>
+  <button id="btn-cam">镜头重置</button>
+</div>
+<div id="hud-info" class="hud panel">未选中单位</div>
+<div id="hud-hint" class="hud">点击单位选择 · 点击高亮格移动 · 点击敌人攻击 · 拖拽旋转视角</div>
+
+<div id="overlay-loading" class="overlay">正在加载 3D 战场…</div>
+<div id="overlay-ctx" class="overlay" style="display:none">WebGL 上下文丢失，请刷新页面</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "/node_modules/three/build/three.module.js",
+    "three/addons/": "/node_modules/three/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
