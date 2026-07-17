@@ -811,29 +811,22 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
       fx.spawnDamageNumber(target.clone().add(new THREE.Vector3(0, 1.2, 0)), '防空拦截！', { crit: true });
       fx.shake(0.06);
     }
-    // 编队顺全局风向（西北→东南）高空进入，掠过目标后爬升离场
+    // 单机顺全局风向（西北→东南）高空进入，掠过目标后爬升离场
     const dir = new THREE.Vector3(WIND.x, 0, WIND.z);
     const perp = new THREE.Vector3(-dir.z, 0, dir.x);
     const p = (d, y) => target.clone().addScaledVector(dir, d).setY(y);
     const curve = new THREE.CatmullRomCurve3([p(-17, 8.5), p(-6, 3.4), p(0.2, 1.9), p(5, 4.4), p(17, 9.5)]);
     const flight = new THREE.Group();
     scene.add(flight);
-    const planes = [];
-    for (let i = 0; i < 3; i++) {
-      const { group, prop } = buildPlane(faction);
-      flight.add(group);
-      const tGeo = new THREE.BufferGeometry();
-      tGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(18 * 3), 3));
-      const trail = new THREE.Points(tGeo, new THREE.PointsMaterial({ color: 0xdfe8ea, size: 0.07, transparent: true, opacity: 0.45, depthWrite: false }));
-      trail.frustumCulled = false;
-      flight.add(trail);
-      planes.push({ group, prop, trail, hist: [], off: (i - 1) * 0.9, lag: i * 0.035, damaged: false, flame: null });
-    }
-    // 有防空覆盖时：1 号机（覆盖源 >1 时再带 2 号机）带伤离场
-    if (cover.length) {
-      planes[1].damaged = true;
-      if (cover.length > 1) planes[2].damaged = true;
-    }
+    const { group, prop } = buildPlane(faction);
+    flight.add(group);
+    const tGeo = new THREE.BufferGeometry();
+    tGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(18 * 3), 3));
+    const trail = new THREE.Points(tGeo, new THREE.PointsMaterial({ color: 0xdfe8ea, size: 0.06, transparent: true, opacity: 0.4, depthWrite: false }));
+    trail.frustumCulled = false;
+    flight.add(trail);
+    const pl = { group, prop, trail, hist: [], off: 0, lag: 0, damaged: cover.length > 0, flame: null, smoking: false, smokeTimer: 0 };
+
     // 防空单位炮管跟踪准备：记录各炮管初始姿态
     for (const c of cover) {
       if (c.kind === 'aa' && c.unit.anim && c.unit.anim.barrel) {
@@ -841,9 +834,9 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
         c.barrelHome = { x: c.barrel.rotation.x, y: c.barrel.rotation.y };
       }
     }
-    // 弹着链：领队过顶时刻起，沿攻线逐段炸开（有防空时散布更大——受扰动精度下降）
+    // 弹着链：飞机过顶时刻起，沿攻线逐段炸开（有防空时散布更大）
     const victim = occupiedBy(tile);
-    const spread = cover.length ? 0.65 : 0.35;
+    const spread = cover.length ? 0.75 : 0.35;
     for (let i = 0; i < 6; i++) {
       after(1.72 + i * 0.12, () => {
         const ip = target.clone().addScaledVector(dir, (i - 2.5) * 0.55).addScaledVector(perp, rand(-spread, spread));
@@ -862,82 +855,84 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
     });
     // 飞行推进 + 防空编舞
     const DUR = 3.6;
-    let nextShotAt = 0.35;     // 下一次防空开火时刻（秒）
-    let puffFlip = false;
+    let nextShotAt = 0.32;
+    let nextShellAt = 0.45;
     tween({
       dur: DUR, ease: EASE.linear,
       onUpdate: (k) => {
         const tNow = k * DUR;
-        for (let pi = 0; pi < planes.length; pi++) {
-          const pl = planes[pi];
-          const tt = Math.max(0, Math.min(1, k * (1 + pl.lag * 2) - pl.lag));
-          const pos = curve.getPointAt(tt).addScaledVector(perp, pl.off);
-          pos.y += pl.off * 0.12;
-          // 防空扰动：编队规避抖动
-          if (cover.length) {
-            pos.x += Math.sin(tNow * 21 + pi * 7) * 0.07;
-            pos.y += Math.cos(tNow * 17 + pi * 5) * 0.05;
-            pos.z += Math.sin(tNow * 19 + pi * 3) * 0.07;
-          }
-          pl.group.position.copy(pos);
-          const tan = curve.getTangentAt(tt);
-          pl.group.lookAt(pos.clone().add(tan));
-          let roll = Math.sin(tt * Math.PI * 2) * 0.2 + pl.off * 0.12;
-          if (cover.length) roll += Math.sin(tNow * 13 + pi * 4) * 0.14;          // 受扰滚转
-          if (pl.damaged && tt > 0.55) roll += Math.sin(tNow * 23) * 0.12;        // 带伤摇摆
-          pl.group.rotateZ(roll);
-          pl.prop.rotation.z = k * 260;
-          pl.hist.unshift(pos.clone());
-          if (pl.hist.length > 18) pl.hist.pop();
-          const tp = pl.trail.geometry.attributes.position;
-          for (let i = 0; i < 18; i++) {
-            const h = pl.hist[Math.min(i, pl.hist.length - 1)] || pos;
-            if (pl.smoking) {
-              // 浓黑烟迹：扩散 + 顺风偏
-              tp.setXYZ(i,
-                h.x - WIND.x * i * 0.07 + rand(-0.07, 0.07),
-                h.y + rand(-0.05, 0.09),
-                h.z - WIND.z * i * 0.07 + rand(-0.07, 0.07));
-            } else {
-              tp.setXYZ(i, h.x, h.y, h.z);
-            }
-          }
-          tp.needsUpdate = true;
-          // 引擎起火：过顶后开始冒烟挂火舌
-          if (pl.damaged && !pl.smoking && tt > 0.55) {
-            pl.smoking = true;
-            pl.trail.material.color.setHex(0x161513);
-            pl.trail.material.size = 0.2;
-            pl.trail.material.opacity = 0.75;
-            const flame = new THREE.Mesh(
-              new THREE.ConeGeometry(0.055, 0.26, 8),
-              new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }),
-            );
-            flame.rotation.x = -Math.PI / 2;   // 火舌向后
-            flame.position.set(0, 0.02, 0.42);
-            pl.group.add(flame);
-            pl.flame = flame;
-          }
-          if (pl.flame) {
-            const fl = 0.8 + Math.sin(tNow * 31 + pi * 9) * 0.35;   // 焰光闪烁
-            pl.flame.scale.set(fl, fl, fl);
+        const tt = Math.max(0, Math.min(1, k));
+        const pos = curve.getPointAt(tt);
+        // 防空扰动：单机规避抖动
+        if (cover.length) {
+          pos.x += Math.sin(tNow * 19) * 0.09;
+          pos.y += Math.cos(tNow * 15) * 0.07;
+          pos.z += Math.sin(tNow * 17) * 0.09;
+        }
+        pl.group.position.copy(pos);
+        const tan = curve.getTangentAt(tt);
+        pl.group.lookAt(pos.clone().add(tan));
+        let roll = Math.sin(tt * Math.PI * 2) * 0.18;
+        if (cover.length) roll += Math.sin(tNow * 12) * 0.16;
+        if (pl.damaged && tt > 0.55) roll += Math.sin(tNow * 21) * 0.18;
+        pl.group.rotateZ(roll);
+        pl.prop.rotation.z = k * 260;
+        pl.hist.unshift(pos.clone());
+        if (pl.hist.length > 18) pl.hist.pop();
+        const tp = pl.trail.geometry.attributes.position;
+        for (let i = 0; i < 18; i++) {
+          const h = pl.hist[Math.min(i, pl.hist.length - 1)] || pos;
+          tp.setXYZ(i, h.x, h.y, h.z);
+        }
+        tp.needsUpdate = true;
+
+        // 引擎起火：过顶后开始挂火舌 + 点光源 + sprite 浓烟
+        if (pl.damaged && !pl.smoking && tt > 0.55) {
+          pl.smoking = true;
+          pl.trail.material.color.setHex(0x6a6660);
+          pl.trail.material.size = 0.12;
+          pl.trail.material.opacity = 0.45;
+          const flame = new THREE.Mesh(
+            new THREE.ConeGeometry(0.10, 0.48, 8),
+            new THREE.MeshBasicMaterial({ color: 0xff5a10, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }),
+          );
+          flame.rotation.x = -Math.PI / 2;
+          flame.position.set(0, 0.03, 0.44);
+          pl.group.add(flame);
+          pl.flame = flame;
+          const plight = new THREE.PointLight(0xff4a08, 1.8, 3.2);
+          plight.position.set(0, 0.05, 0.38);
+          flame.add(plight);
+          pl.plight = plight;
+        }
+        if (pl.flame) {
+          const fl = 0.85 + Math.sin(tNow * 31) * 0.45;
+          pl.flame.scale.set(fl, fl, fl);
+          if (pl.plight) pl.plight.intensity = 1.3 + Math.sin(tNow * 37) * 0.7;
+        }
+        // 持续排放柔软浓烟（越往后越浓）
+        if (pl.smoking) {
+          pl.smokeTimer += 0.016;
+          if (pl.smokeTimer > 0.035) {
+            pl.smokeTimer = 0;
+            const engineWorld = pl.group.localToWorld(new THREE.Vector3(0, 0.04, 0.44));
+            fx.spawnSmokePuff(engineWorld, { scale: rand(1.0, 1.5), life: rand(1.2, 1.8), drift: 1.4, color: 0x1a1816 });
           }
         }
-        // —— 防空火力：炮管跟踪 + 曳光弹流 + flak 炸点 ——
+
+        // —— 防空火力：炮管跟踪 + 机枪曳光弹流 / 高射炮弹 ——
         if (cover.length && tNow > nextShotAt && tNow < DUR - 0.7) {
-          nextShotAt += 0.1;
-          puffFlip = !puffFlip;
-          const lead = planes[0].group.position.clone();
+          nextShotAt += 0.05 + rand(0, 0.03);
+          const lead = pl.group.position.clone();
           for (const c of cover) {
             let from;
             if (c.kind === 'aa' && c.unit.alive) {
               from = muzzleWorld(c.unit);
-              // 炮管/雷达平滑跟踪领队机（含仰角）
               if (c.barrel) {
                 const u = c.unit;
                 const dx = lead.x - u.group.position.x, dz = lead.z - u.group.position.z;
                 const yawTo = Math.atan2(dx, dz) - u.group.rotation.y;
-                c.barrel.rotation.y = lerpAngle(c.barrel.rotation.y, yawTo, 0.1);
+                c.barrel.rotation.y = lerpAngle(c.barrel.rotation.y, yawTo, 0.13);
                 const dist = Math.hypot(dx, dz);
                 const pitch = Math.atan2(lead.y - (u.groundY + 0.6), Math.max(0.5, dist));
                 c.barrel.rotation.x = -Math.max(0.35, Math.min(1.45, Math.PI / 2 - pitch));
@@ -945,21 +940,32 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
             } else if (c.kind === 'flak') {
               from = new THREE.Vector3(c.tile.x + 0.52, c.tile.topY + 0.62, c.tile.z + 0.3);
             } else continue;
-            // 曳光弹流：带提前量与散布，不锁死命中
-            const aim = lead.clone().addScaledVector(dir, rand(0.2, 0.9))
-              .add(new THREE.Vector3(rand(-0.45, 0.45), rand(-0.3, 0.4), rand(-0.45, 0.45)));
-            fx.spawnTracer(from, aim);
-            if (puffFlip) fx.spawnMuzzleFlash(from, { scale: 0.45 });
-            // 高炮弹幕炸点：在机群附近绽放
-            if (puffFlip) {
-              const bp = lead.clone().add(new THREE.Vector3(rand(-1.1, 1.1), rand(-0.5, 0.7), rand(-1.1, 1.1)));
-              fx.spawnFlakPuff(bp, { scale: rand(0.8, 1.2) });
+
+            const isShell = c.kind === 'aa' && c.unit.type === 'artillery' && c.unit.spec === 'aa';
+            const aim = lead.clone().addScaledVector(dir, rand(0.2, 0.8))
+              .add(new THREE.Vector3(rand(-0.55, 0.55), rand(-0.35, 0.45), rand(-0.55, 0.55)));
+            if (isShell) {
+              // 高射炮弹：单发、带抛物线烟迹，定时控制射速
+              if (tNow > nextShellAt) {
+                nextShellAt = tNow + 0.35 + rand(0, 0.15);
+                fx.spawnAAShell(from, aim);
+                fx.spawnMuzzleFlash(from, { scale: 0.55 });
+              }
+            } else {
+              // 机枪子弹流：每 tick 4–5 发短小曳光弹
+              for (let b = 0; b < (4 + Math.floor(rand(0, 2))); b++) {
+                const mAim = aim.clone().add(new THREE.Vector3(rand(-0.35, 0.35), rand(-0.25, 0.25), rand(-0.35, 0.35)));
+                fx.spawnMGTracer(from, mAim);
+              }
+              fx.spawnMuzzleFlash(from, { scale: 0.35 });
             }
+            // 机群附近黑烟炸点
+            const bp = lead.clone().add(new THREE.Vector3(rand(-1.2, 1.2), rand(-0.2, 0.8), rand(-1.2, 1.2)));
+            fx.spawnFlakPuff(bp, { scale: rand(0.9, 1.3) });
           }
         }
       },
       onDone: () => {
-        // 防空炮管回位
         for (const c of cover) {
           if (c.barrel && c.barrelHome) {
             const b = c.barrel, h = c.barrelHome;
@@ -970,13 +976,12 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
           }
         }
         scene.remove(flight);
-        flight.traverse((o) => { if (o.isMesh || o.isPoints) { o.geometry.dispose(); o.material.dispose(); } });
+        flight.traverse((o) => { if (o.isMesh || o.isPoints || o.isLight) { o.geometry?.dispose(); o.material?.dispose(); } });
         state.busy--;
       },
     });
     return true;
   }
-
   // ============ 移动编排（路径点 + 目的圈 + 逐格跳跃）============
   function moveAlong(unit, path, done = null) {
     if (!path.length) { done && done(); return; }

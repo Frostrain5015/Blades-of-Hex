@@ -312,6 +312,25 @@ export function spawnSparkBurst(at, dirYaw, { n = 10, color = 0xffd98a, speed = 
 // 地面尘土：软 sprite 扩散，顺全局风飘移（马蹄/脚步扬尘共用）
 // ============================================================
 let dustTex = null;
+
+// 黑灰浓烟纹理：比尘土更深的径向渐变，用于引擎烟与炮弹尾迹
+let smokeTex = null;
+function getSmokeTex() {
+  if (!smokeTex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(64, 64, 4, 64, 64, 58);
+    g.addColorStop(0, 'rgba(45,42,40,0.55)');
+    g.addColorStop(0.45, 'rgba(35,32,30,0.32)');
+    g.addColorStop(1, 'rgba(30,28,26,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    smokeTex = new THREE.CanvasTexture(c);
+  }
+  return smokeTex;
+}
+
 function getDustTex() {
   if (!dustTex) {
     const c = document.createElement('canvas');
@@ -379,20 +398,20 @@ export function spawnDustRing(at, { scale = 1 } = {}) {
 // ============================================================
 // 曳光弹（碉堡扫射）：拉伸亮盒，一闪即逝
 // ============================================================
-export function spawnTracer(from, to) {
+export function spawnTracer(from, to, { thick = false, life = 0.14, color = 0xffe08a, spark = true } = {}) {
   const len = from.distanceTo(to);
-  const geo = new THREE.BoxGeometry(0.02, 0.02, len);
-  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const thickness = thick ? 0.045 : 0.02;
+  const geo = new THREE.BoxGeometry(thickness, thickness, len);
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
   m.position.lerpVectors(from, to, 0.5);
   m.lookAt(to);
   let t = 0;
   add(m, (dt) => {
     t += dt;
-    m.material.opacity = 0.95 * (1 - t / 0.14);
-    return t < 0.14;
+    m.material.opacity = 0.95 * (1 - t / life);
+    return t < life;
   }, () => geo.dispose());
-  // 落点小火花
-  spawnSlashSpark(to);
+  if (spark) spawnSlashSpark(to);
 }
 function spawnSlashSpark(at) {
   const pts = makePoints(6, { size: 0.05, color: 0xffc46a, opacity: 0.9 });
@@ -488,6 +507,116 @@ export function flashUnit(unit) {
   const saved = mats.map((m) => ({ hex: m.emissive.getHex(), k: m.emissiveIntensity }));
   mats.forEach((m) => { m.emissive.setHex(0xffffff); m.emissiveIntensity = 0.55; });
   setTimeout(() => mats.forEach((m, i) => { m.emissive.setHex(saved[i].hex); m.emissiveIntensity = saved[i].k; }), 110);
+}
+
+
+
+// ============================================================
+// 引擎/炮弹浓烟：柔软灰黑 sprite 团，顺风飘散、扩张、渐隐
+// ============================================================
+export function spawnSmokePuff(at, { scale = 1, life = 1.1, drift = 1, color = 0x232220 } = {}) {
+  const group = new THREE.Group();
+  group.position.copy(at);
+  const items = [];
+  for (let i = 0; i < 2; i++) {
+    const m = new THREE.SpriteMaterial({ map: getSmokeTex(), color, transparent: true, opacity: 0.78, depthWrite: false, blending: THREE.NormalBlending });
+    const spr = new THREE.Sprite(m);
+    spr.position.set(rand(-0.08, 0.08) * scale, rand(-0.05, 0.08) * scale, rand(-0.08, 0.08) * scale);
+    const s0 = rand(0.55, 0.85) * scale;
+    spr.scale.set(s0, s0, 1);
+    group.add(spr);
+    items.push({ spr, m, s0 });
+  }
+  let t = 0;
+  add(group, (dt) => {
+    t += dt;
+    const k = Math.min(1, t / life);
+    for (const it of items) {
+      const s = it.s0 * (1 + k * 2.2);
+      it.spr.scale.set(s, s, 1);
+      it.spr.position.x += WIND.x * 0.35 * drift * dt;
+      it.spr.position.z += WIND.z * 0.35 * drift * dt;
+      it.spr.position.y += 0.18 * dt;
+      it.m.opacity = 0.78 * (1 - k);
+    }
+    return t < life;
+  }, () => items.forEach((it) => it.m.dispose()));
+}
+
+// ============================================================
+// 机枪曳光弹：短小、不刺眼的暖白亮点 + 极短尾迹，避免激光感
+// ============================================================
+export function spawnMGTracer(from, to) {
+  const dist = from.distanceTo(to);
+  const dur = Math.max(0.06, Math.min(0.14, dist / 35));
+  const bullet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.038, 6, 6),
+    new THREE.MeshBasicMaterial({ color: 0xfff8e0 }),
+  );
+  const TRAIL = 6;
+  const trail = makePoints(TRAIL, { size: 0.035, color: 0xffe0a0, opacity: 0.55, additive: true });
+  const history = [];
+  let t = 0;
+  add(bullet, (dt) => {
+    t += dt / dur;
+    const k = Math.min(1, t);
+    const p = new THREE.Vector3().lerpVectors(from, to, k);
+    bullet.position.copy(p);
+    history.unshift(p.clone());
+    if (history.length > TRAIL) history.pop();
+    const pos = trail.geometry.attributes.position;
+    for (let i = 0; i < TRAIL; i++) {
+      const h = history[Math.min(i, history.length - 1)] || p;
+      pos.setXYZ(i, h.x, h.y, h.z);
+    }
+    pos.needsUpdate = true;
+    trail.material.opacity = 0.65 * (1 - k);
+    if (k >= 1) { scene.remove(trail); trail.geometry.dispose(); trail.material.dispose(); return false; }
+    return true;
+  }, () => bullet.geometry.dispose());
+  scene.add(trail);
+}
+
+// ============================================================
+// 高射炮弹：带重力的抛物线 + 灰白烟迹，命中点附近绽放 flak puff
+// ============================================================
+export function spawnAAShell(from, to) {
+  const dist = from.distanceTo(to);
+  const dur = Math.max(0.45, Math.min(1.1, dist / 7));
+  const arcH = dist * 0.18 + 0.4;
+  const shell = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.035, 0.035, 0.14, 8),
+    new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.5, metalness: 0.4 }),
+  );
+  shell.rotation.x = Math.PI / 2;
+  const TRAIL = 16;
+  const trail = makePoints(TRAIL, { size: 0.13, color: 0x8a8580, opacity: 0.45, additive: false });
+  // 给烟迹用柔软纹理
+  trail.material.map = getSmokeTex();
+  trail.material.alphaTest = 0.05;
+  const history = [];
+  let t = 0;
+  const group = new THREE.Group();
+  group.add(shell, trail);
+  add(group, (dt) => {
+    t += dt / dur;
+    const k = Math.min(1, t);
+    const p = new THREE.Vector3().lerpVectors(from, to, k);
+    p.y += Math.sin(Math.PI * k) * arcH;
+    shell.position.copy(p);
+    shell.lookAt(to.x, p.y, to.z);
+    history.unshift(p.clone());
+    if (history.length > TRAIL) history.pop();
+    const pos = trail.geometry.attributes.position;
+    for (let i = 0; i < TRAIL; i++) {
+      const h = history[Math.min(i, history.length - 1)] || p;
+      pos.setXYZ(i, h.x, h.y, h.z);
+    }
+    pos.needsUpdate = true;
+    trail.material.opacity = 0.45 * (1 - k * 0.5);
+    if (k >= 1) { spawnFlakPuff(to, { scale: 0.95 }); return false; }
+    return true;
+  }, () => { shell.geometry.dispose(); shell.material.dispose(); trail.geometry.dispose(); trail.material.dispose(); });
 }
 
 // —— 主循环推进 ——

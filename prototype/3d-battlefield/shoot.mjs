@@ -198,6 +198,31 @@ await shot('13-flag-cloth.png');
 await page.waitForTimeout(400);
 await shot('13b-flag-cloth-motion.png');
 
+
+// —— 14 防空火力特写：弹流 + flak 炸点 + 炮管跟踪 ——
+await page.evaluate(() => {
+  const p = window.__proto;
+  // 用默认沙盘机位但略压低，能同时看到飞机、防空炮和弹着链
+  p.camera.position.set(6.5, 7.5, 9.5);
+  p.controls.target.set(0.8, 0.6, -2.0);
+  p.controls.update();
+  p.demo.debugAirstrike('red', 0, -2);
+});
+await page.waitForTimeout(1600);         // 弹着链进行中、防空火力正盛
+await shot('14-aa-flak.png');
+
+// —— 14b 引擎着火离场：带伤飞机爬升 + 黑烟 + 火舌 ——
+await page.evaluate(() => {
+  const p = window.__proto;
+  // 从侧前方追拍离场飞机
+  p.camera.position.set(8.0, 6.0, 4.0);
+  p.controls.target.set(2.5, 2.0, -2.5);
+  p.controls.update();
+});
+await page.waitForTimeout(700);
+await shot('14b-engine-fire.png');
+await page.waitForTimeout(1200);
+
 // —— 04 夜晚 + 鱼雷 ——
 await page.evaluate(() => {
   const p = window.__proto;
