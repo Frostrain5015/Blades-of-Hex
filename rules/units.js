@@ -22,7 +22,7 @@ export const UNIT_CONFIG = deepFreeze({
 
 /** v2 四阶奖励合同。所有待校准数值集中在此处。 */
 export const UNIT_RANK_CONFIG = deepFreeze({
-    xpThresholds: [8, 18, 30, 48],
+    xpThresholds: [5, 15, 25, 35],
     rankUpHealLostPct: 0.25,
     rank2: { hp: 15, attack: 10 },
     rank4: { regenPct: 0.15, critBonus: 0.25 }

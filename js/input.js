@@ -332,21 +332,21 @@ function _getCommanderActionIcon(commanderId, skillId) {
 
 function _collectBoardActions(unit, tile = null) {
     const actions = [];
+    // 有机场的城市：一级菜单显示✈按钮代替双击开启空军面板
     if (isMechanicEnabled(gameState, 'airCommands')
-        && tile?.installation?.type === 'airfield' && gameState.selectedInstallation === tile.installation) {
-        for (const [airKind, config] of Object.entries(AIR_COMMAND_CONFIG)) {
-            if (airKind === 'recon' && (!gameState.skirmishFog || gameState.campaignMode)) continue;
-            const availability = getAirCommandAvailability(airKind, tile, gameState);
-            actions.push({
-                key: `airCommand:${tile.q}:${tile.r}:${airKind}`,
-                buttonId: `boardAirCommand-${airKind}`, kind: 'airCommand', airKind,
-                tileQ: tile.q, tileR: tile.r, icon: config.icon, label: config.name,
-                goldCost: config.cost, cooldown: availability.cooldown || 0,
-                range: getAirCommandRange(tile), canUse: availability.available,
-                reason: availability.reason, theme: 'default'
-            });
-        }
-        return actions;
+        && tile?.installation?.type === 'airfield' && tile.installation.status === 'ready'
+        && _isLocalActionCamp(tile.camp)) {
+        actions.push({
+            key: `airCommands:${tile.q}:${tile.r}`,
+            buttonId: 'boardOpenAirCommands',
+            kind: 'openAirCommands',
+            tileQ: tile.q, tileR: tile.r,
+            icon: '✈',
+            label: '空军指令',
+            canUse: true,
+            reason: '',
+            theme: 'specialization'
+        });
     }
     if (isMechanicEnabled(gameState, 'airCommands')
         && tile?.isCity && _isLocalActionCamp(tile.camp) && !tile.installation) {
@@ -569,6 +569,12 @@ export function syncBoardActionBar() {
 }
 
 function _activateBoardAction(action) {
+    if (action.kind === 'openAirCommands') {
+        const tile = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
+        if (tile?.installation?.type !== 'airfield' || tile.installation.status !== 'ready') return;
+        _showAirCommandChoice(tile);
+        return;
+    }
     if (action.kind === 'buildAirfield') {
         const tile = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
         if (tile && executeAirfieldConstruction(tile)) showSelectionHudForTile(tile);
@@ -1233,7 +1239,7 @@ function _buildEffectItems(tile, unit) {
             key: `installation:airfield:${tile.q}:${tile.r}`,
             icon: ready ? '🛫' : '🏗️',
             label: ready ? '机场' : '机场施工中',
-            desc: ready ? '再次点击当前城市地块可选中机场并展开空军指令。' : `还需${tile.installation.turnsRemaining || 1}回合完工。`,
+            desc: ready ? '点击「✈ 空军指令」按钮使用机场。' : `还需${tile.installation.turnsRemaining || 1}回合完工。`,
             color: ready ? '#9fd7ff' : '#e8c477',
             kind: 'effect'
         });
@@ -2311,13 +2317,6 @@ export function initInput() {
 
         // 点选已选中单位/地块 → 取消选中（己方可操作单位有光圈倒放动画）
         if (gameState.selectedTile === clickedTile) {
-            if (clickedTile.installation?.type === 'airfield'
-                && _isLocalActionCamp(clickedTile.camp) && gameState.selectedInstallation !== clickedTile.installation) {
-                gameState.selectedInstallation = clickedTile.installation;
-                showSelectionHudForTile(clickedTile);
-                syncBoardActionBar();
-                return;
-            }
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
             hideSelectionHud();
             gameState.selectedTile = null;
@@ -2828,6 +2827,42 @@ function _showConstructionChoice(unit, siteTile = null) {
                 executeFieldConstruction(unit, definition.kind);
                 showSelectionHudForTile(unit.tile);
             }
+        });
+        modal.grid.appendChild(card);
+    }
+}
+
+// 空军指令选择面板：显示可用空军指令供玩家选择。
+function _showAirCommandChoice(launcherTile) {
+    const modal = _prepareChoiceModal('✈ 空军指令', `航程${getAirCommandRange(launcherTile)}格${getAirfieldColonel(launcherTile) ? ' · 将领强化' : ''}`, true);
+    if (!modal) return;
+    for (const [airKind, config] of Object.entries(AIR_COMMAND_CONFIG)) {
+        if (airKind === 'recon' && (!gameState.skirmishFog || gameState.campaignMode)) continue;
+        const availability = getAirCommandAvailability(airKind, launcherTile, gameState);
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'weather-card specialization-card';
+        card.disabled = !availability.available;
+        const icon = document.createElement('span'); icon.className = 'wc-icon'; icon.textContent = config.icon;
+        const name = document.createElement('span'); name.className = 'wc-name'; name.textContent = config.name;
+        const costLabel = document.createElement('span'); costLabel.className = 'specialization-stat is-bonus';
+        costLabel.textContent = availability.available ? `费用 $${config.cost}` : availability.reason;
+        const detail = document.createElement('span'); detail.className = 'specialization-passive';
+        detail.textContent = `${config.name} · 航程${getAirCommandRange(launcherTile)}格${availability.cooldown > 0 ? ` · 冷却${availability.cooldown}回合` : ''}`;
+        card.append(icon, name, costLabel, detail);
+        card.addEventListener('click', () => {
+            _closeChoiceModal();
+            if (!availability.available) return;
+            clearselection();
+            showTargetingBanner(`请选择${config.name}目标`);
+            gameState.cardTargeting = {
+                cardId: `air_command_${airKind}`,
+                targeting: config.targeting,
+                handIndex: -1, airKind,
+                launcherQ: launcherTile.q, launcherR: launcherTile.r,
+                startedAt: performance.now()
+            };
+            updateUI();
         });
         modal.grid.appendChild(card);
     }
