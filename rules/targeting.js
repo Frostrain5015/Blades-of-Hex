@@ -32,14 +32,15 @@ export const TARGET_SHAPES = Object.freeze({
 });
 
 export const AIR_TARGETING_CARD_IDS = Object.freeze(new Set([
-    'airstrike', 'airdrop', 'diveStrafe', 'carpetBomb', 'airlift', 'airlift_dest'
+    'airstrike', 'airdrop', 'diveStrafe', 'carpetBomb', 'airlift', 'airlift_dest',
+    'air_command_strafe', 'air_command_bombing', 'air_command_airdrop', 'air_command_recon'
 ]));
 
 export const COLONEL_TARGETING_CARD_IDS = Object.freeze(new Set([
     'diveStrafe', 'carpetBomb', 'airlift', 'airlift_dest'
 ]));
 
-const AREA_TARGETING_CARD_IDS = new Set(['scout', 'airstrike', 'carpetBomb']);
+const AREA_TARGETING_CARD_IDS = new Set(['scout', 'airstrike', 'carpetBomb', 'air_command_bombing']);
 const DRONE_DEPLOY_RANGE = COMMANDER_CONFIG.tianyan.balance.deployRange;
 const DRONE_SUICIDE_RANGE = COMMANDER_CONFIG.tianyan.balance.suicideRange;
 

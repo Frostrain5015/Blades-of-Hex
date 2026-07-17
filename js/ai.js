@@ -25,6 +25,7 @@ import { canRecruitTypeAtSelectedSite } from './recruitmentUi.js';
 import { chooseDefaultSpecialization } from '../rules/units.js';
 import { canBuildFieldFortification, canFieldRepair, isOrdinaryGroundBuilder } from '../rules/construction.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange } from '../rules/airCommands.js';
+import { isSubmarineTargetableBy } from '../rules/naval.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -74,17 +75,20 @@ async function runV2Infrastructure(aiCamp) {
         }
     }
 
+    // AI 与玩家共用同一信息权限：迷雾下只评估可见地块，潜航潜艇不可作为目标。
+    const fogSafeTile = tile => !gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState);
     for (const city of gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp && tile.installation?.status === 'ready')) {
         const enemies = gameState.tiles.filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
             && hexDistance(city, tile) <= getAirCommandRange(city)
-            && (!gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState)));
+            && fogSafeTile(tile)
+            && (tile.unit.type !== 'submarine' || isSubmarineTargetableBy(tile.unit, aiCamp, gameState)));
         const bombing = getAirCommandAvailability('bombing', city, gameState);
         let bombingTarget = null;
         let bombingScore = 0;
         for (const tile of gameState.tiles) {
-            if (hexDistance(city, tile) > getAirCommandRange(city)) continue;
+            if (hexDistance(city, tile) > getAirCommandRange(city) || !fogSafeTile(tile)) continue;
             const score = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr)).filter(Boolean)]
-                .filter(candidate => candidate.unit && isHostile(gameState, aiCamp, candidate.unit.camp)).length
+                .filter(candidate => candidate.unit && isHostile(gameState, aiCamp, candidate.unit.camp) && fogSafeTile(candidate)).length
                 + (tile.isCity && tile.camp !== aiCamp ? 1 : 0);
             if (score > bombingScore) { bombingScore = score; bombingTarget = tile; }
         }
@@ -114,12 +118,21 @@ async function runV2Infrastructure(aiCamp) {
         if (candidate && (gameState.playerGold[campKey] || 0) >= 10) executeAirfieldConstruction(candidate);
     }
 
-    const hostileAir = gameState.tiles.some(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
-        && (tile.unit.type === 'carrier' || tile.unit._isDrone));
-    const builder = gameState.tiles.map(tile => tile.unit).find(unit => unit?.camp === aiCamp
-        && unit.canAct && !unit.isNewRecruit && isOrdinaryGroundBuilder(unit)
-        && canBuildFieldFortification(unit, hostileAir ? 'flak' : 'trench', gameState));
-    if (builder) executeFieldConstruction(builder, hostileAir ? 'flak' : 'trench');
+    // 敌方存在可见空袭平台（航母/无人机/已建成机场）时优先高射机枪，否则战壕。
+    const hostileAir = gameState.tiles.some(tile => fogSafeTile(tile)
+        && ((tile.unit && isHostile(gameState, aiCamp, tile.unit.camp) && (tile.unit.type === 'carrier' || tile.unit._isDrone))
+            || (tile.isCity && isHostile(gameState, aiCamp, tile.camp) && tile.installation?.status === 'ready')));
+    // 只在战略位置（城市/村庄）或敌军兵临 2 格内时修工事，并保留基础金币，避免每回合白耗单位行动。
+    const fortificationKind = hostileAir ? 'flak' : 'trench';
+    const builder = (gameState.playerGold[campKey] || 0) >= 6
+        ? gameState.tiles.map(tile => tile.unit).find(unit => unit?.camp === aiCamp
+            && unit.canAct && !unit.isNewRecruit && isOrdinaryGroundBuilder(unit)
+            && (unit.tile.isCity || unit.tile.isVillage
+                || gameState.tiles.some(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
+                    && fogSafeTile(tile) && hexDistance(unit.tile, tile) <= 2))
+            && canBuildFieldFortification(unit, fortificationKind, gameState))
+        : null;
+    if (builder) executeFieldConstruction(builder, fortificationKind);
 }
 
 function planEngineerAction(aiCamp) {

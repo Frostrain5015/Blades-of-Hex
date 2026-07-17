@@ -99,6 +99,7 @@ import {
     isPortGuarded,
     isPortOperationalFor,
     isRegularNavalUnit,
+    isSubmarineTargetableBy,
     markSubmarinesRevealedInArea,
     recordShoreBatteryBuilt,
     repairShipsAtTurnStart,
@@ -944,6 +945,7 @@ export function grantTurnStartIncome(camp) {
 
 /** 在所属阵营回合开始时按快照结算毒素；新感染单位不会在本次继续传播。 */
 export function resolvePoisonAtTurnStart(camp) {
+    const poisonBalance = TACTICAL_CARD_CONFIG.poison.balance;
     const snapshot = gameState.tiles
         .map(tile => tile.unit)
         .filter(unit => unit?.camp === camp && unit._poison && unit.hp > 0);
@@ -953,7 +955,7 @@ export function resolvePoisonAtTurnStart(camp) {
         const poison = unit._poison;
         poison.lastResolvedTurnCounter = gameState.turnCounter;
         const originTile = unit.tile;
-        const damage = Math.max(1, Math.round(unit.maxHp * 0.15));
+        const damage = Math.max(1, Math.round(unit.maxHp * poisonBalance.damageMaxHpPct));
         const killed = unit.applyDamage(damage, { source: 'true', attacker: null });
         gameState.damageTexts.push({
             x: originTile.x, y: originTile.y, value: damage, isCrit: false, isPoison: true,
@@ -966,7 +968,7 @@ export function resolvePoisonAtTurnStart(camp) {
                 const target = gameState.tileMap.get(`${originTile.q + dq},${originTile.r + dr}`)?.unit;
                 if (!target || target._poison || target.hp <= 0) continue;
                 target._poison = {
-                    remainingTicks: 3,
+                    remainingTicks: poisonBalance.ticks,
                     sourceCampKey: poison.sourceCampKey,
                     infectedAtTurnCounter: gameState.turnCounter,
                     lastResolvedTurnCounter: null
@@ -3115,7 +3117,10 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         ? Math.min(15, Math.floor(((target.maxHp - target.hp) / target.maxHp) * 20))
         : 0;
     const power = basePower + commanderAttackBonus + missingBonus;
-    const floatMultiplier = launcherTile.unit ? gameState.rng.range(0.85, 1.25) : gameState.rng.range(0.95, 1.05);
+    // 有驻军/将领时按普通攻击浮动区间结算（阈值以上即暴击）；空城机场只有窄浮动、无暴击。
+    const floatMultiplier = launcherTile.unit
+        ? gameState.rng.range(COMBAT_BALANCE.float.attack.min, COMBAT_BALANCE.float.attack.max)
+        : gameState.rng.range(0.95, 1.05);
 
     let ordinaryDefense = (TERRAIN_CONFIG[target.tile.terrain]?.defenseBonus || 0)
         + (target.config.defense || 0) + (target._rankPanelDefenseBonus || 0)
@@ -3146,6 +3151,7 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
     if (kind === 'strafe') {
         const target = targetTile.unit;
         if (!target || !canAttack(gameState, launcherTile.camp, target.camp)) return false;
+        if (target.type === 'submarine' && !isSubmarineTargetableBy(target, launcherTile.camp, gameState)) return false;
         const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, 1, target, launcherTile, { missingHpBonus: true });
         const killed = target.applyDamage(result.damage, { source: 'ranged', attacker: null });
         results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed, isCrit: result.isCrit });
@@ -3185,8 +3191,8 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
         const colonel = getAirfieldColonel(launcherTile);
         let antiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
         if (colonel) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
-        const ordinaryDefense = TERRAIN_CONFIG[targetTile.terrain]?.defenseBonus || 0;
-        const landingReduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, ordinaryDefense + antiAir);
+        // 落点防空只削减当前 HP，不混入地形等普通防御（验收标准13）。
+        const landingReduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, antiAir);
         unit.hp = Math.max(1, Math.round(unit.maxHp * (1 - landingReduction)));
         unit.displayHp = unit.hp;
         unit.canAct = false;

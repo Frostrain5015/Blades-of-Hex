@@ -4,26 +4,12 @@
 import { deepFreeze } from './freeze.js';
 import { percent } from './format.js';
 import { EMOJI } from './symbols.js';
-import { COMBAT_BALANCE } from './constants.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 
 export const FRONTEND_TEXT = deepFreeze({
+    // v2 起常规兵种的 0 阶不再有兵种被动；专精被动文案由 rules/units.js 的
+    // UNIT_SPECIALIZATION_CONFIG 派生。这里只保留建筑单位的结构性说明。
     unitPassives: {
-        infantry: {
-            name: '坚守',
-            desc: `位于城市时每回合回复${percent(COMBAT_BALANCE.infantry.cityHealPct)}生命值，防御力提高${percent(COMBAT_BALANCE.defense.cityInfantryBonus)}，造成的伤害提高${percent(COMBAT_BALANCE.infantry.cityDamageBonus)}`
-        },
-        cavalry: {
-            name: '冲锋',
-            desc: `势能：本回合每移动1格，造成的伤害提高${percent(COMBAT_BALANCE.cavalry.normalChargeDamagePerStep)}，最多${percent(COMBAT_BALANCE.cavalry.normalChargeDamagePerStep * COMBAT_BALANCE.cavalry.maxChargeSteps)}，回合结束消失`
-        },
-        archer: {
-            name: '远射',
-            desc: `山地射程+${COMBAT_BALANCE.weather.windArcherRangeDelta}（不与风天叠加）；风天射程+${COMBAT_BALANCE.weather.windArcherRangeDelta}`
-        },
-        destroyer: { name: '防空机枪', desc: '为自身及相邻1格友军提供25%对空军伤害防御力，可侦测到2格内的潜艇' },
-        warship: { name: '火力覆盖', desc: '攻击岸上单位时造成的伤害提高50%' },
-        submarine: { name: '潜航', desc: '未暴露时不能被设为攻击目标；仅能攻击海上单位' },
         shoreBattery: { name: '制海', desc: '对舰船伤害提高30%，对陆军伤害降低60%，可侦测2格内的潜艇' }
     },
     effectDescriptions: {

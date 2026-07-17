@@ -31,7 +31,7 @@ import { RECRUITMENT_OPTIONS } from './recruitmentUi.js';
 import { VITE_RUNTIME_AVAILABLE } from './rendering/viteRuntime.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
 import { isCoastalLandTile } from '../rules/naval.js';
-import { getSpecialization, getSpecializationOptions, getUnitDisplayName, resolveUnitRankProfile } from '../rules/units.js';
+import { getSpecialization, getSpecializationOptions, getUnitDisplayName, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortification, canBuildShoreBatteryAt, canFieldRepair, constructionCost, isFieldRepairTarget, isOrdinaryGroundBuilder } from '../rules/construction.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange, getAirfieldColonel } from '../rules/airCommands.js';
@@ -1207,7 +1207,7 @@ function _getWeatherEffect(unit) {
         if (unit.type === 'archer') details.push('射程' + COMBAT_BALANCE.weather.fogArcherRangeDelta);
         if (unit.type === 'cavalry') details.push('伤害提高' + (COMBAT_BALANCE.cavalry.fogDamageBonus * 100) + '%，每格冲锋伤害额外提高' + ((COMBAT_BALANCE.cavalry.fogChargeDamagePerStep - COMBAT_BALANCE.cavalry.normalChargeDamagePerStep) * 100) + '%');
     } else if (gameState.weather === 'wind') {
-        if (unit.type === 'archer') details.push('射程+' + COMBAT_BALANCE.weather.windArcherRangeDelta + '，伤害提高' + (COMBAT_BALANCE.weather.windArcherDamageBonus * 100) + '%');
+        if (unit.type === 'archer') details.push('射程+' + COMBAT_BALANCE.weather.windArcherRangeDelta);
         if (unit.type === 'infantry') details.push('防御降低' + (COMBAT_BALANCE.defense.windInfantryPenalty * 100) + '%');
     }
     // 天气未对当前单位产生修正时，不显示为该单位的效果。
@@ -1424,13 +1424,14 @@ function _buildPassiveItems(unit) {
         });
     } else if ((unit.type === 'submarine' || unit.type === 'carrier') && unit._rank >= 1) {
         const isSubmarine = unit.type === 'submarine';
+        const unbranchedReward = UNBRANCHED_UNIT_REWARDS[unit.type]?.[unit._rank >= 3 ? 'rank3' : 'rank1'] || {};
         items.push({
             key: 'unit:' + unit.id + ':' + unit.type,
             icon: isSubmarine ? '🌊' : '✈️',
             label: isSubmarine ? '潜航' : '舰载航空',
             desc: isSubmarine
-                ? `脱离暴露后潜航，下一次攻击伤害提高${Math.round((unit._rank >= 3 ? 0.40 : 0.25) * 100)}%。`
-                : `舰载机攻击伤害提高${Math.round((unit._rank >= 3 ? 0.30 : 0.15) * 100)}%。`,
+                ? `脱离暴露后潜航，下一次攻击伤害提高${Math.round((unbranchedReward.nextAttackDamage || 0) * 100)}%。`
+                : `舰载机攻击伤害提高${Math.round((unbranchedReward.damageBonus || 0) * 100)}%。`,
             color: '#88ccff',
             status: '当前生效',
             kicker: '兵种被动',
@@ -2708,7 +2709,7 @@ function _prepareChoiceModal(title, subtitle, wide = false) {
 const SPECIALIZATION_DETAILS = {
     garrisonInfantry: unit => `固守城市时每回合恢复${Math.round((unit.getSpecializationAbility('cityRegen') || 0) * 100)}%最大生命；本回合未移动时，首次受击伤害降低${Math.round((unit.getSpecializationAbility('holdFirstHitReduction') || 0) * 100)}%。`,
     assaultInfantry: unit => `攻击建筑、城市或工事驻军时伤害提高${Math.round((unit.getSpecializationAbility('fortificationDamage') || 0) * 100)}%；击败敌军恢复${Math.round((unit.getSpecializationAbility('killHeal') || 0) * 100)}%最大生命。`,
-    lightCavalry: unit => `每移动1格伤害提高${Math.round((unit.getSpecializationAbility('chargePerStep') || 0) * 100)}%，最多3层；未击败目标时可用剩余行动力撤退。`,
+    lightCavalry: unit => `每移动1格伤害提高${Math.round((unit.getSpecializationAbility('chargePerStep') || 0) * 100)}%，最多3层；未击败目标时可用剩余行动力撤退；遭遇战视野+1。`,
     heavyCavalry: unit => `受到的反击伤害降低${Math.round((unit.getSpecializationAbility('counterDamageReduction') || 0) * 100)}%；攻击远程单位无视${Math.round((unit.getSpecializationAbility('rangedArmorPierce') || 0) * 100)}%防御。`,
     fieldGun: unit => `攻击无视${Math.round((unit.getSpecializationAbility('armorPierce') || 0) * 100)}%防御；位于山地或风天时效果翻倍。`,
     rocketArtillery: unit => `对主目标相邻敌军造成${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%倍率溅射。`,

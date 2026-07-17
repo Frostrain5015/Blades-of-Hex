@@ -5,9 +5,10 @@ import { COMMANDER_CONFIG } from './commanders.js';
 import { isFriendly } from './diplomacy.js';
 import { isMechanicEnabled } from './mechanics.js';
 import { areCommanderMechanicsSuppressed } from './movement.js';
+import { FORTIFICATION_CONFIG } from './terrain.js';
 import { getSpecialization, getSpecializationAbilityValue } from './units.js';
 
-export const FLAK_SELF_REDUCTION = 0.30;
+export const FLAK_SELF_REDUCTION = FORTIFICATION_CONFIG.flak.antiAirReduction;
 export const ANTI_AIR_TOTAL_REDUCTION_CAP = 0.85;
 export const ANTI_AIR_RADIUS = 2;
 

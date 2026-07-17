@@ -58,7 +58,7 @@ export const WEATHER_CONFIG = (() => {
         },
         wind: {
             name: '风', icon: '💨', color: '#aaccaa',
-            desc: `炮兵射程+${w.windArcherRangeDelta}且伤害提高${percent(w.windArcherDamageBonus)}，步兵防御力降低${percent(defense.windInfantryPenalty)}`
+            desc: `炮兵射程+${w.windArcherRangeDelta}，步兵防御力降低${percent(defense.windInfantryPenalty)}`
         }
     });
 })();

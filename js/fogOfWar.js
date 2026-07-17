@@ -34,6 +34,8 @@ function _getEffectiveVision(unit, gs) {
     } else {
         range = UNIT_VISION[unit.type] || 1;
     }
+    // 轻骑兵等专精的遭遇战视野加成
+    range += unit.getSpecializationAbility?.('skirmishVisionBonus') || 0;
     if (unit.commander === 'tianyan' && !areCommanderMechanicsSuppressed(unit)) range += COMMANDER_CONFIG.tianyan.balance.visionBonus;
     return Math.max(1, Math.min(5, range));
 }

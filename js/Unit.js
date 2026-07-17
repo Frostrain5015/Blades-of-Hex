@@ -505,7 +505,8 @@ export class Unit {
 
         // ② 增伤乘区
         let dmgUp = extraBonus + getCrossDomainDamageBonus(attacker, defender);
-        const firstHitReduction = defender.getSpecializationAbility?.('holdFirstHitReduction') || 0;
+        // 固守：只削减“受到的第一次攻击”，反击伤害不吃也不消耗该标记
+        const firstHitReduction = isCounter ? 0 : (defender.getSpecializationAbility?.('holdFirstHitReduction') || 0);
         if (firstHitReduction > 0 && !defender.movedThisTurn && (defender._timesAttackedThisTurn || 0) === 0) {
             dmgUp -= firstHitReduction;
         }
@@ -607,7 +608,7 @@ export class Unit {
             const stacks = colonelActive
                 ? Math.min(COLONEL_AIR_MAX_STACKS, gs?._colonelAirStacks?.[campKey] || 0)
                 : 0;
-            const carrierRankBonus = this._rank >= 3 ? 0.30 : this._rank >= 1 ? 0.15 : 0;
+            const carrierRankBonus = this._unbranchedRankReward?.damageBonus || 0;
             const colonelBonus = colonelActive
                 ? COLONEL_AIR_DAMAGE_BONUS + stacks * COLONEL_AIR_STACK_BONUS
                 : 0;
@@ -672,11 +673,12 @@ export class Unit {
         const antiSubBonus = targetUnit.type === 'submarine' ? (this.getSpecializationAbility('submarineDamage') || 0) : 0;
         const fleetBonus = targetUnit.config?.movementDomain === 'naval' && !targetUnit.isEmbarked
             ? (this.getSpecializationAbility('shipDamage') || 0) : 0;
-        const supportLandBonus = targetUnit.config?.movementDomain !== 'naval'
+        // 火控雷达只抵消“舰打岸”的跨域减伤；海上运输状态的陆军没有该减伤，不吃这份增伤
+        const supportLandBonus = targetUnit.config?.movementDomain !== 'naval' && !targetUnit.isEmbarked
             ? (this.getSpecializationAbility('landDamage') || 0) : 0;
         const submergedBonus = this.type === 'submarine' && this._submarineChargedAttack
-            ? (this._rank >= 3 ? 0.40 : this._rank >= 1 ? 0.25 : 0) : 0;
-        // 天气条件增伤：雾天骑兵+20%、风天炮兵+20%（归入②增伤乘区）
+            ? (this._unbranchedRankReward?.nextAttackDamage || 0) : 0;
+        // 天气条件增伤：雾天骑兵+20%（归入②增伤乘区）；风天炮兵增伤已由野战炮专精的风天穿甲翻倍取代
         const weatherBonus = (!this.isEmbarked && gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
             : 0;
 
