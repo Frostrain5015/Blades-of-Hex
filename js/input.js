@@ -1588,6 +1588,15 @@ function _describeBoardAction(action) {
             kicker: '城市建设', kind: 'action', action
         };
     }
+    if (action.kind === 'openAirCommands') {
+        return {
+            key: action.key, icon: action.icon, label: action.label,
+            desc: '打开空军指令面板，选择扫射、轰炸、空降或侦察指令。',
+            color: BOARD_ACTION_THEMES.specialization.border,
+            status: '可用',
+            kicker: '机场空军指令', kind: 'action', action
+        };
+    }
     if (action.kind === 'airCommand') {
         const launcher = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
         const colonel = getAirfieldColonel(launcher);
