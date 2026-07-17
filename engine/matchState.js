@@ -354,7 +354,10 @@ export function createClientUiState() {
         _victoryBoardSnapshot: null,
         // 纯本地的查看目标；同步 MatchState 时按这个稳定标识重新解析。
         // unit 优先跟随移动后的单位，tile 用于查看空格、城市和村庄。
-        inspectionTarget: null
+        inspectionTarget: null,
+        // 联机：本地已确认但尚未被服务端快照收录的投降（revision 竞争时由 reconcile 重放）
+        _localSurrenderPendingKey: null,
+        _localSurrenderRetries: 0
     };
 }
 
@@ -386,6 +389,8 @@ export function resetClientUiState(ui) {
     ui._fogPresentationHolds = {};
     ui._victoryBoardSnapshot = null;
     ui.inspectionTarget = null;
+    ui._localSurrenderPendingKey = null;
+    ui._localSurrenderRetries = 0;
 }
 
 // ===== 序列化 / 快照（联机同步 + 断线重连用） =====================
@@ -939,7 +944,7 @@ export function restoreMatchState(match, data, deps) {
             if (!city) continue;
             city.installation = {
                 type: 'airfield', campKey: key, status: 'ready', turnsRemaining: 0,
-                airCommandUsedThisTurn: false, airCommandReadyRound: {}, cooldowns: {}
+                airCommandReadyRound: {}, cooldowns: {}
             };
         }
     }

@@ -2,9 +2,9 @@
 import { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../commander/index.js';
 import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp, configureSkirmishState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
-import { setLogMessageRef, setGameStateRef } from './Unit.js';
+import { setLogMessageRef, setGameStateRef, setIsNetworkGameRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
-import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill } from './gameLogic.js';
+import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
@@ -115,6 +115,7 @@ initAudio();
 setHexTileGameStateRef(gameState);
 setLogMessageRef(logMessage);
 setGameStateRef(gameState);
+setIsNetworkGameRef(isNetworkGame);
 setCiLogRef(logMessage);
 setCiGameRef(() => gameState);
 setSpawnFxRef(spawnCommanderSkillEffect);
@@ -1564,7 +1565,14 @@ function beginNetworkCommanderFlow(role) {
     gameState.skirmishFog = wasSkirmish;
     gameState.doubleCommanderMode = wasDoubleCommanderMode;
     gameState.gameMode = wasMode;
-    configureSkirmishState({ playerCount: wasThreePlayer ? 3 : 2, colors: wasColors, flagEmojis: wasFlagEmojis });
+    // 联机对局所有玩家席位都是人类；缺省 controllers 会把 player2/player3 置为 'ai'，
+    // 导致这些阵营的单位在任一模拟端升阶时被 AI 逻辑自动选择专精并随快照污染全场。
+    configureSkirmishState({
+        playerCount: wasThreePlayer ? 3 : 2,
+        colors: wasColors,
+        flagEmojis: wasFlagEmojis,
+        controllers: { player1: 'human', player2: 'human', player3: 'human' }
+    });
     if (wasOrder.length) gameState.turnOrder = wasOrder;
     gameState.turnOrderRolls = wasRolls;
     if (Object.keys(wasAssignments).length) gameState.roleAssignments = wasAssignments;
@@ -2813,6 +2821,8 @@ async function handleRemoteAction(msg) {
             initSettingsPanel();
             initEmblemChatClicks();
         } else {
+            // 服务端纠偏回滚正是投降被拒的主要路径：快照落地后立即重放未收录的本地投降。
+            await reconcilePendingSurrender().catch(e => console.warn('Surrender reconcile error:', e));
             syncBoardActionBar();
             updateUI();
             renderGame();
@@ -2824,10 +2834,14 @@ async function handleRemoteAction(msg) {
         return;
     }
 
-    // 避免广播回显在 AI 处理期间覆盖 gameState（本端 endTurn 链已在处理，回显多余）
-    if (!gameState.aiActing && !gameState.gameOver) {
+    // 避免广播回显在 AI 处理期间覆盖 gameState（本端 endTurn 链已在处理，回显多余）。
+    // 本地投降尚未被服务端收录时（_localSurrenderPendingKey），即使本地已因投降提前进入
+    // gameOver 也要继续接收快照，否则无法完成投降重放收敛。
+    if (!gameState.aiActing && (!gameState.gameOver || gameState._localSurrenderPendingKey)) {
         applyRemoteState(msg.state, HexTile, Unit);
         await loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
+        // 远端快照落地后核对本地投降是否已被收录，未收录则幂等重放并重新广播。
+        await reconcilePendingSurrender().catch(e => console.warn('Surrender reconcile error:', e));
         syncBoardActionBar();
         updateUI();
         renderGame();

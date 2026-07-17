@@ -696,8 +696,22 @@ function _showTurnTransition(camp) {
 }
 
 // 三人模式中跳过已投降阵营，切换到下一个活跃阵营
-function _skipToNextActiveCamp(fromCamp) {
-    gameState.currentCamp = _nextActiveCamp(fromCamp);
+/**
+ * 把回合指针推进到下一个存活阵营，并按跨过的席位数推进 turnCounter。
+ * turnCounter 的语义是"席位步数"（getRoundIndex = turnCounter / turnOrder.length）：
+ * 跳过已投降阵营时若只 +1，整轮判定（天气/冷却/回合上限）会随淘汰人数漂移。
+ */
+function _advanceTurnPointer(fromCamp) {
+    const order = gameState.turnOrder?.length ? gameState.turnOrder : getFactionKeys(gameState);
+    const len = order.length;
+    const next = _nextActiveCamp(fromCamp);
+    const fromIdx = order.indexOf(_campKey(fromCamp));
+    const nextIdx = order.indexOf(_campKey(next));
+    const steps = (len > 0 && fromIdx >= 0 && nextIdx >= 0)
+        ? ((nextIdx - fromIdx + len - 1) % len) + 1
+        : 1;
+    gameState.currentCamp = next;
+    gameState.turnCounter += steps;
 }
 
 // 获取下一个未投降的阵营（用于回合轮转）
@@ -908,7 +922,6 @@ export function grantTurnStartIncome(camp) {
         const installation = tile.installation;
         if (!tile.isCity || tile.camp !== camp || installation?.type !== 'airfield') continue;
         installation.campKey = _campKey(camp);
-        installation.airCommandUsedThisTurn = false;
         // 新模型以绝对 readyRound 判定；仅把旧倒计时快照一次性迁移为绝对回合。
         for (const key of Object.keys(installation.cooldowns || {})) {
             const remaining = Math.max(0, installation.cooldowns[key] || 0);
@@ -1056,9 +1069,9 @@ async function _doEndTurnPhase() {
     triggerCommanderTurnEnd(gameState, camp, _campKey(camp));
     emit('turn:ended', { camp, campKey: _campKey(camp), turnCounter: gameState.turnCounter });
 
-    // Turn toggle（三人模式自动跳过已投降阵营）
-    gameState.currentCamp = _nextActiveCamp(camp);
-    gameState.turnCounter++;
+    // Turn toggle（三人模式自动跳过已投降阵营；turnCounter 按跨过的席位数推进）
+    const roundIndexBeforeAdvance = getRoundIndex(gameState);
+    _advanceTurnPointer(camp);
 
     // A submarine that attacked stays exposed through every enemy action and
     // submerges again only when its own next turn begins.
@@ -1118,9 +1131,10 @@ async function _doEndTurnPhase() {
             tile.unit._imprisoned = false;
         }
     }
-    // 新回合（P1开始）→ 限时效果到期检查
-    // 天气在新回合开始时更新
-    const isRoundAnchor = _campKey(gameState.currentCamp) === (gameState.turnOrder?.[0] || gameState.localPlayerCampKey);
+    // 新回合 → 限时效果到期检查 / 天气更新。
+    // 以 roundIndex 跨越判定整轮，而不是比较"当前阵营==turnOrder[0]"：
+    // 一号位投降被跳过后，旧写法会让天气/发牌/回合上限永远不再触发。
+    const isRoundAnchor = getRoundIndex(gameState) > roundIndexBeforeAdvance;
     if (isRoundAnchor) {
         checkTurnLimitVictory();
         if (gameState.gameOver) {
@@ -2478,7 +2492,11 @@ function checkVictory() {
     if (gameState.campaignMode) return;
     const playerKeys = getActivePlayerKeys(gameState);
     const districtMap = new Map(playerKeys.map(key => [key, new Set()]));
-    for (const tile of gameState.tiles) districtMap.get(_campKey(tile.camp))?.add(tile.districtId);
+    // 有效控制点只看陆地行政区；独立占领的港口（isPort 水面块）不能维持阵营存续。
+    for (const tile of gameState.tiles) {
+        if (!isLandTile(tile)) continue;
+        districtMap.get(_campKey(tile.camp))?.add(tile.districtId);
+    }
     const neutral = campFromKey('neutral', gameState);
 
     if (playerKeys.length > 2) {
@@ -2696,21 +2714,7 @@ async function handleSurrender() {
         );
         if (!confirmed) return;
         logMessage(`${surrenderCamp.name}选择投降，领土与部队归属中立！`);
-        if (!hasFactionSurrendered(gameState, surrenderCamp)) gameState.surrenderedCamps.push(surrenderCamp);
-        const neutralCamp = campFromKey('neutral', gameState);
-        restoreSurrenderedPorts(gameState, surrenderCamp);
-        for (const tile of gameState.tiles) {
-            if (tile.camp === surrenderCamp) tile.setCampWithFade(neutralCamp);
-            if (tile.unit && tile.unit.camp === surrenderCamp) {
-                tile.unit.camp = neutralCamp;
-            }
-        }
-        // 跳过该阵营回合，切换到下一个未投降阵营
-        if (gameState.currentCamp === surrenderCamp) {
-            gameState.turnCounter++;
-            _updateWeather();
-            _skipToNextActiveCamp(surrenderCamp);
-        }
+        _applyEliminationSurrender(surrenderCamp);
         // 投降方显示观战横幅
         const banner = document.getElementById('opponentTurnBanner');
         if (banner && isNetworkGame()) {
@@ -2723,7 +2727,13 @@ async function handleSurrender() {
         checkVictory();
         updateUI();
         updateButtonColors();
+        _markSurrenderPending(surrenderCamp);
         broadcastAction('surrender');
+        // 己方回合投降：走标准回合相位交接（下家获得回合开始结算，整轮锚点正常推进），
+        // 相位内部会再广播一条 endTurn；不能裸跳指针，否则交接方缺一次收入/维修/毒素结算。
+        if (!gameState.gameOver && gameState.currentCamp === surrenderCamp) {
+            await _endTurnAfterSurrender();
+        }
         // 投降可能把回合直接切到中立（未经过 endTurn 的 AI 链）：
         // 本地由本机立即接管；联机时非驱动方此调用为空操作，驱动方在收到广播后接管
         if (!gameState.gameOver && _campKey(gameState.currentCamp) === 'neutral') {
@@ -2739,15 +2749,89 @@ async function handleSurrender() {
 
     logMessage(`${surrenderCamp.name}选择投降，${victoryCamp.name}获得最终胜利！`);
 
-    if (!hasFactionSurrendered(gameState, surrenderCamp)) gameState.surrenderedCamps.push(surrenderCamp);
-    restoreSurrenderedPorts(gameState, surrenderCamp);
-    gameState.gameOver = true;
-    gameState.victoryCamp = victoryCamp;
+    _applyFinalSurrender(surrenderCamp, victoryCamp);
 
     setTimeout(() => triggerVictoryEffect(), 1500);
     updateUI();
     updateButtonColors();
+    _markSurrenderPending(surrenderCamp);
     broadcastAction('surrender');
+}
+
+// ===== 投降落地与联机重放 =====================
+// 淘汰式投降（还有两名以上对手）：记录投降、归还港口、领土与部队移交中立。幂等。
+function _applyEliminationSurrender(surrenderCamp) {
+    if (!hasFactionSurrendered(gameState, surrenderCamp)) gameState.surrenderedCamps.push(surrenderCamp);
+    const neutralCamp = campFromKey('neutral', gameState);
+    restoreSurrenderedPorts(gameState, surrenderCamp);
+    for (const tile of gameState.tiles) {
+        if (tile.camp === surrenderCamp) tile.setCampWithFade(neutralCamp);
+        if (tile.unit && tile.unit.camp === surrenderCamp) {
+            tile.unit.camp = neutralCamp;
+        }
+    }
+}
+
+// 终局式投降（仅剩一名对手）：直接判负。幂等。
+function _applyFinalSurrender(surrenderCamp, victoryCamp) {
+    if (!hasFactionSurrendered(gameState, surrenderCamp)) gameState.surrenderedCamps.push(surrenderCamp);
+    restoreSurrenderedPorts(gameState, surrenderCamp);
+    gameState.gameOver = true;
+    gameState.victoryCamp = victoryCamp;
+}
+
+// 己方回合投降后的回合交接：复用标准回合相位并保持 _turnProcessing 互斥。
+async function _endTurnAfterSurrender() {
+    if (_turnProcessing) return;
+    _turnProcessing = true;
+    try {
+        await _doEndTurnPhase();
+    } finally {
+        _turnProcessing = false;
+    }
+}
+
+// 联机：投降动作可能与并发动作竞争 revision 而被服务端拒绝（客户端队列随即清空）。
+// 记录"本地待确认投降"，由 main.js 在每次远端快照落地后调用 reconcile 重放，直到快照收录为止。
+function _markSurrenderPending(surrenderCamp) {
+    if (!isNetworkGame()) return;
+    gameState._localSurrenderPendingKey = _campKey(surrenderCamp);
+    gameState._localSurrenderRetries = 0;
+}
+
+export async function reconcilePendingSurrender() {
+    const key = gameState._localSurrenderPendingKey;
+    if (!key || !isNetworkGame()) return;
+    if ((gameState.surrenderedCamps || []).some(camp => _campKey(camp) === key)) {
+        gameState._localSurrenderPendingKey = null;
+        return;
+    }
+    if ((gameState._localSurrenderRetries || 0) >= 5) {
+        gameState._localSurrenderPendingKey = null;
+        notify('投降同步失败，请重新点击投降', 'error');
+        return;
+    }
+    gameState._localSurrenderRetries = (gameState._localSurrenderRetries || 0) + 1;
+    const surrenderCamp = campFromKey(key, gameState);
+    if (!surrenderCamp) { gameState._localSurrenderPendingKey = null; return; }
+    logMessage(`${surrenderCamp.name}的投降与对局进度冲突，正在重放`);
+    const survivingKeys = getSurvivingPlayerKeys(gameState, surrenderCamp);
+    if (survivingKeys.length === 1) {
+        _applyFinalSurrender(surrenderCamp, campFromKey(survivingKeys[0], gameState));
+        setTimeout(() => triggerVictoryEffect(), 1500);
+    } else {
+        _applyEliminationSurrender(surrenderCamp);
+        checkVictory();
+    }
+    updateUI();
+    updateButtonColors();
+    broadcastAction('surrender');
+    if (!gameState.gameOver && gameState.currentCamp === surrenderCamp) {
+        await _endTurnAfterSurrender();
+    }
+    if (!gameState.gameOver && _campKey(gameState.currentCamp) === 'neutral') {
+        resumeNeutralTurnIfNeeded().catch(e => console.warn('Neutral resume error:', e));
+    }
 }
 
 // ==== E4 空军上校：航程 + 防空火力 目标约束 =====================
@@ -3077,7 +3161,7 @@ export function executeAirfieldConstruction(cityTile) {
     cityTile.installation = {
         type: 'airfield', campKey, status: 'constructing',
         constructionReadyRound: getRoundIndex(gameState) + CONSTRUCTION_CONFIG.airfield.buildTurns,
-        airCommandUsedThisTurn: false, airCommandReadyRound: {}, cooldowns: {}
+        airCommandReadyRound: {}, cooldowns: {}
     };
     updateUI();
     broadcastAction('buildAirfield', {

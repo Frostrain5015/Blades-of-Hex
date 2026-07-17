@@ -37,10 +37,24 @@ import { canUnitTargetUnit, getCrossDomainDamageBonus } from '../rules/naval.js'
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
 let _gameState = null;
+let _isNetworkGame = null;
 // 晋升事件收集（供联机同步，每轮 action 前清空）
 export let _pendingRankUps = [];
 export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setGameStateRef(ref) { _gameState = ref; }
+export function setIsNetworkGameRef(fn) { _isNetworkGame = fn; }
+
+/**
+ * 是否允许为该单位走 AI 自动选专精路径。
+ * 联机对局中所有玩家席位都是人类，仅中立阵营可自动选择；
+ * 这同时防御旧版本快照里被污染成 'ai' 的玩家阵营 controller。
+ */
+function _allowAutoSpecialization(unit) {
+    const campKey = campToKey(unit.camp);
+    if (campKey === 'neutral') return true;
+    const controller = _gameState?.factions?.[campKey]?.controller;
+    return controller === 'ai' && !(_isNetworkGame?.());
+}
 
 export class Unit {
     constructor(type, camp, tile, isNewRecruit = false, idOverride = null, commander = null, transportState = null, specializationKey = null) {
@@ -319,10 +333,8 @@ export class Unit {
     chooseSpecialization(specializationKey) {
         if (this._rankLocked || this._rank < 1 || this.specializationKey) return false;
         if (!isValidSpecialization(this.type, specializationKey)) return false;
-        // 防守：非 AI/中立单位在 UI 路径以外不应自动选择专精
-        const campKey = campToKey(this.camp);
-        const controller = _gameState?.factions?.[campKey]?.controller;
-        if (controller !== 'ai' && campKey !== 'neutral') {
+        // 防守：人类阵营单位只能经 UI 路径选择专精（联机中玩家席位一律视为人类）
+        if (!_allowAutoSpecialization(this)) {
             const stk = new Error().stack;
             if (!stk?.includes('_applySpecializationChoice')) return false;
         }
@@ -1079,9 +1091,7 @@ export class Unit {
         if (this._rank === previousRank) return;
 
         this._rebuildRankProfile();
-        const campKey = campToKey(this.camp);
-        const controller = _gameState?.factions?.[campKey]?.controller;
-        if (this.pendingSpecialization && (controller === 'ai' || campKey === 'neutral')) {
+        if (this.pendingSpecialization && _allowAutoSpecialization(this)) {
             const defaultSpecialization = chooseDefaultSpecialization(this, _gameState);
             if (defaultSpecialization) this.chooseSpecialization(defaultSpecialization);
         }

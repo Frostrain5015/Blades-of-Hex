@@ -325,17 +325,17 @@ function buildArtillery(fac, nightMats, spec) {
     pod.add(muzzle);
     barrel = pod;   // 后座动画作用于整个火箭巢
   } else if (spec === 'aa') {
-    // 防空炮：高仰角细长炮管 + 雷达碟
+    // 防空炮：高仰角细长炮管 + 雷达碟（炮口 +Y，俯仰取正使其指向 +Z 前方抬高）
     barrel = cyl(0.038, 0.05, 0.88, dk, 10);
-    barrel.rotation.x = -1.35; barrel.position.set(0, 0.55, 0.08); b.add(barrel);
+    barrel.rotation.x = 1.35; barrel.position.set(0, 0.55, 0.08); b.add(barrel);
     muzzle.position.y = 0.46; barrel.add(muzzle);
     const pedestal = cyl(0.05, 0.07, 0.3, dk, 8); pedestal.position.set(-0.26, 0.4, -0.22); b.add(pedestal);
     const dish = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.09, 12), mat(0x555c60, 0.5, 0.6));
     dish.rotation.x = -0.7; dish.position.set(-0.26, 0.62, -0.22); b.add(dish);
   } else {
-    // 野战炮：单管上仰（默认）
+    // 野战炮：单管上仰（默认；炮口 +Y，俯仰取正使其指向 +Z 前方抬高）
     barrel = cyl(0.055, 0.075, 0.62, dk, 10);
-    barrel.rotation.x = -1.15; barrel.position.set(0, 0.44, 0.1); b.add(barrel);
+    barrel.rotation.x = 1.15; barrel.position.set(0, 0.44, 0.1); b.add(barrel);
     muzzle.position.y = 0.34; barrel.add(muzzle);
   }
   const wheels = [];

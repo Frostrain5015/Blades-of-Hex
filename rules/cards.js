@@ -8,6 +8,7 @@ import { EMOJI } from './symbols.js';
 import { UNIT_CONFIG } from './units.js';
 import { campToKey } from './camps.js';
 import { getRoundIndex } from './turns.js';
+import { isWaterTile } from './surfaces.js';
 
 export const TACTICAL_CARD_DATA = (() => {
     const cards = {
@@ -184,7 +185,8 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
         execute(targetTile, gameState, helpers) {
             targetTile._minePlanted = true;
             targetTile._mineCampKey = helpers.getMyCamp ? campToKey(helpers.getMyCamp()) : 'player1';
-            targetTile._mineType = targetTile.surface === 'water' ? 'water' : 'land';
+            // surface 的合法值是 land/shallowWater/deepWater，不能与 'water' 直接比较
+            targetTile._mineType = isWaterTile(targetTile) ? 'water' : 'land';
             return { landmine: true, mineType: targetTile._mineType, tileQ: targetTile.q, tileR: targetTile.r };
         }
     },

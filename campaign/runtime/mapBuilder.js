@@ -146,7 +146,6 @@ export function buildBoardFromConfig(config, gameState) {
             constructionReadyRound: Number.isFinite(installation.constructionReadyRound)
                 ? installation.constructionReadyRound
                 : undefined,
-            airCommandUsedThisTurn: false,
             airCommandReadyRound: { ...(installation.airCommandReadyRound || {}) },
             cooldowns: { ...(installation.cooldowns || {}) }
         };

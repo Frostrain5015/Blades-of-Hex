@@ -80,12 +80,13 @@ const board = buildBoard(scene);
 const nightMats = [...board.nightMats];
 initEffects(scene, camera);
 
-// 4v4 布阵：红军（西）步兵/骑兵/炮兵/碉堡 vs 蓝军（东）战舰/潜艇/步兵/炮兵
+// 4v4 布阵：红军（西）步兵/骑兵/炮兵/碉堡/反潜舰 vs 蓝军（东）战舰/潜艇/步兵/炮兵/航母
 // 第 5 列为专精分支（战斗单位也带变体：蓝军火箭炮可在自动演示中齐射）
 const unitDefs = [
   ['infantry', 'red', -3, 1, 'assault'], ['cavalry', 'red', -2, 0, 'heavy'], ['artillery', 'red', -2, -1, 'field'], ['mgNest', 'red', 1, 0],
   ['carrier', 'blue', 3, -1], ['submarine', 'blue', 3, 0], ['infantry', 'blue', 0, 2, 'garrison'], ['artillery', 'blue', 0, -2, 'rocket'],
   ['artillery', 'blue', 1, -2, 'aa'],   // 蓝军防空炮：为东侧提供区域防空（不能普攻）
+  ['warship', 'blue', 2, 1, 'sea'], ['warship', 'red', 3, -2, 'asw'],   // 战斗舰船：可点击/可参战/可被击沉
 ];
 const units = unitDefs.map(([type, fac, q, r, spec]) =>
   createUnit(type, fac, board.tiles.get(q + ',' + r), nightMats, { spec }));
@@ -104,8 +105,7 @@ paradeLand.forEach(([type, fac, spec, x, z], i) => {
   units.push(u);
 });
 const paradeNavy = [
-  ['warship', 'blue', 'aa', '4,-3'], ['warship', 'red', 'asw', '3,-2'],
-  ['warship', 'blue', 'sea', '2,1'], ['warship', 'red', 'support', '3,1'],
+  ['warship', 'blue', 'aa', '4,-3'], ['warship', 'red', 'support', '3,1'],
 ];
 paradeNavy.forEach(([type, fac, spec, key]) => {
   units.push(createUnit(type, fac, board.tiles.get(key), nightMats, { spec, parade: true }));

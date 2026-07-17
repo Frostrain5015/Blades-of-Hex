@@ -415,11 +415,22 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
     const g = unit.group;
     const pos = g.position.clone();
     if (unit.stats.naval) {
-      // 舰船/潜艇：缓缓下沉 + 气泡
+      // 沉没编舞：连环爆炸 → 浓烟柱 → 侧倾抬艏加速下沉 → 完全没入时涌浪，约 2.6s
+      const sMul = unit.type === 'submarine' ? 0.75 : 1;
+      fx.spawnExplosion(pos.clone().add(new THREE.Vector3(0, 0.3, 0)), { scale: sMul });
+      after(0.3, () => fx.spawnExplosion(pos.clone().add(new THREE.Vector3(rand(-0.3, 0.3), 0.25, rand(-0.5, 0.5))), { scale: 0.65 * sMul }));
+      after(0.6, () => fx.spawnExplosion(pos.clone().add(new THREE.Vector3(rand(-0.3, 0.3), 0.2, rand(-0.5, 0.5))), { scale: 0.6 * sMul }));
+      for (let i = 0; i < 4; i++) after(0.35 + i * 0.45, () => fx.spawnSmokePuff(pos.clone().add(new THREE.Vector3(rand(-0.2, 0.2), 0.5, rand(-0.3, 0.3))), { scale: 1.1 * sMul, life: 1.5 }));
       fx.spawnSplash(pos.clone().setY(WATER_Y), { scale: 1.2 });
+      after(1.1, () => fx.spawnSplash(pos.clone().setY(WATER_Y), { scale: 1.5 }));
+      after(2.05, () => fx.spawnSplash(pos.clone().setY(WATER_Y), { scale: 2.0 }));   // 完全没入时的涌浪
       tween({
-        dur: 1.6, ease: EASE.inQuad,
-        onUpdate: (k) => { g.position.y = unit.groundY - k * 1.4; g.rotation.z = k * 0.6; },
+        dur: 2.4, ease: EASE.inOut,
+        onUpdate: (k) => {
+          g.position.y = unit.groundY - k * k * 1.7;          // 加速下沉
+          g.rotation.z = k * 1.05;                            // 侧倾加剧
+          g.rotation.x = Math.sin(k * Math.PI * 0.75) * 0.3;  // 先抬艏后栽沉
+        },
         onDone: () => { g.visible = false; },
       });
     } else {
@@ -527,9 +538,105 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
   }
   carrierStrike._last = -1;
 
+  // 火箭炮齐射·溅射群体轰炸（对齐后端 js/gameLogic.js 溅射结算）：
+  //   主目标全伤；其 6 邻格上的敌军各吃 25% 溅射（后端 rank1 倍率），
+  //   溅射总伤 ≤ 主目标伤害（后端 totalDamageCap:1，预算逐目标扣减）；
+  //   6 管 staggered 出膛，受害者分弹，剩余管数散布在主目标周围作群体轰炸。
+  function rocketSalvo(att, tgt, from, to, done) {
+    const roll = rollDamage({ min: 30, max: 58 });
+    const SPLASH_MULT = 0.25;
+    let budget = roll.dmg;                        // 溅射预算 = 主目标伤害
+    const plan = [{ u: tgt, dmg: roll.dmg, crit: roll.crit }];
+    for (const [dq, dr] of HEX_DIRS) {
+      if (budget <= 0 || plan.length >= 6) break;
+      const t = board.tiles.get(hexKey(tgt.tile.q + dq, tgt.tile.r + dr));
+      const u = t ? occupiedBy(t) : null;
+      if (!u || u.faction === att.faction) continue;
+      const dmg = Math.max(1, Math.min(budget, Math.round(roll.dmg * SPLASH_MULT)));
+      budget -= dmg;
+      plan.push({ u, dmg, crit: false });
+    }
+    // 每管一弹：受害者优先，余下散布（无伤害，纯视觉）
+    const rockets = plan.map((p) => ({ at: targetPoint(p.u), hit: p }));
+    while (rockets.length < 6) rockets.push({ at: to.clone().add(new THREE.Vector3(rand(-0.9, 0.9), 0, rand(-0.9, 0.9))), hit: null });
+    // 火箭巢持续后座（随齐射节奏脉冲）
+    if (att.anim && att.anim.barrel) {
+      const b = att.anim.barrel, home = att.anim.barrelHome;
+      tween({ dur: 0.11 * rockets.length + 0.3, onUpdate: (k) => { b.position.z = home.z - Math.abs(Math.sin(k * rockets.length * Math.PI)) * 0.05; } });
+    }
+    let landed = 0;
+    rockets.forEach((rk, i) => {
+      after(i * 0.11, () => {
+        fx.spawnMuzzleFlash(muzzleWorld(att), { scale: 0.55 });
+        fx.spawnShell(from, rk.at, {
+          arc: from.distanceTo(rk.at) * 0.3 + 0.8,
+          speed: 12,
+          onHit: (hp) => {
+            const u = rk.hit ? rk.hit.u : tgt;
+            if (u.stats.naval) {
+              fx.spawnSplash(hp.clone().setY(WATER_Y + 0.05), { scale: 0.8 });
+              fx.spawnExplosion(hp.clone().setY(WATER_Y + 0.3), { scale: 0.5 });
+            } else {
+              fx.spawnExplosion(hp.clone().setY(u.groundY + 0.25), { scale: 0.55 });
+              fx.spawnDustPuff(hp.clone().setY(u.groundY + 0.05), { scale: 0.7, n: 2 });
+            }
+            if (rk.hit) applyDamage(rk.hit.u, rk.hit.dmg, { crit: rk.hit.crit });
+            if (++landed === rockets.length) done();
+          },
+        });
+      });
+    });
+  }
+
+  // 舰炮齐射：炮塔转向目标 → 逐塔开火（炮口焰 + 抛物线 + 炮塔后座）→ 伤害按弹数分摊
+  function warshipSalvo(att, tgt, done) {
+    const turrets = (att.anim && att.anim.turrets) || [];
+    const to = targetPoint(tgt);
+    if (!turrets.length) {   // 无炮塔兜底：单发主炮
+      fx.spawnMuzzleFlash(muzzleWorld(att), { scale: 1.5 });
+      fx.spawnShell(muzzleWorld(att), to, { big: true, arc: 1.2, onHit: () => { fx.spawnExplosion(to, { scale: 1.1 }); dealDamage(tgt, { min: 40, max: 70 }); done(); } });
+      return;
+    }
+    // 炮塔在舰体局部系内偏航对准目标
+    const homes = turrets.map((t) => t.position.clone());
+    turrets.forEach((t) => {
+      const tw = t.getWorldPosition(V3());
+      const yawTo = Math.atan2(to.x - tw.x, to.z - tw.z) - att.group.rotation.y;
+      const y0 = t.rotation.y;
+      tween({ dur: 0.28, ease: EASE.inOut, onUpdate: (k) => { t.rotation.y = lerpAngle(y0, yawTo, k); } });
+    });
+    const roll = rollDamage({ min: 40, max: 70 });
+    const per = Math.max(1, Math.round(roll.dmg / turrets.length));
+    let landed = 0;
+    turrets.forEach((t, i) => {
+      after(0.32 + i * 0.22, () => {
+        const mzl = t.localToWorld(new THREE.Vector3(0, 0.1, 0.45));
+        fx.spawnMuzzleFlash(mzl, { scale: 1.3 });
+        // 炮塔沿自身射向后座
+        const back = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, t.rotation.y, 0));
+        const home = homes[i];
+        tween({ dur: 0.32, ease: EASE.outQuad, onUpdate: (k) => { t.position.copy(home).addScaledVector(back, Math.sin(Math.PI * Math.min(1, k * 1.4)) * 0.07); } });
+        fx.spawnShell(mzl, to.clone().add(new THREE.Vector3(rand(-0.2, 0.2), 0, rand(-0.2, 0.2))), {
+          big: true,
+          arc: mzl.distanceTo(to) * 0.3 + 0.9,
+          speed: 10,
+          onHit: (hp) => {
+            if (tgt.stats.naval) {
+              fx.spawnSplash(hp.clone().setY(WATER_Y + 0.05), { scale: 1 });
+              fx.spawnExplosion(hp.clone().setY(WATER_Y + 0.35), { scale: 0.9 });
+            } else {
+              fx.spawnExplosion(tgt.group.position.clone().add(new THREE.Vector3(0, 0.35, 0)), { scale: 1.1 });
+            }
+            applyDamage(tgt, per, { crit: i === turrets.length - 1 && roll.crit });
+            if (++landed === turrets.length) done();
+          },
+        });
+      });
+    });
+  }
+
   // 远程：炮兵/战舰 = 抛物线炮弹；潜艇 = 鱼雷；碉堡 = 曳光扫射
-  function rangedAttack(att, tgt, { big = false } = {}) {
-    if (!att.alive || !tgt.alive) return false;
+  function rangedAttack(att, tgt, { big = false } = {}) {    if (!att.alive || !tgt.alive) return false;
     state.busy++;
     tgt.group.userData.lastAttackerX = att.group.position.x;
     tgt.group.userData.lastAttackerZ = att.group.position.z;
@@ -563,40 +670,24 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
         fireOne();
       } else if (att.type === 'carrier') {
         carrierStrike(att, tgt, done);
+      } else if (att.type === 'warship') {
+        warshipSalvo(att, tgt, done);
       } else if (att.spec === 'rocket') {
-        // 火箭炮齐射：4 发小抛物线连射，集火爆炸链，伤害分摊到每发
-        const roll = rollDamage({ min: 30, max: 58 });
-        const per = Math.max(1, Math.round(roll.dmg / 4));
-        for (let i = 0; i < 4; i++) {
-          after(i * 0.14, () => {
-            fx.spawnMuzzleFlash(from, { scale: 0.6 });
-            const jitter = new THREE.Vector3(rand(-0.35, 0.35), 0, rand(-0.35, 0.35));
-            fx.spawnShell(from, to.clone().add(jitter), {
-              arc: from.distanceTo(to) * 0.32 + 0.7,
-              speed: 11,
-              onHit: (hp) => {
-                fx.spawnExplosion(hp.clone().setY(tgt.groundY + 0.25), { scale: 0.55 });
-                applyDamage(tgt, per, { crit: i === 3 && roll.crit });
-                if (i === 3) done();
-              },
-            });
-          });
-        }
+        rocketSalvo(att, tgt, from, to, done);
       } else {
-        // 炮兵 / 战舰主炮：后座 + 炮口焰 + 抛物线
+        // 野战炮兵：后座 + 炮口焰 + 抛物线
         if (att.anim && att.anim.barrel) {
           const b = att.anim.barrel, home = att.anim.barrelHome;
           tween({ dur: 0.35, ease: EASE.outQuad, onUpdate: (k) => { const s = Math.sin(Math.PI * Math.min(1, k * 1.4)) * 0.12; b.position.z = home.z - s; } });
         }
-        fx.spawnMuzzleFlash(from, { scale: att.type === 'warship' ? 1.5 : 1 });
+        fx.spawnMuzzleFlash(from, { scale: 1 });
         fx.spawnShell(from, to, {
-          big: big || att.type === 'warship',
-          arc: att.type === 'warship' ? from.distanceTo(to) * 0.3 + 0.9 : null,
+          big,
           onHit: (p) => {
             const naval = tgt.stats.naval;
             if (naval) { fx.spawnSplash(p.clone().setY(WATER_Y + 0.05), { scale: 0.9 }); fx.spawnExplosion(p, { scale: 0.9 }); }
-            else fx.spawnExplosion(tgt.group.position.clone().add(new THREE.Vector3(0, 0.35, 0)), { scale: att.type === 'warship' ? 1.25 : 1 });
-            dealDamage(tgt, att.type === 'warship' ? { min: 40, max: 70 } : { min: 30, max: 58 });
+            else fx.spawnExplosion(tgt.group.position.clone().add(new THREE.Vector3(0, 0.35, 0)), { scale: 1 });
+            dealDamage(tgt, { min: 30, max: 58 });
             done();
           },
         });
@@ -1004,7 +1095,7 @@ export function initDemo({ scene, camera, controls, board, units, hud, dom }) {
                 c.barrel.rotation.y = lerpAngle(c.barrel.rotation.y, yawTo, 0.13);
                 const dist = Math.hypot(dx, dz);
                 const pitch = Math.atan2(lead.y - (u.groundY + 0.6), Math.max(0.5, dist));
-                c.barrel.rotation.x = -Math.max(0.35, Math.min(1.45, Math.PI / 2 - pitch));
+                c.barrel.rotation.x = Math.max(0.35, Math.min(1.45, Math.PI / 2 - pitch));
               }
             } else if (c.kind === 'flak') {
               from = new THREE.Vector3(c.tile.x + 0.52, c.tile.topY + 0.62, c.tile.z + 0.3);

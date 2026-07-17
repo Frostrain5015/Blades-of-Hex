@@ -78,8 +78,8 @@ function hasValidTiles(snapshot, factionKeys) {
             if (controlledPort) {
                 if (surface !== 'shallowWater' || !factionKeys.has(tile.campKey) || !Number.isInteger(tile.districtId)) return false;
             } else if (tile.campKey !== null || tile.districtId != null) return false;
-            if (tile.isCity || tile.isUrban || tile.isVillage
-                || tile.fortification || tile.minePlanted) return false;
+            // 水雷（minePlanted + mineType 'water'）是合法状态，不在禁止列表内
+            if (tile.isCity || tile.isUrban || tile.isVillage || tile.fortification) return false;
         } else if (!factionKeys.has(tile.campKey)) return false;
     }
     return true;

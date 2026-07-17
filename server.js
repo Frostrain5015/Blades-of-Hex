@@ -901,7 +901,14 @@ async function handleMessage(ws, rawData) {
             }
             if (authority.state && !protocol.isSetupAction(msg.actionType, authority.state)) {
                 const stateCampKey = authority.state.currentCampKey;
-                if (stateCampKey === 'neutral') {
+                if (msg.actionType === 'surrender') {
+                    // 投降不受回合归属限制（快照里可能同时携带 checkVictory 级联淘汰的其他阵营），
+                    // 但投降快照不得顺带改写当前行动方：回合交接由后续 endTurn 单独提交。
+                    if (msg.state.currentCampKey !== stateCampKey) {
+                        sendAuthoritativeSnapshot(ws, room, '投降不能改变当前行动方');
+                        break;
+                    }
+                } else if (stateCampKey === 'neutral') {
                     // 中立回合：中立 AI 由驱动方客户端（回合序上最后一名存活玩家）代理执行，
                     // 只放行该玩家的操作，其余客户端一律拒绝，避免双驱动竞争。
                     if (senderRole !== protocol.neutralDriverRole(authority.state)) {

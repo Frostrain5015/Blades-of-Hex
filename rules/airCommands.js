@@ -80,7 +80,7 @@ export function getAirCommandAvailability(kind, cityTile, state) {
     if (cityTile.camp !== state?.currentCamp) return { available: false, reason: '不是当前阵营的机场' };
     if (cityTile._cityDisabledUntil > getRoundIndex(state)) return { available: false, reason: '城市处于瘫痪' };
     if (state.weather === 'fog') return { available: false, reason: '雾天停飞' };
-    if (installation.airCommandUsedThisTurn) return { available: false, reason: '机场本回合已经出动' };
+    // 每种指令按 (机场 × 指令) 独立冷却；同回合可出动多种不同指令，不设机场级共享闸。
     const currentRound = getRoundIndex(state);
     const readyRound = installation.airCommandReadyRound?.[kind];
     const legacyCooldown = installation.cooldowns?.[kind] || 0;
@@ -97,7 +97,6 @@ export function getAirCommandAvailability(kind, cityTile, state) {
 export function markAirCommandUsed(kind, cityTile, state) {
     const config = AIR_COMMAND_CONFIG[kind];
     if (!config || !cityTile?.installation) return;
-    cityTile.installation.airCommandUsedThisTurn = true;
     cityTile.installation.airCommandReadyRound ||= {};
     // R 回合使用后，冷却 N 回合意味着 R+N+1 回合恢复。
     cityTile.installation.airCommandReadyRound[kind] = getRoundIndex(state) + config.cooldown + 1;
