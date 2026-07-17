@@ -3159,8 +3159,8 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
         if (!target || !canAttack(gameState, launcherTile.camp, target.camp)) return false;
         if (target.type === 'submarine' && !isSubmarineTargetableBy(target, launcherTile.camp, gameState)) return false;
         const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, 1, target, launcherTile, { missingHpBonus: true });
-        const killed = target.applyDamage(result.damage, { source: 'ranged', attacker: null });
-        results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed, isCrit: result.isCrit });
+        // 扣血延迟到动画结束后执行（1200ms），避免同步扣血破坏视觉
+        results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed: false, isCrit: result.isCrit });
         // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
         playSound('airstrike');
         spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'diveStrafe', targetTile.q, targetTile.r);
@@ -3184,8 +3184,8 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
             const target = tile.unit;
             if (!target || !canAttack(gameState, launcherTile.camp, target.camp)) continue;
             const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, target, launcherTile, { centerBomb: index === 0 });
-            const killed = target.applyDamage(result.damage, { source: 'ranged', attacker: null });
-            results.push({ q: tile.q, r: tile.r, damage: result.damage, killed, isCrit: result.isCrit });
+            // 扣血延迟到动画结束后执行（1200ms）
+            results.push({ q: tile.q, r: tile.r, damage: result.damage, killed: false, isCrit: result.isCrit });
         }
         const engineerProtectedAirfield = targetTile.isCity
             && targetTile.installation?.type === 'airfield'
@@ -3238,6 +3238,13 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
     if (Number.isFinite(impactDelay) && results.some(result => Number(result.damage) > 0)) {
         setTimeout(() => {
             if (kind === 'strafe') {
+                // 延迟扣血：爆炸时刻才结算伤害，与上校动画时序一致
+                for (const r of results) {
+                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                    if (tile && tile.unit) {
+                        r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
+                    }
+                }
                 playSound('explosion');
                 for (const r of results) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
@@ -3245,6 +3252,13 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
                 }
                 triggerScreenShake(6, 300);
             } else if (kind === 'bombing') {
+                // 延迟扣血：爆炸时刻才结算伤害
+                for (const r of results) {
+                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                    if (tile && tile.unit) {
+                        r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
+                    }
+                }
                 playSound('explosion');
                 for (const r of results) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);

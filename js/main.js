@@ -3370,6 +3370,13 @@ async function handleRemoteAction(msg) {
             if (Number.isFinite(impactDelay)) {
                 setTimeout(() => {
                     if (e.kind === 'strafe') {
+                        // 延迟扣血：爆炸时刻才结算伤害
+                        for (const r of (e.results || [])) {
+                            const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                            if (tile && tile.unit) {
+                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
+                            }
+                        }
                         playSound('explosion');
                         for (const r of (e.results || [])) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
@@ -3377,6 +3384,13 @@ async function handleRemoteAction(msg) {
                         }
                         triggerScreenShake(6, 300);
                     } else if (e.kind === 'bombing') {
+                        // 延迟扣血：爆炸时刻才结算伤害
+                        for (const r of (e.results || [])) {
+                            const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                            if (tile && tile.unit) {
+                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
+                            }
+                        }
                         playSound('explosion');
                         for (const r of (e.results || [])) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
