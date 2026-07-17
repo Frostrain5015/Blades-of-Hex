@@ -203,7 +203,7 @@ export class Unit {
                 label: '泣血',
                 desc: COMMANDER_CONFIG.berserker.definition.activeSkill.desc,
                 color: '#d63c3c',
-                status: '当前生效 攻击力提高' + (stacks * balance.statBonusPerStackPct * 100) + '%，防御力提高' + (stacks * balance.statBonusPerStackPct * 100) + '%'
+                status: '当前生效 攻击力提高' + Math.round(stacks * balance.statBonusPerStackPct * 100) + '%，防御力提高' + Math.round(stacks * balance.statBonusPerStackPct * 100) + '%'
             });
         }
 

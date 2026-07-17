@@ -1000,7 +1000,7 @@ function _getUnitPassiveRuntimeState(unit, passive) {
         presentation.active = stacks > 0;
         presentation.intensity = stacks / COMBAT_BALANCE.cavalry.maxChargeSteps;
         presentation.status = presentation.active
-            ? '当前生效 造成的伤害提高' + (stacks * COMBAT_BALANCE.cavalry.normalChargeDamagePerStep * 100) + '%'
+            ? '当前生效 造成的伤害提高' + Math.round(stacks * COMBAT_BALANCE.cavalry.normalChargeDamagePerStep * 100) + '%'
             : '当前未生效';
     } else if (unit.type === 'infantry') {
         presentation.status = unit.tile?.isCity ? '当前生效' : '当前未生效';
@@ -1038,7 +1038,7 @@ function _getPassiveRuntimeState(unit, skill) {
         presentation.count = '';
         presentation.active = faith > 0;
         presentation.intensity = faith / balance.faithMax;
-        presentation.status = '当前生效 防御力提高' + (faith * balance.defensePerFaith * 100) + '%' + charged;
+        presentation.status = '当前生效 防御力提高' + Math.round(faith * balance.defensePerFaith * 100) + '%' + charged;
     }
 
     if (unit.commander === 'martyr' && skill.name === '挽歌') {
@@ -1066,7 +1066,7 @@ function _getPassiveRuntimeState(unit, skill) {
         presentation.count = '';
         presentation.active = stacks > 0;
         presentation.intensity = stacks / balance.maxStacks;
-        presentation.status = '当前生效 造成的伤害提高' + (stacks * balance.damagePerStack * 100) + '%，暴击率提高' + (stacks * balance.critPerStack * 100) + '%';
+        presentation.status = '当前生效 造成的伤害提高' + Math.round(stacks * balance.damagePerStack * 100) + '%，暴击率提高' + Math.round(stacks * balance.critPerStack * 100) + '%';
         if (stacks > 0) presentation.color = '#d79cff';
     }
 
@@ -1104,7 +1104,7 @@ function _getPassiveRuntimeState(unit, skill) {
         presentation.active = stacks > 0;
         presentation.intensity = stacks / balance.maxAirDamageStacks;
         presentation.status = stacks > 0
-            ? '当前生效 空军伤害提高' + (stacks * balance.airDamagePerStack * 100) + '%'
+            ? '当前生效 空军伤害提高' + Math.round(stacks * balance.airDamagePerStack * 100) + '%'
             : '当前未生效';
         if (stacks > 0) presentation.color = '#94cdf8';
     }
@@ -1200,15 +1200,15 @@ function _getWeatherEffect(unit) {
     let desc = weather.desc;
     const details = [];
     if (gameState.weather === 'rain') {
-        if (unit.tile.isCity) details.push('每回合回复' + (COMBAT_BALANCE.weather.rainCityHealPct * 100) + '%最大生命值');
-        if (unit.type === 'infantry' && unit.tile.isCity) details.push('驻守城市时防御提高' + (COMBAT_BALANCE.defense.rainCityInfantryBonus * 100) + '%');
+        if (unit.tile.isCity) details.push('每回合回复' + Math.round(COMBAT_BALANCE.weather.rainCityHealPct * 100) + '%最大生命值');
+        if (unit.type === 'infantry' && unit.tile.isCity) details.push('驻守城市时防御提高' + Math.round(COMBAT_BALANCE.defense.rainCityInfantryBonus * 100) + '%');
         if (unit.type === 'cavalry') details.push('每步移动消耗+' + COMBAT_BALANCE.weather.rainCavalryMovementCost);
     } else if (gameState.weather === 'fog') {
         if (unit.type === 'archer') details.push('射程' + COMBAT_BALANCE.weather.fogArcherRangeDelta);
-        if (unit.type === 'cavalry') details.push('伤害提高' + (COMBAT_BALANCE.cavalry.fogDamageBonus * 100) + '%，每格冲锋伤害额外提高' + ((COMBAT_BALANCE.cavalry.fogChargeDamagePerStep - COMBAT_BALANCE.cavalry.normalChargeDamagePerStep) * 100) + '%');
+        if (unit.type === 'cavalry') details.push('伤害提高' + Math.round(COMBAT_BALANCE.cavalry.fogDamageBonus * 100) + '%，每格冲锋伤害额外提高' + Math.round((COMBAT_BALANCE.cavalry.fogChargeDamagePerStep - COMBAT_BALANCE.cavalry.normalChargeDamagePerStep) * 100) + '%');
     } else if (gameState.weather === 'wind') {
         if (unit.type === 'archer') details.push('射程+' + COMBAT_BALANCE.weather.windArcherRangeDelta);
-        if (unit.type === 'infantry') details.push('防御降低' + (COMBAT_BALANCE.defense.windInfantryPenalty * 100) + '%');
+        if (unit.type === 'infantry') details.push('防御降低' + Math.round(COMBAT_BALANCE.defense.windInfantryPenalty * 100) + '%');
     }
     // 天气未对当前单位产生修正时，不显示为该单位的效果。
     if (!details.length) return null;
@@ -1546,7 +1546,7 @@ function _buildPassiveItems(unit) {
         color = stacks > 0 ? '#ff7b5c' : '#7b8790';
         active = stacks > 0;
         intensity = stacks / balance.maxStacks;
-        status = '当前生效 攻击力提高' + (stacks * balance.statBonusPerStackPct * 100) + '%，防御力提高' + (stacks * balance.statBonusPerStackPct * 100) + '%';
+        status = '当前生效 攻击力提高' + Math.round(stacks * balance.statBonusPerStackPct * 100) + '%，防御力提高' + Math.round(stacks * balance.statBonusPerStackPct * 100) + '%';
     }
     if (!active) status = '当前未生效';
     if (commander.skill) {

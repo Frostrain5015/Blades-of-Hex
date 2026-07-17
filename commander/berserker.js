@@ -23,7 +23,7 @@ export default {
       unit.displayHp = unit.hp;
       unit._berserkerQixue = true;
       helpers.spawnFx(unit.tile.x, unit.tile.y, '🩸', '泣血');
-      helpers.logMessage(`狂战士【泣血】：消耗${actualCost}生命，下次攻击伤害+${BALANCE.qixueDamageBonus * 100}%、暴击率+${BALANCE.qixueCritBonus * 100}%并触发溅射`);
+      helpers.logMessage(`狂战士【泣血】：消耗${actualCost}生命，下次攻击伤害+${Math.round(BALANCE.qixueDamageBonus * 100)}%、暴击率+${Math.round(BALANCE.qixueCritBonus * 100)}%并触发溅射`);
       return true;
     }
   },

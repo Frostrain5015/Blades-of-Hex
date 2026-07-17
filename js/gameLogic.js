@@ -3454,7 +3454,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 if (gameState._colonelAirStacks[campKey] == null) gameState._colonelAirStacks[campKey] = 0;
                 if (gameState._colonelAirStacks[campKey] < COLONEL_CARD_DATA.maxAirDamageStacks) {
                     gameState._colonelAirStacks[campKey]++;
-                    logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[campKey] * COLONEL_CARD_DATA.airDamagePerStack * 100}%/上限${COLONEL_CARD_DATA.maxAirDamageStacks * COLONEL_CARD_DATA.airDamagePerStack * 100}%`);
+                    logMessage(`✈️ 空军熟练度+1，当前增伤+${Math.round(gameState._colonelAirStacks[campKey] * COLONEL_CARD_DATA.airDamagePerStack * 100)}%/上限${Math.round(COLONEL_CARD_DATA.maxAirDamageStacks * COLONEL_CARD_DATA.airDamagePerStack * 100)}%`);
                 }
             }
             const _stacks = gameState._colonelAirStacks?.[campKey] || 0;
@@ -3528,7 +3528,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         if (gameState._colonelAirStacks[aCampKey] == null) gameState._colonelAirStacks[aCampKey] = 0;
         if (gameState._colonelAirStacks[aCampKey] < COLONEL_CARD_DATA.maxAirDamageStacks) {
             gameState._colonelAirStacks[aCampKey]++;
-            logMessage(`✈️ 空军熟练度+1，当前增伤+${gameState._colonelAirStacks[aCampKey] * COLONEL_CARD_DATA.airDamagePerStack * 100}%/上限${COLONEL_CARD_DATA.maxAirDamageStacks * COLONEL_CARD_DATA.airDamagePerStack * 100}%`);
+            logMessage(`✈️ 空军熟练度+1，当前增伤+${Math.round(gameState._colonelAirStacks[aCampKey] * COLONEL_CARD_DATA.airDamagePerStack * 100)}%/上限${Math.round(COLONEL_CARD_DATA.maxAirDamageStacks * COLONEL_CARD_DATA.airDamagePerStack * 100)}%`);
         }
     }
     const fromTile = airUnit.tile;
