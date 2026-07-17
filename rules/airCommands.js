@@ -18,8 +18,8 @@ export const COLONEL_AIR_MAX_STACKS = 6;
 export const COLONEL_AIR_RANGE_BONUS = 1;
 export const COLONEL_ANTI_AIR_PIERCE = 0.15;
 export const AIR_COMMAND_IMPACT_DELAY_MS = Object.freeze({
-    strafe: 700,
-    bombing: 1400
+    strafe: 1200,
+    bombing: 1200
 });
 
 /**

@@ -3369,12 +3369,20 @@ async function handleRemoteAction(msg) {
             const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[e.kind];
             if (Number.isFinite(impactDelay)) {
                 setTimeout(() => {
-                    if (e.kind === 'bombing') {
+                    if (e.kind === 'strafe') {
+                        playSound('explosion');
+                        for (const r of (e.results || [])) {
+                            const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                            if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 15);
+                        }
+                        triggerScreenShake(6, 300);
+                    } else if (e.kind === 'bombing') {
                         playSound('explosion');
                         for (const r of (e.results || [])) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                             if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
                         }
+                        triggerScreenShake(8, 400);
                     }
                     gameState.damageTexts.push(...buildAirCommandDamageTexts(
                         e.results,

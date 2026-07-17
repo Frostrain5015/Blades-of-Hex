@@ -3237,12 +3237,20 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
     const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[kind];
     if (Number.isFinite(impactDelay) && results.some(result => Number(result.damage) > 0)) {
         setTimeout(() => {
-            if (kind === 'bombing') {
+            if (kind === 'strafe') {
+                playSound('explosion');
+                for (const r of results) {
+                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                    if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 15);
+                }
+                triggerScreenShake(6, 300);
+            } else if (kind === 'bombing') {
                 playSound('explosion');
                 for (const r of results) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                     if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
                 }
+                triggerScreenShake(8, 400);
             }
             gameState.damageTexts.push(...buildAirCommandDamageTexts(
                 results,
