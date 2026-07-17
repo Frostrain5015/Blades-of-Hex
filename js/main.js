@@ -3341,8 +3341,22 @@ async function handleRemoteAction(msg) {
             const target = gameState.tileMap.get(`${e.targetQ},${e.targetR}`);
             if (!target) break;
             if (e.kind === 'strafe') {
+                // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
                 spawnAirstrikeEffect(target.x, target.y, e.results || [], 'diveStrafe', target.q, target.r);
                 playSound('airstrike');
+                setTimeout(() => {
+                    playSound('machinegun');
+                    const tx = target.x, ty = target.y;
+                    for (let i = 0; i < 20; i++) {
+                        setTimeout(() => {
+                            const fireTime = 600 + i * 20;
+                            const p = Math.min(1, fireTime / 1350);
+                            const px = tx - 380 + 720 * p, py = ty - 300 + 320 * p;
+                            const ang = Math.atan2(320, 720);
+                            spawnStrafeTracer(px + Math.cos(ang) * 22, py + Math.sin(ang) * 22, tx, ty);
+                        }, i * 20);
+                    }
+                }, 600);
             } else if (e.kind === 'bombing') {
                 spawnAirstrikeEffect(target.x, target.y, e.results || [], 'carpetBomb', target.q, target.r);
                 playSound('airstrike');
@@ -3355,6 +3369,13 @@ async function handleRemoteAction(msg) {
             const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[e.kind];
             if (Number.isFinite(impactDelay)) {
                 setTimeout(() => {
+                    if (e.kind === 'bombing') {
+                        playSound('explosion');
+                        for (const r of (e.results || [])) {
+                            const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                            if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                        }
+                    }
                     gameState.damageTexts.push(...buildAirCommandDamageTexts(
                         e.results,
                         gameState.tileMap,

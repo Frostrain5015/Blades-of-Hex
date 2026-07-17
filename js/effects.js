@@ -1512,9 +1512,9 @@ export function spawnSoulRecallEffect(fromX, fromY, toX, toY) {
 // ===== 空袭特效 =====
 export const airstrikeEffects = [];
 
-export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null) {
+export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null, fromX = null, fromY = null) {
     airstrikeEffects.push({
-        x: cx, y: cy, q, r, results, type,
+        x: cx, y: cy, fromX, fromY, q, r, results, type,
         startTime: performance.now(),
         duration: type === 'diveStrafe' ? 1500 : 2000
     });

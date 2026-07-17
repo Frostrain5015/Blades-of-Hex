@@ -3161,7 +3161,22 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
         const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, 1, target, launcherTile, { missingHpBonus: true });
         const killed = target.applyDamage(result.damage, { source: 'ranged', attacker: null });
         results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed, isCrit: result.isCrit });
-        spawnStrafeTracer(launcherTile.x, launcherTile.y, targetTile.x, targetTile.y);
+        // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
+        playSound('airstrike');
+        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'diveStrafe', targetTile.q, targetTile.r);
+        setTimeout(() => {
+            playSound('machinegun');
+            const tx = targetTile.x, ty = targetTile.y;
+            for (let i = 0; i < 20; i++) {
+                setTimeout(() => {
+                    const fireTime = 600 + i * 20;
+                    const p = Math.min(1, fireTime / 1350);
+                    const px = tx - 380 + 720 * p, py = ty - 300 + 320 * p;
+                    const ang = Math.atan2(320, 720);
+                    spawnStrafeTracer(px + Math.cos(ang) * 22, py + Math.sin(ang) * 22, tx, ty);
+                }, i * 20);
+            }
+        }, 600);
     } else if (kind === 'bombing') {
         const affected = [targetTile, ...HEX_NEIGHBORS.map(([dq, dr]) => gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`)).filter(Boolean)];
         for (let index = 0; index < affected.length; index++) {
@@ -3191,6 +3206,7 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
             invalidateBoard();
         }
         spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'carpetBomb', targetTile.q, targetTile.r);
+        playSound('airstrike');
     } else if (kind === 'airdrop') {
         if (targetTile.unit || !isLandDeploymentTile(targetTile) || targetTile.isCity || targetTile.isPort) return false;
         const unit = new Unit('infantry', launcherTile.camp, targetTile, true);
@@ -3221,6 +3237,13 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
     const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[kind];
     if (Number.isFinite(impactDelay) && results.some(result => Number(result.damage) > 0)) {
         setTimeout(() => {
+            if (kind === 'bombing') {
+                playSound('explosion');
+                for (const r of results) {
+                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                    if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                }
+            }
             gameState.damageTexts.push(...buildAirCommandDamageTexts(
                 results,
                 gameState.tileMap,
