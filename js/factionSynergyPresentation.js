@@ -1,4 +1,4 @@
-// 通用阵营协同 Hero 广播：只负责徽章共鸣、圆环扩散与标题。
+// 通用阵营协同 Hero 广播：只负责徽章共鸣、单环横条扩散与标题。
 // 技能独有的后半段通过 registerFactionSynergyFollowup() 注册，避免把分支写死在 Hero 层。
 import { canvas } from './config.js';
 
@@ -65,6 +65,7 @@ function configureHero(root, entry) {
     root.style.setProperty('--synergy-duration', `${durationMs}ms`);
     root.style.setProperty('--synergy-core-x', `${centerX}px`);
     root.style.setProperty('--synergy-core-y', `${centerY}px`);
+    root.style.setProperty('--synergy-bar-width', `${Math.min(760, stageRect.width * 0.68)}px`);
     root.style.setProperty('--synergy-caption-y', `${centerY + Math.min(170, stageRect.height * 0.215)}px`);
     setTheme(root, presentation.theme || {});
 
