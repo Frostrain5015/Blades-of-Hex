@@ -355,7 +355,7 @@ function staticHandler(req, res) {
                 'Content-Length': fileSize,
                 'Cache-Control': built && urlPath.startsWith('/assets/')
                     ? 'public, max-age=31536000, immutable'
-                    : 'no-cache'
+                    : 'no-store'
             });
             fs.createReadStream(filePath).on('error', onStreamError).pipe(res);
         }
