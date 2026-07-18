@@ -377,9 +377,6 @@ export function renderGame() {
     // ── 将领特效图层：overSkillFx（技能特效之后；圣骑士剑环前半圈）──
     drawFxLayer('overSkillFx', ctx, now);
 
-    // 士气状态持续标识（▲/▼）
-    drawMoraleIndicators();
-
     // 范围光圈
     drawRangeApertures(now);
 
@@ -1162,31 +1159,6 @@ function _drawRankStar(cx, cy, size, alpha, color, glow) {
     ctx.restore();
 }
 
-function drawMoraleIndicators() {
-    const tiles = gameState.tiles;
-    const animIds = new Set();
-    for (let i = 0; i < moraleEffects.length; i++) animIds.add(moraleEffects[i].unitId);
-    for (let i = 0, len = tiles.length; i < len; i++) {
-        const unit = tiles[i].unit;
-        if (!unit || unit.morale === 2 || unit.morale === 0) continue;
-        if (animIds.has(unit.id)) continue;
-
-        const mc = MORALE_CONFIG[unit.morale];
-        const cornerX = unit.tile.x + HEX_SIZE * 0.55;
-        const cornerY = unit.tile.y - HEX_SIZE * 0.35;
-
-        ctx.save();
-        ctx.fillStyle = mc.color;
-        ctx.font = 'bold 16px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,0.6)';
-        ctx.shadowBlur = 4;
-        ctx.fillText(mc.icon, cornerX, cornerY);
-        ctx.restore();
-    }
-}
-
 /**
  * 绘制城市燃烧城墙框：全城共享血池的 HP 映射到城郭外轮廓边界边上，
  * 从顶部绕城顺时针逐段点亮（石黄→焦褐），空段由暗色基线遮盖地形城墙。
@@ -1414,95 +1386,6 @@ function drawOperationInteractionRoute(now) {
         color: '#58c9b3',
         action: OPERATION_PREVIEW_ACTIONS.MOVE,
         time: now / 1000
-    });
-}
-
-function drawSelectionHighlights() {
-    if (!_isHumanTurn() && gameState.commanderPhase !== 'deployment') return;
-    const highlightTile = gameState.selectedTile;
-    if (!highlightTile) return;
-
-    // Follow visual position during movement animation
-    let cx = highlightTile.x, cy = highlightTile.y;
-    if (gameState.selectedUnit === highlightTile.unit && highlightTile.unit) {
-        const pos = highlightTile.unit.getVisualPos();
-        cx = pos.x; cy = pos.y;
-    }
-
-    const isDeploy = gameState.commanderPhase === 'deployment';
-
-    if (isDeploy) {
-        // 部署阶段预选中：仅当前阵营可见辉光脉冲
-        const selUnit = gameState.selectedUnit;
-        if (!selUnit || selUnit.camp !== gameState.currentCamp) return;
-        const pulse = (Math.sin(frameInfo.now / 350) + 1) / 2;
-        const glowAlpha = 0.25 + pulse * 0.3;
-        hexPath(ctx, cx, cy, HEX_SIZE);
-        ctx.fillStyle = `rgba(255,215,0,${glowAlpha})`;
-        ctx.fill();
-        drawHexagonOutline(ctx, cx, cy, HEX_SIZE + 1, `rgba(255,215,0,${0.5 + pulse * 0.4})`, 2.5);
-        drawHexagonOutline(ctx, cx, cy, HEX_SIZE + 5, `rgba(255,255,200,${0.15 + pulse * 0.2})`, 2);
-    } else {
-        hexPath(ctx, cx, cy, HEX_SIZE);
-        ctx.fillStyle = 'rgba(255,215,0,0.15)';
-        ctx.fill();
-        drawHexagonOutline(ctx, cx, cy, HEX_SIZE + 2, 'rgba(200,160,20,0.55)', 2);
-    }
-}
-
-// ===== 克制/被克提示文字 =====================
-function drawCounterText() {
-    if (gameState.aiActing || !_isHumanTurn()) return;
-    if (!gameState.selectedUnit || !gameState.selectedUnit.canAct) return;
-
-    // 连招预演目标仅在悬停时标注克制关系，避免远处目标常驻标签造成噪音
-    const hoveredChain = gameState.hoveredTile && gameState.chainAttackTiles?.includes(gameState.hoveredTile)
-        ? [gameState.hoveredTile]
-        : [];
-    [...gameState.attackableTiles, ...hoveredChain].forEach(tile => {
-        const targetUnit = tile.unit;
-        if (!targetUnit) return;
-        const counterCoeff = COUNTER_RELATION[gameState.selectedUnit.type]?.[targetUnit.type] ?? 1;
-        let text = '';
-        let color = '';
-        let icon = '';
-        if (counterCoeff > 1) {
-            icon = '⬆';
-            text = '克制';
-            color = '#44ff44';
-        } else if (counterCoeff < 1) {
-            icon = '⬇';
-            text = '被克';
-            color = '#ff4444';
-        } else {
-            return;
-        }
-
-        ctx.save();
-        const labelText = `${icon} ${text}`;
-        ctx.font = 'bold 13px Arial';
-        ctx.textAlign = 'center';
-        const metrics = ctx.measureText(labelText);
-        const labelW = metrics.width + 16;
-        const labelH = 22;
-        const labelX = tile.x - labelW / 2;
-        const labelY = tile.y - HEX_SIZE - 20;
-
-        ctx.fillStyle = 'rgba(0,0,0,0.75)';
-        roundRectPath(ctx, labelX, labelY, labelW, labelH, 4);
-        ctx.fill();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
-        roundRectPath(ctx, labelX, labelY, labelW, labelH, 4);
-        ctx.stroke();
-
-        ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 4;
-        ctx.textBaseline = 'middle';
-        ctx.fillText(labelText, tile.x, labelY + labelH / 2);
-        ctx.shadowBlur = 0;
-        ctx.restore();
     });
 }
 

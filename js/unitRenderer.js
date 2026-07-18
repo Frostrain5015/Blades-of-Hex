@@ -1,15 +1,16 @@
 // Unit canvas rendering and visual interpolation. This module intentionally owns all Canvas/effect imports.
-import { HEX_SIZE, ctx, drawHexagonOutline, settings, frameInfo, MORALE_CONFIG, roundRectPath, getRoundIndex } from './config.js';
+import { HEX_SIZE, ctx, drawHexagonOutline, settings, frameInfo, MORALE_CONFIG, roundRectPath } from './config.js';
 import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { moraleEffects, getRecoilOffset, getChargeOffset } from './effects.js';
-import { COMMANDER_CONFIG } from '../rules/commanders.js';
+
 import { getRelationToViewer, RELATION_META } from '../rules/diplomacy.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
 import { campToKey, getFlagColors } from '../rules/camps.js';
 import { getSurfaceBaseColor, getTileSurface, isWaterTile } from '../rules/surfaces.js';
 import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
+import { getUnitStatusIcons } from './unitStatusIcons.js';
 import {
     UNIT_BADGE_CENTER_Y,
     UNIT_BADGE_RADIUS,
@@ -241,70 +242,36 @@ export function drawUnit(unit, gameState) {
             ctx.shadowBlur = 0;
         }
 
-        // Imprisoned lock — same position as Iron Guard shield
-        if (unit._imprisoned) {
-            ctx.fillStyle = '#ff8844';
-            ctx.font = 'bold 14px Arial';
+        // ── 状态图标行：徽章上方居中一字排开（js/unitStatusIcons.js 注册管线。
+        // 军衔/士气为固定角标不走此管线；禁锢/缚足/中毒等由效果队列派生）──
+        const statusIcons = getUnitStatusIcons(unit, gs, time);
+        if (statusIcons.length) {
+            const spacing = 17;
+            const rowY = -HEX_SIZE * 0.86;
+            const startX = -((statusIcons.length - 1) * spacing) / 2;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(0,0,0,0.6)';
-            ctx.shadowBlur = 3;
-            ctx.fillText('🔒', 0, -HEX_SIZE * 0.82);
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
+            for (let i = 0; i < statusIcons.length; i++) {
+                const icon = statusIcons[i];
+                const ix = startX + i * spacing;
+                ctx.save();
+                if (icon.alpha != null) ctx.globalAlpha = icon.alpha;
+                if (icon.color) ctx.fillStyle = icon.color;
+                ctx.font = icon.font || 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+                ctx.shadowColor = icon.shadowColor || 'rgba(0,0,0,0.6)';
+                ctx.shadowBlur = icon.shadowBlur != null ? icon.shadowBlur : 3;
+                ctx.fillText(icon.glyph, ix, rowY);
+                if (icon.count) {
+                    ctx.shadowBlur = 2;
+                    ctx.fillStyle = icon.countColor || '#ffd54a';
+                    ctx.font = 'bold 8px Arial';
+                    ctx.fillText(icon.count, ix + 7, rowY + 7);
+                }
+                ctx.restore();
+            }
         }
 
         ctx.restore();
-
-        // ── 潜艇潜航标记：未暴露时不可被非反潜单位选中 ──
-        if (unit.type === 'submarine' && unit._rank >= 1 && !unit._submarineAttackExposed) {
-            ctx.save();
-            const subPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
-            ctx.globalAlpha = 0.5 + subPulse * 0.3;
-            ctx.font = '14px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(30,140,200,0.8)';
-            ctx.shadowBlur = 6 + subPulse * 4;
-            ctx.fillText('🌊', visualX, visualY - HEX_SIZE * 0.85);
-            ctx.restore();
-        }
-
-        // 毒标统一由 HUD 效果队列展示，不在单位头顶重复显示。
-
-        if (unit.pendingSpecialization) {
-            ctx.save();
-            const pulse = (Math.sin(time * 3.2 * Math.PI) + 1) / 2;
-            ctx.globalAlpha = 0.78 + pulse * 0.22;
-            ctx.fillStyle = '#f1d7ff';
-            ctx.font = 'bold 15px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#8d63d8';
-            ctx.shadowBlur = 5 + pulse * 4;
-            ctx.fillText('!', visualX, visualY - HEX_SIZE * 0.86);
-            ctx.restore();
-        }
-
-        // ── 工程师脚手架：建造中标记（🚧 + 剩余回合） ──
-        if (unit._engineerScaffold) {
-            ctx.save();
-            const buildPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
-            const bY = visualY - HEX_SIZE * 0.6;
-            ctx.font = 'bold 13px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.globalAlpha = 0.65 + buildPulse * 0.35;
-            ctx.shadowColor = '#ffcc44'; ctx.shadowBlur = 5;
-            ctx.fillText('🔨', visualX, bY);
-            ctx.globalAlpha = 1;
-            ctx.shadowBlur = 0;
-            const turns = unit._engineerScaffold.turnsRemaining || 1;
-            ctx.fillStyle = '#ffd54a';
-            ctx.font = 'bold 10px Arial';
-            ctx.fillText(`${turns}`, visualX + HEX_SIZE * 0.5, bY);
-            ctx.restore();
-        }
 
         // ── Actionable glow（仅己方回合显示）──
         if (unit.canAct && gs && unit.camp === gs.currentCamp && !unit.isNewRecruit && isHumanTurn(gs)) {
@@ -317,26 +284,6 @@ export function drawUnit(unit, gameState) {
             drawHexagonOutline(ctx, visualX, visualY, r1, `rgba(255,215,0,${alpha1})`, 2.5);
             drawHexagonOutline(ctx, visualX, visualY, r2, `rgba(255,255,200,${alpha2})`, 1.5);
             ctx.restore();
-        }
-
-        // ── Berserker blood rage glow（已损HP越多越明显） ──
-        if (unit.commander === 'berserker' && !areCommanderMechanicsSuppressed(unit) && unit.hp < unit.maxHp) {
-            const balance = COMMANDER_CONFIG.berserker.balance;
-            const hpLostRatio = (unit.maxHp - unit.hp) / unit.maxHp;
-            const stacks = Math.min(balance.maxStacks, Math.floor(hpLostRatio / balance.hpLossPerStackPct));
-            if (stacks > 0) {
-                ctx.save();
-                const intensity = stacks / balance.maxStacks;
-                const ragePulse = (Math.sin(time * 6 * Math.PI) + 1) / 2;
-                ctx.fillStyle = `rgba(255,80,20,${(0.4 + ragePulse * 0.4) * intensity})`;
-                ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 4 + 4 * intensity;
-                ctx.fillText('💢', visualX, visualY - HEX_SIZE * 0.55);
-                ctx.shadowBlur = 0;
-                ctx.restore();
-            }
         }
 
         // ── Iron Guard shield marker (above flag, same layer as berserker rage) ──
@@ -366,104 +313,7 @@ export function drawUnit(unit, gameState) {
                 ctx.stroke();
             }
 
-            // shield glyph — 强度随护盾比例
-            const glyphAlpha = shieldRatio * (inFlash ? 0.9 + flashT * 0.1 : 0.7 + shieldPulse * 0.3);
-            ctx.fillStyle = `rgba(130,200,255,${glyphAlpha})`;
-            const glyphSize = 13 * (0.6 + 0.4 * shieldRatio);
-            ctx.font = `bold ${Math.round(glyphSize)}px "Segoe UI Emoji", "Apple Color Emoji", sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = inFlash ? '#aaddff' : '#5599cc';
-            ctx.shadowBlur = shieldRatio * (inFlash ? 8 + flashT * 8 : 5);
-            ctx.fillText('🛡', visualX, shieldY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── Paladin smite ready marker ──
-        if (unit._smiteReady) {
-            ctx.save();
-            const smitePulse = (Math.sin(time * 5 * Math.PI) + 1) / 2;
-            const smiteY = visualY - HEX_SIZE * 0.55;
-            ctx.fillStyle = `rgba(255,215,0,${0.7 + smitePulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6;
-            ctx.fillText('✗', visualX, smiteY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── Priest healing aura glow ──
-        if (unit._healingAura > 0) {
-            ctx.save();
-            const healPulse = (Math.sin(time * 4 * Math.PI) + 1) / 2;
-            const healY = visualY - HEX_SIZE * 0.55;
-            ctx.fillStyle = `rgba(68,221,136,${0.5 + healPulse * 0.3})`;
-            ctx.font = 'bold 11px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#44dd88'; ctx.shadowBlur = 5;
-            ctx.fillText('\u{1F54A}\u{FE0F}', visualX, healY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── E3 纵横家标记 📜 ──
-        if (unit.commander === 'diplomat' && !areCommanderMechanicsSuppressed(unit) && !isWaterTile(unit.tile)) {
-            ctx.save();
-            const dipY = visualY - HEX_SIZE * 0.55;
-            const inEnemyTerritory = unit.tile && unit.tile.camp !== unit.camp;
-            const dipPulse = inEnemyTerritory ? (Math.sin(time * 4 * Math.PI) + 1) / 2 : 0.5;
-            ctx.fillStyle = `rgba(255,200,50,${0.5 + dipPulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ffd700'; ctx.shadowBlur = inEnemyTerritory ? 8 : 3;
-            ctx.fillText('📜', visualX, dipY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── E1 占星者标记 🔮（仅天气锁定期展示） ──
-        if (unit.commander === 'astrologer' && gameState && gameState.weatherLockUntil > 0
-            && getRoundIndex(gameState) < gameState.weatherLockUntil) {
-            ctx.save();
-            const astroPulse = (Math.sin(time * 3 * Math.PI) + 1) / 2;
-            const astroY = visualY - HEX_SIZE * 0.55;
-            ctx.fillStyle = `rgba(180,160,255,${0.5 + astroPulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 6;
-            ctx.fillText('🔮', visualX, astroY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── E3 纵横家连横提示 ⚡（仅处于非己方地块时展示） ──
-        if (unit.commander === 'diplomat' && !areCommanderMechanicsSuppressed(unit) && unit.tile && !isWaterTile(unit.tile) && unit.tile.camp !== unit.camp) {
-            ctx.save();
-            const dipY = visualY - HEX_SIZE * 0.55;
-            const dipPulse = (Math.sin(time * 2.5 * Math.PI) + 1) / 2;
-            ctx.fillStyle = `rgba(255,215,80,${0.5 + dipPulse * 0.3})`;
-            ctx.font = 'bold 12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#d4a017'; ctx.shadowBlur = 5;
-            ctx.fillText('⚡', visualX, dipY);
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
-
-        // ── New recruit label ──
-        if (unit.isNewRecruit) {
-            ctx.save();
-            ctx.fillStyle = 'rgba(255,255,120,0.75)';
-            ctx.font = 'bold 9px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('NEW', visualX, visualY - badgeR - 2);
+            // 🛡 状态图标已并入头顶图标行（守护灵光效果项），此处只保留承伤扩散环
             ctx.restore();
         }
 
@@ -579,14 +429,7 @@ export function drawUnit(unit, gameState) {
             }
             ctx.shadowBlur = 0;
             ctx.restore();
-            // 骷髅图标（头顶上方）
-            ctx.save();
-            ctx.globalAlpha = 0.4 + Math.sin(time * 1.5) * 0.12;
-            ctx.font = '20px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText('💀', 0, -HEX_SIZE * 0.8);
-            ctx.restore();
+            // 💀 骷髅图标已并入头顶图标行
         }
     }
 

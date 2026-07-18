@@ -12,7 +12,7 @@ export const EMOJI = deepFreeze({
     fortification: { trench: '🚧', trenchBadge: '🪖', flak: '🔫' },
     moraleBadge: { up: '⬆️', down: '⬇️', confused: '❓' },
     commander: {
-        courageAura: '🗡️', healingAura: '🕊️', guardianAura: '🛡️',
+        courageAura: '⚔️', healingAura: '💚', guardianAura: '🛡️',
         qixue: '🩸', oath: '✝️', martyr: '💥', drone: '✈️', soul: '👻'
     },
     cards: {

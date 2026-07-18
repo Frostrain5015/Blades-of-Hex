@@ -3,7 +3,7 @@ import { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../comma
 import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp, configureSkirmishState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef, setIsNetworkGameRef } from './Unit.js';
-import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
+import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
 import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
@@ -22,7 +22,7 @@ import {
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
-    spawnGoldenBeam, spawnPaladinOrbitBeams, clearPaladinOrbitBeams, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords,
+    spawnGoldenBeam, spawnPaladinBeamProjectiles, clearPaladinOrbitBeams,
     spawnHealingChain,
     spawnSlashMarks,
     spawnAirstrikeEffect, spawnAirliftEffect,
@@ -124,7 +124,6 @@ setSpawnGoldenBeamRef(spawnGoldenBeam);
 setSpawnOrbitBeamsRef(spawnPaladinOrbitBeams);
 setClearOrbitBeamsRef(clearPaladinOrbitBeams);
 setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
-setLaunchOrbitSwordsRef(launchPaladinOrbitSwords);
 setSpawnHealingChainRef(spawnHealingChain);
 
 // 战场渲染边界：Canvas2D 始终保留完整画面；PixiJS 作为可回退的
@@ -3323,13 +3322,6 @@ async function handleRemoteAction(msg) {
                     if (e.goldenBeamDatas) {
                         for (const gb of e.goldenBeamDatas) {
                             spawnGoldenBeam(gb.x, gb.y);
-                        }
-                    }
-                    // 圣骑士至圣斩剑弹射（每把剑从各自轨道位置飞出）
-                    // 注：环绕剑在 applyRemoteState 中已按 _faith 同步，此处仅播放弹射特效
-                    if (e.paladinProjectileDatas && e.paladinProjectileDatas.length) {
-                        for (const d of e.paladinProjectileDatas) {
-                            spawnPaladinBeamProjectiles(d.fromX, d.fromY, d.toX, d.toY, 1);
                         }
                     }
                     // 治疗数字

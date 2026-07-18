@@ -15,7 +15,6 @@ let _spawnGoldenBeam = null;
 let _spawnOrbitBeams = null;
 let _clearOrbitBeams = null;
 let _spawnBeamProjectiles = null;
-let _launchOrbitSwords = null;
 let _spawnHealingChain = null;
 
 // 将领专属视觉特效延迟引用（由 main.js 通过 setter 注入；headless 下不注入即为 no-op）
@@ -29,7 +28,6 @@ export function setSpawnGoldenBeamRef(fn) { _spawnGoldenBeam = fn; }
 export function setSpawnOrbitBeamsRef(fn) { _spawnOrbitBeams = fn; }
 export function setClearOrbitBeamsRef(fn) { _clearOrbitBeams = fn; }
 export function setSpawnBeamProjectilesRef(fn) { _spawnBeamProjectiles = fn; }
-export function setLaunchOrbitSwordsRef(fn) { _launchOrbitSwords = fn; }
 export function setSpawnHealingChainRef(fn) { _spawnHealingChain = fn; }
 export function setSpawnBloodDrainRef(fn) { _spawnBloodDrain = fn; }
 export function setSpawnGongxinRippleRef(fn) { _spawnGongxinRipple = fn; }
@@ -74,28 +72,18 @@ function _helpers(cmdId) {
     },
     spawnGoldenBeam: (x, y) => {
       if (_spawnGoldenBeam) _spawnGoldenBeam(x, y);
-      else emit('fx:goldenBeam', { x, y });
     },
     spawnOrbitBeams: (unitId, x, y, count) => {
       if (_spawnOrbitBeams) _spawnOrbitBeams(unitId, x, y, count);
-      else emit('fx:orbitBeams', { unitId, x, y, count });
     },
     clearOrbitBeams: (unitId) => {
       if (_clearOrbitBeams) _clearOrbitBeams(unitId);
-      else emit('fx:clearOrbitBeams', { unitId });
     },
     spawnBeamProjectiles: (fromX, fromY, toX, toY, count) => {
       if (_spawnBeamProjectiles) _spawnBeamProjectiles(fromX, fromY, toX, toY, count);
-      else emit('fx:beamProjectiles', { fromX, fromY, toX, toY, count });
-    },
-    launchOrbitSwords: (unitId, targetX, targetY, count) => {
-      if (_launchOrbitSwords) return _launchOrbitSwords(unitId, targetX, targetY, count);
-      emit('fx:launchOrbitSwords', { unitId, targetX, targetY, count });
-      return [];
     },
     spawnHealingChain: (fromX, fromY, toX, toY) => {
       if (_spawnHealingChain) _spawnHealingChain(fromX, fromY, toX, toY);
-      else emit('fx:healingChain', { fromX, fromY, toX, toY });
     },
     spawnExplosion: (x, y, color, count = 18) => {
       emit('fx:explosion', { x, y, color, count });
@@ -111,11 +99,9 @@ function _helpers(cmdId) {
     // 将领专属视觉特效（由 commander 自身 onAttack/onKill 等钩子调用）
     spawnBloodDrain: (toX, toY, fromX, fromY) => {
       if (_spawnBloodDrain) _spawnBloodDrain(toX, toY, fromX, fromY);
-      else emit('fx:bloodDrain', { toX, toY, fromX, fromY });
     },
     spawnGongxinRipple: (x, y, intense = false) => {
       if (_spawnGongxinRipple) _spawnGongxinRipple(x, y, intense);
-      else emit('fx:gongxinRipple', { x, y, intense });
     },
   };
 }

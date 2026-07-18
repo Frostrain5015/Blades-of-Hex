@@ -27,7 +27,6 @@ export async function run(browser) {
         ci.setSpawnOrbitBeamsRef((uid, x, y, c) => fxLog.push(`ob:${uid},${x},${y},${c}`));
         ci.setClearOrbitBeamsRef((uid) => fxLog.push(`cob:${uid}`));
         ci.setSpawnBeamProjectilesRef((fx, fy, tx, ty, c) => fxLog.push(`bp:${fx},${fy},${tx},${ty},${c}`));
-        ci.setLaunchOrbitSwordsRef((uid, tx, ty, c) => { fxLog.push(`los:${uid},${tx},${ty},${c}`); return []; });
         ci.setSpawnHealingChainRef((fx, fy, tx, ty) => fxLog.push(`hc:${fx},${fy},${tx},${ty}`));
         ci.setSpawnBloodDrainRef((fx, fy, tx, ty) => fxLog.push(`bd:${fx},${fy},${tx},${ty}`));
         ci.setSpawnGongxinRippleRef((x, y, intense) => fxLog.push(`gx:${x},${y},${intense}`));

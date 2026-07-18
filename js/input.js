@@ -1,6 +1,7 @@
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus } from './commanderInterface.js';
+import { buildUnitEffectItems } from './effectItems.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, updateButtonColors, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget } from './state.js';
 import { on, emit } from './eventBus.js';
 import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
@@ -1295,132 +1296,8 @@ function _buildEffectItems(tile, unit) {
     }
     if (!unit) return items;
 
-    const timedEffects = unit.getTimedEffects(gameState);
-    const hasMoraleTimed = timedEffects.some(fx => fx.label === MORALE_CONFIG[unit.morale]?.name);
-    if (unit.morale !== 2 && !hasMoraleTimed) {
-        const morale = MORALE_CONFIG[unit.morale];
-        items.push({
-            key: 'morale:' + unit.morale,
-            icon: morale.badgeIcon || morale.icon || '●',
-            iconFont: EMOJI_FONT_STACK,
-            label: morale.name,
-            desc: morale.desc,
-            color: morale.color,
-            kind: 'effect'
-        });
-    }
-
-    timedEffects.forEach((effect, index) => {
-        const remaining = effect.remaining != null && effect.remaining !== '永久' ? effect.remaining : '';
-        items.push({
-            key: 'timed:' + effect.label + ':' + index,
-            icon: EFFECT_ICONS[effect.label] || '✦',
-            label: effect.label,
-            desc: effect.desc || '效果生效中',
-            color: effect.color || '#8fcfff',
-            count: remaining !== '' ? '⏳' + remaining : '',
-            status: effect.status || (remaining !== '' ? '持续' + remaining + '回合' : '持续生效'),
-            kind: 'effect'
-        });
-    });
-
-    if (unit._isDrone && unit._droneSignalDisabled) {
-        items.push({
-            key: 'tianyan:signal-lost',
-            icon: '📡',
-            label: '信号失联',
-            desc: '超出天眼信号范围，当前无法行动',
-            color: '#ff9b72',
-            kind: 'effect'
-        });
-    }
-
-    const auraDefBonus = getCommanderAuraDefenseBonus(unit);
-    if (auraDefBonus > 0) {
-        items.push({
-            key: 'aura:ironGuard',
-            icon: '🛡️',
-            label: '守护灵光',
-            desc: unit.commander === 'ironGuard'
-                ? FRONTEND_TEXT.effectDescriptions.guardianSelf
-                : FRONTEND_TEXT.effectDescriptions.guardianAlly,
-            color: '#7eb8ff',
-            kind: 'effect'
-        });
-    }
-
-    // 夜观星光护体：移除独立徽章，改为在天气效果上叠加星标 + 描述标注
-
-    if (unit.commander !== 'staller' && unit.tile) {
-        const layers = getStallerSnareLayers(unit.tile, unit.camp, gameState.tileMap);
-        if (layers > 0) {
-            items.push({
-                key: 'staller:snare',
-                icon: '🕸️',
-                label: '缚足',
-                desc: '每层使得当前单位每步行动力消耗提高' + COMMANDER_BALANCE_CONFIG.staller.balance.movementCostPerLayer + '点',
-                color: '#c08050',
-                status: '当前生效 每步行动力消耗提高' + (layers * COMMANDER_BALANCE_CONFIG.staller.balance.movementCostPerLayer),
-                kind: 'effect'
-            });
-        }
-    }
-
-    if (unit._engineerConstruction) {
-        const remain = unit._engineerConstruction.turnsRemaining || 1;
-        items.push({
-            key: 'engineer:constructing',
-            icon: '🚧',
-            label: '施工中',
-            desc: '碉堡还需' + remain + '回合建成',
-            color: '#e8c477',
-            count: '⏳' + remain,
-            status: '持续' + remain + '回合',
-            kind: 'effect'
-        });
-    }
-    if (unit._engineerScaffold) {
-        const remain = unit._engineerScaffold.turnsRemaining || 1;
-        items.push({
-            key: 'engineer:scaffold',
-            icon: '🏗️',
-            label: '脚手架',
-            desc: '还需' + remain + '回合建成碉堡，可被攻击摧毁',
-            color: '#e8c477',
-            count: '⏳' + remain,
-            status: '持续' + remain + '回合',
-            kind: 'effect'
-        });
-    }
-    if (unit._poison) {
-        const remain = Math.max(0, unit._poison.remainingTicks || 0);
-        items.push({
-            key: 'status:poison',
-            icon: '☣️',
-            label: '中毒',
-            desc: '所属阵营回合开始流失15%最大生命，可致死，并向相邻未中毒单位传播；疗愈卡可净化。',
-            color: '#9bcf55',
-            count: '⏳' + remain,
-            status: `剩余${remain}次结算`,
-            kind: 'effect'
-        });
-    }
-
-    // 战役触发器施加的效果
-    if (unit && Array.isArray(unit._campaignEffects) && unit._campaignEffects.length) {
-        for (const eff of unit._campaignEffects) {
-            items.push({
-                key: "campaign:" + eff.name + ":" + eff.id,
-                icon: eff.emoji || "✨",
-                label: eff.name,
-                desc: (eff.desc || "战役效果") + (eff.duration ? " · 剩余" + eff.duration + "回合" : ""),
-                color: "#ffd866",
-                count: eff.duration ? "⏳" + eff.duration : "",
-                status: eff.duration ? "持续" + eff.duration + "回合" : "持续生效",
-                kind: "effect"
-            });
-        }
-    }
+    // 单位级效果与棋盘状态图标行同源（js/effectItems.js），HUD 与棋盘共用一份清单。
+    items.push(...buildUnitEffectItems(unit, gameState));
     return items;
 }
 
@@ -2820,7 +2697,6 @@ function _applySpecializationChoice(unitId, specializationKey) {
     _closeChoiceModal();
     const name = getSpecialization(unit.type, unit.specializationKey)?.name || '新兵种';
     notify(`已专精为${name}`, 'success');
-    emit('fx:unitSpecialized', { x: unit.tile.x, y: unit.tile.y, unitId: unit.id, specializationKey });
     showSelectionHudForTile(unit.tile);
     updateUI();
     if (isNetworkGame()) sendAction('chooseSpecialization', serializeState(), {

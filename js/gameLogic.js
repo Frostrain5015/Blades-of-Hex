@@ -18,7 +18,7 @@ import { gameState, updateButtonColors, updateUI, logMessage, clearselection, se
 import { isNetworkGame, sendAction, getMyRole, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
 import { neutralDriverRole } from '../protocol/messages.js';
 import { stopCampaignRuntime } from './campaignController.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setLaunchOrbitSwordsRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { getStandardMap } from '../rules/standardMaps.js';
@@ -35,7 +35,7 @@ import {
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing,
     spawnCardUseEffect, spawnAirstrikeEffect, spawnAirliftEffect,
-    spawnGoldenBeam, spawnPaladinBeamProjectiles, launchPaladinOrbitSwords, spawnPaladinOrbitBeams,
+    spawnGoldenBeam, spawnPaladinBeamProjectiles, spawnPaladinOrbitBeams,
     spawnHealingChain,
     spawnReinforceEffect, spawnCardCopyEffect
 } from './effects.js';
@@ -2005,17 +2005,9 @@ export function attackUnit(attackerUnit, targetUnit) {
     });
 
     const _atkOrigBeamProjectiles = spawnPaladinBeamProjectiles;
-    let _paladinProjectileDatas = null;
     setSpawnBeamProjectilesRef((fromX, fromY, toX, toY, count) => {
         _atkOrigBeamProjectiles(fromX, fromY, toX, toY, count);
     });
-    const _atkOrigLaunchOrbitSwords = launchPaladinOrbitSwords;
-    setLaunchOrbitSwordsRef((unitId, targetX, targetY, count) => {
-        const datas = _atkOrigLaunchOrbitSwords(unitId, targetX, targetY, count);
-        _paladinProjectileDatas = datas;
-        return datas;
-    });
-
     _killerMoraleChanged = false;
     const attackResult = attackerUnit.calculateDamage(targetUnit);
     attackerUnit._submarineChargedAttack = false;
@@ -2204,7 +2196,6 @@ export function attackUnit(attackerUnit, targetUnit) {
             }
             if (atkCmdResult.smiteDmg) {
                 // 至圣斩：三段递进动画
-                // Phase 1: 剑从环绕轨道射出（paladin.js onAttack 已通过 launchOrbitSwords 发射）
                 // Phase 2: 飞剑命中后金色光束降临（由 paladin/FX 的 drawBeamProjectiles 在 hit 时自动完成）
                 // Phase 3: 真伤数字 + 强震
                 const smiteDelay = 220;
@@ -2407,7 +2398,6 @@ export function attackUnit(attackerUnit, targetUnit) {
             healAmt: _healAmtRemote, healX: _healX, healY: _healY,
             smiteDmg: _smiteDmgRemote,
             goldenBeamDatas: _goldenBeamDatas.length ? _goldenBeamDatas : null,
-            paladinProjectileDatas: _paladinProjectileDatas || null,
             smiteLabel: _smiteLabel || null,
             cmdFxExtra: _cmdFxExtra || null,
             rankUps: rankUps.length ? rankUps : null,

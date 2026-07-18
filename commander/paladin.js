@@ -66,12 +66,8 @@ export default {
         const smiteDmg = charged
             ? helpers.rng.between(BALANCE.chargedSmiteMin, BALANCE.chargedSmiteMax)
             : helpers.rng.between(BALANCE.normalSmiteMin, BALANCE.normalSmiteMax);
-        // Phase 1: 剑从环绕轨道飞向目标（发射即释放，移除环绕剑）
         // 注意：gameLogic 的 setTimeout(smiteDelay) 内会触发 spawnGoldenBeam
         // 此处不应再立即 spawnGoldenBeam，否则会 double
-        const paladinProjectileDatas = helpers.launchOrbitSwords
-            ? helpers.launchOrbitSwords(attacker.id, target.tile.x, target.tile.y, beamCount)
-            : [];
         // 光环剑影闪 — 圣骑士自身位置爆发金色辉光
         _spawnFx(helpers, attacker.tile.x, attacker.tile.y, '⚡', '至圣斩');
         // 剩余剑同步到当前誓言层数
@@ -82,7 +78,7 @@ export default {
             `圣骑士【至圣斩】：附加${smiteDmg}真实伤害` +
             `${charged ? '（蓄力翻倍）' : ''}`
         );
-        return { smiteDmg, paladinProjectileDatas };
+        return { smiteDmg };
     },
 
     activeSkill: {

@@ -1435,13 +1435,6 @@ export function spawnPaladinBeamProjectiles(fromX, fromY, toX, toY, count) {
     }
 }
 
-// ===== 圣骑士至圣斩光束弹射（轨道剑发射） =====
-export function launchPaladinOrbitSwords(unitId, targetX, targetY, count) {
-    // 实际逻辑在 commander/fx/paladin.js — 但 gameLogic.js 通过 ref 调用
-    // 此处保留空函数作为 effects.js export 占位，避免 import 断裂
-    // launcher 会在 need context](...)时被 commanderInterface 的 ref 正确指向
-}
-
 // ===== 圣骑士誓言金色光束 =====
 export const goldenBeams = [];
 
