@@ -1837,9 +1837,7 @@ function _syncSelectionHud(tile) {
         selectionHudEl.style.setProperty('--selection-camp-color', getFlagColors(faction?.color || unit.camp?.color).main);
         selectionHudEl.style.setProperty('--selection-relation-color', relationMeta.color);
         selectionHudHp.hidden = false;
-        // 血条长度正比于 maxHp + 护盾 × 0.5（最小 80px），护盾适当撑宽但不过度
-        const barTotal = unit.maxHp + Math.max(0, (unit._shield || 0) * 0.5);
-        selectionHudHp.style.width = Math.max(80, barTotal * 1.1) + 'px';
+        // 血条宽度固定由 CSS 控制（min(220px, 64vw)），填充百分比包含护盾
         const total = unit.maxHp + Math.max(0, unit._shield || 0);
         const hpRatio = total ? unit.hp / total : 0;
         const shieldRatio = total ? Math.max(0, unit._shield || 0) / total : 0;
@@ -1867,7 +1865,7 @@ function _syncSelectionHud(tile) {
         selectionHudStats.replaceChildren();
     }
 
-    // 城防 HP：仿部队血条的第二条血条，位于驻军血条（如有）之上纵向堆叠，长度同样按上限向右延伸。
+    // 城防 HP：仿部队血条的第二条血条，位于驻军血条（如有）之上纵向堆叠，宽度由 CSS 固定（min(220px, 64vw)）。
     // 颜色对齐地块上的城市HP六边形框（石黄→焦褐），与部队绿/橙/红血条显著区分。
     const showCityHp = (tile.isCity || tile.isUrban) && tile.maxHp > 0;
     selectionHudCityHp.hidden = !showCityHp;
@@ -1875,7 +1873,6 @@ function _syncSelectionHud(tile) {
         const cityHp = Math.max(0, Math.round(tile.hp || 0));
         const cityHpRatio = Math.max(0, Math.min(1, cityHp / tile.maxHp));
         const burn = 1 - cityHpRatio;
-        selectionHudCityHp.style.width = Math.max(80, tile.maxHp * 1.1) + 'px';
         selectionHudCityHpFill.style.width = (cityHpRatio * 100) + '%';
         selectionHudCityHpFill.style.background = `rgb(${Math.round(180 - burn * 100)},${Math.round(158 - burn * 108)},${Math.round(120 - burn * 90)})`;
         selectionHudCityHpText.textContent = '🏰 ' + cityHp + '/' + tile.maxHp;
