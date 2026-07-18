@@ -6,9 +6,9 @@ import { areCommanderMechanicsSuppressed } from './movement.js';
 import { isCityDisabled } from './citySiege.js';
 
 export const AIR_COMMAND_CONFIG = Object.freeze({
-    strafe: Object.freeze({ name: '扫射', icon: '✈️', cost: 4, range: 5, cooldown: 2, targeting: 'enemyGlobal', multiplier: 1, desc: '对单体目标造成空袭伤害；附加目标已损生命值20%转化为攻击力，封顶+15。' }),
-    bombing: Object.freeze({ name: '轰炸', icon: '💣', cost: 5, range: 5, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 1, desc: '对目标及相邻6格造成范围伤害（中心100%/溅射50%），中心命中要塞时破甲25%。' }),
-    airdrop: Object.freeze({ name: '空降', icon: '🪂', cost: 10, range: 5, cooldown: 3, targeting: 'emptyTile', multiplier: 0, desc: '在目标空地空降一名步兵；落点防空火力削减生命。' }),
+    strafe: Object.freeze({ name: '扫射', icon: '✈️', cost: 4, range: 5, cooldown: 2, targeting: 'enemyGlobal', multiplier: 1, desc: '对单体目标造成空军伤害；目标已损失生命值的20%转化为额外攻击力，最多15点。' }),
+    bombing: Object.freeze({ name: '轰炸', icon: '💣', cost: 5, range: 5, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 1, desc: '对目标及相邻6格造成范围空军伤害（溅射伤害为原本的一半），命中要塞单位时无视敌人25%的防御力。' }),
+    airdrop: Object.freeze({ name: '空降', icon: '🪂', cost: 10, range: 5, cooldown: 3, targeting: 'emptyTile', multiplier: 0, desc: '在目标空地空降一名步兵。' }),
     recon: Object.freeze({ name: '侦察机', icon: '🔭', cost: 4, range: 5, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 0, desc: '侦察目标区域，驱散迷雾（半径1~2格，持续1~2回合，视防空强度而定）。' })
 });
 

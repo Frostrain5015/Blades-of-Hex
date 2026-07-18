@@ -3217,7 +3217,7 @@ export function executeFieldRepair(engineer, target) {
     return true;
 }
 
-function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, { centerBomb = false, missingHpBonus = false } = {}) {
+function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, { missingHpBonus = false } = {}) {
     const colonel = getAirfieldColonel(launcherTile);
     const commanderAttackBonus = getMountedCommanderAirAttackBonus(launcherTile.unit, basePower);
     const campKey = _campKey(launcherTile.camp);
@@ -3239,8 +3239,8 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         + (target.getCampaignDefenseBonus?.() || 0)
         // 城防对空军伤害同样生效（"城市庇护其中所有单位"，跨伤害类型统一）。
         + (target.tile?.isCity ? getCityDefenseBonus(target.tile) : 0);
-    // 轰炸中心破甲：只对要塞单位（城市驻军/碉堡/岸防炮）生效。
-    if (centerBomb && isStrongpointTarget(target)) ordinaryDefense = Math.max(0, ordinaryDefense - 0.25);
+    // 轰炸破甲：只对要塞单位（城市驻军/碉堡/岸防炮）生效。
+    if (isStrongpointTarget(target)) ordinaryDefense = Math.max(0, ordinaryDefense - 0.25);
     let antiAir = getAntiAirReduction(target.tile, launcherTile.camp, gameState.tileMap, { state: gameState });
     if (colonel) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
     const reduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, ordinaryDefense + antiAir);
@@ -3379,7 +3379,7 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
             const target = tile.unit;
             if (target) {
                 if (!canAttack(gameState, launcherTile.camp, target.camp)) continue;
-                const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, target, launcherTile, { centerBomb: index === 0 });
+                const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, target, launcherTile);
                 // 扣血延迟到动画结束后执行（1200ms）
                 results.push({ q: tile.q, r: tile.r, damage: result.damage, killed: false, isCrit: result.isCrit });
             } else if (tile.isCity && tile.hp > 0 && canAttack(gameState, launcherTile.camp, tile.camp)) {
@@ -3718,7 +3718,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     if (_ht && _ht.unit) {
                         const _isCenter = _r.q === targetTile.q && _r.r === targetTile.r;
                         const balance = COLONEL_CARD_DATA.carpetBomb.balance;
-                        const _ignoreDef = _isCenter && isStrongpointTarget(_ht.unit) ? balance.ignoreDefense : 0;
+                        const _ignoreDef = isStrongpointTarget(_ht.unit) ? balance.ignoreDefense : 0;
                         const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, airBonus, false, false, true, _ignoreDef);
                         _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * (balance.splashMultiplier / balance.centerMultiplier));
                         _r.isCrit = _calc.isCrit;
