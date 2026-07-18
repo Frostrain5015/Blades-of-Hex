@@ -2890,7 +2890,7 @@ function _showAirCommandChoice(launcherTile) {
         const costLabel = document.createElement('span'); costLabel.className = 'specialization-stat is-bonus';
         costLabel.textContent = availability.available ? `费用 $${config.cost}` : availability.reason;
         const detail = document.createElement('span'); detail.className = 'specialization-passive';
-        detail.textContent = `${config.name} · 航程${getAirCommandRange(launcherTile)}格${availability.cooldown > 0 ? ` · 冷却${availability.cooldown}回合` : ''}`;
+        detail.textContent = `${config.desc || ''} 航程${getAirCommandRange(launcherTile)}格${availability.cooldown > 0 ? ` · 冷却${availability.cooldown}回合` : ''}`;
         card.append(icon, name, costLabel, detail);
         card.addEventListener('click', () => {
             _closeChoiceModal();
