@@ -3,7 +3,7 @@
 
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
-    getMovableTiles, getAttackableTiles, moveUnit, attackUnit, recruitUnit, reinforceUnit,
+    getMovableTiles, getAttackableTiles, moveUnit, attackUnit, attackCityTile, recruitUnit, reinforceUnit,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
     recalcAllFlankingMorale, drawCard
@@ -305,6 +305,18 @@ async function _executeActionInner(action, aiCamp) {
                 for (let chain = 0; chain < 3 && unit.canAct && unit.tile && unit.hp > 0; chain++) {
                     if (!(await _autoAttack(unit))) break;
                 }
+            }
+            break;
+        }
+        case 'siegeCityAttack': {
+            const unit = resolveUnit(action.unitId);
+            const targetTile = resolveTile(action.tileQ, action.tileR);
+            if (!unit || !targetTile || !unit.canAct || !unit.tile || targetTile.unit) return;
+            const aiSiegeTiles = getAttackableTiles(unit);
+            if (aiSiegeTiles.includes(targetTile)) {
+                await delay(AI_DELAY);
+                gameState.attackableTiles = aiSiegeTiles;
+                attackCityTile(unit, targetTile);
             }
             break;
         }

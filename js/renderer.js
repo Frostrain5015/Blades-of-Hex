@@ -1,4 +1,4 @@
-import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, getRoundIndex, COLONEL_CARDS, COLONEL_CARD_GOLD, settings } from './config.js';
+import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, drawHexagonOutline, roundRectPath, COUNTER_RELATION, frameInfo, MORALE_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, HEX_NEIGHBORS, pulseSine, COLONEL_CARDS, COLONEL_CARD_GOLD, settings } from './config.js';
 import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
@@ -10,6 +10,7 @@ import {
     getBorderlessBoundaryTopology, getBorderlessVisualGrid, drawVisualFillerTile, drawVisualFillerTiles
 } from './militaryMap.js';
 import { resolveAntiAirCoverage } from '../rules/antiAir.js';
+import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
@@ -352,16 +353,7 @@ export function renderGame() {
         // City disabled indicator (same layer as Iron Guard shield)
         for (let i = 0, len = tiles.length; i < len; i++) {
             const tile = tiles[i];
-            if (tile.isCity && (tile._cityFireStacks || 0) > 0) {
-                const flamePulse = (Math.sin(now / 180 + tile.q) + 1) / 2;
-                ctx.save();
-                ctx.font = `${18 + flamePulse * 3}px "Segoe UI Emoji", sans-serif`;
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.globalAlpha = 0.78 + flamePulse * 0.2;
-                ctx.fillText('🔥', tile.x + 12, tile.y - 17);
-                ctx.restore();
-            }
-            if (!tile.isCity || !tile._cityDisabledUntil || tile._cityDisabledUntil <= getRoundIndex(gameState)) continue;
+            if (!isCityDisabled(tile)) continue;
             const pulse = (Math.sin(now / 400) + 1) / 2;
             ctx.save();
             ctx.font = '18px sans-serif';
@@ -1236,14 +1228,18 @@ function _reconstructPreviewPath(startTile, targetTile) {
     return [];
 }
 
-function _drawAttackRouteSegment(now, attacker, source, targetUnit) {
+function _drawAttackRouteSegment(now, attacker, source, targetUnitOrTile) {
     const style = operationArrowStyleForAttacker(attacker);
+    // 目标可能是真实单位，也可能是无驻军的攻城目标地块（只有单位带 .tile 引用，地块本身没有）。
+    const target = targetUnitOrTile?.tile
+        ? getUnitVisualPos(targetUnitOrTile)
+        : { x: targetUnitOrTile.x, y: targetUnitOrTile.y };
     drawOperationPreview(ctx, {
         action: style === 'fire'
             ? OPERATION_PREVIEW_ACTIONS.RANGED
             : OPERATION_PREVIEW_ACTIONS.MELEE,
         source,
-        target: getUnitVisualPos(targetUnit),
+        target,
         unitRadius: UNIT_BADGE_RADIUS,
         time: now / 1000,
         color: '#e95b50',
@@ -1304,10 +1300,11 @@ function drawOperationInteractionRoute(now) {
         }
     }
 
-    if (hovered?.unit && gameState.attackableTiles.includes(hovered)) {
+    if (hovered && gameState.attackableTiles.includes(hovered)
+        && (hovered.unit || isSiegeableCityTile(unit, hovered, gameState))) {
         // 移动动画未走完时锚定逻辑落点：行进线不会突变成从半路射出的攻击线
         const attackSource = moveAnimating ? { x: unit.tile.x, y: unit.tile.y } : source;
-        _drawAttackRouteSegment(now, unit, attackSource, hovered.unit);
+        _drawAttackRouteSegment(now, unit, attackSource, hovered.unit || hovered);
         return;
     }
 
@@ -1980,7 +1977,7 @@ function drawUnitActionTargetingPreview(now, deselecting) {
         ctx.restore();
     }
 
-    const attackTiles = gameState.attackableTiles.filter(tile => tile.unit);
+    const attackTiles = gameState.attackableTiles.filter(tile => tile.unit || isSiegeableCityTile(unit, tile, gameState));
     const chainTiles = (gameState.chainAttackTiles || []).filter(tile => tile.unit);
     if (!attackTiles.length && !chainTiles.length) return;
     const hovered = gameState.hoveredTile;
@@ -1990,7 +1987,7 @@ function drawUnitActionTargetingPreview(now, deselecting) {
             ...attackTiles.map(tile => {
                 const entry = _targetEntry(unit.tile, tile, now, gameState.selectionTime);
                 return {
-                    center: getUnitVisualPos(tile.unit),
+                    center: tile.unit ? getUnitVisualPos(tile.unit) : { x: tile.x, y: tile.y },
                     size: UNIT_HUD_OUTER_RADIUS * 1.72 * entry.scale,
                     kind: 'attack',
                     active: tile === hovered,

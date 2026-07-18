@@ -5,6 +5,7 @@ import { isLandTile } from './surfaces.js';
 import { getRoundIndex } from './turns.js';
 import { isMechanicEnabled } from './mechanics.js';
 import { canBuildShoreBattery, isCoastalLandTile } from './naval.js';
+import { isCityDisabled } from './citySiege.js';
 
 export const CONSTRUCTION_CONFIG = Object.freeze({
     trench: Object.freeze({ name: '战壕', cost: 2, engineerCost: 1, range: 0, buildTurns: 0 }),
@@ -74,7 +75,7 @@ export function countAirfields(state, camp) {
 export function canBuildAirfieldAt(cityTile, camp, state) {
     return isMechanicEnabled(state, 'airCommands')
         && !!cityTile?.isCity && cityTile.camp === camp && !cityTile.installation
-        && !(cityTile._cityDisabledUntil > getRoundIndex(state))
+        && !isCityDisabled(cityTile)
         && countAirfields(state, camp) < getAirfieldCap(state, camp);
 }
 

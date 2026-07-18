@@ -19,6 +19,7 @@ import { isMechanicEnabled } from '../../rules/mechanics.js';
 import { getSurfaceBaseColor, getTileSurface, isWaterSurface } from '../../rules/surfaces.js';
 import { resolveTargetingPreview, targetingTileKey } from '../../rules/targeting.js';
 import { operationArrowStyleForAttacker } from '../../rules/attackPresentation.js';
+import { isCityDisabled } from '../../rules/citySiege.js';
 
 export const BATTLEFIELD_SNAPSHOT_VERSION = 1;
 export const BATTLEFIELD_SNAPSHOT_KIND = 'blades-of-hex/battlefield';
@@ -209,7 +210,9 @@ function cityFromTile(tile) {
         kind: tile.isCity ? 'city' : 'village',
         districtId: finite(tile.isVillage ? tile.villageDistrictId : tile.districtId, 0),
         occupied: Boolean(tile.unit),
-        disabledUntilRound: tile.isCity ? finite(tile._cityDisabledUntil, 0) : 0,
+        hp: tile.isCity ? finite(tile.hp, 0) : 0,
+        maxHp: tile.isCity ? finite(tile.maxHp, 0) : 0,
+        disabled: tile.isCity ? isCityDisabled(tile) : false,
         reinforcedThisTurn: tile.isCity ? Boolean(tile._reinforcedThisTurn) : false
     };
 }

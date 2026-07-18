@@ -87,7 +87,8 @@ export const config = {
         radius: 3,
         cities: [
             { q: -3, r: 3, districtId: 1, camp: 'expedition' },
-            { q: 2, r: -2, districtId: 2, camp: 'roadblock' }
+            // 无驻军，hpPct:0 保留"走到即视为抵达"的原有到达点判定，不受新城防机制影响。
+            { q: 2, r: -2, districtId: 2, camp: 'roadblock', hpPct: 0 }
         ],
         terrain: [
             { q: -2, r: 1, type: 'forest' },

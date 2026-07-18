@@ -7,7 +7,6 @@ import { percent, rangeText } from './format.js';
 import { EMOJI } from './symbols.js';
 import { UNIT_CONFIG } from './units.js';
 import { campToKey } from './camps.js';
-import { getRoundIndex } from './turns.js';
 import { isWaterTile } from './surfaces.js';
 
 export const TACTICAL_CARD_DATA = (() => {
@@ -145,7 +144,6 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
             for (const [dq, dr] of dirs) {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
                 if (!ht) continue;
-                const isCity = ht === targetTile;
                 let dmg = dmgBase;
                 // 森林掩蔽：对空军+20%防御
                 if (ht.terrain === 'forest') dmg = Math.round(dmg * balance.forestMultiplier);
@@ -162,10 +160,6 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
                     }
                     ht.unit.hp = Math.max(0, ht.unit.hp - remaining);
                     results.push({ q: ht.q, r: ht.r, dmg, killed: ht.unit.hp <= 0 });
-                }
-                if (isCity) {
-                    // 城市瘫痪 2 回合：存储到期回合数(0-indexed)，active 判定 > 当前回合
-                    ht._cityDisabledUntil = getRoundIndex(gameState) + balance.cityDisableRounds;
                 }
             }
             return { airstrike: true, targetTile, results, dmgBase };

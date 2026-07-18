@@ -8,9 +8,10 @@ import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } fr
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
 import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
+import { getCityDefenseBonus, isCityDisabled } from '../rules/citySiege.js';
 import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
-    moveUnit, attackUnit, recruitUnit, endTurn,
+    moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
     executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeFieldConstruction, executeBunkerConstruction, executeShoreBatteryConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
     cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit
@@ -1183,9 +1184,12 @@ function _getTerrainEffect(tile) {
     const terrain = TERRAIN_CONFIG[tile.terrain];
     if (tile.isCity) {
         const ownerName = getFaction(gameState, tile.camp)?.name || tile.camp?.name || '中立';
-        let desc = '由' + ownerName + '控制';
-        if (tile._cityDisabledUntil > getRoundIndex(gameState)) {
-            desc += '。遭到空袭，暂时无法产出资源或招募部队';
+        let desc = '由' + ownerName + '控制。城防 ' + Math.max(0, tile.hp || 0) + '/' + (tile.maxHp || 0);
+        if (tile.unit) {
+            desc += '（驻军防御+' + Math.round(getCityDefenseBonus(tile) * 100) + '%）';
+        }
+        if (isCityDisabled(tile)) {
+            desc += '。城防已被攻破，暂时无法起飞机场或招募部队';
         }
         return {
             key: 'terrain:city:' + tile.q + ':' + tile.r,
@@ -1452,7 +1456,7 @@ function _buildPassiveItems(unit) {
             key: 'specialization:' + unit.id + ':' + unit.specializationKey,
             icon: specializationPassive.icon,
             label: specializationPassive.name,
-            desc: detailDesc || specialization.description,
+            desc: detailDesc || (typeof specialization.description === 'function' ? specialization.description(unit) : specialization.description),
             color: '#a9d8ff',
             status: stacks > 0 ? `当前 ${stacks}/${maxStacks} 层` : (stacks === 0 && maxStacks > 0 ? '0 层' : '当前生效'),
             count: stacks || '',
@@ -1787,9 +1791,10 @@ function _syncSelectionHud(tile) {
         const fortificationDefBonus = !unit.isEmbarked && tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
         const rankDefBonus = unit._rankPanelDefenseBonus || 0;
         const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
+        const cityDefBonus = tile.isCity ? getCityDefenseBonus(tile) : 0;
         const baseDefense = unit.isEmbarked ? getTransportBaseDefense(unit) : (unit.config.defense || 0);
         defense = Math.round((baseDefense + moraleDefBonus + terrainDefBonus
-            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + campaignDefBonus) * 100);
+            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + campaignDefBonus + cityDefBonus) * 100);
         // 悬浮可走地块时预览本次移动的行动力消耗
         if (gameState.selectedUnit === unit && gameState.hoveredTile && !gameState.hoveredTile.unit
             && gameState.movableTiles.includes(gameState.hoveredTile)) {
@@ -2367,10 +2372,11 @@ export function initInput() {
             return;
         }
 
-        // Action: friendly unit selected, clicking an attackable tile → attack
-        if (gameState.selectedUnit && gameState.attackableTiles.includes(clickedTile) && clickedTile.unit) {
+        // Action: friendly unit selected, clicking an attackable tile → attack (unit, or an empty fortified city → siege)
+        if (gameState.selectedUnit && gameState.attackableTiles.includes(clickedTile)) {
             const attacker = gameState.selectedUnit;
-            attackUnit(attacker, clickedTile.unit);
+            if (clickedTile.unit) attackUnit(attacker, clickedTile.unit);
+            else attackCityTile(attacker, clickedTile);
             // 百夫长乘胜：技能触发后 canAct 仍为 true，保持选中让玩家继续行动
             if (attacker.canAct) {
                 gameState.selectedUnit = attacker;
@@ -2739,17 +2745,17 @@ function _prepareChoiceModal(title, subtitle, wide = false) {
 }
 
 const SPECIALIZATION_DETAILS = {
-    garrisonInfantry: unit => `固守城市时每回合恢复${Math.round((unit.getSpecializationAbility('cityRegen') || 0) * 100)}%最大生命；本回合未移动时，首次受击伤害降低${Math.round((unit.getSpecializationAbility('holdFirstHitReduction') || 0) * 100)}%。`,
-    assaultInfantry: unit => `攻击建筑、城市或工事驻军时伤害提高${Math.round((unit.getSpecializationAbility('fortificationDamage') || 0) * 100)}%；击败敌军恢复${Math.round((unit.getSpecializationAbility('killHeal') || 0) * 100)}%最大生命。`,
+    garrisonInfantry: unit => `驻守城市时每回合恢复${Math.round((unit.getSpecializationAbility('cityRegen') || 0) * 100)}%最大生命；本回合未移动时，首次受击伤害降低${Math.round((unit.getSpecializationAbility('holdFirstHitReduction') || 0) * 100)}%。`,
+    assaultInfantry: unit => `对要塞单位的伤害提高${Math.round((unit.getSpecializationAbility('fortificationDamage') || 0) * 100)}%；击败敌军时立即恢复${Math.round((unit.getSpecializationAbility('killHeal') || 0) * 100)}%最大生命。`,
     lightCavalry: unit => `每移动1格伤害提高${Math.round((unit.getSpecializationAbility('chargePerStep') || 0) * 100)}%，最多3层；未击败目标时可用剩余行动力撤退；遭遇战视野+1。`,
-    heavyCavalry: unit => `受到的反击伤害降低${Math.round((unit.getSpecializationAbility('counterDamageReduction') || 0) * 100)}%；攻击远程单位无视${Math.round((unit.getSpecializationAbility('rangedArmorPierce') || 0) * 100)}%防御。`,
-    fieldGun: unit => `攻击无视${Math.round((unit.getSpecializationAbility('armorPierce') || 0) * 100)}%防御；位于山地或风天时效果翻倍。`,
+    heavyCavalry: unit => `受到的反击伤害降低${Math.round((unit.getSpecializationAbility('counterDamageReduction') || 0) * 100)}%；攻击远程单位时无视敌人${Math.round((unit.getSpecializationAbility('rangedArmorPierce') || 0) * 100)}%防御力。`,
+    fieldGun: unit => `无视敌人${Math.round((unit.getSpecializationAbility('armorPierce') || 0) * 100)}%防御；位于山地或风天时效果翻倍。`,
     rocketArtillery: unit => `对主目标相邻敌军造成${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%倍率溅射。`,
-    antiAirArtillery: unit => `不能普通攻击；为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`,
+    antiAirArtillery: unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`,
     antiAirDestroyer: unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`,
     antiSubDestroyer: unit => `侦测2格内潜艇，对潜艇伤害提高${Math.round((unit.getSpecializationAbility('submarineDamage') || 0) * 100)}%。`,
-    fleetCruiser: unit => `攻击舰船伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率追加半伤齐射。`,
-    supportCruiser: unit => `抵消对岸攻击减伤；攻城时有${Math.round((unit.getSpecializationAbility('shoreSplashChance') || 0) * 100)}%概率产生30%溅射。`
+    fleetCruiser: unit => `对海军单位的伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率追加半伤齐射。`,
+    supportCruiser: unit => `对陆地单位造成的伤害提高50%；攻击要塞单位时有${Math.round((unit.getSpecializationAbility('shoreSplashChance') || 0) * 100)}%的概率对相邻敌方单位造成相当于原本30%的溅射伤害。`
 };
 
 function _showSpecializationChoice(unit) {
@@ -2781,7 +2787,8 @@ function _showSpecializationChoice(unit) {
         // 临时套用候选键读取当前阶能力，展示完成后立即还原，不修改派生面板。
         const originalKey = unit.specializationKey;
         unit.specializationKey = option.key;
-        passive.textContent = SPECIALIZATION_DETAILS[option.key]?.(unit) || option.description;
+        const desc = typeof option.description === 'function' ? option.description(unit) : option.description;
+        passive.textContent = SPECIALIZATION_DETAILS[option.key]?.(unit) || desc;
         unit.specializationKey = originalKey;
         card.append(icon, name, stats, passive);
         card.addEventListener('click', () => _applySpecializationChoice(unit.id, option.key));

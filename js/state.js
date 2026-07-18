@@ -1,4 +1,4 @@
-import { LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE, getRound, getRoundIndex } from './config.js';
+import { LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE, getRound } from './config.js';
 import { computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
@@ -14,6 +14,7 @@ import { campToKey } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { RECRUITMENT_OPTIONS, canRecruitTypeAtSelectedCity, getRecruitmentSiteKind, shouldShowRecruitmentOption } from './recruitmentUi.js';
 import { hasFactionSurrendered } from '../rules/matchOutcome.js';
+import { isCityDisabled } from '../rules/citySiege.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
@@ -221,7 +222,7 @@ export function updateRecruitButtonStates() {
     const isVillage = tile && tile.isVillage;
     const currentKey = _campKeyStr(gameState.currentCamp);
     const gold = gameState.playerGold[currentKey];
-    const cityTemporarilyDisabled = tile?._cityDisabledUntil > getRoundIndex(gameState);
+    const cityTemporarilyDisabled = isCityDisabled(tile);
 
     // 村庄不可招募（仅保留产币+补员功能）
     if (isVillage) {

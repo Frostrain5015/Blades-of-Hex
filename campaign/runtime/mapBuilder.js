@@ -10,6 +10,7 @@ import {
 } from '../../rules/surfaces.js';
 import { buildRiverTopology } from '../../rules/hydrography.js';
 import { resolvePortLandAnchor } from '../../rules/ports.js';
+import { CITY_SIEGE_CONFIG } from '../../rules/citySiege.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from '../../js/HexTile.js';
 
 /**
@@ -99,6 +100,15 @@ export function buildBoardFromConfig(config, gameState) {
         const centre = at(city.q, city.r);
         const centreKey = tileCoordinateKey(city.q, city.r);
         centre.isCity = true;
+        centre.maxHp = CITY_SIEGE_CONFIG.maxHp;
+        // 城防：优先绝对 hp，其次 hpPct（0~100 百分比），默认满血——与单位 hp/hpPct 同一套优先级。
+        if (typeof city.hp === 'number') {
+            centre.hp = Math.max(0, Math.min(centre.maxHp, Math.round(city.hp)));
+        } else if (typeof city.hpPct === 'number') {
+            centre.hp = Math.max(0, Math.min(centre.maxHp, Math.round(centre.maxHp * city.hpPct / 100)));
+        } else {
+            centre.hp = centre.maxHp;
+        }
         const footprint = [{ q: city.q, r: city.r }, ...(Array.isArray(city.footprint) ? city.footprint : [])];
         const seen = new Set();
         for (const point of footprint) {

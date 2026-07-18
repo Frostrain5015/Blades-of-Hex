@@ -39,52 +39,51 @@ export const UNIT_SPECIALIZATION_CONFIG = deepFreeze({
         garrisonInfantry: spec('卫戍步兵', { hp: 200, attack: 40, defense: 0.10, speed: 4, range: 1 }, {
             cityRegen: { rank1: 0.10, rank3: 0.20 },
             holdFirstHitReduction: { rank1: 0.15, rank3: 0.25 }
-        }, '固守：擅长城市恢复与阵地防御'),
+        }, unit => `驻守城市时每回合恢复${Math.round((unit.getSpecializationAbility('cityRegen') || 0) * 100)}%最大生命；本回合未移动时，首次受击伤害降低${Math.round((unit.getSpecializationAbility('holdFirstHitReduction') || 0) * 100)}%。`),
         assaultInfantry: spec('突击步兵', { hp: 180, attack: 48, defense: 0.05, speed: 6, range: 1 }, {
-            fortificationDamage: { rank1: 0.15, rank3: 0.30 },
+            fortificationDamage: { rank1: 0.20, rank3: 0.35 },
             killHeal: { rank1: 0.10, rank3: 0.20 }
-        }, '攻坚：擅长突破城市、工事与建筑单位')
+        }, unit => `对要塞单位的伤害提高${Math.round((unit.getSpecializationAbility('fortificationDamage') || 0) * 100)}%；击败敌军时立即恢复${Math.round((unit.getSpecializationAbility('killHeal') || 0) * 100)}%最大生命。`)
     },
     cavalry: {
         lightCavalry: spec('轻骑兵', { hp: 150, attack: 55, defense: 0.05, speed: 9, range: 1 }, {
             chargePerStep: { rank1: 0.10, rank3: 0.15, maxStacks: 3 },
             skirmishVisionBonus: 1
-        }, '冲锋：移动距离转化为伤害'),
+        }, unit => `每移动1格伤害提高${Math.round((unit.getSpecializationAbility('chargePerStep') || 0) * 100)}%，最多3层；未击败目标时可用剩余行动力撤退；遭遇战视野+1。`),
         heavyCavalry: spec('重骑兵', { hp: 170, attack: 50, defense: 0.10, speed: 5, range: 1 }, {
             counterDamageReduction: { rank1: 0.25, rank3: 0.40 },
             rangedArmorPierce: { rank1: 0.10, rank3: 0.15 }
-        }, '铁蹄：降低受到的反击并穿透远程单位防御')
+        }, unit => `受到的反击伤害降低${Math.round((unit.getSpecializationAbility('counterDamageReduction') || 0) * 100)}%；攻击远程单位时无视敌人${Math.round((unit.getSpecializationAbility('rangedArmorPierce') || 0) * 100)}%防御力。`)
     },
     archer: {
         fieldGun: spec('野战炮', { hp: 100, attack: 60, defense: 0, speed: 3, range: 2 }, {
             armorPierce: { rank1: 0.08, rank3: 0.12, terrainOrWindMultiplier: 2 }
-        }, '穿甲榴弹：专注单体穿甲'),
+        }, unit => `无视敌人${Math.round((unit.getSpecializationAbility('armorPierce') || 0) * 100)}%防御；位于山地或风天时效果翻倍。`),
         rocketArtillery: spec('火箭炮', { hp: 90, attack: 40, defense: 0, speed: 3, range: 2 }, {
             splash: { rank1: 0.25, rank3: 0.35, totalDamageCap: 1 }
-        }, '齐射：对主目标周围敌军造成溅射'),
+        }, unit => `对主目标相邻敌军造成${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%倍率溅射。`),
         antiAirArtillery: spec('防空炮', { hp: 110, attack: 0, defense: 0.05, speed: 4, range: 2 }, {
-            antiAir: { radius: 2, rank1: 0.35, rank3: 0.50 },
-            cannotAttack: true
-        }, '高射：只提供区域防空，不能普通攻击')
+            antiAir: { radius: 2, rank1: 0.35, rank3: 0.50 }
+        }, unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`)
     },
     destroyer: {
         antiAirDestroyer: spec('防空驱逐舰', { hp: 140, attack: 40, defense: 0.05, speed: 6, range: 1 }, {
             antiAir: { radius: 2, rank1: 0.35, rank3: 0.50 }
-        }, '防空机枪：为舰队提供区域防空'),
+        }, unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`),
         antiSubDestroyer: spec('反潜驱逐舰', { hp: 150, attack: 40, defense: 0.05, speed: 7, range: 1 }, {
             submarineDetectionRadius: 2,
-            submarineDamage: { rank1: 0.25, rank3: 0.40 }
-        }, '猎潜：持续侦测并重创潜艇')
+            submarineDamage: { rank1: 0.30, rank3: 0.50 }
+        }, unit => `侦测2格内潜艇，对潜艇伤害提高${Math.round((unit.getSpecializationAbility('submarineDamage') || 0) * 100)}%。`)
     },
     warship: {
         fleetCruiser: spec('制海型巡洋舰', { hp: 200, attack: 55, defense: 0.10, speed: 4, range: 2 }, {
             shipDamage: { rank1: 0.15, rank3: 0.25 },
             extraSalvo: { rank1: 0.15, rank3: 0.25, multiplier: 0.5 }
-        }, '大口径舰炮：专注舰队决战'),
+        }, unit => `对海军单位的伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率追加半伤齐射。`),
         supportCruiser: spec('支援型巡洋舰', { hp: 180, attack: 60, defense: 0.05, speed: 5, range: 3 }, {
             landDamage: 0.50,
-            shoreSplashChance: { rank1: 0.15, rank3: 0.25, multiplier: 0.30, totalDamageCap: 1 }
-        }, '火控雷达：专注对岸与攻城支援')
+            shoreSplashChance: { rank1: 0.25, rank3: 0.40, multiplier: 0.30, totalDamageCap: 1 }
+        }, unit => `对陆地单位造成的伤害提高50%；攻击要塞单位时有${Math.round((unit.getSpecializationAbility('shoreSplashChance') || 0) * 100)}%的概率对相邻敌方单位造成相当于原本30%的溅射伤害。`)
     }
 });
 
@@ -116,6 +115,17 @@ export function isBuildingUnit(unitOrType) {
 export function isRankLockedUnit(unitOrType) {
     const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
     return UNIT_CONFIG[type]?.rankLocked === true;
+}
+
+/**
+ * “要塞单位”：城市驻军、碉堡、岸防炮，以及攻坚/对岸类技能的重点针对目标。
+ * 无人机虽然共享 building 标记（用于禁止军衔/专精），但不算要塞，显式排除。
+ * 接受真实 Unit（走 building/isCity 分支）或只带 tile 的裸壳（供空城攻城复用）。
+ */
+export function isStrongpointTarget(target) {
+    if (!target) return false;
+    if (isBuildingUnit(target) && target.type !== 'drone') return true;
+    return !!(target.tile?.isCity || target.tile?.fortification);
 }
 
 export function getSpecializationOptions(unitOrType) {

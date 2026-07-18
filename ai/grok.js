@@ -846,6 +846,21 @@ export function planActions(gameState, helpers, myCamp) {
     }
 
     // ═══════════════════════════════════════════
+    // 第一·五轮：攻城 — 没有普通目标时，对已清空驻军但HP>0的敌方/中立城市补一刀
+    // ═══════════════════════════════════════════
+
+    for (const unit of units) {
+        if (processed.has(unit.id)) continue;
+        const siegeTiles = getAttackableTiles(unit).filter(t => !t.unit && t.isCity && t.hp > 0
+            && (ownsNeutralCity ? t.camp === enemyCamp : t.camp !== myCamp));
+        if (siegeTiles.length === 0) continue;
+        // 优先已经磨得比较低的城墙，争取尽快破城
+        siegeTiles.sort((a, b) => a.hp - b.hp);
+        actions.push({ type: 'siegeCityAttack', unitId: unit.id, tileQ: siegeTiles[0].q, tileR: siegeTiles[0].r });
+        processed.add(unit.id);
+    }
+
+    // ═══════════════════════════════════════════
     // 第二轮：移动 — 天气感知向主攻目标推进
     // ═══════════════════════════════════════════
 

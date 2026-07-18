@@ -1,5 +1,13 @@
 ﻿import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
+import { isStrongpointTarget } from '../rules/units.js';
+import {
+    getCityDefenseBonus,
+    getCityRegenAmount,
+    isCityDisabled,
+    isCitySiegeBlocked,
+    isSiegeableCityTile
+} from '../rules/citySiege.js';
 import { campToKey } from '../rules/camps.js';
 import { DRONE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
 import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
@@ -95,6 +103,7 @@ import {
     capturePort,
     clearExpiredSubmarineReveals,
     clearPortDepartureState,
+    getCrossDomainDamageBonus,
     isCoastalLandTile,
     isPortGuarded,
     isPortOperationalFor,
@@ -848,7 +857,8 @@ function _expireTimedEffects() {
 // 返回 damageTexts 快照长度，供 _doEndTurnPhase 收集殉道者等伤害数字
 export function grantTurnStartIncome(camp) {
     const key = _campKey(camp);
-    const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp && !(t._cityDisabledUntil > 0 && t._cityDisabledUntil > getRoundIndex(gameState)));
+    // 城市HP=0只锁机场指令与招募，不切收入——和旧版瘫痪机制的区别，故意不读 isCityDisabled。
+    const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp);
     const cityCount = cities.length;
     let income = _campKey(camp) === 'neutral' ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
     const isCampaignAi = gameState.campaignMode && gameState.factions?.[key]?.controller === 'ai';
@@ -1147,6 +1157,12 @@ async function _doEndTurnPhase() {
         }
         _updateWeather();
         _expireTimedEffects();
+        // 城市脱战自动回复：上一整轮没有挨攻城伤害才回复，HP=0的城市也会慢慢回满。
+        for (const tile of gameState.tiles) {
+            if (!tile.isCity || tile.hp >= tile.maxHp) continue;
+            if (tile._citySiegeDamageRound === roundIndexBeforeAdvance) continue;
+            tile.hp = Math.min(tile.maxHp, tile.hp + getCityRegenAmount(tile));
+        }
         // 每5回合：全员免费对策卡（第5/10/15…回合发放）
         const roundNum = getRound(gameState);  // 1-indexed 回合数
         if (roundNum % 5 === 0 && gameState.cardDrawPile.length > 0) {
@@ -1410,8 +1426,8 @@ export function recruitUnit(type) {
         notify(navalRecruit ? '舰船只能在港口招募' : '该兵种无法部署在此地形', 'error');
         return;
     }
-    if (selectedCityTile.isCity && selectedCityTile._cityDisabledUntil > 0 && selectedCityTile._cityDisabledUntil > getRoundIndex(gameState)) {
-        notify('该城市遭到空袭 无法招募', 'error');
+    if (isCityDisabled(selectedCityTile)) {
+        notify('该城市城防已被攻破 无法招募', 'error');
         return;
     }
     if (selectedCityTile.unit) {
@@ -1538,6 +1554,7 @@ function _computeMovableTiles(unit, fogSafePreview = false) {
             if (neighbor.unit
                 && (!fogSafePreview
                     || getPresentedTileVisibilityState(neighbor, friendlyCamp, gameState) === 'visible')) continue;
+            if (isCitySiegeBlocked(neighbor, friendlyCamp, gameState)) continue;
             if (unit._isDrone && !isTileInDroneSignal(gameState, unit.camp, neighbor)) continue;
 
             let stepCost = unit._isDrone ? 2 : (TERRAIN_CONFIG[neighbor.terrain]?.stepCost ?? 1);
@@ -1612,8 +1629,7 @@ export function getAttackableTiles(unit) {
     if (unit._transportTransitionedThisTurn) return [];
     if (unit.commander === 'martyr' && unit._martyrPrimed) return [];
     if (unit.type === 'carrier' && (!isMechanicEnabled(gameState, 'airCommands') || gameState.weather === 'fog')) return [];
-    if (unit.getSpecializationAbility?.('cannotAttack') === true) return [];
-    if (unit._specializationAttackSpent) return [];
+if (unit._specializationAttackSpent) return [];
     let range = unit.getEffectiveRange?.() ?? unit.config.range;
     // 无人机固定射程2
     if (unit._isDrone) range = DRONE_RANGE;
@@ -1632,11 +1648,14 @@ export function getAttackableTiles(unit) {
     const surfaceLegal = isRanged || canUnitOccupyTile(unit, startTile, gameState);
     const targets = surfaceLegal ? gameState.tiles.filter(tile =>
         hexDistance(tile, startTile) <= range
-        && tile.unit
-        && canAttack(gameState, unit.camp, tile.unit.camp)
-        && tile.unit._campaignTargetable !== false
-        && canUnitTargetUnit(unit, tile.unit, gameState)
-        && (isRanged || canUnitAssaultOccupiedTile(unit, tile))
+        && (
+            (tile.unit
+                && canAttack(gameState, unit.camp, tile.unit.camp)
+                && tile.unit._campaignTargetable !== false
+                && canUnitTargetUnit(unit, tile.unit, gameState)
+                && (isRanged || canUnitAssaultOccupiedTile(unit, tile)))
+            || isSiegeableCityTile(unit, tile, gameState)
+        )
     ) : [];
     // 遭遇战迷雾：只能攻击视野内的敌方单位
     if (gameState.skirmishFog && targets.length) {
@@ -2044,7 +2063,7 @@ export function attackUnit(attackerUnit, targetUnit) {
     const rocketSplash = attackerUnit.getSpecializationAbility('splash') || 0;
     const supportSplashChance = attackerUnit.getSpecializationAbility('shoreSplashChance') || 0;
     const supportSplashEligible = attackerUnit.specializationKey === 'supportCruiser'
-        && (targetUnit.tile?.isCity || targetUnit.config?.building || targetUnit.tile?.fortification)
+        && isStrongpointTarget(targetUnit)
         && isLandTile(targetUnit.tile)
         && supportSplashChance > 0
         && gameState.rng.chance(supportSplashChance);
@@ -2276,7 +2295,8 @@ export function attackUnit(attackerUnit, targetUnit) {
             if (classifyAttackPresentation(attackerUnit) === ATTACK_PRESENTATION.ASSAULT
                 && !attackerUnit._imprisoned && !attackerUnit._isImmobile
                 && canUnitAssaultOccupiedTile(attackerUnit, targetTile)
-                && canUnitOccupyTile(attackerUnit, targetTile, gameState)) {
+                && canUnitOccupyTile(attackerUnit, targetTile, gameState)
+                && !isCitySiegeBlocked(targetTile, attackerUnit.camp, gameState)) {
                 attackerUnit.tile.unit = null;
                 attackerUnit.tile = targetTile;
                 targetTile.unit = attackerUnit;
@@ -3216,8 +3236,11 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         + (target.config.defense || 0) + (target._rankPanelDefenseBonus || 0)
         + (isMechanicEnabled(gameState, 'morale') ? (MORALE_CONFIG[target.morale]?.defBonus || 0) : 0)
         + getCommanderDefenseBonus(target) + getCommanderAuraDefenseBonus(target)
-        + (target.getCampaignDefenseBonus?.() || 0);
-    if (centerBomb) ordinaryDefense = Math.max(0, ordinaryDefense - 0.10);
+        + (target.getCampaignDefenseBonus?.() || 0)
+        // 城防对空军伤害同样生效（"城市庇护其中所有单位"，跨伤害类型统一）。
+        + (target.tile?.isCity ? getCityDefenseBonus(target.tile) : 0);
+    // 轰炸中心破甲：只对要塞单位（城市驻军/碉堡/岸防炮）生效。
+    if (centerBomb && isStrongpointTarget(target)) ordinaryDefense = Math.max(0, ordinaryDefense - 0.25);
     let antiAir = getAntiAirReduction(target.tile, launcherTile.camp, gameState.tileMap, { state: gameState });
     if (colonel) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
     const reduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, ordinaryDefense + antiAir);
@@ -3226,6 +3249,94 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         isCrit: !!launcherTile.unit && floatMultiplier > COMBAT_BALANCE.float.attack.critThreshold,
         antiAir
     };
+}
+
+/**
+ * 地面/海军部队对无驻军但HP>0的敌方/中立城市造成攻城伤害。
+ * 城市不是有克制行列的兵种，不复用 calculateDamage/COUNTER_RELATION——
+ * 与 _resolveAirCommandDamage 同样的"独立简化伤害入口"思路。
+ */
+function _resolveGroundNavalSiegeDamage(attacker, targetTile) {
+    const crossDomainBonus = getCrossDomainDamageBonus(attacker, { tile: targetTile });
+    const fortificationBonus = isStrongpointTarget({ tile: targetTile })
+        ? (attacker.getSpecializationAbility('fortificationDamage') || 0) : 0;
+    const landDamageBonus = attacker.getSpecializationAbility('landDamage') || 0;
+    const offenseMulti = Math.max(0, 1 + crossDomainBonus + fortificationBonus + landDamageBonus);
+    const floatMult = attacker._calcFloat(false, false, attacker._rankCritBonus || 0);
+    // 空城无驻军、无城墙固定减伤：城市HP自身即是缓冲，伤害不再走额外防御乘区。
+    return {
+        damage: Math.max(1, Math.round(attacker.getEffectiveAttack() * offenseMulti * floatMult)),
+        isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold
+    };
+}
+
+/** 轰炸命中无驻军的敌方/中立城市：结构照抄 _resolveAirCommandDamage；空城无城墙固定减伤，只剩防空覆盖。 */
+function _resolveCityBombingSiegeDamage(basePower, multiplier, targetTile, launcherTile) {
+    const colonel = getAirfieldColonel(launcherTile);
+    const commanderAttackBonus = getMountedCommanderAirAttackBonus(launcherTile.unit, basePower);
+    const campKey = _campKey(launcherTile.camp);
+    const stacks = Math.min(COLONEL_AIR_MAX_STACKS, gameState._colonelAirStacks?.[campKey] || 0);
+    const airBonus = colonel ? COLONEL_AIR_DAMAGE_BONUS + stacks * COLONEL_AIR_STACK_BONUS : 0;
+    const power = basePower + commanderAttackBonus;
+    const floatMultiplier = launcherTile.unit
+        ? gameState.rng.range(COMBAT_BALANCE.float.attack.min, COMBAT_BALANCE.float.attack.max)
+        : gameState.rng.range(0.95, 1.05);
+    let antiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
+    if (colonel) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
+    const reduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, antiAir);
+    return {
+        damage: Math.max(1, Math.round(power * multiplier * (1 + airBonus) * floatMultiplier * (1 - reduction))),
+        isCrit: !!launcherTile.unit && floatMultiplier > COMBAT_BALANCE.float.attack.critThreshold
+    };
+}
+
+/** 攻城：对无驻军的敌方/中立城市地块扣HP；近战单位在磨到0后就地跟进占领。 */
+export function attackCityTile(attackerUnit, targetTile) {
+    if (gameState.gameOver || attackerUnit.camp !== gameState.currentCamp) return false;
+    if (!attackerUnit.canAct || !getAttackableTiles(attackerUnit).includes(targetTile)) {
+        notify('无法攻城：超出射程或单位已行动', 'error');
+        return false;
+    }
+
+    const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
+    const result = _resolveGroundNavalSiegeDamage(attackerUnit, targetTile);
+    targetTile.hp = Math.max(0, (Number(targetTile.hp) || 0) - result.damage);
+    targetTile._citySiegeDamageRound = getRoundIndex(gameState);
+
+    playSound(result.isCrit ? 'crit' : 'attack');
+    spawnExplosionParticles(targetTile.x, targetTile.y, '#ffaa00', result.isCrit ? 18 : 10);
+    gameState.damageTexts.push({
+        x: targetTile.x, y: targetTile.y, value: result.damage, isCrit: result.isCrit,
+        timeLeft: 900, lastUpdate: performance.now()
+    });
+
+    let cityCaptured = false;
+    const isAssault = classifyAttackPresentation(attackerUnit) === ATTACK_PRESENTATION.ASSAULT;
+    if (isAssault && !attackerUnit._imprisoned && !attackerUnit._isImmobile
+        && targetTile.hp <= 0 && canUnitOccupyTile(attackerUnit, targetTile, gameState)) {
+        attackerUnit.tile.unit = null;
+        attackerUnit.tile = targetTile;
+        targetTile.unit = attackerUnit;
+        attackerUnit.moveDistance++;
+        attackerUnit.startMovePath?.([{ x: fromX, y: fromY }, { x: targetTile.x, y: targetTile.y }]);
+        updateDistrictColor(targetTile, attackerUnit.camp, attackerUnit);
+        cityCaptured = true;
+    }
+    attackerUnit.canAct = false;
+    attackerUnit.addXP(1);
+
+    recalcAllFlankingMorale();
+    updateUI();
+    broadcastAction('attack', {
+        isCitySiege: true,
+        attackerUnitId: attackerUnit.id,
+        fromX, fromY,
+        q: targetTile.q, r: targetTile.r,
+        x: targetTile.x, y: targetTile.y,
+        damage: result.damage, isCrit: result.isCrit,
+        cityHpAfter: targetTile.hp, cityCaptured
+    });
+    return true;
 }
 
 export function executeAirCommand(kind, launcherTile, targetTile) {
@@ -3266,23 +3377,21 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
         for (let index = 0; index < affected.length; index++) {
             const tile = affected[index];
             const target = tile.unit;
-            if (!target || !canAttack(gameState, launcherTile.camp, target.camp)) continue;
-            const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, target, launcherTile, { centerBomb: index === 0 });
-            // 扣血延迟到动画结束后执行（1200ms）
-            results.push({ q: tile.q, r: tile.r, damage: result.damage, killed: false, isCrit: result.isCrit });
+            if (target) {
+                if (!canAttack(gameState, launcherTile.camp, target.camp)) continue;
+                const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, target, launcherTile, { centerBomb: index === 0 });
+                // 扣血延迟到动画结束后执行（1200ms）
+                results.push({ q: tile.q, r: tile.r, damage: result.damage, killed: false, isCrit: result.isCrit });
+            } else if (tile.isCity && tile.hp > 0 && canAttack(gameState, launcherTile.camp, tile.camp)) {
+                const result = _resolveCityBombingSiegeDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, tile, launcherTile);
+                results.push({ q: tile.q, r: tile.r, damage: result.damage, isCrit: result.isCrit, isCitySiege: true });
+            }
         }
         const engineerProtectedAirfield = targetTile.isCity
             && targetTile.installation?.type === 'airfield'
             && targetTile.installation.status === 'ready'
             && targetTile.unit?.commander === 'engineer'
             && targetTile.unit.camp === targetTile.camp;
-        if (targetTile.isCity && targetTile.camp !== launcherTile.camp && !engineerProtectedAirfield) {
-            targetTile._cityFireStacks = (targetTile._cityFireStacks || 0) + 1;
-            if (targetTile._cityFireStacks >= 2) {
-                targetTile._cityFireStacks = 0;
-                targetTile._cityDisabledUntil = getRoundIndex(gameState) + 2;
-            }
-        }
         if (!engineerProtectedAirfield && targetTile.fortification && gameState.rng.chance(0.30)) {
             destroyedFortification = targetTile.fieldFortification?.type || targetTile.fortification;
             targetTile.fortification = null;
@@ -3339,7 +3448,10 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
                 // 延迟扣血：爆炸时刻才结算伤害
                 for (const r of results) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                    if (tile && tile.unit) {
+                    if (tile && r.isCitySiege) {
+                        tile.hp = Math.max(0, (Number(tile.hp) || 0) - r.damage);
+                        tile._citySiegeDamageRound = getRoundIndex(gameState);
+                    } else if (tile && tile.unit) {
                         r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
                     }
                 }
@@ -3544,7 +3656,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     let _savedHPs = null;
     let _mgNestSaved = null;
     let _shieldSaved = null;
-    let _cityDisabledSaved = null;
     if (isDelayedCard) {
         _savedHPs = [];
         if (cardId === 'lightning' && targetTile.unit) {
@@ -3555,7 +3666,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
                 if (ht && ht.unit) _savedHPs.push({ tile: ht, hp: ht.unit.hp, shield: ht.unit._shield });
             }
-            _cityDisabledSaved = targetTile._cityDisabledUntil;
         } else if (cardId === 'mgNest') {
             _mgNestSaved = targetTile.unit;
         } else if (cardId === 'shield' && targetTile.unit) {
@@ -3715,10 +3825,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         _shieldSaved.unit._shieldMax = _shieldSaved.shieldMax;
         _shieldSaved.unit._shieldTurns = _shieldSaved.shieldTurns;
     }
-    // undo visual: restore city disabled state (re-applied after burn)
-    if (_cityDisabledSaved !== null) {
-        targetTile._cityDisabledUntil = _cityDisabledSaved;
-    }
     // restore HP/shield for damage cards — re-apply in setTimeout
     if (_savedHPs) {
         for (const s of _savedHPs) {
@@ -3842,7 +3948,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                             timeLeft: 900, lastUpdate: performance.now()
                         });
                     }
-                    targetTile._cityDisabledUntil = getRoundIndex(gameState) + TACTICAL_CARD_CONFIG.airstrike.balance.cityDisableRounds;
                     triggerScreenShake(8, 350);
                 }, 1400);
             }, BURN_MS);

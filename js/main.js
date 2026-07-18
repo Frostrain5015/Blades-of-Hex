@@ -1,4 +1,4 @@
-﻿import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, invalidateBoard, getRoundIndex } from './config.js';
+﻿import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, invalidateBoard } from './config.js';
 import { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../commander/index.js';
 import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp, configureSkirmishState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
@@ -3039,10 +3039,6 @@ async function handleRemoteAction(msg) {
                                         timeLeft: 900, lastUpdate: performance.now()
                                     });
                                 }
-                                if (e.q != null) {
-                                    const tgtTile = gameState.tileMap.get(`${e.q},${e.r}`);
-                                    if (tgtTile) tgtTile._cityDisabledUntil = getRoundIndex(gameState) + 2;
-                                }
                                 triggerScreenShake(6, 300);
                             }, 1200);
                             break;
@@ -3142,6 +3138,16 @@ async function handleRemoteAction(msg) {
             }
             break;
         case 'attack':
+            // 地面/海军攻城：状态已随快照同步，这里只重放轻量的爆炸/伤害数字，不进普通单位对战的整套重放逻辑。
+            if (e?.isCitySiege) {
+                playSound(e.isCrit ? 'crit' : 'attack');
+                spawnExplosionParticles(e.x, e.y, '#ffaa00', e.isCrit ? 18 : 10);
+                gameState.damageTexts.push({
+                    x: e.x, y: e.y, value: e.damage, isCrit: e.isCrit,
+                    timeLeft: 900, lastUpdate: performance.now()
+                });
+                break;
+            }
             try {
                 const _rmSmite = e?.smiteDmg > 0;
                 const _rmSmiteLabel = e?.smiteLabel || '至圣斩';
@@ -3401,7 +3407,9 @@ async function handleRemoteAction(msg) {
                         // 延迟扣血：爆炸时刻才结算伤害
                         for (const r of (e.results || [])) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                            if (tile && tile.unit) {
+                            if (tile && r.isCitySiege) {
+                                tile.hp = Math.max(0, (Number(tile.hp) || 0) - r.damage);
+                            } else if (tile && tile.unit) {
                                 tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
                             }
                         }

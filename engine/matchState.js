@@ -19,6 +19,7 @@ import {
 import { buildRiverTopology } from '../rules/hydrography.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
 import { canUnitOccupyTile } from '../rules/movement.js';
+import { CITY_SIEGE_CONFIG } from '../rules/citySiege.js';
 import { createRng } from '../core/rng.js';
 import { getCounter, setCounter } from '../js/uid.js';
 
@@ -429,8 +430,9 @@ export function serializeMatchState(match) {
         minePlanted: t._minePlanted || false,
         mineCampKey: t._mineCampKey || null,
         mineType: t._mineType || (t._minePlanted ? (waterTile ? 'water' : 'land') : null),
-        cityDisabledUntil: waterTile ? 0 : (t._cityDisabledUntil || 0),
-        cityFireStacks: waterTile ? 0 : (t._cityFireStacks || 0),
+        hp: waterTile ? 0 : (t.hp ?? 0),
+        maxHp: waterTile ? 0 : (t.maxHp ?? 0),
+        citySiegeDamageRound: waterTile ? -1 : (Number.isFinite(t._citySiegeDamageRound) ? t._citySiegeDamageRound : -1),
         reinforcedThisTurn: waterTile ? false : (t._reinforcedThisTurn || false),
         unit: t.unit ? {
             id: t.unit.id,
@@ -827,8 +829,12 @@ export function restoreMatchState(match, data, deps) {
         tile._minePlanted = td.minePlanted || false;
         tile._mineCampKey = td.mineCampKey || null;
         tile._mineType = td.mineType || (tile._minePlanted ? (waterTile ? 'water' : 'land') : null);
-        tile._cityDisabledUntil = waterTile ? 0 : (td.cityDisabledUntil || 0);
-        tile._cityFireStacks = waterTile ? 0 : (td.cityFireStacks || 0);
+        // 旧存档缺少 hp/maxHp 字段时，城市地块按满血兜底，不崩溃、不误判瘫痪。
+        tile.maxHp = waterTile ? 0 : (Number.isFinite(td.maxHp) && td.maxHp > 0
+            ? td.maxHp
+            : (tile.isCity ? CITY_SIEGE_CONFIG.maxHp : 0));
+        tile.hp = waterTile ? 0 : (Number.isFinite(td.hp) ? td.hp : tile.maxHp);
+        tile._citySiegeDamageRound = waterTile ? -1 : (Number.isFinite(td.citySiegeDamageRound) ? td.citySiegeDamageRound : -1);
         tile._reinforcedThisTurn = waterTile ? false : (td.reinforcedThisTurn || false);
         const unitType = td.unit ? (td.unit.isDrone ? 'drone' : td.unit.type) : null;
         if (td.unit && canUnitOccupyTile({ type: unitType, isEmbarked: td.unit.isEmbarked === true }, tile, match)) {

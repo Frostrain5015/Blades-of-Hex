@@ -3,6 +3,7 @@ import { getRoundIndex } from './turns.js';
 import { isMechanicEnabled } from './mechanics.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed } from './movement.js';
+import { isCityDisabled } from './citySiege.js';
 
 export const AIR_COMMAND_CONFIG = Object.freeze({
     strafe: Object.freeze({ name: '扫射', icon: '✈️', cost: 4, range: 5, cooldown: 2, targeting: 'enemyGlobal', multiplier: 1 }),
@@ -11,7 +12,7 @@ export const AIR_COMMAND_CONFIG = Object.freeze({
     recon: Object.freeze({ name: '侦察机', icon: '🔭', cost: 4, range: 5, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 0 })
 });
 
-export const AIRFIELD_BASE_POWER = 40;
+export const AIRFIELD_BASE_POWER = 50;
 export const COLONEL_AIR_DAMAGE_BONUS = 0.20;
 export const COLONEL_AIR_STACK_BONUS = 0.05;
 export const COLONEL_AIR_MAX_STACKS = 6;
@@ -78,7 +79,7 @@ export function getAirCommandAvailability(kind, cityTile, state) {
     if (!isMechanicEnabled(state, 'airCommands')) return { available: false, reason: '本关未开放空军' };
     if (installation.status !== 'ready') return { available: false, reason: '机场尚未建成' };
     if (cityTile.camp !== state?.currentCamp) return { available: false, reason: '不是当前阵营的机场' };
-    if (cityTile._cityDisabledUntil > getRoundIndex(state)) return { available: false, reason: '城市处于瘫痪' };
+    if (isCityDisabled(cityTile)) return { available: false, reason: '城市处于瘫痪' };
     if (state.weather === 'fog') return { available: false, reason: '雾天停飞' };
     // 每种指令按 (机场 × 指令) 独立冷却；同回合可出动多种不同指令，不设机场级共享闸。
     const currentRound = getRoundIndex(state);

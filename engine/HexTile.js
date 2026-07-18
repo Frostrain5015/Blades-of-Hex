@@ -39,7 +39,9 @@ export class EngineHexTile {
         this._minePlanted = false;
         this._mineCampKey = null;
         this._mineType = null;
-        this._cityDisabledUntil = 0;
+        this.hp = 0;
+        this.maxHp = 0;
+        this._citySiegeDamageRound = -1;
         this._reinforcedThisTurn = false;
         this.x = BOARD_RULES.logicalWidth / 2 + HEX_WIDTH * (q + r * 0.5);
         this.y = BOARD_RULES.logicalHeight / 2 + (3 / 2 * HEX_SIZE) * r;

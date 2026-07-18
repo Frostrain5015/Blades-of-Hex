@@ -5,6 +5,7 @@ import {
     chooseDefaultSpecialization,
     getSpecializationAbilityValue,
     isRankLockedUnit,
+    isStrongpointTarget,
     isValidSpecialization,
     resolveUnitRankProfile,
     unitNeedsSpecialization
@@ -22,6 +23,7 @@ import { isFriendly, isHostile } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { isRangedAttackPresentation } from '../rules/attackPresentation.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
+import { getCityDefenseBonus } from '../rules/citySiege.js';
 import {
     COLONEL_AIR_DAMAGE_BONUS,
     COLONEL_AIR_MAX_STACKS,
@@ -608,6 +610,8 @@ export class Unit {
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         defSum += defender.getCampaignDefenseBonus(attacker);
+        // 城防：驻军站在城市地块上时，城市当前HP按比例转化为防御力，不区分空军/地面伤害。
+        if (defender.tile?.isCity) defSum += getCityDefenseBonus(defender.tile);
         // 空军上校俯冲扫射：无视目标防御力
         if (ignoreDef > 0) defSum -= ignoreDef;
         const defenseMulti = Math.max(COMBAT_BALANCE.defense.minimumMultiplier, 1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, defSum));
@@ -644,7 +648,8 @@ export class Unit {
                 + (isMechanicEnabled(gs, 'morale') ? (MORALE_CONFIG[targetUnit.morale]?.defBonus || 0) : 0)
                 + getCommanderDefenseBonus(targetUnit)
                 + getCommanderAuraDefenseBonus(targetUnit)
-                + (targetUnit.getCampaignDefenseBonus?.(this) || 0);
+                + (targetUnit.getCampaignDefenseBonus?.(this) || 0)
+                + (targetUnit.tile?.isCity ? getCityDefenseBonus(targetUnit.tile) : 0);
             let antiAir = getAntiAirReduction(targetUnit.tile, this.camp, gs.tileMap, { state: gs });
             if (colonelActive) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
             defense += antiAir;
@@ -687,8 +692,7 @@ export class Unit {
         const cavBonus = !this.isEmbarked && baseChargeRate > 0
             ? Math.min(this.moveDistance, COMBAT_BALANCE.cavalry.maxChargeSteps) * (baseChargeRate + fogChargeDelta)
             : 0;
-        const fortificationTarget = !!(targetUnit.config?.building || targetUnit.tile?.isCity || targetUnit.tile?.fortification);
-        const assaultBonus = fortificationTarget ? (this.getSpecializationAbility('fortificationDamage') || 0) : 0;
+        const assaultBonus = isStrongpointTarget(targetUnit) ? (this.getSpecializationAbility('fortificationDamage') || 0) : 0;
         const antiSubBonus = targetUnit.type === 'submarine' ? (this.getSpecializationAbility('submarineDamage') || 0) : 0;
         const fleetBonus = targetUnit.config?.movementDomain === 'naval' && !targetUnit.isEmbarked
             ? (this.getSpecializationAbility('shipDamage') || 0) : 0;
@@ -734,7 +738,7 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.type === 'carrier' || attackerUnit?.type === 'carrier' || this.getSpecializationAbility('cannotAttack') === true
+        if (this.type === 'carrier' || attackerUnit?.type === 'carrier'
             || this._transportTransitionedThisTurn || this.counterAttackCount >= 1 || this._campaignNoCounter
             || (isMechanicEnabled(_gameState, 'morale') && this.morale === 0)) {
             return { dmg: 0, isCrit: false };
