@@ -3299,19 +3299,46 @@ export function attackCityTile(attackerUnit, targetTile) {
     }
 
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
+    const toX = targetTile.x, toY = targetTile.y;
     const result = _resolveGroundNavalSiegeDamage(attackerUnit, targetTile);
     targetTile.hp = Math.max(0, (Number(targetTile.hp) || 0) - result.damage);
     targetTile._citySiegeDamageRound = getRoundIndex(gameState);
 
-    playSound(result.isCrit ? 'crit' : 'attack');
-    spawnExplosionParticles(targetTile.x, targetTile.y, '#ffaa00', result.isCrit ? 18 : 10);
     gameState.damageTexts.push({
-        x: targetTile.x, y: targetTile.y, value: result.damage, isCrit: result.isCrit,
+        x: toX, y: toY, value: result.damage, isCrit: result.isCrit,
         timeLeft: 900, lastUpdate: performance.now()
     });
 
+    // 攻城攻击表现——复用标准兵种开火动画（鱼雷/炮击/扫射/近战）
+    const attackPresentation = classifyAttackPresentation(attackerUnit);
+    if (attackPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
+        spawnTorpedo(fromX, fromY, toX, toY, result.isCrit);
+    } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
+        const impact = () => {
+            triggerAttackFlash(toX, toY, result.isCrit);
+            triggerRecoil(fromX, fromY, toX, toY);
+            spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', result.isCrit ? 8 : 4);
+            triggerScreenShake(result.isCrit ? 6 : 3, result.isCrit ? 200 : 120);
+        };
+        if (attackerUnit.type === 'warship') {
+            spawnProjectile(fromX, fromY, toX, toY, result.isCrit);
+            setTimeout(() => { playSound('cannon'); spawnProjectile(fromX, fromY, toX, toY, result.isCrit, impact); }, 140);
+        } else {
+            spawnProjectile(fromX, fromY, toX, toY, result.isCrit, impact);
+        }
+    } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
+        spawnDroneProjectile(fromX, fromY, toX, toY, result.isCrit, () => {
+            triggerAttackFlash(toX, toY, result.isCrit);
+            spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', result.isCrit ? 4 : 2);
+        });
+    } else {
+        triggerAttackFlash(toX, toY, result.isCrit);
+        spawnMeleeSlash(toX, toY, fromX, fromY, result.isCrit);
+        triggerScreenShake(result.isCrit ? 6 : 3, result.isCrit ? 200 : 120);
+    }
+
     let cityCaptured = false;
-    const isAssault = classifyAttackPresentation(attackerUnit) === ATTACK_PRESENTATION.ASSAULT;
+    const isAssault = attackPresentation === ATTACK_PRESENTATION.ASSAULT;
     if (isAssault && !attackerUnit._imprisoned && !attackerUnit._isImmobile
         && targetTile.hp <= 0 && canUnitOccupyTile(attackerUnit, targetTile, gameState)) {
         attackerUnit.tile.unit = null;
