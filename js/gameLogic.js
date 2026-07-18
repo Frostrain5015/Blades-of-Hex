@@ -3311,30 +3311,40 @@ export function attackCityTile(attackerUnit, targetTile) {
 
     // 攻城攻击表现——复用标准兵种开火动画（鱼雷/炮击/扫射/近战）
     const attackPresentation = classifyAttackPresentation(attackerUnit);
+    const isCrit = result.isCrit;
+    if (attackPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+        playSound(attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER
+            ? 'machinegun'
+            : attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON
+                ? 'cannon'
+                : (isCrit ? 'crit' : 'attack'));
+    }
     if (attackPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
-        spawnTorpedo(fromX, fromY, toX, toY, result.isCrit);
+        spawnTorpedo(fromX, fromY, toX, toY, isCrit);
     } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
         const impact = () => {
-            triggerAttackFlash(toX, toY, result.isCrit);
+            triggerAttackFlash(toX, toY, isCrit);
             triggerRecoil(fromX, fromY, toX, toY);
-            spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', result.isCrit ? 8 : 4);
-            triggerScreenShake(result.isCrit ? 6 : 3, result.isCrit ? 200 : 120);
+            spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
+            triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
         };
         if (attackerUnit.type === 'warship') {
-            spawnProjectile(fromX, fromY, toX, toY, result.isCrit);
-            setTimeout(() => { playSound('cannon'); spawnProjectile(fromX, fromY, toX, toY, result.isCrit, impact); }, 140);
+            spawnProjectile(fromX, fromY, toX, toY, isCrit);
+            setTimeout(() => { spawnProjectile(fromX, fromY, toX, toY, isCrit, impact); }, 140);
         } else {
-            spawnProjectile(fromX, fromY, toX, toY, result.isCrit, impact);
+            spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
         }
     } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
-        spawnDroneProjectile(fromX, fromY, toX, toY, result.isCrit, () => {
-            triggerAttackFlash(toX, toY, result.isCrit);
-            spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', result.isCrit ? 4 : 2);
+        spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {
+            triggerAttackFlash(toX, toY, isCrit);
+            spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 4 : 2);
         });
     } else {
-        triggerAttackFlash(toX, toY, result.isCrit);
-        spawnMeleeSlash(toX, toY, fromX, fromY, result.isCrit);
-        triggerScreenShake(result.isCrit ? 6 : 3, result.isCrit ? 200 : 120);
+        // 近战（步兵/骑兵）
+        triggerAttackFlash(toX, toY, isCrit);
+        spawnMeleeSlash(toX, toY, fromX, fromY, isCrit);
+        triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
+        if (targetTile.hp > 0) triggerCharge(attackerUnit.id, fromX, fromY, toX, toY);
     }
 
     let cityCaptured = false;
