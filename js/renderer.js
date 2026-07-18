@@ -350,18 +350,21 @@ export function renderGame() {
         if (layeredTerrain) {
             for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawForegroundMapDetails(ctx);
         }
-        // City disabled indicator (same layer as Iron Guard shield)
+        // City HP ring + disabled indicator
         for (let i = 0, len = tiles.length; i < len; i++) {
             const tile = tiles[i];
-            if (!isCityDisabled(tile)) continue;
-            const pulse = (Math.sin(now / 400) + 1) / 2;
-            ctx.save();
-            ctx.font = '18px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = `rgba(255,80,80,${0.6 + pulse * 0.4})`;
-            ctx.fillText('🚫', tile.x, tile.y - HEX_SIZE - 16);
-            ctx.restore();
+            if (!tile.isCity || tile.maxHp <= 0) continue;
+            _drawCityHpRing(ctx, tile, now);
+            if (isCityDisabled(tile)) {
+                const pulse = (Math.sin(now / 400) + 1) / 2;
+                ctx.save();
+                ctx.font = '18px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = `rgba(255,80,80,${0.6 + pulse * 0.4})`;
+                ctx.fillText('🚫', tile.x, tile.y - HEX_SIZE - 16);
+                ctx.restore();
+            }
         }
     }
     // Every cloth surface is deformed in one WebGL2 batch. Canvas2D finials
@@ -1195,6 +1198,93 @@ function drawMoraleIndicators() {
         ctx.fillText(mc.icon, cornerX, cornerY);
         ctx.restore();
     }
+}
+
+/**
+ * 绘制城市 HP 边框环：六边形 6 条边从顶部顺时针消退。
+ * 满血 = 完整一圈，残血 = 边从左侧逆时针消失。
+ */
+function _drawCityHpRing(ctx, tile, now) {
+    const hpRatio = tile.maxHp > 0 ? Math.max(0, Math.min(1, tile.hp / tile.maxHp)) : 0;
+    const cx = tile.x, cy = tile.y;
+    const size = HEX_SIZE;
+    // 6 vertices of a pointy-top hex, starting from the right vertex
+    const verts = Array.from({ length: 6 }, (_, i) => {
+        const a = Math.PI / 3 * (i + 0.5);
+        return { x: cx + size * Math.cos(a), y: cy + size * Math.sin(a) };
+    });
+    // Top vertex index in this flat list is 4 (270° = -π/2)
+    const TOP = 4;
+    const lineW = Math.max(2, size * 0.13);
+
+    ctx.save();
+    ctx.lineCap = 'round';
+
+    // Dark base ring — masks the terrain-rendered city wall underneath
+    // so empty segments don't leak the old thick wall line.
+    ctx.strokeStyle = 'rgba(26,24,22,0.55)';
+    ctx.lineWidth = lineW + 2;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+        const vi = (TOP + i) % 6;
+        const x = verts[vi].x, y = verts[vi].y;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    const totalSegments = 6;
+    const filled = Math.floor(hpRatio * totalSegments);
+    const partial = (hpRatio * totalSegments) - filled;
+
+    for (let seg = 0; seg < totalSegments; seg++) {
+        const vi = (TOP + seg) % 6;
+        const vj = (TOP + seg + 1) % 6;
+        const sx = verts[vi].x, sy = verts[vi].y;
+        const ex = verts[vj].x, ey = verts[vj].y;
+
+        let fillFrac = 0;
+        if (seg < filled) fillFrac = 1;
+        else if (seg === filled) fillFrac = partial;
+
+        if (fillFrac <= 0) continue;
+
+        // Edge colour: stone → burnt as HP drops
+        const t = 1 - hpRatio;
+        const r = Math.round(180 - t * 100);
+        const g = Math.round(158 - t * 108);
+        const b = Math.round(120 - t * 90);
+
+        if (fillFrac >= 1) {
+            // Full segment: thick line from vertex to vertex
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(ex, ey);
+            ctx.strokeStyle = `rgb(${r},${g},${b})`;
+            ctx.lineWidth = lineW;
+            ctx.stroke();
+
+            // Inner highlight
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(ex, ey);
+            ctx.strokeStyle = `rgba(255,230,180,${0.10 + hpRatio * 0.08})`;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        } else {
+            // Partial segment: straight line partway along the edge (chord)
+            const px = sx + (ex - sx) * fillFrac;
+            const py = sy + (ey - sy) * fillFrac;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(px, py);
+            ctx.strokeStyle = `rgb(${r},${g},${b})`;
+            ctx.lineWidth = lineW;
+            ctx.stroke();
+        }
+    }
+
+    ctx.restore();
 }
 
 // 判断当前回合是否为人类玩家（用于隐藏 AI/中立回合的光圈等）
