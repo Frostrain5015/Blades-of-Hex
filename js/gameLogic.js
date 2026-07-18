@@ -3718,7 +3718,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     if (_ht && _ht.unit) {
                         const _isCenter = _r.q === targetTile.q && _r.r === targetTile.r;
                         const balance = COLONEL_CARD_DATA.carpetBomb.balance;
-                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, airBonus, false, false, true, balance.ignoreDefense);
+                        const _ignoreDef = _isCenter && isStrongpointTarget(_ht.unit) ? balance.ignoreDefense : 0;
+                        const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, airBonus, false, false, true, _ignoreDef);
                         _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * (balance.splashMultiplier / balance.centerMultiplier));
                         _r.isCrit = _calc.isCrit;
                     }

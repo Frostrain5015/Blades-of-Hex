@@ -49,12 +49,12 @@ export const COLONEL_CARD_DATA = (() => {
         },
         carpetBomb: {
             id: 'carpetBomb', name: '轰炸', icon: EMOJI.cards.carpetBomb, targeting: 'enemyGlobal',
-            balance: { centerMultiplier: 1, splashMultiplier: 0.6, ignoreDefense: 0.10 }
+            balance: { centerMultiplier: 1, splashMultiplier: 0.6, ignoreDefense: 0.25 }
         },
         airlift: { id: 'airlift', name: '空运', icon: EMOJI.cards.airlift, targeting: 'friendlyAny' }
     };
     data.diveStrafe.desc = `【扫射】$${data.goldCost.diveStrafe}\n对指定单体目标造成伤害；附加等同于目标已损生命值${percent(data.diveStrafe.balance.missingHpToAttackPct)}的攻击力（最多+${data.diveStrafe.balance.maxMissingHpAttack}），再按标准伤害流程结算`;
-    data.carpetBomb.desc = `【轰炸】$${data.goldCost.carpetBomb}\n对指定单体目标及相邻6格造成范围伤害（中心${percent(data.carpetBomb.balance.centerMultiplier)}/溅射${percent(data.carpetBomb.balance.splashMultiplier)}，破甲${percent(data.carpetBomb.balance.ignoreDefense)}）`;
+    data.carpetBomb.desc = `【轰炸】$${data.goldCost.carpetBomb}\n对指定单体目标及相邻6格造成范围伤害（中心${percent(data.carpetBomb.balance.centerMultiplier)}/溅射${percent(data.carpetBomb.balance.splashMultiplier)}，中心破甲${percent(data.carpetBomb.balance.ignoreDefense)}·仅要塞）`;
     data.airlift.desc = `【空运】$${data.goldCost.airlift}\n运送一名自己以外的友军单位至已探索空地`;
     return deepFreeze(data);
 })();

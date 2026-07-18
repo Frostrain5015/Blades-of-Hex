@@ -270,17 +270,7 @@ export function drawUnit(unit, gameState) {
             ctx.restore();
         }
 
-        if (unit._poison) {
-            ctx.fillStyle = '#a9db5f';
-            ctx.font = 'bold 13px "Segoe UI Emoji", Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(28,52,10,0.9)';
-            ctx.shadowBlur = 5;
-            ctx.fillText(`☣️${Math.max(0, unit._poison.remainingTicks || 0)}`, HEX_SIZE * 0.5, HEX_SIZE * 0.4);
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-        }
+        // 毒标统一由 HUD 效果队列展示，不在单位头顶重复显示。
 
         if (unit.pendingSpecialization) {
             ctx.save();
