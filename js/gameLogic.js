@@ -1,4 +1,4 @@
-﻿import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
+import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { isStrongpointTarget } from '../rules/units.js';
 import {
@@ -2135,15 +2135,9 @@ export function attackUnit(attackerUnit, targetUnit) {
                 spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
                 triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
             };
-            if (attackerUnit.type === 'warship') {
-                spawnProjectile(fromX, fromY, toX, toY, isCrit);
-                setTimeout(() => {
-                    playSound('cannon');
-                    spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
-                }, 140);
-            } else {
-                spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
-            }
+            // 巡洋舰平时单发单响；制海型追加齐射 / 支援型溅射触发时，
+            // 由下方各自分支补第二发炮弹 + 第二声开炮，视觉与音效统一。
+            spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
         } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
             spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {
                 triggerAttackFlash(toX, toY, isCrit);
@@ -2156,6 +2150,13 @@ export function attackUnit(attackerUnit, targetUnit) {
             triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
         }
         if (extraSalvoResult) {
+            setTimeout(() => {
+                playSound('cannon');
+                spawnProjectile(fromX, fromY, toX, toY, false);
+            }, 140);
+        }
+        // 支援型巡洋舰溅射触发 → 第二发炮弹 + 第二声开炮
+        if (supportSplashEligible && specializationSplashResults.length > 0) {
             setTimeout(() => {
                 playSound('cannon');
                 spawnProjectile(fromX, fromY, toX, toY, false);
@@ -2263,15 +2264,7 @@ export function attackUnit(attackerUnit, targetUnit) {
                             spawnDirectionalParticles(_cfx, _cfy, _counterX, _counterY, '#ff8844', counterResult.isCrit ? 8 : 4);
                             triggerScreenShake(counterResult.isCrit ? 6 : 3, counterResult.isCrit ? 200 : 120);
                         };
-                        if (targetUnit.type === 'warship') {
-                            spawnProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit);
-                            setTimeout(() => {
-                                playSound('cannon');
-                                spawnProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, counterImpact);
-                            }, 140);
-                        } else {
-                            spawnProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, counterImpact);
-                        }
+                        spawnProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, counterImpact);
                     }
                 }
                 _atkCmdFxCapture = null;
@@ -3328,12 +3321,7 @@ export function attackCityTile(attackerUnit, targetTile) {
             spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 8 : 4);
             triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
         };
-        if (attackerUnit.type === 'warship') {
-            spawnProjectile(fromX, fromY, toX, toY, isCrit);
-            setTimeout(() => { spawnProjectile(fromX, fromY, toX, toY, isCrit, impact); }, 140);
-        } else {
-            spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
-        }
+        spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
     } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
         spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {
             triggerAttackFlash(toX, toY, isCrit);
@@ -3475,7 +3463,7 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
                         r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
                     }
                 }
-                playSound('explosion');
+                // 扫射只有空袭+机枪音效，命中仅保留视觉反馈；explosion 专属轰炸
                 for (const r of results) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                     if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 15);

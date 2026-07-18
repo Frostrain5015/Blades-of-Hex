@@ -106,6 +106,9 @@ const selectionHudTitle = document.getElementById('selectionHudTitle');
 const selectionHudHp = document.getElementById('selectionHudHp');
 const selectionHudHpFill = document.getElementById('selectionHudHpFill');
 const selectionHudHpText = document.getElementById('selectionHudHpText');
+const selectionHudCityHp = document.getElementById('selectionHudCityHp');
+const selectionHudCityHpFill = document.getElementById('selectionHudCityHpFill');
+const selectionHudCityHpText = document.getElementById('selectionHudCityHpText');
 const selectionHudStats = document.getElementById('selectionHudStats');
 const selectionEffectButtons = document.getElementById('selectionEffectButtons');
 const boardDetailPopover = document.getElementById('boardDetailPopover');
@@ -342,8 +345,8 @@ function _collectBoardActions(unit, tile = null) {
             buttonId: 'boardOpenAirCommands',
             kind: 'openAirCommands',
             tileQ: tile.q, tileR: tile.r,
-            icon: '✈',
-            label: '空军指令',
+            icon: '🛫',
+            label: '空军',
             canUse: true,
             reason: '',
             theme: 'specialization'
@@ -1184,12 +1187,12 @@ function _getTerrainEffect(tile) {
     const terrain = TERRAIN_CONFIG[tile.terrain];
     if (tile.isCity) {
         const ownerName = getFaction(gameState, tile.camp)?.name || tile.camp?.name || '中立';
-        let desc = '由' + ownerName + '控制。城防 ' + Math.max(0, tile.hp || 0) + '/' + (tile.maxHp || 0);
+        let desc = '当前由' + ownerName + '控制';
         if (tile.unit) {
-            desc += '（驻军防御+' + Math.round(getCityDefenseBonus(tile) * 100) + '%）';
+            desc += '，驻守单位防御力提高' + Math.round(getCityDefenseBonus(tile) * 100) + '%）';
         }
         if (isCityDisabled(tile)) {
-            desc += '。城防已被攻破，暂时无法起飞机场或招募部队';
+            desc += '，当前处于瘫痪状态';
         }
         return {
             key: 'terrain:city:' + tile.q + ':' + tile.r,
@@ -1205,7 +1208,7 @@ function _getTerrainEffect(tile) {
     if (tile.terrain === 'plains') return null;
 
     let desc = '防御力提高' + Math.round((terrain.defenseBonus || 0) * 100) + '%';
-    if (tile.terrain === 'forest') desc += '，远程单位额外提高15%';
+    if (tile.terrain === 'forest') desc += '，对远程攻击额外提高15%';
     if (terrain.moveDesc) desc += '，' + terrain.moveDesc;
     return {
         key: 'terrain:' + tile.terrain + ':' + tile.q + ':' + tile.r,
@@ -1614,7 +1617,7 @@ function _describeBoardAction(action) {
     if (action.kind === 'openAirCommands') {
         return {
             key: action.key, icon: action.icon, label: action.label,
-            desc: '打开空军指令面板，选择扫射、轰炸、空降或侦察指令。',
+            desc: '打开空军面板以释放扫射、轰炸、空降、侦察等空军指令。',
             color: BOARD_ACTION_THEMES.specialization.border,
             status: '可用',
             kicker: '机场空军指令', kind: 'action', action
@@ -1804,6 +1807,7 @@ function _syncSelectionHud(tile) {
     }
 
     const signature = selectionKey + '|' + effects.map(effect => effect.key + ':' + (effect.count || '') + ':' + effect.desc).join('|')
+        + '|' + (tile.isCity ? Math.round(tile.hp || 0) + '/' + (tile.maxHp || 0) : '')
         + '|' + (unit ? [
             unit.hp, unit.maxHp, unit._shield || 0, unit.remainingMP, unit.canAct,
             unit._faith || 0, unit.moralePenaltyUntil || 0, unit._rank || 0, unit.specializationKey || 'pending',
@@ -1860,8 +1864,20 @@ function _syncSelectionHud(tile) {
         selectionHudStats.replaceChildren();
     }
 
-    // 空地块只需展示地形、城防等效果队列，不应额外包一层半透明单位信息卡。
-    selectionHudEl.classList.toggle('is-effects-only', !unit && effects.length > 0);
+    // 城防 HP：仿部队血条的第二条血条，与驻军血条（如有）纵向堆叠，长度同样按上限向右延伸
+    const showCityHp = tile.isCity && tile.maxHp > 0;
+    selectionHudCityHp.hidden = !showCityHp;
+    if (showCityHp) {
+        const cityHp = Math.max(0, Math.round(tile.hp || 0));
+        const cityHpRatio = Math.max(0, Math.min(1, cityHp / tile.maxHp));
+        selectionHudCityHp.style.width = Math.max(80, tile.maxHp * 1.1) + 'px';
+        selectionHudCityHpFill.style.width = (cityHpRatio * 100) + '%';
+        selectionHudCityHpFill.style.background = cityHpRatio > 0.5 ? '#4caf50' : cityHpRatio > 0.25 ? '#ff9800' : '#f44336';
+        selectionHudCityHpText.textContent = '🏰 ' + cityHp + '/' + tile.maxHp;
+    }
+
+    // 空地块只需展示地形等效果队列，不应额外包一层半透明单位信息卡；有城防血条时保留面板底板。
+    selectionHudEl.classList.toggle('is-effects-only', !unit && effects.length > 0 && !showCityHp);
     selectionHudEl.classList.toggle('visible', !!unit || effects.length > 0);
     _renderEffectQueue(effects, selectionKey);
 }
@@ -2859,7 +2875,7 @@ function _showConstructionChoice(unit, siteTile = null) {
                 gameState.chainAttackTiles = [];
                 gameState.chainAttackPlans = new Map();
                 gameState.selectionTime = 0;
-                showTargetingBanner('请选择相邻的己方空地（再次点击建设按钮取消）');
+                showTargetingBanner('请选择相邻的己方空地');
                 gameState.cardTargeting = {
                     cardId: 'build_bunker', targeting: 'emptyTile', handIndex: -1,
                     builderUnitId: unit.id, startedAt: performance.now()
@@ -2876,7 +2892,7 @@ function _showConstructionChoice(unit, siteTile = null) {
 
 // 空军指令选择面板：显示可用空军指令供玩家选择。
 function _showAirCommandChoice(launcherTile) {
-    const modal = _prepareChoiceModal('✈ 空军指令', `航程${getAirCommandRange(launcherTile)}格${getAirfieldColonel(launcherTile) ? ' · 将领强化' : ''}`, true);
+    const modal = _prepareChoiceModal('✈ 空军', `当前最大航程 ${getAirCommandRange(launcherTile)} 格}`, true);
     if (!modal) return;
     for (const [airKind, config] of Object.entries(AIR_COMMAND_CONFIG)) {
         if (airKind === 'recon' && (!gameState.skirmishFog || gameState.campaignMode)) continue;

@@ -1,4 +1,4 @@
-﻿import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, invalidateBoard } from './config.js';
+import { loadSettings, saveSettings, settings, initCanvas, canvas, LOGICAL_W, LOGICAL_H, invalidateBoard } from './config.js';
 import { allCommanders as COMMANDER_CONFIG, shuffleAndSplitPool } from '../commander/index.js';
 import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notify, dismissToast, resetGameState, serializeState, updateButtonColors, getViewingCamp, configureSkirmishState } from './state.js';
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
@@ -3185,12 +3185,6 @@ async function handleRemoteAction(msg) {
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
                         triggerAttackFlash(e.x, e.y, e.isCrit);
                         spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
-                        if (e.attackerType === 'warship') {
-                            setTimeout(() => {
-                                playSound('cannon');
-                                spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
-                            }, 140);
-                        }
                         triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                     } else {
@@ -3203,6 +3197,13 @@ async function handleRemoteAction(msg) {
                         triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                     }
                     if (e.extraSalvoResult) {
+                        setTimeout(() => {
+                            playSound('cannon');
+                            spawnProjectile(_rmFromX, _rmFromY, e.x, e.y, false);
+                        }, 140);
+                    }
+                    // 支援型巡洋舰溅射触发 → 第二发炮弹 + 第二声开炮（火箭炮溅射不补）
+                    if (e.attackerType === 'warship' && e.specializationSplashResults?.length) {
                         setTimeout(() => {
                             playSound('cannon');
                             spawnProjectile(_rmFromX, _rmFromY, e.x, e.y, false);
@@ -3299,12 +3300,6 @@ async function handleRemoteAction(msg) {
                                 playSound('cannon');
                                 triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
                                 spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
-                                if (e.counterType === 'warship') {
-                                    setTimeout(() => {
-                                        playSound('cannon');
-                                        spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
-                                    }, 140);
-                                }
                                 triggerRecoil(e.x, e.y, e.counterX, e.counterY);
                             }
                             if (counterPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
@@ -3397,7 +3392,7 @@ async function handleRemoteAction(msg) {
                                 tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
                             }
                         }
-                        playSound('explosion');
+                        // 扫射只有空袭+机枪音效，命中仅保留视觉反馈；explosion 专属轰炸
                         for (const r of (e.results || [])) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                             if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 15);
