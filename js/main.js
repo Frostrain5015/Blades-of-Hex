@@ -2911,6 +2911,18 @@ async function handleRemoteAction(msg) {
                     spawnHealingChain(hc.fromX, hc.fromY, hc.toX, hc.toY);
                 }
             }
+            // 重放雨天环境落雷（伤害已随状态快照同步，此处只放特效与浮字）
+            if (e && e.rainLightning) {
+                for (const s of (e.rainLightning.strikes || [])) {
+                    spawnLightningStrike(s.x, s.y);
+                    gameState.damageTexts.push({
+                        x: s.x, y: s.y, value: s.dmg, isTrueDmg: true,
+                        timeLeft: 1000, lastUpdate: performance.now()
+                    });
+                }
+                for (const a of (e.rainLightning.ambient || [])) spawnLightningStrike(a.x, a.y);
+                if ((e.rainLightning.strikes || []).length || (e.rainLightning.ambient || []).length) playSound('lightning');
+            }
             break;
         case 'tacticalCard':
             if (e) {

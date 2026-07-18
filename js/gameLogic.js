@@ -1,6 +1,6 @@
 import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
-import { isStrongpointTarget } from '../rules/units.js';
+import { isStrongpointTarget, isBuildingUnit } from '../rules/units.js';
 import {
     damageCityPool,
     getCityDefenseBonus,
@@ -18,7 +18,7 @@ import { gameState, updateButtonColors, updateUI, logMessage, clearselection, se
 import { isNetworkGame, sendAction, getMyRole, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
 import { neutralDriverRole } from '../protocol/messages.js';
 import { stopCampaignRuntime } from './campaignController.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherImmunity, getCommanderWeatherDebuff, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherDebuff, getEffectiveWeather, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { getStandardMap } from '../rules/standardMaps.js';
@@ -154,6 +154,7 @@ let _ctrCmdFxData = null;  // 反击将领特效 { x, y, glyph, label }
 let _cmdFxExtra = null;    // 额外的将领特效（如尚书进驻城市）
 let _endTurnCmdFxList = null; // 回合结束时的将领特效列表（联机同步用）
 let _endTurnDmgTexts = null;  // 回合结束时的伤害数字列表（联机同步用）
+let _rainLightningFx = null; // 本整轮雨天环境落雷（联机重放用）
 let _attackDmg = 0, _attackIsCrit = false;
 let _counterDmg = 0, _counterX = 0, _counterY = 0, _counterIsRanged = false, _counterIsCrit = false;
 let _healAmtRemote = 0, _healX = 0, _healY = 0;
@@ -749,6 +750,56 @@ function _nextActiveCamp(camp) {
     return camp;
 }
 
+// 雨天环境落雷：每个雨天整轮开始时结算一次。
+// 总雷数恒定（氛围不冷场），有效雷按场上非建筑单位数浮动（残局不被雷主宰），
+// 其余劈向战场活跃区空地作氛围。有效雷伤害 = 雷击卡伤害区间 × 0.7（约28~42真伤）。
+export function _resolveRainLightning() {
+    if (!isMechanicEnabled(gameState, 'weatherEffects') || gameState.weather !== 'rain') return;
+    const cfg = COMBAT_BALANCE.weather.rainLightning;
+    if (!cfg) return;
+    const cardBalance = TACTICAL_CARD_CONFIG.lightning?.balance || { minDamage: 40, maxDamage: 60 };
+    // 洗牌取前 N 个，保证每单位每轮最多被劈一次
+    // 夜观范围内天气视为晴天：有效雷与氛围雷都完全避开星光覆盖的地块
+    const isNightWatch = t => getEffectiveWeather(t, null, gameState) === 'clear';
+    const candidates = gameState.tiles.filter(t => t.unit && !isBuildingUnit(t.unit) && !isNightWatch(t));
+    for (let i = candidates.length - 1; i > 0; i--) {
+        const j = gameState.rng.int(i + 1);
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    const effectiveCount = Math.min(candidates.length,
+        Math.max(1, Math.min(cfg.totalStrikes - 1, Math.round(candidates.length / cfg.unitsPerEffective))));
+    const strikes = [];
+    for (const tile of candidates.slice(0, effectiveCount)) {
+        const unit = tile.unit;
+        const dmg = Math.max(1, Math.round(gameState.rng.range(cardBalance.minDamage, cardBalance.maxDamage) * cfg.damageMultiplier));
+        // 环境伤害：无攻击方，不给击杀经验/击杀士气/击杀计数
+        const killed = unit.applyDamage(dmg, { source: 'true', attacker: null });
+        strikes.push({ q: tile.q, r: tile.r, x: tile.x, y: tile.y, dmg, killed });
+        gameState.damageTexts.push({ x: tile.x, y: tile.y, value: dmg, isTrueDmg: true, timeLeft: 1000, lastUpdate: performance.now() });
+        logMessage(`⚡ 雨天落雷劈中${unit.camp.name}${unit.config.name}兵，造成${dmg}真实伤害${killed ? '，将其消灭' : ''}`);
+    }
+    // 氛围雷：战场活跃区（距任意单位 ≤ambientRadius 格）的空地，只放特效无伤害
+    const ambient = [];
+    const ambientCount = Math.max(0, cfg.totalStrikes - strikes.length);
+    if (ambientCount > 0) {
+        const unitTiles = gameState.tiles.filter(t => t.unit);
+        let pool = gameState.tiles.filter(t => !t.unit && isLandTile(t) && !isNightWatch(t)
+            && unitTiles.some(u => hexDistance(u, t) <= cfg.ambientRadius));
+        if (!pool.length) pool = gameState.tiles.filter(t => !t.unit && isLandTile(t));
+        for (let i = pool.length - 1; i > 0; i--) {
+            const j = gameState.rng.int(i + 1);
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+        for (const tile of pool.slice(0, ambientCount)) ambient.push({ q: tile.q, r: tile.r, x: tile.x, y: tile.y });
+    }
+    for (const fx of [...strikes, ...ambient]) spawnLightningStrike(fx.x, fx.y);
+    if (strikes.length || ambient.length) {
+        playSound('lightning');
+        triggerScreenShake(6, 250);
+    }
+    _rainLightningFx = (strikes.length || ambient.length) ? { strikes, ambient } : null;
+}
+
 function _updateWeather() {
     const previousWeather = gameState.weather;
     const refreshVision = () => {
@@ -824,7 +875,7 @@ function _expireTimedEffects() {
         }
 
         // 雨天：守城单位每回合回复15%最大生命值（城郭格同样算守城）
-        if (isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'rain' && (u.tile.isCity || u.tile.isUrban)) {
+        if (isMechanicEnabled(gameState, 'weatherEffects') && getEffectiveWeather(u.tile, u.camp, gameState) === 'rain' && (u.tile.isCity || u.tile.isUrban)) {
             u.heal(Math.round(u.maxHp * COMBAT_BALANCE.weather.rainCityHealPct));
         }
 
@@ -1030,6 +1081,7 @@ export function resolvePoisonAtTurnStart(camp) {
 async function _doEndTurnPhase() {
     const camp = gameState.currentCamp;
     _endTurnCmdFxList = []; // 本回合将领特效收集
+    _rainLightningFx = null;
     const _healingChainDatas = []; // 牧师圣链特效收集
 
     // 包装 spawnFx 引用以收集特效坐标（不直接覆写 import binding）
@@ -1164,7 +1216,8 @@ async function _doEndTurnPhase() {
             broadcastAction('endTurn', {
                 cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
                 dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null,
-                healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null
+                healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null,
+                rainLightning: _rainLightningFx
             });
             return;
         }
@@ -1177,6 +1230,7 @@ async function _doEndTurnPhase() {
             tile.hp = Math.min(tile.maxHp, tile.hp + getCityRegenAmount(tile));
             syncCityHpMirrors(tile, gameState.tileMap);
         }
+        _resolveRainLightning();
         // 每5回合：全员免费对策卡（第5/10/15…回合发放）
         const roundNum = getRound(gameState);  // 1-indexed 回合数
         if (roundNum % 5 === 0 && gameState.cardDrawPile.length > 0) {
@@ -1212,7 +1266,8 @@ async function _doEndTurnPhase() {
     broadcastAction('endTurn', {
         cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
         dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null,
-        healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null
+        healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null,
+        rainLightning: _rainLightningFx
     });
 }
 
@@ -1576,8 +1631,8 @@ function _computeMovableTiles(unit, fogSafePreview = false) {
             if (!movementStep.allowed) continue;
             stepCost = movementStep.cost;
             // 雨天泥泞：骑兵步耗+1，末步豁免失效
-            const _isMuddyTarget = isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === "rain" && unit.type === "cavalry"
-                && !getCommanderWeatherImmunity(neighbor, friendlyCamp, gameState.tileMap);
+            const _isMuddyTarget = isMechanicEnabled(gameState, 'weatherEffects') && unit.type === 'cavalry'
+                && getEffectiveWeather(neighbor, friendlyCamp, gameState) === 'rain';
             if (_isMuddyTarget) stepCost += 1;
             // 星移减益区：处于敌方占星者3格内的敌对方额外+1（此处用于敌方 AI 移动计算）
             if (_isMuddyTarget && !fogSafePreview && getCommanderWeatherDebuff(neighbor, friendlyCamp, gameState)) stepCost += 1;
@@ -1642,18 +1697,18 @@ export function getAttackableTiles(unit) {
     if (unit.morale === 0 || unit._constructionScaffold || unit._engineerScaffold) return [];
     if (unit._transportTransitionedThisTurn) return [];
     if (unit.commander === 'martyr' && unit._martyrPrimed) return [];
-    if (unit.type === 'carrier' && (!isMechanicEnabled(gameState, 'airCommands') || gameState.weather === 'fog')) return [];
+    if (unit.type === 'carrier' && (!isMechanicEnabled(gameState, 'airCommands') || getEffectiveWeather(unit.tile, unit.camp, gameState) === 'fog')) return [];
 if (unit._specializationAttackSpent) return [];
     let range = unit.getEffectiveRange?.() ?? unit.config.range;
     // 无人机固定射程2
     if (unit._isDrone) range = DRONE_RANGE;
     // 雾天炮兵射程-1（占星者星光力场免疫）
-    if (!unit.isEmbarked && isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'fog' && unit.type === 'archer'
-        && !getCommanderWeatherImmunity(unit.tile, unit.camp, gameState.tileMap)) {
+    if (!unit.isEmbarked && isMechanicEnabled(gameState, 'weatherEffects') && unit.type === 'archer'
+        && getEffectiveWeather(unit.tile, unit.camp, gameState) === 'fog') {
         range = Math.min(range, 1);
     }
     if (!unit.isEmbarked && unit.type === 'archer'
-        && isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'wind') {
+        && isMechanicEnabled(gameState, 'weatherEffects') && getEffectiveWeather(unit.tile, unit.camp, gameState) === 'wind') {
         range += 1;
     }
     range = Math.max(1, Math.min(unit.type === 'carrier' ? 6 : 4, range));
@@ -3681,7 +3736,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
     }
     // 雾天停飞（所有空军卡）
-    if (isAirCard && isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'fog') {
+    if (isAirCard && isMechanicEnabled(gameState, 'weatherEffects') && getEffectiveWeather(targetTile, myCamp, gameState) === 'fog') {
         notify('雾天停飞，无法使用空军卡', 'error');
         if (isColonelCard) cancelCardTargeting();
         return;

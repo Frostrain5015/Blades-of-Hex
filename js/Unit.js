@@ -13,7 +13,7 @@ import {
 import { MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG } from '../rules/terrain.js';
 import { hexDistance, HEX_NEIGHBORS } from '../rules/hex.js';
 import { getRoundIndex } from '../rules/turns.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherImmunity, getCommanderWeatherDebuff, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherDebuff, getEffectiveWeather, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
 import { nextId } from './uid.js';
 import { emit } from './eventBus.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
@@ -574,14 +574,12 @@ export class Unit {
             defSum += COMBAT_BALANCE.defense.forestVsRangedBonus;
         }
         // 风天：步兵防御-15%（星移期间扩展至敌方全兵种；占星者星光力场免疫）；星移减益区内额外-15%
-        if (!transportedDefender && isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'wind' && (defender.type === 'infantry' || (_gameState.weatherLockUntil > 0 && getRoundIndex(_gameState) < _gameState.weatherLockUntil && defender.camp !== attacker.camp))
-            && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
+        if (!transportedDefender && isMechanicEnabled(_gameState, 'weatherEffects') && getEffectiveWeather(defender.tile, defender.camp, _gameState) === 'wind' && (defender.type === 'infantry' || (_gameState.weatherLockUntil > 0 && getRoundIndex(_gameState) < _gameState.weatherLockUntil && defender.camp !== attacker.camp))) {
             defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
             if (getCommanderWeatherDebuff(defender.tile, defender.camp, _gameState)) defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
         }
         // 雨天：步兵守城防御力额外+10%（占星者星光力场免疫）；城郭格同样算守城
-        if (!transportedDefender && isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'rain' && defender.type === 'infantry' && (defender.tile.isCity || defender.tile.isUrban)
-            && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
+        if (!transportedDefender && isMechanicEnabled(_gameState, 'weatherEffects') && getEffectiveWeather(defender.tile, defender.camp, _gameState) === 'rain' && defender.type === 'infantry' && (defender.tile.isCity || defender.tile.isUrban)) {
             defSum += COMBAT_BALANCE.defense.rainCityInfantryBonus;
         }
         if (!transportedDefender) defSum += (defender.config.defense || 0) + (defender._rankPanelDefenseBonus || 0);
@@ -688,7 +686,7 @@ export class Unit {
         // 骑兵冲锋·势能制：本回合每移动1格，造成的伤害提高10%（上限30%），雾天额外+5%/格
         // moveDistance 随回合重置，势能回合结束消失
         const baseChargeRate = this.getSpecializationAbility('chargePerStep') || 0;
-        const fogChargeDelta = gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog' && baseChargeRate > 0
+        const fogChargeDelta = gs && isMechanicEnabled(gs, 'weatherEffects') && getEffectiveWeather(this.tile, this.camp, gs) === 'fog' && baseChargeRate > 0
             ? COMBAT_BALANCE.cavalry.fogChargeDamagePerStep - COMBAT_BALANCE.cavalry.normalChargeDamagePerStep
             : 0;
         const cavBonus = !this.isEmbarked && baseChargeRate > 0
@@ -704,11 +702,11 @@ export class Unit {
         const submergedBonus = this.type === 'submarine' && this._submarineChargedAttack
             ? (this._unbranchedRankReward?.nextAttackDamage || 0) : 0;
         // 天气条件增伤：雾天骑兵+20%（归入②增伤乘区）；风天炮兵增伤已由野战炮专精的风天穿甲翻倍取代
-        const weatherBonus = (!this.isEmbarked && gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
+        const weatherBonus = (!this.isEmbarked && gs && isMechanicEnabled(gs, 'weatherEffects') && getEffectiveWeather(this.tile, this.camp, gs) === 'fog' && this.type === 'cavalry') ? COMBAT_BALANCE.cavalry.fogDamageBonus
             : 0;
 
         let ignoreDef = this.getSpecializationAbility('armorPierce') || 0;
-        if (ignoreDef > 0 && (this.tile.terrain === 'mountain' || (gs && isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'wind'))) {
+        if (ignoreDef > 0 && (this.tile.terrain === 'mountain' || (gs && isMechanicEnabled(gs, 'weatherEffects') && getEffectiveWeather(this.tile, this.camp, gs) === 'wind'))) {
             ignoreDef *= 2;
         }
         const targetIsRanged = targetUnit.type === 'archer' || targetUnit.type === 'mgNest' || targetUnit.type === 'drone' || targetUnit.type === 'carrier';

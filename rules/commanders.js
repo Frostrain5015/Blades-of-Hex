@@ -27,7 +27,7 @@ function buildAstrologer() {
         definition: {
             id: 'astrologer', name: '占星者', hpBonusPct: 0.30, atkBonusPct: 0.20, spdBonus: 0,
             skills: [
-                { name: '夜观', desc: `自身${balance.auraRange}格范围内友军单位免疫天气不利效果`, type: 'passive' },
+                { name: '夜观', desc: `自身${balance.auraRange}格范围内天气对所有单位与地块一律视为晴天（不分敌我，不受任何天气效果影响）`, type: 'passive' },
                 { name: '星移', desc: `强制指定天气并锁定${balance.weatherLockRounds}回合，锁定期间天气负面效果对所有敌人生效，若处于【夜观】范围内则效果翻倍（⏳${balance.cooldown}）`, type: 'active' }
             ],
             activeSkill: { name: '星移', desc: `强制指定当前天气并锁定${balance.weatherLockRounds}回合（⏳${balance.cooldown}）`, duration: balance.weatherLockRounds, cooldown: balance.cooldown }

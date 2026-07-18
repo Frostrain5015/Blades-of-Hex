@@ -1,6 +1,6 @@
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getEffectiveWeather } from './commanderInterface.js';
 import { buildUnitEffectItems } from './effectItems.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, updateButtonColors, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget } from './state.js';
 import { on, emit } from './eventBus.js';
@@ -1229,6 +1229,8 @@ function _getWeatherEffect(unit) {
     const weather = WEATHER_CONFIG[gameState.weather];
     if (!weather || gameState.weather === 'clear') return null;
     if (!unit) return null;
+    // 夜观：星光范围内天气一律视为晴天，不再展示任何天气效果
+    if (getEffectiveWeather(unit.tile, unit.camp, gameState) === 'clear') return null;
     let desc = weather.desc;
     const details = [];
     if (gameState.weather === 'rain') {
@@ -1283,17 +1285,7 @@ function _buildEffectItems(tile, unit) {
     }
 
     const weather = _getWeatherEffect(unit);
-    if (weather) {
-        // 夜观星光护体：若该单位在友方占星者3格内，标记天气效果为被免疫
-        if (gameState.tileMap) {
-            const astroDef = getCommander('astrologer');
-            if (astroDef && astroDef.isInWeatherShield && astroDef.isInWeatherShield(tile, unit.camp, gameState.tileMap)) {
-                weather._isShielded = true;
-                weather.desc += '（【夜观】免疫）';
-            }
-        }
-        items.push(weather);
-    }
+    if (weather) items.push(weather);
     if (!unit) return items;
 
     // 单位级效果与棋盘状态图标行同源（js/effectItems.js），HUD 与棋盘共用一份清单。

@@ -4,6 +4,7 @@ import { isMechanicEnabled } from './mechanics.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed } from './movement.js';
 import { isCityDisabled } from './citySiege.js';
+import astrologerDef from '../commander/astrologer.js';
 
 export const AIR_COMMAND_CONFIG = Object.freeze({
     strafe: Object.freeze({ name: '扫射', icon: '✈️', cost: 4, range: 5, cooldown: 2, targeting: 'enemyGlobal', multiplier: 1, desc: '对单体目标造成空军伤害；目标已损失生命值的20%转化为额外攻击力，最多15点。' }),
@@ -80,7 +81,8 @@ export function getAirCommandAvailability(kind, cityTile, state) {
     if (installation.status !== 'ready') return { available: false, reason: '机场尚未建成' };
     if (cityTile.camp !== state?.currentCamp) return { available: false, reason: '不是当前阵营的机场' };
     if (isCityDisabled(cityTile)) return { available: false, reason: '城市处于瘫痪' };
-    if (state.weather === 'fog') return { available: false, reason: '雾天停飞' };
+    // 雾天停飞以机场地块的有效天气为准：夜观覆盖下视为晴天，可正常起飞
+    if (state.weather === 'fog' && !astrologerDef.isInWeatherShield(cityTile, null, state.tileMap)) return { available: false, reason: '雾天停飞' };
     // 每种指令按 (机场 × 指令) 独立冷却；同回合可出动多种不同指令，不设机场级共享闸。
     const currentRound = getRoundIndex(state);
     const readyRound = installation.airCommandReadyRound?.[kind];

@@ -366,6 +366,15 @@ export function getCommanderWeatherImmunity(tile, camp, tileMap) {
   return astrologerDef.isInWeatherShield(tile, camp, tileMap);
 }
 
+// 夜观：3格星光范围内的天气对全部单位与地块一律视为晴天（不分敌我），
+// 从源头断掉所有天气效果（无论利弊）。所有天气结算都应经此函数取有效天气，
+// 不再直接读 gs.weather。camp 形参仅为兼容旧调用签名保留，语义上已不使用。
+export function getEffectiveWeather(tile, camp, gs) {
+  if (!gs || gs.weather === 'clear') return 'clear';
+  if (getCommanderWeatherImmunity(tile, camp, gs.tileMap)) return 'clear';
+  return gs.weather;
+}
+
 export function getCommanderWeatherDebuff(tile, camp, gs) {
   if (!gs) return false;
   const astrologerDef = getCommander('astrologer');

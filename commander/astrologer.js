@@ -42,14 +42,16 @@ const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.astrologer
 export default {
     ...DEFINITION,
 
-    // 检查 tile 是否在友方占星者的3格星光范围内
-    isInWeatherShield(tile, friendlyCamp, tileMap) {
+    // 检查 tile 是否在任意占星者的3格星光范围内。
+    // 夜观不分敌我：范围内的天气对所有单位与地块一律视为晴天。
+    // （保留第二参数以兼容旧调用签名，语义上已不再使用。）
+    isInWeatherShield(tile, _friendlyCamp, tileMap) {
         if (!tile || !tileMap) return false;
         for (let d = 0; d <= BALANCE.auraRange; d++) {
             for (const [dq, dr] of RINGS[d]) {
                 const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
                 if (nb && nb.unit && nb.unit.commander === 'astrologer' && !areCommanderMechanicsSuppressed(nb.unit) &&
-                    nb.unit.camp === friendlyCamp && nb.unit.hp > 0) {
+                    nb.unit.hp > 0) {
                     return true;
                 }
             }

@@ -71,7 +71,8 @@ export const COMBAT_BALANCE = deepFreeze({
     defense: { minimumMultiplier: 0.15, maximumReduction: 0.85, forestVsRangedBonus: 0.15, cityInfantryBonus: 0.10, windInfantryPenalty: 0.15, rainCityInfantryBonus: 0.10 },
     cavalry: { normalChargeDamagePerStep: 0.10, fogChargeDamagePerStep: 0.15, maxChargeSteps: 3, fogDamageBonus: 0.20 },
     infantry: { cityHealPct: 0.10, cityDamageBonus: 0.15 },
-    weather: { rainCityHealPct: 0.15, rainCavalryMovementCost: 1, fogArcherRangeDelta: -1, windArcherRangeDelta: 1, windArcherDamageBonus: 0.20 },
+    weather: { rainCityHealPct: 0.15, rainCavalryMovementCost: 1, fogArcherRangeDelta: -1, windArcherRangeDelta: 1, windArcherDamageBonus: 0.20,
+        rainLightning: { totalStrikes: 4, unitsPerEffective: 8, damageMultiplier: 0.7, ambientRadius: 4 } },
     rank: {
         xpThresholds: UNIT_RANK_CONFIG.xpThresholds,
         rankUpHealLostPct: UNIT_RANK_CONFIG.rankUpHealLostPct,
