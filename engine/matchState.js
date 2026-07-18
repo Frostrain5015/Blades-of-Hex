@@ -168,6 +168,8 @@ export function createMatchState() {
         _droneDeployTurn: {},
         _droneDeployCount: {},
         _colonelAirStacks: {}, // E4: 上校【老练】空军伤害层数 { campKey: n }
+        _aureliaOathUsed: {}, // 奥雷利亚阵营协同被动【同一个誓言】每阵营每局使用记录
+        _pendingAureliaOathEvents: [], // 单次攻击广播前的瞬时表现事件，不参与快照
         // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
         // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
         // 使联机收方与重连保持一致。详见 core/rng.js。
@@ -282,6 +284,8 @@ export function resetMatchState(match) {
     match._droneDeployTurn = {};
     match._droneDeployCount = {};
     match._colonelAirStacks = {};
+    match._aureliaOathUsed = {};
+    match._pendingAureliaOathEvents = [];
     match.skirmishFog = false;
     match.visibleTiles = standard.visibleTiles;
     match.exploredTiles = standard.exploredTiles;
@@ -490,6 +494,7 @@ export function serializeMatchState(match) {
             smiteReady: t.unit._smiteReady || false,
             smiteCharged: t.unit._smiteCharged || false,
             healingAura: t.unit._healingAura || 0,
+            aureliaOathUntilRound: t.unit._aureliaOathUntilRound || 0,
             activeSkillBuffs: t.unit._activeSkillBuffs || null,
             isDrone: t.unit._isDrone || false,
             droneSignalDisabled: t.unit._droneSignalDisabled || false,
@@ -552,6 +557,7 @@ export function serializeMatchState(match) {
         droneDeployTurn: { ...(match._droneDeployTurn || {}) },
         droneDeployCount: { ...(match._droneDeployCount || {}) },
         colonelAirStacks: { ...(match._colonelAirStacks || {}) },
+        aureliaOathUsed: { ...(match._aureliaOathUsed || {}) },
         rngState: match.rng.getState(),
         killCount: { ...match.killCount },
         friendlyDeathCount: { ...(match._friendlyDeathCount || {}) },
@@ -673,6 +679,8 @@ export function restoreMatchState(match, data, deps) {
     match._droneDeployTurn = data.droneDeployTurn || {};
     match._droneDeployCount = data.droneDeployCount || {};
     match._colonelAirStacks = data.colonelAirStacks || {};
+    match._aureliaOathUsed = data.aureliaOathUsed || {};
+    match._pendingAureliaOathEvents = [];
     match.submarineReveals = record(data.submarineReveals, () => ({}));
     match.shoreBatteryBuiltRound = { ...(data.shoreBatteryBuiltRound || {}) };
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
@@ -903,6 +911,7 @@ export function restoreMatchState(match, data, deps) {
             unit._smiteReady = td.unit.smiteReady || false;
             unit._smiteCharged = td.unit.smiteCharged || false;
             unit._healingAura = td.unit.healingAura || 0;
+            unit._aureliaOathUntilRound = td.unit.aureliaOathUntilRound || 0;
             unit._activeSkillBuffs = td.unit.activeSkillBuffs || null;
             unit._isDrone = td.unit.isDrone || false;
             unit._droneSignalDisabled = td.unit.droneSignalDisabled || false;

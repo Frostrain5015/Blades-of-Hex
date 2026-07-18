@@ -200,10 +200,13 @@ export function drawUnit(unit, gameState) {
 
         const badgeR = UNIT_BADGE_RADIUS;
         const lerpFactor = 0.18;
-        unit.displayHp += (unit.hp - unit.displayHp) * lerpFactor;
-        if (Math.abs(unit.hp - unit.displayHp) < 0.3) unit.displayHp = unit.hp;
-        unit._displayShield += (unit._shield - unit._displayShield) * lerpFactor;
-        if (Math.abs(unit._shield - unit._displayShield) < 0.3) unit._displayShield = unit._shield;
+        // 鱼雷等飞行中攻击：血条/护盾条等弹体抵达再开始缩减
+        if (!unit._hpBarDelayUntil || now >= unit._hpBarDelayUntil) {
+            unit.displayHp += (unit.hp - unit.displayHp) * lerpFactor;
+            if (Math.abs(unit.hp - unit.displayHp) < 0.3) unit.displayHp = unit.hp;
+            unit._displayShield += (unit._shield - unit._displayShield) * lerpFactor;
+            if (Math.abs(unit._shield - unit._displayShield) < 0.3) unit._displayShield = unit._shield;
+        }
 
         unit.displaySpeed += (unit.remainingMP - unit.displaySpeed) * lerpFactor;
         if (Math.abs(unit.remainingMP - unit.displaySpeed) < 0.3) unit.displaySpeed = unit.remainingMP;

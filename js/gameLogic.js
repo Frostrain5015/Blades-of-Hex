@@ -30,7 +30,7 @@ import {
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
-    spawnProjectile, spawnTorpedo, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnLightningStrike,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing,
@@ -2048,6 +2048,7 @@ export function attackUnit(attackerUnit, targetUnit) {
         attackerId: attackerUnit.id, defenderId: targetUnit.id,
         attackerCamp: attackerUnit.camp, defenderCamp: targetUnit.camp
     });
+    gameState._pendingAureliaOathEvents = [];
 
     const _executeAttack = () => {
     const isCarrierStrafe = attackerUnit.type === 'carrier';
@@ -2073,7 +2074,11 @@ export function attackUnit(attackerUnit, targetUnit) {
         _atkOrigBeamProjectiles(fromX, fromY, toX, toY, count);
     });
     _killerMoraleChanged = false;
-    const attackResult = attackerUnit.calculateDamage(targetUnit);
+    // 鱼雷飞行需要时间：伤害数字/血条/爆炸统一延迟到弹体抵达时刻
+    const attackPresentation = classifyAttackPresentation(attackerUnit);
+    const _torpedoMs = attackPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO
+        ? getTorpedoFlightMs(fromX, fromY, toX, toY) : 0;
+    const attackResult = attackerUnit.calculateDamage(targetUnit, _torpedoMs);
     attackerUnit._submarineChargedAttack = false;
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
     if (attackResult.isCrit) attackerUnit.addXP(2);
@@ -2104,6 +2109,10 @@ export function attackUnit(attackerUnit, targetUnit) {
     const isCrit = attackResult.isCrit;
 
     // 核心状态修改：扣血、击杀判定（先于视觉效果，保证广播时状态正确）
+    if (_torpedoMs > 0) {
+        targetUnit._hpBarDelayUntil = performance.now() + _torpedoMs;
+        targetUnit._deferImpactFxUntil = performance.now() + _torpedoMs;
+    }
     let isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
     const specializationSplashResults = [];
     let extraSalvoResult = null;
@@ -2177,7 +2186,6 @@ export function attackUnit(attackerUnit, targetUnit) {
     }
 
     let atkCmdResult = null, ctrCmdResult = null;
-    const attackPresentation = classifyAttackPresentation(attackerUnit);
     try {
         if (attackPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
             spawnTorpedo(fromX, fromY, toX, toY, isCrit);
@@ -2294,16 +2302,22 @@ export function attackUnit(attackerUnit, targetUnit) {
             const enduranceXp = targetUnit._timesAttackedThisTurn - 1;
             if (enduranceXp > 0) targetUnit.addXP(enduranceXp);
 
-            const counterResult = targetUnit.calculateCounterDamage(attackerUnit);
+            const counterPresentation = classifyAttackPresentation(targetUnit);
+            const _counterTorpedoMs = counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO
+                ? getTorpedoFlightMs(targetUnit.tile.x, targetUnit.tile.y, attackerUnit.tile.x, attackerUnit.tile.y) : 0;
+            const counterResult = targetUnit.calculateCounterDamage(attackerUnit, _counterTorpedoMs);
             _counterDmg = counterResult.dmg;
             _counterX = attackerUnit.tile.x; _counterY = attackerUnit.tile.y;
             if (counterResult.dmg > 0) {
                 targetUnit.addXP(1);
                 if (counterResult.isCrit) targetUnit.addXP(2);
+                if (_counterTorpedoMs > 0) {
+                    attackerUnit._hpBarDelayUntil = performance.now() + _counterTorpedoMs;
+                    attackerUnit._deferImpactFxUntil = performance.now() + _counterTorpedoMs;
+                }
                 attackerUnit.takeDamage(counterResult.dmg, targetUnit);
                 // 远程单位(炮/碉堡/无人机)反击 → 复用炮弹/子弹飞行动画（近战反击维持原本仅伤害数字）
                 _counterIsCrit = counterResult.isCrit;
-                const counterPresentation = classifyAttackPresentation(targetUnit);
                 _counterIsRanged = counterPresentation !== ATTACK_PRESENTATION.ASSAULT;
                 if (_counterIsRanged) {
                     const _cfx = targetUnit.tile.x, _cfy = targetUnit.tile.y;
@@ -2440,6 +2454,9 @@ export function attackUnit(attackerUnit, targetUnit) {
     } finally {
         // 无论视觉效果是否出错，确保联机同步一定执行
         const rankUps = _pendingRankUps.splice(0);
+        const aureliaOathEvents = Array.isArray(gameState._pendingAureliaOathEvents)
+            ? gameState._pendingAureliaOathEvents.splice(0)
+            : [];
         broadcastAction('attack', {
             x: toX, y: toY,
             q: targetUnit.tile.q, r: targetUnit.tile.r,
@@ -2481,7 +2498,8 @@ export function attackUnit(attackerUnit, targetUnit) {
             specializationSplashResults: specializationSplashResults.length ? specializationSplashResults : null,
             extraSalvoResult,
             berserkerQixue: qixueActive,
-            berserkerSplash: qixueSplashResults.length ? qixueSplashResults : null
+            berserkerSplash: qixueSplashResults.length ? qixueSplashResults : null,
+            aureliaOathEvents: aureliaOathEvents.length ? aureliaOathEvents : null
         });
         emit('match:combatResolved', {
             attackerId: attackerUnit.id,

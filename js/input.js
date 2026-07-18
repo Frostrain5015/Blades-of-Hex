@@ -37,6 +37,12 @@ import { getSpecialization, getSpecializationOptions, getUnitDisplayName, resolv
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortification, canBuildShoreBatteryAt, canFieldRepair, constructionCost, isFieldRepairTarget, isOrdinaryGroundBuilder } from '../rules/construction.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange, getAirfieldColonel } from '../rules/airCommands.js';
+import {
+    AURELIA_FACTION_PASSIVE,
+    hasAureliaOathPassive,
+    hasUsedAureliaOath,
+    isAureliaCommanderUnit
+} from '../rules/aurelia.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
@@ -1387,6 +1393,22 @@ function _buildPassiveItems(unit) {
         });
     }
     if (!unit.commander) return items;
+    const aureliaOathUsed = hasUsedAureliaOath(unit, gameState);
+    if (isAureliaCommanderUnit(unit) && (hasAureliaOathPassive(unit, gameState) || aureliaOathUsed)) {
+        items.push({
+            key: 'faction:aurelia:oath',
+            icon: AURELIA_FACTION_PASSIVE.icon,
+            label: AURELIA_FACTION_PASSIVE.name,
+            desc: '受到致命攻击时，另一名王国将领将消耗40%当前生命值，将此单位生命值抬升至40%并获得持续2回合的【鸢尾花的加护】；该效果每玩家每局仅可触发一次。',
+            color: aureliaOathUsed ? '#786d5b' : '#e7bf69',
+            status: aureliaOathUsed ? '本局已使用' : '当前生效',
+            count: '',
+            kicker: AURELIA_FACTION_PASSIVE.type,
+            active: !aureliaOathUsed,
+            intensity: aureliaOathUsed ? 0 : 1,
+            kind: 'passive'
+        });
+    }
     if (areCommanderMechanicsSuppressed(unit) && unit.commander !== 'colonel') return items;
     const commander = getCommander(unit.commander);
     if (!commander) return items;

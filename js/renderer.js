@@ -63,6 +63,7 @@ import { resolveMovementTileReveal } from './movementRegionAnimation.js';
 import { CanvasBattlefieldLayers } from './canvasBattlefieldLayers.js';
 import { battlefieldDelegation } from './rendering/delegation.js';
 import { areCommanderMechanicsSuppressed, sharedHexEdgeSegmentKey } from '../rules/movement.js';
+import { hasAureliaOathEffect } from '../rules/aurelia.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
@@ -363,6 +364,7 @@ export function renderGame() {
 
     // ── 将领特效图层：aboveUnits（单位与旗帜之后）──
     drawFxLayer('aboveUnits', ctx, now);
+    drawAureliaGuardPetals(now);
 
     // 统一“符号+标签”宣告特效（技能/士气/晋升）
     drawIconEffects(now);
@@ -1483,6 +1485,65 @@ function drawUnitHexAuras(now) {
             ctx.restore();
         }
 
+    }
+}
+
+function _stableUnitSeed(unitId) {
+    const text = String(unitId ?? 'aurelia');
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) / 4294967295;
+}
+
+function _drawAureliaPetal(x, y, size, angle, color, alpha) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 5;
+    ctx.beginPath();
+    ctx.moveTo(0, -size);
+    ctx.bezierCurveTo(size * 0.72, -size * 0.35, size * 0.45, size * 0.72, 0, size);
+    ctx.bezierCurveTo(-size * 0.55, size * 0.42, -size * 0.64, -size * 0.45, 0, -size);
+    ctx.fill();
+    ctx.restore();
+}
+
+// 【鸢尾花的加护】持续期间：两名将领周身的柔和、非整齐轨道花瓣。
+function drawAureliaGuardPetals(now) {
+    const palette = ['#e4b962', '#b65d6f', '#9b6aa5', '#f0d797'];
+    for (const tile of gameState.tiles) {
+        const unit = tile.unit;
+        if (!unit || !hasAureliaOathEffect(unit, gameState)) continue;
+        const pos = unit.getVisualPos();
+        const seed = _stableUnitSeed(unit.id);
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        for (let index = 0; index < 9; index++) {
+            const stagger = seed * 9.7 + index * 2.399;
+            const direction = index % 3 === 0 ? -1 : 1;
+            const speed = (0.00018 + (index % 4) * 0.000025) * direction;
+            const angle = now * speed + stagger + Math.sin(now * 0.0007 + stagger) * 0.18;
+            const radius = 37 + (index % 5) * 4.1 + Math.sin(now * 0.0011 + index) * 3.5;
+            const x = pos.x + Math.cos(angle) * radius;
+            const y = pos.y + Math.sin(angle) * radius * (0.58 + (index % 2) * 0.08)
+                + Math.sin(now * 0.0014 + stagger) * 2.5;
+            const pulse = 0.5 + Math.sin(now * 0.002 + index * 1.7) * 0.5;
+            _drawAureliaPetal(
+                x,
+                y,
+                2.7 + (index % 3) * 0.8,
+                angle + now * 0.00045 * direction,
+                palette[index % palette.length],
+                0.28 + pulse * 0.42
+            );
+        }
+        ctx.restore();
     }
 }
 

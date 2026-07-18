@@ -608,12 +608,20 @@ function spawnCannonImpact(x, y, isCrit) {
 export const torpedoes = [];
 export const torpedoSplashes = [];
 
+// 鱼雷飞行时长（毫秒）：比炮弹慢约四倍；相邻海格也能清楚读出完整推进过程。
+// 供战斗流程提前计算命中时刻（血条/伤害数字/爆炸均延迟到抵达）。
+export function getTorpedoFlightMs(fromX, fromY, toX, toY) {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    return Math.max(620, Math.min(860, 520 + dist * 1.55));
+}
+
 export function spawnTorpedo(fromX, fromY, toX, toY, isCrit, onImpact) {
     const dx = toX - fromX;
     const dy = toY - fromY;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    // 比炮弹慢约四倍；相邻海格也能清楚读出完整推进过程。
-    const duration = Math.max(620, Math.min(860, 520 + dist * 1.55));
+    const duration = getTorpedoFlightMs(fromX, fromY, toX, toY);
     torpedoes.push({
         fromX, fromY,
         toX, toY,

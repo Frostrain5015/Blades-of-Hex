@@ -22,7 +22,7 @@ import {
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
-    spawnGoldenBeam, spawnPaladinBeamProjectiles, clearPaladinOrbitBeams,
+    spawnGoldenBeam, spawnPaladinOrbitBeams, spawnPaladinBeamProjectiles, clearPaladinOrbitBeams,
     spawnHealingChain,
     spawnSlashMarks,
     spawnAirstrikeEffect, spawnAirliftEffect,
@@ -71,6 +71,7 @@ import {
     AIR_COMMAND_IMPACT_DELAY_MS,
     buildAirCommandDamageTexts
 } from '../rules/airCommands.js';
+import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
 const TURN_ORDER_COUNTDOWN_DELAY_MS = 2000;
@@ -1645,6 +1646,20 @@ function _buildSkillHTML(cfg) {
     `</div>`;
 }
 
+function _buildFactionSynergyCardMarker(commanderId) {
+    const synergy = getCommanderFactionSynergy(commanderId);
+    if (!synergy) return '';
+    const marker = synergy.marker;
+    const markerStyle = [
+        `--synergy-marker-color:${marker.color}`,
+        `--synergy-marker-border:${marker.borderColor}`,
+        `--synergy-marker-background:${marker.background}`,
+        `--synergy-marker-glow:${marker.glowColor}`
+    ].join(';');
+    return `<span class="cmdr-faction-synergy-marker" data-faction-synergy="${synergy.id}" `
+        + `aria-label="${marker.label}" style="${markerStyle}">${marker.symbol}</span>`;
+}
+
 function _showTrainingCommanderSelection(forPlayer) {
     const overlay = document.getElementById('commanderOverlay');
     const cardsDiv = document.getElementById('commanderCards');
@@ -1679,6 +1694,7 @@ function _showTrainingCommanderSelection(forPlayer) {
                 `<div class="cmdr-persistent" style="display:none">` +
                     `<div class="cmdr-face-portrait">` +
                         `<img src="img/commander/${cfg.name}.webp" class="cmdr-portrait-full" />` +
+                        _buildFactionSynergyCardMarker(key) +
                         `<div class="cmdr-portrait-label">${cfg.name}</div>` +
                     `</div>` +
                     `<div class="cmdr-face-details">` +
@@ -1864,6 +1880,7 @@ function _showCommanderSelection(forPlayer) {
                 `<div class="cmdr-persistent" style="display:none">` +
                     `<div class="cmdr-face-portrait">` +
                         `<img src="img/commander/${cfg.name}.webp" class="cmdr-portrait-full" />` +
+                        _buildFactionSynergyCardMarker(key) +
                         `<div class="cmdr-portrait-label">${cfg.name}</div>` +
                     `</div>` +
                     `<div class="cmdr-face-details">` +
@@ -3161,11 +3178,17 @@ async function handleRemoteAction(msg) {
                 break;
             }
             try {
+                for (const oathEvent of e?.aureliaOathEvents || []) {
+                    emit('fx:aureliaOath', oathEvent);
+                }
                 const _rmSmite = e?.smiteDmg > 0;
                 const _rmSmiteLabel = e?.smiteLabel || '至圣斩';
                 const _rmFromX = e?.fromX ?? e?.x;
                 const _rmFromY = e?.fromY ?? e?.y;
                 const _rmPresentation = classifyAttackPresentation(e);
+
+                // 鱼雷飞行时序：伤害数字与击杀爆炸延迟到弹体抵达
+                let _rmTorpedoMs = 0;
 
                 const _execAttackFx = () => {
                 if (_rmSmite) {

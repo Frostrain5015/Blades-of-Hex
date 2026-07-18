@@ -35,6 +35,15 @@ import {
 import { areCommanderMechanicsSuppressed, canUnitOccupyTile, getTransportBaseDefense, getUnitCombatRange, getUnitMovementDomain, isEmbarkableLandUnit, TRANSPORT_RULES, TRANSPORT_SPEED_CAP } from '../rules/movement.js';
 import { isWaterTile } from '../rules/surfaces.js';
 import { canUnitTargetUnit, getCrossDomainDamageBonus } from '../rules/naval.js';
+import {
+    AURELIA_FACTION_PASSIVE,
+    AURELIA_OATH_EFFECT,
+    canTriggerAureliaRescue,
+    chooseAureliaRescuer,
+    getAureliaCampKey,
+    getAureliaOathRemainingRounds,
+    hasAureliaOathEffect
+} from '../rules/aurelia.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -120,6 +129,7 @@ export class Unit {
         this._isImmobile = false;
         this._engineerConstruction = null;
         this._campaignEffects = [];  // [{id,name,emoji,duration,statMods:{atkPct,defPct,spdPct,hpPct}}]
+        this._aureliaOathUntilRound = 0;
         this._engineerScaffold = null;
         this._engineerBunkerCD = 0;
         this._phantomStacks = 0;
@@ -220,6 +230,17 @@ export class Unit {
                 desc: COMMANDER_CONFIG.berserker.definition.activeSkill.desc,
                 color: '#d63c3c',
                 status: '当前生效 攻击力提高' + Math.round(stacks * balance.statBonusPerStackPct * 100) + '%，防御力提高' + Math.round(stacks * balance.statBonusPerStackPct * 100) + '%'
+            });
+        }
+
+        const aureliaOathRemaining = getAureliaOathRemainingRounds(this, gameState);
+        if (aureliaOathRemaining > 0) {
+            effects.push({
+                label: AURELIA_OATH_EFFECT.name,
+                desc: `攻击力提高${Math.round(AURELIA_OATH_EFFECT.attackBonusPct * 100)}%`,
+                color: AURELIA_OATH_EFFECT.color,
+                remaining: aureliaOathRemaining,
+                status: `持续${aureliaOathRemaining}回合`
             });
         }
 
@@ -442,7 +463,12 @@ export class Unit {
     }
 
     getEffectiveAttack() {
-        if (this.type === 'carrier') return this.config.attack + (this._rankPanelAttackBonus || 0);
+        const aureliaOathBonus = hasAureliaOathEffect(this, _gameState)
+            ? AURELIA_OATH_EFFECT.attackBonusPct
+            : 0;
+        if (this.type === 'carrier') {
+            return Math.round((this.config.attack + (this._rankPanelAttackBonus || 0)) * (1 + aureliaOathBonus));
+        }
         const auraAtk = getCommanderAuraAttackBonus(this);
         let base;
         if (this.isEmbarked && isEmbarkableLandUnit(this)) {
@@ -461,7 +487,7 @@ export class Unit {
         const mods = this.getCampaignEffectMods();
         // 士气：①攻击乘区直接百分比加成（±20%），HUD 攻击值、攻城、反击统一生效
         const moraleMulti = isMechanicEnabled(_gameState, 'morale') ? 1 + (MORALE_CONFIG[this.morale]?.atkBonus || 0) : 1;
-        return Math.round((base * (1 + mods.atkPct / 100) + mods.atkFlat) * moraleMulti);
+        return Math.round((base * (1 + mods.atkPct / 100 + aureliaOathBonus) + mods.atkFlat) * moraleMulti);
     }
 
     getEffectiveRange() {
@@ -622,7 +648,7 @@ export class Unit {
         };
     }
 
-    calculateDamage(targetUnit) {
+    calculateDamage(targetUnit, textDelayMs = 0) {
         const gs = _gameState;
 
         if (this.type === 'carrier') {
@@ -657,8 +683,11 @@ export class Unit {
                 COMBAT_BALANCE.defense.minimumMultiplier,
                 1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, defense)
             );
+            const aureliaOathBonus = hasAureliaOathEffect(this, gs)
+                ? AURELIA_OATH_EFFECT.attackBonusPct
+                : 0;
             const result = {
-                dmg: power * (1 + carrierRankBonus + colonelBonus) * floatMult * defenseMulti,
+                dmg: power * (1 + carrierRankBonus + colonelBonus + aureliaOathBonus) * floatMult * defenseMulti,
                 isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold,
                 antiAir
             };
@@ -723,18 +752,18 @@ export class Unit {
             0
         );
 
-        gs.damageTexts.push({
+        this._pushDamageTextDelayed(gs, {
             x: targetUnit.tile.x,
             y: targetUnit.tile.y,
             value: result.dmg,
             isCrit: result.isCrit,
             timeLeft: 900,
             lastUpdate: performance.now()
-        });
+        }, textDelayMs);
         return result;
     }
 
-    calculateCounterDamage(attackerUnit) {
+    calculateCounterDamage(attackerUnit, textDelayMs = 0) {
         const log = _logMessage;
         const gs = _gameState;
 
@@ -773,14 +802,14 @@ export class Unit {
             this.counterAttackCount++;
             log(`${this.camp.name} ${this.config.name}兵反击造成${Math.round(result.dmg)}伤害${result.isCrit ? '，反击强击！' : ''}`);
 
-            gs.damageTexts.push({
+            this._pushDamageTextDelayed(gs, {
                 x: attackerUnit.tile.x,
                 y: attackerUnit.tile.y,
                 value: result.dmg,
                 isCrit: result.isCrit,
                 timeLeft: 750,
                 lastUpdate: performance.now()
-            });
+            }, textDelayMs);
         }
         return result;
     }
@@ -793,7 +822,7 @@ export class Unit {
     //   'true'   真实伤害(雷击/至圣斩/殉道自爆/灼烧) —— 绕过护盾和全部乘区；不触发铁卫转移/誓言
     // opts:
     //   attacker     击杀记功单位（缺省不计 killCount）
-    //   skipAura     强制跳过铁卫转移/誓言
+    //   skipAura     强制跳过铁卫转移/圣骑士誓言（不跳过阵营协同的致命救援）
     //   ignoreShield 覆写护盾规则（缺省由 source 决定）
     //   minHp        生命下限，伤害不致死（堕天使灼烧=1）
     // 返回 true 表示目标死亡
@@ -868,6 +897,72 @@ export class Unit {
             emit('fx:commanderSkill', { x: this.tile.x, y: this.tile.y, glyph: '\u{1F54A}\u{FE0F}', label: '临终迸发' });
             log(`${this.camp.name}${this.config.name}兵的【治愈灵光】临终迸发，从致命一击中幸存（+${burst}HP）`);
             return false;
+        }
+
+        // 奥雷利亚王国阵营协同被动【同一个誓言】：拦截所有经统一伤害入口造成的致命伤害，
+        // 包括普通攻击、空袭、中毒、地雷、天气和亡魂诅咒等无实体攻击者来源。
+        // 明确带有 minHp 生命下限的自损不会进入致命判定。
+        if (actualDmg > 0 && effectiveMinHp <= 0 && (this.hp - actualDmg) <= 0
+            && canTriggerAureliaRescue(this, _gameState)) {
+            const rescuer = chooseAureliaRescuer(this, _gameState);
+            if (rescuer) {
+                const rescuedOriginalHp = this.hp;
+                // 对广播而言，“救援前”是致命伤害结算后的 0HP；这样治疗浮字能准确显示
+                // 从死亡线抬升到 40% 最大生命的实际恢复量，而不是拿受击前血量相减。
+                const rescuedHpBefore = Math.max(0, Math.round(this.hp - actualDmg));
+                const rescuerHpBefore = rescuer.hp;
+                const rescuedHpAfter = Math.max(1, Math.round(this.maxHp * AURELIA_FACTION_PASSIVE.rescuedMaxHpPct));
+                const rescuerHpAfter = Math.max(1, Math.round(rescuer.hp * (1 - AURELIA_FACTION_PASSIVE.rescueCurrentHpCostPct)));
+                const expiresAtRound = getRoundIndex(_gameState) + AURELIA_OATH_EFFECT.durationRounds;
+                const campKey = getAureliaCampKey(this);
+
+                if (!_gameState._aureliaOathUsed) _gameState._aureliaOathUsed = {};
+                _gameState._aureliaOathUsed[campKey] = true;
+                this.hp = rescuedHpAfter;
+                rescuer.hp = rescuerHpAfter;
+                this._aureliaOathUntilRound = expiresAtRound;
+                rescuer._aureliaOathUntilRound = expiresAtRound;
+
+                emit('match:unitHpChanged', {
+                    unit: rescuer, unitId: rescuer.id,
+                    oldHp: rescuerHpBefore, newHp: rescuer.hp, delta: rescuer.hp - rescuerHpBefore,
+                    source: 'aureliaOath', sourceUnit: this, sourceUnitId: this.id
+                });
+                emit('match:unitHpChanged', {
+                    unit: this, unitId: this.id,
+                    oldHp: rescuedOriginalHp, newHp: this.hp, delta: this.hp - rescuedOriginalHp,
+                    source: 'aureliaOath', sourceUnit: rescuer, sourceUnitId: rescuer.id
+                });
+
+                // 广播锚定棋子的落格中心。getVisualPos() 会包含近战突进、后坐力和移动插值，
+                // 在致命伤害发生的一帧取它会让救援飞线偏离棋子实际所在位置。
+                const rescuerPos = rescuer.tile;
+                const rescuedPos = this.tile;
+                const event = {
+                    rescuerUnitId: rescuer.id,
+                    rescuedUnitId: this.id,
+                    rescuerCommanderId: rescuer.commander,
+                    rescuedCommanderId: this.commander,
+                    rescuerName: rescuer.getCommanderDisplayName(),
+                    rescuedName: this.getCommanderDisplayName(),
+                    rescuerX: rescuerPos.x,
+                    rescuerY: rescuerPos.y,
+                    rescuedX: rescuedPos.x,
+                    rescuedY: rescuedPos.y,
+                    rescuerHpBefore,
+                    rescuerHpAfter,
+                    rescuedHpBefore,
+                    rescuedHpAfter,
+                    expiresAtRound
+                };
+                if (!Array.isArray(_gameState._pendingAureliaOathEvents)) {
+                    _gameState._pendingAureliaOathEvents = [];
+                }
+                _gameState._pendingAureliaOathEvents.push(event);
+                emit('fx:aureliaOath', event);
+                log(`${this.camp.name}阵营协同被动【${AURELIA_FACTION_PASSIVE.name}】触发，${rescuer.getCommanderDisplayName()}与${this.getCommanderDisplayName()}获得【${AURELIA_OATH_EFFECT.name}】`);
+                return false;
+            }
         }
 
         this.hp = Math.round(Math.max(effectiveMinHp, this.hp - actualDmg));
@@ -1021,10 +1116,26 @@ export class Unit {
             const key = campToKey(attackerUnit.camp);
             _gameState.killCount[key] = (_gameState.killCount[key] || 0) + 1;
         }
-        emit('fx:explosion', { x: this.tile.x, y: this.tile.y, color: '#ff2200', count: 30 });
-        emit('fx:explosion', { x: this.tile.x, y: this.tile.y, color: '#ffaa00', count: 15 });
-        emit('fx:screenShake', { strength: 4, duration: 150 });
+        const _deathFxX = this.tile.x, _deathFxY = this.tile.y;
+        const _emitDeathFx = () => {
+            emit('fx:explosion', { x: _deathFxX, y: _deathFxY, color: '#ff2200', count: 30 });
+            emit('fx:explosion', { x: _deathFxX, y: _deathFxY, color: '#ffaa00', count: 15 });
+            emit('fx:screenShake', { strength: 4, duration: 150 });
+        };
+        // 鱼雷等飞行中攻击的击杀：爆炸延迟到弹体抵达时刻
+        const _deferMs = Math.max(0, (this._deferImpactFxUntil || 0) - performance.now());
+        if (_deferMs > 0) setTimeout(_emitDeathFx, _deferMs);
+        else _emitDeathFx();
         emit('match:unitKilled', deathSnapshot);
+    }
+
+    // 伤害数字延迟推送：鱼雷等有飞行时间的攻击，数字要等弹体抵达再跳出
+    _pushDamageTextDelayed(gs, entry, delayMs = 0) {
+        if (delayMs > 0) {
+            setTimeout(() => gs.damageTexts.push({ ...entry, lastUpdate: performance.now() }), delayMs);
+        } else {
+            gs.damageTexts.push(entry);
+        }
     }
 
     // 普攻/反击入口（保留旧签名，内部转入 applyDamage）
