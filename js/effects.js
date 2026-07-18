@@ -1,4 +1,4 @@
-import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS } from './config.js';
+import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS, MORALE_CONFIG } from './config.js';
 import { playSound } from './audio.js';
 
 // ===== 粒子系统 =====================
@@ -296,7 +296,13 @@ export function triggerScreenShake(intensity, duration) {
 // ===== 回合切换闪光 =====================
 export const turnFlash = { alpha: 0, color: '' };
 
-export const factionMoraleFlash = { alpha: 0, color: '', startTime: 0 };
+// ===== 画布边框辉光（统一机制：颜色可配，技能宣告/重大事件共用） =====
+export const borderFlash = { alpha: 0, color: '#ffd700' };
+
+export function triggerBorderFlash(color = '#ffd700') {
+    borderFlash.alpha = 0.90;
+    borderFlash.color = color;
+}
 
 export function triggerTurnFlash(campColor) {
     if (!settings.turnFlash) return;
@@ -304,10 +310,9 @@ export function triggerTurnFlash(campColor) {
     turnFlash.color = campColor;
 }
 
+// 兼容旧名：斩杀敌方将领的全军士气辉光，语义即边框辉光。
 export function triggerFactionMoraleFlash(campColor) {
-    factionMoraleFlash.alpha = 0.90;
-    factionMoraleFlash.color = campColor;
-    factionMoraleFlash.startTime = performance.now();
+    triggerBorderFlash(campColor);
 }
 
 // ===== 胜利彩纸 =====================
@@ -356,49 +361,68 @@ export function drawConfetti(ctx2d) {
     }
 }
 
-// ===== 将领技能触发特效 =====================
-export const commanderSkillEffects = [];
-export const commanderFlash = { alpha: 0 };
+// ===== 统一“符号+标签”宣告特效（图标弹出/技能宣告/士气/晋升） =====
+// 地块中央弹出图标，可选扩散环、文字标签、边框辉光、音效与飞角归位。
+// 后续新“闪个图标”需求只填 opts，不再新增特效实现。
+export const iconEffects = [];
 
-export function spawnCommanderSkillEffect(x, y, glyph = '🎖️', label = '', skipSound = false) {
-    commanderSkillEffects.push({
+export function spawnIconEffect(x, y, opts = {}) {
+    iconEffects.push({
+        kind: opts.kind || 'pop',
+        unitId: opts.unitId || null,
         x, y,
-        glyph,
-        label,
+        glyph: opts.glyph || '🎖️',
+        label: opts.label || '',
+        color: opts.color || '#ffd700',
+        ring: opts.ring === true,
+        flyTo: opts.flyTo || null,   // 'moraleCorner' | 'rankCorner'
+        rank: opts.rank || 0,
+        morale: opts.morale,
         startTime: performance.now(),
-        duration: 900
+        duration: opts.duration || 900,
+        phaseDuration: opts.flyTo ? 800 : 0
     });
-    // 画布边框辉光
-    commanderFlash.alpha = 0.90;
-    // 提示音（至圣斩攻击时由 lightning 替代，跳过此音效）
-    if (!skipSound) playSound('commanderSkill');
+    // 边框辉光：true 表示跟随图标主色，也可直接传颜色
+    if (opts.borderFlash) triggerBorderFlash(opts.borderFlash === true ? (opts.color || '#ffd700') : opts.borderFlash);
+    if (opts.sound) playSound(opts.sound);
 }
 
-// ===== 士气变化动画 =====================
-export const moraleEffects = [];
+// 将领技能触发宣告：图标+技能名+扩散环+边框辉光+提示音（主题色可配，默认金）
+export function spawnCommanderSkillEffect(x, y, glyph = '🎖️', label = '', skipSound = false, color = '#ffd700') {
+    spawnIconEffect(x, y, {
+        kind: glyph === '🛡' ? 'shield' : 'skill',
+        glyph, label, color,
+        ring: true,
+        borderFlash: color,
+        sound: skipSound ? null : 'commanderSkill'
+    });
+}
 
+// 士气变化：大图标弹出 + 文字标签（士气上升/下降/混乱）→ 缩小飞回右上士气角
 export function spawnMoraleEffect(unit) {
     if (unit.morale === 2) return;
-    moraleEffects.push({
+    const mc = MORALE_CONFIG[unit.morale];
+    spawnIconEffect(unit.tile.x, unit.tile.y, {
+        kind: 'morale',
         unitId: unit.id,
-        x: unit.tile.x,
-        y: unit.tile.y,
+        glyph: mc.icon,
+        label: mc.name,
+        color: mc.color,
+        flyTo: 'moraleCorner',
         morale: unit.morale,
-        startTime: performance.now(),
-        duration: 1500,
-        phaseDuration: 800
+        duration: 1500
     });
 }
 
-// ===== 晋升动画（无辉光，无音效，类似士气动画） =====================
-export const rankUpEffects = [];
-
+// 晋升：徽章弹出（无标签、无辉光、无音效）→ 缩小飞回右下军衔角
 export function spawnRankUpEffect(x, y, rank) {
-    rankUpEffects.push({
-        x, y, rank,
-        startTime: performance.now(),
-        duration: 1500,
-        phaseDuration: 800
+    spawnIconEffect(x, y, {
+        kind: 'rankUp',
+        glyph: '',
+        color: '#ffd700',
+        flyTo: 'rankCorner',
+        rank,
+        duration: 1500
     });
 }
 
@@ -1532,8 +1556,7 @@ export function spawnAirliftEffect(fromX, fromY, toX, toY, opts = {}) {
 // ===== 清除所有瞬时效果（用于联机重连状态恢复） =====================
 export function clearTransientEffects() {
     particles.length = 0;
-    moraleEffects.length = 0;
-    rankUpEffects.length = 0;
+    iconEffects.length = 0;
     meleeSlashes.length = 0;
     attackFlashes.length = 0;
     softFlashes.length = 0;
@@ -1565,6 +1588,5 @@ export function clearTransientEffects() {
     screenShake.x = 0;
     screenShake.y = 0;
     turnFlash.alpha = 0;
-    factionMoraleFlash.alpha = 0;
-    factionMoraleFlash.startTime = 0;
+    borderFlash.alpha = 0;
 }

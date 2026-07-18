@@ -2,7 +2,7 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, settings, frameInfo, MORALE_CONFIG, roundRectPath } from './config.js';
 import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
-import { moraleEffects, getRecoilOffset, getChargeOffset } from './effects.js';
+import { iconEffects, getRecoilOffset, getChargeOffset } from './effects.js';
 
 import { getRelationToViewer, RELATION_META } from '../rules/diplomacy.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
@@ -226,7 +226,7 @@ export function drawUnit(unit, gameState) {
         ctx.restore();
 
         // Morale marker — hex corner badge (top-right)
-        const hasMoraleAnim = moraleEffects.some(fx => fx.unitId === unit.id);
+        const hasMoraleAnim = iconEffects.some(fx => fx.kind === 'morale' && fx.unitId === unit.id);
         if (unit.morale !== 2 && !hasMoraleAnim) {
             const mc = MORALE_CONFIG[unit.morale];
             const mx = HEX_SIZE * 0.55 + (unit.morale === 0 ? 2 : 0);

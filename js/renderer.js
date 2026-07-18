@@ -14,10 +14,8 @@ import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
-    VisualParticle, moraleEffects, rankUpEffects, drawMeleeSlashes,
+    VisualParticle, iconEffects, borderFlash, drawMeleeSlashes,
     rainParticles, splashParticles, fogBlobs, windStreaks, spawnWeatherParticles,
-    commanderSkillEffects, commanderFlash,
-    factionMoraleFlash,
     drawProjectiles, updateProjectiles,
     drawTorpedoes, updateTorpedoes,
     droneProjectiles, updateDroneProjectiles, drawDroneProjectiles,
@@ -366,13 +364,8 @@ export function renderGame() {
     // ── 将领特效图层：aboveUnits（单位与旗帜之后）──
     drawFxLayer('aboveUnits', ctx, now);
 
-    // 士气变化动画
-    drawMoraleEffects(now);
-    // 晋升动画
-    drawRankUpEffects(now);
-
-    // 将领技能触发特效
-    drawCommanderSkillEffects(now);
+    // 统一“符号+标签”宣告特效（技能/士气/晋升）
+    drawIconEffects(now);
 
     // ── 将领特效图层：overSkillFx（技能特效之后；圣骑士剑环前半圈）──
     drawFxLayer('overSkillFx', ctx, now);
@@ -438,22 +431,13 @@ export function renderGame() {
         turnFlash.alpha = Math.max(0, turnFlash.alpha - 0.008);
     }
 
-    // 将领技能金色辉光（画布四周边框向内闪烁）
-    if (commanderFlash.alpha > 0.001) {
+    // 边框辉光（统一机制：技能宣告/斩将士气等共用，颜色由触发方指定）
+    if (borderFlash.alpha > 0.001) {
         ctx.save();
-        ctx.globalAlpha = commanderFlash.alpha;
-        _drawBorderGlow(ctx, '#ffd700', 55, LOGICAL_W, LOGICAL_H);
+        ctx.globalAlpha = borderFlash.alpha;
+        _drawBorderGlow(ctx, borderFlash.color || '#ffd700', 60, LOGICAL_W, LOGICAL_H);
         ctx.restore();
-        commanderFlash.alpha *= 0.97;
-    }
-
-    // 斩杀将领全军士气辉光
-    if (factionMoraleFlash.alpha > 0.001) {
-        ctx.save();
-        ctx.globalAlpha = factionMoraleFlash.alpha;
-        _drawBorderGlow(ctx, '#ffd700', 65, LOGICAL_W, LOGICAL_H);
-        ctx.restore();
-        factionMoraleFlash.alpha *= 0.96;
+        borderFlash.alpha *= 0.96;
     }
 
     // 环境粒子 — throttle to ~3/sec（非雨天）
@@ -1040,87 +1024,9 @@ function drawAirliftEffects(now) {
 }
 
 
-function drawMoraleEffects(now) {
-    for (let i = moraleEffects.length - 1; i >= 0; i--) {
-        const fx = moraleEffects[i];
-        const elapsed = now - fx.startTime;
-        if (elapsed > fx.duration) { moraleEffects.splice(i, 1); continue; }
 
-        const mc = MORALE_CONFIG[fx.morale];
-        const phase1 = elapsed < fx.phaseDuration;
-        const cornerX = fx.x + HEX_SIZE * 0.55 + (fx.morale === 0 ? 2 : 0);
-        const cornerY = fx.y - HEX_SIZE * 0.35;
 
-        if (phase1) {
-            const t = elapsed / fx.phaseDuration;
-            const alpha = Math.min(1, t * 4) * 0.75;
-            const size = 28 + t * 6;
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = mc.color;
-            ctx.font = `bold ${size}px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = mc.color;
-            ctx.shadowBlur = 16 + t * 8;
-            ctx.fillText(mc.icon, fx.x, fx.y);
-            ctx.restore();
-        } else {
-            const t = (elapsed - fx.phaseDuration) / (fx.duration - fx.phaseDuration);
-            const x = fx.x + (cornerX - fx.x) * t;
-            const y = fx.y + (cornerY - fx.y) * t;
-            const size = 34 - 23 * t;
-            const alpha = 0.75 * (1 - t * 0.5);
 
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = mc.color;
-            ctx.font = `bold ${size}px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(0,0,0,0.6)';
-            ctx.shadowBlur = 4 + 4 * (1 - t);
-            ctx.fillText(mc.icon, x, y + 1);
-            ctx.restore();
-        }
-    }
-}
-
-function drawRankUpEffects(now) {
-    for (let i = rankUpEffects.length - 1; i >= 0; i--) {
-        const fx = rankUpEffects[i];
-        const elapsed = now - fx.startTime;
-        if (elapsed > fx.duration) { rankUpEffects.splice(i, 1); continue; }
-
-        const phase1 = elapsed < fx.phaseDuration;
-        const cornerX = fx.x + HEX_SIZE * 0.48;
-        const cornerY = fx.y + HEX_SIZE * 0.38;
-
-        if (phase1) {
-            const t = elapsed / fx.phaseDuration;
-            const alpha = Math.min(1, t * 4) * 0.85;
-            if (fx.rank >= 4) {
-                const size = 28 + t * 6;
-                _drawRankStar(fx.x, fx.y, size, alpha, '#ffd700', 14 + t * 8);
-            } else {
-                const scale = 2.5 + t * 1.0;
-                _drawChevrons(fx.x, fx.y, fx.rank, scale, alpha, '#ffd700', 14 + t * 8);
-            }
-        } else {
-            const t = (elapsed - fx.phaseDuration) / (fx.duration - fx.phaseDuration);
-            const x = fx.x + (cornerX - fx.x) * t;
-            const y = fx.y + (cornerY - fx.y) * t;
-            const alpha = 0.85 * (1 - t * 0.5);
-            if (fx.rank >= 4) {
-                const size = 32 - 22 * t;
-                _drawRankStar(x, y, size, alpha, '#ffd700', 4 + 4 * (1 - t));
-            } else {
-                const scale = 3.5 - 2.5 * t;
-                _drawChevrons(x, y, fx.rank, scale, alpha, '#ffd700', 4 + 4 * (1 - t));
-            }
-        }
-    }
-}
 
 function _drawChevrons(cx, cy, rank, scale, alpha, color, glow) {
     ctx.save();
@@ -1390,71 +1296,144 @@ function drawOperationInteractionRoute(now) {
 }
 
 // ===== 将领技能触发特效（军功章） =====================
-function drawCommanderSkillEffects(now) {
-    for (let i = commanderSkillEffects.length - 1; i >= 0; i--) {
-        const fx = commanderSkillEffects[i];
+
+
+// ===== 统一“符号+标签”宣告特效绘制（技能/士气/晋升共用一条管线） =====
+function drawIconEffects(now) {
+    for (let i = iconEffects.length - 1; i >= 0; i--) {
+        const fx = iconEffects[i];
         const elapsed = now - fx.startTime;
-        if (elapsed > fx.duration) { commanderSkillEffects.splice(i, 1); continue; }
+        if (elapsed > fx.duration) { iconEffects.splice(i, 1); continue; }
+        if (fx.kind === 'morale') _drawMoraleIconEffect(fx, elapsed);
+        else if (fx.kind === 'rankUp') _drawRankUpIconEffect(fx, elapsed);
+        else _drawSkillIconEffect(fx, elapsed);
+    }
+}
 
-        const t = elapsed / fx.duration;
-        const isShield = fx.glyph === '🛡';
+function _withAlpha(color, alpha) {
+    if (typeof color === 'string' && color.startsWith('#')) {
+        let hex = color.slice(1);
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        const n = parseInt(hex, 16);
+        return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+    }
+    return color;
+}
 
-        if (isShield) {
-            // 护盾：原地变大淡出，凸显抵挡感
-            const scale = 0.4 + t * 1.8;
-            const alpha = t < 0.3 ? 1 : Math.max(0, 1 - (t - 0.3) / 0.7);
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = '#e0e8ff';
-            ctx.font = `bold ${Math.round(32 * scale)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#aaccff';
-            ctx.shadowBlur = 18 + t * 10;
-            ctx.fillText('🛡', fx.x, fx.y);
-            ctx.restore();
+function _strokeLabel(text, x, y, color, alpha) {
+    ctx.fillStyle = _withAlpha(color, alpha);
+    ctx.font = 'bold 13px "Noto Serif SC", "Noto Serif CJK SC", "Microsoft YaHei", serif';
+    ctx.shadowColor = 'rgba(0,0,0,0.75)';
+    ctx.shadowBlur = 4;
+    ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.6})`;
+    ctx.lineWidth = 2.5;
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+}
+
+// 技能宣告：扩散环 + 图标弹性缩放 + 技能名上浮（🛡 特例为原地变大淡出）
+function _drawSkillIconEffect(fx, elapsed) {
+    const t = elapsed / fx.duration;
+    if (fx.kind === 'shield') {
+        const scale = 0.4 + t * 1.8;
+        const alpha = t < 0.3 ? 1 : Math.max(0, 1 - (t - 0.3) / 0.7);
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#e0e8ff';
+        ctx.font = `bold ${Math.round(32 * scale)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#aaccff';
+        ctx.shadowBlur = 18 + t * 10;
+        ctx.fillText('🛡', fx.x, fx.y);
+        ctx.restore();
+        return;
+    }
+    const ease = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85; // 快速弹出 → 缓慢衰减
+    const scale = 0.3 + ease * 1.6;  // 0.3 → 1.9 → 0.3
+    const alpha = t < 0.2 ? t / 0.2 : Math.max(0, 1 - (t - 0.2) / 0.8);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (fx.ring) {
+        const ringR = HEX_SIZE * (0.4 + t * 1.4);
+        ctx.beginPath();
+        ctx.arc(fx.x, fx.y, ringR, 0, Math.PI * 2);
+        ctx.strokeStyle = _withAlpha(fx.color, alpha * (1 - t));
+        ctx.lineWidth = 2.5 * (1 - t);
+        ctx.stroke();
+    }
+    ctx.fillStyle = fx.color;
+    ctx.font = `bold ${Math.round(28 * scale)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = fx.color;
+    ctx.shadowBlur = 20 + ease * 16;
+    ctx.fillText(fx.glyph || '🎖️', fx.x, fx.y);
+    if (fx.label) {
+        const labelAlpha = t < 0.12 ? t / 0.12 : Math.max(0, 1 - (t - 0.25) / 0.75);
+        _strokeLabel(fx.label, fx.x, fx.y - 16 - t * 30, fx.color, labelAlpha);
+    }
+    ctx.restore();
+}
+
+// 士气变化：大图标+文字标签弹出 → 缩小飞回右上士气角（持续角标由 unitRenderer 常驻）
+function _drawMoraleIconEffect(fx, elapsed) {
+    const phase1 = elapsed < fx.phaseDuration;
+    const cornerX = fx.x + HEX_SIZE * 0.55 + (fx.morale === 0 ? 2 : 0);
+    const cornerY = fx.y - HEX_SIZE * 0.35;
+    ctx.save();
+    if (phase1) {
+        const t = elapsed / fx.phaseDuration;
+        const alpha = Math.min(1, t * 4) * 0.75;
+        const size = 28 + t * 6;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = fx.color;
+        ctx.font = `bold ${size}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = fx.color;
+        ctx.shadowBlur = 16 + t * 8;
+        ctx.fillText(fx.glyph, fx.x, fx.y);
+        if (fx.label) _strokeLabel(fx.label, fx.x, fx.y - 24 - t * 12, fx.color, Math.min(1, t * 3) * 0.9);
+    } else {
+        const t = (elapsed - fx.phaseDuration) / (fx.duration - fx.phaseDuration);
+        const x = fx.x + (cornerX - fx.x) * t;
+        const y = fx.y + (cornerY - fx.y) * t;
+        const size = 34 - 23 * t;
+        ctx.globalAlpha = 0.75 * (1 - t * 0.5);
+        ctx.fillStyle = fx.color;
+        ctx.font = `bold ${size}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 4 + 4 * (1 - t);
+        ctx.fillText(fx.glyph, x, y + 1);
+    }
+    ctx.restore();
+}
+
+// 晋升：V 杠/金星弹出（无标签）→ 缩小飞回右下军衔角
+function _drawRankUpIconEffect(fx, elapsed) {
+    const phase1 = elapsed < fx.phaseDuration;
+    const cornerX = fx.x + HEX_SIZE * 0.48;
+    const cornerY = fx.y + HEX_SIZE * 0.38;
+    if (phase1) {
+        const t = elapsed / fx.phaseDuration;
+        const alpha = Math.min(1, t * 4) * 0.85;
+        if (fx.rank >= 4) {
+            _drawRankStar(fx.x, fx.y, 28 + t * 6, alpha, '#ffd700', 14 + t * 8);
         } else {
-            const ease = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85; // 快速弹出 → 缓慢衰减
-            const scale = 0.3 + ease * 1.6;  // 0.3 → 1.9 → 0.3
-            const alpha = t < 0.2 ? t / 0.2 : Math.max(0, 1 - (t - 0.2) / 0.8);
-
-            ctx.save();
-            ctx.globalAlpha = alpha;
-
-            // Layer 1: 扩散光环
-            const ringR = HEX_SIZE * (0.4 + t * 1.4);
-            const ringAlpha = alpha * (1 - t);
-            ctx.beginPath();
-            ctx.arc(fx.x, fx.y, ringR, 0, Math.PI * 2);
-            ctx.strokeStyle = `rgba(255,215,0,${ringAlpha})`;
-            ctx.lineWidth = 2.5 * (1 - t);
-            ctx.stroke();
-
-            // Layer 2: 中心星标
-            ctx.fillStyle = '#ffd700';
-            ctx.font = `bold ${Math.round(28 * scale)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", Arial, sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ffd700';
-            ctx.shadowBlur = 20 + ease * 16;
-            ctx.fillText(fx.glyph || '🎖️', fx.x, fx.y);
-
-            // Layer 3: 技能名文字上浮
-            if (fx.label) {
-                const labelY = fx.y - 16 - t * 30;
-                const labelAlpha = t < 0.12 ? t / 0.12 : Math.max(0, 1 - (t - 0.25) / 0.75);
-                ctx.fillStyle = `rgba(255,220,80,${labelAlpha})`;
-                ctx.font = 'bold 13px "Noto Serif SC", "Noto Serif CJK SC", "Microsoft YaHei", serif';
-                ctx.shadowColor = 'rgba(0,0,0,0.75)';
-                ctx.shadowBlur = 4;
-                // 文字描边增强可读性
-                ctx.strokeStyle = `rgba(0,0,0,${labelAlpha * 0.6})`;
-                ctx.lineWidth = 2.5;
-                ctx.strokeText(fx.label, fx.x, labelY);
-                ctx.fillText(fx.label, fx.x, labelY);
-            }
-
-            ctx.restore();
+            _drawChevrons(fx.x, fx.y, fx.rank, 2.5 + t * 1.0, alpha, '#ffd700', 14 + t * 8);
+        }
+    } else {
+        const t = (elapsed - fx.phaseDuration) / (fx.duration - fx.phaseDuration);
+        const x = fx.x + (cornerX - fx.x) * t;
+        const y = fx.y + (cornerY - fx.y) * t;
+        const alpha = 0.85 * (1 - t * 0.5);
+        if (fx.rank >= 4) {
+            _drawRankStar(x, y, 32 - 22 * t, alpha, '#ffd700', 4 + 4 * (1 - t));
+        } else {
+            _drawChevrons(x, y, fx.rank, 3.5 - 2.5 * t, alpha, '#ffd700', 4 + 4 * (1 - t));
         }
     }
 }

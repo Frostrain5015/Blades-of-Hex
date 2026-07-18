@@ -415,15 +415,24 @@ export function recalcAllFlankingMorale() {
             const surrounded = isSurrounded(u, gameState.tileMap);
             const flanked = !surrounded && isFlanked(u, gameState.tileMap);
 
-            // 夹击/包围仅向下压制士气（不覆写，保留击杀加成等提升）
-            if (surrounded) {
-                if (u.morale > 0) u.morale = 0;
-            } else if (flanked) {
-                if (u.morale > 1) u.morale = 1;
-            }
+            // 士气 = min(自然士气, 态势上限)：包围封顶0、夹击封顶1、无态势回到自然值，
+            // 态势解除后立即回升（包围→夹击也会回到1）。攻心处罚期保留处罚值，
+            // 其到期由回合开始统一处理。
+            const curRound = getRoundIndex(gameState);
+            const penaltyActive = u.moralePenaltyUntil > curRound;
+            const naturalMorale = penaltyActive ? u.morale : (u.moraleBoostUntil > curRound ? 3 : 2);
+            const moraleCap = surrounded ? 0 : flanked ? 1 : 3;
+            const targetMorale = Math.min(naturalMorale, moraleCap);
+            if (u.morale !== targetMorale) u.morale = targetMorale;
 
-            // 仅在士气归零时禁用行动（不主动恢复，由回合开始管理）
-            if (u.morale === 0) u.canAct = false;
+            // 士气归零时禁用行动；若是本次被包围强制缴械，解除包围恢复士气后立即归还
+            if (u.morale === 0) {
+                if (u.canAct) u._flankForcedIdle = true;
+                u.canAct = false;
+            } else if (u._flankForcedIdle) {
+                u.canAct = true;
+                u._flankForcedIdle = false;
+            }
         }
 
         if (u.morale !== prev) {
