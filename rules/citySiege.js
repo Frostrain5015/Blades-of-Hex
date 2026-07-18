@@ -1,18 +1,39 @@
 // rules/citySiege.js — 城市HP、驻军防御转化与围城占领判定的单一规则入口。
+// 大型城市：由中心格 + radius 定义的正六边形城郭，全城共享一个血池。
+// 血池只存于中心格（isCity），城内其余地块（isUrban）持镜像 hp/maxHp，
+// 以便渲染、快照、联机序列化等直接读取 tile.hp 而无需感知血池结构。
 
 import { deepFreeze } from './freeze.js';
 import { canAttack } from './diplomacy.js';
 
 export const CITY_SIEGE_CONFIG = deepFreeze({
-    maxHp: 200,
+    baseMaxHp: 200,
+    maxHpPerRadius: 400,
     regenPctPerRound: 0.10,
-    defensePctPer100Hp: 0.10
+    maxDefensePct: 0.20
 });
 
-/** 驻军单位从城市当前HP换算出的防御力加成；用当前HP而非满血，城墙被磨过就少加。 */
+/** 城市血池上限：半径0=200，每向外扩大一圈 +400（半径1=600、半径2=1000）。 */
+export function getCityMaxHp(radius = 0) {
+    const r = Math.max(0, Math.round(Number(radius) || 0));
+    return CITY_SIEGE_CONFIG.baseMaxHp + CITY_SIEGE_CONFIG.maxHpPerRadius * r;
+}
+
+/** 由城市总格数反推正六边形圈数（旧档随意涂抹的 footprint → 最近似半径）。 */
+export function getCityRadiusFromTileCount(count) {
+    const n = Math.max(1, Math.round(Number(count) || 1));
+    let radius = 0;
+    // 半径 r 的正六边形城市群总格数 = 1 + 3r(r+1)
+    while (1 + 3 * radius * (radius + 1) < n) radius++;
+    return radius;
+}
+
+/** 驻军防御加成：满血 +maxDefensePct，按当前HP百分比线性衰减（半血即减半）。 */
 export function getCityDefenseBonus(tile) {
+    const maxHp = Number(tile?.maxHp) || 0;
+    if (maxHp <= 0) return 0;
     const hp = Math.max(0, Number(tile?.hp) || 0);
-    return (hp / 100) * CITY_SIEGE_CONFIG.defensePctPer100Hp;
+    return CITY_SIEGE_CONFIG.maxDefensePct * Math.max(0, Math.min(1, hp / maxHp));
 }
 
 /** 城市"脱战"一整轮后的自动回复量。 */
@@ -26,9 +47,46 @@ export function isCityDisabled(tile) {
     return !!tile?.isCity && (Number(tile.hp) || 0) <= 0;
 }
 
-/** 城墙未破且无驻军时，敌方/中立单位完全不能进入或合并落地。 */
+/** 解析地块所属城市的血池宿主（中心格）；footprint 格经 urbanCenterKey 回溯。 */
+export function getCityPoolTile(tile, tileMap) {
+    if (!tile) return null;
+    if (tile.isCity) return tile;
+    if (tile.isUrban && tile.urbanCenterKey && tileMap?.get) {
+        const centre = tileMap.get(tile.urbanCenterKey);
+        if (centre?.isCity) return centre;
+    }
+    return null;
+}
+
+/** 把中心格血池的 hp/maxHp 镜像到全城所有城内格（中心格自身除外）。 */
+export function syncCityHpMirrors(poolTile, tileMap) {
+    if (!poolTile?.isCity || !tileMap) return;
+    const centreKey = `${poolTile.q},${poolTile.r}`;
+    const tiles = tileMap instanceof Map ? tileMap.values() : Object.values(tileMap);
+    for (const tile of tiles) {
+        if (!tile || tile === poolTile) continue;
+        if (tile.isUrban && tile.urbanCenterKey === centreKey) {
+            tile.hp = poolTile.hp;
+            tile.maxHp = poolTile.maxHp;
+        }
+    }
+}
+
+/** 从任意城内格对共享血池扣血并同步镜像；返回血池剩余HP。 */
+export function damageCityPool(anyCityTile, damage, tileMap) {
+    const pool = getCityPoolTile(anyCityTile, tileMap) || (anyCityTile?.isCity ? anyCityTile : null);
+    if (!pool) return 0;
+    pool.hp = Math.max(0, (Number(pool.hp) || 0) - Math.max(0, Math.round(Number(damage) || 0)));
+    syncCityHpMirrors(pool, tileMap);
+    return pool.hp;
+}
+
+/** 城墙未破且无驻军时，敌方/中立单位完全不能进入或合并落地；城郭每格都适用。 */
 export function isCitySiegeBlocked(tile, moverCamp, state) {
-    if (!tile?.isCity || tile.unit || (Number(tile.hp) || 0) <= 0) return false;
+    if (!tile?.isCity && !tile?.isUrban) return false;
+    if (tile.unit) return false;
+    const pool = getCityPoolTile(tile, state?.tileMap) || tile;
+    if ((Number(pool.hp) || 0) <= 0) return false;
     return canAttack(state, moverCamp, tile.camp);
 }
 

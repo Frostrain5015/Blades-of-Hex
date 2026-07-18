@@ -125,7 +125,8 @@ export function isRankLockedUnit(unitOrType) {
 export function isStrongpointTarget(target) {
     if (!target) return false;
     if (isBuildingUnit(target) && target.type !== 'drone') return true;
-    return !!(target.tile?.isCity || target.tile?.fortification);
+    // 城郭（isUrban）驻军与中心城市驻军同属要塞目标，共享城市血池庇护。
+    return !!(target.tile?.isCity || target.tile?.isUrban || target.tile?.fortification);
 }
 
 export function getSpecializationOptions(unitOrType) {

@@ -272,12 +272,12 @@ async function _executeActionInner(action, aiCamp) {
             const c = (COUNTER[unit.type] && COUNTER[unit.type][target.type]) || 1;
             const tDef = (TERRAIN_DEF[target.tile.terrain] || 0)
                 + (FORTIFICATION_CONFIG[target.tile.fortification]?.defenseBonus || 0);
-            const cityDef = (target.type === 'infantry' && target.tile.isCity)
+            const cityDef = (target.type === 'infantry' && (target.tile.isCity || target.tile.isUrban))
                 ? (gameState.weather === 'rain' ? 0.20 : 0.10) : 0;
             const unitDef = target.config.defense || 0;
-            const moraleFloat = unit.morale === 3 ? 1.075 : unit.morale === 1 ? 0.925 : unit.morale === 0 ? 0.90 : 1.0;
+            // 士气攻击加成已含在 getEffectiveAttack 内，不再单独估算
             const counterFloat = c > 1 ? 1.20 : c < 1 ? 0.80 : 1.0;
-            const estDmg = unit.getEffectiveAttack() * moraleFloat * counterFloat * Math.max(0.3, 1 - tDef - cityDef - unitDef);
+            const estDmg = unit.getEffectiveAttack() * counterFloat * Math.max(0.3, 1 - tDef - cityDef - unitDef);
             let score = 0;
             if (estDmg >= target.hp + (target._shield || 0)) score += 200;
             score += (1 - target.hp / target.maxHp) * 60;

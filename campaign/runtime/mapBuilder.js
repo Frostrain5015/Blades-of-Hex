@@ -10,7 +10,7 @@ import {
 } from '../../rules/surfaces.js';
 import { buildRiverTopology } from '../../rules/hydrography.js';
 import { resolvePortLandAnchor } from '../../rules/ports.js';
-import { CITY_SIEGE_CONFIG } from '../../rules/citySiege.js';
+import { getCityMaxHp, getCityRadiusFromTileCount } from '../../rules/citySiege.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from '../../js/HexTile.js';
 
 /**
@@ -94,13 +94,20 @@ export function buildBoardFromConfig(config, gameState) {
         tile.currentColor = camp.color;
     }
 
-    // 7) 标记城市中心与多格 footprint。中心仍是唯一 isCity；城郭范围
-    // 只设置 isUrban，以兼容所有依赖单格城市中心的旧规则。
+    // 7) 标记城市中心与城郭范围。中心仍是唯一 isCity；radius 定义正六边形城郭
+    // （radius=0 即单格城），旧档 footprint 涂抹形状保留兼容。全城共享一个血池，
+    // 血池挂在中心格，hp/maxHp 镜像同步到所有城内格。
+    const cityCentreKeys = new Set(landCities.map(city => tileCoordinateKey(city.q, city.r)));
     for (const city of landCities) {
         const centre = at(city.q, city.r);
         const centreKey = tileCoordinateKey(city.q, city.r);
         centre.isCity = true;
-        centre.maxHp = CITY_SIEGE_CONFIG.maxHp;
+        const legacyFootprint = Array.isArray(city.footprint) ? city.footprint : null;
+        const radius = Number.isFinite(city.radius)
+            ? Math.max(0, Math.round(city.radius))
+            : getCityRadiusFromTileCount(1 + (legacyFootprint ? legacyFootprint.length : 0));
+        centre.cityRadius = radius;
+        centre.maxHp = getCityMaxHp(radius);
         // 城防：优先绝对 hp，其次 hpPct（0~100 百分比），默认满血——与单位 hp/hpPct 同一套优先级。
         if (typeof city.hp === 'number') {
             centre.hp = Math.max(0, Math.min(centre.maxHp, Math.round(city.hp)));
@@ -109,7 +116,9 @@ export function buildBoardFromConfig(config, gameState) {
         } else {
             centre.hp = centre.maxHp;
         }
-        const footprint = [{ q: city.q, r: city.r }, ...(Array.isArray(city.footprint) ? city.footprint : [])];
+        const footprint = legacyFootprint
+            ? [{ q: city.q, r: city.r }, ...legacyFootprint]
+            : tiles.filter(tile => hexDistance(tile, centre) <= radius);
         const seen = new Set();
         for (const point of footprint) {
             const key = tileCoordinateKey(point?.q, point?.r);
@@ -117,8 +126,12 @@ export function buildBoardFromConfig(config, gameState) {
             seen.add(key);
             const tile = at(point?.q, point?.r);
             if (!tile || !isLandTile(tile)) continue;
+            if (key !== centreKey && cityCentreKeys.has(key)) continue; // 不吞并其他城市的中心格
             tile.isUrban = true;
             tile.urbanCenterKey = centreKey;
+            // 城内格镜像共享血池，渲染/快照/联机无需感知血池结构。
+            tile.hp = centre.hp;
+            tile.maxHp = centre.maxHp;
         }
     }
 

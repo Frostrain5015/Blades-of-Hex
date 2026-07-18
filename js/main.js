@@ -10,6 +10,7 @@ import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKe
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { COMMANDER_REROLL_COST } from './config.js';
 import { COMMANDER_DRAFT } from '../rules/constants.js';
+import { damageCityPool } from '../rules/citySiege.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
 import {
     triggerTurnFlash,
@@ -3403,7 +3404,8 @@ async function handleRemoteAction(msg) {
                         for (const r of (e.results || [])) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                             if (tile && r.isCitySiege) {
-                                tile.hp = Math.max(0, (Number(tile.hp) || 0) - r.damage);
+                                // 共享血池：与主机端一致走 damageCityPool（镜像同步到全城）
+                                damageCityPool(tile, r.damage, gameState.tileMap);
                             } else if (tile && tile.unit) {
                                 tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
                             }

@@ -39,7 +39,6 @@ import {
     riverVertexToPixel,
     snapRiverVertex,
     surfaceKindAt,
-    toggleCityFootprint,
     togglePort,
     toggleRiverCrossing
 } from './boardModel.js';
@@ -90,6 +89,8 @@ const boardTool = {
     fortification: 'trench',
     installation: 'airfield',
     cityType: 'city',
+    cityRadius: 0,
+    cityAirfield: false,
     riverId: 'river',
     riverWidth: 'river',
     crossingKind: 'bridge',
@@ -645,18 +646,20 @@ function applyBrush(tile) {
         }
         case 'city': {
             if (water) { setStatus('水域不能放置城市或村庄。', 'error'); return false; }
-            if (boardTool.cityType === 'footprint') {
-                const result = toggleCityFootprint(config, q, r);
-                if (result.error) setStatus(result.error, 'error');
-                else setStatus(result.placed ? '已扩展大型城市范围。' : '已从大型城市范围移除该地块。');
-                return result.changed;
-            }
             // 城市/村庄二合一笔刷：由 boardTool.cityType 区分（'city' | 'village'），两者互斥。
+            // 大型城市只允许中心+radius 的正六边形，不再支持随意涂抹城郭形状。
             removeFromList(b.cities, q, r);
             removeFromList(b.villages, q, r);
             if (boardTool.cityType === 'city') {
                 removeFromList(b.districts, q, r);   // 清掉此格的范围覆盖残留
-                b.cities.push({ q, r, districtId: boardTool.districtId, camp: boardTool.camp });
+                const entry = { q, r, districtId: boardTool.districtId, camp: boardTool.camp };
+                if (boardTool.cityRadius > 0) entry.radius = boardTool.cityRadius;
+                b.cities.push(entry);
+                // “有无机场”由放置选项直接决定：勾选则建成 ready 机场，不勾则清掉本格残留设施
+                removeFromList(b.installations, q, r);
+                if (boardTool.cityAirfield) {
+                    b.installations.push({ q, r, type: 'airfield', status: 'ready', camp: boardTool.camp });
+                }
             } else {
                 b.villages.push({ q, r, districtId: preview.tileMap.get(tileKey(q, r))?.districtId ?? boardTool.districtId });
             }
@@ -1059,16 +1062,16 @@ function buildBoardTools() {
     if (boardTool.mode === 'city') {
         secParam.appendChild(selectRow('类型', boardTool.cityType, {
             city: '城市中心',
-            footprint: '扩展大型城市范围',
             village: '村庄'
         }, v => { boardTool.cityType = v; renderInspector(); }));
-        if (boardTool.cityType !== 'footprint') {
-            secParam.appendChild(selectRow('阵营', boardTool.camp, factionLabels(), v => { boardTool.camp = v; }));
-        } else {
-            secParam.appendChild(hint('点击紧邻现有城市的陆地以扩展城郭；再次点击已有范围地块可移除。若同时邻接多个城市，编辑器会拒绝含糊归属。'));
+        secParam.appendChild(selectRow('阵营', boardTool.camp, factionLabels(), v => { boardTool.camp = v; }));
+        if (boardTool.cityType === 'city') {
+            secParam.appendChild(numRow('城市半径', boardTool.cityRadius, v => { boardTool.cityRadius = Math.max(0, Math.round(v)); }, { min: 0, max: 3, step: 1 }));
+            secParam.appendChild(checkRow('附带机场', boardTool.cityAirfield, v => { boardTool.cityAirfield = v; }));
+            secParam.appendChild(hint('大型城市为中心+radius 的正六边形：半径0=单格200血，半径1=七格600血，半径2=十九格1000血，全城共享血池。'));
         }
     }
-    if ((boardTool.mode === 'city' && boardTool.cityType !== 'footprint') || boardTool.mode === 'district') {
+    if (boardTool.mode === 'city' || boardTool.mode === 'district') {
         secParam.appendChild(numRow('行政区 ID', boardTool.districtId, v => { boardTool.districtId = Math.max(0, Math.round(v)); }, { min: 0, max: 99, step: 1 }));
     }
     if (boardTool.mode === 'river') {
@@ -1829,6 +1832,8 @@ function actionDefaults(kind) {
         case 'setObjectiveStatus': return { objective: Object.keys(config.objectives)[0] || '', status: 'active' };
         case 'changeGold': return { camp: primaryFactionId(), operation: 'add', value: 1 };
         case 'changeUnitHp': return { target: { unit: config.units[0]?.id || '' }, operation: 'subtract', mode: 'value', value: 1 };
+        case 'addUnitXp': return { target: { unit: config.units[0]?.id || '' }, value: 3 };
+        case 'changeUnitMorale': return { target: { unit: config.units[0]?.id || '' }, operation: 'add', value: 1 };
         case 'changeUnitFaction': return { target: { unit: config.units[0]?.id || '' }, camp: primaryFactionId() };
         case 'setUnitState': return { target: { unit: config.units[0]?.id || '' }, state: 'canAct', value: true };
         case 'setDiplomacy': return { camp: primaryFactionId(), targetCamp: nonLocalFactionId(), relation: 'enemy' };
@@ -2298,6 +2303,32 @@ function actionEditor(action, onChange, onRemove, allowNested = true) {
             box.appendChild(selectRow('操作', action.operation || 'subtract', { set: '设为', add: '治疗', subtract: '造成伤害' }, v => patch({ operation: v })));
             box.appendChild(selectRow('单位', action.mode || 'value', { value: '点数', percent: '最大生命百分比' }, v => patch({ mode: v })));
             box.appendChild(numRow('数值', action.value ?? 1, v => patch({ value: Math.max(0, v) }))); break;
+        case 'unitXp':
+            box.appendChild(targetEditor(action.target, target => patch({ target })));
+            box.appendChild(numRow('经验值', action.value ?? 3, v => patch({ value: Math.max(1, Math.round(v)) })));
+            box.appendChild(checkRow('播放晋升动画', action.fx !== false, v => patch({ fx: v })));
+            box.appendChild(hint('经验达到晋升阈值时自动升阶；无分支兵种自动强化既有职能。取消勾选则静默结算，不播放动画。'));
+            break;
+        case 'unitMorale': {
+            const scope = action.area ? 'area' : action.camp ? 'camp' : 'unit';
+            box.appendChild(selectRow('范围', scope, { unit: '指定单位/单位组', area: '指定区域', camp: '指定阵营' }, v => {
+                if (v === 'area') patch({ area: config.areas[0]?.id || '', camp: undefined, target: undefined, unit: undefined });
+                else if (v === 'camp') patch({ camp: primaryFactionId(), area: undefined, target: undefined, unit: undefined });
+                else patch({ target: { unit: config.units[0]?.id || '' }, area: undefined, camp: undefined });
+            }));
+            if (scope === 'area') {
+                box.appendChild(selectRow('区域', action.area || '', Object.fromEntries((config.areas || []).map(area => [area.id, area.id])), v => patch({ area: v })));
+            } else if (scope === 'camp') {
+                box.appendChild(selectRow('阵营', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v })));
+            } else {
+                box.appendChild(targetEditor(action.target, target => patch({ target })));
+            }
+            box.appendChild(selectRow('操作', action.operation || 'add', { add: '士气上升', subtract: '士气下降', set: '设为' }, v => patch({ operation: v })));
+            box.appendChild(numRow('数值', action.value ?? 1, v => patch({ value: Math.max(0, Math.round(v)) })));
+            box.appendChild(checkRow('播放士气动画', action.fx !== false, v => patch({ fx: v })));
+            box.appendChild(hint('上升/下降按数值增减并限制在 0~3；设为直接指定：0=混乱、1=下降、2=正常、3=上升。取消勾选则静默结算，不播放动画。'));
+            break;
+        }
         case 'unitCamp':
             box.appendChild(targetEditor(action.target, target => patch({ target })));
             box.appendChild(selectRow('新阵营', action.camp || primaryFactionId(), factionLabels(), v => patch({ camp: v }))); break;

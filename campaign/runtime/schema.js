@@ -24,6 +24,19 @@ import {
 import { canUnitOccupyTile } from '../../rules/movement.js';
 import { NPC_DIALOGUE_PORTRAIT_IDS, NPC_DIALOGUE_PORTRAIT_LABELS } from '../portraits.js';
 
+/** 城市城郭坐标：有旧档 footprint 按原样兼容，否则按 radius 生成正六边形（radius=0 即单格）。 */
+function cityFootprintCoords(city, authoredFootprint = []) {
+    if (authoredFootprint.length) return [{ q: city?.q, r: city?.r }, ...authoredFootprint];
+    const radius = Number.isInteger(city?.radius) ? Math.max(0, city.radius) : 0;
+    const coords = [];
+    for (let dq = -radius; dq <= radius; dq++) {
+        for (let dr = Math.max(-radius, -dq - radius); dr <= Math.min(radius, -dq + radius); dr++) {
+            coords.push({ q: (city?.q ?? 0) + dq, r: (city?.r ?? 0) + dr });
+        }
+    }
+    return coords;
+}
+
 export const SCHEMA_VERSION = 4;
 export const RELATION_KEYS = Object.freeze(['ally', 'neutral', 'enemy']);
 export const OBJECTIVE_STATUS_KEYS = Object.freeze(['hidden', 'active', 'completed', 'failed']);
@@ -138,6 +151,8 @@ export const TRIGGER_ACTIONS = Object.freeze([
     ,{ kind: 'setObjectiveStatus', label: '设置目标状态', arg: 'objectiveStatus' }
     ,{ kind: 'changeGold', label: '修改金币', arg: 'campOperation' }
     ,{ kind: 'changeUnitHp', label: '修改单位生命', arg: 'unitOperation' }
+    ,{ kind: 'addUnitXp', label: '增加单位经验', arg: 'unitXp', note: '经验够晋升时自动升阶（无分支兵种自动强化）' }
+    ,{ kind: 'changeUnitMorale', label: '修改单位士气', arg: 'unitMorale', note: '指定单位/区域/阵营；设为0即陷入混乱' }
     ,{ kind: 'changeUnitFaction', label: '改变单位阵营', arg: 'unitCamp' }
     ,{ kind: 'setUnitState', label: '设置单位状态', arg: 'unitState' }
     ,{ kind: 'applyEffect', label: '施加效果', arg: 'effectApply', note: '为指定单位添加临时效果（攻防速HP修正），效果会显示在左上角徽章栏' }
@@ -431,7 +446,11 @@ export function validateLevel(config) {
         } else if (Array.isArray(city?.footprint)) {
             authoredFootprint = city.footprint;
         }
-        const footprint = [{ q: city?.q, r: city?.r }, ...authoredFootprint];
+        // radius 定义正六边形城郭（radius=0 即单格城）；旧档 footprint 涂抹形状仍兼容。
+        if (city?.radius != null && (!Number.isInteger(city.radius) || city.radius < 0)) {
+            errors.push(`城市 (${city?.q},${city?.r}) 的 radius 必须是非负整数。`);
+        }
+        const footprint = cityFootprintCoords(city, authoredFootprint);
         const localFootprint = new Set();
         for (const point of footprint) {
             if (!Number.isInteger(point?.q) || !Number.isInteger(point?.r) || !inBoard(point.q, point.r)) {
@@ -830,8 +849,16 @@ export function validateLevel(config) {
         }
         if (action.kind === 'setMechanicEnabled' && !MECHANIC_KEYS.includes(action.mechanic)) errors.push(`${path} 引用不存在的机制「${action.mechanic}」。`);
         if (['changeGold', 'changeUnitFaction'].includes(action.kind) && !factionIds.has(action.camp)) errors.push(`${path} 的阵营「${action.camp}」未在本关阵营列表中声明。`);
-        if (['changeUnitHp', 'changeUnitFaction', 'setUnitState', 'applyEffect', 'assignCommander', 'removeUnits'].includes(action.kind)
+        if (['changeUnitHp', 'changeUnitFaction', 'setUnitState', 'applyEffect', 'assignCommander', 'removeUnits', 'addUnitXp'].includes(action.kind)
             && !target?.unit && !target?.group && !action.unit) errors.push(`${path} 必须选择一个单位或单位组。`);
+        if (action.kind === 'addUnitXp' && (!Number.isFinite(action.value) || action.value <= 0)) errors.push(`${path} 的经验数值必须是正数。`);
+        if (action.kind === 'changeUnitMorale') {
+            if (!target?.unit && !target?.group && !action.unit && !action.area && !action.camp) errors.push(`${path} 必须选择单位/单位组、区域或阵营。`);
+            if (action.area && !areaIds.has(action.area)) errors.push(`${path} 引用不存在的区域「${action.area}」。`);
+            if (action.camp && !factionIds.has(action.camp)) errors.push(`${path} 的阵营「${action.camp}」未在本关阵营列表中声明。`);
+            if (!['add', 'subtract', 'set'].includes(action.operation || 'add')) errors.push(`${path} 的士气操作无效。`);
+            if (action.operation === 'set' && (!Number.isInteger(action.value) || action.value < 0 || action.value > 3)) errors.push(`${path} 士气设定值必须是 0~3 的整数。`);
+        }
         if (action.kind === 'setDiplomacy' && (!factionIds.has(action.camp) || !factionIds.has(action.targetCamp))) errors.push(`${path} 的外交阵营引用未在本关阵营列表中声明。`);
         if (action.kind === 'setDiplomacy' && action.camp === action.targetCamp) errors.push(`${path} 不能设置同一阵营与自身的外交关系。`);
         if (action.kind === 'setDiplomacy' && !RELATION_KEYS.includes(action.relation)) errors.push(`${path} 的外交关系「${action.relation}」无效。`);

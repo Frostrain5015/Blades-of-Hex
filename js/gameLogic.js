@@ -2,11 +2,14 @@ import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFI
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { isStrongpointTarget } from '../rules/units.js';
 import {
+    damageCityPool,
     getCityDefenseBonus,
+    getCityPoolTile,
     getCityRegenAmount,
     isCityDisabled,
     isCitySiegeBlocked,
-    isSiegeableCityTile
+    isSiegeableCityTile,
+    syncCityHpMirrors
 } from '../rules/citySiege.js';
 import { campToKey } from '../rules/camps.js';
 import { DRONE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
@@ -811,8 +814,8 @@ function _expireTimedEffects() {
             u._healingAura--;
         }
 
-        // 雨天：守城单位每回合回复15%最大生命值
-        if (isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'rain' && u.tile.isCity) {
+        // 雨天：守城单位每回合回复15%最大生命值（城郭格同样算守城）
+        if (isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'rain' && (u.tile.isCity || u.tile.isUrban)) {
             u.heal(Math.round(u.maxHp * COMBAT_BALANCE.weather.rainCityHealPct));
         }
 
@@ -1107,7 +1110,8 @@ async function _doEndTurnPhase() {
     }
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
-        if (!unit || unit.camp !== gameState.currentCamp || !tile.isCity || unit.hp >= unit.maxHp) continue;
+        // 固守回复覆盖整个城郭（中心格与城内格都算驻守城市）
+        if (!unit || unit.camp !== gameState.currentCamp || (!tile.isCity && !tile.isUrban) || unit.hp >= unit.maxHp) continue;
         const cityRegen = unit.getSpecializationAbility?.('cityRegen') || 0;
         if (cityRegen <= 0) continue;
         const amount = unit.heal(Math.round(unit.maxHp * cityRegen));
@@ -1162,6 +1166,7 @@ async function _doEndTurnPhase() {
             if (!tile.isCity || tile.hp >= tile.maxHp) continue;
             if (tile._citySiegeDamageRound === roundIndexBeforeAdvance) continue;
             tile.hp = Math.min(tile.maxHp, tile.hp + getCityRegenAmount(tile));
+            syncCityHpMirrors(tile, gameState.tileMap);
         }
         // 每5回合：全员免费对策卡（第5/10/15…回合发放）
         const roundNum = getRound(gameState);  // 1-indexed 回合数
@@ -3231,7 +3236,7 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         + getCommanderDefenseBonus(target) + getCommanderAuraDefenseBonus(target)
         + (target.getCampaignDefenseBonus?.() || 0)
         // 城防对空军伤害同样生效（"城市庇护其中所有单位"，跨伤害类型统一）。
-        + (target.tile?.isCity ? getCityDefenseBonus(target.tile) : 0);
+        + ((target.tile?.isCity || target.tile?.isUrban) ? getCityDefenseBonus(target.tile) : 0);
     // 轰炸破甲：只对要塞单位（城市驻军/碉堡/岸防炮）生效。
     if (isStrongpointTarget(target)) ordinaryDefense = Math.max(0, ordinaryDefense - 0.25);
     let antiAir = getAntiAirReduction(target.tile, launcherTile.camp, gameState.tileMap, { state: gameState });
@@ -3294,8 +3299,10 @@ export function attackCityTile(attackerUnit, targetTile) {
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
     const toX = targetTile.x, toY = targetTile.y;
     const result = _resolveGroundNavalSiegeDamage(attackerUnit, targetTile);
-    targetTile.hp = Math.max(0, (Number(targetTile.hp) || 0) - result.damage);
-    targetTile._citySiegeDamageRound = getRoundIndex(gameState);
+    // 共享血池：攻击城内任意地块都扣同一池HP，并把脱战计时记在血池宿主（中心格）上。
+    damageCityPool(targetTile, result.damage, gameState.tileMap);
+    const poolTile = getCityPoolTile(targetTile, gameState.tileMap) || targetTile;
+    poolTile._citySiegeDamageRound = getRoundIndex(gameState);
 
     gameState.damageTexts.push({
         x: toX, y: toY, value: result.damage, isCrit: result.isCrit,
@@ -3344,8 +3351,11 @@ export function attackCityTile(attackerUnit, targetTile) {
         targetTile.unit = attackerUnit;
         attackerUnit.moveDistance++;
         attackerUnit.startMovePath?.([{ x: fromX, y: fromY }, { x: targetTile.x, y: targetTile.y }]);
-        updateDistrictColor(targetTile, attackerUnit.camp, attackerUnit);
-        cityCaptured = true;
+        // 破城跟进：进入城郭格只是巷战进驻，只有踏上城市中心格才算夺取城市（区划变色）。
+        if (targetTile.isCity) {
+            updateDistrictColor(targetTile, attackerUnit.camp, attackerUnit);
+            cityCaptured = true;
+        }
     }
     attackerUnit.canAct = false;
     attackerUnit.addXP(1);
@@ -3407,7 +3417,7 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
                 const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, target, launcherTile);
                 // 扣血延迟到动画结束后执行（1200ms）
                 results.push({ q: tile.q, r: tile.r, damage: result.damage, killed: false, isCrit: result.isCrit });
-            } else if (tile.isCity && tile.hp > 0 && canAttack(gameState, launcherTile.camp, tile.camp)) {
+            } else if ((tile.isCity || tile.isUrban) && tile.hp > 0 && canAttack(gameState, launcherTile.camp, tile.camp)) {
                 const result = _resolveCityBombingSiegeDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, tile, launcherTile);
                 results.push({ q: tile.q, r: tile.r, damage: result.damage, isCrit: result.isCrit, isCitySiege: true });
             }
@@ -3474,8 +3484,10 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
                 for (const r of results) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                     if (tile && r.isCitySiege) {
-                        tile.hp = Math.max(0, (Number(tile.hp) || 0) - r.damage);
-                        tile._citySiegeDamageRound = getRoundIndex(gameState);
+                        // 共享血池：轰炸城内任意地块都扣同一池HP
+                        damageCityPool(tile, r.damage, gameState.tileMap);
+                        const poolTile = getCityPoolTile(tile, gameState.tileMap) || tile;
+                        poolTile._citySiegeDamageRound = getRoundIndex(gameState);
                     } else if (tile && tile.unit) {
                         r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
                     }

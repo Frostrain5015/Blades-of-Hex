@@ -250,14 +250,14 @@ y = 375 + 45 * r
     "r": 0,
     "districtId": 1,
     "camp": "player1",
-    "footprint": [{ "q": 1, "r": 0 }]
+    "radius": 1
   }],
   "surface": [
     { "q": 2, "r": -1, "kind": "shallowWater" },
     { "q": 2, "r": 0, "kind": "deepWater" }
   ],
   "terrain": [{ "q": -1, "r": 0, "type": "forest" }],
-  "villages": [{ "q": 0, "r": 1, "districtId": 1 }],
+  "villages": [{ "q": 0, "r": 2, "districtId": 1 }],
   "fortifications": [{ "q": 0, "r": -1, "type": "trench" }],
   "installations": [{
     "q": 0,
@@ -284,11 +284,11 @@ y = 375 + 45 * r
 
 - `layout`：只允许 `hex` 或 `borderless`；省略时兼容为 `hex`。
 - `radius`：`hex` 模式控制范围；`borderless` 模式不参与建图，但仍写入 `2..7` 的合法值。
-- `cities`：每项必须有坐标、`districtId` 和已声明的 `camp`；可选 `footprint` 是同一大型城市的额外陆地坐标，不是额外城市中心。
+- `cities`：每项必须有坐标、`districtId` 和已声明的 `camp`；可选 `radius`（非负整数，默认 0）把城市扩展为正六边形城郭：半径 1 = 中心加一圈共 7 格、半径 2 = 19 格，以此类推。可选 `hp` / `hpPct` 设置初始城防（绝对值 / 0–100 百分比，默认满血）。旧字段 `footprint`（逐格涂抹的城郭坐标数组）仍被兼容加载，新关卡一律使用 `radius`，不要两者混写。
 - 一个 `districtId` 必须只有一座城市；城市是整个行政区的归属和颜色来源。
 - `surface`：稀疏覆盖表，只写水域；未列出的真地块默认陆地。`kind` 只允许 `shallowWater/deepWater`。
 - `terrain`：只需列出覆盖项；未列出的格子默认 `plains`。
-- `villages`：不能与城市中心或城市 `footprint` 重叠。
+- `villages`：不能与城市中心或任何城内格（`radius` 展开的城郭，或旧 `footprint`）重叠。
 - `fortifications`：每格最多一个。
 - `installations`：目前只允许城市中心格上的 `airfield`。`status` 为 `ready/constructing`；施工中必须给出正整数 `constructionReadyRound`。`airCommandReadyRound` 可分别设置 `strafe/bombing/airdrop/recon` 的初始绝对可用轮次，0 或省略表示开场可用。
 - `districts`：覆盖自动 Voronoi 行政区，用于手绘边界；每个被使用的 `districtId` 应有城市。
@@ -296,7 +296,16 @@ y = 375 + 45 * r
 - `crossings`：引用真实河流的零基 `segmentIndex`；`kind` 只允许 `bridge/ford`，同一河段最多一个通行点。
 - `ports`：港口本身是独立浅水格，必须邻接大陆；填写其 `districtId`，并用相邻大陆锚点 `landQ/landR` 指定栈桥朝向和行政归属。
 
-地图对象约束：普通水域不能叠加城市、城市 `footprint`、村庄、陆地地形、工事或行政区覆盖；港口是唯一带行政区的浅水设施格。城市 footprint 之间不能重叠。`navigable?: boolean` 是旧 JSON 兼容字段，当前仅保留数据，不改变舰船移动；可航行水道必须由实体水域地块构成。
+地图对象约束：普通水域不能叠加城市、城市城郭、村庄、陆地地形、工事或行政区覆盖；港口是唯一带行政区的浅水设施格。不同城市的城郭（`radius` 展开或旧 `footprint`）之间不能重叠，也不能覆盖水域或其他城市中心，编译器按展开后的坐标检查。`navigable?: boolean` 是旧 JSON 兼容字段，当前仅保留数据，不改变舰船移动；可航行水道必须由实体水域地块构成。
+
+城防机制（运行时规则，无需在 JSON 中配置）：
+
+- 城防上限 = `200 + 400 × radius`：单格城 200，半径 1 为 600，半径 2 为 1000，半径 3 为 1400。
+- 全城共享一个血池：攻城或轰炸命中任何城内格都削减同一池 HP；血池归零前敌军不能进入任何城内格，归零后放开巷战。
+- 占领只发生在城市中心格：近战单位在血池归零后踏上中心格即夺取城市（整个行政区随之变色）；只踏进城郭不算占领。
+- 城内驻军按血池当前百分比获得防御加成：满血 +20%，半血 +10%。
+- 血池每回合脱战自动回复上限的 10%。
+- `cityCaptured` / `cityOwnedBy` 的坐标始终指城市中心格；需要逐格判断归属时用 `tileOwnedBy`。
 
 枚举与规则：
 
@@ -329,7 +338,7 @@ y = 375 + 45 * r
 |---|---|
 | `cycle` | 标准循环，从晴天开始 |
 | `clear` | 晴，无特殊效果 |
-| `rain` | 雨：城市驻军每回合恢复 15%；步兵守城防御 +10%；骑兵每步额外消耗 1 |
+| `rain` | 雨：城内驻军（含城郭）每回合恢复 15%；步兵守城防御 +10%；骑兵每步额外消耗 1 |
 | `fog` | 雾：炮兵射程 -1；骑兵伤害 +20%，冲锋每格额外 +5% |
 | `wind` | 风：炮兵射程 +1、伤害 +20%；步兵防御 -15% |
 
@@ -821,7 +830,7 @@ Faction 对象：
 { "kind": "variableCompare", "scope": "campaign", "variable": "saved_scout", "op": "==", "value": true }
 ```
 
-## 12. 全部公开动作：20 种
+## 12. 全部公开动作：22 种
 
 ### 12.1 对白与输入控制
 
@@ -913,6 +922,27 @@ Faction 对象：
 - `operation`：`set/add/subtract`。
 - `mode`：`value/percent`；percent 以最大生命为基准。
 - `value` 必须非负。
+
+#### addUnitXp
+
+```json
+{ "kind": "addUnitXp", "target": { "unit": "hero" }, "value": 5 }
+```
+
+- `value` 必须是正数；`target` 为单位或单位组。
+- 经验达到晋升阈值时自动升阶（无分支兵种自动强化既有职能），不会超过军衔上限；建筑类单位不参与经验与军衔。
+- 可选 `fx`：默认 `true` 播放晋升动画；`fx:false` 静默结算（剧情幕后调整数值时使用）。
+
+#### changeUnitMorale
+
+```json
+{ "kind": "changeUnitMorale", "target": { "group": "royal_units" }, "operation": "subtract", "value": 1 }
+```
+
+- 目标三选一：`target`（单位/单位组）、`area`（命名区域内全部单位）、`camp`（阵营全部单位）。
+- `operation`：`add`=士气上升、`subtract`=士气下降、`set`=直接设为；结果限制在 0~3。
+- `add/subtract` 的 `value` 是增减级数（省略按 1）；`set` 的 `value` 必须是 0~3 的整数（0=混乱、1=下降、2=正常、3=上升）。
+- 可选 `fx`：默认 `true`，士气实际变化时播放士气动画；`fx:false` 静默结算。
 
 #### changeUnitFaction
 
@@ -1125,7 +1155,7 @@ Faction 对象：
 
 1. 关卡 ID 只含字母、数字、连字符。
 2. `layout` 仅为 `hex/borderless`；`radius` 保持 `2..7`；所有地图、单位、区域、调查点和触发器坐标在相应布局的真地块内。
-3. 每个行政区只有一座城市；每座城市和每个单位引用已声明阵营；大型城市 footprint 连续、不重叠且不覆盖水域/村庄。
+3. 每个行政区只有一座城市；每座城市和每个单位引用已声明阵营；大型城市只使用 `radius` 正六边形（旧 `footprint` 仅兼容加载），城郭不重叠且不覆盖水域/村庄/其他城市中心。
 4. 单位坐标不重叠；单位 ID 唯一；兵种、玩法将领与剧情将领 ID 合法；陆军位于陆地，舰船位于水域或港口。
 5. faction ID 合法、唯一且不是 `neutral`；`color` 是九个规范 ID 之一，不含任何手写颜色值。
 6. 恰好一个 `human`，等于 `localPlayerCamp`。

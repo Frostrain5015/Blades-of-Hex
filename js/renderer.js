@@ -350,23 +350,10 @@ export function renderGame() {
         if (layeredTerrain) {
             for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawForegroundMapDetails(ctx);
         }
-        // City HP ring + disabled indicator
-        for (let i = 0, len = tiles.length; i < len; i++) {
-            const tile = tiles[i];
-            if (!tile.isCity || tile.maxHp <= 0) continue;
-            _drawCityHpRing(ctx, tile, now);
-            if (isCityDisabled(tile)) {
-                const pulse = (Math.sin(now / 400) + 1) / 2;
-                ctx.save();
-                ctx.font = '18px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = `rgba(255,80,80,${0.6 + pulse * 0.4})`;
-                ctx.fillText('🚫', tile.x, tile.y - HEX_SIZE - 16);
-                ctx.restore();
-            }
-        }
     }
+    // 城市燃烧城墙框 + 瘫痪标识：全渲染模式统一在 Canvas 覆盖层绘制
+    // （Pixi 地形纹理由同一份 Canvas 地形代码烘焙，几何天然对齐）。
+    _drawCityWallFrames(ctx, now);
     // Every cloth surface is deformed in one WebGL2 batch. Canvas2D finials
     // are deliberately composited afterwards so the cloth cannot cover them.
     drawBattlefieldFlags(ctx, gameState, now);
@@ -1201,90 +1188,113 @@ function drawMoraleIndicators() {
 }
 
 /**
- * 绘制城市 HP 边框环：六边形 6 条边从顶部顺时针消退。
- * 满血 = 完整一圈，残血 = 边从左侧逆时针消失。
+ * 绘制城市燃烧城墙框：全城共享血池的 HP 映射到城郭外轮廓边界边上，
+ * 从顶部绕城顺时针逐段点亮（石黄→焦褐），空段由暗色基线遮盖地形城墙。
+ * 替代旧的单格六边形 HP 环，天然支持大型城市；所有渲染模式统一在
+ * Canvas 覆盖层绘制（Pixi 地形纹理由同一份 Canvas 地形代码烘焙，几何对齐）。
  */
-function _drawCityHpRing(ctx, tile, now) {
-    const hpRatio = tile.maxHp > 0 ? Math.max(0, Math.min(1, tile.hp / tile.maxHp)) : 0;
-    const cx = tile.x, cy = tile.y;
-    const size = HEX_SIZE;
-    // 6 vertices of a pointy-top hex, starting from the right vertex
-    const verts = Array.from({ length: 6 }, (_, i) => {
-        const a = Math.PI / 3 * (i + 0.5);
-        return { x: cx + size * Math.cos(a), y: cy + size * Math.sin(a) };
-    });
-    // Top vertex index in this flat list is 4 (270° = -π/2)
-    const TOP = 4;
-    const lineW = Math.max(2, size * 0.13);
-
-    ctx.save();
-    ctx.lineCap = 'round';
-
-    // Dark base ring — masks the terrain-rendered city wall underneath
-    // so empty segments don't leak the old thick wall line.
-    ctx.strokeStyle = 'rgba(26,24,22,0.55)';
-    ctx.lineWidth = lineW + 2;
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-        const vi = (TOP + i) % 6;
-        const x = verts[vi].x, y = verts[vi].y;
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+function _drawCityWallFrames(ctx, now) {
+    const tileMap = gameState.tileMap;
+    if (!tileMap) return;
+    // 按 urbanCenterKey 分组城内格（中心格 isCity 同时带 isUrban 标记）
+    const groups = new Map();
+    for (const tile of gameState.tiles) {
+        if (!tile.isUrban || !tile.urbanCenterKey) continue;
+        const group = groups.get(tile.urbanCenterKey);
+        if (group) group.push(tile);
+        else groups.set(tile.urbanCenterKey, [tile]);
     }
-    ctx.closePath();
-    ctx.stroke();
+    const lineW = Math.max(2, HEX_SIZE * 0.13);
+    const normTop = ang => ((ang + Math.PI / 2) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    for (const [centreKey, groupTiles] of groups) {
+        const pool = tileMap.get(centreKey);
+        const maxHp = Number(pool?.maxHp) || 0;
+        if (maxHp <= 0) continue;
+        const hpRatio = Math.max(0, Math.min(1, (Number(pool?.hp) || 0) / maxHp));
+        // 质心：绕城排序的参照点
+        let centroidX = 0, centroidY = 0;
+        for (const tile of groupTiles) { centroidX += tile.x; centroidY += tile.y; }
+        centroidX /= groupTiles.length; centroidY /= groupTiles.length;
+        // 外轮廓边界边：邻居不在同城即城墙段（缺失邻居=棋盘边缘裁切，跳过）
+        const edges = [];
+        for (const tile of groupTiles) {
+            for (let n = 0; n < HEX_NEIGHBORS.length; n++) {
+                const [dq, dr] = HEX_NEIGHBORS[n];
+                const neighbor = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+                if (!neighbor) continue;
+                if (neighbor.isUrban && neighbor.urbanCenterKey === tile.urbanCenterKey) continue;
+                // EDGE_TO_NEIGHBOR_INDEX = [5,4,3,2,1,0] 的逆映射：邻居方向 n 对应边 5-n
+                const edgeIndex = 5 - n;
+                const a1 = Math.PI / 3 * (edgeIndex + 0.5);
+                const a2 = Math.PI / 3 * (edgeIndex + 1.5);
+                const inset = HEX_SIZE * 0.91;  // 与 canvasTerrainRenderer 的城墙线同一几何
+                const fromX = tile.x + Math.cos(a1) * inset, fromY = tile.y + Math.sin(a1) * inset;
+                const toX = tile.x + Math.cos(a2) * inset, toY = tile.y + Math.sin(a2) * inset;
+                edges.push({
+                    fromX, fromY, toX, toY,
+                    angle: Math.atan2((fromY + toY) / 2 - centroidY, (fromX + toX) / 2 - centroidX)
+                });
+            }
+        }
+        // 从顶部起绕城顺时针排序，血掉则按同一顺序逐段熄灭
+        edges.sort((a, b) => normTop(a.angle) - normTop(b.angle));
 
-    const totalSegments = 6;
-    const filled = Math.floor(hpRatio * totalSegments);
-    const partial = (hpRatio * totalSegments) - filled;
+        ctx.save();
+        ctx.lineCap = 'round';
+        // 暗色基线：遮盖地形里的整条城墙，空段不泄漏旧墙线
+        ctx.strokeStyle = 'rgba(26,24,22,0.55)';
+        ctx.lineWidth = lineW + 2;
+        ctx.beginPath();
+        for (const edge of edges) {
+            ctx.moveTo(edge.fromX, edge.fromY);
+            ctx.lineTo(edge.toX, edge.toY);
+        }
+        ctx.stroke();
 
-    for (let seg = 0; seg < totalSegments; seg++) {
-        const vi = (TOP + seg) % 6;
-        const vj = (TOP + seg + 1) % 6;
-        const sx = verts[vi].x, sy = verts[vi].y;
-        const ex = verts[vj].x, ey = verts[vj].y;
-
-        let fillFrac = 0;
-        if (seg < filled) fillFrac = 1;
-        else if (seg === filled) fillFrac = partial;
-
-        if (fillFrac <= 0) continue;
-
-        // Edge colour: stone → burnt as HP drops
+        // 燃烧段：满血石黄 → 残血焦褐，与 HUD 城防血条同一套配色
+        const total = edges.length;
+        const filled = Math.floor(hpRatio * total);
+        const partial = hpRatio * total - filled;
         const t = 1 - hpRatio;
         const r = Math.round(180 - t * 100);
         const g = Math.round(158 - t * 108);
         const b = Math.round(120 - t * 90);
-
-        if (fillFrac >= 1) {
-            // Full segment: thick line from vertex to vertex
+        for (let i = 0; i < total; i++) {
+            let frac = 0;
+            if (i < filled) frac = 1;
+            else if (i === filled) frac = partial;
+            if (frac <= 0) continue;
+            const edge = edges[i];
             ctx.beginPath();
-            ctx.moveTo(sx, sy);
-            ctx.lineTo(ex, ey);
+            ctx.moveTo(edge.fromX, edge.fromY);
+            ctx.lineTo(edge.fromX + (edge.toX - edge.fromX) * frac, edge.fromY + (edge.toY - edge.fromY) * frac);
             ctx.strokeStyle = `rgb(${r},${g},${b})`;
             ctx.lineWidth = lineW;
             ctx.stroke();
+            if (frac >= 1) {
+                // 内侧高光
+                ctx.beginPath();
+                ctx.moveTo(edge.fromX, edge.fromY);
+                ctx.lineTo(edge.toX, edge.toY);
+                ctx.strokeStyle = `rgba(255,230,180,${0.10 + hpRatio * 0.08})`;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+        }
+        ctx.restore();
 
-            // Inner highlight
-            ctx.beginPath();
-            ctx.moveTo(sx, sy);
-            ctx.lineTo(ex, ey);
-            ctx.strokeStyle = `rgba(255,230,180,${0.10 + hpRatio * 0.08})`;
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-        } else {
-            // Partial segment: straight line partway along the edge (chord)
-            const px = sx + (ex - sx) * fillFrac;
-            const py = sy + (ey - sy) * fillFrac;
-            ctx.beginPath();
-            ctx.moveTo(sx, sy);
-            ctx.lineTo(px, py);
-            ctx.strokeStyle = `rgb(${r},${g},${b})`;
-            ctx.lineWidth = lineW;
-            ctx.stroke();
+        // 瘫痪标识：血池归零时标记在城市中心格上方
+        if (pool && isCityDisabled(pool)) {
+            const pulse = (Math.sin(now / 400) + 1) / 2;
+            ctx.save();
+            ctx.font = '18px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = `rgba(255,80,80,${0.6 + pulse * 0.4})`;
+            ctx.fillText('🚫', pool.x, pool.y - HEX_SIZE - 16);
+            ctx.restore();
         }
     }
-
-    ctx.restore();
 }
 
 // 判断当前回合是否为人类玩家（用于隐藏 AI/中立回合的光圈等）

@@ -8,7 +8,7 @@ import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } fr
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
 import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { getCityDefenseBonus, isCityDisabled } from '../rules/citySiege.js';
+import { getCityDefenseBonus, getCityPoolTile, isCityDisabled } from '../rules/citySiege.js';
 import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
@@ -1028,8 +1028,9 @@ function _getUnitPassiveRuntimeState(unit, passive) {
             ? '当前生效 造成的伤害提高' + Math.round(stacks * COMBAT_BALANCE.cavalry.normalChargeDamagePerStep * 100) + '%'
             : '当前未生效';
     } else if (unit.type === 'infantry') {
-        presentation.status = unit.tile?.isCity ? '当前生效' : '当前未生效';
-        presentation.active = !!unit.tile?.isCity;
+        const inCity = !!(unit.tile?.isCity || unit.tile?.isUrban);
+        presentation.status = inCity ? '当前生效' : '当前未生效';
+        presentation.active = inCity;
         presentation.intensity = presentation.active ? 1 : 0;
     } else if (unit.type === 'archer') {
         const mountain = unit.tile?.terrain === 'mountain';
@@ -1185,19 +1186,21 @@ function _getPassiveRuntimeState(unit, skill) {
 
 function _getTerrainEffect(tile) {
     const terrain = TERRAIN_CONFIG[tile.terrain];
-    if (tile.isCity) {
+    if (tile.isCity || tile.isUrban) {
         const ownerName = getFaction(gameState, tile.camp)?.name || tile.camp?.name || '中立';
         let desc = '当前由' + ownerName + '控制';
         if (tile.unit) {
-            desc += '，驻守单位防御力提高' + Math.round(getCityDefenseBonus(tile) * 100) + '%）';
+            desc += '，驻守单位防御力提高' + Math.round(getCityDefenseBonus(tile) * 100) + '%';
         }
-        if (isCityDisabled(tile)) {
+        // 瘫痪判定读共享血池宿主（中心格），城郭格与中心格状态一致
+        const poolTile = getCityPoolTile(tile, gameState.tileMap) || tile;
+        if (isCityDisabled(poolTile)) {
             desc += '，当前处于瘫痪状态';
         }
         return {
             key: 'terrain:city:' + tile.q + ':' + tile.r,
             icon: '🏙️',
-            label: '城市',
+            label: tile.isCity ? '城市' : '城区',
             desc,
             color: tile.camp?.color || '#ffffff',
             kind: 'effect'
@@ -1228,8 +1231,8 @@ function _getWeatherEffect(unit) {
     let desc = weather.desc;
     const details = [];
     if (gameState.weather === 'rain') {
-        if (unit.tile.isCity) details.push('每回合回复' + Math.round(COMBAT_BALANCE.weather.rainCityHealPct * 100) + '%最大生命值');
-        if (unit.type === 'infantry' && unit.tile.isCity) details.push('驻守城市时防御提高' + Math.round(COMBAT_BALANCE.defense.rainCityInfantryBonus * 100) + '%');
+        if (unit.tile.isCity || unit.tile.isUrban) details.push('每回合回复' + Math.round(COMBAT_BALANCE.weather.rainCityHealPct * 100) + '%最大生命值');
+        if (unit.type === 'infantry' && (unit.tile.isCity || unit.tile.isUrban)) details.push('驻守城市时防御提高' + Math.round(COMBAT_BALANCE.defense.rainCityInfantryBonus * 100) + '%');
         if (unit.type === 'cavalry') details.push('每步移动消耗+' + COMBAT_BALANCE.weather.rainCavalryMovementCost);
     } else if (gameState.weather === 'fog') {
         if (unit.type === 'archer') details.push('射程' + COMBAT_BALANCE.weather.fogArcherRangeDelta);
@@ -1260,8 +1263,8 @@ function _buildEffectItems(tile, unit) {
         items.push({
             key: `installation:airfield:${tile.q}:${tile.r}`,
             icon: ready ? '🛫' : '🏗️',
-            label: ready ? '机场' : '机场施工中',
-            desc: ready ? '点击「✈ 空军指令」按钮使用机场。' : `还需${tile.installation.turnsRemaining || 1}回合完工。`,
+            label: ready ? '机场' : '施工中',
+            desc: ready ? '具有可以起飞空军的机场设施' : `正在建设机场，还需${tile.installation.turnsRemaining || 1}回合完工。`,
             color: ready ? '#9fd7ff' : '#e8c477',
             kind: 'effect'
         });
@@ -1326,7 +1329,7 @@ function _buildEffectItems(tile, unit) {
             key: 'tianyan:signal-lost',
             icon: '📡',
             label: '信号失联',
-            desc: '超出天眼5格信号范围，当前无法行动；回到信号范围后恢复。',
+            desc: '超出天眼信号范围，当前无法行动',
             color: '#ff9b72',
             kind: 'effect'
         });
@@ -1794,7 +1797,7 @@ function _syncSelectionHud(tile) {
         const fortificationDefBonus = !unit.isEmbarked && tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
         const rankDefBonus = unit._rankPanelDefenseBonus || 0;
         const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
-        const cityDefBonus = tile.isCity ? getCityDefenseBonus(tile) : 0;
+        const cityDefBonus = (tile.isCity || tile.isUrban) ? getCityDefenseBonus(tile) : 0;
         const baseDefense = unit.isEmbarked ? getTransportBaseDefense(unit) : (unit.config.defense || 0);
         defense = Math.round((baseDefense + moraleDefBonus + terrainDefBonus
             + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + campaignDefBonus + cityDefBonus) * 100);
@@ -1807,7 +1810,7 @@ function _syncSelectionHud(tile) {
     }
 
     const signature = selectionKey + '|' + effects.map(effect => effect.key + ':' + (effect.count || '') + ':' + effect.desc).join('|')
-        + '|' + (tile.isCity ? Math.round(tile.hp || 0) + '/' + (tile.maxHp || 0) : '')
+        + '|' + ((tile.isCity || tile.isUrban) ? Math.round(tile.hp || 0) + '/' + (tile.maxHp || 0) : '')
         + '|' + (unit ? [
             unit.hp, unit.maxHp, unit._shield || 0, unit.remainingMP, unit.canAct,
             unit._faith || 0, unit.moralePenaltyUntil || 0, unit._rank || 0, unit.specializationKey || 'pending',
@@ -1864,15 +1867,17 @@ function _syncSelectionHud(tile) {
         selectionHudStats.replaceChildren();
     }
 
-    // 城防 HP：仿部队血条的第二条血条，与驻军血条（如有）纵向堆叠，长度同样按上限向右延伸
-    const showCityHp = tile.isCity && tile.maxHp > 0;
+    // 城防 HP：仿部队血条的第二条血条，位于驻军血条（如有）之上纵向堆叠，长度同样按上限向右延伸。
+    // 颜色对齐地块上的城市HP六边形框（石黄→焦褐），与部队绿/橙/红血条显著区分。
+    const showCityHp = (tile.isCity || tile.isUrban) && tile.maxHp > 0;
     selectionHudCityHp.hidden = !showCityHp;
     if (showCityHp) {
         const cityHp = Math.max(0, Math.round(tile.hp || 0));
         const cityHpRatio = Math.max(0, Math.min(1, cityHp / tile.maxHp));
+        const burn = 1 - cityHpRatio;
         selectionHudCityHp.style.width = Math.max(80, tile.maxHp * 1.1) + 'px';
         selectionHudCityHpFill.style.width = (cityHpRatio * 100) + '%';
-        selectionHudCityHpFill.style.background = cityHpRatio > 0.5 ? '#4caf50' : cityHpRatio > 0.25 ? '#ff9800' : '#f44336';
+        selectionHudCityHpFill.style.background = `rgb(${Math.round(180 - burn * 100)},${Math.round(158 - burn * 108)},${Math.round(120 - burn * 90)})`;
         selectionHudCityHpText.textContent = '🏰 ' + cityHp + '/' + tile.maxHp;
     }
 

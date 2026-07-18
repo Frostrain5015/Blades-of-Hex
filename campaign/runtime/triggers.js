@@ -13,6 +13,7 @@ import { applyCommanderMount, resolveCommanderMount } from './storyCommanders.js
 import { canUnitOccupyTile } from '../../rules/movement.js';
 import { isLandTile } from '../../rules/surfaces.js';
 import { revealFogTiles, updateAllFogOfWar, setOnTilesRevealed } from '../../js/fogOfWar.js';
+import { spawnMoraleEffect } from '../../js/effects.js';
 
 function campKeyOf(camp) { return normalizeCampKey(camp, gameState); }
 function coordKey(q, r) { return `${q},${r}`; }
@@ -50,6 +51,18 @@ function unitsForTarget(config, target) {
     if (target.unit) return [resolveUnit(target.unit)].filter(Boolean);
     if (target.group) return (groupById(config, target.group)?.unitIds || []).map(resolveUnit).filter(Boolean);
     return [];
+}
+
+// 士气/状态类动作的目标解析：指定单位/单位组，或指定区域内全部单位，或指定阵营全部单位。
+function unitsForAreaCampTarget(state, config, action) {
+    if (action.area) {
+        const keys = new Set((areaById(config, action.area)?.tiles || []).map(tile => coordKey(tile.q, tile.r)));
+        return state.tiles.filter(tile => keys.has(coordKey(tile.q, tile.r)) && tile.unit).map(tile => tile.unit);
+    }
+    if (action.camp) {
+        return state.tiles.filter(tile => tile.unit && campKeyOf(tile.unit.camp) === action.camp).map(tile => tile.unit);
+    }
+    return unitsForTarget(config, action.target || { unit: action.unit });
 }
 
 function tilesForRevealTarget(config, target) {
@@ -354,6 +367,30 @@ function runAction(action, ctx) {
                 } else if (action.operation === 'add') unit.heal(amount);
                 else unit.applyDamage(amount, { source: 'true', minHp: unit._campaignMinHp || 0 });
             }
+            break;
+        }
+        case 'addUnitXp': {
+            // 经验达到晋升阈值时由 addXP 内部自动升阶（含无分支兵种的自动强化）；
+            // fx:false 静默结算，不播放晋升动画。
+            const silent = action.fx === false;
+            for (const unit of unitsForTarget(config, action.target || { unit: action.unit })) {
+                unit.addXP?.(Math.max(0, Math.round(Number(action.value) || 0)), { silent });
+            }
+            updateUI();
+            break;
+        }
+        case 'changeUnitMorale': {
+            for (const unit of unitsForAreaCampTarget(gameState, config, action)) {
+                const current = unit.morale;
+                let next = current;
+                if (action.operation === 'set') next = Math.round(Number(action.value) || 0);
+                else if (action.operation === 'subtract') next = current - Math.max(1, Math.round(Number(action.value) || 1));
+                else next = current + Math.max(1, Math.round(Number(action.value) || 1));
+                // 0=混乱 1=下降 2=正常 3=上升；setter 自动触发将领士气变化钩子；fx:false 不放动画
+                unit.morale = Math.max(0, Math.min(3, next));
+                if (unit.morale !== current && action.fx !== false) spawnMoraleEffect(unit);
+            }
+            updateUI();
             break;
         }
         case 'changeUnitFaction': {

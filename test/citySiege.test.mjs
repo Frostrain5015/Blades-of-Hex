@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
     CITY_SIEGE_CONFIG,
+    damageCityPool,
     getCityDefenseBonus,
+    getCityMaxHp,
+    getCityRadiusFromTileCount,
     getCityRegenAmount,
     isCityDisabled,
     isCitySiegeBlocked,
@@ -26,15 +29,32 @@ function state(extra = {}) {
     };
 }
 
-function cityTile(hp, { maxHp = CITY_SIEGE_CONFIG.maxHp, camp = P2, unit = null } = {}) {
+function cityTile(hp, { maxHp = CITY_SIEGE_CONFIG.baseMaxHp, camp = P2, unit = null } = {}) {
     return { isCity: true, hp, maxHp, camp, unit };
 }
 
-test('getCityDefenseBonus converts current HP at 8%/100hp, using current not max HP', () => {
-    assert.equal(getCityDefenseBonus(cityTile(200)), 0.16);
-    assert.equal(getCityDefenseBonus(cityTile(100)), 0.08);
+test('getCityMaxHp scales with radius: 200 at r0, +400 per ring', () => {
+    assert.equal(getCityMaxHp(0), 200);
+    assert.equal(getCityMaxHp(1), 600);
+    assert.equal(getCityMaxHp(2), 1000);
+    assert.equal(getCityMaxHp(3), 1400);
+});
+
+test('getCityRadiusFromTileCount inverts hex-disc counts (1/7/19/37)', () => {
+    assert.equal(getCityRadiusFromTileCount(1), 0);
+    assert.equal(getCityRadiusFromTileCount(7), 1);
+    assert.equal(getCityRadiusFromTileCount(19), 2);
+    assert.equal(getCityRadiusFromTileCount(37), 3);
+    assert.equal(getCityRadiusFromTileCount(5), 1);
+});
+
+test('getCityDefenseBonus is 20% of the HP ratio (full=+20%, half=+10%)', () => {
+    assert.equal(getCityDefenseBonus(cityTile(200)), 0.2);
+    assert.equal(getCityDefenseBonus(cityTile(100)), 0.1);
     assert.equal(getCityDefenseBonus(cityTile(0)), 0);
-    assert.equal(getCityDefenseBonus(cityTile(50, { maxHp: 200 })), 0.04);
+    assert.equal(getCityDefenseBonus(cityTile(50, { maxHp: 200 })), 0.05);
+    assert.equal(getCityDefenseBonus(cityTile(1000, { maxHp: 1000 })), 0.2);
+    assert.equal(getCityDefenseBonus(cityTile(500, { maxHp: 1000 })), 0.1);
 });
 
 test('getCityRegenAmount is 10% of maxHp regardless of current HP', () => {
@@ -76,4 +96,31 @@ test('isStrongpointTarget covers city/fortification tiles and building-type unit
     assert.equal(isStrongpointTarget({ type: 'drone', tile: {} }), false);
     assert.equal(isStrongpointTarget({ type: 'infantry', tile: {} }), false);
     assert.equal(isStrongpointTarget(null), false);
+});
+
+function largeCity(hp, maxHp = 600) {
+    const centre = { isCity: true, isUrban: true, urbanCenterKey: '0,0', q: 0, r: 0, hp, maxHp, camp: P2 };
+    const footprint = { isUrban: true, urbanCenterKey: '0,0', q: 1, r: 0, hp, maxHp, camp: P2 };
+    const tileMap = new Map([['0,0', centre], ['1,0', footprint]]);
+    return { centre, footprint, tileMap };
+}
+
+test('damageCityPool deducts the shared pool from any urban tile and mirrors hp', () => {
+    const { centre, footprint, tileMap } = largeCity(600);
+    const remaining = damageCityPool(footprint, 250, tileMap);
+    assert.equal(remaining, 350);
+    assert.equal(centre.hp, 350);
+    assert.equal(footprint.hp, 350);
+    assert.equal(footprint.maxHp, 600);
+    assert.equal(damageCityPool(centre, 400, tileMap), 0, '扣到0为止不倒扣');
+    assert.equal(footprint.hp, 0);
+});
+
+test('isCitySiegeBlocked covers ungarrisoned urban footprint tiles while pool hp>0', () => {
+    const s = state();
+    const { centre, footprint, tileMap } = largeCity(600);
+    s.tileMap = tileMap;
+    assert.equal(isCitySiegeBlocked(footprint, P1, s), true, '城郭格hp>0同样封锁');
+    centre.hp = 0; footprint.hp = 0;
+    assert.equal(isCitySiegeBlocked(footprint, P1, s), false, '血池归零后城郭格放开');
 });

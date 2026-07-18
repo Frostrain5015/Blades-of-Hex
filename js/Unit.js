@@ -459,7 +459,9 @@ export class Unit {
             base = (this.config.attack + (this._rankPanelAttackBonus || 0)) * (1 + auraAtk) + (this._atkBonus || 0) + getCommanderAttackBonus(this);
         }
         const mods = this.getCampaignEffectMods();
-        return Math.round(base * (1 + mods.atkPct / 100) + mods.atkFlat);
+        // 士气：①攻击乘区直接百分比加成（±20%），HUD 攻击值、攻城、反击统一生效
+        const moraleMulti = isMechanicEnabled(_gameState, 'morale') ? 1 + (MORALE_CONFIG[this.morale]?.atkBonus || 0) : 1;
+        return Math.round((base * (1 + mods.atkPct / 100) + mods.atkFlat) * moraleMulti);
     }
 
     getEffectiveRange() {
@@ -577,8 +579,8 @@ export class Unit {
             defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
             if (getCommanderWeatherDebuff(defender.tile, defender.camp, _gameState)) defSum -= COMBAT_BALANCE.defense.windInfantryPenalty;
         }
-        // 雨天：步兵守城防御力额外+10%（占星者星光力场免疫）
-        if (!transportedDefender && isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'rain' && defender.type === 'infantry' && defender.tile.isCity
+        // 雨天：步兵守城防御力额外+10%（占星者星光力场免疫）；城郭格同样算守城
+        if (!transportedDefender && isMechanicEnabled(_gameState, 'weatherEffects') && _gameState.weather === 'rain' && defender.type === 'infantry' && (defender.tile.isCity || defender.tile.isUrban)
             && !getCommanderWeatherImmunity(defender.tile, defender.camp, _gameState.tileMap)) {
             defSum += COMBAT_BALANCE.defense.rainCityInfantryBonus;
         }
@@ -610,8 +612,8 @@ export class Unit {
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         defSum += defender.getCampaignDefenseBonus(attacker);
-        // 城防：驻军站在城市地块上时，城市当前HP按比例转化为防御力，不区分空军/地面伤害。
-        if (defender.tile?.isCity) defSum += getCityDefenseBonus(defender.tile);
+        // 城防：驻军站在城市/城郭地块上时，城市当前HP按比例转化为防御力，不区分空军/地面伤害。
+        if (defender.tile?.isCity || defender.tile?.isUrban) defSum += getCityDefenseBonus(defender.tile);
         // 空军上校俯冲扫射：无视目标防御力
         if (ignoreDef > 0) defSum -= ignoreDef;
         const defenseMulti = Math.max(COMBAT_BALANCE.defense.minimumMultiplier, 1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, defSum));
@@ -649,7 +651,7 @@ export class Unit {
                 + getCommanderDefenseBonus(targetUnit)
                 + getCommanderAuraDefenseBonus(targetUnit)
                 + (targetUnit.getCampaignDefenseBonus?.(this) || 0)
-                + (targetUnit.tile?.isCity ? getCityDefenseBonus(targetUnit.tile) : 0);
+                + ((targetUnit.tile?.isCity || targetUnit.tile?.isUrban) ? getCityDefenseBonus(targetUnit.tile) : 0);
             let antiAir = getAntiAirReduction(targetUnit.tile, this.camp, gs.tileMap, { state: gs });
             if (colonelActive) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
             defense += antiAir;
@@ -1076,21 +1078,24 @@ export class Unit {
         return 0;
     }
 
-    addXP(amount) {
+    // silent=true 时静默结算：不推晋升动画事件，也不留待广播的晋升记录（战役触发器 fx:false 用）
+    addXP(amount, { silent = false } = {}) {
         if (this._rankLocked || this._rank >= 4 || amount <= 0) return;
         if (this.commander === 'centurion' && !areCommanderMechanicsSuppressed(this)) amount *= COMMANDER_CONFIG.centurion.balance.veteranXpMultiplier;
         this._xp += amount;
-        this._checkRankUp();
+        this._checkRankUp(silent);
     }
 
-    _checkRankUp() {
+    _checkRankUp(silent = false) {
         const rankRules = COMBAT_BALANCE.rank;
         const thresholds = rankRules.xpThresholds;
         const previousRank = this._rank;
         while (this._rank < thresholds.length && this._xp >= thresholds[this._rank]) {
             this._rank++;
-            _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
-            emit('fx:rankUp', { x: this.tile.x, y: this.tile.y, rank: this._rank });
+            if (!silent) {
+                _pendingRankUps.push({ unitId: this.id, rank: this._rank, x: this.tile.x, y: this.tile.y });
+                emit('fx:rankUp', { x: this.tile.x, y: this.tile.y, rank: this._rank });
+            }
         }
         if (this._rank === previousRank) return;
 

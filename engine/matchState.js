@@ -19,7 +19,7 @@ import {
 import { buildRiverTopology } from '../rules/hydrography.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
 import { canUnitOccupyTile } from '../rules/movement.js';
-import { CITY_SIEGE_CONFIG } from '../rules/citySiege.js';
+import { CITY_SIEGE_CONFIG, syncCityHpMirrors } from '../rules/citySiege.js';
 import { createRng } from '../core/rng.js';
 import { getCounter, setCounter } from '../js/uid.js';
 
@@ -832,7 +832,7 @@ export function restoreMatchState(match, data, deps) {
         // 旧存档缺少 hp/maxHp 字段时，城市地块按满血兜底，不崩溃、不误判瘫痪。
         tile.maxHp = waterTile ? 0 : (Number.isFinite(td.maxHp) && td.maxHp > 0
             ? td.maxHp
-            : (tile.isCity ? CITY_SIEGE_CONFIG.maxHp : 0));
+            : (tile.isCity ? CITY_SIEGE_CONFIG.baseMaxHp : 0));
         tile.hp = waterTile ? 0 : (Number.isFinite(td.hp) ? td.hp : tile.maxHp);
         tile._citySiegeDamageRound = waterTile ? -1 : (Number.isFinite(td.citySiegeDamageRound) ? td.citySiegeDamageRound : -1);
         tile._reinforcedThisTurn = waterTile ? false : (td.reinforcedThisTurn || false);
@@ -940,6 +940,10 @@ export function restoreMatchState(match, data, deps) {
     match.tileMap = new Map();
     for (const tile of match.tiles) {
         match.tileMap.set(tileCoordinateKey(tile), tile);
+    }
+    // 旧存档城内格缺少血池镜像时，以中心格血池为准回填。
+    for (const tile of match.tiles) {
+        if (tile.isCity) syncCityHpMirrors(tile, match.tileMap);
     }
     const snapshotHasInstallations = (data.tiles || []).some(tile =>
         Object.prototype.hasOwnProperty.call(tile || {}, 'installation')
