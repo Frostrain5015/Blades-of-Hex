@@ -2256,6 +2256,9 @@ export function attackUnit(attackerUnit, targetUnit) {
                     }, i * 24);
                 }
             }, 500);
+            setTimeout(() => {
+                triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
+            }, CARRIER_STRAFE_IMPACT_MS);
         } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
             const impact = () => {
                 triggerAttackFlash(toX, toY, isCrit);

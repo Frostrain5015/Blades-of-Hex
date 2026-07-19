@@ -701,10 +701,10 @@ export class Unit {
                 isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold,
                 antiAir
             };
-            gs.damageTexts.push({
+            this._pushDamageTextDelayed(gs, {
                 x: targetUnit.tile.x, y: targetUnit.tile.y, value: result.dmg, isCrit: result.isCrit,
-                isAirDamage: true, timeLeft: 900, lastUpdate: performance.now()
-            });
+                isAirDamage: true, timeLeft: 900
+            }, textDelayMs);
             return result;
         }
 

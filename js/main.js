@@ -2839,6 +2839,7 @@ async function handleRemoteAction(msg) {
                 }
             }
             updateUI();
+            _updateCampFlagPreviews();
             updateCampEmblems();
             renderGame();
             _checkSpectatorBanner();
@@ -2852,6 +2853,7 @@ async function handleRemoteAction(msg) {
             await reconcilePendingSurrender().catch(e => console.warn('Surrender reconcile error:', e));
             syncBoardActionBar();
             updateUI();
+            _updateCampFlagPreviews();
             renderGame();
             updateCampEmblems();
             _checkSpectatorBanner();
@@ -3251,6 +3253,9 @@ async function handleRemoteAction(msg) {
                                 }, i * 24);
                             }
                         }, 500);
+                        setTimeout(() => {
+                            triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
+                        }, 780);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
                         triggerAttackFlash(e.x, e.y, e.isCrit);
                         spawnDroneProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
@@ -3266,7 +3271,8 @@ async function handleRemoteAction(msg) {
                         spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
                         if (!e.killed && e.attackerType !== 'mgNest') triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                     }
-                    if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                    if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
+                        && _rmPresentation !== ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
                         triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                     }
                     if (e.extraSalvoResult) {
