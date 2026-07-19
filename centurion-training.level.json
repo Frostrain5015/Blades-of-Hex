@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 2,
+  "id": "centurion-training",
+  "title": "百夫长练兵",
+  "chronicleId": "blood-iris",
+  "seed": 57361,
+  "turnLimit": 10,
+  "intro": { "campaignTitle": "将星列传", "scenarioSubtitle": "百夫长练兵" },
+  "weather": "clear",
+  "localPlayerCamp": "player1",
+  "factions": [
+    { "id": "player1", "name": "红军", "color": "#ffaaaa", "controller": "human", "participatesInTurns": true, "active": true },
+    { "id": "player2", "name": "蓝军", "color": "#aaaaff", "controller": "ai", "participatesInTurns": true, "active": false },
+    { "id": "player3", "name": "绿军", "color": "#aaffaa", "controller": "ai", "participatesInTurns": true, "active": false },
+    { "id": "neutral", "name": "中立", "color": "#c0c0c0", "controller": "ai", "participatesInTurns": true, "active": false }
+  ],
+  "diplomacy": { "player1": { "player2": "enemy", "player3": "neutral", "neutral": "enemy" }, "player2": { "player3": "neutral", "neutral": "neutral" }, "player3": { "neutral": "neutral" } },
+  "mechanics": { "tacticalCards": false, "recruitment": false, "reinforcement": false, "commanderSkills": false, "weatherEffects": false, "morale": true, "fortifications": false, "fogOfWar": false, "alliedVision": false },
+  "aiOpponentCamp": "neutral",
+  "aiDifficulty": 0.5,
+  "gold": { "player1": 0, "player2": 0, "player3": 0 },
+  "commanders": { "player1": "centurion", "player2": null, "player3": null },
+  "hands": { "player1": [], "player2": [], "player3": [] },
+  "board": {
+    "layout": "borderless",
+    "radius": 3,
+    "cities": [{ "q": -3, "r": 3, "districtId": 1, "camp": "player1" }],
+    "terrain": [
+      { "q": -3, "r": 1, "type": "forest" }, { "q": -3, "r": 0, "type": "forest" },
+      { "q": -2, "r": -1, "type": "forest" }, { "q": -1, "r": -2, "type": "forest" },
+      { "q": 0, "r": -3, "type": "forest" }, { "q": 1, "r": -3, "type": "forest" },
+      { "q": 2, "r": -3, "type": "forest" }, { "q": 3, "r": -3, "type": "forest" },
+      { "q": 3, "r": -2, "type": "forest" }, { "q": 3, "r": -1, "type": "forest" },
+      { "q": 3, "r": 0, "type": "forest" }, { "q": 2, "r": 1, "type": "forest" },
+      { "q": 1, "r": 2, "type": "forest" }, { "q": 0, "r": 3, "type": "forest" },
+      { "q": -1, "r": 3, "type": "forest" }
+    ],
+    "villages": [], "fortifications": [], "districts": []
+  },
+  "units": [
+    { "id": "target", "type": "infantry", "camp": "neutral", "q": 0, "r": 0, "commander": null, "hpPct": 100, "morale": 2, "canAct": false },
+    { "id": "u4", "type": "cavalry", "camp": "player1", "q": -3, "r": 2, "commander": null, "hpPct": 100, "morale": 2, "canAct": true },
+    { "id": "u1", "type": "cavalry", "camp": "player1", "q": -3, "r": 3, "commander": "centurion", "hpPct": 100, "morale": 2, "canAct": true },
+    { "id": "u3", "type": "archer", "camp": "player1", "q": -2, "r": 3, "commander": null, "hpPct": 100, "morale": 2, "canAct": true },
+    { "id": "u2", "type": "infantry", "camp": "player1", "q": -2, "r": 2, "commander": null, "hpPct": 100, "morale": 2, "canAct": true }
+  ],
+  "variables": [
+    { "id": "tutorialPhase", "scope": "level", "type": "number", "initial": 0 }
+  ],
+  "steps": {
+    "intro": { "mode": "narrator", "text": "校场上，新兵们整齐列队。你是马库斯，帝国的百夫长。", "next": "select-self" },
+    "select-self": { "mode": "narrator", "text": "城墙上的就是你自己——马库斯。点击继续。", "next": "selected" },
+    "selected": { "mode": "narrator", "text": "今天你指挥新兵，让三种兵各自攻击一次校场中央的木靶。\n顺序：步兵 → 弩手 → 骑兵", "next": null },
+    "infantry-hint": { "mode": "narrator", "text": "1/3 选中步兵，走到木靶旁边攻击它。", "next": null },
+    "archer-hint": { "mode": "narrator", "text": "2/3 很好！现在选中弩手，向前走一步进入射程，然后射击木靶。", "next": null },
+    "cavalry-hint": { "mode": "narrator", "text": "3/3 最后选中骑兵，冲过去攻击木靶！", "next": null },
+    "done": { "mode": "narrator", "text": "三种兵都攻击过了！干得漂亮，新兵们学会了基础作战。", "next": null }
+  },
+  "initialStep": "intro",
+  "triggers": [
+    {
+      "id": "trg-immortal",
+      "title": "靶子不死",
+      "enabled": true,
+      "once": true,
+      "when": [{ "kind": "levelStarted" }],
+      "do": [{ "kind": "setUnitDefeatRule", "target": { "unit": "target" }, "minHp": 1, "nonLethal": true }]
+    },
+    {
+      "id": "trg-level-start",
+      "title": "关卡开始→步兵提示",
+      "enabled": true,
+      "once": true,
+      "when": [{ "kind": "levelStarted" }],
+      "do": [
+        { "kind": "delay", "ms": 300, "then": [{ "kind": "showStep", "step": "infantry-hint" }] }
+      ]
+    },
+    {
+      "id": "trg-infantry-attack",
+      "title": "步兵攻击→推进到弩手",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitAttacksUnit", "attacker": { "unit": "u2" }, "defender": { "unit": "target" } },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 0 }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "tutorialPhase", "operation": "set", "value": 1 },
+        { "kind": "showStep", "step": "archer-hint" }
+      ]
+    },
+    {
+      "id": "trg-archer-attack",
+      "title": "弩手攻击→推进到骑兵",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitAttacksUnit", "attacker": { "unit": "u3" }, "defender": { "unit": "target" } },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 1 }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "tutorialPhase", "operation": "set", "value": 2 },
+        { "kind": "showStep", "step": "cavalry-hint" }
+      ]
+    },
+    {
+      "id": "trg-cavalry-attack",
+      "title": "骑兵攻击→胜利",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitAttacksUnit", "attacker": { "unit": "u4" }, "defender": { "unit": "target" } },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 2 }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "tutorialPhase", "operation": "set", "value": 3 },
+        { "kind": "showStep", "step": "done" },
+        { "kind": "delay", "ms": 1500, "then": [{ "kind": "endScenario", "result": "win", "ending": "新兵们学会了基础作战。练兵第一步，完成。" }] }
+      ]
+    },
+    {
+      "id": "trg-fail",
+      "title": "百夫长阵亡→失败",
+      "enabled": true,
+      "once": true,
+      "when": [{ "kind": "unitKilled", "target": { "unit": "u1" } }],
+      "do": [{ "kind": "endScenario", "result": "lose", "reason": "百夫长阵亡，练兵失败。" }]
+    }
+  ],
+  "result": {
+    "winText": "新兵们学会了基础作战。练兵第一步，完成。",
+    "loseText": "百夫长阵亡，练兵失败。重整旗鼓，再试一次。",
+    "surviveToTurn": 10,
+    "starRules": [{ "when": [], "label": "完成训练" }]
+  }
+}
