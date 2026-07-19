@@ -107,6 +107,11 @@ export class Unit {
         this._morale = 2;
         this.moraleBoostUntil = 0;
         this.moralePenaltyUntil = 0;
+        this._flankingMoraleBase = null;
+        this._flankingMoralePenalty = 0;
+        this._flankingMoraleActivePenalty = 0;
+        this._flankingMoraleRecoveryUntil = 0;
+        this._applyingFlankingMorale = false;
         this.godMode = false;
         this._xp = 0;
         this._rank = 0;
@@ -155,8 +160,16 @@ export class Unit {
     get morale() { return this._morale; }
     set morale(v) {
         const old = this._morale;
-        this._morale = v;
-        if (old !== v) triggerCommanderOnMoraleChange(this, old, v);
+        const normalized = Math.max(0, Math.min(3, Math.round(Number(v) || 0)));
+        this._morale = normalized;
+        // 夹击/包围作为独立士气事件覆盖在基础值上。态势或恢复期内的攻心等外部
+        // 士气写入先更新基础值，再继续施加尚未结束的阵型惩罚。
+        if (!this._applyingFlankingMorale && Number.isFinite(this._flankingMoraleBase)) {
+            this._flankingMoraleBase = normalized;
+            const penalty = Math.max(0, Math.min(2, Number(this._flankingMoralePenalty) || 0));
+            this._morale = Math.max(0, normalized - penalty);
+        }
+        if (old !== this._morale) triggerCommanderOnMoraleChange(this, old, this._morale);
     }
 
     // 返回当前限时效果列表（供 tooltip / UI 展示）
@@ -510,13 +523,6 @@ export class Unit {
             hi = floatBalance.counter.max;
         } else {
             lo = floatBalance.attack.min; hi = floatBalance.attack.max;
-        }
-
-        // 士气影响浮动区间（进而改变暴击概率与伤害浮动）
-        if (isMechanicEnabled(_gameState, 'morale')) {
-            if (this.morale === 3)      { lo += floatBalance.morale.up.min; hi += floatBalance.morale.up.max; }
-            else if (this.morale === 1) { lo += floatBalance.morale.down.min; hi += floatBalance.morale.down.max; }
-            else if (this.morale === 0) { lo += floatBalance.morale.confused.min; hi += floatBalance.morale.confused.max; }
         }
 
         const threshold = isCounter ? floatBalance.counter.critThreshold : floatBalance.attack.critThreshold;

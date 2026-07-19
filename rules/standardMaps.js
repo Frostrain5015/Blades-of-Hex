@@ -1,5 +1,6 @@
 import { deepFreeze } from './freeze.js';
 import { getPlayableBoardCoordinates } from './boardLayout.js';
+import { HEX_NEIGHBORS } from './hex.js';
 
 const BOARD_RADIUS = 7;
 const ISLAND_RADIUS = 5;
@@ -140,8 +141,164 @@ const THREE_PLAYER_ISLAND = {
     ]
 };
 
-export const STANDARD_MAP_POOL = deepFreeze({ 2: [TWO_PLAYER_ISLAND], 3: [THREE_PLAYER_ISLAND] });
+const coordinateKey = ({ q, r }) => `${q},${r}`;
+const identity = ({ q, r }) => ({ q, r });
+const rotate180 = ({ q, r }) => ({ q: -q, r: -r });
+const rotate120 = ({ q, r }) => ({ q: -q - r, r: q });
+const rotate240 = point => rotate120(rotate120(point));
 
-export function getStandardMap(playerCount) {
-    return STANDARD_MAP_POOL[Number(playerCount) === 3 ? 3 : 2][0];
+function transformEntries(entries, transform, extras = {}) {
+    return entries.map(entry => ({ ...entry, ...transform(entry), ...extras }));
+}
+
+function createArchipelagoMap(playerCount) {
+    const transforms = playerCount === 3
+        ? [identity, rotate120, rotate240]
+        : [identity, rotate180];
+    const camps = transforms.map((_, index) => `player${index + 1}`);
+
+    // Every player receives the same home island and forward island under the
+    // map's exact rotational symmetry. The small detached islands remain neutral.
+    const homeLand = [
+        { q: -6, r: 0 }, { q: -5, r: 0 }, { q: -6, r: 1 }, { q: -5, r: 1 },
+        { q: -6, r: -1 }, { q: -5, r: -1 }, { q: -7, r: 1 }, { q: -4, r: 0 }
+    ];
+    const forwardLand = [
+        { q: -3, r: 3 }, { q: -2, r: 3 }, { q: -3, r: 2 },
+        { q: -2, r: 2 }, { q: -4, r: 3 }
+    ];
+    const steppingLand = [
+        { q: -3, r: -2 }, { q: -2, r: -2 }, { q: -3, r: -1 }
+    ];
+    const centralLand = [
+        { q: 0, r: 0 }, { q: 1, r: 0 }, { q: 1, r: -1 },
+        { q: 0, r: -1 }, { q: -1, r: 0 }, { q: -1, r: 1 }, { q: 0, r: 1 }
+    ];
+    const landKeys = new Set(centralLand.map(coordinateKey));
+    for (const transform of transforms) {
+        for (const point of [...homeLand, ...forwardLand, ...steppingLand]) {
+            landKeys.add(coordinateKey(transform(point)));
+        }
+    }
+
+    const surface = getPlayableBoardCoordinates({ layout: 'borderless' })
+        .filter(point => !landKeys.has(coordinateKey(point)))
+        .map(point => ({
+            ...point,
+            kind: HEX_NEIGHBORS.some(([dq, dr]) => landKeys.has(`${point.q + dq},${point.r + dr}`))
+                ? 'shallowWater'
+                : 'deepWater'
+        }));
+
+    const cities = [];
+    const villages = [{ q: 0, r: 1, districtId: 99 }];
+    const installations = [];
+    const ports = [{ q: 2, r: -1, districtId: 99, landQ: 1, landR: -1 }];
+    const initialUnits = [
+        { type: 'carrier', camp: 'neutral', q: 2, r: -1 },
+        { type: 'destroyer', camp: 'neutral', q: 1, r: -2 },
+        { type: 'infantry', camp: 'neutral', q: 0, r: 0 },
+        { type: 'archer', camp: 'neutral', q: -1, r: 0 },
+        { type: 'infantry', camp: 'neutral', q: 0, r: 1 }
+    ];
+
+    transforms.forEach((transform, index) => {
+        const camp = camps[index];
+        const homeDistrict = index * 2 + 1;
+        const forwardDistrict = index * 2 + 2;
+        const homeCity = transform({ q: -6, r: 0 });
+        const forwardCity = transform({ q: -3, r: 3 });
+        cities.push(
+            { ...homeCity, districtId: homeDistrict, camp },
+            { ...forwardCity, districtId: forwardDistrict, camp }
+        );
+        villages.push(
+            { ...transform({ q: -5, r: -1 }), districtId: homeDistrict },
+            { ...transform({ q: -2, r: 2 }), districtId: forwardDistrict },
+            { ...transform({ q: -3, r: -2 }), districtId: 99 }
+        );
+        installations.push({ ...homeCity, type: 'airfield', camp });
+        ports.push(
+            {
+                ...transform({ q: -7, r: 0 }),
+                districtId: homeDistrict,
+                landQ: homeCity.q,
+                landR: homeCity.r
+            },
+            { ...transform({ q: -3, r: 4 }), districtId: forwardDistrict, landQ: forwardCity.q, landR: forwardCity.r }
+        );
+        initialUnits.push(
+            ...transformEntries([{ type: 'warship', q: -7, r: 0 }], transform, { camp }),
+            ...transformEntries([{ type: 'destroyer', q: -3, r: 4 }], transform, { camp }),
+            ...transformEntries([{ type: 'submarine', q: -5, r: -2 }], transform, { camp }),
+            ...transformEntries([{ type: 'infantry', q: -6, r: 0 }], transform, { camp }),
+            ...transformEntries([{ type: 'archer', q: -5, r: 0 }], transform, { camp }),
+            ...transformEntries([{ type: 'cavalry', q: -6, r: 1 }], transform, { camp }),
+            ...transformEntries([{ type: 'infantry', q: -3, r: 3 }], transform, { camp }),
+            ...transformEntries([{ type: 'archer', q: -2, r: 3 }], transform, { camp }),
+            ...transformEntries([{ type: 'infantry', q: -3, r: -2 }], transform, { camp: 'neutral' })
+        );
+    });
+    cities.push({ q: 0, r: 0, districtId: 99, camp: 'neutral' });
+
+    return {
+        id: `uncharted-passage-${playerCount}p`,
+        familyId: 'uncharted-passage',
+        name: `无主航路·${playerCount === 3 ? '三人' : '双人'}`,
+        captureReward: {
+            type: 'neutralForcesTransfer',
+            cityQ: 0,
+            cityR: 0,
+            sourceCamp: 'neutral'
+        },
+        board: {
+            layout: 'borderless',
+            radius: BOARD_RADIUS,
+            surface,
+            cities,
+            terrain: [],
+            villages,
+            fortifications: [],
+            installations,
+            districts: [],
+            ports
+        },
+        initialUnits
+    };
+}
+
+TWO_PLAYER_ISLAND.familyId = 'crown-ring';
+TWO_PLAYER_ISLAND.name = '王冠环岛·双人';
+THREE_PLAYER_ISLAND.familyId = 'crown-ring';
+THREE_PLAYER_ISLAND.name = '王冠环岛·三人';
+
+const TWO_PLAYER_ARCHIPELAGO = createArchipelagoMap(2);
+const THREE_PLAYER_ARCHIPELAGO = createArchipelagoMap(3);
+
+export const DEFAULT_STANDARD_MAP_ID = 'crown-ring';
+
+export const STANDARD_MAP_FAMILIES = deepFreeze([
+    {
+        id: 'crown-ring',
+        name: '王冠环岛',
+        description: '中央大陆 · 陆海并进',
+        maps: { 2: TWO_PLAYER_ISLAND, 3: THREE_PLAYER_ISLAND }
+    },
+    {
+        id: 'uncharted-passage',
+        name: '无主航路',
+        description: '跳岛争夺 · 中立航母',
+        maps: { 2: TWO_PLAYER_ARCHIPELAGO, 3: THREE_PLAYER_ARCHIPELAGO }
+    }
+]);
+
+export const STANDARD_MAP_POOL = deepFreeze({
+    2: STANDARD_MAP_FAMILIES.map(family => family.maps[2]),
+    3: STANDARD_MAP_FAMILIES.map(family => family.maps[3])
+});
+
+export function getStandardMap(playerCount, familyId = DEFAULT_STANDARD_MAP_ID) {
+    const family = STANDARD_MAP_FAMILIES.find(entry => entry.id === familyId)
+        || STANDARD_MAP_FAMILIES[0];
+    return family.maps[Number(playerCount) === 3 ? 3 : 2];
 }

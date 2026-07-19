@@ -142,13 +142,11 @@ export function planActions(gameState, helpers) {
         const tDef = getEffectiveTerrainDef(tileObj, isRangedAttacker(attacker));
         const cityDef = getCityDef(defender.type, tileObj, weather);
         const unitDef = defender.config.defense || 0;
-        // 士气浮动期望：高昂 +5%~10%、低落 −5%~10%（对齐 COMBAT_BALANCE.float.morale）
-        const moraleDmg = attacker.morale === 3 ? 0.075 : attacker.morale === 1 ? -0.075 : attacker.morale === 0 ? -0.15 : 0;
         const weatherAtk = getWeatherAtkBonus(attacker.type, weather);
         const weatherDef = getWeatherDefPenalty(defender.type, weather);
 
-        // ① 攻击乘区(增伤)：克制系数 + 士气 + 天气攻击加成
-        const offense = 1 + (coeff - 1) + moraleDmg + weatherAtk;
+        // ① 攻击乘区(增伤)：士气已进入 getEffectiveAttack，此处只补克制与天气。
+        const offense = 1 + (coeff - 1) + weatherAtk;
         // ② 防御乘区
         const def = 1 - tDef - cityDef - unitDef - weatherDef;
         // 魔术师·千面：被克制目标攻击时受伤降低15%

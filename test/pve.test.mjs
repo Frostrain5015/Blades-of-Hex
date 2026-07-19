@@ -222,6 +222,23 @@ export async function run(browser, { quick = false } = {}) {
         if (s.victory) { victory = true; break; }
     }
     if (!stuck) R.ok(`回合推进 ${cycles} 轮无卡死`);
+    const aiCommanderDeployment = await page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        const { campToKey } = await import('/rules/camps.js');
+        const aiKey = campToKey(gameState.aiOpponentCamp);
+        const prefix = aiKey === 'player1' ? 'commanderP1' : aiKey === 'player2' ? 'commanderP2' : 'commanderP3';
+        const selected = gameState[prefix] || null;
+        return {
+            aiKey,
+            selected,
+            deployed: gameState[`${prefix}Deployed`] === true,
+            mountedAlive: gameState.tiles.some(tile => tile.unit?.camp === gameState.aiOpponentCamp
+                && tile.unit.commander === selected && tile.unit.hp > 0)
+        };
+    });
+    R.assert(aiCommanderDeployment.selected && aiCommanderDeployment.deployed,
+        `AI 已获配并主动挂载将领（${aiCommanderDeployment.aiKey}=${aiCommanderDeployment.selected}`
+        + `${aiCommanderDeployment.mountedAlive ? '，当前存活' : '，部署后已阵亡'}）`);
     if (!quick) R.assert(victory, `完整对局结束（胜利判定触发，共 ${cycles} 轮）`);
     else R.ok(`快速模式：${cycles} 轮回合循环通过`);
 

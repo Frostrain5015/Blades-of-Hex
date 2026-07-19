@@ -22,6 +22,7 @@ import { canUnitOccupyTile } from '../rules/movement.js';
 import { CITY_SIEGE_CONFIG, syncCityHpMirrors } from '../rules/citySiege.js';
 import { createRng } from '../core/rng.js';
 import { getCounter, setCounter } from '../js/uid.js';
+import { DEFAULT_STANDARD_MAP_ID } from '../rules/standardMaps.js';
 
 let resetSeedCounter = 0;
 
@@ -132,6 +133,7 @@ export function createMatchState() {
         killCount: standard.killCount,
         _friendlyDeathCount: {},
         gameMode: 'local',      // 'local' | 'pve' | 'network'
+        standardMapId: DEFAULT_STANDARD_MAP_ID,
         _trainingMode: false,
         // 教程是单机 PVE 的受限剧本；步骤数据留在状态上，供规则层阻止跳关。
         tutorialMode: false,
@@ -251,6 +253,7 @@ export function resetMatchState(match) {
     match.killCount = standard.killCount;
     match._friendlyDeathCount = {};
     match.gameMode = 'local';
+    match.standardMapId = DEFAULT_STANDARD_MAP_ID;
     match._trainingMode = false;
     match.tutorialMode = false;
     match.tutorialStep = '';
@@ -451,6 +454,11 @@ export function serializeMatchState(match) {
             morale: t.unit.morale,
             moraleBoostUntil: t.unit.moraleBoostUntil,
             moralePenaltyUntil: t.unit.moralePenaltyUntil || 0,
+            flankingMoraleBase: Number.isFinite(t.unit._flankingMoraleBase) ? t.unit._flankingMoraleBase : null,
+            flankingMoralePenalty: Number(t.unit._flankingMoralePenalty) || 0,
+            flankingMoraleActivePenalty: Number(t.unit._flankingMoraleActivePenalty) || 0,
+            flankingMoraleRecoveryUntil: Number(t.unit._flankingMoraleRecoveryUntil) || 0,
+            flankForcedIdle: t.unit._flankForcedIdle === true,
             remainingMP: t.unit.remainingMP,
               isEmbarked: t.unit.isEmbarked === true,
               transportTransitionedThisTurn: t.unit._transportTransitionedThisTurn === true,
@@ -593,6 +601,7 @@ export function serializeMatchState(match) {
         playerDrawsThisTurn: { ...match.playerDrawsThisTurn },
         playerUsesThisTurn: { ...match.playerUsesThisTurn },
         gameMode: match.gameMode || 'local',
+        standardMapId: match.standardMapId || DEFAULT_STANDARD_MAP_ID,
         trainingMode: match._trainingMode || false,
         isThreePlayer: match.isThreePlayer || false,
         aiOpponentCampKey: match.aiOpponentCamp ? _campToKey(match.aiOpponentCamp) : null,
@@ -724,6 +733,7 @@ export function restoreMatchState(match, data, deps) {
     match.playerDrawsThisTurn = record(data.playerDrawsThisTurn, () => 0);
     match.playerUsesThisTurn = record(data.playerUsesThisTurn, () => 0);
     match.gameMode = data.gameMode || 'local';
+    match.standardMapId = data.standardMapId || DEFAULT_STANDARD_MAP_ID;
     match._trainingMode = data.trainingMode || false;
     match.isThreePlayer = data.isThreePlayer || false;
     match.aiOpponentCamp = data.aiOpponentCampKey ? resolveCamp(data.aiOpponentCampKey) : null;
@@ -874,6 +884,19 @@ export function restoreMatchState(match, data, deps) {
             else unit.morale = 2;
             unit.moraleBoostUntil = td.unit.moraleBoostUntil || 0;
             unit.moralePenaltyUntil = td.unit.moralePenaltyUntil || 0;
+            unit._flankingMoraleBase = Number.isFinite(td.unit.flankingMoraleBase) ? td.unit.flankingMoraleBase : null;
+            const legacyFlankingPenalty = Number.isFinite(td.unit.flankingMoraleCap)
+                && Number.isFinite(td.unit.flankingMoraleBase)
+                ? Math.max(0, Math.min(2, td.unit.flankingMoraleBase - unit.morale))
+                : 0;
+            unit._flankingMoralePenalty = Math.max(0, Math.min(2,
+                Number(td.unit.flankingMoralePenalty) || legacyFlankingPenalty));
+            unit._flankingMoraleActivePenalty = Math.max(0, Math.min(2,
+                Number.isFinite(td.unit.flankingMoraleActivePenalty)
+                    ? td.unit.flankingMoraleActivePenalty
+                    : unit._flankingMoralePenalty));
+            unit._flankingMoraleRecoveryUntil = Math.max(0, Number(td.unit.flankingMoraleRecoveryUntil) || 0);
+            unit._flankForcedIdle = td.unit.flankForcedIdle === true;
             unit.remainingMP = td.unit.remainingMP ?? unit.getEffectiveSpeed();
               unit.isEmbarked = td.unit.isEmbarked === true;
               unit._transportTransitionedThisTurn = td.unit.transportTransitionedThisTurn === true;

@@ -26,6 +26,7 @@ export async function run(browser) {
         gs.commanderP2Confirmed = true;
         gs.commanderPhase = 'done';
         gs.gameMode = 'pve';
+        gs.standardMapId = 'uncharted-passage';
         gs.isThreePlayer = true;
         gs.skirmishFog = true;
         gs.aiDifficulty = 1.5;
@@ -58,8 +59,11 @@ export async function run(browser) {
             getVisualPos() { return { x: 400, y: 300 }; },
         };
         const uFallen = {
-            id: 'u_fallen', type: 'infantry', hp: 100, maxHp: 270, canAct: true, movedThisTurn: false,
+            id: 'u_fallen', type: 'infantry', hp: 100, maxHp: 270, canAct: false, movedThisTurn: false,
             counterAttackCount: 0, isNewRecruit: false, morale: 1, moraleBoostUntil: 5,
+            _flankingMoraleBase: 3, _flankingMoralePenalty: 2,
+            _flankingMoraleActivePenalty: 0, _flankingMoraleRecoveryUntil: 8,
+            _flankForcedIdle: true,
             remainingMP: 3, commander: 'fallenAngel', _centurionTriggered: false,
             _atkBonus: 30, _rankDefBonus: 0, _rankCritBonus: 0, _rankRegenPct: 0,
             displaySpeed: 3, _xp: 0, _rank: 0, _fallen: true, activeSkillCD: 0, activeSkillDur: 0,
@@ -143,6 +147,12 @@ export async function run(browser) {
             const u = fallenUnit.unit;
             assert(u.fallen === true, 'fallen=true');
             assert(u.morale === 1, 'morale=1');
+            assert(u.flankingMoraleBase === 3
+                && u.flankingMoralePenalty === 2
+                && u.flankingMoraleActivePenalty === 0
+                && u.flankingMoraleRecoveryUntil === 8
+                && u.flankForcedIdle === true,
+            '阵型士气事件与行动锁定状态');
         }
 
         const soulUnit = serialized.tiles.find(t => t.unit?.id === 'u_soul');
@@ -162,6 +172,7 @@ export async function run(browser) {
         assert(serialized.isThreePlayer === true, 'isThreePlayer');
         assert(serialized.skirmishFog === true, 'skirmishFog');
         assert(serialized.aiDifficulty === 1.5, 'aiDifficulty');
+        assert(serialized.standardMapId === 'uncharted-passage', 'standardMapId');
         assert(serialized.colonelDeployed?.player1 === true, 'colonelDeployed');
         assert(serialized.cardOverrides?.player1?.handSizeBonus === 1, 'cardOverrides');
         assert(serialized.soulMarks.length === 1, 'soulMarks 数组');
@@ -176,6 +187,7 @@ export async function run(browser) {
             const UnitClass = (await import('/js/Unit.js')).Unit;
             state.deserializeState(serialized, HexTileClass, UnitClass);
             assert(gs.tiles.length === 4, 'deserialize 还原 4 格');
+            assert(gs.standardMapId === 'uncharted-passage', '反序列化 standardMapId');
 
             const restoredPal = gs.tiles.find(t => t.unit?.id === 'u_pal');
             assert(!!restoredPal, '圣骑士 tile 恢复');
@@ -193,6 +205,16 @@ export async function run(browser) {
                 assert(restoredSoul.unit.moralePenaltyUntil === 4, '反序列化 moralePenaltyUntil');
                 assert(restoredSoul.unit._healingAura === 2, '反序列化 healingAura');
                 assert(Array.isArray(restoredSoul.unit._activeSkillBuffs), '反序列化 activeSkillBuffs');
+            }
+
+            const restoredFallen = gs.tiles.find(t => t.unit?.id === 'u_fallen');
+            if (restoredFallen?.unit) {
+                assert(restoredFallen.unit._flankingMoraleBase === 3
+                    && restoredFallen.unit._flankingMoralePenalty === 2
+                    && restoredFallen.unit._flankingMoraleActivePenalty === 0
+                    && restoredFallen.unit._flankingMoraleRecoveryUntil === 8
+                    && restoredFallen.unit._flankForcedIdle === true,
+                '反序列化阵型士气事件与行动锁定状态');
             }
 
             assert(gs._soulMarks.length === 1, '反序列化 soulMarks');

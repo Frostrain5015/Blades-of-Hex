@@ -1401,10 +1401,12 @@ export function spawnMinisterDominionRing(x, y) {
 
 // ===== 尚书屯田 =====================
 export const coinParticles = [];
+const MAX_COIN_PARTICLES = 96;
 
 export function spawnCoinRain(x, y, countMult = 1) {
     const n = Math.round(8 * settings.particleDensity * countMult);
-    for (let i = 0; i < n; i++) {
+    const available = Math.max(0, MAX_COIN_PARTICLES - coinParticles.length);
+    for (let i = 0; i < Math.min(n, available); i++) {
         coinParticles.push({
             x: x + (Math.random() - 0.5) * 20,
             y: y - 35 - Math.random() * 20,
@@ -1422,10 +1424,11 @@ export function spawnCoinRain(x, y, countMult = 1) {
 // ===== 圣骑士至圣斩光束弹射 =====
 
 export function updateCoinParticles(dt) {
-    for (let i = coinParticles.length - 1; i >= 0; i--) {
+    let writeIndex = 0;
+    for (let i = 0; i < coinParticles.length; i++) {
         const c = coinParticles[i];
         c.life -= dt;
-        if (c.life <= 0) { coinParticles.splice(i, 1); continue; }
+        if (c.life <= 0) continue;
         c.y += c.vy * dt;
         c.x += c.vx * dt;
         c.vy += 300 * dt;
@@ -1436,23 +1439,27 @@ export function updateCoinParticles(dt) {
             if (Math.abs(c.vy) < 15) c.vy = 0;
             c.bounced = Math.abs(c.vy) < 5 ? true : c.bounced;
         }
+        coinParticles[writeIndex++] = c;
     }
+    coinParticles.length = writeIndex;
 }
 
 export function drawCoinParticles(ctx2d) {
+    if (coinParticles.length === 0) return;
+    ctx2d.save();
+    ctx2d.fillStyle = '#ffd700';
+    // 单次设置绘制状态；逐粒子 save/restore + shadowBlur 是收入爆发时的主要 Canvas 热点。
+    ctx2d.shadowColor = '#b98500';
+    ctx2d.shadowBlur = 1.5;
     for (const c of coinParticles) {
         const progress = 1 - c.life / c.maxLife;
         const alpha = Math.max(0, 1 - progress * 0.7);
-        ctx2d.save();
         ctx2d.globalAlpha = alpha;
-        ctx2d.fillStyle = '#ffd700';
-        ctx2d.shadowColor = '#cc9900';
-        ctx2d.shadowBlur = 3;
         ctx2d.beginPath();
         ctx2d.ellipse(c.x, c.y, c.size, c.size * 0.5, 0, 0, Math.PI * 2);
         ctx2d.fill();
-        ctx2d.restore();
     }
+    ctx2d.restore();
 }
 
 export const paladinBeamProjectiles = [];

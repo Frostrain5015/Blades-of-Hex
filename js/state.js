@@ -18,19 +18,30 @@ import { isCityDisabled } from '../rules/citySiege.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
+const _counterAnimationTokens = {};
 
 function animateCounter(el, newVal, fmtFn, key) {
     const k = key || el.id || 'default';
     const prev = _counterStore[k] != null ? _counterStore[k] : newVal;
-    if (prev === newVal) { el.textContent = fmtFn(newVal); return; }
+    if (prev === newVal) {
+        delete _counterAnimationTokens[k];
+        el.textContent = fmtFn(newVal);
+        return;
+    }
     _counterStore[k] = newVal;
+    const token = Symbol(k);
+    _counterAnimationTokens[k] = token;
     const start = performance.now();
     const duration = 350;
     function tick(now) {
+        // 一次回合结算会多次刷新 UI；新目标到来后立即淘汰旧 rAF，避免多个
+        // 数字动画持续互相覆写同一 DOM 节点。
+        if (_counterAnimationTokens[k] !== token) return;
         const t = Math.min((now - start) / duration, 1);
         const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
         el.textContent = fmtFn(Math.round(prev + (newVal - prev) * ease));
         if (t < 1) requestAnimationFrame(tick);
+        else delete _counterAnimationTokens[k];
     }
     requestAnimationFrame(tick);
 }
@@ -47,6 +58,7 @@ export function resetGameState() {
     resetClientUiState(gameState);
     // 清除计数器动画记忆
     for (const k of Object.keys(_counterStore)) delete _counterStore[k];
+    for (const k of Object.keys(_counterAnimationTokens)) delete _counterAnimationTokens[k];
 }
 
 export function configureSkirmishState(options = {}) {
@@ -256,23 +268,25 @@ function _spawnGoldDelta(el, delta) {
     span.textContent = (isGain ? '+' : '') + '$' + Math.abs(delta);
     span.style.cssText = `
         position: fixed; left: ${rect.left + rect.width / 2}px; top: ${rect.top - 4}px;
-        transform: translate(-50%, 0);
+        transform: translate3d(-50%, 0, 0);
+        will-change: transform, opacity;
         font-size: 15px; font-weight: bold; font-family: "Noto Serif SC", "Noto Serif CJK SC", serif;
         color: ${isGain ? '#44dd44' : '#cc5555'};
         text-shadow: 0 0 8px ${isGain ? 'rgba(60,220,60,0.8)' : 'rgba(200,80,80,0.8)'};
         pointer-events: none; z-index: 1000; white-space: nowrap;
     `;
     document.body.appendChild(span);
-    const start = performance.now();
-    const duration = 1800;
-    function tick(now) {
-        const t = (now - start) / duration;
-        if (t >= 1) { span.remove(); return; }
-        span.style.opacity = Math.max(0, 1 - t);
-        span.style.top = (rect.top - 4 - 24 * t) + 'px';
-        requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
+    // 交给浏览器合成线程处理位移与淡出，避免回合收入结算时多个独立 rAF
+    // 每帧改写 top，触发布局/绘制并与战场渲染争抢主线程。
+    const animation = span.animate([
+        { transform: 'translate3d(-50%, 0, 0)', opacity: 1 },
+        { transform: 'translate3d(-50%, -24px, 0)', opacity: 0 }
+    ], {
+        duration: 1400,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        fill: 'forwards'
+    });
+    animation.finished.then(() => span.remove(), () => span.remove());
 }
 
 let _onUIUpdate = null;

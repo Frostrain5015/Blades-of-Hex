@@ -2,6 +2,7 @@ import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFI
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { isStrongpointTarget, isBuildingUnit } from '../rules/units.js';
 import {
+    calculateCityStructureDamage,
     damageCityPool,
     getCityDefenseBonus,
     getCityPoolTile,
@@ -9,6 +10,7 @@ import {
     isCityDisabled,
     isCitySiegeBlocked,
     isSiegeableCityTile,
+    shouldDamageCityAlongsideGarrison,
     syncCityHpMirrors
 } from '../rules/citySiege.js';
 import { campToKey } from '../rules/camps.js';
@@ -22,6 +24,7 @@ import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruit
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { getStandardMap } from '../rules/standardMaps.js';
+import { applyStandardMapCaptureReward } from '../rules/standardMapEvents.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
@@ -52,6 +55,7 @@ import {
 import { COLONEL_CARD_DATA } from '../rules/cards.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { MORALE_CONFIG } from '../rules/terrain.js';
+import { applyPositionalMoralePenalty, clearPositionalMoralePenalty } from '../rules/morale.js';
 import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
@@ -412,29 +416,26 @@ export function recalcAllFlankingMorale() {
         const u = tile.unit;
         const prev = u.morale;
 
+        const courageProtected = hasCourageAura(u);
         // 勇气灵光保护下免疫夹击/包围士气压制
-        if (!hasCourageAura(u)) {
+        if (!courageProtected) {
             const surrounded = isSurrounded(u, gameState.tileMap);
             const flanked = !surrounded && isFlanked(u, gameState.tileMap);
+            // 夹击/包围是点数事件，而非实时士气上限：夹击-1、包围-2；
+            // 阵型解除后惩罚继续保留三回合，再恢复进入态势前的基础士气。
+            applyPositionalMoralePenalty(u, surrounded ? 2 : flanked ? 1 : 0, getRoundIndex(gameState));
 
-            // 士气 = min(自然士气, 态势上限)：包围封顶0、夹击封顶1、无态势回到自然值，
-            // 态势解除后立即回升（包围→夹击也会回到1）。攻心处罚期保留处罚值，
-            // 其到期由回合开始统一处理。
-            const curRound = getRoundIndex(gameState);
-            const penaltyActive = u.moralePenaltyUntil > curRound;
-            const naturalMorale = penaltyActive ? u.morale : (u.moraleBoostUntil > curRound ? 3 : 2);
-            const moraleCap = surrounded ? 0 : flanked ? 1 : 3;
-            const targetMorale = Math.min(naturalMorale, moraleCap);
-            if (u.morale !== targetMorale) u.morale = targetMorale;
+        } else {
+            clearPositionalMoralePenalty(u);
+        }
 
-            // 士气归零时禁用行动；若是本次被包围强制缴械，解除包围恢复士气后立即归还
-            if (u.morale === 0) {
-                if (u.canAct) u._flankForcedIdle = true;
-                u.canAct = false;
-            } else if (u._flankForcedIdle) {
-                u.canAct = true;
-                u._flankForcedIdle = false;
-            }
+        // 士气归零时禁用行动；若是本次被包围强制缴械，解除包围或获得勇气灵光后归还。
+        if (u.morale === 0) {
+            if (u.canAct) u._flankForcedIdle = true;
+            u.canAct = false;
+        } else if (u._flankForcedIdle) {
+            u.canAct = true;
+            u._flankForcedIdle = false;
         }
 
         if (u.morale !== prev) {
@@ -461,7 +462,7 @@ export function initMap() {
     gameState.tiles = [];
 
     const is3P = gameState.isThreePlayer;
-    const standardMap = getStandardMap(is3P ? 3 : 2);
+    const standardMap = getStandardMap(is3P ? 3 : 2, gameState.standardMapId);
     // 直接从编辑器导出的配置嵌入（JSON字符串，保证与文件完全一致）
     const boardJSON = is3P
         ? '{"radius":7,"cities":[{"q":0,"r":0,"districtId":5,"camp":"neutral"},{"q":-3,"r":-3,"districtId":1,"camp":"player1"},{"q":-6,"r":3,"districtId":3,"camp":"player2"},{"q":-3,"r":6,"districtId":4,"camp":"player2"},{"q":3,"r":3,"districtId":6,"camp":"player3"},{"q":6,"r":-3,"districtId":7,"camp":"player3"},{"q":3,"r":-6,"districtId":2,"camp":"player1"}],"terrain":[],"villages":[{"q":1,"r":-6,"districtId":2},{"q":-6,"r":5,"districtId":3},{"q":-1,"r":6,"districtId":4},{"q":5,"r":1,"districtId":6},{"q":0,"r":2,"districtId":5},{"q":2,"r":-2,"districtId":5},{"q":-2,"r":0,"districtId":5},{"q":-4,"r":-2,"districtId":1},{"q":6,"r":-4,"districtId":7}],"fortifications":[],"districts":[{"q":-4,"r":0,"districtId":1},{"q":-5,"r":0,"districtId":1},{"q":-6,"r":0,"districtId":1},{"q":-7,"r":0,"districtId":1},{"q":0,"r":-7,"districtId":2},{"q":1,"r":-7,"districtId":2},{"q":0,"r":-6,"districtId":2},{"q":1,"r":-6,"districtId":2},{"q":0,"r":-5,"districtId":2},{"q":1,"r":-5,"districtId":2},{"q":0,"r":-4,"districtId":2},{"q":1,"r":-4,"districtId":2},{"q":-3,"r":2,"districtId":5},{"q":-3,"r":1,"districtId":5},{"q":-3,"r":0,"districtId":5},{"q":-1,"r":-1,"districtId":5},{"q":-1,"r":-2,"districtId":5},{"q":0,"r":-3,"districtId":5},{"q":1,"r":-3,"districtId":5},{"q":2,"r":-3,"districtId":5},{"q":3,"r":-3,"districtId":5},{"q":3,"r":-2,"districtId":5},{"q":3,"r":-1,"districtId":5},{"q":3,"r":0,"districtId":5},{"q":2,"r":1,"districtId":5},{"q":1,"r":1,"districtId":5},{"q":1,"r":2,"districtId":5},{"q":-2,"r":3,"districtId":5},{"q":-1,"r":3,"districtId":5},{"q":0,"r":3,"districtId":5},{"q":4,"r":-4,"districtId":7},{"q":5,"r":-5,"districtId":7},{"q":6,"r":-6,"districtId":7},{"q":7,"r":-7,"districtId":7}]}'
@@ -611,7 +612,7 @@ function initInitialUnits() {
         const runtimeCamp = campFromKey(campToKey(camp), gameState);
         if (tile && !tile.unit) new Unit(type, runtimeCamp, tile, false);
     }
-    const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2);
+    const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
     if (Array.isArray(standardMap?.initialUnits)) {
         for (const unit of standardMap.initialUnits) spawn(unit.type, unit.camp, unit.q, unit.r);
         return;
@@ -1224,6 +1225,8 @@ async function _doEndTurnPhase() {
         }
         _updateWeather();
         _expireTimedEffects();
+        // 即使本轮没有发生移动，也要推进已经脱离夹击/包围的士气恢复计时。
+        recalcAllFlankingMorale();
         // 城市脱战自动回复：上一整轮没有挨攻城伤害才回复，HP=0的城市也会慢慢回满。
         for (const tile of gameState.tiles) {
             if (!tile.isCity || tile.hp >= tile.maxHp) continue;
@@ -2116,6 +2119,31 @@ export function attackUnit(attackerUnit, targetUnit) {
         targetUnit._deferImpactFxUntil = performance.now() + _torpedoMs;
     }
     let isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
+    let cityDamage = 0;
+    let cityDamageIsCrit = false;
+    if (shouldDamageCityAlongsideGarrison(attackerUnit.tile, primaryTargetTile, gameState.tileMap)) {
+        // 同一次攻击分别结算驻军与城市：城市重新掷浮动/暴击，只走攻击方火力与
+        // 攻城增伤管线，不读取驻军兵种、地形、单位防御或城防庇护。
+        const cityResult = _resolveGroundNavalSiegeDamage(attackerUnit, primaryTargetTile);
+        cityDamage = cityResult.damage;
+        cityDamageIsCrit = cityResult.isCrit;
+        if (cityDamage > 0) {
+            damageCityPool(primaryTargetTile, cityDamage, gameState.tileMap);
+            const cityPoolTile = getCityPoolTile(primaryTargetTile, gameState.tileMap);
+            if (cityPoolTile) cityPoolTile._citySiegeDamageRound = getRoundIndex(gameState);
+            setTimeout(() => {
+                gameState.damageTexts.push({
+                    x: toX + 20,
+                    y: toY + 8,
+                    value: cityDamage,
+                    isCityDamage: true,
+                    isCrit: cityDamageIsCrit,
+                    timeLeft: 900,
+                    lastUpdate: performance.now()
+                });
+            }, _torpedoMs + 180);
+        }
+    }
     const specializationSplashResults = [];
     let extraSalvoResult = null;
     if (!isTargetDead && attackerUnit.specializationKey === 'fleetCruiser'
@@ -2473,6 +2501,12 @@ export function attackUnit(attackerUnit, targetUnit) {
             cmdFxData: _cmdFxData || null,
             ctrCmdFxData: _ctrCmdFxData || null,
             attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
+            cityDamage,
+            cityDamageIsCrit,
+            cityDamageDelayMs: 180,
+            cityHpAfter: cityDamage > 0
+                ? (getCityPoolTile(primaryTargetTile, gameState.tileMap)?.hp ?? null)
+                : null,
             counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
             counterIsRanged: _counterIsRanged, counterIsCrit: _counterIsCrit,
             counterType: targetUnit.type,
@@ -2571,6 +2605,14 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     gameState.campBorderEdges = computeCampBorders(landTiles, landTileMap);
     gameState.districtBorderEdges = computeDistrictBorders(landTiles, landTileMap);
     logMessage(`${camp.name}占领的(${cityTile.q},${cityTile.r})城市所属行政区已归属${camp.name}`);
+    const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
+    const transferredUnits = applyStandardMapCaptureReward(gameState, standardMap, cityTile, oldCamp, camp);
+    if (transferredUnits.length > 0) {
+        const carrierCount = transferredUnits.filter(unit => unit.type === 'carrier').length;
+        const carrierCopy = carrierCount > 0 ? `，包括${carrierCount}艘航母` : '';
+        logMessage(`【无主舰队】${transferredUnits.length}支中立残军${carrierCopy}向${camp.name}易帜`);
+        notify(`中央岛守军与舰队已归属${camp.name}`, 'info');
+    }
     if (attackerUnit) attackerUnit.addXP(5);
     invalidateBoard();
     emit('match:cityCaptured', { cityTile, camp, campKey: _campKey(camp), attackerUnit });
@@ -3334,11 +3376,11 @@ function _resolveGroundNavalSiegeDamage(attacker, targetTile) {
     const fortificationBonus = isStrongpointTarget({ tile: targetTile })
         ? (attacker.getSpecializationAbility('fortificationDamage') || 0) : 0;
     const landDamageBonus = attacker.getSpecializationAbility('landDamage') || 0;
-    const offenseMulti = Math.max(0, 1 + crossDomainBonus + fortificationBonus + landDamageBonus);
+    const damageBonus = crossDomainBonus + fortificationBonus + landDamageBonus;
     const floatMult = attacker._calcFloat(false, false, attacker._rankCritBonus || 0);
     // 空城无驻军、无城墙固定减伤：城市HP自身即是缓冲，伤害不再走额外防御乘区。
     return {
-        damage: Math.max(1, Math.round(attacker.getEffectiveAttack() * offenseMulti * floatMult)),
+        damage: calculateCityStructureDamage(attacker.getEffectiveAttack(), damageBonus, floatMult),
         isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold
     };
 }

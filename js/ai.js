@@ -532,7 +532,9 @@ export async function processOpponentTurn(aiCamp) {
 
         await runV2Infrastructure(aiCamp);
 
-        if (gameState.doubleCommanderMode) await deployAvailableCommanders(aiCamp);
+        // 单将领与双将领模式都应在 AI 规划行动前优先挂将；此前这一入口被误限在
+        // doubleCommanderMode，导致普通 PVE 虽已给 AI 选将，却整局不部署。
+        await deployAvailableCommanders(aiCamp);
 
         const helpers = makeHelpers(aiCamp);
         const actions = grokPersonality.planActions(gameState, helpers, aiCamp);

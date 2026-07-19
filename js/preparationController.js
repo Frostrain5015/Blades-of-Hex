@@ -2,6 +2,7 @@
 import { COMMANDER_DRAFT } from '../rules/constants.js';
 import { gameState } from './state.js';
 import { createRoom } from './network.js';
+import { STANDARD_MAP_FAMILIES } from '../rules/standardMaps.js';
 
 export function createPreparationController({
     beginCommanderPhase,
@@ -58,6 +59,11 @@ export function createPreparationController({
         typeSection.classList.remove('collapsed');
         difficultySection.classList.remove('collapsed');
         buildRuleOptions();
+        buildOptionRow('prepOptionsMap', STANDARD_MAP_FAMILIES.map(map => ({
+            id: map.id,
+            title: map.name,
+            desc: map.description
+        })));
         document.getElementById('prepLabel2').textContent = '特殊规则';
 
         if (action === 'createRoom') {
@@ -106,6 +112,7 @@ export function createPreparationController({
         const selectedType = getSelection('prepOptions1');
         const skirmishFog = document.getElementById('prepSkirmish')?.checked || false;
         const doubleCommanderMode = document.getElementById('prepDoubleCommander')?.checked || false;
+        gameState.standardMapId = getSelection('prepOptionsMap') || STANDARD_MAP_FAMILIES[0].id;
 
         if (action === 'createRoom') {
             const maxPlayers = selectedType === '3p' ? 3 : 2;

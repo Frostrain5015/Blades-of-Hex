@@ -398,7 +398,7 @@ function roomList() {
     for (const [id, room] of rooms) {
         // 未开始的对局，或对局中有玩家断线（可重连）
         if (!room.gameStarted || room._disconnectedRole || (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0)) {
-            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false });
+            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false, standardMapId: room.standardMapId || 'crown-ring' });
         }
     }
     return list;
@@ -428,6 +428,7 @@ const PLAYER_FACTION_COLORS = new Set(['red', 'orange', 'yellow', 'green', 'cyan
 const DEFAULT_ROLE_COLORS = { player1: 'red', player2: 'blue', player3: 'green' };
 const STANDARD_FLAG_EMOJIS = new Set(['⚜️', '🦅', '🦁', '🐺', '🐉', '⚔️', '🛡️', '👑', '☀️', '🌙', '🔥', '🌿', '⚓']);
 const DEFAULT_ROLE_FLAG_EMOJIS = { player1: '⚜️', player2: '🛡️', player3: '🦅' };
+const STANDARD_MAP_IDS = new Set(['crown-ring', 'uncharted-passage']);
 
 function rollNetworkTurnOrder(roles) {
     const histories = Object.fromEntries(roles.map(role => [role, []]));
@@ -469,6 +470,7 @@ function createNetworkMatchSetup(room) {
     ]));
     return {
         ...rolled,
+        standardMapId: room.standardMapId || 'crown-ring',
         roleAssignments: room.roleAssignments,
         factionColors: room.factionColors,
         factionEmojis: room.factionEmojis
@@ -598,6 +600,7 @@ async function handleMessage(ws, rawData) {
             const maxPlayers = msg.maxPlayers || 2; // 默认双人，可选3人
             const skirmishFog = msg.skirmishFog || false;
             const doubleCommanderMode = msg.doubleCommanderMode || false;
+            const standardMapId = STANDARD_MAP_IDS.has(msg.standardMapId) ? msg.standardMapId : 'crown-ring';
             const room = {
                 id: roomId,
                 players: new Map(),
@@ -605,6 +608,7 @@ async function handleMessage(ws, rawData) {
                 maxPlayers,
                 skirmishFog,
                 doubleCommanderMode,
+                standardMapId,
                 authority: createRoomAuthority()
             };
             room.players.set(ws, { role: 'player1' });

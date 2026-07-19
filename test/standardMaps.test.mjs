@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { GAME_RULES } from '../rules/constants.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
 import { getPlayableBoardCoordinates } from '../rules/boardLayout.js';
-import { STANDARD_MAP_POOL, getStandardMap } from '../rules/standardMaps.js';
+import { STANDARD_MAP_FAMILIES, STANDARD_MAP_POOL, getStandardMap } from '../rules/standardMaps.js';
+import { applyStandardMapCaptureReward } from '../rules/standardMapEvents.js';
 import { UNIT_CONFIG } from '../rules/units.js';
 
 const key = ({ q, r }) => `${q},${r}`;
@@ -39,13 +40,13 @@ function nearestDistrict(point, cities) {
 }
 
 for (const playerCount of [2, 3]) {
-    test(`${playerCount}P standard map pool exposes a fixed large-island competitive map`, () => {
+    test(`${playerCount}P default standard map remains the large-island competitive map`, () => {
         const map = getStandardMap(playerCount);
         const board = map.board;
         const water = new Map(board.surface.map(tile => [key(tile), tile.kind]));
         const cityDistricts = new Set(board.cities.map(city => city.districtId));
 
-        assert.equal(STANDARD_MAP_POOL[playerCount].length, 1);
+        assert.equal(STANDARD_MAP_POOL[playerCount].length, 2);
         assert.equal(board.layout, 'borderless');
         assert.equal(board.radius, 7);
         assert.equal(getPlayableBoardCoordinates(board).length, 277);
@@ -129,6 +130,96 @@ for (const playerCount of [2, 3]) {
         assertCoordinateSymmetry(map.initialUnits, transform, `${playerCount}P initial units`, unit => unit.type);
     });
 }
+
+for (const playerCount of [2, 3]) {
+    test(`${playerCount}P Uncharted Passage is ocean-dominant and player-symmetric`, () => {
+        const map = getStandardMap(playerCount, 'uncharted-passage');
+        const board = map.board;
+        const playable = getPlayableBoardCoordinates(board);
+        const playableKeys = new Set(playable.map(key));
+        const water = new Map(board.surface.map(tile => [key(tile), tile.kind]));
+        const players = Array.from({ length: playerCount }, (_, index) => `player${index + 1}`);
+
+        assert.equal(map.familyId, 'uncharted-passage');
+        assert.ok(board.surface.length > playable.length / 2, 'ocean must cover most of the battlefield');
+        assert.deepEqual(map.captureReward, {
+            type: 'neutralForcesTransfer', cityQ: 0, cityR: 0, sourceCamp: 'neutral'
+        });
+        assert.ok(board.cities.some(city => city.q === 0 && city.r === 0 && city.camp === 'neutral'));
+
+        for (const camp of players) {
+            const cities = board.cities.filter(city => city.camp === camp);
+            const airfields = board.installations.filter(installation => installation.camp === camp && installation.type === 'airfield');
+            assert.equal(cities.length, 2, `${camp} must own exactly two cities`);
+            assert.equal(airfields.length, 1, `${camp} must own exactly one airport city`);
+            assert.ok(cities.some(city => city.q === airfields[0].q && city.r === airfields[0].r));
+        }
+
+        const carriers = map.initialUnits.filter(unit => unit.type === 'carrier');
+        assert.deepEqual(carriers, [{ type: 'carrier', camp: 'neutral', q: 2, r: -1 }]);
+        assert.ok(board.ports.some(port => port.q === carriers[0].q && port.r === carriers[0].r && port.districtId === 99));
+
+        const occupied = new Set();
+        for (const unit of map.initialUnits) {
+            const naval = UNIT_CONFIG[unit.type]?.movementDomain === 'naval';
+            assert.ok(playableKeys.has(key(unit)), `${unit.type}@${key(unit)} must be playable`);
+            assert.equal(water.has(key(unit)), naval, `${unit.type}@${key(unit)} must match its movement domain`);
+            assert.equal(occupied.has(key(unit)), false, `unit coordinate ${key(unit)} must be unique`);
+            occupied.add(key(unit));
+        }
+
+        for (const port of board.ports) {
+            assert.equal(water.get(key(port)), 'shallowWater', `port ${key(port)} must be shallow water`);
+            assert.equal(water.has(`${port.landQ},${port.landR}`), false, `port ${key(port)} must have a land gangway`);
+            assert.ok(HEX_NEIGHBORS.some(([dq, dr]) => port.q + dq === port.landQ && port.r + dr === port.landR));
+        }
+
+        const unitProfiles = players.map(camp => {
+            const counts = new Map();
+            for (const unit of map.initialUnits.filter(entry => entry.camp === camp)) {
+                counts.set(unit.type, (counts.get(unit.type) || 0) + 1);
+            }
+            return [...counts].sort(([a], [b]) => a.localeCompare(b));
+        });
+        for (const profile of unitProfiles.slice(1)) assert.deepEqual(profile, unitProfiles[0]);
+
+        const transform = playerCount === 3 ? rotate120 : rotate180;
+        assertCoordinateSymmetry(
+            board.cities.filter(city => city.camp !== 'neutral'),
+            transform,
+            `${playerCount}P player cities`
+        );
+        assertCoordinateSymmetry(
+            map.initialUnits.filter(unit => unit.camp !== 'neutral'),
+            transform,
+            `${playerCount}P player units`,
+            unit => unit.type
+        );
+    });
+}
+
+test('capturing the central neutral city transfers every surviving neutral force', () => {
+    const player1 = { id: 'player1', name: '玩家一' };
+    const neutral = { id: 'neutral', name: '中立' };
+    const neutralCarrier = { type: 'carrier', camp: neutral, hp: 200 };
+    const neutralInfantry = { type: 'infantry', camp: neutral, hp: 80 };
+    const defeatedNeutral = { type: 'archer', camp: neutral, hp: 0 };
+    const enemy = { type: 'warship', camp: { id: 'player2' }, hp: 100 };
+    const state = { tiles: [neutralCarrier, neutralInfantry, defeatedNeutral, enemy].map(unit => ({ unit })) };
+    const map = getStandardMap(2, 'uncharted-passage');
+
+    const transferred = applyStandardMapCaptureReward(state, map, { q: 0, r: 0 }, neutral, player1);
+
+    assert.deepEqual(transferred, [neutralCarrier, neutralInfantry]);
+    assert.equal(neutralCarrier.camp, player1);
+    assert.equal(neutralInfantry.camp, player1);
+    assert.equal(defeatedNeutral.camp, neutral);
+    assert.equal(enemy.camp.id, 'player2');
+});
+
+test('the preparation catalog exposes both named map families', () => {
+    assert.deepEqual(STANDARD_MAP_FAMILIES.map(map => map.name), ['王冠环岛', '无主航路']);
+});
 
 test('every controlled village has the same fixed one-dollar income', () => {
     assert.equal(GAME_RULES.villageGold, 1);

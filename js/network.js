@@ -181,7 +181,8 @@ export function connectToServer(url) {
                         turnOrderRolls: msg.turnOrderRolls,
                         factionColors: msg.factionColors,
                         factionEmojis: msg.factionEmojis,
-                        roleAssignments: msg.roleAssignments
+                        roleAssignments: msg.roleAssignments,
+                        standardMapId: msg.standardMapId
                     });
                     break;
                 case 'factionColors':
@@ -301,7 +302,8 @@ export function createRoom(maxPlayers = 2) {
         type: 'createRoom',
         maxPlayers,
         skirmishFog: gameState.skirmishFog || false,
-        doubleCommanderMode: gameState.doubleCommanderMode || false
+        doubleCommanderMode: gameState.doubleCommanderMode || false,
+        standardMapId: gameState.standardMapId
     }));
 }
 

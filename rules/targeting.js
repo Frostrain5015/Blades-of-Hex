@@ -13,6 +13,7 @@ import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN } from './movement.js';
 import { isBuildingUnit } from './units.js';
 import { getAirCommandRange } from './airCommands.js';
+import { isCitySiegeBlocked } from './citySiege.js';
 
 export const TARGET_INTENTS = Object.freeze({
     HOSTILE: 'hostile',
@@ -170,6 +171,7 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
             && !sources.transportUnit._imprisoned
             && !unit
             && isLandDeploymentTile(tile)
+            && !isCitySiegeBlocked(tile, myCamp, gameState)
             && canUnitOccupyTileForTransport(sources.transportUnit, tile, gameState)
             && !!sources.colonel?.tile
             && hexDistance(sources.colonel.tile, tile) <= COLONEL_CARD_DATA.range;
@@ -185,7 +187,12 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
             || getUnitMovementDomain(unit) !== MOVEMENT_DOMAIN.LAND)) return false;
         return true;
     }
-    if (targeting === 'emptyTile') return !unit && isLandDeploymentTile(tile);
+    if (targeting === 'emptyTile') {
+        if (unit || !isLandDeploymentTile(tile)) return false;
+        // 普通空降不得越过尚未击破的敌方/中立城市血池；己方城市仍是合法落点。
+        if (cardId === 'airdrop' && isCitySiegeBlocked(tile, myCamp, gameState)) return false;
+        return true;
+    }
     if (targeting === 'emptyFriendlyNonCityNonMountain') {
         return !unit && isLandDeploymentTile(tile) && !tile.isCity && tile.terrain !== 'mountain' && sameCamp(tile.camp, myCamp);
     }

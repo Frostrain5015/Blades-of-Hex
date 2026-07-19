@@ -7,13 +7,15 @@ import { deepFreeze } from './freeze.js';
 import { canAttack } from './diplomacy.js';
 
 export const CITY_SIEGE_CONFIG = deepFreeze({
-    baseMaxHp: 200,
-    maxHpPerRadius: 400,
+    // 独立结构伤害不读取驻军防御，直接用可见血池承担耐久差异，
+    // 不在伤害管线中引入隐藏的结构承伤系数。
+    baseMaxHp: 300,
+    maxHpPerRadius: 600,
     regenPctPerRound: 0.10,
     maxDefensePct: 0.20
 });
 
-/** 城市血池上限：半径0=200，每向外扩大一圈 +400（半径1=600、半径2=1000）。 */
+/** 城市血池上限：半径0=300，每向外扩大一圈 +600（半径1=900、半径2=1500）。 */
 export function getCityMaxHp(radius = 0) {
     const r = Math.max(0, Math.round(Number(radius) || 0));
     return CITY_SIEGE_CONFIG.baseMaxHp + CITY_SIEGE_CONFIG.maxHpPerRadius * r;
@@ -79,6 +81,28 @@ export function damageCityPool(anyCityTile, damage, tileMap) {
     pool.hp = Math.max(0, (Number(pool.hp) || 0) - Math.max(0, Math.round(Number(damage) || 0)));
     syncCityHpMirrors(pool, tileMap);
     return pool.hp;
+}
+
+/**
+ * 城市结构伤害：城市本体没有防御乘区，只读取攻击方火力、攻城增伤与本次独立浮动。
+ * 驻军的兵种/地形/单位防御不应渗入此结果。
+ */
+export function calculateCityStructureDamage(attackPower, damageBonus, floatMultiplier) {
+    const power = Math.max(0, Number(attackPower) || 0);
+    const offenseMultiplier = Math.max(0, 1 + (Number(damageBonus) || 0));
+    const roll = Math.max(0, Number(floatMultiplier) || 0);
+    return Math.max(1, Math.round(power * offenseMultiplier * roll));
+}
+
+/**
+ * 城外单位攻击城内驻军时，驻军与城市共享这次打击。
+ * 同一城市 footprint 内部发生的战斗不重复伤害本城；无城市血池或已破城时也不触发。
+ */
+export function shouldDamageCityAlongsideGarrison(attackerTile, targetTile, tileMap) {
+    const targetPool = getCityPoolTile(targetTile, tileMap);
+    if (!targetPool || (Number(targetPool.hp) || 0) <= 0) return false;
+    const attackerPool = getCityPoolTile(attackerTile, tileMap);
+    return attackerPool !== targetPool;
 }
 
 /** 城墙未破且无驻军时，敌方/中立单位完全不能进入或合并落地；城郭每格都适用。 */

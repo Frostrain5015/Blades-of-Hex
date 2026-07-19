@@ -31,15 +31,15 @@ export const FORTIFICATION_CONFIG = (() => {
 
 /** 士气的棋盘图形和效果徽章图形分开配置：前者保持原有表现，后者使用彩色 emoji。 */
 export const MORALE_CONFIG = (() => {
-    // 士气的明面效果是①攻击乘区百分比加成与④防御乘区加算；
-    // 浮动区间平移（③乘区）保留原数值但不在前端文案中暴露，作为辅助手感。
-    const up = { name: '士气上升', atkBonus: 0.20, defBonus: 0.05, icon: '▲', badgeIcon: EMOJI.moraleBadge.up, color: '#ffd700' };
+    // 士气只进入攻击端；不再同时改变防御与随机浮动区间，避免一次士气变化
+    // 在三层乘区里重复放大。defBonus 保留为0以兼容既有读取接口。
+    const up = { name: '士气上升', atkBonus: 0.20, defBonus: 0, icon: '▲', badgeIcon: EMOJI.moraleBadge.up, color: '#ffd700' };
     const normal = { name: '正常', atkBonus: 0, defBonus: 0, icon: '', badgeIcon: '', color: '#aaa', desc: '' };
-    const down = { name: '士气下降', atkBonus: -0.20, defBonus: -0.05, icon: '▼', badgeIcon: EMOJI.moraleBadge.down, color: '#b080e8' };
-    const confused = { name: '混乱', atkBonus: 0, defBonus: -0.20, icon: '？', badgeIcon: EMOJI.moraleBadge.confused, color: '#666' };
-    up.desc = `攻击力提高${percent(up.atkBonus)}，防御力提高${percent(up.defBonus)}`;
-    down.desc = `攻击力降低${percent(Math.abs(down.atkBonus))}，防御力降低${percent(Math.abs(down.defBonus))}`;
-    confused.desc = `无法行动，防御力降低${percent(Math.abs(confused.defBonus))}`;
+    const down = { name: '士气下降', atkBonus: -0.20, defBonus: 0, icon: '▼', badgeIcon: EMOJI.moraleBadge.down, color: '#b080e8' };
+    const confused = { name: '混乱', atkBonus: 0, defBonus: 0, icon: '？', badgeIcon: EMOJI.moraleBadge.confused, color: '#666' };
+    up.desc = `攻击力提高${percent(up.atkBonus)}`;
+    down.desc = `攻击力降低${percent(Math.abs(down.atkBonus))}`;
+    confused.desc = '无法移动、攻击或反击';
     return deepFreeze({ 3: up, 2: normal, 1: down, 0: confused });
 })();
 

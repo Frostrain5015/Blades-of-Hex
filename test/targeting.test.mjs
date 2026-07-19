@@ -25,6 +25,7 @@ function state(tiles, extra = {}) {
     return {
         tiles,
         tileMap,
+        factions: { player1: camps.player1, player2: camps.player2 },
         currentCamp: camps.player1,
         skirmishFog: false,
         weather: 'clear',
@@ -44,6 +45,18 @@ assert.equal(preview.intent, TARGET_INTENTS.TRANSPORT);
 assert.equal(preview.shape, TARGET_SHAPES.TILE);
 assert.equal(isResolvedTargetingCandidate(preview, empty), true);
 assert.equal(isResolvedTargetingCandidate(preview, occupied), false, 'emptyTile 必须排除占用格');
+
+const defendedEnemyCity = tile(2, 0, { isCity: true, camp: camps.player2, hp: 300, maxHp: 300 });
+const breachedEnemyCity = tile(3, 0, { isCity: true, camp: camps.player2, hp: 0, maxHp: 300 });
+const cityGs = state([own, defendedEnemyCity, breachedEnemyCity], {
+    diplomacy: {
+        player1: { player2: 'enemy' },
+        player2: { player1: 'enemy' }
+    }
+});
+preview = resolveTargetingPreview(cityGs, { cardId: 'airdrop', targeting: 'emptyTile' });
+assert.equal(isResolvedTargetingCandidate(preview, defendedEnemyCity), false, '未破城不得空降偷城');
+assert.equal(isResolvedTargetingCandidate(preview, breachedEnemyCity), true, '城市HP归零后允许空降占领');
 
 own.unit.commander = 'paladin';
 preview = resolveTargetingPreview(gs, { cardId: 'commanderDeploy', targeting: 'friendlyAny' });
@@ -113,6 +126,19 @@ gs._airliftTarget = { unitId: 'cargo' };
 preview = resolveTargetingPreview(gs, { cardId: 'airlift_dest', targeting: 'emptyTile' });
 assert.equal(isResolvedTargetingCandidate(preview, nearEmpty), true);
 assert.equal(isResolvedTargetingCandidate(preview, farEmpty), false);
+
+const defendedAirliftCity = tile(3, 0, { isCity: true, camp: camps.player2, hp: 300, maxHp: 300 });
+const breachedAirliftCity = tile(4, 0, { isCity: true, camp: camps.player2, hp: 0, maxHp: 300 });
+gs.tiles.push(defendedAirliftCity, breachedAirliftCity);
+gs.tileMap.set('3,0', defendedAirliftCity);
+gs.tileMap.set('4,0', breachedAirliftCity);
+gs.diplomacy = {
+    player1: { player2: 'enemy' },
+    player2: { player1: 'enemy' }
+};
+preview = resolveTargetingPreview(gs, { cardId: 'airlift_dest', targeting: 'emptyTile' });
+assert.equal(isResolvedTargetingCandidate(preview, defendedAirliftCity), false, '未破城不得空运偷城');
+assert.equal(isResolvedTargetingCandidate(preview, breachedAirliftCity), true, '城市HP归零后允许空运占领');
 
 gs.weather = 'fog';
 preview = resolveTargetingPreview(gs, { cardId: 'airdrop', targeting: 'emptyTile' });

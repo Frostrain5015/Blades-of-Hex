@@ -977,6 +977,7 @@ function beginTrainingMatch() {
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     const savedThreePlayer = gameState.isThreePlayer;
+    const savedStandardMapId = gameState.standardMapId;
     const savedColors = { ...(gameState.factionColorSelections || {}) };
     const savedFlagEmojis = _savedFlagEmojisFromState();
     const savedOrder = [...(gameState.turnOrder || [])];
@@ -988,6 +989,7 @@ function beginTrainingMatch() {
     gameState.isThreePlayer = savedThreePlayer;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
+    gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({
         playerCount: savedThreePlayer ? 3 : 2,
         colors: savedColors,
@@ -1218,10 +1220,12 @@ function beginCommanderPhase() {
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     const savedThreePlayer = gameState.isThreePlayer;
+    const savedStandardMapId = gameState.standardMapId;
     resetGameState();
     gameState.gameMode = savedMode;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
+    gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({
         playerCount: savedThreePlayer ? 3 : 2,
         controllers: { player1: 'human', player2: 'human', player3: 'human' }
@@ -1245,12 +1249,14 @@ function beginTrainingCommanderPhase(humanRole) {
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     const savedThreePlayer = gameState.isThreePlayer;
     const savedDiff = gameState.aiDifficulty;
+    const savedStandardMapId = gameState.standardMapId;
     resetGameState();
     gameState.gameMode = 'training';
     gameState.isThreePlayer = savedThreePlayer;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
     gameState.aiDifficulty = savedDiff;
+    gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({
         playerCount: savedThreePlayer ? 3 : 2,
         controllers: savedThreePlayer
@@ -1288,12 +1294,14 @@ function beginPVECommanderPhase(humanRole) {
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
     const savedDiff = gameState.aiDifficulty;
+    const savedStandardMapId = gameState.standardMapId;
     resetGameState();
     // 保持 PVE 模式状态（resetGameState 会清掉，重新设置）
     gameState.gameMode = 'pve';
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
     gameState.aiDifficulty = savedDiff;
+    gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({ playerCount: 2, controllers: { player1: 'human', player2: 'ai' } });
     _applySavedFlagCustomizations(['player1']);
     gameState.aiOpponentCamp = campFromKey('player2', gameState);
@@ -2436,7 +2444,8 @@ function renderRoomList(list) {
         card.className = 'mp-room-card';
         const maxP = r.maxPlayers || 2;
         const full = r.playerCount >= maxP;
-        const rules = [r.skirmishFog ? '遭遇战' : '标准'];
+        const mapName = r.standardMapId === 'uncharted-passage' ? '无主航路' : '王冠环岛';
+        const rules = [mapName, r.skirmishFog ? '遭遇战' : '标准'];
         if (r.doubleCommanderMode) rules.push('双将');
         const modeLabel = (maxP === 3 ? '三人' : '双人') + ' · ' + rules.join(' · ');
         card.innerHTML = `<span class="mp-room-id">${r.roomId}</span><span class="mp-room-mode">${modeLabel}</span><span class="mp-room-players">${r.playerCount}/${maxP}</span><span class="mp-room-arrow">→</span>`;
@@ -2582,6 +2591,7 @@ function registerNetworkCallbacks() {
             if (isThreePlayer !== undefined) gameState.isThreePlayer = isThreePlayer;
             if (skirmishFog !== undefined) gameState.skirmishFog = skirmishFog;
             if (doubleCommanderMode !== undefined) gameState.doubleCommanderMode = doubleCommanderMode;
+            if (setup.standardMapId) gameState.standardMapId = setup.standardMapId;
             configureSkirmishState({
                 playerCount: isThreePlayer ? 3 : 2,
                 colors: setup.factionColors || {},
@@ -3311,6 +3321,19 @@ async function handleRemoteAction(msg) {
                             x: e.x, y: e.y, value: e.attackDmg, isCrit: e.attackIsCrit,
                             timeLeft: 900, lastUpdate: performance.now()
                         });
+                    }
+                    if (e.cityDamage > 0) {
+                        setTimeout(() => {
+                            gameState.damageTexts.push({
+                                x: e.x + 20,
+                                y: e.y + 8,
+                                value: e.cityDamage,
+                                isCityDamage: true,
+                                isCrit: e.cityDamageIsCrit === true,
+                                timeLeft: 900,
+                                lastUpdate: performance.now()
+                            });
+                        }, Number.isFinite(e.cityDamageDelayMs) ? e.cityDamageDelayMs : 180);
                     }
                     // 反击伤害数字 + 远程单位反击炮弹动画
                     if (e.counterDmg > 0) {

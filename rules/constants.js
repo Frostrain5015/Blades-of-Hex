@@ -64,8 +64,7 @@ export function calcIncome(cityCount) {
 export const COMBAT_BALANCE = deepFreeze({
     float: {
         attack: { min: 0.85, max: 1.35, critThreshold: 1.30 },
-        counter: { min: 0.90, cityMin: 1.00, max: 1.70, critThreshold: 1.50, baseMultiplier: 0.75 },
-        morale: { up: { min: 0.05, max: 0.10 }, down: { min: -0.05, max: -0.10 }, confused: { min: -0.10, max: -0.20 } }
+        counter: { min: 0.90, cityMin: 1.00, max: 1.70, critThreshold: 1.50, baseMultiplier: 0.75 }
     },
     counter: { advantageDamage: 0.20, disadvantageDamage: -0.20, advantageCrit: 0.25 },
     defense: { minimumMultiplier: 0.15, maximumReduction: 0.85, forestVsRangedBonus: 0.15, cityInfantryBonus: 0.10, windInfantryPenalty: 0.15, rainCityInfantryBonus: 0.10 },

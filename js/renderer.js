@@ -2159,6 +2159,11 @@ function drawDamageTexts(now) {
             // 二次绘制强化灼烧感
             ctx.shadowBlur = 8;
             ctx.fillText(`-${Math.round(text.value)}`, 0, 0);
+        } else if (text.isCityDamage) {
+            ctx.fillStyle = text.isCrit ? '#ff7a32' : '#ffc45c';
+            ctx.shadowColor = text.isCrit ? '#ff3d00' : '#8a3f0b';
+            ctx.shadowBlur = text.isCrit ? 15 : 10;
+            ctx.fillText(`-${Math.round(text.value)}`, 0, 0);
         } else if (text.isCrit) {
             ctx.fillStyle = '#ff4400';
             ctx.shadowColor = '#ff4400';
