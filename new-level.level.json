@@ -1,0 +1,299 @@
+{
+  "schemaVersion": 2,
+  "id": "new-level",
+  "title": "百夫长练兵",
+  "chronicleId": "blood-iris",
+  "seed": 4660,
+  "turnLimit": 0,
+  "intro": {
+    "campaignTitle": "将星列传",
+    "chapterTitle": "",
+    "scenarioSubtitle": "百夫长练兵"
+  },
+  "weather": "clear",
+  "localPlayerCamp": "player1",
+  "factions": [
+    {
+      "id": "player1",
+      "name": "红军",
+      "color": "#ffaaaa",
+      "controller": "human",
+      "participatesInTurns": true,
+      "active": true
+    }
+  ],
+  "turnOrder": [
+    "player1"
+  ],
+  "diplomacy": {},
+  "mechanics": {
+    "tacticalCards": false,
+    "recruitment": false,
+    "reinforcement": false,
+    "commanderSkills": false,
+    "weatherEffects": false,
+    "morale": true,
+    "fortifications": false,
+    "fogOfWar": false,
+    "alliedVision": false
+  },
+  "aiOpponentCamp": "",
+  "aiDifficulty": 1,
+  "gold": {
+    "player1": 0
+  },
+  "commanders": {},
+  "hands": {
+    "player1": []
+  },
+  "board": {
+    "layout": "borderless",
+    "radius": 3,
+    "cities": [
+      { "q": -3, "r": 3, "districtId": 1, "camp": "player1" }
+    ],
+    "terrain": [
+      { "q": -3, "r": 1, "type": "forest" }, { "q": -3, "r": 0, "type": "forest" },
+      { "q": -2, "r": -1, "type": "forest" }, { "q": -1, "r": -2, "type": "forest" },
+      { "q": 0, "r": -3, "type": "forest" }, { "q": 1, "r": -3, "type": "forest" },
+      { "q": 2, "r": -3, "type": "forest" }, { "q": 3, "r": -3, "type": "forest" },
+      { "q": 3, "r": -2, "type": "forest" }, { "q": 3, "r": -1, "type": "forest" },
+      { "q": 3, "r": 0, "type": "forest" }, { "q": 2, "r": 1, "type": "forest" },
+      { "q": 1, "r": 2, "type": "forest" }, { "q": 0, "r": 3, "type": "forest" },
+      { "q": -1, "r": 3, "type": "forest" }
+    ],
+    "villages": [],
+    "fortifications": [],
+    "districts": []
+  },
+  "units": [
+    { "id": "u1", "type": "infantry", "camp": "player1", "q": -2, "r": 2, "commander": null, "hpPct": 100, "morale": 2, "canAct": true },
+    { "id": "u2", "type": "archer", "camp": "player1", "q": -2, "r": 3, "commander": null, "hpPct": 100, "morale": 2, "canAct": true },
+    { "id": "u3", "type": "cavalry", "camp": "player1", "q": -3, "r": 2, "commander": null, "hpPct": 100, "morale": 2, "canAct": true },
+    { "id": "u4", "type": "cavalry", "camp": "player1", "q": -3, "r": 3, "commander": "centurion", "hpPct": 100, "morale": 2, "canAct": false },
+    { "id": "u5", "type": "infantry", "camp": "neutral", "q": 0, "r": 0, "commander": null, "hpPct": 100, "morale": 2, "canAct": false }
+  ],
+  "unitGroups": [],
+  "areas": [
+    {
+      "id": "target-adjacent",
+      "tiles": [
+        { "q": 1, "r": 0 },
+        { "q": 1, "r": -1 },
+        { "q": 0, "r": -1 },
+        { "q": -1, "r": 0 },
+        { "q": -1, "r": 1 },
+        { "q": 0, "r": 1 }
+      ]
+    },
+    {
+      "id": "archer-range",
+      "tiles": [
+        { "q": -1, "r": 0 },
+        { "q": -1, "r": 1 },
+        { "q": 0, "r": -1 },
+        { "q": 0, "r": 1 },
+        { "q": 1, "r": -1 },
+        { "q": 1, "r": 0 },
+        { "q": -2, "r": 0 },
+        { "q": -2, "r": 1 },
+        { "q": -2, "r": 2 },
+        { "q": -1, "r": -1 },
+        { "q": -1, "r": 2 },
+        { "q": 0, "r": -2 },
+        { "q": 0, "r": 2 },
+        { "q": 1, "r": -2 },
+        { "q": 1, "r": 1 },
+        { "q": 2, "r": -2 },
+        { "q": 2, "r": -1 },
+        { "q": 2, "r": 0 }
+      ]
+    }
+  ],
+  "interactables": [],
+  "variables": [
+    { "id": "tutorialPhase", "scope": "level", "type": "number", "initial": 0 },
+    { "id": "infantryPlaced", "scope": "level", "type": "boolean", "initial": false },
+    { "id": "archerPlaced", "scope": "level", "type": "boolean", "initial": false },
+    { "id": "cavalryPlaced", "scope": "level", "type": "boolean", "initial": false }
+  ],
+  "steps": {
+    "intro": {
+      "mode": "narrator",
+      "text": "校场上，新兵们整齐列队。\n你是马库斯，帝国的百夫长。今天由你训练这批新兵，让他们学会基本的作战配合。",
+      "next": "select-centurion"
+    },
+    "select-centurion": {
+      "mode": "narrator",
+      "text": "城墙上的就是你自己——百夫长马库斯。\n点击他查看属性面板，了解将领信息。",
+      "next": null
+    },
+    "centurion-selected": {
+      "mode": "narrator",
+      "text": "百夫长马库斯——帝国军中的骨干。\n将领面板中可以看到属性与技能，指挥全局就靠他了。\n\n点击【继续】了解今日的训练任务。",
+      "next": "position-hint"
+    },
+    "position-hint": {
+      "mode": "narrator",
+      "text": "攻击之前，需要部队先进入指定位置。\n看到校场中央木靶周围那六个格子了吗？\n部队必须走进其中一格，才能发起攻击。\n\n先选中步兵（带剑盾的士兵），走进木靶旁的一个格子。",
+      "next": null
+    },
+    "infantry-ready": {
+      "mode": "narrator",
+      "text": "步兵已进入指定区域！\n现在可以攻击木靶了——点击攻击按钮。",
+      "next": null
+    },
+    "archer-position": {
+      "mode": "narrator",
+      "text": "步兵攻击完成！近战兵种负责前线接敌。\n\n2/3 现在选中弩手，走到木靶两圈范围（18格）内的任意位置即可射击。",
+      "next": null
+    },
+    "archer-ready": {
+      "mode": "narrator",
+      "text": "弩手已就位！射击木靶！\n远程兵种也需进入合适位置才能发挥威力。",
+      "next": null
+    },
+    "cavalry-position": {
+      "mode": "narrator",
+      "text": "弩手射击命中！远程兵种可以在安全距离输出火力。\n\n3/3 最后选中骑兵，冲到木靶旁边。",
+      "next": null
+    },
+    "cavalry-ready": {
+      "mode": "narrator",
+      "text": "骑兵就位！冲锋攻击木靶！",
+      "next": null
+    },
+    "summary": {
+      "mode": "narrator",
+      "text": "三种兵种各有所长：\n· 步兵（近战）—— 前线接敌，稳固阵线\n· 弩手（远程）—— 安全距离输出火力\n· 骑兵（冲锋）—— 快速突破，直击要害\n\n合理搭配、正确走位，方能克敌制胜。\n点击【完成】结束今日训练。",
+      "next": "__win__"
+    }
+  },
+  "objectives": {},
+  "initialStep": "intro",
+  "triggers": [
+    {
+      "id": "trg-immortal-target",
+      "title": "木靶不死",
+      "enabled": true,
+      "once": true,
+      "when": [{ "kind": "levelStarted" }],
+      "do": [{ "kind": "setUnitDefeatRule", "target": { "unit": "u5" }, "minHp": 1, "nonLethal": true }]
+    },
+    {
+      "id": "trg-select-centurion",
+      "title": "点击百夫长→推进",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitSelected", "target": { "unit": "u4" } },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 0 }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "tutorialPhase", "operation": "set", "value": 1 },
+        { "kind": "showStep", "step": "centurion-selected" }
+      ]
+    },
+    {
+      "id": "trg-infantry-move",
+      "title": "步兵进入区域→攻击就绪",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitMovesToArea", "target": { "unit": "u1" }, "area": "target-adjacent" },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 1 }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "infantryPlaced", "operation": "set", "value": true },
+        { "kind": "showStep", "step": "infantry-ready" }
+      ]
+    },
+    {
+      "id": "trg-infantry-attack",
+      "title": "步兵攻击→弩手提示",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitAttacksUnit", "attacker": { "unit": "u1" }, "defender": { "unit": "u5" } },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 1 },
+        { "kind": "variableCompare", "variable": "infantryPlaced", "op": "==", "value": true }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "tutorialPhase", "operation": "set", "value": 2 },
+        { "kind": "showStep", "step": "archer-position" }
+      ]
+    },
+    {
+      "id": "trg-archer-move",
+      "title": "弩手进入区域→攻击就绪",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitMovesToArea", "target": { "unit": "u2" }, "area": "archer-range" },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 2 }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "archerPlaced", "operation": "set", "value": true },
+        { "kind": "showStep", "step": "archer-ready" }
+      ]
+    },
+    {
+      "id": "trg-archer-attack",
+      "title": "弩手攻击→骑兵提示",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitAttacksUnit", "attacker": { "unit": "u2" }, "defender": { "unit": "u5" } },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 2 },
+        { "kind": "variableCompare", "variable": "archerPlaced", "op": "==", "value": true }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "tutorialPhase", "operation": "set", "value": 3 },
+        { "kind": "showStep", "step": "cavalry-position" }
+      ]
+    },
+    {
+      "id": "trg-cavalry-move",
+      "title": "骑兵进入区域→攻击就绪",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitMovesToArea", "target": { "unit": "u3" }, "area": "target-adjacent" },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 3 }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "cavalryPlaced", "operation": "set", "value": true },
+        { "kind": "showStep", "step": "cavalry-ready" }
+      ]
+    },
+    {
+      "id": "trg-cavalry-attack",
+      "title": "骑兵攻击→总结",
+      "enabled": true,
+      "once": true,
+      "when": [
+        { "kind": "unitAttacksUnit", "attacker": { "unit": "u3" }, "defender": { "unit": "u5" } },
+        { "kind": "variableCompare", "variable": "tutorialPhase", "op": "==", "value": 3 },
+        { "kind": "variableCompare", "variable": "cavalryPlaced", "op": "==", "value": true }
+      ],
+      "do": [
+        { "kind": "setVariable", "variable": "tutorialPhase", "operation": "set", "value": 4 },
+        { "kind": "showStep", "step": "summary" }
+      ]
+    },
+    {
+      "id": "trg-summary-win",
+      "title": "点击完成→胜利",
+      "enabled": true,
+      "once": true,
+      "when": [{ "kind": "eventNextIs", "value": "__win__" }],
+      "do": [{ "kind": "endScenario", "result": "win", "ending": "新兵们完成了基础训练，学会了走位与攻击的基本配合。百夫长马库斯满意地点了点头。" }]
+    }
+  ],
+  "result": {
+    "winText": "新兵们完成了基础训练。百夫长马库斯满意地点了点头。",
+    "loseText": "训练中断，重新整顿再试一次。",
+    "eliminateEnemy": false,
+    "starRules": [{ "when": [], "label": "完成基础训练" }]
+  }
+}
