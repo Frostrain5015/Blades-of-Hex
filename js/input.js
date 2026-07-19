@@ -30,7 +30,6 @@ import { campFromKey } from '../rules/diplomacy.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import { RECRUITMENT_OPTIONS } from './recruitmentUi.js';
-import { VITE_RUNTIME_AVAILABLE } from './rendering/viteRuntime.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
 import { isCoastalLandTile } from '../rules/naval.js';
 import { getSpecialization, getSpecializationOptions, getUnitDisplayName, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
@@ -2541,7 +2540,6 @@ export function initSettingsPanel() {
 
     const speedBtns = document.querySelectorAll('.speed-btn');
     const exitBtn = document.getElementById('settingsExit');
-    const rendererBackend = document.getElementById('rendererBackend');
     const showGrid = document.getElementById('showGrid');
 
     function notifyRendererSettingsChanged(changed) {
@@ -2562,16 +2560,6 @@ export function initSettingsPanel() {
         document.getElementById('screenShake').checked = settings.screenShake;
         document.getElementById('soundEnabled').checked = settings.soundEnabled;
         document.getElementById('soundVolume').value = Math.round((settings.soundVolume ?? 0.7) * 100);
-        if (rendererBackend) {
-            const pixiOption = rendererBackend.querySelector('option[value="pixi-webgl"]');
-            if (pixiOption) {
-                pixiOption.disabled = !VITE_RUNTIME_AVAILABLE;
-                pixiOption.title = VITE_RUNTIME_AVAILABLE ? '' : '需要通过 Vite 开发服务器或生产构建运行';
-            }
-            rendererBackend.value = VITE_RUNTIME_AVAILABLE
-                ? (settings.rendererBackend || 'canvas2d')
-                : 'canvas2d';
-        }
         if (showGrid) showGrid.checked = settings.showGrid !== false;
         // 单人模式显示退出按钮
         exitBtn.style.display = isNetworkGame() ? 'none' : '';
@@ -2598,12 +2586,6 @@ export function initSettingsPanel() {
     document.getElementById('screenShake').addEventListener('change', (e) => {
         settings.screenShake = e.target.checked;
         saveSettings();
-    });
-
-    rendererBackend?.addEventListener('change', event => {
-        settings.rendererBackend = event.target.value;
-        saveSettings();
-        notifyRendererSettingsChanged('rendererBackend');
     });
 
     showGrid?.addEventListener('change', event => {

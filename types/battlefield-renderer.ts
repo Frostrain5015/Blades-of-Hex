@@ -1,4 +1,7 @@
-export type RendererBackend = 'canvas2d' | 'pixi-webgl' | 'pixi-webgpu';
+export type KnownRendererBackend = 'pixi-webgl' | 'pixi-webgpu';
+// Engine adapters may register additional stable ids (for example three-3d)
+// without widening the shared renderer lifecycle contract.
+export type RendererBackend = string;
 export type PerformanceProfile = 'auto' | 'high' | 'balanced' | 'low';
 export type MotionMode = 'full' | 'static';
 

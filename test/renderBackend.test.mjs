@@ -1,41 +1,44 @@
 import assert from 'node:assert/strict';
 import {
-    CanvasBattlefieldRenderer,
     PERFORMANCE_PROFILE,
     RENDERER_BACKEND,
     RENDERER_LIFECYCLE,
     createBattlefieldRenderer,
     createImmutableRenderValue,
     detectRendererCapabilities,
+    getRendererPreferenceOrder,
+    rendererBackendSupported,
     resolveRenderPolicy
 } from '../js/rendering/index.js';
 
-function createFakeCanvas(contexts = { '2d': {} }) {
-    const context = contexts['2d'] || null;
+function createFakeCanvas(contexts = {}) {
+    return { getContext(type) { return contexts[type] || null; } };
+}
+
+function createFakeRenderer(options = {}) {
     return {
-        width: 0,
-        height: 0,
-        style: {},
-        getContext(type) { return contexts[type] || null; },
-        _context: context
+        lifecycle: RENDERER_LIFECYCLE.NEW,
+        scenes: [],
+        events: [],
+        frames: [],
+        async initialize(host, initOptions) {
+            this.host = host;
+            this.initOptions = initOptions;
+            if (options.failInitialization) throw new Error('synthetic backend init failure');
+            this.lifecycle = RENDERER_LIFECYCLE.READY;
+        },
+        syncScene(scene) { this.scenes.push(scene); },
+        enqueue(event) { this.events.push(event); },
+        resize(viewport) { this.viewport = viewport; return viewport; },
+        render(frame) { this.frames.push(frame); return { rendered: options.rendered !== false }; },
+        destroy() { this.destroyed = true; this.lifecycle = RENDERER_LIFECYCLE.DESTROYED; }
     };
 }
 
-function createFakeHost() {
-    return {
-        children: [],
-        appendChild(child) { this.children.push(child); },
-        removeChild(child) { this.children.splice(this.children.indexOf(child), 1); }
-    };
-}
-
-// Capability checks have no DOM requirement and use a fresh probe per context.
+// Capability checks remain environment-neutral. Canvas2D is still detected
+// because the hybrid renderer uses it for auxiliary layers, not as a backend.
 const capabilities = detectRendererCapabilities({
-    createCanvas: () => createFakeCanvas({
-        '2d': {},
-        webgl2: {},
-        webgl: {}
-    }),
+    createCanvas: () => createFakeCanvas({ '2d': {}, webgl2: {}, webgl: {} }),
     navigatorLike: { gpu: {}, deviceMemory: 8, hardwareConcurrency: 12 },
     matchMedia: query => ({ matches: query.includes('reduce') }),
     devicePixelRatio: 3
@@ -50,8 +53,15 @@ assert.deepEqual(capabilities, {
     deviceMemory: 8,
     hardwareConcurrency: 12
 });
+assert.equal(rendererBackendSupported(RENDERER_BACKEND.PIXI_WEBGL, capabilities), true);
+assert.equal(rendererBackendSupported('canvas2d', capabilities), false);
+assert.deepEqual(getRendererPreferenceOrder('auto'), [RENDERER_BACKEND.PIXI_WEBGL]);
+assert.deepEqual(
+    getRendererPreferenceOrder(RENDERER_BACKEND.PIXI_WEBGPU, { allowExperimentalWebGPU: true }),
+    [RENDERER_BACKEND.PIXI_WEBGPU, RENDERER_BACKEND.PIXI_WEBGL]
+);
+assert.throws(() => getRendererPreferenceOrder('canvas2d'), /Unknown renderer backend/);
 
-// Immutable submission is detached from the mutable source object.
 const mutableScene = { revision: 7, interaction: { candidates: [{ q: 1, r: 2 }] } };
 const immutableScene = createImmutableRenderValue(mutableScene);
 mutableScene.interaction.candidates[0].q = 99;
@@ -59,7 +69,6 @@ assert.equal(immutableScene.interaction.candidates[0].q, 1);
 assert.equal(Object.isFrozen(immutableScene.interaction.candidates[0]), true);
 assert.throws(() => createImmutableRenderValue({ bad: new Map() }), /plain object or array/);
 
-// Reduced motion and the low profile freeze animation time while retaining a frame.
 const reducedPolicy = resolveRenderPolicy({
     performanceProfile: PERFORMANCE_PROFILE.HIGH
 }, capabilities);
@@ -74,119 +83,67 @@ const lowPolicy = resolveRenderPolicy({
 assert.equal(lowPolicy.pixelRatio, 1);
 assert.equal(lowPolicy.motionMode, 'static');
 
-// No Pixi factory is a supported state: the facade selects Canvas without throwing.
-const frames = [];
-const fallbackEvents = [];
-const canvasContext = {
-    transforms: [],
-    setTransform(...args) { this.transforms.push(args); }
-};
-const canvas = createFakeCanvas({ '2d': canvasContext });
-const host = createFakeHost();
+// The boundary knows only backend ids and registered factories. It can select
+// another registered engine without importing a concrete renderer module.
+const backendFailures = [];
+const fakeWebglRenderer = createFakeRenderer();
 const boundary = createBattlefieldRenderer({
-    preferredBackend: RENDERER_BACKEND.PIXI_WEBGL,
+    preferredBackend: RENDERER_BACKEND.PIXI_WEBGPU,
+    allowExperimentalWebGPU: true,
     capabilities,
-    performanceProfile: PERFORMANCE_PROFILE.BALANCED,
-    onFallback: event => fallbackEvents.push(event),
-    canvasOptions: {
-        createCanvas: () => canvas,
-        drawFrame: payload => frames.push(payload)
-    }
+    rendererFactories: new Map([
+        [RENDERER_BACKEND.PIXI_WEBGL, () => fakeWebglRenderer]
+    ]),
+    onBackendFailure: failure => backendFailures.push(failure)
 });
-await boundary.initialize(host, {
-    viewport: { width: 320, height: 180, pixelRatio: 3 }
-});
-assert.equal(boundary.backend, RENDERER_BACKEND.CANVAS_2D);
+await boundary.initialize({ id: 'host' }, { width: 320, height: 180 });
+assert.equal(boundary.backend, RENDERER_BACKEND.PIXI_WEBGL);
 assert.equal(boundary.lifecycle, RENDERER_LIFECYCLE.READY);
-assert.equal(fallbackEvents[0].reason, 'factory-unavailable');
-assert.equal(host.children[0], canvas);
-assert.equal(canvas.width, 480);
-assert.equal(canvas.height, 270);
+assert.equal(backendFailures[0].backend, RENDERER_BACKEND.PIXI_WEBGPU);
+assert.equal(backendFailures[0].reason, 'factory-unavailable');
 
-const submittedScene = { revision: 8, interaction: { hoveredId: 'u-1' } };
-const submittedEvent = { type: 'pulse', payload: { strength: 2 } };
-boundary.syncScene(submittedScene);
-boundary.enqueue(submittedEvent);
-submittedScene.interaction.hoveredId = 'changed';
-submittedEvent.payload.strength = 100;
-boundary.render({ now: 120, delta: 16, frameId: 3 });
-assert.equal(frames.length, 1);
-assert.equal(frames[0].scene.interaction.hoveredId, 'u-1');
-assert.equal(frames[0].events[0].payload.strength, 2);
-assert.equal(frames[0].frame.motionEnabled, false);
-assert.equal(frames[0].frame.motionNowMs, 0);
-assert.equal(frames[0].policy.effects, 'reduced');
-
+const scene = { revision: 8, interaction: { hoveredId: 'u-1' } };
+const event = { type: 'pulse', payload: { strength: 2 } };
+boundary.syncScene(scene);
+boundary.enqueue(event);
+scene.interaction.hoveredId = 'changed';
+event.payload.strength = 100;
+boundary.render({ nowMs: 120, deltaMs: 16, frameId: 3 });
+assert.equal(fakeWebglRenderer.scenes[0].interaction.hoveredId, 'u-1');
+assert.equal(fakeWebglRenderer.events[0].payload.strength, 2);
 boundary.resize({ width: 200, height: 100, pixelRatio: 2 });
-assert.equal(canvas.width, 300);
-assert.equal(canvas.height, 150);
+assert.equal(fakeWebglRenderer.viewport.width, 200);
 boundary.destroy();
 assert.equal(boundary.lifecycle, RENDERER_LIFECYCLE.DESTROYED);
-assert.equal(host.children.length, 0);
+assert.equal(fakeWebglRenderer.destroyed, true);
 boundary.destroy();
 assert.throws(() => boundary.render({}), /not ready/);
 
-// Pixi initialization failures destroy the partial adapter and fall back.
-let failedPixiDestroyed = false;
-const fallbackCanvas = createFakeCanvas({
-    '2d': { setTransform() {} }
-});
-const failedPixi = {
-    async initialize() { throw new Error('synthetic WebGL init failure'); },
-    syncScene() {},
-    enqueue() {},
-    resize() {},
-    render() {},
-    destroy() { failedPixiDestroyed = true; }
-};
-const initFailureBoundary = createBattlefieldRenderer({
+// A failed or missing production backend now fails closed; it never creates a
+// hidden full-canvas renderer.
+const failedRenderer = createFakeRenderer({ failInitialization: true });
+const failedBoundary = createBattlefieldRenderer({
     preferredBackend: RENDERER_BACKEND.PIXI_WEBGL,
     capabilities,
-    pixiRendererFactory: async () => failedPixi,
-    canvasOptions: { canvas: fallbackCanvas }
-});
-await initFailureBoundary.initialize(null, { width: 64, height: 32 });
-assert.equal(failedPixiDestroyed, true);
-assert.equal(initFailureBoundary.backend, RENDERER_BACKEND.CANVAS_2D);
-initFailureBoundary.destroy();
-
-// Runtime GPU failure hook replays the latest scene and unconsumed events.
-const gpuFrames = [];
-const fakePixi = {
-    async initialize() {},
-    syncScene(scene) { this.scene = scene; },
-    enqueue(event) { this.event = event; },
-    resize() {},
-    render(frame) { gpuFrames.push(frame); },
-    destroy() { this.destroyed = true; }
-};
-const recoveredFrames = [];
-const recoveredCanvas = createFakeCanvas({ '2d': { setTransform() {} } });
-const runtimeBoundary = createBattlefieldRenderer({
-    preferredBackend: RENDERER_BACKEND.PIXI_WEBGL,
-    capabilities,
-    pixiRendererFactory: () => fakePixi,
-    canvasOptions: {
-        canvas: recoveredCanvas,
-        drawFrame: payload => recoveredFrames.push(payload)
+    rendererFactories: {
+        [RENDERER_BACKEND.PIXI_WEBGL]: () => failedRenderer
     }
 });
-await runtimeBoundary.initialize(null, { width: 80, height: 40 });
-runtimeBoundary.syncScene({ revision: 9 });
-runtimeBoundary.enqueue({ type: 'impact' });
-assert.equal(await runtimeBoundary.fallbackToCanvas(new Error('context lost')), true);
-assert.equal(runtimeBoundary.backend, RENDERER_BACKEND.CANVAS_2D);
-runtimeBoundary.render({ nowMs: 30 });
-assert.equal(recoveredFrames[0].scene.revision, 9);
-assert.equal(recoveredFrames[0].events[0].type, 'impact');
-runtimeBoundary.destroy();
+await assert.rejects(
+    failedBoundary.initialize(null, { width: 64, height: 32 }),
+    /No battlefield renderer backend/
+);
+assert.equal(failedRenderer.destroyed, true);
+assert.equal(failedBoundary.lifecycle, RENDERER_LIFECYCLE.NEW);
 
-// The concrete adapter also works directly with an externally owned canvas.
-const externalCanvas = createFakeCanvas({ '2d': { setTransform() {} } });
-const direct = new CanvasBattlefieldRenderer({ canvas: externalCanvas });
-await direct.initialize(null, { width: 20, height: 10 });
-direct.render({ nowMs: 1 });
-direct.destroy();
-assert.equal(externalCanvas.width > 0, true);
+const missingBoundary = createBattlefieldRenderer({
+    preferredBackend: RENDERER_BACKEND.PIXI_WEBGL,
+    capabilities,
+    rendererFactories: new Map()
+});
+await assert.rejects(
+    missingBoundary.initialize(null, { width: 64, height: 32 }),
+    /No battlefield renderer backend/
+);
 
 console.log('renderBackend tests passed');

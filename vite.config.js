@@ -66,10 +66,8 @@ export default defineConfig({
             },
             output: {
                 manualChunks(id) {
-                    // Keep Vite's dynamic-import helper out of the optional Pixi
-                    // chunk. If Rollup adopts the helper into `pixi`, the game
-                    // entry gains a static import and eagerly downloads the
-                    // entire GPU backend even while Canvas2D is selected.
+                    // Keep Vite's dynamic-import helper out of the Pixi chunk
+                    // so the engine remains an isolated backend bundle.
                     if (id.includes('vite/preload-helper')) return 'vite-preload';
                     if (id.includes('/node_modules/pixi.js/') || id.includes('\\node_modules\\pixi.js\\')) return 'pixi';
                     if (id.includes('/campaign/editor/') || id.includes('\\campaign\\editor\\')) return 'campaign-editor';

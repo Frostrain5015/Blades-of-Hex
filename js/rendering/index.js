@@ -11,13 +11,11 @@ export {
 } from './renderBackend.js';
 
 export {
-    createCanvasElementFactory,
     detectRendererCapabilities,
     getRendererPreferenceOrder,
     rendererBackendSupported
 } from './capabilities.js';
 
-export { CanvasBattlefieldRenderer } from './CanvasBattlefieldRenderer.js';
 export {
     PIXI_BATTLEFIELD_LAYER_ORDER,
     PixiBattlefieldRenderer

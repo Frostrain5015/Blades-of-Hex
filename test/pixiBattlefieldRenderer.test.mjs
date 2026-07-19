@@ -337,8 +337,6 @@ failingRenderer.destroy();
 // The concrete adapter satisfies BattlefieldRendererBoundary without a Pixi import at module load.
 const boundaryPixi = createFakePixi();
 let boundaryAdapter = null;
-const recoveredFrames = [];
-const recoveredCanvas = createEventCanvas();
 const boundary = createBattlefieldRenderer({
     preferredBackend: RENDERER_BACKEND.PIXI_WEBGL,
     capabilities: {
@@ -351,37 +349,29 @@ const boundary = createBattlefieldRenderer({
         deviceMemory: 8,
         prefersReducedMotion: false
     },
-    pixiRendererFactory: ({ capabilities }) => {
-        boundaryAdapter = new PixiBattlefieldRenderer({
-            pixiLoader: async () => boundaryPixi.module,
-            capabilities
-        });
-        return boundaryAdapter;
-    },
-    canvasOptions: {
-        canvas: recoveredCanvas,
-        drawFrame: payload => recoveredFrames.push(payload)
-    }
+    rendererFactories: new Map([
+        [RENDERER_BACKEND.PIXI_WEBGL, ({ capabilities }) => {
+            boundaryAdapter = new PixiBattlefieldRenderer({
+                pixiLoader: async () => boundaryPixi.module,
+                capabilities
+            });
+            return boundaryAdapter;
+        }]
+    ])
 });
 await boundary.initialize(createHost(), { width: 160, height: 90 });
 assert.equal(boundary.backend, RENDERER_BACKEND.PIXI_WEBGL);
 boundary.syncScene(snapshot);
 assert.equal(boundary.render({ nowMs: 10 }).rendered, true);
 
-// A frame skipped during context loss must not consume queued visual events;
-// concurrent failure notifications share one Canvas fallback operation.
+// A frame skipped during context loss must not consume queued visual events.
+// Restoring the same backend presents them without changing engine ownership.
 boundary.enqueue({ type: 'impact-pulse', at: { x: 86, y: 58 } });
 boundaryAdapter.canvas.dispatch('webglcontextlost', { preventDefault() {} });
 assert.equal(boundary.render({ nowMs: 20 }).rendered, false);
-const [firstFallback, duplicateFallback] = await Promise.all([
-    boundary.fallbackToCanvas(new Error('context lost'), 'webgl-context-lost'),
-    boundary.fallbackToCanvas(new Error('duplicate notification'), 'webgl-context-lost')
-]);
-assert.equal(firstFallback, true);
-assert.equal(duplicateFallback, true);
-assert.equal(boundary.backend, RENDERER_BACKEND.CANVAS_2D);
-boundary.render({ nowMs: 30 });
-assert.equal(recoveredFrames[0].events[0].type, 'impact-pulse');
+assert.equal(boundary.backend, RENDERER_BACKEND.PIXI_WEBGL);
+boundaryAdapter.canvas.dispatch('webglcontextrestored');
+assert.equal(boundary.render({ nowMs: 30 }).events, 1);
 boundary.destroy();
 assert.equal(boundaryAdapter.lifecycle, RENDERER_LIFECYCLE.DESTROYED);
 

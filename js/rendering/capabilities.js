@@ -56,8 +56,6 @@ export function detectRendererCapabilities(options = {}) {
 
 export function rendererBackendSupported(backend, capabilities = {}) {
     switch (backend) {
-        case RENDERER_BACKEND.CANVAS_2D:
-            return Boolean(capabilities.canvas2d);
         case RENDERER_BACKEND.PIXI_WEBGL:
             return Boolean(capabilities.webgl2 || capabilities.webgl1);
         case RENDERER_BACKEND.PIXI_WEBGPU:
@@ -71,21 +69,15 @@ export function rendererBackendSupported(backend, capabilities = {}) {
 export function getRendererPreferenceOrder(preferredBackend = 'auto', options = {}) {
     const allowExperimentalWebGPU = Boolean(options.allowExperimentalWebGPU);
     switch (preferredBackend) {
-        case RENDERER_BACKEND.CANVAS_2D:
-            return Object.freeze([RENDERER_BACKEND.CANVAS_2D]);
         case RENDERER_BACKEND.PIXI_WEBGL:
-            return Object.freeze([RENDERER_BACKEND.PIXI_WEBGL, RENDERER_BACKEND.CANVAS_2D]);
+            return Object.freeze([RENDERER_BACKEND.PIXI_WEBGL]);
         case RENDERER_BACKEND.PIXI_WEBGPU:
             return Object.freeze(allowExperimentalWebGPU
-                ? [RENDERER_BACKEND.PIXI_WEBGPU, RENDERER_BACKEND.PIXI_WEBGL, RENDERER_BACKEND.CANVAS_2D]
-                : [RENDERER_BACKEND.PIXI_WEBGL, RENDERER_BACKEND.CANVAS_2D]);
+                ? [RENDERER_BACKEND.PIXI_WEBGPU, RENDERER_BACKEND.PIXI_WEBGL]
+                : [RENDERER_BACKEND.PIXI_WEBGL]);
         case 'auto':
-            return Object.freeze([RENDERER_BACKEND.PIXI_WEBGL, RENDERER_BACKEND.CANVAS_2D]);
+            return Object.freeze([RENDERER_BACKEND.PIXI_WEBGL]);
         default:
             throw new TypeError(`Unknown renderer backend preference: ${preferredBackend}`);
     }
-}
-
-export function createCanvasElementFactory(environment = globalThis) {
-    return defaultCanvasFactory(environment);
 }

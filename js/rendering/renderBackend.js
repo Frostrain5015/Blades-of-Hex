@@ -3,7 +3,6 @@
 // import the DTO helpers without creating a canvas or touching browser globals.
 
 export const RENDERER_BACKEND = Object.freeze({
-    CANVAS_2D: 'canvas2d',
     PIXI_WEBGL: 'pixi-webgl',
     PIXI_WEBGPU: 'pixi-webgpu'
 });

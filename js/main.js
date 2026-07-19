@@ -65,7 +65,6 @@ import {
     createBattlefieldRenderer,
     shouldSyncBattlefieldSnapshot
 } from './rendering/index.js';
-import { VITE_RUNTIME_AVAILABLE } from './rendering/viteRuntime.js';
 import { battlefieldDelegation, setBattlefieldDelegation } from './rendering/delegation.js';
 import {
     AIR_COMMAND_IMPACT_DELAY_MS,
@@ -127,8 +126,8 @@ setClearOrbitBeamsRef(clearPaladinOrbitBeams);
 setSpawnBeamProjectilesRef(spawnPaladinBeamProjectiles);
 setSpawnHealingChainRef(spawnHealingChain);
 
-// 战场渲染边界：Canvas2D 始终保留完整画面；PixiJS 作为可回退的
-// GPU 交互/特效叠加层渐进接管，避免迁移期间丢失既有表现。
+// 战场渲染边界保持后端中立；当前注册 PixiJS，Canvas 只承担混合模式
+// 的辅助图层与离屏纹理，不再作为可独立运行的完整战场后端。
 const _battlefieldStage = document.getElementById('canvasStage');
 let _battlefieldRenderer = null;
 let _battlefieldRendererGeneration = 0;
@@ -146,31 +145,50 @@ let _terrainTextureDirty = true;
 // 非空时：下一次贴图同步渲染渐变终态并启动 GPU 交叉淡化，而非全量重画。
 let _terrainPendingFade = null;
 
-function _preferredBattlefieldBackend() {
-    // Pixi 为默认渲染引擎；仅当 Vite 不可用或用户手动切回 Canvas2D 时才回退。
-    if (!VITE_RUNTIME_AVAILABLE) return RENDERER_BACKEND.CANVAS_2D;
-    if (settings.rendererBackend === RENDERER_BACKEND.CANVAS_2D) return RENDERER_BACKEND.CANVAS_2D;
-    return RENDERER_BACKEND.PIXI_WEBGL;
+const DEFAULT_BATTLEFIELD_BACKEND = RENDERER_BACKEND.PIXI_WEBGL;
+const BATTLEFIELD_BACKEND_INTEGRATIONS = new Map([
+    [RENDERER_BACKEND.PIXI_WEBGL, Object.freeze({
+        delegation: Object.freeze({ interactionHints: true, terrain: true }),
+        getCanvas: renderer => renderer?.canvas || null,
+        canvasClassName: 'battlefield-pixi-canvas',
+        createScene: (snapshot, context) => battlefieldSnapshotToPixi(snapshot, {
+            overlayOnly: true,
+            includeUnits: false,
+            showGrid: context.showGrid,
+            performanceProfile: context.performanceProfile
+        }),
+        syncTerrain: (renderer, source, scale) => renderer.syncTerrainTexture(source, scale),
+        crossfadeTerrain: (renderer, source, scale, durationMs, now) => (
+            typeof renderer.beginTerrainCrossfade === 'function'
+                ? renderer.beginTerrainCrossfade(source, scale, durationMs, now)
+                : false
+        )
+    })]
+]);
+
+function _battlefieldIntegration(boundary = _battlefieldRenderer) {
+    return BATTLEFIELD_BACKEND_INTEGRATIONS.get(boundary?.backend) || null;
 }
 
 function _syncBattlefieldRendererDom(boundary = _battlefieldRenderer) {
-    const backend = boundary?.backend || RENDERER_BACKEND.CANVAS_2D;
+    const backend = boundary?.backend || '';
     if (_battlefieldStage) _battlefieldStage.dataset.renderBackend = backend;
-    const isPixi = backend === RENDERER_BACKEND.PIXI_WEBGL;
-    const pixiCanvas = isPixi ? boundary?.renderer?.canvas : null;
-    // Pixi 静态地形层是纯性能优化：离屏 Canvas 画地形→Pixi 纹理，始终开启。
-    const terrainDelegated = Boolean(isPixi);
-    pixiCanvas?.classList?.add('battlefield-pixi-canvas');
-    // 委托状态以实际后端为准：Pixi 掉线/回退时 Canvas 必须重新画全量。
-    setBattlefieldDelegation({ interactionHints: isPixi, terrain: terrainDelegated });
+    const integration = _battlefieldIntegration(boundary);
+    const backendCanvas = integration?.getCanvas(boundary?.renderer) || null;
+    const delegation = integration?.delegation || {};
+    const terrainDelegated = Boolean(delegation.terrain);
+    if (backendCanvas && integration?.canvasClassName) {
+        backendCanvas.classList?.add(integration.canvasClassName);
+    }
+    setBattlefieldDelegation(delegation);
     // 地形模式下 Pixi canvas 在 Canvas canvas 之下
-    if (terrainDelegated && pixiCanvas) {
-        pixiCanvas.style.zIndex = '0';
+    if (terrainDelegated && backendCanvas) {
+        backendCanvas.style.zIndex = '0';
         canvas.style.zIndex = '2';
         canvas.style.position = 'absolute';
         canvas.style.inset = '0';
-    } else if (pixiCanvas) {
-        pixiCanvas.style.zIndex = '2';
+    } else if (backendCanvas) {
+        backendCanvas.style.zIndex = '2';
         canvas.style.zIndex = '1';
         canvas.style.position = '';
         canvas.style.inset = '';
@@ -181,53 +199,30 @@ function _syncBattlefieldRendererDom(boundary = _battlefieldRenderer) {
     }
 }
 
-async function _fallbackBattlefieldRenderer(boundary, error, reason) {
-    if (!boundary || boundary !== _battlefieldRenderer) return;
-    // Pixi 已不可用：立即恢复 Canvas 全量绘制，不等待异步回退完成。
-    setBattlefieldDelegation({});
-    try {
-        if (await boundary.fallbackToCanvas(error, reason)) {
-            _battlefieldSnapshot = null;
-            _syncBattlefieldRendererDom(boundary);
-        }
-    } catch (fallbackError) {
-        console.error('[渲染] Canvas2D 回退失败:', fallbackError);
-    }
-}
-
 async function _replaceBattlefieldRenderer() {
     const generation = ++_battlefieldRendererGeneration;
     const previous = _battlefieldRenderer;
-    _battlefieldRenderer = null;
-    previous?.destroy();
-    // Pixi 异步初始化期间以及初始化失败后，Canvas 都必须画全量。
-    setBattlefieldDelegation({});
-    _battlefieldSnapshot = null;
-    _battlefieldSnapshotCheckedAt = -Infinity;
-    _terrainTextureDirty = true;
-    _terrainPendingFade = null;
 
-    let boundary = null;
-    boundary = createBattlefieldRenderer({
-        preferredBackend: _preferredBattlefieldBackend(),
+    const boundary = createBattlefieldRenderer({
+        preferredBackend: DEFAULT_BATTLEFIELD_BACKEND,
         performanceProfile: settings.performanceProfile || 'auto',
         reducedMotion: settings.reducedMotion ? true : undefined,
-        canvasOptions: {
-            canvas,
-            context: canvas.getContext('2d'),
-            drawFrame: () => renderGame()
-        },
-        pixiRendererFactory: ({ capabilities }) => new PixiBattlefieldRenderer({
-            capabilities,
-            performanceProfile: settings.performanceProfile || 'auto',
-            reducedMotion: settings.reducedMotion ? true : undefined,
-            onContextLost: error => {
-                queueMicrotask(() => _fallbackBattlefieldRenderer(boundary, error, 'webgl-context-lost'));
-            },
-            onNotificationError: error => console.error('[渲染] 上下文通知失败:', error)
-        }),
-        onFallback: record => {
-            console.warn(`[渲染] ${record.from} → ${record.to} (${record.reason})`, record.error || '');
+        rendererFactories: new Map([
+            [RENDERER_BACKEND.PIXI_WEBGL, ({ capabilities }) => new PixiBattlefieldRenderer({
+                capabilities,
+                performanceProfile: settings.performanceProfile || 'auto',
+                reducedMotion: settings.reducedMotion ? true : undefined,
+                onContextLost: error => console.warn('[渲染] 图形上下文已丢失，等待浏览器恢复:', error),
+                onContextRestored: () => {
+                    _battlefieldSnapshot = null;
+                    _battlefieldSnapshotCheckedAt = -Infinity;
+                    _terrainTextureDirty = true;
+                },
+                onNotificationError: error => console.error('[渲染] 上下文通知失败:', error)
+            })]
+        ]),
+        onBackendFailure: record => {
+            console.error(`[渲染] 后端 ${record.backend} 不可用 (${record.reason})`, record.error || '');
         }
     });
 
@@ -240,19 +235,29 @@ async function _replaceBattlefieldRenderer() {
         });
     } catch (error) {
         boundary.destroy();
-        console.error('[渲染] 初始化失败，继续使用直接 Canvas2D 绘制:', error);
-        return;
+        if (previous) {
+            console.error('[渲染] 新后端初始化失败，保留当前后端:', error);
+            return false;
+        }
+        throw new Error('战场渲染后端初始化失败', { cause: error });
     }
     if (generation !== _battlefieldRendererGeneration) {
         boundary.destroy();
         return;
     }
     _battlefieldRenderer = boundary;
+    previous?.destroy();
+    _battlefieldSnapshot = null;
+    _battlefieldSnapshotCheckedAt = -Infinity;
+    _terrainTextureDirty = true;
+    _terrainPendingFade = null;
     _syncBattlefieldRendererDom(boundary);
+    return true;
 }
 
-function _syncPixiBattlefieldScene(now) {
-    if (_battlefieldRenderer?.backend !== RENDERER_BACKEND.PIXI_WEBGL) return;
+function _syncBattlefieldScene(now) {
+    const integration = _battlefieldIntegration();
+    if (!_battlefieldRenderer || !integration?.createScene) return;
     if (now - _battlefieldSnapshotCheckedAt < 50) return;
     _battlefieldSnapshotCheckedAt = now;
     try {
@@ -267,23 +272,20 @@ function _syncPixiBattlefieldScene(now) {
         // hover/选中/单位移动等交互变化不再触发全图重画 + GPU 纹理上传。
         if (_battlefieldSnapshot?.terrainSignature !== next.terrainSignature) {
             // 占领变色自带 1.5s 地块渐变：不再按 50ms 节拍整幅重画，改为
-            // 渲染一次终态贴图并交给 GPU 交叉淡化（见 _syncPixiTerrainTexture）。
+            // 渲染一次终态贴图并交给 GPU 交叉淡化（见 _syncBackendTerrainTexture）。
             const fadeMs = _maxSurfaceTransitionRemainingMs(next.tiles, now);
             if (fadeMs > 0) _terrainPendingFade = { durationMs: fadeMs };
             else _terrainTextureDirty = true;
         }
         _battlefieldSnapshot = next;
-        // 地形走 Canvas 快照贴图（见 _syncPixiTerrainTexture），Graphics 场景
+        // 地形走 Canvas 快照贴图（见 _syncBackendTerrainTexture），后端场景
         // 恒为叠加层：只承载交互提示，绝不自绘平面色块地形。
-        _battlefieldRenderer.syncScene(battlefieldSnapshotToPixi(next, {
-            overlayOnly: true,
-            includeUnits: false,
+        _battlefieldRenderer.syncScene(integration.createScene(next, {
             showGrid: settings.showGrid !== false,
             performanceProfile: _battlefieldRenderer.policy?.profile || 'balanced'
         }));
     } catch (error) {
-        console.error('[渲染] Pixi 场景同步失败，正在回退:', error);
-        void _fallbackBattlefieldRenderer(_battlefieldRenderer, error, 'scene-sync-failed');
+        console.error('[渲染] 后端场景同步失败:', error);
     }
 }
 
@@ -310,33 +312,33 @@ function _ensureTerrainCanvas(index, ratio) {
     return _terrainCanvases[index];
 }
 
-// 地形贴图同步：委托生效时把 Canvas 地形画进离屏画布，交给 Pixi 显示。
+// 地形贴图同步：委托生效时把 Canvas 地形画进离屏画布，交给注册后端显示。
 // 依赖 renderGame() 已在本帧执行（材质层缓存已同步）。
-function _syncPixiTerrainTexture(now) {
+function _syncBackendTerrainTexture(now) {
+    const integration = _battlefieldIntegration();
     const renderer = _battlefieldRenderer?.renderer;
-    if (!battlefieldDelegation.terrain || typeof renderer?.syncTerrainTexture !== 'function') return;
+    if (!integration?.syncTerrain || !battlefieldDelegation.terrain || !renderer) return;
     const pendingFade = _terrainPendingFade;
     _terrainPendingFade = null;
     if (!_terrainTextureDirty && !pendingFade) return;
     _terrainTextureDirty = false;
     try {
         const ratio = Math.min(window.devicePixelRatio || 1, 2);
-        if (pendingFade && typeof renderer.beginTerrainCrossfade === 'function') {
+        if (pendingFade && integration.crossfadeTerrain) {
             // 渐变终态画进背面画布 → 一次上传 → GPU alpha 淡入。正面画布
             // 支撑的旧纹理在渐变期间原样保留，淡化结束后由渲染器接管为新基底。
             const backIndex = 1 - _terrainFrontIndex;
             const back = _ensureTerrainCanvas(backIndex, ratio);
             renderTerrainSnapshot(back.getContext('2d'), now, ratio, { finalizeFades: true });
-            renderer.beginTerrainCrossfade(back, 1 / ratio, pendingFade.durationMs, now);
+            integration.crossfadeTerrain(renderer, back, 1 / ratio, pendingFade.durationMs, now);
             _terrainFrontIndex = backIndex;
         } else {
             const front = _ensureTerrainCanvas(_terrainFrontIndex, ratio);
             renderTerrainSnapshot(front.getContext('2d'), now, ratio);
-            renderer.syncTerrainTexture(front, 1 / ratio);
+            integration.syncTerrain(renderer, front, 1 / ratio);
         }
     } catch (error) {
-        console.error('[渲染] 地形贴图同步失败，正在回退:', error);
-        void _fallbackBattlefieldRenderer(_battlefieldRenderer, error, 'terrain-texture-failed');
+        console.error('[渲染] 后端地形贴图同步失败:', error);
     }
 }
 
@@ -345,7 +347,7 @@ await _replaceBattlefieldRenderer();
 window.addEventListener('battlefield-renderer-settings-changed', event => {
     const changed = event.detail?.changed;
     invalidateBoard();
-    if (changed === 'showGrid' && _battlefieldRenderer?.backend === RENDERER_BACKEND.PIXI_WEBGL) {
+    if (changed === 'showGrid') {
         _battlefieldSnapshot = null;
         _battlefieldSnapshotCheckedAt = -Infinity;
         return;
@@ -402,20 +404,16 @@ function gameLoop() {
     const deltaMs = Math.min(50, Math.max(0, now - _battlefieldLastFrameAt));
     _battlefieldLastFrameAt = now;
     const renderer = _battlefieldRenderer;
-    if (renderer?.backend === RENDERER_BACKEND.PIXI_WEBGL) {
-        // 迁移期混合渲染：Canvas 保持全量战场，Pixi 只绘制高预算交互层。
+    if (renderer) {
+        // 混合渲染：Canvas 保留辅助图层，已注册后端承担委托给它的图层。
         renderGame();
-        _syncPixiBattlefieldScene(now);
-        _syncPixiTerrainTexture(now);
+        _syncBattlefieldScene(now);
+        _syncBackendTerrainTexture(now);
         try {
             renderer.render({ nowMs: now, deltaMs, frameId: ++_battlefieldFrameId });
         } catch (error) {
-            void _fallbackBattlefieldRenderer(renderer, error, 'frame-render-failed');
+            console.error('[渲染] 后端帧渲染失败:', error);
         }
-    } else if (renderer) {
-        renderer.render({ nowMs: now, deltaMs, frameId: ++_battlefieldFrameId });
-    } else {
-        renderGame();
     }
     syncBoardActionBar();
 

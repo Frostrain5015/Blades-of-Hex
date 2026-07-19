@@ -162,6 +162,7 @@ function saveBlacklist() {
 const MIME = {
     '.html': 'text/html; charset=utf-8',
     '.js':   'application/javascript; charset=utf-8',
+    '.mjs':  'application/javascript; charset=utf-8',
     '.css':  'text/css; charset=utf-8',
     '.jpg':  'image/jpeg',
     '.jpeg': 'image/jpeg',
@@ -180,9 +181,15 @@ const MIME = {
 // 浏览器入口引用的根级背景图，以及被 ESM 状态模型导入的纯算法模块，都属于公开静态资源。
 // 其余根级文件仍默认拒绝，避免把服务器代码和本地配置暴露出去。
 const STATIC_ROOT_FILES = new Set(['/index.html', '/favicon.ico', '/bg.jpg']);
-const STATIC_DIRECTORIES = ['/assets/', '/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/', '/core/', '/ai/', '/campaign/'];
+const STATIC_DIRECTORIES = ['/assets/', '/vendor/', '/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/', '/core/', '/ai/', '/campaign/'];
 
 function resolvePublicFile(urlPath) {
+    if (urlPath === '/vendor/pixi.mjs') {
+        return {
+            filePath: path.join(SOURCE_PUBLIC_ROOT, 'node_modules', 'pixi.js', 'dist', 'pixi.mjs'),
+            built: false
+        };
+    }
     const relative = `.${urlPath.startsWith('/') ? urlPath : `/${urlPath}`}`;
     const roots = SERVE_BUILD_OUTPUT
         ? [BUILD_PUBLIC_ROOT, SOURCE_PUBLIC_ROOT]

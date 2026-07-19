@@ -8,7 +8,6 @@ const DEFAULT_SETTINGS = {
     turnFlash: true,
     soundEnabled: true,
     soundVolume: 0.7,
-    rendererBackend: 'pixi-webgl',
     performanceProfile: 'auto',
     reducedMotion: false,
     showGrid: true
@@ -20,6 +19,9 @@ export function loadSettings() {
     try {
         const saved = localStorage.getItem(SETTINGS_KEY);
         settings = saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : { ...DEFAULT_SETTINGS };
+        // Retire the former full-Canvas/Pixi selector without allowing a stale
+        // browser preference to leak back into the backend composition root.
+        delete settings.rendererBackend;
     } catch {
         settings = { ...DEFAULT_SETTINGS };
     }

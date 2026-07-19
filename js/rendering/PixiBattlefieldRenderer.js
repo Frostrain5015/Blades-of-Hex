@@ -332,8 +332,7 @@ function descriptorStillAnimating(descriptor, nowMs) {
  * Pixi v8 WebGL adapter for the battlefield backend boundary.
  *
  * `pixiLoader` is injectable so Node tests do not import a browser/WebGL
- * implementation. Production defaults to a lazy `import('pixi.js')` and thus
- * keeps Canvas2D startup independent from the optional GPU bundle.
+ * implementation. Production defaults to a lazy `import('pixi.js')`.
  */
 export class PixiBattlefieldRenderer {
     constructor(options = {}) {

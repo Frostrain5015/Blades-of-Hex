@@ -757,7 +757,8 @@ function computeTerrainSignature(layout, camps, renderTiles) {
 }
 
 /**
- * Build a detached scene snapshot suitable for Canvas2D, Pixi/WebGL or tests.
+ * Build a detached, backend-neutral scene snapshot suitable for registered
+ * renderer adapters and tests.
  *
  * `signature` hashes the complete state-driven DTO. Unit motion paths and
  * surface transitions are represented parametrically, so a render loop can
