@@ -1567,11 +1567,13 @@ function beginNetworkCommanderFlow(role) {
     const wasOrder = [...(gameState.turnOrder || [])];
     const wasRolls = { ...(gameState.turnOrderRolls || {}) };
     const wasAssignments = { ...(gameState.roleAssignments || {}) };
+    const wasStandardMapId = gameState.standardMapId;
     resetGameState();
     gameState.isThreePlayer = wasThreePlayer;
     gameState.skirmishFog = wasSkirmish;
     gameState.doubleCommanderMode = wasDoubleCommanderMode;
     gameState.gameMode = wasMode;
+    gameState.standardMapId = wasStandardMapId;
     // 联机对局所有玩家席位都是人类；缺省 controllers 会把 player2/player3 置为 'ai'，
     // 导致这些阵营的单位在任一模拟端升阶时被 AI 逻辑自动选择专精并随快照污染全场。
     configureSkirmishState({
