@@ -197,6 +197,10 @@ export function normalizeLevel(raw) {
     const configuredFactionIds = new Set(merged.factions.map(item => item.id));
     merged.localPlayerCamp = configuredFactionIds.has(raw.localPlayerCamp) ? raw.localPlayerCamp : def.localPlayerCamp;
     merged.turnOrder = Array.isArray(raw.turnOrder) ? [...raw.turnOrder] : [merged.localPlayerCamp];
+    // 清理失效的阵营引用：删除阵营后 turnOrder 不应仍保留已删除的阵营 ID
+    merged.turnOrder = merged.turnOrder.filter(id => configuredFactionIds.has(id) || id === 'neutral');
+    // 如果清理后为空，回退到只有玩家阵营
+    if (!merged.turnOrder.length) merged.turnOrder = [merged.localPlayerCamp];
     merged.diplomacy = raw.diplomacy && typeof raw.diplomacy === 'object' ? structuredClone(raw.diplomacy) : structuredClone(def.diplomacy);
     merged.mechanics = createDefaultMechanics(raw.mechanics || {});
     merged.board = { ...def.board, ...(raw.board || {}) };
