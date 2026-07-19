@@ -132,7 +132,7 @@ for (const playerCount of [2, 3]) {
 }
 
 for (const playerCount of [2, 3]) {
-    test(`${playerCount}P Uncharted Passage is ocean-dominant and player-symmetric`, () => {
+    test(`${playerCount}P Uncharted Passage preserves the reference archipelago with relative fairness`, () => {
         const map = getStandardMap(playerCount, 'uncharted-passage');
         const board = map.board;
         const playable = getPlayableBoardCoordinates(board);
@@ -143,20 +143,27 @@ for (const playerCount of [2, 3]) {
         assert.equal(map.familyId, 'uncharted-passage');
         assert.ok(board.surface.length > playable.length / 2, 'ocean must cover most of the battlefield');
         assert.deepEqual(map.captureReward, {
-            type: 'neutralForcesTransfer', cityQ: 0, cityR: 0, sourceCamp: 'neutral'
+            type: 'neutralForcesTransfer', cityQ: 0, cityR: -1, sourceCamp: 'neutral'
         });
-        assert.ok(board.cities.some(city => city.q === 0 && city.r === 0 && city.camp === 'neutral'));
+        const centralCity = board.cities.find(city => city.q === 0 && city.r === -1 && city.camp === 'neutral');
+        assert.ok(centralCity);
 
         for (const camp of players) {
             const cities = board.cities.filter(city => city.camp === camp);
             const airfields = board.installations.filter(installation => installation.camp === camp && installation.type === 'airfield');
+            const villages = board.villages.filter(village => cities.some(city => city.districtId === village.districtId));
             assert.equal(cities.length, 2, `${camp} must own exactly two cities`);
             assert.equal(airfields.length, 1, `${camp} must own exactly one airport city`);
+            assert.equal(villages.length, 2, `${camp} must receive one home and one satellite resource`);
             assert.ok(cities.some(city => city.q === airfields[0].q && city.r === airfields[0].r));
+            const forwardCity = cities.find(city => city.districtId % 2 === 0);
+            assert.equal(distance(forwardCity, centralCity), 5, `${camp} satellite city must be five tiles from the central prize`);
+            const districtSizes = cities.map(city => board.districts.filter(tile => tile.districtId === city.districtId).length);
+            assert.deepEqual(districtSizes, [14, 3], `${camp} must receive a 14-tile home and 3-tile satellite`);
         }
 
         const carriers = map.initialUnits.filter(unit => unit.type === 'carrier');
-        assert.deepEqual(carriers, [{ type: 'carrier', camp: 'neutral', q: 2, r: -1 }]);
+        assert.deepEqual(carriers, [{ type: 'carrier', camp: 'neutral', q: 3, r: -1 }]);
         assert.ok(board.ports.some(port => port.q === carriers[0].q && port.r === carriers[0].r && port.districtId === 99));
 
         const occupied = new Set();
@@ -183,18 +190,25 @@ for (const playerCount of [2, 3]) {
         });
         for (const profile of unitProfiles.slice(1)) assert.deepEqual(profile, unitProfiles[0]);
 
-        const transform = playerCount === 3 ? rotate120 : rotate180;
-        assertCoordinateSymmetry(
-            board.cities.filter(city => city.camp !== 'neutral'),
-            transform,
-            `${playerCount}P player cities`
-        );
-        assertCoordinateSymmetry(
-            map.initialUnits.filter(unit => unit.camp !== 'neutral'),
-            transform,
-            `${playerCount}P player units`,
-            unit => unit.type
-        );
+        if (playerCount === 2) {
+            assert.equal(board.villages.filter(village => village.districtId === 99).length, 3,
+                'the unused southern home becomes a neutral two-resource commons');
+        } else {
+            const homeShoals = players.map((camp, index) => {
+                const districtId = index * 2 + 1;
+                const coast = new Set();
+                for (const tile of board.districts.filter(entry => entry.districtId === districtId)) {
+                    for (const [dq, dr] of HEX_NEIGHBORS) {
+                        const adjacentKey = `${tile.q + dq},${tile.r + dr}`;
+                        if (water.get(adjacentKey) === 'shallowWater') coast.add(adjacentKey);
+                    }
+                }
+                return coast.size;
+            });
+            assert.equal(homeShoals[0], homeShoals[1]);
+            assert.ok(homeShoals[2] < homeShoals[0],
+                'the geographically closer southern player must receive a narrower shallow-water screen');
+        }
     });
 }
 
@@ -208,7 +222,7 @@ test('capturing the central neutral city transfers every surviving neutral force
     const state = { tiles: [neutralCarrier, neutralInfantry, defeatedNeutral, enemy].map(unit => ({ unit })) };
     const map = getStandardMap(2, 'uncharted-passage');
 
-    const transferred = applyStandardMapCaptureReward(state, map, { q: 0, r: 0 }, neutral, player1);
+    const transferred = applyStandardMapCaptureReward(state, map, { q: 0, r: -1 }, neutral, player1);
 
     assert.deepEqual(transferred, [neutralCarrier, neutralInfantry]);
     assert.equal(neutralCarrier.camp, player1);

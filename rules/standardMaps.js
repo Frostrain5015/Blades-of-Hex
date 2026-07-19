@@ -142,104 +142,141 @@ const THREE_PLAYER_ISLAND = {
 };
 
 const coordinateKey = ({ q, r }) => `${q},${r}`;
-const identity = ({ q, r }) => ({ q, r });
-const rotate180 = ({ q, r }) => ({ q: -q, r: -r });
-const rotate120 = ({ q, r }) => ({ q: -q - r, r: q });
-const rotate240 = point => rotate120(rotate120(point));
+const parseCoordinates = source => source.trim().split(/\s+/).map(value => {
+    const [q, r] = value.split(',').map(Number);
+    return { q, r };
+});
 
-function transformEntries(entries, transform, extras = {}) {
-    return entries.map(entry => ({ ...entry, ...transform(entry), ...extras }));
-}
+// Land silhouette and authored shoals from new-level.level (5).json.
+const REFERENCE_ISLANDS = {
+    northwest: parseCoordinates('-5,-7 -4,-7 -6,-6 -5,-6 -4,-6 -6,-5 -5,-5 -4,-5 -6,-4 -5,-4 -7,-4 -3,-6 -2,-7 -3,-7'),
+    northeast: parseCoordinates('9,-7 10,-7 9,-6 10,-6 9,-5 10,-5 9,-4 10,-4 11,-4 11,-5 12,-6 11,-6 12,-7 11,-7'),
+    center: parseCoordinates('1,-3 2,-3 0,-2 1,-2 2,-2 0,-1 1,-1 2,-1 0,0 1,0 2,0 -1,0 -1,-1 -2,0'),
+    south: parseCoordinates('-6,6 -5,6 -7,7 -6,7 -5,7 -4,7 -4,6 -3,6 -2,6 -3,7 -2,7 -1,7 -1,6 0,6')
+};
+const REFERENCE_SHALLOW_KEYS = new Set(parseCoordinates(`
+    -8,-2 -7,-2 -6,-2 -5,-2 -4,-3 -3,-4 -2,-5 -1,-6 0,-7
+    7,-7 7,-6 7,-5 7,-4 7,-3 7,-2 8,-2 9,-2 10,-2
+    1,5 1,6 1,7 -6,5 -7,6 -8,7
+    2,-4 3,-4 3,-3 3,-2 3,-1 1,-4 0,-3 -1,-2 -2,-1 -3,0 -3,1 -2,1 -1,1 0,1 1,1 2,1 3,0
+    -7,-3 -6,-3 -5,-3 -4,-4 -3,-5 -2,-6 -1,-7
+    8,-7 8,-6 8,-5 8,-4 8,-3 9,-3 10,-3
+    0,5 -1,5 -2,5 -3,5 -4,5 -5,5 0,7
+`).map(coordinateKey));
+
+const SATELLITES = {
+    player1: parseCoordinates('-5,-1 -4,-1 -4,-2'),
+    player2: parseCoordinates('5,-2 4,-2 4,-3'),
+    player3: parseCoordinates('-2,4 -1,4 -2,3')
+};
+
+const PLAYER_MAP_SLOTS = [
+    {
+        camp: 'player1', homeDistrict: 1, forwardDistrict: 2,
+        homeIsland: 'northwest', homeCity: { q: -5, r: -6 }, homeVillage: { q: -4, r: -5 },
+        homePort: { q: -5, r: -3, landQ: -5, landR: -4 }, submarine: { q: -6, r: -3 },
+        homeArmy: [{ type: 'infantry', q: -5, r: -6 }, { type: 'archer', q: -4, r: -6 }, { type: 'cavalry', q: -5, r: -5 }],
+        forwardCity: { q: -5, r: -1 }, forwardVillage: { q: -4, r: -1 },
+        forwardPort: { q: -4, r: 0, landQ: -4, landR: -1 }
+    },
+    {
+        camp: 'player2', homeDistrict: 3, forwardDistrict: 4,
+        homeIsland: 'northeast', homeCity: { q: 10, r: -6 }, homeVillage: { q: 9, r: -5 },
+        homePort: { q: 9, r: -3, landQ: 9, landR: -4 }, submarine: { q: 10, r: -3 },
+        homeArmy: [{ type: 'infantry', q: 10, r: -6 }, { type: 'archer', q: 9, r: -6 }, { type: 'cavalry', q: 10, r: -5 }],
+        forwardCity: { q: 5, r: -2 }, forwardVillage: { q: 4, r: -2 },
+        forwardPort: { q: 5, r: -3, landQ: 5, landR: -2 }
+    },
+    {
+        camp: 'player3', homeDistrict: 5, forwardDistrict: 6,
+        homeIsland: 'south', homeCity: { q: -3, r: 6 }, homeVillage: { q: -2, r: 7 },
+        homePort: { q: -3, r: 5, landQ: -3, landR: 6 }, submarine: { q: -4, r: 5 },
+        homeArmy: [{ type: 'infantry', q: -3, r: 6 }, { type: 'archer', q: -2, r: 6 }, { type: 'cavalry', q: -3, r: 7 }],
+        forwardCity: { q: -2, r: 4 }, forwardVillage: { q: -1, r: 4 },
+        forwardPort: { q: -3, r: 4, landQ: -2, landR: 4 }
+    }
+];
 
 function createArchipelagoMap(playerCount) {
-    const transforms = playerCount === 3
-        ? [identity, rotate120, rotate240]
-        : [identity, rotate180];
-    const camps = transforms.map((_, index) => `player${index + 1}`);
+    const slots = PLAYER_MAP_SLOTS.slice(0, playerCount);
+    const landKeys = new Set(Object.values(REFERENCE_ISLANDS).flat().map(coordinateKey));
+    for (const slot of slots) for (const point of SATELLITES[slot.camp]) landKeys.add(coordinateKey(point));
 
-    // Every player receives the same home island and forward island under the
-    // map's exact rotational symmetry. The small detached islands remain neutral.
-    const homeLand = [
-        { q: -6, r: 0 }, { q: -5, r: 0 }, { q: -6, r: 1 }, { q: -5, r: 1 },
-        { q: -6, r: -1 }, { q: -5, r: -1 }, { q: -7, r: 1 }, { q: -4, r: 0 }
-    ];
-    const forwardLand = [
-        { q: -3, r: 3 }, { q: -2, r: 3 }, { q: -3, r: 2 },
-        { q: -2, r: 2 }, { q: -4, r: 3 }
-    ];
-    const steppingLand = [
-        { q: -3, r: -2 }, { q: -2, r: -2 }, { q: -3, r: -1 }
-    ];
-    const centralLand = [
-        { q: 0, r: 0 }, { q: 1, r: 0 }, { q: 1, r: -1 },
-        { q: 0, r: -1 }, { q: -1, r: 0 }, { q: -1, r: 1 }, { q: 0, r: 1 }
-    ];
-    const landKeys = new Set(centralLand.map(coordinateKey));
-    for (const transform of transforms) {
-        for (const point of [...homeLand, ...forwardLand, ...steppingLand]) {
-            landKeys.add(coordinateKey(transform(point)));
+    const shallowKeys = new Set(REFERENCE_SHALLOW_KEYS);
+    // The southern home is closer to the central prize. In 3P, its protected
+    // shoal is deliberately narrower, making transported armies easier to intercept.
+    for (const slot of slots) {
+        const satelliteKeys = new Set(SATELLITES[slot.camp].map(coordinateKey));
+        for (const point of getPlayableBoardCoordinates({ layout: 'borderless' })) {
+            if (landKeys.has(coordinateKey(point))) continue;
+            if (HEX_NEIGHBORS.some(([dq, dr]) => satelliteKeys.has(`${point.q + dq},${point.r + dr}`))) {
+                shallowKeys.add(coordinateKey(point));
+            }
         }
     }
+    if (playerCount === 3) {
+        for (const key of ['-5,5', '-2,5', '-1,5', '0,5', '1,5', '0,7', '1,6']) shallowKeys.delete(key);
+    }
 
+    const cities = [{ q: 0, r: -1, districtId: 99, camp: 'neutral' }];
+    const villages = [{ q: 1, r: 0, districtId: 99 }];
+    const installations = [];
+    const districts = REFERENCE_ISLANDS.center.map(point => ({ ...point, districtId: 99 }));
+    const ports = [{ q: 3, r: -1, districtId: 99, landQ: 2, landR: -1 }];
+    const initialUnits = [
+        { type: 'carrier', camp: 'neutral', q: 3, r: -1 },
+        { type: 'destroyer', camp: 'neutral', q: 3, r: -2 },
+        { type: 'infantry', camp: 'neutral', q: 0, r: -1 },
+        { type: 'archer', camp: 'neutral', q: 1, r: -1 },
+        { type: 'cavalry', camp: 'neutral', q: 0, r: 0 }
+    ];
+    if (playerCount === 2) {
+        districts.push(...REFERENCE_ISLANDS.south.map(point => ({ ...point, districtId: 99 })));
+        villages.push(
+            { q: -5, r: 6, districtId: 99 },
+            { q: -1, r: 6, districtId: 99 }
+        );
+        initialUnits.push(
+            { type: 'infantry', camp: 'neutral', q: -3, r: 6 },
+            { type: 'archer', camp: 'neutral', q: -2, r: 6 }
+        );
+    }
+
+    for (const slot of slots) {
+        cities.push(
+            { ...slot.homeCity, districtId: slot.homeDistrict, camp: slot.camp },
+            { ...slot.forwardCity, districtId: slot.forwardDistrict, camp: slot.camp }
+        );
+        villages.push(
+            { ...slot.homeVillage, districtId: slot.homeDistrict },
+            { ...slot.forwardVillage, districtId: slot.forwardDistrict }
+        );
+        installations.push({ ...slot.homeCity, type: 'airfield', camp: slot.camp });
+        districts.push(
+            ...REFERENCE_ISLANDS[slot.homeIsland].map(point => ({ ...point, districtId: slot.homeDistrict })),
+            ...SATELLITES[slot.camp].map(point => ({ ...point, districtId: slot.forwardDistrict }))
+        );
+        ports.push(
+            { ...slot.homePort, districtId: slot.homeDistrict },
+            { ...slot.forwardPort, districtId: slot.forwardDistrict }
+        );
+        initialUnits.push(
+            { type: 'warship', camp: slot.camp, q: slot.homePort.q, r: slot.homePort.r },
+            { type: 'destroyer', camp: slot.camp, q: slot.forwardPort.q, r: slot.forwardPort.r },
+            { type: 'submarine', camp: slot.camp, ...slot.submarine },
+            ...slot.homeArmy.map(unit => ({ ...unit, camp: slot.camp })),
+            { type: 'infantry', camp: slot.camp, ...slot.forwardCity },
+            { type: 'archer', camp: slot.camp, ...slot.forwardVillage }
+        );
+    }
+
+    for (const port of ports) shallowKeys.add(coordinateKey(port));
     const surface = getPlayableBoardCoordinates({ layout: 'borderless' })
         .filter(point => !landKeys.has(coordinateKey(point)))
         .map(point => ({
             ...point,
-            kind: HEX_NEIGHBORS.some(([dq, dr]) => landKeys.has(`${point.q + dq},${point.r + dr}`))
-                ? 'shallowWater'
-                : 'deepWater'
+            kind: shallowKeys.has(coordinateKey(point)) ? 'shallowWater' : 'deepWater'
         }));
-
-    const cities = [];
-    const villages = [{ q: 0, r: 1, districtId: 99 }];
-    const installations = [];
-    const ports = [{ q: 2, r: -1, districtId: 99, landQ: 1, landR: -1 }];
-    const initialUnits = [
-        { type: 'carrier', camp: 'neutral', q: 2, r: -1 },
-        { type: 'destroyer', camp: 'neutral', q: 1, r: -2 },
-        { type: 'infantry', camp: 'neutral', q: 0, r: 0 },
-        { type: 'archer', camp: 'neutral', q: -1, r: 0 },
-        { type: 'infantry', camp: 'neutral', q: 0, r: 1 }
-    ];
-
-    transforms.forEach((transform, index) => {
-        const camp = camps[index];
-        const homeDistrict = index * 2 + 1;
-        const forwardDistrict = index * 2 + 2;
-        const homeCity = transform({ q: -6, r: 0 });
-        const forwardCity = transform({ q: -3, r: 3 });
-        cities.push(
-            { ...homeCity, districtId: homeDistrict, camp },
-            { ...forwardCity, districtId: forwardDistrict, camp }
-        );
-        villages.push(
-            { ...transform({ q: -5, r: -1 }), districtId: homeDistrict },
-            { ...transform({ q: -2, r: 2 }), districtId: forwardDistrict },
-            { ...transform({ q: -3, r: -2 }), districtId: 99 }
-        );
-        installations.push({ ...homeCity, type: 'airfield', camp });
-        ports.push(
-            {
-                ...transform({ q: -7, r: 0 }),
-                districtId: homeDistrict,
-                landQ: homeCity.q,
-                landR: homeCity.r
-            },
-            { ...transform({ q: -3, r: 4 }), districtId: forwardDistrict, landQ: forwardCity.q, landR: forwardCity.r }
-        );
-        initialUnits.push(
-            ...transformEntries([{ type: 'warship', q: -7, r: 0 }], transform, { camp }),
-            ...transformEntries([{ type: 'destroyer', q: -3, r: 4 }], transform, { camp }),
-            ...transformEntries([{ type: 'submarine', q: -5, r: -2 }], transform, { camp }),
-            ...transformEntries([{ type: 'infantry', q: -6, r: 0 }], transform, { camp }),
-            ...transformEntries([{ type: 'archer', q: -5, r: 0 }], transform, { camp }),
-            ...transformEntries([{ type: 'cavalry', q: -6, r: 1 }], transform, { camp }),
-            ...transformEntries([{ type: 'infantry', q: -3, r: 3 }], transform, { camp }),
-            ...transformEntries([{ type: 'archer', q: -2, r: 3 }], transform, { camp }),
-            ...transformEntries([{ type: 'infantry', q: -3, r: -2 }], transform, { camp: 'neutral' })
-        );
-    });
-    cities.push({ q: 0, r: 0, districtId: 99, camp: 'neutral' });
 
     return {
         id: `uncharted-passage-${playerCount}p`,
@@ -248,7 +285,7 @@ function createArchipelagoMap(playerCount) {
         captureReward: {
             type: 'neutralForcesTransfer',
             cityQ: 0,
-            cityR: 0,
+            cityR: -1,
             sourceCamp: 'neutral'
         },
         board: {
@@ -260,7 +297,7 @@ function createArchipelagoMap(playerCount) {
             villages,
             fortifications: [],
             installations,
-            districts: [],
+            districts,
             ports
         },
         initialUnits
