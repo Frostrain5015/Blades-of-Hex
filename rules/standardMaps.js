@@ -329,6 +329,19 @@ function createAuthoredArchipelago(level, playerCount) {
         : null;
     if (!captureCity) throw new Error(`Uncharted Passage ${playerCount}P carrier port must belong to a neutral city district.`);
 
+    // 城防联动：非中央的中立城市行政区内的中立岸防炮视为该城守备，
+    // 不随中央夺城全图易帜，只随所属城市归属改变阵营。
+    const districtByKey = new Map(level.board.districts.map(tile => [`${tile.q},${tile.r}`, tile.districtId]));
+    const garrisonCities = cities.filter(city => city.camp === 'neutral'
+        && !(city.q === captureCity.q && city.r === captureCity.r));
+    const cityLinkedUnits = [];
+    for (const unit of initialUnits) {
+        if (unit.type !== 'shoreBattery' || unit.camp !== 'neutral') continue;
+        const districtId = districtByKey.get(`${unit.q},${unit.r}`);
+        const owner = districtId == null ? null : garrisonCities.find(city => city.districtId === districtId);
+        if (owner) cityLinkedUnits.push({ q: unit.q, r: unit.r, cityQ: owner.q, cityR: owner.r });
+    }
+
     return {
         id: `uncharted-passage-${playerCount}p`,
         familyId: 'uncharted-passage',
@@ -346,6 +359,7 @@ function createAuthoredArchipelago(level, playerCount) {
             cityR: captureCity.r,
             sourceCamp: 'neutral'
         },
+        cityLinkedUnits,
         board: {
             layout: level.board.layout,
             radius: level.board.radius,

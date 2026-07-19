@@ -20,8 +20,11 @@ let _spawnHealingChain = null;
 // 将领专属视觉特效延迟引用（由 main.js 通过 setter 注入；headless 下不注入即为 no-op）
 let _spawnBloodDrain = null;
 let _spawnGongxinRipple = null;
+// 完整占城流程（gameLogic.updateDistrictColor，模块加载时注入，避免循环依赖）
+let _captureCityRef = null;
 
 export function setGameStateRef(fn) { _gameState = fn; }
+export function setCityCaptureRef(fn) { _captureCityRef = fn; }
 export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setSpawnFxRef(fn) { _spawnFx = fn; }
 export function setSpawnGoldenBeamRef(fn) { _spawnGoldenBeam = fn; }
@@ -395,12 +398,21 @@ export function changeUnitCamp(unit, newCamp, tileList) {
   const oldCamp = unit.camp;
   if (oldCamp === newCamp) return false;
   unit.camp = newCamp;
-  // 若单位在城市上，同步更改城市及整个行政区归属
-  if (unit.tile.isCity && tileList) {
-    const districtId = unit.tile.districtId;
-    for (const tile of tileList) {
-      if (tile.districtId === districtId && tile.camp === oldCamp) {
-        tile.setCampWithFade(newCamp);
+  // 若单位在城市上，同步更改城市归属
+  if (unit.tile.isCity) {
+    // 走完整占城流程（行政区易色/边界重算/标准图易帜奖励/城防联动/胜负判定），
+    // 使谋士策反驻城守军与武力夺城享有一致的连锁效果。
+    if (_captureCityRef) {
+      _captureCityRef(unit.tile, newCamp, unit);
+      return true;
+    }
+    // 降级路径（未注入完整流程时，如部分单测）：仅同步行政区地块归属
+    if (tileList) {
+      const districtId = unit.tile.districtId;
+      for (const tile of tileList) {
+        if (tile.districtId === districtId && tile.camp === oldCamp) {
+          tile.setCampWithFade(newCamp);
+        }
       }
     }
   }

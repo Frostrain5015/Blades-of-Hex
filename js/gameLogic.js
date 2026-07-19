@@ -1,6 +1,6 @@
 import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
-import { isStrongpointTarget, isBuildingUnit } from '../rules/units.js';
+import { isStrongpointTarget, isBuildingUnit, isStaticBattleStructure } from '../rules/units.js';
 import {
     calculateCityStructureDamage,
     damageCityPool,
@@ -21,11 +21,11 @@ import { gameState, updateButtonColors, updateUI, logMessage, clearselection, se
 import { isNetworkGame, sendAction, getMyRole, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
 import { neutralDriverRole } from '../protocol/messages.js';
 import { stopCampaignRuntime } from './campaignController.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getCommanderRangeReduction, getCommanderWeatherDebuff, getEffectiveWeather, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getCommanderRangeReduction, getCommanderWeatherDebuff, getEffectiveWeather, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setCityCaptureRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { getStandardMap } from '../rules/standardMaps.js';
-import { applyStandardMapCaptureReward, syncStandardMapCarrierControl } from '../rules/standardMapEvents.js';
+import { applyStandardMapCaptureReward, syncStandardMapCarrierControl, syncCityLinkedGarrisons } from '../rules/standardMapEvents.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
@@ -484,6 +484,14 @@ export function initMap() {
         }
     }
 
+    // 开局即评估固定火力点（碉堡/岸防炮）：射程内没有合法目标时标记为不可行动
+    for (const tile of gameState.tiles) {
+        if (tile.unit?.canAct && isStaticBattleStructure(tile.unit)
+            && getAttackableTiles(tile.unit).length === 0) {
+            tile.unit.canAct = false;
+        }
+    }
+
     logMessage(`${is3P ? '三人模式' : '游戏'}开始，${gameState.factions?.[gameState.turnOrder?.[0]]?.name || '首个阵营'}先手`);
 
     // 绑定按钮事件（仅首次，避免重开时重复绑定）
@@ -618,6 +626,11 @@ function initInitialUnits() {
     const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
     if (Array.isArray(standardMap?.initialUnits)) {
         for (const unit of standardMap.initialUnits) spawn(unit.type, unit.camp, unit.q, unit.r);
+        // 城防联动标记：这些单位随所属城市易主，不参与中央夺城全图易帜
+        for (const link of standardMap.cityLinkedUnits || []) {
+            const unit = map.get(`${link.q},${link.r}`)?.unit;
+            if (unit) unit._followsCity = { q: link.cityQ, r: link.cityR };
+        }
         return;
     }
     if (gameState.isThreePlayer) {
@@ -1113,17 +1126,17 @@ async function _doEndTurnPhase() {
             if (tile.unit._imprisoned) {
                 tile.unit.canAct = false;
             }
-            // mgNest: disable if no enemies in range
-            if (tile.unit._isImmobile && tile.unit.canAct) {
-                const atk = getAttackableTiles(tile.unit);
-                if (atk.length === 0) tile.unit.canAct = false;
-            }
             tile.unit.movedThisTurn = false;
             tile.unit.moveDistance = 0;
             tile.unit.counterAttackCount = 0;
             tile.unit._timesAttackedThisTurn = 0;
             tile.unit._specializationAttackSpent = false;
             tile.unit._transportTransitionedThisTurn = false;
+            // 碉堡/岸防炮等固定火力点：射程内没有合法目标时自动标记为不可行动
+            if (tile.unit.canAct && (tile.unit._isImmobile || isStaticBattleStructure(tile.unit))
+                && getAttackableTiles(tile.unit).length === 0) {
+                tile.unit.canAct = false;
+            }
             tile.unit.remainingMP = tile.unit.getEffectiveSpeed?.() ?? tile.unit.config.speed;
             if (tile.unit._imprisoned) tile.unit.remainingMP = 0;
             tile.unit.displaySpeed = tile.unit.remainingMP;
@@ -2672,11 +2685,21 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
         logMessage(`【中央航母】随中央港口行政区向${camp.name}易帜`);
         notify(`中央航母已归属${camp.name}`, 'info');
     }
+    // 城防联动：绑定该城的驻防单位（如离岛岸防炮）随城易主
+    const linkedGarrisons = syncCityLinkedGarrisons(gameState, cityTile, camp);
+    if (linkedGarrisons.length > 0) {
+        logMessage(`【城防易帜】${linkedGarrisons.length}门岸防炮随(${cityTile.q},${cityTile.r})城市易主，归属${camp.name}`);
+        notify(`岸防炮已归属${camp.name}`, 'info');
+    }
     if (attackerUnit) attackerUnit.addXP(5);
     invalidateBoard();
     emit('match:cityCaptured', { cityTile, camp, campKey: _campKey(camp), attackerUnit });
     checkVictory();
 }
+
+// 谋士攻心等将领钩子改变城市驻军阵营时，经由此注入走完整占城流程
+// （行政区易色/边界重算/标准图易帜奖励/城防联动/胜负判定）。
+setCityCaptureRef(updateDistrictColor);
 
 // ===== 胜利检测 =====================
 function checkVictory() {

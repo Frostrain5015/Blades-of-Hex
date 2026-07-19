@@ -133,6 +133,8 @@ export class Unit {
         this.activeSkillDur = 0;
         this._imprisoned = false;
         this._isImmobile = false;
+        // 城防联动：随指定城市易主的驻防单位（如无主航路离岛岸防炮），{q,r} 或 null
+        this._followsCity = null;
         this._engineerConstruction = null;
         this._campaignEffects = [];  // [{id,name,emoji,duration,statMods:{atkPct,defPct,spdPct,hpPct}}]
         this._aureliaOathUntilRound = 0;

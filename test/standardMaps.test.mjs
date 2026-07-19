@@ -7,6 +7,7 @@ import { STANDARD_MAP_FAMILIES, STANDARD_MAP_POOL, getStandardMap } from '../rul
 import {
     applyStandardMapCaptureReward,
     shouldHoldNeutralCarrierPosition,
+    syncCityLinkedGarrisons,
     syncStandardMapCarrierControl
 } from '../rules/standardMapEvents.js';
 import { UNIT_CONFIG } from '../rules/units.js';
@@ -238,6 +239,40 @@ test('capturing the central neutral city transfers every surviving neutral force
     assert.equal(neutralInfantry.camp, player1);
     assert.equal(defeatedNeutral.camp, neutral);
     assert.equal(enemy.camp.id, 'player2');
+});
+
+test('island batteries follow their own city instead of the central prize', () => {
+    const player1 = { id: 'player1', name: '玩家一' };
+    const player2 = { id: 'player2', name: '玩家二' };
+    const neutral = { id: 'neutral', name: '中立' };
+    const map = getStandardMap(2, 'uncharted-passage');
+
+    // 2P：南岛（district 8，城市 (-3,6)）的两门中立岸防炮被识别为城防联动；
+    // 3P 的南岛属于 player3，中立岸防炮都不在任何中立城市行政区内，无联动。
+    assert.deepEqual(map.cityLinkedUnits, [
+        { q: -6, r: 6, cityQ: -3, cityR: 6 },
+        { q: 0, r: 6, cityQ: -3, cityR: 6 }
+    ]);
+    assert.deepEqual(getStandardMap(3, 'uncharted-passage').cityLinkedUnits, []);
+
+    const battery = { type: 'shoreBattery', camp: neutral, hp: 150, _followsCity: { q: -3, r: 6 } };
+    const infantry = { type: 'infantry', camp: neutral, hp: 80 };
+    const state = { tiles: [{ unit: battery }, { unit: infantry }] };
+
+    // 中央夺城全图易帜时跳过联动岸防炮
+    const transferred = applyStandardMapCaptureReward(
+        state, map, { q: map.captureReward.cityQ, r: map.captureReward.cityR }, neutral, player1);
+    assert.deepEqual(transferred, [infantry]);
+    assert.equal(battery.camp, neutral);
+
+    // 南岛城市易主：联动岸防炮随城转换，可反复易主，其他城市易主不影响
+    assert.deepEqual(syncCityLinkedGarrisons(state, { q: -3, r: 6 }, player1), [battery]);
+    assert.equal(battery.camp, player1);
+    assert.deepEqual(syncCityLinkedGarrisons(state, { q: -3, r: 6 }, player1), []);
+    assert.deepEqual(syncCityLinkedGarrisons(state, { q: 1, r: -2 }, player2), []);
+    assert.equal(battery.camp, player1);
+    assert.deepEqual(syncCityLinkedGarrisons(state, { q: -3, r: 6 }, player2), [battery]);
+    assert.equal(battery.camp, player2);
 });
 
 test('the prize carrier follows the central port district on every recapture', () => {

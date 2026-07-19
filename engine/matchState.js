@@ -486,6 +486,7 @@ export function serializeMatchState(match) {
             berserkerQixue: t.unit._berserkerQixue || false,
             imprisoned: t.unit._imprisoned || false,
             isImmobile: t.unit._isImmobile || false,
+            followsCity: t.unit._followsCity ? { ...t.unit._followsCity } : null,
             airdropWaiting: t.unit._airdropWaiting || false,
             soulRecallLandAt: t.unit._soulRecallLandAt || 0,
             airliftLandAt: t.unit._airliftLandAt || 0,
@@ -918,6 +919,7 @@ export function restoreMatchState(match, data, deps) {
             unit._berserkerQixue = td.unit.berserkerQixue || false;
             unit._imprisoned = td.unit.imprisoned || false;
             unit._isImmobile = td.unit.isImmobile || false;
+            unit._followsCity = td.unit.followsCity ? { ...td.unit.followsCity } : null;
             unit._airdropWaiting = td.unit.airdropWaiting || false;
             unit._soulRecallLandAt = td.unit.soulRecallLandAt || 0;
             unit._airliftLandAt = td.unit.airliftLandAt || 0;

@@ -5,6 +5,7 @@ import {
     UNIT_CONFIG,
     getSpecializationAbilityValue,
     isRankLockedUnit,
+    isStaticBattleStructure,
     resolveUnitRankProfile
 } from '../rules/units.js';
 import {
@@ -36,6 +37,11 @@ test('建筑锁定军衔，航母把2阶攻击奖励映射为航空火力', () =
     assert.equal(isRankLockedUnit('mgNest'), true);
     assert.equal(isRankLockedUnit('shoreBattery'), true);
     assert.equal(isRankLockedUnit('drone'), true);
+    // 固定火力点（无目标时自动跳过行动）：碉堡/岸防炮算，可移动的无人机不算
+    assert.equal(isStaticBattleStructure('mgNest'), true);
+    assert.equal(isStaticBattleStructure('shoreBattery'), true);
+    assert.equal(isStaticBattleStructure('drone'), false);
+    assert.equal(isStaticBattleStructure('infantry'), false);
     const carrier = resolveUnitRankProfile('carrier', 2, null);
     assert.equal(carrier.carrierAirPowerBonus, 10);
     assert.equal(carrier.unbranchedReward.damageBonus, 0.15);

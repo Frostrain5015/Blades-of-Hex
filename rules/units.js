@@ -118,6 +118,16 @@ export function isRankLockedUnit(unitOrType) {
 }
 
 /**
+ * 固定火力点：不可移动的战斗建筑（碉堡/岸防炮）。
+ * 无人机共享 building 标记（用于禁止军衔/专精）但可移动，不算固定火力点。
+ */
+export function isStaticBattleStructure(unitOrType) {
+    const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
+    const config = UNIT_CONFIG[type];
+    return config?.building === true && (config.speed ?? 0) === 0;
+}
+
+/**
  * “要塞单位”：城市驻军、碉堡、岸防炮，以及攻坚/对岸类技能的重点针对目标。
  * 无人机虽然共享 building 标记（用于禁止军衔/专精），但不算要塞，显式排除。
  * 接受真实 Unit（走 building/isCity 分支）或只带 tile 的裸壳（供空城攻城复用）。
