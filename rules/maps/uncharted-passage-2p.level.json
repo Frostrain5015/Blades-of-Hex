@@ -1,0 +1,2389 @@
+{
+  "schemaVersion": 4,
+  "id": "uncharted-passage-v2-2p",
+  "title": "无主航路 v2（双人）",
+  "chronicleId": "standard-match",
+  "seed": 4660,
+  "turnLimit": 0,
+  "intro": {
+    "campaignTitle": "标准对局地图",
+    "chapterTitle": "无主航路",
+    "scenarioSubtitle": "2人编辑稿 v2"
+  },
+  "weather": "clear",
+  "localPlayerCamp": "player1",
+  "factions": [
+    {
+      "id": "player1",
+      "name": "第1阵营",
+      "note": "标准对局玩家出生阵营",
+      "color": "red",
+      "controller": "human",
+      "participatesInTurns": true,
+      "active": true
+    },
+    {
+      "id": "player2",
+      "name": "第2阵营",
+      "note": "标准对局玩家出生阵营",
+      "color": "blue",
+      "controller": "scripted",
+      "participatesInTurns": true,
+      "active": true
+    },
+    {
+      "id": "freeport",
+      "name": "中央自由港",
+      "note": "编辑器占位阵营；接回标准对局时映射为系统 neutral，并恢复占城后中立残军与航母转移规则。",
+      "color": "gray",
+      "controller": "scripted",
+      "participatesInTurns": false,
+      "active": true
+    }
+  ],
+  "turnOrder": [
+    "player1",
+    "player2"
+  ],
+  "diplomacy": {
+    "player1": {
+      "player2": "enemy",
+      "freeport": "enemy"
+    },
+    "player2": {
+      "player1": "enemy",
+      "freeport": "enemy"
+    },
+    "freeport": {
+      "player1": "enemy",
+      "player2": "enemy"
+    }
+  },
+  "mechanics": {
+    "tacticalCards": true,
+    "recruitment": true,
+    "reinforcement": true,
+    "commanderSkills": true,
+    "airCommands": true,
+    "weatherEffects": true,
+    "morale": true,
+    "fortifications": true,
+    "fogOfWar": true,
+    "alliedVision": false
+  },
+  "aiOpponentCamp": "player2",
+  "aiDifficulty": 1,
+  "gold": {
+    "player1": 13,
+    "player2": 13,
+    "freeport": 0
+  },
+  "commanders": {},
+  "hands": {
+    "player1": [],
+    "player2": [],
+    "freeport": []
+  },
+  "storyCommanders": [],
+  "collectibles": [],
+  "board": {
+    "layout": "borderless",
+    "radius": 7,
+    "cities": [
+      {
+        "q": -5,
+        "r": -6,
+        "districtId": 1,
+        "camp": "player1"
+      },
+      {
+        "q": 1,
+        "r": -2,
+        "districtId": 5,
+        "camp": "freeport"
+      },
+      {
+        "q": -9,
+        "r": 3,
+        "districtId": 6,
+        "camp": "freeport"
+      },
+      {
+        "q": 6,
+        "r": 3,
+        "districtId": 7,
+        "camp": "freeport"
+      },
+      {
+        "q": -3,
+        "r": 6,
+        "districtId": 8,
+        "camp": "freeport"
+      },
+      {
+        "q": 11,
+        "r": -6,
+        "districtId": 2,
+        "camp": "player2"
+      }
+    ],
+    "surface": [
+      {
+        "q": -1,
+        "r": -7,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 0,
+        "r": -7,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 1,
+        "r": -7,
+        "kind": "deepWater"
+      },
+      {
+        "q": 2,
+        "r": -7,
+        "kind": "deepWater"
+      },
+      {
+        "q": 3,
+        "r": -7,
+        "kind": "deepWater"
+      },
+      {
+        "q": 4,
+        "r": -7,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": -7,
+        "kind": "deepWater"
+      },
+      {
+        "q": 6,
+        "r": -7,
+        "kind": "deepWater"
+      },
+      {
+        "q": 7,
+        "r": -7,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 8,
+        "r": -7,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -2,
+        "r": -6,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -1,
+        "r": -6,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 0,
+        "r": -6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 1,
+        "r": -6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 2,
+        "r": -6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 3,
+        "r": -6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 4,
+        "r": -6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": -6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 6,
+        "r": -6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 7,
+        "r": -6,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 8,
+        "r": -6,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -3,
+        "r": -5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -2,
+        "r": -5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -1,
+        "r": -5,
+        "kind": "deepWater"
+      },
+      {
+        "q": 0,
+        "r": -5,
+        "kind": "deepWater"
+      },
+      {
+        "q": 1,
+        "r": -5,
+        "kind": "deepWater"
+      },
+      {
+        "q": 2,
+        "r": -5,
+        "kind": "deepWater"
+      },
+      {
+        "q": 3,
+        "r": -5,
+        "kind": "deepWater"
+      },
+      {
+        "q": 4,
+        "r": -5,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": -5,
+        "kind": "deepWater"
+      },
+      {
+        "q": 6,
+        "r": -5,
+        "kind": "deepWater"
+      },
+      {
+        "q": 7,
+        "r": -5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 8,
+        "r": -5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -4,
+        "r": -4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -3,
+        "r": -4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -2,
+        "r": -4,
+        "kind": "deepWater"
+      },
+      {
+        "q": -1,
+        "r": -4,
+        "kind": "deepWater"
+      },
+      {
+        "q": 1,
+        "r": -4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 2,
+        "r": -4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 3,
+        "r": -4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 6,
+        "r": -4,
+        "kind": "deepWater"
+      },
+      {
+        "q": 7,
+        "r": -4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 8,
+        "r": -4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -7,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -6,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -5,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -4,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -2,
+        "r": -3,
+        "kind": "deepWater"
+      },
+      {
+        "q": 7,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 8,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 9,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 10,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -8,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -7,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -6,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -5,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 7,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 8,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 9,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 10,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -8,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -7,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": 6,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": 7,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": 8,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": 9,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -9,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": -8,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": -7,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": 6,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": 7,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": 8,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": 9,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": -9,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -8,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -7,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -6,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -5,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -3,
+        "r": 1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -2,
+        "r": 1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -1,
+        "r": 1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 0,
+        "r": 1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 1,
+        "r": 1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 2,
+        "r": 1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 4,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": 6,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": 7,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": 8,
+        "r": 1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -10,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -7,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -6,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -5,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -4,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -3,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -2,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -1,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": 0,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": 1,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": 2,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": 3,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": 4,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": 8,
+        "r": 2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -7,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": -6,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": -5,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": -4,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": -3,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": -2,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": -1,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": 0,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": 1,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": 2,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": 3,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": 4,
+        "r": 3,
+        "kind": "deepWater"
+      },
+      {
+        "q": -7,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": -6,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": -5,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": -4,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": -3,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": -2,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": -1,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": 0,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": 1,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": 2,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": 3,
+        "r": 4,
+        "kind": "deepWater"
+      },
+      {
+        "q": -8,
+        "r": 5,
+        "kind": "deepWater"
+      },
+      {
+        "q": -7,
+        "r": 5,
+        "kind": "deepWater"
+      },
+      {
+        "q": -6,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -5,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -4,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -3,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -2,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -1,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 0,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 1,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 2,
+        "r": 5,
+        "kind": "deepWater"
+      },
+      {
+        "q": 3,
+        "r": 5,
+        "kind": "deepWater"
+      },
+      {
+        "q": -12,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": -11,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": -10,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": -9,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": -8,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": -7,
+        "r": 6,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 1,
+        "r": 6,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 2,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 3,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 4,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": 6,
+        "r": 6,
+        "kind": "deepWater"
+      },
+      {
+        "q": -12,
+        "r": 7,
+        "kind": "deepWater"
+      },
+      {
+        "q": -11,
+        "r": 7,
+        "kind": "deepWater"
+      },
+      {
+        "q": -10,
+        "r": 7,
+        "kind": "deepWater"
+      },
+      {
+        "q": -9,
+        "r": 7,
+        "kind": "deepWater"
+      },
+      {
+        "q": -8,
+        "r": 7,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 0,
+        "r": 7,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 1,
+        "r": 7,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 2,
+        "r": 7,
+        "kind": "deepWater"
+      },
+      {
+        "q": 3,
+        "r": 7,
+        "kind": "deepWater"
+      },
+      {
+        "q": 4,
+        "r": 7,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": 7,
+        "kind": "deepWater"
+      },
+      {
+        "q": -3,
+        "r": -3,
+        "kind": "deepWater"
+      },
+      {
+        "q": -4,
+        "r": -2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -3,
+        "r": -2,
+        "kind": "deepWater"
+      },
+      {
+        "q": -6,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -5,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -6,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": -5,
+        "r": 0,
+        "kind": "deepWater"
+      },
+      {
+        "q": -4,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": -4,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": -3,
+        "kind": "deepWater"
+      },
+      {
+        "q": 6,
+        "r": -3,
+        "kind": "deepWater"
+      },
+      {
+        "q": 6,
+        "r": -2,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": -2,
+        "kind": "deepWater"
+      },
+      {
+        "q": 5,
+        "r": -1,
+        "kind": "deepWater"
+      },
+      {
+        "q": -1,
+        "r": 0,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 1,
+        "r": -1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 0,
+        "r": 0,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 0,
+        "r": -1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 1,
+        "r": 0,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -8,
+        "r": 3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 5,
+        "r": 3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 4,
+        "r": 4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 4,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 5,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 6,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 7,
+        "r": 4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 7,
+        "r": 3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 7,
+        "r": 2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 6,
+        "r": 2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -8,
+        "r": 2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -9,
+        "r": 2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -8,
+        "r": 4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -9,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -10,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -11,
+        "r": 5,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -11,
+        "r": 4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -10,
+        "r": 3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 0,
+        "r": -4,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -1,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -2,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -3,
+        "r": -1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -4,
+        "r": 0,
+        "kind": "shallowWater"
+      },
+      {
+        "q": -4,
+        "r": 1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 3,
+        "r": 1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 4,
+        "r": 0,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 4,
+        "r": -1,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 4,
+        "r": -2,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 4,
+        "r": -3,
+        "kind": "shallowWater"
+      },
+      {
+        "q": 4,
+        "r": -4,
+        "kind": "shallowWater"
+      }
+    ],
+    "terrain": [
+      {
+        "q": -5,
+        "r": -7,
+        "type": "mountain"
+      },
+      {
+        "q": -4,
+        "r": -7,
+        "type": "mountain"
+      },
+      {
+        "q": -6,
+        "r": -6,
+        "type": "mountain"
+      },
+      {
+        "q": 12,
+        "r": -7,
+        "type": "mountain"
+      },
+      {
+        "q": 12,
+        "r": -6,
+        "type": "mountain"
+      },
+      {
+        "q": 11,
+        "r": -7,
+        "type": "mountain"
+      },
+      {
+        "q": -10,
+        "r": 4,
+        "type": "forest"
+      },
+      {
+        "q": 6,
+        "r": 4,
+        "type": "forest"
+      },
+      {
+        "q": -6,
+        "r": 7,
+        "type": "forest"
+      },
+      {
+        "q": -2,
+        "r": 7,
+        "type": "forest"
+      },
+      {
+        "q": -4,
+        "r": 7,
+        "type": "mountain"
+      },
+      {
+        "q": -3,
+        "r": 7,
+        "type": "mountain"
+      },
+      {
+        "q": -5,
+        "r": 7,
+        "type": "mountain"
+      },
+      {
+        "q": 0,
+        "r": -2,
+        "type": "forest"
+      },
+      {
+        "q": 1,
+        "r": -3,
+        "type": "forest"
+      },
+      {
+        "q": 2,
+        "r": -3,
+        "type": "forest"
+      },
+      {
+        "q": 2,
+        "r": -2,
+        "type": "forest"
+      },
+      {
+        "q": -1,
+        "r": -1,
+        "type": "forest"
+      },
+      {
+        "q": 2,
+        "r": -1,
+        "type": "forest"
+      },
+      {
+        "q": -3,
+        "r": 0,
+        "type": "forest"
+      },
+      {
+        "q": -2,
+        "r": 0,
+        "type": "forest"
+      },
+      {
+        "q": 2,
+        "r": 0,
+        "type": "forest"
+      },
+      {
+        "q": 3,
+        "r": 0,
+        "type": "forest"
+      },
+      {
+        "q": -1,
+        "r": 7,
+        "type": "forest"
+      },
+      {
+        "q": 0,
+        "r": 6,
+        "type": "forest"
+      },
+      {
+        "q": -6,
+        "r": 6,
+        "type": "forest"
+      },
+      {
+        "q": -7,
+        "r": 7,
+        "type": "forest"
+      },
+      {
+        "q": 10,
+        "r": -7,
+        "type": "forest"
+      },
+      {
+        "q": 9,
+        "r": -7,
+        "type": "forest"
+      },
+      {
+        "q": -2,
+        "r": -7,
+        "type": "forest"
+      },
+      {
+        "q": -3,
+        "r": -7,
+        "type": "forest"
+      },
+      {
+        "q": -7,
+        "r": -4,
+        "type": "forest"
+      },
+      {
+        "q": -6,
+        "r": -4,
+        "type": "forest"
+      },
+      {
+        "q": 11,
+        "r": -4,
+        "type": "forest"
+      },
+      {
+        "q": 10,
+        "r": -4,
+        "type": "forest"
+      }
+    ],
+    "villages": [
+      {
+        "q": -5,
+        "r": 6,
+        "districtId": 99
+      },
+      {
+        "q": -1,
+        "r": 6,
+        "districtId": 99
+      },
+      {
+        "q": -2,
+        "r": -1,
+        "districtId": 5
+      },
+      {
+        "q": 3,
+        "r": -1,
+        "districtId": 5
+      }
+    ],
+    "fortifications": [
+      {
+        "q": 1,
+        "r": -2,
+        "type": "flak",
+        "camp": "freeport"
+      },
+      {
+        "q": -3,
+        "r": 6,
+        "type": "trench",
+        "camp": "freeport"
+      }
+    ],
+    "installations": [
+      {
+        "q": -5,
+        "r": -6,
+        "type": "airfield",
+        "camp": "player1"
+      },
+      {
+        "q": 11,
+        "r": -6,
+        "type": "airfield",
+        "status": "ready",
+        "camp": "player2"
+      },
+      {
+        "q": -3,
+        "r": 6,
+        "type": "airfield",
+        "status": "ready",
+        "camp": "freeport"
+      }
+    ],
+    "districts": [
+      {
+        "q": -5,
+        "r": -7,
+        "districtId": 1
+      },
+      {
+        "q": -4,
+        "r": -7,
+        "districtId": 1
+      },
+      {
+        "q": -6,
+        "r": -6,
+        "districtId": 1
+      },
+      {
+        "q": -5,
+        "r": -6,
+        "districtId": 1
+      },
+      {
+        "q": -4,
+        "r": -6,
+        "districtId": 1
+      },
+      {
+        "q": -6,
+        "r": -5,
+        "districtId": 1
+      },
+      {
+        "q": -5,
+        "r": -5,
+        "districtId": 1
+      },
+      {
+        "q": -6,
+        "r": -4,
+        "districtId": 1
+      },
+      {
+        "q": -5,
+        "r": -4,
+        "districtId": 1
+      },
+      {
+        "q": -7,
+        "r": -4,
+        "districtId": 1
+      },
+      {
+        "q": -3,
+        "r": -6,
+        "districtId": 1
+      },
+      {
+        "q": -2,
+        "r": -7,
+        "districtId": 1
+      },
+      {
+        "q": -3,
+        "r": -7,
+        "districtId": 1
+      },
+      {
+        "q": 0,
+        "r": -3,
+        "districtId": 5
+      },
+      {
+        "q": -1,
+        "r": -2,
+        "districtId": 5
+      },
+      {
+        "q": -2,
+        "r": 0,
+        "districtId": 5
+      },
+      {
+        "q": -1,
+        "r": -1,
+        "districtId": 5
+      },
+      {
+        "q": 0,
+        "r": -2,
+        "districtId": 5
+      },
+      {
+        "q": 1,
+        "r": -3,
+        "districtId": 5
+      },
+      {
+        "q": 2,
+        "r": -3,
+        "districtId": 5
+      },
+      {
+        "q": 2,
+        "r": -2,
+        "districtId": 5
+      },
+      {
+        "q": 2,
+        "r": -1,
+        "districtId": 5
+      },
+      {
+        "q": 2,
+        "r": 0,
+        "districtId": 5
+      },
+      {
+        "q": -6,
+        "r": 6,
+        "districtId": 8
+      },
+      {
+        "q": -5,
+        "r": 6,
+        "districtId": 8
+      },
+      {
+        "q": -4,
+        "r": 6,
+        "districtId": 8
+      },
+      {
+        "q": -7,
+        "r": 7,
+        "districtId": 8
+      },
+      {
+        "q": -6,
+        "r": 7,
+        "districtId": 8
+      },
+      {
+        "q": -5,
+        "r": 7,
+        "districtId": 8
+      },
+      {
+        "q": -4,
+        "r": 7,
+        "districtId": 8
+      },
+      {
+        "q": -3,
+        "r": 7,
+        "districtId": 8
+      },
+      {
+        "q": -2,
+        "r": 7,
+        "districtId": 8
+      },
+      {
+        "q": -1,
+        "r": 7,
+        "districtId": 8
+      },
+      {
+        "q": 0,
+        "r": 6,
+        "districtId": 8
+      },
+      {
+        "q": -1,
+        "r": 6,
+        "districtId": 8
+      },
+      {
+        "q": -2,
+        "r": 6,
+        "districtId": 8
+      },
+      {
+        "q": 11,
+        "r": -7,
+        "districtId": 2
+      },
+      {
+        "q": 12,
+        "r": -7,
+        "districtId": 2
+      },
+      {
+        "q": 12,
+        "r": -6,
+        "districtId": 2
+      },
+      {
+        "q": 11,
+        "r": -5,
+        "districtId": 2
+      },
+      {
+        "q": 11,
+        "r": -4,
+        "districtId": 2
+      },
+      {
+        "q": 10,
+        "r": -4,
+        "districtId": 2
+      },
+      {
+        "q": 10,
+        "r": -5,
+        "districtId": 2
+      },
+      {
+        "q": 9,
+        "r": -4,
+        "districtId": 2
+      },
+      {
+        "q": 9,
+        "r": -6,
+        "districtId": 2
+      },
+      {
+        "q": 10,
+        "r": -7,
+        "districtId": 2
+      },
+      {
+        "q": 9,
+        "r": -7,
+        "districtId": 2
+      }
+    ],
+    "rivers": [
+      {
+        "id": "river",
+        "width": "river",
+        "points": [
+          {
+            "q": -1,
+            "r": -3,
+            "vertex": 0
+          },
+          {
+            "q": 0,
+            "r": -3,
+            "vertex": 1
+          },
+          {
+            "q": -1,
+            "r": -2,
+            "vertex": 0
+          },
+          {
+            "q": 0,
+            "r": -2,
+            "vertex": 1
+          }
+        ]
+      },
+      {
+        "id": "river-2",
+        "width": "river",
+        "points": [
+          {
+            "q": 3,
+            "r": -3,
+            "vertex": 0
+          },
+          {
+            "q": 3,
+            "r": -3,
+            "vertex": 1
+          },
+          {
+            "q": 2,
+            "r": -2,
+            "vertex": 0
+          },
+          {
+            "q": 2,
+            "r": -2,
+            "vertex": 1
+          }
+        ]
+      }
+    ],
+    "crossings": [
+      {
+        "riverId": "river",
+        "segmentIndex": 1,
+        "kind": "bridge"
+      },
+      {
+        "riverId": "river-2",
+        "segmentIndex": 1,
+        "kind": "bridge"
+      }
+    ],
+    "ports": [
+      {
+        "q": -5,
+        "r": -3,
+        "districtId": 1,
+        "landQ": -5,
+        "landR": -4
+      },
+      {
+        "q": 9,
+        "r": -3,
+        "districtId": 2,
+        "landQ": 9,
+        "landR": -4
+      },
+      {
+        "q": 1,
+        "r": -1,
+        "districtId": 5,
+        "landQ": 2,
+        "landR": -2
+      },
+      {
+        "q": -8,
+        "r": 3,
+        "districtId": 6,
+        "landQ": -9,
+        "landR": 4
+      },
+      {
+        "q": 5,
+        "r": 3,
+        "districtId": 7,
+        "landQ": 5,
+        "landR": 4
+      }
+    ]
+  },
+  "units": [
+    {
+      "id": "v2_06_infantry",
+      "type": "infantry",
+      "camp": "freeport",
+      "q": -3,
+      "r": 6,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "v2_07_archer",
+      "type": "archer",
+      "camp": "freeport",
+      "q": -2,
+      "r": 6,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "v2_11_infantry",
+      "type": "infantry",
+      "q": -5,
+      "r": -6,
+      "camp": "player1",
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "v2_12_archer",
+      "type": "archer",
+      "q": -4,
+      "r": -6,
+      "camp": "player1",
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "v2_13_cavalry",
+      "type": "infantry",
+      "q": -5,
+      "r": -5,
+      "camp": "player1",
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true,
+      "specializationKey": null
+    },
+    {
+      "id": "v2_21_cavalry",
+      "type": "infantry",
+      "q": 10,
+      "r": -5,
+      "camp": "player2",
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true,
+      "specializationKey": null
+    },
+    {
+      "id": "u1",
+      "type": "shoreBattery",
+      "camp": "player1",
+      "q": -3,
+      "r": -6,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u2",
+      "type": "carrier",
+      "camp": "freeport",
+      "q": 1,
+      "r": -1,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u3",
+      "type": "destroyer",
+      "camp": "freeport",
+      "q": 0,
+      "r": -1,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u4",
+      "type": "infantry",
+      "camp": "freeport",
+      "q": 1,
+      "r": -2,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u5",
+      "type": "shoreBattery",
+      "camp": "freeport",
+      "q": 0,
+      "r": -3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u6",
+      "type": "shoreBattery",
+      "camp": "freeport",
+      "q": 3,
+      "r": -3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u7",
+      "type": "shoreBattery",
+      "camp": "freeport",
+      "q": 2,
+      "r": 0,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u8",
+      "type": "shoreBattery",
+      "camp": "freeport",
+      "q": -2,
+      "r": 0,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u9",
+      "type": "infantry",
+      "camp": "freeport",
+      "q": 3,
+      "r": -1,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u10",
+      "type": "infantry",
+      "camp": "freeport",
+      "q": -2,
+      "r": -1,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u11",
+      "type": "infantry",
+      "camp": "freeport",
+      "q": -9,
+      "r": 3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u12",
+      "type": "infantry",
+      "camp": "freeport",
+      "q": 6,
+      "r": 3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u13",
+      "type": "archer",
+      "camp": "freeport",
+      "q": -4,
+      "r": 6,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u14",
+      "type": "cavalry",
+      "camp": "player1",
+      "q": -6,
+      "r": -4,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u15",
+      "type": "cavalry",
+      "camp": "player1",
+      "q": -4,
+      "r": -5,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u16",
+      "type": "archer",
+      "camp": "player1",
+      "q": -6,
+      "r": -5,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u17",
+      "type": "archer",
+      "camp": "player2",
+      "q": 10,
+      "r": -6,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u18",
+      "type": "archer",
+      "camp": "player2",
+      "q": 11,
+      "r": -5,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u19",
+      "type": "infantry",
+      "camp": "player2",
+      "q": 11,
+      "r": -6,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u20",
+      "type": "shoreBattery",
+      "camp": "player2",
+      "q": 9,
+      "r": -6,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u21",
+      "type": "warship",
+      "camp": "player1",
+      "q": -5,
+      "r": -3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u22",
+      "type": "warship",
+      "camp": "player1",
+      "q": -6,
+      "r": -3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u23",
+      "type": "shoreBattery",
+      "camp": "freeport",
+      "q": -6,
+      "r": 6,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u24",
+      "type": "shoreBattery",
+      "camp": "freeport",
+      "q": 0,
+      "r": 6,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u25",
+      "type": "destroyer",
+      "camp": "player2",
+      "q": 8,
+      "r": -4,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u26",
+      "type": "destroyer",
+      "camp": "player2",
+      "q": 7,
+      "r": -3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u27",
+      "type": "destroyer",
+      "camp": "player1",
+      "q": -4,
+      "r": -4,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u28",
+      "type": "destroyer",
+      "camp": "player1",
+      "q": -4,
+      "r": -3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u29",
+      "type": "submarine",
+      "camp": "player1",
+      "q": -3,
+      "r": -5,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u30",
+      "type": "submarine",
+      "camp": "player1",
+      "q": -5,
+      "r": -2,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u31",
+      "type": "submarine",
+      "camp": "player1",
+      "q": -6,
+      "r": -2,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u32",
+      "type": "submarine",
+      "camp": "player2",
+      "q": 8,
+      "r": -5,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u33",
+      "type": "submarine",
+      "camp": "player2",
+      "q": 7,
+      "r": -2,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u34",
+      "type": "submarine",
+      "camp": "player2",
+      "q": 8,
+      "r": -2,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u35",
+      "type": "warship",
+      "camp": "player2",
+      "q": 8,
+      "r": -3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u36",
+      "type": "warship",
+      "camp": "player2",
+      "q": 9,
+      "r": -3,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u37",
+      "type": "cavalry",
+      "camp": "player2",
+      "q": 10,
+      "r": -4,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    },
+    {
+      "id": "u38",
+      "type": "cavalry",
+      "camp": "player2",
+      "q": 9,
+      "r": -5,
+      "commander": null,
+      "storyCommander": null,
+      "rank": 0,
+      "specializationKey": null,
+      "hpPct": 100,
+      "morale": 2,
+      "canAct": true
+    }
+  ],
+  "unitGroups": [],
+  "areas": [],
+  "interactables": [],
+  "variables": [],
+  "objectives": {},
+  "triggers": [],
+  "result": {
+    "winText": "任务完成。",
+    "loseText": "任务失败，重新整顿部队。",
+    "eliminateEnemy": true,
+    "starRules": []
+  },
+  "standardMapMetadata": {
+    "familyId": "uncharted-passage",
+    "revision": "v2",
+    "playerCount": 2,
+    "neutralEditorCamp": "freeport",
+    "neutralRuntimeCamp": "neutral",
+    "captureReward": {
+      "type": "neutralForcesTransfer",
+      "cityQ": 0,
+      "cityR": -1,
+      "sourceCamp": "neutral"
+    }
+  }
+}

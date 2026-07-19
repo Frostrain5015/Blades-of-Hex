@@ -4,8 +4,15 @@ import { GAME_RULES } from '../rules/constants.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
 import { getPlayableBoardCoordinates } from '../rules/boardLayout.js';
 import { STANDARD_MAP_FAMILIES, STANDARD_MAP_POOL, getStandardMap } from '../rules/standardMaps.js';
-import { applyStandardMapCaptureReward } from '../rules/standardMapEvents.js';
+import {
+    applyStandardMapCaptureReward,
+    shouldHoldNeutralCarrierPosition,
+    syncStandardMapCarrierControl
+} from '../rules/standardMapEvents.js';
 import { UNIT_CONFIG } from '../rules/units.js';
+import { normalizeLevel, validateLevel } from '../campaign/runtime/schema.js';
+import UNCHARTED_PASSAGE_2P_LEVEL from '../rules/maps/uncharted-passage-2p.level.json' with { type: 'json' };
+import UNCHARTED_PASSAGE_3P_LEVEL from '../rules/maps/uncharted-passage-3p.level.json' with { type: 'json' };
 
 const key = ({ q, r }) => `${q},${r}`;
 const distance = (a, b) => Math.max(
@@ -16,6 +23,14 @@ const distance = (a, b) => Math.max(
 const radius = point => distance(point, { q: 0, r: 0 });
 const rotate180 = ({ q, r }) => ({ q: -q, r: -r });
 const rotate120 = ({ q, r }) => ({ q: -q - r, r: q });
+
+for (const [playerCount, source] of [[2, UNCHARTED_PASSAGE_2P_LEVEL], [3, UNCHARTED_PASSAGE_3P_LEVEL]]) {
+    test(`the authored ${playerCount}P Uncharted Passage source remains editor-valid`, () => {
+        const validation = validateLevel(normalizeLevel(source));
+        assert.deepEqual(validation.errors, []);
+        assert.deepEqual(validation.warnings, []);
+    });
+}
 
 function assertCoordinateSymmetry(entries, transform, label, classifier = () => '') {
     const values = new Set(entries.map(entry => `${key(entry)}|${classifier(entry)}`));
@@ -132,7 +147,7 @@ for (const playerCount of [2, 3]) {
 }
 
 for (const playerCount of [2, 3]) {
-    test(`${playerCount}P Uncharted Passage preserves the reference archipelago with relative fairness`, () => {
+    test(`${playerCount}P Uncharted Passage is ocean-dominant and structurally valid`, () => {
         const map = getStandardMap(playerCount, 'uncharted-passage');
         const board = map.board;
         const playable = getPlayableBoardCoordinates(board);
@@ -142,29 +157,24 @@ for (const playerCount of [2, 3]) {
 
         assert.equal(map.familyId, 'uncharted-passage');
         assert.ok(board.surface.length > playable.length / 2, 'ocean must cover most of the battlefield');
-        assert.deepEqual(map.captureReward, {
-            type: 'neutralForcesTransfer', cityQ: 0, cityR: -1, sourceCamp: 'neutral'
-        });
-        const centralCity = board.cities.find(city => city.q === 0 && city.r === -1 && city.camp === 'neutral');
+        assert.equal(map.captureReward.type, 'neutralForcesTransfer');
+        assert.equal(map.captureReward.sourceCamp, 'neutral');
+        const centralCity = board.cities.find(city => city.q === map.captureReward.cityQ
+            && city.r === map.captureReward.cityR && city.camp === 'neutral');
         assert.ok(centralCity);
 
         for (const camp of players) {
             const cities = board.cities.filter(city => city.camp === camp);
             const airfields = board.installations.filter(installation => installation.camp === camp && installation.type === 'airfield');
-            const villages = board.villages.filter(village => cities.some(city => city.districtId === village.districtId));
-            assert.equal(cities.length, 2, `${camp} must own exactly two cities`);
+            assert.equal(cities.length, 1, `${camp} must own exactly one home city`);
             assert.equal(airfields.length, 1, `${camp} must own exactly one airport city`);
-            assert.equal(villages.length, 2, `${camp} must receive one home and one satellite resource`);
             assert.ok(cities.some(city => city.q === airfields[0].q && city.r === airfields[0].r));
-            const forwardCity = cities.find(city => city.districtId % 2 === 0);
-            assert.equal(distance(forwardCity, centralCity), 5, `${camp} satellite city must be five tiles from the central prize`);
-            const districtSizes = cities.map(city => board.districts.filter(tile => tile.districtId === city.districtId).length);
-            assert.deepEqual(districtSizes, [14, 3], `${camp} must receive a 14-tile home and 3-tile satellite`);
         }
 
         const carriers = map.initialUnits.filter(unit => unit.type === 'carrier');
-        assert.deepEqual(carriers, [{ type: 'carrier', camp: 'neutral', q: 3, r: -1 }]);
-        assert.ok(board.ports.some(port => port.q === carriers[0].q && port.r === carriers[0].r && port.districtId === 99));
+        assert.equal(carriers.length, 1);
+        assert.equal(carriers[0].camp, 'neutral');
+        assert.ok(board.ports.some(port => port.q === carriers[0].q && port.r === carriers[0].r));
 
         const occupied = new Set();
         for (const unit of map.initialUnits) {
@@ -181,34 +191,27 @@ for (const playerCount of [2, 3]) {
             assert.ok(HEX_NEIGHBORS.some(([dq, dr]) => port.q + dq === port.landQ && port.r + dr === port.landR));
         }
 
-        const unitProfiles = players.map(camp => {
-            const counts = new Map();
-            for (const unit of map.initialUnits.filter(entry => entry.camp === camp)) {
-                counts.set(unit.type, (counts.get(unit.type) || 0) + 1);
-            }
-            return [...counts].sort(([a], [b]) => a.localeCompare(b));
+        const expected = playerCount === 2
+            ? { mountains: 9, forests: 26, cities: 6, neutralCities: 4, airfields: 3, ports: 5, units: 44, carrier: { q: 1, r: -1 }, districtId: 5 }
+            : { mountains: 11, forests: 36, cities: 9, neutralCities: 6, airfields: 7, ports: 9, units: 67, carrier: { q: 0, r: 0 }, districtId: 7 };
+        assert.equal(map.randomTerrain, false);
+        assert.equal(board.terrain.filter(tile => tile.type === 'mountain').length, expected.mountains);
+        assert.equal(board.terrain.filter(tile => tile.type === 'forest').length, expected.forests);
+        assert.equal(board.cities.length, expected.cities);
+        assert.equal(board.cities.filter(city => city.camp === 'neutral').length, expected.neutralCities);
+        assert.equal(board.installations.length, expected.airfields);
+        assert.equal(board.ports.length, expected.ports);
+        assert.equal(map.initialUnits.length, expected.units);
+        assert.deepEqual(carriers[0], { type: 'carrier', camp: 'neutral', ...expected.carrier });
+        assert.deepEqual(map.captureReward, {
+            type: 'neutralForcesTransfer', cityQ: 1, cityR: -2, sourceCamp: 'neutral'
         });
-        for (const profile of unitProfiles.slice(1)) assert.deepEqual(profile, unitProfiles[0]);
-
-        if (playerCount === 2) {
-            assert.equal(board.villages.filter(village => village.districtId === 99).length, 3,
-                'the unused southern home becomes a neutral two-resource commons');
-        } else {
-            const homeShoals = players.map((camp, index) => {
-                const districtId = index * 2 + 1;
-                const coast = new Set();
-                for (const tile of board.districts.filter(entry => entry.districtId === districtId)) {
-                    for (const [dq, dr] of HEX_NEIGHBORS) {
-                        const adjacentKey = `${tile.q + dq},${tile.r + dr}`;
-                        if (water.get(adjacentKey) === 'shallowWater') coast.add(adjacentKey);
-                    }
-                }
-                return coast.size;
-            });
-            assert.equal(homeShoals[0], homeShoals[1]);
-            assert.ok(homeShoals[2] < homeShoals[0],
-                'the geographically closer southern player must receive a narrower shallow-water screen');
-        }
+        assert.deepEqual(map.carrierControl, {
+            portQ: expected.carrier.q,
+            portR: expected.carrier.r,
+            districtId: expected.districtId,
+            holdPositionWhileNeutral: true
+        });
     });
 }
 
@@ -222,13 +225,45 @@ test('capturing the central neutral city transfers every surviving neutral force
     const state = { tiles: [neutralCarrier, neutralInfantry, defeatedNeutral, enemy].map(unit => ({ unit })) };
     const map = getStandardMap(2, 'uncharted-passage');
 
-    const transferred = applyStandardMapCaptureReward(state, map, { q: 0, r: -1 }, neutral, player1);
+    const transferred = applyStandardMapCaptureReward(
+        state,
+        map,
+        { q: map.captureReward.cityQ, r: map.captureReward.cityR },
+        neutral,
+        player1
+    );
 
     assert.deepEqual(transferred, [neutralCarrier, neutralInfantry]);
     assert.equal(neutralCarrier.camp, player1);
     assert.equal(neutralInfantry.camp, player1);
     assert.equal(defeatedNeutral.camp, neutral);
     assert.equal(enemy.camp.id, 'player2');
+});
+
+test('the prize carrier follows the central port district on every recapture', () => {
+    const player1 = { id: 'player1' };
+    const player2 = { id: 'player2' };
+    const carrier = { type: 'carrier', camp: player1, hp: 200 };
+    const escort = { type: 'destroyer', camp: player1, hp: 100 };
+    const state = { tiles: [{ unit: carrier }, { unit: escort }] };
+    const map = getStandardMap(3, 'uncharted-passage');
+
+    assert.deepEqual(syncStandardMapCarrierControl(state, map, 999, player2), []);
+    assert.equal(carrier.camp, player1);
+    assert.deepEqual(syncStandardMapCarrierControl(state, map, map.carrierControl.districtId, player2), [carrier]);
+    assert.equal(carrier.camp, player2);
+    assert.equal(escort.camp, player1);
+});
+
+test('the neutral AI holds the prize carrier at its authored port', () => {
+    const neutral = { id: 'neutral' };
+    const player1 = { id: 'player1' };
+    const map = getStandardMap(3, 'uncharted-passage');
+    const carrier = { type: 'carrier', camp: neutral };
+
+    assert.equal(shouldHoldNeutralCarrierPosition(carrier, neutral, map), true);
+    assert.equal(shouldHoldNeutralCarrierPosition({ type: 'destroyer', camp: neutral }, neutral, map), false);
+    assert.equal(shouldHoldNeutralCarrierPosition({ type: 'carrier', camp: player1 }, player1, map), false);
 });
 
 test('the preparation catalog exposes both named map families', () => {

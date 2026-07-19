@@ -19,3 +19,26 @@ export function applyStandardMapCaptureReward(state, map, cityTile, previousCamp
     }
     return transferred;
 }
+
+/** Keeps the map's prize carrier bound to the faction controlling its anchor district. */
+export function syncStandardMapCarrierControl(state, map, districtId, newCamp) {
+    const control = map?.carrierControl;
+    if (!control || control.districtId !== districtId || !newCamp) return [];
+
+    const transferred = [];
+    for (const tile of state?.tiles || []) {
+        const unit = tile?.unit;
+        if (!unit || unit.hp <= 0 || unit.type !== 'carrier' || unit.camp === newCamp) continue;
+        unit.camp = newCamp;
+        transferred.push(unit);
+    }
+    return transferred;
+}
+
+/** The neutral AI may use the carrier's weapons, but cannot sail the map prize away. */
+export function shouldHoldNeutralCarrierPosition(unit, aiCamp, map) {
+    return map?.carrierControl?.holdPositionWhileNeutral === true
+        && unit?.type === 'carrier'
+        && campToKey(aiCamp) === 'neutral'
+        && campToKey(unit.camp) === 'neutral';
+}

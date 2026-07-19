@@ -24,7 +24,7 @@ import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruit
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { getStandardMap } from '../rules/standardMaps.js';
-import { applyStandardMapCaptureReward } from '../rules/standardMapEvents.js';
+import { applyStandardMapCaptureReward, syncStandardMapCarrierControl } from '../rules/standardMapEvents.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
@@ -471,7 +471,7 @@ export function initMap() {
     // 标准地图池优先使用海岛竞技图；旧纯陆配置保留为兼容降级入口。
     buildBoardFromConfig(standardMap || { board: JSON.parse(boardJSON) }, gameState);
     updateButtonColors();
-    generateTerrain(gameState.tiles);
+    if (standardMap?.randomTerrain !== false) generateTerrain(gameState.tiles);
     initInitialUnits();
 
     // 遭遇战迷雾：初始化（支持联机遭遇战与 PVE 遭遇战）
@@ -2610,11 +2610,16 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     logMessage(`${camp.name}占领的(${cityTile.q},${cityTile.r})城市所属行政区已归属${camp.name}`);
     const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
     const transferredUnits = applyStandardMapCaptureReward(gameState, standardMap, cityTile, oldCamp, camp);
+    const transferredCarriers = syncStandardMapCarrierControl(gameState, standardMap, districtId, camp);
     if (transferredUnits.length > 0) {
         const carrierCount = transferredUnits.filter(unit => unit.type === 'carrier').length;
         const carrierCopy = carrierCount > 0 ? `，包括${carrierCount}艘航母` : '';
         logMessage(`【无主舰队】${transferredUnits.length}支中立残军${carrierCopy}向${camp.name}易帜`);
         notify(`中央岛守军与舰队已归属${camp.name}`, 'info');
+    }
+    if (transferredCarriers.some(unit => !transferredUnits.includes(unit))) {
+        logMessage(`【中央航母】随中央港口行政区向${camp.name}易帜`);
+        notify(`中央航母已归属${camp.name}`, 'info');
     }
     if (attackerUnit) attackerUnit.addXP(5);
     invalidateBoard();

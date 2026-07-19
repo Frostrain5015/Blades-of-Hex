@@ -26,6 +26,8 @@ import { chooseDefaultSpecialization } from '../rules/units.js';
 import { canBuildFieldFortification, canFieldRepair, isOrdinaryGroundBuilder } from '../rules/construction.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange } from '../rules/airCommands.js';
 import { isSubmarineTargetableBy } from '../rules/naval.js';
+import { getStandardMap } from '../rules/standardMaps.js';
+import { shouldHoldNeutralCarrierPosition } from '../rules/standardMapEvents.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -324,6 +326,8 @@ async function _executeActionInner(action, aiCamp) {
             const unit = resolveUnit(action.unitId);
             const targetTile = resolveTile(action.tileQ, action.tileR);
             if (!unit || !targetTile || !unit.canAct || !unit.tile || targetTile.unit) return;
+            const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
+            if (shouldHoldNeutralCarrierPosition(unit, aiCamp, standardMap)) return;
             const aiMoveTiles = getMovableTiles(unit);
             if (aiMoveTiles.includes(targetTile)) {
                 await delay(AI_DELAY);

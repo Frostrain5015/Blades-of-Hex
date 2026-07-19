@@ -1,6 +1,8 @@
 import { deepFreeze } from './freeze.js';
 import { getPlayableBoardCoordinates } from './boardLayout.js';
 import { HEX_NEIGHBORS } from './hex.js';
+import UNCHARTED_PASSAGE_2P_LEVEL from './maps/uncharted-passage-2p.level.json' with { type: 'json' };
+import UNCHARTED_PASSAGE_3P_LEVEL from './maps/uncharted-passage-3p.level.json' with { type: 'json' };
 
 const BOARD_RADIUS = 7;
 const ISLAND_RADIUS = 5;
@@ -304,13 +306,69 @@ function createArchipelagoMap(playerCount) {
     };
 }
 
+function createAuthoredArchipelago(level, playerCount) {
+    const neutralEditorCamp = level.standardMapMetadata?.neutralEditorCamp || 'freeport';
+    const runtimeCamp = camp => camp === neutralEditorCamp ? 'neutral' : camp;
+    const cities = level.board.cities.map(city => ({ ...city, camp: runtimeCamp(city.camp) }));
+    const installations = level.board.installations.map(installation => ({
+        ...installation,
+        camp: runtimeCamp(installation.camp)
+    }));
+    const initialUnits = level.units.map(unit => ({
+        type: unit.type,
+        camp: runtimeCamp(unit.camp),
+        q: unit.q,
+        r: unit.r
+    }));
+    const carriers = initialUnits.filter(unit => unit.type === 'carrier' && unit.camp === 'neutral');
+    if (carriers.length !== 1) throw new Error(`Uncharted Passage ${playerCount}P must contain exactly one neutral carrier.`);
+    const carrier = carriers[0];
+    const carrierPort = level.board.ports.find(port => port.q === carrier.q && port.r === carrier.r);
+    const captureCity = carrierPort
+        ? cities.find(city => city.districtId === carrierPort.districtId && city.camp === 'neutral')
+        : null;
+    if (!captureCity) throw new Error(`Uncharted Passage ${playerCount}P carrier port must belong to a neutral city district.`);
+
+    return {
+        id: `uncharted-passage-${playerCount}p`,
+        familyId: 'uncharted-passage',
+        name: `无主航路·${playerCount === 3 ? '三人' : '双人'}`,
+        randomTerrain: false,
+        carrierControl: {
+            portQ: carrierPort.q,
+            portR: carrierPort.r,
+            districtId: carrierPort.districtId,
+            holdPositionWhileNeutral: true
+        },
+        captureReward: {
+            type: 'neutralForcesTransfer',
+            cityQ: captureCity.q,
+            cityR: captureCity.r,
+            sourceCamp: 'neutral'
+        },
+        board: {
+            layout: level.board.layout,
+            radius: level.board.radius,
+            surface: level.board.surface.map(entry => ({ ...entry })),
+            cities,
+            terrain: level.board.terrain.map(entry => ({ ...entry })),
+            villages: level.board.villages.map(entry => ({ ...entry })),
+            fortifications: level.board.fortifications.map(entry => ({ ...entry })),
+            installations,
+            districts: level.board.districts.map(entry => ({ ...entry })),
+            ports: level.board.ports.map(entry => ({ ...entry }))
+        },
+        initialUnits
+    };
+}
+
 TWO_PLAYER_ISLAND.familyId = 'crown-ring';
 TWO_PLAYER_ISLAND.name = '王冠环岛·双人';
 THREE_PLAYER_ISLAND.familyId = 'crown-ring';
 THREE_PLAYER_ISLAND.name = '王冠环岛·三人';
 
-const TWO_PLAYER_ARCHIPELAGO = createArchipelagoMap(2);
-const THREE_PLAYER_ARCHIPELAGO = createArchipelagoMap(3);
+const TWO_PLAYER_ARCHIPELAGO = createAuthoredArchipelago(UNCHARTED_PASSAGE_2P_LEVEL, 2);
+const THREE_PLAYER_ARCHIPELAGO = createAuthoredArchipelago(UNCHARTED_PASSAGE_3P_LEVEL, 3);
 
 export const DEFAULT_STANDARD_MAP_ID = 'crown-ring';
 
