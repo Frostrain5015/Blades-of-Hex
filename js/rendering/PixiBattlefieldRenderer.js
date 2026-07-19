@@ -806,13 +806,13 @@ export class PixiBattlefieldRenderer {
             if (!region.edges.length) continue;
             // Exterior border: marching-ants dashes ([14,9] period, -now/22
             // offset), soft glow halo, then inner pale line on the same dashes.
-            const pulse = exiting || !frame.motionEnabled ? 0 : (Math.sin(nowMs / 420) + 1) / 2;
+            const pulse = exiting || !frame.motionEnabled ? 0 : (Math.sin(nowMs / region.pulsePeriodMs) + 1) / 2;
             const entryAlpha = exiting || !frame.motionEnabled
                 ? 1
                 : clamp01(((nowMs - region.startedAtMs) / 220) * 1.65);
             const borderAlpha = entryAlpha * exit;
             const dashOffset = frame.motionEnabled ? nowMs / 22 : 0;
-            const blur = 6 + pulse * 2.5;
+            const blur = region.glowBlur + pulse * region.glowPulseBlur;
 
             const buildDashes = () => {
                 for (const edge of region.edges) {
@@ -823,25 +823,25 @@ export class PixiBattlefieldRenderer {
             };
             buildDashes();
             ground.stroke({
-                color: 0x3ccdb9,
-                alpha: 0.42 * 0.38 * borderAlpha,
-                width: 2.6 + blur * 1.6,
+                color: region.glowColor,
+                alpha: region.glowAlpha * 0.38 * borderAlpha,
+                width: region.lineWidth + blur * 1.6,
                 cap: 'round',
                 join: 'round'
             });
             buildDashes();
             ground.stroke({
                 color: region.borderColor,
-                alpha: (exiting ? 0.78 : 0.72 + pulse * 0.14) * borderAlpha,
-                width: 2.6,
+                alpha: (exiting ? region.lineAlpha : region.lineAlpha + pulse * region.linePulseAlpha) * borderAlpha,
+                width: region.lineWidth,
                 cap: 'round',
                 join: 'round'
             });
             buildDashes();
             ground.stroke({
                 color: region.innerLineColor,
-                alpha: 0.34 * borderAlpha,
-                width: 0.75,
+                alpha: (region.innerLineAlpha + pulse * region.innerLinePulseAlpha) * borderAlpha,
+                width: region.innerLineWidth,
                 cap: 'round',
                 join: 'round'
             });

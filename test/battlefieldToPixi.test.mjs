@@ -36,4 +36,21 @@ assert.equal(converted.routePaths.length, 0);
 assert.equal(Object.isFrozen(converted), true);
 assert.throws(() => battlefieldSnapshotToPixi({}), /battlefield snapshot/);
 
+const carrierRange = battlefieldSnapshotToPixi({
+    ...snapshot,
+    interaction: {
+        selection: {
+            ...snapshot.interaction.selection,
+            moveTileKeys: [],
+            airRangeTileKeys: ['0,0', '1,0']
+        }
+    }
+});
+assert.equal(carrierRange.rangeRegions.length, 1);
+assert.equal(carrierRange.rangeRegions[0].id, 'air-range');
+assert.equal(carrierRange.rangeRegions[0].fillAlpha, 0);
+assert.equal(carrierRange.rangeRegions[0].borderColor, 0x78c8ff);
+assert.equal(carrierRange.rangeRegions[0].glowColor, 0x5ab4ff);
+assert.equal(carrierRange.rangeRegions[0].innerLineWidth, 1);
+
 console.log('battlefieldToPixi tests passed');

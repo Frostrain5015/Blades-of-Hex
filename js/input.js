@@ -43,6 +43,10 @@ import {
     hasUsedAureliaOath,
     isAureliaCommanderUnit
 } from '../rules/aurelia.js';
+import {
+    FELLOW_ROBE_FACTION_SYNERGY,
+    getFellowRobeDefenseBonus
+} from '../rules/factionSynergies.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
@@ -1393,6 +1397,22 @@ function _buildPassiveItems(unit) {
         });
     }
     if (!unit.commander) return items;
+    const fellowRobeBonus = getFellowRobeDefenseBonus(unit, gameState);
+    if (fellowRobeBonus > 0) {
+        items.push({
+            key: 'faction:fellow-robe',
+            icon: FELLOW_ROBE_FACTION_SYNERGY.effect.icon,
+            label: FELLOW_ROBE_FACTION_SYNERGY.effect.name,
+            desc: FELLOW_ROBE_FACTION_SYNERGY.effect.description,
+            color: '#d8c79e',
+            status: '当前生效 防御力提高' + Math.round(fellowRobeBonus * 100) + '%',
+            count: '',
+            kicker: FELLOW_ROBE_FACTION_SYNERGY.effect.type,
+            active: true,
+            intensity: 1,
+            kind: 'passive'
+        });
+    }
     const aureliaOathUsed = hasUsedAureliaOath(unit, gameState);
     if (isAureliaCommanderUnit(unit) && (hasAureliaOathPassive(unit, gameState) || aureliaOathUsed)) {
         items.push({
@@ -1688,10 +1708,12 @@ function _syncSelectionHud(tile) {
         const fortificationDefBonus = !unit.isEmbarked && tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
         const rankDefBonus = unit._rankPanelDefenseBonus || 0;
         const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
+        const factionSynergyDefBonus = getFellowRobeDefenseBonus(unit, gameState);
         const cityDefBonus = (tile.isCity || tile.isUrban) ? getCityDefenseBonus(tile) : 0;
         const baseDefense = unit.isEmbarked ? getTransportBaseDefense(unit) : (unit.config.defense || 0);
         defense = Math.round((baseDefense + moraleDefBonus + terrainDefBonus
-            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus + campaignDefBonus + cityDefBonus) * 100);
+            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus
+            + campaignDefBonus + factionSynergyDefBonus + cityDefBonus) * 100);
         // 悬浮可走地块时预览本次移动的行动力消耗
         if (gameState.selectedUnit === unit && gameState.hoveredTile && !gameState.hoveredTile.unit
             && gameState.movableTiles.includes(gameState.hoveredTile)) {

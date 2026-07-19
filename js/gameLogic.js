@@ -52,6 +52,7 @@ import {
 import { COLONEL_CARD_DATA } from '../rules/cards.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { MORALE_CONFIG } from '../rules/terrain.js';
+import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
 import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
@@ -1944,7 +1945,8 @@ export function moveUnit(unit, targetTile) {
                 + moraleDefense
                 + getCommanderDefenseBonus(unit)
                 + getCommanderAuraDefenseBonus(unit)
-                + (unit.getCampaignDefenseBonus?.() || 0);
+                + (unit.getCampaignDefenseBonus?.() || 0)
+                + getFellowRobeDefenseBonus(unit, gameState);
             const multiplier = Math.max(
                 COMBAT_BALANCE.defense.minimumMultiplier,
                 1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, totalDefense)
@@ -3307,6 +3309,7 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         + (isMechanicEnabled(gameState, 'morale') ? (MORALE_CONFIG[target.morale]?.defBonus || 0) : 0)
         + getCommanderDefenseBonus(target) + getCommanderAuraDefenseBonus(target)
         + (target.getCampaignDefenseBonus?.() || 0)
+        + getFellowRobeDefenseBonus(target, gameState)
         // 城防对空军伤害同样生效（"城市庇护其中所有单位"，跨伤害类型统一）。
         + ((target.tile?.isCity || target.tile?.isUrban) ? getCityDefenseBonus(target.tile) : 0);
     // 轰炸破甲：只对要塞单位（城市驻军/碉堡/岸防炮）生效。

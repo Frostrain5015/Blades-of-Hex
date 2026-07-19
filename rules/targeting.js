@@ -289,6 +289,13 @@ function resolveAirOverlay(gameState, cardId, myCamp, sources, isTileVisible) {
                 rangeTileKeys.add(targetingTileKey(tile));
             }
         }
+    } else if (cardId.startsWith('air_command_') && sources.launcherTile) {
+        const range = getAirCommandRange(sources.launcherTile);
+        for (const tile of gameState.tiles || []) {
+            if (hexDistance(sources.launcherTile, tile) <= range) {
+                rangeTileKeys.add(targetingTileKey(tile));
+            }
+        }
     }
     return {
         grounded: isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'fog',

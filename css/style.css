@@ -312,33 +312,70 @@ body {
     transform: translate(-50%, -50%);
 }
 
-.faction-synergy-bar::before,
-.faction-synergy-bar::after {
-    content: "";
+.faction-synergy-bar-wing {
     position: absolute;
     top: 50%;
     width: calc(50% - var(--synergy-ring-radius));
-    height: 2px;
-    box-shadow:
-        0 0 5px var(--synergy-accent, #ffe1a0),
-        0 0 18px var(--synergy-shadow, #8d1622);
+    height: 16px;
     transform: translateY(-50%) scaleX(0);
 }
 
-.faction-synergy-bar::before {
+.faction-synergy-bar-wing::before,
+.faction-synergy-bar-wing::after {
+    content: "";
+    position: absolute;
+}
+
+.faction-synergy-bar-wing::before {
     left: 0;
+    right: 0;
+    top: 50%;
+    height: 2px;
     background: linear-gradient(90deg, transparent, var(--synergy-accent-soft, rgba(235, 191, 100, 0.72)) 20%, var(--synergy-bright-text, #fff4c3));
+    box-shadow:
+        0 0 5px var(--synergy-accent, #ffe1a0),
+        0 0 18px var(--synergy-shadow, #8d1622);
+    transform: translateY(-50%);
+}
+
+.faction-synergy-bar-wing::after {
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border: 1px solid var(--synergy-bright-text, #fff4c3);
+    background:
+        radial-gradient(circle, var(--synergy-bright-text, #fff4c3) 0 1.5px, transparent 2px),
+        var(--synergy-shadow, rgba(97, 22, 32, 0.78));
+    box-shadow:
+        0 0 0 2px rgba(235, 191, 100, 0.16),
+        0 0 8px var(--synergy-accent-soft, #d69428),
+        0 0 20px var(--synergy-shadow, #8d1622);
+}
+
+.faction-synergy-bar-wing-left {
+    left: 0;
     transform-origin: 100% 50%;
 }
-.faction-synergy-bar::after {
+.faction-synergy-bar-wing-left::after {
+    left: 0;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+.faction-synergy-bar-wing-right {
     right: 0;
-    background: linear-gradient(90deg, var(--synergy-bright-text, #fff4c3), var(--synergy-accent-soft, rgba(235, 191, 100, 0.72)) 80%, transparent);
     transform-origin: 0 50%;
+}
+.faction-synergy-bar-wing-right::before {
+    background: linear-gradient(90deg, var(--synergy-bright-text, #fff4c3), var(--synergy-accent-soft, rgba(235, 191, 100, 0.72)) 80%, transparent);
+}
+.faction-synergy-bar-wing-right::after {
+    right: 0;
+    transform: translate(50%, -50%) rotate(45deg);
 }
 .is-playing .faction-synergy-core { animation: faction-synergy-core var(--synergy-duration) both; }
 .is-playing .faction-synergy-bar { animation: faction-synergy-bar var(--synergy-duration) both; }
-.is-playing .faction-synergy-bar::before,
-.is-playing .faction-synergy-bar::after { animation: faction-synergy-bar-extend var(--synergy-duration) both; }
+.is-playing .faction-synergy-bar-wing {
+    animation: faction-synergy-bar-extend var(--synergy-duration) cubic-bezier(0.32, 0, 0.22, 1) both;
+}
 
 .faction-synergy-caption {
     position: absolute;
@@ -415,15 +452,14 @@ body {
 }
 @keyframes faction-synergy-bar {
     0%, 13% { opacity: 0; }
-    20% { opacity: 0.95; }
-    29%, 49% { opacity: 0.88; }
+    19% { opacity: 0.95; }
+    31%, 49% { opacity: 0.88; }
     55% { opacity: 1; filter: brightness(1.8); }
     64%, 100% { opacity: 0; filter: brightness(1); }
 }
 @keyframes faction-synergy-bar-extend {
-    0%, 13% { transform: translateY(-50%) scaleX(0); }
-    20% { transform: translateY(-50%) scaleX(0.08); }
-    29%, 49% { transform: translateY(-50%) scaleX(1); }
+    0%, 16% { transform: translateY(-50%) scaleX(0); }
+    31%, 49% { transform: translateY(-50%) scaleX(1); }
     55%, 100% { transform: translateY(-50%) scaleX(1); }
 }
 @keyframes faction-synergy-caption {

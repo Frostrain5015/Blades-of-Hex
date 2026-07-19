@@ -29,8 +29,13 @@ const {
 } = aureliaRules;
 const {
     AURELIA_FACTION_SYNERGY,
+    FELLOW_ROBE_FACTION_SYNERGY,
+    getActiveFactionSynergies,
+    getActiveSpecialFactionSynergies,
     getCommanderFactionSynergy,
-    getFactionSynergy
+    getFactionSynergy,
+    getFellowRobeDefenseBonus,
+    hasFellowRobeSynergy
 } = factionSynergyRules;
 
 function createTile(q, r) {
@@ -61,6 +66,52 @@ test('阵营协同注册表统一提供成员、将领卡标识与可替换 Hero
     assert.equal(synergy.hero.kicker, '阵营协同');
     assert.equal(synergy.hero.title, '同一个誓言');
     assert.equal(synergy.hero.followup.kind, 'rescue-link');
+});
+
+test('混编双将未激活特殊协同时获得【与子同袍】防御加成', () => {
+    const { state, tiles } = setupAureliaState();
+    const defender = new Unit('infantry', state.factions.player1, tiles[0], false, 751, 'ironGuard');
+    const fellow = new Unit('infantry', state.factions.player1, tiles[1], false, 752, 'necromancer');
+    const ordinary = new Unit('infantry', state.factions.player1, tiles[2], false, 753, null);
+
+    assert.equal(getFactionSynergy('fellow-robe'), FELLOW_ROBE_FACTION_SYNERGY);
+    assert.equal(FELLOW_ROBE_FACTION_SYNERGY.effect.name, '与子同袍');
+    assert.equal(FELLOW_ROBE_FACTION_SYNERGY.effect.defenseBonusPct, 0.10);
+    assert.equal(hasFellowRobeSynergy(state, defender.camp), true);
+    assert.equal(getFellowRobeDefenseBonus(defender, state), 0.10);
+    assert.equal(getFellowRobeDefenseBonus(fellow, state), 0.10);
+    assert.equal(getFellowRobeDefenseBonus(ordinary, state), 0);
+    assert.deepEqual(getActiveSpecialFactionSynergies(state, defender.camp), []);
+    assert.deepEqual(getActiveFactionSynergies(state, defender.camp), [FELLOW_ROBE_FACTION_SYNERGY]);
+});
+
+test('【与子同袍】只强化将领且会被任意特殊阵营协同取代', () => {
+    const { state, tiles } = setupAureliaState();
+    const defender = new Unit('infantry', state.factions.player1, tiles[0], false, 761, 'ironGuard');
+    const aureliaFellow = new Unit('infantry', state.factions.player1, tiles[1], false, 762, 'minister');
+    const outsider = new Unit('infantry', state.factions.player1, tiles[2], false, 763, 'necromancer');
+
+    assert.equal(hasFellowRobeSynergy(state, defender.camp), false);
+    assert.equal(getFellowRobeDefenseBonus(defender, state), 0);
+    assert.equal(getFellowRobeDefenseBonus(aureliaFellow, state), 0);
+    assert.equal(getFellowRobeDefenseBonus(outsider, state), 0);
+    assert.deepEqual(getActiveSpecialFactionSynergies(state, defender.camp), [AURELIA_FACTION_SYNERGY]);
+    assert.deepEqual(getActiveFactionSynergies(state, defender.camp), [AURELIA_FACTION_SYNERGY]);
+});
+
+test('【与子同袍】的10%防御实际进入统一伤害结算', () => {
+    const { state, tiles } = setupAureliaState();
+    const defender = new Unit('infantry', state.factions.player1, tiles[0], false, 771, 'ironGuard');
+    const fellow = new Unit('infantry', state.factions.player1, tiles[1], false, 772, 'necromancer');
+    const attacker = new Unit('infantry', state.factions.player2, tiles[2], false, 773, null);
+
+    state.rng.setState(20260719);
+    const protectedDamage = attacker.calculateDamage(defender).dmg;
+    fellow.hp = 0;
+    state.rng.setState(20260719);
+    const normalDamage = attacker.calculateDamage(defender).dmg;
+
+    assert.ok(protectedDamage < normalDamage);
 });
 
 test('同阵营两名奥雷利亚将领激活一次性致命救援，并获得两回合加护', () => {

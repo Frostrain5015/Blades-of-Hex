@@ -74,6 +74,26 @@ assert.equal(isResolvedTargetingCandidate(preview, farEnemy), true, '普通空�
 assert.equal(preview.air.colonelOriginUnitId, undefined, '普通空袭不得伪造上校起点');
 assert.equal(preview.air.rangeTileKeys.size, 0);
 
+const airfield = tile(0, 0, {
+    isCity: true,
+    camp: camps.player1,
+    installation: { type: 'airfield', status: 'ready' }
+});
+const airfieldNear = tile(5, 0, { unit: unit('airfield-near', camps.player2) });
+const airfieldFar = tile(6, 0, { unit: unit('airfield-far', camps.player2) });
+gs = state([airfield, airfieldNear, airfieldFar]);
+preview = resolveTargetingPreview(gs, {
+    cardId: 'air_command_strafe', targeting: 'enemyGlobal', launcherQ: 0, launcherR: 0
+});
+assert.equal(isResolvedTargetingCandidate(preview, airfieldNear), true);
+assert.equal(isResolvedTargetingCandidate(preview, airfieldFar), false);
+assert.equal(preview.air.rangeTileKeys.has('0,0'), true, '机场航程圈应包含起点');
+assert.equal(preview.air.rangeTileKeys.has('5,0'), true, '机场航程圈应覆盖有效航程');
+assert.equal(preview.air.rangeTileKeys.has('6,0'), false, '机场航程圈不应越过实际航程');
+
+gs = state([colonelTile, nearEnemy, farEnemy, nearEmpty, farEmpty], {
+    _colonelDeployed: { player1: true }
+});
 colonelTile.unit._imprisoned = false;
 preview = resolveTargetingPreview(gs, { cardId: 'airlift', targeting: 'friendlyAny' });
 assert.equal(isResolvedTargetingCandidate(preview, colonelTile), false, '空运不得运送上校自身');

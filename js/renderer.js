@@ -37,6 +37,7 @@ import {
 } from './fogOfWar.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { campToKey } from '../rules/camps.js';
+import { hexDistance } from '../rules/hex.js';
 import { getViewingCamp } from './state.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
 import { drawFxLayer, updateFxFns } from './fxRegistry.js';
@@ -1645,6 +1646,19 @@ function _targetEntry(originTile, tile, now, startedAt) {
     return resolveMovementTileReveal(origin, tile, now, startedAt, TARGET_ENTRY_OPTIONS);
 }
 
+function _signalRangeRegionOptions(now, alpha = 1) {
+    const pulse = (Math.sin(now / 300) + 1) / 2;
+    return {
+        fill: 'rgba(0,0,0,0)',
+        stroke: `rgba(120,200,255,${0.62 + pulse * 0.13})`,
+        glow: 'rgba(90,180,255,0.55)',
+        glowBlur: 7 + pulse * 4,
+        inner: `rgba(230,245,255,${0.4 + pulse * 0.2})`,
+        innerWidth: 1,
+        alpha
+    };
+}
+
 function _drawTargetingRegion(keys, now, options = {}) {
     if (!keys?.size) return;
     const tiles = [];
@@ -1666,11 +1680,11 @@ function _drawTargetingRegion(keys, now, options = {}) {
         pulse,
         {
             color: options.stroke || `rgba(255,96,80,${0.82 + pulse * 0.15})`,
-            w: 2.6,
+            w: options.lineWidth || 2.6,
             glow: options.glow || 'rgba(255,70,55,0.68)',
-            blur: 7 + pulse * 3
+            blur: options.glowBlur ?? (7 + pulse * 3)
         },
-        { color: options.inner || 'rgba(255,235,225,0.62)', w: 0.9 }
+        { color: options.inner || 'rgba(255,235,225,0.62)', w: options.innerWidth || 0.9 }
     );
     ctx.restore();
 }
@@ -1866,13 +1880,11 @@ function drawCardTargetingPreview(now) {
     }
 
     if (preview.air?.rangeTileKeys?.size) {
-        _drawTargetingRegion(preview.air.rangeTileKeys, now, {
-            fill: 'rgba(80,170,255,0.035)',
-            stroke: 'rgba(110,200,255,0.72)',
-            glow: 'rgba(80,175,255,0.48)',
-            inner: 'rgba(225,245,255,0.48)',
-            alpha: groupEntry.alpha
-        });
+        _drawTargetingRegion(
+            preview.air.rangeTileKeys,
+            now,
+            _signalRangeRegionOptions(now, groupEntry.alpha)
+        );
     }
 
     if (activeKey && (preview.cardId === 'airstrike' || preview.cardId === 'carpetBomb' || preview.cardId === 'scout')) {
@@ -1955,6 +1967,17 @@ function drawUnitActionTargetingPreview(now, deselecting) {
     }
     const unit = gameState.selectedUnit;
     if (!unit?.tile || !unit.canAct || unit.isNewRecruit) return;
+
+    if (unit.type === 'carrier') {
+        const range = unit.getEffectiveRange?.() ?? unit.config.range;
+        const airRangeKeys = new Set(
+            gameState.tiles
+                .filter(tile => hexDistance(unit.tile, tile) <= range)
+                .map(targetingTileKey)
+                .filter(Boolean)
+        );
+        _drawTargetingRegion(airRangeKeys, now, _signalRangeRegionOptions(now));
+    }
 
     const moveTiles = unit.remainingMP > 0 ? gameState.movableTiles : [];
     if (moveTiles.length) {

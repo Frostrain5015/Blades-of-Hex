@@ -44,6 +44,7 @@ import {
     getAureliaOathRemainingRounds,
     hasAureliaOathEffect
 } from '../rules/aurelia.js';
+import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -636,6 +637,7 @@ export class Unit {
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         defSum += defender.getCampaignDefenseBonus(attacker);
+        defSum += getFellowRobeDefenseBonus(defender, _gameState);
         // 城防：驻军站在城市/城郭地块上时，城市当前HP按比例转化为防御力，不区分空军/地面伤害。
         if (defender.tile?.isCity || defender.tile?.isUrban) defSum += getCityDefenseBonus(defender.tile);
         // 空军上校俯冲扫射：无视目标防御力
@@ -675,6 +677,7 @@ export class Unit {
                 + getCommanderDefenseBonus(targetUnit)
                 + getCommanderAuraDefenseBonus(targetUnit)
                 + (targetUnit.getCampaignDefenseBonus?.(this) || 0)
+                + getFellowRobeDefenseBonus(targetUnit, gs)
                 + ((targetUnit.tile?.isCity || targetUnit.tile?.isUrban) ? getCityDefenseBonus(targetUnit.tile) : 0);
             let antiAir = getAntiAirReduction(targetUnit.tile, this.camp, gs.tileMap, { state: gs });
             if (colonelActive) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);

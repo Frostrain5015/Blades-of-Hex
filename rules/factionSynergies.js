@@ -1,11 +1,15 @@
 // rules/factionSynergies.js — 阵营协同注册表。
 // 新阵营只需在此注册成员、将领卡标识与 Hero 共鸣配置；具体战斗结算仍由各阵营规则模块负责。
 
+import { campToKey } from './camps.js';
+
 function defineFactionSynergy(definition) {
     return Object.freeze({
         ...definition,
         commanderIds: Object.freeze([...definition.commanderIds]),
         marker: Object.freeze({ ...definition.marker }),
+        activation: definition.activation ? Object.freeze({ ...definition.activation }) : null,
+        effect: definition.effect ? Object.freeze({ ...definition.effect }) : null,
         hero: Object.freeze({
             ...definition.hero,
             emblem: Object.freeze({ ...definition.hero.emblem }),
@@ -72,8 +76,61 @@ export const AURELIA_FACTION_SYNERGY = defineFactionSynergy({
 
 export const AURELIA_COMMANDER_IDS = AURELIA_FACTION_SYNERGY.commanderIds;
 
+// 未命中任何文化阵营专属协同时的混编兜底项。
+// 名称取自《诗经·秦风·无衣》“岂曰无衣？与子同袍”。
+export const FELLOW_ROBE_FACTION_SYNERGY = defineFactionSynergy({
+    id: 'fellow-robe',
+    factionName: '异乡同袍',
+    commanderIds: [],
+    marker: {
+        symbol: '🛡️',
+        label: '与子同袍',
+        color: '#d8c79e',
+        borderColor: 'rgba(216, 199, 158, 0.68)',
+        background: 'rgba(17, 20, 23, 0.84)',
+        glowColor: 'rgba(216, 199, 158, 0.14)'
+    },
+    activation: {
+        kind: 'fallback',
+        minLivingCommanders: 2,
+        excludesSpecialSynergies: true
+    },
+    effect: {
+        name: '与子同袍',
+        icon: '🛡️',
+        type: '阵营协同',
+        defenseBonusPct: 0.10,
+        description: '同一阵营有至少两名来自不同势力的将领并肩作战，且未激活任何特殊阵营协同时，这些将领的防御力提高10%。'
+    },
+    hero: {
+        id: 'fellow-robe',
+        emblem: {
+            kind: 'text',
+            value: '袍',
+            label: '同袍之印'
+        },
+        kicker: '阵营协同',
+        title: '与子同袍',
+        durationMs: 4200,
+        followupStartMs: 0,
+        theme: {
+            text: '#eee4cb',
+            brightText: '#fff5d9',
+            accent: '#d8c79e',
+            accentSoft: '#aa9163',
+            faction: '#6f7880',
+            shadow: '#252c32',
+            backdropGlow: 'rgba(112, 120, 128, 0.18)',
+            backdropTop: 'rgba(4, 6, 8, 0.70)',
+            backdropBottom: 'rgba(12, 14, 17, 0.82)'
+        },
+        followup: null
+    }
+});
+
 const FACTION_SYNERGIES = Object.freeze([
-    AURELIA_FACTION_SYNERGY
+    AURELIA_FACTION_SYNERGY,
+    FELLOW_ROBE_FACTION_SYNERGY
 ]);
 
 const FACTION_SYNERGY_BY_ID = new Map(
@@ -91,4 +148,53 @@ export function getFactionSynergy(factionSynergyId) {
 
 export function getCommanderFactionSynergy(commanderId) {
     return FACTION_SYNERGY_BY_COMMANDER_ID.get(commanderId) || null;
+}
+
+export function getLivingCommanderUnits(gameState, camp) {
+    if (!gameState?.tiles || !camp) return [];
+    const campId = campToKey(camp);
+    return gameState.tiles
+        .map(tile => tile.unit)
+        .filter(unit => unit && unit.hp > 0
+            && campToKey(unit.camp) === campId
+            && unit.isCommanderUnit
+            && unit.commander);
+}
+
+function getSpecialFactionSynergiesForCommanders(commanders) {
+    const counts = new Map();
+    for (const unit of commanders) {
+        const synergy = getCommanderFactionSynergy(unit.commander);
+        if (!synergy || synergy.activation?.kind === 'fallback') continue;
+        counts.set(synergy.id, (counts.get(synergy.id) || 0) + 1);
+    }
+    return [...counts.entries()]
+        .filter(([, count]) => count >= 2)
+        .map(([synergyId]) => getFactionSynergy(synergyId));
+}
+
+export function getActiveSpecialFactionSynergies(gameState, camp) {
+    return getSpecialFactionSynergiesForCommanders(getLivingCommanderUnits(gameState, camp));
+}
+
+// 所有模式统一从这里查询某个战场阵营当前生效的协同。
+// 专属协同优先；只有完全未命中专属协同时，才返回混编兜底项。
+export function getActiveFactionSynergies(gameState, camp) {
+    const commanders = getLivingCommanderUnits(gameState, camp);
+    const specialSynergies = getSpecialFactionSynergiesForCommanders(commanders);
+    if (specialSynergies.length > 0) return specialSynergies;
+    return commanders.length >= FELLOW_ROBE_FACTION_SYNERGY.activation.minLivingCommanders
+        ? [FELLOW_ROBE_FACTION_SYNERGY]
+        : [];
+}
+
+export function hasFellowRobeSynergy(gameState, camp) {
+    return getActiveFactionSynergies(gameState, camp)
+        .some(synergy => synergy.id === FELLOW_ROBE_FACTION_SYNERGY.id);
+}
+
+export function getFellowRobeDefenseBonus(unit, gameState) {
+    return unit?.isCommanderUnit && hasFellowRobeSynergy(gameState, unit.camp)
+        ? FELLOW_ROBE_FACTION_SYNERGY.effect.defenseBonusPct
+        : 0;
 }
