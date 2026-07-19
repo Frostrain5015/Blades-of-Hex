@@ -17,12 +17,13 @@ function commanderUnit(commander, extra = {}) {
 }
 
 test('机场与航母按航空基础火力读取挂载将领自身的攻击修正', () => {
+    // 当前基准火力 AIRFIELD_BASE_POWER=50：colonel 0.30→15、centurion 0.40→20
     const colonel = commanderUnit('colonel');
-    assert.equal(getMountedCommanderAirAttackBonus(colonel, AIRFIELD_BASE_POWER), 12);
+    assert.equal(getMountedCommanderAirAttackBonus(colonel, AIRFIELD_BASE_POWER), 15);
     assert.equal(getMountedCommanderAirAttackBonus(colonel, 45), 14);
 
     const centurion = commanderUnit('centurion');
-    assert.equal(getMountedCommanderAirAttackBonus(centurion, AIRFIELD_BASE_POWER), 16);
+    assert.equal(getMountedCommanderAirAttackBonus(centurion, AIRFIELD_BASE_POWER), 20);
 });
 
 test('将领航空攻击修正不依赖宿主兵种攻击力，失效将领不提供加成', () => {
@@ -65,6 +66,7 @@ test('机场扫射与轰炸结果会在命中时刻生成前端伤害数字', ()
         { x: 320, y: 240, value: 37, isCrit: true, isAirDamage: true, timeLeft: 900, lastUpdate: 1234 },
         { x: 390, y: 240, value: 18, isCrit: false, isAirDamage: true, timeLeft: 900, lastUpdate: 1234 }
     ]);
-    assert.equal(AIR_COMMAND_IMPACT_DELAY_MS.strafe, 700);
-    assert.equal(AIR_COMMAND_IMPACT_DELAY_MS.bombing, 1400);
+    // 与 c2c6519 对齐：扫射/轰炸扣血均延迟到爆炸时刻（1200ms）
+    assert.equal(AIR_COMMAND_IMPACT_DELAY_MS.strafe, 1200);
+    assert.equal(AIR_COMMAND_IMPACT_DELAY_MS.bombing, 1200);
 });

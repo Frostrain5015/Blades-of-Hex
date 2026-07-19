@@ -32,6 +32,8 @@ export async function run() {
     // 2) import/export 交叉审计
     const exportsOf = new Map();
     function getExports(fp) {
+        // JSON 模块（import ... with { type: 'json' }）的默认导出是隐式的
+        if (fp.endsWith('.json')) { const s = new Set(['default']); exportsOf.set(fp, s); return s; }
         if (exportsOf.has(fp)) return exportsOf.get(fp);
         let src; try { src = readFileSync(fp, 'utf8'); } catch { exportsOf.set(fp, null); return null; }
         const s = new Set();

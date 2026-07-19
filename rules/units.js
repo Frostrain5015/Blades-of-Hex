@@ -16,7 +16,7 @@ export const UNIT_CONFIG = deepFreeze({
     destroyer: { name: '驱逐舰', hp: 140, attack: 40, defense: 0, speed: 6, range: 1, cost: 10, color: '#477b8c', movementDomain: 'naval' },
     // 保留 warship 内部 ID 兼容旧存档与战役，显示及数值为 0 阶巡洋舰。
     warship: { name: '巡洋舰', hp: 180, attack: 55, defense: 0, speed: 4, range: 2, cost: 15, color: '#315f78', movementDomain: 'naval' },
-    submarine: { name: '潜艇', hp: 100, attack: 50, defense: 0, speed: 8, range: 1, cost: 12, color: '#233f50', movementDomain: 'naval' },
+    submarine: { name: '潜艇', hp: 100, attack: 50, defense: 0, speed: 8, range: 1, cost: 8, color: '#233f50', movementDomain: 'naval' },
     carrier: { name: '航母', hp: 250, attack: 45, defense: 0.08, speed: 3, range: 5, cost: 20, color: '#244d69', movementDomain: 'naval', attackRole: 'carrierStrafe' }
 });
 

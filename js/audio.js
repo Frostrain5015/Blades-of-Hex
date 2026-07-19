@@ -48,8 +48,8 @@ export function playSound(soundName) {
     const resolved = ALIAS_MAP[soundName] || soundName;
     const cfg = SOUND_MANIFEST[resolved];
 
-    // 清单中未注册 → 合成回退
-    if (!cfg) {
+    // 清单中未注册、或素材尚未生成（available:false）→ 合成回退，不发网络请求
+    if (!cfg || cfg.available === false) {
         _playSynthFallback(soundName);
         return;
     }
@@ -70,7 +70,7 @@ export function playSound(soundName) {
 function _getHowl(name) {
     const resolved = ALIAS_MAP[name] || name;
     const cfg = SOUND_MANIFEST[resolved];
-    if (!cfg) return null;
+    if (!cfg || cfg.available === false) return null;
     if (!_howls[resolved]) {
         const extra = {};
         if (cfg.loop !== undefined) extra.loop = cfg.loop;
