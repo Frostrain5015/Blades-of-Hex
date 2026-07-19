@@ -367,14 +367,15 @@ export class Unit {
         return true;
     }
 
-    chooseSpecialization(specializationKey) {
+    chooseSpecialization(specializationKey, fromUI = false) {
         if (this._rankLocked || this._rank < 1 || this.specializationKey) return false;
         if (!isValidSpecialization(this.type, specializationKey)) return false;
-        // 防守：人类阵营单位只能经 UI 路径选择专精（联机中玩家席位一律视为人类）
-        if (!_allowAutoSpecialization(this)) {
-            const stk = new Error().stack;
-            if (!stk?.includes('_applySpecializationChoice')) return false;
-        }
+        // 防守：人类阵营单位只能经玩家显式点击的 UI 路径晋级专精（联机中玩家席位一律视为人类），
+        // 避免 AI/模拟逻辑在任一端替玩家单位自动选专精而污染同步快照。
+        // 必须用显式入参标记 UI 意图，而非匹配 Error().stack 里的函数名——生产环境走压缩包
+        // （BOH_SERVE_DIST=1）时 _applySpecializationChoice 会被重命名，栈名匹配永远失配，
+        // 导致联机专精点击静默失败（无报错、不晋级）。
+        if (!fromUI && !_allowAutoSpecialization(this)) return false;
         this.specializationKey = specializationKey;
         this._rebuildRankProfile();
         emit('match:unitSpecialized', {

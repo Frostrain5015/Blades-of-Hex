@@ -9,6 +9,7 @@ export const ACTION_TYPES = new Set([
     'endTurn',
     'recruit',
     'reinforce',
+    'repairShip',
     'surrender',
     'activateSkill',
     'chooseSpecialization',

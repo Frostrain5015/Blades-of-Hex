@@ -440,7 +440,7 @@ export function serializeMatchState(match) {
         hp: waterTile ? 0 : (t.hp ?? 0),
         maxHp: waterTile ? 0 : (t.maxHp ?? 0),
         citySiegeDamageRound: waterTile ? -1 : (Number.isFinite(t._citySiegeDamageRound) ? t._citySiegeDamageRound : -1),
-        reinforcedThisTurn: waterTile ? false : (t._reinforcedThisTurn || false),
+        reinforcedThisTurn: (waterTile && !t.isPort) ? false : (t._reinforcedThisTurn || false),
         unit: t.unit ? {
             id: t.unit.id,
             type: t.unit.type,
@@ -853,7 +853,7 @@ export function restoreMatchState(match, data, deps) {
             : (tile.isCity ? CITY_SIEGE_CONFIG.baseMaxHp : 0));
         tile.hp = waterTile ? 0 : (Number.isFinite(td.hp) ? td.hp : tile.maxHp);
         tile._citySiegeDamageRound = waterTile ? -1 : (Number.isFinite(td.citySiegeDamageRound) ? td.citySiegeDamageRound : -1);
-        tile._reinforcedThisTurn = waterTile ? false : (td.reinforcedThisTurn || false);
+        tile._reinforcedThisTurn = (waterTile && !restoredPort) ? false : (td.reinforcedThisTurn || false);
         const unitType = td.unit ? (td.unit.isDrone ? 'drone' : td.unit.type) : null;
         if (td.unit && canUnitOccupyTile({ type: unitType, isEmbarked: td.unit.isEmbarked === true }, tile, match)) {
             const unit = new UnitClass(

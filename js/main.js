@@ -3176,8 +3176,36 @@ async function handleRemoteAction(msg) {
         case 'attack':
             // 地面/海军攻城：状态已随快照同步，这里只重放轻量的爆炸/伤害数字，不进普通单位对战的整套重放逻辑。
             if (e?.isCitySiege) {
-                playSound(e.isCrit ? 'crit' : 'attack');
-                spawnExplosionParticles(e.x, e.y, '#ffaa00', e.isCrit ? 18 : 10);
+                // 攻城开火动画需与攻击方本地表现一致（鱼雷/炮击/扫射/近战），此前只弹一个通用爆炸，
+                // 导致观战端看到城市掉血却看不到对应的开火表现。伤害数字与城市HP由快照权威给出。
+                const _sPres = classifyAttackPresentation(e);
+                const _sCrit = !!e.isCrit;
+                const _sFromX = e.fromX ?? e.x, _sFromY = e.fromY ?? e.y;
+                if (_sPres !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                    playSound(_sPres === ATTACK_PRESENTATION.FIRE_TRACER ? 'machinegun'
+                        : _sPres === ATTACK_PRESENTATION.FIRE_CANNON ? 'cannon'
+                        : (_sCrit ? 'crit' : 'attack'));
+                }
+                if (_sPres === ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                    spawnTorpedo(_sFromX, _sFromY, e.x, e.y, _sCrit);
+                } else if (_sPres === ATTACK_PRESENTATION.FIRE_CANNON) {
+                    spawnProjectile(_sFromX, _sFromY, e.x, e.y, _sCrit, () => {
+                        triggerAttackFlash(e.x, e.y, _sCrit);
+                        triggerRecoil(_sFromX, _sFromY, e.x, e.y);
+                        spawnDirectionalParticles(_sFromX, _sFromY, e.x, e.y, '#ff8844', _sCrit ? 8 : 4);
+                        triggerScreenShake(_sCrit ? 6 : 3, _sCrit ? 200 : 120);
+                    });
+                } else if (_sPres === ATTACK_PRESENTATION.FIRE_TRACER) {
+                    spawnDroneProjectile(_sFromX, _sFromY, e.x, e.y, _sCrit, () => {
+                        triggerAttackFlash(e.x, e.y, _sCrit);
+                        spawnDirectionalParticles(_sFromX, _sFromY, e.x, e.y, '#ff8844', _sCrit ? 4 : 2);
+                    });
+                } else {
+                    triggerAttackFlash(e.x, e.y, _sCrit);
+                    spawnSlashMarks(e.x, e.y, _sFromX, _sFromY, _sCrit);
+                    triggerScreenShake(_sCrit ? 6 : 3, _sCrit ? 200 : 120);
+                    if ((e.cityHpAfter ?? 1) > 0) triggerCharge(e.attackerUnitId ?? 0, _sFromX, _sFromY, e.x, e.y);
+                }
                 gameState.damageTexts.push({
                     x: e.x, y: e.y, value: e.damage, isCrit: e.isCrit,
                     timeLeft: 900, lastUpdate: performance.now()
@@ -3524,6 +3552,10 @@ async function handleRemoteAction(msg) {
                     spawnReinforceEffect(e.x, e.y, e.healAmt);
                 }
             }
+            break;
+        case 'repairShip':
+            // 权威血量/金币已随快照落地，这里只补视觉（与 move/attack 等一致，不二次治疗）。
+            if (e && e.x != null) spawnReinforceEffect(e.x, e.y, e.healAmt);
             break;
         case 'activateSkill': {
             if (e && e.unitId) {

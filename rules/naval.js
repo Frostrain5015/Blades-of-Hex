@@ -9,7 +9,6 @@ export const NAVAL_RULES = Object.freeze({
     shoreBatteryVsShipDamage: 0.30,
     shoreBatteryVsLandDamage: -0.60,
     detectorRadius: 2,
-    portRepairPct: 0.10,
     portGuardRounds: 1,
     submarinePortRevealRounds: 2,
     shoreBatteryCooldownRounds: 2
@@ -168,18 +167,14 @@ export function restoreSurrenderedPorts(state, surrenderedCamp) {
     return restored;
 }
 
-export function repairShipsAtTurnStart(state, camp) {
-    const healed = [];
-    for (const tile of state?.tiles || []) {
-        const unit = tile.unit;
-        if (!tile.isPort || !unit || !isRegularNavalUnit(unit) || campKey(unit.camp) !== campKey(camp)) continue;
-        if (!isPortOperationalFor(tile, camp, state) || unit.hp >= unit.maxHp) continue;
-        const amount = Math.min(unit.maxHp - unit.hp, Math.round(unit.maxHp * NAVAL_RULES.portRepairPct));
-        if (amount <= 0) continue;
-        unit.heal(amount);
-        healed.push({ unit, tile, amount });
-    }
-    return healed;
+/**
+ * 港口维修资格：己方常规舰船停靠在己方且已生效的港口即可主动维修。
+ * 与城市「补充兵员」同理——按钮改为玩家花钱主动触发，治疗量/金币消耗/每回合一次的限制
+ * 由调用方（gameLogic.repairShipAtPort）负责，这里只判定海军域内的停靠资格。
+ */
+export function canRepairShipAtPort(unit, state) {
+    return !!unit && isRegularNavalUnit(unit) && !!unit.tile?.isPort
+        && isPortOperationalFor(unit.tile, unit.camp, state);
 }
 
 export function canBuildShoreBattery(state, camp) {

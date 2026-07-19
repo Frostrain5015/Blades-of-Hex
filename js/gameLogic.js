@@ -119,7 +119,7 @@ import {
     isSubmarineTargetableBy,
     markSubmarinesRevealedInArea,
     recordShoreBatteryBuilt,
-    repairShipsAtTurnStart,
+    canRepairShipAtPort,
     restoreSurrenderedPorts
 } from '../rules/naval.js';
 
@@ -1163,14 +1163,7 @@ async function _doEndTurnPhase() {
     const dmgTextsBefore = gameState.damageTexts.length;
     resolvePoisonAtTurnStart(gameState.currentCamp);
     grantTurnStartIncome(gameState.currentCamp);
-    for (const repair of repairShipsAtTurnStart(gameState, gameState.currentCamp)) {
-        gameState.healTexts.push({
-            x: repair.tile.x, y: repair.tile.y, value: repair.amount,
-            timeLeft: 1000, lastUpdate: performance.now()
-        });
-        spawnHealParticles(repair.tile.x, repair.tile.y);
-        logMessage(`${repair.unit.camp.name}${repair.unit.config.name}在港口维修 +${repair.amount}HP`);
-    }
+    // 港口维修改为玩家主动付费按钮（见 repairShipAtPort），不再回合开始自动结算。
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         // 固守回复覆盖整个城郭（中心格与城内格都算驻守城市）
@@ -1561,6 +1554,31 @@ export function reinforceUnit(unit) {
     recalcAllFlankingMorale();
     updateUI();
     broadcastAction('reinforce', { unitId: unit.id, healAmt: actualHeal, cost, x: tile.x, y: tile.y });
+}
+
+// 港口维修：与「补充兵员」同构的主动付费治疗，面向停靠己方港口的常规舰船。
+export function repairShipAtPort(unit) {
+    if (!unit || !unit.tile || unit.hp >= unit.maxHp) return;
+    const tile = unit.tile;
+    if (!canRepairShipAtPort(unit, gameState)) { notify('需在己方港口维修舰船', 'error'); return; }
+    if (unit.camp !== gameState.currentCamp) { notify('只能维修己方舰船', 'error'); return; }
+    if (tile._reinforcedThisTurn) { notify('该港口本回合已维修', 'error'); return; }
+    // 与补员一致：联机中立回合由驱动方代理，人类点击需在本方回合。
+    if (isNetworkGame() && !gameState.aiActing && !isMyTurn(gameState.currentCamp)) { notify('对手回合', 'error'); return; }
+
+    const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
+    if (healAmt <= 0) return;
+    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
+    const currentPlayerKey = _campKey(gameState.currentCamp);
+    if (gameState.playerGold[currentPlayerKey] < cost) { notify('资金不足', 'error'); return; }
+
+    gameState.playerGold[currentPlayerKey] -= cost;
+    const actualHeal = unit.heal(healAmt);
+    tile._reinforcedThisTurn = true;
+    spawnReinforceEffect(tile.x, tile.y, actualHeal);
+    logMessage(`港口维修：${unit.config.name} +${actualHeal}HP，-$${cost}`);
+    updateUI();
+    broadcastAction('repairShip', { unitId: unit.id, healAmt: actualHeal, cost, x: tile.x, y: tile.y });
 }
 
 // ===== 移动范围计算 =====================
@@ -2006,6 +2024,10 @@ export function moveUnit(unit, targetTile) {
 }
 
 // ===== 攻击 =====================
+// 航母俯冲扫射：机炮子弹流在 ~500ms 开火、扫射约 280ms（500 + 12*24）。血条回缩/伤害数字/
+// 击杀特效需延迟到子弹流抵达再触发，避免"扣血先于子弹流"。与扫射对策卡（executeAirCommand
+// strafe，伤害延迟到动画尾段结算）同一时序取向。
+const CARRIER_STRAFE_IMPACT_MS = 780;
 export function attackUnit(attackerUnit, targetUnit) {
     if (gameState.gameOver) return;
     if (attackerUnit.camp !== gameState.currentCamp) return;
@@ -2083,7 +2105,11 @@ export function attackUnit(attackerUnit, targetUnit) {
     const attackPresentation = classifyAttackPresentation(attackerUnit);
     const _torpedoMs = attackPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO
         ? getTorpedoFlightMs(fromX, fromY, toX, toY) : 0;
-    const attackResult = attackerUnit.calculateDamage(targetUnit, _torpedoMs);
+    // 航母扫射与鱼雷同理：把血条/伤害数字/击杀特效延迟到子弹流抵达。
+    const _airStrafeMs = attackPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
+        ? CARRIER_STRAFE_IMPACT_MS : 0;
+    const _impactVisualMs = _torpedoMs || _airStrafeMs;
+    const attackResult = attackerUnit.calculateDamage(targetUnit, _impactVisualMs);
     attackerUnit._submarineChargedAttack = false;
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
     if (attackResult.isCrit) attackerUnit.addXP(2);
@@ -2114,9 +2140,9 @@ export function attackUnit(attackerUnit, targetUnit) {
     const isCrit = attackResult.isCrit;
 
     // 核心状态修改：扣血、击杀判定（先于视觉效果，保证广播时状态正确）
-    if (_torpedoMs > 0) {
-        targetUnit._hpBarDelayUntil = performance.now() + _torpedoMs;
-        targetUnit._deferImpactFxUntil = performance.now() + _torpedoMs;
+    if (_impactVisualMs > 0) {
+        targetUnit._hpBarDelayUntil = performance.now() + _impactVisualMs;
+        targetUnit._deferImpactFxUntil = performance.now() + _impactVisualMs;
     }
     let isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
     let cityDamage = 0;
@@ -2141,7 +2167,7 @@ export function attackUnit(attackerUnit, targetUnit) {
                     timeLeft: 900,
                     lastUpdate: performance.now()
                 });
-            }, _torpedoMs + 180);
+            }, _impactVisualMs + 180);
         }
     }
     const specializationSplashResults = [];
@@ -3490,6 +3516,8 @@ export function attackCityTile(attackerUnit, targetTile) {
     broadcastAction('attack', {
         isCitySiege: true,
         attackerUnitId: attackerUnit.id,
+        attackerType: attackerUnit.type,
+        attackerIsDrone: !!attackerUnit._isDrone,
         fromX, fromY,
         q: targetTile.q, r: targetTile.r,
         x: targetTile.x, y: targetTile.y,

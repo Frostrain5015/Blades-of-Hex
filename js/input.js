@@ -15,7 +15,7 @@ import {
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
     executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeFieldConstruction, executeBunkerConstruction, executeShoreBatteryConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
-    cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit
+    cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit, repairShipAtPort
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
@@ -31,7 +31,7 @@ import { getFactionKeys } from '../rules/diplomacy.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import { RECRUITMENT_OPTIONS } from './recruitmentUi.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
-import { isCoastalLandTile } from '../rules/naval.js';
+import { isCoastalLandTile, canRepairShipAtPort } from '../rules/naval.js';
 import { getSpecialization, getSpecializationOptions, getUnitDisplayName, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortification, canBuildShoreBatteryAt, canFieldRepair, constructionCost, isFieldRepairTarget, isOrdinaryGroundBuilder } from '../rules/construction.js';
@@ -87,6 +87,11 @@ const BOARD_ACTION_THEMES = {
         background: 'linear-gradient(135deg, #3a8a54, #28623d)',
         hover: 'linear-gradient(135deg, #51aa6d, #347b4d)',
         border: '#9ae2aa'
+    },
+    repairShip: {
+        background: 'linear-gradient(135deg, #2f8a8a, #1e5f5f)',
+        hover: 'linear-gradient(135deg, #3fabab, #2a7b7b)',
+        border: '#8fe2e2'
     },
     specialization: {
         background: 'linear-gradient(135deg, #7258a8, #44326f)',
@@ -334,6 +339,62 @@ function _getReinforcementAction(unit) {
     };
 }
 
+function _canRepairShipUnit(unit) {
+    return _isLocalActionUnit(unit)
+        && canRepairShipAtPort(unit, gameState)
+        && unit.hp < unit.maxHp
+        && !unit.tile._reinforcedThisTurn;
+}
+
+// 港口维修按钮：与补员同构，面向停靠己方已生效港口的常规舰船。
+function _getPortRepairAction(unit) {
+    if (!unit || !_isLocalActionCamp(unit.camp) || !canRepairShipAtPort(unit, gameState)) return null;
+
+    if (unit.tile._reinforcedThisTurn) {
+        return {
+            key: `repairShip:${unit.id}`,
+            buttonId: 'boardRepairShip',
+            kind: 'repairShip',
+            unitId: unit.id,
+            icon: '🔧',
+            label: '本回合已维修',
+            canUse: false,
+            reason: '该港口本回合已维修',
+            theme: 'repairShip'
+        };
+    }
+    if (unit.hp >= unit.maxHp) {
+        return {
+            key: `repairShip:${unit.id}`,
+            buttonId: 'boardRepairShip',
+            kind: 'repairShip',
+            unitId: unit.id,
+            icon: '🔧',
+            label: '无需维修',
+            canUse: false,
+            reason: '舰船生命值已满',
+            theme: 'repairShip'
+        };
+    }
+
+    const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
+    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
+    const campKey = _campKeyInput(unit.camp);
+    const hasGold = !!campKey && (gameState.playerGold[campKey] || 0) >= cost;
+    return {
+        key: `repairShip:${unit.id}`,
+        buttonId: 'boardRepairShip',
+        kind: 'repairShip',
+        unitId: unit.id,
+        icon: '🔧',
+        goldCost: cost,
+        label: `🪙 港口维修 $${cost}`,
+        canUse: _canRepairShipUnit(unit) && hasGold,
+        reason: hasGold ? '' : '金币不足',
+        theme: 'repairShip'
+    };
+}
+
 function _getCommanderActionIcon(commanderId, skillId) {
     if (commanderId === 'engineer') return skillId === 'bunker' ? '🏰' : skillId === 'flak' ? '🔫' : '🚧';
     if (commanderId === 'paladin') return '⚔️';
@@ -488,6 +549,8 @@ function _collectBoardActions(unit, tile = null) {
 
     const reinforcement = _getReinforcementAction(unit);
     if (reinforcement) actions.push(reinforcement);
+    const portRepair = _getPortRepairAction(unit);
+    if (portRepair) actions.push(portRepair);
     return actions;
 }
 
@@ -644,6 +707,14 @@ function _activateBoardAction(action) {
         const reinforcement = _getReinforcementAction(unit);
         if (!reinforcement?.canUse) return;
         reinforceUnit(unit);
+        showSelectionHudForTile(unit.tile);
+        return;
+    }
+
+    if (action.kind === 'repairShip') {
+        const portRepair = _getPortRepairAction(unit);
+        if (!portRepair?.canUse) return;
+        repairShipAtPort(unit);
         showSelectionHudForTile(unit.tile);
         return;
     }
@@ -2711,7 +2782,7 @@ function _showSpecializationChoice(unit) {
 
 function _applySpecializationChoice(unitId, specializationKey) {
     const unit = _findUnitById(unitId);
-    if (!unit || !_isLocalActionUnit(unit) || !unit.chooseSpecialization(specializationKey)) return;
+    if (!unit || !_isLocalActionUnit(unit) || !unit.chooseSpecialization(specializationKey, true)) return;
     _closeChoiceModal();
     const name = getSpecialization(unit.type, unit.specializationKey)?.name || '新兵种';
     notify(`已专精为${name}`, 'success');

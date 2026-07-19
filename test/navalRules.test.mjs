@@ -11,7 +11,7 @@ import {
     isPortOperationalFor,
     isSubmarineTargetableBy,
     recordShoreBatteryBuilt,
-    repairShipsAtTurnStart,
+    canRepairShipAtPort,
     restoreSurrenderedPorts
 } from '../rules/naval.js';
 
@@ -108,16 +108,18 @@ test('leaving a captured port clears submarine port exposure even when entering 
     assert.equal(sub._submarinePortRevealUntilRound, 0);
 });
 
-test('friendly operational ports repair regular ships and shore batteries share a faction cooldown', () => {
+test('friendly operational ports allow regular-ship repair and shore batteries share a faction cooldown', () => {
     const port = tile(0, 0, 'shallowWater', { isPort: true, camp: p1 });
-    const ship = {
-        type: 'warship', camp: p1, tile: port, hp: 150, maxHp: 200,
-        heal(amount) { this.hp += amount; }
-    };
+    const ship = { type: 'warship', camp: p1, tile: port, hp: 150, maxHp: 200 };
     port.unit = ship;
     const match = state([port]);
-    assert.equal(repairShipsAtTurnStart(match, p1)[0].amount, 20);
-    assert.equal(ship.hp, 170);
+    // 己方常规舰船停靠己方已生效港口 → 具备维修资格（治疗量/花费由 UI 层处理）
+    assert.equal(canRepairShipAtPort(ship, match), true);
+    // 敌方港口不具备维修资格
+    const enemyPort = tile(1, 0, 'shallowWater', { isPort: true, camp: p2 });
+    const foe = { type: 'warship', camp: p1, tile: enemyPort, hp: 150, maxHp: 200 };
+    enemyPort.unit = foe;
+    assert.equal(canRepairShipAtPort(foe, state([enemyPort])), false);
 
     assert.equal(canBuildShoreBattery(match, p1), true);
     recordShoreBatteryBuilt(match, p1);
