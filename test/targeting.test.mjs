@@ -104,6 +104,25 @@ assert.equal(preview.air.rangeTileKeys.has('0,0'), true, '机场航程圈应包�
 assert.equal(preview.air.rangeTileKeys.has('5,0'), true, '机场航程圈应覆盖有效航程');
 assert.equal(preview.air.rangeTileKeys.has('6,0'), false, '机场航程圈不应越过实际航程');
 
+// 机场扫射可指定无驻军但HP>0的敌方/中立空城市（削减城市HP）
+const strafeCity = tile(4, 0, { isCity: true, camp: camps.player2, hp: 300, maxHp: 300 });
+const strafeUrban = tile(4, -1, { isUrban: true, urbanCenterKey: '4,0', camp: camps.player2, hp: 300, maxHp: 300 });
+const strafeCityDead = tile(4, 1, { isCity: true, camp: camps.player2, hp: 0, maxHp: 300 });
+const strafeOwnCity = tile(3, 1, { isCity: true, camp: camps.player1, hp: 300, maxHp: 300 });
+gs = state([airfield, strafeCity, strafeUrban, strafeCityDead, strafeOwnCity], {
+    diplomacy: {
+        player1: { player2: 'enemy' },
+        player2: { player1: 'enemy' }
+    }
+});
+preview = resolveTargetingPreview(gs, {
+    cardId: 'air_command_strafe', targeting: 'enemyGlobal', launcherQ: 0, launcherR: 0
+});
+assert.equal(isResolvedTargetingCandidate(preview, strafeCity), true, '扫射可指定HP>0的空敌城');
+assert.equal(isResolvedTargetingCandidate(preview, strafeUrban), true, '扫射可指定HP>0的敌城城郭格');
+assert.equal(isResolvedTargetingCandidate(preview, strafeCityDead), false, 'HP=0的破城不再是扫射目标');
+assert.equal(isResolvedTargetingCandidate(preview, strafeOwnCity), false, '己方城市不是扫射目标');
+
 gs = state([colonelTile, nearEnemy, farEnemy, nearEmpty, farEmpty], {
     _colonelDeployed: { player1: true }
 });

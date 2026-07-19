@@ -7,6 +7,7 @@ import { isMechanicEnabled } from '../rules/mechanics.js';
 import { campToKey } from '../rules/camps.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
+import { measure, perfEnabled } from './perf.js';
 
 // 视野范围：各兵种能看到的格子数（规则键：GAME_RULES.skirmishVision）
 export const UNIT_VISION = SKIRMISH_VISION.unitVision;
@@ -98,6 +99,9 @@ let _onTilesRevealed = null;
 export function setOnTilesRevealed(cb) { _onTilesRevealed = cb; }
 
 export function updateFogOfWar(gameState, camp) {
+    return perfEnabled() ? measure('updateFogOfWar', () => _updateFogOfWar(gameState, camp)) : _updateFogOfWar(gameState, camp);
+}
+function _updateFogOfWar(gameState, camp) {
     if (!gameState.skirmishFog || !isMechanicEnabled(gameState, 'fogOfWar')) return;
     const key = _campKey(camp);
     if (key === 'neutral') return;

@@ -22,6 +22,23 @@ export function initAudio() {
 
     // 预创建 BGM 的 Howl 实例，让 Howler 内部尽早开始加载和注册 autoplay 解锁
     _getHowl('lobby_bgm');
+    _preloadAllHowls();
+}
+
+// 分片预加载全部音效：避免对局中首次攻击/空袭时才 fetch+decode 造成卡顿。
+// 每片限时 ~8ms、片间让出主线程，加载在后台渐进完成，不影响大厅/开局帧率。
+function _preloadAllHowls() {
+    const names = Object.keys(SOUND_MANIFEST);
+    let index = 0;
+    const step = () => {
+        const sliceStart = performance.now();
+        while (index < names.length && performance.now() - sliceStart < 8) {
+            try { _getHowl(names[index]); } catch { /* 单个素材失败不影响其余 */ }
+            index++;
+        }
+        if (index < names.length) setTimeout(step, 120);
+    };
+    setTimeout(step, 500);
 }
 
 export function playSound(soundName) {

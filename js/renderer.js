@@ -65,6 +65,7 @@ import { CanvasBattlefieldLayers } from './canvasBattlefieldLayers.js';
 import { battlefieldDelegation } from './rendering/delegation.js';
 import { areCommanderMechanicsSuppressed, sharedHexEdgeSegmentKey } from '../rules/movement.js';
 import { hasAureliaOathEffect } from '../rules/aurelia.js';
+import { measure, perfEnabled } from './perf.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
@@ -258,6 +259,9 @@ export function renderTerrainSnapshot(targetCtx, now, pixelRatio = 1, options = 
 }
 
 export function renderGame() {
+    return perfEnabled() ? measure('renderGame', _renderGame) : _renderGame();
+}
+function _renderGame() {
     const now = performance.now();
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
@@ -773,15 +777,31 @@ export function renderGame() {
 }
 
 // 通用防空炮火特效：从AA单位射向飞行器的曳光弹流
-function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) {
-    const targetTile = gameState.tileMap.get(`${targetQ},${targetR}`);
-    if (!targetTile) return;
+// 覆盖源缓存：一次空袭动画(~2s)期间防空布局基本不变，200ms 内复用同一组覆盖源，
+// 避免每帧对整个 tileMap 跑规则引擎扫描 + Set/数组分配。过期条目随空袭结束自然淘汰。
+const _aaFlakCoverageCache = new Map(); // key -> { at, tiles }
+const _AA_FLAK_CACHE_MS = 200;
+
+function _aaFlakSourceTiles(targetTile, friendlyCamp) {
+    const key = `${targetTile.q},${targetTile.r}|${friendlyCamp?.id ?? friendlyCamp ?? ''}`;
+    const now = performance.now();
+    const hit = _aaFlakCoverageCache.get(key);
+    if (hit && now - hit.at < _AA_FLAK_CACHE_MS) return hit.tiles;
     const coverage = resolveAntiAirCoverage(targetTile, friendlyCamp, gameState.tileMap, {
         state: gameState,
         includeSources: true
     });
     const sourceKeys = new Set(coverage.sources.map(source => source.tileKey));
-    const _sources = [...sourceKeys].map(key => gameState.tileMap.get(key)).filter(Boolean);
+    const tiles = [...sourceKeys].map(k => gameState.tileMap.get(k)).filter(Boolean);
+    if (_aaFlakCoverageCache.size > 64) _aaFlakCoverageCache.clear();
+    _aaFlakCoverageCache.set(key, { at: now, tiles });
+    return tiles;
+}
+
+function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) {
+    const targetTile = gameState.tileMap.get(`${targetQ},${targetR}`);
+    if (!targetTile) return;
+    const _sources = _aaFlakSourceTiles(targetTile, friendlyCamp);
     for (const _t of _sources) {
         ctx.save();
         const sx2 = _t.x, sy2 = _t.y;

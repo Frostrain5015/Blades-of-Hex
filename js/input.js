@@ -35,6 +35,7 @@ import { isCoastalLandTile, canRepairShipAtPort } from '../rules/naval.js';
 import { getSpecialization, getSpecializationOptions, getUnitDisplayName, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortification, canBuildShoreBatteryAt, canFieldRepair, constructionCost, isFieldRepairTarget, isOrdinaryGroundBuilder } from '../rules/construction.js';
+import { measure, perfEnabled } from './perf.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange, getAirfieldColonel } from '../rules/airCommands.js';
 import {
     AURELIA_FACTION_PASSIVE,
@@ -405,8 +406,21 @@ function _getCommanderActionIcon(commanderId, skillId) {
     return '✦';
 }
 
-function _collectBoardActions(unit, tile = null) {
-    const actions = [];
+// 300ms 微缓存：syncBoardActionBar 每帧调用，这些全板扫描的结果在短时间内不会变化。
+// 动作落子后的刷新间隔天然超过该窗口，HUD 显示无感知延迟。
+function _timedMemo(cache, key, compute, ms = 300) {
+    const now = performance.now();
+    if (cache.key === key && now - cache.at < ms) return cache.value;
+    const value = compute();
+    cache.key = key;
+    cache.at = now;
+    cache.value = value;
+    return value;
+}
+const _engineerRepairMemo = {};
+const _fellowRobeMemo = {};
+
+function _collectBoardActions(unit, tile = null) {    const actions = [];
     // 有机场的城市：一级菜单显示✈按钮代替双击开启空军面板
     if (isMechanicEnabled(gameState, 'airCommands')
         && tile?.installation?.type === 'airfield' && tile.installation.status === 'ready'
@@ -479,7 +493,8 @@ function _collectBoardActions(unit, tile = null) {
         });
     }
     if (isMechanicEnabled(gameState, 'fortifications') && unit.commander === 'engineer') {
-        const hasRepairTarget = gameState.tiles.some(tile => isFieldRepairTarget(unit, tile.unit, gameState));
+        const hasRepairTarget = _timedMemo(_engineerRepairMemo, unit.id,
+            () => gameState.tiles.some(tile => isFieldRepairTarget(unit, tile.unit, gameState)));
         const currentRound = getRoundIndex(gameState);
         const cooldown = Number.isFinite(unit._engineerFieldRepairReadyRound)
             ? Math.max(0, unit._engineerFieldRepairReadyRound - currentRound)
@@ -637,6 +652,9 @@ function _renderBoardActionQueue(actions) {
 }
 
 export function syncBoardActionBar() {
+    return perfEnabled() ? measure('syncBoardActionBar', _syncBoardActionBar) : _syncBoardActionBar();
+}
+function _syncBoardActionBar() {
     const tile = gameState.selectedTile || gameState.selectedUnit?.tile || null;
     _syncSelectionHud(tile);
     const inFog = gameState.skirmishFog && tile && !isTileVisible(tile, getViewingCamp(), gameState);
@@ -1778,7 +1796,8 @@ function _syncSelectionHud(tile) {
         const fortificationDefBonus = !unit.isEmbarked && tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
         const rankDefBonus = unit._rankPanelDefenseBonus || 0;
         const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
-        const factionSynergyDefBonus = getFellowRobeDefenseBonus(unit, gameState);
+        const factionSynergyDefBonus = _timedMemo(_fellowRobeMemo, `${unit.id}:${unit.hp > 0}`,
+            () => getFellowRobeDefenseBonus(unit, gameState));
         const cityDefBonus = (tile.isCity || tile.isUrban) ? getCityDefenseBonus(tile) : 0;
         const baseDefense = unit.isEmbarked ? getTransportBaseDefense(unit) : (unit.config.defense || 0);
         defense = Math.round((baseDefense + moraleDefBonus + terrainDefBonus

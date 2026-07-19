@@ -3,7 +3,7 @@
 //   1. 敌军移动消耗额外+2/步（缚足）
 //   2. 友军单位对远程攻击（炮兵/碉堡/空军）防御力+25%（单层；对空时作为防空层计入，不与力场叠加）
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
-import { HEX_NEIGHBORS } from '../rules/hex.js';
+import { hexDistance, HEX_NEIGHBORS } from '../rules/hex.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 
 const RANGE2 = (() => {
@@ -21,6 +21,33 @@ const RANGE2 = (() => {
 // 距离环：[0]=自身, [1]=相邻6格, [2]=距离2共12格
 const RINGS = [[[0, 0]], HEX_NEIGHBORS, RANGE2];
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.staller;
+
+/**
+ * 一次性收集对 friendlyCamp 生效的缚足力场源（存活且未失效的敌方停滞者地块）。
+ * 供 BFS 等热点在一次遍历前收集，之后每格只做距离判定；全场无停滞者时零开销。
+ */
+export function collectSnareSources(tiles, friendlyCamp) {
+  const sources = [];
+  if (!tiles) return sources;
+  for (const t of tiles) {
+    const u = t?.unit;
+    if (u && u.commander === 'staller' && u.hp > 0 && u.camp !== friendlyCamp &&
+        !areCommanderMechanicsSuppressed(u)) {
+      sources.push(t);
+    }
+  }
+  return sources;
+}
+
+/** 用 collectSnareSources 的结果计算某地块的束缚层数，语义与 getSnareLayers 一致。 */
+export function snareLayersFromSources(tile, sources) {
+  let best = 0;
+  for (let i = 0; i < sources.length; i++) {
+    const d = hexDistance(tile, sources[i]);
+    if (d <= BALANCE.range) best = Math.max(best, BALANCE.range + 1 - d);
+  }
+  return best;
+}
 
 export default {
   ...DEFINITION,

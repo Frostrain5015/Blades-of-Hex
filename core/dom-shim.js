@@ -23,8 +23,14 @@ if (typeof globalThis.document === 'undefined') {
         set() { return true; }
     });
 
+    // style 桩：cssText/属性直写与 setProperty/removeProperty 方法都安全
+    const makeStyle = () => new Proxy({}, {
+        get(t, k) { return k in t ? t[k] : noop; },
+        set(t, k, v) { t[k] = v; return true; }
+    });
+
     const fakeCanvas = {
-        width: 1000, height: 750, style: {},
+        width: 1000, height: 750, style: makeStyle(),
         getContext: () => makeCtx(),
         addEventListener: noop, removeEventListener: noop,
         getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 750 }),
@@ -40,11 +46,13 @@ if (typeof globalThis.document === 'undefined') {
     });
 
     const makeEl = () => ({
-        style: {}, dataset: {}, classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
+        style: makeStyle(), dataset: {}, classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
         appendChild: noop, removeChild: noop, setAttribute: noop, removeAttribute: noop,
         addEventListener: noop, removeEventListener: noop, getContext: () => makeCtx(),
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 }),
         querySelector: () => makeEl(), querySelectorAll: () => [],
         textContent: '', innerHTML: '', value: '', focus: noop, click: noop,
+        remove: noop, animate: () => ({ finished: Promise.resolve(), cancel: noop }),
         get children() { return childProxy(); },
         get firstChild() { return makeEl(); },
         get parentNode() { return makeEl(); },
@@ -66,13 +74,19 @@ if (typeof globalThis.document === 'undefined') {
         documentElement: makeEl(),
     };
 
+    const fakeLocation = {
+        origin: 'http://localhost',
+        href: '', search: '', reload: noop, assign: noop
+    };
     globalThis.window = {
         devicePixelRatio: 1,
         addEventListener: noop, removeEventListener: noop,
         requestAnimationFrame: noop, cancelAnimationFrame: noop,
-        location: { href: '', search: '', reload: noop },
+        location: fakeLocation,
         matchMedia: () => ({ matches: false, addEventListener: noop }),
     };
+    // auth.js 等模块直接读裸全局 location（浏览器里 window.location 的同名暴露）
+    if (!globalThis.location) globalThis.location = fakeLocation;
 
     if (!globalThis.performance) globalThis.performance = { now: () => Date.now() };
     globalThis.requestAnimationFrame = noop;

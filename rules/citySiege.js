@@ -117,9 +117,10 @@ export function isCitySiegeBlocked(tile, moverCamp, state) {
 /**
  * 该单位是否可以把这个空城地块当作攻城目标。
  * 潜艇无法攻击陆地；航母的舰载机走独立的空军式伤害管线（读将领/上校加成，
- * 不经过 getEffectiveAttack），不接入这条通用地面/海军攻城公式。
+ * 不经过 getEffectiveAttack），在 attackCityTile 内走专属分支结算，不接入
+ * 这条通用地面/海军攻城公式。
  */
 export function isSiegeableCityTile(unit, tile, state) {
-    if (unit?.type === 'submarine' || unit?.type === 'carrier') return false;
+    if (unit?.type === 'submarine') return false;
     return isCitySiegeBlocked(tile, unit?.camp, state);
 }

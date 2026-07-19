@@ -88,13 +88,14 @@ test('isCitySiegeBlocked: empty enemy/neutral city with hp>0 blocks entry; garri
     assert.equal(isCitySiegeBlocked(cityTile(300, { camp: NEUTRAL }), P1, s), true, '中立空城hp>0同样封锁');
 });
 
-test('isSiegeableCityTile excludes submarine and carrier, otherwise matches isCitySiegeBlocked', () => {
+test('isSiegeableCityTile excludes only submarine; carrier sieges via its own air pipeline', () => {
     const s = state();
     const enemyEmptyCity = cityTile(300, { camp: P2 });
     assert.equal(isSiegeableCityTile({ type: 'infantry', camp: P1 }, enemyEmptyCity, s), true);
     assert.equal(isSiegeableCityTile({ type: 'destroyer', camp: P1 }, enemyEmptyCity, s), true);
     assert.equal(isSiegeableCityTile({ type: 'submarine', camp: P1 }, enemyEmptyCity, s), false);
-    assert.equal(isSiegeableCityTile({ type: 'carrier', camp: P1 }, enemyEmptyCity, s), false);
+    assert.equal(isSiegeableCityTile({ type: 'carrier', camp: P1 }, enemyEmptyCity, s), true,
+        '航母应能指定无驻军但HP>0的空城市（削减城市HP）');
 });
 
 test('isStrongpointTarget covers city/fortification tiles and building-type units, excluding drone', () => {

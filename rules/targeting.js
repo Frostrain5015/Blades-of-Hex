@@ -12,6 +12,7 @@ import { isSubmarineTargetableBy } from './naval.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN } from './movement.js';
 import { isBuildingUnit } from './units.js';
+import { canAttack } from './diplomacy.js';
 import { getAirCommandRange } from './airCommands.js';
 import { isCitySiegeBlocked } from './citySiege.js';
 
@@ -113,7 +114,12 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
     if (cardId?.startsWith('air_command_')) {
         const launcher = sources.launcherTile;
         if (!launcher || hexDistance(launcher, tile) > getAirCommandRange(launcher)) return false;
-        if (cardId === 'air_command_strafe') return !!unit && !sameCamp(unit.camp, myCamp);
+        if (cardId === 'air_command_strafe') {
+            if (unit) return !sameCamp(unit.camp, myCamp);
+            // 无驻军但HP>0的敌方/中立城市也是合法扫射目标（削减城市HP）
+            return (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0
+                && canAttack(gameState, myCamp, tile.camp);
+        }
         if (cardId === 'air_command_airdrop') {
             return !unit && isLandDeploymentTile(tile) && !tile.isCity && !tile.isPort;
         }

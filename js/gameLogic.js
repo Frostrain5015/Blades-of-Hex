@@ -14,13 +14,14 @@ import {
     syncCityHpMirrors
 } from '../rules/citySiege.js';
 import { campToKey } from '../rules/camps.js';
-import { DRONE_RANGE, deployDrone, isTileInDroneSignal, isDroneInSignal, refreshDroneSignal } from '../commander/tianyan.js';
+import { DRONE_RANGE, DRONE_SIGNAL_RANGE, deployDrone, isDroneInSignal, refreshDroneSignal, _findTianyanUnit } from '../commander/tianyan.js';
+import { collectSnareSources, snareLayersFromSources } from '../commander/staller.js';
 import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
 import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState, seedMatchRng } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
 import { neutralDriverRole } from '../protocol/messages.js';
 import { stopCampaignRuntime } from './campaignController.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getStallerSnareLayers, getCommanderRangeReduction, getCommanderWeatherDebuff, getEffectiveWeather, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getCommanderRangeReduction, getCommanderWeatherDebuff, getEffectiveWeather, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { getStandardMap } from '../rules/standardMaps.js';
@@ -62,7 +63,9 @@ import { emit } from './eventBus.js';
 import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
 import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { ATTACK_PRESENTATION, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
+import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
+import { AURELIA_OATH_EFFECT, hasAureliaOathEffect } from '../rules/aurelia.js';
+import { measure, perfEnabled } from './perf.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import {
     ANTI_AIR_RADIUS,
@@ -1583,11 +1586,6 @@ export function repairShipAtPort(unit) {
 
 // ===== 移动范围计算 =====================
 
-// 停滞者缚足层数（0/1/2/3），每层行动消耗+2
-function _getStallerSnareLayers(tile, friendlyCamp) {
-    return getStallerSnareLayers(tile, friendlyCamp, gameState.tileMap);
-}
-
 // Check if a tile is in enemy Zone of Control (adjacent to a unit that can
 // actually threaten this movement surface).
 function _isInEnemyZoC(tile, friendlyCamp, movingUnit = null, ignoreHiddenEnemies = false) {
@@ -1626,6 +1624,18 @@ function _computeMovableTiles(unit, fogSafePreview = false) {
         return { tiles: [], parents: new Map() };
     }
 
+    // BFS 全程不变的因素在循环前一次性结算：
+    // 1) 无人机信号源（天眼本体位置）——避免内层每格全板扫描天眼
+    // 2) 停滞者缚足力场源——惰性收集一次（通常0~2个），内层只做距离判定
+    const droneSignalTile = unit._isDrone
+        ? (_findTianyanUnit(gameState, unit.camp)?.tile || null)
+        : null;
+    let snareSources = null;
+    const getSnareSources = () => {
+        if (snareSources === null) snareSources = collectSnareSources(gameState.tiles, friendlyCamp);
+        return snareSources;
+    };
+
     // BFS queue: [tile, remainingMP, cameFromZoC]
     const startInZoC = _isInEnemyZoC(startTile, friendlyCamp, unit, fogSafePreview);
     const queue = [{ tile: startTile, remaining: speed, fromZoC: startInZoC }];
@@ -1646,7 +1656,7 @@ function _computeMovableTiles(unit, fogSafePreview = false) {
                 && (!fogSafePreview
                     || getPresentedTileVisibilityState(neighbor, friendlyCamp, gameState) === 'visible')) continue;
             if (isCitySiegeBlocked(neighbor, friendlyCamp, gameState)) continue;
-            if (unit._isDrone && !isTileInDroneSignal(gameState, unit.camp, neighbor)) continue;
+            if (unit._isDrone && (!droneSignalTile || hexDistance(droneSignalTile, neighbor) > DRONE_SIGNAL_RANGE)) continue;
 
             let stepCost = unit._isDrone ? 2 : (TERRAIN_CONFIG[neighbor.terrain]?.stepCost ?? 1);
             const movementStep = resolveMovementStep(unit, cur, neighbor, gameState, { baseCost: stepCost });
@@ -1658,8 +1668,8 @@ function _computeMovableTiles(unit, fogSafePreview = false) {
             if (_isMuddyTarget) stepCost += 1;
             // 星移减益区：处于敌方占星者3格内的敌对方额外+1（此处用于敌方 AI 移动计算）
             if (_isMuddyTarget && !fogSafePreview && getCommanderWeatherDebuff(neighbor, friendlyCamp, gameState)) stepCost += 1;
-            // 停滞者【缚足】：每层行动消耗+2
-            const snareLayers = fogSafePreview ? 0 : _getStallerSnareLayers(neighbor, friendlyCamp);
+            // 停滞者【缚足】：每层行动消耗+2（力场源已在 BFS 前一次性收集）
+            const snareLayers = fogSafePreview ? 0 : snareLayersFromSources(neighbor, getSnareSources());
             if (snareLayers > 0) stepCost += snareLayers * 2;
             if (curRem < 1) continue;
             // 末步豁免失效：泥泞/缚足下若行动力不足全额支付则无法到达
@@ -1697,6 +1707,9 @@ export function getFogSafeMovableTiles(unit) {
 }
 
 export function getMovableTiles(unit) {
+    return perfEnabled() ? measure('getMovableTiles', () => _getMovableTiles(unit)) : _getMovableTiles(unit);
+}
+function _getMovableTiles(unit) {
     const exact = _computeMovableTiles(unit, false);
     gameState.moveParents = exact.parents;
     if (gameState.skirmishFog && unit?.id != null) {
@@ -1797,6 +1810,9 @@ function _pathDisembarks(parents, startTile, endTile) {
  * 依赖 gameState.movableTiles / moveParents / attackableTiles 已按该单位刷新。
  */
 export function computeChainAttackPlans(unit) {
+    return perfEnabled() ? measure('computeChainAttackPlans', () => _computeChainAttackPlans(unit)) : _computeChainAttackPlans(unit);
+}
+function _computeChainAttackPlans(unit) {
     const empty = { tiles: [], plans: new Map() };
     if (!unit?.tile || !unit.canAct || unit.isNewRecruit) return empty;
     // 无人机的攻击合法性依赖信号区并伴随士气副作用，不做假想位评估
@@ -1852,6 +1868,9 @@ function _reconstructPath(parents, startTile, targetTile) {
 }
 
 export function moveUnit(unit, targetTile) {
+    return perfEnabled() ? measure('moveUnit', () => _moveUnit(unit, targetTile)) : _moveUnit(unit, targetTile);
+}
+function _moveUnit(unit, targetTile) {
     if (gameState.gameOver) return;
     if (unit.camp !== gameState.currentCamp) return;
     const legalMoves = unit?.tile ? getMovableTiles(unit) : [];
@@ -2026,9 +2045,12 @@ export function moveUnit(unit, targetTile) {
 // ===== 攻击 =====================
 // 航母俯冲扫射：机炮子弹流在 ~500ms 开火、扫射约 280ms（500 + 12*24）。血条回缩/伤害数字/
 // 击杀特效需延迟到子弹流抵达再触发，避免"扣血先于子弹流"。与扫射对策卡（executeAirCommand
-// strafe，伤害延迟到动画尾段结算）同一时序取向。
-const CARRIER_STRAFE_IMPACT_MS = 780;
+// strafe，伤害延迟到动画尾段结算）同一时序取向。时长常量见 rules/attackPresentation.js
+// 的 CARRIER_STRAFE_IMPACT_MS（联机重放共用）。
 export function attackUnit(attackerUnit, targetUnit) {
+    return perfEnabled() ? measure('attackUnit', () => _attackUnit(attackerUnit, targetUnit)) : _attackUnit(attackerUnit, targetUnit);
+}
+function _attackUnit(attackerUnit, targetUnit) {
     if (gameState.gameOver) return;
     if (attackerUnit.camp !== gameState.currentCamp) return;
     if (attackerUnit._campaignCanAttack === false || targetUnit._campaignTargetable === false) {
@@ -3442,8 +3464,42 @@ function _resolveCityBombingSiegeDamage(basePower, multiplier, targetTile, launc
     };
 }
 
+/**
+ * 航母舰载机扫射无驻军城市：与 Unit.calculateDamage 的航母分支同一伤害管线
+ * （挂载将领攻击修正、上校叠层、军衔加成、奥蕾莉亚誓约、防空减免），只是目标
+ * 换成城市血池——空城无驻军防御/地形乘区，与 _resolveCityBombingSiegeDamage 一致。
+ */
+function _resolveCarrierCityStrafeDamage(carrierUnit, targetTile) {
+    const colonelActive = carrierUnit.commander === 'colonel' && !areCommanderMechanicsSuppressed(carrierUnit);
+    const campKey = _campKey(carrierUnit.camp);
+    const stacks = colonelActive
+        ? Math.min(COLONEL_AIR_MAX_STACKS, gameState._colonelAirStacks?.[campKey] || 0)
+        : 0;
+    const colonelBonus = colonelActive ? COLONEL_AIR_DAMAGE_BONUS + stacks * COLONEL_AIR_STACK_BONUS : 0;
+    const carrierRankBonus = carrierUnit._unbranchedRankReward?.damageBonus || 0;
+    const aureliaOathBonus = hasAureliaOathEffect(carrierUnit, gameState) ? AURELIA_OATH_EFFECT.attackBonusPct : 0;
+    const commanderAttackBonus = getMountedCommanderAirAttackBonus(carrierUnit, carrierUnit.config.attack);
+    const power = carrierUnit.config.attack + (carrierUnit._rankPanelAttackBonus || 0) + commanderAttackBonus;
+    const floatMult = colonelActive || carrierUnit._rank >= 4
+        ? carrierUnit._calcFloat(false, false, carrierUnit._rankCritBonus || 0)
+        : gameState.rng.range(0.95, 1.05);
+    let antiAir = getAntiAirReduction(targetTile, carrierUnit.camp, gameState.tileMap, { state: gameState });
+    if (colonelActive) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
+    const defenseMulti = Math.max(
+        COMBAT_BALANCE.defense.minimumMultiplier,
+        1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, antiAir)
+    );
+    return {
+        damage: Math.max(1, Math.round(power * (1 + carrierRankBonus + colonelBonus + aureliaOathBonus) * floatMult * defenseMulti)),
+        isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold
+    };
+}
+
 /** 攻城：对无驻军的敌方/中立城市地块扣HP；近战单位在磨到0后就地跟进占领。 */
 export function attackCityTile(attackerUnit, targetTile) {
+    return perfEnabled() ? measure('attackCityTile', () => _attackCityTile(attackerUnit, targetTile)) : _attackCityTile(attackerUnit, targetTile);
+}
+function _attackCityTile(attackerUnit, targetTile) {
     if (gameState.gameOver || attackerUnit.camp !== gameState.currentCamp) return false;
     if (!attackerUnit.canAct || !getAttackableTiles(attackerUnit).includes(targetTile)) {
         notify('无法攻城：超出射程或单位已行动', 'error');
@@ -3452,20 +3508,58 @@ export function attackCityTile(attackerUnit, targetTile) {
 
     const fromX = attackerUnit.tile.x, fromY = attackerUnit.tile.y;
     const toX = targetTile.x, toY = targetTile.y;
-    const result = _resolveGroundNavalSiegeDamage(attackerUnit, targetTile);
+    // 航母舰载机走独立的空军式伤害管线（挂载将领/上校/誓约加成 + 防空减免），
+    // 与地面/海军攻城的结构伤害公式分开。
+    const isCarrierStrafe = attackerUnit.type === 'carrier';
+    const result = isCarrierStrafe
+        ? _resolveCarrierCityStrafeDamage(attackerUnit, targetTile)
+        : _resolveGroundNavalSiegeDamage(attackerUnit, targetTile);
+    if (isCarrierStrafe && attackerUnit.commander === 'colonel' && !areCommanderMechanicsSuppressed(attackerUnit)) {
+        // 与扫射单位一致：结算后累积上校航空叠层
+        const carrierCampKey = _campKey(attackerUnit.camp);
+        gameState._colonelAirStacks ||= {};
+        gameState._colonelAirStacks[carrierCampKey] = Math.min(
+            COLONEL_AIR_MAX_STACKS,
+            (gameState._colonelAirStacks[carrierCampKey] || 0) + 1
+        );
+    }
     // 共享血池：攻击城内任意地块都扣同一池HP，并把脱战计时记在血池宿主（中心格）上。
     damageCityPool(targetTile, result.damage, gameState.tileMap);
     const poolTile = getCityPoolTile(targetTile, gameState.tileMap) || targetTile;
     poolTile._citySiegeDamageRound = getRoundIndex(gameState);
 
-    gameState.damageTexts.push({
-        x: toX, y: toY, value: result.damage, isCrit: result.isCrit,
-        timeLeft: 900, lastUpdate: performance.now()
-    });
+    // 航母扫射的伤害数字延迟到子弹流抵达（与扫射单位的时序一致）
+    if (isCarrierStrafe) {
+        setTimeout(() => {
+            gameState.damageTexts.push({
+                x: toX, y: toY, value: result.damage, isCrit: result.isCrit, isCityDamage: true,
+                timeLeft: 900, lastUpdate: performance.now()
+            });
+        }, CARRIER_STRAFE_IMPACT_MS);
+    } else {
+        gameState.damageTexts.push({
+            x: toX, y: toY, value: result.damage, isCrit: result.isCrit,
+            timeLeft: 900, lastUpdate: performance.now()
+        });
+    }
 
-    // 攻城攻击表现——复用标准兵种开火动画（鱼雷/炮击/扫射/近战）
+    // 攻城攻击表现——复用标准兵种开火动画（鱼雷/炮击/曳光/近战），航母为俯冲扫射
     const attackPresentation = classifyAttackPresentation(attackerUnit);
     const isCrit = result.isCrit;
+    if (attackPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
+        playSound('airstrike');
+        spawnAirstrikeEffect(toX, toY, [{ q: targetTile.q, r: targetTile.r, dmg: result.damage }], 'diveStrafe', targetTile.q, targetTile.r);
+        setTimeout(() => {
+            playSound('machinegun');
+            for (let i = 0; i < 12; i++) {
+                setTimeout(() => {
+                    const muzzle = getDiveStrafeMuzzlePosition(toX, toY, 500 + i * 24);
+                    spawnStrafeTracer(muzzle.x, muzzle.y, toX, toY);
+                }, i * 24);
+            }
+        }, 500);
+        setTimeout(() => triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120), CARRIER_STRAFE_IMPACT_MS);
+    } else {
     if (attackPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
         playSound(attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER
             ? 'machinegun'
@@ -3494,6 +3588,7 @@ export function attackCityTile(attackerUnit, targetTile) {
         spawnMeleeSlash(toX, toY, fromX, fromY, isCrit);
         triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
         if (targetTile.hp > 0) triggerCharge(attackerUnit.id, fromX, fromY, toX, toY);
+    }
     }
 
     let cityCaptured = false;
@@ -3531,6 +3626,9 @@ export function attackCityTile(attackerUnit, targetTile) {
 }
 
 export function executeAirCommand(kind, launcherTile, targetTile) {
+    return perfEnabled() ? measure('executeAirCommand', () => _executeAirCommand(kind, launcherTile, targetTile)) : _executeAirCommand(kind, launcherTile, targetTile);
+}
+function _executeAirCommand(kind, launcherTile, targetTile) {
     const config = AIR_COMMAND_CONFIG[kind];
     const availability = getAirCommandAvailability(kind, launcherTile, gameState);
     if (!config || !availability.available || !targetTile || hexDistance(launcherTile, targetTile) > getAirCommandRange(launcherTile)) {
@@ -3542,11 +3640,19 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
     let destroyedFortification = null;
     if (kind === 'strafe') {
         const target = targetTile.unit;
-        if (!target || !canAttack(gameState, launcherTile.camp, target.camp)) return false;
-        if (target.type === 'submarine' && !isSubmarineTargetableBy(target, launcherTile.camp, gameState)) return false;
-        const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, 1, target, launcherTile, { missingHpBonus: true });
-        // 扣血延迟到动画结束后执行（1200ms），避免同步扣血破坏视觉
-        results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed: false, isCrit: result.isCrit });
+        if (target) {
+            if (!canAttack(gameState, launcherTile.camp, target.camp)) return false;
+            if (target.type === 'submarine' && !isSubmarineTargetableBy(target, launcherTile.camp, gameState)) return false;
+            const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, 1, target, launcherTile, { missingHpBonus: true });
+            // 扣血延迟到动画结束后执行（1200ms），避免同步扣血破坏视觉
+            results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed: false, isCrit: result.isCrit });
+        } else if ((targetTile.isCity || targetTile.isUrban) && targetTile.hp > 0 && canAttack(gameState, launcherTile.camp, targetTile.camp)) {
+            // 扫射无驻军但HP>0的敌方/中立城市：与轰炸同一城市结构管线，削减城市HP
+            const result = _resolveCityBombingSiegeDamage(AIRFIELD_BASE_POWER, 1, targetTile, launcherTile);
+            results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed: false, isCrit: result.isCrit, isCitySiege: true });
+        } else {
+            return false;
+        }
         // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
         playSound('airstrike');
         spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'diveStrafe', targetTile.q, targetTile.r);
@@ -3622,7 +3728,12 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
                 // 延迟扣血：爆炸时刻才结算伤害，与上校动画时序一致
                 for (const r of results) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                    if (tile && tile.unit) {
+                    if (tile && r.isCitySiege) {
+                        // 共享血池：扫射城内任意地块都扣同一池HP
+                        damageCityPool(tile, r.damage, gameState.tileMap);
+                        const poolTile = getCityPoolTile(tile, gameState.tileMap) || tile;
+                        poolTile._citySiegeDamageRound = getRoundIndex(gameState);
+                    } else if (tile && tile.unit) {
                         r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
                     }
                 }

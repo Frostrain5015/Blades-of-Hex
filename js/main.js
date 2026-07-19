@@ -49,7 +49,7 @@ import './cheat.js';
 import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
 import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, getViewingCampKey, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
-import { ATTACK_PRESENTATION, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
+import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
 import { renderResultFlagPreviews } from './resultFlagPreview.js';
 import {
@@ -3183,6 +3183,28 @@ async function handleRemoteAction(msg) {
                 const _sPres = classifyAttackPresentation(e);
                 const _sCrit = !!e.isCrit;
                 const _sFromX = e.fromX ?? e.x, _sFromY = e.fromY ?? e.y;
+                if (_sPres === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
+                    // 航母扫射空城：与主机端一致的俯冲扫射表现，伤害数字延迟到子弹流抵达
+                    playSound('airstrike');
+                    spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.damage }], 'diveStrafe', e.q, e.r);
+                    setTimeout(() => {
+                        playSound('machinegun');
+                        for (let i = 0; i < 12; i++) {
+                            setTimeout(() => {
+                                const muzzle = getDiveStrafeMuzzlePosition(e.x, e.y, 500 + i * 24);
+                                spawnStrafeTracer(muzzle.x, muzzle.y, e.x, e.y);
+                            }, i * 24);
+                        }
+                    }, 500);
+                    setTimeout(() => triggerScreenShake(_sCrit ? 6 : 3, _sCrit ? 200 : 120), CARRIER_STRAFE_IMPACT_MS);
+                    setTimeout(() => {
+                        gameState.damageTexts.push({
+                            x: e.x, y: e.y, value: e.damage, isCrit: e.isCrit,
+                            timeLeft: 900, lastUpdate: performance.now()
+                        });
+                    }, CARRIER_STRAFE_IMPACT_MS);
+                    break;
+                }
                 if (_sPres !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
                     playSound(_sPres === ATTACK_PRESENTATION.FIRE_TRACER ? 'machinegun'
                         : _sPres === ATTACK_PRESENTATION.FIRE_CANNON ? 'cannon'
@@ -3470,7 +3492,10 @@ async function handleRemoteAction(msg) {
                         // 延迟扣血：爆炸时刻才结算伤害
                         for (const r of (e.results || [])) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                            if (tile && tile.unit) {
+                            if (tile && r.isCitySiege) {
+                                // 共享血池：与主机端一致走 damageCityPool（镜像同步到全城）
+                                damageCityPool(tile, r.damage, gameState.tileMap);
+                            } else if (tile && tile.unit) {
                                 tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
                             }
                         }
