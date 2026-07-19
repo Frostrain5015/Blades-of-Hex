@@ -62,7 +62,7 @@ import { emit } from './eventBus.js';
 import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
 import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { ATTACK_PRESENTATION, classifyAttackPresentation } from '../rules/attackPresentation.js';
+import { ATTACK_PRESENTATION, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import {
     ANTI_AIR_RADIUS,
@@ -2224,7 +2224,10 @@ export function attackUnit(attackerUnit, targetUnit) {
             setTimeout(() => {
                 playSound('machinegun');
                 for (let i = 0; i < 12; i++) {
-                    setTimeout(() => spawnStrafeTracer(fromX, fromY, toX, toY), i * 24);
+                    setTimeout(() => {
+                        const muzzle = getDiveStrafeMuzzlePosition(toX, toY, 500 + i * 24);
+                        spawnStrafeTracer(muzzle.x, muzzle.y, toX, toY);
+                    }, i * 24);
                 }
             }, 500);
         } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
@@ -3516,11 +3519,8 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
             const tx = targetTile.x, ty = targetTile.y;
             for (let i = 0; i < 20; i++) {
                 setTimeout(() => {
-                    const fireTime = 600 + i * 20;
-                    const p = Math.min(1, fireTime / 1350);
-                    const px = tx - 380 + 720 * p, py = ty - 300 + 320 * p;
-                    const ang = Math.atan2(320, 720);
-                    spawnStrafeTracer(px + Math.cos(ang) * 22, py + Math.sin(ang) * 22, tx, ty);
+                    const muzzle = getDiveStrafeMuzzlePosition(tx, ty, 600 + i * 20);
+                    spawnStrafeTracer(muzzle.x, muzzle.y, tx, ty);
                 }, i * 20);
             }
         }, 600);
@@ -4120,11 +4120,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     const tx = targetTile.x, ty = targetTile.y;
                     for (let i = 0; i < 20; i++) {
                         setTimeout(() => {
-                            const fireTime = 600 + i * 20;
-                            const p = Math.min(1, fireTime / 1350);
-                            const px = tx - 380 + 720 * p, py = ty - 300 + 320 * p;
-                            const ang = Math.atan2(320, 720);
-                            spawnStrafeTracer(px + Math.cos(ang) * 22, py + Math.sin(ang) * 22, tx, ty);
+                            const muzzle = getDiveStrafeMuzzlePosition(tx, ty, 600 + i * 20);
+                            spawnStrafeTracer(muzzle.x, muzzle.y, tx, ty);
                         }, i * 20);
                     }
                 }, 600);

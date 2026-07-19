@@ -174,9 +174,10 @@ test('unit badge draws a ground ellipse, sphere material, relation dial and boun
 });
 
 test('all production unit types, including warship, resolve to deliberate glyphs', () => {
-    for (const type of ['infantry', 'cavalry', 'archer', 'mgNest', 'drone', 'warship']) {
+    for (const type of ['infantry', 'cavalry', 'archer', 'mgNest', 'drone', 'warship', 'carrier']) {
         assert.notEqual(resolveUnitBadgeGlyph(type), '?', `${type} must not fall back to ?`);
     }
+    assert.equal(resolveUnitBadgeGlyph('carrier'), '🛫');
     assert.notEqual(resolveUnitBadgeGlyph('infantry', true), resolveUnitBadgeGlyph('infantry'));
 });
 

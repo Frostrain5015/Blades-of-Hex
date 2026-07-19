@@ -49,7 +49,7 @@ import {
     drawOperationPreview,
     OPERATION_PREVIEW_ACTIONS
 } from './operationPreviewRenderer.js';
-import { operationArrowStyleForAttacker } from '../rules/attackPresentation.js';
+import { getDiveStrafePlanePosition, operationArrowStyleForAttacker } from '../rules/attackPresentation.js';
 import {
     resolveTargetingPreview,
     TARGET_INTENTS,
@@ -835,13 +835,11 @@ function drawAirstrikeEffects(now) {
         // E4 俯冲扫射：战机俯冲 + 机炮扫射曳光弹（区别于投弹空袭）
         if (fx.type === 'diveStrafe') {
             // 俯冲航线：自左上俯冲掠过目标上方，再拉起飞向右下
-            const P0x = cx - 380, P0y = cy - 300;
-            const P1x = cx + 340, P1y = cy + 20;
-            const p = Math.min(1, t / 0.9);
-            const px = P0x + (P1x - P0x) * p;
-            const py = P0y + (P1y - P0y) * p;
+            const plane = getDiveStrafePlanePosition(cx, cy, elapsed);
+            const px = plane.x;
+            const py = plane.y;
             // 飞行方向角；🛩️ 此字体默认朝向右上方（+π/4），补正后机头对准航向
-            const ang = Math.atan2(P1y - P0y, P1x - P0x);
+            const ang = plane.angle;
 
             // 战机
             ctx.save();

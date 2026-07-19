@@ -49,7 +49,7 @@ import './cheat.js';
 import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
 import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, getViewingCampKey, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
-import { ATTACK_PRESENTATION, classifyAttackPresentation } from '../rules/attackPresentation.js';
+import { ATTACK_PRESENTATION, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
 import { renderResultFlagPreviews } from './resultFlagPreview.js';
 import {
@@ -3098,11 +3098,8 @@ async function handleRemoteAction(msg) {
                                 const tx = e.x, ty = e.y;
                                 for (let i = 0; i < 20; i++) {
                                     setTimeout(() => {
-                                        const fireTime = 600 + i * 20;
-                                        const p = Math.min(1, fireTime / 1350);
-                                        const px = tx - 380 + 720 * p, py = ty - 300 + 320 * p;
-                                        const ang = Math.atan2(320, 720);
-                                        spawnStrafeTracer(px + Math.cos(ang) * 22, py + Math.sin(ang) * 22, tx, ty);
+                                        const muzzle = getDiveStrafeMuzzlePosition(tx, ty, 600 + i * 20);
+                                        spawnStrafeTracer(muzzle.x, muzzle.y, tx, ty);
                                     }, i * 20);
                                 }
                             }, 600);
@@ -3218,7 +3215,10 @@ async function handleRemoteAction(msg) {
                         setTimeout(() => {
                             playSound('machinegun');
                             for (let i = 0; i < 12; i++) {
-                                setTimeout(() => spawnStrafeTracer(_rmFromX, _rmFromY, e.x, e.y), i * 24);
+                                setTimeout(() => {
+                                    const muzzle = getDiveStrafeMuzzlePosition(e.x, e.y, 500 + i * 24);
+                                    spawnStrafeTracer(muzzle.x, muzzle.y, e.x, e.y);
+                                }, i * 24);
                             }
                         }, 500);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
@@ -3413,11 +3413,8 @@ async function handleRemoteAction(msg) {
                     const tx = target.x, ty = target.y;
                     for (let i = 0; i < 20; i++) {
                         setTimeout(() => {
-                            const fireTime = 600 + i * 20;
-                            const p = Math.min(1, fireTime / 1350);
-                            const px = tx - 380 + 720 * p, py = ty - 300 + 320 * p;
-                            const ang = Math.atan2(320, 720);
-                            spawnStrafeTracer(px + Math.cos(ang) * 22, py + Math.sin(ang) * 22, tx, ty);
+                            const muzzle = getDiveStrafeMuzzlePosition(tx, ty, 600 + i * 20);
+                            spawnStrafeTracer(muzzle.x, muzzle.y, tx, ty);
                         }, i * 20);
                     }
                 }, 600);

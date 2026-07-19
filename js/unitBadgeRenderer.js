@@ -22,7 +22,7 @@ export const UNIT_BADGE_GLYPHS = Object.freeze({
     destroyer: '🛡',
     warship: '\u2693\uFE0E',
     submarine: '\u25BC',
-    carrier: '\u2708\uFE0E'
+    carrier: '🛫'
 });
 
 function clamp(value, minimum = 0, maximum = 1) {
