@@ -4,9 +4,9 @@ import {
     playFactionSynergyPresentation,
     registerFactionSynergyFollowup
 } from './factionSynergyPresentation.js';
+import { createOracleDescentFollowup } from './factionSynergyFollowups/oracleDescent.js';
 
-// oracle-descent 后半段以 null 落地（后续可扩展为神像金光垂落动画）
-registerFactionSynergyFollowup('oracle-descent', null);
+registerFactionSynergyFollowup('oracle-descent', createOracleDescentFollowup);
 
 export function playCelestineOraclePresentation(event) {
     playFactionSynergyPresentation(event, CELESTINE_FACTION_SYNERGY.hero);

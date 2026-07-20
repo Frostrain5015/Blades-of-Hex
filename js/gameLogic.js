@@ -65,7 +65,7 @@ import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js'
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { AURELIA_OATH_EFFECT, hasAureliaOathEffect } from '../rules/aurelia.js';
-import { resolveOraclePulse, hasCelestineSynergyActive, getOracleStatueAnchor } from '../rules/celestine.js';
+import { resolveOraclePulse, hasCelestineSynergyActive, getOracleStatueAnchor, CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
 import {
     accrueEagleSynergyDamage,
     hasEagleSynergyActive,
@@ -1287,7 +1287,10 @@ async function _doEndTurnPhase() {
         for (const campKey of Object.keys(gameState.factions || {})) {
             if (campKey === 'neutral') continue;
             if (hasCelestineSynergyActive(gameState, campKey)) {
-                const pulse = resolveOraclePulse(gameState, campKey);
+                // 弹着延迟：神罚目标的血条/击杀爆炸（含残影）与光束弹着同刻
+                const pulse = resolveOraclePulse(gameState, campKey, {
+                    impactFxDelayMs: CELESTINE_ORACLE_PULSE_TIMING.impactMs
+                });
                 if (pulse) {
                     oraclePulses.push(pulse);
                     // 阶段跃迁时触发 Hero（stageChanged 由 resolveOraclePulse 检测）

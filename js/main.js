@@ -72,7 +72,7 @@ import {
     buildAirCommandDamageTexts
 } from '../rules/airCommands.js';
 import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
-import { getOracleStatueAnchor } from '../rules/celestine.js';
+import { getOracleStatueAnchor, CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
 const TURN_ORDER_COUNTDOWN_DELAY_MS = 2000;
@@ -2881,6 +2881,17 @@ async function handleRemoteAction(msg) {
                     : 0;
             const _kUnit = _kMs > 0 ? gameState.tileMap?.get(`${_ke.q},${_ke.r}`)?.unit : null;
             if (_kUnit) (gameState.unitDeathGhosts ||= []).push({ unit: _kUnit, until: performance.now() + _kMs });
+        }
+        // 【神谕】神罚击杀同理：残影保留到指引光束弹着时刻
+        for (const pulse of (msg.actionType === 'endTurn' && msg.effects?.oraclePulses) || []) {
+            if (!pulse?.smite?.killed) continue;
+            const dying = gameState.tileMap?.get(`${pulse.smite.q},${pulse.smite.r}`)?.unit;
+            if (dying) {
+                (gameState.unitDeathGhosts ||= []).push({
+                    unit: dying,
+                    until: performance.now() + CELESTINE_ORACLE_PULSE_TIMING.impactMs
+                });
+            }
         }
         applyRemoteState(msg.state, HexTile, Unit);
         await loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));

@@ -1678,6 +1678,24 @@ export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = nu
     });
 }
 
+// ===== 塞莱斯廷圣国【神谕】指引光束（神像→目标，绘制于战争迷雾之上） =====
+export const celestineOracleBeams = [];
+
+/**
+ * 两段式：蓄力(chargeMs) → 光束飞行(travelMs) → 弹着爆发+余辉(lingerMs)。
+ * kind: 'smite'（神罚，金焰）| 'shield'（赐福，圣辉）。
+ * delayMs 用于赐福光束在神罚之后错峰升空。
+ */
+export function spawnCelestineOracleBeam(fromX, fromY, toX, toY, kind = 'smite', delayMs = 0, timing = {}) {
+    celestineOracleBeams.push({
+        fromX, fromY, toX, toY, kind,
+        startTime: performance.now() + Math.max(0, delayMs),
+        chargeMs: timing.chargeMs ?? 350,
+        travelMs: timing.travelMs ?? 550,
+        lingerMs: timing.lingerMs ?? 700
+    });
+}
+
 // ===== E4 空运特效 =====
 export const airliftEffects = [];
 export const AIRLIFT_MS = 1500;
@@ -1727,6 +1745,7 @@ export function clearTransientEffects() {
     soulRecallEffects.length = 0;
     airstrikeEffects.length = 0;
     airliftEffects.length = 0;
+    celestineOracleBeams.length = 0;
     screenShake.x = 0;
     screenShake.y = 0;
     turnFlash.alpha = 0;

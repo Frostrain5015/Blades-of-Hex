@@ -272,6 +272,15 @@ body {
 .is-playing.has-orbital-supply .orbital-supply-focus::before { animation: faction-synergy-ring-spin 2.8s linear infinite; }
 .is-playing.has-orbital-supply .orbital-supply-focus::after { animation: faction-synergy-ring-spin 3.6s linear infinite reverse; }
 
+.oracle-descent-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
 .faction-synergy-waves {
     position: absolute;
     left: var(--synergy-core-x, 50%);
@@ -534,7 +543,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
     .rescue-link-particles,
-    .orbital-supply-canvas { display: none; }
+    .orbital-supply-canvas,
+    .oracle-descent-canvas { display: none; }
     .is-playing .faction-synergy-core,
     .is-playing .faction-synergy-caption { animation-timing-function: ease-out; }
 }

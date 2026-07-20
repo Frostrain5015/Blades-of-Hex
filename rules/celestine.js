@@ -27,6 +27,19 @@ export const CELESTINE_ORACLE_BALANCE = Object.freeze({
     roundsPerStage: 4
 });
 
+/**
+ * 神谕脉冲两段式表现时序（本地结算与联机重放共用，避免两处各自维护字面量）：
+ * 前半段 = 神像蓄力(chargeMs) + 指引光束飞行(travelMs)，静默；
+ * 后半段 = 弹着（impactMs 时刻）：伤害/护盾浮字 + 音效 + 目标处爆发。
+ * 赐福光束在神罚之后 shieldFollowMs 才升空，弹着时刻相应顺延。
+ */
+export const CELESTINE_ORACLE_PULSE_TIMING = Object.freeze({
+    chargeMs: 350,
+    travelMs: 550,
+    impactMs: 900,
+    shieldFollowMs: 350
+});
+
 export const CELESTINE_FACTION_PASSIVE = Object.freeze({
     name: '神谕',
     icon: '🔆',
@@ -164,9 +177,12 @@ export function getOracleStatueAnchor(gameState, campKey) {
  *
  * @param {object} state - gameState
  * @param {string} campKey - 阵营 key
+ * @param {object} [options]
+ * @param {number} [options.impactFxDelayMs=0] - 表现层弹着延迟：>0 时神罚目标的
+ *   血条回缩/击杀爆炸（含阵亡残影）与护盾条填充延迟到光束弹着时刻。
  * @returns {object|null} { campKey, activeRounds, stage, smite, shield } 或 null（失效）
  */
-export function resolveOraclePulse(state, campKey) {
+export function resolveOraclePulse(state, campKey, { impactFxDelayMs = 0 } = {}) {
     // 失效检测
     if (!state) return null;
     const surrendered = state.surrenderedCamps || [];
@@ -205,6 +221,10 @@ export function resolveOraclePulse(state, campKey) {
         const maxHp = smiteTarget.maxHp;
         const dmg = Math.max(1, Math.round(maxHp * pct));
         const hpBefore = smiteTarget.hp;
+        if (impactFxDelayMs > 0) {
+            smiteTarget._hpBarDelayUntil = performance.now() + impactFxDelayMs;
+            smiteTarget._deferImpactFxUntil = performance.now() + impactFxDelayMs;
+        }
         smiteTarget.applyDamage(dmg, { source: 'true', attacker: null });
         const hpAfter = Math.max(0, smiteTarget.hp);
         const actualDealt = Math.max(0, hpBefore - hpAfter);
@@ -221,6 +241,13 @@ export function resolveOraclePulse(state, campKey) {
         const shieldTarget = selectShieldTarget(state);
         let shieldResult = null;
         if (shieldTarget && actualDealt > 0) {
+            if (impactFxDelayMs > 0) {
+                // 护盾条填充延迟到赐福光束弹着（神罚弹着后再顺延 shieldFollowMs）
+                shieldTarget._hpBarDelayUntil = Math.max(
+                    shieldTarget._hpBarDelayUntil || 0,
+                    performance.now() + impactFxDelayMs + CELESTINE_ORACLE_PULSE_TIMING.shieldFollowMs
+                );
+            }
             shieldTarget._shield = (shieldTarget._shield || 0) + actualDealt;
             shieldTarget._shieldMax = Math.max(shieldTarget._shieldMax || 0, shieldTarget._shield);
             shieldTarget._shieldTurns = 1; // 仅当回合有效，下次脉冲即消失
