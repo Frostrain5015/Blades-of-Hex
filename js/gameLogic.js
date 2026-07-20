@@ -725,6 +725,7 @@ export function creditEagleSynergyDamage(campKey, amount, { deferred = false } =
     if (!campKey || !(amount > 0) || !hasEagleSynergyActive(gameState, campKey)) return;
     const event = accrueEagleSynergyDamage(gameState, campKey, amount, { deferred });
     if (event) emit('fx:eagleSynergy', event);
+    emit('fx:eagleMeterChanged');
 }
 
 function _updateSkirmishFogAll() {

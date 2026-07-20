@@ -47,6 +47,12 @@ import {
     FELLOW_ROBE_FACTION_SYNERGY,
     getFellowRobeDefenseBonus
 } from '../rules/factionSynergies.js';
+import {
+    EAGLE_FACTION_PASSIVE,
+    getEagleSynergyMeter,
+    hasEagleSynergyActive,
+    isEagleCommanderUnit
+} from '../rules/eagle.js';
 
 const BOARD_ACTION_THEMES = {
     default: {
@@ -1514,6 +1520,28 @@ function _buildPassiveItems(unit) {
             kicker: AURELIA_FACTION_PASSIVE.type,
             active: !aureliaOathUsed,
             intensity: aureliaOathUsed ? 0 : 1,
+            kind: 'passive'
+        });
+    }
+    // 天鹰【天基支援协议】：激活时展示战功/受创两条计量的实时进度
+    if (isEagleCommanderUnit(unit)) {
+        const eagleActive = hasEagleSynergyActive(gameState, unit.camp);
+        const eagleMeter = getEagleSynergyMeter(gameState, unit.camp);
+        items.push({
+            key: 'faction:eagle:skylink',
+            icon: EAGLE_FACTION_PASSIVE.icon,
+            label: EAGLE_FACTION_PASSIVE.name,
+            desc: EAGLE_FACTION_PASSIVE.description,
+            color: eagleActive ? EAGLE_FACTION_PASSIVE.color : '#6b7c8c',
+            status: eagleActive
+                ? `战功 ${eagleMeter.progress}/${eagleMeter.threshold}（已拨付$${eagleMeter.goldPaid}）· 受创 ${eagleMeter.takenProgress}/${eagleMeter.takenThreshold}`
+                : '未激活：需要两名天鹰特遣队将领同时在场',
+            count: '',
+            kicker: EAGLE_FACTION_PASSIVE.type,
+            active: eagleActive,
+            intensity: eagleActive
+                ? Math.max(eagleMeter.progress / eagleMeter.threshold, eagleMeter.takenProgress / eagleMeter.takenThreshold)
+                : 0,
             kind: 'passive'
         });
     }

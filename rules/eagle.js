@@ -59,7 +59,7 @@ export const EAGLE_ORBITAL_EFFECT = Object.freeze({
 
 export const EAGLE_FACTION_PASSIVE = Object.freeze({
     name: '天基支援协议',
-    icon: EAGLE_FACTION_SYNERGY.marker.symbol,
+    icon: '🛰',
     type: '阵营协同被动',
     color: '#7fd0ff',
     description: `场上同时存在两名天鹰特遣队将领时生效。【${EAGLE_SUPPLY_EFFECT.name}】本阵营空军与要塞单位（城市驻军、岸防炮、碉堡）每累计造成${EAGLE_SYNERGY_BALANCE.damageThreshold}点伤害，天基平台投送一次补给，立即拨付$${EAGLE_SYNERGY_BALANCE.goldPerTrigger}；【${EAGLE_ORBITAL_EFFECT.name}】本阵营单位每累计受到${EAGLE_SYNERGY_BALANCE.takenThreshold}点敌方伤害，获得一张对策卡【天基打击】。`

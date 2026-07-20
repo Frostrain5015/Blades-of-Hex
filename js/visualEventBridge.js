@@ -16,7 +16,7 @@ import {
 import { playSound } from './audio.js';
 import { playAureliaOathPresentation } from './aureliaOathPresentation.js';
 import { playEagleSynergyPresentation } from './eagleSynergyPresentation.js';
-import { gameState, logMessage } from './state.js';
+import { gameState, logMessage, updateUI } from './state.js';
 
 on('fx:healFlash', ({ x, y }) => triggerHealFlash(x, y));
 on('fx:healParticles', ({ x, y }) => spawnHealParticles(x, y));
@@ -61,6 +61,17 @@ on('fx:eagleSupplyDrop', event => {
         timeLeft: 1600, lastUpdate: now
     });
     for (const commander of commanders) spawnCoinRain(commander.x, commander.y, 1);
+});
+// 天鹰计量实时刷新：战功/受创每次变动都需立即反映到 HUD 被动区与金币显示，
+// 尤其是空袭落弹等延迟结算路径（不在常规 updateUI 节拍上）。按帧节流，AOE 只刷一次。
+let eagleMeterUiPending = false;
+on('fx:eagleMeterChanged', () => {
+    if (eagleMeterUiPending) return;
+    eagleMeterUiPending = true;
+    requestAnimationFrame(() => {
+        eagleMeterUiPending = false;
+        updateUI();
+    });
 });
 on('fx:hpDeltaTexts', ({ damage, healing }) => {
     const now = performance.now();

@@ -48,10 +48,6 @@ import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
 import {
     accrueEagleDamageTaken,
     accrueEagleSynergyDamage,
-    EAGLE_FACTION_PASSIVE,
-    getEagleSynergyMeter,
-    hasEagleSynergyActive,
-    isEagleCommanderUnit,
     resolveEagleDamageCreditCampKey,
     resolveEagleDamageTakenCampKey
 } from '../rules/eagle.js';
@@ -267,17 +263,6 @@ export class Unit {
                 color: AURELIA_OATH_EFFECT.color,
                 remaining: aureliaOathRemaining,
                 status: `持续${aureliaOathRemaining}回合`
-            });
-        }
-
-        // 天鹰阵营协同【天基支援协议】：展示战功/受创两条计量的当前进度
-        if (isEagleCommanderUnit(this) && hasEagleSynergyActive(gameState, this.camp)) {
-            const eagleMeter = getEagleSynergyMeter(gameState, this.camp);
-            effects.push({
-                label: EAGLE_FACTION_PASSIVE.name,
-                desc: EAGLE_FACTION_PASSIVE.description,
-                color: EAGLE_FACTION_PASSIVE.color,
-                status: `战功 ${eagleMeter.progress}/${eagleMeter.threshold}（已拨付$${eagleMeter.goldPaid}）· 受创 ${eagleMeter.takenProgress}/${eagleMeter.takenThreshold}`
             });
         }
 
@@ -903,6 +888,8 @@ export class Unit {
                 const takenEvent = accrueEagleDamageTaken(_gameState, eagleTakenCampKey, eagleCredited, { deferred: eagleDeferred });
                 if (takenEvent) emit('fx:eagleSynergy', takenEvent);
             }
+            // 计量每次变动都通知表现层刷新 HUD（延迟结算路径不在常规 updateUI 节拍上）
+            if (eagleCampKey || eagleTakenCampKey) emit('fx:eagleMeterChanged');
         }
 
         // 护盾优先吸收伤害（真实伤害绕过）
