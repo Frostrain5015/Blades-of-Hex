@@ -6,6 +6,7 @@ import { campToKey } from './camps.js';
 function defineFactionSynergy(definition) {
     return Object.freeze({
         ...definition,
+        skillImplemented: definition.skillImplemented !== false,
         commanderIds: Object.freeze([...definition.commanderIds]),
         marker: Object.freeze({ ...definition.marker }),
         activation: definition.activation ? Object.freeze({ ...definition.activation }) : null,
@@ -126,6 +127,153 @@ export const EAGLE_FACTION_SYNERGY = defineFactionSynergy({
 
 export const EAGLE_COMMANDER_IDS = EAGLE_FACTION_SYNERGY.commanderIds;
 
+// 塞莱斯廷圣国 🔆：牧师、殉道者、圣骑士、堕天使。
+// 协同被动【神谕】的平衡参数与判定在 rules/celestine.js；此处只登记身份与 Hero 主题。
+// skillImplemented: true — 技能已实装，激活后取代【与子同袍】。
+export const CELESTINE_FACTION_SYNERGY = defineFactionSynergy({
+    id: 'celestine',
+    factionName: '塞莱斯廷圣国',
+    commanderIds: [
+        'priest',
+        'martyr',
+        'paladin',
+        'fallenAngel'
+    ],
+    skillImplemented: true,
+    marker: {
+        symbol: '🔆',
+        label: '塞莱斯廷圣国',
+        color: '#f5d76e',
+        borderColor: 'rgba(245, 215, 110, 0.66)',
+        background: 'rgba(20, 12, 8, 0.84)',
+        glowColor: 'rgba(245, 215, 110, 0.16)'
+    },
+    hero: {
+        id: 'celestine-oracle',
+        emblem: {
+            kind: 'text',
+            value: '🔆',
+            label: '神谕徽记'
+        },
+        kicker: '阵营协同',
+        title: '神谕',
+        durationMs: 5800,
+        followupStartMs: 3800,
+        theme: {
+            text: '#f5e8c8',
+            brightText: '#fff5d9',
+            accent: '#f5d76e',
+            accentSoft: '#d4a84a',
+            faction: '#8a6a2a',
+            shadow: '#3a2810',
+            backdropGlow: 'rgba(180, 140, 60, 0.20)',
+            backdropTop: 'rgba(3, 3, 5, 0.70)',
+            backdropBottom: 'rgba(12, 8, 5, 0.80)'
+        },
+        followup: {
+            kind: 'oracle-descent',
+            particleCount: 24,
+            particleColors: ['#f5d76e', '#fff5d9', '#d4a84a']
+        }
+    }
+});
+
+export const CELESTINE_COMMANDER_IDS = CELESTINE_FACTION_SYNERGY.commanderIds;
+
+// 诺克提斯共和国 🎭：吸血鬼、亡灵法师、魔术师。
+// 仅注册成员与徽标，skillImplemented: false — 技能未实装，不取代【与子同袍】。
+export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
+    id: 'noctis',
+    factionName: '诺克提斯共和国',
+    commanderIds: [
+        'vampire',
+        'necromancer',
+        'magician'
+    ],
+    skillImplemented: false,
+    marker: {
+        symbol: '🎭',
+        label: '诺克提斯共和国',
+        color: '#7fcf9a',
+        borderColor: 'rgba(127, 207, 154, 0.66)',
+        background: 'rgba(8, 12, 20, 0.84)',
+        glowColor: 'rgba(127, 207, 154, 0.16)'
+    },
+    hero: {
+        id: 'noctis-masquerade',
+        emblem: {
+            kind: 'text',
+            value: '🎭',
+            label: '假面徽记'
+        },
+        kicker: '阵营协同',
+        title: '暗夜假面',
+        durationMs: 4800,
+        followupStartMs: 0,
+        theme: {
+            text: '#c8e8d5',
+            brightText: '#e0f5e8',
+            accent: '#7fcf9a',
+            accentSoft: '#4a8a6a',
+            faction: '#1a3a2a',
+            shadow: '#0a1a12',
+            backdropGlow: 'rgba(60, 120, 80, 0.18)',
+            backdropTop: 'rgba(3, 3, 5, 0.70)',
+            backdropBottom: 'rgba(5, 8, 12, 0.80)'
+        },
+        followup: null
+    }
+});
+
+export const NOCTIS_COMMANDER_IDS = NOCTIS_FACTION_SYNERGY.commanderIds;
+
+// 天衡联邦 ⚖️：占星者、停滞者、纵横家。
+// 仅注册成员与徽标，skillImplemented: false — 技能未实装，不取代【与子同袍】。
+export const TIANHENG_FACTION_SYNERGY = defineFactionSynergy({
+    id: 'tianheng',
+    factionName: '天衡联邦',
+    commanderIds: [
+        'astrologer',
+        'staller',
+        'diplomat'
+    ],
+    skillImplemented: false,
+    marker: {
+        symbol: '⚖️',
+        label: '天衡联邦',
+        color: '#8ab8d9',
+        borderColor: 'rgba(138, 184, 217, 0.66)',
+        background: 'rgba(8, 12, 20, 0.84)',
+        glowColor: 'rgba(138, 184, 217, 0.16)'
+    },
+    hero: {
+        id: 'tianheng-balance',
+        emblem: {
+            kind: 'text',
+            value: '⚖️',
+            label: '天衡徽记'
+        },
+        kicker: '阵营协同',
+        title: '天衡裁决',
+        durationMs: 4800,
+        followupStartMs: 0,
+        theme: {
+            text: '#c8dce8',
+            brightText: '#e0eef5',
+            accent: '#8ab8d9',
+            accentSoft: '#5a7a9a',
+            faction: '#2a4a6a',
+            shadow: '#0a1a2a',
+            backdropGlow: 'rgba(80, 120, 160, 0.18)',
+            backdropTop: 'rgba(3, 3, 5, 0.70)',
+            backdropBottom: 'rgba(5, 8, 12, 0.80)'
+        },
+        followup: null
+    }
+});
+
+export const TIANHENG_COMMANDER_IDS = TIANHENG_FACTION_SYNERGY.commanderIds;
+
 // 未命中任何文化阵营专属协同时的混编兜底项。
 // 名称取自《诗经·秦风·无衣》“岂曰无衣？与子同袍”。
 export const FELLOW_ROBE_FACTION_SYNERGY = defineFactionSynergy({
@@ -181,6 +329,9 @@ export const FELLOW_ROBE_FACTION_SYNERGY = defineFactionSynergy({
 const FACTION_SYNERGIES = Object.freeze([
     AURELIA_FACTION_SYNERGY,
     EAGLE_FACTION_SYNERGY,
+    CELESTINE_FACTION_SYNERGY,
+    NOCTIS_FACTION_SYNERGY,
+    TIANHENG_FACTION_SYNERGY,
     FELLOW_ROBE_FACTION_SYNERGY
 ]);
 
@@ -217,6 +368,8 @@ function getSpecialFactionSynergiesForCommanders(commanders) {
     for (const unit of commanders) {
         const synergy = getCommanderFactionSynergy(unit.commander);
         if (!synergy || synergy.activation?.kind === 'fallback') continue;
+        // 仅 skillImplemented 为 true 的阵营参与激活判定（noctis/tianheng 仅注册，不取代【与子同袍】）
+        if (!synergy.skillImplemented) continue;
         counts.set(synergy.id, (counts.get(synergy.id) || 0) + 1);
     }
     return [...counts.entries()]

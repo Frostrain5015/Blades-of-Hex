@@ -118,13 +118,13 @@ function buildEngineer() {
 }
 
 function buildFallenAngel() {
-    const balance = { blackMoraleLevels: [1, 3], normalMorale: 2, blackAttackFlat: 30, blackCritBonus: 0.60, blackHpLossPct: 0.20, whiteMissingHpHealPct: 0.30 };
+    const balance = { blackMoraleLevels: [1, 3], normalMorale: 2, blackDamageBonus: 0.75, blackCritBonus: 0.60, blackHpLossPct: 0.20, whiteMissingHpHealPct: 0.30 };
     return {
         definition: {
             id: 'fallenAngel', name: '堕天使', hpBonusPct: 0.35, atkBonusPct: 0, spdBonus: 0,
             skills: [
                 { name: '堕落', desc: `士气正常时切换至【堕天使·白】，每回合回复已损失生命值的${percent(balance.whiteMissingHpHealPct)}`, type: 'passive' },
-                { name: '净化', desc: `士气上升或下降时切换至【堕天使·黑】，攻击力+${balance.blackAttackFlat}、暴击率+${percent(balance.blackCritBonus)}，每回合流失当前生命值${percent(balance.blackHpLossPct)}`, type: 'passive' }
+                { name: '净化', desc: `士气上升或下降时切换至【堕天使·黑】，造成的伤害+${percent(balance.blackDamageBonus)}、暴击率+${percent(balance.blackCritBonus)}，每回合流失当前生命值${percent(balance.blackHpLossPct)}`, type: 'passive' }
             ]
         },
         balance
@@ -160,13 +160,13 @@ function buildMagician() {
 }
 
 function buildMartyr() {
-    const balance = { triggerHp: 1, explosionRange: 2, centerMultiplier: 4, adjacentMultiplier: 2, outerMultiplier: 1, elegyAttackPerDeath: 5, elegyAttackCap: 25, moraleBoostRounds: 2 };
+    const balance = { triggerHp: 1, explosionRange: 2, centerMultiplier: 4, adjacentMultiplier: 2, outerMultiplier: 1, elegyDamagePerDeath: 0.05, elegyDamageCap: 0.40, moraleBoostRounds: 2 };
     return {
         definition: {
             id: 'martyr', name: '殉道者', skill: '殉道', hpBonusPct: 0.30, atkBonusPct: 0, spdBonus: 0,
             skills: [
                 { name: '殉道', desc: `生命≤${balance.triggerHp}时进入殉道倒计时，期间可移动但无法攻击；下回合开始时对${balance.explosionRange}格范围内所有非己方单位造成基于攻击力的真实伤害`, type: 'passive' },
-                { name: '挽歌', desc: `己方单位阵亡时，殉道者永久获得${balance.elegyAttackPerDeath}点攻击力，最多叠加${balance.elegyAttackCap}点`, type: 'passive' }
+                { name: '挽歌', desc: `己方单位阵亡时，殉道者永久获得造成的伤害+${percent(balance.elegyDamagePerDeath)}，最多叠加${Math.round(balance.elegyDamageCap / balance.elegyDamagePerDeath)}层`, type: 'passive' }
             ]
         },
         balance
@@ -199,12 +199,12 @@ function buildNecromancer() {
 }
 
 function buildPaladin() {
-    const balance = { faithMax: 3, faithOnDeploy: 1, faithCostPerCharge: 1, defensePerFaith: 0.05, auraAttackBonus: 0.10, smiteCooldown: 1, normalSmiteMin: 25, normalSmiteMax: 40, chargedSmiteMin: 65, chargedSmiteMax: 85, maxSmiteCharges: 2 };
+    const balance = { faithMax: 3, faithOnDeploy: 1, faithCostPerCharge: 1, defensePerFaith: 0.05, auraAttackBonus: 0, auraDamageBonus: 0.12, smiteCooldown: 1, normalSmiteMin: 25, normalSmiteMax: 40, chargedSmiteMin: 65, chargedSmiteMax: 85, maxSmiteCharges: 2 };
     return {
         definition: {
             id: 'paladin', name: '圣骑士', hpBonusPct: 0.25, atkBonusPct: 0.30, spdBonus: 0,
             skills: [
-                { name: '勇气灵光', desc: `自身及相邻6格友军攻击力+${percent(balance.auraAttackBonus)}，士气不会下降或混乱`, type: 'passive' },
+                { name: '勇气灵光', desc: `自身及相邻6格友军造成的伤害+${percent(balance.auraDamageBonus)}，士气不会下降或混乱`, type: 'passive' },
                 { name: '誓言', desc: `【勇气灵光】范围内的友军受击或击杀时获得1誓言，每回合最多1层，上限${balance.faithMax}层，每层为圣骑士提供${percent(balance.defensePerFaith)}防御力`, type: 'passive' },
                 { name: '至圣斩', desc: `每次点击消耗1层誓言蓄力（1层${rangeText(balance.normalSmiteMin, balance.normalSmiteMax)}/2层${rangeText(balance.chargedSmiteMin, balance.chargedSmiteMax)}真实伤害），最多${balance.maxSmiteCharges}层，命中后冷却${balance.smiteCooldown}回合`, type: 'active' }
             ],

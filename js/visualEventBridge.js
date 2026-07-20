@@ -16,6 +16,7 @@ import {
 import { playSound } from './audio.js';
 import { playAureliaOathPresentation } from './aureliaOathPresentation.js';
 import { playEagleSynergyPresentation } from './eagleSynergyPresentation.js';
+import { playCelestineOraclePresentation } from './celestineOraclePresentation.js';
 import { gameState, logMessage, updateUI } from './state.js';
 
 on('fx:healFlash', ({ x, y }) => triggerHealFlash(x, y));
@@ -72,6 +73,40 @@ on('fx:eagleMeterChanged', () => {
         eagleMeterUiPending = false;
         updateUI();
     });
+});
+// 塞莱斯廷圣国【神谕】：阶段跃迁走全屏 Hero；脉冲表现走弹道+浮字。
+on('fx:celestineOracle', event => {
+    const factionName = gameState.factions?.[event.campKey]?.name || '';
+    const stageNames = ['', '壹·神临', '贰·神启', '叁·神怒', '肆·神威', '伍·神灭'];
+    const stageName = stageNames[event.stage] || `第${event.stage}阶段`;
+    logMessage(`🔆 ${factionName}阵营协同【神谕】${stageName}：神临第${event.activeRounds}轮`);
+    playCelestineOraclePresentation(event);
+});
+on('fx:celestineOraclePulse', event => {
+    const factionName = gameState.factions?.[event.campKey]?.name || '';
+    if (event.smite) {
+        logMessage(`⚡ ${factionName}【神罚】→ 对 ${event.smite.unitId} 造成 ${event.smite.dmg} 点真实伤害${event.smite.killed ? '，将其消灭' : ''}`);
+        if (Number.isFinite(event.smite.x) && Number.isFinite(event.smite.y)) {
+            gameState.damageTexts.push({
+                x: event.smite.x, y: event.smite.y,
+                value: event.smite.dmg, isTrueDmg: true,
+                timeLeft: 1200, lastUpdate: performance.now()
+            });
+        }
+        if (event.smite.killed) playSound('explosion');
+        else playSound('lightning');
+    }
+    if (event.shield && event.shield.amount > 0) {
+        logMessage(`🛡️ ${factionName}【赐福】→ 对 ${event.shield.unitId} 附加 ${event.shield.amount} 点护盾`);
+        if (Number.isFinite(event.shield.x) && Number.isFinite(event.shield.y)) {
+            gameState.healTexts.push({
+                x: event.shield.x, y: event.shield.y,
+                value: event.shield.amount, prefix: '🛡️',
+                timeLeft: 1200, lastUpdate: performance.now()
+            });
+        }
+        playSound('heal');
+    }
 });
 on('fx:hpDeltaTexts', ({ damage, healing }) => {
     const now = performance.now();

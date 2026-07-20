@@ -6,6 +6,7 @@ import stallerDef from '../commander/staller.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
+import { hasCelestineSynergyActive, getCelestineOracleState } from '../rules/celestine.js';
 
 // 延迟引用，由 main.js 初始化（避免循环依赖）
 let _gameState = null;
@@ -127,6 +128,32 @@ export function triggerCommanderTurnStart(gameState, camp) {
       h.addGold = (amount) => { gameState.playerGold[campKey] += amount; };
       h.triggerCommanderOnKill = triggerCommanderOnKill;
       cmd.onTurnStart(gameState, camp, h);
+    }
+  }
+
+  // 塞莱斯廷圣国【神谕】激活检测：从不激活转为激活时立即发射 Hero 事件
+  // （presentationEventId 按 stage 去重，同一阶段只播一次）
+  if (hasCelestineSynergyActive(gameState, campKey)) {
+    if (!gameState._celestineOracle) gameState._celestineOracle = {};
+    const oracle = gameState._celestineOracle[campKey];
+    if (!oracle?._heroPlayed) {
+      if (!gameState._celestineOracle[campKey]) {
+        gameState._celestineOracle[campKey] = { activeRounds: 0, stage: 1, _heroPlayed: true };
+      } else {
+        gameState._celestineOracle[campKey]._heroPlayed = true;
+      }
+      const stageEvent = {
+        presentationEventId: 'celestine:' + campKey + ':1',
+        stage: 1,
+        campKey,
+        activeRounds: gameState._celestineOracle[campKey]?.activeRounds || 0
+      };
+      emit('fx:celestineOracle', stageEvent);
+    }
+  } else {
+    // 失效时重置 _heroPlayed，使下次激活能再次播放 Hero
+    if (gameState._celestineOracle?.[campKey]?._heroPlayed) {
+      delete gameState._celestineOracle[campKey]._heroPlayed;
     }
   }
 }
@@ -270,14 +297,41 @@ export function getCommanderAuraAttackBonus(unit) {
   if (!unit.tile) return 0;
   const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
   if (!gs || !gs.tileMap) return 0;
-  for (const [dq, dr] of HEX_NEIGHBORS) {
-    const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
-    if (nb && nb.unit && nb.unit.commander === 'paladin' && _commanderEnabled(nb.unit) && nb.unit.camp === unit.camp) {
-      return COMMANDER_CONFIG.paladin.balance.auraAttackBonus;
+  // 圣骑士勇气灵光已移至增伤乘区（getCommanderDamageBonusPct），此处不再返回攻击加成
+  return 0;
+}
+
+// ---- 将领增伤加成（殉道者挽歌、堕天使黑形态、圣骑士勇气灵光等） ----
+// 返回聚合的伤害加成百分比（②增伤乘区），含将领机制被抑制检查。
+
+export function getCommanderDamageBonusPct(unit) {
+  if (!unit?.commander || !_commanderEnabled(unit)) return 0;
+  let total = 0;
+  const cmd = getCommander(unit.commander);
+  if (cmd && cmd.getDamageBonusPct) {
+    total += cmd.getDamageBonusPct(unit);
+  }
+  // 圣骑士勇气灵光：自身或相邻6格友军获得伤害加成
+  if (unit.tile) {
+    const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
+    if (gs?.tileMap) {
+      const auraBonus = COMMANDER_CONFIG.paladin.balance.auraDamageBonus || 0;
+      // 自身是圣骑士
+      if (unit.commander === 'paladin' && _commanderEnabled(unit)) {
+        total += auraBonus;
+      } else {
+        // 相邻6格有圣骑士
+        for (const [dq, dr] of HEX_NEIGHBORS) {
+          const nb = gs.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
+          if (nb && nb.unit && nb.unit.commander === 'paladin' && _commanderEnabled(nb.unit) && nb.unit.camp === unit.camp) {
+            total += auraBonus;
+            break;
+          }
+        }
+      }
     }
   }
-  if (unit.commander === 'paladin' && _commanderEnabled(unit)) return COMMANDER_CONFIG.paladin.balance.auraAttackBonus;
-  return 0;
+  return total;
 }
 
 // ---- 友军受击钩子（圣骑士誓言等） ----

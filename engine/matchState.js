@@ -174,6 +174,7 @@ export function createMatchState() {
         _pendingAureliaOathEvents: [], // 单次攻击广播前的瞬时表现事件，不参与快照
         _eagleSynergy: {},    // 天鹰阵营协同被动【天基支援协议】计量表 { campKey: { total, triggers, taken, takenTriggers } }
         _pendingEagleSynergyEvents: [], // 同步结算路径待广播的鹰链结算事件，不参与快照
+        _celestineOracle: {}, // 塞莱斯廷圣国阵营协同【神谕】计量 { campKey: { activeRounds, stage } }
         // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
         // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
         // 使联机收方与重连保持一致。详见 core/rng.js。
@@ -293,6 +294,7 @@ export function resetMatchState(match) {
     match._pendingAureliaOathEvents = [];
     match._eagleSynergy = {};
     match._pendingEagleSynergyEvents = [];
+    match._celestineOracle = {};
     match.skirmishFog = false;
     match.visibleTiles = standard.visibleTiles;
     match.exploredTiles = standard.exploredTiles;
@@ -573,6 +575,8 @@ export function serializeMatchState(match) {
         aureliaOathUsed: { ...(match._aureliaOathUsed || {}) },
         eagleSynergy: Object.fromEntries(Object.entries(match._eagleSynergy || {})
             .map(([campKey, meter]) => [campKey, { ...meter }])),
+        celestineOracle: Object.fromEntries(Object.entries(match._celestineOracle || {})
+            .map(([campKey, oracle]) => [campKey, { ...oracle }])),
         rngState: match.rng.getState(),
         killCount: { ...match.killCount },
         friendlyDeathCount: { ...(match._friendlyDeathCount || {}) },
@@ -705,6 +709,11 @@ export function restoreMatchState(match, data, deps) {
             takenTriggers: meter?.takenTriggers || 0
         }]));
     match._pendingEagleSynergyEvents = [];
+    match._celestineOracle = Object.fromEntries(Object.entries(data.celestineOracle || {})
+        .map(([campKey, oracle]) => [campKey, {
+            activeRounds: oracle?.activeRounds || 0,
+            stage: oracle?.stage || 1
+        }]));
     match.submarineReveals = record(data.submarineReveals, () => ({}));
     match.shoreBatteryBuiltRound = { ...(data.shoreBatteryBuiltRound || {}) };
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)

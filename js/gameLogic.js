@@ -21,7 +21,7 @@ import { gameState, updateButtonColors, updateUI, logMessage, clearselection, se
 import { isNetworkGame, sendAction, getMyRole, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
 import { neutralDriverRole } from '../protocol/messages.js';
 import { stopCampaignRuntime } from './campaignController.js';
-import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getCommanderRangeReduction, getCommanderWeatherDebuff, getEffectiveWeather, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setCityCaptureRef } from './commanderInterface.js';
+import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getCommanderRangeReduction, getCommanderWeatherDebuff, getEffectiveWeather, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderDamageBonusPct, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setCityCaptureRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { getStandardMap } from '../rules/standardMaps.js';
@@ -65,6 +65,7 @@ import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js'
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { AURELIA_OATH_EFFECT, hasAureliaOathEffect } from '../rules/aurelia.js';
+import { resolveOraclePulse, hasCelestineSynergyActive, getOracleStatueAnchor, getCelestineOracleState } from '../rules/celestine.js';
 import {
     accrueEagleSynergyDamage,
     hasEagleSynergyActive,
@@ -1119,6 +1120,7 @@ async function _doEndTurnPhase() {
     _endTurnCmdFxList = []; // 本回合将领特效收集
     _rainLightningFx = null;
     const _healingChainDatas = []; // 牧师圣链特效收集
+    let oraclePulses = []; // 塞莱斯廷圣国神谕脉冲（isRoundAnchor 内填充，广播时附带）
 
     // 包装 spawnFx 引用以收集特效坐标（不直接覆写 import binding）
     const origSpawn = spawnCommanderSkillEffect;
@@ -1279,6 +1281,64 @@ async function _doEndTurnPhase() {
             }
         }
         // E4 空军上校：空军卡改为金币消耗，不再发放燃料
+
+        // 塞莱斯廷圣国【神谕】脉冲：每整轮结算一次
+        oraclePulses = [];
+        for (const campKey of Object.keys(gameState.factions || {})) {
+            if (campKey === 'neutral') continue;
+            if (hasCelestineSynergyActive(gameState, campKey)) {
+                const pulse = resolveOraclePulse(gameState, campKey);
+                if (pulse) {
+                    oraclePulses.push(pulse);
+                    const oracleState = getCelestineOracleState(gameState, campKey);
+                    if (oracleState) {
+                        const stageEvent = {
+                            presentationEventId: 'celestine:' + campKey + ':' + oracleState.stage,
+                            stage: oracleState.stage,
+                            campKey,
+                            activeRounds: oracleState.activeRounds
+                        };
+                        emit('fx:celestineOracle', stageEvent);
+                    }
+                    if (pulse.smite || pulse.shield) {
+                        const statueAnchor = getOracleStatueAnchor(gameState, campKey);
+                        emit('fx:celestineOraclePulse', {
+                            ...pulse,
+                            statueX: statueAnchor?.x,
+                            statueY: statueAnchor?.y
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 塞莱斯廷圣国【神谕】激活检测：无论何时从未激活转为激活时自动发射 Hero 事件
+    // （presentationEventId 含 stage，由 Hero 层自动去重，同一 stage 只播一次）
+    if (!gameState._celestineOracle) gameState._celestineOracle = {};
+    for (const campKey of Object.keys(gameState.factions || {})) {
+        if (campKey === 'neutral') continue;
+        const oracle = gameState._celestineOracle[campKey];
+        const isActive = hasCelestineSynergyActive(gameState, campKey);
+        if (isActive) {
+            if (!oracle?._heroPlayed) {
+                if (!gameState._celestineOracle[campKey]) {
+                    gameState._celestineOracle[campKey] = { activeRounds: 0, stage: 1, _heroPlayed: true };
+                } else {
+                    gameState._celestineOracle[campKey]._heroPlayed = true;
+                }
+                const stageEvent = {
+                    presentationEventId: 'celestine:' + campKey + ':1',
+                    stage: 1,
+                    campKey,
+                    activeRounds: gameState._celestineOracle[campKey]?.activeRounds || 0
+                };
+                emit('fx:celestineOracle', stageEvent);
+            }
+        } else if (oracle?._heroPlayed) {
+            // 失效时重置 _heroPlayed，使下次激活能再次播放 Hero
+            delete gameState._celestineOracle[campKey]._heroPlayed;
+        }
     }
 
     // 恢复 commanderInterface 引用
@@ -1298,7 +1358,8 @@ async function _doEndTurnPhase() {
         cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
         dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null,
         healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null,
-        rainLightning: _rainLightningFx
+        rainLightning: _rainLightningFx,
+        oraclePulses: oraclePulses?.length > 0 ? oraclePulses : null
     });
 }
 
@@ -2528,12 +2589,15 @@ function _attackUnit(attackerUnit, targetUnit) {
                 }
             }
             if (attackerUnit.morale !== 0) {
-                const oldKillerM = attackerUnit.morale;
-                attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
-                if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = getRoundIndex(gameState) + 2;
-                // morale setter 自动 triggerCommanderOnMoraleChange
-                _killedThisAttack = attackerUnit;
-                _killerMoraleChanged = attackerUnit.morale !== oldKillerM;
+                // 普通击杀 50%概率触发士气上升（底层机制微调）
+                if (gameState.rng.range(0, 1) < 0.5) {
+                    const oldKillerM = attackerUnit.morale;
+                    attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
+                    if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = getRoundIndex(gameState) + 2;
+                    // morale setter 自动 triggerCommanderOnMoraleChange
+                    _killedThisAttack = attackerUnit;
+                    _killerMoraleChanged = attackerUnit.morale !== oldKillerM;
+                }
             }
             _atkCmdFxCapture = null;
             const killResult = isCarrierStrafe ? null : triggerCommanderOnKill(attackerUnit, targetUnit);
@@ -3494,7 +3558,8 @@ function _resolveGroundNavalSiegeDamage(attacker, targetTile) {
     const fortificationBonus = isStrongpointTarget({ tile: targetTile })
         ? (attacker.getSpecializationAbility('fortificationDamage') || 0) : 0;
     const landDamageBonus = attacker.getSpecializationAbility('landDamage') || 0;
-    const damageBonus = crossDomainBonus + fortificationBonus + landDamageBonus;
+    const cmdDamageBonus = areCommanderMechanicsSuppressed(attacker) ? 0 : getCommanderDamageBonusPct(attacker);
+    const damageBonus = crossDomainBonus + fortificationBonus + landDamageBonus + cmdDamageBonus;
     const floatMult = attacker._calcFloat(false, false, attacker._rankCritBonus || 0);
     // 空城无驻军、无城墙固定减伤：城市HP自身即是缓冲，伤害不再走额外防御乘区。
     return {

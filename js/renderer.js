@@ -66,6 +66,7 @@ import { CanvasBattlefieldLayers } from './canvasBattlefieldLayers.js';
 import { battlefieldDelegation } from './rendering/delegation.js';
 import { areCommanderMechanicsSuppressed, sharedHexEdgeSegmentKey } from '../rules/movement.js';
 import { hasAureliaOathEffect } from '../rules/aurelia.js';
+import { getOracleStatueAnchor, hasCelestineSynergyActive, getCelestineOracleState } from '../rules/celestine.js';
 import { measure, perfEnabled } from './perf.js';
 
 let lastTime = performance.now();
@@ -192,6 +193,80 @@ function drawOwnedMineMarkers(now) {
         ctx.font = 'bold 8px "Segoe UI Symbol", sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(water ? '≈' : '×', 0, 0.3);
+        ctx.restore();
+    }
+}
+
+/**
+ * 塞莱斯廷圣国【神谕】神像绘制：金色半透明带翼人形，悬浮于圣国控制的
+ * 城市锚点上方（无城市则跳过）。光晕半径/alpha 随 stage 1→5 递增。
+ * 神像在战争迷雾之上绘制，全图可见。
+ */
+function drawCelestineOracleStatues(now) {
+    const factionKeys = Object.keys(gameState.factions || {});
+    for (const campKey of factionKeys) {
+        if (campKey === 'neutral') continue;
+        if (!hasCelestineSynergyActive(gameState, campKey)) continue;
+        const anchor = getOracleStatueAnchor(gameState, campKey);
+        if (!anchor) continue;
+        const oracleState = getCelestineOracleState(gameState, campKey);
+        if (!oracleState) continue;
+
+        const stage = oracleState.stage;
+        const alpha = 0.45 + stage * 0.06; // 0.51 → 0.75
+        const glowRadius = 20 + stage * 8;  // 28 → 60
+        const floatOffset = Math.sin(now / 600 + campKey.charCodeAt(0)) * 4;
+
+        ctx.save();
+        ctx.translate(anchor.x, anchor.y - 24 + floatOffset);
+        ctx.globalAlpha = Math.min(alpha, 0.75);
+
+        // 阶段光晕
+        const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, glowRadius);
+        grad.addColorStop(0, 'rgba(245, 215, 110, 0.6)');
+        grad.addColorStop(0.4, 'rgba(245, 215, 110, 0.2)');
+        grad.addColorStop(1, 'rgba(245, 215, 110, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 人形剪影（简单十字形）
+        ctx.shadowColor = 'rgba(245, 215, 110, 0.5)';
+        ctx.shadowBlur = 12;
+        ctx.strokeStyle = '#f5d76e';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        // 头部
+        ctx.arc(0, -10, 4, 0, Math.PI * 2);
+        ctx.stroke();
+        // 身体
+        ctx.beginPath();
+        ctx.moveTo(0, -6);
+        ctx.lineTo(0, 8);
+        ctx.stroke();
+        // 双臂
+        ctx.beginPath();
+        ctx.moveTo(-8, -2);
+        ctx.lineTo(8, -2);
+        ctx.stroke();
+        // 双翼
+        const wingSpread = 16 + stage * 2;
+        const wingAngle = 0.35 + stage * 0.04;
+        ctx.strokeStyle = 'rgba(245, 215, 110, 0.7)';
+        ctx.lineWidth = 1.8;
+        // 左翼
+        ctx.beginPath();
+        ctx.moveTo(-4, -4);
+        ctx.quadraticCurveTo(-wingSpread, -12 - stage, -wingSpread * 0.7, 8);
+        ctx.stroke();
+        // 右翼
+        ctx.beginPath();
+        ctx.moveTo(4, -4);
+        ctx.quadraticCurveTo(wingSpread, -12 - stage, wingSpread * 0.7, 8);
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
         ctx.restore();
     }
 }
@@ -766,6 +841,9 @@ function _renderGame() {
     drawCampaignObjectiveHighlights(now);
     // 己方布雷信息属于私有战术标记：覆在迷雾之上，但只向所属阵营或显式全知视角显示。
     drawOwnedMineMarkers(now);
+
+    // 塞莱斯廷圣国【神谕】神像：金色半透明带翼人形，悬浮于圣国控制的城市上方
+    drawCelestineOracleStatues(now);
 
     ctx.restore();
 

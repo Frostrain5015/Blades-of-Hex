@@ -11,7 +11,7 @@ export default {
     if (!unit._fallen && BALANCE.blackMoraleLevels.includes(newMorale)) {
       unit._fallen = true;
       spawnFx(unit.tile.x, unit.tile.y, '😈', '堕落');
-      logMessage(`堕天使【堕落】：${unit.camp.name}${unit.config.name}兵进入黑形态，攻击力+${BALANCE.blackAttackFlat}、暴击率+${Math.round(BALANCE.blackCritBonus * 100)}%`);
+      logMessage(`堕天使【堕落】：${unit.camp.name}${unit.config.name}兵进入黑形态，造成的伤害+${Math.round(BALANCE.blackDamageBonus * 100)}%、暴击率+${Math.round(BALANCE.blackCritBonus * 100)}%`);
     } else if (unit._fallen && newMorale === BALANCE.normalMorale) {
       unit._fallen = false;
       spawnFx(unit.tile.x, unit.tile.y, '😇', '净化');
@@ -42,8 +42,8 @@ export default {
     }
   },
 
-  getAttackBonus(unit) {
-    return unit._fallen ? BALANCE.blackAttackFlat : 0;
+  getDamageBonusPct(unit) {
+    return unit._fallen ? BALANCE.blackDamageBonus : 0;
   },
 
   // 黑形态：暴击率在原有基础上+60%（不再必定暴击）

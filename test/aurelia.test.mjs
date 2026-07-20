@@ -59,7 +59,7 @@ test('阵营协同注册表统一提供成员、将领卡标识与可替换 Hero
     const synergy = getFactionSynergy('aurelia');
     assert.equal(synergy, AURELIA_FACTION_SYNERGY);
     assert.equal(getCommanderFactionSynergy('ironGuard'), synergy);
-    assert.equal(getCommanderFactionSynergy('necromancer'), null);
+    assert.equal(getCommanderFactionSynergy('nonexistentCommander'), null);
     assert.equal(synergy.marker.symbol, '⚜️');
     assert.equal(synergy.hero.emblem.kind, 'text');
     assert.equal(synergy.hero.emblem.value, '⚜️');

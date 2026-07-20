@@ -72,6 +72,7 @@ import {
     buildAirCommandDamageTexts
 } from '../rules/airCommands.js';
 import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
+import { getOracleStatueAnchor } from '../rules/celestine.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
 const TURN_ORDER_COUNTDOWN_DELAY_MS = 2000;
@@ -2965,6 +2966,27 @@ async function handleRemoteAction(msg) {
                 }
                 for (const a of (e.rainLightning.ambient || [])) spawnLightningStrike(a.x, a.y);
                 if ((e.rainLightning.strikes || []).length || (e.rainLightning.ambient || []).length) playSound('lightning');
+            }
+            // 重放塞莱斯廷圣国【神谕】脉冲（状态已随快照同步，此处只放特效与浮字）
+            if (e && e.oraclePulses) {
+                for (const pulse of e.oraclePulses) {
+                    // 阶段事件
+                    emit('fx:celestineOracle', {
+                        presentationEventId: 'celestine:' + pulse.campKey + ':' + pulse.stage,
+                        stage: pulse.stage,
+                        campKey: pulse.campKey,
+                        activeRounds: pulse.activeRounds
+                    });
+                    // 脉冲表现事件
+                    if (pulse.smite || pulse.shield) {
+                        const statueAnchor = getOracleStatueAnchor(gameState, pulse.campKey);
+                        emit('fx:celestineOraclePulse', {
+                            ...pulse,
+                            statueX: statueAnchor?.x,
+                            statueY: statueAnchor?.y
+                        });
+                    }
+                }
             }
             break;
         case 'tacticalCard':

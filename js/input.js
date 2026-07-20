@@ -47,6 +47,7 @@ import {
     FELLOW_ROBE_FACTION_SYNERGY,
     getFellowRobeDefenseBonus
 } from '../rules/factionSynergies.js';
+import { getCelestineOracleState } from '../rules/celestine.js';
 import {
     EAGLE_FACTION_PASSIVE,
     getEagleSynergyMeter,
@@ -1504,6 +1505,26 @@ function _buildPassiveItems(unit) {
             kicker: FELLOW_ROBE_FACTION_SYNERGY.effect.type,
             active: true,
             intensity: 1,
+            kind: 'passive'
+        });
+    }
+    // 塞莱斯廷圣国【神谕】HUD 显示
+    const campKey = campToKey(unit.camp);
+    const celestineOracleState = getCelestineOracleState?.(gameState, campKey);
+    if (celestineOracleState && celestineOracleState.active) {
+        const stageNames = ['', '壹·神临', '贰·神启', '叁·神怒', '肆·神威', '伍·神灭'];
+        const stageName = stageNames[celestineOracleState.stage] || `第${celestineOracleState.stage}阶段`;
+        items.push({
+            key: 'faction:celestine-oracle',
+            icon: '🔆',
+            label: '神谕',
+            desc: `每轮开始时，【祂】将对全场攻击力最高的单位降下神罚造成真实伤害，并对全场防御力最低的单位附加同等数值的护盾，百分比随回合推进会逐渐提高。`,
+            color: '#f5d76e',
+            status: `当前神临 ${stageName}`,
+            count: '',
+            kicker: '阵营协同',
+            active: true,
+            intensity: celestineOracleState.stage / 5,
             kind: 'passive'
         });
     }

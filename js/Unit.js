@@ -13,7 +13,7 @@ import {
 import { MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG } from '../rules/terrain.js';
 import { hexDistance, HEX_NEIGHBORS } from '../rules/hex.js';
 import { getRoundIndex } from '../rules/turns.js';
-import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderWeatherDebuff, getEffectiveWeather, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
+import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderDamageBonusPct, getCommanderWeatherDebuff, getEffectiveWeather, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
 import { nextId } from './uid.js';
 import { emit } from './eventBus.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
@@ -585,6 +585,10 @@ export class Unit {
         if (!attackerCommanderSuppressed && attacker.commander === 'magician' && attacker._phantomStacks) {
             const balance = COMMANDER_CONFIG.magician.balance;
             dmgUp += Math.min(attacker._phantomStacks * balance.damagePerStack, balance.maxStacks * balance.damagePerStack);
+        }
+        // 塞莱斯廷圣国将领增伤（殉道者挽歌、堕天使黑形态、圣骑士勇气灵光等）
+        if (!attackerCommanderSuppressed) {
+            dmgUp += getCommanderDamageBonusPct(attacker);
         }
         const offenseMulti = Math.max(0, 1 + dmgUp);
 

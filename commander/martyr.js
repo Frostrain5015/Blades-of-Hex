@@ -10,18 +10,19 @@ export default {
     const unit = helpers.findCommanderUnit(camp, 'martyr');
     if (!unit || !unit.tile || unit.hp <= 0) return;
 
-    // ── 挽歌被动：己方单位阵亡 → 永久+5ATK（上限+25） ──
+    // ── 挽歌被动：己方单位阵亡 → 永久+5%伤害（上限8层=40%） ──
     const campKey = helpers.campKey || 'player1';
     const deathCount = (gameState._friendlyDeathCount && gameState._friendlyDeathCount[campKey]) || 0;
     const alreadyProcessed = unit._elegyProcessed || 0;
     const newDeaths = deathCount - alreadyProcessed;
     if (newDeaths > 0) {
       const currentBonus = unit._elegyBonus || 0;
-      const addedBonus = Math.min(BALANCE.elegyAttackCap - currentBonus, newDeaths * BALANCE.elegyAttackPerDeath);
+      const elegyDamageCap = Math.round((BALANCE.elegyDamageCap || 0.40) * 100);
+      const addedBonus = Math.min(elegyDamageCap - currentBonus, newDeaths * Math.round((BALANCE.elegyDamagePerDeath || 0.05) * 100));
       if (addedBonus > 0) {
         unit._elegyBonus = currentBonus + addedBonus;
         helpers.spawnFx(unit.tile.x, unit.tile.y, '🎵', '挽歌');
-        helpers.logMessage(`殉道者【挽歌】：${newDeaths}名友军阵亡 → ATK+${addedBonus} 累计+${unit._elegyBonus}/${BALANCE.elegyAttackCap}`);
+        helpers.logMessage(`殉道者【挽歌】：${newDeaths}名友军阵亡 → 伤害+${addedBonus}% 累计+${unit._elegyBonus}%/${elegyDamageCap}%`);
       }
       unit._elegyProcessed = deathCount;
     }
@@ -96,8 +97,8 @@ export default {
     return false;
   },
 
-  getAttackBonus(unit) {
-    return unit._elegyBonus || 0;
+  getDamageBonusPct(unit) {
+    return (unit._elegyBonus || 0) / 100;
   }
 };
 
