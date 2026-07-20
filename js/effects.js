@@ -1483,6 +1483,14 @@ const ORBITAL_BEAM_DURATION_MS = 1750;
 const ORBITAL_BEAM_HALO_START_MS = 1250;
 const ORBITAL_BEAM_HALO_LAND_MS = 1500;
 const ORBITAL_BEAM_SKY_OFFSET = 340;
+// 冲击光波：与 rules/cards.js 的 ORBITAL_STRIKE_TICK_DELAYS_MS 四段结算一一对应。
+// 前三段压制光波扩散到相邻格（解释周边扣血），末段主伤害光波明显增强。
+const ORBITAL_BEAM_WAVES = [
+    { at: 400, maxRadius: 1.85, width: 1.6, duration: 340, color: '#7fd0ff', glow: 8 },
+    { at: 650, maxRadius: 1.85, width: 1.6, duration: 340, color: '#7fd0ff', glow: 8 },
+    { at: 900, maxRadius: 1.85, width: 1.6, duration: 340, color: '#7fd0ff', glow: 8 },
+    { at: 1500, maxRadius: 2.7, width: 4, duration: 460, color: '#eaf7ff', glow: 22 }
+];
 
 export function spawnOrbitalBeam(x, y) {
     orbitalBeams.push({ x, y, startTime: performance.now(), duration: ORBITAL_BEAM_DURATION_MS });
@@ -1538,6 +1546,22 @@ export function drawOrbitalBeams(ctx2d, now) {
         ctx2d.beginPath();
         ctx2d.arc(b.x, b.y, 22 + 4 * Math.sin(elapsed / 120), 0, Math.PI * 2);
         ctx2d.stroke();
+        // 冲击光波：随四段结算节拍从光束底端向外扩散
+        for (const wave of ORBITAL_BEAM_WAVES) {
+            const waveElapsed = elapsed - wave.at;
+            if (waveElapsed <= 0 || waveElapsed >= wave.duration) continue;
+            const waveProgress = waveElapsed / wave.duration;
+            const eased = 1 - Math.pow(1 - waveProgress, 2.4);
+            const radius = Math.max(2, eased * wave.maxRadius * HEX_SIZE);
+            ctx2d.globalAlpha = (1 - waveProgress) * 0.85;
+            ctx2d.strokeStyle = wave.color;
+            ctx2d.lineWidth = wave.width * (1 - waveProgress * 0.4);
+            ctx2d.shadowColor = wave.color;
+            ctx2d.shadowBlur = wave.glow;
+            ctx2d.beginPath();
+            ctx2d.arc(b.x, b.y, radius, 0, Math.PI * 2);
+            ctx2d.stroke();
+        }
         // 收尾：巨大光环沿光柱外圈加速坠落
         if (elapsed >= ORBITAL_BEAM_HALO_START_MS && elapsed < ORBITAL_BEAM_HALO_LAND_MS) {
             const haloProgress = (elapsed - ORBITAL_BEAM_HALO_START_MS) / (ORBITAL_BEAM_HALO_LAND_MS - ORBITAL_BEAM_HALO_START_MS);

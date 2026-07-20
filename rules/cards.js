@@ -26,7 +26,7 @@ export const TACTICAL_CARD_DATA = (() => {
         poison: { id: 'poison', name: '投毒', icon: '☣️', targeting: 'anyUnit', balance: { ticks: 3, damageMaxHpPct: 0.15 } },
         commanderDeploy: { id: 'commanderDeploy', name: '部署将领', icon: EMOJI.cards.commanderDeploy, targeting: 'friendlyAny', desc: '【部署将领】\n将所选将领挂载到指定己方单位上' },
         // 天鹰阵营协同奖励卡：不进抽牌堆，仅由【天基支援协议】的受创计量发放
-        orbitalStrike: { id: 'orbitalStrike', name: '天基打击', icon: '🛰️', targeting: 'anyTileGlobal', balance: { centerAttack: 110, splashAttack: 55, tickRatios: [0.15, 0.15, 0.15, 0.55] } }
+        orbitalStrike: { id: 'orbitalStrike', name: '天基打击', icon: '🛰️', targeting: 'anyTileGlobal', balance: { centerAttack: 110, splashAttack: 55, tickRatios: [0.12, 0.12, 0.12, 0.64] } }
     };
     cards.heal.desc = `【疗愈】\n对指定单位释放，立即恢复其${percent(cards.heal.balance.healMaxHpPct)}最大生命值`;
     cards.lightning.desc = `【雷击】\n对指定敌方单位造成${rangeText(cards.lightning.balance.minDamage, cards.lightning.balance.maxDamage)}真实伤害，雨天伤害提高${percent(cards.lightning.balance.rainMultiplier - 1)}`;
@@ -178,7 +178,7 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
     // ① 基础火力由 balance.centerAttack/splashAttack 直接操控；② 无克制/将领增伤
     // （跨域加成显式中和，保持该乘区恒为 1）；③ 浮动顶格（恒取上限，视为暴击）；
     // ④ 防御正常生效，但 isAirDamage=false 不吃防空火力。伤害分四段：光束压制
-    // 3 段小额（15%×3），光环坠落引爆主伤害（55%）。预演扣血含护盾吸收，由调用方回滚。
+    // 3 段小额（12%×3），光环坠落引爆主伤害（64%）。预演扣血含护盾吸收，由调用方回滚。
     orbitalStrike: {
         ...TACTICAL_CARD_DATA.orbitalStrike,
         execute(targetTile, gameState, helpers) {

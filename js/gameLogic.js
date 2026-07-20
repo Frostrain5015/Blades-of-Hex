@@ -4337,7 +4337,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'orbitalStrike': {
             const oResults = result.results || [];
             logMessage(`🛰️【天基打击】天基平台对(${targetTile.q},${targetTile.r})及周边实施轨道光束打击`);
-            // 两段蓄力：光束压制三段小额伤害（15%×3），光环落地引爆主伤害（55%）。
+            // 两段蓄力：光束压制三段小额伤害（12%×3），光环落地引爆主伤害（64%）。
             // 节拍与 effects.js 轨道光束相位共用 ORBITAL_STRIKE_TICK_DELAYS_MS。
             const applyOrbitalTick = (tickIndex, isFinal) => {
                 for (const r of oResults) {
