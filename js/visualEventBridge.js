@@ -16,6 +16,7 @@ import {
 } from './effects.js';
 import { playSound } from './audio.js';
 import { CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
+import { CELESTINE_FACTION_SYNERGY } from '../rules/factionSynergies.js';
 import { playAureliaOathPresentation } from './aureliaOathPresentation.js';
 import { playEagleSynergyPresentation } from './eagleSynergyPresentation.js';
 import { playCelestineOraclePresentation } from './celestineOraclePresentation.js';
@@ -90,6 +91,8 @@ on('fx:celestineOraclePulse', event => {
     const factionName = gameState.factions?.[event.campKey]?.name || '';
     const statueOk = Number.isFinite(event.statueX) && Number.isFinite(event.statueY);
     const timing = CELESTINE_ORACLE_PULSE_TIMING;
+    // 阶段跃迁时 Hero 动画正在播放，脉冲弹着延迟到 Hero 结束后再触发
+    const heroDelayMs = event.stageChanged ? CELESTINE_FACTION_SYNERGY.hero.durationMs : 0;
     const resolvePoint = ref => {
         if (Number.isFinite(ref?.x) && Number.isFinite(ref?.y)) return { x: ref.x, y: ref.y };
         const tile = Number.isFinite(ref?.q) && Number.isFinite(ref?.r)
@@ -114,10 +117,15 @@ on('fx:celestineOraclePulse', event => {
             playSound(event.smite.killed ? 'explosion' : 'lightning');
         };
         if (statueOk && point) {
-            spawnCelestineOracleBeam(event.statueX, event.statueY, point.x, point.y, 'smite', 0, timing);
-            window.setTimeout(smiteImpact, timing.impactMs);
+            spawnCelestineOracleBeam(event.statueX, event.statueY, point.x, point.y, 'smite', heroDelayMs, timing);
+            window.setTimeout(smiteImpact, heroDelayMs + timing.impactMs);
         } else {
-            smiteImpact(); // 无神像锚点时降级为即时弹着
+            // 无神像锚点时降级为即时弹着（但阶段跃迁仍需延迟到 Hero 之后）
+            if (heroDelayMs > 0) {
+                window.setTimeout(smiteImpact, heroDelayMs);
+            } else {
+                smiteImpact();
+            }
         }
     }
     if (event.shield && event.shield.amount > 0) {
@@ -135,10 +143,14 @@ on('fx:celestineOraclePulse', event => {
             playSound('heal');
         };
         if (statueOk && point) {
-            spawnCelestineOracleBeam(event.statueX, event.statueY, point.x, point.y, 'shield', timing.shieldFollowMs, timing);
-            window.setTimeout(shieldImpact, timing.shieldFollowMs + timing.impactMs);
+            spawnCelestineOracleBeam(event.statueX, event.statueY, point.x, point.y, 'shield', heroDelayMs + timing.shieldFollowMs, timing);
+            window.setTimeout(shieldImpact, heroDelayMs + timing.shieldFollowMs + timing.impactMs);
         } else {
-            shieldImpact();
+            if (heroDelayMs > 0) {
+                window.setTimeout(shieldImpact, heroDelayMs);
+            } else {
+                shieldImpact();
+            }
         }
     }
 });

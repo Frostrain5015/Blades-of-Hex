@@ -1482,7 +1482,7 @@ export const orbitalBeams = [];
 const ORBITAL_BEAM_DURATION_MS = 1750;
 const ORBITAL_BEAM_HALO_START_MS = 1250;
 const ORBITAL_BEAM_HALO_LAND_MS = 1500;
-const ORBITAL_BEAM_SKY_OFFSET = 340;
+const ORBITAL_BEAM_SKY_OFFSET = 1200;
 // 冲击光波：与 rules/cards.js 的 ORBITAL_STRIKE_TICK_DELAYS_MS 四段结算一一对应。
 // 前三段压制光波扩散到相邻格（解释周边扣血），末段主伤害光波明显增强。
 const ORBITAL_BEAM_WAVES = [
@@ -1498,8 +1498,8 @@ export function spawnOrbitalBeam(x, y) {
     const sparkCount = Math.round(16 * settings.particleDensity);
     for (let i = 0; i < sparkCount; i++) {
         particles.push(new VisualParticle(
-            x + (Math.random() - 0.5) * 26, y - Math.random() * 30,
-            (Math.random() - 0.5) * 50, -(140 + Math.random() * 180),
+            x + (Math.random() - 0.5) * 60, y - Math.random() * 40,
+            (Math.random() - 0.5) * 80, -(180 + Math.random() * 240),
             Math.random() < 0.45 ? '#eaf7ff' : '#7fd0ff',
             1.2 + Math.random() * 2.4, 0.3 + Math.random() * 0.35, 0));
     }
@@ -1523,7 +1523,7 @@ export function drawOrbitalBeams(ctx2d, now) {
         if (alpha <= 0) continue;
         // 压制阶段的宽度脉动（模拟持续照射）
         const pulse = 1 + 0.12 * Math.sin(elapsed / 90);
-        const coreWidth = (5 + 7 * fadeIn) * pulse;
+        const coreWidth = (20 + 24 * fadeIn) * pulse;
         ctx2d.save();
         ctx2d.globalCompositeOperation = 'lighter';
         // 外层光晕柱
@@ -1537,14 +1537,14 @@ export function drawOrbitalBeams(ctx2d, now) {
         ctx2d.globalAlpha = alpha * 0.95;
         ctx2d.fillStyle = '#eaf7ff';
         ctx2d.shadowColor = '#7fd0ff';
-        ctx2d.shadowBlur = 18;
+        ctx2d.shadowBlur = 28;
         ctx2d.fillRect(b.x - coreWidth / 2, skyY, coreWidth, ORBITAL_BEAM_SKY_OFFSET);
         // 落点压制光环（持续呼吸）
         ctx2d.globalAlpha = alpha * (0.4 + 0.15 * Math.sin(elapsed / 120));
         ctx2d.strokeStyle = '#9fe0ff';
-        ctx2d.lineWidth = 2;
+        ctx2d.lineWidth = 3;
         ctx2d.beginPath();
-        ctx2d.arc(b.x, b.y, 22 + 4 * Math.sin(elapsed / 120), 0, Math.PI * 2);
+        ctx2d.arc(b.x, b.y, 38 + 6 * Math.sin(elapsed / 120), 0, Math.PI * 2);
         ctx2d.stroke();
         // 冲击光波：随四段结算节拍从光束底端向外扩散
         for (const wave of ORBITAL_BEAM_WAVES) {
@@ -1562,12 +1562,12 @@ export function drawOrbitalBeams(ctx2d, now) {
             ctx2d.arc(b.x, b.y, radius, 0, Math.PI * 2);
             ctx2d.stroke();
         }
-        // 收尾：巨大光环沿光柱外圈加速坠落
+        // 收尾：巨大光环沿光柱外圈加速坠落（从目标上方 250px 开始，不从天幕顶端走）
         if (elapsed >= ORBITAL_BEAM_HALO_START_MS && elapsed < ORBITAL_BEAM_HALO_LAND_MS) {
             const haloProgress = (elapsed - ORBITAL_BEAM_HALO_START_MS) / (ORBITAL_BEAM_HALO_LAND_MS - ORBITAL_BEAM_HALO_START_MS);
             const eased = haloProgress * haloProgress;
-            const haloY = skyY + (b.y - skyY) * eased;
-            const haloRadius = 34 - eased * 8;
+            const haloY = b.y - 250 * (1 - eased);
+            const haloRadius = 56 - eased * 12;
             ctx2d.globalAlpha = Math.min(1, haloProgress * 2.5);
             ctx2d.strokeStyle = '#eaf7ff';
             ctx2d.lineWidth = 5;
@@ -1581,19 +1581,19 @@ export function drawOrbitalBeams(ctx2d, now) {
         if (elapsed >= ORBITAL_BEAM_HALO_LAND_MS) {
             const flashProgress = Math.min(1, (elapsed - ORBITAL_BEAM_HALO_LAND_MS) / 220);
             const flashAlpha = 1 - flashProgress;
-            const flash = ctx2d.createRadialGradient(b.x, b.y, 0, b.x, b.y, 70);
+            const flash = ctx2d.createRadialGradient(b.x, b.y, 0, b.x, b.y, 110);
             flash.addColorStop(0, '#ffffff');
             flash.addColorStop(0.4, 'rgba(191, 234, 255, 0.8)');
             flash.addColorStop(1, 'rgba(127, 208, 255, 0)');
             ctx2d.globalAlpha = flashAlpha * 0.9;
             ctx2d.fillStyle = flash;
-            ctx2d.fillRect(b.x - 70, b.y - 70, 140, 140);
+            ctx2d.fillRect(b.x - 110, b.y - 110, 220, 220);
             ctx2d.globalAlpha = flashAlpha * 0.7;
             ctx2d.strokeStyle = '#9fe0ff';
-            ctx2d.lineWidth = 3;
-            ctx2d.shadowBlur = 10;
+            ctx2d.lineWidth = 4;
+            ctx2d.shadowBlur = 14;
             ctx2d.beginPath();
-            ctx2d.arc(b.x, b.y, 20 + flashProgress * 70, 0, Math.PI * 2);
+            ctx2d.arc(b.x, b.y, 40 + flashProgress * 120, 0, Math.PI * 2);
             ctx2d.stroke();
         }
         ctx2d.restore();
