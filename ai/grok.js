@@ -562,6 +562,27 @@ export function planActions(gameState, helpers, myCamp) {
                 actions.push({ type: 'tacticalCard', cardId: 'airstrike', targetId: bestAirstrikeTarget.id });
                 cardUses++;
             }
+        } else if (cardId === 'orbitalStrike') {
+            // 天基打击：锁定敌方单位最密集的位置（中心高价值目标优先）
+            let bestOrbitalTarget = null, bestOrbitalScore = 0;
+            for (const tile of gameState.tiles) {
+                let score = 0, hitCount = 0;
+                for (const [dq, dr] of [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]) {
+                    const nb = tileMap.get(`${tile.q + dq},${tile.r + dr}`);
+                    if (!nb || !nb.unit) continue;
+                    const isCenter = dq === 0 && dr === 0;
+                    if (nb.unit.camp === myCamp) { score -= isCenter ? 200 : 80; continue; }
+                    hitCount++;
+                    score += isCenter ? 120 : 40;
+                    if (isCenter && nb.unit.commander) score += 80;
+                    if (isCenter && nb.unit.hp <= 60) score += 50;
+                }
+                if (hitCount > 0 && score > bestOrbitalScore) { bestOrbitalScore = score; bestOrbitalTarget = tile; }
+            }
+            if (bestOrbitalScore >= 150) {
+                actions.push({ type: 'tacticalCard', cardId: 'orbitalStrike', targetId: bestOrbitalTarget.id });
+                cardUses++;
+            }
         } else if (cardId === 'shield') {
             let best = null, bestScore = 0;
             for (const u of allUnits) {

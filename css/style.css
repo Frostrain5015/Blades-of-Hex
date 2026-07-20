@@ -226,6 +226,52 @@ body {
 .is-playing.has-rescue-link .rescue-link-focus::before { animation: faction-synergy-ring-spin 2.8s linear infinite; }
 .is-playing.has-rescue-link .rescue-link-focus::after { animation: faction-synergy-ring-spin 3.6s linear infinite reverse; }
 
+.orbital-supply-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.orbital-supply-focus {
+    position: absolute;
+    z-index: 6;
+    width: var(--orbital-supply-focus-size, 72px);
+    aspect-ratio: 1;
+    opacity: 0;
+    transform: translate(-50%, -50%);
+}
+
+.orbital-supply-focus::before,
+.orbital-supply-focus::after,
+.orbital-supply-focus i {
+    content: "";
+    position: absolute;
+    inset: 4%;
+    border: 1px solid rgba(127, 208, 255, 0.75);
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(127, 208, 255, 0.30), inset 0 0 10px rgba(29, 78, 137, 0.28);
+}
+
+.orbital-supply-focus::after {
+    inset: 16%;
+    border-style: dashed;
+    border-color: rgba(245, 215, 110, 0.65);
+}
+
+.orbital-supply-focus i {
+    inset: -8%;
+    border-color: transparent;
+    background: radial-gradient(circle, rgba(127, 208, 255, 0.16), transparent 66%);
+    filter: blur(3px);
+}
+
+.is-playing.has-orbital-supply .orbital-supply-focus { animation: orbital-supply-focus var(--synergy-duration) both; }
+.is-playing.has-orbital-supply .orbital-supply-focus::before { animation: faction-synergy-ring-spin 2.8s linear infinite; }
+.is-playing.has-orbital-supply .orbital-supply-focus::after { animation: faction-synergy-ring-spin 3.6s linear infinite reverse; }
+
 .faction-synergy-waves {
     position: absolute;
     left: var(--synergy-core-x, 50%);
@@ -479,8 +525,16 @@ body {
 }
 @keyframes faction-synergy-ring-spin { to { transform: rotate(360deg); } }
 
+@keyframes orbital-supply-focus {
+    0%, 58% { opacity: 0; transform: translate(-50%, -50%) scale(1.45); }
+    64% { opacity: 0.95; transform: translate(-50%, -50%) scale(1); }
+    86% { opacity: 0.9; transform: translate(-50%, -50%) scale(1); }
+    96%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .rescue-link-particles { display: none; }
+    .rescue-link-particles,
+    .orbital-supply-canvas { display: none; }
     .is-playing .faction-synergy-core,
     .is-playing .faction-synergy-caption { animation-timing-function: ease-out; }
 }

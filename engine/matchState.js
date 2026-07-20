@@ -172,6 +172,8 @@ export function createMatchState() {
         _colonelAirStacks: {}, // E4: 上校【老练】空军伤害层数 { campKey: n }
         _aureliaOathUsed: {}, // 奥雷利亚阵营协同被动【同一个誓言】每阵营每局使用记录
         _pendingAureliaOathEvents: [], // 单次攻击广播前的瞬时表现事件，不参与快照
+        _eagleSynergy: {},    // 天鹰阵营协同被动【天基支援协议】计量表 { campKey: { total, triggers, taken, takenTriggers } }
+        _pendingEagleSynergyEvents: [], // 同步结算路径待广播的鹰链结算事件，不参与快照
         // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
         // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
         // 使联机收方与重连保持一致。详见 core/rng.js。
@@ -289,6 +291,8 @@ export function resetMatchState(match) {
     match._colonelAirStacks = {};
     match._aureliaOathUsed = {};
     match._pendingAureliaOathEvents = [];
+    match._eagleSynergy = {};
+    match._pendingEagleSynergyEvents = [];
     match.skirmishFog = false;
     match.visibleTiles = standard.visibleTiles;
     match.exploredTiles = standard.exploredTiles;
@@ -567,6 +571,8 @@ export function serializeMatchState(match) {
         droneDeployCount: { ...(match._droneDeployCount || {}) },
         colonelAirStacks: { ...(match._colonelAirStacks || {}) },
         aureliaOathUsed: { ...(match._aureliaOathUsed || {}) },
+        eagleSynergy: Object.fromEntries(Object.entries(match._eagleSynergy || {})
+            .map(([campKey, meter]) => [campKey, { ...meter }])),
         rngState: match.rng.getState(),
         killCount: { ...match.killCount },
         friendlyDeathCount: { ...(match._friendlyDeathCount || {}) },
@@ -691,6 +697,14 @@ export function restoreMatchState(match, data, deps) {
     match._colonelAirStacks = data.colonelAirStacks || {};
     match._aureliaOathUsed = data.aureliaOathUsed || {};
     match._pendingAureliaOathEvents = [];
+    match._eagleSynergy = Object.fromEntries(Object.entries(data.eagleSynergy || {})
+        .map(([campKey, meter]) => [campKey, {
+            total: meter?.total || 0,
+            triggers: meter?.triggers || 0,
+            taken: meter?.taken || 0,
+            takenTriggers: meter?.takenTriggers || 0
+        }]));
+    match._pendingEagleSynergyEvents = [];
     match.submarineReveals = record(data.submarineReveals, () => ({}));
     match.shoreBatteryBuiltRound = { ...(data.shoreBatteryBuiltRound || {}) };
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)

@@ -22,6 +22,7 @@ import {
     droneSuicideFlak, updateDroneSuicideFlak, drawDroneSuicideFlak,
     droneDives, updateDroneDives, drawDroneDives,
     lightningBolts, updateLightningBolts, drawLightningBolts,
+    updateOrbitalBeams, drawOrbitalBeams,
     cardUseEffects,
     spawnCardCopyEffect,
     coinParticles, updateCoinParticles, drawCoinParticles,
@@ -627,6 +628,10 @@ function _renderGame() {
     // 雷击对策卡通用特效
     updateLightningBolts(now);
     drawLightningBolts(ctx, now);
+
+    // 天基打击轨道光束（天鹰协同奖励卡特效）
+    updateOrbitalBeams(now);
+    drawOrbitalBeams(ctx, now);
 
     // ── 将领特效图层：preFog（雷击之后、迷雾遮罩之前；金光/圣链/攻心波纹/统御环）──
     drawFxLayer('preFog', ctx, now);

@@ -35,7 +35,7 @@ import {
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
     spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
-    spawnLightningStrike,
+    spawnLightningStrike, spawnOrbitalBeam,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing,
     spawnCardUseEffect, spawnAirstrikeEffect, spawnAirliftEffect,
@@ -53,7 +53,7 @@ import {
     updateAllFogOfWar,
     updateFogOfWar
 } from './fogOfWar.js';
-import { COLONEL_CARD_DATA } from '../rules/cards.js';
+import { COLONEL_CARD_DATA, ORBITAL_STRIKE_TICK_DELAYS_MS } from '../rules/cards.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { MORALE_CONFIG } from '../rules/terrain.js';
 import { applyPositionalMoralePenalty, clearPositionalMoralePenalty } from '../rules/morale.js';
@@ -65,6 +65,12 @@ import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js'
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { AURELIA_OATH_EFFECT, hasAureliaOathEffect } from '../rules/aurelia.js';
+import {
+    accrueEagleSynergyDamage,
+    hasEagleSynergyActive,
+    isEagleAirAttacker,
+    isEagleFortressAttacker
+} from '../rules/eagle.js';
 import { measure, perfEnabled } from './perf.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import {
@@ -709,6 +715,16 @@ let _neutralAiLock = false; // 防止AI在非中立回合异常触发
 
 function _campKey(camp) {
     return campToKey(camp);
+}
+
+// 天鹰【天基支援协议】记账：不经 Unit.applyDamage 的合规伤害（城市血池结构伤害）
+// 与延迟落弹路径从这里计入。deferred=true 时事件只本地发射、不进待广播队列。
+// 远端重放（main.js 空军指令落弹）复用同一入口，保证两端确定性一致。
+// 日志与表现统一由 visualEventBridge 落地。
+export function creditEagleSynergyDamage(campKey, amount, { deferred = false } = {}) {
+    if (!campKey || !(amount > 0) || !hasEagleSynergyActive(gameState, campKey)) return;
+    const event = accrueEagleSynergyDamage(gameState, campKey, amount, { deferred });
+    if (event) emit('fx:eagleSynergy', event);
 }
 
 function _updateSkirmishFogAll() {
@@ -2112,6 +2128,7 @@ function _attackUnit(attackerUnit, targetUnit) {
         attackerCamp: attackerUnit.camp, defenderCamp: targetUnit.camp
     });
     gameState._pendingAureliaOathEvents = [];
+    gameState._pendingEagleSynergyEvents = [];
 
     const _executeAttack = () => {
     const isCarrierStrafe = attackerUnit.type === 'carrier';
@@ -2191,9 +2208,15 @@ function _attackUnit(attackerUnit, targetUnit) {
         cityDamage = cityResult.damage;
         cityDamageIsCrit = cityResult.isCrit;
         if (cityDamage > 0) {
+            const cityPoolBefore = getCityPoolTile(primaryTargetTile, gameState.tileMap);
+            const cityPoolHpBefore = Math.max(0, cityPoolBefore?.hp || 0);
             damageCityPool(primaryTargetTile, cityDamage, gameState.tileMap);
             const cityPoolTile = getCityPoolTile(primaryTargetTile, gameState.tileMap);
             if (cityPoolTile) cityPoolTile._citySiegeDamageRound = getRoundIndex(gameState);
+            // 鹰链：要塞单位（驻军/岸防炮等）顺带造成的城市结构伤害按血池剩余截断计入
+            if (isEagleAirAttacker(attackerUnit) || isEagleFortressAttacker(attackerUnit)) {
+                creditEagleSynergyDamage(_campKey(attackerUnit.camp), Math.min(cityDamage, cityPoolHpBefore));
+            }
             setTimeout(() => {
                 gameState.damageTexts.push({
                     x: toX + 20,
@@ -2562,6 +2585,9 @@ function _attackUnit(attackerUnit, targetUnit) {
         const aureliaOathEvents = Array.isArray(gameState._pendingAureliaOathEvents)
             ? gameState._pendingAureliaOathEvents.splice(0)
             : [];
+        const eagleSynergyEvents = Array.isArray(gameState._pendingEagleSynergyEvents)
+            ? gameState._pendingEagleSynergyEvents.splice(0)
+            : [];
         broadcastAction('attack', {
             x: toX, y: toY,
             q: targetUnit.tile.q, r: targetUnit.tile.r,
@@ -2610,7 +2636,8 @@ function _attackUnit(attackerUnit, targetUnit) {
             extraSalvoResult,
             berserkerQixue: qixueActive,
             berserkerSplash: qixueSplashResults.length ? qixueSplashResults : null,
-            aureliaOathEvents: aureliaOathEvents.length ? aureliaOathEvents : null
+            aureliaOathEvents: aureliaOathEvents.length ? aureliaOathEvents : null,
+            eagleSynergyEvents: eagleSynergyEvents.length ? eagleSynergyEvents : null
         });
         emit('match:combatResolved', {
             attackerId: attackerUnit.id,
@@ -3555,9 +3582,14 @@ function _attackCityTile(attackerUnit, targetTile) {
         );
     }
     // 共享血池：攻击城内任意地块都扣同一池HP，并把脱战计时记在血池宿主（中心格）上。
-    damageCityPool(targetTile, result.damage, gameState.tileMap);
     const poolTile = getCityPoolTile(targetTile, gameState.tileMap) || targetTile;
+    const poolHpBeforeSiege = Math.max(0, poolTile.hp || 0);
+    damageCityPool(targetTile, result.damage, gameState.tileMap);
     poolTile._citySiegeDamageRound = getRoundIndex(gameState);
+    // 鹰链：航母舰载机（空军）与要塞单位的攻城结构伤害按血池剩余截断计入
+    if (isEagleAirAttacker(attackerUnit) || isEagleFortressAttacker(attackerUnit)) {
+        creditEagleSynergyDamage(_campKey(attackerUnit.camp), Math.min(result.damage, poolHpBeforeSiege));
+    }
 
     // 航母扫射的伤害数字延迟到子弹流抵达（与扫射单位的时序一致）
     if (isCarrierStrafe) {
@@ -3642,6 +3674,9 @@ function _attackCityTile(attackerUnit, targetTile) {
 
     recalcAllFlankingMorale();
     updateUI();
+    const siegeEagleSynergyEvents = Array.isArray(gameState._pendingEagleSynergyEvents)
+        ? gameState._pendingEagleSynergyEvents.splice(0)
+        : [];
     broadcastAction('attack', {
         isCitySiege: true,
         attackerUnitId: attackerUnit.id,
@@ -3651,7 +3686,8 @@ function _attackCityTile(attackerUnit, targetTile) {
         q: targetTile.q, r: targetTile.r,
         x: targetTile.x, y: targetTile.y,
         damage: result.damage, isCrit: result.isCrit,
-        cityHpAfter: targetTile.hp, cityCaptured
+        cityHpAfter: targetTile.hp, cityCaptured,
+        eagleSynergyEvents: siegeEagleSynergyEvents.length ? siegeEagleSynergyEvents : null
     });
     return true;
 }
@@ -3753,6 +3789,8 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
     }
 
     const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[kind];
+    // 鹰链：空军指令伤害记在机场所属阵营；落弹为延迟结算路径，本地与远端各自重算
+    const airCampKey = _campKey(launcherTile.camp);
     if (Number.isFinite(impactDelay) && results.some(result => Number(result.damage) > 0)) {
         setTimeout(() => {
             if (kind === 'strafe') {
@@ -3761,11 +3799,13 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                     if (tile && r.isCitySiege) {
                         // 共享血池：扫射城内任意地块都扣同一池HP
-                        damageCityPool(tile, r.damage, gameState.tileMap);
                         const poolTile = getCityPoolTile(tile, gameState.tileMap) || tile;
+                        const poolHpBefore = Math.max(0, poolTile.hp || 0);
+                        damageCityPool(tile, r.damage, gameState.tileMap);
                         poolTile._citySiegeDamageRound = getRoundIndex(gameState);
+                        creditEagleSynergyDamage(airCampKey, Math.min(r.damage, poolHpBefore), { deferred: true });
                     } else if (tile && tile.unit) {
-                        r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
+                        r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null, eagleAirForceCampKey: airCampKey });
                     }
                 }
                 // 扫射只有空袭+机枪音效，命中仅保留视觉反馈；explosion 专属轰炸
@@ -3780,11 +3820,13 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                     if (tile && r.isCitySiege) {
                         // 共享血池：轰炸城内任意地块都扣同一池HP
-                        damageCityPool(tile, r.damage, gameState.tileMap);
                         const poolTile = getCityPoolTile(tile, gameState.tileMap) || tile;
+                        const poolHpBefore = Math.max(0, poolTile.hp || 0);
+                        damageCityPool(tile, r.damage, gameState.tileMap);
                         poolTile._citySiegeDamageRound = getRoundIndex(gameState);
+                        creditEagleSynergyDamage(airCampKey, Math.min(r.damage, poolHpBefore), { deferred: true });
                     } else if (tile && tile.unit) {
-                        r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
+                        r.killed = tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null, eagleAirForceCampKey: airCampKey });
                     }
                 }
                 playSound('explosion');
@@ -3844,6 +3886,7 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     }
     const gs = gameState;
     const fromTile = droneUnit.tile;
+    gameState._pendingEagleSynergyEvents = [];
 
     const results = [];
     const applySuicideDamage = (tile, multiplier) => {
@@ -3891,6 +3934,9 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     if (gameState.skirmishFog) _updateSkirmishFogAll();
     updateRecruitCostDisplay();
     updateUI();
+    const suicideEagleSynergyEvents = Array.isArray(gameState._pendingEagleSynergyEvents)
+        ? gameState._pendingEagleSynergyEvents.splice(0)
+        : [];
     broadcastAction('droneSuicide', {
         fromX: fromTile.x,
         fromY: fromTile.y,
@@ -3899,7 +3945,8 @@ export function executeDroneSuicide(droneUnit, targetTile) {
         q: targetTile.q,
         r: targetTile.r,
         campKey: dCampKey,
-        results
+        results,
+        eagleSynergyEvents: suicideEagleSynergyEvents.length ? suicideEagleSynergyEvents : null
     });
     return true;
 }
@@ -3984,7 +4031,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     }
 
     // for damage/spawn/shield cards: save state, undo visual, re-apply after burn
-    const isDelayedCard = cardId === 'lightning' || cardId === 'airstrike' || cardId === 'mgNest' || cardId === 'shield';
+    const isDelayedCard = cardId === 'lightning' || cardId === 'airstrike' || cardId === 'mgNest' || cardId === 'shield' || cardId === 'orbitalStrike';
     let _savedHPs = null;
     let _mgNestSaved = null;
     let _shieldSaved = null;
@@ -3992,7 +4039,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         _savedHPs = [];
         if (cardId === 'lightning' && targetTile.unit) {
             _savedHPs.push({ tile: targetTile, hp: targetTile.unit.hp });
-        } else if (cardId === 'airstrike') {
+        } else if (cardId === 'airstrike' || cardId === 'orbitalStrike') {
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             for (const [dq, dr] of dirs) {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
@@ -4171,8 +4218,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // remove from hand（空军上校专属卡为金币门控、可复用 → 保留手牌、不进弃牌堆）
     if (!isColonelCard) {
         hand.splice(idx, 1);
-        // discard (except commanderDeploy and copy cards)
-        if (cardId !== 'commanderDeploy' && !isCopyCard) {
+        // discard (except commanderDeploy, copy cards and faction-granted orbitalStrike)
+        if (cardId !== 'commanderDeploy' && cardId !== 'orbitalStrike' && !isCopyCard) {
             gameState.cardDiscardPile.push(cardId);
         }
     }
@@ -4286,6 +4333,51 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             }, BURN_MS);
             break;
         }
+        case 'orbitalStrike': {
+            const oResults = result.results || [];
+            logMessage(`🛰️【天基打击】天基平台对(${targetTile.q},${targetTile.r})及周边实施轨道光束打击`);
+            // 两段蓄力：光束压制三段小额伤害（15%×3），光环落地引爆主伤害（55%）。
+            // 节拍与 effects.js 轨道光束相位共用 ORBITAL_STRIKE_TICK_DELAYS_MS。
+            const applyOrbitalTick = (tickIndex, isFinal) => {
+                for (const r of oResults) {
+                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                    if (!tile) continue;
+                    const tickDmg = r.ticks?.[tickIndex] || 0;
+                    if (tickDmg <= 0) continue;
+                    if (tile.unit) {
+                        // 统一伤害入口：天基打击按远程攻击结算（护盾正常吸收）
+                        const dc = tile.unit.camp;
+                        const killed = tile.unit.applyDamage(tickDmg, { source: 'ranged' });
+                        if (killed) {
+                            const dck = _campKey(dc);
+                            gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                        }
+                        gameState.damageTexts.push({
+                            x: tile.x, y: tile.y, value: tickDmg, isCrit: isFinal,
+                            timeLeft: isFinal ? 1000 : 800, lastUpdate: performance.now()
+                        });
+                    }
+                    spawnExplosionParticles(tile.x, tile.y, isFinal ? '#7fd0ff' : '#9fe0ff', isFinal ? 18 : 5);
+                    if (isFinal) {
+                        spawnExplosionParticles(tile.x, tile.y, '#eaf7ff', 12);
+                        triggerAttackFlash(tile.x, tile.y, true);
+                    }
+                }
+                triggerScreenShake(isFinal ? 14 : 3, isFinal ? 500 : 180);
+            };
+            setTimeout(() => {
+                spawnOrbitalBeam(x, y);
+                playSound('lightning');
+                ORBITAL_STRIKE_TICK_DELAYS_MS.forEach((tickAt, tickIndex) => {
+                    const isFinal = tickIndex === ORBITAL_STRIKE_TICK_DELAYS_MS.length - 1;
+                    setTimeout(() => {
+                        if (isFinal) playSound('explosion');
+                        applyOrbitalTick(tickIndex, isFinal);
+                    }, tickAt);
+                });
+            }, BURN_MS);
+            break;
+        }
         case 'diveStrafe': {
             // 俯冲扫射：单发伤害
             logMessage(`💥【俯冲扫射】对${targetTile.camp?.name}${targetTile.unit?.config?.name}兵造成${result.dmg}伤害`);
@@ -4308,7 +4400,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         // result.dmg 已在 execute() 走完标准管线（含防御），此处直接结算；source 'air' 不触发铁卫转移
                         const colonel = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
                         const targetUnit = targetTile.unit;
-                        const killed = targetUnit.applyDamage(result.dmg, { source: 'air', attacker: colonel });
+                        const killed = targetUnit.applyDamage(result.dmg, { source: 'air', attacker: colonel, eagleAirForceCampKey: campKey });
                         if (colonel) {
                             // 命中经验（与普攻一致）：基础 1 XP + 暴击额外 2 XP
                             if (result.dmg > 0) {
@@ -4358,7 +4450,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）；dmg 已走完管线
                         if (tile.unit) {
                             const _target = tile.unit;
-                            const _killed = _target.applyDamage(r.dmg, { source: 'air', attacker: colonel });
+                            const _killed = _target.applyDamage(r.dmg, { source: 'air', attacker: colonel, eagleAirForceCampKey: campKey });
                             if (colonel) {
                                 // AOE 命中经验：每击中一个存活单位 1 XP（AOE 效率已由范围体现，不另加暴击加成）
                                 if (r.dmg > 0) colonel.addXP(1);
@@ -4486,8 +4578,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 const hand = gameState.playerHands[ck] || [];
                 const hBonus = co.handSizeBonus || 0;
                 if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
-                // 连横不可复制"部署将领"卡
-                if (cardId === 'commanderDeploy' || cardId === 'diveStrafe' || cardId === 'carpetBomb' || cardId === 'airlift') continue;
+                // 连横不可复制"部署将领"卡与阵营协同奖励卡
+                if (cardId === 'commanderDeploy' || cardId === 'diveStrafe' || cardId === 'carpetBomb' || cardId === 'airlift' || cardId === 'orbitalStrike') continue;
                 hand.push({ id: cardId, _copy: true });
                 logMessage(`纵横家【连横】：${ck}获得${cardId}的复制`);
                 spawnCardCopyEffect(targetTile.x, targetTile.y, 500, 375, cardId);
@@ -4502,5 +4594,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // E4 空军上校：diveStrafe/carpetBomb 伤害在本地 setTimeout 内结算，广播时状态尚未含伤害，
     // 故携带 result 供远端在自己的 setTimeout 内同样结算（对齐 lightning 的延迟结算模式）
     const carpetBombResults = (cardId === 'carpetBomb') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg, isCrit: r.isCrit })) : null;
-    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, purifiedPoison: result.purifiedPoison, poisoned: result.poisoned, mineType: result.mineType, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
+    // 天基打击与空袭同理：伤害在本地 setTimeout 内结算，广播时状态尚未含伤害，携带结果供远端重放
+    const orbitalStrikeResults = (cardId === 'orbitalStrike') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg })) : null;
+    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, purifiedPoison: result.purifiedPoison, poisoned: result.poisoned, mineType: result.mineType, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, orbitalStrikeResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
 }

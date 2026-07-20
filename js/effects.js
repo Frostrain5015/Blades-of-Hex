@@ -1474,6 +1474,108 @@ export function spawnPaladinBeamProjectiles(fromX, fromY, toX, toY, count) {
     }
 }
 
+// ===== 天基打击轨道光束（天鹰阵营协同奖励卡特效） =====================
+// 两段蓄力：光柱自天而降持续压制目标区域（期间结算三段小额伤害），
+// 收尾时巨大光环沿光柱外圈坠落地面引发爆闪（结算主伤害）。
+// 相位时刻需与 rules/cards.js 的 ORBITAL_STRIKE_TICK_DELAYS_MS 保持一致。
+export const orbitalBeams = [];
+const ORBITAL_BEAM_DURATION_MS = 1750;
+const ORBITAL_BEAM_HALO_START_MS = 1250;
+const ORBITAL_BEAM_HALO_LAND_MS = 1500;
+const ORBITAL_BEAM_SKY_OFFSET = 340;
+
+export function spawnOrbitalBeam(x, y) {
+    orbitalBeams.push({ x, y, startTime: performance.now(), duration: ORBITAL_BEAM_DURATION_MS });
+    // 落点离子火花：被光束电离的空气持续向上逸散
+    const sparkCount = Math.round(16 * settings.particleDensity);
+    for (let i = 0; i < sparkCount; i++) {
+        particles.push(new VisualParticle(
+            x + (Math.random() - 0.5) * 26, y - Math.random() * 30,
+            (Math.random() - 0.5) * 50, -(140 + Math.random() * 180),
+            Math.random() < 0.45 ? '#eaf7ff' : '#7fd0ff',
+            1.2 + Math.random() * 2.4, 0.3 + Math.random() * 0.35, 0));
+    }
+}
+
+export function updateOrbitalBeams(now) {
+    for (let i = orbitalBeams.length - 1; i >= 0; i--) {
+        if (now - orbitalBeams[i].startTime > orbitalBeams[i].duration) orbitalBeams.splice(i, 1);
+    }
+}
+
+export function drawOrbitalBeams(ctx2d, now) {
+    for (const b of orbitalBeams) {
+        const elapsed = now - b.startTime;
+        const skyY = b.y - ORBITAL_BEAM_SKY_OFFSET;
+        const fadeIn = Math.min(1, elapsed / 150);
+        const fadeOut = elapsed > ORBITAL_BEAM_HALO_LAND_MS
+            ? Math.max(0, 1 - (elapsed - ORBITAL_BEAM_HALO_LAND_MS) / (ORBITAL_BEAM_DURATION_MS - ORBITAL_BEAM_HALO_LAND_MS))
+            : 1;
+        const alpha = fadeIn * fadeOut;
+        if (alpha <= 0) continue;
+        // 压制阶段的宽度脉动（模拟持续照射）
+        const pulse = 1 + 0.12 * Math.sin(elapsed / 90);
+        const coreWidth = (5 + 7 * fadeIn) * pulse;
+        ctx2d.save();
+        ctx2d.globalCompositeOperation = 'lighter';
+        // 外层光晕柱
+        const glow = ctx2d.createLinearGradient(b.x - coreWidth * 3, 0, b.x + coreWidth * 3, 0);
+        glow.addColorStop(0, 'rgba(127, 208, 255, 0)');
+        glow.addColorStop(0.5, `rgba(127, 208, 255, ${0.35 * alpha})`);
+        glow.addColorStop(1, 'rgba(127, 208, 255, 0)');
+        ctx2d.fillStyle = glow;
+        ctx2d.fillRect(b.x - coreWidth * 3, skyY, coreWidth * 6, ORBITAL_BEAM_SKY_OFFSET);
+        // 内层白芯
+        ctx2d.globalAlpha = alpha * 0.95;
+        ctx2d.fillStyle = '#eaf7ff';
+        ctx2d.shadowColor = '#7fd0ff';
+        ctx2d.shadowBlur = 18;
+        ctx2d.fillRect(b.x - coreWidth / 2, skyY, coreWidth, ORBITAL_BEAM_SKY_OFFSET);
+        // 落点压制光环（持续呼吸）
+        ctx2d.globalAlpha = alpha * (0.4 + 0.15 * Math.sin(elapsed / 120));
+        ctx2d.strokeStyle = '#9fe0ff';
+        ctx2d.lineWidth = 2;
+        ctx2d.beginPath();
+        ctx2d.arc(b.x, b.y, 22 + 4 * Math.sin(elapsed / 120), 0, Math.PI * 2);
+        ctx2d.stroke();
+        // 收尾：巨大光环沿光柱外圈加速坠落
+        if (elapsed >= ORBITAL_BEAM_HALO_START_MS && elapsed < ORBITAL_BEAM_HALO_LAND_MS) {
+            const haloProgress = (elapsed - ORBITAL_BEAM_HALO_START_MS) / (ORBITAL_BEAM_HALO_LAND_MS - ORBITAL_BEAM_HALO_START_MS);
+            const eased = haloProgress * haloProgress;
+            const haloY = skyY + (b.y - skyY) * eased;
+            const haloRadius = 34 - eased * 8;
+            ctx2d.globalAlpha = Math.min(1, haloProgress * 2.5);
+            ctx2d.strokeStyle = '#eaf7ff';
+            ctx2d.lineWidth = 5;
+            ctx2d.shadowColor = '#7fd0ff';
+            ctx2d.shadowBlur = 22;
+            ctx2d.beginPath();
+            ctx2d.ellipse(b.x, haloY, haloRadius, haloRadius * 0.32, 0, 0, Math.PI * 2);
+            ctx2d.stroke();
+        }
+        // 落地爆闪 + 地面冲击波
+        if (elapsed >= ORBITAL_BEAM_HALO_LAND_MS) {
+            const flashProgress = Math.min(1, (elapsed - ORBITAL_BEAM_HALO_LAND_MS) / 220);
+            const flashAlpha = 1 - flashProgress;
+            const flash = ctx2d.createRadialGradient(b.x, b.y, 0, b.x, b.y, 70);
+            flash.addColorStop(0, '#ffffff');
+            flash.addColorStop(0.4, 'rgba(191, 234, 255, 0.8)');
+            flash.addColorStop(1, 'rgba(127, 208, 255, 0)');
+            ctx2d.globalAlpha = flashAlpha * 0.9;
+            ctx2d.fillStyle = flash;
+            ctx2d.fillRect(b.x - 70, b.y - 70, 140, 140);
+            ctx2d.globalAlpha = flashAlpha * 0.7;
+            ctx2d.strokeStyle = '#9fe0ff';
+            ctx2d.lineWidth = 3;
+            ctx2d.shadowBlur = 10;
+            ctx2d.beginPath();
+            ctx2d.arc(b.x, b.y, 20 + flashProgress * 70, 0, Math.PI * 2);
+            ctx2d.stroke();
+        }
+        ctx2d.restore();
+    }
+}
+
 // ===== 圣骑士誓言金色光束 =====
 export const goldenBeams = [];
 
@@ -1587,6 +1689,7 @@ export function clearTransientEffects() {
     recoils.length = 0;
     charges.length = 0;
     lightningBolts.length = 0;
+    orbitalBeams.length = 0;
     screenShake.time = 0;
     cardUseEffects.length = 0;
     bloodDrains.length = 0;

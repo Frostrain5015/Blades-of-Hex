@@ -76,6 +76,56 @@ export const AURELIA_FACTION_SYNERGY = defineFactionSynergy({
 
 export const AURELIA_COMMANDER_IDS = AURELIA_FACTION_SYNERGY.commanderIds;
 
+// A-07「天鹰」特遣队：空军上校、工程师、天眼。
+// 协同被动【天基支援协议】的平衡参数与判定在 rules/eagle.js；此处只登记身份与 Hero 主题。
+export const EAGLE_FACTION_SYNERGY = defineFactionSynergy({
+    id: 'eagle',
+    factionName: '天鹰特遣队',
+    commanderIds: [
+        'colonel',
+        'engineer',
+        'tianyan'
+    ],
+    marker: {
+        symbol: '🦅',
+        label: '天鹰特遣队',
+        color: '#7fd0ff',
+        borderColor: 'rgba(127, 208, 255, 0.66)',
+        background: 'rgba(6, 16, 26, 0.84)',
+        glowColor: 'rgba(127, 208, 255, 0.16)'
+    },
+    hero: {
+        id: 'eagle-skylink',
+        emblem: {
+            kind: 'text',
+            value: '🦅',
+            label: '天鹰徽记'
+        },
+        kicker: '阵营协同',
+        title: '天基支援协议',
+        durationMs: 4600,
+        followupStartMs: 2800,
+        theme: {
+            text: '#d9e8f5',
+            brightText: '#f0f8ff',
+            accent: '#7fd0ff',
+            accentSoft: '#4a89c4',
+            faction: '#1d4e89',
+            shadow: '#0a2238',
+            backdropGlow: 'rgba(43, 96, 143, 0.20)',
+            backdropTop: 'rgba(2, 4, 7, 0.70)',
+            backdropBottom: 'rgba(4, 10, 16, 0.80)'
+        },
+        followup: {
+            kind: 'orbital-supply',
+            particleCount: 26,
+            particleColors: ['#8fd8ff', '#f5d76e']
+        }
+    }
+});
+
+export const EAGLE_COMMANDER_IDS = EAGLE_FACTION_SYNERGY.commanderIds;
+
 // 未命中任何文化阵营专属协同时的混编兜底项。
 // 名称取自《诗经·秦风·无衣》“岂曰无衣？与子同袍”。
 export const FELLOW_ROBE_FACTION_SYNERGY = defineFactionSynergy({
@@ -130,6 +180,7 @@ export const FELLOW_ROBE_FACTION_SYNERGY = defineFactionSynergy({
 
 const FACTION_SYNERGIES = Object.freeze([
     AURELIA_FACTION_SYNERGY,
+    EAGLE_FACTION_SYNERGY,
     FELLOW_ROBE_FACTION_SYNERGY
 ]);
 

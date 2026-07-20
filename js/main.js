@@ -4,13 +4,14 @@ import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notif
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef, setIsNetworkGameRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
-import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender } from './gameLogic.js';
+import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, creditEagleSynergyDamage } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { COMMANDER_REROLL_COST } from './config.js';
 import { COMMANDER_DRAFT } from '../rules/constants.js';
-import { damageCityPool } from '../rules/citySiege.js';
+import { ORBITAL_STRIKE_TICK_DELAYS_MS } from '../rules/cards.js';
+import { damageCityPool, getCityPoolTile } from '../rules/citySiege.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
 import {
     triggerTurnFlash,
@@ -19,7 +20,7 @@ import {
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
     spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
-    spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
+    spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike, spawnOrbitalBeam,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
     spawnGoldenBeam, spawnPaladinOrbitBeams, spawnPaladinBeamProjectiles, clearPaladinOrbitBeams,
@@ -3097,6 +3098,46 @@ async function handleRemoteAction(msg) {
                             }, 1200);
                             break;
                         }
+                        case 'orbitalStrike': {
+                            const oResults = e.orbitalStrikeResults || [];
+                            // 与本地同一节拍：光束压制三段小额 + 光环落地引爆主伤害
+                            spawnOrbitalBeam(e.x, e.y);
+                            playSound('lightning');
+                            const applyRemoteOrbitalTick = (tickIndex, isFinal) => {
+                                for (const r of oResults) {
+                                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                                    if (!tile) continue;
+                                    const tickDmg = r.ticks?.[tickIndex] || 0;
+                                    if (tickDmg <= 0) continue;
+                                    if (tile.unit) {
+                                        const dc = tile.unit.camp;
+                                        const killed = tile.unit.applyDamage(tickDmg, { source: 'ranged' });
+                                        if (killed) {
+                                            const dck = campToKey(dc);
+                                            gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                        }
+                                        gameState.damageTexts.push({
+                                            x: tile.x, y: tile.y, value: tickDmg, isCrit: isFinal,
+                                            timeLeft: isFinal ? 1000 : 800, lastUpdate: performance.now()
+                                        });
+                                    }
+                                    spawnExplosionParticles(tile.x, tile.y, isFinal ? '#7fd0ff' : '#9fe0ff', isFinal ? 18 : 5);
+                                    if (isFinal) {
+                                        spawnExplosionParticles(tile.x, tile.y, '#eaf7ff', 12);
+                                        triggerAttackFlash(tile.x, tile.y, true);
+                                    }
+                                }
+                                triggerScreenShake(isFinal ? 14 : 3, isFinal ? 500 : 180);
+                            };
+                            ORBITAL_STRIKE_TICK_DELAYS_MS.forEach((tickAt, tickIndex) => {
+                                const isFinal = tickIndex === ORBITAL_STRIKE_TICK_DELAYS_MS.length - 1;
+                                setTimeout(() => {
+                                    if (isFinal) playSound('explosion');
+                                    applyRemoteOrbitalTick(tickIndex, isFinal);
+                                }, tickAt);
+                            });
+                            break;
+                        }
                         case 'airlift': {
                             // 传送已随 state 同步，远端重放空运动画（落地前隐藏该单位）
                             const aUnit = e.unitId ? gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.unitId ? t.unit : null), null) : null;
@@ -3125,7 +3166,8 @@ async function handleRemoteAction(msg) {
                                 if (dt && dt.unit && e.dmg) {
                                     const dc = dt.unit.camp;
                                     const _isCmdR = !!dt.unit.commander;
-                                    const killed = dt.unit.applyDamage(e.dmg, { source: 'ranged' });
+                                    // 鹰链：上校空军卡为延迟结算路径，出卡方即当前回合阵营
+                                    const killed = dt.unit.applyDamage(e.dmg, { source: 'ranged', eagleAirForceCampKey: campToKey(gameState.currentCamp) });
                                     if (killed) {
                                         const dck = campToKey(dc);
                                         gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
@@ -3153,7 +3195,8 @@ async function handleRemoteAction(msg) {
                                     if (tile.unit && r.dmg) {
                                         const dc = tile.unit.camp;
                                         const _isCmdR = !!tile.unit.commander;
-                                        const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
+                                        // 鹰链：上校空军卡为延迟结算路径，出卡方即当前回合阵营
+                                        const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged', eagleAirForceCampKey: campToKey(gameState.currentCamp) });
                                         if (killed) {
                                             const dck = campToKey(dc);
                                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
@@ -3189,6 +3232,11 @@ async function handleRemoteAction(msg) {
             }
             break;
         case 'attack':
+            // 天鹰【鹰链红利】：同步结算路径的事件随广播 relay（含攻城分支）；
+            // 金币已随快照同步，这里只负责表现层，presentationEventId 去重防双播。
+            for (const eagleEvent of e?.eagleSynergyEvents || []) {
+                emit('fx:eagleSynergy', eagleEvent);
+            }
             // 地面/海军攻城：状态已随快照同步，这里只重放轻量的爆炸/伤害数字，不进普通单位对战的整套重放逻辑。
             if (e?.isCitySiege) {
                 // 攻城开火动画需与攻击方本地表现一致（鱼雷/炮击/扫射/近战），此前只弹一个通用爆炸，
@@ -3510,6 +3558,10 @@ async function handleRemoteAction(msg) {
                 spawnCommanderSkillEffect(target.x, target.y, '🔭', '侦察机');
             }
             const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[e.kind];
+            // 天鹰【鹰链红利】：空军指令为延迟结算路径，远端与主机端各自确定性重算；
+            // 记账阵营取机场地块（快照已落地，即发起方阵营）。
+            const airLauncherTile = gameState.tileMap.get(`${e.launcherQ},${e.launcherR}`);
+            const airCampKey = airLauncherTile?.camp ? campToKey(airLauncherTile.camp) : null;
             if (Number.isFinite(impactDelay)) {
                 setTimeout(() => {
                     if (e.kind === 'strafe') {
@@ -3518,9 +3570,11 @@ async function handleRemoteAction(msg) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                             if (tile && r.isCitySiege) {
                                 // 共享血池：与主机端一致走 damageCityPool（镜像同步到全城）
+                                const poolHpBefore = Math.max(0, (getCityPoolTile(tile, gameState.tileMap) || tile).hp || 0);
                                 damageCityPool(tile, r.damage, gameState.tileMap);
+                                creditEagleSynergyDamage(airCampKey, Math.min(r.damage, poolHpBefore), { deferred: true });
                             } else if (tile && tile.unit) {
-                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
+                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null, eagleAirForceCampKey: airCampKey });
                             }
                         }
                         // 扫射只有空袭+机枪音效，命中仅保留视觉反馈；explosion 专属轰炸
@@ -3535,9 +3589,11 @@ async function handleRemoteAction(msg) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                             if (tile && r.isCitySiege) {
                                 // 共享血池：与主机端一致走 damageCityPool（镜像同步到全城）
+                                const poolHpBefore = Math.max(0, (getCityPoolTile(tile, gameState.tileMap) || tile).hp || 0);
                                 damageCityPool(tile, r.damage, gameState.tileMap);
+                                creditEagleSynergyDamage(airCampKey, Math.min(r.damage, poolHpBefore), { deferred: true });
                             } else if (tile && tile.unit) {
-                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null });
+                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null, eagleAirForceCampKey: airCampKey });
                             }
                         }
                         playSound('explosion');
@@ -3589,6 +3645,10 @@ async function handleRemoteAction(msg) {
                         timeLeft: 900,
                         lastUpdate: performance.now()
                     });
+                }
+                // 天鹰【鹰链红利】：自爆为同步结算路径，事件随广播 relay
+                for (const eagleEvent of e.eagleSynergyEvents || []) {
+                    emit('fx:eagleSynergy', eagleEvent);
                 }
             }
             break;

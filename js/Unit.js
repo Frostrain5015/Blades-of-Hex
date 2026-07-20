@@ -45,6 +45,16 @@ import {
     hasAureliaOathEffect
 } from '../rules/aurelia.js';
 import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
+import {
+    accrueEagleDamageTaken,
+    accrueEagleSynergyDamage,
+    EAGLE_FACTION_PASSIVE,
+    getEagleSynergyMeter,
+    hasEagleSynergyActive,
+    isEagleCommanderUnit,
+    resolveEagleDamageCreditCampKey,
+    resolveEagleDamageTakenCampKey
+} from '../rules/eagle.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -257,6 +267,17 @@ export class Unit {
                 color: AURELIA_OATH_EFFECT.color,
                 remaining: aureliaOathRemaining,
                 status: `持续${aureliaOathRemaining}回合`
+            });
+        }
+
+        // 天鹰阵营协同【天基支援协议】：展示战功/受创两条计量的当前进度
+        if (isEagleCommanderUnit(this) && hasEagleSynergyActive(gameState, this.camp)) {
+            const eagleMeter = getEagleSynergyMeter(gameState, this.camp);
+            effects.push({
+                label: EAGLE_FACTION_PASSIVE.name,
+                desc: EAGLE_FACTION_PASSIVE.description,
+                color: EAGLE_FACTION_PASSIVE.color,
+                status: `战功 ${eagleMeter.progress}/${eagleMeter.threshold}（已拨付$${eagleMeter.goldPaid}）· 受创 ${eagleMeter.takenProgress}/${eagleMeter.takenThreshold}`
             });
         }
 
@@ -853,6 +874,36 @@ export class Unit {
         if (this.godMode) return false;
 
         let actualDmg = dmg;
+
+        // 天鹰特遣队【天基支援协议】：空军/要塞来源的伤害计入战功计量（轨道补给），
+        // 敌来源伤害计入受创计量（天基打击授权）。护盾吸收的部分同样算"造成/受到"；
+        // 过量伤害按目标剩余生命+护盾截断，防止补刀与斩杀虚增计量。
+        // 延迟结算路径（eagleAirForceCampKey）两端各自重算，事件不进待广播队列，
+        // 靠 presentationEventId 去重。日志与表现统一由 visualEventBridge 落地。
+        if (actualDmg > 0 && _gameState) {
+            const eagleCredited = Math.min(Math.round(actualDmg), Math.max(0, this.hp) + Math.max(0, this._shield || 0));
+            const eagleDeferred = Boolean(opts.eagleAirForceCampKey);
+            const eagleCampKey = resolveEagleDamageCreditCampKey({
+                attacker,
+                airForceCampKey: opts.eagleAirForceCampKey || null,
+                target: this,
+                gameState: _gameState
+            });
+            if (eagleCampKey) {
+                const eagleEvent = accrueEagleSynergyDamage(_gameState, eagleCampKey, eagleCredited, { deferred: eagleDeferred });
+                if (eagleEvent) emit('fx:eagleSynergy', eagleEvent);
+            }
+            const eagleTakenCampKey = resolveEagleDamageTakenCampKey({
+                target: this,
+                attacker,
+                airForceCampKey: opts.eagleAirForceCampKey || null,
+                gameState: _gameState
+            });
+            if (eagleTakenCampKey) {
+                const takenEvent = accrueEagleDamageTaken(_gameState, eagleTakenCampKey, eagleCredited, { deferred: eagleDeferred });
+                if (takenEvent) emit('fx:eagleSynergy', takenEvent);
+            }
+        }
 
         // 护盾优先吸收伤害（真实伤害绕过）
         const suppressedIronGuardShield = areCommanderMechanicsSuppressed(this) && this.commander === 'ironGuard' && this._shieldTurns >= 999;
