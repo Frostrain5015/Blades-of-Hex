@@ -13,7 +13,7 @@ export const FRONTEND_TEXT = deepFreeze({
         shoreBattery: { name: '制海', desc: '对舰船伤害提高30%，对陆军伤害降低60%，可侦测2格内的潜艇' }
     },
     effectDescriptions: {
-        courageAura: `攻击力提高${percent(COMMANDER_CONFIG.paladin.balance.auraAttackBonus)}，士气不会下降`,
+        courageAura: `造成的伤害提高${percent(COMMANDER_CONFIG.paladin.balance.auraDamageBonus)}，士气不会下降`,
         healingAura: `每回合回复${percent(COMMANDER_CONFIG.priest.balance.auraHealPct)}最大生命值，受致命一击时提前释放全部剩余治疗量，仍不足则保底${percent(COMMANDER_CONFIG.priest.balance.minimumHpPct)}生命`,
         imprisoned: '本回合无法移动',
         immobile: '该单位无法移动',

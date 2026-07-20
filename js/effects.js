@@ -1523,7 +1523,7 @@ export function drawOrbitalBeams(ctx2d, now) {
         if (alpha <= 0) continue;
         // 压制阶段的宽度脉动（模拟持续照射）
         const pulse = 1 + 0.12 * Math.sin(elapsed / 90);
-        const coreWidth = (20 + 24 * fadeIn) * pulse;
+        const coreWidth = (16 + 18 * fadeIn) * pulse;
         ctx2d.save();
         ctx2d.globalCompositeOperation = 'lighter';
         // 外层光晕柱
@@ -1581,20 +1581,46 @@ export function drawOrbitalBeams(ctx2d, now) {
         if (elapsed >= ORBITAL_BEAM_HALO_LAND_MS) {
             const flashProgress = Math.min(1, (elapsed - ORBITAL_BEAM_HALO_LAND_MS) / 220);
             const flashAlpha = 1 - flashProgress;
-            const flash = ctx2d.createRadialGradient(b.x, b.y, 0, b.x, b.y, 110);
+            // 强光爆闪（外层大范围）
+            const flash = ctx2d.createRadialGradient(b.x, b.y, 0, b.x, b.y, 130);
             flash.addColorStop(0, '#ffffff');
-            flash.addColorStop(0.4, 'rgba(191, 234, 255, 0.8)');
+            flash.addColorStop(0.25, 'rgba(255, 255, 255, 0.95)');
+            flash.addColorStop(0.5, 'rgba(191, 234, 255, 0.7)');
             flash.addColorStop(1, 'rgba(127, 208, 255, 0)');
-            ctx2d.globalAlpha = flashAlpha * 0.9;
+            ctx2d.globalAlpha = flashAlpha * 0.95;
             ctx2d.fillStyle = flash;
-            ctx2d.fillRect(b.x - 110, b.y - 110, 220, 220);
-            ctx2d.globalAlpha = flashAlpha * 0.7;
+            ctx2d.fillRect(b.x - 130, b.y - 130, 260, 260);
+            // 内层高亮核心
+            if (flashProgress < 0.6) {
+                ctx2d.globalAlpha = (1 - flashProgress / 0.6) * 0.8;
+                ctx2d.fillStyle = '#ffffff';
+                ctx2d.shadowColor = '#ffffff';
+                ctx2d.shadowBlur = 30;
+                ctx2d.beginPath();
+                ctx2d.arc(b.x, b.y, 30 * (1 - flashProgress / 0.6), 0, Math.PI * 2);
+                ctx2d.fill();
+            }
+            // 主冲击波
+            ctx2d.shadowBlur = 14;
+            ctx2d.globalAlpha = flashAlpha * 0.8;
             ctx2d.strokeStyle = '#9fe0ff';
             ctx2d.lineWidth = 4;
-            ctx2d.shadowBlur = 14;
+            ctx2d.shadowColor = '#7fd0ff';
             ctx2d.beginPath();
-            ctx2d.arc(b.x, b.y, 40 + flashProgress * 120, 0, Math.PI * 2);
+            ctx2d.arc(b.x, b.y, 40 + flashProgress * 140, 0, Math.PI * 2);
             ctx2d.stroke();
+            // 外层冲击波余韵
+            if (flashProgress > 0.15) {
+                const outerAlpha = flashAlpha * 0.35 * Math.min(1, (flashProgress - 0.15) / 0.2);
+                ctx2d.globalAlpha = outerAlpha;
+                ctx2d.strokeStyle = '#7fd0ff';
+                ctx2d.lineWidth = 2;
+                ctx2d.shadowBlur = 8;
+                ctx2d.beginPath();
+                ctx2d.arc(b.x, b.y, 60 + flashProgress * 180, 0, Math.PI * 2);
+                ctx2d.stroke();
+            }
+            ctx2d.shadowBlur = 0;
         }
         ctx2d.restore();
     }

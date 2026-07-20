@@ -1175,12 +1175,16 @@ function _getPassiveRuntimeState(unit, skill) {
 
     if (unit.commander === 'martyr' && skill.name === '挽歌') {
         const balance = COMMANDER_BALANCE_CONFIG.martyr.balance;
-        const bonus = Math.min(balance.elegyAttackCap, unit._elegyBonus || 0);
-        const stacks = Math.floor(bonus / balance.elegyAttackPerDeath);
+        const bonus = unit._elegyBonus || 0;
+        const deathPct = Math.round(balance.elegyDamagePerDeath * 100);
+        const stacks = deathPct > 0 ? Math.round(bonus / deathPct) : 0;
+        const maxStacks = Math.round(balance.elegyDamageCap / balance.elegyDamagePerDeath);
         presentation.count = '';
         presentation.active = stacks > 0;
-        presentation.intensity = stacks / (balance.elegyAttackCap / balance.elegyAttackPerDeath);
-        presentation.status = '当前生效 攻击力提高' + bonus;
+        presentation.intensity = maxStacks > 0 ? stacks / maxStacks : 0;
+        if (stacks > 0) {
+            presentation.status = `当前生效 造成的伤害提高${bonus}%`;
+        }
     }
 
     if (unit.commander === 'martyr' && skill.name === '殉道' && unit._martyrPrimed) {
