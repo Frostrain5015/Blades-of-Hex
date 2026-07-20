@@ -463,6 +463,7 @@ export function initMap() {
     // 联机对局使用服务端逐局种子；旧服务端降级为房间号，保证兼容现有房间。
     if (isNetworkGame()) seedMatchRng(getMatchSeed() ?? `room:${getMyRoomId() || '0'}`);
     gameState.tiles = [];
+    gameState.unitDeathGhosts = [];
 
     const is3P = gameState.isThreePlayer;
     const standardMap = getStandardMap(is3P ? 3 : 2, gameState.standardMapId);
@@ -2144,6 +2145,8 @@ function _attackUnit(attackerUnit, targetUnit) {
     const _airStrafeMs = attackPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
         ? CARRIER_STRAFE_IMPACT_MS : 0;
     const _impactVisualMs = _torpedoMs || _airStrafeMs;
+    // 飞行类攻击的击杀伴随特效（士气上升/斩将全军鼓舞等）统一延迟到弹着爆炸时刻
+    const _deferImpactFx = (fn) => _impactVisualMs > 0 ? setTimeout(fn, _impactVisualMs) : fn();
     const attackResult = attackerUnit.calculateDamage(targetUnit, _impactVisualMs);
     attackerUnit._submarineChargedAttack = false;
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
@@ -2175,10 +2178,9 @@ function _attackUnit(attackerUnit, targetUnit) {
     const isCrit = attackResult.isCrit;
 
     // 核心状态修改：扣血、击杀判定（先于视觉效果，保证广播时状态正确）
-    if (_impactVisualMs > 0) {
-        targetUnit._hpBarDelayUntil = performance.now() + _impactVisualMs;
-        targetUnit._deferImpactFxUntil = performance.now() + _impactVisualMs;
-    }
+    // 无飞行时长的攻击清空遗留延迟标记，避免上一发鱼雷/弹流的时刻污染本次即时结算
+    targetUnit._hpBarDelayUntil = _impactVisualMs > 0 ? performance.now() + _impactVisualMs : 0;
+    targetUnit._deferImpactFxUntil = _impactVisualMs > 0 ? performance.now() + _impactVisualMs : 0;
     let isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
     let cityDamage = 0;
     let cityDamageIsCrit = false;
@@ -2484,18 +2486,20 @@ function _attackUnit(attackerUnit, targetUnit) {
                 const killerKey = _campKey(attackerUnit.camp);
                 if (killerKey !== 'neutral') {
                     gameState.factionMoraleBoost[killerKey] = getRoundIndex(gameState) + 2;
+                    const _boostedUnits = [];
                     for (const tile of gameState.tiles) {
                         const u = tile.unit;
                         if (u && u.camp === attackerUnit.camp && u.morale !== 0 && u.morale < 3) {
                             const oldM = u.morale;
                             u.morale = Math.min(3, u.morale + 1);
                             if (u.morale === 3) u.moraleBoostUntil = getRoundIndex(gameState) + 2;
-                            if (u.morale !== oldM) {
-                                spawnMoraleEffect(u);
-                            }
+                            if (u.morale !== oldM) _boostedUnits.push(u);
                         }
                     }
-                    triggerFactionMoraleFlash('#ffd700');
+                    _deferImpactFx(() => {
+                        for (const u of _boostedUnits) spawnMoraleEffect(u);
+                        triggerFactionMoraleFlash('#ffd700');
+                    });
                     logMessage(`⚔ ${attackerUnit.camp.name}斩杀敌方将领，全军士气+1！`);
                 }
             }
@@ -2515,8 +2519,10 @@ function _attackUnit(attackerUnit, targetUnit) {
             if (!canActAgain) {
                 attackerUnit.canAct = false;
             } else {
-                spawnGoldenFlame(fromX, fromY);
-                spawnVictoryRipple(fromX, fromY);
+                _deferImpactFx(() => {
+                    spawnGoldenFlame(fromX, fromY);
+                    spawnVictoryRipple(fromX, fromY);
+                });
             }
             if (_atkCmdFxCapture && !_cmdFxData) _cmdFxData = _atkCmdFxCapture;
             const rankExtra = [0, 2, 5, 12, 20];
@@ -2542,9 +2548,11 @@ function _attackUnit(attackerUnit, targetUnit) {
         recalcAllFlankingMorale();
         if (gameState.skirmishFog) _updateSkirmishFogAll();
         if (_killedThisAttack && _killerMoraleChanged) {
-            spawnMoraleEffect(_killedThisAttack);
+            // 击杀方士气上升特效延迟到弹着爆炸；广播字段仍同步填写供远端重放
+            const _killerUnit = _killedThisAttack;
+            _deferImpactFx(() => spawnMoraleEffect(_killerUnit));
             _killerMoraleChanged = false;
-            _moraleFxUnitId = _killedThisAttack.id;
+            _moraleFxUnitId = _killerUnit.id;
         }
         _killedThisAttack = null;
         updateRecruitCostDisplay();

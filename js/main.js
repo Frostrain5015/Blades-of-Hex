@@ -18,7 +18,7 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
-    spawnProjectile, spawnTorpedo, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
@@ -2867,6 +2867,19 @@ async function handleRemoteAction(msg) {
     // 本地投降尚未被服务端收录时（_localSurrenderPendingKey），即使本地已因投降提前进入
     // gameOver 也要继续接收快照，否则无法完成投降重放收敛。
     if (!gameState.aiActing && (!gameState.gameOver || gameState._localSurrenderPendingKey)) {
+        // 飞行类攻击（鱼雷/舰载机弹流）击杀：快照落地会立即移除阵亡单位，
+        // 先捕获旧实例留作残影，延迟到弹着爆炸时刻才消失（与本地端时序一致）
+        if (msg.actionType === 'attack' && msg.effects?.killed && !msg.effects.isCitySiege) {
+            const _ke = msg.effects;
+            const _kPres = classifyAttackPresentation(_ke);
+            const _kMs = _kPres === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
+                ? CARRIER_STRAFE_IMPACT_MS
+                : _kPres === ATTACK_PRESENTATION.FIRE_TORPEDO
+                    ? getTorpedoFlightMs(_ke.fromX ?? _ke.x, _ke.fromY ?? _ke.y, _ke.x, _ke.y)
+                    : 0;
+            const _kUnit = _kMs > 0 ? gameState.tileMap?.get(`${_ke.q},${_ke.r}`)?.unit : null;
+            if (_kUnit) (gameState.unitDeathGhosts ||= []).push({ unit: _kUnit, until: performance.now() + _kMs });
+        }
         applyRemoteState(msg.state, HexTile, Unit);
         await loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
         // 远端快照落地后核对本地投降是否已被收录，未收录则幂等重放并重新广播。
@@ -3246,8 +3259,12 @@ async function handleRemoteAction(msg) {
                 const _rmFromY = e?.fromY ?? e?.y;
                 const _rmPresentation = classifyAttackPresentation(e);
 
-                // 鱼雷飞行时序：伤害数字与击杀爆炸延迟到弹体抵达
-                let _rmTorpedoMs = 0;
+                // 飞行类攻击（鱼雷/舰载机弹流）：伤害数字/击杀爆炸/士气特效延迟到弹体抵达
+                const _rmTorpedoMs = _rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO
+                    ? getTorpedoFlightMs(e?.fromX ?? e?.x ?? 0, e?.fromY ?? e?.y ?? 0, e?.x ?? 0, e?.y ?? 0) : 0;
+                const _rmImpactMs = _rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
+                    ? CARRIER_STRAFE_IMPACT_MS : _rmTorpedoMs;
+                const _rmDeferImpact = (fn) => _rmImpactMs > 0 ? setTimeout(fn, _rmImpactMs) : fn();
 
                 const _execAttackFx = () => {
                 if (_rmSmite) {
@@ -3315,9 +3332,11 @@ async function handleRemoteAction(msg) {
                         spawnExplosionParticles(splash.x, splash.y, '#ff8a3d', 8);
                     }
                     if (e.killed) {
-                        spawnExplosionParticles(e.x, e.y, '#ff2200', 30);
-                        spawnExplosionParticles(e.x, e.y, '#ffaa00', 15);
-                        triggerScreenShake(4, 150);
+                        _rmDeferImpact(() => {
+                            spawnExplosionParticles(e.x, e.y, '#ff2200', 30);
+                            spawnExplosionParticles(e.x, e.y, '#ffaa00', 15);
+                            triggerScreenShake(4, 150);
+                        });
                     }
                     if (e.berserkerQixue) {
                         spawnCommanderSkillEffect(e.fromX ?? e.x, e.fromY ?? e.y, '🩸', '泣血');
@@ -3366,18 +3385,23 @@ async function handleRemoteAction(msg) {
                         spawnBloodDrain(e.ctrBloodDrain.toX, e.ctrBloodDrain.toY, e.ctrBloodDrain.fromX, e.ctrBloodDrain.fromY);
                     }
                     if (e.moraleFxUnitId) {
-                        const moraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.moraleFxUnitId ? t.unit : null), null);
-                        if (moraleUnit) spawnMoraleEffect(moraleUnit);
+                        // 击杀方士气上升特效与弹着爆炸同刻（查找也延迟，快照重建后按新实例定位）
+                        _rmDeferImpact(() => {
+                            const moraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.moraleFxUnitId ? t.unit : null), null);
+                            if (moraleUnit) spawnMoraleEffect(moraleUnit);
+                        });
                     }
                     if (e.ctrMoraleFxUnitId) {
                         const ctrMoraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.ctrMoraleFxUnitId ? t.unit : null), null);
                         if (ctrMoraleUnit) spawnMoraleEffect(ctrMoraleUnit);
                     }
-                    // 伤害数字
+                    // 伤害数字（飞行类攻击延迟到弹体抵达，与本地 calculateDamage 的延迟推送一致）
                     if (e.attackDmg > 0) {
-                        gameState.damageTexts.push({
-                            x: e.x, y: e.y, value: e.attackDmg, isCrit: e.attackIsCrit,
-                            timeLeft: 900, lastUpdate: performance.now()
+                        _rmDeferImpact(() => {
+                            gameState.damageTexts.push({
+                                x: e.x, y: e.y, value: e.attackDmg, isCrit: e.attackIsCrit,
+                                timeLeft: 900, lastUpdate: performance.now()
+                            });
                         });
                     }
                     if (e.cityDamage > 0) {

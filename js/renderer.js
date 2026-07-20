@@ -346,6 +346,14 @@ function _renderGame() {
     if (!battlefieldDelegation.interactionHints) drawOperationInteractionRoute(now);
     // Units — 全部绘制，非可见地块会在后续迷雾阶段被地形覆绘+遮罩覆盖
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
+    // 延迟击杀残影：飞行类攻击（鱼雷/舰载机弹流）击杀的单位保留绘制到弹着爆炸时刻
+    const deathGhosts = gameState.unitDeathGhosts;
+    if (deathGhosts?.length) {
+        for (let i = deathGhosts.length - 1; i >= 0; i--) {
+            if (now >= deathGhosts[i].until) deathGhosts.splice(i, 1);
+            else deathGhosts[i].unit.draw();
+        }
+    }
     // Fortification foreground: front trench banks and flak parapets seat the
     // sphere inside the terrain instead of letting it float above the whole
     // emplacement. These paths remain board-clipped and contain no game state.
@@ -884,9 +892,10 @@ function drawAirstrikeEffects(now) {
 
         const isAirdrop = fx.type === 'airdrop';
 
-        // plane always flies from off-screen left to off-screen right
-        const flyStartX = -120;
-        const flyEndX = LOGICAL_W + 120;
+        // 目标相对航线：投弹/爆炸时刻不再随目标屏幕横坐标漂移，
+        // 与 AIR_COMMAND_IMPACT_DELAY_MS 的延迟扣血时刻保持对齐
+        const flyStartX = cx - 560;
+        const flyEndX = cx + 640;
         const totalFlyDist = flyEndX - flyStartX;
         const planeX = flyStartX + t * totalFlyDist;
         const planeY = cy - 80;
@@ -906,7 +915,8 @@ function drawAirstrikeEffects(now) {
             ctx.arc(_tx, _ty, 4 - _t, 0, Math.PI * 2);
             ctx.fill();
         }
-        ctx.globalAlpha = 1;
+        // 航线不再必然飞出屏幕，收尾淡出避免战机凭空消失
+        ctx.globalAlpha = t < 0.88 ? 1 : Math.max(0, 1 - (t - 0.88) / 0.12);
         ctx.fillStyle = '#000';
         ctx.translate(planeX, planeY);
         ctx.rotate(Math.PI / 4);

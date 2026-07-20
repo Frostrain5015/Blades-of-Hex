@@ -1134,10 +1134,22 @@ export class Unit {
             emit('fx:explosion', { x: _deathFxX, y: _deathFxY, color: '#ffaa00', count: 15 });
             emit('fx:screenShake', { strength: 4, duration: 150 });
         };
-        // 鱼雷等飞行中攻击的击杀：爆炸延迟到弹体抵达时刻
+        // 鱼雷/舰载机弹流等飞行中攻击的击杀：爆炸延迟到弹体抵达时刻，
+        // 且阵亡单位保留绘制（残影）到爆炸时刻才消失，避免"弹未至人先没"
         const _deferMs = Math.max(0, (this._deferImpactFxUntil || 0) - performance.now());
-        if (_deferMs > 0) setTimeout(_emitDeathFx, _deferMs);
-        else _emitDeathFx();
+        if (_deferMs > 0) {
+            const gs = _gameState;
+            const ghost = { unit: this, until: performance.now() + _deferMs };
+            if (gs) (gs.unitDeathGhosts ||= []).push(ghost);
+            setTimeout(() => {
+                const ghosts = gs?.unitDeathGhosts;
+                const idx = ghosts ? ghosts.indexOf(ghost) : -1;
+                if (idx >= 0) ghosts.splice(idx, 1);
+                _emitDeathFx();
+            }, _deferMs);
+        } else {
+            _emitDeathFx();
+        }
         emit('match:unitKilled', deathSnapshot);
     }
 
