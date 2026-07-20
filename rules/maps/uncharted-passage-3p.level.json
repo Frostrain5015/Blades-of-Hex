@@ -1943,34 +1943,6 @@
       "canAct": true
     },
     {
-      "id": "u5",
-      "type": "shoreBattery",
-      "camp": "freeport",
-      "q": -9,
-      "r": 4,
-      "commander": null,
-      "storyCommander": null,
-      "rank": 0,
-      "specializationKey": null,
-      "hpPct": 100,
-      "morale": 2,
-      "canAct": true
-    },
-    {
-      "id": "u6",
-      "type": "shoreBattery",
-      "camp": "freeport",
-      "q": 5,
-      "r": 4,
-      "commander": null,
-      "storyCommander": null,
-      "rank": 0,
-      "specializationKey": null,
-      "hpPct": 100,
-      "morale": 2,
-      "canAct": true
-    },
-    {
       "id": "u7",
       "type": "shoreBattery",
       "camp": "player1",
@@ -2046,34 +2018,6 @@
       "camp": "freeport",
       "q": 2,
       "r": -1,
-      "commander": null,
-      "storyCommander": null,
-      "rank": 0,
-      "specializationKey": null,
-      "hpPct": 100,
-      "morale": 2,
-      "canAct": true
-    },
-    {
-      "id": "u13",
-      "type": "archer",
-      "camp": "freeport",
-      "q": 1,
-      "r": -3,
-      "commander": null,
-      "storyCommander": null,
-      "rank": 0,
-      "specializationKey": null,
-      "hpPct": 100,
-      "morale": 2,
-      "canAct": true
-    },
-    {
-      "id": "u14",
-      "type": "archer",
-      "camp": "freeport",
-      "q": 2,
-      "r": -3,
       "commander": null,
       "storyCommander": null,
       "rank": 0,
@@ -2405,34 +2349,6 @@
       "canAct": true
     },
     {
-      "id": "u44",
-      "type": "destroyer",
-      "camp": "freeport",
-      "q": -7,
-      "r": 3,
-      "commander": null,
-      "storyCommander": null,
-      "rank": 0,
-      "specializationKey": null,
-      "hpPct": 100,
-      "morale": 2,
-      "canAct": true
-    },
-    {
-      "id": "u45",
-      "type": "destroyer",
-      "camp": "freeport",
-      "q": 4,
-      "r": 3,
-      "commander": null,
-      "storyCommander": null,
-      "rank": 0,
-      "specializationKey": null,
-      "hpPct": 100,
-      "morale": 2,
-      "canAct": true
-    },
-    {
       "id": "u46",
       "type": "carrier",
       "camp": "freeport",
@@ -2649,8 +2565,8 @@
     "neutralRuntimeCamp": "neutral",
     "captureReward": {
       "type": "neutralForcesTransfer",
-      "cityQ": 0,
-      "cityR": -1,
+      "cityQ": 1,
+      "cityR": -2,
       "sourceCamp": "neutral"
     }
   }
