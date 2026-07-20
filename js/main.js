@@ -2970,13 +2970,15 @@ async function handleRemoteAction(msg) {
             // 重放塞莱斯廷圣国【神谕】脉冲（状态已随快照同步，此处只放特效与浮字）
             if (e && e.oraclePulses) {
                 for (const pulse of e.oraclePulses) {
-                    // 阶段事件
-                    emit('fx:celestineOracle', {
-                        presentationEventId: 'celestine:' + pulse.campKey + ':' + pulse.stage,
-                        stage: pulse.stage,
-                        campKey: pulse.campKey,
-                        activeRounds: pulse.activeRounds
-                    });
+                    // 阶段跃迁时触发 Hero（stageChanged 由 resolveOraclePulse 检测）
+                    if (pulse.stageChanged) {
+                        emit('fx:celestineOracle', {
+                            presentationEventId: 'celestine:' + pulse.campKey + ':' + pulse.stage,
+                            stage: pulse.stage,
+                            campKey: pulse.campKey,
+                            activeRounds: pulse.activeRounds
+                        });
+                    }
                     // 脉冲表现事件
                     if (pulse.smite || pulse.shield) {
                         const statueAnchor = getOracleStatueAnchor(gameState, pulse.campKey);

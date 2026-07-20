@@ -6,7 +6,6 @@ import stallerDef from '../commander/staller.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
-import { hasCelestineSynergyActive, getCelestineOracleState } from '../rules/celestine.js';
 
 // 延迟引用，由 main.js 初始化（避免循环依赖）
 let _gameState = null;
@@ -131,32 +130,7 @@ export function triggerCommanderTurnStart(gameState, camp) {
     }
   }
 
-  // 塞莱斯廷圣国【神谕】激活检测：从不激活转为激活时立即发射 Hero 事件
-  // （presentationEventId 按 stage 去重，同一阶段只播一次）
-  if (hasCelestineSynergyActive(gameState, campKey)) {
-    if (!gameState._celestineOracle) gameState._celestineOracle = {};
-    const oracle = gameState._celestineOracle[campKey];
-    if (!oracle?._heroPlayed) {
-      if (!gameState._celestineOracle[campKey]) {
-        gameState._celestineOracle[campKey] = { activeRounds: 0, stage: 1, _heroPlayed: true };
-      } else {
-        gameState._celestineOracle[campKey]._heroPlayed = true;
-      }
-      const stageEvent = {
-        presentationEventId: 'celestine:' + campKey + ':1',
-        stage: 1,
-        campKey,
-        activeRounds: gameState._celestineOracle[campKey]?.activeRounds || 0
-      };
-      emit('fx:celestineOracle', stageEvent);
-    }
-  } else {
-    // 失效时重置 _heroPlayed，使下次激活能再次播放 Hero
-    if (gameState._celestineOracle?.[campKey]?._heroPlayed) {
-      delete gameState._celestineOracle[campKey]._heroPlayed;
-    }
   }
-}
 
 export function triggerCommanderTurnEnd(gameState, camp, campKey) {
   const seen = new Set();

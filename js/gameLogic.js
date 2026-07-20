@@ -65,7 +65,7 @@ import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js'
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { AURELIA_OATH_EFFECT, hasAureliaOathEffect } from '../rules/aurelia.js';
-import { resolveOraclePulse, hasCelestineSynergyActive, getOracleStatueAnchor, getCelestineOracleState } from '../rules/celestine.js';
+import { resolveOraclePulse, hasCelestineSynergyActive, getOracleStatueAnchor } from '../rules/celestine.js';
 import {
     accrueEagleSynergyDamage,
     hasEagleSynergyActive,
@@ -1290,15 +1290,14 @@ async function _doEndTurnPhase() {
                 const pulse = resolveOraclePulse(gameState, campKey);
                 if (pulse) {
                     oraclePulses.push(pulse);
-                    const oracleState = getCelestineOracleState(gameState, campKey);
-                    if (oracleState) {
-                        const stageEvent = {
-                            presentationEventId: 'celestine:' + campKey + ':' + oracleState.stage,
-                            stage: oracleState.stage,
+                    // 阶段跃迁时触发 Hero（stageChanged 由 resolveOraclePulse 检测）
+                    if (pulse.stageChanged) {
+                        emit('fx:celestineOracle', {
+                            presentationEventId: 'celestine:' + campKey + ':' + pulse.stage,
+                            stage: pulse.stage,
                             campKey,
-                            activeRounds: oracleState.activeRounds
-                        };
-                        emit('fx:celestineOracle', stageEvent);
+                            activeRounds: pulse.activeRounds
+                        });
                     }
                     if (pulse.smite || pulse.shield) {
                         const statueAnchor = getOracleStatueAnchor(gameState, campKey);
@@ -1310,34 +1309,6 @@ async function _doEndTurnPhase() {
                     }
                 }
             }
-        }
-    }
-
-    // 塞莱斯廷圣国【神谕】激活检测：无论何时从未激活转为激活时自动发射 Hero 事件
-    // （presentationEventId 含 stage，由 Hero 层自动去重，同一 stage 只播一次）
-    if (!gameState._celestineOracle) gameState._celestineOracle = {};
-    for (const campKey of Object.keys(gameState.factions || {})) {
-        if (campKey === 'neutral') continue;
-        const oracle = gameState._celestineOracle[campKey];
-        const isActive = hasCelestineSynergyActive(gameState, campKey);
-        if (isActive) {
-            if (!oracle?._heroPlayed) {
-                if (!gameState._celestineOracle[campKey]) {
-                    gameState._celestineOracle[campKey] = { activeRounds: 0, stage: 1, _heroPlayed: true };
-                } else {
-                    gameState._celestineOracle[campKey]._heroPlayed = true;
-                }
-                const stageEvent = {
-                    presentationEventId: 'celestine:' + campKey + ':1',
-                    stage: 1,
-                    campKey,
-                    activeRounds: gameState._celestineOracle[campKey]?.activeRounds || 0
-                };
-                emit('fx:celestineOracle', stageEvent);
-            }
-        } else if (oracle?._heroPlayed) {
-            // 失效时重置 _heroPlayed，使下次激活能再次播放 Hero
-            delete gameState._celestineOracle[campKey]._heroPlayed;
         }
     }
 

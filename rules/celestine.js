@@ -189,11 +189,13 @@ export function resolveOraclePulse(state, campKey) {
 
     // 确保计量对象
     if (!state._celestineOracle) state._celestineOracle = {};
-    const oracle = state._celestineOracle[campKey] ||= { activeRounds: 0, stage: 1 };
+    const oracle = state._celestineOracle[campKey] ||= { activeRounds: 0, stage: 1, _lastHeroStage: 0 };
     oracle.activeRounds = (oracle.activeRounds || 0) + 1;
     const activeRounds = oracle.activeRounds;
     const stage = getOracleStage(activeRounds);
+    const stageChanged = stage !== oracle._lastHeroStage;
     oracle.stage = stage;
+    if (stageChanged) oracle._lastHeroStage = stage;
 
     // 选神罚目标
     const smiteTarget = selectSmiteTarget(state);
@@ -234,6 +236,7 @@ export function resolveOraclePulse(state, campKey) {
             campKey,
             activeRounds,
             stage,
+            stageChanged,
             smite: smiteResult,
             shield: shieldResult
         };
@@ -243,6 +246,7 @@ export function resolveOraclePulse(state, campKey) {
         campKey,
         activeRounds,
         stage,
+        stageChanged,
         smite: null,
         shield: null
     };

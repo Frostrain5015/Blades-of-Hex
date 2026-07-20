@@ -712,7 +712,8 @@ export function restoreMatchState(match, data, deps) {
     match._celestineOracle = Object.fromEntries(Object.entries(data.celestineOracle || {})
         .map(([campKey, oracle]) => [campKey, {
             activeRounds: oracle?.activeRounds || 0,
-            stage: oracle?.stage || 1
+            stage: oracle?.stage || 1,
+            _lastHeroStage: oracle?._lastHeroStage || 0
         }]));
     match.submarineReveals = record(data.submarineReveals, () => ({}));
     match.shoreBatteryBuiltRound = { ...(data.shoreBatteryBuiltRound || {}) };
