@@ -3017,7 +3017,7 @@ async function handleRemoteAction(msg) {
             if (e) {
                 // 烧牌动画（观战者：中央淡入+燃烧）
                 spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, e.burnDisplayName || null);
-                // 天衡【借日】：无目标即时卡，远端确定性重放（全军回满/岁耗标记；无 RNG）。
+                // 天衡【日月天衡】：无目标即时卡，远端确定性重放。
                 if (e.borrowDay && e.campKey) {
                     resolveBorrowDay(gameState, e.campKey);
                     // 与本地端一致：烧牌动画结束后再播 Hero 全屏动画

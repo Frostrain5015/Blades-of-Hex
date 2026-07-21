@@ -955,7 +955,7 @@ function _handleCardCanvasClick(e) {
                 _cardFromX = (screenX - gameRect.left) * scaleX;
                 _cardFromY = (screenY - gameRect.top) * scaleY;
             }
-            // 无目标即时卡（天衡【借日】）：点击即结算，不进入选目标态。
+            // 无目标即时卡（天衡【日月天衡】）：点击即结算，不进入选目标态。
             if (getCardMeta(cardId).instant) {
                 executeTacticalCard(cardId, null, _cardFromX, _cardFromY);
                 return;

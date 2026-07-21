@@ -159,10 +159,10 @@ on('fx:celestineOraclePulse', event => {
         }
     }
 });
-// 天衡联邦【借日】：发牌/Hero/远端重放均通过此事件触发全屏 Hero 动画+日珥特效。
+// 天衡联邦【日月天衡】：发牌/Hero/远端重放均通过此事件触发全屏 Hero 动画+日珥特效。
 on('fx:tianhengBorrowDay', event => {
     const factionName = gameState.factions?.[event.campKey]?.name || '';
-    logMessage(`⚖️ ${factionName}发动阵营协同【借日】：全军行动力回满、可再行动`);
+    logMessage(`⚖️ ${factionName}发动阵营协同【日月天衡】：全军回满+士气提升+全图视野`);
     playTianhengBorrowDayPresentation(event);
 });
 // 诺克提斯【血月】：rising 时播 Hero 血月降临动画；每次放血绕目标播放环形斩击。

@@ -233,7 +233,7 @@ export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
 export const NOCTIS_COMMANDER_IDS = NOCTIS_FACTION_SYNERGY.commanderIds;
 
 // 天衡联邦 ⚖️：占星者、停滞者、纵横家。
-// 协同【借日】（一局一张主动王牌）的判定与结算在 rules/tianheng.js；此处只登记身份与 Hero 主题。
+// 协同【日月天衡】（一局一张主动王牌）的判定与结算在 rules/tianheng.js；此处只登记身份与 Hero 主题。
 // skillImplemented: true — 技能已实装，激活后取代【与子同袍】。
 export const TIANHENG_FACTION_SYNERGY = defineFactionSynergy({
     id: 'tianheng',
@@ -260,7 +260,7 @@ export const TIANHENG_FACTION_SYNERGY = defineFactionSynergy({
             label: '天衡徽记'
         },
         kicker: '阵营协同',
-        title: '借日',
+        title: '日月天衡',
         durationMs: 4800,
         followupStartMs: 2600,
         theme: {

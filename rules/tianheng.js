@@ -1,9 +1,12 @@
-// rules/tianheng.js — 天衡联邦阵营协同【借日】规则。
-// 借日是一张一局仅一张的主动王牌：释放后本阵营全体单位行动力回满、可再行动
-//（全军第二轮）；代价是下一整回合本阵营全体禁锢（岁耗偿还）。
-// 本模块只保存无副作用判定 + 纯结算（操作传入的 gameState/单位），不访问 DOM。
+// rules/tianheng.js — 天衡联邦阵营协同【日月天衡】规则。
+// 日月天衡是一张一局仅一张的主动王牌：释放后本阵营全体单位立即恢复全部生命值、
+// 行动力回满可再行动、士气提升持续2回合，且在遭遇战模式下获得1回合全图视野。
+// 不再有岁耗负数代价。
+//
+// 设计对照参考：极昼意象——太阳永不落下，全员沐浴烈日之力。
 
 import { campToKey } from './camps.js';
+import { getRoundIndex } from './turns.js';
 import { TIANHENG_FACTION_SYNERGY, getCommanderFactionSynergy } from './factionSynergies.js';
 
 export const TIANHENG_COMMANDER_IDS = TIANHENG_FACTION_SYNERGY.commanderIds;
@@ -32,7 +35,7 @@ export function hasTianhengSynergyActive(gameState, campOrKey) {
     return getLivingTianhengCommanders(gameState, campOrKey).length >= 2;
 }
 
-/** 某阵营的全部存活单位（借日作用对象＝全体单位，含将领与普通兵）。 */
+/** 某阵营的全部存活单位（作用对象＝全体单位，含将领与普通兵）。 */
 export function getLivingCampUnits(gameState, campOrKey) {
     if (!gameState?.tiles || !campOrKey) return [];
     const campKey = typeof campOrKey === 'string' ? campOrKey : campToKey(campOrKey);
@@ -46,16 +49,26 @@ function fullMP(unit) {
 }
 
 /**
- * 借日结算（决策 ⑤⑥⑦）：本阵营全体存活单位行动力回满、重新可行动、解除本回合
- * 已有的禁锢/锁（完整刷新）；并置岁耗偿还标记，供下一整回合全体禁锢。
+ * 日月天衡结算：本阵营全体存活单位——
+ *   ① 立即恢复全部生命值；
+ *   ② 行动力回满、重新可行动、解除本回合已有的禁锢/锁；
+ *   ③ 士气提升至昂扬（3），持续2回合；
+ *   ④ 遭遇战模式下获得1回合全图视野（scoutReveal）。
+ * 不再有岁耗代价。
  * 返回受影响的 unitId 列表（供表现/广播）。
  */
 export function resolveBorrowDay(gameState, campOrKey) {
     if (!gameState) return [];
     const campKey = typeof campOrKey === 'string' ? campOrKey : campToKey(campOrKey);
     const units = getLivingCampUnits(gameState, campKey);
+
     for (const unit of units) {
-        unit._imprisoned = false;            // 决策⑦：解除本回合已有禁锢
+        // ① 回满生命
+        unit.hp = unit.maxHp;
+        if (unit._shield != null) unit._shield = unit._shieldMax || unit.maxHp;
+
+        // ② 行动刷新
+        unit._imprisoned = false;
         unit.canAct = true;
         unit.remainingMP = fullMP(unit);
         unit.displaySpeed = unit.remainingMP;
@@ -64,34 +77,39 @@ export function resolveBorrowDay(gameState, campOrKey) {
         unit.counterAttackCount = 0;
         unit._timesAttackedThisTurn = 0;
         unit._specializationAttackSpent = false;
-    }
-    if (!gameState._borrowDayImprison) gameState._borrowDayImprison = {};
-    gameState._borrowDayImprison[campKey] = true; // 岁耗：下一整回合偿还
-    return units.map(u => u.id);
-}
 
-/** 是否有待偿还的岁耗（下一整回合该阵营全体禁锢）。 */
-export function hasBorrowDayPaybackPending(gameState, campOrKey) {
-    const campKey = typeof campOrKey === 'string' ? campOrKey : campToKey(campOrKey);
-    return Boolean(gameState?._borrowDayImprison?.[campKey]);
+        // ③ 士气提升至昂扬（3），持续2回合
+        unit.morale = 3;
+        unit.moraleBoostUntil = getRoundIndex(gameState) + 2;
+    }
+
+    // ④ 遭遇战模式：1回合全图视野（scoutReveal由渲染层自动消费，无需立即刷新迷雾）
+    if (gameState.skirmishFog) {
+        if (!gameState.scoutReveals[campKey]) gameState.scoutReveals[campKey] = new Map();
+        const reveals = gameState.scoutReveals[campKey];
+        const expiresAt = getRoundIndex(gameState) + 1;
+        for (const tile of gameState.tiles || []) {
+            const coord = `${tile.q},${tile.r}`;
+            const prev = reveals.get(coord);
+            if (prev === undefined || prev < expiresAt) {
+                reveals.set(coord, expiresAt);
+            }
+        }
+    }
+
+    return units.map(u => u.id);
 }
 
 /**
- * 岁耗偿还（决策⑤：完整不可行动）：在该阵营「下一整回合」的回合刷新时调用一次。
- * 全体存活单位 canAct=false、行动力清零、上禁锢；随后清除标记（只偿还一个整回合）。
- * 返回受影响的 unitId 列表。
+ * 旧版岁耗检测 — 纯纯正正返回 false。
  */
-export function applyBorrowDayPayback(gameState, campOrKey) {
-    if (!gameState) return [];
-    const campKey = typeof campOrKey === 'string' ? campOrKey : campToKey(campOrKey);
-    if (!gameState._borrowDayImprison?.[campKey]) return [];
-    const units = getLivingCampUnits(gameState, campKey);
-    for (const unit of units) {
-        unit.canAct = false;
-        unit.remainingMP = 0;
-        unit.displaySpeed = 0;
-        unit._imprisoned = true; // 🔒 显示 + 与刷新逻辑一致
-    }
-    delete gameState._borrowDayImprison[campKey];
-    return units.map(u => u.id);
+export function hasBorrowDayPaybackPending() {
+    return false;
+}
+
+/**
+ * 旧版岁耗偿还 — 啥也不干。
+ */
+export function applyBorrowDayPayback() {
+    return [];
 }

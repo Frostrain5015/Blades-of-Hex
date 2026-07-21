@@ -1213,10 +1213,8 @@ async function _doEndTurnPhase() {
     const roundIndexBeforeAdvance = getRoundIndex(gameState);
     _advanceTurnPointer(camp);
 
-    // 天衡【借日】岁耗偿还：轮到刚借过日的阵营时，其全体单位本回合禁锢（决策⑤完整不可
-    // 行动）。放在 advanceTurnPointer 之后（currentCamp 已是新回合方），覆盖上方的行动力重置。
-    applyBorrowDayPayback(gameState, _campKey(gameState.currentCamp));
-    // 天衡【借日】发卡（一局一张）：≥2 天衡将领存活且未发过即发入手牌。
+    // 天衡【日月天衡】发卡（一局一张）：≥2 天衡将领存活且未发过即发入手牌。
+    // （岁耗代价已移除，不再有禁锢偿还。）
     _grantBorrowDayCards();
 
     // A submarine that attacked stays exposed through every enemy action and
@@ -4058,7 +4056,7 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     });
     return true;
 }
-// 天衡【借日】发卡：≥2 天衡将领存活且本局未发过 → 发一张【借日】入手牌（一局仅一张）。
+// 天衡【日月天衡】发卡：≥2 天衡将领存活且本局未发过 → 发一张【日月天衡】入手牌（一局仅一张）。
 function _grantBorrowDayCards() {
     if (!gameState._borrowDayGranted) gameState._borrowDayGranted = {};
     for (const campKey of Object.keys(gameState.factions || {})) {
@@ -4069,13 +4067,12 @@ function _grantBorrowDayCards() {
         if (!Array.isArray(hand)) continue;
         hand.push(BORROW_DAY_CARD_ID);
         gameState._borrowDayGranted[campKey] = true;
-        logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【借日】就绪（本局一张）`);
+        logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【日月天衡】就绪（本局一张）`);
         emit('fx:tianhengBorrowDayGranted', { campKey });
     }
 }
 
-// 天衡【借日】结算：无目标即时王牌。释放后本阵营全体单位行动力回满、可再行动；
-// 下一整回合全体禁锢（岁耗，见回合刷新处 applyBorrowDayPayback）。一局仅一张（发卡处控制）。
+// 天衡【日月天衡】结算：无目标即时王牌。释放后全体回满+士气+全图视野；无代价。
 function _executeBorrowDay(cardId, campKey, _fromX = 0, _fromY = 0) {
     const hand = gameState.playerHands[campKey];
     if (!hand) return;
@@ -4097,7 +4094,7 @@ function _executeBorrowDay(cardId, campKey, _fromX = 0, _fromY = 0) {
             campKey, affectedIds
         });
     }, 2200);
-    logMessage(`${gameState.factions?.[campKey]?.name || campKey}发动阵营协同【借日】：全军行动力回满、可再行动（下一整回合全体禁锢）`);
+    logMessage(`${gameState.factions?.[campKey]?.name || campKey}发动阵营协同【日月天衡】：全军回满+士气提升+全图视野`);
     broadcastAction('tacticalCard', { cardId, borrowDay: true, campKey, affectedIds });
     updateUI();
 }
@@ -4115,7 +4112,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
     const campKey = _campKey(myCamp);
 
-    // 天衡【借日】：无目标即时王牌，走专用结算（不进选目标/预演管线）。
+    // 天衡【日月天衡】：无目标即时王牌，走专用结算（不进选目标/预演管线）。
     if (getCardMeta(cardId).instant) {
         _executeBorrowDay(cardId, campKey, _fromX, _fromY);
         return;
