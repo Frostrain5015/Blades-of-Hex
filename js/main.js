@@ -702,6 +702,7 @@ function showFactionReveal(role) {
     document.body.style.pointerEvents = '';
 
     if (isNetworkGame()) beginNetworkCommanderFlow(role);
+    else if (gameState._trainingMode) beginTrainingCommanderPhase('player1');
     else if (gameState.gameMode === 'pve') beginPVECommanderPhase('player1');
     else beginCommanderPhase();
 }
@@ -987,8 +988,8 @@ function beginTrainingMatch() {
     const savedRolls = { ...(gameState.turnOrderRolls || {}) };
     const savedAssignments = { ...(gameState.roleAssignments || {}) };
     resetGameState();
-    // 双人双将训练场沿用 PVE 回合逻辑；三人训练场保持同设备本地对战。
-    gameState.gameMode = savedDoubleCommanderMode && !savedThreePlayer ? 'pve' : 'training';
+    // 训练场统一为同设备本地热座：玩家操作所有席位演习，无 AI 接管（单/双将、双人/三人一致）。
+    gameState.gameMode = 'training';
     gameState.isThreePlayer = savedThreePlayer;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
@@ -999,14 +1000,12 @@ function beginTrainingMatch() {
         flagEmojis: savedFlagEmojis,
         controllers: savedThreePlayer
             ? { player1: 'human', player2: 'human', player3: 'human' }
-            : { player1: 'human', player2: savedDoubleCommanderMode ? 'ai' : 'human' }
+            : { player1: 'human', player2: 'human' }
     });
     if (savedOrder.length) gameState.turnOrder = savedOrder;
     gameState.turnOrderRolls = savedRolls;
     if (Object.keys(savedAssignments).length) gameState.roleAssignments = savedAssignments;
-    gameState.aiOpponentCamp = savedDoubleCommanderMode && !savedThreePlayer
-        ? campFromKey('player2', gameState)
-        : null;
+    gameState.aiOpponentCamp = null;
     gameState.aiDifficulty = 1.0;
     gameState._trainingMode = true;
     gameState.commanderPhase = 'done';
@@ -1243,7 +1242,7 @@ function beginCommanderPhase() {
     _showCommanderSelection('player1');
 }
 
-// PVE 模式将领选择：人类与 AI 轮流选将
+// 训练场选将：玩家为所有席位自选将领（自选面板，无 AI 接管）。
 function beginTrainingCommanderPhase(humanRole) {
     _stopHeroCarousel();
     document.getElementById('lobbyOverlay').style.display = 'none';
@@ -1264,22 +1263,14 @@ function beginTrainingCommanderPhase(humanRole) {
         playerCount: savedThreePlayer ? 3 : 2,
         controllers: savedThreePlayer
             ? { player1: 'human', player2: 'human', player3: 'human' }
-            : { player1: 'human', player2: 'ai' }
+            : { player1: 'human', player2: 'human' }
     });
     _applySavedFlagCustomizations(savedThreePlayer ? ['player1', 'player2', 'player3'] : ['player1']);
-    gameState.aiOpponentCamp = savedThreePlayer ? null : campFromKey('player2', gameState);
+    // 训练场恒为本地热座演习：玩家为所有席位自选将领，无 AI 接管。
+    gameState.aiOpponentCamp = null;
     gameState._trainingMode = true;
     _commanderTransitioning = false;
-    if (savedDoubleCommanderMode) {
-        const pool = shuffleAndSplitPool(savedThreePlayer, COMMANDER_DRAFT.dualCandidatesPerPlayer, gameState.rng);
-        gameState.commanderPoolP1 = pool.p1;
-        gameState.commanderPoolP2 = pool.p2;
-        if (savedThreePlayer) gameState.commanderPoolP3 = pool.p3 || [];
-        gameState.commanderPhase = 'selection';
-        _pveHumanRole = 'player1';
-        _showCommanderSelection('player1');
-        return;
-    }
+    // 训练场无论单/双将、双人/三人，一律使用自选将领面板（展示全部将领，玩家为每个席位挑选）。
     const allKeys = Object.keys(COMMANDER_CONFIG);
     gameState.commanderPoolP1 = allKeys;
     gameState.commanderPoolP2 = [];
@@ -1791,10 +1782,24 @@ function _showTrainingCommanderSelection(forPlayer) {
             });
         }, null, "+=");
     });
-    // 多席位依次选将；席位颜色由当前页面上的旗帜选择器决定。
-    let _trainPhase = 'player1'; // 'player1' | 'player2'
-    subtitle.textContent = `请为${_forPlayerCampName(_trainPhase).name}选择将领`;
-    subtitle.style.color = _forPlayerCampName(_trainPhase).color;
+    // 多席位依次选将；双将模式下每个席位需选择 2 名将领。席位颜色由当前旗帜选择器决定。
+    let _trainPhase = 'player1'; // 'player1' | 'player2' | 'player3'
+    const _trainNeedTwo = gameState.doubleCommanderMode;
+    const _trainCommanderLabel = (role) => {
+        const s = _commanderSlots[role];
+        return [gameState[s.primary], gameState[s.secondary]]
+            .filter(k => k && COMMANDER_CONFIG[k])
+            .map(k => COMMANDER_CONFIG[k].name)
+            .join(' + ') || '—';
+    };
+    const _promptPhase = (role) => {
+        const info = _forPlayerCampName(role);
+        subtitle.textContent = _trainNeedTwo
+            ? `请为${info.name}选择 2 名将领`
+            : `请为${info.name}选择将领`;
+        subtitle.style.color = info.color;
+    };
+    _promptPhase(_trainPhase);
     cardsDiv.addEventListener('click', function _handler(e) {
         const cardEl = e.target.closest('.commander-card');
         if (!cardEl) return;
@@ -1803,39 +1808,44 @@ function _showTrainingCommanderSelection(forPlayer) {
         if (!cfg || cardEl.classList.contains('camp-selected') || cardEl.classList.contains('taken')) return;
 
         if (_commanderPending === key) {
-            // Double-click confirm
+            // 再次点击 = 确认将该将领选入当前席位
             _commanderPending = null;
-            const slots = _commanderSlots[_trainPhase];
-            gameState[slots.primary] = key;
-            gameState[slots.primaryConfirmed] = true;
+            const result = _selectCommander(_trainPhase, key);
+            if (!result.selectionNumber) return; // 未成功选入（防御性保护）
+
+            // 标记该卡归属当前席位并禁用（同一将领不可被两方重复选取）。
+            const currentInfo = _forPlayerCampName(_trainPhase);
+            cardEl.classList.remove('selected');
+            cardEl.style.setProperty('--camp-color', currentInfo.color);
+            cardEl.style.setProperty('--camp-label', "'" + currentInfo.name + "'");
+            cardEl.classList.add('camp-selected');
+            cardEl.style.pointerEvents = 'none';
             const deployedKey = _trainPhase === 'player1'
                 ? 'commanderP1Deployed'
                 : _trainPhase === 'player2' ? 'commanderP2Deployed' : 'commanderP3Deployed';
             gameState[deployedKey] = false;
 
+            if (!result.complete) {
+                // 双将模式：当前席位还需再选 1 名将领
+                subtitle.textContent = `${currentInfo.name}已选 ${cfg.name}，请再选择 1 名将领`;
+                subtitle.style.color = '#ffd700';
+                return;
+            }
+
             const nextPhase = _trainPhase === 'player1'
                 ? 'player2'
                 : (_trainPhase === 'player2' && gameState.isThreePlayer ? 'player3' : null);
             if (nextPhase) {
-                cardEl.classList.remove('selected');
-                const currentInfo = _forPlayerCampName(_trainPhase);
-                const campLabel = currentInfo.name;
-                const campHex = currentInfo.color;
-                cardEl.style.setProperty('--camp-color', campHex);
-                cardEl.style.setProperty('--camp-label', "'" + campLabel + "'");
-                cardEl.classList.add('camp-selected');
-                cardEl.style.pointerEvents = 'none';
-                const nextName = _forPlayerCampName(nextPhase).name;
-                subtitle.textContent = `${campLabel}已选 ${cfg.name}，请为${nextName}选择将领`;
+                subtitle.textContent = `${currentInfo.name}已选 ${_trainCommanderLabel(_trainPhase)}，请为${_forPlayerCampName(nextPhase).name}选择将领`;
                 subtitle.style.color = '#4CAF50';
                 _trainPhase = nextPhase;
                 _configureCommanderFactionHeader(nextPhase, { nameOverride: '训练场' });
             } else {
                 const selectedNames = [
-                    `${_forPlayerCampName('player1').name}：${gameState.commanderP1}`,
-                    `${_forPlayerCampName('player2').name}：${gameState.commanderP2}`
+                    `${_forPlayerCampName('player1').name}：${_trainCommanderLabel('player1')}`,
+                    `${_forPlayerCampName('player2').name}：${_trainCommanderLabel('player2')}`
                 ];
-                if (gameState.isThreePlayer) selectedNames.push(`${_forPlayerCampName('player3').name}：${gameState.commanderP3}`);
+                if (gameState.isThreePlayer) selectedNames.push(`${_forPlayerCampName('player3').name}：${_trainCommanderLabel('player3')}`);
                 subtitle.textContent = selectedNames.join(' ／ ');
                 subtitle.style.color = '#4CAF50';
                 cardsDiv.querySelectorAll('.commander-card').forEach(c => c.style.pointerEvents = 'none');
