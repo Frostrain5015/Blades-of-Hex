@@ -20,6 +20,9 @@ import { CELESTINE_FACTION_SYNERGY } from '../rules/factionSynergies.js';
 import { playAureliaOathPresentation } from './aureliaOathPresentation.js';
 import { playEagleSynergyPresentation } from './eagleSynergyPresentation.js';
 import { playCelestineOraclePresentation } from './celestineOraclePresentation.js';
+import { playTianhengBorrowDayPresentation } from './tianhengPresentation.js';
+import { playNoctisBloodMoonPresentation } from './noctisBloodMoonPresentation.js';
+import { spawnBloodMoonSlash } from './effects.js';
 import { gameState, logMessage, updateUI } from './state.js';
 import { enqueueFloatText } from './floatTexts.js';
 
@@ -153,6 +156,26 @@ on('fx:celestineOraclePulse', event => {
             } else {
                 shieldImpact();
             }
+        }
+    }
+});
+// 天衡联邦【借日】：发牌/Hero/远端重放均通过此事件触发全屏 Hero 动画+日珥特效。
+on('fx:tianhengBorrowDay', event => {
+    const factionName = gameState.factions?.[event.campKey]?.name || '';
+    logMessage(`⚖️ ${factionName}发动阵营协同【借日】：全军行动力回满、可再行动`);
+    playTianhengBorrowDayPresentation(event);
+});
+// 诺克提斯【血月】：rising 时播 Hero 血月降临动画；每次放血绕目标播放环形斩击。
+on('fx:noctisBloodMoonBleed', event => {
+    if (event.rising) {
+        const factionName = gameState.factions?.[event.campKey]?.name || '';
+        logMessage(`🌑 ${factionName}血月降临——永夜·禁疗，全场低血量单位持续流血`);
+        playNoctisBloodMoonPresentation(event);
+    }
+    if (Array.isArray(event.hits)) {
+        for (const h of event.hits) {
+            if (h.x == null) continue;
+            spawnBloodMoonSlash(h.x, h.y, !!h.killed);
         }
     }
 });

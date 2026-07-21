@@ -25,7 +25,7 @@ export const NOCTIS_BLOODMOON_BALANCE = Object.freeze({
     bleedThresholdPct: 0.5,
     bleedLostHpPct: 1 / 3,
     durationRounds: 2,
-    bloodTideThreshold: 120
+    bloodTideThreshold: 150
 });
 
 export function isNoctisCommanderId(commanderId) {
@@ -149,6 +149,29 @@ export function consumeBloodMoonSummon(gameState) {
 
 export function isBloodMoonWeatherActive(gameState) {
     return gameState?.weather === BLOOD_MOON_WEATHER;
+}
+
+/** 获取血月锚点：优先取协同激活的诺克提斯阵营控制的首座城市；
+ *  无城市时取整张地图的几何中心格（确保血月始终有锚点升起）。 */
+export function getBloodMoonAnchor(gameState) {
+    if (!gameState?.tiles) return null;
+    for (const key of getActiveNoctisCampKeys(gameState)) {
+        const cities = gameState.tiles.filter(t => t.isCity && campToKey(t.camp) === key);
+        if (cities.length > 0) {
+            cities.sort((a, b) => a.districtId - b.districtId || a.q - b.q || a.r - b.r);
+            return { x: cities[0].x, y: cities[0].y, q: cities[0].q, r: cities[0].r, campKey: key };
+        }
+    }
+    // 无城市时取地图几何中心
+    if (gameState.tiles.length > 0) {
+        const sum = gameState.tiles.reduce((acc, t) => ({
+            x: acc.x + t.x, y: acc.y + t.y,
+            q: acc.q + t.q, r: acc.r + t.r
+        }), { x: 0, y: 0, q: 0, r: 0 });
+        const n = gameState.tiles.length;
+        return { x: Math.round(sum.x / n), y: Math.round(sum.y / n), campKey: null };
+    }
+    return null;
 }
 
 /**

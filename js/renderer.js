@@ -27,7 +27,8 @@ import {
     cardUseEffects,
     spawnCardCopyEffect,
     coinParticles, updateCoinParticles, drawCoinParticles,
-    airstrikeEffects, airliftEffects, celestineOracleBeams
+    airstrikeEffects, airliftEffects, celestineOracleBeams,
+    bloodMoonSlashes, updateBloodMoonSlashes, drawBloodMoonSlashes
 } from './effects.js';
 import {
     getFogAlpha,
@@ -626,6 +627,41 @@ function _renderGame() {
         ctx.fillStyle = vg;
         ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
         ctx.restore();
+
+        // 血月本体：在锚点城市上方绘制红色血月
+        const anchor = gameState._bloodMoonAnchor;
+        if (anchor && Number.isFinite(anchor.x)) {
+            const mx = anchor.x, my = anchor.y - 80;
+            const moonPulse = 0.85 + 0.1 * Math.sin(now / 500);
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            // 月晕
+            const halo = ctx.createRadialGradient(mx, my, 0, mx, my, 100);
+            halo.addColorStop(0, 'rgba(200, 20, 40, 0.25)');
+            halo.addColorStop(0.6, 'rgba(100, 10, 25, 0.12)');
+            halo.addColorStop(1, 'rgba(40, 0, 6, 0)');
+            ctx.fillStyle = halo;
+            ctx.fillRect(mx - 100, my - 100, 200, 200);
+            // 月面
+            ctx.shadowColor = '#cc1122';
+            ctx.shadowBlur = 25 + 8 * Math.sin(now / 400);
+            ctx.globalAlpha = moonPulse * 0.8;
+            ctx.fillStyle = '#cc1122';
+            ctx.beginPath();
+            ctx.arc(mx, my, 26 + 3 * Math.sin(now / 600), 0, Math.PI * 2);
+            ctx.fill();
+            // 暗纹
+            ctx.globalAlpha = 0.3;
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#330005';
+            ctx.beginPath();
+            ctx.arc(mx - 5, my - 3, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(mx + 4, my + 2, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
     }
 
     // 部署阶段横幅 / 部署完成后一次性UI重置
@@ -853,6 +889,10 @@ function _renderGame() {
     // 天基打击轨道光束（天鹰协同奖励卡特效）
     updateOrbitalBeams(now);
     drawOrbitalBeams(ctx, now);
+
+    // 诺克提斯【血月】月蚀环形斩击
+    updateBloodMoonSlashes(now);
+    drawBloodMoonSlashes(ctx, now);
 
     // ── 将领特效图层：preFog（雷击之后、迷雾遮罩之前；金光/圣链/攻心波纹/统御环）──
     drawFxLayer('preFog', ctx, now);

@@ -77,6 +77,7 @@ import {
     NOCTIS_BLOODMOON_BALANCE,
     anyBloodMoonPending,
     consumeBloodMoonSummon,
+    getBloodMoonAnchor,
     isBloodMoonWeatherActive,
     resolveBloodMoonBleed,
     accrueBloodTideFromHit
@@ -890,6 +891,9 @@ function _updateWeather() {
         if (anyBloodMoonPending(gameState) && consumeBloodMoonSummon(gameState)) {
             gameState.lastWeather = BLOOD_MOON_WEATHER;
             gameState._bloodMoonRising = true; // 供表现层发一次降临 Hero
+            // 记录血月锚点
+            const anchor = getBloodMoonAnchor(gameState);
+            if (anchor) gameState._bloodMoonAnchor = anchor;
         } else {
             const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
             gameState.lastWeather = pool[gameState.rng.int(pool.length)];
@@ -899,6 +903,7 @@ function _updateWeather() {
         gameState.weather = gameState.lastWeather;
     } else {
         gameState.weather = 'clear';
+        delete gameState._bloodMoonAnchor; // 血月结束，清除锚点
     }
     refreshVision();
 }
@@ -1363,9 +1368,11 @@ async function _doEndTurnPhase() {
                 }
             }
             if (rising || hits.length > 0) {
+                const anchor = gameState._bloodMoonAnchor || null;
                 emit('fx:noctisBloodMoonBleed', {
                     presentationEventId: `bloodMoon:${getRoundIndex(gameState)}`,
-                    rising, hits
+                    rising, hits, anchor,
+                    campKey: anchor?.campKey || null
                 });
             }
             gameState._bloodMoonRising = false;
@@ -1390,7 +1397,9 @@ async function _doEndTurnPhase() {
         healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null,
         rainLightning: _rainLightningFx,
         oraclePulses: oraclePulses?.length > 0 ? oraclePulses : null,
-        bloodMoonBleeds: bloodMoonBleeds?.length > 0 ? bloodMoonBleeds : null
+        bloodMoonBleeds: bloodMoonBleeds?.length > 0 ? bloodMoonBleeds : null,
+        bloodMoonRising: !!gameState._bloodMoonRising || undefined,
+        bloodMoonAnchor: gameState._bloodMoonAnchor || undefined
     });
 }
 
@@ -4081,10 +4090,13 @@ function _executeBorrowDay(cardId, campKey, _fromX = 0, _fromY = 0) {
     if (!getCardMeta(cardId).noDiscard) gameState.cardDiscardPile.push(cardId);
     gameState.playerUsesThisTurn[campKey]++;
     spawnCardUseEffect(cardId, 500, 375, true, _fromX || 900, _fromY || 600, null);
-    emit('fx:tianhengBorrowDay', {
-        presentationEventId: `borrowDay:${campKey}:${gameState.turnCounter}`,
-        campKey, affectedIds
-    });
+    // 烧牌动画（1600ms + 500ms 停顿）结束后再播 Hero 全屏动画
+    window.setTimeout(() => {
+        emit('fx:tianhengBorrowDay', {
+            presentationEventId: `borrowDay:${campKey}:${gameState.turnCounter}`,
+            campKey, affectedIds
+        });
+    }, 2200);
     logMessage(`${gameState.factions?.[campKey]?.name || campKey}发动阵营协同【借日】：全军行动力回满、可再行动（下一整回合全体禁锢）`);
     broadcastAction('tacticalCard', { cardId, borrowDay: true, campKey, affectedIds });
     updateUI();

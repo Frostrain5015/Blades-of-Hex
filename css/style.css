@@ -272,7 +272,9 @@ body {
 .is-playing.has-orbital-supply .orbital-supply-focus::before { animation: faction-synergy-ring-spin 2.8s linear infinite; }
 .is-playing.has-orbital-supply .orbital-supply-focus::after { animation: faction-synergy-ring-spin 3.6s linear infinite reverse; }
 
-.oracle-descent-canvas {
+.oracle-descent-canvas,
+.borrow-day-canvas,
+.blood-moon-rise-canvas {
     position: absolute;
     inset: 0;
     z-index: 7;
@@ -544,7 +546,9 @@ body {
 @media (prefers-reduced-motion: reduce) {
     .rescue-link-particles,
     .orbital-supply-canvas,
-    .oracle-descent-canvas { display: none; }
+    .oracle-descent-canvas,
+    .borrow-day-canvas,
+    .blood-moon-rise-canvas { display: none; }
     .is-playing .faction-synergy-core,
     .is-playing .faction-synergy-caption { animation-timing-function: ease-out; }
 }

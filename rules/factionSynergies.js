@@ -210,19 +210,23 @@ export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
         kicker: '阵营协同',
         title: '血月降临',
         durationMs: 4800,
-        followupStartMs: 0,
+        followupStartMs: 3200,
         theme: {
-            text: '#c8e8d5',
-            brightText: '#e0f5e8',
-            accent: '#7fcf9a',
-            accentSoft: '#4a8a6a',
-            faction: '#1a3a2a',
-            shadow: '#0a1a12',
-            backdropGlow: 'rgba(60, 120, 80, 0.18)',
+            text: '#f0c8c8',
+            brightText: '#f5e0e0',
+            accent: '#cc3344',
+            accentSoft: '#882233',
+            faction: '#441122',
+            shadow: '#1a0508',
+            backdropGlow: 'rgba(100, 20, 30, 0.22)',
             backdropTop: 'rgba(3, 3, 5, 0.70)',
-            backdropBottom: 'rgba(5, 8, 12, 0.80)'
+            backdropBottom: 'rgba(12, 5, 8, 0.80)'
         },
-        followup: null
+        followup: {
+            kind: 'blood-moon-rise',
+            particleCount: 16,
+            particleColors: ['#cc1122', '#661122', '#440011']
+        }
     }
 });
 
@@ -258,7 +262,7 @@ export const TIANHENG_FACTION_SYNERGY = defineFactionSynergy({
         kicker: '阵营协同',
         title: '借日',
         durationMs: 4800,
-        followupStartMs: 0,
+        followupStartMs: 2600,
         theme: {
             text: '#c8dce8',
             brightText: '#e0eef5',
@@ -270,7 +274,11 @@ export const TIANHENG_FACTION_SYNERGY = defineFactionSynergy({
             backdropTop: 'rgba(3, 3, 5, 0.70)',
             backdropBottom: 'rgba(5, 8, 12, 0.80)'
         },
-        followup: null
+        followup: {
+            kind: 'borrow-day',
+            particleCount: 20,
+            particleColors: ['#ffd700', '#ffb347', '#fff8dc']
+        }
     }
 });
 

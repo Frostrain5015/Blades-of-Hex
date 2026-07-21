@@ -3000,9 +3000,16 @@ async function handleRemoteAction(msg) {
                         timeLeft: 1000, lastUpdate: performance.now()
                     });
                 }
+                const remoteAnchor = e.bloodMoonAnchor || gameState._bloodMoonAnchor || null;
+                const remoteRising = !!e.bloodMoonRising;
+                if (remoteRising && remoteAnchor) {
+                    gameState._bloodMoonAnchor = remoteAnchor;
+                }
                 emit('fx:noctisBloodMoonBleed', {
                     presentationEventId: `bloodMoon:remote:${gameState.turnCounter}`,
-                    rising: false, hits: e.bloodMoonBleeds
+                    rising: remoteRising, hits: e.bloodMoonBleeds,
+                    anchor: remoteAnchor,
+                    campKey: remoteAnchor?.campKey || null
                 });
             }
             break;
@@ -3013,10 +3020,13 @@ async function handleRemoteAction(msg) {
                 // 天衡【借日】：无目标即时卡，远端确定性重放（全军回满/岁耗标记；无 RNG）。
                 if (e.borrowDay && e.campKey) {
                     resolveBorrowDay(gameState, e.campKey);
-                    emit('fx:tianhengBorrowDay', {
-                        presentationEventId: `borrowDay:remote:${gameState.turnCounter}`,
-                        campKey: e.campKey, affectedIds: e.affectedIds || []
-                    });
+                    // 与本地端一致：烧牌动画结束后再播 Hero 全屏动画
+                    window.setTimeout(() => {
+                        emit('fx:tianhengBorrowDay', {
+                            presentationEventId: `borrowDay:remote:${gameState.turnCounter}`,
+                            campKey: e.campKey, affectedIds: e.affectedIds || []
+                        });
+                    }, 2200);
                     break;
                 }
                 // 飞机动画提前启动，与烧牌重叠播放

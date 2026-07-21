@@ -1626,6 +1626,75 @@ export function drawOrbitalBeams(ctx2d, now) {
     }
 }
 
+// ===== 血月环形斩击特效（月蚀放血时绕目标一圈） =====
+export const bloodMoonSlashes = [];
+
+export function spawnBloodMoonSlash(x, y, killed = false) {
+    bloodMoonSlashes.push({
+        x, y, startTime: performance.now(),
+        duration: killed ? 700 : 500,
+        maxRings: killed ? 3 : 2,
+        killed
+    });
+}
+
+export function updateBloodMoonSlashes(now) {
+    for (let i = bloodMoonSlashes.length - 1; i >= 0; i--) {
+        if (now - bloodMoonSlashes[i].startTime > bloodMoonSlashes[i].duration) bloodMoonSlashes.splice(i, 1);
+    }
+}
+
+export function drawBloodMoonSlashes(ctx2d, now) {
+    for (const s of bloodMoonSlashes) {
+        const elapsed = now - s.startTime;
+        const progress = Math.min(1, elapsed / s.duration);
+        const fadeOut = 1 - Math.pow(progress, 1.6);
+        if (fadeOut <= 0) continue;
+
+        ctx2d.save();
+        ctx2d.globalCompositeOperation = 'lighter';
+
+        // 主斩击环：暗红镰刃
+        for (let ring = 0; ring < s.maxRings; ring++) {
+            const ringOffset = ring * 0.2;
+            const localP = Math.max(0, Math.min(1, (progress - ringOffset) / (1 - ringOffset)));
+            if (localP <= 0 || localP >= 1) continue;
+            const radius = 10 + localP * 55;
+            const alpha = (1 - localP) * 0.8 * (ring === 0 ? 1 : 0.45);
+            const width = (4 + (1 - localP) * 8) * (ring === 0 ? 1 : 0.6);
+
+            ctx2d.globalAlpha = alpha * fadeOut;
+            ctx2d.strokeStyle = ring === 0 ? '#ff2244' : '#cc1133';
+            ctx2d.shadowColor = '#ff2244';
+            ctx2d.shadowBlur = 18 + (1 - localP) * 12;
+            ctx2d.lineWidth = width;
+            ctx2d.beginPath();
+            // 不完全闭合的环形斩击（留一个缺口，更像斩击轨迹）
+            const startAngle = ring * 0.8 + Math.sin(elapsed / 300) * 0.15;
+            const endAngle = startAngle + Math.PI * 1.85;
+            ctx2d.arc(s.x, s.y, radius, startAngle, endAngle);
+            ctx2d.stroke();
+
+            // 斩杀额外：血爆粒子
+            if (s.killed && localP < 0.3) {
+                const particleAlpha = (1 - localP / 0.3) * 0.5;
+                ctx2d.globalAlpha = particleAlpha * fadeOut;
+                ctx2d.fillStyle = '#ff4466';
+                ctx2d.shadowBlur = 10;
+                for (let i = 0; i < 8; i++) {
+                    const angle = (i / 8) * Math.PI * 2 + localP * 1.5;
+                    const dist = 20 + localP * 40;
+                    ctx2d.beginPath();
+                    ctx2d.arc(s.x + Math.cos(angle) * dist, s.y + Math.sin(angle) * dist, 2 + (1 - localP) * 3, 0, Math.PI * 2);
+                    ctx2d.fill();
+                }
+            }
+        }
+
+        ctx2d.restore();
+    }
+}
+
 // ===== 圣骑士誓言金色光束 =====
 export const goldenBeams = [];
 
