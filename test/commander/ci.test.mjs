@@ -172,11 +172,12 @@ export async function run(browser) {
         } catch(e) { assert(false, 'defBonus 异常: ' + e.message); }
 
         // ==============================
-        // 9) getCommanderAttackBonus — 堕天使黑
+        // 9) 堕天使黑形态增伤（攻击乘区加成已移至②增伤乘区）
         // ==============================
         try {
-            assert(ci.getCommanderAttackBonus({ commander: 'fallenAngel', _fallen: true }) === 30, '堕天使黑+30攻击');
-            assert(ci.getCommanderAttackBonus({ commander: 'fallenAngel', _fallen: false }) === 0, '堕天使白+0攻击');
+            assert(ci.getCommanderAttackBonus({ commander: 'fallenAngel', _fallen: true }) === 0, '堕天使黑攻击乘区+0（已移至增伤乘区）');
+            assert(ci.getCommanderDamageBonusPct({ commander: 'fallenAngel', _fallen: true }) === 0.75, '堕天使黑+75%增伤');
+            assert(ci.getCommanderDamageBonusPct({ commander: 'fallenAngel', _fallen: false }) === 0, '堕天使白+0增伤');
             assert(ci.getCommanderAttackBonus({}) === 0, '无将领+0');
         } catch(e) { assert(false, 'atkBonus 异常: ' + e.message); }
 
@@ -203,14 +204,15 @@ export async function run(browser) {
         } catch(e) { assert(false, 'auraDef 异常: ' + e.message); }
 
         // ==============================
-        // 12) getCommanderAuraAttackBonus — 圣骑士灵光
+        // 12) 圣骑士勇气灵光（攻击乘区加成已移至②增伤乘区，无将领友军也享受）
         // ==============================
         try {
             gsRef.tiles.length = 0; gsRef.tileMap.clear();
             const pal = addUnit('paladin', CAMP.player1, 0, 0);
             const ally = { commander: null, camp: CAMP.player1, tile: { q: 1, r: 0, x: 435, y: 300 } };
-            const bonus = ci.getCommanderAuraAttackBonus(ally);
-            assert(bonus === 0.10, '圣骑士灵光+10%攻击');
+            assert(ci.getCommanderAuraAttackBonus(ally) === 0, '圣骑士灵光攻击乘区+0（已移至增伤乘区）');
+            const bonus = ci.getCommanderDamageBonusPct(ally);
+            assert(bonus === 0.12, '圣骑士灵光+12%增伤（相邻无将领友军）');
         } catch(e) { assert(false, 'auraAtk 异常: ' + e.message); }
 
         // ==============================

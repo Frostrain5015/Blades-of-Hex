@@ -11,13 +11,17 @@ import {
     triggerFactionMoraleFlash,
     spawnRankUpEffect,
     spawnSoulRecallEffect,
-    spawnCoinRain
+    spawnCoinRain,
+    spawnCelestineOracleBeam
 } from './effects.js';
 import { playSound } from './audio.js';
+import { CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
+import { CELESTINE_FACTION_SYNERGY } from '../rules/factionSynergies.js';
 import { playAureliaOathPresentation } from './aureliaOathPresentation.js';
 import { playEagleSynergyPresentation } from './eagleSynergyPresentation.js';
 import { playCelestineOraclePresentation } from './celestineOraclePresentation.js';
 import { gameState, logMessage, updateUI } from './state.js';
+import { enqueueFloatText } from './floatTexts.js';
 
 on('fx:healFlash', ({ x, y }) => triggerHealFlash(x, y));
 on('fx:healParticles', ({ x, y }) => spawnHealParticles(x, y));
@@ -82,52 +86,94 @@ on('fx:celestineOracle', event => {
     logMessage(`🔆 ${factionName}阵营协同【神谕】${stageName}：神临第${event.activeRounds}轮`);
     playCelestineOraclePresentation(event);
 });
+// 【神罚】/【赐福】脉冲：统一两段式——前半段神像蓄力+指引光束（静默，迷雾之上），
+// 后半段弹着（浮字 + 音效 + 目标处爆发）。目标坐标由 q/r 经 tileMap 解析。
 on('fx:celestineOraclePulse', event => {
     const factionName = gameState.factions?.[event.campKey]?.name || '';
+    const statueOk = Number.isFinite(event.statueX) && Number.isFinite(event.statueY);
+    const timing = CELESTINE_ORACLE_PULSE_TIMING;
+    // 阶段跃迁时 Hero 动画正在播放，脉冲弹着延迟到 Hero 结束后再触发
+    const heroDelayMs = event.stageChanged ? CELESTINE_FACTION_SYNERGY.hero.durationMs : 0;
+    const resolvePoint = ref => {
+        if (Number.isFinite(ref?.x) && Number.isFinite(ref?.y)) return { x: ref.x, y: ref.y };
+        const tile = Number.isFinite(ref?.q) && Number.isFinite(ref?.r)
+            ? gameState.tileMap?.get(`${ref.q},${ref.r}`) : null;
+        return tile ? { x: tile.x, y: tile.y } : null;
+    };
+
     if (event.smite) {
         logMessage(`⚡ ${factionName}【神罚】→ 对 ${event.smite.unitId} 造成 ${event.smite.dmg} 点真实伤害${event.smite.killed ? '，将其消灭' : ''}`);
-        if (Number.isFinite(event.smite.x) && Number.isFinite(event.smite.y)) {
-            gameState.damageTexts.push({
-                x: event.smite.x, y: event.smite.y,
-                value: event.smite.dmg, isTrueDmg: true,
-                timeLeft: 1200, lastUpdate: performance.now()
-            });
+        const point = resolvePoint(event.smite);
+        const smiteImpact = () => {
+            if (point) {
+                // 事件自复制路径（本地 emit 一次、远端经 payload 重 emit 一次）：不进广播捕获
+                enqueueFloatText({
+                    x: point.x, y: point.y,
+                    value: event.smite.dmg, isTrueDmg: true, timeLeft: 1200
+                }, { broadcast: false });
+                spawnExplosionParticles(point.x, point.y, '#f5d76e', 18);
+                spawnExplosionParticles(point.x, point.y, '#fff6d8', 10);
+            }
+            triggerScreenShake(event.smite.killed ? 6 : 4, event.smite.killed ? 260 : 180);
+            playSound(event.smite.killed ? 'explosion' : 'lightning');
+        };
+        if (statueOk && point) {
+            spawnCelestineOracleBeam(event.statueX, event.statueY, point.x, point.y, 'smite', heroDelayMs, timing);
+            window.setTimeout(smiteImpact, heroDelayMs + timing.impactMs);
+        } else {
+            // 无神像锚点时降级为即时弹着（但阶段跃迁仍需延迟到 Hero 之后）
+            if (heroDelayMs > 0) {
+                window.setTimeout(smiteImpact, heroDelayMs);
+            } else {
+                smiteImpact();
+            }
         }
-        if (event.smite.killed) playSound('explosion');
-        else playSound('lightning');
     }
     if (event.shield && event.shield.amount > 0) {
         logMessage(`🛡️ ${factionName}【赐福】→ 对 ${event.shield.unitId} 附加 ${event.shield.amount} 点护盾`);
-        if (Number.isFinite(event.shield.x) && Number.isFinite(event.shield.y)) {
-            gameState.healTexts.push({
-                x: event.shield.x, y: event.shield.y,
-                value: event.shield.amount, prefix: '🛡️',
-                timeLeft: 1200, lastUpdate: performance.now()
-            });
+        const point = resolvePoint(event.shield);
+        const shieldImpact = () => {
+            if (point) {
+                // 赐福改为护盾跳字；事件自复制路径：不进广播捕获
+                enqueueFloatText({
+                    kind: 'shield', sign: '+',
+                    x: point.x, y: point.y,
+                    value: event.shield.amount, timeLeft: 1200
+                }, { broadcast: false });
+                spawnHealParticles(point.x, point.y);
+            }
+            playSound('heal');
+        };
+        if (statueOk && point) {
+            spawnCelestineOracleBeam(event.statueX, event.statueY, point.x, point.y, 'shield', heroDelayMs + timing.shieldFollowMs, timing);
+            window.setTimeout(shieldImpact, heroDelayMs + timing.shieldFollowMs + timing.impactMs);
+        } else {
+            if (heroDelayMs > 0) {
+                window.setTimeout(shieldImpact, heroDelayMs);
+            } else {
+                shieldImpact();
+            }
         }
-        playSound('heal');
     }
 });
 on('fx:hpDeltaTexts', ({ damage, healing }) => {
-    const now = performance.now();
+    // 事件自复制路径（救援链接动画两端各自触发）：不进广播捕获
     if (damage && Number.isFinite(damage.value) && damage.value > 0) {
-        gameState.damageTexts.push({
+        enqueueFloatText({
             x: damage.x,
             y: damage.y,
             value: damage.value,
-            isCrit: false,
-            timeLeft: 900,
-            lastUpdate: now
-        });
+            timeLeft: 900
+        }, { broadcast: false });
     }
     if (healing && Number.isFinite(healing.value) && healing.value > 0) {
-        gameState.healTexts.push({
+        enqueueFloatText({
+            kind: 'heal',
             x: healing.x,
             y: healing.y,
             value: healing.value,
-            timeLeft: 1000,
-            lastUpdate: now
-        });
+            timeLeft: 1000
+        }, { broadcast: false });
     }
 });
 on('fx:soulRecall', ({ fromX, fromY, toX, toY, unit }) => {

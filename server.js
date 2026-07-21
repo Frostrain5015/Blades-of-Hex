@@ -177,6 +177,8 @@ const MIME = {
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
     '.map': 'application/json; charset=utf-8',
+    // ESM JSON 模块（rules/maps/*.level.json 等以 import ... with { type: 'json' } 引入）
+    '.json': 'application/json; charset=utf-8',
 };
 // 浏览器入口引用的根级背景图，以及被 ESM 状态模型导入的纯算法模块，都属于公开静态资源。
 // 其余根级文件仍默认拒绝，避免把服务器代码和本地配置暴露出去。

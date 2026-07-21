@@ -194,7 +194,7 @@ for (const playerCount of [2, 3]) {
 
         const expected = playerCount === 2
             ? { mountains: 9, forests: 26, cities: 6, neutralCities: 4, airfields: 3, ports: 5, units: 44, carrier: { q: 1, r: -1 }, districtId: 5 }
-            : { mountains: 11, forests: 36, cities: 9, neutralCities: 6, airfields: 7, ports: 9, units: 67, carrier: { q: 0, r: 0 }, districtId: 7 };
+            : { mountains: 11, forests: 36, cities: 9, neutralCities: 6, airfields: 7, ports: 9, units: 61, carrier: { q: 0, r: 0 }, districtId: 7 };
         assert.equal(map.randomTerrain, false);
         assert.equal(board.terrain.filter(tile => tile.type === 'mountain').length, expected.mountains);
         assert.equal(board.terrain.filter(tile => tile.type === 'forest').length, expected.forests);

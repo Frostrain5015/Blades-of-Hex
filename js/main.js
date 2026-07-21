@@ -38,6 +38,7 @@ import './unitPresentationAdapter.js';
 import { playSound, initAudio, setMuted, startBattleBGM, stopBattleBGM, stopLobbyBGM } from './audio.js';
 import { loadCommanderFx } from './commanderFx.js';
 import { emit } from './eventBus.js';
+import { replayFloatTexts, setFloatTextsSuppressed, setFloatTextCaptureSuppressed } from './floatTexts.js';
 import { createHeroCarousel } from './heroCarousel.js';
 import { createPreparationController } from './preparationController.js';
 import { initChat, updateChatAvailability, initEmblemChatClicks, addChatMessage, openChat, isChatViewing } from './chatController.js';
@@ -68,11 +69,10 @@ import {
 } from './rendering/index.js';
 import { battlefieldDelegation, setBattlefieldDelegation } from './rendering/delegation.js';
 import {
-    AIR_COMMAND_IMPACT_DELAY_MS,
-    buildAirCommandDamageTexts
+    AIR_COMMAND_IMPACT_DELAY_MS
 } from '../rules/airCommands.js';
 import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
-import { getOracleStatueAnchor } from '../rules/celestine.js';
+import { getOracleStatueAnchor, CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
 import { resolveBorrowDay } from '../rules/tianheng.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
@@ -2883,6 +2883,17 @@ async function handleRemoteAction(msg) {
             const _kUnit = _kMs > 0 ? gameState.tileMap?.get(`${_ke.q},${_ke.r}`)?.unit : null;
             if (_kUnit) (gameState.unitDeathGhosts ||= []).push({ unit: _kUnit, until: performance.now() + _kMs });
         }
+        // 【神谕】神罚击杀同理：残影保留到指引光束弹着时刻
+        for (const pulse of (msg.actionType === 'endTurn' && msg.effects?.oraclePulses) || []) {
+            if (!pulse?.smite?.killed) continue;
+            const dying = gameState.tileMap?.get(`${pulse.smite.q},${pulse.smite.r}`)?.unit;
+            if (dying) {
+                (gameState.unitDeathGhosts ||= []).push({
+                    unit: dying,
+                    until: performance.now() + CELESTINE_ORACLE_PULSE_TIMING.impactMs
+                });
+            }
+        }
         applyRemoteState(msg.state, HexTile, Unit);
         await loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
         // 远端快照落地后核对本地投降是否已被收录，未收录则幂等重放并重新广播。
@@ -2901,6 +2912,8 @@ async function handleRemoteAction(msg) {
     }
 
     const e = msg.effects;
+    // 浮字统一走 payload 重放：与本地同一批条目、同一节奏（delayMs 照用）
+    if (e?.floatTexts) replayFloatTexts(e.floatTexts);
     switch (msg.actionType) {
         case 'move':
             playSound('move');
@@ -2926,11 +2939,7 @@ async function handleRemoteAction(msg) {
                     spawnExplosionParticles(e.mineTrigger.x, e.mineTrigger.y, '#664400', 8);
                     triggerScreenShake(6, 250);
                     playSound('attack');
-                    gameState.damageTexts.push({
-                        x: e.mineTrigger.x, y: e.mineTrigger.y,
-                        value: e.mineTrigger.dmg, isCrit: true,
-                        timeLeft: 900, lastUpdate: performance.now()
-                    });
+                    // 伤害数字由 e.floatTexts 统一重放
                 }
             }
             break;
@@ -2944,26 +2953,17 @@ async function handleRemoteAction(msg) {
                     if (fx.glyph === '💥' && fx.label === '殉道') playSound('explosion');
                 }
             }
-            // 重放殉道者爆炸等将领产生的伤害数字
-            if (e && e.dmgTexts) {
-                for (const dt of e.dmgTexts) {
-                    gameState.damageTexts.push({ ...dt, lastUpdate: performance.now() });
-                }
-            }
+            // 重放殉道者爆炸等将领产生的伤害数字 —— 已由 e.floatTexts 统一重放
             // 重放牧师圣链治疗特效
             if (e && e.healingChains) {
                 for (const hc of e.healingChains) {
                     spawnHealingChain(hc.fromX, hc.fromY, hc.toX, hc.toY);
                 }
             }
-            // 重放雨天环境落雷（伤害已随状态快照同步，此处只放特效与浮字）
+            // 重放雨天环境落雷（伤害已随状态快照同步，伤害数字由 e.floatTexts 重放，此处只放特效）
             if (e && e.rainLightning) {
                 for (const s of (e.rainLightning.strikes || [])) {
                     spawnLightningStrike(s.x, s.y);
-                    gameState.damageTexts.push({
-                        x: s.x, y: s.y, value: s.dmg, isTrueDmg: true,
-                        timeLeft: 1000, lastUpdate: performance.now()
-                    });
                 }
                 for (const a of (e.rainLightning.ambient || [])) spawnLightningStrike(a.x, a.y);
                 if ((e.rainLightning.strikes || []).length || (e.rainLightning.ambient || []).length) playSound('lightning');
@@ -3030,31 +3030,31 @@ async function handleRemoteAction(msg) {
                         case 'lightning': {
                             const lt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
                             if (lt && lt.unit && e.dmg) {
-                                // 统一伤害入口：真实伤害绕过护盾，击杀清理由 applyDamage 处理
-                                const dc = lt.unit.camp;
-                                const killed = lt.unit.applyDamage(e.dmg, { source: 'true' });
-                                if (killed) {
-                                    const dck = campToKey(dc);
-                                    gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                // 统一伤害入口：真实伤害绕过护盾，击杀清理由 applyDamage 处理。
+                                // 伤害数字由 e.floatTexts 重放；弹着派生跳字（临终迸发/殉道等）
+                                // 两端各自推导（仅显示，不进广播捕获，避免漏进下次广播变幽灵跳字）
+                                setFloatTextCaptureSuppressed(true);
+                                try {
+                                    const dc = lt.unit.camp;
+                                    const killed = lt.unit.applyDamage(e.dmg, { source: 'true' });
+                                    if (killed) {
+                                        const dck = campToKey(dc);
+                                        gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                    }
+                                } finally {
+                                    setFloatTextCaptureSuppressed(false);
                                 }
                             }
                             playSound('lightning');
                             spawnLightningStrike(e.x, e.y);
                             triggerScreenShake(10, 350);
-                            if (e.dmg) gameState.damageTexts.push({
-                                x: e.x, y: e.y, value: e.dmg, isTrueDmg: true,
-                                timeLeft: 1000, lastUpdate: performance.now()
-                            });
                             break;
                         }
                         case 'heal': {
                             const ht = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
                             if (ht && ht.unit && e.healAmt) {
                                 ht.unit.hp = Math.min(ht.unit.maxHp, ht.unit.hp + e.healAmt);
-                                gameState.healTexts.push({
-                                    x: e.x, y: e.y, value: e.healAmt,
-                                    timeLeft: 1000, lastUpdate: performance.now()
-                                });
+                                // 治疗数字由 e.floatTexts 统一重放
                                 spawnHealParticles(e.x, e.y);
                                 triggerHealFlash(e.x, e.y);
                             }
@@ -3124,23 +3124,26 @@ async function handleRemoteAction(msg) {
                             // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
                             setTimeout(() => {
                                 playSound('explosion');
-                                for (const r of airstrikeResults) {
-                                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                                    if (!tile) continue;
-                                    if (tile.unit) {
-                                        // 统一伤害入口：空袭为远程攻击
-                                        const dc = tile.unit.camp;
-                                        const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
-                                        if (killed) {
-                                            const dck = campToKey(dc);
-                                            gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                // 伤害数字由 e.floatTexts 重放；弹着派生跳字（护盾吸收/灵光/临终迸发）
+                                // 两端各自推导（仅显示，不进广播捕获，避免漏进下次广播变幽灵跳字）
+                                setFloatTextCaptureSuppressed(true);
+                                try {
+                                    for (const r of airstrikeResults) {
+                                        const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                                        if (!tile) continue;
+                                        if (tile.unit) {
+                                            // 统一伤害入口：空袭为远程攻击
+                                            const dc = tile.unit.camp;
+                                            const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
+                                            if (killed) {
+                                                const dck = campToKey(dc);
+                                                gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                            }
                                         }
+                                        spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
                                     }
-                                    spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
-                                    gameState.damageTexts.push({
-                                        x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
-                                        timeLeft: 900, lastUpdate: performance.now()
-                                    });
+                                } finally {
+                                    setFloatTextCaptureSuppressed(false);
                                 }
                                 triggerScreenShake(6, 300);
                             }, 1200);
@@ -3152,28 +3155,30 @@ async function handleRemoteAction(msg) {
                             spawnOrbitalBeam(e.x, e.y);
                             playSound('lightning');
                             const applyRemoteOrbitalTick = (tickIndex, isFinal) => {
-                                for (const r of oResults) {
-                                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                                    if (!tile) continue;
-                                    const tickDmg = r.ticks?.[tickIndex] || 0;
-                                    if (tickDmg <= 0) continue;
-                                    if (tile.unit) {
-                                        const dc = tile.unit.camp;
-                                        const killed = tile.unit.applyDamage(tickDmg, { source: 'ranged' });
-                                        if (killed) {
-                                            const dck = campToKey(dc);
-                                            gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                // 分段伤害数字由 e.floatTexts 重放；弹着派生跳字两端各自推导（仅显示，不进广播捕获）
+                                setFloatTextCaptureSuppressed(true);
+                                try {
+                                    for (const r of oResults) {
+                                        const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                                        if (!tile) continue;
+                                        const tickDmg = r.ticks?.[tickIndex] || 0;
+                                        if (tickDmg <= 0) continue;
+                                        if (tile.unit) {
+                                            const dc = tile.unit.camp;
+                                            const killed = tile.unit.applyDamage(tickDmg, { source: 'ranged' });
+                                            if (killed) {
+                                                const dck = campToKey(dc);
+                                                gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                            }
                                         }
-                                        gameState.damageTexts.push({
-                                            x: tile.x, y: tile.y, value: tickDmg, isCrit: isFinal,
-                                            timeLeft: isFinal ? 1000 : 800, lastUpdate: performance.now()
-                                        });
+                                        spawnExplosionParticles(tile.x, tile.y, isFinal ? '#7fd0ff' : '#9fe0ff', isFinal ? 18 : 5);
+                                        if (isFinal) {
+                                            spawnExplosionParticles(tile.x, tile.y, '#eaf7ff', 12);
+                                            triggerAttackFlash(tile.x, tile.y, true);
+                                        }
                                     }
-                                    spawnExplosionParticles(tile.x, tile.y, isFinal ? '#7fd0ff' : '#9fe0ff', isFinal ? 18 : 5);
-                                    if (isFinal) {
-                                        spawnExplosionParticles(tile.x, tile.y, '#eaf7ff', 12);
-                                        triggerAttackFlash(tile.x, tile.y, true);
-                                    }
+                                } finally {
+                                    setFloatTextCaptureSuppressed(false);
                                 }
                                 triggerScreenShake(isFinal ? 14 : 3, isFinal ? 500 : 180);
                             };
@@ -3211,20 +3216,25 @@ async function handleRemoteAction(msg) {
                             }, 600);
                             setTimeout(() => {
                                 const dt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : null;
-                                if (dt && dt.unit && e.dmg) {
-                                    const dc = dt.unit.camp;
-                                    const _isCmdR = !!dt.unit.commander;
-                                    // 鹰链：上校空军卡为延迟结算路径，出卡方即当前回合阵营
-                                    const killed = dt.unit.applyDamage(e.dmg, { source: 'ranged', eagleAirForceCampKey: campToKey(gameState.currentCamp) });
-                                    if (killed) {
-                                        const dck = campToKey(dc);
-                                        gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
-                                        const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && campToKey(t.unit.camp) !== 'neutral' && t.unit.hp > 0 ? t.unit : null), null);
-                                        if (_colR) reapColonelKill(_colR, _isCmdR);
+                                // 伤害数字由 e.floatTexts 重放；弹着派生跳字两端各自推导（仅显示，不进广播捕获）
+                                setFloatTextCaptureSuppressed(true);
+                                try {
+                                    if (dt && dt.unit && e.dmg) {
+                                        const dc = dt.unit.camp;
+                                        const _isCmdR = !!dt.unit.commander;
+                                        // 鹰链：上校空军卡为延迟结算路径，出卡方即当前回合阵营
+                                        const killed = dt.unit.applyDamage(e.dmg, { source: 'ranged', eagleAirForceCampKey: campToKey(gameState.currentCamp) });
+                                        if (killed) {
+                                            const dck = campToKey(dc);
+                                            gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                            const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && campToKey(t.unit.camp) !== 'neutral' && t.unit.hp > 0 ? t.unit : null), null);
+                                            if (_colR) reapColonelKill(_colR, _isCmdR);
+                                        }
                                     }
+                                } finally {
+                                    setFloatTextCaptureSuppressed(false);
                                 }
                                 spawnExplosionParticles(e.x, e.y, '#ff8800', 15);
-                                if (e.dmg) gameState.damageTexts.push({ x: e.x, y: e.y, value: e.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                                 triggerScreenShake(6, 300);
                             }, 1200);
                             break;
@@ -3235,24 +3245,29 @@ async function handleRemoteAction(msg) {
                             spawnAirstrikeEffect(e.x, e.y, cResults, 'carpetBomb', e.q, e.r);
                             setTimeout(() => {
                                 playSound('explosion');
-                                for (const r of cResults) {
-                                    const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                                    if (!tile) continue;
-                                    spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
-                                    // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）
-                                    if (tile.unit && r.dmg) {
-                                        const dc = tile.unit.camp;
-                                        const _isCmdR = !!tile.unit.commander;
-                                        // 鹰链：上校空军卡为延迟结算路径，出卡方即当前回合阵营
-                                        const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged', eagleAirForceCampKey: campToKey(gameState.currentCamp) });
-                                        if (killed) {
-                                            const dck = campToKey(dc);
-                                            gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
-                                            const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && campToKey(t.unit.camp) !== 'neutral' && t.unit.hp > 0 ? t.unit : null), null);
-                                            if (_colR) reapColonelKill(_colR, _isCmdR);
+                                // 伤害数字由 e.floatTexts 重放；弹着派生跳字两端各自推导（仅显示，不进广播捕获）
+                                setFloatTextCaptureSuppressed(true);
+                                try {
+                                    for (const r of cResults) {
+                                        const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                                        if (!tile) continue;
+                                        spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
+                                        // 仅对有单位的地块结算伤害（空地不显示伤害数字）
+                                        if (tile.unit && r.dmg) {
+                                            const dc = tile.unit.camp;
+                                            const _isCmdR = !!tile.unit.commander;
+                                            // 鹰链：上校空军卡为延迟结算路径，出卡方即当前回合阵营
+                                            const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged', eagleAirForceCampKey: campToKey(gameState.currentCamp) });
+                                            if (killed) {
+                                                const dck = campToKey(dc);
+                                                gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
+                                                const _colR = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp !== dc && campToKey(t.unit.camp) !== 'neutral' && t.unit.hp > 0 ? t.unit : null), null);
+                                                if (_colR) reapColonelKill(_colR, _isCmdR);
+                                            }
                                         }
-                                        gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                                     }
+                                } finally {
+                                    setFloatTextCaptureSuppressed(false);
                                 }
                                 triggerScreenShake(8, 400);
                             }, 1200);
@@ -3306,12 +3321,7 @@ async function handleRemoteAction(msg) {
                         }
                     }, 500);
                     setTimeout(() => triggerScreenShake(_sCrit ? 6 : 3, _sCrit ? 200 : 120), CARRIER_STRAFE_IMPACT_MS);
-                    setTimeout(() => {
-                        gameState.damageTexts.push({
-                            x: e.x, y: e.y, value: e.damage, isCrit: e.isCrit,
-                            timeLeft: 900, lastUpdate: performance.now()
-                        });
-                    }, CARRIER_STRAFE_IMPACT_MS);
+                    // 伤害数字由 e.floatTexts 统一重放（含子弹流抵达延迟）
                     break;
                 }
                 if (_sPres !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
@@ -3339,10 +3349,7 @@ async function handleRemoteAction(msg) {
                     triggerScreenShake(_sCrit ? 6 : 3, _sCrit ? 200 : 120);
                     if ((e.cityHpAfter ?? 1) > 0) triggerCharge(e.attackerUnitId ?? 0, _sFromX, _sFromY, e.x, e.y);
                 }
-                gameState.damageTexts.push({
-                    x: e.x, y: e.y, value: e.damage, isCrit: e.isCrit,
-                    timeLeft: 900, lastUpdate: performance.now()
-                });
+                // 伤害数字由 e.floatTexts 统一重放
                 break;
             }
             try {
@@ -3442,10 +3449,7 @@ async function handleRemoteAction(msg) {
                             spawnDirectionalParticles(e.x, e.y, splash.x, splash.y, '#d63c3c', splash.isCrit ? 12 : 8);
                             spawnExplosionParticles(splash.x, splash.y, '#b71c1c', splash.isCrit ? 16 : 10);
                             spawnExplosionParticles(splash.x, splash.y, '#ff8a65', splash.isCrit ? 8 : 5);
-                            gameState.damageTexts.push({
-                                x: splash.x, y: splash.y, value: splash.dmg, isCrit: splash.isCrit,
-                                timeLeft: 900, lastUpdate: performance.now()
-                            });
+                            // 溅射伤害数字由 e.floatTexts 统一重放
                         }
                         if (e.berserkerSplash?.length) playSound('explosion');
                         triggerScreenShake(8, 260);
@@ -3491,34 +3495,9 @@ async function handleRemoteAction(msg) {
                         const ctrMoraleUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.ctrMoraleFxUnitId ? t.unit : null), null);
                         if (ctrMoraleUnit) spawnMoraleEffect(ctrMoraleUnit);
                     }
-                    // 伤害数字（飞行类攻击延迟到弹体抵达，与本地 calculateDamage 的延迟推送一致）
-                    if (e.attackDmg > 0) {
-                        _rmDeferImpact(() => {
-                            gameState.damageTexts.push({
-                                x: e.x, y: e.y, value: e.attackDmg, isCrit: e.attackIsCrit,
-                                timeLeft: 900, lastUpdate: performance.now()
-                            });
-                        });
-                    }
-                    if (e.cityDamage > 0) {
-                        setTimeout(() => {
-                            gameState.damageTexts.push({
-                                x: e.x + 20,
-                                y: e.y + 8,
-                                value: e.cityDamage,
-                                isCityDamage: true,
-                                isCrit: e.cityDamageIsCrit === true,
-                                timeLeft: 900,
-                                lastUpdate: performance.now()
-                            });
-                        }, Number.isFinite(e.cityDamageDelayMs) ? e.cityDamageDelayMs : 180);
-                    }
-                    // 反击伤害数字 + 远程单位反击炮弹动画
+                    // 伤害数字（攻击/攻城连带/反击/至圣斩/治疗）统一由 e.floatTexts 重放，
+                    // 时序与本地一致（飞行类攻击的条目自带弹着延迟）
                     if (e.counterDmg > 0) {
-                        gameState.damageTexts.push({
-                            x: e.counterX, y: e.counterY, value: e.counterDmg, isCrit: !!e.counterIsCrit,
-                            timeLeft: 750, lastUpdate: performance.now()
-                        });
                         if (e.counterIsRanged) {
                             const counterPresentation = classifyAttackPresentation({
                                 attackerType: e.counterType,
@@ -3542,12 +3521,8 @@ async function handleRemoteAction(msg) {
                             }
                         }
                     }
-                    // 至圣斩真伤数字（金色真实伤害样式）
+                    // 至圣斩真伤数字由 e.floatTexts 重放；此处只放光束/特效/震屏
                     if (e.smiteDmg > 0) {
-                        gameState.damageTexts.push({
-                            x: e.x, y: e.y, value: e.smiteDmg, isTrueDmg: true,
-                            timeLeft: 900, lastUpdate: performance.now()
-                        });
                         triggerAttackFlash(e.x, e.y, true);
                         spawnCommanderSkillEffect(e.x, e.y, '✝️', '至圣斩', true);
                         triggerScreenShake(_rmSmiteLabel === '至圣斩·誓约' ? 10 : 8, 350);
@@ -3557,13 +3532,6 @@ async function handleRemoteAction(msg) {
                         for (const gb of e.goldenBeamDatas) {
                             spawnGoldenBeam(gb.x, gb.y);
                         }
-                    }
-                    // 治疗数字
-                    if (e.healAmt > 0) {
-                        gameState.healTexts.push({
-                            x: e.healX, y: e.healY, value: e.healAmt,
-                            timeLeft: 1000, lastUpdate: performance.now()
-                        });
                     }
                 }
                 }; // _execAttackFx
@@ -3612,6 +3580,10 @@ async function handleRemoteAction(msg) {
             const airCampKey = airLauncherTile?.camp ? campToKey(airLauncherTile.camp) : null;
             if (Number.isFinite(impactDelay)) {
                 setTimeout(() => {
+                    // 伤害数字由 e.floatTexts 重放；落弹派生跳字（护盾吸收/灵光/临终迸发）
+                    // 两端各自推导（仅显示，不进广播捕获，避免漏进下次广播变幽灵跳字）
+                    setFloatTextCaptureSuppressed(true);
+                    try {
                     if (e.kind === 'strafe') {
                         // 延迟扣血：爆炸时刻才结算伤害
                         for (const r of (e.results || [])) {
@@ -3651,11 +3623,9 @@ async function handleRemoteAction(msg) {
                         }
                         triggerScreenShake(8, 400);
                     }
-                    gameState.damageTexts.push(...buildAirCommandDamageTexts(
-                        e.results,
-                        gameState.tileMap,
-                        performance.now()
-                    ));
+                    } finally {
+                        setFloatTextCaptureSuppressed(false);
+                    }
                 }, impactDelay);
             }
             break;
@@ -3684,16 +3654,7 @@ async function handleRemoteAction(msg) {
         case 'droneSuicide':
             if (e) {
                 spawnDroneDive(e.fromX, e.fromY, e.x, e.y, e.campKey || 'p1');
-                for (const r of e.results || []) {
-                    gameState.damageTexts.push({
-                        x: r.x,
-                        y: r.y,
-                        value: r.dmg,
-                        isCrit: !!r.isCrit,
-                        timeLeft: 900,
-                        lastUpdate: performance.now()
-                    });
-                }
+                // 自爆伤害数字由 e.floatTexts 统一重放
                 // 天鹰【鹰链红利】：自爆为同步结算路径，事件随广播 relay
                 for (const eagleEvent of e.eagleSynergyEvents || []) {
                     emit('fx:eagleSynergy', eagleEvent);
@@ -3710,7 +3671,13 @@ async function handleRemoteAction(msg) {
             if (e && e.unitId) {
                 const rUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.unitId ? t.unit : null), null);
                 if (rUnit && rUnit.tile) {
-                    rUnit.heal(e.healAmt);
+                    // 治疗浮字已由 e.floatTexts 重放；heal 仅用于触发治疗特效/事件，抑制浮字产出
+                    setFloatTextsSuppressed(true);
+                    try {
+                        rUnit.heal(e.healAmt);
+                    } finally {
+                        setFloatTextsSuppressed(false);
+                    }
                     rUnit.tile._reinforcedThisTurn = true;
                     spawnReinforceEffect(e.x, e.y, e.healAmt);
                 }
@@ -3726,12 +3693,18 @@ async function handleRemoteAction(msg) {
                 if (skillUnit && skillUnit.commander) {
                     const cmdCfg = getCommander(skillUnit.commander);
                     if (cmdCfg && cmdCfg.activeSkill) {
-                        cmdCfg.activeSkill.onActivate(skillUnit, {
-                            gameState, logMessage,
-                            spawnFx: spawnCommanderSkillEffect,
-                            spawnOrbitBeams: spawnPaladinOrbitBeams,
-                            isReplay: true
-                        });
+                        // 技能结算可能产生治疗/护盾浮字：已由 e.floatTexts 重放，抑制本地产出
+                        setFloatTextsSuppressed(true);
+                        try {
+                            cmdCfg.activeSkill.onActivate(skillUnit, {
+                                gameState, logMessage,
+                                spawnFx: spawnCommanderSkillEffect,
+                                spawnOrbitBeams: spawnPaladinOrbitBeams,
+                                isReplay: true
+                            });
+                        } finally {
+                            setFloatTextsSuppressed(false);
+                        }
                         skillUnit.activeSkillDur = cmdCfg.activeSkill.duration;
                         skillUnit.activeSkillCD = cmdCfg.activeSkill.cooldown;
                     }

@@ -29,10 +29,10 @@ export async function run(browser, { quick = false } = {}) {
             panelTop: panelRect.top
         };
     });
-    R.assert(colorPickerInitial.colors.length === 7 && colorPickerInitial.emojis.length === 13
+    R.assert(colorPickerInitial.colors.length === 7 && colorPickerInitial.emojis.length === 16
         && !colorPickerInitial.colors.includes('gray') && !colorPickerInitial.colors.includes('white')
         && colorPickerInitial.blueEnabled,
-    `普通对局选将页显示七种颜色与十三种旗面徽记，未完成选将的 AI 不会占用蓝色（${colorPickerInitial.colors.join('、')}）`);
+    `普通对局选将页显示七种颜色与十六种旗面徽记，未完成选将的 AI 不会占用蓝色（${colorPickerInitial.colors.join('、')}）`);
     await page.click('#commanderLogo');
     const colorPickerOpen = await page.evaluate((initial) => {
         const picker = document.getElementById('commanderColorPicker');

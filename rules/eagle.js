@@ -15,7 +15,7 @@
 //     来源不计入，防止自残与误伤刷授权。城市血池结构伤害不计入（只统计单位）。
 
 import { campToKey } from './camps.js';
-import { campFromKey, isHostile } from './diplomacy.js';
+import { campFromKey, canAttack } from './diplomacy.js';
 import { isStrongpointTarget } from './units.js';
 import {
     EAGLE_FACTION_SYNERGY,
@@ -40,9 +40,9 @@ export const EAGLE_ORBITAL_STRIKE_CARD_ID = 'orbitalStrike';
  *   不是常规循环；天基打击不计入任何一侧计量，避免自循环。
  */
 export const EAGLE_SYNERGY_BALANCE = Object.freeze({
-    damageThreshold: 400,
-    goldPerTrigger: 12,
-    takenThreshold: 800
+    damageThreshold: 300,
+    goldPerTrigger: 10,
+    takenThreshold: 400
 });
 
 export const EAGLE_SUPPLY_EFFECT = Object.freeze({
@@ -136,7 +136,7 @@ export function resolveEagleDamageCreditCampKey({ attacker = null, airForceCampK
     }
     if (!attacker?.camp) return null;
     if (!isEagleAirAttacker(attacker) && !isEagleFortressAttacker(attacker)) return null;
-    if (target?.camp && gameState && !isHostile(gameState, attacker.camp, target.camp)) return null;
+    if (target?.camp && gameState && !canAttack(gameState, attacker.camp, target.camp)) return null;
     const campKey = campToKey(attacker.camp);
     return hasEagleSynergyActive(gameState, campKey) ? campKey : null;
 }
@@ -150,11 +150,11 @@ export function resolveEagleDamageTakenCampKey({ target = null, attacker = null,
     const campKey = campToKey(target.camp);
     if (!hasEagleSynergyActive(gameState, campKey)) return null;
     if (attacker?.camp) {
-        return isHostile(gameState, attacker.camp, target.camp) ? campKey : null;
+        return canAttack(gameState, attacker.camp, target.camp) ? campKey : null;
     }
     if (airForceCampKey) {
         const airCamp = campFromKey(airForceCampKey, gameState);
-        return airCamp && isHostile(gameState, airCamp, target.camp) ? campKey : null;
+        return airCamp && canAttack(gameState, airCamp, target.camp) ? campKey : null;
     }
     return null;
 }

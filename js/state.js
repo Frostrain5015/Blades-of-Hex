@@ -15,6 +15,7 @@ import { isMechanicEnabled } from '../rules/mechanics.js';
 import { RECRUITMENT_OPTIONS, canRecruitTypeAtSelectedCity, getRecruitmentSiteKind, shouldShowRecruitmentOption } from './recruitmentUi.js';
 import { hasFactionSurrendered } from '../rules/matchOutcome.js';
 import { isCityDisabled } from '../rules/citySiege.js';
+import { setFloatTextsStateRef } from './floatTexts.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
@@ -51,6 +52,8 @@ function animateCounter(el, newVal, fmtFn, key) {
 //   MatchState（规则结算/可序列化） + ClientUiState（本地选中/动画/浮层）。
 // 过渡期两者仍合并为同一个单例对象，旧代码的引用方式不变。
 export const gameState = Object.assign(createMatchState(), createClientUiState());
+// 浮字队列（js/floatTexts.js）不静态 import 本模块（防 commander 链循环依赖），在此反向注册
+setFloatTextsStateRef(gameState);
 
 // ===== 重置游戏状态（再来一局时调用） =====================
 export function resetGameState() {

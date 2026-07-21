@@ -2,6 +2,7 @@ import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, draw
 import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
+import { flushFloatTexts } from './floatTexts.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import {
     drawAllBorders, drawDistrictBorders, drawCampBorders, computeCampBorders
@@ -26,7 +27,7 @@ import {
     cardUseEffects,
     spawnCardCopyEffect,
     coinParticles, updateCoinParticles, drawCoinParticles,
-    airstrikeEffects, airliftEffects
+    airstrikeEffects, airliftEffects, celestineOracleBeams
 } from './effects.js';
 import {
     getFogAlpha,
@@ -271,6 +272,133 @@ function drawCelestineOracleStatues(now) {
     }
 }
 
+/**
+ * 神谕指引光束绘制（战争迷雾之上）。两段式：
+ * 蓄力（神像处光环胀缩）→ 光束头沿弧线飞向目标（亮头+渐隐尾迹）→
+ * 弹着（目标处双环爆发 + 竖直光柱）+ 整束余辉淡出。
+ */
+function drawCelestineOracleBeams(now) {
+    for (let i = celestineOracleBeams.length - 1; i >= 0; i--) {
+        const fx = celestineOracleBeams[i];
+        const elapsed = now - fx.startTime;
+        if (elapsed < 0) continue; // 错峰升空（赐福晚于神罚）
+        const impactAt = fx.chargeMs + fx.travelMs;
+        const total = impactAt + fx.lingerMs;
+        if (elapsed > total) { celestineOracleBeams.splice(i, 1); continue; }
+
+        const isSmite = fx.kind === 'smite';
+        const coreColor = isSmite ? '#fff6d8' : '#f4fbff';
+        const mainColor = isSmite ? '#f5d76e' : '#bfe3ff';
+        const rimColor = isSmite ? '#ffb84d' : '#8fd0ff';
+
+        const fromX = fx.fromX, fromY = fx.fromY - 24; // 与神像悬浮高度对齐
+        const toX = fx.toX, toY = fx.toY;
+        const dist = Math.hypot(toX - fromX, toY - fromY) || 1;
+        const lift = Math.min(64, 26 + dist * 0.14);
+        const ctrlX = (fromX + toX) / 2;
+        const ctrlY = Math.min(fromY, toY) - lift;
+        const pointAt = t => ({
+            x: (1 - t) * (1 - t) * fromX + 2 * (1 - t) * t * ctrlX + t * t * toX,
+            y: (1 - t) * (1 - t) * fromY + 2 * (1 - t) * t * ctrlY + t * t * toY
+        });
+
+        ctx.save();
+
+        // ── 蓄力：神像处光环胀缩 + 升起的辉点 ──
+        if (elapsed < impactAt) {
+            const chargeT = Math.min(1, elapsed / fx.chargeMs);
+            const ringR = 8 + chargeT * 20;
+            ctx.globalAlpha = 0.7 * Math.sin(chargeT * Math.PI * 0.5 + 0.2);
+            ctx.strokeStyle = mainColor;
+            ctx.lineWidth = 2;
+            ctx.shadowColor = mainColor;
+            ctx.shadowBlur = 14;
+            ctx.beginPath();
+            ctx.arc(fromX, fromY, ringR, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // ── 飞行：光束头沿弧线推进，尾迹为渐亮线段 ──
+        const travelT = Math.max(0, Math.min(1, (elapsed - fx.chargeMs) / fx.travelMs));
+        const fadeT = elapsed > impactAt ? (elapsed - impactAt) / fx.lingerMs : 0;
+        const beamAlpha = elapsed > impactAt ? (1 - fadeT) : travelT > 0 ? 0.55 + travelT * 0.45 : 0;
+        if (travelT > 0 && beamAlpha > 0) {
+            const eased = 1 - Math.pow(1 - travelT, 2.4);
+            const segments = 26;
+            const headIdx = Math.max(1, Math.round(segments * eased));
+            // 光晕层 + 核心层双描边
+            for (const [width, color, alphaScale, blur] of [
+                [7, rimColor, 0.35, 18],
+                [3.2, mainColor, 0.8, 10],
+                [1.4, coreColor, 1, 4]
+            ]) {
+                ctx.globalAlpha = Math.min(1, beamAlpha * alphaScale);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = width;
+                ctx.lineCap = 'round';
+                ctx.shadowColor = color;
+                ctx.shadowBlur = blur;
+                ctx.beginPath();
+                const start = pointAt(0);
+                ctx.moveTo(start.x, start.y);
+                for (let s = 1; s <= headIdx; s++) {
+                    const p = pointAt(s / headIdx * eased);
+                    ctx.lineTo(p.x, p.y);
+                }
+                ctx.stroke();
+            }
+            // 光束头彗核
+            if (elapsed <= impactAt) {
+                const head = pointAt(eased);
+                const headGrad = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, 12);
+                headGrad.addColorStop(0, coreColor);
+                headGrad.addColorStop(0.45, mainColor);
+                headGrad.addColorStop(1, 'rgba(245, 215, 110, 0)');
+                ctx.globalAlpha = 0.95;
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = headGrad;
+                ctx.beginPath();
+                ctx.arc(head.x, head.y, 12, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // ── 弹着：目标处双环爆发 + 竖直光柱 ──
+        if (elapsed > impactAt) {
+            const burstT = Math.min(1, fadeT / 0.6);
+            ctx.shadowBlur = 0;
+            // 双环
+            for (const [delayFrac, color, width] of [[0, coreColor, 2.6], [0.22, rimColor, 1.6]]) {
+                const ringT = Math.max(0, Math.min(1, (fadeT - delayFrac) / (1 - delayFrac)));
+                if (ringT <= 0 || ringT >= 1) continue;
+                ctx.globalAlpha = (1 - ringT) * 0.85;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = width;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.arc(toX, toY, 6 + ringT * 44, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            // 竖直光柱（自目标上空垂落的圣光）
+            const pillarAlpha = (1 - fadeT) * 0.55;
+            if (pillarAlpha > 0.02) {
+                const pillarW = 16 * (1 - burstT * 0.4);
+                const pillarGrad = ctx.createLinearGradient(toX, toY - 120, toX, toY + 6);
+                pillarGrad.addColorStop(0, 'rgba(255, 250, 230, 0)');
+                pillarGrad.addColorStop(0.55, isSmite ? 'rgba(245, 215, 110, 0.55)' : 'rgba(191, 227, 255, 0.5)');
+                pillarGrad.addColorStop(1, isSmite ? 'rgba(255, 246, 216, 0.9)' : 'rgba(244, 251, 255, 0.85)');
+                ctx.globalAlpha = pillarAlpha;
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = pillarGrad;
+                ctx.fillRect(toX - pillarW / 2, toY - 120, pillarW, 126);
+            }
+        }
+
+        ctx.restore();
+    }
+}
+
 // Shared terrain-material pass: tile bases, ground, waterways, relief and
 // deferred details in the canonical order. Draws into any 2D context so the
 // Pixi terrain snapshot is produced by exactly the same code as direct
@@ -467,6 +595,7 @@ function _renderGame() {
     // 文字特效
     drawDamageTexts(now);
     drawHealTexts(now);
+    drawShieldTexts(now);
     drawGoldTexts(now);
 
     // 对策卡手牌 — 独立 canvas 渲染（见 drawCardCanvas）
@@ -861,6 +990,8 @@ function _renderGame() {
 
     // 塞莱斯廷圣国【神谕】神像：金色半透明带翼人形，悬浮于圣国控制的城市上方
     drawCelestineOracleStatues(now);
+    // 神谕指引光束（神像→神罚/赐福目标）：与神像同层，覆于战争迷雾之上
+    drawCelestineOracleBeams(now);
 
     ctx.restore();
 
@@ -2259,6 +2390,7 @@ function drawRangeApertures(now) {
 }
 // ===== 伤害文本（弹跳+强击特效） =====================
 function drawDamageTexts(now) {
+    flushFloatTexts(now);
     gameState.damageTexts = gameState.damageTexts.filter(text => {
         text.timeLeft -= now - text.lastUpdate;
         text.lastUpdate = now;
@@ -2279,7 +2411,13 @@ function drawDamageTexts(now) {
         ctx.shadowColor = '#000';
         ctx.shadowBlur = isBig ? 8 : 4;
 
-        if (text.isTrueDmg) {
+        if (text.isCityHeal) {
+            // 城市脱战回复：浅绿 +N
+            ctx.fillStyle = '#8fe3b0';
+            ctx.shadowColor = '#1d5c38';
+            ctx.shadowBlur = 8;
+            ctx.fillText(`+${Math.round(text.value)}`, 0, 0);
+        } else if (text.isTrueDmg) {
             ctx.fillStyle = '#ffe850';
             ctx.shadowColor = '#ffaa00';
             ctx.shadowBlur = 18;
@@ -2327,6 +2465,31 @@ function drawHealTexts(now) {
         ctx.shadowBlur = 8;
         ctx.fillStyle = '#44ff88';
         ctx.fillText(`+${Math.round(text.value)}`, text.x, text.y - 30 - floatUp);
+        ctx.restore();
+        return true;
+    });
+}
+
+// ===== 护盾文本（淡蓝，样式仿治疗浮字） =====================
+function drawShieldTexts(now) {
+    if (!gameState.shieldTexts) gameState.shieldTexts = [];
+    gameState.shieldTexts = gameState.shieldTexts.filter(text => {
+        text.timeLeft -= now - text.lastUpdate;
+        text.lastUpdate = now;
+        if (text.timeLeft <= 0) return false;
+
+        const progress = 1 - text.timeLeft / 1000;
+        const floatUp = progress * 20;
+        const alpha = Math.max(0, 1 - progress);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 18px Arial';
+        ctx.shadowColor = '#0d5a75';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = '#76e7ff';
+        ctx.fillText(`${text.sign || '-'}${Math.round(text.value)}`, text.x, text.y - 30 - floatUp);
         ctx.restore();
         return true;
     });

@@ -52,6 +52,7 @@ import {
     resolveEagleDamageCreditCampKey,
     resolveEagleDamageTakenCampKey
 } from '../rules/eagle.js';
+import { enqueueFloatText, adjustLatestDamageText } from './floatTexts.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -726,14 +727,13 @@ export class Unit {
         // 无人机机枪射击：走标准四大乘区，空军伤害（受防空减免），克制关系由 COUNTER_RELATION.drone 决定
         if (this._isDrone) {
             const result = this._resolveDamage(this, targetUnit, 1, 0, false, false, true);
-            gs.damageTexts.push({
+            enqueueFloatText({
                 x: targetUnit.tile.x,
                 y: targetUnit.tile.y,
                 value: result.dmg,
                 isCrit: result.isCrit,
-                timeLeft: 900,
-                lastUpdate: performance.now()
-            });
+                timeLeft: 900
+            }, { gs });
             return result;
         }
 
@@ -905,6 +905,16 @@ export class Unit {
             const absorbed = Math.min(this._shield, actualDmg);
             this._shield -= absorbed;
             actualDmg -= absorbed;
+            if (absorbed > 0 && this.tile) {
+                // 鱼雷等飞行中攻击：护盾跳字同样等弹体抵达再跳出（_deferImpactFxUntil
+                // 由攻击流程在 takeDamage 前设置；即时攻击/落弹时刻结算时该时间戳已过期→0）
+                const shieldDelayMs = Math.max(0, (this._deferImpactFxUntil || 0) - performance.now());
+                enqueueFloatText({
+                    kind: 'shield', sign: '-',
+                    x: this.tile.x, y: this.tile.y,
+                    value: absorbed, timeLeft: 1000, delayMs: shieldDelayMs
+                }, { gs: _gameState });
+            }
             if (actualDmg <= 0) return false;
         }
 
@@ -916,14 +926,8 @@ export class Unit {
             if (ironGuard && ironGuard._shield > 0) {
                 const leftover = Math.max(0, getCommanderAllyAuraDamage(this, actualDmg, ironGuard));
                 // 同步友军头顶伤害数字：全部吸收则移除，部分吸收则改为实际承受值
-                const dts = _gameState.damageTexts;
-                for (let i = dts.length - 1; i >= 0; i--) {
-                    if (dts[i].x === this.tile.x && dts[i].y === this.tile.y) {
-                        if (leftover <= 0) dts.splice(i, 1);
-                        else dts[i].value = Math.round(leftover);
-                        break;
-                    }
-                }
+                // （活动数组、pending 队列与待广播捕获副本三处同步改写）
+                adjustLatestDamageText(this.tile.x, this.tile.y, leftover, _gameState);
                 actualDmg = leftover;
                 if (actualDmg <= 0) return false;
             }
@@ -945,11 +949,11 @@ export class Unit {
             const floor = Math.round(this.maxHp * balance.minimumHpPct);
             this._healingAura = 0;
             this.hp = Math.max(Math.round(this.hp - actualDmg + burst), floor);
-            if (_gameState && _gameState.healTexts) {
-                _gameState.healTexts.push({
-                    x: this.tile.x, y: this.tile.y, value: burst,
-                    timeLeft: 1000, lastUpdate: performance.now()
-                });
+            if (_gameState) {
+                enqueueFloatText({
+                    kind: 'heal',
+                    x: this.tile.x, y: this.tile.y, value: burst, timeLeft: 1000
+                }, { gs: _gameState });
             }
             emit('fx:healFlash', { x: this.tile.x, y: this.tile.y });
             emit('fx:healParticles', { x: this.tile.x, y: this.tile.y });
@@ -1200,13 +1204,10 @@ export class Unit {
         emit('match:unitKilled', deathSnapshot);
     }
 
-    // 伤害数字延迟推送：鱼雷等有飞行时间的攻击，数字要等弹体抵达再跳出
+    // 伤害数字延迟推送：鱼雷等有飞行时间的攻击，数字要等弹体抵达再跳出。
+    // 统一走浮字队列同步登记（含 delayMs），广播快照可捕获、远端按同批条目重放。
     _pushDamageTextDelayed(gs, entry, delayMs = 0) {
-        if (delayMs > 0) {
-            setTimeout(() => gs.damageTexts.push({ ...entry, lastUpdate: performance.now() }), delayMs);
-        } else {
-            gs.damageTexts.push(entry);
-        }
+        enqueueFloatText({ ...entry, delayMs }, { gs });
     }
 
     // 普攻/反击入口（保留旧签名，内部转入 applyDamage）
@@ -1247,13 +1248,13 @@ export class Unit {
                 unit: this, unitId: this.id, oldHp, newHp: this.hp, delta: actualHeal,
                 source: 'heal', sourceUnit: null, sourceUnitId: null
             });
-            gs.healTexts.push({
+            gs && enqueueFloatText({
+                kind: 'heal',
                 x: this.tile.x,
                 y: this.tile.y,
                 value: actualHeal,
-                timeLeft: 1000,
-                lastUpdate: performance.now()
-            });
+                timeLeft: 1000
+            }, { gs });
             emit('fx:healFlash', { x: this.tile.x, y: this.tile.y });
             emit('fx:healParticles', { x: this.tile.x, y: this.tile.y });
             return actualHeal;
