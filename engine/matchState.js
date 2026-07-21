@@ -175,6 +175,9 @@ export function createMatchState() {
         _eagleSynergy: {},    // 天鹰阵营协同被动【天基支援协议】计量表 { campKey: { total, triggers, taken, takenTriggers } }
         _pendingEagleSynergyEvents: [], // 同步结算路径待广播的鹰链结算事件，不参与快照
         _celestineOracle: {}, // 塞莱斯廷圣国阵营协同【神谕】计量 { campKey: { activeRounds, stage } }
+        _noctisBloodTide: {}, // 诺克提斯阵营协同【血月之夜】血潮计量 { campKey: { charge, moonsPending } }
+        _borrowDayImprison: {}, // 天衡【借日】岁耗待偿还标记 { campKey: true }
+        _borrowDayGranted: {}, // 天衡【借日】本局是否已发卡 { campKey: true }
         // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
         // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
         // 使联机收方与重连保持一致。详见 core/rng.js。
@@ -295,6 +298,9 @@ export function resetMatchState(match) {
     match._eagleSynergy = {};
     match._pendingEagleSynergyEvents = [];
     match._celestineOracle = {};
+    match._noctisBloodTide = {};
+    match._borrowDayImprison = {};
+    match._borrowDayGranted = {};
     match.skirmishFog = false;
     match.visibleTiles = standard.visibleTiles;
     match.exploredTiles = standard.exploredTiles;
@@ -585,6 +591,10 @@ export function serializeMatchState(match) {
             .map(([campKey, meter]) => [campKey, { ...meter }])),
         celestineOracle: Object.fromEntries(Object.entries(match._celestineOracle || {})
             .map(([campKey, oracle]) => [campKey, { ...oracle }])),
+        noctisBloodTide: Object.fromEntries(Object.entries(match._noctisBloodTide || {})
+            .map(([campKey, tide]) => [campKey, { ...tide }])),
+        borrowDayImprison: { ...(match._borrowDayImprison || {}) },
+        borrowDayGranted: { ...(match._borrowDayGranted || {}) },
         rngState: match.rng.getState(),
         killCount: { ...match.killCount },
         friendlyDeathCount: { ...(match._friendlyDeathCount || {}) },
@@ -723,6 +733,13 @@ export function restoreMatchState(match, data, deps) {
             stage: oracle?.stage || 1,
             _lastHeroStage: oracle?._lastHeroStage || 0
         }]));
+    match._noctisBloodTide = Object.fromEntries(Object.entries(data.noctisBloodTide || {})
+        .map(([campKey, tide]) => [campKey, {
+            charge: tide?.charge || 0,
+            moonsPending: tide?.moonsPending || 0
+        }]));
+    match._borrowDayImprison = data.borrowDayImprison || {};
+    match._borrowDayGranted = data.borrowDayGranted || {};
     match.submarineReveals = record(data.submarineReveals, () => ({}));
     match.shoreBatteryBuiltRound = { ...(data.shoreBatteryBuiltRound || {}) };
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
