@@ -199,7 +199,7 @@ function drawOwnedMineMarkers(now) {
 
 /**
  * 塞莱斯廷圣国【神谕】神像绘制：金色半透明带翼人形，悬浮于圣国控制的
- * 城市锚点上方（无城市则跳过）。光晕半径/alpha 随 stage 1→5 递增。
+ * 城市锚点上方（无城市则跳过）。光晕半径/alpha 随 stage 1→3 递增（神谕封顶 3 阶）。
  * 神像在战争迷雾之上绘制，全图可见。
  */
 function drawCelestineOracleStatues(now) {
@@ -213,8 +213,8 @@ function drawCelestineOracleStatues(now) {
         if (!oracleState) continue;
 
         const stage = oracleState.stage;
-        const alpha = 0.45 + stage * 0.06; // 0.51 → 0.75
-        const glowRadius = 20 + stage * 8;  // 28 → 60
+        const alpha = 0.45 + stage * 0.10; // 3 阶封顶：0.55 → 0.75
+        const glowRadius = 20 + stage * 13; // 3 阶封顶：33 → 59
         const floatOffset = Math.sin(now / 600 + campKey.charCodeAt(0)) * 4;
 
         ctx.save();

@@ -163,10 +163,10 @@ test('getOracleStage: 边界映射', () => {
     assert.equal(getOracleStage(7), 2);
     assert.equal(getOracleStage(8), 3);  // 9-12 回合
     assert.equal(getOracleStage(11), 3);
-    assert.equal(getOracleStage(12), 4); // 13-16 回合
-    assert.equal(getOracleStage(15), 4);
-    assert.equal(getOracleStage(16), 5); // 17+ 回合
-    assert.equal(getOracleStage(99), 5);
+    assert.equal(getOracleStage(12), 3); // 封顶 3 阶：13+ 回合不再升阶
+    assert.equal(getOracleStage(15), 3);
+    assert.equal(getOracleStage(16), 3); // 17+ 回合仍为 3 阶
+    assert.equal(getOracleStage(99), 3);
 });
 
 test('getOracleDamagePct: 百分比映射', () => {
@@ -174,8 +174,8 @@ test('getOracleDamagePct: 百分比映射', () => {
     assert.equal(getOracleDamagePct(3), 0.10);
     assert.equal(getOracleDamagePct(4), 0.30);
     assert.equal(getOracleDamagePct(8), 0.50);
-    assert.equal(getOracleDamagePct(12), 0.70);
-    assert.equal(getOracleDamagePct(16), 1.00);
+    assert.equal(getOracleDamagePct(12), 0.50); // 封顶 50%
+    assert.equal(getOracleDamagePct(16), 0.50);
 });
 
 // ===== 神谕脉冲测试 =====

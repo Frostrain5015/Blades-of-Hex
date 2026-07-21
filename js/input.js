@@ -1524,7 +1524,7 @@ function _buildPassiveItems(unit) {
             count: '',
             kicker: '阵营协同',
             active: true,
-            intensity: celestineOracleState.stage / 5,
+            intensity: celestineOracleState.stage / 3, // 神谕封顶 3 阶
             kind: 'passive'
         });
     }

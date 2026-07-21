@@ -23,7 +23,8 @@ export const CELESTINE_IDENTITY_GROUPS = Object.freeze({
  *   roundsPerStage —— 每阶段持续回合数。
  */
 export const CELESTINE_ORACLE_BALANCE = Object.freeze({
-    stagePercents: [0.10, 0.30, 0.50, 0.70, 1.00],
+    // 封顶 3 阶（50%）：神罚不再升到 70%/100%，避免随时长滚雪球（平衡评审结论）。
+    stagePercents: [0.10, 0.30, 0.50],
     roundsPerStage: 4
 });
 
@@ -32,7 +33,7 @@ export const CELESTINE_FACTION_PASSIVE = Object.freeze({
     icon: '🔆',
     type: '阵营协同被动',
     color: '#f5d76e',
-    description: `场上同时存在≥2名不同身份的圣国将领时激活。【神罚】每整轮对全场攻击力最高的单位降下神罚，造成目标最大生命值${(CELESTINE_ORACLE_BALANCE.stagePercents[0] * 100).toFixed(0)}%~${(CELESTINE_ORACLE_BALANCE.stagePercents[4] * 100).toFixed(0)}%的真实伤害（随神临阶段递增）；【赐福】对全场防御力最低的单位附加等量护盾。神临阶段：每${CELESTINE_ORACLE_BALANCE.roundsPerStage}回合提升一级。`
+    description: `场上同时存在≥2名不同身份的圣国将领时激活。【神罚】每整轮对全场攻击力最高的单位降下神罚，造成目标最大生命值${(CELESTINE_ORACLE_BALANCE.stagePercents[0] * 100).toFixed(0)}%~${(CELESTINE_ORACLE_BALANCE.stagePercents[CELESTINE_ORACLE_BALANCE.stagePercents.length - 1] * 100).toFixed(0)}%的真实伤害（随神临阶段递增）；【赐福】对全场防御力最低的单位附加等量护盾。神临阶段：每${CELESTINE_ORACLE_BALANCE.roundsPerStage}回合提升一级。`
 });
 
 export function isCelestineCommanderId(commanderId) {
