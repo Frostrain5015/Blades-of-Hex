@@ -72,6 +72,19 @@ import {
     isEagleAirAttacker,
     isEagleFortressAttacker
 } from '../rules/eagle.js';
+import {
+    BLOOD_MOON_WEATHER,
+    NOCTIS_BLOODMOON_BALANCE,
+    anyBloodMoonPending,
+    consumeBloodMoonSummon,
+    isBloodMoonWeatherActive,
+    resolveBloodMoonBleed,
+    accrueBloodTideFromHit
+} from '../rules/noctis.js';
+import {
+    hasBorrowDayPaybackPending,
+    applyBorrowDayPayback
+} from '../rules/tianheng.js';
 import { measure, perfEnabled } from './perf.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import {
@@ -867,8 +880,14 @@ function _updateWeather() {
     const cycleLen = WEATHER_CYCLE.weatherDuration + WEATHER_CYCLE.clearDuration;  // 3
     const position = cycleRound % cycleLen;  // 0,1,2
     if (position === 0) {
-        const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
-        gameState.lastWeather = pool[gameState.rng.int(pool.length)];
+        // 诺克提斯【血月】：蓄满血潮时，本段天气窗降临血月（2 回合），否则照常掷天气。
+        if (anyBloodMoonPending(gameState) && consumeBloodMoonSummon(gameState)) {
+            gameState.lastWeather = BLOOD_MOON_WEATHER;
+            gameState._bloodMoonRising = true; // 供表现层发一次降临 Hero
+        } else {
+            const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
+            gameState.lastWeather = pool[gameState.rng.int(pool.length)];
+        }
     }
     if (position < WEATHER_CYCLE.weatherDuration) {
         gameState.weather = gameState.lastWeather;
@@ -1121,6 +1140,7 @@ async function _doEndTurnPhase() {
     _rainLightningFx = null;
     const _healingChainDatas = []; // 牧师圣链特效收集
     let oraclePulses = []; // 塞莱斯廷圣国神谕脉冲（isRoundAnchor 内填充，广播时附带）
+    let bloodMoonBleeds = null; // 诺克提斯血月·月蚀放血打点（isRoundAnchor 内填充，广播时附带）
 
     // 包装 spawnFx 引用以收集特效坐标（不直接覆写 import binding）
     const origSpawn = spawnCommanderSkillEffect;
@@ -1310,6 +1330,26 @@ async function _doEndTurnPhase() {
                 }
             }
         }
+
+        // 诺克提斯【血月·月蚀】：血月天气期间每整轮放血一次（神谕脉冲之后结算）。
+        if (isBloodMoonWeatherActive(gameState)) {
+            const hits = resolveBloodMoonBleed(gameState);
+            if (hits.length > 0) {
+                bloodMoonBleeds = hits;
+                emit('fx:noctisBloodMoonBleed', {
+                    presentationEventId: `bloodMoonBleed:${getRoundIndex(gameState)}`,
+                    rising: !!gameState._bloodMoonRising,
+                    hits
+                });
+            } else if (gameState._bloodMoonRising) {
+                emit('fx:noctisBloodMoonBleed', {
+                    presentationEventId: `bloodMoonRise:${getRoundIndex(gameState)}`,
+                    rising: true,
+                    hits: []
+                });
+            }
+            gameState._bloodMoonRising = false;
+        }
     }
 
     // 恢复 commanderInterface 引用
@@ -1330,7 +1370,8 @@ async function _doEndTurnPhase() {
         dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null,
         healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null,
         rainLightning: _rainLightningFx,
-        oraclePulses: oraclePulses?.length > 0 ? oraclePulses : null
+        oraclePulses: oraclePulses?.length > 0 ? oraclePulses : null,
+        bloodMoonBleeds: bloodMoonBleeds?.length > 0 ? bloodMoonBleeds : null
     });
 }
 
@@ -2202,6 +2243,12 @@ function _attackUnit(attackerUnit, targetUnit) {
     _attackDmg = attackResult.dmg; _attackIsCrit = attackResult.isCrit;
     if (attackResult.isCrit) attackerUnit.addXP(2);
     if (attackResult.dmg > 0) attackerUnit.addXP(1);
+    // 诺克提斯【血潮】：本阵营对敌命中的「暴击伤害」（浮动超 1.00 部分）累计充能血月。
+    // 攻击方为激活的诺克提斯阵营且目标敌对时才计；真伤/平砍（floatMult≤1）天然记 0。
+    accrueBloodTideFromHit(gameState, {
+        attacker: attackerUnit, target: targetUnit,
+        dealt: Math.round(attackResult.dmg || 0), floatMult: attackResult.floatMult
+    });
     if (isCarrierStrafe && attackerUnit.commander === 'colonel' && !areCommanderMechanicsSuppressed(attackerUnit)) {
         const carrierCampKey = _campKey(attackerUnit.camp);
         if (!gameState._colonelAirStacks) gameState._colonelAirStacks = {};

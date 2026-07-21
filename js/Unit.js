@@ -45,6 +45,7 @@ import {
     hasAureliaOathEffect
 } from '../rules/aurelia.js';
 import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
+import { isBloodMoonHealSuppressed } from '../rules/noctis.js';
 import {
     accrueEagleDamageTaken,
     accrueEagleSynergyDamage,
@@ -665,7 +666,8 @@ export class Unit {
 
         return {
             dmg: (attacker.getEffectiveAttack() + attackFlatBonus) * baseMulti * offenseMulti * floatMult * defenseMulti,
-            isCrit
+            isCrit,
+            floatMult // 供诺克提斯【血潮】按「浮动超 1.00 部分」记暴击伤害
         };
     }
 
@@ -711,7 +713,8 @@ export class Unit {
             const result = {
                 dmg: power * (1 + carrierRankBonus + colonelBonus + aureliaOathBonus) * floatMult * defenseMulti,
                 isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold,
-                antiAir
+                antiAir,
+                floatMult // 供诺克提斯【血潮】记暴击伤害
             };
             this._pushDamageTextDelayed(gs, {
                 x: targetUnit.tile.x, y: targetUnit.tile.y, value: result.dmg, isCrit: result.isCrit,
@@ -934,7 +937,9 @@ export class Unit {
         // 牧师治愈灵光·临终迸发：致命一击时提前释放剩余 HoT，若仍不足抵扣或治疗后
         // 仍低于20%最大生命，则血量固定为20%最大生命；灵光随之消耗。
         // （minHp>0 的伤害本就不致死，如堕天使灼烧，不触发此保底）
-        if (this._healingAura > 0 && effectiveMinHp <= 0 && (this.hp - actualDmg) <= 0) {
+        // 血月·永夜禁疗：敌方单位在血月下无法靠临终迸发（治愈灵光 HoT）续命。
+        if (this._healingAura > 0 && effectiveMinHp <= 0 && (this.hp - actualDmg) <= 0
+            && !isBloodMoonHealSuppressed(this, _gameState)) {
             const balance = COMMANDER_CONFIG.priest.balance;
             const burst = Math.round(this.maxHp * balance.auraHealPct * this._healingAura);
             const floor = Math.round(this.maxHp * balance.minimumHpPct);
@@ -1228,6 +1233,9 @@ export class Unit {
     heal(amount) {
         // 殉道者进入倒计时后强制锁死hp=1，拒绝一切治疗
         if (this.commander === 'martyr' && this._martyrPrimed) return 0;
+        // 诺克提斯【血月·永夜】：血月天气下，与激活的诺克提斯阵营敌对的单位一切回复无效（禁疗）。
+        // heal() 是绝大多数回复的唯一出口（城市/雨天/军衔regen/牧师光环/field repair/击杀回血）。
+        if (isBloodMoonHealSuppressed(this, _gameState)) return 0;
         const gs = _gameState;
         const oldHp = this.hp;
         const cap = this._campaignMaxHp || this.maxHp;
