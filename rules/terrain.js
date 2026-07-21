@@ -60,6 +60,11 @@ export const WEATHER_CONFIG = (() => {
         wind: {
             name: '风', icon: '💨', color: '#aaccaa',
             desc: `炮兵射程+${w.windArcherRangeDelta}，步兵防御力降低${percent(defense.windInfantryPenalty)}`
+        },
+        // 诺克提斯【血月之夜】召唤的特殊天气（判定在 rules/noctis.js）
+        bloodMoon: {
+            name: '血月', icon: '🌑', color: '#b3121f',
+            desc: '血月之下伤口不愈：敌方单位无法回复生命；全场生命≤50%的单位每回合持续流血（真伤，越垂死掉得越快）'
         }
     });
 })();

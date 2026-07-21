@@ -1,4 +1,4 @@
-import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
+import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getCardMeta, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getEffectiveWeather } from './commanderInterface.js';
 import { buildUnitEffectItems } from './effectItems.js';
@@ -48,6 +48,7 @@ import {
     getFellowRobeDefenseBonus
 } from '../rules/factionSynergies.js';
 import { getCelestineOracleState } from '../rules/celestine.js';
+import { isNoctisCommanderUnit, hasNoctisSynergyActive, getBloodMoonChargeRatio, isBloodMoonWeatherActive } from '../rules/noctis.js';
 import {
     EAGLE_FACTION_PASSIVE,
     getEagleSynergyMeter,
@@ -953,6 +954,11 @@ function _handleCardCanvasClick(e) {
                 _cardFromX = (screenX - gameRect.left) * scaleX;
                 _cardFromY = (screenY - gameRect.top) * scaleY;
             }
+            // 无目标即时卡（天衡【借日】）：点击即结算，不进入选目标态。
+            if (getCardMeta(cardId).instant) {
+                executeTacticalCard(cardId, null, _cardFromX, _cardFromY);
+                return;
+            }
             gameState.cardTargeting = { cardId, targeting: cfg.targeting, handIndex: i, commanderId: deployCommanderId, startedAt: performance.now() };
             if (cardId === 'commanderDeploy') {
                 const cmdKey = deployCommanderId || gameState[primaryKey];
@@ -1525,6 +1531,24 @@ function _buildPassiveItems(unit) {
             kicker: '阵营协同',
             active: true,
             intensity: celestineOracleState.stage / 3, // 神谕封顶 3 阶
+            kind: 'passive'
+        });
+    }
+    // 诺克提斯【血月之夜】HUD：显示血月充能进度（不暴露浮动/暴击机制）。
+    if (isNoctisCommanderUnit(unit) && hasNoctisSynergyActive(gameState, unit.camp)) {
+        const ratio = getBloodMoonChargeRatio(gameState, campToKey(unit.camp));
+        const moonUp = isBloodMoonWeatherActive(gameState);
+        items.push({
+            key: 'faction:noctis:bloodmoon',
+            icon: '🌑',
+            label: '血月之夜',
+            desc: '攻击敌方时为血月积攒充能；充能满时召唤血月（持续2回合）：血月下敌方无法回复生命，且全场半血以下单位持续流血。',
+            color: '#b3121f',
+            status: moonUp ? '血月降临中' : `血月充能 ${Math.round(ratio * 100)}%`,
+            count: '',
+            kicker: '阵营协同',
+            active: true,
+            intensity: moonUp ? 1 : ratio,
             kind: 'passive'
         });
     }

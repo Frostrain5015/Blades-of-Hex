@@ -482,6 +482,23 @@ function _renderGame() {
         ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
     }
 
+    // 诺克提斯【血月】：全屏血红色调 + 暗角，脉动呼吸感。
+    if (gameState.weather === 'bloodMoon') {
+        const pulse = 0.10 + Math.sin(now / 900) * 0.03;
+        ctx.save();
+        ctx.fillStyle = `rgba(150,10,25,${pulse})`;
+        ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
+        const vg = ctx.createRadialGradient(
+            LOGICAL_W / 2, LOGICAL_H / 2, LOGICAL_H * 0.25,
+            LOGICAL_W / 2, LOGICAL_H / 2, LOGICAL_H * 0.85
+        );
+        vg.addColorStop(0, 'rgba(0,0,0,0)');
+        vg.addColorStop(1, 'rgba(40,0,6,0.5)');
+        ctx.fillStyle = vg;
+        ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
+        ctx.restore();
+    }
+
     // 部署阶段横幅 / 部署完成后一次性UI重置
     if (gameState.commanderPhase === 'deployment') {
         const alpha = 0.55 + Math.sin(now / 600) * 0.08;

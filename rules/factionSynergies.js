@@ -181,7 +181,8 @@ export const CELESTINE_FACTION_SYNERGY = defineFactionSynergy({
 export const CELESTINE_COMMANDER_IDS = CELESTINE_FACTION_SYNERGY.commanderIds;
 
 // 诺克提斯共和国 🎭：吸血鬼、亡灵法师、魔术师。
-// 仅注册成员与徽标，skillImplemented: false — 技能未实装，不取代【与子同袍】。
+// 协同被动【血月之夜】的平衡参数与判定在 rules/noctis.js；此处只登记身份与 Hero 主题。
+// skillImplemented: true — 技能已实装，激活后取代【与子同袍】。
 export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
     id: 'noctis',
     factionName: '诺克提斯共和国',
@@ -190,7 +191,7 @@ export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
         'necromancer',
         'magician'
     ],
-    skillImplemented: false,
+    skillImplemented: true,
     marker: {
         symbol: '🎭',
         label: '诺克提斯共和国',
@@ -207,7 +208,7 @@ export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
             label: '假面徽记'
         },
         kicker: '阵营协同',
-        title: '暗夜假面',
+        title: '血月降临',
         durationMs: 4800,
         followupStartMs: 0,
         theme: {
@@ -228,7 +229,8 @@ export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
 export const NOCTIS_COMMANDER_IDS = NOCTIS_FACTION_SYNERGY.commanderIds;
 
 // 天衡联邦 ⚖️：占星者、停滞者、纵横家。
-// 仅注册成员与徽标，skillImplemented: false — 技能未实装，不取代【与子同袍】。
+// 协同【借日】（一局一张主动王牌）的判定与结算在 rules/tianheng.js；此处只登记身份与 Hero 主题。
+// skillImplemented: true — 技能已实装，激活后取代【与子同袍】。
 export const TIANHENG_FACTION_SYNERGY = defineFactionSynergy({
     id: 'tianheng',
     factionName: '天衡联邦',
@@ -237,7 +239,7 @@ export const TIANHENG_FACTION_SYNERGY = defineFactionSynergy({
         'staller',
         'diplomat'
     ],
-    skillImplemented: false,
+    skillImplemented: true,
     marker: {
         symbol: '⚖️',
         label: '天衡联邦',
@@ -254,7 +256,7 @@ export const TIANHENG_FACTION_SYNERGY = defineFactionSynergy({
             label: '天衡徽记'
         },
         kicker: '阵营协同',
-        title: '天衡裁决',
+        title: '借日',
         durationMs: 4800,
         followupStartMs: 0,
         theme: {

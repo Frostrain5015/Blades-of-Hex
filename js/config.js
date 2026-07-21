@@ -22,7 +22,7 @@ export {
     BOARD_RULES,
     COMBAT_BALANCE
 } from '../rules/constants.js';
-export { TACTICAL_CARD_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD } from '../rules/cards.js';
+export { TACTICAL_CARD_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getCardMeta } from '../rules/cards.js';
 
 export {
     HEX_SIZE,

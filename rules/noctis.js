@@ -184,7 +184,7 @@ export function resolveBloodMoonBleed(gameState) {
         unit.applyDamage(dmg, { source: 'true', attacker: null });
         const dealt = Math.max(0, hpBefore - Math.max(0, unit.hp));
         if (dealt <= 0) continue;
-        hits.push({ unitId: unit.id, q: tile?.q, r: tile?.r, dmg: dealt, killed: unit.hp <= 0 });
+        hits.push({ unitId: unit.id, q: tile?.q, r: tile?.r, x: tile?.x, y: tile?.y, dmg: dealt, killed: unit.hp <= 0 });
     }
     return hits;
 }

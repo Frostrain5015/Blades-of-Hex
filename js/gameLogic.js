@@ -82,8 +82,11 @@ import {
     accrueBloodTideFromHit
 } from '../rules/noctis.js';
 import {
+    resolveBorrowDay,
     hasBorrowDayPaybackPending,
-    applyBorrowDayPayback
+    applyBorrowDayPayback,
+    hasTianhengSynergyActive,
+    BORROW_DAY_CARD_ID
 } from '../rules/tianheng.js';
 import { measure, perfEnabled } from './perf.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
@@ -1205,6 +1208,12 @@ async function _doEndTurnPhase() {
     const roundIndexBeforeAdvance = getRoundIndex(gameState);
     _advanceTurnPointer(camp);
 
+    // 天衡【借日】岁耗偿还：轮到刚借过日的阵营时，其全体单位本回合禁锢（决策⑤完整不可
+    // 行动）。放在 advanceTurnPointer 之后（currentCamp 已是新回合方），覆盖上方的行动力重置。
+    applyBorrowDayPayback(gameState, _campKey(gameState.currentCamp));
+    // 天衡【借日】发卡（一局一张）：≥2 天衡将领存活且未发过即发入手牌。
+    _grantBorrowDayCards();
+
     // A submarine that attacked stays exposed through every enemy action and
     // submerges again only when its own next turn begins.
     for (const tile of gameState.tiles) {
@@ -1334,18 +1343,21 @@ async function _doEndTurnPhase() {
         // 诺克提斯【血月·月蚀】：血月天气期间每整轮放血一次（神谕脉冲之后结算）。
         if (isBloodMoonWeatherActive(gameState)) {
             const hits = resolveBloodMoonBleed(gameState);
+            const rising = !!gameState._bloodMoonRising;
             if (hits.length > 0) {
                 bloodMoonBleeds = hits;
+                for (const h of hits) {
+                    if (h.x == null) continue;
+                    gameState.damageTexts.push({
+                        x: h.x, y: h.y, value: h.dmg, isTrueDmg: true,
+                        timeLeft: 1000, lastUpdate: performance.now()
+                    });
+                }
+            }
+            if (rising || hits.length > 0) {
                 emit('fx:noctisBloodMoonBleed', {
-                    presentationEventId: `bloodMoonBleed:${getRoundIndex(gameState)}`,
-                    rising: !!gameState._bloodMoonRising,
-                    hits
-                });
-            } else if (gameState._bloodMoonRising) {
-                emit('fx:noctisBloodMoonBleed', {
-                    presentationEventId: `bloodMoonRise:${getRoundIndex(gameState)}`,
-                    rising: true,
-                    hits: []
+                    presentationEventId: `bloodMoon:${getRoundIndex(gameState)}`,
+                    rising, hits
                 });
             }
             gameState._bloodMoonRising = false;
@@ -4034,6 +4046,47 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     });
     return true;
 }
+// 天衡【借日】发卡：≥2 天衡将领存活且本局未发过 → 发一张【借日】入手牌（一局仅一张）。
+function _grantBorrowDayCards() {
+    if (!gameState._borrowDayGranted) gameState._borrowDayGranted = {};
+    for (const campKey of Object.keys(gameState.factions || {})) {
+        if (campKey === 'neutral') continue;
+        if (gameState._borrowDayGranted[campKey]) continue;
+        if (!hasTianhengSynergyActive(gameState, campKey)) continue;
+        const hand = gameState.playerHands?.[campKey];
+        if (!Array.isArray(hand)) continue;
+        hand.push(BORROW_DAY_CARD_ID);
+        gameState._borrowDayGranted[campKey] = true;
+        logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【借日】就绪（本局一张）`);
+        emit('fx:tianhengBorrowDayGranted', { campKey });
+    }
+}
+
+// 天衡【借日】结算：无目标即时王牌。释放后本阵营全体单位行动力回满、可再行动；
+// 下一整回合全体禁锢（岁耗，见回合刷新处 applyBorrowDayPayback）。一局仅一张（发卡处控制）。
+function _executeBorrowDay(cardId, campKey, _fromX = 0, _fromY = 0) {
+    const hand = gameState.playerHands[campKey];
+    if (!hand) return;
+    const idx = hand.findIndex(c => c === cardId || (typeof c === 'object' && c.id === cardId));
+    if (idx === -1) { notify('手牌中没有该卡'); return; }
+    const useBonus = _getActiveDiplomatOverride(campKey)?.useBonus || 0;
+    if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
+        notify('本回合已达到使用上限', 'error'); return;
+    }
+    const affectedIds = resolveBorrowDay(gameState, campKey);
+    hand.splice(idx, 1);
+    if (!getCardMeta(cardId).noDiscard) gameState.cardDiscardPile.push(cardId);
+    gameState.playerUsesThisTurn[campKey]++;
+    spawnCardUseEffect(cardId, 500, 375, true, _fromX || 900, _fromY || 600, null);
+    emit('fx:tianhengBorrowDay', {
+        presentationEventId: `borrowDay:${campKey}:${gameState.turnCounter}`,
+        campKey, affectedIds
+    });
+    logMessage(`${gameState.factions?.[campKey]?.name || campKey}发动阵营协同【借日】：全军行动力回满、可再行动（下一整回合全体禁锢）`);
+    broadcastAction('tacticalCard', { cardId, borrowDay: true, campKey, affectedIds });
+    updateUI();
+}
+
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
     if (gameState.campaignMode && !isMechanicEnabled(gameState, 'tacticalCards')) { notify('本关尚未开放对策卡', 'info'); return; }
     // E4 空运第二段：直接执行空运（跳过正常卡牌验证）
@@ -4046,6 +4099,12 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
 
     const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
     const campKey = _campKey(myCamp);
+
+    // 天衡【借日】：无目标即时王牌，走专用结算（不进选目标/预演管线）。
+    if (getCardMeta(cardId).instant) {
+        _executeBorrowDay(cardId, campKey, _fromX, _fromY);
+        return;
+    }
 
     // 候选集合是渲染、点击与执行终检的共同真源；执行层仍在扣牌/扣金前复核一次。
     const activeTargeting = gameState.cardTargeting?.cardId === cardId

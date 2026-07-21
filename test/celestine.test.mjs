@@ -101,21 +101,20 @@ test('塞莱斯廷圣国注册表：成员与徽标', () => {
     assert.ok(CELESTINE_FACTION_PASSIVE.description.includes('赐福'));
 });
 
-test('诺克提斯共和国注册表：skillImplemented=false', () => {
+test('诺克提斯共和国注册表：skillImplemented=true（血月之夜已实装）', () => {
     const synergy = getFactionSynergy('noctis');
     assert.equal(synergy, NOCTIS_FACTION_SYNERGY);
-    assert.equal(synergy.skillImplemented, false);
+    assert.equal(synergy.skillImplemented, true);
     assert.deepEqual([...synergy.commanderIds], ['vampire', 'necromancer', 'magician']);
-    // 未实装技能不应抢占【与子同袍】
     assert.equal(getCommanderFactionSynergy('vampire'), synergy);
     assert.equal(getCommanderFactionSynergy('necromancer'), synergy);
     assert.equal(getCommanderFactionSynergy('magician'), synergy);
 });
 
-test('天衡联邦注册表：skillImplemented=false', () => {
+test('天衡联邦注册表：skillImplemented=true（借日已实装）', () => {
     const synergy = getFactionSynergy('tianheng');
     assert.equal(synergy, TIANHENG_FACTION_SYNERGY);
-    assert.equal(synergy.skillImplemented, false);
+    assert.equal(synergy.skillImplemented, true);
     assert.deepEqual([...synergy.commanderIds], ['astrologer', 'staller', 'diplomat']);
 });
 

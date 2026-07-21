@@ -73,6 +73,7 @@ import {
 } from '../rules/airCommands.js';
 import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
 import { getOracleStatueAnchor } from '../rules/celestine.js';
+import { resolveBorrowDay } from '../rules/tianheng.js';
 
 const TURN_ORDER_REVEAL_DURATION_MS = 5000;
 const TURN_ORDER_COUNTDOWN_DELAY_MS = 2000;
@@ -2990,11 +2991,34 @@ async function handleRemoteAction(msg) {
                     }
                 }
             }
+            // 重放诺克提斯【血月·月蚀】放血浮字（血量已随快照同步，此处只放浮字/特效）
+            if (e && e.bloodMoonBleeds) {
+                for (const h of e.bloodMoonBleeds) {
+                    if (h.x == null) continue;
+                    gameState.damageTexts.push({
+                        x: h.x, y: h.y, value: h.dmg, isTrueDmg: true,
+                        timeLeft: 1000, lastUpdate: performance.now()
+                    });
+                }
+                emit('fx:noctisBloodMoonBleed', {
+                    presentationEventId: `bloodMoon:remote:${gameState.turnCounter}`,
+                    rising: false, hits: e.bloodMoonBleeds
+                });
+            }
             break;
         case 'tacticalCard':
             if (e) {
                 // 烧牌动画（观战者：中央淡入+燃烧）
                 spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, e.burnDisplayName || null);
+                // 天衡【借日】：无目标即时卡，远端确定性重放（全军回满/岁耗标记；无 RNG）。
+                if (e.borrowDay && e.campKey) {
+                    resolveBorrowDay(gameState, e.campKey);
+                    emit('fx:tianhengBorrowDay', {
+                        presentationEventId: `borrowDay:remote:${gameState.turnCounter}`,
+                        campKey: e.campKey, affectedIds: e.affectedIds || []
+                    });
+                    break;
+                }
                 // 飞机动画提前启动，与烧牌重叠播放
                 if (e.cardId === 'airdrop' || e.cardId === 'airstrike') {
                     spawnAirstrikeEffect(e.x, e.y, e.airstrikeResults || [], e.cardId === 'airdrop' ? 'airdrop' : 'airstrike');
