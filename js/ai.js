@@ -370,28 +370,22 @@ async function _executeActionInner(action, aiCamp) {
             const prefix = campToKey(myCamp) === 'player1' ? 'commanderP1' : campToKey(myCamp) === 'player2' ? 'commanderP2' : 'commanderP3';
             const cmdKey = action.commanderId || gameState[prefix];
             if (!cmdKey) return;
-            const cmdCfg = getCommander(cmdKey);
-            if (!cmdCfg) return;
-            // 直接应用将领效果（绕过 UI 流程）
-            unit.commander = cmdKey;
-            unit._cmdrAssignedAt = performance.now();
-            const hpFlat = Math.round(unit.config.hp * (cmdCfg.hpBonusPct || 0));
-            const atkFlat = Math.round(unit.config.attack * (cmdCfg.atkBonusPct || 0));
-            unit.hp += hpFlat;
-            unit.maxHp += hpFlat;
-            unit.displayHp = unit.hp;
-            unit._atkBonus = (unit._atkBonus || 0) + atkFlat;
-            unit.remainingMP += cmdCfg.spdBonus || 0;
-            unit.displaySpeed += cmdCfg.spdBonus || 0;
-            if (cmdCfg.onDeploy) {
-                cmdCfg.onDeploy(unit, gameState, { getCommander });
+            // 与玩家一致：走【部署将领】对策卡完整流程（校验/消耗/用卡计数/烧牌动画），
+            // 不再绕过流程直接赋值。手牌中无对应部署卡（异常状态）时放弃而不是强挂。
+            const hand = gameState.playerHands[campKey] || [];
+            const hasDeployCard = hand.some(c => c === 'commanderDeploy'
+                || (typeof c === 'object' && c.id === 'commanderDeploy' && (!c.commanderId || c.commanderId === cmdKey)));
+            if (!hasDeployCard) {
+                console.warn(`AI 部署将领失败：${campKey} 手牌中没有【部署将领】（${cmdKey}）`);
+                return;
             }
-            const deployedKey = gameState[`${prefix}Secondary`] === cmdKey
-                ? `${prefix}SecondaryDeployed`
-                : `${prefix}Deployed`;
-            gameState[deployedKey] = true;
-            logMessage(`${myCamp.name} AI【${cmdCfg.name}】部署到${unit.config.name}兵`);
-            spawnCommanderSkillEffect(unit.tile.x, unit.tile.y);
+            await delay(AI_DELAY * 0.5);
+            gameState.currentCamp = aiCamp;
+            try {
+                executeTacticalCard('commanderDeploy', unit.tile);
+            } finally {
+                gameState.currentCamp = aiCamp;
+            }
             await delay(AI_DELAY);
             break;
         }
@@ -451,7 +445,7 @@ async function _executeActionInner(action, aiCamp) {
             const cardId = action.cardId;
             if (!cardId) return;
             const hand = gameState.playerHands[campKey] || [];
-            if (!hand.includes(cardId)) return;
+            if (!hand.some(c => c === cardId || (typeof c === 'object' && c.id === cardId))) return;
             if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn) return;
             gameState.currentCamp = aiCamp;
             try {
