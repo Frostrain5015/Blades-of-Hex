@@ -3012,23 +3012,19 @@ async function handleRemoteAction(msg) {
                     campKey: remoteAnchor?.campKey || null
                 });
             }
+            // 天衡【日月天衡】：远端重放充能触发后的 Hero 动画
+            if (e && e.sunMoonTrigger) {
+                emit('fx:tianhengBorrowDay', {
+                    presentationEventId: `sunMoon:remote:${gameState.turnCounter}`,
+                    campKey: e.sunMoonTrigger.campKey,
+                    affectedIds: e.sunMoonTrigger.affectedIds || []
+                });
+            }
             break;
         case 'tacticalCard':
             if (e) {
                 // 烧牌动画（观战者：中央淡入+燃烧）
                 spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, e.burnDisplayName || null);
-                // 天衡【日月天衡】：无目标即时卡，远端确定性重放。
-                if (e.borrowDay && e.campKey) {
-                    resolveBorrowDay(gameState, e.campKey);
-                    // 与本地端一致：烧牌动画结束后再播 Hero 全屏动画
-                    window.setTimeout(() => {
-                        emit('fx:tianhengBorrowDay', {
-                            presentationEventId: `borrowDay:remote:${gameState.turnCounter}`,
-                            campKey: e.campKey, affectedIds: e.affectedIds || []
-                        });
-                    }, 2200);
-                    break;
-                }
                 // 飞机动画提前启动，与烧牌重叠播放
                 if (e.cardId === 'airdrop' || e.cardId === 'airstrike') {
                     spawnAirstrikeEffect(e.x, e.y, e.airstrikeResults || [], e.cardId === 'airdrop' ? 'airdrop' : 'airstrike');

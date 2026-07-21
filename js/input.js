@@ -50,6 +50,7 @@ import {
 } from '../rules/factionSynergies.js';
 import { getCelestineOracleState } from '../rules/celestine.js';
 import { isNoctisCommanderUnit, hasNoctisSynergyActive, getBloodMoonChargeRatio, isBloodMoonWeatherActive } from '../rules/noctis.js';
+import { isTianhengCommanderUnit, hasTianhengSynergyActive, getSunMoonChargeRatio } from '../rules/tianheng.js';
 import {
     EAGLE_FACTION_PASSIVE,
     getEagleSynergyMeter,
@@ -955,7 +956,7 @@ function _handleCardCanvasClick(e) {
                 _cardFromX = (screenX - gameRect.left) * scaleX;
                 _cardFromY = (screenY - gameRect.top) * scaleY;
             }
-            // 无目标即时卡（天衡【日月天衡】）：点击即结算，不进入选目标态。
+            // 无目标即时卡：点击即结算，不进入选目标态。
             if (getCardMeta(cardId).instant) {
                 executeTacticalCard(cardId, null, _cardFromX, _cardFromY);
                 return;
@@ -1594,6 +1595,23 @@ function _buildPassiveItems(unit) {
             intensity: eagleActive
                 ? Math.max(fundAmount / eagleMeter.goldPaidPerTrigger, satPct / 100)
                 : 0,
+            kind: 'passive'
+        });
+    }
+    // 天衡【日月天衡】：充能进度百分比
+    if (isTianhengCommanderUnit(unit) && hasTianhengSynergyActive(gameState, unit.camp)) {
+        const ratio = getSunMoonChargeRatio(gameState, unit.camp);
+        items.push({
+            key: 'faction:tianheng:sunmoon',
+            icon: '⚖️',
+            label: '日月天衡',
+            desc: `每回合结束时回收本阵营单位的剩余行动力；充满时自动释放，己方阵营全部单位回复100%生命值，士气上升并获得1回合的全图视野`,
+            color: ratio >= 1 ? '#ffd700' : '#8ab8d9',
+            status: `充能 ${Math.round(ratio * 100)}%`,
+            count: '',
+            kicker: '阵营协同',
+            active: ratio >= 1,
+            intensity: ratio,
             kind: 'passive'
         });
     }

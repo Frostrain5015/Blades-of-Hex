@@ -84,10 +84,9 @@ import {
 } from '../rules/noctis.js';
 import {
     resolveBorrowDay,
-    hasBorrowDayPaybackPending,
-    applyBorrowDayPayback,
-    hasTianhengSynergyActive,
-    BORROW_DAY_CARD_ID
+    accrueSunMoonCharge,
+    getSunMoonChargeRatio,
+    hasTianhengSynergyActive
 } from '../rules/tianheng.js';
 import { measure, perfEnabled } from './perf.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
@@ -883,28 +882,39 @@ function _updateWeather() {
         refreshVision();
         return;
     }
+
+    // 诺克提斯【血月】：蓄满血潮时即时降临（不限于天气切换点），持续 durationRounds 回合。
+    if (anyBloodMoonPending(gameState) && consumeBloodMoonSummon(gameState)) {
+        gameState.lastWeather = BLOOD_MOON_WEATHER;
+        gameState._bloodMoonRising = true;
+        gameState._bloodMoonEndRound = getRoundIndex(gameState) + NOCTIS_BLOODMOON_BALANCE.durationRounds;
+        const anchor = getBloodMoonAnchor(gameState);
+        if (anchor) gameState._bloodMoonAnchor = anchor;
+    }
+
+    // 血月持续期间用自己的计时器；到期后清理状态、fallthrough 到普通天气循环继续。
+    if (gameState.lastWeather === BLOOD_MOON_WEATHER) {
+        if (getRoundIndex(gameState) < (gameState._bloodMoonEndRound || 0)) {
+            gameState.weather = BLOOD_MOON_WEATHER;
+            refreshVision();
+            return;
+        }
+        // 血月到期：回退普通天气循环（下一轮 position=0 正常掷天气）
+        delete gameState._bloodMoonAnchor;
+        delete gameState._bloodMoonEndRound;
+        gameState.lastWeather = null;
+        // 不 return，继续执行普通天气循环
+    }
+
+    // 普通天气循环
     const cycleRound = round - WEATHER_CYCLE.warmupRounds;
     const cycleLen = WEATHER_CYCLE.weatherDuration + WEATHER_CYCLE.clearDuration;  // 3
     const position = cycleRound % cycleLen;  // 0,1,2
     if (position === 0) {
-        // 诺克提斯【血月】：蓄满血潮时，本段天气窗降临血月（2 回合），否则照常掷天气。
-        if (anyBloodMoonPending(gameState) && consumeBloodMoonSummon(gameState)) {
-            gameState.lastWeather = BLOOD_MOON_WEATHER;
-            gameState._bloodMoonRising = true; // 供表现层发一次降临 Hero
-            // 记录血月锚点
-            const anchor = getBloodMoonAnchor(gameState);
-            if (anchor) gameState._bloodMoonAnchor = anchor;
-        } else {
-            const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
-            gameState.lastWeather = pool[gameState.rng.int(pool.length)];
-        }
+        const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
+        gameState.lastWeather = pool[gameState.rng.int(pool.length)];
     }
-    if (position < WEATHER_CYCLE.weatherDuration) {
-        gameState.weather = gameState.lastWeather;
-    } else {
-        gameState.weather = 'clear';
-        delete gameState._bloodMoonAnchor; // 血月结束，清除锚点
-    }
+    gameState.weather = position < WEATHER_CYCLE.weatherDuration ? gameState.lastWeather : 'clear';
     refreshVision();
 }
 
@@ -1149,6 +1159,7 @@ async function _doEndTurnPhase() {
     const _healingChainDatas = []; // 牧师圣链特效收集
     let oraclePulses = []; // 塞莱斯廷圣国神谕脉冲（isRoundAnchor 内填充，广播时附带）
     let bloodMoonBleeds = null; // 诺克提斯血月·月蚀放血打点（isRoundAnchor 内填充，广播时附带）
+    let sunMoonTrigger = null; // 天衡【日月天衡】充能触发数据（下方填充，广播时附带）
 
     // 包装 spawnFx 引用以收集特效坐标（不直接覆写 import binding）
     const origSpawn = spawnCommanderSkillEffect;
@@ -1213,9 +1224,8 @@ async function _doEndTurnPhase() {
     const roundIndexBeforeAdvance = getRoundIndex(gameState);
     _advanceTurnPointer(camp);
 
-    // 天衡【日月天衡】发卡（一局一张）：≥2 天衡将领存活且未发过即发入手牌。
-    // （岁耗代价已移除，不再有禁锢偿还。）
-    _grantBorrowDayCards();
+    // 天衡【日月天衡】：回收本阵营单位剩余行动力作为充能，满则自动释放。
+    sunMoonTrigger = _accrueSunMoonForCamp();
 
     // A submarine that attacked stays exposed through every enemy action and
     // submerges again only when its own next turn begins.
@@ -1397,8 +1407,17 @@ async function _doEndTurnPhase() {
         oraclePulses: oraclePulses?.length > 0 ? oraclePulses : null,
         bloodMoonBleeds: bloodMoonBleeds?.length > 0 ? bloodMoonBleeds : null,
         bloodMoonRising: !!gameState._bloodMoonRising || undefined,
-        bloodMoonAnchor: gameState._bloodMoonAnchor || undefined
+        bloodMoonAnchor: gameState._bloodMoonAnchor || undefined,
+        sunMoonTrigger: sunMoonTrigger || undefined
     });
+    // 天衡【日月天衡】充能触发：广播之后播本地 Hero 动画
+    if (sunMoonTrigger) {
+        emit('fx:tianhengBorrowDay', {
+            presentationEventId: `sunMoon:${sunMoonTrigger.campKey}:${getRoundIndex(gameState)}`,
+            campKey: sunMoonTrigger.campKey,
+            affectedIds: sunMoonTrigger.affectedIds
+        });
+    }
 }
 
 export async function endTurn(options = {}) {
@@ -4058,47 +4077,24 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     });
     return true;
 }
-// 天衡【日月天衡】发卡：≥2 天衡将领存活且本局未发过 → 发一张【日月天衡】入手牌（一局仅一张）。
-function _grantBorrowDayCards() {
-    if (!gameState._borrowDayGranted) gameState._borrowDayGranted = {};
+// 天衡【日月天衡】：回收本阵营各单位剩余行动力，满阈值自动释放。
+function _accrueSunMoonForCamp() {
+    let result = null;
     for (const campKey of Object.keys(gameState.factions || {})) {
         if (campKey === 'neutral') continue;
-        if (gameState._borrowDayGranted[campKey]) continue;
         if (!hasTianhengSynergyActive(gameState, campKey)) continue;
-        const hand = gameState.playerHands?.[campKey];
-        if (!Array.isArray(hand)) continue;
-        hand.push(BORROW_DAY_CARD_ID);
-        gameState._borrowDayGranted[campKey] = true;
-        logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【日月天衡】就绪（本局一张）`);
-        emit('fx:tianhengBorrowDayGranted', { campKey });
+        const units = getLivingCampUnits(gameState, campKey);
+        let totalRemaining = 0;
+        for (const unit of units) {
+            totalRemaining += Math.max(0, unit.remainingMP || 0);
+        }
+        const affectedIds = accrueSunMoonCharge(gameState, campKey, totalRemaining);
+        if (affectedIds.length > 0) {
+            result = { campKey, affectedIds };
+            logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【日月天衡】充能已满——全军回满+士气提升+全图视野`);
+        }
     }
-}
-
-// 天衡【日月天衡】结算：无目标即时王牌。释放后全体回满+士气+全图视野；无代价。
-function _executeBorrowDay(cardId, campKey, _fromX = 0, _fromY = 0) {
-    const hand = gameState.playerHands[campKey];
-    if (!hand) return;
-    const idx = hand.findIndex(c => c === cardId || (typeof c === 'object' && c.id === cardId));
-    if (idx === -1) { notify('手牌中没有该卡'); return; }
-    const useBonus = _getActiveDiplomatOverride(campKey)?.useBonus || 0;
-    if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn + useBonus) {
-        notify('本回合已达到使用上限', 'error'); return;
-    }
-    const affectedIds = resolveBorrowDay(gameState, campKey);
-    hand.splice(idx, 1);
-    if (!getCardMeta(cardId).noDiscard) gameState.cardDiscardPile.push(cardId);
-    gameState.playerUsesThisTurn[campKey]++;
-    spawnCardUseEffect(cardId, 500, 375, true, _fromX || 900, _fromY || 600, null);
-    // 烧牌动画（1600ms + 500ms 停顿）结束后再播 Hero 全屏动画
-    window.setTimeout(() => {
-        emit('fx:tianhengBorrowDay', {
-            presentationEventId: `borrowDay:${campKey}:${gameState.turnCounter}`,
-            campKey, affectedIds
-        });
-    }, 2200);
-    logMessage(`${gameState.factions?.[campKey]?.name || campKey}发动阵营协同【日月天衡】：全军回满+士气提升+全图视野`);
-    broadcastAction('tacticalCard', { cardId, borrowDay: true, campKey, affectedIds });
-    updateUI();
+    return result;
 }
 
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
@@ -4114,11 +4110,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
     const campKey = _campKey(myCamp);
 
-    // 天衡【日月天衡】：无目标即时王牌，走专用结算（不进选目标/预演管线）。
-    if (getCardMeta(cardId).instant) {
-        _executeBorrowDay(cardId, campKey, _fromX, _fromY);
-        return;
-    }
+    // 天衡【日月天衡】已改为充能制被动（回合末回收行动力自动触发），无卡牌结算。
 
     // 候选集合是渲染、点击与执行终检的共同真源；执行层仍在扣牌/扣金前复核一次。
     const activeTargeting = gameState.cardTargeting?.cardId === cardId

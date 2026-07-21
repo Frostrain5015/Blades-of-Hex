@@ -1632,9 +1632,9 @@ export const bloodMoonSlashes = [];
 export function spawnBloodMoonSlash(x, y, killed = false) {
     bloodMoonSlashes.push({
         x, y, startTime: performance.now(),
-        duration: killed ? 700 : 500,
-        maxRings: killed ? 3 : 2,
-        killed
+        duration: killed ? 650 : 450,
+        killed,
+        sweepDir: Math.random() < 0.5 ? 1 : -1  // 随机顺时针/逆时针
     });
 }
 
@@ -1648,46 +1648,65 @@ export function drawBloodMoonSlashes(ctx2d, now) {
     for (const s of bloodMoonSlashes) {
         const elapsed = now - s.startTime;
         const progress = Math.min(1, elapsed / s.duration);
-        const fadeOut = 1 - Math.pow(progress, 1.6);
+        const fadeOut = 1 - Math.pow(progress, 2);
         if (fadeOut <= 0) continue;
 
         ctx2d.save();
         ctx2d.globalCompositeOperation = 'lighter';
 
-        // 主斩击环：暗红镰刃
-        for (let ring = 0; ring < s.maxRings; ring++) {
-            const ringOffset = ring * 0.2;
-            const localP = Math.max(0, Math.min(1, (progress - ringOffset) / (1 - ringOffset)));
-            if (localP <= 0 || localP >= 1) continue;
-            const radius = 10 + localP * 55;
-            const alpha = (1 - localP) * 0.8 * (ring === 0 ? 1 : 0.45);
-            const width = (4 + (1 - localP) * 8) * (ring === 0 ? 1 : 0.6);
+        // 刀锋斩击：一道弧光从目标外围绕过，如同刀锋切过
+        const radius = 28 + progress * 8;
+        const sweep = Math.min(1, progress * 1.8);  // 前半段快速扫过
+        const sweepAngle = sweep * Math.PI * 1.6;    // 扫约 288°
+        const baseAngle = s.sweepDir * (elapsed / 500) - 0.8;
+        const startAngle = baseAngle;
+        const endAngle = baseAngle + sweepAngle;
 
-            ctx2d.globalAlpha = alpha * fadeOut;
-            ctx2d.strokeStyle = ring === 0 ? '#ff2244' : '#cc1133';
-            ctx2d.shadowColor = '#ff2244';
-            ctx2d.shadowBlur = 18 + (1 - localP) * 12;
-            ctx2d.lineWidth = width;
+        // 刀锋轨迹由外圈到内圈共 3 条同心弧，间距随进度收缩（模拟刀锋切入感）
+        const bladeCount = 3;
+        for (let b = 0; b < bladeCount; b++) {
+            const bladeT = b / bladeCount;
+            const bladeRadius = radius + (1 - progress * 0.5) * (8 - bladeT * 4);
+            const bladeAlpha = (1 - sweep * 0.3) * 0.7 * (1 - bladeT * 0.35);
+            const bladeWidth = (5 + (1 - sweep) * 4) * (1 - bladeT * 0.3);
+
+            ctx2d.globalAlpha = bladeAlpha * fadeOut;
+            ctx2d.strokeStyle = b === 0 ? '#ff2244' : '#cc1133';
+            ctx2d.shadowColor = '#ff4466';
+            ctx2d.shadowBlur = 16 + (1 - sweep) * 10;
+            ctx2d.lineWidth = bladeWidth;
             ctx2d.beginPath();
-            // 不完全闭合的环形斩击（留一个缺口，更像斩击轨迹）
-            const startAngle = ring * 0.8 + Math.sin(elapsed / 300) * 0.15;
-            const endAngle = startAngle + Math.PI * 1.85;
-            ctx2d.arc(s.x, s.y, radius, startAngle, endAngle);
+            ctx2d.arc(s.x, s.y, bladeRadius, startAngle, endAngle);
             ctx2d.stroke();
+        }
 
-            // 斩杀额外：血爆粒子
-            if (s.killed && localP < 0.3) {
-                const particleAlpha = (1 - localP / 0.3) * 0.5;
-                ctx2d.globalAlpha = particleAlpha * fadeOut;
-                ctx2d.fillStyle = '#ff4466';
-                ctx2d.shadowBlur = 10;
-                for (let i = 0; i < 8; i++) {
-                    const angle = (i / 8) * Math.PI * 2 + localP * 1.5;
-                    const dist = 20 + localP * 40;
-                    ctx2d.beginPath();
-                    ctx2d.arc(s.x + Math.cos(angle) * dist, s.y + Math.sin(angle) * dist, 2 + (1 - localP) * 3, 0, Math.PI * 2);
-                    ctx2d.fill();
-                }
+        // 刀锋末尾的拖尾粒子（被斩击溅出的血珠）
+        if (progress < 0.85) {
+            const tailCount = Math.round(4 * (1 - progress));
+            ctx2d.globalAlpha = (1 - progress) * 0.6 * fadeOut;
+            ctx2d.fillStyle = '#ff4466';
+            ctx2d.shadowBlur = 6;
+            for (let i = 0; i < tailCount; i++) {
+                const a = endAngle + (Math.random() - 0.5) * 0.3;
+                const d = radius + (Math.random() - 0.5) * 6;
+                ctx2d.beginPath();
+                ctx2d.arc(s.x + Math.cos(a) * d, s.y + Math.sin(a) * d, 1.5 + Math.random() * 2, 0, Math.PI * 2);
+                ctx2d.fill();
+            }
+        }
+
+        // 斩杀额外：刀刃碰撞瞬间的血爆
+        if (s.killed && progress < 0.3) {
+            const burstAlpha = (1 - progress / 0.3) * 0.6;
+            ctx2d.globalAlpha = burstAlpha * fadeOut;
+            ctx2d.fillStyle = '#ff3355';
+            ctx2d.shadowBlur = 12;
+            for (let i = 0; i < 10; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 15 + Math.random() * 45;
+                ctx2d.beginPath();
+                ctx2d.arc(s.x + Math.cos(angle) * dist, s.y + Math.sin(angle) * dist, 2 + Math.random() * 4, 0, Math.PI * 2);
+                ctx2d.fill();
             }
         }
 

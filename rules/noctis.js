@@ -25,7 +25,7 @@ export const NOCTIS_BLOODMOON_BALANCE = Object.freeze({
     bleedThresholdPct: 0.5,
     bleedLostHpPct: 1 / 3,
     durationRounds: 2,
-    bloodTideThreshold: 150
+    bloodTideThreshold: 125
 });
 
 export function isNoctisCommanderId(commanderId) {

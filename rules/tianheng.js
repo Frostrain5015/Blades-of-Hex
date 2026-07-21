@@ -1,16 +1,16 @@
 // rules/tianheng.js — 天衡联邦阵营协同【日月天衡】规则。
-// 日月天衡是一张一局仅一张的主动王牌：释放后本阵营全体单位立即恢复全部生命值、
-// 行动力回满可再行动、士气提升持续2回合，且在遭遇战模式下获得1回合全图视野。
-// 不再有岁耗负数代价。
-//
-// 设计对照参考：极昼意象——太阳永不落下，全员沐浴烈日之力。
+// 日月天衡是一个充能制被动技能：每回合末回收本阵营单位的剩余行动力作为充能，
+// 充满60点后自动释放——全体回满生命、士气提升持续2回合、遭遇战全图视野1回合。
+// 不再是一局一张的主动卡牌。
 
 import { campToKey } from './camps.js';
 import { getRoundIndex } from './turns.js';
 import { TIANHENG_FACTION_SYNERGY, getCommanderFactionSynergy } from './factionSynergies.js';
 
 export const TIANHENG_COMMANDER_IDS = TIANHENG_FACTION_SYNERGY.commanderIds;
-export const BORROW_DAY_CARD_ID = 'borrowDay';
+
+/** 日月天衡充能阈值。 */
+export const SUN_MOON_CHARGE_THRESHOLD = 60;
 
 export function isTianhengCommanderId(commanderId) {
     return getCommanderFactionSynergy(commanderId)?.id === TIANHENG_FACTION_SYNERGY.id;
@@ -35,7 +35,7 @@ export function hasTianhengSynergyActive(gameState, campOrKey) {
     return getLivingTianhengCommanders(gameState, campOrKey).length >= 2;
 }
 
-/** 某阵营的全部存活单位（作用对象＝全体单位，含将领与普通兵）。 */
+/** 某阵营的全部存活单位（含将领与普通兵）。 */
 export function getLivingCampUnits(gameState, campOrKey) {
     if (!gameState?.tiles || !campOrKey) return [];
     const campKey = typeof campOrKey === 'string' ? campOrKey : campToKey(campOrKey);
@@ -44,18 +44,12 @@ export function getLivingCampUnits(gameState, campOrKey) {
         .filter(unit => unit && unit.hp > 0 && campToKey(unit.camp) === campKey);
 }
 
-function fullMP(unit) {
-    return unit.getEffectiveSpeed?.() ?? unit.config?.speed ?? 0;
-}
-
 /**
  * 日月天衡结算：本阵营全体存活单位——
  *   ① 立即恢复全部生命值；
- *   ② 行动力回满、重新可行动、解除本回合已有的禁锢/锁；
- *   ③ 士气提升至昂扬（3），持续2回合；
- *   ④ 遭遇战模式下获得1回合全图视野（scoutReveal）。
- * 不再有岁耗代价。
- * 返回受影响的 unitId 列表（供表现/广播）。
+ *   ② 士气提升至昂扬（3），持续2回合；
+ *   ③ 遭遇战模式下获得1回合全图视野。
+ * 返回受影响的 unitId 列表。
  */
 export function resolveBorrowDay(gameState, campOrKey) {
     if (!gameState) return [];
@@ -63,27 +57,11 @@ export function resolveBorrowDay(gameState, campOrKey) {
     const units = getLivingCampUnits(gameState, campKey);
 
     for (const unit of units) {
-        // ① 回满生命
         unit.hp = unit.maxHp;
-        if (unit._shield != null) unit._shield = unit._shieldMax || unit.maxHp;
-
-        // ② 行动刷新
-        unit._imprisoned = false;
-        unit.canAct = true;
-        unit.remainingMP = fullMP(unit);
-        unit.displaySpeed = unit.remainingMP;
-        unit.movedThisTurn = false;
-        unit.moveDistance = 0;
-        unit.counterAttackCount = 0;
-        unit._timesAttackedThisTurn = 0;
-        unit._specializationAttackSpent = false;
-
-        // ③ 士气提升至昂扬（3），持续2回合
         unit.morale = 3;
         unit.moraleBoostUntil = getRoundIndex(gameState) + 2;
     }
 
-    // ④ 遭遇战模式：1回合全图视野（scoutReveal由渲染层自动消费，无需立即刷新迷雾）
     if (gameState.skirmishFog) {
         if (!gameState.scoutReveals[campKey]) gameState.scoutReveals[campKey] = new Map();
         const reveals = gameState.scoutReveals[campKey];
@@ -100,16 +78,34 @@ export function resolveBorrowDay(gameState, campOrKey) {
     return units.map(u => u.id);
 }
 
-/**
- * 旧版岁耗检测 — 纯纯正正返回 false。
- */
-export function hasBorrowDayPaybackPending() {
-    return false;
-}
+// ==== 充能系统 ========================================================
 
 /**
- * 旧版岁耗偿还 — 啥也不干。
+ * 记入剩余行动力充能。超过阈值时自动释放日月天衡并扣除阈值。
+ * @returns 触发时返回 affected unitId 数组；未触发返回空数组。
  */
-export function applyBorrowDayPayback() {
+export function accrueSunMoonCharge(gameState, campKey, amount) {
+    const add = Math.max(0, Math.round(Number(amount) || 0));
+    if (!gameState || !campKey || add <= 0) return [];
+    if (!hasTianhengSynergyActive(gameState, campKey)) return [];
+    if (!gameState._sunMoonCharge) gameState._sunMoonCharge = {};
+    const charge = (gameState._sunMoonCharge[campKey] || 0) + add;
+    gameState._sunMoonCharge[campKey] = charge;
+
+    if (charge >= SUN_MOON_CHARGE_THRESHOLD) {
+        gameState._sunMoonCharge[campKey] = charge - SUN_MOON_CHARGE_THRESHOLD;
+        return resolveBorrowDay(gameState, campKey);
+    }
     return [];
 }
+
+/** HUD 充能进度（0~1）。 */
+export function getSunMoonChargeRatio(gameState, campOrKey) {
+    const campKey = typeof campOrKey === 'string' ? campOrKey : campToKey(campOrKey);
+    const charge = gameState?._sunMoonCharge?.[campKey] || 0;
+    return Math.max(0, Math.min(1, charge / SUN_MOON_CHARGE_THRESHOLD));
+}
+
+// ==== 旧版兼容（已废弃） ===============================================
+export function hasBorrowDayPaybackPending() { return false; }
+export function applyBorrowDayPayback() { return []; }

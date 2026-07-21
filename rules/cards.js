@@ -27,8 +27,6 @@ export const TACTICAL_CARD_DATA = (() => {
         commanderDeploy: { id: 'commanderDeploy', name: '部署将领', icon: EMOJI.cards.commanderDeploy, targeting: 'friendlyAny', desc: '【部署将领】\n将所选将领挂载到指定己方单位上' },
         // 天鹰阵营协同奖励卡：不进抽牌堆，仅由【天基支援协议】的受创计量发放
         orbitalStrike: { id: 'orbitalStrike', name: '天基打击', icon: '🛰️', targeting: 'anyTileGlobal', balance: { centerAttack: 110, splashAttack: 55, tickRatios: [0.12, 0.12, 0.12, 0.64] } },
-        // 天衡阵营协同王牌：无目标即时卡，仅由【日月天衡】协同一局发放一张（发卡在 gameLogic）
-        borrowDay: { id: 'borrowDay', name: '日月天衡', icon: '⚖️', targeting: 'selfInstant', desc: '【日月天衡】\n发动后本阵营全体单位立即恢复全部生命值、行动力回满且可再次行动、士气提升持续2回合；遭遇战模式下获得1回合全图视野。一局仅一张。' }
     };
     cards.heal.desc = `【疗愈】\n对指定单位释放，立即恢复其${percent(cards.heal.balance.healMaxHpPct)}最大生命值`;
     cards.lightning.desc = `【雷击】\n对指定敌方单位造成${rangeText(cards.lightning.balance.minDamage, cards.lightning.balance.maxDamage)}真实伤害，雨天伤害提高${percent(cards.lightning.balance.rainMultiplier - 1)}`;
@@ -90,8 +88,6 @@ export const CARD_FLAGS = deepFreeze({
     diveStrafe:      { noCopy: true },
     carpetBomb:      { noCopy: true },
     airlift:         { noCopy: true },
-    // 天衡阵营协同王牌【借日】：一局仅一张，纵横家不可复制（防止对手复制这张决定性王牌）。
-    borrowDay:       { noCopy: true, instant: true }
 });
 
 export function getCardMeta(cardId) {
@@ -283,12 +279,6 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
             };
             return { poisoned: true, targetTile };
         }
-    },
-    // 天衡【借日】：无目标即时卡，实际结算在 gameLogic._executeBorrowDay（不走 targetTile 管线）。
-    // 此处仅登记以便卡牌存在性检查（TACTICAL_CARD_CONFIG[cardId]）与手牌渲染通过。
-    borrowDay: {
-        ...TACTICAL_CARD_DATA.borrowDay,
-        execute() { return { borrowDay: true }; }
     },
     commanderDeploy: {
         ...TACTICAL_CARD_DATA.commanderDeploy,
