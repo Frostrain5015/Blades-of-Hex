@@ -428,7 +428,7 @@ function createRoomAuthority() {
 
 const PLAYER_FACTION_COLORS = new Set(['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple']);
 const DEFAULT_ROLE_COLORS = { player1: 'red', player2: 'blue', player3: 'green' };
-const STANDARD_FLAG_EMOJIS = new Set(['⚜️', '🦅', '🦁', '🐺', '🐉', '⚔️', '🛡️', '👑', '☀️', '🌙', '🔥', '🌿', '⚓', '🔆', '🎭', '⚖️']);
+const STANDARD_FLAG_EMOJIS = new Set(['⚜️', '🦅', '🦁', '🐺', '🐉', '⚔️', '🛡️', '👑', '☀️', '🌙', '🔥', '🌿', '⚓', '🔆', '⚖️']);
 const DEFAULT_ROLE_FLAG_EMOJIS = { player1: '⚜️', player2: '🛡️', player3: '🦅' };
 const STANDARD_MAP_IDS = new Set(['crown-ring', 'uncharted-passage']);
 

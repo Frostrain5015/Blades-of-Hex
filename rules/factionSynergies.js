@@ -180,7 +180,7 @@ export const CELESTINE_FACTION_SYNERGY = defineFactionSynergy({
 
 export const CELESTINE_COMMANDER_IDS = CELESTINE_FACTION_SYNERGY.commanderIds;
 
-// 诺克提斯共和国 🎭：吸血鬼、亡灵法师、魔术师。
+// 诺克提斯共和国 🌙：吸血鬼、亡灵法师、魔术师。
 // 协同被动【血月之夜】的平衡参数与判定在 rules/noctis.js；此处只登记身份与 Hero 主题。
 // skillImplemented: true — 技能已实装，激活后取代【与子同袍】。
 export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
@@ -193,7 +193,7 @@ export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
     ],
     skillImplemented: true,
     marker: {
-        symbol: '🎭',
+        symbol: '🌙',
         label: '诺克提斯共和国',
         color: '#7fcf9a',
         borderColor: 'rgba(127, 207, 154, 0.66)',
@@ -204,8 +204,8 @@ export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
         id: 'noctis-masquerade',
         emblem: {
             kind: 'text',
-            value: '🎭',
-            label: '假面徽记'
+            value: '🌙',
+            label: '血月徽记'
         },
         kicker: '阵营协同',
         title: '血月降临',

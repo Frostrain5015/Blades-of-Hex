@@ -34,12 +34,11 @@ export const STANDARD_FLAG_EMOJIS = Object.freeze([
     Object.freeze({ emoji: '🛡️', label: '盾牌' }),
     Object.freeze({ emoji: '👑', label: '王冠' }),
     Object.freeze({ emoji: '☀️', label: '太阳' }),
-    Object.freeze({ emoji: '🌙', label: '月亮' }),
+    Object.freeze({ emoji: '🌙', label: '血月' }),
     Object.freeze({ emoji: '🔥', label: '火焰' }),
     Object.freeze({ emoji: '🌿', label: '枝叶' }),
     Object.freeze({ emoji: '⚓', label: '锚' }),
     Object.freeze({ emoji: '🔆', label: '辉环' }),
-    Object.freeze({ emoji: '🎭', label: '假面' }),
     Object.freeze({ emoji: '⚖️', label: '天衡' })
 ]);
 export const DEFAULT_STANDARD_FLAG_EMOJIS = Object.freeze({ player1: '⚜️', player2: '🛡️', player3: '🦅' });
