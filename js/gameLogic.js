@@ -132,13 +132,17 @@ import {
     canRepairShipAtPort,
     restoreSurrenderedPorts
 } from '../rules/naval.js';
+import { enqueueFloatText, drainPendingFloatTexts, setFloatTextCaptureSuppressed } from './floatTexts.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
     if (!isNetworkGame()) return;
     try {
         const state = serializeState();
-        sendAction(actionType, state, effectData);
+        // 本动作同步登记的浮字一并广播，远端按同批条目重放（两端时序一致）
+        const floatTexts = drainPendingFloatTexts();
+        const effects = floatTexts ? { ...(effectData || {}), floatTexts } : effectData;
+        sendAction(actionType, state, effects);
     } catch (e) {
         console.warn(`broadcastAction(${actionType}) failed:`, e);
     }
@@ -168,7 +172,6 @@ let _cmdFxData = null;     // 攻击将领特效 { x, y, glyph, label }
 let _ctrCmdFxData = null;  // 反击将领特效 { x, y, glyph, label }
 let _cmdFxExtra = null;    // 额外的将领特效（如尚书进驻城市）
 let _endTurnCmdFxList = null; // 回合结束时的将领特效列表（联机同步用）
-let _endTurnDmgTexts = null;  // 回合结束时的伤害数字列表（联机同步用）
 let _rainLightningFx = null; // 本整轮雨天环境落雷（联机重放用）
 let _attackDmg = 0, _attackIsCrit = false;
 let _counterDmg = 0, _counterX = 0, _counterY = 0, _counterIsRanged = false, _counterIsCrit = false;
@@ -812,7 +815,7 @@ export function _resolveRainLightning() {
         // 环境伤害：无攻击方，不给击杀经验/击杀士气/击杀计数
         const killed = unit.applyDamage(dmg, { source: 'true', attacker: null });
         strikes.push({ q: tile.q, r: tile.r, x: tile.x, y: tile.y, dmg, killed });
-        gameState.damageTexts.push({ x: tile.x, y: tile.y, value: dmg, isTrueDmg: true, timeLeft: 1000, lastUpdate: performance.now() });
+        enqueueFloatText({ x: tile.x, y: tile.y, q: tile.q, r: tile.r, value: dmg, isTrueDmg: true, timeLeft: 1000 });
         logMessage(`⚡ 雨天落雷劈中${unit.camp.name}${unit.config.name}兵，造成${dmg}真实伤害${killed ? '，将其消灭' : ''}`);
     }
     // 氛围雷：战场活跃区（距任意单位 ≤ambientRadius 格）的空地，只放特效无伤害
@@ -954,7 +957,6 @@ function _expireTimedEffects() {
 }
 
 // 回合开始收入结算（城市产出 + 村庄产出 + 将领回合开始效果）
-// 返回 damageTexts 快照长度，供 _doEndTurnPhase 收集殉道者等伤害数字
 export function grantTurnStartIncome(camp) {
     const key = _campKey(camp);
     // 城市HP=0只锁机场指令与招募，不切收入——和旧版瘫痪机制的区别，故意不读 isCityDisabled。
@@ -1055,7 +1057,6 @@ export function grantTurnStartIncome(camp) {
     }
 
     // 将领回合开始效果
-    const dmgTextsBefore = gameState.damageTexts.length;
     triggerCommanderTurnStart(gameState, camp);
     // 尚书屯田特效
     const ministerUnit = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'minister' && t.unit.camp === camp ? t.unit : null), null);
@@ -1063,7 +1064,6 @@ export function grantTurnStartIncome(camp) {
         spawnMinisterDominionRing(ministerUnit.tile.x, ministerUnit.tile.y);
         spawnCoinRain(ministerUnit.tile.x, ministerUnit.tile.y, 5);
     }
-    return dmgTextsBefore;
 }
 
 /** 在所属阵营回合开始时按快照结算毒素；新感染单位不会在本次继续传播。
@@ -1084,9 +1084,9 @@ export function resolvePoisonAtTurnStart(camp) {
         const originTile = unit.tile;
         const damage = Math.max(1, Math.round(unit.maxHp * poisonBalance.damageMaxHpPct));
         const killed = unit.applyDamage(damage, { source: 'true', attacker: null });
-        gameState.damageTexts.push({
-            x: originTile.x, y: originTile.y, value: damage, isCrit: false, isPoison: true,
-            timeLeft: 1000, lastUpdate: performance.now()
+        enqueueFloatText({
+            x: originTile.x, y: originTile.y, q: originTile.q, r: originTile.r,
+            value: damage, isPoison: true, timeLeft: 1000
         });
         spawnCommanderSkillEffect(originTile.x, originTile.y, '☣️', '毒发');
         logMessage(`☣️ ${unit.camp.name}${unit.config.name}毒发，流失${damage}生命`);
@@ -1196,7 +1196,6 @@ async function _doEndTurnPhase() {
 
     // ==== 回合开始：收入结算 ====================
     // 毒素先于收入与所有回合开始治疗结算。
-    const dmgTextsBefore = gameState.damageTexts.length;
     resolvePoisonAtTurnStart(gameState.currentCamp);
     grantTurnStartIncome(gameState.currentCamp);
     // 港口维修改为玩家主动付费按钮（见 repairShipAtPort），不再回合开始自动结算。
@@ -1216,8 +1215,7 @@ async function _doEndTurnPhase() {
             t._reinforcedThisTurn = false;
         }
     }
-    // 收集殉道者等将领产生的伤害数字，供远端重放
-    _endTurnDmgTexts = gameState.damageTexts.slice(dmgTextsBefore);
+    // 收集殉道者等将领产生的伤害数字已由通用 floatTexts 捕获取代（broadcastAction 自动 drain）
     // 遭遇战迷雾：过期侦察揭示，然后更新全阵营视野
     // 必须在 turnStart 效果（殉道者自爆等）之后，因为殉道者可能击杀任意阵营单位
     if (gameState.skirmishFog) {
@@ -1246,7 +1244,6 @@ async function _doEndTurnPhase() {
         if (gameState.gameOver) {
             broadcastAction('endTurn', {
                 cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
-                dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null,
                 healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null,
                 rainLightning: _rainLightningFx
             });
@@ -1260,7 +1257,15 @@ async function _doEndTurnPhase() {
         for (const tile of gameState.tiles) {
             if (!tile.isCity || tile.hp >= tile.maxHp) continue;
             if (tile._citySiegeDamageRound === roundIndexBeforeAdvance) continue;
+            const cityHpBefore = tile.hp;
             tile.hp = Math.min(tile.maxHp, tile.hp + getCityRegenAmount(tile));
+            const cityRegenAmount = tile.hp - cityHpBefore;
+            if (cityRegenAmount > 0) {
+                enqueueFloatText({
+                    x: tile.x, y: tile.y, q: tile.q, r: tile.r,
+                    value: cityRegenAmount, isCityHeal: true, timeLeft: 1000
+                });
+            }
             syncCityHpMirrors(tile, gameState.tileMap);
         }
         _resolveRainLightning();
@@ -1330,7 +1335,6 @@ async function _doEndTurnPhase() {
     clearselection();
     broadcastAction('endTurn', {
         cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
-        dmgTexts: (_endTurnDmgTexts && _endTurnDmgTexts.length > 0) ? _endTurnDmgTexts : null,
         healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null,
         rainLightning: _rainLightningFx,
         oraclePulses: oraclePulses?.length > 0 ? oraclePulses : null
@@ -2061,9 +2065,9 @@ function _moveUnit(unit, targetTile) {
             const oldHp = unit.hp;
             unit.applyDamage(rawMineDmg, { source: 'effect', attacker: null, skipAura: true });
             const mineDmg = Math.max(0, oldHp - unit.hp);
-            gameState.damageTexts.push({
-                x: targetTile.x, y: targetTile.y, value: mineDmg, isCrit: true,
-                timeLeft: 900, lastUpdate: performance.now()
+            enqueueFloatText({
+                x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r,
+                value: mineDmg, isCrit: true, timeLeft: 900
             });
             spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ff4400', 20);
             spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ffaa00', 12);
@@ -2253,17 +2257,12 @@ function _attackUnit(attackerUnit, targetUnit) {
             if (isEagleAirAttacker(attackerUnit) || isEagleFortressAttacker(attackerUnit)) {
                 creditEagleSynergyDamage(_campKey(attackerUnit.camp), Math.min(cityDamage, cityPoolHpBefore));
             }
-            setTimeout(() => {
-                gameState.damageTexts.push({
-                    x: toX + 20,
-                    y: toY + 8,
-                    value: cityDamage,
-                    isCityDamage: true,
-                    isCrit: cityDamageIsCrit,
-                    timeLeft: 900,
-                    lastUpdate: performance.now()
-                });
-            }, _impactVisualMs + 180);
+            // 同步登记（含弹着延迟），同地块错峰由浮字队列接管，广播快照可完整捕获
+            enqueueFloatText({
+                x: toX + 20, y: toY + 8, q: primaryTargetTile.q, r: primaryTargetTile.r,
+                value: cityDamage, isCityDamage: true, isCrit: cityDamageIsCrit,
+                timeLeft: 900, delayMs: _impactVisualMs
+            });
         }
     }
     const specializationSplashResults = [];
@@ -2276,9 +2275,9 @@ function _attackUnit(attackerUnit, targetUnit) {
             const killed = targetUnit.applyDamage(damage, { source: 'ranged', attacker: attackerUnit });
             extraSalvoResult = { q: targetUnit.tile.q, r: targetUnit.tile.r, damage, killed };
             isTargetDead ||= killed;
-            gameState.damageTexts.push({
-                x: toX, y: toY, value: damage, isCrit: false,
-                timeLeft: 900, lastUpdate: performance.now()
+            enqueueFloatText({
+                x: toX, y: toY, q: targetUnit.tile.q, r: targetUnit.tile.r,
+                value: damage, timeLeft: 900
             });
         }
     }
@@ -2308,9 +2307,9 @@ function _attackUnit(attackerUnit, targetUnit) {
                 q: splashTile.q, r: splashTile.r, x: splashTile.x, y: splashTile.y,
                 damage, killed
             });
-            gameState.damageTexts.push({
-                x: splashTile.x, y: splashTile.y, value: damage, isCrit: false,
-                timeLeft: 900, lastUpdate: performance.now()
+            enqueueFloatText({
+                x: splashTile.x, y: splashTile.y, q: splashTile.q, r: splashTile.r,
+                value: damage, timeLeft: 900
             });
         }
     }
@@ -2328,9 +2327,9 @@ function _attackUnit(attackerUnit, targetUnit) {
                 x: splashTile.x, y: splashTile.y, q: splashTile.q, r: splashTile.r,
                 dmg: splashDmg, isCrit: splashResult.isCrit, killed
             });
-            gameState.damageTexts.push({
-                x: splashTile.x, y: splashTile.y, value: splashDmg, isCrit: splashResult.isCrit,
-                timeLeft: 900, lastUpdate: performance.now()
+            enqueueFloatText({
+                x: splashTile.x, y: splashTile.y, q: splashTile.q, r: splashTile.r,
+                value: splashDmg, isCrit: splashResult.isCrit, timeLeft: 900
             });
             logMessage(`狂战士【泣血】溅射对${splashUnit.camp.name}${splashUnit.config.name}兵造成${splashDmg}伤害`);
         }
@@ -2440,11 +2439,13 @@ function _attackUnit(attackerUnit, targetUnit) {
                 targetUnit.displayHp = targetUnit.hp;
                 if (smiteKilled) isTargetDead = true;
                 _smiteDmgRemote = atkCmdResult.smiteDmg;
+                // 真伤数字同步登记（含光束落地延迟），广播快照可捕获
+                enqueueFloatText({
+                    x: toX, y: toY, q: targetUnit.tile.q, r: targetUnit.tile.r,
+                    value: atkCmdResult.smiteDmg, isTrueDmg: true,
+                    timeLeft: 1200, delayMs: smiteDelay + 200
+                });
                 setTimeout(() => {
-                    gameState.damageTexts.push({
-                        x: toX, y: toY, value: atkCmdResult.smiteDmg, isTrueDmg: true,
-                        timeLeft: 1200, lastUpdate: performance.now()
-                    });
                     triggerAttackFlash(toX, toY, true);
                     spawnCommanderSkillEffect(toX, toY, '✝️', smiteLabel, true);
                     triggerScreenShake(_hasSmite && smiteLabel === '至圣斩·誓约' ? 12 : 9, 400);
@@ -2643,7 +2644,6 @@ function _attackUnit(attackerUnit, targetUnit) {
             attackDmg: _attackDmg, attackIsCrit: _attackIsCrit,
             cityDamage,
             cityDamageIsCrit,
-            cityDamageDelayMs: 180,
             cityHpAfter: cityDamage > 0
                 ? (getCityPoolTile(primaryTargetTile, gameState.tileMap)?.hp ?? null)
                 : null,
@@ -3631,18 +3631,18 @@ function _attackCityTile(attackerUnit, targetTile) {
         creditEagleSynergyDamage(_campKey(attackerUnit.camp), Math.min(result.damage, poolHpBeforeSiege));
     }
 
-    // 航母扫射的伤害数字延迟到子弹流抵达（与扫射单位的时序一致）
+    // 航母扫射的伤害数字延迟到子弹流抵达（与扫射单位的时序一致）；
+    // 同步登记进浮字队列，广播快照可完整捕获
     if (isCarrierStrafe) {
-        setTimeout(() => {
-            gameState.damageTexts.push({
-                x: toX, y: toY, value: result.damage, isCrit: result.isCrit, isCityDamage: true,
-                timeLeft: 900, lastUpdate: performance.now()
-            });
-        }, CARRIER_STRAFE_IMPACT_MS);
+        enqueueFloatText({
+            x: toX, y: toY, q: targetTile.q, r: targetTile.r,
+            value: result.damage, isCrit: result.isCrit, isCityDamage: true,
+            timeLeft: 900, delayMs: CARRIER_STRAFE_IMPACT_MS
+        });
     } else {
-        gameState.damageTexts.push({
-            x: toX, y: toY, value: result.damage, isCrit: result.isCrit,
-            timeLeft: 900, lastUpdate: performance.now()
+        enqueueFloatText({
+            x: toX, y: toY, q: targetTile.q, r: targetTile.r,
+            value: result.damage, isCrit: result.isCrit, timeLeft: 900
         });
     }
 
@@ -3832,7 +3832,14 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
     // 鹰链：空军指令伤害记在机场所属阵营；落弹为延迟结算路径，本地与远端各自重算
     const airCampKey = _campKey(launcherTile.camp);
     if (Number.isFinite(impactDelay) && results.some(result => Number(result.damage) > 0)) {
+        // 伤害数字同步登记（含落弹延迟），广播快照可完整捕获；远端按 payload 重放
+        for (const text of buildAirCommandDamageTexts(results, gameState.tileMap, performance.now())) {
+            enqueueFloatText({ ...text, delayMs: impactDelay });
+        }
         setTimeout(() => {
+            // 捕获抑制：落弹时刻产生的跳字（护盾吸收/灵光/临终迸发等）由远端重放同一结算自行推导
+            setFloatTextCaptureSuppressed(true);
+            try {
             if (kind === 'strafe') {
                 // 延迟扣血：爆炸时刻才结算伤害，与上校动画时序一致
                 for (const r of results) {
@@ -3876,11 +3883,9 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
                 }
                 triggerScreenShake(8, 400);
             }
-            gameState.damageTexts.push(...buildAirCommandDamageTexts(
-                results,
-                gameState.tileMap,
-                performance.now()
-            ));
+            } finally {
+                setFloatTextCaptureSuppressed(false);
+            }
         }, impactDelay);
     }
 
@@ -3924,7 +3929,6 @@ export function executeDroneSuicide(droneUnit, targetTile) {
         notify('无法对该目标释放自爆', 'error');
         return false;
     }
-    const gs = gameState;
     const fromTile = droneUnit.tile;
     gameState._pendingEagleSynergyEvents = [];
 
@@ -3935,13 +3939,9 @@ export function executeDroneSuicide(droneUnit, targetTile) {
         const dmg = Math.round(baseResult.dmg * multiplier);
         if (dmg <= 0) return null;
         const killed = tile.unit.applyDamage(dmg, { source: 'ranged', attacker: droneUnit });
-        gs.damageTexts.push({
-            x: tile.x,
-            y: tile.y,
-            value: dmg,
-            isCrit: baseResult.isCrit,
-            timeLeft: 900,
-            lastUpdate: performance.now()
+        enqueueFloatText({
+            x: tile.x, y: tile.y, q: tile.q, r: tile.r,
+            value: dmg, isCrit: baseResult.isCrit, timeLeft: 900
         });
         const result = { q: tile.q, r: tile.r, x: tile.x, y: tile.y, dmg, killed, isCrit: baseResult.isCrit };
         results.push(result);
@@ -4276,16 +4276,19 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'heal': {
             const healAmt = result.healAmt;
             logMessage(`💚【疗愈】${targetTile.unit.camp.name}${targetTile.unit.config.name}兵回复${healAmt}生命值${result.purifiedPoison ? '并清除中毒' : ''}`);
+            // 治疗数字同步登记（含烧牌动画延迟），广播快照可捕获
+            if (healAmt > 0 && targetTile.unit) {
+                enqueueFloatText({
+                    kind: 'heal', x, y, q: targetTile.q, r: targetTile.r,
+                    value: healAmt, timeLeft: 1000, delayMs: BURN_MS
+                });
+            }
             setTimeout(() => {
                 if (targetTile.unit) {
                     targetTile.unit._poison = null;
                     if (healAmt > 0) targetTile.unit.hp = Math.min(targetTile.unit.maxHp, targetTile.unit.hp + healAmt);
                 }
                 if (healAmt > 0 && targetTile.unit) {
-                    gameState.healTexts.push({
-                        x, y, value: healAmt,
-                        timeLeft: 1000, lastUpdate: performance.now()
-                    });
                     spawnHealParticles(x, y);
                     triggerHealFlash(x, y);
                 }
@@ -4295,22 +4298,29 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'lightning': {
             const dmg = result.dmg;
             logMessage(`⚡【雷击】对${targetTile.unit.camp.name}${targetTile.unit.config.name}兵造成${dmg}真实伤害`);
+            // 伤害数字同步登记（含烧牌动画延迟），广播快照可捕获
+            enqueueFloatText({
+                x, y, q: targetTile.q, r: targetTile.r,
+                value: dmg, isTrueDmg: true, timeLeft: 1000, delayMs: BURN_MS
+            });
             setTimeout(() => {
-                // 统一伤害入口：雷击为真实伤害（绕过护盾），击杀清理/殉道锁定由 applyDamage 处理
-                if (_savedHPs && _savedHPs[0] && targetTile.unit) {
-                    const victim = targetTile.unit;
-                    const dc = victim.camp;
-                    const killed = victim.applyDamage(dmg, { source: 'true' });
-                    if (killed) {
-                        const dck = _campKey(dc);
-                        gameState.killCount[dck]++;
-                        logMessage(`${dc.name}${victim.config.name}兵被雷击消灭`);
+                // 统一伤害入口：雷击为真实伤害（绕过护盾），击杀清理/殉道锁定由 applyDamage 处理。
+                // 捕获抑制：弹着时刻产生的跳字（临终迸发/殉道等）由远端重放同一结算自行推导
+                setFloatTextCaptureSuppressed(true);
+                try {
+                    if (_savedHPs && _savedHPs[0] && targetTile.unit) {
+                        const victim = targetTile.unit;
+                        const dc = victim.camp;
+                        const killed = victim.applyDamage(dmg, { source: 'true' });
+                        if (killed) {
+                            const dck = _campKey(dc);
+                            gameState.killCount[dck]++;
+                            logMessage(`${dc.name}${victim.config.name}兵被雷击消灭`);
+                        }
                     }
+                } finally {
+                    setFloatTextCaptureSuppressed(false);
                 }
-                gameState.damageTexts.push({
-                    x, y, value: dmg, isTrueDmg: true,
-                    timeLeft: 1000, lastUpdate: performance.now()
-                });
                 spawnLightningStrike(x, y);
                 triggerScreenShake(10, 350);
                 playSound('lightning');
@@ -4345,6 +4355,15 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             const killedTiles = results.filter(r => r.killed).map(r => ({ q: r.q, r: r.r }));
             result.killedTiles = killedTiles;
             logMessage(`✈️【空袭】对${targetTile.camp.name}城市(${targetTile.q},${targetTile.r})及周边造成轰炸伤害`);
+            // 伤害数字同步登记（含烧牌+落弹延迟），广播快照可捕获
+            for (const r of results) {
+                const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                if (!tile) continue;
+                enqueueFloatText({
+                    x: tile.x, y: tile.y, q: r.q, r: r.r,
+                    value: r.dmg, timeLeft: 900, delayMs: BURN_MS + 1400
+                });
+            }
             setTimeout(() => {
                 // airstrike visual AFTER card burn animation
                 spawnAirstrikeEffect(x, y, results, 'airstrike', targetTile.q, targetTile.r);
@@ -4352,21 +4371,23 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 // damage/HP/particles delayed to match bomb impact timing (~1400ms into flight)
                 setTimeout(() => {
                     playSound('explosion');
-                    // 统一伤害入口：空袭为远程攻击，吸收护盾，触发铁卫转移/誓言
-                    for (const r of results) {
-                        const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                        if (!tile) continue;
-                        if (tile.unit) {
-                            tile.unit.applyDamage(r.dmg, { source: 'ranged' });
+                    // 统一伤害入口：空袭为远程攻击，吸收护盾，触发铁卫转移/誓言。
+                    // 捕获抑制：弹着时刻产生的跳字（护盾吸收/灵光/临终迸发）由远端重放自行推导
+                    setFloatTextCaptureSuppressed(true);
+                    try {
+                        for (const r of results) {
+                            const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                            if (!tile) continue;
+                            if (tile.unit) {
+                                tile.unit.applyDamage(r.dmg, { source: 'ranged' });
+                            }
+                            spawnExplosionParticles(tile.x, tile.y, '#ff4400', 20);
+                            spawnExplosionParticles(tile.x, tile.y, '#ffaa00', 12);
+                            spawnExplosionParticles(tile.x, tile.y, '#886644', 8);
+                            triggerAttackFlash(tile.x, tile.y, true);
                         }
-                        spawnExplosionParticles(tile.x, tile.y, '#ff4400', 20);
-                        spawnExplosionParticles(tile.x, tile.y, '#ffaa00', 12);
-                        spawnExplosionParticles(tile.x, tile.y, '#886644', 8);
-                        triggerAttackFlash(tile.x, tile.y, true);
-                        gameState.damageTexts.push({
-                            x: tile.x, y: tile.y, value: r.dmg, isCrit: false,
-                            timeLeft: 900, lastUpdate: performance.now()
-                        });
+                    } finally {
+                        setFloatTextCaptureSuppressed(false);
                     }
                     triggerScreenShake(8, 350);
                 }, 1400);
@@ -4376,9 +4397,28 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'orbitalStrike': {
             const oResults = result.results || [];
             logMessage(`🛰️【天基打击】天基平台对(${targetTile.q},${targetTile.r})及周边实施轨道光束打击`);
+            // 分段伤害数字同步登记（含烧牌+各段节拍延迟），广播快照可捕获
+            const orbitalFinalTickIndex = ORBITAL_STRIKE_TICK_DELAYS_MS.length - 1;
+            for (const r of oResults) {
+                const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                if (!tile || !tile.unit) continue;
+                (r.ticks || []).forEach((tickDmg, tickIndex) => {
+                    if (tickDmg <= 0) return;
+                    const isFinal = tickIndex === orbitalFinalTickIndex;
+                    enqueueFloatText({
+                        x: tile.x, y: tile.y, q: r.q, r: r.r,
+                        value: tickDmg, isCrit: isFinal,
+                        timeLeft: isFinal ? 1000 : 800,
+                        delayMs: BURN_MS + ORBITAL_STRIKE_TICK_DELAYS_MS[tickIndex]
+                    });
+                });
+            }
             // 两段蓄力：光束压制三段小额伤害（12%×3），光环落地引爆主伤害（64%）。
             // 节拍与 effects.js 轨道光束相位共用 ORBITAL_STRIKE_TICK_DELAYS_MS。
             const applyOrbitalTick = (tickIndex, isFinal) => {
+                // 捕获抑制：弹着时刻产生的跳字（护盾吸收/灵光/临终迸发）由远端重放自行推导
+                setFloatTextCaptureSuppressed(true);
+                try {
                 for (const r of oResults) {
                     const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                     if (!tile) continue;
@@ -4392,16 +4432,15 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                             const dck = _campKey(dc);
                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
                         }
-                        gameState.damageTexts.push({
-                            x: tile.x, y: tile.y, value: tickDmg, isCrit: isFinal,
-                            timeLeft: isFinal ? 1000 : 800, lastUpdate: performance.now()
-                        });
                     }
                     spawnExplosionParticles(tile.x, tile.y, isFinal ? '#7fd0ff' : '#9fe0ff', isFinal ? 18 : 5);
                     if (isFinal) {
                         spawnExplosionParticles(tile.x, tile.y, '#eaf7ff', 12);
                         triggerAttackFlash(tile.x, tile.y, true);
                     }
+                }
+                } finally {
+                    setFloatTextCaptureSuppressed(false);
                 }
                 triggerScreenShake(isFinal ? 14 : 3, isFinal ? 500 : 180);
             };
@@ -4421,6 +4460,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'diveStrafe': {
             // 俯冲扫射：单发伤害
             logMessage(`💥【俯冲扫射】对${targetTile.camp?.name}${targetTile.unit?.config?.name}兵造成${result.dmg}伤害`);
+            // 伤害数字同步登记（含烧牌+弹流抵达延迟），广播快照可捕获
+            enqueueFloatText({
+                x, y, q: targetTile.q, r: targetTile.r,
+                value: result.dmg, timeLeft: 900, delayMs: BURN_MS + 1000
+            });
             setTimeout(() => {
                 spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r);
                 playSound('airstrike');
@@ -4436,6 +4480,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     }
                 }, 600);
                 setTimeout(() => {
+                    // 捕获抑制：弹着时刻产生的跳字（护盾吸收/灵光/临终迸发）由远端重放自行推导
+                    setFloatTextCaptureSuppressed(true);
+                    try {
                     if (targetTile.unit) {
                         // result.dmg 已在 execute() 走完标准管线（含防御），此处直接结算；source 'air' 不触发铁卫转移
                         const colonel = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
@@ -4454,11 +4501,13 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                             if (killed) triggerCommanderOnKill(colonel, targetUnit);
                         }
                     }
+                    } finally {
+                        setFloatTextCaptureSuppressed(false);
+                    }
                     spawnExplosionParticles(x, y, '#ff4400', 20);
                     spawnExplosionParticles(x, y, '#ffaa00', 12);
                     spawnExplosionParticles(x, y, '#886644', 8);
                     triggerAttackFlash(x, y, true);
-                    gameState.damageTexts.push({ x, y, value: result.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                     triggerScreenShake(10, 400);
                 }, 1000);
             }, BURN_MS);
@@ -4467,11 +4516,23 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'carpetBomb': {
             const cResults = result.results || [];
             logMessage(`💣【地毯轰炸】对目标区域造成AOE伤害`);
+            // 伤害数字同步登记（含烧牌+落弹延迟，仅对有单位的地块），广播快照可捕获
+            for (const r of cResults) {
+                const tile = gameState.tileMap.get(`${r.q},${r.r}`);
+                if (!tile || !tile.unit) continue;
+                enqueueFloatText({
+                    x: tile.x, y: tile.y, q: r.q, r: r.r,
+                    value: r.dmg, timeLeft: 900, delayMs: BURN_MS + 1400
+                });
+            }
             setTimeout(() => {
                 spawnAirstrikeEffect(x, y, cResults, 'carpetBomb', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 setTimeout(() => {
                     playSound('explosion');
+                    // 捕获抑制：弹着时刻产生的跳字（护盾吸收/灵光/临终迸发）由远端重放自行推导
+                    setFloatTextCaptureSuppressed(true);
+                    try {
                     const colonel = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
                     for (const r of cResults) {
                         const tile = gameState.tileMap.get(`${r.q},${r.r}`);
@@ -4500,8 +4561,10 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                                 triggerCommanderOnAttack(colonel, _target, r.dmg, r.isCrit || false);
                                 if (_killed) triggerCommanderOnKill(colonel, _target);
                             }
-                            gameState.damageTexts.push({ x: tile.x, y: tile.y, value: r.dmg, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
                         }
+                    }
+                    } finally {
+                        setFloatTextCaptureSuppressed(false);
                     }
                     triggerScreenShake(8, 400);
                 }, 1400);
@@ -4533,6 +4596,12 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
         case 'shield': {
             logMessage(`🛡️【护盾】${targetTile.unit.camp.name}${targetTile.unit.config.name}兵获得50点护盾（3回合）`);
+            // 护盾跳字同步登记（含烧牌动画延迟），广播快照可捕获
+            enqueueFloatText({
+                kind: 'shield', sign: '+', x, y, q: targetTile.q, r: targetTile.r,
+                value: TACTICAL_CARD_CONFIG.shield?.balance?.shield || 50,
+                timeLeft: 1000, delayMs: BURN_MS
+            });
             setTimeout(() => {
                 if (_shieldSaved && _shieldSaved.unit) {
                     _shieldSaved.unit._shield += 50;

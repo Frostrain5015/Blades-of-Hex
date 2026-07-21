@@ -2,6 +2,7 @@ import { HEX_SIZE, LOGICAL_W, LOGICAL_H, ctx, cardCanvas, cardCtx, hexPath, draw
 import { getCommander, allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getPortrait, getTransparentPortrait } from './portraitLoader.js';
 import { gameState } from './state.js';
+import { flushFloatTexts } from './floatTexts.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import {
     drawAllBorders, drawDistrictBorders, drawCampBorders, computeCampBorders
@@ -594,6 +595,7 @@ function _renderGame() {
     // 文字特效
     drawDamageTexts(now);
     drawHealTexts(now);
+    drawShieldTexts(now);
     drawGoldTexts(now);
 
     // 对策卡手牌 — 独立 canvas 渲染（见 drawCardCanvas）
@@ -2371,6 +2373,7 @@ function drawRangeApertures(now) {
 }
 // ===== 伤害文本（弹跳+强击特效） =====================
 function drawDamageTexts(now) {
+    flushFloatTexts(now);
     gameState.damageTexts = gameState.damageTexts.filter(text => {
         text.timeLeft -= now - text.lastUpdate;
         text.lastUpdate = now;
@@ -2391,7 +2394,13 @@ function drawDamageTexts(now) {
         ctx.shadowColor = '#000';
         ctx.shadowBlur = isBig ? 8 : 4;
 
-        if (text.isTrueDmg) {
+        if (text.isCityHeal) {
+            // 城市脱战回复：浅绿 +N
+            ctx.fillStyle = '#8fe3b0';
+            ctx.shadowColor = '#1d5c38';
+            ctx.shadowBlur = 8;
+            ctx.fillText(`+${Math.round(text.value)}`, 0, 0);
+        } else if (text.isTrueDmg) {
             ctx.fillStyle = '#ffe850';
             ctx.shadowColor = '#ffaa00';
             ctx.shadowBlur = 18;
@@ -2439,6 +2448,31 @@ function drawHealTexts(now) {
         ctx.shadowBlur = 8;
         ctx.fillStyle = '#44ff88';
         ctx.fillText(`+${Math.round(text.value)}`, text.x, text.y - 30 - floatUp);
+        ctx.restore();
+        return true;
+    });
+}
+
+// ===== 护盾文本（淡蓝，样式仿治疗浮字） =====================
+function drawShieldTexts(now) {
+    if (!gameState.shieldTexts) gameState.shieldTexts = [];
+    gameState.shieldTexts = gameState.shieldTexts.filter(text => {
+        text.timeLeft -= now - text.lastUpdate;
+        text.lastUpdate = now;
+        if (text.timeLeft <= 0) return false;
+
+        const progress = 1 - text.timeLeft / 1000;
+        const floatUp = progress * 20;
+        const alpha = Math.max(0, 1 - progress);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 18px Arial';
+        ctx.shadowColor = '#0d5a75';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = '#76e7ff';
+        ctx.fillText(`${text.sign || '-'}${Math.round(text.value)}`, text.x, text.y - 30 - floatUp);
         ctx.restore();
         return true;
     });

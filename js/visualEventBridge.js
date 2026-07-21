@@ -21,6 +21,7 @@ import { playAureliaOathPresentation } from './aureliaOathPresentation.js';
 import { playEagleSynergyPresentation } from './eagleSynergyPresentation.js';
 import { playCelestineOraclePresentation } from './celestineOraclePresentation.js';
 import { gameState, logMessage, updateUI } from './state.js';
+import { enqueueFloatText } from './floatTexts.js';
 
 on('fx:healFlash', ({ x, y }) => triggerHealFlash(x, y));
 on('fx:healParticles', ({ x, y }) => spawnHealParticles(x, y));
@@ -105,11 +106,11 @@ on('fx:celestineOraclePulse', event => {
         const point = resolvePoint(event.smite);
         const smiteImpact = () => {
             if (point) {
-                gameState.damageTexts.push({
+                // 事件自复制路径（本地 emit 一次、远端经 payload 重 emit 一次）：不进广播捕获
+                enqueueFloatText({
                     x: point.x, y: point.y,
-                    value: event.smite.dmg, isTrueDmg: true,
-                    timeLeft: 1200, lastUpdate: performance.now()
-                });
+                    value: event.smite.dmg, isTrueDmg: true, timeLeft: 1200
+                }, { broadcast: false });
                 spawnExplosionParticles(point.x, point.y, '#f5d76e', 18);
                 spawnExplosionParticles(point.x, point.y, '#fff6d8', 10);
             }
@@ -133,11 +134,12 @@ on('fx:celestineOraclePulse', event => {
         const point = resolvePoint(event.shield);
         const shieldImpact = () => {
             if (point) {
-                gameState.healTexts.push({
+                // 赐福改为护盾跳字；事件自复制路径：不进广播捕获
+                enqueueFloatText({
+                    kind: 'shield', sign: '+',
                     x: point.x, y: point.y,
-                    value: event.shield.amount, prefix: '🛡️',
-                    timeLeft: 1200, lastUpdate: performance.now()
-                });
+                    value: event.shield.amount, timeLeft: 1200
+                }, { broadcast: false });
                 spawnHealParticles(point.x, point.y);
             }
             playSound('heal');
@@ -155,25 +157,23 @@ on('fx:celestineOraclePulse', event => {
     }
 });
 on('fx:hpDeltaTexts', ({ damage, healing }) => {
-    const now = performance.now();
+    // 事件自复制路径（救援链接动画两端各自触发）：不进广播捕获
     if (damage && Number.isFinite(damage.value) && damage.value > 0) {
-        gameState.damageTexts.push({
+        enqueueFloatText({
             x: damage.x,
             y: damage.y,
             value: damage.value,
-            isCrit: false,
-            timeLeft: 900,
-            lastUpdate: now
-        });
+            timeLeft: 900
+        }, { broadcast: false });
     }
     if (healing && Number.isFinite(healing.value) && healing.value > 0) {
-        gameState.healTexts.push({
+        enqueueFloatText({
+            kind: 'heal',
             x: healing.x,
             y: healing.y,
             value: healing.value,
-            timeLeft: 1000,
-            lastUpdate: now
-        });
+            timeLeft: 1000
+        }, { broadcast: false });
     }
 });
 on('fx:soulRecall', ({ fromX, fromY, toX, toY, unit }) => {

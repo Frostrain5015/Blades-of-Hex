@@ -1,5 +1,6 @@
 // 殉道者 —— 殉道 + 挽歌
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { enqueueFloatText } from '../js/floatTexts.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.martyr;
 
@@ -41,7 +42,6 @@ export default {
       const tileMap = gameState.tileMap;
       let killedCommander = false;
       if (tileMap) {
-        if (!gameState.damageTexts) gameState.damageTexts = [];
         for (const [tile, dist] of _getTilesInRange(unit.tile, tileMap, BALANCE.explosionRange)) {
           if (!tile.unit || tile.unit.camp === unit.camp || tile.unit.hp <= 0) continue;
           const dmgMult = dist === 0 ? BALANCE.centerMultiplier : dist === 1 ? BALANCE.adjacentMultiplier : BALANCE.outerMultiplier;
@@ -50,11 +50,10 @@ export default {
           const dmg = Math.round(result.dmg);
           const victim = tile.unit;
           const killed = victim.applyDamage(dmg, { source: 'ranged', attacker: unit });
-          gameState.damageTexts.push({
-            x: tile.x, y: tile.y,
-            value: dmg, isCrit: result.isCrit,
-            timeLeft: 900, lastUpdate: performance.now()
-          });
+          enqueueFloatText({
+            x: tile.x, y: tile.y, q: tile.q, r: tile.r,
+            value: dmg, isCrit: result.isCrit, timeLeft: 900
+          }, { gs: gameState });
           if (killed) {
             helpers.logMessage(`殉道者自爆击杀${victim.camp.name}${victim.config.name}兵 ${dmg}伤害`);
             if (victim.isCommanderUnit ?? Boolean(victim.commander)) killedCommander = true;

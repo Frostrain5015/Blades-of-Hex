@@ -135,7 +135,7 @@ test('轨道补给：跨阈值拨付金币并合并大额伤害的多段触发',
     spawnEaglePair(state, tiles);
     const goldBefore = state.playerGold.player1 || 0;
 
-    assert.equal(accrueEagleSynergyDamage(state, 'player1', 399), null);
+    assert.equal(accrueEagleSynergyDamage(state, 'player1', EAGLE_SYNERGY_BALANCE.damageThreshold - 1), null);
     assert.equal(state._pendingEagleSynergyEvents.length, 0);
 
     const first = accrueEagleSynergyDamage(state, 'player1', 1);
@@ -304,10 +304,11 @@ test('计量表（含受创）可通过快照恢复', () => {
     setGameStateRef(restored);
 
     const meter = getEagleSynergyMeter(restored, 'player1');
+    const { damageThreshold, takenThreshold } = EAGLE_SYNERGY_BALANCE;
     assert.equal(meter.total, 450);
-    assert.equal(meter.triggers, 1);
-    assert.equal(meter.progress, 50);
+    assert.equal(meter.triggers, Math.floor(450 / damageThreshold));
+    assert.equal(meter.progress, 450 % damageThreshold);
     assert.equal(meter.taken, 900);
-    assert.equal(meter.takenTriggers, 1);
-    assert.equal(meter.takenProgress, 100);
+    assert.equal(meter.takenTriggers, Math.floor(900 / takenThreshold));
+    assert.equal(meter.takenProgress, 900 % takenThreshold);
 });

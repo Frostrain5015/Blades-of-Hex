@@ -279,14 +279,15 @@ export function getCommanderAuraAttackBonus(unit) {
 // 返回聚合的伤害加成百分比（②增伤乘区），含将领机制被抑制检查。
 
 export function getCommanderDamageBonusPct(unit) {
-  if (!unit?.commander || !_commanderEnabled(unit)) return 0;
   let total = 0;
-  const cmd = getCommander(unit.commander);
-  if (cmd && cmd.getDamageBonusPct) {
-    total += cmd.getDamageBonusPct(unit);
+  if (unit?.commander && _commanderEnabled(unit)) {
+    const cmd = getCommander(unit.commander);
+    if (cmd && cmd.getDamageBonusPct) {
+      total += cmd.getDamageBonusPct(unit);
+    }
   }
-  // 圣骑士勇气灵光：自身或相邻6格友军获得伤害加成
-  if (unit.tile) {
+  // 圣骑士勇气灵光：自身或相邻6格友军获得伤害加成（无将领单位同样享受相邻灵光）
+  if (unit?.tile) {
     const gs = typeof _gameState === 'function' ? _gameState() : _gameState;
     if (gs?.tileMap) {
       const auraBonus = COMMANDER_CONFIG.paladin.balance.auraDamageBonus || 0;

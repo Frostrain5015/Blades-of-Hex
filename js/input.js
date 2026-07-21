@@ -6,6 +6,7 @@ import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, upd
 import { on, emit } from './eventBus.js';
 import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
+import { drainPendingFloatTexts } from './floatTexts.js';
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
 import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
@@ -825,7 +826,7 @@ function _activateBoardAction(action) {
     recalcAllFlankingMorale();
     showSelectionHudForTile(unit.tile);
     if (activated !== false) emit('input:commanderSkillUsed', { unit, skillId: action.skillId || '', skillName: skill.name });
-    if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
+    if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id, floatTexts: drainPendingFloatTexts() });
 }
 
 function _beginEngineerBunkerTargeting(unit) {
@@ -2861,7 +2862,8 @@ function _applySpecializationChoice(unitId, specializationKey) {
     showSelectionHudForTile(unit.tile);
     updateUI();
     if (isNetworkGame()) sendAction('chooseSpecialization', serializeState(), {
-        unitId: unit.id, type: unit.type, rank: unit._rank, specializationKey
+        unitId: unit.id, type: unit.type, rank: unit._rank, specializationKey,
+        floatTexts: drainPendingFloatTexts()
     });
 }
 
@@ -3031,5 +3033,5 @@ function _applyWeatherChoice(chosenWeather) {
     _lastEffectSignature = null;
     showSelectionHudForTile(unit.tile);
     updateUI();
-    if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id });
+    if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id, floatTexts: drainPendingFloatTexts() });
 }

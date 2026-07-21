@@ -36,11 +36,11 @@ export async function run(browser) {
             assert(u.hp < 150, 'HP下降');
         }
 
-        // 4) 攻击/暴击加成
+        // 4) 增伤/暴击加成（攻击乘区加成已移至②增伤乘区）
         {
-            assert(cmdr.getAttackBonus({ _fallen: true }) === 30, '黑+30攻');
+            assert(cmdr.getDamageBonusPct({ _fallen: true }) === 0.75, '黑+75%增伤');
             assert(cmdr.getCritRateBonus({ _fallen: true }) === 0.60, '黑+60%暴');
-            assert(cmdr.getAttackBonus({ _fallen: false }) === 0, '白+0攻');
+            assert(cmdr.getDamageBonusPct({ _fallen: false }) === 0, '白+0增伤');
             assert(cmdr.getCritRateBonus({ _fallen: false }) === 0, '白+0%暴');
         }
         return R;

@@ -2,6 +2,7 @@
 import { UNIT_CONFIG } from '../rules/units.js';
 import { getRoundIndex } from '../rules/turns.js';
 import { emit } from '../js/eventBus.js';
+import { enqueueFloatText } from '../js/floatTexts.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { canUnitOccupyTile } from '../rules/movement.js';
 import { campToKey } from '../rules/camps.js';
@@ -67,8 +68,10 @@ export default {
             if (!mt || !mt.unit || campToKey(mt.unit.camp) === campToKey(unit.camp) || mt.unit.hp <= 0) continue;
             const victim = mt.unit;
             const curse = _getCurseDamage(victim);
-            if (!gameState.damageTexts) gameState.damageTexts = [];
-            gameState.damageTexts.push({ x: mt.x, y: mt.y, value: curse, isCrit: false, timeLeft: 900, lastUpdate: performance.now() });
+            enqueueFloatText({
+                x: mt.x, y: mt.y, q: mt.q, r: mt.r,
+                value: curse, timeLeft: 900
+            }, { gs: gameState });
             helpers.spawnFx(mt.x, mt.y, '👻');
             helpers.spawnExplosion(mt.x, mt.y, '#4a2060', 12);
             const killed = victim.applyDamage(curse, { source: 'true', attacker: unit });

@@ -161,7 +161,9 @@ function replaceFactionReferences(level, from, to, { remove = false } = {}) {
     const replacement = to || '';
     if (level.localPlayerCamp === from) level.localPlayerCamp = remove ? level.factions[0]?.id || '' : to;
     if (level.aiOpponentCamp === from) level.aiOpponentCamp = remove ? '' : to;
-    level.turnOrder = (level.turnOrder || []).map(id => id === from ? replacement : id);
+    level.turnOrder = remove
+        ? (level.turnOrder || []).filter(id => id !== from)
+        : (level.turnOrder || []).map(id => id === from ? replacement : id);
     for (const city of (level.board?.cities || [])) if (city.camp === from) city.camp = replacement;
     for (const unit of (level.units || [])) if (unit.camp === from) unit.camp = replacement;
 

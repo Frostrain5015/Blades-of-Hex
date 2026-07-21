@@ -1,5 +1,6 @@
 // 堕天使 —— 堕落（双形态转换）
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { enqueueFloatText } from '../js/floatTexts.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.fallenAngel;
 
@@ -27,12 +28,9 @@ export default {
       if (u._fallen) {
         const burn = Math.max(1, Math.round(u.hp * BALANCE.blackHpLossPct));
         u.applyDamage(burn, { source: 'true', minHp: 1 });
-        if (gameState.damageTexts) {
-          gameState.damageTexts.push({
-            x: tile.x, y: tile.y, value: burn, isCrit: false,
-            timeLeft: 800, lastUpdate: performance.now()
-          });
-        }
+        enqueueFloatText({
+          x: tile.x, y: tile.y, value: burn, timeLeft: 800
+        }, { gs: gameState });
       } else {
         if (u.hp < u.maxHp) {
           const healAmt = Math.round((u.maxHp - u.hp) * BALANCE.whiteMissingHpHealPct);

@@ -347,7 +347,12 @@ export function createClientUiState() {
         attackableTiles: [],
         damageTexts: [],
         healTexts: [],
+        shieldTexts: [],
         goldTexts: [],
+        // 延迟/错峰浮字队列（js/floatTexts.js）：到期由渲染帧搬入活动数组
+        floatTextPending: [],
+        // 待广播浮字捕获（broadcastAction drain 进 effectData.floatTexts）
+        _pendingFloatTexts: [],
         selectedCityTile: null,
         selectedTile: null,
         hoveredTile: null,
@@ -383,7 +388,10 @@ export function resetClientUiState(ui) {
     ui.attackableTiles = [];
     ui.damageTexts = [];
     ui.healTexts = [];
+    ui.shieldTexts = [];
     ui.goldTexts = [];
+    ui.floatTextPending = [];
+    ui._pendingFloatTexts = [];
     ui.selectedCityTile = null;
     ui.selectedTile = null;
     ui.hoveredTile = null;
