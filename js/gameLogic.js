@@ -53,7 +53,7 @@ import {
     updateAllFogOfWar,
     updateFogOfWar
 } from './fogOfWar.js';
-import { COLONEL_CARD_DATA, ORBITAL_STRIKE_TICK_DELAYS_MS } from '../rules/cards.js';
+import { COLONEL_CARD_DATA, ORBITAL_STRIKE_TICK_DELAYS_MS, getCardMeta } from '../rules/cards.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { MORALE_CONFIG } from '../rules/terrain.js';
 import { applyPositionalMoralePenalty, clearPositionalMoralePenalty } from '../rules/morale.js';
@@ -4068,7 +4068,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     }
 
     // for damage/spawn/shield cards: save state, undo visual, re-apply after burn
-    const isDelayedCard = cardId === 'lightning' || cardId === 'airstrike' || cardId === 'mgNest' || cardId === 'shield' || cardId === 'orbitalStrike';
+    const isDelayedCard = getCardMeta(cardId).delayed;
     let _savedHPs = null;
     let _mgNestSaved = null;
     let _shieldSaved = null;
@@ -4255,8 +4255,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // remove from hand（空军上校专属卡为金币门控、可复用 → 保留手牌、不进弃牌堆）
     if (!isColonelCard) {
         hand.splice(idx, 1);
-        // discard (except commanderDeploy, copy cards and faction-granted orbitalStrike)
-        if (cardId !== 'commanderDeploy' && cardId !== 'orbitalStrike' && !isCopyCard) {
+        // discard（noDiscard 卡与复制卡不进弃牌堆；标记见 rules/cards.js CARD_FLAGS）
+        if (!getCardMeta(cardId).noDiscard && !isCopyCard) {
             gameState.cardDiscardPile.push(cardId);
         }
     }
@@ -4615,8 +4615,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 const hand = gameState.playerHands[ck] || [];
                 const hBonus = co.handSizeBonus || 0;
                 if (hand.length >= CARD_SYSTEM_CONFIG.maxHandSize + hBonus) continue;
-                // 连横不可复制"部署将领"卡与阵营协同奖励卡
-                if (cardId === 'commanderDeploy' || cardId === 'diveStrafe' || cardId === 'carpetBomb' || cardId === 'airlift' || cardId === 'orbitalStrike') continue;
+                // 连横不可复制的卡（部署将领/空军专属/阵营协同奖励与王牌；标记见 rules/cards.js CARD_FLAGS）
+                if (getCardMeta(cardId).noCopy) continue;
                 hand.push({ id: cardId, _copy: true });
                 logMessage(`纵横家【连横】：${ck}获得${cardId}的复制`);
                 spawnCardCopyEffect(targetTile.x, targetTile.y, 500, 375, cardId);

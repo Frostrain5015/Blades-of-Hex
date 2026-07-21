@@ -71,6 +71,31 @@ export const COLONEL_CARD_GOLD = COLONEL_CARD_DATA.goldCost;
 // 本地与远端共用同一时序，需与 effects.js 轨道光束的光环落地相位（1500ms）保持一致。
 export const ORBITAL_STRIKE_TICK_DELAYS_MS = deepFreeze([400, 650, 900, 1500]);
 
+// ==== 特殊卡行为标记（唯一真源）====================
+// 集中登记各卡的三类特殊行为，取代散落在 gameLogic 的硬编码字符串列表：
+//   delayed   —— 伤害/生成/护盾预演后延迟结算（烧牌动画期间回滚，落弹再真正扣血）
+//   noDiscard —— 使用后不进弃牌堆（部署将领、阵营协同奖励卡）
+//   noCopy    —— 纵横家【连横】不可复制（部署将领、空军专属卡、阵营协同奖励/王牌卡）
+// 新增任何特殊卡只需在此登记标记，无需再逐处改 gameLogic 判定。
+const _EMPTY_CARD_FLAGS = deepFreeze({});
+export const CARD_FLAGS = deepFreeze({
+    lightning:       { delayed: true },
+    airstrike:       { delayed: true },
+    mgNest:          { delayed: true },
+    shield:          { delayed: true },
+    orbitalStrike:   { delayed: true, noDiscard: true, noCopy: true },
+    commanderDeploy: { noDiscard: true, noCopy: true },
+    diveStrafe:      { noCopy: true },
+    carpetBomb:      { noCopy: true },
+    airlift:         { noCopy: true },
+    // 天衡阵营协同王牌【借日】：一局仅一张，纵横家不可复制（防止对手复制这张决定性王牌）。
+    borrowDay:       { noCopy: true, instant: true }
+});
+
+export function getCardMeta(cardId) {
+    return CARD_FLAGS[cardId] || _EMPTY_CARD_FLAGS;
+}
+
 // ==== 标准对策卡执行逻辑 ====================
 export const TACTICAL_CARD_CONFIG = deepFreeze({
     heal: {
