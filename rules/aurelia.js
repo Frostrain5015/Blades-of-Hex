@@ -15,7 +15,7 @@ export const AURELIA_FACTION_PASSIVE = Object.freeze({
     name: AURELIA_FACTION_SYNERGY.hero.title,
     icon: AURELIA_FACTION_SYNERGY.marker.symbol,
     type: '阵营协同被动',
-    rescueCurrentHpCostPct: 0.40,
+    rescueCurrentHpCostPct: 0.20,
     rescuedMaxHpPct: 0.40,
     usesPerMatch: 1
 });
@@ -25,6 +25,7 @@ export const AURELIA_OATH_EFFECT = Object.freeze({
     icon: '⚜️',
     durationRounds: 2,
     attackBonusPct: 0.30,
+    defenseBonusPct: 0.20,
     color: '#e7bf69'
 });
 

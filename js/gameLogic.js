@@ -2116,7 +2116,8 @@ function _moveUnit(unit, targetTile) {
                 + getCommanderDefenseBonus(unit)
                 + getCommanderAuraDefenseBonus(unit)
                 + (unit.getCampaignDefenseBonus?.() || 0)
-                + getFellowRobeDefenseBonus(unit, gameState);
+                + getFellowRobeDefenseBonus(unit, gameState)
+                + (hasAureliaOathEffect(unit, gameState) ? AURELIA_OATH_EFFECT.defenseBonusPct : 0);
             const multiplier = Math.max(
                 COMBAT_BALANCE.defense.minimumMultiplier,
                 1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, totalDefense)
@@ -3574,6 +3575,7 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         + getCommanderDefenseBonus(target) + getCommanderAuraDefenseBonus(target)
         + (target.getCampaignDefenseBonus?.() || 0)
         + getFellowRobeDefenseBonus(target, gameState)
+        + (hasAureliaOathEffect(target, gameState) ? AURELIA_OATH_EFFECT.defenseBonusPct : 0)
         // 城防对空军伤害同样生效（"城市庇护其中所有单位"，跨伤害类型统一）。
         + ((target.tile?.isCity || target.tile?.isUrban) ? getCityDefenseBonus(target.tile) : 0);
     // 轰炸破甲：只对要塞单位（城市驻军/碉堡/岸防炮）生效。

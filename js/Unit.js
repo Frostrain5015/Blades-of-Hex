@@ -261,7 +261,7 @@ export class Unit {
         if (aureliaOathRemaining > 0) {
             effects.push({
                 label: AURELIA_OATH_EFFECT.name,
-                desc: `攻击力提高${Math.round(AURELIA_OATH_EFFECT.attackBonusPct * 100)}%`,
+                desc: `攻击力提高${Math.round(AURELIA_OATH_EFFECT.attackBonusPct * 100)}%、防御力提高${Math.round(AURELIA_OATH_EFFECT.defenseBonusPct * 100)}%`,
                 color: AURELIA_OATH_EFFECT.color,
                 remaining: aureliaOathRemaining,
                 status: `持续${aureliaOathRemaining}回合`
@@ -659,6 +659,7 @@ export class Unit {
         defSum += getCommanderAuraDefenseBonus(defender);
         defSum += defender.getCampaignDefenseBonus(attacker);
         defSum += getFellowRobeDefenseBonus(defender, _gameState);
+        if (hasAureliaOathEffect(defender, _gameState)) defSum += AURELIA_OATH_EFFECT.defenseBonusPct;
         // 城防：驻军站在城市/城郭地块上时，城市当前HP按比例转化为防御力，不区分空军/地面伤害。
         if (defender.tile?.isCity || defender.tile?.isUrban) defSum += getCityDefenseBonus(defender.tile);
         // 空军上校俯冲扫射：无视目标防御力
@@ -700,6 +701,7 @@ export class Unit {
                 + getCommanderAuraDefenseBonus(targetUnit)
                 + (targetUnit.getCampaignDefenseBonus?.(this) || 0)
                 + getFellowRobeDefenseBonus(targetUnit, gs)
+                + (hasAureliaOathEffect(targetUnit, gs) ? AURELIA_OATH_EFFECT.defenseBonusPct : 0)
                 + ((targetUnit.tile?.isCity || targetUnit.tile?.isUrban) ? getCityDefenseBonus(targetUnit.tile) : 0);
             let antiAir = getAntiAirReduction(targetUnit.tile, this.camp, gs.tileMap, { state: gs });
             if (colonelActive) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);

@@ -1563,7 +1563,7 @@ function _buildPassiveItems(unit) {
             key: 'faction:aurelia:oath',
             icon: AURELIA_FACTION_PASSIVE.icon,
             label: AURELIA_FACTION_PASSIVE.name,
-            desc: '受到致命攻击时，另一名王国将领将消耗40%当前生命值，将此单位生命值抬升至40%并获得持续2回合的【鸢尾花的加护】；该效果每玩家每局仅可触发一次。',
+            desc: '受到致命攻击时，另一名王国将领将消耗20%当前生命值，将此单位生命值抬升至40%并获得持续2回合的【鸢尾花的加护】（攻+30% 防+20%）；该效果每玩家每局仅可触发一次。',
             color: aureliaOathUsed ? '#786d5b' : '#e7bf69',
             status: aureliaOathUsed ? '本局已使用' : '当前生效',
             count: '',
