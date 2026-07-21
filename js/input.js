@@ -1605,7 +1605,7 @@ function _buildPassiveItems(unit) {
             key: 'faction:tianheng:sunmoon',
             icon: '⚖️',
             label: '日月天衡',
-            desc: `每回合结束时回收本阵营单位的剩余行动力；充满时自动释放，己方阵营全部单位回复100%生命值，士气上升并获得1回合的全图视野`,
+            desc: `每回合结束时回收本阵营单位的剩余行动力；充能满时自动释放，己方阵营全部单位回复100%生命值，士气上升并获得1回合的全图视野`,
             color: ratio >= 1 ? '#ffd700' : '#8ab8d9',
             status: `充能 ${Math.round(ratio * 100)}%`,
             count: '',

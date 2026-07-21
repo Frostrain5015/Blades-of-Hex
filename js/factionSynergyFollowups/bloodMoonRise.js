@@ -50,11 +50,10 @@ export function createBloodMoonRiseFollowup({ root, event, presentation, stageRe
         x: stageRect.left + stageRect.width / 2,
         y: stageRect.top + stageRect.height / 2
     };
-    // 如果有棋盘锚点坐标，将血月对齐到锚点上方；否则显示在屏幕中央
-    const anchor = event?.anchor || null;
-    const moonCenter = anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)
-        ? { x: anchor.x, y: anchor.y - 80 }
-        : { x: center.x, y: center.y - 60 };
+    // Hero 全屏动画始终在视口中央升起血月（与神谕圣光柱一致），
+    // 避免锚点的游戏坐标系与视口坐标系不一致造成跳变。
+    // 常驻血月由 renderer.js 在游戏棋盘上绘制到锚点上方。
+    const moonCenter = { x: center.x, y: center.y - 60 };
 
     const startMs = Number(presentation.followupStartMs) || 3200;
     const durationMs = Number(presentation.durationMs) || 4800;

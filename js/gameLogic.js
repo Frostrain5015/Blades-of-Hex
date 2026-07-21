@@ -899,11 +899,13 @@ function _updateWeather() {
             refreshVision();
             return;
         }
-        // 血月到期：回退普通天气循环（下一轮 position=0 正常掷天气）
+        // 血月到期：切回晴天，下一轮 position=0 正常掷普通天气
         delete gameState._bloodMoonAnchor;
         delete gameState._bloodMoonEndRound;
         gameState.lastWeather = null;
-        // 不 return，继续执行普通天气循环
+        gameState.weather = 'clear';
+        refreshVision();
+        return;
     }
 
     // 普通天气循环
