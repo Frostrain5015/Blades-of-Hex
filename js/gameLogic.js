@@ -2324,7 +2324,18 @@ function _attackUnit(attackerUnit, targetUnit) {
     // 无飞行时长的攻击清空遗留延迟标记，避免上一发鱼雷/弹流的时刻污染本次即时结算
     targetUnit._hpBarDelayUntil = _impactVisualMs > 0 ? performance.now() + _impactVisualMs : 0;
     targetUnit._deferImpactFxUntil = _impactVisualMs > 0 ? performance.now() + _impactVisualMs : 0;
+    const hpBeforeDmg = targetUnit.hp;
     let isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit);
+    // takeDamage → applyDamage 内部已入列蓝色护盾数字；在此补入白色血量伤害数字
+    const hpDamageDealt = Math.max(0, hpBeforeDmg - targetUnit.hp);
+    if (hpDamageDealt > 0 && targetUnit.tile) {
+        enqueueFloatText({
+            x: targetUnit.tile.x, y: targetUnit.tile.y,
+            q: targetUnit.tile.q, r: targetUnit.tile.r,
+            value: hpDamageDealt, isCrit: attackResult.isCrit, timeLeft: 900,
+            delayMs: _impactVisualMs
+        });
+    }
     let cityDamage = 0;
     let cityDamageIsCrit = false;
     if (shouldDamageCityAlongsideGarrison(attackerUnit.tile, primaryTargetTile, gameState.tileMap)) {
