@@ -4780,6 +4780,32 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         }
     }
 
+    // 塞莱斯廷圣国：将领部署后若该阵营的神谕协同刚激活，立即触发首次脉冲（不等整轮锚点）
+    if (cardId === 'commanderDeploy' && !gameState._celestineOracle?.[campKey]
+        && hasCelestineSynergyActive(gameState, campKey)) {
+        const pulse = resolveOraclePulse(gameState, campKey, {
+            impactFxDelayMs: CELESTINE_ORACLE_PULSE_TIMING.impactMs
+        });
+        if (pulse) {
+            if (pulse.stageChanged) {
+                emit('fx:celestineOracle', {
+                    presentationEventId: 'celestine:' + campKey + ':' + pulse.stage,
+                    stage: pulse.stage,
+                    campKey,
+                    activeRounds: pulse.activeRounds
+                });
+            }
+            if (pulse.smite || pulse.shield) {
+                const statueAnchor = getOracleStatueAnchor(gameState, campKey);
+                emit('fx:celestineOraclePulse', {
+                    ...pulse,
+                    statueX: statueAnchor?.x,
+                    statueY: statueAnchor?.y
+                });
+            }
+        }
+    }
+
     gameState.cardStackExpanded = false;
     recalcAllFlankingMorale();
     if (gameState.skirmishFog) _updateSkirmishFogAll();
