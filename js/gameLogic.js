@@ -86,6 +86,7 @@ import {
     resolveBorrowDay,
     accrueSunMoonCharge,
     getSunMoonChargeRatio,
+    getLivingCampUnits,
     hasTianhengSynergyActive
 } from '../rules/tianheng.js';
 import { measure, perfEnabled } from './perf.js';
