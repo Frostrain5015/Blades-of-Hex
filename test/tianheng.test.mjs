@@ -19,7 +19,7 @@ const {
     BORROW_DAY_CARD_ID
 } = tianhengRules;
 
-const { createMatchState } = stateModule;
+const { createMatchState, serializeMatchState, restoreMatchState } = stateModule;
 const { Unit, setGameStateRef, setLogMessageRef } = unitModule;
 const { EngineHexTile } = tileModule;
 
@@ -99,4 +99,25 @@ test('applyBorrowDayPayback: 下一整回合全体禁锢，之后清标记', () 
     // 标记清除，不再重复偿还
     assert.equal(hasBorrowDayPaybackPending(state, 'player1'), false);
     assert.deepEqual(applyBorrowDayPayback(state, 'player1'), []);
+});
+
+test('借日岁耗/发卡标记 序列化/恢复', () => {
+    const { state, tiles } = setup();
+    spawnTianhengPair(state, tiles);
+    resolveBorrowDay(state, 'player1');       // 置岁耗待偿还
+    state._borrowDayGranted = { player1: true }; // 已发卡
+
+    const data = serializeMatchState(state);
+    assert.equal(data.borrowDayImprison.player1, true, '序列化含岁耗标记');
+    assert.equal(data.borrowDayGranted.player1, true, '序列化含发卡标记');
+
+    const newState = createMatchState();
+    newState.tiles = [];
+    newState.tileMap = new Map();
+    restoreMatchState(newState, data, {
+        HexTileClass: EngineHexTile, UnitClass: Unit,
+        computeCampBorders: () => [], computeDistrictBorders: () => []
+    });
+    assert.equal(newState._borrowDayImprison.player1, true);
+    assert.equal(newState._borrowDayGranted.player1, true);
 });

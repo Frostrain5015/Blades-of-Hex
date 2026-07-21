@@ -21,7 +21,7 @@ const {
     isBloodMoonWeatherActive, isBloodMoonHealSuppressed, resolveBloodMoonBleed
 } = noctisRules;
 
-const { createMatchState } = stateModule;
+const { createMatchState, serializeMatchState, restoreMatchState } = stateModule;
 const { Unit, setGameStateRef, setLogMessageRef } = unitModule;
 const { EngineHexTile } = tileModule;
 
@@ -170,4 +170,26 @@ test('resolveBloodMoonBleed: 将领不豁免（决策②）', () => {
     enemyCmd.maxHp = 100; enemyCmd.hp = 40;
     resolveBloodMoonBleed(state);
     assert.equal(enemyCmd.hp, 20, '将领同样被放血');
+});
+
+test('血潮计量 序列化/恢复（血月充能随快照同步）', () => {
+    const { state, tiles } = setup();
+    spawnNoctisPair(state, tiles);
+    accrueBloodTide(state, 'player1', 80);
+    assert.equal(state._noctisBloodTide.player1.charge, 80);
+
+    const data = serializeMatchState(state);
+    assert.ok(data.noctisBloodTide, '序列化包含 noctisBloodTide');
+    assert.equal(data.noctisBloodTide.player1.charge, 80);
+    assert.equal(data.noctisBloodTide.player1.moonsPending, 0);
+
+    const newState = createMatchState();
+    newState.tiles = [];
+    newState.tileMap = new Map();
+    restoreMatchState(newState, data, {
+        HexTileClass: EngineHexTile, UnitClass: Unit,
+        computeCampBorders: () => [], computeDistrictBorders: () => []
+    });
+    assert.equal(newState._noctisBloodTide.player1.charge, 80);
+    assert.equal(newState._noctisBloodTide.player1.moonsPending, 0);
 });
