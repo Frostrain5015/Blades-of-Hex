@@ -6,7 +6,7 @@
 // 本模块只保存平衡参数与无副作用判定 + 计量/放血结算；天气切换与每轮调用在 gameLogic。
 
 import { campToKey } from './camps.js';
-import { isHostile, campFromKey } from './diplomacy.js';
+import { isHostile, canAttack, campFromKey } from './diplomacy.js';
 import { NOCTIS_FACTION_SYNERGY, getCommanderFactionSynergy } from './factionSynergies.js';
 
 export const NOCTIS_COMMANDER_IDS = NOCTIS_FACTION_SYNERGY.commanderIds;
@@ -98,14 +98,14 @@ export function accrueBloodTide(gameState, campKey, amount) {
 }
 
 /**
- * 从一次战斗命中记入血潮：攻击方为「协同激活的诺克提斯阵营」且目标敌对时，
+ * 从一次战斗命中记入血潮：攻击方为「协同激活的诺克提斯阵营」且目标可攻击时，
  * 按该命中的暴击伤害（浮动超 1.00 部分）累计。真伤（floatMult=1）天然记 0。
  */
 export function accrueBloodTideFromHit(gameState, { attacker, target, dealt, floatMult } = {}) {
     if (!gameState || !attacker?.camp || !target?.camp) return 0;
     const campKey = campToKey(attacker.camp);
     if (!hasNoctisSynergyActive(gameState, campKey)) return 0;
-    if (!isHostile(gameState, attacker.camp, target.camp)) return 0;
+    if (!canAttack(gameState, attacker.camp, target.camp)) return 0;
     const excess = computeCritExcess(dealt, floatMult);
     return excess > 0 ? accrueBloodTide(gameState, campKey, excess) : 0;
 }

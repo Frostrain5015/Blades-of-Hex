@@ -172,6 +172,7 @@ export function getEagleSynergyMeter(gameState, campOrKey) {
         triggers,
         progress: total - triggers * damageThreshold,
         goldPaid: triggers * goldPerTrigger,
+        goldPaidPerTrigger: goldPerTrigger,
         threshold: damageThreshold,
         taken,
         takenTriggers,

@@ -1573,24 +1573,26 @@ function _buildPassiveItems(unit) {
             kind: 'passive'
         });
     }
-    // 天鹰【天基支援协议】：激活时展示战功/受创两条计量的实时进度
+    // 天鹰【天基支援协议】：激活时展示战功/受创两条计量的百分比进度
     if (isEagleCommanderUnit(unit)) {
         const eagleActive = hasEagleSynergyActive(gameState, unit.camp);
         const eagleMeter = getEagleSynergyMeter(gameState, unit.camp);
+        const fundAmount = (eagleMeter.progress / eagleMeter.threshold) * eagleMeter.goldPaidPerTrigger;
+        const satPct = Math.round((eagleMeter.takenProgress / eagleMeter.takenThreshold) * 100);
         items.push({
             key: 'faction:eagle:skylink',
             icon: EAGLE_FACTION_PASSIVE.icon,
             label: EAGLE_FACTION_PASSIVE.name,
-            desc: EAGLE_FACTION_PASSIVE.description,
+            desc: `当使用空军或要塞单位造成伤害时可以向总部请求额外资金，受到伤害时可以为天鹰卫星充能`,
             color: eagleActive ? EAGLE_FACTION_PASSIVE.color : '#6b7c8c',
             status: eagleActive
-                ? `战功 ${eagleMeter.progress}/${eagleMeter.threshold}（已拨付$${eagleMeter.goldPaid}）· 受创 ${eagleMeter.takenProgress}/${eagleMeter.takenThreshold}`
-                : '未激活：需要两名天鹰特遣队将领同时在场',
+                ? `额外资金 $${fundAmount.toFixed(1)} 天鹰卫星充能 ${satPct}%`
+                : '未激活 需要两名天鹰特遣队将领同时在场',
             count: '',
             kicker: EAGLE_FACTION_PASSIVE.type,
             active: eagleActive,
             intensity: eagleActive
-                ? Math.max(eagleMeter.progress / eagleMeter.threshold, eagleMeter.takenProgress / eagleMeter.takenThreshold)
+                ? Math.max(fundAmount / eagleMeter.goldPaidPerTrigger, satPct / 100)
                 : 0,
             kind: 'passive'
         });
