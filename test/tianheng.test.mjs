@@ -1,5 +1,5 @@
 // test/tianheng.test.mjs — 天衡【日月天衡】规则层（充能制被动）：
-//   激活判定、剩余行动力充能、满阈值自动释放（全军回满+士气+全图视野）、
+//   激活判定、剩余行动力充能、满阈值自动释放（全军护盾+士气+暴击+全图视野）、
 //   充能进度、序列化/恢复、旧版兼容 no-op。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -18,7 +18,7 @@ const [tianhengRules, stateModule, unitModule, tileModule, turnsModule] = await 
 ]);
 
 const {
-    SUN_MOON_CHARGE_THRESHOLD,
+    SUN_MOON_CHARGE_THRESHOLD, SUN_MOON_SHIELD_AMOUNT,
     SUN_MOON_OATH_CRIT_BONUS, SUN_MOON_OATH_DURATION_ROUNDS,
     hasTianhengSynergyActive, getLivingTianhengCommanders, getLivingCampUnits,
     resolveBorrowDay, accrueSunMoonCharge, getSunMoonChargeRatio,
@@ -114,7 +114,7 @@ test('accrueSunMoonCharge: 负数/非法输入按 0 处理', () => {
 });
 
 // ===== 释放效果 =====
-test('resolveBorrowDay: 全军回满生命、士气提升至昂扬并置到期回合', () => {
+test('resolveBorrowDay: 全军获得 40 点护盾（不回血）、士气提升至昂扬并置到期回合', () => {
     const { state, tiles } = setup();
     spawnTianhengPair(state, tiles);
     const soldier = new Unit('infantry', state.factions.player1, tiles[3], false, 310);
@@ -128,10 +128,26 @@ test('resolveBorrowDay: 全军回满生命、士气提升至昂扬并置到期�
     assert.equal(affected.length, 3);
     assert.ok(affected.includes(soldier.id));
     for (const u of getLivingCampUnits(state, 'player1')) {
-        assert.equal(u.hp, u.maxHp, '生命回满');
+        assert.equal(u.hp, 1, '不再回满生命（改为护盾）');
+        assert.equal(u._shield, SUN_MOON_SHIELD_AMOUNT, '获得 40 点护盾');
+        assert.equal(u._shieldMax, SUN_MOON_SHIELD_AMOUNT, '护盾峰值记录');
+        assert.equal(u._shieldTurns, SUN_MOON_OATH_DURATION_ROUNDS, '护盾持续 2 回合');
         assert.equal(u.morale, 3, '士气昂扬');
         assert.equal(u.moraleBoostUntil, getRoundIndex(state) + 2, '士气提升持续 2 回合');
     }
+});
+
+test('resolveBorrowDay: 护盾在现有护盾上叠加，且不缩短更长的护盾时长', () => {
+    const { state, tiles } = setup();
+    const { astro } = spawnTianhengPair(state, tiles);
+    astro._shield = 20;
+    astro._shieldMax = 20;
+    astro._shieldTurns = 5; // 已有一层更久的护盾
+
+    resolveBorrowDay(state, 'player1');
+    assert.equal(astro._shield, 20 + SUN_MOON_SHIELD_AMOUNT, '叠加到现有护盾');
+    assert.equal(astro._shieldMax, 60, '峰值取更大值');
+    assert.equal(astro._shieldTurns, 5, '不缩短更长的护盾时长');
 });
 
 test('resolveBorrowDay: 全军获得暴击加护，持续 2 回合', () => {
@@ -177,6 +193,7 @@ test('resolveBorrowDay: 只作用释放方阵营，不影响敌方', () => {
     resolveBorrowDay(state, 'player1');
     assert.equal(enemy.hp, 1, '敌方生命不受影响');
     assert.equal(enemy.morale, 2, '敌方士气不受影响');
+    assert.equal(enemy._shield, 0, '敌方不获得护盾');
     assert.equal(hasSunMoonOathEffect(enemy, state), false, '敌方不获得暴击加护');
 });
 

@@ -4105,7 +4105,7 @@ function _accrueSunMoonForCamp() {
         const affectedIds = accrueSunMoonCharge(gameState, campKey, totalRemaining);
         if (affectedIds.length > 0) {
             result = { campKey, affectedIds };
-            logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【日月天衡】充能已满——全军回满+士气提升+全图视野`);
+            logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【日月天衡】充能已满——全军40点护盾+士气提升+暴击率提升+全图视野`);
         }
     }
     return result;
