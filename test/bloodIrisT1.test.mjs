@@ -88,6 +88,8 @@ test('《花与剑》只有三名新兵全部列队后才能完成授章', () =>
     assert.deepEqual(triggerById.get('assembly_complete').when,
         [{ kind: 'eventNextIs', value: '__begin_oath' }]);
     assert.equal(triggerById.get('assembly_complete').enabled, false);
+    assert.ok(triggerById.get('assembly_complete').do.some(action => action.kind === 'addUnitXp'
+        && action.target?.group === 'new_recruits' && action.value === 5 && action.fx === true));
     assert.equal(level.unitGroups.find(group => group.id === 'new_recruits')?.unitIds.length, 3);
 });
 

@@ -879,6 +879,20 @@ export async function run(browser) {
         }),
             5000, '全员列队后的授章对白');
         await advanceCampaignDialogue(page);
+        const promotionPresentation = await page.evaluate(async () => {
+            const { gameState } = await import('/js/state.js');
+            const recruitIds = ['recruit_sword', 'recruit_flower', 'recruit_banner'];
+            return {
+                ranks: recruitIds.map(id => gameState.tiles.find(tile => tile.unit?.id === id)?.unit?._rank),
+                experience: recruitIds.map(id => gameState.tiles.find(tile => tile.unit?.id === id)?.unit?._xp),
+                text: gameState._inlineStepData?.text || ''
+            };
+        });
+        R.assert(promotionPresentation.ranks.every(rank => rank === 1)
+            && promotionPresentation.experience.every(xp => xp >= 5)
+            && promotionPresentation.text.includes('完成晋升'),
+        `授章为三名新兵实际增加经验并触发一级晋升（${JSON.stringify(promotionPresentation)}）`);
+        await advanceCampaignDialogue(page);
         const severusDialoguePresentation = await page.evaluate(async () => {
             const portrait = document.getElementById('campaignSpeakerPortrait');
             await portrait.decode();

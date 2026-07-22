@@ -473,6 +473,11 @@ export const config = {
             do: [
                 { kind: 'unlockInput' },
                 { kind: 'setUnitState', target: { group: 'new_recruits' }, state: 'canAct', value: false },
+                { kind: 'addUnitXp', target: { group: 'new_recruits' }, value: 5, fx: true },
+                {
+                    kind: 'showStep',
+                    text: '誓章扣上甲带，三枚一级军衔徽记依次亮起——三名新兵完成晋升，正式列入奥雷利亚王国军籍。'
+                },
                 {
                     kind: 'showStep',
                     speaker: SEVERUS,
