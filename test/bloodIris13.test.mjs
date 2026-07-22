@@ -64,19 +64,52 @@ test('主目标横跨东西与南北边缘并形成真实多线攻城', () => {
     assert.ok(level.board.villages.length >= 12);
 });
 
-test('拔塔、破门、瓦罗出阵与誓章处置严格分为四个阶段', () => {
+test('拔塔、夺取前线城、破门、瓦罗出阵与誓章处置严格分为五个阶段', () => {
     const towers = triggerById.get('both_towers_silent');
+    const assaultReady = triggerById.get('forward_assault_ready');
     const gate = triggerById.get('gate_breached');
     const varo = triggerById.get('varo_reaches_threshold');
     const badge = triggerById.get('badge_recovered');
 
     assert.ok(towers.when.some(condition => condition.variable === 'towers_silenced' && condition.value === 2));
-    assert.ok(towers.do.some(action => action.kind === 'setObjectiveStatus' && action.objective === 'break_gate' && action.status === 'active'));
+    assert.ok(!towers.do.some(action => action.kind === 'setObjectiveStatus' && action.objective === 'break_gate' && action.status === 'active'));
+    assert.ok(assaultReady.when.some(condition => condition.variable === 'towers_silenced' && condition.value === 2));
+    assert.ok(assaultReady.when.some(condition => condition.kind === 'cityOwnedBy'
+        && condition.q === -2
+        && condition.r === 0
+        && condition.camp === 'crown'));
+    assert.ok(assaultReady.do.some(action => action.kind === 'setObjectiveStatus' && action.objective === 'break_gate' && action.status === 'active'));
     assert.ok(gate.when.some(condition => condition.kind === 'cityOwnedBy' && condition.camp === 'crown'));
     assert.ok(gate.do.some(action => action.kind === 'setUnitState' && action.target?.unit === 'varo_iron_guard' && action.state === 'targetable' && action.value === true));
     assert.ok(varo.when.some(condition => condition.kind === 'unitHpCompare' && condition.value === 20));
     assert.ok(varo.do.some(action => action.kind === 'setInteractionState' && action.interactable === 'recover_oath_badge' && action.state === 'available'));
     assert.ok(badge.do.some(action => action.kind === 'showStep' && /我们发的是同一个誓/.test(action.text)));
+});
+
+test('中央紫军前线城被夺取后成为红军的中场招募支点', () => {
+    const capital = level.board.cities.find(city => city.camp === 'regency' && city.radius === 2);
+    const rearCamp = level.board.cities.find(city => city.camp === 'crown');
+    const forwardCity = level.board.cities.find(city => city.districtId === 11);
+    const garrison = level.units.find(unit => unit.id === 'forward_city_garrison');
+    const capture = triggerById.get('forward_city_captured');
+    const hexDistance = (from, to) => {
+        const dq = from.q - to.q;
+        const dr = from.r - to.r;
+        return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+    };
+
+    assert.deepEqual(
+        { q: forwardCity.q, r: forwardCity.r, camp: forwardCity.camp, radius: forwardCity.radius, hpPct: forwardCity.hpPct },
+        { q: -2, r: 0, camp: 'regency', radius: 0, hpPct: 70 }
+    );
+    assert.deepEqual({ q: garrison.q, r: garrison.r, camp: garrison.camp }, { q: -2, r: 0, camp: 'regency' });
+    assert.ok(hexDistance(rearCamp, forwardCity) < hexDistance(rearCamp, capital));
+    assert.ok(hexDistance(forwardCity, capital) < hexDistance(rearCamp, capital));
+    assert.deepEqual(capture.when, [{ kind: 'cityCaptured', q: -2, r: 0, camp: 'crown' }]);
+    assert.ok(capture.do.some(action => action.kind === 'changeGold' && action.camp === 'crown' && action.value === 12));
+    assert.ok(capture.do.some(action => action.kind === 'setObjectiveStatus'
+        && action.objective === 'capture_forward_city'
+        && action.status === 'completed'));
 });
 
 test('攻城炮存亡是硬失败条件，瓦罗则由阈值保护进入剧情处置', () => {
@@ -124,13 +157,16 @@ test('十四回合与五批纵深援军拉开 Boss 战体量并支撑十分钟�
 test('Boss 关额外包含可选军械库、真实剧情 Buff 和半血反击阶段', () => {
     const arsenalInteractions = level.interactables.filter(item => ['north_powder_magazine', 'south_axle_depot'].includes(item.id));
     const arsenalTriggers = [triggerById.get('take_north_powder'), triggerById.get('take_south_axles')];
+    const towerFallTriggers = [triggerById.get('north_tower_falls'), triggerById.get('south_tower_falls')];
     const counterstroke = triggerById.get('varo_counterstroke');
 
     assert.equal(arsenalInteractions.length, 2);
+    assert.ok(arsenalInteractions.every(item => item.enabled === false));
+    assert.ok(towerFallTriggers.every(trigger => trigger.do.some(action => action.kind === 'setInteractionState' && action.state === 'available')));
     assert.ok(level.objectives.secure_arsenals.main === false);
     assert.ok(arsenalTriggers.every(trigger => trigger.do.some(action => action.kind === 'applyEffect' && action.target?.unit === 'siege_engine')));
     assert.ok(arsenalTriggers.every(trigger => trigger.do.some(action => action.kind === 'changeGold' && action.camp === 'crown' && action.value === 10)));
-    assert.ok(arsenalTriggers.every(trigger => trigger.do.some(action => action.kind === 'spawnUnits' && action.units.length === 1)));
+    assert.ok(arsenalTriggers.every(trigger => trigger.do.some(action => action.kind === 'spawnUnits' && action.units.length === 2)));
     assert.ok(triggerById.get('take_north_powder').do.some(action => action.statMods?.atkPct === 0.3));
     assert.ok(triggerById.get('take_south_axles').do.some(action => action.statMods?.spdFlat === 2 && action.statMods?.hpFlat === 40));
     assert.ok(counterstroke.when.some(condition => condition.kind === 'unitHpCompare' && condition.value === 55));

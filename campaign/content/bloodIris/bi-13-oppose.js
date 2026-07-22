@@ -12,6 +12,7 @@ const PURPLE_CAPTAIN = Object.freeze({ name: '紫旗近卫队长', portrait: 'np
 
 const NORTH_TOWER = Object.freeze({ q: 1, r: -6 });
 const SOUTH_TOWER = Object.freeze({ q: -6, r: 6 });
+const FORWARD_CITY = Object.freeze({ q: -2, r: 0 });
 const CAPITAL_GATE = Object.freeze({ q: 6, r: 0 });
 const OATH_BADGE = Object.freeze({ q: 6, r: 0 });
 const SPARE_ORDER = Object.freeze({ q: 8, r: -3 });
@@ -93,6 +94,8 @@ export const config = {
         cities: [
             // 王都外郭是十九格大型城市；攻击任一城郭格都会削减同一城防血池。
             { q: CAPITAL_GATE.q, r: CAPITAL_GATE.r, radius: 2, districtId: 13, camp: 'regency' },
+            // 中央镇堡是紫军前线补给点；夺取后成为红军可招募的中场基地。
+            { q: FORWARD_CITY.q, r: FORWARD_CITY.r, radius: 0, districtId: 11, camp: 'regency', hpPct: 70 },
             { q: -9, r: 0, radius: 0, districtId: 12, camp: 'crown' }
         ],
         surface: [],
@@ -200,6 +203,7 @@ export const config = {
         { id: 'royal_south_support', type: 'infantry', camp: 'crown', q: -9, r: 4, hpPct: 100, morale: 2, rank: 1, specializationKey: 'assaultInfantry', canAct: true },
         { id: 'royal_camp_reserve', type: 'cavalry', camp: 'crown', q: -9, r: 1, hpPct: 100, morale: 2, rank: 1, specializationKey: 'lightCavalry', canAct: true },
 
+        { id: 'forward_city_garrison', type: 'infantry', camp: 'regency', q: FORWARD_CITY.q, r: FORWARD_CITY.r, hpPct: 100, morale: 3, rank: 2, specializationKey: 'garrisonInfantry', canAct: true },
         { id: 'north_tower', type: 'mgNest', camp: 'regency', q: NORTH_TOWER.q, r: NORTH_TOWER.r, hpPct: 100, morale: 3, canAct: true },
         { id: 'south_tower', type: 'mgNest', camp: 'regency', q: SOUTH_TOWER.q, r: SOUTH_TOWER.r, hpPct: 100, morale: 3, canAct: true },
         { id: 'north_tower_guard', type: 'archer', camp: 'regency', q: 0, r: -5, hpPct: 100, morale: 3, rank: 2, specializationKey: 'fieldGun', canAct: true },
@@ -234,18 +238,19 @@ export const config = {
     areas: [
         { id: 'north_battery', tiles: [NORTH_TOWER, { q: 0, r: -5 }, { q: 1, r: -5 }, { q: 2, r: -5 }] },
         { id: 'south_battery', tiles: [SOUTH_TOWER, { q: -7, r: 5 }, { q: -6, r: 5 }, { q: -5, r: 5 }] },
+        { id: 'forward_city', tiles: [FORWARD_CITY, { q: -4, r: 0 }, { q: -3, r: -1 }, { q: -3, r: 1 }] },
         { id: 'gate_approach', tiles: [{ q: 2, r: -2 }, { q: 3, r: -2 }, { q: 3, r: -1 }, { q: 3, r: 0 }, { q: 3, r: 1 }, { q: 2, r: 2 }] },
         { id: 'inner_city', tiles: [OATH_BADGE, SPARE_ORDER, PURSUE_ORDER, { q: 8, r: 0 }] }
     ],
     interactables: [
         {
             id: 'north_powder_magazine', q: 2, r: -5,
-            label: '夺取北塔精炼火药库（攻城炮永久增伤）', enabled: true,
+            label: '接收北塔军械库（两支援军 + 火炮永久增伤）', enabled: false,
             unitIds: ['north_sappers']
         },
         {
             id: 'south_axle_depot', q: -5, r: 5,
-            label: '夺取南塔备用车轴库（攻城炮永久加速并修复）', enabled: true,
+            label: '接收南塔军械库（两支援军 + 火炮永久强化）', enabled: false,
             unitIds: ['south_sappers']
         },
         {
@@ -267,6 +272,7 @@ export const config = {
     variables: [
         { id: 'towers_silenced', scope: 'level', type: 'number', initial: 0 },
         { id: 'arsenals_secured', scope: 'level', type: 'number', initial: 0 },
+        { id: 'forward_city_taken', scope: 'level', type: 'boolean', initial: false },
         { id: 'gate_breached', scope: 'level', type: 'boolean', initial: false },
         { id: 'varo_broken', scope: 'level', type: 'boolean', initial: false },
         { id: 'varo_spared', scope: 'campaign', type: 'boolean', initial: false },
@@ -281,6 +287,13 @@ export const config = {
             main: true,
             highlight: { tiles: [NORTH_TOWER, SOUTH_TOWER] }
         },
+        capture_forward_city: {
+            title: '夺取紫军前线镇堡',
+            detail: '攻克中央壕线后的紫军镇堡；控制城市后移出占领单位，即可从这里招募红军并迅速投入王都前线',
+            active: true,
+            main: true,
+            highlight: { tiles: [FORWARD_CITY] }
+        },
         preserve_engine: {
             title: '保护攻城炮',
             detail: '标有“攻城炮队长”的野战炮是唯一能持续削减大型城市共享城防的重火力；其被摧毁即失败',
@@ -290,14 +303,14 @@ export const config = {
         },
         secure_arsenals: {
             title: '可选：夺取南北塔军械库',
-            detail: '每座军械库提供 10 金和一支即时援军；北库让攻城炮永久增伤，南库让攻城炮永久加速、增血并修复',
+            detail: '侧塔摧毁后对应军械库开放；每座提供 10 金和两支即时援军，并分别强化攻城炮火力或机动耐久',
             active: true,
             main: false,
             highlight: { tiles: [{ q: 2, r: -5 }, { q: -5, r: 5 }] }
         },
         break_gate: {
             title: '攻破王都外门',
-            detail: '侧塔压制后，将炮送入门前甬道，清除双堡并攻击十九格外郭的任意城郭格，直至城防归零',
+            detail: '两座侧塔与中央前线镇堡全部解决后，将炮送入门前甬道，清除双堡并击穿十九格外郭共享城防',
             active: false,
             status: 'hidden',
             main: true,
@@ -324,7 +337,7 @@ export const config = {
     optionalObjectives: [
         {
             id: 'secure_both_arsenals',
-            text: '夺取南北军械库，获得 20 金、两支援军和完整炮队强化',
+            text: '接收南北军械库，获得 20 金、四支援军和完整炮队强化',
             when: [{ kind: 'variableCompare', variable: 'arsenals_secured', scope: 'level', op: '>=', value: 2 }]
         },
         {
@@ -360,11 +373,11 @@ export const config = {
                 { kind: 'showStep', speaker: VARO, text: '正因为门外是你，我才不能退。若我能为兄弟开门，明日每个将军都能为自己的道理带兵叩城。到那时，王国只剩谁的剑更快。' },
                 { kind: 'showStep', speaker: MARCUS, text: '那不是秩序。你只是把门关得太久，久到不敢承认门外还有答案。' },
                 { kind: 'showStep', speaker: VARO, text: '这句话是我教你的。还有侧塔、壕线和交叉射界——也都是。让我看看你究竟学会了多少。' },
-                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '正门在两座塔的交叉火力里。请百夫长分兵走南北边缘；炮队沿中央壕线推进，不能比两翼先露头。' },
-                { kind: 'showStep', speaker: ADRIAN, text: '西营留有三十二金军费。红旗营城已经开放征募，受损部队也可就地补员。马库斯，不必拿八支队伍去填整座王都。' },
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '正门在两座塔的交叉火力里。请百夫长分兵走南北边缘；炮队沿中央壕线推进，先夺下紫军镇堡，把招募点前移到战场中央。' },
+                { kind: 'showStep', speaker: ADRIAN, text: '西营留有三十二金军费。红旗营城已经开放征募，受损部队也可就地补员。马库斯，不必只拿开局各队去填整座王都。' },
                 {
                     kind: 'showStep',
-                    text: '这是一次全图攻城：北工兵压制北塔，南工兵穿过猎苑拔掉南塔；主力保护攻城炮横越三道壕线。塔旁各有一处军械库，顺手夺取可给炮队带来永久剧情强化。两塔全毁后强攻十九格共享城防，城门一破，瓦罗才会亲自出阵。',
+                    text: '这是一次全图攻城：北工兵压制北塔，南工兵穿过猎苑拔掉南塔；每座塔倒下后都会开放军械库，接收即可获得两支援军。主力保护攻城炮夺取中央镇堡，把红军招募点前移。两塔与镇堡全部解决后再强攻十九格共享城防。',
                     next: '__begin_iron_flower'
                 },
                 { kind: 'setTriggerEnabled', trigger: 'begin_assault', enabled: true }
@@ -375,7 +388,7 @@ export const config = {
             when: [{ kind: 'eventNextIs', value: '__begin_iron_flower' }],
             do: [
                 { kind: 'unlockInput' },
-                { kind: 'showStep', text: '紫旗守军会从王都后方持续增援，十四回合后摄政府主力抵达。不要把拔塔、夺军械库、护炮和清壕线做成彼此等待的段落——各条战线必须同时推进。' }
+                { kind: 'showStep', text: '紫旗守军会从王都后方持续增援，十四回合后摄政府主力抵达。南北拔塔和中央夺城必须同时推进；前线镇堡一旦转红，就是后半程最重要的招募与补员支点。' }
             ]
         },
 
@@ -393,10 +406,11 @@ export const config = {
                 {
                     kind: 'spawnUnits',
                     units: [
-                        { id: 'north_arsenal_reinforcement', type: 'infantry', camp: 'crown', q: 3, r: -5, hpPct: 100, morale: 3, rank: 1, specializationKey: 'assaultInfantry', canAct: true }
+                        { id: 'north_arsenal_spear', type: 'infantry', camp: 'crown', q: 3, r: -5, hpPct: 100, morale: 3, rank: 1, specializationKey: 'assaultInfantry', canAct: true },
+                        { id: 'north_arsenal_gun', type: 'archer', camp: 'crown', q: 2, r: -4, hpPct: 100, morale: 3, rank: 1, specializationKey: 'fieldGun', canAct: true }
                     ]
                 },
-                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '北库夺取：军费增加十金，库中守候的突击队加入王军；精炼火药装入主炮，攻城炮永久提高三成攻击。' }
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '北库接收：军费增加十金，一支突击步兵和一支野战炮立即加入；精炼火药装入主炮，攻城炮永久提高三成攻击。' }
             ]
         },
         {
@@ -414,10 +428,11 @@ export const config = {
                 {
                     kind: 'spawnUnits',
                     units: [
-                        { id: 'south_arsenal_reinforcement', type: 'cavalry', camp: 'crown', q: -4, r: 5, hpPct: 100, morale: 3, rank: 1, specializationKey: 'lightCavalry', canAct: true }
+                        { id: 'south_arsenal_rider', type: 'cavalry', camp: 'crown', q: -4, r: 5, hpPct: 100, morale: 3, rank: 1, specializationKey: 'lightCavalry', canAct: true },
+                        { id: 'south_arsenal_spear', type: 'infantry', camp: 'crown', q: -5, r: 4, hpPct: 100, morale: 3, rank: 1, specializationKey: 'assaultInfantry', canAct: true }
                     ]
                 },
-                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '南库夺取：军费增加十金，传令骑兵加入王军；炮队换轴并修复四成，永久增加两点移动与四十点最大生命。' }
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '南库接收：军费增加十金，一支轻骑兵和一支突击步兵立即加入；炮队换轴并修复四成，永久增加两点移动与四十点最大生命。' }
             ]
         },
         {
@@ -435,7 +450,8 @@ export const config = {
             when: [{ kind: 'unitKilled', target: { unit: 'north_tower' } }],
             do: [
                 { kind: 'setVariable', variable: 'towers_silenced', operation: 'add', value: 1 },
-                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '北塔哑了！炮口转向南边以前，中央炮队前进两段——别停在壕线正面。' }
+                { kind: 'setInteractionState', interactable: 'north_powder_magazine', state: 'available' },
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '北塔哑了，塔后的军械库已经开放！让北工兵接收物资，两支预备队会立即加入王军。' }
             ]
         },
         {
@@ -443,7 +459,8 @@ export const config = {
             when: [{ kind: 'unitKilled', target: { unit: 'south_tower' } }],
             do: [
                 { kind: 'setVariable', variable: 'towers_silenced', operation: 'add', value: 1 },
-                { kind: 'showStep', speaker: MARCUS, text: '南塔倒了。两翼不要回头，从城墙根向门前合拢；让瓦罗看见他教出的钳形攻势。' }
+                { kind: 'setInteractionState', interactable: 'south_axle_depot', state: 'available' },
+                { kind: 'showStep', speaker: MARCUS, text: '南塔倒了，接收塔后的军械库！两支预备队归入南翼，然后从城墙根向中央镇堡合拢。' }
             ]
         },
         {
@@ -454,9 +471,30 @@ export const config = {
             ],
             do: [
                 { kind: 'setObjectiveStatus', objective: 'silence_towers', status: 'completed' },
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '交叉火力消失。若中央镇堡还悬紫旗，先夺下来建立前线招募点；镇堡已经转红，则立即准备进攻王都外门。' }
+            ]
+        },
+
+        {
+            id: 'forward_city_captured', enabled: true, once: true,
+            when: [{ kind: 'cityCaptured', q: FORWARD_CITY.q, r: FORWARD_CITY.r, camp: 'crown' }],
+            do: [
+                { kind: 'setVariable', variable: 'forward_city_taken', operation: 'set', value: true },
+                { kind: 'setObjectiveStatus', objective: 'capture_forward_city', status: 'completed' },
+                { kind: 'changeGold', camp: 'crown', operation: 'add', value: 12 },
+                { kind: 'showStep', speaker: ADRIAN, text: '前线镇堡已经升起红旗，追加十二金征募费。把占领部队移出城格后，可直接在这里招募；新兵不必再从西营横穿整张地图。' }
+            ]
+        },
+        {
+            id: 'forward_assault_ready', enabled: true, once: true,
+            when: [
+                { kind: 'variableCompare', variable: 'towers_silenced', scope: 'level', op: '>=', value: 2 },
+                { kind: 'cityOwnedBy', q: FORWARD_CITY.q, r: FORWARD_CITY.r, camp: 'crown' }
+            ],
+            do: [
                 { kind: 'setObjectiveStatus', objective: 'break_gate', status: 'active' },
                 { kind: 'changeUnitMorale', camp: 'crown', operation: 'add', value: 1 },
-                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '交叉火力消失。炮队进门前甬道！先拆双堡，再把每一发炮弹都打进同一条城防血池。' }
+                { kind: 'showStep', speaker: MARCUS, text: '两座侧塔沉默，中央镇堡也已转红。前线招募点就在身后——炮队进门前甬道，先拆双堡，再轰开共享城防。' }
             ]
         },
 
@@ -485,6 +523,7 @@ export const config = {
             id: 'gate_breached', enabled: true, once: true,
             when: [
                 { kind: 'cityOwnedBy', q: CAPITAL_GATE.q, r: CAPITAL_GATE.r, camp: 'crown' },
+                { kind: 'cityOwnedBy', q: FORWARD_CITY.q, r: FORWARD_CITY.r, camp: 'crown' },
                 { kind: 'variableCompare', variable: 'towers_silenced', scope: 'level', op: '>=', value: 2 }
             ],
             do: [

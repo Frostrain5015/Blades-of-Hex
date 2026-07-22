@@ -124,6 +124,14 @@
         "camp": "regency"
       },
       {
+        "q": -2,
+        "r": 0,
+        "radius": 0,
+        "districtId": 11,
+        "camp": "regency",
+        "hpPct": 70
+      },
+      {
         "q": -9,
         "r": 0,
         "radius": 0,
@@ -824,6 +832,18 @@
       "canAct": true
     },
     {
+      "id": "forward_city_garrison",
+      "type": "infantry",
+      "camp": "regency",
+      "q": -2,
+      "r": 0,
+      "hpPct": 100,
+      "morale": 3,
+      "rank": 2,
+      "specializationKey": "garrisonInfantry",
+      "canAct": true
+    },
+    {
       "id": "north_tower",
       "type": "mgNest",
       "camp": "regency",
@@ -1075,6 +1095,27 @@
       ]
     },
     {
+      "id": "forward_city",
+      "tiles": [
+        {
+          "q": -2,
+          "r": 0
+        },
+        {
+          "q": -4,
+          "r": 0
+        },
+        {
+          "q": -3,
+          "r": -1
+        },
+        {
+          "q": -3,
+          "r": 1
+        }
+      ]
+    },
+    {
       "id": "gate_approach",
       "tiles": [
         {
@@ -1130,8 +1171,8 @@
       "id": "north_powder_magazine",
       "q": 2,
       "r": -5,
-      "label": "夺取北塔精炼火药库（攻城炮永久增伤）",
-      "enabled": true,
+      "label": "接收北塔军械库（两支援军 + 火炮永久增伤）",
+      "enabled": false,
       "unitIds": [
         "north_sappers"
       ]
@@ -1140,8 +1181,8 @@
       "id": "south_axle_depot",
       "q": -5,
       "r": 5,
-      "label": "夺取南塔备用车轴库（攻城炮永久加速并修复）",
-      "enabled": true,
+      "label": "接收南塔军械库（两支援军 + 火炮永久强化）",
+      "enabled": false,
       "unitIds": [
         "south_sappers"
       ]
@@ -1192,6 +1233,12 @@
       "initial": 0
     },
     {
+      "id": "forward_city_taken",
+      "scope": "level",
+      "type": "boolean",
+      "initial": false
+    },
+    {
       "id": "gate_breached",
       "scope": "level",
       "type": "boolean",
@@ -1235,6 +1282,20 @@
         ]
       }
     },
+    "capture_forward_city": {
+      "title": "夺取紫军前线镇堡",
+      "detail": "攻克中央壕线后的紫军镇堡；控制城市后移出占领单位，即可从这里招募红军并迅速投入王都前线",
+      "active": true,
+      "main": true,
+      "highlight": {
+        "tiles": [
+          {
+            "q": -2,
+            "r": 0
+          }
+        ]
+      }
+    },
     "preserve_engine": {
       "title": "保护攻城炮",
       "detail": "标有“攻城炮队长”的野战炮是唯一能持续削减大型城市共享城防的重火力；其被摧毁即失败",
@@ -1246,7 +1307,7 @@
     },
     "secure_arsenals": {
       "title": "可选：夺取南北塔军械库",
-      "detail": "每座军械库提供 10 金和一支即时援军；北库让攻城炮永久增伤，南库让攻城炮永久加速、增血并修复",
+      "detail": "侧塔摧毁后对应军械库开放；每座提供 10 金和两支即时援军，并分别强化攻城炮火力或机动耐久",
       "active": true,
       "main": false,
       "highlight": {
@@ -1264,7 +1325,7 @@
     },
     "break_gate": {
       "title": "攻破王都外门",
-      "detail": "侧塔压制后，将炮送入门前甬道，清除双堡并攻击十九格外郭的任意城郭格，直至城防归零",
+      "detail": "两座侧塔与中央前线镇堡全部解决后，将炮送入门前甬道，清除双堡并击穿十九格外郭共享城防",
       "active": false,
       "status": "hidden",
       "main": true,
@@ -1322,7 +1383,7 @@
   "optionalObjectives": [
     {
       "id": "secure_both_arsenals",
-      "text": "夺取南北军械库，获得 20 金、两支援军和完整炮队强化",
+      "text": "接收南北军械库，获得 20 金、四支援军和完整炮队强化",
       "when": [
         {
           "kind": "variableCompare",
@@ -1476,7 +1537,7 @@
             "name": "攻城炮队长",
             "portrait": "npcMale"
           },
-          "text": "正门在两座塔的交叉火力里。请百夫长分兵走南北边缘；炮队沿中央壕线推进，不能比两翼先露头。"
+          "text": "正门在两座塔的交叉火力里。请百夫长分兵走南北边缘；炮队沿中央壕线推进，先夺下紫军镇堡，把招募点前移到战场中央。"
         },
         {
           "kind": "showStep",
@@ -1484,11 +1545,11 @@
             "name": "阿德里安",
             "portrait": "npcMale"
           },
-          "text": "西营留有三十二金军费。红旗营城已经开放征募，受损部队也可就地补员。马库斯，不必拿八支队伍去填整座王都。"
+          "text": "西营留有三十二金军费。红旗营城已经开放征募，受损部队也可就地补员。马库斯，不必只拿开局各队去填整座王都。"
         },
         {
           "kind": "showStep",
-          "text": "这是一次全图攻城：北工兵压制北塔，南工兵穿过猎苑拔掉南塔；主力保护攻城炮横越三道壕线。塔旁各有一处军械库，顺手夺取可给炮队带来永久剧情强化。两塔全毁后强攻十九格共享城防，城门一破，瓦罗才会亲自出阵。",
+          "text": "这是一次全图攻城：北工兵压制北塔，南工兵穿过猎苑拔掉南塔；每座塔倒下后都会开放军械库，接收即可获得两支援军。主力保护攻城炮夺取中央镇堡，把红军招募点前移。两塔与镇堡全部解决后再强攻十九格共享城防。",
           "next": "__begin_iron_flower"
         },
         {
@@ -1514,7 +1575,7 @@
         },
         {
           "kind": "showStep",
-          "text": "紫旗守军会从王都后方持续增援，十四回合后摄政府主力抵达。不要把拔塔、夺军械库、护炮和清壕线做成彼此等待的段落——各条战线必须同时推进。"
+          "text": "紫旗守军会从王都后方持续增援，十四回合后摄政府主力抵达。南北拔塔和中央夺城必须同时推进；前线镇堡一旦转红，就是后半程最重要的招募与补员支点。"
         }
       ]
     },
@@ -1559,7 +1620,7 @@
           "kind": "spawnUnits",
           "units": [
             {
-              "id": "north_arsenal_reinforcement",
+              "id": "north_arsenal_spear",
               "type": "infantry",
               "camp": "crown",
               "q": 3,
@@ -1568,6 +1629,18 @@
               "morale": 3,
               "rank": 1,
               "specializationKey": "assaultInfantry",
+              "canAct": true
+            },
+            {
+              "id": "north_arsenal_gun",
+              "type": "archer",
+              "camp": "crown",
+              "q": 2,
+              "r": -4,
+              "hpPct": 100,
+              "morale": 3,
+              "rank": 1,
+              "specializationKey": "fieldGun",
               "canAct": true
             }
           ]
@@ -1578,7 +1651,7 @@
             "name": "攻城炮队长",
             "portrait": "npcMale"
           },
-          "text": "北库夺取：军费增加十金，库中守候的突击队加入王军；精炼火药装入主炮，攻城炮永久提高三成攻击。"
+          "text": "北库接收：军费增加十金，一支突击步兵和一支野战炮立即加入；精炼火药装入主炮，攻城炮永久提高三成攻击。"
         }
       ]
     },
@@ -1633,7 +1706,7 @@
           "kind": "spawnUnits",
           "units": [
             {
-              "id": "south_arsenal_reinforcement",
+              "id": "south_arsenal_rider",
               "type": "cavalry",
               "camp": "crown",
               "q": -4,
@@ -1642,6 +1715,18 @@
               "morale": 3,
               "rank": 1,
               "specializationKey": "lightCavalry",
+              "canAct": true
+            },
+            {
+              "id": "south_arsenal_spear",
+              "type": "infantry",
+              "camp": "crown",
+              "q": -5,
+              "r": 4,
+              "hpPct": 100,
+              "morale": 3,
+              "rank": 1,
+              "specializationKey": "assaultInfantry",
               "canAct": true
             }
           ]
@@ -1652,7 +1737,7 @@
             "name": "攻城炮队长",
             "portrait": "npcMale"
           },
-          "text": "南库夺取：军费增加十金，传令骑兵加入王军；炮队换轴并修复四成，永久增加两点移动与四十点最大生命。"
+          "text": "南库接收：军费增加十金，一支轻骑兵和一支突击步兵立即加入；炮队换轴并修复四成，永久增加两点移动与四十点最大生命。"
         }
       ]
     },
@@ -1711,12 +1796,17 @@
           "value": 1
         },
         {
+          "kind": "setInteractionState",
+          "interactable": "north_powder_magazine",
+          "state": "available"
+        },
+        {
           "kind": "showStep",
           "speaker": {
             "name": "攻城炮队长",
             "portrait": "npcMale"
           },
-          "text": "北塔哑了！炮口转向南边以前，中央炮队前进两段——别停在壕线正面。"
+          "text": "北塔哑了，塔后的军械库已经开放！让北工兵接收物资，两支预备队会立即加入王军。"
         }
       ]
     },
@@ -1740,12 +1830,17 @@
           "value": 1
         },
         {
+          "kind": "setInteractionState",
+          "interactable": "south_axle_depot",
+          "state": "available"
+        },
+        {
           "kind": "showStep",
           "speaker": {
             "name": "马库斯",
             "portrait": "centurion"
           },
-          "text": "南塔倒了。两翼不要回头，从城墙根向门前合拢；让瓦罗看见他教出的钳形攻势。"
+          "text": "南塔倒了，接收塔后的军械库！两支预备队归入南翼，然后从城墙根向中央镇堡合拢。"
         }
       ]
     },
@@ -1774,6 +1869,76 @@
           "status": "completed"
         },
         {
+          "kind": "showStep",
+          "speaker": {
+            "name": "攻城炮队长",
+            "portrait": "npcMale"
+          },
+          "text": "交叉火力消失。若中央镇堡还悬紫旗，先夺下来建立前线招募点；镇堡已经转红，则立即准备进攻王都外门。"
+        }
+      ]
+    },
+    {
+      "id": "forward_city_captured",
+      "enabled": true,
+      "once": true,
+      "when": [
+        {
+          "kind": "cityCaptured",
+          "q": -2,
+          "r": 0,
+          "camp": "crown"
+        }
+      ],
+      "do": [
+        {
+          "kind": "setVariable",
+          "variable": "forward_city_taken",
+          "operation": "set",
+          "value": true
+        },
+        {
+          "kind": "setObjectiveStatus",
+          "objective": "capture_forward_city",
+          "status": "completed"
+        },
+        {
+          "kind": "changeGold",
+          "camp": "crown",
+          "operation": "add",
+          "value": 12
+        },
+        {
+          "kind": "showStep",
+          "speaker": {
+            "name": "阿德里安",
+            "portrait": "npcMale"
+          },
+          "text": "前线镇堡已经升起红旗，追加十二金征募费。把占领部队移出城格后，可直接在这里招募；新兵不必再从西营横穿整张地图。"
+        }
+      ]
+    },
+    {
+      "id": "forward_assault_ready",
+      "enabled": true,
+      "once": true,
+      "when": [
+        {
+          "kind": "variableCompare",
+          "variable": "towers_silenced",
+          "scope": "level",
+          "op": ">=",
+          "value": 2
+        },
+        {
+          "kind": "cityOwnedBy",
+          "q": -2,
+          "r": 0,
+          "camp": "crown"
+        }
+      ],
+      "do": [
+        {
           "kind": "setObjectiveStatus",
           "objective": "break_gate",
           "status": "active"
@@ -1787,10 +1952,10 @@
         {
           "kind": "showStep",
           "speaker": {
-            "name": "攻城炮队长",
-            "portrait": "npcMale"
+            "name": "马库斯",
+            "portrait": "centurion"
           },
-          "text": "交叉火力消失。炮队进门前甬道！先拆双堡，再把每一发炮弹都打进同一条城防血池。"
+          "text": "两座侧塔沉默，中央镇堡也已转红。前线招募点就在身后——炮队进门前甬道，先拆双堡，再轰开共享城防。"
         }
       ]
     },
@@ -1887,6 +2052,12 @@
         {
           "kind": "cityOwnedBy",
           "q": 6,
+          "r": 0,
+          "camp": "crown"
+        },
+        {
+          "kind": "cityOwnedBy",
+          "q": -2,
           "r": 0,
           "camp": "crown"
         },
