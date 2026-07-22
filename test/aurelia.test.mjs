@@ -22,11 +22,15 @@ const { EngineHexTile } = tileModule;
 const { createMatchState, restoreMatchState, serializeMatchState } = stateModule;
 const {
     AURELIA_OATH_EFFECT,
+    AURELIA_FACTION_PASSIVE,
     canTriggerAureliaRescue,
     getAureliaOathRemainingRounds,
     hasAureliaOathPassive,
     hasAureliaOathEffect
 } = aureliaRules;
+
+// 救援数值由规则常量派生，避免测试硬编码与平衡数值脱节（历史上曾写死 40% 献祭而漏更）。
+const { rescueCurrentHpCostPct, rescuedMaxHpPct } = AURELIA_FACTION_PASSIVE;
 const {
     AURELIA_FACTION_SYNERGY,
     FELLOW_ROBE_FACTION_SYNERGY,
@@ -128,8 +132,8 @@ test('同阵营两名奥雷利亚将领激活一次性致命救援，并获得�
     assert.equal(hasAureliaOathPassive(rescued, state), true);
     assert.equal(canTriggerAureliaRescue(rescued, state), true);
     assert.equal(rescued.applyDamage(9999, { source: 'melee', attacker }), false);
-    assert.equal(rescued.hp, Math.round(rescued.maxHp * 0.4));
-    assert.equal(rescuer.hp, Math.round(rescuerHpBefore * 0.6));
+    assert.equal(rescued.hp, Math.round(rescued.maxHp * rescuedMaxHpPct));
+    assert.equal(rescuer.hp, Math.round(rescuerHpBefore * (1 - rescueCurrentHpCostPct)));
     assert.equal(state._aureliaOathUsed.player1, true);
     assert.equal(canTriggerAureliaRescue(rescued, state), false);
     assert.equal(getAureliaOathRemainingRounds(rescued, state), 2);
@@ -143,7 +147,7 @@ test('同阵营两名奥雷利亚将领激活一次性致命救援，并获得�
     assert.equal(state._pendingAureliaOathEvents[0].rescuedX, rescued.tile.x);
     assert.equal(state._pendingAureliaOathEvents[0].rescuedY, rescued.tile.y);
     assert.equal(state._pendingAureliaOathEvents[0].rescuerHpBefore
-        - state._pendingAureliaOathEvents[0].rescuerHpAfter, Math.round(rescuerHpBefore * 0.4));
+        - state._pendingAureliaOathEvents[0].rescuerHpAfter, Math.round(rescuerHpBefore * rescueCurrentHpCostPct));
     assert.equal(state._pendingAureliaOathEvents[0].rescuedHpBefore, 0);
     assert.equal(state._pendingAureliaOathEvents[0].rescuedHpAfter
         - state._pendingAureliaOathEvents[0].rescuedHpBefore, rescued.hp);
@@ -182,8 +186,8 @@ test('空袭、中毒、亡魂诅咒与地雷造成致命伤害时均可触发�
         delete damageOptions.withAttacker;
 
         assert.equal(rescued.applyDamage(9999, damageOptions), false, `${label}不应直接杀死被救援者`);
-        assert.equal(rescued.hp, Math.round(rescued.maxHp * 0.4), `${label}后应抬升至40%最大生命`);
-        assert.equal(rescuer.hp, Math.round(rescuer.maxHp * 0.6), `${label}后救援者应献出40%当前生命`);
+        assert.equal(rescued.hp, Math.round(rescued.maxHp * rescuedMaxHpPct), `${label}后应抬升至${rescuedMaxHpPct * 100}%最大生命`);
+        assert.equal(rescuer.hp, Math.round(rescuer.maxHp * (1 - rescueCurrentHpCostPct)), `${label}后救援者应献出${rescueCurrentHpCostPct * 100}%当前生命`);
         assert.equal(state._aureliaOathUsed.player1, true, `${label}后应标记本局已使用`);
         assert.equal(state._pendingAureliaOathEvents.length, 1, `${label}后应产生一次广播事件`);
     }

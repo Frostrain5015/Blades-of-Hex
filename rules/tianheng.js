@@ -1,10 +1,11 @@
 // rules/tianheng.js — 天衡联邦阵营协同【日月天衡】规则。
 // 日月天衡是一个充能制被动技能：每回合末回收本阵营单位的剩余行动力作为充能，
-// 充满 120 点后自动释放——全体回满生命、士气提升持续2回合、遭遇战全图视野1回合。
+// 充满 180 点后自动释放——全体回满生命、士气提升持续2回合、遭遇战全图视野1回合。
 // 不再是一局一张的主动卡牌。
-// 阈值取 120（与诺克提斯血潮 125 同量级）：回收的是「闲置」行动力，原地攻击不清空
-// remainingMP，防守阵地战每回合能攒近乎整份army移动力；60 时全军回满这种高回报
-// 约 1.5~2 回合即可满，过廉。抬到 120 让其成为约 4~5 回合的阶段性大招而非常规循环。
+// 阈值取 180：回收的是「闲置」行动力，原地攻击不清空 remainingMP，防守阵地战每回合
+// 能攒近乎整份army移动力（中等规模army约 22~30/回合）；60 时「全军回满+士气拉满2回合
+// +全图视野」约 1.5~2 回合即满，过廉。按 ~7 回合触发一次的节奏(6~8 回合区间)定为 180，
+// 使其成为阶段性大招而非常规循环。实际节奏随army规模/打法浮动，可据实战再调。
 
 import { campToKey } from './camps.js';
 import { getRoundIndex } from './turns.js';
@@ -13,7 +14,7 @@ import { TIANHENG_FACTION_SYNERGY, getCommanderFactionSynergy } from './factionS
 export const TIANHENG_COMMANDER_IDS = TIANHENG_FACTION_SYNERGY.commanderIds;
 
 /** 日月天衡充能阈值。 */
-export const SUN_MOON_CHARGE_THRESHOLD = 120;
+export const SUN_MOON_CHARGE_THRESHOLD = 180;
 
 export function isTianhengCommanderId(commanderId) {
     return getCommanderFactionSynergy(commanderId)?.id === TIANHENG_FACTION_SYNERGY.id;
