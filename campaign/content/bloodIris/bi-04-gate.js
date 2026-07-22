@@ -1,8 +1,6 @@
 // 染血的鸢尾花 · 第一章「花旗向东」
-// BI-04 普通关「不归城」
-// 无预告切换到佩特拉。玩家第一次不再借马库斯的眼睛看这场战争：
-// 卡托命人烧掉名字、送走封蜡匣、守住西门；他的理由仍被刻意留在画外。
-
+// BI-04 普通关「不归城」v4
+// 无边地图上的佩特拉撤离战：点燃南北烽火、焚毁三处档案、坚守大型城市并护送伊蕾妮穿城离开。
 import { BLOOD_IRIS_FACTION_PRESETS } from './chronicle.js';
 import { collectiblesForScenario } from './collectibles.js';
 
@@ -10,14 +8,25 @@ const CATO = Object.freeze({ name: '卡托', portrait: 'minister' });
 const IRENE = Object.freeze({ name: '伊蕾妮', portrait: 'npcFemale' });
 const CAPTAIN = Object.freeze({ name: '佩特拉守备队长', portrait: 'npcMale' });
 
+const ARCHIVE_TILES = Object.freeze([
+    { q: -1, r: 1 },
+    { q: 0, r: -1 },
+    { q: 2, r: 0 }
+]);
+const BEACON_TILES = Object.freeze([
+    { q: -1, r: -6 },
+    { q: -4, r: 6 }
+]);
+const TUNNEL_TILE = Object.freeze({ q: 9, r: -2 });
+
 export const config = {
-    schemaVersion: 2,
+    schemaVersion: 4,
     id: 'bi-04-gate',
     title: '不归城',
     displayId: 'BI-04',
     chronicleId: 'blood-iris',
     seed: 0x2404,
-    turnLimit: 3,
+    turnLimit: 8,
 
     intro: {
         campaignTitle: '染血的鸢尾花',
@@ -31,7 +40,7 @@ export const config = {
         {
             id: 'petra',
             ...BLOOD_IRIS_FACTION_PRESETS.petraAutonomy,
-            note: '封锁西门、拒绝王都军令的佩特拉守军',
+            note: '正在撤离百姓、销毁名册并封锁西门的佩特拉守军',
             controller: 'human',
             participatesInTurns: true,
             active: true
@@ -39,7 +48,7 @@ export const config = {
         {
             id: 'expedition',
             ...BLOOD_IRIS_FACTION_PRESETS.aureliaKingdom,
-            note: '自西而来的王国东征军先头部队',
+            note: '从西部三路展开、等待主力攻城器械抵达的王国东征军',
             controller: 'ai',
             participatesInTurns: true,
             active: true
@@ -56,6 +65,7 @@ export const config = {
         recruitment: false,
         reinforcement: false,
         commanderSkills: false,
+        airCommands: false,
         weatherEffects: false,
         morale: true,
         fortifications: true,
@@ -64,7 +74,7 @@ export const config = {
     },
 
     aiOpponentCamp: '',
-    aiDifficulty: 0.85,
+    aiDifficulty: 0.78,
     gold: { petra: 0, expedition: 0 },
     commanders: { petra: 'minister' },
     hands: { petra: [], expedition: [] },
@@ -76,78 +86,115 @@ export const config = {
     collectibles: collectiblesForScenario('bi-04-gate'),
 
     board: {
+        layout: 'borderless',
         radius: 4,
         cities: [
-            { q: -3, r: 0, districtId: 1, camp: 'petra' }
+            // 佩特拉为半径 2 的十九格大型城市，全城共享一个城防血池。
+            { q: 0, r: 0, radius: 2, districtId: 1, camp: 'petra' },
+            // 西缘营城提供敌军控制区与清晰的进攻源头。
+            { q: -9, r: 0, radius: 0, districtId: 2, camp: 'expedition' }
         ],
+        surface: [],
         terrain: [
-            { q: -4, r: 2, type: 'forest' },
-            { q: -2, r: -1, type: 'forest' },
-            { q: -1, r: -2, type: 'forest' },
-            { q: 1, r: -2, type: 'forest' },
-            { q: 2, r: -3, type: 'mountain' },
-            { q: 3, r: -4, type: 'mountain' },
-            { q: 4, r: -4, type: 'mountain' }
+            // 北部岩脊：压住画面边缘，并把西北军势导向北烽火台。
+            { q: -5, r: -7, type: 'mountain' }, { q: -4, r: -7, type: 'mountain' },
+            { q: -3, r: -7, type: 'mountain' }, { q: -2, r: -7, type: 'mountain' },
+            { q: 0, r: -7, type: 'mountain' }, { q: 1, r: -7, type: 'mountain' },
+            { q: 2, r: -7, type: 'mountain' }, { q: 3, r: -7, type: 'mountain' },
+            { q: 5, r: -6, type: 'mountain' }, { q: 6, r: -6, type: 'mountain' },
+            { q: 7, r: -5, type: 'mountain' }, { q: 8, r: -5, type: 'mountain' },
+            // 南部果园与墓园林带：围合南烽火路线，但保留两格宽撤离通道。
+            { q: -9, r: 5, type: 'forest' }, { q: -8, r: 5, type: 'forest' },
+            { q: -8, r: 6, type: 'forest' }, { q: -7, r: 6, type: 'forest' },
+            { q: -3, r: 6, type: 'forest' }, { q: -2, r: 6, type: 'forest' },
+            { q: -1, r: 6, type: 'forest' }, { q: 0, r: 6, type: 'forest' },
+            { q: 1, r: 5, type: 'forest' }, { q: 2, r: 5, type: 'forest' },
+            { q: 3, r: 4, type: 'forest' }, { q: 4, r: 4, type: 'forest' },
+            // 东部密道口周围的疏林让终点成为边缘地标，而非空白角落。
+            { q: 7, r: -3, type: 'forest' }, { q: 8, r: -3, type: 'forest' },
+            { q: 8, r: -1, type: 'forest' }, { q: 7, r: 0, type: 'forest' },
+            { q: 6, r: 1, type: 'forest' }, { q: 6, r: 2, type: 'forest' }
         ],
-        villages: [{ q: -1, r: 2, districtId: 1 }],
+        villages: [
+            { q: 4, r: -3, districtId: 1 },
+            { q: 5, r: 2, districtId: 1 },
+            { q: 1, r: 5, districtId: 1 },
+            { q: -7, r: -3, districtId: 2 },
+            { q: -8, r: 3, districtId: 2 }
+        ],
         fortifications: [
+            { q: -4, r: -2, type: 'trench' },
+            { q: -4, r: -1, type: 'trench' },
             { q: -4, r: 0, type: 'trench' },
-            { q: -3, r: -1, type: 'trench' },
-            { q: -2, r: 0, type: 'trench' }
+            { q: -4, r: 1, type: 'trench' },
+            { q: -4, r: 2, type: 'trench' },
+            { q: -3, r: -3, type: 'trench' },
+            { q: -3, r: 3, type: 'trench' }
         ],
-        districts: []
+        installations: [],
+        districts: [],
+        rivers: [],
+        crossings: [],
+        ports: []
     },
 
     units: [
         {
-            id: 'cato_defender', type: 'infantry', camp: 'petra', q: -2, r: 0,
-            storyCommander: 'cato', hpPct: 100, morale: 2, canAct: true
+            id: 'cato_defender', type: 'infantry', camp: 'petra', q: 0, r: 0,
+            storyCommander: 'cato', hpPct: 100, morale: 3, canAct: true
         },
         {
-            id: 'irene_courier', type: 'infantry', camp: 'petra', q: -1, r: -1,
-            storyCommander: 'irene', hpPct: 80, morale: 2, canAct: true
+            id: 'irene_courier', type: 'infantry', camp: 'petra', q: 1, r: 0,
+            storyCommander: 'irene', hpPct: 85, morale: 2, canAct: true
         },
         {
-            id: 'petra_gate_guard', type: 'infantry', camp: 'petra', q: -3, r: 1,
+            id: 'petra_gate_guard', type: 'infantry', camp: 'petra', q: -3, r: 0,
             storyCommander: 'gate_captain', hpPct: 100, morale: 3, canAct: true
         },
-        {
-            id: 'petra_archer', type: 'archer', camp: 'petra', q: -2, r: 1,
-            commander: '', hpPct: 100, morale: 2, canAct: true
-        },
-        {
-            id: 'petra_rider', type: 'cavalry', camp: 'petra', q: 0, r: 0,
-            commander: '', hpPct: 90, morale: 2, canAct: true
-        },
-        {
-            id: 'expedition_spear', type: 'infantry', camp: 'expedition', q: -4, r: 0,
-            commander: '', hpPct: 100, morale: 2, canAct: true
-        },
-        {
-            id: 'expedition_bow', type: 'archer', camp: 'expedition', q: -3, r: -1,
-            commander: '', hpPct: 100, morale: 2, canAct: true
-        },
-        {
-            id: 'expedition_rider', type: 'cavalry', camp: 'expedition', q: -4, r: 1,
-            commander: '', hpPct: 95, morale: 2, canAct: true
-        },
-        {
-            id: 'expedition_reserve', type: 'infantry', camp: 'expedition', q: -2, r: -2,
-            commander: '', hpPct: 100, morale: 2, canAct: true
-        }
+        { id: 'petra_west_spear', type: 'infantry', camp: 'petra', q: -3, r: 1, hpPct: 100, morale: 3, canAct: true },
+        { id: 'petra_north_archer', type: 'archer', camp: 'petra', q: -2, r: -4, hpPct: 100, morale: 2, canAct: true },
+        { id: 'petra_south_rider', type: 'cavalry', camp: 'petra', q: -2, r: 4, hpPct: 95, morale: 2, canAct: true },
+        { id: 'petra_city_archer', type: 'archer', camp: 'petra', q: -1, r: -1, hpPct: 100, morale: 2, canAct: true },
+        { id: 'petra_tunnel_guard', type: 'infantry', camp: 'petra', q: 6, r: -1, hpPct: 100, morale: 2, canAct: true },
+
+        { id: 'expedition_vanguard', type: 'infantry', camp: 'expedition', q: -8, r: 0, hpPct: 100, morale: 3, canAct: true },
+        { id: 'expedition_north_bow', type: 'archer', camp: 'expedition', q: -7, r: -3, hpPct: 100, morale: 2, canAct: true },
+        { id: 'expedition_south_bow', type: 'archer', camp: 'expedition', q: -8, r: 3, hpPct: 100, morale: 2, canAct: true },
+        { id: 'expedition_north_rider', type: 'cavalry', camp: 'expedition', q: -7, r: -4, hpPct: 100, morale: 2, canAct: true },
+        { id: 'expedition_south_rider', type: 'cavalry', camp: 'expedition', q: -7, r: 4, hpPct: 100, morale: 2, canAct: true }
     ],
 
     unitGroups: [
-        { id: 'petra_garrison', unitIds: ['cato_defender', 'petra_gate_guard', 'petra_archer', 'petra_rider'] },
-        { id: 'western_assault', unitIds: ['expedition_spear', 'expedition_bow', 'expedition_rider', 'expedition_reserve'] }
+        {
+            id: 'petra_garrison',
+            unitIds: [
+                'cato_defender', 'petra_gate_guard', 'petra_west_spear', 'petra_north_archer',
+                'petra_south_rider', 'petra_city_archer', 'petra_tunnel_guard'
+            ]
+        },
+        {
+            id: 'western_assault',
+            unitIds: [
+                'expedition_vanguard', 'expedition_north_bow', 'expedition_south_bow',
+                'expedition_north_rider', 'expedition_south_rider'
+            ]
+        }
     ],
     areas: [
-        { id: 'secret_tunnel', tiles: [{ q: 2, r: -2 }] },
-        { id: 'archive_hall', tiles: [{ q: -1, r: 0 }, { q: 0, r: -1 }, { q: 0, r: 0 }] }
+        { id: 'secret_tunnel', tiles: [TUNNEL_TILE] },
+        { id: 'archive_hall', tiles: ARCHIVE_TILES },
+        { id: 'evacuation_beacons', tiles: BEACON_TILES },
+        {
+            id: 'west_gate_front',
+            tiles: [
+                { q: -4, r: -2 }, { q: -4, r: -1 }, { q: -4, r: 0 },
+                { q: -4, r: 1 }, { q: -4, r: 2 }
+            ]
+        }
     ],
     interactables: [
         {
-            id: 'tax_register', q: -1, r: 0, label: '焚毁税粮名册', enabled: true,
+            id: 'tax_register', q: -1, r: 1, label: '焚毁税粮名册', enabled: true,
             unitIds: ['cato_defender', 'irene_courier']
         },
         {
@@ -155,34 +202,51 @@ export const config = {
             unitIds: ['cato_defender', 'irene_courier']
         },
         {
-            id: 'family_letters', q: 0, r: 0, label: '焚毁东境往来簿', enabled: true,
+            id: 'family_letters', q: 2, r: 0, label: '处置东境往来函', enabled: true,
             unitIds: ['cato_defender', 'irene_courier']
+        },
+        {
+            id: 'north_beacon', q: -1, r: -6, label: '点燃北区撤离烽火', enabled: true,
+            unitIds: ['petra_north_archer']
+        },
+        {
+            id: 'south_beacon', q: -4, r: 6, label: '点燃南区撤离烽火', enabled: true,
+            unitIds: ['petra_south_rider']
         }
     ],
     variables: [
         { id: 'archives_burned', scope: 'level', type: 'number', initial: 0 },
+        { id: 'beacons_lit', scope: 'level', type: 'number', initial: 0 },
         { id: 'cato_withdrawn', scope: 'level', type: 'boolean', initial: false }
     ],
 
     objectives: {
-        burn_archives: {
-            title: '焚毁档案厅名册',
-            detail: '用卡托或伊蕾妮依次走到三处高亮地块完成焚毁；这些档案不会成为收藏物。',
+        signal_evacuation: {
+            title: '点燃南北撤离烽火',
+            detail: '分别派北区弓手和南区骑手抵达两端烽火台，让全城百姓同时开始向东撤离',
             active: true,
             main: true,
-            highlight: { tiles: [{ q: -1, r: 0 }, { q: 0, r: -1 }, { q: 0, r: 0 }] }
+            highlight: { tiles: BEACON_TILES }
+        },
+        burn_archives: {
+            title: '焚毁三处城内档案',
+            detail: '由卡托或伊蕾妮亲自进入大型城市内的三个档案点，烧掉会被用于清算的名册',
+            active: true,
+            main: true,
+            highlight: { tiles: ARCHIVE_TILES }
         },
         hold_west_gate: {
-            title: '坚守西门',
-            detail: '守住西门三轮，直到城内撤离完成；每个东征军回合开始时，西侧都会出现新的攻城部队。',
+            title: '守住佩特拉西部城防',
+            detail: '大型城市十九格共享城防血池；抵挡六轮东征军，直到第七个佩特拉回合开始',
             active: true,
             main: true,
-            highlight: { tiles: [{ q: -3, r: 0 }] }
+            highlight: { tiles: [{ q: 0, r: 0 }, { q: -4, r: 0 }] }
         },
         escort_irene: {
-            title: '让伊蕾妮抵达东侧密道',
-            detail: '选中地图上标有“伊蕾妮”的步兵，将她移动到右上角持续闪烁的密道地块；她在抵达前阵亡则失败。',
+            title: '护送伊蕾妮穿城抵达东侧密道',
+            detail: '南北烽火和三处档案全部处理后，操控标有“伊蕾妮”的步兵横穿城市抵达东缘密道；她阵亡则失败',
             active: false,
+            status: 'hidden',
             main: true,
             highlight: { unit: 'irene_courier', area: 'secret_tunnel' }
         }
@@ -190,68 +254,103 @@ export const config = {
 
     triggers: [
         {
-            id: 'opening_evacuation', enabled: true, once: true,
-            when: [{ kind: 'timer', value: 800 }],
+            id: 'opening_siege', enabled: true, once: true,
+            when: [{ kind: 'timer', value: 700 }],
             do: [
                 {
                     kind: 'applyEffect', target: { unit: 'cato_defender' }, effectId: 'cato_last_stand',
-                    name: '不退之命', desc: '卡托不会在佩特拉西门战死；重伤后将退出战线。', emoji: '⚜️', duration: 0,
+                    name: '不退之命', desc: '卡托不会在佩特拉撤离完成前战死；重伤后退出战线。', emoji: '⚖️', duration: 0,
                     rule: 'minHp', rulePercent: 1
                 },
                 {
                     kind: 'showStep',
-                    text: '佩特拉，西门。城外的号角没有报出旗号，城内的人却早已知道那是谁的军队。档案厅的窗子开着，纸页被风翻得像一群急着飞走的鸟。'
-                },
-                {
-                    kind: 'showStep', speaker: IRENE,
-                    text: '尚书，东征军已经过了外堤。名册里有粮路、军需、还有……支持我们的人。要留一份给以后吗？'
-                },
-                {
-                    kind: 'showStep', speaker: CATO,
-                    text: '以后若还需要靠这些名字认人，那就不是我们想留下的以后。烧掉。只留封蜡匣，沿密道出城。'
-                },
-                {
-                    kind: 'showStep', speaker: IRENE,
-                    text: '匣里到底是什么？'
-                },
-                {
-                    kind: 'showStep', speaker: CATO,
-                    text: '一份不该由你在今晚打开的东西。伊蕾妮，记住：你不是在替我逃。你是在替一个还不能被写进公文的人走路。'
+                    text: '黄昏压在佩特拉城墙上。西边不是一支军队，而是六条并行的尘柱；攻城锤还没出现，测距的白旗已经插满城外。'
                 },
                 {
                     kind: 'showStep', speaker: CAPTAIN,
-                    text: '西门请求命令！'
+                    text: '北坡有骑兵，南果园里是弓手，正西面的人在给投石机清路。尚书，我们至多还有六轮。'
+                },
+                {
+                    kind: 'showStep', speaker: IRENE,
+                    text: '城里的百姓还不知道该从哪一边走。档案厅也没清完——税粮名册、守军名册、东境往来函，一页都不能落下。'
                 },
                 {
                     kind: 'showStep', speaker: CATO,
-                    text: '守住三轮。不要为城墙送命——墙要是守不住，就让人活着穿过它。',
-                    next: '__burn_the_names'
+                    text: '让北区和南区同时点烽火。看见两柱烟，百姓就沿东大道撤；只看见一柱，他们会在城里互相寻找，然后一起堵死。'
                 },
-                { kind: 'setTriggerEnabled', trigger: 'begin_evacuation', enabled: true }
+                {
+                    kind: 'showStep', speaker: IRENE,
+                    text: '封蜡匣呢？'
+                },
+                {
+                    kind: 'showStep', speaker: CATO,
+                    text: '档案烧净、烽火齐明以后，你带它走东侧密道。今晚我们不求守住佩特拉，只求东征军得到一座没有名字的城。'
+                },
+                {
+                    kind: 'showStep', speaker: CAPTAIN,
+                    text: '西门各队听令：沟前迟滞，城下换防。不要追击——真正的大战还在那些尘柱后面。',
+                    next: '__begin_last_night'
+                },
+                { kind: 'setTriggerEnabled', trigger: 'begin_defense', enabled: true }
             ]
         },
         {
-            id: 'begin_evacuation', enabled: false, once: true,
-            when: [{ kind: 'eventNextIs', value: '__burn_the_names' }],
+            id: 'begin_defense', enabled: false, once: true,
+            when: [{ kind: 'eventNextIs', value: '__begin_last_night' }],
             do: [
+                { kind: 'unlockInput' },
                 {
                     kind: 'showStep',
-                    text: '伊蕾妮就是地图上标有“伊蕾妮”的步兵。所谓护送，不要求其他部队与她保持相邻：你需要保护她存活，并在档案焚毁后直接操控她抵达右上角唯一标亮的密道入口。此刻她与入口都已标亮。',
-                    highlight: { unit: 'irene_courier', tiles: [{ q: 2, r: -2 }] }
+                    text: '你必须同时经营四条战线：西门守军拖住敌军；卡托与伊蕾妮处理城内档案；北弓手和南骑手分别点燃烽火；条件齐备后，再让伊蕾妮横穿整张地图抵达东侧密道。',
+                    highlight: { tiles: [...BEACON_TILES, ...ARCHIVE_TILES, TUNNEL_TILE] }
                 },
                 {
                     kind: 'showStep',
-                    text: '当前先操控卡托或伊蕾妮，亲自走到地图中央三处持续闪烁的档案地块，将税粮名册、守军名册和往来簿全部焚毁。不能隔空点击，也不能由普通守军代劳；西门必须坚守三轮，而东征军每回合都会从西侧获得增援。',
-                    highlight: { tiles: [{ q: -1, r: 0 }, { q: 0, r: -1 }, { q: 0, r: 0 }] }
+                    text: '佩特拉是十九格共享血池的大型城市。敌军攻击任一城郭格都会削减同一条城防；西门失守、伊蕾妮阵亡或八回合内未完成撤离，任务都会失败。'
                 }
             ]
         },
+
+        {
+            id: 'light_north_beacon', enabled: true, once: true,
+            when: [{ kind: 'eventInteractionIs', interactable: 'north_beacon' }],
+            do: [
+                { kind: 'setVariable', variable: 'beacons_lit', operation: 'add', value: 1 },
+                {
+                    kind: 'showStep', speaker: CAPTAIN,
+                    text: '北烽火亮了。山墙下的人开始向东移动——别让西北骑兵把这条烟掐灭。'
+                }
+            ]
+        },
+        {
+            id: 'light_south_beacon', enabled: true, once: true,
+            when: [{ kind: 'eventInteractionIs', interactable: 'south_beacon' }],
+            do: [
+                { kind: 'setVariable', variable: 'beacons_lit', operation: 'add', value: 1 },
+                {
+                    kind: 'showStep', speaker: IRENE,
+                    text: '南烽火也亮了。果园里的钟在往东传，城里的人终于知道该往哪里走。'
+                }
+            ]
+        },
+        {
+            id: 'both_beacons_lit', enabled: true, once: true,
+            when: [{ kind: 'variableCompare', scope: 'level', variable: 'beacons_lit', op: '>=', value: 2 }],
+            do: [
+                { kind: 'setObjectiveStatus', objective: 'signal_evacuation', status: 'completed' },
+                {
+                    kind: 'showStep',
+                    text: '两道烟柱越过城墙，在暮色里连成一条指向东方的线。南北街区的撤离队伍开始汇入东大道。'
+                }
+            ]
+        },
+
         {
             id: 'burn_tax_register', enabled: true, once: true,
             when: [{ kind: 'eventInteractionIs', interactable: 'tax_register' }],
             do: [
                 { kind: 'setVariable', variable: 'archives_burned', operation: 'add', value: 1 },
-                { kind: 'showStep', speaker: IRENE, text: '税粮去处、商队姓名、签押的手印……纸比人更会替人记仇。' }
+                { kind: 'showStep', speaker: IRENE, text: '粮路、商队、签押的手印。纸比人更懂得怎样告密。税粮名册烧净了。' }
             ]
         },
         {
@@ -259,7 +358,7 @@ export const config = {
             when: [{ kind: 'eventInteractionIs', interactable: 'garrison_roll' }],
             do: [
                 { kind: 'setVariable', variable: 'archives_burned', operation: 'add', value: 1 },
-                { kind: 'showStep', speaker: CATO, text: '烧干净。阵亡者的家人会记得他们，不该由一支进城的军队替他们点名。' }
+                { kind: 'showStep', speaker: CATO, text: '阵亡者的家人会记得他们，不该由一支进城的军队替他们点名。守军名册烧掉。' }
             ]
         },
         {
@@ -267,40 +366,49 @@ export const config = {
             when: [{ kind: 'eventInteractionIs', interactable: 'family_letters' }],
             do: [
                 { kind: 'setVariable', variable: 'archives_burned', operation: 'add', value: 1 },
-                { kind: 'showStep', speaker: IRENE, text: '连家书也要烧？'
-                },
-                { kind: 'showStep', speaker: CATO, text: '只烧往来簿。把真正写给人的话带走——别让它们变成问罪的证据。' }
+                { kind: 'showStep', speaker: IRENE, text: '这些是往来函，里面还夹着真正的家书。也要烧吗？' },
+                { kind: 'showStep', speaker: CATO, text: '烧官印和回执，把写给人的话带走。别让思念也变成问罪的证据。' }
             ]
         },
         {
             id: 'archives_destroyed', enabled: true, once: true,
             when: [{ kind: 'variableCompare', scope: 'level', variable: 'archives_burned', op: '>=', value: 3 }],
             do: [
-                { kind: 'setObjectiveStatus', objective: 'escort_irene', status: 'active' },
                 { kind: 'setObjectiveStatus', objective: 'burn_archives', status: 'completed' },
-                { kind: 'setTriggerEnabled', trigger: 'irene_reaches_tunnel', enabled: true },
                 {
                     kind: 'showStep',
-                    text: '火从档案厅的窗缝里吐出来。伊蕾妮将一只封蜡匣塞进衣襟，东侧密道仍开着。'
+                    text: '档案厅三处火头汇成一片。热风把空白纸页卷上城顶，像一群没有姓名、也无法被审问的鸟。'
+                }
+            ]
+        },
+        {
+            id: 'evacuation_ready', enabled: true, once: true,
+            when: [
+                { kind: 'variableCompare', scope: 'level', variable: 'archives_burned', op: '>=', value: 3 },
+                { kind: 'variableCompare', scope: 'level', variable: 'beacons_lit', op: '>=', value: 2 }
+            ],
+            do: [
+                { kind: 'setObjectiveStatus', objective: 'escort_irene', status: 'active' },
+                { kind: 'setTriggerEnabled', trigger: 'irene_reaches_tunnel', enabled: true },
+                {
+                    kind: 'showStep', speaker: CATO,
+                    text: '烟已齐，名已尽。伊蕾妮，把封蜡匣藏进甲衣，沿东大道走到底。不要回头看城墙。'
                 },
                 {
                     kind: 'showStep',
-                    text: '现在选中标有“伊蕾妮”的步兵，将她移动到右上角唯一的金色脉冲地块。其他部队不必跟随，只需挡住沿途敌军；在她抵达前，务必阻止东征军将她击杀。',
-                    highlight: { unit: 'irene_courier', tiles: [{ q: 2, r: -2 }] }
+                    text: '东侧密道位于地图最右缘的金色目标格。伊蕾妮必须横穿佩特拉城与东郊；守军可以沿途接应，但只有她抵达才算完成护送。',
+                    highlight: { unit: 'irene_courier', tiles: [TUNNEL_TILE] }
                 }
             ]
         },
         {
             id: 'irene_reaches_tunnel', enabled: false, once: true,
-            when: [{ kind: 'unitMovesToTile', target: { unit: 'irene_courier' }, tiles: [{ q: 2, r: -2 }], camp: 'petra' }],
+            when: [{ kind: 'unitMovesToTile', target: { unit: 'irene_courier' }, tiles: [TUNNEL_TILE], camp: 'petra' }],
             do: [
-                {
-                    kind: 'showStep', speaker: IRENE,
-                    text: '密道口到了。尚书，您呢？'
-                },
+                { kind: 'showStep', speaker: IRENE, text: '密道口到了。尚书，东大道后面已经看不见人了。您现在走，还来得及。' },
                 {
                     kind: 'showStep', speaker: CATO,
-                    text: '我留在这里，才像那个该被找到的人。走。匣子比我的名字轻，路却比我的命长。',
+                    text: '我留在这里，东征军才会相信他们追到的是叛臣，而不是一份遗命。走吧——匣子比我的名字轻，路却比我的命长。',
                     next: '__irene_has_left'
                 },
                 { kind: 'setTriggerEnabled', trigger: 'irene_has_left', enabled: true }
@@ -314,21 +422,18 @@ export const config = {
                 { kind: 'removeUnits', target: { unit: 'irene_courier' }, mode: 'despawn' }
             ]
         },
+
         {
             id: 'expedition_wave_1', enabled: true, once: true,
             when: [{ kind: 'turnStarted', camp: 'expedition' }],
             do: [
                 {
-                    kind: 'spawnUnits',
-                    units: [
-                        { id: 'expedition_wave1_spear', type: 'infantry', camp: 'expedition', q: -4, r: 2, hpPct: 100, morale: 2, canAct: true }
+                    kind: 'spawnUnits', units: [
+                        { id: 'wave1_north_spear', type: 'infantry', camp: 'expedition', q: -8, r: -2, hpPct: 100, morale: 2, canAct: true },
+                        { id: 'wave1_south_spear', type: 'infantry', camp: 'expedition', q: -9, r: 2, hpPct: 100, morale: 2, canAct: true }
                     ]
                 },
-                {
-                    kind: 'showStep', speaker: CAPTAIN,
-                    text: '西坡又起尘了——不是散兵，是第二列旗。只要西门还站着，他们就会一批批压上来！',
-                    highlight: { tiles: [{ q: -4, r: 2 }] }
-                }
+                { kind: 'showStep', speaker: CAPTAIN, text: '第一列越过界碑了。两翼都是试探，正面的人还在等我们暴露换防路线。' }
             ]
         },
         {
@@ -336,16 +441,12 @@ export const config = {
             when: [{ kind: 'turnStarted', camp: 'expedition', turn: 1 }],
             do: [
                 {
-                    kind: 'spawnUnits',
-                    units: [
-                        { id: 'expedition_wave2_bow', type: 'archer', camp: 'expedition', q: -4, r: 3, hpPct: 100, morale: 2, canAct: true }
+                    kind: 'spawnUnits', units: [
+                        { id: 'wave2_north_bow', type: 'archer', camp: 'expedition', q: -6, r: -5, hpPct: 100, morale: 2, canAct: true },
+                        { id: 'wave2_south_bow', type: 'archer', camp: 'expedition', q: -9, r: 4, hpPct: 100, morale: 2, canAct: true }
                     ]
                 },
-                {
-                    kind: 'showStep',
-                    text: '第二批东征军踏过西坡，弓手开始寻找越过壕沟的射界。西门前没有真正的喘息。',
-                    highlight: { tiles: [{ q: -4, r: 3 }] }
-                }
+                { kind: 'showStep', text: '第二轮号角从南北同时响起。弓手没有射城墙，他们在量烽火台与城门之间的距离。' }
             ]
         },
         {
@@ -353,26 +454,60 @@ export const config = {
             when: [{ kind: 'turnStarted', camp: 'expedition', turn: 2 }],
             do: [
                 {
-                    kind: 'spawnUnits',
-                    units: [
-                        { id: 'expedition_wave3_rider', type: 'cavalry', camp: 'expedition', q: -4, r: 2, hpPct: 100, morale: 3, canAct: true },
-                        { id: 'expedition_wave3_spear', type: 'infantry', camp: 'expedition', q: -4, r: 3, hpPct: 100, morale: 2, canAct: true }
+                    kind: 'spawnUnits', units: [
+                        { id: 'wave3_north_rider', type: 'cavalry', camp: 'expedition', q: -6, r: -6, hpPct: 100, morale: 3, canAct: true },
+                        { id: 'wave3_south_rider', type: 'cavalry', camp: 'expedition', q: -10, r: 5, hpPct: 100, morale: 3, canAct: true }
                     ]
                 },
+                { kind: 'showStep', speaker: CAPTAIN, text: '第三列是骑兵。他们绕开西门，开始切南北道路——主将已经看懂我们的撤离方向了。' }
+            ]
+        },
+        {
+            id: 'expedition_wave_4', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'expedition', turn: 3 }],
+            do: [
                 {
-                    kind: 'showStep', speaker: CAPTAIN,
-                    text: '第三批！骑兵也压上来了。守住门前最后这段路——城里的人就快走完了！',
-                    highlight: { tiles: [{ q: -4, r: 2 }, { q: -4, r: 3 }] }
-                }
+                    kind: 'spawnUnits', units: [
+                        { id: 'wave4_north_spear', type: 'infantry', camp: 'expedition', q: -5, r: -7, hpPct: 100, morale: 3, rank: 1, canAct: true },
+                        { id: 'wave4_south_spear', type: 'infantry', camp: 'expedition', q: -11, r: 6, hpPct: 100, morale: 3, rank: 1, canAct: true }
+                    ]
+                },
+                { kind: 'showStep', text: '第四轮没有号角。西边所有鼓声同时停下，紧接着，第一根攻城锤的横木从尘幕后露了出来。' }
+            ]
+        },
+        {
+            id: 'expedition_wave_5', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'expedition', turn: 4 }],
+            do: [
+                {
+                    kind: 'spawnUnits', units: [
+                        { id: 'wave5_north_bow', type: 'archer', camp: 'expedition', q: -6, r: -6, hpPct: 100, morale: 3, rank: 1, canAct: true },
+                        { id: 'wave5_south_bow', type: 'archer', camp: 'expedition', q: -10, r: 6, hpPct: 100, morale: 3, rank: 1, canAct: true }
+                    ]
+                },
+                { kind: 'showStep', speaker: CATO, text: '他们开始往箭头上缠油布了。守住城防，不要去救烧起来的空屋——我们要救的是还在路上的人。' }
+            ]
+        },
+        {
+            id: 'expedition_wave_6', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'expedition', turn: 5 }],
+            do: [
+                {
+                    kind: 'spawnUnits', units: [
+                        { id: 'wave6_veteran', type: 'infantry', camp: 'expedition', q: -6, r: -5, hpPct: 100, morale: 3, rank: 2, canAct: true },
+                        { id: 'wave6_rider', type: 'cavalry', camp: 'expedition', q: -9, r: 5, hpPct: 100, morale: 3, rank: 1, canAct: true }
+                    ]
+                },
+                { kind: 'showStep', speaker: CAPTAIN, text: '第六列后面升起主旗了。前面这些人不是攻城军——他们只是来替真正的军队把尸体铺成路。' }
             ]
         },
         {
             id: 'west_gate_held', enabled: true, once: true,
-            when: [{ kind: 'turnStarted', camp: 'petra', turn: 3 }],
+            when: [{ kind: 'turnStarted', camp: 'petra', turn: 6 }],
             do: [
                 {
                     kind: 'showStep',
-                    text: '第三夜的号角过去了。西门仍在，城里该走的人也已走向看不见的东边。',
+                    text: '第七个佩特拉回合开始时，东大道最后一盏提灯消失在密道方向。西门仍在，城防血池尚未归零；而真正的攻城阵列刚刚抵达。',
                     next: '__confirm_west_gate'
                 },
                 { kind: 'setTriggerEnabled', trigger: 'confirm_west_gate', enabled: true }
@@ -382,18 +517,20 @@ export const config = {
             id: 'confirm_west_gate', enabled: false, once: true,
             when: [{ kind: 'eventNextIs', value: '__confirm_west_gate' }],
             do: [
-                { kind: 'setObjectiveStatus', objective: 'hold_west_gate', status: 'completed' }
+                { kind: 'setObjectiveStatus', objective: 'hold_west_gate', status: 'completed' },
+                { kind: 'showStep', speaker: CATO, text: '撤离完成。现在守住这里不再是为了城，是为了让敌人继续相信，城里还有值得他们围攻的东西。' }
             ]
         },
+
         {
             id: 'west_gate_falls', enabled: true, once: true,
-            when: [{ kind: 'cityCaptured', q: -3, r: 0, camp: 'expedition' }],
-            do: [{ kind: 'endScenario', result: 'lose', reason: '西门在撤离完成前失守，佩特拉的密道被截断。' }]
+            when: [{ kind: 'cityCaptured', q: 0, r: 0, camp: 'expedition' }],
+            do: [{ kind: 'endScenario', result: 'lose', reason: '佩特拉共享城防在撤离完成前归零，东征军切断了城内通往密道的道路。' }]
         },
         {
             id: 'irene_falls', enabled: true, once: true,
             when: [{ kind: 'unitKilled', target: { unit: 'irene_courier' } }],
-            do: [{ kind: 'endScenario', result: 'lose', reason: '封蜡匣落入敌手，佩特拉再无可送出的证词。' }]
+            do: [{ kind: 'endScenario', result: 'lose', reason: '伊蕾妮与封蜡匣未能离开佩特拉，卡托最后留下的证词就此断绝。' }]
         },
         {
             id: 'cato_is_wounded', enabled: true, once: true,
@@ -404,19 +541,19 @@ export const config = {
                 { kind: 'setUnitState', target: { unit: 'cato_defender' }, state: 'canAct', value: false },
                 {
                     kind: 'showStep', speaker: CATO,
-                    text: '别围着我。西门不是一张脸撑住的；去守你们各自该站的位置。'
+                    text: '别围着我。佩特拉不是靠一张脸撑住的；去守城防血池，去护住仍在向东走的人。'
                 }
             ]
         }
     ],
 
     result: {
-        winText: '封蜡匣离开佩特拉，西门后的火还在烧。后来每个人都会记得卡托烧了什么，却很少有人记得他留下了谁。',
-        loseText: '佩特拉未能完成撤离。',
+        winText: '伊蕾妮带着封蜡匣离开佩特拉，西门后的档案火仍在燃烧。天亮以后，东征军会得到一座城和一个叛臣，却得不到城里那些人的名字。',
+        loseText: '佩特拉未能在主力攻城前完成撤离。',
         eliminateEnemy: false,
         starRules: [
             {
-                label: '卡托未被迫撤离',
+                label: '卡托未被迫退出战线',
                 when: [{ kind: 'variableCompare', scope: 'level', variable: 'cato_withdrawn', op: '==', value: false }]
             },
             {

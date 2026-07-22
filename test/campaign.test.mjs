@@ -99,8 +99,8 @@ export async function run(browser) {
         const captain = createUnit(config.units.find(unit => unit.id === 'petra_gate_guard'));
         const ireneSpec = config.units.find(unit => unit.id === 'irene_courier');
         const irene = createUnit(ireneSpec);
-        const beginEvacuation = config.triggers.find(trigger => trigger.id === 'begin_evacuation');
-        const archivesDestroyed = config.triggers.find(trigger => trigger.id === 'archives_destroyed');
+        const beginDefense = config.triggers.find(trigger => trigger.id === 'begin_defense');
+        const evacuationReady = config.triggers.find(trigger => trigger.id === 'evacuation_ready');
         const reachesTunnel = config.triggers.find(trigger => trigger.id === 'irene_reaches_tunnel');
         const tunnelTiles = config.areas.find(area => area.id === 'secret_tunnel')?.tiles || [];
         const reinforcementWaves = config.triggers.filter(trigger => trigger.id.startsWith('expedition_wave_'));
@@ -128,24 +128,28 @@ export async function run(browser) {
                 readyToInvestigate: ireneSpec.canAct === true,
                 objectiveNamesUnit: config.objectives.escort_irene.detail.includes('标有“伊蕾妮”'),
                 singlePlainEntrance: tunnelTiles.length === 1
-                    && tunnelTiles[0].q === 2 && tunnelTiles[0].r === -2
-                    && !config.board.terrain.some(tile => tile.q === 2 && tile.r === -2),
-                noMisleadingEnemyCity: config.board.cities.every(city => city.camp !== 'expedition'),
-                escalatingReinforcements: reinforcementWaves.length === 3
-                    && reinforcementWaves.map(trigger => trigger.when[0].turn || 0).join(',') === '0,1,2'
-                    && reinforcementIds.length === 4 && new Set(reinforcementIds).size === 4
-                    && config.objectives.hold_west_gate.detail.includes('每个东征军回合'),
-                identifiesAndHighlights: beginEvacuation.do[0]?.highlight?.unit === 'irene_courier'
-                    && beginEvacuation.do[0]?.highlight?.tiles?.length === 1,
-                archivesHighlighted: beginEvacuation.do[1]?.highlight?.tiles?.length === 3,
-                archivesRequireSpecialMovement: config.interactables.length === 3
+                    && tunnelTiles[0].q === 9 && tunnelTiles[0].r === -2
+                    && !config.board.terrain.some(tile => tile.q === 9 && tile.r === -2),
+                borderlessLargeCity: config.board.layout === 'borderless'
+                    && config.board.cities.some(city => city.camp === 'petra' && city.radius === 2),
+                escalatingReinforcements: reinforcementWaves.length === 6
+                    && reinforcementWaves.map(trigger => trigger.when[0].turn || 0).join(',') === '0,1,2,3,4,5'
+                    && reinforcementIds.length === 12 && new Set(reinforcementIds).size === 12
+                    && config.objectives.hold_west_gate.detail.includes('六轮'),
+                identifiesAndHighlights: beginDefense.do.some(action => action.kind === 'showStep'
+                    && action.highlight?.tiles?.some(tile => tile.q === 9 && tile.r === -2)),
+                archivesHighlighted: config.objectives.burn_archives.highlight?.tiles?.length === 3,
+                archivesRequireSpecialMovement: config.interactables.filter(item =>
+                    ['tax_register', 'garrison_roll', 'family_letters'].includes(item.id)).length === 3
                     && config.collectibles.length === 0
-                    && config.interactables.every(item => item.unitIds?.join(',') === 'cato_defender,irene_courier'
+                    && config.interactables.filter(item =>
+                        ['tax_register', 'garrison_roll', 'family_letters'].includes(item.id))
+                        .every(item => item.unitIds?.join(',') === 'cato_defender,irene_courier'
                         && !item.collectibleId),
                 tunnelTriggerInitiallyOff: reachesTunnel.enabled === false,
-                unlocksAfterArchives: !archivesDestroyed.do.some(action => action.kind === 'setUnitState'
-                    && action.target?.unit === 'irene_courier' && action.state === 'canAct')
-                    && archivesDestroyed.do.some(action => action.kind === 'setTriggerEnabled'
+                unlocksAfterCitywidePreparation: evacuationReady.when.some(condition => condition.variable === 'archives_burned')
+                    && evacuationReady.when.some(condition => condition.variable === 'beacons_lit')
+                    && evacuationReady.do.some(action => action.kind === 'setTriggerEnabled'
                         && action.trigger === 'irene_reaches_tunnel' && action.enabled === true)
             },
             male: await inspectAlpha('/img/commander_tr/NPC男.webp'),
@@ -167,7 +171,7 @@ export async function run(browser) {
         && storyCommanderContract.irene.portrait === 'npcFemale'
         && storyCommanderContract.irene.identity
         && Object.values(storyCommanderContract.ireneGuidance).every(Boolean),
-    '《不归城》明确标识伊蕾妮、解释护送操作，并在档案焚毁后才开放撤离');
+    '《不归城》使用无边大型城市，完成全城准备后才开放伊蕾妮撤离，并由六轮援军持续施压');
     R.assert(storyCommanderContract.male.corner === 0 && storyCommanderContract.male.center > 0
         && storyCommanderContract.female.corner === 0 && storyCommanderContract.female.center > 0
         && storyCommanderContract.npcPennantCrop.width === storyCommanderContract.npcPennantCrop.height,
