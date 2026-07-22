@@ -730,8 +730,8 @@ export async function run(browser) {
         R.assert((await page.textContent('#campaignSpeakerName')).trim() === '马库斯', '《花与剑》开场正确显示马库斯对白');
         const openingCharacterPresentation = await page.evaluate(async () => {
             const { gameState } = await import('/js/state.js');
-            const severus = gameState.tileMap.get('0,-3')?.unit;
-            const marcus = gameState.tileMap.get('0,-2')?.unit;
+            const severus = gameState.tileMap.get('0,-4')?.unit;
+            const marcus = gameState.tileMap.get('0,-3')?.unit;
             const portrait = document.getElementById('campaignSpeakerPortrait');
             await portrait.decode();
             return {
@@ -786,11 +786,11 @@ export async function run(browser) {
         '阵营列表隐藏空备注并显示外交 emoji；SVG 旗帜以无圆角 3:2 大尺寸呈现');
         await page.click('#factionListClose');
 
-        // v3 教学关完整路径：开场三页 → 选择 → 移动 → 攻击 → 两名新兵列队 → 授章七页。
+        // v4 教学关完整路径：开场三页 → 选择 → 移动 → 攻击 → 三回合穿越大校场 → 授章七页。
         await advanceCampaignDialogue(page);
         await advanceCampaignDialogue(page);
         await advanceCampaignDialogue(page);
-        await clickTile(page, -2, 0);
+        await clickTile(page, -3, 3);
         await sleep(260);
         const selectionFlagPresentation = await page.evaluate(() => {
             const image = document.querySelector('.selection-hud-flag:not(.selection-hud-flag-color)');
@@ -809,20 +809,75 @@ export async function run(browser) {
             && selectionFlagPresentation?.borderRadius === '0px'
             && selectionFlagPresentation?.objectFit === 'contain',
         '左上角属性栏直接使用原始 900×600 SVG，保持无圆角 3:2 矢量显示');
+        await clickTile(page, -1, 2);
+        await sleep(260);
+        await clickTile(page, 0, 2);
+        await sleep(260);
+        await advanceCampaignDialogue(page);
+        await advanceCampaignDialogue(page);
+
+        // 第一回合：两名尚未行动的新兵进入中央草道。
+        await clickTile(page, -2, 3);
+        await clickTile(page, -1, 1);
+        await sleep(260);
+        await clickTile(page, -3, 2);
+        await clickTile(page, -2, 0);
+        await sleep(260);
+
+        await page.click('#endTurnBtn');
+        await sleep(100);
+        await page.evaluate(() => document.getElementById('confirmYes')?.click());
+        await sleep(500);
+        await page.evaluate(() => {
+            const overlay = document.getElementById('turnTransitionOverlay');
+            if (overlay?.offsetParent) overlay.click();
+        });
+
+        // 第二回合：三人沿开阔主路推进，最右侧新兵先抵达授章区。
+        await clickTile(page, -1, 1);
+        await clickTile(page, 0, -1);
+        await sleep(260);
+        await clickTile(page, -1, 2);
         await clickTile(page, 0, 0);
         await sleep(260);
-        await clickTile(page, 1, 0);
+        await clickTile(page, -2, 0);
+        await clickTile(page, -1, -2);
         await sleep(260);
-        await advanceCampaignDialogue(page);
-        await clickTile(page, -2, 1);
+
+        await page.click('#endTurnBtn');
+        await sleep(100);
+        await page.evaluate(() => document.getElementById('confirmYes')?.click());
+        await sleep(500);
+        await page.evaluate(() => {
+            const overlay = document.getElementById('turnTransitionOverlay');
+            if (overlay?.offsetParent) overlay.click();
+        });
+
+        // 第三回合：最后两人进入列队区，满足全员授章条件。
+        await clickTile(page, 0, -1);
+        await clickTile(page, 1, -3);
         await sleep(260);
-        await clickTile(page, 0, 1);
+        await clickTile(page, 0, 0);
+        await clickTile(page, 0, -2);
         await sleep(260);
-        await advanceCampaignDialogue(page);
-        await clickTile(page, -1, -1);
-        await sleep(260);
-        await clickTile(page, 1, -1);
-        await sleep(260);
+        const t1Formation = await page.evaluate(async () => {
+            const { gameState } = await import('/js/state.js');
+            const ids = ['recruit_sword', 'recruit_flower', 'recruit_banner'];
+            const units = ids.map(id => {
+                const tile = gameState.tiles.find(item => item.unit?.id === id);
+                return { id, q: tile?.q, r: tile?.r, remainingMP: tile?.unit?.remainingMP };
+            });
+            return { units, objectiveStates: gameState.objectiveStates, levelVariables: gameState.levelVariables };
+        });
+        R.assert(t1Formation.units.some(unit => unit.q === -1 && unit.r === -2)
+            && t1Formation.units.some(unit => unit.q === 0 && unit.r === -2)
+            && t1Formation.units.some(unit => unit.q === 1 && unit.r === -3),
+        `三名新兵经过跨回合行军后全部抵达授章区（${JSON.stringify(t1Formation)}）`);
+        await waitFor(() => page.evaluate(async () => {
+            const { gameState } = await import('/js/state.js');
+            return gameState._inlineStepData?.text?.includes('三名新兵') === true;
+        }),
+            5000, '全员列队后的授章对白');
         await advanceCampaignDialogue(page);
         const severusDialoguePresentation = await page.evaluate(async () => {
             const portrait = document.getElementById('campaignSpeakerPortrait');
@@ -837,7 +892,7 @@ export async function run(browser) {
         '授章对白由地图上的塞维鲁发言，并正确使用谋士立绘');
         for (let index = 0; index < 6; index++) await advanceCampaignDialogue(page);
         await waitFor(() => page.evaluate(() => document.getElementById('campaignResultOverlay')?.classList.contains('show')), 5000, '《花与剑》完成结算');
-        R.assert((await page.textContent('#campaignResultTitle')).includes('花与剑'), '《花与剑》v3 可按教学路径完整通关');
+        R.assert((await page.textContent('#campaignResultTitle')).includes('花与剑'), '《花与剑》v4 可按教学路径完整通关');
         const standardTopbarAfterCampaign = await page.evaluate(async () => {
             const state = await import('/js/state.js');
             const { updateUI } = state;

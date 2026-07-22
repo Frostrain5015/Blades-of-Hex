@@ -1,6 +1,6 @@
 // 染血的鸢尾花 · 第一章「花旗向东」
-// BI-T1 教学关「花与剑」v3
-// 东征前的校场整训：选择 → 移动 → 攻击 → 全员列队授章。
+// BI-T1 教学关「花与剑」v4
+// 东征前的校场整训：选择 → 移动 → 攻击 → 穿越校场 → 全员列队授章。
 // 表层目标是让玩家相信军纪与摄政府；底层伏笔是马库斯尚未察觉
 // “持剑者决定方向”与“军令决定方向”之间的矛盾。
 
@@ -10,13 +10,13 @@ const MARCUS = Object.freeze({ name: '马库斯', portrait: 'centurion' });
 const SEVERUS = Object.freeze({ name: '塞维鲁', portrait: 'advisor' });
 
 export const config = {
-    schemaVersion: 2,
+    schemaVersion: 4,
     id: 'bi-t1-sheath',
     title: '花与剑',
     displayId: 'BI-T1',
     chronicleId: 'blood-iris',
     seed: 0x1234,
-    turnLimit: 2,
+    turnLimit: 4,
 
     intro: {
         campaignTitle: '染血的鸢尾花',
@@ -57,6 +57,7 @@ export const config = {
         recruitment: false,
         reinforcement: false,
         commanderSkills: false,
+        airCommands: false,
         weatherEffects: false,
         morale: false,
         fortifications: false,
@@ -68,7 +69,7 @@ export const config = {
     aiDifficulty: 1.0,
     gold: { player1: 0, targets: 0 },
     commanders: { player1: 'centurion' },
-    hands: { player1: [] },
+    hands: { player1: [], targets: [] },
     storyCommanders: [
         { id: 'severus', name: '塞维鲁', archetype: 'advisor' },
         { id: 'marcus', name: '马库斯', archetype: 'centurion' }
@@ -76,20 +77,47 @@ export const config = {
     collectibles: [],
 
     board: {
-        radius: 3,
+        layout: 'hex',
+        radius: 4,
         // 北端城市仅承担校场旗台和区划颜色来源，不是本关攻防目标。
         cities: [
-            { q: 0, r: -3, districtId: 1, camp: 'player1' }
+            { q: 0, r: -4, districtId: 1, camp: 'player1' }
         ],
+        // 参考经典 RTS 地图编辑器的构图：中央草道保持清晰，林带和山脊成簇压住边缘，
+        // 两座补给村落给大校场提供生活尺度。装饰不侵入教学关键路径。
         terrain: [
-            { q: -3, r: 0, type: 'forest' },
-            { q: -2, r: 2, type: 'forest' },
-            { q: 2, r: -2, type: 'forest' },
-            { q: 3, r: -1, type: 'forest' }
+            { q: -4, r: 1, type: 'forest' },
+            { q: -4, r: 2, type: 'forest' },
+            { q: -4, r: 3, type: 'forest' },
+            { q: -3, r: 1, type: 'forest' },
+            { q: -1, r: 4, type: 'forest' },
+            { q: 0, r: 4, type: 'forest' },
+            { q: 1, r: 3, type: 'forest' },
+            { q: 2, r: 0, type: 'forest' },
+            { q: 3, r: -2, type: 'forest' },
+            { q: 3, r: -1, type: 'forest' },
+            { q: 4, r: -3, type: 'forest' },
+            { q: 4, r: -2, type: 'forest' },
+            { q: 4, r: -1, type: 'forest' },
+            { q: -4, r: 0, type: 'mountain' },
+            { q: -3, r: -1, type: 'mountain' },
+            { q: -2, r: -2, type: 'mountain' },
+            { q: 1, r: -4, type: 'mountain' },
+            { q: 2, r: -4, type: 'mountain' },
+            { q: 3, r: -4, type: 'mountain' },
+            { q: 3, r: -3, type: 'mountain' }
         ],
-        villages: [],
+        surface: [],
+        villages: [
+            { q: -4, r: 4, districtId: 1 },
+            { q: 4, r: 0, districtId: 1 }
+        ],
         fortifications: [],
-        districts: []
+        installations: [],
+        districts: [],
+        rivers: [],
+        crossings: [],
+        ports: []
     },
 
     units: [
@@ -99,7 +127,7 @@ export const config = {
             type: 'infantry',
             camp: 'player1',
             q: 0,
-            r: -3,
+            r: -4,
             hpPct: 100,
             morale: 2,
             canAct: false,
@@ -110,7 +138,7 @@ export const config = {
             type: 'infantry',
             camp: 'player1',
             q: 0,
-            r: -2,
+            r: -3,
             hpPct: 100,
             morale: 2,
             canAct: false,
@@ -120,8 +148,8 @@ export const config = {
             id: 'recruit_sword',
             type: 'infantry',
             camp: 'player1',
-            q: -2,
-            r: 0,
+            q: -3,
+            r: 3,
             hpPct: 100,
             morale: 2,
             canAct: true,
@@ -132,7 +160,7 @@ export const config = {
             type: 'infantry',
             camp: 'player1',
             q: -2,
-            r: 1,
+            r: 3,
             hpPct: 100,
             morale: 2,
             canAct: true,
@@ -142,8 +170,8 @@ export const config = {
             id: 'recruit_banner',
             type: 'infantry',
             camp: 'player1',
-            q: -1,
-            r: -1,
+            q: -3,
+            r: 2,
             hpPct: 100,
             morale: 2,
             canAct: true,
@@ -153,8 +181,8 @@ export const config = {
             id: 'training_dummy',
             type: 'infantry',
             camp: 'targets',
-            q: 1,
-            r: 0,
+            q: 0,
+            r: 2,
             hpPct: 100,
             morale: 2,
             canAct: false,
@@ -171,14 +199,18 @@ export const config = {
         {
             id: 'oath_line',
             tiles: [
-                { q: 0, r: 0 },
-                { q: 0, r: 1 },
-                { q: 1, r: -1 }
+                { q: -1, r: -2 },
+                { q: 0, r: -2 },
+                { q: 1, r: -3 }
             ]
         }
     ],
     interactables: [],
-    variables: [],
+    variables: [
+        { id: 'sword_in_line', scope: 'level', type: 'boolean', initial: false },
+        { id: 'flower_in_line', scope: 'level', type: 'boolean', initial: false },
+        { id: 'banner_in_line', scope: 'level', type: 'boolean', initial: false }
+    ],
 
     objectives: {
         learn_basics: {
@@ -189,7 +221,7 @@ export const config = {
         },
         take_oath: {
             title: '在授章台前列队',
-            detail: '让三名新兵全部抵达红旗前的指定位置',
+            detail: '沿中央草道向北，让三名新兵全部抵达红旗前的列队区',
             active: false,
             status: 'hidden',
             main: true,
@@ -263,8 +295,8 @@ export const config = {
                     dialogLock: true,
                     highlight: {
                         unit: 'recruit_sword',
-                        tiles: [{ q: 0, r: 0 }],
-                        hint: '移动到高亮的中央位置'
+                        tiles: [{ q: -1, r: 2 }],
+                        hint: '沿草道移动到高亮的中央训练位'
                     }
                 },
                 { kind: 'setTriggerEnabled', trigger: 'recruit_reached_center', enabled: true }
@@ -279,19 +311,19 @@ export const config = {
                     kind: 'unitMovesToTile',
                     target: { unit: 'recruit_sword' },
                     camp: 'player1',
-                    tiles: [{ q: 0, r: 0 }]
+                    tiles: [{ q: -1, r: 2 }]
                 }
             ],
             do: [
                 {
                     kind: 'showStep',
                     speaker: MARCUS,
-                    text: '位置对了，剑才有用。训练靶就在你右前方——点击它，完成一次攻击。',
+                    text: '位置对了，剑才有用。训练靶就在你右前方——点击它，完成一次攻击。北面的红旗还很远，打完这一剑，你们要自己把队伍带过去。',
                     boardLock: true,
                     dialogLock: true,
                     highlight: {
                         unit: 'recruit_sword',
-                        tiles: [{ q: 1, r: 0 }],
+                        tiles: [{ q: 0, r: 2 }],
                         hint: '攻击高亮的训练靶'
                     }
                 },
@@ -315,55 +347,120 @@ export const config = {
                 // 必须先启用下一主要目标，再完成当前目标，避免目标系统提前结算。
                 { kind: 'setObjectiveStatus', objective: 'take_oath', status: 'active' },
                 { kind: 'setObjectiveStatus', objective: 'learn_basics', status: 'completed' },
-                { kind: 'setUnitState', target: { unit: 'recruit_flower' }, state: 'canAct', value: true },
+                { kind: 'setUnitState', target: { group: 'new_recruits' }, state: 'canAct', value: true },
+                { kind: 'unlockInput' },
                 {
                     kind: 'showStep',
                     speaker: MARCUS,
-                    text: '选择、移动、攻击。操典写得很短，因为战场不会等人读第二遍。现在把另外两人带到红旗前。'
+                    text: '选择、移动、攻击。操典写得很短，因为战场不会等人读第二遍。现在不再替你们指定每一步——把三个人都带到北面的红旗前。'
                 },
                 {
                     kind: 'showStep',
-                    text: '选择左侧新兵，让他站到授章队列左翼。',
-                    boardLock: true,
-                    dialogLock: true,
-                    highlight: {
-                        unit: 'recruit_flower',
-                        tiles: [{ q: 0, r: 1 }],
-                        hint: '选择左侧新兵并移动到高亮位置'
-                    }
-                },
-                { kind: 'setTriggerEnabled', trigger: 'second_recruit_arrived', enabled: true }
+                    text: '中央草道穿过整座校场。林带和土坡标出了边界；沿开阔地向北推进，三人全部进入列队区后开始授章。'
+                }
             ]
         },
         {
-            id: 'second_recruit_arrived',
-            enabled: false,
+            id: 'sword_joins_line',
+            enabled: true,
             once: true,
             when: [
-                {
-                    kind: 'unitMovesToTile',
-                    target: { unit: 'recruit_flower' },
-                    camp: 'player1',
-                    tiles: [{ q: 0, r: 1 }]
-                }
+                { kind: 'objectiveStatusIs', objective: 'take_oath', status: 'active' },
+                { kind: 'unitMovesToTile', target: { unit: 'recruit_sword' }, camp: 'player1', tiles: [
+                    { q: -1, r: -2 }, { q: 0, r: -2 }, { q: 1, r: -3 }
+                ] }
             ],
             do: [
-                { kind: 'setUnitState', target: { unit: 'recruit_banner' }, state: 'canAct', value: true },
+                { kind: 'setVariable', variable: 'sword_in_line', operation: 'set', value: true },
+                { kind: 'setUnitState', target: { unit: 'recruit_sword' }, state: 'canMove', value: false }
+            ]
+        },
+        {
+            id: 'flower_joins_line',
+            enabled: true,
+            once: true,
+            when: [
+                { kind: 'objectiveStatusIs', objective: 'take_oath', status: 'active' },
+                { kind: 'unitMovesToTile', target: { unit: 'recruit_flower' }, camp: 'player1', tiles: [
+                    { q: -1, r: -2 }, { q: 0, r: -2 }, { q: 1, r: -3 }
+                ] }
+            ],
+            do: [
+                { kind: 'setVariable', variable: 'flower_in_line', operation: 'set', value: true },
+                { kind: 'setUnitState', target: { unit: 'recruit_flower' }, state: 'canMove', value: false }
+            ]
+        },
+        {
+            id: 'banner_joins_line',
+            enabled: true,
+            once: true,
+            when: [
+                { kind: 'objectiveStatusIs', objective: 'take_oath', status: 'active' },
+                { kind: 'unitMovesToTile', target: { unit: 'recruit_banner' }, camp: 'player1', tiles: [
+                    { q: -1, r: -2 }, { q: 0, r: -2 }, { q: 1, r: -3 }
+                ] }
+            ],
+            do: [
+                { kind: 'setVariable', variable: 'banner_in_line', operation: 'set', value: true },
+                { kind: 'setUnitState', target: { unit: 'recruit_banner' }, state: 'canMove', value: false }
+            ]
+        },
+        {
+            id: 'assembly_after_sword',
+            enabled: true,
+            once: true,
+            when: [
+                { kind: 'unitMovesToTile', target: { unit: 'recruit_sword' }, camp: 'player1', tiles: [
+                    { q: -1, r: -2 }, { q: 0, r: -2 }, { q: 1, r: -3 }
+                ] },
+                { kind: 'variableCompare', scope: 'level', variable: 'flower_in_line', op: '==', value: true },
+                { kind: 'variableCompare', scope: 'level', variable: 'banner_in_line', op: '==', value: true }
+            ],
+            do: [
                 {
                     kind: 'showStep',
-                    speaker: MARCUS,
-                    text: '左翼到位。最后一人站右翼。队伍不是三把各自挥舞的剑——彼此看得见，才算一队。'
+                    text: '三名新兵在红旗前站成一线。塞维鲁从授章台上走下，把三枚铁芯鎏金的鸢尾誓章放在名册旁。',
+                    next: '__begin_oath'
                 },
+                { kind: 'setTriggerEnabled', trigger: 'assembly_complete', enabled: true }
+            ]
+        },
+        {
+            id: 'assembly_after_flower',
+            enabled: true,
+            once: true,
+            when: [
+                { kind: 'unitMovesToTile', target: { unit: 'recruit_flower' }, camp: 'player1', tiles: [
+                    { q: -1, r: -2 }, { q: 0, r: -2 }, { q: 1, r: -3 }
+                ] },
+                { kind: 'variableCompare', scope: 'level', variable: 'sword_in_line', op: '==', value: true },
+                { kind: 'variableCompare', scope: 'level', variable: 'banner_in_line', op: '==', value: true }
+            ],
+            do: [
                 {
                     kind: 'showStep',
-                    text: '选择最后一名新兵，让他站到授章队列右翼。',
-                    boardLock: true,
-                    dialogLock: true,
-                    highlight: {
-                        unit: 'recruit_banner',
-                        tiles: [{ q: 1, r: -1 }],
-                        hint: '选择最后一名新兵并移动到高亮位置'
-                    }
+                    text: '三名新兵在红旗前站成一线。塞维鲁从授章台上走下，把三枚铁芯鎏金的鸢尾誓章放在名册旁。',
+                    next: '__begin_oath'
+                },
+                { kind: 'setTriggerEnabled', trigger: 'assembly_complete', enabled: true }
+            ]
+        },
+        {
+            id: 'assembly_after_banner',
+            enabled: true,
+            once: true,
+            when: [
+                { kind: 'unitMovesToTile', target: { unit: 'recruit_banner' }, camp: 'player1', tiles: [
+                    { q: -1, r: -2 }, { q: 0, r: -2 }, { q: 1, r: -3 }
+                ] },
+                { kind: 'variableCompare', scope: 'level', variable: 'sword_in_line', op: '==', value: true },
+                { kind: 'variableCompare', scope: 'level', variable: 'flower_in_line', op: '==', value: true }
+            ],
+            do: [
+                {
+                    kind: 'showStep',
+                    text: '三名新兵在红旗前站成一线。塞维鲁从授章台上走下，把三枚铁芯鎏金的鸢尾誓章放在名册旁。',
+                    next: '__begin_oath'
                 },
                 { kind: 'setTriggerEnabled', trigger: 'assembly_complete', enabled: true }
             ]
@@ -372,22 +469,10 @@ export const config = {
             id: 'assembly_complete',
             enabled: false,
             once: true,
-            when: [
-                {
-                    kind: 'unitMovesToTile',
-                    target: { unit: 'recruit_banner' },
-                    camp: 'player1',
-                    tiles: [{ q: 1, r: -1 }]
-                },
-                { kind: 'unitsInArea', area: 'oath_line', camp: 'player1', op: '>=', value: 3 }
-            ],
+            when: [{ kind: 'eventNextIs', value: '__begin_oath' }],
             do: [
                 { kind: 'unlockInput' },
                 { kind: 'setUnitState', target: { group: 'new_recruits' }, state: 'canAct', value: false },
-                {
-                    kind: 'showStep',
-                    text: '三名新兵在红旗前站成一线。塞维鲁从授章台上走下，把三枚铁芯鎏金的鸢尾誓章放在名册旁。'
-                },
                 {
                     kind: 'showStep',
                     speaker: SEVERUS,
