@@ -26,13 +26,13 @@ test('CARD_FLAGS.noDiscard 与旧免弃牌列表一致', () => {
     }
 });
 
-test('CARD_FLAGS.noCopy 覆盖旧连横排除列表（并新增 borrowDay）', () => {
+test('CARD_FLAGS.noCopy 覆盖旧连横排除列表', () => {
     // 旧列表全部仍不可复制
     for (const id of OLD_NO_COPY) {
         assert.equal(getCardMeta(id).noCopy, true, `${id} 应不可复制`);
     }
-    // 新增天衡王牌【借日】不可复制
-    assert.equal(getCardMeta('borrowDay').noCopy, true);
+    // 天衡【日月天衡】已从王牌【借日】迁移为充能制被动，borrowDay 不再是卡牌。
+    assert.deepEqual(getCardMeta('borrowDay'), {}, 'borrowDay 已非卡牌，无标记');
 });
 
 test('getCardMeta 对普通卡返回空标记（不误伤）', () => {

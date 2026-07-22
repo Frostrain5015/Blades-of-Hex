@@ -72,7 +72,7 @@ test('accrueBloodTide: 仅 ≥2 将领时累积，跨阈值→moonsPending', () 
     spawnNoctisPair(state, tiles);
     accrueBloodTide(state, 'player1', 50);
     assert.equal(getBloodMoonChargeRatio(state, 'player1'), 50 / NOCTIS_BLOODMOON_BALANCE.bloodTideThreshold);
-    const summoned = accrueBloodTide(state, 'player1', 100); // 150 累计 → 跨 120 一次
+    const summoned = accrueBloodTide(state, 'player1', 100); // 150 累计 → 跨 bloodTideThreshold(125) 一次
     assert.equal(summoned, 1);
     assert.equal(anyBloodMoonPending(state), true);
     assert.equal(getBloodMoonChargeRatio(state, 'player1'), 1); // 有待召唤 → 显示满
