@@ -623,6 +623,7 @@ export function validateLevel(config) {
         seenFactionIds.add(faction.id);
         if (!faction.name) warnings.push(`阵营「${faction.id}」没有显示名。`);
         if (faction.note !== undefined && typeof faction.note !== 'string') errors.push(`阵营「${faction.id}」剧情备注必须是文本。`);
+        if (faction.canRecruit !== undefined && typeof faction.canRecruit !== 'boolean') errors.push(`阵营「${faction.id}」的招募权限必须是布尔值。`);
         if (faction.airfieldCap != null && (!Number.isInteger(faction.airfieldCap) || faction.airfieldCap < 0)) {
             errors.push(`阵营「${faction.id}」的机场上限必须是非负整数；留空表示按城市数量自动计算。`);
         }

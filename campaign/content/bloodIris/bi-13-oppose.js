@@ -1,0 +1,677 @@
+// 染血的鸢尾花 · 第三章「同一个誓言」
+// BI-13 Boss 关「铁花不开」v4
+// 红旗王军强攻王都外门：分兵压制南北侧塔、护送攻城炮破门、击溃瓦罗并处置旧誓。
+import { BLOOD_IRIS_FACTION_PRESETS } from './chronicle.js';
+import { collectiblesForScenario } from './collectibles.js';
+
+const MARCUS = Object.freeze({ name: '马库斯', portrait: 'centurion' });
+const VARO = Object.freeze({ name: '瓦罗', portrait: 'ironGuard' });
+const ADRIAN = Object.freeze({ name: '阿德里安', portrait: 'npcMale' });
+const GUN_CAPTAIN = Object.freeze({ name: '攻城炮队长', portrait: 'npcMale' });
+const PURPLE_CAPTAIN = Object.freeze({ name: '紫旗近卫队长', portrait: 'npcMale' });
+
+const NORTH_TOWER = Object.freeze({ q: 1, r: -6 });
+const SOUTH_TOWER = Object.freeze({ q: -6, r: 6 });
+const CAPITAL_GATE = Object.freeze({ q: 6, r: 0 });
+const OATH_BADGE = Object.freeze({ q: 6, r: 0 });
+const SPARE_ORDER = Object.freeze({ q: 8, r: -3 });
+const PURSUE_ORDER = Object.freeze({ q: 7, r: 3 });
+
+export const config = {
+    schemaVersion: 4,
+    id: 'bi-13-oppose',
+    title: '铁花不开',
+    displayId: 'BI-13',
+    chronicleId: 'blood-iris',
+    seed: 0x2413,
+    turnLimit: 14,
+
+    intro: {
+        campaignTitle: '染血的鸢尾花',
+        chapterTitle: '同一个誓言',
+        scenarioSubtitle: 'BI-13 铁花不开'
+    },
+
+    weather: 'clear',
+    localPlayerCamp: 'crown',
+    factions: [
+        {
+            id: 'crown',
+            ...BLOOD_IRIS_FACTION_PRESETS.aureliaKingdom,
+            note: '阿德里安与马库斯统率的归都王军，仍悬王国红鸢尾旗',
+            controller: 'human',
+            canRecruit: true,
+            participatesInTurns: true,
+            active: true
+        },
+        {
+            id: 'regency',
+            ...BLOOD_IRIS_FACTION_PRESETS.regency,
+            note: '效忠摄政府、由铁卫瓦罗统率的王国近卫军；统一使用紫色阵营色与摄政府旗',
+            controller: 'ai',
+            canRecruit: false,
+            participatesInTurns: true,
+            active: true
+        }
+    ],
+    turnOrder: ['crown', 'regency'],
+    diplomacy: {
+        crown: { regency: 'enemy' },
+        regency: { crown: 'enemy' }
+    },
+
+    mechanics: {
+        tacticalCards: false,
+        recruitment: true,
+        reinforcement: true,
+        commanderSkills: true,
+        airCommands: false,
+        weatherEffects: false,
+        morale: true,
+        fortifications: true,
+        fogOfWar: false,
+        alliedVision: false
+    },
+
+    aiOpponentCamp: 'regency',
+    aiDifficulty: 0.78,
+    gold: { crown: 32, regency: 0 },
+    commanders: { crown: 'centurion', regency: 'ironGuard' },
+    hands: { crown: [], regency: [] },
+    storyCommanders: [
+        { id: 'marcus', name: '马库斯', archetype: 'centurion' },
+        { id: 'varo', name: '瓦罗', archetype: 'ironGuard' },
+        { id: 'adrian', name: '阿德里安', portrait: 'npcMale' },
+        { id: 'gun_captain', name: '攻城炮队长', portrait: 'npcMale' },
+        { id: 'purple_captain', name: '紫旗近卫队长', portrait: 'npcMale' }
+    ],
+    collectibles: collectiblesForScenario('bi-13-oppose'),
+
+    board: {
+        layout: 'borderless',
+        radius: 4,
+        cities: [
+            // 王都外郭是十九格大型城市；攻击任一城郭格都会削减同一城防血池。
+            { q: CAPITAL_GATE.q, r: CAPITAL_GATE.r, radius: 2, districtId: 13, camp: 'regency' },
+            { q: -9, r: 0, radius: 0, districtId: 12, camp: 'crown' }
+        ],
+        surface: [],
+        terrain: [
+            // 北缘石灰岩脊：连成一片的高地托起北侧塔，不做零散“椒盐式”装饰。
+            { q: -5, r: -7, type: 'mountain' }, { q: -4, r: -7, type: 'mountain' },
+            { q: -3, r: -7, type: 'mountain' }, { q: -2, r: -7, type: 'mountain' },
+            { q: -1, r: -7, type: 'mountain' }, { q: 0, r: -7, type: 'mountain' },
+            { q: 1, r: -7, type: 'mountain' }, { q: 2, r: -7, type: 'mountain' },
+            { q: 3, r: -7, type: 'mountain' }, { q: 4, r: -7, type: 'mountain' },
+            { q: 5, r: -7, type: 'mountain' }, { q: 6, r: -7, type: 'mountain' },
+            { q: 7, r: -7, type: 'mountain' }, { q: 8, r: -7, type: 'mountain' },
+            { q: 9, r: -7, type: 'mountain' }, { q: 10, r: -7, type: 'mountain' },
+            { q: -2, r: -6, type: 'mountain' }, { q: -1, r: -6, type: 'mountain' },
+            { q: 0, r: -6, type: 'mountain' }, { q: 2, r: -6, type: 'mountain' },
+            { q: 3, r: -6, type: 'mountain' },
+
+            // 南缘猎苑与果林：用连续林带围合南塔路线，同时留下两格宽的炮车通道。
+            { q: -10, r: 7, type: 'forest' }, { q: -9, r: 7, type: 'forest' },
+            { q: -8, r: 7, type: 'forest' }, { q: -7, r: 7, type: 'forest' },
+            { q: -6, r: 7, type: 'forest' }, { q: -5, r: 7, type: 'forest' },
+            { q: -4, r: 7, type: 'forest' }, { q: -3, r: 7, type: 'forest' },
+            { q: -2, r: 7, type: 'forest' }, { q: -1, r: 7, type: 'forest' },
+            { q: 0, r: 7, type: 'forest' }, { q: 1, r: 7, type: 'forest' },
+            { q: 2, r: 7, type: 'forest' }, { q: 3, r: 7, type: 'forest' },
+            { q: 4, r: 7, type: 'forest' },
+            { q: -9, r: 6, type: 'forest' }, { q: -8, r: 6, type: 'forest' },
+            { q: -7, r: 6, type: 'forest' }, { q: -5, r: 6, type: 'forest' },
+            { q: -4, r: 6, type: 'forest' }, { q: -3, r: 6, type: 'forest' },
+
+            // 西部集结地与中央农庄形成三个成片视觉区，模拟《帝国时代2》手工编辑地图。
+            { q: -11, r: 3, type: 'forest' }, { q: -10, r: 3, type: 'forest' },
+            { q: -11, r: 4, type: 'forest' }, { q: -10, r: 4, type: 'forest' },
+            { q: -9, r: 4, type: 'forest' }, { q: -8, r: 4, type: 'forest' },
+            { q: -6, r: -4, type: 'forest' }, { q: -5, r: -4, type: 'forest' },
+            { q: -4, r: -4, type: 'forest' }, { q: -5, r: -3, type: 'forest' },
+            { q: -4, r: -3, type: 'forest' },
+            { q: -2, r: 2, type: 'forest' }, { q: -1, r: 2, type: 'forest' },
+            { q: -2, r: 3, type: 'forest' }, { q: -1, r: 3, type: 'forest' },
+            { q: 0, r: 3, type: 'forest' },
+            // 王都外侧两片御苑残林，给东部增援入口提供视觉边界与伏兵背景。
+            { q: 8, r: -5, type: 'forest' }, { q: 9, r: -5, type: 'forest' },
+            { q: 10, r: -5, type: 'forest' }, { q: 8, r: -4, type: 'forest' },
+            { q: 9, r: -4, type: 'forest' }, { q: 10, r: -4, type: 'forest' },
+            { q: 2, r: 6, type: 'forest' }, { q: 3, r: 6, type: 'forest' },
+            { q: 4, r: 6, type: 'forest' }, { q: 3, r: 5, type: 'forest' },
+            { q: 4, r: 5, type: 'forest' }, { q: 5, r: 5, type: 'forest' }
+        ],
+        villages: [
+            { q: -8, r: -2, districtId: 12 }, { q: -9, r: 3, districtId: 12 },
+            { q: -6, r: -1, districtId: 12 }, { q: -5, r: 2, districtId: 12 },
+            { q: -2, r: -2, districtId: 12 }, { q: -3, r: 4, districtId: 12 },
+            { q: 1, r: -3, districtId: 13 }, { q: 1, r: 3, districtId: 13 },
+            { q: 5, r: -4, districtId: 13 }, { q: 3, r: 4, districtId: 13 },
+            { q: 9, r: -2, districtId: 13 }, { q: 6, r: 4, districtId: 13 }
+        ],
+        fortifications: [
+            // 南北塔座与射界工事。
+            { q: 1, r: -6, type: 'flak' }, { q: 0, r: -5, type: 'trench' },
+            { q: 1, r: -5, type: 'trench' }, { q: 2, r: -5, type: 'trench' },
+            { q: -6, r: 6, type: 'flak' }, { q: -7, r: 5, type: 'trench' },
+            { q: -6, r: 5, type: 'trench' }, { q: -5, r: 5, type: 'trench' },
+            // 中央三道壕线给炮车制造真实的护送压力。
+            { q: -4, r: -2, type: 'trench' }, { q: -4, r: -1, type: 'trench' },
+            { q: -4, r: 0, type: 'trench' }, { q: -4, r: 1, type: 'trench' },
+            { q: -4, r: 2, type: 'trench' },
+            { q: -1, r: -4, type: 'trench' }, { q: -1, r: -3, type: 'trench' },
+            { q: -1, r: -2, type: 'trench' }, { q: -1, r: -1, type: 'trench' },
+            { q: -1, r: 0, type: 'trench' }, { q: -1, r: 1, type: 'trench' },
+            { q: -1, r: 2, type: 'trench' }, { q: -1, r: 3, type: 'trench' },
+            { q: -1, r: 4, type: 'trench' },
+            // 王都门前双堡与甬道。
+            { q: 3, r: -2, type: 'flak' }, { q: 2, r: 2, type: 'flak' },
+            { q: 3, r: -1, type: 'trench' }, { q: 3, r: 0, type: 'trench' },
+            { q: 3, r: 1, type: 'trench' }
+        ],
+        installations: [],
+        districts: [],
+        rivers: [],
+        crossings: [],
+        ports: []
+    },
+
+    units: [
+        {
+            id: 'marcus_guard', type: 'infantry', camp: 'crown', q: -8, r: 0,
+            storyCommander: 'marcus', hpPct: 100, morale: 3, rank: 3,
+            specializationKey: 'assaultInfantry', canAct: true
+        },
+        {
+            id: 'king_adrian', type: 'infantry', camp: 'crown', q: -8, r: -1,
+            storyCommander: 'adrian', hpPct: 100, morale: 3, canAct: false
+        },
+        {
+            id: 'siege_engine', type: 'archer', camp: 'crown', q: -8, r: 1,
+            storyCommander: 'gun_captain', hpPct: 100, morale: 3, rank: 2,
+            specializationKey: 'fieldGun', canAct: true
+        },
+        { id: 'north_sappers', type: 'infantry', camp: 'crown', q: -6, r: -5, hpPct: 100, morale: 3, rank: 2, specializationKey: 'assaultInfantry', canAct: true },
+        { id: 'south_sappers', type: 'infantry', camp: 'crown', q: -10, r: 5, hpPct: 100, morale: 3, rank: 2, specializationKey: 'assaultInfantry', canAct: true },
+        { id: 'royal_vanguard', type: 'infantry', camp: 'crown', q: -7, r: -2, hpPct: 100, morale: 3, rank: 2, specializationKey: 'assaultInfantry', canAct: true },
+        { id: 'royal_cavalry', type: 'cavalry', camp: 'crown', q: -10, r: 2, hpPct: 100, morale: 2, rank: 2, specializationKey: 'heavyCavalry', canAct: true },
+        { id: 'royal_rockets', type: 'archer', camp: 'crown', q: -7, r: 2, hpPct: 100, morale: 2, rank: 2, specializationKey: 'rocketArtillery', canAct: true },
+        { id: 'royal_north_support', type: 'archer', camp: 'crown', q: -7, r: -3, hpPct: 100, morale: 2, rank: 1, specializationKey: 'fieldGun', canAct: true },
+        { id: 'royal_south_support', type: 'infantry', camp: 'crown', q: -9, r: 4, hpPct: 100, morale: 2, rank: 1, specializationKey: 'assaultInfantry', canAct: true },
+        { id: 'royal_camp_reserve', type: 'cavalry', camp: 'crown', q: -9, r: 1, hpPct: 100, morale: 2, rank: 1, specializationKey: 'lightCavalry', canAct: true },
+
+        { id: 'north_tower', type: 'mgNest', camp: 'regency', q: NORTH_TOWER.q, r: NORTH_TOWER.r, hpPct: 100, morale: 3, canAct: true },
+        { id: 'south_tower', type: 'mgNest', camp: 'regency', q: SOUTH_TOWER.q, r: SOUTH_TOWER.r, hpPct: 100, morale: 3, canAct: true },
+        { id: 'north_tower_guard', type: 'archer', camp: 'regency', q: 0, r: -5, hpPct: 100, morale: 3, rank: 2, specializationKey: 'fieldGun', canAct: true },
+        { id: 'south_tower_guard', type: 'archer', camp: 'regency', q: -7, r: 5, hpPct: 100, morale: 3, rank: 2, specializationKey: 'fieldGun', canAct: true },
+        { id: 'north_screen', type: 'cavalry', camp: 'regency', q: -2, r: -4, hpPct: 100, morale: 2, rank: 2, specializationKey: 'lightCavalry', canAct: true },
+        { id: 'south_screen', type: 'cavalry', camp: 'regency', q: -4, r: 4, hpPct: 100, morale: 2, rank: 2, specializationKey: 'lightCavalry', canAct: true },
+        { id: 'centre_spear_north', type: 'infantry', camp: 'regency', q: -1, r: -2, hpPct: 100, morale: 3, rank: 2, specializationKey: 'garrisonInfantry', canAct: true },
+        { id: 'centre_spear_south', type: 'infantry', camp: 'regency', q: -1, r: 2, hpPct: 100, morale: 3, rank: 2, specializationKey: 'garrisonInfantry', canAct: true },
+        { id: 'gate_bastion_north', type: 'mgNest', camp: 'regency', q: 3, r: -2, hpPct: 100, morale: 3, canAct: true },
+        { id: 'gate_bastion_south', type: 'mgNest', camp: 'regency', q: 2, r: 2, hpPct: 100, morale: 3, canAct: true },
+        { id: 'gate_guard_north', type: 'infantry', camp: 'regency', q: 4, r: -1, hpPct: 100, morale: 3, rank: 3, specializationKey: 'garrisonInfantry', canAct: true },
+        { id: 'gate_guard_south', type: 'infantry', camp: 'regency', q: 4, r: 1, hpPct: 100, morale: 3, rank: 3, specializationKey: 'garrisonInfantry', canAct: true },
+        { id: 'gate_artillery', type: 'archer', camp: 'regency', q: 5, r: -2, hpPct: 100, morale: 3, rank: 3, specializationKey: 'fieldGun', canAct: true },
+        {
+            id: 'varo_iron_guard', type: 'infantry', camp: 'regency', q: 8, r: 0,
+            storyCommander: 'varo', hpPct: 100, morale: 3, rank: 4,
+            specializationKey: 'garrisonInfantry', canAct: false
+        },
+        {
+            id: 'purple_standard', type: 'infantry', camp: 'regency', q: 7, r: -1,
+            storyCommander: 'purple_captain', hpPct: 100, morale: 3, rank: 2,
+            specializationKey: 'garrisonInfantry', canAct: false
+        }
+    ],
+
+    unitGroups: [
+        { id: 'side_towers', unitIds: ['north_tower', 'south_tower'] },
+        { id: 'royal_assault', unitIds: ['north_sappers', 'south_sappers', 'royal_vanguard', 'royal_cavalry', 'royal_rockets'] },
+        { id: 'gate_bastions', unitIds: ['gate_bastion_north', 'gate_bastion_south'] },
+        { id: 'varo_guard', unitIds: ['varo_iron_guard', 'purple_standard'] }
+    ],
+    areas: [
+        { id: 'north_battery', tiles: [NORTH_TOWER, { q: 0, r: -5 }, { q: 1, r: -5 }, { q: 2, r: -5 }] },
+        { id: 'south_battery', tiles: [SOUTH_TOWER, { q: -7, r: 5 }, { q: -6, r: 5 }, { q: -5, r: 5 }] },
+        { id: 'gate_approach', tiles: [{ q: 2, r: -2 }, { q: 3, r: -2 }, { q: 3, r: -1 }, { q: 3, r: 0 }, { q: 3, r: 1 }, { q: 2, r: 2 }] },
+        { id: 'inner_city', tiles: [OATH_BADGE, SPARE_ORDER, PURSUE_ORDER, { q: 8, r: 0 }] }
+    ],
+    interactables: [
+        {
+            id: 'north_powder_magazine', q: 2, r: -5,
+            label: '夺取北塔精炼火药库（攻城炮永久增伤）', enabled: true,
+            unitIds: ['north_sappers']
+        },
+        {
+            id: 'south_axle_depot', q: -5, r: 5,
+            label: '夺取南塔备用车轴库（攻城炮永久加速并修复）', enabled: true,
+            unitIds: ['south_sappers']
+        },
+        {
+            id: 'recover_oath_badge', q: OATH_BADGE.q, r: OATH_BADGE.r,
+            label: '由马库斯取下瓦罗甲中的暗红鸢尾誓章', enabled: false,
+            unitIds: ['marcus_guard'], collectibleId: 'bi13_blood_oath_badge'
+        },
+        {
+            id: 'order_spare_varo', q: SPARE_ORDER.q, r: SPARE_ORDER.r,
+            label: '在北内门向医官下令：停手，救治瓦罗', enabled: false,
+            unitIds: ['marcus_guard']
+        },
+        {
+            id: 'order_pursue_varo', q: PURSUE_ORDER.q, r: PURSUE_ORDER.r,
+            label: '在南旗门下令：继续追击，不留后患', enabled: false,
+            unitIds: ['marcus_guard']
+        }
+    ],
+    variables: [
+        { id: 'towers_silenced', scope: 'level', type: 'number', initial: 0 },
+        { id: 'arsenals_secured', scope: 'level', type: 'number', initial: 0 },
+        { id: 'gate_breached', scope: 'level', type: 'boolean', initial: false },
+        { id: 'varo_broken', scope: 'level', type: 'boolean', initial: false },
+        { id: 'varo_spared', scope: 'campaign', type: 'boolean', initial: false },
+        { id: 'crown_weight', scope: 'campaign', type: 'number', initial: 0 }
+    ],
+
+    objectives: {
+        silence_towers: {
+            title: '分兵压制南北两座紫旗侧塔',
+            detail: '两座塔分处地图上下边缘；先拔掉交叉射界，中央攻城炮才有机会抵达王都外门',
+            active: true,
+            main: true,
+            highlight: { tiles: [NORTH_TOWER, SOUTH_TOWER] }
+        },
+        preserve_engine: {
+            title: '保护攻城炮',
+            detail: '标有“攻城炮队长”的野战炮是唯一能持续削减大型城市共享城防的重火力；其被摧毁即失败',
+            active: true,
+            main: true,
+            highlight: { unit: 'siege_engine' }
+        },
+        secure_arsenals: {
+            title: '可选：夺取南北塔军械库',
+            detail: '每座军械库提供 10 金和一支即时援军；北库让攻城炮永久增伤，南库让攻城炮永久加速、增血并修复',
+            active: true,
+            main: false,
+            highlight: { tiles: [{ q: 2, r: -5 }, { q: -5, r: 5 }] }
+        },
+        break_gate: {
+            title: '攻破王都外门',
+            detail: '侧塔压制后，将炮送入门前甬道，清除双堡并攻击十九格外郭的任意城郭格，直至城防归零',
+            active: false,
+            status: 'hidden',
+            main: true,
+            highlight: { tiles: [CAPITAL_GATE, { q: 3, r: -2 }, { q: 2, r: 2 }] }
+        },
+        break_varo: {
+            title: '击溃铁卫瓦罗',
+            detail: '外门陷落后瓦罗将率紫旗近卫主动出阵；把他的生命压至两成以下，不要让马库斯阵亡',
+            active: false,
+            status: 'hidden',
+            main: true,
+            highlight: { unit: 'varo_iron_guard' }
+        },
+        decide_oath: {
+            title: '取回誓章，并由马库斯作出选择',
+            detail: '先进入王都中心取下暗红誓章，再亲赴北内门下令停手，或到南旗门命令继续追击',
+            active: false,
+            status: 'hidden',
+            main: true,
+            highlight: { tiles: [OATH_BADGE, SPARE_ORDER, PURSUE_ORDER] }
+        }
+    },
+
+    optionalObjectives: [
+        {
+            id: 'secure_both_arsenals',
+            text: '夺取南北军械库，获得 20 金、两支援军和完整炮队强化',
+            when: [{ kind: 'variableCompare', variable: 'arsenals_secured', scope: 'level', op: '>=', value: 2 }]
+        },
+        {
+            id: 'keep_assault_core',
+            text: '保全五支王军突击部队',
+            when: [{ kind: 'groupState', group: 'royal_assault', state: 'allAlive' }]
+        }
+    ],
+
+    triggers: [
+        {
+            id: 'opening_at_the_gate', enabled: true, once: true,
+            when: [{ kind: 'timer', value: 650 }],
+            do: [
+                {
+                    kind: 'applyEffect', target: { unit: 'varo_iron_guard' }, effectId: 'oath_not_death',
+                    name: '同一个誓', desc: '瓦罗在本关不会被直接击杀；生命降至阈值后进入剧情处置。',
+                    emoji: '⚜️', duration: 0, rule: 'minHp', rulePercent: 1
+                },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'canMove', value: false },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'canAttack', value: false },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'targetable', value: false },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'invulnerable', value: true },
+                { kind: 'setUnitState', target: { unit: 'purple_standard' }, state: 'canMove', value: false },
+                { kind: 'setUnitState', target: { unit: 'purple_standard' }, state: 'canAttack', value: false },
+                {
+                    kind: 'showStep',
+                    text: '黎明还没有照进阿克罗斯。二百余格的王都郊野上，南北烽火先后熄灭；外门、城墙和两座侧塔同时升起紫色鸢尾旗。红旗王军在西边展开，炮轮压过整夜未干的泥。'
+                },
+                { kind: 'showStep', speaker: ADRIAN, text: '瓦罗！我以奥雷利亚国王之名命你开门。放下摄政府的紫旗，让近卫军回到王国旗下。' },
+                { kind: 'showStep', speaker: VARO, text: '陛下，城门里有十万人的秩序。臣不能拿他们去赌一句迟到三年的真相。' },
+                { kind: 'showStep', speaker: MARCUS, text: '瓦罗。北境那年你替我挡过一矛，我也从雪沟里把你背回过营地。把桥放下。别逼我们隔着一道门，把那些年都说成假的。' },
+                { kind: 'showStep', speaker: VARO, text: '正因为门外是你，我才不能退。若我能为兄弟开门，明日每个将军都能为自己的道理带兵叩城。到那时，王国只剩谁的剑更快。' },
+                { kind: 'showStep', speaker: MARCUS, text: '那不是秩序。你只是把门关得太久，久到不敢承认门外还有答案。' },
+                { kind: 'showStep', speaker: VARO, text: '这句话是我教你的。还有侧塔、壕线和交叉射界——也都是。让我看看你究竟学会了多少。' },
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '正门在两座塔的交叉火力里。请百夫长分兵走南北边缘；炮队沿中央壕线推进，不能比两翼先露头。' },
+                { kind: 'showStep', speaker: ADRIAN, text: '西营留有三十二金军费。红旗营城已经开放征募，受损部队也可就地补员。马库斯，不必拿八支队伍去填整座王都。' },
+                {
+                    kind: 'showStep',
+                    text: '这是一次全图攻城：北工兵压制北塔，南工兵穿过猎苑拔掉南塔；主力保护攻城炮横越三道壕线。塔旁各有一处军械库，顺手夺取可给炮队带来永久剧情强化。两塔全毁后强攻十九格共享城防，城门一破，瓦罗才会亲自出阵。',
+                    next: '__begin_iron_flower'
+                },
+                { kind: 'setTriggerEnabled', trigger: 'begin_assault', enabled: true }
+            ]
+        },
+        {
+            id: 'begin_assault', enabled: false, once: true,
+            when: [{ kind: 'eventNextIs', value: '__begin_iron_flower' }],
+            do: [
+                { kind: 'unlockInput' },
+                { kind: 'showStep', text: '紫旗守军会从王都后方持续增援，十四回合后摄政府主力抵达。不要把拔塔、夺军械库、护炮和清壕线做成彼此等待的段落——各条战线必须同时推进。' }
+            ]
+        },
+
+        {
+            id: 'take_north_powder', enabled: true, once: true,
+            when: [{ kind: 'eventInteractionIs', interactable: 'north_powder_magazine' }],
+            do: [
+                { kind: 'setVariable', variable: 'arsenals_secured', operation: 'add', value: 1 },
+                { kind: 'changeGold', camp: 'crown', operation: 'add', value: 10 },
+                {
+                    kind: 'applyEffect', target: { unit: 'siege_engine' }, effectId: 'refined_gate_powder',
+                    name: '北塔精炼火药', desc: '夺取摄政府为侧塔配制的火药，攻城炮攻击永久提高 30%。',
+                    emoji: '💥', duration: 0, statMods: { atkPct: 0.3 }
+                },
+                {
+                    kind: 'spawnUnits',
+                    units: [
+                        { id: 'north_arsenal_reinforcement', type: 'infantry', camp: 'crown', q: 3, r: -5, hpPct: 100, morale: 3, rank: 1, specializationKey: 'assaultInfantry', canAct: true }
+                    ]
+                },
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '北库夺取：军费增加十金，库中守候的突击队加入王军；精炼火药装入主炮，攻城炮永久提高三成攻击。' }
+            ]
+        },
+        {
+            id: 'take_south_axles', enabled: true, once: true,
+            when: [{ kind: 'eventInteractionIs', interactable: 'south_axle_depot' }],
+            do: [
+                { kind: 'setVariable', variable: 'arsenals_secured', operation: 'add', value: 1 },
+                { kind: 'changeGold', camp: 'crown', operation: 'add', value: 10 },
+                {
+                    kind: 'applyEffect', target: { unit: 'siege_engine' }, effectId: 'spare_gate_axles',
+                    name: '南塔备用车轴', desc: '换上近卫军备用车轴，攻城炮移动永久提高 2，最大生命提高 40。',
+                    emoji: '🛞', duration: 0, statMods: { spdFlat: 2, hpFlat: 40 }
+                },
+                { kind: 'changeUnitHp', target: { unit: 'siege_engine' }, operation: 'add', mode: 'percent', value: 40 },
+                {
+                    kind: 'spawnUnits',
+                    units: [
+                        { id: 'south_arsenal_reinforcement', type: 'cavalry', camp: 'crown', q: -4, r: 5, hpPct: 100, morale: 3, rank: 1, specializationKey: 'lightCavalry', canAct: true }
+                    ]
+                },
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '南库夺取：军费增加十金，传令骑兵加入王军；炮队换轴并修复四成，永久增加两点移动与四十点最大生命。' }
+            ]
+        },
+        {
+            id: 'both_arsenals_secured', enabled: true, once: true,
+            when: [{ kind: 'variableCompare', variable: 'arsenals_secured', scope: 'level', op: '>=', value: 2 }],
+            do: [
+                { kind: 'setObjectiveStatus', objective: 'secure_arsenals', status: 'completed' },
+                { kind: 'changeUnitMorale', camp: 'crown', operation: 'set', value: 3 },
+                { kind: 'showStep', speaker: MARCUS, text: '瓦罗把最好的火药和车轴分在两翼，防的就是一门炮正面推进。现在这些东西都在我们手里——用他的准备，敲开他的门。' }
+            ]
+        },
+
+        {
+            id: 'north_tower_falls', enabled: true, once: true,
+            when: [{ kind: 'unitKilled', target: { unit: 'north_tower' } }],
+            do: [
+                { kind: 'setVariable', variable: 'towers_silenced', operation: 'add', value: 1 },
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '北塔哑了！炮口转向南边以前，中央炮队前进两段——别停在壕线正面。' }
+            ]
+        },
+        {
+            id: 'south_tower_falls', enabled: true, once: true,
+            when: [{ kind: 'unitKilled', target: { unit: 'south_tower' } }],
+            do: [
+                { kind: 'setVariable', variable: 'towers_silenced', operation: 'add', value: 1 },
+                { kind: 'showStep', speaker: MARCUS, text: '南塔倒了。两翼不要回头，从城墙根向门前合拢；让瓦罗看见他教出的钳形攻势。' }
+            ]
+        },
+        {
+            id: 'both_towers_silent', enabled: true, once: true,
+            when: [
+                { kind: 'variableCompare', variable: 'towers_silenced', scope: 'level', op: '>=', value: 2 },
+                { kind: 'groupState', group: 'side_towers', state: 'allDead' }
+            ],
+            do: [
+                { kind: 'setObjectiveStatus', objective: 'silence_towers', status: 'completed' },
+                { kind: 'setObjectiveStatus', objective: 'break_gate', status: 'active' },
+                { kind: 'changeUnitMorale', camp: 'crown', operation: 'add', value: 1 },
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '交叉火力消失。炮队进门前甬道！先拆双堡，再把每一发炮弹都打进同一条城防血池。' }
+            ]
+        },
+
+        {
+            id: 'varo_counterstroke', enabled: true, once: true,
+            when: [
+                { kind: 'variableCompare', variable: 'gate_breached', scope: 'level', op: '==', value: true },
+                { kind: 'unitHpCompare', unit: 'varo_iron_guard', mode: 'percent', op: '<=', value: 55 },
+                { kind: 'unitHpCompare', unit: 'varo_iron_guard', mode: 'percent', op: '>', value: 20 }
+            ],
+            do: [
+                {
+                    kind: 'applyEffect', target: { unit: 'varo_iron_guard' }, effectId: 'iron_guard_counterstroke',
+                    name: '铁卫反冲', desc: '瓦罗在城门缺口发动最后反冲：两回合内攻击提高 30%、移动提高 1。',
+                    emoji: '⚔️', duration: 2, statMods: { atkPct: 0.3, spdFlat: 1 }
+                },
+                { kind: 'changeUnitMorale', target: { group: 'varo_guard' }, operation: 'set', value: 3 },
+                { kind: 'showStep', speaker: VARO, text: '你记得钳形，记得压住射界，却忘了守军还有一次反冲。近卫军——离开城墙，跟我把红旗推回壕线！' },
+                { kind: 'showStep', speaker: MARCUS, text: '瓦罗，塞维鲁已经退进内城。他把你留在这里只是为了拖住我们！' },
+                { kind: 'showStep', speaker: VARO, text: '我守的从来不是塞维鲁。命令若能因为情分而弯，城里每个士兵都只会服从自己愿意服从的人。那条路我不能走——哪怕门外是你。' },
+                { kind: 'showStep', speaker: MARCUS, text: '他要用缺口缩短战线。两翼不要追紫旗，转身夹住瓦罗；撑过这一轮，他身后就只剩石阶。' }
+            ]
+        },
+
+        {
+            id: 'gate_breached', enabled: true, once: true,
+            when: [
+                { kind: 'cityOwnedBy', q: CAPITAL_GATE.q, r: CAPITAL_GATE.r, camp: 'crown' },
+                { kind: 'variableCompare', variable: 'towers_silenced', scope: 'level', op: '>=', value: 2 }
+            ],
+            do: [
+                { kind: 'setVariable', variable: 'gate_breached', operation: 'set', value: true },
+                { kind: 'setObjectiveStatus', objective: 'break_gate', status: 'completed' },
+                { kind: 'setObjectiveStatus', objective: 'break_varo', status: 'active' },
+                { kind: 'setUnitState', target: { group: 'varo_guard' }, state: 'canAct', value: true },
+                { kind: 'setUnitState', target: { group: 'varo_guard' }, state: 'canMove', value: true },
+                { kind: 'setUnitState', target: { group: 'varo_guard' }, state: 'canAttack', value: true },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'targetable', value: true },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'invulnerable', value: false },
+                {
+                    kind: 'spawnUnits',
+                    units: [
+                        { id: 'varo_sally_spear', type: 'infantry', camp: 'regency', q: 9, r: -1, hpPct: 100, morale: 3, rank: 3, specializationKey: 'assaultInfantry', canAct: true },
+                        { id: 'varo_sally_rider', type: 'cavalry', camp: 'regency', q: 7, r: 2, hpPct: 100, morale: 3, rank: 3, specializationKey: 'heavyCavalry', canAct: true }
+                    ]
+                },
+                { kind: 'showStep', text: '外门的鸢尾铜饰连同半扇门板向内倒下。紫旗没有后退，反而从裂口两侧卷向城外——瓦罗亲自带近卫军出阵。' },
+                { kind: 'showStep', speaker: VARO, text: '城门破了，城还在。近卫军，随我堵住缺口。今天不必证明谁更忠诚，只要证明谁还能站着。' },
+                { kind: 'showStep', speaker: MARCUS, text: '北队压他的右手，南队切断退路。正面留给我——这是你教我的最后一课，瓦罗。' },
+                { kind: 'showStep', speaker: VARO, text: '那就别留手，马库斯。你若因为记得我是谁而输，我会比死更看不起你。' }
+            ]
+        },
+
+        {
+            id: 'brothers_cross_blades', enabled: true, once: true,
+            when: [
+                { kind: 'variableCompare', variable: 'gate_breached', scope: 'level', op: '==', value: true },
+                {
+                    kind: 'any',
+                    conditions: [
+                        { kind: 'unitAttacksUnit', attacker: { unit: 'marcus_guard' }, defender: { unit: 'varo_iron_guard' } },
+                        { kind: 'unitAttacksUnit', attacker: { unit: 'varo_iron_guard' }, defender: { unit: 'marcus_guard' } }
+                    ]
+                }
+            ],
+            do: [
+                {
+                    kind: 'applyEffect', target: { unit: 'marcus_guard' }, effectId: 'brothers_no_reserve_marcus',
+                    name: '不再留手', desc: '马库斯接受瓦罗的决意：攻击永久提高 10%。',
+                    emoji: '⚔️', duration: 0, statMods: { atkPct: 0.1 }
+                },
+                {
+                    kind: 'applyEffect', target: { unit: 'varo_iron_guard' }, effectId: 'brothers_no_reserve_varo',
+                    name: '不再留手', desc: '瓦罗以旧日同袍应有的全部力量迎战：攻击永久提高 10%。',
+                    emoji: '⚔️', duration: 0, statMods: { atkPct: 0.1 }
+                },
+                { kind: 'showStep', speaker: VARO, text: '你出剑前还是会先沉左肩。下一剑，该从右边来。' },
+                { kind: 'showStep', speaker: MARCUS, text: '我知道。那是你一遍一遍打进我骨头里的。' },
+                { kind: 'showStep', speaker: VARO, text: '很好。至少站在我面前的，还是那个我愿意把后背交出去的人。' }
+            ]
+        },
+
+        {
+            id: 'varo_reaches_threshold', enabled: true, once: true,
+            when: [
+                { kind: 'variableCompare', variable: 'gate_breached', scope: 'level', op: '==', value: true },
+                { kind: 'unitHpCompare', unit: 'varo_iron_guard', mode: 'percent', op: '<=', value: 20 }
+            ],
+            do: [
+                { kind: 'setVariable', variable: 'varo_broken', operation: 'set', value: true },
+                { kind: 'setObjectiveStatus', objective: 'break_varo', status: 'completed' },
+                { kind: 'setObjectiveStatus', objective: 'decide_oath', status: 'active' },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'canAct', value: false },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'canMove', value: false },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'canAttack', value: false },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'targetable', value: false },
+                { kind: 'setUnitState', target: { unit: 'varo_iron_guard' }, state: 'invulnerable', value: true },
+                { kind: 'setInteractionState', interactable: 'recover_oath_badge', state: 'available' },
+                { kind: 'showStep', text: '马库斯的盾缘撞开瓦罗的剑。他倒在破门后的石阶上，胸甲内侧却露出一角暗红：不是摄政府的新徽记，而是一枚被汗、锈与血浸透的旧鸢尾誓章。' },
+                { kind: 'showStep', speaker: MARCUS, text: '你说你摘下了它。' },
+                { kind: 'showStep', speaker: VARO, text: '我摘下的是给别人看的那一枚。若我承认自己仍戴着它，就得承认这三年每一次服从都在背叛它。可我若丢掉它，又不知道自己究竟还在守什么。' },
+                { kind: 'showStep', speaker: MARCUS, text: '所以你把答案藏在甲里，继续替他们关门。' },
+                { kind: 'showStep', speaker: VARO, text: '是。我选择了这条路。别因为我们曾经亲如兄弟，就把选择说成迫不得已。' },
+                { kind: 'showStep', text: '让马库斯亲自进入王都中心取下誓章。此后北内门与南旗门会分别开放两个命令点；你的移动将决定瓦罗的结局，并写入后续战役变量。' }
+            ]
+        },
+        {
+            id: 'badge_recovered', enabled: true, once: true,
+            when: [{ kind: 'eventInteractionIs', interactable: 'recover_oath_badge' }],
+            do: [
+                { kind: 'setInteractionState', interactable: 'order_spare_varo', state: 'available' },
+                { kind: 'setInteractionState', interactable: 'order_pursue_varo', state: 'available' },
+                { kind: 'showStep', speaker: VARO, text: '门是我守的，命令是我下的，人也是我杀的。别拿这块铁替我辩解。' },
+                { kind: 'showStep', speaker: MARCUS, text: '我不会替你辩解。我只想知道，你把它藏了三年，到底是在等谁看见。' },
+                { kind: 'showStep', speaker: VARO, text: '我们发的是同一个誓。' },
+                { kind: 'showStep', text: '选择已经变成战场命令：马库斯前往北内门可命医官停手救治瓦罗；前往南旗门则命令继续追击。两个地点分处内城两翼，抵达任一处后另一处立即关闭。' }
+            ]
+        },
+        {
+            id: 'spare_varo', enabled: true, once: true,
+            when: [{ kind: 'eventInteractionIs', interactable: 'order_spare_varo' }],
+            do: [
+                { kind: 'setVariable', variable: 'varo_spared', operation: 'set', value: true },
+                { kind: 'setVariable', variable: 'crown_weight', operation: 'add', value: 1 },
+                { kind: 'setInteractionState', interactable: 'order_pursue_varo', state: 'disabled' },
+                { kind: 'setObjectiveStatus', objective: 'decide_oath', status: 'completed' },
+                { kind: 'showStep', speaker: MARCUS, text: '医官进城。把他带下去——不是赦免，是让他活着回答这三年的每一道门。' },
+                { kind: 'showStep', speaker: ADRIAN, text: '今日王军以红旗入城，不以同胞的血为旗染色。传令全军：受降者缴械，伤者一律救治。' },
+                { kind: 'endScenario', result: 'win', reason: '外门已破。瓦罗被俘，暗红誓章由马库斯收起；更大的王都决战正在内城集结。' }
+            ]
+        },
+        {
+            id: 'pursue_varo', enabled: true, once: true,
+            when: [{ kind: 'eventInteractionIs', interactable: 'order_pursue_varo' }],
+            do: [
+                { kind: 'setVariable', variable: 'varo_spared', operation: 'set', value: false },
+                { kind: 'setVariable', variable: 'crown_weight', operation: 'subtract', value: 1 },
+                { kind: 'setInteractionState', interactable: 'order_spare_varo', state: 'disabled' },
+                { kind: 'setObjectiveStatus', objective: 'decide_oath', status: 'completed' },
+                { kind: 'showStep', speaker: MARCUS, text: '南旗门继续追击。瓦罗不能再替摄政府关上任何一扇门。' },
+                { kind: 'showStep', speaker: VARO, text: '很好。至少这一次，命令是你自己下的。' },
+                { kind: 'removeUnits', target: { unit: 'varo_iron_guard' }, mode: 'kill' },
+                { kind: 'endScenario', result: 'win', reason: '外门已破。瓦罗死在自己守卫的石阶上，暗红誓章成为王军继续向内城推进的沉重证物。' }
+            ]
+        },
+
+        // 紫旗援军从王都纵深不断出现，让“大战在即”成为逐轮可感知的压力，而非开场一句话。
+        {
+            id: 'purple_wave_1', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'crown', turn: 2 }],
+            do: [
+                { kind: 'spawnUnits', units: [
+                    { id: 'wave1_bow', type: 'archer', camp: 'regency', q: 10, r: -3, hpPct: 100, morale: 2, rank: 2, specializationKey: 'fieldGun', canAct: true },
+                    { id: 'wave1_spear', type: 'infantry', camp: 'regency', q: 7, r: 3, hpPct: 100, morale: 2, rank: 2, specializationKey: 'garrisonInfantry', canAct: true }
+                ] },
+                { kind: 'showStep', speaker: PURPLE_CAPTAIN, text: '东营第一队入城！紫旗上墙，补南北塔之间的缺口。' }
+            ]
+        },
+        {
+            id: 'purple_wave_2', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'crown', turn: 4 }],
+            do: [
+                { kind: 'spawnUnits', units: [
+                    { id: 'wave2_rider', type: 'cavalry', camp: 'regency', q: 10, r: -2, hpPct: 100, morale: 3, rank: 2, specializationKey: 'heavyCavalry', canAct: true },
+                    { id: 'wave2_spear', type: 'infantry', camp: 'regency', q: 6, r: 4, hpPct: 100, morale: 3, rank: 2, specializationKey: 'assaultInfantry', canAct: true }
+                ] },
+                { kind: 'showStep', speaker: GUN_CAPTAIN, text: '城后又起两面紫旗。不是守门的轮换兵，是摄政府从内城调出的预备队——我们已经没有慢攻的余地。' }
+            ]
+        },
+        {
+            id: 'purple_wave_3', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'crown', turn: 6 }],
+            do: [
+                { kind: 'spawnUnits', units: [
+                    { id: 'wave3_bow', type: 'archer', camp: 'regency', q: 11, r: -4, hpPct: 100, morale: 3, rank: 3, specializationKey: 'rocketArtillery', canAct: true },
+                    { id: 'wave3_rider', type: 'cavalry', camp: 'regency', q: 7, r: 4, hpPct: 100, morale: 3, rank: 3, specializationKey: 'heavyCavalry', canAct: true }
+                ] },
+                { kind: 'showStep', speaker: ADRIAN, text: '王都钟楼在敲集结钟。塞维鲁不是要守住这一道门，他在用瓦罗替自己争取布置最后战场的时间。' }
+            ]
+        },
+        {
+            id: 'purple_wave_4', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'crown', turn: 8 }],
+            do: [
+                { kind: 'spawnUnits', units: [
+                    { id: 'wave4_veteran', type: 'infantry', camp: 'regency', q: 12, r: -6, hpPct: 100, morale: 3, rank: 4, specializationKey: 'garrisonInfantry', canAct: true },
+                    { id: 'wave4_gun', type: 'archer', camp: 'regency', q: 5, r: 5, hpPct: 100, morale: 3, rank: 3, specializationKey: 'fieldGun', canAct: true }
+                ] },
+                { kind: 'showStep', speaker: MARCUS, text: '看东边——整条城墙都是紫色。十回合之后来的不会再是两支小队。今天若进不了门，明天就只能在这里等一场会战。' }
+            ]
+        },
+        {
+            id: 'purple_wave_5', enabled: true, once: true,
+            when: [{ kind: 'turnStarted', camp: 'crown', turn: 10 }],
+            do: [
+                { kind: 'spawnUnits', units: [
+                    { id: 'wave5_iron_spear', type: 'infantry', camp: 'regency', q: 12, r: -7, hpPct: 100, morale: 3, rank: 4, specializationKey: 'assaultInfantry', canAct: true },
+                    { id: 'wave5_iron_rider', type: 'cavalry', camp: 'regency', q: 4, r: 7, hpPct: 100, morale: 3, rank: 4, specializationKey: 'heavyCavalry', canAct: true }
+                ] },
+                { kind: 'showStep', speaker: PURPLE_CAPTAIN, text: '内城铁卫预备队抵达！全线紫旗向外，王都总动员已经开始！' },
+                { kind: 'showStep', speaker: ADRIAN, text: '这已经不是一道城门的守军。塞维鲁正在把整座王都推上战场——我们只剩最后四轮。' }
+            ]
+        },
+
+        { id: 'siege_engine_destroyed', enabled: true, once: true, when: [{ kind: 'unitKilled', target: { unit: 'siege_engine' } }], do: [{ kind: 'setObjectiveStatus', objective: 'preserve_engine', status: 'failed' }, { kind: 'endScenario', result: 'lose', reason: '攻城炮被摧毁。两翼即使夺塔，也无法在摄政府主力抵达前击穿王都外郭。' }] },
+        { id: 'marcus_falls', enabled: true, once: true, when: [{ kind: 'unitKilled', target: { unit: 'marcus_guard' } }], do: [{ kind: 'endScenario', result: 'lose', reason: '马库斯倒在城门之外。没有人能替他完成与瓦罗的最后一课。' }] },
+        { id: 'adrian_falls', enabled: true, once: true, when: [{ kind: 'unitKilled', target: { unit: 'king_adrian' } }], do: [{ kind: 'endScenario', result: 'lose', reason: '阿德里安在外门前阵亡。红旗失去名义与中心，归都王军随即崩解。' }] }
+    ],
+
+    result: {
+        winText: '铁花没有开放。它只是被锈、汗与血染成了暗红。',
+        loseText: '紫旗仍覆盖着王都外门，摄政府主力正在逼近。',
+        starRules: [
+            { when: [{ kind: 'groupState', group: 'royal_assault', state: 'allAlive' }] },
+            { when: [{ kind: 'unitExists', unit: 'siege_engine', alive: true }] }
+        ]
+    }
+};

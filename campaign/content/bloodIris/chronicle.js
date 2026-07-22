@@ -114,6 +114,16 @@ const SCENARIOS = Object.freeze([
         chapter: 1,
         order: 5,
         load: () => import('./bi-05-petra.js')
+    },
+    {
+        id: 'bi-13-oppose',
+        title: '铁花不开',
+        label: '13',
+        elementKey: 'bi-13-oppose',
+        type: 'boss',
+        chapter: 3,
+        order: 13,
+        load: () => import('./bi-13-oppose.js')
     }
 ]);
 

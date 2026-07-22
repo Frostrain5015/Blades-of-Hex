@@ -32,6 +32,7 @@ export function getRecruitmentOptionsForTile(tile, state) {
  */
 export function canRecruitTypeAtSelectedCity(type, tile, state, currentCamp = state?.currentCamp) {
     if (!RECRUITMENT_OPTIONS.some(option => option.type === type)) return false;
+    if (currentCamp?.canRecruit === false) return false;
     const site = getRecruitmentSiteKind(tile, state);
     const naval = isRegularNavalUnit(type);
     const requiredSite = naval

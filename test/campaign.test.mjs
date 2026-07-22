@@ -44,11 +44,11 @@ export async function run(browser) {
     R.assert(true, '单人战役拥有独立大厅页签');
     R.assert((await page.textContent('#campaignChronicleTitle')).trim() === '染血的鸢尾花', '第一部传记名为《染血的鸢尾花》');
     R.assert((await page.textContent('.campaign-chronicle-index')).includes('将星列传'), '传记档案编号正确');
-    R.assert((await page.textContent('#campaignCollectiblesBtn')).includes('0/1'), '关卡列表右上角显示收藏物入口与当前收集进度');
+    R.assert((await page.textContent('#campaignCollectiblesBtn')).includes('0/2'), '关卡列表右上角显示收藏物入口与当前收集进度');
     await page.click('#campaignCollectiblesBtn');
     R.assert(await page.locator('#campaignCollectiblesOverlay').isVisible()
         && await page.locator('#campaignLobbyContent #campaignCollectiblesOverlay').count() === 0
-        && await page.locator('.campaign-collectible-slot.is-locked').count() === 1
+        && await page.locator('.campaign-collectible-slot.is-locked').count() === 2
         && (await page.textContent('.campaign-collectible-name')).trim() === '未知收藏物',
     '收藏物以根层独立弹窗展示，未获得条目保持未知且不提前泄露剧情说明');
     await page.click('#campaignCollectiblesCloseBtn');
@@ -186,7 +186,8 @@ export async function run(browser) {
         const wrongUnit = resolveInteractableMove(config, states, 'titus_assault', { q: 0, r: 0 });
         const adjacent = resolveInteractableMove(config, states, 'marcus_assault', { q: 1, r: 0 });
         return {
-            oneEvidenceOnly: BLOOD_IRIS_COLLECTIBLES.length === 1
+            catalogKeepsChapterEvidence: BLOOD_IRIS_COLLECTIBLES.length === 2
+                && BLOOD_IRIS_COLLECTIBLES.some(item => item.id === 'bi13_blood_oath_badge')
                 && config.collectibles.length === 1
                 && config.collectibles[0].id === 'bi05_charred_silk',
             exactSpecialUnitWorks: exact?.allowed === true && exact.item.collectibleId === 'bi05_charred_silk',
@@ -196,7 +197,7 @@ export async function run(browser) {
         };
     });
     R.assert(Object.values(collectibleContract).every(Boolean),
-    '第一章仅马库斯一方的灰烬证据成为收藏物，且只能由指定单位移动到精确高亮地块取得');
+    '第一章灰烬证据仍只能由指定单位精确取得，收藏总表另收录 BI-13 暗红誓章');
     const boardLayoutContract = await page.evaluate(async () => {
         const schema = await import('/campaign/runtime/schema.js');
         const layoutRules = await import('/rules/boardLayout.js');

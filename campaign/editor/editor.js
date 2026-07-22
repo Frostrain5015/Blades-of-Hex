@@ -1361,6 +1361,8 @@ function buildFactionBasics() {
                 c.factions[idx].controller = value;
                 if (value === 'human') setLocalPlayerFaction(c, c.factions[idx].id);
             }, { rebuildPanels: true })));
+        box.appendChild(checkRow('允许招募', faction.canRecruit !== false,
+            value => mutate(c => { c.factions[idx].canRecruit = value; }, { rebuildPanels: false })));
         box.appendChild(numRow('机场上限（-1=自动）', Number.isInteger(faction.airfieldCap) ? faction.airfieldCap : -1,
             value => mutate(c => { c.factions[idx].airfieldCap = value < 0 ? undefined : Math.round(value); }, { rebuildPanels: false }),
             { min: -1, max: 99, step: 1 }));
@@ -1374,7 +1376,7 @@ function buildFactionBasics() {
     addFaction.addEventListener('click', () => mutate(c => {
         let n = 1;
         while (c.factions.some(faction => faction.id === `faction${n}`)) n++;
-        c.factions.push({ id: `faction${n}`, name: `新阵营${n}`, note: '', color: FACTION_PALETTE[(c.factions.length - 1) % FACTION_PALETTE.length].id, controller: 'ai', participatesInTurns: true, active: true });
+        c.factions.push({ id: `faction${n}`, name: `新阵营${n}`, note: '', color: FACTION_PALETTE[(c.factions.length - 1) % FACTION_PALETTE.length].id, controller: 'ai', canRecruit: true, participatesInTurns: true, active: true });
         syncTurnOrder(c);
     }, { rebuildPanels: true }));
     secFactions.appendChild(addFaction);

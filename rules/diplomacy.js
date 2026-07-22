@@ -284,6 +284,7 @@ export function createDefaultFactions(overrides = []) {
             flagAlt: typeof override.flagAlt === 'string' && override.flagAlt ? override.flagAlt : (flagEmoji ? `${override.name || base.name}·${flagEmoji}` : ''),
             flagConfig: flagConfig, // 保留原始配置供编辑器回读
             controller: ['human', 'ai', 'scripted'].includes(override.controller) ? override.controller : base.controller,
+            canRecruit: typeof override.canRecruit === 'boolean' ? override.canRecruit : true,
             participatesInTurns: typeof override.participatesInTurns === 'boolean' ? override.participatesInTurns : base.participatesInTurns,
             active: typeof override.active === 'boolean' ? override.active : base.active
         }];

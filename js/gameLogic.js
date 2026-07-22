@@ -1611,6 +1611,7 @@ export async function resumeNeutralTurnIfNeeded() {
 // ===== 招募 =====================
 export function recruitUnit(type) {
     if (gameState.campaignMode && !isMechanicEnabled(gameState, 'recruitment')) { notify('本关尚未开放招募', 'info'); return; }
+    if (gameState.currentCamp?.canRecruit === false) { notify('该阵营在本关禁止招募', 'info'); return; }
     if (gameState.gameOver) return;
     if (type === 'carrier') { notify('航母暂不开放港口招募', 'info'); return; }
     const config = UNIT_CONFIG[type];

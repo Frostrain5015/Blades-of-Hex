@@ -8,6 +8,7 @@ import {
     getRecruitmentSiteKind,
     shouldShowRecruitmentOption
 } from '../js/recruitmentUi.js';
+import { createDefaultFactions } from '../rules/diplomacy.js';
 
 const player1 = { id: 'player1', name: 'P1' };
 const player2 = { id: 'player2', name: 'P2' };
@@ -53,6 +54,17 @@ test('land recruitment remains available at ordinary own empty cities', () => {
     assert.equal(canRecruitTypeAtSelectedSite('infantry', ordinaryCity, state), true);
     assert.equal(shouldShowRecruitmentOption(RECRUITMENT_OPTIONS[0], ordinaryCity, state), true);
     assert.equal(shouldShowRecruitmentOption(RECRUITMENT_OPTIONS[0], city({ isCity: false, isVillage: true }), state), false);
+});
+
+test('a faction-level recruitment ban blocks every city even when the global mechanic is enabled', () => {
+    const blockedCamp = createDefaultFactions([
+        { id: 'player1', name: 'P1', color: 'red', canRecruit: false }
+    ]).player1;
+    const blockedCity = city({ camp: blockedCamp });
+    assert.equal(blockedCamp.canRecruit, false);
+    assert.equal(canRecruitTypeAtSelectedSite('infantry', blockedCity, state, blockedCamp), false);
+    assert.equal(canRecruitTypeAtSelectedSite('cavalry', blockedCity, state, blockedCamp), false);
+    assert.equal(canRecruitTypeAtSelectedSite('archer', blockedCity, state, blockedCamp), false);
 });
 
 test('recruitment interface only exposes units at cities and ports; coastal defense uses construction', () => {

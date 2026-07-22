@@ -6,6 +6,13 @@ export const BLOOD_IRIS_COLLECTIBLES = Object.freeze([
         name: '焦黑帛书残片',
         emoji: '📃',
         description: '佩特拉自治领档案厅灰烬中发现的半片帛书，只能依稀辨出“君侧之人，实非忠良”几个字。'
+    }),
+    Object.freeze({
+        id: 'bi13_blood_oath_badge',
+        scenarioId: 'bi-13-oppose',
+        name: '暗红鸢尾誓章',
+        emoji: '⚜️',
+        description: '瓦罗藏在贴身甲胄里三年的旧誓章。白釉早被汗、锈与血浸成暗红；他摘下了给别人看的那枚，却从未真正丢弃这一枚。'
     })
 ]);
 

@@ -224,7 +224,8 @@ export function updateRecruitButtonStates() {
         && gameState.factions?.[campToKey(gameState.currentCamp)]?.controller !== 'human';
     const isSkirmishAiTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
     const inCommanderSetup = gameState.commanderPhase === 'selection';
-    const recruitmentDisabled = !isMechanicEnabled(gameState, 'recruitment');
+    const recruitmentDisabled = !isMechanicEnabled(gameState, 'recruitment')
+        || gameState.currentCamp?.canRecruit === false;
     if (opponentTurn || isNeutralTurn || isCampaignAiTurn || isSkirmishAiTurn
         || gameState.gameOver || inCommanderSetup || recruitmentDisabled) {
         for (const btn of Object.values(btns)) {
