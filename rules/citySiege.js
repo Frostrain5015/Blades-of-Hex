@@ -9,16 +9,29 @@ import { canAttack } from './diplomacy.js';
 export const CITY_SIEGE_CONFIG = deepFreeze({
     // 独立结构伤害不读取驻军防御，直接用可见血池承担耐久差异，
     // 不在伤害管线中引入隐藏的结构承伤系数。
-    baseMaxHp: 300,
-    maxHpPerRadius: 600,
+    baseMaxHp: 250,
+    maxHpPerRadius: 200,
     regenPctPerRound: 0.10,
-    maxDefensePct: 0.20
+    maxDefensePct: 0.20,
+    // 炮兵/军舰的火炮攻城修正：规则系数，与海陆互攻减半（naval.js 的
+    // getCrossDomainDamageBonus）同层相加，不是相乘。军舰基础型号两者相加抵消，
+    // 回到基准攻城效率；支援型巡洋舰的专精攻陆加成再叠加后可超出基准（见
+    // getCannonSiegeDamageBonus 的调用方 _resolveGroundNavalSiegeDamage）。
+    cannonSiegeDamageBonus: 0.50
 });
 
-/** 城市血池上限：半径0=300，每向外扩大一圈 +600（半径1=900、半径2=1500）。 */
+/** 城市血池上限：半径0=250，每向外扩大一圈 +200（半径1=450、半径2=650）。 */
 export function getCityMaxHp(radius = 0) {
     const r = Math.max(0, Math.round(Number(radius) || 0));
     return CITY_SIEGE_CONFIG.baseMaxHp + CITY_SIEGE_CONFIG.maxHpPerRadius * r;
+}
+
+/** 攻城时享受 cannonSiegeDamageBonus 的火炮类攻击者：炮兵、军舰（巡洋舰）。 */
+export const CANNON_SIEGE_ATTACKER_TYPES = Object.freeze(new Set(['archer', 'warship']));
+
+/** 火炮攻城修正：与 getCrossDomainDamageBonus 同为可加算的规则系数，由调用方相加后统一乘算。 */
+export function getCannonSiegeDamageBonus(attacker) {
+    return CANNON_SIEGE_ATTACKER_TYPES.has(attacker?.type) ? CITY_SIEGE_CONFIG.cannonSiegeDamageBonus : 0;
 }
 
 /** 由城市总格数反推正六边形圈数（旧档随意涂抹的 footprint → 最近似半径）。 */

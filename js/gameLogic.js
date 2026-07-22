@@ -4,6 +4,7 @@ import { isStrongpointTarget, isBuildingUnit, isStaticBattleStructure } from '..
 import {
     calculateCityStructureDamage,
     damageCityPool,
+    getCannonSiegeDamageBonus,
     getCityDefenseBonus,
     getCityPoolTile,
     getCityRegenAmount,
@@ -3627,14 +3628,18 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
  * 地面/海军部队对无驻军但HP>0的敌方/中立城市造成攻城伤害。
  * 城市不是有克制行列的兵种，不复用 calculateDamage/COUNTER_RELATION——
  * 与 _resolveAirCommandDamage 同样的"独立简化伤害入口"思路。
+ * 炮兵/军舰/岸防炮的火炮攻城修正（cannonSiegeDamageBonus）与海陆互攻减半
+ * （crossDomainBonus）同层相加：军舰基础型号两者抵消回到基准效率，专精出
+ * 攻陆加成的支援型巡洋舰则会叠加超出基准，让舰船与炮兵都能担当攻城手段。
  */
 function _resolveGroundNavalSiegeDamage(attacker, targetTile) {
     const crossDomainBonus = getCrossDomainDamageBonus(attacker, { tile: targetTile });
+    const cannonSiegeBonus = getCannonSiegeDamageBonus(attacker);
     const fortificationBonus = isStrongpointTarget({ tile: targetTile })
         ? (attacker.getSpecializationAbility('fortificationDamage') || 0) : 0;
     const landDamageBonus = attacker.getSpecializationAbility('landDamage') || 0;
     const cmdDamageBonus = areCommanderMechanicsSuppressed(attacker) ? 0 : getCommanderDamageBonusPct(attacker);
-    const damageBonus = crossDomainBonus + fortificationBonus + landDamageBonus + cmdDamageBonus;
+    const damageBonus = crossDomainBonus + cannonSiegeBonus + fortificationBonus + landDamageBonus + cmdDamageBonus;
     const floatMult = attacker._calcFloat(false, false, attacker._rankCritBonus || 0);
     // 空城无驻军、无城墙固定减伤：城市HP自身即是缓冲，伤害不再走额外防御乘区。
     return {

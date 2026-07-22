@@ -5,6 +5,7 @@ import {
     CITY_SIEGE_CONFIG,
     calculateCityStructureDamage,
     damageCityPool,
+    getCannonSiegeDamageBonus,
     getCityDefenseBonus,
     getCityMaxHp,
     getCityRadiusFromTileCount,
@@ -15,6 +16,7 @@ import {
     shouldDamageCityAlongsideGarrison
 } from '../rules/citySiege.js';
 import { isStrongpointTarget } from '../rules/units.js';
+import { getCrossDomainDamageBonus } from '../rules/naval.js';
 
 const P1 = { id: 'player1' };
 const P2 = { id: 'player2' };
@@ -35,11 +37,11 @@ function cityTile(hp, { maxHp = CITY_SIEGE_CONFIG.baseMaxHp, camp = P2, unit = n
     return { isCity: true, hp, maxHp, camp, unit };
 }
 
-test('getCityMaxHp scales with radius: 300 at r0, +600 per ring', () => {
-    assert.equal(getCityMaxHp(0), 300);
-    assert.equal(getCityMaxHp(1), 900);
-    assert.equal(getCityMaxHp(2), 1500);
-    assert.equal(getCityMaxHp(3), 2100);
+test('getCityMaxHp scales with radius: 250 at r0, +200 per ring', () => {
+    assert.equal(getCityMaxHp(0), 250);
+    assert.equal(getCityMaxHp(1), 450);
+    assert.equal(getCityMaxHp(2), 650);
+    assert.equal(getCityMaxHp(3), 850);
 });
 
 test('getCityRadiusFromTileCount inverts hex-disc counts (1/7/19/37)', () => {
@@ -51,8 +53,8 @@ test('getCityRadiusFromTileCount inverts hex-disc counts (1/7/19/37)', () => {
 });
 
 test('getCityDefenseBonus is 20% of the HP ratio (full=+20%, half=+10%)', () => {
-    assert.equal(getCityDefenseBonus(cityTile(300)), 0.2);
-    assert.equal(getCityDefenseBonus(cityTile(150)), 0.1);
+    assert.equal(getCityDefenseBonus(cityTile(250)), 0.2);
+    assert.equal(getCityDefenseBonus(cityTile(125)), 0.1);
     assert.equal(getCityDefenseBonus(cityTile(0)), 0);
     assert.equal(getCityDefenseBonus(cityTile(75, { maxHp: 300 })), 0.05);
     assert.equal(getCityDefenseBonus(cityTile(1000, { maxHp: 1000 })), 0.2);
@@ -67,9 +69,46 @@ test('city structure damage has an independent undefended attack pipeline', () =
         '攻击乘区最低为0且伤害最低为1');
 });
 
+test('getCannonSiegeDamageBonus grants +50% only to cannon-presentation attackers', () => {
+    assert.equal(getCannonSiegeDamageBonus({ type: 'archer' }), 0.5, '炮兵');
+    assert.equal(getCannonSiegeDamageBonus({ type: 'warship' }), 0.5, '军舰');
+    assert.equal(getCannonSiegeDamageBonus({ type: 'shoreBattery' }), 0.5, '岸防炮');
+    assert.equal(getCannonSiegeDamageBonus({ type: 'destroyer' }), 0);
+    assert.equal(getCannonSiegeDamageBonus({ type: 'submarine' }), 0);
+    assert.equal(getCannonSiegeDamageBonus({ type: 'carrier' }), 0);
+    assert.equal(getCannonSiegeDamageBonus({ type: 'infantry' }), 0);
+    assert.equal(getCannonSiegeDamageBonus(null), 0);
+});
+
+test('cannon siege bonus is a rule coefficient that adds with the naval cross-domain penalty', () => {
+    const cityTarget = { tile: { isCity: true } };
+    // 基础巡洋舰：海陆互攻减半(-0.5) 与火炮攻城修正(+0.5) 相加抵消，回到基准攻城效率(1.0倍)
+    const plainWarship = { type: 'warship' };
+    const plainBonus = getCrossDomainDamageBonus(plainWarship, cityTarget) + getCannonSiegeDamageBonus(plainWarship);
+    assert.equal(plainBonus, 0);
+    assert.equal(calculateCityStructureDamage(100, plainBonus, 1), 100);
+
+    // 支援型巡洋舰：专精攻陆加成(+0.5，UNIT_SPECIALIZATION.warship.supportCruiser.landDamage)
+    // 再叠加，由基准 1.0 倍升到 1.5 倍
+    const supportCruiserLandDamage = 0.50;
+    const supportBonus = plainBonus + supportCruiserLandDamage;
+    assert.equal(supportBonus, 0.5);
+    assert.equal(calculateCityStructureDamage(100, supportBonus, 1), 150);
+
+    // 炮兵没有海陆互攻乘区，火炮攻城修正直接生效
+    const archer = { type: 'archer' };
+    const archerBonus = getCrossDomainDamageBonus(archer, cityTarget) + getCannonSiegeDamageBonus(archer);
+    assert.equal(archerBonus, 0.5);
+
+    // 岸防炮对陆地目标本身减伤60%，火炮攻城修正只能部分对冲（浮点误差用近似比较）
+    const shoreBattery = { type: 'shoreBattery' };
+    const shoreBatteryBonus = getCrossDomainDamageBonus(shoreBattery, cityTarget) + getCannonSiegeDamageBonus(shoreBattery);
+    assert.ok(Math.abs(shoreBatteryBonus - (-0.1)) < 1e-9, `expected ~-0.1, got ${shoreBatteryBonus}`);
+});
+
 test('getCityRegenAmount is 10% of maxHp regardless of current HP', () => {
-    assert.equal(getCityRegenAmount(cityTile(0)), 30);
-    assert.equal(getCityRegenAmount(cityTile(300)), 30);
+    assert.equal(getCityRegenAmount(cityTile(0)), 25);
+    assert.equal(getCityRegenAmount(cityTile(250)), 25);
     assert.equal(getCityRegenAmount({ isCity: true, hp: 0, maxHp: 150 }), 15);
 });
 
