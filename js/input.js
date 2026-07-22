@@ -50,7 +50,7 @@ import {
 } from '../rules/factionSynergies.js';
 import { getCelestineOracleState } from '../rules/celestine.js';
 import { isNoctisCommanderUnit, hasNoctisSynergyActive, getBloodMoonChargeRatio, isBloodMoonWeatherActive } from '../rules/noctis.js';
-import { isTianhengCommanderUnit, hasTianhengSynergyActive, getSunMoonChargeRatio } from '../rules/tianheng.js';
+import { isTianhengCommanderUnit, hasTianhengSynergyActive, getSunMoonChargeRatio, hasSunMoonOathEffect, getSunMoonOathRemainingRounds, SUN_MOON_OATH_EFFECT } from '../rules/tianheng.js';
 import {
     EAGLE_FACTION_PASSIVE,
     getEagleSynergyMeter,
@@ -1503,6 +1503,24 @@ function _buildPassiveItems(unit) {
             color: '#e8c477', count: '⏳' + remain, status: '施工中', kind: 'effect'
         });
     }
+    // 天衡【日月天衡】暴击加护：释放后本阵营全体（含普通兵）暴击率提升，持续2回合。
+    // 放在将领判定之前，使普通兵身上也能显示该 buff。
+    if (hasSunMoonOathEffect(unit, gameState)) {
+        const remainRounds = getSunMoonOathRemainingRounds(unit, gameState);
+        items.push({
+            key: 'faction:tianheng:oath',
+            icon: SUN_MOON_OATH_EFFECT.icon,
+            label: SUN_MOON_OATH_EFFECT.name,
+            desc: `日月天衡释放的加护：暴击率提升${Math.round(SUN_MOON_OATH_EFFECT.critRateBonus * 100)}%，持续${SUN_MOON_OATH_EFFECT.durationRounds}回合。`,
+            color: SUN_MOON_OATH_EFFECT.color,
+            status: `当前生效 暴击率提升${Math.round(SUN_MOON_OATH_EFFECT.critRateBonus * 100)}%`,
+            count: '⏳' + remainRounds,
+            kicker: SUN_MOON_OATH_EFFECT.type,
+            active: true,
+            intensity: 1,
+            kind: 'effect'
+        });
+    }
     if (!unit.commander) return items;
     const fellowRobeBonus = getFellowRobeDefenseBonus(unit, gameState);
     if (fellowRobeBonus > 0) {
@@ -1605,7 +1623,7 @@ function _buildPassiveItems(unit) {
             key: 'faction:tianheng:sunmoon',
             icon: '⚖️',
             label: '日月天衡',
-            desc: `每回合结束时回收本阵营单位的剩余行动力；充能满时自动释放，己方阵营全部单位回复100%生命值，士气上升并获得1回合的全图视野`,
+            desc: `每回合结束时回收本阵营单位的剩余行动力；充能满时自动释放，己方阵营全部单位回复100%生命值，士气上升、暴击率提升30%（持续2回合）并获得1回合的全图视野`,
             color: ratio >= 1 ? '#ffd700' : '#8ab8d9',
             status: `充能 ${Math.round(ratio * 100)}%`,
             count: '',

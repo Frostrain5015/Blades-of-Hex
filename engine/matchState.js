@@ -523,6 +523,7 @@ export function serializeMatchState(match) {
             smiteCharged: t.unit._smiteCharged || false,
             healingAura: t.unit._healingAura || 0,
             aureliaOathUntilRound: t.unit._aureliaOathUntilRound || 0,
+            sunMoonOathUntilRound: t.unit._sunMoonOathUntilRound || 0,
             activeSkillBuffs: t.unit._activeSkillBuffs || null,
             isDrone: t.unit._isDrone || false,
             droneSignalDisabled: t.unit._droneSignalDisabled || false,
@@ -985,6 +986,7 @@ export function restoreMatchState(match, data, deps) {
             unit._smiteCharged = td.unit.smiteCharged || false;
             unit._healingAura = td.unit.healingAura || 0;
             unit._aureliaOathUntilRound = td.unit.aureliaOathUntilRound || 0;
+            unit._sunMoonOathUntilRound = td.unit.sunMoonOathUntilRound || 0;
             unit._activeSkillBuffs = td.unit.activeSkillBuffs || null;
             unit._isDrone = td.unit.isDrone || false;
             unit._droneSignalDisabled = td.unit.droneSignalDisabled || false;

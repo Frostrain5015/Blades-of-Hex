@@ -19,8 +19,10 @@ const [tianhengRules, stateModule, unitModule, tileModule, turnsModule] = await 
 
 const {
     SUN_MOON_CHARGE_THRESHOLD,
+    SUN_MOON_OATH_CRIT_BONUS, SUN_MOON_OATH_DURATION_ROUNDS,
     hasTianhengSynergyActive, getLivingTianhengCommanders, getLivingCampUnits,
     resolveBorrowDay, accrueSunMoonCharge, getSunMoonChargeRatio,
+    getSunMoonOathRemainingRounds, hasSunMoonOathEffect, getSunMoonOathCritBonus,
     hasBorrowDayPaybackPending, applyBorrowDayPayback
 } = tianhengRules;
 
@@ -60,7 +62,12 @@ test('≥2 天衡将领 → 激活；仅 1 名 → 不激活；打掉一名 → 
 
 // ===== 充能门槛（平衡数值守卫）=====
 test('SUN_MOON_CHARGE_THRESHOLD 为约定值（改动需刻意）', () => {
-    assert.equal(SUN_MOON_CHARGE_THRESHOLD, 180);
+    assert.equal(SUN_MOON_CHARGE_THRESHOLD, 200);
+});
+
+test('暴击加护数值为约定值（改动需刻意）', () => {
+    assert.equal(SUN_MOON_OATH_CRIT_BONUS, 0.30);
+    assert.equal(SUN_MOON_OATH_DURATION_ROUNDS, 2);
 });
 
 // ===== 充能累积 =====
@@ -127,6 +134,41 @@ test('resolveBorrowDay: 全军回满生命、士气提升至昂扬并置到期�
     }
 });
 
+test('resolveBorrowDay: 全军获得暴击加护，持续 2 回合', () => {
+    const { state, tiles } = setup();
+    spawnTianhengPair(state, tiles);
+    const soldier = new Unit('infantry', state.factions.player1, tiles[3], false, 310);
+
+    resolveBorrowDay(state, 'player1');
+    for (const u of getLivingCampUnits(state, 'player1')) {
+        assert.equal(hasSunMoonOathEffect(u, state), true, '加护生效');
+        assert.equal(getSunMoonOathRemainingRounds(u, state), SUN_MOON_OATH_DURATION_ROUNDS);
+        assert.equal(getSunMoonOathCritBonus(u, state), SUN_MOON_OATH_CRIT_BONUS, '暴击率提升 30%');
+    }
+    assert.ok(hasSunMoonOathEffect(soldier, state), '普通兵同样获得加护');
+});
+
+test('暴击加护跨 2 回合后到期，加成归零', () => {
+    const { state, tiles } = setup();
+    const { astro } = spawnTianhengPair(state, tiles);
+    resolveBorrowDay(state, 'player1'); // 起始 roundIndex 0 → 到期回合 2
+
+    state.turnCounter = state.turnOrder.length * 1; // roundIndex 1：仍在窗口内
+    assert.equal(hasSunMoonOathEffect(astro, state), true);
+    assert.equal(getSunMoonOathCritBonus(astro, state), SUN_MOON_OATH_CRIT_BONUS);
+
+    state.turnCounter = state.turnOrder.length * 2; // roundIndex 2：到期
+    assert.equal(hasSunMoonOathEffect(astro, state), false);
+    assert.equal(getSunMoonOathCritBonus(astro, state), 0);
+});
+
+test('暴击加护对无单位/无 gameState 输入安全', () => {
+    const { state } = setup();
+    assert.equal(getSunMoonOathCritBonus(null, state), 0);
+    assert.equal(getSunMoonOathRemainingRounds({}, state), 0);
+    assert.equal(hasSunMoonOathEffect({ _sunMoonOathUntilRound: 5 }, null), false);
+});
+
 test('resolveBorrowDay: 只作用释放方阵营，不影响敌方', () => {
     const { state, tiles } = setup();
     spawnTianhengPair(state, tiles);
@@ -135,6 +177,7 @@ test('resolveBorrowDay: 只作用释放方阵营，不影响敌方', () => {
     resolveBorrowDay(state, 'player1');
     assert.equal(enemy.hp, 1, '敌方生命不受影响');
     assert.equal(enemy.morale, 2, '敌方士气不受影响');
+    assert.equal(hasSunMoonOathEffect(enemy, state), false, '敌方不获得暴击加护');
 });
 
 test('resolveBorrowDay: 遭遇战模式下为释放方揭示全图视野（1 回合）', () => {
@@ -187,6 +230,25 @@ test('日月天衡充能 序列化/恢复', () => {
         computeCampBorders: () => [], computeDistrictBorders: () => []
     });
     assert.equal(newState._sunMoonCharge.player1, 42, '恢复后保留充能进度');
+});
+
+test('暴击加护到期回合 随快照序列化/恢复', () => {
+    const { state, tiles } = setup();
+    spawnTianhengPair(state, tiles); // astrologer@tiles[1], staller@tiles[2]
+    resolveBorrowDay(state, 'player1');
+    const expectedUntil = getRoundIndex(state) + SUN_MOON_OATH_DURATION_ROUNDS;
+
+    const data = serializeMatchState(state);
+    const newState = createMatchState();
+    newState.tiles = [];
+    newState.tileMap = new Map();
+    restoreMatchState(newState, data, {
+        HexTileClass: EngineHexTile, UnitClass: Unit,
+        computeCampBorders: () => [], computeDistrictBorders: () => []
+    });
+    const restoredAstro = newState.tileMap.get('1,0').unit;
+    assert.equal(restoredAstro._sunMoonOathUntilRound, expectedUntil, '恢复后保留加护到期回合');
+    assert.equal(hasSunMoonOathEffect(restoredAstro, newState), true);
 });
 
 // ===== 旧版兼容（岁耗机制已废弃）=====

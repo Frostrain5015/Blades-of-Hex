@@ -45,6 +45,7 @@ import {
     hasAureliaOathEffect
 } from '../rules/aurelia.js';
 import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
+import { getSunMoonOathCritBonus } from '../rules/tianheng.js';
 import { isBloodMoonHealSuppressed } from '../rules/noctis.js';
 import {
     accrueEagleDamageTaken,
@@ -146,6 +147,7 @@ export class Unit {
         this._engineerConstruction = null;
         this._campaignEffects = [];  // [{id,name,emoji,duration,statMods:{atkPct,defPct,spdPct,hpPct}}]
         this._aureliaOathUntilRound = 0;
+        this._sunMoonOathUntilRound = 0;
         this._engineerScaffold = null;
         this._engineerBunkerCD = 0;
         this._phantomStacks = 0;
@@ -600,7 +602,9 @@ export class Unit {
         const cmdCrit = getCommanderCritRateBonus(attacker);            // 堕天使黑形态 +60% 等
         const counterCrit = counterCoeff > 1 ? COMBAT_BALANCE.counter.advantageCrit : 0;
         const counterNoCrit = counterCoeff < 1;                        // 逆克 无法暴击
-        const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit + (qixueActive ? COMMANDER_CONFIG.berserker.balance.qixueCritBonus : 0);
+        // 天衡【日月天衡】暴击加护：阵营协同 buff，非将领机制，不受 areCommanderMechanicsSuppressed 影响。
+        const sunMoonCrit = getSunMoonOathCritBonus(attacker, _gameState);
+        const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit + sunMoonCrit + (qixueActive ? COMMANDER_CONFIG.berserker.balance.qixueCritBonus : 0);
         const forceCrit = !counterNoCrit && isCommanderGuaranteedCrit(attacker);
         const floatMult = attacker._calcFloat(isCounter, isCityCounter, critRateBonus, counterNoCrit || forceNoCrit, forceCrit && !forceNoCrit);
         const isCrit = floatMult > (isCounter ? COMBAT_BALANCE.float.counter.critThreshold : COMBAT_BALANCE.float.attack.critThreshold);
@@ -691,7 +695,7 @@ export class Unit {
             const commanderAttackBonus = getMountedCommanderAirAttackBonus(this, this.config.attack);
             const power = this.config.attack + (this._rankPanelAttackBonus || 0) + commanderAttackBonus + missingHpPower;
             const floatMult = colonelActive || this._rank >= 4
-                ? this._calcFloat(false, false, this._rankCritBonus || 0)
+                ? this._calcFloat(false, false, (this._rankCritBonus || 0) + getSunMoonOathCritBonus(this, gs))
                 : gs.rng.range(0.95, 1.05);
             let defense = (TERRAIN_CONFIG[targetUnit.tile.terrain]?.defenseBonus || 0)
                 + (targetUnit.config.defense || 0)
