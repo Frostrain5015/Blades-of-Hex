@@ -99,8 +99,11 @@ export function isMovementWaterTile(tile, state = null) {
 /** Whether the unit may legally finish an action on this real board tile. */
 export function canUnitOccupyTile(unitOrType, tile, state = null) {
     if (!isPlayableTile(tile)) return false;
-    // 无人机（天眼哨机）是空军单位，不受陆地/水域限制
-    if (unitOrType?._isDrone) return true;
+    // 无人机（天眼哨机）是空军单位，不受陆地/水域限制。
+    // 构造期实例上的 _isDrone 尚未赋值，故同时凭单位类型识别，
+    // 这样传字符串 'drone' 或裸配置对象（Unit 构造器的占据校验）也能正确放行。
+    const occupantType = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
+    if (unitOrType?._isDrone || occupantType === 'drone') return true;
     const domain = getUnitMovementDomain(unitOrType);
     if (domain === MOVEMENT_DOMAIN.NAVAL) {
         return isMovementWaterTile(tile, state);
