@@ -85,9 +85,14 @@ export function resolveBorrowDay(gameState, campOrKey) {
 
     for (const unit of units) {
         // 原「回满生命」改为统一施加 40 点护盾（与士气/暴击同为 2 回合窗口）。
+        // 若单位已有永久护盾（_shield>0 且 _shieldTurns=0，如护盾卡），保持永久，
+        // 避免把永久护盾错误地压成 2 回合计时（护盾为单一血池，倒计时会整体清零）。
+        const hadPermanentShield = (unit._shield || 0) > 0 && (unit._shieldTurns || 0) === 0;
         unit._shield = (unit._shield || 0) + SUN_MOON_SHIELD_AMOUNT;
         unit._shieldMax = Math.max(unit._shieldMax || 0, unit._shield);
-        unit._shieldTurns = Math.max(unit._shieldTurns || 0, SUN_MOON_OATH_DURATION_ROUNDS);
+        unit._shieldTurns = hadPermanentShield
+            ? 0
+            : Math.max(unit._shieldTurns || 0, SUN_MOON_OATH_DURATION_ROUNDS);
         unit.morale = 3;
         unit.moraleBoostUntil = getRoundIndex(gameState) + 2;
         unit._sunMoonOathUntilRound = oathUntil;

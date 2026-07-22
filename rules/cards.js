@@ -21,7 +21,7 @@ export const TACTICAL_CARD_DATA = (() => {
         forceMarch: { id: 'forceMarch', name: '强行军', icon: EMOJI.cards.forceMarch, targeting: 'friendlyAny', balance: { movementPoints: 2 } },
         scout: { id: 'scout', name: '侦察', icon: EMOJI.cards.scout, targeting: 'anyTileGlobal', balance: { duration: 3 } },
         airstrike: { id: 'airstrike', name: '空袭', icon: EMOJI.cards.airstrike, targeting: 'enemyGlobal', balance: { minDamage: 35, maxDamage: 50, forestMultiplier: 0.8, cityDisableRounds: 2 } },
-        shield: { id: 'shield', name: '护盾', icon: EMOJI.cards.shield, targeting: 'shieldTarget', balance: { shield: 50, duration: 3 } },
+        shield: { id: 'shield', name: '护盾', icon: EMOJI.cards.shield, targeting: 'shieldTarget', balance: { shield: 60 } },
         landmine: { id: 'landmine', name: '地雷', icon: EMOJI.cards.landmine, targeting: 'emptyFriendlyLandmine', desc: '【地雷】\n在己方空地部署地雷，敌方单位经过时触发造成伤害' },
         poison: { id: 'poison', name: '投毒', icon: '☣️', targeting: 'anyUnit', balance: { ticks: 3, damageMaxHpPct: 0.15 } },
         commanderDeploy: { id: 'commanderDeploy', name: '部署将领', icon: EMOJI.cards.commanderDeploy, targeting: 'friendlyAny', desc: '【部署将领】\n将所选将领挂载到指定己方单位上' },
@@ -35,7 +35,7 @@ export const TACTICAL_CARD_DATA = (() => {
     cards.forceMarch.desc = `【强行军】\n对指定己方单位释放，立即回复${cards.forceMarch.balance.movementPoints}点行动力`;
     cards.scout.desc = `【侦察】\n对指定位置释放，揭示目标及其周围6格区域的战争迷雾，持续${cards.scout.balance.duration}回合`;
     cards.airstrike.desc = `【空袭】\n对指定敌方目标及周边6格造成${rangeText(cards.airstrike.balance.minDamage, cards.airstrike.balance.maxDamage)}范围伤害，命中城市时其${cards.airstrike.balance.cityDisableRounds}回合内无法产出资源或招募部队`;
-    cards.shield.desc = `【护盾】\n对指定目标释放，使其获得${cards.shield.balance.shield}点护盾值，持续${cards.shield.balance.duration}回合`;
+    cards.shield.desc = `【护盾】\n对指定目标释放，使其获得${cards.shield.balance.shield}点护盾值，永久有效直到被消耗殆尽`;
     cards.poison.desc = `【投毒】\n使任意可见单位中毒；在其所属阵营回合开始流失${percent(cards.poison.balance.damageMaxHpPct)}最大生命，持续${cards.poison.balance.ticks}次并会传播至相邻单位`;
     cards.orbitalStrike.desc = `【天基打击】\n呼叫天基平台对指定位置及周边6格实施轨道光束打击，光束压制${cards.orbitalStrike.balance.tickRatios.length - 1}段后光环坠落引爆，以中心${cards.orbitalStrike.balance.centerAttack}/溅射${cards.orbitalStrike.balance.splashAttack}点基础火力经标准伤害管线结算（浮动顶格视为暴击，受防御影响、不受防空与将领增伤影响）`;
     return deepFreeze(cards);
@@ -250,10 +250,12 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
     shield: {
         ...TACTICAL_CARD_DATA.shield,
         execute(targetTile, gameState, helpers) {
-            targetTile.unit._shield += TACTICAL_CARD_DATA.shield.balance.shield;
-            targetTile.unit._shieldMax = Math.max(targetTile.unit._shieldMax, targetTile.unit._shield);
-            targetTile.unit._shieldTurns = TACTICAL_CARD_DATA.shield.balance.duration;
-            return { shielded: true, targetTile };
+            const unit = targetTile.unit;
+            const amount = TACTICAL_CARD_DATA.shield.balance.shield;
+            unit._shield += amount;
+            unit._shieldMax = Math.max(unit._shieldMax, unit._shield);
+            unit._shieldTurns = 0; // 永久有效（_shieldTurns=0 → 回合倒计时不消耗），直到护盾被打光
+            return { shielded: true, targetTile, shieldAmount: amount };
         }
     },
     landmine: {
