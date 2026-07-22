@@ -77,9 +77,9 @@ export const UNIT_SPECIALIZATION_CONFIG = deepFreeze({
     },
     warship: {
         fleetCruiser: spec('制海型巡洋舰', { hp: 200, attack: 55, defense: 0.10, speed: 4, range: 2 }, {
-            shipDamage: { rank1: 0.15, rank3: 0.25 },
-            extraSalvo: { rank1: 0.15, rank3: 0.25, multiplier: 0.5 }
-        }, unit => `对海军单位的伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率追加半伤齐射。`),
+            shipDamage: { rank1: 0.25, rank3: 0.4 },
+            extraSalvo: { rank1: 0.25, rank3: 0.4, multiplier: 0.5 }
+        }, unit => `对海军单位的伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率舰炮齐射造成原本50%的额外伤害。`),
         supportCruiser: spec('支援型巡洋舰', { hp: 180, attack: 60, defense: 0.05, speed: 5, range: 3 }, {
             landDamage: 0.50,
             shoreSplashChance: { rank1: 0.25, rank3: 0.40, multiplier: 0.30, totalDamageCap: 1 }
