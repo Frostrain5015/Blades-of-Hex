@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { GAME_RULES } from '../rules/constants.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
 import { getPlayableBoardCoordinates } from '../rules/boardLayout.js';
-import { STANDARD_MAP_FAMILIES, STANDARD_MAP_POOL, getStandardMap } from '../rules/standardMaps.js';
+import {
+    STANDARD_MAP_FAMILIES,
+    STANDARD_MAP_POOL,
+    getStandardMap,
+    normalizeStandardMapFamilyId
+} from '../rules/standardMaps.js';
 import {
     applyStandardMapCaptureReward,
     shouldHoldNeutralCarrierPosition,
@@ -303,6 +308,15 @@ test('the neutral AI holds the prize carrier at its authored port', () => {
 
 test('the preparation catalog exposes both named map families', () => {
     assert.deepEqual(STANDARD_MAP_FAMILIES.map(map => map.name), ['王冠环岛', '无主航路']);
+});
+
+test('self-play legacy concrete map ids normalize to the intended map family', () => {
+    assert.equal(normalizeStandardMapFamilyId('grand-island-2p'), 'crown-ring');
+    assert.equal(normalizeStandardMapFamilyId('grand-island-3p'), 'crown-ring');
+    assert.equal(normalizeStandardMapFamilyId('uncharted-passage-2p'), 'uncharted-passage');
+    assert.equal(normalizeStandardMapFamilyId('uncharted-passage-3p'), 'uncharted-passage');
+    assert.equal(getStandardMap(2, 'uncharted-passage-2p').familyId, 'uncharted-passage');
+    assert.equal(getStandardMap(3, 'uncharted-passage-3p').familyId, 'uncharted-passage');
 });
 
 test('every controlled village has the same fixed one-dollar income', () => {

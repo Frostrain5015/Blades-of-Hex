@@ -10,6 +10,7 @@ import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKe
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { COMMANDER_REROLL_COST } from './config.js';
 import { COMMANDER_DRAFT } from '../rules/constants.js';
+import { COMMANDER_PREFERENCE } from '../ai/doctrine.js';
 import { ORBITAL_STRIKE_TICK_DELAYS_MS } from '../rules/cards.js';
 import { damageCityPool, getCityPoolTile } from '../rules/citySiege.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
@@ -1370,17 +1371,14 @@ function beginPVECommanderPhase(humanRole) {
 
 let _pveHumanRole = null;
 
-// AI 快速选将：从池中按进攻偏好选择（Grok 选将偏好）
-const _GROK_PREF = [
-    'vampire', 'paladin', 'advisor', 'berserker', 'colonel', 'necromancer',
-    'ironGuard', 'minister', 'centurion', 'magician', 'fallenAngel',
-    'astrologer', 'diplomat', 'priest', 'staller', 'engineer', 'tianyan', 'martyr'
-];
+// AI 快速选将：从池中按进攻偏好选择。偏好表取自条令层，三档 AI 共用同一份，
+// 末尾几位是条令表未覆盖的将领，按可用性兜底排在最后。
+const _COMMANDER_PREF = [...COMMANDER_PREFERENCE, 'engineer', 'tianyan', 'martyr'];
 function _pveAIQuickPick(forPlayer) {
     const pool = forPlayer === 'player1' ? gameState.commanderPoolP1 : gameState.commanderPoolP2;
     const picks = [];
     if (gameState.doubleCommanderMode) {
-        const rank = new Map(_GROK_PREF.map((id, index) => [id, index]));
+        const rank = new Map(_COMMANDER_PREF.map((id, index) => [id, index]));
         const synergyPairs = [];
         for (let left = 0; left < pool.length; left++) {
             for (let right = left + 1; right < pool.length; right++) {
@@ -1395,7 +1393,7 @@ function _pveAIQuickPick(forPlayer) {
             - right.reduce((sum, id) => sum + (rank.get(id) ?? 999), 0));
         if (synergyPairs[0]) picks.push(...synergyPairs[0]);
     }
-    for (const pref of _GROK_PREF) {
+    for (const pref of _COMMANDER_PREF) {
         if (pool.includes(pref) && !picks.includes(pref)) picks.push(pref);
         if (picks.length === (gameState.doubleCommanderMode ? 2 : 1)) break;
     }

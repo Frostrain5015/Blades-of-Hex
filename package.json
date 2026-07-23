@@ -17,7 +17,7 @@
     "build-admin-exe": "pkg admin/admin-server.js -t node18-win-x64 -o BladesOfHex-Admin.exe",
     "test": "node test/run-all.mjs",
     "test:quick": "node test/run-all.mjs --quick",
-    "selfplay:grok": "node tools/runGrokSelfPlay.mjs"
+    "selfplay": "node tools/runSelfPlay.mjs"
   },
   "dependencies": {
     "mysql2": "^3.22.6",

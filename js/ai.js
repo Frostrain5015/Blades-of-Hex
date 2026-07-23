@@ -1,5 +1,5 @@
 // AI 调度器 — 加载人格文件，管理执行与延迟
-// 支持多 AI 人格：Claude（中立防御型）、Grok（玩家对手进攻型）
+// 玩家侧人格按难度分档：Optio(Basic) / Legatus(Pro) / Imperator(Max)；中立方为 Claude。
 
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
@@ -16,7 +16,23 @@ import { spawnCommanderSkillEffect } from './effects.js';
 import { updateFogOfWar, updateAllFogOfWar, isTileVisible } from './fogOfWar.js';
 // 人格脚本位于可见目录 ai/（勿用隐藏目录：静态白名单、资源清单与部署工具都会跳过点开头路径）
 import * as claudePersonality from '../ai/claude.js';
-import * as grokPersonality from '../ai/grok.js';
+// 三个玩家侧人格按难度分档，各自是独立的规划器而不是同一份代码的开关组合。
+// 共享的只有 ai/doctrine.js 里的规则事实（克制表、跨域伤害、占城资格……）。
+import * as optioPersonality from '../ai/optio.js';
+import * as legatusPersonality from '../ai/legatus.js';
+import * as imperatorPersonality from '../ai/imperator.js';
+import { canCaptureCityByCombat, scoreCommanderCarrierCandidate } from '../ai/doctrine.js';
+
+const PERSONALITY_BY_DIFFICULTY = Object.freeze({
+    easy: optioPersonality,
+    medium: legatusPersonality,
+    hard: imperatorPersonality
+});
+
+/** 按难度档解析玩家侧人格脚本；未知档位退回入门档。 */
+export function resolveAiPersonality(difficultyProfile) {
+    return PERSONALITY_BY_DIFFICULTY[difficultyProfile?.id] || optioPersonality;
+}
 import { canAttack, isHostile } from '../rules/diplomacy.js';
 import { campToKey } from '../rules/camps.js';
 import { prioritizeNavalRecruitment } from '../rules/aiRecruitment.js';
@@ -306,13 +322,20 @@ async function deployAvailableCommanders(aiCamp) {
         { commanderId: gameState[prefix], deployedKey: `${prefix}Deployed` },
         { commanderId: gameState[`${prefix}Secondary`], deployedKey: `${prefix}SecondaryDeployed` }
     ].filter(({ commanderId, deployedKey }) => commanderId && !gameState[deployedKey]);
+    const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
     const availableUnits = gameState.tiles
         .map(tile => tile.unit)
-        .filter(unit => unit && unit.camp === aiCamp && !(unit.isCommanderUnit ?? Boolean(unit.commander)) && unit.tile && unit.hp > 0)
-        .sort((left, right) => right.getEffectiveAttack() - left.getEffectiveAttack());
+        .filter(unit => unit && unit.camp === aiCamp
+            && !(unit.isCommanderUnit ?? Boolean(unit.commander))
+            && unit.tile && unit.hp > 0);
 
-    for (let i = 0; i < commanders.length && i < availableUnits.length; i++) {
-        await executeAction({ type: 'deployCommander', unitId: availableUnits[i].id, commanderId: commanders[i].commanderId }, aiCamp);
+    for (const { commanderId } of commanders) {
+        if (availableUnits.length === 0) break;
+        availableUnits.sort((left, right) =>
+            scoreCommanderCarrierCandidate(right, commanderId, standardMap)
+            - scoreCommanderCarrierCandidate(left, commanderId, standardMap));
+        const [carrier] = availableUnits.splice(0, 1);
+        await executeAction({ type: 'deployCommander', unitId: carrier.id, commanderId }, aiCamp);
     }
 }
 
@@ -627,7 +650,7 @@ export async function processNeutralTurn() {
 }
 
 // ═══════════════════════════════════════════
-// 对手 AI 回合（Grok 进攻型人格）
+// 对手 AI 回合（按难度档分派人格脚本）
 // ═══════════════════════════════════════════
 
 export async function processOpponentTurn(aiCamp) {
@@ -649,7 +672,8 @@ export async function processOpponentTurn(aiCamp) {
         await deployAvailableCommanders(aiCamp);
 
         const helpers = makeHelpers(aiCamp, difficultyProfile);
-        const actions = grokPersonality.planActions(gameState, helpers, aiCamp, difficultyProfile);
+        const personality = resolveAiPersonality(difficultyProfile);
+        const actions = personality.planActions(gameState, helpers, aiCamp);
 
         // 回合首次行动前延迟 2s
         if (actions.length > 0) { await delay(AI_DELAY); }
@@ -673,7 +697,18 @@ export async function processOpponentTurn(aiCamp) {
                 await executeAction({ type: 'recruit', unitType, tileQ: city.q, tileR: city.r }, aiCamp);
             }
         }
-        for (const port of emptyPorts) {
+        // 舰队负责制海，占城只能靠陆战队（引擎里只有突击类攻击会推进到城市格）。
+        // 港口兜底招募必须封顶，否则金币会全部变成占不了城的舰船——回归局里
+        // 蓝军堆出 19 艘驱逐舰，可进城的单位只有 2 个，终局仍是 2 城平局。
+        const livingOwnUnits = gameState.tiles
+            .map(tile => tile.unit)
+            .filter(unit => unit?.camp === aiCamp && unit.hp > 0);
+        const assaultCapableCount = livingOwnUnits
+            .filter(unit => canCaptureCityByCombat(unit)).length;
+        const navalCount = livingOwnUnits
+            .filter(unit => unit.config?.movementDomain === 'naval').length;
+        const fleetSaturated = navalCount >= Math.max(4, assaultCapableCount * 2);
+        for (const port of fleetSaturated ? [] : emptyPorts) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
             const hostileTypes = new Set(gameState.tiles
                 .map(tile => tile.unit)
@@ -702,9 +737,9 @@ export async function processOpponentTurn(aiCamp) {
 // ═══════════════════════════════════════════
 
 export function aiSelectCommander(pool) {
-    return grokPersonality.selectCommander(pool);
+    return imperatorPersonality.selectCommander(pool);
 }
 
 export function aiSelectCommanderPair(pool) {
-    return grokPersonality.selectCommanderPair(pool);
+    return imperatorPersonality.selectCommanderPair(pool);
 }

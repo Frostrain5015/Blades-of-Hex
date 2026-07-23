@@ -21,6 +21,7 @@ const {
     SUN_MOON_CHARGE_THRESHOLD, SUN_MOON_SHIELD_AMOUNT,
     SUN_MOON_OATH_CRIT_BONUS, SUN_MOON_OATH_DURATION_ROUNDS,
     hasTianhengSynergyActive, getLivingTianhengCommanders, getLivingCampUnits,
+    getUnusedMovementCharge,
     resolveBorrowDay, accrueSunMoonCharge, getSunMoonChargeRatio,
     getSunMoonOathRemainingRounds, hasSunMoonOathEffect, getSunMoonOathCritBonus,
     hasBorrowDayPaybackPending, applyBorrowDayPayback
@@ -111,6 +112,25 @@ test('accrueSunMoonCharge: 负数/非法输入按 0 处理', () => {
     assert.deepEqual(accrueSunMoonCharge(state, 'player1', -50), []);
     assert.deepEqual(accrueSunMoonCharge(state, 'player1', NaN), []);
     assert.equal(getSunMoonChargeRatio(state, 'player1'), 0);
+});
+
+test('回合末只回收指定阵营重置前的真实闲置行动力', () => {
+    const { state, tiles } = setup();
+    const { astro, staller } = spawnTianhengPair(state, tiles);
+    astro.remainingMP = 3;
+    staller.remainingMP = 0;
+    const enemy = new Unit('cavalry', state.factions.player2, tiles[4], false, 401);
+    enemy.remainingMP = 99;
+
+    assert.equal(getUnusedMovementCharge(state, 'player1'), 3);
+    assert.equal(getUnusedMovementCharge(state, 'player2'), 99);
+
+    // 模拟引擎随后执行的全场回合重置；截取值应来自重置前，而非满行动力。
+    const capturedBeforeReset = getUnusedMovementCharge(state, 'player1');
+    astro.remainingMP = astro.getEffectiveSpeed();
+    staller.remainingMP = staller.getEffectiveSpeed();
+    assert.equal(capturedBeforeReset, 3);
+    assert.notEqual(getUnusedMovementCharge(state, 'player1'), capturedBeforeReset);
 });
 
 // ===== 释放效果 =====

@@ -406,8 +406,20 @@ export const STANDARD_MAP_POOL = deepFreeze({
     3: STANDARD_MAP_FAMILIES.map(family => family.maps[3])
 });
 
+export function normalizeStandardMapFamilyId(mapId) {
+    const normalized = typeof mapId === 'string' ? mapId.trim().toLowerCase() : '';
+    if (normalized === 'uncharted-passage' || /^uncharted-passage-[23]p$/.test(normalized)) {
+        return 'uncharted-passage';
+    }
+    if (normalized === 'crown-ring' || /^grand-island-[23]p$/.test(normalized)) {
+        return 'crown-ring';
+    }
+    return DEFAULT_STANDARD_MAP_ID;
+}
+
 export function getStandardMap(playerCount, familyId = DEFAULT_STANDARD_MAP_ID) {
-    const family = STANDARD_MAP_FAMILIES.find(entry => entry.id === familyId)
+    const normalizedFamilyId = normalizeStandardMapFamilyId(familyId);
+    const family = STANDARD_MAP_FAMILIES.find(entry => entry.id === normalizedFamilyId)
         || STANDARD_MAP_FAMILIES[0];
     return family.maps[Number(playerCount) === 3 ? 3 : 2];
 }

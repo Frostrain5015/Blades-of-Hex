@@ -45,12 +45,12 @@ function actorKind(state, campKey, origin = 'local') {
     const faction = state.factions?.[campKey];
     if (origin === 'remote') {
         if (campKey === 'neutral') return 'remote-neutral-ai';
-        return faction?.controller === 'ai' ? 'remote-grok-ai' : 'remote-human';
+        return faction?.controller === 'ai' ? 'remote-player-ai' : 'remote-human';
     }
     if (campKey === 'neutral') return 'neutral-ai';
-    if (state.aiActing) return campKey === 'neutral' ? 'neutral-ai' : 'grok-ai';
+    if (state.aiActing) return campKey === 'neutral' ? 'neutral-ai' : 'player-ai';
     if (faction?.controller === 'scripted') return 'scripted';
-    if (faction?.controller === 'ai') return 'grok-ai';
+    if (faction?.controller === 'ai') return 'player-ai';
     return 'human';
 }
 

@@ -1,9 +1,11 @@
-// 多 Grok 自动化对局。逻辑层复用浏览器同一套 gameLogic / Unit / Grok 人格，
-// 仅按比例压缩表现计时；同时输出轻量复盘索引与完整审计日志。
+// AI 自对局。逻辑层复用浏览器同一套 gameLogic / Unit 与按难度分档的人格脚本
+// （Optio / Legatus / Imperator），仅按比例压缩表现计时；
+// 同时输出轻量复盘索引与完整审计日志。
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { getAiDifficultyProfile } from '../ai/difficulty.js';
+import { normalizeStandardMapFamilyId } from '../rules/standardMaps.js';
 
 function readArgs(argv) {
     const values = {};
@@ -21,16 +23,17 @@ function numberArg(value, fallback, { min = -Infinity, max = Infinity } = {}) {
 }
 
 const args = readArgs(process.argv.slice(2));
-const seed = args.seed || `grok-selfplay-${new Date().toISOString().slice(0, 10)}`;
+const seed = args.seed || `selfplay-${new Date().toISOString().slice(0, 10)}`;
 const maxRounds = Math.round(numberArg(args['max-rounds'], 25, { min: 1, max: 100 }));
 const timeScale = numberArg(args['time-scale'], 0.02, { min: 0.001, max: 1 });
 const requestedDifficulties = typeof args.difficulties === 'string'
     ? args.difficulties.split(',').map(value => value.trim()).filter(Boolean)
     : [];
 const defaultDifficulty = getAiDifficultyProfile(args.difficulty ?? 'easy');
-const standardMapId = typeof args.map === 'string' ? args.map : 'grand-island-2p';
+const requestedStandardMapId = typeof args.map === 'string' ? args.map : 'crown-ring';
+const standardMapId = normalizeStandardMapFamilyId(requestedStandardMapId);
 const fogOfWar = args.fog === true || args.fog === 'true' || args.fog === '1';
-const playerCount = Math.round(numberArg(args.players, /-3p$/i.test(standardMapId) ? 3 : 2, { min: 2, max: 3 }));
+const playerCount = Math.round(numberArg(args.players, /-3p$/i.test(requestedStandardMapId) ? 3 : 2, { min: 2, max: 3 }));
 const doubleCommander = args['double-commander'] === true
     || args['double-commander'] === 'true'
     || args['double-commander'] === '1';
@@ -109,12 +112,17 @@ for (let index = 0; index < playerCount; index++) {
 }
 
 engine.initMap();
-const matchId = `grok-vs-grok-${String(seed).replace(/[^a-z0-9_-]+/gi, '-').slice(0, 48)}-${Date.now().toString(36)}`;
+const matchId = `selfplay-${String(seed).replace(/[^a-z0-9_-]+/gi, '-').slice(0, 48)}-${Date.now().toString(36)}`;
 recorder.startMatchRecording(state, {
     matchId,
     automation: {
-        runner: 'tools/runGrokSelfPlay.mjs',
-        playerPersonalities: Object.fromEntries(playerKeys.map(key => [key, 'Grok'])),
+        runner: 'tools/runSelfPlay.mjs',
+        playerPersonalities: Object.fromEntries(
+            Object.entries(difficultyProfiles).map(([key, profile]) => [
+                key,
+                ai.resolveAiPersonality(profile).meta.name
+            ])
+        ),
         playerDifficulties: Object.fromEntries(
             Object.entries(difficultyProfiles).map(([key, profile]) => [key, profile.id])
         ),

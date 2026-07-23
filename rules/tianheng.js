@@ -69,6 +69,14 @@ export function getLivingCampUnits(gameState, campOrKey) {
         .filter(unit => unit && unit.hp > 0 && campToKey(unit.camp) === campKey);
 }
 
+/** 回合结束时可回收的真实闲置行动力；必须在全场单位行动力重置前读取。 */
+export function getUnusedMovementCharge(gameState, campOrKey) {
+    return getLivingCampUnits(gameState, campOrKey).reduce(
+        (total, unit) => total + Math.max(0, Number(unit.remainingMP) || 0),
+        0
+    );
+}
+
 /**
  * 日月天衡结算：本阵营全体存活单位——
  *   ① 获得 40 点护盾（叠加现有护盾），持续2回合；

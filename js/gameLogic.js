@@ -88,6 +88,7 @@ import {
     accrueSunMoonCharge,
     getSunMoonChargeRatio,
     getLivingCampUnits,
+    getUnusedMovementCharge,
     hasTianhengSynergyActive
 } from '../rules/tianheng.js';
 import { measure, perfEnabled } from './perf.js';
@@ -1190,6 +1191,9 @@ export function resolvePoisonAtTurnStart(camp) {
 
 async function _doEndTurnPhase() {
     const camp = gameState.currentCamp;
+    const endingCampKey = _campKey(camp);
+    // 必须在下方全场行动力重置前截取；日月天衡只回收刚结束回合阵营的真实闲置行动力。
+    const unusedSunMoonMovement = getUnusedMovementCharge(gameState, endingCampKey);
     _endTurnCmdFxList = []; // 本回合将领特效收集
     _rainLightningFx = null;
     const _healingChainDatas = []; // 牧师圣链特效收集
@@ -1260,8 +1264,8 @@ async function _doEndTurnPhase() {
     const roundIndexBeforeAdvance = getRoundIndex(gameState);
     _advanceTurnPointer(camp);
 
-    // 天衡【日月天衡】：回收本阵营单位剩余行动力作为充能，满则自动释放。
-    sunMoonTrigger = _accrueSunMoonForCamp();
+    // 天衡【日月天衡】：只结算刚结束回合阵营，不重复回收其他阵营重置后的满行动力。
+    sunMoonTrigger = _accrueSunMoonForCamp(endingCampKey, unusedSunMoonMovement);
 
     // A submarine that attacked stays exposed through every enemy action and
     // submerges again only when its own next turn begins.
@@ -1302,7 +1306,6 @@ async function _doEndTurnPhase() {
     }
 
     // 对策卡系统 v2：重置结束回合方的抽牌/用牌计数 + 清除禁锢
-    const endingCampKey = _campKey(camp);
     if (endingCampKey !== 'neutral') {
         gameState.playerDrawsThisTurn[endingCampKey] = 0;
         gameState.playerUsesThisTurn[endingCampKey] = 0;
@@ -1503,7 +1506,7 @@ export async function endTurn(options = {}) {
             const isScripted = gameState.campaignMode && currentFaction?.controller === 'scripted';
 
             if (isAIOpponent) {
-                // PVE 对手 AI（Grok 进攻型人格）
+                // PVE 对手 AI（按难度档分派 Optio / Legatus / Imperator）
                 gameState.aiActing = true;
                 try {
                     const { processOpponentTurn } = await import('./ai.js');
@@ -1541,7 +1544,7 @@ export async function endTurn(options = {}) {
 }
 
 // 自动化对局只推进一个阵营回合：复用完整回合结算，但不自动串行接管后续 AI，
-// 以便运行器让每个玩家席位都使用同一 Grok 人格并逐席记录。
+// 以便运行器让每个玩家席位都使用同一档人格并逐席记录。
 export async function advanceAutomatedTurn() {
     if (gameState.gameOver || _turnProcessing) return false;
     _turnProcessing = true;
@@ -4144,24 +4147,15 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     });
     return true;
 }
-// 天衡【日月天衡】：回收本阵营各单位剩余行动力，满阈值自动释放。
-function _accrueSunMoonForCamp() {
-    let result = null;
-    for (const campKey of Object.keys(gameState.factions || {})) {
-        if (campKey === 'neutral') continue;
-        if (!hasTianhengSynergyActive(gameState, campKey)) continue;
-        const units = getLivingCampUnits(gameState, campKey);
-        let totalRemaining = 0;
-        for (const unit of units) {
-            totalRemaining += Math.max(0, unit.remainingMP || 0);
-        }
-        const affectedIds = accrueSunMoonCharge(gameState, campKey, totalRemaining);
-        if (affectedIds.length > 0) {
-            result = { campKey, affectedIds };
-            logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【日月天衡】充能已满——全军40点护盾+士气提升+暴击率提升+全图视野`);
-        }
+// 天衡【日月天衡】：回收刚结束回合阵营的真实剩余行动力，满阈值自动释放。
+function _accrueSunMoonForCamp(campKey, totalRemaining) {
+    if (!campKey || campKey === 'neutral' || !hasTianhengSynergyActive(gameState, campKey)) {
+        return null;
     }
-    return result;
+    const affectedIds = accrueSunMoonCharge(gameState, campKey, totalRemaining);
+    if (affectedIds.length === 0) return null;
+    logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【日月天衡】充能已满——全军40点护盾+士气提升+暴击率提升+全图视野`);
+    return { campKey, affectedIds };
 }
 
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
