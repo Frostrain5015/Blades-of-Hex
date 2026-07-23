@@ -54,6 +54,7 @@ import {
     resolveEagleDamageTakenCampKey
 } from '../rules/eagle.js';
 import { enqueueFloatText, adjustLatestDamageText } from './floatTexts.js';
+import { resolveAiDifficultyProfile } from '../ai/difficulty.js';
 
 // 延迟引用，由游戏逻辑设置(避免循环依赖)
 let _logMessage = null;
@@ -75,6 +76,17 @@ function _allowAutoSpecialization(unit) {
     if (campKey === 'neutral') return true;
     const controller = _gameState?.factions?.[campKey]?.controller;
     return controller === 'ai' && !(_isNetworkGame?.());
+}
+
+function _autoSpecializationPolicy(unit) {
+    const campKey = campToKey(unit.camp);
+    return {
+        // 中立方保持原有通用策略；玩家阵营 AI 必须读取自己的分档，
+        // 尤其是非对称自对局中不能沿用当前全局难度。
+        intelligence: campKey === 'neutral'
+            ? 'medium'
+            : resolveAiDifficultyProfile(_gameState, campKey).id
+    };
 }
 
 export class Unit {
@@ -1291,7 +1303,11 @@ export class Unit {
 
         this._rebuildRankProfile();
         if (this.pendingSpecialization && _allowAutoSpecialization(this)) {
-            const defaultSpecialization = chooseDefaultSpecialization(this, _gameState);
+            const defaultSpecialization = chooseDefaultSpecialization(
+                this,
+                _gameState,
+                _autoSpecializationPolicy(this)
+            );
             if (defaultSpecialization) this.chooseSpecialization(defaultSpecialization);
         }
         // 一次经验结算即使跨越多阶，也只按最终面板恢复一次已损失生命值。

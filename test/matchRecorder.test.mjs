@@ -166,6 +166,33 @@ test('delayed effects keep their originating action and do not leak into the nex
     clearMatchRecording();
 });
 
+test('commander active-skill runtime state is preserved in action diffs', () => {
+    clearMatchRecording();
+    const state = makeState();
+    state.attacker.commander = 'paladin';
+    state.attacker.isCommanderUnit = true;
+    state.attacker._faith = 1;
+    state.attacker._smiteReady = false;
+    state.attacker._smiteCharged = false;
+    bindMatchRecorderState(state);
+    startMatchRecording(state, { matchId: 'active-skill-state-test' });
+
+    state.attacker._faith = 0;
+    state.attacker._smiteReady = true;
+    const action = recordCommittedAction(state, {
+        actionType: 'activateSkill',
+        payload: { unitId: 'u1', commanderId: 'paladin', skillName: '至圣斩' },
+        actorCampKey: 'player1',
+        accepted: true
+    });
+
+    assert.equal(action.outcome.changed, true);
+    assert.equal(action.outcome.changes.unitState[0].changes.faith.before, 1);
+    assert.equal(action.outcome.changes.unitState[0].changes.faith.after, 0);
+    assert.equal(action.outcome.changes.unitState[0].changes.smiteReady.after, true);
+    clearMatchRecording();
+});
+
 test('Hero-bound faction skills are logged once with the faction logo and included in review', () => {
     clearMatchRecording();
     const state = makeState();

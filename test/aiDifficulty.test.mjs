@@ -10,7 +10,8 @@ import {
 } from '../ai/difficulty.js';
 import { chooseDefaultSpecialization, UNIT_CONFIG } from '../rules/units.js';
 import { createMatchState, serializeMatchState } from '../engine/matchState.js';
-import { scoreTacticalRoleMatchup } from '../ai/grok.js';
+import { Unit, setGameStateRef, setIsNetworkGameRef } from '../js/Unit.js';
+import { scoreTacticalRoleMatchup, shouldPlanActiveSkill } from '../ai/grok.js';
 
 test('AI 三档难度只按决策能力递增，不包含经济倍率', () => {
     assert.equal(normalizeAiDifficulty(1), 'easy');
@@ -115,6 +116,81 @@ test('困难 AI 为驱逐舰选择反潜专精', () => {
         ),
         'antiSubDestroyer'
     );
+});
+
+test('真实升级链按各阵营 AI 难度选择专精，不被通用默认值抢占', () => {
+    const mine = { id: 'player1', controller: 'ai' };
+    const enemy = { id: 'player2', controller: 'ai' };
+    const makeTile = (q, r) => ({
+        q, r, x: q * 10, y: r * 10,
+        surface: 'land',
+        terrain: 'plains',
+        unit: null
+    });
+    const runRankUp = difficulty => {
+        const ownTile = makeTile(0, 0);
+        const archer = new Unit('archer', mine, ownTile, false);
+        ownTile.unit = archer;
+        const hostileTiles = [
+            makeTile(3, 0),
+            makeTile(4, 0),
+            makeTile(3, 1)
+        ];
+        hostileTiles.forEach((tile, index) => {
+            tile.unit = {
+                id: 900 + index,
+                type: index === 2 ? 'cavalry' : 'infantry',
+                camp: enemy,
+                config: index === 2 ? UNIT_CONFIG.cavalry : UNIT_CONFIG.infantry,
+                tile
+            };
+        });
+        const state = {
+            factions: { player1: mine, player2: enemy },
+            aiDifficultyByCamp: { player1: difficulty },
+            tiles: [ownTile, ...hostileTiles]
+        };
+        setGameStateRef(state);
+        setIsNetworkGameRef(() => false);
+        archer.addXP(5);
+        return archer.specializationKey;
+    };
+
+    assert.equal(runRankUp('easy'), 'fieldGun');
+    assert.equal(runRankUp('hard'), 'rocketArtillery');
+});
+
+test('增益型主动技能只在可立即攻击时规划，且不会覆盖待消费增益', () => {
+    const base = {
+        canAct: true,
+        activeSkillCD: 0,
+        activeSkillDur: 0,
+        hp: 100
+    };
+    assert.equal(shouldPlanActiveSkill(
+        { ...base, commander: 'berserker', _berserkerQixue: false },
+        { hasAttackTarget: true }
+    ), true);
+    assert.equal(shouldPlanActiveSkill(
+        { ...base, commander: 'berserker', _berserkerQixue: false },
+        { hasAttackTarget: false }
+    ), false);
+    assert.equal(shouldPlanActiveSkill(
+        { ...base, commander: 'berserker', _berserkerQixue: true },
+        { hasAttackTarget: true }
+    ), false);
+    assert.equal(shouldPlanActiveSkill(
+        { ...base, commander: 'paladin', _faith: 1, _smiteReady: false },
+        { hasAttackTarget: true }
+    ), true);
+    assert.equal(shouldPlanActiveSkill(
+        { ...base, commander: 'paladin', _faith: 0, _smiteReady: false },
+        { hasAttackTarget: true }
+    ), false);
+    assert.equal(shouldPlanActiveSkill(
+        { ...base, commander: 'paladin', _faith: 2, _smiteReady: true },
+        { hasAttackTarget: true }
+    ), false);
 });
 
 test('困难战术角色优先伏击高价值舰并切远程脆皮', () => {

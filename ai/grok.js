@@ -74,6 +74,22 @@ export function scoreTacticalRoleMatchup(attacker, target) {
     return 0;
 }
 
+export function shouldPlanActiveSkill(unit, {
+    hasAttackTarget = false,
+    hasWoundedAlly = false
+} = {}) {
+    if (!unit?.commander || !unit.canAct) return false;
+    if ((unit.activeSkillCD || 0) > 0 || (unit.activeSkillDur || 0) > 0) return false;
+    if (unit.commander === 'berserker') {
+        return hasAttackTarget && !unit._berserkerQixue && unit.hp > 1;
+    }
+    if (unit.commander === 'paladin') {
+        return hasAttackTarget && !unit._smiteReady && Number(unit._faith || 0) >= 1;
+    }
+    if (unit.commander === 'priest') return hasWoundedAlly;
+    return false;
+}
+
 export function selectCommander(pool) {
     for (const pref of COMMANDER_PREFERENCE) {
         if (pool.includes(pref)) return pref;
@@ -930,8 +946,23 @@ export function planActions(
             && (u.activeSkillCD || 0) <= 0
             && (u.activeSkillDur || 0) <= 0);
         for (const skillUnit of skillUnits) {
+            const hasAttackTarget = getAttackableTiles(skillUnit).some(tile =>
+                tile.unit
+                && tile.unit.camp !== myCamp
+                && (ownsNeutralCity ? isEnemyCamp(tile.unit.camp) : true));
+            const hasWoundedAlly = gameState.tiles.some(tile => {
+                const ally = tile.unit;
+                return ally
+                    && ally !== skillUnit
+                    && ally.camp === myCamp
+                    && ally.hp < ally.maxHp
+                    && hexDistance(skillUnit.tile, ally.tile) <= 2;
+            });
+            if (!shouldPlanActiveSkill(skillUnit, { hasAttackTarget, hasWoundedAlly })) continue;
             actions.push({ type: 'activateSkill', unitId: skillUnit.id });
-            processed.add(skillUnit.id);
+            // 狂战士和圣骑士只是在为下一次攻击蓄力，仍需进入后续攻击规划。
+            // 牧师祈祷本身是完整行动，发动后才结束该单位本回合规划。
+            if (skillUnit.commander === 'priest') processed.add(skillUnit.id);
         }
     }
 

@@ -72,7 +72,14 @@ function compactUnit(unit, tile) {
         specializationKey: unit.specializationKey || null,
         commanderId: unit.commander || null,
         isCommanderUnit: !!unit.isCommanderUnit,
-        embarked: unit.isEmbarked === true
+        embarked: unit.isEmbarked === true,
+        activeSkillCD: Number(unit.activeSkillCD || 0),
+        activeSkillDur: Number(unit.activeSkillDur || 0),
+        berserkerQixue: unit._berserkerQixue === true,
+        faith: Number(unit._faith || 0),
+        smiteReady: unit._smiteReady === true,
+        smiteCharged: unit._smiteCharged === true,
+        healingAura: Number(unit._healingAura || 0)
     };
 }
 
@@ -189,7 +196,12 @@ function diffStates(before, after) {
         if (old.hp !== unit.hp) {
             result.unitHp.push({ unitId: id, campKey: unit.campKey, before: old.hp, after: unit.hp, delta: unit.hp - old.hp });
         }
-        const stateFields = ['campKey', 'shield', 'shieldTurns', 'morale', 'canAct', 'remainingMP', 'rank', 'specializationKey', 'commanderId', 'isCommanderUnit', 'embarked'];
+        const stateFields = [
+            'campKey', 'shield', 'shieldTurns', 'morale', 'canAct', 'remainingMP',
+            'rank', 'specializationKey', 'commanderId', 'isCommanderUnit', 'embarked',
+            'activeSkillCD', 'activeSkillDur', 'berserkerQixue', 'faith',
+            'smiteReady', 'smiteCharged', 'healingAura'
+        ];
         if (hasChanged(old, unit, stateFields)) {
             const changes = {};
             for (const field of stateFields) {
