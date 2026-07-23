@@ -135,6 +135,38 @@ test('battle events use relative per-match intensity instead of a fixed attack c
     assert.ok(stats.methodology.battleEvents.includes('自适应'));
 });
 
+test('faction skill events preserve round, camp and logo for chart markers', () => {
+    const log = makeLog();
+    log.participants[0].flagEmoji = '🐉';
+    log.timeline.push({
+        kind: 'event',
+        sequence: 7,
+        round: 2,
+        eventType: 'factionSkillActivated',
+        payload: {
+            campKey: 'player1',
+            synergyId: 'tianheng',
+            skillName: '日月天衡',
+            logoEmoji: '🐉',
+            presentationEventId: 'sunMoon:player1:2'
+        }
+    });
+    const stats = buildMatchStats(log);
+    assert.equal(stats.factionSkillEvents.length, 1);
+    assert.deepEqual(stats.factionSkillEvents[0], {
+        sequence: 7,
+        round: 2,
+        campKey: 'player1',
+        synergyId: 'tianheng',
+        skillName: '日月天衡',
+        triggerKind: null,
+        logoEmoji: '🐉',
+        presentationEventId: 'sunMoon:player1:2',
+        label: '红军发动阵营技能【日月天衡】'
+    });
+    assert.equal(stats.keyEvents.at(-1).type, 'factionSkillActivated');
+});
+
 test('lightweight review documents rebuild the statistics view without a full timeline', () => {
     const source = buildMatchStats(makeLog());
     const review = {
@@ -160,6 +192,12 @@ test('lightweight review documents rebuild the statistics view without a full ti
         },
         controlTimeline: source.controlTimeline,
         battleEvents: source.battleEvents,
+        factionSkillEvents: [{
+            round: 2,
+            campKey: 'player1',
+            skillName: '日月天衡',
+            logoEmoji: '🐉'
+        }],
         roundIndex: source.rounds,
         keyEvents: source.keyEvents,
         unitHighlights: [{
@@ -177,5 +215,6 @@ test('lightweight review documents rebuild the statistics view without a full ti
     assert.equal(rebuilt.units[0].id, 'u1');
     assert.equal(rebuilt.leaders.damageDealt.id, 'u1');
     assert.equal(rebuilt.controlTimeline.length, source.controlTimeline.length);
+    assert.equal(rebuilt.factionSkillEvents[0].logoEmoji, '🐉');
     assert.equal(buildMatchStatsDocument({ schema: 'unknown' }), null);
 });

@@ -1371,10 +1371,30 @@ function beginPVECommanderPhase(humanRole) {
 let _pveHumanRole = null;
 
 // AI 快速选将：从池中按进攻偏好选择（Grok 选将偏好）
-const _GROK_PREF = ['centurion', 'berserker', 'vampire', 'fallenAngel', 'ironGuard', 'staller', 'advisor', 'minister'];
+const _GROK_PREF = [
+    'vampire', 'paladin', 'advisor', 'berserker', 'colonel', 'necromancer',
+    'ironGuard', 'minister', 'centurion', 'magician', 'fallenAngel',
+    'astrologer', 'diplomat', 'priest', 'staller', 'engineer', 'tianyan', 'martyr'
+];
 function _pveAIQuickPick(forPlayer) {
     const pool = forPlayer === 'player1' ? gameState.commanderPoolP1 : gameState.commanderPoolP2;
     const picks = [];
+    if (gameState.doubleCommanderMode) {
+        const rank = new Map(_GROK_PREF.map((id, index) => [id, index]));
+        const synergyPairs = [];
+        for (let left = 0; left < pool.length; left++) {
+            for (let right = left + 1; right < pool.length; right++) {
+                const leftSynergy = getCommanderFactionSynergy(pool[left]);
+                const rightSynergy = getCommanderFactionSynergy(pool[right]);
+                if (!leftSynergy || leftSynergy.id !== rightSynergy?.id) continue;
+                synergyPairs.push([pool[left], pool[right]]);
+            }
+        }
+        synergyPairs.sort((left, right) =>
+            left.reduce((sum, id) => sum + (rank.get(id) ?? 999), 0)
+            - right.reduce((sum, id) => sum + (rank.get(id) ?? 999), 0));
+        if (synergyPairs[0]) picks.push(...synergyPairs[0]);
+    }
     for (const pref of _GROK_PREF) {
         if (pool.includes(pref) && !picks.includes(pref)) picks.push(pref);
         if (picks.length === (gameState.doubleCommanderMode ? 2 : 1)) break;

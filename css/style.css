@@ -1724,6 +1724,16 @@ body {
     filter: drop-shadow(0 0 5px rgba(240, 184, 77, 0.58));
 }
 
+.match-control-skill-marker {
+    fill: #fff;
+    stroke: rgba(5, 7, 10, 0.78);
+    stroke-width: 2px;
+    paint-order: stroke fill;
+    font-size: 20px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.72));
+    pointer-events: none;
+}
+
 .match-control-hotspot {
     cursor: crosshair;
     outline: none;
@@ -1777,6 +1787,12 @@ body {
 .match-control-legend .battle-legend i {
     background: rgba(236, 183, 73, 0.24);
     border: 1px dashed #e2ae46;
+}
+
+.match-control-legend .skill-legend b {
+    color: #f2dfb7;
+    font-size: 13px;
+    line-height: 1;
 }
 
 .match-stats-method {

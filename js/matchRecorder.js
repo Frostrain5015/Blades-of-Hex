@@ -18,6 +18,7 @@ export const MATCH_REVIEW_SCHEMA_VERSION = 1;
 
 let active = null;
 let boundState = null;
+let currentCauseActionId = null;
 
 function nowIso() {
     return new Date().toISOString();
@@ -62,6 +63,8 @@ function compactUnit(unit, tile) {
         r: tile.r,
         hp: unit.hp,
         maxHp: unit.maxHp,
+        shield: Number(unit._shield || 0),
+        shieldTurns: Number(unit._shieldTurns || 0),
         morale: unit.morale,
         canAct: !!unit.canAct,
         remainingMP: unit.remainingMP,
@@ -186,7 +189,7 @@ function diffStates(before, after) {
         if (old.hp !== unit.hp) {
             result.unitHp.push({ unitId: id, campKey: unit.campKey, before: old.hp, after: unit.hp, delta: unit.hp - old.hp });
         }
-        const stateFields = ['campKey', 'morale', 'canAct', 'remainingMP', 'rank', 'specializationKey', 'commanderId', 'isCommanderUnit', 'embarked'];
+        const stateFields = ['campKey', 'shield', 'shieldTurns', 'morale', 'canAct', 'remainingMP', 'rank', 'specializationKey', 'commanderId', 'isCommanderUnit', 'embarked'];
         if (hasChanged(old, unit, stateFields)) {
             const changes = {};
             for (const field of stateFields) {
@@ -224,6 +227,57 @@ function diffStates(before, after) {
     }
     for (const key of Object.keys(result)) if (Array.isArray(result[key]) && result[key].length === 0) delete result[key];
     return result;
+}
+
+function appendDeferredOutcome(state, actionId) {
+    if (!active || !actionId || !state) return null;
+    const action = active.log.timeline.find(entry => entry.kind === 'action' && entry.actionId === actionId);
+    if (!action) return null;
+    const after = captureState(state);
+    const changes = diffStates(active.lastSnapshot, after);
+    const messages = newMessages(active.lastLogs, state.logHistory || []);
+    if (Object.keys(changes).length > 0 || messages.length > 0) {
+        action.outcome.changed = true;
+        action.outcome.deferredEffects ||= [];
+        action.outcome.deferredEffects.push({
+            resolvedAtSequence: active.log.timeline.length,
+            elapsedMs: elapsedMs(),
+            turnCounter: Number(state.turnCounter || 0),
+            round: getRound(state),
+            changes,
+            engineMessages: messages
+        });
+    }
+    active.lastSnapshot = after;
+    active.lastLogs = [...(state.logHistory || [])];
+    if (active.log.complete) {
+        active.log.finalState = {
+            units: Object.values(after.units),
+            sites: Object.values(after.sites),
+            resources: after.camps,
+            weather: after.weather,
+            round: after.round,
+            turnCounter: after.turnCounter
+        };
+        active.log.summary = buildSummary(active.log);
+    }
+    return action;
+}
+
+/**
+ * 在延迟弹着回调中恢复原动作的因果上下文。
+ * 回调里的领域事件携带 causedByActionId，状态差异也回填原动作，
+ * 从而不会串入随后执行的无关动作。
+ */
+export function withMatchActionCause(state, actionId, callback) {
+    const previous = currentCauseActionId;
+    currentCauseActionId = actionId || previous || null;
+    try {
+        return callback();
+    } finally {
+        if (actionId) appendDeferredOutcome(state, actionId);
+        currentCauseActionId = previous;
+    }
 }
 
 function decisionContext(snapshot, actorCampKey) {
@@ -338,7 +392,11 @@ export function startMatchRecording(state, metadata = {}) {
                 playerCount: state.isThreePlayer ? 3 : 2,
                 fogOfWar: !!state.skirmishFog,
                 doubleCommander: !!state.doubleCommanderMode,
-                aiDifficulty: state.aiDifficulty ?? null
+                aiDifficulty: state.aiDifficulty ?? null,
+                aiDifficultyId: state.aiDifficultyId ?? null,
+                aiDifficultyByCamp: state.aiDifficultyByCamp
+                    ? { ...state.aiDifficultyByCamp }
+                    : null
             },
             turnOrder: [...(state.turnOrder || [])],
             participants: initialParticipants(state),
@@ -434,6 +492,7 @@ export function recordMatchEvent(state, eventType, payload = {}) {
         turnCounter: Number(state.turnCounter || 0),
         round: getRound(state),
         eventType,
+        causedByActionId: payload?.causedByActionId || currentCauseActionId || null,
         payload: sanitize(payload)
     };
     active.log.timeline.push(item);
@@ -610,6 +669,7 @@ export function buildMatchReview(log = active?.log || null) {
         },
         controlTimeline: stats.controlTimeline,
         battleEvents: stats.battleEvents,
+        factionSkillEvents: stats.factionSkillEvents,
         roundIndex: stats.rounds,
         keyEvents: stats.keyEvents,
         unitHighlights,
@@ -699,6 +759,71 @@ on('campaign:objectiveChanged', payload => recordMatchEvent(boundState, 'objecti
 on('campaign:interactionCompleted', payload => recordMatchEvent(boundState, 'interactionCompleted', payload));
 on('turn:started', payload => recordMatchEvent(boundState, 'turnStarted', payload));
 on('turn:ended', payload => recordMatchEvent(boundState, 'turnEnded', payload));
+
+function resolveFactionSkillCampKey(event) {
+    if (event?.campKey) return event.campKey;
+    const unitIds = [event?.rescuedUnitId, event?.rescuerUnitId].filter(Boolean);
+    for (const tile of boundState?.tiles || []) {
+        if (tile.unit && unitIds.includes(tile.unit.id)) return keyOfCamp(tile.unit.camp);
+    }
+    return null;
+}
+
+function recordFactionSkill(event, {
+    synergyId,
+    skillName,
+    triggerKind = null,
+    onlyWhen = true
+}) {
+    if (!onlyWhen || !active || !boundState) return null;
+    const campKey = resolveFactionSkillCampKey(event);
+    if (!campKey) return null;
+    const presentationEventId = event?.presentationEventId
+        || `${synergyId}:${campKey}:${event?.triggerIndex ?? event?.stage ?? event?.expiresAtRound ?? active.log.timeline.length + 1}`;
+    const duplicate = active.log.timeline.some(item =>
+        item.kind === 'event'
+        && item.eventType === 'factionSkillActivated'
+        && item.payload?.presentationEventId === presentationEventId
+    );
+    if (duplicate) return null;
+    const participant = active.log.participants.find(candidate => candidate.campKey === campKey);
+    return recordMatchEvent(boundState, 'factionSkillActivated', {
+        campKey,
+        synergyId,
+        skillName,
+        triggerKind,
+        logoEmoji: participant?.flagEmoji || boundState.factions?.[campKey]?.flagEmoji || '⚑',
+        presentationEventId
+    });
+}
+
+on('fx:aureliaOath', event => recordFactionSkill(event, {
+    synergyId: 'aurelia',
+    skillName: '同一个誓言',
+    triggerKind: 'rescue'
+}));
+on('fx:eagleSynergy', event => recordFactionSkill(event, {
+    synergyId: 'eagle',
+    skillName: '轨道补给',
+    triggerKind: event?.kind || null,
+    onlyWhen: event?.kind === 'supply'
+}));
+on('fx:celestineOracle', event => recordFactionSkill(event, {
+    synergyId: 'celestine',
+    skillName: '神谕',
+    triggerKind: `stage-${event?.stage ?? 0}`
+}));
+on('fx:tianhengBorrowDay', event => recordFactionSkill(event, {
+    synergyId: 'tianheng',
+    skillName: '日月天衡',
+    triggerKind: 'charged'
+}));
+on('fx:noctisBloodMoonBleed', event => recordFactionSkill(event, {
+    synergyId: 'noctis',
+    skillName: '血月降临',
+    triggerKind: 'rising',
+    onlyWhen: !!event?.rising
+}));
 
 export function bindMatchRecorderState(state) {
     // eventBus 事件没有统一携带 state；状态单例仅作为记录器的只读引用。

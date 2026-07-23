@@ -151,19 +151,25 @@ import {
     restoreSurrenderedPorts
 } from '../rules/naval.js';
 import { enqueueFloatText, drainPendingFloatTexts, setFloatTextCaptureSuppressed } from './floatTexts.js';
-import { bindMatchRecorderState, recordCommittedAction, startMatchRecording } from './matchRecorder.js';
+import {
+    bindMatchRecorderState,
+    recordCommittedAction,
+    startMatchRecording,
+    withMatchActionCause
+} from './matchRecorder.js';
+import { resolveAiIncomeMultiplier } from '../ai/difficulty.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
     // 所有模式先写本地结构化复盘日志；联机仅额外发送权威快照。
-    recordCommittedAction(gameState, {
+    const recordedAction = recordCommittedAction(gameState, {
         actionType,
         payload: effectData,
         origin: 'local',
         originRole: isNetworkGame() ? getMyRole() : null,
         accepted: isNetworkGame() ? null : true
     });
-    if (!isNetworkGame()) return;
+    if (!isNetworkGame()) return recordedAction;
     try {
         const state = serializeState();
         // 本动作同步登记的浮字一并广播，远端按同批条目重放（两端时序一致）
@@ -173,6 +179,7 @@ function broadcastAction(actionType, effectData = null) {
     } catch (e) {
         console.warn(`broadcastAction(${actionType}) failed:`, e);
     }
+    return recordedAction;
 }
 
 // 不经过统一广播链的已提交动作（例如抽牌、将领主动技能、兵种专精）也使用同一记录格式。
@@ -1030,10 +1037,9 @@ export function grantTurnStartIncome(camp) {
     const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp);
     const cityCount = cities.length;
     let income = _campKey(camp) === 'neutral' ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
-    const isCampaignAi = gameState.campaignMode && gameState.factions?.[key]?.controller === 'ai';
-    if (isCampaignAi || (gameState.gameMode === 'pve' && camp === gameState.aiOpponentCamp)) {
-        income = Math.floor(income * gameState.aiDifficulty);
-    }
+    // 标准 PVE 的三档难度只改变决策能力，双方收入完全一致。
+    // 战役关卡仍保留 aiDifficulty 作为关卡作者可配置的经济倍率。
+    income = Math.floor(income * resolveAiIncomeMultiplier(gameState, key));
     gameState.playerGold[key] += income;
 
     // 洗牌换将代价已直接在选将阶段计提（初始资金 $4→$1），此处不再重复扣减
@@ -3890,6 +3896,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
     }
 
     const results = [];
+    let committedActionId = null;
     let destroyedFortification = null;
     if (kind === 'strafe') {
         const target = targetTile.unit;
@@ -3982,7 +3989,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
         for (const text of buildAirCommandDamageTexts(results, gameState.tileMap, performance.now())) {
             enqueueFloatText({ ...text, delayMs: impactDelay });
         }
-        setTimeout(() => {
+        setTimeout(() => withMatchActionCause(gameState, committedActionId, () => {
             // 捕获抑制：落弹时刻产生的跳字（护盾吸收/灵光/临终迸发等）由远端重放同一结算自行推导
             setFloatTextCaptureSuppressed(true);
             try {
@@ -4032,7 +4039,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
             } finally {
                 setFloatTextCaptureSuppressed(false);
             }
-        }, impactDelay);
+        }), impactDelay);
     }
 
     markAirCommandUsed(kind, launcherTile, gameState);
@@ -4044,7 +4051,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
     }
     recalcAllFlankingMorale();
     updateUI();
-    broadcastAction('airCommand', {
+    const recordedAction = broadcastAction('airCommand', {
         kind,
         launcherQ: launcherTile.q,
         launcherR: launcherTile.r,
@@ -4055,6 +4062,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
         destroyedFortification,
         results
     });
+    committedActionId = recordedAction?.actionId || null;
     return true;
 }
 
@@ -4165,6 +4173,8 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     }
     const cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
     if (!cfg) return;
+    let committedActionId = null;
+    const withCardCause = callback => withMatchActionCause(gameState, committedActionId, callback);
 
     const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
     const campKey = _campKey(myCamp);
@@ -4451,7 +4461,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     value: healAmt, timeLeft: 1000, delayMs: BURN_MS
                 });
             }
-            setTimeout(() => {
+            setTimeout(() => withCardCause(() => {
                 if (targetTile.unit) {
                     targetTile.unit._poison = null;
                     if (healAmt > 0) targetTile.unit.hp = Math.min(targetTile.unit.maxHp, targetTile.unit.hp + healAmt);
@@ -4460,7 +4470,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     spawnHealParticles(x, y);
                     triggerHealFlash(x, y);
                 }
-            }, BURN_MS);
+            }), BURN_MS);
             break;
         }
         case 'lightning': {
@@ -4471,7 +4481,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 x, y, q: targetTile.q, r: targetTile.r,
                 value: dmg, isTrueDmg: true, timeLeft: 1000, delayMs: BURN_MS
             });
-            setTimeout(() => {
+            setTimeout(() => withCardCause(() => {
                 // 统一伤害入口：雷击为真实伤害（绕过护盾），击杀清理/殉道锁定由 applyDamage 处理。
                 // 捕获抑制：弹着时刻产生的跳字（临终迸发/殉道等）由远端重放同一结算自行推导
                 setFloatTextCaptureSuppressed(true);
@@ -4492,7 +4502,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 spawnLightningStrike(x, y);
                 triggerScreenShake(10, 350);
                 playSound('lightning');
-            }, BURN_MS);
+            }), BURN_MS);
             break;
         }
         case 'mgNest': {
@@ -4537,7 +4547,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 spawnAirstrikeEffect(x, y, results, 'airstrike', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 // damage/HP/particles delayed to match bomb impact timing (~1400ms into flight)
-                setTimeout(() => {
+                setTimeout(() => withCardCause(() => {
                     playSound('explosion');
                     // 统一伤害入口：空袭为远程攻击，吸收护盾，触发铁卫转移/誓言。
                     // 捕获抑制：弹着时刻产生的跳字（护盾吸收/灵光/临终迸发）由远端重放自行推导
@@ -4558,7 +4568,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         setFloatTextCaptureSuppressed(false);
                     }
                     triggerScreenShake(8, 350);
-                }, 1400);
+                }), 1400);
             }, BURN_MS);
             break;
         }
@@ -4617,10 +4627,10 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 playSound('lightning');
                 ORBITAL_STRIKE_TICK_DELAYS_MS.forEach((tickAt, tickIndex) => {
                     const isFinal = tickIndex === ORBITAL_STRIKE_TICK_DELAYS_MS.length - 1;
-                    setTimeout(() => {
+                    setTimeout(() => withCardCause(() => {
                         if (isFinal) playSound('explosion');
                         applyOrbitalTick(tickIndex, isFinal);
-                    }, tickAt);
+                    }), tickAt);
                 });
             }, BURN_MS);
             break;
@@ -4647,7 +4657,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         }, i * 20);
                     }
                 }, 600);
-                setTimeout(() => {
+                setTimeout(() => withCardCause(() => {
                     // 捕获抑制：弹着时刻产生的跳字（护盾吸收/灵光/临终迸发）由远端重放自行推导
                     setFloatTextCaptureSuppressed(true);
                     try {
@@ -4677,7 +4687,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     spawnExplosionParticles(x, y, '#886644', 8);
                     triggerAttackFlash(x, y, true);
                     triggerScreenShake(10, 400);
-                }, 1000);
+                }), 1000);
             }, BURN_MS);
             break;
         }
@@ -4696,7 +4706,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             setTimeout(() => {
                 spawnAirstrikeEffect(x, y, cResults, 'carpetBomb', targetTile.q, targetTile.r);
                 playSound('airstrike');
-                setTimeout(() => {
+                setTimeout(() => withCardCause(() => {
                     playSound('explosion');
                     // 捕获抑制：弹着时刻产生的跳字（护盾吸收/灵光/临终迸发）由远端重放自行推导
                     setFloatTextCaptureSuppressed(true);
@@ -4735,7 +4745,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         setFloatTextCaptureSuppressed(false);
                     }
                     triggerScreenShake(8, 400);
-                }, 1400);
+                }), 1400);
             }, BURN_MS);
             break;
         }
@@ -4749,7 +4759,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 spawnAirstrikeEffect(x, y, [], 'airdrop', targetTile.q, targetTile.r);
                 playSound('airstrike');
                 // reveal unit & recruit effect delayed to match parachute landing (~1500ms into flight)
-                setTimeout(() => {
+                setTimeout(() => withCardCause(() => {
                     targetTile.unit._airdropWaiting = false;
                     if (targetTile.isCity && targetTile.camp !== myCamp) {
                         updateDistrictColor(targetTile, myCamp, targetTile.unit);
@@ -4758,7 +4768,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     }
                     spawnRecruitEffect(x, y);
                     triggerRecruitFlash(x, y);
-                }, 1500);
+                }), 1500);
             }, BURN_MS);
             break;
         }
@@ -4770,14 +4780,14 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                 value: TACTICAL_CARD_CONFIG.shield?.balance?.shield || 50,
                 timeLeft: 1000, delayMs: BURN_MS
             });
-            setTimeout(() => {
+            setTimeout(() => withCardCause(() => {
                 if (_shieldSaved && _shieldSaved.unit) {
                     _shieldSaved.unit._shield += 50;
                     _shieldSaved.unit._shieldMax = Math.max(_shieldSaved.unit._shieldMax, _shieldSaved.unit._shield);
                     _shieldSaved.unit._shieldTurns = 3;
                 }
                 spawnCommanderSkillEffect(x, y, '🛡️', '护盾');
-            }, BURN_MS);
+            }), BURN_MS);
             break;
         }
         case 'landmine': {
@@ -4899,5 +4909,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const carpetBombResults = (cardId === 'carpetBomb') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg, isCrit: r.isCrit })) : null;
     // 天基打击与空袭同理：伤害在本地 setTimeout 内结算，广播时状态尚未含伤害，携带结果供远端重放
     const orbitalStrikeResults = (cardId === 'orbitalStrike') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg })) : null;
-    broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, purifiedPoison: result.purifiedPoison, poisoned: result.poisoned, mineType: result.mineType, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, orbitalStrikeResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
+    const recordedAction = broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, purifiedPoison: result.purifiedPoison, poisoned: result.poisoned, mineType: result.mineType, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, orbitalStrikeResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
+    committedActionId = recordedAction?.actionId || null;
 }

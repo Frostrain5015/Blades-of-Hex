@@ -215,15 +215,31 @@ export function getUnitDisplayName(unit) {
 }
 
 /** AI 与无控制者使用的确定性兜底；不含随机数，保证联机重放一致。 */
-export function chooseDefaultSpecialization(unit, state = null) {
-    const options = getSpecializationOptions(unit);
-    if (!options.length) return null;
+export function chooseDefaultSpecialization(unit, state = null, policy = {}) {
+    const specializationOptions = getSpecializationOptions(unit);
+    if (!specializationOptions.length) return null;
     const units = (state?.tiles || []).map(tile => tile.unit).filter(Boolean);
     const hostileUnits = units.filter(other => other.camp !== unit.camp);
+    const intelligence = policy.intelligence || 'medium';
+    if (intelligence === 'easy') return specializationOptions[0].key;
     if (unit.type === 'archer') {
         const hostileAirPlatforms = hostileUnits.filter(other => other.type === 'carrier' || other._isDrone).length;
-        return hostileAirPlatforms > 0 ? 'antiAirArtillery'
-            : hostileUnits.filter(other => other.config?.building || other.tile?.isCity).length >= 2 ? 'rocketArtillery'
+        const hostileClusters = hostileUnits.reduce((best, center) => {
+            if (!center.tile) return best;
+            const adjacent = hostileUnits.filter(other => {
+                if (other === center || !other.tile) return false;
+                const dq = Math.abs(other.tile.q - center.tile.q);
+                const dr = Math.abs(other.tile.r - center.tile.r);
+                const ds = Math.abs((-other.tile.q - other.tile.r) - (-center.tile.q - center.tile.r));
+                return Math.max(dq, dr, ds) <= 1;
+            }).length;
+            return Math.max(best, adjacent);
+        }, 0);
+        const needsAntiAir = hostileAirPlatforms >= (intelligence === 'hard' ? 2 : 1);
+        return needsAntiAir ? 'antiAirArtillery'
+            : (hostileClusters >= (intelligence === 'hard' ? 2 : 3)
+                || hostileUnits.filter(other => other.config?.building || other.tile?.isCity).length >= 2)
+                ? 'rocketArtillery'
                 : 'fieldGun';
     }
     if (unit.type === 'destroyer') {
@@ -235,8 +251,12 @@ export function chooseDefaultSpecialization(unit, state = null) {
             ? 'fleetCruiser' : 'supportCruiser';
     }
     if (unit.type === 'infantry') return unit.tile?.isCity ? 'garrisonInfantry' : 'assaultInfantry';
-    if (unit.type === 'cavalry') return 'lightCavalry';
-    return options[0].key;
+    if (unit.type === 'cavalry') {
+        const rangedThreats = hostileUnits.filter(other =>
+            other.type === 'archer' || other.type === 'mgNest' || other.type === 'carrier').length;
+        return intelligence === 'hard' && rangedThreats >= 3 ? 'heavyCavalry' : 'lightCavalry';
+    }
+    return specializationOptions[0].key;
 }
 
 /** 行为克制关系。专精继续使用基础 type 的行列。 */

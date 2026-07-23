@@ -131,6 +131,7 @@ export function createPreparationController({
             gameState.doubleCommanderMode = doubleCommanderMode;
             gameState.aiOpponentCamp = null;
             gameState.aiDifficulty = 1.0;
+            gameState.aiDifficultyId = 'easy';
             beginTrainingCommanderPhase('player1');
             return;
         }
@@ -142,6 +143,7 @@ export function createPreparationController({
             gameState.aiOpponentCamp = null;
             const difficulty = getSelection('prepOptionsDiff');
             gameState.aiDifficulty = difficulty === 'medium' ? 1.5 : difficulty === 'hard' ? 2.0 : 1.0;
+            gameState.aiDifficultyId = difficulty === 'medium' || difficulty === 'hard' ? difficulty : 'easy';
             beginPVECommanderPhase('player1');
             return;
         }

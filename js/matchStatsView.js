@@ -98,6 +98,11 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
     }
 
     const eventByRound = new Map(stats.battleEvents.map(event => [event.round, event]));
+    const skillsByRound = new Map();
+    for (const event of stats.factionSkillEvents || []) {
+        if (!skillsByRound.has(event.round)) skillsByRound.set(event.round, []);
+        skillsByRound.get(event.round).push(event);
+    }
     const bandWidth = data.length > 1 ? Math.max(12, plotWidth / (data.length - 1) * 0.62) : 36;
     data.forEach((point, index) => {
         const event = eventByRound.get(point.round);
@@ -152,6 +157,31 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         svg.appendChild(area);
     });
 
+    const skillStackByBand = new Map();
+    for (const event of stats.factionSkillEvents || []) {
+        const pointIndex = data.findIndex(point => point.round === event.round);
+        const camp = stats.camps.find(candidate => candidate.campKey === event.campKey);
+        if (pointIndex < 0 || !camp) continue;
+        const lower = lowerByCamp[event.campKey]?.[pointIndex];
+        const upper = upperByCamp[event.campKey]?.[pointIndex];
+        if (!lower || !upper || Math.abs(lower[1] - upper[1]) < 8) continue;
+        const stackKey = `${event.round}:${event.campKey}`;
+        const stackIndex = skillStackByBand.get(stackKey) || 0;
+        skillStackByBand.set(stackKey, stackIndex + 1);
+        const marker = svgElement('text', {
+            x: xAt(pointIndex) + stackIndex * 18,
+            y: (lower[1] + upper[1]) / 2 + 6,
+            class: 'match-control-skill-marker',
+            'text-anchor': 'middle',
+            'data-camp-key': event.campKey
+        });
+        marker.textContent = event.logoEmoji || camp.flagEmoji || '⚑';
+        const title = svgElement('title');
+        title.textContent = `第 ${event.round} 回合：${camp.name}发动【${event.skillName}】`;
+        marker.appendChild(title);
+        svg.appendChild(marker);
+    }
+
     const maxLabels = 9;
     const labelStep = Math.max(1, Math.ceil(data.length / maxLabels));
     data.forEach((point, index) => {
@@ -187,10 +217,12 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
                 return `<span><i style="--camp-color:${colors[camp.campKey]}"></i>${escapeHtml(camp.name)} <b>${percent.toFixed(1)}%</b>${count}</span>`;
             }).join('');
             const battle = eventByRound.get(point.round);
+            const skills = skillsByRound.get(point.round) || [];
             tooltip.innerHTML = `
                 <strong>${point.round === 0 ? '开局' : `第 ${point.round} 回合`}</strong>
                 ${values}
                 ${battle ? `<em>⚔ ${battle.label} · ${battle.engagements} 次交战</em>` : ''}
+                ${skills.map(skill => `<em>${escapeHtml(skill.logoEmoji || '⚑')} ${escapeHtml(skill.skillName)} · ${escapeHtml(stats.camps.find(camp => camp.campKey === skill.campKey)?.name || skill.campKey)}</em>`).join('')}
             `;
             tooltip.hidden = false;
             if (event?.clientX != null) {
@@ -218,6 +250,12 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         const marker = document.createElement('span');
         marker.className = 'battle-legend';
         marker.innerHTML = '<i></i>战役事件';
+        legend.appendChild(marker);
+    }
+    if ((stats.factionSkillEvents || []).length) {
+        const marker = document.createElement('span');
+        marker.className = 'skill-legend';
+        marker.innerHTML = '<b>⚑</b>阵营技能';
         legend.appendChild(marker);
     }
 }

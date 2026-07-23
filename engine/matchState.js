@@ -227,7 +227,10 @@ export function createMatchState() {
         // 村庄：Map("q,r" → { districtId, q, r })
         villageTiles: new Map(),
         // PVE 难度：对手 AI 经济倍率（不影响中立 AI）
-        aiDifficulty: 1.0
+        aiDifficulty: 1.0,
+        aiDifficultyId: 'easy',
+        aiDifficultyByCamp: {},
+        _aiFortificationsBuilt: {}
     };
 }
 
@@ -308,6 +311,9 @@ export function resetMatchState(match) {
     match.districtBorderEdges = [];
     match.villageTiles = new Map();
     match.aiDifficulty = 1.0;
+    match.aiDifficultyId = 'easy';
+    match.aiDifficultyByCamp = {};
+    match._aiFortificationsBuilt = {};
     match.commanderPoolP1 = [];
     match.commanderPoolP2 = [];
     match.commanderPoolP3 = [];
@@ -637,6 +643,9 @@ export function serializeMatchState(match) {
         surrenderedCampKeys: match.surrenderedCamps.map(c => _campToKey(c)),
         skirmishFog: match.skirmishFog || false,
         aiDifficulty: match.aiDifficulty || 1.0,
+        aiDifficultyId: match.aiDifficultyId || null,
+        aiDifficultyByCamp: { ...(match.aiDifficultyByCamp || {}) },
+        aiFortificationsBuilt: { ...(match._aiFortificationsBuilt || {}) },
         visibleTiles: Object.fromEntries(Object.entries(match.visibleTiles || {}).map(([key, tiles]) => [key, [...tiles]])),
         exploredTiles: Object.fromEntries(Object.entries(match.exploredTiles || {}).map(([key, tiles]) => [key, [...tiles]])),
         scoutReveals: Object.fromEntries(Object.entries(match.scoutReveals || {}).map(([key, reveals]) => [key, [...reveals]])),
@@ -791,6 +800,9 @@ export function restoreMatchState(match, data, deps) {
     match.skirmishFog = data.skirmishFog || false;
     match.villageTiles = new Map(data.villageTiles || []);
     match.aiDifficulty = data.aiDifficulty || 1.0;
+    match.aiDifficultyId = data.aiDifficultyId || null;
+    match.aiDifficultyByCamp = { ...(data.aiDifficultyByCamp || {}) };
+    match._aiFortificationsBuilt = { ...(data.aiFortificationsBuilt || {}) };
     match.visibleTiles = record(data.visibleTiles, () => []);
     match.exploredTiles = record(data.exploredTiles, () => []);
     match.scoutReveals = record(data.scoutReveals, () => []);

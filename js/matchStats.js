@@ -145,6 +145,9 @@ function keyEventLabel(item, participantsByKey) {
     }
     if (item.eventType === 'diplomacyChanged') return '阵营外交关系发生变化';
     if (item.eventType === 'interactionCompleted') return payload.label || payload.interactionId || '完成战役互动';
+    if (item.eventType === 'factionSkillActivated') {
+        return `${participantsByKey[payload.campKey]?.name || '未知阵营'}发动阵营技能【${payload.skillName || payload.synergyId || '未知'}】`;
+    }
     return item.eventType;
 }
 
@@ -380,6 +383,7 @@ export function buildMatchStats(log) {
     };
 
     const keyEvents = [];
+    const factionSkillEvents = [];
     for (const item of log.timeline) {
         const round = getRound(item);
         if (item.kind === 'action') {
@@ -460,6 +464,20 @@ export function buildMatchStats(log) {
                 campKey: payload.campKey || null,
                 label: keyEventLabel(item, participantsByKey)
             });
+        } else if (item.eventType === 'factionSkillActivated') {
+            const event = {
+                sequence: item.sequence,
+                round: round.round,
+                campKey: payload.campKey || null,
+                synergyId: payload.synergyId || null,
+                skillName: payload.skillName || '阵营技能',
+                triggerKind: payload.triggerKind || null,
+                logoEmoji: payload.logoEmoji || participantsByKey[payload.campKey]?.flagEmoji || '⚑',
+                presentationEventId: payload.presentationEventId || null,
+                label: keyEventLabel(item, participantsByKey)
+            };
+            factionSkillEvents.push(event);
+            keyEvents.push({ ...event, type: item.eventType });
         } else if (['objectiveChanged', 'diplomacyChanged', 'interactionCompleted'].includes(item.eventType)) {
             keyEvents.push({
                 sequence: item.sequence,
@@ -502,6 +520,7 @@ export function buildMatchStats(log) {
         rounds,
         controlTimeline,
         battleEvents,
+        factionSkillEvents,
         keyEvents,
         leaders: {
             kills: leader(units, 'kills'),
@@ -554,6 +573,7 @@ export function buildMatchStatsDocument(document) {
             rounds: document.roundIndex,
             controlTimeline: document.controlTimeline,
             battleEvents: document.battleEvents || [],
+            factionSkillEvents: document.factionSkillEvents || [],
             keyEvents: document.keyEvents || [],
             leaders: Object.fromEntries(Object.entries(document.overview.leaders || {})
                 .map(([metric, unit]) => [metric, unitFromReview(unit)])),

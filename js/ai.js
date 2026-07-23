@@ -13,7 +13,7 @@ import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
 import { isNetworkGame } from './network.js';
 import { getCommander } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
-import { updateFogOfWar, isTileVisible } from './fogOfWar.js';
+import { updateFogOfWar, updateAllFogOfWar, isTileVisible } from './fogOfWar.js';
 // 人格脚本位于可见目录 ai/（勿用隐藏目录：静态白名单、资源清单与部署工具都会跳过点开头路径）
 import * as claudePersonality from '../ai/claude.js';
 import * as grokPersonality from '../ai/grok.js';
@@ -28,6 +28,8 @@ import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange } fro
 import { isSubmarineTargetableBy } from '../rules/naval.js';
 import { getStandardMap } from '../rules/standardMaps.js';
 import { shouldHoldNeutralCarrierPosition } from '../rules/standardMapEvents.js';
+import { resolveAiDifficultyProfile } from '../ai/difficulty.js';
+import { getRoundIndex } from '../rules/turns.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -107,12 +109,14 @@ function resolveTile(q, r) {
     return gameState.tileMap.get(`${q},${r}`);
 }
 
-async function runV2Infrastructure(aiCamp) {
+async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp)) {
     const campKey = campToKey(aiCamp);
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         if (!unit || unit.camp !== aiCamp || !unit.pendingSpecialization) continue;
-        const choice = chooseDefaultSpecialization(unit, gameState);
+        const choice = chooseDefaultSpecialization(unit, gameState, {
+            intelligence: difficultyProfile.id
+        });
         if (choice) {
             await runObservedAction({ type: 'chooseSpecialization', unitId: unit.id, specializationKey: choice }, aiCamp, () => {
                 if (!unit.chooseSpecialization(choice)) return false;
@@ -128,8 +132,10 @@ async function runV2Infrastructure(aiCamp) {
         }
     }
 
-    const engineer = gameState.tiles.find(tile => tile.unit?.camp === aiCamp
-        && tile.unit.commander === 'engineer' && tile.unit.canAct)?.unit;
+    const engineer = difficultyProfile.infrastructureLevel > 0
+        ? gameState.tiles.find(tile => tile.unit?.camp === aiCamp
+            && tile.unit.commander === 'engineer' && tile.unit.canAct)?.unit
+        : null;
     if (engineer) {
         const repairTarget = gameState.tiles
             .map(tile => tile.unit)
@@ -144,7 +150,9 @@ async function runV2Infrastructure(aiCamp) {
 
     // AI 与玩家共用同一信息权限：迷雾下只评估可见地块，潜航潜艇不可作为目标。
     const fogSafeTile = tile => !gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState);
-    for (const city of gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp && tile.installation?.status === 'ready')) {
+    for (const city of difficultyProfile.infrastructureLevel > 0
+        ? gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp && tile.installation?.status === 'ready')
+        : []) {
         const enemies = gameState.tiles.filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
             && hexDistance(city, tile) <= getAirCommandRange(city)
             && fogSafeTile(tile)
@@ -190,7 +198,9 @@ async function runV2Infrastructure(aiCamp) {
     const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
     if (ownedCities.length && !ownedCities.some(tile => tile.installation)) {
         const candidate = ownedCities.find(tile => !tile.installation);
-        if (candidate && (gameState.playerGold[campKey] || 0) >= 10) {
+        const airfieldReserve = difficultyProfile.infrastructureLevel >= 2 ? 18 : 24;
+        if (difficultyProfile.infrastructureLevel > 0
+            && candidate && (gameState.playerGold[campKey] || 0) >= airfieldReserve) {
             await runObservedAction({ type: 'buildAirfield', tileQ: candidate.q, tileR: candidate.r }, aiCamp, () => {
                 executeAirfieldConstruction(candidate);
             });
@@ -203,18 +213,24 @@ async function runV2Infrastructure(aiCamp) {
             || (tile.isCity && isHostile(gameState, aiCamp, tile.camp) && tile.installation?.status === 'ready')));
     // 只在战略位置（城市/村庄）或敌军兵临 2 格内时修工事，并保留基础金币，避免每回合白耗单位行动。
     const fortificationKind = hostileAir ? 'flak' : 'trench';
-    const builder = (gameState.playerGold[campKey] || 0) >= 6
+    gameState._aiFortificationsBuilt ||= {};
+    const fortificationsBuilt = gameState._aiFortificationsBuilt[campKey] || 0;
+    const builder = difficultyProfile.infrastructureLevel >= 2
+        && fortificationsBuilt < 2
+        && (gameState.playerGold[campKey] || 0) >= 6
         ? gameState.tiles.map(tile => tile.unit).find(unit => unit?.camp === aiCamp
             && unit.canAct && !unit.isNewRecruit && isOrdinaryGroundBuilder(unit)
-            && (unit.tile.isCity || unit.tile.isVillage
-                || gameState.tiles.some(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
-                    && fogSafeTile(tile) && hexDistance(unit.tile, tile) <= 2))
+            && (unit.tile.isCity || unit.tile.isVillage)
+            && gameState.tiles.some(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
+                && fogSafeTile(tile)
+                && hexDistance(unit.tile, tile) <= (unit.tile.isCity ? 3 : 2))
             && canBuildFieldFortification(unit, fortificationKind, gameState))
         : null;
     if (builder) {
         await runObservedAction({ type: 'buildFortification', unitId: builder.id, fortificationKind }, aiCamp, () => {
             executeFieldConstruction(builder, fortificationKind);
         });
+        gameState._aiFortificationsBuilt[campKey] = fortificationsBuilt + 1;
     }
 }
 
@@ -259,7 +275,7 @@ function planEngineerAction(aiCamp) {
 }
 
 // 创建 helpers（每次执行时刷新 weather 等动态值）
-function makeHelpers(aiCamp) {
+function makeHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp)) {
     return {
         getMovableTiles,
         getAttackableTiles,
@@ -269,13 +285,15 @@ function makeHelpers(aiCamp) {
         UNIT_CONFIG,
         weather: gameState.weather,
         isHostileFaction: (left, right) => isHostile(gameState, left, right),
-        recruitTypesForCity: (city, baseTypes) => prioritizeNavalRecruitment(
-            city,
-            baseTypes,
-            gameState.tiles,
-            aiCamp,
-            (left, right) => isHostile(gameState, left, right)
-        ),
+        recruitTypesForCity: (city, baseTypes) => difficultyProfile.counterRecruitment
+            ? prioritizeNavalRecruitment(
+                city,
+                baseTypes,
+                gameState.tiles,
+                aiCamp,
+                (left, right) => isHostile(gameState, left, right)
+            )
+            : baseTypes,
         isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState),
         CARD_SYSTEM_CONFIG,
         COLONEL_CARD_GOLD
@@ -485,6 +503,17 @@ async function _executeActionInner(action, aiCamp) {
             skill.onActivate(unit, {
                 gameState, logMessage, spawnFx: spawnCommanderSkillEffect
             });
+            if (unit.commander === 'astrologer') {
+                const targetWeather = ['clear', 'rain', 'fog', 'wind'].includes(action.targetWeather)
+                    ? action.targetWeather
+                    : 'clear';
+                gameState.weather = targetWeather;
+                gameState._starlightResume = true;
+                gameState.weatherLockUntil = getRoundIndex(gameState) + Math.max(1, Number(skill.duration || 2));
+                unit._pendingWeatherChoice = false;
+                updateAllFogOfWar(gameState);
+                logMessage(`占星者【星移】：AI 将天气强制为${targetWeather}并锁定${skill.duration}回合`);
+            }
             unit.activeSkillDur = skill.duration;
             unit.activeSkillCD = skill.cooldown;
             recalcAllFlankingMorale();
@@ -606,28 +635,21 @@ export async function processOpponentTurn(aiCamp) {
     if (campToKey(aiCamp) === 'neutral') return; // 中立用 Claude
 
     gameState.aiActing = true;
+    const difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp);
     // 遭遇战迷雾：AI 也需要更新视野
     if (gameState.skirmishFog) {
         updateFogOfWar(gameState, aiCamp);
-        // 困难模式 AI 拥有全局视野（隐藏作弊）
-        if (gameState.aiDifficulty >= 2.0) {
-            const campKey = campToKey(aiCamp);
-            for (const tile of gameState.tiles) {
-                gameState.visibleTiles[campKey].add(`${tile.q},${tile.r}`);
-                gameState.exploredTiles[campKey].add(`${tile.q},${tile.r}`);
-            }
-        }
     }
     try {
 
-        await runV2Infrastructure(aiCamp);
+        await runV2Infrastructure(aiCamp, difficultyProfile);
 
         // 单将领与双将领模式都应在 AI 规划行动前优先挂将；此前这一入口被误限在
         // doubleCommanderMode，导致普通 PVE 虽已给 AI 选将，却整局不部署。
         await deployAvailableCommanders(aiCamp);
 
-        const helpers = makeHelpers(aiCamp);
-        const actions = grokPersonality.planActions(gameState, helpers, aiCamp);
+        const helpers = makeHelpers(aiCamp, difficultyProfile);
+        const actions = grokPersonality.planActions(gameState, helpers, aiCamp, difficultyProfile);
 
         // 回合首次行动前延迟 2s
         if (actions.length > 0) { await delay(AI_DELAY); }
@@ -643,7 +665,7 @@ export async function processOpponentTurn(aiCamp) {
         );
         const emptyPorts = gameState.tiles.filter(t => t.isPort && !t.unit && t.camp === aiCamp);
         const campKey = campToKey(aiCamp);
-        for (const city of emptyCities) {
+        for (const city of emptyCities.slice(0, difficultyProfile.fallbackRecruitLimit)) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
             const unitType = helpers.recruitTypesForCity(city, ['infantry'])
                 .find(type => gameState.playerGold[campKey] >= UNIT_CONFIG[type].cost);
@@ -681,4 +703,8 @@ export async function processOpponentTurn(aiCamp) {
 
 export function aiSelectCommander(pool) {
     return grokPersonality.selectCommander(pool);
+}
+
+export function aiSelectCommanderPair(pool) {
+    return grokPersonality.selectCommanderPair(pool);
 }

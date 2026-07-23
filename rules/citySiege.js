@@ -13,7 +13,7 @@ export const CITY_SIEGE_CONFIG = deepFreeze({
     maxHpPerRadius: 200,
     regenPctPerRound: 0.10,
     maxDefensePct: 0.20,
-    // 炮兵/军舰的火炮攻城修正：规则系数，与海陆互攻减半（naval.js 的
+    // 炮兵/巡洋舰/岸防炮的火炮攻城修正：规则系数，与海陆互攻修正（naval.js 的
     // getCrossDomainDamageBonus）同层相加，不是相乘。军舰基础型号两者相加抵消，
     // 回到基准攻城效率；支援型巡洋舰的专精攻陆加成再叠加后可超出基准（见
     // getCannonSiegeDamageBonus 的调用方 _resolveGroundNavalSiegeDamage）。
@@ -26,8 +26,12 @@ export function getCityMaxHp(radius = 0) {
     return CITY_SIEGE_CONFIG.baseMaxHp + CITY_SIEGE_CONFIG.maxHpPerRadius * r;
 }
 
-/** 攻城时享受 cannonSiegeDamageBonus 的火炮类攻击者：炮兵、军舰（巡洋舰）。 */
-export const CANNON_SIEGE_ATTACKER_TYPES = Object.freeze(new Set(['archer', 'warship']));
+/** 攻城时享受 cannonSiegeDamageBonus 的火炮类攻击者，与 FIRE_CANNON 表现分类保持一致。 */
+export const CANNON_SIEGE_ATTACKER_TYPES = Object.freeze(new Set([
+    'archer',
+    'warship',
+    'shoreBattery'
+]));
 
 /** 火炮攻城修正：与 getCrossDomainDamageBonus 同为可加算的规则系数，由调用方相加后统一乘算。 */
 export function getCannonSiegeDamageBonus(attacker) {

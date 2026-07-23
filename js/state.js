@@ -490,7 +490,8 @@ export function updateUI() {
 
 let _prevWeather = 'clear';
 function _updateWeatherUI() {
-    const cfg = WEATHER_CONFIG[gameState.weather];
+    const cfg = WEATHER_CONFIG[gameState.weather] || WEATHER_CONFIG.clear;
+    if (!WEATHER_CONFIG[gameState.weather]) gameState.weather = 'clear';
     const badge = document.getElementById('weatherBadge');
     const iconEl = document.getElementById('weatherIcon');
     const labelEl = document.getElementById('weatherLabel');

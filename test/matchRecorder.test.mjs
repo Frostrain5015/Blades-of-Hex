@@ -14,7 +14,8 @@ import {
     resolvePendingLocalAction,
     serializeCurrentMatchLog,
     serializeCurrentMatchReview,
-    startMatchRecording
+    startMatchRecording,
+    withMatchActionCause
 } from '../js/matchRecorder.js';
 
 function makeState() {
@@ -124,5 +125,70 @@ test('match recorder exports fog-aware, diff-based, LLM-readable JSON', () => {
     assert.equal('timeline' in review, false);
     assert.equal('initialState' in review, false);
     assert.equal(JSON.parse(serializeCurrentMatchReview()).matchId, 'test-match');
+    clearMatchRecording();
+});
+
+test('delayed effects keep their originating action and do not leak into the next action diff', () => {
+    clearMatchRecording();
+    const state = makeState();
+    bindMatchRecorderState(state);
+    startMatchRecording(state, { matchId: 'deferred-cause-test' });
+    const airAction = recordCommittedAction(state, {
+        actionType: 'airCommand',
+        payload: { kind: 'strafe' },
+        actorCampKey: 'player1',
+        accepted: true
+    });
+
+    withMatchActionCause(state, airAction.actionId, () => {
+        state.defender.hp = 55;
+        state.logHistory.push('扫射命中蓝军步兵');
+        emit('match:unitHpChanged', {
+            unitId: 'u2', unit: state.defender,
+            oldHp: 100, newHp: 55, delta: -45,
+            source: 'ranged'
+        });
+    });
+
+    const delayedEvent = getCurrentMatchLog().timeline.find(item => item.eventType === 'unitHpChanged');
+    assert.equal(delayedEvent.causedByActionId, airAction.actionId);
+    assert.equal(airAction.outcome.deferredEffects[0].changes.unitHp[0].delta, -45);
+    assert.deepEqual(airAction.outcome.deferredEffects[0].engineMessages, ['扫射命中蓝军步兵']);
+
+    state.playerGold.player1 -= 4;
+    const nextAction = recordCommittedAction(state, {
+        actionType: 'drawCard',
+        actorCampKey: 'player1',
+        accepted: true
+    });
+    assert.equal(nextAction.outcome.changes.unitHp, undefined);
+    assert.equal(nextAction.outcome.changes.resources[0].changes.gold.after, 96);
+    clearMatchRecording();
+});
+
+test('Hero-bound faction skills are logged once with the faction logo and included in review', () => {
+    clearMatchRecording();
+    const state = makeState();
+    state.doubleCommanderMode = true;
+    state.factions.player1.flagEmoji = '🐉';
+    bindMatchRecorderState(state);
+    startMatchRecording(state, { matchId: 'faction-skill-test' });
+
+    const event = {
+        presentationEventId: 'sunMoon:player1:4',
+        campKey: 'player1',
+        affectedIds: ['u1']
+    };
+    emit('fx:tianhengBorrowDay', event);
+    emit('fx:tianhengBorrowDay', event);
+    finalizeMatchRecording(state, { reason: 'test' });
+
+    const skillEvents = getCurrentMatchLog().timeline.filter(item => item.eventType === 'factionSkillActivated');
+    assert.equal(skillEvents.length, 1);
+    assert.equal(skillEvents[0].payload.logoEmoji, '🐉');
+    assert.equal(skillEvents[0].payload.skillName, '日月天衡');
+    const review = buildMatchReview(getCurrentMatchLog());
+    assert.equal(review.factionSkillEvents.length, 1);
+    assert.equal(review.factionSkillEvents[0].presentationEventId, 'sunMoon:player1:4');
     clearMatchRecording();
 });
