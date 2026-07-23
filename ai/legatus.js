@@ -288,7 +288,9 @@ export function planActions(gameState, helpers, myCamp) {
             score += jitter(55);
             if (score > bestScore) { bestScore = score; bestTile = tile; }
         }
-        if (bestTile && bestScore > 0) {
+        // 开火门槛略低于「净收益为正」：一味只做稳赚的交换会变成挨打不还手，
+        // 双人局里它因此打得比入门档还少、死得还多。
+        if (bestTile && bestScore > -40) {
             actions.push({ type: 'attack', unitId: unit.id, targetId: bestTile.unit.id });
             processed.add(unit.id);
         }

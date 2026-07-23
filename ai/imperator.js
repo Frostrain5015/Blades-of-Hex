@@ -568,13 +568,38 @@ export function planActions(gameState, helpers, myCamp) {
 
         gameState._imperatorSuppressTarget ||= {};
         gameState._imperatorSuppressTarget[campKey] = engaged ? top.camp.id : null;
+        // 触发计数供自对局复盘核对：机制没跑起来和跑起来没用，是两回事。
+        gameState._imperatorSuppressRounds ||= {};
+        if (engaged) {
+            gameState._imperatorSuppressRounds[campKey] =
+                (gameState._imperatorSuppressRounds[campKey] || 0) + 1;
+        }
         return engaged ? top.camp : null;
     })();
 
-    /** 制衡修正：领先者的城更值得打，垫底那家的城暂时缓一缓。 */
+    /**
+     * 制衡修正：**抢在失控者前面占下他要扩张的那座城**，而不是去围攻他的本土。
+     *
+     * 强攻领先者的老巢是最贵的压制方式：两个追赶者都在他的城墙下消耗，
+     * 他反而坐稳。实测按「打他的城」实现时，平均城数差距从 2.67 涨到 3.00，
+     * 领先者赢得更大。真人的做法是卡住他的下一步扩张——同一座中立城，
+     * 我先拿到就等于他少一座，成本只有行军，没有攻坚。
+     */
     function balanceOfPowerAdjust(city) {
-        if (!runawayLeader || !isEnemyCamp(city.camp)) return 0;
-        return city.camp === runawayLeader ? -SUPPRESSION_PULL : SUPPRESSION_PULL * 0.6;
+        if (!runawayLeader) return 0;
+        // 他自己的城：不主动去啃，那是替第三方做嫁衣。
+        if (city.camp === runawayLeader) return SUPPRESSION_PULL * 0.5;
+        // 无主/第三方的城，且他比我更近 → 这是他的下一块扩张地，优先截胡。
+        if (!isEnemyCamp(city.camp) || city.camp !== runawayLeader) {
+            const leaderDistance = Math.min(Infinity, ...allEnemyUnits
+                .filter(tile => tile.unit.camp === runawayLeader)
+                .map(tile => hexDistance(tile, city)));
+            const myDistance = nearestAssaultDistance(city);
+            if (Number.isFinite(leaderDistance) && leaderDistance <= myDistance + 2) {
+                return -SUPPRESSION_PULL;
+            }
+        }
+        return 0;
     }
 
     function raidDiscountFor(city) {
@@ -1333,9 +1358,19 @@ export function planActions(gameState, helpers, myCamp) {
     const cityBoundAssaults = new Set();
     for (const unit of units) {
         if (processed.has(unit.id) || !canCaptureCityByCombat(unit)) continue;
-        const reachableCity = getMovableTiles(unit).some(tile =>
-            tile.isCity && tile.camp !== myCamp && !tile.unit && tile.hp <= 0);
-        if (reachableCity) cityBoundAssaults.add(unit.id);
+        // 本回合就能走进去的空城：那一步直接兑现成一座城。
+        if (getMovableTiles(unit).some(tile =>
+            tile.isCity && tile.camp !== myCamp && !tile.unit && tile.hp <= 0)) {
+            cityBoundAssaults.add(unit.id);
+            continue;
+        }
+        // 已经进入认领城市的最后两步：不为路边的杂兵停下来。停一回合打一架，
+        // 城就可能被别人先摸进去——双人局里 Imperator 打出 39 次攻击 11 个击杀，
+        // 移动却只有对手的一半，最终 0 占城输掉，就是这么耗掉的。
+        const target = objectiveFor(unit);
+        if (!target) continue;
+        const stride = Math.max(1, Number(unit.config?.speed || 1));
+        if (hexDistance(unit.tile, target) <= stride + 2) cityBoundAssaults.add(unit.id);
     }
 
     for (const unit of units) {
@@ -1347,10 +1382,10 @@ export function planActions(gameState, helpers, myCamp) {
         // 集火过滤：按账本已被锁定击杀的目标不再浪费输出
         targets = targets.filter(t => effectiveHp(t.unit) > 0);
 
-        // 留给占城的近战只在「这一刀能直接拿下城市」时才开火。
+        // 行军中的近战只为两件事停下：一刀拿下城市，或清掉挡在城门口的守军。
         if (cityBoundAssaults.has(unit.id)) {
             targets = targets.filter(tile => tile.isCity && tile.camp !== myCamp
-                && willKill(unit, tile.unit));
+                && (willKill(unit, tile.unit) || hexDistance(unit.tile, tile) <= 1));
         }
 
         if (targets.length === 0) continue;
@@ -1408,6 +1443,12 @@ export function planActions(gameState, helpers, myCamp) {
 
             // 位于敌方/中立城市的守军
             if (tile.isCity && tile.camp !== myCamp) score += 150;
+
+            // 制衡体现在「抢地」而不是「打人」：削弱垫底那家只是替领先者省事，
+            // 所以压制期间对落后阵营的部队降低兴趣，但也不专门去追领先者的兵。
+            if (runawayLeader && isEnemyCamp(target.camp) && target.camp !== runawayLeader) {
+                score -= SUPPRESSION_PULL * 0.6;
+            }
 
             // 残血收割
             const hpRatio = target.hp / target.maxHp;

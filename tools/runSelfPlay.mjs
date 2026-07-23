@@ -210,6 +210,7 @@ const report = {
         Object.entries(difficultyProfiles).map(([key, profile]) => [key, profile.id])
     ),
     totalActions: log.summary.totalActions,
+    suppressionRounds: state._imperatorSuppressRounds || {},
     commanders: selectedCommanders,
     byCamp: log.summary.byCamp
 };
