@@ -3,6 +3,17 @@ import { COMMANDER_DRAFT } from '../rules/constants.js';
 import { gameState } from './state.js';
 import { createRoom } from './network.js';
 import { STANDARD_MAP_FAMILIES } from '../rules/standardMaps.js';
+// 难度选项直接从人格脚本的 meta 派生，避免「改了档名、准备页还显示旧名」。
+// 这里只取三份轻量 meta，不经过 js/ai.js，那条链会把整个战斗执行层拖进大厅。
+import { meta as optioMeta } from '../ai/optio.js';
+import { meta as legatusMeta } from '../ai/legatus.js';
+import { meta as imperatorMeta } from '../ai/imperator.js';
+
+// 顺序即强度阶梯；id 仍是 easy/medium/hard，用于存档与 aiDifficulty 数值兼容。
+const AI_DIFFICULTY_CHOICES = [optioMeta, legatusMeta, imperatorMeta].map(meta => ({
+    id: meta.difficultyId,
+    title: meta.name
+}));
 
 export function createPreparationController({
     beginCommanderPhase,
@@ -91,11 +102,7 @@ export function createPreparationController({
                 { id: 'pve', title: 'PVE' },
                 { id: 'local', title: '本地热座', desc: '玩家轮流操作' }
             ]);
-            buildOptionRow('prepOptionsDiff', [
-                { id: 'easy', title: '简单' },
-                { id: 'medium', title: '中等' },
-                { id: 'hard', title: '困难' }
-            ]);
+            buildOptionRow('prepOptionsDiff', AI_DIFFICULTY_CHOICES);
             difficultySection.classList.remove('hidden', 'collapsed');
             const updateDifficulty = () => {
                 difficultySection.classList.toggle('hidden', getSelection('prepOptions1') !== 'pve');
