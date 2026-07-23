@@ -682,6 +682,7 @@ export function buildMatchReview(log = active?.log || null) {
         controlTimeline: stats.controlTimeline,
         battleEvents: stats.battleEvents,
         factionSkillEvents: stats.factionSkillEvents,
+        commanderDeathEvents: stats.commanderDeathEvents,
         roundIndex: stats.rounds,
         keyEvents: stats.keyEvents,
         unitHighlights,
@@ -750,9 +751,12 @@ on('match:unitHpChanged', payload => recordMatchEvent(boundState, 'unitHpChanged
 on('match:unitKilled', payload => recordMatchEvent(boundState, 'unitKilled', {
     unitId: payload?.unitId,
     unitType: payload?.unitType,
+    commanderId: payload?.commanderId || null,
+    isCommanderUnit: payload?.isCommanderUnit === true,
     campKey: keyOfCamp(payload?.camp),
     killerId: payload?.killerId,
     killerType: payload?.killerType,
+    killerCommanderId: payload?.killerCommanderId || null,
     killerCampKey: keyOfCamp(payload?.killerCamp),
     reason: payload?.reason
 }));

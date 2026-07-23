@@ -33,7 +33,22 @@ import {
     shouldSpendBerserkerBlood,
     shouldYieldMinisterCity
 } from './doctrine.js';
+import {
+    assessStrategicPosture,
+    estimateCampEconomy,
+    estimateDistrictAssetValue,
+    estimateFogRivalForce,
+    estimateForceValue,
+    shouldBreakObjectiveCommitment
+} from './strategy.js';
 import { getStandardMap } from '../rules/standardMaps.js';
+import {
+    getEagleSynergyMeter,
+    hasEagleSynergyActive,
+    isEagleAirAttacker,
+    isEagleCommanderUnit,
+    isEagleFortressAttacker
+} from '../rules/eagle.js';
 
 export const meta = {
     name: 'Imperator',
@@ -46,7 +61,10 @@ export const selectCommander = doctrineSelectCommander;
 export const selectCommanderPair = doctrineSelectCommanderPair;
 
 export function planActions(gameState, helpers, myCamp) {
-    const { getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP, UNIT_CONFIG, isHostileFaction, recruitTypesForCity } = helpers;
+    const {
+        getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS, CAMP,
+        UNIT_CONFIG, isHostileFaction, recruitTypesForCity, canRecruitTypeAtSite
+    } = helpers;
     const tileMap = gameState.tileMap;
     const actions = [];
     const processed = new Set();
@@ -318,6 +336,9 @@ export function planActions(gameState, helpers, myCamp) {
     // 收集战局数据
     // ═══════════════════════════════════════════
 
+    const allLivingUnits = gameState.tiles
+        .filter(t => t.unit && t.unit.camp === myCamp && t.unit.hp > 0)
+        .map(t => t.unit);
     const allUnits = gameState.tiles
         .filter(t => t.unit && t.unit.camp === myCamp && t.unit.canAct && !t.unit.isNewRecruit)
         .map(t => t.unit);
@@ -357,6 +378,117 @@ export function planActions(gameState, helpers, myCamp) {
     let gold = gameState.playerGold[campKey];
 
     const ownsNeutralCity = myCities.some(c => neutralDistricts.has(c.districtId));
+    const oceanMap = standardMap?.familyId === 'uncharted-passage';
+    const capitalTile = myCities.find(city => myHomeDistricts.has(city.districtId)) || myCities[0] || null;
+    const ownPorts = gameState.tiles.filter(tile => tile.isPort && tile.camp === myCamp);
+
+    function strategicThreatAt(asset) {
+        if (!asset) return 0;
+        let threat = 0;
+        for (const enemyTile of allEnemyUnits) {
+            const enemy = enemyTile.unit;
+            const reach = Math.max(1, Number(enemy.config?.range || 1))
+                + Math.max(0, Number(enemy.config?.speed || 0));
+            const distance = hexDistance(enemyTile, asset);
+            if (distance > reach + 3) continue;
+            threat = Math.max(threat, (reach + 3 - distance) / Math.max(1, reach + 3));
+        }
+        return Math.max(0, Math.min(1, threat));
+    }
+
+    const capitalThreat = strategicThreatAt(capitalTile);
+    const mostThreatenedPort = ownPorts.length > 0
+        ? [...ownPorts].sort((left, right) => strategicThreatAt(right) - strategicThreatAt(left))[0]
+        : null;
+    const portThreat = strategicThreatAt(mostThreatenedPort);
+    const ownEconomy = estimateCampEconomy(gameState.tiles, myCamp);
+    const visibleRivalEconomies = enemyCamps.map(camp => {
+        const visibleTiles = gameState.skirmishFog
+            ? gameState.tiles.filter(tile => tile.camp === camp && tileExplored(tile))
+            : gameState.tiles;
+        return { camp, ...estimateCampEconomy(visibleTiles, camp) };
+    });
+    const strongestObservedRivalEconomy = [...visibleRivalEconomies]
+        .sort((left, right) => right.projectedIncome - left.projectedIncome
+            || right.cityCount - left.cityCount)[0]
+        || { cityCount: 0, projectedIncome: 0, portCount: 0 };
+    const visibleRivalUnits = allEnemyUnits.map(tile => tile.unit);
+    const ownForceValue = estimateForceValue(allLivingUnits);
+    gameState._imperatorIntelMemory ||= {};
+    const intelMemory = (gameState._imperatorIntelMemory[campKey] ||= {});
+    const rivalIntel = enemyCamps.map(camp => {
+        const observedUnits = allEnemyUnits
+            .filter(tile => tile.unit.camp === camp)
+            .map(tile => tile.unit);
+        const observedForceValue = estimateForceValue(observedUnits);
+        const previous = intelMemory[camp.id];
+        const elapsedIntelRounds = previous
+            ? Math.max(0, currentRound - Number(previous.round || currentRound))
+            : 1;
+        const forceEstimate = estimateFogRivalForce({
+            fogEnabled: gameState.skirmishFog,
+            ownForceValue,
+            observedForceValue,
+            previousEstimate: previous?.forceEstimate,
+            elapsedRounds: elapsedIntelRounds
+        });
+        const observedEconomy = visibleRivalEconomies.find(entry => entry.camp === camp)
+            || { cityCount: 0, projectedIncome: 0, portCount: 0 };
+        // 初次接触前按对称开局估计；之后保留并缓慢衰减旧经济情报。已探明资产
+        // 永远可以把估计向上修正，但“暂时没看见”不能把对手经济瞬间归零。
+        const priorIncome = Number(previous?.projectedIncome);
+        const incomeEstimate = gameState.skirmishFog
+            ? Math.max(
+                observedEconomy.projectedIncome,
+                Number.isFinite(priorIncome)
+                    ? priorIncome * (0.94 ** elapsedIntelRounds)
+                    : ownEconomy.projectedIncome * 0.80
+            )
+            : observedEconomy.projectedIncome;
+        const priorCities = Number(previous?.cityCount);
+        const cityEstimate = gameState.skirmishFog
+            ? Math.max(
+                observedEconomy.cityCount,
+                Number.isFinite(priorCities)
+                    ? priorCities * (0.94 ** elapsedIntelRounds)
+                    : Math.min(1, ownEconomy.cityCount)
+            )
+            : observedEconomy.cityCount;
+        const next = {
+            forceEstimate,
+            observedForceValue,
+            projectedIncome: incomeEstimate,
+            cityCount: cityEstimate,
+            observedUnitCount: observedUnits.length,
+            round: currentRound
+        };
+        intelMemory[camp.id] = next;
+        return { camp, ...next };
+    });
+    const strongestRivalIntel = [...rivalIntel]
+        .sort((left, right) => right.forceEstimate - left.forceEstimate
+            || right.projectedIncome - left.projectedIncome)[0]
+        || { forceEstimate: 1, observedForceValue: 0, projectedIncome: 0, cityCount: 0 };
+    const strategicPosture = assessStrategicPosture({
+        ownForceValue,
+        rivalForceValue: strongestRivalIntel.forceEstimate,
+        ownUnitCount: allLivingUnits.length,
+        ownCityCount: ownEconomy.cityCount,
+        rivalCityCount: strongestRivalIntel.cityCount,
+        ownProjectedIncome: ownEconomy.projectedIncome,
+        rivalProjectedIncome: strongestRivalIntel.projectedIncome,
+        ownPortCount: ownEconomy.portCount,
+        capitalThreat,
+        portThreat,
+        roundsRemaining,
+        hasExpansionTargets: enemyCities.length + neutralCities.length > 0,
+        strategicPictureComplete: !gameState.skirmishFog
+    });
+    const defensiveAnchor = strategicPosture.posture === 'recover'
+        ? capitalTile
+        : strategicPosture.posture === 'defend'
+            ? ((portThreat > capitalThreat && ownPorts.length <= 1) ? mostThreatenedPort : capitalTile)
+            : null;
 
     const enemyStrategicPower = new Map(enemyCamps.map(camp => {
         const visibleForce = allEnemyUnits
@@ -387,22 +519,27 @@ export function planActions(gameState, helpers, myCamp) {
     // 旧版一旦夺下第一座中立城就永久切进敌方阶段，棋盘上剩下的中立城再也不会
     // 被看一眼——而回合限制判的正是城市数量，强攻隔着深海的敌方主城，远不如
     // 再拿一座守备薄弱的中立城划算。无主航路两局的死局就是这么来的。
-    const objectivePhase = 'expand';
+    const objectivePhase = strategicPosture.posture;
     const objectiveMemory = gameState._imperatorStrategicObjectives?.[campKey];
-    const committedCoords = readStrategicObjectiveCommitment(
-        objectiveMemory,
-        objectivePhase,
-        currentRound
-    );
+    const memoryStalled = Number(objectiveMemory?.stalledRounds || 0) >= 2;
+    const postureBreaksCommitment = shouldBreakObjectiveCommitment({
+        previousPosture: objectiveMemory?.phase || objectivePhase,
+        nextPosture: objectivePhase,
+        capitalThreat,
+        objectiveValid: !memoryStalled,
+        stalledRounds: objectiveMemory?.stalledRounds || 0
+    });
+    const committedCoords = postureBreaksCommitment ? null : readStrategicObjectiveCommitment(
+        objectiveMemory, objectivePhase, currentRound);
     const committedTile = committedCoords
         ? tileMap.get(`${committedCoords.q},${committedCoords.r}`)
         : null;
-    const committedObjectiveValid = committedTile?.isCity
-        && committedTile.camp !== myCamp
-        && tileExplored(committedTile);
-    let primaryObjective = committedObjectiveValid ? committedTile : null;
-    const usingCommittedObjective = Boolean(primaryObjective);
-
+    const defensivePhase = objectivePhase === 'defend' || objectivePhase === 'recover';
+    const committedObjectiveValid = Boolean(committedTile)
+        && (defensivePhase
+            ? committedTile.camp === myCamp
+            : committedTile.isCity && committedTile.camp !== myCamp && tileExplored(committedTile));
+    let primaryObjective = defensiveAnchor || (committedObjectiveValid ? committedTile : null);
     // 夺城只能靠近战，所以“多远”按最近的近战单位算，而不是全军平均距离——
     // 舰队再近，够不着的城也拿不下。
     const nearestAssaultDistance = cityTile => {
@@ -436,6 +573,22 @@ export function planActions(gameState, helpers, myCamp) {
         const tile = tileMap.get(key);
         if (!tile?.isCity || tile.camp === myCamp) continue;
         objectiveCities.set(key, tile);
+    }
+    const transferableNeutralForceValue = estimateForceValue(gameState.tiles
+        .filter(tile => tile.unit?.camp === CAMP.neutral && tileExplored(tile))
+        .map(tile => tile.unit));
+    const strategicKnownTiles = gameState.tiles.map(tile => tileExplored(tile)
+        ? tile : { ...tile, installation: null });
+    const objectiveAssetValues = new Map();
+    for (const city of objectiveCities.values()) {
+        objectiveAssetValues.set(`${city.q},${city.r}`, estimateDistrictAssetValue(city, strategicKnownTiles, {
+            currentCityCount: ownEconomy.cityCount,
+            roundsRemaining,
+            oceanMap,
+            enemyOwned: tileExplored(city) && isEnemyCamp(city.camp),
+            captureReward: standardMap?.captureReward,
+            transferableNeutralForceValue
+        }));
     }
 
     // ═══════════════════════════════════════════
@@ -535,7 +688,13 @@ export function planActions(gameState, helpers, myCamp) {
      */
     const SUPPRESSION_PULL = 25;
     const runawayLeader = (() => {
-        if (enemyCamps.length < 2) return null;   // 双人局没有制衡问题
+        if (enemyCamps.length === 1) {
+            const [rival] = rivalIntel;
+            const isAhead = (rival?.cityCount || 0) > myCityCount
+                || (rival?.projectedIncome || 0) >= ownEconomy.projectedIncome + 2;
+            return strategicPosture.posture === 'contest' && isAhead ? enemyCamps[0] : null;
+        }
+        if (enemyCamps.length < 2) return null;
         gameState._imperatorPowerHistory ||= {};
         const history = (gameState._imperatorPowerHistory[campKey] ||= []);
         if (!history.length || history[history.length - 1].round !== currentRound) {
@@ -587,6 +746,14 @@ export function planActions(gameState, helpers, myCamp) {
      */
     function balanceOfPowerAdjust(city) {
         if (!runawayLeader) return 0;
+        if (enemyCamps.length === 1) {
+            if (city.camp === runawayLeader) return -35;
+            const rivalDistance = Math.min(Infinity, ...allEnemyUnits
+                .filter(tile => tile.unit.camp === runawayLeader)
+                .map(tile => hexDistance(tile, city)));
+            return Number.isFinite(rivalDistance) && rivalDistance <= nearestAssaultDistance(city) + 2
+                ? -28 : 0;
+        }
         // 他自己的城：不主动去啃，那是替第三方做嫁衣。
         if (city.camp === runawayLeader) return SUPPRESSION_PULL * 0.5;
         // 无主/第三方的城，且他比我更近 → 这是他的下一块扩张地，优先截胡。
@@ -635,6 +802,10 @@ export function planActions(gameState, helpers, myCamp) {
                 + defense * 0.012
                 - (known ? strategicUrgency(city) * 30 : 0)
                 + jitterScore(8);
+            const assetValue = objectiveAssetValues.get(`${city.q},${city.r}`)?.total || 0;
+            // 把城市当作“行政区资产包”估值：未来收入、村庄、港口、机场和投诚兵力
+            // 都会改变整局资源曲线。距离仍是成本，但不再是唯一标准。
+            score -= assetValue * (objectivePhase === 'contest' ? 0.26 : 0.20);
             // 中立城不会像敌方主城那样越打越硬，且拿下即刻计入城市数。
             if (known && owner === CAMP.neutral) score -= 20;
             // 敌方主城守备最厚、路径最长，非终局阶段不作为首选——
@@ -646,7 +817,7 @@ export function planActions(gameState, helpers, myCamp) {
             if (known && isEnemyCamp(owner) && neutralDistricts.has(city.districtId)) score -= 16;
             // 出生区之外的城市在开局静态布局里就是中立的，未探索也照样值得去。
             if (!known && neutralDistricts.has(city.districtId)) score -= 20;
-            if (isCaptureRewardCity(city)) score -= 55;
+            if (isCaptureRewardCity(city)) score -= 18;
             if (terminalPhase) score -= 18;
             // 投入产出比：薄弱点、被第三方缠住的对手、视野盲区，都让这座城更便宜。
             if (known) score -= raidDiscountFor(city);
@@ -685,17 +856,56 @@ export function planActions(gameState, helpers, myCamp) {
         primaryObjective = chooseFromRanked(unexplored, frontierValue);
     }
 
-    if (primaryObjective && !usingCommittedObjective) {
+    if (primaryObjective) {
         if (!gameState._imperatorStrategicObjectives) gameState._imperatorStrategicObjectives = {};
+        const previousSameObjective = objectiveMemory
+            && objectiveMemory.q === primaryObjective.q && objectiveMemory.r === primaryObjective.r;
+        const observedDistance = defensivePhase
+            ? Math.min(Infinity, ...allEnemyUnits.map(tile => hexDistance(tile, primaryObjective)))
+            : nearestAssaultDistance(primaryObjective);
+        const observedHp = Number(primaryObjective.hp || 0);
+        let stalledRounds = previousSameObjective ? Number(objectiveMemory.stalledRounds || 0) : 0;
+        if (previousSameObjective && Number(objectiveMemory.lastObservedRound) < currentRound) {
+            const distanceImproved = observedDistance < Number(objectiveMemory.observedDistance ?? Infinity);
+            const hpImproved = observedHp < Number(objectiveMemory.observedHp ?? Infinity);
+            stalledRounds = distanceImproved || hpImproved
+                ? 0 : Number(objectiveMemory.stalledRounds || 0) + 1;
+        }
         gameState._imperatorStrategicObjectives[campKey] = {
             phase: objectivePhase,
             q: primaryObjective.q,
             r: primaryObjective.r,
-            // 三回合内保持同一战役目标；目标易手或阶段变化时会立即失效。
-            expiresRound: currentRound + 2
+            // 正常承诺保持三回合，但危机转态或连续两回合无进展会立即改令。
+            expiresRound: currentRound + 2,
+            lastObservedRound: currentRound,
+            observedDistance,
+            observedHp,
+            stalledRounds
         };
     } else if (!primaryObjective && gameState._imperatorStrategicObjectives?.[campKey]) {
         delete gameState._imperatorStrategicObjectives[campKey];
+    }
+
+    gameState._imperatorStrategicTelemetry ||= {};
+    const telemetry = (gameState._imperatorStrategicTelemetry[campKey] ||= []);
+    if (telemetry.at(-1)?.round !== currentRound) {
+        telemetry.push({
+            round: currentRound,
+            posture: objectivePhase,
+            urgency: strategicPosture.urgency,
+            objective: primaryObjective ? { q: primaryObjective.q, r: primaryObjective.r } : null,
+            objectiveAssetValue: primaryObjective
+                ? objectiveAssetValues.get(`${primaryObjective.q},${primaryObjective.r}`)?.total || 0
+                : 0,
+            projectedIncome: ownEconomy.projectedIncome,
+            rivalProjectedIncome: strongestRivalIntel.projectedIncome,
+            observedRivalForce: strongestRivalIntel.observedForceValue,
+            estimatedRivalForce: strongestRivalIntel.forceEstimate,
+            forceRatio: strategicPosture.forceRatio,
+            capitalThreat,
+            portThreat
+        });
+        while (telemetry.length > 40) telemetry.shift();
     }
 
     // 确定主攻目标后，按离目标由近到远重新排序全军
@@ -710,28 +920,51 @@ export function planActions(gameState, helpers, myCamp) {
     }
 
     /**
-     * 分兵略地：兵力占优时，把主攻目标之外的城市也派人去拿。
-     *
-     * 只认一个战役目标会让全军挤在同一座城上——回归里 Imperator 攒到 22 个单位、
-     * 场上还剩 3 座无主城，却因为所有人都朝同一个方向走而以平局收场。
-     * 能占城的近战改为各自认领「自己够得着的最近一座城」，舰队和远程仍然
-     * 围绕主攻目标行动，负责制海与掩护。
+     * 联合特遣队：扩张有余力时才开第二战线，每条支线至少包含一名占城手和
+     * 一名火力/海军掩护。旧版让每个近战各追一座最近城市，结果突击兵与舰队
+     * 被系统性拆散；海图上看似“四路并进”，实际是四路逐个送死。
      */
     const detachmentObjectives = new Map();
     {
-        const capturable = [...objectiveCities.values()];
-        for (const unit of allUnits) {
-            if (!canCaptureCityByCombat(unit)) continue;
-            let best = null;
-            let bestDistance = Infinity;
-            for (const city of capturable) {
-                const distance = hexDistance(unit.tile, city);
-                if (distance < bestDistance) { bestDistance = distance; best = city; }
+        const maySplit = !defensivePhase && allLivingUnits.length >= 7
+            && estimateForceValue(allLivingUnits) >= estimateForceValue(visibleRivalUnits) * 0.85;
+        if (maySplit) {
+            const secondaryCities = [...objectiveCities.values()]
+                .filter(city => city !== primaryObjective)
+                .map(city => ({
+                    city,
+                    value: (objectiveAssetValues.get(`${city.q},${city.r}`)?.total || 0)
+                        - nearestAssaultDistance(city) * 12
+                        - evaluateCityDefense(city, city.camp) * 0.03
+                }))
+                .sort((left, right) => right.value - left.value)
+                .slice(0, Math.min(2, Math.floor(allLivingUnits.length / 7)));
+            const assigned = new Set();
+            for (const { city } of secondaryCities) {
+                const assault = allUnits
+                    .filter(unit => canCaptureCityByCombat(unit) && !assigned.has(unit.id))
+                    .sort((left, right) =>
+                        hexDistance(left.tile, city) - hexDistance(right.tile, city))[0];
+                if (!assault) continue;
+                detachmentObjectives.set(assault.id, city);
+                assigned.add(assault.id);
+
+                const escorts = allUnits
+                    .filter(unit => !canCaptureCityByCombat(unit) && !assigned.has(unit.id))
+                    .sort((left, right) => {
+                        const leftRally = hexDistance(left.tile, assault.tile) + hexDistance(left.tile, city) * 0.4;
+                        const rightRally = hexDistance(right.tile, assault.tile) + hexDistance(right.tile, city) * 0.4;
+                        return leftRally - rightRally;
+                    })
+                    .slice(0, oceanMap ? 2 : 1);
+                for (const escort of escorts) {
+                    detachmentObjectives.set(escort.id, city);
+                    assigned.add(escort.id);
+                }
             }
-            if (best) detachmentObjectives.set(unit.id, best);
         }
     }
-    /** 该单位本回合的行军目标：近战认领的分队目标优先，其余跟随主攻目标。 */
+    /** 该单位本回合的行军目标：完整分队的支线目标优先，其余跟随主攻目标。 */
     const objectiveFor = unit => detachmentObjectives.get(unit.id) || primaryObjective;
 
     // ═══════════════════════════════════════════
@@ -751,7 +984,7 @@ export function planActions(gameState, helpers, myCamp) {
             }
         }
         // 目标城要满足：不是那坨主力正守着的地方，且守备确实薄弱。
-        if (heaviest && allUnits.length >= 6) {
+        if (!defensivePhase && heaviest && allUnits.length >= 6) {
             const anchor = heaviest.attention.centroid;
             let bestCity = null;
             let bestValue = -Infinity;
@@ -826,6 +1059,12 @@ export function planActions(gameState, helpers, myCamp) {
     const drawCost = helpers.CARD_SYSTEM_CONFIG ? helpers.CARD_SYSTEM_CONFIG.drawCost : 4;
     const maxHandSize = helpers.CARD_SYSTEM_CONFIG ? helpers.CARD_SYSTEM_CONFIG.maxHandSize : 3;
     const colGold = helpers.COLONEL_CARD_GOLD || { diveStrafe: 4, carpetBomb: 5, airlift: 4 };
+    const ownEagleActive = hasEagleSynergyActive(gameState, campKey);
+    const ownEagleMeter = ownEagleActive ? getEagleSynergyMeter(gameState, campKey) : null;
+    const visibleEnemyEagleCamps = new Set(enemyCamps
+        .filter(camp => allEnemyUnits.filter(tile =>
+            tile.unit.camp === camp && isEagleCommanderUnit(tile.unit)).length >= 2)
+        .map(camp => camp.id));
 
     // 抽牌（v6: 纵横家多抽牌，其他少抽）
     if (!terminalPhase && cmdStrat.cardFocus) {
@@ -914,7 +1153,9 @@ export function planActions(gameState, helpers, myCamp) {
                 if (target.tile.isCity && isEnemyCamp(target.camp)) score += 70;
                 if (target.morale >= 3) score += 50;
                 if (target.type === 'archer') score += 30;
-                if (!ownsNeutralCity && target.camp === CAMP.neutral) score += 100;
+                if (!ownsNeutralCity && target.camp === CAMP.neutral
+                    && objectivePhase === 'expand') score += 100;
+                if (defensivePhase && isEnemyCamp(target.camp)) score += 90;
                 // 雨天闪电加成已计入
                 if (score > bestScore) { bestScore = score; bestTarget = target; }
             }
@@ -1058,12 +1299,18 @@ export function planActions(gameState, helpers, myCamp) {
                 cardUses++;
             }
         } else if (cardId === 'landmine') {
-            if (primaryObjective) {
+            const mineAnchor = defensiveAnchor || primaryObjective;
+            if (mineAnchor) {
                 const mineSpots = gameState.tiles.filter(t =>
                     !t.unit && !t.isCity && t.camp === myCamp
-                    && hexDistance(t, primaryObjective) <= 4);
+                    && hexDistance(t, mineAnchor) <= (defensivePhase ? 2 : 4));
                 if (mineSpots.length > 0) {
-                    mineSpots.sort((a, b) => hexDistance(a, primaryObjective) - hexDistance(b, primaryObjective));
+                    mineSpots.sort((a, b) => {
+                        const nearestThreat = tile => Math.min(Infinity, ...allEnemyUnits
+                            .map(enemyTile => hexDistance(tile, enemyTile)));
+                        return nearestThreat(a) - nearestThreat(b)
+                            || hexDistance(a, mineAnchor) - hexDistance(b, mineAnchor);
+                    });
                     actions.push({ type: 'tacticalCard', cardId: 'landmine', targetId: mineSpots[0].id });
                     cardUses++;
                 }
@@ -1392,15 +1639,10 @@ export function planActions(gameState, helpers, myCamp) {
 
         // 守城近战无友军→避免斩杀导致放空
         if (isOwnCity(unit.tile) && unit.type !== 'archer') {
-            const isCapital = myHomeDistricts.has(unit.tile.districtId);
-            if (!ownsNeutralCity && isCapital) {
-                // 阶段1主城：不限制斩杀
-            } else {
-                const adjAllies = countAdjacentAllies(unit.tile, unit.id);
-                if (adjAllies === 0) {
-                    const nonLethal = targets.filter(t => !willKill(unit, t.unit));
-                    if (nonLethal.length > 0) targets = nonLethal;
-                }
+            const adjAllies = countAdjacentAllies(unit.tile, unit.id);
+            if (adjAllies === 0) {
+                const nonLethal = targets.filter(t => !willKill(unit, t.unit));
+                if (nonLethal.length > 0) targets = nonLethal;
             }
         }
 
@@ -1502,6 +1744,24 @@ export function planActions(gameState, helpers, myCamp) {
                 score += cappedDamage * 0.75 - estimatedCounterDamage * 0.7;
                 if (unit.hp / unit.maxHp < 0.35 && !willKill(unit, target)) score -= 85;
                 if (target.commander) score += 45;
+
+                // 阵营协同也进入交换账本。天鹰火力跨过补给阈值时等价于额外经济；
+                // 反过来，对已激活天鹰协议的敌军做无击杀碎伤，可能直接送出天基打击。
+                if (ownEagleActive && ownEagleMeter
+                    && (isEagleAirAttacker(unit) || isEagleFortressAttacker(unit))
+                    && ownEagleMeter.progress + cappedDamage >= ownEagleMeter.threshold) {
+                    score += 75;
+                }
+                if (visibleEnemyEagleCamps.has(target.camp?.id)) {
+                    const enemyMeter = getEagleSynergyMeter(gameState, target.camp.id);
+                    const grantsOrbital = enemyMeter.takenProgress + cappedDamage
+                        >= enemyMeter.takenThreshold;
+                    if (isEagleCommanderUnit(target)) score += 110;
+                    if (grantsOrbital && !willKill(unit, target)
+                        && !target.commander && tile !== primaryObjective) {
+                        score -= 135;
+                    }
+                }
             }
 
             // 友军协击
@@ -1785,18 +2045,16 @@ export function planActions(gameState, helpers, myCamp) {
             const mustHoldForward = isForwardCity
                 && canCaptureCityByCombat(unit)
                 && !isLastMobileAttacker(unit);
+            const mustHoldCapital = isCapital && canCaptureCityByCombat(unit)
+                && (defensivePhase || capitalThreat >= 0.30 || ownForceCount <= 3);
             // 中毒守军照样得守：空城会被路过的近战直接摘走，比传染更亏。
             // 该走开的是旁边的健康友军，那由移动评分的疏散罚分负责。
             if (!cityGarrisonPlanned.has(cityKey) && !cityGarrisonPlannedKeys.has(cityKey)
-                && (unit.type === 'infantry' || cityThreatened || mustHoldForward
+                && (unit.type === 'infantry' || cityThreatened || mustHoldForward || mustHoldCapital
                     || (terminalPhase && isForwardCity))) {
-                if (!ownsNeutralCity && isCapital) {
-                    // 阶段1主城不留守军
-                } else {
-                    cityGarrisonPlanned.set(cityKey, unit.id);
-                    cityGarrisonPlannedKeys.add(cityKey);
-                    continue;
-                }
+                cityGarrisonPlanned.set(cityKey, unit.id);
+                cityGarrisonPlannedKeys.add(cityKey);
+                continue;
             }
 
             // 出击
@@ -1838,7 +2096,9 @@ export function planActions(gameState, helpers, myCamp) {
         const enemiesNear = gameState.tiles.filter(t =>
             t.unit && isEnemyCamp(t.unit.camp) && hexDistance(unit.tile, t) <= 5
         ).length;
-        const shouldRetreat = hpRatio < 0.20 && enemiesNear === 0;
+        const currentThreat = estimateDestinationThreat(unit.tile, unit);
+        const shouldRetreat = hpRatio < 0.30
+            && (enemiesNear > 0 || currentThreat >= unit.hp * 0.35);
 
         if (shouldRetreat) {
             for (const tile of validTiles) {
@@ -1940,18 +2200,21 @@ export function planActions(gameState, helpers, myCamp) {
 
                 // 首都防卫
                 let capitalDefenseBonus = 0;
-                const capitalTile = gameState.tiles.find(c =>
-                    c.isCity && c.camp === myCamp && myHomeDistricts.has(c.districtId));
                 const enemyNearCapital = capitalTile
                     ? allEnemyUnits.filter(enemyTile =>
-                        hexDistance(enemyTile, capitalTile) <= 5).length
+                        hexDistance(enemyTile, capitalTile)
+                            <= Math.max(5, Number(enemyTile.unit.config?.speed || 0)
+                                + Number(enemyTile.unit.config?.range || 1))).length
                     : 0;
-                if (enemyNearCapital >= 2) {
+                if (enemyNearCapital >= 1 || defensivePhase) {
                     const nearestEnemyToCapital = allEnemyUnits.reduce((b, e) =>
                         hexDistance(e, capitalTile) < hexDistance(b, capitalTile) ? e : b
                     , allEnemyUnits[0]);
-                    const distToThreat = hexDistance(tile, nearestEnemyToCapital);
-                    capitalDefenseBonus = Math.max(0, 60 - distToThreat * 8);
+                    if (nearestEnemyToCapital) {
+                        const distToThreat = hexDistance(tile, nearestEnemyToCapital);
+                        const anchorDistance = hexDistance(tile, capitalTile);
+                        capitalDefenseBonus = Math.max(0, 80 - distToThreat * 8 - anchorDistance * 3);
+                    }
                 }
 
                 const villageBonus = tile.isVillage ? 20 : 0;
@@ -1976,7 +2239,7 @@ export function planActions(gameState, helpers, myCamp) {
 
                 // 残血撤退回城
                 let healRetreatBonus = 0;
-                if (hpRatio < 0.30 && enemiesNear === 0 && ownsNeutralCity) {
+                if (hpRatio < 0.30 && myCities.length > 0) {
                     const nearestOwnCity = myCities.reduce((b, c) =>
                         hexDistance(tile, c) < hexDistance(tile, b) ? c : b, myCities[0]);
                     healRetreatBonus = Math.max(0, 40 - hexDistance(tile, nearestOwnCity) * 3);
@@ -2053,7 +2316,8 @@ export function planActions(gameState, helpers, myCamp) {
                 const routeDetour = !hasForwardOption
                     && newDist <= curDist + 2
                     && !isImmediateBacktrack(movementMemory[unit.id], bestTile, currentRound);
-                if (newDist > curDist && !shouldRetreat && !tacticalDetour && !routeDetour) continue;
+                if (newDist > curDist && !shouldRetreat && !defensivePhase
+                    && !tacticalDetour && !routeDetour) continue;
             }
             actions.push({ type: 'move', unitId: unit.id, tileQ: bestTile.q, tileR: bestTile.r });
             rememberPlannedMove(unit);
@@ -2100,8 +2364,10 @@ export function planActions(gameState, helpers, myCamp) {
     const emptyOwnCities = gameState.tiles.filter(t =>
         t.isCity && t.camp === myCamp
         && (!t.unit || plannedVacatedRecruitCities.has(`${t.q},${t.r}`)));
+    const emptyOwnPorts = gameState.tiles.filter(t =>
+        t.isPort && t.camp === myCamp && !t.unit);
 
-    if (gold < 8 || emptyOwnCities.length === 0) {
+    if (gold < 8 || (emptyOwnCities.length === 0 && emptyOwnPorts.length === 0)) {
         return actions;
     }
 
@@ -2152,20 +2418,60 @@ export function planActions(gameState, helpers, myCamp) {
 
     emptyOwnCities.sort((a, b) => scoreCity(b) - scoreCity(a));
 
-    for (let i = 0; i < Math.min(maxRecruits, emptyOwnCities.length); i++) {
-        if (recruitCount >= maxRecruits) break;
-        const city = emptyOwnCities[i];
-        const isFrontline = primaryObjective && hexDistance(city, primaryObjective) <= 4;
-        const landTypes = isFrontline ? ['infantry', ...recruitPriority.filter(t => t !== 'infantry')] : recruitPriority;
-        const types = recruitTypesForCity ? recruitTypesForCity(city, landTypes) : landTypes;
-        for (const type of types) {
-            if (gold >= UNIT_CONFIG[type].cost) {
-                actions.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
-                gold -= UNIT_CONFIG[type].cost;
-                recruitCount++;
-                break;
-            }
+    const navalUnits = allLivingUnits.filter(unit => unit.config?.movementDomain === 'naval');
+    const enemyNavalUnits = visibleRivalUnits.filter(unit => unit.config?.movementDomain === 'naval');
+    const hostileNavalTypes = new Set(enemyNavalUnits.map(unit => unit.type));
+    const navalPriority = hostileNavalTypes.has('submarine')
+        ? ['destroyer', 'warship', 'submarine']
+        : hostileNavalTypes.has('warship') || hostileNavalTypes.has('carrier')
+            ? ['submarine', 'warship', 'destroyer']
+            : hostileNavalTypes.has('destroyer')
+                ? ['warship', 'destroyer', 'submarine']
+                : ['destroyer', 'submarine', 'warship'];
+    const needsFleet = oceanMap && emptyOwnPorts.length > 0
+        && (navalUnits.length < Math.max(2, enemyNavalUnits.length)
+            || portThreat >= 0.35)
+        && navalUnits.length < Math.max(4, mobileAssaultCount * 2);
+    const needsLandRecovery = emptyOwnCities.length > 0
+        && (objectivePhase === 'recover' || mobileAssaultCount < 2 || ownForceCount <= 2);
+
+    function planRecruit(site, priority) {
+        if (!site || recruitCount >= maxRecruits) return false;
+        for (const type of priority) {
+            if (!UNIT_CONFIG[type] || gold < UNIT_CONFIG[type].cost) continue;
+            if (canRecruitTypeAtSite && !plannedVacatedRecruitCities.has(`${site.q},${site.r}`)
+                && !canRecruitTypeAtSite(type, site)) continue;
+            actions.push({ type: 'recruit', unitType: type, tileQ: site.q, tileR: site.r });
+            gold -= UNIT_CONFIG[type].cost;
+            recruitCount++;
+            return true;
         }
+        return false;
+    }
+
+    // 崩盘时先恢复一名陆战占城手；其余海图局优先保住港口的舰队再生产能力。
+    const usedCities = new Set();
+    if (needsLandRecovery) {
+        const recoveryCity = emptyOwnCities[0];
+        if (planRecruit(recoveryCity, ['infantry', 'cavalry', 'archer'])) {
+            usedCities.add(`${recoveryCity.q},${recoveryCity.r}`);
+        }
+    }
+    if (needsFleet && recruitCount < maxRecruits) {
+        emptyOwnPorts.sort((left, right) => strategicThreatAt(right) - strategicThreatAt(left)
+            || (primaryObjective
+                ? hexDistance(left, primaryObjective) - hexDistance(right, primaryObjective) : 0));
+        planRecruit(emptyOwnPorts[0], navalPriority);
+    }
+    for (const city of emptyOwnCities) {
+        if (recruitCount >= maxRecruits) break;
+        if (usedCities.has(`${city.q},${city.r}`)) continue;
+        const isFrontline = primaryObjective && hexDistance(city, primaryObjective) <= 4;
+        const landTypes = isFrontline
+            ? ['infantry', ...recruitPriority.filter(type => type !== 'infantry')]
+            : recruitPriority;
+        const types = recruitTypesForCity ? recruitTypesForCity(city, landTypes) : landTypes;
+        planRecruit(city, types);
     }
 
     return actions;

@@ -1734,6 +1734,23 @@ body {
     pointer-events: none;
 }
 
+.match-control-commander-death-marker {
+    pointer-events: none;
+    filter: drop-shadow(0 0 7px rgba(255, 62, 54, 0.85));
+}
+
+.match-control-commander-death-marker circle {
+    fill: rgba(76, 8, 8, 0.94);
+    stroke: #ff675f;
+    stroke-width: 2px;
+}
+
+.match-control-commander-death-marker text {
+    fill: #fff1df;
+    font-size: 14px;
+    font-weight: 800;
+}
+
 .match-control-hotspot {
     cursor: crosshair;
     outline: none;
@@ -1793,6 +1810,12 @@ body {
     color: #f2dfb7;
     font-size: 13px;
     line-height: 1;
+}
+
+.match-control-legend .commander-death-legend b {
+    color: #ff675f;
+    font-size: 14px;
+    filter: drop-shadow(0 0 4px rgba(255, 62, 54, 0.72));
 }
 
 .match-stats-method {

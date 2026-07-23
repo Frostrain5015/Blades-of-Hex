@@ -22,6 +22,7 @@ import * as optioPersonality from '../ai/optio.js';
 import * as legatusPersonality from '../ai/legatus.js';
 import * as imperatorPersonality from '../ai/imperator.js';
 import { canCaptureCityByCombat, scoreCommanderCarrierCandidate } from '../ai/doctrine.js';
+import { getEmergencyRecruitReserve } from '../ai/strategy.js';
 
 const PERSONALITY_BY_DIFFICULTY = Object.freeze({
     easy: optioPersonality,
@@ -39,7 +40,12 @@ import { prioritizeNavalRecruitment } from '../rules/aiRecruitment.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { canRecruitTypeAtSelectedSite } from './recruitmentUi.js';
 import { chooseDefaultSpecialization } from '../rules/units.js';
-import { canBuildFieldFortification, canFieldRepair, isOrdinaryGroundBuilder } from '../rules/construction.js';
+import {
+    canBuildFieldFortification,
+    canFieldRepair,
+    constructionCost,
+    isOrdinaryGroundBuilder
+} from '../rules/construction.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange } from '../rules/airCommands.js';
 import { isSubmarineTargetableBy } from '../rules/naval.js';
 import { getStandardMap } from '../rules/standardMaps.js';
@@ -125,8 +131,67 @@ function resolveTile(q, r) {
     return gameState.tileMap.get(`${q},${r}`);
 }
 
+function estimateVisibleThreatAt(site, aiCamp, forecast) {
+    if (!site) return 0;
+    let threat = 0;
+    for (const tile of gameState.tiles) {
+        const unit = tile.unit;
+        if (!unit || !isHostile(gameState, aiCamp, unit.camp)) continue;
+        if (gameState.skirmishFog && !isTileVisible(tile, aiCamp, gameState)) continue;
+        const range = Math.max(1, Number(unit.config?.range || 1));
+        const reach = range + (forecast ? Math.max(0, Number(unit.config?.speed || 0)) : 2);
+        const distance = hexDistance(tile, site);
+        if (distance > reach + 2) continue;
+        threat = Math.max(threat, (reach + 2 - distance) / Math.max(1, reach + 2));
+    }
+    return Math.max(0, Math.min(1, threat));
+}
+
+function resolveEmergencyRecruitReserve(aiCamp, difficultyProfile) {
+    if (!difficultyProfile.emergencyBudget) return 0;
+    const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
+    const homeDistricts = new Set((standardMap?.board?.cities || [])
+        .filter(city => city.camp === campToKey(aiCamp))
+        .map(city => city.districtId));
+    const capital = gameState.tiles.find(tile =>
+        tile.isCity && tile.camp === aiCamp && homeDistricts.has(tile.districtId));
+    const ownPorts = gameState.tiles.filter(tile => tile.isPort && tile.camp === aiCamp);
+    const ownUnits = gameState.tiles.filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0);
+    const rivalUnits = gameState.tiles.filter(tile => tile.unit?.hp > 0
+        && isHostile(gameState, aiCamp, tile.unit.camp)
+        && (!gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState)));
+    return getEmergencyRecruitReserve({
+        enabled: true,
+        ownUnitCount: ownUnits.length,
+        rivalUnitCount: rivalUnits.length,
+        hasEmptyCity: gameState.tiles.some(tile => tile.isCity && tile.camp === aiCamp && !tile.unit),
+        hasEmptyPort: ownPorts.some(port => !port.unit),
+        oceanMap: standardMap?.familyId === 'uncharted-passage',
+        capitalThreat: estimateVisibleThreatAt(capital, aiCamp, difficultyProfile.threatForecast),
+        portThreat: Math.max(0, ...ownPorts.map(port =>
+            estimateVisibleThreatAt(port, aiCamp, difficultyProfile.threatForecast))),
+        minimumLandCost: UNIT_CONFIG.infantry.cost,
+        minimumNavalCost: UNIT_CONFIG.submarine.cost
+    });
+}
+
+function aiPlanningSignature(aiCamp) {
+    const units = gameState.tiles
+        .filter(tile => tile.unit)
+        .map(tile => `${tile.unit.id}:${tile.q},${tile.r}:${Math.round(tile.unit.hp)}:${tile.unit.canAct ? 1 : 0}`)
+        .sort();
+    const cities = gameState.tiles
+        .filter(tile => tile.isCity)
+        .map(tile => `${tile.q},${tile.r}:${tile.camp?.id || 'none'}:${Math.round(tile.hp || 0)}`)
+        .sort();
+    const campKey = campToKey(aiCamp);
+    return `${gameState.playerGold[campKey] || 0}|${gameState.playerUsesThisTurn[campKey] || 0}|${units.join(';')}|${cities.join(';')}`;
+}
+
 async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp)) {
     const campKey = campToKey(aiCamp);
+    const emergencyReserve = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
+    const canSpend = cost => (gameState.playerGold[campKey] || 0) - cost >= emergencyReserve;
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         if (!unit || unit.camp !== aiCamp || !unit.pendingSpecialization) continue;
@@ -156,7 +221,7 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
         const repairTarget = gameState.tiles
             .map(tile => tile.unit)
             .find(unit => unit && canFieldRepair(engineer, unit, gameState));
-        if (repairTarget && (gameState.playerGold[campKey] || 0) >= 3) {
+        if (repairTarget && (gameState.playerGold[campKey] || 0) >= 3 && canSpend(3)) {
             await runObservedAction({ type: 'fieldRepair', unitId: engineer.id, targetId: repairTarget.id }, aiCamp, () => {
                 executeFieldRepair(engineer, repairTarget);
             });
@@ -183,7 +248,8 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
                 + (tile.isCity && tile.camp !== aiCamp ? 1 : 0);
             if (score > bombingScore) { bombingScore = score; bombingTarget = tile; }
         }
-        if (bombing.available && bombingTarget && bombingScore >= 3) {
+        if (bombing.available && bombingTarget && bombingScore >= 3
+            && canSpend(AIR_COMMAND_CONFIG.bombing.cost)) {
             await runObservedAction({ type: 'airCommand', airKind: 'bombing', tileQ: city.q, tileR: city.r, targetQ: bombingTarget.q, targetR: bombingTarget.r }, aiCamp, () => {
                 executeAirCommand('bombing', city, bombingTarget);
             });
@@ -191,7 +257,7 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
             continue;
         }
         const strafe = getAirCommandAvailability('strafe', city, gameState);
-        if (strafe.available && enemies.length) {
+        if (strafe.available && enemies.length && canSpend(AIR_COMMAND_CONFIG.strafe.cost)) {
             enemies.sort((a, b) => (a.unit.hp / a.unit.maxHp) - (b.unit.hp / b.unit.maxHp));
             await runObservedAction({ type: 'airCommand', airKind: 'strafe', tileQ: city.q, tileR: city.r, targetId: enemies[0].unit?.id, targetQ: enemies[0].q, targetR: enemies[0].r }, aiCamp, () => {
                 executeAirCommand('strafe', city, enemies[0]);
@@ -200,7 +266,7 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
             continue;
         }
         const recon = getAirCommandAvailability('recon', city, gameState);
-        if (recon.available) {
+        if (recon.available && canSpend(AIR_COMMAND_CONFIG.recon.cost)) {
             const unexplored = gameState.tiles.find(tile => hexDistance(city, tile) <= getAirCommandRange(city)
                 && !gameState.exploredTiles?.[campKey]?.has?.(`${tile.q},${tile.r}`));
             if (unexplored) {
@@ -216,7 +282,8 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
         const candidate = ownedCities.find(tile => !tile.installation);
         const airfieldReserve = difficultyProfile.infrastructureLevel >= 2 ? 18 : 24;
         if (difficultyProfile.infrastructureLevel > 0
-            && candidate && (gameState.playerGold[campKey] || 0) >= airfieldReserve) {
+            && candidate && (gameState.playerGold[campKey] || 0) >= airfieldReserve
+            && canSpend(constructionCost('airfield', candidate.unit, candidate))) {
             await runObservedAction({ type: 'buildAirfield', tileQ: candidate.q, tileR: candidate.r }, aiCamp, () => {
                 executeAirfieldConstruction(candidate);
             });
@@ -242,7 +309,7 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
                 && hexDistance(unit.tile, tile) <= (unit.tile.isCity ? 3 : 2))
             && canBuildFieldFortification(unit, fortificationKind, gameState))
         : null;
-    if (builder) {
+    if (builder && canSpend(constructionCost(fortificationKind, builder))) {
         await runObservedAction({ type: 'buildFortification', unitId: builder.id, fortificationKind }, aiCamp, () => {
             executeFieldConstruction(builder, fortificationKind);
         });
@@ -310,6 +377,9 @@ function makeHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(game
                 (left, right) => isHostile(gameState, left, right)
             )
             : baseTypes,
+        canRecruitTypeAtSite: (type, site) =>
+            canRecruitTypeAtSelectedSite(type, site, gameState, aiCamp),
+        difficultyProfile,
         isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState),
         CARD_SYSTEM_CONFIG,
         COLONEL_CARD_GOLD
@@ -673,14 +743,19 @@ export async function processOpponentTurn(aiCamp) {
 
         const helpers = makeHelpers(aiCamp, difficultyProfile);
         const personality = resolveAiPersonality(difficultyProfile);
-        const actions = personality.planActions(gameState, helpers, aiCamp);
+        const replanPasses = Math.max(1, Number(difficultyProfile.replanPasses) || 1);
+        for (let pass = 0; pass < replanPasses; pass++) {
+            const before = aiPlanningSignature(aiCamp);
+            const actions = personality.planActions(gameState, helpers, aiCamp);
+            if (actions.length === 0) break;
 
-        // 回合首次行动前延迟 2s
-        if (actions.length > 0) { await delay(AI_DELAY); }
-
-        for (let i = 0; i < actions.length; i++) {
-            if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-            await executeAction(actions[i], aiCamp);
+            // 只在回合第一次行动前保留思考停顿；后续重规划表现为连续指挥。
+            if (pass === 0) await delay(AI_DELAY);
+            for (const action of actions) {
+                if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
+                await executeAction(action, aiCamp);
+            }
+            if (aiPlanningSignature(aiCamp) === before) break;
         }
 
         // 最终兜底：补满己方所有空城

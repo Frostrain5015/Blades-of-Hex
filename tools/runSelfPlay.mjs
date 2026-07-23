@@ -211,6 +211,7 @@ const report = {
     ),
     totalActions: log.summary.totalActions,
     suppressionRounds: state._imperatorSuppressRounds || {},
+    strategicTelemetry: state._imperatorStrategicTelemetry || {},
     commanders: selectedCommanders,
     byCamp: log.summary.byCamp
 };

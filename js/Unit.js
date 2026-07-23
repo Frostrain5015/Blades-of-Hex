@@ -1082,9 +1082,12 @@ export class Unit {
         const deathSnapshot = {
             unitId: this.id,
             unitType: this.type,
+            commanderId: this.commander || null,
+            isCommanderUnit: !!this.isCommanderUnit,
             camp: this.camp,
             killerId: attackerUnit?.id || null,
             killerType: attackerUnit?.type || null,
+            killerCommanderId: attackerUnit?.commander || null,
             killerCamp: attackerUnit?.camp || null,
             reason: attackerUnit ? 'combat' : 'effect',
             campaignMinHp: this._campaignMinHp || 0,

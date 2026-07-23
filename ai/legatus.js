@@ -1,9 +1,9 @@
 // Legatus —— 中档指挥官。
 //
-// 定位：**懂战斗，不懂战役**。
+// 定位：**懂战斗，具备有限战役意识**。
 //   会做的：算净交换（含反击/克制/跨域）、集火补刀、知道只有近战能占城、
 //           按敌方兵种反制招募、用全套战术卡、给将领挑合适的载体。
-//   不做的：战役目标承诺（每回合重新挑最近的城，会为新目标改主意）、
+//   不做的：长期战役目标承诺（只记一回合，复杂局势仍会改主意）、
 //           对手实力建模、威胁预测（只数相邻敌人，不推算敌方下回合覆盖范围）、
 //           终局抢点、后方将领职责分工、疫情疏散、破城最后一击预留、
 //           远程攻城的近战跟进检查、单位级移动记忆。
@@ -24,12 +24,13 @@ import {
     shouldSpendBerserkerBlood
 } from './doctrine.js';
 import { getStandardMap } from '../rules/standardMaps.js';
+import { estimateCampEconomy, estimateDistrictAssetValue } from './strategy.js';
 
 export const meta = {
     name: 'Legatus',
     tier: 'Pro',
     difficultyId: 'medium',
-    description: '战斗级指挥：算交换比、集火补刀、知道占城要靠近战，但不做战役规划'
+    description: '战斗级指挥：能短期锁定目标并粗略识别经济区，但不预测战线与协同链'
 };
 
 export const selectCommander = doctrineSelectCommander;
@@ -41,7 +42,7 @@ const DECISION_NOISE = 0.24;
 export function planActions(gameState, helpers, myCamp) {
     const {
         getMovableTiles, getAttackableTiles, hexDistance, HEX_NEIGHBORS,
-        CAMP, UNIT_CONFIG, isHostileFaction, recruitTypesForCity
+        CAMP, UNIT_CONFIG, isHostileFaction, recruitTypesForCity, canRecruitTypeAtSite
     } = helpers;
     const tileMap = gameState.tileMap;
     const actions = [];
@@ -145,19 +146,44 @@ export function planActions(gameState, helpers, myCamp) {
             || (primaryObjective && hexDistance(tile, primaryObjective) <= 2);
     };
 
-    // ── 目标选择：每回合重挑，不做承诺 ────────────
-    // 这是与 Imperator 最直观的差别——中档没有战略黑板，最近的城看起来更划算
-    // 就会立刻改主意，于是部队会在两座城之间来回摆动。
+    // ── 目标选择：一回合短期承诺 + 粗略行政区价值 ──
+    // 中档现在能避免最明显的左右摇摆，也知道带村庄/港口的城区更值钱；但它不算
+    // 对手经济曲线、投诚兵力、航程与战线联动，这些仍是 Imperator 独占能力。
     const ownsForwardCity = myCities.some(city => !myHomeDistricts.has(city.districtId));
-    let primaryObjective = null;
-    {
+    const turnSlots = Math.max(1, gameState.turnOrder?.length || 1);
+    const currentRound = Math.floor(Number(gameState.turnCounter || 0) / turnSlots) + 1;
+    const capital = myCities.find(city => myHomeDistricts.has(city.districtId)) || myCities[0] || null;
+    const directCapitalThreat = capital && allEnemyUnits.some(tile => hexDistance(tile, capital) <= 3);
+    const remembered = gameState._legatusStrategicObjectives?.[campKey];
+    const rememberedTile = remembered && remembered.expiresRound >= currentRound
+        ? tileMap.get(`${remembered.q},${remembered.r}`) : null;
+    let primaryObjective = directCapitalThreat
+        ? capital
+        : (rememberedTile?.isCity && rememberedTile.camp !== myCamp ? rememberedTile : null);
+    if (!primaryObjective) {
         let bestScore = Infinity;
+        const economy = estimateCampEconomy(gameState.tiles, myCamp);
         for (const city of hostileCities) {
+            const asset = estimateDistrictAssetValue(city, gameState.tiles, {
+                currentCityCount: economy.cityCount,
+                roundsRemaining: 5,
+                oceanMap: standardMap?.familyId === 'uncharted-passage'
+            });
+            const coarseAssetValue = asset.income + asset.villages + asset.ports;
             const score = avgDistance(city) * 2
                 + evaluateCityDefense(city, city.camp) * 0.012
+                - coarseAssetValue * 0.12
                 + jitter(6);
             if (score < bestScore) { bestScore = score; primaryObjective = city; }
         }
+    }
+    gameState._legatusStrategicObjectives ||= {};
+    if (primaryObjective) {
+        gameState._legatusStrategicObjectives[campKey] = {
+            q: primaryObjective.q,
+            r: primaryObjective.r,
+            expiresRound: currentRound + 1
+        };
     }
     function avgDistance(targetTile) {
         if (allUnits.length === 0) return 99;
@@ -371,7 +397,8 @@ export function planActions(gameState, helpers, myCamp) {
 
     // ═══ 招募：按敌方主力兵种反制 ═══
     const emptyOwnCities = gameState.tiles.filter(t => t.isCity && t.camp === myCamp && !t.unit);
-    if (gold < 8 || emptyOwnCities.length === 0) return actions;
+    const hasEmptyPort = gameState.tiles.some(tile => tile.isPort && tile.camp === myCamp && !tile.unit);
+    if (gold < 8 || (emptyOwnCities.length === 0 && !hasEmptyPort)) return actions;
 
     const enemyTypeCounts = { infantry: 0, cavalry: 0, archer: 0 };
     for (const tile of allEnemyUnits) {
@@ -400,13 +427,33 @@ export function planActions(gameState, helpers, myCamp) {
     });
 
     const maxRecruits = gold >= 25 ? 3 : gold >= 12 ? 2 : 1;
-    for (let index = 0; index < Math.min(maxRecruits, emptyOwnCities.length); index++) {
+    let recruitCount = 0;
+    if (standardMap?.familyId === 'uncharted-passage' && assaultCount >= 2) {
+        const emptyPort = gameState.tiles.find(tile => tile.isPort && tile.camp === myCamp && !tile.unit);
+        const ownNaval = gameState.tiles.filter(tile =>
+            tile.unit?.camp === myCamp && tile.unit.config?.movementDomain === 'naval').length;
+        const enemyNaval = allEnemyUnits.filter(tile =>
+            tile.unit.config?.movementDomain === 'naval').length;
+        if (emptyPort && ownNaval < Math.max(2, enemyNaval)) {
+            const navalOrder = allEnemyUnits.some(tile => tile.unit.type === 'submarine')
+                ? ['destroyer', 'warship', 'submarine'] : ['submarine', 'destroyer', 'warship'];
+            const type = navalOrder.find(unitType => gold >= UNIT_CONFIG[unitType].cost
+                && (!canRecruitTypeAtSite || canRecruitTypeAtSite(unitType, emptyPort)));
+            if (type) {
+                actions.push({ type: 'recruit', unitType: type, tileQ: emptyPort.q, tileR: emptyPort.r });
+                gold -= UNIT_CONFIG[type].cost;
+                recruitCount++;
+            }
+        }
+    }
+    for (let index = 0; index < emptyOwnCities.length && recruitCount < maxRecruits; index++) {
         const city = emptyOwnCities[index];
         const types = recruitTypesForCity ? recruitTypesForCity(city, recruitPriority) : recruitPriority;
         for (const type of types) {
             if (gold >= UNIT_CONFIG[type].cost) {
                 actions.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
                 gold -= UNIT_CONFIG[type].cost;
+                recruitCount++;
                 break;
             }
         }

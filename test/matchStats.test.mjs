@@ -135,6 +135,80 @@ test('battle events use relative per-match intensity instead of a fixed attack c
     assert.ok(stats.methodology.battleEvents.includes('自适应'));
 });
 
+test('战线突破按阵亡与占城识别，不会因攻击次数较少漏掉关键回合', () => {
+    const log = makeLog();
+    log.timeline = [];
+    let sequence = 0;
+    for (let index = 0; index < 5; index++) {
+        log.timeline.push({
+            kind: 'action', sequence: ++sequence, round: 7,
+            actorCampKey: 'player1', actionType: 'attack', accepted: true, payload: {}
+        });
+    }
+    log.timeline.push({
+        kind: 'action', sequence: ++sequence, round: 11,
+        actorCampKey: 'player1', actionType: 'attack', accepted: true, payload: {}
+    });
+    for (let index = 0; index < 6; index++) {
+        log.timeline.push({
+            kind: 'event', sequence: ++sequence, round: 11, eventType: 'unitKilled',
+            payload: {
+                unitId: `lost-${index}`, unitType: 'destroyer', campKey: 'player2',
+                killerCampKey: 'player1'
+            }
+        });
+    }
+    log.timeline.push({
+        kind: 'event', sequence: ++sequence, round: 11, eventType: 'cityCaptured',
+        payload: { districtId: 2, campKey: 'player1' }
+    });
+    log.finalState.round = 11;
+
+    const stats = buildMatchStats(log);
+    const breakthrough = stats.battleEvents.find(event => event.round === 11);
+    assert.ok(breakthrough);
+    assert.equal(breakthrough.label, '战线突破');
+    assert.equal(breakthrough.totalLosses, 6);
+    assert.equal(breakthrough.captures, 1);
+});
+
+test('将领单位显示具体身份并生成显著的阵亡时间点', () => {
+    const log = makeLog();
+    log.initialState.units[1] = {
+        id: 'u2', type: 'warship', campKey: 'player2', hp: 180, maxHp: 180,
+        commanderId: 'colonel', isCommanderUnit: true
+    };
+    const death = log.timeline.find(item => item.eventType === 'unitKilled');
+    death.payload = {
+        unitId: 'u2', unitType: 'warship', campKey: 'player2',
+        commanderId: 'colonel', isCommanderUnit: true,
+        killerId: 'u1', killerType: 'infantry', killerCampKey: 'player1'
+    };
+
+    const stats = buildMatchStats(log);
+    const commander = stats.units.find(unit => unit.id === 'u2');
+    assert.equal(commander.displayName, '巡洋舰 · 空军上校');
+    assert.equal(stats.commanderDeathEvents.length, 1);
+    assert.equal(stats.commanderDeathEvents[0].round, 2);
+    assert.equal(stats.commanderDeathEvents[0].commanderName, '空军上校');
+});
+
+test('单位占比快照分别统计同阵营陆军与海军色带', () => {
+    const log = makeLog();
+    log.initialState.units.push({
+        id: 'u3', type: 'warship', campKey: 'player1', hp: 180, maxHp: 180
+    });
+    log.finalState.units.push({
+        id: 'u3', type: 'warship', campKey: 'player1', hp: 180, maxHp: 180
+    });
+    const stats = buildMatchStats(log);
+    const opening = stats.controlTimeline[0];
+    assert.equal(opening.byCamp.player1.landUnits, 1);
+    assert.equal(opening.byCamp.player1.navalUnits, 1);
+    assert.equal(opening.byCamp.player1.landUnitShare, 1 / 3);
+    assert.equal(opening.byCamp.player1.navalUnitShare, 1 / 3);
+});
+
 test('faction skill events preserve round, camp and logo for chart markers', () => {
     const log = makeLog();
     log.participants[0].flagEmoji = '🐉';
@@ -198,6 +272,7 @@ test('lightweight review documents rebuild the statistics view without a full ti
             skillName: '日月天衡',
             logoEmoji: '🐉'
         }],
+        commanderDeathEvents: source.commanderDeathEvents,
         roundIndex: source.rounds,
         keyEvents: source.keyEvents,
         unitHighlights: [{
@@ -216,5 +291,6 @@ test('lightweight review documents rebuild the statistics view without a full ti
     assert.equal(rebuilt.leaders.damageDealt.id, 'u1');
     assert.equal(rebuilt.controlTimeline.length, source.controlTimeline.length);
     assert.equal(rebuilt.factionSkillEvents[0].logoEmoji, '🐉');
+    assert.deepEqual(rebuilt.commanderDeathEvents, source.commanderDeathEvents);
     assert.equal(buildMatchStatsDocument({ schema: 'unknown' }), null);
 });

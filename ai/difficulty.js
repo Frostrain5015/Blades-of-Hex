@@ -12,6 +12,12 @@ export const AI_DIFFICULTY_PROFILES = Object.freeze({
         terminalPlanning: false,
         advancedCards: false,
         activeSkillPlanning: false,
+        campaignPlanningDepth: 0,
+        assetValuation: false,
+        emergencyBudget: false,
+        jointTaskForces: false,
+        synergyForecast: false,
+        replanPasses: 1,
         infrastructureLevel: 0,
         fallbackRecruitLimit: 1
     }),
@@ -28,6 +34,12 @@ export const AI_DIFFICULTY_PROFILES = Object.freeze({
         terminalPlanning: true,
         advancedCards: true,
         activeSkillPlanning: true,
+        campaignPlanningDepth: 1,
+        assetValuation: true,
+        emergencyBudget: true,
+        jointTaskForces: false,
+        synergyForecast: false,
+        replanPasses: 2,
         infrastructureLevel: 1,
         fallbackRecruitLimit: 2
     }),
@@ -44,6 +56,13 @@ export const AI_DIFFICULTY_PROFILES = Object.freeze({
         terminalPlanning: true,
         advancedCards: true,
         activeSkillPlanning: true,
+        // Imperator 的能力上限只由我们当前能实现的水平决定，不设置人为保留。
+        campaignPlanningDepth: 2,
+        assetValuation: true,
+        emergencyBudget: true,
+        jointTaskForces: true,
+        synergyForecast: true,
+        replanPasses: 3,
         infrastructureLevel: 2,
         fallbackRecruitLimit: Infinity
     })

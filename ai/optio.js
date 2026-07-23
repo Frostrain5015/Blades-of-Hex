@@ -16,6 +16,7 @@ import {
     selectCommander as doctrineSelectCommander,
     selectCommanderPair as doctrineSelectCommanderPair
 } from './doctrine.js';
+import { getStandardMap } from '../rules/standardMaps.js';
 
 export const meta = {
     name: 'Optio',
@@ -100,6 +101,17 @@ export function planActions(gameState, helpers, myCamp) {
                 && !gameState.exploredTiles?.[campKey]?.has?.(`${tile.q},${tile.r}`)) continue;
             const distance = hexDistance(reference, tile) + jitter(3);
             if (distance < bestDistance) { bestDistance = distance; objective = tile; }
+        }
+        // 入门档不估守军和城区价值，但至少知道标准地图上公开的城市坐标；
+        // 这消除迷雾局在出生点打转的纯低级错误，不会赋予它战役判断。
+        if (!objective && reference) {
+            const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
+            for (const site of standardMap?.board?.cities || []) {
+                const tile = tileMap.get(`${site.q},${site.r}`);
+                if (!tile?.isCity || tile.camp === myCamp) continue;
+                const distance = hexDistance(reference, tile) + jitter(3);
+                if (distance < bestDistance) { bestDistance = distance; objective = tile; }
+            }
         }
         if (!objective && visibleEnemyTiles.length > 0) objective = visibleEnemyTiles[0];
     }
@@ -203,8 +215,10 @@ export function planActions(gameState, helpers, myCamp) {
             let score = 0;
             if (objective) {
                 score += (hexDistance(unit.tile, objective) - hexDistance(tile, objective)) * 10;
-                // 空城就走进去。它不知道自己是不是近战，进不去时引擎会拒绝这次移动。
-                if (tile.isCity && tile.camp !== myCamp && !tile.unit) score += 80;
+                // 只修正规则层面的无效指令：远程不能占城，不再反复提交必定被拒绝的移动。
+                if (tile.isCity && tile.camp !== myCamp && !tile.unit
+                    && unit.config?.movementDomain === 'land'
+                    && unit.type !== 'archer') score += 80;
             }
             // 唯一的安全意识：残血时躲开贴脸的敌人。没有威胁预测，没有回溯记忆。
             if (unit.hp < unit.maxHp * 0.35) score -= countAdjacentEnemies(tile) * 30;

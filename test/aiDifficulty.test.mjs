@@ -29,6 +29,13 @@ import {
     shouldReserveFinalSiegeBlow,
     shouldSpendBerserkerBlood
 } from '../ai/doctrine.js';
+import {
+    assessStrategicPosture,
+    estimateDistrictAssetValue,
+    estimateFogRivalForce,
+    getEmergencyRecruitReserve,
+    shouldBreakObjectiveCommitment
+} from '../ai/strategy.js';
 
 test('AI 三档难度只按决策能力递增，不包含经济倍率', () => {
     assert.equal(normalizeAiDifficulty(1), 'easy');
@@ -42,7 +49,107 @@ test('AI 三档难度只按决策能力递增，不包含经济倍率', () => {
     assert.equal(easy.coordinatedFocus, false);
     assert.equal(medium.coordinatedFocus, true);
     assert.equal(hard.threatForecast, true);
+    assert.deepEqual([easy.campaignPlanningDepth, medium.campaignPlanningDepth, hard.campaignPlanningDepth], [0, 1, 2]);
+    assert.deepEqual([easy.replanPasses, medium.replanPasses, hard.replanPasses], [1, 2, 3]);
+    assert.equal(hard.assetValuation, true);
+    assert.equal(hard.emergencyBudget, true);
+    assert.equal(hard.jointTaskForces, true);
+    assert.equal(hard.synergyForecast, true);
     assert.equal('economyMultiplier' in hard, false);
+});
+
+test('战略资产估值把海图港口、未来收入与投诚奖励计入城市价值', () => {
+    const city = { q: 1, r: -2, districtId: 5, isCity: true };
+    const tiles = [
+        city,
+        { districtId: 5, isVillage: true },
+        { districtId: 5, isPort: true },
+        { districtId: 5, installation: { status: 'ready', type: 'airfield' } }
+    ];
+    const land = estimateDistrictAssetValue(city, tiles, {
+        currentCityCount: 1,
+        roundsRemaining: 8
+    });
+    const oceanPrize = estimateDistrictAssetValue(city, tiles, {
+        currentCityCount: 1,
+        roundsRemaining: 8,
+        oceanMap: true,
+        captureReward: { type: 'neutralForcesTransfer', cityQ: 1, cityR: -2 },
+        transferableNeutralForceValue: 40
+    });
+    assert.ok(oceanPrize.ports > land.ports);
+    assert.equal(oceanPrize.reward, 125);
+    assert.ok(oceanPrize.total > land.total + 100);
+});
+
+test('Imperator 战局状态机先处理崩盘与首都危机，再处理经济争夺', () => {
+    assert.equal(assessStrategicPosture({
+        ownForceValue: 8, rivalForceValue: 60, ownUnitCount: 1,
+        ownCityCount: 1, rivalCityCount: 3
+    }).posture, 'recover');
+    assert.equal(assessStrategicPosture({
+        ownForceValue: 50, rivalForceValue: 60, ownUnitCount: 5,
+        ownCityCount: 2, rivalCityCount: 2, capitalThreat: 0.8
+    }).posture, 'defend');
+    assert.equal(assessStrategicPosture({
+        ownForceValue: 55, rivalForceValue: 60, ownUnitCount: 5,
+        ownCityCount: 1, rivalCityCount: 3,
+        ownProjectedIncome: 4, rivalProjectedIncome: 10
+    }).posture, 'contest');
+});
+
+test('战争迷雾把未发现敌军视为未知，而不是已被消灭', () => {
+    const initialEstimate = estimateFogRivalForce({
+        fogEnabled: true,
+        ownForceValue: 100,
+        observedForceValue: 0
+    });
+    assert.equal(initialEstimate, 75);
+    assert.equal(estimateFogRivalForce({
+        fogEnabled: true,
+        ownForceValue: 100,
+        observedForceValue: 40,
+        previousEstimate: initialEstimate,
+        elapsedRounds: 1
+    }), 66);
+    assert.equal(estimateFogRivalForce({
+        fogEnabled: true,
+        ownForceValue: 100,
+        observedForceValue: 40,
+        previousEstimate: initialEstimate,
+        elapsedRounds: 0
+    }), 75);
+    assert.equal(assessStrategicPosture({
+        ownForceValue: 100,
+        rivalForceValue: initialEstimate,
+        ownUnitCount: 5,
+        ownCityCount: 1,
+        rivalCityCount: 0,
+        hasExpansionTargets: false,
+        strategicPictureComplete: false,
+        roundsRemaining: 18
+    }).posture, 'expand');
+});
+
+test('紧急预算会为补兵留钱，危机转态会打断旧扩张目标', () => {
+    assert.equal(getEmergencyRecruitReserve({
+        enabled: true,
+        ownUnitCount: 0,
+        rivalUnitCount: 6,
+        hasEmptyCity: true,
+        minimumLandCost: 8
+    }), 8);
+    assert.equal(getEmergencyRecruitReserve({
+        enabled: false,
+        ownUnitCount: 0,
+        rivalUnitCount: 6,
+        hasEmptyCity: true
+    }), 0);
+    assert.equal(shouldBreakObjectiveCommitment({
+        previousPosture: 'expand',
+        nextPosture: 'defend',
+        capitalThreat: 0.7
+    }), true);
 });
 
 test('可按阵营解析非对称自对局难度', () => {

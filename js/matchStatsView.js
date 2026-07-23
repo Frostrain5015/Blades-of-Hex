@@ -51,6 +51,22 @@ function colorForCamp(camp, index) {
     return FALLBACK_COLORS[index % FALLBACK_COLORS.length];
 }
 
+function mixHexColor(color, target, ratio) {
+    const normalize = value => {
+        const match = String(value || '').trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+        if (!match) return null;
+        const digits = match[1].length === 3
+            ? [...match[1]].map(char => char + char).join('') : match[1];
+        return [0, 2, 4].map(index => Number.parseInt(digits.slice(index, index + 2), 16));
+    };
+    const source = normalize(color);
+    const destination = normalize(target);
+    if (!source || !destination) return color;
+    const mixed = source.map((channel, index) =>
+        Math.round(channel + (destination[index] - channel) * ratio));
+    return `#${mixed.map(channel => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
 function renderSummary(stats, container) {
     const roundCount = Math.max(
         stats.rounds.at(-1)?.round || 0,
@@ -128,33 +144,66 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
 
     const lowerByCamp = Object.fromEntries(stats.camps.map(camp => [camp.campKey, []]));
     const upperByCamp = Object.fromEntries(stats.camps.map(camp => [camp.campKey, []]));
+    const domainBounds = Object.fromEntries(stats.camps.map(camp => [camp.campKey, {
+        landLower: [], landUpper: [], navalLower: [], navalUpper: []
+    }]));
     data.forEach((point, index) => {
         let cumulative = 0;
         const rawTotal = stats.camps.reduce((sum, camp) => sum + Number(point.byCamp[camp.campKey]?.[metric] || 0), 0);
-        stats.camps.forEach((camp, campIndex) => {
+        stats.camps.forEach(camp => {
             const rawShare = Number(point.byCamp[camp.campKey]?.[metric] || 0);
             // 综合指标和原始占比理论上都和为 1；仍做归一化以兼容缺失阵营的旧日志。
             const share = rawTotal > 0 ? rawShare / rawTotal : 0;
             lowerByCamp[camp.campKey].push([xAt(index), yAt(cumulative)]);
-            cumulative += share;
+            if (metric === 'unitShare') {
+                const campPoint = point.byCamp[camp.campKey] || {};
+                const landRaw = campPoint.landUnitShare == null
+                    ? rawShare : Number(campPoint.landUnitShare || 0);
+                const navalRaw = campPoint.navalUnitShare == null
+                    ? 0 : Number(campPoint.navalUnitShare || 0);
+                const landShare = rawTotal > 0 ? landRaw / rawTotal : 0;
+                const navalShare = rawTotal > 0 ? navalRaw / rawTotal : 0;
+                const bounds = domainBounds[camp.campKey];
+                bounds.landLower.push([xAt(index), yAt(cumulative)]);
+                cumulative += landShare;
+                bounds.landUpper.push([xAt(index), yAt(cumulative)]);
+                bounds.navalLower.push([xAt(index), yAt(cumulative)]);
+                cumulative += navalShare;
+                bounds.navalUpper.push([xAt(index), yAt(cumulative)]);
+                // 兼容极小舍入差与旧日志中的异常拆分。
+                cumulative += Math.max(0, share - landShare - navalShare);
+            } else {
+                cumulative += share;
+            }
             upperByCamp[camp.campKey].push([xAt(index), yAt(cumulative)]);
         });
     });
 
-    stats.camps.forEach(camp => {
-        const upper = upperByCamp[camp.campKey];
-        const lower = [...lowerByCamp[camp.campKey]].reverse();
+    const appendArea = (camp, upper, lower, fill, domain = null) => {
         const points = [...upper, ...lower].map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
         const area = svgElement('polygon', {
             points,
-            fill: colors[camp.campKey],
+            fill,
             class: 'match-control-area',
-            'data-camp-key': camp.campKey
+            'data-camp-key': camp.campKey,
+            ...(domain ? { 'data-unit-domain': domain } : {})
         });
         const title = svgElement('title');
-        title.textContent = camp.name;
+        title.textContent = `${camp.name}${domain === 'land' ? ' · 陆军' : domain === 'naval' ? ' · 海军' : ''}`;
         area.appendChild(title);
         svg.appendChild(area);
+    };
+    stats.camps.forEach(camp => {
+        if (metric === 'unitShare') {
+            const bounds = domainBounds[camp.campKey];
+            appendArea(camp, bounds.landUpper, [...bounds.landLower].reverse(),
+                mixHexColor(colors[camp.campKey], '#ffffff', 0.27), 'land');
+            appendArea(camp, bounds.navalUpper, [...bounds.navalLower].reverse(),
+                mixHexColor(colors[camp.campKey], '#000000', 0.30), 'naval');
+        } else {
+            appendArea(camp, upperByCamp[camp.campKey], [...lowerByCamp[camp.campKey]].reverse(),
+                colors[camp.campKey]);
+        }
     });
 
     const skillStackByBand = new Map();
@@ -180,6 +229,32 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         title.textContent = `第 ${event.round} 回合：${camp.name}发动【${event.skillName}】`;
         marker.appendChild(title);
         svg.appendChild(marker);
+    }
+
+    const deathStackByBand = new Map();
+    for (const event of stats.commanderDeathEvents || []) {
+        const pointIndex = data.findIndex(point => point.round === event.round);
+        const camp = stats.camps.find(candidate => candidate.campKey === event.campKey);
+        if (pointIndex < 0 || !camp) continue;
+        const lower = lowerByCamp[event.campKey]?.[pointIndex];
+        const upper = upperByCamp[event.campKey]?.[pointIndex];
+        const stackKey = `${event.round}:${event.campKey}`;
+        const stackIndex = deathStackByBand.get(stackKey) || 0;
+        deathStackByBand.set(stackKey, stackIndex + 1);
+        const y = lower && upper && Math.abs(lower[1] - upper[1]) >= 12
+            ? (lower[1] + upper[1]) / 2 - stackIndex * 22
+            : plot.top + 15 + stackIndex * 22;
+        const group = svgElement('g', { class: 'match-control-commander-death-marker' });
+        group.appendChild(svgElement('circle', { cx: xAt(pointIndex), cy: y, r: 11 }));
+        const glyph = svgElement('text', {
+            x: xAt(pointIndex), y: y + 5, 'text-anchor': 'middle'
+        });
+        glyph.textContent = '☠';
+        group.appendChild(glyph);
+        const title = svgElement('title');
+        title.textContent = `第 ${event.round} 回合：${camp.name}【${event.commanderName}】阵亡（${event.displayName}）`;
+        group.appendChild(title);
+        svg.appendChild(group);
     }
 
     const maxLabels = 9;
@@ -213,16 +288,22 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
             const values = stats.camps.map(camp => {
                 const campPoint = point.byCamp[camp.campKey] || {};
                 const percent = Number(campPoint[metric] || 0) * 100;
-                const count = countKey ? ` · ${formatNumber(campPoint[countKey])}` : '';
+                const domainCount = metric === 'unitShare'
+                    ? ` · 陆${formatNumber(campPoint.landUnits)} / 海${formatNumber(campPoint.navalUnits)}`
+                    : '';
+                const count = countKey ? `${domainCount || ` · ${formatNumber(campPoint[countKey])}`}` : '';
                 return `<span><i style="--camp-color:${colors[camp.campKey]}"></i>${escapeHtml(camp.name)} <b>${percent.toFixed(1)}%</b>${count}</span>`;
             }).join('');
             const battle = eventByRound.get(point.round);
             const skills = skillsByRound.get(point.round) || [];
+            const commanderDeaths = (stats.commanderDeathEvents || [])
+                .filter(death => death.round === point.round);
             tooltip.innerHTML = `
                 <strong>${point.round === 0 ? '开局' : `第 ${point.round} 回合`}</strong>
                 ${values}
                 ${battle ? `<em>⚔ ${battle.label} · ${battle.engagements} 次交战</em>` : ''}
                 ${skills.map(skill => `<em>${escapeHtml(skill.logoEmoji || '⚑')} ${escapeHtml(skill.skillName)} · ${escapeHtml(stats.camps.find(camp => camp.campKey === skill.campKey)?.name || skill.campKey)}</em>`).join('')}
+                ${commanderDeaths.map(death => `<em>☠ ${escapeHtml(death.commanderName)}阵亡 · ${escapeHtml(stats.camps.find(camp => camp.campKey === death.campKey)?.name || death.campKey)}</em>`).join('')}
             `;
             tooltip.hidden = false;
             if (event?.clientX != null) {
@@ -243,7 +324,9 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
 
     stats.camps.forEach((camp, index) => {
         const item = document.createElement('span');
-        item.innerHTML = `<i style="--camp-color:${colors[camp.campKey]}"></i>${escapeHtml(camp.name)}`;
+        item.innerHTML = metric === 'unitShare'
+            ? `<i style="--camp-color:${mixHexColor(colors[camp.campKey], '#ffffff', 0.27)}"></i><i style="--camp-color:${mixHexColor(colors[camp.campKey], '#000000', 0.30)}"></i>${escapeHtml(camp.name)}（陆/海）`
+            : `<i style="--camp-color:${colors[camp.campKey]}"></i>${escapeHtml(camp.name)}`;
         legend.appendChild(item);
     });
     if (stats.battleEvents.length) {
@@ -256,6 +339,12 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         const marker = document.createElement('span');
         marker.className = 'skill-legend';
         marker.innerHTML = '<b>⚑</b>阵营技能';
+        legend.appendChild(marker);
+    }
+    if ((stats.commanderDeathEvents || []).length) {
+        const marker = document.createElement('span');
+        marker.className = 'commander-death-legend';
+        marker.innerHTML = '<b>☠</b>将领阵亡';
         legend.appendChild(marker);
     }
 }
@@ -341,7 +430,7 @@ function renderBattleEvents(stats, container) {
                 <span>R${event.round}</span>
                 <div>
                     <strong>${event.label}</strong>
-                    <p>${event.engagements} 次交战 · ${formatNumber(event.totalDamage)} 伤害 · ${event.totalLosses} 个单位阵亡${event.captures ? ` · ${event.captures} 次占城` : ''}</p>
+                    <p>${event.engagements} 次交战 · ${formatNumber(event.totalDamage)} 伤害 · ${event.totalLosses} 个单位阵亡${event.captures ? ` · ${event.captures} 次占城` : ''}${event.commanderLosses ? ` · ${event.commanderLosses} 名将领陨落` : ''}</p>
                 </div>
                 <em>${leader ? `${escapeHtml(leader.name)}输出领先` : '多方混战'}</em>
             </article>
