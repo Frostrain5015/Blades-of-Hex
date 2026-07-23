@@ -32,6 +32,7 @@ if (typeof globalThis.document === 'undefined') {
     const fakeCanvas = {
         width: 1000, height: 750, style: makeStyle(),
         getContext: () => makeCtx(),
+        getAttribute: () => null, setAttribute: noop, removeAttribute: noop,
         addEventListener: noop, removeEventListener: noop,
         getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 750 }),
     };
@@ -47,7 +48,7 @@ if (typeof globalThis.document === 'undefined') {
 
     const makeEl = () => ({
         style: makeStyle(), dataset: {}, classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
-        appendChild: noop, removeChild: noop, setAttribute: noop, removeAttribute: noop,
+        appendChild: noop, removeChild: noop, setAttribute: noop, removeAttribute: noop, getAttribute: () => null,
         addEventListener: noop, removeEventListener: noop, getContext: () => makeCtx(),
         getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 }),
         querySelector: () => makeEl(), querySelectorAll: () => [],

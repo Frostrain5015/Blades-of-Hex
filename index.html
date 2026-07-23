@@ -31,6 +31,8 @@
 
 <!-- ===== 大厅（初始隐藏，连接后展示） ===== -->
 <div id="lobbyOverlay" style="display:none">
+    <button id="lobbyImportMatchBtn" class="lobby-import-match-btn" type="button" title="导入轻量复盘索引或完整对局日志">导入对局日志</button>
+    <input id="lobbyImportMatchInput" type="file" accept=".json,application/json" hidden>
     <button id="lobbyMuteBtn" class="lobby-mute-btn" title="切换静音">🔊</button>
     <span id="brandSnow" class="brand-snow" title="Frost Tech">❄</span>
     <div class="lobby-box">
@@ -485,6 +487,9 @@
         <p id="campaignResultText"></p>
         <div id="campaignResultObjectives" class="campaign-result-objectives"></div>
         <div class="campaign-result-actions">
+            <button id="campaignMatchStatsBtn" type="button">查看对局统计</button>
+            <button id="campaignExportMatchLogBtn" type="button">导出 AI 复盘索引</button>
+            <button id="campaignExportFullMatchLogBtn" type="button">导出完整日志</button>
             <button id="campaignRetryBtn" type="button">重新挑战</button>
             <button id="campaignReturnBtn" type="button">返回战役</button>
         </div>
@@ -500,10 +505,96 @@
         <div id="gameOverText" class="victory-title"></div>
         <div id="victoryCampText" class="victory-camp"></div>
         <div class="victory-divider"></div>
+        <button id="matchStatsBtn" class="victory-stats-btn">查看对局统计</button>
+        <button id="exportMatchLogBtn" class="victory-export-btn">导出 AI 复盘索引</button>
+        <button id="exportFullMatchLogBtn" class="victory-full-log-btn">导出完整日志</button>
         <button id="rematchBtn" class="victory-rematch-btn">再来一局</button>
         <button id="exitToLobbyBtn" class="victory-exit-btn">退出</button>
         <div id="rematchStatus" class="rematch-status"></div>
     </div>
+</div>
+
+<!-- 通用对局统计：标准、联机、双 AI 与战役共用结构化日志口径 -->
+<div id="matchStatsOverlay" class="match-stats-overlay" aria-hidden="true">
+    <section class="match-stats-panel" role="dialog" aria-modal="true" aria-labelledby="matchStatsTitle">
+        <header class="match-stats-header">
+            <div>
+                <span>AFTER ACTION REPORT</span>
+                <h2 id="matchStatsTitle">对局统计</h2>
+                <p id="matchStatsSubtitle"></p>
+            </div>
+            <button id="matchStatsCloseBtn" type="button" aria-label="关闭对局统计">×</button>
+        </header>
+        <div class="match-stats-scroll">
+            <div id="matchStatsSummary" class="match-stats-summary"></div>
+
+            <section class="match-stats-section match-control-section">
+                <div class="match-stats-section-head">
+                    <div>
+                        <span>CONTROL THROUGH TIME</span>
+                        <h3>势力控制走势</h3>
+                    </div>
+                    <div class="match-control-switch" role="group" aria-label="势力走势指标">
+                        <button type="button" class="active" data-control-metric="controlShare" aria-pressed="true">综合控制</button>
+                        <button type="button" data-control-metric="unitShare" aria-pressed="false">单位占比</button>
+                        <button type="button" data-control-metric="cityShare" aria-pressed="false">城市占比</button>
+                    </div>
+                </div>
+                <div class="match-control-chart-wrap">
+                    <svg id="matchControlChart" viewBox="0 0 960 340" role="img" aria-label="各阵营随回合变化的势力占比堆叠面积图"></svg>
+                    <div id="matchControlTooltip" class="match-control-tooltip" hidden></div>
+                </div>
+                <div id="matchControlLegend" class="match-control-legend"></div>
+                <p id="matchControlMethod" class="match-stats-method"></p>
+            </section>
+
+            <section class="match-stats-section">
+                <div class="match-stats-section-head">
+                    <div>
+                        <span>FACTION COMPARISON</span>
+                        <h3>阵营对比</h3>
+                    </div>
+                </div>
+                <div id="matchCampCards" class="match-camp-cards"></div>
+            </section>
+
+            <section class="match-stats-section">
+                <div class="match-stats-section-head">
+                    <div>
+                        <span>UNIT PERFORMANCE</span>
+                        <h3>单位表现</h3>
+                    </div>
+                </div>
+                <div id="matchUnitLeaders" class="match-unit-leaders"></div>
+                <div class="match-unit-table-toolbar">
+                    <label>排行指标
+                        <select id="matchUnitMetric">
+                            <option value="damageDealt">造成伤害</option>
+                            <option value="kills">击杀</option>
+                            <option value="damageTaken">承受伤害</option>
+                            <option value="healingReceived">恢复量</option>
+                            <option value="actions">参与行动</option>
+                        </select>
+                    </label>
+                    <label>阵营
+                        <select id="matchUnitCamp"><option value="all">全部阵营</option></select>
+                    </label>
+                </div>
+                <div id="matchUnitTable" class="match-unit-table"></div>
+            </section>
+
+            <section class="match-stats-section">
+                <div class="match-stats-section-head">
+                    <div>
+                        <span>BATTLE EVENTS</span>
+                        <h3>战役事件</h3>
+                    </div>
+                </div>
+                <div id="matchBattleEvents" class="match-battle-events"></div>
+                <p id="matchBattleMethod" class="match-stats-method"></p>
+            </section>
+        </div>
+    </section>
 </div>
 
 <!-- 查看完整棋局时的返回按钮 -->

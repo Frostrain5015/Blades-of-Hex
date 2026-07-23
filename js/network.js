@@ -204,11 +204,20 @@ export function connectToServer(url) {
                 case 'action':
                     // 收到他方动作（包括服务端拒绝后发来的 stateSync）意味着本地
                     // 尚未确认的动作已不再基于最新局面，不能继续补发旧快照。
+                    if (_outboundActionInFlight || _outboundActionQueue.length > 0) {
+                        _cb.onActionsRejected?.([
+                            ...(_outboundActionInFlight ? [_outboundActionInFlight] : []),
+                            ..._outboundActionQueue
+                        ], msg);
+                    }
                     _resetOutboundActionQueue();
                     if (Number.isInteger(msg.revision)) _revision = msg.revision;
                     _enqueueRemoteAction(msg);
                     break;
                 case 'actionAccepted':
+                    if (_outboundActionInFlight) {
+                        _cb.onActionAccepted?.(_outboundActionInFlight, msg.revision);
+                    }
                     if (Number.isInteger(msg.revision)) _revision = msg.revision;
                     _outboundActionInFlight = null;
                     _drainOutboundActionQueue();

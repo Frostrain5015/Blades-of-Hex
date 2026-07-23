@@ -16,7 +16,7 @@ import {
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
     executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeFieldConstruction, executeBunkerConstruction, executeShoreBatteryConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
-    cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit, repairShipAtPort
+    cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit, repairShipAtPort, recordAuxiliaryAction
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
@@ -827,7 +827,15 @@ function _activateBoardAction(action) {
     unit.activeSkillCD = skill.cooldown;
     recalcAllFlankingMorale();
     showSelectionHudForTile(unit.tile);
-    if (activated !== false) emit('input:commanderSkillUsed', { unit, skillId: action.skillId || '', skillName: skill.name });
+    if (activated !== false) {
+        emit('input:commanderSkillUsed', { unit, skillId: action.skillId || '', skillName: skill.name });
+        recordAuxiliaryAction('activateSkill', {
+            unitId: unit.id,
+            commanderId: unit.commander,
+            skillId: action.skillId || '',
+            skillName: skill.name
+        }, unit.camp);
+    }
     if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id, floatTexts: drainPendingFloatTexts() });
 }
 
@@ -2923,6 +2931,9 @@ function _applySpecializationChoice(unitId, specializationKey) {
     notify(`已专精为${name}`, 'success');
     showSelectionHudForTile(unit.tile);
     updateUI();
+    recordAuxiliaryAction('chooseSpecialization', {
+        unitId: unit.id, type: unit.type, rank: unit._rank, specializationKey
+    }, unit.camp);
     if (isNetworkGame()) sendAction('chooseSpecialization', serializeState(), {
         unitId: unit.id, type: unit.type, rank: unit._rank, specializationKey,
         floatTexts: drainPendingFloatTexts()
@@ -3095,5 +3106,12 @@ function _applyWeatherChoice(chosenWeather) {
     _lastEffectSignature = null;
     showSelectionHudForTile(unit.tile);
     updateUI();
+    recordAuxiliaryAction('activateSkill', {
+        unitId: unit.id,
+        commanderId: unit.commander,
+        skillId: 'weatherChoice',
+        skillName: cmdCfg?.activeSkill?.name || null,
+        weather: chosenWeather
+    }, unit.camp);
     if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id, floatTexts: drainPendingFloatTexts() });
 }

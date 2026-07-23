@@ -321,7 +321,10 @@ export function planActions(gameState, helpers, myCamp) {
             }
             candidates.sort((a, b) => a.score - b.score);
             const topN = Math.min(2, candidates.length);
-            primaryObjective = candidates[Math.floor(Math.random() * topN)].city;
+            const objectiveIndex = gameState.rng?.int
+                ? gameState.rng.int(topN)
+                : Math.floor(Math.random() * topN);
+            primaryObjective = candidates[objectiveIndex].city;
         }
 
         if (!primaryObjective && enemyCities.length > 0) {

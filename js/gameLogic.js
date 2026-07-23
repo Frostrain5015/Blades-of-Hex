@@ -151,9 +151,18 @@ import {
     restoreSurrenderedPorts
 } from '../rules/naval.js';
 import { enqueueFloatText, drainPendingFloatTexts, setFloatTextCaptureSuppressed } from './floatTexts.js';
+import { bindMatchRecorderState, recordCommittedAction, startMatchRecording } from './matchRecorder.js';
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
+    // 所有模式先写本地结构化复盘日志；联机仅额外发送权威快照。
+    recordCommittedAction(gameState, {
+        actionType,
+        payload: effectData,
+        origin: 'local',
+        originRole: isNetworkGame() ? getMyRole() : null,
+        accepted: isNetworkGame() ? null : true
+    });
     if (!isNetworkGame()) return;
     try {
         const state = serializeState();
@@ -165,6 +174,21 @@ function broadcastAction(actionType, effectData = null) {
         console.warn(`broadcastAction(${actionType}) failed:`, e);
     }
 }
+
+// 不经过统一广播链的已提交动作（例如抽牌、将领主动技能、兵种专精）也使用同一记录格式。
+// 联机调用方仍负责发送权威快照，这里只负责复盘记录。
+export function recordAuxiliaryAction(actionType, effectData = null, actorCamp = gameState.currentCamp) {
+    return recordCommittedAction(gameState, {
+        actionType,
+        payload: effectData,
+        actorCampKey: _campKey(actorCamp),
+        origin: 'local',
+        originRole: isNetworkGame() ? getMyRole() : null,
+        accepted: isNetworkGame() ? null : true
+    });
+}
+
+bindMatchRecorderState(gameState);
 
 // ===== 二次确认弹窗 =====================
 let _confirmActive = false;
@@ -527,6 +551,7 @@ export function initMap() {
     _bindGameButtons();
 
     initCardDeck();
+    startMatchRecording(gameState);
     invalidateBoard();
 }
 
@@ -640,6 +665,7 @@ export function drawCard(camp) {
     const cfg = TACTICAL_CARD_CONFIG[cardId];
     logMessage(`${camp.name}花费$${drawCost}抽到了【${cfg ? cfg.name : cardId}】`);
     updateUI();
+    recordAuxiliaryAction('drawCard', { cardId, cost: drawCost }, camp);
     return cardId;
 }
 
@@ -1503,6 +1529,19 @@ export async function endTurn(options = {}) {
                 break; // 人类回合
             }
         }
+    } finally {
+        _turnProcessing = false;
+    }
+}
+
+// 自动化对局只推进一个阵营回合：复用完整回合结算，但不自动串行接管后续 AI，
+// 以便运行器让每个玩家席位都使用同一 Grok 人格并逐席记录。
+export async function advanceAutomatedTurn() {
+    if (gameState.gameOver || _turnProcessing) return false;
+    _turnProcessing = true;
+    try {
+        await _doEndTurnPhase();
+        return true;
     } finally {
         _turnProcessing = false;
     }

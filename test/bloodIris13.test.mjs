@@ -176,7 +176,7 @@ test('Boss 关额外包含可选军械库、真实剧情 Buff 和半血反击阶
         && action.duration === 2));
 });
 
-test('马库斯与瓦罗的兄弟关系通过开门劝说、首次交锋和坚守信念三次递进', () => {
+test('马库斯与瓦罗始终是同期受训、亲如兄弟的同袍，而非师生', () => {
     const openingText = triggerById.get('opening_at_the_gate').do
         .filter(action => action.kind === 'showStep').map(action => action.text).join('\n');
     const duel = triggerById.get('brothers_cross_blades');
@@ -185,11 +185,18 @@ test('马库斯与瓦罗的兄弟关系通过开门劝说、首次交锋和坚�
     const thresholdText = triggerById.get('varo_reaches_threshold').do
         .filter(action => action.kind === 'showStep').map(action => action.text).join('\n');
 
+    const allNarrativeText = level.triggers.flatMap(trigger => trigger.do)
+        .flatMap(action => [action.text, action.reason])
+        .filter(Boolean)
+        .join('\n');
+
     assert.match(openingText, /替我挡过一矛|把你背回过营地/);
+    assert.match(openingText, /入伍那年一起背过|同一座校场里练熟/);
     assert.ok(duel.when.some(condition => condition.kind === 'any'));
     assert.equal(duel.do.filter(action => action.kind === 'applyEffect' && action.name === '不再留手').length, 2);
     assert.match(counterText, /我守的从来不是塞维鲁|哪怕门外是你/);
     assert.match(thresholdText, /亲如兄弟|我选择了这条路/);
+    assert.doesNotMatch(allNarrativeText, /我教你的|你教我的|最后一课|教给他的|他教的一切/);
 });
 
 test('暗红誓章进入本关收藏物并由王都中心调查点真实回收', () => {

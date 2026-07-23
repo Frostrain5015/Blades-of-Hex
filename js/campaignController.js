@@ -10,6 +10,7 @@ import { campFromKey, getFaction, getRelation } from '../rules/diplomacy.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { resolveInteractableMove } from '../campaign/runtime/interactions.js';
 import { setResultFlagPreview } from './resultFlagPreview.js';
+import { finalizeMatchRecording } from './matchRecorder.js';
 
 let sharedController = null;
 
@@ -374,6 +375,12 @@ export function createCampaignController({ onRetry, onReturn }) {
         hideGuidance();
         objectiveHud?.classList.remove('show');
         const res = activeScenario.calculateResult(victory, api);
+        finalizeMatchRecording(gameState, {
+            winnerCampKey: victory ? (gameState.localPlayerCampKey || 'player1') : null,
+            victory,
+            reason: reason || (victory ? 'campaignVictory' : 'campaignDefeat'),
+            stars: res.stars
+        });
         // 编辑器测试（storageKey 为空）不写通关进度。
         if (victory && activeScenario.storageKey) saveVictory(activeScenario.storageKey, activeScenario.id, res.stars, {
             variables: res.variables,

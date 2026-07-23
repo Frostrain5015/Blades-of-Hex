@@ -51,6 +51,8 @@ import './cheat.js';
 import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
 import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, getViewingCampKey, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
+import { downloadCurrentMatchLog, downloadCurrentMatchReview, getCurrentMatchLog, recordCommittedAction, resolvePendingLocalAction, startMatchRecording } from './matchRecorder.js';
+import { initMatchStatsPanel } from './matchStatsView.js';
 import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
 import { renderResultFlagPreviews } from './resultFlagPreview.js';
@@ -819,6 +821,60 @@ document.getElementById('rematchBtn').addEventListener('click', () => {
     }
 });
 
+for (const buttonId of ['exportMatchLogBtn', 'campaignExportMatchLogBtn']) {
+    document.getElementById(buttonId)?.addEventListener('click', () => {
+        if (!downloadCurrentMatchReview(gameState)) notify('当前没有可导出的对局日志', 'error');
+    });
+}
+for (const buttonId of ['exportFullMatchLogBtn', 'campaignExportFullMatchLogBtn']) {
+    document.getElementById(buttonId)?.addEventListener('click', () => {
+        if (!downloadCurrentMatchLog(gameState)) notify('当前没有可导出的对局日志', 'error');
+    });
+}
+
+const matchStatsPanel = initMatchStatsPanel({
+    getLog: getCurrentMatchLog,
+    onMissing: () => notify('当前没有可统计的对局日志', 'error')
+});
+for (const buttonId of ['matchStatsBtn', 'campaignMatchStatsBtn']) {
+    document.getElementById(buttonId)?.addEventListener('click', () => matchStatsPanel.open());
+}
+
+const lobbyImportMatchBtn = document.getElementById('lobbyImportMatchBtn');
+const lobbyImportMatchInput = document.getElementById('lobbyImportMatchInput');
+lobbyImportMatchBtn?.addEventListener('click', () => lobbyImportMatchInput?.click());
+lobbyImportMatchInput?.addEventListener('change', async () => {
+    const file = lobbyImportMatchInput.files?.[0];
+    if (!file) return;
+    try {
+        const documentData = JSON.parse(await file.text());
+        const supportedSchemas = new Set(['blades-of-hex.match-review', 'blades-of-hex.match-log']);
+        if (!supportedSchemas.has(documentData?.schema)) {
+            notify('不支持的对局日志格式，请选择复盘索引或完整日志', 'error');
+            return;
+        }
+        if (documentData.schema === 'blades-of-hex.match-review'
+            && (!documentData.overview || !Array.isArray(documentData.controlTimeline))) {
+            notify('复盘索引缺少统计字段，文件可能不完整', 'error');
+            return;
+        }
+        if (documentData.schema === 'blades-of-hex.match-log' && !Array.isArray(documentData.timeline)) {
+            notify('完整日志缺少 timeline，文件可能不完整', 'error');
+            return;
+        }
+        matchStatsPanel.open(documentData, {
+            sourceLabel: documentData.schema === 'blades-of-hex.match-review'
+                ? '导入轻量索引'
+                : '导入完整日志'
+        });
+    } catch (error) {
+        console.warn('[matchStats] 导入对局日志失败:', error);
+        notify('无法读取 JSON，请确认文件内容完整且格式正确', 'error');
+    } finally {
+        lobbyImportMatchInput.value = '';
+    }
+});
+
 // ==== 胜利界面退出 ----
 document.getElementById('exitToLobbyBtn').addEventListener('click', () => {
     const vo = document.getElementById('victoryOverlay');
@@ -1151,6 +1207,8 @@ function _launchScenario(scenario) {
 	// 配置关卡自带棋盘（半径/城市/区划由配置决定），跳过标准建图。
 	if (!scenario.buildsOwnBoard) initMap();
 	scenario.buildBattlefield();
+	// 手写与配置战役都在战场完全构建后重建记录基线，避免把脚本布置误记成玩家行动。
+	startMatchRecording(gameState);
 	loadCommanderFx(gameState).catch(err => console.warn('[campaign] 将领特效加载失败:', err));
 	initInput();
 	rebindGameEvents();
@@ -2524,6 +2582,21 @@ function registerNetworkCallbacks() {
     setNetworkCallbacks({
         onConnected: () => {},
 
+        onActionAccepted: (action, revision) => {
+            resolvePendingLocalAction(action?.actionType, true, { revision });
+        },
+
+        onActionsRejected: (actions, msg) => {
+            for (const action of actions || []) {
+                resolvePendingLocalAction(action?.actionType, false, {
+                    revision: msg?.revision,
+                    reason: msg?.actionType === 'stateSync'
+                        ? 'authoritative-state-sync'
+                        : 'superseded-by-remote-action'
+                });
+            }
+        },
+
         onRoomCreated: (roomId, role, maxPlayers, playerCount) => {
             gameState.isThreePlayer = maxPlayers === 3;
             _opponentCount = 0;
@@ -2841,6 +2914,14 @@ async function handleRemoteAction(msg) {
             _deploymentStarted = true;
         }
         applyRemoteState(msg.state, HexTile, Unit);
+        if (needsGameBootstrap) startMatchRecording(gameState, { matchId: msg.matchId || undefined });
+        else recordCommittedAction(gameState, {
+            actionType: 'stateCorrection',
+            payload: { revision: msg.revision ?? null },
+            actorCampKey: campToKey(gameState.currentCamp),
+            origin: 'server',
+            accepted: true
+        });
         if (needsGameBootstrap) {
             applyTopbarLayout();
             loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 重连加载失败:', err));
@@ -2879,6 +2960,7 @@ async function handleRemoteAction(msg) {
     // 避免广播回显在 AI 处理期间覆盖 gameState（本端 endTurn 链已在处理，回显多余）。
     // 本地投降尚未被服务端收录时（_localSurrenderPendingKey），即使本地已因投降提前进入
     // gameOver 也要继续接收快照，否则无法完成投降重放收敛。
+    let remoteStateApplied = false;
     if (!gameState.aiActing && (!gameState.gameOver || gameState._localSurrenderPendingKey)) {
         // 飞行类攻击（鱼雷/舰载机弹流）击杀：快照落地会立即移除阵亡单位，
         // 先捕获旧实例留作残影，延迟到弹着爆炸时刻才消失（与本地端时序一致）
@@ -2905,12 +2987,25 @@ async function handleRemoteAction(msg) {
             }
         }
         applyRemoteState(msg.state, HexTile, Unit);
+        remoteStateApplied = true;
         await loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
         // 远端快照落地后核对本地投降是否已被收录，未收录则幂等重放并重新广播。
         await reconcilePendingSurrender().catch(e => console.warn('Surrender reconcile error:', e));
         syncBoardActionBar();
         updateUI();
         renderGame();
+    }
+
+    if (remoteStateApplied) {
+        const originCamp = roleToCamp(msg.originRole);
+        recordCommittedAction(gameState, {
+            actionType: msg.actionType,
+            payload: msg.effects,
+            actorCampKey: campToKey(originCamp),
+            origin: 'remote',
+            originRole: msg.originRole || null,
+            accepted: true
+        });
     }
 
     // 三人模式：检查本地玩家是否已投降，显示观战横幅

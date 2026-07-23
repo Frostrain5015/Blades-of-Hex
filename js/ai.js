@@ -6,7 +6,7 @@ import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, attackCityTile, recruitUnit, reinforceUnit,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
-    recalcAllFlankingMorale, drawCard
+    recalcAllFlankingMorale, drawCard, recordAuxiliaryAction
 } from './gameLogic.js';
 import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
 import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
@@ -32,8 +32,61 @@ import { shouldHoldNeutralCarrierPosition } from '../rules/standardMapEvents.js'
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
 
+// 自动化对局复用与浏览器完全相同的 AI 执行链，只关闭展示等待并挂接观测器。
+// 默认值保持现有游戏体验不变；调用方应使用返回的 restore 函数恢复现场。
+let _runtimeOptions = {
+    delayScale: 1,
+    actionTimeoutMs: ACTION_TIMEOUT,
+    onAction: null
+};
+let _observedActionSequence = 0;
+
+export function configureAiRuntime(options = {}) {
+    const previous = { ..._runtimeOptions };
+    _runtimeOptions = {
+        delayScale: Number.isFinite(options.delayScale) ? Math.max(0, options.delayScale) : previous.delayScale,
+        actionTimeoutMs: Number.isFinite(options.actionTimeoutMs)
+            ? Math.max(1, options.actionTimeoutMs)
+            : previous.actionTimeoutMs,
+        onAction: typeof options.onAction === 'function' ? options.onAction : null
+    };
+    return () => { _runtimeOptions = previous; };
+}
+
 function delay(ms) {
-    return new Promise(r => setTimeout(r, ms));
+    const scaled = Math.max(0, Math.round(ms * _runtimeOptions.delayScale));
+    return scaled > 0 ? new Promise(r => setTimeout(r, scaled)) : Promise.resolve();
+}
+
+function notifyActionObserver(event) {
+    if (!_runtimeOptions.onAction) return;
+    try {
+        _runtimeOptions.onAction({ ...event, gameState });
+    } catch (error) {
+        console.warn('AI action observer failed:', error);
+    }
+}
+
+async function runObservedAction(action, aiCamp, operation) {
+    const sequence = ++_observedActionSequence;
+    const campKey = campToKey(aiCamp);
+    notifyActionObserver({ phase: 'before', sequence, campKey, action });
+    let status = 'executed';
+    let error = null;
+    try {
+        const result = await operation();
+        if (result === false) status = 'skipped';
+        return result;
+    } catch (caught) {
+        status = 'error';
+        error = caught;
+        throw caught;
+    } finally {
+        notifyActionObserver({
+            phase: 'after', sequence, campKey, action, status,
+            error: error ? String(error?.stack || error?.message || error) : null
+        });
+    }
 }
 
 function withTimeout(promise, ms, label) {
@@ -60,8 +113,18 @@ async function runV2Infrastructure(aiCamp) {
         const unit = tile.unit;
         if (!unit || unit.camp !== aiCamp || !unit.pendingSpecialization) continue;
         const choice = chooseDefaultSpecialization(unit, gameState);
-        if (choice && unit.chooseSpecialization(choice)) {
-            logMessage(`${aiCamp.name}${unit.config.name}选择了专精`);
+        if (choice) {
+            await runObservedAction({ type: 'chooseSpecialization', unitId: unit.id, specializationKey: choice }, aiCamp, () => {
+                if (!unit.chooseSpecialization(choice)) return false;
+                logMessage(`${aiCamp.name}${unit.config.name}选择了专精`);
+                recordAuxiliaryAction('chooseSpecialization', {
+                    unitId: unit.id,
+                    type: unit.type,
+                    rank: unit._rank,
+                    specializationKey: choice
+                }, aiCamp);
+                return true;
+            });
         }
     }
 
@@ -72,7 +135,9 @@ async function runV2Infrastructure(aiCamp) {
             .map(tile => tile.unit)
             .find(unit => unit && canFieldRepair(engineer, unit, gameState));
         if (repairTarget && (gameState.playerGold[campKey] || 0) >= 3) {
-            executeFieldRepair(engineer, repairTarget);
+            await runObservedAction({ type: 'fieldRepair', unitId: engineer.id, targetId: repairTarget.id }, aiCamp, () => {
+                executeFieldRepair(engineer, repairTarget);
+            });
             await delay(AI_DELAY * 0.4);
         }
     }
@@ -95,14 +160,18 @@ async function runV2Infrastructure(aiCamp) {
             if (score > bombingScore) { bombingScore = score; bombingTarget = tile; }
         }
         if (bombing.available && bombingTarget && bombingScore >= 3) {
-            executeAirCommand('bombing', city, bombingTarget);
+            await runObservedAction({ type: 'airCommand', airKind: 'bombing', tileQ: city.q, tileR: city.r, targetQ: bombingTarget.q, targetR: bombingTarget.r }, aiCamp, () => {
+                executeAirCommand('bombing', city, bombingTarget);
+            });
             await delay(AI_DELAY * 0.5);
             continue;
         }
         const strafe = getAirCommandAvailability('strafe', city, gameState);
         if (strafe.available && enemies.length) {
             enemies.sort((a, b) => (a.unit.hp / a.unit.maxHp) - (b.unit.hp / b.unit.maxHp));
-            executeAirCommand('strafe', city, enemies[0]);
+            await runObservedAction({ type: 'airCommand', airKind: 'strafe', tileQ: city.q, tileR: city.r, targetId: enemies[0].unit?.id, targetQ: enemies[0].q, targetR: enemies[0].r }, aiCamp, () => {
+                executeAirCommand('strafe', city, enemies[0]);
+            });
             await delay(AI_DELAY * 0.5);
             continue;
         }
@@ -110,14 +179,22 @@ async function runV2Infrastructure(aiCamp) {
         if (recon.available) {
             const unexplored = gameState.tiles.find(tile => hexDistance(city, tile) <= getAirCommandRange(city)
                 && !gameState.exploredTiles?.[campKey]?.has?.(`${tile.q},${tile.r}`));
-            if (unexplored) executeAirCommand('recon', city, unexplored);
+            if (unexplored) {
+                await runObservedAction({ type: 'airCommand', airKind: 'recon', tileQ: city.q, tileR: city.r, targetQ: unexplored.q, targetR: unexplored.r }, aiCamp, () => {
+                    executeAirCommand('recon', city, unexplored);
+                });
+            }
         }
     }
 
     const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
     if (ownedCities.length && !ownedCities.some(tile => tile.installation)) {
         const candidate = ownedCities.find(tile => !tile.installation);
-        if (candidate && (gameState.playerGold[campKey] || 0) >= 10) executeAirfieldConstruction(candidate);
+        if (candidate && (gameState.playerGold[campKey] || 0) >= 10) {
+            await runObservedAction({ type: 'buildAirfield', tileQ: candidate.q, tileR: candidate.r }, aiCamp, () => {
+                executeAirfieldConstruction(candidate);
+            });
+        }
     }
 
     // 敌方存在可见空袭平台（航母/无人机/已建成机场）时优先高射机枪，否则战壕。
@@ -134,7 +211,11 @@ async function runV2Infrastructure(aiCamp) {
                     && fogSafeTile(tile) && hexDistance(unit.tile, tile) <= 2))
             && canBuildFieldFortification(unit, fortificationKind, gameState))
         : null;
-    if (builder) executeFieldConstruction(builder, fortificationKind);
+    if (builder) {
+        await runObservedAction({ type: 'buildFortification', unitId: builder.id, fortificationKind }, aiCamp, () => {
+            executeFieldConstruction(builder, fortificationKind);
+        });
+    }
 }
 
 function planEngineerAction(aiCamp) {
@@ -218,18 +299,23 @@ async function deployAvailableCommanders(aiCamp) {
 }
 
 async function executeAction(action, aiCamp) {
-    if (gameState.gameOver) return;
-    if (!gameState.aiActing || gameState.currentCamp !== aiCamp) return;
+    if (gameState.gameOver) return false;
+    if (!gameState.aiActing || gameState.currentCamp !== aiCamp) return false;
 
     const label = `${action.type}${action.unitId ? ' ' + action.unitId : ''}`;
     try {
-        await withTimeout(_executeActionInner(action, aiCamp), ACTION_TIMEOUT, label);
+        return await runObservedAction(action, aiCamp, () => withTimeout(
+            _executeActionInner(action, aiCamp),
+            _runtimeOptions.actionTimeoutMs,
+            label
+        ));
     } catch (e) {
         if (e && e.message && e.message.startsWith('AI_ACTION_TIMEOUT')) {
             console.warn(`AI action timed out: ${label}`);
         } else {
             console.warn(`AI action failed: ${label}`, e);
         }
+        return false;
     } finally {
         clearselection();
         gameState.selectedCityTile = null;
@@ -237,7 +323,7 @@ async function executeAction(action, aiCamp) {
 }
 
 async function _executeActionInner(action, aiCamp) {
-    if (gameState.gameOver) return;
+    if (gameState.gameOver) return false;
 
     const isNeutral = campToKey(aiCamp) === 'neutral';
     const campKey = campToKey(aiCamp);
@@ -404,6 +490,11 @@ async function _executeActionInner(action, aiCamp) {
             recalcAllFlankingMorale();
             logMessage(`${aiCamp.name} AI【${cmdCfg.name}】激活主动技能【${skill.name}】`);
             spawnCommanderSkillEffect(unit.tile.x, unit.tile.y);
+            recordAuxiliaryAction('activateSkill', {
+                unitId: unit.id,
+                commanderId: unit.commander,
+                skillName: skill.name
+            }, aiCamp);
             await delay(AI_DELAY);
             break;
         }
@@ -457,6 +548,7 @@ async function _executeActionInner(action, aiCamp) {
             break;
         }
     }
+    return true;
 }
 
 // ═══════════════════════════════════════════

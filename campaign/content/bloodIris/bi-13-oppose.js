@@ -372,7 +372,7 @@ export const config = {
                 { kind: 'showStep', speaker: MARCUS, text: '瓦罗。北境那年你替我挡过一矛，我也从雪沟里把你背回过营地。把桥放下。别逼我们隔着一道门，把那些年都说成假的。' },
                 { kind: 'showStep', speaker: VARO, text: '正因为门外是你，我才不能退。若我能为兄弟开门，明日每个将军都能为自己的道理带兵叩城。到那时，王国只剩谁的剑更快。' },
                 { kind: 'showStep', speaker: MARCUS, text: '那不是秩序。你只是把门关得太久，久到不敢承认门外还有答案。' },
-                { kind: 'showStep', speaker: VARO, text: '这句话是我教你的。还有侧塔、壕线和交叉射界——也都是。让我看看你究竟学会了多少。' },
+                { kind: 'showStep', speaker: VARO, text: '这句话我们入伍那年一起背过。侧塔、壕线和交叉射界，也是在同一座校场里练熟的。让我看看十四年后，我们谁还认得对方的打法。' },
                 { kind: 'showStep', speaker: GUN_CAPTAIN, text: '正门在两座塔的交叉火力里。请百夫长分兵走南北边缘；炮队沿中央壕线推进，先夺下紫军镇堡，把招募点前移到战场中央。' },
                 { kind: 'showStep', speaker: ADRIAN, text: '西营留有三十二金军费。红旗营城已经开放征募，受损部队也可就地补员。马库斯，不必只拿开局各队去填整座王都。' },
                 {
@@ -544,7 +544,7 @@ export const config = {
                 },
                 { kind: 'showStep', text: '外门的鸢尾铜饰连同半扇门板向内倒下。紫旗没有后退，反而从裂口两侧卷向城外——瓦罗亲自带近卫军出阵。' },
                 { kind: 'showStep', speaker: VARO, text: '城门破了，城还在。近卫军，随我堵住缺口。今天不必证明谁更忠诚，只要证明谁还能站着。' },
-                { kind: 'showStep', speaker: MARCUS, text: '北队压他的右手，南队切断退路。正面留给我——这是你教我的最后一课，瓦罗。' },
+                { kind: 'showStep', speaker: MARCUS, text: '北队压他的右手，南队切断退路。正面留给我——这一次演习没有收兵号了，瓦罗。' },
                 { kind: 'showStep', speaker: VARO, text: '那就别留手，马库斯。你若因为记得我是谁而输，我会比死更看不起你。' }
             ]
         },
@@ -701,7 +701,7 @@ export const config = {
         },
 
         { id: 'siege_engine_destroyed', enabled: true, once: true, when: [{ kind: 'unitKilled', target: { unit: 'siege_engine' } }], do: [{ kind: 'setObjectiveStatus', objective: 'preserve_engine', status: 'failed' }, { kind: 'endScenario', result: 'lose', reason: '攻城炮被摧毁。两翼即使夺塔，也无法在摄政府主力抵达前击穿王都外郭。' }] },
-        { id: 'marcus_falls', enabled: true, once: true, when: [{ kind: 'unitKilled', target: { unit: 'marcus_guard' } }], do: [{ kind: 'endScenario', result: 'lose', reason: '马库斯倒在城门之外。没有人能替他完成与瓦罗的最后一课。' }] },
+        { id: 'marcus_falls', enabled: true, once: true, when: [{ kind: 'unitKilled', target: { unit: 'marcus_guard' } }], do: [{ kind: 'endScenario', result: 'lose', reason: '马库斯倒在城门之外。没有人能替他走完与瓦罗的最后一次较量。' }] },
         { id: 'adrian_falls', enabled: true, once: true, when: [{ kind: 'unitKilled', target: { unit: 'king_adrian' } }], do: [{ kind: 'endScenario', result: 'lose', reason: '阿德里安在外门前阵亡。红旗失去名义与中心，归都王军随即崩解。' }] }
     ],
 
