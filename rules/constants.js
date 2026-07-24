@@ -51,6 +51,22 @@ export const COMMANDER_DRAFT = GAME_RULES.commanderDraft;
 export const SKIRMISH_VISION = GAME_RULES.skirmishVision;
 
 // ==== 经济 ====
+
+/**
+ * 中立经济门控。中立不是一个有取胜目标的阵营，而是玩家争夺的资源；
+ * 它的收入只应维持一支守备队的损耗，不应攒出能左右战局的部队。
+ *
+ * 必须对**城市与村庄的合计毛收入**只乘一次，不能拆开逐项乘：
+ * 村庄单笔只有 $1，逐项取整会直接归零，等于悄悄把村庄收入全砍掉。
+ */
+export const NEUTRAL_ECONOMY_RATE = 0.20;
+
+export function applyNeutralEconomyRate(campKey, grossIncome) {
+    const gross = Math.max(0, Number(grossIncome) || 0);
+    if (campKey !== 'neutral') return gross;
+    return Math.floor(gross * NEUTRAL_ECONOMY_RATE);
+}
+
 // 收入公式：1城=4, 2城=4+3, 3城+=4+3+2*(n-2)
 export function calcIncome(cityCount) {
     const income = GAME_RULES.income;

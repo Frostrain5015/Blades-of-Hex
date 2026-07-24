@@ -1,5 +1,5 @@
 // AI 调度器 — 加载人格文件，管理执行与延迟
-// 玩家侧人格按难度分档：Optio(Basic) / Legatus(Pro) / Imperator(Max)；中立方为 Claude。
+// 玩家侧人格按难度分档：Optio(Basic) / Legatus(Pro) / Imperator(Max)；中立方为 Corporal。
 
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
@@ -15,7 +15,8 @@ import { getCommander } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
 import { updateFogOfWar, updateAllFogOfWar, isTileVisible } from './fogOfWar.js';
 // 人格脚本位于可见目录 ai/（勿用隐藏目录：静态白名单、资源清单与部署工具都会跳过点开头路径）
-import * as claudePersonality from '../ai/claude.js';
+// 中立守备队人格。它与玩家侧三档不是同一条尺度：目标是守住阵地而不是赢下战争。
+import * as corporalPersonality from '../ai/corporal.js';
 // 三个玩家侧人格按难度分档，各自是独立的规划器而不是同一份代码的开关组合。
 // 共享的只有 ai/doctrine.js 里的规则事实（克制表、跨域伤害、占城资格……）。
 import * as optioPersonality from '../ai/optio.js';
@@ -368,6 +369,11 @@ function makeHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(game
         UNIT_CONFIG,
         weather: gameState.weather,
         isHostileFaction: (left, right) => isHostile(gameState, left, right),
+        // 交战资格与敌意是两回事：isHostile 只认 relation==='enemy'，
+        // 而中立方与玩家的 relation 就是字面上的 'neutral'——够不上「敌对」，
+        // 但引擎允许互相攻击（canAttack 同时接受 enemy 与 neutral）。
+        // 中立人格必须按这条判定选目标，否则它会把引擎给出的合法目标全部滤掉。
+        canAttackFaction: (left, right) => canAttack(gameState, left, right),
         recruitTypesForCity: (city, baseTypes) => difficultyProfile.counterRecruitment
             ? prioritizeNavalRecruitment(
                 city,
@@ -436,23 +442,20 @@ async function executeAction(action, aiCamp) {
 async function _executeActionInner(action, aiCamp) {
     if (gameState.gameOver) return false;
 
-    const isNeutral = campToKey(aiCamp) === 'neutral';
     const campKey = campToKey(aiCamp);
 
-    // 自动攻击辅助：从可攻击目标中选最优，返回是否执行了攻击
+    // 自动攻击辅助：从可攻击目标中选最优，返回是否执行了攻击。
+    // 中立方曾在这里额外要求目标落在行政区 {3,4,5} 内，那既写死了地图又把
+    // 水面目标全部排除（水格没有 districtId），是岸防炮对敌舰不开火的成因之一。
+    // 交战资格由外交表和引擎射程决定，与目标脚下那一格属于谁无关。
+    //
+    // 判据用 canAttack 而不是 isHostile：getAttackableTiles 本身就是按 canAttack
+    // 过滤出来的，再用更严的 isHostile 筛一遍，等于主动放弃一次已经到嘴边的合法攻击
+    // ——中立与玩家的 relation 是 'neutral'，isHostile 恒假，双方擦肩而过谁也不开枪。
     async function _autoAttack(unit) {
         if (!unit.canAct || !unit.tile || unit.hp <= 0) return false;
         const atkTiles = getAttackableTiles(unit);
-        let targets;
-        if (isNeutral) {
-            const MY_DISTRICTS = new Set([3, 4, 5]);
-            targets = atkTiles.filter(t => t.unit && isHostile(gameState, aiCamp, t.unit.camp) && MY_DISTRICTS.has(t.districtId));
-            if (targets.length === 0) {
-                targets = atkTiles.filter(t => t.unit && isHostile(gameState, aiCamp, t.unit.camp));
-            }
-        } else {
-            targets = atkTiles.filter(t => t.unit && isHostile(gameState, aiCamp, t.unit.camp));
-        }
+        const targets = atkTiles.filter(t => t.unit && canAttack(gameState, aiCamp, t.unit.camp));
         if (targets.length === 0) return false;
 
         const COUNTER = {
@@ -674,7 +677,7 @@ async function _executeActionInner(action, aiCamp) {
 }
 
 // ═══════════════════════════════════════════
-// 中立 AI 回合（Claude 防御型人格）
+// 中立 AI 回合（Corporal 守备队人格）
 // ═══════════════════════════════════════════
 
 export async function processNeutralTurn() {
@@ -689,7 +692,7 @@ export async function processNeutralTurn() {
         await runV2Infrastructure(aiCamp);
 
         const helpers = makeHelpers(aiCamp);
-        const actions = claudePersonality.planActions(gameState, helpers);
+        const actions = corporalPersonality.planActions(gameState, helpers, aiCamp);
 
         // 回合首次行动前延迟 2s
         if (actions.length > 0) { await delay(AI_DELAY); }
@@ -699,19 +702,17 @@ export async function processNeutralTurn() {
             await executeAction(actions[i], aiCamp);
         }
 
-        // 最终兜底：补满所有空城，强制步兵驻守
-        const MY_DISTRICTS = new Set([3, 4, 5]);
-        const emptyCities = gameState.tiles.filter(t =>
-            t.isCity && !t.unit &&
-            MY_DISTRICTS.has(t.districtId) &&
-            t.camp === aiCamp
-        );
-        for (const city of emptyCities) {
-            if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-            const unitType = helpers.recruitTypesForCity(city, ['infantry'])
+        // 兜底：只补一座空城，且必须是中立自己的城。
+        // 这里过去写死了行政区 {3,4,5}，在无主航路上从未命中（中立城在 5~10 区）；
+        // 现在按实际归属判定。同时刻意保持每回合一座的节流——中立能无限回填守军，
+        // 会把「拿下中立城」变成让所有玩家一起难受的消耗战。
+        const [emptyCity] = gameState.tiles.filter(t => t.isCity && !t.unit && t.camp === aiCamp);
+        if (emptyCity && !gameState.gameOver && gameState.currentCamp === aiCamp && gameState.aiActing) {
+            const unitType = helpers.recruitTypesForCity(emptyCity, ['infantry'])
                 .find(type => gameState.playerGold.neutral >= UNIT_CONFIG[type].cost);
             if (unitType) {
-                await executeAction({ type: 'recruit', unitType, tileQ: city.q, tileR: city.r }, aiCamp);
+                await executeAction(
+                    { type: 'recruit', unitType, tileQ: emptyCity.q, tileR: emptyCity.r }, aiCamp);
             }
         }
     } finally {

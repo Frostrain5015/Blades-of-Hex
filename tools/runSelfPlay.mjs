@@ -46,13 +46,14 @@ globalThis.setTimeout = (callback, ms = 0, ...rest) => nativeSetTimeout(
     ...rest
 );
 
-const [{ engine }, ai, commanders, recorder, camps, turns] = await Promise.all([
+const [{ engine }, ai, commanders, recorder, camps, turns, corporal] = await Promise.all([
     import('../core/headless.js'),
     import('../js/ai.js'),
     import('../commander/index.js'),
     import('../js/matchRecorder.js'),
     import('../rules/camps.js'),
-    import('../rules/turns.js')
+    import('../rules/turns.js'),
+    import('../ai/corporal.js')
 ]);
 
 engine.resetGameState();
@@ -126,7 +127,7 @@ recorder.startMatchRecording(state, {
         playerDifficulties: Object.fromEntries(
             Object.entries(difficultyProfiles).map(([key, profile]) => [key, profile.id])
         ),
-        neutralPersonality: 'Claude',
+        neutralPersonality: corporal.meta.name,
         seed: String(seed),
         timeScale,
         maxRounds,

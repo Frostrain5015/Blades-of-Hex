@@ -12,6 +12,8 @@ export { HEX_NEIGHBORS, hexDistance } from '../rules/hex.js';
 export { getFactionCount, getRoundIndex, getRound } from '../rules/turns.js';
 export {
     calcIncome,
+    applyNeutralEconomyRate,
+    NEUTRAL_ECONOMY_RATE,
     VILLAGE_GOLD,
     VILLAGE_MIN_DIST,
     COMMANDER_REROLL_COST,

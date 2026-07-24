@@ -1,4 +1,4 @@
-import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
+import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, applyNeutralEconomyRate, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { isStrongpointTarget, isBuildingUnit, isStaticBattleStructure } from '../rules/units.js';
 import {
@@ -1037,28 +1037,10 @@ export function grantTurnStartIncome(camp) {
     // 城市HP=0只锁机场指令与招募，不切收入——和旧版瘫痪机制的区别，故意不读 isCityDisabled。
     const cities = gameState.tiles.filter(t => t.isCity && t.camp === camp);
     const cityCount = cities.length;
-    let income = _campKey(camp) === 'neutral' ? Math.floor(calcIncome(cityCount) / 2) : calcIncome(cityCount);
-    // 标准 PVE 的三档难度只改变决策能力，双方收入完全一致。
-    // 战役关卡仍保留 aiDifficulty 作为关卡作者可配置的经济倍率。
-    income = Math.floor(income * resolveAiIncomeMultiplier(gameState, key));
-    gameState.playerGold[key] += income;
 
-    // 洗牌换将代价已直接在选将阶段计提（初始资金 $4→$1），此处不再重复扣减
-
-    if (income > 0) {
-        logMessage(`${camp.name}回合开始，城市产出共计$${income}`);
-        cities.forEach((cityTile, i) => {
-            const cityValue = i === 0 ? 4 : i === 1 ? 3 : 2;
-            gameState.goldTexts.push({
-                x: cityTile.x, y: cityTile.y,
-                value: cityValue, prefix: '+', color: '#ffff00',
-                timeLeft: 1800, lastUpdate: performance.now()
-            });
-            spawnCoinRain(cityTile.x, cityTile.y, 2);
-        });
-    }
-
-    // 村庄结算
+    // 本回合归属本阵营的村庄。先收集不入账：中立的经济门控要对
+    // 「城市 + 村庄」的合计毛收入只乘一次，逐项乘会把 $1 的村庄直接抹成 0。
+    const villages = [];
     for (const [vk, v] of gameState.villageTiles) {
         const vTile = gameState.tileMap.get(vk);
         if (!vTile) continue;
@@ -1070,13 +1052,54 @@ export function grantTurnStartIncome(camp) {
             beneficiaryCamp = cityTile ? cityTile.camp : campFromKey('neutral', gameState);
         }
         if (beneficiaryCamp !== camp) continue;
-        gameState.playerGold[_campKey(beneficiaryCamp)] += VILLAGE_GOLD;
-        gameState.goldTexts.push({
-            x: vTile.x, y: vTile.y,
-            value: VILLAGE_GOLD, prefix: '+', color: '#ffcc00',
-            timeLeft: 1800, lastUpdate: performance.now()
-        });
-        spawnCoinRain(vTile.x, vTile.y, 1);
+        villages.push(vTile);
+    }
+
+    const grossIncome = calcIncome(cityCount) + villages.length * VILLAGE_GOLD;
+    // 标准 PVE 的三档难度只改变决策能力，双方收入完全一致。
+    // 战役关卡仍保留 aiDifficulty 作为关卡作者可配置的经济倍率。
+    const scaledIncome = Math.floor(grossIncome * resolveAiIncomeMultiplier(gameState, key));
+    // 中立经济门控：城市与村庄一并按 NEUTRAL_ECONOMY_RATE 折算后才入账。
+    // 中立没有取胜目标，它是玩家争夺的资源而不是能左右战局的第三方，
+    // 收入只够养住守备队的损耗，攒不出成建制的部队。
+    const income = applyNeutralEconomyRate(key, scaledIncome);
+    gameState.playerGold[key] += income;
+
+    // 洗牌换将代价已直接在选将阶段计提（初始资金 $4→$1），此处不再重复扣减
+
+    if (income > 0) {
+        logMessage(`${camp.name}回合开始，领地产出共计$${income}`);
+        // 飘字与金币雨只在毛收入等于实收时按格逐一展示；被门控折算过的阵营
+        // 逐格展示会与实际入账对不上，改为在首座城市上显示真实到账数额。
+        if (income === grossIncome) {
+            cities.forEach((cityTile, i) => {
+                const cityValue = i === 0 ? 4 : i === 1 ? 3 : 2;
+                gameState.goldTexts.push({
+                    x: cityTile.x, y: cityTile.y,
+                    value: cityValue, prefix: '+', color: '#ffff00',
+                    timeLeft: 1800, lastUpdate: performance.now()
+                });
+                spawnCoinRain(cityTile.x, cityTile.y, 2);
+            });
+            for (const vTile of villages) {
+                gameState.goldTexts.push({
+                    x: vTile.x, y: vTile.y,
+                    value: VILLAGE_GOLD, prefix: '+', color: '#ffcc00',
+                    timeLeft: 1800, lastUpdate: performance.now()
+                });
+                spawnCoinRain(vTile.x, vTile.y, 1);
+            }
+        } else {
+            const anchorTile = cities[0] || villages[0];
+            if (anchorTile) {
+                gameState.goldTexts.push({
+                    x: anchorTile.x, y: anchorTile.y,
+                    value: income, prefix: '+', color: '#ffff00',
+                    timeLeft: 1800, lastUpdate: performance.now()
+                });
+                spawnCoinRain(anchorTile.x, anchorTile.y, 2);
+            }
+        }
     }
 
     const engineerResults = completeEngineerBunkerConstructions(gameState, camp, { Unit, logMessage });
