@@ -322,3 +322,77 @@ test('计量表（含受创）可通过快照恢复', () => {
     assert.equal(meter.takenTriggers, Math.floor(900 / takenThreshold));
     assert.equal(meter.takenProgress, 900 % takenThreshold);
 });
+
+
+test('回归：快照往返保留 goldPaid，回合初结算只补差额且不产生 $NaN', () => {
+    const { state, tiles } = setupEagleState();
+    spawnEaglePair(state, tiles);
+    const goldBefore = state.playerGold.player1 || 0;
+
+    // 先累计两份阈值的战功并在回合初拨付，使 goldPaid > 0
+    accrueEagleSynergyDamage(state, 'player1', EAGLE_SYNERGY_BALANCE.damageThreshold * 2);
+    assert.equal(processEagleSupplyAtTurnStart(state, 'player1'), EAGLE_SYNERGY_BALANCE.goldPerTrigger * 2);
+    assert.equal(state.playerGold.player1, goldBefore + EAGLE_SYNERGY_BALANCE.goldPerTrigger * 2);
+
+    // 联机同步/存档恢复路径：序列化 → JSON 往返 → 恢复
+    const snapshot = JSON.parse(JSON.stringify(serializeMatchState(state)));
+    const restored = createMatchState();
+    restoreMatchState(restored, snapshot, {
+        HexTileClass: EngineHexTile,
+        UnitClass: Unit,
+        computeCampBorders: () => [],
+        computeDistrictBorders: () => []
+    });
+    setGameStateRef(restored);
+
+    // 恢复后继续累计战功：回合初只补发新跨过的一份差额，金币必须是有限数
+    accrueEagleSynergyDamage(restored, 'player1', EAGLE_SYNERGY_BALANCE.damageThreshold);
+    const paid = processEagleSupplyAtTurnStart(restored, 'player1');
+    assert.equal(paid, EAGLE_SYNERGY_BALANCE.goldPerTrigger, '快照丢失 goldPaid 会重复拨付或产出 NaN');
+    assert.ok(Number.isFinite(restored.playerGold.player1), '玩家金币不得为 NaN/Infinity');
+    assert.equal(restored.playerGold.player1, goldBefore + EAGLE_SYNERGY_BALANCE.goldPerTrigger * 3);
+});
+
+test('回归：旧版快照缺 goldPaid 字段时按 triggers 兜底，不重复拨付也不产生 $NaN', () => {
+    const { state, tiles } = setupEagleState();
+    spawnEaglePair(state, tiles);
+    const goldBefore = state.playerGold.player1 || 0;
+
+    // 模拟重构前版本（即时拨付制）留下的计量表：战功已结算过两份，无 goldPaid 字段
+    const snapshot = JSON.parse(JSON.stringify(serializeMatchState(state)));
+    snapshot.eagleSynergy.player1 = {
+        total: EAGLE_SYNERGY_BALANCE.damageThreshold * 2,
+        triggers: 2,
+        taken: 0,
+        takenTriggers: 0
+    };
+    const restored = createMatchState();
+    restoreMatchState(restored, snapshot, {
+        HexTileClass: EngineHexTile,
+        UnitClass: Unit,
+        computeCampBorders: () => [],
+        computeDistrictBorders: () => []
+    });
+    setGameStateRef(restored);
+
+    // 已结算的两份不得重发；新跨过的一份正常补发
+    assert.equal(processEagleSupplyAtTurnStart(restored, 'player1'), 0, '旧版已拨付的战功不得重复拨付');
+    assert.equal(restored.playerGold.player1, goldBefore);
+    accrueEagleSynergyDamage(restored, 'player1', EAGLE_SYNERGY_BALANCE.damageThreshold);
+    assert.equal(processEagleSupplyAtTurnStart(restored, 'player1'), EAGLE_SYNERGY_BALANCE.goldPerTrigger);
+    assert.ok(Number.isFinite(restored.playerGold.player1), '玩家金币不得为 NaN/Infinity');
+
+    // 更极端的旧表：连 triggers 也缺失，按未拨付兜底（宁可补发，不可 NaN）
+    const snapshot2 = JSON.parse(JSON.stringify(serializeMatchState(state)));
+    snapshot2.eagleSynergy.player1 = { total: EAGLE_SYNERGY_BALANCE.damageThreshold };
+    const restored2 = createMatchState();
+    restoreMatchState(restored2, snapshot2, {
+        HexTileClass: EngineHexTile,
+        UnitClass: Unit,
+        computeCampBorders: () => [],
+        computeDistrictBorders: () => []
+    });
+    setGameStateRef(restored2);
+    assert.equal(processEagleSupplyAtTurnStart(restored2, 'player1'), EAGLE_SYNERGY_BALANCE.goldPerTrigger);
+    assert.ok(Number.isFinite(restored2.playerGold.player1), '玩家金币不得为 NaN/Infinity');
+});

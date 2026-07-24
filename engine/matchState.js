@@ -172,7 +172,7 @@ export function createMatchState() {
         _colonelAirStacks: {}, // E4: 上校【老练】空军伤害层数 { campKey: n }
         _aureliaOathUsed: {}, // 奥雷利亚阵营协同被动【同一个誓言】每阵营每局使用记录
         _pendingAureliaOathEvents: [], // 单次攻击广播前的瞬时表现事件，不参与快照
-        _eagleSynergy: {},    // 天鹰阵营协同被动【天基支援协议】计量表 { campKey: { total, triggers, taken, takenTriggers } }
+        _eagleSynergy: {},    // 天鹰阵营协同被动【天基支援协议】计量表 { campKey: { total, triggers, taken, takenTriggers, goldPaid } }
         _pendingEagleSynergyEvents: [], // 同步结算路径待广播的鹰链结算事件，不参与快照
         _celestineOracle: {}, // 塞莱斯廷圣国阵营协同【神谕】计量 { campKey: { activeRounds, stage } }
         _noctisBloodTide: {}, // 诺克提斯阵营协同【血月之夜】血潮计量 { campKey: { charge, moonsPending } }
@@ -733,7 +733,10 @@ export function restoreMatchState(match, data, deps) {
             total: meter?.total || 0,
             triggers: meter?.triggers || 0,
             taken: meter?.taken || 0,
-            takenTriggers: meter?.takenTriggers || 0
+            takenTriggers: meter?.takenTriggers || 0,
+            // 缺失/非有限值时留 undefined，由 ensureEagleMeter 按 triggers 推导兜底，
+            // 不能兜底为 0——旧版快照的战功可能已即时拨付过，归 0 会重复拨付。
+            goldPaid: Number.isFinite(meter?.goldPaid) ? meter.goldPaid : undefined
         }]));
     match._pendingEagleSynergyEvents = [];
     match._celestineOracle = Object.fromEntries(Object.entries(data.celestineOracle || {})

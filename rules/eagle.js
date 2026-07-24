@@ -62,7 +62,7 @@ export const EAGLE_FACTION_PASSIVE = Object.freeze({
     icon: '🛰',
     type: '阵营协同被动',
     color: '#7fd0ff',
-    description: `场上同时存在两名天鹰特遣队将领时生效。【${EAGLE_SUPPLY_EFFECT.name}】本阵营空军与要塞单位（城市驻军、岸防炮、碉堡）每累计造成${EAGLE_SYNERGY_BALANCE.damageThreshold}点伤害，天基平台投送一次补给，立即拨付$${EAGLE_SYNERGY_BALANCE.goldPerTrigger}；【${EAGLE_ORBITAL_EFFECT.name}】本阵营单位每累计受到${EAGLE_SYNERGY_BALANCE.takenThreshold}点敌方伤害，获得一张对策卡【天基打击】。`
+    description: `场上同时存在两名天鹰特遣队将领时生效。【${EAGLE_SUPPLY_EFFECT.name}】本阵营空军与要塞单位（城市驻军、岸防炮、碉堡）每累计造成${EAGLE_SYNERGY_BALANCE.damageThreshold}点伤害，天基平台投送一次补给，于回合开始时拨付$${EAGLE_SYNERGY_BALANCE.goldPerTrigger}；【${EAGLE_ORBITAL_EFFECT.name}】本阵营单位每累计受到${EAGLE_SYNERGY_BALANCE.takenThreshold}点敌方伤害，获得一张对策卡【天基打击】。`
 });
 
 export function isEagleCommanderId(commanderId) {
@@ -102,6 +102,12 @@ function ensureEagleMeter(gameState, campKey) {
     const meter = gameState._eagleSynergy[campKey] ||= { total: 0, triggers: 0, taken: 0, takenTriggers: 0, goldPaid: 0 };
     if (meter.taken == null) meter.taken = 0;
     if (meter.takenTriggers == null) meter.takenTriggers = 0;
+    // 旧快照/外部写入的计量表可能缺 goldPaid：回合初折现 `reached*goldPerTrigger - goldPaid`
+    // 会得到 NaN 并污染玩家金币。triggers 在旧版即时拨付与新版回合初结算下都等于已结算
+    // 份数，据此推导兜底值，避免重复拨付或产出 NaN。
+    if (meter.goldPaid == null || !Number.isFinite(meter.goldPaid)) {
+        meter.goldPaid = (meter.triggers || 0) * EAGLE_SYNERGY_BALANCE.goldPerTrigger;
+    }
     return meter;
 }
 
