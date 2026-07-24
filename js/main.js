@@ -4,7 +4,7 @@ import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notif
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef, setIsNetworkGameRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
-import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, creditEagleSynergyDamage } from './gameLogic.js';
+import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, creditEagleSynergyDamage, BURN_MS } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
@@ -74,7 +74,8 @@ import { battlefieldDelegation, setBattlefieldDelegation } from './rendering/del
 import {
     AIR_COMMAND_IMPACT_DELAY_MS
 } from '../rules/airCommands.js';
-import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
+import { getCommanderFactionSynergy, EAGLE_FACTION_SYNERGY } from '../rules/factionSynergies.js';
+import { hasEagleSynergyActive, buildCommanderAnchors } from '../rules/eagle.js';
 import { getOracleStatueAnchor, CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
 import { resolveBorrowDay } from '../rules/tianheng.js';
 
@@ -3281,8 +3282,19 @@ async function handleRemoteAction(msg) {
                         case 'orbitalStrike': {
                             const oResults = e.orbitalStrikeResults || [];
                             // 与本地同一节拍：光束压制三段小额 + 光环落地引爆主伤害
-                            spawnOrbitalBeam(e.x, e.y);
-                            playSound('lightning');
+                            // 若触发天鹰 Hero，远端也播放 Hero，并等 Hero 结束后再开始光束。
+                            const strikeCamp = roleToCamp(msg.originRole);
+                            const strikeCampKey = strikeCamp ? campToKey(strikeCamp) : null;
+                            const eagleHeroActive = strikeCampKey && hasEagleSynergyActive(gameState, strikeCampKey);
+                            if (eagleHeroActive) {
+                                emit('fx:eagleOrbitalStrikeActivation', {
+                                    campKey: strikeCampKey,
+                                    commanders: buildCommanderAnchors(gameState, strikeCampKey)
+                                });
+                            }
+                            const ORBITAL_STRIKE_START_DELAY_MS = eagleHeroActive
+                                ? EAGLE_FACTION_SYNERGY.hero.durationMs
+                                : BURN_MS;
                             const applyRemoteOrbitalTick = (tickIndex, isFinal) => {
                                 // 分段伤害数字由 e.floatTexts 重放；弹着派生跳字两端各自推导（仅显示，不进广播捕获）
                                 setFloatTextCaptureSuppressed(true);
@@ -3300,6 +3312,11 @@ async function handleRemoteAction(msg) {
                                                 gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
                                             }
                                         }
+                                        // 远端重放：无驻军的城市/城郭格在最终段结算结构伤害
+                                        if (r.isCitySiege && isFinal && !tile.unit
+                                            && (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0) {
+                                            damageCityPool(tile, r.dmg, gameState.tileMap);
+                                        }
                                         spawnExplosionParticles(tile.x, tile.y, isFinal ? '#7fd0ff' : '#9fe0ff', isFinal ? 18 : 5);
                                         if (isFinal) {
                                             spawnExplosionParticles(tile.x, tile.y, '#eaf7ff', 12);
@@ -3311,13 +3328,17 @@ async function handleRemoteAction(msg) {
                                 }
                                 triggerScreenShake(isFinal ? 14 : 3, isFinal ? 500 : 180);
                             };
-                            ORBITAL_STRIKE_TICK_DELAYS_MS.forEach((tickAt, tickIndex) => {
-                                const isFinal = tickIndex === ORBITAL_STRIKE_TICK_DELAYS_MS.length - 1;
-                                setTimeout(() => {
-                                    if (isFinal) playSound('explosion');
-                                    applyRemoteOrbitalTick(tickIndex, isFinal);
-                                }, tickAt);
-                            });
+                            setTimeout(() => {
+                                spawnOrbitalBeam(e.x, e.y);
+                                playSound('lightning');
+                                ORBITAL_STRIKE_TICK_DELAYS_MS.forEach((tickAt, tickIndex) => {
+                                    const isFinal = tickIndex === ORBITAL_STRIKE_TICK_DELAYS_MS.length - 1;
+                                    setTimeout(() => {
+                                        if (isFinal) playSound('explosion');
+                                        applyRemoteOrbitalTick(tickIndex, isFinal);
+                                    }, tickAt);
+                                });
+                            }, ORBITAL_STRIKE_START_DELAY_MS);
                             break;
                         }
                         case 'airlift': {

@@ -130,11 +130,12 @@ export function createOrbitalSupplyFollowup({ root, event, presentation, stageRe
 
     const elements = createFollowupElements(container, commanders.length);
     const viewport = root.getBoundingClientRect();
-    const center = {
-        x: stageRect.left + stageRect.width / 2,
-        y: stageRect.top + stageRect.height / 2
-    };
     const points = commanders.map(commander => toViewportPoint(commander.x, commander.y, stageRect));
+    // 金币迸发点取各将领位置的几何中心（取代视口中心），使视觉效果更贴近实际战局
+    const center = {
+        x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+        y: points.reduce((sum, p) => sum + p.y, 0) / points.length
+    };
     const startMs = Number(presentation.followupStartMs) || 2800;
     const durationMs = Number(presentation.durationMs) || 4600;
     const settleAt = startMs + UPLINK_WINDOW_MS + SETTLE_OFFSET_MS - UPLINK_WINDOW_MS * 0.4;

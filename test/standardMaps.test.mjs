@@ -11,7 +11,6 @@ import {
 } from '../rules/standardMaps.js';
 import {
     applyStandardMapCaptureReward,
-    shouldHoldNeutralCarrierPosition,
     syncCityLinkedGarrisons,
     syncStandardMapCarrierControl
 } from '../rules/standardMapEvents.js';
@@ -215,8 +214,7 @@ for (const playerCount of [2, 3]) {
         assert.deepEqual(map.carrierControl, {
             portQ: expected.carrier.q,
             portR: expected.carrier.r,
-            districtId: expected.districtId,
-            holdPositionWhileNeutral: true
+            districtId: expected.districtId
         });
     });
 }
@@ -293,17 +291,6 @@ test('the prize carrier follows the central port district on every recapture', (
     assert.deepEqual(syncStandardMapCarrierControl(state, map, map.carrierControl.districtId, player2), [carrier]);
     assert.equal(carrier.camp, player2);
     assert.equal(escort.camp, player1);
-});
-
-test('the neutral AI holds the prize carrier at its authored port', () => {
-    const neutral = { id: 'neutral' };
-    const player1 = { id: 'player1' };
-    const map = getStandardMap(3, 'uncharted-passage');
-    const carrier = { type: 'carrier', camp: neutral };
-
-    assert.equal(shouldHoldNeutralCarrierPosition(carrier, neutral, map), true);
-    assert.equal(shouldHoldNeutralCarrierPosition({ type: 'destroyer', camp: neutral }, neutral, map), false);
-    assert.equal(shouldHoldNeutralCarrierPosition({ type: 'carrier', camp: player1 }, player1, map), false);
 });
 
 test('the preparation catalog exposes both named map families', () => {

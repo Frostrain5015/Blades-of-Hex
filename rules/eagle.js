@@ -99,13 +99,13 @@ export function isEagleFortressAttacker(unit) {
 
 function ensureEagleMeter(gameState, campKey) {
     if (!gameState._eagleSynergy) gameState._eagleSynergy = {};
-    const meter = gameState._eagleSynergy[campKey] ||= { total: 0, triggers: 0, taken: 0, takenTriggers: 0 };
+    const meter = gameState._eagleSynergy[campKey] ||= { total: 0, triggers: 0, taken: 0, takenTriggers: 0, goldPaid: 0 };
     if (meter.taken == null) meter.taken = 0;
     if (meter.takenTriggers == null) meter.takenTriggers = 0;
     return meter;
 }
 
-function buildCommanderAnchors(gameState, campKey) {
+export function buildCommanderAnchors(gameState, campKey) {
     // 表现锚点取棋子落格中心（与奥雷利亚一致），不读带位移插值的视觉坐标。
     return getLivingEagleCommanders(gameState, campKey).map(unit => ({
         unitId: unit.id,
@@ -182,44 +182,39 @@ export function getEagleSynergyMeter(gameState, campOrKey) {
 }
 
 /**
- * 记入合规伤害（造成侧）并结算跨过的阈值：直接拨付金币、生成表现事件。
- * 单次大额伤害一次跨过多个阈值时合并为一个事件（goldAwarded 累计）。
+ * 记入合规伤害（造成侧）。所累计伤害在回合初统一结算为轨道补给金费，
+ * 不再在此处即时拨付（参见 processEagleSupplyAtTurnStart）。
  * deferred=true 表示延迟结算路径（空袭落弹、远端重放）：两端各自确定性重算，
  * 事件只在本地发射、不进入待广播队列，靠 presentationEventId 去重。
- * 返回事件对象（未触发结算返回 null），fx 发射与日志由表现层负责。
+ * Hero 动画已移至天基打击对策卡发动时刻，此处不再触发。
  */
 export function accrueEagleSynergyDamage(gameState, campKey, amount, { deferred = false } = {}) {
     const dealt = Math.max(0, Math.round(Number(amount) || 0));
     if (!gameState || !campKey || dealt <= 0) return null;
     const meter = ensureEagleMeter(gameState, campKey);
     meter.total += dealt;
+    return null;
+}
 
+/**
+ * 回合初结算轨道补给：将截至当前累计的合规伤害按阈值折算为补给金费，
+ * 扣除已拨付的部分后向对应阵营发放，并返回实际拨付额（0=无拨付）。
+ * Hero 动画已移至天基打击对策卡发动，此处仅发金 + 日志。
+ */
+export function processEagleSupplyAtTurnStart(gameState, campKey) {
+    if (!gameState || !campKey) return 0;
+    if (!hasEagleSynergyActive(gameState, campKey)) return 0;
+    const meter = ensureEagleMeter(gameState, campKey);
     const { damageThreshold, goldPerTrigger } = EAGLE_SYNERGY_BALANCE;
     const reached = Math.floor(meter.total / damageThreshold);
-    const crossings = reached - meter.triggers;
-    if (crossings <= 0) return null;
-
-    const firstTrigger = meter.triggers === 0;
-    meter.triggers = reached;
-    const goldAwarded = crossings * goldPerTrigger;
+    const toPay = reached * goldPerTrigger - meter.goldPaid;
+    if (toPay <= 0) return 0;
     if (gameState.playerGold) {
-        gameState.playerGold[campKey] = (gameState.playerGold[campKey] || 0) + goldAwarded;
+        gameState.playerGold[campKey] = (gameState.playerGold[campKey] || 0) + toPay;
     }
-
-    const event = {
-        kind: 'supply',
-        presentationEventId: `eagleSupply:${campKey}:${meter.triggers}`,
-        campKey,
-        goldAwarded,
-        crossings,
-        triggerIndex: meter.triggers,
-        firstTrigger,
-        totalDamage: meter.total,
-        thresholdDamage: damageThreshold,
-        commanders: buildCommanderAnchors(gameState, campKey)
-    };
-    queueEagleEvent(gameState, event, deferred);
-    return event;
+    meter.goldPaid += toPay;
+    meter.triggers = reached;
+    return toPay;
 }
 
 /**

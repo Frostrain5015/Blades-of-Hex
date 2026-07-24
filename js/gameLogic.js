@@ -58,7 +58,7 @@ import { COLONEL_CARD_DATA, ORBITAL_STRIKE_TICK_DELAYS_MS, getCardMeta } from '.
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { MORALE_CONFIG } from '../rules/terrain.js';
 import { applyPositionalMoralePenalty, clearPositionalMoralePenalty } from '../rules/morale.js';
-import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
+import { getFellowRobeDefenseBonus, EAGLE_FACTION_SYNERGY } from '../rules/factionSynergies.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
 import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
@@ -71,7 +71,9 @@ import {
     accrueEagleSynergyDamage,
     hasEagleSynergyActive,
     isEagleAirAttacker,
-    isEagleFortressAttacker
+    isEagleFortressAttacker,
+    processEagleSupplyAtTurnStart,
+    buildCommanderAnchors
 } from '../rules/eagle.js';
 import {
     BLOOD_MOON_WEATHER,
@@ -1303,6 +1305,11 @@ async function _doEndTurnPhase() {
     // 毒素先于收入与所有回合开始治疗结算。
     resolvePoisonAtTurnStart(gameState.currentCamp);
     grantTurnStartIncome(gameState.currentCamp);
+    // 轨道补给：回合初结算天鹰阵营累计战功，自动拨付等效补给金费
+    const supplyAmt = processEagleSupplyAtTurnStart(gameState, _campKey(gameState.currentCamp));
+    if (supplyAmt > 0) {
+        logMessage(`📦 ${gameState.currentCamp.name}阵营协同【轨道补给】：天基平台核算战功，拨付$${supplyAmt}`);
+    }
     // 港口维修改为玩家主动付费按钮（见 repairShipAtPort），不再回合开始自动结算。
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
@@ -4113,19 +4120,47 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     gameState._pendingEagleSynergyEvents = [];
 
     const results = [];
+    const dCampKey = _campKey(droneUnit.camp);
     const applySuicideDamage = (tile, multiplier) => {
-        if (!tile.unit || tile.unit.camp === droneUnit.camp) return null;
-        const baseResult = droneUnit._resolveDamage(droneUnit, tile.unit, 1, 0, false, false, true);
-        const dmg = Math.round(baseResult.dmg * multiplier);
-        if (dmg <= 0) return null;
-        const killed = tile.unit.applyDamage(dmg, { source: 'ranged', attacker: droneUnit });
-        enqueueFloatText({
-            x: tile.x, y: tile.y, q: tile.q, r: tile.r,
-            value: dmg, isCrit: baseResult.isCrit, timeLeft: 900
-        });
-        const result = { q: tile.q, r: tile.r, x: tile.x, y: tile.y, dmg, killed, isCrit: baseResult.isCrit };
-        results.push(result);
-        return result;
+        if (tile.unit && tile.unit.camp !== droneUnit.camp) {
+            const baseResult = droneUnit._resolveDamage(droneUnit, tile.unit, 1, 0, false, false, true);
+            const dmg = Math.round(baseResult.dmg * multiplier);
+            if (dmg <= 0) return null;
+            const killed = tile.unit.applyDamage(dmg, { source: 'ranged', attacker: droneUnit });
+            enqueueFloatText({
+                x: tile.x, y: tile.y, q: tile.q, r: tile.r,
+                value: dmg, isCrit: baseResult.isCrit, timeLeft: 900
+            });
+            const result = { q: tile.q, r: tile.r, x: tile.x, y: tile.y, dmg, killed, isCrit: baseResult.isCrit };
+            results.push(result);
+            return result;
+        }
+        // 无驻军但HP>0的敌方/中立城市：自爆冲击削减城市结构HP，与攻城同一血池管线
+        // （空城无防御乘区；无人机无攻城增伤来源，火力×独立浮动×自爆倍率直接结算）。
+        if (!tile.unit && (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0
+            && canAttack(gameState, droneUnit.camp, tile.camp)) {
+            const poolTile = getCityPoolTile(tile, gameState.tileMap) || tile;
+            const poolHpBefore = Math.max(0, poolTile.hp || 0);
+            if (poolHpBefore <= 0) return null;
+            const floatMult = droneUnit._calcFloat(false, false, droneUnit._rankCritBonus || 0);
+            const dmg = Math.round(calculateCityStructureDamage(droneUnit.getEffectiveAttack(), 0, floatMult) * multiplier);
+            if (dmg <= 0) return null;
+            damageCityPool(tile, dmg, gameState.tileMap);
+            poolTile._citySiegeDamageRound = getRoundIndex(gameState);
+            // 鹰链：无人机是空军资产，结构伤害按血池剩余截断计入（与航母攻城一致）
+            if (isEagleAirAttacker(droneUnit)) {
+                creditEagleSynergyDamage(dCampKey, Math.min(dmg, poolHpBefore));
+            }
+            const isCrit = floatMult > COMBAT_BALANCE.float.attack.critThreshold;
+            enqueueFloatText({
+                x: tile.x, y: tile.y, q: tile.q, r: tile.r,
+                value: dmg, isCrit, isCityDamage: true, timeLeft: 900
+            });
+            const result = { q: tile.q, r: tile.r, x: tile.x, y: tile.y, dmg, killed: false, isCrit, isCitySiege: true };
+            results.push(result);
+            return result;
+        }
+        return null;
     };
 
     // 主目标
@@ -4138,7 +4173,6 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     }
 
     // 视觉效果：无人机棋子飞向目标
-    const dCampKey = _campKey(droneUnit.camp);
     spawnDroneDive(fromTile.x, fromTile.y, targetTile.x, targetTile.y, dCampKey);
 
     const pierceTexts = results.filter(r => !(r.q === targetTile.q && r.r === targetTile.r));
@@ -4180,6 +4214,9 @@ function _accrueSunMoonForCamp(campKey, totalRemaining) {
     logMessage(`${gameState.factions?.[campKey]?.name || campKey}的天衡协同【日月天衡】充能已满——全军40点护盾+士气提升+暴击率提升+全图视野`);
     return { campKey, affectedIds };
 }
+
+// 战术对策卡烧牌动画时长：VFX 与伤害数字统一在动画结束后播放，便于远端按同一节奏重放。
+export const BURN_MS = 1600;
 
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
     if (gameState.campaignMode && !isMechanicEnabled(gameState, 'tacticalCards')) { notify('本关尚未开放对策卡', 'info'); return; }
@@ -4279,6 +4316,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
             for (const [dq, dr] of dirs) {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
                 if (ht && ht.unit) _savedHPs.push({ tile: ht, hp: ht.unit.hp, shield: ht.unit._shield });
+                // 天基打击/空袭也影响无驻军的城市/城郭格：保存城市血池HP用于回滚
+                if (ht && !ht.unit && (ht.isCity || ht.isUrban) && (Number(ht.hp) || 0) > 0) {
+                    const poolTile = getCityPoolTile(ht, gameState.tileMap) || ht;
+                    _savedHPs.push({ tile: poolTile, hp: poolTile.hp, isCityPool: true });
+                }
             }
         } else if (cardId === 'mgNest') {
             _mgNestSaved = targetTile.unit;
@@ -4443,7 +4485,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // restore HP/shield for damage cards — re-apply in setTimeout
     if (_savedHPs) {
         for (const s of _savedHPs) {
-            if (s.tile.unit) {
+            if (s.isCityPool) {
+                s.tile.hp = s.hp;
+            } else if (s.tile.unit) {
                 s.tile.unit.hp = s.hp;
                 if (s.shield !== undefined) s.tile.unit._shield = s.shield;
             }
@@ -4466,7 +4510,6 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     const x = targetTile.x, y = targetTile.y;
 
     // VFX + 视觉反馈延迟至烧牌动画结束后播放（与远端同步）
-    const BURN_MS = 1600;
     switch (cardId) {
         case 'heal': {
             const healAmt = result.healAmt;
@@ -4592,21 +4635,37 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'orbitalStrike': {
             const oResults = result.results || [];
             logMessage(`🛰️【天基打击】天基平台对(${targetTile.q},${targetTile.r})及周边实施轨道光束打击`);
+            // 天基打击发动 → 触发天鹰协同 Hero 动画（取代原轨道补给触发时机）
+            const strikeCampKey = _campKey(myCamp);
+            const eagleHeroActive = hasEagleSynergyActive(gameState, strikeCampKey);
+            if (eagleHeroActive) {
+                emit('fx:eagleOrbitalStrikeActivation', {
+                    campKey: strikeCampKey,
+                    commanders: buildCommanderAnchors(gameState, strikeCampKey)
+                });
+            }
             // 分段伤害数字同步登记（含烧牌+各段节拍延迟），广播快照可捕获
             const orbitalFinalTickIndex = ORBITAL_STRIKE_TICK_DELAYS_MS.length - 1;
+            // 若触发天鹰 Hero，光束需等 Hero 播放完毕再开始；否则保持原有烧牌延迟。
+            const ORBITAL_STRIKE_START_DELAY_MS = eagleHeroActive
+                ? EAGLE_FACTION_SYNERGY.hero.durationMs
+                : BURN_MS;
             for (const r of oResults) {
                 const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                if (!tile || !tile.unit) continue;
-                (r.ticks || []).forEach((tickDmg, tickIndex) => {
-                    if (tickDmg <= 0) return;
-                    const isFinal = tickIndex === orbitalFinalTickIndex;
-                    enqueueFloatText({
-                        x: tile.x, y: tile.y, q: r.q, r: r.r,
-                        value: tickDmg, isCrit: isFinal,
-                        timeLeft: isFinal ? 1000 : 800,
-                        delayMs: BURN_MS + ORBITAL_STRIKE_TICK_DELAYS_MS[tickIndex]
+                if (!tile) continue;
+                // 浮字注册：有驻军或空城结构的格都显示伤害数字
+                if (tile.unit || r.isCitySiege) {
+                    (r.ticks || []).forEach((tickDmg, tickIndex) => {
+                        if (tickDmg <= 0) return;
+                        const isFinal = tickIndex === orbitalFinalTickIndex;
+                        enqueueFloatText({
+                            x: tile.x, y: tile.y, q: r.q, r: r.r,
+                            value: tickDmg, isCrit: isFinal, isCityDamage: !!r.isCitySiege,
+                            timeLeft: isFinal ? 1000 : 800,
+                            delayMs: ORBITAL_STRIKE_START_DELAY_MS + ORBITAL_STRIKE_TICK_DELAYS_MS[tickIndex]
+                        });
                     });
-                });
+                }
             }
             // 两段蓄力：光束压制三段小额伤害（12%×3），光环落地引爆主伤害（64%）。
             // 节拍与 effects.js 轨道光束相位共用 ORBITAL_STRIKE_TICK_DELAYS_MS。
@@ -4627,6 +4686,11 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                             const dck = _campKey(dc);
                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
                         }
+                    }
+                    // 无驻军的城市/城郭格：天基光束削减城市结构HP（仅在最终段光环引爆时结算）
+                    if (r.isCitySiege && isFinal && !tile.unit
+                        && (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0) {
+                        damageCityPool(tile, r.dmg, gameState.tileMap);
                     }
                     spawnExplosionParticles(tile.x, tile.y, isFinal ? '#7fd0ff' : '#9fe0ff', isFinal ? 18 : 5);
                     if (isFinal) {
@@ -4649,7 +4713,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         applyOrbitalTick(tickIndex, isFinal);
                     }), tickAt);
                 });
-            }, BURN_MS);
+            }, ORBITAL_STRIKE_START_DELAY_MS);
             break;
         }
         case 'diveStrafe': {
@@ -4925,7 +4989,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     // 故携带 result 供远端在自己的 setTimeout 内同样结算（对齐 lightning 的延迟结算模式）
     const carpetBombResults = (cardId === 'carpetBomb') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg, isCrit: r.isCrit })) : null;
     // 天基打击与空袭同理：伤害在本地 setTimeout 内结算，广播时状态尚未含伤害，携带结果供远端重放
-    const orbitalStrikeResults = (cardId === 'orbitalStrike') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg })) : null;
+    const orbitalStrikeResults = (cardId === 'orbitalStrike') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg, ticks: r.ticks, isCitySiege: r.isCitySiege })) : null;
     const recordedAction = broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, purifiedPoison: result.purifiedPoison, poisoned: result.poisoned, mineType: result.mineType, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, orbitalStrikeResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
     committedActionId = recordedAction?.actionId || null;
 }

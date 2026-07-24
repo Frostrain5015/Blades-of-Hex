@@ -136,12 +136,15 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
     }
     if (cardId === 'drone_suicide') {
         const source = sources.sourceUnit;
-        return !!source?.tile
-            && source._isDrone
-            && sameCamp(source.camp, myCamp)
-            && !!unit
-            && !sameCamp(unit.camp, myCamp)
-            && hexDistance(source.tile, tile) <= DRONE_SUICIDE_RANGE;
+        if (!source?.tile || !source._isDrone || !sameCamp(source.camp, myCamp)) return false;
+        if (hexDistance(source.tile, tile) > DRONE_SUICIDE_RANGE) return false;
+        // 无驻军但HP>0的敌方/中立城市同样是合法目标：自爆冲击削减城市结构HP
+        // （与空军指令扫射的空城分支同一判定）。
+        if (!unit) {
+            return (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0
+                && canAttack(gameState, myCamp, tile.camp);
+        }
+        return !sameCamp(unit.camp, myCamp);
     }
     if (cardId === 'engineer_bunker') {
         const source = sources.sourceUnit;

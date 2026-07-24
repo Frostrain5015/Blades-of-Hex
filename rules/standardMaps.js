@@ -350,8 +350,7 @@ function createAuthoredArchipelago(level, playerCount) {
         carrierControl: {
             portQ: carrierPort.q,
             portR: carrierPort.r,
-            districtId: carrierPort.districtId,
-            holdPositionWhileNeutral: true
+            districtId: carrierPort.districtId
         },
         captureReward: {
             type: 'neutralForcesTransfer',

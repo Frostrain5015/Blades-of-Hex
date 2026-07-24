@@ -28,6 +28,7 @@ const {
     EAGLE_ORBITAL_STRIKE_CARD_ID,
     accrueEagleDamageTaken,
     accrueEagleSynergyDamage,
+    processEagleSupplyAtTurnStart,
     getEagleSynergyMeter,
     hasEagleSynergyActive,
     isEagleAirAttacker,
@@ -130,7 +131,7 @@ test('空军与要塞来源分类：航母/无人机归空军，驻军归要塞�
     assert.equal(isEagleFortressAttacker({ _isDrone: true, tile: tiles[3] }), false);
 });
 
-test('轨道补给：跨阈值拨付金币并合并大额伤害的多段触发', () => {
+test('轨道补给：累计战功在回合初统一拨付，accrueEagleSynergyDamage 仅记账不发金', () => {
     const { state, tiles } = setupEagleState();
     spawnEaglePair(state, tiles);
     const goldBefore = state.playerGold.player1 || 0;
@@ -138,28 +139,32 @@ test('轨道补给：跨阈值拨付金币并合并大额伤害的多段触发',
     assert.equal(accrueEagleSynergyDamage(state, 'player1', EAGLE_SYNERGY_BALANCE.damageThreshold - 1), null);
     assert.equal(state._pendingEagleSynergyEvents.length, 0);
 
-    const first = accrueEagleSynergyDamage(state, 'player1', 1);
-    assert.equal(first.kind, 'supply');
-    assert.equal(first.goldAwarded, EAGLE_SYNERGY_BALANCE.goldPerTrigger);
-    assert.equal(first.firstTrigger, true);
-    assert.equal(first.presentationEventId, 'eagleSupply:player1:1');
-    assert.equal(state.playerGold.player1, goldBefore + EAGLE_SYNERGY_BALANCE.goldPerTrigger);
-    assert.equal(state._pendingEagleSynergyEvents.length, 1);
+    // accrueEagleSynergyDamage 仅累计战功，不再即时拨付金币或发射事件
+    assert.equal(accrueEagleSynergyDamage(state, 'player1', 1), null);
+    assert.equal(state.playerGold.player1, goldBefore, '未跨阈值不应拨付');
+    assert.equal(state._pendingEagleSynergyEvents.length, 0);
 
-    // 单次大额伤害跨过多个阈值时合并为一个事件
-    const merged = accrueEagleSynergyDamage(state, 'player1', EAGLE_SYNERGY_BALANCE.damageThreshold * 2);
-    assert.equal(merged.crossings, 2);
-    assert.equal(merged.goldAwarded, EAGLE_SYNERGY_BALANCE.goldPerTrigger * 2);
-
+    // 累计伤害达到阈值，但 accrueEagleSynergyDamage 仍不拨付
     const meter = getEagleSynergyMeter(state, 'player1');
-    assert.equal(meter.total, EAGLE_SYNERGY_BALANCE.damageThreshold * 3);
-    assert.equal(meter.triggers, 3);
-    assert.equal(meter.progress, 0);
-    assert.equal(meter.goldPaid, EAGLE_SYNERGY_BALANCE.goldPerTrigger * 3);
+    assert.equal(meter.total, EAGLE_SYNERGY_BALANCE.damageThreshold);
+    assert.equal(meter.goldPaid, 0, '未在回合初结算，goldPaid=0');
 
-    // deferred（延迟结算路径）只记账、不进待广播队列
-    accrueEagleSynergyDamage(state, 'player1', EAGLE_SYNERGY_BALANCE.damageThreshold, { deferred: true });
-    assert.equal(state._pendingEagleSynergyEvents.length, 2);
+    // processEagleSupplyAtTurnStart 在回合初将累计战功折现：
+    const paid = processEagleSupplyAtTurnStart(state, 'player1');
+    assert.equal(paid, EAGLE_SYNERGY_BALANCE.goldPerTrigger);
+    assert.equal(state.playerGold.player1, goldBefore + EAGLE_SYNERGY_BALANCE.goldPerTrigger);
+    const meter2 = getEagleSynergyMeter(state, 'player1');
+    assert.equal(meter2.goldPaid, EAGLE_SYNERGY_BALANCE.goldPerTrigger, 'goldPaid 已更新');
+
+    // 回合初结算不会重复拨付
+    assert.equal(processEagleSupplyAtTurnStart(state, 'player1'), 0, '已拨付的不再重复');
+});
+
+test('轨道补给：未激活协同或无累计战功时拨付为 0', () => {
+    const { state, tiles } = setupEagleState();
+    // 未激活天鹰协同（无将领）
+    assert.equal(processEagleSupplyAtTurnStart(state, 'player1'), 0);
+    assert.equal(processEagleSupplyAtTurnStart(state, 'player2'), 0);
 });
 
 test('天基打击授权：受创跨阈值发放对策卡，未达阈值不发放', () => {
@@ -236,7 +241,10 @@ test('延迟结算路径（eagleAirForceCampKey）只记账不进待广播队列
     victim.maxHp = 1000;
     victim.hp = 1000;
     victim.applyDamage(EAGLE_SYNERGY_BALANCE.damageThreshold, { source: 'ranged', attacker: null, eagleAirForceCampKey: 'player1' });
-    assert.equal(getEagleSynergyMeter(state, 'player1').triggers, 1);
+    // accrueEagleSynergyDamage 仅累计 total，不设 triggers；goldPaid 不变
+    assert.equal(getEagleSynergyMeter(state, 'player1').total, EAGLE_SYNERGY_BALANCE.damageThreshold);
+    assert.equal(getEagleSynergyMeter(state, 'player1').goldPaid, 0);
+    // 延迟结算路径不进待广播队列
     assert.equal(state._pendingEagleSynergyEvents.length, 0);
 });
 
@@ -306,8 +314,10 @@ test('计量表（含受创）可通过快照恢复', () => {
     const meter = getEagleSynergyMeter(restored, 'player1');
     const { damageThreshold, takenThreshold } = EAGLE_SYNERGY_BALANCE;
     assert.equal(meter.total, 450);
-    assert.equal(meter.triggers, Math.floor(450 / damageThreshold));
-    assert.equal(meter.progress, 450 % damageThreshold);
+    // accrueEagleSynergyDamage 不再设置 triggers，goldPaid 初始为 0
+    assert.equal(meter.triggers, 0);
+    assert.equal(meter.goldPaid, 0);
+    assert.equal(meter.progress, 450);
     assert.equal(meter.taken, 900);
     assert.equal(meter.takenTriggers, Math.floor(900 / takenThreshold));
     assert.equal(meter.takenProgress, 900 % takenThreshold);

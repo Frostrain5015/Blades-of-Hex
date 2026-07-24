@@ -47,6 +47,10 @@ const DECISION_NOISE = 0.42;
 const SECTOR_LEASH = 3;
 // 舰船的锚地更紧：中立海军只负责封住自家港口的水道，不巡航、不远征。
 const NAVAL_LEASH = 2;
+// 原地不动是守备队的默认答案。加一道惯性阈值，让「换个格子站」必须真的
+// 更好才成立——否则同级评分加上抖动就会让守军每回合在阵地上左右挪窝，
+// 既看着像犹豫，也白白把自己送出工事。
+const HOLD_INERTIA = 35;
 
 export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral) {
     const {
@@ -269,8 +273,34 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
 
         // 固定火力点没有腿。它这一轮要么已经开过火，要么就在原地待命。
         if (isFixedEmplacement(unit)) continue;
-        // 中央航母是地图彩头而不是机动兵力，引擎也会拒绝它移动，这里不浪费指令。
-        if (unit.type === 'carrier') continue;
+
+        // 中央航母是地图彩头：引擎不再拦死它的移动，挪不挪由这里的评分决定。
+        // 重罚离港 + 重奖泊港，平时一步不动；唯一压得过这套账的是贴脸威胁——
+        // 安全优先于泊港，但规避也不出锚地牵引圈，威胁过去后自然漂回港口。
+        if (unit.type === 'carrier') {
+            const portAnchor = anchorFor(unit, myPorts.length > 0 ? myPorts : eligiblePosts(unit));
+            const carrierCandidates = getMovableTiles(unit).filter(tile =>
+                canStandOn(unit, tile)
+                && !reserved.has(`${tile.q},${tile.r}`)
+                && hexDistance(tile, portAnchor) <= NAVAL_LEASH);
+            const scoreCarrierTile = tile =>
+                -hexDistance(tile, portAnchor) * 60
+                + (tile.isPort && tile.camp === myCamp ? 120 : 0)
+                - countAdjacentFoes(tile) * 200;
+            let bestCarrierTile = null;
+            let bestCarrierScore = scoreCarrierTile(unit.tile) + HOLD_INERTIA;
+            for (const tile of carrierCandidates) {
+                const score = scoreCarrierTile(tile) + jitter(45);
+                if (score > bestCarrierScore) { bestCarrierScore = score; bestCarrierTile = tile; }
+            }
+            if (bestCarrierTile) {
+                actions.push({ type: 'move', unitId: unit.id, tileQ: bestCarrierTile.q, tileR: bestCarrierTile.r });
+                reserved.add(`${bestCarrierTile.q},${bestCarrierTile.r}`);
+                if (isPostTile(bestCarrierTile)) heldPosts.add(`${bestCarrierTile.q},${bestCarrierTile.r}`);
+                processed.add(unit.id);
+            }
+            continue;
+        }
 
         // 已经站在驻防点上的单位：守着，不动。
         // 旧脚本在这里做过「残血换防 + 招人顶上」的复杂调度，那既超出本档的规划深度，
@@ -350,10 +380,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
             return score;
         }
 
-        // 原地不动是守备队的默认答案。加一道惯性阈值，让「换个格子站」必须真的
-        // 更好才成立——否则同级评分加上抖动就会让守军每回合在阵地上左右挪窝，
-        // 既看着像犹豫，也白白把自己送出工事。
-        const HOLD_INERTIA = 35;
+        // 原地不动是守备队的默认答案：「换个格子站」必须真的好过惯性阈值才成立。
         let bestTile = null;
         let bestScore = scorePosition(unit.tile) + HOLD_INERTIA;
 

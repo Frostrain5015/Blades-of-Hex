@@ -593,12 +593,6 @@ function _renderGame() {
     // 范围光圈
     drawRangeApertures(now);
 
-    // 文字特效
-    drawDamageTexts(now);
-    drawHealTexts(now);
-    drawShieldTexts(now);
-    drawGoldTexts(now);
-
     // 对策卡手牌 — 独立 canvas 渲染（见 drawCardCanvas）
     // 暗角 — 仅雨天生效
     if (gameState.weather === 'rain') {
@@ -899,6 +893,12 @@ function _renderGame() {
 
     // 金币雨（通用城市/村庄收入特效）
     if (coinParticles.length > 0) drawCoinParticles(ctx);
+
+    // 文字特效（在所有 VFX 之后绘制，确保不被光束/光环等特效遮挡）
+    drawDamageTexts(now);
+    drawHealTexts(now);
+    drawShieldTexts(now);
+    drawGoldTexts(now);
 
     // 战争迷雾遮罩（遭遇战模式）—— 在所有 VFX 之后绘制，防止特效穿透暴露位置
     if (gameState.skirmishFog) {

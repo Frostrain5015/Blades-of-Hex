@@ -53,6 +53,11 @@ on('fx:eagleSynergy', event => {
     }
     const factionName = gameState.factions?.[event.campKey]?.name || '';
     logMessage(`📦 ${factionName}阵营协同【轨道补给】：天基平台完成战果核算，拨付$${event.goldAwarded}`);
+    // Hero 动画已移至天基打击对策卡发动时刻（fx:eagleOrbitalStrikeActivation），此处仅日志
+});
+// 天基打击发动 → 天鹰协同 Hero 全屏动画（取代轨道补给触发时机）
+on('fx:eagleOrbitalStrikeActivation', event => {
+    if (!event?.campKey) return;
     playEagleSynergyPresentation(event);
 });
 // 轨道补给结算节拍：向棋盘发放金币雨与 +$ 浮字（由后半段动画在对点时触发）

@@ -54,11 +54,3 @@ export function syncStandardMapCarrierControl(state, map, districtId, newCamp) {
     }
     return transferred;
 }
-
-/** The neutral AI may use the carrier's weapons, but cannot sail the map prize away. */
-export function shouldHoldNeutralCarrierPosition(unit, aiCamp, map) {
-    return map?.carrierControl?.holdPositionWhileNeutral === true
-        && unit?.type === 'carrier'
-        && campToKey(aiCamp) === 'neutral'
-        && campToKey(unit.camp) === 'neutral';
-}

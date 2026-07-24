@@ -10,6 +10,8 @@ import { COMBAT_BALANCE } from './constants.js';
 import { getCrossDomainDamageBonus } from './naval.js';
 import { campToKey } from './camps.js';
 import { isWaterTile } from './surfaces.js';
+import { canAttack } from './diplomacy.js';
+import { calculateCityStructureDamage } from './citySiege.js';
 
 export const TACTICAL_CARD_DATA = (() => {
     const cards = {
@@ -211,38 +213,59 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             for (const [dq, dr] of dirs) {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
-                if (!ht || !ht.unit) continue;
-                const attackPower = (dq === 0 && dr === 0) ? balance.centerAttack : balance.splashAttack;
-                const platform = {
-                    type: 'orbitalPlatform',
-                    commander: null,
-                    camp: myCamp,
-                    _rankCritBonus: 0,
-                    getEffectiveAttack: () => attackPower,
-                    _calcFloat: () => COMBAT_BALANCE.float.attack.max
-                };
-                // 中和跨域加成（对舰船），让伤害完全由 ①③④ 决定
-                const crossDomain = getCrossDomainDamageBonus(platform, ht.unit);
-                const resolved = ht.unit._resolveDamage(platform, ht.unit, 1, -crossDomain, false, false, false);
-                const dmg = Math.max(1, Math.round(resolved.dmg));
-                // 分段伤害：末段取剩余量，保证各段取整后总和等于定值
-                let allocated = 0;
-                const ticks = balance.tickRatios.map((ratio, index) => {
-                    if (index === balance.tickRatios.length - 1) return dmg - allocated;
-                    const tick = Math.round(dmg * ratio);
-                    allocated += tick;
-                    return tick;
-                });
-                // 预演扣血（含护盾）：调用方随即回滚，真正结算延迟走 Unit.applyDamage
-                // （勿改用 applyDamage，否则击杀无法回滚）
-                let remaining = dmg;
-                if (ht.unit._shield > 0) {
-                    const absorbed = Math.min(ht.unit._shield, remaining);
-                    ht.unit._shield -= absorbed;
-                    remaining -= absorbed;
+                if (!ht) continue;
+                if (ht.unit) {
+                    const attackPower = (dq === 0 && dr === 0) ? balance.centerAttack : balance.splashAttack;
+                    const platform = {
+                        type: 'orbitalPlatform',
+                        commander: null,
+                        camp: myCamp,
+                        _rankCritBonus: 0,
+                        getEffectiveAttack: () => attackPower,
+                        _calcFloat: () => COMBAT_BALANCE.float.attack.max
+                    };
+                    // 中和跨域加成（对舰船），让伤害完全由 ①③④ 决定
+                    const crossDomain = getCrossDomainDamageBonus(platform, ht.unit);
+                    const resolved = ht.unit._resolveDamage(platform, ht.unit, 1, -crossDomain, false, false, false);
+                    const dmg = Math.max(1, Math.round(resolved.dmg));
+                    // 分段伤害：末段取剩余量，保证各段取整后总和等于定值
+                    let allocated = 0;
+                    const ticks = balance.tickRatios.map((ratio, index) => {
+                        if (index === balance.tickRatios.length - 1) return dmg - allocated;
+                        const tick = Math.round(dmg * ratio);
+                        allocated += tick;
+                        return tick;
+                    });
+                    // 预演扣血（含护盾）：调用方随即回滚，真正结算延迟走 Unit.applyDamage
+                    // （勿改用 applyDamage，否则击杀无法回滚）
+                    let remaining = dmg;
+                    if (ht.unit._shield > 0) {
+                        const absorbed = Math.min(ht.unit._shield, remaining);
+                        ht.unit._shield -= absorbed;
+                        remaining -= absorbed;
+                    }
+                    ht.unit.hp = Math.max(0, ht.unit.hp - remaining);
+                    results.push({ q: ht.q, r: ht.r, dmg, ticks, isCrit: resolved.isCrit, killed: ht.unit.hp <= 0 });
+                } else if ((ht.isCity || ht.isUrban) && (Number(ht.hp) || 0) > 0
+                    && canAttack(gameState, myCamp, ht.camp)) {
+                    // 无驻军但HP>0的敌方/中立城市：天基光束削减城市结构HP
+                    const attackPower = (dq === 0 && dr === 0) ? balance.centerAttack : balance.splashAttack;
+                    const floatMult = COMBAT_BALANCE.float.attack.max;
+                    // 城市结构伤害无攻城增伤/跨域修正，只有基础火力 × 浮动
+                    const dmg = Math.max(1, Math.round(calculateCityStructureDamage(attackPower, 0, floatMult)));
+                    // 分段与单位伤害同样四段节拍，末段（64%）为主伤害
+                    let allocated = 0;
+                    const ticks = balance.tickRatios.map((ratio, index) => {
+                        if (index === balance.tickRatios.length - 1) return dmg - allocated;
+                        const tick = Math.round(dmg * ratio);
+                        allocated += tick;
+                        return tick;
+                    });
+                    // 预演扣血：城市血池（调用方回滚后再在延迟结算中重新扣减）
+                    ht.hp = Math.max(0, (Number(ht.hp) || 0) - dmg);
+                    const isCrit = floatMult > COMBAT_BALANCE.float.attack.critThreshold;
+                    results.push({ q: ht.q, r: ht.r, dmg, ticks, isCrit, killed: false, isCitySiege: true });
                 }
-                ht.unit.hp = Math.max(0, ht.unit.hp - remaining);
-                results.push({ q: ht.q, r: ht.r, dmg, ticks, isCrit: resolved.isCrit, killed: ht.unit.hp <= 0 });
             }
             return { orbitalStrike: true, targetTile, results };
         }

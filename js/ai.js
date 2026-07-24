@@ -50,7 +50,6 @@ import {
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange } from '../rules/airCommands.js';
 import { isSubmarineTargetableBy } from '../rules/naval.js';
 import { getStandardMap } from '../rules/standardMaps.js';
-import { shouldHoldNeutralCarrierPosition } from '../rules/standardMapEvents.js';
 import { resolveAiDifficultyProfile } from '../ai/difficulty.js';
 import { getRoundIndex } from '../rules/turns.js';
 
@@ -526,8 +525,8 @@ async function _executeActionInner(action, aiCamp) {
             const unit = resolveUnit(action.unitId);
             const targetTile = resolveTile(action.tileQ, action.tileR);
             if (!unit || !targetTile || !unit.canAct || !unit.tile || targetTile.unit) return;
-            const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
-            if (shouldHoldNeutralCarrierPosition(unit, aiCamp, standardMap)) return;
+            // 中立航母的移动不再由引擎拦死：是否离港是 Corporal 人格在规划层的决策
+            // （重罚离港、贴脸才规避），执行层只校验落点合法性。
             const aiMoveTiles = getMovableTiles(unit);
             if (aiMoveTiles.includes(targetTile)) {
                 await delay(AI_DELAY);
