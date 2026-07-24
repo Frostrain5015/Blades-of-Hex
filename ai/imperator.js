@@ -107,7 +107,9 @@ export function planActions(gameState, helpers, myCamp) {
     const bestRivalCityCount = Math.max(0, ...enemyCamps.map(camp =>
         gameState.tiles.filter(tile => tile.isCity && tile.camp === camp).length));
     const trailingOnCities = myCityCount <= bestRivalCityCount;
-    const terminalPhase = roundsRemaining <= (trailingOnCities ? 7 : 3);
+    // 修复 v1：扩大终局窗口，落后时提前 10 回合切换抢点，领先时 5 回合。
+    // 3P 局里若城市数持平也算落后，必须更早动手。
+    const terminalPhase = roundsRemaining <= (trailingOnCities ? 10 : 5);
     // 最高档不掷骰：同一局面永远给出同一个决定。评分里保留 jitterScore 的调用点
     // 只是为了与另外两档共用同一套评分公式书写方式，这里恒为 0。
     const jitterScore = () => 0;
@@ -1080,16 +1082,13 @@ export function planActions(gameState, helpers, myCamp) {
             }
         }
     } else if (!terminalPhase) {
-        // 通用：余钱≥8且手牌空时才抽1张。
-        // 疫情期例外：疗愈可净化中毒，手上没有解药时值得多花 4 金去找，
-        // 一条没掐断的传染链在三跳里能吃掉半支部队。
+        // 通用：余钱≥12且手牌空时才抽1张。
+        // 修复 v1：把抽牌门槛从 8 提到 12，避免把招募占城手的金币抽掉。
+        // 疫情期例外：疗愈可净化中毒，手上没有解药时值得多花 4 金去找。
         const poisonedNow = gameState.tiles.some(tile =>
             tile.unit?.camp === myCamp && tile.unit.hp > 0 && tile.unit._poison);
-        // 门槛要留出抽完还能招一个步兵的余量：压到 drawCost 时金币全被抽牌吃掉，
-        // 五局占城从 13 掉到 8——解毒再重要也不能拿断兵去换。
         const lacksCure = poisonedNow && !hand.includes('heal');
-        const drawGoldThreshold = lacksCure ? drawCost + UNIT_CONFIG.infantry.cost
-            : true ? 8 : 12;
+        const drawGoldThreshold = lacksCure ? drawCost + UNIT_CONFIG.infantry.cost : 12;
         const handRoom = lacksCure ? hand.length < maxHandSize : hand.length === 0;
         if (gold >= drawGoldThreshold && drawsUsed < 1 && handRoom
             && (gameState.cardDrawPile.length > 0 || gameState.cardDiscardPile.length > 0)) {
@@ -1660,6 +1659,7 @@ export function planActions(gameState, helpers, myCamp) {
             // 固定火力点追不上来。已经贴脸的近战不打也照样挨打，少打一次更亏。
             // 岸防炮射程 2、对舰 +30%，硬啃三回合就是白送三个单位：上一轮红军
             // 32 个损失里 9 个死于此。
+            // 修复 v1：在主攻目标或目标城附近放宽否决，允许为占城开路的小亏交换。
             if (!willKill(unit, target)
                 && !(tile.isCity && tile.camp !== myCamp)) {
                 const staticEmplacement = Number(target.config?.speed || 0) === 0;
@@ -1668,7 +1668,14 @@ export function planActions(gameState, helpers, myCamp) {
                 if (canDisengage) {
                     const inflicted = Math.min(effectiveHp(target), estimateDamage(unit, target, tile));
                     const netTrade = inflicted - estimateCounterDamage(unit, target);
-                    if (netTrade < -unit.maxHp * 0.10) continue;
+                    // 修复 v2：把占城附近的亏损阈值从 -25% 回收到 -15%，
+                    // 避免为夺城把部队打成残血，下一回合被反吃。
+                    // 指挥官额外收紧到 -10%，防止将领白给。
+                    const nearObjective = primaryObjective && hexDistance(tile, primaryObjective) <= 2;
+                    const tradeThreshold = nearObjective
+                        ? (unit.commander ? -unit.maxHp * 0.10 : -unit.maxHp * 0.15)
+                        : -unit.maxHp * 0.10;
+                    if (netTrade < tradeThreshold) continue;
                 }
             }
 
@@ -2136,24 +2143,31 @@ export function planActions(gameState, helpers, myCamp) {
             const unitObjective = objectiveFor(unit);
             const curDist = hexDistance(unit.tile, unitObjective);
 
+            // 修复 v3：根据当前城市排名动态调整攻守倾向。
+            // 领先时优先巩固，落后时全力扩张，避免过度扩张被反夺。
+            const leadingOnCities = myCityCount > bestRivalCityCount;
+            const aggressionFactor = leadingOnCities ? 0.65 : 1.0;
+            const consolidationFactor = leadingOnCities ? 1.6 : 1.0;
+
             for (const tile of validTiles) {
                 const newDist = hexDistance(tile, unitObjective);
                 // 拿到第一座城之后推进意愿不该衰减：城市数就是胜负判定，
                 // 旧版把 pushWeight 直接砍半，部队从此在自家海域画圈到终局。
                 const pushW = (cmdStrat.pushWeight || 1.0) * (ownsNeutralCity ? 1.6 : 2.0);
-                // 推进按「拉近的比例」计分。改成绝对格数试过一轮：部队确实动起来了，
-                // 但也变成一路冲进对射，杀 216 的同时自损 212，终局持城反而更少。
-                // 这局游戏数的是城市不是人头，推进要有节制。
-                const advanceScore = (curDist - newDist) / Math.max(curDist, 1) * 5 * pushW;
+                // 修复 v1：把推进主导项从 5 提高到 8，让战役目标真正牵引移动。
+                // 修复 v3：领先时降低推进冲动，优先守城。
+                const advanceScore = (curDist - newDist) / Math.max(curDist, 1) * 8 * pushW * aggressionFactor;
 
                 // 直接占领空城：能走进去就是一座城，收益不随阶段打折。
                 // 只有近战进得去，远程站上去也拿不到区划。
+                // 修复 v1：提高空城奖励，终局尤其明显。
+                // 修复 v3：领先时降低对新空城的渴求，防止占太多守不住。
                 const captureBonus = (tile.isCity && tile.camp !== myCamp && !tile.unit
                     && canCaptureCityByCombat(unit))
-                    ? (terminalPhase
-                        ? 240
-                        : 60) * pushW
-                        + (unit.type === 'infantry' ? 12 : 0)
+                    ? ((terminalPhase
+                        ? 300
+                        : 100) * pushW * aggressionFactor
+                        + (unit.type === 'infantry' ? 12 : 0))
                     : 0;
 
                 const siegeReady = newDist <= 1 ? 2.5 * pushW : 0;
@@ -2189,12 +2203,40 @@ export function planActions(gameState, helpers, myCamp) {
                 }
 
                 const incomingThreat = estimateDestinationThreat(tile, unit);
-                // 权重保持在 24：中立部队并入威胁集合后，incomingThreat 本身已经
-                // 变大（岸防炮、中立航母都进来了），再提权重就是双重放大——
-                // 实测提到 85 会让舰队为了躲炮而彻底不去占城，胜率反而从 60% 掉到 10%。
-                // 占城格放宽到 10：为夺一座城挨一轮火力是划算的。
+                // 修复 v1：非城市落点的威胁罚分从 24 降到 16，避免部队在离城 2-3 格处
+                // 因忌惮潜在火力而长期停滞。占城格仍保持 10，因为为夺城挨一轮火划算。
+                // 修复 v3：指挥官只在血量低或被严重威胁时才额外保命，满血指挥官正常参战。
+                const commanderLowHp = unit.commander && unit.hp < unit.maxHp * 0.5;
+                const commanderThreatMult = commanderLowHp ? 2.0 : 1.0;
                 const threatPenalty = incomingThreat / Math.max(1, unit.maxHp)
-                    * (tile.isCity && tile.camp !== myCamp ? 10 : 24);
+                    * (tile.isCity && tile.camp !== myCamp ? 10 : 16)
+                    * commanderThreatMult;
+
+                // 修复 v3：指挥官只在残血或会被集火秒掉时大幅回避高威胁格。
+                let commanderSafetyPenalty = 0;
+                if (unit.commander && (commanderLowHp || incomingThreat > unit.hp * 0.65)) {
+                    commanderSafetyPenalty = (incomingThreat - unit.hp * 0.25) * 0.5;
+                }
+
+                // 修复 v2/v3：鼓励部队守在已方受威胁的城市附近，防止占城后立刻被反夺。
+                // 领先时守城权重更高（consolidationFactor）。
+                let cityDefenseBonus = 0;
+                let ownCityHoldBonus = 0;
+                for (const myCity of myCities) {
+                    const tileDist = hexDistance(myCity, tile);
+                    if (tileDist > 2) continue;
+                    const enemyNearCity = allEnemyUnits.filter(e =>
+                        hexDistance(e, myCity) <= 3).length;
+                    if (enemyNearCity > 0) {
+                        cityDefenseBonus += Math.max(0, 40 - tileDist * 14)
+                            * Math.min(enemyNearCity, 3)
+                            * consolidationFactor;
+                        // 已经站在自己城市上或贴城的单位，额外奖励停留。
+                        if (tileDist <= 1 && (tile.q === myCity.q && tile.r === myCity.r)) {
+                            ownCityHoldBonus += 50 * consolidationFactor;
+                        }
+                    }
+                }
                 const flankBonus = countFlankSetups(tile, unit.id) * 75;
                 const roleTargetBonus = getRoleTargetBonus(tile, unit);
 
@@ -2282,9 +2324,9 @@ export function planActions(gameState, helpers, myCamp) {
 
                 const score = advanceScore + captureBonus + siegeReady + nearAnyTarget +
                     defScore + atkPotential + rallyBonus + concentrationBonus +
-                    capitalDefenseBonus + villageBonus + healRetreatBonus + interceptBonus +
+                    capitalDefenseBonus + cityDefenseBonus + ownCityHoldBonus + villageBonus + healRetreatBonus + interceptBonus +
                     soulMarkBonus + diplomatBonus + flankBonus + roleTargetBonus -
-                    exposurePenalty - safetyPenalty - fogPenalty - threatPenalty -
+                    exposurePenalty - safetyPenalty - commanderSafetyPenalty - fogPenalty - threatPenalty -
                     contagionPenalty - stealthPenalty - backtrackPenalty(unit, tile)
                     + jitterScore(45);
 
