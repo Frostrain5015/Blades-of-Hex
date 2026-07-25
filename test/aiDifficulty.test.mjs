@@ -472,7 +472,12 @@ test('无主航路优先把将领部署到高属性海军旗舰', () => {
     assert.equal(
         scoreCommanderCarrierCandidate(warship, 'centurion', passage)
         - scoreCommanderCarrierCandidate(warship, 'centurion', island),
-        210
+        350 // 海图旗舰 +210，陆图挂军舰 −140（陆战图将领必须进战斗序列）
+    );
+    // 陆战图：输出型将领优先挂陆军载体，而不是军舰
+    assert.ok(
+        scoreCommanderCarrierCandidate(cavalry, 'vampire', island)
+        > scoreCommanderCarrierCandidate(warship, 'vampire', island)
     );
     assert.ok(
         scoreCommanderCarrierCandidate(cityInfantry, 'necromancer', passage)

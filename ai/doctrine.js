@@ -149,6 +149,16 @@ export function scoreCommanderCarrierCandidate(unit, commanderId, mapDefinition)
         score += navalFlagshipBonus[unit.type] || 0;
         // 空军上校与航母的舰载航空体系拥有额外协同。
         if (commanderId === 'colonel' && unit.type === 'carrier') score += 90;
+    } else if (unit.config?.movementDomain === 'naval') {
+        // 陆战为主的地图：将领挂军舰 = 脱离主战场（打不到城、护不了陆军）。
+        score -= 140;
+    }
+
+    // 各将领的载体偏好（COMMANDER_STRATEGY.carrierPref）：输出型将领要进战斗序列。
+    const carrierPref = COMMANDER_STRATEGY[commanderId]?.carrierPref;
+    if (carrierPref) {
+        const prefIndex = carrierPref.indexOf(unit.type);
+        if (prefIndex >= 0) score += (carrierPref.length - prefIndex) * 25;
     }
 
     return score;
