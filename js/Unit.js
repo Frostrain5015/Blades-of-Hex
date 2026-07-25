@@ -4,6 +4,7 @@ import {
     COUNTER_RELATION,
     chooseDefaultSpecialization,
     getSpecializationAbilityValue,
+    getMachineGunDamageBonus,
     isRankLockedUnit,
     isStrongpointTarget,
     isValidSpecialization,
@@ -23,7 +24,7 @@ import { isFriendly, isHostile } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { isRangedAttackPresentation } from '../rules/attackPresentation.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
-import { getCityDefenseBonus } from '../rules/citySiege.js';
+import { getCityDefenseBonus, getCannonSiegeDamageBonus } from '../rules/citySiege.js';
 import {
     COLONEL_AIR_DAMAGE_BONUS,
     COLONEL_AIR_MAX_STACKS,
@@ -564,6 +565,10 @@ export class Unit {
             // 暴击率加成：整体上移浮动区间，使阈值以上占比≈基础+加成（cap 100%）
             const shift = Math.min(critRateBonus, 1) * (hi - lo);
             lo += shift; hi += shift;
+        } else if (critRateBonus < 0) {
+            // 暴击率惩罚（如逆克）：整体下移浮动区间，阈值以上占比相应削减（通常压到 0）
+            const shift = Math.max(critRateBonus, -1) * (hi - lo);
+            lo += shift; hi += shift;
         }
 
         if (!gs?.rng) throw new Error('Unit damage calculation requires MatchState.rng');
@@ -585,16 +590,16 @@ export class Unit {
         const qixueActive = !attackerCommanderSuppressed && attacker.commander === 'berserker' && attacker._berserkerQixue && !isCounter;
 
         // ② 增伤乘区
-        let dmgUp = extraBonus + getCrossDomainDamageBonus(attacker, defender);
+        let dmgUp = extraBonus + getCrossDomainDamageBonus(attacker, defender) + getMachineGunDamageBonus(attacker.type, defender.type);
         // 固守：只削减“受到的第一次攻击”，反击伤害不吃也不消耗该标记
         const firstHitReduction = isCounter ? 0 : (defender.getSpecializationAbility?.('holdFirstHitReduction') || 0);
         if (firstHitReduction > 0 && !defender.movedThisTurn && (defender._timesAttackedThisTurn || 0) === 0) {
             dmgUp -= firstHitReduction;
         }
         if (qixueActive) dmgUp += COMMANDER_CONFIG.berserker.balance.qixueDamageBonus;
-        // 兵种克制：顺克 +20% / 逆克 −20%（归入②增伤乘区）；暴击率另在③处理（顺克+25%/逆克锁0）
-        if (counterCoeff > 1) dmgUp += COMBAT_BALANCE.counter.advantageDamage;
-        else if (counterCoeff < 1) dmgUp += COMBAT_BALANCE.counter.disadvantageDamage;
+        // 兵种克制不再给固定增减伤：顺克在③层上移浮动区间（暴击率+40%），逆克下移（−40%）
+        // （固定 ±20% 克制增减伤已移除，②层不再包含克制项）
+
         // 魔术师·千面：攻击克制目标时伤害提高25%（与基础顺克+20%叠加→+45%）
         if (!attackerCommanderSuppressed && attacker.commander === 'magician' && counterCoeff > 1) dmgUp += COMMANDER_CONFIG.magician.balance.counterDamageBonus;
         // 魔术师幻形：每层+5%增伤（上限30%），归入②乘区
@@ -613,12 +618,12 @@ export class Unit {
         const phantomCrit = attackerCommanderSuppressed ? 0 : (attacker._phantomStacks || 0) * COMMANDER_CONFIG.magician.balance.critPerStack;
         const cmdCrit = getCommanderCritRateBonus(attacker);            // 堕天使黑形态 +60% 等
         const counterCrit = counterCoeff > 1 ? COMBAT_BALANCE.counter.advantageCrit : 0;
-        const counterNoCrit = counterCoeff < 1;                        // 逆克 无法暴击
+        const counterFloatPenalty = counterCoeff < 1 ? COMBAT_BALANCE.counter.disadvantageFloatPenalty : 0; // 逆克：浮动区间下移惩罚
         // 天衡【日月天衡】暴击加护：阵营协同 buff，非将领机制，不受 areCommanderMechanicsSuppressed 影响。
         const sunMoonCrit = getSunMoonOathCritBonus(attacker, _gameState);
-        const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit + sunMoonCrit + (qixueActive ? COMMANDER_CONFIG.berserker.balance.qixueCritBonus : 0);
-        const forceCrit = !counterNoCrit && isCommanderGuaranteedCrit(attacker);
-        const floatMult = attacker._calcFloat(isCounter, isCityCounter, critRateBonus, counterNoCrit || forceNoCrit, forceCrit && !forceNoCrit);
+        const critRateBonus = (attacker._rankCritBonus || 0) + phantomCrit + cmdCrit + counterCrit + counterFloatPenalty + sunMoonCrit + (qixueActive ? COMMANDER_CONFIG.berserker.balance.qixueCritBonus : 0);
+        const forceCrit = isCommanderGuaranteedCrit(attacker);
+        const floatMult = attacker._calcFloat(isCounter, isCityCounter, critRateBonus, forceNoCrit, forceCrit && !forceNoCrit);
         const isCrit = floatMult > (isCounter ? COMBAT_BALANCE.float.counter.critThreshold : COMBAT_BALANCE.float.attack.critThreshold);
 
         // ④ 防御乘区
@@ -633,8 +638,8 @@ export class Unit {
             if (fortification.appliesTo === 'melee' && isMeleeAtk) defSum += fortification.defenseBonus;
             else if (fortification.appliesTo === 'ranged' && isGroundRangedAtk) defSum += fortification.defenseBonus;
         }
-        // 森林掩蔽：对远程攻击（炮兵/碉堡/无人机）额外+15%防御，与地形自带10%加算
-        if (!transportedDefender && defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest' || attacker.type === 'drone')) {
+        // 森林掩蔽：对所有远程攻击（炮兵/碉堡/无人机/空军/海军舰炮）额外+15%防御，与地形自带10%加算
+        if (!transportedDefender && defender.tile.terrain === 'forest' && (attacker.type === 'archer' || attacker.type === 'mgNest' || attacker.type === 'drone' || isAirDamage || attacker.config?.movementDomain === 'naval')) {
             defSum += COMBAT_BALANCE.defense.forestVsRangedBonus;
         }
         // 风天：步兵防御-15%（星移期间扩展至敌方全兵种；占星者星光力场免疫）；星移减益区内额外-15%
@@ -710,6 +715,8 @@ export class Unit {
                 ? this._calcFloat(false, false, (this._rankCritBonus || 0) + getSunMoonOathCritBonus(this, gs))
                 : gs.rng.range(0.95, 1.05);
             let defense = (TERRAIN_CONFIG[targetUnit.tile.terrain]?.defenseBonus || 0)
+                // 森林掩蔽对舰载机扫射（空军伤害）同样生效
+                + (targetUnit.tile.terrain === 'forest' ? COMBAT_BALANCE.defense.forestVsRangedBonus : 0)
                 + (targetUnit.config.defense || 0)
                 + (targetUnit._rankPanelDefenseBonus || 0)
                 + (isMechanicEnabled(gs, 'morale') ? (MORALE_CONFIG[targetUnit.morale]?.defBonus || 0) : 0)
@@ -765,6 +772,8 @@ export class Unit {
             ? Math.min(this.moveDistance, COMBAT_BALANCE.cavalry.maxChargeSteps) * (baseChargeRate + fogChargeDelta)
             : 0;
         const assaultBonus = isStrongpointTarget(targetUnit) ? (this.getSpecializationAbility('fortificationDamage') || 0) : 0;
+        // 火炮攻城修正并入②增伤乘区：炮兵/巡洋舰/岸防炮对要塞单位（城市驻军、碉堡、岸防炮、工事格）同样 +50%
+        const cannonSiegeBonus = isStrongpointTarget(targetUnit) ? getCannonSiegeDamageBonus(this) : 0;
         const antiSubBonus = targetUnit.type === 'submarine' ? (this.getSpecializationAbility('submarineDamage') || 0) : 0;
         const fleetBonus = targetUnit.config?.movementDomain === 'naval' && !targetUnit.isEmbarked
             ? (this.getSpecializationAbility('shipDamage') || 0) : 0;
@@ -787,7 +796,7 @@ export class Unit {
             this,
             targetUnit,
             1,
-            cavBonus + assaultBonus + antiSubBonus + fleetBonus + supportLandBonus + submergedBonus + weatherBonus,
+            cavBonus + assaultBonus + cannonSiegeBonus + antiSubBonus + fleetBonus + supportLandBonus + submergedBonus + weatherBonus,
             false,
             false,
             false,

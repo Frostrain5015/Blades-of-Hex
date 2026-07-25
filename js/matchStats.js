@@ -29,7 +29,7 @@ const UNIT_TYPE_NAMES = Object.freeze({
     destroyer: '驱逐舰',
     warship: '巡洋舰',
     submarine: '潜艇',
-    carrier: '航母'
+    carrier: '航空母舰'
 });
 
 const NAVAL_UNIT_TYPES = new Set(['destroyer', 'warship', 'submarine', 'carrier']);

@@ -1593,7 +1593,12 @@ function _canShowCampFlagCards() {
 
 function _canChooseFactionColor(forPlayer, locked = false) {
     if (locked) return false;
-    if (isNetworkGame()) return getMyRole() === forPlayer;
+    if (isNetworkGame()) {
+        // 出生席位随机分配后按阵营键比较：本人扮演 roleAssignments[myRole] 对应的阵营
+        const myRole = getMyRole();
+        const myCampKey = myRole ? (gameState.roleAssignments?.[myRole] || myRole) : null;
+        return !!myCampKey && myCampKey === forPlayer;
+    }
     if (gameState.gameMode === 'pve') return _pveHumanRole === forPlayer;
     return true;
 }
@@ -1752,8 +1757,10 @@ function beginNetworkCommanderFlow(role) {
         if (is3P) gameState.commanderPoolP3 = pool.p3 || [];
         // AI 占位席位（阵营键）：房主代为选将并确认（双将模式自动选两名），随 commanderSync 扩散到各端
         for (const aiCampKey of Object.keys(_networkAiSeats)) _pveAIQuickPick(aiCampKey);
+        // 三个席位的选将都必须如实广播（含 P1）：AI 恰好分到 P1 阵营时，
+        // 写死 null/false 会让其他端永远等不到该席确认，开局卡死
         syncCommanderState(
-            pool.p1, pool.p2, null, gameState.commanderP2, false, gameState.commanderP2Confirmed, false, false, 'selection',
+            pool.p1, pool.p2, gameState.commanderP1, gameState.commanderP2, gameState.commanderP1Confirmed, gameState.commanderP2Confirmed, false, false, 'selection',
             null, null,
             pool.p3 || [], gameState.commanderP3, gameState.commanderP3Confirmed, false, null
         );
@@ -2967,6 +2974,8 @@ function registerNetworkCallbacks() {
             if (msg.gameMode !== undefined) gameState.gameMode = msg.gameMode;
             if (msg.commanderDeployment || msg.deployedUnitP1 || msg.deployedUnitP2 || msg.deployedUnitP3) {
                 const myRole = getMyRole();
+                // 部署同步的席位字段均按阵营键；本人阵营需经 roleAssignments 翻译
+                const myCampKey = myRole ? (gameState.roleAssignments?.[myRole] || myRole) : null;
                 const applyDeployment = (unitId, cmdId) => {
                     if (!unitId || !cmdId) return;
                     for (const tile of gameState.tiles) {
@@ -2991,23 +3000,21 @@ function registerNetworkCallbacks() {
                 };
                 if (msg.commanderDeployment) {
                     const deployment = msg.commanderDeployment;
-                    if (deployment.campKey !== myRole) applyDeployment(deployment.unitId, deployment.commanderId);
+                    if (deployment.campKey !== myCampKey) applyDeployment(deployment.unitId, deployment.commanderId);
                 } else {
-                const getOtherDeploy = (role) => {
-                    if (role === 'player1') return { unitId: msg.deployedUnitP2, cmdId: gameState.commanderP2, unitId2: msg.deployedUnitP3, cmdId2: gameState.commanderP3 };
-                    if (role === 'player2') return { unitId: msg.deployedUnitP1, cmdId: gameState.commanderP1, unitId2: msg.deployedUnitP3, cmdId2: gameState.commanderP3 };
-                    return { unitId: msg.deployedUnitP1, cmdId: gameState.commanderP1, unitId2: msg.deployedUnitP2, cmdId2: gameState.commanderP2 };
-                };
-                const deploy = getOtherDeploy(myRole);
-                for (const { unitId, cmdId } of [{ unitId: deploy.unitId, cmdId: deploy.cmdId }, { unitId: deploy.unitId2, cmdId: deploy.cmdId2 }]) {
-                    applyDeployment(unitId, cmdId);
+                // 席位字段按阵营键：应用除本人阵营外其余席位的部署
+                const otherCamps = ['player1', 'player2', 'player3']
+                    .filter(key => key !== myCampKey && (gameState.isThreePlayer || key !== 'player3'));
+                for (const campKey of otherCamps) {
+                    const seatSuffix = campKey.replace('player', 'P'); // player1 → P1
+                    applyDeployment(msg[`deployedUnit${seatSuffix}`], gameState[`commander${seatSuffix}`]);
                 }
                 }
             }
             updateCampEmblems();
             if (!hadPool && gameState.commanderPoolP2.length > 0 && gameState.commanderPhase === 'selection') {
                 const myRole = getMyRole();
-                _showCommanderSelection(myRole);
+                _showCommanderSelection(gameState.roleAssignments?.[myRole] || myRole);
             }
             if (gameState.commanderPhase === 'selection') {
                 _checkBothConfirmed();

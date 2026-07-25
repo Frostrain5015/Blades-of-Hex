@@ -17,7 +17,7 @@ export const UNIT_CONFIG = deepFreeze({
     // 保留 warship 内部 ID 兼容旧存档与战役，显示及数值为 0 阶巡洋舰。
     warship: { name: '巡洋舰', hp: 180, attack: 55, defense: 0, speed: 4, range: 2, cost: 15, color: '#315f78', movementDomain: 'naval' },
     submarine: { name: '潜艇', hp: 100, attack: 50, defense: 0, speed: 8, range: 1, cost: 8, color: '#233f50', movementDomain: 'naval' },
-    carrier: { name: '航母', hp: 250, attack: 45, defense: 0.08, speed: 3, range: 5, cost: 20, color: '#244d69', movementDomain: 'naval', attackRole: 'carrierStrafe' }
+    carrier: { name: '航空母舰', hp: 250, attack: 45, defense: 0.08, speed: 3, range: 5, cost: 20, color: '#244d69', movementDomain: 'naval', attackRole: 'carrierStrafe' }
 });
 
 /** v2 四阶奖励合同。所有待校准数值集中在此处。 */
@@ -275,3 +275,13 @@ export const COUNTER_RELATION = deepFreeze({
     submarine: relationRow({ destroyer: 0.75, warship: 1.25, carrier: 1.25 }),
     carrier: relationRow({})
 });
+
+/** 碉堡兵种被动【机枪】：对步兵造成的伤害提高（与岸防炮对舰加成同类，归入②增伤乘区）。 */
+export const MG_NEST_MACHINE_GUN_DAMAGE_BONUS = 0.30;
+
+/** 【机枪】增伤判定：攻击方为碉堡且目标为步兵时返回加成，否则为 0。 */
+export function getMachineGunDamageBonus(attackerType, defenderType) {
+    return attackerType === 'mgNest' && defenderType === 'infantry'
+        ? MG_NEST_MACHINE_GUN_DAMAGE_BONUS
+        : 0;
+}

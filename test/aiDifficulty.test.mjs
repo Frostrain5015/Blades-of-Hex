@@ -8,7 +8,8 @@ import {
     resolveAiDifficultyProfile,
     resolveAiIncomeMultiplier
 } from '../ai/difficulty.js';
-import { chooseDefaultSpecialization, UNIT_CONFIG } from '../rules/units.js';
+import { chooseDefaultSpecialization, UNIT_CONFIG, MG_NEST_MACHINE_GUN_DAMAGE_BONUS, getMachineGunDamageBonus } from '../rules/units.js';
+import { COMBAT_BALANCE } from '../rules/constants.js';
 import { getStandardMap } from '../rules/standardMaps.js';
 import { createMatchState, serializeMatchState } from '../engine/matchState.js';
 import { Unit, setGameStateRef, setIsNetworkGameRef } from '../js/Unit.js';
@@ -23,6 +24,7 @@ import {
     shouldPlanActiveSkill,
     shouldYieldMinisterCity,
     canCaptureCityByCombat,
+    counterDamageBonus,
     crossDomainDamageBonus,
     estimateSiegeDamage,
     poisonPressure,
@@ -574,6 +576,26 @@ test('跨域伤害修正对齐 rules/naval', () => {
     // 同域交战无修正
     assert.equal(crossDomainDamageBonus({ type: 'warship' }, sea, { type: 'submarine' }), 0);
     assert.equal(crossDomainDamageBonus({ type: 'infantry' }, land, { type: 'cavalry' }), 0);
+});
+
+test('碉堡【机枪】对步兵增伤为约定值（改动需刻意）', () => {
+    assert.equal(MG_NEST_MACHINE_GUN_DAMAGE_BONUS, 0.30);
+    assert.equal(getMachineGunDamageBonus('mgNest', 'infantry'), 0.30);
+    assert.equal(getMachineGunDamageBonus('mgNest', 'cavalry'), 0);
+    assert.equal(getMachineGunDamageBonus('infantry', 'mgNest'), 0);
+    assert.equal(getMachineGunDamageBonus('shoreBattery', 'infantry'), 0);
+});
+
+test('克制不再给固定增减伤，改为浮动区间平移（改动需刻意）', () => {
+    assert.equal(COMBAT_BALANCE.counter.advantageCrit, 0.40);
+    assert.equal(COMBAT_BALANCE.counter.disadvantageFloatPenalty, -0.40);
+    assert.equal(COMBAT_BALANCE.counter.advantageDamage, undefined);
+    assert.equal(COMBAT_BALANCE.counter.disadvantageDamage, undefined);
+    // 估算层的 ±0.20 是浮动平移的期望值：±0.40 × (1.35 − 0.85) 宽度 = ±0.20
+    assert.equal(counterDamageBonus('mgNest', 'infantry'), 0.20);
+    assert.equal(counterDamageBonus('infantry', 'mgNest'), -0.20);
+    assert.equal(counterDamageBonus('infantry', 'cavalry'), 0.20);
+    assert.equal(counterDamageBonus('infantry', 'infantry'), 0);
 });
 
 test('攻城估伤含火炮 +50% 与跨域修正', () => {

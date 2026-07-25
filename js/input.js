@@ -987,7 +987,9 @@ function _handleCardCanvasClick(e) {
 }
 
 const PASSIVE_DEFS = {
-    shoreBattery: { ...FRONTEND_TEXT.unitPassives.shoreBattery, active: () => true }
+    shoreBattery: { ...FRONTEND_TEXT.unitPassives.shoreBattery, active: () => true },
+    mgNest: { ...FRONTEND_TEXT.unitPassives.mgNest, active: () => true },
+    carrier: { ...FRONTEND_TEXT.unitPassives.carrier, active: () => true }
 };
 
 const SPECIALIZATION_PASSIVES = {
@@ -1118,7 +1120,7 @@ const UNIT_TYPE_NAMES = {
     destroyer: '驱逐舰',
     warship: '巡洋舰',
     submarine: '潜艇',
-    carrier: '航母'
+    carrier: '航空母舰'
 };
 
 const PASSIVE_ICONS = FRONTEND_TEXT.icons.unitPassive;
@@ -1337,7 +1339,7 @@ function _getTerrainEffect(tile) {
     if (tile.terrain === 'plains') return null;
 
     let desc = '防御力提高' + Math.round((terrain.defenseBonus || 0) * 100) + '%';
-    if (tile.terrain === 'forest') desc += '，对远程攻击额外提高15%';
+    if (tile.terrain === 'forest') desc += '，受到远程攻击（炮兵/碉堡/无人机/空军/海军舰炮）时防御额外提高15%';
     if (terrain.moveDesc) desc += '，' + terrain.moveDesc;
     return {
         key: 'terrain:' + tile.terrain + ':' + tile.q + ':' + tile.r,
@@ -1474,7 +1476,7 @@ function _buildPassiveItems(unit) {
             label: isSubmarine ? '潜航' : '舰载航空',
             desc: isSubmarine
                 ? `脱离暴露后潜航，下一次攻击伤害提高${Math.round((unbranchedReward.nextAttackDamage || 0) * 100)}%。`
-                : `舰载机攻击伤害提高${Math.round((unbranchedReward.damageBonus || 0) * 100)}%。`,
+                : `舰载机攻击伤害提高${Math.round((unbranchedReward.damageBonus || 0) * 100)}%；目标生命每损失5%，攻击力提高1点（至多15点）。`,
             color: '#88ccff',
             status: '当前生效',
             kicker: '兵种被动',
@@ -1917,7 +1919,7 @@ function _syncSelectionHud(tile) {
         const auraDefBonus = getCommanderAuraDefenseBonus(unit);
         const commanderDefBonus = getCommanderDefenseBonus(unit);
         const terrainDefBonus = unit.isEmbarked ? 0 : TERRAIN_CONFIG[tile.terrain].defenseBonus;
-        const fortificationDefBonus = !unit.isEmbarked && tile.fortification ? (FORTIFICATION_CONFIG[tile.fortification]?.defenseBonus || 0) : 0;
+        // 工事防御为定向减伤（战壕仅挡近战），其数值不并入汇总，由效果栏条目承担说明
         const rankDefBonus = unit._rankPanelDefenseBonus || 0;
         const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
         const factionSynergyDefBonus = _timedMemo(_fellowRobeMemo, `${unit.id}:${unit.hp > 0}`,
@@ -1925,7 +1927,7 @@ function _syncSelectionHud(tile) {
         const cityDefBonus = (tile.isCity || tile.isUrban) ? getCityDefenseBonus(tile) : 0;
         const baseDefense = unit.isEmbarked ? getTransportBaseDefense(unit) : (unit.config.defense || 0);
         defense = Math.round((baseDefense + moraleDefBonus + terrainDefBonus
-            + fortificationDefBonus + rankDefBonus + auraDefBonus + commanderDefBonus
+            + rankDefBonus + auraDefBonus + commanderDefBonus
             + campaignDefBonus + factionSynergyDefBonus + cityDefBonus) * 100);
         // 悬浮可走地块时预览本次移动的行动力消耗
         if (gameState.selectedUnit === unit && gameState.hoveredTile && !gameState.hoveredTile.unit

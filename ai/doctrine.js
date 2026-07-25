@@ -8,9 +8,10 @@
 // 反过来说，任何「怎么打」的决策（目标怎么选、走位怎么评分、要不要冒险）
 // 都不属于条令层，必须留在各自的档位脚本里，否则档次差异会退化成开关。
 
-import { COUNTER_RELATION } from '../rules/units.js';
+import { COUNTER_RELATION, getMachineGunDamageBonus, isStrongpointTarget } from '../rules/units.js';
 import { NAVAL_RULES } from '../rules/naval.js';
 import { isWaterTile } from '../rules/surfaces.js';
+import { getCannonSiegeDamageBonus } from '../rules/citySiege.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 export const BERSERKER_BALANCE = COMMANDER_CONFIG.berserker.balance;
@@ -44,7 +45,8 @@ export const COMMANDER_STRATEGY = {
 
 // 克制关系直接取规则源（含海军与岸防炮行列）；旧版只有步/骑/炮三行，
 // 海图上一切交换都按“无克制”估算，才会出现驱逐舰硬啃岸防炮这类亏本攻击。
-// 引擎把克制折算成 ②增伤乘区的 ±0.20，与关系表里的 1.25/0.75 无关。
+// 引擎的克制不再给固定增减伤：顺克把浮动区间上移 40%（暴击率提升）、逆克下移 40%。
+// 区间平移不改变宽度，期望倍率变化恰好 ±0.40 × 0.5（攻击浮动宽度）= ±0.20，与本估算值一致。
 const COUNTER_DAMAGE_BONUS = 0.20;
 export function counterCoefficient(attackerType, defenderType) {
     return COUNTER_RELATION[attackerType]?.[defenderType] ?? 1;
@@ -380,7 +382,10 @@ export function createCombatModel({ weather = 'clear', hexDistance } = {}) {
         const offense = 1
             + counterDamageBonus(attacker.type, defender.type)
             + weatherAttackBonus(attacker.type)
-            + crossDomainDamageBonus(attacker, tileObj, defender);
+            + crossDomainDamageBonus(attacker, tileObj, defender)
+            + getMachineGunDamageBonus(attacker.type, defender?.type)
+            // 火炮攻城修正已并入引擎②增伤乘区：对要塞单位（城市驻军/碉堡/岸防炮/工事格）+50%
+            + (isStrongpointTarget({ ...defender, tile: tileObj }) ? getCannonSiegeDamageBonus(attacker) : 0);
         const def = 1
             - terrainDefense(tileObj, isRangedAttacker(attacker))
             - cityDefense(defender.type, tileObj)

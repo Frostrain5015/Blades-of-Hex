@@ -90,10 +90,12 @@ export async function pickCommander(page, preferNames = []) {
             const net = await import('/js/network.js');
             const gw = document.getElementById('gameWrapper');
             const canvasUp = gw && gw.style.display !== 'none';
-            // 按自身角色判定确认位（联机下对手的确认标志会被同步过来，不能混用）
+            // 按自身角色判定确认位（联机下对手的确认标志会被同步过来，不能混用）；
+            // 出生席位随机分配后需先经 roleAssignments 翻译到阵营键
             const role = net.getMyRole();
-            const myPicked = role === 'player2' ? gameState.commanderP2Confirmed
-                : role === 'player3' ? gameState.commanderP3Confirmed
+            const myCampKey = gameState.roleAssignments?.[role] || role;
+            const myPicked = myCampKey === 'player2' ? gameState.commanderP2Confirmed
+                : myCampKey === 'player3' ? gameState.commanderP3Confirmed
                 : gameState.commanderP1Confirmed;
             return canvasUp || myPicked;
         });

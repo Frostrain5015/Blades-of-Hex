@@ -212,16 +212,18 @@ export async function run(browser) {
     await B.click('#commanderColorPicker .commander-emoji-option[data-emoji="🦅"]');
     await waitFor(async () => A.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
-        return gameState.factions.player1?.colorId === 'purple'
-            && gameState.factions.player1?.flagEmoji === '🐉'
-            && gameState.factions.player2?.colorId === 'cyan'
-            && gameState.factions.player2?.flagEmoji === '🦅';
+        const campA = gameState.roleAssignments?.player1 || 'player1';
+        const campB = gameState.roleAssignments?.player2 || 'player2';
+        return gameState.factions[campA]?.colorId === 'purple'
+            && gameState.factions[campA]?.flagEmoji === '🐉'
+            && gameState.factions[campB]?.colorId === 'cyan'
+            && gameState.factions[campB]?.flagEmoji === '🦅';
     }), 10000, '联机旗帜外观同步');
     const syncedFlags = await B.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
         return {
-            p1: gameState.factions.player1,
-            p2: gameState.factions.player2
+            p1: gameState.factions[gameState.roleAssignments?.player1 || 'player1'],
+            p2: gameState.factions[gameState.roleAssignments?.player2 || 'player2']
         };
     });
     R.assert(syncedFlags.p1.colorId === 'purple' && syncedFlags.p1.flagEmoji === '🐉'
@@ -291,7 +293,9 @@ export async function run(browser) {
             return await getCurrentTurnRole(pageP1) === startingRole && s.turnCounter > t0 + 1;
         }, 40000, `掷骰顺序完成第 ${round} 个完整轮转`);
         const neutralSequenceRevisionDelta = (await getMatchRevision(pageP1)) - neutralSequenceBaseRevision;
-        R.assert(neutralSequenceRevisionDelta >= 3,
+        // 中立回合每次广播 revision +1：有效动作 ≥1 即 delta ≥ 2（动作 + 结束回合）。
+        // 静默轮次（只补员一次）原本也会被误判，故阈值与断言文案对齐。
+        R.assert(neutralSequenceRevisionDelta >= 2,
             `第 ${round} 轮中立 AI 至少完成一个有效动作后再结束回合（revision +${neutralSequenceRevisionDelta}）`);
         R.ok(`第 ${round} 轮回合轮转同步`);
     }

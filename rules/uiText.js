@@ -10,7 +10,9 @@ export const FRONTEND_TEXT = deepFreeze({
     // v2 起常规兵种的 0 阶不再有兵种被动；专精被动文案由 rules/units.js 的
     // UNIT_SPECIALIZATION_CONFIG 派生。这里只保留建筑单位的结构性说明。
     unitPassives: {
-        shoreBattery: { name: '制海', desc: '对舰船伤害提高30%，对陆军伤害降低60%，可侦测2格内的潜艇' }
+        shoreBattery: { name: '制海', desc: '对舰船伤害提高30%，对陆军伤害降低60%，可侦测2格内的潜艇' },
+        mgNest: { name: '机枪', desc: '对步兵造成的伤害提高30%' },
+        carrier: { name: '舰载机', desc: '目标生命每损失5%，攻击力提高1点（至多15点）' }
     },
     effectDescriptions: {
         courageAura: `造成的伤害提高${percent(COMMANDER_CONFIG.paladin.balance.auraDamageBonus)}，士气不会下降`,

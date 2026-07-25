@@ -3743,6 +3743,8 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         : gameState.rng.range(0.95, 1.05);
 
     let ordinaryDefense = (TERRAIN_CONFIG[target.tile.terrain]?.defenseBonus || 0)
+        // 森林掩蔽对所有远程伤害生效：地面远程、海军舰炮与空军指令一体适用
+        + (target.tile.terrain === 'forest' ? COMBAT_BALANCE.defense.forestVsRangedBonus : 0)
         + (target.config.defense || 0) + (target._rankPanelDefenseBonus || 0)
         + (isMechanicEnabled(gameState, 'morale') ? (MORALE_CONFIG[target.morale]?.defBonus || 0) : 0)
         + getCommanderDefenseBonus(target) + getCommanderAuraDefenseBonus(target)
@@ -3770,6 +3772,7 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
  * 炮兵/军舰/岸防炮的火炮攻城修正（cannonSiegeDamageBonus）与海陆互攻减半
  * （crossDomainBonus）同层相加：军舰基础型号两者抵消回到基准效率，专精出
  * 攻陆加成的支援型巡洋舰则会叠加超出基准，让舰船与炮兵都能担当攻城手段。
+ * 同一火炮加成在标准战斗管线中已对要塞单位（城市驻军/碉堡/岸防炮）并入②增伤乘区。
  */
 function _resolveGroundNavalSiegeDamage(attacker, targetTile) {
     const crossDomainBonus = getCrossDomainDamageBonus(attacker, { tile: targetTile });

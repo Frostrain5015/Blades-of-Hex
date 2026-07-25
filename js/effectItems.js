@@ -92,6 +92,28 @@ export function buildUnitEffectItems(unit, gameState) {
         }
     }
 
+    // 停滞者迟滞力场（防御侧）：2 格内友军停滞者（含自身）为远程攻击（炮/碉堡）提供减伤，
+    // 与实际结算（Unit.js _resolveDamage ④层）同一搜索范围。
+    if (unit.tile && gameState.tileMap) {
+        const rings = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1],
+            [2,0],[2,-1],[2,-2],[1,-2],[1,1],[0,2],[0,-2],[-1,2],[-1,-1],[-2,0],[-2,1],[-2,2]];
+        const covered = rings.some(([dq, dr]) => {
+            const nb = gameState.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
+            return !!(nb && nb.unit && nb.unit.camp === unit.camp && nb.unit.commander === 'staller');
+        });
+        if (covered) {
+            items.push({
+                key: 'staller:field',
+                icon: '🌀',
+                label: '迟滞力场',
+                desc: `受到炮兵/碉堡的远程攻击时防御提高${Math.round(COMMANDER_CONFIG.staller.balance.rangedDefenseBonus * 100)}%`,
+                color: '#7eb8ff',
+                status: '当前生效',
+                kind: 'effect'
+            });
+        }
+    }
+
     if (unit._engineerConstruction) {
         const remain = unit._engineerConstruction.turnsRemaining || 1;
         items.push({

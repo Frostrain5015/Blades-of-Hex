@@ -82,7 +82,8 @@ export const COMBAT_BALANCE = deepFreeze({
         attack: { min: 0.85, max: 1.35, critThreshold: 1.30 },
         counter: { min: 0.90, cityMin: 1.00, max: 1.70, critThreshold: 1.50, baseMultiplier: 0.75 }
     },
-    counter: { advantageDamage: 0.20, disadvantageDamage: -0.20, advantageCrit: 0.25 },
+    // 克制不再提供固定增减伤：改为浮动区间平移——顺克上移（暴击率提升），逆克下移（相应惩罚）
+    counter: { advantageCrit: 0.40, disadvantageFloatPenalty: -0.40 },
     defense: { minimumMultiplier: 0.15, maximumReduction: 0.85, forestVsRangedBonus: 0.15, cityInfantryBonus: 0.10, windInfantryPenalty: 0.15, rainCityInfantryBonus: 0.10 },
     cavalry: { normalChargeDamagePerStep: 0.10, fogChargeDamagePerStep: 0.15, maxChargeSteps: 3, fogDamageBonus: 0.20 },
     infantry: { cityHealPct: 0.10, cityDamageBonus: 0.15 },

@@ -63,7 +63,7 @@ test('≥2 天衡将领 → 激活；仅 1 名 → 不激活；打掉一名 → 
 
 // ===== 充能门槛（平衡数值守卫）=====
 test('SUN_MOON_CHARGE_THRESHOLD 为约定值（改动需刻意）', () => {
-    assert.equal(SUN_MOON_CHARGE_THRESHOLD, 200);
+    assert.equal(SUN_MOON_CHARGE_THRESHOLD, 100);
 });
 
 test('暴击加护数值为约定值（改动需刻意）', () => {
