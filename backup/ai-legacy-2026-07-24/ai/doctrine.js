@@ -16,8 +16,8 @@ import { COMMANDER_CONFIG } from '../rules/commanders.js';
 export const BERSERKER_BALANCE = COMMANDER_CONFIG.berserker.balance;
 
 export const COMMANDER_PREFERENCE = [
-    'vampire', 'paladin', 'advisor', 'berserker', 'colonel', 'tianyan', 'necromancer',
-    'ironGuard', 'engineer', 'minister', 'centurion', 'magician', 'fallenAngel',
+    'vampire', 'paladin', 'advisor', 'berserker', 'colonel', 'necromancer',
+    'ironGuard', 'minister', 'centurion', 'magician', 'fallenAngel',
     'astrologer', 'diplomat', 'priest', 'staller'
 ];
 

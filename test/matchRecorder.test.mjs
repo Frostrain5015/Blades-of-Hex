@@ -128,6 +128,38 @@ test('match recorder exports fog-aware, diff-based, LLM-readable JSON', () => {
     clearMatchRecording();
 });
 
+test('match recorder resolves the effective AI tier and records Imperator strategic intent', () => {
+    clearMatchRecording();
+    const state = makeState();
+    state.aiDifficulty = 2;
+    state.aiDifficultyId = 'easy';
+    state.aiOpponentCamp = state.factions.player2;
+    state.currentCamp = state.factions.player2;
+    state.aiActing = true;
+    state._imperatorStrategicTelemetry = {
+        player2: [{
+            round: 1,
+            posture: 'expand',
+            urgency: 0.4,
+            objective: { q: 6, r: 3 },
+            assaultCapacity: { desired: 3, available: 1, deficit: 2 },
+            siegeMission: { q: 6, r: 3, occupierId: 'u2', phase: 'approach' }
+        }]
+    };
+    const started = startMatchRecording(state, { matchId: 'resolved-ai-tier-test' });
+    assert.equal(started.mode.aiDifficultyId, 'hard');
+    assert.equal(started.mode.aiDifficultyByCamp.player2, 'hard');
+
+    const action = recordCommittedAction(state, {
+        actionType: 'move',
+        actorCampKey: 'player2',
+        payload: { unitId: 'u2', q: 1, r: 0 },
+        accepted: true
+    });
+    assert.equal(action.decisionContext.strategicIntent.posture, 'expand');
+    assert.equal(action.decisionContext.strategicIntent.siegeMission.occupierId, 'u2');
+});
+
 test('delayed effects keep their originating action and do not leak into the next action diff', () => {
     clearMatchRecording();
     const state = makeState();

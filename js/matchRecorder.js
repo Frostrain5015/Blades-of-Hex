@@ -10,6 +10,7 @@ import { on } from './eventBus.js';
 import { campToKey } from '../rules/camps.js';
 import { getRound } from '../rules/turns.js';
 import { buildMatchStats } from './matchStats.js';
+import { resolveAiDifficultyProfile } from '../ai/difficulty.js';
 
 export const MATCH_LOG_SCHEMA = 'blades-of-hex.match-log';
 export const MATCH_LOG_SCHEMA_VERSION = 1;
@@ -292,13 +293,17 @@ export function withMatchActionCause(state, actionId, callback) {
     }
 }
 
-function decisionContext(snapshot, actorCampKey) {
+function decisionContext(snapshot, actorCampKey, state = null) {
     const ownUnits = Object.values(snapshot.units).filter(unit => unit.campKey === actorCampKey);
     const visible = snapshot.visibleByCamp?.[actorCampKey];
     const visibleSet = visible ? new Set(visible) : null;
     const knownOthers = Object.values(snapshot.units).filter(unit => unit.campKey !== actorCampKey
         && (!visibleSet || visibleSet.has(`${unit.q},${unit.r}`)));
     const ownSites = Object.values(snapshot.sites).filter(site => site.campKey === actorCampKey);
+    const strategicTelemetry = state?._imperatorStrategicTelemetry?.[actorCampKey];
+    const latestStrategicIntent = Array.isArray(strategicTelemetry)
+        ? strategicTelemetry.at(-1) || null
+        : null;
     return {
         weather: snapshot.weather,
         gold: snapshot.camps?.[actorCampKey]?.gold ?? 0,
@@ -311,6 +316,21 @@ function decisionContext(snapshot, actorCampKey) {
             ports: ownSites.filter(site => site.kind === 'port').length
         },
         informationPolicy: visibleSet ? 'fog-limited' : 'full-board',
+        strategicIntent: latestStrategicIntent ? {
+            round: latestStrategicIntent.round,
+            posture: latestStrategicIntent.posture,
+            urgency: latestStrategicIntent.urgency,
+            objective: latestStrategicIntent.objective,
+            objectiveAssetValue: latestStrategicIntent.objectiveAssetValue,
+            projectedIncome: latestStrategicIntent.projectedIncome,
+            rivalProjectedIncome: latestStrategicIntent.rivalProjectedIncome,
+            forceRatio: latestStrategicIntent.forceRatio,
+            capitalThreat: latestStrategicIntent.capitalThreat,
+            portThreat: latestStrategicIntent.portThreat,
+            assaultCapacity: latestStrategicIntent.assaultCapacity,
+            siegeMission: latestStrategicIntent.siegeMission,
+            missions: latestStrategicIntent.missions
+        } : null,
         knownOtherUnits: knownOthers.map(unit => ({
             id: unit.id, type: unit.type, campKey: unit.campKey,
             q: unit.q, r: unit.r, hp: unit.hp, maxHp: unit.maxHp,
@@ -368,6 +388,21 @@ function ensureRecording(state, metadata = {}) {
 
 export function startMatchRecording(state, metadata = {}) {
     const snapshot = captureState(state);
+    const aiCampKeys = Object.entries(state.factions || {})
+        .filter(([campKey, faction]) => campKey !== 'neutral' && faction?.controller === 'ai')
+        .map(([campKey]) => campKey);
+    const opponentCampKey = keyOfCamp(state.aiOpponentCamp);
+    if (opponentCampKey && !aiCampKeys.includes(opponentCampKey)) aiCampKeys.push(opponentCampKey);
+    const resolvedDifficultyByCamp = Object.fromEntries(aiCampKeys.map(campKey => [
+        campKey,
+        resolveAiDifficultyProfile(state, campKey).id
+    ]));
+    const primaryAiCampKey = opponentCampKey || aiCampKeys[0] || null;
+    const resolvedDifficultyId = primaryAiCampKey
+        ? resolvedDifficultyByCamp[primaryAiCampKey]
+        : (state.aiDifficulty != null || state.aiDifficultyId != null
+            ? resolveAiDifficultyProfile(state).id
+            : null);
     const matchId = metadata.matchId || [
         state.campaignMode ? (state.scenarioId || state.campaignId || 'campaign') : (state.standardMapId || 'standard'),
         Date.now().toString(36),
@@ -405,10 +440,10 @@ export function startMatchRecording(state, metadata = {}) {
                 fogOfWar: !!state.skirmishFog,
                 doubleCommander: !!state.doubleCommanderMode,
                 aiDifficulty: state.aiDifficulty ?? null,
-                aiDifficultyId: state.aiDifficultyId ?? null,
-                aiDifficultyByCamp: state.aiDifficultyByCamp
-                    ? { ...state.aiDifficultyByCamp }
-                    : null
+                aiDifficultyId: resolvedDifficultyId,
+                aiDifficultyByCamp: Object.keys(resolvedDifficultyByCamp).length > 0
+                    ? resolvedDifficultyByCamp
+                    : (state.aiDifficultyByCamp ? { ...state.aiDifficultyByCamp } : null)
             },
             turnOrder: [...(state.turnOrder || [])],
             participants: initialParticipants(state),
@@ -464,7 +499,7 @@ export function recordCommittedAction(state, {
         accepted,
         actionType: actionType || 'unknown',
         payload: sanitize(payload || {}),
-        decisionContext: decisionContext(session.lastSnapshot, actorKey),
+        decisionContext: decisionContext(session.lastSnapshot, actorKey, state),
         outcome: {
             changed: Object.keys(changes).length > 0,
             changes,

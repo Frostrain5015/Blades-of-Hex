@@ -30,12 +30,67 @@ import {
     shouldSpendBerserkerBlood
 } from '../ai/doctrine.js';
 import {
+    assessAssaultCapacity,
+    assessSiegeMission,
     assessStrategicPosture,
+    estimateAiTurnWatchdogMs,
     estimateDistrictAssetValue,
     estimateFogRivalForce,
     getEmergencyRecruitReserve,
-    shouldBreakObjectiveCommitment
+    shouldBreakObjectiveCommitment,
+    shouldSkipReplannedMovement
 } from '../ai/strategy.js';
+
+test('大军团 AI 回合预算覆盖演出时间，并保留有限硬上限', () => {
+    const small = estimateAiTurnWatchdogMs({ actionableUnits: 3, replanPasses: 1 });
+    const large = estimateAiTurnWatchdogMs({ actionableUnits: 14, replanPasses: 3 });
+    const enormous = estimateAiTurnWatchdogMs({ actionableUnits: 100, replanPasses: 3 });
+    assert.ok(small >= 18000);
+    assert.ok(large > small);
+    assert.equal(enormous, 90000);
+});
+
+test('Imperator 重规划不会无卡重复移动，强行军可解除一次移动锁', () => {
+    const action = { type: 'move', unitId: 302, tileQ: 2, tileR: 3 };
+    const moved = new Set([302]);
+    assert.equal(shouldSkipReplannedMovement(action, 0, moved, new Set()), false);
+    assert.equal(shouldSkipReplannedMovement(action, 1, moved, new Set()), true);
+    assert.equal(shouldSkipReplannedMovement(action, 2, moved, new Set([302])), false);
+});
+
+test('陆战占领缺口会要求腾出城市产能，而舰队数量不能替代占领者', () => {
+    assert.deepEqual(assessAssaultCapacity({
+        assaultCount: 1,
+        outstandingObjectives: 3,
+        ownedCities: 1,
+        emptyOwnedCities: 0
+    }), {
+        desired: 4,
+        available: 1,
+        deficit: 3,
+        needsProductionSlot: true
+    });
+});
+
+test('远程火力只有在占领者一回合可达时才可打掉最后一道城防', () => {
+    const abandoned = assessSiegeMission({
+        cityHp: 0,
+        cityOccupied: false,
+        occupierDistance: 9,
+        occupierMoveRange: 3
+    });
+    const ready = assessSiegeMission({
+        cityHp: 0,
+        cityOccupied: false,
+        occupierDistance: 3,
+        occupierMoveRange: 3,
+        escortCount: 2
+    });
+    assert.equal(abandoned.phase, 'occupy');
+    assert.equal(abandoned.safeToFinishBreach, false);
+    assert.equal(ready.safeToFinishBreach, true);
+    assert.equal(ready.escortCount, 2);
+});
 
 test('AI 三档难度只按决策能力递增，不包含经济倍率', () => {
     assert.equal(normalizeAiDifficulty(1), 'easy');

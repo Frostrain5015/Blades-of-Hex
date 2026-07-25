@@ -1539,10 +1539,11 @@ export async function endTurn(options = {}) {
                 // PVE 对手 AI（按难度档分派 Optio / Legatus / Imperator）
                 gameState.aiActing = true;
                 try {
-                    const { processOpponentTurn } = await import('./ai.js');
+                    const { processOpponentTurn, getOpponentTurnWatchdogMs } = await import('./ai.js');
+                    const watchdogMs = getOpponentTurnWatchdogMs(gameState.currentCamp);
                     await Promise.race([
                         processOpponentTurn(gameState.currentCamp),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 18000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), watchdogMs))
                     ]);
                 } catch (e) {
                     if (e && e.message === 'AI_TIMEOUT') {
@@ -1595,10 +1596,11 @@ export async function runCampaignOpeningTurn() {
     if (faction.controller === 'ai') {
         gameState.aiActing = true;
         try {
-            const { processOpponentTurn } = await import('./ai.js');
+            const { processOpponentTurn, getOpponentTurnWatchdogMs } = await import('./ai.js');
+            const watchdogMs = getOpponentTurnWatchdogMs(gameState.currentCamp);
             await Promise.race([
                 processOpponentTurn(gameState.currentCamp),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 18000))
+                new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), watchdogMs))
             ]);
         } catch (error) {
             logMessage(error?.message === 'AI_TIMEOUT' ? 'AI 对手超时，跳过回合' : 'AI 对手执行出错，跳过回合');
