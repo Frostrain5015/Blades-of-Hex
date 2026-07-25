@@ -47,7 +47,7 @@ test('大军团 AI 回合预算覆盖演出时间，并保留有限硬上限', (
     const enormous = estimateAiTurnWatchdogMs({ actionableUnits: 100, replanPasses: 3 });
     assert.ok(small >= 18000);
     assert.ok(large > small);
-    assert.equal(enormous, 90000);
+    assert.equal(enormous, 120000);
 });
 
 test('Imperator 重规划不会无卡重复移动，强行军可解除一次移动锁', () => {

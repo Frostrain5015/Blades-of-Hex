@@ -57,16 +57,26 @@ export function planCards(world, strategy, missionsCtx) {
         if (mission.occupierId != null) missionCriticalIds.add(mission.occupierId);
         if (mission.kind === 'siege') for (const id of mission.escortIds || []) missionCriticalIds.add(id);
     }
+    // 反拆门规则：伤害卡打在无攻城任务的城市守军身上 = 替下一个路过的对手开门。
+    const siegeTargets = new Set(missionsCtx.missions
+        .filter(m => m.kind === 'siege')
+        .map(m => `${m.targetQ},${m.targetR}`));
+    const giftedDoor = target => {
+        if (!target?.tile) return false;
+        const city = world.cities.find(c => c.tile === target.tile);
+        return !!city && city.hostile && !siegeTargets.has(`${target.tile.q},${target.tile.r}`);
+    };
 
     // ── 雷击：占城威胁 > 斩杀 > 高价值 ─────────────────────────
     if (has('lightning')) {
         const damage = expectedLightningDamage(world.weather);
         let best = null;
         for (const target of enemies) {
-            if (!allowedByPolicy(world, strategy, target)) continue;
+            if (!allowedByPolicy(world, strategy, target) || giftedDoor(target)) continue;
             const { value, kills } = enemyValueOfTarget(world, target, damage);
             const premium = enemyCapturerPremium(world, target)
                 + (target.commander ? 25 : 0)
+                + ((target._rank || 0) >= 3 ? 40 : 0)
                 + (kills ? 0 : -8);
             if (!best || value + premium > best.score) best = { target, score: value + premium };
         }
@@ -79,7 +89,7 @@ export function planCards(world, strategy, missionsCtx) {
     if (has('poison')) {
         let best = null;
         for (const target of enemies) {
-            if (target._poison) continue;
+            if (target._poison || giftedDoor(target)) continue;
             const perTick = Math.round(target.maxHp * BAL.poison.balance.damageMaxHpPct);
             let total = perTick * BAL.poison.balance.ticks * hpGold(target);
             let spread = 0;
@@ -115,6 +125,7 @@ export function planCards(world, strategy, missionsCtx) {
         const damage = (BAL.airstrike.balance.minDamage + BAL.airstrike.balance.maxDamage) / 2;
         let best = null;
         for (const target of enemies) {
+            if (giftedDoor(target)) continue;
             let score = damage * hpGold(target);
             for (const other of enemies) {
                 if (other.id !== target.id && world.helpers.hexDistance(other.tile, target.tile) <= 1) {
@@ -130,6 +141,7 @@ export function planCards(world, strategy, missionsCtx) {
     if (has('orbitalStrike')) {
         let best = null;
         for (const target of enemies) {
+            if (giftedDoor(target)) continue;
             let score = BAL.orbitalStrike.balance.centerAttack * hpGold(target) * 0.8;
             if (target.commander) score += 40;
             for (const other of enemies) {

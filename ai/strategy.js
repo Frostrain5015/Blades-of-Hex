@@ -208,7 +208,7 @@ export function estimateAiTurnWatchdogMs({
     presentationDelayMs = 1500,
     extraActions = 4,
     minimumMs = 18000,
-    maximumMs = 90000
+    maximumMs = 120000
 } = {}) {
     const unitCount = Math.max(0, Number(actionableUnits) || 0);
     const passes = Math.max(1, Number(replanPasses) || 1);
@@ -217,7 +217,9 @@ export function estimateAiTurnWatchdogMs({
     // 后续重规划只应补做新暴露的动作，不会再次驱动整支军团，因此按 35% 折算。
     const expectedActionSlots = unitCount * (1 + Math.max(0, passes - 1) * 0.35) + extras;
     const computeAllowance = 7000 + unitCount * 180;
-    const presentationAllowance = expectedActionSlots * delayMs * 1.35;
+    // 浏览器里单个动作的真实演出（移动路径/迷雾刷新/战斗动画）远超名义延迟，
+    // 系数取 1.6：回合被看门狗截断的代价远大于多等几秒。
+    const presentationAllowance = expectedActionSlots * delayMs * 1.6;
     const estimated = Math.ceil(computeAllowance + presentationAllowance);
     return Math.max(Number(minimumMs) || 0,
         Math.min(Math.max(Number(minimumMs) || 0, Number(maximumMs) || 0), estimated));

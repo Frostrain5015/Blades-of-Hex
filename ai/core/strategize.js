@@ -77,8 +77,22 @@ export function decideStrategy(world) {
         ? Math.max(...world.myCities.map(city => world.threatAt(city, city.unit))) / 150
         : 0;
 
+    // 兵力趋势诚实化：3 回合净减 3 个单位以上（无论死于谁手），
+    // 就不许再按 forceRatio 自我感觉良好地 expand——forceRatio 看不见喂给中立的损失。
+    const aiMemory = (world.gameState._aiCoreMemory ||= {});
+    const campMemory = (aiMemory[world.myCampKey] ||= {});
+    const unitHistory = (campMemory.unitCountHistory ||= []);
+    unitHistory.push({ round: world.round, count: world.myUnits.length });
+    while (unitHistory.length > 10) unitHistory.shift();
+    const threeRoundsAgo = unitHistory.filter(h => h.round <= world.round - 3).at(-1);
+    const bleeding = !!threeRoundsAgo && threeRoundsAgo.count - world.myUnits.length >= 3;
+
     let posture = base.posture;
     let urgency = base.urgency;
+    if (bleeding && posture === 'expand') {
+        posture = 'contest';
+        urgency = Math.max(urgency, 0.5);
+    }
     const clock = { enemyCaptureEta: null, myCaptureEta: null };
 
     if (world.caps.victoryClock) {

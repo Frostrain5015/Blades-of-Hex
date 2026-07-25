@@ -839,7 +839,8 @@ export async function processOpponentTurn(aiCamp) {
             .filter(unit => canCaptureCityByCombat(unit)).length;
         const navalCount = livingOwnUnits
             .filter(unit => unit.config?.movementDomain === 'naval').length;
-        const fleetSaturated = navalCount >= Math.max(4, assaultCapableCount * 2);
+        const fleetSaturated = navalCount >= Math.max(4, assaultCapableCount * 2)
+            || assaultCapableCount < 3;
         // 陆战图（非无主航路）海军没有占城价值：只在敌方已有可见海军时才反制性招募，
         // 否则港口兜底会把金币变成观光的潜艇（回归局：王冠环岛连招 6 潜艇颗粒无收）。
         const landMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId)

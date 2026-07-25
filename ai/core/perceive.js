@@ -189,13 +189,19 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     const observedRivalForce = estimateForceValue(rivalUnits);
     const aiMemory = (gameState._aiCoreMemory ||= {});
     const intelMemory = (aiMemory[myCampKey] ||= {});
-    const rivalForceEstimate = estimateFogRivalForce({
+    const baseRivalEstimate = estimateFogRivalForce({
         fogEnabled: fog,
         ownForceValue,
         observedForceValue: observedRivalForce,
         previousEstimate: intelMemory.rivalForceEstimate ?? null,
         elapsedRounds: 1
     });
+    // 迷雾零接触 ≠ 敌人死光了：对方也在征兵，估计值永不跌破我方当前兵力的 70%。
+    // 旧先验随我方征兵水涨船高（自锚定 0.3 下限），forceRatio 会永久钉死在 3.33——
+    // 舰队都快死完了还自认大胜（回归局实证）。
+    const rivalForceEstimate = fog
+        ? Math.max(baseRivalEstimate, ownForceValue * 0.7)
+        : baseRivalEstimate;
     intelMemory.rivalForceEstimate = rivalForceEstimate;
 
     // ── 手牌与预算 ───────────────────────────────────────────

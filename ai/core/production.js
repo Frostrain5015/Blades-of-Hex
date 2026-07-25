@@ -80,10 +80,21 @@ export function planProduction(world, strategy, missionsCtx) {
         }
     }
 
-    // ── 2. 港口招募：舰队有饱和上限，金币不能全变成占不了城的船 ──
+    // ── 2. 港口招募：舰队有饱和上限，金币不能全变成占不了城的船。
+    // 海军熔断：最近 3 回合内有舰船阵亡就停招——"排队送进岸防炮射程"的连败
+    // 循环必须用记忆打断（阵亡的舰不占饱和数，单看饱和会永远补招）。
     const navalCount = world.myUnits.filter(u => world.isNaval(u)).length;
     const assaultCount = world.myUnits.filter(u => world.isCapturable(u)).length;
-    const fleetSaturated = navalCount >= Math.max(4, assaultCount * 2);
+    const navalMemory = ((world.gameState._aiCoreMemory ||= {})[world.myCampKey] ||= {});
+    if (Number.isFinite(navalMemory.lastNavalCount) && navalCount < navalMemory.lastNavalCount) {
+        navalMemory.navalCooldownUntil = world.round + 3;
+    }
+    navalMemory.lastNavalCount = navalCount;
+    const navalCoolingDown = Number.isFinite(navalMemory.navalCooldownUntil)
+        && world.round < navalMemory.navalCooldownUntil;
+    const fleetSaturated = navalCount >= Math.max(4, assaultCount * 2)
+        || assaultCount < 3
+        || navalCoolingDown;
     const emptyPorts = world.tiles.filter(t => t.isPort && t.camp === world.myCamp && !t.unit);
     if (!fleetSaturated && (world.oceanMap || emptyPorts.length > 0) && strategy.assaultCapacity.deficit === 0) {
         const order = navalRecruitOrder(world);

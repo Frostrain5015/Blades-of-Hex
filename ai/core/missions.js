@@ -7,7 +7,11 @@
 
 import { assessSiegeMission } from '../strategy.js';
 import { estimateCaptureEta } from './strategize.js';
-import { rankCityObjectives } from './perceive.js';
+import {
+    estimateDefenseForce,
+    estimateLocalStrikeForce,
+    rankCityObjectives
+} from './perceive.js';
 import { W } from './weights.js';
 import { duelExpectation } from './tactics.js';
 
@@ -56,23 +60,37 @@ function pickEscorts(world, occupier, cityTile, count, excludeIds) {
         .slice(0, count);
 }
 
-/** 敌方"能占城的近战"逼近我方/中立城市时生成截杀任务。 */
+/** 敌方"能占城的近战"逼近我方/中立城市时生成截杀任务；
+ *  高 rank（≥3）王牌在我军 5 格内活动时同样立项——放任它只会被逐个收割。 */
 function findInterceptTargets(world) {
     if (!world.caps.interceptPricing) return [];
     const targets = [];
     for (const unit of world.rivalUnits) {
-        if (!world.isCapturable(unit) || !unit.tile) continue;
+        if (!unit.tile) continue;
         let bestValue = 0;
         let bestCity = null;
-        for (const city of world.cities) {
-            if (city.ownerKey !== world.myCampKey && city.ownerKey !== 'neutral') continue;
-            const distance = world.helpers.hexDistance(unit.tile, city.tile);
-            if (distance > 3) continue;
-            const value = city.asset.total * W.interceptBaseRatio * (1 - distance * 0.22)
-                + (city.mine ? 40 : 0);
-            if (value > bestValue) { bestValue = value; bestCity = city; }
+        if (world.isCapturable(unit)) {
+            for (const city of world.cities) {
+                if (city.ownerKey !== world.myCampKey && city.ownerKey !== 'neutral') continue;
+                const distance = world.helpers.hexDistance(unit.tile, city.tile);
+                if (distance > 3) continue;
+                const value = city.asset.total * W.interceptBaseRatio * (1 - distance * 0.22)
+                    + (city.mine ? 40 : 0);
+                if (value > bestValue) { bestValue = value; bestCity = city; }
+            }
         }
-        if (bestCity) targets.push({ unit, value: bestValue, city: bestCity });
+        if ((unit._rank || 0) >= 3 && world.myUnits.length >= 9) {
+            // 兵力充裕才腾得出手截王牌；本就吃紧时截杀只会拆散攻城编组。
+            const nearOurAssets = world.myCities.some(city =>
+                world.helpers.hexDistance(unit.tile, city) <= 5)
+                || world.myUnits.some(ally =>
+                    world.helpers.hexDistance(unit.tile, ally.tile) <= 4);
+            if (nearOurAssets) {
+                const aceValue = (unit.config?.cost || 8) * 1.2 + (unit.commander ? 60 : 0) + 50;
+                if (aceValue > bestValue) { bestValue = aceValue; bestCity = null; }
+            }
+        }
+        if (bestCity || bestValue > 0) targets.push({ unit, value: bestValue, city: bestCity });
     }
     return targets.sort((a, b) => b.value - a.value);
 }
@@ -109,14 +127,41 @@ export function assignMissions(world, strategy) {
     const assigned = new Set();
 
     // ── 1. 攻城任务（最多 2 条，按资产/ETA 排序）────────────────
+    // 任务放弃权：一条攻城任务 6 回合无进展且守备力量明显占优时放弃——
+    // 硬目标拖着不放，等于把全军栓死在别人的火力口袋里（回归局：
+    // 对一座 0 城防的空城围了 18 回合，占领者始终不敢进中立的火力圈）。
     const ranked = rankCityObjectives(world, city => estimateCaptureEta(world, city))
         .filter(entry => entry.eta < 99);
+    const aiMemoryForBlacklist = ((world.gameState._aiCoreMemory ||= {})[world.myCampKey] ||= {});
+    const siegeBlacklist = (aiMemoryForBlacklist.siegeBlacklist ||= {});
+    for (const mission of previous.filter(m => m.kind === 'siege')) {
+        const city = world.cities.find(c => c.tile.q === mission.targetQ && c.tile.r === mission.targetR);
+        if (!city || !city.hostile) continue;
+        const stalledRounds = world.round - (mission.createdRound ?? world.round);
+        if (stalledRounds >= 6) {
+            const defense = estimateDefenseForce(world, city);
+            // 兑现力只数能进城的近战：舰队把城防打空也拿不下城，不该算作攻城力量。
+            const strike = world.myUnits.reduce((sum, unit) => {
+                if (!world.isCapturable(unit) || !unit.tile || world.isImmobile(unit)) return sum;
+                const distance = world.helpers.hexDistance(unit.tile, city.tile);
+                if (distance > 5) return sum;
+                const readiness = Math.max(0.25, Math.min(1, unit.hp / unit.maxHp));
+                return sum + (unit.config?.cost || 8) * readiness * (distance <= 2 ? 1 : 0.5);
+            }, 0);
+            if (defense > Math.max(20, strike * 1.5)) {
+                siegeBlacklist[`${mission.targetQ},${mission.targetR}`] = world.round + 5;
+                continue;
+            }
+        }
+    }
+    const rankedFiltered = ranked.filter(entry =>
+        (siegeBlacklist[`${entry.city.tile.q},${entry.city.tile.r}`] || 0) <= world.round);
     // 死斗姿态只抢最快能兑现的城，不再按资产排序。
-    if (strategy.posture === 'allin') ranked.sort((a, b) => a.eta - b.eta);
+    if (strategy.posture === 'allin') rankedFiltered.sort((a, b) => a.eta - b.eta);
     const siegeBudget = strategy.posture === 'allin' ? 1
         : strategy.posture === 'hold' ? 0
-        : Math.min(2, ranked.length ? 1 + (world.myUnits.length >= 8 ? 1 : 0) : 0);
-    for (const entry of ranked.slice(0, siegeBudget)) {
+        : Math.min(2, rankedFiltered.length ? 1 + (world.myUnits.length >= 8 ? 1 : 0) : 0);
+    for (const entry of rankedFiltered.slice(0, siegeBudget)) {
         const city = entry.city;
         const prior = previous.find(m => m.kind === 'siege'
             && m.targetQ === city.tile.q && m.targetR === city.tile.r);
@@ -149,13 +194,29 @@ export function assignMissions(world, strategy) {
 
     // ── 2. 守备任务：只响应"真能占城"的威胁 ─────────────────
     // 潜艇/岸防炮能造成伤害却永远占不了城——按威胁图回填只会让守军永远不出门。
+    // 新占城市在迷雾里必须留驻 2 回合：敌人走近了你才能看见，那时再回填已经晚了。
+    const aiMemory = (world.gameState._aiCoreMemory ||= {});
+    const campMemory = (aiMemory[world.myCampKey] ||= {});
+    const recentCaptures = (campMemory.recentCaptures ||= {});
+    for (const city of world.cities) {
+        if (city.mine && recentCaptures[`${city.tile.q},${city.tile.r}`] == null
+            && campMemory.lastOwnedBy?.[`${city.tile.q},${city.tile.r}`]
+            && campMemory.lastOwnedBy[`${city.tile.q},${city.tile.r}`] !== world.myCampKey) {
+            recentCaptures[`${city.tile.q},${city.tile.r}`] = world.round;
+        }
+    }
+    campMemory.lastOwnedBy = Object.fromEntries(
+        world.cities.map(city => [`${city.tile.q},${city.tile.r}`, city.ownerKey]));
     const enemyCapturerNear = cityTile => world.rivalUnits.some(unit =>
         world.isCapturable(unit) && unit.tile
         && world.helpers.hexDistance(unit.tile, cityTile) <= 4);
     for (const cityTile of world.myCities) {
         const capturerNear = enemyCapturerNear(cityTile);
         const garrison = cityTile.unit && cityTile.unit.camp === world.myCamp ? cityTile.unit : null;
-        const threatened = capturerNear || strategy.posture === 'defend';
+        const capturedRound = recentCaptures[`${cityTile.q},${cityTile.r}`];
+        const freshCapture = world.fog && Number.isFinite(capturedRound)
+            && world.round - capturedRound <= 2;
+        const threatened = capturerNear || strategy.posture === 'defend' || freshCapture;
         if (garrison && (world.isCapturable(garrison) || garrison.commander === 'minister')) {
             if (threatened || world.isImmobile(garrison) || garrison.commander === 'minister'
                 || strategy.posture === 'hold') {
@@ -169,7 +230,7 @@ export function assignMissions(world, strategy) {
             }
             continue;
         }
-        if (!garrison && (capturerNear || strategy.posture === 'hold')) {
+        if (!garrison && (capturerNear || strategy.posture === 'hold' || freshCapture)) {
             // 空城受威胁：找最近的能进城者回填。
             const filler = pickOccupier(world, cityTile);
             if (filler && !assigned.has(filler.id)) {

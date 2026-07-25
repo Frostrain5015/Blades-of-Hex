@@ -16,6 +16,7 @@ export const TIER_CAPABILITIES = Object.freeze({
         id: 'easy',
         noise: 0.45,               // 选项评分的随机扰动幅度（相对值）
         topK: 2,                   // 从前 k 个候选里按扰动后分数选
+        duelModel: false,          // 交换只按单回合账面算（看不到缠斗结局）
         threatForecast: false,     // 威胁图只按当前射程，不预判位移
         intelTracking: false,      // 不维护敌方最后已知位置
         victoryClock: false,       // 不切换守钟/死斗姿态
@@ -31,6 +32,7 @@ export const TIER_CAPABILITIES = Object.freeze({
         id: 'medium',
         noise: 0.22,
         topK: 2,
+        duelModel: false,          // 交换只按单回合账面算（看不到缠斗结局）
         threatForecast: false,
         intelTracking: true,
         victoryClock: false,       // 没有残局时钟：中档不会在终局切换守钟/死斗
@@ -46,13 +48,14 @@ export const TIER_CAPABILITIES = Object.freeze({
         id: 'hard',
         noise: 0,
         topK: 1,
+        duelModel: true,           // 近战贴脸按整段缠斗定价（决斗期望）
         threatForecast: true,      // 威胁图按 射程+机动力 外推一回合
         intelTracking: true,
         victoryClock: true,
         missionPersistence: true,  // 任务与单位编组跨回合锁定
         cardScripts: true,
         conversionCapture: true,
-        transportPlanning: true,
+        transportPlanning: false, // 实测目前是负资产：陆军运去海上喂潜艇
         interceptPricing: true,
         scoutMissions: true,
         multiEscort: true

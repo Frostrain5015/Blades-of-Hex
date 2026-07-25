@@ -65,12 +65,15 @@ function conversionBonus(world, attacker, target) {
     return W.conversionChancePerHit * city.asset.total;
 }
 
-/** 护航职责：威胁攻城任务占领者的敌人，护航舰优先清理。 */
+/** 护航职责：威胁攻城任务占领者的敌人，以及目标城火力圈里的防御设施，护航优先清理。 */
 function escortProtectionBonus(world, missionsCtx, attacker, target) {
     const mission = missionsCtx.assignment.get(attacker.id);
     if (!mission || mission.kind !== 'siege' || attacker.id === mission.occupierId) return 0;
+    if (!target.tile) return 0;
+    const objectiveTile = world.tileMap.get(`${mission.targetQ},${mission.targetR}`);
+    if (objectiveTile && world.helpers.hexDistance(target.tile, objectiveTile) <= 3) return 55;
     const occupier = world.myUnits.find(u => u.id === mission.occupierId);
-    if (!occupier?.tile || !target.tile) return 0;
+    if (!occupier?.tile) return 0;
     return world.helpers.hexDistance(target.tile, occupier.tile) <= 3 ? 45 : 0;
 }
 
@@ -131,9 +134,10 @@ function evaluateAttack(world, missionsCtx, attacker, target) {
     const damage = combat.estimateDamage(attacker, target, target.tile);
     const kills = damage >= target.hp + (target._shield || 0);
     const counter = kills ? 0 : combat.estimateCounterDamage(attacker, target);
-    // 近战贴脸 = 缠斗承诺，按决斗期望定价；远程按单回合交换定价。
+    // 近战贴脸 = 缠斗承诺：困难档按整段决斗定价；低中档只按单回合账面算，
+    // 看不到缠斗结局——这是档差最锋利的地方（决定每一次近战交换的质量）。
     const meleeCommit = Math.max(1, Number(attacker.config?.range) || 1) <= 1;
-    const net = meleeCommit
+    const net = meleeCommit && world.caps.duelModel
         ? duelExpectation(world, attacker, target)
         : tradeNetValue({
             damageDealt: damage, target, kills,
@@ -146,13 +150,16 @@ function evaluateAttack(world, missionsCtx, attacker, target) {
         + scoreTacticalRoleMatchup(attacker, target) * 0.3
         + (target.commander ? 30 : 0)
         + ((target._rank || 0) >= 3 ? 40 : 0); // 高 rank 王牌：放任不管会被它一个个点名
+    // 攻击位置暴露成本：攻击完单位留在原地，敌方回合按当前位置的威胁预扣。
+    // 这是"潜艇排队送岸防炮"的根因——单看交换不亏，但打完走不了。
+    const exposure = world.threatAt(attacker.tile, attacker) * hpGold(attacker) * 0.4;
     // 净交换否决：换血明显亏本、形不成击杀、且脱得了身时不打。
     const canDisengage = Math.max(1, Number(attacker.config?.range) || 1) >= 2
         || Number(target.config?.speed) <= 0
         || Math.max(1, Number(target.config?.range) || 1) < world.helpers.hexDistance(attacker.tile, target.tile);
     const veto = !kills && canDisengage && net < -residualGold(attacker) * W.tradeVetoRatio;
     const jitter = noiseJitter(world.caps, `atk:${world.round}:${attacker.id}:${target.id}`);
-    return { target, damage, kills, counter, net, strategic, veto, value: (net + strategic) * jitter };
+    return { target, damage, kills, counter, net, strategic, veto, value: (net + strategic - exposure) * jitter };
 }
 
 function bestAttackFor(world, missionsCtx, unit) {
@@ -227,7 +234,7 @@ function strategyForceRatio(world) {
 // 移动评估
 // ═══════════════════════════════════════════════════════════════
 
-function missionMoveBonus(world, missionsCtx, unit, tile) {
+function missionMoveBonus(world, missionsCtx, unit, tile, posture = 'expand') {
     const mission = missionsCtx.assignment.get(unit.id);
     if (!mission) return { bonus: 0, mission: null };
     const helpers = world.helpers;
@@ -235,6 +242,8 @@ function missionMoveBonus(world, missionsCtx, unit, tile) {
     if (!target) return { bonus: 0, mission };
     const currentDistance = helpers.hexDistance(unit.tile, target);
     const newDistance = helpers.hexDistance(tile, target);
+    // 死斗姿态的任务推进翻倍：宣言死斗却无人到位，等于没宣言。
+    const postureBoost = posture === 'allin' ? 2 : 1;
 
     if (mission.kind === 'garrison') {
         // 守备：在城里就别动；没在城里就回家。
@@ -253,7 +262,7 @@ function missionMoveBonus(world, missionsCtx, unit, tile) {
         // 守军未清时：占领者不贴脸（站城下每回合白挨守军打），推进奖励减半、
         // 贴身加成取消——等护航清出破口再进。守军已死或城防归零时全速进城。
         const progressScale = isOccupier && garrisonAlive ? 0.45 : 1;
-        let bonus = (currentDistance - newDistance) * value * W.siegeEtaTickRatio * (isOccupier ? 1.6 : 0.6) * progressScale * stallBoost;
+        let bonus = (currentDistance - newDistance) * value * W.siegeEtaTickRatio * (isOccupier ? 1.6 : 0.6) * progressScale * stallBoost * postureBoost;
         // 占领者到位：空城可进、破门可驻。
         if (isOccupier && tile === target && city && !garrisonAlive && city.hp <= 0) bonus += value * stallBoost;
         if (isOccupier && newDistance <= 1 && city && !garrisonAlive) bonus += value * 0.15;
@@ -265,10 +274,14 @@ function missionMoveBonus(world, missionsCtx, unit, tile) {
                 bonus += Math.max(0, 2 - escortDistance) * 30;
             }
         }
-        // 运输中的占领者：深水承伤风险折损；海域集火可能致死时短暂等待（停滞系数会抵消）。
+        // 运输中的占领者：风险按威胁比例计价，停滞 6 回合后折价放行——
+        // "等登陆窗口"不能等成终身禁航。
         if (isOccupier && world.onWater(tile) && !world.isNaval(unit)) {
             const seaThreat = world.threatAt(tile, unit);
-            bonus -= seaThreat > unit.hp * 0.5 ? 45 : value * W.transportRiskRatio;
+            const seaPenalty = seaThreat > 0
+                ? Math.min(90, seaThreat * hpGold(unit) * 2.5)
+                : value * W.transportRiskRatio;
+            bonus -= stalled >= 6 ? seaPenalty * 0.4 : seaPenalty;
         }
         return { bonus, mission };
     }
@@ -330,11 +343,17 @@ function attackPotential(world, missionsCtx, unit, tile) {
 
 function shouldRetreat(world, unit) {
     if (!unit.tile) return false;
-    const hpRatio = unit.hp / unit.maxHp;
-    const threshold = FRAGILE_COMMANDERS.has(unit.commander) ? 0.48
-        : unit.commander ? W.retreatHpRatioCommander : W.retreatHpRatio;
-    if (hpRatio >= threshold) return false;
+    // 必死规避：当前位置下回合预期承伤 ≥ 当前生命（+护盾），无论血量先撤。
+    // 等血量掉到 30% 再跑往往已经来不及了——这是阵亡偏高的主要来源。
+    const pool = unit.hp + (unit._shield || 0);
     const incoming = world.threatAt(unit.tile, unit);
+    if (incoming >= pool && pool < unit.maxHp * 0.7) return true;
+    const hpRatio = unit.hp / unit.maxHp;
+    // 高 rank 老兵按将领级保护：一个 rank2+ 单位是两倍身家的资产。
+    const veteran = (unit._rank || 0) >= 2;
+    const threshold = FRAGILE_COMMANDERS.has(unit.commander) ? 0.48
+        : unit.commander || veteran ? W.retreatHpRatioCommander : W.retreatHpRatio;
+    if (hpRatio >= threshold) return false;
     return incoming > 0 && (incoming >= unit.hp * 0.5 || hpRatio < threshold * 0.7);
 }
 
@@ -346,9 +365,12 @@ function planMove(world, missionsCtx, unit, posture, actions) {
 
     const mission = missionsCtx.assignment.get(unit.id) || null;
     const retreating = shouldRetreat(world, unit);
-    // 风险权重：占领者为兑现城市资产敢冒险；散兵没有对冲收益，必须惜命。
+    // 风险权重：占领者为兑现城市资产敢冒险；散兵没有对冲收益，必须惜命；
+    // 高 rank 老兵额外惜命（rank2+ 是双倍资产）。
+    const veteran = (unit._rank || 0) >= 2;
     const riskWeight = (mission && unit.id === mission.occupierId ? 0.65 : mission ? 1.0 : 1.6)
         * (FRAGILE_COMMANDERS.has(unit.commander) ? 1.6 : 1)
+        * (veteran ? 1.35 : 1)
         * (posture === 'allin' ? 0.7 : 1)
         * (posture === 'hold' && (!mission || mission.kind !== 'garrison') ? 1.25 : 1);
     const poisonedAllies = world.myUnits.filter(ally => ally._poison);
@@ -358,7 +380,7 @@ function planMove(world, missionsCtx, unit, posture, actions) {
     let bestScore = retreating ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission);
     for (const tile of movable) {
         if (tile.unit) continue;
-        const missionScore = missionMoveBonus(world, missionsCtx, unit, tile);
+        const missionScore = missionMoveBonus(world, missionsCtx, unit, tile, posture);
         let score = missionScore.bonus
             + captureTileBonus(world, unit, tile)
             + attackPotential(world, missionsCtx, unit, tile);
