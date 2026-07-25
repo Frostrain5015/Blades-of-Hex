@@ -7,10 +7,14 @@ import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSp
 import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, creditEagleSynergyDamage, BURN_MS } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
-import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, sendAddAi, sendRemoveAi, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { COMMANDER_REROLL_COST } from './config.js';
 import { COMMANDER_DRAFT } from '../rules/constants.js';
 import { COMMANDER_PREFERENCE } from '../ai/doctrine.js';
+// 等待室「添加 AI」的人格选项直接从人格脚本 meta 派生（轻量，不经过 js/ai.js 战斗执行层）。
+import { meta as optioMeta } from '../ai/optio.js';
+import { meta as legatusMeta } from '../ai/legatus.js';
+import { meta as imperatorMeta } from '../ai/imperator.js';
 import { ORBITAL_STRIKE_TICK_DELAYS_MS } from '../rules/cards.js';
 import { damageCityPool, getCityPoolTile } from '../rules/citySiege.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
@@ -651,25 +655,39 @@ function showMultiplayerLobby() {
     setStatus('');
 }
 
+// 等待室席位（roomUpdate 下发）：[{ role, kind: 'human'|'ai', difficultyId? }]
+let _roomSlots = [];
+let _roomMaxPlayers = 2;
+
+// 等待室「添加 AI」的人格阶梯（id 与 PVE 难度档一致：easy/medium/hard）
+const _AI_SEAT_CHOICES = [optioMeta, legatusMeta, imperatorMeta].map(meta => ({
+    id: meta.difficultyId,
+    title: meta.name
+}));
+
+function _aiSeatDifficultyLabel(difficultyId) {
+    return { easy: '简单', medium: '中等', hard: '困难' }[difficultyId] || '';
+}
+
 function showRoomWaiting(roomId, maxPlayers = 2, playerCount = 1) {
     _switchLobbyView('roomWaitingContent');
     connectionBar.classList.add('visible');
     roomIdValue.textContent = roomId;
-    const maxP = maxPlayers || 2;
-    const cur = playerCount || 1;
+    _roomMaxPlayers = maxPlayers || 2;
+    _roomSlots = [];
     const countEl = document.getElementById('roomWaitingCount');
     if (countEl) countEl.textContent = '';
-    _opponentCount = cur - 1;
+    _opponentCount = (playerCount || 1) - 1;
     _readyCount = 0;
-    // 房间已满则直接允许准备
-    readyBtn.disabled = (cur < maxP);
+    // 房间满（真人 + AI 占位）才允许准备，roomUpdate 到达后按席位刷新
+    readyBtn.disabled = true;
     _updateRoomWaitingCount();
     setStatus('');
 }
 
 function _updateRoomWaitingCount() {
-    const total = (_opponentCount || 0) + 1;
-    const maxP = gameState.isThreePlayer ? 3 : 2;
+    const maxP = _roomMaxPlayers || (gameState.isThreePlayer ? 3 : 2);
+    const total = _roomSlots.length || ((_opponentCount || 0) + 1);
     const countEl = document.getElementById('roomWaitingCount');
     if (countEl) countEl.textContent = '';
     if (total >= maxP) {
@@ -677,8 +695,70 @@ function _updateRoomWaitingCount() {
         readyBtn.disabled = false;
     } else {
         roomWaitingText.textContent = `等待对手加入...(${total}/${maxP})`;
-        readyBtn.disabled = total === 1;
+        readyBtn.disabled = true;
     }
+}
+
+// 等待室槽位列表：真人 / AI 占位 / 空位。仅三人房渲染（双人房无 AI 占位）；
+// 房主（player1）可在空位添加 AI、移除已占位的 AI。
+function _renderRoomSlots() {
+    const listEl = document.getElementById('roomSlotList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    const maxP = _roomMaxPlayers || 2;
+    if (maxP < 3) return;
+    const myRole = getMyRole();
+    const isHost = myRole === 'player1';
+    const byRole = new Map(_roomSlots.map(slot => [slot.role, slot]));
+    for (let i = 1; i <= maxP; i++) {
+        const role = `player${i}`;
+        const slot = byRole.get(role);
+        const el = document.createElement('div');
+        if (slot && slot.kind === 'ai') {
+            const choice = _AI_SEAT_CHOICES.find(c => c.id === slot.difficultyId);
+            el.className = 'rw-slot ai';
+            el.innerHTML = `<span class="rw-slot-tag">AI</span><span class="rw-slot-name">${choice?.title || 'AI'}</span><span class="rw-slot-diff">${_aiSeatDifficultyLabel(slot.difficultyId)}</span>`;
+            if (isHost) {
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'rw-slot-remove';
+                removeBtn.textContent = '✕';
+                removeBtn.title = '移除 AI';
+                removeBtn.addEventListener('click', () => sendRemoveAi(role));
+                el.appendChild(removeBtn);
+            }
+        } else if (slot) {
+            el.className = 'rw-slot' + (role === myRole ? ' self' : '');
+            const tag = role === myRole ? '我' : (role === 'player1' ? '房主' : '玩家');
+            el.innerHTML = `<span class="rw-slot-tag">${tag}</span><span class="rw-slot-name">席位 ${i}</span>`;
+        } else {
+            el.className = 'rw-slot empty';
+            if (isHost) {
+                const addBtn = document.createElement('button');
+                addBtn.className = 'rw-slot-add-btn';
+                addBtn.textContent = '＋ 添加 AI';
+                addBtn.addEventListener('click', () => _showAiSlotPicker(el));
+                el.appendChild(addBtn);
+            } else {
+                el.textContent = '等待玩家加入...';
+            }
+        }
+        listEl.appendChild(el);
+    }
+}
+
+// 空位上展开三档 AI 人格选项；选定后由服务器 roomUpdate 广播统一重渲染
+function _showAiSlotPicker(slotEl) {
+    slotEl.innerHTML = '';
+    const picker = document.createElement('div');
+    picker.className = 'rw-slot-ai-picker';
+    for (const choice of _AI_SEAT_CHOICES) {
+        const btn = document.createElement('button');
+        btn.className = 'rw-slot-ai-option';
+        btn.textContent = `${choice.title} · ${_aiSeatDifficultyLabel(choice.id)}`;
+        btn.addEventListener('click', () => sendAddAi(choice.id));
+        picker.appendChild(btn);
+    }
+    slotEl.appendChild(picker);
 }
 
 // 三人模式：检查本地玩家是否已投降，显示观战横幅
@@ -1376,7 +1456,7 @@ let _pveHumanRole = null;
 // 末尾几位是条令表未覆盖的将领，按可用性兜底排在最后。
 const _COMMANDER_PREF = [...COMMANDER_PREFERENCE, 'engineer', 'tianyan', 'martyr'];
 function _pveAIQuickPick(forPlayer) {
-    const pool = forPlayer === 'player1' ? gameState.commanderPoolP1 : gameState.commanderPoolP2;
+    const pool = _forPlayerPool(forPlayer);
     const picks = [];
     if (gameState.doubleCommanderMode) {
         const rank = new Map(_COMMANDER_PREF.map((id, index) => [id, index]));
@@ -1645,14 +1725,16 @@ function beginNetworkCommanderFlow(role) {
     gameState.doubleCommanderMode = wasDoubleCommanderMode;
     gameState.gameMode = wasMode;
     gameState.standardMapId = wasStandardMapId;
-    // 联机对局所有玩家席位都是人类；缺省 controllers 会把 player2/player3 置为 'ai'，
-    // 导致这些阵营的单位在任一模拟端升阶时被 AI 逻辑自动选择专精并随快照污染全场。
+    // 真人席位必须显式 'human'；AI 占位席位（房主在等待室添加）置为 'ai'。
+    // 缺省 controllers 会把 player2/player3 置为 'ai'，导致这些阵营的单位在任一模拟端
+    // 升阶时被 AI 逻辑自动选择专精并随快照污染全场。
     configureSkirmishState({
         playerCount: wasThreePlayer ? 3 : 2,
         colors: wasColors,
         flagEmojis: wasFlagEmojis,
-        controllers: { player1: 'human', player2: 'human', player3: 'human' }
+        controllers: _networkControllers()
     });
+    _applyNetworkAiDifficulty();
     if (wasOrder.length) gameState.turnOrder = wasOrder;
     gameState.turnOrderRolls = wasRolls;
     if (Object.keys(wasAssignments).length) gameState.roleAssignments = wasAssignments;
@@ -1660,20 +1742,24 @@ function beginNetworkCommanderFlow(role) {
     gameState.commanderPhase = 'selection';
 
     const myRole = getMyRole();
+    // 选将席位按阵营键：出生席位随机分配后，本人扮演 roleAssignments[myRole] 对应的阵营
+    const myCampKey = gameState.roleAssignments?.[myRole] || myRole;
     if (myRole === 'player1') {
         const is3P = gameState.isThreePlayer;
         const pool = shuffleAndSplitPool(is3P, wasDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
         gameState.commanderPoolP1 = pool.p1;
         gameState.commanderPoolP2 = pool.p2;
         if (is3P) gameState.commanderPoolP3 = pool.p3 || [];
+        // AI 占位席位（阵营键）：房主代为选将并确认（双将模式自动选两名），随 commanderSync 扩散到各端
+        for (const aiCampKey of Object.keys(_networkAiSeats)) _pveAIQuickPick(aiCampKey);
         syncCommanderState(
-            pool.p1, pool.p2, null, null, false, false, false, false, 'selection',
+            pool.p1, pool.p2, null, gameState.commanderP2, false, gameState.commanderP2Confirmed, false, false, 'selection',
             null, null,
-            pool.p3 || [], null, false, false, null
+            pool.p3 || [], gameState.commanderP3, gameState.commanderP3Confirmed, false, null
         );
-        _showCommanderSelection('player1');
+        _showCommanderSelection(myCampKey);
     } else {
-        _waitForNetworkPool(myRole);
+        _waitForNetworkPool(myCampKey);
     }
 }
 
@@ -2389,6 +2475,26 @@ function _roleToCampInfo(role) {
 let _deploymentStarted = false;
 let _opponentCount = 0;
 
+// 联机 AI 占位席位：role → difficultyId，由 start 消息下发（房主在等待室为空位添加）
+let _networkAiSeats = {};
+
+// 联机席位 controllers：AI 占位席位为 'ai'，其余席位为人类。
+// 注意：联机缺省 controllers 会把 player2/player3 置为 'ai'，导致这些阵营的单位
+// 在任一模拟端升阶时被 AI 逻辑自动选择专精并随快照污染全场，故真人席位必须显式 'human'。
+function _networkControllers() {
+    const controllers = { player1: 'human', player2: 'human', player3: 'human' };
+    for (const role of Object.keys(_networkAiSeats)) controllers[role] = 'ai';
+    return controllers;
+}
+
+// 按席位写入 AI 难度：resolveAiDifficultyProfile 优先读 aiDifficultyByCamp[campKey]
+function _applyNetworkAiDifficulty() {
+    const entries = Object.entries(_networkAiSeats);
+    if (!entries.length) return;
+    gameState.aiDifficultyByCamp = { ...(gameState.aiDifficultyByCamp || {}) };
+    for (const [role, difficultyId] of entries) gameState.aiDifficultyByCamp[role] = difficultyId;
+}
+
 // 三人模式：显示第三席位面板（开局与重连恢复共用）
 function applyTopbarLayout() {
     const camp3 = document.getElementById('campCard3');
@@ -2463,6 +2569,11 @@ function startGame() {
     const limitRound = gameState.isThreePlayer ? 25 : 18;
     const factionName = gameState.isThreePlayer ? '三人' : '双人';
     showInfo(`${factionName}模式：${limitRound}回合内控制比其他势力更多的城市即可获得游戏胜利`);
+
+    // 联机 AI 占位席位排在回合序首位时，由房主客户端在开局后接手驱动
+    if (isNetworkGame()) {
+        window.setTimeout(() => _maybeResumeNetworkAiTurn(), 0);
+    }
 }
 
 // ---- 战役剧情开场遮罩（通用接口） ----
@@ -2535,12 +2646,14 @@ function renderRoomList(list) {
         const card = document.createElement('div');
         card.className = 'mp-room-card';
         const maxP = r.maxPlayers || 2;
-        const full = r.playerCount >= maxP;
+        const aiCount = r.aiCount || 0;
+        const full = r.playerCount + aiCount >= maxP;
         const mapName = r.standardMapId === 'uncharted-passage' ? '无主航路' : '王冠环岛';
         const rules = [mapName, r.skirmishFog ? '遭遇战' : '标准'];
         if (r.doubleCommanderMode) rules.push('双将');
         const modeLabel = (maxP === 3 ? '三人' : '双人') + ' · ' + rules.join(' · ');
-        card.innerHTML = `<span class="mp-room-id">${r.roomId}</span><span class="mp-room-mode">${modeLabel}</span><span class="mp-room-players">${r.playerCount}/${maxP}</span><span class="mp-room-arrow">→</span>`;
+        const playersLabel = `${r.playerCount + aiCount}/${maxP}` + (aiCount ? `(含${aiCount}AI)` : '');
+        card.innerHTML = `<span class="mp-room-id">${r.roomId}</span><span class="mp-room-mode">${modeLabel}</span><span class="mp-room-players">${playersLabel}</span><span class="mp-room-arrow">→</span>`;
         if (full) {
             card.classList.add('full');
             card.title = '房间已满';
@@ -2640,12 +2753,14 @@ function registerNetworkCallbacks() {
 
         onRoomList: (list) => renderRoomList(list),
 
-        onRoomLeft: () => {},
+        onRoomLeft: () => {
+            _roomSlots = [];
+            _networkAiSeats = {};
+        },
 
         onOpponentJoined: (role) => {
             _opponentCount = (_opponentCount || 0) + 1;
             _updateRoomWaitingCount();
-            readyBtn.disabled = false;
         },
 
         onOpponentReady: () => {
@@ -2658,6 +2773,15 @@ function registerNetworkCallbacks() {
             _readyCount--;
             _updateRoomWaitingCount();
             document.getElementById('lobbyReadyStatus').textContent = '';
+        },
+
+        // 房间席位快照（真人 + AI 占位）：等待室槽位列表的权威数据源
+        onRoomUpdate: (players, maxPlayers) => {
+            _roomSlots = players || [];
+            _roomMaxPlayers = maxPlayers || _roomMaxPlayers;
+            _opponentCount = Math.max(0, _roomSlots.filter(s => s.kind === 'human').length - 1);
+            _renderRoomSlots();
+            _updateRoomWaitingCount();
         },
 
         onError: (message) => {
@@ -2699,28 +2823,35 @@ function registerNetworkCallbacks() {
             if (skirmishFog !== undefined) gameState.skirmishFog = skirmishFog;
             if (doubleCommanderMode !== undefined) gameState.doubleCommanderMode = doubleCommanderMode;
             if (setup.standardMapId) gameState.standardMapId = setup.standardMapId;
+            _networkAiSeats = { ...(setup.aiSeats || {}) };
             configureSkirmishState({
                 playerCount: isThreePlayer ? 3 : 2,
                 colors: setup.factionColors || {},
                 flagEmojis: setup.factionEmojis || {},
-                controllers: { player1: 'human', player2: 'human', player3: 'human' }
+                controllers: _networkControllers()
             });
+            _applyNetworkAiDifficulty();
             if (Array.isArray(setup.turnOrder) && setup.turnOrder.length) gameState.turnOrder = [...setup.turnOrder];
             gameState.turnOrderRolls = { ...(setup.turnOrderRolls || {}) };
             gameState.roleAssignments = { ...(setup.roleAssignments || gameState.roleAssignments) };
-            if (_applySavedFlagCustomizations([role])) {
-                const faction = gameState.factions?.[role];
+            // 出生席位由服务器随机分配：个人旗帜偏好应用到被分派的阵营，而非角色号
+            const myCampKey = gameState.roleAssignments?.[role] || role;
+            if (_applySavedFlagCustomizations([myCampKey])) {
+                const faction = gameState.factions?.[myCampKey];
                 sendMessage({ type: 'factionColor', colorId: faction?.colorId, flagEmoji: faction?.flagEmoji });
             }
             showFactionReveal(role);
         },
 
         onFactionColors: (colors, flagEmojis) => {
+            // 服务器按 role 记录颜色/徽记；出生席位随机分配后需翻译到阵营键再落地
             for (const [key, colorId] of Object.entries(colors || {})) {
-                if (setPlayerFactionColor(gameState, key, colorId)) gameState.factionColorSelections[key] = colorId;
+                const campKey = gameState.roleAssignments?.[key] || key;
+                if (setPlayerFactionColor(gameState, campKey, colorId)) gameState.factionColorSelections[campKey] = colorId;
             }
             for (const [key, emoji] of Object.entries(flagEmojis || {})) {
-                setPlayerFactionFlagEmoji(gameState, key, emoji);
+                const campKey = gameState.roleAssignments?.[key] || key;
+                setPlayerFactionFlagEmoji(gameState, campKey, emoji);
             }
             if (document.getElementById('commanderOverlay')?.classList.contains('show')) {
                 const pickerOpen = document.getElementById('commanderColorPicker')?.classList.contains('open');
@@ -2731,7 +2862,8 @@ function registerNetworkCallbacks() {
         onRemoteAction: handleRemoteAction,
 
         onOpponentLeft: (role) => {
-            const campCardId = role === 'player1' ? 'campCard1' : role === 'player2' ? 'campCard2' : role === 'player3' ? 'campCard3' : null;
+            const leftCampKey = gameState.roleAssignments?.[role] || role;
+            const campCardId = { player1: 'campCard1', player2: 'campCard2', player3: 'campCard3' }[leftCampKey] || null;
             // 对局中：头像变灰 + 转圈，不弹通知
             if (gameState.commanderPhase === 'done') {
                 const card = document.getElementById(campCardId);
@@ -2752,14 +2884,17 @@ function registerNetworkCallbacks() {
 
         // 对手重连 → 服务器会同步暂存状态，仅通知
         onOpponentReconnected: (role) => {
-            const campCardId = role === 'player1' ? 'campCard1' : role === 'player2' ? 'campCard2' : role === 'player3' ? 'campCard3' : null;
+            const rejoinCampKey = gameState.roleAssignments?.[role] || role;
+            const campCardId = { player1: 'campCard1', player2: 'campCard2', player3: 'campCard3' }[rejoinCampKey] || null;
             const card = document.getElementById(campCardId);
             if (card) card.classList.remove('disconnected');
         },
 
         // 自己重连（大厅/对局中统一处理）
-        onReconnected: (role) => {
+        onReconnected: (role, aiSeats) => {
             setConnectionState('connected');
+            // 刷新重连（页面重载）后恢复 AI 席位难度配置，驱动端才能按原档代理 AI
+            if (aiSeats) _networkAiSeats = { ...aiSeats };
             if (role) {
                 reloadPortraits();
                 _isReady = false;
@@ -2918,6 +3053,15 @@ function _maybeResumeNeutralTurn() {
         .catch(e => console.warn('Neutral resume error:', e));
 }
 
+// 联机 AI 席位接管：远端状态/开局落在 AI 占位席位回合且本机是驱动端（房主 player1）时，
+// 由本机代理执行 AI 回合。gameLogic 内部有 _turnProcessing/aiActing 互斥，重复调用安全。
+function _maybeResumeNetworkAiTurn() {
+    if (!isNetworkGame() || gameState.gameOver) return;
+    import('./gameLogic.js')
+        .then(({ resumeNetworkAiTurnIfNeeded }) => resumeNetworkAiTurnIfNeeded())
+        .catch(e => console.warn('Network AI resume error:', e));
+}
+
 async function handleRemoteAction(msg) {
     const wasGameOver = gameState.gameOver;
 
@@ -2973,6 +3117,8 @@ async function handleRemoteAction(msg) {
         }
         // 重连/服务端纠偏后若正值中立回合，由驱动方客户端接手推进
         _maybeResumeNeutralTurn();
+        // 联机 AI 占位席位回合同理：由房主客户端接手驱动
+        _maybeResumeNetworkAiTurn();
         return;
     }
 
@@ -3882,4 +4028,6 @@ async function handleRemoteAction(msg) {
 
     // 对手 endTurn 把回合推进到中立（或投降直切中立）：驱动方客户端在此接手执行中立 AI
     _maybeResumeNeutralTurn();
+    // 对手 endTurn 把回合推进到 AI 占位席位：房主客户端在此接手驱动 AI 回合
+    _maybeResumeNetworkAiTurn();
 }

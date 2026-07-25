@@ -151,6 +151,9 @@ export function connectToServer(url) {
                     _resetOutboundActionQueue();
                     _cb.onRoomLeft?.();
                     break;
+                case 'roomUpdate':
+                    _cb.onRoomUpdate?.(msg.players || [], msg.maxPlayers || 2);
+                    break;
                 case 'opponentJoined':
                     _cb.onOpponentJoined?.(msg.role);
                     break;
@@ -166,7 +169,7 @@ export function connectToServer(url) {
                 case 'reconnected':
                     _myRole = msg.role;
                     _myRoomId = msg.roomId;
-                    _cb.onReconnected?.(msg.role);
+                    _cb.onReconnected?.(msg.role, msg.aiSeats || null);
                     break;
                 case 'opponentReconnected':
                     _cb.onOpponentReconnected?.(msg.role);
@@ -182,7 +185,8 @@ export function connectToServer(url) {
                         factionColors: msg.factionColors,
                         factionEmojis: msg.factionEmojis,
                         roleAssignments: msg.roleAssignments,
-                        standardMapId: msg.standardMapId
+                        standardMapId: msg.standardMapId,
+                        aiSeats: msg.aiSeats || {}
                     });
                     break;
                 case 'factionColors':
@@ -339,6 +343,17 @@ export function sendReady() {
 export function sendUnready() {
     if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
     _ws.send(JSON.stringify({ type: 'unready' }));
+}
+
+// 三人房间：房主为空位添加/移除 AI 占位（仅开局前有效）
+export function sendAddAi(difficultyId) {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+    _ws.send(JSON.stringify({ type: 'addAi', difficultyId }));
+}
+
+export function sendRemoveAi(role) {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+    _ws.send(JSON.stringify({ type: 'removeAi', role }));
 }
 
 // ==== 游戏操作 ====

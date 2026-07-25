@@ -6197,3 +6197,97 @@ body.campaign-game-active .camp-card .camp-label {
     0%, 100% { opacity: 0.5; transform: scale(0.95); }
     50%      { opacity: 1;   transform: scale(1.05); }
 }
+
+/* ===== 联机等待室：席位列表（真人 / AI 占位） ===== */
+.rw-slot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0 0 18px;
+}
+
+.rw-slot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(20, 10, 4, 0.55);
+    border: 1px solid rgba(180, 125, 14, 0.22);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    color: #ccb870;
+    letter-spacing: 1px;
+    min-height: 24px;
+}
+
+.rw-slot-tag {
+    flex-shrink: 0;
+    font-size: 10px;
+    letter-spacing: 2px;
+    padding: 2px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(180, 125, 14, 0.35);
+    color: var(--text-faint);
+}
+
+.rw-slot.self { border-color: rgba(239, 196, 72, 0.45); }
+.rw-slot.self .rw-slot-tag { color: #efc448; border-color: rgba(239, 196, 72, 0.55); }
+
+.rw-slot.ai .rw-slot-tag { color: #9fd0ff; border-color: rgba(120, 170, 255, 0.40); }
+
+.rw-slot-name { flex: 1; }
+
+.rw-slot-diff {
+    font-size: 11px;
+    color: var(--text-faint);
+    letter-spacing: 2px;
+}
+
+.rw-slot-remove {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+}
+.rw-slot-remove:hover { color: #ff8866; background: rgba(255, 100, 60, 0.12); }
+
+.rw-slot.empty { border-style: dashed; justify-content: center; color: var(--text-faint); }
+
+.rw-slot-add-btn {
+    background: none;
+    border: none;
+    color: var(--gold);
+    font-size: 13px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    padding: 4px 10px;
+    font-family: inherit;
+}
+.rw-slot-add-btn:hover { color: #efc448; text-shadow: 0 0 12px rgba(255, 200, 40, 0.5); }
+
+.rw-slot-ai-picker {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    width: 100%;
+}
+
+.rw-slot-ai-option {
+    background: rgba(60, 40, 10, 0.45);
+    border: 1px solid rgba(180, 125, 14, 0.35);
+    border-radius: 8px;
+    color: #ccb870;
+    font-size: 12px;
+    letter-spacing: 1px;
+    padding: 5px 12px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.rw-slot-ai-option:hover {
+    color: #efc448;
+    border-color: rgba(239, 196, 72, 0.6);
+}

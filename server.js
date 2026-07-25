@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const WebSocket = require('ws');
 const protocolReady = import('./protocol/messages.js');
 const { createPlayerProfileStore, normalizeProfile } = require('./server/playerProfileStore.js');
+const { AI_DRIVER_ROLE, isValidAiDifficulty, aiSlotCount, humanCapacity, isRoomFull, firstFreeRole, takenRoles } = require('./server/roomAi.js');
 
 const HTTP_PORT  = process.env.PORT || process.env.HTTP_PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
@@ -400,7 +401,7 @@ function roomList() {
     for (const [id, room] of rooms) {
         // 未开始的对局，或对局中有玩家断线（可重连）
         if (!room.gameStarted || room._disconnectedRole || (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0)) {
-            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false, standardMapId: room.standardMapId || 'crown-ring' });
+            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2, aiCount: room.aiSlots ? room.aiSlots.size : 0, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false, standardMapId: room.standardMapId || 'crown-ring' });
         }
     }
     return list;
@@ -416,6 +417,16 @@ function broadcastRoom(room, obj, exclude = null) {
     for (const ws of room.players.keys()) {
         if (ws !== exclude) sendJson(ws, obj);
     }
+}
+
+// 房间席位快照(真人 + AI 占位)广播:等待室槽位列表以此渲染
+function broadcastRoomUpdate(room) {
+    const players = [...room.players.values()].map(info => ({ role: info.role, kind: 'human' }));
+    for (const [role, info] of (room.aiSlots || new Map())) {
+        players.push({ role, kind: 'ai', difficultyId: info.difficultyId });
+    }
+    players.sort((a, b) => a.role.localeCompare(b.role));
+    broadcastRoom(room, { type: 'roomUpdate', maxPlayers: room.maxPlayers || 2, players });
 }
 
 function createRoomAuthority() {
@@ -460,22 +471,39 @@ function rollNetworkTurnOrder(roles) {
 }
 
 function createNetworkMatchSetup(room) {
-    const roles = [...room.players.values()].map(info => info.role).sort();
+    const roles = takenRoles(room).sort();
+    // 出生阵营席位随机分配：与回合顺序同刻洗牌，role → campKey 不再恒等，
+    // 玩家不再按加入顺序固定出生在地图同一位置（地图出生点绑定 campKey）。
+    const campKeys = [...roles];
+    for (let i = campKeys.length - 1; i > 0; i--) {
+        const j = crypto.randomInt(0, i + 1);
+        [campKeys[i], campKeys[j]] = [campKeys[j], campKeys[i]];
+    }
+    room.roleAssignments = Object.fromEntries(roles.map((role, index) => [role, campKeys[index]]));
     const rolled = rollNetworkTurnOrder(roles);
-    room.turnOrder = rolled.turnOrder;
-    room.turnOrderRolls = rolled.turnOrderRolls;
-    room.roleAssignments = Object.fromEntries(roles.map(role => [role, role]));
+    // 客户端与快照一律使用阵营键：回合顺序与掷骰记录投影到 camp 空间。
+    room.turnOrder = rolled.turnOrder.map(key => key === 'neutral' ? key : room.roleAssignments[key]);
+    room.turnOrderRolls = Object.fromEntries(Object.entries(rolled.turnOrderRolls)
+        .map(([role, rolls]) => [room.roleAssignments[role], rolls]));
+    // room.factionColors/factionEmojis 仍按 role 保存：factionColor 消息按 role 写入，
+    // 快照校验经 roleAssignments 翻译到 camp；下发给客户端时投影为 camp 键。
     room.factionColors = Object.fromEntries(roles.map(role => [role, room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]]));
     room.factionEmojis = Object.fromEntries(roles.map(role => [
         role,
         STANDARD_FLAG_EMOJIS.has(room.factionEmojis?.[role]) ? room.factionEmojis[role] : DEFAULT_ROLE_FLAG_EMOJIS[role]
     ]));
+    const campColors = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionColors[role]]));
+    const campEmojis = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionEmojis[role]]));
+    // AI 席位按阵营键存储：回合归属校验直接以 currentCampKey 命中
+    room.aiSeats = Object.fromEntries([...(room.aiSlots || new Map())].map(([role, info]) => [room.roleAssignments[role], info.difficultyId]));
     return {
-        ...rolled,
+        turnOrder: room.turnOrder,
+        turnOrderRolls: room.turnOrderRolls,
         standardMapId: room.standardMapId || 'crown-ring',
         roleAssignments: room.roleAssignments,
-        factionColors: room.factionColors,
-        factionEmojis: room.factionEmojis
+        factionColors: campColors,
+        factionEmojis: campEmojis,
+        aiSeats: room.aiSeats
     };
 }
 
@@ -558,6 +586,7 @@ function leaveCurrentRoom(ws) {
     } else {
         clearZombieTimer(room);
         broadcastRoom(room, { type: 'opponentLeft', role });
+        broadcastRoomUpdate(room);
         // 对局中不重置 gameStarted，保留重连可能
         if (!room.gameStarted) {
             for (const p of room.players.keys()) p._ready = false;
@@ -611,6 +640,7 @@ async function handleMessage(ws, rawData) {
                 skirmishFog,
                 doubleCommanderMode,
                 standardMapId,
+                aiSlots: new Map(),
                 authority: createRoomAuthority()
             };
             room.players.set(ws, { role: 'player1' });
@@ -619,6 +649,7 @@ async function handleMessage(ws, rawData) {
             ws._ready = false;
             if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
             sendJson(ws, { type: 'roomCreated', roomId, role: 'player1', maxPlayers, playerCount: 1 });
+            broadcastRoomUpdate(room);
             console.log(`[房间 ${roomId}] 已创建 (player1, ${maxPlayers}P)`);
             break;
         }
@@ -655,7 +686,7 @@ async function handleMessage(ws, rawData) {
                     }
                 }
 
-                if (room.players.size >= room.maxPlayers) {
+                if (room.players.size >= humanCapacity(room)) {
                     console.log(`[重连] 房间已满，拒绝重连`);
                     sendJson(ws, { type: 'error', message: '房间已满' });
                     break;
@@ -688,7 +719,7 @@ async function handleMessage(ws, rawData) {
                 ws._room = room;
                 ws._ready = false;
                 if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
-                sendJson(ws, { type: 'reconnected', roomId, role });
+                sendJson(ws, { type: 'reconnected', roomId, role, aiSeats: room.aiSeats || {} });
                 console.log(`[重连] 已发送 reconnected 给重连方`);
                 // 告知所有在线对手玩家重连了，传重连者的 role 以便恢复对应阵营头像
                 const others = [...room.players.keys()].filter(p => p !== ws);
@@ -721,18 +752,21 @@ async function handleMessage(ws, rawData) {
             }
 
             // 正常加入流程
-            if (room.gameStarted && room.players.size >= room.maxPlayers) {
+            if (room.gameStarted && room.players.size >= humanCapacity(room)) {
                 sendJson(ws, { type: 'error', message: '房间对局已开始' });
                 break;
             }
-            if (room.players.size >= room.maxPlayers) {
+            if (isRoomFull(room)) {
                 sendJson(ws, { type: 'error', message: '房间已满' });
                 break;
             }
             leaveCurrentRoom(ws);
             if (room.players.size === 0) reviveRoom(room, ws);
-            const nextIdx = room.players.size;
-            const role = nextIdx === 0 ? 'player1' : nextIdx === 1 ? 'player2' : 'player3';
+            const role = firstFreeRole(room.maxPlayers || 2, takenRoles(room));
+            if (!role) {
+                sendJson(ws, { type: 'error', message: '房间已满' });
+                break;
+            }
             room.players.set(ws, { role });
             ws._room = room;
             ws._ready = false;
@@ -746,9 +780,36 @@ async function handleMessage(ws, rawData) {
                     sendJson(ws, { type: 'opponentJoined', role: playerData.role });
                 }
             }
+            broadcastRoomUpdate(room);
             const total = room.players.size;
             const maxP = room.maxPlayers || 2;
             console.log(`[房间 ${roomId}] 玩家加入 (${total}/${maxP})`);
+            break;
+        }
+
+        case 'addAi': {
+            const room = ws._room;
+            if (!room || room.gameStarted) break;
+            if ((room.maxPlayers || 2) !== 3) break; // AI 席位仅三人房
+            if (room.players.get(ws)?.role !== AI_DRIVER_ROLE) break; // 仅房主
+            if (!isValidAiDifficulty(msg.difficultyId)) break;
+            if (isRoomFull(room)) break;
+            const role = firstFreeRole(room.maxPlayers, takenRoles(room));
+            if (!role) break;
+            room.aiSlots.set(role, { difficultyId: msg.difficultyId });
+            broadcastRoomUpdate(room);
+            console.log(`[房间 ${room.id}] 房主添加 AI 占位 ${role} (${msg.difficultyId})`);
+            break;
+        }
+
+        case 'removeAi': {
+            const room = ws._room;
+            if (!room || room.gameStarted) break;
+            if (room.players.get(ws)?.role !== AI_DRIVER_ROLE) break; // 仅房主
+            if (!room.aiSlots || !room.aiSlots.has(msg.role)) break;
+            room.aiSlots.delete(msg.role);
+            broadcastRoomUpdate(room);
+            console.log(`[房间 ${room.id}] 房主移除 AI 占位 ${msg.role}`);
             break;
         }
 
@@ -774,7 +835,7 @@ async function handleMessage(ws, rawData) {
 
         case 'ready': {
             const room = ws._room;
-            if (!room || room.players.size < room.maxPlayers) break;
+            if (!room || !isRoomFull(room)) break; // AI 席位视为已就绪
             ws._ready = true;
             const others = [...room.players.keys()].filter(p => p !== ws);
             for (const o of others) sendJson(o, { type: 'opponentReady' });
@@ -809,7 +870,7 @@ async function handleMessage(ws, rawData) {
             ws._rematchReady = true;
             const players = [...room.players.keys()];
             for (const player of players) if (player !== ws) sendJson(player, { type: 'rematchPending' });
-            if (players.length === room.maxPlayers && players.every(player => player._rematchReady)) {
+            if (players.length + aiSlotCount(room) === room.maxPlayers && players.every(player => player._rematchReady)) {
                 for (const player of players) {
                     player._rematchReady = false;
                     player._ready = false;
@@ -924,8 +985,19 @@ async function handleMessage(ws, rawData) {
                 } else if (stateCampKey === 'neutral') {
                     // 中立回合：中立 AI 由驱动方客户端（回合序上最后一名存活玩家）代理执行，
                     // 只放行该玩家的操作，其余客户端一律拒绝，避免双驱动竞争。
-                    if (senderRole !== protocol.neutralDriverRole(authority.state)) {
+                    // 驱动方落在 AI 占位席位（无真实客户端）时，由房主(player1)一并代理。
+                    const neutralDriver = protocol.neutralDriverRole(authority.state);
+                    const neutralDriverCamp = neutralDriver ? (room.roleAssignments?.[neutralDriver] || neutralDriver) : neutralDriver;
+                    const effectiveDriver = (room.aiSeats && room.aiSeats[neutralDriverCamp]) ? AI_DRIVER_ROLE : neutralDriver;
+                    if (senderRole !== effectiveDriver) {
                         sendAuthoritativeSnapshot(ws, room, '中立回合行动中，请稍候');
+                        break;
+                    }
+                } else if (room.aiSeats && room.aiSeats[stateCampKey]) {
+                    // AI 席位回合：没有真实客户端,由房主(player1)客户端代理驱动,
+                    // 只放行该玩家的操作,其余客户端一律拒绝,避免双驱动竞争。
+                    if (senderRole !== AI_DRIVER_ROLE) {
+                        sendAuthoritativeSnapshot(ws, room, 'AI 回合行动中,请稍候');
                         break;
                     }
                 } else if (stateCampKey !== expectedCamp) {
@@ -974,6 +1046,7 @@ async function handleMessage(ws, rawData) {
                 allRooms.push({
                     roomId: id, playerCount: room.players.size,
                     gameStarted: room.gameStarted, players: playerList,
+                    aiCount: room.aiSlots ? room.aiSlots.size : 0,
                     zombieSince: room._zombieSince || null
                 });
             }

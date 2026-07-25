@@ -1530,6 +1530,7 @@ export async function endTurn(options = {}) {
             const isAIOpponent = currentKey !== 'neutral' && !gameState.aiActing && (
                 (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp)
                 || (gameState.campaignMode && currentFaction?.controller === 'ai')
+                || (isNetworkGame() && currentFaction?.controller === 'ai' && _isNetworkAiDriver())
             );
             const isNeutral = currentKey === 'neutral' &&
                 !gameState.aiActing && !_neutralAiLock;
@@ -1665,11 +1666,16 @@ async function _processNeutralTurn(isLocalSkirmish) {
 function _isNeutralDriverClient() {
     if (!isNetworkGame()) return true;
     const surrenderedKeys = gameState.surrenderedCamps.map(_campKey);
-    return getMyRole() === neutralDriverRole({
+    let driverRole = neutralDriverRole({
         turnOrder: gameState.turnOrder,
         roleAssignments: gameState.roleAssignments,
         surrenderedCampKeys: surrenderedKeys
     });
+    // 中立驱动方落在 AI 占位席位（无真实客户端）时，由房间驱动端（房主 player1）一并代理，
+    // 与服务器对 AI 席位/中立回合的放行规则保持一致。出生席位随机分配后需先翻译到阵营键。
+    const driverCampKey = driverRole ? (gameState.roleAssignments?.[driverRole] || driverRole) : driverRole;
+    if (driverCampKey && gameState.factions?.[driverCampKey]?.controller === 'ai') driverRole = 'player1';
+    return getMyRole() === driverRole;
 }
 
 // 中立回合接管兜底：投降把回合直切中立、联机重连/状态同步后落在中立回合时调用。
@@ -1683,6 +1689,58 @@ export async function resumeNeutralTurnIfNeeded() {
     _turnProcessing = true;
     try {
         await _processNeutralTurn(false);
+    } finally {
+        _turnProcessing = false;
+    }
+}
+
+// 本机是否为联机 AI 席位的驱动端。AI 占位席位没有真实客户端，
+// 由房主（player1）客户端代理执行其回合并广播；服务器据此放行。
+function _isNetworkAiDriver() {
+    return isNetworkGame() && getMyRole() === 'player1';
+}
+
+// 联机 AI 席位回合接管兜底：远端动作/状态同步/开局把回合落到 AI 席位时，
+// 由驱动端接手执行。与 resumeNeutralTurnIfNeeded 同一套互斥语义，
+// 防止与 endTurn 链并跑；连续的 AI 席位与中立回合在此一并推进。
+export async function resumeNetworkAiTurnIfNeeded() {
+    if (!isNetworkGame() || gameState.gameOver || _turnProcessing) return;
+    if (gameState.aiActing || _neutralAiLock) return;
+    if (!_isNetworkAiDriver()) return;
+    const startKey = _campKey(gameState.currentCamp);
+    if (startKey === 'neutral') return; // 中立走 resumeNeutralTurnIfNeeded
+    if (gameState.factions?.[startKey]?.controller !== 'ai') return;
+    _turnProcessing = true;
+    try {
+        for (let i = 0; i < Math.max(3, (gameState.turnOrder?.length || 0) + 1); i++) {
+            if (gameState.gameOver) break;
+            const currentKey = _campKey(gameState.currentCamp);
+            if (currentKey === 'neutral') {
+                await _processNeutralTurn(false);
+                continue;
+            }
+            if (gameState.factions?.[currentKey]?.controller !== 'ai') break; // 回到真人回合
+            gameState.aiActing = true;
+            try {
+                const { processOpponentTurn, getOpponentTurnWatchdogMs } = await import('./ai.js');
+                const watchdogMs = getOpponentTurnWatchdogMs(gameState.currentCamp);
+                await Promise.race([
+                    processOpponentTurn(gameState.currentCamp),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), watchdogMs))
+                ]);
+            } catch (e) {
+                if (e && e.message === 'AI_TIMEOUT') {
+                    logMessage('AI对手超时，强制结束回合');
+                } else {
+                    logMessage('AI对手执行出错，跳过回合');
+                }
+                console.warn('Network AI seat error:', e);
+            } finally {
+                gameState.aiActing = false;
+            }
+            await new Promise(r => setTimeout(r, 2500));
+            if (!gameState.gameOver) await _doEndTurnPhase();
+        }
     } finally {
         _turnProcessing = false;
     }
