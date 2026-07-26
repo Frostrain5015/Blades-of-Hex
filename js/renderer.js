@@ -2758,10 +2758,8 @@ export function drawCardCanvas(now) {
     const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
     const pileCount = gameState.cardDrawPile.length;
     const pileActive = (isMyTurn || isNeutralTurn) && canDraw && !gameState.cardTargeting;
-    // 空军上校无普通抽牌（专属空军卡为金币消耗、常驻手牌）→ 右上角留空
-    const isColonelPile = gameState['commander' + (campKey === 'player1' ? 'P1' : campKey === 'player2' ? 'P2' : 'P3')] === 'colonel';
-
-    const pileDepth = isColonelPile ? 0 : Math.min(pileCount, 5);
+    // 上校与其他将领一样使用标准对策牌（initCardDeck）；专属空军卡为金币门控、单独结算。
+    const pileDepth = Math.min(pileCount, 5);
     const isArmed = _drawPileArmed && pileActive;
     // Blink factor: pulses 0→1 when active (gold充足+己方回合) and not yet armed
     const blinkT = (pileActive && !isArmed) ? 0.5 + 0.5 * Math.sin(now * 0.006) : 0;
@@ -2815,7 +2813,7 @@ export function drawCardCanvas(now) {
     }
 
     // guard: when draw pile is empty, render a faint placeholder outline so the area is never invisible
-    if (pileCount === 0 && !isColonelPile) {
+    if (pileCount === 0) {
         cctx.save();
         cctx.strokeStyle = 'rgba(68,68,68,0.35)';
         cctx.lineWidth = 1;

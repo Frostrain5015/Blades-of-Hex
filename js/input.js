@@ -881,9 +881,7 @@ function _handleCardCanvasClick(e) {
         const isMyTurnLocal = _isLocalActionTurn();
         if (!isMyTurnLocal || gameState.cardTargeting) return;
 
-        // 空军上校无普通抽牌（专属空军卡为金币消耗、常驻手牌）→ 右上角点击无操作
-        const isColonel = gameState['commander' + (campKey === 'player1' ? 'P1' : campKey === 'player2' ? 'P2' : 'P3')] === 'colonel';
-        if (isColonel) return;
+        // 上校与其他将领一样可普通抽牌（专属空军卡为金币门控、不经此入口）
 
         // 普通抽牌（E3 纵横家合纵：手牌上限覆盖）
         const _dcCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;

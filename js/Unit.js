@@ -400,7 +400,9 @@ export class Unit {
         // 必须用显式入参标记 UI 意图，而非匹配 Error().stack 里的函数名——生产环境走压缩包
         // （BOH_SERVE_DIST=1）时 _applySpecializationChoice 会被重命名，栈名匹配永远失配，
         // 导致联机专精点击静默失败（无报错、不晋级）。
-        if (!fromUI && !_allowAutoSpecialization(this)) return false;
+        // 联机 AI 占位席位的例外：AI 代理执行（aiActing）且作用于当前行动阵营本单位时放行，
+        // 由 AI 基建链（runV2Infrastructure）显式选择；其他阵营单位仍必须走玩家 UI。
+        if (!fromUI && !_allowAutoSpecialization(this) && !(_gameState?.aiActing && this.camp === _gameState.currentCamp)) return false;
         this.specializationKey = specializationKey;
         this._rebuildRankProfile();
         emit('match:unitSpecialized', {
