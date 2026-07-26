@@ -27,9 +27,9 @@ function missionTargetBonus(world, missionsCtx, target, kills) {
     let bonus = 0;
     for (const mission of missionsCtx.missions) {
         if (mission.kind === 'siege'
-            && target.tile.q === mission.targetQ && target.tile.r === mission.targetR
-            && kills) {
-            bonus += mission.cityValue * 0.30;
+            && target.tile.q === mission.targetQ && target.tile.r === mission.targetR) {
+            if (kills) bonus += mission.cityValue * 0.30;
+            else if (mission.decisive) bonus += mission.cityValue * W.decisiveGarrisonProgressRatio;
         }
         if (mission.kind === 'intercept' && target.id === mission.targetUnitId) {
             bonus += mission.value;
@@ -79,8 +79,10 @@ function escortProtectionBonus(world, missionsCtx, attacker, target) {
 
 /** 中立单位一律可打，但由净交换纪律把关：划算的才打，啃不动的不打。 */
 function isNeutralEngageable(world, missionsCtx, target) {
-    return target.camp !== world.gameState.factions?.neutral
-        || !missionsCtx.suppressNeutralEngagements;
+    if (target.camp !== world.gameState.factions?.neutral
+        || !missionsCtx.suppressNeutralEngagements) return true;
+    return missionsCtx.missions.some(mission => mission.kind === 'siege'
+        && target.tile?.q === mission.targetQ && target.tile?.r === mission.targetR);
 }
 
 /** 威胁定价：按比例损失折算残余价值，而不是按 HP 单价——快死的单位每一步都更贵。 */
@@ -487,10 +489,12 @@ function planBreachSequence(world, missionsCtx, actions, processed) {
         const assaults = attackers.filter(unit => world.isCapturable(unit)
             && !world.combat.wouldDieToCounter(unit, garrison));
         const finisher = assaults.find(unit => unit.id === mission.occupierId) || assaults[0];
-        if (!finisher) continue; // 射程内没有近战终结者：火力先不浪费，等人到位
-        const finisherDamage = world.combat.estimateDamage(finisher, garrison, city.tile);
+        if (!finisher && !mission.clockCritical) continue; // 非残局继续等近战终结者到位
+        const finisherDamage = finisher
+            ? world.combat.estimateDamage(finisher, garrison, city.tile)
+            : 0;
         const softeners = attackers
-            .filter(unit => unit.id !== finisher.id && !world.combat.wouldDieToCounter(unit, garrison))
+            .filter(unit => unit.id !== finisher?.id && !world.combat.wouldDieToCounter(unit, garrison))
             .map(unit => ({ unit, damage: world.combat.estimateDamage(unit, garrison, city.tile) }))
             .filter(entry => entry.damage > 0)
             .sort((a, b) => b.damage - a.damage);
@@ -501,13 +505,25 @@ function planBreachSequence(world, missionsCtx, actions, processed) {
             sequence.push(entry);
             remaining -= entry.damage;
         }
-        if (remaining <= finisherDamage) {
+        if (finisher && remaining <= finisherDamage) {
             for (const entry of sequence) {
                 actions.push({ type: 'attack', unitId: entry.unit.id, targetId: garrison.id });
                 processed.add(entry.unit.id);
             }
             actions.push({ type: 'attack', unitId: finisher.id, targetId: garrison.id });
             processed.add(finisher.id);
+        } else if (mission.clockCritical) {
+            // 回合即将耗尽时，不能因为“本回合杀不完”就让驻军完整回血。
+            // 所有不会死于反击的在位攻击手持续压低同一守军，等待下一轮终结者收尾。
+            const pressure = attackers
+                .filter(unit => !world.combat.wouldDieToCounter(unit, garrison))
+                .map(unit => ({ unit, damage: world.combat.estimateDamage(unit, garrison, city.tile) }))
+                .filter(entry => entry.damage > 0)
+                .sort((a, b) => b.damage - a.damage);
+            for (const entry of pressure) {
+                actions.push({ type: 'attack', unitId: entry.unit.id, targetId: garrison.id });
+                processed.add(entry.unit.id);
+            }
         }
     }
 }

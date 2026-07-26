@@ -15,12 +15,25 @@ function canAfford(world, cost, strategy, extraReserve = 0) {
 }
 
 /** 招募城市兵种：突击缺口时步兵/骑兵置顶（对齐真人"城就是产能"的认知）。 */
-function landRecruitOrder(world, strategy) {
+function landRecruitOrder(world, strategy, missionsCtx) {
     const hostileFortifications = world.rivalUnits.filter(unit =>
         unit.type === 'laserTower' || unit.type === 'mgNest' || unit.type === 'shoreBattery').length;
     const myArchers = world.myUnits.filter(unit => unit.type === 'archer').length;
     if (world.caps.lethalFocus && hostileFortifications > myArchers) {
         return ['archer', 'cavalry', 'infantry'];
+    }
+    const decisiveSiege = missionsCtx.missions.find(mission =>
+        mission.kind === 'siege' && mission.decisive);
+    const targetCity = decisiveSiege
+        ? world.cities.find(city => city.tile.q === decisiveSiege.targetQ
+            && city.tile.r === decisiveSiege.targetR)
+        : null;
+    const assaultCount = world.myUnits.filter(unit => world.isCapturable(unit)).length;
+    const desiredSupport = Math.max(1, Math.ceil(assaultCount / W.siegeSupportPerAssault));
+    if (world.caps.lethalFocus && targetCity
+        && (targetCity.hp > 0 || targetCity.garrison)
+        && myArchers < desiredSupport) {
+        return ['archer', 'infantry', 'cavalry'];
     }
     if (strategy.assaultCapacity.deficit > 0) {
         return LAND_ORDER;
@@ -67,7 +80,7 @@ export function planProduction(world, strategy, missionsCtx) {
 
     // ── 1. 城市招募（含腾出来的格子）──────────────────────────
     const emptyCities = world.myCities.filter(city => !city.unit || city === vacatedCity);
-    const landOrder = landRecruitOrder(world, strategy);
+    const landOrder = landRecruitOrder(world, strategy, missionsCtx);
     let recruits = 0;
     const maxRecruits = world.caps.id === 'easy' ? 1 : 2;
     for (const city of emptyCities) {

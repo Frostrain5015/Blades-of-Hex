@@ -113,6 +113,16 @@ export const W = Object.freeze({
     // 编队：向同一任务集结的友军每个的集火价值（金币）。
     focusFireRallyValue: 14,
     lethalFocusMargin: 1.10,
+    // 残局攻城：除非新目标至少快这么多回合，否则不准整支军团换方向。
+    allInTargetSwitchEtaGain: 2,
+    // 已经打穿城防或削弱守军的目标拥有更强的沉没战果保护。
+    allInDamagedTargetSwitchEtaGain: 3,
+    // 死斗攻城编组 = 1 名占领者 + 至多 3 名护航/攻坚单位。
+    allInEscortCount: 3,
+    // 每三名可占城单位至少配一名炮兵，避免残局生产退化为纯步兵海。
+    siegeSupportPerAssault: 3,
+    // 决胜城市的驻军即使本回合杀不完，也值得持续压低生命值。
+    decisiveGarrisonProgressRatio: 0.16,
     laserTowerPriority: 32,
     rearCommanderRiskMultiplier: 2.1,
     rearCommanderCityValue: 180

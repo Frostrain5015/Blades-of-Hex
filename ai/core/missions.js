@@ -43,12 +43,13 @@ function pickOccupier(world, cityTile, preferredId = null) {
     return candidates[0] || null;
 }
 
-function pickEscorts(world, occupier, cityTile, count, excludeIds) {
+function pickEscorts(world, occupier, cityTile, count, excludeIds, includeCapturers = false) {
     if (!occupier || count <= 0) return [];
     const garrison = cityTile.unit && cityTile.unit.camp !== world.myCamp ? cityTile.unit : null;
     return world.myUnits
         .filter(unit => unit.id !== occupier.id && !excludeIds.has(unit.id))
-        .filter(unit => !world.isImmobile(unit) && !world.isCapturable(unit))
+        .filter(unit => !world.isImmobile(unit)
+            && (includeCapturers || !world.isCapturable(unit)))
         .filter(unit => !['minister', 'astrologer'].includes(unit.commander))
         .sort((a, b) => {
             // 守军还在时，优先选"打得动守军"的护航；否则选离占领者最近的。
@@ -58,6 +59,36 @@ function pickEscorts(world, occupier, cityTile, count, excludeIds) {
             return score(a) - score(b);
         })
         .slice(0, count);
+}
+
+/**
+ * 死斗目标锁定：残局最昂贵的浪费不是一次亏损交换，而是已经走到半路的军团换方向。
+ * 旧目标仍可在“明显更慢/已不可兑现”时被替换；城防已破或守军已受创时进一步提高换线门槛。
+ */
+function lockAllInObjective(world, strategy, ranked, previous) {
+    if (strategy.posture !== 'allin' || !world.caps.missionPersistence || ranked.length <= 1) {
+        return ranked;
+    }
+    const priorMission = previous.find(mission => mission.kind === 'siege');
+    if (!priorMission) return ranked;
+    const priorEntry = ranked.find(entry => entry.city.tile.q === priorMission.targetQ
+        && entry.city.tile.r === priorMission.targetR);
+    if (!priorEntry) return ranked;
+    if (strategy.finishTargetCampKey
+        && priorEntry.city.ownerKey !== strategy.finishTargetCampKey) return ranked;
+
+    const best = ranked[0];
+    if (best === priorEntry) return ranked;
+    const garrison = priorEntry.city.garrison;
+    const progressMade = priorEntry.city.hp <= 0
+        || (garrison && garrison.hp < garrison.maxHp * 0.75);
+    const requiredGain = progressMade
+        ? W.allInDamagedTargetSwitchEtaGain
+        : W.allInTargetSwitchEtaGain;
+    const clearlyFaster = best.eta + requiredGain <= priorEntry.eta;
+    const cannotFinish = priorEntry.eta > world.roundsRemaining + 1;
+    if (clearlyFaster || cannotFinish) return ranked;
+    return [priorEntry, ...ranked.filter(entry => entry !== priorEntry)];
 }
 
 /** 敌方"能占城的近战"逼近我方/中立城市时生成截杀任务；
@@ -162,18 +193,22 @@ export function assignMissions(world, strategy) {
             - Number(a.city.ownerKey === strategy.finishTargetCampKey);
         return targetDelta || a.eta - b.eta;
     });
+    const committedRanked = lockAllInObjective(world, strategy, rankedFiltered, previous);
     const siegeBudget = strategy.posture === 'allin' ? 1
         : strategy.posture === 'hold' || strategy.posture === 'defend' ? 0
-        : Math.min(2, rankedFiltered.length ? 1 + (world.myUnits.length >= 8 ? 1 : 0) : 0);
-    for (const entry of rankedFiltered.slice(0, siegeBudget)) {
+        : Math.min(2, committedRanked.length ? 1 + (world.myUnits.length >= 8 ? 1 : 0) : 0);
+    for (const entry of committedRanked.slice(0, siegeBudget)) {
         const city = entry.city;
         const prior = previous.find(m => m.kind === 'siege'
             && m.targetQ === city.tile.q && m.targetR === city.tile.r);
         const occupier = pickOccupier(world, city.tile, prior?.occupierId ?? null);
         if (!occupier) break;
         assigned.add(occupier.id);
-        const escortCount = !world.caps.multiEscort ? 1 : (world.oceanMap ? 2 : 1);
-        const escorts = pickEscorts(world, occupier, city.tile, escortCount, assigned);
+        const decisive = strategy.posture === 'allin';
+        const escortCount = !world.caps.multiEscort ? 1
+            : decisive ? W.allInEscortCount
+                : world.oceanMap ? 2 : 1;
+        const escorts = pickEscorts(world, occupier, city.tile, escortCount, assigned, decisive);
         escorts.forEach(unit => assigned.add(unit.id));
         const missionState = assessSiegeMission({
             cityOwned: false,
@@ -192,7 +227,10 @@ export function assignMissions(world, strategy) {
             escortIds: escorts.map(u => u.id),
             phase: prior && prior.phase !== 'hold' ? prior.phase : missionState.phase,
             createdRound: prior?.createdRound ?? world.round,
-            garrisonHp: city.garrison ? city.garrison.hp : 0
+            garrisonHp: city.garrison ? city.garrison.hp : 0,
+            decisive,
+            clockCritical: decisive && world.roundsRemaining <= Math.max(4, entry.eta + 1),
+            targetLocked: decisive && prior?.targetQ === city.tile.q && prior?.targetR === city.tile.r
         });
     }
 
@@ -313,6 +351,8 @@ export function assignMissions(world, strategy) {
     return {
         missions: alive,
         assignment,
-        suppressNeutralEngagements: !!strategy.emergencyDefenseCity || !!strategy.finishTargetCampKey
+        suppressNeutralEngagements: !!strategy.emergencyDefenseCity
+            || !!strategy.finishTargetCampKey
+            || strategy.posture === 'allin'
     };
 }

@@ -83,12 +83,14 @@ function makeHelpers(tiles) {
 }
 
 async function loadCore() {
-    const [{ buildWorld }, { decideStrategy }, { assignMissions }] = await Promise.all([
+    const [{ buildWorld }, { decideStrategy }, { assignMissions }, { planProduction }, { planTactics }] = await Promise.all([
         import('../ai/core/perceive.js'),
         import('../ai/core/strategize.js'),
-        import('../ai/core/missions.js')
+        import('../ai/core/missions.js'),
+        import('../ai/core/production.js'),
+        import('../ai/core/tactics.js')
     ]);
-    return { buildWorld, decideStrategy, assignMissions };
+    return { buildWorld, decideStrategy, assignMissions, planProduction, planTactics };
 }
 
 function makeState(tiles, factions, extra = {}) {
@@ -220,4 +222,102 @@ test('Imperator 发现两格内敌方占领者时立即停止攻城并转入紧�
     assert.equal(strategy.emergencyDefenseCity, home);
     assert.equal(missions.some(mission => mission.kind === 'siege'), false);
     assert.equal(missions.some(mission => mission.kind === 'garrison'), true);
+});
+
+test('死斗目标已经破城或削弱驻军时保持锁定，并把多支近战编入同一攻坚组', async () => {
+    const { buildWorld, decideStrategy, assignMissions } = await loadCore();
+    const me = { id: 'player1', name: '绿军' };
+    const foe = { id: 'player2', name: '紫军' };
+    const neutral = { id: 'neutral', name: '中立' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const committed = makeTile(3, 0, { isCity: true, camp: foe, districtId: 2, hp: 0 });
+    const tempting = makeTile(1, 2, { isCity: true, camp: foe, districtId: 3, hp: 0 });
+    const nearCommitted = makeTile(2, 0);
+    const nearTempting = makeTile(0, 2);
+    const reserve = makeTile(-1, 1);
+    makeUnit(1, 'infantry', me, home);
+    makeUnit(2, 'infantry', me, nearCommitted);
+    makeUnit(3, 'cavalry', me, nearTempting);
+    makeUnit(4, 'infantry', me, reserve);
+    makeUnit(20, 'infantry', foe, committed, { hp: 60 });
+    const tiles = [home, committed, tempting, nearCommitted, nearTempting, reserve];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, { turnCounter: 16 * 3 });
+    state._aiCoreMemory = {
+        player1: {
+            missions: [{
+                id: 'committed-siege', kind: 'siege', targetQ: 3, targetR: 0,
+                occupierId: 2, escortIds: [], phase: 'breach', createdRound: 15
+            }]
+        }
+    };
+    const world = buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const result = assignMissions(world, strategy);
+    const siege = result.missions.find(mission => mission.kind === 'siege');
+    assert.equal(strategy.posture, 'allin');
+    assert.deepEqual([siege.targetQ, siege.targetR], [3, 0]);
+    assert.equal(siege.targetLocked, true);
+    assert.equal(siege.escortIds.length, 3);
+    assert.equal(result.suppressNeutralEngagements, true);
+});
+
+test('死斗攻坚存在城防或驻军且炮兵比例不足时优先补炮兵', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planProduction } = await loadCore();
+    const me = { id: 'player1', name: '绿军' };
+    const foe = { id: 'player2', name: '紫军' };
+    const neutral = { id: 'neutral', name: '中立' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const factory = makeTile(-2, 0, { isCity: true, camp: me, districtId: 2 });
+    const target = makeTile(3, 0, { isCity: true, camp: foe, districtId: 3, hp: 180 });
+    const rival2 = makeTile(6, 0, { isCity: true, camp: foe, districtId: 4 });
+    const rival3 = makeTile(8, 0, { isCity: true, camp: foe, districtId: 5 });
+    const front = makeTile(1, 0);
+    const reserve = makeTile(0, 1);
+    makeUnit(1, 'infantry', me, home);
+    makeUnit(2, 'infantry', me, front);
+    makeUnit(3, 'cavalry', me, reserve);
+    makeUnit(20, 'infantry', foe, target);
+    makeUnit(21, 'infantry', foe, rival2);
+    makeUnit(22, 'infantry', foe, rival3);
+    const tiles = [home, factory, target, rival2, rival3, front, reserve];
+    const helpers = makeHelpers(tiles);
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        turnCounter: 16 * 3,
+        playerGold: { player1: 24, player2: 20, neutral: 0 }
+    });
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    const production = planProduction(world, strategy, missions);
+    assert.equal(strategy.posture, 'allin');
+    assert.equal(production.actions.find(action => action.type === 'recruit')?.unitType, 'archer');
+});
+
+test('时钟告急时即使无法一轮斩杀，也会让在位火力持续压低决胜城驻军', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1', name: '绿军' };
+    const foe = { id: 'player2', name: '紫军' };
+    const neutral = { id: 'neutral', name: '中立' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const target = makeTile(2, 0, { isCity: true, camp: foe, districtId: 2, hp: 0 });
+    const rival2 = makeTile(5, 0, { isCity: true, camp: foe, districtId: 3 });
+    const meleeTile = makeTile(1, 0);
+    const artilleryTile = makeTile(1, -1);
+    const melee = makeUnit(1, 'infantry', me, meleeTile);
+    const artillery = makeUnit(2, 'archer', me, artilleryTile);
+    const garrison = makeUnit(20, 'infantry', foe, target);
+    const tiles = [home, target, rival2, meleeTile, artilleryTile];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getAttackableTiles: unit => unit === melee || unit === artillery ? [target] : [],
+        getMovableTiles: () => []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, { turnCounter: 16 * 3 });
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    const actions = planTactics(world, strategy, missions);
+    const pressure = actions.filter(action => action.type === 'attack' && action.targetId === garrison.id);
+    assert.equal(missions.missions.find(mission => mission.kind === 'siege')?.clockCritical, true);
+    assert.equal(pressure.length, 2);
 });
