@@ -4293,7 +4293,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     let committedActionId = null;
     const withCardCause = callback => withMatchActionCause(gameState, committedActionId, callback);
 
-    const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
+    // 联机下人类操作按本机角色定阵营；AI 代理执行（aiActing，含联机 AI 占位席位）时
+    // 必须按当前行动阵营结算，否则目标校验、手牌、金币全部落到驱动端房主阵营上。
+    const myCamp = isNetworkGame() && !gameState.aiActing ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
     const campKey = _campKey(myCamp);
 
     // 天衡【日月天衡】已改为充能制被动（回合末回收行动力自动触发），无卡牌结算。
@@ -4461,7 +4463,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
 
     function _executeAirliftDest(targetTile) {
     if (!gameState._airliftTarget) { notify('请先选择空运单位', 'error'); return; }
-    const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
+    // 联机下人类操作按本机角色定阵营；AI 代理执行（aiActing，含联机 AI 占位席位）时
+    // 必须按当前行动阵营结算，否则目标校验、手牌、金币全部落到驱动端房主阵营上。
+    const myCamp = isNetworkGame() && !gameState.aiActing ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
     const aCampKey = _campKey(myCamp);
     const airUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === gameState._airliftTarget.unitId ? t.unit : null), null);
     if (!airUnit || !airUnit.tile) { notify('空运单位已不存在', 'error'); gameState._airliftTarget = null; gameState.cardTargeting = null; hideTargetingBanner(); updateUI(); return; }
