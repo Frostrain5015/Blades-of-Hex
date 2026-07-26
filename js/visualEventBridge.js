@@ -55,27 +55,21 @@ on('fx:eagleSynergy', event => {
     }
     const factionName = gameState.factions?.[event.campKey]?.name || '';
     logMessage(`📦 ${factionName}阵营协同【轨道补给】：天基平台完成战果核算，拨付$${event.goldAwarded}`);
-    // Hero 动画已移至天基打击对策卡发动时刻（fx:eagleOrbitalStrikeActivation），此处仅日志
-});
-// 天基打击发动 → 天鹰协同 Hero 全屏动画（取代轨道补给触发时机）
-on('fx:eagleOrbitalStrikeActivation', event => {
-    if (!event?.campKey) return;
-    playEagleSynergyPresentation(event);
+    if (event.goldAwarded > 0) playEagleSynergyPresentation(event);
 });
 // 轨道补给结算节拍：向棋盘发放金币雨与 +$ 浮字（由后半段动画在对点时触发）
 on('fx:eagleSupplyDrop', event => {
-    const commanders = (event.commanders || [])
-        .filter(commander => Number.isFinite(commander.x) && Number.isFinite(commander.y));
-    if (commanders.length === 0) return;
+    const cities = (event.cities || [])
+        .filter(city => Number.isFinite(city.x) && Number.isFinite(city.y));
+    if (cities.length === 0 || !(event.goldAwarded > 0)) return;
     const now = performance.now();
-    const centerX = commanders.reduce((sum, commander) => sum + commander.x, 0) / commanders.length;
-    const centerY = commanders.reduce((sum, commander) => sum + commander.y, 0) / commanders.length;
+    const payoutCity = cities[0];
     gameState.goldTexts.push({
-        x: centerX, y: centerY,
-        value: event.goldAwarded || 0, prefix: '+', color: '#f5d76e', shadowColor: '#7fd0ff',
+        x: payoutCity.x, y: payoutCity.y,
+        value: event.goldAwarded, prefix: '+', color: '#f5d76e', shadowColor: '#7fd0ff',
         timeLeft: 1600, lastUpdate: now
     });
-    for (const commander of commanders) spawnCoinRain(commander.x, commander.y, 1);
+    for (const city of cities) spawnCoinRain(city.x, city.y, 1);
 });
 // 天鹰计量实时刷新：战功/受创每次变动都需立即反映到 HUD 被动区与金币显示，
 // 尤其是空袭落弹等延迟结算路径（不在常规 updateUI 节拍上）。按帧节流，AOE 只刷一次。

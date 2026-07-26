@@ -58,7 +58,7 @@ import { COLONEL_CARD_DATA, ORBITAL_STRIKE_TICK_DELAYS_MS, getCardMeta } from '.
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { MORALE_CONFIG } from '../rules/terrain.js';
 import { applyPositionalMoralePenalty, clearPositionalMoralePenalty } from '../rules/morale.js';
-import { getFellowRobeDefenseBonus, EAGLE_FACTION_SYNERGY } from '../rules/factionSynergies.js';
+import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 import { emit } from './eventBus.js';
 import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
@@ -73,7 +73,8 @@ import {
     isEagleAirAttacker,
     isEagleFortressAttacker,
     processEagleSupplyAtTurnStart,
-    buildCommanderAnchors
+    buildCommanderAnchors,
+    buildControlledCityAnchors
 } from '../rules/eagle.js';
 import {
     BLOOD_MOON_WEATHER,
@@ -117,10 +118,12 @@ import {
     canBuildAirfieldAt,
     canBuildBunkerAt,
     canBuildFieldFortification,
+    canBuildFieldFortificationAt,
     canBuildLaserTowerAt,
     canBuildShoreBatteryAt,
     canFieldRepair,
-    constructionCost
+    constructionCost,
+    findConstructionEngineer
 } from '../rules/construction.js';
 import { resolveLaserTowerVolley } from '../rules/laserTower.js';
 import {
@@ -1228,6 +1231,7 @@ async function _doEndTurnPhase() {
     let bloodMoonBleeds = null; // 诺克提斯血月·月蚀放血打点（isRoundAnchor 内填充，广播时附带）
     let sunMoonTrigger = null; // 天衡【日月天衡】充能触发数据（下方填充，广播时附带）
     let laserVolleys = null; // 激光塔【集束激光】回合开始齐射载荷（下方填充，广播时附带）
+    let eagleSupplyEvent = null; // 天鹰【轨道补给】仅在回合初实际获得金币时播放
 
     // 包装 spawnFx 引用以收集特效坐标（不直接覆写 import binding）
     const origSpawn = spawnCommanderSkillEffect;
@@ -1311,7 +1315,16 @@ async function _doEndTurnPhase() {
     // 轨道补给：回合初结算天鹰阵营累计战功，自动拨付等效补给金费
     const supplyAmt = processEagleSupplyAtTurnStart(gameState, _campKey(gameState.currentCamp));
     if (supplyAmt > 0) {
-        logMessage(`📦 ${gameState.currentCamp.name}阵营协同【轨道补给】：天基平台核算战功，拨付$${supplyAmt}`);
+        const supplyCampKey = _campKey(gameState.currentCamp);
+        eagleSupplyEvent = {
+            kind: 'orbitalSupply',
+            presentationEventId: `eagleSupply:${supplyCampKey}:${gameState.turnCounter}`,
+            campKey: supplyCampKey,
+            goldAwarded: supplyAmt,
+            commanders: buildCommanderAnchors(gameState, supplyCampKey),
+            cities: buildControlledCityAnchors(gameState, supplyCampKey)
+        };
+        emit('fx:eagleSynergy', eagleSupplyEvent);
     }
     // 激光塔【集束激光】：回合开始自动齐射射程内全部合法目标（命中越多单发越高）
     laserVolleys = resolveLaserTowerVolley(gameState, _campKey(gameState.currentCamp), { isTileVisible });
@@ -1492,7 +1505,8 @@ async function _doEndTurnPhase() {
         bloodMoonRising: !!gameState._bloodMoonRising || undefined,
         bloodMoonAnchor: gameState._bloodMoonAnchor || undefined,
         sunMoonTrigger: sunMoonTrigger || undefined,
-        laserTowerVolleys: laserVolleys?.volleys?.length > 0 ? laserVolleys.volleys : null
+        laserTowerVolleys: laserVolleys?.volleys?.length > 0 ? laserVolleys.volleys : null,
+        eagleSupplyEvent
     });
     // 天衡【日月天衡】充能触发：广播之后播本地 Hero 动画
     if (sunMoonTrigger) {
@@ -3593,128 +3607,94 @@ export function executeEngineerBunkerConstruction(engineerUnit, targetTile) {
     return true;
 }
 
+export function executeConstructionAt(kind, targetTile, { builder = null, consumeBuilderAction = false } = {}) {
+    const camp = gameState.currentCamp;
+    const fieldKind = kind === 'trench' || kind === 'flak';
+    const legal = fieldKind
+        ? canBuildFieldFortificationAt(targetTile, kind, camp, gameState)
+        : kind === 'bunker'
+            ? canBuildBunkerAt(camp, targetTile, gameState)
+            : kind === 'shoreBattery'
+                ? canBuildShoreBatteryAt(targetTile, camp, gameState)
+                : kind === 'laserTower' && canBuildLaserTowerAt(camp, targetTile, gameState);
+    if (!legal) {
+        notify('无法在该位置建造所选工事', 'error');
+        return false;
+    }
+
+    const supportingEngineer = builder?.commander === 'engineer'
+        ? builder
+        : findConstructionEngineer(gameState, camp);
+    const campKey = _campKey(camp);
+    const cost = constructionCost(kind, supportingEngineer);
+    if ((gameState.playerGold[campKey] || 0) < cost) {
+        notify('金币不足', 'error');
+        return false;
+    }
+    gameState.playerGold[campKey] -= cost;
+
+    let builtUnit = null;
+    if (fieldKind) {
+        targetTile.fortification = kind;
+        targetTile.fieldFortification = { type: kind, campKey, ownerKnown: true };
+        invalidateBoard();
+    } else {
+        const unitType = kind === 'bunker' ? 'mgNest' : kind;
+        builtUnit = new Unit(unitType, camp, targetTile, false);
+        builtUnit._isImmobile = true;
+        builtUnit.remainingMP = 0;
+        builtUnit.canAct = false;
+        if (kind === 'bunker' && supportingEngineer?.commander !== 'engineer') {
+            builtUnit._constructionScaffold = {
+                type: 'bunker', campKey,
+                readyRound: getRoundIndex(gameState) + CONSTRUCTION_CONFIG.bunker.buildTurns
+            };
+        }
+        if (kind === 'shoreBattery') recordShoreBatteryBuilt(gameState, camp);
+        triggerRecruitFlash(targetTile.x, targetTile.y);
+        spawnRecruitEffect(targetTile.x, targetTile.y);
+    }
+
+    if (consumeBuilderAction && builder) {
+        builder.remainingMP = 0;
+        builder.canAct = false;
+    }
+    recalcAllFlankingMorale();
+    if (gameState.skirmishFog) _updateSkirmishFogAll();
+    updateUI();
+    logMessage(`${camp.name}修建【${CONSTRUCTION_CONFIG[kind].name}】`);
+    broadcastAction('buildFortification', {
+        kind,
+        builderUnitId: builder?.id || null,
+        unitId: builtUnit?.id || null,
+        q: targetTile.q,
+        r: targetTile.r,
+        cost,
+        engineerDiscount: supportingEngineer?.commander === 'engineer',
+        immediate: kind !== 'bunker' || !builtUnit?._constructionScaffold,
+        readyRound: builtUnit?._constructionScaffold?.readyRound ?? null
+    });
+    return true;
+}
+
 export function executeFieldConstruction(unit, kind) {
     if (!canBuildFieldFortification(unit, kind, gameState)) {
         notify('当前地块不能修建该工事', 'error');
         return false;
     }
-    const campKey = _campKey(unit.camp);
-    const cost = constructionCost(kind, unit);
-    if ((gameState.playerGold[campKey] || 0) < cost) {
-        notify('金币不足', 'error');
-        return false;
-    }
-    gameState.playerGold[campKey] -= cost;
-    unit.tile.fortification = kind;
-    unit.tile.fieldFortification = { type: kind, campKey, ownerKnown: true };
-    unit.remainingMP = 0;
-    unit.canAct = false;
-    invalidateBoard();
-    updateUI();
-    logMessage(`${unit.camp.name}${unit.config.name}修建【${CONSTRUCTION_CONFIG[kind].name}】`);
-    broadcastAction('buildFortification', {
-        unitId: unit.id, kind, q: unit.tile.q, r: unit.tile.r,
-        cost, engineerDiscount: unit.commander === 'engineer'
-    });
-    return true;
+    return executeConstructionAt(kind, unit.tile, { builder: unit, consumeBuilderAction: true });
 }
 
 export function executeBunkerConstruction(unit, targetTile) {
-    if (!canBuildBunkerAt(unit, targetTile, gameState)) {
-        notify('无法在该位置建造碉堡', 'error');
-        return false;
-    }
-    const campKey = _campKey(unit.camp);
-    const cost = constructionCost('bunker', unit);
-    if ((gameState.playerGold[campKey] || 0) < cost) {
-        notify('金币不足', 'error');
-        return false;
-    }
-    gameState.playerGold[campKey] -= cost;
-    const bunker = new Unit('mgNest', unit.camp, targetTile, false);
-    bunker._isImmobile = true;
-    bunker.remainingMP = 0;
-    bunker.canAct = false;
-    if (unit.commander === 'engineer') {
-        bunker._constructionScaffold = null;
-    } else {
-        bunker._constructionScaffold = {
-            type: 'bunker', campKey,
-            readyRound: getRoundIndex(gameState) + CONSTRUCTION_CONFIG.bunker.buildTurns
-        };
-    }
-    unit.remainingMP = 0;
-    unit.canAct = false;
-    spawnRecruitEffect(targetTile.x, targetTile.y);
-    updateUI();
-    broadcastAction('buildBunker', {
-        unitId: unit.id, bunkerId: bunker.id, q: targetTile.q, r: targetTile.r,
-        cost, immediate: unit.commander === 'engineer',
-        readyRound: bunker._constructionScaffold?.readyRound ?? getRoundIndex(gameState)
-    });
-    return true;
+    return executeConstructionAt('bunker', targetTile, { builder: unit, consumeBuilderAction: true });
 }
 
 export function executeLaserTowerConstruction(unit, targetTile) {
-    if (!canBuildLaserTowerAt(unit, targetTile, gameState)) {
-        notify('无法在该位置建造激光塔（需相邻己方空地，且 7 格内无同类建筑）', 'error');
-        return false;
-    }
-    const campKey = _campKey(unit.camp);
-    const cost = constructionCost('laserTower', unit);
-    if ((gameState.playerGold[campKey] || 0) < cost) {
-        notify('金币不足', 'error');
-        return false;
-    }
-    gameState.playerGold[campKey] -= cost;
-    const tower = new Unit('laserTower', unit.camp, targetTile, false);
-    tower._isImmobile = true;
-    tower.remainingMP = 0;
-    // 激光塔不手动攻击：火力来自回合开始的集束齐射（rules/laserTower.js）
-    tower.canAct = false;
-    unit.remainingMP = 0;
-    unit.canAct = false;
-    spawnRecruitEffect(targetTile.x, targetTile.y);
-    updateUI();
-    broadcastAction('buildFortification', {
-        kind: 'laserTower', unitId: unit.id, towerId: tower.id, q: targetTile.q, r: targetTile.r, cost
-    });
-    return true;
+    return executeConstructionAt('laserTower', targetTile, { builder: unit, consumeBuilderAction: true });
 }
 
 export function executeShoreBatteryConstruction(targetTile) {
-    const camp = gameState.currentCamp;
-    if (!canBuildShoreBatteryAt(targetTile, camp, gameState)) {
-        notify('岸防炮只能建在己方空沿海陆地，且阵营建造冷却必须结束', 'error');
-        return false;
-    }
-    const campKey = _campKey(camp);
-    const cost = constructionCost('shoreBattery');
-    if ((gameState.playerGold[campKey] || 0) < cost) {
-        notify('金币不足', 'error');
-        return false;
-    }
-    gameState.playerGold[campKey] -= cost;
-    const battery = new Unit('shoreBattery', camp, targetTile, false);
-    battery.remainingMP = 0;
-    battery.canAct = false;
-    recordShoreBatteryBuilt(gameState, camp);
-    triggerRecruitFlash(targetTile.x, targetTile.y);
-    spawnRecruitEffect(targetTile.x, targetTile.y);
-    gameState.goldTexts.push({
-        x: targetTile.x, y: targetTile.y,
-        value: cost, prefix: '-', color: '#ff5555', shadowColor: '#661111',
-        timeLeft: 1800, lastUpdate: performance.now()
-    });
-    spawnGoldParticles(targetTile.x, targetTile.y, '#cc5555');
-    recalcAllFlankingMorale();
-    if (gameState.skirmishFog) _updateSkirmishFogAll();
-    updateUI();
-    logMessage(`${camp.name}在沿海修建【岸防炮】`);
-    broadcastAction('buildFortification', {
-        kind: 'shoreBattery', unitId: battery.id, q: targetTile.q, r: targetTile.r, cost
-    });
-    return true;
+    return executeConstructionAt('shoreBattery', targetTile);
 }
 
 export function executeAirfieldConstruction(cityTile) {
@@ -4744,21 +4724,9 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         case 'orbitalStrike': {
             const oResults = result.results || [];
             logMessage(`🛰️【天基打击】天基平台对(${targetTile.q},${targetTile.r})及周边实施轨道光束打击`);
-            // 天基打击发动 → 触发天鹰协同 Hero 动画（取代原轨道补给触发时机）
-            const strikeCampKey = _campKey(myCamp);
-            const eagleHeroActive = hasEagleSynergyActive(gameState, strikeCampKey);
-            if (eagleHeroActive) {
-                emit('fx:eagleOrbitalStrikeActivation', {
-                    campKey: strikeCampKey,
-                    commanders: buildCommanderAnchors(gameState, strikeCampKey)
-                });
-            }
             // 分段伤害数字同步登记（含烧牌+各段节拍延迟），广播快照可捕获
             const orbitalFinalTickIndex = ORBITAL_STRIKE_TICK_DELAYS_MS.length - 1;
-            // 若触发天鹰 Hero，光束需等 Hero 播放完毕再开始；否则保持原有烧牌延迟。
-            const ORBITAL_STRIKE_START_DELAY_MS = eagleHeroActive
-                ? EAGLE_FACTION_SYNERGY.hero.durationMs
-                : BURN_MS;
+            const ORBITAL_STRIKE_START_DELAY_MS = BURN_MS;
             for (const r of oResults) {
                 const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                 if (!tile) continue;

@@ -12,7 +12,13 @@ import { isSubmarineTargetableBy } from './naval.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN } from './movement.js';
 import { isBuildingUnit } from './units.js';
-import { hasSameTypeBuildingWithin, canBuildShoreBatteryAt } from './construction.js';
+import {
+    canBuildBunkerAt,
+    canBuildFieldFortificationAt,
+    canBuildLaserTowerAt,
+    canBuildShoreBatteryAt,
+    hasSameTypeBuildingWithin
+} from './construction.js';
 import { canAttack } from './diplomacy.js';
 import { getAirCommandRange } from './airCommands.js';
 import { isCitySiegeBlocked } from './citySiege.js';
@@ -161,27 +167,21 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
             && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest');
     }
     if (cardId === 'build_bunker') {
-        const source = sources.sourceUnit;
-        return !!source?.tile && sameCamp(source.camp, myCamp) && !unit
-            && isLandDeploymentTile(tile) && sameCamp(tile.camp, myCamp)
-            && !tile.isCity && !tile.isVillage && !tile.isPort
-            && hexDistance(source.tile, tile) === 1
-            && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest');
+        return canBuildBunkerAt(myCamp, tile, gameState);
     }
     if (cardId === 'build_laser_tower') {
-        const source = sources.sourceUnit;
-        return !!source?.tile && sameCamp(source.camp, myCamp) && !unit
-            && isLandDeploymentTile(tile) && sameCamp(tile.camp, myCamp)
-            && !tile.isCity && !tile.isVillage && !tile.isPort
-            && hexDistance(source.tile, tile) === 1
-            && !hasSameTypeBuildingWithin(gameState, tile, 'laserTower');
+        return canBuildLaserTowerAt(myCamp, tile, gameState);
     }
     if (cardId === 'build_shore_battery') {
-        // 单位建设菜单发起的岸防炮：建造者相邻的合法沿海格（冷却/间距/沿海判定走规则源）
-        const source = sources.sourceUnit;
-        return !!source?.tile && sameCamp(source.camp, myCamp) && !unit
-            && hexDistance(source.tile, tile) === 1
-            && canBuildShoreBatteryAt(tile, myCamp, gameState);
+        return canBuildShoreBatteryAt(tile, myCamp, gameState);
+    }
+    if (cardId === 'build_trench' || cardId === 'build_flak') {
+        return canBuildFieldFortificationAt(
+            tile,
+            cardId === 'build_trench' ? 'trench' : 'flak',
+            myCamp,
+            gameState
+        );
     }
     if (cardId === 'field_repair') {
         const source = sources.sourceUnit;

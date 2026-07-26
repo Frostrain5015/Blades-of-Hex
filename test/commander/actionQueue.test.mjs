@@ -5,6 +5,7 @@ export async function run(browser) {
     const R = await page.evaluate(async () => {
         const state = await import('/js/state.js');
         const input = await import('/js/input.js');
+        const targeting = await import('/rules/targeting.js');
         const { CAMP, TERRAIN_CONFIG, FORTIFICATION_CONFIG } = await import('/js/config.js');
         const { HexTile } = await import('/js/HexTile.js');
         const { Unit } = await import('/js/Unit.js');
@@ -49,14 +50,20 @@ export async function run(browser) {
         assert(construction?.getAttribute('aria-disabled') === 'false' && repair?.getAttribute('aria-disabled') === 'true', '建设可用；没有相邻受损建筑时抢修明确禁用');
         assert(construction?.style.getPropertyValue('--board-action-background').includes('#8c6a2e'), '统一建设入口使用工程主题色');
         construction?.click();
-        assert(document.getElementById('weatherChoiceOverlay')?.classList.contains('show')
-            && document.querySelectorAll('#choiceModalGrid .specialization-card').length === 3,
-        '单击建设按钮打开包含三种工事的二级弹窗');
+        const constructionCardCount = document.querySelectorAll('#choiceModalGrid .specialization-card').length;
+        const constructionOverlayOpen = document.getElementById('weatherChoiceOverlay')?.classList.contains('show');
+        assert(constructionOverlayOpen && constructionCardCount === 5,
+        `单击常驻建设按钮打开包含五种工事的二级弹窗（open=${constructionOverlayOpen}, cards=${constructionCardCount}）`);
         const constructionCards = [...document.querySelectorAll('#choiceModalGrid .specialization-card')];
         assert(constructionCards[0]?.disabled === false && constructionCards[1]?.disabled === false,
-        '可行动地面单位的战壕与高射机枪选项正常启用');
-        assert([...document.querySelectorAll('#choiceModalGrid .specialization-stat')].map(node => node.textContent).join('|') === '费用 $1|费用 $1|费用 $7', '工程师折扣在二级弹窗中统一展示');
-        document.getElementById('choiceModalCancel')?.click();
+        `可行动地面单位的战壕与高射机枪选项正常启用（disabled=${constructionCards.slice(0, 2).map(card => card.disabled).join(',')}）`);
+        const constructionCosts = [...document.querySelectorAll('#choiceModalGrid .specialization-stat')].map(node => node.textContent).join('|');
+        assert(constructionCosts === '费用 $1|费用 $1|费用 $7|费用 $10|费用 $15', `工程师折扣在二级弹窗中统一展示（${constructionCosts}）`);
+        constructionCards[4]?.click();
+        const laserPreview = targeting.resolveTargetingPreview(gameState, gameState.cardTargeting, { myCamp: CAMP.player1 });
+        assert(gameState.cardTargeting?.cardId === 'build_laser_tower'
+            && laserPreview.candidateTileKeys.has('1,0'), `激光塔按钮进入选址且显示6格内非己方空地为合法目标（card=${gameState.cardTargeting?.cardId || 'none'}, candidates=${[...laserPreview.candidateTileKeys].join('|')}）`);
+        gameState.cardTargeting = null;
 
         city.fortification = 'trench';
         input.syncBoardActionBar();
@@ -70,7 +77,9 @@ export async function run(browser) {
         gameState.selectedUnit = null;
         gameState.selectedTile = null;
         input.syncBoardActionBar();
-        assert(!actionBar?.classList.contains('visible'), '取消选中后画布内动作条淡出');
+        assert(actionBar?.classList.contains('visible')
+            && document.querySelectorAll('#canvasActionButtons button').length === 1
+            && !!document.getElementById('boardConstructionMenu'), '取消选中后仍保留唯一的常驻建设入口');
 
         const glyphCalls = [];
         const fakeContext = {

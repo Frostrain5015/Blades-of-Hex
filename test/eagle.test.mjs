@@ -28,6 +28,7 @@ const {
     EAGLE_ORBITAL_STRIKE_CARD_ID,
     accrueEagleDamageTaken,
     accrueEagleSynergyDamage,
+    buildControlledCityAnchors,
     processEagleSupplyAtTurnStart,
     getEagleSynergyMeter,
     hasEagleSynergyActive,
@@ -165,6 +166,18 @@ test('轨道补给：未激活协同或无累计战功时拨付为 0', () => {
     // 未激活天鹰协同（无将领）
     assert.equal(processEagleSupplyAtTurnStart(state, 'player1'), 0);
     assert.equal(processEagleSupplyAtTurnStart(state, 'player2'), 0);
+});
+
+test('轨道补给表现锚点只取天鹰阵营控制的城市', () => {
+    const { state } = setupEagleState();
+    state.tiles.push(
+        { q: 7, r: 0, x: 700, y: 300, isCity: true, camp: state.factions.player1 },
+        { q: 8, r: 0, x: 800, y: 300, isCity: true, camp: state.factions.player2 },
+        { q: 9, r: 0, x: 900, y: 300, isUrban: true, camp: state.factions.player1 }
+    );
+    assert.deepEqual(buildControlledCityAnchors(state, 'player1'), [
+        { q: 7, r: 0, x: 700, y: 300 }
+    ]);
 });
 
 test('天基打击授权：受创跨阈值发放对策卡，未达阈值不发放', () => {

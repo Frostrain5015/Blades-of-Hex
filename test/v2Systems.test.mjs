@@ -10,7 +10,11 @@ import {
 } from '../rules/units.js';
 import {
     CONSTRUCTION_CONFIG,
+    DEFENSE_CONSTRUCTION_SUPPORT_RANGE,
+    canBuildBunkerAt,
     canBuildFieldFortification,
+    canBuildFieldFortificationAt,
+    canBuildLaserTowerAt,
     canBuildShoreBatteryAt,
     constructionCost,
     getAirfieldCap
@@ -96,6 +100,42 @@ test('地面部队可在中立或敌控陆地就地修建战壕与高射机枪',
     };
     assert.equal(canBuildFieldFortification(unit, 'trench', state), true);
     assert.equal(canBuildFieldFortification(unit, 'flak', state), true);
+});
+
+test('常驻建设规则：地形工事覆盖己方行政区，并允许己军脚下的非己方行政区', () => {
+    const camp = { id: 'player1' };
+    const enemy = { id: 'player2' };
+    const owned = { q: 0, r: 0, surface: 'land', playable: true, camp, unit: null, fortification: null, fieldFortification: null };
+    const occupiedEnemy = { q: 1, r: 0, surface: 'land', playable: true, camp: enemy, fortification: null, fieldFortification: null };
+    occupiedEnemy.unit = { hp: 100, camp };
+    const unsupportedEnemy = { q: 2, r: 0, surface: 'land', playable: true, camp: enemy, unit: null, fortification: null, fieldFortification: null };
+    const state = { currentCamp: camp, mechanics: { fortifications: true }, tiles: [owned, occupiedEnemy, unsupportedEnemy] };
+
+    assert.equal(canBuildFieldFortificationAt(owned, 'trench', camp, state), true);
+    assert.equal(canBuildFieldFortificationAt(occupiedEnemy, 'flak', camp, state), true);
+    assert.equal(canBuildFieldFortificationAt(unsupportedEnemy, 'trench', camp, state), false);
+    owned.fortification = 'trench';
+    assert.equal(canBuildFieldFortificationAt(owned, 'flak', camp, state), false, '同一格不得叠加地形工事');
+});
+
+test('常驻建设规则：防御建筑覆盖己方行政区，非己方行政区以任意己军6格支援', () => {
+    const camp = { id: 'player1' };
+    const enemy = { id: 'player2' };
+    const support = { q: 0, r: 0, s: 0, surface: 'land', playable: true, camp: enemy };
+    support.unit = { hp: 100, camp };
+    const ownedFar = { q: 12, r: 0, s: -12, surface: 'land', playable: true, camp, unit: null };
+    const enemyAtSix = { q: DEFENSE_CONSTRUCTION_SUPPORT_RANGE, r: 0, s: -DEFENSE_CONSTRUCTION_SUPPORT_RANGE, surface: 'land', playable: true, camp: enemy, unit: null };
+    const enemyAtSeven = { q: DEFENSE_CONSTRUCTION_SUPPORT_RANGE + 1, r: 0, s: -(DEFENSE_CONSTRUCTION_SUPPORT_RANGE + 1), surface: 'land', playable: true, camp: enemy, unit: null };
+    const state = { currentCamp: camp, mechanics: { fortifications: true }, tiles: [support, ownedFar, enemyAtSix, enemyAtSeven] };
+
+    assert.equal(canBuildBunkerAt(camp, ownedFar, state), true, '己方行政区不受部队距离限制');
+    assert.equal(canBuildLaserTowerAt(camp, enemyAtSix, state), true);
+    assert.equal(canBuildLaserTowerAt(camp, enemyAtSeven, state), false);
+    enemyAtSix.unit = { hp: 100, camp };
+    assert.equal(canBuildBunkerAt(camp, enemyAtSix, state), false, '防御建筑只能建在空地');
+    enemyAtSix.unit = null;
+    enemyAtSix.fortification = 'trench';
+    assert.equal(canBuildBunkerAt(camp, enemyAtSix, state), false, '防御建筑不得覆盖已有地形工事');
 });
 
 test('战役 schema 接受机场、军衔专精和精确专精数量条件', () => {

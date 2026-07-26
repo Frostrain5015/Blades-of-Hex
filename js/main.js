@@ -78,8 +78,7 @@ import { battlefieldDelegation, setBattlefieldDelegation } from './rendering/del
 import {
     AIR_COMMAND_IMPACT_DELAY_MS
 } from '../rules/airCommands.js';
-import { getCommanderFactionSynergy, EAGLE_FACTION_SYNERGY } from '../rules/factionSynergies.js';
-import { hasEagleSynergyActive, buildCommanderAnchors } from '../rules/eagle.js';
+import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
 import { getOracleStatueAnchor, CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
 import { resolveBorrowDay } from '../rules/tianheng.js';
 
@@ -3272,6 +3271,9 @@ async function handleRemoteAction(msg) {
             if (e && e.laserTowerVolleys) {
                 emit('fx:laserTowerVolley', { volleys: e.laserTowerVolleys });
             }
+            if (e?.eagleSupplyEvent?.goldAwarded > 0) {
+                emit('fx:eagleSynergy', e.eagleSupplyEvent);
+            }
             // 重放诺克提斯【血月·月蚀】放血浮字（血量已随快照同步，此处只放浮字/特效）
             if (e && e.bloodMoonBleeds) {
                 for (const h of e.bloodMoonBleeds) {
@@ -3439,19 +3441,7 @@ async function handleRemoteAction(msg) {
                         case 'orbitalStrike': {
                             const oResults = e.orbitalStrikeResults || [];
                             // 与本地同一节拍：光束压制三段小额 + 光环落地引爆主伤害
-                            // 若触发天鹰 Hero，远端也播放 Hero，并等 Hero 结束后再开始光束。
-                            const strikeCamp = roleToCamp(msg.originRole);
-                            const strikeCampKey = strikeCamp ? campToKey(strikeCamp) : null;
-                            const eagleHeroActive = strikeCampKey && hasEagleSynergyActive(gameState, strikeCampKey);
-                            if (eagleHeroActive) {
-                                emit('fx:eagleOrbitalStrikeActivation', {
-                                    campKey: strikeCampKey,
-                                    commanders: buildCommanderAnchors(gameState, strikeCampKey)
-                                });
-                            }
-                            const ORBITAL_STRIKE_START_DELAY_MS = eagleHeroActive
-                                ? EAGLE_FACTION_SYNERGY.hero.durationMs
-                                : BURN_MS;
+                            const ORBITAL_STRIKE_START_DELAY_MS = BURN_MS;
                             const applyRemoteOrbitalTick = (tickIndex, isFinal) => {
                                 // 分段伤害数字由 e.floatTexts 重放；弹着派生跳字两端各自推导（仅显示，不进广播捕获）
                                 setFloatTextCaptureSuppressed(true);

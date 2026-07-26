@@ -126,16 +126,21 @@ export function createOrbitalSupplyFollowup({ root, event, presentation, stageRe
     const container = root.querySelector('.faction-synergy-followup');
     const commanders = (event.commanders || [])
         .filter(commander => Number.isFinite(commander.x) && Number.isFinite(commander.y));
-    if (!container || commanders.length === 0) return null;
+    const cities = (event.cities || [])
+        .filter(city => Number.isFinite(city.x) && Number.isFinite(city.y));
+    if (!container || commanders.length === 0 || cities.length === 0 || !(event.goldAwarded > 0)) return null;
 
     const elements = createFollowupElements(container, commanders.length);
     const viewport = root.getBoundingClientRect();
     const points = commanders.map(commander => toViewportPoint(commander.x, commander.y, stageRect));
-    // 金币迸发点取各将领位置的几何中心（取代视口中心），使视觉效果更贴近实际战局
-    const center = {
-        x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
-        y: points.reduce((sum, p) => sum + p.y, 0) / points.length
-    };
+    const cityPoints = cities.map(city => toViewportPoint(city.x, city.y, stageRect));
+    const uplinkRoutes = points.map(source => ({
+        source,
+        center: cityPoints.reduce((nearest, city) => {
+            const distance = Math.hypot(city.x - source.x, city.y - source.y);
+            return !nearest || distance < nearest.distance ? { city, distance } : nearest;
+        }, null).city
+    }));
     const startMs = Number(presentation.followupStartMs) || 2800;
     const durationMs = Number(presentation.durationMs) || 4600;
     const settleAt = startMs + UPLINK_WINDOW_MS + SETTLE_OFFSET_MS - UPLINK_WINDOW_MS * 0.4;
@@ -161,10 +166,11 @@ export function createOrbitalSupplyFollowup({ root, event, presentation, stageRe
         const context = canvas.getContext('2d');
         if (!context) return;
 
-        const bits = points.flatMap(point =>
-            Array.from({ length: Math.ceil(bitCount / points.length) }, (_, index) =>
-                createUplinkBit(point, center, index, startMs, uplinkColor)));
-        const coins = Array.from({ length: 24 }, () => createCoin(center, settleAt, coinColor));
+        const bits = uplinkRoutes.flatMap(route =>
+            Array.from({ length: Math.ceil(bitCount / uplinkRoutes.length) }, (_, index) =>
+                createUplinkBit(route.source, route.center, index, startMs, uplinkColor)));
+        const coins = Array.from({ length: Math.max(24, cityPoints.length * 10) }, (_, index) =>
+            createCoin(cityPoints[index % cityPoints.length], settleAt, coinColor));
 
         let lastDrawAt = 0;
         const draw = now => {
@@ -185,24 +191,28 @@ export function createOrbitalSupplyFollowup({ root, event, presentation, stageRe
             for (const bit of bits) arrivals += drawUplinkBit(context, bit, elapsed);
             if (arrivals > 0 && elapsed < settleAt) {
                 const chargeAlpha = Math.min(0.5, arrivals * 0.06);
-                context.save();
-                context.globalAlpha = chargeAlpha;
-                const glow = context.createRadialGradient(center.x, center.y, 0, center.x, center.y, 46);
-                glow.addColorStop(0, uplinkColor);
-                glow.addColorStop(1, 'rgba(0,0,0,0)');
-                context.fillStyle = glow;
-                context.fillRect(center.x - 46, center.y - 46, 92, 92);
-                context.restore();
+                for (const center of cityPoints) {
+                    context.save();
+                    context.globalAlpha = chargeAlpha;
+                    const glow = context.createRadialGradient(center.x, center.y, 0, center.x, center.y, 46);
+                    glow.addColorStop(0, uplinkColor);
+                    glow.addColorStop(1, 'rgba(0,0,0,0)');
+                    context.fillStyle = glow;
+                    context.fillRect(center.x - 46, center.y - 46, 92, 92);
+                    context.restore();
+                }
             }
 
             // 阶段2：战果核算——六角金环两连扩散
             const settleElapsed = elapsed - settleAt;
             if (settleElapsed > 0 && settleElapsed < 900) {
                 const ringProgress = settleElapsed / 900;
-                drawHexRing(context, center, 24 + ringProgress * 150, (1 - ringProgress) * 0.85, coinColor, 2);
-                if (settleElapsed > 180) {
-                    const lateProgress = (settleElapsed - 180) / 720;
-                    drawHexRing(context, center, 18 + lateProgress * 110, (1 - lateProgress) * 0.55, uplinkColor, 1.2);
+                for (const center of cityPoints) {
+                    drawHexRing(context, center, 24 + ringProgress * 150, (1 - ringProgress) * 0.85, coinColor, 2);
+                    if (settleElapsed > 180) {
+                        const lateProgress = (settleElapsed - 180) / 720;
+                        drawHexRing(context, center, 18 + lateProgress * 110, (1 - lateProgress) * 0.55, uplinkColor, 1.2);
+                    }
                 }
             }
 

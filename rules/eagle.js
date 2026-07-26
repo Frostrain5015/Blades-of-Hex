@@ -122,6 +122,14 @@ export function buildCommanderAnchors(gameState, campKey) {
     }));
 }
 
+export function buildControlledCityAnchors(gameState, campOrKey) {
+    const campKey = typeof campOrKey === 'string' ? campOrKey : campToKey(campOrKey);
+    return (gameState?.tiles || [])
+        .filter(tile => tile?.isCity && campToKey(tile.camp) === campKey
+            && Number.isFinite(tile.x) && Number.isFinite(tile.y))
+        .map(tile => ({ q: tile.q, r: tile.r, x: tile.x, y: tile.y }));
+}
+
 function queueEagleEvent(gameState, event, deferred) {
     if (deferred) return;
     if (!Array.isArray(gameState._pendingEagleSynergyEvents)) {
@@ -192,7 +200,7 @@ export function getEagleSynergyMeter(gameState, campOrKey) {
  * 不再在此处即时拨付（参见 processEagleSupplyAtTurnStart）。
  * deferred=true 表示延迟结算路径（空袭落弹、远端重放）：两端各自确定性重算，
  * 事件只在本地发射、不进入待广播队列，靠 presentationEventId 去重。
- * Hero 动画已移至天基打击对策卡发动时刻，此处不再触发。
+ * 表现事件只在回合初实际拨付金币时生成，伤害累计本身不触发 Hero。
  */
 export function accrueEagleSynergyDamage(gameState, campKey, amount, { deferred = false } = {}) {
     const dealt = Math.max(0, Math.round(Number(amount) || 0));
@@ -205,7 +213,7 @@ export function accrueEagleSynergyDamage(gameState, campKey, amount, { deferred 
 /**
  * 回合初结算轨道补给：将截至当前累计的合规伤害按阈值折算为补给金费，
  * 扣除已拨付的部分后向对应阵营发放，并返回实际拨付额（0=无拨付）。
- * Hero 动画已移至天基打击对策卡发动，此处仅发金 + 日志。
+ * 调用方仅在返回值大于 0 时播放轨道补给 Hero 与城市金币迸发。
  */
 export function processEagleSupplyAtTurnStart(gameState, campKey) {
     if (!gameState || !campKey) return 0;

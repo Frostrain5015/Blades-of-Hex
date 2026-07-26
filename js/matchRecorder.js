@@ -857,30 +857,8 @@ on('fx:eagleSynergy', event => recordFactionSkill(event, {
     synergyId: 'eagle',
     skillName: '轨道补给',
     triggerKind: event?.kind || null,
-    onlyWhen: event?.kind === 'orbitalGrant'
+    onlyWhen: event?.kind === 'orbitalSupply' && event?.goldAwarded > 0
 }));
-// 天基打击发动 → 阵营协同技能触发事件（取代轨道补给触发时机）
-on('fx:eagleOrbitalStrikeActivation', event => {
-    if (!active || !boundState) return;
-    const campKey = event?.campKey;
-    if (!campKey) return;
-    const presentationEventId = `eagleOrbitalActivation:${campKey}:${boundState.turnCounter || 0}`;
-    const duplicate = active.log.timeline.some(item =>
-        item.kind === 'event'
-        && item.eventType === 'factionSkillActivated'
-        && item.payload?.presentationEventId === presentationEventId
-    );
-    if (duplicate) return;
-    const participant = active.log.participants.find(candidate => candidate.campKey === campKey);
-    recordMatchEvent(boundState, 'factionSkillActivated', {
-        campKey,
-        synergyId: 'eagle',
-        skillName: '天基打击',
-        triggerKind: 'orbitalActivation',
-        logoEmoji: participant?.flagEmoji || boundState.factions?.[campKey]?.flagEmoji || '⚑',
-        presentationEventId
-    });
-});
 on('fx:celestineOracle', event => recordFactionSkill(event, {
     synergyId: 'celestine',
     skillName: '神谕',

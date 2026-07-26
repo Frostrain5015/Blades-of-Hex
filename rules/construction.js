@@ -17,6 +17,8 @@ export const CONSTRUCTION_CONFIG = Object.freeze({
     fieldRepair: Object.freeze({ name: '战地抢修', cost: 3, range: 1, healPct: 0.50, cooldown: 2 })
 });
 
+export const DEFENSE_CONSTRUCTION_SUPPORT_RANGE = 6;
+
 export function isOrdinaryGroundBuilder(unit) {
     return !!unit && unit.hp > 0 && unit.config?.movementDomain === 'land'
         && !isBuildingUnit(unit) && !unit._isDrone && !unit.isEmbarked;
@@ -44,44 +46,70 @@ export function constructionCost(kind, builder = null, cityTile = null) {
     return engineerPresent && Number.isFinite(config.engineerCost) ? config.engineerCost : config.cost;
 }
 
-export function canBuildFieldFortification(unit, kind, state) {
-    return isMechanicEnabled(state, 'fortifications')
-        && (kind === 'trench' || kind === 'flak')
-        && isOrdinaryGroundBuilder(unit)
-        && unit.canAct && !unit.isNewRecruit
-        && campToKey(unit.camp) === campToKey(state?.currentCamp)
-        && isLandTile(unit.tile)
-        && !unit.tile.fieldFortification && !unit.tile.fortification;
+export function findConstructionEngineer(state, camp) {
+    const campKey = campToKey(camp);
+    return (state?.tiles || [])
+        .map(tile => tile.unit)
+        .find(unit => unit?.hp > 0 && unit.commander === 'engineer'
+            && campToKey(unit.camp) === campKey) || null;
 }
 
-export function canBuildBunkerAt(unit, targetTile, state) {
-    return isMechanicEnabled(state, 'fortifications')
-        && isOrdinaryGroundBuilder(unit)
-        && unit.canAct && !unit.isNewRecruit && campToKey(unit.camp) === campToKey(state?.currentCamp)
-        && !!targetTile && isLandTile(targetTile) && campToKey(targetTile.camp) === campToKey(unit.camp)
-        && hexDistance(unit.tile, targetTile) === 1
-        && !targetTile.unit && !targetTile.isCity && !targetTile.isVillage && !targetTile.isPort
+function isCurrentConstructionCamp(camp, state) {
+    return !!camp && campToKey(camp) === campToKey(state?.currentCamp);
+}
+
+function hasFriendlyConstructionSupport(targetTile, camp, state) {
+    const campKey = campToKey(camp);
+    return (state?.tiles || []).some(tile => tile.unit?.hp > 0
+        && campToKey(tile.unit.camp) === campKey
+        && hexDistance(tile, targetTile) <= DEFENSE_CONSTRUCTION_SUPPORT_RANGE);
+}
+
+export function canBuildFieldFortificationAt(targetTile, kind, camp, state, occupyingUnit = null) {
+    if (!isMechanicEnabled(state, 'fortifications')
+        || (kind !== 'trench' && kind !== 'flak')
+        || !isCurrentConstructionCamp(camp, state)
+        || !targetTile || !isLandTile(targetTile)
+        || targetTile.fieldFortification || targetTile.fortification) return false;
+    const campKey = campToKey(camp);
+    return campToKey(targetTile.camp) === campKey
+        || ((occupyingUnit || targetTile.unit)?.hp > 0
+            && campToKey((occupyingUnit || targetTile.unit).camp) === campKey);
+}
+
+export function canBuildDefenseBuildingAt(targetTile, camp, state) {
+    if (!isMechanicEnabled(state, 'fortifications')
+        || !isCurrentConstructionCamp(camp, state)
+        || !targetTile || !isLandTile(targetTile)
+        || targetTile.unit || targetTile.isCity || targetTile.isVillage || targetTile.isPort
+        || targetTile.fieldFortification || targetTile.fortification) return false;
+    return campToKey(targetTile.camp) === campToKey(camp)
+        || hasFriendlyConstructionSupport(targetTile, camp, state);
+}
+
+export function canBuildFieldFortification(unit, kind, state) {
+    return isOrdinaryGroundBuilder(unit)
+        && unit.canAct && !unit.isNewRecruit
+        && campToKey(unit.camp) === campToKey(state?.currentCamp)
+        && canBuildFieldFortificationAt(unit.tile, kind, unit.camp, state, unit);
+}
+
+export function canBuildBunkerAt(builderOrCamp, targetTile, state) {
+    const camp = builderOrCamp?.camp || builderOrCamp;
+    return canBuildDefenseBuildingAt(targetTile, camp, state)
         && !hasSameTypeBuildingWithin(state, targetTile, 'mgNest');
 }
 
 export function canBuildShoreBatteryAt(targetTile, camp, state) {
-    return isMechanicEnabled(state, 'fortifications')
-        && !!targetTile && campToKey(targetTile.camp) === campToKey(camp)
-        && campToKey(camp) === campToKey(state?.currentCamp)
-        && !targetTile.unit && !targetTile.isCity && !targetTile.isVillage && !targetTile.isPort
-        && !targetTile.fieldFortification && !targetTile.fortification
+    return canBuildDefenseBuildingAt(targetTile, camp, state)
         && isCoastalLandTile(targetTile, state)
         && canBuildShoreBattery(state, camp)
         && !hasSameTypeBuildingWithin(state, targetTile, 'shoreBattery');
 }
 
-export function canBuildLaserTowerAt(unit, targetTile, state) {
-    return isMechanicEnabled(state, 'fortifications')
-        && isOrdinaryGroundBuilder(unit)
-        && unit.canAct && !unit.isNewRecruit && campToKey(unit.camp) === campToKey(state?.currentCamp)
-        && !!targetTile && isLandTile(targetTile) && campToKey(targetTile.camp) === campToKey(unit.camp)
-        && hexDistance(unit.tile, targetTile) === 1
-        && !targetTile.unit && !targetTile.isCity && !targetTile.isVillage && !targetTile.isPort
+export function canBuildLaserTowerAt(builderOrCamp, targetTile, state) {
+    const camp = builderOrCamp?.camp || builderOrCamp;
+    return canBuildDefenseBuildingAt(targetTile, camp, state)
         && !hasSameTypeBuildingWithin(state, targetTile, 'laserTower');
 }
 
