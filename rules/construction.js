@@ -1,6 +1,6 @@
 import { campToKey } from './camps.js';
 import { hexDistance } from './hex.js';
-import { isBuildingUnit } from './units.js';
+import { isBuildingUnit, DEFENSE_BUILDING_MIN_DISTANCE } from './units.js';
 import { isLandTile } from './surfaces.js';
 import { getRoundIndex } from './turns.js';
 import { isMechanicEnabled } from './mechanics.js';
@@ -12,6 +12,7 @@ export const CONSTRUCTION_CONFIG = Object.freeze({
     flak: Object.freeze({ name: '高射机枪', cost: 2, engineerCost: 1, range: 0, buildTurns: 0 }),
     bunker: Object.freeze({ name: '碉堡', cost: 10, engineerCost: 7, range: 1, buildTurns: 1 }),
     shoreBattery: Object.freeze({ name: '岸防炮', cost: 10, range: 0, buildTurns: 0 }),
+    laserTower: Object.freeze({ name: '激光塔', cost: 15, range: 1, buildTurns: 0 }),
     airfield: Object.freeze({ name: '机场', cost: 10, engineerCost: 7, range: 0, buildTurns: 1 }),
     fieldRepair: Object.freeze({ name: '战地抢修', cost: 3, range: 1, healPct: 0.50, cooldown: 2 })
 });
@@ -19,6 +20,20 @@ export const CONSTRUCTION_CONFIG = Object.freeze({
 export function isOrdinaryGroundBuilder(unit) {
     return !!unit && unit.hp > 0 && unit.config?.movementDomain === 'land'
         && !isBuildingUnit(unit) && !unit._isDrone && !unit.isEmbarked;
+}
+
+/**
+ * 同类防御建筑间距：siteTile 的 minDist 半径内已存在同类建筑（含建造中脚手架，
+ * 其单位类型与完工建筑相同）时返回 true。跨类型不限，地图预放置不受约束（只拦建造行为）。
+ */
+export function hasSameTypeBuildingWithin(state, siteTile, unitType, minDist = DEFENSE_BUILDING_MIN_DISTANCE) {
+    if (!siteTile) return false;
+    for (const tile of state?.tiles || []) {
+        if (tile === siteTile) continue;
+        if (tile.unit?.type !== unitType || tile.unit.hp <= 0) continue;
+        if (hexDistance(tile, siteTile) < minDist) return true;
+    }
+    return false;
 }
 
 export function constructionCost(kind, builder = null, cityTile = null) {
@@ -45,7 +60,8 @@ export function canBuildBunkerAt(unit, targetTile, state) {
         && unit.canAct && !unit.isNewRecruit && campToKey(unit.camp) === campToKey(state?.currentCamp)
         && !!targetTile && isLandTile(targetTile) && campToKey(targetTile.camp) === campToKey(unit.camp)
         && hexDistance(unit.tile, targetTile) === 1
-        && !targetTile.unit && !targetTile.isCity && !targetTile.isVillage && !targetTile.isPort;
+        && !targetTile.unit && !targetTile.isCity && !targetTile.isVillage && !targetTile.isPort
+        && !hasSameTypeBuildingWithin(state, targetTile, 'mgNest');
 }
 
 export function canBuildShoreBatteryAt(targetTile, camp, state) {
@@ -55,7 +71,18 @@ export function canBuildShoreBatteryAt(targetTile, camp, state) {
         && !targetTile.unit && !targetTile.isCity && !targetTile.isVillage && !targetTile.isPort
         && !targetTile.fieldFortification && !targetTile.fortification
         && isCoastalLandTile(targetTile, state)
-        && canBuildShoreBattery(state, camp);
+        && canBuildShoreBattery(state, camp)
+        && !hasSameTypeBuildingWithin(state, targetTile, 'shoreBattery');
+}
+
+export function canBuildLaserTowerAt(unit, targetTile, state) {
+    return isMechanicEnabled(state, 'fortifications')
+        && isOrdinaryGroundBuilder(unit)
+        && unit.canAct && !unit.isNewRecruit && campToKey(unit.camp) === campToKey(state?.currentCamp)
+        && !!targetTile && isLandTile(targetTile) && campToKey(targetTile.camp) === campToKey(unit.camp)
+        && hexDistance(unit.tile, targetTile) === 1
+        && !targetTile.unit && !targetTile.isCity && !targetTile.isVillage && !targetTile.isPort
+        && !hasSameTypeBuildingWithin(state, targetTile, 'laserTower');
 }
 
 export function getAirfieldCap(state, camp) {

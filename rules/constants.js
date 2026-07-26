@@ -34,7 +34,7 @@ export const GAME_RULES = deepFreeze({
     commanderDraft: { candidatesPerPlayer: 3, dualCandidatesPerPlayer: 5, dualCommanderCount: 2 },
     // 遭遇战（战争迷雾）视野：各兵种可见格数；己方城市提供相邻格视野。
     skirmishVision: {
-        unitVision: { infantry: 1, cavalry: 2, archer: 2, mgNest: 2, shoreBattery: 2, drone: 2, destroyer: 2, warship: 3, submarine: 2, carrier: 3 },
+        unitVision: { infantry: 1, cavalry: 2, archer: 2, mgNest: 2, shoreBattery: 2, drone: 2, destroyer: 2, warship: 3, submarine: 2, carrier: 3, laserTower: 3 },
         cityVisionRange: 1
     }
 });
@@ -84,6 +84,8 @@ export const COMBAT_BALANCE = deepFreeze({
     },
     // 克制不再提供固定增减伤：改为浮动区间平移——顺克上移（暴击率提升），逆克下移（相应惩罚）
     counter: { advantageCrit: 0.40, disadvantageFloatPenalty: -0.40 },
+    // 激光塔【集束激光】：回合开始齐射，命中目标越多单发越高（单发 = base + perExtra×(N−1)，cap max）
+    laserTower: { baseDamage: 20, perExtraTarget: 6, maxDamage: 50 },
     defense: { minimumMultiplier: 0.15, maximumReduction: 0.85, forestVsRangedBonus: 0.15, cityInfantryBonus: 0.10, windInfantryPenalty: 0.15, rainCityInfantryBonus: 0.10 },
     cavalry: { normalChargeDamagePerStep: 0.10, fogChargeDamagePerStep: 0.15, maxChargeSteps: 3, fogDamageBonus: 0.20 },
     infantry: { cityHealPct: 0.10, cityDamageBonus: 0.15 },

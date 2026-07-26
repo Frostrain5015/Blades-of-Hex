@@ -1,6 +1,7 @@
 import { campToKey } from '../rules/camps.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
+import { hasSameTypeBuildingWithin } from '../rules/construction.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.engineer;
 
@@ -46,13 +47,14 @@ function canActAsEngineer(unit, gameState) {
         && !unit._engineerConstruction;
 }
 
-export function canBuildEngineerBunkerAt(tile) {
-    return !!tile && !tile.unit && !tile.isCity && !tile.isVillage;
+export function canBuildEngineerBunkerAt(tile, gameState = null) {
+    return !!tile && !tile.unit && !tile.isCity && !tile.isVillage
+        && !(gameState && hasSameTypeBuildingWithin(gameState, tile, 'mgNest'));
 }
 
-// 目标格综合门禁：原有门禁（空地、非城市、非村庄）+ 身旁 1 格。
-export function isEngineerBunkerTargetTile(tile, engineerUnit) {
-    return canBuildEngineerBunkerAt(tile) && isEngineerBunkerAdjacent(engineerUnit, tile);
+// 目标格综合门禁：原有门禁（空地、非城市、非村庄）+ 身旁 1 格 + 同类防御建筑间距。
+export function isEngineerBunkerTargetTile(tile, engineerUnit, gameState = null) {
+    return canBuildEngineerBunkerAt(tile, gameState) && isEngineerBunkerAdjacent(engineerUnit, tile);
 }
 
 export function digEngineerTrench(unit, helpers) {
@@ -116,7 +118,7 @@ export function beginEngineerBunkerConstruction(unit, targetTile, helpers) {
     // canActAsEngineer 已含 !unit._engineerConstruction，保证同时只能修建 1 个碉堡。
     if (!canActAsEngineer(unit, gameState)) return fail('工程师当前无法建造碉堡');
     if ((unit._engineerBunkerCD || 0) > 0) return fail(`建造碉堡冷却中 还需${unit._engineerBunkerCD}回合`);
-    if (!canBuildEngineerBunkerAt(targetTile)) return fail('无法建造在该位置');
+    if (!canBuildEngineerBunkerAt(targetTile, gameState)) return fail('无法建造在该位置');
     if (!isEngineerBunkerAdjacent(unit, targetTile)) return fail('无法建造在该位置');
     if (typeof helpers.Unit !== 'function') return fail('无法创建施工脚手架');
 

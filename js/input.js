@@ -15,7 +15,7 @@ import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
     executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
-    executeFieldConstruction, executeBunkerConstruction, executeShoreBatteryConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
+    executeFieldConstruction, executeBunkerConstruction, executeShoreBatteryConstruction, executeLaserTowerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
     cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit, repairShipAtPort, recordAuxiliaryAction
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
@@ -35,7 +35,7 @@ import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rul
 import { isCoastalLandTile, canRepairShipAtPort } from '../rules/naval.js';
 import { getSpecialization, getSpecializationOptions, getUnitDisplayName, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
-import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortification, canBuildShoreBatteryAt, canFieldRepair, constructionCost, isFieldRepairTarget, isOrdinaryGroundBuilder } from '../rules/construction.js';
+import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortification, canBuildLaserTowerAt, canBuildShoreBatteryAt, canFieldRepair, constructionCost, isFieldRepairTarget, isOrdinaryGroundBuilder } from '../rules/construction.js';
 import { measure, perfEnabled } from './perf.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange, getAirfieldColonel } from '../rules/airCommands.js';
 import {
@@ -987,7 +987,8 @@ function _handleCardCanvasClick(e) {
 const PASSIVE_DEFS = {
     shoreBattery: { ...FRONTEND_TEXT.unitPassives.shoreBattery, active: () => true },
     mgNest: { ...FRONTEND_TEXT.unitPassives.mgNest, active: () => true },
-    carrier: { ...FRONTEND_TEXT.unitPassives.carrier, active: () => true }
+    carrier: { ...FRONTEND_TEXT.unitPassives.carrier, active: () => true },
+    laserTower: { ...FRONTEND_TEXT.unitPassives.laserTower, active: () => true }
 };
 
 const SPECIALIZATION_PASSIVES = {
@@ -1118,7 +1119,8 @@ const UNIT_TYPE_NAMES = {
     destroyer: '驱逐舰',
     warship: '巡洋舰',
     submarine: '潜艇',
-    carrier: '航空母舰'
+    carrier: '航空母舰',
+    laserTower: '激光塔'
 };
 
 const PASSIVE_ICONS = FRONTEND_TEXT.icons.unitPassive;
@@ -2464,6 +2466,31 @@ export function initInput() {
                 }
                 return;
             }
+            if (ct.cardId === 'build_laser_tower') {
+                const builder = _findUnitById(ct.builderUnitId);
+                if (!builder) { cancelCardTargeting(); return; }
+                if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
+                if (executeLaserTowerConstruction(builder, clickedTile)) {
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                    showSelectionHudForTile(builder.tile);
+                }
+                return;
+            }
+            if (ct.cardId === 'build_shore_battery') {
+                const builder = _findUnitById(ct.builderUnitId);
+                if (!builder) { cancelCardTargeting(); return; }
+                if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
+                if (executeShoreBatteryConstruction(clickedTile)) {
+                    // 单位建设菜单发起的岸防炮：与碉堡一致，消耗建造者全部行动
+                    builder.remainingMP = 0;
+                    builder.canAct = false;
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                    showSelectionHudForTile(builder.tile);
+                }
+                return;
+            }
             if (ct.cardId === 'field_repair') {
                 const engineer = _findUnitById(ct.engineerUnitId);
                 if (!engineer || !isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
@@ -2955,15 +2982,21 @@ function _showConstructionChoice(unit, siteTile = null) {
     ] : [
         { kind: 'trench', icon: '🚧', detail: '在当前己方陆地立即完成；对近战攻击提供25%防御。' },
         { kind: 'flak', icon: '🔫', detail: '在当前己方陆地立即完成；为本格提供30%防空火力。' },
-        { kind: 'bunker', icon: '🏰', detail: engineer ? '选择相邻己方空地，工程师立即完成。' : '选择相邻己方空地搭建脚手架，下次己方回合完工。' }
+        { kind: 'bunker', icon: '🏰', detail: engineer ? '选择相邻己方空地，工程师立即完成。' : '选择相邻己方空地搭建脚手架，下次己方回合完工。' },
+        { kind: 'shoreBattery', icon: '🏯', detail: '选择相邻沿海空地立即建成；擅长攻击舰船并可侦测潜艇（阵营两回合冷却，7格内不可有同类建筑）。' },
+        { kind: 'laserTower', icon: '🗼', detail: '选择相邻己方空地立即建成；回合开始自动攻击3格内所有敌人，命中越多单发越高。' }
     ];
     for (const definition of definitions) {
         const cost = constructionCost(definition.kind, unit);
         const structurallyAvailable = definition.kind === 'shoreBattery'
-            ? canBuildShoreBatteryAt(siteTile, camp, gameState)
+            ? (siteTile
+                ? canBuildShoreBatteryAt(siteTile, camp, gameState)
+                : gameState.tiles.some(tile => hexDistance(unit.tile, tile) === 1 && canBuildShoreBatteryAt(tile, camp, gameState)))
             : definition.kind === 'bunker'
                 ? gameState.tiles.some(tile => canBuildBunkerAt(unit, tile, gameState))
-                : canBuildFieldFortification(unit, definition.kind, gameState);
+                : definition.kind === 'laserTower'
+                    ? gameState.tiles.some(tile => canBuildLaserTowerAt(unit, tile, gameState))
+                    : canBuildFieldFortification(unit, definition.kind, gameState);
         const available = structurallyAvailable && gold >= cost;
         const card = document.createElement('button');
         card.type = 'button';
@@ -2977,24 +3010,17 @@ function _showConstructionChoice(unit, siteTile = null) {
         card.append(icon, name, costLabel, detail);
         card.addEventListener('click', () => {
             _closeChoiceModal();
-            if (definition.kind === 'shoreBattery') {
+            if (definition.kind === 'shoreBattery' && siteTile) {
                 executeShoreBatteryConstruction(siteTile);
                 showSelectionHudForTile(siteTile);
             } else if (definition.kind === 'bunker') {
                 // 保持已选单位不放，让建设按钮继续可见以便再次点击取消
-                gameState.selectedCityTile = null;
-                gameState.movableTiles = [];
-                gameState._fogSafeMovablePreview = null;
-                gameState.attackableTiles = [];
-                gameState.chainAttackTiles = [];
-                gameState.chainAttackPlans = new Map();
-                gameState.selectionTime = 0;
-                showTargetingBanner('请选择相邻的己方空地');
-                gameState.cardTargeting = {
-                    cardId: 'build_bunker', targeting: 'emptyTile', handIndex: -1,
-                    builderUnitId: unit.id, startedAt: performance.now()
-                };
-                updateUI();
+                _beginBuildTargeting('build_bunker', unit, '请选择相邻的己方空地');
+            } else if (definition.kind === 'shoreBattery') {
+                // 单位建设菜单的岸防炮：选相邻沿海空地，建成后消耗全部行动
+                _beginBuildTargeting('build_shore_battery', unit, '请选择相邻的己方沿海空地');
+            } else if (definition.kind === 'laserTower') {
+                _beginBuildTargeting('build_laser_tower', unit, '请选择相邻的己方空地');
             } else {
                 executeFieldConstruction(unit, definition.kind);
                 showSelectionHudForTile(unit.tile);
@@ -3002,6 +3028,23 @@ function _showConstructionChoice(unit, siteTile = null) {
         });
         modal.grid.appendChild(card);
     }
+}
+
+// 建设类选址统一入口：清空移动/攻击预览，进入目标选择态
+function _beginBuildTargeting(cardId, unit, bannerText) {
+    gameState.selectedCityTile = null;
+    gameState.movableTiles = [];
+    gameState._fogSafeMovablePreview = null;
+    gameState.attackableTiles = [];
+    gameState.chainAttackTiles = [];
+    gameState.chainAttackPlans = new Map();
+    gameState.selectionTime = 0;
+    showTargetingBanner(bannerText);
+    gameState.cardTargeting = {
+        cardId, targeting: 'emptyTile', handIndex: -1,
+        builderUnitId: unit.id, startedAt: performance.now()
+    };
+    updateUI();
 }
 
 // 空军指令选择面板：显示可用空军指令供玩家选择。

@@ -17,8 +17,16 @@ export const UNIT_CONFIG = deepFreeze({
     // 保留 warship 内部 ID 兼容旧存档与战役，显示及数值为 0 阶巡洋舰。
     warship: { name: '巡洋舰', hp: 180, attack: 55, defense: 0, speed: 4, range: 2, cost: 15, color: '#315f78', movementDomain: 'naval' },
     submarine: { name: '潜艇', hp: 100, attack: 50, defense: 0, speed: 8, range: 1, cost: 8, color: '#233f50', movementDomain: 'naval' },
-    carrier: { name: '航空母舰', hp: 250, attack: 45, defense: 0.08, speed: 3, range: 5, cost: 20, color: '#244d69', movementDomain: 'naval', attackRole: 'carrierStrafe' }
+    carrier: { name: '航空母舰', hp: 250, attack: 45, defense: 0.08, speed: 3, range: 5, cost: 20, color: '#244d69', movementDomain: 'naval', attackRole: 'carrierStrafe' },
+    // 激光塔：不手动攻击（attack 0），火力来自回合开始的集束齐射（rules/laserTower.js）
+    laserTower: { name: '激光塔', hp: 130, attack: 0, defense: 0, speed: 0, range: 3, cost: 15, color: '#4fd8e8', movementDomain: 'land', rankLocked: true, building: true }
 });
+
+/** 同类防御建筑（碉堡/岸防炮/激光塔）最小间距：hexDistance 小于该值的同类建筑不得再建。 */
+export const DEFENSE_BUILDING_MIN_DISTANCE = 7;
+
+/** 防御建筑类型（同类间距规则适用）；战术卡/工程师建造同样受约束。 */
+export const DEFENSE_BUILDING_TYPES = Object.freeze(['mgNest', 'shoreBattery', 'laserTower']);
 
 /** v2 四阶奖励合同。所有待校准数值集中在此处。 */
 export const UNIT_RANK_CONFIG = deepFreeze({
@@ -273,7 +281,8 @@ export const COUNTER_RELATION = deepFreeze({
     destroyer: relationRow({ warship: 0.75, submarine: 1.25 }),
     warship: relationRow({ destroyer: 1.25, submarine: 0.75, carrier: 1.25 }),
     submarine: relationRow({ destroyer: 0.75, warship: 1.25, carrier: 1.25 }),
-    carrier: relationRow({})
+    carrier: relationRow({}),
+    laserTower: relationRow({})
 });
 
 /** 碉堡兵种被动【机枪】：对步兵造成的伤害提高（与岸防炮对舰加成同类，归入②增伤乘区）。 */

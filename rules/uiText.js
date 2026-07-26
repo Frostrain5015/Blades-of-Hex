@@ -5,6 +5,7 @@ import { deepFreeze } from './freeze.js';
 import { percent } from './format.js';
 import { EMOJI } from './symbols.js';
 import { COMMANDER_CONFIG } from './commanders.js';
+import { COMBAT_BALANCE } from './constants.js';
 
 export const FRONTEND_TEXT = deepFreeze({
     // v2 起常规兵种的 0 阶不再有兵种被动；专精被动文案由 rules/units.js 的
@@ -12,7 +13,8 @@ export const FRONTEND_TEXT = deepFreeze({
     unitPassives: {
         shoreBattery: { name: '制海', desc: '对舰船伤害提高30%，对陆军伤害降低60%，可侦测2格内的潜艇' },
         mgNest: { name: '机枪', desc: '对步兵造成的伤害提高30%' },
-        carrier: { name: '舰载机', desc: '目标生命每损失5%，攻击力提高1点（至多15点）' }
+        carrier: { name: '舰载机', desc: '目标生命每损失5%，攻击力提高1点（至多15点）' },
+        laserTower: { name: '集束激光', desc: `回合开始时自动攻击3格内所有敌方单位，单发伤害${COMBAT_BALANCE.laserTower.baseDamage}；每多命中1个目标伤害+${COMBAT_BALANCE.laserTower.perExtraTarget}（至多${COMBAT_BALANCE.laserTower.maxDamage}）` }
     },
     effectDescriptions: {
         courageAura: `造成的伤害提高${percent(COMMANDER_CONFIG.paladin.balance.auraDamageBonus)}，士气不会下降`,
@@ -24,7 +26,7 @@ export const FRONTEND_TEXT = deepFreeze({
         guardianAlly: `防御力提高${percent(COMMANDER_CONFIG.ironGuard.balance.auraDefenseBonus)}，伤害由铁卫护盾承担`
     },
     icons: {
-        unitPassive: { infantry: '⚔️', cavalry: '🐎', archer: '🎯', shoreBattery: '🏯', destroyer: '🛡', warship: '💥', submarine: '🌊', carrier: '🛫', drone: EMOJI.commander.drone },
+        unitPassive: { infantry: '⚔️', cavalry: '🐎', archer: '🎯', shoreBattery: '🏯', destroyer: '🛡', warship: '💥', submarine: '🌊', carrier: '🛫', drone: EMOJI.commander.drone, laserTower: '🗼' },
         commander: {
             advisor: '🧠', astrologer: '🔮', berserker: EMOJI.commander.qixue, centurion: '🏛️', colonel: '🛩️', diplomat: '🤝', engineer: '🛠️', fallenAngel: '😇', ironGuard: '🛡️', magician: '🎩', martyr: '🔥', minister: '📜', necromancer: '💀', paladin: '✝️', priest: '🙏', staller: '🕳️', tianyan: '🛰️', vampire: '🧛'
         },

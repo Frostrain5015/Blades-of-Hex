@@ -11,6 +11,7 @@ import {
 } from './gameLogic.js';
 import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
 import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
+import { hasSameTypeBuildingWithin } from '../rules/construction.js';
 import { isNetworkGame } from './network.js';
 import { getCommander } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
@@ -369,6 +370,7 @@ function planEngineerAction(aiCamp) {
         !tile.unit && !tile.isCity && !tile.isVillage
         && hexDistance(engineer.tile, tile) <= 1
         && (!gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState))
+        && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest')
     );
     if (candidates.length === 0) return null;
 

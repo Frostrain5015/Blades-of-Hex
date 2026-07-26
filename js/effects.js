@@ -1810,6 +1810,124 @@ export function spawnCelestineOracleBeam(fromX, fromY, toX, toY, kind = 'smite',
     });
 }
 
+// ===== 激光塔【集束激光】齐射光束（塔位→命中目标，绘制于战争迷雾之上） =====
+export const laserBeams = [];
+
+/** 齐射节拍：塔位充能环(250ms) → 彗星头直线飞行(300ms) → 目标双击环爆发(350ms)。 */
+export const LASER_BEAM_TIMING = { chargeMs: 250, travelMs: 300, lingerMs: 350 };
+
+/**
+ * 直线激光（区别于神谕光束的弧线抬升）。delayMs 用于多光束错峰播放，
+ * 语义同 spawnCelestineOracleBeam：startTime 直接后移，绘制循环跳过未到时刻的束。
+ */
+export function spawnLaserBeam(fromX, fromY, toX, toY, { delayMs = 0 } = {}) {
+    laserBeams.push({
+        fromX, fromY, toX, toY,
+        startTime: performance.now() + Math.max(0, delayMs),
+        chargeMs: LASER_BEAM_TIMING.chargeMs,
+        travelMs: LASER_BEAM_TIMING.travelMs,
+        lingerMs: LASER_BEAM_TIMING.lingerMs
+    });
+}
+
+/**
+ * 激光束绘制（战争迷雾之上）。三段式：塔位充能环胀缩 → 彗核沿直线推进
+ * （光晕粗描边 + 青色主束 + 白芯三层描边）→ 目标处双击环爆发 + 整束余辉淡出。
+ * 青色配色与激光塔 UNIT_CONFIG color '#4fd8e8' 一致。
+ */
+export function drawLaserBeams(ctx2d, now) {
+    for (let i = laserBeams.length - 1; i >= 0; i--) {
+        const fx = laserBeams[i];
+        const elapsed = now - fx.startTime;
+        if (elapsed < 0) continue; // 错峰发射
+        const impactAt = fx.chargeMs + fx.travelMs;
+        const total = impactAt + fx.lingerMs;
+        if (elapsed > total) { laserBeams.splice(i, 1); continue; }
+
+        const coreColor = '#ffffff';
+        const mainColor = '#4fd8e8';
+        const glowColor = 'rgba(79, 216, 232, 0.85)';
+
+        const fromX = fx.fromX, fromY = fx.fromY;
+        const toX = fx.toX, toY = fx.toY;
+
+        ctx2d.save();
+
+        // ── 充能：塔位光环胀缩 ──
+        if (elapsed < fx.chargeMs) {
+            const chargeT = Math.min(1, elapsed / fx.chargeMs);
+            const ringR = 8 + chargeT * 20;
+            ctx2d.globalAlpha = 0.7 * Math.sin(chargeT * Math.PI * 0.5 + 0.2);
+            ctx2d.strokeStyle = mainColor;
+            ctx2d.lineWidth = 2;
+            ctx2d.shadowColor = mainColor;
+            ctx2d.shadowBlur = 14;
+            ctx2d.beginPath();
+            ctx2d.arc(fromX, fromY, ringR, 0, Math.PI * 2);
+            ctx2d.stroke();
+        }
+
+        // ── 飞行：彗核沿直线推进，尾迹为整段渐亮光路 ──
+        const travelT = Math.max(0, Math.min(1, (elapsed - fx.chargeMs) / fx.travelMs));
+        const fadeT = elapsed > impactAt ? (elapsed - impactAt) / fx.lingerMs : 0;
+        const beamAlpha = elapsed > impactAt ? (1 - fadeT) : travelT > 0 ? 0.55 + travelT * 0.45 : 0;
+        if (travelT > 0 && beamAlpha > 0) {
+            const eased = 1 - Math.pow(1 - travelT, 2.4);
+            const headX = fromX + (toX - fromX) * eased;
+            const headY = fromY + (toY - fromY) * eased;
+            // 光晕层 + 主束 + 白芯三层描边
+            for (const [width, color, alphaScale, blur] of [
+                [7, glowColor, 0.4, 18],
+                [3.2, mainColor, 0.85, 10],
+                [1.4, coreColor, 1, 4]
+            ]) {
+                ctx2d.globalAlpha = Math.min(1, beamAlpha * alphaScale);
+                ctx2d.strokeStyle = color;
+                ctx2d.lineWidth = width;
+                ctx2d.lineCap = 'round';
+                ctx2d.shadowColor = color;
+                ctx2d.shadowBlur = blur;
+                ctx2d.beginPath();
+                ctx2d.moveTo(fromX, fromY);
+                ctx2d.lineTo(headX, headY);
+                ctx2d.stroke();
+            }
+            // 光束头彗核
+            if (elapsed <= impactAt) {
+                const headGrad = ctx2d.createRadialGradient(headX, headY, 0, headX, headY, 12);
+                headGrad.addColorStop(0, coreColor);
+                headGrad.addColorStop(0.45, mainColor);
+                headGrad.addColorStop(1, 'rgba(79, 216, 232, 0)');
+                ctx2d.globalAlpha = 0.95;
+                ctx2d.shadowBlur = 0;
+                ctx2d.fillStyle = headGrad;
+                ctx2d.beginPath();
+                ctx2d.arc(headX, headY, 12, 0, Math.PI * 2);
+                ctx2d.fill();
+            }
+        }
+
+        // ── 弹着：目标处双击环爆发 ──
+        if (elapsed > impactAt) {
+            ctx2d.shadowBlur = 0;
+            for (const [delayFrac, color, width] of [[0, coreColor, 2.6], [0.22, mainColor, 1.6]]) {
+                const ringT = Math.max(0, Math.min(1, (fadeT - delayFrac) / (1 - delayFrac)));
+                if (ringT <= 0 || ringT >= 1) continue;
+                ctx2d.globalAlpha = (1 - ringT) * 0.85;
+                ctx2d.strokeStyle = color;
+                ctx2d.lineWidth = width;
+                ctx2d.shadowColor = color;
+                ctx2d.shadowBlur = 10;
+                ctx2d.beginPath();
+                ctx2d.arc(toX, toY, 6 + ringT * 44, 0, Math.PI * 2);
+                ctx2d.stroke();
+            }
+        }
+
+        ctx2d.restore();
+    }
+}
+
 // ===== E4 空运特效 =====
 export const airliftEffects = [];
 export const AIRLIFT_MS = 1500;
@@ -1860,6 +1978,7 @@ export function clearTransientEffects() {
     airstrikeEffects.length = 0;
     airliftEffects.length = 0;
     celestineOracleBeams.length = 0;
+    laserBeams.length = 0;
     screenShake.x = 0;
     screenShake.y = 0;
     turnFlash.alpha = 0;

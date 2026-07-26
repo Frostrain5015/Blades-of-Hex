@@ -12,7 +12,9 @@ import {
     spawnRankUpEffect,
     spawnSoulRecallEffect,
     spawnCoinRain,
-    spawnCelestineOracleBeam
+    spawnCelestineOracleBeam,
+    spawnLaserBeam,
+    LASER_BEAM_TIMING
 } from './effects.js';
 import { playSound } from './audio.js';
 import { CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
@@ -163,6 +165,26 @@ on('fx:celestineOraclePulse', event => {
             }
         }
     }
+});
+// 激光塔【集束激光】齐射：本地（gameLogic 回合开始结算）与远端（endTurn 载荷重放）
+// 共用此桥。每座塔的每个命中目标按全局序号 * 120ms 错峰发射；落点粒子与光束弹着时刻对齐。
+on('fx:laserTowerVolley', event => {
+    const volleys = Array.isArray(event?.volleys) ? event.volleys : [];
+    let index = 0;
+    for (const volley of volleys) {
+        if (!Number.isFinite(volley?.x) || !Number.isFinite(volley?.y)) continue;
+        for (const hit of volley.hits || []) {
+            if (!Number.isFinite(hit?.x) || !Number.isFinite(hit?.y)) continue;
+            const delayMs = index * 120;
+            spawnLaserBeam(volley.x, volley.y, hit.x, hit.y, { delayMs });
+            window.setTimeout(() => {
+                spawnExplosionParticles(hit.x, hit.y, '#4fd8e8', 8);
+                spawnExplosionParticles(hit.x, hit.y, '#ffffff', 4);
+            }, delayMs + LASER_BEAM_TIMING.chargeMs + LASER_BEAM_TIMING.travelMs);
+            index++;
+        }
+    }
+    if (index > 0) playSound('lightning');
 });
 // 天衡联邦【日月天衡】：发牌/Hero/远端重放均通过此事件触发全屏 Hero 动画+日珥特效。
 on('fx:tianhengBorrowDay', event => {

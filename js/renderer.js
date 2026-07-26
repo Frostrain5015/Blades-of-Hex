@@ -28,6 +28,7 @@ import {
     spawnCardCopyEffect,
     coinParticles, updateCoinParticles, drawCoinParticles,
     airstrikeEffects, airliftEffects, celestineOracleBeams,
+    drawLaserBeams,
     bloodMoonSlashes, updateBloodMoonSlashes, drawBloodMoonSlashes
 } from './effects.js';
 import {
@@ -1032,6 +1033,8 @@ function _renderGame() {
     drawCelestineOracleStatues(now);
     // 神谕指引光束（神像→神罚/赐福目标）：与神像同层，覆于战争迷雾之上
     drawCelestineOracleBeams(now);
+    // 激光塔【集束激光】齐射光束（塔位→命中目标）：与神谕光束同层，覆于战争迷雾之上
+    drawLaserBeams(ctx, now);
 
     ctx.restore();
 

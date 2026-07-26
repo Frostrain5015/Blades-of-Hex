@@ -3268,6 +3268,10 @@ async function handleRemoteAction(msg) {
                     }
                 }
             }
+            // 重放激光塔【集束激光】齐射光束（伤害数字已由 e.floatTexts 统一重放，此处只放光束特效）
+            if (e && e.laserTowerVolleys) {
+                emit('fx:laserTowerVolley', { volleys: e.laserTowerVolleys });
+            }
             // 重放诺克提斯【血月·月蚀】放血浮字（血量已随快照同步，此处只放浮字/特效）
             if (e && e.bloodMoonBleeds) {
                 for (const h of e.bloodMoonBleeds) {

@@ -12,6 +12,7 @@ import { isSubmarineTargetableBy } from './naval.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN } from './movement.js';
 import { isBuildingUnit } from './units.js';
+import { hasSameTypeBuildingWithin, canBuildShoreBatteryAt } from './construction.js';
 import { canAttack } from './diplomacy.js';
 import { getAirCommandRange } from './airCommands.js';
 import { isCitySiegeBlocked } from './citySiege.js';
@@ -156,14 +157,31 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
             && isLandDeploymentTile(tile)
             && !tile.isCity
             && !tile.isVillage
-            && hexDistance(source.tile, tile) === 1;
+            && hexDistance(source.tile, tile) === 1
+            && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest');
     }
     if (cardId === 'build_bunker') {
         const source = sources.sourceUnit;
         return !!source?.tile && sameCamp(source.camp, myCamp) && !unit
             && isLandDeploymentTile(tile) && sameCamp(tile.camp, myCamp)
             && !tile.isCity && !tile.isVillage && !tile.isPort
-            && hexDistance(source.tile, tile) === 1;
+            && hexDistance(source.tile, tile) === 1
+            && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest');
+    }
+    if (cardId === 'build_laser_tower') {
+        const source = sources.sourceUnit;
+        return !!source?.tile && sameCamp(source.camp, myCamp) && !unit
+            && isLandDeploymentTile(tile) && sameCamp(tile.camp, myCamp)
+            && !tile.isCity && !tile.isVillage && !tile.isPort
+            && hexDistance(source.tile, tile) === 1
+            && !hasSameTypeBuildingWithin(gameState, tile, 'laserTower');
+    }
+    if (cardId === 'build_shore_battery') {
+        // 单位建设菜单发起的岸防炮：建造者相邻的合法沿海格（冷却/间距/沿海判定走规则源）
+        const source = sources.sourceUnit;
+        return !!source?.tile && sameCamp(source.camp, myCamp) && !unit
+            && hexDistance(source.tile, tile) === 1
+            && canBuildShoreBatteryAt(tile, myCamp, gameState);
     }
     if (cardId === 'field_repair') {
         const source = sources.sourceUnit;
@@ -200,6 +218,8 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
         if (unit || !isLandDeploymentTile(tile)) return false;
         // 普通空降不得越过尚未击破的敌方/中立城市血池；己方城市仍是合法落点。
         if (cardId === 'airdrop' && isCitySiegeBlocked(tile, myCamp, gameState)) return false;
+        // 战术卡部署碉堡同样受同类防御建筑间距约束
+        if (cardId === 'mgNest' && hasSameTypeBuildingWithin(gameState, tile, 'mgNest')) return false;
         return true;
     }
     if (targeting === 'emptyFriendlyNonCityNonMountain') {

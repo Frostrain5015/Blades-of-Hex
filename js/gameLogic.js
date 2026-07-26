@@ -117,10 +117,12 @@ import {
     canBuildAirfieldAt,
     canBuildBunkerAt,
     canBuildFieldFortification,
+    canBuildLaserTowerAt,
     canBuildShoreBatteryAt,
     canFieldRepair,
     constructionCost
 } from '../rules/construction.js';
+import { resolveLaserTowerVolley } from '../rules/laserTower.js';
 import {
     AIR_COMMAND_CONFIG,
     AIRFIELD_BASE_POWER,
@@ -1225,6 +1227,7 @@ async function _doEndTurnPhase() {
     let oraclePulses = []; // 塞莱斯廷圣国神谕脉冲（isRoundAnchor 内填充，广播时附带）
     let bloodMoonBleeds = null; // 诺克提斯血月·月蚀放血打点（isRoundAnchor 内填充，广播时附带）
     let sunMoonTrigger = null; // 天衡【日月天衡】充能触发数据（下方填充，广播时附带）
+    let laserVolleys = null; // 激光塔【集束激光】回合开始齐射载荷（下方填充，广播时附带）
 
     // 包装 spawnFx 引用以收集特效坐标（不直接覆写 import binding）
     const origSpawn = spawnCommanderSkillEffect;
@@ -1309,6 +1312,17 @@ async function _doEndTurnPhase() {
     const supplyAmt = processEagleSupplyAtTurnStart(gameState, _campKey(gameState.currentCamp));
     if (supplyAmt > 0) {
         logMessage(`📦 ${gameState.currentCamp.name}阵营协同【轨道补给】：天基平台核算战功，拨付$${supplyAmt}`);
+    }
+    // 激光塔【集束激光】：回合开始自动齐射射程内全部合法目标（命中越多单发越高）
+    laserVolleys = resolveLaserTowerVolley(gameState, _campKey(gameState.currentCamp), { isTileVisible });
+    if (laserVolleys.volleys.length > 0) {
+        for (const volley of laserVolleys.volleys) {
+            logMessage(`🗼 ${gameState.currentCamp.name}【集束激光】命中 ${volley.hits.length} 个目标`);
+            for (const hit of volley.hits) {
+                enqueueFloatText({ x: hit.x, y: hit.y, q: hit.q, r: hit.r, value: hit.dmg, timeLeft: 1000 });
+            }
+        }
+        emit('fx:laserTowerVolley', { volleys: laserVolleys.volleys });
     }
     // 港口维修改为玩家主动付费按钮（见 repairShipAtPort），不再回合开始自动结算。
     for (const tile of gameState.tiles) {
@@ -1477,7 +1491,8 @@ async function _doEndTurnPhase() {
         bloodMoonBleeds: bloodMoonBleeds?.length > 0 ? bloodMoonBleeds : null,
         bloodMoonRising: !!gameState._bloodMoonRising || undefined,
         bloodMoonAnchor: gameState._bloodMoonAnchor || undefined,
-        sunMoonTrigger: sunMoonTrigger || undefined
+        sunMoonTrigger: sunMoonTrigger || undefined,
+        laserTowerVolleys: laserVolleys?.volleys?.length > 0 ? laserVolleys.volleys : null
     });
     // 天衡【日月天衡】充能触发：广播之后播本地 Hero 动画
     if (sunMoonTrigger) {
@@ -3636,6 +3651,33 @@ export function executeBunkerConstruction(unit, targetTile) {
         unitId: unit.id, bunkerId: bunker.id, q: targetTile.q, r: targetTile.r,
         cost, immediate: unit.commander === 'engineer',
         readyRound: bunker._constructionScaffold?.readyRound ?? getRoundIndex(gameState)
+    });
+    return true;
+}
+
+export function executeLaserTowerConstruction(unit, targetTile) {
+    if (!canBuildLaserTowerAt(unit, targetTile, gameState)) {
+        notify('无法在该位置建造激光塔（需相邻己方空地，且 7 格内无同类建筑）', 'error');
+        return false;
+    }
+    const campKey = _campKey(unit.camp);
+    const cost = constructionCost('laserTower', unit);
+    if ((gameState.playerGold[campKey] || 0) < cost) {
+        notify('金币不足', 'error');
+        return false;
+    }
+    gameState.playerGold[campKey] -= cost;
+    const tower = new Unit('laserTower', unit.camp, targetTile, false);
+    tower._isImmobile = true;
+    tower.remainingMP = 0;
+    // 激光塔不手动攻击：火力来自回合开始的集束齐射（rules/laserTower.js）
+    tower.canAct = false;
+    unit.remainingMP = 0;
+    unit.canAct = false;
+    spawnRecruitEffect(targetTile.x, targetTile.y);
+    updateUI();
+    broadcastAction('buildFortification', {
+        kind: 'laserTower', unitId: unit.id, towerId: tower.id, q: targetTile.q, r: targetTile.r, cost
     });
     return true;
 }
