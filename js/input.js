@@ -473,7 +473,7 @@ function _collectBoardActions(unit, tile = null) {    const actions = [];
             kind: 'buildAirfield', tileQ: tile.q, tileR: tile.r, icon: '🛫', label: '建设机场',
             goldCost: cost,
             canUse,
-            reason: canUse ? '' : (affordable ? '当前城市不可建设或已达到机场上限' : '金币不足'),
+            reason: canUse ? '' : (affordable ? '当前城市不可建设机场' : '金币不足'),
             theme: 'construction'
         });
     }
@@ -1348,7 +1348,10 @@ function _getWeatherEffect(unit) {
         if (unit.type === 'infantry' && (unit.tile.isCity || unit.tile.isUrban)) details.push('驻守城市时防御提高' + Math.round(COMBAT_BALANCE.defense.rainCityInfantryBonus * 100) + '%');
         if (unit.type === 'cavalry') details.push('每步移动消耗+' + COMBAT_BALANCE.weather.rainCavalryMovementCost);
     } else if (gameState.weather === 'fog') {
-        if (unit.type === 'archer') details.push('射程' + COMBAT_BALANCE.weather.fogArcherRangeDelta);
+        if (unit.type === 'archer' || unit.config?.movementDomain === 'naval'
+            || (unit.config?.building && Number(unit.config?.speed || 0) === 0)) {
+            details.push('射程' + COMBAT_BALANCE.weather.fogArcherRangeDelta);
+        }
         if (unit.type === 'cavalry') details.push('伤害提高' + Math.round(COMBAT_BALANCE.cavalry.fogDamageBonus * 100) + '%，每格冲锋伤害额外提高' + Math.round((COMBAT_BALANCE.cavalry.fogChargeDamagePerStep - COMBAT_BALANCE.cavalry.normalChargeDamagePerStep) * 100) + '%');
     } else if (gameState.weather === 'wind') {
         if (unit.type === 'archer') details.push('射程+' + COMBAT_BALANCE.weather.windArcherRangeDelta);

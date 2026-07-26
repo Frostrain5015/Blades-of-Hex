@@ -7,17 +7,18 @@ import { isCityDisabled } from './citySiege.js';
 import astrologerDef from '../commander/astrologer.js';
 
 export const AIR_COMMAND_CONFIG = Object.freeze({
-    strafe: Object.freeze({ name: '扫射', icon: '✈️', cost: 4, range: 5, cooldown: 2, targeting: 'enemyGlobal', multiplier: 1, desc: '对单体目标造成空军伤害；目标已损失生命值的20%转化为额外攻击力，最多15点。' }),
-    bombing: Object.freeze({ name: '轰炸', icon: '💣', cost: 5, range: 5, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 1, desc: '对目标及相邻6格造成范围空军伤害（溅射伤害为原本的一半），命中要塞单位时无视敌人25%的防御力。' }),
-    airdrop: Object.freeze({ name: '空降', icon: '🪂', cost: 10, range: 5, cooldown: 3, targeting: 'emptyTile', multiplier: 0, desc: '在目标空地空降一名步兵。' }),
-    recon: Object.freeze({ name: '侦察机', icon: '🔭', cost: 4, range: 5, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 0, desc: '侦察目标区域，驱散迷雾（半径1~2格，持续1~2回合，视防空强度而定）。' })
+    strafe: Object.freeze({ name: '扫射', icon: '✈️', cost: 4, range: 6, cooldown: 2, targeting: 'enemyGlobal', multiplier: 1, desc: '对单体目标造成空军伤害；目标已损失生命值的20%转化为额外攻击力，最多15点。' }),
+    bombing: Object.freeze({ name: '轰炸', icon: '💣', cost: 5, range: 6, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 1, desc: '对目标及相邻6格造成范围空军伤害（溅射伤害为原本的一半），命中要塞单位时无视敌人25%的防御力。' }),
+    airdrop: Object.freeze({ name: '空降', icon: '🪂', cost: 10, range: 6, cooldown: 3, targeting: 'emptyTile', multiplier: 0, desc: '在目标空地空降一名步兵。' }),
+    recon: Object.freeze({ name: '侦察机', icon: '🔭', cost: 4, range: 6, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 0, desc: '侦察目标区域，驱散迷雾（半径1~2格，持续1~2回合，视防空强度而定）。' })
 });
 
 export const AIRFIELD_BASE_POWER = 50;
+export const AIRFIELD_BASE_RANGE = 6;
 export const COLONEL_AIR_DAMAGE_BONUS = 0.20;
 export const COLONEL_AIR_STACK_BONUS = 0.05;
 export const COLONEL_AIR_MAX_STACKS = 6;
-export const COLONEL_AIR_RANGE_BONUS = 1;
+export const COLONEL_AIR_RANGE_BONUS = 2;
 export const COLONEL_ANTI_AIR_PIERCE = 0.15;
 export const AIR_COMMAND_IMPACT_DELAY_MS = Object.freeze({
     strafe: 1200,
@@ -70,7 +71,7 @@ export function getAirfieldColonel(cityTile) {
 }
 
 export function getAirCommandRange(cityTile) {
-    return AIR_COMMAND_CONFIG.strafe.range + (getAirfieldColonel(cityTile) ? COLONEL_AIR_RANGE_BONUS : 0);
+    return AIRFIELD_BASE_RANGE + (getAirfieldColonel(cityTile) ? COLONEL_AIR_RANGE_BONUS : 0);
 }
 
 export function getAirCommandAvailability(kind, cityTile, state) {

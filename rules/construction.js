@@ -114,11 +114,7 @@ export function canBuildLaserTowerAt(builderOrCamp, targetTile, state) {
 }
 
 export function getAirfieldCap(state, camp) {
-    const key = campToKey(camp);
-    const override = state?.airfieldCapOverrides?.[key];
-    if (Number.isInteger(override) && override >= 0) return override;
-    const cityCount = (state?.tiles || []).filter(tile => tile.isCity && campToKey(tile.camp) === key).length;
-    return Math.ceil(cityCount / 3);
+    return Number.POSITIVE_INFINITY;
 }
 
 export function countAirfields(state, camp) {
@@ -130,8 +126,7 @@ export function countAirfields(state, camp) {
 export function canBuildAirfieldAt(cityTile, camp, state) {
     return isMechanicEnabled(state, 'airCommands')
         && !!cityTile?.isCity && cityTile.camp === camp && !cityTile.installation
-        && !isCityDisabled(cityTile)
-        && countAirfields(state, camp) < getAirfieldCap(state, camp);
+        && !isCityDisabled(cityTile);
 }
 
 export function canFieldRepair(engineer, target, state) {

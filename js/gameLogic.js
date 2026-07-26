@@ -2045,6 +2045,8 @@ function _getMovableTiles(unit) {
 }
 
 export function getAttackableTiles(unit) {
+    // 激光塔只在己方回合开始时自动齐射；不提供会造成 0 伤害的手动攻击入口。
+    if (unit.type === 'laserTower') return [];
     // 无人机：实时检查信号范围，同步士气状态（不刷新其他无人机）
     if (unit._isDrone) {
         unit.morale = isDroneInSignal(gameState, unit) ? 2 : 0;
@@ -2058,16 +2060,8 @@ if (unit._specializationAttackSpent) return [];
     let range = unit.getEffectiveRange?.() ?? unit.config.range;
     // 无人机固定射程2
     if (unit._isDrone) range = DRONE_RANGE;
-    // 雾天炮兵射程-1（占星者星光力场免疫）
-    if (!unit.isEmbarked && isMechanicEnabled(gameState, 'weatherEffects') && unit.type === 'archer'
-        && getEffectiveWeather(unit.tile, unit.camp, gameState) === 'fog') {
-        range = Math.min(range, 1);
-    }
-    if (!unit.isEmbarked && unit.type === 'archer'
-        && isMechanicEnabled(gameState, 'weatherEffects') && getEffectiveWeather(unit.tile, unit.camp, gameState) === 'wind') {
-        range += 1;
-    }
-    range = Math.max(1, Math.min(unit.type === 'carrier' ? 6 : 4, range));
+    // 天气射程修正统一由 Unit.getEffectiveRange 结算，避免不同兵种与反击链重复/漏算。
+    range = Math.max(1, Math.min(unit.type === 'carrier' ? 7 : 4, range));
     const startTile = unit.tile;
     const isRanged = classifyAttackPresentation(unit) !== ATTACK_PRESENTATION.ASSAULT;
     const surfaceLegal = isRanged || canUnitOccupyTile(unit, startTile, gameState);
@@ -3700,7 +3694,7 @@ export function executeShoreBatteryConstruction(targetTile) {
 export function executeAirfieldConstruction(cityTile) {
     const camp = gameState.currentCamp;
     if (!canBuildAirfieldAt(cityTile, camp, gameState)) {
-        notify('当前城市不能建设机场，或已达到机场上限', 'error');
+        notify('当前城市不能建设机场', 'error');
         return false;
     }
     const campKey = _campKey(camp);

@@ -216,8 +216,9 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
     }
     if (targeting === 'emptyTile') {
         if (unit || !isLandDeploymentTile(tile)) return false;
-        // 普通空降不得越过尚未击破的敌方/中立城市血池；己方城市仍是合法落点。
-        if (cardId === 'airdrop' && isCitySiegeBlocked(tile, myCamp, gameState)) return false;
+        // 空降按所选城市地块自身 HP 判断：HP=0 的破城格明确开放，不再被城市共享血池误拦截。
+        if (cardId === 'airdrop' && (tile.isCity || tile.isUrban)
+            && (Number(tile.hp) || 0) > 0 && canAttack(gameState, myCamp, tile.camp)) return false;
         // 战术卡部署碉堡同样受同类防御建筑间距约束
         if (cardId === 'mgNest' && hasSameTypeBuildingWithin(gameState, tile, 'mgNest')) return false;
         return true;

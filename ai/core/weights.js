@@ -24,9 +24,13 @@ export const TIER_CAPABILITIES = Object.freeze({
         cardScripts: false,        // 卡牌逐张独立评估
         conversionCapture: false,  // 不规划攻心夺城
         transportPlanning: false,  // 不把运输登陆当独立阶段
-        interceptPricing: false,   // 不给"敌方占城者"额外定价
+        interceptPricing: false,   // 不给“敌方占城者”额外定价
         scoutMissions: false,
-        multiEscort: false
+        multiEscort: false,
+        collapseConversion: false,
+        emergencyDefense: false,
+        lethalFocus: false,
+        rearCommanderSafety: false
     }),
     medium: Object.freeze({
         id: 'medium',
@@ -40,9 +44,13 @@ export const TIER_CAPABILITIES = Object.freeze({
         cardScripts: true,
         conversionCapture: false,  // 不规划攻心夺城
         transportPlanning: false,
-        interceptPricing: false,   // 不给"敌方占城者"额外定价
+        interceptPricing: false,   // 不给“敌方占城者”额外定价
         scoutMissions: false,
-        multiEscort: false
+        multiEscort: false,
+        collapseConversion: false,
+        emergencyDefense: false,
+        lethalFocus: false,
+        rearCommanderSafety: false
     }),
     hard: Object.freeze({
         id: 'hard',
@@ -58,7 +66,11 @@ export const TIER_CAPABILITIES = Object.freeze({
         transportPlanning: false, // 实测目前是负资产：陆军运去海上喂潜艇
         interceptPricing: true,
         scoutMissions: true,
-        multiEscort: true
+        multiEscort: true,
+        collapseConversion: true,
+        emergencyDefense: true,
+        lethalFocus: true,
+        rearCommanderSafety: true
     })
 });
 
@@ -99,7 +111,11 @@ export const W = Object.freeze({
     // 补充兵员：守军 HP 低于该比率且在城市/村庄时值得补。
     reinforceHpRatio: 0.75,
     // 编队：向同一任务集结的友军每个的集火价值（金币）。
-    focusFireRallyValue: 14
+    focusFireRallyValue: 14,
+    lethalFocusMargin: 1.10,
+    laserTowerPriority: 32,
+    rearCommanderRiskMultiplier: 2.1,
+    rearCommanderCityValue: 180
 });
 
 /** 单位每 HP 的金币价值。伤害估价的唯一换算器，全管线统一。 */

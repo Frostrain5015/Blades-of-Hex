@@ -157,9 +157,13 @@ export function assignMissions(world, strategy) {
     const rankedFiltered = ranked.filter(entry =>
         (siegeBlacklist[`${entry.city.tile.q},${entry.city.tile.r}`] || 0) <= world.round);
     // 死斗姿态只抢最快能兑现的城，不再按资产排序。
-    if (strategy.posture === 'allin') rankedFiltered.sort((a, b) => a.eta - b.eta);
+    if (strategy.posture === 'allin') rankedFiltered.sort((a, b) => {
+        const targetDelta = Number(b.city.ownerKey === strategy.finishTargetCampKey)
+            - Number(a.city.ownerKey === strategy.finishTargetCampKey);
+        return targetDelta || a.eta - b.eta;
+    });
     const siegeBudget = strategy.posture === 'allin' ? 1
-        : strategy.posture === 'hold' ? 0
+        : strategy.posture === 'hold' || strategy.posture === 'defend' ? 0
         : Math.min(2, rankedFiltered.length ? 1 + (world.myUnits.length >= 8 ? 1 : 0) : 0);
     for (const entry of rankedFiltered.slice(0, siegeBudget)) {
         const city = entry.city;
@@ -214,7 +218,7 @@ export function assignMissions(world, strategy) {
         const capturerNear = enemyCapturerNear(cityTile);
         const garrison = cityTile.unit && cityTile.unit.camp === world.myCamp ? cityTile.unit : null;
         const capturedRound = recentCaptures[`${cityTile.q},${cityTile.r}`];
-        const freshCapture = world.fog && Number.isFinite(capturedRound)
+        const freshCapture = world.caps.emergencyDefense && Number.isFinite(capturedRound)
             && world.round - capturedRound <= 2;
         const threatened = capturerNear || strategy.posture === 'defend' || freshCapture;
         if (garrison && (world.isCapturable(garrison) || garrison.commander === 'minister')) {
@@ -246,13 +250,14 @@ export function assignMissions(world, strategy) {
     }
 
     // ── 3. 截杀任务（按价值分配最近的空闲战斗单位）─────────────
-    for (const target of findInterceptTargets(world).slice(0, 2)) {
+    const interceptBudget = strategy.emergencyDefenseCity ? 3 : 2;
+    for (const target of findInterceptTargets(world).slice(0, interceptBudget)) {
         const hunters = world.myUnits
             .filter(unit => !assigned.has(unit.id) && !world.isImmobile(unit))
             .filter(unit => !['minister', 'astrologer'].includes(unit.commander))
             .sort((a, b) => world.helpers.hexDistance(a.tile, target.unit.tile)
                 - world.helpers.hexDistance(b.tile, target.unit.tile))
-            .slice(0, 2);
+            .slice(0, strategy.emergencyDefenseCity ? 3 : 2);
         if (hunters.length === 0) continue;
         hunters.forEach(unit => assigned.add(unit.id));
         missions.push({
@@ -305,5 +310,9 @@ export function assignMissions(world, strategy) {
             if (id != null) assignment.set(id, mission);
         }
     }
-    return { missions: alive, assignment };
+    return {
+        missions: alive,
+        assignment,
+        suppressNeutralEngagements: !!strategy.emergencyDefenseCity || !!strategy.finishTargetCampKey
+    };
 }

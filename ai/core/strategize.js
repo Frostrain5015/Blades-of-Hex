@@ -89,9 +89,29 @@ export function decideStrategy(world) {
 
     let posture = base.posture;
     let urgency = base.urgency;
+    const emergencyDefenseCity = world.caps.emergencyDefense
+        ? world.myCities.find(city => {
+            const hostileCapturers = world.rivalUnits.filter(unit => world.isCapturable(unit)
+                && unit.tile && world.helpers.hexDistance(unit.tile, city) <= 2).length;
+            if (hostileCapturers === 0) return false;
+            const localDefenders = world.myUnits.filter(unit => world.isCapturable(unit)
+                && unit.tile && world.helpers.hexDistance(unit.tile, city) <= 2).length;
+            const weakGarrison = !city.unit || city.unit.hp < city.unit.maxHp * 0.55;
+            return weakGarrison || hostileCapturers > localDefenders;
+        }) || null
+        : null;
+    const finishTargetCampKey = world.collapseTarget?.campKey || null;
     if (bleeding && posture === 'expand') {
         posture = 'contest';
         urgency = Math.max(urgency, 0.5);
+    }
+    if (finishTargetCampKey && !emergencyDefenseCity) {
+        posture = 'allin';
+        urgency = Math.max(urgency, 0.88);
+    }
+    if (emergencyDefenseCity) {
+        posture = 'defend';
+        urgency = Math.max(urgency, 0.95);
     }
     const clock = { enemyCaptureEta: null, myCaptureEta: null };
 
@@ -166,6 +186,8 @@ export function decideStrategy(world) {
         cityGap: world.cityGap,
         clock,
         capitalThreat,
+        emergencyDefenseCity,
+        finishTargetCampKey,
         assaultCapacity,
         reserve,
         needsScout,

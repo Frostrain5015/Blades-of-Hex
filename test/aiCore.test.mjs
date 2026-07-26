@@ -175,3 +175,49 @@ test('攻城任务：指定最近近战为占领者并跨回合保留', async ()
     // 记忆写回：下回合仍认得这条任务
     assert.ok(state._aiCoreMemory.player1.missions.some(m => m.id === siege.id));
 });
+
+test('Imperator 会把已崩塌对手识别为收官目标，而不是继续扩张中立区', async () => {
+    const { buildWorld, decideStrategy, assignMissions } = await loadCore();
+    const me = { id: 'player1', name: '紫军' };
+    const foe = { id: 'player2', name: '红军' };
+    const neutral = { id: 'neutral', name: '中立' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const target = makeTile(6, 0, { isCity: true, camp: foe, districtId: 2, hp: 0 });
+    const tiles = [home, target];
+    for (let index = 0; index < 6; index++) {
+        const troopTile = index === 0 ? home : makeTile(index, 1);
+        if (index > 0) tiles.push(troopTile);
+        makeUnit(index + 1, index % 2 ? 'cavalry' : 'infantry', me, troopTile);
+    }
+    makeUnit(20, 'infantry', foe, target, { hp: 50 });
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, { turnCounter: 21 });
+    const world = buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    assert.equal(strategy.posture, 'allin');
+    assert.equal(strategy.finishTargetCampKey, 'player2');
+    assert.equal(missions.suppressNeutralEngagements, true);
+    assert.equal(missions.missions.find(mission => mission.kind === 'siege')?.targetQ, target.q);
+});
+
+test('Imperator 发现两格内敌方占领者时立即停止攻城并转入紧急守城', async () => {
+    const { buildWorld, decideStrategy, assignMissions } = await loadCore();
+    const me = { id: 'player1', name: '紫军' };
+    const foe = { id: 'player2', name: '红军' };
+    const neutral = { id: 'neutral', name: '中立' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const enemyCity = makeTile(8, 0, { isCity: true, camp: foe, districtId: 2 });
+    const invaderTile = makeTile(2, 0);
+    const reserveTile = makeTile(4, 0);
+    makeUnit(1, 'infantry', me, reserveTile);
+    makeUnit(2, 'cavalry', foe, invaderTile);
+    const tiles = [home, enemyCity, invaderTile, reserveTile];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, { turnCounter: 6 });
+    const world = buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const { missions } = assignMissions(world, strategy);
+    assert.equal(strategy.posture, 'defend');
+    assert.equal(strategy.emergencyDefenseCity, home);
+    assert.equal(missions.some(mission => mission.kind === 'siege'), false);
+    assert.equal(missions.some(mission => mission.kind === 'garrison'), true);
+});

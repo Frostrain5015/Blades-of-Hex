@@ -75,7 +75,7 @@ function buildColonel() {
         ...COLONEL_CARD_DATA,
         baseAirDamageBonus: 0.20,
         antiAirPierce: 0.15,
-        rangeBonus: 1
+        rangeBonus: 2
     };
     return {
         definition: {

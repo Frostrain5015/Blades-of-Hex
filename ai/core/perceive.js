@@ -8,6 +8,7 @@ import { getRound } from '../../rules/turns.js';
 import { campToKey } from '../../rules/camps.js';
 import { getStandardMap } from '../../rules/standardMaps.js';
 import { isWaterTile } from '../../rules/surfaces.js';
+import { laserTowerShotDamage } from '../../rules/laserTower.js';
 import {
     canCaptureCityByCombat,
     createCombatModel,
@@ -163,14 +164,19 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         const damages = [];
         for (const enemy of hostileForThreat) {
             if (!enemy.tile || enemy._isImmobile && !enemy.tile.isCity) { /* 固定工事照常算 */ }
-            const range = Math.max(1, Number(enemy.config?.range) || 1);
+            const range = Math.max(1, Number(enemy.getEffectiveRange?.() ?? enemy.config?.range) || 1);
             const speed = caps.threatForecast ? Math.max(0, Number(enemy.config?.speed) || 0) : 2;
             const reach = range + Math.min(speed, 4);
             if (helpers.hexDistance(enemy.tile, tile) > reach) continue;
             if (enemy.type === 'submarine' && unit) {
                 // 潜艇只能被驱逐舰/潜艇攻击；威胁视角对称处理：潜艇打陆军也受限，粗略放行
             }
-            const dmg = combat.estimateDamage(enemy, unit || { type: 'infantry', config: { defense: 0 } }, tile);
+            const clusteredTargets = enemy.type === 'laserTower'
+                ? myUnits.filter(ally => ally.tile && helpers.hexDistance(enemy.tile, ally.tile) <= range).length
+                : 0;
+            const dmg = enemy.type === 'laserTower'
+                ? laserTowerShotDamage(Math.max(1, clusteredTargets))
+                : combat.estimateDamage(enemy, unit || { type: 'infantry', config: { defense: 0 } }, tile);
             if (dmg > 0) damages.push(dmg);
         }
         damages.sort((a, b) => b - a);
@@ -187,6 +193,24 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         || { projectedIncome: 0 };
     const ownForceValue = estimateForceValue(myUnits);
     const observedRivalForce = estimateForceValue(rivalUnits);
+    const rivalProfiles = rivalFactions.map(faction => {
+        const campKey = campToKey(faction);
+        const units = rivalUnits.filter(unit => unit.camp === faction);
+        return {
+            campKey,
+            unitCount: units.length,
+            cityCount: cityCountByKey[campKey] || 0,
+            forceValue: estimateForceValue(units)
+        };
+    });
+    const collapseTarget = !fog && caps.collapseConversion && round >= 6 && myUnits.length >= 6
+        ? rivalProfiles
+            .filter(profile => profile.cityCount <= 2 && profile.unitCount <= 4
+                && ownForceValue >= Math.max(1, profile.forceValue) * 2.2)
+            .sort((a, b) => a.cityCount - b.cityCount
+                || a.forceValue - b.forceValue
+                || a.unitCount - b.unitCount)[0] || null
+        : null;
     const aiMemory = (gameState._aiCoreMemory ||= {});
     const intelMemory = (aiMemory[myCampKey] ||= {});
     const baseRivalEstimate = estimateFogRivalForce({
@@ -217,7 +241,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         tiles, tileMap: gameState.tileMap,
         weather: gameState.weather || 'clear',
         myUnits, rivalUnits, neutralUnits, rivalFactions,
-        myCities, cities, cityCountByKey, bestRivalCities,
+        myCities, cities, cityCountByKey, bestRivalCities, rivalProfiles, collapseTarget,
         cityGap: myCities.length - bestRivalCities,
         economy, strongestRivalEconomy,
         ownForceValue, observedRivalForce, rivalForceEstimate,

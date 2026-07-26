@@ -70,7 +70,7 @@ export const UNIT_SPECIALIZATION_CONFIG = deepFreeze({
         rocketArtillery: spec('火箭炮', { hp: 90, attack: 40, defense: 0, speed: 3, range: 2 }, {
             splash: { rank1: 0.25, rank3: 0.35, totalDamageCap: 1 }
         }, unit => `对主目标相邻敌军造成${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%倍率溅射。`),
-        antiAirArtillery: spec('防空炮', { hp: 110, attack: 0, defense: 0.05, speed: 4, range: 2 }, {
+        antiAirArtillery: spec('防空炮', { hp: 110, attack: 45, defense: 0.05, speed: 4, range: 2 }, {
             antiAir: { radius: 2, rank1: 0.35, rank3: 0.50 }
         }, unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`)
     },

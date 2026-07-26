@@ -16,6 +16,7 @@ import {
     canBuildFieldFortificationAt,
     canBuildLaserTowerAt,
     canBuildShoreBatteryAt,
+    canBuildAirfieldAt,
     constructionCost,
     getAirfieldCap
 } from '../rules/construction.js';
@@ -35,6 +36,8 @@ test('0阶标准型、待专精与选定专精使用同一确定性军衔映射'
     assert.equal(selected.hp, 215);
     assert.equal(selected.attack, 50);
     assert.equal(getSpecializationAbilityValue({ type: 'infantry', specializationKey: 'garrisonInfantry', _rank: 3 }, 'cityRegen'), 0.20);
+    assert.equal(resolveUnitRankProfile('archer', 2, 'antiAirArtillery').attack, 55,
+        '防空炮保留普通攻击，防空火力是附加能力');
 });
 
 test('建筑锁定军衔，航母把2阶攻击奖励映射为航空火力', () => {
@@ -51,7 +54,7 @@ test('建筑锁定军衔，航母把2阶攻击奖励映射为航空火力', () =
     assert.equal(carrier.unbranchedReward.damageBonus, 0.15);
 });
 
-test('通用建设与工程师折扣、机场上限使用规则层单一配置', () => {
+test('通用建设与工程师折扣、机场逐城建设资格使用规则层单一配置', () => {
     const engineer = { commander: 'engineer' };
     assert.equal(constructionCost('trench'), CONSTRUCTION_CONFIG.trench.cost);
     assert.equal(constructionCost('trench', engineer), CONSTRUCTION_CONFIG.trench.engineerCost);
@@ -61,9 +64,15 @@ test('通用建设与工程师折扣、机场上限使用规则层单一配置',
 
     const camp = { id: 'player1' };
     const state = { tiles: Array.from({ length: 4 }, () => ({ isCity: true, camp })) };
-    assert.equal(getAirfieldCap(state, camp), 2);
+    assert.equal(getAirfieldCap(state, camp), Number.POSITIVE_INFINITY);
     state.airfieldCapOverrides = { player1: 3 };
-    assert.equal(getAirfieldCap(state, camp), 3);
+    assert.equal(getAirfieldCap(state, camp), Number.POSITIVE_INFINITY);
+    const availableCity = state.tiles[3];
+    availableCity.hp = 300;
+    state.mechanics = { airCommands: true };
+    for (const city of state.tiles.slice(0, 3)) city.installation = { type: 'airfield', status: 'ready' };
+    assert.equal(canBuildAirfieldAt(availableCity, camp, state), true,
+        '已有任意数量机场时，无机场的己方城市仍可付费建设');
 });
 
 test('岸防炮使用统一建设规则而非沿岸招募入口', () => {

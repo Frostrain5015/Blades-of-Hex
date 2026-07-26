@@ -110,6 +110,21 @@ test('transport locks attack to 20 before retained commander percentage and lock
     assert.equal(effect?.desc, '正处于海洋地块，攻击力下降至20，防御力下降至-25%');
 });
 
+test('fog reduces naval and fixed-defense range through the same effective-range pipeline', () => {
+    const water = tile(0, 0, 'deepWater');
+    const fortTile = tile(1, 0);
+    const state = setupState([water, fortTile]);
+    state.mechanics = { weatherEffects: true };
+    const ship = new Unit('warship', state.factions.player1, water);
+    const battery = new Unit('shoreBattery', state.factions.player1, fortTile);
+    state.weather = 'clear';
+    assert.equal(ship.getEffectiveRange(), 2);
+    assert.equal(battery.getEffectiveRange(), 2);
+    state.weather = 'fog';
+    assert.equal(ship.getEffectiveRange(), 1);
+    assert.equal(battery.getEffectiveRange(), 1);
+});
+
 test('deep-water transport uses minus fifty percent base defense and may assault an occupied coast', () => {
     const deepWater = tile(0, 0, 'deepWater');
     const coast = tile(1, 0);

@@ -15,7 +15,7 @@ import {
 import { assessSiegeMission } from '../strategy.js';
 import { W, hpGold, noiseJitter, residualGold, tradeNetValue } from './weights.js';
 
-const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller']);
+const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
 
 // ═══════════════════════════════════════════════════════════════
@@ -79,7 +79,8 @@ function escortProtectionBonus(world, missionsCtx, attacker, target) {
 
 /** 中立单位一律可打，但由净交换纪律把关：划算的才打，啃不动的不打。 */
 function isNeutralEngageable(world, missionsCtx, target) {
-    return true;
+    return target.camp !== world.gameState.factions?.neutral
+        || !missionsCtx.suppressNeutralEngagements;
 }
 
 /** 威胁定价：按比例损失折算残余价值，而不是按 HP 单价——快死的单位每一步都更贵。 */
@@ -148,6 +149,7 @@ function evaluateAttack(world, missionsCtx, attacker, target) {
         + conversionBonus(world, attacker, target)
         + escortProtectionBonus(world, missionsCtx, attacker, target)
         + scoreTacticalRoleMatchup(attacker, target) * 0.3
+        + (target.type === 'laserTower' ? W.laserTowerPriority : 0)
         + (target.commander ? 30 : 0)
         + ((target._rank || 0) >= 3 ? 40 : 0); // 高 rank 王牌：放任不管会被它一个个点名
     // 攻击位置暴露成本：攻击完单位留在原地，敌方回合按当前位置的威胁预扣。
@@ -157,7 +159,12 @@ function evaluateAttack(world, missionsCtx, attacker, target) {
     const canDisengage = Math.max(1, Number(attacker.config?.range) || 1) >= 2
         || Number(target.config?.speed) <= 0
         || Math.max(1, Number(target.config?.range) || 1) < world.helpers.hexDistance(attacker.tile, target.tile);
-    const veto = !kills && canDisengage && net < -residualGold(attacker) * W.tradeVetoRatio;
+    const rearCommanderExposed = world.caps.rearCommanderSafety
+        && REAR_COMMANDERS.has(attacker.commander)
+        && !kills
+        && world.threatAt(attacker.tile, attacker) >= attacker.hp * 0.35;
+    const veto = rearCommanderExposed
+        || (!kills && canDisengage && net < -residualGold(attacker) * W.tradeVetoRatio);
     const jitter = noiseJitter(world.caps, `atk:${world.round}:${attacker.id}:${target.id}`);
     return { target, damage, kills, counter, net, strategic, veto, value: (net + strategic - exposure) * jitter };
 }
@@ -370,6 +377,8 @@ function planMove(world, missionsCtx, unit, posture, actions) {
     const veteran = (unit._rank || 0) >= 2;
     const riskWeight = (mission && unit.id === mission.occupierId ? 0.65 : mission ? 1.0 : 1.6)
         * (FRAGILE_COMMANDERS.has(unit.commander) ? 1.6 : 1)
+        * (world.caps.rearCommanderSafety && REAR_COMMANDERS.has(unit.commander)
+            ? W.rearCommanderRiskMultiplier : 1)
         * (veteran ? 1.35 : 1)
         * (posture === 'allin' ? 0.7 : 1)
         * (posture === 'hold' && (!mission || mission.kind !== 'garrison') ? 1.25 : 1);
@@ -434,6 +443,8 @@ function scoreOfStaying(world, missionsCtx, unit, mission) {
     let score = 0;
     if (mission?.kind === 'garrison' && unit.tile.isCity) score += 300;
     if (unit.tile.isCity && unit.tile.camp === world.myCamp && unit.commander === 'minister') score += 500;
+    if (world.caps.rearCommanderSafety && unit.tile.isCity && unit.tile.camp === world.myCamp
+        && unit.commander === 'astrologer') score += W.rearCommanderCityValue;
     if (unit.tile.isCity && unit.tile.camp !== world.myCamp && world.isCapturable(unit)) score += 150;
     return score;
 }
@@ -527,6 +538,44 @@ function planCaptureFinishers(world, missionsCtx, actions, processed) {
                     break;
                 }
             }
+        }
+    }
+}
+
+/** 困难档先寻找本回合能稳定击杀的共同目标，避免每个单位各自打出“最高单次收益”却无人阵亡。 */
+function planLethalFocus(world, missionsCtx, actions, processed) {
+    if (!world.caps.lethalFocus) return;
+    const candidates = [];
+    for (const target of [...world.rivalUnits, ...world.neutralUnits]) {
+        if (!target.tile || !isNeutralEngageable(world, missionsCtx, target)) continue;
+        const entries = world.myUnits
+            .filter(unit => !processed.has(unit.id) && unit.canAct && unit.tile
+                && world.helpers.getAttackableTiles(unit).includes(target.tile))
+            .map(unit => ({ unit, entry: evaluateAttack(world, missionsCtx, unit, target) }))
+            .filter(candidate => !candidate.entry.veto && candidate.entry.value > 0)
+            .sort((a, b) => b.entry.damage - a.entry.damage || b.entry.value - a.entry.value);
+        const pool = target.hp + (target._shield || 0);
+        if (entries.reduce((sum, candidate) => sum + candidate.entry.damage, 0)
+            < pool * W.lethalFocusMargin) continue;
+        const selected = [];
+        let damage = 0;
+        for (const candidate of entries) {
+            selected.push(candidate);
+            damage += candidate.entry.damage;
+            if (damage >= pool * W.lethalFocusMargin) break;
+        }
+        const priority = residualGold(target)
+            + (target.commander ? W.commanderKillBonus : 0)
+            + (target.type === 'laserTower' ? W.laserTowerPriority : 0)
+            + enemyCapturerPremium(world, target);
+        candidates.push({ target, selected, priority });
+    }
+    candidates.sort((a, b) => b.priority - a.priority);
+    for (const candidate of candidates) {
+        if (candidate.selected.some(item => processed.has(item.unit.id))) continue;
+        for (const { unit } of candidate.selected) {
+            actions.push({ type: 'attack', unitId: unit.id, targetId: candidate.target.id });
+            processed.add(unit.id);
         }
     }
 }
@@ -638,6 +687,9 @@ export function planTactics(world, strategy, missionsCtx) {
 
     // 1.5 破门序列：攻城任务守军的协同斩杀（终结者收尾进城）。
     planBreachSequence(world, missionsCtx, actions, processed);
+
+    // 1.75 困难档集火终结：在分配常规攻击前，先锁定能够确保减员的攻击包。
+    planLethalFocus(world, missionsCtx, actions, processed);
 
     // 2. 普通攻击：全阵营候选按价值排序，保证集火与高价值交换先行。
     const attackPlans = [];

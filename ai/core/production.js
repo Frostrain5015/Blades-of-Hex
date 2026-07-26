@@ -16,6 +16,12 @@ function canAfford(world, cost, strategy, extraReserve = 0) {
 
 /** 招募城市兵种：突击缺口时步兵/骑兵置顶（对齐真人"城就是产能"的认知）。 */
 function landRecruitOrder(world, strategy) {
+    const hostileFortifications = world.rivalUnits.filter(unit =>
+        unit.type === 'laserTower' || unit.type === 'mgNest' || unit.type === 'shoreBattery').length;
+    const myArchers = world.myUnits.filter(unit => unit.type === 'archer').length;
+    if (world.caps.lethalFocus && hostileFortifications > myArchers) {
+        return ['archer', 'cavalry', 'infantry'];
+    }
     if (strategy.assaultCapacity.deficit > 0) {
         return LAND_ORDER;
     }

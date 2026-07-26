@@ -58,6 +58,7 @@ import { isSubmarineTargetableBy } from '../rules/naval.js';
 import { getStandardMap } from '../rules/standardMaps.js';
 import { resolveAiDifficultyProfile } from '../ai/difficulty.js';
 import { getRoundIndex } from '../rules/turns.js';
+import { waitForFactionSynergyPresentations } from './factionSynergyPresentation.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -84,9 +85,11 @@ export function configureAiRuntime(options = {}) {
     return () => { _runtimeOptions = previous; };
 }
 
-function delay(ms) {
+async function delay(ms) {
     const scaled = Math.max(0, Math.round(ms * _runtimeOptions.delayScale * _turnPresentationScale));
-    return scaled > 0 ? new Promise(r => setTimeout(r, scaled)) : Promise.resolve();
+    if (scaled > 0) await new Promise(resolve => setTimeout(resolve, scaled));
+    // Hero 可能由攻击内部的延迟结算触发；每个动作真正落子前再次检查全局演出栅栏。
+    await waitForFactionSynergyPresentations();
 }
 
 /**
@@ -446,11 +449,13 @@ async function executeAction(action, aiCamp) {
 
     const label = `${action.type}${action.unitId ? ' ' + action.unitId : ''}`;
     try {
-        return await runObservedAction(action, aiCamp, () => withTimeout(
+        const result = await runObservedAction(action, aiCamp, () => withTimeout(
             _executeActionInner(action, aiCamp),
             _runtimeOptions.actionTimeoutMs,
             label
         ));
+        await waitForFactionSynergyPresentations();
+        return result;
     } catch (e) {
         if (e && e.message && e.message.startsWith('AI_ACTION_TIMEOUT')) {
             console.warn(`AI action timed out: ${label}`);

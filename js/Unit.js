@@ -534,9 +534,20 @@ export class Unit {
 
     getEffectiveRange() {
         const base = getUnitCombatRange(this);
-        return this.type === 'carrier' && this.commander === 'colonel' && !areCommanderMechanicsSuppressed(this)
+        let range = this.type === 'carrier' && this.commander === 'colonel' && !areCommanderMechanicsSuppressed(this)
             ? base + COLONEL_AIR_RANGE_BONUS
             : base;
+        if (this.isEmbarked || !isMechanicEnabled(_gameState, 'weatherEffects')) return range;
+        const weather = getEffectiveWeather(this.tile, this.camp, _gameState);
+        const fogAffected = this.type === 'archer'
+            || this.config?.movementDomain === 'naval'
+            || (this.config?.building && Number(this.config?.speed || 0) === 0);
+        if (weather === 'fog' && fogAffected) {
+            range += COMBAT_BALANCE.weather.fogArcherRangeDelta;
+        } else if (weather === 'wind' && this.type === 'archer') {
+            range += COMBAT_BALANCE.weather.windArcherRangeDelta;
+        }
+        return Math.max(1, range);
     }
 
     // 伤害浮动倍率（替代 critRate + critMulti 二值系统）

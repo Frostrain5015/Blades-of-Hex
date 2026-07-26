@@ -48,6 +48,7 @@ assert.equal(isResolvedTargetingCandidate(preview, occupied), false, 'emptyTile 
 
 const defendedEnemyCity = tile(2, 0, { isCity: true, camp: camps.player2, hp: 300, maxHp: 300 });
 const breachedEnemyCity = tile(3, 0, { isCity: true, camp: camps.player2, hp: 0, maxHp: 300 });
+const breachedFootprint = tile(3, -1, { isUrban: true, camp: camps.player2, hp: 0, maxHp: 300, urbanCenterKey: '2,0' });
 const cityGs = state([own, defendedEnemyCity, breachedEnemyCity], {
     diplomacy: {
         player1: { player2: 'enemy' },
@@ -57,6 +58,11 @@ const cityGs = state([own, defendedEnemyCity, breachedEnemyCity], {
 preview = resolveTargetingPreview(cityGs, { cardId: 'airdrop', targeting: 'emptyTile' });
 assert.equal(isResolvedTargetingCandidate(preview, defendedEnemyCity), false, '未破城不得空降偷城');
 assert.equal(isResolvedTargetingCandidate(preview, breachedEnemyCity), true, '城市HP归零后允许空降占领');
+cityGs.tiles.push(breachedFootprint);
+cityGs.tileMap.set('3,-1', breachedFootprint);
+preview = resolveTargetingPreview(cityGs, { cardId: 'airdrop', targeting: 'emptyTile' });
+assert.equal(isResolvedTargetingCandidate(preview, breachedFootprint), true,
+    '所选城市地块HP为0时，即使共享城市中心仍有HP也允许空降');
 
 own.unit.commander = 'paladin';
 preview = resolveTargetingPreview(gs, { cardId: 'commanderDeploy', targeting: 'friendlyAny' });
@@ -92,8 +98,8 @@ const airfield = tile(0, 0, {
     camp: camps.player1,
     installation: { type: 'airfield', status: 'ready' }
 });
-const airfieldNear = tile(5, 0, { unit: unit('airfield-near', camps.player2) });
-const airfieldFar = tile(6, 0, { unit: unit('airfield-far', camps.player2) });
+const airfieldNear = tile(6, 0, { unit: unit('airfield-near', camps.player2) });
+const airfieldFar = tile(7, 0, { unit: unit('airfield-far', camps.player2) });
 gs = state([airfield, airfieldNear, airfieldFar]);
 preview = resolveTargetingPreview(gs, {
     cardId: 'air_command_strafe', targeting: 'enemyGlobal', launcherQ: 0, launcherR: 0
@@ -101,8 +107,8 @@ preview = resolveTargetingPreview(gs, {
 assert.equal(isResolvedTargetingCandidate(preview, airfieldNear), true);
 assert.equal(isResolvedTargetingCandidate(preview, airfieldFar), false);
 assert.equal(preview.air.rangeTileKeys.has('0,0'), true, '机场航程圈应包含起点');
-assert.equal(preview.air.rangeTileKeys.has('5,0'), true, '机场航程圈应覆盖有效航程');
-assert.equal(preview.air.rangeTileKeys.has('6,0'), false, '机场航程圈不应越过实际航程');
+assert.equal(preview.air.rangeTileKeys.has('6,0'), true, '机场基础航程圈应覆盖 6 格');
+assert.equal(preview.air.rangeTileKeys.has('7,0'), false, '机场基础航程圈不应越过 6 格');
 
 // 机场扫射可指定无驻军但HP>0的敌方/中立空城市（削减城市HP）
 const strafeCity = tile(4, 0, { isCity: true, camp: camps.player2, hp: 300, maxHp: 300 });

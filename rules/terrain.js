@@ -55,7 +55,7 @@ export const WEATHER_CONFIG = (() => {
         },
         fog: {
             name: '雾', icon: '🌫️', color: '#bbccdd',
-            desc: `炮兵射程${w.fogArcherRangeDelta}，骑兵伤害提高${percent(cavalry.fogDamageBonus)}且每格冲锋伤害额外提高${percent(cavalry.fogChargeDamagePerStep - cavalry.normalChargeDamagePerStep)}`
+            desc: `炮兵、海军与固定防御建筑射程${w.fogArcherRangeDelta}，骑兵伤害提高${percent(cavalry.fogDamageBonus)}且每格冲锋伤害额外提高${percent(cavalry.fogChargeDamagePerStep - cavalry.normalChargeDamagePerStep)}`
         },
         wind: {
             name: '风', icon: '💨', color: '#aaccaa',

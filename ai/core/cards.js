@@ -184,6 +184,24 @@ export function planCards(world, strategy, missionsCtx) {
     // ── 空降：死斗姿态的空降夺城/应急守城 ──────────────────────
     if (has('airdrop')) {
         let play = null;
+        if (strategy.emergencyDefenseCity) {
+            const city = strategy.emergencyDefenseCity;
+            const nearestThreat = world.rivalUnits
+                .filter(unit => world.isCapturable(unit) && unit.tile)
+                .sort((a, b) => world.helpers.hexDistance(a.tile, city)
+                    - world.helpers.hexDistance(b.tile, city))[0] || null;
+            const defensiveTiles = world.helpers.HEX_NEIGHBORS
+                .map(([dq, dr]) => world.tileMap.get(`${city.q + dq},${city.r + dr}`))
+                .filter(tile => tile && !tile.unit && !world.onWater(tile)
+                    && (!tile.isCity || tile.camp === world.myCamp));
+            defensiveTiles.sort((a, b) => {
+                const distance = tile => nearestThreat
+                    ? world.helpers.hexDistance(tile, nearestThreat.tile) : 0;
+                return distance(a) - distance(b)
+                    || world.threatAt(a, null) - world.threatAt(b, null);
+            });
+            if (defensiveTiles[0]) play = { tileId: defensiveTiles[0].id, score: 80 };
+        }
         if (strategy.posture === 'allin') {
             for (const mission of missionsCtx.missions) {
                 if (mission.kind !== 'siege') continue;

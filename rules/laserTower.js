@@ -41,7 +41,7 @@ export function resolveLaserTowerVolley(gameState, campKey, options = {}) {
     for (const tower of towers) {
         const towerTile = tower.tile;
         if (!towerTile) continue;
-        const range = tower.config?.range || 3;
+        const range = tower.getEffectiveRange?.() ?? tower.config?.range ?? 3;
         const targets = [];
         for (const tile of gameState.tiles) {
             const target = tile.unit;

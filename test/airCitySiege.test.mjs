@@ -97,6 +97,18 @@ test('航母不能超出射程指定空城', () => {
     assert.equal(farCity.hp, 300);
 });
 
+test('空军上校把航母射程由5提高到7', () => {
+    const sea = waterTile(0, 0);
+    const enhancedTarget = enemyCityTile(7, 0);
+    const outsideTarget = enemyCityTile(8, 0);
+    setupMatch([sea, enhancedTarget, outsideTarget]);
+    const carrier = new Unit('carrier', P1, sea, false, null, 'colonel');
+    sea.unit = carrier;
+    const targets = gl.getAttackableTiles(carrier);
+    assert.ok(targets.includes(enhancedTarget));
+    assert.ok(!targets.includes(outsideTarget));
+});
+
 test('机场扫射指令可指定无驻军但HP>0的敌城并延迟削减城市HP', async () => {
     const airfield = new HexTile(0, 0);
     airfield.isCity = true;

@@ -8,6 +8,13 @@ const recentEventTimes = new Map();
 const followupFactories = new Map();
 let playing = false;
 let activeFollowup = null;
+const idleWaiters = new Set();
+
+function resolveIdleWaiters() {
+    if (playing || queue.length > 0) return;
+    for (const resolve of idleWaiters) resolve();
+    idleWaiters.clear();
+}
 
 function resolveStageRect() {
     const stageElement = document.getElementById('canvasStage');
@@ -99,6 +106,7 @@ function playNext() {
     const root = document.getElementById('factionSynergyCinematic');
     if (!root) {
         queue.length = 0;
+        resolveIdleWaiters();
         return;
     }
     if (root.parentElement !== document.body) document.body.appendChild(root);
@@ -122,6 +130,7 @@ function playNext() {
         root.hidden = true;
         playing = false;
         playNext();
+        resolveIdleWaiters();
     }, durationMs + 120);
 }
 
@@ -141,4 +150,10 @@ export function playFactionSynergyPresentation(event, presentation) {
     if (eventKey) recentEventTimes.set(eventKey, now);
     queue.push({ event: event || {}, presentation });
     playNext();
+}
+
+/** AI/回放动作队列可等待全屏 Hero 演出结束，防止后续战场动作覆盖当前结算表现。 */
+export function waitForFactionSynergyPresentations() {
+    if (!playing && queue.length === 0) return Promise.resolve();
+    return new Promise(resolve => idleWaiters.add(resolve));
 }

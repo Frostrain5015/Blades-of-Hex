@@ -1,5 +1,5 @@
 // test/laserTower.test.mjs — 激光塔【集束激光】齐射规则 + 同类防御建筑间距规则：
-//   伤害公式（20 + 6×(N−1)，封顶 50）、目标过滤（射程/敌我/中立/迷雾/脚手架）、
+//   伤害公式（25 + 10×(N−1)，封顶 65）、目标过滤（射程/敌我/中立/迷雾/脚手架）、
 //   击杀归属、造价守卫、同类建筑 7 格最小间距（碉堡/岸防炮/激光塔全建造路径）。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -54,14 +54,14 @@ function spawn(state, type, faction, tile) {
 }
 
 // ===== 齐射伤害公式（数值守卫，改动需刻意）=====
-test('激光塔单发伤害公式：20 + 6×(N−1)，N≥6 封顶 50', () => {
+test('激光塔单发伤害公式：25 + 10×(N−1)，N≥5 封顶 65', () => {
     assert.deepEqual(
         [1, 2, 3, 4, 5, 6, 7, 10].map(n => laserTowerShotDamage(n)),
-        [20, 26, 32, 38, 44, 50, 50, 50]
+        [25, 35, 45, 55, 65, 65, 65, 65]
     );
-    assert.equal(LASER_TOWER_BALANCE.baseDamage, 20);
-    assert.equal(LASER_TOWER_BALANCE.perExtraTarget, 6);
-    assert.equal(LASER_TOWER_BALANCE.maxDamage, 50);
+    assert.equal(LASER_TOWER_BALANCE.baseDamage, 25);
+    assert.equal(LASER_TOWER_BALANCE.perExtraTarget, 10);
+    assert.equal(LASER_TOWER_BALANCE.maxDamage, 65);
 });
 
 // ===== 造价守卫（比现有两种防御建筑均贵）=====
@@ -72,7 +72,7 @@ test('激光塔造价 15，高于碉堡与岸防炮', () => {
 });
 
 // ===== 齐射结算 =====
-test('单目标齐射：命中 1 个射程内敌人，伤害 20', () => {
+test('单目标齐射：命中 1 个射程内敌人，伤害 25', () => {
     const state = setup();
     const towerTile = addTile(state, 0, 0, state.factions.player1);
     const targetTile = addTile(state, 2, 0, state.factions.player2);
@@ -81,11 +81,11 @@ test('单目标齐射：命中 1 个射程内敌人，伤害 20', () => {
     const result = resolveLaserTowerVolley(state, 'player1');
     assert.equal(result.volleys.length, 1);
     assert.equal(result.volleys[0].hits.length, 1);
-    assert.equal(result.volleys[0].hits[0].dmg, 20);
-    assert.equal(enemy.hp, 180 - 20);
+    assert.equal(result.volleys[0].hits[0].dmg, 25);
+    assert.equal(enemy.hp, 180 - 25);
 });
 
-test('多目标齐射：3 个敌人各受 32；友军与射程外敌人不受影响', () => {
+test('多目标齐射：3 个敌人各受 45；友军与射程外敌人不受影响', () => {
     const state = setup();
     const towerTile = addTile(state, 0, 0, state.factions.player1);
     spawn(state, 'laserTower', state.factions.player1, towerTile);
@@ -97,15 +97,15 @@ test('多目标齐射：3 个敌人各受 32；友军与射程外敌人不受影
     const result = resolveLaserTowerVolley(state, 'player1');
     assert.equal(result.volleys.length, 1);
     assert.equal(result.volleys[0].hits.length, 3);
-    for (const hit of result.volleys[0].hits) assert.equal(hit.dmg, 32);
-    assert.equal(e1.hp, 180 - 32);
-    assert.equal(e2.hp, 150 - 32);
-    assert.equal(e3.hp, 180 - 32);
+    for (const hit of result.volleys[0].hits) assert.equal(hit.dmg, 45);
+    assert.equal(e1.hp, 180 - 45);
+    assert.equal(e2.hp, 150 - 45);
+    assert.equal(e3.hp, 180 - 45);
     assert.equal(friend.hp, 180);
     assert.equal(far.hp, 180);
 });
 
-test('7 个目标时单发封顶 50；中立敌对单位同样被命中', () => {
+test('7 个目标时单发封顶 65；中立敌对单位同样被命中', () => {
     const state = setup();
     const towerTile = addTile(state, 0, 0, state.factions.player1);
     spawn(state, 'laserTower', state.factions.player1, towerTile);
@@ -115,9 +115,9 @@ test('7 个目标时单发封顶 50；中立敌对单位同样被命中', () => 
     const neutral = spawn(state, 'infantry', state.factions.neutral, addTile(state, 3, 0, state.factions.neutral));
     const result = resolveLaserTowerVolley(state, 'player1');
     assert.equal(result.volleys[0].hits.length, 8);
-    for (const hit of result.volleys[0].hits) assert.equal(hit.dmg, 50);
-    assert.equal(neutral.hp, 180 - 50);
-    assert.ok(unitsSpawned.every(u => u.hp === 180 - 50));
+    for (const hit of result.volleys[0].hits) assert.equal(hit.dmg, 65);
+    assert.equal(neutral.hp, 180 - 65);
+    assert.ok(unitsSpawned.every(u => u.hp === 180 - 65));
 });
 
 test('击杀归属：齐射击杀记入塔的阵营击杀数；脚手架塔不开火', () => {
