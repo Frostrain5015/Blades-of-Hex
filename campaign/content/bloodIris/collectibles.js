@@ -1,6 +1,20 @@
 // 《染血的鸢尾花》收藏物总表。关卡只引用属于自己的条目，大厅使用完整总表陈列。
 export const BLOOD_IRIS_COLLECTIBLES = Object.freeze([
     Object.freeze({
+        id: 'bi04_family_letter',
+        scenarioId: 'bi-04-gate',
+        name: '未焚的家书',
+        emoji: '✉️',
+        description: '东境往来函里夹着的一封私信，被卡托从火盆边抽了出来。官印和回执都烧了，写给人的那几行留了下来——同一间档案厅，第二天会被另一支军队翻检。'
+    }),
+    Object.freeze({
+        id: 'bi06_cloak_clasp',
+        scenarioId: 'bi-06-triumph',
+        name: '王室斗篷扣',
+        emoji: '🪝',
+        description: '庆典夜在王宫侧门外的泥里捡到的一枚鎏金扣，扣面是五瓣鸢尾。搭扣是从里面解开的——不是被扯断的。'
+    }),
+    Object.freeze({
         id: 'bi05_charred_silk',
         scenarioId: 'bi-05-petra',
         name: '焦黑帛书残片',

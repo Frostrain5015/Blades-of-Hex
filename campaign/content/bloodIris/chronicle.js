@@ -77,7 +77,7 @@ const SCENARIOS = Object.freeze([
     },
     {
         id: 'bi-02-flag',
-        title: '向东的旗',
+        title: '泥中鸢尾',
         label: '02',
         elementKey: 'bi-02-flag',
         type: 'normal',
@@ -114,6 +114,16 @@ const SCENARIOS = Object.freeze([
         chapter: 1,
         order: 5,
         load: () => import('./bi-05-petra.js')
+    },
+    {
+        id: 'bi-06-triumph',
+        title: '凯旋者不归',
+        label: '06',
+        elementKey: 'bi-06-triumph',
+        type: 'normal',
+        chapter: 2,
+        order: 6,
+        load: () => import('./bi-06-triumph.js')
     },
     {
         id: 'bi-13-oppose',
