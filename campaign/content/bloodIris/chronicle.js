@@ -126,6 +126,36 @@ const SCENARIOS = Object.freeze([
         load: () => import('./bi-06-triumph.js')
     },
     {
+        id: 'bi-t7-fog',
+        title: '雾中听令',
+        label: 'T7',
+        elementKey: 'bi-t7-fog',
+        type: 'teaching',
+        chapter: 2,
+        order: 7,
+        load: () => import('./bi-t7-fog.js')
+    },
+    {
+        id: 'bi-08-trail',
+        title: '雪埋旧路',
+        label: '08',
+        elementKey: 'bi-08-trail',
+        type: 'normal',
+        chapter: 2,
+        order: 8,
+        load: () => import('./bi-08-trail.js')
+    },
+    {
+        id: 'bi-09-halt',
+        title: '我心如火',
+        label: '09',
+        elementKey: 'bi-09-halt',
+        type: 'boss',
+        chapter: 2,
+        order: 9,
+        load: () => import('./bi-09-halt.js')
+    },
+    {
         id: 'bi-13-oppose',
         title: '铁花不开',
         label: '13',

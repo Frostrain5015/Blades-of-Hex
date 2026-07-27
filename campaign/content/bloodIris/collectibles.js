@@ -15,6 +15,27 @@ export const BLOOD_IRIS_COLLECTIBLES = Object.freeze([
         description: '庆典夜在王宫侧门外的泥里捡到的一枚鎏金扣，扣面是五瓣鸢尾。搭扣是从里面解开的——不是被扯断的。'
     }),
     Object.freeze({
+        id: 'bi07_broken_arrow',
+        scenarioId: 'bi-t7-fog',
+        name: '插在路标上的断箭',
+        emoji: '🏹',
+        description: '猎宫林道以北，一棵歪树上插着的半支箭。三片箭羽、扎法向左，是佩特拉的制式。城破已两个月，归籍名册上却没有这些人——所以他们只能住在名册管不着的地方。'
+    }),
+    Object.freeze({
+        id: 'bi08_burnt_strap',
+        scenarioId: 'bi-08-trail',
+        name: '烧焦的誓章系带',
+        emoji: '🪢',
+        description: '猎宫以南雪丘背风处，一堆没烧透的火里扒出的七条皮带。铜环齐全，白釉誓章一枚也没有——他们烧掉了能认出自己的那一半，收起了不肯丢掉的那一半。'
+    }),
+    Object.freeze({
+        id: 'bi09_copied_codex',
+        scenarioId: 'bi-09-halt',
+        name: '侧厅里的手抄本',
+        emoji: '📓',
+        description: '猎宫侧厅塌下来之前从书架最下一格抢出的线装册子。麻纸手抄，不是官书；字迹与佩特拉档案厅那半片焦帛出自同一只手——卡托抄了三年先王私录，抄给一个当时还不敢看他的少年。'
+    }),
+    Object.freeze({
         id: 'bi05_charred_silk',
         scenarioId: 'bi-05-petra',
         name: '焦黑帛书残片',

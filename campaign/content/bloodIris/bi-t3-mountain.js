@@ -16,6 +16,11 @@
 //   必须用克制它的兵种去打（rules/units.js COUNTER_RELATION：
 //   步克骑 1.25、弓克步 1.25、骑克弓 1.25，反向 0.75）。
 //
+//   引导只用 highlight，**绝不用 boardLock**。boardLock 会打开
+//   gameState.tutorialMode，之后每次移动都要过 currentAllow() 的白名单
+//   （campaign/runtime/triggers.js:649）；白名单里只有终点格，而末步豁免下的
+//   落点由玩家自己算，锁上就会出现"高亮了却走不过去"的软锁。这是实测踩到的坑。
+//
 //   "山后是谁"不再由马库斯说破，而是做成山脊北侧的一个**可选**观察点：
 //   多爬一个回合才够得着，看到的是东境大道上正在向东移动的平民队列——
 //   也就是下一关（BI-04 佩特拉撤离）玩家将亲手操作的那些人。
@@ -254,7 +259,6 @@ export const config = {
                 {
                     kind: 'showStep',
                     text: '把提图斯移动到高亮的山脊顶。他会先走两格平地，再用最后一点行动力踏上山。',
-                    boardLock: true,
                     dialogLock: true,
                     highlight: {
                         unit: 'titus_infantry',
@@ -291,7 +295,6 @@ export const config = {
                 {
                     kind: 'showStep',
                     text: '攻击高亮的骑兵草人。步兵打骑兵是顺克，伤害更高。',
-                    boardLock: true,
                     dialogLock: true,
                     highlight: {
                         unit: 'titus_infantry',
@@ -332,7 +335,6 @@ export const config = {
                 {
                     kind: 'showStep',
                     text: '先把弓手移进高亮的林中射位。森林一步 3 点，她刚好走得进去。',
-                    boardLock: true,
                     dialogLock: true,
                     highlight: {
                         unit: 'nia_archer',
@@ -363,7 +365,6 @@ export const config = {
                 {
                     kind: 'showStep',
                     text: '从林中射位攻击两格外的步兵草人。',
-                    boardLock: true,
                     dialogLock: true,
                     highlight: {
                         unit: 'nia_archer',
@@ -396,7 +397,6 @@ export const config = {
                 {
                     kind: 'showStep',
                     text: '骑兵一回合能走四格。冲到开阔地上的弓手草人旁边，攻击它。',
-                    boardLock: true,
                     dialogLock: true,
                     highlight: {
                         unit: 'elian_cavalry',

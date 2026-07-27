@@ -253,7 +253,6 @@ export const config = {
                 {
                     kind: 'showStep',
                     text: '第一条，认人：点击出列的提图斯，把他选中。',
-                    boardLock: true,
                     dialogLock: true,
                     highlight: { unit: 'recruit_titus', hint: '点击高亮的新兵把他选中' }
                 },
@@ -274,7 +273,6 @@ export const config = {
                 {
                     kind: 'showStep',
                     text: '第二条，站位：把提图斯移动到木桩左侧的高亮位置。',
-                    boardLock: true,
                     dialogLock: true,
                     highlight: {
                         unit: 'recruit_titus',
@@ -305,7 +303,6 @@ export const config = {
                 {
                     kind: 'showStep',
                     text: '第三条，出手：攻击高亮的木桩。',
-                    boardLock: true,
                     dialogLock: true,
                     highlight: {
                         unit: 'recruit_titus',
