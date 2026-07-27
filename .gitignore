@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .claude/
+.agents/
+skills-lock.json
 .workbuddy/
 certs/
 commander_avatar_prompts.md
@@ -14,5 +16,6 @@ auth-config.json
 admin-config.json
 .env
 prototype/3d-battlefield/screenshots/
+prototype/akros-rpg/screenshots/
 artifacts/
 .tmp-*/

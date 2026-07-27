@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blades of Hex · 阿克罗斯 RPG 原型</title>
+<link rel="icon" href="data:,">
+<style>
+  /* —— 视觉语言沿用主游戏：暗色羊皮纸 + 黄铜描边 + 暖金点缀 —— */
+  :root {
+    --gold:        #ffd700;
+    --warm-gold:   #d5b56f;
+    --brass:       #8a6d3b;
+    --iris-red:    #9e3438;
+    --regency:     #5b3c72;
+    --surface:     rgba(13, 7, 3, 0.90);
+    --surface-hi:  rgba(24, 14, 7, 0.95);
+    --text-bright: #ede6d4;
+    --text-body:   #c0b8ac;
+    --text-dim:    #8a8480;
+    --text-faint:  #5a5550;
+    --ok:          #a8d97c;
+    --bad:         #d4645a;
+    --font: "Noto Serif SC", "Songti SC", "STKaiti", KaiTi, SimSun, serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #0b0906; }
+  body { font-family: var(--font); color: var(--text-body); user-select: none; -webkit-font-smoothing: antialiased; }
+
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; image-rendering: auto; }
+
+  .hud { position: fixed; z-index: 10; pointer-events: none; }
+  .panel-bg {
+    background: linear-gradient(160deg, rgba(32, 22, 12, .90), rgba(15, 10, 6, .88));
+    border: 1px solid var(--brass);
+    border-radius: 5px;
+    box-shadow: 0 3px 14px rgba(0,0,0,.6), inset 0 0 14px rgba(138,109,59,.12);
+  }
+
+  /* ---------- 角色卡 ---------- */
+  #hud { top: 14px; left: 16px; }
+  .hud-card { display: flex; gap: 11px; padding: 10px 16px 10px 10px; align-items: center; }
+  #hud-portrait {
+    width: 62px; height: 62px; border-radius: 4px; object-fit: cover; object-position: 50% 14%; filter: brightness(1.28) saturate(1.06);
+    border: 1px solid var(--brass); background: #1a1109;
+    box-shadow: inset 0 0 12px rgba(0,0,0,.6);
+  }
+  .hud-info { min-width: 214px; }
+  #hud-name { color: var(--text-bright); font-size: 15px; letter-spacing: 1px; }
+  #hud-rank { color: var(--warm-gold); font-size: 11.5px; letter-spacing: 1.2px; margin: 3px 0 6px; }
+  .bar { position: relative; height: 11px; border: 1px solid rgba(138,109,59,.55); border-radius: 2px;
+         background: rgba(0,0,0,.55); overflow: hidden; }
+  .bar + .bar { margin-top: 4px; height: 5px; }
+  #hud-hp-fill { height: 100%; width: 100%; background: linear-gradient(180deg, #d4645a, #7c2126); transition: width .18s ease-out; }
+  #hud-hp-text { position: absolute; inset: 0; text-align: center; font-size: 9.5px; line-height: 11px;
+                 color: #f4e7d2; text-shadow: 0 1px 2px rgba(0,0,0,.9); letter-spacing: .5px; }
+  #hud-xp-fill { height: 100%; width: 0; background: linear-gradient(180deg, #f0d488, #a9812f); transition: width .25s ease-out; }
+
+  /* ---------- 钱袋 ---------- */
+  #money-box { top: 14px; right: 16px; padding: 9px 18px; display: flex; align-items: baseline; gap: 8px; }
+  #money-box .label { font-size: 10px; letter-spacing: 3px; color: var(--text-faint); }
+  #hud-money { font-size: 21px; color: var(--gold); letter-spacing: 1px; text-shadow: 0 0 12px rgba(255,215,0,.28); }
+
+  /* ---------- 分区名 ---------- */
+  #district {
+    top: 18px; left: 50%; transform: translateX(-50%);
+    font-size: 15px; letter-spacing: 7px; color: var(--warm-gold);
+    text-shadow: 0 2px 8px rgba(0,0,0,.9);
+  }
+  #district::after {
+    content: ''; display: block; height: 1px; margin-top: 6px;
+    background: linear-gradient(90deg, transparent, rgba(213,181,111,.5), transparent);
+  }
+
+  /* ---------- 技能条 ---------- */
+  #hud-skills { left: 16px; bottom: 34px; display: flex; gap: 8px; }
+  .skill { width: 62px; text-align: center; white-space: nowrap; }
+  .skill-ring {
+    position: relative; width: 44px; height: 44px; margin: 0 auto 4px; border-radius: 50%;
+    background: conic-gradient(rgba(8,5,3,.86) var(--cd, 0deg), rgba(60,44,22,.55) 0);
+    border: 1px solid var(--brass);
+    box-shadow: 0 2px 8px rgba(0,0,0,.6), inset 0 0 10px rgba(213,181,111,.14);
+    display: grid; place-items: center;
+  }
+  .skill-glyph { font-size: 19px; color: var(--gold); text-shadow: 0 0 8px rgba(255,215,0,.35); }
+  .skill.is-cooling .skill-glyph { color: #6d6250; text-shadow: none; }
+  .skill.is-passive .skill-ring { border-style: dashed; }
+  .skill.is-passive .skill-glyph { color: var(--warm-gold); font-size: 16px; }
+  .skill-key { font-size: 9.5px; color: var(--text-faint); letter-spacing: 1px; }
+  .skill-name { font-size: 11px; color: var(--text-dim); letter-spacing: 1px; }
+
+  /* ---------- 播报 ---------- */
+  #toast { right: 16px; bottom: 54px; width: 300px; text-align: right; }
+  .toast-line {
+    font-size: 12.5px; color: var(--text-bright); letter-spacing: .5px; padding: 3px 0;
+    text-shadow: 0 1px 4px rgba(0,0,0,.95);
+  }
+
+  /* ---------- 底部提示 ---------- */
+  #hint {
+    left: 50%; bottom: 12px; transform: translateX(-50%); white-space: nowrap;
+    font-size: 12px; color: #b6a67f; letter-spacing: 1.6px; opacity: .82;
+    text-shadow: 0 1px 4px rgba(0,0,0,.9);
+  }
+
+  /* ---------- 对话框 ---------- */
+  #dialogue {
+    position: fixed; z-index: 30; left: 50%; bottom: 34px; transform: translateX(-50%);
+    width: min(760px, 92vw); display: none; padding: 14px 18px; gap: 16px; align-items: center;
+    cursor: pointer;
+  }
+  #dialogue.show { display: flex; }
+  #dlg-portrait {
+    width: 74px; height: 74px; border-radius: 4px; object-fit: cover; object-position: 50% 14%; filter: brightness(1.28) saturate(1.06);
+    border: 1px solid var(--brass); background: #1a1109; flex: 0 0 auto;
+  }
+  #dlg-speaker { color: var(--gold); font-size: 14px; letter-spacing: 2px; margin-bottom: 6px; }
+  #dlg-text { color: var(--text-bright); font-size: 15px; line-height: 1.65; }
+  #dlg-hint { margin-left: auto; color: var(--text-faint); font-size: 11px; letter-spacing: 1px; white-space: nowrap; align-self: flex-end; }
+
+  /* ---------- 面板（商店 / 背包） ---------- */
+  #panel { position: fixed; inset: 0; z-index: 40; display: none; place-items: center;
+           background: rgba(6,4,2,.66); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+  #panel.show { display: grid; }
+  .panel-card {
+    width: min(940px, 94vw); max-height: 88vh; display: flex; flex-direction: column;
+    background: linear-gradient(155deg, rgba(34,23,13,.985), rgba(12,8,5,.985));
+    border: 1px solid rgba(213,181,111,.42); border-radius: 8px;
+    box-shadow: 0 24px 72px rgba(0,0,0,.75);
+  }
+  .panel-head { display: flex; gap: 14px; align-items: center; padding: 14px 18px;
+                border-bottom: 1px solid rgba(213,181,111,.20); }
+  .panel-portrait { width: 60px; height: 60px; border-radius: 4px; object-fit: cover; object-position: 50% 14%; filter: brightness(1.28) saturate(1.06);
+                    border: 1px solid var(--brass); background: #1a1109; }
+  .panel-head-info { flex: 1 1 auto; min-width: 0; }
+  .panel-title { color: var(--gold); font-size: 17px; letter-spacing: 2px; }
+  .panel-sub { color: var(--text-dim); font-size: 12.5px; margin-top: 5px; line-height: 1.55; }
+  .panel-purse { text-align: right; flex: 0 0 auto; }
+  .purse-label { font-size: 9px; letter-spacing: 3px; color: var(--text-faint); }
+  .purse-value { font-size: 22px; color: var(--gold); letter-spacing: 1px; }
+
+  .panel-body { display: grid; grid-template-columns: 1.05fr 1.05fr .9fr; gap: 0; overflow: hidden; flex: 1 1 auto; }
+  .col { padding: 12px 14px; overflow-y: auto; min-height: 0; }
+  .col + .col { border-left: 1px solid rgba(213,181,111,.16); }
+  .col-title { font-size: 9.5px; letter-spacing: 3.4px; color: var(--text-faint);
+               text-transform: uppercase; margin-bottom: 9px; }
+  .list { display: flex; flex-direction: column; gap: 3px; }
+  .list-empty { color: var(--text-faint); font-size: 12px; padding: 10px 4px; }
+
+  .row { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 4px;
+         border: 1px solid transparent; cursor: pointer; }
+  .row:hover { background: rgba(213,181,111,.07); }
+  .row.is-selected { background: rgba(213,181,111,.13); border-color: rgba(213,181,111,.42); }
+  .row-glyph { font-size: 16px; width: 20px; text-align: center; filter: saturate(.85); }
+  .row-mid { flex: 1 1 auto; min-width: 0; }
+  .row-name { display: block; color: var(--text-bright); font-size: 13px; }
+  .row-slot { display: block; color: var(--text-faint); font-size: 10.5px; letter-spacing: .6px; margin-top: 1px; }
+  .row-price { color: var(--warm-gold); font-size: 13px; font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; }
+  .row-price.is-poor { color: #7a5c50; }
+  .row-btn {
+    font-family: inherit; font-size: 12px; letter-spacing: 1px; cursor: pointer; color: var(--gold);
+    padding: 4px 11px; border: 1px solid var(--brass); border-radius: 3px;
+    background: linear-gradient(180deg, #3a2f1c, #241c10);
+    transition: filter .12s, transform .05s;
+  }
+  .row-btn:hover:not(:disabled) { filter: brightness(1.4); }
+  .row-btn:active:not(:disabled) { transform: translateY(1px); }
+  .row-btn:disabled { color: #6a6153; border-color: #4a3f2c; cursor: not-allowed; opacity: .6; }
+
+  .equip { display: flex; flex-direction: column; gap: 5px; }
+  .equip-slot { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 4px;
+                border: 1px solid rgba(213,181,111,.18); background: rgba(0,0,0,.26); cursor: pointer; }
+  .equip-slot.is-selected { border-color: rgba(213,181,111,.5); background: rgba(213,181,111,.10); }
+  .equip-slot-name { font-size: 10px; letter-spacing: 2px; color: var(--text-faint); width: 34px; }
+  .equip-glyph { font-size: 15px; }
+  .equip-item { flex: 1 1 auto; color: var(--text-bright); font-size: 13px; }
+  .equip-empty { flex: 1 1 auto; color: var(--text-faint); font-size: 12px; }
+
+  .stats { border: 1px solid rgba(213,181,111,.18); border-radius: 5px; padding: 11px 12px;
+           background: rgba(0,0,0,.28); }
+  .stats-title { font-size: 9.5px; letter-spacing: 3px; color: var(--text-faint); margin-bottom: 9px; }
+  .stat-line { display: flex; justify-content: space-between; align-items: baseline; padding: 3.5px 0; }
+  .stat-label { color: var(--text-dim); font-size: 12px; }
+  .stat-value { color: var(--text-bright); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .stat-arrow { color: var(--text-faint); margin: 0 5px; }
+  .stat-up { color: var(--ok); }
+  .stat-down { color: var(--bad); }
+  .stat-desc { margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(213,181,111,.14);
+               color: var(--text-dim); font-size: 11.5px; line-height: 1.7; }
+  .panel-note { margin-top: 11px; color: var(--text-faint); font-size: 11px; line-height: 1.7; }
+  .panel-foot { padding: 9px 18px; border-top: 1px solid rgba(213,181,111,.18);
+                color: var(--text-faint); font-size: 11px; letter-spacing: 1.4px; text-align: right; }
+
+  /* ---------- 加载遮罩 ---------- */
+  #loading {
+    position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+    background: #0b0906; color: var(--warm-gold); font-size: 17px; letter-spacing: 5px;
+    transition: opacity .5s ease-out;
+  }
+  #loading.hide { opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div id="app"><canvas id="stage"></canvas></div>
+
+<div id="district" class="hud"></div>
+
+<div id="hud" class="hud">
+  <div class="hud-card panel-bg">
+    <img id="hud-portrait" alt="">
+    <div class="hud-info">
+      <div id="hud-name"></div>
+      <div id="hud-rank"></div>
+      <div class="bar"><div id="hud-hp-fill"></div><span id="hud-hp-text"></span></div>
+      <div class="bar"><div id="hud-xp-fill"></div></div>
+    </div>
+  </div>
+</div>
+
+<div id="money-box" class="hud panel-bg">
+  <span class="label">钱袋</span><span id="hud-money">$0.00</span>
+</div>
+
+<div id="hud-skills" class="hud"></div>
+<div id="toast" class="hud"></div>
+<div id="hint" class="hud"></div>
+
+<div id="dialogue" class="panel-bg">
+  <img id="dlg-portrait" alt="">
+  <div style="flex:1 1 auto;min-width:0">
+    <div id="dlg-speaker"></div>
+    <div id="dlg-text"></div>
+  </div>
+  <div id="dlg-hint">空格 / E 继续</div>
+</div>
+
+<div id="panel"></div>
+
+<div id="loading">正在铺设阿克罗斯外城区…</div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>
