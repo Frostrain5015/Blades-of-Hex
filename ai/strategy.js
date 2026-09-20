@@ -57,15 +57,15 @@ export function estimateFogRivalForce({
 
 /**
  * 估算夺取一座城市后整块行政区在剩余战局中能兑现的价值。
- * 城、村、港、机场、投诚奖励都纳入同一账本，避免只按直线距离追逐城市图标。
+ * 城、村、港、机场与可转移航母纳入同一账本，避免只按直线距离追逐城市图标。
  */
 export function estimateDistrictAssetValue(city, tiles, {
     currentCityCount = 1,
     roundsRemaining = 8,
     oceanMap = false,
     enemyOwned = false,
-    captureReward = null,
-    transferableNeutralForceValue = 0
+    carrierControl = null,
+    transferableCarrierValue = 0
 } = {}) {
     if (!city) {
         return Object.freeze({ total: 0, income: 0, villages: 0, ports: 0, infrastructure: 0, reward: 0, denial: 0 });
@@ -83,11 +83,10 @@ export function estimateDistrictAssetValue(city, tiles, {
     const villageValue = villages * 18;
     const portValue = ports * (oceanMap ? 72 : 34);
     const infrastructure = readyInstallations * 36;
-    const isRewardCity = captureReward?.type === 'neutralForcesTransfer'
-        && Number(captureReward.cityQ) === Number(city.q)
-        && Number(captureReward.cityR) === Number(city.r);
+    const isRewardCity = carrierControl != null
+        && city.districtId === carrierControl.districtId;
     const reward = isRewardCity
-        ? 85 + Math.max(0, Number(transferableNeutralForceValue) || 0)
+        ? Math.max(0, Number(transferableCarrierValue) || 0)
         : 0;
     const denial = enemyOwned ? Math.round((income + portValue + infrastructure) * 0.55) : 0;
     const total = 70 + income + villageValue + portValue + infrastructure + reward + denial;

@@ -30,7 +30,8 @@ export const TIER_CAPABILITIES = Object.freeze({
         collapseConversion: false,
         emergencyDefense: false,
         lethalFocus: false,
-        rearCommanderSafety: false
+        rearCommanderSafety: false,
+        strategicPrizeRacing: false
     }),
     medium: Object.freeze({
         id: 'medium',
@@ -50,7 +51,8 @@ export const TIER_CAPABILITIES = Object.freeze({
         collapseConversion: false,
         emergencyDefense: false,
         lethalFocus: false,
-        rearCommanderSafety: false
+        rearCommanderSafety: false,
+        strategicPrizeRacing: false
     }),
     hard: Object.freeze({
         id: 'hard',
@@ -70,7 +72,8 @@ export const TIER_CAPABILITIES = Object.freeze({
         collapseConversion: true,
         emergencyDefense: true,
         lethalFocus: true,
-        rearCommanderSafety: true
+        rearCommanderSafety: true,
+        strategicPrizeRacing: true
     })
 });
 
@@ -119,6 +122,17 @@ export const W = Object.freeze({
     allInDamagedTargetSwitchEtaGain: 3,
     // 死斗攻城编组 = 1 名占领者 + 至多 3 名护航/攻坚单位。
     allInEscortCount: 3,
+    objectiveCommitmentRounds: 3,
+    objectiveSwitchEtaGain: 1,
+    objectiveSwitchScoreMargin: 35,
+    strategicPrizeRaceRatio: 0.65,
+    strategicPrizeRaceWindow: 2,
+    leaderCityBonus: 26,
+    leaderClockSwingBonus: 70,
+    // 尚书腾位：至少囤够三名基础兵、兵力比落后，并隔一轮才能再次离城。
+    ministerVacateRecruitBank: 24,
+    ministerVacateForceRatio: 0.75,
+    ministerVacateCooldownRounds: 2,
     // 每三名可占城单位至少配一名炮兵，避免残局生产退化为纯步兵海。
     siegeSupportPerAssault: 3,
     // 决胜城市的驻军即使本回合杀不完，也值得持续压低生命值。

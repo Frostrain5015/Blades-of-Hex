@@ -10,7 +10,6 @@ import {
     normalizeStandardMapFamilyId
 } from '../rules/standardMaps.js';
 import {
-    applyStandardMapCaptureReward,
     syncCityLinkedGarrisons,
     syncStandardMapCarrierControl
 } from '../rules/standardMapEvents.js';
@@ -162,10 +161,9 @@ for (const playerCount of [2, 3]) {
 
         assert.equal(map.familyId, 'uncharted-passage');
         assert.ok(board.surface.length > playable.length / 2, 'ocean must cover most of the battlefield');
-        assert.equal(map.captureReward.type, 'neutralForcesTransfer');
-        assert.equal(map.captureReward.sourceCamp, 'neutral');
-        const centralCity = board.cities.find(city => city.q === map.captureReward.cityQ
-            && city.r === map.captureReward.cityR && city.camp === 'neutral');
+        assert.equal(map.captureReward, undefined);
+        const centralCity = board.cities.find(city => city.districtId === map.carrierControl.districtId
+            && city.camp === 'neutral');
         assert.ok(centralCity);
 
         for (const camp of players) {
@@ -208,9 +206,6 @@ for (const playerCount of [2, 3]) {
         assert.equal(board.ports.length, expected.ports);
         assert.equal(map.initialUnits.length, expected.units);
         assert.deepEqual(carriers[0], { type: 'carrier', camp: 'neutral', ...expected.carrier });
-        assert.deepEqual(map.captureReward, {
-            type: 'neutralForcesTransfer', cityQ: 1, cityR: -2, sourceCamp: 'neutral'
-        });
         assert.deepEqual(map.carrierControl, {
             portQ: expected.carrier.q,
             portR: expected.carrier.r,
@@ -219,7 +214,7 @@ for (const playerCount of [2, 3]) {
     });
 }
 
-test('capturing the central neutral city transfers every surviving neutral force', () => {
+test('capturing the central city transfers only its carrier, not neutral armies', () => {
     const player1 = { id: 'player1', name: '玩家一' };
     const neutral = { id: 'neutral', name: '中立' };
     const neutralCarrier = { type: 'carrier', camp: neutral, hp: 200 };
@@ -229,17 +224,11 @@ test('capturing the central neutral city transfers every surviving neutral force
     const state = { tiles: [neutralCarrier, neutralInfantry, defeatedNeutral, enemy].map(unit => ({ unit })) };
     const map = getStandardMap(2, 'uncharted-passage');
 
-    const transferred = applyStandardMapCaptureReward(
-        state,
-        map,
-        { q: map.captureReward.cityQ, r: map.captureReward.cityR },
-        neutral,
-        player1
-    );
+    const transferred = syncStandardMapCarrierControl(state, map, map.carrierControl.districtId, player1);
 
-    assert.deepEqual(transferred, [neutralCarrier, neutralInfantry]);
+    assert.deepEqual(transferred, [neutralCarrier]);
     assert.equal(neutralCarrier.camp, player1);
-    assert.equal(neutralInfantry.camp, player1);
+    assert.equal(neutralInfantry.camp, neutral);
     assert.equal(defeatedNeutral.camp, neutral);
     assert.equal(enemy.camp.id, 'player2');
 });
@@ -262,11 +251,9 @@ test('island batteries follow their own city instead of the central prize', () =
     const infantry = { type: 'infantry', camp: neutral, hp: 80 };
     const state = { tiles: [{ unit: battery }, { unit: infantry }] };
 
-    // 中央夺城全图易帜时跳过联动岸防炮
-    const transferred = applyStandardMapCaptureReward(
-        state, map, { q: map.captureReward.cityQ, r: map.captureReward.cityR }, neutral, player1);
-    assert.deepEqual(transferred, [infantry]);
+    assert.deepEqual(syncStandardMapCarrierControl(state, map, map.carrierControl.districtId, player1), []);
     assert.equal(battery.camp, neutral);
+    assert.equal(infantry.camp, neutral);
 
     // 南岛城市易主：联动岸防炮随城转换，可反复易主，其他城市易主不影响
     assert.deepEqual(syncCityLinkedGarrisons(state, { q: -3, r: 6 }, player1), [battery]);

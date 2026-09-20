@@ -115,7 +115,7 @@ test('AI 三档难度只按决策能力递增，不包含经济倍率', () => {
     assert.equal('economyMultiplier' in hard, false);
 });
 
-test('战略资产估值把海图港口、未来收入与投诚奖励计入城市价值', () => {
+test('战略资产估值把海图港口、未来收入与航母控制收益计入城市价值', () => {
     const city = { q: 1, r: -2, districtId: 5, isCity: true };
     const tiles = [
         city,
@@ -131,12 +131,12 @@ test('战略资产估值把海图港口、未来收入与投诚奖励计入城�
         currentCityCount: 1,
         roundsRemaining: 8,
         oceanMap: true,
-        captureReward: { type: 'neutralForcesTransfer', cityQ: 1, cityR: -2 },
-        transferableNeutralForceValue: 40
+        carrierControl: { districtId: 5 },
+        transferableCarrierValue: 40
     });
     assert.ok(oceanPrize.ports > land.ports);
-    assert.equal(oceanPrize.reward, 125);
-    assert.ok(oceanPrize.total > land.total + 100);
+    assert.equal(oceanPrize.reward, 40);
+    assert.ok(oceanPrize.total > land.total + 40);
 });
 
 test('Imperator 战局状态机先处理崩盘与首都危机，再处理经济争夺', () => {

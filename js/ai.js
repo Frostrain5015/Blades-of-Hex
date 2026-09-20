@@ -3,7 +3,7 @@
 
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
-    getMovableTiles, getAttackableTiles, moveUnit, attackUnit, attackCityTile, recruitUnit, reinforceUnit,
+    getMovableTiles, getAttackableTiles, moveUnit, attackUnit, attackCityTile, recruitUnit, reinforceUnit, repairShipAtPort,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeDroneDeploy, executeDroneSuicide,
     executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
@@ -24,6 +24,8 @@ import * as corporalPersonality from '../ai/corporal.js';
 import * as optioPersonality from '../ai/optio.js';
 import * as legatusPersonality from '../ai/legatus.js';
 import * as imperatorPersonality from '../ai/imperator.js';
+import { planFollowupAttack } from '../ai/core/planner.js';
+import { TIER_CAPABILITIES } from '../ai/core/weights.js';
 import { canCaptureCityByCombat, scoreCommanderCarrierCandidate } from '../ai/doctrine.js';
 import {
     estimateAiTurnWatchdogMs,
@@ -484,6 +486,18 @@ async function _executeActionInner(action, aiCamp) {
     // ——中立与玩家的 relation 是 'neutral'，isHostile 恒假，双方擦肩而过谁也不开枪。
     async function _autoAttack(unit) {
         if (!unit.canAct || !unit.tile || unit.hp <= 0) return false;
+        if (campKey !== 'neutral') {
+            const profile = resolveAiDifficultyProfile(gameState, aiCamp);
+            const followup = planFollowupAttack(gameState, makeHelpers(aiCamp, profile), aiCamp,
+                TIER_CAPABILITIES[profile.id], unit.id);
+            if (!followup) return false;
+            const target = resolveUnit(followup.targetId);
+            if (!target?.tile || !getAttackableTiles(unit).includes(target.tile)) return false;
+            await delay(AI_DELAY);
+            gameState.attackableTiles = getAttackableTiles(unit);
+            attackUnit(unit, target);
+            return true;
+        }
         const atkTiles = getAttackableTiles(unit);
         const targets = atkTiles.filter(t => t.unit && canAttack(gameState, aiCamp, t.unit.camp));
         if (targets.length === 0) return false;
@@ -530,6 +544,11 @@ async function _executeActionInner(action, aiCamp) {
             if (!unit || !target || !unit.canAct || !unit.tile || !target.tile) return;
             const aiAtkTiles = getAttackableTiles(unit);
             if (aiAtkTiles.includes(target.tile)) {
+                if (campKey !== 'neutral') {
+                    const profile = resolveAiDifficultyProfile(gameState, aiCamp);
+                    if (!planFollowupAttack(gameState, makeHelpers(aiCamp, profile), aiCamp,
+                        TIER_CAPABILITIES[profile.id], unit.id, target.id)) return false;
+                }
                 await delay(AI_DELAY);
                 gameState.attackableTiles = aiAtkTiles;
                 attackUnit(unit, target);
@@ -563,8 +582,17 @@ async function _executeActionInner(action, aiCamp) {
                 await delay(AI_DELAY);
                 gameState.movableTiles = aiMoveTiles;
                 moveUnit(unit, targetTile);
+                if (unit.tile !== targetTile) return false;
+                if (action.returnToCity && unit.commander === 'minister') {
+                    const memory = ((gameState._aiCoreMemory ||= {})[campKey] ||= {});
+                    memory.ministerReturn = {
+                        unitId: unit.id, cityQ: action.returnToCity.q, cityR: action.returnToCity.r,
+                        vacatedRound: action.returnToCity.round
+                    };
+                    memory.ministerLastVacatedRound = action.returnToCity.round;
+                }
                 // 移动后尝试自动攻击
-                if (unit.canAct && unit.tile && unit.hp > 0) {
+                if (action.autoAttack !== false && unit.canAct && unit.tile && unit.hp > 0) {
                     await _autoAttack(unit);
                     // 百夫长乘胜：攻击后再追击
                     for (let chain = 0; chain < 2 && unit.canAct && unit.tile && unit.hp > 0; chain++) {
@@ -592,6 +620,13 @@ async function _executeActionInner(action, aiCamp) {
             await delay(AI_DELAY * 0.5);
             reinforceUnit(unit);
             break;
+        }
+        case 'repairShip': {
+            const unit = resolveUnit(action.unitId);
+            if (!unit || unit.camp !== aiCamp) return false;
+            const before = unit.hp;
+            repairShipAtPort(unit);
+            return unit.hp > before;
         }
         case 'deployCommander': {
             const unit = resolveUnit(action.unitId);
@@ -823,8 +858,11 @@ export async function processOpponentTurn(aiCamp) {
         }
 
         // 最终兜底：补满己方所有空城
+        const returnPlan = gameState._aiCoreMemory?.[campToKey(aiCamp)]?.ministerReturn;
         const emptyCities = gameState.tiles.filter(t =>
             t.isCity && !t.unit && t.camp === aiCamp
+            && !(returnPlan && returnPlan.vacatedRound < getRoundIndex(gameState) + 1
+                && returnPlan.cityQ === t.q && returnPlan.cityR === t.r)
         );
         const emptyPorts = gameState.tiles.filter(t => t.isPort && !t.unit && t.camp === aiCamp);
         const campKey = campToKey(aiCamp);

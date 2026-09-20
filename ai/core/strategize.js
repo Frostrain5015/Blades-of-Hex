@@ -10,10 +10,11 @@ import {
     getEmergencyRecruitReserve
 } from '../strategy.js';
 import { rankCityObjectives } from './perceive.js';
+import { isFieldCapturer } from './roster.js';
 
 /** 攻城 ETA（回合）：占领者赶路 + 破城 + 清守军。 */
 export function estimateCaptureEta(world, city) {
-    const assault = world.myUnits.filter(u => world.isCapturable(u) && !world.isImmobile(u));
+    const assault = world.myUnits.filter(unit => isFieldCapturer(world, unit));
     const speedOf = unit => {
         const speed = Math.max(1, Number(unit.config?.speed) || 1);
         // 运输规划档位：陆地单位跨海按运输上限折算，不再按步行。
@@ -82,7 +83,8 @@ export function decideStrategy(world) {
     const aiMemory = (world.gameState._aiCoreMemory ||= {});
     const campMemory = (aiMemory[world.myCampKey] ||= {});
     const unitHistory = (campMemory.unitCountHistory ||= []);
-    unitHistory.push({ round: world.round, count: world.myUnits.length });
+    if (unitHistory.at(-1)?.round === world.round) unitHistory.at(-1).count = world.myUnits.length;
+    else unitHistory.push({ round: world.round, count: world.myUnits.length });
     while (unitHistory.length > 10) unitHistory.shift();
     const threeRoundsAgo = unitHistory.filter(h => h.round <= world.round - 3).at(-1);
     const bleeding = !!threeRoundsAgo && threeRoundsAgo.count - world.myUnits.length >= 3;
@@ -136,6 +138,10 @@ export function decideStrategy(world) {
                 posture = 'allin';
                 urgency = 0.9;
             }
+        } else if (!emergencyDefenseCity && trailing && clockRunningOut) {
+            // 残局恢复不能覆盖追分任务：疗愈/维修在战术与生产层仍可正常执行。
+            posture = 'allin';
+            urgency = 0.9;
         } else if (posture !== 'recover' && posture !== 'defend') {
             if (leadSafe && world.roundsRemaining <= 8) {
                 posture = 'hold';
@@ -147,8 +153,16 @@ export function decideStrategy(world) {
         }
     }
 
+    if (world.caps.victoryClock && !emergencyDefenseCity) {
+        if (campMemory.clockAllInRound === world.round && world.cityGap <= 0) {
+            posture = 'allin';
+            urgency = Math.max(urgency, 0.9);
+        }
+        if (posture === 'allin') campMemory.clockAllInRound = world.round;
+    }
+
     // 突击力量缺口：决定招募与腾位。
-    const assaultUnits = world.myUnits.filter(u => world.isCapturable(u) && !world.isImmobile(u));
+    const assaultUnits = world.myUnits.filter(unit => isFieldCapturer(world, unit));
     const outstandingObjectives = world.cities.filter(c => c.hostile).length;
     const assaultCapacity = assessAssaultCapacity({
         assaultCount: assaultUnits.length,

@@ -20,6 +20,7 @@ import {
     estimateFogRivalForce,
     estimateForceValue
 } from '../strategy.js';
+import { W } from './weights.js';
 
 const NEUTRAL_KEY = 'neutral';
 
@@ -127,22 +128,22 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         cityCountByKey[campToKey(faction)] = cityTiles.filter(t => t.camp === faction).length;
     }
     const bestRivalCities = Math.max(0, ...rivalFactions.map(f => cityCountByKey[campToKey(f)] || 0));
-    const captureReward = standardMap?.board?.captureReward || standardMap?.captureReward || null;
+    const carrierControl = standardMap?.carrierControl || null;
+    // 只估价当前可见、可通过夺城获得的航母；不偷看迷雾，也不把其他中立军算入奖励。
+    const transferableCarrierValue = estimateForceValue([...neutralUnits, ...rivalUnits]
+        .filter(unit => unit.type === 'carrier'));
     const cities = cityTiles.map(tile => {
         const ownerKey = tile.camp === myCamp ? myCampKey
             : rivalFactions.includes(tile.camp) ? campToKey(tile.camp)
             : tile.camp === neutralFaction ? NEUTRAL_KEY
             : explored(tile) ? NEUTRAL_KEY : 'unknown';
-        const transferableNeutralForceValue = ownerKey === NEUTRAL_KEY
-            ? estimateForceValue(neutralUnits.filter(u => u.tile.districtId === tile.districtId))
-            : 0;
         const asset = estimateDistrictAssetValue(tile, tiles, {
             currentCityCount: myCities.length,
             roundsRemaining,
             oceanMap,
             enemyOwned: rivalFactions.includes(tile.camp),
-            captureReward,
-            transferableNeutralForceValue
+            carrierControl,
+            transferableCarrierValue
         });
         return {
             tile,
@@ -218,7 +219,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         ownForceValue,
         observedForceValue: observedRivalForce,
         previousEstimate: intelMemory.rivalForceEstimate ?? null,
-        elapsedRounds: 1
+        elapsedRounds: Math.max(0, round - (intelMemory.forceEstimateRound ?? round - 1))
     });
     // 迷雾零接触 ≠ 敌人死光了：对方也在征兵，估计值永不跌破我方当前兵力的 70%。
     // 旧先验随我方征兵水涨船高（自锚定 0.3 下限），forceRatio 会永久钉死在 3.33——
@@ -227,6 +228,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         ? Math.max(baseRivalEstimate, ownForceValue * 0.7)
         : baseRivalEstimate;
     intelMemory.rivalForceEstimate = rivalForceEstimate;
+    intelMemory.forceEstimateRound = round;
 
     // ── 手牌与预算 ───────────────────────────────────────────
     const cardConfig = helpers.CARD_SYSTEM_CONFIG || { drawCost: 4, maxDrawsPerTurn: 2, maxUsesPerTurn: 2, maxHandSize: 3 };
@@ -303,11 +305,28 @@ export function rankCityObjectives(world, etaFor) {
             const garrison = city.garrison && city.garrison.camp !== world.myCamp ? city.garrison : null;
             const defense = estimateDefenseForce(world, city);
             const leaderBonus = leaderKey && city.ownerKey === leaderKey && leaderCities > world.myCities.length
-                ? 26 : 0;
+                ? W.leaderCityBonus
+                    + (world.caps.victoryClock && world.roundsRemaining <= 8
+                        ? W.leaderClockSwingBonus : 0)
+                : 0;
+            const rivalCaptureEta = city.asset.reward > 0 && world.caps.strategicPrizeRacing
+                ? world.rivalUnits
+                    .filter(unit => world.isCapturable(unit) && !world.isImmobile(unit) && unit.tile)
+                    .reduce((best, unit) => {
+                        const speed = Math.max(1, Number(unit.config?.speed) || 1);
+                        const rivalEta = Math.ceil(world.helpers.hexDistance(unit.tile, city.tile) / speed);
+                        return Math.min(best, rivalEta);
+                    }, 99)
+                : 99;
+            const prizeRaceBonus = city.asset.reward > 0 && world.caps.strategicPrizeRacing
+                && rivalCaptureEta <= (eta ?? 99) + W.strategicPrizeRaceWindow
+                ? city.asset.reward * W.strategicPrizeRaceRatio
+                : 0;
             return {
                 city,
                 eta: eta == null ? 99 : eta,
                 defense,
+                rivalCaptureEta,
                 // 资产随等待折现（1.22^eta）；守备力量计入成本（固定种子实测 1.5 最优）；
                 // 中立城给先验加成（扩张期软目标）。
                 score: city.asset.total / Math.pow(1.22, Math.max(0, eta == null ? 99 : eta))
@@ -315,6 +334,7 @@ export function rankCityObjectives(world, etaFor) {
                     - (garrison ? 10 : 0)
                     + (city.ownerKey === 'neutral' ? 18 : 0)
                     + leaderBonus
+                    + prizeRaceBonus
                     - Math.min(60, city.hp * 0.12)
             };
         })

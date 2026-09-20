@@ -429,7 +429,7 @@ export function changeUnitCamp(unit, newCamp, tileList) {
   unit.camp = newCamp;
   // 若单位在城市上，同步更改城市归属
   if (unit.tile.isCity) {
-    // 走完整占城流程（行政区易色/边界重算/标准图易帜奖励/城防联动/胜负判定），
+    // 走完整占城流程（行政区易色/边界重算/中央航母控制/城防联动/胜负判定），
     // 使谋士策反驻城守军与武力夺城享有一致的连锁效果。
     if (_captureCityRef) {
       _captureCityRef(unit.tile, newCamp, unit);

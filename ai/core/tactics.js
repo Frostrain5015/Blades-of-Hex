@@ -14,6 +14,8 @@ import {
 } from '../doctrine.js';
 import { assessSiegeMission } from '../strategy.js';
 import { W, hpGold, noiseJitter, residualGold, tradeNetValue } from './weights.js';
+import { isFieldCapturer } from './roster.js';
+import { isPortOperationalFor } from '../../rules/naval.js';
 
 const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
@@ -132,7 +134,7 @@ function autoAttackRisk(world, missionsCtx, unit, tile) {
     return bestGood > 0 ? 0 : worst * 0.8;
 }
 
-function evaluateAttack(world, missionsCtx, attacker, target) {
+export function evaluateAttack(world, missionsCtx, attacker, target) {
     const combat = world.combat;
     const damage = combat.estimateDamage(attacker, target, target.tile);
     const kills = damage >= target.hp + (target._shield || 0);
@@ -165,13 +167,20 @@ function evaluateAttack(world, missionsCtx, attacker, target) {
         && REAR_COMMANDERS.has(attacker.commander)
         && !kills
         && world.threatAt(attacker.tile, attacker) >= attacker.hp * 0.35;
-    const veto = rearCommanderExposed
+    const fatalCounter = !kills && counter >= attacker.hp + (attacker._shield || 0);
+    const capturerDistance = units => units.reduce((best, unit) =>
+        isFieldCapturer(world, unit) ? Math.min(best, world.helpers.hexDistance(unit.tile, target.tile)) : best, Infinity);
+    const giftsNeutralCity = kills && target.tile.isCity
+        && target.camp === world.gameState.factions.neutral && !world.isCapturable(attacker)
+        && capturerDistance(world.rivalUnits) <= 3
+        && capturerDistance(world.rivalUnits) < capturerDistance(world.myUnits);
+    const veto = fatalCounter || giftsNeutralCity || rearCommanderExposed
         || (!kills && canDisengage && net < -residualGold(attacker) * W.tradeVetoRatio);
     const jitter = noiseJitter(world.caps, `atk:${world.round}:${attacker.id}:${target.id}`);
     return { target, damage, kills, counter, net, strategic, veto, value: (net + strategic - exposure) * jitter };
 }
 
-function bestAttackFor(world, missionsCtx, unit) {
+export function bestAttackFor(world, missionsCtx, unit) {
     if (!unit.canAct || !unit.tile) return null;
     const candidates = world.helpers.getAttackableTiles(unit)
         .filter(tile => tile.unit && tile.unit.camp !== world.myCamp && tile.unit.hp > 0)
@@ -347,7 +356,7 @@ function attackPotential(world, missionsCtx, unit, tile) {
         const entry = evaluateAttack(world, missionsCtx, unit, enemy);
         if (!entry.veto) best = Math.max(best, entry.value);
     }
-    return best * 0.55; // 移动后自动攻击只按运行时的简化评分兑现，打折
+    return best * 0.55; // 落点潜在收益打折；执行时按实际站位重新评分。
 }
 
 function shouldRetreat(world, unit) {
@@ -422,8 +431,12 @@ function planMove(world, missionsCtx, unit, posture, actions) {
         if (retreating) {
             const threat = world.threatAt(tile, unit);
             const safety = -threat * 3 - world.helpers.hexDistance(tile, unit.tile) * 0.5;
-            const homePull = nearestOwnCityDistance(world, tile);
-            score = safety - homePull * 4 + (tile.isCity && tile.camp === world.myCamp ? 80 : 0);
+            const ports = world.isNaval(unit) ? world.tiles.filter(port =>
+                isPortOperationalFor(port, world.myCamp, world.gameState) && (!port.unit || port.unit === unit)) : [];
+            const homePull = ports.length ? Math.min(...ports.map(port => world.helpers.hexDistance(tile, port)))
+                : nearestOwnCityDistance(world, tile);
+            const canRecover = ports.length ? ports.includes(tile) : tile.isCity && tile.camp === world.myCamp;
+            score = safety - homePull * 4 + (canRecover ? 80 : 0);
         }
         if (score > 0) score *= noiseJitter(world.caps, `mv:${world.round}:${unit.id}:${tile.q},${tile.r}`);
         if (score > bestScore) { bestScore = score; bestTile = tile; }

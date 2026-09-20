@@ -284,12 +284,7 @@ function createArchipelagoMap(playerCount) {
         id: `uncharted-passage-${playerCount}p`,
         familyId: 'uncharted-passage',
         name: `无主航路·${playerCount === 3 ? '三人' : '双人'}`,
-        captureReward: {
-            type: 'neutralForcesTransfer',
-            cityQ: 0,
-            cityR: -1,
-            sourceCamp: 'neutral'
-        },
+        carrierControl: { portQ: 3, portR: -1, districtId: 99 },
         board: {
             layout: 'borderless',
             radius: BOARD_RADIUS,
@@ -330,7 +325,7 @@ function createAuthoredArchipelago(level, playerCount) {
     if (!captureCity) throw new Error(`Uncharted Passage ${playerCount}P carrier port must belong to a neutral city district.`);
 
     // 城防联动：非中央的中立城市行政区内的中立岸防炮视为该城守备，
-    // 不随中央夺城全图易帜，只随所属城市归属改变阵营。
+    // 只随所属城市归属改变阵营，中央城仅控制航母。
     const districtByKey = new Map(level.board.districts.map(tile => [`${tile.q},${tile.r}`, tile.districtId]));
     const garrisonCities = cities.filter(city => city.camp === 'neutral'
         && !(city.q === captureCity.q && city.r === captureCity.r));
@@ -351,12 +346,6 @@ function createAuthoredArchipelago(level, playerCount) {
             portQ: carrierPort.q,
             portR: carrierPort.r,
             districtId: carrierPort.districtId
-        },
-        captureReward: {
-            type: 'neutralForcesTransfer',
-            cityQ: captureCity.q,
-            cityR: captureCity.r,
-            sourceCamp: 'neutral'
         },
         cityLinkedUnits,
         board: {
@@ -395,7 +384,7 @@ export const STANDARD_MAP_FAMILIES = deepFreeze([
     {
         id: 'uncharted-passage',
         name: '无主航路',
-        description: '跳岛争夺 · 中立航母',
+        description: '跳岛争夺 · 控制中央城获得航母',
         maps: { 2: TWO_PLAYER_ARCHIPELAGO, 3: THREE_PLAYER_ARCHIPELAGO }
     }
 ]);

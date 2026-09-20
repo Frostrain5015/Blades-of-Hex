@@ -5,11 +5,12 @@
 //   2. 多回合剧本：禁锢 → 下回合集火；强行军 → 当回合兑现夺城；
 //   3. 抽牌要看机会成本：金币优先保证招募与紧急预留，答案缺口才值得抽。
 //
-// 输出分两组：setup（伤害/控制，先于攻击结算）与 sustain（恢复/防御，攻击后结算）。
+// 输出分两组：setup（净化/伤害/控制，先于攻击结算）与 sustain（防御，攻击后结算）。
 
 import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
 import { W, hpGold, residualGold } from './weights.js';
 import { enemyCapturerPremium } from './tactics.js';
+import { resolveTargetingPreview } from '../../rules/targeting.js';
 
 const BAL = TACTICAL_CARD_DATA;
 
@@ -46,8 +47,10 @@ export function planCards(world, strategy, missionsCtx) {
     const hand = [...world.hand];
     const has = card => hand.includes(card);
     const spend = (bucket, action) => {
-        if (usesLeft <= 0) return false;
+        const index = hand.indexOf(action.cardId);
+        if (usesLeft <= 0 || index < 0) return false;
         bucket.push(action);
+        hand.splice(index, 1);
         usesLeft--;
         return true;
     };
@@ -56,6 +59,39 @@ export function planCards(world, strategy, missionsCtx) {
     for (const mission of missionsCtx.missions) {
         if (mission.occupierId != null) missionCriticalIds.add(mission.occupierId);
         if (mission.kind === 'siege') for (const id of mission.escortIds || []) missionCriticalIds.add(id);
+    }
+    const memory = ((world.gameState._aiCoreMemory ||= {})[world.myCampKey] ||= {});
+    const handKey = [...world.hand].sort().join(',');
+    if (memory.cardHandKey !== handKey) {
+        memory.cardHandKey = handKey;
+        memory.cardHandSinceRound = world.round;
+    }
+    const needsPurification = world.myUnits.some(unit => unit._poison) && !has('heal');
+    const circulate = world.handFull && world.gold - strategy.reserve >= (world.cardConfig.drawCost || 4)
+        && (needsPurification || world.round - memory.cardHandSinceRound >= 3);
+    const legalTiles = cardId => resolveTargetingPreview(world.gameState,
+        { cardId, targeting: BAL[cardId].targeting }, {
+            myCamp: world.myCamp, isTileVisible: tile => world.visible(tile)
+        }).candidateTiles;
+
+    // 净化和救命先于进攻用卡，避免两个伤害动作耗尽本回合用卡次数。
+    if (has('heal')) {
+        let best = null;
+        for (const unit of world.myUnits) {
+            const missing = unit.maxHp - unit.hp;
+            if (missing < unit.maxHp * 0.25 && !unit._poison) continue;
+            const heal = Math.min(missing, Math.round(unit.maxHp * BAL.heal.balance.healMaxHpPct));
+            const poisonTick = unit._poison ? Math.round(unit.maxHp * BAL.poison.balance.damageMaxHpPct) : 0;
+            const preventsDeath = poisonTick > 0 && unit.hp <= poisonTick;
+            let score = heal * hpGold(unit) + (unit._poison ? 30 : 0);
+            if (missionCriticalIds.has(unit.id)) score += 40;
+            if (unit.commander) score += 20;
+            if (preventsDeath) score += 100 + residualGold(unit);
+            if (!best || score > best.score) best = { unit, score };
+        }
+        if (best && best.score > 22) spend(setup, {
+            type: 'tacticalCard', cardId: 'heal', targetId: best.unit.id
+        });
     }
     // 反拆门规则：伤害卡打在无攻城任务的城市守军身上 = 替下一个路过的对手开门。
     const siegeTargets = new Set(missionsCtx.missions
@@ -80,7 +116,8 @@ export function planCards(world, strategy, missionsCtx) {
                 + (kills ? 0 : -8);
             if (!best || value + premium > best.score) best = { target, score: value + premium };
         }
-        if (best && best.score > 26) {
+        if (best && (best.score > 26 || (circulate && best.target.camp !== world.gameState.factions.neutral
+            && best.score > -8))) {
             spend(setup, { type: 'tacticalCard', cardId: 'lightning', targetId: best.target.id });
         }
     }
@@ -98,6 +135,11 @@ export function planCards(world, strategy, missionsCtx) {
                 if (world.helpers.hexDistance(other.tile, target.tile) <= 1) spread++;
             }
             total *= 1 + spread * 0.6;
+            for (const ally of world.myUnits) {
+                if (ally._poison || world.helpers.hexDistance(ally.tile, target.tile) > 1) continue;
+                total -= Math.min(ally.hp, ally.maxHp * BAL.poison.balance.damageMaxHpPct * BAL.poison.balance.ticks)
+                    * hpGold(ally) + (missionCriticalIds.has(ally.id) ? 20 : 0) + (ally.commander ? 20 : 0);
+            }
             if (!best || total > best.score) best = { target, score: total };
         }
         if (best && best.score > 30) {
@@ -240,47 +282,32 @@ export function planCards(world, strategy, missionsCtx) {
     }
 
     // ── 地雷/碉堡：守钟与防御姿态的航道封锁 ────────────────────
-    if (has('landmine') && (strategy.posture === 'hold' || strategy.posture === 'defend')) {
+    if (has('landmine') && (circulate || strategy.posture === 'hold' || strategy.posture === 'defend')) {
         let best = null;
-        for (const city of world.myCities) {
-            for (const [dq, dr] of world.helpers.HEX_NEIGHBORS) {
-                const tile = world.tileMap.get(`${city.q + dq},${city.r + dr}`);
-                if (!tile || tile.unit || tile._minePlanted) continue;
-                const threat = world.threatAt(tile, null);
-                if (threat > 0 && (!best || threat > best.threat)) best = { tile, threat };
-            }
+        for (const tile of legalTiles('landmine')) {
+            const protectsFront = world.myUnits.some(unit => world.helpers.hexDistance(unit.tile, tile) <= 2)
+                || world.myCities.some(city => world.helpers.hexDistance(city, tile) <= 2);
+            if (!protectsFront) continue;
+            const threat = world.threatAt(tile, null);
+            if (threat > 0 && (!best || threat > best.threat)) best = { tile, threat };
         }
         if (best) {
             spend(sustain, { type: 'tacticalCard', cardId: 'landmine', targetId: best.tile.id });
         }
     }
-    if (has('mgNest') && (strategy.posture === 'hold' || strategy.posture === 'defend')) {
-        const city = world.myCities.find(c => world.threatAt(c, c.unit) > 20);
-        const spot = city && world.helpers.HEX_NEIGHBORS
-            .map(([dq, dr]) => world.tileMap.get(`${city.q + dq},${city.r + dr}`))
-            .find(tile => tile && !tile.unit && !tile.isCity && !tile.isVillage);
+    if (has('mgNest') && (circulate || strategy.posture === 'hold' || strategy.posture === 'defend')) {
+        const spot = legalTiles('mgNest')
+            .filter(tile => !tile.isCity && !tile.isVillage && !tile.isPort
+                && world.threatAt(tile, null) > 20
+                && (world.myCities.some(city => world.helpers.hexDistance(city, tile) <= 2)
+                    || world.myUnits.some(unit => world.helpers.hexDistance(unit.tile, tile) <= 1)))
+            .sort((a, b) => world.threatAt(a, null) - world.threatAt(b, null))[0];
         if (spot) {
             spend(sustain, { type: 'tacticalCard', cardId: 'mgNest', targetId: spot.id });
         }
     }
 
-    // ── 疗愈/护盾：任务关键单位与旗舰优先 ──────────────────────
-    if (has('heal')) {
-        let best = null;
-        for (const unit of world.myUnits) {
-            const missing = unit.maxHp - unit.hp;
-            if (missing < unit.maxHp * 0.25 && !unit._poison) continue;
-            const healAmount = Math.min(missing, Math.round(unit.maxHp * BAL.heal.balance.healMaxHpPct));
-            let score = healAmount * hpGold(unit);
-            if (unit._poison) score += 30;
-            if (missionCriticalIds.has(unit.id)) score += 40;
-            if (unit.commander) score += 20;
-            if (!best || score > best.score) best = { unit, score };
-        }
-        if (best && best.score > 22) {
-            spend(sustain, { type: 'tacticalCard', cardId: 'heal', targetId: best.unit.id });
-        }
-    }
+    // ── 护盾：任务关键单位与旗舰优先 ─────────────────────────
     if (has('shield')) {
         let best = null;
         for (const unit of world.myUnits) {
@@ -332,8 +359,8 @@ export function planCards(world, strategy, missionsCtx) {
 }
 
 /** 抽牌决策：金币先保证招募与紧急预留，答案缺口（中毒无疗愈等）降低门槛。 */
-export function shouldDrawCard(world, strategy, plannedRecruitSpend = 0) {
-    if (world.cardDrawsLeft <= 0 || world.handFull) return false;
+export function shouldDrawCard(world, strategy, plannedRecruitSpend = 0, plannedCardUses = 0) {
+    if (world.cardDrawsLeft <= 0 || (world.handFull && plannedCardUses === 0)) return false;
     const drawsDone = (world.cardConfig.maxDrawsPerTurn || 2) - world.cardDrawsLeft;
     const cost = (world.cardConfig.drawCost || 4) * (1 + drawsDone);
     const affordable = world.gold - cost - plannedRecruitSpend - strategy.reserve >= 0;

@@ -13,6 +13,7 @@ import { NAVAL_RULES } from '../rules/naval.js';
 import { isWaterTile } from '../rules/surfaces.js';
 import { getCannonSiegeDamageBonus } from '../rules/citySiege.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { areCommanderMechanicsSuppressed, getTransportBaseDefense, getUnitCombatRange, TRANSPORT_RULES } from '../rules/movement.js';
 
 export const BERSERKER_BALANCE = COMMANDER_CONFIG.berserker.balance;
 
@@ -379,20 +380,22 @@ export function createCombatModel({ weather = 'clear', hexDistance } = {}) {
         const tileObj = tile || defender?.tile;
         if (!attacker || !defender || !tileObj) return 0;
         const coeff = counterCoefficient(attacker.type, defender.type);
+        const transportedAttacker = areCommanderMechanicsSuppressed(attacker);
+        const transportDefense = getTransportBaseDefense({ ...defender, tile: tileObj });
         const offense = 1
             + counterDamageBonus(attacker.type, defender.type)
-            + weatherAttackBonus(attacker.type)
+            + (transportedAttacker ? 0 : weatherAttackBonus(attacker.type))
             + crossDomainDamageBonus(attacker, tileObj, defender)
             + getMachineGunDamageBonus(attacker.type, defender?.type)
             // 火炮攻城修正已并入引擎②增伤乘区：对要塞单位（城市驻军/碉堡/岸防炮/工事格）+50%
             + (isStrongpointTarget({ ...defender, tile: tileObj }) ? getCannonSiegeDamageBonus(attacker) : 0);
-        const def = 1
+        const def = transportDefense != null ? 1 - transportDefense : 1
             - terrainDefense(tileObj, isRangedAttacker(attacker))
             - cityDefense(defender.type, tileObj)
             - (defender.config?.defense || 0)
             - weatherDefensePenalty(defender.type);
-        const magicianDef = (defender.commander === 'magician' && coeff > 1) ? 0.15 : 0;
-        return Number(attacker.getEffectiveAttack?.() ?? attacker.config?.attack ?? 0)
+        const magicianDef = (transportDefense == null && defender.commander === 'magician' && coeff > 1) ? 0.15 : 0;
+        return Number(attacker.getEffectiveAttack?.() ?? (transportedAttacker ? TRANSPORT_RULES.baseAttack : attacker.config?.attack) ?? 0)
             * Math.max(0, offense)
             * Math.max(0.3, def - magicianDef);
     }
@@ -404,8 +407,11 @@ export function createCombatModel({ weather = 'clear', hexDistance } = {}) {
     function estimateCounterDamage(attacker, defender) {
         if (!attacker?.tile || !defender?.tile) return 0;
         if (defender.type === 'carrier') return 0;
+        if (defender.counterAttackCount >= 1 || defender._transportTransitionedThisTurn || defender._campaignNoCounter) return 0;
+        if (attacker.type === 'submarine' && defender.type !== 'submarine') return 0;
+        if (attacker._isDrone && !defender._isDrone) return 0;
         const distance = hexDistance ? hexDistance(attacker.tile, defender.tile) : 1;
-        if (Math.max(1, Number(defender.config?.range || 1)) < distance) return 0;
+        if ((defender.getEffectiveRange?.() ?? getUnitCombatRange(defender)) < distance) return 0;
         // 承受反击的是进攻方，防御地形按进攻方自己站的格子算。
         return estimateDamage(defender, attacker, attacker.tile) * 0.98;
     }

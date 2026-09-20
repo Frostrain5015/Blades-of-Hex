@@ -26,7 +26,7 @@ import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruit
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { getStandardMap } from '../rules/standardMaps.js';
-import { applyStandardMapCaptureReward, syncStandardMapCarrierControl, syncCityLinkedGarrisons } from '../rules/standardMapEvents.js';
+import { syncStandardMapCarrierControl, syncCityLinkedGarrisons } from '../rules/standardMapEvents.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
@@ -696,7 +696,7 @@ function initInitialUnits() {
     const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
     if (Array.isArray(standardMap?.initialUnits)) {
         for (const unit of standardMap.initialUnits) spawn(unit.type, unit.camp, unit.q, unit.r);
-        // 城防联动标记：这些单位随所属城市易主，不参与中央夺城全图易帜
+        // 城防联动标记：这些单位只随所属城市易主
         for (const link of standardMap.cityLinkedUnits || []) {
             const unit = map.get(`${link.q},${link.r}`)?.unit;
             if (unit) unit._followsCity = { q: link.cityQ, r: link.cityR };
@@ -3010,15 +3010,8 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     gameState.districtBorderEdges = computeDistrictBorders(landTiles, landTileMap);
     logMessage(`${camp.name}占领的(${cityTile.q},${cityTile.r})城市所属行政区已归属${camp.name}`);
     const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
-    const transferredUnits = applyStandardMapCaptureReward(gameState, standardMap, cityTile, oldCamp, camp);
     const transferredCarriers = syncStandardMapCarrierControl(gameState, standardMap, districtId, camp);
-    if (transferredUnits.length > 0) {
-        const carrierCount = transferredUnits.filter(unit => unit.type === 'carrier').length;
-        const carrierCopy = carrierCount > 0 ? `，包括${carrierCount}艘航母` : '';
-        logMessage(`【无主舰队】${transferredUnits.length}支中立残军${carrierCopy}向${camp.name}易帜`);
-        notify(`中央岛守军与舰队已归属${camp.name}`, 'info');
-    }
-    if (transferredCarriers.some(unit => !transferredUnits.includes(unit))) {
+    if (transferredCarriers.length > 0) {
         logMessage(`【中央航母】随中央港口行政区向${camp.name}易帜`);
         notify(`中央航母已归属${camp.name}`, 'info');
     }
@@ -3035,7 +3028,7 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
 }
 
 // 谋士攻心等将领钩子改变城市驻军阵营时，经由此注入走完整占城流程
-// （行政区易色/边界重算/标准图易帜奖励/城防联动/胜负判定）。
+// （行政区易色/边界重算/中央航母控制/城防联动/胜负判定）。
 setCityCaptureRef(updateDistrictColor);
 
 // ===== 胜利检测 =====================

@@ -14,6 +14,7 @@ import {
 } from './perceive.js';
 import { W } from './weights.js';
 import { duelExpectation } from './tactics.js';
+import { isFieldCapturer } from './roster.js';
 
 let missionSerial = 0;
 
@@ -28,9 +29,11 @@ function byId(world, id) {
 }
 
 /** 占领者挑选：最近的能进城者；有记忆时优先原班人马，避免每回合换人。 */
-function pickOccupier(world, cityTile, preferredId = null) {
+function pickOccupier(world, cityTile, preferredId = null, excludeIds = new Set()) {
     const candidates = world.myUnits
-        .filter(unit => world.isCapturable(unit) && !world.isImmobile(unit))
+        .filter(unit => isFieldCapturer(world, unit))
+        .filter(unit => !excludeIds.has(unit.id))
+        .filter(unit => !['minister', 'astrologer'].includes(unit.commander))
         .sort((a, b) => {
             const da = world.helpers.hexDistance(a.tile, cityTile);
             const db = world.helpers.hexDistance(b.tile, cityTile);
@@ -89,6 +92,33 @@ function lockAllInObjective(world, strategy, ranked, previous) {
     const cannotFinish = priorEntry.eta > world.roundsRemaining + 1;
     if (clearlyFaster || cannotFinish) return ranked;
     return [priorEntry, ...ranked.filter(entry => entry !== priorEntry)];
+}
+
+function lockCommittedObjective(world, strategy, ranked, previous) {
+    if (!world.caps.missionPersistence || ranked.length <= 1
+        || strategy.posture === 'allin' || strategy.posture === 'defend'
+        || strategy.posture === 'hold') return ranked;
+    const priorMission = previous.find(mission => mission.kind === 'siege');
+    if (!priorMission) return ranked;
+    const priorEntry = ranked.find(entry => entry.city.tile.q === priorMission.targetQ
+        && entry.city.tile.r === priorMission.targetR);
+    if (!priorEntry || ranked[0] === priorEntry) return ranked;
+
+    const age = world.round - (priorMission.createdRound ?? world.round);
+    const cityProgress = Number.isFinite(priorMission.cityHp)
+        && priorEntry.city.hp < priorMission.cityHp;
+    const garrisonProgress = priorEntry.city.garrison && Number.isFinite(priorMission.garrisonHp)
+        && priorEntry.city.garrison.hp < priorMission.garrisonHp;
+    const committed = age <= W.objectiveCommitmentRounds
+        || cityProgress || garrisonProgress || priorEntry.city.asset.reward > 0;
+    if (!committed) return ranked;
+
+    const best = ranked[0];
+    const clearlyBetter = best.eta + W.objectiveSwitchEtaGain <= priorEntry.eta
+        && best.score >= priorEntry.score + W.objectiveSwitchScoreMargin;
+    return clearlyBetter
+        ? ranked
+        : [priorEntry, ...ranked.filter(entry => entry !== priorEntry)];
 }
 
 /** 敌方"能占城的近战"逼近我方/中立城市时生成截杀任务；
@@ -163,8 +193,8 @@ export function assignMissions(world, strategy) {
     // 对一座 0 城防的空城围了 18 回合，占领者始终不敢进中立的火力圈）。
     const ranked = rankCityObjectives(world, city => estimateCaptureEta(world, city))
         .filter(entry => entry.eta < 99);
-    const aiMemoryForBlacklist = ((world.gameState._aiCoreMemory ||= {})[world.myCampKey] ||= {});
-    const siegeBlacklist = (aiMemoryForBlacklist.siegeBlacklist ||= {});
+    const campMemory = ((world.gameState._aiCoreMemory ||= {})[world.myCampKey] ||= {});
+    const siegeBlacklist = (campMemory.siegeBlacklist ||= {});
     for (const mission of previous.filter(m => m.kind === 'siege')) {
         const city = world.cities.find(c => c.tile.q === mission.targetQ && c.tile.r === mission.targetR);
         if (!city || !city.hostile) continue;
@@ -193,7 +223,8 @@ export function assignMissions(world, strategy) {
             - Number(a.city.ownerKey === strategy.finishTargetCampKey);
         return targetDelta || a.eta - b.eta;
     });
-    const committedRanked = lockAllInObjective(world, strategy, rankedFiltered, previous);
+    const stableRanked = lockCommittedObjective(world, strategy, rankedFiltered, previous);
+    const committedRanked = lockAllInObjective(world, strategy, stableRanked, previous);
     const siegeBudget = strategy.posture === 'allin' ? 1
         : strategy.posture === 'hold' || strategy.posture === 'defend' ? 0
         : Math.min(2, committedRanked.length ? 1 + (world.myUnits.length >= 8 ? 1 : 0) : 0);
@@ -201,7 +232,7 @@ export function assignMissions(world, strategy) {
         const city = entry.city;
         const prior = previous.find(m => m.kind === 'siege'
             && m.targetQ === city.tile.q && m.targetR === city.tile.r);
-        const occupier = pickOccupier(world, city.tile, prior?.occupierId ?? null);
+        const occupier = pickOccupier(world, city.tile, prior?.occupierId ?? null, assigned);
         if (!occupier) break;
         assigned.add(occupier.id);
         const decisive = strategy.posture === 'allin';
@@ -227,6 +258,7 @@ export function assignMissions(world, strategy) {
             escortIds: escorts.map(u => u.id),
             phase: prior && prior.phase !== 'hold' ? prior.phase : missionState.phase,
             createdRound: prior?.createdRound ?? world.round,
+            cityHp: city.hp,
             garrisonHp: city.garrison ? city.garrison.hp : 0,
             decisive,
             clockCritical: decisive && world.roundsRemaining <= Math.max(4, entry.eta + 1),
@@ -237,9 +269,8 @@ export function assignMissions(world, strategy) {
     // ── 2. 守备任务：只响应"真能占城"的威胁 ─────────────────
     // 潜艇/岸防炮能造成伤害却永远占不了城——按威胁图回填只会让守军永远不出门。
     // 新占城市在迷雾里必须留驻 2 回合：敌人走近了你才能看见，那时再回填已经晚了。
-    const aiMemory = (world.gameState._aiCoreMemory ||= {});
-    const campMemory = (aiMemory[world.myCampKey] ||= {});
     const recentCaptures = (campMemory.recentCaptures ||= {});
+    const ministerReturn = campMemory.ministerReturn;
     for (const city of world.cities) {
         if (city.mine && recentCaptures[`${city.tile.q},${city.tile.r}`] == null
             && campMemory.lastOwnedBy?.[`${city.tile.q},${city.tile.r}`]
@@ -256,6 +287,27 @@ export function assignMissions(world, strategy) {
         const capturerNear = enemyCapturerNear(cityTile);
         const garrison = cityTile.unit && cityTile.unit.camp === world.myCamp ? cityTile.unit : null;
         const capturedRound = recentCaptures[`${cityTile.q},${cityTile.r}`];
+        const returningMinister = ministerReturn
+            && ministerReturn.cityQ === cityTile.q
+            && ministerReturn.cityR === cityTile.r
+            ? byId(world, ministerReturn.unitId)
+            : null;
+        if (ministerReturn && !byId(world, ministerReturn.unitId)) delete campMemory.ministerReturn;
+        if (returningMinister && garrison?.id === returningMinister.id) {
+            delete campMemory.ministerReturn;
+        }
+        if (returningMinister && garrison?.id !== returningMinister.id
+            && ministerReturn.vacatedRound < world.round) {
+            // 新兵尚在城内时也保留返城职责，等它出城后的下一次规划兑现。
+            assigned.add(returningMinister.id);
+            missions.push({
+                id: `m${++missionSerial}`, kind: 'garrison',
+                targetQ: cityTile.q, targetR: cityTile.r,
+                occupierId: returningMinister.id, escortIds: [],
+                phase: 'approach', createdRound: world.round
+            });
+            continue;
+        }
         const freshCapture = world.caps.emergencyDefense && Number.isFinite(capturedRound)
             && world.round - capturedRound <= 2;
         const threatened = capturerNear || strategy.posture === 'defend' || freshCapture;
@@ -272,9 +324,9 @@ export function assignMissions(world, strategy) {
             }
             continue;
         }
-        if (!garrison && (capturerNear || strategy.posture === 'hold' || freshCapture)) {
+        if (!garrison && (returningMinister || capturerNear || strategy.posture === 'hold' || freshCapture)) {
             // 空城受威胁：找最近的能进城者回填。
-            const filler = pickOccupier(world, cityTile);
+            const filler = returningMinister || pickOccupier(world, cityTile, null, assigned);
             if (filler && !assigned.has(filler.id)) {
                 assigned.add(filler.id);
                 missions.push({
@@ -348,11 +400,11 @@ export function assignMissions(world, strategy) {
             if (id != null) assignment.set(id, mission);
         }
     }
+    campMemory.suppressNeutralEngagements = !!strategy.emergencyDefenseCity
+        || !!strategy.finishTargetCampKey || strategy.posture === 'allin';
     return {
         missions: alive,
         assignment,
-        suppressNeutralEngagements: !!strategy.emergencyDefenseCity
-            || !!strategy.finishTargetCampKey
-            || strategy.posture === 'allin'
+        suppressNeutralEngagements: campMemory.suppressNeutralEngagements
     };
 }

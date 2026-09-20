@@ -43,7 +43,7 @@
     {
       "id": "freeport",
       "name": "中央自由港",
-      "note": "编辑器占位阵营；接回标准对局时映射为系统 neutral，并恢复占城后中立残军与航母转移规则。",
+      "note": "编辑器占位阵营；接回标准对局时映射为系统 neutral，中央城控制航母，其他中立部队不因中央城易主而转移。",
       "color": "gray",
       "controller": "scripted",
       "participatesInTurns": false,
@@ -2559,15 +2559,14 @@
   },
   "standardMapMetadata": {
     "familyId": "uncharted-passage",
-    "revision": "v2",
+    "revision": "v3",
     "playerCount": 3,
     "neutralEditorCamp": "freeport",
     "neutralRuntimeCamp": "neutral",
-    "captureReward": {
-      "type": "neutralForcesTransfer",
-      "cityQ": 1,
-      "cityR": -2,
-      "sourceCamp": "neutral"
+    "carrierControl": {
+      "portQ": 0,
+      "portR": 0,
+      "districtId": 7
     }
   }
 }
