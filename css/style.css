@@ -4329,11 +4329,25 @@ body {
 .hero-btn-campaign:hover::before { transform: rotate(18deg) translateX(190%); }
 .campaign-lobby-view {
     isolation: isolate;
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
+    min-height: 100%;
+    overflow: visible;
 }
-.hero-left.campaign-active { overflow-y: hidden; }
+.hero-left.campaign-active {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(226, 117, 68, 0.62) rgba(255, 255, 255, 0.025);
+    overscroll-behavior: contain;
+}
+.hero-left.campaign-active::-webkit-scrollbar { width: 8px; }
+.hero-left.campaign-active::-webkit-scrollbar-track {
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.025);
+}
+.hero-left.campaign-active::-webkit-scrollbar-thumb {
+    border: 1px solid rgba(255, 203, 164, 0.14);
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(226, 117, 68, 0.78), rgba(126, 39, 18, 0.8));
+}
 /* 单人游戏二级菜单：强制禁用横纵两个方向的滚动条（高特异性，覆盖移动端 auto 回退） */
 .hero-left.solo-active { overflow-x: hidden; overflow-y: hidden; }
 .campaign-lobby-view::before {
@@ -4347,7 +4361,14 @@ body {
         radial-gradient(circle at 88% 16%, rgba(203, 61, 20, 0.23), transparent 24%),
         linear-gradient(145deg, transparent 48%, rgba(255, 134, 57, 0.045) 49%, transparent 50%);
 }
-.campaign-topbar { margin-bottom: 13px; }
+.campaign-topbar {
+    position: sticky;
+    z-index: 8;
+    top: 0;
+    margin-bottom: 13px;
+    padding: 6px 0 10px;
+    background: linear-gradient(180deg, rgba(13, 6, 3, 0.99) 0%, rgba(13, 6, 3, 0.94) 76%, rgba(13, 6, 3, 0) 100%);
+}
 .campaign-progress-mark {
     color: #e89b62;
     font: 700 9px 'Noto Serif SC', serif;
@@ -4492,26 +4513,11 @@ body {
 .campaign-chronicle-list {
     display: flex;
     width: 100%;
-    min-height: 0;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     flex-direction: column;
     gap: 10px;
-    overflow-x: hidden;
-    overflow-y: auto;
-    padding: 0 8px 14px 0;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(226, 117, 68, 0.55) rgba(255, 255, 255, 0.025);
-    overscroll-behavior: contain;
-}
-.campaign-chronicle-list::-webkit-scrollbar { width: 7px; }
-.campaign-chronicle-list::-webkit-scrollbar-track {
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.025);
-}
-.campaign-chronicle-list::-webkit-scrollbar-thumb {
-    border: 1px solid rgba(255, 203, 164, 0.12);
-    border-radius: 999px;
-    background: linear-gradient(180deg, rgba(226, 117, 68, 0.7), rgba(126, 39, 18, 0.72));
+    overflow: visible;
+    padding: 0 10px 14px 0;
 }
 
 #campaignCollectiblesOverlay {
@@ -6203,8 +6209,15 @@ body.campaign-game-active .camp-card .camp-label {
 /* 窄屏大厅自适应（横屏手机/小平板 541-700px 高度段） */
 @media (max-width: 720px) {
     .lobby-box { width: 96vw; padding: 14px 16px; }
+    body.campaign-lobby-active .lobby-box {
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(226, 117, 68, 0.62) rgba(255, 255, 255, 0.025);
+    }
     .hero-wrap { flex-direction: column-reverse; height: auto; min-height: auto; max-height: none; gap: 12px; }
     .hero-left { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+    .hero-left.campaign-active { overflow: visible; }
     .hero-right { flex: 0 0 auto; }
     .hero-portrait-frame { max-width: 160px; }
     .hero-title { font-size: 22px; }

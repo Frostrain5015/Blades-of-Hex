@@ -543,8 +543,14 @@ function _switchLobbyView(viewId, anim = true) {
     const target = document.getElementById(viewId);
     if (!target || _activeLobbyView === viewId) return;
 
-    document.getElementById('lobbyLeftPanel')?.classList.toggle('campaign-active', viewId === 'campaignLobbyContent');
-    document.getElementById('lobbyLeftPanel')?.classList.toggle('solo-active', viewId === 'soloLobbyContent');
+    const leftPanel = document.getElementById('lobbyLeftPanel');
+    leftPanel?.classList.toggle('campaign-active', viewId === 'campaignLobbyContent');
+    leftPanel?.classList.toggle('solo-active', viewId === 'soloLobbyContent');
+    if (viewId === 'campaignLobbyContent') {
+        if (leftPanel) leftPanel.scrollTop = 0;
+        const lobbyBox = document.querySelector('.lobby-box');
+        if (lobbyBox) lobbyBox.scrollTop = 0;
+    }
     document.body.classList.toggle('campaign-lobby-active', viewId === 'campaignLobbyContent');
 
     const oldEl = _activeLobbyView ? document.getElementById(_activeLobbyView) : null;
@@ -559,7 +565,6 @@ function _switchLobbyView(viewId, anim = true) {
     }
 
     // 记录旧视图高度并锁定，防止新视图撑高面板导致跳变
-    const leftPanel = document.getElementById('lobbyLeftPanel');
     const oldHeight = leftPanel.offsetHeight;
     leftPanel.style.minHeight = oldHeight + 'px';
 
