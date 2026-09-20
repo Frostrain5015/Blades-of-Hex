@@ -7,6 +7,7 @@
     "start": "node server.js",
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
+    "build:itch": "vite build --mode itch",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc -p tsconfig.rendering.json --pretty false",
     "setup": "npm install --production && node server.js",

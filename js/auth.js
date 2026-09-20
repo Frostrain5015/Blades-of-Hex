@@ -5,7 +5,8 @@
  * and provides the token for WebSocket connections.
  */
 
-const AUTH_URL = location.origin;
+import { runtimeConfig } from './runtimeConfig.js';
+
 const TOKEN_KEY = 'blades_token';
 const USER_KEY  = 'blades_user';
 
@@ -23,6 +24,10 @@ export function onAuthChange(fn) {
 }
 
 export function loadAuth() {
+  if (!runtimeConfig.authEnabled) {
+    _currentUser = null;
+    return null;
+  }
   const token = localStorage.getItem(TOKEN_KEY);
   const user  = localStorage.getItem(USER_KEY);
   if (token && user) {
@@ -33,6 +38,7 @@ export function loadAuth() {
 }
 
 export function setAuth(token, username, email) {
+  if (!runtimeConfig.authEnabled) return;
   const user = { username, email };
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -48,6 +54,7 @@ export function clearAuth() {
 }
 
 export function getToken() {
+  if (!runtimeConfig.authEnabled) return null;
   return _currentUser?.token || localStorage.getItem(TOKEN_KEY);
 }
 

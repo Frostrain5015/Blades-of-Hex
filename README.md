@@ -62,6 +62,14 @@ npm start
 
 若未设置 `BOH_SERVE_DIST=1`，服务端会继续提供仓库源码，避免误把旧的 `dist/` 当成最新客户端。PM2 配置 `ecosystem.config.js` 已默认启用构建产物。
 
+### itch.io HTML5 构建
+
+```powershell
+npm run build:itch
+```
+
+itch.io 构建输出到被 Git 忽略的 `dist-itch/`。上传时将该目录中的全部内容打入同一个 ZIP，确保 `index.html` 位于 ZIP 根目录。该构建使用相对资源路径，通过 `wss://boh.frostrain.tech` 连接现有联机服务器，并关闭 Frost ID；玩家档案以访客模式保存在浏览器本地。公开服务器地址和构建开关位于 `.env.itch`。
+
 ## 测试与开发工具
 
 ```powershell

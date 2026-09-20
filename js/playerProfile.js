@@ -1,4 +1,5 @@
 import { getToken } from './auth.js';
+import { serverHttpUrl } from './runtimeConfig.js';
 
 const PROFILE_SCHEMA_VERSION = 2;
 const LOCAL_PROFILE_KEY = 'blades-of-hex.player-profile.v2';
@@ -70,7 +71,7 @@ async function fetchServerProfile(token) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     try {
-        const response = await fetch('/api/player-profile', {
+        const response = await fetch(serverHttpUrl('/api/player-profile'), {
             headers: { Authorization: `Bearer ${token}` },
             cache: 'no-store',
             signal: controller.signal
@@ -112,7 +113,7 @@ function queueServerWrite() {
     if (!token) return;
     const snapshot = clone(_profile);
     _writeQueue = _writeQueue.catch(() => {}).then(async () => {
-        const response = await fetch('/api/player-profile', {
+        const response = await fetch(serverHttpUrl('/api/player-profile'), {
             method: 'PUT',
             headers: {
                 Authorization: `Bearer ${token}`,

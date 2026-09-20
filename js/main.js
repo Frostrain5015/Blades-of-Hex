@@ -79,6 +79,7 @@ import {
     AIR_COMMAND_IMPACT_DELAY_MS
 } from '../rules/airCommands.js';
 import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
+import { serverWebSocketUrl } from './runtimeConfig.js';
 import { getOracleStatueAnchor, CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
 import { resolveBorrowDay } from '../rules/tianheng.js';
 
@@ -508,7 +509,7 @@ function setConnectionState(state) {
 // 首页常驻连接状态（页面加载时自动检测服务器）
 connectionBar.classList.add('visible');
 setConnectionState('connecting');
-connectToServer(wsUrl(location.host)).then(() => {
+connectToServer(serverWebSocketUrl()).then(() => {
     setConnectionState('connected');
     setNetworkCallbacks({
         onDisconnected: () => setConnectionState('disconnected'),
@@ -1071,7 +1072,7 @@ document.getElementById('multiplayerBtn').addEventListener('click', () => {
     }
     setConnectionState('connecting');
     registerNetworkCallbacks();
-    connectToServer(wsUrl(location.host)).then(() => {
+    connectToServer(serverWebSocketUrl()).then(() => {
         setConnectionState('connected');
         showMultiplayerLobby();
         listRooms();
@@ -2627,14 +2628,6 @@ function _showCampaignIntro(config, onDismiss) {
 		// 给淡出留时间再启动
 		setTimeout(() => onDismiss(), 350);
 	};
-}
-
-// 根据当前页面协议和端口推导 WebSocket 地址
-function wsUrl(host) {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const hostHasPort = host.includes(':');
-    if (hostHasPort) return `${proto}://${host}`;
-    return location.port ? `${proto}://${host}:${location.port}` : `${proto}://${host}`;
 }
 
 // ==== 多人游戏大厅 ===================
