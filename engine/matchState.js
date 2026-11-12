@@ -95,8 +95,8 @@ export function configureMatchFactions(match, {
 }
 
 /** Configure a skirmish runtime. Seat IDs remain stable while colors and order stay mutable. */
-export function configureStandardMatch(match, { playerCount = 2, colors = {}, flagEmojis = {}, controllers = {} } = {}) {
-    const definitions = Object.values(createStandardFactions({ playerCount, colors, flagEmojis, controllers }));
+export function configureStandardMatch(match, { playerCount = 2, colors = {}, flagEmojis = {}, flagPresets = {}, controllers = {} } = {}) {
+    const definitions = Object.values(createStandardFactions({ playerCount, colors, flagEmojis, flagPresets, controllers }));
     const players = ['player1', 'player2', ...(Number(playerCount) === 3 ? ['player3'] : [])];
     return configureMatchFactions(match, {
         factionDefinitions: definitions,

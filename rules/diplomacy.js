@@ -41,6 +41,20 @@ export const STANDARD_FLAG_EMOJIS = Object.freeze([
     Object.freeze({ emoji: '🔆', label: '辉环' }),
     Object.freeze({ emoji: '⚖️', label: '天衡' })
 ]);
+export const FLAG_PRESETS = Object.freeze({
+    'img/flags/svg/cn.svg': '中国',
+    'img/flags/svg/us.svg': '美国',
+    'img/flags/svg/gb.svg': '英国',
+    'img/flags/svg/fr.svg': '法国',
+    'img/flags/svg/ru.svg': '俄罗斯',
+    'img/flags/kuomintang.svg': '中国国民党党旗',
+    'img/flags/chinese-communist-party-old.svg': '中国共产党旗（镰刀锤子居中）'
+});
+
+export function isFlagPreset(value) {
+    return typeof value === 'string' && Object.hasOwn(FLAG_PRESETS, value);
+}
+
 export const DEFAULT_STANDARD_FLAG_EMOJIS = Object.freeze({ player1: '⚜️', player2: '🛡️', player3: '🦅' });
 const DYNAMIC_FACTION_COLORS = Object.freeze([
     '#e05050', '#5090e0', '#5cbf5c', '#f09a40', '#edd43c', '#40b8b8', '#b070e0', '#9b6b4f'
@@ -174,7 +188,7 @@ export function campFromKey(key, state = null) {
 }
 
 /** 创建标准对局阵营。席位、颜色、控制器是三组独立数据。 */
-export function createStandardFactions({ playerCount = 2, colors = {}, flagEmojis = {}, controllers = {} } = {}) {
+export function createStandardFactions({ playerCount = 2, colors = {}, flagEmojis = {}, flagPresets = {}, controllers = {} } = {}) {
     const count = Math.max(2, Math.min(3, Number(playerCount) || 2));
     const overrides = PLAYER_SEAT_KEYS.map((id, index) => {
         const requestedColorId = getPaletteEntry(colors[id])?.id;
@@ -186,6 +200,7 @@ export function createStandardFactions({ playerCount = 2, colors = {}, flagEmoji
             name: getFactionColorName(colorId, `第${index + 1}阵营`),
             color: colorId,
             flagEmoji: isStandardFlagEmoji(flagEmojis[id]) ? flagEmojis[id] : DEFAULT_STANDARD_FLAG_EMOJIS[id],
+            flagPreset: flagPresets[id],
             controller: controllers[id] || (id === 'player1' ? 'human' : 'ai'),
             participatesInTurns: index < count,
             active: index < count
@@ -210,7 +225,7 @@ export function setFactionColor(state, factionKey, colorValue) {
     faction.colorId = palette.id;
     faction.color = palette.tile;
     faction.name = getFactionColorName(palette.id, faction.name);
-    if (isStandardFlagEmoji(faction.flagEmoji)) {
+    if (!faction.flagPreset && isStandardFlagEmoji(faction.flagEmoji)) {
         faction.flag = faction.flagEmoji;
         faction.flagUrl = createStandardFlagUrl(palette.id, faction.flagEmoji);
         faction.flagAlt = `${getFactionColorName(palette.id, '阵营')}·${faction.flagEmoji}`;
@@ -228,10 +243,20 @@ export function setPlayerFactionColor(state, factionKey, colorValue) {
 export function setPlayerFactionFlagEmoji(state, factionKey, emoji) {
     const faction = state?.factions?.[factionKey];
     if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isStandardFlagEmoji(emoji)) return false;
+    faction.flagPreset = null;
     faction.flagEmoji = emoji;
     faction.flag = emoji;
     faction.flagUrl = createStandardFlagUrl(faction.colorId || faction.color, emoji);
     faction.flagAlt = `${faction.name || '阵营'}·${emoji}`;
+    return true;
+}
+
+export function setPlayerFactionFlagPreset(state, factionKey, preset) {
+    const faction = state?.factions?.[factionKey];
+    if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isFlagPreset(preset)) return false;
+    faction.flagPreset = preset;
+    faction.flagUrl = preset;
+    faction.flagAlt = FLAG_PRESETS[preset];
     return true;
 }
 
@@ -266,6 +291,7 @@ export function createDefaultFactions(overrides = []) {
         const override = byId.get(id) || {};
         const palette = getPaletteEntry(override.color) || getPaletteEntry(base.color);
         const flagEmoji = isStandardFlagEmoji(override.flagEmoji) ? override.flagEmoji : null;
+        const flagPreset = flagEmoji && isFlagPreset(override.flagPreset) ? override.flagPreset : null;
         const providedFlagUrl = typeof override.flagUrl === 'string' && override.flagUrl ? override.flagUrl : null;
         const flagConfig = override.flagConfig && typeof override.flagConfig === 'object' ? override.flagConfig : null;
         return [id, {
@@ -276,12 +302,15 @@ export function createDefaultFactions(overrides = []) {
             color: getTileColor(override.color, base.color),
             flag: flagEmoji || (typeof override.flag === 'string' && override.flag ? override.flag : base.flag),
             flagEmoji,
-            flagUrl: providedFlagUrl
+            flagPreset,
+            flagUrl: flagPreset
+                || providedFlagUrl
                 || (flagConfig?.preset ? flagConfig.preset : null)
                 || (flagConfig ? createFlagSvgUrl(flagConfig, palette?.id || override.color) : null)
                 || (flagEmoji ? createStandardFlagUrl(palette?.id || override.color, flagEmoji) : null)
                 || (id === 'neutral' ? 'img/flags/training-targets.svg' : null),
-            flagAlt: typeof override.flagAlt === 'string' && override.flagAlt ? override.flagAlt : (flagEmoji ? `${override.name || base.name}·${flagEmoji}` : ''),
+            flagAlt: flagPreset ? FLAG_PRESETS[flagPreset]
+                : (typeof override.flagAlt === 'string' && override.flagAlt ? override.flagAlt : (flagEmoji ? `${override.name || base.name}·${flagEmoji}` : '')),
             flagConfig: flagConfig, // 保留原始配置供编辑器回读
             controller: ['human', 'ai', 'scripted'].includes(override.controller) ? override.controller : base.controller,
             canRecruit: typeof override.canRecruit === 'boolean' ? override.canRecruit : true,

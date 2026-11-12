@@ -6,6 +6,7 @@ const os    = require('os');
 const crypto = require('crypto');
 const WebSocket = require('ws');
 const protocolReady = import('./protocol/messages.js');
+const flagRulesReady = import('./rules/diplomacy.js');
 const { createPlayerProfileStore, normalizeProfile } = require('./server/playerProfileStore.js');
 const { AI_DRIVER_ROLE, isValidAiDifficulty, aiSlotCount, humanCapacity, isRoomFull, firstFreeRole, takenRoles } = require('./server/roomAi.js');
 
@@ -485,13 +486,15 @@ function createNetworkMatchSetup(room) {
     room.turnOrder = rolled.turnOrder.map(key => key === 'neutral' ? key : room.roleAssignments[key]);
     room.turnOrderRolls = Object.fromEntries(Object.entries(rolled.turnOrderRolls)
         .map(([role, rolls]) => [room.roleAssignments[role], rolls]));
-    // room.factionColors/factionEmojis 仍按 role 保存：factionColor 消息按 role 写入，
+    // room.factionColors/factionEmojis/factionPresets 仍按 role 保存：factionColor 消息按 role 写入，
     // 快照校验经 roleAssignments 翻译到 camp；下发给客户端时投影为 camp 键。
     room.factionColors = Object.fromEntries(roles.map(role => [role, room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]]));
     room.factionEmojis = Object.fromEntries(roles.map(role => [
         role,
         STANDARD_FLAG_EMOJIS.has(room.factionEmojis?.[role]) ? room.factionEmojis[role] : DEFAULT_ROLE_FLAG_EMOJIS[role]
     ]));
+    room.factionPresets = Object.fromEntries(roles.map(role => [role, room.factionPresets?.[role] || null]));
+    const campPresets = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionPresets[role]]));
     const campColors = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionColors[role]]));
     const campEmojis = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionEmojis[role]]));
     // AI 席位按阵营键存储：回合归属校验直接以 currentCampKey 命中
@@ -503,6 +506,7 @@ function createNetworkMatchSetup(room) {
         roleAssignments: room.roleAssignments,
         factionColors: campColors,
         factionEmojis: campEmojis,
+        factionPresets: campPresets,
         aiSeats: room.aiSeats
     };
 }
@@ -518,9 +522,13 @@ function snapshotMatchesRoomSetup(room, snapshot) {
         if (!PLAYER_FACTION_COLORS.has(colorId)) return false;
         const factionKey = assignments[role];
         const emoji = room.factionEmojis?.[role];
-        if (!factionKey || snapshot.factions?.[factionKey]?.colorId !== colorId
+        const preset = room.factionPresets?.[role] || null;
+        const faction = snapshot.factions?.[factionKey];
+        if (!factionKey || faction?.colorId !== colorId
             || !STANDARD_FLAG_EMOJIS.has(emoji)
-            || snapshot.factions?.[factionKey]?.flagEmoji !== emoji) return false;
+            || faction.flagEmoji !== emoji
+            || (faction.flagPreset ?? null) !== preset
+            || (preset && faction.flagUrl !== preset)) return false;
     }
     return true;
 }
@@ -900,10 +908,13 @@ async function handleMessage(ws, rawData) {
             const role = room?.players.get(ws)?.role;
             if (!room || !role) break;
             const hasColor = PLAYER_FACTION_COLORS.has(msg.colorId);
+            const { isFlagPreset } = await flagRulesReady;
             const hasEmoji = STANDARD_FLAG_EMOJIS.has(msg.flagEmoji);
+            const hasPreset = isFlagPreset(msg.flagPreset);
             const invalidColor = msg.colorId !== undefined && !hasColor;
             const invalidEmoji = msg.flagEmoji !== undefined && !hasEmoji;
-            if (invalidColor || invalidEmoji || (!hasColor && !hasEmoji)) break;
+            const invalidPreset = msg.flagPreset !== undefined && !hasPreset;
+            if (invalidColor || invalidEmoji || invalidPreset || (!hasColor && !hasEmoji && !hasPreset)) break;
             const nextColor = hasColor ? msg.colorId : (room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]);
             const occupied = hasColor && Object.entries(room.factionColors || {}).some(([otherRole, color]) => otherRole !== role && color === nextColor);
             if (occupied) {
@@ -911,7 +922,8 @@ async function handleMessage(ws, rawData) {
                 sendJson(ws, {
                     type: 'factionColors',
                     factionColors: room.factionColors || {},
-                    factionEmojis: room.factionEmojis || {}
+                    factionEmojis: room.factionEmojis || {},
+                    factionPresets: room.factionPresets || {}
                 });
                 break;
             }
@@ -920,10 +932,14 @@ async function handleMessage(ws, rawData) {
                 ...(room.factionEmojis || {}),
                 [role]: hasEmoji ? msg.flagEmoji : (room.factionEmojis?.[role] || DEFAULT_ROLE_FLAG_EMOJIS[role])
             };
+            if (hasPreset || hasEmoji) {
+                room.factionPresets = { ...(room.factionPresets || {}), [role]: hasPreset ? msg.flagPreset : null };
+            }
             broadcastRoom(room, {
                 type: 'factionColors',
                 factionColors: room.factionColors,
-                factionEmojis: room.factionEmojis
+                factionEmojis: room.factionEmojis,
+                factionPresets: room.factionPresets || {}
             });
             break;
         }

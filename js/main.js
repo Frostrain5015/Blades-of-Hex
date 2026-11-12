@@ -54,7 +54,7 @@ import { isScenarioUnlocked, readProgress } from '../campaign/progress.js';
 import './visualEventBridge.js';
 import './cheat.js';
 import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
-import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, getViewingCampKey, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
+import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, setPlayerFactionFlagPreset, getViewingCampKey, FLAG_PRESETS, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { downloadCurrentMatchLog, downloadCurrentMatchReview, getCurrentMatchLog, recordCommittedAction, resolvePendingLocalAction, startMatchRecording } from './matchRecorder.js';
 import { initMatchStatsPanel } from './matchStatsView.js';
@@ -96,13 +96,19 @@ function _readSavedFlagCustomizations() {
 function _saveFlagCustomization(factionKey) {
     const faction = gameState.factions?.[factionKey];
     if (!faction) return;
-    writeStandardFlagPreference(factionKey, { colorId: faction.colorId, emoji: faction.flagEmoji });
+    writeStandardFlagPreference(factionKey, { colorId: faction.colorId, emoji: faction.flagEmoji, preset: faction.flagPreset || null });
 }
 
 function _savedFlagEmojisFromState() {
     return Object.fromEntries(['player1', 'player2', 'player3']
         .filter(key => gameState.factions?.[key]?.flagEmoji)
         .map(key => [key, gameState.factions[key].flagEmoji]));
+}
+
+function _savedFlagPresetsFromState() {
+    return Object.fromEntries(Object.entries(gameState.factions || {})
+        .filter(([, faction]) => faction.flagPreset)
+        .map(([key, faction]) => [key, faction.flagPreset]));
 }
 
 function _applySavedFlagCustomizations(factionKeys) {
@@ -113,6 +119,7 @@ function _applySavedFlagCustomizations(factionKeys) {
         if (!entry || typeof entry !== 'object') continue;
         if (setPlayerFactionColor(gameState, factionKey, entry.colorId)) changed = true;
         if (setPlayerFactionFlagEmoji(gameState, factionKey, entry.emoji)) changed = true;
+        if (setPlayerFactionFlagPreset(gameState, factionKey, entry.preset)) changed = true;
         if (gameState.factions?.[factionKey]?.colorId) {
             gameState.factionColorSelections[factionKey] = gameState.factions[factionKey].colorId;
         }
@@ -1127,6 +1134,7 @@ function beginTrainingMatch() {
     const savedStandardMapId = gameState.standardMapId;
     const savedColors = { ...(gameState.factionColorSelections || {}) };
     const savedFlagEmojis = _savedFlagEmojisFromState();
+    const savedFlagPresets = _savedFlagPresetsFromState();
     const savedOrder = [...(gameState.turnOrder || [])];
     const savedRolls = { ...(gameState.turnOrderRolls || {}) };
     const savedAssignments = { ...(gameState.roleAssignments || {}) };
@@ -1141,6 +1149,7 @@ function beginTrainingMatch() {
         playerCount: savedThreePlayer ? 3 : 2,
         colors: savedColors,
         flagEmojis: savedFlagEmojis,
+        flagPresets: savedFlagPresets,
         controllers: savedThreePlayer
             ? { player1: 'human', player2: 'human', player3: 'human' }
             : { player1: 'human', player2: 'human' }
@@ -1410,7 +1419,7 @@ function beginTrainingCommanderPhase(humanRole) {
             ? { player1: 'human', player2: 'human', player3: 'human' }
             : { player1: 'human', player2: 'human' }
     });
-    _applySavedFlagCustomizations(savedThreePlayer ? ['player1', 'player2', 'player3'] : ['player1']);
+    _applySavedFlagCustomizations(savedThreePlayer ? ['player1', 'player2', 'player3'] : ['player1', 'player2']);
     // 训练场恒为本地热座演习：玩家为所有席位自选将领，无 AI 接管。
     gameState.aiOpponentCamp = null;
     gameState._trainingMode = true;
@@ -1612,6 +1621,7 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
     const picker = document.getElementById('commanderColorPicker');
     const logo = document.getElementById('commanderLogo');
     const canChoose = _canChooseFactionColor(forPlayer, locked);
+    const faction = gameState.factions?.[forPlayer];
     const occupied = new Set(Object.entries(gameState.factionColorSelections || {})
         .filter(([key]) => {
             if (key === forPlayer || gameState.factions?.[key]?.active === false) return false;
@@ -1663,7 +1673,9 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
         emojiButton.textContent = entry.emoji;
         emojiButton.setAttribute('aria-label', `旗面徽记：${entry.label}`);
         emojiButton.title = entry.label;
-        emojiButton.classList.toggle('selected', gameState.factions?.[forPlayer]?.flagEmoji === entry.emoji);
+        const selected = !faction?.flagPreset && faction?.flagEmoji === entry.emoji;
+        emojiButton.classList.toggle('selected', selected);
+        emojiButton.setAttribute('aria-pressed', String(selected));
         emojiButton.disabled = !canChoose;
         emojiButton.addEventListener('click', event => {
             event.stopPropagation();
@@ -1673,6 +1685,31 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
             _configureCommanderFactionHeader(forPlayer, { locked, keepPickerOpen: true });
         });
         emojiOptions.appendChild(emojiButton);
+    }
+    const presetOptions = makeSection('预设旗帜', 'presets');
+    for (const [preset, label] of Object.entries(FLAG_PRESETS)) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'commander-preset-option';
+        button.dataset.preset = preset;
+        button.setAttribute('aria-label', label);
+        button.title = label;
+        const selected = faction?.flagPreset === preset;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+        button.disabled = !canChoose;
+        const image = document.createElement('img');
+        image.src = preset;
+        image.alt = '';
+        button.appendChild(image);
+        button.addEventListener('click', event => {
+            event.stopPropagation();
+            if (!setPlayerFactionFlagPreset(gameState, forPlayer, preset)) return;
+            _saveFlagCustomization(forPlayer);
+            if (isNetworkGame()) sendMessage({ type: 'factionColor', flagPreset: preset });
+            _configureCommanderFactionHeader(forPlayer, { locked, keepPickerOpen: true });
+        });
+        presetOptions.appendChild(button);
     }
     logo.disabled = !canChoose;
 }
@@ -1725,6 +1762,7 @@ function beginNetworkCommanderFlow(role) {
     const wasMode = gameState.gameMode;
     const wasColors = { ...(gameState.factionColorSelections || {}) };
     const wasFlagEmojis = _savedFlagEmojisFromState();
+    const wasFlagPresets = _savedFlagPresetsFromState();
     const wasOrder = [...(gameState.turnOrder || [])];
     const wasRolls = { ...(gameState.turnOrderRolls || {}) };
     const wasAssignments = { ...(gameState.roleAssignments || {}) };
@@ -1742,6 +1780,7 @@ function beginNetworkCommanderFlow(role) {
         playerCount: wasThreePlayer ? 3 : 2,
         colors: wasColors,
         flagEmojis: wasFlagEmojis,
+        flagPresets: wasFlagPresets,
         controllers: _networkControllers()
     });
     _applyNetworkAiDifficulty();
@@ -2832,6 +2871,7 @@ function registerNetworkCallbacks() {
                 playerCount: isThreePlayer ? 3 : 2,
                 colors: setup.factionColors || {},
                 flagEmojis: setup.factionEmojis || {},
+                flagPresets: setup.factionPresets || {},
                 controllers: _networkControllers()
             });
             _applyNetworkAiDifficulty();
@@ -2842,12 +2882,17 @@ function registerNetworkCallbacks() {
             const myCampKey = gameState.roleAssignments?.[role] || role;
             if (_applySavedFlagCustomizations([myCampKey])) {
                 const faction = gameState.factions?.[myCampKey];
-                sendMessage({ type: 'factionColor', colorId: faction?.colorId, flagEmoji: faction?.flagEmoji });
+                sendMessage({ type: 'factionColor', colorId: faction?.colorId });
+                sendMessage({
+                    type: 'factionColor',
+                    flagEmoji: faction?.flagEmoji,
+                    flagPreset: faction?.flagPreset || undefined
+                });
             }
             showFactionReveal(role);
         },
 
-        onFactionColors: (colors, flagEmojis) => {
+        onFactionColors: (colors, flagEmojis, flagPresets) => {
             // 服务器按 role 记录颜色/徽记；出生席位随机分配后需翻译到阵营键再落地
             for (const [key, colorId] of Object.entries(colors || {})) {
                 const campKey = gameState.roleAssignments?.[key] || key;
@@ -2856,6 +2901,10 @@ function registerNetworkCallbacks() {
             for (const [key, emoji] of Object.entries(flagEmojis || {})) {
                 const campKey = gameState.roleAssignments?.[key] || key;
                 setPlayerFactionFlagEmoji(gameState, campKey, emoji);
+            }
+            for (const [key, preset] of Object.entries(flagPresets || {})) {
+                const campKey = gameState.roleAssignments?.[key] || key;
+                setPlayerFactionFlagPreset(gameState, campKey, preset);
             }
             if (document.getElementById('commanderOverlay')?.classList.contains('show')) {
                 const pickerOpen = document.getElementById('commanderColorPicker')?.classList.contains('open');

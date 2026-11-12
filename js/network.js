@@ -184,13 +184,14 @@ export function connectToServer(url) {
                         turnOrderRolls: msg.turnOrderRolls,
                         factionColors: msg.factionColors,
                         factionEmojis: msg.factionEmojis,
+                        factionPresets: msg.factionPresets,
                         roleAssignments: msg.roleAssignments,
                         standardMapId: msg.standardMapId,
                         aiSeats: msg.aiSeats || {}
                     });
                     break;
                 case 'factionColors':
-                    _cb.onFactionColors?.(msg.factionColors || {}, msg.factionEmojis || {});
+                    _cb.onFactionColors?.(msg.factionColors || {}, msg.factionEmojis || {}, msg.factionPresets || {});
                     break;
                 case 'error':
                     _cb.onError?.(msg.message);

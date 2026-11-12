@@ -3071,7 +3071,8 @@ body {
     gap: 7px;
 }
 .commander-picker-options.colors { grid-template-columns: repeat(7, 28px); }
-.commander-picker-options.emojis { grid-template-columns: repeat(7, 28px); }
+.commander-picker-options.emojis,
+.commander-picker-options.presets { grid-template-columns: repeat(7, 28px); }
 .commander-color-swatch {
     width: 28px;
     height: 28px;
@@ -3083,7 +3084,8 @@ body {
 }
 .commander-color-swatch.selected { border-color: #f3d17d; box-shadow: 0 0 11px rgba(243,209,125,.62); }
 .commander-color-swatch:disabled { cursor: not-allowed; opacity: .2; filter: grayscale(.8); }
-.commander-emoji-option {
+.commander-emoji-option,
+.commander-preset-option {
     display: grid;
     place-items: center;
     width: 28px;
@@ -3097,9 +3099,10 @@ body {
     font-size: 18px;
     line-height: 1;
 }
-.commander-emoji-option:hover:not(:disabled) { background: rgba(244,211,125,.18); transform: translateY(-1px); }
-.commander-emoji-option.selected { border-color: #f3d17d; box-shadow: 0 0 10px rgba(243,209,125,.55); background: rgba(243,209,125,.16); }
-.commander-emoji-option:disabled { cursor: not-allowed; opacity: .32; }
+:is(.commander-emoji-option, .commander-preset-option):hover:not(:disabled) { background: rgba(244,211,125,.18); transform: translateY(-1px); }
+:is(.commander-emoji-option, .commander-preset-option).selected { border-color: #f3d17d; box-shadow: 0 0 10px rgba(243,209,125,.55); background: rgba(243,209,125,.16); }
+:is(.commander-emoji-option, .commander-preset-option):disabled { cursor: not-allowed; opacity: .32; }
+.commander-preset-option img { display: block; width: 22px; aspect-ratio: 3 / 2; object-fit: cover; }
 .commander-camp-name,
 .commander-subtitle { pointer-events: none; }
 .commander-camp-name {

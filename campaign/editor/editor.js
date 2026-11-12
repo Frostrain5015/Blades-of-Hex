@@ -23,7 +23,7 @@ import {
     BOARD_LAYOUT, BOARD_LAYOUT_LABELS, BOARD_RADIUS_MIN, BOARD_RADIUS_MAX,
     FACTION_PALETTE, getFlagColors
 } from '../runtime/schema.js';
-import { createFlagSvgUrl, STANDARD_FLAG_EMOJIS } from '../../rules/diplomacy.js';
+import { createFlagSvgUrl, FLAG_PRESETS, STANDARD_FLAG_EMOJIS } from '../../rules/diplomacy.js';
 import { buildBoardFromConfig } from '../runtime/mapBuilder.js';
 import {
     el, section, textRow, numRow, selectRow, checkRow, textareaRow,
@@ -1315,13 +1315,7 @@ function buildFactionBasics() {
         }, { rebuildPanels: true });
         flagBox.appendChild(selectRow('预设旗帜（覆盖下方设计）', fc.preset || '', {
             '': '无（使用下方设计器）',
-            'img/flags/svg/cn.svg': '🇨🇳 中国',
-            'img/flags/svg/us.svg': '🇺🇸 美国',
-            'img/flags/svg/gb.svg': '🇬🇧 英国',
-            'img/flags/svg/fr.svg': '🇫🇷 法国',
-            'img/flags/svg/ru.svg': '🇷🇺 俄罗斯',
-            'img/flags/kuomintang.svg': '中国国民党党旗',
-            'img/flags/chinese-communist-party-old.svg': '中国共产党旗（镰刀锤子居中）'
+            ...FLAG_PRESETS
         }, v => setFlag({ preset: v || null })));
         flagBox.appendChild(selectRow('图案', fc.pattern || 'solid', {
             solid: '纯色底',
