@@ -1,0 +1,2 @@
+<!-- Source: https://commons.wikimedia.org/wiki/File:Naval_Jack_of_the_Republic_of_China.svg -->
+<svg width="900" height="600" viewBox="-30 -20 60 40" xmlns="http://www.w3.org/2000/svg"><path fill="#000094" d="M-30-20h60v40H-30z"/><path id="a" d="M0 4 15 0 0-4-15 0zM4 0 0 15-4 0 0-15z" fill="#fff"/><use transform="rotate(30)" href="#a"/><use transform="rotate(60)" href="#a"/><circle fill="#fff" stroke="#000094" r="8"/></svg>
