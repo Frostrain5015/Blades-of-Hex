@@ -217,7 +217,7 @@ export async function run(browser) {
         const campB = gameState.roleAssignments?.player2 || 'player2';
         return gameState.factions[campA]?.colorId === 'purple'
             && gameState.factions[campA]?.flagEmoji === '🐉'
-            && gameState.factions[campB]?.colorId === 'cyan'
+            && gameState.factions[campB]?.colorId === 'blue'
             && gameState.factions[campB]?.flagUrl === 'img/flags/kuomintang.svg';
     }), 10000, '联机旗帜外观同步');
     const syncedFlags = await B.evaluate(async () => {
@@ -228,7 +228,7 @@ export async function run(browser) {
         };
     });
     R.assert(syncedFlags.p1.colorId === 'purple' && syncedFlags.p1.flagEmoji === '🐉'
-        && syncedFlags.p2.colorId === 'cyan' && syncedFlags.p2.flagEmoji === '🦅'
+        && syncedFlags.p2.colorId === 'blue' && syncedFlags.p2.flagEmoji === '🦅'
         && syncedFlags.p1.flagUrl?.startsWith('data:image/svg+xml')
         && syncedFlags.p2.flagPreset === 'img/flags/kuomintang.svg'
         && syncedFlags.p2.flagUrl === syncedFlags.p2.flagPreset,

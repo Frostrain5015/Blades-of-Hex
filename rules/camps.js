@@ -41,6 +41,37 @@ export const PLAYER_FACTION_COLOR_KEYS = deepFreeze(
 );
 export const DEFAULT_SEAT_COLOR_IDS = deepFreeze(['red', 'blue', 'green']);
 
+// 主旗色的 HSL 色相，以度为单位。
+const PLAYER_FACTION_HUES = Object.freeze({
+    red: 0, orange: 28, yellow: 55, green: 120, cyan: 169, blue: 227, purple: 272
+});
+
+/** AI 逐席选择与真人及已分配 AI 最接近的颜色之间距离最大的选项。 */
+export function assignAiFactionColors(colors, aiKeys) {
+    const assigned = { ...colors };
+    const used = new Set(Object.entries(colors)
+        .filter(([key, color]) => !aiKeys.includes(key) && PLAYER_FACTION_COLOR_KEYS.includes(color))
+        .map(([, color]) => color));
+    for (const key of aiKeys) {
+        let best = assigned[key];
+        let bestDistance = -1;
+        for (const candidate of PLAYER_FACTION_COLOR_KEYS) {
+            if (used.has(candidate)) continue;
+            const distance = Math.min(180, ...Array.from(used, color => {
+                const delta = Math.abs(PLAYER_FACTION_HUES[candidate] - PLAYER_FACTION_HUES[color]);
+                return Math.min(delta, 360 - delta);
+            }));
+            if (distance > bestDistance || (distance === bestDistance && candidate === assigned[key])) {
+                best = candidate;
+                bestDistance = distance;
+            }
+        }
+        assigned[key] = best;
+        used.add(best);
+    }
+    return assigned;
+}
+
 export function isPlayerFactionColor(colorValue) {
     const id = getPaletteEntry(colorValue)?.id;
     return !!id && PLAYER_FACTION_COLOR_KEYS.includes(id);

@@ -55,6 +55,20 @@ export function isFlagPreset(value) {
     return typeof value === 'string' && Object.hasOwn(FLAG_PRESETS, value);
 }
 
+const FLAG_PRESET_COLORS = Object.freeze({
+    'img/flags/svg/cn.svg': 'red',
+    'img/flags/svg/us.svg': 'blue',
+    'img/flags/svg/gb.svg': 'yellow',
+    'img/flags/svg/fr.svg': 'green',
+    'img/flags/svg/ru.svg': 'gray',
+    'img/flags/kuomintang.svg': 'blue',
+    'img/flags/chinese-communist-party-old.svg': 'red'
+});
+
+export function getFlagPresetColor(preset) {
+    return isFlagPreset(preset) ? FLAG_PRESET_COLORS[preset] : null;
+}
+
 export const DEFAULT_STANDARD_FLAG_EMOJIS = Object.freeze({ player1: '⚜️', player2: '🛡️', player3: '🦅' });
 const DYNAMIC_FACTION_COLORS = Object.freeze([
     '#e05050', '#5090e0', '#5cbf5c', '#f09a40', '#edd43c', '#40b8b8', '#b070e0', '#9b6b4f'
@@ -192,9 +206,9 @@ export function createStandardFactions({ playerCount = 2, colors = {}, flagEmoji
     const count = Math.max(2, Math.min(3, Number(playerCount) || 2));
     const overrides = PLAYER_SEAT_KEYS.map((id, index) => {
         const requestedColorId = getPaletteEntry(colors[id])?.id;
-        const colorId = isPlayerFactionColor(requestedColorId)
+        const colorId = getFlagPresetColor(flagPresets[id]) || (isPlayerFactionColor(requestedColorId)
             ? requestedColorId
-            : DEFAULT_SEAT_COLOR_IDS[index];
+            : DEFAULT_SEAT_COLOR_IDS[index]);
         return {
             id,
             name: getFactionColorName(colorId, `第${index + 1}阵营`),
@@ -235,7 +249,8 @@ export function setFactionColor(state, factionKey, colorValue) {
 
 /** 普通玩家对局的受限入口；深灰和白不能被玩家席位选择。 */
 export function setPlayerFactionColor(state, factionKey, colorValue) {
-    if (!isPlayerFactionColor(colorValue)) return false;
+    const presetColor = getFlagPresetColor(state?.factions?.[factionKey]?.flagPreset);
+    if (presetColor ? getPaletteEntry(colorValue)?.id !== presetColor : !isPlayerFactionColor(colorValue)) return false;
     return setFactionColor(state, factionKey, colorValue);
 }
 
@@ -244,6 +259,7 @@ export function setPlayerFactionFlagEmoji(state, factionKey, emoji) {
     const faction = state?.factions?.[factionKey];
     if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isStandardFlagEmoji(emoji)) return false;
     faction.flagPreset = null;
+    if (!isPlayerFactionColor(faction.colorId)) setFactionColor(state, factionKey, DEFAULT_SEAT_COLOR_IDS[PLAYER_SEAT_KEYS.indexOf(factionKey)]);
     faction.flagEmoji = emoji;
     faction.flag = emoji;
     faction.flagUrl = createStandardFlagUrl(faction.colorId || faction.color, emoji);
@@ -255,6 +271,7 @@ export function setPlayerFactionFlagPreset(state, factionKey, preset) {
     const faction = state?.factions?.[factionKey];
     if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isFlagPreset(preset)) return false;
     faction.flagPreset = preset;
+    setFactionColor(state, factionKey, getFlagPresetColor(preset));
     faction.flagUrl = preset;
     faction.flagAlt = FLAG_PRESETS[preset];
     return true;

@@ -53,8 +53,8 @@ import { renderCampaignLobby } from '../campaign/lobby.js';
 import { isScenarioUnlocked, readProgress } from '../campaign/progress.js';
 import './visualEventBridge.js';
 import './cheat.js';
-import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, campToKey, getFlagColors } from '../rules/camps.js';
-import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, setPlayerFactionFlagPreset, getViewingCampKey, FLAG_PRESETS, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
+import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, assignAiFactionColors, campToKey, getFlagColors } from '../rules/camps.js';
+import { campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, setPlayerFactionFlagPreset, getViewingCampKey, getFlagPresetColor, FLAG_PRESETS, STANDARD_FLAG_EMOJIS } from '../rules/diplomacy.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { downloadCurrentMatchLog, downloadCurrentMatchReview, getCurrentMatchLog, recordCommittedAction, resolvePendingLocalAction, startMatchRecording } from './matchRecorder.js';
 import { initMatchStatsPanel } from './matchStatsView.js';
@@ -119,7 +119,10 @@ function _applySavedFlagCustomizations(factionKeys) {
         if (!entry || typeof entry !== 'object') continue;
         if (setPlayerFactionColor(gameState, factionKey, entry.colorId)) changed = true;
         if (setPlayerFactionFlagEmoji(gameState, factionKey, entry.emoji)) changed = true;
-        if (setPlayerFactionFlagPreset(gameState, factionKey, entry.preset)) changed = true;
+        const presetColor = getFlagPresetColor(entry.preset);
+        const alreadyLocked = Object.entries(gameState.factions || {}).some(([key, faction]) =>
+            key !== factionKey && faction.active !== false && getFlagPresetColor(faction.flagPreset) === presetColor);
+        if (presetColor && !alreadyLocked && setPlayerFactionFlagPreset(gameState, factionKey, entry.preset)) changed = true;
         if (gameState.factions?.[factionKey]?.colorId) {
             gameState.factionColorSelections[factionKey] = gameState.factions[factionKey].colorId;
         }
@@ -1452,6 +1455,7 @@ function beginPVECommanderPhase(humanRole) {
     gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({ playerCount: 2, controllers: { player1: 'human', player2: 'ai' } });
     _applySavedFlagCustomizations(['player1']);
+    _assignAutomaticFactionColors();
     gameState.aiOpponentCamp = campFromKey('player2', gameState);
     _commanderTransitioning = false;
     const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
@@ -1625,9 +1629,9 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
     const occupied = new Set(Object.entries(gameState.factionColorSelections || {})
         .filter(([key]) => {
             if (key === forPlayer || gameState.factions?.[key]?.active === false) return false;
-            if (isNetworkGame()) return true;
+            if (isNetworkGame()) return !Object.hasOwn(_networkAiSeats, key);
             const slots = _commanderSlots[key];
-            return slots ? gameState[slots.primaryConfirmed] === true : false;
+            return !!gameState.factions?.[key]?.flagPreset || (slots ? gameState[slots.primaryConfirmed] === true : false);
         })
         .map(([, colorId]) => colorId));
     picker.innerHTML = '';
@@ -1653,11 +1657,12 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
         swatch.title = `${entry.label}色阵营`;
         swatch.style.background = `linear-gradient(135deg, ${entry.flag.light}, ${entry.flag.main} 52%, ${entry.flag.dark})`;
         swatch.classList.toggle('selected', gameState.factions?.[forPlayer]?.colorId === entry.id);
-        swatch.disabled = !canChoose || occupied.has(entry.id);
+        swatch.disabled = !canChoose || !!faction?.flagPreset || occupied.has(entry.id);
         swatch.addEventListener('click', event => {
             event.stopPropagation();
             if (!setPlayerFactionColor(gameState, forPlayer, entry.id)) return;
             gameState.factionColorSelections[forPlayer] = entry.id;
+            if (gameState.gameMode === 'pve') _assignAutomaticFactionColors();
             _saveFlagCustomization(forPlayer);
             if (isNetworkGame()) sendMessage({ type: 'factionColor', colorId: entry.id });
             _configureCommanderFactionHeader(forPlayer, { locked, keepPickerOpen: true });
@@ -1679,9 +1684,15 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
         emojiButton.disabled = !canChoose;
         emojiButton.addEventListener('click', event => {
             event.stopPropagation();
+            const wasGray = faction?.colorId === 'gray';
             if (!setPlayerFactionFlagEmoji(gameState, forPlayer, entry.emoji)) return;
+            if (wasGray) setPlayerFactionColor(gameState, forPlayer, PLAYER_FACTION_COLOR_KEYS.find(color => !occupied.has(color)));
+            gameState.factionColorSelections[forPlayer] = faction.colorId;
+            if (gameState.gameMode === 'pve') _assignAutomaticFactionColors();
             _saveFlagCustomization(forPlayer);
-            if (isNetworkGame()) sendMessage({ type: 'factionColor', flagEmoji: entry.emoji });
+            if (isNetworkGame()) sendMessage({
+                type: 'factionColor', flagEmoji: entry.emoji, colorId: wasGray ? faction.colorId : undefined
+            });
             _configureCommanderFactionHeader(forPlayer, { locked, keepPickerOpen: true });
         });
         emojiOptions.appendChild(emojiButton);
@@ -1697,7 +1708,7 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
         const selected = faction?.flagPreset === preset;
         button.classList.toggle('selected', selected);
         button.setAttribute('aria-pressed', String(selected));
-        button.disabled = !canChoose;
+        button.disabled = !canChoose || occupied.has(getFlagPresetColor(preset));
         const image = document.createElement('img');
         image.src = preset;
         image.alt = '';
@@ -1705,6 +1716,8 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
         button.addEventListener('click', event => {
             event.stopPropagation();
             if (!setPlayerFactionFlagPreset(gameState, forPlayer, preset)) return;
+            gameState.factionColorSelections[forPlayer] = faction.colorId;
+            if (gameState.gameMode === 'pve') _assignAutomaticFactionColors();
             _saveFlagCustomization(forPlayer);
             if (isNetworkGame()) sendMessage({ type: 'factionColor', flagPreset: preset });
             _configureCommanderFactionHeader(forPlayer, { locked, keepPickerOpen: true });
@@ -1736,10 +1749,24 @@ function _configureCommanderFactionHeader(forPlayer, { locked = false, nameOverr
 }
 
 function _assignAutomaticFactionColors() {
-    const used = new Set();
+    if (gameState.gameMode === 'pve') {
+        const colors = assignAiFactionColors({
+            player1: gameState.factions.player1.colorId,
+            player2: gameState.factions.player2.colorId
+        }, ['player2']);
+        setPlayerFactionColor(gameState, 'player2', colors.player2);
+        gameState.factionColorSelections.player2 = colors.player2;
+    }
+    const used = new Set(Object.values(gameState.factions || {})
+        .filter(faction => faction.active !== false && faction.flagPreset)
+        .map(faction => faction.colorId));
     for (const key of ['player1', 'player2', 'player3']) {
         const faction = gameState.factions?.[key];
         if (!faction || faction.active === false) continue;
+        if (faction.flagPreset) {
+            gameState.factionColorSelections[key] = faction.colorId;
+            continue;
+        }
         let colorId = faction.colorId;
         if (used.has(colorId)) colorId = FACTION_PALETTE.find(entry => PLAYER_FACTION_COLOR_KEYS.includes(entry.id) && !used.has(entry.id))?.id || colorId;
         setPlayerFactionColor(gameState, key, colorId);
@@ -2882,7 +2909,7 @@ function registerNetworkCallbacks() {
             const myCampKey = gameState.roleAssignments?.[role] || role;
             if (_applySavedFlagCustomizations([myCampKey])) {
                 const faction = gameState.factions?.[myCampKey];
-                sendMessage({ type: 'factionColor', colorId: faction?.colorId });
+                if (!faction?.flagPreset) sendMessage({ type: 'factionColor', colorId: faction?.colorId });
                 sendMessage({
                     type: 'factionColor',
                     flagEmoji: faction?.flagEmoji,
@@ -2894,10 +2921,6 @@ function registerNetworkCallbacks() {
 
         onFactionColors: (colors, flagEmojis, flagPresets) => {
             // 服务器按 role 记录颜色/徽记；出生席位随机分配后需翻译到阵营键再落地
-            for (const [key, colorId] of Object.entries(colors || {})) {
-                const campKey = gameState.roleAssignments?.[key] || key;
-                if (setPlayerFactionColor(gameState, campKey, colorId)) gameState.factionColorSelections[campKey] = colorId;
-            }
             for (const [key, emoji] of Object.entries(flagEmojis || {})) {
                 const campKey = gameState.roleAssignments?.[key] || key;
                 setPlayerFactionFlagEmoji(gameState, campKey, emoji);
@@ -2905,6 +2928,11 @@ function registerNetworkCallbacks() {
             for (const [key, preset] of Object.entries(flagPresets || {})) {
                 const campKey = gameState.roleAssignments?.[key] || key;
                 setPlayerFactionFlagPreset(gameState, campKey, preset);
+            }
+            for (const [key, colorId] of Object.entries(colors || {})) {
+                const campKey = gameState.roleAssignments?.[key] || key;
+                setPlayerFactionColor(gameState, campKey, colorId);
+                if (gameState.factions?.[campKey]) gameState.factionColorSelections[campKey] = gameState.factions[campKey].colorId;
             }
             if (document.getElementById('commanderOverlay')?.classList.contains('show')) {
                 const pickerOpen = document.getElementById('commanderColorPicker')?.classList.contains('open');
