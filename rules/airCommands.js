@@ -2,14 +2,14 @@ import { campToKey } from './camps.js';
 import { getRoundIndex } from './turns.js';
 import { isMechanicEnabled } from './mechanics.js';
 import { COMMANDER_CONFIG } from './commanders.js';
-import { areCommanderMechanicsSuppressed } from './movement.js';
+import { areCommanderMechanicsSuppressed, isLandDeploymentTile } from './movement.js';
 import { isCityDisabled } from './citySiege.js';
 import astrologerDef from '../commander/astrologer.js';
 
 export const AIR_COMMAND_CONFIG = Object.freeze({
     strafe: Object.freeze({ name: '扫射', icon: '✈️', cost: 4, range: 6, cooldown: 2, targeting: 'enemyGlobal', multiplier: 1, desc: '对单体目标造成空军伤害；目标已损失生命值的20%转化为额外攻击力，最多15点。' }),
     bombing: Object.freeze({ name: '轰炸', icon: '💣', cost: 5, range: 6, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 1, desc: '对目标及相邻6格造成范围空军伤害（溅射伤害为原本的一半），命中要塞单位时无视敌人25%的防御力。' }),
-    airdrop: Object.freeze({ name: '空降', icon: '🪂', cost: 10, range: 6, cooldown: 3, targeting: 'emptyTile', multiplier: 0, desc: '在目标空地空降一名步兵。' }),
+    airdrop: Object.freeze({ name: '空降', icon: '🪂', cost: 10, range: 6, cooldown: 3, targeting: 'emptyTile', multiplier: 0, desc: '在空地或无驻军的破城投放一名步兵，可直接占城。' }),
     recon: Object.freeze({ name: '侦察机', icon: '🔭', cost: 4, range: 6, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 0, desc: '侦察目标区域，驱散迷雾（半径1~2格，持续1~2回合，视防空强度而定）。' })
 });
 
@@ -72,6 +72,11 @@ export function getAirfieldColonel(cityTile) {
 
 export function getAirCommandRange(cityTile) {
     return AIRFIELD_BASE_RANGE + (getAirfieldColonel(cityTile) ? COLONEL_AIR_RANGE_BONUS : 0);
+}
+
+export function canAirCommandAirdropAt(tile) {
+    return isLandDeploymentTile(tile) && !tile.unit && !tile.isPort
+        && (!tile.isCity || isCityDisabled(tile));
 }
 
 export function getAirCommandAvailability(kind, cityTile, state) {

@@ -135,6 +135,7 @@ import {
     COLONEL_AIR_MAX_STACKS,
     COLONEL_AIR_STACK_BONUS,
     COLONEL_ANTI_AIR_PIERCE,
+    canAirCommandAirdropAt,
     getAirCommandAvailability,
     getAirCommandRange,
     getAirfieldColonel,
@@ -143,13 +144,11 @@ import {
     markAirCommandUsed
 } from '../rules/airCommands.js';
 import {
-    canBuildShoreBattery,
     canUnitTargetUnit,
     capturePort,
     clearExpiredSubmarineReveals,
     clearPortDepartureState,
     getCrossDomainDamageBonus,
-    isCoastalLandTile,
     isPortGuarded,
     isPortOperationalFor,
     isRegularNavalUnit,
@@ -1790,16 +1789,13 @@ export function recruitUnit(type) {
         ? selectedCityTile.isPort && isWaterTile(selectedCityTile)
             && isPortOperationalFor(selectedCityTile, gameState.currentCamp, gameState)
         : shoreBatteryRecruit
-            ? isCoastalLandTile(selectedCityTile, gameState)
-                && !selectedCityTile.isCity && !selectedCityTile.isVillage
-                && !selectedCityTile.isPort && !selectedCityTile.fortification
-                && canBuildShoreBattery(gameState, gameState.currentCamp)
+            ? canBuildShoreBatteryAt(selectedCityTile, gameState.currentCamp, gameState)
             : selectedCityTile.isCity;
     if (!validRecruitSite) {
         notify(navalRecruit
             ? '舰船只能在已启用的己方港口招募'
             : shoreBatteryRecruit
-                ? '岸防炮只能部署在己方空沿海陆地，且建造冷却必须结束'
+                ? '请选择符合建造条件的己方临海空地'
                 : '陆军只能在城市招募', 'error');
         return;
     }
@@ -4052,7 +4048,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
         spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'carpetBomb', targetTile.q, targetTile.r);
         playSound('airstrike');
     } else if (kind === 'airdrop') {
-        if (targetTile.unit || !isLandDeploymentTile(targetTile) || targetTile.isCity || targetTile.isPort) return false;
+        if (!canAirCommandAirdropAt(targetTile) || !isVisibleForAction(targetTile, launcherTile.camp, gameState)) return false;
         const unit = new Unit('infantry', launcherTile.camp, targetTile, true);
         const colonel = getAirfieldColonel(launcherTile);
         let antiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
@@ -4145,6 +4141,12 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
         const campKey = _campKey(launcherTile.camp);
         gameState._colonelAirStacks ||= {};
         gameState._colonelAirStacks[campKey] = Math.min(COLONEL_AIR_MAX_STACKS, (gameState._colonelAirStacks[campKey] || 0) + 1);
+    }
+    if (kind === 'airdrop') {
+        if (targetTile.isCity && targetTile.camp !== launcherTile.camp) {
+            updateDistrictColor(targetTile, launcherTile.camp, targetTile.unit);
+        }
+        if (gameState.skirmishFog) _updateSkirmishFogAll();
     }
     recalcAllFlankingMorale();
     updateUI();

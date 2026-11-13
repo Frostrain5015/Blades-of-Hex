@@ -1,16 +1,16 @@
-// 机场空军指令与航母攻击无驻军城市（HP>0）的集成回归：
-// 经 headless 引擎驱动真实 gameLogic 结算路径，验证城市血池削减与目标合法性。
+// 经 headless 引擎验证机场和航母的攻城选点、伤害与占领结算。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const { wireHeadlessEngine } = await import('../core/headless.js');
 wireHeadlessEngine();
 
-const { gameState } = await import('../js/state.js');
+const { gameState, serializeState } = await import('../js/state.js');
 const { HexTile } = await import('../js/HexTile.js');
 const { Unit } = await import('../js/Unit.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
-const { AIRFIELD_BASE_POWER } = await import('../rules/airCommands.js');
+const { AIR_COMMAND_CONFIG, AIRFIELD_BASE_POWER } = await import('../rules/airCommands.js');
+const { resolveTargetingPreview } = await import('../rules/targeting.js');
 const gl = await import('../js/gameLogic.js');
 
 const P1 = { id: 'player1', name: '甲', color: '#e04848' };
@@ -34,7 +34,7 @@ function setupMatch(tiles) {
     gameState.surrenderedCamps = [];
     gameState.mechanics = {};
     gameState.weather = 'clear';
-    gameState.rng = { range: (min, max) => (min + max) / 2, chance: () => false, pick: arr => arr[0] };
+    gameState.rng = { range: (min, max) => (min + max) / 2, chance: () => false, pick: arr => arr[0], getState: () => 1 };
     gameState.damageTexts = [];
     gameState.goldTexts = [];
     gameState.killCount = {};
@@ -149,4 +149,46 @@ test('机场扫射指令拒绝以空地/己方城市为目标', () => {
     assert.equal(gl.executeAirCommand('strafe', airfield, emptyPlain), false, '空地不是合法扫射目标');
     assert.equal(gl.executeAirCommand('strafe', airfield, ownCity), false, '己方城市不是合法扫射目标');
     assert.equal(gameState.playerGold.player1, 100, '被拒绝的指令不应扣费');
+});
+
+test('机场可向无驻军的破城空降，城市和行政区在同步快照中易主', () => {
+    const airfield = enemyCityTile(0, 0);
+    airfield.camp = P1;
+    airfield.installation = { type: 'airfield', status: 'ready' };
+    const breached = enemyCityTile(6, 0, 0);
+    breached.districtId = 1;
+    breached.installation = { type: 'airfield', status: 'ready', campKey: P2.id };
+    const districtTile = new HexTile(5, 0);
+    districtTile.camp = P2;
+    districtTile.districtId = breached.districtId;
+    const intact = enemyCityTile(4, 0);
+    intact.districtId = 2;
+    const occupied = enemyCityTile(4, 1, 0);
+    const outOfRange = enemyCityTile(7, 0, 0);
+    const water = waterTile(3, 0);
+    setupMatch([airfield, breached, districtTile, intact, occupied, outOfRange, water]);
+    new Unit('infantry', P2, occupied);
+
+    const preview = resolveTargetingPreview(gameState, {
+        cardId: 'air_command_airdrop', targeting: 'emptyTile', launcherQ: 0, launcherR: 0
+    });
+    assert.ok(preview.candidateTileKeys.has('6,0'));
+    for (const target of [intact, occupied, outOfRange, water]) {
+        assert.equal(preview.candidateTileKeys.has(`${target.q},${target.r}`), false);
+        assert.equal(gl.executeAirCommand('airdrop', airfield, target), false);
+    }
+    assert.equal(gameState.playerGold.player1, 100);
+
+    assert.equal(gl.executeAirCommand('airdrop', airfield, breached), true);
+    const snapshot = serializeState();
+    const city = snapshot.tiles.find(tile => tile.q === breached.q && tile.r === breached.r);
+    assert.equal(city.campKey, P1.id);
+    assert.equal(city.installation.campKey, P1.id);
+    assert.equal(city.unit.type, 'infantry');
+    assert.equal(city.unit.canAct, false);
+    assert.equal(city.unit.xp, 5);
+    assert.equal(districtTile.camp, P1);
+    assert.equal(intact.camp, P2);
+    assert.equal(snapshot.playerGold.player1, 100 - AIR_COMMAND_CONFIG.airdrop.cost);
+    assert.equal(airfield.installation.airCommandReadyRound.airdrop, AIR_COMMAND_CONFIG.airdrop.cooldown + 1);
 });

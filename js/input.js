@@ -2947,7 +2947,7 @@ function _showConstructionChoice() {
         { kind: 'trench', cardId: 'build_trench', icon: '🚧', detail: '可建于任意己方行政区陆地，或己方部队所处的非己方行政区陆地；该格不得已有工事。' },
         { kind: 'flak', cardId: 'build_flak', icon: '🔫', detail: '可建于任意己方行政区陆地，或己方部队所处的非己方行政区陆地；该格不得已有工事。' },
         { kind: 'bunker', cardId: 'build_bunker', icon: '🏰', detail: engineer ? '己方行政区空地或任意己方部队6格内的非己方空地；工程师使其立即完成。' : '己方行政区空地或任意己方部队6格内的非己方空地；下次己方回合完工。' },
-        { kind: 'shoreBattery', cardId: 'build_shore_battery', icon: '🏯', detail: '在上述范围内选择沿海空地；阵营两回合冷却，7格内不可有同类建筑。' },
+        { kind: 'shoreBattery', cardId: 'build_shore_battery', icon: '🏯', detail: '可建于己方控制的临海空地。阵营共享两回合冷却，同类建筑至少相距7格。' },
         { kind: 'laserTower', cardId: 'build_laser_tower', icon: '🗼', detail: '己方行政区空地或任意己方部队6格内的非己方空地；7格内不可有同类建筑。' }
     ];
     for (const definition of definitions) {

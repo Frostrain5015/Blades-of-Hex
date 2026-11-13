@@ -21,6 +21,7 @@ import {
     getAirfieldCap
 } from '../rules/construction.js';
 import { createDefaultLevel, validateLevel } from '../campaign/runtime/schema.js';
+import { resolveTargetingPreview } from '../rules/targeting.js';
 
 test('0阶标准型、待专精与选定专精使用同一确定性军衔映射', () => {
     const base = resolveUnitRankProfile('infantry', 0, null);
@@ -75,19 +76,31 @@ test('通用建设与工程师折扣、机场逐城建设资格使用规则层�
         '已有任意数量机场时，无机场的己方城市仍可付费建设');
 });
 
-test('岸防炮使用统一建设规则而非沿岸招募入口', () => {
+test('岸防炮只可选中己方控制的临海空地，附近部队无法替代地块控制权', () => {
     const camp = { id: 'player1' };
-    const coast = { q: 0, r: 0, surface: 'land', playable: true, camp, unit: null };
-    const water = { q: 1, r: 0, surface: 'shallowWater', playable: true, camp: null, unit: null };
+    const coast = { q: 0, r: 0, s: 0, surface: 'land', camp, unit: null };
+    const water = { q: 1, r: 0, s: -1, surface: 'shallowWater', camp: null, unit: null };
+    const inland = { q: -1, r: 0, s: 1, surface: 'land', camp, unit: null };
+    const support = { q: -1, r: 1, s: 0, surface: 'land', camp, unit: { hp: 100, camp } };
+    const tiles = [coast, water, inland, support];
     const state = {
         currentCamp: camp,
         mechanics: { fortifications: true },
-        tiles: [coast, water],
-        tileMap: new Map([['0,0', coast], ['1,0', water]]),
+        tiles,
+        tileMap: new Map(tiles.map(tile => [`${tile.q},${tile.r}`, tile])),
         turnCounter: 0,
         turnOrder: ['player1', 'player2']
     };
+    const targeting = { cardId: 'build_shore_battery', targeting: 'emptyTile' };
     assert.equal(canBuildShoreBatteryAt(coast, camp, state), true);
+    assert.deepEqual(resolveTargetingPreview(state, targeting).candidateTiles, [coast]);
+    for (const otherCamp of [{ id: 'neutral' }, { id: 'player2' }]) {
+        coast.camp = otherCamp;
+        assert.equal(canBuildBunkerAt(camp, coast, state), true, '部队支援范围仍可用于碉堡');
+        assert.equal(canBuildShoreBatteryAt(coast, camp, state), false);
+        assert.deepEqual(resolveTargetingPreview(state, targeting).candidateTiles, []);
+    }
+    coast.camp = camp;
     state.shoreBatteryBuiltRound = { player1: 0 };
     assert.equal(canBuildShoreBatteryAt(coast, camp, state), false, '阵营共享冷却继续生效');
 });

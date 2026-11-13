@@ -20,7 +20,7 @@ import {
     hasSameTypeBuildingWithin
 } from './construction.js';
 import { canAttack } from './diplomacy.js';
-import { getAirCommandRange } from './airCommands.js';
+import { canAirCommandAirdropAt, getAirCommandRange } from './airCommands.js';
 import { isCitySiegeBlocked } from './citySiege.js';
 
 export const TARGET_INTENTS = Object.freeze({
@@ -128,7 +128,7 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
                 && canAttack(gameState, myCamp, tile.camp);
         }
         if (cardId === 'air_command_airdrop') {
-            return !unit && isLandDeploymentTile(tile) && !tile.isCity && !tile.isPort;
+            return canAirCommandAirdropAt(tile);
         }
         return true;
     }

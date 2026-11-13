@@ -101,7 +101,8 @@ export function canBuildBunkerAt(builderOrCamp, targetTile, state) {
 }
 
 export function canBuildShoreBatteryAt(targetTile, camp, state) {
-    return canBuildDefenseBuildingAt(targetTile, camp, state)
+    return targetTile?.camp != null && campToKey(targetTile.camp) === campToKey(camp)
+        && canBuildDefenseBuildingAt(targetTile, camp, state)
         && isCoastalLandTile(targetTile, state)
         && canBuildShoreBattery(state, camp)
         && !hasSameTypeBuildingWithin(state, targetTile, 'shoreBattery');
