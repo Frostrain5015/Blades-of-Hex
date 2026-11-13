@@ -50,6 +50,7 @@ function createTile(q, r) {
 
 function setupCelestineState(tileCount = 6) {
     const state = createMatchState();
+    state.factionRuleMode = 'synergy';
     const tiles = Array.from({ length: tileCount }, (_, index) => createTile(index, 0));
     // Mark some tiles as cities for statue anchor
     tiles[0].isCity = true;

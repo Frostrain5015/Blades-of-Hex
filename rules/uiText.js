@@ -14,7 +14,14 @@ export const FRONTEND_TEXT = deepFreeze({
         shoreBattery: { name: '制海', desc: '对舰船伤害提高30%，对陆军伤害降低60%，可侦测2格内的潜艇' },
         mgNest: { name: '机枪', desc: '对步兵造成的伤害提高30%' },
         carrier: { name: '舰载机', desc: '目标生命每损失5%，攻击力提高1点（至多15点）' },
-        laserTower: { name: '集束激光', desc: `回合开始时自动攻击3格内所有敌方单位，单发伤害${COMBAT_BALANCE.laserTower.baseDamage}；每多命中1个目标伤害+${COMBAT_BALANCE.laserTower.perExtraTarget}（至多${COMBAT_BALANCE.laserTower.maxDamage}）` }
+        laserTower: { name: '集束激光', desc: `回合开始时自动攻击3格内所有敌方单位，单发伤害${COMBAT_BALANCE.laserTower.baseDamage}；每多命中1个目标伤害+${COMBAT_BALANCE.laserTower.perExtraTarget}（至多${COMBAT_BALANCE.laserTower.maxDamage}）` },
+        us_marine: { name: '两栖登陆', desc: '可在城市或港口招募，进入浅海不额外耗费行动力，下海保持全额攻防属性；从水域攻击陆地单位时伤害提高30%。' },
+        gb_battleship: { name: '天佑女王', desc: '常驻2格反潜侦测能力；受到敌方攻击时有20%概率闪避全部伤害。' },
+        fr_heavy_cannon: { name: '远程重炮', desc: '射程4格且无视陆军对海军减伤并附带35%溅射；法国回合开始时自动随机炮击射程内一名敌军（当回合仍可移动但不可再次手动攻击）。' },
+        ru_katyusha: { name: '火力覆盖', desc: '每次普通攻击均激发火箭齐射，对主目标相邻敌军造成35%溅射伤害。' },
+        kmt_training_brigade: { name: '血肉长城', desc: '驻守城市、城区或要塞工事时防御力额外提高25%，且在其中免疫暴击伤害。' },
+        cpc_guerrilla: { name: '敌后游击', desc: '无视地形与天气对行动力的负面减益；除敌军贴近至1格或占领非己方原本控制的村庄外，对非己方隐藏行踪。' },
+        jp_samurai: { name: '武士信条', desc: '常驻禁疗（仅可在城市或村庄补员）；主动技万岁冲锋向2格内敌军绝死突击（冷却1回合），自损75%当前生命，若击杀目标则无视禁疗回复60%最大生命。' }
     },
     effectDescriptions: {
         courageAura: `造成的伤害提高${percent(COMMANDER_CONFIG.paladin.balance.auraDamageBonus)}，士气不会下降`,
@@ -26,7 +33,10 @@ export const FRONTEND_TEXT = deepFreeze({
         guardianAlly: `防御力提高${percent(COMMANDER_CONFIG.ironGuard.balance.auraDefenseBonus)}，伤害由铁卫护盾承担`
     },
     icons: {
-        unitPassive: { infantry: '⚔️', cavalry: '🐎', archer: '🎯', shoreBattery: '🏯', destroyer: '🛡', warship: '💥', submarine: '🌊', carrier: '🛫', drone: EMOJI.commander.drone, laserTower: '🗼' },
+        unitPassive: {
+            infantry: '⚔️', cavalry: '🐎', archer: '🎯', shoreBattery: '🏯', destroyer: '🛡', warship: '💥', submarine: '🌊', carrier: '🛫', drone: EMOJI.commander.drone, laserTower: '🗼',
+            us_marine: '🦅', gb_battleship: '👑', fr_heavy_cannon: '💣', ru_katyusha: '🚀', kmt_training_brigade: '🛡️', cpc_guerrilla: '🚩', jp_samurai: '⛩️'
+        },
         commander: {
             advisor: '🧠', astrologer: '🔮', berserker: EMOJI.commander.qixue, centurion: '🏛️', colonel: '🛩️', diplomat: '🤝', engineer: '🛠️', fallenAngel: '😇', ironGuard: '🛡️', magician: '🎩', martyr: '🔥', minister: '📜', necromancer: '💀', paladin: '✝️', priest: '🙏', staller: '🕳️', tianyan: '🛰️', vampire: '🧛'
         },

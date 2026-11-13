@@ -9,6 +9,9 @@ import { MORALE_CONFIG } from '../rules/terrain.js';
 import { EMOJI_FONT_STACK } from '../rules/symbols.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { getRoundIndex } from './config.js';
+import { FREE_RESISTANCE_EFFECT, NEVER_SURRENDER_CONFIG, getNeverSurrenderStacks, getNeverSurrenderStatBonus } from '../rules/cultures.js';
+import { hasHostileUnitNear, isGuerrillaExposedByVillage, isStealthGuerrilla } from '../rules/visibility.js';
 import { getCommander, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 
 const EFFECT_ICONS = FRONTEND_TEXT.icons.effect;
@@ -150,6 +153,74 @@ export function buildUnitEffectItems(unit, gameState) {
             color: '#9bcf55',
             count: '⏳' + remain,
             status: `剩余${remain}次结算`,
+            kind: 'effect'
+        });
+    }
+
+    const freeResistanceRemain = (unit._freeResistanceUntilRound || 0) - getRoundIndex(gameState);
+    if (freeResistanceRemain > 0) {
+        items.push({
+            key: 'culture:free-resistance',
+            icon: FREE_RESISTANCE_EFFECT.icon,
+            label: FREE_RESISTANCE_EFFECT.name,
+            desc: FREE_RESISTANCE_EFFECT.desc,
+            color: FREE_RESISTANCE_EFFECT.color,
+            count: '⏳' + freeResistanceRemain,
+            status: `持续${freeResistanceRemain}回合`,
+            kind: 'effect'
+        });
+    }
+
+    const nsStacks = getNeverSurrenderStacks(gameState, unit.camp);
+    if (nsStacks > 0) {
+        const bonusPct = Math.round(getNeverSurrenderStatBonus(gameState, unit.camp) * 1000) / 10;
+        items.push({
+            key: 'culture:never-surrender',
+            icon: NEVER_SURRENDER_CONFIG.icon,
+            label: NEVER_SURRENDER_CONFIG.name,
+            desc: `战局累计强化：全军攻击力与防御力各提高${bonusPct}%（每2回合+2.5%，上限6层）。`,
+            color: '#6ea8fe',
+            count: `${nsStacks}/${NEVER_SURRENDER_CONFIG.maxStacks}`,
+            status: `+${bonusPct}% 攻防`,
+            kind: 'effect'
+        });
+    }
+
+    if (isStealthGuerrilla(unit)) {
+        const exposed = isGuerrillaExposedByVillage(unit) || hasHostileUnitNear(unit, gameState);
+        items.push({
+            key: 'culture:stealth',
+            icon: '🌿',
+            label: exposed ? '行踪暴露' : '敌后游击',
+            desc: exposed
+                ? '当前位于非己方村庄或1格内有敌军，已失去隐蔽状态（皇帝AI同样可侦测）。'
+                : '当前对敌军隐蔽行踪；仅在敌军逼近至1格内或占领非己方原本控制的村庄时显形（皇帝AI除外）。',
+            color: exposed ? '#ff9b72' : '#8fd18b',
+            status: exposed ? '已显形' : '隐蔽中',
+            kind: 'effect'
+        });
+    }
+
+    if (unit.config?.permanentAntiHeal) {
+        items.push({
+            key: 'culture:anti-heal',
+            icon: '🩸',
+            label: '武士禁疗',
+            desc: '常驻禁疗状态：无法通过常规治疗回血（可在城市或村庄补员；万岁冲锋击杀目标后可无视禁疗回复60%最大生命）。',
+            color: '#ef5350',
+            status: '常驻禁疗',
+            kind: 'effect'
+        });
+    }
+
+    if (unit._heavyCannonAutoFiredThisTurn) {
+        items.push({
+            key: 'culture:heavy-cannon-fired',
+            icon: '💣',
+            label: '重炮已齐射',
+            desc: '本回合开始时已自动执行远程炮击；本回合仍可机动，但不可再次手动攻击。',
+            color: '#9ec5ff',
+            status: '不可再手动攻击',
             kind: 'effect'
         });
     }

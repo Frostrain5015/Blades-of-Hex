@@ -32,6 +32,23 @@ let _suppressed = false;
 // 远端在对应的弹着时刻会重跑同一段结算（applyDamage 等），自行推导出这批跳字；
 // 若本地再捕获，会漏进下一次广播的 payload，远端在下个动作里看到"幽灵跳字"。
 let _captureSuppressed = false;
+let _impactTiming = null;
+
+// 仅同步结算期间生效，让连带产生的护盾/治疗浮字也使用同一弹着时刻。
+export function withFloatTextImpactTiming(startedAt, impactMs, resolve) {
+    const previous = _impactTiming;
+    const texts = new Map();
+    const timing = { startedAt, impactMs, texts };
+    _impactTiming = timing;
+    try {
+        const result = resolve();
+        timing.texts = null;
+        for (const { entry, options } of texts.values()) enqueueFloatText(entry, options);
+        return result;
+    } finally {
+        _impactTiming = previous;
+    }
+}
 
 function _ensureArrays(state) {
     if (!state.damageTexts) state.damageTexts = [];
@@ -67,6 +84,7 @@ function _makeRecord(entry, kind) {
     if (Number.isFinite(entry.q)) record.q = entry.q;
     if (Number.isFinite(entry.r)) record.r = entry.r;
     if (entry.sign) record.sign = entry.sign;
+    if (entry.text) record.text = entry.text;
     if (entry.isCrit) record.isCrit = true;
     if (entry.isTrueDmg) record.isTrueDmg = true;
     if (entry.isCityDamage) record.isCityDamage = true;
@@ -87,15 +105,23 @@ export function enqueueFloatText(entry, options = {}) {
     if (!state) return null;
     _ensureArrays(state);
     const kind = entry.kind || 'damage';
-    const now = performance.now();
-    let showAt = now + Math.max(0, entry.delayMs || 0);
-    if (options.stagger !== false) {
+    const record = _makeRecord(entry, kind);
+    if (_impactTiming?.texts) {
+        const key = `${record.x},${record.y}:${kind}:${record.sign || ''}`;
+        const existing = _impactTiming.texts.get(key);
+        if (existing) existing.entry.value += record.value;
+        else _impactTiming.texts.set(key, { entry: record, options });
+        return record;
+    }
+    const now = _impactTiming?.startedAt ?? performance.now();
+    let showAt = now + (_impactTiming?.impactMs ?? Math.max(0, entry.delayMs || 0));
+    if (!_impactTiming && options.stagger !== false) {
         const key = _tileKey(entry);
         showAt = Math.max(showAt, _tileNextShowAt.get(key) || 0);
         _tileNextShowAt.set(key, showAt + FLOAT_TEXT_GAP_MS);
     }
     const finalDelay = Math.max(0, showAt - now);
-    const record = _makeRecord(entry, kind);
+    if (_impactTiming && kind !== 'damage') record.offsetY = kind === 'shield' ? 20 : 40;
     if (finalDelay <= 0) {
         _activeArray(state, kind).push({ ...record, lastUpdate: now });
     } else {
@@ -116,7 +142,7 @@ export function replayFloatTexts(entries, options = {}) {
     if (!Array.isArray(entries) || entries.length === 0) return;
     const state = options.gs || _defaultState();
     _ensureArrays(state);
-    const now = performance.now();
+    const now = options.startedAt ?? performance.now();
     for (const entry of entries) {
         if (!entry) continue;
         const kind = entry.kind || 'damage';
@@ -181,6 +207,8 @@ export function setFloatTextCaptureSuppressed(flag) {
  * 实际承受值）。活动数组、pending 队列与待广播捕获副本三处同步改写，保证两端一致。
  */
 export function adjustLatestDamageText(x, y, newValue, gs = null) {
+    // 齐射伤害数字在实际伤害确定后生成，灵光不能改写前一动作的跳字。
+    if (_impactTiming) return;
     const state = gs || _defaultState();
     if (!state) return;
     const adjust = (arr, pendingKinded) => {

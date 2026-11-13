@@ -12,7 +12,8 @@ import { campFromKey, getFaction, getRelation, getRoleCamp, getViewingCampKey } 
 import { CAMP_FLAG_COLORS, getFlagColors } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { RECRUITMENT_OPTIONS, canRecruitTypeAtSelectedCity, getRecruitmentSiteKind, shouldShowRecruitmentOption } from './recruitmentUi.js';
+import { RECRUITMENT_OPTIONS, canRecruitTypeAtSelectedCity, getRecruitmentSiteKind, getUniqueRecruitmentOption, shouldShowRecruitmentOption } from './recruitmentUi.js';
+import { getArtilleryCostDiscount } from '../rules/cultures.js';
 import { hasFactionSurrendered } from '../rules/matchOutcome.js';
 import { isCityDisabled } from '../rules/citySiege.js';
 import { setFloatTextsStateRef } from './floatTexts.js';
@@ -172,8 +173,8 @@ function _getHumanCamp() {
 }
 
 function _getRecruitCost(type) {
-    const baseCost = UNIT_CONFIG[type].cost;
     const myCamp = _getMyCamp();
+    const baseCost = Math.max(1, UNIT_CONFIG[type].cost - getArtilleryCostDiscount(gameState, myCamp, type));
     // 通过将领接口获取实际招募费用（尚书需驻扎城市才打折）
     return getCommanderRecruitCost(baseCost, gameState, myCamp);
 }
@@ -188,7 +189,13 @@ export function updateRecruitCostDisplay() {
             ? '建造防御'
             : '招募陆军';
     let showsPortRecruitment = false;
-    for (const option of RECRUITMENT_OPTIONS) {
+    const uniqueOption = getUniqueRecruitmentOption(gameState, gameState.currentCamp);
+    if (!uniqueOption) {
+        const uniqueBtn = document.getElementById('recruitUnique');
+        if (uniqueBtn) uniqueBtn.style.display = 'none';
+    }
+    const displayOptions = uniqueOption ? [...RECRUITMENT_OPTIONS, uniqueOption] : RECRUITMENT_OPTIONS;
+    for (const option of displayOptions) {
         const btn = document.getElementById(option.buttonId);
         if (!btn) continue;
         const visible = shouldShowRecruitmentOption(option, tile, gameState, gameState.currentCamp);
@@ -200,6 +207,7 @@ export function updateRecruitCostDisplay() {
         const costSpan = btn.querySelector('.unit-cost');
         if (glyphEl) glyphEl.textContent = option.glyph;
         if (typeEl) typeEl.textContent = option.label;
+        if (option.isUnique) btn.title = `${option.label}（特色兵种，快捷键 ${option.shortcut}）`;
         if (!costSpan) continue;
         const baseCost = UNIT_CONFIG[option.type].cost;
         const cost = _getRecruitCost(option.type);
@@ -213,10 +221,20 @@ export function updateRecruitCostDisplay() {
 }
 
 export function updateRecruitButtonStates() {
+    const uniqueOption = getUniqueRecruitmentOption(gameState, gameState.currentCamp);
     const btns = Object.fromEntries(RECRUITMENT_OPTIONS.map(option => [
         option.type,
         document.getElementById(option.buttonId)
     ]));
+    if (uniqueOption) {
+        btns[uniqueOption.type] = document.getElementById(uniqueOption.buttonId);
+    } else {
+        const uniqueBtn = document.getElementById('recruitUnique');
+        if (uniqueBtn) {
+            uniqueBtn.disabled = true;
+            uniqueBtn.classList.remove('available');
+        }
+    }
 
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
     const isNeutralTurn = campToKey(gameState.currentCamp) === 'neutral';

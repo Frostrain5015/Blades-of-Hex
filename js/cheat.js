@@ -137,13 +137,13 @@ function exec(cmd) {
             if (!unit) { notify('请先选中一个单位', 'error'); break; }
             unit.hp = 0;
             unit.tile.unit = null;
-            notify(`已击杀 ${unit.camp.name} ${unit.config.name}兵`);
+            notify(`已击杀 ${unit.camp.name} ${unit.config.name}`);
             break;
 
         case '/heal':
             if (!unit) { notify('请先选中一个单位', 'error'); break; }
             unit.hp = unit.maxHp;
-            notify(`${unit.camp.name} ${unit.config.name}兵 血量已回满`);
+            notify(`${unit.camp.name} ${unit.config.name} 血量已回满`);
             break;
 
         case '/morale':
@@ -157,14 +157,14 @@ function exec(cmd) {
                 unit.morale = map[args[1]];
                 if (unit.morale === 0) unit.canAct = false;
                 spawnMoraleEffect(unit);
-                notify(`${unit.camp.name} ${unit.config.name}兵 士气设为 ${MORALE_CONFIG[unit.morale].name}`);
+                notify(`${unit.camp.name} ${unit.config.name} 士气设为 ${MORALE_CONFIG[unit.morale].name}`);
             }
             break;
 
         case '/god':
             if (!unit) { notify('请先选中一个单位', 'error'); break; }
             unit.godMode = !unit.godMode;
-            notify(`${unit.camp.name} ${unit.config.name}兵 无敌: ${unit.godMode ? 'ON' : 'OFF'}`);
+            notify(`${unit.camp.name} ${unit.config.name} 无敌: ${unit.godMode ? 'ON' : 'OFF'}`);
             break;
 
         case '/gold':
@@ -188,7 +188,7 @@ function exec(cmd) {
                 const thresholds = COMBAT_BALANCE.rank.xpThresholds;
                 unit._xp = thresholds[targetRank - 1];
                 unit._checkRankUp();
-                notify(`${unit.camp.name} ${unit.config.name}兵 军衔 → ${targetRank}`);
+                notify(`${unit.camp.name} ${unit.config.name} 军衔 → ${targetRank}`);
             }
             break;
 

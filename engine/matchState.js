@@ -26,6 +26,7 @@ import { CITY_SIEGE_CONFIG, syncCityHpMirrors } from '../rules/citySiege.js';
 import { createRng } from '../core/rng.js';
 import { getCounter, setCounter } from '../js/uid.js';
 import { DEFAULT_STANDARD_MAP_ID } from '../rules/standardMaps.js';
+import { FACTION_RULE_MODES, normalizeFactionRuleMode } from '../rules/cultures.js';
 
 let resetSeedCounter = 0;
 
@@ -163,6 +164,7 @@ export function createMatchState() {
         aiOpponentCamp: null,   // PVE 模式下 AI 对手的运行时阵营对象
         isThreePlayer: false,   // 三人模式
         surrenderedCamps: [],   // 三人模式中已投降的阵营
+        factionRuleMode: FACTION_RULE_MODES.NONE,
         weather: 'clear',
         lastWeather: null,
         weatherLockUntil: 0,  // E1: 占星者星移锁定天气至该回合
@@ -290,6 +292,7 @@ export function resetMatchState(match) {
     match.aiOpponentCamp = null;
     match.isThreePlayer = false;
     match.surrenderedCamps = [];
+    match.factionRuleMode = FACTION_RULE_MODES.NONE;
     match.weather = 'clear';
     match.lastWeather = null;
     match.weatherLockUntil = 0;
@@ -366,6 +369,7 @@ export function createClientUiState() {
         damageTexts: [],
         healTexts: [],
         shieldTexts: [],
+        unitDeathGhosts: [],
         goldTexts: [],
         // 延迟/错峰浮字队列（js/floatTexts.js）：到期由渲染帧搬入活动数组
         floatTextPending: [],
@@ -407,6 +411,7 @@ export function resetClientUiState(ui) {
     ui.damageTexts = [];
     ui.healTexts = [];
     ui.shieldTexts = [];
+    ui.unitDeathGhosts = [];
     ui.goldTexts = [];
     ui.floatTextPending = [];
     ui._pendingFloatTexts = [];
@@ -458,6 +463,7 @@ export function serializeMatchState(match) {
         terrain: waterTile ? 'plains' : t.terrain,
         fortification: waterTile ? null : (t.fortification || null),
         fieldFortification: waterTile ? null : (t.fieldFortification ? { ...t.fieldFortification } : null),
+        fireSea: t.fireSea ? { ...t.fireSea } : null,
         installation: waterTile ? null : (t.installation ? structuredClone(t.installation) : null),
         isPort: !!t.isPort,
         portCapturedIndependent: !!t._portCapturedIndependent,
@@ -496,7 +502,13 @@ export function serializeMatchState(match) {
               transportTransitionedThisTurn: t.unit._transportTransitionedThisTurn === true,
             portGuardUntilRound: t.unit._portGuardUntilRound || 0,
             submarineAttackExposed: t.unit._submarineAttackExposed === true,
+            submarineLastAttackRound: Number.isFinite(t.unit._submarineLastAttackRound) ? t.unit._submarineLastAttackRound : null,
+            submarineDamagedWhileExposed: t.unit._submarineDamagedWhileExposed === true,
             submarinePortRevealUntilRound: t.unit._submarinePortRevealUntilRound || 0,
+            banzaiReadyRound: Number.isFinite(t.unit._banzaiReadyRound) ? t.unit._banzaiReadyRound : 0,
+            heavyCannonAutoFiredThisTurn: t.unit._heavyCannonAutoFiredThisTurn === true,
+            freeResistanceUntilRound: t.unit._freeResistanceUntilRound || 0,
+            exposedVillageKey: t.unit._exposedVillageKey || null,
             commander: t.unit.commander,
             storyCommanderId: t.unit.storyCommanderId || null,
             commanderName: t.unit.commanderName || '',
@@ -646,6 +658,7 @@ export function serializeMatchState(match) {
         standardMapId: match.standardMapId || DEFAULT_STANDARD_MAP_ID,
         trainingMode: match._trainingMode || false,
         isThreePlayer: match.isThreePlayer || false,
+        factionRuleMode: normalizeFactionRuleMode(match.factionRuleMode),
         aiOpponentCampKey: match.aiOpponentCamp ? _campToKey(match.aiOpponentCamp) : null,
         surrenderedCampKeys: match.surrenderedCamps.map(c => _campToKey(c)),
         skirmishFog: match.skirmishFog || false,
@@ -683,6 +696,7 @@ export function restoreMatchState(match, data, deps) {
     setCounter(data.idCounter);
     match.gameOver = data.gameOver;
     match.campaignMode = !!data.campaignMode;
+    match.factionRuleMode = normalizeFactionRuleMode(data.factionRuleMode);
     match.campaignId = data.campaignId || null;
     match.scenarioId = data.scenarioId || null;
     match.campaignPhase = data.campaignPhase || '';
@@ -832,12 +846,14 @@ export function restoreMatchState(match, data, deps) {
         match.scoutReveals[key] = new Map(match.scoutReveals[key] || []);
     }
 
-    // Preserve displayHp & commander for units (prevents flicker & commander loss on sync)
+    // Preserve ongoing bar animations and commanders when replacing unit instances.
+    const restoreAt = performance.now();
     const oldDisplayHp = new Map();
     const oldCommander = new Map();
     for (const tile of match.tiles) {
         if (tile.unit) {
-            oldDisplayHp.set(tile.unit.id, { hp: tile.unit.hp, displayHp: tile.unit.displayHp });
+            const { hp, displayHp, _displayShield, _hpBarDelayUntil } = tile.unit;
+            oldDisplayHp.set(tile.unit.id, { hp, displayHp, _displayShield, _hpBarDelayUntil });
             if (tile.unit.isCommanderUnit) {
                 oldCommander.set(tile.unit.id, {
                     commander: tile.unit.commander,
@@ -905,6 +921,7 @@ export function restoreMatchState(match, data, deps) {
         tile.fieldFortification = waterTile || !tile.fortification ? null : (td.fieldFortification
             ? { ...td.fieldFortification }
             : { type: tile.fortification, campKey: null, ownerKnown: false });
+        tile.fireSea = td.fireSea && typeof td.fireSea === 'object' ? { ...td.fireSea } : null;
         tile.installation = waterTile || !td.installation ? null : structuredClone(td.installation);
         tile.isPort = restoredPort;
         tile._portCapturedIndependent = restoredPort && td.portCapturedIndependent === true;
@@ -986,7 +1003,13 @@ export function restoreMatchState(match, data, deps) {
               unit._transportTransitionedThisTurn = td.unit.transportTransitionedThisTurn === true;
             unit._portGuardUntilRound = td.unit.portGuardUntilRound || 0;
             unit._submarineAttackExposed = td.unit.submarineAttackExposed === true;
+            unit._submarineLastAttackRound = Number.isFinite(td.unit.submarineLastAttackRound) ? td.unit.submarineLastAttackRound : null;
+            unit._submarineDamagedWhileExposed = td.unit.submarineDamagedWhileExposed === true;
             unit._submarinePortRevealUntilRound = td.unit.submarinePortRevealUntilRound || 0;
+            unit._banzaiReadyRound = Number.isFinite(td.unit.banzaiReadyRound) ? td.unit.banzaiReadyRound : 0;
+            unit._heavyCannonAutoFiredThisTurn = td.unit.heavyCannonAutoFiredThisTurn === true;
+            unit._freeResistanceUntilRound = td.unit.freeResistanceUntilRound || 0;
+            unit._exposedVillageKey = td.unit.exposedVillageKey || null;
             unit.commander = td.unit.commander || null;
             unit.storyCommanderId = td.unit.storyCommanderId || null;
             unit.commanderName = td.unit.commanderName || '';
@@ -1049,7 +1072,13 @@ export function restoreMatchState(match, data, deps) {
                 }
             }
             const prev = oldDisplayHp.get(unit.id);
-            if (prev && prev.hp === unit.hp) unit.displayHp = prev.displayHp;
+            if (prev?._hpBarDelayUntil > restoreAt) {
+                unit.displayHp = prev.displayHp;
+                unit._displayShield = prev._displayShield;
+                unit._hpBarDelayUntil = prev._hpBarDelayUntil;
+            } else if (prev && prev.hp === unit.hp) {
+                unit.displayHp = prev.displayHp;
+            }
             tile.unit = unit;
         }
         return tile;

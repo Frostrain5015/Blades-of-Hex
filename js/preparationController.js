@@ -3,6 +3,7 @@ import { COMMANDER_DRAFT } from '../rules/constants.js';
 import { gameState } from './state.js';
 import { createRoom } from './network.js';
 import { STANDARD_MAP_FAMILIES } from '../rules/standardMaps.js';
+import { FACTION_RULE_MODES } from '../rules/cultures.js';
 // 难度选项直接从人格脚本的 meta 派生，避免「改了档名、准备页还显示旧名」。
 // 这里只取三份轻量 meta，不经过 js/ai.js，那条链会把整个战斗执行层拖进大厅。
 import { meta as optioMeta } from '../ai/optio.js';
@@ -59,7 +60,23 @@ export function createPreparationController({
                 <input type="checkbox" id="prepDoubleCommander" />
                 <span class="prep-check-copy"><strong>双将模式</strong><small>可部署两名将领</small></span>
             </label>
+            <label class="prep-check-option">
+                <input type="checkbox" id="prepCultureBonus" />
+                <span class="prep-check-copy"><strong>历史文化强效</strong><small>双层文化增益与特色兵种（仅开放预设旗帜，与阵营协同互斥）</small></span>
+            </label>
+            <label class="prep-check-option">
+                <input type="checkbox" id="prepFactionSynergy" />
+                <span class="prep-check-copy"><strong>阵营协同</strong><small>双同源将领触发阵营协同技能（仅开放自定义旗帜，与历史文化互斥）</small></span>
+            </label>
         `;
+        const cultureBox = document.getElementById('prepCultureBonus');
+        const synergyBox = document.getElementById('prepFactionSynergy');
+        cultureBox?.addEventListener('change', () => {
+            if (cultureBox.checked && synergyBox) synergyBox.checked = false;
+        });
+        synergyBox?.addEventListener('change', () => {
+            if (synergyBox.checked && cultureBox) cultureBox.checked = false;
+        });
     }
 
     function showPrepDialog(nextAction) {
@@ -119,13 +136,22 @@ export function createPreparationController({
         const selectedType = getSelection('prepOptions1');
         const skirmishFog = document.getElementById('prepSkirmish')?.checked || false;
         const doubleCommanderMode = document.getElementById('prepDoubleCommander')?.checked || false;
+        const cultureBonus = document.getElementById('prepCultureBonus')?.checked || false;
+        const factionSynergy = document.getElementById('prepFactionSynergy')?.checked || false;
+        const factionRuleMode = cultureBonus
+            ? FACTION_RULE_MODES.CULTURE
+            : factionSynergy
+                ? FACTION_RULE_MODES.SYNERGY
+                : FACTION_RULE_MODES.NONE;
         gameState.standardMapId = getSelection('prepOptionsMap') || STANDARD_MAP_FAMILIES[0].id;
+        gameState.factionRuleMode = factionRuleMode;
 
         if (action === 'createRoom') {
             const maxPlayers = selectedType === '3p' ? 3 : 2;
             gameState.isThreePlayer = maxPlayers === 3;
             gameState.skirmishFog = skirmishFog;
             gameState.doubleCommanderMode = doubleCommanderMode;
+            gameState.factionRuleMode = factionRuleMode;
             setStatus(`正在创建房间...`);
             createRoom(maxPlayers);
             return;

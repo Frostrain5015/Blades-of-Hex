@@ -3,6 +3,7 @@
 // resolveOraclePulse 完成，表现层经 visualEventBridge 分发。
 
 import { campToKey } from './camps.js';
+import { isFactionSynergyRuleActive } from './cultures.js';
 import { getRound, getRoundIndex } from './turns.js';
 import {
     CELESTINE_FACTION_SYNERGY,
@@ -72,6 +73,7 @@ export function getLivingCelestineCommanders(gameState, campOrKey) {
  * priest + martyr 同时在场也只算 1 名（同属 sacredVessel）。
  */
 export function hasCelestineSynergyActive(gameState, campOrKey) {
+    if (!isFactionSynergyRuleActive(gameState)) return false;
     const commanders = getLivingCelestineCommanders(gameState, campOrKey);
     const identityGroups = new Set();
     for (const unit of commanders) {

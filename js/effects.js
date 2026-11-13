@@ -1788,7 +1788,7 @@ export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = nu
     airstrikeEffects.push({
         x: cx, y: cy, fromX, fromY, q, r, results, type,
         startTime: performance.now(),
-        duration: type === 'diveStrafe' ? 1500 : 2000
+        duration: type === 'diveStrafe' ? 1500 : type === 'stukaDiveBomb' ? 1650 : 2000
     });
 }
 
@@ -1813,21 +1813,34 @@ export function spawnCelestineOracleBeam(fromX, fromY, toX, toY, kind = 'smite',
 // ===== 激光塔【集束激光】齐射光束（塔位→命中目标，绘制于战争迷雾之上） =====
 export const laserBeams = [];
 
-/** 齐射节拍：塔位充能环(250ms) → 彗星头直线飞行(300ms) → 目标双击环爆发(350ms)。 */
-export const LASER_BEAM_TIMING = { chargeMs: 250, travelMs: 300, lingerMs: 350 };
+const LASER_CHARGE_MS = 170;
+const LASER_TRAVEL_MS = 170;
+const LASER_LINGER_MS = 320;
+export const LASER_BEAM_IMPACT_MS = LASER_CHARGE_MS + LASER_TRAVEL_MS;
 
-/**
- * 直线激光（区别于神谕光束的弧线抬升）。delayMs 用于多光束错峰播放，
- * 语义同 spawnCelestineOracleBeam：startTime 直接后移，绘制循环跳过未到时刻的束。
- */
-export function spawnLaserBeam(fromX, fromY, toX, toY, { delayMs = 0 } = {}) {
+export function spawnLaserBeam(fromX, fromY, toX, toY, { startedAt, drawCharge, killed }) {
     laserBeams.push({
-        fromX, fromY, toX, toY,
-        startTime: performance.now() + Math.max(0, delayMs),
-        chargeMs: LASER_BEAM_TIMING.chargeMs,
-        travelMs: LASER_BEAM_TIMING.travelMs,
-        lingerMs: LASER_BEAM_TIMING.lingerMs
+        fromX, fromY, toX, toY, startedAt, drawCharge, killed,
+        impactAt: startedAt + LASER_BEAM_IMPACT_MS,
+        impacted: false
     });
+}
+
+export function updateLaserBeams(now) {
+    let hasImpact = false;
+    for (let i = laserBeams.length - 1; i >= 0; i--) {
+        const beam = laserBeams[i];
+        if (now >= beam.impactAt + LASER_LINGER_MS) {
+            laserBeams.splice(i, 1);
+        } else if (!beam.impacted && now >= beam.impactAt) {
+            beam.impacted = true;
+            hasImpact = true;
+            spawnExplosionParticles(beam.toX, beam.toY, '#4fd8e8', beam.killed ? 18 : 8);
+            spawnExplosionParticles(beam.toX, beam.toY, '#ffffff', 4);
+            if (beam.killed) triggerScreenShake(4, 150);
+        }
+    }
+    if (hasImpact) playSound('lightning');
 }
 
 /**
@@ -1836,13 +1849,10 @@ export function spawnLaserBeam(fromX, fromY, toX, toY, { delayMs = 0 } = {}) {
  * 青色配色与激光塔 UNIT_CONFIG color '#4fd8e8' 一致。
  */
 export function drawLaserBeams(ctx2d, now) {
-    for (let i = laserBeams.length - 1; i >= 0; i--) {
-        const fx = laserBeams[i];
-        const elapsed = now - fx.startTime;
-        if (elapsed < 0) continue; // 错峰发射
-        const impactAt = fx.chargeMs + fx.travelMs;
-        const total = impactAt + fx.lingerMs;
-        if (elapsed > total) { laserBeams.splice(i, 1); continue; }
+    for (const fx of laserBeams) {
+        const elapsed = now - fx.startedAt;
+        if (elapsed < 0) continue;
+        const hasImpacted = now >= fx.impactAt;
 
         const coreColor = '#ffffff';
         const mainColor = '#4fd8e8';
@@ -1854,8 +1864,8 @@ export function drawLaserBeams(ctx2d, now) {
         ctx2d.save();
 
         // ── 充能：塔位光环胀缩 ──
-        if (elapsed < fx.chargeMs) {
-            const chargeT = Math.min(1, elapsed / fx.chargeMs);
+        if (fx.drawCharge && elapsed < LASER_CHARGE_MS) {
+            const chargeT = elapsed / LASER_CHARGE_MS;
             const ringR = 8 + chargeT * 20;
             ctx2d.globalAlpha = 0.7 * Math.sin(chargeT * Math.PI * 0.5 + 0.2);
             ctx2d.strokeStyle = mainColor;
@@ -1868,13 +1878,12 @@ export function drawLaserBeams(ctx2d, now) {
         }
 
         // ── 飞行：彗核沿直线推进，尾迹为整段渐亮光路 ──
-        const travelT = Math.max(0, Math.min(1, (elapsed - fx.chargeMs) / fx.travelMs));
-        const fadeT = elapsed > impactAt ? (elapsed - impactAt) / fx.lingerMs : 0;
-        const beamAlpha = elapsed > impactAt ? (1 - fadeT) : travelT > 0 ? 0.55 + travelT * 0.45 : 0;
+        const travelT = hasImpacted ? 1 : Math.max(0, (elapsed - LASER_CHARGE_MS) / LASER_TRAVEL_MS);
+        const fadeT = Math.max(0, now - fx.impactAt) / LASER_LINGER_MS;
+        const beamAlpha = hasImpacted ? 1 - fadeT : 0.55 + travelT * 0.45;
         if (travelT > 0 && beamAlpha > 0) {
-            const eased = 1 - Math.pow(1 - travelT, 2.4);
-            const headX = fromX + (toX - fromX) * eased;
-            const headY = fromY + (toY - fromY) * eased;
+            const headX = fromX + (toX - fromX) * travelT;
+            const headY = fromY + (toY - fromY) * travelT;
             // 光晕层 + 主束 + 白芯三层描边
             for (const [width, color, alphaScale, blur] of [
                 [7, glowColor, 0.4, 18],
@@ -1893,7 +1902,7 @@ export function drawLaserBeams(ctx2d, now) {
                 ctx2d.stroke();
             }
             // 光束头彗核
-            if (elapsed <= impactAt) {
+            if (!hasImpacted) {
                 const headGrad = ctx2d.createRadialGradient(headX, headY, 0, headX, headY, 12);
                 headGrad.addColorStop(0, coreColor);
                 headGrad.addColorStop(0.45, mainColor);
@@ -1908,11 +1917,11 @@ export function drawLaserBeams(ctx2d, now) {
         }
 
         // ── 弹着：目标处双击环爆发 ──
-        if (elapsed > impactAt) {
+        if (hasImpacted) {
             ctx2d.shadowBlur = 0;
             for (const [delayFrac, color, width] of [[0, coreColor, 2.6], [0.22, mainColor, 1.6]]) {
-                const ringT = Math.max(0, Math.min(1, (fadeT - delayFrac) / (1 - delayFrac)));
-                if (ringT <= 0 || ringT >= 1) continue;
+                const ringT = (fadeT - delayFrac) / (1 - delayFrac);
+                if (ringT < 0 || ringT >= 1) continue;
                 ctx2d.globalAlpha = (1 - ringT) * 0.85;
                 ctx2d.strokeStyle = color;
                 ctx2d.lineWidth = width;
@@ -1944,6 +1953,248 @@ export function spawnAirliftEffect(fromX, fromY, toX, toY, opts = {}) {
     return startTime + AIRLIFT_MS * AIRLIFT_LAND_FRAC;
 }
 
+// ===== 国家文化与特色兵种特效（法式重炮 / 喀秋莎齐射 / 万岁冲锋 / 闪避 / 自由抵抗） =====
+export const HEAVY_CANNON_IMPACT_MS = 280;
+export const heavyCannonShells = [];
+export const katyushaRockets = [];
+export const banzaiDashes = [];
+export const ringWaves = [];
+
+/** 扩散圆环波纹（闪避水波 / 自由抵抗鼓舞 / 重炮冲击波共用）。 */
+export function spawnRingWave(x, y, { color = '#ffd166', maxRadius = 56, duration = 560, lineWidth = 3, count = 1, glow = null } = {}) {
+    const now = performance.now();
+    for (let i = 0; i < count; i++) {
+        ringWaves.push({
+            x, y, color, maxRadius, duration, lineWidth,
+            glow: glow || color,
+            startTime: now + i * 95
+        });
+    }
+}
+
+export function spawnFreeResistanceWave(x, y) {
+    spawnRingWave(x, y, { color: '#60a5fa', maxRadius: 72, duration: 720, lineWidth: 3.5, count: 2, glow: '#bfdbfe' });
+    spawnRingWave(x, y, { color: '#f87171', maxRadius: 54, duration: 540, lineWidth: 2.5, count: 1, glow: '#fecaca' });
+}
+
+export function spawnDodgeShimmer(x, y) {
+    spawnRingWave(x, y, { color: '#7dd3fc', maxRadius: 48, duration: 480, lineWidth: 2.8, count: 2, glow: '#e0f2fe' });
+}
+
+export function updateRingWaves(now) {
+    for (let i = ringWaves.length - 1; i >= 0; i--) {
+        if (now - ringWaves[i].startTime >= ringWaves[i].duration) {
+            ringWaves.splice(i, 1);
+        }
+    }
+}
+
+export function drawRingWaves(ctx2d, now) {
+    for (const w of ringWaves) {
+        const elapsed = now - w.startTime;
+        if (elapsed < 0) continue;
+        const t = Math.min(1, elapsed / w.duration);
+        const radius = 10 + (w.maxRadius - 10) * (1 - Math.pow(1 - t, 2));
+        const alpha = (1 - t) * 0.85;
+        ctx2d.save();
+        ctx2d.globalAlpha = alpha;
+        ctx2d.strokeStyle = w.color;
+        ctx2d.shadowColor = w.glow;
+        ctx2d.shadowBlur = 10;
+        ctx2d.lineWidth = Math.max(1, w.lineWidth * (1 - t * 0.55));
+        ctx2d.beginPath();
+        ctx2d.arc(w.x, w.y, radius, 0, Math.PI * 2);
+        ctx2d.stroke();
+        ctx2d.restore();
+    }
+}
+
+export function spawnHeavyCannonShell(fromX, fromY, toX, toY, isCrit = false, onImpact = null, opts = {}) {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.hypot(dx, dy);
+    const startTime = Number.isFinite(opts.startedAt) ? opts.startedAt : performance.now();
+    const duration = Number.isFinite(opts.duration) ? opts.duration : HEAVY_CANNON_IMPACT_MS;
+    heavyCannonShells.push({
+        fromX, fromY, toX, toY, dist,
+        startTime, duration, isCrit,
+        impactSpawned: false,
+        onImpact: onImpact || null
+    });
+    spawnMuzzleFlash(fromX, fromY, toX, toY, true);
+}
+
+export function updateHeavyCannonShells(now) {
+    for (let i = heavyCannonShells.length - 1; i >= 0; i--) {
+        const s = heavyCannonShells[i];
+        if (!s.impactSpawned && now - s.startTime >= s.duration) {
+            s.impactSpawned = true;
+            spawnCannonImpact(s.toX, s.toY, true);
+            spawnRingWave(s.toX, s.toY, { color: '#fb923c', maxRadius: 62, duration: 500, lineWidth: 3.4, count: 2, glow: '#fde68a' });
+            if (s.onImpact) s.onImpact();
+            heavyCannonShells.splice(i, 1);
+        }
+    }
+}
+
+export function drawHeavyCannonShells(ctx2d, now) {
+    for (const s of heavyCannonShells) {
+        const elapsed = now - s.startTime;
+        const t = Math.min(1, Math.max(0, elapsed / s.duration));
+        if (t >= 1) continue;
+        const arc = -Math.sin(t * Math.PI) * Math.max(48, s.dist * 0.16);
+        const hx = s.fromX + (s.toX - s.fromX) * t;
+        const hy = s.fromY + (s.toY - s.fromY) * t + arc;
+        const tailT = Math.max(0, t - 0.24);
+        const tArc = -Math.sin(tailT * Math.PI) * Math.max(48, s.dist * 0.16);
+        const tx = s.fromX + (s.toX - s.fromX) * tailT;
+        const ty = s.fromY + (s.toY - s.fromY) * tailT + tArc;
+
+        ctx2d.save();
+        ctx2d.lineCap = 'round';
+        ctx2d.strokeStyle = '#ea580c';
+        ctx2d.shadowColor = '#f59e0b';
+        ctx2d.shadowBlur = 12;
+        ctx2d.lineWidth = s.isCrit ? 8.5 : 7;
+        ctx2d.beginPath();
+        ctx2d.moveTo(tx, ty);
+        ctx2d.lineTo(hx, hy);
+        ctx2d.stroke();
+
+        ctx2d.shadowBlur = 0;
+        ctx2d.fillStyle = '#fffbeb';
+        ctx2d.beginPath();
+        ctx2d.arc(hx, hy, s.isCrit ? 4.8 : 4, 0, Math.PI * 2);
+        ctx2d.fill();
+        ctx2d.restore();
+    }
+}
+
+export function spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit = false, onImpact = null) {
+    const baseTime = performance.now();
+    const count = 6;
+    for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+        const spread = 12 * (0.4 + Math.random() * 0.6);
+        const rx = toX + Math.cos(angle) * spread;
+        const ry = toY + Math.sin(angle) * spread;
+        const dx = rx - fromX;
+        const dy = ry - fromY;
+        const dist = Math.hypot(dx, dy);
+        katyushaRockets.push({
+            fromX: fromX + (Math.random() - 0.5) * 10,
+            fromY: fromY + (Math.random() - 0.5) * 10,
+            toX: rx, toY: ry, dist,
+            arcScale: 0.10 + (i % 3) * 0.03,
+            startTime: baseTime + i * 38,
+            duration: Math.min(240, 120 + dist * 0.24),
+            isCrit,
+            impactSpawned: false,
+            onImpact: i === 2 ? onImpact : null
+        });
+    }
+    spawnMuzzleFlash(fromX, fromY, toX, toY, isCrit);
+}
+
+export function updateKatyushaRockets(now) {
+    for (let i = katyushaRockets.length - 1; i >= 0; i--) {
+        const r = katyushaRockets[i];
+        const elapsed = now - r.startTime;
+        if (elapsed < 0) continue;
+        if (!r.impactSpawned && elapsed >= r.duration) {
+            r.impactSpawned = true;
+            spawnExplosionParticles(r.toX, r.toY, '#ff7b29', r.isCrit ? 12 : 8);
+            if (r.onImpact) r.onImpact();
+            katyushaRockets.splice(i, 1);
+        }
+    }
+}
+
+export function drawKatyushaRockets(ctx2d, now) {
+    for (const r of katyushaRockets) {
+        const elapsed = now - r.startTime;
+        if (elapsed < 0) continue;
+        const t = Math.min(1, elapsed / r.duration);
+        if (t >= 1) continue;
+        const arc = -Math.sin(t * Math.PI) * Math.max(26, r.dist * r.arcScale);
+        const hx = r.fromX + (r.toX - r.fromX) * t;
+        const hy = r.fromY + (r.toY - r.fromY) * t + arc;
+        const tailT = Math.max(0, t - 0.34);
+        const tArc = -Math.sin(tailT * Math.PI) * Math.max(26, r.dist * r.arcScale);
+        const tx = r.fromX + (r.toX - r.fromX) * tailT;
+        const ty = r.fromY + (r.toY - r.fromY) * tailT + tArc;
+
+        ctx2d.save();
+        ctx2d.lineCap = 'round';
+        ctx2d.strokeStyle = 'rgba(203, 213, 225, 0.55)';
+        ctx2d.lineWidth = 4;
+        ctx2d.beginPath();
+        ctx2d.moveTo(tx, ty);
+        ctx2d.lineTo(hx, hy);
+        ctx2d.stroke();
+
+        ctx2d.strokeStyle = '#ff5722';
+        ctx2d.shadowColor = '#ff8a00';
+        ctx2d.shadowBlur = 9;
+        ctx2d.lineWidth = 2.6;
+        ctx2d.beginPath();
+        ctx2d.moveTo((tx + hx) * 0.5, (ty + hy) * 0.5);
+        ctx2d.lineTo(hx, hy);
+        ctx2d.stroke();
+        ctx2d.restore();
+    }
+}
+
+export function spawnBanzaiDash(fromX, fromY, toX, toY, killed = false, healAmt = 0) {
+    banzaiDashes.push({
+        fromX, fromY, toX, toY,
+        killed, healAmt,
+        startTime: performance.now(),
+        duration: 520
+    });
+    spawnMeleeSlash(toX, toY, fromX, fromY, true);
+    spawnSlashMarks(toX, toY, fromX, fromY, true);
+    spawnDirectionalParticles(fromX, fromY, toX, toY, '#ef4444', 18);
+    if (killed && healAmt > 0) {
+        spawnHealParticles(toX, toY);
+        spawnRingWave(toX, toY, { color: '#fca5a5', maxRadius: 56, duration: 540, lineWidth: 3, count: 2, glow: '#ef4444' });
+    }
+}
+
+export function updateBanzaiDashes(now) {
+    for (let i = banzaiDashes.length - 1; i >= 0; i--) {
+        if (now - banzaiDashes[i].startTime >= banzaiDashes[i].duration) {
+            banzaiDashes.splice(i, 1);
+        }
+    }
+}
+
+export function drawBanzaiDashes(ctx2d, now) {
+    for (const d of banzaiDashes) {
+        const t = Math.min(1, Math.max(0, (now - d.startTime) / d.duration));
+        const alpha = (1 - t) * 0.9;
+        ctx2d.save();
+        ctx2d.globalAlpha = alpha;
+        ctx2d.lineCap = 'round';
+        ctx2d.strokeStyle = '#dc2626';
+        ctx2d.shadowColor = '#f87171';
+        ctx2d.shadowBlur = 12;
+        ctx2d.lineWidth = 6 * (1 - t * 0.5);
+        ctx2d.beginPath();
+        ctx2d.moveTo(d.fromX, d.fromY);
+        ctx2d.lineTo(d.toX, d.toY);
+        ctx2d.stroke();
+
+        ctx2d.strokeStyle = '#fef2f2';
+        ctx2d.lineWidth = 2.2 * (1 - t * 0.4);
+        ctx2d.beginPath();
+        ctx2d.moveTo(d.fromX, d.fromY);
+        ctx2d.lineTo(d.toX, d.toY);
+        ctx2d.stroke();
+        ctx2d.restore();
+    }
+}
+
 // ===== 清除所有瞬时效果（用于联机重连状态恢复） =====================
 export function clearTransientEffects() {
     particles.length = 0;
@@ -1958,6 +2209,10 @@ export function clearTransientEffects() {
     fogBlobs.length = 0;
     windStreaks.length = 0;
     projectiles.length = 0;
+    heavyCannonShells.length = 0;
+    katyushaRockets.length = 0;
+    banzaiDashes.length = 0;
+    ringWaves.length = 0;
     torpedoes.length = 0;
     torpedoSplashes.length = 0;
     recoils.length = 0;

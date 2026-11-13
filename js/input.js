@@ -8,14 +8,14 @@ import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import { drainPendingFloatTexts } from './floatTexts.js';
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
-import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
+import { canAttack, getFaction, getRelation, getRoleCamp, getViewingCampKey, isFriendly, RELATION_META } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { getCityDefenseBonus, getCityPoolTile, isCityDisabled } from '../rules/citySiege.js';
 import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
     executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
-    executeConstructionAt, executeFieldConstruction, executeBunkerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
+    executeConstructionAt, executeFieldConstruction, executeBunkerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge,
     cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit, repairShipAtPort, recordAuxiliaryAction
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
@@ -30,14 +30,16 @@ import { campToKey } from '../rules/camps.js';
 import { campFromKey } from '../rules/diplomacy.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
 import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
-import { RECRUITMENT_OPTIONS } from './recruitmentUi.js';
+import { RECRUITMENT_OPTIONS, getUniqueRecruitmentOption } from './recruitmentUi.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
 import { isCoastalLandTile, canRepairShipAtPort } from '../rules/naval.js';
-import { getSpecialization, getSpecializationOptions, getUnitDisplayName, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
+import { getSpecialization, getSpecializationOptions, getUnitBaseType, getUnitDisplayName, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortificationAt, canBuildLaserTowerAt, canBuildShoreBatteryAt, canFieldRepair, constructionCost, findConstructionEngineer, isFieldRepairTarget } from '../rules/construction.js';
 import { measure, perfEnabled } from './perf.js';
-import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange, getAirfieldColonel } from '../rules/airCommands.js';
+import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange, getAirfieldColonel, getVisibleAirCommandKinds } from '../rules/airCommands.js';
+import { isUnitVisibleToCamp } from '../rules/visibility.js';
+import { BANZAI_CHARGE_CONFIG, FIRE_SEA_CONFIG, getActiveFactionCulture, getCulturalPortRepairCostScale, getCulturalReinforceCostScale, getFireSeaDamagePct, getFireSeaState, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity } from '../rules/cultures.js';
 import {
     AURELIA_FACTION_PASSIVE,
     hasAureliaOathPassive,
@@ -333,7 +335,7 @@ function _getReinforcementAction(unit) {
     }
 
     const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
-    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
+    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp) * getCulturalReinforceCostScale(gameState, unit.tile, unit.camp)));
     const campKey = _campKeyInput(unit.camp);
     const hasGold = !!campKey && (gameState.playerGold[campKey] || 0) >= cost;
     return {
@@ -389,7 +391,7 @@ function _getPortRepairAction(unit) {
     }
 
     const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
-    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
+    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp) * getCulturalPortRepairCostScale(gameState, unit.camp)));
     const campKey = _campKeyInput(unit.camp);
     const hasGold = !!campKey && (gameState.playerGold[campKey] || 0) >= cost;
     return {
@@ -464,7 +466,7 @@ function _collectBoardActions(unit, tile = null) {    const actions = [];
     }
     if (isMechanicEnabled(gameState, 'airCommands')
         && tile?.isCity && _isLocalActionCamp(tile.camp) && !tile.installation) {
-        const cost = constructionCost('airfield', null, tile);
+        const cost = constructionCost('airfield', null, tile, gameState);
         const structurallyAvailable = canBuildAirfieldAt(tile, tile.camp, gameState);
         const affordable = (gameState.playerGold[_campKeyInput(tile.camp)] || 0) >= cost;
         const canUse = structurallyAvailable && affordable;
@@ -513,6 +515,35 @@ function _collectBoardActions(unit, tile = null) {    const actions = [];
             canUse: canRepair,
             reason: canRepair ? '' : !hasRepairTarget ? '相邻没有受损建筑'
                 : cooldown > 0 ? `冷却${cooldown}回合` : '金币不足', theme: 'construction'
+        });
+    }
+    if (unit.type === 'jp_samurai') {
+        const curRound = getRoundIndex(gameState);
+        const cooldown = Math.max(0, (unit._banzaiReadyRound || 0) - curRound);
+        const hasTarget = !!unit.tile && gameState.tiles.some(t =>
+            t.unit && t.unit.hp > 0
+            && canAttack(gameState, unit.camp, t.unit.camp)
+            && hexDistance(unit.tile, t) >= 1
+            && hexDistance(unit.tile, t) <= BANZAI_CHARGE_CONFIG.range
+            && isUnitVisibleToCamp(t.unit, unit.camp, gameState)
+        );
+        const canUse = isControllable && unit.canAct && !unit.isNewRecruit && !unit._imprisoned && cooldown === 0 && hasTarget;
+        actions.push({
+            key: `banzaiCharge:${unit.id}`,
+            buttonId: 'boardActiveSkill',
+            kind: 'banzaiCharge',
+            unitId: unit.id,
+            icon: BANZAI_CHARGE_CONFIG.icon || '⚔️',
+            label: BANZAI_CHARGE_CONFIG.name,
+            cooldown,
+            canUse,
+            reason: canUse ? ''
+                : !isControllable ? unavailableReason
+                : unit._imprisoned ? '被禁锢'
+                : !unit.canAct || unit.isNewRecruit ? '本回合无法行动'
+                : cooldown > 0 ? `冷却${cooldown}回合`
+                : `${BANZAI_CHARGE_CONFIG.range}格内没有可见敌军`,
+            theme: 'commander'
         });
     }
     if (unit._isDrone) {
@@ -662,7 +693,8 @@ function _syncBoardActionBar() {
     const tile = gameState.selectedTile || gameState.selectedUnit?.tile || null;
     _syncSelectionHud(tile);
     const inFog = gameState.skirmishFog && tile && !isTileVisible(tile, getViewingCamp(), gameState);
-    const unit = !gameState.cardTargeting && !inFog ? tile?.unit || null : null;
+    const rawUnit = !gameState.cardTargeting && !inFog ? tile?.unit || null : null;
+    const unit = rawUnit && isUnitVisibleToCamp(rawUnit, getViewingCamp(), gameState) ? rawUnit : null;
     _renderBoardActionQueue(_collectBoardActions(unit, tile));
     _renderPassiveQueue(!gameState.cardTargeting && !inFog ? _buildPassiveItems(unit) : []);
 }
@@ -712,6 +744,24 @@ function _activateBoardAction(action) {
     const unit = _findUnitById(action.unitId);
     if (!unit) return;
 
+    if (action.kind === 'banzaiCharge') {
+        const banzai = unit ? _collectBoardActions(unit, unit.tile).find(a => a.kind === 'banzaiCharge') : null;
+        if (!banzai?.canUse) return;
+        if (gameState.cardTargeting?.cardId === 'banzai_charge' && gameState.cardTargeting.unitId === unit.id) {
+            cancelCardTargeting();
+            return;
+        }
+        showTargetingBanner(`请选择${BANZAI_CHARGE_CONFIG.name}目标（${BANZAI_CHARGE_CONFIG.range}格内可见敌军）`);
+        gameState.cardTargeting = {
+            cardId: 'banzai_charge',
+            targeting: 'enemyGlobal',
+            handIndex: -1,
+            unitId: unit.id,
+            startedAt: performance.now()
+        };
+        updateUI();
+        return;
+    }
     if (action.kind === 'droneSuicide') {
         if (!_canUseDroneSuicide(unit)) return;
         if (gameState.cardTargeting?.cardId === 'drone_suicide' && gameState.cardTargeting.droneId === unit.id) {
@@ -1103,7 +1153,14 @@ const UNIT_TYPE_NAMES = {
     warship: '巡洋舰',
     submarine: '潜艇',
     carrier: '航空母舰',
-    laserTower: '激光塔'
+    laserTower: '激光塔',
+    ru_katyusha: '喀秋莎火箭炮',
+    cpc_guerrilla: '游击纵队',
+    kmt_training_brigade: '中央教导旅',
+    fr_heavy_cannon: '法军重炮',
+    gb_battleship: '皇家战列舰',
+    us_marine: '海军陆战队',
+    jp_samurai: '帝国武士'
 };
 
 const PASSIVE_ICONS = FRONTEND_TEXT.icons.unitPassive;
@@ -1300,7 +1357,7 @@ function _getTerrainEffect(tile) {
     if (tile.isCity || tile.isUrban) {
         const ownerName = getFaction(gameState, tile.camp)?.name || tile.camp?.name || '中立';
         let desc = '当前由' + ownerName + '控制';
-        if (tile.unit) {
+        if (tile.unit && isUnitVisibleToCamp(tile.unit, getViewingCamp(), gameState)) {
             desc += '，驻守单位防御力提高' + Math.round(getCityDefenseBonus(tile) * 100) + '%';
         }
         // 瘫痪判定读共享血池宿主（中心格），城郭格与中心格状态一致
@@ -1342,20 +1399,22 @@ function _getWeatherEffect(unit) {
     // 夜观：星光范围内天气一律视为晴天，不再展示任何天气效果
     if (getEffectiveWeather(unit.tile, unit.camp, gameState) === 'clear') return null;
     let desc = weather.desc;
+    const baseType = getUnitBaseType(unit);
+    const weatherImmune = hasNegativeWeatherImmunity(gameState, unit.camp);
     const details = [];
     if (gameState.weather === 'rain') {
         if (unit.tile.isCity || unit.tile.isUrban) details.push('每回合回复' + Math.round(COMBAT_BALANCE.weather.rainCityHealPct * 100) + '%最大生命值');
-        if (unit.type === 'infantry' && (unit.tile.isCity || unit.tile.isUrban)) details.push('驻守城市时防御提高' + Math.round(COMBAT_BALANCE.defense.rainCityInfantryBonus * 100) + '%');
-        if (unit.type === 'cavalry') details.push('每步移动消耗+' + COMBAT_BALANCE.weather.rainCavalryMovementCost);
+        if (baseType === 'infantry' && (unit.tile.isCity || unit.tile.isUrban)) details.push('驻守城市时防御提高' + Math.round(COMBAT_BALANCE.defense.rainCityInfantryBonus * 100) + '%');
+        if (!weatherImmune && baseType === 'cavalry') details.push('每步移动消耗+' + COMBAT_BALANCE.weather.rainCavalryMovementCost);
     } else if (gameState.weather === 'fog') {
-        if (unit.type === 'archer' || unit.config?.movementDomain === 'naval'
-            || (unit.config?.building && Number(unit.config?.speed || 0) === 0)) {
+        if (!weatherImmune && (baseType === 'archer' || unit.config?.movementDomain === 'naval'
+            || (unit.config?.building && Number(unit.config?.speed || 0) === 0))) {
             details.push('射程' + COMBAT_BALANCE.weather.fogArcherRangeDelta);
         }
-        if (unit.type === 'cavalry') details.push('伤害提高' + Math.round(COMBAT_BALANCE.cavalry.fogDamageBonus * 100) + '%，每格冲锋伤害额外提高' + Math.round((COMBAT_BALANCE.cavalry.fogChargeDamagePerStep - COMBAT_BALANCE.cavalry.normalChargeDamagePerStep) * 100) + '%');
+        if (baseType === 'cavalry') details.push('伤害提高' + Math.round(COMBAT_BALANCE.cavalry.fogDamageBonus * 100) + '%，每格冲锋伤害额外提高' + Math.round((COMBAT_BALANCE.cavalry.fogChargeDamagePerStep - COMBAT_BALANCE.cavalry.normalChargeDamagePerStep) * 100) + '%');
     } else if (gameState.weather === 'wind') {
-        if (unit.type === 'archer') details.push('射程+' + COMBAT_BALANCE.weather.windArcherRangeDelta);
-        if (unit.type === 'infantry') details.push('防御降低' + Math.round(COMBAT_BALANCE.defense.windInfantryPenalty * 100) + '%');
+        if (baseType === 'archer') details.push('射程+' + COMBAT_BALANCE.weather.windArcherRangeDelta);
+        if (!weatherImmune && baseType === 'infantry') details.push('防御降低' + Math.round(COMBAT_BALANCE.defense.windInfantryPenalty * 100) + '%');
     }
     // 天气未对当前单位产生修正时，不显示为该单位的效果。
     if (!details.length) return null;
@@ -1397,6 +1456,20 @@ function _buildEffectItems(tile, unit) {
         });
     }
 
+    const fireSea = getFireSeaState(tile);
+    if (fireSea) {
+        const lossPct = Math.round(getFireSeaDamagePct(tile) * 100);
+        items.push({
+            key: `fireSea:${tile.q}:${tile.r}:${fireSea.layers}:${fireSea.roundsRemaining}`,
+            icon: FIRE_SEA_CONFIG.icon,
+            label: `${FIRE_SEA_CONFIG.name}（${fireSea.layers}/${FIRE_SEA_CONFIG.maxLayers}层）`,
+            desc: `${FIRE_SEA_CONFIG.desc} 当前每回合流失${lossPct}%最大生命值，剩余${fireSea.roundsRemaining}回合。`,
+            color: FIRE_SEA_CONFIG.color,
+            count: '⏳' + fireSea.roundsRemaining,
+            status: `${fireSea.layers}层 剩余${fireSea.roundsRemaining}回合`,
+            kind: 'effect'
+        });
+    }
     const weather = _getWeatherEffect(unit);
     if (weather) items.push(weather);
     if (!unit) return items;
@@ -1516,6 +1589,35 @@ function _buildPassiveItems(unit) {
             intensity: 1,
             kind: 'effect'
         });
+    }
+    const culture = getActiveFactionCulture(gameState, unit.camp);
+    if (culture) {
+        items.push({
+            key: `culture:${unit.id}:${culture.id}:tier2`,
+            icon: '🏛️',
+            label: `${culture.name}：${culture.tier2.title}`,
+            desc: culture.tier2.summary,
+            color: '#9fd7ff',
+            status: '历史文化强效',
+            kicker: '历史文化强效',
+            active: true,
+            intensity: 1,
+            kind: 'passive'
+        });
+        if (culture.uniqueUnitType && unit.type === culture.uniqueUnitType) {
+            items.push({
+                key: `culture:${unit.id}:${culture.id}:tier1`,
+                icon: '⭐',
+                label: culture.tier1.abilityName || culture.tier1.title,
+                desc: culture.tier1.summary,
+                color: '#ffd866',
+                status: '特色兵种能力',
+                kicker: '特色兵种',
+                active: true,
+                intensity: 1,
+                kind: 'passive'
+            });
+        }
     }
     if (!unit.commander) return items;
     const fellowRobeBonus = getFellowRobeDefenseBonus(unit, gameState);
@@ -1772,6 +1874,9 @@ function _describeBoardAction(action) {
         }
         if (!desc && commander?.activeSkill) desc = commander.activeSkill.desc || '';
         if (!desc) desc = '该将领的主动技能。';
+    } else if (action.kind === 'banzaiCharge') {
+        kicker = '特色主动技';
+        desc = BANZAI_CHARGE_CONFIG.desc;
     } else if (action.kind === 'droneSuicide') {
         kicker = '单位技能';
         desc = '选择3格内的敌方单位后自爆，对目标造成伤害。';
@@ -1897,7 +2002,7 @@ function _syncSelectionHud(tile) {
         return;
     }
 
-    const unit = tile.unit;
+    const unit = tile.unit && isUnitVisibleToCamp(tile.unit, getViewingCamp(), gameState) ? tile.unit : null;
     const effects = _buildEffectItems(tile, unit);
     const selectionKey = unit ? 'unit:' + unit.id : 'tile:' + tile.q + ':' + tile.r;
 
@@ -1916,13 +2021,18 @@ function _syncSelectionHud(tile) {
         const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
         const factionSynergyDefBonus = _timedMemo(_fellowRobeMemo, `${unit.id}:${unit.hp > 0}`,
             () => getFellowRobeDefenseBonus(unit, gameState));
+        const neverSurrenderDefBonus = getNeverSurrenderStatBonus(gameState, unit.camp);
+        const kmtStrongholdDefBonus = (unit.type === 'kmt_training_brigade' && !unit.isEmbarked && (tile.fortification || ((tile.isCity || tile.isUrban) && (!tile.camp || isFriendly(gameState, tile.camp, unit.camp)))))
+            ? (unit.config?.cityDefenseBonus || 0)
+            : 0;
         const cityDefBonus = (tile.isCity || tile.isUrban) ? getCityDefenseBonus(tile) : 0;
         const baseDefense = unit.isEmbarked ? getTransportBaseDefense(unit) : (unit.config.defense || 0);
         defense = Math.round((baseDefense + moraleDefBonus + terrainDefBonus
             + rankDefBonus + auraDefBonus + commanderDefBonus
-            + campaignDefBonus + factionSynergyDefBonus + cityDefBonus) * 100);
+            + campaignDefBonus + factionSynergyDefBonus + neverSurrenderDefBonus + kmtStrongholdDefBonus + cityDefBonus) * 100);
         // 悬浮可走地块时预览本次移动的行动力消耗
-        if (gameState.selectedUnit === unit && gameState.hoveredTile && !gameState.hoveredTile.unit
+        if (gameState.selectedUnit === unit && gameState.hoveredTile
+            && (!gameState.hoveredTile.unit || !isUnitVisibleToCamp(gameState.hoveredTile.unit, unit.camp, gameState))
             && gameState.movableTiles.includes(gameState.hoveredTile)) {
             const entry = gameState.moveParents?.get(gameState.hoveredTile);
             if (entry) hoverMoveCost = Math.max(0, unit.remainingMP - entry.remaining);
@@ -2418,6 +2528,24 @@ export function initInput() {
                 return;
             }
             // 无人机自爆
+            if (ct.cardId === 'banzai_charge') {
+                const samurai = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.id === ct.unitId ? t.unit : null), null);
+                if (!samurai || samurai.type !== 'jp_samurai') { notify('帝国武士无效', 'error'); cancelCardTargeting(); return; }
+                if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
+                if (executeBanzaiCharge(samurai, clickedTile)) {
+                    gameState.cardTargeting = null;
+                    hideTargetingBanner();
+                    clearselection();
+                    if (samurai.hp > 0 && samurai.tile) {
+                        gameState.selectedTile = samurai.tile;
+                        showSelectionHudForTile(samurai.tile);
+                    } else {
+                        gameState.selectedTile = clickedTile;
+                        showSelectionHudForTile(clickedTile);
+                    }
+                }
+                return;
+            }
             if (ct.cardId === 'drone_suicide') {
                 const drone = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.id === ct.droneId ? t.unit : null), null);
                 if (!drone || !drone._isDrone) { notify('无人机无效', 'error'); cancelCardTargeting(); return; }
@@ -2500,8 +2628,9 @@ export function initInput() {
             return;
         }
 
-        // Action: friendly unit selected, clicking a movable tile → move
-        if (gameState.selectedUnit && gameState.movableTiles.includes(clickedTile) && !clickedTile.unit) {
+        // Action: friendly unit selected, clicking a movable tile → move (hidden stealth occupiers trigger ambush inside _moveUnit)
+        if (gameState.selectedUnit && gameState.movableTiles.includes(clickedTile)
+            && (!clickedTile.unit || !isUnitVisibleToCamp(clickedTile.unit, gameState.selectedUnit.camp, gameState))) {
             moveUnit(gameState.selectedUnit, clickedTile);
             gameState.selectedTile = gameState.selectedUnit ? gameState.selectedUnit.tile : clickedTile;
             showSelectionHudForTile(gameState.selectedTile);
@@ -2528,7 +2657,7 @@ export function initInput() {
 
         // Action: friendly unit selected, clicking a chained move+attack target
         // → 一口气执行：先移动到预演落点 B，动画走完自动对 C 开火
-        if (gameState.selectedUnit && clickedTile.unit
+        if (gameState.selectedUnit && clickedTile.unit && isUnitVisibleToCamp(clickedTile.unit, gameState.selectedUnit.camp, gameState)
             && gameState.chainAttackTiles?.includes(clickedTile)) {
             const attacker = gameState.selectedUnit;
             const viaTile = gameState.chainAttackPlans?.get(clickedTile);
@@ -2573,7 +2702,7 @@ export function initInput() {
             gameState.selectedCityTile = clickedTile;
             // 选中城市后刷新 commandPanel 的 data-camp，保证招募按钮色与当前阵营一致
             updateButtonColors();
-        } else if (clickedTile.unit) {
+        } else if (clickedTile.unit && isUnitVisibleToCamp(clickedTile.unit, getViewingCamp(), gameState)) {
             // 敌方/中立/不可行动单位：可选中查看 HUD 信息，不显示行动范围
             gameState.selectedUnit = clickedTile.unit;
         }
@@ -2581,7 +2710,9 @@ export function initInput() {
         updateRecruitButtonStates();
         updateRecruitCostDisplay();
         showSelectionHudForTile(clickedTile);
-        emit('input:tileSelected', { tile: clickedTile, unit: clickedTile.unit || null });
+        const visibleClickedUnit = clickedTile.unit && isUnitVisibleToCamp(clickedTile.unit, getViewingCamp(), gameState)
+            ? clickedTile.unit : null;
+        emit('input:tileSelected', { tile: clickedTile, unit: visibleClickedUnit });
     });
 
     canvas.addEventListener('mouseleave', () => {
@@ -2625,10 +2756,13 @@ export function initInput() {
                 canvas.style.cursor = isResolvedTargetingCandidate(preview, hovered) ? 'crosshair' : 'not-allowed';
                 return;
             }
-            const isOwnUnit = hovered.unit && _isLocalActionCamp(hovered.unit.camp) && !hovered.unit.isNewRecruit;
-            const isOwnCity = hovered.isCity && _isLocalActionCamp(hovered.camp) && !hovered.unit && !gameState.selectedUnit;
-            const isMovable = gameState.selectedUnit && gameState.movableTiles.includes(hovered) && !hovered.unit;
-            const isAttackable = gameState.selectedUnit && hovered.unit
+            const visibleHoveredUnit = hovered.unit && isUnitVisibleToCamp(hovered.unit, getViewingCamp(), gameState)
+                ? hovered.unit : null;
+            const isOwnUnit = visibleHoveredUnit && _isLocalActionCamp(visibleHoveredUnit.camp) && !visibleHoveredUnit.isNewRecruit;
+            const isOwnCity = hovered.isCity && _isLocalActionCamp(hovered.camp) && !visibleHoveredUnit && !gameState.selectedUnit;
+            const isMovable = gameState.selectedUnit && gameState.movableTiles.includes(hovered)
+                && (!hovered.unit || !isUnitVisibleToCamp(hovered.unit, gameState.selectedUnit.camp, gameState));
+            const isAttackable = gameState.selectedUnit && visibleHoveredUnit
                 && (gameState.attackableTiles.includes(hovered) || gameState.chainAttackTiles?.includes(hovered));
             if (isOwnUnit || isOwnCity) canvas.style.cursor = 'pointer';
             else if (isMovable) canvas.style.cursor = 'move';
@@ -2672,7 +2806,9 @@ export function initKeyboard() {
                 return;
             }
 
-            const recruitmentOption = RECRUITMENT_OPTIONS.find(option => option.shortcut === e.key);
+            const recruitmentOption = e.key === '7'
+                ? getUniqueRecruitmentOption(gameState, gameState.currentCamp)
+                : RECRUITMENT_OPTIONS.find(option => option.shortcut === e.key);
             if (recruitmentOption) {
                 e.preventDefault();
                 recruitUnit(recruitmentOption.type);
@@ -2869,21 +3005,21 @@ const SPECIALIZATION_DETAILS = {
     lightCavalry: unit => `每移动1格伤害提高${Math.round((unit.getSpecializationAbility('chargePerStep') || 0) * 100)}%，最多3层；未击败目标时可用剩余行动力撤退；遭遇战视野+1。`,
     heavyCavalry: unit => `受到的反击伤害降低${Math.round((unit.getSpecializationAbility('counterDamageReduction') || 0) * 100)}%；攻击远程单位时无视敌人${Math.round((unit.getSpecializationAbility('rangedArmorPierce') || 0) * 100)}%防御力。`,
     fieldGun: unit => `无视敌人${Math.round((unit.getSpecializationAbility('armorPierce') || 0) * 100)}%防御；位于山地或风天时效果翻倍。`,
-    rocketArtillery: unit => `对主目标相邻敌军造成${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%倍率溅射。`,
-    antiAirArtillery: unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`,
-    antiAirDestroyer: unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`,
+    rocketArtillery: unit => `对主目标相邻敌军造成相当于本次伤害${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%的溅射伤害。`,
+    antiAirArtillery: unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`,
+    antiAirDestroyer: unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`,
     antiSubDestroyer: unit => `侦测2格内潜艇，对潜艇伤害提高${Math.round((unit.getSpecializationAbility('submarineDamage') || 0) * 100)}%。`,
-    fleetCruiser: unit => `对海军单位的伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率追加半伤齐射。`,
+    fleetCruiser: unit => `对海军单位的伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率舰炮齐射造成原本50%的额外伤害。`,
     supportCruiser: unit => `对陆地单位造成的伤害提高50%；攻击要塞单位时有${Math.round((unit.getSpecializationAbility('shoreSplashChance') || 0) * 100)}%的概率对相邻敌方单位造成相当于原本30%的溅射伤害。`
 };
 
 function _showSpecializationChoice(unit) {
     if (!unit?.pendingSpecialization) return;
-    const modal = _prepareChoiceModal('✦ 选择兵种专精', `当前 ${unit._rank} 阶 · 选择不可逆；未选择前不会获得任何军衔奖励。`, true);
+    const modal = _prepareChoiceModal('✦ 选择兵种专精', '', true);
     if (!modal) return;
     modal.overlay._specializationUnitId = unit.id;
     const icons = { infantry: '⚔️', cavalry: '🐎', archer: '💥', destroyer: '⚓', warship: '🚢' };
-    for (const option of getSpecializationOptions(unit)) {
+    for (const option of getSpecializationOptions(unit, gameState)) {
         const profile = resolveUnitRankProfile(unit.type, unit._rank, option.key);
         const card = document.createElement('button');
         card.type = 'button';
@@ -3003,9 +3139,11 @@ function _beginBuildTargeting(cardId, constructionKind, bannerText) {
 
 // 空军指令选择面板：显示可用空军指令供玩家选择。
 function _showAirCommandChoice(launcherTile) {
-    const modal = _prepareChoiceModal('✈ 空军', `当前最大航程 ${getAirCommandRange(launcherTile)} 格}`, true);
+    const modal = _prepareChoiceModal('✈ 空军', `当前最大航程 ${getAirCommandRange(launcherTile)} 格`, true);
     if (!modal) return;
+    const visibleKinds = new Set(getVisibleAirCommandKinds(launcherTile, gameState));
     for (const [airKind, config] of Object.entries(AIR_COMMAND_CONFIG)) {
+        if (!visibleKinds.has(airKind)) continue;
         if (airKind === 'recon' && (!gameState.skirmishFog || gameState.campaignMode)) continue;
         const availability = getAirCommandAvailability(airKind, launcherTile, gameState);
         const card = document.createElement('button');

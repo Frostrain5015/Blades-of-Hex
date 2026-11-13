@@ -34,7 +34,7 @@ export default {
         const dmgPct = killer._phantomStacks * BALANCE.damagePerStack * 100;
         helpers.spawnFx(killer.tile.x, killer.tile.y, '\u{1F3AD}', '幻形');
         helpers.spawnExplosion(killer.tile.x, killer.tile.y, '#cc88ff', 12);
-        const transformText = canTransform ? `变形为${killer.config.name}兵 ` : '';
+        const transformText = canTransform ? `变形为${killer.config.name} ` : '';
         helpers.logMessage(`魔术师【幻形】：${transformText}增伤+${dmgPct}% 暴击率+${critPct}%`);
         return { transformed: canTransform, newType: canTransform ? victim.type : killer.type };
     },

@@ -81,7 +81,7 @@ export default {
                     helpers.triggerCommanderOnKill(unit, victim);
                 }
             }
-            helpers.logMessage(`亡魂诅咒：${victim.camp.name}${victim.config.name}兵占据亡魂之地，受${curse}点诅咒伤害${killed ? '（诅咒致死）' : ''}`);
+            helpers.logMessage(`亡魂诅咒：${victim.camp.name}${victim.config.name}占据亡魂之地，受${curse}点诅咒伤害${killed ? '（诅咒致死）' : ''}`);
         }
 
         // ── 回魂：牵引最近的、位于空地上的己方亡魂标记唤起魂卒（被占据的标记跳过） ──

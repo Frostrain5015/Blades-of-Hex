@@ -4,18 +4,22 @@ import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { iconEffects, getRecoilOffset, getChargeOffset } from './effects.js';
 
-import { getRelationToViewer, RELATION_META } from '../rules/diplomacy.js';
+import { campFromKey, getRelationToViewer, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
 import { campToKey, getFlagColors } from '../rules/camps.js';
 import { getSurfaceBaseColor, getTileSurface, isWaterTile } from '../rules/surfaces.js';
 import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { getUnitStatusIcons } from './unitStatusIcons.js';
+import { getActiveCultureId, getCulturalBadgeCropForUnit } from '../rules/cultures.js';
+import { isUniqueCultureUnit } from '../rules/units.js';
+import { hasHostileUnitNear, isGuerrillaExposedByVillage, isStealthGuerrilla, isStealthUnit, isUnitVisibleToCamp } from '../rules/visibility.js';
 import {
     UNIT_BADGE_CENTER_Y,
     UNIT_BADGE_RADIUS,
     UNIT_HUD_OUTER_RADIUS,
     drawUnitBadge,
+    getBadgeFlagImage,
     resolveUnitBadgeGlyph
 } from './unitBadgeRenderer.js';
 
@@ -100,10 +104,33 @@ export function startUnitMovePath(unit, path) {
         unit.movePathDuration = (path.length - 1) * 120 / (settings.animationSpeed || 1);
     }
 
+/** Resolve the active viewing camp without importing client state.js. */
+export function resolveViewerCamp(gameState) {
+    if (!gameState) return null;
+    if (isNetworkGame()) {
+        const roleCamp = getRoleCamp(gameState, getMyRole());
+        if (roleCamp) return roleCamp;
+    }
+    return campFromKey(getViewingCampKey(gameState), gameState) || gameState.currentCamp || null;
+}
+
+function _resolveUniqueBadgeOptions(unit, gameState) {
+    if (!unit || unit._engineerScaffold || !isUniqueCultureUnit(unit.type)) return {};
+    const faction = gameState?.factions?.[campToKey(unit.camp)] || unit.camp || null;
+    const cultureId = getActiveCultureId(gameState, unit.camp);
+    const cropInfo = getCulturalBadgeCropForUnit(unit, cultureId);
+    const flagUrl = faction?.flagUrl || cropInfo?.flagPreset || null;
+    return {
+        flagImage: flagUrl ? getBadgeFlagImage(flagUrl) : null,
+        flagCrop: cropInfo?.badgeCrop || null
+    };
+}
+
 // Draw after the WebGL cloth composite so the finial always caps the fabric
 // instead of being partially covered by it.
-export function drawUnitFlagFinial(unit) {
+export function drawUnitFlagFinial(unit, gameState = null) {
     if (!unit || unit._airdropWaiting || unit.tile.isCity || unit.tile.isVillage || unit.tile.isPort) return;
+    if (gameState && !isUnitVisibleToCamp(unit, resolveViewerCamp(gameState), gameState)) return;
     const now = frameInfo.now;
     if ((unit._airliftLandAt && now < unit._airliftLandAt)
         || (unit._soulRecallLandAt && now < unit._soulRecallLandAt)) return;
@@ -130,6 +157,7 @@ function resolveUnitHudColor(gameState, unit, hpRatio) {
 /** Draw only the friendly moving counter above a held fog mask. */
 export function drawUnitBadgeAboveFog(unit, gameState) {
     if (!unit || unit._airdropWaiting || !unit.tile) return;
+    if (gameState && !isUnitVisibleToCamp(unit, resolveViewerCamp(gameState), gameState)) return;
     const pos = getUnitVisualPos(unit);
     const hpRatio = unit.displayHp / unit.maxHp;
     const shieldRatio = unit._displayShield > 0.5 ? unit._displayShield / unit.maxHp : 0;
@@ -148,7 +176,8 @@ export function drawUnitBadgeAboveFog(unit, gameState) {
         hpRatio,
         shieldRatio,
         waterColor: isWaterTile(unit.tile) ? getSurfaceBaseColor(getTileSurface(unit.tile)) : null,
-        glyph: resolveUnitBadgeGlyph(unit.type, Boolean(unit._engineerScaffold))
+        glyph: resolveUnitBadgeGlyph(unit.type, Boolean(unit._engineerScaffold)),
+        ..._resolveUniqueBadgeOptions(unit, gameState)
     });
     ctx.restore();
 }
@@ -173,8 +202,16 @@ export function drawUnit(unit, gameState) {
         }
 
         const gs = gameState;
+        const viewerCamp = resolveViewerCamp(gs);
+        if (gs && !isUnitVisibleToCamp(unit, viewerCamp, gs)) return;
+
+        const isConcealedStealth = isStealthUnit(unit)
+            && !(isStealthGuerrilla(unit) && (isGuerrillaExposedByVillage(unit) || hasHostileUnitNear(unit, gs)));
         const time = now / 1000;
         const cc = getFlagColors(unit.camp?.colorId || unit.camp?.color);
+
+        ctx.save();
+        if (isConcealedStealth) ctx.globalAlpha *= 0.65;
 
         ctx.save();
         ctx.translate(visualX, visualY);
@@ -223,7 +260,8 @@ export function drawUnit(unit, gameState) {
             hpRatio,
             shieldRatio,
             waterColor: isWaterTile(unit.tile) ? getSurfaceBaseColor(getTileSurface(unit.tile)) : null,
-            glyph: resolveUnitBadgeGlyph(unit.type, Boolean(unit._engineerScaffold))
+            glyph: resolveUnitBadgeGlyph(unit.type, Boolean(unit._engineerScaffold)),
+            ..._resolveUniqueBadgeOptions(unit, gs)
         });
 
         ctx.restore();
@@ -403,7 +441,7 @@ export function drawUnit(unit, gameState) {
             ctx.shadowBlur = 0;
             const bw = 24, bh = 4, bx = -bw / 2, by = dy + 12;
             ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(bx, by, bw, bh);
-            const r = unit.hp / unit.maxHp;
+            const r = hpRatio;
             ctx.fillStyle = r > 0.5 ? '#4CAF50' : (r > 0.25 ? '#FF9800' : '#f44336');
             ctx.fillRect(bx, by, bw * r, bh);
             if (unit.morale === 0) { ctx.fillStyle = '#ff6666'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('混乱', visualX, dy - 14); }
@@ -434,6 +472,7 @@ export function drawUnit(unit, gameState) {
             ctx.restore();
             // 💀 骷髅图标已并入头顶图标行
         }
+        ctx.restore();
     }
 
     // ① 攻击力乘区：基础面板 ×（1+「攻击力提高xx%」）+「攻击力+xx」固定加成

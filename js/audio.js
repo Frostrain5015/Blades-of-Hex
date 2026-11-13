@@ -15,7 +15,7 @@ let _initDone = false;
 // ============================================================
 
 export function initAudio() {
-    if (_initDone) return;
+    if (_initDone || typeof Howler === 'undefined' || typeof Howl !== 'function') return;
     _initDone = true;
     Howler.volume(settings.soundVolume ?? 0.7);
     Howler.mute(!settings.soundEnabled);
@@ -54,20 +54,22 @@ export function playSound(soundName) {
         return;
     }
 
-    const { howl } = _getHowl(resolved);
+    const result = _getHowl(resolved);
 
-    // 文件加载失败 → 合成回退
-    if (_loadErrors[resolved]) {
+    // 文件加载失败或运行环境无 Howl → 合成回退
+    if (!result?.howl || _loadErrors[resolved]) {
         _playSynthFallback(soundName);
         return;
     }
 
+    const { howl } = result;
     const masterVol = settings.soundVolume ?? 0.7;
     howl.volume(cfg.volume * masterVol);
     howl.play();
 }
 
 function _getHowl(name) {
+    if (typeof Howl !== 'function') return null;
     const resolved = ALIAS_MAP[name] || name;
     const cfg = SOUND_MANIFEST[resolved];
     if (!cfg || cfg.available === false) return null;
@@ -105,7 +107,7 @@ export function startBattleBGM() {
         _battleBgmId = result.howl.play();
     };
 
-    if (Howler.ctx && Howler.ctx.state === 'suspended') {
+    if (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'suspended') {
         Howler.ctx.resume().then(play).catch(play);
     } else {
         play();
@@ -133,11 +135,11 @@ export function stopLobbyBGM() {
 // ============================================================
 
 export function setMasterVolume(vol) {
-    Howler.volume(vol);
+    if (typeof Howler !== 'undefined') Howler.volume(vol);
 }
 
 export function setMuted(muted) {
-    Howler.mute(muted);
+    if (typeof Howler !== 'undefined') Howler.mute(muted);
 }
 
 // ============================================================

@@ -3,6 +3,8 @@
  * advantage. This keeps ordinary coastal garrisons on their land strategy and
  * gives every AI personality the same movement-domain-aware response.
  */
+import { getUnitBaseType } from './units.js';
+
 export function prioritizeNavalRecruitment(city, baseTypes, tiles, aiCamp, isHostileFaction) {
     const fallback = [...new Set(Array.isArray(baseTypes) ? baseTypes : [])];
     if (!city?.isPort || typeof isHostileFaction !== 'function') return fallback;
@@ -10,7 +12,7 @@ export function prioritizeNavalRecruitment(city, baseTypes, tiles, aiCamp, isHos
     let friendlyWarships = 0;
     let hostileWarships = 0;
     for (const tile of Array.isArray(tiles) ? tiles : []) {
-        if (tile?.unit?.type !== 'warship') continue;
+        if (getUnitBaseType(tile?.unit) !== 'warship') continue;
         if (tile.unit.camp === aiCamp) friendlyWarships++;
         else if (isHostileFaction(aiCamp, tile.unit.camp)) hostileWarships++;
     }

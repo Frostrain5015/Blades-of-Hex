@@ -2,6 +2,7 @@
 // 新阵营只需在此注册成员、将领卡标识与 Hero 共鸣配置；具体战斗结算仍由各阵营规则模块负责。
 
 import { campToKey } from './camps.js';
+import { isFactionSynergyRuleActive } from './cultures.js';
 
 function defineFactionSynergy(definition) {
     return Object.freeze({
@@ -388,12 +389,14 @@ function getSpecialFactionSynergiesForCommanders(commanders) {
 }
 
 export function getActiveSpecialFactionSynergies(gameState, camp) {
+    if (!isFactionSynergyRuleActive(gameState)) return [];
     return getSpecialFactionSynergiesForCommanders(getLivingCommanderUnits(gameState, camp));
 }
 
 // 所有模式统一从这里查询某个战场阵营当前生效的协同。
 // 专属协同优先；只有完全未命中专属协同时，才返回混编兜底项。
 export function getActiveFactionSynergies(gameState, camp) {
+    if (!isFactionSynergyRuleActive(gameState)) return [];
     const commanders = getLivingCommanderUnits(gameState, camp);
     const specialSynergies = getSpecialFactionSynergiesForCommanders(commanders);
     if (specialSynergies.length > 0) return specialSynergies;

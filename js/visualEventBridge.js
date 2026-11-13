@@ -14,7 +14,8 @@ import {
     spawnCoinRain,
     spawnCelestineOracleBeam,
     spawnLaserBeam,
-    LASER_BEAM_TIMING
+    spawnDodgeShimmer,
+    spawnFreeResistanceWave
 } from './effects.js';
 import { playSound } from './audio.js';
 import { CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
@@ -26,6 +27,7 @@ import { playTianhengBorrowDayPresentation } from './tianhengPresentation.js';
 import { playNoctisBloodMoonPresentation } from './noctisBloodMoonPresentation.js';
 import { spawnBloodMoonSlash } from './effects.js';
 import { gameState, logMessage, updateUI } from './state.js';
+import { getUnitDisplayName } from '../rules/units.js';
 import { enqueueFloatText } from './floatTexts.js';
 
 on('fx:healFlash', ({ x, y }) => triggerHealFlash(x, y));
@@ -36,6 +38,18 @@ on('fx:factionMorale', ({ color }) => triggerFactionMoraleFlash(color));
 on('fx:explosion', ({ x, y, color, count }) => spawnExplosionParticles(x, y, color, count));
 on('fx:screenShake', ({ strength, duration }) => triggerScreenShake(strength, duration));
 on('fx:rankUp', ({ x, y, rank }) => spawnRankUpEffect(x, y, rank));
+on('fx:dodge', ({ x, y, delayMs = 0 }) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (delayMs > 0) {
+        setTimeout(() => spawnDodgeShimmer(x, y), delayMs);
+    } else {
+        spawnDodgeShimmer(x, y);
+    }
+});
+on('fx:freeResistance', ({ x, y }) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    spawnFreeResistanceWave(x, y);
+});
 on('audio:play', ({ soundName }) => playSound(soundName));
 on('fx:aureliaOath', event => playAureliaOathPresentation(event));
 // 天鹰【天基支援协议】：轨道补给走全屏 Hero；天基打击授权是轻量表现（将领处卫星标记）。
@@ -105,8 +119,9 @@ on('fx:celestineOraclePulse', event => {
         return tile ? { x: tile.x, y: tile.y } : null;
     };
 
+    const resolveUnitLabel = ref => { const tu = Number.isFinite(ref?.q) && Number.isFinite(ref?.r) ? gameState.tileMap?.get(`${ref.q},${ref.r}`)?.unit : null; const u = (tu && tu.id === ref?.unitId ? tu : null) || gameState.tiles?.find(t => t.unit?.id === ref?.unitId)?.unit; return u ? `${u.camp?.name || ''}${getUnitDisplayName(u)}` : (ref?.unitId || '目标单位'); };
     if (event.smite) {
-        logMessage(`⚡ ${factionName}【神罚】→ 对 ${event.smite.unitId} 造成 ${event.smite.dmg} 点真实伤害${event.smite.killed ? '，将其消灭' : ''}`);
+        logMessage(`⚡ ${factionName}【神罚】→ 对 ${resolveUnitLabel(event.smite)} 造成 ${event.smite.dmg} 点真实伤害${event.smite.killed ? '，将其消灭' : ''}`);
         const point = resolvePoint(event.smite);
         const smiteImpact = () => {
             if (point) {
@@ -134,7 +149,7 @@ on('fx:celestineOraclePulse', event => {
         }
     }
     if (event.shield && event.shield.amount > 0) {
-        logMessage(`🛡️ ${factionName}【赐福】→ 对 ${event.shield.unitId} 附加 ${event.shield.amount} 点护盾`);
+        logMessage(`🛡️ ${factionName}【赐福】→ 对 ${resolveUnitLabel(event.shield)} 附加 ${event.shield.amount} 点护盾`);
         const point = resolvePoint(event.shield);
         const shieldImpact = () => {
             if (point) {
@@ -160,25 +175,17 @@ on('fx:celestineOraclePulse', event => {
         }
     }
 });
-// 激光塔【集束激光】齐射：本地（gameLogic 回合开始结算）与远端（endTurn 载荷重放）
-// 共用此桥。每座塔的每个命中目标按全局序号 * 120ms 错峰发射；落点粒子与光束弹着时刻对齐。
-on('fx:laserTowerVolley', event => {
-    const volleys = Array.isArray(event?.volleys) ? event.volleys : [];
-    let index = 0;
+// 同一轮齐射共用起始时刻，每座塔只绘制一个充能环。
+on('fx:laserTowerVolley', ({ volleys, startedAt }) => {
     for (const volley of volleys) {
         if (!Number.isFinite(volley?.x) || !Number.isFinite(volley?.y)) continue;
+        let drawCharge = true;
         for (const hit of volley.hits || []) {
             if (!Number.isFinite(hit?.x) || !Number.isFinite(hit?.y)) continue;
-            const delayMs = index * 120;
-            spawnLaserBeam(volley.x, volley.y, hit.x, hit.y, { delayMs });
-            window.setTimeout(() => {
-                spawnExplosionParticles(hit.x, hit.y, '#4fd8e8', 8);
-                spawnExplosionParticles(hit.x, hit.y, '#ffffff', 4);
-            }, delayMs + LASER_BEAM_TIMING.chargeMs + LASER_BEAM_TIMING.travelMs);
-            index++;
+            spawnLaserBeam(volley.x, volley.y, hit.x, hit.y, { startedAt, drawCharge, killed: hit.killed });
+            drawCharge = false;
         }
     }
-    if (index > 0) playSound('lightning');
 });
 // 天衡联邦【日月天衡】：发牌/Hero/远端重放均通过此事件触发全屏 Hero 动画+日珥特效。
 on('fx:tianhengBorrowDay', event => {

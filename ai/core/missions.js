@@ -162,7 +162,7 @@ function pickScoutDestination(world, scoutUnit) {
     let best = null;
     let bestScore = 0;
     for (const tile of world.tiles) {
-        if (tile.unit) continue;
+        if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
         if (world.fog && world.explored(tile)) continue;
         const distance = helpers.hexDistance(scoutUnit.tile, tile);
         if (distance > 10) continue;

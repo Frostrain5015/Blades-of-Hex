@@ -6,6 +6,7 @@
 // 本模块只保存平衡参数与无副作用判定 + 计量/放血结算；天气切换与每轮调用在 gameLogic。
 
 import { campToKey } from './camps.js';
+import { isFactionSynergyRuleActive } from './cultures.js';
 import { isHostile, canAttack, campFromKey } from './diplomacy.js';
 import { NOCTIS_FACTION_SYNERGY, getCommanderFactionSynergy } from './factionSynergies.js';
 
@@ -48,7 +49,7 @@ export function getLivingNoctisCommanders(gameState, campOrKey) {
 
 /** ≥2 名诺克提斯将领存活即协同激活（无身份去重）。 */
 export function hasNoctisSynergyActive(gameState, campOrKey) {
-    return getLivingNoctisCommanders(gameState, campOrKey).length >= 2;
+    return isFactionSynergyRuleActive(gameState) && getLivingNoctisCommanders(gameState, campOrKey).length >= 2;
 }
 
 /** 当前所有「协同激活」的诺克提斯阵营 key（兼容多阵营/3p）。 */

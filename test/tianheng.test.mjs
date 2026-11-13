@@ -34,6 +34,7 @@ const { getRoundIndex } = turnsModule;
 
 function setup(tileCount = 8) {
     const state = createMatchState();
+    state.factionRuleMode = 'synergy';
     const tiles = Array.from({ length: tileCount }, (_, i) => new EngineHexTile(i, 0));
     state.tiles = tiles;
     state.tileMap = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));

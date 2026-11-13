@@ -11,7 +11,7 @@ import { FORTIFICATION_CONFIG } from './terrain.js';
 
 function buildAdvisor() {
     const balance = { outcomeCount: 4, noEffectOutcome: 0, moraleDownOutcome: 1, confusedOutcome: 2, moraleDownLevel: 1, confusedLevel: 0, normalMorale: 2, durationRounds: 2, paladinAuraRange: 1 };
-    const desc = `攻击时随机判定：${percent(1 / balance.outcomeCount)}无效果、${percent(1 / balance.outcomeCount)}使目标士气下降${balance.durationRounds}回合、${percent(1 / balance.outcomeCount)}使目标混乱${balance.durationRounds}回合、${percent(1 / balance.outcomeCount)}使非将领目标变更为己方势力；将领命中最后一项时改为混乱${balance.durationRounds}回合`;
+    const desc = `攻击时等概率触发以下之一：无效果、目标士气下降${balance.durationRounds}回合、目标混乱${balance.durationRounds}回合、策反目标为己方单位（若目标为将领则改为混乱${balance.durationRounds}回合）`;
     return {
         definition: {
             id: 'advisor', name: '谋士', skill: '攻心', hpBonusPct: 0.35, atkBonusPct: 0, spdBonus: 1,
@@ -28,9 +28,9 @@ function buildAstrologer() {
             id: 'astrologer', name: '占星者', hpBonusPct: 0.30, atkBonusPct: 0.20, spdBonus: 0,
             skills: [
                 { name: '夜观', desc: `自身${balance.auraRange}格范围内天气对所有单位与地块一律视为晴天（不分敌我，不受任何天气效果影响）`, type: 'passive' },
-                { name: '星移', desc: `强制指定天气并锁定${balance.weatherLockRounds}回合，锁定期间天气负面效果对所有敌人生效，若处于【夜观】范围内则效果翻倍（⏳${balance.cooldown}）`, type: 'active' }
+                { name: '星移', desc: `选定一种天气并锁定${balance.weatherLockRounds}回合；锁定期间天气负面效果仅对敌军生效，处于【夜观】范围内的敌人效果翻倍（⏳${balance.cooldown}）`, type: 'active' }
             ],
-            activeSkill: { name: '星移', desc: `强制指定当前天气并锁定${balance.weatherLockRounds}回合（⏳${balance.cooldown}）`, duration: balance.weatherLockRounds, cooldown: balance.cooldown }
+            activeSkill: { name: '星移', desc: `选定一种天气并锁定${balance.weatherLockRounds}回合；锁定期间天气负面效果仅对敌军生效，处于【夜观】范围内的敌人效果翻倍（⏳${balance.cooldown}）`, duration: balance.weatherLockRounds, cooldown: balance.cooldown }
         },
         balance
     };
@@ -40,8 +40,8 @@ function buildBerserker() {
     const balance = { hpLossPerStackPct: 0.02, maxStacks: 40, statBonusPerStackPct: 0.01, qixueHpCostPct: 0.30, qixueDamageBonus: 0.30, qixueCritBonus: 0.50, qixueSplashMultiplier: 0.40, qixueRange: 1, cooldown: 1 };
     const stackLoss = percent(balance.hpLossPerStackPct);
     const statBonus = percent(balance.statBonusPerStackPct);
-    const passive = `每损失${stackLoss}生命值，获得${statBonus}攻击力与${statBonus}防御力加成，最多${percent(balance.maxStacks * balance.statBonusPerStackPct)}`;
-    const qixueText = `立即消耗${percent(balance.qixueHpCostPct)}当前生命值使下一次攻击获得${percent(balance.qixueDamageBonus)}伤害加成并获得${percent(balance.qixueCritBonus)}暴击率，同时主目标周围${balance.qixueRange}格范围内的敌人受到原本${percent(balance.qixueSplashMultiplier)}的溅射伤害。`;
+    const passive = `每损失${stackLoss}最大生命值，攻击力与防御力各提高${statBonus}（至多${percent(balance.maxStacks * balance.statBonusPerStackPct)}）`;
+    const qixueText = `立即消耗${percent(balance.qixueHpCostPct)}当前生命值，使下一次攻击获得${percent(balance.qixueDamageBonus)}伤害加成与${percent(balance.qixueCritBonus)}暴击率，同时对主目标周围${balance.qixueRange}格范围内的敌人造成相当于本次伤害${percent(balance.qixueSplashMultiplier)}的溅射伤害。`;
     return {
         definition: {
             id: 'berserker', name: '狂战士', skill: '血怒', hpBonusPct: 0.25, atkBonusPct: 0, spdBonus: 0,
@@ -96,7 +96,7 @@ function buildDiplomat() {
             id: 'diplomat', name: '纵横家', skill: '合纵', hpBonusPct: 0.30, atkBonusPct: 0.25, spdBonus: 0,
             skills: [
                 { name: '合纵', desc: `对策卡上限+${balance.handSizeBonus}，每回合对策卡使用次数+${balance.useBonus}`, type: 'passive' },
-                { name: '连横', desc: `处于非己方行政区时，有${percent(balance.copyChance)}概率获得非己方使用的同名对策卡`, type: 'passive' }
+                { name: '连横', desc: `位于敌方或中立行政区时，敌方每使用一张对策卡，有${percent(balance.copyChance)}概率获得其同名对策卡一张`, type: 'passive' }
             ]
         },
         balance
@@ -110,7 +110,7 @@ function buildEngineer() {
             id: 'engineer', name: '工程师', hpBonusPct: 0.30, atkBonusPct: 0.25, spdBonus: 0,
             skills: [
                 { name: '工兵指挥', desc: '建造工事时获得专属折扣；建造碉堡立即完成，驻城时该城市建设机场也享受折扣。', type: 'passive' },
-                { name: '战地抢修', desc: '消耗3金币修复相邻己方建筑或碉堡脚手架50%最大生命值，冷却2回合。', type: 'passive' }
+                { name: '战地抢修', desc: `消耗${balance.fieldRepairGoldCost}金币，修复相邻己方建筑（含施工中的碉堡）${percent(balance.fieldRepairHealPct)}最大生命值，冷却${balance.fieldRepairCooldown}回合。`, type: 'passive' }
             ]
         },
         balance
@@ -123,8 +123,8 @@ function buildFallenAngel() {
         definition: {
             id: 'fallenAngel', name: '堕天使', hpBonusPct: 0.35, atkBonusPct: 0, spdBonus: 0,
             skills: [
-                { name: '堕落', desc: `士气正常时切换至【堕天使·白】，每回合回复已损失生命值的${percent(balance.whiteMissingHpHealPct)}`, type: 'passive' },
-                { name: '净化', desc: `士气上升或下降时切换至【堕天使·黑】，造成的伤害+${percent(balance.blackDamageBonus)}、暴击率+${percent(balance.blackCritBonus)}，每回合流失当前生命值${percent(balance.blackHpLossPct)}`, type: 'passive' }
+                { name: '净化', desc: `士气正常时切换至【堕天使·白】，每回合回复已损失生命值的${percent(balance.whiteMissingHpHealPct)}`, type: 'passive' },
+                { name: '堕落', desc: `士气上升或下降时切换至【堕天使·黑】，造成的伤害+${percent(balance.blackDamageBonus)}、暴击率+${percent(balance.blackCritBonus)}，每回合流失当前生命值${percent(balance.blackHpLossPct)}`, type: 'passive' }
             ]
         },
         balance
@@ -151,7 +151,7 @@ function buildMagician() {
         definition: {
             id: 'magician', name: '魔术师', skill: '幻形', hpBonusPct: 0.20, atkBonusPct: 0, spdBonus: 0,
             skills: [
-                { name: '千面', desc: `攻击克制目标时造成的伤害提高${percent(balance.counterDamageBonus)}，被克制目标攻击时受到的伤害降低${percent(balance.counterDefenseBonus)}`, type: 'passive' },
+                { name: '千面', desc: `攻击克制目标时伤害提高${percent(balance.counterDamageBonus)}；受到克制自己的目标攻击时，所受伤害降低${percent(balance.counterDefenseBonus)}`, type: 'passive' },
                 { name: '幻形', desc: `击杀敌方单位后变形为其兵种类型，获得1层【幻形】效果：造成的伤害提高${percent(balance.damagePerStack)}、暴击率+${percent(balance.critPerStack)}，最多叠加${balance.maxStacks}层`, type: 'passive' }
             ]
         },
@@ -166,7 +166,7 @@ function buildMartyr() {
             id: 'martyr', name: '殉道者', skill: '殉道', hpBonusPct: 0.30, atkBonusPct: 0, spdBonus: 0,
             skills: [
                 { name: '殉道', desc: `生命≤${balance.triggerHp}时进入殉道倒计时，期间可移动但无法攻击；下回合开始时对${balance.explosionRange}格范围内所有非己方单位造成基于攻击力的真实伤害`, type: 'passive' },
-                { name: '挽歌', desc: `己方单位阵亡时，殉道者永久获得造成的伤害+${percent(balance.elegyDamagePerDeath)}，最多叠加${Math.round(balance.elegyDamageCap / balance.elegyDamagePerDeath)}层`, type: 'passive' }
+                { name: '挽歌', desc: `每有一名友军阵亡，殉道者永久提高${percent(balance.elegyDamagePerDeath)}伤害（最多叠加${Math.round(balance.elegyDamageCap / balance.elegyDamagePerDeath)}层）`, type: 'passive' }
             ]
         },
         balance
@@ -190,8 +190,8 @@ function buildNecromancer() {
         definition: {
             id: 'necromancer', name: '亡灵法师', hpBonusPct: 0.25, atkBonusPct: 0.20, spdBonus: 0,
             skills: [
-                { name: '留魂', desc: `友军单位阵亡后原地留下持续${balance.soulMarkRounds}回合的【亡魂】，对占据其上的单位持续施加【亡魂诅咒】，每回合造成${balance.curseBaseDamage}+${percent(balance.curseMissingHpPct)}当前已损失生命值的真实伤害`, type: 'passive' },
-                { name: '回魂', desc: `回合开始牵引最近的空地【亡魂】唤起【魂卒】，拥有原单位${percent(balance.soulHpPct)}生命值和${percent(balance.soulAttackPct)}攻击力，场上最多${balance.maxSoulMinions}个`, type: 'passive' }
+                { name: '留魂', desc: `友军单位阵亡后原地留下持续${balance.soulMarkRounds}回合的【亡魂】，对占据其上的单位持续施加【亡魂诅咒】，每回合造成${percent(balance.curseMissingHpPct)}当前已损失生命值+${balance.curseBaseDamage}点的真实伤害`, type: 'passive' },
+                { name: '回魂', desc: `回合开始时，从最近的无单位占据的【亡魂】处唤起【魂卒】，拥有原单位${percent(balance.soulHpPct)}生命值和${percent(balance.soulAttackPct)}攻击力，场上最多${balance.maxSoulMinions}个`, type: 'passive' }
             ]
         },
         balance
@@ -204,11 +204,11 @@ function buildPaladin() {
         definition: {
             id: 'paladin', name: '圣骑士', hpBonusPct: 0.25, atkBonusPct: 0.30, spdBonus: 0,
             skills: [
-                { name: '勇气灵光', desc: `自身及相邻6格友军造成的伤害+${percent(balance.auraDamageBonus)}，士气不会下降或混乱`, type: 'passive' },
+                { name: '勇气灵光', desc: `自身及相邻友军造成的伤害+${percent(balance.auraDamageBonus)}，士气不会下降或混乱`, type: 'passive' },
                 { name: '誓言', desc: `【勇气灵光】范围内的友军受击或击杀时获得1誓言，每回合最多1层，上限${balance.faithMax}层，每层为圣骑士提供${percent(balance.defensePerFaith)}防御力`, type: 'passive' },
-                { name: '至圣斩', desc: `每次点击消耗1层誓言蓄力（1层${rangeText(balance.normalSmiteMin, balance.normalSmiteMax)}/2层${rangeText(balance.chargedSmiteMin, balance.chargedSmiteMax)}真实伤害），最多${balance.maxSmiteCharges}层，命中后冷却${balance.smiteCooldown}回合`, type: 'active' }
+                { name: '至圣斩', desc: `消耗1层【誓言】蓄力（1层造成${rangeText(balance.normalSmiteMin, balance.normalSmiteMax)}点、2层造成${rangeText(balance.chargedSmiteMin, balance.chargedSmiteMax)}点真实伤害），最多蓄力${balance.maxSmiteCharges}层，命中后冷却${balance.smiteCooldown}回合`, type: 'active' }
             ],
-            activeSkill: { name: '至圣斩', desc: `每次点击消耗1层誓言蓄力（1层${rangeText(balance.normalSmiteMin, balance.normalSmiteMax)}→再点→2层${rangeText(balance.chargedSmiteMin, balance.chargedSmiteMax)}），最多${balance.maxSmiteCharges}层，命中后冷却${balance.smiteCooldown}回合`, duration: 0, cooldown: 0 }
+            activeSkill: { name: '至圣斩', desc: `消耗1层【誓言】蓄力（1层造成${rangeText(balance.normalSmiteMin, balance.normalSmiteMax)}点、2层造成${rangeText(balance.chargedSmiteMin, balance.chargedSmiteMax)}点真实伤害），最多蓄力${balance.maxSmiteCharges}层，命中后冷却${balance.smiteCooldown}回合`, duration: 0, cooldown: 0 }
         },
         balance
     };
@@ -220,10 +220,10 @@ function buildPriest() {
         definition: {
             id: 'priest', name: '牧师', hpBonusPct: 0.30, atkBonusPct: 0, spdBonus: 0,
             skills: [
-                { name: '圣疗', desc: `每回合链式群体治疗：1段瞄准相邻友方回复${percent(balance.chainFirstHealPct)}生命值，2段传导${balance.chainSecondRange}格内友方回复${percent(balance.chainSecondHealPct)}生命值`, type: 'passive' },
-                { name: '祈祷', desc: `消耗${percent(balance.prayerHpCostPct)}当前生命值，为${balance.prayerRange}格范围友军附加【治愈灵光】：立即回复${percent(balance.prayerInitialHealPct)}生命值，每回合再回复${percent(balance.auraHealPct)}生命值，持续期间受致命一击则提前释放全部剩余治疗量并消耗灵光（⏱${balance.auraDuration} ⏳${balance.cooldown}）`, type: 'active' }
+                { name: '圣疗', desc: `每回合自动施放链式治疗：先为相邻友军回复${percent(balance.chainFirstHealPct)}生命值，再传导至${balance.chainSecondRange}格内友军回复${percent(balance.chainSecondHealPct)}生命值`, type: 'passive' },
+                { name: '祈祷', desc: `消耗${percent(balance.prayerHpCostPct)}当前生命值，为${balance.prayerRange}格范围友军附加【治愈灵光】：立即回复${percent(balance.prayerInitialHealPct)}生命值，每回合再回复${percent(balance.auraHealPct)}生命值，持续${balance.auraDuration}回合；受致命一击时提前释放全部剩余治疗量，仍不足则保底${percent(balance.minimumHpPct)}生命值（⏱${balance.auraDuration} ⏳${balance.cooldown}）`, type: 'active' }
             ],
-            activeSkill: { name: '祈祷', desc: `消耗${percent(balance.prayerHpCostPct)}当前HP，为${balance.prayerRange}格范围友军附加【治愈灵光】（立即${percent(balance.prayerInitialHealPct)}HP+每回合${percent(balance.auraHealPct)}HP，持续${balance.auraDuration}回合）；灵光单位受致命一击时提前迸发剩余治疗，仍不足则保底${percent(balance.minimumHpPct)}生命`, duration: 0, cooldown: balance.cooldown }
+            activeSkill: { name: '祈祷', desc: `消耗${percent(balance.prayerHpCostPct)}当前生命值，为${balance.prayerRange}格范围友军附加【治愈灵光】：立即回复${percent(balance.prayerInitialHealPct)}生命值，每回合再回复${percent(balance.auraHealPct)}生命值，持续${balance.auraDuration}回合；受致命一击时提前释放全部剩余治疗量，仍不足则保底${percent(balance.minimumHpPct)}生命值`, duration: 0, cooldown: balance.cooldown }
         },
         balance
     };

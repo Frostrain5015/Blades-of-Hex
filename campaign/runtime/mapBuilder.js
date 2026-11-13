@@ -107,7 +107,7 @@ export function buildBoardFromConfig(config, gameState) {
             ? Math.max(0, Math.round(city.radius))
             : getCityRadiusFromTileCount(1 + (legacyFootprint ? legacyFootprint.length : 0));
         centre.cityRadius = radius;
-        centre.maxHp = getCityMaxHp(radius);
+        centre.maxHp = getCityMaxHp(radius, gameState, centre.camp);
         // 城防：优先绝对 hp，其次 hpPct（0~100 百分比），默认满血——与单位 hp/hpPct 同一套优先级。
         if (typeof city.hp === 'number') {
             centre.hp = Math.max(0, Math.min(centre.maxHp, Math.round(city.hp)));

@@ -1,3 +1,5 @@
+import { getUnitBaseType } from './units.js';
+
 export const ATTACK_PRESENTATION = Object.freeze({
     ASSAULT: 'assault',
     FIRE_CANNON: 'fire-cannon',
@@ -54,10 +56,11 @@ function readAttackSource(source) {
  */
 export function classifyAttackPresentation(source) {
     const { type, isDrone } = readAttackSource(source);
-    if (type === 'submarine') return ATTACK_PRESENTATION.FIRE_TORPEDO;
-    if (type === 'carrier') return ATTACK_PRESENTATION.FIRE_AIR_STRAFE;
-    if (isDrone || type === 'drone' || type === 'mgNest' || type === 'destroyer') return ATTACK_PRESENTATION.FIRE_TRACER;
-    if (type === 'archer' || type === 'warship' || type === 'shoreBattery') return ATTACK_PRESENTATION.FIRE_CANNON;
+    const baseType = getUnitBaseType(type) || type;
+    if (baseType === 'submarine') return ATTACK_PRESENTATION.FIRE_TORPEDO;
+    if (baseType === 'carrier') return ATTACK_PRESENTATION.FIRE_AIR_STRAFE;
+    if (isDrone || baseType === 'drone' || baseType === 'mgNest' || baseType === 'destroyer') return ATTACK_PRESENTATION.FIRE_TRACER;
+    if (baseType === 'archer' || baseType === 'warship' || baseType === 'shoreBattery') return ATTACK_PRESENTATION.FIRE_CANNON;
     return ATTACK_PRESENTATION.ASSAULT;
 }
 

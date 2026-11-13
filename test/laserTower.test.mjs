@@ -140,6 +140,76 @@ test('击杀归属：齐射击杀记入塔的阵营击杀数；脚手架塔不�
     assert.ok(tower.type === 'laserTower');
 });
 
+test('齐射在弹着帧同步显示伤害、护盾和击杀，战斗状态即时结算', async () => {
+    const { LASER_BEAM_IMPACT_MS, spawnLaserBeam, updateLaserBeams, drawLaserBeams, laserBeams, particles }
+        = await import('../js/effects.js');
+    const { withFloatTextImpactTiming, drainPendingFloatTexts, enqueueFloatText, flushFloatTexts, replayFloatTexts }
+        = await import('../js/floatTexts.js');
+    const state = setup();
+    const towerTile = addTile(state, 0, 0, state.factions.player1);
+    spawn(state, 'laserTower', state.factions.player1, towerTile);
+    const weak = spawn(state, 'infantry', state.factions.player2, addTile(state, 1, 0, state.factions.player2));
+    weak.hp = weak.displayHp = 10;
+    const shielded = spawn(state, 'infantry', state.factions.player2, addTile(state, 2, 0, state.factions.player2));
+    shielded._shield = shielded._displayShield = 50;
+    const startedAt = performance.now();
+    const impactAt = startedAt + LASER_BEAM_IMPACT_MS;
+    const { volleys: [volley] } = withFloatTextImpactTiming(startedAt, LASER_BEAM_IMPACT_MS, () => {
+        const result = resolveLaserTowerVolley(state, 'player1', { impactAt });
+        for (const hit of result.volleys[0].hits) {
+            if (hit.dmg > 0) enqueueFloatText({ x: hit.x, y: hit.y, value: hit.dmg }, { gs: state });
+        }
+        return result;
+    });
+    assert.equal(weak.tile.unit, null);
+    assert.equal(weak.displayHp, 10);
+    assert.equal(state.unitDeathGhosts[0].until, impactAt);
+    assert.equal(shielded._shield, 15);
+    assert.equal(shielded._displayShield, 50);
+    assert.equal(shielded._hpBarDelayUntil, impactAt);
+    assert.equal(volley.hits.find(hit => hit.unitId === shielded.id).dmg, 0);
+
+    for (const [index, hit] of volley.hits.entries()) {
+        spawnLaserBeam(volley.x, volley.y, hit.x, hit.y, { startedAt, drawCharge: index === 0, killed: hit.killed });
+    }
+    const remote = {};
+    const remoteStartedAt = startedAt + 1000;
+    replayFloatTexts(drainPendingFloatTexts(state), { gs: remote, startedAt: remoteStartedAt });
+    const endpoints = [];
+    const drawn = {
+        save() {}, restore() {}, beginPath() {}, arc() {}, moveTo() {}, stroke() {}, fill() {},
+        lineTo(x) { endpoints.push(x); },
+        createRadialGradient() { return { addColorStop() {} }; }
+    };
+    try {
+        const before = particles.length;
+        updateLaserBeams(impactAt - 1);
+        drawLaserBeams(drawn, impactAt - 1);
+        assert.ok(endpoints.length > 0);
+        assert.ok(endpoints.every(x => x !== weak.tile.x && x !== shielded.tile.x));
+        assert.equal(particles.length, before);
+        flushFloatTexts(impactAt - 1, state);
+        assert.equal(state.damageTexts.length + state.shieldTexts.length, 0);
+
+        endpoints.length = 0;
+        updateLaserBeams(impactAt);
+        drawLaserBeams(drawn, impactAt);
+        assert.ok(particles.length > before);
+        assert.ok(endpoints.includes(weak.tile.x) && endpoints.includes(shielded.tile.x));
+        flushFloatTexts(impactAt, state);
+        assert.equal(state.damageTexts[0].value, 10);
+        assert.equal(state.shieldTexts[0].value, 35);
+        flushFloatTexts(remoteStartedAt + LASER_BEAM_IMPACT_MS - 1, remote);
+        assert.equal(remote.damageTexts.length + remote.shieldTexts.length, 0);
+        flushFloatTexts(remoteStartedAt + LASER_BEAM_IMPACT_MS, remote);
+        assert.equal(remote.damageTexts[0].value, 10);
+        assert.equal(remote.shieldTexts[0].value, 35);
+    } finally {
+        laserBeams.length = 0;
+        particles.length = 0;
+    }
+});
+
 test('迷雾下不可见目标不吃齐射；非本方回合的塔不开火', () => {
     const state = setup();
     state.skirmishFog = true;

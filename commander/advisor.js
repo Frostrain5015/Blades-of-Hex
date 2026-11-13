@@ -16,7 +16,7 @@ export default {
       for (const [dq, dr] of HEX_NEIGHBORS) {
         const nb = gs.tileMap.get(`${enemy.tile.q + dq},${enemy.tile.r + dr}`);
         if (nb && nb.unit && nb.unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(nb.unit) && nb.unit.camp === enemy.camp) {
-          helpers.logMessage(`勇气灵光护体，${enemy.config.name}兵免疫攻心`);
+          helpers.logMessage(`勇气灵光护体，${enemy.config.name}免疫攻心`);
           return null;
         }
       }
@@ -24,7 +24,7 @@ export default {
 
     const roll = helpers.rng.int(BALANCE.outcomeCount);
     if (roll === BALANCE.noEffectOutcome) {
-      helpers.logMessage(`谋士【攻心】未能动摇${enemy.config.name}兵`);
+      helpers.logMessage(`谋士【攻心】未能动摇${enemy.config.name}`);
       return null;
     }
 
@@ -35,7 +35,7 @@ export default {
       enemy.moralePenaltyUntil = Math.max(enemy.moralePenaltyUntil || 0, expiresAt);
       helpers.spawnFx(enemy.tile.x, enemy.tile.y);
       helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, false);
-      helpers.logMessage(`谋士【攻心】使${enemy.config.name}兵士气下降（持续2回合）`);
+      helpers.logMessage(`谋士【攻心】使${enemy.config.name}士气下降（持续2回合）`);
       return { moraleDropped: true };
     }
 
@@ -46,8 +46,8 @@ export default {
       helpers.spawnFx(enemy.tile.x, enemy.tile.y);
       helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, false);
       helpers.logMessage(roll === BALANCE.confusedOutcome
-        ? `谋士【攻心】使${enemy.config.name}兵陷入混乱（持续2回合）`
-        : `谋士【攻心】命中将领单位：感化免疫，${enemy.config.name}兵陷入混乱（持续2回合）`);
+        ? `谋士【攻心】使${enemy.config.name}陷入混乱（持续2回合）`
+        : `谋士【攻心】命中将领单位：感化免疫，${enemy.config.name}陷入混乱（持续2回合）`);
       return { moraleDropped: true };
     }
 
@@ -58,7 +58,7 @@ export default {
     enemy.canAct = false;
     helpers.spawnFx(enemy.tile.x, enemy.tile.y);
     helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, true);
-    helpers.logMessage(`谋士【攻心】感化：${enemy.config.name}兵转为${source.camp.name}阵营`);
+    helpers.logMessage(`谋士【攻心】感化：${enemy.config.name}转为${source.camp.name}阵营`);
     return { moraleDropped: false, converted: true };
   },
 

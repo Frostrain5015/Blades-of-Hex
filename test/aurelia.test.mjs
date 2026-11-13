@@ -48,6 +48,7 @@ function createTile(q, r) {
 
 function setupAureliaState() {
     const state = createMatchState();
+    state.factionRuleMode = 'synergy';
     const tiles = [createTile(0, 0), createTile(1, 0), createTile(2, 0)];
     state.tiles = tiles;
     state.tileMap = new Map(tiles.map(tile => [`${tile.q},${tile.r}`, tile]));

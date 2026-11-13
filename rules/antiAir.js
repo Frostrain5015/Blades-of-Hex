@@ -110,7 +110,9 @@ export function resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, optio
 }
 
 export function getAntiAirReduction(targetTile, attackingCamp, tileMap, options = {}) {
-    return resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, options).reduction;
+    const raw = resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, options).reduction;
+    const bypassPct = Math.max(0, Math.min(1, Number(options.bypassPct) || 0));
+    return bypassPct > 0 ? raw * (1 - bypassPct) : raw;
 }
 
 // 过渡别名：旧调用方在迁移完成前仍可读取数值，但返回值已经是百分比而非层数。

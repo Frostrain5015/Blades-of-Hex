@@ -28,7 +28,7 @@ export default {
             const heal1 = Math.round(firstTarget.maxHp * BALANCE.chainFirstHealPct);
             firstTarget.heal(heal1);
             helpers.spawnHealingChain(unit.tile.x, unit.tile.y, firstTarget.tile.x, firstTarget.tile.y);
-            helpers.logMessage(`牧师【圣链·一段】治疗${firstTarget.config.name}兵 +${heal1}HP`);
+            helpers.logMessage(`牧师【圣链·一段】治疗${firstTarget.config.name} +${heal1}HP`);
 
             // 第二段：以firstTarget为中心，2格内HP%次低
             const range2 = new Set();
@@ -53,7 +53,7 @@ export default {
                 const heal2 = Math.round(secondTarget.maxHp * BALANCE.chainSecondHealPct);
                 secondTarget.heal(heal2);
                 helpers.spawnHealingChain(firstTarget.tile.x, firstTarget.tile.y, secondTarget.tile.x, secondTarget.tile.y);
-                helpers.logMessage(`牧师【圣链·传导】治疗${secondTarget.config.name}兵 +${heal2}HP`);
+                helpers.logMessage(`牧师【圣链·传导】治疗${secondTarget.config.name} +${heal2}HP`);
             }
         }
     },

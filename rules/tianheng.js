@@ -8,6 +8,7 @@
 // 原地攻击不清空 remainingMP，防守阵地战每回合能攒近乎整份army移动力（中等规模army约 22~30/回合）。
 
 import { campToKey } from './camps.js';
+import { isFactionSynergyRuleActive } from './cultures.js';
 import { getRoundIndex } from './turns.js';
 import { TIANHENG_FACTION_SYNERGY, getCommanderFactionSynergy } from './factionSynergies.js';
 
@@ -56,7 +57,7 @@ export function getLivingTianhengCommanders(gameState, campOrKey) {
 
 /** ≥2 名天衡将领存活即协同激活。 */
 export function hasTianhengSynergyActive(gameState, campOrKey) {
-    return getLivingTianhengCommanders(gameState, campOrKey).length >= 2;
+    return isFactionSynergyRuleActive(gameState) && getLivingTianhengCommanders(gameState, campOrKey).length >= 2;
 }
 
 /** 某阵营的全部存活单位（含将领与普通兵）。 */

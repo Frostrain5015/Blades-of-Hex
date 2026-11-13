@@ -23,6 +23,7 @@ export function laserTowerShotDamage(targetCount, balance = LASER_TOWER_BALANCE)
  * @param {string} campKey 回合开始方阵营键
  * @param {object} [options]
  * @param {function} [options.isTileVisible] 遭遇战迷雾判定 (tile, camp, state) => boolean
+ * @param {number} [options.impactAt] 客户端弹着时间戳，供血条和阵亡表现使用
  * @returns {{ volleys: Array<{towerId:number,q:number,r:number,x:number,y:number,
  *   hits:Array<{unitId:number,q:number,r:number,x:number,y:number,dmg:number,killed:boolean}>}> }}
  */
@@ -59,9 +60,17 @@ export function resolveLaserTowerVolley(gameState, campKey, options = {}) {
         const hits = [];
         for (const { unit, tile } of targets) {
             const hpBefore = unit.hp;
-            unit.applyDamage(dmg, { source: 'ranged', attacker: tower });
+            const previousImpactAt = unit._deferImpactFxUntil;
+            if (Number.isFinite(options.impactAt)) {
+                unit._hpBarDelayUntil = options.impactAt;
+                unit._deferImpactFxUntil = options.impactAt;
+            }
+            try {
+                unit.applyDamage(dmg, { source: 'ranged', attacker: tower });
+            } finally {
+                unit._deferImpactFxUntil = previousImpactAt;
+            }
             const dealt = Math.max(0, hpBefore - Math.max(0, unit.hp));
-            if (dealt <= 0) continue;
             hits.push({
                 unitId: unit.id, q: tile.q, r: tile.r, x: tile.x, y: tile.y,
                 dmg: dealt, killed: unit.hp <= 0

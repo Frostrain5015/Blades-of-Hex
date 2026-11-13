@@ -6,7 +6,7 @@ import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, attackCityTile, recruitUnit, reinforceUnit, repairShipAtPort,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeDroneDeploy, executeDroneSuicide,
-    executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand,
+    executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge,
     recalcAllFlankingMorale, drawCard, recordAuxiliaryAction
 } from './gameLogic.js';
 import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
@@ -48,7 +48,9 @@ import { campToKey } from '../rules/camps.js';
 import { prioritizeNavalRecruitment } from '../rules/aiRecruitment.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { canRecruitTypeAtSelectedSite } from './recruitmentUi.js';
-import { chooseDefaultSpecialization } from '../rules/units.js';
+import { chooseDefaultSpecialization, getUnitBaseType } from '../rules/units.js';
+import { isUnitVisibleToCamp } from '../rules/visibility.js';
+import { getActiveCultureId, getArtilleryCostDiscount, getCulturalReinforceCostScale, getCultureUniqueUnitType } from '../rules/cultures.js';
 import {
     canBuildFieldFortification,
     canFieldRepair,
@@ -174,7 +176,7 @@ function estimateVisibleThreatAt(site, aiCamp, forecast) {
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         if (!unit || !isHostile(gameState, aiCamp, unit.camp)) continue;
-        if (!isKnownToAi(tile, aiCamp)) continue;
+        if (!isKnownToAi(tile, aiCamp) || !isUnitVisibleToCamp(unit, aiCamp, gameState)) continue;
         const range = Math.max(1, Number(unit.config?.range || 1));
         const reach = range + (forecast ? Math.max(0, Number(unit.config?.speed || 0)) : 2);
         const distance = hexDistance(tile, site);
@@ -196,7 +198,8 @@ function resolveEmergencyRecruitReserve(aiCamp, difficultyProfile) {
     const ownUnits = gameState.tiles.filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0);
     const rivalUnits = gameState.tiles.filter(tile => tile.unit?.hp > 0
         && isHostile(gameState, aiCamp, tile.unit.camp)
-        && isKnownToAi(tile, aiCamp));
+        && isKnownToAi(tile, aiCamp)
+        && isUnitVisibleToCamp(tile.unit, aiCamp, gameState));
     return getEmergencyRecruitReserve({
         enabled: true,
         ownUnitCount: ownUnits.length,
@@ -301,10 +304,33 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
         : []) {
         const knownEnemies = gameState.tiles.filter(tile => tile.unit?.hp > 0
             && isHostile(gameState, aiCamp, tile.unit.camp) && knownTile(tile)
+            && isUnitVisibleToCamp(tile.unit, aiCamp, gameState)
             && isSubmarineTargetableBy(tile.unit, aiCamp, gameState));
         const knownEnemyTiles = new Set(knownEnemies);
         const range = getAirCommandRange(city);
         const enemies = knownEnemies.filter(tile => hexDistance(city, tile) <= range);
+        const stuka = getAirCommandAvailability('stukaDiveBomb', city, gameState);
+        if (stuka.available && canSpend(AIR_COMMAND_CONFIG.stukaDiveBomb.cost)) {
+            let stukaTarget = null;
+            let stukaScore = 0;
+            for (const tile of gameState.tiles) {
+                if (hexDistance(city, tile) > range || !knownTile(tile)) continue;
+                const targets = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr))]
+                    .filter(candidate => knownEnemyTiles.has(candidate));
+                if (targets.length === 0) continue;
+                const score = targets.length * 1.25
+                    + targets.filter(threatensCity).length * 0.9
+                    + (tile.isCity && tile.camp !== aiCamp ? 1 : 0);
+                if (score > stukaScore) { stukaScore = score; stukaTarget = tile; }
+            }
+            if (stukaTarget && stukaScore >= 2.2) {
+                await runObservedAction({ type: 'airCommand', airKind: 'stukaDiveBomb', tileQ: city.q, tileR: city.r, targetQ: stukaTarget.q, targetR: stukaTarget.r }, aiCamp, () => {
+                    executeAirCommand('stukaDiveBomb', city, stukaTarget);
+                });
+                await delay(AI_DELAY * 0.5);
+                continue;
+            }
+        }
         const bombing = getAirCommandAvailability('bombing', city, gameState);
         let bombingTarget = null;
         let bombingScore = 0;
@@ -353,7 +379,7 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
         const airfieldReserve = difficultyProfile.infrastructureLevel >= 2 ? 18 : 24;
         if (difficultyProfile.infrastructureLevel > 0
             && candidate && (gameState.playerGold[campKey] || 0) >= airfieldReserve
-            && canSpend(constructionCost('airfield', candidate.unit, candidate))) {
+            && canSpend(constructionCost('airfield', candidate.unit, candidate, gameState))) {
             await runObservedAction({ type: 'buildAirfield', tileQ: candidate.q, tileR: candidate.r }, aiCamp, () => {
                 executeAirfieldConstruction(candidate);
             });
@@ -368,7 +394,7 @@ async function runAiFieldFortifications(aiCamp, difficultyProfile) {
     const fogSafeTile = tile => isKnownToAi(tile, aiCamp);
     // 敌方存在可见空袭平台（航母/无人机/已建成机场）时优先高射机枪，否则战壕。
     const hostileAir = gameState.tiles.some(tile => fogSafeTile(tile)
-        && ((tile.unit && isHostile(gameState, aiCamp, tile.unit.camp) && (tile.unit.type === 'carrier' || tile.unit._isDrone))
+        && ((tile.unit && isHostile(gameState, aiCamp, tile.unit.camp) && isUnitVisibleToCamp(tile.unit, aiCamp, gameState) && (tile.unit.type === 'carrier' || tile.unit._isDrone))
             || (tile.isCity && isHostile(gameState, aiCamp, tile.camp) && tile.installation?.status === 'ready')));
     // 只在战略位置（城市/村庄）或敌军兵临 2 格内时修工事，并保留基础金币，避免每回合白耗单位行动。
     const fortificationKind = hostileAir ? 'flak' : 'trench';
@@ -381,7 +407,7 @@ async function runAiFieldFortifications(aiCamp, difficultyProfile) {
             && unit.canAct && !unit.isNewRecruit && isOrdinaryGroundBuilder(unit)
             && (unit.tile.isCity || unit.tile.isVillage)
             && gameState.tiles.some(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
-                && fogSafeTile(tile)
+                && fogSafeTile(tile) && isUnitVisibleToCamp(tile.unit, aiCamp, gameState)
                 && hexDistance(unit.tile, tile) <= (unit.tile.isCity ? 3 : 2))
             && canBuildFieldFortification(unit, fortificationKind, gameState))
         : null;
@@ -403,13 +429,13 @@ function planEngineerAction(aiCamp) {
     ), null);
     if (!engineer || !engineer.tile) return null;
 
-    const hostileTiles = gameState.tiles.filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp));
+    const hostileTiles = gameState.tiles.filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp) && isKnownToAi(tile, aiCamp) && isUnitVisibleToCamp(tile.unit, aiCamp, gameState));
     const isThreatened = hostileTiles.some(tile => hexDistance(engineer.tile, tile) <= 2);
     if (!engineer.tile.fortification && (engineer.tile.isCity || engineer.tile.isVillage || isThreatened)) {
         // 附近以远程/空军威胁为主 → 架高射机枪；否则挖战壕（定向选择）
         const rangedThreatNearby = hostileTiles.some(tile =>
             hexDistance(engineer.tile, tile) <= 2
-            && (tile.unit.type === 'archer' || tile.unit.type === 'mgNest' || tile.unit._isDrone));
+            && (getUnitBaseType(tile.unit) === 'archer' || getUnitBaseType(tile.unit) === 'mgNest' || tile.unit._isDrone));
         const airThreatOnBoard = hostileTiles.some(tile => tile.unit.commander === 'colonel' || tile.unit._isDrone);
         if (rangedThreatNearby || airThreatOnBoard) {
             return { type: 'engineerFlak', unitId: engineer.id };
@@ -456,7 +482,7 @@ function makeHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(game
             ? prioritizeNavalRecruitment(
                 city,
                 baseTypes,
-                gameState.tiles.filter(tile => tile.unit?.camp === aiCamp || isKnownToAi(tile, aiCamp)),
+                gameState.tiles.filter(tile => tile.unit?.camp === aiCamp || (isKnownToAi(tile, aiCamp) && (!tile.unit || isUnitVisibleToCamp(tile.unit, aiCamp, gameState)))),
                 aiCamp,
                 (left, right) => isHostile(gameState, left, right)
             )
@@ -465,6 +491,8 @@ function makeHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(game
             canRecruitTypeAtSelectedSite(type, site, gameState, aiCamp),
         difficultyProfile,
         isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState),
+        isUnitVisibleToCamp: (unit, camp) => isUnitVisibleToCamp(unit, camp, gameState),
+        getCulturalReinforceCostScale: (tile, camp) => getCulturalReinforceCostScale(gameState, tile, camp),
         CARD_SYSTEM_CONFIG,
         COLONEL_CARD_GOLD
     };
@@ -562,10 +590,12 @@ async function _executeActionInner(action, aiCamp) {
         let bestScore = -Infinity;
         for (const t of targets) {
             const target = t.unit;
-            const c = (COUNTER[unit.type] && COUNTER[unit.type][target.type]) || 1;
+            const aBase = getUnitBaseType(unit);
+            const tBase = getUnitBaseType(target);
+            const c = (COUNTER[aBase] && COUNTER[aBase][tBase]) || 1;
             const tDef = (TERRAIN_DEF[target.tile.terrain] || 0)
                 + (FORTIFICATION_CONFIG[target.tile.fortification]?.defenseBonus || 0);
-            const cityDef = (target.type === 'infantry' && (target.tile.isCity || target.tile.isUrban))
+            const cityDef = (tBase === 'infantry' && (target.tile.isCity || target.tile.isUrban))
                 ? (gameState.weather === 'rain' ? 0.20 : 0.10) : 0;
             const unitDef = target.config.defense || 0;
             // 士气攻击加成已含在 getEffectiveAttack 内，不再单独估算
@@ -619,7 +649,7 @@ async function _executeActionInner(action, aiCamp) {
         case 'move': {
             const unit = resolveUnit(action.unitId);
             const targetTile = resolveTile(action.tileQ, action.tileR);
-            if (!unit || !targetTile || !unit.canAct || !unit.tile || targetTile.unit) return;
+            if (!unit || !targetTile || !unit.canAct || !unit.tile || (targetTile.unit && isUnitVisibleToCamp(targetTile.unit, aiCamp, gameState))) return;
             // 中立航母的移动不再由引擎拦死：是否离港是 Corporal 人格在规划层的决策
             // （重罚离港、贴脸才规避），执行层只校验落点合法性。
             const aiMoveTiles = getMovableTiles(unit);
@@ -651,7 +681,8 @@ async function _executeActionInner(action, aiCamp) {
             const cityTile = resolveTile(action.tileQ, action.tileR);
             if (!cityTile || !canRecruitTypeAtSelectedSite(action.unitType, cityTile, gameState, aiCamp)) return;
             const gold = gameState.playerGold[campKey];
-            if (gold < UNIT_CONFIG[action.unitType].cost) return;
+            const recruitCost = Math.max(1, UNIT_CONFIG[action.unitType].cost - getArtilleryCostDiscount(gameState, aiCamp, action.unitType));
+            if (gold < recruitCost) return;
             gameState.selectedCityTile = cityTile;
             await delay(AI_DELAY);
             recruitUnit(action.unitType);
@@ -769,6 +800,14 @@ async function _executeActionInner(action, aiCamp) {
             if (!unit || !targetUnit || !unit._isDrone || !targetUnit.tile) return;
             await delay(AI_DELAY * 0.5);
             executeDroneSuicide(unit, targetUnit.tile);
+            break;
+        }
+        case 'banzaiCharge': {
+            const unit = resolveUnit(action.unitId);
+            const targetTile = resolveTile(action.targetQ, action.targetR);
+            if (!unit || !targetTile || unit.type !== 'jp_samurai' || !unit.canAct || !targetTile.unit) return;
+            await delay(AI_DELAY);
+            executeBanzaiCharge(unit, targetTile);
             break;
         }
         case 'drawCard': {
@@ -940,23 +979,30 @@ export async function processOpponentTurn(aiCamp) {
         const hostileNavy = landMap && gameState.tiles.some(tile =>
             tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
             && tile.unit.config?.movementDomain === 'naval'
-            && isKnownToAi(tile, aiCamp));
-        const portFallbackBlocked = fleetSaturated || (landMap && !hostileNavy);
+            && isKnownToAi(tile, aiCamp)
+            && isUnitVisibleToCamp(tile.unit, aiCamp, gameState));
+        const uniqueType = getCultureUniqueUnitType(getActiveCultureId(gameState, aiCamp));
+        const portFallbackBlocked = fleetSaturated || (landMap && !hostileNavy && uniqueType !== 'us_marine');
         for (const port of portFallbackBlocked ? [] : emptyPorts) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
             const hostileTypes = new Set(gameState.tiles
                 .filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
-                    && isKnownToAi(tile, aiCamp))
-                .map(tile => tile.unit.type));
-            const navalOrder = hostileTypes.has('submarine')
+                    && isKnownToAi(tile, aiCamp) && isUnitVisibleToCamp(tile.unit, aiCamp, gameState))
+                .map(tile => getUnitBaseType(tile.unit)));
+            let navalOrder = hostileTypes.has('submarine')
                 ? ['destroyer', 'submarine', 'warship']
                 : hostileTypes.has('warship')
                     ? ['submarine', 'destroyer', 'warship']
                     : hostileTypes.has('destroyer')
                         ? ['warship', 'destroyer', 'submarine']
                         : ['destroyer', 'submarine', 'warship'];
-            const unitType = navalOrder.find(type => gameState.playerGold[campKey] >= UNIT_CONFIG[type].cost
-                && canRecruitTypeAtSelectedSite(type, port, gameState, aiCamp));
+            if (uniqueType === 'gb_battleship' || uniqueType === 'us_marine') {
+                navalOrder = [uniqueType, ...navalOrder.filter(t => t !== uniqueType)];
+            }
+            const unitType = navalOrder.find(type => {
+                const c = Math.max(1, UNIT_CONFIG[type].cost - getArtilleryCostDiscount(gameState, aiCamp, type));
+                return gameState.playerGold[campKey] >= c && canRecruitTypeAtSelectedSite(type, port, gameState, aiCamp);
+            });
             if (unitType) {
                 await executeAction({ type: 'recruit', unitType, tileQ: port.q, tileR: port.r }, aiCamp);
             }

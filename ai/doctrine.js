@@ -8,7 +8,7 @@
 // 反过来说，任何「怎么打」的决策（目标怎么选、走位怎么评分、要不要冒险）
 // 都不属于条令层，必须留在各自的档位脚本里，否则档次差异会退化成开关。
 
-import { COUNTER_RELATION, getMachineGunDamageBonus, isStrongpointTarget } from '../rules/units.js';
+import { COUNTER_RELATION, getMachineGunDamageBonus, getUnitBaseType, isStrongpointTarget } from '../rules/units.js';
 import { NAVAL_RULES } from '../rules/naval.js';
 import { isWaterTile } from '../rules/surfaces.js';
 import { getCannonSiegeDamageBonus } from '../rules/citySiege.js';
@@ -62,21 +62,29 @@ const NAVAL_TYPES = new Set(['destroyer', 'warship', 'submarine', 'carrier']);
 /** 对齐 rules/naval.getCrossDomainDamageBonus，但只依赖 AI 手上的地块信息。 */
 export function crossDomainDamageBonus(attacker, defenderTile, defender = null) {
     if (!attacker || !defenderTile) return 0;
+    const attackerBase = getUnitBaseType(attacker);
+    const defenderBase = getUnitBaseType(defender);
     const defenderAfloat = isWaterTile(defenderTile)
-        && (NAVAL_TYPES.has(defender?.type) || defender?.isEmbarked === true);
-    if (attacker.type === 'shoreBattery') {
+        && (NAVAL_TYPES.has(defenderBase) || defender?.isEmbarked === true);
+    if (attackerBase === 'shoreBattery') {
         return defenderAfloat
             ? NAVAL_RULES.shoreBatteryVsShipDamage
             : NAVAL_RULES.shoreBatteryVsLandDamage;
     }
-    if (NAVAL_TYPES.has(attacker.type) && !isWaterTile(defenderTile)) {
+    if (NAVAL_TYPES.has(attackerBase) && !isWaterTile(defenderTile)) {
         return NAVAL_RULES.shipVsLandDamage;
     }
-    if (!NAVAL_TYPES.has(attacker.type) && attacker.type !== 'drone'
-        && NAVAL_TYPES.has(defender?.type)) {
-        return NAVAL_RULES.landVsShipDamage;
+    let bonus = 0;
+    if (attacker?.type === 'us_marine' && attacker.tile && isWaterTile(attacker.tile) && !isWaterTile(defenderTile)) {
+        bonus += attacker.config?.waterToLandBonus || 0;
     }
-    return 0;
+    if (!NAVAL_TYPES.has(attackerBase) && attackerBase !== 'drone'
+        && NAVAL_TYPES.has(defenderBase)) {
+        if (!attacker?.config?.noLandVsShipPenalty) {
+            bonus += NAVAL_RULES.landVsShipDamage;
+        }
+    }
+    return bonus;
 }
 
 // 只有“突击类”攻击者能在击杀守军/打破城防后进驻城市（对齐
@@ -88,7 +96,7 @@ const NON_ASSAULT_TYPES = new Set([
 export function canCaptureCityByCombat(unit) {
     if (!unit) return false;
     if (unit._isDrone) return false;
-    return !NON_ASSAULT_TYPES.has(unit.type);
+    return !NON_ASSAULT_TYPES.has(getUnitBaseType(unit));
 }
 
 // 火炮类攻城 +50%（对齐 rules/citySiege.CANNON_SIEGE_ATTACKER_TYPES）。
@@ -100,23 +108,25 @@ export const TERRAIN_DEF = { plains: 0, forest: 0.05, mountain: 0.05 };
 
 export function scoreTacticalRoleMatchup(attacker, target) {
     if (!attacker || !target) return 0;
-    if (attacker.type === 'submarine') {
-        if (target.type === 'carrier') return 190;
-        if (target.type === 'warship') return 125;
-        if (target.type === 'destroyer') return -90;
+    const aBase = getUnitBaseType(attacker);
+    const tBase = getUnitBaseType(target);
+    if (aBase === 'submarine') {
+        if (tBase === 'carrier') return 190;
+        if (tBase === 'warship') return 125;
+        if (tBase === 'destroyer') return -90;
     }
-    if (attacker.type === 'destroyer' && target.type === 'submarine') {
+    if ((aBase === 'destroyer' || attacker.config?.submarineDetectorRadius) && tBase === 'submarine') {
         return attacker.specializationKey === 'antiSubDestroyer' ? 180 : 100;
     }
-    if (attacker.type === 'warship'
-        && (target.type === 'carrier' || target.type === 'destroyer')) {
+    if (aBase === 'warship'
+        && (tBase === 'carrier' || tBase === 'destroyer')) {
         return 70;
     }
-    if ((attacker.type === 'cavalry' || attacker._isDrone)
-        && (target.type === 'archer' || target.type === 'mgNest')) {
+    if ((aBase === 'cavalry' || attacker._isDrone)
+        && (tBase === 'archer' || tBase === 'mgNest')) {
         return 105;
     }
-    if (target.type === 'carrier') return 80;
+    if (tBase === 'carrier') return 80;
     return 0;
 }
 
@@ -149,9 +159,10 @@ export function scoreCommanderCarrierCandidate(unit, commanderId, mapDefinition)
             destroyer: 125,
             submarine: 65
         };
-        score += navalFlagshipBonus[unit.type] || 0;
+        const base = getUnitBaseType(unit);
+        score += navalFlagshipBonus[unit.type] ?? navalFlagshipBonus[base] ?? 0;
         // 空军上校与航母的舰载航空体系拥有额外协同。
-        if (commanderId === 'colonel' && unit.type === 'carrier') score += 90;
+        if (commanderId === 'colonel' && base === 'carrier') score += 90;
     } else if (unit.config?.movementDomain === 'naval') {
         // 陆战为主的地图：将领挂军舰 = 脱离主战场（打不到城、护不了陆军）。
         score -= 140;
@@ -160,7 +171,10 @@ export function scoreCommanderCarrierCandidate(unit, commanderId, mapDefinition)
     // 各将领的载体偏好（COMMANDER_STRATEGY.carrierPref）：输出型将领要进战斗序列。
     const carrierPref = COMMANDER_STRATEGY[commanderId]?.carrierPref;
     if (carrierPref) {
-        const prefIndex = carrierPref.indexOf(unit.type);
+        const base = getUnitBaseType(unit);
+        const prefIndex = carrierPref.indexOf(unit.type) >= 0
+            ? carrierPref.indexOf(unit.type)
+            : carrierPref.indexOf(base);
         if (prefIndex >= 0) score += (carrierPref.length - prefIndex) * 25;
     }
 
@@ -190,7 +204,7 @@ export function estimateSiegeDamage(attacker, cityTile) {
     if (!attacker || !cityTile) return 0;
     const attack = Number(attacker.getEffectiveAttack?.() ?? attacker.config?.attack ?? 0);
     const bonus = crossDomainDamageBonus(attacker, cityTile)
-        + (CANNON_SIEGE_TYPES.has(attacker.type) ? CANNON_SIEGE_BONUS : 0);
+        + (CANNON_SIEGE_TYPES.has(getUnitBaseType(attacker)) ? CANNON_SIEGE_BONUS : 0);
     return Math.max(1, attack * Math.max(0, 1 + bonus));
 }
 
@@ -343,7 +357,8 @@ export function selectCommanderPair(pool) {
 
 /** 远程攻击者：战壕只挡近战、高射机枪只挡远程、森林对远程额外加成。 */
 export function isRangedAttacker(attacker) {
-    return attacker?.type === 'archer' || attacker?.type === 'mgNest' || attacker?._isDrone === true;
+    const base = getUnitBaseType(attacker);
+    return base === 'archer' || base === 'mgNest' || attacker?._isDrone === true;
 }
 
 /**
@@ -379,21 +394,27 @@ export function createCombatModel({ weather = 'clear', hexDistance } = {}) {
     function estimateDamage(attacker, defender, tile) {
         const tileObj = tile || defender?.tile;
         if (!attacker || !defender || !tileObj) return 0;
+        const attackerBase = getUnitBaseType(attacker);
+        const defenderBase = getUnitBaseType(defender);
         const coeff = counterCoefficient(attacker.type, defender.type);
         const transportedAttacker = areCommanderMechanicsSuppressed(attacker);
         const transportDefense = getTransportBaseDefense({ ...defender, tile: tileObj });
+        const strongholdDef = (defender.type === 'kmt_training_brigade' && !defender.isEmbarked && (tileObj.fortification || tileObj.isCity || tileObj.isUrban))
+            ? (defender.config?.cityDefenseBonus || 0)
+            : 0;
         const offense = 1
             + counterDamageBonus(attacker.type, defender.type)
-            + (transportedAttacker ? 0 : weatherAttackBonus(attacker.type))
+            + (transportedAttacker ? 0 : weatherAttackBonus(attackerBase))
             + crossDomainDamageBonus(attacker, tileObj, defender)
             + getMachineGunDamageBonus(attacker.type, defender?.type)
             // 火炮攻城修正已并入引擎②增伤乘区：对要塞单位（城市驻军/碉堡/岸防炮/工事格）+50%
             + (isStrongpointTarget({ ...defender, tile: tileObj }) ? getCannonSiegeDamageBonus(attacker) : 0);
         const def = transportDefense != null ? 1 - transportDefense : 1
             - terrainDefense(tileObj, isRangedAttacker(attacker))
-            - cityDefense(defender.type, tileObj)
+            - cityDefense(defenderBase, tileObj)
             - (defender.config?.defense || 0)
-            - weatherDefensePenalty(defender.type);
+            - strongholdDef
+            - weatherDefensePenalty(defenderBase);
         const magicianDef = (transportDefense == null && defender.commander === 'magician' && coeff > 1) ? 0.15 : 0;
         return Number(attacker.getEffectiveAttack?.() ?? (transportedAttacker ? TRANSPORT_RULES.baseAttack : attacker.config?.attack) ?? 0)
             * Math.max(0, offense)
@@ -406,9 +427,11 @@ export function createCombatModel({ weather = 'clear', hexDistance } = {}) {
      */
     function estimateCounterDamage(attacker, defender) {
         if (!attacker?.tile || !defender?.tile) return 0;
-        if (defender.type === 'carrier') return 0;
+        const attackerBase = getUnitBaseType(attacker);
+        const defenderBase = getUnitBaseType(defender);
+        if (defenderBase === 'carrier') return 0;
         if (defender.counterAttackCount >= 1 || defender._transportTransitionedThisTurn || defender._campaignNoCounter) return 0;
-        if (attacker.type === 'submarine' && defender.type !== 'submarine') return 0;
+        if (attackerBase === 'submarine' && defenderBase !== 'submarine') return 0;
         if (attacker._isDrone && !defender._isDrone) return 0;
         const distance = hexDistance ? hexDistance(attacker.tile, defender.tile) : 1;
         if ((defender.getEffectiveRange?.() ?? getUnitCombatRange(defender)) < distance) return 0;
@@ -445,7 +468,8 @@ export const CITY_VISION_RANGE = 1;
 export function estimateUnitVisionRadius(unit, weather = 'clear') {
     if (!unit) return 1;
     let range;
-    if (unit.type === 'archer') {
+    const baseType = getUnitBaseType(unit);
+    if (baseType === 'archer') {
         range = Number(unit.config?.range ?? 2);
         if (weather === 'fog') range -= 1;
         let bonus = 0;
@@ -453,7 +477,7 @@ export function estimateUnitVisionRadius(unit, weather = 'clear') {
         if (weather === 'wind') bonus = Math.max(bonus, 1);
         range = Math.max(1, Math.min(4, range + bonus));
     } else {
-        range = UNIT_VISION[unit.type] || 1;
+        range = UNIT_VISION[baseType] || 1;
     }
     range += unit.getSpecializationAbility?.('skirmishVisionBonus') || 0;
     if (unit.commander === 'tianyan') range += 1;

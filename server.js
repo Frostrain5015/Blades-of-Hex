@@ -8,6 +8,7 @@ const WebSocket = require('ws');
 const protocolReady = import('./protocol/messages.js');
 const flagRulesReady = import('./rules/diplomacy.js');
 const campRulesReady = import('./rules/camps.js');
+const cultureRulesReady = import('./rules/cultures.js');
 const { createPlayerProfileStore, normalizeProfile } = require('./server/playerProfileStore.js');
 const { AI_DRIVER_ROLE, isValidAiDifficulty, aiSlotCount, humanCapacity, isRoomFull, firstFreeRole, takenRoles } = require('./server/roomAi.js');
 
@@ -403,7 +404,7 @@ function roomList() {
     for (const [id, room] of rooms) {
         // 未开始的对局，或对局中有玩家断线（可重连）
         if (!room.gameStarted || room._disconnectedRole || (room._disconnectedRoles && Object.keys(room._disconnectedRoles).length > 0)) {
-            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2, aiCount: room.aiSlots ? room.aiSlots.size : 0, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false, standardMapId: room.standardMapId || 'crown-ring' });
+            list.push({ roomId: id, playerCount: room.players.size, maxPlayers: room.maxPlayers || 2, aiCount: room.aiSlots ? room.aiSlots.size : 0, skirmishFog: room.skirmishFog || false, doubleCommanderMode: room.doubleCommanderMode || false, factionRuleMode: room.factionRuleMode || 'none', standardMapId: room.standardMapId || 'crown-ring' });
         }
     }
     return list;
@@ -472,8 +473,12 @@ function rollNetworkTurnOrder(roles) {
     return { turnOrder: [...groups.flat(), 'neutral'], turnOrderRolls: histories };
 }
 
-function createNetworkMatchSetup(room, assignAiFactionColors) {
+async function createNetworkMatchSetup(room, assignAiFactionColors) {
     const roles = takenRoles(room).sort();
+    const { FLAG_PRESETS, isFlagPreset, getFlagPresetColor } = await flagRulesReady;
+    const { FACTION_RULE_MODES, normalizeFactionRuleMode } = await cultureRulesReady;
+    const ruleMode = normalizeFactionRuleMode(room.factionRuleMode);
+    room.factionRuleMode = ruleMode;
     // 出生阵营席位随机分配：与回合顺序同刻洗牌，role → campKey 不再恒等，
     // 玩家不再按加入顺序固定出生在地图同一位置（地图出生点绑定 campKey）。
     const campKeys = [...roles];
@@ -489,16 +494,59 @@ function createNetworkMatchSetup(room, assignAiFactionColors) {
         .map(([role, rolls]) => [room.roleAssignments[role], rolls]));
     // 阵营外观与名称按 role 保存：factionColor 消息按 role 写入，
     // 快照校验经 roleAssignments 翻译到 camp；下发给客户端时投影为 camp 键。
-    room.factionColors = Object.fromEntries(roles.map(role => [role, room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]]));
-    room.factionColors = assignAiFactionColors(room.factionColors, [...(room.aiSlots?.keys() || [])].sort());
     room.factionEmojis = Object.fromEntries(roles.map(role => [
         role,
         STANDARD_FLAG_EMOJIS.has(room.factionEmojis?.[role]) ? room.factionEmojis[role] : DEFAULT_ROLE_FLAG_EMOJIS[role]
     ]));
-    room.factionPresets = Object.fromEntries(roles.map(role => [role, room.factionPresets?.[role] || null]));
-    room.factionNames = Object.fromEntries(roles.map(role => [role,
-        room.aiSlots?.has(role) ? '' : room.factionNames?.[role] || ''
-    ]));
+    if (ruleMode === FACTION_RULE_MODES.CULTURE) {
+        const allPresets = Object.keys(FLAG_PRESETS);
+        const usedPresets = new Set();
+        const assignedPresets = {};
+        const humanFirst = [...roles].sort((a, b) => (room.aiSlots?.has(a) ? 1 : 0) - (room.aiSlots?.has(b) ? 1 : 0));
+        for (const role of humanFirst) {
+            const picked = room.factionPresets?.[role];
+            if (!room.aiSlots?.has(role) && isFlagPreset(picked) && !usedPresets.has(picked)) {
+                assignedPresets[role] = picked;
+                usedPresets.add(picked);
+            }
+        }
+        for (const role of humanFirst) {
+            if (assignedPresets[role]) continue;
+            const candidates = allPresets.filter(preset => !usedPresets.has(preset));
+            const chosen = candidates[crypto.randomInt(0, candidates.length)] || allPresets[0];
+            assignedPresets[role] = chosen;
+            usedPresets.add(chosen);
+        }
+        room.factionPresets = Object.fromEntries(roles.map(role => [role, assignedPresets[role]]));
+        room.factionColors = Object.fromEntries(roles.map(role => [role, getFlagPresetColor(assignedPresets[role]) || DEFAULT_ROLE_COLORS[role]]));
+        room.factionNames = Object.fromEntries(roles.map(role => [role, '']));
+    } else if (ruleMode === FACTION_RULE_MODES.SYNERGY) {
+        const usedColors = new Set();
+        const nextColors = {};
+        for (const role of roles) {
+            if (room.aiSlots?.has(role)) continue;
+            const picked = room.factionColors?.[role];
+            const valid = PLAYER_FACTION_COLORS.has(picked) && !usedColors.has(picked)
+                ? picked
+                : [...PLAYER_FACTION_COLORS].find(color => !usedColors.has(color)) || DEFAULT_ROLE_COLORS[role];
+            nextColors[role] = valid;
+            usedColors.add(valid);
+        }
+        room.factionColors = assignAiFactionColors(nextColors, [...(room.aiSlots?.keys() || [])].sort());
+        room.factionPresets = Object.fromEntries(roles.map(role => [role, null]));
+        room.factionNames = Object.fromEntries(roles.map(role => [
+            role,
+            room.aiSlots?.has(role) ? '' : room.factionNames?.[role] || ''
+        ]));
+    } else {
+        room.factionColors = Object.fromEntries(roles.map(role => [role, room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]]));
+        room.factionColors = assignAiFactionColors(room.factionColors, [...(room.aiSlots?.keys() || [])].sort());
+        room.factionPresets = Object.fromEntries(roles.map(role => [role, room.factionPresets?.[role] || null]));
+        room.factionNames = Object.fromEntries(roles.map(role => [
+            role,
+            room.aiSlots?.has(role) ? '' : room.factionNames?.[role] || ''
+        ]));
+    }
     const campPresets = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionPresets[role]]));
     const campColors = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionColors[role]]));
     const campEmojis = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionEmojis[role]]));
@@ -509,6 +557,7 @@ function createNetworkMatchSetup(room, assignAiFactionColors) {
         turnOrder: room.turnOrder,
         turnOrderRolls: room.turnOrderRolls,
         standardMapId: room.standardMapId || 'crown-ring',
+        factionRuleMode: ruleMode,
         roleAssignments: room.roleAssignments,
         factionColors: campColors,
         factionEmojis: campEmojis,
@@ -519,6 +568,7 @@ function createNetworkMatchSetup(room, assignAiFactionColors) {
 }
 
 function snapshotMatchesRoomSetup(room, snapshot, getStandardFactionName) {
+    if ((snapshot.factionRuleMode || 'none') !== (room.factionRuleMode || 'none')) return false;
     const assignments = room.roleAssignments || {};
     const snapshotAssignments = snapshot.roleAssignments || {};
     const assignmentKeys = Object.keys(assignments);
@@ -530,6 +580,8 @@ function snapshotMatchesRoomSetup(room, snapshot, getStandardFactionName) {
         const emoji = room.factionEmojis?.[role];
         const preset = room.factionPresets?.[role] || null;
         const customName = room.factionNames?.[role] || '';
+        if ((room.factionRuleMode || 'none') === 'culture' && (!preset || customName)) return false;
+        if ((room.factionRuleMode || 'none') === 'synergy' && preset) return false;
         if (!preset && !PLAYER_FACTION_COLORS.has(colorId)) return false;
         const faction = snapshot.factions?.[factionKey];
         if (!factionKey || faction?.colorId !== colorId
@@ -650,6 +702,8 @@ async function handleMessage(ws, rawData) {
             const maxPlayers = msg.maxPlayers || 2; // 默认双人，可选3人
             const skirmishFog = msg.skirmishFog || false;
             const doubleCommanderMode = msg.doubleCommanderMode || false;
+            const { normalizeFactionRuleMode } = await cultureRulesReady;
+            const factionRuleMode = normalizeFactionRuleMode(msg.factionRuleMode);
             const standardMapId = STANDARD_MAP_IDS.has(msg.standardMapId) ? msg.standardMapId : 'crown-ring';
             const room = {
                 id: roomId,
@@ -658,6 +712,7 @@ async function handleMessage(ws, rawData) {
                 maxPlayers,
                 skirmishFog,
                 doubleCommanderMode,
+                factionRuleMode,
                 standardMapId,
                 aiSlots: new Map(),
                 authority: createRoomAuthority()
@@ -667,7 +722,7 @@ async function handleMessage(ws, rawData) {
             ws._room = room;
             ws._ready = false;
             if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
-            sendJson(ws, { type: 'roomCreated', roomId, role: 'player1', maxPlayers, playerCount: 1 });
+            sendJson(ws, { type: 'roomCreated', roomId, role: 'player1', maxPlayers, playerCount: 1, factionRuleMode });
             broadcastRoomUpdate(room);
             console.log(`[房间 ${roomId}] 已创建 (player1, ${maxPlayers}P)`);
             break;
@@ -738,7 +793,7 @@ async function handleMessage(ws, rawData) {
                 ws._room = room;
                 ws._ready = false;
                 if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
-                sendJson(ws, { type: 'reconnected', roomId, role, aiSeats: room.aiSeats || {} });
+                sendJson(ws, { type: 'reconnected', roomId, role, aiSeats: room.aiSeats || {}, factionRuleMode: room.factionRuleMode || 'none' });
                 console.log(`[重连] 已发送 reconnected 给重连方`);
                 // 告知所有在线对手玩家重连了，传重连者的 role 以便恢复对应阵营头像
                 const others = [...room.players.keys()].filter(p => p !== ws);
@@ -790,7 +845,7 @@ async function handleMessage(ws, rawData) {
             ws._room = room;
             ws._ready = false;
             if (ws._clientId && clients.has(ws._clientId)) clients.get(ws._clientId).roomId = roomId;
-            sendJson(ws, { type: 'roomJoined', roomId, role, maxPlayers: room.maxPlayers || 2, playerCount: room.players.size });
+            sendJson(ws, { type: 'roomJoined', roomId, role, maxPlayers: room.maxPlayers || 2, playerCount: room.players.size, factionRuleMode: room.factionRuleMode || 'none' });
             // 通知房间内所有其他玩家（有人加入）+ 通知新玩家已有对手
             for (const [playerWs, playerData] of room.players) {
                 if (playerWs !== ws && playerWs.readyState === WebSocket.OPEN) {
@@ -863,7 +918,7 @@ async function handleMessage(ws, rawData) {
                 room.gameStarted = true;
                 room.authority = createRoomAuthority();
                 const players = [...room.players.keys()];
-                const setup = createNetworkMatchSetup(room, assignAiFactionColors);
+                const setup = await createNetworkMatchSetup(room, assignAiFactionColors);
                 for (let i = 0; i < players.length; i++) {
                     const role = room.players.get(players[i]).role;
                     sendJson(players[i], {
@@ -896,7 +951,7 @@ async function handleMessage(ws, rawData) {
                 }
                 room.gameStarted = true;
                 room.authority = createRoomAuthority();
-                const setup = createNetworkMatchSetup(room, assignAiFactionColors);
+                const setup = await createNetworkMatchSetup(room, assignAiFactionColors);
                 for (const player of players) {
                     sendJson(player, {
                         type: 'start', protocolVersion: protocol.PROTOCOL_VERSION,
@@ -920,26 +975,35 @@ async function handleMessage(ws, rawData) {
             if (!room || !role || room.authority?.state) break;
             const hasColor = PLAYER_FACTION_COLORS.has(msg.colorId);
             const { getFlagPresetColor, normalizeFactionName } = await flagRulesReady;
+            const { FACTION_RULE_MODES, normalizeFactionRuleMode } = await cultureRulesReady;
+            const ruleMode = normalizeFactionRuleMode(room.factionRuleMode);
             const hasEmoji = STANDARD_FLAG_EMOJIS.has(msg.flagEmoji);
             const presetColor = getFlagPresetColor(msg.flagPreset);
             const hasPreset = !!presetColor;
             const hasName = msg.factionName !== undefined;
             const factionName = hasName ? normalizeFactionName(msg.factionName) : null;
             if (hasName && factionName === null) break;
-            const currentPresetColor = getFlagPresetColor(room.factionPresets?.[role]);
+            if (ruleMode === FACTION_RULE_MODES.CULTURE) {
+                if (msg.flagEmoji !== undefined || (hasName && factionName !== '') || !hasPreset) break;
+            } else if (ruleMode === FACTION_RULE_MODES.SYNERGY) {
+                if (msg.flagPreset !== undefined) break;
+            }
+            const currentPresetColor = ruleMode === FACTION_RULE_MODES.SYNERGY ? null : getFlagPresetColor(room.factionPresets?.[role]);
             const lockedColor = presetColor || (!hasEmoji && currentPresetColor);
             const invalidColor = msg.colorId !== undefined && (lockedColor ? msg.colorId !== lockedColor : !hasColor);
             const invalidEmoji = msg.flagEmoji !== undefined && !hasEmoji;
             const invalidPreset = msg.flagPreset !== undefined && !hasPreset;
             if (invalidColor || invalidEmoji || invalidPreset || (!hasColor && !hasEmoji && !hasPreset && !hasName)) break;
             const occupied = candidate => Object.entries(room.factionColors || {}).some(([otherRole, color]) =>
-                otherRole !== role && color === candidate && (room.authority?.state || !room.aiSlots?.has(otherRole)));
+                otherRole !== role && color === candidate && (room.authority?.state || !room.aiSlots?.has(otherRole)))
+                || (hasPreset && Object.entries(room.factionPresets || {}).some(([otherRole, preset]) =>
+                    otherRole !== role && preset === msg.flagPreset && (room.authority?.state || !room.aiSlots?.has(otherRole))));
             const currentColor = room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role];
             const nextColor = lockedColor || (hasColor ? msg.colorId : !PLAYER_FACTION_COLORS.has(currentColor)
                 ? [...PLAYER_FACTION_COLORS].find(color => !occupied(color))
                 : currentColor);
             if (occupied(nextColor)) {
-                sendJson(ws, { type: 'error', message: '该阵营色已被其他玩家选择' });
+                sendJson(ws, { type: 'error', message: hasPreset ? '该历史阵营已被其他玩家选择' : '该阵营色已被其他玩家选择' });
                 sendJson(ws, {
                     type: 'factionColors',
                     factionColors: room.factionColors || {},
@@ -950,17 +1014,23 @@ async function handleMessage(ws, rawData) {
                 break;
             }
             room.factionColors = { ...(room.factionColors || {}), [role]: nextColor };
-            if (nextColor !== currentColor && room.gameStarted && !room.authority?.state && room.aiSlots?.size) {
+            if (ruleMode !== FACTION_RULE_MODES.CULTURE && nextColor !== currentColor && room.gameStarted && !room.authority?.state && room.aiSlots?.size) {
                 room.factionColors = assignAiFactionColors(room.factionColors, [...room.aiSlots.keys()].sort());
             }
             room.factionEmojis = {
                 ...(room.factionEmojis || {}),
                 [role]: hasEmoji ? msg.flagEmoji : (room.factionEmojis?.[role] || DEFAULT_ROLE_FLAG_EMOJIS[role])
             };
-            if (hasPreset || hasEmoji) {
+            if (ruleMode === FACTION_RULE_MODES.SYNERGY) {
+                room.factionPresets = { ...(room.factionPresets || {}), [role]: null };
+            } else if (hasPreset || hasEmoji) {
                 room.factionPresets = { ...(room.factionPresets || {}), [role]: hasPreset ? msg.flagPreset : null };
             }
-            if (hasName) room.factionNames = { ...(room.factionNames || {}), [role]: factionName };
+            if (ruleMode === FACTION_RULE_MODES.CULTURE) {
+                room.factionNames = { ...(room.factionNames || {}), [role]: '' };
+            } else if (hasName) {
+                room.factionNames = { ...(room.factionNames || {}), [role]: factionName };
+            }
             broadcastRoom(room, {
                 type: 'factionColors',
                 factionColors: room.factionColors,
@@ -1050,9 +1120,11 @@ async function handleMessage(ws, rawData) {
                     break;
                 }
             }
+            const { normalizeFactionRuleMode } = await cultureRulesReady;
             if (msg.state.isThreePlayer !== (room.maxPlayers === 3)
                 || !!msg.state.skirmishFog !== !!room.skirmishFog
-                || !!msg.state.doubleCommanderMode !== !!room.doubleCommanderMode) {
+                || !!msg.state.doubleCommanderMode !== !!room.doubleCommanderMode
+                || normalizeFactionRuleMode(msg.state.factionRuleMode) !== normalizeFactionRuleMode(room.factionRuleMode)) {
                 sendAuthoritativeSnapshot(ws, room, '对局规则与房间设置不一致');
                 break;
             }

@@ -15,6 +15,7 @@
 //     来源不计入，防止自残与误伤刷授权。城市血池结构伤害不计入（只统计单位）。
 
 import { campToKey } from './camps.js';
+import { isFactionSynergyRuleActive } from './cultures.js';
 import { campFromKey, canAttack } from './diplomacy.js';
 import { isStrongpointTarget } from './units.js';
 import {
@@ -84,7 +85,7 @@ export function getLivingEagleCommanders(gameState, campOrKey) {
 }
 
 export function hasEagleSynergyActive(gameState, campOrKey) {
-    return getLivingEagleCommanders(gameState, campOrKey).length >= 2;
+    return isFactionSynergyRuleActive(gameState) && getLivingEagleCommanders(gameState, campOrKey).length >= 2;
 }
 
 /** 空军资产判定：航母舰载机与天眼无人机（自爆同源）。 */

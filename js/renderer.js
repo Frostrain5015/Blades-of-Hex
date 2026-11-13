@@ -12,6 +12,8 @@ import {
 } from './militaryMap.js';
 import { resolveAntiAirCoverage } from '../rules/antiAir.js';
 import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
+import { getFireSeaState } from '../rules/cultures.js';
+import { isUnitVisibleToCamp } from '../rules/visibility.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
@@ -28,8 +30,12 @@ import {
     spawnCardCopyEffect,
     coinParticles, updateCoinParticles, drawCoinParticles,
     airstrikeEffects, airliftEffects, celestineOracleBeams,
-    drawLaserBeams,
-    bloodMoonSlashes, updateBloodMoonSlashes, drawBloodMoonSlashes
+    drawLaserBeams, updateLaserBeams,
+    bloodMoonSlashes, updateBloodMoonSlashes, drawBloodMoonSlashes,
+    updateHeavyCannonShells, drawHeavyCannonShells,
+    updateKatyushaRockets, drawKatyushaRockets,
+    updateBanzaiDashes, drawBanzaiDashes,
+    updateRingWaves, drawRingWaves
 } from './effects.js';
 import {
     getFogAlpha,
@@ -472,6 +478,7 @@ function _renderGame() {
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
     frameInfo.now = now;
+    updateLaserBeams(now);
 
     // 屏幕震动
     if (screenShake.time > 0) {
@@ -530,6 +537,7 @@ function _renderGame() {
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawCityMapMarker();
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
+    _drawFireSeaTiles(tiles, now);
 
     // ── 将领特效图层：ground（地块覆盖层之后、先锋旗立绘之前）──
     drawFxLayer('ground', ctx, now);
@@ -552,12 +560,17 @@ function _renderGame() {
     if (!battlefieldDelegation.interactionHints) drawOperationInteractionRoute(now);
     // Units — 全部绘制，非可见地块会在后续迷雾阶段被地形覆绘+遮罩覆盖
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawUnit();
-    // 延迟击杀残影：飞行类攻击（鱼雷/舰载机弹流）击杀的单位保留绘制到弹着爆炸时刻
+    // 飞行类攻击的阵亡单位在弹着帧退场，并播放对应的爆炸。
     const deathGhosts = gameState.unitDeathGhosts;
     if (deathGhosts?.length) {
         for (let i = deathGhosts.length - 1; i >= 0; i--) {
-            if (now >= deathGhosts[i].until) deathGhosts.splice(i, 1);
-            else deathGhosts[i].unit.draw();
+            const ghost = deathGhosts[i];
+            if (now >= ghost.until) {
+                deathGhosts.splice(i, 1);
+                ghost.onImpact?.();
+            } else {
+                ghost.unit.draw();
+            }
         }
     }
     // Fortification foreground: front trench banks and flak parapets seat the
@@ -578,7 +591,7 @@ function _renderGame() {
     for (let i = 0, len = tiles.length; i < len; i++) {
         const tile = tiles[i];
         tile.drawFlagFinial();
-        if (tile.unit) drawUnitFlagFinial(tile.unit);
+        if (tile.unit) drawUnitFlagFinial(tile.unit, gameState);
     }
 
     // ── 将领特效图层：aboveUnits（单位与旗帜之后）──
@@ -848,9 +861,13 @@ function _renderGame() {
     // 攻击闪光
     drawAttackFlashes(ctx, now);
 
-    // 炮弹飞行特效
+    // 炮弹飞行特效 + 文化特色炮击弹道（法式重炮/喀秋莎火箭群）
     updateProjectiles(now);
     drawProjectiles(ctx, now);
+    updateHeavyCannonShells(now);
+    drawHeavyCannonShells(ctx, now);
+    updateKatyushaRockets(now);
+    drawKatyushaRockets(ctx, now);
     // 鱼雷与水柱在单位上方表现，确保低对比度水下轨迹仍可辨识。
     updateTorpedoes(now);
     drawTorpedoes(ctx, now);
@@ -888,6 +905,11 @@ function _renderGame() {
     // 诺克提斯【血月】月蚀环形斩击
     updateBloodMoonSlashes(now);
     drawBloodMoonSlashes(ctx, now);
+    // 日本武士万岁冲锋残影 + 英国闪避/法国自由抵抗波纹
+    updateBanzaiDashes(now);
+    drawBanzaiDashes(ctx, now);
+    updateRingWaves(now);
+    drawRingWaves(ctx, now);
 
     // ── 将领特效图层：preFog（雷击之后、迷雾遮罩之前；金光/圣链/攻心波纹/统御环）──
     drawFxLayer('preFog', ctx, now);
@@ -1133,6 +1155,82 @@ function drawAirstrikeEffects(now) {
 
         const t = elapsed / fx.duration;
         const cx = fx.x, cy = fx.y;
+
+        // 德国专属空军指令：斯图卡俯冲轰炸（大角度俯冲 + 重型航弹 + 炽烈冲击波）
+        if (fx.type === 'stukaDiveBomb') {
+            const p0x = cx - 320, p0y = cy - 260;
+            const apexX = cx, apexY = cy - 16;
+            const p1x = cx + 360, p1y = cy - 230;
+            let px, py, ang;
+            if (t < 0.62) {
+                const p = t / 0.62;
+                const ease = 1 - Math.pow(1 - p, 1.35);
+                px = p0x + (apexX - p0x) * ease;
+                py = p0y + (apexY - p0y) * ease;
+                ang = Math.atan2(apexY - p0y, apexX - p0x);
+            } else {
+                const p = (t - 0.62) / 0.38;
+                const pull = Math.pow(p, 1.25);
+                px = apexX + (p1x - apexX) * pull;
+                py = apexY + (p1y - apexY) * pull;
+                ang = Math.atan2(p1y - apexY, p1x - apexX);
+            }
+
+            ctx.save();
+            ctx.globalAlpha = t < 0.88 ? 1 : Math.max(0, 1 - (t - 0.88) / 0.12);
+            ctx.fillStyle = '#000';
+            ctx.translate(px, py);
+            ctx.rotate(ang + Math.PI / 4);
+            ctx.font = '50px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#ff6a00';
+            ctx.shadowBlur = 10;
+            ctx.fillText('🦅', 0, 0);
+            ctx.restore();
+
+            if (t >= 0.12 && t <= 0.85) {
+                _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 11 + (fx.y | 0) * 17, _ac);
+            }
+
+            if (t >= 0.42 && t < 0.74) {
+                const bp = (t - 0.42) / 0.32;
+                const relX = p0x + (apexX - p0x) * (1 - Math.pow(1 - (0.42 / 0.62), 1.35));
+                const relY = p0y + (apexY - p0y) * (1 - Math.pow(1 - (0.42 / 0.62), 1.35));
+                const bx = relX + (cx - relX) * bp;
+                const by = relY + (cy - relY) * bp;
+                ctx.save();
+                ctx.fillStyle = '#ff6a00';
+                ctx.shadowColor = '#ff3d00';
+                ctx.shadowBlur = 12;
+                ctx.beginPath();
+                ctx.arc(bx, by, 5.2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            if (t >= 0.66) {
+                const exT = Math.min(1, (t - 0.66) / 0.34);
+                ctx.save();
+                ctx.strokeStyle = `rgba(255,110,30,${(1 - exT) * 0.88})`;
+                ctx.lineWidth = 4 - exT * 2.2;
+                ctx.shadowColor = '#ff4500';
+                ctx.shadowBlur = 14;
+                ctx.beginPath();
+                ctx.arc(cx, cy, 12 + exT * 48, 0, Math.PI * 2);
+                ctx.stroke();
+                for (let k = 0; k < 10; k++) {
+                    const a = (k / 10) * Math.PI * 2 + exT * 1.4;
+                    const d = 10 + exT * 38;
+                    ctx.fillStyle = `rgba(255,${120 + (k % 3) * 45},20,${(1 - exT) * 0.9})`;
+                    ctx.beginPath();
+                    ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 3.2 * (1 - exT * 0.6), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+            continue;
+        }
 
         // E4 俯冲扫射：战机俯冲 + 机炮扫射曳光弹（区别于投弹空袭）
         if (fx.type === 'diveStrafe') {
@@ -1744,10 +1842,48 @@ function _drawRankUpIconEffect(fx, elapsed) {
 }
 
 // ===== 单位六边形辉光（禁锢光环 + 铁卫护盾）—— 立绘之前 =====================
+function _drawFireSeaTiles(tiles, now) {
+    const tSec = now / 1000;
+    for (let i = 0, len = tiles.length; i < len; i++) {
+        const tile = tiles[i];
+        const fs = getFireSeaState(tile);
+        if (!fs || (fs._visualDelayUntil && now < fs._visualDelayUntil)) continue;
+        const layers = Math.max(1, fs.layers || 1);
+        const pulse = 0.5 + 0.5 * Math.sin(tSec * 4.4 + tile.q * 1.1 + tile.r * 0.7);
+
+        ctx.save();
+        hexPath(ctx, tile.x, tile.y, HEX_SIZE * 0.94);
+        ctx.fillStyle = `rgba(255,92,24,${0.13 + layers * 0.08 + pulse * 0.06})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255,130,45,${0.42 + layers * 0.14 + pulse * 0.14})`;
+        ctx.lineWidth = 1.6 + layers * 0.6;
+        ctx.stroke();
+
+        const flameCount = 3 + layers * 2;
+        for (let k = 0; k < flameCount; k++) {
+            const angle = (k / flameCount) * Math.PI * 2 + tile.q * 0.6;
+            const ring = HEX_SIZE * (0.28 + (k % 2) * 0.28);
+            const fx = tile.x + Math.cos(angle) * ring;
+            const fyBase = tile.y + Math.sin(angle) * ring * 0.75;
+            const wave = Math.sin(tSec * 6.5 + k * 1.9 + tile.r);
+            const h = 7 + layers * 2.5 + wave * 2.5;
+            ctx.fillStyle = k % 2 === 0 ? `rgba(255,140,35,${0.62 + pulse * 0.25})` : `rgba(255,215,90,${0.56 + pulse * 0.25})`;
+            ctx.beginPath();
+            ctx.moveTo(fx - 3, fyBase + 2);
+            ctx.quadraticCurveTo(fx - 2 + wave * 1.5, fyBase - h * 0.6, fx + wave * 1.2, fyBase - h);
+            ctx.quadraticCurveTo(fx + 2 + wave * 1.5, fyBase - h * 0.6, fx + 3, fyBase + 2);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
 function drawUnitHexAuras(now) {
+    const viewingCamp = getViewingCamp();
     for (const tile of gameState.tiles) {
         const u = tile.unit;
-        if (!u) continue;
+        if (!u || !isUnitVisibleToCamp(u, viewingCamp, gameState)) continue;
         const pos = u.getVisualPos();
         const vx = pos.x, vy = pos.y;
 
@@ -1820,9 +1956,10 @@ function _drawAureliaPetal(x, y, size, angle, color, alpha) {
 // 【鸢尾花的加护】持续期间：两名将领周身的柔和、非整齐轨道花瓣。
 function drawAureliaGuardPetals(now) {
     const palette = ['#e4b962', '#b65d6f', '#9b6aa5', '#f0d797'];
+    const viewingCamp = getViewingCamp();
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
-        if (!unit || !hasAureliaOathEffect(unit, gameState)) continue;
+        if (!unit || !hasAureliaOathEffect(unit, gameState) || !isUnitVisibleToCamp(unit, viewingCamp, gameState)) continue;
         const pos = unit.getVisualPos();
         const seed = _stableUnitSeed(unit.id);
         ctx.save();
@@ -2325,8 +2462,9 @@ function drawUnitActionTargetingPreview(now, deselecting) {
         ctx.restore();
     }
 
-    const attackTiles = gameState.attackableTiles.filter(tile => tile.unit || isSiegeableCityTile(unit, tile, gameState));
-    const chainTiles = (gameState.chainAttackTiles || []).filter(tile => tile.unit);
+    const viewerCamp = getViewingCamp();
+    const attackTiles = gameState.attackableTiles.filter(tile => (tile.unit && isUnitVisibleToCamp(tile.unit, viewerCamp, gameState)) || isSiegeableCityTile(unit, tile, gameState));
+    const chainTiles = (gameState.chainAttackTiles || []).filter(tile => tile.unit && isUnitVisibleToCamp(tile.unit, viewerCamp, gameState));
     if (!attackTiles.length && !chainTiles.length) return;
     const hovered = gameState.hoveredTile;
     renderTargetingPreview(ctx, {
@@ -2454,7 +2592,13 @@ function drawDamageTexts(now) {
         ctx.shadowColor = '#000';
         ctx.shadowBlur = isBig ? 8 : 4;
 
-        if (text.isCityHeal) {
+        if (text.text) {
+            ctx.fillStyle = text.color || '#bae6fd';
+            ctx.shadowColor = text.shadowColor || '#0284c7';
+            ctx.shadowBlur = 10;
+            ctx.font = 'bold 17px "Microsoft YaHei", Arial, sans-serif';
+            ctx.fillText(text.text, 0, 0);
+        } else if (text.isCityHeal) {
             // 城市脱战回复：浅绿 +N
             ctx.fillStyle = '#8fe3b0';
             ctx.shadowColor = '#1d5c38';
@@ -2507,7 +2651,7 @@ function drawHealTexts(now) {
         ctx.shadowColor = '#00aa44';
         ctx.shadowBlur = 8;
         ctx.fillStyle = '#44ff88';
-        ctx.fillText(`+${Math.round(text.value)}`, text.x, text.y - 30 - floatUp);
+        ctx.fillText(`+${Math.round(text.value)}`, text.x, text.y - 30 - floatUp - (text.offsetY || 0));
         ctx.restore();
         return true;
     });
@@ -2531,8 +2675,16 @@ function drawShieldTexts(now) {
         ctx.font = 'bold 18px Arial';
         ctx.shadowColor = '#0d5a75';
         ctx.shadowBlur = 8;
-        ctx.fillStyle = '#76e7ff';
-        ctx.fillText(`${text.sign || '-'}${Math.round(text.value)}`, text.x, text.y - 30 - floatUp);
+        if (text.text) {
+            ctx.font = 'bold 17px "Microsoft YaHei", Arial, sans-serif';
+            ctx.shadowColor = '#0284c7';
+            ctx.shadowBlur = 10;
+            ctx.fillStyle = '#bae6fd';
+            ctx.fillText(text.text, text.x, text.y - 30 - floatUp - (text.offsetY || 0));
+        } else {
+            ctx.fillStyle = '#76e7ff';
+            ctx.fillText(`${text.sign || '-'}${Math.round(text.value)}`, text.x, text.y - 30 - floatUp - (text.offsetY || 0));
+        }
         ctx.restore();
         return true;
     });
@@ -3146,6 +3298,7 @@ function drawCommanderPennants() {
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         if (!unit || !unit.isCommanderUnit) continue;
+        if (!isUnitVisibleToCamp(unit, viewingCamp, gameState)) continue;
         if (gameState.skirmishFog && !isTileVisible(tile, viewingCamp, gameState)) continue;
         const portrait = getTransparentPortrait(unit.getCommanderPortraitId());
         if (!portrait) continue;

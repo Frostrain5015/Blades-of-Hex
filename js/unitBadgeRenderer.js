@@ -12,6 +12,25 @@ export const UNIT_GLYPH_FONT_SCALE = 1.12;
 const START_ANGLE = -Math.PI / 2;
 const SPHERE_PALETTE_CACHE = new Map();
 
+import { getUnitBaseType } from '../rules/units.js';
+
+const _flagImageCache = new Map();
+
+/** Load and cache SVG/image flag assets used inside unique cultural unit badges. */
+export function getBadgeFlagImage(flagUrl) {
+    if (!flagUrl || typeof Image === 'undefined') return null;
+    let entry = _flagImageCache.get(flagUrl);
+    if (!entry) {
+        const img = new Image();
+        entry = { img, failed: false };
+        img.onerror = () => { entry.failed = true; };
+        img.src = flagUrl;
+        _flagImageCache.set(flagUrl, entry);
+    }
+    if (entry.failed) return null;
+    return entry.img.complete && entry.img.naturalWidth > 0 ? entry.img : null;
+}
+
 export const UNIT_BADGE_GLYPHS = Object.freeze({
     infantry: '\u2694\uFE0E',
     cavalry: '\u265E',
@@ -79,7 +98,7 @@ export function createUnitSpherePalette(flagColors = {}) {
 
 export function resolveUnitBadgeGlyph(type, engineerScaffold = false) {
     if (engineerScaffold) return '\u25A7';
-    return UNIT_BADGE_GLYPHS[type] || '?';
+    return UNIT_BADGE_GLYPHS[type] || UNIT_BADGE_GLYPHS[getUnitBaseType(type)] || '?';
 }
 
 /**
@@ -116,56 +135,130 @@ export function drawUnitBadge(context, options = {}) {
 
     // Strong off-centre illumination: warm upper-left highlight, faction mid
     // tone, then a compressed lower-right shadow.
-    const sphereGradient = context.createRadialGradient(
-        -radius * 0.34,
-        centerY - radius * 0.43,
-        radius * 0.055,
-        radius * 0.08,
-        centerY + radius * 0.09,
-        radius * 1.19
+    const flagImage = options.flagImage || (options.flagUrl ? getBadgeFlagImage(options.flagUrl) : null);
+    const flagCrop = options.flagCrop || null;
+    const canDrawFlagFill = Boolean(
+        flagImage
+        && flagImage.naturalWidth > 0
+        && flagImage.naturalHeight > 0
+        && typeof context.drawImage === 'function'
+        && typeof context.clip === 'function'
     );
-    sphereGradient.addColorStop(0, palette.highlight);
-    sphereGradient.addColorStop(0.22, palette.light);
-    sphereGradient.addColorStop(0.62, palette.main);
-    sphereGradient.addColorStop(1, palette.dark);
-    context.beginPath();
-    context.arc(0, centerY, radius, 0, Math.PI * 2);
-    context.fillStyle = sphereGradient;
-    context.shadowColor = 'rgba(0,0,0,0.34)';
-    context.shadowBlur = radius * 0.22;
-    context.shadowOffsetY = radius * 0.10;
-    context.fill();
-    context.shadowColor = 'transparent';
-    context.shadowBlur = 0;
-    context.shadowOffsetY = 0;
-    context.strokeStyle = palette.outline;
-    context.lineWidth = Math.max(0.9, radius * 0.075);
-    context.stroke();
 
-    // Specular cap and lower shade reinforce curvature at the production 30px
-    // diameter where the radial gradient alone can otherwise read as flat.
-    context.beginPath();
-    context.ellipse(-radius * 0.31, centerY - radius * 0.39, radius * 0.25, radius * 0.115, -0.48, 0, Math.PI * 2);
-    context.fillStyle = 'rgba(255,246,215,0.31)';
-    context.fill();
-    context.beginPath();
-    context.arc(0, centerY, radius * 0.82, Math.PI * 0.12, Math.PI * 0.88);
-    context.strokeStyle = 'rgba(8,9,8,0.19)';
-    context.lineWidth = radius * 0.16;
-    context.lineCap = 'round';
-    context.stroke();
+    if (canDrawFlagFill) {
+        // World Conqueror–style unique badge: cropped national flag emblem
+        // recessed inside the 2.5D curved lens without a flat monochrome glyph.
+        context.beginPath();
+        context.arc(0, centerY, radius, 0, Math.PI * 2);
+        context.fillStyle = palette.dark;
+        context.shadowColor = 'rgba(0,0,0,0.36)';
+        context.shadowBlur = radius * 0.22;
+        context.shadowOffsetY = radius * 0.10;
+        context.fill();
+        context.shadowColor = 'transparent';
+        context.shadowBlur = 0;
+        context.shadowOffsetY = 0;
 
-    // Monochrome military-map symbols preserve unit type without flattening
-    // the material treatment with coloured emoji.
-    context.font = `700 ${Math.round(radius * UNIT_GLYPH_FONT_SCALE)}px "Segoe UI Symbol", "Noto Sans Symbols 2", "Microsoft YaHei", sans-serif`;
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.lineJoin = 'round';
-    context.strokeStyle = palette.glyphOutline;
-    context.lineWidth = Math.max(1, radius * 0.105);
-    if (typeof context.strokeText === 'function') context.strokeText(glyph, 0, centerY + radius * 0.055);
-    context.fillStyle = palette.glyph;
-    context.fillText(glyph, 0, centerY + radius * 0.055);
+        context.save();
+        context.beginPath();
+        context.arc(0, centerY, radius, 0, Math.PI * 2);
+        context.clip();
+
+        const imgW = flagImage.naturalWidth;
+        const imgH = flagImage.naturalHeight;
+        const cx = Number.isFinite(flagCrop?.cx) ? flagCrop.cx : 0.5;
+        const cy = Number.isFinite(flagCrop?.cy) ? flagCrop.cy : 0.5;
+        const sizeRatio = clamp(flagCrop?.sizeRatio ?? 0.9, 0.2, 1.0);
+        const cropSize = Math.max(1, Math.min(imgW, imgH) * sizeRatio);
+        const sx = clamp(imgW * cx - cropSize * 0.5, 0, Math.max(0, imgW - cropSize));
+        const sy = clamp(imgH * cy - cropSize * 0.5, 0, Math.max(0, imgH - cropSize));
+        const sw = Math.min(cropSize, imgW - sx);
+        const sh = Math.min(cropSize, imgH - sy);
+        context.drawImage(flagImage, sx, sy, sw, sh, -radius, centerY - radius, radius * 2, radius * 2);
+
+        const curvatureShade = context.createRadialGradient(
+            -radius * 0.30,
+            centerY - radius * 0.38,
+            radius * 0.12,
+            0,
+            centerY,
+            radius * 1.05
+        );
+        curvatureShade.addColorStop(0, 'rgba(255,250,235,0.16)');
+        curvatureShade.addColorStop(0.55, 'rgba(0,0,0,0.03)');
+        curvatureShade.addColorStop(1, 'rgba(8,9,8,0.44)');
+        context.fillStyle = curvatureShade;
+        context.fillRect(-radius, centerY - radius, radius * 2, radius * 2);
+
+        context.beginPath();
+        context.ellipse(-radius * 0.31, centerY - radius * 0.39, radius * 0.25, radius * 0.115, -0.48, 0, Math.PI * 2);
+        context.fillStyle = 'rgba(255,246,215,0.24)';
+        context.fill();
+        context.beginPath();
+        context.arc(0, centerY, radius * 0.82, Math.PI * 0.12, Math.PI * 0.88);
+        context.strokeStyle = 'rgba(8,9,8,0.20)';
+        context.lineWidth = radius * 0.15;
+        context.lineCap = 'round';
+        context.stroke();
+        context.restore();
+
+        context.beginPath();
+        context.arc(0, centerY, radius, 0, Math.PI * 2);
+        context.strokeStyle = palette.outline;
+        context.lineWidth = Math.max(0.9, radius * 0.075);
+        context.stroke();
+    } else {
+        const sphereGradient = context.createRadialGradient(
+            -radius * 0.34,
+            centerY - radius * 0.43,
+            radius * 0.055,
+            radius * 0.08,
+            centerY + radius * 0.09,
+            radius * 1.19
+        );
+        sphereGradient.addColorStop(0, palette.highlight);
+        sphereGradient.addColorStop(0.22, palette.light);
+        sphereGradient.addColorStop(0.62, palette.main);
+        sphereGradient.addColorStop(1, palette.dark);
+        context.beginPath();
+        context.arc(0, centerY, radius, 0, Math.PI * 2);
+        context.fillStyle = sphereGradient;
+        context.shadowColor = 'rgba(0,0,0,0.34)';
+        context.shadowBlur = radius * 0.22;
+        context.shadowOffsetY = radius * 0.10;
+        context.fill();
+        context.shadowColor = 'transparent';
+        context.shadowBlur = 0;
+        context.shadowOffsetY = 0;
+        context.strokeStyle = palette.outline;
+        context.lineWidth = Math.max(0.9, radius * 0.075);
+        context.stroke();
+
+        // Specular cap and lower shade reinforce curvature at the production 30px
+        // diameter where the radial gradient alone can otherwise read as flat.
+        context.beginPath();
+        context.ellipse(-radius * 0.31, centerY - radius * 0.39, radius * 0.25, radius * 0.115, -0.48, 0, Math.PI * 2);
+        context.fillStyle = 'rgba(255,246,215,0.31)';
+        context.fill();
+        context.beginPath();
+        context.arc(0, centerY, radius * 0.82, Math.PI * 0.12, Math.PI * 0.88);
+        context.strokeStyle = 'rgba(8,9,8,0.19)';
+        context.lineWidth = radius * 0.16;
+        context.lineCap = 'round';
+        context.stroke();
+
+        // Monochrome military-map symbols preserve unit type without flattening
+        // the material treatment with coloured emoji.
+        context.font = `700 ${Math.round(radius * UNIT_GLYPH_FONT_SCALE)}px "Segoe UI Symbol", "Noto Sans Symbols 2", "Microsoft YaHei", sans-serif`;
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.lineJoin = 'round';
+        context.strokeStyle = palette.glyphOutline;
+        context.lineWidth = Math.max(1, radius * 0.105);
+        if (typeof context.strokeText === 'function') context.strokeText(glyph, 0, centerY + radius * 0.055);
+        context.fillStyle = palette.glyph;
+        context.fillText(glyph, 0, centerY + radius * 0.055);
+    }
 
     if (waterColor) {
         // Water units displace the surface instead of casting a land shadow.

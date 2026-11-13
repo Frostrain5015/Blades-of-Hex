@@ -1,3 +1,5 @@
+import { UNIT_CONFIG, canUnitBeRecruitedAtSite } from '../rules/units.js';
+import { getActiveCultureId, getCultureUniqueUnitType } from '../rules/cultures.js';
 import { canUnitOccupyTile } from '../rules/movement.js';
 import { isWaterTile } from '../rules/surfaces.js';
 import { isPortOperationalFor, isRegularNavalUnit } from '../rules/naval.js';
@@ -20,9 +22,31 @@ export function getRecruitmentSiteKind(tile, state) {
     return null;
 }
 
-export function getRecruitmentOptionsForTile(tile, state) {
+export function getUniqueRecruitmentOption(state, currentCamp = state?.currentCamp) {
+    const cultureId = getActiveCultureId(state, currentCamp);
+    const uniqueType = getCultureUniqueUnitType(cultureId);
+    const cfg = uniqueType ? UNIT_CONFIG[uniqueType] : null;
+    if (!cfg) return null;
+    return Object.freeze({
+        type: uniqueType,
+        buttonId: 'recruitUnique',
+        glyph: '⭐',
+        label: cfg.name,
+        shortcut: '7',
+        isUnique: true,
+        portOnly: isRegularNavalUnit(uniqueType)
+    });
+}
+
+export function getRecruitmentOptionsForTile(tile, state, currentCamp = state?.currentCamp) {
     const site = getRecruitmentSiteKind(tile, state);
-    return site ? RECRUITMENT_OPTIONS.filter(option => option.site === site) : [];
+    if (!site) return [];
+    const options = RECRUITMENT_OPTIONS.filter(option => option.site === site);
+    const uniqueOption = getUniqueRecruitmentOption(state, currentCamp);
+    if (uniqueOption && canUnitBeRecruitedAtSite(uniqueOption.type, site)) {
+        options.push(uniqueOption);
+    }
+    return options;
 }
 
 /**
@@ -31,15 +55,17 @@ export function getRecruitmentOptionsForTile(tile, state) {
  * intentionally handled by the button-state layer.
  */
 export function canRecruitTypeAtSelectedCity(type, tile, state, currentCamp = state?.currentCamp) {
-    if (!RECRUITMENT_OPTIONS.some(option => option.type === type)) return false;
+    const isStandard = RECRUITMENT_OPTIONS.some(option => option.type === type);
+    const uniqueOption = getUniqueRecruitmentOption(state, currentCamp);
+    if (!isStandard && uniqueOption?.type !== type) return false;
     if (currentCamp?.canRecruit === false) return false;
     const site = getRecruitmentSiteKind(tile, state);
+    if (!site || !canUnitBeRecruitedAtSite(type, site)) return false;
     const naval = isRegularNavalUnit(type);
-    const requiredSite = naval
-        ? site === RECRUITMENT_SITE.PORT && isPortOperationalFor(tile, currentCamp, state)
-        : site === RECRUITMENT_SITE.CITY;
+    const siteReady = (site === RECRUITMENT_SITE.CITY && !naval)
+        || (site === RECRUITMENT_SITE.PORT && isPortOperationalFor(tile, currentCamp, state));
     return !!tile
-        && requiredSite
+        && siteReady
         && !tile.unit
         && tile.camp === currentCamp
         && canUnitOccupyTile(type, tile, state);
@@ -48,5 +74,8 @@ export function canRecruitTypeAtSelectedCity(type, tile, state, currentCamp = st
 export const canRecruitTypeAtSelectedSite = canRecruitTypeAtSelectedCity;
 
 export function shouldShowRecruitmentOption(option, tile, state, currentCamp = state?.currentCamp) {
-    return !!option && option.site === getRecruitmentSiteKind(tile, state);
+    const site = getRecruitmentSiteKind(tile, state);
+    if (!option || !site) return false;
+    if (option.isUnique) return canUnitBeRecruitedAtSite(option.type, site);
+    return option.site === site;
 }

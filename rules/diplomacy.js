@@ -8,6 +8,12 @@ import {
     getFlagColors,
     getTileColor
 } from './camps.js';
+import {
+    isCultureSystemEnabled,
+    isFactionSynergyRuleActive,
+    normalizeFactionRuleMode,
+    FACTION_RULE_MODES
+} from './cultures.js';
 
 export const RELATIONS = Object.freeze(['ally', 'neutral', 'enemy']);
 
@@ -57,13 +63,14 @@ export const STANDARD_FLAG_EMOJIS = Object.freeze([
     Object.freeze({ emoji: '⚖️', label: '天衡' })
 ]);
 export const FLAG_PRESETS = Object.freeze({
-    'img/flags/svg/cn.svg': '中国',
     'img/flags/svg/us.svg': '美国',
     'img/flags/svg/gb.svg': '英国',
     'img/flags/svg/fr.svg': '法国',
-    'img/flags/svg/ru.svg': '俄罗斯',
+    'img/flags/soviet-union.svg': '苏联',
     'img/flags/kuomintang.svg': '中国国民党党旗',
-    'img/flags/chinese-communist-party-old.svg': '中国共产党旗（镰刀锤子居中）'
+    'img/flags/chinese-communist-party-old.svg': '中国共产党旗（镰刀锤子居中）',
+    'img/flags/germany-iron-cross.svg': '德国铁十字旗',
+    'img/flags/svg/jp.svg': '日本'
 });
 
 export function isFlagPreset(value) {
@@ -71,17 +78,19 @@ export function isFlagPreset(value) {
 }
 
 const FLAG_PRESET_COLORS = Object.freeze({
-    'img/flags/svg/cn.svg': 'red',
-    'img/flags/svg/us.svg': 'blue',
+    'img/flags/svg/us.svg': 'usaTeal',
     'img/flags/svg/gb.svg': 'yellow',
-    'img/flags/svg/fr.svg': 'green',
-    'img/flags/svg/ru.svg': 'snow',
+    'img/flags/svg/fr.svg': 'franceSky',
+    'img/flags/soviet-union.svg': 'red',
     'img/flags/kuomintang.svg': 'blue',
-    'img/flags/chinese-communist-party-old.svg': 'red'
+    'img/flags/chinese-communist-party-old.svg': 'orange',
+    'img/flags/germany-iron-cross.svg': 'germanyGray',
+    'img/flags/svg/jp.svg': 'japanOlive'
 });
 const FLAG_PRESET_NAMES = Object.freeze({
     'img/flags/kuomintang.svg': '中国国民党',
-    'img/flags/chinese-communist-party-old.svg': '中国共产党'
+    'img/flags/chinese-communist-party-old.svg': '中国共产党',
+    'img/flags/germany-iron-cross.svg': '德国'
 });
 
 export function getFlagPresetColor(preset) {
@@ -273,6 +282,10 @@ export function setFactionColor(state, factionKey, colorValue) {
 
 /** 普通色盘与预设旗帜颜色使用同一个入口。 */
 export function setPlayerFactionColor(state, factionKey, colorValue) {
+    if (!state?.campaignMode && isCultureSystemEnabled(state)) {
+        const presetColor = getFlagPresetColor(state?.factions?.[factionKey]?.flagPreset);
+        if (!presetColor || getPaletteEntry(colorValue)?.id !== presetColor) return false;
+    }
     const presetColor = getFlagPresetColor(state?.factions?.[factionKey]?.flagPreset);
     if (presetColor ? getPaletteEntry(colorValue)?.id !== presetColor : !isPlayerFactionColor(colorValue)) return false;
     return setFactionColor(state, factionKey, colorValue);
@@ -281,7 +294,7 @@ export function setPlayerFactionColor(state, factionKey, colorValue) {
 /** 更换普通对局的旗面徽记；只接受公开选项，避免网络和存档出现任意 SVG 注入。 */
 export function setPlayerFactionFlagEmoji(state, factionKey, emoji) {
     const faction = state?.factions?.[factionKey];
-    if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isStandardFlagEmoji(emoji)) return false;
+    if (state?.campaignMode || isCultureSystemEnabled(state) || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isStandardFlagEmoji(emoji)) return false;
     faction.flagPreset = null;
     faction.name = getStandardFactionName(factionKey, faction.customName);
     if (!isPlayerFactionColor(faction.colorId)) setFactionColor(state, factionKey, DEFAULT_SEAT_COLOR_IDS[PLAYER_SEAT_KEYS.indexOf(factionKey)]);
@@ -294,9 +307,11 @@ export function setPlayerFactionFlagEmoji(state, factionKey, emoji) {
 
 export function setPlayerFactionFlagPreset(state, factionKey, preset) {
     const faction = state?.factions?.[factionKey];
-    if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isFlagPreset(preset)) return false;
+    if (state?.campaignMode || (!state?.campaignMode && normalizeFactionRuleMode(state?.factionRuleMode) === FACTION_RULE_MODES.SYNERGY)
+        || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isFlagPreset(preset)) return false;
     faction.flagPreset = preset;
-    faction.name = getStandardFactionName(factionKey, faction.customName, preset);
+    if (isCultureSystemEnabled(state)) faction.customName = '';
+    faction.name = getStandardFactionName(factionKey, isCultureSystemEnabled(state) ? '' : faction.customName, preset);
     setFactionColor(state, factionKey, getFlagPresetColor(preset));
     faction.flagUrl = preset;
     faction.flagAlt = FLAG_PRESETS[preset];
@@ -306,11 +321,68 @@ export function setPlayerFactionFlagPreset(state, factionKey, preset) {
 export function setPlayerFactionName(state, factionKey, value) {
     const faction = state?.factions?.[factionKey];
     const name = normalizeFactionName(value);
-    if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || name === null) return false;
+    if (state?.campaignMode || isCultureSystemEnabled(state) || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || name === null) return false;
     faction.customName = name;
     faction.name = getStandardFactionName(factionKey, name, faction.flagPreset);
     if (!faction.flagPreset && faction.flagEmoji) faction.flagAlt = `${faction.name}·${faction.flagEmoji}`;
     return true;
+}
+
+/** 启用历史文化强效时：为各参战席位收敛并分配互不重复的预设历史阵营与对应颜色。 */
+export function ensureCultureFactionPresets(state, options = {}) {
+    if (!state || state.campaignMode || !isCultureSystemEnabled(state)) return false;
+    const rng = options.rng || state.rng;
+    const keys = PLAYER_SEAT_KEYS.filter(key => state.factions?.[key] && state.factions[key].active !== false);
+    const allPresets = Object.keys(FLAG_PRESETS);
+    const used = new Set();
+    let changed = false;
+
+    for (const key of keys) {
+        const faction = state.factions[key];
+        if (!faction) continue;
+        faction.customName = '';
+        if (isFlagPreset(faction.flagPreset) && !used.has(faction.flagPreset) && (!options.randomizeAi || faction.controller === 'human')) {
+            used.add(faction.flagPreset);
+            setPlayerFactionFlagPreset(state, key, faction.flagPreset);
+            continue;
+        }
+        faction.flagPreset = null;
+    }
+
+    for (const key of keys) {
+        const faction = state.factions[key];
+        if (!faction || (isFlagPreset(faction.flagPreset) && used.has(faction.flagPreset))) continue;
+        const candidates = allPresets.filter(preset => !used.has(preset));
+        if (!candidates.length) continue;
+        const pickIndex = options.randomizeAi && rng?.between
+            ? rng.between(0, candidates.length - 1)
+            : 0;
+        const chosen = candidates[pickIndex];
+        used.add(chosen);
+        setPlayerFactionFlagPreset(state, key, chosen);
+        changed = true;
+    }
+    return changed;
+}
+
+/** 切换至阵营协同模式时：退出预设国旗模式，恢复席位默认自定义旗帜与名称。 */
+export function resetCulturePresetsToCustomFlags(state) {
+    if (!state || state.campaignMode || !isFactionSynergyRuleActive(state)) return false;
+    let changed = false;
+    for (let i = 0; i < PLAYER_SEAT_KEYS.length; i++) {
+        const key = PLAYER_SEAT_KEYS[i];
+        const faction = state.factions?.[key];
+        if (!faction || !faction.flagPreset) continue;
+        const defaultColor = DEFAULT_SEAT_COLOR_IDS[i] || 'red';
+        const defaultEmoji = DEFAULT_STANDARD_FLAG_EMOJIS[key] || '⚜️';
+        faction.flagPreset = null;
+        faction.customName = '';
+        faction.name = CAMP_DATA[key]?.name || key;
+        setFactionColor(state, key, defaultColor);
+        setPlayerFactionFlagEmoji(state, key, defaultEmoji);
+        changed = true;
+    }
+    return changed;
 }
 
 /** 网络角色是连接席位；映射后的值才是规则层阵营 ID。 */
@@ -347,7 +419,7 @@ export function createDefaultFactions(overrides = []) {
         const providedFlagUrl = typeof override.flagUrl === 'string' && override.flagUrl ? override.flagUrl : null;
         const flagConfig = override.flagConfig && typeof override.flagConfig === 'object' ? override.flagConfig : null;
         const flagPath = flagPreset || providedFlagUrl || flagConfig?.preset;
-        const presetColor = flagPath === 'img/flags/svg/ru.svg' ? 'snow' : getFlagPresetColor(flagPreset);
+        const presetColor = getFlagPresetColor(flagPreset) || (isFlagPreset(flagPath) ? getFlagPresetColor(flagPath) : null);
         const palette = getPaletteEntry(presetColor || override.color) || getPaletteEntry(base.color);
         return [id, {
             ...base,

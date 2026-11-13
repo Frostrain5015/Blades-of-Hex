@@ -32,13 +32,22 @@ export const FACTION_PALETTE = deepFreeze([
     { id: 'purple', label: '紫', tile: '#d8aaff', flag: { main: '#9050c8', dark: '#602890', light: '#b878e0' } },
     { id: 'gray',   label: '深灰', tile: '#b0b0b0', flag: { main: '#888888', dark: '#444444', light: '#aaaaaa' } },
     { id: 'white',  label: '白', tile: '#e8e8e8', flag: { main: '#bbbbbb', dark: '#888888', light: '#dddddd' } },
-    { id: 'snow',   label: '雪白', tile: '#e5edf6', flag: { main: '#c5d5e7', dark: '#7d96b0', light: '#f4f8ff' } }
+    { id: 'snow',   label: '雪白', tile: '#e5edf6', flag: { main: '#c5d5e7', dark: '#7d96b0', light: '#f4f8ff' } },
+    // 《世界征服者》风格历史预设阵营保留色（不占用普通色盘七色槽位）
+    { id: 'usaTeal',     label: '青绿', tile: '#9eead2', flag: { main: '#2db58a', dark: '#136b4f', light: '#64ddb6' } },
+    { id: 'franceSky',   label: '浅蓝', tile: '#bfe6fd', flag: { main: '#47a8eb', dark: '#1b659e', light: '#82ccf8' } },
+    { id: 'japanOlive',  label: '黄绿', tile: '#e1f0a6', flag: { main: '#92bc29', dark: '#557211', light: '#bbde5e' } },
+    { id: 'germanyGray', label: '深灰', tile: '#99a1aa', flag: { main: '#4b535b', dark: '#22272c', light: '#78828d' } }
+]);
+
+const RESERVED_PRESET_COLOR_IDS = new Set([
+    'gray', 'white', 'snow', 'usaTeal', 'franceSky', 'japanOlive', 'germanyGray'
 ]);
 
 export const FACTION_COLOR_KEYS = deepFreeze(FACTION_PALETTE.map(entry => entry.id));
 /** 普通色盘开放七种颜色，预设旗帜可使用保留色。 */
 export const PLAYER_FACTION_COLOR_KEYS = deepFreeze(
-    FACTION_PALETTE.filter(entry => !['gray', 'white', 'snow'].includes(entry.id)).map(entry => entry.id)
+    FACTION_PALETTE.filter(entry => !RESERVED_PRESET_COLOR_IDS.has(entry.id)).map(entry => entry.id)
 );
 export const DEFAULT_SEAT_COLOR_IDS = deepFreeze(['red', 'blue', 'green']);
 

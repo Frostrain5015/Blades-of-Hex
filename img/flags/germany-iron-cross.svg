@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
+  <!-- German Red-White-Black Tricolor Cross Flag with centered Iron Cross (neutral/historical design) -->
+  <path fill="#c8102e" d="M0 0h900v600H0z"/>
+  <!-- Outer white fimbriation of the cross -->
+  <path fill="#fff" d="M332 0h166v600H332z M0 217h900v166H0z"/>
+  <!-- Black cross bars bordered by white lines inside red field (extra crisp R/W/B balance) -->
+  <path fill="#111" d="M358 0h114v600H358z M0 243h900v114H0z"/>
+  <!-- Central white disc with black trim framing the Iron Cross -->
+  <circle cx="415" cy="300" r="142" fill="#fff" stroke="#111" stroke-width="14"/>
+  <!-- Crisp flared Iron Cross (Eisernes Kreuz) at (415, 300) -->
+  <path fill="#111" stroke="#fff" stroke-width="6" stroke-linejoin="round"
+        d="M362 198 Q415 212 468 198 Q448 250 450 265 Q465 267 517 247 Q503 300 517 353 Q465 333 450 335 Q448 350 468 402 Q415 388 362 402 Q382 350 380 335 Q365 333 313 353 Q327 300 313 247 Q365 267 380 265 Q382 250 362 198 Z"/>
+  <!-- Subtle inner silver rim inside the Iron Cross -->
+  <path fill="none" stroke="#d8dde4" stroke-width="4" stroke-linejoin="round"
+        d="M372 208 Q415 220 458 208 Q440 256 442 273 Q459 275 507 257 Q495 300 507 343 Q459 325 442 327 Q440 344 458 392 Q415 380 372 392 Q390 344 388 327 Q371 325 323 343 Q335 300 323 257 Q371 275 388 273 Q390 256 372 208 Z"/>
+</svg>

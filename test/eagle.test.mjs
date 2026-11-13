@@ -53,6 +53,7 @@ function createTile(q, r) {
 
 function setupEagleState(tileCount = 4) {
     const state = createMatchState();
+    state.factionRuleMode = 'synergy';
     const tiles = Array.from({ length: tileCount }, (_, index) => createTile(index, 0));
     state.tiles = tiles;
     state.tileMap = new Map(tiles.map(tile => [`${tile.q},${tile.r}`, tile]));

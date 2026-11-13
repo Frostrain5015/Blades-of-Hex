@@ -72,7 +72,7 @@ const STATE_PROVIDERS = [
 
 // 效果队列中不进入图标行的项：士气有右上角固定位（静态徽章 morale: 与限时士气
 // 效果 timed:士气上升/下降/混乱 都排除，避免与角标重复）。
-const EXCLUDED_EFFECT_PREFIXES = ['morale:'];
+const EXCLUDED_EFFECT_PREFIXES = ['morale:', 'culture:never-surrender'];
 const EXCLUDED_EFFECT_LABELS = new Set(['士气上升', '士气下降', '混乱']);
 
 /**

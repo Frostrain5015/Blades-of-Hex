@@ -104,6 +104,15 @@ class RecordingContext {
     strokeText(...args) {
         this.calls.push({ name: 'strokeText', args, state: this.snapshotState() });
     }
+    fillRect(...args) {
+        this.calls.push({ name: 'fillRect', args, state: this.snapshotState() });
+    }
+    clip(...args) {
+        this.calls.push({ name: 'clip', args, path: [...this.currentPath], state: this.snapshotState() });
+    }
+    drawImage(...args) {
+        this.calls.push({ name: 'drawImage', args, state: this.snapshotState() });
+    }
     createRadialGradient(...args) {
         const gradient = new RecordingGradient(args);
         this.gradients.push(gradient);
@@ -200,4 +209,26 @@ test('waterborne badge omits land shadow and masks its lower sphere with a foam 
     const foam = context.calls.find(call => call.name === 'stroke'
         && call.state.strokeStyle === 'rgba(210,238,232,0.78)');
     assert.ok(foam, 'waterline must retain a visible foam crest');
+});
+
+test('特色兵种传入旗帜图像与裁剪框时以圆形裁剪绘制旗帜并跳过单色兵种字符', () => {
+    const context = new RecordingContext();
+    const flagImage = { complete: true, naturalWidth: 900, naturalHeight: 600, width: 900, height: 600 };
+    drawUnitBadge(context, {
+        flagColors: { main: '#2db58a', light: '#64ddb6', dark: '#136b4f' },
+        relationColor: '#ef5350',
+        hpRatio: 1,
+        glyph: resolveUnitBadgeGlyph('us_marine'),
+        flagImage,
+        flagCrop: { cx: 0.2, cy: 0.27, sizeRatio: 0.42 }
+    });
+    assert.equal(context.depth, 0);
+    assert.ok(context.calls.some(call => call.name === 'clip'));
+    const imageCall = context.calls.find(call => call.name === 'drawImage');
+    assert.ok(imageCall);
+    assert.equal(imageCall.args[0], flagImage);
+    assert.equal(context.calls.some(call => call.name === 'fillText' || call.name === 'strokeText'), false);
+    assert.equal(resolveUnitBadgeGlyph('us_marine'), resolveUnitBadgeGlyph('cavalry'));
+    assert.equal(resolveUnitBadgeGlyph('jp_samurai'), resolveUnitBadgeGlyph('infantry'));
+    assert.equal(resolveUnitBadgeGlyph('jp_samurai', true), '\u25A7');
 });

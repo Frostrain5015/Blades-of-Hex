@@ -7,6 +7,7 @@ import { isMechanicEnabled } from '../rules/mechanics.js';
 import { campToKey } from '../rules/camps.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
+import { getUnitBaseType } from '../rules/units.js';
 import { measure, perfEnabled } from './perf.js';
 
 // 视野范围：各兵种能看到的格子数（规则键：GAME_RULES.skirmishVision）
@@ -25,7 +26,8 @@ const _campKey = (camp) =>
 // ---- 核心：计算一个阵营当前能看到的所有地块 ----
 function _getEffectiveVision(unit, gs) {
     let range;
-    if (unit.type === 'archer') {
+    const baseType = getUnitBaseType(unit);
+    if (baseType === 'archer') {
         range = unit.config.range;
         if (isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog') range -= 1;
         let bonus = 0;
@@ -33,7 +35,7 @@ function _getEffectiveVision(unit, gs) {
         if (gs.weather === 'wind') bonus = Math.max(bonus, 1);
         range = Math.max(1, Math.min(4, range + bonus));
     } else {
-        range = UNIT_VISION[unit.type] || 1;
+        range = UNIT_VISION[unit.type] ?? UNIT_VISION[baseType] ?? 1;
     }
     // 轻骑兵等专精的遭遇战视野加成
     range += unit.getSpecializationAbility?.('skirmishVisionBonus') || 0;

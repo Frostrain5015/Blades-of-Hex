@@ -1,15 +1,16 @@
 // rules/units.js — 0 阶标准兵种、专精与克制关系的单一规则源。
 
 import { deepFreeze } from './freeze.js';
+import { isCampCulture } from './cultures.js';
 
 /**
  * 所有可招募常规单位都从这里的 0 阶标准面板创建。
  * 专精面板差值与逐阶能力不得反写到本对象，避免招募阶段泄露专精。
  */
 export const UNIT_CONFIG = deepFreeze({
-    infantry: { name: '步', hp: 180, attack: 40, defense: 0, speed: 4, range: 1, cost: 8, color: '#0a0a0a', movementDomain: 'land' },
-    cavalry: { name: '骑', hp: 150, attack: 50, defense: 0, speed: 8, range: 1, cost: 10, color: '#0a0a0a', movementDomain: 'land' },
-    archer: { name: '炮', hp: 90, attack: 55, defense: 0, speed: 3, range: 2, cost: 12, color: '#0a0a0a', movementDomain: 'land' },
+    infantry: { name: '步兵', hp: 180, attack: 40, defense: 0, speed: 4, range: 1, cost: 8, color: '#0a0a0a', movementDomain: 'land' },
+    cavalry: { name: '骑兵', hp: 150, attack: 50, defense: 0, speed: 8, range: 1, cost: 10, color: '#0a0a0a', movementDomain: 'land' },
+    archer: { name: '炮兵', hp: 90, attack: 55, defense: 0, speed: 3, range: 2, cost: 12, color: '#0a0a0a', movementDomain: 'land' },
     mgNest: { name: '碉堡', hp: 200, attack: 40, defense: 0.05, speed: 0, range: 2, cost: 0, color: '#8B7355', movementDomain: 'land', rankLocked: true, building: true },
     shoreBattery: { name: '岸防炮', hp: 150, attack: 50, defense: 0, speed: 0, range: 2, cost: 10, color: '#6f6657', movementDomain: 'land', rankLocked: true, building: true },
     drone: { name: '无人机', hp: 75, attack: 30, defense: 0, speed: 8, range: 2, cost: 0, color: '#6bbcff', movementDomain: 'land', rankLocked: true, building: true },
@@ -19,8 +20,68 @@ export const UNIT_CONFIG = deepFreeze({
     submarine: { name: '潜艇', hp: 100, attack: 50, defense: 0, speed: 8, range: 1, cost: 8, color: '#233f50', movementDomain: 'naval' },
     carrier: { name: '航空母舰', hp: 250, attack: 45, defense: 0.08, speed: 3, range: 5, cost: 20, color: '#244d69', movementDomain: 'naval', attackRole: 'carrierStrafe' },
     // 激光塔：不手动攻击（attack 0），火力来自回合开始的集束齐射（rules/laserTower.js）
-    laserTower: { name: '激光塔', hp: 130, attack: 0, defense: 0, speed: 0, range: 3, cost: 15, color: '#4fd8e8', movementDomain: 'land', rankLocked: true, building: true }
+    laserTower: { name: '激光塔', hp: 130, attack: 0, defense: 0, speed: 0, range: 3, cost: 15, color: '#4fd8e8', movementDomain: 'land', rankLocked: true, building: true },
+    // ==== 历史文化特色兵种 ====
+    us_marine: {
+        name: '海军陆战队', hp: 165, attack: 54, defense: 0.05, speed: 8, range: 1, cost: 11,
+        color: '#1b6d96', movementDomain: 'amphibious', baseType: 'cavalry',
+        cultureId: 'us', isUniqueUnit: true, recruitmentSites: ['city', 'port']
+    },
+    gb_battleship: {
+        name: '皇家战列舰', hp: 230, attack: 64, defense: 0.10, speed: 4, range: 2, cost: 17,
+        color: '#3b4f6e', movementDomain: 'naval', baseType: 'warship',
+        cultureId: 'gb', isUniqueUnit: true, recruitmentSites: ['port'], dodgeChance: 0.20
+    },
+    fr_heavy_cannon: {
+        name: '巨炮', hp: 115, attack: 85, defense: 0, speed: 2, range: 4, cost: 15,
+        color: '#334d39', movementDomain: 'land', baseType: 'archer',
+        cultureId: 'fr', isUniqueUnit: true, recruitmentSites: ['city'], splashPct: 0.35
+    },
+    ru_katyusha: {
+        name: '喀秋莎火箭炮', hp: 100, attack: 48, defense: 0, speed: 4, range: 2, cost: 13,
+        color: '#8c1d18', movementDomain: 'land', baseType: 'archer',
+        cultureId: 'ru', isUniqueUnit: true, recruitmentSites: ['city'], splashPct: 0.35
+    },
+    kmt_training_brigade: {
+        name: '中央教导旅', hp: 210, attack: 42, defense: 0.05, speed: 4, range: 1, cost: 9,
+        color: '#1f4488', movementDomain: 'land', baseType: 'infantry',
+        cultureId: 'kmt', isUniqueUnit: true, recruitmentSites: ['city'], cityDefenseBonus: 0.25
+    },
+    cpc_guerrilla: {
+        name: '游击纵队', hp: 165, attack: 42, defense: 0.05, speed: 5, range: 1, cost: 8,
+        color: '#9e3b14', movementDomain: 'land', baseType: 'infantry',
+        cultureId: 'cpc', isUniqueUnit: true, recruitmentSites: ['city']
+    },
+    jp_samurai: {
+        name: '帝国武士', hp: 200, attack: 46, defense: 0.05, speed: 5, range: 1, cost: 9,
+        color: '#6b2259', movementDomain: 'land', baseType: 'infantry',
+        cultureId: 'jp', isUniqueUnit: true, recruitmentSites: ['city'], permanentAntiHeal: true
+    }
 });
+
+export function getUnitBaseType(unitOrType) {
+    const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
+    return UNIT_CONFIG[type]?.baseType || type || '';
+}
+
+export function isUniqueCultureUnit(unitOrType) {
+    const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
+    return UNIT_CONFIG[type]?.isUniqueUnit === true;
+}
+
+const DEFAULT_RECRUITMENT_SITES = Object.freeze({
+    infantry: ['city'],
+    cavalry: ['city'],
+    archer: ['city'],
+    destroyer: ['port'],
+    warship: ['port'],
+    submarine: ['port']
+});
+
+export function canUnitBeRecruitedAtSite(unitType, siteType) {
+    const sites = UNIT_CONFIG[unitType]?.recruitmentSites ?? DEFAULT_RECRUITMENT_SITES[unitType];
+    return Array.isArray(sites) ? sites.includes(siteType) : false;
+}
 
 /** 同类防御建筑（碉堡/岸防炮/激光塔）最小间距：hexDistance 小于该值的同类建筑不得再建。 */
 export const DEFENSE_BUILDING_MIN_DISTANCE = 7;
@@ -72,12 +133,12 @@ export const UNIT_SPECIALIZATION_CONFIG = deepFreeze({
         }, unit => `对主目标相邻敌军造成${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%倍率溅射。`),
         antiAirArtillery: spec('防空炮', { hp: 110, attack: 45, defense: 0.05, speed: 4, range: 2 }, {
             antiAir: { radius: 2, rank1: 0.35, rank3: 0.50 }
-        }, unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`)
+        }, unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`)
     },
     destroyer: {
         antiAirDestroyer: spec('防空驱逐舰', { hp: 140, attack: 40, defense: 0.05, speed: 6, range: 1 }, {
             antiAir: { radius: 2, rank1: 0.35, rank3: 0.50 }
-        }, unit => `为2格内友军提供${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%防空火力。`),
+        }, unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`),
         antiSubDestroyer: spec('反潜驱逐舰', { hp: 150, attack: 40, defense: 0.05, speed: 7, range: 1 }, {
             submarineDetectionRadius: 2,
             submarineDamage: { rank1: 0.30, rank3: 0.50 }
@@ -147,10 +208,14 @@ export function isStrongpointTarget(target) {
     return !!(target.tile?.isCity || target.tile?.isUrban || target.tile?.fortification);
 }
 
-export function getSpecializationOptions(unitOrType) {
+export function getSpecializationOptions(unitOrType, state = null, camp = null) {
     const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
     const options = UNIT_SPECIALIZATION_CONFIG[type] || {};
-    return Object.entries(options).map(([key, value]) => ({ key, ...value }));
+    const resolvedCamp = camp || (typeof unitOrType === 'object' ? unitOrType?.camp : null);
+    const blockRocket = type === 'archer' && state && resolvedCamp && isCampCulture(state, resolvedCamp, 'ru');
+    return Object.entries(options)
+        .filter(([key]) => !(blockRocket && key === 'rocketArtillery'))
+        .map(([key, value]) => ({ key, ...value }));
 }
 
 export function getSpecialization(type, specializationKey) {
@@ -161,8 +226,12 @@ export function getSpecializationBaseType(specializationKey) {
     return SPECIALIZATION_TO_TYPE.get(specializationKey) || null;
 }
 
-export function isValidSpecialization(type, specializationKey) {
-    return !!specializationKey && getSpecializationBaseType(specializationKey) === type;
+export function isValidSpecialization(type, specializationKey, state = null, camp = null) {
+    if (!specializationKey || getSpecializationBaseType(specializationKey) !== type) return false;
+    if (type === 'archer' && specializationKey === 'rocketArtillery' && state && camp && isCampCulture(state, camp, 'ru')) {
+        return false;
+    }
+    return true;
 }
 
 export function unitNeedsSpecialization(unit) {
@@ -224,29 +293,31 @@ export function getUnitDisplayName(unit) {
 
 /** AI 与无控制者使用的确定性兜底；不含随机数，保证联机重放一致。 */
 export function chooseDefaultSpecialization(unit, state = null, policy = {}) {
-    const specializationOptions = getSpecializationOptions(unit);
+    const specializationOptions = getSpecializationOptions(unit, state);
     if (!specializationOptions.length) return null;
     const units = (state?.tiles || []).map(tile => tile.unit).filter(Boolean);
     const hostileUnits = units.filter(other => other.camp !== unit.camp);
     const intelligence = policy.intelligence || 'medium';
     if (intelligence === 'easy') return specializationOptions[0].key;
     if (unit.type === 'archer') {
-        const hostileAirPlatforms = hostileUnits.filter(other => other.type === 'carrier' || other._isDrone).length;
         const hostileClusters = hostileUnits.reduce((best, center) => {
-            if (!center.tile) return best;
+            const tile = center.tile;
+            if (!tile) return best;
             const adjacent = hostileUnits.filter(other => {
-                if (other === center || !other.tile) return false;
-                const dq = Math.abs(other.tile.q - center.tile.q);
-                const dr = Math.abs(other.tile.r - center.tile.r);
-                const ds = Math.abs((-other.tile.q - other.tile.r) - (-center.tile.q - center.tile.r));
-                return Math.max(dq, dr, ds) <= 1;
+                if (!other.tile) return false;
+                const dq = other.tile.q - tile.q;
+                const dr = other.tile.r - tile.r;
+                const ds = -dq - dr;
+                return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds)) <= 1;
             }).length;
             return Math.max(best, adjacent);
         }, 0);
+        const hostileAirPlatforms = hostileUnits.filter(other => other.type === 'carrier' || other._isDrone).length;
         const needsAntiAir = hostileAirPlatforms >= (intelligence === 'hard' ? 2 : 1);
+        const allowRocket = specializationOptions.some(opt => opt.key === 'rocketArtillery');
         return needsAntiAir ? 'antiAirArtillery'
-            : (hostileClusters >= (intelligence === 'hard' ? 2 : 3)
-                || hostileUnits.filter(other => other.config?.building || other.tile?.isCity).length >= 2)
+            : (allowRocket && (hostileClusters >= (intelligence === 'hard' ? 2 : 3)
+                || hostileUnits.filter(other => other.config?.building || other.tile?.isCity).length >= 2))
                 ? 'rocketArtillery'
                 : 'fieldGun';
     }
@@ -267,30 +338,42 @@ export function chooseDefaultSpecialization(unit, state = null, policy = {}) {
     return specializationOptions[0].key;
 }
 
-/** 行为克制关系。专精继续使用基础 type 的行列。 */
+/** 行为克制关系。专精与文化特色兵种自动继承其基础模板兵种的行列。 */
 const targetTypes = Object.keys(UNIT_CONFIG);
-const relationRow = overrides => Object.fromEntries(targetTypes.map(type => [type, overrides[type] ?? 1]));
+const baseCounterOverrides = {
+    infantry: { archer: 0.75, cavalry: 1.25, mgNest: 0.75 },
+    archer: { cavalry: 0.75, infantry: 1.25, mgNest: 1.25 },
+    cavalry: { infantry: 0.75, archer: 1.25, mgNest: 0.75 },
+    mgNest: { infantry: 1.25, archer: 0.75, cavalry: 1.25 },
+    shoreBattery: { destroyer: 1.25, warship: 1.25, submarine: 1.25, carrier: 1.25 },
+    drone: { infantry: 1.25 },
+    destroyer: { warship: 0.75, submarine: 1.25 },
+    warship: { destroyer: 1.25, submarine: 0.75, carrier: 1.25 },
+    submarine: { destroyer: 0.75, warship: 1.25, carrier: 1.25 },
+    carrier: {},
+    laserTower: {}
+};
+const relationRow = baseType => {
+    const overrides = baseCounterOverrides[baseType] || {};
+    return Object.fromEntries(targetTypes.map(type => {
+        const defenderBase = UNIT_CONFIG[type]?.baseType || type;
+        return [type, overrides[type] ?? overrides[defenderBase] ?? 1];
+    }));
+};
 
-export const COUNTER_RELATION = deepFreeze({
-    infantry: relationRow({ archer: 0.75, cavalry: 1.25, mgNest: 0.75 }),
-    archer: relationRow({ cavalry: 0.75, infantry: 1.25, mgNest: 1.25 }),
-    cavalry: relationRow({ infantry: 0.75, archer: 1.25, mgNest: 0.75 }),
-    mgNest: relationRow({ infantry: 1.25, archer: 0.75, cavalry: 1.25 }),
-    shoreBattery: relationRow({ destroyer: 1.25, warship: 1.25, submarine: 1.25, carrier: 1.25 }),
-    drone: relationRow({ infantry: 1.25 }),
-    destroyer: relationRow({ warship: 0.75, submarine: 1.25 }),
-    warship: relationRow({ destroyer: 1.25, submarine: 0.75, carrier: 1.25 }),
-    submarine: relationRow({ destroyer: 0.75, warship: 1.25, carrier: 1.25 }),
-    carrier: relationRow({}),
-    laserTower: relationRow({})
-});
+export const COUNTER_RELATION = deepFreeze(
+    Object.fromEntries(targetTypes.map(type => {
+        const baseType = UNIT_CONFIG[type]?.baseType || type;
+        return [type, relationRow(baseType)];
+    }))
+);
 
-/** 碉堡兵种被动【机枪】：对步兵造成的伤害提高（与岸防炮对舰加成同类，归入②增伤乘区）。 */
+/** 碉堡兵种被动【机枪】：对步兵（含特色步兵）造成的伤害提高（与岸防炮对舰加成同类，归入②增伤乘区）。 */
 export const MG_NEST_MACHINE_GUN_DAMAGE_BONUS = 0.30;
 
 /** 【机枪】增伤判定：攻击方为碉堡且目标为步兵时返回加成，否则为 0。 */
 export function getMachineGunDamageBonus(attackerType, defenderType) {
-    return attackerType === 'mgNest' && defenderType === 'infantry'
+    return attackerType === 'mgNest' && getUnitBaseType(defenderType) === 'infantry'
         ? MG_NEST_MACHINE_GUN_DAMAGE_BONUS
         : 0;
 }

@@ -2,6 +2,7 @@
 // 这里只保存成员身份、平衡参数与无副作用的判定；实际扣血/抬血由 Unit 统一伤害入口结算。
 
 import { campToKey } from './camps.js';
+import { isFactionSynergyRuleActive } from './cultures.js';
 import { getRoundIndex } from './turns.js';
 import {
     AURELIA_COMMANDER_IDS,
@@ -52,7 +53,8 @@ export function getLivingAureliaCommanders(gameState, camp) {
 }
 
 export function hasAureliaOathPassive(unit, gameState) {
-    return isAureliaCommanderUnit(unit)
+    return isFactionSynergyRuleActive(gameState)
+        && isAureliaCommanderUnit(unit)
         && getLivingAureliaCommanders(gameState, unit.camp).length >= 2;
 }
 

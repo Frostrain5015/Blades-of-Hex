@@ -8,6 +8,8 @@
 import { W } from './weights.js';
 import { isFieldCapturer } from './roster.js';
 import { canRepairShipAtPort } from '../../rules/naval.js';
+import { getUnitBaseType } from '../../rules/units.js';
+import { getActiveCultureId, getArtilleryCostDiscount, getCulturalPortRepairCostScale, getCulturalReinforceCostScale, getCultureUniqueUnitType } from '../../rules/cultures.js';
 
 const NAVAL_ORDER = ['warship', 'destroyer', 'submarine'];
 const LAND_ORDER = ['infantry', 'cavalry', 'archer'];
@@ -16,14 +18,38 @@ function canAfford(gold, cost, strategy) {
     return gold - cost - strategy.reserve >= 0;
 }
 
+function unitCost(world, type) {
+    const base = world.helpers.UNIT_CONFIG[type]?.cost ?? 99;
+    return Math.max(1, base - getArtilleryCostDiscount(world.gameState, world.myCamp, type));
+}
+
+function getLandUniqueType(world) {
+    const cultureId = getActiveCultureId(world.gameState, world.myCamp);
+    const uniqueType = getCultureUniqueUnitType(cultureId);
+    if (!uniqueType) return null;
+    const cfg = world.helpers.UNIT_CONFIG?.[uniqueType];
+    return cfg && cfg.movementDomain !== 'naval' ? uniqueType : null;
+}
+
+function withLandUniquePreference(order, world, preferUnique) {
+    const uniqueType = getLandUniqueType(world);
+    if (!uniqueType || !preferUnique) return order;
+    const existing = world.myUnits.filter(u => u.type === uniqueType).length;
+    if (existing >= 2) return order;
+    return [uniqueType, ...order.filter(t => t !== uniqueType)];
+}
+
 /** 招募城市兵种：突击缺口时步兵/骑兵置顶（对齐真人"城就是产能"的认知）。 */
 function landRecruitOrder(world, strategy, missionsCtx) {
     if (!world.myUnits.some(unit => isFieldCapturer(world, unit))) return LAND_ORDER;
     const hostileFortifications = world.rivalUnits.filter(unit =>
-        unit.type === 'laserTower' || unit.type === 'mgNest' || unit.type === 'shoreBattery').length;
-    const myArchers = world.myUnits.filter(unit => unit.type === 'archer').length;
+        unit.type === 'laserTower' || getUnitBaseType(unit) === 'mgNest' || getUnitBaseType(unit) === 'shoreBattery').length;
+    const myArchers = world.myUnits.filter(unit => getUnitBaseType(unit) === 'archer').length;
+    const uniqueType = getLandUniqueType(world);
+    const uniqueIsArtillery = uniqueType ? getUnitBaseType(uniqueType) === 'archer' : false;
     if (world.caps.lethalFocus && hostileFortifications > myArchers) {
-        return ['archer', 'cavalry', 'infantry'];
+        const order = ['archer', 'cavalry', 'infantry'];
+        return uniqueIsArtillery ? withLandUniquePreference(order, world, true) : order;
     }
     const decisiveSiege = missionsCtx.missions.find(mission =>
         mission.kind === 'siege' && mission.decisive);
@@ -36,23 +62,34 @@ function landRecruitOrder(world, strategy, missionsCtx) {
     if (world.caps.lethalFocus && targetCity
         && (targetCity.hp > 0 || targetCity.garrison)
         && myArchers < desiredSupport) {
-        return ['archer', 'infantry', 'cavalry'];
+        const order = ['archer', 'infantry', 'cavalry'];
+        return uniqueIsArtillery ? withLandUniquePreference(order, world, true) : order;
     }
     if (strategy.assaultCapacity.deficit > 0) {
-        return LAND_ORDER;
+        return uniqueType && !uniqueIsArtillery
+            ? withLandUniquePreference(LAND_ORDER, world, true)
+            : LAND_ORDER;
     }
     // 无缺口时步兵优先（守城 +10% 防御，也是最可靠的占领者），骑兵/炮兵补充。
-    return ['infantry', 'cavalry', 'archer'];
+    return withLandUniquePreference(['infantry', 'cavalry', 'archer'], world, true);
 }
 
 function navalRecruitOrder(world) {
-    const enemySubs = world.rivalUnits.filter(u => u.type === 'submarine').length;
-    const myDestroyers = world.myUnits.filter(u => u.type === 'destroyer').length;
-    if (enemySubs > myDestroyers) return ['destroyer', 'warship', 'submarine'];
-    const enemyWarships = world.rivalUnits.filter(u => u.type === 'warship').length;
-    const mySubs = world.myUnits.filter(u => u.type === 'submarine').length;
-    if (enemyWarships > mySubs) return ['submarine', 'warship', 'destroyer'];
-    return NAVAL_ORDER;
+    const enemySubs = world.rivalUnits.filter(u => getUnitBaseType(u) === 'submarine').length;
+    const myDestroyers = world.myUnits.filter(u => getUnitBaseType(u) === 'destroyer' || u.config?.submarineDetectorRadius).length;
+    let order = NAVAL_ORDER;
+    if (enemySubs > myDestroyers) order = ['destroyer', 'warship', 'submarine'];
+    else {
+        const enemyWarships = world.rivalUnits.filter(u => getUnitBaseType(u) === 'warship').length;
+        const mySubs = world.myUnits.filter(u => getUnitBaseType(u) === 'submarine').length;
+        if (enemyWarships > mySubs) order = ['submarine', 'warship', 'destroyer'];
+    }
+    const uniqueType = getCultureUniqueUnitType(getActiveCultureId(world.gameState, world.myCamp));
+    if (uniqueType === 'gb_battleship' || uniqueType === 'us_marine') {
+        const existing = world.myUnits.filter(u => u.type === uniqueType).length;
+        if (existing < 2) return [uniqueType, ...order.filter(t => t !== uniqueType)];
+    }
+    return order;
 }
 
 function shouldTemporarilyVacateMinister(world, strategy, memory) {
@@ -105,11 +142,11 @@ export function planProduction(world, strategy, missionsCtx) {
             // 校验的是离城后的格子；执行层仍对真实格子再次终检。
             const emptySite = { ...city, unit: null };
             const type = landOrder.find(candidate =>
-                canAfford(gold, helpers.UNIT_CONFIG[candidate]?.cost ?? 99, strategy)
+                canAfford(gold, unitCost(world, candidate), strategy)
                 && (!helpers.canRecruitTypeAtSite || helpers.canRecruitTypeAtSite(candidate, emptySite)));
             if (!type) continue;
             const exits = helpers.getMovableTiles(city.unit)
-                .filter(tile => !tile.unit && !tile.isCity && world.threatAt(tile, city.unit) <= 20);
+                .filter(tile => (!tile.unit || (world.isUnitVisible && !world.isUnitVisible(tile.unit))) && !tile.isCity && world.threatAt(tile, city.unit) <= 20);
             if (exits.length === 0) continue;
             exits.sort((a, b) => world.threatAt(a, city.unit) - world.threatAt(b, city.unit));
             const move = {
@@ -121,7 +158,7 @@ export function planProduction(world, strategy, missionsCtx) {
                 move.returnToCity = { q: city.q, r: city.r, round: world.round };
             }
             setup.push(move, { type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
-            gold -= helpers.UNIT_CONFIG[type].cost;
+            gold -= unitCost(world, type);
             break;
         }
     }
@@ -141,7 +178,7 @@ export function planProduction(world, strategy, missionsCtx) {
             ? helpers.recruitTypesForCity(city, landOrder)
             : landOrder;
         for (const type of types) {
-            const cost = helpers.UNIT_CONFIG[type]?.cost ?? 99;
+            const cost = unitCost(world, type);
             const emergencyRecruit = urgentLandRecruit && cost <= gold;
             if (!emergencyRecruit && !canAfford(gold, cost, strategy)) continue;
             if (helpers.canRecruitTypeAtSite && !helpers.canRecruitTypeAtSite(type, city)) continue;
@@ -174,7 +211,7 @@ export function planProduction(world, strategy, missionsCtx) {
         const order = navalRecruitOrder(world);
         for (const port of emptyPorts.slice(0, 1)) {
             for (const type of order) {
-                const cost = helpers.UNIT_CONFIG[type]?.cost ?? 99;
+                const cost = unitCost(world, type);
                 if (gold - cost < emergencyRecruitFund) continue;
                 if (helpers.canRecruitTypeAtSite && !helpers.canRecruitTypeAtSite(type, port)) continue;
                 actions.push({ type: 'recruit', unitType: type, tileQ: port.q, tileR: port.r });
@@ -196,10 +233,12 @@ export function planProduction(world, strategy, missionsCtx) {
     let reinforced = 0;
     for (const tile of candidates) {
         if (reinforced >= (strategy.posture === 'hold' ? 3 : 2)) break;
-        if (gold - 4 < emergencyRecruitFund) break;
+        const heal = Math.min(Math.floor(tile.unit.maxHp * 0.50), tile.unit.maxHp - tile.unit.hp);
+        const cost = Math.max(1, Math.ceil(tile.unit.config.cost * (heal / tile.unit.maxHp) * getCulturalReinforceCostScale(world.gameState, tile, world.myCamp)));
+        if (heal <= 0 || gold - cost < emergencyRecruitFund) break;
         actions.push({ type: 'reinforce', unitId: tile.unit.id });
         reinforceLedger[tile.unit.id] = (reinforceLedger[tile.unit.id] || 0) + 1;
-        gold -= 4;
+        gold -= cost;
         reinforced++;
     }
 
@@ -208,7 +247,7 @@ export function planProduction(world, strategy, missionsCtx) {
         if (!canRepairShipAtPort(unit, world.gameState) || unit.tile._reinforcedThisTurn) continue;
         const heal = Math.min(Math.floor(unit.maxHp * 0.5), unit.maxHp - unit.hp);
         if (heal < unit.maxHp * 0.2) continue;
-        const cost = Math.max(1, Math.ceil(unit.config.cost * heal / unit.maxHp));
+        const cost = Math.max(1, Math.ceil(unit.config.cost * heal / unit.maxHp * getCulturalPortRepairCostScale(world.gameState, world.myCamp)));
         if (gold - cost < emergencyRecruitFund) continue;
         setup.unshift({ type: 'repairShip', unitId: unit.id });
         gold -= cost;

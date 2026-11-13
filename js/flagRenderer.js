@@ -3,7 +3,8 @@
 import { LOGICAL_W, LOGICAL_H, getCanvasPixelRatio } from './canvasRuntime.js';
 import { getFlagColors } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
-import { getUnitVisualPos } from './unitRenderer.js';
+import { getUnitVisualPos, resolveViewerCamp } from './unitRenderer.js';
+import { isUnitVisibleToCamp } from '../rules/visibility.js';
 import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
 
 const MESH_COLUMNS = 18;
@@ -353,6 +354,7 @@ function factionAppearance(camp, gameState) {
 
 export function collectBattlefieldFlags(gameState, now) {
     const flags = [];
+    const viewerCamp = resolveViewerCamp(gameState);
     for (const tile of gameState.tiles || []) {
         const cityFlag = tile.getFlagRenderData?.();
         if (cityFlag) {
@@ -361,6 +363,7 @@ export function collectBattlefieldFlags(gameState, now) {
         }
         const unit = tile.unit;
         if (!unit || tile.isCity || tile.isVillage || tile.isPort || unit._airdropWaiting) continue;
+        if (!isUnitVisibleToCamp(unit, viewerCamp, gameState)) continue;
         if ((unit._airliftLandAt && now < unit._airliftLandAt) || (unit._soulRecallLandAt && now < unit._soulRecallLandAt)) continue;
         const pos = getUnitVisualPos(unit);
         const appearance = factionAppearance(unit.camp, gameState);

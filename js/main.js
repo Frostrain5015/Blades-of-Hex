@@ -34,7 +34,8 @@ import {
     spawnAirstrikeEffect, spawnAirliftEffect,
     spawnHealParticles,
     spawnReinforceEffect,
-    clearTransientEffects
+    clearTransientEffects, LASER_BEAM_IMPACT_MS,
+    HEAVY_CANNON_IMPACT_MS, spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash, spawnDodgeShimmer
 } from './effects.js';
 import { isTileVisible } from './fogOfWar.js';
 import { HexTile } from './HexTile.js';
@@ -57,8 +58,12 @@ import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, assignAiFactionColors, camp
 import {
     campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, setPlayerFactionFlagPreset,
     setPlayerFactionName, getStandardFactionName, factionNameCharacters, MAX_FACTION_NAME_LENGTH,
-    getViewingCampKey, getFlagPresetColor, FLAG_PRESETS, STANDARD_FLAG_EMOJIS
+    getViewingCampKey, getFlagPresetColor, ensureCultureFactionPresets, resetCulturePresetsToCustomFlags, FLAG_PRESETS, STANDARD_FLAG_EMOJIS
 } from '../rules/diplomacy.js';
+import {
+    FACTION_RULE_MODES, isCultureSystemEnabled, isFactionSynergyRuleActive, normalizeFactionRuleMode,
+    getFireSeaState
+} from '../rules/cultures.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { downloadCurrentMatchLog, downloadCurrentMatchReview, getCurrentMatchLog, recordCommittedAction, resolvePendingLocalAction, startMatchRecording } from './matchRecorder.js';
 import { initMatchStatsPanel } from './matchStatsView.js';
@@ -126,22 +131,41 @@ function _savedFactionNamesFromState() {
 
 function _applySavedFlagCustomizations(factionKeys, preferenceKey = null) {
     const saved = _readSavedFlagCustomizations();
+    const cultureMode = isCultureSystemEnabled(gameState);
+    const synergyMode = isFactionSynergyRuleActive(gameState);
     let changed = false;
     for (const factionKey of factionKeys) {
         const entry = saved[preferenceKey || factionKey] || saved[factionKey];
         if (!entry || typeof entry !== 'object') continue;
-        if (setPlayerFactionColor(gameState, factionKey, entry.colorId)) changed = true;
-        if (setPlayerFactionFlagEmoji(gameState, factionKey, entry.emoji)) changed = true;
-        if (setPlayerFactionName(gameState, factionKey, entry.name)) changed = true;
-        const presetColor = getFlagPresetColor(entry.preset);
-        const alreadyLocked = Object.entries(gameState.factions || {}).some(([key, faction]) =>
-            key !== factionKey && faction.active !== false && getFlagPresetColor(faction.flagPreset) === presetColor);
-        if (presetColor && !alreadyLocked && setPlayerFactionFlagPreset(gameState, factionKey, entry.preset)) changed = true;
+        if (!cultureMode) {
+            if (setPlayerFactionColor(gameState, factionKey, entry.colorId)) changed = true;
+            if (setPlayerFactionFlagEmoji(gameState, factionKey, entry.emoji)) changed = true;
+            if (setPlayerFactionName(gameState, factionKey, entry.name)) changed = true;
+        }
+        if (!synergyMode) {
+            const presetColor = getFlagPresetColor(entry.preset);
+            const alreadyLocked = Object.entries(gameState.factions || {}).some(([key, faction]) =>
+                key !== factionKey && faction.active !== false && getFlagPresetColor(faction.flagPreset) === presetColor);
+            if (presetColor && !alreadyLocked && setPlayerFactionFlagPreset(gameState, factionKey, entry.preset)) changed = true;
+        }
         if (gameState.factions?.[factionKey]?.colorId) {
             gameState.factionColorSelections[factionKey] = gameState.factions[factionKey].colorId;
         }
     }
     return changed;
+}
+
+function _applyFactionRuleDefaults({ randomizeAi = false } = {}) {
+    if (isCultureSystemEnabled(gameState)) {
+        ensureCultureFactionPresets(gameState, { randomizeAi });
+    } else if (isFactionSynergyRuleActive(gameState)) {
+        resetCulturePresetsToCustomFlags(gameState);
+    }
+    for (const key of ['player1', 'player2', 'player3']) {
+        if (gameState.factions?.[key]?.colorId) {
+            gameState.factionColorSelections[key] = gameState.factions[key].colorId;
+        }
+    }
 }
 
 await ensurePlayerProfileReady();
@@ -1148,6 +1172,7 @@ function beginTrainingMatch() {
     const commanderP3Secondary = gameState.commanderP3Secondary;
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
+    const savedFactionRuleMode = normalizeFactionRuleMode(gameState.factionRuleMode);
     const savedThreePlayer = gameState.isThreePlayer;
     const savedStandardMapId = gameState.standardMapId;
     const savedColors = { ...(gameState.factionColorSelections || {}) };
@@ -1163,6 +1188,7 @@ function beginTrainingMatch() {
     gameState.isThreePlayer = savedThreePlayer;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
+    gameState.factionRuleMode = savedFactionRuleMode;
     gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({
         playerCount: savedThreePlayer ? 3 : 2,
@@ -1395,18 +1421,21 @@ function beginCommanderPhase() {
     const savedMode = gameState.gameMode;
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
+    const savedFactionRuleMode = normalizeFactionRuleMode(gameState.factionRuleMode);
     const savedThreePlayer = gameState.isThreePlayer;
     const savedStandardMapId = gameState.standardMapId;
     resetGameState();
     gameState.gameMode = savedMode;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
+    gameState.factionRuleMode = savedFactionRuleMode;
     gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({
         playerCount: savedThreePlayer ? 3 : 2,
         controllers: { player1: 'human', player2: 'human', player3: 'human' }
     });
     _applySavedFlagCustomizations(savedThreePlayer ? ['player1', 'player2', 'player3'] : ['player1', 'player2']);
+    _applyFactionRuleDefaults({ randomizeAi: false });
     _commanderTransitioning = false;
     const pool = shuffleAndSplitPool(savedThreePlayer, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
     gameState.commanderPoolP1 = pool.p1;
@@ -1423,6 +1452,7 @@ function beginTrainingCommanderPhase(humanRole) {
     _deploymentStarted = false;
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
+    const savedFactionRuleMode = normalizeFactionRuleMode(gameState.factionRuleMode);
     const savedThreePlayer = gameState.isThreePlayer;
     const savedDiff = gameState.aiDifficulty;
     const savedStandardMapId = gameState.standardMapId;
@@ -1431,6 +1461,7 @@ function beginTrainingCommanderPhase(humanRole) {
     gameState.isThreePlayer = savedThreePlayer;
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
+    gameState.factionRuleMode = savedFactionRuleMode;
     gameState.aiDifficulty = savedDiff;
     gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({
@@ -1440,6 +1471,7 @@ function beginTrainingCommanderPhase(humanRole) {
             : { player1: 'human', player2: 'human' }
     });
     _applySavedFlagCustomizations(savedThreePlayer ? ['player1', 'player2', 'player3'] : ['player1', 'player2']);
+    _applyFactionRuleDefaults({ randomizeAi: false });
     // 训练场恒为本地热座演习：玩家为所有席位自选将领，无 AI 接管。
     gameState.aiOpponentCamp = null;
     gameState._trainingMode = true;
@@ -1461,6 +1493,7 @@ function beginPVECommanderPhase(humanRole) {
     _deploymentStarted = false;
     const savedFog = gameState.skirmishFog;
     const savedDoubleCommanderMode = gameState.doubleCommanderMode;
+    const savedFactionRuleMode = normalizeFactionRuleMode(gameState.factionRuleMode);
     const savedDiff = gameState.aiDifficulty;
     const savedStandardMapId = gameState.standardMapId;
     resetGameState();
@@ -1468,10 +1501,12 @@ function beginPVECommanderPhase(humanRole) {
     gameState.gameMode = 'pve';
     gameState.skirmishFog = savedFog;
     gameState.doubleCommanderMode = savedDoubleCommanderMode;
+    gameState.factionRuleMode = savedFactionRuleMode;
     gameState.aiDifficulty = savedDiff;
     gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({ playerCount: 2, controllers: { player1: 'human', player2: 'ai' } });
     _applySavedFlagCustomizations(['player1']);
+    _applyFactionRuleDefaults({ randomizeAi: true });
     _assignAutomaticFactionColors();
     gameState.aiOpponentCamp = campFromKey('player2', gameState);
     _commanderTransitioning = false;
@@ -1643,10 +1678,12 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
     const logo = document.getElementById('commanderLogo');
     const canChoose = _canChooseFactionColor(forPlayer, locked);
     const faction = gameState.factions?.[forPlayer];
+    const cultureMode = isCultureSystemEnabled(gameState);
+    const synergyMode = isFactionSynergyRuleActive(gameState);
     const occupied = new Set(Object.entries(gameState.factionColorSelections || {})
         .filter(([key]) => {
             if (key === forPlayer || gameState.factions?.[key]?.active === false) return false;
-            if (isNetworkGame()) return !Object.hasOwn(_networkAiSeats, key);
+            if (isNetworkGame()) return cultureMode || !Object.hasOwn(_networkAiSeats, key);
             const slots = _commanderSlots[key];
             return !!gameState.factions?.[key]?.flagPreset || (slots ? gameState[slots.primaryConfirmed] === true : false);
         })
@@ -1664,8 +1701,8 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
         picker.appendChild(section);
         return options;
     };
-    const colorOptions = makeSection('旗帜颜色', 'colors');
-    for (const entry of FACTION_PALETTE.filter(item => PLAYER_FACTION_COLOR_KEYS.includes(item.id))) {
+    const colorOptions = cultureMode ? null : makeSection('旗帜颜色', 'colors');
+    if (colorOptions) for (const entry of FACTION_PALETTE.filter(item => PLAYER_FACTION_COLOR_KEYS.includes(item.id))) {
         const swatch = document.createElement('button');
         swatch.type = 'button';
         swatch.className = 'commander-color-swatch';
@@ -1686,8 +1723,8 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
         });
         colorOptions.appendChild(swatch);
     }
-    const emojiOptions = makeSection('旗面徽记', 'emojis');
-    for (const entry of STANDARD_FLAG_EMOJIS) {
+    const emojiOptions = cultureMode ? null : makeSection('旗面徽记', 'emojis');
+    if (emojiOptions) for (const entry of STANDARD_FLAG_EMOJIS) {
         const emojiButton = document.createElement('button');
         emojiButton.type = 'button';
         emojiButton.className = 'commander-emoji-option';
@@ -1714,8 +1751,8 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
         });
         emojiOptions.appendChild(emojiButton);
     }
-    const presetOptions = makeSection('预设旗帜', 'presets');
-    for (const [preset, label] of Object.entries(FLAG_PRESETS)) {
+    const presetOptions = synergyMode ? null : makeSection('预设旗帜', 'presets');
+    if (presetOptions) for (const [preset, label] of Object.entries(FLAG_PRESETS)) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'commander-preset-option';
@@ -1758,8 +1795,8 @@ function _configureCommanderFactionHeader(forPlayer, { locked = false, nameOverr
     _ensureCommanderFlagPreview()?.setFaction(ci.faction);
     picker.classList.toggle('open', keepPickerOpen);
     logo.setAttribute('aria-expanded', String(keepPickerOpen));
-    nameInput.disabled = !_canChooseFactionColor(forPlayer, locked);
-    nameInput.value = ci.faction?.customName || '';
+    nameInput.disabled = isCultureSystemEnabled(gameState) || !_canChooseFactionColor(forPlayer, locked);
+    nameInput.value = isCultureSystemEnabled(gameState) ? '' : (ci.faction?.customName || '');
     nameInput.placeholder = getStandardFactionName(forPlayer, '', ci.faction?.flagPreset);
     const limitName = () => {
         const characters = factionNameCharacters(nameInput.value);
@@ -1806,7 +1843,7 @@ function _configureCommanderFactionHeader(forPlayer, { locked = false, nameOverr
 }
 
 function _assignAutomaticFactionColors() {
-    if (gameState.gameMode === 'pve') {
+    if (gameState.gameMode === 'pve' && !isCultureSystemEnabled(gameState) && !gameState.factions.player2?.flagPreset) {
         const colors = assignAiFactionColors({
             player1: gameState.factions.player1.colorId,
             player2: gameState.factions.player2.colorId
@@ -1843,6 +1880,7 @@ function beginNetworkCommanderFlow(role) {
     const wasThreePlayer = gameState.isThreePlayer;
     const wasSkirmish = gameState.skirmishFog;
     const wasDoubleCommanderMode = gameState.doubleCommanderMode;
+    const wasFactionRuleMode = normalizeFactionRuleMode(gameState.factionRuleMode);
     const wasMode = gameState.gameMode;
     const wasColors = { ...(gameState.factionColorSelections || {}) };
     const wasFlagEmojis = _savedFlagEmojisFromState();
@@ -1856,6 +1894,7 @@ function beginNetworkCommanderFlow(role) {
     gameState.isThreePlayer = wasThreePlayer;
     gameState.skirmishFog = wasSkirmish;
     gameState.doubleCommanderMode = wasDoubleCommanderMode;
+    gameState.factionRuleMode = wasFactionRuleMode;
     gameState.gameMode = wasMode;
     gameState.standardMapId = wasStandardMapId;
     // 真人席位必须显式 'human'；AI 占位席位（房主在等待室添加）置为 'ai'。
@@ -2780,6 +2819,8 @@ function renderRoomList(list) {
         const mapName = r.standardMapId === 'uncharted-passage' ? '无主航路' : '王冠环岛';
         const rules = [mapName, r.skirmishFog ? '遭遇战' : '标准'];
         if (r.doubleCommanderMode) rules.push('双将');
+        if (r.factionRuleMode === 'culture') rules.push('历史文化');
+        else if (r.factionRuleMode === 'synergy') rules.push('阵营协同');
         const modeLabel = (maxP === 3 ? '三人' : '双人') + ' · ' + rules.join(' · ');
         const playersLabel = `${r.playerCount + aiCount}/${maxP}` + (aiCount ? `(含${aiCount}AI)` : '');
         card.innerHTML = `<span class="mp-room-id">${r.roomId}</span><span class="mp-room-mode">${modeLabel}</span><span class="mp-room-players">${playersLabel}</span><span class="mp-room-arrow">→</span>`;
@@ -2858,7 +2899,8 @@ function registerNetworkCallbacks() {
             }
         },
 
-        onRoomCreated: (roomId, role, maxPlayers, playerCount) => {
+        onRoomCreated: (roomId, role, maxPlayers, playerCount, factionRuleMode = 'none') => {
+            gameState.factionRuleMode = normalizeFactionRuleMode(factionRuleMode);
             gameState.isThreePlayer = maxPlayers === 3;
             _opponentCount = 0;
             showRoomWaiting(roomId, maxPlayers, playerCount || 1);
@@ -2869,7 +2911,8 @@ function registerNetworkCallbacks() {
             readyBtn.style.background = '#27ae60';
         },
 
-        onRoomJoined: (roomId, role, maxPlayers, playerCount) => {
+        onRoomJoined: (roomId, role, maxPlayers, playerCount, factionRuleMode = 'none') => {
+            gameState.factionRuleMode = normalizeFactionRuleMode(factionRuleMode);
             gameState.isThreePlayer = maxPlayers === 3;
             _opponentCount = 0; // 由后续 opponentJoined 消息逐个累加，避免重复计数
             showRoomWaiting(roomId, maxPlayers, playerCount || 2);
@@ -2952,6 +2995,7 @@ function registerNetworkCallbacks() {
             if (skirmishFog !== undefined) gameState.skirmishFog = skirmishFog;
             if (doubleCommanderMode !== undefined) gameState.doubleCommanderMode = doubleCommanderMode;
             if (setup.standardMapId) gameState.standardMapId = setup.standardMapId;
+            if (setup.factionRuleMode !== undefined) gameState.factionRuleMode = normalizeFactionRuleMode(setup.factionRuleMode);
             _networkAiSeats = { ...(setup.aiSeats || {}) };
             configureSkirmishState({
                 playerCount: isThreePlayer ? 3 : 2,
@@ -2969,12 +3013,12 @@ function registerNetworkCallbacks() {
             const myCampKey = gameState.roleAssignments?.[role] || role;
             if (_applySavedFlagCustomizations([myCampKey], role)) {
                 const faction = gameState.factions?.[myCampKey];
-                if (faction?.customName) sendMessage({ type: 'factionColor', factionName: faction.customName });
-                if (!faction?.flagPreset) sendMessage({ type: 'factionColor', colorId: faction?.colorId });
+                if (!isCultureSystemEnabled(gameState) && faction?.customName) sendMessage({ type: 'factionColor', factionName: faction.customName });
+                if (!isCultureSystemEnabled(gameState) && !faction?.flagPreset) sendMessage({ type: 'factionColor', colorId: faction?.colorId });
                 sendMessage({
                     type: 'factionColor',
-                    flagEmoji: faction?.flagEmoji,
-                    flagPreset: faction?.flagPreset || undefined
+                    flagEmoji: isCultureSystemEnabled(gameState) ? undefined : faction?.flagEmoji,
+                    flagPreset: isFactionSynergyRuleActive(gameState) ? undefined : (faction?.flagPreset || undefined)
                 });
             }
             showFactionReveal(role);
@@ -3275,6 +3319,10 @@ async function handleRemoteAction(msg) {
     // 本地投降尚未被服务端收录时（_localSurrenderPendingKey），即使本地已因投降提前进入
     // gameOver 也要继续接收快照，否则无法完成投降重放收敛。
     let remoteStateApplied = false;
+    const laserVolleys = msg.actionType === 'endTurn' && Array.isArray(msg.effects?.laserTowerVolleys)
+        ? msg.effects.laserTowerVolleys : [];
+    const heavyVolleys = msg.actionType === 'endTurn' && Array.isArray(msg.effects?.heavyCannonVolleys)
+        ? msg.effects.heavyCannonVolleys : [];
     if (!gameState.aiActing && (!gameState.gameOver || gameState._localSurrenderPendingKey)) {
         // 飞行类攻击（鱼雷/舰载机弹流）击杀：快照落地会立即移除阵亡单位，
         // 先捕获旧实例留作残影，延迟到弹着爆炸时刻才消失（与本地端时序一致）
@@ -3300,7 +3348,60 @@ async function handleRemoteAction(msg) {
                 });
             }
         }
+        const laserTargets = new Map();
+        for (const volley of laserVolleys) {
+            for (const hit of volley.hits || []) {
+                const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+                if (unit?.id === hit.unitId) laserTargets.set(hit.unitId, { unit, hit });
+            }
+        }
+        const heavyTargets = [];
+        for (const hv of heavyVolleys) {
+            if (hv.dodged) continue;
+            const unit = gameState.tileMap.get(`${hv.toQ},${hv.toR}`)?.unit;
+            if (unit) heavyTargets.push({ unit, volley: hv });
+        }
         applyRemoteState(msg.state, HexTile, Unit);
+        const volleyStartedAt = performance.now();
+        if (laserVolleys.length > 0) {
+            const impactAt = volleyStartedAt + LASER_BEAM_IMPACT_MS;
+            for (const { unit, hit } of laserTargets.values()) {
+                const current = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+                if (current?.id === unit.id) {
+                    current.displayHp = unit.displayHp;
+                    current._displayShield = unit._displayShield;
+                    current._hpBarDelayUntil = impactAt;
+                } else if (hit.killed) {
+                    unit._hpBarDelayUntil = impactAt;
+                    (gameState.unitDeathGhosts ||= []).push({ unit, until: impactAt });
+                }
+            }
+            emit('fx:laserTowerVolley', { volleys: laserVolleys, startedAt: volleyStartedAt });
+        }
+        if (heavyVolleys.length > 0) {
+            const heavyImpactAt = volleyStartedAt + HEAVY_CANNON_IMPACT_MS;
+            for (const { unit, volley } of heavyTargets) {
+                const current = gameState.tileMap.get(`${volley.toQ},${volley.toR}`)?.unit;
+                if (current?.id === unit.id) {
+                    current.displayHp = unit.displayHp;
+                    current._displayShield = unit._displayShield;
+                    current._hpBarDelayUntil = heavyImpactAt;
+                } else if (volley.killed) {
+                    unit._hpBarDelayUntil = heavyImpactAt;
+                    (gameState.unitDeathGhosts ||= []).push({ unit, until: heavyImpactAt });
+                }
+            }
+            playSound('cannon');
+            for (const hv of heavyVolleys) {
+                spawnHeavyCannonShell(hv.fromX, hv.fromY, hv.toX, hv.toY, hv.isCrit, null, { startedAt: volleyStartedAt });
+                if (hv.dodged && Number.isFinite(hv.toX) && Number.isFinite(hv.toY)) {
+                    setTimeout(() => spawnDodgeShimmer(hv.toX, hv.toY), HEAVY_CANNON_IMPACT_MS);
+                }
+            }
+        }
+        if (laserVolleys.length > 0 || heavyVolleys.length > 0) {
+            replayFloatTexts(msg.effects.floatTexts, { startedAt: volleyStartedAt });
+        }
         remoteStateApplied = true;
         await loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 状态同步加载失败:', err));
         // 远端快照落地后核对本地投降是否已被收录，未收录则幂等重放并重新广播。
@@ -3331,8 +3432,8 @@ async function handleRemoteAction(msg) {
     }
 
     const e = msg.effects;
-    // 浮字统一走 payload 重放：与本地同一批条目、同一节奏（delayMs 照用）
-    if (e?.floatTexts) replayFloatTexts(e.floatTexts);
+    // 激光与法式重炮回合初齐射的浮字已随快照后的弹道同时入队。
+    if (e?.floatTexts && laserVolleys.length === 0 && heavyVolleys.length === 0) replayFloatTexts(e.floatTexts);
     switch (msg.actionType) {
         case 'move':
             playSound('move');
@@ -3410,10 +3511,6 @@ async function handleRemoteAction(msg) {
                     }
                 }
             }
-            // 重放激光塔【集束激光】齐射光束（伤害数字已由 e.floatTexts 统一重放，此处只放光束特效）
-            if (e && e.laserTowerVolleys) {
-                emit('fx:laserTowerVolley', { volleys: e.laserTowerVolleys });
-            }
             if (e?.eagleSupplyEvent?.goldAwarded > 0) {
                 emit('fx:eagleSynergy', e.eagleSupplyEvent);
             }
@@ -3437,6 +3534,14 @@ async function handleRemoteAction(msg) {
                     anchor: remoteAnchor,
                     campKey: remoteAnchor?.campKey || null
                 });
+            }
+            // 德国【焦土空袭】火海回合开始灼烧特效
+            if (e?.fireSeaTicks?.length) {
+                for (const tick of e.fireSeaTicks) {
+                    if (Number.isFinite(tick?.x) && Number.isFinite(tick?.y)) {
+                        spawnExplosionParticles(tick.x, tick.y, '#ff6a00', 10);
+                    }
+                }
             }
             // 天衡【日月天衡】：远端重放充能触发后的 Hero 动画
             if (e && e.sunMoonTrigger) {
@@ -3844,7 +3949,13 @@ async function handleRemoteAction(msg) {
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
                         triggerAttackFlash(e.x, e.y, e.isCrit);
-                        spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                        if (e.attackerType === 'ru_katyusha') {
+                            spawnKatyushaBarrage(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                        } else if (e.attackerType === 'fr_heavy_cannon') {
+                            spawnHeavyCannonShell(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                        } else {
+                            spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                        }
                         triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                     } else {
@@ -3974,6 +4085,11 @@ async function handleRemoteAction(msg) {
                         }
                     }
                 }
+                    for (const ft of e?.floatTexts || []) {
+                        if (ft?.text !== '闪避' || !Number.isFinite(ft.x) || !Number.isFinite(ft.y)) continue;
+                        if (ft.delayMs > 0) setTimeout(() => spawnDodgeShimmer(ft.x, ft.y), ft.delayMs);
+                        else spawnDodgeShimmer(ft.x, ft.y);
+                    }
                 }; // _execAttackFx
 
                 if (_rmSmite) {
@@ -4007,6 +4123,9 @@ async function handleRemoteAction(msg) {
             } else if (e.kind === 'bombing') {
                 spawnAirstrikeEffect(target.x, target.y, e.results || [], 'carpetBomb', target.q, target.r);
                 playSound('airstrike');
+            } else if (e.kind === 'stukaDiveBomb') {
+                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'stukaDiveBomb', target.q, target.r);
+                playSound('airstrike');
             } else if (e.kind === 'airdrop') {
                 spawnAirstrikeEffect(target.x, target.y, [], 'airdrop', target.q, target.r);
                 playSound('airstrike');
@@ -4019,49 +4138,43 @@ async function handleRemoteAction(msg) {
             const airLauncherTile = gameState.tileMap.get(`${e.launcherQ},${e.launcherR}`);
             const airCampKey = airLauncherTile?.camp ? campToKey(airLauncherTile.camp) : null;
             if (Number.isFinite(impactDelay)) {
+                const visualDelayAt = performance.now() + impactDelay;
+                for (const r of (e.results || [])) {
+                    const fs = getFireSeaState(gameState.tileMap.get(`${r.q},${r.r}`));
+                    if (fs) fs._visualDelayUntil = visualDelayAt;
+                }
                 setTimeout(() => {
                     // 伤害数字由 e.floatTexts 重放；落弹派生跳字（护盾吸收/灵光/临终迸发）
                     // 两端各自推导（仅显示，不进广播捕获，避免漏进下次广播变幽灵跳字）
                     setFloatTextCaptureSuppressed(true);
                     try {
-                    if (e.kind === 'strafe') {
-                        // 延迟扣血：爆炸时刻才结算伤害
+                    if (e.kind === 'strafe' || e.kind === 'bombing' || e.kind === 'stukaDiveBomb') {
+                        const isStrafe = e.kind === 'strafe';
+                        const isStuka = e.kind === 'stukaDiveBomb';
                         for (const r of (e.results || [])) {
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                            if (tile && r.isCitySiege) {
-                                // 共享血池：与主机端一致走 damageCityPool（镜像同步到全城）
+                            if (!tile) continue;
+                            if (r.dodged) {
+                                spawnDodgeShimmer(tile.x, tile.y);
+                                continue;
+                            }
+                            if (r.isCitySiege) {
                                 const poolHpBefore = Math.max(0, (getCityPoolTile(tile, gameState.tileMap) || tile).hp || 0);
                                 damageCityPool(tile, r.damage, gameState.tileMap);
                                 creditEagleSynergyDamage(airCampKey, Math.min(r.damage, poolHpBefore), { deferred: true });
-                            } else if (tile && tile.unit) {
-                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null, eagleAirForceCampKey: airCampKey });
+                            } else if (tile.unit) {
+                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null, eagleAirForceCampKey: airCampKey, isCrit: !!r.isCrit });
                             }
                         }
-                        // 扫射只有空袭+机枪音效，命中仅保留视觉反馈；explosion 专属轰炸
+                        if (!isStrafe) playSound('explosion');
                         for (const r of (e.results || [])) {
+                            if (r.dodged) continue;
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                            if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 15);
-                        }
-                        triggerScreenShake(6, 300);
-                    } else if (e.kind === 'bombing') {
-                        // 延迟扣血：爆炸时刻才结算伤害
-                        for (const r of (e.results || [])) {
-                            const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                            if (tile && r.isCitySiege) {
-                                // 共享血池：与主机端一致走 damageCityPool（镜像同步到全城）
-                                const poolHpBefore = Math.max(0, (getCityPoolTile(tile, gameState.tileMap) || tile).hp || 0);
-                                damageCityPool(tile, r.damage, gameState.tileMap);
-                                creditEagleSynergyDamage(airCampKey, Math.min(r.damage, poolHpBefore), { deferred: true });
-                            } else if (tile && tile.unit) {
-                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null, eagleAirForceCampKey: airCampKey });
+                            if (tile) {
+                                spawnExplosionParticles(tile.x, tile.y, isStuka ? '#ff5500' : '#ff8800', isStuka ? 18 : (isStrafe ? 15 : 10));
                             }
                         }
-                        playSound('explosion');
-                        for (const r of (e.results || [])) {
-                            const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                            if (tile) spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
-                        }
-                        triggerScreenShake(8, 400);
+                        triggerScreenShake(isStuka ? 10 : (isStrafe ? 6 : 8), isStrafe ? 300 : 400);
                     }
                     } finally {
                         setFloatTextCaptureSuppressed(false);
@@ -4070,6 +4183,23 @@ async function handleRemoteAction(msg) {
             }
             break;
         }
+        case 'banzaiCharge':
+            if (e) {
+                const banzaiUnit = gameState.tiles.reduce((found, t) =>
+                    found || (t.unit?.id === e.unitId ? t.unit : null), null);
+                if (banzaiUnit && Number.isFinite(e.fromX) && Number.isFinite(e.fromY) && Number.isFinite(e.destX) && Number.isFinite(e.destY)) {
+                    banzaiUnit.startMovePath([{ x: e.fromX, y: e.fromY }, { x: e.destX, y: e.destY }]);
+                }
+                if (Number.isFinite(e.fromX) && Number.isFinite(e.toX)) {
+                    spawnBanzaiDash(e.fromX, e.fromY, e.destX ?? e.toX, e.destY ?? e.toY, !!e.killed, e.healAmt || 0);
+                }
+                if (e.dodged && Number.isFinite(e.toX) && Number.isFinite(e.toY)) {
+                    spawnDodgeShimmer(e.toX, e.toY);
+                }
+                playSound(e.killed ? 'crit' : 'attack');
+                triggerScreenShake(e.isCrit || e.killed ? 7 : 4, 240);
+            }
+            break;
         case 'buildFortification':
         case 'buildBunker':
         case 'buildAirfield':

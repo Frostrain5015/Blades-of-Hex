@@ -32,14 +32,14 @@ export const TACTICAL_CARD_DATA = (() => {
     };
     cards.heal.desc = `【疗愈】\n对指定单位释放，立即恢复其${percent(cards.heal.balance.healMaxHpPct)}最大生命值`;
     cards.lightning.desc = `【雷击】\n对指定敌方单位造成${rangeText(cards.lightning.balance.minDamage, cards.lightning.balance.maxDamage)}真实伤害，雨天伤害提高${percent(cards.lightning.balance.rainMultiplier - 1)}`;
-    cards.mgNest.desc = `【碉堡】\n在指定己方行政区空地部署一座碉堡\nHP=${UNIT_CONFIG.mgNest.hp} ATK=${UNIT_CONFIG.mgNest.attack} 射程=${UNIT_CONFIG.mgNest.range} 不可移动`;
+    cards.mgNest.desc = `【碉堡】\n在己方行政区空地部署一座碉堡\n生命${UNIT_CONFIG.mgNest.hp} 攻击${UNIT_CONFIG.mgNest.attack} 射程${UNIT_CONFIG.mgNest.range} 不可移动`;
     cards.airdrop.desc = `【空降】\n在指定空地投放一支${cards.airdrop.balance.infantryHp}生命值的空降步兵`;
     cards.forceMarch.desc = `【强行军】\n对指定己方单位释放，立即回复${cards.forceMarch.balance.movementPoints}点行动力`;
-    cards.scout.desc = `【侦察】\n对指定位置释放，揭示目标及其周围6格区域的战争迷雾，持续${cards.scout.balance.duration}回合`;
-    cards.airstrike.desc = `【空袭】\n对指定敌方目标及周边6格造成${rangeText(cards.airstrike.balance.minDamage, cards.airstrike.balance.maxDamage)}范围伤害，命中城市时其${cards.airstrike.balance.cityDisableRounds}回合内无法产出资源或招募部队`;
+    cards.scout.desc = `【侦察】\n对指定位置释放，揭示目标及其相邻地块的战争迷雾，持续${cards.scout.balance.duration}回合`;
+    cards.airstrike.desc = `【空袭】\n对指定敌方目标及其相邻地块造成${rangeText(cards.airstrike.balance.minDamage, cards.airstrike.balance.maxDamage)}范围伤害，命中城市时使其${cards.airstrike.balance.cityDisableRounds}回合内无法产出资源或招募部队`;
     cards.shield.desc = `【护盾】\n对指定目标释放，使其获得${cards.shield.balance.shield}点护盾值，永久有效直到被消耗殆尽`;
-    cards.poison.desc = `【投毒】\n使任意可见单位中毒；在其所属阵营回合开始流失${percent(cards.poison.balance.damageMaxHpPct)}最大生命，持续${cards.poison.balance.ticks}次并会传播至相邻单位`;
-    cards.orbitalStrike.desc = `【天基打击】\n呼叫天基平台对指定位置及周边6格实施轨道光束打击，光束压制${cards.orbitalStrike.balance.tickRatios.length - 1}段后光环坠落引爆，以中心${cards.orbitalStrike.balance.centerAttack}/溅射${cards.orbitalStrike.balance.splashAttack}点基础火力经标准伤害管线结算（浮动顶格视为暴击，受防御影响、不受防空与将领增伤影响）`;
+    cards.poison.desc = `【投毒】\n使目标单位中毒：其所属阵营回合开始时流失${percent(cards.poison.balance.damageMaxHpPct)}最大生命值，持续${cards.poison.balance.ticks}回合，并会传染给相邻单位`;
+    cards.orbitalStrike.desc = `【天基打击】\n呼叫天基平台打击目标及其相邻地块：光束先进行${cards.orbitalStrike.balance.tickRatios.length - 1}段压制，随后引爆，以中心${cards.orbitalStrike.balance.centerAttack}/溅射${cards.orbitalStrike.balance.splashAttack}的基础火力造成必暴击的普通伤害（受防御减免，无视防空与将领加成）`;
     return deepFreeze(cards);
 })();
 
@@ -60,8 +60,8 @@ export const COLONEL_CARD_DATA = (() => {
         },
         airlift: { id: 'airlift', name: '空运', icon: EMOJI.cards.airlift, targeting: 'friendlyAny' }
     };
-    data.diveStrafe.desc = `【扫射】$${data.goldCost.diveStrafe}\n对指定单体目标造成伤害；附加等同于目标已损生命值${percent(data.diveStrafe.balance.missingHpToAttackPct)}的攻击力（最多+${data.diveStrafe.balance.maxMissingHpAttack}），再按标准伤害流程结算`;
-    data.carpetBomb.desc = `【轰炸】$${data.goldCost.carpetBomb}\n对指定单体目标及相邻6格造成范围伤害（中心${percent(data.carpetBomb.balance.centerMultiplier)}/溅射${percent(data.carpetBomb.balance.splashMultiplier)}，中心破甲${percent(data.carpetBomb.balance.ignoreDefense)}·仅要塞）`;
+    data.diveStrafe.desc = `【扫射】$${data.goldCost.diveStrafe}\n对指定敌方单位发动空军打击，并将目标已损失生命值的${percent(data.diveStrafe.balance.missingHpToAttackPct)}转化为额外攻击力（最多+${data.diveStrafe.balance.maxMissingHpAttack}）`;
+    data.carpetBomb.desc = `【轰炸】$${data.goldCost.carpetBomb}\n对目标及其相邻地块造成范围空军伤害（中心${percent(data.carpetBomb.balance.centerMultiplier)}/溅射${percent(data.carpetBomb.balance.splashMultiplier)}）；中心命中要塞单位时，无视其${percent(data.carpetBomb.balance.ignoreDefense)}防御力`;
     data.airlift.desc = `【空运】$${data.goldCost.airlift}\n运送一名自己以外的友军单位至已探索空地`;
     return deepFreeze(data);
 })();

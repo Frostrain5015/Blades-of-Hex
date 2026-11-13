@@ -16,6 +16,9 @@ import { assessSiegeMission } from '../strategy.js';
 import { W, hpGold, noiseJitter, residualGold, tradeNetValue } from './weights.js';
 import { isFieldCapturer } from './roster.js';
 import { isPortOperationalFor } from '../../rules/naval.js';
+import { getUnitBaseType } from '../../rules/units.js';
+import { BANZAI_CHARGE_CONFIG } from '../../rules/cultures.js';
+import { getRoundIndex } from '../../rules/turns.js';
 
 const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
@@ -236,8 +239,8 @@ function planActiveSkill(world, missionsCtx, unit, actions) {
     if (unit.commander === 'astrologer') {
         if ((unit.activeSkillCD || 0) > 0 || (unit.activeSkillDur || 0) > 0) return false;
         // 简化天气决策：己方兵种构成决定要什么天。
-        const cavalry = world.myUnits.filter(u => u.type === 'cavalry').length;
-        const archers = world.myUnits.filter(u => u.type === 'archer').length;
+        const cavalry = world.myUnits.filter(u => getUnitBaseType(u) === 'cavalry').length;
+        const archers = world.myUnits.filter(u => getUnitBaseType(u) === 'archer').length;
         const targetWeather = cavalry >= 2 && cavalry > archers ? 'fog'
             : archers >= 2 ? 'wind' : 'clear';
         if (targetWeather !== world.weather && attack) {
@@ -415,7 +418,7 @@ function planMove(world, missionsCtx, unit, posture, actions) {
     let bestTile = null;
     let bestScore = retreating ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission);
     for (const tile of movable) {
-        if (tile.unit) continue;
+        if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
         if (protectCommander && !retreating) {
             const incoming = world.threatAt(tile, unit);
             if (incoming > currentThreat
@@ -690,7 +693,7 @@ function planDroneOps(world, missionsCtx, actions, processed) {
             }
             if (enemy.commander) score += W.commanderKillBonus + 30;
             if ((enemy._rank || 0) >= 2) score += 25;
-            if (['archer', 'mgNest', 'shoreBattery'].includes(enemy.type)) score += 20;
+            if (['archer', 'mgNest', 'shoreBattery'].includes(getUnitBaseType(enemy))) score += 20;
             score += missionTargetBonus(world, missionsCtx, enemy, 100 >= enemy.hp);
             if (!best || score > best.score) best = { target: enemy, score };
         }
@@ -717,6 +720,43 @@ function planDroneOps(world, missionsCtx, actions, processed) {
     actions.push({ type: 'droneDeploy', unitId: tianyan.id, tileQ: candidates[0].q, tileR: candidates[0].r });
 }
 
+function planBanzaiCharges(world, missionsCtx, actions, processed) {
+    const curRound = getRoundIndex(world.gameState);
+    for (const unit of world.myUnits) {
+        if (processed.has(unit.id) || unit.type !== 'jp_samurai' || !unit.canAct || unit.isNewRecruit || unit._imprisoned || !unit.tile) continue;
+        if ((unit._banzaiReadyRound || 0) > curRound) continue;
+        let best = null;
+        for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
+            if (!enemy.tile || enemy.hp <= 0) continue;
+            const dist = world.helpers.hexDistance(unit.tile, enemy.tile);
+            if (dist < 1 || dist > BANZAI_CHARGE_CONFIG.range) continue;
+            if (!isNeutralEngageable(world, missionsCtx, enemy)) continue;
+            const baseDmg = world.combat.estimateDamage(unit, enemy, enemy.tile);
+            const banzaiDmg = baseDmg * BANZAI_CHARGE_CONFIG.damageMultiplier;
+            const kills = banzaiDmg >= enemy.hp + (enemy._shield || 0);
+            // 若近身一刀即可直接斩杀且无需自残75%血量，优先留给常规攻击。
+            if (dist === 1 && baseDmg >= enemy.hp + (enemy._shield || 0)) continue;
+            if (!kills && (unit.hp < 35 || dist === 1)) continue;
+            let score = Math.min(enemy.hp, banzaiDmg) * hpGold(enemy) + enemyCapturerPremium(world, enemy);
+            if (kills) score += residualGold(enemy) * W.killPremiumRatio + unit.maxHp * 0.4;
+            if (enemy.commander) score += W.commanderKillBonus;
+            if ((enemy._rank || 0) >= 2) score += 25;
+            if (dist === 2 && kills) score += 40;
+            score += missionTargetBonus(world, missionsCtx, enemy, kills);
+            if (!best || score > best.score) best = { enemy, kills, score };
+        }
+        if (best && (best.kills || best.score >= 85)) {
+            actions.push({
+                type: 'banzaiCharge',
+                unitId: unit.id,
+                targetQ: best.enemy.tile.q,
+                targetR: best.enemy.tile.r
+            });
+            processed.add(unit.id);
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 主入口
 // ═══════════════════════════════════════════════════════════════
@@ -736,8 +776,9 @@ export function planTactics(world, strategy, missionsCtx) {
         }
     }
 
-    // 0.5 天眼无人机：自爆兑现 + 向前线部署新哨机。
+    // 0.5 天眼无人机：自爆兑现 + 向前线部署新哨机；帝国武士：万岁冲锋。
     planDroneOps(world, missionsCtx, actions, processed);
+    planBanzaiCharges(world, missionsCtx, actions, processed);
 
     // 1. 夺城结算（优先进驻/击杀进驻）。
     planCaptureFinishers(world, missionsCtx, actions, processed);

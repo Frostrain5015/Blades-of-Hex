@@ -9,6 +9,8 @@ import { hexDistance, HEX_NEIGHBORS } from './hex.js';
 import { isMechanicEnabled } from './mechanics.js';
 import { resolveAntiAirCoverage } from './antiAir.js';
 import { isSubmarineTargetableBy } from './naval.js';
+import { isUnitVisibleToCamp } from './visibility.js';
+import { BANZAI_CHARGE_CONFIG } from './cultures.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN } from './movement.js';
 import { isBuildingUnit } from './units.js';
@@ -42,7 +44,7 @@ export const TARGET_SHAPES = Object.freeze({
 
 export const AIR_TARGETING_CARD_IDS = Object.freeze(new Set([
     'airstrike', 'airdrop', 'diveStrafe', 'carpetBomb', 'airlift', 'airlift_dest',
-    'air_command_strafe', 'air_command_bombing', 'air_command_airdrop', 'air_command_recon'
+    'air_command_strafe', 'air_command_bombing', 'air_command_airdrop', 'air_command_recon', 'air_command_stukaDiveBomb'
 ]));
 
 export const COLONEL_TARGETING_CARD_IDS = Object.freeze(new Set([
@@ -121,9 +123,9 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
     if (cardId?.startsWith('air_command_')) {
         const launcher = sources.launcherTile;
         if (!launcher || hexDistance(launcher, tile) > getAirCommandRange(launcher)) return false;
-        if (cardId === 'air_command_strafe') {
-            if (unit) return !sameCamp(unit.camp, myCamp);
-            // 无驻军但HP>0的敌方/中立城市也是合法扫射目标（削减城市HP）
+        if (cardId === 'air_command_strafe' || cardId === 'air_command_stukaDiveBomb') {
+            if (unit) return canAttack(gameState, myCamp, unit.camp);
+            // 无驻军但HP>0的敌方/中立城市也是合法空袭目标（削减城市HP）
             return (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0
                 && canAttack(gameState, myCamp, tile.camp);
         }
@@ -131,6 +133,14 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
             return canAirCommandAirdropAt(tile);
         }
         return true;
+    }
+
+    if (cardId === 'banzai_charge') {
+        const source = sources.sourceUnit;
+        if (!source?.tile || source.type !== 'jp_samurai' || !sameCamp(source.camp, myCamp)) return false;
+        const dist = hexDistance(source.tile, tile);
+        if (dist < 1 || dist > BANZAI_CHARGE_CONFIG.range) return false;
+        return !!unit && canAttack(gameState, myCamp, unit.camp) && isUnitVisibleToCamp(unit, myCamp, gameState);
     }
 
     if (cardId === 'drone_deploy') {
@@ -275,6 +285,8 @@ function resolveSources(gameState, cardTargeting, myCamp) {
         sourceUnit = findUnitById(gameState, cardTargeting.engineerUnitId);
     } else if (cardId === 'build_bunker') {
         sourceUnit = findUnitById(gameState, cardTargeting.builderUnitId);
+    } else if (cardId === 'banzai_charge') {
+        sourceUnit = findUnitById(gameState, cardTargeting.unitId);
     }
 
     const colonel = COLONEL_TARGETING_CARD_IDS.has(cardId) ? findLivingColonel(gameState, myCamp) : null;
@@ -376,6 +388,9 @@ export function resolveTargetingPreview(gameState, cardTargeting, options = {}) 
             if (!key || gameState.tileMap?.get(key) !== tile) continue;
             if (!isVisibleCandidate(gameState, cardTargeting, tile, myCamp, isTileVisible)) continue;
             if (!isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, sources)) continue;
+            if (intent === TARGET_INTENTS.HOSTILE
+                && tile.unit
+                && !isUnitVisibleToCamp(tile.unit, myCamp, gameState)) continue;
             if (intent === TARGET_INTENTS.HOSTILE
                 && tile.unit?.type === 'submarine'
                 && !isSubmarineTargetableBy(tile.unit, myCamp, gameState)) continue;

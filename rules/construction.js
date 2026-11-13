@@ -6,6 +6,7 @@ import { getRoundIndex } from './turns.js';
 import { isMechanicEnabled } from './mechanics.js';
 import { canBuildShoreBattery, isCoastalLandTile } from './naval.js';
 import { isCityDisabled } from './citySiege.js';
+import { getCulturalAirfieldCost } from './cultures.js';
 
 export const CONSTRUCTION_CONFIG = Object.freeze({
     trench: Object.freeze({ name: '战壕', cost: 2, engineerCost: 1, range: 0, buildTurns: 0 }),
@@ -38,12 +39,18 @@ export function hasSameTypeBuildingWithin(state, siteTile, unitType, minDist = D
     return false;
 }
 
-export function constructionCost(kind, builder = null, cityTile = null) {
+export function constructionCost(kind, builder = null, cityTile = null, state = null) {
     const config = CONSTRUCTION_CONFIG[kind];
     if (!config) return Infinity;
+    const camp = cityTile?.camp || builder?.camp;
+    const baseCost = kind === 'airfield'
+        ? getCulturalAirfieldCost(config.cost, state, camp)
+        : config.cost;
     const engineerPresent = builder?.commander === 'engineer'
         || (kind === 'airfield' && cityTile?.unit?.commander === 'engineer');
-    return engineerPresent && Number.isFinite(config.engineerCost) ? config.engineerCost : config.cost;
+    return engineerPresent && Number.isFinite(config.engineerCost)
+        ? Math.min(baseCost, config.engineerCost)
+        : baseCost;
 }
 
 export function findConstructionEngineer(state, camp) {

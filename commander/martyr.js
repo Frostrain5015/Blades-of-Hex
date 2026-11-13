@@ -37,7 +37,7 @@ export default {
       helpers.spawnFx(x, y, '💥');
       helpers.playSound?.('explosion');
 
-      helpers.logMessage(`殉道者【${unit.config.name}兵】殉道牺牲，造成范围伤害！`);
+      helpers.logMessage(`殉道者【${unit.config.name}】殉道牺牲，造成范围伤害！`);
 
       const tileMap = gameState.tileMap;
       let killedCommander = false;
@@ -55,10 +55,10 @@ export default {
             value: dmg, isCrit: result.isCrit, timeLeft: 900
           }, { gs: gameState });
           if (killed) {
-            helpers.logMessage(`殉道者自爆击杀${victim.camp.name}${victim.config.name}兵 ${dmg}伤害`);
+            helpers.logMessage(`殉道者自爆击杀${victim.camp.name}${victim.config.name} ${dmg}伤害`);
             if (victim.isCommanderUnit ?? Boolean(victim.commander)) killedCommander = true;
           } else {
-            helpers.logMessage(`殉道者自爆对${victim.camp.name}${victim.config.name}兵造成${dmg}伤害`);
+            helpers.logMessage(`殉道者自爆对${victim.camp.name}${victim.config.name}造成${dmg}伤害`);
           }
         }
       }

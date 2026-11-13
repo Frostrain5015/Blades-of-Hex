@@ -5,6 +5,7 @@
 
 import { deepFreeze } from './freeze.js';
 import { canAttack } from './diplomacy.js';
+import { getCulturalCityMaxHp } from './cultures.js';
 
 export const CITY_SIEGE_CONFIG = deepFreeze({
     // 独立结构伤害不读取驻军防御，直接用可见血池承担耐久差异，
@@ -20,16 +21,20 @@ export const CITY_SIEGE_CONFIG = deepFreeze({
     cannonSiegeDamageBonus: 0.50
 });
 
-/** 城市血池上限：半径0=250，每向外扩大一圈 +200（半径1=450、半径2=650）。 */
-export function getCityMaxHp(radius = 0) {
+/** 城市血池上限：半径0=250，每向外扩大一圈 +200（半径1=450、半径2=650）；计入文化加成。 */
+export function getCityMaxHp(radius = 0, state = null, camp = null) {
     const r = Math.max(0, Math.round(Number(radius) || 0));
-    return CITY_SIEGE_CONFIG.baseMaxHp + CITY_SIEGE_CONFIG.maxHpPerRadius * r;
+    const base = CITY_SIEGE_CONFIG.baseMaxHp + CITY_SIEGE_CONFIG.maxHpPerRadius * r;
+    return state && camp ? getCulturalCityMaxHp(base, state, camp) : base;
 }
 
 /** 攻城时享受 cannonSiegeDamageBonus 的火炮类攻击者，与 FIRE_CANNON 表现分类保持一致。 */
 export const CANNON_SIEGE_ATTACKER_TYPES = Object.freeze(new Set([
     'archer',
+    'fr_heavy_cannon',
+    'ru_katyusha',
     'warship',
+    'gb_battleship',
     'shoreBattery'
 ]));
 

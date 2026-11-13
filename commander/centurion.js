@@ -13,7 +13,7 @@ export default {
     attacker._centurionTriggered = true;
     attacker.remainingMP = Math.min(attacker.config.speed, attacker.remainingMP + BALANCE.movementPoints);
     helpers.spawnFx(attacker.tile.x, attacker.tile.y);
-    helpers.logMessage(`百夫长【乘胜】攻击触发：${attacker.camp.name}${attacker.config.name}兵 MP+${BALANCE.movementPoints}，可再行动`);
+    helpers.logMessage(`百夫长【乘胜】攻击触发：${attacker.camp.name}${attacker.config.name} MP+${BALANCE.movementPoints}，可再行动`);
     return { extraMP: BALANCE.movementPoints, canActAgain: true };
   },
 
@@ -22,7 +22,7 @@ export default {
     killer._centurionTriggered = true;
     killer.remainingMP = Math.min(killer.config.speed, killer.remainingMP + BALANCE.movementPoints);
     helpers.spawnFx(killer.tile.x, killer.tile.y);
-    helpers.logMessage(`百夫长【乘胜】击杀触发：${killer.camp.name}${killer.config.name}兵 MP+${BALANCE.movementPoints}，可再行动`);
+    helpers.logMessage(`百夫长【乘胜】击杀触发：${killer.camp.name}${killer.config.name} MP+${BALANCE.movementPoints}，可再行动`);
     return { extraMP: BALANCE.movementPoints, canActAgain: true };
   }
 };

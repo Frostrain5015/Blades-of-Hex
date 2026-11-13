@@ -9,7 +9,8 @@ import { getStandardMap } from '../../rules/standardMaps.js';
 import { isWaterTile } from '../../rules/surfaces.js';
 import { laserTowerShotDamage } from '../../rules/laserTower.js';
 import { AI_DIFFICULTY_PROFILES, hasFullAiIntelligence } from '../difficulty.js';
-import { UNIT_CONFIG } from '../../rules/units.js';
+import { getUnitBaseType, UNIT_CONFIG } from '../../rules/units.js';
+import { isUnitVisibleToCamp } from '../../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 import {
     canCaptureCityByCombat,
@@ -93,6 +94,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     const neutralFaction = gameState.factions?.[NEUTRAL_KEY] || null;
 
     const visible = tile => !fog || helpers.isTileVisible(tile, myCamp);
+    const isUnitVisible = unit => !unit || unit.camp === myCamp || isUnitVisibleToCamp(unit, myCamp, gameState);
     const explored = tile => {
         if (!fog) return true;
         const set = gameState.exploredTiles?.[myCampKey];
@@ -109,9 +111,9 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         if (unit.camp === myCamp) {
             myUnits.push(unit);
         } else if (unit.camp === neutralFaction) {
-            if (visible(tile)) neutralUnits.push(unit);
+            if (visible(tile) && isUnitVisible(unit)) neutralUnits.push(unit);
         } else if (rivalFactions.includes(unit.camp)) {
-            if (visible(tile)) rivalUnits.push(unit);
+            if (visible(tile) && isUnitVisible(unit)) rivalUnits.push(unit);
         }
     }
 
@@ -154,7 +156,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
             mine: ownerKey === myCampKey,
             hostile: ownerKey !== myCampKey,
             hp: Number(tile.hp) || 0,
-            garrison: tile.unit || null,
+            garrison: (tile.unit && (tile.unit.camp === myCamp || (visible(tile) && isUnitVisible(tile.unit)))) ? tile.unit : null,
             asset,
             explored: explored(tile)
         };
@@ -167,7 +169,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         if (!tile) return 0;
         const damages = [];
         for (const enemy of hostileForThreat) {
-            if (enemy === excludedEnemy || !enemy.tile || (enemy.type === 'submarine' && !isWaterTile(tile))) continue;
+            if (enemy === excludedEnemy || !enemy.tile || (getUnitBaseType(enemy) === 'submarine' && !isWaterTile(tile))) continue;
             const range = Math.max(1, Number(enemy.getEffectiveRange?.() ?? enemy.config?.range) || 1);
             const baseSpeed = Math.max(0, Number(enemy.config?.speed) || 0);
             const speed = enemy._isImmobile || baseSpeed === 0 ? 0 : caps.threatForecast ? baseSpeed : 2;
@@ -262,7 +264,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         ownForceValue, observedRivalForce, rivalForceEstimate,
         intel, stalestRivalAge,
         threatAt,
-        visible, explored,
+        visible, isUnitVisible, explored,
         hand, gold, cardConfig,
         cardUsesLeft: Math.max(0, (cardConfig.maxUsesPerTurn || 2) - (gameState.playerUsesThisTurn?.[myCampKey] || 0)),
         cardDrawsLeft: Math.max(0, (cardConfig.maxDrawsPerTurn || 2) - (gameState.playerDrawsThisTurn?.[myCampKey] || 0)),

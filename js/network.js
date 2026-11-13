@@ -2,6 +2,7 @@ import { gameState } from './state.js';
 import { buildActionMessage } from '../protocol/messages.js';
 import { campToKey } from '../rules/camps.js';
 import { getFactionRole, getRoleCamp } from '../rules/diplomacy.js';
+import { normalizeFactionRuleMode } from '../rules/cultures.js';
 
 let _ws = null;
 let _myRole = null;   // 'player1' | 'player2' | 'player3' | null
@@ -133,12 +134,12 @@ export function connectToServer(url) {
                 case 'roomCreated':
                     _myRoomId = msg.roomId;
                     _myRole = msg.role;
-                    _cb.onRoomCreated?.(msg.roomId, msg.role, msg.maxPlayers || 2, msg.playerCount || 1);
+                    _cb.onRoomCreated?.(msg.roomId, msg.role, msg.maxPlayers || 2, msg.playerCount || 1, normalizeFactionRuleMode(msg.factionRuleMode));
                     break;
                 case 'roomJoined':
                     _myRoomId = msg.roomId;
                     _myRole = msg.role;
-                    _cb.onRoomJoined?.(msg.roomId, msg.role, msg.maxPlayers || 2, msg.playerCount || 2);
+                    _cb.onRoomJoined?.(msg.roomId, msg.role, msg.maxPlayers || 2, msg.playerCount || 2, normalizeFactionRuleMode(msg.factionRuleMode));
                     break;
                 case 'roomList':
                     _cb.onRoomList?.(msg.rooms);
@@ -188,6 +189,7 @@ export function connectToServer(url) {
                         factionNames: msg.factionNames,
                         roleAssignments: msg.roleAssignments,
                         standardMapId: msg.standardMapId,
+                        factionRuleMode: msg.factionRuleMode || 'none',
                         aiSeats: msg.aiSeats || {}
                     });
                     break;
@@ -318,7 +320,8 @@ export function createRoom(maxPlayers = 2) {
         maxPlayers,
         skirmishFog: gameState.skirmishFog || false,
         doubleCommanderMode: gameState.doubleCommanderMode || false,
-        standardMapId: gameState.standardMapId
+        standardMapId: gameState.standardMapId,
+        factionRuleMode: normalizeFactionRuleMode(gameState.factionRuleMode)
     }));
 }
 

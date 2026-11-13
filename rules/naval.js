@@ -2,19 +2,28 @@ import { campToKey } from './camps.js';
 import { hexDistance, HEX_NEIGHBORS } from './hex.js';
 import { getRoundIndex } from './turns.js';
 import { isLandTile, isWaterTile } from './surfaces.js';
+import {
+    isSubmarineDetector,
+    hasSubmarineDetectorInRange,
+    isSubmarineTargetableBy,
+    isUnitVisibleToCamp
+} from './visibility.js';
+
+export { isSubmarineDetector, hasSubmarineDetectorInRange, isSubmarineTargetableBy };
 
 export const NAVAL_RULES = Object.freeze({
     shipVsLandDamage: -0.50,
     landVsShipDamage: -0.50,
     shoreBatteryVsShipDamage: 0.30,
     shoreBatteryVsLandDamage: -0.60,
+    marineWaterToLandDamage: 0.30,
     detectorRadius: 2,
     portGuardRounds: 1,
     submarinePortRevealRounds: 2,
     shoreBatteryCooldownRounds: 2
 });
 
-export const NAVAL_UNIT_TYPES = Object.freeze(new Set(['destroyer', 'warship', 'submarine', 'carrier']));
+export const NAVAL_UNIT_TYPES = Object.freeze(new Set(['destroyer', 'warship', 'submarine', 'carrier', 'gb_battleship']));
 
 export function isRegularNavalUnit(unitOrType) {
     const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
@@ -22,7 +31,11 @@ export function isRegularNavalUnit(unitOrType) {
 }
 
 export function isWaterborneUnit(unit) {
-    return !!unit && isWaterTile(unit.tile) && (isRegularNavalUnit(unit) || unit.isEmbarked === true);
+    return !!unit && isWaterTile(unit.tile) && (
+        isRegularNavalUnit(unit)
+        || unit.isEmbarked === true
+        || unit.type === 'us_marine'
+    );
 }
 
 export function isCoastalLandTile(tile, state) {
@@ -37,10 +50,13 @@ export function getCrossDomainDamageBonus(attacker, defender) {
             ? NAVAL_RULES.shoreBatteryVsShipDamage
             : NAVAL_RULES.shoreBatteryVsLandDamage;
     }
+    if (attacker.type === 'us_marine' && isWaterTile(attacker.tile) && isLandTile(defender.tile)) {
+        return NAVAL_RULES.marineWaterToLandDamage;
+    }
     if (isRegularNavalUnit(attacker) && isLandTile(defender.tile)) {
         return NAVAL_RULES.shipVsLandDamage;
     }
-    if (!isRegularNavalUnit(attacker) && attacker.type !== 'drone' && isRegularNavalUnit(defender)) {
+    if (!isRegularNavalUnit(attacker) && attacker.type !== 'drone' && attacker.type !== 'fr_heavy_cannon' && isRegularNavalUnit(defender)) {
         return NAVAL_RULES.landVsShipDamage;
     }
     return 0;
@@ -55,45 +71,10 @@ function roundIndex(state) {
     return Number.isFinite(value) ? value : 0;
 }
 
-export function isSubmarineDetector(unit) {
-    return !!unit && unit.hp > 0 && (
-        unit.type === 'shoreBattery'
-        || unit.getSpecializationAbility?.('submarineDetectionRadius') > 0
-    );
-}
-
-export function hasSubmarineDetectorInRange(submarine, detectingCamp, state) {
-    const key = campKey(detectingCamp);
-    if (!submarine?.tile || key === 'neutral') return false;
-    return (state?.tiles || []).some(tile => {
-        const detector = tile.unit;
-        return isSubmarineDetector(detector)
-            && campKey(detector.camp) === key
-            && hexDistance(tile, submarine.tile) <= NAVAL_RULES.detectorRadius;
-    });
-}
-
-function hasFactionReveal(submarine, detectingCamp, state) {
-    const key = campKey(detectingCamp);
-    const expires = state?.submarineReveals?.[key]?.[String(submarine?.id)];
-    return Number.isFinite(expires) && expires > roundIndex(state);
-}
-
-export function isSubmarineTargetableBy(submarine, detectingCamp, state) {
-    if (submarine?.type !== 'submarine') return true;
-    if ((submarine._rank || 0) < 1) return true;
-    if (campKey(submarine.camp) === campKey(detectingCamp)) return true;
-    if (submarine._submarineAttackExposed === true) return true;
-    const round = roundIndex(state);
-    if (submarine.tile?.isPort && Number(submarine._submarinePortRevealUntilRound) > round) return true;
-    return hasFactionReveal(submarine, detectingCamp, state)
-        || hasSubmarineDetectorInRange(submarine, detectingCamp, state);
-}
-
 export function canUnitTargetUnit(attacker, defender, state) {
     if (!attacker || !defender || !attacker.tile || !defender.tile) return false;
     if (attacker.type === 'submarine' && !isWaterTile(defender.tile)) return false;
-    if (defender.type === 'submarine' && !isSubmarineTargetableBy(defender, attacker.camp, state)) return false;
+    if (!isUnitVisibleToCamp(defender, attacker.camp, state)) return false;
     return true;
 }
 
@@ -122,7 +103,7 @@ export function clearExpiredSubmarineReveals(state) {
 }
 
 export function canCapturePort(unit) {
-    return isRegularNavalUnit(unit) || unit?.isEmbarked === true;
+    return isRegularNavalUnit(unit) || unit?.isEmbarked === true || unit?.type === 'us_marine';
 }
 
 export function capturePort(state, tile, unit) {

@@ -30,6 +30,7 @@
 
 import { createCombatModel } from './doctrine.js';
 import { isWaterTile } from '../rules/surfaces.js';
+import { getUnitBaseType } from '../rules/units.js';
 
 export const meta = {
     name: 'Corporal',
@@ -69,6 +70,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
     const jitter = scale => (decisionRandom() * 2 - 1) * scale * DECISION_NOISE;
     const tileVisible = tile => !gameState.skirmishFog
         || !helpers.isTileVisible || helpers.isTileVisible(tile, myCamp);
+    const unitVisible = unit => !!unit && (unit.camp === myCamp || !helpers.isUnitVisibleToCamp || helpers.isUnitVisibleToCamp(unit, myCamp));
 
     // 交战判定走外交表，但必须用**交战资格**而不是**敌意**：
     // 中立与玩家的 relation 就是字面上的 'neutral'，isHostile 恒为 false，
@@ -81,7 +83,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
         if (isHostileFaction) return isHostileFaction(myCamp, camp);
         return true;
     };
-    const isFoeUnit = unit => !!unit && mayEngageCamp(unit.camp);
+    const isFoeUnit = unit => !!unit && unitVisible(unit) && mayEngageCamp(unit.camp);
 
     // 与三档玩家人格共用同一套战斗估算：同一次交换必须算出同一个数字。
     // 跨域修正（岸防炮对舰 +30%、陆海互攻 −50%）就在这里面，因此岸防炮
@@ -163,7 +165,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
      * 把陆军放到水上就是白送。所以陆军的落点**永远**是陆地，没有例外分支。
      */
     function canStandOn(unit, tile) {
-        if (!tile || tile.unit) return false;
+        if (!tile || (tile.unit && unitVisible(tile.unit))) return false;
         if (isLandUnit(unit)) return !isWaterTile(tile);
         if (isNavalUnit(unit)) return isWaterTile(tile) || tile.isPort;
         return true;
@@ -277,7 +279,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
         // 中央航母是地图彩头：引擎不再拦死它的移动，挪不挪由这里的评分决定。
         // 重罚离港 + 重奖泊港，平时一步不动；唯一压得过这套账的是贴脸威胁——
         // 安全优先于泊港，但规避也不出锚地牵引圈，威胁过去后自然漂回港口。
-        if (unit.type === 'carrier') {
+        if (getUnitBaseType(unit) === 'carrier') {
             const portAnchor = anchorFor(unit, myPorts.length > 0 ? myPorts : eligiblePosts(unit));
             const carrierCandidates = getMovableTiles(unit).filter(tile =>
                 canStandOn(unit, tile)
@@ -315,7 +317,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
         // 只给「这一步能落到岗位上」加分的话，速度 3 的炮兵永远够不着四格外的空村，
         // 于是它会在原地站一辈子，而村子一直无人驻守。
         const vacantObjective = posts
-            .filter(post => !heldPosts.has(`${post.q},${post.r}`) && !post.unit
+            .filter(post => !heldPosts.has(`${post.q},${post.r}`) && (!post.unit || !unitVisible(post.unit))
                 && hexDistance(post, anchor) <= leash
                 && canStandOn(unit, post))
             .sort((left, right) => hexDistance(unit.tile, left) - hexDistance(unit.tile, right))[0] || null;
@@ -344,15 +346,15 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
             if (isVacantPost) {
                 score += tile.isCity ? 300 : 210;
                 // 雨天步兵守城 +20% 防御，是这个档次唯一看得懂的天气账。
-                if (tile.isCity && unit.type === 'infantry') {
+                if (tile.isCity && getUnitBaseType(unit) === 'infantry') {
                     score += weather === 'rain' ? 45 : 25;
                 }
             }
 
             // ② 被敌人占着的自家空城可以走回去（占领），这仍属于守土而非出击。
             //    远程单位进不了城，不给它这个分，免得反复提交必定被拒的指令。
-            if (tile.isCity && tile.camp !== myCamp && !tile.unit
-                && isLandUnit(unit) && unit.type !== 'archer'
+            if (tile.isCity && tile.camp !== myCamp && (!tile.unit || !unitVisible(tile.unit))
+                && isLandUnit(unit) && getUnitBaseType(unit) !== 'archer'
                 && myCityDistricts.has(tile.districtId)) {
                 score += 180;
             }
@@ -375,7 +377,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
 
             // ⑥ 安全。残血时格外躲开贴脸的敌人；炮兵任何时候都怕被贴上。
             const adjacentFoes = countAdjacentFoes(tile);
-            score -= adjacentFoes * (unit.type === 'archer' ? 34 : hpRatio < 0.35 ? 30 : 12);
+            score -= adjacentFoes * (getUnitBaseType(unit) === 'archer' ? 34 : hpRatio < 0.35 ? 30 : 12);
 
             return score;
         }
@@ -418,7 +420,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
     if (woundedGarrison) {
         const unit = woundedGarrison.unit;
         const healAmount = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
-        const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmount / unit.maxHp)));
+        const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmount / unit.maxHp) * (helpers.getCulturalReinforceCostScale ? helpers.getCulturalReinforceCostScale(woundedGarrison, unit.camp) : 1)));
         if (healAmount > 0 && gold - cost >= recruitReserve) {
             actions.push({ type: 'reinforce', unitId: unit.id });
             gold -= cost;
