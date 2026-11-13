@@ -3,20 +3,23 @@
 // 这里的函数保持纯函数，便于用真人对局与自对局遥测做回归。三档 AI 可以读取
 // 同一份局势事实，但只应按各自难度使用相应深度；Imperator 不受人为能力封顶。
 
-import { calcIncome } from '../rules/constants.js';
+import { calcIncome, VILLAGE_GOLD } from '../rules/constants.js';
+import { collectIncomeVillages } from '../rules/income.js';
 
 const POSTURES = new Set(['expand', 'contest', 'defend', 'recover', 'finish']);
 
-export function estimateCampEconomy(tiles, camp) {
+export function estimateCampEconomy(tiles, camp, state = null) {
     const owned = Array.isArray(tiles) ? tiles.filter(tile => tile?.camp === camp) : [];
     const cityCount = owned.filter(tile => tile.isCity).length;
-    const villageCount = owned.filter(tile => tile.isVillage).length;
+    const villageCount = state?.villageTiles && state?.tileMap
+        ? collectIncomeVillages(state, camp).length
+        : owned.filter(tile => tile.isVillage).length;
     const portCount = owned.filter(tile => tile.isPort).length;
     return {
         cityCount,
         villageCount,
         portCount,
-        projectedIncome: calcIncome(cityCount) + villageCount
+        projectedIncome: calcIncome(cityCount) + villageCount * VILLAGE_GOLD
     };
 }
 

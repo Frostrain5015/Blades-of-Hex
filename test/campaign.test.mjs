@@ -466,10 +466,11 @@ export async function run(browser) {
             arbitraryHexRejected: schema.validateLevel(invalid).errors.some(message => message.includes('颜色选项')),
             runtimeResolved: runtime.colorId === 'purple' && runtime.color === '#d8aaff',
             paletteResolved: camps.getTileColor('purple') === '#d8aaff' && camps.getFlagColors('purple').main === '#9050c8',
-            globalPaletteHasNine: camps.FACTION_PALETTE.length === 9,
+            globalPaletteHasSnow: camps.getTileColor('snow') === '#e5edf6',
             playerPaletteHasSeven: camps.PLAYER_FACTION_COLOR_KEYS.length === 7
                 && !camps.PLAYER_FACTION_COLOR_KEYS.includes('gray')
-                && !camps.PLAYER_FACTION_COLOR_KEYS.includes('white'),
+                && !camps.PLAYER_FACTION_COLOR_KEYS.includes('white')
+                && !camps.PLAYER_FACTION_COLOR_KEYS.includes('snow'),
             cityMarkersAvoidMainFlagColor: camps.FACTION_PALETTE.every(entry => {
                 const marker = camps.getCityMarkerColors(entry.id);
                 return marker.line !== camps.getFlagColors(entry.id).main;
@@ -491,7 +492,7 @@ export async function run(browser) {
                 && diplomacy.setPlayerFactionColor(playerColorState, 'player1', 'purple') === true
         };
     });
-    R.assert(Object.values(factionColorContract).every(Boolean), '全局九色由规则层统一解析；战役可用九色，普通玩家对局只开放七种彩虹色');
+    R.assert(Object.values(factionColorContract).every(Boolean), '规则层统一解析全局调色板，普通旗帜色盘开放七种颜色');
     const flagWindContract = await page.evaluate(async () => {
         const flags = await import('/js/flagRenderer.js');
         const rendererSource = await fetch('/js/flagRenderer.js').then(response => response.text());

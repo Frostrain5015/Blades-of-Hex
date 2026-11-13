@@ -10,7 +10,10 @@
 // 本模块不得 import DOM、Canvas、音频或 effects。
 
 import { campToKey } from '../rules/camps.js';
-import { createDefaultDiplomacy, createDefaultFactions, createStandardFactions } from '../rules/diplomacy.js';
+import {
+    createDefaultDiplomacy, createDefaultFactions, createStandardFactions,
+    PLAYER_SEAT_KEYS, setPlayerFactionFlagPreset, setPlayerFactionName
+} from '../rules/diplomacy.js';
 import { createDefaultMechanics } from '../rules/mechanics.js';
 import {
     SURFACE_KIND, buildCoastTopology, getSurfaceBaseColor,
@@ -95,8 +98,8 @@ export function configureMatchFactions(match, {
 }
 
 /** Configure a skirmish runtime. Seat IDs remain stable while colors and order stay mutable. */
-export function configureStandardMatch(match, { playerCount = 2, colors = {}, flagEmojis = {}, flagPresets = {}, controllers = {} } = {}) {
-    const definitions = Object.values(createStandardFactions({ playerCount, colors, flagEmojis, flagPresets, controllers }));
+export function configureStandardMatch(match, { playerCount = 2, colors = {}, flagEmojis = {}, flagPresets = {}, factionNames = {}, controllers = {} } = {}) {
+    const definitions = Object.values(createStandardFactions({ playerCount, colors, flagEmojis, flagPresets, factionNames, controllers }));
     const players = ['player1', 'player2', ...(Number(playerCount) === 3 ? ['player3'] : [])];
     return configureMatchFactions(match, {
         factionDefinitions: definitions,
@@ -230,6 +233,8 @@ export function createMatchState() {
         aiDifficulty: 1.0,
         aiDifficultyId: 'easy',
         aiDifficultyByCamp: {},
+        _aiCoreMemory: {},
+        _imperatorStrategicTelemetry: {},
         _aiFortificationsBuilt: {}
     };
 }
@@ -313,6 +318,8 @@ export function resetMatchState(match) {
     match.aiDifficulty = 1.0;
     match.aiDifficultyId = 'easy';
     match.aiDifficultyByCamp = {};
+    match._aiCoreMemory = {};
+    match._imperatorStrategicTelemetry = {};
     match._aiFortificationsBuilt = {};
     match.commanderPoolP1 = [];
     match.commanderPoolP2 = [];
@@ -686,6 +693,16 @@ export function restoreMatchState(match, data, deps) {
     match.factionColorSelections = data.factionColorSelections
         ? { ...data.factionColorSelections }
         : Object.fromEntries(factionKeys.filter(key => key !== 'neutral').map(key => [key, match.factions[key]?.colorId || null]));
+    if (!match.campaignMode) {
+        for (const key of PLAYER_SEAT_KEYS) {
+            const faction = match.factions[key];
+            if (!faction) continue;
+            setPlayerFactionName(match, key, typeof faction.customName === 'string' ? faction.customName : '');
+            if (setPlayerFactionFlagPreset(match, key, faction.flagPreset)) {
+                match.factionColorSelections[key] = faction.colorId;
+            }
+        }
+    }
     const restoredOrder = Array.isArray(data.turnOrder) ? data.turnOrder.filter(key => campMap[key]) : [];
     match.turnOrder = restoredOrder.length
         ? restoredOrder
@@ -893,11 +910,13 @@ export function restoreMatchState(match, data, deps) {
         tile._portCapturedIndependent = restoredPort && td.portCapturedIndependent === true;
         tile._portOperationalAtRound = restoredPort ? (td.portOperationalAtRound || 0) : 0;
         const surfaceColor = getSurfaceBaseColor(tile.surface);
-        tile.startColor = waterTile ? surfaceColor : (td.startColor || tile.camp?.color);
-        tile.targetColor = waterTile ? surfaceColor : (td.targetColor || tile.camp?.color);
-        tile.currentColor = waterTile ? surfaceColor : (td.currentColor || tile.camp?.color);
+        const needsSnowColor = !waterTile && tile.camp?.colorId === 'snow'
+            && td.targetColor !== tile.camp.color;
+        tile.startColor = waterTile ? surfaceColor : (needsSnowColor ? tile.camp.color : td.startColor || tile.camp?.color);
+        tile.targetColor = waterTile ? surfaceColor : (needsSnowColor ? tile.camp.color : td.targetColor || tile.camp?.color);
+        tile.currentColor = waterTile ? surfaceColor : (needsSnowColor ? tile.camp.color : td.currentColor || tile.camp?.color);
         // 将主机时间戳校准为本地时间，若动画已过期则直接应用目标色
-        if (td.fadeStartTime && !waterTile) {
+        if (td.fadeStartTime && !waterTile && !needsSnowColor) {
             const adjustedStart = td.fadeStartTime + timeDelta;
             if (Date.now() - adjustedStart >= tile.fadeDuration) {
                 tile.fadeStartTime = null;

@@ -58,7 +58,8 @@ export function getLocale() {
 }
 
 function translateTextNode(node) {
-    if (!node?.parentElement || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(node.parentElement.tagName)) return;
+    if (!node?.parentElement || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(node.parentElement.tagName)
+        || node.parentElement.closest('[translate="no"]')) return;
     const current = node.nodeValue || '';
     let state = textState.get(node);
     if (!state || current !== state.rendered) state = { source: current, rendered: current };

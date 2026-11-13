@@ -63,13 +63,15 @@ export function createUnitSpherePalette(flagColors = {}) {
     const cacheKey = `${main}|${suppliedLight}|${suppliedDark}`;
     const cached = SPHERE_PALETTE_CACHE.get(cacheKey);
     if (cached) return cached;
+    const paleBadge = [1, 3, 5].every(offset => Number.parseInt(main.slice(offset, offset + 2), 16) >= 185);
     const palette = Object.freeze({
-        highlight: mixHex(suppliedLight, '#fff1c9', 0.58),
-        light: mixHex(suppliedLight, '#d9c89e', 0.18),
+        highlight: mixHex(suppliedLight, paleBadge ? '#ffffff' : '#fff1c9', 0.58),
+        light: mixHex(suppliedLight, paleBadge ? main : '#d9c89e', 0.18),
         main,
         dark: mixHex(suppliedDark, '#171713', 0.48),
         outline: mixHex(suppliedDark, '#080908', 0.68),
-        glyph: '#f2dfad'
+        glyph: paleBadge ? '#243447' : '#f2dfad',
+        glyphOutline: paleBadge ? 'rgba(255,255,255,0.58)' : 'rgba(20,17,12,0.76)'
     });
     SPHERE_PALETTE_CACHE.set(cacheKey, palette);
     return palette;
@@ -159,7 +161,7 @@ export function drawUnitBadge(context, options = {}) {
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.lineJoin = 'round';
-    context.strokeStyle = 'rgba(20,17,12,0.76)';
+    context.strokeStyle = palette.glyphOutline;
     context.lineWidth = Math.max(1, radius * 0.105);
     if (typeof context.strokeText === 'function') context.strokeText(glyph, 0, centerY + radius * 0.055);
     context.fillStyle = palette.glyph;

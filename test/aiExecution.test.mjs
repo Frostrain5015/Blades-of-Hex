@@ -9,6 +9,9 @@ const { engine } = await import('../core/headless.js');
 const { processOpponentTurn, configureAiRuntime } = await import('../js/ai.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
 const { getRound } = await import('../rules/turns.js');
+const { isTileVisible } = await import('../js/fogOfWar.js');
+const { BURN_MS } = await import('../js/gameLogic.js');
+const { startMatchRecording, getCurrentMatchLog } = await import('../js/matchRecorder.js');
 const state = engine.gameState;
 const events = [];
 const restoreRuntime = configureAiRuntime({
@@ -121,4 +124,69 @@ test('满手滞留卡实际使用后，同回合可抽新牌寻找疗愈', async
     assert.ok(useIndex >= 0 && drawIndex > useIndex);
     assert.ok(state.playerDrawsThisTurn.player1 > 0, '必须实际抽牌，而非仅生成抽牌意图');
     assert.ok(state.playerHands.player1.length <= 3);
+});
+
+test('困难档用对策卡打击迷雾中的敌军，地图视野保持原样', async () => {
+    const { me, foe, home } = setupMatch();
+    state.skirmishFog = true;
+    state.playerGold.player1 = 0;
+    state.playerHands.player1 = ['lightning'];
+    const garrison = place('infantry', me, home, 'minister');
+    garrison.canAct = false;
+    const targetTile = state.tileMap.get('9,0');
+    const target = place('infantry', foe, targetTile, 'engineer');
+    target.hp = 1;
+    startMatchRecording(state, { matchId: 'hard-intelligence-regression' });
+    await processOpponentTurn(me);
+    // 烧牌后的定时伤害略晚于 AI 的单次动作延迟。
+    await new Promise(resolve => setTimeout(resolve, BURN_MS));
+    assert.equal(isTileVisible(targetTile, me, state), false);
+    assert.ok(events.some(event => event.action.cardId === 'lightning' && event.action.targetId === target.id));
+    assert.equal(targetTile.unit, null);
+    const strike = getCurrentMatchLog().timeline.find(item => item.payload?.cardId === 'lightning');
+    assert.equal(strike.decisionContext.informationPolicy, 'fog-limited');
+    assert.ok(strike.decisionContext.knownOtherUnits.every(unit => unit.id !== target.id));
+});
+
+test('困难 AI 可以攻击雾中射程内的目标，普通攻击预览仍按迷雾过滤', async () => {
+    const { me, foe, home } = setupMatch();
+    state.skirmishFog = true;
+    state.playerGold.player1 = 0;
+    Object.assign(home, { surface: SURFACE_KIND.SHALLOW_WATER });
+    const carrier = place('carrier', me, home);
+    carrier.remainingMP = 0;
+    const targetTile = state.tileMap.get('4,0');
+    const target = place('infantry', foe, targetTile, 'engineer');
+    target.hp = 1;
+    assert.ok(carrier.getEffectiveRange() >= 4);
+    assert.equal(engine.getAttackableTiles(carrier).includes(targetTile), false);
+    await processOpponentTurn(me);
+    assert.equal(isTileVisible(targetTile, me, state), false);
+    assert.ok(events.some(event => event.action.type === 'attack' && event.action.targetId === target.id));
+    await new Promise(resolve => setTimeout(resolve, BURN_MS));
+    assert.equal(targetTile.unit, null);
+});
+
+test('最后一座空城先用 8 金补步兵，维修不能占掉守城预算', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    place('infantry', foe, enemyCity);
+    place('cavalry', foe, state.tileMap.get('2,0'));
+    const port = state.tileMap.get('0,1');
+    Object.assign(port, { isPort: true, surface: SURFACE_KIND.SHALLOW_WATER, terrain: 'water' });
+    const ship = place('destroyer', me, port);
+    ship.hp = 29;
+    state.playerGold.player1 = 9;
+    await processOpponentTurn(me);
+    assert.equal(home.unit?.type, 'infantry');
+    assert.equal(state.playerGold.player1, 1);
+    assert.equal(events.some(event => event.action.type === 'repairShip'), false);
+});
+
+test('新对局清空 AI 的跨回合记忆和战略遥测', () => {
+    setupMatch();
+    state._aiCoreMemory.player1 = { missions: [{ occupierId: 300 }] };
+    state._imperatorStrategicTelemetry.player1 = [{ round: 2 }];
+    engine.resetGameState();
+    assert.deepEqual(state._aiCoreMemory, {});
+    assert.deepEqual(state._imperatorStrategicTelemetry, {});
 });

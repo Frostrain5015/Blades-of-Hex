@@ -1,7 +1,6 @@
 // Imperator（困难档）—— 新架构下的薄 profile。
 //
-// 共享引擎的全功能档：威胁外推、情报龄期、跨回合任务编组、卡牌剧本、
-// 胜利条件时钟、攻心夺城路径与运输抢滩规划全部开启，决策无噪声。
+// 共享引擎的困难档：全图遭遇战情报、威胁外推、跨回合任务编组、卡牌剧本与胜利时钟。
 
 import { planTurn } from './core/planner.js';
 import { TIER_CAPABILITIES } from './core/weights.js';

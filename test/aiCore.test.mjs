@@ -18,6 +18,7 @@ import { estimateForceValue } from '../ai/strategy.js';
 import { planFollowupAttack } from '../ai/core/planner.js';
 import { planCards, shouldDrawCard } from '../ai/core/cards.js';
 import { estimateCaptureEta } from '../ai/core/strategize.js';
+import { rankCityObjectives } from '../ai/core/perceive.js';
 
 // ── 权重与估值 ────────────────────────────────────────────────
 
@@ -326,7 +327,7 @@ test('时钟告急时即使无法一轮斩杀，也会让在位火力持续压�
     assert.equal(pressure.length, 2);
 });
 
-test('uncharted prize values only a visible living carrier, including enemy recaptures', async () => {
+test('无主航路按活航母估价，困难档可读迷雾中的航母', async () => {
     const { buildWorld } = await loadCore();
     const me = { id: 'player1', name: 'red' };
     const foe = { id: 'player2', name: 'blue' };
@@ -353,9 +354,13 @@ test('uncharted prize values only a visible living carrier, including enemy reca
     assert.equal(buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard)
         .cities.find(city => city.tile === prize).asset.reward, expectedTransfer);
     state.skirmishFog = true;
-    assert.equal(buildWorld(state, { ...makeHelpers(tiles), isTileVisible: tile => tile !== fleetTile },
-        me, TIER_CAPABILITIES.hard).cities.find(city => city.tile === prize).asset.reward, 0,
-    '不能读取迷雾中的航母状态来估价');
+    const fogHelpers = { ...makeHelpers(tiles), isTileVisible: tile => tile !== fleetTile };
+    assert.equal(buildWorld(state, fogHelpers, me, TIER_CAPABILITIES.hard)
+        .cities.find(city => city.tile === prize).asset.reward, expectedTransfer);
+    assert.equal(buildWorld(state, fogHelpers, me, TIER_CAPABILITIES.medium)
+        .cities.find(city => city.tile === prize).asset.reward, 0);
+    assert.equal(buildWorld({ ...state, campaignMode: true }, fogHelpers, me, TIER_CAPABILITIES.hard)
+        .cities.find(city => city.tile === prize).asset.reward, 0);
     state.skirmishFog = false;
     transferable.hp = 0;
     assert.equal(buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard)
@@ -536,6 +541,47 @@ test('移动后追击拒绝骑兵与岸防炮的亏损交换，也拒绝致死�
     battery.hp = 1;
     assert.equal(planFollowupAttack(state, helpers, me, TIER_CAPABILITIES.hard, cavalry.id)?.targetId, battery.id,
         '仍应收掉能安全击杀的目标');
+});
+
+test('南城回归：困难骑兵放弃反击后会被步炮收掉的冲城，保留斩杀占城', () => {
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const from = makeTile(-1, 4), city = makeTile(-2, 5, { isCity: true, camp: neutral, hp: 250 });
+    const flank = makeTile(-2, 4), artillery = makeTile(-3, 5);
+    const cavalry = makeUnit(1, 'cavalry', me, from);
+    const garrison = makeUnit(2, 'infantry', neutral, city);
+    makeUnit(3, 'infantry', neutral, flank);
+    makeUnit(4, 'archer', neutral, artillery);
+    const tiles = [from, city, flank, artillery];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, { skirmishFog: true });
+    const helpers = { ...makeHelpers(tiles), getAttackableTiles: () => [city] };
+    assert.equal(planFollowupAttack(state, helpers, me, TIER_CAPABILITIES.hard, cavalry.id, garrison.id), null);
+    garrison.hp = 1;
+    assert.equal(planFollowupAttack(state, helpers, me, TIER_CAPABILITIES.hard, cavalry.id, garrison.id)?.targetId, garrison.id);
+});
+
+test('困难档按敌方实有金币及被占村庄收入判断空城补兵风险', async () => {
+    const { buildWorld } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const city = makeTile(5, 0, { isCity: true, camp: foe, districtId: 2, hp: 100 });
+    const village = makeTile(4, 0, { isVillage: true, camp: foe, districtId: 2 });
+    makeUnit(1, 'infantry', me, village);
+    const tiles = [home, city, village];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        skirmishFog: true,
+        villageTiles: new Map([['4,0', { districtId: 2 }]]),
+        playerGold: { player1: 10, player2: 3 }
+    });
+    const helpers = { ...makeHelpers(tiles), isTileVisible: tile => tile === home };
+    const poor = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    assert.equal(poor.rivalEconomyByKey.get('player2').projectedIncome, 4);
+    assert.equal(poor.rivalEconomyByKey.get('player2').gold, 3);
+    state.playerGold.player2 = 4;
+    const funded = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    assert.equal(rankCityObjectives(poor, () => 2)[0].score
+        - rankCityObjectives(funded, () => 2)[0].score, W.rivalRecruitmentPressure);
+    const medium = buildWorld(state, helpers, me, TIER_CAPABILITIES.medium);
+    assert.equal(medium.rivalEconomyByKey.get('player2').gold, undefined);
 });
 
 test('移动后追击不能给更近的敌军占领者清空中立城', () => {

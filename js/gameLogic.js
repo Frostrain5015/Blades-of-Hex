@@ -15,6 +15,7 @@ import {
     syncCityHpMirrors
 } from '../rules/citySiege.js';
 import { campToKey } from '../rules/camps.js';
+import { collectIncomeVillages } from '../rules/income.js';
 import { DRONE_RANGE, DRONE_SIGNAL_RANGE, deployDrone, isDroneInSignal, refreshDroneSignal, _findTianyanUnit } from '../commander/tianyan.js';
 import { collectSnareSources, snareLayersFromSources } from '../commander/staller.js';
 import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
@@ -165,7 +166,10 @@ import {
     startMatchRecording,
     withMatchActionCause
 } from './matchRecorder.js';
-import { resolveAiIncomeMultiplier } from '../ai/difficulty.js';
+import { canUseFullAiTargeting, resolveAiIncomeMultiplier } from '../ai/difficulty.js';
+
+const isVisibleForAction = (tile, camp, state) =>
+    canUseFullAiTargeting(state, camp) || isTileVisible(tile, camp, state);
 
 // ===== 联机广播 =====================
 function broadcastAction(actionType, effectData = null) {
@@ -1047,20 +1051,7 @@ export function grantTurnStartIncome(camp) {
 
     // 本回合归属本阵营的村庄。先收集不入账：中立的经济门控要对
     // 「城市 + 村庄」的合计毛收入只乘一次，逐项乘会把 $1 的村庄直接抹成 0。
-    const villages = [];
-    for (const [vk, v] of gameState.villageTiles) {
-        const vTile = gameState.tileMap.get(vk);
-        if (!vTile) continue;
-        let beneficiaryCamp;
-        if (vTile.unit) {
-            beneficiaryCamp = vTile.unit.camp;
-        } else {
-            const cityTile = gameState.tiles.find(t => t.isCity && t.districtId === v.districtId);
-            beneficiaryCamp = cityTile ? cityTile.camp : campFromKey('neutral', gameState);
-        }
-        if (beneficiaryCamp !== camp) continue;
-        villages.push(vTile);
-    }
+    const villages = collectIncomeVillages(gameState, camp);
 
     const grossIncome = calcIncome(cityCount) + villages.length * VILLAGE_GOLD;
     // 标准 PVE 的三档难度只改变决策能力，双方收入完全一致。
@@ -2044,7 +2035,7 @@ function _getMovableTiles(unit) {
     return exact.tiles;
 }
 
-export function getAttackableTiles(unit) {
+export function getAttackableTiles(unit, { forAiAction = false } = {}) {
     // 激光塔只在己方回合开始时自动齐射；不提供会造成 0 伤害的手动攻击入口。
     if (unit.type === 'laserTower') return [];
     // 无人机：实时检查信号范围，同步士气状态（不刷新其他无人机）
@@ -2078,7 +2069,8 @@ if (unit._specializationAttackSpent) return [];
     ) : [];
     // 遭遇战迷雾：只能攻击视野内的敌方单位
     if (gameState.skirmishFog && targets.length) {
-        return targets.filter(tile => isTileVisible(tile, unit.camp, gameState));
+        const isVisible = forAiAction ? isVisibleForAction : isTileVisible;
+        return targets.filter(tile => isVisible(tile, unit.camp, gameState));
     }
     return targets;
 }
@@ -2363,10 +2355,10 @@ function _moveUnit(unit, targetTile) {
 // 击杀特效需延迟到子弹流抵达再触发，避免"扣血先于子弹流"。与扫射对策卡（executeAirCommand
 // strafe，伤害延迟到动画尾段结算）同一时序取向。时长常量见 rules/attackPresentation.js
 // 的 CARRIER_STRAFE_IMPACT_MS（联机重放共用）。
-export function attackUnit(attackerUnit, targetUnit) {
-    return perfEnabled() ? measure('attackUnit', () => _attackUnit(attackerUnit, targetUnit)) : _attackUnit(attackerUnit, targetUnit);
+export function attackUnit(attackerUnit, targetUnit, options) {
+    return perfEnabled() ? measure('attackUnit', () => _attackUnit(attackerUnit, targetUnit, options)) : _attackUnit(attackerUnit, targetUnit, options);
 }
-function _attackUnit(attackerUnit, targetUnit) {
+function _attackUnit(attackerUnit, targetUnit, options) {
     if (gameState.gameOver) return;
     if (attackerUnit.camp !== gameState.currentCamp) return;
     if (attackerUnit._campaignCanAttack === false || targetUnit._campaignTargetable === false) {
@@ -2378,8 +2370,8 @@ function _attackUnit(attackerUnit, targetUnit) {
         return;
     }
     if (attackerUnit._isDrone) refreshDroneSignal(gameState, attackerUnit.camp);
-    const legalTargets = attackerUnit?.tile ? getAttackableTiles(attackerUnit) : [];
-    gameState.attackableTiles = legalTargets;
+    const legalTargets = attackerUnit?.tile ? getAttackableTiles(attackerUnit, options) : [];
+    if (!options?.forAiAction) gameState.attackableTiles = legalTargets;
     if (!attackerUnit.canAct || !legalTargets.includes(targetUnit.tile)) {
         notify('无法攻击：超出射程或单位已行动', 'error');
         return;
@@ -3487,7 +3479,7 @@ export function executeDroneDeploy(tianyanUnit, targetTile) {
     const targetingPreview = resolveTargetingPreview(gameState, {
         cardId: 'drone_deploy',
         targeting: 'emptyTile'
-    }, { myCamp: tianyanUnit.camp, hoveredTile: targetTile, isTileVisible });
+    }, { myCamp: tianyanUnit.camp, hoveredTile: targetTile, isTileVisible: isVisibleForAction });
     if (!isResolvedTargetingCandidate(targetingPreview, targetTile)) {
         notify('该位置无法部署', 'error');
         return null;
@@ -3569,7 +3561,7 @@ export function executeEngineerBunkerConstruction(engineerUnit, targetTile) {
         cardId: 'engineer_bunker',
         targeting: 'emptyTile',
         engineerUnitId: engineerUnit?.id
-    }, { myCamp: engineerUnit?.camp, hoveredTile: targetTile, isTileVisible });
+    }, { myCamp: engineerUnit?.camp, hoveredTile: targetTile, isTileVisible: isVisibleForAction });
     if (!isResolvedTargetingCandidate(targetingPreview, targetTile)) {
         notify('无法建造在该位置', 'error');
         return false;
@@ -3851,12 +3843,12 @@ function _resolveCarrierCityStrafeDamage(carrierUnit, targetTile) {
 }
 
 /** 攻城：对无驻军的敌方/中立城市地块扣HP；近战单位在磨到0后就地跟进占领。 */
-export function attackCityTile(attackerUnit, targetTile) {
-    return perfEnabled() ? measure('attackCityTile', () => _attackCityTile(attackerUnit, targetTile)) : _attackCityTile(attackerUnit, targetTile);
+export function attackCityTile(attackerUnit, targetTile, options) {
+    return perfEnabled() ? measure('attackCityTile', () => _attackCityTile(attackerUnit, targetTile, options)) : _attackCityTile(attackerUnit, targetTile, options);
 }
-function _attackCityTile(attackerUnit, targetTile) {
+function _attackCityTile(attackerUnit, targetTile, options) {
     if (gameState.gameOver || attackerUnit.camp !== gameState.currentCamp) return false;
-    if (!attackerUnit.canAct || !getAttackableTiles(attackerUnit).includes(targetTile)) {
+    if (!attackerUnit.canAct || !getAttackableTiles(attackerUnit, options).includes(targetTile)) {
         notify('无法攻城：超出射程或单位已行动', 'error');
         return false;
     }
@@ -4183,7 +4175,7 @@ export function executeDroneSuicide(droneUnit, targetTile) {
         cardId: 'drone_suicide',
         targeting: 'anyTileGlobal',
         droneId: droneUnit.id
-    }, { myCamp: droneUnit.camp, hoveredTile: targetTile, isTileVisible });
+    }, { myCamp: droneUnit.camp, hoveredTile: targetTile, isTileVisible: isVisibleForAction });
     if (!isResolvedTargetingCandidate(targetingPreview, targetTile)) {
         notify('无法对该目标释放自爆', 'error');
         return false;
@@ -4320,7 +4312,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
     }, {
         myCamp,
         hoveredTile: targetTile,
-        isTileVisible
+        isTileVisible: isVisibleForAction
     });
     if (!isResolvedTargetingCandidate(targetingPreview, targetTile)) {
         if (targetingPreview.air?.grounded) notify('雾天停飞，无法使用空军卡', 'error');

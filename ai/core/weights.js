@@ -85,6 +85,8 @@ export const W = Object.freeze({
     commanderKillBonus: 45,
     // 净交换否决的宽容度：净亏损超过自方残值×该比率才放弃攻击（贴脸近战不退）。
     tradeVetoRatio: 0.45,
+    // 高风险行动按略高于均值的承伤估算，给伤害浮动留出余量。
+    lethalThreatMargin: 1.15,
     // 攻城任务中"占领者"每提前一回合到位的价值（占城市资产值的比率）。
     siegeEtaTickRatio: 0.06,
     // 守城价值：每座己方城市的守备预算（按城市资产值比率）。
@@ -127,6 +129,8 @@ export const W = Object.freeze({
     objectiveSwitchScoreMargin: 35,
     strategicPrizeRaceRatio: 0.65,
     strategicPrizeRaceWindow: 2,
+    // 空城的对手下回合可招募一支守军时，按潜在守军折减攻城目标价值。
+    rivalRecruitmentPressure: 15,
     leaderCityBonus: 26,
     leaderClockSwingBonus: 70,
     // 尚书腾位：至少囤够三名基础兵、兵力比落后，并隔一轮才能再次离城。

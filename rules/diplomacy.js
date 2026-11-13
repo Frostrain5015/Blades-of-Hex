@@ -4,7 +4,6 @@ import {
     DEFAULT_SEAT_COLOR_IDS,
     isPlayerFactionColor,
     campToKey,
-    getFactionColorName,
     getPaletteEntry,
     getFlagColors,
     getTileColor
@@ -23,6 +22,22 @@ export const RELATION_META = Object.freeze({
 // playerN 是稳定席位 ID，不再隐含红/蓝/绿或行动顺序；战役可声明任意阵营 ID。
 export const PLAYER_SEAT_KEYS = Object.freeze(['player1', 'player2', 'player3']);
 export const FACTION_KEYS = Object.freeze([...PLAYER_SEAT_KEYS, 'neutral']);
+export const MAX_FACTION_NAME_LENGTH = 7;
+const factionNameSegmenter = typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+
+export function factionNameCharacters(name) {
+    return factionNameSegmenter
+        ? Array.from(factionNameSegmenter.segment(name), item => item.segment)
+        : Array.from(name);
+}
+
+export function normalizeFactionName(value) {
+    if (typeof value !== 'string' || value.length > 256
+        || /[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]/u.test(value)) return null;
+    const name = value.trim();
+    return factionNameCharacters(name).length <= MAX_FACTION_NAME_LENGTH ? name : null;
+}
 /** 标准对局的旗面徽记。只保存选项值，旗帜 SVG 与颜色由规则层统一生成。 */
 export const STANDARD_FLAG_EMOJIS = Object.freeze([
     Object.freeze({ emoji: '⚜️', label: '鸢尾花' }),
@@ -60,13 +75,22 @@ const FLAG_PRESET_COLORS = Object.freeze({
     'img/flags/svg/us.svg': 'blue',
     'img/flags/svg/gb.svg': 'yellow',
     'img/flags/svg/fr.svg': 'green',
-    'img/flags/svg/ru.svg': 'gray',
+    'img/flags/svg/ru.svg': 'snow',
     'img/flags/kuomintang.svg': 'blue',
     'img/flags/chinese-communist-party-old.svg': 'red'
+});
+const FLAG_PRESET_NAMES = Object.freeze({
+    'img/flags/kuomintang.svg': '中国国民党',
+    'img/flags/chinese-communist-party-old.svg': '中国共产党'
 });
 
 export function getFlagPresetColor(preset) {
     return isFlagPreset(preset) ? FLAG_PRESET_COLORS[preset] : null;
+}
+
+export function getStandardFactionName(factionKey, customName, preset = null) {
+    return normalizeFactionName(customName) || (isFlagPreset(preset) ? FLAG_PRESET_NAMES[preset] || FLAG_PRESETS[preset] : null)
+        || CAMP_DATA[factionKey]?.name || factionKey;
 }
 
 export const DEFAULT_STANDARD_FLAG_EMOJIS = Object.freeze({ player1: '⚜️', player2: '🛡️', player3: '🦅' });
@@ -202,7 +226,7 @@ export function campFromKey(key, state = null) {
 }
 
 /** 创建标准对局阵营。席位、颜色、控制器是三组独立数据。 */
-export function createStandardFactions({ playerCount = 2, colors = {}, flagEmojis = {}, flagPresets = {}, controllers = {} } = {}) {
+export function createStandardFactions({ playerCount = 2, colors = {}, flagEmojis = {}, flagPresets = {}, factionNames = {}, controllers = {} } = {}) {
     const count = Math.max(2, Math.min(3, Number(playerCount) || 2));
     const overrides = PLAYER_SEAT_KEYS.map((id, index) => {
         const requestedColorId = getPaletteEntry(colors[id])?.id;
@@ -211,7 +235,8 @@ export function createStandardFactions({ playerCount = 2, colors = {}, flagEmoji
             : DEFAULT_SEAT_COLOR_IDS[index]);
         return {
             id,
-            name: getFactionColorName(colorId, `第${index + 1}阵营`),
+            name: getStandardFactionName(id, factionNames[id], flagPresets[id]),
+            customName: normalizeFactionName(factionNames[id]) || '',
             color: colorId,
             flagEmoji: isStandardFlagEmoji(flagEmojis[id]) ? flagEmojis[id] : DEFAULT_STANDARD_FLAG_EMOJIS[id],
             flagPreset: flagPresets[id],
@@ -238,16 +263,15 @@ export function setFactionColor(state, factionKey, colorValue) {
     if (!faction || !palette || factionKey === 'neutral') return false;
     faction.colorId = palette.id;
     faction.color = palette.tile;
-    faction.name = getFactionColorName(palette.id, faction.name);
     if (!faction.flagPreset && isStandardFlagEmoji(faction.flagEmoji)) {
         faction.flag = faction.flagEmoji;
         faction.flagUrl = createStandardFlagUrl(palette.id, faction.flagEmoji);
-        faction.flagAlt = `${getFactionColorName(palette.id, '阵营')}·${faction.flagEmoji}`;
+        faction.flagAlt = `${faction.name}·${faction.flagEmoji}`;
     }
     return true;
 }
 
-/** 普通玩家对局的受限入口；深灰和白不能被玩家席位选择。 */
+/** 普通色盘与预设旗帜颜色使用同一个入口。 */
 export function setPlayerFactionColor(state, factionKey, colorValue) {
     const presetColor = getFlagPresetColor(state?.factions?.[factionKey]?.flagPreset);
     if (presetColor ? getPaletteEntry(colorValue)?.id !== presetColor : !isPlayerFactionColor(colorValue)) return false;
@@ -259,6 +283,7 @@ export function setPlayerFactionFlagEmoji(state, factionKey, emoji) {
     const faction = state?.factions?.[factionKey];
     if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isStandardFlagEmoji(emoji)) return false;
     faction.flagPreset = null;
+    faction.name = getStandardFactionName(factionKey, faction.customName);
     if (!isPlayerFactionColor(faction.colorId)) setFactionColor(state, factionKey, DEFAULT_SEAT_COLOR_IDS[PLAYER_SEAT_KEYS.indexOf(factionKey)]);
     faction.flagEmoji = emoji;
     faction.flag = emoji;
@@ -271,9 +296,20 @@ export function setPlayerFactionFlagPreset(state, factionKey, preset) {
     const faction = state?.factions?.[factionKey];
     if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isFlagPreset(preset)) return false;
     faction.flagPreset = preset;
+    faction.name = getStandardFactionName(factionKey, faction.customName, preset);
     setFactionColor(state, factionKey, getFlagPresetColor(preset));
     faction.flagUrl = preset;
     faction.flagAlt = FLAG_PRESETS[preset];
+    return true;
+}
+
+export function setPlayerFactionName(state, factionKey, value) {
+    const faction = state?.factions?.[factionKey];
+    const name = normalizeFactionName(value);
+    if (state?.campaignMode || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || name === null) return false;
+    faction.customName = name;
+    faction.name = getStandardFactionName(factionKey, name, faction.flagPreset);
+    if (!faction.flagPreset && faction.flagEmoji) faction.flagAlt = `${faction.name}·${faction.flagEmoji}`;
     return true;
 }
 
@@ -306,17 +342,20 @@ export function createDefaultFactions(overrides = []) {
     return Object.fromEntries(ids.map((id, index) => {
         const base = fallbackFaction(id, index);
         const override = byId.get(id) || {};
-        const palette = getPaletteEntry(override.color) || getPaletteEntry(base.color);
         const flagEmoji = isStandardFlagEmoji(override.flagEmoji) ? override.flagEmoji : null;
         const flagPreset = flagEmoji && isFlagPreset(override.flagPreset) ? override.flagPreset : null;
         const providedFlagUrl = typeof override.flagUrl === 'string' && override.flagUrl ? override.flagUrl : null;
         const flagConfig = override.flagConfig && typeof override.flagConfig === 'object' ? override.flagConfig : null;
+        const flagPath = flagPreset || providedFlagUrl || flagConfig?.preset;
+        const presetColor = flagPath === 'img/flags/svg/ru.svg' ? 'snow' : getFlagPresetColor(flagPreset);
+        const palette = getPaletteEntry(presetColor || override.color) || getPaletteEntry(base.color);
         return [id, {
             ...base,
             name: typeof override.name === 'string' && override.name.trim() ? override.name.trim() : base.name,
+            ...(typeof override.customName === 'string' ? { customName: normalizeFactionName(override.customName) || '' } : {}),
             note: typeof override.note === 'string' ? override.note.trim() : '',
             colorId: palette?.id || null,
-            color: getTileColor(override.color, base.color),
+            color: getTileColor(presetColor || override.color, base.color),
             flag: flagEmoji || (typeof override.flag === 'string' && override.flag ? override.flag : base.flag),
             flagEmoji,
             flagPreset,

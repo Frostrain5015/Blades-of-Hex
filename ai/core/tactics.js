@@ -87,6 +87,13 @@ function isNeutralEngageable(world, missionsCtx, target) {
         && target.tile?.q === mission.targetQ && target.tile?.r === mission.targetR);
 }
 
+function isRiskyNeutralAssault(world, attacker, target, counter, incoming = null) {
+    if (!world.caps.duelModel || !isFieldCapturer(world, attacker) || !target.tile.isCity
+        || target.camp !== world.gameState.factions.neutral) return false;
+    const pool = attacker.hp + (attacker._shield || 0);
+    return (counter + (incoming ?? world.threatAt(attacker.tile, attacker))) * W.lethalThreatMargin >= pool;
+}
+
 /** 威胁定价：按比例损失折算残余价值，而不是按 HP 单价——快死的单位每一步都更贵。 */
 function threatCost(world, unit, tile, riskWeight = 1) {
     const incoming = world.threatAt(tile, unit);
@@ -158,7 +165,8 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
         + ((target._rank || 0) >= 3 ? 40 : 0); // 高 rank 王牌：放任不管会被它一个个点名
     // 攻击位置暴露成本：攻击完单位留在原地，敌方回合按当前位置的威胁预扣。
     // 这是"潜艇排队送岸防炮"的根因——单看交换不亏，但打完走不了。
-    const exposure = world.threatAt(attacker.tile, attacker) * hpGold(attacker) * 0.4;
+    const incoming = world.threatAt(attacker.tile, attacker, kills ? target : null);
+    const exposure = incoming * hpGold(attacker) * 0.4;
     // 净交换否决：换血明显亏本、形不成击杀、且脱得了身时不打。
     const canDisengage = Math.max(1, Number(attacker.config?.range) || 1) >= 2
         || Number(target.config?.speed) <= 0
@@ -166,7 +174,7 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
     const rearCommanderExposed = world.caps.rearCommanderSafety
         && REAR_COMMANDERS.has(attacker.commander)
         && !kills
-        && world.threatAt(attacker.tile, attacker) >= attacker.hp * 0.35;
+        && incoming >= attacker.hp * 0.35;
     const fatalCounter = !kills && counter >= attacker.hp + (attacker._shield || 0);
     const capturerDistance = units => units.reduce((best, unit) =>
         isFieldCapturer(world, unit) ? Math.min(best, world.helpers.hexDistance(unit.tile, target.tile)) : best, Infinity);
@@ -175,6 +183,7 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
         && capturerDistance(world.rivalUnits) <= 3
         && capturerDistance(world.rivalUnits) < capturerDistance(world.myUnits);
     const veto = fatalCounter || giftsNeutralCity || rearCommanderExposed
+        || (!kills && isRiskyNeutralAssault(world, attacker, target, counter, incoming))
         || (!kills && canDisengage && net < -residualGold(attacker) * W.tradeVetoRatio);
     const jitter = noiseJitter(world.caps, `atk:${world.round}:${attacker.id}:${target.id}`);
     return { target, damage, kills, counter, net, strategic, veto, value: (net + strategic - exposure) * jitter };
@@ -383,6 +392,13 @@ function planMove(world, missionsCtx, unit, posture, actions) {
 
     const mission = missionsCtx.assignment.get(unit.id) || null;
     const retreating = shouldRetreat(world, unit);
+    const protectCommander = world.caps.rearCommanderSafety && FRAGILE_COMMANDERS.has(unit.commander);
+    const currentThreat = protectCommander ? world.threatAt(unit.tile, unit) : 0;
+    const neutralObjective = world.caps.duelModel && mission?.kind === 'siege'
+        && mission.occupierId === unit.id
+        ? world.cities.find(city => city.ownerKey === 'neutral'
+            && city.tile.q === mission.targetQ && city.tile.r === mission.targetR)
+        : null;
     // 风险权重：占领者为兑现城市资产敢冒险；散兵没有对冲收益，必须惜命；
     // 高 rank 老兵额外惜命（rank2+ 是双倍资产）。
     const veteran = (unit._rank || 0) >= 2;
@@ -400,6 +416,14 @@ function planMove(world, missionsCtx, unit, posture, actions) {
     let bestScore = retreating ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission);
     for (const tile of movable) {
         if (tile.unit) continue;
+        if (protectCommander && !retreating) {
+            const incoming = world.threatAt(tile, unit);
+            if (incoming > currentThreat
+                && incoming * W.lethalThreatMargin >= unit.hp + (unit._shield || 0)) continue;
+        }
+        if (neutralObjective && tile !== neutralObjective.tile
+            && !retreating && world.helpers.hexDistance(tile, neutralObjective.tile) <= 1
+            && world.threatAt(tile, unit) >= unit.hp + (unit._shield || 0)) continue;
         const missionScore = missionMoveBonus(world, missionsCtx, unit, tile, posture);
         let score = missionScore.bonus
             + captureTileBonus(world, unit, tile)
@@ -508,6 +532,8 @@ function planBreachSequence(world, missionsCtx, actions, processed) {
             : 0;
         const softeners = attackers
             .filter(unit => unit.id !== finisher?.id && !world.combat.wouldDieToCounter(unit, garrison))
+            .filter(unit => !isRiskyNeutralAssault(world, unit, garrison,
+                world.combat.estimateCounterDamage(unit, garrison)))
             .map(unit => ({ unit, damage: world.combat.estimateDamage(unit, garrison, city.tile) }))
             .filter(entry => entry.damage > 0)
             .sort((a, b) => b.damage - a.damage);
@@ -530,6 +556,8 @@ function planBreachSequence(world, missionsCtx, actions, processed) {
             // 所有不会死于反击的在位攻击手持续压低同一守军，等待下一轮终结者收尾。
             const pressure = attackers
                 .filter(unit => !world.combat.wouldDieToCounter(unit, garrison))
+                .filter(unit => !isRiskyNeutralAssault(world, unit, garrison,
+                    world.combat.estimateCounterDamage(unit, garrison)))
                 .map(unit => ({ unit, damage: world.combat.estimateDamage(unit, garrison, city.tile) }))
                 .filter(entry => entry.damage > 0)
                 .sort((a, b) => b.damage - a.damage);

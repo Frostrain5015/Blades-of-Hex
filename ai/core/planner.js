@@ -56,6 +56,7 @@ export function planTurn(gameState, helpers, myCamp, caps) {
     const tactics = planTactics(world, strategy, missionsCtx).filter(action => !reserved.has(action.unitId));
 
     const actions = [
+        ...production.emergencyRecruits,
         ...cards.setup,
         ...production.setup,
         ...tactics,

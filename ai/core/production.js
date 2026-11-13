@@ -72,6 +72,7 @@ function shouldTemporarilyVacateMinister(world, strategy, memory) {
 export function planProduction(world, strategy, missionsCtx) {
     const setup = [];
     const actions = [];
+    const emergencyRecruits = [];
     const helpers = world.helpers;
     let gold = world.gold;
     const aiMemory = (world.gameState._aiCoreMemory ||= {});
@@ -127,19 +128,26 @@ export function planProduction(world, strategy, missionsCtx) {
 
     // ── 1. 城市招募（含腾出来的格子）──────────────────────────
     const emptyCities = world.myCities.filter(city => !city.unit && city !== vacatedCity
-        && !reservedForMinister(city));
+        && !reservedForMinister(city))
+        .sort((a, b) => Number(b === strategy.emergencyDefenseCity) - Number(a === strategy.emergencyDefenseCity));
+    let emergencyRecruitFund = strategy.reserve;
     let recruits = vacatedCity ? 1 : 0;
     const maxRecruits = world.caps.id === 'easy' ? 1 : 2;
     for (const city of emptyCities) {
         if (recruits >= maxRecruits) break;
-        const types = helpers.recruitTypesForCity
+        const urgentLandRecruit = emergencyRecruitFund > 0
+            && (world.myUnits.length <= 2 || city === strategy.emergencyDefenseCity);
+        const types = urgentLandRecruit ? LAND_ORDER : helpers.recruitTypesForCity
             ? helpers.recruitTypesForCity(city, landOrder)
             : landOrder;
         for (const type of types) {
             const cost = helpers.UNIT_CONFIG[type]?.cost ?? 99;
-            if (!canAfford(gold, cost, strategy)) continue;
+            const emergencyRecruit = urgentLandRecruit && cost <= gold;
+            if (!emergencyRecruit && !canAfford(gold, cost, strategy)) continue;
             if (helpers.canRecruitTypeAtSite && !helpers.canRecruitTypeAtSite(type, city)) continue;
-            actions.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
+            const recruit = { type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r };
+            (emergencyRecruit ? emergencyRecruits : actions).push(recruit);
+            if (emergencyRecruit) emergencyRecruitFund = Math.max(0, emergencyRecruitFund - cost);
             gold -= cost;
             recruits++;
             break;
@@ -167,7 +175,7 @@ export function planProduction(world, strategy, missionsCtx) {
         for (const port of emptyPorts.slice(0, 1)) {
             for (const type of order) {
                 const cost = helpers.UNIT_CONFIG[type]?.cost ?? 99;
-                if (!canAfford(gold, cost, strategy)) continue;
+                if (gold - cost < emergencyRecruitFund) continue;
                 if (helpers.canRecruitTypeAtSite && !helpers.canRecruitTypeAtSite(type, port)) continue;
                 actions.push({ type: 'recruit', unitType: type, tileQ: port.q, tileR: port.r });
                 gold -= cost;
@@ -188,7 +196,7 @@ export function planProduction(world, strategy, missionsCtx) {
     let reinforced = 0;
     for (const tile of candidates) {
         if (reinforced >= (strategy.posture === 'hold' ? 3 : 2)) break;
-        if (gold < 4) break;
+        if (gold - 4 < emergencyRecruitFund) break;
         actions.push({ type: 'reinforce', unitId: tile.unit.id });
         reinforceLedger[tile.unit.id] = (reinforceLedger[tile.unit.id] || 0) + 1;
         gold -= 4;
@@ -201,9 +209,9 @@ export function planProduction(world, strategy, missionsCtx) {
         const heal = Math.min(Math.floor(unit.maxHp * 0.5), unit.maxHp - unit.hp);
         if (heal < unit.maxHp * 0.2) continue;
         const cost = Math.max(1, Math.ceil(unit.config.cost * heal / unit.maxHp));
-        if (gold < cost) continue;
+        if (gold - cost < emergencyRecruitFund) continue;
         setup.unshift({ type: 'repairShip', unitId: unit.id });
         gold -= cost;
     }
-    return { setup, actions, recruitSpend: world.gold - gold };
+    return { emergencyRecruits, setup, actions, recruitSpend: world.gold - gold };
 }

@@ -14,6 +14,11 @@ import {
     syncStandardMapCarrierControl
 } from '../rules/standardMapEvents.js';
 import { UNIT_CONFIG } from '../rules/units.js';
+import { getFlagColors, getTileColor, PLAYER_FACTION_COLOR_KEYS } from '../rules/camps.js';
+import {
+    createDefaultFactions, createStandardFactions, normalizeFactionName,
+    setPlayerFactionColor, setPlayerFactionFlagEmoji, setPlayerFactionFlagPreset, setPlayerFactionName
+} from '../rules/diplomacy.js';
 import { normalizeLevel, validateLevel } from '../campaign/runtime/schema.js';
 import UNCHARTED_PASSAGE_2P_LEVEL from '../rules/maps/uncharted-passage-2p.level.json' with { type: 'json' };
 import UNCHARTED_PASSAGE_3P_LEVEL from '../rules/maps/uncharted-passage-3p.level.json' with { type: 'json' };
@@ -27,6 +32,45 @@ const distance = (a, b) => Math.max(
 const radius = point => distance(point, { q: 0, r: 0 });
 const rotate180 = ({ q, r }) => ({ q: -q, r: -r });
 const rotate120 = ({ q, r }) => ({ q: -q - r, r: q });
+
+test('俄罗斯旗帜使用独立的雪白地块和冷蓝白徽章', () => {
+    const preset = 'img/flags/svg/ru.svg';
+    const state = { factions: createStandardFactions({ flagPresets: { player1: preset } }) };
+    const { player1, neutral } = state.factions;
+    assert.equal(player1.name, '俄罗斯');
+    assert.equal(player1.colorId, 'snow');
+    assert.equal(player1.color, getTileColor('snow'));
+    const badge = getFlagColors(player1.colorId).main;
+    assert.notEqual(player1.color, badge);
+    assert.ok([1, 3, 5].every(offset =>
+        player1.color.slice(offset, offset + 2) > neutral.color.slice(offset, offset + 2)
+        && badge.slice(offset, offset + 2) > getFlagColors('gray').main.slice(offset, offset + 2)));
+    assert.equal(PLAYER_FACTION_COLOR_KEYS.includes('snow'), false);
+    const campaign = createDefaultFactions([{ id: 'guard', name: '守备队', color: 'gray', flagConfig: { preset } }]);
+    assert.equal(campaign.guard.colorId, 'snow');
+    assert.equal(campaign.guard.name, '守备队');
+});
+
+test('阵营名称独立于颜色与旗帜，清空恢复席位或预设名称', () => {
+    const state = { factions: createStandardFactions() };
+    const faction = state.factions.player1;
+    assert.equal(normalizeFactionName('  雪原守备  '), '雪原守备');
+    assert.equal(normalizeFactionName('雪原守备队远征军'), null);
+    assert.equal(normalizeFactionName('东海\n守备'), null);
+    assert.equal(normalizeFactionName('雪原🛡ABC'), '雪原🛡ABC');
+    assert.equal(normalizeFactionName('雪原🇷🇺ABCD'), '雪原🇷🇺ABCD');
+    assert.equal(faction.name, '第一阵营');
+    assert.equal(setPlayerFactionName(state, 'player1', '雪原守备'), true);
+    assert.equal(setPlayerFactionColor(state, 'player1', 'purple'), true);
+    assert.equal(faction.name, '雪原守备');
+    assert.equal(setPlayerFactionFlagPreset(state, 'player1', 'img/flags/svg/ru.svg'), true);
+    assert.equal(faction.name, '雪原守备');
+    assert.equal(setPlayerFactionName(state, 'player1', ''), true);
+    assert.equal(faction.name, '俄罗斯');
+    assert.equal(setPlayerFactionFlagEmoji(state, 'player1', '🐉'), true);
+    assert.equal(faction.name, '第一阵营');
+    assert.ok(PLAYER_FACTION_COLOR_KEYS.includes(faction.colorId));
+});
 
 for (const [playerCount, source] of [[2, UNCHARTED_PASSAGE_2P_LEVEL], [3, UNCHARTED_PASSAGE_3P_LEVEL]]) {
     test(`the authored ${playerCount}P Uncharted Passage source remains editor-valid`, () => {

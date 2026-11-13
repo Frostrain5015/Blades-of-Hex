@@ -333,7 +333,10 @@ export function updateUI() {
         if (key === 'player2') card.classList.toggle('align-right', !gameState.isThreePlayer);
         const label = card.querySelector('.camp-label');
         const emblem = card.querySelector('.camp-emblem');
-        if (label) label.textContent = faction.name;
+        if (label) {
+            label.textContent = faction.name;
+            label.translate = !faction.customName;
+        }
         if (emblem) {
             const shortKey = key === 'player1' ? 'p1' : key === 'player2' ? 'p2' : key === 'player3' ? 'p3' : key === 'neutral' ? 'neu' : key;
             const flag = shortKey === 'neu' ? CAMP_FLAG_COLORS.neu : getFlagColors(faction.colorId || faction.color);

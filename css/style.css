@@ -3014,6 +3014,7 @@ body {
 /* ---------- 头部徽章 ---------- */
 .commander-header {
     position: relative;
+    z-index: 20;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -3050,10 +3051,40 @@ body {
     padding: 11px 13px 13px;
     border: 1px solid rgba(214, 176, 102, .34);
     border-radius: 10px;
-    background: rgba(10, 8, 7, .94);
+    background: #110e0b;
     box-shadow: 0 14px 32px rgba(0,0,0,.55);
 }
 .commander-color-picker.open { display: grid; }
+.commander-flag-options {
+    display: grid;
+    gap: 10px;
+}
+.commander-name-field {
+    width: 238px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 6px 8px;
+}
+.commander-name-field small {
+    color: rgba(244,234,209,.66);
+    font-size: 10px;
+}
+.commander-name-field input {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 6px 9px;
+    border: 1px solid rgba(214,176,102,.32);
+    border-radius: 5px;
+    background: rgba(255,255,255,.06);
+    color: #f4ead1;
+    font: inherit;
+    font-size: 14px;
+}
+.commander-name-field input::placeholder { color: rgba(244,234,209,.54); }
+.commander-name-field input:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
 .commander-picker-section {
     display: grid;
     justify-items: center;

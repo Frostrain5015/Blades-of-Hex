@@ -185,13 +185,14 @@ export function connectToServer(url) {
                         factionColors: msg.factionColors,
                         factionEmojis: msg.factionEmojis,
                         factionPresets: msg.factionPresets,
+                        factionNames: msg.factionNames,
                         roleAssignments: msg.roleAssignments,
                         standardMapId: msg.standardMapId,
                         aiSeats: msg.aiSeats || {}
                     });
                     break;
                 case 'factionColors':
-                    _cb.onFactionColors?.(msg.factionColors || {}, msg.factionEmojis || {}, msg.factionPresets || {});
+                    _cb.onFactionColors?.(msg.factionColors || {}, msg.factionEmojis || {}, msg.factionPresets || {}, msg.factionNames || {});
                     break;
                 case 'error':
                     _cb.onError?.(msg.message);

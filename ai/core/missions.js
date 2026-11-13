@@ -256,7 +256,7 @@ export function assignMissions(world, strategy) {
             cityValue: city.asset.total,
             occupierId: occupier.id,
             escortIds: escorts.map(u => u.id),
-            phase: prior && prior.phase !== 'hold' ? prior.phase : missionState.phase,
+            phase: missionState.phase,
             createdRound: prior?.createdRound ?? world.round,
             cityHp: city.hp,
             garrisonHp: city.garrison ? city.garrison.hp : 0,

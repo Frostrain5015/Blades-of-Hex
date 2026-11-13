@@ -1,14 +1,16 @@
 // 感知层 —— 把 gameState 折算成一份「世界模型」。
 //
 // 输出是纯数据（含少量函数），不做任何决策；战略/任务/战术层只读它。
-// 迷雾规则：只使用当时可见信息 + 自己记住的历史情报，绝不偷看迷雾——
-// 这与真人玩家的信息权限完全一致。
+// 迷雾限制普通档位的情报。困难遭遇战直接读取模拟状态，不修改显示视野。
 
 import { getRound } from '../../rules/turns.js';
 import { campToKey } from '../../rules/camps.js';
 import { getStandardMap } from '../../rules/standardMaps.js';
 import { isWaterTile } from '../../rules/surfaces.js';
 import { laserTowerShotDamage } from '../../rules/laserTower.js';
+import { AI_DIFFICULTY_PROFILES, hasFullAiIntelligence } from '../difficulty.js';
+import { UNIT_CONFIG } from '../../rules/units.js';
+import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 import {
     canCaptureCityByCombat,
     createCombatModel,
@@ -77,7 +79,8 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     const round = getRound(gameState);
     const turnLimit = getTurnLimit(gameState);
     const roundsRemaining = Math.max(0, turnLimit - round);
-    const fog = !!gameState.skirmishFog;
+    const fullIntelligence = hasFullAiIntelligence(gameState, myCamp, AI_DIFFICULTY_PROFILES[caps.id]);
+    const fog = !!gameState.skirmishFog && !fullIntelligence;
     const tiles = gameState.tiles;
     const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
     const oceanMap = standardMap?.familyId === 'uncharted-passage';
@@ -129,7 +132,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     }
     const bestRivalCities = Math.max(0, ...rivalFactions.map(f => cityCountByKey[campToKey(f)] || 0));
     const carrierControl = standardMap?.carrierControl || null;
-    // 只估价当前可见、可通过夺城获得的航母；不偷看迷雾，也不把其他中立军算入奖励。
+    // 只估价情报中仍存活且可通过夺城获得的航母。
     const transferableCarrierValue = estimateForceValue([...neutralUnits, ...rivalUnits]
         .filter(unit => unit.type === 'carrier'));
     const cities = cityTiles.map(tile => {
@@ -160,18 +163,16 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     // ── 威胁图：某格在下回合可能承受的最大伤害 ────────────────
     // 取伤害最高的两个攻击者的和（模拟集火），其余忽略。
     const hostileForThreat = [...rivalUnits, ...neutralUnits];
-    function threatAt(tile, unit) {
+    function threatAt(tile, unit, excludedEnemy = null) {
         if (!tile) return 0;
         const damages = [];
         for (const enemy of hostileForThreat) {
-            if (!enemy.tile || enemy._isImmobile && !enemy.tile.isCity) { /* 固定工事照常算 */ }
+            if (enemy === excludedEnemy || !enemy.tile || (enemy.type === 'submarine' && !isWaterTile(tile))) continue;
             const range = Math.max(1, Number(enemy.getEffectiveRange?.() ?? enemy.config?.range) || 1);
-            const speed = caps.threatForecast ? Math.max(0, Number(enemy.config?.speed) || 0) : 2;
+            const baseSpeed = Math.max(0, Number(enemy.config?.speed) || 0);
+            const speed = enemy._isImmobile || baseSpeed === 0 ? 0 : caps.threatForecast ? baseSpeed : 2;
             const reach = range + Math.min(speed, 4);
             if (helpers.hexDistance(enemy.tile, tile) > reach) continue;
-            if (enemy.type === 'submarine' && unit) {
-                // 潜艇只能被驱逐舰/潜艇攻击；威胁视角对称处理：潜艇打陆军也受限，粗略放行
-            }
             const clusteredTargets = enemy.type === 'laserTower'
                 ? myUnits.filter(ally => ally.tile && helpers.hexDistance(enemy.tile, ally.tile) <= range).length
                 : 0;
@@ -185,11 +186,23 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     }
 
     // ── 经济与战力 ───────────────────────────────────────────
-    const economy = estimateCampEconomy(tiles, myCamp);
-    const rivalEconomies = rivalFactions.map(faction => ({
-        campKey: campToKey(faction),
-        ...estimateCampEconomy(tiles, faction)
-    }));
+    function economyFor(faction) {
+        const campKey = campToKey(faction);
+        const economy = estimateCampEconomy(tiles, faction, fullIntelligence ? gameState : null);
+        if (!fullIntelligence) return { campKey, ...economy };
+        const minister = tiles.find(tile => tile.isCity && tile.unit?.hp > 0
+            && tile.unit.camp === faction && tile.unit.commander === 'minister');
+        const { goldPerRound, maxGoldPerRound } = COMMANDER_CONFIG.minister.balance;
+        const ministerIncome = minister ? Math.min(round * goldPerRound, maxGoldPerRound) : 0;
+        return {
+            campKey, ...economy,
+            gold: Number(gameState.playerGold?.[campKey]) || 0,
+            projectedIncome: economy.projectedIncome + ministerIncome
+        };
+    }
+    const economy = economyFor(myCamp);
+    const rivalEconomies = rivalFactions.map(economyFor);
+    const rivalEconomyByKey = new Map(rivalEconomies.map(profile => [profile.campKey, profile]));
     const strongestRivalEconomy = rivalEconomies.sort((a, b) => b.projectedIncome - a.projectedIncome)[0]
         || { projectedIncome: 0 };
     const ownForceValue = estimateForceValue(myUnits);
@@ -245,7 +258,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         myUnits, rivalUnits, neutralUnits, rivalFactions,
         myCities, cities, cityCountByKey, bestRivalCities, rivalProfiles, collapseTarget,
         cityGap: myCities.length - bestRivalCities,
-        economy, strongestRivalEconomy,
+        economy, strongestRivalEconomy, rivalEconomyByKey,
         ownForceValue, observedRivalForce, rivalForceEstimate,
         intel, stalestRivalAge,
         threatAt,
@@ -322,6 +335,10 @@ export function rankCityObjectives(world, etaFor) {
                 && rivalCaptureEta <= (eta ?? 99) + W.strategicPrizeRaceWindow
                 ? city.asset.reward * W.strategicPrizeRaceRatio
                 : 0;
+            const rivalEconomy = world.rivalEconomyByKey?.get(city.ownerKey);
+            const recruitmentPressure = eta > 1 && city.hp > 0 && !garrison
+                && rivalEconomy?.gold != null && rivalEconomy.gold + rivalEconomy.projectedIncome >= UNIT_CONFIG.infantry.cost
+                ? W.rivalRecruitmentPressure : 0;
             return {
                 city,
                 eta: eta == null ? 99 : eta,
@@ -335,6 +352,7 @@ export function rankCityObjectives(world, etaFor) {
                     + (city.ownerKey === 'neutral' ? 18 : 0)
                     + leaderBonus
                     + prizeRaceBonus
+                    - recruitmentPressure
                     - Math.min(60, city.hp * 0.12)
             };
         })

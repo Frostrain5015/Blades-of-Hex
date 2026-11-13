@@ -7,7 +7,7 @@ export default {
   ...DEFINITION,
 
   onTurnStart(gameState, camp, helpers) {
-    if (camp.name === '中立') return;
+    if (camp.id === 'neutral') return;
     const unit = helpers.findCommanderUnit(camp, 'minister');
     if (!unit || !unit.tile || !unit.tile.isCity) return;
     const factionCount = gameState.isThreePlayer ? 4 : 3;

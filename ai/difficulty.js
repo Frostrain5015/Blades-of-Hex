@@ -53,6 +53,7 @@ export const AI_DIFFICULTY_PROFILES = Object.freeze({
         counterRecruitment: true,
         threatForecast: true,
         strategicOpponentModel: true,
+        fullIntelligence: true,
         terminalPlanning: true,
         advancedCards: true,
         activeSkillPlanning: true,
@@ -93,6 +94,18 @@ export function resolveAiDifficultyProfile(state, campOrKey = null) {
     const campKey = typeof campOrKey === 'string' ? campOrKey : campOrKey?.id;
     const perCampValue = campKey ? state?.aiDifficultyByCamp?.[campKey] : null;
     return getAiDifficultyProfile(perCampValue ?? state?.aiDifficulty ?? state?.aiDifficultyId);
+}
+
+export function hasFullAiIntelligence(state, camp, profile = resolveAiDifficultyProfile(state, camp)) {
+    const key = typeof camp === 'string' ? camp : camp?.id;
+    return !!key && key !== 'neutral' && !state.campaignMode && !!profile.fullIntelligence;
+}
+
+// 只给 AI 已验证行动使用。界面查询与迷雾缓存保持原有入口。
+export function canUseFullAiTargeting(state, camp) {
+    return state.aiActing && camp === state.currentCamp
+        && (camp?.controller === 'ai' || camp === state.aiOpponentCamp)
+        && hasFullAiIntelligence(state, camp);
 }
 
 export function resolveAiIncomeMultiplier(state, campOrKey = null) {

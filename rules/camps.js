@@ -18,7 +18,7 @@ export const CAMP_FLAG_COLORS = deepFreeze({
 });
 
 /**
- * 全局九色调色板 —— 所有模式共用的阵营外观唯一数据源。
+ * 全局调色板 —— 所有模式共用的阵营外观唯一数据源。
  * 每色包含：地块底色（浅） + 旗帜三阶色（主/暗/亮）。
  * 关卡配置只保存稳定的 id；tile/flag 是运行时表现值，不属于作者数据契约。
  */
@@ -31,13 +31,14 @@ export const FACTION_PALETTE = deepFreeze([
     { id: 'blue',   label: '蓝', tile: '#aaaaff', flag: { main: '#4060d0', dark: '#1a2a80', light: '#6080f0' } },
     { id: 'purple', label: '紫', tile: '#d8aaff', flag: { main: '#9050c8', dark: '#602890', light: '#b878e0' } },
     { id: 'gray',   label: '深灰', tile: '#b0b0b0', flag: { main: '#888888', dark: '#444444', light: '#aaaaaa' } },
-    { id: 'white',  label: '白', tile: '#e8e8e8', flag: { main: '#bbbbbb', dark: '#888888', light: '#dddddd' } }
+    { id: 'white',  label: '白', tile: '#e8e8e8', flag: { main: '#bbbbbb', dark: '#888888', light: '#dddddd' } },
+    { id: 'snow',   label: '雪白', tile: '#e5edf6', flag: { main: '#c5d5e7', dark: '#7d96b0', light: '#f4f8ff' } }
 ]);
 
 export const FACTION_COLOR_KEYS = deepFreeze(FACTION_PALETTE.map(entry => entry.id));
-/** 普通玩家对局仅开放七种彩虹色；深灰与白保留给中立、训练靶及剧情阵营。 */
+/** 普通色盘开放七种颜色，预设旗帜可使用保留色。 */
 export const PLAYER_FACTION_COLOR_KEYS = deepFreeze(
-    FACTION_PALETTE.filter(entry => entry.id !== 'gray' && entry.id !== 'white').map(entry => entry.id)
+    FACTION_PALETTE.filter(entry => !['gray', 'white', 'snow'].includes(entry.id)).map(entry => entry.id)
 );
 export const DEFAULT_SEAT_COLOR_IDS = deepFreeze(['red', 'blue', 'green']);
 
@@ -104,12 +105,6 @@ export function getFlagColors(colorValue) {
 export function getCityMarkerColors(colorValue) {
     const flag = getFlagColors(colorValue);
     return { line: flag.light, shadow: flag.dark, fill: flag.dark };
-}
-
-/** 由阵营色生成默认名称；名称随颜色走，而不是随 player1/2/3 席位走。 */
-export function getFactionColorName(colorValue, fallback = '未命名阵营') {
-    const entry = getPaletteEntry(colorValue);
-    return entry ? `${entry.label}军` : fallback;
 }
 
 export function campToKey(camp, mode = 'full') {

@@ -487,7 +487,7 @@ function createNetworkMatchSetup(room, assignAiFactionColors) {
     room.turnOrder = rolled.turnOrder.map(key => key === 'neutral' ? key : room.roleAssignments[key]);
     room.turnOrderRolls = Object.fromEntries(Object.entries(rolled.turnOrderRolls)
         .map(([role, rolls]) => [room.roleAssignments[role], rolls]));
-    // room.factionColors/factionEmojis/factionPresets 仍按 role 保存：factionColor 消息按 role 写入，
+    // 阵营外观与名称按 role 保存：factionColor 消息按 role 写入，
     // 快照校验经 roleAssignments 翻译到 camp；下发给客户端时投影为 camp 键。
     room.factionColors = Object.fromEntries(roles.map(role => [role, room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]]));
     room.factionColors = assignAiFactionColors(room.factionColors, [...(room.aiSlots?.keys() || [])].sort());
@@ -496,9 +496,13 @@ function createNetworkMatchSetup(room, assignAiFactionColors) {
         STANDARD_FLAG_EMOJIS.has(room.factionEmojis?.[role]) ? room.factionEmojis[role] : DEFAULT_ROLE_FLAG_EMOJIS[role]
     ]));
     room.factionPresets = Object.fromEntries(roles.map(role => [role, room.factionPresets?.[role] || null]));
+    room.factionNames = Object.fromEntries(roles.map(role => [role,
+        room.aiSlots?.has(role) ? '' : room.factionNames?.[role] || ''
+    ]));
     const campPresets = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionPresets[role]]));
     const campColors = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionColors[role]]));
     const campEmojis = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionEmojis[role]]));
+    const campNames = Object.fromEntries(roles.map(role => [room.roleAssignments[role], room.factionNames[role]]));
     // AI 席位按阵营键存储：回合归属校验直接以 currentCampKey 命中
     room.aiSeats = Object.fromEntries([...(room.aiSlots || new Map())].map(([role, info]) => [room.roleAssignments[role], info.difficultyId]));
     return {
@@ -509,11 +513,12 @@ function createNetworkMatchSetup(room, assignAiFactionColors) {
         factionColors: campColors,
         factionEmojis: campEmojis,
         factionPresets: campPresets,
+        factionNames: campNames,
         aiSeats: room.aiSeats
     };
 }
 
-function snapshotMatchesRoomSetup(room, snapshot) {
+function snapshotMatchesRoomSetup(room, snapshot, getStandardFactionName) {
     const assignments = room.roleAssignments || {};
     const snapshotAssignments = snapshot.roleAssignments || {};
     const assignmentKeys = Object.keys(assignments);
@@ -524,11 +529,14 @@ function snapshotMatchesRoomSetup(room, snapshot) {
         const factionKey = assignments[role];
         const emoji = room.factionEmojis?.[role];
         const preset = room.factionPresets?.[role] || null;
+        const customName = room.factionNames?.[role] || '';
         if (!preset && !PLAYER_FACTION_COLORS.has(colorId)) return false;
         const faction = snapshot.factions?.[factionKey];
         if (!factionKey || faction?.colorId !== colorId
             || !STANDARD_FLAG_EMOJIS.has(emoji)
             || faction.flagEmoji !== emoji
+            || (faction.customName ?? '') !== customName
+            || (faction.customName !== undefined && faction.name !== getStandardFactionName(factionKey, customName, preset))
             || (faction.flagPreset ?? null) !== preset
             || (preset && faction.flagUrl !== preset)) return false;
     }
@@ -909,22 +917,25 @@ async function handleMessage(ws, rawData) {
         case 'factionColor': {
             const room = ws._room;
             const role = room?.players.get(ws)?.role;
-            if (!room || !role) break;
+            if (!room || !role || room.authority?.state) break;
             const hasColor = PLAYER_FACTION_COLORS.has(msg.colorId);
-            const { getFlagPresetColor } = await flagRulesReady;
+            const { getFlagPresetColor, normalizeFactionName } = await flagRulesReady;
             const hasEmoji = STANDARD_FLAG_EMOJIS.has(msg.flagEmoji);
             const presetColor = getFlagPresetColor(msg.flagPreset);
             const hasPreset = !!presetColor;
+            const hasName = msg.factionName !== undefined;
+            const factionName = hasName ? normalizeFactionName(msg.factionName) : null;
+            if (hasName && factionName === null) break;
             const currentPresetColor = getFlagPresetColor(room.factionPresets?.[role]);
             const lockedColor = presetColor || (!hasEmoji && currentPresetColor);
             const invalidColor = msg.colorId !== undefined && (lockedColor ? msg.colorId !== lockedColor : !hasColor);
             const invalidEmoji = msg.flagEmoji !== undefined && !hasEmoji;
             const invalidPreset = msg.flagPreset !== undefined && !hasPreset;
-            if (invalidColor || invalidEmoji || invalidPreset || (!hasColor && !hasEmoji && !hasPreset)) break;
+            if (invalidColor || invalidEmoji || invalidPreset || (!hasColor && !hasEmoji && !hasPreset && !hasName)) break;
             const occupied = candidate => Object.entries(room.factionColors || {}).some(([otherRole, color]) =>
                 otherRole !== role && color === candidate && (room.authority?.state || !room.aiSlots?.has(otherRole)));
             const currentColor = room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role];
-            const nextColor = lockedColor || (hasColor ? msg.colorId : currentColor === 'gray'
+            const nextColor = lockedColor || (hasColor ? msg.colorId : !PLAYER_FACTION_COLORS.has(currentColor)
                 ? [...PLAYER_FACTION_COLORS].find(color => !occupied(color))
                 : currentColor);
             if (occupied(nextColor)) {
@@ -933,7 +944,8 @@ async function handleMessage(ws, rawData) {
                     type: 'factionColors',
                     factionColors: room.factionColors || {},
                     factionEmojis: room.factionEmojis || {},
-                    factionPresets: room.factionPresets || {}
+                    factionPresets: room.factionPresets || {},
+                    factionNames: room.factionNames || {}
                 });
                 break;
             }
@@ -948,11 +960,13 @@ async function handleMessage(ws, rawData) {
             if (hasPreset || hasEmoji) {
                 room.factionPresets = { ...(room.factionPresets || {}), [role]: hasPreset ? msg.flagPreset : null };
             }
+            if (hasName) room.factionNames = { ...(room.factionNames || {}), [role]: factionName };
             broadcastRoom(room, {
                 type: 'factionColors',
                 factionColors: room.factionColors,
                 factionEmojis: room.factionEmojis,
-                factionPresets: room.factionPresets || {}
+                factionPresets: room.factionPresets || {},
+                factionNames: room.factionNames || {}
             });
             break;
         }
@@ -960,7 +974,8 @@ async function handleMessage(ws, rawData) {
         case 'saveState': {
             const room = ws._room;
             if (!room || !room.gameStarted) break;
-            if (protocol.isValidSnapshot(msg.state) && snapshotMatchesRoomSetup(room, msg.state) && !room.authority.state) {
+            const { getStandardFactionName } = await flagRulesReady;
+            if (protocol.isValidSnapshot(msg.state) && snapshotMatchesRoomSetup(room, msg.state, getStandardFactionName) && !room.authority.state) {
                 room.authority.state = msg.state;
                 room._savedState = msg.state;
             }
@@ -992,8 +1007,9 @@ async function handleMessage(ws, rawData) {
                 sendAuthoritativeSnapshot(ws, room, '操作已过期，已恢复服务端状态');
                 break;
             }
-            if (!snapshotMatchesRoomSetup(room, msg.state)) {
-                sendAuthoritativeSnapshot(ws, room, '阵营颜色、席位或行动顺序与房间设置不一致');
+            const { getStandardFactionName } = await flagRulesReady;
+            if (!snapshotMatchesRoomSetup(room, msg.state, getStandardFactionName)) {
+                sendAuthoritativeSnapshot(ws, room, '阵营设置、席位或行动顺序与房间设置不一致');
                 break;
             }
             const senderRole = room.players.get(ws)?.role;

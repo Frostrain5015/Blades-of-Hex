@@ -57,13 +57,20 @@ import {
 } from '../rules/construction.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange } from '../rules/airCommands.js';
 import { isSubmarineTargetableBy } from '../rules/naval.js';
+import { isLandTile } from '../rules/surfaces.js';
 import { getStandardMap } from '../rules/standardMaps.js';
-import { resolveAiDifficultyProfile } from '../ai/difficulty.js';
+import { hasFullAiIntelligence, resolveAiDifficultyProfile } from '../ai/difficulty.js';
 import { getRoundIndex } from '../rules/turns.js';
 import { waitForFactionSynergyPresentations } from './factionSynergyPresentation.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
+const AI_TARGETING = Object.freeze({ forAiAction: true });
+
+function isKnownToAi(tile, camp) {
+    return !gameState.skirmishFog || hasFullAiIntelligence(gameState, camp)
+        || isTileVisible(tile, camp, gameState);
+}
 
 // 自动化对局复用与浏览器完全相同的 AI 执行链，只关闭展示等待并挂接观测器。
 // 默认值保持现有游戏体验不变；调用方应使用返回的 restore 函数恢复现场。
@@ -167,7 +174,7 @@ function estimateVisibleThreatAt(site, aiCamp, forecast) {
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         if (!unit || !isHostile(gameState, aiCamp, unit.camp)) continue;
-        if (gameState.skirmishFog && !isTileVisible(tile, aiCamp, gameState)) continue;
+        if (!isKnownToAi(tile, aiCamp)) continue;
         const range = Math.max(1, Number(unit.config?.range || 1));
         const reach = range + (forecast ? Math.max(0, Number(unit.config?.speed || 0)) : 2);
         const distance = hexDistance(tile, site);
@@ -189,7 +196,7 @@ function resolveEmergencyRecruitReserve(aiCamp, difficultyProfile) {
     const ownUnits = gameState.tiles.filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0);
     const rivalUnits = gameState.tiles.filter(tile => tile.unit?.hp > 0
         && isHostile(gameState, aiCamp, tile.unit.camp)
-        && (!gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState)));
+        && isKnownToAi(tile, aiCamp));
     return getEmergencyRecruitReserve({
         enabled: true,
         ownUnitCount: ownUnits.length,
@@ -216,6 +223,32 @@ function aiPlanningSignature(aiCamp) {
         .sort();
     const campKey = campToKey(aiCamp);
     return `${gameState.playerGold[campKey] || 0}|${gameState.playerUsesThisTurn[campKey] || 0}|${units.join(';')}|${cities.join(';')}`;
+}
+
+function pickAirReconTarget(airfield, aiCamp, knownTile) {
+    const range = getAirCommandRange(airfield);
+    const cities = gameState.tiles.filter(tile => tile.isCity && canAttack(gameState, aiCamp, tile.camp)
+        && hexDistance(airfield, tile) <= range + 2);
+    const unexplored = gameState.exploredTiles?.[campToKey(aiCamp)];
+    const unknownLand = gameState.tiles.filter(tile => isLandTile(tile) && !knownTile(tile)
+        && !unexplored?.has(`${tile.q},${tile.r}`)
+        && cities.some(city => hexDistance(city, tile) <= 2));
+    let best = null;
+    let bestScore = 0;
+    for (const tile of gameState.tiles) {
+        const distance = hexDistance(airfield, tile);
+        if (distance > range || !cities.some(city => hexDistance(city, tile) <= 2)) continue;
+        const coverage = unknownLand.reduce((sum, unknown) => {
+            const offset = hexDistance(tile, unknown);
+            return sum + (offset <= 2 ? 3 - offset : 0);
+        }, 0);
+        const score = coverage - distance / (range + 1);
+        if (score > bestScore) {
+            best = tile;
+            bestScore = score;
+        }
+    }
+    return best;
 }
 
 async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp)) {
@@ -259,22 +292,29 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
         }
     }
 
-    // AI 与玩家共用同一信息权限：迷雾下只评估可见地块，潜航潜艇不可作为目标。
-    const fogSafeTile = tile => !gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState);
+    const knownTile = tile => isKnownToAi(tile, aiCamp);
+    const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
+    const threatensCity = tile => canCaptureCityByCombat(tile.unit)
+        && ownedCities.some(city => hexDistance(city, tile) <= 2);
     for (const city of difficultyProfile.infrastructureLevel > 0
-        ? gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp && tile.installation?.status === 'ready')
+        ? ownedCities.filter(tile => tile.installation?.status === 'ready')
         : []) {
-        const enemies = gameState.tiles.filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
-            && hexDistance(city, tile) <= getAirCommandRange(city)
-            && fogSafeTile(tile)
-            && (tile.unit.type !== 'submarine' || isSubmarineTargetableBy(tile.unit, aiCamp, gameState)));
+        const knownEnemies = gameState.tiles.filter(tile => tile.unit?.hp > 0
+            && isHostile(gameState, aiCamp, tile.unit.camp) && knownTile(tile)
+            && isSubmarineTargetableBy(tile.unit, aiCamp, gameState));
+        const knownEnemyTiles = new Set(knownEnemies);
+        const range = getAirCommandRange(city);
+        const enemies = knownEnemies.filter(tile => hexDistance(city, tile) <= range);
         const bombing = getAirCommandAvailability('bombing', city, gameState);
         let bombingTarget = null;
         let bombingScore = 0;
         for (const tile of gameState.tiles) {
-            if (hexDistance(city, tile) > getAirCommandRange(city) || !fogSafeTile(tile)) continue;
-            const score = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr)).filter(Boolean)]
-                .filter(candidate => candidate.unit && isHostile(gameState, aiCamp, candidate.unit.camp) && fogSafeTile(candidate)).length
+            if (hexDistance(city, tile) > range || !knownTile(tile)) continue;
+            const targets = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr))]
+                .filter(candidate => knownEnemyTiles.has(candidate));
+            if (targets.length === 0) continue;
+            const score = targets.length
+                + (targets.length >= 2 ? targets.filter(threatensCity).length * 0.75 : 0)
                 + (tile.isCity && tile.camp !== aiCamp ? 1 : 0);
             if (score > bombingScore) { bombingScore = score; bombingTarget = tile; }
         }
@@ -288,7 +328,8 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
         }
         const strafe = getAirCommandAvailability('strafe', city, gameState);
         if (strafe.available && enemies.length && canSpend(AIR_COMMAND_CONFIG.strafe.cost)) {
-            enemies.sort((a, b) => (a.unit.hp / a.unit.maxHp) - (b.unit.hp / b.unit.maxHp));
+            enemies.sort((a, b) => Number(threatensCity(b)) - Number(threatensCity(a))
+                || (a.unit.hp / a.unit.maxHp) - (b.unit.hp / b.unit.maxHp));
             await runObservedAction({ type: 'airCommand', airKind: 'strafe', tileQ: city.q, tileR: city.r, targetId: enemies[0].unit?.id, targetQ: enemies[0].q, targetR: enemies[0].r }, aiCamp, () => {
                 executeAirCommand('strafe', city, enemies[0]);
             });
@@ -296,18 +337,17 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
             continue;
         }
         const recon = getAirCommandAvailability('recon', city, gameState);
-        if (recon.available && canSpend(AIR_COMMAND_CONFIG.recon.cost)) {
-            const unexplored = gameState.tiles.find(tile => hexDistance(city, tile) <= getAirCommandRange(city)
-                && !gameState.exploredTiles?.[campKey]?.has?.(`${tile.q},${tile.r}`));
-            if (unexplored) {
-                await runObservedAction({ type: 'airCommand', airKind: 'recon', tileQ: city.q, tileR: city.r, targetQ: unexplored.q, targetR: unexplored.r }, aiCamp, () => {
-                    executeAirCommand('recon', city, unexplored);
+        if (!hasFullAiIntelligence(gameState, aiCamp) && !knownEnemies.some(threatensCity)
+            && recon.available && canSpend(AIR_COMMAND_CONFIG.recon.cost)) {
+            const target = pickAirReconTarget(city, aiCamp, knownTile);
+            if (target) {
+                await runObservedAction({ type: 'airCommand', airKind: 'recon', tileQ: city.q, tileR: city.r, targetQ: target.q, targetR: target.r }, aiCamp, () => {
+                    executeAirCommand('recon', city, target);
                 });
             }
         }
     }
 
-    const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
     if (ownedCities.length && !ownedCities.some(tile => tile.installation)) {
         const candidate = ownedCities.find(tile => !tile.installation);
         const airfieldReserve = difficultyProfile.infrastructureLevel >= 2 ? 18 : 24;
@@ -319,7 +359,13 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
             });
         }
     }
+}
 
+async function runAiFieldFortifications(aiCamp, difficultyProfile) {
+    const campKey = campToKey(aiCamp);
+    const gold = gameState.playerGold[campKey] || 0;
+    const reserve = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
+    const fogSafeTile = tile => isKnownToAi(tile, aiCamp);
     // 敌方存在可见空袭平台（航母/无人机/已建成机场）时优先高射机枪，否则战壕。
     const hostileAir = gameState.tiles.some(tile => fogSafeTile(tile)
         && ((tile.unit && isHostile(gameState, aiCamp, tile.unit.camp) && (tile.unit.type === 'carrier' || tile.unit._isDrone))
@@ -330,7 +376,7 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
     const fortificationsBuilt = gameState._aiFortificationsBuilt[campKey] || 0;
     const builder = difficultyProfile.infrastructureLevel >= 2
         && fortificationsBuilt < 2
-        && (gameState.playerGold[campKey] || 0) >= 6
+        && gold >= 6
         ? gameState.tiles.map(tile => tile.unit).find(unit => unit?.camp === aiCamp
             && unit.canAct && !unit.isNewRecruit && isOrdinaryGroundBuilder(unit)
             && (unit.tile.isCity || unit.tile.isVillage)
@@ -339,11 +385,13 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
                 && hexDistance(unit.tile, tile) <= (unit.tile.isCity ? 3 : 2))
             && canBuildFieldFortification(unit, fortificationKind, gameState))
         : null;
-    if (builder && canSpend(constructionCost(fortificationKind, builder))) {
-        await runObservedAction({ type: 'buildFortification', unitId: builder.id, fortificationKind }, aiCamp, () => {
-            executeFieldConstruction(builder, fortificationKind);
-        });
-        gameState._aiFortificationsBuilt[campKey] = fortificationsBuilt + 1;
+    if (builder && gold - constructionCost(fortificationKind, builder) >= reserve) {
+        const built = await runObservedAction(
+            { type: 'buildFortification', unitId: builder.id, fortificationKind },
+            aiCamp,
+            () => executeFieldConstruction(builder, fortificationKind)
+        );
+        if (built) gameState._aiFortificationsBuilt[campKey] = fortificationsBuilt + 1;
     }
 }
 
@@ -392,7 +440,7 @@ function planEngineerAction(aiCamp) {
 function makeHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp)) {
     return {
         getMovableTiles,
-        getAttackableTiles,
+        getAttackableTiles: unit => getAttackableTiles(unit, AI_TARGETING),
         hexDistance,
         HEX_NEIGHBORS,
         CAMP: gameState.factions,
@@ -408,7 +456,7 @@ function makeHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(game
             ? prioritizeNavalRecruitment(
                 city,
                 baseTypes,
-                gameState.tiles,
+                gameState.tiles.filter(tile => tile.unit?.camp === aiCamp || isKnownToAi(tile, aiCamp)),
                 aiCamp,
                 (left, right) => isHostile(gameState, left, right)
             )
@@ -492,10 +540,9 @@ async function _executeActionInner(action, aiCamp) {
                 TIER_CAPABILITIES[profile.id], unit.id);
             if (!followup) return false;
             const target = resolveUnit(followup.targetId);
-            if (!target?.tile || !getAttackableTiles(unit).includes(target.tile)) return false;
+            if (!target?.tile || !getAttackableTiles(unit, AI_TARGETING).includes(target.tile)) return false;
             await delay(AI_DELAY);
-            gameState.attackableTiles = getAttackableTiles(unit);
-            attackUnit(unit, target);
+            attackUnit(unit, target, AI_TARGETING);
             return true;
         }
         const atkTiles = getAttackableTiles(unit);
@@ -542,7 +589,7 @@ async function _executeActionInner(action, aiCamp) {
             const unit = resolveUnit(action.unitId);
             const target = resolveUnit(action.targetId);
             if (!unit || !target || !unit.canAct || !unit.tile || !target.tile) return;
-            const aiAtkTiles = getAttackableTiles(unit);
+            const aiAtkTiles = getAttackableTiles(unit, AI_TARGETING);
             if (aiAtkTiles.includes(target.tile)) {
                 if (campKey !== 'neutral') {
                     const profile = resolveAiDifficultyProfile(gameState, aiCamp);
@@ -550,8 +597,7 @@ async function _executeActionInner(action, aiCamp) {
                         TIER_CAPABILITIES[profile.id], unit.id, target.id)) return false;
                 }
                 await delay(AI_DELAY);
-                gameState.attackableTiles = aiAtkTiles;
-                attackUnit(unit, target);
+                attackUnit(unit, target, AI_TARGETING);
                 // 百夫长乘胜 / 击杀后再行动：循环追击直到无法行动（最多3次防死循环）
                 for (let chain = 0; chain < 3 && unit.canAct && unit.tile && unit.hp > 0; chain++) {
                     if (!(await _autoAttack(unit))) break;
@@ -563,11 +609,10 @@ async function _executeActionInner(action, aiCamp) {
             const unit = resolveUnit(action.unitId);
             const targetTile = resolveTile(action.tileQ, action.tileR);
             if (!unit || !targetTile || !unit.canAct || !unit.tile || targetTile.unit) return;
-            const aiSiegeTiles = getAttackableTiles(unit);
+            const aiSiegeTiles = getAttackableTiles(unit, AI_TARGETING);
             if (aiSiegeTiles.includes(targetTile)) {
                 await delay(AI_DELAY);
-                gameState.attackableTiles = aiSiegeTiles;
-                attackCityTile(unit, targetTile);
+                attackCityTile(unit, targetTile, AI_TARGETING);
             }
             break;
         }
@@ -770,7 +815,9 @@ export async function processNeutralTurn() {
     if (gameState.skirmishFog) updateFogOfWar(gameState, aiCamp);
     try {
 
-        await runV2Infrastructure(aiCamp);
+        const difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp);
+        await runV2Infrastructure(aiCamp, difficultyProfile);
+        await runAiFieldFortifications(aiCamp, difficultyProfile);
 
         const helpers = makeHelpers(aiCamp);
         const actions = corporalPersonality.planActions(gameState, helpers, aiCamp);
@@ -893,14 +940,14 @@ export async function processOpponentTurn(aiCamp) {
         const hostileNavy = landMap && gameState.tiles.some(tile =>
             tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
             && tile.unit.config?.movementDomain === 'naval'
-            && (!gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState)));
+            && isKnownToAi(tile, aiCamp));
         const portFallbackBlocked = fleetSaturated || (landMap && !hostileNavy);
         for (const port of portFallbackBlocked ? [] : emptyPorts) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
             const hostileTypes = new Set(gameState.tiles
-                .map(tile => tile.unit)
-                .filter(unit => unit && isHostile(gameState, aiCamp, unit.camp))
-                .map(unit => unit.type));
+                .filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
+                    && isKnownToAi(tile, aiCamp))
+                .map(tile => tile.unit.type));
             const navalOrder = hostileTypes.has('submarine')
                 ? ['destroyer', 'submarine', 'warship']
                 : hostileTypes.has('warship')
@@ -913,6 +960,9 @@ export async function processOpponentTurn(aiCamp) {
             if (unitType) {
                 await executeAction({ type: 'recruit', unitType, tileQ: port.q, tileR: port.r }, aiCamp);
             }
+        }
+        if (!gameState.gameOver && gameState.currentCamp === aiCamp && gameState.aiActing) {
+            await runAiFieldFortifications(aiCamp, difficultyProfile);
         }
     } finally {
         _turnPresentationScale = previousPresentationScale;

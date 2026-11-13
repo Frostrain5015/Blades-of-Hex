@@ -29,10 +29,10 @@ export async function run(browser, { quick = false } = {}) {
             panelTop: panelRect.top
         };
     });
-    R.assert(colorPickerInitial.colors.length === 7 && colorPickerInitial.emojis.length === 16
+    R.assert(colorPickerInitial.colors.length === 7 && colorPickerInitial.emojis.length === 15
         && !colorPickerInitial.colors.includes('gray') && !colorPickerInitial.colors.includes('white')
         && colorPickerInitial.blueEnabled,
-    `普通对局选将页显示七种颜色与十六种旗面徽记，未完成选将的 AI 不会占用蓝色（${colorPickerInitial.colors.join('、')}）`);
+    `普通对局选将页显示七种颜色与十五种旗面徽记，未完成选将的 AI 不会占用蓝色（${colorPickerInitial.colors.join('、')}）`);
     await page.click('#commanderLogo');
     const colorPickerOpen = await page.evaluate((initial) => {
         const picker = document.getElementById('commanderColorPicker');
@@ -59,6 +59,20 @@ export async function run(browser, { quick = false } = {}) {
     '指挥官预览仅显示旗面；颜色和徽记按钮在居中叠加弹层中排列且不挤动布局');
     await page.click('#commanderColorPicker .commander-color-swatch[data-color-id="purple"]');
     await page.click('#commanderColorPicker .commander-emoji-option[data-emoji="🐉"]');
+    const factionNameField = page.locator('#commanderFactionNameInput');
+    await factionNameField.fill('北境雪原远征军团');
+    await factionNameField.press('Enter');
+    const savedFactionName = await page.evaluate(async () => {
+        const { gameState } = await import('/js/state.js');
+        const profile = JSON.parse(localStorage.getItem('blades-of-hex.player-profile.v2') || '{}');
+        return {
+            header: document.getElementById('commanderCampName').textContent,
+            name: gameState.factions.player1.name,
+            preference: profile.standardFlagPreferences?.player1?.name
+        };
+    });
+    R.assert(Object.values(savedFactionName).every(value => value === '北境雪原远征军'),
+        '选将页接受七个字符的阵营名，标题和个人档案同步更新');
     const selectedFlag = await page.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
         const faction = gameState.factions.player1;

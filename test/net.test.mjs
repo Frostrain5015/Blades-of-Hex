@@ -211,6 +211,8 @@ export async function run(browser) {
     await B.click('#commanderColorPicker .commander-color-swatch[data-color-id="cyan"]');
     await B.click('#commanderColorPicker .commander-emoji-option[data-emoji="🦅"]');
     await B.click('#commanderColorPicker [data-preset="img/flags/kuomintang.svg"]');
+    await B.locator('#commanderFactionNameInput').fill('东海守备');
+    await B.locator('#commanderFactionNameInput').press('Enter');
     await waitFor(async () => A.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
         const campA = gameState.roleAssignments?.player1 || 'player1';
@@ -218,7 +220,8 @@ export async function run(browser) {
         return gameState.factions[campA]?.colorId === 'purple'
             && gameState.factions[campA]?.flagEmoji === '🐉'
             && gameState.factions[campB]?.colorId === 'blue'
-            && gameState.factions[campB]?.flagUrl === 'img/flags/kuomintang.svg';
+            && gameState.factions[campB]?.flagUrl === 'img/flags/kuomintang.svg'
+            && gameState.factions[campB]?.name === '东海守备';
     }), 10000, '联机旗帜外观同步');
     const syncedFlags = await B.evaluate(async () => {
         const { gameState } = await import('/js/state.js');
@@ -231,8 +234,9 @@ export async function run(browser) {
         && syncedFlags.p2.colorId === 'blue' && syncedFlags.p2.flagEmoji === '🦅'
         && syncedFlags.p1.flagUrl?.startsWith('data:image/svg+xml')
         && syncedFlags.p2.flagPreset === 'img/flags/kuomintang.svg'
+        && syncedFlags.p2.name === '东海守备'
         && syncedFlags.p2.flagUrl === syncedFlags.p2.flagPreset,
-    '联机房间同步阵营色、旗面徽记和预设旗帜');
+    '联机房间同步阵营名称、颜色、旗面徽记和预设旗帜');
     await pickCommander(A);
     console.log('[test] A 选将完成');
     await sleep(500);
