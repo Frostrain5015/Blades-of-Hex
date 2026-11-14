@@ -23,9 +23,24 @@ export const FREE_RESISTANCE_EFFECT = Object.freeze({
     icon: '🇫🇷',
     radius: 1,
     durationRounds: 1,
+    cooldownRounds: 2,
+    shield: 24,
     color: '#4ea8ff',
-    desc: '友军承受暴击后振奋全军：周围1格友军士气上升，持续1回合。'
+    desc: '己方部队受到暴击伤害或阵亡（含中毒）时，周围1格友军士气上升并获得24点临时护盾，持续至各自下一次行动回合结束。每2回合最多触发1次。'
 });
+
+export function getFreeResistanceTurnDeadline(state, camp) {
+    const order = state.turnOrder || [];
+    const current = order.indexOf(campToKey(state.currentCamp));
+    const target = order.indexOf(campToKey(camp));
+    if (current < 0 || target < 0) return state.turnCounter + Math.max(1, order.length);
+    // A grant before this faction's action lasts through that action. A grant
+    // during its own action lasts through the following cycle.
+    const distance = (target - current + order.length) % order.length || order.length;
+    return state.turnCounter + distance + 1;
+}
+
+export const MARINE_LANDING_BONUS = 0.20;
 
 export const FIRE_SEA_CONFIG = Object.freeze({
     id: 'de_fire_sea',
@@ -62,7 +77,7 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '海军陆战队',
             abilityName: '两栖登陆',
-            summary: '以骑兵为基础模板的高机动精锐，可在己方城市或港口招募；进入浅海不额外消耗行动力，下海不损失攻防属性，从水域攻击陆地单位时伤害提高30%。'
+            summary: '可在城市或港口招募，下海保持攻防；从海上攻击陆军伤害提高30%。从水域登陆后，本回合下一次对陆上单位的主动攻击伤害提高20%。'
         },
         tier2: {
             title: '海洋霸权',
@@ -98,11 +113,11 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '巨炮',
             abilityName: '远程重炮',
-            summary: '超远射程（4格）与高杀伤重炮，无视陆军攻击海军的减伤规则并附带35%溅射；法国回合开始时自动随机炮击射程内一名敌军（该回合仍可移动，但不可再次手动攻击）。'
+            summary: '射程5格，无视陆军攻击海军的减伤并附带35%溅射。回合开始时自动炮击射程内随机敌军，之后仍可移动。'
         },
         tier2: {
             title: '自由不屈',
-            summary: '每当己方单位受到暴击伤害时，其周围1格（6邻格）范围内所有友军士气上升1回合。'
+            summary: FREE_RESISTANCE_EFFECT.desc
         }
     },
     ru: {
@@ -125,7 +140,7 @@ export const CULTURE_CONFIG = deepFreeze({
     },
     kmt: {
         id: 'kmt',
-        name: '中国国民党',
+        name: '中华民国',
         flagPreset: 'img/flags/kuomintang.svg',
         colorId: 'blue',
         uniqueUnitType: 'kmt_training_brigade',
@@ -134,16 +149,16 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '中央教导旅',
             abilityName: '血肉长城',
-            summary: '驻守己方城市、城区或要塞工事时防御力额外提升25%，且在其中免疫暴击伤害。'
+            summary: '【同心同德】多支教导旅全图链接，共享生命与治疗。链接时城防、工事和地形防御加成提高50%，自身与相邻六格友军造成的伤害提高15%。增伤不叠加。'
         },
         tier2: {
-            title: '同心同德',
+            title: '一寸山河一寸血',
             summary: '己方城市生命上限+25%；部队在城市内补员时费用降低1/3。'
         }
     },
     cpc: {
         id: 'cpc',
-        name: '中国共产党',
+        name: '中共苏区',
         flagPreset: 'img/flags/chinese-communist-party-old.svg',
         colorId: 'orange',
         uniqueUnitType: 'cpc_guerrilla',
@@ -156,7 +171,7 @@ export const CULTURE_CONFIG = deepFreeze({
         },
         tier2: {
             title: '军民鱼水',
-            summary: '全军进入森林（-1）与山地（-2）的行动力消耗降低；部队在村庄补员时费用减半。'
+            summary: '部队不受地形行动力减益影响，在村庄补员时费用减半。'
         }
     },
     de: {
@@ -324,7 +339,7 @@ export function getCulturalWaterMovementBonus(state, camp) {
 export function getCulturalTerrainStepDelta(state, camp, terrain) {
     if (!isCampCulture(state, camp, 'cpc')) return 0;
     if (terrain === 'forest') return -1;
-    if (terrain === 'mountain') return -2;
+    if (terrain === 'mountain') return -4;
     return 0;
 }
 

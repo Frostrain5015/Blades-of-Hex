@@ -68,7 +68,7 @@ test('阵营协同注册表统一提供成员、将领卡标识与可替换 Hero
     assert.equal(synergy.marker.symbol, '⚜️');
     assert.equal(synergy.hero.emblem.kind, 'text');
     assert.equal(synergy.hero.emblem.value, '⚜️');
-    assert.equal(synergy.hero.kicker, '阵营协同');
+    assert.equal(synergy.hero.kicker, '阵营被动');
     assert.equal(synergy.hero.title, '同一个誓言');
     assert.equal(synergy.hero.followup.kind, 'rescue-link');
 });

@@ -4,6 +4,7 @@ import { campToKey } from './camps.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { isFriendly } from './diplomacy.js';
 import { isMechanicEnabled } from './mechanics.js';
+import { getKmtLinkDefenseBonus } from './kmtStronghold.js';
 import { areCommanderMechanicsSuppressed } from './movement.js';
 import { FORTIFICATION_CONFIG } from './terrain.js';
 import { getSpecialization, getSpecializationAbilityValue } from './units.js';
@@ -83,7 +84,8 @@ export function resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, optio
         if (protectsTarget && opposesAttacker) {
             add({
                 kind: 'flak', tileKey: tileKey(targetTile), q: targetTile.q, r: targetTile.r,
-                campKey: fortification.campKey || null, ownerKnown, reduction: FLAK_SELF_REDUCTION
+                campKey: fortification.campKey || null, ownerKnown,
+                reduction: FLAK_SELF_REDUCTION + getKmtLinkDefenseBonus(targetTile.unit, options.state, FLAK_SELF_REDUCTION)
             });
         }
     }

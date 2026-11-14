@@ -124,6 +124,7 @@ const { getActiveFactionSynergies } = synergyModule;
 const { getFactionCount } = turnsModule;
 const { SURFACE_KIND } = surfacesModule;
 const { COMBAT_BALANCE } = constantsModule;
+const { getKmtLinkedUnits, getKmtLinkDamageBonus, getKmtLinkDefenseBonus } = await import('../rules/kmtStronghold.js');
 
 let _nextId = 4000;
 
@@ -316,31 +317,41 @@ test('英国文化：皇家战列舰2格反潜与20%闪避，Tier2 永不投降�
     assert.ok(Math.abs(getNeverSurrenderStatBonus(state, gb) - 0.15) < 1e-9);
 });
 
-test('法国文化：巨炮4格射程无视陆对海减伤与35%溅射，Tier2 自由抵抗受到暴击令邻格友军士气+1', () => {
+test('法国巨炮射程5，自由不屈由暴击或阵亡触发并按阵营冷却', () => {
     const state = setupCultureState('img/flags/svg/fr.svg', 'img/flags/svg/us.svg');
     const fr = state.factions.player1;
     const foe = state.factions.player2;
 
     const land1 = addTile(state, 0, 0, fr);
     const land2 = addTile(state, 1, 0, fr);
-    const waterTile = addTile(state, 4, 0, null, { surface: SURFACE_KIND.DEEP_WATER });
+    const waterTile = addTile(state, 5, 0, null, { surface: SURFACE_KIND.DEEP_WATER });
 
     const cannon = spawnUnit('fr_heavy_cannon', fr, land1);
     const allyInf = spawnUnit('infantry', fr, land2);
     const enemyShip = spawnUnit('warship', foe, waterTile);
 
-    assert.equal(UNIT_CONFIG.fr_heavy_cannon.range, 4);
+    assert.equal(cannon.getEffectiveRange(), 5);
     assert.equal(UNIT_CONFIG.fr_heavy_cannon.splashPct, 0.35);
     assert.equal(getCrossDomainDamageBonus(cannon, enemyShip), 0);
 
     const normalArcher = spawnUnit('archer', foe, addTile(state, 0, 1, foe));
     assert.equal(getCrossDomainDamageBonus(normalArcher, enemyShip), NAVAL_RULES.landVsShipDamage);
 
-    // Tier 2: 法国单位受到暴击时，周围1格内友军士气+1并附加 freeResistance 到期回合
     allyInf.morale = 1;
+    allyInf._shield = 11;
     cannon.takeDamage(20, enemyShip, false, { isCrit: true });
     assert.equal(allyInf.morale, 2);
-    assert.equal(allyInf._freeResistanceUntilRound, FREE_RESISTANCE_EFFECT.durationRounds);
+    assert.equal(allyInf.activeShield, 11 + FREE_RESISTANCE_EFFECT.shield);
+    const until = allyInf._freeResistanceUntilTurn;
+    state.turnCounter = until;
+    assert.equal(allyInf.morale, 1);
+    assert.equal(allyInf.activeShield, 11);
+    const firstLoss = spawnUnit('infantry', fr, addTile(state, 2, 0, fr));
+    firstLoss.applyDamage(firstLoss.hp);
+    assert.equal(allyInf.activeShield, 11);
+    state.turnCounter = getFactionCount(state) * FREE_RESISTANCE_EFFECT.cooldownRounds;
+    cannon.applyDamage(cannon.hp);
+    assert.equal(allyInf.activeShield, 11 + FREE_RESISTANCE_EFFECT.shield);
 });
 
 test('苏联文化：喀秋莎保留溅射且全阵营普通炮兵禁用火箭炮专精，Tier2 炮兵-1费且全军免疫负面天气', () => {
@@ -383,25 +394,45 @@ test('苏联文化：喀秋莎保留溅射且全阵营普通炮兵禁用火箭�
     assert.ok(usArcher.getEffectiveRange() < UNIT_CONFIG.archer.range);
 });
 
-test('国民党文化：中央教导旅据点+25%防御并免疫暴击，Tier2 城市上限+25%与城市补员折扣', () => {
+test('中华民国：教导旅跨地图共享生命、放大驻地防御并给相邻友军提供一次增伤', () => {
     const state = setupCultureState('img/flags/kuomintang.svg', 'img/flags/svg/jp.svg');
     const kmt = state.factions.player1;
     const foe = state.factions.player2;
 
     const cityTile = addTile(state, 0, 0, kmt, { isCity: true });
     const villageTile = addTile(state, 1, 0, kmt, { isVillage: true });
+    const farTile = addTile(state, 6, 0, kmt, { terrain: 'mountain' });
     const atkTile = addTile(state, 0, 1, foe);
 
     const brigade = spawnUnit('kmt_training_brigade', kmt, cityTile);
     const attacker = spawnUnit('infantry', foe, atkTile);
-    attacker.commander = 'centurion';
-
-    // 据点内暴击免疫：反复测 calculateDamage 均不应出现 isCrit === true 且 floatMult <= critThreshold
-    for (let i = 0; i < 20; i++) {
-        const res = attacker.calculateDamage(brigade);
-        assert.equal(res.isCrit, false);
-        assert.ok(res.floatMult < COMBAT_BALANCE.float.attack.critThreshold);
-    }
+    const friendly = spawnUnit('infantry', kmt, villageTile);
+    const outOfAura = spawnUnit('infantry', kmt, addTile(state, 2, 0, kmt));
+    friendly._calcFloat = attacker._calcFloat = () => 1;
+    cityTile.maxHp = cityTile.hp = 250;
+    const originalDamage = friendly.calculateDamage(attacker).dmg;
+    const unlinkedDefense = attacker.calculateDamage(brigade).dmg;
+    assert.equal(getKmtLinkDamageBonus(friendly, state), 0);
+    const other = spawnUnit('kmt_training_brigade', kmt, farTile);
+    assert.deepEqual(getKmtLinkedUnits(brigade, state), [brigade, other]);
+    assert.equal(getKmtLinkDamageBonus(brigade, state), 0.15);
+    assert.equal(getKmtLinkDamageBonus(friendly, state), 0.15);
+    assert.equal(getKmtLinkDamageBonus(outOfAura, state), 0);
+    assert.equal(getKmtLinkDamageBonus(attacker, state), 0);
+    assert.ok(Math.abs(friendly.calculateDamage(attacker).dmg / originalDamage - 1.15) < 1e-9);
+    assert.ok(attacker.calculateDamage(brigade).dmg < unlinkedDefense);
+    assert.equal(getKmtLinkDefenseBonus(brigade, state, 0.20), 0.10);
+    assert.equal(getKmtLinkDefenseBonus(friendly, state, 0.20), 0);
+    brigade.takeDamage(90, attacker, false, { impactDelayMs: 230 });
+    assert.deepEqual(state._pendingKmtStrongholdFx.map(({ q, r, delayMs }) => ({ q, r, delayMs })), [
+        { q: cityTile.q, r: cityTile.r, delayMs: 230 }
+    ]);
+    assert.deepEqual([brigade.hp, other.hp], [165, 165]);
+    assert.equal(other.heal(30), 30);
+    assert.deepEqual([brigade.hp, other.hp], [180, 180]);
+    brigade.applyDamage(360, { source: 'true', attacker });
+    assert.deepEqual([cityTile.unit, farTile.unit], [null, null]);
+    assert.equal(getKmtLinkDamageBonus(friendly, state), 0);
 
     // Tier 2: 城市生命上限 +25%、城市补员 2/3 费用
     assert.equal(getCulturalCityMaxHpBonusPct(state, kmt), 0.25);
@@ -453,9 +484,9 @@ test('中共文化：游击纵队隐身与村庄/邻格/皇帝AI显形规则，T
     assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), true);
     assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state, { ignoreAiBypass: true }), false);
 
-    // Tier 2: 森林 -1、山地 -2，村庄补员 5 折
+    // 森林和山地移动成本均降到平原水平。
     assert.equal(getCulturalTerrainStepDelta(state, cpc, 'forest'), -1);
-    assert.equal(getCulturalTerrainStepDelta(state, cpc, 'mountain'), -2);
+    assert.equal(getCulturalTerrainStepDelta(state, cpc, 'mountain'), -4);
     assert.equal(getCulturalTerrainStepDelta(state, cpc, 'plains'), 0);
     assert.equal(getCulturalReinforceCostScale(state, enemyVillage, cpc), 0.5);
     assert.equal(getCulturalReinforceCostScale(state, farTile, cpc), 1);

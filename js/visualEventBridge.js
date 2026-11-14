@@ -15,7 +15,9 @@ import {
     spawnCelestineOracleBeam,
     spawnLaserBeam,
     spawnDodgeShimmer,
-    spawnFreeResistanceWave
+    spawnFreeResistanceWave,
+    spawnRingWave,
+    spawnDirectionalParticles
 } from './effects.js';
 import { playSound } from './audio.js';
 import { CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
@@ -26,9 +28,12 @@ import { playCelestineOraclePresentation } from './celestineOraclePresentation.j
 import { playTianhengBorrowDayPresentation } from './tianhengPresentation.js';
 import { playNoctisBloodMoonPresentation } from './noctisBloodMoonPresentation.js';
 import { spawnBloodMoonSlash } from './effects.js';
-import { gameState, logMessage, updateUI } from './state.js';
+import { gameState, getViewingCamp, logMessage, updateUI } from './state.js';
 import { getUnitDisplayName } from '../rules/units.js';
 import { enqueueFloatText } from './floatTexts.js';
+import { queueKmtStrongholdImpact } from './kmtStrongholdEffects.js';
+import { getPresentedTileVisibilityState } from './fogOfWar.js';
+import { isCampCulture } from '../rules/cultures.js';
 
 on('fx:healFlash', ({ x, y }) => triggerHealFlash(x, y));
 on('fx:healParticles', ({ x, y }) => spawnHealParticles(x, y));
@@ -37,7 +42,12 @@ on('fx:morale', ({ unit }) => spawnMoraleEffect(unit));
 on('fx:factionMorale', ({ color }) => triggerFactionMoraleFlash(color));
 on('fx:explosion', ({ x, y, color, count }) => spawnExplosionParticles(x, y, color, count));
 on('fx:screenShake', ({ strength, duration }) => triggerScreenShake(strength, duration));
-on('fx:rankUp', ({ x, y, rank }) => spawnRankUpEffect(x, y, rank));
+on('fx:rankUp', ({ x, y, rank, unit }) => {
+    spawnRankUpEffect(x, y, rank);
+    if (isCampCulture(gameState, unit?.camp, 'jp') && isHistoricalEffectVisible(unit.tile)) {
+        spawnRingWave(x, y, { color: '#e85668', maxRadius: 26, duration: 500, lineWidth: 2.4 });
+    }
+});
 on('fx:dodge', ({ x, y, delayMs = 0 }) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     if (delayMs > 0) {
@@ -46,10 +56,43 @@ on('fx:dodge', ({ x, y, delayMs = 0 }) => {
         spawnDodgeShimmer(x, y);
     }
 });
-on('fx:freeResistance', ({ x, y, delayMs = 0 }) => {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    if (delayMs > 0) setTimeout(() => spawnFreeResistanceWave(x, y), delayMs);
-    else spawnFreeResistanceWave(x, y);
+on('fx:freeResistance', ({ q, r, x, y, delayMs = 0, affected = [] }) => {
+    const paint = () => {
+        const viewer = getViewingCamp();
+        if (getPresentedTileVisibilityState({ q, r }, viewer, gameState) === 'visible') {
+            spawnFreeResistanceWave(x, y);
+        }
+        for (const ally of affected) {
+            if (getPresentedTileVisibilityState(ally, viewer, gameState) === 'visible') {
+                spawnRingWave(ally.x, ally.y, { color: '#c5e8ff', maxRadius: 23, duration: 540, lineWidth: 2 });
+            }
+        }
+    };
+    if (delayMs > 0) setTimeout(paint, delayMs);
+    else paint();
+});
+on('fx:marineLanding', ({ q, r, x, y, delayMs = 0 }) => {
+    const paint = () => {
+        if (getPresentedTileVisibilityState({ q, r }, getViewingCamp(), gameState) !== 'visible') return;
+        spawnRingWave(x, y, { color: '#91e9f2', maxRadius: 26, duration: 410, lineWidth: 2, count: 2 });
+        spawnDirectionalParticles(x, y + 12, x, y, '#c8f5f6', 9);
+    };
+    if (delayMs > 0) setTimeout(paint, delayMs);
+    else paint();
+});
+on('fx:kmtStrongholdImpact', event => queueKmtStrongholdImpact(gameState, event));
+function isHistoricalEffectVisible(tile) {
+    return getPresentedTileVisibilityState(tile, getViewingCamp(), gameState) === 'visible';
+}
+
+on('fx:historicalPassive', event => {
+    if (!event || !Number.isFinite(event.x) || !Number.isFinite(event.y) || !isHistoricalEffectVisible(event)) return;
+    const { kind, x, y } = event;
+    if (kind === 'usa') spawnRingWave(x, y, { color: '#80dbe5', maxRadius: 31, duration: 510, count: 2 });
+    if (kind === 'britain') spawnRingWave(x, y, { color: '#eaca7b', maxRadius: 48, duration: 720, lineWidth: 2.5, count: 2 });
+    if (kind === 'soviet') spawnDirectionalParticles(x - 14, y, x, y, '#c7e9fe', 9);
+    if (kind === 'cpc') spawnDirectionalParticles(x, y + 11, x, y, '#e4ba73', 7);
+    if (kind === 'kmt') spawnRingWave(x, y, { color: '#79afcf', maxRadius: 30, duration: 470, lineWidth: 2.5 });
 });
 on('audio:play', ({ soundName }) => playSound(soundName));
 on('fx:aureliaOath', event => playAureliaOathPresentation(event));
@@ -59,7 +102,7 @@ on('fx:aureliaOath', event => playAureliaOathPresentation(event));
 on('fx:eagleSynergy', event => {
     if (event?.kind === 'orbitalGrant') {
         const factionName = gameState.factions?.[event.campKey]?.name || '';
-        logMessage(`🛰️ ${factionName}阵营协同【天基打击授权】：天基武器就绪，获得对策卡【天基打击】`);
+        logMessage(`🛰️ ${factionName}阵营技能【天基打击授权】：天基武器就绪，获得对策卡【天基打击】`);
         for (const commander of event.commanders || []) {
             if (Number.isFinite(commander.x) && Number.isFinite(commander.y)) {
                 spawnCommanderSkillEffect(commander.x, commander.y, '🛰️', '天基打击授权');
@@ -69,7 +112,7 @@ on('fx:eagleSynergy', event => {
         return;
     }
     const factionName = gameState.factions?.[event.campKey]?.name || '';
-    logMessage(`📦 ${factionName}阵营协同【轨道补给】：天基平台完成战果核算，拨付$${event.goldAwarded}`);
+    logMessage(`📦 ${factionName}阵营被动【轨道补给】：天基平台完成战果核算，拨付$${event.goldAwarded}`);
     if (event.goldAwarded > 0) playEagleSynergyPresentation(event);
 });
 // 轨道补给结算节拍：向棋盘发放金币雨与 +$ 浮字（由后半段动画在对点时触发）
@@ -102,7 +145,7 @@ on('fx:celestineOracle', event => {
     const factionName = gameState.factions?.[event.campKey]?.name || '';
     const stageNames = ['', '壹·神临', '贰·神启', '叁·神怒', '肆·神威', '伍·神灭'];
     const stageName = stageNames[event.stage] || `第${event.stage}阶段`;
-    logMessage(`🔆 ${factionName}阵营协同【神谕】${stageName}：神临第${event.activeRounds}轮`);
+    logMessage(`🔆 ${factionName}阵营被动【神谕】${stageName}：神临第${event.activeRounds}轮`);
     playCelestineOraclePresentation(event);
 });
 // 【神罚】/【赐福】脉冲：统一两段式——前半段神像蓄力+指引光束（静默，迷雾之上），
@@ -191,7 +234,7 @@ on('fx:laserTowerVolley', ({ volleys, startedAt }) => {
 // 天衡联邦【日月天衡】：发牌/Hero/远端重放均通过此事件触发全屏 Hero 动画+日珥特效。
 on('fx:tianhengBorrowDay', event => {
     const factionName = gameState.factions?.[event.campKey]?.name || '';
-    logMessage(`⚖️ ${factionName}发动阵营协同【日月天衡】：全军40点护盾+士气提升+暴击率提升+全图视野`);
+    logMessage(`⚖️ ${factionName}发动阵营技能【日月天衡】：全军40点护盾+士气提升+暴击率提升+全图视野`);
     playTianhengBorrowDayPresentation(event);
 });
 // 诺克提斯【血月】：rising 时播 Hero 血月降临动画；每次放血绕目标播放环形斩击。

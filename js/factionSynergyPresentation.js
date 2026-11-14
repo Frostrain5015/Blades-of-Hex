@@ -80,7 +80,7 @@ function configureHero(root, entry) {
     const kicker = root.querySelector('.faction-synergy-caption small');
     const title = root.querySelector('.faction-synergy-caption strong');
     renderEmblem(emblem, presentation.emblem);
-    if (kicker) kicker.textContent = presentation.kicker || '阵营协同';
+    if (kicker) kicker.textContent = presentation.kicker || '阵营技能';
     if (title) title.textContent = presentation.title || '';
 
     const followup = presentation.followup;

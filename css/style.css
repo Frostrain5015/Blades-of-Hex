@@ -2213,6 +2213,41 @@ body {
     line-height: 1;
 }
 
+.ability-flag-badge {
+    display: block;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 1;
+    pointer-events: none;
+}
+
+.canvas-passive-button.has-flag-badge:not(.is-active) {
+    border-style: dashed;
+    border-color: #9a9a95;
+}
+
+.canvas-passive-button.has-flag-badge:not(.is-active) .ability-flag-badge {
+    filter: grayscale(1) brightness(0.65);
+    opacity: 0.78;
+}
+
+.canvas-passive-button.has-flag-badge.is-active .ability-flag-badge {
+    filter: none;
+    transform: none;
+}
+
+.board-detail-flag {
+    display: inline-block;
+    width: 23px;
+    height: 23px;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+.board-detail-popover[data-active="false"] .board-detail-flag {
+    filter: grayscale(1) brightness(0.65);
+}
+
 /* 夜观星光护体：在天气效果徽章上叠半透明星标 */
 .ability-star-overlay {
     position: absolute;
@@ -3999,6 +4034,12 @@ body {
     gap: 8px;
 }
 
+.prep-faction-modes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
 .prep-check-option {
     display: flex;
     align-items: flex-start;
@@ -4037,6 +4078,9 @@ body {
     background: var(--gold);
     box-shadow: inset 0 0 0 3px rgba(40, 25, 3, 0.92);
 }
+
+.prep-check-option input[type="radio"] { border-radius: 50%; }
+.prep-check-option input:focus-visible { outline: 2px solid #fff3c2; outline-offset: 2px; }
 
 .prep-check-option:has(input:disabled) {
     cursor: not-allowed;
@@ -6229,7 +6273,7 @@ body.campaign-game-active .camp-card .camp-label {
     /* prep 选项在窄屏换行，确保最小触摸宽度 */
     .prep-options { flex-wrap: wrap; }
     .prep-option { flex: 1 1 calc(50% - 8px); min-width: 120px; min-height: 44px; }
-    .prep-checkboxes { grid-template-columns: 1fr; }
+    .prep-checkboxes, .prep-faction-modes { grid-template-columns: 1fr; }
     /* 房间列表卡片增大间距 */
     .mp-room-card { padding: 14px 18px; min-height: 48px; }
     /* 静音按钮增大 */

@@ -5,16 +5,10 @@ import {
     getDiveStrafeMuzzlePosition,
     getDiveStrafePlanePosition,
     isRangedAttackPresentation,
-    operationArrowStyleForAttacker,
-    usesRifleAttackEffect
+    operationArrowStyleForAttacker
 } from '../rules/attackPresentation.js';
 
 assert.equal(classifyAttackPresentation({ type: 'infantry' }), ATTACK_PRESENTATION.ASSAULT);
-assert.equal(usesRifleAttackEffect({ type: 'infantry' }), true);
-assert.equal(usesRifleAttackEffect({ attackerType: 'infantry', attackerIsDrone: true }), false);
-assert.equal(usesRifleAttackEffect('kmt_training_brigade'), false);
-assert.equal(usesRifleAttackEffect('cpc_guerrilla'), false);
-assert.equal(usesRifleAttackEffect('jp_samurai'), false);
 assert.equal(classifyAttackPresentation({ type: 'cavalry' }), ATTACK_PRESENTATION.ASSAULT);
 assert.equal(classifyAttackPresentation({ type: 'archer' }), ATTACK_PRESENTATION.FIRE_CANNON);
 assert.equal(classifyAttackPresentation({ type: 'warship' }), ATTACK_PRESENTATION.FIRE_CANNON);

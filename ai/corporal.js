@@ -88,7 +88,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
     // 与三档玩家人格共用同一套战斗估算：同一次交换必须算出同一个数字。
     // 跨域修正（岸防炮对舰 +30%、陆海互攻 −50%）就在这里面，因此岸防炮
     // 天然会把舰船排在陆上目标前面，不需要再写死一条「优先打船」的规则。
-    const { estimateDamage, wouldDieToCounter } = createCombatModel({ weather, hexDistance });
+    const { estimateDamage, wouldDieToCounter } = createCombatModel({ state: gameState, weather, hexDistance });
 
     const isFixedEmplacement = unit => Number(unit.config?.speed) === 0;
     const isLandUnit = unit => unit.config?.movementDomain === 'land';

@@ -85,7 +85,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     const tiles = gameState.tiles;
     const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
     const oceanMap = standardMap?.familyId === 'uncharted-passage';
-    const combat = createCombatModel({ weather: gameState.weather || 'clear', hexDistance: helpers.hexDistance });
+    const combat = createCombatModel({ state: gameState, weather: gameState.weather || 'clear', hexDistance: helpers.hexDistance });
 
     const factions = Object.values(gameState.factions || {});
     const rivalFactions = factions.filter(faction =>

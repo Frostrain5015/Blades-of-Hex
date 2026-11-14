@@ -17,7 +17,6 @@ import { getArtilleryCostDiscount } from '../rules/cultures.js';
 import { hasFactionSurrendered } from '../rules/matchOutcome.js';
 import { isCityDisabled } from '../rules/citySiege.js';
 import { setFloatTextsStateRef } from './floatTexts.js';
-import { clearRifleShots } from './rifleEffects.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
@@ -59,7 +58,6 @@ setFloatTextsStateRef(gameState);
 
 // ===== 重置游戏状态（再来一局时调用） =====================
 export function resetGameState() {
-    clearRifleShots();
     resetMatchState(gameState);
     resetClientUiState(gameState);
     // 清除计数器动画记忆

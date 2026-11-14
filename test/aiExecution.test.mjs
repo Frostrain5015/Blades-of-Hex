@@ -10,7 +10,7 @@ const { processOpponentTurn, configureAiRuntime } = await import('../js/ai.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
 const { getRound } = await import('../rules/turns.js');
 const { isTileVisible } = await import('../js/fogOfWar.js');
-const { BURN_MS, executeBanzaiCharge } = await import('../js/gameLogic.js');
+const { BURN_MS, executeBanzaiCharge, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
 const { startMatchRecording, getCurrentMatchLog } = await import('../js/matchRecorder.js');
 const state = engine.gameState;
 const events = [];
@@ -129,6 +129,20 @@ test('普通攻击触发铁卫转移，法国实际承受暴击后触发自由�
     assert.equal(guard.morale, 3);
 });
 
+test('法国友军毒发阵亡后，自由不屈为邻格友军加24点临时护盾', () => {
+    const { me, home } = setupMatch();
+    me.flagPreset = 'img/flags/svg/fr.svg';
+    state.factionRuleMode = 'culture';
+    const victim = place('infantry', me, home);
+    const ally = place('infantry', me, state.tileMap.get('1,0'));
+    victim.hp = 1;
+    victim._poison = { remainingTicks: 1 };
+    resolvePoisonAtTurnStart(me);
+    assert.equal(home.unit, null);
+    assert.equal(ally.morale, 3);
+    assert.equal(ally.activeShield, 24);
+});
+
 test('法国巨炮回合初以地块视野选靶，空城炮击写入攻城回合', async () => {
     const { me, foe, enemyCity } = setupMatch();
     me.flagPreset = 'img/flags/svg/fr.svg';
@@ -137,8 +151,9 @@ test('法国巨炮回合初以地块视野选靶，空城炮击写入攻城回�
     state.weather = 'fog';
     const cannon = place('fr_heavy_cannon', me, state.tileMap.get('3,0'));
     // 单独验证自动选靶在射程长于视野时仍检查地块可见性。
-    cannon.getEffectiveRange = () => 4;
-    const target = place('infantry', foe, state.tileMap.get('7,0'));
+    const effectiveRange = cannon.getEffectiveRange.bind(cannon);
+    cannon.getEffectiveRange = () => 5;
+    const target = place('infantry', foe, state.tileMap.get('8,0'));
     state.visibleTiles.player1.clear();
     state.turnOrder = ['player2', 'player1', 'neutral'];
     state.currentCamp = foe;
@@ -149,8 +164,10 @@ test('法国巨炮回合初以地块视野选靶，空城炮击写入攻城回�
     state.skirmishFog = false;
     target.tile.unit = null;
     cannon.tile.unit = null;
-    cannon.tile = state.tileMap.get('7,0');
+    cannon.tile = state.tileMap.get('5,0');
     cannon.tile.unit = cannon;
+    cannon.getEffectiveRange = effectiveRange;
+    state.weather = 'clear';
     state.currentCamp = foe;
     state.turnCounter = 0;
     await engine.advanceAutomatedTurn();

@@ -9,10 +9,10 @@ import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
 
 const MESH_COLUMNS = 18;
 const MESH_ROWS = 9;
-const FLAG_TEXTURE_WIDTH = 192;
-const FLAG_TEXTURE_HEIGHT = 128;
-const FLAG_TEXTURE_SLOTS = 16;
-const FLAG_MIP_LEVELS = 1 + Math.floor(Math.log2(FLAG_TEXTURE_WIDTH));
+const ATLAS_COLUMNS = 4;
+const ATLAS_ROWS = 4;
+const ATLAS_CELL_W = 256;
+const ATLAS_CELL_H = 171;
 const INSTANCE_FLOATS = 13;
 export const FLAG_WIND_STRENGTH = Object.freeze({ normal: 0.7, wind: 1.5 });
 export const FLAG_CLOTH_PHYSICS = Object.freeze({ gravitySag: 0.1, windFlattening: 0.22 });
@@ -70,7 +70,7 @@ in vec2 aUv;
 in vec2 aAnchor;
 in vec2 aSize;
 in float aPhase;
-in float aTextureLayer;
+in float aAtlasIndex;
 in vec3 aMainColor;
 in vec3 aDarkColor;
 in float aCommander;
@@ -80,7 +80,7 @@ uniform float uWind;
 uniform float uGravitySag;
 out vec2 vUv;
 out float vFold;
-flat out float vTextureLayer;
+flat out float vAtlasIndex;
 flat out vec3 vMainColor;
 flat out vec3 vDarkColor;
 flat out float vCommander;
@@ -109,7 +109,7 @@ void main() {
     gl_Position = vec4(pixel.x / uResolution.x * 2.0 - 1.0, 1.0 - pixel.y / uResolution.y * 2.0, 0.0, 1.0);
     vUv = aUv;
     vFold = clamp(cos(primaryPhase) * 0.78 + cos(ripplePhase) * 0.22, -1.0, 1.0) * min(strength, 1.4);
-    vTextureLayer = aTextureLayer;
+    vAtlasIndex = aAtlasIndex;
     vMainColor = aMainColor;
     vDarkColor = aDarkColor;
     vCommander = aCommander;
@@ -117,28 +117,30 @@ void main() {
 
 const FRAGMENT_SOURCE = `#version 300 es
 precision highp float;
-uniform highp sampler2DArray uFlagTextures;
+uniform sampler2D uAtlas;
 in vec2 vUv;
 in float vFold;
-flat in float vTextureLayer;
+flat in float vAtlasIndex;
 flat in vec3 vMainColor;
 flat in vec3 vDarkColor;
 flat in float vCommander;
 out vec4 outColor;
 float commandSashMask(vec2 uv, float padding) {
-    float sideDistance = uv.x - (0.64 - padding);
-    float slopeDistance = uv.y - (uv.x - 0.645) * 0.84;
-    float sideAA = max(0.005, fwidth(sideDistance) * 0.5);
-    float slopeAA = max(0.006, fwidth(slopeDistance) * 0.5);
-    float gate = smoothstep(-sideAA, sideAA, sideDistance);
-    float begins = smoothstep(-padding - slopeAA, -padding + slopeAA, slopeDistance);
-    float ends = 1.0 - smoothstep(0.13 + padding - slopeAA, 0.13 + padding + slopeAA, slopeDistance);
+    float gate = smoothstep(0.635 - padding, 0.645 + padding, uv.x);
+    float top = (uv.x - 0.645) * 0.84 - padding;
+    float bottom = top + 0.13 + padding * 2.0;
+    float begins = smoothstep(top - 0.006, top + 0.006, uv.y);
+    float ends = 1.0 - smoothstep(bottom - 0.006, bottom + 0.006, uv.y);
     return gate * begins * ends;
 }
 void main() {
     vec4 texel;
-    if (vTextureLayer >= 0.0) {
-        texel = texture(uFlagTextures, vec3(vUv, vTextureLayer));
+    if (vAtlasIndex >= 0.0) {
+        float column = mod(vAtlasIndex, ${ATLAS_COLUMNS}.0);
+        float row = floor(vAtlasIndex / ${ATLAS_COLUMNS}.0);
+        vec2 safeUv = mix(vec2(0.003), vec2(0.997), vUv);
+        vec2 atlasUv = vec2((column + safeUv.x) / ${ATLAS_COLUMNS}.0, 1.0 - (row + safeUv.y) / ${ATLAS_ROWS}.0);
+        texel = texture(uAtlas, atlasUv);
     } else {
         texel = vec4(mix(vMainColor, vDarkColor, smoothstep(0.05, 1.0, vUv.x) * 0.45), 1.0);
     }
@@ -151,8 +153,11 @@ void main() {
         color = mix(color, darkThread, sashOutline * 0.96);
         color = mix(color, goldThread, sash);
     }
-    float foldLight = 0.96 + vFold * 0.055;
+    float foldLight = 0.90 + vFold * 0.115;
     color *= foldLight;
+    float edgeDistance = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
+    float edge = 1.0 - smoothstep(0.0, 0.025, edgeDistance);
+    color = mix(color, vec3(1.0), edge * 0.20);
     outColor = vec4(color, texel.a);
 }`;
 
@@ -178,12 +183,10 @@ export class BatchedFlagRenderer {
         this.textureSlots = new Map();
         this.readyTextures = new Set();
         this.failedTextures = new Set();
-        this.textureCanvas = document.createElement('canvas');
-        this.textureCanvas.width = FLAG_TEXTURE_WIDTH;
-        this.textureCanvas.height = FLAG_TEXTURE_HEIGHT;
-        this.textureContext = this.textureCanvas.getContext('2d');
-        this.textureContext.imageSmoothingQuality = 'high';
-        this.mipmapsDirty = false;
+        this.atlasCanvas = document.createElement('canvas');
+        this.atlasCanvas.width = ATLAS_COLUMNS * ATLAS_CELL_W;
+        this.atlasCanvas.height = ATLAS_ROWS * ATLAS_CELL_H;
+        this.atlasContext = this.atlasCanvas.getContext('2d');
         this._initProgram();
         this._initMesh();
         this._initTexture();
@@ -196,13 +199,13 @@ export class BatchedFlagRenderer {
         const attr = name => gl.getAttribLocation(this.program, name);
         this.locations = {
             aUv: attr('aUv'), aAnchor: attr('aAnchor'), aSize: attr('aSize'), aPhase: attr('aPhase'),
-            aTextureLayer: attr('aTextureLayer'), aMainColor: attr('aMainColor'), aDarkColor: attr('aDarkColor'),
+            aAtlasIndex: attr('aAtlasIndex'), aMainColor: attr('aMainColor'), aDarkColor: attr('aDarkColor'),
             aCommander: attr('aCommander'),
             uResolution: gl.getUniformLocation(this.program, 'uResolution'),
             uTime: gl.getUniformLocation(this.program, 'uTime'),
             uWind: gl.getUniformLocation(this.program, 'uWind'),
             uGravitySag: gl.getUniformLocation(this.program, 'uGravitySag'),
-            uFlagTextures: gl.getUniformLocation(this.program, 'uFlagTextures')
+            uAtlas: gl.getUniformLocation(this.program, 'uAtlas')
         };
     }
 
@@ -244,7 +247,7 @@ export class BatchedFlagRenderer {
         instanceAttribute(this.locations.aAnchor, 2, 0);
         instanceAttribute(this.locations.aSize, 2, 2);
         instanceAttribute(this.locations.aPhase, 1, 4);
-        instanceAttribute(this.locations.aTextureLayer, 1, 5);
+        instanceAttribute(this.locations.aAtlasIndex, 1, 5);
         instanceAttribute(this.locations.aMainColor, 3, 6);
         instanceAttribute(this.locations.aDarkColor, 3, 9);
         instanceAttribute(this.locations.aCommander, 1, 12);
@@ -253,15 +256,14 @@ export class BatchedFlagRenderer {
 
     _initTexture() {
         const gl = this.gl;
-        const target = gl.TEXTURE_2D_ARRAY;
         this.texture = gl.createTexture();
-        gl.bindTexture(target, this.texture);
-        gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-        gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        // Each flag has its own layer, so mipmaps cannot average in neighbouring flags.
-        gl.texStorage3D(target, FLAG_MIP_LEVELS, gl.RGBA8, FLAG_TEXTURE_WIDTH, FLAG_TEXTURE_HEIGHT, FLAG_TEXTURE_SLOTS);
+        gl.bindTexture(gl.TEXTURE_2D, this.texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.atlasCanvas);
     }
 
     _configure() {
@@ -270,26 +272,26 @@ export class BatchedFlagRenderer {
         gl.disable(gl.DEPTH_TEST);
         gl.disable(gl.CULL_FACE);
         gl.enable(gl.BLEND);
-        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.clearColor(0, 0, 0, 0);
     }
 
     registerTexture(url) {
         if (!url || this.failedTextures.has(url)) return -1;
         if (this.textureSlots.has(url)) return this.readyTextures.has(url) ? this.textureSlots.get(url) : -1;
-        if (this.textureSlots.size >= FLAG_TEXTURE_SLOTS) return -1;
+        if (this.textureSlots.size >= ATLAS_COLUMNS * ATLAS_ROWS) return -1;
         const index = this.textureSlots.size;
         this.textureSlots.set(url, index);
         const image = new Image();
         image.onload = () => {
-            this.textureContext.clearRect(0, 0, FLAG_TEXTURE_WIDTH, FLAG_TEXTURE_HEIGHT);
-            this.textureContext.drawImage(image, 0, 0, FLAG_TEXTURE_WIDTH, FLAG_TEXTURE_HEIGHT);
+            const column = index % ATLAS_COLUMNS;
+            const row = Math.floor(index / ATLAS_COLUMNS);
+            this.atlasContext.clearRect(column * ATLAS_CELL_W, row * ATLAS_CELL_H, ATLAS_CELL_W, ATLAS_CELL_H);
+            this.atlasContext.drawImage(image, column * ATLAS_CELL_W, row * ATLAS_CELL_H, ATLAS_CELL_W, ATLAS_CELL_H);
             const gl = this.gl;
-            const target = gl.TEXTURE_2D_ARRAY;
-            gl.bindTexture(target, this.texture);
-            gl.texSubImage3D(target, 0, 0, 0, index, FLAG_TEXTURE_WIDTH, FLAG_TEXTURE_HEIGHT, 1,
-                gl.RGBA, gl.UNSIGNED_BYTE, this.textureCanvas);
-            this.mipmapsDirty = true;
+            gl.bindTexture(gl.TEXTURE_2D, this.texture);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.atlasCanvas);
             this.readyTextures.add(url);
         };
         image.onerror = () => this.failedTextures.add(url);
@@ -327,12 +329,8 @@ export class BatchedFlagRenderer {
         gl.useProgram(this.program);
         gl.bindVertexArray(this.vao);
         gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.texture);
-        if (this.mipmapsDirty) {
-            gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
-            this.mipmapsDirty = false;
-        }
-        gl.uniform1i(this.locations.uFlagTextures, 0);
+        gl.bindTexture(gl.TEXTURE_2D, this.texture);
+        gl.uniform1i(this.locations.uAtlas, 0);
         gl.uniform2f(this.locations.uResolution, this.logicalWidth, this.logicalHeight);
         gl.uniform1f(this.locations.uTime, timeSeconds);
         gl.uniform1f(this.locations.uWind, wind);

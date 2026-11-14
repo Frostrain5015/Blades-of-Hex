@@ -4,6 +4,7 @@ import { gameState } from './state.js';
 import { createRoom } from './network.js';
 import { STANDARD_MAP_FAMILIES } from '../rules/standardMaps.js';
 import { FACTION_RULE_MODES } from '../rules/cultures.js';
+import { FACTION_RULE_MODE_LABELS } from '../rules/factionLabels.js';
 // 难度选项直接从人格脚本的 meta 派生，避免「改了档名、准备页还显示旧名」。
 // 这里只取三份轻量 meta，不经过 js/ai.js，那条链会把整个战斗执行层拖进大厅。
 import { meta as optioMeta } from '../ai/optio.js';
@@ -60,23 +61,18 @@ export function createPreparationController({
                 <input type="checkbox" id="prepDoubleCommander" />
                 <span class="prep-check-copy"><strong>双将模式</strong><small>可部署两名将领</small></span>
             </label>
-            <label class="prep-check-option">
-                <input type="checkbox" id="prepCultureBonus" />
-                <span class="prep-check-copy"><strong>历史文化强效</strong><small>双层文化增益与特色兵种（仅开放预设旗帜，与阵营协同互斥）</small></span>
-            </label>
-            <label class="prep-check-option">
-                <input type="checkbox" id="prepFactionSynergy" />
-                <span class="prep-check-copy"><strong>阵营协同</strong><small>双同源将领触发阵营协同技能（仅开放自定义旗帜，与历史文化互斥）</small></span>
-            </label>
         `;
-        const cultureBox = document.getElementById('prepCultureBonus');
-        const synergyBox = document.getElementById('prepFactionSynergy');
-        cultureBox?.addEventListener('change', () => {
-            if (cultureBox.checked && synergyBox) synergyBox.checked = false;
-        });
-        synergyBox?.addEventListener('change', () => {
-            if (synergyBox.checked && cultureBox) cultureBox.checked = false;
-        });
+        const modes = [
+            { id: FACTION_RULE_MODES.NONE, desc: '使用基础阵营规则' },
+            { id: FACTION_RULE_MODES.CULTURE, desc: '预设历史旗帜、特色兵种或指令与阵营被动' },
+            { id: FACTION_RULE_MODES.SYNERGY, desc: '自定义旗帜，搭配将领以激活阵营技能' }
+        ];
+        document.getElementById('prepFactionModes').innerHTML = modes.map(mode => `
+            <label class="prep-check-option">
+                <input type="radio" name="prepFactionMode" value="${mode.id}" ${mode.id === FACTION_RULE_MODES.NONE ? 'checked' : ''} />
+                <span class="prep-check-copy"><strong>${FACTION_RULE_MODE_LABELS[mode.id]}</strong><small>${mode.desc}</small></span>
+            </label>
+        `).join('');
     }
 
     function showPrepDialog(nextAction) {
@@ -136,13 +132,7 @@ export function createPreparationController({
         const selectedType = getSelection('prepOptions1');
         const skirmishFog = document.getElementById('prepSkirmish')?.checked || false;
         const doubleCommanderMode = document.getElementById('prepDoubleCommander')?.checked || false;
-        const cultureBonus = document.getElementById('prepCultureBonus')?.checked || false;
-        const factionSynergy = document.getElementById('prepFactionSynergy')?.checked || false;
-        const factionRuleMode = cultureBonus
-            ? FACTION_RULE_MODES.CULTURE
-            : factionSynergy
-                ? FACTION_RULE_MODES.SYNERGY
-                : FACTION_RULE_MODES.NONE;
+        const factionRuleMode = document.querySelector('input[name="prepFactionMode"]:checked')?.value || FACTION_RULE_MODES.NONE;
         gameState.standardMapId = getSelection('prepOptionsMap') || STANDARD_MAP_FAMILIES[0].id;
         gameState.factionRuleMode = factionRuleMode;
 

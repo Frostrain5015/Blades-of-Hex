@@ -22,9 +22,6 @@ export function initAudio() {
 
     // 预创建 BGM 的 Howl 实例，让 Howler 内部尽早开始加载和注册 autoplay 解锁
     _getHowl('lobby_bgm');
-    for (const [name, config] of Object.entries(SOUND_MANIFEST)) {
-        if (config.category === 'combat' && config.preload) _getHowl(name);
-    }
     _preloadAllHowls();
 }
 
@@ -44,7 +41,7 @@ function _preloadAllHowls() {
     setTimeout(step, 500);
 }
 
-export function playSound(soundName, { gain } = {}) {
+export function playSound(soundName) {
     // 入口统一网关：静音开关
     if (!settings.soundEnabled) return;
 
@@ -53,28 +50,22 @@ export function playSound(soundName, { gain } = {}) {
 
     // 清单中未注册、或素材尚未生成（available:false）→ 合成回退，不发网络请求
     if (!cfg || cfg.available === false) {
-        _playSynthFallback(soundName, gain);
+        _playSynthFallback(soundName);
         return;
     }
 
     const result = _getHowl(resolved);
 
     // 文件加载失败或运行环境无 Howl → 合成回退
-    if (!result?.howl || _loadErrors[resolved]
-        || (cfg.category === 'combat' && cfg.preload && result.howl.state() !== 'loaded')) {
-        _playSynthFallback(soundName, gain);
+    if (!result?.howl || _loadErrors[resolved]) {
+        _playSynthFallback(soundName);
         return;
     }
 
     const { howl } = result;
     const masterVol = settings.soundVolume ?? 0.7;
-    if (gain === undefined) {
-        howl.volume(cfg.volume * masterVol);
-        howl.play();
-    } else {
-        const id = howl.play();
-        if (id != null) howl.volume(Math.min(1, cfg.volume * masterVol * gain), id);
-    }
+    howl.volume(cfg.volume * masterVol);
+    howl.play();
 }
 
 function _getHowl(name) {
@@ -187,40 +178,11 @@ function _playTone(freq, duration, type = 'sine', volume = 0.15) {
     osc.stop(ctx.currentTime + duration);
 }
 
-function _playSynthFallback(sound, strength = 1) {
+function _playSynthFallback(sound) {
     const ctx = _getCtx();
     if (!ctx) return;
 
     switch (sound) {
-        case 'rifleShot':
-        case 'rifleFollowup':
-        case 'rifleImpact': {
-            const volume = settings.soundVolume ?? 0.7;
-            if (volume === 0) break;
-            const impact = sound === 'rifleImpact';
-            const duration = impact ? 0.085 : 0.1;
-            const noise = ctx.createBuffer(1, Math.round(ctx.sampleRate * duration), ctx.sampleRate);
-            const samples = noise.getChannelData(0);
-            for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
-            const shot = ctx.createBufferSource();
-            const filter = ctx.createBiquadFilter();
-            const gain = ctx.createGain();
-            const now = ctx.currentTime;
-            shot.buffer = noise;
-            filter.type = 'lowpass';
-            filter.frequency.setValueAtTime(impact ? 1700 : 5800, now);
-            filter.frequency.exponentialRampToValueAtTime(impact ? 330 : 600, now + duration);
-            gain.gain.setValueAtTime(0.001, now);
-            gain.gain.linearRampToValueAtTime(
-                (impact ? 0.21 : 0.42) * volume * strength + 0.001, now + 0.001
-            );
-            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
-            shot.connect(filter);
-            filter.connect(gain);
-            gain.connect(ctx.destination);
-            shot.start(now);
-            break;
-        }
         case 'attack':
         case 'mineExplode': {
             const osc = ctx.createOscillator();

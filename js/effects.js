@@ -1,6 +1,5 @@
 import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS, MORALE_CONFIG } from './config.js';
 import { playSound } from './audio.js';
-import { clearRifleShots } from './rifleEffects.js';
 
 // ===== 粒子系统 =====================
 export const particles = [];
@@ -481,12 +480,16 @@ export function spawnWeatherParticles(now, weather, logicalW, logicalH) {
 // ===== 炮弹飞行特效（炮兵远程攻击） =====================
 export const projectiles = [];
 
+export function getProjectileFlightMs(fromX, fromY, toX, toY) {
+    return Math.min(190, 90 + Math.hypot(toX - fromX, toY - fromY) * 0.22);
+}
+
 export function spawnProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
     const dx = toX - fromX;
     const dy = toY - fromY;
     const dist = Math.sqrt(dx * dx + dy * dy);
     // 快速弹道：短飞行时间，读起来干脆有力（避免单位已消失后炮弹慢悠悠飘过去）
-    const duration = Math.min(190, 90 + dist * 0.22);
+    const duration = getProjectileFlightMs(fromX, fromY, toX, toY);
     projectiles.push({
         fromX, fromY,
         toX, toY,
@@ -770,21 +773,25 @@ export function drawTorpedoes(ctx2d, now) {
 
 // ===== 无人机机枪弹道（比防空曳光弹更醒目，但避免激光感） =====================
 export const droneProjectiles = [];
+const DRONE_SHOT_COUNT = 5;
+const DRONE_SHOT_INTERVAL_MS = 90;
+const DRONE_SHOT_FLIGHT_MS = 100;
+export const DRONE_PROJECTILE_IMPACT_MS = (DRONE_SHOT_COUNT - 1) * DRONE_SHOT_INTERVAL_MS + DRONE_SHOT_FLIGHT_MS;
 
 export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
     const now = performance.now();
-    for (let b = 0; b < 5; b++) {
+    for (let b = 0; b < DRONE_SHOT_COUNT; b++) {
         droneProjectiles.push({
             fromX: fromX + (Math.random() - 0.5) * 6,
             fromY: fromY + (Math.random() - 0.5) * 6,
             toX: toX + (Math.random() - 0.5) * 8,
             toY: toY + (Math.random() - 0.5) * 8,
             dist: Math.sqrt((toX - fromX) ** 2 + (toY - fromY) ** 2),
-            startTime: now + b * 90,
-            duration: 100,
+            startTime: now + b * DRONE_SHOT_INTERVAL_MS,
+            duration: DRONE_SHOT_FLIGHT_MS,
             isCrit,
             impactSpawned: false,
-            onImpact: (b === 4 && onImpact) ? onImpact : null
+            onImpact: b === DRONE_SHOT_COUNT - 1 ? onImpact : null
         });
     }
     for (let f = 0; f < 3; f++) {
@@ -2259,7 +2266,6 @@ export function clearTransientEffects() {
     windStreaks.length = 0;
     projectiles.length = 0;
     droneProjectiles.length = 0;
-    clearRifleShots();
     heavyCannonShells.length = 0;
     katyushaRockets.length = 0;
     banzaiDashes.length = 0;

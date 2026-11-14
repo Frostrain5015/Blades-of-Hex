@@ -31,7 +31,7 @@ export const SUN_MOON_SHIELD_AMOUNT = 40;
 export const SUN_MOON_OATH_EFFECT = Object.freeze({
     name: '日月天衡',
     icon: '⚖️',
-    type: '阵营协同',
+    type: '阵营技能',
     critRateBonus: SUN_MOON_OATH_CRIT_BONUS,
     durationRounds: SUN_MOON_OATH_DURATION_ROUNDS,
     color: '#8ab8d9'

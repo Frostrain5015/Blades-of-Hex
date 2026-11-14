@@ -8,6 +8,8 @@
 import { MORALE_CONFIG } from '../rules/terrain.js';
 import { EMOJI_FONT_STACK } from '../rules/symbols.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
+import { isKmtLinkMember, getKmtLinkedUnits, getKmtLinkDamageBonus, getKmtPoolCapacity } from '../rules/kmtStronghold.js';
+import { percent } from '../rules/format.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { getRoundIndex } from './config.js';
 import { FREE_RESISTANCE_EFFECT, NEVER_SURRENDER_CONFIG, getNeverSurrenderStacks, getNeverSurrenderStatBonus } from '../rules/cultures.js';
@@ -157,16 +159,15 @@ export function buildUnitEffectItems(unit, gameState) {
         });
     }
 
-    const freeResistanceRemain = (unit._freeResistanceUntilRound || 0) - getRoundIndex(gameState);
-    if (freeResistanceRemain > 0) {
+    if ((unit._freeResistanceUntilTurn || 0) > gameState.turnCounter) {
         items.push({
             key: 'culture:free-resistance',
             icon: FREE_RESISTANCE_EFFECT.icon,
             label: FREE_RESISTANCE_EFFECT.name,
             desc: FREE_RESISTANCE_EFFECT.desc,
             color: FREE_RESISTANCE_EFFECT.color,
-            count: '⏳' + freeResistanceRemain,
-            status: `持续${freeResistanceRemain}回合`,
+            count: unit._freeResistanceShield || '',
+            status: `临时护盾 ${unit._freeResistanceShield || 0} · 下次行动结束后失效`,
             kind: 'effect'
         });
     }
@@ -197,6 +198,33 @@ export function buildUnitEffectItems(unit, gameState) {
                 : '当前对敌军隐蔽行踪；仅在敌军逼近至1格内或占领非己方原本控制的村庄时显形（皇帝AI除外）。',
             color: exposed ? '#ff9b72' : '#8fd18b',
             status: exposed ? '已显形' : '隐蔽中',
+            kind: 'effect'
+        });
+    }
+
+    const linkedBrigades = getKmtLinkedUnits(unit, gameState);
+    const linkDamage = getKmtLinkDamageBonus(unit, gameState);
+    if (isKmtLinkMember(unit) || linkDamage) {
+        const passive = FRONTEND_TEXT.unitPassives.kmt_training_brigade;
+        items.push({
+            key: 'culture:kmt-stronghold',
+            icon: FRONTEND_TEXT.icons.unitPassive.kmt_training_brigade,
+            label: passive.name,
+            desc: passive.desc,
+            color: '#a9d7ed',
+            status: linkedBrigades.length
+                ? `共享生命 ${linkedBrigades.reduce((sum, ally) => sum + ally.hp, 0)}/${linkedBrigades.reduce((sum, ally) => sum + getKmtPoolCapacity(ally), 0)} · 伤害 +${percent(linkDamage)}`
+                : linkDamage ? `相邻教导旅支援 · 伤害 +${percent(linkDamage)}` : '等待另一支教导旅入场',
+            kind: 'effect'
+        });
+    }
+    if (unit.type === 'us_marine' && unit._marineLandingReady) {
+        items.push({
+            key: 'culture:marine-landing',
+            icon: '⚓',
+            label: '登陆突击',
+            desc: '本回合下一次对陆上单位的主动攻击伤害提高20%。',
+            color: '#7cdef0',
             kind: 'effect'
         });
     }

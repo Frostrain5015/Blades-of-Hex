@@ -8,9 +8,10 @@
 // 反过来说，任何「怎么打」的决策（目标怎么选、走位怎么评分、要不要冒险）
 // 都不属于条令层，必须留在各自的档位脚本里，否则档次差异会退化成开关。
 
-import { COUNTER_RELATION, getMachineGunDamageBonus, getUnitBaseType, isStrongpointTarget } from '../rules/units.js';
+import { COUNTER_RELATION, getAttackRangeCap, getMachineGunDamageBonus, getUnitBaseType, isStrongpointTarget } from '../rules/units.js';
 import { getCrossDomainDamageBonus } from '../rules/naval.js';
-import { getCannonSiegeDamageBonus } from '../rules/citySiege.js';
+import { getCannonSiegeDamageBonus, getCityDefenseBonus } from '../rules/citySiege.js';
+import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus } from '../rules/kmtStronghold.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense, getUnitCombatRange, TRANSPORT_RULES } from '../rules/movement.js';
 
@@ -340,7 +341,7 @@ export function isRangedAttacker(attacker) {
  * 建立一个绑定当前天气的战斗估算器。
  * 所有档次共用，保证「同一次交换算出同一个数」。
  */
-export function createCombatModel({ weather = 'clear', hexDistance } = {}) {
+export function createCombatModel({ state = null, weather = 'clear', hexDistance } = {}) {
     // 地形+工事防御（对齐 rules/terrain.js）
     function terrainDefense(tile, attackerRanged) {
         let def = TERRAIN_DEF[tile?.terrain] || 0;
@@ -374,18 +375,18 @@ export function createCombatModel({ weather = 'clear', hexDistance } = {}) {
         const coeff = counterCoefficient(attacker.type, defender.type);
         const transportedAttacker = areCommanderMechanicsSuppressed(attacker);
         const transportDefense = getTransportBaseDefense({ ...defender, tile: tileObj });
-        const strongholdDef = (defender.type === 'kmt_training_brigade' && !defender.isEmbarked && (tileObj.fortification || tileObj.isCity || tileObj.isUrban))
-            ? (defender.config?.cityDefenseBonus || 0)
-            : 0;
+        const positionDefense = terrainDefense(tileObj, isRangedAttacker(attacker));
+        const strongholdDef = getKmtLinkDefenseBonus(defender, state, positionDefense + getCityDefenseBonus(tileObj));
         const offense = 1
             + counterDamageBonus(attacker.type, defender.type)
             + (transportedAttacker ? 0 : weatherAttackBonus(attackerBase))
             + crossDomainDamageBonus(attacker, tileObj, defender)
             + getMachineGunDamageBonus(attacker.type, defender?.type)
+            + getKmtLinkDamageBonus(attacker, state)
             // 火炮攻城修正已并入引擎②增伤乘区：对要塞单位（城市驻军/碉堡/岸防炮/工事格）+50%
             + (isStrongpointTarget({ ...defender, tile: tileObj }) ? getCannonSiegeDamageBonus(attacker) : 0);
         const def = transportDefense != null ? 1 - transportDefense : 1
-            - terrainDefense(tileObj, isRangedAttacker(attacker))
+            - positionDefense
             - cityDefense(defenderBase, tileObj)
             - (defender.config?.defense || 0)
             - strongholdDef
@@ -450,7 +451,7 @@ export function estimateUnitVisionRadius(unit, weather = 'clear') {
         let bonus = 0;
         if (unit.tile?.terrain === 'mountain') bonus = 1;
         if (weather === 'wind') bonus = Math.max(bonus, 1);
-        range = Math.max(1, Math.min(4, range + bonus));
+        range = Math.max(1, Math.min(getAttackRangeCap(unit.type), range + bonus));
     } else {
         range = UNIT_VISION[baseType] || 1;
     }

@@ -17,18 +17,30 @@ import { getUnitBaseType } from '../rules/units.js';
 const _flagImageCache = new Map();
 
 /** Load and cache SVG/image flag assets used inside unique cultural unit badges. */
-export function getBadgeFlagImage(flagUrl) {
+function getBadgeFlagEntry(flagUrl) {
     if (!flagUrl || typeof Image === 'undefined') return null;
     let entry = _flagImageCache.get(flagUrl);
     if (!entry) {
         const img = new Image();
         entry = { img, failed: false };
-        img.onerror = () => { entry.failed = true; };
+        entry.ready = new Promise(resolve => {
+            img.onload = () => resolve(img);
+            img.onerror = () => { entry.failed = true; resolve(null); };
+        });
         img.src = flagUrl;
         _flagImageCache.set(flagUrl, entry);
     }
-    if (entry.failed) return null;
+    return entry;
+}
+
+export function getBadgeFlagImage(flagUrl) {
+    const entry = getBadgeFlagEntry(flagUrl);
+    if (!entry || entry.failed) return null;
     return entry.img.complete && entry.img.naturalWidth > 0 ? entry.img : null;
+}
+
+export function loadBadgeFlagImage(flagUrl) {
+    return getBadgeFlagEntry(flagUrl)?.ready ?? Promise.resolve(null);
 }
 
 export const UNIT_BADGE_GLYPHS = Object.freeze({
@@ -136,7 +148,7 @@ export function drawUnitBadge(context, options = {}) {
 
     // Separate low ellipse: the body visibly sits above the board without
     // changing hit testing, rule coordinates or the shared badge radius.
-    if (!waterColor) {
+    if (!waterColor && !options.emblemOnly) {
         context.save();
         context.beginPath();
         context.ellipse(radius * 0.10, centerY + radius * 0.82, radius * 1.24, radius * 0.36, 0, 0, Math.PI * 2);
@@ -322,6 +334,11 @@ export function drawUnitBadge(context, options = {}) {
         context.stroke();
         context.shadowColor = 'transparent';
         context.shadowBlur = 0;
+    }
+
+    if (options.emblemOnly) {
+        context.restore();
+        return;
     }
 
     // Metal bezel, low-brightness relation track and bright health arc. The

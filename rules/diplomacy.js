@@ -88,8 +88,8 @@ const FLAG_PRESET_COLORS = Object.freeze({
     'img/flags/svg/jp.svg': 'japanOlive'
 });
 const FLAG_PRESET_NAMES = Object.freeze({
-    'img/flags/kuomintang.svg': '中国国民党',
-    'img/flags/chinese-communist-party-old.svg': '中国共产党',
+    'img/flags/kuomintang.svg': '中华民国',
+    'img/flags/chinese-communist-party-old.svg': '中共苏区',
     'img/flags/germany-iron-cross.svg': '德国'
 });
 

@@ -45,7 +45,7 @@ export const CELESTINE_ORACLE_PULSE_TIMING = Object.freeze({
 export const CELESTINE_FACTION_PASSIVE = Object.freeze({
     name: '神谕',
     icon: '🔆',
-    type: '阵营协同被动',
+    type: '阵营被动',
     color: '#f5d76e',
     description: `场上同时存在≥2名不同身份的圣国将领时激活。【神罚】每整轮对全场攻击力最高的单位降下神罚，造成目标最大生命值${(CELESTINE_ORACLE_BALANCE.stagePercents[0] * 100).toFixed(0)}%~${(CELESTINE_ORACLE_BALANCE.stagePercents[CELESTINE_ORACLE_BALANCE.stagePercents.length - 1] * 100).toFixed(0)}%的真实伤害（随神临阶段递增）；【赐福】对全场防御力最低的单位附加等量护盾。神临阶段：每${CELESTINE_ORACLE_BALANCE.roundsPerStage}回合提升一级。`
 });

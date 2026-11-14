@@ -15,7 +15,7 @@ export { AURELIA_COMMANDER_IDS };
 export const AURELIA_FACTION_PASSIVE = Object.freeze({
     name: AURELIA_FACTION_SYNERGY.hero.title,
     icon: AURELIA_FACTION_SYNERGY.marker.symbol,
-    type: '阵营协同被动',
+    type: '阵营被动',
     rescueCurrentHpCostPct: 0.20,
     rescuedMaxHpPct: 0.40,
     usesPerMatch: 1

@@ -50,7 +50,7 @@ export function applyPositionalMoralePenalty(
 
     if (normalizedPenalty > 0) {
         if (!Number.isFinite(unit._flankingMoraleBase)) {
-            unit._flankingMoraleBase = clampMorale(unit.morale);
+            unit._flankingMoraleBase = clampMorale(unit._morale ?? unit.morale);
         }
         unit._flankingMoralePenalty = normalizedPenalty;
         unit._flankingMoraleActivePenalty = normalizedPenalty;

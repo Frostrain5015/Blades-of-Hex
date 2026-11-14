@@ -3,6 +3,7 @@
 
 import { campToKey } from './camps.js';
 import { isFactionSynergyRuleActive } from './cultures.js';
+import { FACTION_ABILITY_LABELS } from './factionLabels.js';
 
 function defineFactionSynergy(definition) {
     return Object.freeze({
@@ -53,7 +54,7 @@ export const AURELIA_FACTION_SYNERGY = defineFactionSynergy({
             value: '⚜️',
             label: '鸢尾花徽记'
         },
-        kicker: '阵营协同',
+        kicker: FACTION_ABILITY_LABELS.passive,
         title: '同一个誓言',
         durationMs: 5600,
         followupStartMs: 3650,
@@ -103,7 +104,7 @@ export const EAGLE_FACTION_SYNERGY = defineFactionSynergy({
             value: '🦅',
             label: '天鹰徽记'
         },
-        kicker: '阵营协同',
+        kicker: FACTION_ABILITY_LABELS.passive,
         title: '天基支援协议',
         durationMs: 4600,
         followupStartMs: 2800,
@@ -156,7 +157,7 @@ export const CELESTINE_FACTION_SYNERGY = defineFactionSynergy({
             value: '🔆',
             label: '神谕徽记'
         },
-        kicker: '阵营协同',
+        kicker: FACTION_ABILITY_LABELS.passive,
         title: '神谕',
         durationMs: 5800,
         followupStartMs: 3800,
@@ -208,7 +209,7 @@ export const NOCTIS_FACTION_SYNERGY = defineFactionSynergy({
             value: '🌙',
             label: '血月徽记'
         },
-        kicker: '阵营协同',
+        kicker: FACTION_ABILITY_LABELS.skill,
         title: '血月降临',
         durationMs: 4800,
         followupStartMs: 3200,
@@ -260,7 +261,7 @@ export const TIANHENG_FACTION_SYNERGY = defineFactionSynergy({
             value: '⚖️',
             label: '天衡徽记'
         },
-        kicker: '阵营协同',
+        kicker: FACTION_ABILITY_LABELS.skill,
         title: '日月天衡',
         durationMs: 4800,
         followupStartMs: 2600,
@@ -307,9 +308,9 @@ export const FELLOW_ROBE_FACTION_SYNERGY = defineFactionSynergy({
     effect: {
         name: '与子同袍',
         icon: '🛡️',
-        type: '阵营协同',
+        type: FACTION_ABILITY_LABELS.passive,
         defenseBonusPct: 0.10,
-        description: '同一阵营有至少两名来自不同势力的将领并肩作战，且未激活任何特殊阵营协同时，这些将领的防御力提高10%。'
+        description: '同一阵营有至少两名来自不同势力的将领并肩作战，且未激活其他阵营被动或技能时，这些将领的防御力提高10%。'
     },
     hero: {
         id: 'fellow-robe',
@@ -318,7 +319,7 @@ export const FELLOW_ROBE_FACTION_SYNERGY = defineFactionSynergy({
             value: '袍',
             label: '同袍之印'
         },
-        kicker: '阵营协同',
+        kicker: FACTION_ABILITY_LABELS.passive,
         title: '与子同袍',
         durationMs: 4200,
         followupStartMs: 0,

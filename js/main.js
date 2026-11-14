@@ -23,7 +23,7 @@ import {
     triggerAttackFlash, triggerRecruitFlash, triggerHealFlash,
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
-    triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
+    triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect,
     spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike, spawnOrbitalBeam,
     spawnMinisterDominionRing,
@@ -63,11 +63,11 @@ import {
 import {
     FACTION_RULE_MODES, isCultureSystemEnabled, isFactionSynergyRuleActive, normalizeFactionRuleMode
 } from '../rules/cultures.js';
+import { FACTION_RULE_MODE_LABELS } from '../rules/factionLabels.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { downloadCurrentMatchLog, downloadCurrentMatchReview, getCurrentMatchLog, recordCommittedAction, resolvePendingLocalAction, startMatchRecording } from './matchRecorder.js';
 import { initMatchStatsPanel } from './matchStatsView.js';
-import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, RIFLE_COUNTER_PAUSE_MS, RIFLE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, usesRifleAttackEffect } from '../rules/attackPresentation.js';
-import { spawnRifleShots } from './rifleEffects.js';
+import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
 import { renderResultFlagPreviews } from './resultFlagPreview.js';
 import {
@@ -2819,9 +2819,9 @@ function renderRoomList(list) {
         const mapName = r.standardMapId === 'uncharted-passage' ? '无主航路' : '王冠环岛';
         const rules = [mapName, r.skirmishFog ? '遭遇战' : '标准'];
         if (r.doubleCommanderMode) rules.push('双将');
-        if (r.factionRuleMode === 'culture') rules.push('历史文化');
-        else if (r.factionRuleMode === 'synergy') rules.push('阵营协同');
-        const modeLabel = (maxP === 3 ? '三人' : '双人') + ' · ' + rules.join(' · ');
+        const factionMode = normalizeFactionRuleMode(r.factionRuleMode);
+        if (factionMode !== FACTION_RULE_MODES.NONE) rules.push(FACTION_RULE_MODE_LABELS[factionMode]);
+        const modeLabel = [maxP === 3 ? '三人' : '双人', ...rules].map(label => `<span>${label}</span>`).join(' · ');
         const playersLabel = `${r.playerCount + aiCount}/${maxP}` + (aiCount ? `(含${aiCount}AI)` : '');
         card.innerHTML = `<span class="mp-room-id">${r.roomId}</span><span class="mp-room-mode">${modeLabel}</span><span class="mp-room-players">${playersLabel}</span><span class="mp-room-arrow">→</span>`;
         if (full) {
@@ -3370,11 +3370,10 @@ async function handleRemoteAction(msg) {
             return unit?.id === hit.unitId ? [{ unit, hit }] : [];
         }) : [];
         const attackEffects = msg.effects;
-        const rifleAttack = msg.actionType === 'attack' && usesRifleAttackEffect(attackEffects);
         const attackImpactDelay = msg.actionType === 'banzaiCharge' ? attackEffects?.impactDelay
             : msg.actionType === 'attack' && attackEffects?.attackerType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
             : msg.actionType === 'attack' && attackEffects?.attackerType === 'ru_katyusha' ? KATYUSHA_IMPACT_MS
-            : rifleAttack ? RIFLE_IMPACT_MS : 0;
+            : 0;
         const delayedTargets = [];
         const healingTarget = msg.actionType === 'tacticalCard' && attackEffects?.cardId === 'heal' && attackEffects.healAmt > 0
             ? gameState.tileMap.get(`${attackEffects.q},${attackEffects.r}`)?.unit : null;
@@ -3385,21 +3384,6 @@ async function handleRemoteAction(msg) {
             for (const hit of hits) {
                 const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
                 if (unit && (hit.unitId == null || hit.unitId === unit.id)) delayedTargets.push({ unit, hit, delayMs: attackImpactDelay });
-            }
-        }
-        if (msg.actionType === 'attack' && attackEffects?.rifleCounterFired && !attackEffects.rifleCounterDodged) {
-            const { fromQ: q, fromR: r, attackerUnitId } = attackEffects;
-            const unit = gameState.tileMap.get(`${q},${r}`)?.unit;
-            if (unit?.id === attackerUnitId) {
-                const presentation = classifyAttackPresentation(attackEffects);
-                const incomingDelay = presentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE ? CARRIER_STRAFE_IMPACT_MS
-                    : presentation === ATTACK_PRESENTATION.FIRE_TORPEDO
-                        ? getTorpedoFlightMs(attackEffects.fromX, attackEffects.fromY, attackEffects.x, attackEffects.y)
-                        : attackImpactDelay;
-                delayedTargets.push({
-                    unit, hit: { q, r, killed: true },
-                    delayMs: incomingDelay + RIFLE_COUNTER_PAUSE_MS + RIFLE_IMPACT_MS
-                });
             }
         }
         applyRemoteState(msg.state, HexTile, Unit);
@@ -3420,12 +3404,6 @@ async function handleRemoteAction(msg) {
                 current._hpBarDelayUntil = impactAt;
             } else if (hit.killed) {
                 (gameState.unitDeathGhosts ||= []).push({ unit, until: impactAt });
-            }
-        }
-        if (rifleAttack && (attackEffects.killed || attackEffects.cityCaptured || attackEffects.isCitySiege)) {
-            const unit = gameState.tileMap.get(`${attackEffects.q},${attackEffects.r}`)?.unit;
-            if (unit?.id === attackEffects.attackerUnitId) {
-                unit.startMovePath([{ x: attackEffects.fromX, y: attackEffects.fromY }, unit.tile], { delayMs: RIFLE_IMPACT_MS });
             }
         }
         if (Number.isFinite(airImpactDelay)) {
@@ -3510,13 +3488,23 @@ async function handleRemoteAction(msg) {
     // 三人模式：检查本地玩家是否已投降，显示观战横幅
     _checkSpectatorBanner();
 
+    if (Array.isArray(msg.effects?.kmtStrongholdFx)) {
+        for (const event of msg.effects.kmtStrongholdFx) emit('fx:kmtStrongholdImpact', event);
+    }
+    if (Array.isArray(msg.effects?.freeResistanceFx)) {
+        for (const event of msg.effects.freeResistanceFx) emit('fx:freeResistance', event);
+    }
+    if (Array.isArray(msg.effects?.historicalFx)) {
+        for (const event of msg.effects.historicalFx) emit('fx:historicalPassive', event);
+    }
+    if (msg.effects?.marineStrike) emit('fx:marineLanding', msg.effects);
+
     if (gameState.gameOver && !wasGameOver) {
         setTimeout(() => triggerVictoryEffect(), 1500);
-        if (msg.actionType !== 'attack' || !(usesRifleAttackEffect(msg.effects) || msg.effects?.rifleCounterFired)) return;
+        return;
     }
 
     const e = msg.effects;
-    for (const event of e?.freeResistanceFx || []) emit('fx:freeResistance', event);
     // 激光与法式重炮回合初齐射的浮字已随快照后的弹道同时入队。
     if (e?.floatTexts && laserVolleys.length === 0 && heavyVolleys.length === 0) replayFloatTexts(e.floatTexts);
     switch (msg.actionType) {
@@ -3527,6 +3515,7 @@ async function handleRemoteAction(msg) {
                     found || (t.unit?.id === e.unitId ? t.unit : null), null);
                 if (movedUnit && e.path) {
                     movedUnit.startMovePath(e.path);
+                    if (e.marineLanding) emit('fx:marineLanding', { ...e, x: movedUnit.tile.x, y: movedUnit.tile.y, delayMs: movedUnit.movePathDuration });
                 }
                 if (e.capturedCity) {
                     const cc = e.capturedCity;
@@ -3935,12 +3924,6 @@ async function handleRemoteAction(msg) {
                 const _sPres = classifyAttackPresentation(e);
                 const _sCrit = !!e.isCrit;
                 const _sFromX = e.fromX ?? e.x, _sFromY = e.fromY ?? e.y;
-                if (usesRifleAttackEffect(e)) {
-                    spawnRifleShots(_sFromX, _sFromY, e.x, e.y, {
-                        attackerId: e.attackerUnitId, isCrit: _sCrit, isCity: true
-                    });
-                    break;
-                }
                 if (_sPres === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
                     // 航母扫射空城：与主机端一致的俯冲扫射表现，伤害数字延迟到子弹流抵达
                     playSound('airstrike');
@@ -3998,7 +3981,6 @@ async function handleRemoteAction(msg) {
                 const _rmFromX = e?.fromX ?? e?.x;
                 const _rmFromY = e?.fromY ?? e?.y;
                 const _rmPresentation = classifyAttackPresentation(e);
-                const rifleAttack = usesRifleAttackEffect(e);
 
                 // 飞行类攻击（鱼雷/舰载机弹流）：伤害数字/击杀爆炸/士气特效延迟到弹体抵达
                 const _rmTorpedoMs = _rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO
@@ -4006,13 +3988,13 @@ async function handleRemoteAction(msg) {
                 const _rmCulturalImpactMs = e?.attackerType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
                     : e?.attackerType === 'ru_katyusha' ? KATYUSHA_IMPACT_MS : 0;
                 const _rmImpactMs = _rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
-                    ? CARRIER_STRAFE_IMPACT_MS : _rmTorpedoMs || _rmCulturalImpactMs || (rifleAttack ? RIFLE_IMPACT_MS : 0);
+                    ? CARRIER_STRAFE_IMPACT_MS : _rmTorpedoMs || _rmCulturalImpactMs;
                 const _rmDeferImpact = (fn) => _rmImpactMs > 0 ? setTimeout(fn, _rmImpactMs) : fn();
 
                 const _execAttackFx = () => {
                 if (_rmSmite) {
                     setTimeout(() => playSound('lightning'), 500);
-                } else if (!rifleAttack && _rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                } else if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
                     playSound(_rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
                         ? 'airstrike'
                         : _rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER
@@ -4022,11 +4004,7 @@ async function handleRemoteAction(msg) {
                             : (e?.isCrit ? 'crit' : 'attack'));
                 }
                 if (e) {
-                    if (rifleAttack) {
-                        spawnRifleShots(_rmFromX, _rmFromY, e.x, e.y, {
-                            attackerId: e.attackerUnitId, targetId: e.targetUnitId, isCrit: e.isCrit, dodged: e.dodged
-                        });
-                    } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                    if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
                         spawnTorpedo(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
                         spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.attackDmg }], 'diveStrafe', e.q, e.r);
@@ -4072,7 +4050,7 @@ async function handleRemoteAction(msg) {
                         spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
                         if (!e.killed && e.attackerType !== 'mgNest') triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                     }
-                    if (!e.dodged && !rifleAttack && !_rmCulturalImpactMs && _rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
+                    if (!e.dodged && !_rmCulturalImpactMs && _rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
                         && _rmPresentation !== ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
                         triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                     }
@@ -4158,13 +4136,7 @@ async function handleRemoteAction(msg) {
                     }
                     // 伤害数字（攻击/攻城连带/反击/至圣斩/治疗）统一由 e.floatTexts 重放，
                     // 时序与本地一致（飞行类攻击的条目自带弹着延迟）
-                    if (e.rifleCounterFired) {
-                        spawnRifleShots(e.x, e.y, e.counterX, e.counterY, {
-                            attackerId: e.targetUnitId, targetId: e.attackerUnitId,
-                            isCrit: e.counterIsCrit, dodged: e.rifleCounterDodged,
-                            delayMs: _rmImpactMs + RIFLE_COUNTER_PAUSE_MS
-                        });
-                    } else if (e.counterDmg > 0 && e.counterIsRanged) {
+                    if (e.counterDmg > 0 && e.counterIsRanged) {
                         const counterPresentation = classifyAttackPresentation({
                             attackerType: e.counterType,
                             attackerIsDrone: e.counterIsDrone
@@ -4208,8 +4180,7 @@ async function handleRemoteAction(msg) {
 
                 if (_rmSmite) {
                     spawnCommanderSkillEffect(_rmFromX, _rmFromY, '✝️', _rmSmiteLabel, true);
-                    if (rifleAttack || e.rifleCounterFired) _execAttackFx();
-                    else setTimeout(_execAttackFx, 500);
+                    setTimeout(_execAttackFx, 500);
                 } else {
                     _execAttackFx();
                 }
@@ -4357,7 +4328,8 @@ async function handleRemoteAction(msg) {
     if (msg.actionType === 'attack' || msg.actionType === 'move') {
         if (e && e.rankUps) {
             for (const ru of e.rankUps) {
-                spawnRankUpEffect(ru.x, ru.y, ru.rank || 1);
+                const unit = gameState.tiles.find(tile => tile.unit?.id === ru.unitId)?.unit;
+                emit('fx:rankUp', { ...ru, rank: ru.rank || 1, unit });
             }
         }
     }

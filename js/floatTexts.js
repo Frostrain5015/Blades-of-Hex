@@ -202,6 +202,10 @@ export function setFloatTextCaptureSuppressed(flag) {
     _captureSuppressed = !!flag;
 }
 
+export function isFloatTextCaptureSuppressed() {
+    return _captureSuppressed;
+}
+
 /**
  * 铁卫灵光改写：同步盟友头顶最新一条伤害数字（全部吸收则移除，部分吸收则改为
  * 实际承受值）。活动数组、pending 队列与待广播捕获副本三处同步改写，保证两端一致。

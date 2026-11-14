@@ -1,6 +1,7 @@
 // rules/units.js — 0 阶标准兵种、专精与克制关系的单一规则源。
 
 import { deepFreeze } from './freeze.js';
+import { campToKey } from './camps.js';
 
 /**
  * 所有可招募常规单位都从这里的 0 阶标准面板创建。
@@ -22,7 +23,7 @@ export const UNIT_CONFIG = deepFreeze({
     laserTower: { name: '激光塔', hp: 130, attack: 0, defense: 0, speed: 0, range: 3, cost: 15, color: '#4fd8e8', movementDomain: 'land', rankLocked: true, building: true },
     // ==== 历史文化特色兵种 ====
     us_marine: {
-        name: '海军陆战队', hp: 165, attack: 54, defense: 0.05, speed: 8, range: 1, cost: 11,
+        name: '海军陆战队', hp: 180, attack: 54, defense: 0.05, speed: 8, range: 1, cost: 11,
         color: '#1b6d96', movementDomain: 'amphibious', baseType: 'cavalry',
         cultureId: 'us', isUniqueUnit: true, recruitmentSites: ['city', 'port']
     },
@@ -32,7 +33,7 @@ export const UNIT_CONFIG = deepFreeze({
         cultureId: 'gb', isUniqueUnit: true, recruitmentSites: ['port'], dodgeChance: 0.20
     },
     fr_heavy_cannon: {
-        name: '巨炮', hp: 115, attack: 85, defense: 0, speed: 2, range: 4, cost: 15,
+        name: '巨炮', hp: 115, attack: 85, defense: 0, speed: 2, range: 5, cost: 15,
         color: '#334d39', movementDomain: 'land', baseType: 'archer',
         cultureId: 'fr', isUniqueUnit: true, recruitmentSites: ['city'], splashPct: 0.35
     },
@@ -44,7 +45,7 @@ export const UNIT_CONFIG = deepFreeze({
     kmt_training_brigade: {
         name: '中央教导旅', hp: 210, attack: 42, defense: 0.05, speed: 4, range: 1, cost: 9,
         color: '#1f4488', movementDomain: 'land', baseType: 'infantry',
-        cultureId: 'kmt', isUniqueUnit: true, recruitmentSites: ['city'], cityDefenseBonus: 0.25
+        cultureId: 'kmt', isUniqueUnit: true, recruitmentSites: ['city']
     },
     cpc_guerrilla: {
         name: '游击纵队', hp: 165, attack: 42, defense: 0.05, speed: 5, range: 1, cost: 8,
@@ -66,6 +67,21 @@ export function getUnitBaseType(unitOrType) {
 export function isUniqueCultureUnit(unitOrType) {
     const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
     return UNIT_CONFIG[type]?.isUniqueUnit === true;
+}
+
+export function getAttackRangeCap(type) {
+    if (type === 'carrier') return 7;
+    return type === 'fr_heavy_cannon' ? 5 : 4;
+}
+
+export function getUniqueRecruitmentLimit(type) {
+    return isUniqueCultureUnit(type) ? (UNIT_CONFIG[type].recruitmentLimit ?? 2) : Infinity;
+}
+
+export function countLivingUnitsOfType(state, camp, type) {
+    const campKey = campToKey(camp);
+    return (state?.tiles || []).filter(({ unit }) =>
+        unit?.type === type && unit.hp > 0 && campToKey(unit.camp) === campKey).length;
 }
 
 const DEFAULT_RECRUITMENT_SITES = Object.freeze({

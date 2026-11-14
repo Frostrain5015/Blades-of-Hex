@@ -21,12 +21,6 @@ export const DIVE_STRAFE_FLIGHT = Object.freeze({
 // 本地攻击（gameLogic）与联机重放（main）共用，避免两处各自维护字面量。
 export const CARRIER_STRAFE_IMPACT_MS = 780;
 
-export const RIFLE_SHOT_INTERVAL_MS = 150;
-export const RIFLE_TRACER_FLIGHT_MS = 80;
-export const RIFLE_IMPACT_MS = RIFLE_SHOT_INTERVAL_MS + RIFLE_TRACER_FLIGHT_MS;
-// Leave room for the incoming hit before the return shot's report.
-export const RIFLE_COUNTER_PAUSE_MS = 55;
-
 export function getDiveStrafePlanePosition(targetX, targetY, elapsedMs) {
     const flight = DIVE_STRAFE_FLIGHT;
     const progress = Math.min(1, Math.max(0, Number(elapsedMs) / flight.firingPathMs));
@@ -72,12 +66,6 @@ export function classifyAttackPresentation(source) {
 
 export function isRangedAttackPresentation(source) {
     return classifyAttackPresentation(source) !== ATTACK_PRESENTATION.ASSAULT;
-}
-
-// 步枪是普通步兵的视觉表现，射程、反击与进占继续按突击单位结算。
-export function usesRifleAttackEffect(source) {
-    const { type, isDrone } = readAttackSource(source);
-    return type === 'infantry' && !isDrone;
 }
 
 export function operationArrowStyleForAttacker(source) {

@@ -13,9 +13,10 @@ import {
 import { resolveAntiAirCoverage } from '../rules/antiAir.js';
 import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
 import { getFireSeaState } from '../rules/cultures.js';
+import { getKmtLinkedUnits, isKmtLinkMember } from '../rules/kmtStronghold.js';
+import { drawKmtLinkParticles, drawKmtStrongholdLink, drawKmtStrongholdImpacts } from './kmtStrongholdEffects.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
 import { AIR_COMMAND_IMPACT_DELAY_MS } from '../rules/airCommands.js';
-import { drawRifleShots, updateRifleShots } from './rifleEffects.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
@@ -481,7 +482,6 @@ function _renderGame() {
     lastTime = now;
     frameInfo.now = now;
     updateLaserBeams(now);
-    updateRifleShots(now);
 
     // 屏幕震动
     if (screenShake.time > 0) {
@@ -533,6 +533,7 @@ function _renderGame() {
     if (!battlefieldDelegation.terrain) {
         _drawTerrainMaterials(ctx, now, { tiles, visualGrid, layeredTerrain, materialOptions, tileBaseOptions });
     }
+    const linkedBrigadePositions = drawKmtLinkGround(now);
     // Faction-tinted military-map city outline stays below every object, but
     // remains visible around a unit that covers the central castle glyph.
     // City markers, flag poles and hover/selection overlays have no Pixi
@@ -547,6 +548,7 @@ function _renderGame() {
 
     // 单位六边形辉光（禁锢光环 + 铁卫护盾基底环）
     drawUnitHexAuras(now);
+    for (const { x, y } of linkedBrigadePositions) drawKmtLinkParticles(ctx, x, y, now);
     // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
     drawCommanderPennants();
     // 国界线/区划线（先锋旗之下、单位之上）
@@ -877,7 +879,6 @@ function _renderGame() {
     // 无人机弹道
     updateDroneProjectiles(now);
     drawDroneProjectiles(ctx, now);
-    drawRifleShots(ctx, now);
     // 无人机自爆AA子弹流
     updateDroneSuicideFlak(now);
     drawDroneSuicideFlak(ctx, now);
@@ -914,6 +915,11 @@ function _renderGame() {
     drawBanzaiDashes(ctx, now);
     updateRingWaves(now);
     drawRingWaves(ctx, now);
+    if (gameState.kmtStrongholdImpacts.length) {
+        const viewer = getViewingCamp();
+        drawKmtStrongholdImpacts(ctx, gameState.kmtStrongholdImpacts, now,
+            impact => getPresentedTileVisibilityState(impact, viewer, gameState, now) === 'visible');
+    }
 
     // ── 将领特效图层：preFog（雷击之后、迷雾遮罩之前；金光/圣链/攻心波纹/统御环）──
     drawFxLayer('preFog', ctx, now);
@@ -1905,6 +1911,32 @@ function _drawFireSeaTiles(tiles, now) {
         }
         ctx.restore();
     }
+}
+
+function drawKmtLinkGround(now) {
+    const viewingCamp = getViewingCamp();
+    const groups = new Map();
+    const linkedPositions = [];
+    for (const tile of gameState.tiles) {
+        const unit = tile.unit;
+        if (!isKmtLinkMember(unit) || unit._airliftLandAt > now || unit._soulRecallLandAt > now
+            || !isUnitVisibleToCamp(unit, viewingCamp, gameState, { ignoreAiBypass: true })
+            || getPresentedTileVisibilityState(tile, viewingCamp, gameState, now) !== 'visible') continue;
+        const key = campToKey(unit.camp);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(unit);
+    }
+    for (const units of groups.values()) {
+        if (units.length < 2 || !getKmtLinkedUnits(units[0], gameState).length) continue;
+        const positions = units.map(unit => unit.getVisualPos());
+        for (let i = 0; i < positions.length; i++) {
+            for (let j = i + 1; j < positions.length; j++) {
+                drawKmtStrongholdLink(ctx, positions[i], positions[j], now);
+            }
+        }
+        linkedPositions.push(...positions);
+    }
+    return linkedPositions;
 }
 
 function drawUnitHexAuras(now) {

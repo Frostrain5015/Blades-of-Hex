@@ -182,6 +182,7 @@ export function createMatchState() {
         _celestineOracle: {}, // 塞莱斯廷圣国阵营协同【神谕】计量 { campKey: { activeRounds, stage } }
         _noctisBloodTide: {}, // 诺克提斯阵营协同【血月之夜】血潮计量 { campKey: { charge, moonsPending } }
         _sunMoonCharge: {}, // 天衡【日月天衡】充能 { campKey: charge }
+        _freeResistanceReadyRound: {},
         // 模拟用确定性 RNG(战斗/卡牌/将领/天气掷骰)。永不为 null;对局开始时由
         // seedMatchRng() 重新播种。装饰性随机不走这里。状态随 serialize 同步,
         // 使联机收方与重连保持一致。详见 core/rng.js。
@@ -311,6 +312,7 @@ export function resetMatchState(match) {
     match._noctisBloodTide = {};
     match._borrowDayImprison = {};
     match._sunMoonCharge = {};
+    match._freeResistanceReadyRound = {};
     match.skirmishFog = false;
     match.visibleTiles = standard.visibleTiles;
     match.exploredTiles = standard.exploredTiles;
@@ -371,6 +373,9 @@ export function createClientUiState() {
         shieldTexts: [],
         unitDeathGhosts: [],
         _pendingFreeResistanceFx: [],
+        _pendingHistoricalFx: [],
+        _pendingKmtStrongholdFx: [],
+        kmtStrongholdImpacts: [],
         goldTexts: [],
         // 延迟/错峰浮字队列（js/floatTexts.js）：到期由渲染帧搬入活动数组
         floatTextPending: [],
@@ -414,6 +419,9 @@ export function resetClientUiState(ui) {
     ui.shieldTexts = [];
     ui.unitDeathGhosts = [];
     ui._pendingFreeResistanceFx = [];
+    ui._pendingHistoricalFx = [];
+    ui._pendingKmtStrongholdFx = [];
+    ui.kmtStrongholdImpacts = [];
     ui.goldTexts = [];
     ui.floatTextPending = [];
     ui._pendingFloatTexts = [];
@@ -491,7 +499,7 @@ export function serializeMatchState(match) {
             movedThisTurn: t.unit.movedThisTurn,
             counterAttackCount: t.unit.counterAttackCount,
             isNewRecruit: t.unit.isNewRecruit,
-            morale: t.unit.morale,
+            morale: t.unit._morale ?? t.unit.morale,
             moraleBoostUntil: t.unit.moraleBoostUntil,
             moralePenaltyUntil: t.unit.moralePenaltyUntil || 0,
             flankingMoraleBase: Number.isFinite(t.unit._flankingMoraleBase) ? t.unit._flankingMoraleBase : null,
@@ -509,7 +517,9 @@ export function serializeMatchState(match) {
             submarinePortRevealUntilRound: t.unit._submarinePortRevealUntilRound || 0,
             banzaiReadyRound: Number.isFinite(t.unit._banzaiReadyRound) ? t.unit._banzaiReadyRound : 0,
             heavyCannonAutoFiredThisTurn: t.unit._heavyCannonAutoFiredThisTurn === true,
-            freeResistanceUntilRound: t.unit._freeResistanceUntilRound || 0,
+            freeResistanceUntilTurn: t.unit._freeResistanceUntilTurn || 0,
+            freeResistanceShield: t.unit._freeResistanceShield || 0,
+            marineLandingReady: t.unit._marineLandingReady === true,
             exposedVillageKey: t.unit._exposedVillageKey || null,
             commander: t.unit.commander,
             storyCommanderId: t.unit.storyCommanderId || null,
@@ -622,6 +632,7 @@ export function serializeMatchState(match) {
             .map(([campKey, tide]) => [campKey, { ...tide }])),
         borrowDayImprison: { ...(match._borrowDayImprison || {}) },
         sunMoonCharge: { ...(match._sunMoonCharge || {}) },
+        freeResistanceReadyRound: { ...(match._freeResistanceReadyRound || {}) },
         rngState: match.rng.getState(),
         killCount: { ...match.killCount },
         friendlyDeathCount: { ...(match._friendlyDeathCount || {}) },
@@ -785,6 +796,7 @@ export function restoreMatchState(match, data, deps) {
         }]));
     match._borrowDayImprison = data.borrowDayImprison || {};
     match._sunMoonCharge = { ...(data.sunMoonCharge || {}) };
+    match._freeResistanceReadyRound = { ...(data.freeResistanceReadyRound || {}) };
     match.submarineReveals = record(data.submarineReveals, () => ({}));
     match.shoreBatteryBuiltRound = { ...(data.shoreBatteryBuiltRound || {}) };
     // 恢复模拟 RNG 状态(旧版本快照无此字段时保持当前 rng,不影响)
@@ -1010,7 +1022,9 @@ export function restoreMatchState(match, data, deps) {
             unit._submarinePortRevealUntilRound = td.unit.submarinePortRevealUntilRound || 0;
             unit._banzaiReadyRound = Number.isFinite(td.unit.banzaiReadyRound) ? td.unit.banzaiReadyRound : 0;
             unit._heavyCannonAutoFiredThisTurn = td.unit.heavyCannonAutoFiredThisTurn === true;
-            unit._freeResistanceUntilRound = td.unit.freeResistanceUntilRound || 0;
+            unit._freeResistanceUntilTurn = td.unit.freeResistanceUntilTurn || 0;
+            unit._freeResistanceShield = td.unit.freeResistanceShield || 0;
+            unit._marineLandingReady = td.unit.marineLandingReady === true;
             unit._exposedVillageKey = td.unit.exposedVillageKey || null;
             unit.commander = td.unit.commander || null;
             unit.storyCommanderId = td.unit.storyCommanderId || null;

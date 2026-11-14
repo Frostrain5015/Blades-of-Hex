@@ -1,4 +1,4 @@
-import { UNIT_CONFIG, canUnitBeRecruitedAtSite } from '../rules/units.js';
+import { UNIT_CONFIG, canUnitBeRecruitedAtSite, countLivingUnitsOfType, getUniqueRecruitmentLimit } from '../rules/units.js';
 import { getActiveCultureId, getCultureUniqueUnitType } from '../rules/cultures.js';
 import { canUnitOccupyTile } from '../rules/movement.js';
 import { isWaterTile } from '../rules/surfaces.js';
@@ -58,6 +58,7 @@ export function canRecruitTypeAtSelectedCity(type, tile, state, currentCamp = st
     const isStandard = RECRUITMENT_OPTIONS.some(option => option.type === type);
     const uniqueOption = getUniqueRecruitmentOption(state, currentCamp);
     if (!isStandard && uniqueOption?.type !== type) return false;
+    if (!isStandard && countLivingUnitsOfType(state, currentCamp, type) >= getUniqueRecruitmentLimit(type)) return false;
     if (currentCamp?.canRecruit === false) return false;
     const site = getRecruitmentSiteKind(tile, state);
     if (!site || !canUnitBeRecruitedAtSite(type, site)) return false;

@@ -4,7 +4,6 @@ import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { gameState as clientState, getViewingCamp } from './state.js';
 import { iconEffects, getRecoilOffset, getChargeOffset } from './effects.js';
-import { getRifleUnitOffset } from './rifleEffects.js';
 
 import { campFromKey, getRelationToViewer, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
@@ -87,11 +86,6 @@ export function getUnitVisualPos(unit) {
         if (recoil) {
             vx += recoil.x;
             vy += recoil.y;
-        }
-        const rifleOffset = getRifleUnitOffset(unit.id, frameInfo.now);
-        if (rifleOffset) {
-            vx += rifleOffset.x;
-            vy += rifleOffset.y;
         }
 
         // 近战突进偏移（撞击目标）
@@ -250,8 +244,9 @@ export function drawUnit(unit, gameState, { deathGhost = false } = {}) {
         if (!unit._hpBarDelayUntil || now >= unit._hpBarDelayUntil) {
             unit.displayHp += (unit.hp - unit.displayHp) * lerpFactor;
             if (Math.abs(unit.hp - unit.displayHp) < 0.3) unit.displayHp = unit.hp;
-            unit._displayShield += (unit._shield - unit._displayShield) * lerpFactor;
-            if (Math.abs(unit._shield - unit._displayShield) < 0.3) unit._displayShield = unit._shield;
+            const shield = unit.activeShield;
+            unit._displayShield += (shield - unit._displayShield) * lerpFactor;
+            if (Math.abs(shield - unit._displayShield) < 0.3) unit._displayShield = shield;
         }
 
         unit.displaySpeed += (unit.remainingMP - unit.displaySpeed) * lerpFactor;

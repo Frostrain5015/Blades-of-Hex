@@ -7,7 +7,7 @@ import { isMechanicEnabled } from '../rules/mechanics.js';
 import { campToKey } from '../rules/camps.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
-import { getUnitBaseType } from '../rules/units.js';
+import { getAttackRangeCap, getUnitBaseType } from '../rules/units.js';
 import { hasNegativeWeatherImmunity } from '../rules/cultures.js';
 import { getEffectiveWeather } from './commanderInterface.js';
 import { measure, perfEnabled } from './perf.js';
@@ -38,7 +38,7 @@ function _getEffectiveVision(unit, gs) {
         let bonus = 0;
         if (unit.tile.terrain === 'mountain') bonus = 1;
         if (weather === 'wind') bonus = Math.max(bonus, 1);
-        range = Math.max(1, Math.min(4, range + bonus));
+        range = Math.max(1, Math.min(getAttackRangeCap(unit.type), range + bonus));
     } else {
         range = UNIT_VISION[unit.type] ?? UNIT_VISION[baseType] ?? 1;
     }

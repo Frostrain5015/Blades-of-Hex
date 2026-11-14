@@ -8,7 +8,8 @@ import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import { drainPendingFloatTexts } from './floatTexts.js';
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
-import { getFaction, getRelation, getRoleCamp, getViewingCampKey, isFriendly, RELATION_META } from '../rules/diplomacy.js';
+import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
+import { getKmtLinkDefenseBonus, getKmtReinforceDeficit } from '../rules/kmtStronghold.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { getCityDefenseBonus, getCityPoolTile, isCityDisabled } from '../rules/citySiege.js';
 import {
@@ -26,6 +27,8 @@ import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commander
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { EMOJI_FONT_STACK } from '../rules/symbols.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
+import { FACTION_ABILITY_LABELS } from '../rules/factionLabels.js';
+import { drawUnitBadge, loadBadgeFlagImage } from './unitBadgeRenderer.js';
 import { campToKey } from '../rules/camps.js';
 import { campFromKey } from '../rules/diplomacy.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
@@ -39,7 +42,7 @@ import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFiel
 import { measure, perfEnabled } from './perf.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange, getAirfieldColonel, getVisibleAirCommandKinds } from '../rules/airCommands.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
-import { BANZAI_CHARGE_CONFIG, FIRE_SEA_CONFIG, getActiveFactionCulture, getCulturalPortRepairCostScale, getCulturalReinforceCostScale, getFireSeaDamagePct, getFireSeaState, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity } from '../rules/cultures.js';
+import { BANZAI_CHARGE_CONFIG, FIRE_SEA_CONFIG, getActiveFactionCulture, getCultureForFaction, getCulturalPortRepairCostScale, getCulturalReinforceCostScale, getFireSeaDamagePct, getFireSeaState, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity } from '../rules/cultures.js';
 import {
     AURELIA_FACTION_PASSIVE,
     hasAureliaOathPassive,
@@ -300,7 +303,7 @@ function _findUnitById(unitId) {
 function _canReinforceUnit(unit) {
     return _isLocalActionUnit(unit)
         && unit.tile && (unit.tile.isCity || unit.tile.isVillage)
-        && unit.hp < unit.maxHp
+        && getKmtReinforceDeficit(unit, gameState) > 0
         && !unit.tile._reinforcedThisTurn;
 }
 
@@ -320,7 +323,8 @@ function _getReinforcementAction(unit) {
             theme: 'reinforce'
         };
     }
-    if (unit.hp >= unit.maxHp) {
+    const deficit = getKmtReinforceDeficit(unit, gameState);
+    if (deficit <= 0) {
         return {
             key: `reinforce:${unit.id}`,
             buttonId: 'boardReinforce',
@@ -329,12 +333,12 @@ function _getReinforcementAction(unit) {
             icon: '📯',
             label: '无需补员',
             canUse: false,
-            reason: '单位生命值已满',
+            reason: '可补员生命值已满',
             theme: 'reinforce'
         };
     }
 
-    const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
+    const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), deficit);
     const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp) * getCulturalReinforceCostScale(gameState, unit.tile, unit.camp)));
     const campKey = _campKeyInput(unit.camp);
     const hasGold = !!campKey && (gameState.playerGold[campKey] || 0) >= cost;
@@ -1588,21 +1592,27 @@ function _buildPassiveItems(unit) {
             kind: 'effect'
         });
     }
-    const culture = getActiveFactionCulture(gameState, unit.camp);
+    const activeCulture = getActiveFactionCulture(gameState, unit.camp);
+    const faction = getFaction(gameState, unit.camp);
+    const culture = activeCulture || (!gameState.campaignMode && getCultureForFaction(faction));
     if (culture) {
+        const active = activeCulture?.id === culture.id;
         items.push({
             key: `culture:${unit.id}:${culture.id}:tier2`,
-            icon: '🏛️',
+            flagBadge: {
+                url: faction?.flagUrl || culture.flagPreset,
+                crop: culture.badgeCrop,
+                color: faction?.colorId || culture.colorId
+            },
             label: `${culture.name}：${culture.tier2.title}`,
             desc: culture.tier2.summary,
             color: '#9fd7ff',
-            status: '历史文化强效',
-            kicker: '历史文化强效',
-            active: true,
-            intensity: 1,
+            status: active ? '当前生效' : '未生效（仅限历史模式）',
+            kicker: FACTION_ABILITY_LABELS.passive,
+            active,
             kind: 'passive'
         });
-        if (culture.uniqueUnitType && unit.type === culture.uniqueUnitType) {
+        if (active && culture.uniqueUnitType && unit.type === culture.uniqueUnitType) {
             items.push({
                 key: `culture:${unit.id}:${culture.id}:tier1`,
                 icon: '⭐',
@@ -1648,7 +1658,7 @@ function _buildPassiveItems(unit) {
             color: '#f5d76e',
             status: `当前神临 ${stageName}`,
             count: '',
-            kicker: '阵营协同',
+            kicker: FACTION_ABILITY_LABELS.passive,
             active: true,
             intensity: celestineOracleState.stage / 3, // 神谕封顶 3 阶
             kind: 'passive'
@@ -1666,7 +1676,7 @@ function _buildPassiveItems(unit) {
             color: '#b3121f',
             status: moonUp ? '血月降临中' : `血月充能 ${Math.round(ratio * 100)}%`,
             count: '',
-            kicker: '阵营协同',
+            kicker: FACTION_ABILITY_LABELS.skill,
             active: true,
             intensity: moonUp ? 1 : ratio,
             kind: 'passive'
@@ -1723,7 +1733,7 @@ function _buildPassiveItems(unit) {
             color: ratio >= 1 ? '#ffd700' : '#8ab8d9',
             status: `充能 ${Math.round(ratio * 100)}%`,
             count: '',
-            kicker: '阵营协同',
+            kicker: FACTION_ABILITY_LABELS.skill,
             active: ratio >= 1,
             intensity: ratio,
             kind: 'passive'
@@ -1922,10 +1932,43 @@ function _describeBoardAction(action) {
     };
 }
 
+function _createAbilityIcon(item, iconClass) {
+    if (!item.flagBadge) {
+        const icon = document.createElement('span');
+        icon.className = iconClass;
+        icon.setAttribute('aria-hidden', 'true');
+        icon.style.fontFamily = item.iconFont || EMOJI_FONT_STACK;
+        icon.textContent = item.icon || '✦';
+        return icon;
+    }
+
+    const icon = document.createElement('canvas');
+    icon.className = `${iconClass} ability-flag-badge`;
+    icon.setAttribute('aria-hidden', 'true');
+    const size = 30;
+    const ratio = Math.min(window.devicePixelRatio || 1, 3);
+    icon.width = icon.height = Math.round(size * ratio);
+    const context = icon.getContext('2d');
+    const { url, crop, color } = item.flagBadge;
+    const paint = flagImage => {
+        if (!context) return;
+        context.setTransform(ratio, 0, 0, ratio, icon.width / 2, icon.height / 2);
+        context.clearRect(-size / 2, -size / 2, size, size);
+        drawUnitBadge(context, {
+            centerY: 0, radius: 14, emblemOnly: true,
+            flagImage, flagCrop: crop, flagColors: getFlagColors(color), glyph: '✦'
+        });
+    };
+    paint(null);
+    loadBadgeFlagImage(url).then(paint);
+    return icon;
+}
+
 function _renderIconQueue(container, queue, items, className, iconClass, signaturePrefix) {
     if (!container) return;
     const signature = items.map(item => [
-        item.key, item.icon, item.iconFont || '', item.label, item.desc, item.color, item.count || '', item.status || '', item.active, item.intensity
+        item.key, item.icon, item.iconFont || '', item.label, item.desc, item.color, item.count || '', item.status || '', item.active, item.intensity,
+        item.flagBadge ? JSON.stringify(item.flagBadge) : ''
     ].join(':')).join('|');
     const signatureProp = signaturePrefix === 'passive' ? '_lastPassiveSignature' : '_lastEffectSignature';
     if (signatureProp === '_lastPassiveSignature' && signature === _lastPassiveSignature) return;
@@ -1951,14 +1994,10 @@ function _renderIconQueue(container, queue, items, className, iconClass, signatu
         button.style.setProperty('--ability-emphasis', item.active ? String(0.45 + intensity * 0.55) : '0');
         button.style.setProperty('--ability-icon-scale', item.active ? String(1.025 + intensity * 0.045) : '1');
         button.classList.toggle('is-active', item.active === true);
+        button.classList.toggle('has-flag-badge', Boolean(item.flagBadge));
         button.removeAttribute('title');
         button.setAttribute('aria-label', item.label + (item.status ? '，' + item.status : ''));
-        const icon = document.createElement('span');
-        icon.className = iconClass;
-        icon.setAttribute('aria-hidden', 'true');
-        icon.style.fontFamily = item.iconFont || EMOJI_FONT_STACK;
-        icon.textContent = item.icon || '✦';
-        button.replaceChildren(icon);
+        button.replaceChildren(_createAbilityIcon(item, iconClass));
         if (item._isShielded) {
             const starOverlay = document.createElement('span');
             starOverlay.className = 'ability-star-overlay';
@@ -2020,10 +2059,8 @@ function _syncSelectionHud(tile) {
         const factionSynergyDefBonus = _timedMemo(_fellowRobeMemo, `${unit.id}:${unit.hp > 0}`,
             () => getFellowRobeDefenseBonus(unit, gameState));
         const neverSurrenderDefBonus = getNeverSurrenderStatBonus(gameState, unit.camp);
-        const kmtStrongholdDefBonus = (unit.type === 'kmt_training_brigade' && !unit.isEmbarked && (tile.fortification || ((tile.isCity || tile.isUrban) && (!tile.camp || isFriendly(gameState, tile.camp, unit.camp)))))
-            ? (unit.config?.cityDefenseBonus || 0)
-            : 0;
         const cityDefBonus = (tile.isCity || tile.isUrban) ? getCityDefenseBonus(tile) : 0;
+        const kmtStrongholdDefBonus = getKmtLinkDefenseBonus(unit, gameState, terrainDefBonus + cityDefBonus);
         const baseDefense = unit.isEmbarked ? getTransportBaseDefense(unit) : (unit.config.defense || 0);
         defense = Math.round((baseDefense + moraleDefBonus + terrainDefBonus
             + rankDefBonus + auraDefBonus + commanderDefBonus
@@ -2037,10 +2074,10 @@ function _syncSelectionHud(tile) {
         }
     }
 
-    const signature = selectionKey + '|' + effects.map(effect => effect.key + ':' + (effect.count || '') + ':' + effect.desc).join('|')
+    const signature = selectionKey + '|' + effects.map(effect => [effect.key, effect.count, effect.desc, effect.status].join(':')).join('|')
         + '|' + ((tile.isCity || tile.isUrban) ? Math.round(tile.hp || 0) + '/' + (tile.maxHp || 0) : '')
         + '|' + (unit ? [
-            unit.hp, unit.maxHp, unit._shield || 0, unit.remainingMP, unit.canAct,
+            unit.hp, unit.maxHp, unit.activeShield, unit.remainingMP, unit.canAct,
             unit._faith || 0, unit.moralePenaltyUntil || 0, unit._rank || 0, unit.specializationKey || 'pending',
             attack, defense, hoverMoveCost, getRelation(gameState, getViewingCampKey(gameState), unit.camp)
         ].join(':') : '');
@@ -2066,9 +2103,10 @@ function _syncSelectionHud(tile) {
         selectionHudEl.style.setProperty('--selection-relation-color', relationMeta.color);
         selectionHudHp.hidden = false;
         // 血条宽度固定由 CSS 控制（min(220px, 64vw)），填充百分比包含护盾
-        const total = unit.maxHp + Math.max(0, unit._shield || 0);
+        const shield = unit.activeShield;
+        const total = unit.maxHp + shield;
         const hpRatio = total ? unit.hp / total : 0;
-        const shieldRatio = total ? Math.max(0, unit._shield || 0) / total : 0;
+        const shieldRatio = total ? shield / total : 0;
         const hpColor = unit.hp / unit.maxHp > 0.5 ? '#4caf50' : unit.hp / unit.maxHp > 0.25 ? '#ff9800' : '#f44336';
         selectionHudHpFill.style.width = Math.min(100, Math.max(0, (hpRatio + shieldRatio) * 100)) + '%';
         selectionHudHpFill.style.background = shieldRatio > 0
@@ -2076,7 +2114,7 @@ function _syncSelectionHud(tile) {
             : hpColor;
         const hpBonus = commander ? Math.round(unit.config.hp * (commander.hpBonusPct || 0)) : 0;
         selectionHudHpText.textContent = '❤ ' + Math.round(unit.hp) + '/' + unit.maxHp
-            + (hpBonus > 0 ? ' (+' + hpBonus + ')' : '') + (unit._shield > 0 ? '  +🛡' + Math.round(unit._shield) : '');
+            + (hpBonus > 0 ? ' (+' + hpBonus + ')' : '') + (shield > 0 ? '  +🛡' + Math.round(shield) : '');
 
         const attackDelta = attack - unit.config.attack;
         const mpText = '⚡ ' + unit.remainingMP
@@ -2160,7 +2198,8 @@ function _openBoardDetail(item, source, pinned = false) {
     boardDetailPopover.dataset.kind = item.kind || '';
     boardDetailPopover.dataset.active = item.active === true ? 'true' : item.active === false ? 'false' : '';
     boardDetailKicker.textContent = item.kicker || (item.kind === 'passive' ? '被动技能' : item.kind === 'effect' ? '效果' : '主动技能');
-    boardDetailTitle.textContent = (item.icon ? item.icon + ' ' : '') + item.label;
+    if (item.flagBadge) boardDetailTitle.replaceChildren(_createAbilityIcon(item, 'board-detail-flag'), document.createTextNode(item.label));
+    else boardDetailTitle.textContent = (item.icon ? item.icon + ' ' : '') + item.label;
     boardDetailDesc.textContent = item.desc || '';
     boardDetailDesc.classList.toggle('is-shielded', !!item._isShielded);
     boardDetailStatus.textContent = item.status || '';
