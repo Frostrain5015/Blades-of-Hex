@@ -24,7 +24,7 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect,
-    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, DRONE_PROJECTILE_IMPACT_MS, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike, spawnOrbitalBeam,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
@@ -3373,6 +3373,7 @@ async function handleRemoteAction(msg) {
         const attackImpactDelay = msg.actionType === 'banzaiCharge' ? attackEffects?.impactDelay
             : msg.actionType === 'attack' && attackEffects?.attackerType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
             : msg.actionType === 'attack' && attackEffects?.attackerType === 'ru_katyusha' ? KATYUSHA_IMPACT_MS
+            : msg.actionType === 'attack' && attackEffects?.attackerType === 'us_marine' ? DRONE_PROJECTILE_IMPACT_MS
             : 0;
         const delayedTargets = [];
         const healingTarget = msg.actionType === 'tacticalCard' && attackEffects?.cardId === 'heal' && attackEffects.healAmt > 0
@@ -3386,8 +3387,23 @@ async function handleRemoteAction(msg) {
                 if (unit && (hit.unitId == null || hit.unitId === unit.id)) delayedTargets.push({ unit, hit, delayMs: attackImpactDelay });
             }
         }
+        if (msg.actionType === 'attack' && attackEffects?.counterType === 'us_marine' && attackEffects.counterDmg > 0) {
+            const counterTarget = gameState.tileMap.get(`${attackEffects.fromQ},${attackEffects.fromR}`)?.unit;
+            if (counterTarget?.id === attackEffects.attackerUnitId) {
+                delayedTargets.push({ unit: counterTarget, hit: { q: attackEffects.fromQ, r: attackEffects.fromR, killed: true },
+                    delayMs: DRONE_PROJECTILE_IMPACT_MS });
+            }
+        }
         applyRemoteState(msg.state, HexTile, Unit);
         const volleyStartedAt = performance.now();
+        if (msg.actionType === 'attack' && attackEffects?.attackerType === 'us_marine') {
+            const capturedTile = gameState.tileMap.get(`${attackEffects.q},${attackEffects.r}`);
+            const occupant = capturedTile?.unit;
+            if (occupant?.id === attackEffects.attackerUnitId) {
+                occupant.startMovePath?.([{ x: attackEffects.fromX, y: attackEffects.fromY },
+                    { x: capturedTile.x, y: capturedTile.y }], { delayMs: DRONE_PROJECTILE_IMPACT_MS });
+            }
+        }
         if (healingTarget) {
             const unit = gameState.tileMap.get(`${attackEffects.q},${attackEffects.r}`)?.unit;
             if (unit?.id === healingTarget.id) {
@@ -3497,7 +3513,6 @@ async function handleRemoteAction(msg) {
     if (Array.isArray(msg.effects?.historicalFx)) {
         for (const event of msg.effects.historicalFx) emit('fx:historicalPassive', event);
     }
-    if (msg.effects?.marineStrike) emit('fx:marineLanding', msg.effects);
 
     if (gameState.gameOver && !wasGameOver) {
         setTimeout(() => triggerVictoryEffect(), 1500);
@@ -3988,10 +4003,12 @@ async function handleRemoteAction(msg) {
                 const _rmCulturalImpactMs = e?.attackerType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
                     : e?.attackerType === 'ru_katyusha' ? KATYUSHA_IMPACT_MS : 0;
                 const _rmImpactMs = _rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
-                    ? CARRIER_STRAFE_IMPACT_MS : _rmTorpedoMs || _rmCulturalImpactMs;
+                    ? CARRIER_STRAFE_IMPACT_MS : _rmTorpedoMs || _rmCulturalImpactMs
+                        || (e?.attackerType === 'us_marine' ? DRONE_PROJECTILE_IMPACT_MS : 0);
                 const _rmDeferImpact = (fn) => _rmImpactMs > 0 ? setTimeout(fn, _rmImpactMs) : fn();
 
                 const _execAttackFx = () => {
+                if (e?.ambushFx) emit('fx:guerrillaAmbush', e.ambushFx);
                 if (_rmSmite) {
                     setTimeout(() => playSound('lightning'), 500);
                 } else if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
@@ -4021,9 +4038,10 @@ async function handleRemoteAction(msg) {
                             triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                         }, 780);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
-                        triggerAttackFlash(e.x, e.y, e.isCrit);
-                        spawnDroneProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
-                        spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
+                        spawnDroneProjectile(_rmFromX, _rmFromY, e.x, e.y, e.isCrit, e.dodged ? null : () => {
+                            triggerAttackFlash(e.x, e.y, e.isCrit);
+                            spawnDirectionalParticles(_rmFromX, _rmFromY, e.x, e.y, '#ff8844', e.isCrit ? 4 : 2);
+                        });
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
                         if (e.attackerType === 'ru_katyusha') {
                             spawnKatyushaBarrage(_rmFromX, _rmFromY, e.x, e.y, e.isCrit, e.dodged ? null : () => {
@@ -4044,14 +4062,15 @@ async function handleRemoteAction(msg) {
                                 spawnDirectionalParticles(_rmFromX, _rmFromY, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                             }
                         }
-                    } else if (!e.dodged) {
+                    } else if (!e.dodged && !e.ambushFx) {
                         triggerAttackFlash(e.x, e.y, e.isCrit);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 22 : 10);
                         spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
                         if (!e.killed && e.attackerType !== 'mgNest') triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                     }
-                    if (!e.dodged && !_rmCulturalImpactMs && _rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
-                        && _rmPresentation !== ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
+                    if (!e.dodged && !e.ambushFx && !_rmCulturalImpactMs && _rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
+                        && _rmPresentation !== ATTACK_PRESENTATION.FIRE_AIR_STRAFE
+                        && _rmPresentation !== ATTACK_PRESENTATION.FIRE_TRACER) {
                         triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                     }
                     if (e.extraSalvoResult) {
@@ -4136,24 +4155,28 @@ async function handleRemoteAction(msg) {
                     }
                     // 伤害数字（攻击/攻城连带/反击/至圣斩/治疗）统一由 e.floatTexts 重放，
                     // 时序与本地一致（飞行类攻击的条目自带弹着延迟）
-                    if (e.counterDmg > 0 && e.counterIsRanged) {
+                    if (e.marineCounterDodged) {
+                        playSound('machinegun');
+                        spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, false);
+                    } else if (e.counterDmg > 0 && e.counterIsRanged) {
                         const counterPresentation = classifyAttackPresentation({
                             attackerType: e.counterType,
                             attackerIsDrone: e.counterIsDrone
                         });
                         if (counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
                             spawnTorpedo(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
-                        } else if (e.counterUsesDroneProjectile || e.counterIsDrone) {
+                        } else if (counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER || e.counterUsesDroneProjectile || e.counterIsDrone) {
                             playSound('machinegun');
-                            triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
-                            spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                            spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit, () => {
+                                triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
+                                spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);
+                                triggerScreenShake(e.counterIsCrit ? 6 : 3, e.counterIsCrit ? 200 : 120);
+                            });
                         } else {
                             playSound('cannon');
                             triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
                             spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
                             triggerRecoil(e.x, e.y, e.counterX, e.counterY);
-                        }
-                        if (counterPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
                             spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);
                             triggerScreenShake(e.counterIsCrit ? 6 : 3, e.counterIsCrit ? 200 : 120);
                         }
@@ -4226,6 +4249,9 @@ async function handleRemoteAction(msg) {
             }
             break;
         }
+        case 'guerrillaConcealment':
+            if (e) emit('fx:guerrillaConcealment', e);
+            break;
         case 'banzaiCharge':
             if (e) {
                 const banzaiUnit = gameState.tiles.reduce((found, t) =>
@@ -4235,7 +4261,7 @@ async function handleRemoteAction(msg) {
                 }
                 if (Number.isFinite(e.fromX) && Number.isFinite(e.toX)) {
                     spawnBanzaiDash(e.fromX, e.fromY, e.toX, e.toY, {
-                        killed: e.killed, healAmt: e.healAmt, destX: e.destX, destY: e.destY,
+                        killed: e.killed, healAmt: e.healAmt, followup: e.followup, destX: e.destX, destY: e.destY,
                         dodged: e.dodged, showDodge: true, delayMs: e.impactDelay
                     });
                 }
@@ -4279,21 +4305,6 @@ async function handleRemoteAction(msg) {
             }
             break;
         case 'reinforce':
-            if (e && e.unitId) {
-                const rUnit = gameState.tiles.reduce((f, t) => f || (t.unit?.id === e.unitId ? t.unit : null), null);
-                if (rUnit && rUnit.tile) {
-                    // 治疗浮字已由 e.floatTexts 重放；heal 仅用于触发治疗特效/事件，抑制浮字产出
-                    setFloatTextsSuppressed(true);
-                    try {
-                        rUnit.heal(e.healAmt);
-                    } finally {
-                        setFloatTextsSuppressed(false);
-                    }
-                    rUnit.tile._reinforcedThisTurn = true;
-                    spawnReinforceEffect(e.x, e.y, e.healAmt);
-                }
-            }
-            break;
         case 'repairShip':
             // 权威血量/金币已随快照落地，这里只补视觉（与 move/attack 等一致，不二次治疗）。
             if (e && e.x != null) spawnReinforceEffect(e.x, e.y, e.healAmt);

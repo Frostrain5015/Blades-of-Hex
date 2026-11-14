@@ -17,7 +17,9 @@ import {
     spawnDodgeShimmer,
     spawnFreeResistanceWave,
     spawnRingWave,
-    spawnDirectionalParticles
+    spawnDirectionalParticles,
+    spawnSlashMarks,
+    triggerAttackFlash
 } from './effects.js';
 import { playSound } from './audio.js';
 import { CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
@@ -34,10 +36,29 @@ import { enqueueFloatText } from './floatTexts.js';
 import { queueKmtStrongholdImpact } from './kmtStrongholdEffects.js';
 import { getPresentedTileVisibilityState } from './fogOfWar.js';
 import { isCampCulture } from '../rules/cultures.js';
+import { isFriendly } from '../rules/diplomacy.js';
 
 on('fx:healFlash', ({ x, y }) => triggerHealFlash(x, y));
 on('fx:healParticles', ({ x, y }) => spawnHealParticles(x, y));
 on('fx:commanderSkill', ({ x, y, glyph, label }) => spawnCommanderSkillEffect(x, y, glyph, label));
+on('fx:guerrillaConcealment', ({ q, r, x, y, campKey }) => {
+    if (!isFriendly(gameState, campKey, getViewingCamp()) || !isHistoricalEffectVisible({ q, r })) return;
+    spawnCommanderSkillEffect(x, y, '🌿', '隐匿');
+    spawnRingWave(x, y, { color: '#8dbd79', maxRadius: 27, duration: 420, lineWidth: 2 });
+    spawnDirectionalParticles(x, y + 11, x, y, '#a4c48a', 9);
+});
+on('fx:guerrillaAmbush', ({ fromX, fromY, fromQ, fromR, x, y, q, r, dodged }) => {
+    if (!isHistoricalEffectVisible({ q, r })) return;
+    spawnCommanderSkillEffect(x, y, '⚡', '奇袭');
+    if (dodged) return;
+    if (isHistoricalEffectVisible({ q: fromQ, r: fromR })) {
+        spawnSlashMarks(x, y, fromX, fromY, true);
+        spawnDirectionalParticles(fromX, fromY, x, y, '#e7b361', 14);
+    }
+    triggerAttackFlash(x, y, true);
+    spawnRingWave(x, y, { color: '#f4ce76', maxRadius: 34, duration: 350, lineWidth: 2.8, glow: '#b96738' });
+    triggerScreenShake(4, 165);
+});
 on('fx:morale', ({ unit }) => spawnMoraleEffect(unit));
 on('fx:factionMorale', ({ color }) => triggerFactionMoraleFlash(color));
 on('fx:explosion', ({ x, y, color, count }) => spawnExplosionParticles(x, y, color, count));

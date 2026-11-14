@@ -8,6 +8,7 @@
 import { W } from './weights.js';
 import { isFieldCapturer } from './roster.js';
 import { canRepairShipAtPort } from '../../rules/naval.js';
+import { canReinforceAtTile } from '../../rules/healing.js';
 import { getUnitBaseType } from '../../rules/units.js';
 import { getActiveCultureId, getArtilleryCostDiscount, getCulturalPortRepairCostScale, getCulturalReinforceCostScale, getCultureUniqueUnitType } from '../../rules/cultures.js';
 
@@ -227,7 +228,7 @@ export function planProduction(world, strategy, missionsCtx) {
     const reinforceRatio = strategy.posture === 'hold' ? 0.85 : W.reinforceHpRatio;
     const candidates = world.tiles
         .filter(t => t.unit && t.unit.camp === world.myCamp && !t._reinforcedThisTurn)
-        .filter(t => (t.isCity || t.isVillage) && t.unit.hp < t.unit.maxHp * reinforceRatio)
+        .filter(t => canReinforceAtTile(t.unit, world.gameState) && t.unit.hp < t.unit.maxHp * reinforceRatio)
         .filter(t => (reinforceLedger[t.unit.id] || 0) < 2)
         .sort((a, b) => (a.unit.hp / a.unit.maxHp) - (b.unit.hp / b.unit.maxHp));
     let reinforced = 0;

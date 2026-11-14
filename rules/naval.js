@@ -16,7 +16,6 @@ export const NAVAL_RULES = Object.freeze({
     landVsShipDamage: -0.50,
     shoreBatteryVsShipDamage: 0.30,
     shoreBatteryVsLandDamage: -0.60,
-    marineWaterToLandDamage: 0.30,
     detectorRadius: 2,
     portGuardRounds: 1,
     submarinePortRevealRounds: 2,
@@ -50,9 +49,7 @@ export function getCrossDomainDamageBonus(attacker, defender) {
             ? NAVAL_RULES.shoreBatteryVsShipDamage
             : NAVAL_RULES.shoreBatteryVsLandDamage;
     }
-    if (attacker.type === 'us_marine' && isWaterTile(attacker.tile) && isLandTile(defender.tile)) {
-        return NAVAL_RULES.marineWaterToLandDamage;
-    }
+    if (attacker.type === 'us_marine') return 0;
     if (isRegularNavalUnit(attacker) && isLandTile(defender.tile)) {
         return NAVAL_RULES.shipVsLandDamage;
     }

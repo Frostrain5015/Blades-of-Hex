@@ -5,6 +5,7 @@ import {
     getDiveStrafeMuzzlePosition,
     getDiveStrafePlanePosition,
     isRangedAttackPresentation,
+    isRangedCombatAttack,
     operationArrowStyleForAttacker
 } from '../rules/attackPresentation.js';
 
@@ -13,6 +14,9 @@ assert.equal(classifyAttackPresentation({ type: 'cavalry' }), ATTACK_PRESENTATIO
 assert.equal(classifyAttackPresentation({ type: 'archer' }), ATTACK_PRESENTATION.FIRE_CANNON);
 assert.equal(classifyAttackPresentation({ type: 'warship' }), ATTACK_PRESENTATION.FIRE_CANNON);
 assert.equal(classifyAttackPresentation({ type: 'mgNest' }), ATTACK_PRESENTATION.FIRE_TRACER);
+assert.equal(classifyAttackPresentation({ type: 'us_marine' }), ATTACK_PRESENTATION.FIRE_TRACER);
+assert.equal(classifyAttackPresentation({ attackerType: 'us_marine' }), ATTACK_PRESENTATION.FIRE_TRACER);
+assert.equal(isRangedCombatAttack('us_marine'), false);
 assert.equal(classifyAttackPresentation({ type: 'submarine' }), ATTACK_PRESENTATION.FIRE_TORPEDO);
 assert.equal(classifyAttackPresentation({ type: 'carrier' }), ATTACK_PRESENTATION.FIRE_AIR_STRAFE);
 assert.equal(classifyAttackPresentation({ type: 'infantry', _isDrone: true }), ATTACK_PRESENTATION.FIRE_TRACER);

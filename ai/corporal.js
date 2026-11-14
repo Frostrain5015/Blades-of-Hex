@@ -31,6 +31,7 @@
 import { createCombatModel } from './doctrine.js';
 import { isWaterTile } from '../rules/surfaces.js';
 import { getUnitBaseType } from '../rules/units.js';
+import { canReinforceAtTile } from '../rules/healing.js';
 
 export const meta = {
     name: 'Corporal',
@@ -413,7 +414,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
         .filter(tile => tile.unit?.camp === myCamp
             && tile.unit.hp < tile.unit.maxHp * 0.40
             && !tile._reinforcedThisTurn
-            && ((tile.isCity && tile.camp === myCamp) || tile.isVillage))
+            && canReinforceAtTile(tile.unit, gameState))
         .sort((left, right) =>
             (left.unit.hp / left.unit.maxHp) - (right.unit.hp / right.unit.maxHp))[0];
 

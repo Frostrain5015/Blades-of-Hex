@@ -16,7 +16,7 @@ import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
     executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
-    executeConstructionAt, executeFieldConstruction, executeBunkerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge,
+    executeConstructionAt, executeFieldConstruction, executeBunkerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment,
     cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit, repairShipAtPort, recordAuxiliaryAction
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
@@ -36,13 +36,14 @@ import { getBanzaiChargePath, resolveTargetingPreview, isResolvedTargetingCandid
 import { RECRUITMENT_OPTIONS, getUniqueRecruitmentOption } from './recruitmentUi.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
 import { isCoastalLandTile, canRepairShipAtPort } from '../rules/naval.js';
+import { canReinforceAtTile } from '../rules/healing.js';
 import { getSpecialization, getSpecializationOptions, getUnitBaseType, getUnitDisplayName, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortificationAt, canBuildLaserTowerAt, canBuildShoreBatteryAt, canFieldRepair, constructionCost, findConstructionEngineer, isFieldRepairTarget } from '../rules/construction.js';
 import { measure, perfEnabled } from './perf.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange, getAirfieldColonel, getVisibleAirCommandKinds } from '../rules/airCommands.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
-import { BANZAI_CHARGE_CONFIG, FIRE_SEA_CONFIG, getActiveFactionCulture, getCultureForFaction, getCulturalPortRepairCostScale, getCulturalReinforceCostScale, getFireSeaDamagePct, getFireSeaState, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity } from '../rules/cultures.js';
+import { BANZAI_CHARGE_CONFIG, GUERRILLA_CONCEALMENT_CONFIG, FIRE_SEA_CONFIG, getActiveFactionCulture, getBanzaiCooldown, getCultureForFaction, getCulturalPortRepairCostScale, getCulturalReinforceCostScale, getFireSeaDamagePct, getFireSeaState, getGuerrillaConcealmentReason, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity } from '../rules/cultures.js';
 import {
     AURELIA_FACTION_PASSIVE,
     hasAureliaOathPassive,
@@ -302,13 +303,13 @@ function _findUnitById(unitId) {
 
 function _canReinforceUnit(unit) {
     return _isLocalActionUnit(unit)
-        && unit.tile && (unit.tile.isCity || unit.tile.isVillage)
+        && canReinforceAtTile(unit, gameState)
         && getKmtReinforceDeficit(unit, gameState) > 0
         && !unit.tile._reinforcedThisTurn;
 }
 
 function _getReinforcementAction(unit) {
-    if (!unit || !_isLocalActionCamp(unit.camp) || !unit.tile || (!unit.tile.isCity && !unit.tile.isVillage)) return null;
+    if (!unit || !_isLocalActionCamp(unit.camp) || !canReinforceAtTile(unit, gameState)) return null;
 
     if (unit.tile._reinforcedThisTurn) {
         return {
@@ -333,7 +334,7 @@ function _getReinforcementAction(unit) {
             icon: '📯',
             label: '无需补员',
             canUse: false,
-            reason: '可补员生命值已满',
+            reason: '生命值已满',
             theme: 'reinforce'
         };
     }
@@ -522,12 +523,12 @@ function _collectBoardActions(unit, tile = null) {    const actions = [];
         });
     }
     if (unit.type === 'jp_samurai') {
-        const curRound = getRoundIndex(gameState);
-        const cooldown = Math.max(0, (unit._banzaiReadyRound || 0) - curRound);
+        const cooldown = getBanzaiCooldown(unit, gameState);
         const hasTarget = gameState.tiles.some(t => t.unit && isTileVisible(t, unit.camp, gameState)
             && getBanzaiChargePath(unit, t, gameState));
         const canUse = isControllable && unit.canAct && !unit.isNewRecruit && !unit._imprisoned
-            && !unit._transportTransitionedThisTurn && cooldown === 0 && hasTarget;
+            && !unit._transportTransitionedThisTurn && unit.morale !== 0
+            && unit.remainingMP >= BANZAI_CHARGE_CONFIG.movementCost && cooldown === 0 && hasTarget;
         actions.push({
             key: `banzaiCharge:${unit.id}`,
             buttonId: 'boardActiveSkill',
@@ -540,10 +541,25 @@ function _collectBoardActions(unit, tile = null) {    const actions = [];
             reason: canUse ? ''
                 : !isControllable ? unavailableReason
                 : unit._imprisoned ? '被禁锢'
-                : !unit.canAct || unit.isNewRecruit || unit._transportTransitionedThisTurn ? '本回合无法行动'
-                : cooldown > 0 ? `冷却${cooldown}回合`
-                : `${BANZAI_CHARGE_CONFIG.range}格内没有可冲锋的目标`,
+                : !unit.canAct || unit.isNewRecruit || unit._transportTransitionedThisTurn || unit.morale === 0 ? '本回合无法行动'
+                : cooldown > 0 ? '冷却1回合'
+                : unit.remainingMP < BANZAI_CHARGE_CONFIG.movementCost ? '行动力不足（需2点）'
+                : '2格内没有可突击的敌方单位',
             theme: 'commander'
+        });
+    }
+    if (unit.type === 'cpc_guerrilla') {
+        const reason = isControllable ? getGuerrillaConcealmentReason(unit, gameState) : unavailableReason;
+        actions.push({
+            key: `guerrillaConcealment:${unit.id}`,
+            buttonId: 'boardGuerrillaConcealment',
+            kind: 'guerrillaConcealment',
+            unitId: unit.id,
+            icon: GUERRILLA_CONCEALMENT_CONFIG.icon,
+            label: GUERRILLA_CONCEALMENT_CONFIG.name,
+            canUse: isControllable && !reason,
+            reason,
+            theme: 'reinforce'
         });
     }
     if (unit._isDrone) {
@@ -751,7 +767,7 @@ function _activateBoardAction(action) {
             cancelCardTargeting();
             return;
         }
-        showTargetingBanner(`请选择${BANZAI_CHARGE_CONFIG.name}目标（${BANZAI_CHARGE_CONFIG.range}格内可见敌军）`);
+        showTargetingBanner('请选择万岁冲锋目标（2格内敌军）');
         gameState.cardTargeting = {
             cardId: 'banzai_charge',
             targeting: 'enemyGlobal',
@@ -771,6 +787,14 @@ function _activateBoardAction(action) {
         showTargetingBanner('请选择目标');
         gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id, startedAt: performance.now() };
         updateUI();
+        return;
+    }
+
+    if (action.kind === 'guerrillaConcealment') {
+        if (_isLocalActionUnit(unit)) {
+            cancelCardTargeting();
+            executeGuerrillaConcealment(unit);
+        }
         return;
     }
 
@@ -1159,7 +1183,7 @@ const UNIT_TYPE_NAMES = {
     ru_katyusha: '喀秋莎火箭炮',
     cpc_guerrilla: '游击纵队',
     kmt_training_brigade: '中央教导旅',
-    fr_heavy_cannon: '法军重炮',
+    fr_heavy_cannon: '法国巨炮',
     gb_battleship: '皇家战列舰',
     us_marine: '海军陆战队',
     jp_samurai: '帝国武士'
@@ -1441,7 +1465,7 @@ function _buildEffectItems(tile, unit) {
             key: `installation:airfield:${tile.q}:${tile.r}`,
             icon: ready ? '🛫' : '🏗️',
             label: ready ? '机场' : '施工中',
-            desc: ready ? '具有可以起飞空军的机场设施' : `正在建设机场，还需${tile.installation.turnsRemaining || 1}回合完工。`,
+            desc: ready ? '已建成机场设施，可调度空军执行作战指令。' : `正在建设机场，还需${tile.installation.turnsRemaining || 1}回合完工。`,
             color: ready ? '#9fd7ff' : '#e8c477',
             kind: 'effect'
         });
@@ -1654,7 +1678,7 @@ function _buildPassiveItems(unit) {
             key: 'faction:celestine-oracle',
             icon: '🔆',
             label: '神谕',
-            desc: `每轮开始时，【祂】将对全场攻击力最高的单位降下神罚造成真实伤害，并对全场防御力最低的单位附加同等数值的护盾，百分比随回合推进会逐渐提高。`,
+            desc: '每轮开始时，【祂】对全场攻击力最高的单位降下神罚造成真实伤害，并为全场防御力最低的单位施加等量护盾；伤害与护盾比例随轮次提升。',
             color: '#f5d76e',
             status: `当前神临 ${stageName}`,
             count: '',
@@ -1708,10 +1732,10 @@ function _buildPassiveItems(unit) {
             key: 'faction:eagle:skylink',
             icon: EAGLE_FACTION_PASSIVE.icon,
             label: EAGLE_FACTION_PASSIVE.name,
-            desc: `当使用空军或要塞单位造成伤害时可以向总部请求额外资金，受到伤害时可以为天鹰卫星充能`,
+            desc: '己方空军或要塞单位造成伤害时可积累总部拨款，在回合开始时发放额外资金；己方单位承受敌方伤害时为天鹰卫星充能，充能满时获得对策卡【天基打击】。',
             color: eagleActive ? EAGLE_FACTION_PASSIVE.color : '#6b7c8c',
             status: eagleActive
-                ? `额外资金 $${fundAmount.toFixed(1)} 天鹰卫星充能 ${satPct}%`
+                ? `待拨资金 $${fundAmount.toFixed(1)} 卫星充能 ${satPct}%`
                 : '未激活 需要两名天鹰特遣队将领同时在场',
             count: '',
             kicker: EAGLE_FACTION_PASSIVE.type,
@@ -1852,7 +1876,7 @@ function _describeBoardAction(action) {
         const colonel = getAirfieldColonel(launcher);
         return {
             key: action.key, icon: action.icon, label: action.label,
-            desc: `${AIR_COMMAND_CONFIG[action.airKind].name} · 航程${action.range}格${colonel ? ' · 将领强化' : ''}`,
+            desc: `${AIR_COMMAND_CONFIG[action.airKind].name} 航程${action.range}格${colonel ? ' 将领强化' : ''}`,
             color: BOARD_ACTION_THEMES.default.border,
             status: action.canUse ? `消耗 $${action.goldCost}` : action.reason,
             kicker: '机场空军指令', kind: 'action', action
@@ -1885,6 +1909,9 @@ function _describeBoardAction(action) {
     } else if (action.kind === 'banzaiCharge') {
         kicker = '特色主动技';
         desc = BANZAI_CHARGE_CONFIG.desc;
+    } else if (action.kind === 'guerrillaConcealment') {
+        kicker = '特色主动技';
+        desc = GUERRILLA_CONCEALMENT_CONFIG.desc;
     } else if (action.kind === 'droneSuicide') {
         kicker = '单位技能';
         desc = '选择3格内的敌方单位后自爆，对目标造成伤害。';
@@ -3191,7 +3218,7 @@ function _showAirCommandChoice(launcherTile) {
         const costLabel = document.createElement('span'); costLabel.className = 'specialization-stat is-bonus';
         costLabel.textContent = availability.available ? `费用 $${config.cost}` : availability.reason;
         const detail = document.createElement('span'); detail.className = 'specialization-passive';
-        detail.textContent = `${config.desc || ''} 航程${getAirCommandRange(launcherTile)}格${availability.cooldown > 0 ? ` · 冷却${availability.cooldown}回合` : ''}`;
+        detail.textContent = `${config.desc || ''} 航程${getAirCommandRange(launcherTile)}格${availability.cooldown > 0 ? ` 冷却${availability.cooldown}回合` : ''}`;
         card.append(icon, name, costLabel, detail);
         card.addEventListener('click', () => {
             _closeChoiceModal();
@@ -3225,8 +3252,8 @@ function _showWeatherChoice(unit) {
     if (!modal) return;
     modal.overlay._astrologerUnitId = unit ? unit.id : null;
     const choices = [
-        ['clear', '☀️', '晴', '无特殊效果'], ['rain', '🌧️', '雨', '骑兵减速 · 步兵城防'],
-        ['fog', '🌫️', '雾', '火炮受限 · 骑兵冲锋'], ['wind', '💨', '风', '炮击强化 · 步兵脆弱']
+        ['clear', '☀️', '晴', '无特殊效果'], ['rain', '🌧️', '雨', '骑兵减速 步兵城防'],
+        ['fog', '🌫️', '雾', '火炮受限 骑兵冲锋'], ['wind', '💨', '风', '炮击强化 步兵脆弱']
     ];
     for (const [weather, glyph, name, desc] of choices) {
         const card = document.createElement('button'); card.type = 'button'; card.className = 'weather-card';

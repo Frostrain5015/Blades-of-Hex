@@ -13,7 +13,7 @@ import { percent } from '../rules/format.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { getRoundIndex } from './config.js';
 import { FREE_RESISTANCE_EFFECT, NEVER_SURRENDER_CONFIG, getNeverSurrenderStacks, getNeverSurrenderStatBonus } from '../rules/cultures.js';
-import { hasHostileUnitNear, isGuerrillaExposedByVillage, isStealthGuerrilla } from '../rules/visibility.js';
+import { hasHostileUnitNear, isStealthGuerrilla } from '../rules/visibility.js';
 import { getCommander, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 
 const EFFECT_ICONS = FRONTEND_TEXT.icons.effect;
@@ -167,7 +167,7 @@ export function buildUnitEffectItems(unit, gameState) {
             desc: FREE_RESISTANCE_EFFECT.desc,
             color: FREE_RESISTANCE_EFFECT.color,
             count: unit._freeResistanceShield || '',
-            status: `临时护盾 ${unit._freeResistanceShield || 0} · 下次行动结束后失效`,
+            status: `临时护盾 ${unit._freeResistanceShield || 0} 下次行动结束后失效`,
             kind: 'effect'
         });
     }
@@ -188,16 +188,16 @@ export function buildUnitEffectItems(unit, gameState) {
     }
 
     if (isStealthGuerrilla(unit)) {
-        const exposed = isGuerrillaExposedByVillage(unit) || hasHostileUnitNear(unit, gameState);
+        const exposed = hasHostileUnitNear(unit, gameState);
         items.push({
             key: 'culture:stealth',
             icon: '🌿',
-            label: exposed ? '行踪暴露' : '敌后游击',
+            label: exposed ? '行踪暴露' : '敌后隐匿',
             desc: exposed
-                ? '当前位于非己方村庄或1格内有敌军，已失去隐蔽状态（皇帝AI同样可侦测）。'
-                : '当前对敌军隐蔽行踪；仅在敌军逼近至1格内或占领非己方原本控制的村庄时显形（皇帝AI除外）。',
+                ? '1格内存在敌军，当前位置已被敌方侦测，但主动攻击仍可触发【奇袭】（伤害提高65%）。'
+                : '当前对敌军隐蔽行踪；首次主动攻击将触发【奇袭】，造成的伤害提高65%并显形。',
             color: exposed ? '#ff9b72' : '#8fd18b',
-            status: exposed ? '已显形' : '隐蔽中',
+            status: exposed ? '已被侦测 奇袭就绪' : '隐匿中 奇袭就绪',
             kind: 'effect'
         });
     }
@@ -213,30 +213,19 @@ export function buildUnitEffectItems(unit, gameState) {
             desc: passive.desc,
             color: '#a9d7ed',
             status: linkedBrigades.length
-                ? `共享生命 ${linkedBrigades.reduce((sum, ally) => sum + ally.hp, 0)}/${linkedBrigades.reduce((sum, ally) => sum + getKmtPoolCapacity(ally), 0)} · 伤害 +${percent(linkDamage)}`
-                : linkDamage ? `相邻教导旅支援 · 伤害 +${percent(linkDamage)}` : '等待另一支教导旅入场',
+                ? `共享生命 ${linkedBrigades.reduce((sum, ally) => sum + ally.hp, 0)}/${linkedBrigades.reduce((sum, ally) => sum + getKmtPoolCapacity(ally), 0)} 伤害 +${percent(linkDamage)}`
+                : linkDamage ? `相邻教导旅支援 伤害 +${percent(linkDamage)}` : '等待另一支教导旅入场',
             kind: 'effect'
         });
     }
-    if (unit.type === 'us_marine' && unit._marineLandingReady) {
-        items.push({
-            key: 'culture:marine-landing',
-            icon: '⚓',
-            label: '登陆突击',
-            desc: '本回合下一次对陆上单位的主动攻击伤害提高20%。',
-            color: '#7cdef0',
-            kind: 'effect'
-        });
-    }
-
     if (unit.config?.permanentAntiHeal) {
         items.push({
             key: 'culture:anti-heal',
             icon: '🩸',
-            label: '武士禁疗',
-            desc: '常驻禁疗状态：无法通过常规治疗回血（可在城市或村庄补员；万岁冲锋击杀目标后可无视禁疗回复60%最大生命）。',
+            label: '武士信条',
+            desc: '无法接受常规治疗，仅可通过城市、村庄补员或【万岁冲锋】击杀敌军恢复生命值。',
             color: '#ef5350',
-            status: '常驻禁疗',
+            status: '无法接受常规治疗',
             kind: 'effect'
         });
     }
@@ -260,7 +249,7 @@ export function buildUnitEffectItems(unit, gameState) {
                 key: "campaign:" + eff.name + ":" + eff.id,
                 icon: eff.emoji || "✨",
                 label: eff.name,
-                desc: (eff.desc || "战役效果") + (eff.duration ? " · 剩余" + eff.duration + "回合" : ""),
+                desc: (eff.desc || "战役效果") + (eff.duration ? " 剩余" + eff.duration + "回合" : ""),
                 color: "#ffd866",
                 count: eff.duration ? "⏳" + eff.duration : "",
                 status: eff.duration ? "持续" + eff.duration + "回合" : "持续生效",

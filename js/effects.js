@@ -2188,7 +2188,7 @@ export function drawKatyushaRockets(ctx2d, now) {
     }
 }
 
-export function spawnBanzaiDash(fromX, fromY, toX, toY, { killed = false, healAmt = 0, destX = toX, destY = toY, dodged = false, showDodge = false, delayMs = 0 } = {}) {
+export function spawnBanzaiDash(fromX, fromY, toX, toY, { killed = false, healAmt = 0, followup = false, destX = toX, destY = toY, dodged = false, showDodge = false, delayMs = 0 } = {}) {
     banzaiDashes.push({
         fromX, fromY, toX, toY,
         startTime: performance.now(),
@@ -2209,6 +2209,10 @@ export function spawnBanzaiDash(fromX, fromY, toX, toY, { killed = false, healAm
         if (killed && healAmt > 0) {
             spawnHealParticles(destX, destY);
             spawnRingWave(destX, destY, { color: '#fca5a5', maxRadius: 56, duration: 540, lineWidth: 3, count: 2, glow: '#ef4444' });
+        }
+        if (followup) {
+            spawnCommanderSkillEffect(destX, destY, '⚔️', '再次行动');
+            spawnRingWave(destX, destY, { color: '#ffd799', maxRadius: 40, duration: 480, lineWidth: 2, glow: '#f06456' });
         }
     }, delayMs);
 }

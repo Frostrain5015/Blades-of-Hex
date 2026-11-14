@@ -23,10 +23,10 @@ import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
 import { isFriendly, isHostile } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { isRangedAttackPresentation } from '../rules/attackPresentation.js';
+import { isRangedCombatAttack } from '../rules/attackPresentation.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { getCityDefenseBonus, getCannonSiegeDamageBonus } from '../rules/citySiege.js';
-import { FREE_RESISTANCE_EFFECT, MARINE_LANDING_BONUS, getFreeResistanceTurnDeadline, getCulturalWaterMovementBonus, getCulturalXpMultiplier, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
+import { FREE_RESISTANCE_EFFECT, getFreeResistanceTurnDeadline, getCulturalWaterMovementBonus, getCulturalXpMultiplier, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
 import { markSubmarineDamagedWhileExposed } from '../rules/visibility.js';
 import {
     COLONEL_AIR_DAMAGE_BONUS,
@@ -37,7 +37,7 @@ import {
     getMountedCommanderAirAttackBonus
 } from '../rules/airCommands.js';
 import { areCommanderMechanicsSuppressed, canUnitOccupyTile, getTransportBaseDefense, getUnitCombatRange, getUnitMovementDomain, isEmbarkableLandUnit, TRANSPORT_RULES, TRANSPORT_SPEED_CAP } from '../rules/movement.js';
-import { isLandTile, isWaterTile } from '../rules/surfaces.js';
+import { isWaterTile } from '../rules/surfaces.js';
 import { canUnitTargetUnit, getCrossDomainDamageBonus } from '../rules/naval.js';
 import {
     AURELIA_FACTION_PASSIVE,
@@ -118,7 +118,7 @@ function _triggerFrenchFreeResistance(victim, state) {
         };
         if (!isFloatTextCaptureSuppressed()) (state._pendingFreeResistanceFx ||= []).push(event);
         emit('fx:freeResistance', event);
-        _logMessage?.(`${victim.camp.name}触发【${FREE_RESISTANCE_EFFECT.name}】，${affected.length}支友军获得士气与临时护盾`);
+        _logMessage?.(`${victim.camp.name}触发【${FREE_RESISTANCE_EFFECT.name}】，${affected.length}支友军士气上升并获得临时护盾`);
     }
     return affected.length > 0;
 }
@@ -212,11 +212,12 @@ export class Unit {
         this._phantomStacks = 0;
         this._berserkerQixue = false;
         this._banzaiReadyRound = 0;
+        this._banzaiFollowupTurn = null;
+        this._guerrillaHiddenThroughRound = null;
+        this._guerrillaReadyRound = 0;
         this._heavyCannonAutoFiredThisTurn = false;
         this._freeResistanceUntilTurn = 0;
         this._freeResistanceShield = 0;
-        this._marineLandingReady = false;
-        this._exposedVillageKey = null;
         this._submarineLastAttackRound = null;
         this._submarineDamagedWhileExposed = false;
         this._shield = 0;
@@ -667,7 +668,7 @@ export class Unit {
     //   ④ 防御（层内加算后 1-Σ）：地形/守城/兵种/军衔/士气/将领/灵光，「防御力提高xx%」
     _resolveDamage(attacker, defender, baseMulti = 1, extraBonus = 0,
                    isCounter = false, isCityCounter = false, isAirDamage = false, ignoreDef = 0, attackFlatBonus = 0,
-                   forceNoCrit = false, antiAirBypassPct = 0) {
+                   forceNoCrit = false, antiAirBypassPct = 0, bonusDamage = 0) {
         const counterCoeff = COUNTER_RELATION[attacker.type]?.[defender.type] ?? 1;
         const attackerBase = getUnitBaseType(attacker);
         const defenderBase = getUnitBaseType(defender);
@@ -678,8 +679,6 @@ export class Unit {
 
         // ② 增伤乘区
         let dmgUp = extraBonus + getCrossDomainDamageBonus(attacker, defender) + getMachineGunDamageBonus(attacker.type, defender.type);
-        if (!isCounter && attacker.type === 'us_marine' && attacker._marineLandingReady
-            && isLandTile(attacker.tile) && isLandTile(defender.tile)) dmgUp += MARINE_LANDING_BONUS;
         // 固守：只削减“受到的第一次攻击”，反击伤害不吃也不消耗该标记
         const firstHitReduction = isCounter ? 0 : (defender.getSpecializationAbility?.('holdFirstHitReduction') || 0);
         if (firstHitReduction > 0 && !defender.movedThisTurn && (defender._timesAttackedThisTurn || 0) === 0) {
@@ -779,7 +778,7 @@ export class Unit {
         const defenseMulti = Math.max(COMBAT_BALANCE.defense.minimumMultiplier, 1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, defSum));
 
         return {
-            dmg: (attacker.getEffectiveAttack() + attackFlatBonus) * baseMulti * offenseMulti * floatMult * defenseMulti,
+            dmg: ((attacker.getEffectiveAttack() + attackFlatBonus) * baseMulti * offenseMulti * floatMult + bonusDamage) * defenseMulti,
             isCrit,
             floatMult // 供诺克提斯【血潮】按「浮动超 1.00 部分」记暴击伤害
         };
@@ -919,8 +918,12 @@ export class Unit {
             false,
             false,
             ignoreDef,
-            0
+            0,
+            false,
+            0,
+            options.bonusDamage || 0
         );
+        if (options.damageMultiplier) result.dmg *= options.damageMultiplier;
 
         if (options.showDamageText !== false) {
             this._pushDamageTextDelayed(gs, {
@@ -954,7 +957,7 @@ export class Unit {
         // 反击可达性：攻击者必须落在防守方自身射程内才能还击
         //   近战单位(步/骑) 射程1 → 仅贴脸攻击可被反击
         //   远程单位(炮/碉堡) 射程2 → 2格内的攻击者（含远程炮击/近战贴脸）均可被反击
-        const counterIsRanged = isRangedAttackPresentation(this);
+        const counterIsRanged = isRangedCombatAttack(this);
         const counterRange = this._isDrone ? 2 : (counterIsRanged ? this.getEffectiveRange() : 1);
         if (hexDistance(attackerUnit.tile, this.tile) > counterRange) {
             return { dmg: 0, isCrit: false };
@@ -1401,7 +1404,7 @@ export class Unit {
     // 普攻/反击入口（保留旧签名，内部转入 applyDamage）
     takeDamage(dmg, attackerUnit, _skipAura = false, opts = {}) {
         let source = 'true';
-        if (attackerUnit) source = isRangedAttackPresentation(attackerUnit) ? 'ranged' : 'melee';
+        if (attackerUnit) source = isRangedCombatAttack(attackerUnit) ? 'ranged' : 'melee';
         return this.applyDamage(dmg, {
             source, attacker: attackerUnit, skipAura: _skipAura, isCrit: Boolean(opts?.isCrit),
             impactDelayMs: opts?.impactDelayMs

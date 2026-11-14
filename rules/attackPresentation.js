@@ -54,14 +54,22 @@ function readAttackSource(source) {
  * Single presentation classifier shared by local attacks, remote replay and
  * route previews. It describes visuals only and never changes attack rules.
  */
-export function classifyAttackPresentation(source) {
-    const { type, isDrone } = readAttackSource(source);
+function classifyCombatAttack({ type, isDrone }) {
     const baseType = getUnitBaseType(type) || type;
     if (baseType === 'submarine') return ATTACK_PRESENTATION.FIRE_TORPEDO;
     if (baseType === 'carrier') return ATTACK_PRESENTATION.FIRE_AIR_STRAFE;
     if (isDrone || baseType === 'drone' || baseType === 'mgNest' || baseType === 'destroyer') return ATTACK_PRESENTATION.FIRE_TRACER;
     if (baseType === 'archer' || baseType === 'warship' || baseType === 'shoreBattery') return ATTACK_PRESENTATION.FIRE_CANNON;
     return ATTACK_PRESENTATION.ASSAULT;
+}
+
+export function classifyAttackPresentation(source) {
+    const attack = readAttackSource(source);
+    return attack.type === 'us_marine' ? ATTACK_PRESENTATION.FIRE_TRACER : classifyCombatAttack(attack);
+}
+
+export function isRangedCombatAttack(source) {
+    return classifyCombatAttack(readAttackSource(source)) !== ATTACK_PRESENTATION.ASSAULT;
 }
 
 export function isRangedAttackPresentation(source) {

@@ -12,6 +12,8 @@ import { COUNTER_RELATION, getAttackRangeCap, getMachineGunDamageBonus, getUnitB
 import { getCrossDomainDamageBonus } from '../rules/naval.js';
 import { getCannonSiegeDamageBonus, getCityDefenseBonus } from '../rules/citySiege.js';
 import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus } from '../rules/kmtStronghold.js';
+import { GUERRILLA_CONCEALMENT_CONFIG } from '../rules/cultures.js';
+import { isStealthGuerrilla } from '../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense, getUnitCombatRange, TRANSPORT_RULES } from '../rules/movement.js';
 
@@ -367,7 +369,7 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
     }
 
     /** 单次攻击的期望伤害。士气已含在 getEffectiveAttack 内，不重复叠加。 */
-    function estimateDamage(attacker, defender, tile) {
+    function estimateDamage(attacker, defender, tile, bonusDamage = 0, isCounter = false) {
         const tileObj = tile || defender?.tile;
         if (!attacker || !defender || !tileObj) return 0;
         const attackerBase = getUnitBaseType(attacker);
@@ -392,9 +394,9 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
             - strongholdDef
             - weatherDefensePenalty(defenderBase);
         const magicianDef = (transportDefense == null && defender.commander === 'magician' && coeff > 1) ? 0.15 : 0;
-        return Number(attacker.getEffectiveAttack?.() ?? (transportedAttacker ? TRANSPORT_RULES.baseAttack : attacker.config?.attack) ?? 0)
-            * Math.max(0, offense)
-            * Math.max(0.3, def - magicianDef);
+        const attack = Number(attacker.getEffectiveAttack?.() ?? (transportedAttacker ? TRANSPORT_RULES.baseAttack : attacker.config?.attack) ?? 0);
+        const ambushMultiplier = !isCounter && isStealthGuerrilla(attacker) ? 1 + GUERRILLA_CONCEALMENT_CONFIG.ambushDamagePct : 1;
+        return (attack * Math.max(0, offense) + bonusDamage) * Math.max(0.3, def - magicianDef) * ambushMultiplier;
     }
 
     /**
@@ -412,7 +414,7 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
         const distance = hexDistance ? hexDistance(attacker.tile, defender.tile) : 1;
         if ((defender.getEffectiveRange?.() ?? getUnitCombatRange(defender)) < distance) return 0;
         // 承受反击的是进攻方，防御地形按进攻方自己站的格子算。
-        return estimateDamage(defender, attacker, attacker.tile) * 0.98;
+        return estimateDamage(defender, attacker, attacker.tile, 0, true) * 0.98;
     }
 
     function wouldDieToCounter(attacker, defender) {

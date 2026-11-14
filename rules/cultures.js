@@ -26,7 +26,7 @@ export const FREE_RESISTANCE_EFFECT = Object.freeze({
     cooldownRounds: 2,
     shield: 24,
     color: '#4ea8ff',
-    desc: '己方部队受到暴击伤害或阵亡（含中毒）时，周围1格友军士气上升并获得24点临时护盾，持续至各自下一次行动回合结束。每2回合最多触发1次。'
+    desc: '己方部队受到暴击伤害或阵亡时，周围1格友军士气上升并获得24点临时护盾，持续至各自下一次行动回合结束。每2回合最多触发1次。'
 });
 
 export function getFreeResistanceTurnDeadline(state, camp) {
@@ -40,8 +40,6 @@ export function getFreeResistanceTurnDeadline(state, camp) {
     return state.turnCounter + distance + 1;
 }
 
-export const MARINE_LANDING_BONUS = 0.20;
-
 export const FIRE_SEA_CONFIG = Object.freeze({
     id: 'de_fire_sea',
     name: '火海',
@@ -50,7 +48,7 @@ export const FIRE_SEA_CONFIG = Object.freeze({
     maxLayers: 2,
     hpLossPctPerLayer: 0.10,
     color: '#ff6422',
-    desc: '与地块绑定的焦土火海，持续2回合（最多叠加2层），每层每回合使格上单位流失10%生命值。'
+    desc: '焦土火海持续2回合（最多叠加2层），每层每回合使格上非己方单位流失10%最大生命值。'
 });
 
 export const BANZAI_CHARGE_CONFIG = Object.freeze({
@@ -59,11 +57,47 @@ export const BANZAI_CHARGE_CONFIG = Object.freeze({
     icon: '⚔️',
     range: 2,
     cooldown: 1,
-    selfDamageCurrentHpPct: 0.75,
-    damageMultiplier: 1.85,
-    killHealMaxHpPct: 0.60,
-    desc: '向2格内敌军发起绝死突击（冷却1回合）：先自损75%当前生命值，造成重创并突进贴敌；若成功击杀敌军，无视禁疗回复60%最大生命值。'
+    movementCost: 2,
+    selfDamageCurrentHpPct: 0.25,
+    missingHpDamagePct: 0.30,
+    maxBonusDamage: 60,
+    killHealMaxHpPct: 0.35,
+    killMovementRefund: 2,
+    desc: '消耗2点行动力与25%当前生命值（至少保留1点生命），向2格内敌军发起突击并贴近目标，在常规攻击基础上追加目标已损失生命值30%的伤害（上限60点）。若击杀目标，立即恢复35%最大生命值；本回合首次冲锋击杀还将返还1次行动机会与2点行动力。施放后下一己方回合进入冷却。'
 });
+
+export const GUERRILLA_CONCEALMENT_CONFIG = Object.freeze({
+    name: '敌后隐匿',
+    icon: '🌿',
+    movementCost: 2,
+    durationRounds: 1,
+    cooldown: 1,
+    ambushDamagePct: 0.65,
+    desc: '消耗2点行动力隐蔽行踪，施放后本回合仍可继续移动与攻击，效果最长持续至下一次己方回合结束。隐匿期间首次主动攻击敌军将触发【奇袭】，造成的伤害提高65%并立即显形（攻击被闪避同样消耗并显形）。1格内有敌军时会被敌方看见，但不会失去当次【奇袭】效果。显形后下一己方回合进入冷却。'
+});
+
+export function getBanzaiBonusDamage(target) {
+    return Math.min(BANZAI_CHARGE_CONFIG.maxBonusDamage,
+        Math.max(0, target.maxHp - target.hp) * BANZAI_CHARGE_CONFIG.missingHpDamagePct);
+}
+
+export function getBanzaiCooldown(unit, state) {
+    return unit._banzaiFollowupTurn === state.turnCounter ? 0
+        : Math.max(0, (unit._banzaiReadyRound || 0) - getRoundIndex(state));
+}
+
+export function getGuerrillaConcealmentReason(unit, state) {
+    if (unit._guerrillaHiddenThroughRound != null) return '隐匿生效中';
+    if ((unit._guerrillaReadyRound || 0) > getRoundIndex(state)) return '冷却1回合';
+    if (unit._imprisoned) return '被禁锢';
+    if (!unit.canAct || unit.isNewRecruit || unit.isEmbarked || unit._transportTransitionedThisTurn
+        || unit._campaignCanAct === false || unit.hp <= 0 || unit.morale === 0) return '本回合无法行动';
+    if (!(unit.remainingMP >= GUERRILLA_CONCEALMENT_CONFIG.movementCost)) return '行动力不足（需2点）';
+    return '';
+}
+
+export const SAMURAI_PASSIVE_DESCRIPTION = '无法接受常规治疗，仅可在城市或村庄补员。主动技【万岁冲锋】可消耗2点行动力与25%当前生命值突击2格内敌军，追加目标已损失生命值30%的伤害（至多60点）；击杀目标时恢复35%最大生命值，且每回合首次冲锋击杀后额外获得1次行动机会与2点行动力。';
+export const GUERRILLA_PASSIVE_DESCRIPTION = '移动不受地形与天气的额外行动力消耗影响。可消耗2点行动力进入【隐匿】状态（持续至下一次己方回合结束，显形后冷却1回合）；隐匿期间首次主动攻击触发【奇袭】，造成的伤害提高65%并显形。1格内有敌军时会被侦测，但仍保留当次奇袭加成。';
 
 export const CULTURE_CONFIG = deepFreeze({
     us: {
@@ -77,7 +111,7 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '海军陆战队',
             abilityName: '两栖登陆',
-            summary: '可在城市或港口招募，下海保持攻防；从海上攻击陆军伤害提高30%。从水域登陆后，本回合下一次对陆上单位的主动攻击伤害提高20%。'
+            summary: '可在城市或港口招募，也可在己方已启用的港口补员。入水保持原攻防属性，从水上攻击陆地单位、或在陆地与水上攻击舰船均免除陆海交战的50%减伤；登陆后仍可行动。'
         },
         tier2: {
             title: '海洋霸权',
@@ -111,9 +145,9 @@ export const CULTURE_CONFIG = deepFreeze({
         uniqueAirCommand: null,
         badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 1.0, fillScale: 0.783 },
         tier1: {
-            title: '巨炮',
+            title: '法国巨炮',
             abilityName: '远程重炮',
-            summary: '射程5格，无视陆军攻击海军的减伤并附带35%溅射。回合开始时自动炮击射程内随机敌军，之后仍可移动。'
+            summary: '射程5格，攻击附带35%溅射伤害，且攻击海军不受陆军对海减伤影响。回合开始时自动炮击射程内随机敌军，触发后本回合仍可移动，但无法再次攻击。'
         },
         tier2: {
             title: '自由不屈',
@@ -131,7 +165,7 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '喀秋莎火箭炮',
             abilityName: '火力覆盖',
-            summary: '每次普通攻击均自动激发火箭弹幕并触发35%溅射伤害；全阵营普通炮兵取消火箭炮专精以保留溅射稀缺性。'
+            summary: '每次攻击均发射火箭弹幕，对目标相邻敌军造成35%溅射伤害。'
         },
         tier2: {
             title: '严冬铁卫',
@@ -148,8 +182,8 @@ export const CULTURE_CONFIG = deepFreeze({
         badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 0.905 },
         tier1: {
             title: '中央教导旅',
-            abilityName: '血肉长城',
-            summary: '【同心同德】多支教导旅全图链接，共享生命与治疗。链接时城防、工事和地形防御加成提高50%，自身与相邻六格友军造成的伤害提高15%。增伤不叠加。'
+            abilityName: '同心同德',
+            summary: '场上存在至少2支己方陆上教导旅时彼此休戚与共，共享生命与治疗，所获城防、工事及地形防御加成提高50%，并使自身与相邻友军造成的伤害提高15%（多支教导旅的伤害加成不叠加）。'
         },
         tier2: {
             title: '一寸山河一寸血',
@@ -167,11 +201,11 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '游击纵队',
             abilityName: '敌后游击',
-            summary: '无视任何负面地形与天气的行动力减益；平时对非己方隐藏行踪（皇帝AI除外），仅在敌军逼近至1格内或占领非己方原本控制的村庄时显形。'
+            summary: GUERRILLA_PASSIVE_DESCRIPTION
         },
         tier2: {
             title: '军民鱼水',
-            summary: '部队不受地形行动力减益影响，在村庄补员时费用减半。'
+            summary: '部队不受地形额外行动力消耗影响，在村庄补员时费用减半。'
         }
     },
     de: {
@@ -189,7 +223,7 @@ export const CULTURE_CONFIG = deepFreeze({
         },
         tier2: {
             title: '焦土空袭',
-            summary: '机场建造费用降至7金；己方空军攻击将在目标地块（轰炸含溅射格）附加2回合「火海」，每层每回合流失10%生命值，最多叠加2层。'
+            summary: '机场建造费用降至7金；己方空军攻击会在命中地块（含轰炸波及的相邻地块）燃起持续2回合的「火海」，每层每回合使格上敌军流失10%最大生命值，最多叠加2层。'
         }
     },
     jp: {
@@ -202,8 +236,8 @@ export const CULTURE_CONFIG = deepFreeze({
         badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 1.0, fillScale: 0.94 },
         tier1: {
             title: '帝国武士',
-            abilityName: '武士信条 / 万岁冲锋',
-            summary: '常驻禁疗（可在城市/村庄补员）；普攻1格，主动技【万岁冲锋】向2格内敌军绝死突击（冷却1回合，自损75%当前生命），若击杀敌军则无视禁疗回复60%最大生命。'
+            abilityName: '武士信条',
+            summary: SAMURAI_PASSIVE_DESCRIPTION
         },
         tier2: {
             title: '武运长久',

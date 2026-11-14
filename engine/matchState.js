@@ -516,11 +516,12 @@ export function serializeMatchState(match) {
             submarineDamagedWhileExposed: t.unit._submarineDamagedWhileExposed === true,
             submarinePortRevealUntilRound: t.unit._submarinePortRevealUntilRound || 0,
             banzaiReadyRound: Number.isFinite(t.unit._banzaiReadyRound) ? t.unit._banzaiReadyRound : 0,
+            banzaiFollowupTurn: t.unit._banzaiFollowupTurn ?? null,
+            guerrillaHiddenThroughRound: t.unit._guerrillaHiddenThroughRound ?? null,
+            guerrillaReadyRound: t.unit._guerrillaReadyRound || 0,
             heavyCannonAutoFiredThisTurn: t.unit._heavyCannonAutoFiredThisTurn === true,
             freeResistanceUntilTurn: t.unit._freeResistanceUntilTurn || 0,
             freeResistanceShield: t.unit._freeResistanceShield || 0,
-            marineLandingReady: t.unit._marineLandingReady === true,
-            exposedVillageKey: t.unit._exposedVillageKey || null,
             commander: t.unit.commander,
             storyCommanderId: t.unit.storyCommanderId || null,
             commanderName: t.unit.commanderName || '',
@@ -1021,11 +1022,12 @@ export function restoreMatchState(match, data, deps) {
             unit._submarineDamagedWhileExposed = td.unit.submarineDamagedWhileExposed === true;
             unit._submarinePortRevealUntilRound = td.unit.submarinePortRevealUntilRound || 0;
             unit._banzaiReadyRound = Number.isFinite(td.unit.banzaiReadyRound) ? td.unit.banzaiReadyRound : 0;
+            unit._banzaiFollowupTurn = Number.isFinite(td.unit.banzaiFollowupTurn) ? td.unit.banzaiFollowupTurn : null;
+            unit._guerrillaHiddenThroughRound = Number.isFinite(td.unit.guerrillaHiddenThroughRound) ? td.unit.guerrillaHiddenThroughRound : null;
+            unit._guerrillaReadyRound = Number.isFinite(td.unit.guerrillaReadyRound) ? td.unit.guerrillaReadyRound : 0;
             unit._heavyCannonAutoFiredThisTurn = td.unit.heavyCannonAutoFiredThisTurn === true;
             unit._freeResistanceUntilTurn = td.unit.freeResistanceUntilTurn || 0;
             unit._freeResistanceShield = td.unit.freeResistanceShield || 0;
-            unit._marineLandingReady = td.unit.marineLandingReady === true;
-            unit._exposedVillageKey = td.unit.exposedVillageKey || null;
             unit.commander = td.unit.commander || null;
             unit.storyCommanderId = td.unit.storyCommanderId || null;
             unit.commanderName = td.unit.commanderName || '';

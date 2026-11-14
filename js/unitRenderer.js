@@ -14,7 +14,7 @@ import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { getUnitStatusIcons } from './unitStatusIcons.js';
 import { getActiveCultureId, getCulturalBadgeCropForUnit } from '../rules/cultures.js';
 import { isUniqueCultureUnit } from '../rules/units.js';
-import { hasHostileUnitNear, isGuerrillaExposedByVillage, isStealthGuerrilla, isStealthUnit, isUnitVisibleToCamp } from '../rules/visibility.js';
+import { hasHostileUnitNear, isStealthGuerrilla, isStealthUnit, isUnitVisibleToCamp } from '../rules/visibility.js';
 import {
     UNIT_BADGE_CENTER_Y,
     UNIT_BADGE_RADIUS,
@@ -209,7 +209,7 @@ export function drawUnit(unit, gameState, { deathGhost = false } = {}) {
             && !isUnitVisibleToCamp(unit, viewerCamp, gs, { ignoreAiBypass: true })) return;
 
         const isConcealedStealth = isStealthUnit(unit)
-            && !(isStealthGuerrilla(unit) && (isGuerrillaExposedByVillage(unit) || hasHostileUnitNear(unit, gs)));
+            && !(isStealthGuerrilla(unit) && hasHostileUnitNear(unit, gs));
         const time = now / 1000;
         const cc = getFlagColors(unit.camp?.colorId || unit.camp?.color);
 

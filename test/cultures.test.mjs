@@ -79,7 +79,6 @@ const {
     isSubmarineDetector,
     hasSubmarineDetectorInRange,
     isSubmarineTargetableBy,
-    isGuerrillaExposedByVillage,
     hasHostileUnitNear,
     isStealthGuerrilla,
     isUnitVisibleToCamp
@@ -234,7 +233,7 @@ test('八国文化完整清单与 7 种特色兵种徽章裁剪配置', () => {
     assert.equal(getCulturalBadgeCropForUnit({ type: 'infantry', config: UNIT_CONFIG.infantry }), null);
 });
 
-test('美国文化：海军陆战队城港双招募、两栖不减益与跨海+30%及Tier2海上+1移动与港口5折修理', () => {
+test('美国文化：海军陆战队两栖交战、城港双招募、海上行动与维修折扣', () => {
     const state = setupCultureState('img/flags/svg/us.svg', 'img/flags/svg/gb.svg');
     const p1 = state.factions.player1;
     const p2 = state.factions.player2;
@@ -267,14 +266,27 @@ test('美国文化：海军陆战队城港双招募、两栖不减益与跨海+3
     assert.equal(isWaterborneUnit(marine), true);
     assert.equal(canCapturePort(marine), true);
     assert.equal(getTransportBaseDefense(marine), null);
-    assert.equal(getCrossDomainDamageBonus(marine, enemy), NAVAL_RULES.marineWaterToLandDamage);
-    assert.equal(NAVAL_RULES.marineWaterToLandDamage, 0.30);
+    assert.equal(getCrossDomainDamageBonus(marine, enemy), 0);
 
     // Tier 2: 海上单位移动+1、港口修理费用减半
     assert.equal(getCulturalWaterMovementBonus(state, p1), 1);
     assert.equal(getCulturalWaterMovementBonus(state, p2), 0);
     assert.equal(marine.getEffectiveSpeed(), UNIT_CONFIG.us_marine.speed + 1);
     assert.equal(getCulturalPortRepairCostScale(state, p1), 0.5);
+
+    const warship = spawnUnit('warship', p2, portTile);
+    const shoreMarine = spawnUnit('us_marine', p1, cityTile);
+    const cavalry = spawnUnit('cavalry', p1, addTile(state, -1, 1, p1));
+    assert.equal(getCrossDomainDamageBonus(shoreMarine, warship), 0);
+    assert.equal(getCrossDomainDamageBonus(marine, warship), 0);
+    assert.equal(getCrossDomainDamageBonus(cavalry, warship), -0.50);
+
+    shoreMarine._calcFloat = marine._calcFloat = cavalry._calcFloat = () => 1;
+    const marineDamage = shoreMarine.calculateDamage(warship).dmg / shoreMarine.getEffectiveAttack();
+    const cavalryDamage = cavalry.calculateDamage(warship).dmg / cavalry.getEffectiveAttack();
+    assert.ok(Math.abs(marineDamage - 2 * cavalryDamage) < 1e-9);
+    assert.equal(marine.calculateDamage(warship).dmg, shoreMarine.calculateDamage(warship).dmg);
+    assert.equal(marine.calculateDamage(enemy).dmg, shoreMarine.calculateDamage(enemy).dmg);
 });
 
 test('英国文化：皇家战列舰2格反潜与20%闪避，Tier2 永不投降每2回合+2.5%最高6层', () => {
@@ -442,7 +454,7 @@ test('中华民国：教导旅跨地图共享生命、放大驻地防御并给�
     assert.equal(getCulturalReinforceCostScale(state, villageTile, kmt), 1);
 });
 
-test('中共文化：游击纵队隐身与村庄/邻格/皇帝AI显形规则，Tier2 森/山减耗与村庄补员5折', () => {
+test('中共苏区：游击纵队只在主动隐匿期间隐藏，邻格侦测按观察阵营计算', () => {
     const state = setupCultureState('img/flags/chinese-communist-party-old.svg', 'img/flags/kuomintang.svg');
     const cpc = state.factions.player1;
     const kmt = state.factions.player2;
@@ -453,6 +465,9 @@ test('中共文化：游击纵队隐身与村庄/邻格/皇帝AI显形规则，T
     const farTile = addTile(state, 4, 0, kmt);
 
     const guerrilla = spawnUnit('cpc_guerrilla', cpc, plainTile);
+    assert.equal(isStealthGuerrilla(guerrilla), false);
+    assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), true);
+    guerrilla._guerrillaHiddenThroughRound = 1;
     assert.equal(isStealthGuerrilla(guerrilla), true);
     assert.equal(isUnitVisibleToCamp(guerrilla, cpc, state), true);
     assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), false);
@@ -467,22 +482,19 @@ test('中共文化：游击纵队隐身与村庄/邻格/皇帝AI显形规则，T
     assert.equal(hasHostileUnitNear(guerrilla, state, 1), true);
     assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), true);
 
-    // 移走邻近敌军后重新隐形，改测试占领敌方/中立村庄显形
+    // 移走侦测单位后继续隐匿，村庄和 AI 难度不额外揭示。
     adjTile.unit = null;
     assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), false);
     guerrilla.tile = enemyVillage;
     enemyVillage.unit = guerrilla;
-    assert.equal(isGuerrillaExposedByVillage(guerrilla), true);
-    assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), true);
+    assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), false);
 
-    // 皇帝AI可穿透隐身
     enemyVillage.unit = null;
     guerrilla.tile = plainTile;
     plainTile.unit = guerrilla;
     kmt.isAI = true;
     kmt.aiDifficulty = 'imperator';
-    assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), true);
-    assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state, { ignoreAiBypass: true }), false);
+    assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), false);
 
     // 森林和山地移动成本均降到平原水平。
     assert.equal(getCulturalTerrainStepDelta(state, cpc, 'forest'), -1);
@@ -565,9 +577,11 @@ test('日本文化：帝国武士常驻禁疗但允许补员与强制回血，�
 
     assert.equal(BANZAI_CHARGE_CONFIG.range, 2);
     assert.equal(BANZAI_CHARGE_CONFIG.cooldown, 1);
-    assert.equal(BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct, 0.75);
-    assert.equal(BANZAI_CHARGE_CONFIG.damageMultiplier, 1.85);
-    assert.equal(BANZAI_CHARGE_CONFIG.killHealMaxHpPct, 0.6);
+    assert.equal(BANZAI_CHARGE_CONFIG.movementCost, 2);
+    assert.equal(BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct, 0.25);
+    assert.equal(BANZAI_CHARGE_CONFIG.missingHpDamagePct, 0.30);
+    assert.equal(BANZAI_CHARGE_CONFIG.maxBonusDamage, 60);
+    assert.equal(BANZAI_CHARGE_CONFIG.killHealMaxHpPct, 0.35);
 
     // Tier 2: 经验获取速度 +20%
     assert.equal(getCulturalXpMultiplier(state, jp), 1.20);

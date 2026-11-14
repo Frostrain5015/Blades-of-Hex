@@ -6,7 +6,7 @@ import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, attackCityTile, recruitUnit, reinforceUnit, repairShipAtPort,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeDroneDeploy, executeDroneSuicide,
-    executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge,
+    executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment,
     recalcAllFlankingMorale, drawCard, recordAuxiliaryAction
 } from './gameLogic.js';
 import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
@@ -50,7 +50,8 @@ import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { canRecruitTypeAtSelectedSite } from './recruitmentUi.js';
 import { chooseDefaultSpecialization, getUnitBaseType } from '../rules/units.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
-import { getActiveCultureId, getArtilleryCostDiscount, getCulturalReinforceCostScale, getCultureUniqueUnitType } from '../rules/cultures.js';
+import { getActiveCultureId, getArtilleryCostDiscount, getBanzaiBonusDamage, getCulturalReinforceCostScale, getCultureUniqueUnitType, getGuerrillaConcealmentReason } from '../rules/cultures.js';
+import { getBanzaiChargePath } from '../rules/targeting.js';
 import {
     canBuildFieldFortification,
     canFieldRepair,
@@ -59,6 +60,7 @@ import {
 } from '../rules/construction.js';
 import { AIR_COMMAND_CONFIG, canTargetWithSingleAirCommand, getAirCommandAvailability, getAirCommandRange } from '../rules/airCommands.js';
 import { isSubmarineTargetableBy } from '../rules/naval.js';
+import { canReinforceAtTile } from '../rules/healing.js';
 import { isLandTile } from '../rules/surfaces.js';
 import { getStandardMap } from '../rules/standardMaps.js';
 import { hasFullAiIntelligence, resolveAiDifficultyProfile } from '../ai/difficulty.js';
@@ -565,6 +567,9 @@ async function _executeActionInner(action, aiCamp) {
             const target = resolveUnit(followup.targetId);
             if (!target?.tile || !getAttackableTiles(unit, AI_TARGETING).includes(target.tile)) return false;
             await delay(AI_DELAY);
+            if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, gameState)) {
+                executeGuerrillaConcealment(unit);
+            }
             attackUnit(unit, target, AI_TARGETING);
             return true;
         }
@@ -622,6 +627,9 @@ async function _executeActionInner(action, aiCamp) {
                         TIER_CAPABILITIES[profile.id], unit.id, target.id)) return false;
                 }
                 await delay(AI_DELAY);
+                if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, gameState)) {
+                    executeGuerrillaConcealment(unit);
+                }
                 attackUnit(unit, target, AI_TARGETING);
                 // 百夫长乘胜 / 击杀后再行动：循环追击直到无法行动（最多3次防死循环）
                 for (let chain = 0; chain < 3 && unit.canAct && unit.tile && unit.hp > 0; chain++) {
@@ -685,8 +693,7 @@ async function _executeActionInner(action, aiCamp) {
         }
         case 'reinforce': {
             const unit = resolveUnit(action.unitId);
-            if (!unit || !unit.tile || unit.hp >= unit.maxHp) return;
-            if (!unit.tile.isCity && !unit.tile.isVillage) return;
+            if (!canReinforceAtTile(unit, gameState) || unit.hp >= unit.maxHp) return;
             if (unit.tile._reinforcedThisTurn) return;
             await delay(AI_DELAY * 0.5);
             reinforceUnit(unit);
@@ -802,8 +809,20 @@ async function _executeActionInner(action, aiCamp) {
             const targetTile = resolveTile(action.targetQ, action.targetR);
             if (!unit || !targetTile || unit.type !== 'jp_samurai' || !unit.canAct || !targetTile.unit) return;
             await delay(AI_DELAY);
-            executeBanzaiCharge(unit, targetTile);
-            break;
+            if (!executeBanzaiCharge(unit, targetTile)) return false;
+            if (unit._banzaiFollowupTurn === gameState.turnCounter && unit.canAct && unit.hp > 0) {
+                const followup = gameState.tiles.filter(tile => {
+                    const enemy = tile.unit;
+                    return enemy && enemy.hp + (enemy.activeShield || 0)
+                        <= unit.getEffectiveAttack() + getBanzaiBonusDamage(enemy)
+                        && isKnownToAi(tile, aiCamp) && getBanzaiChargePath(unit, tile, gameState);
+                }).sort((a, b) => a.unit.hp - b.unit.hp)[0];
+                if (followup) {
+                    await delay(AI_DELAY);
+                    executeBanzaiCharge(unit, followup);
+                }
+            }
+            return true;
         }
         case 'drawCard': {
             if (gameState.playerGold[campKey] < CARD_SYSTEM_CONFIG.drawCost) return;

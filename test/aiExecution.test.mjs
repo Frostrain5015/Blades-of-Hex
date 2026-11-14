@@ -10,7 +10,9 @@ const { processOpponentTurn, configureAiRuntime } = await import('../js/ai.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
 const { getRound } = await import('../rules/turns.js');
 const { isTileVisible } = await import('../js/fogOfWar.js');
-const { BURN_MS, executeBanzaiCharge, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
+const { isUnitVisibleToCamp } = await import('../rules/visibility.js');
+const { BURN_MS, attackCityTile, executeBanzaiCharge, executeGuerrillaConcealment, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
+const { droneProjectiles } = await import('../js/effects.js');
 const { startMatchRecording, getCurrentMatchLog } = await import('../js/matchRecorder.js');
 const state = engine.gameState;
 const events = [];
@@ -106,11 +108,73 @@ test('武士冲锋拒绝新兵和堵路，合法冲锋的生命消耗绕过护�
     assert.equal(samurai.hp, 200);
 
     mid.unit = null;
+    samurai.remainingMP = 1;
+    assert.equal(executeBanzaiCharge(samurai, target.tile), false);
+    samurai.remainingMP = 5;
     samurai._shield = 60;
     assert.equal(executeBanzaiCharge(samurai, target.tile), true);
-    assert.equal(samurai.hp, 50);
+    assert.equal(samurai.hp, 150);
     assert.equal(samurai._shield, 60);
     assert.equal(samurai.tile, mid);
+});
+
+test('武士首次斩杀返还行动并可再次冲锋，第二次斩杀只回血', () => {
+    const { me, foe, home } = setupMatch();
+    const samurai = place('jp_samurai', me, home);
+    const targets = ['1,0', '2,0', '3,0'].map(key => {
+        const unit = place('infantry', foe, state.tileMap.get(key));
+        unit.hp = 60;
+        return unit;
+    });
+    samurai._calcFloat = () => 1;
+    samurai.hp = 100;
+    samurai.remainingMP = 2;
+    assert.equal(executeBanzaiCharge(samurai, targets[0].tile), true);
+    assert.equal(targets[0].hp, 0);
+    assert.equal(samurai.hp, 145);
+    assert.equal(samurai.remainingMP, 2);
+    assert.equal(samurai.canAct, true);
+    assert.equal(executeBanzaiCharge(samurai, targets[1].tile), true);
+    assert.equal(targets[1].hp, 0);
+    assert.equal(samurai.hp, 179);
+    assert.equal(samurai.canAct, false);
+    assert.equal(executeBanzaiCharge(samurai, targets[2].tile), false);
+});
+
+test('游击纵队消耗2行动力隐匿，贴身仍可奇袭，闪避也消耗隐匿', () => {
+    const { me, foe, home } = setupMatch();
+    const guerrilla = place('cpc_guerrilla', me, home);
+    const target = place('infantry', foe, state.tileMap.get('1,0'));
+    guerrilla._calcFloat = () => 1;
+    assert.equal(executeGuerrillaConcealment(guerrilla), true);
+    assert.equal(guerrilla.remainingMP, 3);
+    assert.equal(guerrilla.canAct, true);
+    assert.equal(isUnitVisibleToCamp(guerrilla, foe, state), true);
+    engine.attackUnit(guerrilla, target);
+    assert.equal(target.hp, 180 - Math.round(42 * 1.65));
+    assert.equal(guerrilla._guerrillaHiddenThroughRound, null);
+    assert.equal(guerrilla._guerrillaReadyRound, 2);
+    assert.equal(executeGuerrillaConcealment(guerrilla), false);
+    guerrilla.canAct = true;
+    state.turnCounter = 2 * state.turnOrder.length;
+    target.rollDodge = () => true;
+    assert.equal(executeGuerrillaConcealment(guerrilla), true);
+    engine.attackUnit(guerrilla, target);
+    assert.equal(target.hp, 180 - Math.round(42 * 1.65));
+    assert.equal(guerrilla._guerrillaHiddenThroughRound, null);
+});
+
+test('游击纵队自然隐匿在下一次己方回合结束时失效，并冷却一回合', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    place('infantry', foe, enemyCity);
+    const guerrilla = place('cpc_guerrilla', me, home);
+    assert.equal(executeGuerrillaConcealment(guerrilla), true);
+    for (let step = 0; step < state.turnOrder.length; step++) await engine.advanceAutomatedTurn();
+    assert.equal(state.currentCamp, me);
+    assert.equal(guerrilla._guerrillaHiddenThroughRound, 1);
+    await engine.advanceAutomatedTurn();
+    assert.equal(guerrilla._guerrillaHiddenThroughRound, null);
+    assert.equal(guerrilla._guerrillaReadyRound, 3);
 });
 
 test('普通攻击触发铁卫转移，法国实际承受暴击后触发自由不屈', () => {
@@ -193,6 +257,57 @@ test('尚书实际腾位招募，下一回合新兵出城后返城，预留格�
     assert.notEqual(recruit.tile, home, '新兵应出城执行任务');
     assert.equal(home.unit?.id, minister.id, '尚书应回到原城恢复经济职责');
     assert.equal(state._aiCoreMemory.player1.ministerReturn, undefined);
+});
+
+test('陆战队在己方已启用港口按普通补员费回血，每回合限一次', () => {
+    const { me, foe } = setupMatch();
+    me.flagPreset = 'img/flags/svg/us.svg';
+    state.factionRuleMode = 'culture';
+    const port = state.tileMap.get('0,1');
+    Object.assign(port, { camp: foe, isPort: true, surface: SURFACE_KIND.SHALLOW_WATER, _portOperationalAtRound: 1 });
+    const marine = place('us_marine', me, port);
+    marine.hp = 45;
+    state.playerGold.player1 = 15;
+    engine.reinforceUnit(marine);
+    assert.equal(marine.hp, 45, '敌方港口不能补员');
+    port.camp = me;
+    engine.reinforceUnit(marine);
+    assert.equal(marine.hp, 45, '尚未启用的己方港口不能补员');
+    state.turnCounter = state.turnOrder.length;
+    engine.reinforceUnit(marine);
+    assert.equal(marine.hp, 135);
+    assert.equal(state.playerGold.player1, 9);
+    assert.equal(port._reinforcedThisTurn, true);
+    engine.reinforceUnit(marine);
+    assert.equal(marine.hp, 135);
+    assert.equal(state.playerGold.player1, 9);
+});
+
+test('陆战队普攻、反击、攻城均发射机枪弹流，击破城防后仍可进驻', () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    const marine = place('us_marine', me, home);
+    const target = place('infantry', foe, state.tileMap.get('1,0'));
+    let shots = droneProjectiles.length;
+    engine.attackUnit(marine, target);
+    assert.equal(droneProjectiles.length - shots, 5, '主动攻击');
+
+    state.currentCamp = foe;
+    target.canAct = true;
+    shots = droneProjectiles.length;
+    engine.attackUnit(target, marine);
+    assert.equal(droneProjectiles.length - shots, 5, '陆战队反击');
+
+    home.unit = null;
+    marine.tile = state.tileMap.get('9,0');
+    marine.tile.unit = marine;
+    marine.canAct = true;
+    state.currentCamp = me;
+    enemyCity.hp = 1;
+    shots = droneProjectiles.length;
+    assert.equal(attackCityTile(marine, enemyCity), true);
+    assert.equal(droneProjectiles.length - shots, 5, '攻城');
+    assert.equal(enemyCity.unit, marine);
+    assert.equal(enemyCity.camp, me);
 });
 
 test('港口维修走真实扣费回血路径，发生在舰船作战之前', async () => {

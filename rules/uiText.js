@@ -6,6 +6,7 @@ import { percent } from './format.js';
 import { EMOJI } from './symbols.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { COMBAT_BALANCE } from './constants.js';
+import { GUERRILLA_PASSIVE_DESCRIPTION, SAMURAI_PASSIVE_DESCRIPTION } from './cultures.js';
 
 export const FRONTEND_TEXT = deepFreeze({
     // v2 起常规兵种的 0 阶不再有兵种被动；专精被动文案由 rules/units.js 的
@@ -15,13 +16,13 @@ export const FRONTEND_TEXT = deepFreeze({
         mgNest: { name: '机枪', desc: '对步兵造成的伤害提高30%' },
         carrier: { name: '舰载机', desc: '目标生命每损失5%，攻击力提高1点（至多15点）' },
         laserTower: { name: '集束激光', desc: `回合开始时自动攻击3格内所有敌方单位，单发伤害${COMBAT_BALANCE.laserTower.baseDamage}；每多命中1个目标伤害+${COMBAT_BALANCE.laserTower.perExtraTarget}（至多${COMBAT_BALANCE.laserTower.maxDamage}）` },
-        us_marine: { name: '两栖登陆', desc: '下海保持攻防，从海上攻击陆军伤害提高30%。从水域登陆后，本回合下一次对陆上单位的主动攻击伤害提高20%。' },
+        us_marine: { name: '两栖登陆', desc: '入水保持原攻防属性，从水上攻击陆地单位、或在陆地与水上攻击舰船均免除陆海交战的50%减伤；登陆后仍可行动。可在己方已启用的港口补员。' },
         gb_battleship: { name: '天佑女王', desc: '常驻2格反潜侦测能力；受到敌方攻击时有20%概率闪避全部伤害。' },
-        fr_heavy_cannon: { name: '远程重炮', desc: '射程5格，无视陆军对海军减伤并附带35%溅射。回合开始时自动炮击射程内随机敌军，之后仍可移动。' },
-        ru_katyusha: { name: '火力覆盖', desc: '每次普通攻击均激发火箭齐射，对主目标相邻敌军造成35%溅射伤害。' },
-        kmt_training_brigade: { name: '同心同德', desc: '同阵营有两支或以上教导旅在场时，全图链接并共享生命与治疗。链接中的教导旅获得的城防、工事及地形防御加成提高50%，自身与相邻六格友军造成的伤害提高15%。增伤不叠加。' },
-        cpc_guerrilla: { name: '敌后游击', desc: '无视地形与天气对行动力的负面减益；除敌军贴近至1格或占领非己方原本控制的村庄外，对非己方隐藏行踪。' },
-        jp_samurai: { name: '武士信条', desc: '常驻禁疗（仅可在城市或村庄补员）；主动技万岁冲锋向2格内敌军绝死突击（冷却1回合），自损75%当前生命，若击杀目标则无视禁疗回复60%最大生命。' }
+        fr_heavy_cannon: { name: '远程重炮', desc: '射程5格，攻击附带35%溅射伤害，且攻击海军不受陆军对海减伤影响。回合开始时自动炮击射程内随机敌军，触发后本回合仍可移动，但无法再次攻击。' },
+        ru_katyusha: { name: '火力覆盖', desc: '每次攻击均发射火箭弹幕，对目标相邻敌军造成35%溅射伤害。' },
+        kmt_training_brigade: { name: '同心同德', desc: '场上存在至少2支己方陆上教导旅时彼此休戚与共，共享生命与治疗，所获城防、工事及地形防御加成提高50%，并使自身与相邻友军造成的伤害提高15%（多支教导旅的伤害加成不叠加）。' },
+        cpc_guerrilla: { name: '敌后游击', desc: GUERRILLA_PASSIVE_DESCRIPTION },
+        jp_samurai: { name: '武士信条', desc: SAMURAI_PASSIVE_DESCRIPTION }
     },
     effectDescriptions: {
         courageAura: `造成的伤害提高${percent(COMMANDER_CONFIG.paladin.balance.auraDamageBonus)}，士气不会下降`,

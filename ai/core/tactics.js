@@ -17,9 +17,8 @@ import { W, hpGold, noiseJitter, residualGold, tradeNetValue } from './weights.j
 import { isFieldCapturer } from './roster.js';
 import { isPortOperationalFor } from '../../rules/naval.js';
 import { getUnitBaseType } from '../../rules/units.js';
-import { BANZAI_CHARGE_CONFIG } from '../../rules/cultures.js';
+import { BANZAI_CHARGE_CONFIG, getBanzaiBonusDamage, getBanzaiCooldown } from '../../rules/cultures.js';
 import { getBanzaiChargePath } from '../../rules/targeting.js';
-import { getRoundIndex } from '../../rules/turns.js';
 
 const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
@@ -722,10 +721,9 @@ function planDroneOps(world, missionsCtx, actions, processed) {
 }
 
 function planBanzaiCharges(world, missionsCtx, actions, processed) {
-    const curRound = getRoundIndex(world.gameState);
     for (const unit of world.myUnits) {
         if (processed.has(unit.id) || unit.type !== 'jp_samurai' || !unit.canAct || unit.isNewRecruit || unit._imprisoned || !unit.tile) continue;
-        if ((unit._banzaiReadyRound || 0) > curRound) continue;
+        if (getBanzaiCooldown(unit, world.gameState) > 0 || unit.remainingMP < BANZAI_CHARGE_CONFIG.movementCost) continue;
         let best = null;
         for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
             if (!enemy.tile || enemy.hp <= 0) continue;
@@ -734,13 +732,13 @@ function planBanzaiCharges(world, missionsCtx, actions, processed) {
             const dist = path.length - 1;
             if (!isNeutralEngageable(world, missionsCtx, enemy)) continue;
             const baseDmg = world.combat.estimateDamage(unit, enemy, enemy.tile);
-            const banzaiDmg = baseDmg * BANZAI_CHARGE_CONFIG.damageMultiplier;
-            const kills = banzaiDmg >= enemy.hp + (enemy._shield || 0);
-            // 若近身一刀即可直接斩杀且无需自残75%血量，优先留给常规攻击。
-            if (dist === 1 && baseDmg >= enemy.hp + (enemy._shield || 0)) continue;
-            if (!kills && (unit.hp < 35 || dist === 1)) continue;
+            const banzaiDmg = world.combat.estimateDamage(unit, enemy, enemy.tile, getBanzaiBonusDamage(enemy));
+            const lethalHp = enemy.hp + (enemy.activeShield ?? enemy._shield ?? 0);
+            const kills = banzaiDmg >= lethalHp;
+            if (!kills && (baseDmg >= lethalHp || unit.hp < 35 || dist === 1)) continue;
             let score = Math.min(enemy.hp, banzaiDmg) * hpGold(enemy) + enemyCapturerPremium(world, enemy);
-            if (kills) score += residualGold(enemy) * W.killPremiumRatio + unit.maxHp * 0.4;
+            if (kills) score += residualGold(enemy) * W.killPremiumRatio
+                + Math.min(unit.maxHp * BANZAI_CHARGE_CONFIG.killHealMaxHpPct, unit.maxHp - unit.hp + unit.hp * BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct);
             if (enemy.commander) score += W.commanderKillBonus;
             if ((enemy._rank || 0) >= 2) score += 25;
             if (dist === 2 && kills) score += 40;

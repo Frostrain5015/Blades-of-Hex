@@ -4,7 +4,6 @@ import { campToKey } from './camps.js';
 import { isFriendly } from './diplomacy.js';
 import { hexDistance } from './hex.js';
 import { getRoundIndex } from './turns.js';
-import { hasFullAiIntelligence } from '../ai/difficulty.js';
 
 export const STEALTH_VISIBILITY_RULES = Object.freeze({
     guerrillaRevealRadius: 1,
@@ -51,15 +50,6 @@ function hasFactionReveal(unit, viewerCamp, state) {
     return Number.isFinite(unitExpires) && unitExpires > round;
 }
 
-export function isGuerrillaExposedByVillage(unit) {
-    if (!unit || unit.type !== 'cpc_guerrilla' || unit.hp <= 0) return false;
-    const tile = unit.tile;
-    if (!tile?.isVillage) return false;
-    const tileKey = `${tile.q},${tile.r}`;
-    if (unit._exposedVillageKey === tileKey) return true;
-    return campToKey(tile.camp) !== campToKey(unit.camp);
-}
-
 export function hasHostileUnitNear(unit, state, radius = STEALTH_VISIBILITY_RULES.guerrillaRevealRadius, viewerCamp = null) {
     if (!unit?.tile || !state?.tiles) return false;
     if (viewerCamp && campToKey(viewerCamp) === campToKey(unit.camp)) viewerCamp = null;
@@ -78,7 +68,7 @@ export function isStealthSubmarine(unit) {
 }
 
 export function isStealthGuerrilla(unit) {
-    return Boolean(unit && unit.type === 'cpc_guerrilla' && unit.hp > 0);
+    return Boolean(unit?.type === 'cpc_guerrilla' && unit.hp > 0 && unit._guerrillaHiddenThroughRound != null);
 }
 
 export function isStealthUnit(unit) {
@@ -89,26 +79,15 @@ export function isStealthUnit(unit) {
  * 统一可见性裁决：
  * - 己方及同盟始终可见；
  * - 1阶以上潜艇：潜航状态下不可见；主动攻击后暴露1回合；处于任意己方反潜单位2格侦测内（含皇家战列舰/反潜驱逐舰/岸防炮）、占港短暂暴露或受反潜点亮时显现；
- * - 游击纵队：仅在敌军已抵近至1格内、占领非己方所属村庄时对非己方显形；Imperator 难度 AI 例外可见。
+ * - 游击纵队：主动隐匿期间，仅对有友军抵近到一格内的敌方观察者显形。
  */
-export function isUnitVisibleToCamp(unit, viewerCamp, state, options = {}) {
+export function isUnitVisibleToCamp(unit, viewerCamp, state) {
     if (!unit || unit.hp <= 0) return false;
     if (!viewerCamp) return !isStealthUnit(unit);
     if (isFriendly(state, unit.camp, viewerCamp)) return true;
 
-    if (unit.type === 'cpc_guerrilla') {
-        if (!options.ignoreAiBypass) {
-            const viewerKey = campToKey(viewerCamp);
-            const viewerFaction = state?.factions?.[viewerKey];
-            if ((viewerFaction?.controller === 'ai' && hasFullAiIntelligence(state, viewerKey))
-                || (viewerFaction?.isAI && viewerFaction.aiDifficulty === 'imperator')) {
-                return true;
-            }
-        }
-        if (isGuerrillaExposedByVillage(unit)) return true;
-        if (hasHostileUnitNear(unit, state, STEALTH_VISIBILITY_RULES.guerrillaRevealRadius, viewerCamp)) return true;
-        if (hasFactionReveal(unit, viewerCamp, state)) return true;
-        return false;
+    if (isStealthGuerrilla(unit)) {
+        return hasHostileUnitNear(unit, state, STEALTH_VISIBILITY_RULES.guerrillaRevealRadius, viewerCamp);
     }
 
     if (unit.type === 'submarine') {

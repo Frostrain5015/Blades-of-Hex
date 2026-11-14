@@ -610,7 +610,9 @@ test('跨域伤害修正对齐 rules/naval', () => {
     assert.equal(crossDomainDamageBonus({ type: 'warship' }, land, { type: 'infantry' }), -0.50);
     assert.equal(crossDomainDamageBonus({ type: 'archer' }, sea, { type: 'warship' }), -0.50);
     assert.equal(crossDomainDamageBonus({ type: 'fr_heavy_cannon' }, sea, { type: 'gb_battleship' }), 0);
-    assert.equal(crossDomainDamageBonus({ type: 'us_marine', tile: sea }, land, { type: 'infantry' }), 0.30);
+    assert.equal(crossDomainDamageBonus({ type: 'us_marine', tile: sea }, land, { type: 'infantry' }), 0);
+    assert.equal(crossDomainDamageBonus({ type: 'us_marine', tile: land }, sea, { type: 'warship' }), 0);
+    assert.equal(crossDomainDamageBonus({ type: 'us_marine', tile: sea }, sea, { type: 'warship' }), 0);
     // 同域交战无修正
     assert.equal(crossDomainDamageBonus({ type: 'warship' }, sea, { type: 'submarine' }), 0);
     assert.equal(crossDomainDamageBonus({ type: 'infantry' }, land, { type: 'cavalry' }), 0);
