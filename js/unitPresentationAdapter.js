@@ -8,10 +8,10 @@ Unit.prototype.getVisualPos = function getVisualPos() {
     return getUnitVisualPos(this);
 };
 
-Unit.prototype.startMovePath = function startMovePath(path) {
-    return startUnitMovePath(this, path);
+Unit.prototype.startMovePath = function startMovePath(path, options) {
+    return startUnitMovePath(this, path, options);
 };
 
-Unit.prototype.draw = function draw() {
-    return drawUnit(this, gameState);
+Unit.prototype.draw = function draw(options) {
+    return drawUnit(this, gameState, options);
 };

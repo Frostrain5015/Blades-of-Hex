@@ -792,7 +792,7 @@
       "hpPct": 100,
       "morale": 2,
       "rank": 2,
-      "specializationKey": "rocketArtillery",
+      "specializationKey": "fieldGun",
       "canAct": true
     },
     {
@@ -2696,7 +2696,7 @@
               "hpPct": 100,
               "morale": 3,
               "rank": 3,
-              "specializationKey": "rocketArtillery",
+              "specializationKey": "fieldGun",
               "canAct": true
             },
             {

@@ -14,6 +14,7 @@ import { resolveAntiAirCoverage } from '../rules/antiAir.js';
 import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
 import { getFireSeaState } from '../rules/cultures.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
+import { AIR_COMMAND_IMPACT_DELAY_MS } from '../rules/airCommands.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
@@ -569,7 +570,7 @@ function _renderGame() {
                 deathGhosts.splice(i, 1);
                 ghost.onImpact?.();
             } else {
-                ghost.unit.draw();
+                ghost.unit.draw({ deathGhost: true });
             }
         }
     }
@@ -1147,9 +1148,9 @@ function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) 
 }
 
 function drawAirstrikeEffects(now) {
-    const _ac = gameState.currentCamp;
     for (let i = airstrikeEffects.length - 1; i >= 0; i--) {
         const fx = airstrikeEffects[i];
+        const _ac = fx.camp || gameState.currentCamp;
         const elapsed = now - fx.startTime;
         if (elapsed > fx.duration) { airstrikeEffects.splice(i, 1); continue; }
 
@@ -1178,23 +1179,47 @@ function drawAirstrikeEffects(now) {
 
             ctx.save();
             ctx.globalAlpha = t < 0.88 ? 1 : Math.max(0, 1 - (t - 0.88) / 0.12);
-            ctx.fillStyle = '#000';
+            ctx.fillStyle = '#36423a';
             ctx.translate(px, py);
-            ctx.rotate(ang + Math.PI / 4);
-            ctx.font = '50px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#ff6a00';
-            ctx.shadowBlur = 10;
-            ctx.fillText('🦅', 0, 0);
+            ctx.rotate(ang);
+            ctx.strokeStyle = '#141c19';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(24, 0);
+            ctx.lineTo(12, -4);
+            ctx.lineTo(5, -23);
+            ctx.lineTo(-4, -27);
+            ctx.lineTo(-8, -5);
+            ctx.lineTo(-18, -3);
+            ctx.lineTo(-23, -10);
+            ctx.lineTo(-27, -10);
+            ctx.lineTo(-25, 0);
+            ctx.lineTo(-27, 10);
+            ctx.lineTo(-23, 10);
+            ctx.lineTo(-18, 3);
+            ctx.lineTo(-8, 5);
+            ctx.lineTo(-4, 27);
+            ctx.lineTo(5, 23);
+            ctx.lineTo(12, 4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#93afad';
+            ctx.fillRect(1, -2, 9, 4);
+            ctx.strokeStyle = '#e6dba3';
+            ctx.beginPath();
+            ctx.moveTo(23, -7);
+            ctx.lineTo(23, 7);
+            ctx.stroke();
             ctx.restore();
 
             if (t >= 0.12 && t <= 0.85) {
                 _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 11 + (fx.y | 0) * 17, _ac);
             }
 
-            if (t >= 0.42 && t < 0.74) {
-                const bp = (t - 0.42) / 0.32;
+            const impact = AIR_COMMAND_IMPACT_DELAY_MS.stukaDiveBomb / fx.duration;
+            if (t >= 0.42 && t < impact) {
+                const bp = Math.pow((t - 0.42) / (impact - 0.42), 1.4);
                 const relX = p0x + (apexX - p0x) * (1 - Math.pow(1 - (0.42 / 0.62), 1.35));
                 const relY = p0y + (apexY - p0y) * (1 - Math.pow(1 - (0.42 / 0.62), 1.35));
                 const bx = relX + (cx - relX) * bp;
@@ -1209,8 +1234,8 @@ function drawAirstrikeEffects(now) {
                 ctx.restore();
             }
 
-            if (t >= 0.66) {
-                const exT = Math.min(1, (t - 0.66) / 0.34);
+            if (t >= impact && !fx.results?.[0]?.dodged) {
+                const exT = Math.min(1, (t - impact) / (1 - impact));
                 ctx.save();
                 ctx.strokeStyle = `rgba(255,110,30,${(1 - exT) * 0.88})`;
                 ctx.lineWidth = 4 - exT * 2.2;
@@ -1847,7 +1872,7 @@ function _drawFireSeaTiles(tiles, now) {
     for (let i = 0, len = tiles.length; i < len; i++) {
         const tile = tiles[i];
         const fs = getFireSeaState(tile);
-        if (!fs || (fs._visualDelayUntil && now < fs._visualDelayUntil)) continue;
+        if (!fs || now < (tile._fireSeaVisualDelayUntil || 0)) continue;
         const layers = Math.max(1, fs.layers || 1);
         const pulse = 0.5 + 0.5 * Math.sin(tSec * 4.4 + tile.q * 1.1 + tile.r * 0.7);
 
@@ -1883,7 +1908,7 @@ function drawUnitHexAuras(now) {
     const viewingCamp = getViewingCamp();
     for (const tile of gameState.tiles) {
         const u = tile.unit;
-        if (!u || !isUnitVisibleToCamp(u, viewingCamp, gameState)) continue;
+        if (!u || !isUnitVisibleToCamp(u, viewingCamp, gameState, { ignoreAiBypass: true })) continue;
         const pos = u.getVisualPos();
         const vx = pos.x, vy = pos.y;
 
@@ -1959,7 +1984,8 @@ function drawAureliaGuardPetals(now) {
     const viewingCamp = getViewingCamp();
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
-        if (!unit || !hasAureliaOathEffect(unit, gameState) || !isUnitVisibleToCamp(unit, viewingCamp, gameState)) continue;
+        if (!unit || !hasAureliaOathEffect(unit, gameState)
+            || !isUnitVisibleToCamp(unit, viewingCamp, gameState, { ignoreAiBypass: true })) continue;
         const pos = unit.getVisualPos();
         const seed = _stableUnitSeed(unit.id);
         ctx.save();
@@ -3298,7 +3324,7 @@ function drawCommanderPennants() {
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         if (!unit || !unit.isCommanderUnit) continue;
-        if (!isUnitVisibleToCamp(unit, viewingCamp, gameState)) continue;
+        if (!isUnitVisibleToCamp(unit, viewingCamp, gameState, { ignoreAiBypass: true })) continue;
         if (gameState.skirmishFog && !isTileVisible(tile, viewingCamp, gameState)) continue;
         const portrait = getTransparentPortrait(unit.getCommanderPortraitId());
         if (!portrait) continue;

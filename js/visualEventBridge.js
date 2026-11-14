@@ -46,9 +46,10 @@ on('fx:dodge', ({ x, y, delayMs = 0 }) => {
         spawnDodgeShimmer(x, y);
     }
 });
-on('fx:freeResistance', ({ x, y }) => {
+on('fx:freeResistance', ({ x, y, delayMs = 0 }) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    spawnFreeResistanceWave(x, y);
+    if (delayMs > 0) setTimeout(() => spawnFreeResistanceWave(x, y), delayMs);
+    else spawnFreeResistanceWave(x, y);
 });
 on('audio:play', ({ soundName }) => playSound(soundName));
 on('fx:aureliaOath', event => playAureliaOathPresentation(event));

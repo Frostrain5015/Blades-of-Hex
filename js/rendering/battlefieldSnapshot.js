@@ -20,6 +20,7 @@ import { getSurfaceBaseColor, getTileSurface, isWaterSurface } from '../../rules
 import { resolveTargetingPreview, targetingTileKey } from '../../rules/targeting.js';
 import { operationArrowStyleForAttacker } from '../../rules/attackPresentation.js';
 import { isCityDisabled } from '../../rules/citySiege.js';
+import { isStealthUnit, isUnitVisibleToCamp } from '../../rules/visibility.js';
 
 export const BATTLEFIELD_SNAPSHOT_VERSION = 1;
 export const BATTLEFIELD_SNAPSHOT_KIND = 'blades-of-hex/battlefield';
@@ -204,12 +205,17 @@ function surfaceFromTile(tile) {
     };
 }
 
-function cityFromTile(tile) {
+function unitForViewer(tile, viewerCampKey, gameState) {
+    const unit = tile?.unit;
+    return isStealthUnit(unit) && !isUnitVisibleToCamp(unit, viewerCampKey, gameState, { ignoreAiBypass: true }) ? null : unit;
+}
+
+function cityFromTile(tile, unit) {
     if (!tile.isCity && !tile.isVillage) return null;
     return {
         kind: tile.isCity ? 'city' : 'village',
         districtId: finite(tile.isVillage ? tile.villageDistrictId : tile.districtId, 0),
-        occupied: Boolean(tile.unit),
+        occupied: Boolean(unit),
         hp: tile.isCity ? finite(tile.hp, 0) : 0,
         maxHp: tile.isCity ? finite(tile.maxHp, 0) : 0,
         disabled: tile.isCity ? isCityDisabled(tile) : false,
@@ -221,6 +227,7 @@ function buildRealTileDto(entry, gameState, viewerCampKey, options) {
     const { key, tile } = entry;
     const surface = surfaceFromTile(tile);
     const water = isWaterSurface(surface.kind);
+    const unit = unitForViewer(tile, viewerCampKey, gameState);
     return {
         id: primitiveId(tile.id),
         key,
@@ -243,8 +250,8 @@ function buildRealTileDto(entry, gameState, viewerCampKey, options) {
             type: text(tile.installation.type),
             status: text(tile.installation.status, 'ready')
         } : null,
-        city: cityFromTile(tile),
-        unitId: primitiveId(tile.unit?.id)
+        city: cityFromTile(tile, unit),
+        unitId: primitiveId(unit?.id)
     };
 }
 
@@ -383,11 +390,12 @@ function buildUnits(playableEntries, realTileDtos, gameState, viewerCampKey) {
     const dtoByKey = new Map(realTileDtos.map(tile => [tile.key, tile]));
     const units = [];
     for (const entry of playableEntries) {
-        if (!entry.tile.unit) continue;
+        const unit = unitForViewer(entry.tile, viewerCampKey, gameState);
+        if (!unit) continue;
         units.push(buildUnitDto(
-            entry.tile.unit,
+            unit,
             dtoByKey.get(entry.key),
-            getRelation(gameState, viewerCampKey, entry.tile.unit.camp)
+            getRelation(gameState, viewerCampKey, unit.camp)
         ));
     }
     return units.sort((left, right) => compareTileKeys(left.tileKey, right.tileKey)
@@ -673,7 +681,7 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
         .sort((left, right) => compareTileKeys(left.tileKey, right.tileKey));
 
     const selectedUnitTileKey = validKey(gameState.selectedUnit?.tile);
-    const selectedUnit = selectedUnitTileKey ? sourceByKey.get(selectedUnitTileKey)?.unit : null;
+    const selectedUnit = selectedUnitTileKey ? unitForViewer(sourceByKey.get(selectedUnitTileKey), viewerCampKey, gameState) : null;
     const airRangeTileKeys = selectedUnit?.type === 'carrier'
         ? sortedUniqueKeys(
             playableEntries
@@ -708,7 +716,7 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
         },
         hover: {
             tileKey: hoveredTileKey,
-            unitId: primitiveId(hoveredTile?.unit?.id)
+            unitId: primitiveId(unitForViewer(hoveredTile, viewerCampKey, gameState)?.id)
         },
         targeting: {
             active: Boolean(cardTargeting || preview?.cardId),

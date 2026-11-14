@@ -51,6 +51,7 @@ import {
 import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
 import { getSunMoonOathCritBonus } from '../rules/tianheng.js';
 import { isBloodMoonHealSuppressed } from '../rules/noctis.js';
+import { isHealingBlocked } from '../rules/healing.js';
 import {
     accrueEagleDamageTaken,
     accrueEagleSynergyDamage,
@@ -120,7 +121,12 @@ function _triggerFrenchFreeResistance(victim, state) {
         affected++;
     }
     if (affected > 0) {
-        emit('fx:freeResistance', { x: victim.tile.x, y: victim.tile.y, q: victim.tile.q, r: victim.tile.r });
+        const event = {
+            x: victim.tile.x, y: victim.tile.y,
+            delayMs: Math.max(0, (victim._deferImpactFxUntil || 0) - performance.now())
+        };
+        (state._pendingFreeResistanceFx ||= []).push(event);
+        emit('fx:freeResistance', event);
         _logMessage?.(`${victim.camp.name}受到暴击激发【${FREE_RESISTANCE_EFFECT.name}】，周围${affected}支友军士气上升！`);
     }
     return affected > 0;
@@ -444,7 +450,7 @@ export class Unit {
 
     chooseSpecialization(specializationKey, fromUI = false) {
         if (this._rankLocked || this._rank < 1 || this.specializationKey) return false;
-        if (!isValidSpecialization(this.type, specializationKey, _gameState, this.camp)) return false;
+        if (!isValidSpecialization(this.type, specializationKey)) return false;
         // 防守：人类阵营单位只能经玩家显式点击的 UI 路径晋级专精（联机中玩家席位一律视为人类），
         // 避免 AI/模拟逻辑在任一端替玩家单位自动选专精而污染同步快照。
         // 必须用显式入参标记 UI 意图，而非匹配 Error().stack 里的函数名——生产环境走压缩包
@@ -904,14 +910,16 @@ export class Unit {
             0
         );
 
-        this._pushDamageTextDelayed(gs, {
-            x: targetUnit.tile.x,
-            y: targetUnit.tile.y,
-            value: result.dmg,
-            isCrit: result.isCrit,
-            timeLeft: 900,
-            lastUpdate: performance.now()
-        }, textDelayMs);
+        if (options.showDamageText !== false) {
+            this._pushDamageTextDelayed(gs, {
+                x: targetUnit.tile.x,
+                y: targetUnit.tile.y,
+                value: result.dmg,
+                isCrit: result.isCrit,
+                timeLeft: 900,
+                lastUpdate: performance.now()
+            }, textDelayMs);
+        }
         return result;
     }
 
@@ -1003,7 +1011,7 @@ export class Unit {
         // 靠 presentationEventId 去重。日志与表现统一由 visualEventBridge 落地。
         if (actualDmg > 0 && _gameState) {
             const eagleCredited = Math.min(Math.round(actualDmg), Math.max(0, this.hp) + Math.max(0, this._shield || 0));
-            const eagleDeferred = Boolean(opts.eagleAirForceCampKey);
+            const eagleDeferred = opts.eagleDeferred ?? Boolean(opts.eagleAirForceCampKey);
             const eagleCampKey = resolveEagleDamageCreditCampKey({
                 attacker,
                 airForceCampKey: opts.eagleAirForceCampKey || null,
@@ -1362,12 +1370,7 @@ export class Unit {
     }
 
     heal(amount, opts = {}) {
-        if (this.config?.permanentAntiHeal && !opts?.allowReinforce && !opts?.bypassAntiHeal) return 0;
-        // 殉道者进入倒计时后强制锁死hp=1，拒绝一切治疗
-        if (this.commander === 'martyr' && this._martyrPrimed) return 0;
-        // 诺克提斯【血月·永夜】：血月天气下，与激活的诺克提斯阵营敌对的单位一切回复无效（禁疗）。
-        // heal() 是绝大多数回复的唯一出口（城市/雨天/军衔regen/牧师光环/field repair/击杀回血）。
-        if (!opts?.bypassAntiHeal && isBloodMoonHealSuppressed(this, _gameState)) return 0;
+        if (isHealingBlocked(this, _gameState, opts)) return 0;
         const gs = _gameState;
         const oldHp = this.hp;
         const cap = this._campaignMaxHp || this.maxHp;
@@ -1384,10 +1387,13 @@ export class Unit {
                 x: this.tile.x,
                 y: this.tile.y,
                 value: actualHeal,
-                timeLeft: 1000
+                timeLeft: 1000,
+                delayMs: opts.delayMs
             }, { gs });
-            emit('fx:healFlash', { x: this.tile.x, y: this.tile.y });
-            emit('fx:healParticles', { x: this.tile.x, y: this.tile.y });
+            if (!opts.delayMs) {
+                emit('fx:healFlash', { x: this.tile.x, y: this.tile.y });
+                emit('fx:healParticles', { x: this.tile.x, y: this.tile.y });
+            }
             return actualHeal;
         }
         return 0;

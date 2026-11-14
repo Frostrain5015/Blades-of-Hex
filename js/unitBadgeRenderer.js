@@ -101,6 +101,20 @@ export function resolveUnitBadgeGlyph(type, engineerScaffold = false) {
     return UNIT_BADGE_GLYPHS[type] || UNIT_BADGE_GLYPHS[getUnitBaseType(type)] || '?';
 }
 
+// Extend the last flag pixels when the wider crop runs past the image.
+function flagAxisSegments(start, span, imageSize, destStart, destSize) {
+    const insideStart = Math.max(0, start);
+    const insideEnd = Math.min(imageSize, start + span);
+    const scale = destSize / span;
+    const leading = (insideStart - start) * scale;
+    const middle = (insideEnd - insideStart) * scale;
+    const trailing = destSize - leading - middle;
+    const segments = [[insideStart, insideEnd - insideStart, destStart + leading, middle]];
+    if (leading > 0) segments.push([0, 1, destStart, leading]);
+    if (trailing > 0.001) segments.push([imageSize - 1, 1, destStart + leading + middle, trailing]);
+    return segments;
+}
+
 /**
  * Draw the complete local-space unit presentation. The caller owns world
  * translation and movement/drone interpolation. The ellipse is a deliberate
@@ -144,7 +158,6 @@ export function drawUnitBadge(context, options = {}) {
         && typeof context.drawImage === 'function'
         && typeof context.clip === 'function'
     );
-
     if (canDrawFlagFill) {
         // World Conqueror–style unique badge: cropped national flag emblem
         // recessed inside the 2.5D curved lens without a flat monochrome glyph.
@@ -172,9 +185,15 @@ export function drawUnitBadge(context, options = {}) {
         const cropSize = Math.max(1, Math.min(imgW, imgH) * sizeRatio);
         const sx = clamp(imgW * cx - cropSize * 0.5, 0, Math.max(0, imgW - cropSize));
         const sy = clamp(imgH * cy - cropSize * 0.5, 0, Math.max(0, imgH - cropSize));
-        const sw = Math.min(cropSize, imgW - sx);
-        const sh = Math.min(cropSize, imgH - sy);
-        context.drawImage(flagImage, sx, sy, sw, sh, -radius, centerY - radius, radius * 2, radius * 2);
+        const span = cropSize / clamp(flagCrop?.fillScale ?? 1, 0.2, 1);
+        const expansion = (span - cropSize) / 2;
+        const columns = flagAxisSegments(sx - expansion, span, imgW, -radius, radius * 2);
+        const rows = flagAxisSegments(sy - expansion, span, imgH, centerY - radius, radius * 2);
+        for (const [x, width, dx, dw] of columns) {
+            for (const [y, height, dy, dh] of rows) {
+                context.drawImage(flagImage, x, y, width, height, dx, dy, dw, dh);
+            }
+        }
 
         const curvatureShade = context.createRadialGradient(
             -radius * 0.30,

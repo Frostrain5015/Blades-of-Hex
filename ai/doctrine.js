@@ -9,8 +9,7 @@
 // 都不属于条令层，必须留在各自的档位脚本里，否则档次差异会退化成开关。
 
 import { COUNTER_RELATION, getMachineGunDamageBonus, getUnitBaseType, isStrongpointTarget } from '../rules/units.js';
-import { NAVAL_RULES } from '../rules/naval.js';
-import { isWaterTile } from '../rules/surfaces.js';
+import { getCrossDomainDamageBonus } from '../rules/naval.js';
 import { getCannonSiegeDamageBonus } from '../rules/citySiege.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense, getUnitCombatRange, TRANSPORT_RULES } from '../rules/movement.js';
@@ -57,34 +56,10 @@ export function counterDamageBonus(attackerType, defenderType) {
     return coeff > 1 ? COUNTER_DAMAGE_BONUS : coeff < 1 ? -COUNTER_DAMAGE_BONUS : 0;
 }
 
-const NAVAL_TYPES = new Set(['destroyer', 'warship', 'submarine', 'carrier']);
-
 /** 对齐 rules/naval.getCrossDomainDamageBonus，但只依赖 AI 手上的地块信息。 */
 export function crossDomainDamageBonus(attacker, defenderTile, defender = null) {
     if (!attacker || !defenderTile) return 0;
-    const attackerBase = getUnitBaseType(attacker);
-    const defenderBase = getUnitBaseType(defender);
-    const defenderAfloat = isWaterTile(defenderTile)
-        && (NAVAL_TYPES.has(defenderBase) || defender?.isEmbarked === true);
-    if (attackerBase === 'shoreBattery') {
-        return defenderAfloat
-            ? NAVAL_RULES.shoreBatteryVsShipDamage
-            : NAVAL_RULES.shoreBatteryVsLandDamage;
-    }
-    if (NAVAL_TYPES.has(attackerBase) && !isWaterTile(defenderTile)) {
-        return NAVAL_RULES.shipVsLandDamage;
-    }
-    let bonus = 0;
-    if (attacker?.type === 'us_marine' && attacker.tile && isWaterTile(attacker.tile) && !isWaterTile(defenderTile)) {
-        bonus += attacker.config?.waterToLandBonus || 0;
-    }
-    if (!NAVAL_TYPES.has(attackerBase) && attackerBase !== 'drone'
-        && NAVAL_TYPES.has(defenderBase)) {
-        if (!attacker?.config?.noLandVsShipPenalty) {
-            bonus += NAVAL_RULES.landVsShipDamage;
-        }
-    }
-    return bonus;
+    return getCrossDomainDamageBonus(attacker, { type: defender?.type, isEmbarked: defender?.isEmbarked, tile: defenderTile });
 }
 
 // 只有“突击类”攻击者能在击杀守军/打破城防后进驻城市（对齐

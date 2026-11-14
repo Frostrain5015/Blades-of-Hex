@@ -57,7 +57,7 @@ import {
     constructionCost,
     isOrdinaryGroundBuilder
 } from '../rules/construction.js';
-import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandRange } from '../rules/airCommands.js';
+import { AIR_COMMAND_CONFIG, canTargetWithSingleAirCommand, getAirCommandAvailability, getAirCommandRange } from '../rules/airCommands.js';
 import { isSubmarineTargetableBy } from '../rules/naval.js';
 import { isLandTile } from '../rules/surfaces.js';
 import { getStandardMap } from '../rules/standardMaps.js';
@@ -308,36 +308,31 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
             && isSubmarineTargetableBy(tile.unit, aiCamp, gameState));
         const knownEnemyTiles = new Set(knownEnemies);
         const range = getAirCommandRange(city);
-        const enemies = knownEnemies.filter(tile => hexDistance(city, tile) <= range);
+        const enemies = knownEnemies.filter(tile => hexDistance(city, tile) <= range
+            && canTargetWithSingleAirCommand(tile, aiCamp, gameState));
         const stuka = getAirCommandAvailability('stukaDiveBomb', city, gameState);
         if (stuka.available && canSpend(AIR_COMMAND_CONFIG.stukaDiveBomb.cost)) {
             let stukaTarget = null;
-            let stukaScore = 0;
-            for (const tile of gameState.tiles) {
-                if (hexDistance(city, tile) > range || !knownTile(tile)) continue;
-                const targets = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr))]
-                    .filter(candidate => knownEnemyTiles.has(candidate));
-                if (targets.length === 0) continue;
-                const score = targets.length * 1.25
-                    + targets.filter(threatensCity).length * 0.9
-                    + (tile.isCity && tile.camp !== aiCamp ? 1 : 0);
+            let stukaScore = -Infinity;
+            for (const tile of enemies) {
+                const score = (threatensCity(tile) ? 3 : 0) + (tile.isCity ? 2 : 0)
+                    + (tile.unit.commander ? 2 : 0) + (1 - tile.unit.hp / tile.unit.maxHp);
                 if (score > stukaScore) { stukaScore = score; stukaTarget = tile; }
             }
-            if (stukaTarget && stukaScore >= 2.2) {
-                await runObservedAction({ type: 'airCommand', airKind: 'stukaDiveBomb', tileQ: city.q, tileR: city.r, targetQ: stukaTarget.q, targetR: stukaTarget.r }, aiCamp, () => {
-                    executeAirCommand('stukaDiveBomb', city, stukaTarget);
-                });
-                await delay(AI_DELAY * 0.5);
-                continue;
+            if (stukaTarget) {
+                const launched = await runObservedAction({ type: 'airCommand', airKind: 'stukaDiveBomb', tileQ: city.q, tileR: city.r, targetQ: stukaTarget.q, targetR: stukaTarget.r }, aiCamp,
+                    () => executeAirCommand('stukaDiveBomb', city, stukaTarget));
+                if (launched) await delay(AI_DELAY * 0.5);
             }
         }
+        const survivingEnemies = enemies.filter(tile => tile.unit?.hp > 0);
         const bombing = getAirCommandAvailability('bombing', city, gameState);
         let bombingTarget = null;
         let bombingScore = 0;
         for (const tile of gameState.tiles) {
             if (hexDistance(city, tile) > range || !knownTile(tile)) continue;
             const targets = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr))]
-                .filter(candidate => knownEnemyTiles.has(candidate));
+                .filter(candidate => knownEnemyTiles.has(candidate) && candidate.unit?.hp > 0);
             if (targets.length === 0) continue;
             const score = targets.length
                 + (targets.length >= 2 ? targets.filter(threatensCity).length * 0.75 : 0)
@@ -353,12 +348,12 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
             continue;
         }
         const strafe = getAirCommandAvailability('strafe', city, gameState);
-        if (strafe.available && enemies.length && canSpend(AIR_COMMAND_CONFIG.strafe.cost)) {
-            enemies.sort((a, b) => Number(threatensCity(b)) - Number(threatensCity(a))
+        if (strafe.available && survivingEnemies.length && canSpend(AIR_COMMAND_CONFIG.strafe.cost)) {
+            survivingEnemies.sort((a, b) => Number(threatensCity(b)) - Number(threatensCity(a))
                 || (a.unit.hp / a.unit.maxHp) - (b.unit.hp / b.unit.maxHp));
-            await runObservedAction({ type: 'airCommand', airKind: 'strafe', tileQ: city.q, tileR: city.r, targetId: enemies[0].unit?.id, targetQ: enemies[0].q, targetR: enemies[0].r }, aiCamp, () => {
-                executeAirCommand('strafe', city, enemies[0]);
-            });
+            const target = survivingEnemies[0];
+            await runObservedAction({ type: 'airCommand', airKind: 'strafe', tileQ: city.q, tileR: city.r, targetId: target.unit.id, targetQ: target.q, targetR: target.r }, aiCamp,
+                () => executeAirCommand('strafe', city, target));
             await delay(AI_DELAY * 0.5);
             continue;
         }

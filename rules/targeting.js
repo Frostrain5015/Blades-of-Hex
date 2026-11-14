@@ -10,9 +10,10 @@ import { isMechanicEnabled } from './mechanics.js';
 import { resolveAntiAirCoverage } from './antiAir.js';
 import { isSubmarineTargetableBy } from './naval.js';
 import { isUnitVisibleToCamp } from './visibility.js';
-import { BANZAI_CHARGE_CONFIG } from './cultures.js';
+import { BANZAI_CHARGE_CONFIG, hasNegativeWeatherImmunity } from './cultures.js';
 import { COMMANDER_CONFIG } from './commanders.js';
-import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN } from './movement.js';
+import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN, resolveMovementStep } from './movement.js';
+import { isLandTile } from './surfaces.js';
 import { isBuildingUnit } from './units.js';
 import {
     canBuildBunkerAt,
@@ -22,8 +23,9 @@ import {
     hasSameTypeBuildingWithin
 } from './construction.js';
 import { canAttack } from './diplomacy.js';
-import { canAirCommandAirdropAt, getAirCommandRange } from './airCommands.js';
+import { canAirCommandAirdropAt, canTargetWithSingleAirCommand, getAirCommandRange, isAirfieldGrounded } from './airCommands.js';
 import { isCitySiegeBlocked } from './citySiege.js';
+import { isHealingBlocked } from './healing.js';
 
 export const TARGET_INTENTS = Object.freeze({
     HOSTILE: 'hostile',
@@ -116,18 +118,37 @@ function isVisibleCandidate(gameState, cardTargeting, tile, myCamp, isTileVisibl
     return isTileVisible(tile, myCamp, gameState);
 }
 
+export function getBanzaiChargePath(unit, targetTile, state) {
+    const from = unit?.tile;
+    const target = targetTile?.unit;
+    if (!from || unit.type !== 'jp_samurai' || unit.isEmbarked || !target
+        || target._campaignTargetable === false || !canAttack(state, unit.camp, target.camp)
+        || !isUnitVisibleToCamp(target, unit.camp, state) || !isLandTile(targetTile)
+        || state?.tileMap?.get(targetingTileKey(targetTile)) !== targetTile) return null;
+
+    const distance = hexDistance(from, targetTile);
+    if (distance < 1 || distance > BANZAI_CHARGE_CONFIG.range) return null;
+    if (distance === 1) return [from, targetTile];
+
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+        const step = state.tileMap.get(`${from.q + dq},${from.r + dr}`);
+        if (step && hexDistance(step, targetTile) === 1 && !step.unit && isLandTile(step)
+            && !isCitySiegeBlocked(step, unit.camp, state)
+            && resolveMovementStep(unit, from, step, state).allowed) return [from, step, targetTile];
+    }
+    return null;
+}
+
 function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, sources) {
     const { cardId, targeting } = cardTargeting;
     const unit = tile.unit;
+    if (cardId === 'heal' && unit && !unit._poison && isHealingBlocked(unit, gameState)) return false;
 
     if (cardId?.startsWith('air_command_')) {
         const launcher = sources.launcherTile;
         if (!launcher || hexDistance(launcher, tile) > getAirCommandRange(launcher)) return false;
         if (cardId === 'air_command_strafe' || cardId === 'air_command_stukaDiveBomb') {
-            if (unit) return canAttack(gameState, myCamp, unit.camp);
-            // 无驻军但HP>0的敌方/中立城市也是合法空袭目标（削减城市HP）
-            return (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0
-                && canAttack(gameState, myCamp, tile.camp);
+            return canTargetWithSingleAirCommand(tile, myCamp, gameState);
         }
         if (cardId === 'air_command_airdrop') {
             return canAirCommandAirdropAt(tile);
@@ -137,10 +158,7 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
 
     if (cardId === 'banzai_charge') {
         const source = sources.sourceUnit;
-        if (!source?.tile || source.type !== 'jp_samurai' || !sameCamp(source.camp, myCamp)) return false;
-        const dist = hexDistance(source.tile, tile);
-        if (dist < 1 || dist > BANZAI_CHARGE_CONFIG.range) return false;
-        return !!unit && canAttack(gameState, myCamp, unit.camp) && isUnitVisibleToCamp(unit, myCamp, gameState);
+        return sameCamp(source?.camp, myCamp) && !!getBanzaiChargePath(source, tile, gameState);
     }
 
     if (cardId === 'drone_deploy') {
@@ -347,7 +365,10 @@ function resolveAirOverlay(gameState, cardId, myCamp, sources, isTileVisible) {
         }
     }
     return {
-        grounded: isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'fog',
+        grounded: cardId.startsWith('air_command_') && sources.launcherTile
+            ? isAirfieldGrounded(sources.launcherTile, gameState)
+            : isMechanicEnabled(gameState, 'weatherEffects') && gameState.weather === 'fog'
+                && !hasNegativeWeatherImmunity(gameState, myCamp),
         colonelOriginUnitId: sources.colonel?.id,
         transportSourceUnitId: sources.transportUnit?.id,
         rangeTileKeys,

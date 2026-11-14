@@ -100,12 +100,12 @@ export function getCardMeta(cardId) {
 export const TACTICAL_CARD_CONFIG = deepFreeze({
     heal: {
         ...TACTICAL_CARD_DATA.heal,
-        execute(targetTile, gameState, helpers) {
+        execute(targetTile, gameState, helpers = {}) {
             const unit = targetTile.unit;
             const healAmt = Math.round(unit.maxHp * TACTICAL_CARD_DATA.heal.balance.healMaxHpPct);
-            const oldHp = unit.hp;
-            const maxHeal = Math.min(unit.maxHp - oldHp, healAmt);
-            return { healAmt: maxHeal, purifiedPoison: !!unit._poison, targetTile };
+            const purifiedPoison = !!unit._poison;
+            unit._poison = null;
+            return { healAmt: unit.heal(healAmt, { delayMs: helpers.healDelayMs }), purifiedPoison, targetTile };
         }
     },
     lightning: {

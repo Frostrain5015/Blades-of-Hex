@@ -1,5 +1,6 @@
 import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS, MORALE_CONFIG } from './config.js';
 import { playSound } from './audio.js';
+import { RIFLE_SHOT_INTERVAL_MS, RIFLE_TRACER_FLIGHT_MS } from '../rules/attackPresentation.js';
 
 // ===== 粒子系统 =====================
 export const particles = [];
@@ -770,6 +771,36 @@ export function drawTorpedoes(ctx2d, now) {
 // ===== 无人机机枪弹道（比防空曳光弹更醒目，但避免激光感） =====================
 export const droneProjectiles = [];
 
+export function spawnRifleShots(fromX, fromY, toX, toY, { isCrit = false, dodged = false, delayMs = 0 } = {}) {
+    const startTime = performance.now() + delayMs;
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    const muzzleX = fromX + Math.cos(angle) * 13;
+    const muzzleY = fromY + Math.sin(angle) * 13;
+    for (const [index, delay] of [0, RIFLE_SHOT_INTERVAL_MS].entries()) {
+        const spread = index === 0 ? -3 : 3;
+        const offset = dodged ? spread * 6 : spread;
+        const hitX = toX - Math.sin(angle) * offset;
+        const hitY = toY + Math.cos(angle) * offset;
+        droneProjectiles.push({
+            fromX: muzzleX, fromY: muzzleY, toX: hitX, toY: hitY,
+            startTime: startTime + delay, duration: RIFLE_TRACER_FLIGHT_MS,
+            _isStrafeTracer: true,
+            onFire() {
+                playSound('rifleShot');
+                particles.push(new VisualParticle(muzzleX, muzzleY, 0, 0, '#fff0c7', 4.5, 0.055, 0));
+            },
+            onImpact: dodged ? null : () => {
+                for (let spark = 0; spark < (isCrit ? 5 : 3); spark++) {
+                    const spreadAngle = angle + (Math.random() - 0.5) * 2;
+                    const speed = 40 + Math.random() * 75;
+                    particles.push(new VisualParticle(hitX, hitY, Math.cos(spreadAngle) * speed,
+                        Math.sin(spreadAngle) * speed, '#ffd48c', 2, 0.12, 65));
+                }
+            }
+        });
+    }
+}
+
 export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
     const now = performance.now();
     for (let b = 0; b < 5; b++) {
@@ -839,6 +870,11 @@ export function updateDroneProjectiles(now) {
     for (let i = droneProjectiles.length - 1; i >= 0; i--) {
         const p = droneProjectiles[i];
         const elapsed = now - p.startTime;
+        if (elapsed < 0) continue;
+        if (p.onFire) {
+            p.onFire();
+            p.onFire = null;
+        }
         if (!p.impactSpawned && elapsed >= p.duration) {
             p.impactSpawned = true;
             if (p.onImpact) p.onImpact();
@@ -854,6 +890,7 @@ export function updateDroneProjectiles(now) {
 export function drawDroneProjectiles(ctx2d, now) {
     for (const p of droneProjectiles) {
         const elapsed = now - p.startTime;
+        if (elapsed < 0) continue;
         const t = Math.min(1, Math.max(0, elapsed / p.duration));
         if (t >= 1) continue;
 
@@ -1784,12 +1821,33 @@ export function spawnSoulRecallEffect(fromX, fromY, toX, toY) {
 // ===== 空袭特效 =====
 export const airstrikeEffects = [];
 
-export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null, fromX = null, fromY = null) {
+export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null, fromX = null, fromY = null, camp = null) {
     airstrikeEffects.push({
         x: cx, y: cy, fromX, fromY, q, r, results, type,
         startTime: performance.now(),
-        duration: type === 'diveStrafe' ? 1500 : type === 'stukaDiveBomb' ? 1650 : 2000
+        duration: type === 'diveStrafe' ? 1500 : type === 'stukaDiveBomb' ? 1650 : 2000,
+        camp
     });
+}
+
+export function playAirCommandImpact(kind, results, tileMap, delayMs, { showDodges = false } = {}) {
+    const strikes = results.map(hit => ({ ...hit, tile: tileMap.get(`${hit.q},${hit.r}`) })).filter(hit => hit.tile);
+    const isStrafe = kind === 'strafe';
+    const isStuka = kind === 'stukaDiveBomb';
+    setTimeout(() => {
+        let impact = false;
+        for (const { tile, dodged } of strikes) {
+            if (dodged) {
+                if (showDodges) spawnDodgeShimmer(tile.x, tile.y);
+                continue;
+            }
+            impact = true;
+            spawnExplosionParticles(tile.x, tile.y, isStuka ? '#ff5500' : '#ff8800', isStuka ? 18 : (isStrafe ? 15 : 10));
+        }
+        if (!impact) return;
+        if (!isStrafe) playSound('explosion');
+        triggerScreenShake(isStuka ? 10 : (isStrafe ? 6 : 8), isStrafe ? 300 : 400);
+    }, delayMs);
 }
 
 // ===== 塞莱斯廷圣国【神谕】指引光束（神像→目标，绘制于战争迷雾之上） =====
@@ -1955,6 +2013,7 @@ export function spawnAirliftEffect(fromX, fromY, toX, toY, opts = {}) {
 
 // ===== 国家文化与特色兵种特效（法式重炮 / 喀秋莎齐射 / 万岁冲锋 / 闪避 / 自由抵抗） =====
 export const HEAVY_CANNON_IMPACT_MS = 280;
+export const KATYUSHA_IMPACT_MS = 265;
 export const heavyCannonShells = [];
 export const katyushaRockets = [];
 export const banzaiDashes = [];
@@ -2018,10 +2077,13 @@ export function spawnHeavyCannonShell(fromX, fromY, toX, toY, isCrit = false, on
     heavyCannonShells.push({
         fromX, fromY, toX, toY, dist,
         startTime, duration, isCrit,
+        dodged: opts.dodged === true,
+        splash: opts.splash || [],
         impactSpawned: false,
         onImpact: onImpact || null
     });
     spawnMuzzleFlash(fromX, fromY, toX, toY, true);
+    triggerRecoil(fromX, fromY, toX, toY);
 }
 
 export function updateHeavyCannonShells(now) {
@@ -2029,8 +2091,13 @@ export function updateHeavyCannonShells(now) {
         const s = heavyCannonShells[i];
         if (!s.impactSpawned && now - s.startTime >= s.duration) {
             s.impactSpawned = true;
-            spawnCannonImpact(s.toX, s.toY, true);
-            spawnRingWave(s.toX, s.toY, { color: '#fb923c', maxRadius: 62, duration: 500, lineWidth: 3.4, count: 2, glow: '#fde68a' });
+            if (!s.dodged) {
+                spawnCannonImpact(s.toX, s.toY, true);
+                triggerAttackFlash(s.toX, s.toY, s.isCrit);
+                spawnRingWave(s.toX, s.toY, { color: '#fb923c', maxRadius: 62, duration: 500, lineWidth: 3.4, count: 2, glow: '#fde68a' });
+                triggerScreenShake(s.isCrit ? 7 : 5, 180);
+                for (const hit of s.splash) spawnExplosionParticles(hit.x, hit.y, '#ff8a3d', 10);
+            }
             if (s.onImpact) s.onImpact();
             heavyCannonShells.splice(i, 1);
         }
@@ -2070,14 +2137,16 @@ export function drawHeavyCannonShells(ctx2d, now) {
     }
 }
 
-export function spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit = false, onImpact = null) {
+export function spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit = false, onImpact = null, opts = {}) {
     const baseTime = performance.now();
-    const count = 6;
+    const impacts = opts.splash || [];
+    const count = Math.max(6, 3 + impacts.length);
     for (let i = 0; i < count; i++) {
         const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
         const spread = 12 * (0.4 + Math.random() * 0.6);
-        const rx = toX + Math.cos(angle) * spread;
-        const ry = toY + Math.sin(angle) * spread;
+        const splash = i > 2 && impacts.length ? impacts[(i - 3) % impacts.length] : null;
+        const rx = (splash?.x ?? toX) + Math.cos(angle) * spread;
+        const ry = (splash?.y ?? toY) + Math.sin(angle) * spread;
         const dx = rx - fromX;
         const dy = ry - fromY;
         const dist = Math.hypot(dx, dy);
@@ -2087,8 +2156,9 @@ export function spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit = false, onI
             toX: rx, toY: ry, dist,
             arcScale: 0.10 + (i % 3) * 0.03,
             startTime: baseTime + i * 38,
-            duration: Math.min(240, 120 + dist * 0.24),
+            duration: KATYUSHA_IMPACT_MS - 76,
             isCrit,
+            dodged: opts.dodged === true,
             impactSpawned: false,
             onImpact: i === 2 ? onImpact : null
         });
@@ -2103,7 +2173,7 @@ export function updateKatyushaRockets(now) {
         if (elapsed < 0) continue;
         if (!r.impactSpawned && elapsed >= r.duration) {
             r.impactSpawned = true;
-            spawnExplosionParticles(r.toX, r.toY, '#ff7b29', r.isCrit ? 12 : 8);
+            if (!r.dodged) spawnExplosionParticles(r.toX, r.toY, '#ff7b29', r.isCrit ? 12 : 8);
             if (r.onImpact) r.onImpact();
             katyushaRockets.splice(i, 1);
         }
@@ -2145,20 +2215,29 @@ export function drawKatyushaRockets(ctx2d, now) {
     }
 }
 
-export function spawnBanzaiDash(fromX, fromY, toX, toY, killed = false, healAmt = 0) {
+export function spawnBanzaiDash(fromX, fromY, toX, toY, { killed = false, healAmt = 0, destX = toX, destY = toY, dodged = false, showDodge = false, delayMs = 0 } = {}) {
     banzaiDashes.push({
         fromX, fromY, toX, toY,
-        killed, healAmt,
         startTime: performance.now(),
-        duration: 520
+        duration: 520,
+        travelMs: Math.max(1, delayMs)
     });
-    spawnMeleeSlash(toX, toY, fromX, fromY, true);
-    spawnSlashMarks(toX, toY, fromX, fromY, true);
-    spawnDirectionalParticles(fromX, fromY, toX, toY, '#ef4444', 18);
-    if (killed && healAmt > 0) {
-        spawnHealParticles(toX, toY);
-        spawnRingWave(toX, toY, { color: '#fca5a5', maxRadius: 56, duration: 540, lineWidth: 3, count: 2, glow: '#ef4444' });
-    }
+    setTimeout(() => {
+        if (dodged) {
+            if (showDodge) spawnDodgeShimmer(toX, toY);
+            return;
+        }
+        spawnMeleeSlash(toX, toY, fromX, fromY, true);
+        spawnSlashMarks(toX, toY, fromX, fromY, true);
+        spawnDirectionalParticles(fromX, fromY, toX, toY, '#ef4444', 18);
+        triggerAttackFlash(toX, toY, killed);
+        playSound(killed ? 'crit' : 'attack');
+        triggerScreenShake(killed ? 8 : 5, 260);
+        if (killed && healAmt > 0) {
+            spawnHealParticles(destX, destY);
+            spawnRingWave(destX, destY, { color: '#fca5a5', maxRadius: 56, duration: 540, lineWidth: 3, count: 2, glow: '#ef4444' });
+        }
+    }, delayMs);
 }
 
 export function updateBanzaiDashes(now) {
@@ -2171,7 +2250,11 @@ export function updateBanzaiDashes(now) {
 
 export function drawBanzaiDashes(ctx2d, now) {
     for (const d of banzaiDashes) {
-        const t = Math.min(1, Math.max(0, (now - d.startTime) / d.duration));
+        const elapsed = Math.max(0, now - d.startTime);
+        const t = Math.min(1, elapsed / d.duration);
+        const travel = Math.min(1, elapsed / d.travelMs);
+        const headX = d.fromX + (d.toX - d.fromX) * travel;
+        const headY = d.fromY + (d.toY - d.fromY) * travel;
         const alpha = (1 - t) * 0.9;
         ctx2d.save();
         ctx2d.globalAlpha = alpha;
@@ -2182,14 +2265,14 @@ export function drawBanzaiDashes(ctx2d, now) {
         ctx2d.lineWidth = 6 * (1 - t * 0.5);
         ctx2d.beginPath();
         ctx2d.moveTo(d.fromX, d.fromY);
-        ctx2d.lineTo(d.toX, d.toY);
+        ctx2d.lineTo(headX, headY);
         ctx2d.stroke();
 
         ctx2d.strokeStyle = '#fef2f2';
         ctx2d.lineWidth = 2.2 * (1 - t * 0.4);
         ctx2d.beginPath();
         ctx2d.moveTo(d.fromX, d.fromY);
-        ctx2d.lineTo(d.toX, d.toY);
+        ctx2d.lineTo(headX, headY);
         ctx2d.stroke();
         ctx2d.restore();
     }
@@ -2209,6 +2292,7 @@ export function clearTransientEffects() {
     fogBlobs.length = 0;
     windStreaks.length = 0;
     projectiles.length = 0;
+    droneProjectiles.length = 0;
     heavyCannonShells.length = 0;
     katyushaRockets.length = 0;
     banzaiDashes.length = 0;

@@ -4,6 +4,7 @@ import { campToKey } from './camps.js';
 import { isFriendly } from './diplomacy.js';
 import { hexDistance } from './hex.js';
 import { getRoundIndex } from './turns.js';
+import { hasFullAiIntelligence } from '../ai/difficulty.js';
 
 export const STEALTH_VISIBILITY_RULES = Object.freeze({
     guerrillaRevealRadius: 1,
@@ -59,12 +60,14 @@ export function isGuerrillaExposedByVillage(unit) {
     return campToKey(tile.camp) !== campToKey(unit.camp);
 }
 
-export function hasHostileUnitNear(unit, state, radius = STEALTH_VISIBILITY_RULES.guerrillaRevealRadius) {
+export function hasHostileUnitNear(unit, state, radius = STEALTH_VISIBILITY_RULES.guerrillaRevealRadius, viewerCamp = null) {
     if (!unit?.tile || !state?.tiles) return false;
+    if (viewerCamp && campToKey(viewerCamp) === campToKey(unit.camp)) viewerCamp = null;
     for (const tile of state.tiles) {
         const other = tile?.unit;
         if (!other || other.hp <= 0 || other === unit || other._isAirTransient) continue;
         if (isFriendly(state, other.camp, unit.camp)) continue;
+        if (viewerCamp && !isFriendly(state, other.camp, viewerCamp)) continue;
         if (hexDistance(tile, unit.tile) <= radius) return true;
     }
     return false;
@@ -97,12 +100,13 @@ export function isUnitVisibleToCamp(unit, viewerCamp, state, options = {}) {
         if (!options.ignoreAiBypass) {
             const viewerKey = campToKey(viewerCamp);
             const viewerFaction = state?.factions?.[viewerKey];
-            if (viewerFaction?.isAI && viewerFaction?.aiDifficulty === 'imperator') {
+            if ((viewerFaction?.controller === 'ai' && hasFullAiIntelligence(state, viewerKey))
+                || (viewerFaction?.isAI && viewerFaction.aiDifficulty === 'imperator')) {
                 return true;
             }
         }
         if (isGuerrillaExposedByVillage(unit)) return true;
-        if (hasHostileUnitNear(unit, state, STEALTH_VISIBILITY_RULES.guerrillaRevealRadius)) return true;
+        if (hasHostileUnitNear(unit, state, STEALTH_VISIBILITY_RULES.guerrillaRevealRadius, viewerCamp)) return true;
         if (hasFactionReveal(unit, viewerCamp, state)) return true;
         return false;
     }

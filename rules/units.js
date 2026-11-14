@@ -1,7 +1,6 @@
 // rules/units.js — 0 阶标准兵种、专精与克制关系的单一规则源。
 
 import { deepFreeze } from './freeze.js';
-import { isCampCulture } from './cultures.js';
 
 /**
  * 所有可招募常规单位都从这里的 0 阶标准面板创建。
@@ -128,9 +127,6 @@ export const UNIT_SPECIALIZATION_CONFIG = deepFreeze({
         fieldGun: spec('野战炮', { hp: 100, attack: 60, defense: 0, speed: 3, range: 2 }, {
             armorPierce: { rank1: 0.08, rank3: 0.12, terrainOrWindMultiplier: 2 }
         }, unit => `无视敌人${Math.round((unit.getSpecializationAbility('armorPierce') || 0) * 100)}%防御；位于山地或风天时效果翻倍。`),
-        rocketArtillery: spec('火箭炮', { hp: 90, attack: 40, defense: 0, speed: 3, range: 2 }, {
-            splash: { rank1: 0.25, rank3: 0.35, totalDamageCap: 1 }
-        }, unit => `对主目标相邻敌军造成${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%倍率溅射。`),
         antiAirArtillery: spec('防空炮', { hp: 110, attack: 45, defense: 0.05, speed: 4, range: 2 }, {
             antiAir: { radius: 2, rank1: 0.35, rank3: 0.50 }
         }, unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`)
@@ -208,14 +204,10 @@ export function isStrongpointTarget(target) {
     return !!(target.tile?.isCity || target.tile?.isUrban || target.tile?.fortification);
 }
 
-export function getSpecializationOptions(unitOrType, state = null, camp = null) {
+export function getSpecializationOptions(unitOrType) {
     const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
     const options = UNIT_SPECIALIZATION_CONFIG[type] || {};
-    const resolvedCamp = camp || (typeof unitOrType === 'object' ? unitOrType?.camp : null);
-    const blockRocket = type === 'archer' && state && resolvedCamp && isCampCulture(state, resolvedCamp, 'ru');
-    return Object.entries(options)
-        .filter(([key]) => !(blockRocket && key === 'rocketArtillery'))
-        .map(([key, value]) => ({ key, ...value }));
+    return Object.entries(options).map(([key, value]) => ({ key, ...value }));
 }
 
 export function getSpecialization(type, specializationKey) {
@@ -226,12 +218,8 @@ export function getSpecializationBaseType(specializationKey) {
     return SPECIALIZATION_TO_TYPE.get(specializationKey) || null;
 }
 
-export function isValidSpecialization(type, specializationKey, state = null, camp = null) {
-    if (!specializationKey || getSpecializationBaseType(specializationKey) !== type) return false;
-    if (type === 'archer' && specializationKey === 'rocketArtillery' && state && camp && isCampCulture(state, camp, 'ru')) {
-        return false;
-    }
-    return true;
+export function isValidSpecialization(type, specializationKey) {
+    return Boolean(specializationKey && getSpecializationBaseType(specializationKey) === type);
 }
 
 export function unitNeedsSpecialization(unit) {
@@ -300,26 +288,9 @@ export function chooseDefaultSpecialization(unit, state = null, policy = {}) {
     const intelligence = policy.intelligence || 'medium';
     if (intelligence === 'easy') return specializationOptions[0].key;
     if (unit.type === 'archer') {
-        const hostileClusters = hostileUnits.reduce((best, center) => {
-            const tile = center.tile;
-            if (!tile) return best;
-            const adjacent = hostileUnits.filter(other => {
-                if (!other.tile) return false;
-                const dq = other.tile.q - tile.q;
-                const dr = other.tile.r - tile.r;
-                const ds = -dq - dr;
-                return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds)) <= 1;
-            }).length;
-            return Math.max(best, adjacent);
-        }, 0);
         const hostileAirPlatforms = hostileUnits.filter(other => other.type === 'carrier' || other._isDrone).length;
         const needsAntiAir = hostileAirPlatforms >= (intelligence === 'hard' ? 2 : 1);
-        const allowRocket = specializationOptions.some(opt => opt.key === 'rocketArtillery');
-        return needsAntiAir ? 'antiAirArtillery'
-            : (allowRocket && (hostileClusters >= (intelligence === 'hard' ? 2 : 3)
-                || hostileUnits.filter(other => other.config?.building || other.tile?.isCity).length >= 2))
-                ? 'rocketArtillery'
-                : 'fieldGun';
+        return needsAntiAir ? 'antiAirArtillery' : 'fieldGun';
     }
     if (unit.type === 'destroyer') {
         return hostileUnits.some(other => other.type === 'submarine') ? 'antiSubDestroyer' : 'antiAirDestroyer';

@@ -2,6 +2,7 @@
 import { HEX_SIZE, ctx, drawHexagonOutline, settings, frameInfo, MORALE_CONFIG, roundRectPath } from './config.js';
 import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
+import { gameState as clientState, getViewingCamp } from './state.js';
 import { iconEffects, getRecoilOffset, getChargeOffset } from './effects.js';
 
 import { campFromKey, getRelationToViewer, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
@@ -97,21 +98,22 @@ export function getUnitVisualPos(unit) {
         return { x: vx, y: vy };
     }
 
-export function startUnitMovePath(unit, path) {
+export function startUnitMovePath(unit, path, { delayMs = 0 } = {}) {
         if (!path || path.length < 2) return;
         unit.movePath = path;
-        unit.movePathStart = frameInfo.now;
+        unit.movePathStart = frameInfo.now + delayMs;
         unit.movePathDuration = (path.length - 1) * 120 / (settings.animationSpeed || 1);
     }
 
-/** Resolve the active viewing camp without importing client state.js. */
+/** Use the same viewing camp as the battlefield and its interaction layer. */
 export function resolveViewerCamp(gameState) {
     if (!gameState) return null;
-    if (isNetworkGame()) {
-        const roleCamp = getRoleCamp(gameState, getMyRole());
-        if (roleCamp) return roleCamp;
+    if (gameState === clientState) return getViewingCamp();
+    if (gameState.campaignMode) return campFromKey(getViewingCampKey(gameState), gameState);
+    if (gameState.gameMode === 'pve') {
+        return Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;
     }
-    return campFromKey(getViewingCampKey(gameState), gameState) || gameState.currentCamp || null;
+    return gameState.currentCamp || null;
 }
 
 function _resolveUniqueBadgeOptions(unit, gameState) {
@@ -130,7 +132,7 @@ function _resolveUniqueBadgeOptions(unit, gameState) {
 // instead of being partially covered by it.
 export function drawUnitFlagFinial(unit, gameState = null) {
     if (!unit || unit._airdropWaiting || unit.tile.isCity || unit.tile.isVillage || unit.tile.isPort) return;
-    if (gameState && !isUnitVisibleToCamp(unit, resolveViewerCamp(gameState), gameState)) return;
+    if (gameState && !isUnitVisibleToCamp(unit, resolveViewerCamp(gameState), gameState, { ignoreAiBypass: true })) return;
     const now = frameInfo.now;
     if ((unit._airliftLandAt && now < unit._airliftLandAt)
         || (unit._soulRecallLandAt && now < unit._soulRecallLandAt)) return;
@@ -157,7 +159,7 @@ function resolveUnitHudColor(gameState, unit, hpRatio) {
 /** Draw only the friendly moving counter above a held fog mask. */
 export function drawUnitBadgeAboveFog(unit, gameState) {
     if (!unit || unit._airdropWaiting || !unit.tile) return;
-    if (gameState && !isUnitVisibleToCamp(unit, resolveViewerCamp(gameState), gameState)) return;
+    if (gameState && !isUnitVisibleToCamp(unit, resolveViewerCamp(gameState), gameState, { ignoreAiBypass: true })) return;
     const pos = getUnitVisualPos(unit);
     const hpRatio = unit.displayHp / unit.maxHp;
     const shieldRatio = unit._displayShield > 0.5 ? unit._displayShield / unit.maxHp : 0;
@@ -182,7 +184,7 @@ export function drawUnitBadgeAboveFog(unit, gameState) {
     ctx.restore();
 }
 
-export function drawUnit(unit, gameState) {
+export function drawUnit(unit, gameState, { deathGhost = false } = {}) {
         if (unit._airdropWaiting) return; // invisible until parachute lands
         if (unit._airliftLandAt) {         // E4 空运途中：落地前隐藏，落地时现身
             if (frameInfo.now < unit._airliftLandAt) return;
@@ -203,7 +205,8 @@ export function drawUnit(unit, gameState) {
 
         const gs = gameState;
         const viewerCamp = resolveViewerCamp(gs);
-        if (gs && !isUnitVisibleToCamp(unit, viewerCamp, gs)) return;
+        if (gs && (!deathGhost || isStealthUnit(unit))
+            && !isUnitVisibleToCamp(unit, viewerCamp, gs, { ignoreAiBypass: true })) return;
 
         const isConcealedStealth = isStealthUnit(unit)
             && !(isStealthGuerrilla(unit) && (isGuerrillaExposedByVillage(unit) || hasHostileUnitNear(unit, gs)));

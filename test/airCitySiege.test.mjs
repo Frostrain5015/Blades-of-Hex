@@ -109,7 +109,7 @@ test('空军上校把航母射程由5提高到7', () => {
     assert.ok(!targets.includes(outsideTarget));
 });
 
-test('机场扫射指令可指定无驻军但HP>0的敌城并延迟削减城市HP', async () => {
+test('机场扫射同步提交空城结构伤害，伤害浮字延迟至弹着', () => {
     const airfield = new HexTile(0, 0);
     airfield.isCity = true;
     airfield.isUrban = true;
@@ -123,11 +123,11 @@ test('机场扫射指令可指定无驻军但HP>0的敌城并延迟削减城市H
     const ok = gl.executeAirCommand('strafe', airfield, city);
     assert.equal(ok, true);
     assert.equal(gameState.playerGold.player1, 100 - 4, '扫射应扣除4金币');
-    assert.equal(city.hp, 300, '动画抵达前城市HP不变');
-
-    await sleep(1400); // AIR_COMMAND_IMPACT_DELAY_MS.strafe = 1200
     // 无驻军、无上校、无防空：AIRFIELD_BASE_POWER × 1.0 浮动
-    assert.equal(city.hp, 300 - AIRFIELD_BASE_POWER, '爆炸时刻削减城市HP');
+    assert.equal(city.hp, 300 - AIRFIELD_BASE_POWER);
+    assert.equal(serializeState().tiles.find(tile => tile.q === city.q && tile.r === city.r).hp, city.hp);
+    assert.ok(gameState.floatTextPending.some(text => text.x === city.x && text.y === city.y
+        && text.value === AIRFIELD_BASE_POWER && text.showAt > performance.now()));
     assert.ok(airfield.installation.airCommandReadyRound.strafe > 0, '扫射应进入冷却');
 });
 
@@ -149,6 +149,37 @@ test('机场扫射指令拒绝以空地/己方城市为目标', () => {
     assert.equal(gl.executeAirCommand('strafe', airfield, emptyPlain), false, '空地不是合法扫射目标');
     assert.equal(gl.executeAirCommand('strafe', airfield, ownCity), false, '己方城市不是合法扫射目标');
     assert.equal(gameState.playerGold.player1, 100, '被拒绝的指令不应扣费');
+});
+
+test('斯图卡立即结算原目标，动画期间换位不会重复扣血或打到入格友军', async () => {
+    const airfield = enemyCityTile(0, 0);
+    airfield.camp = P1;
+    airfield.installation = { type: 'airfield', status: 'ready' };
+    const target = new HexTile(2, 0);
+    const exit = new HexTile(3, 0);
+    const reserve = new HexTile(1, 0);
+    setupMatch([airfield, target, exit, reserve]);
+    const previousMode = gameState.factionRuleMode;
+    P1.flagPreset = 'img/flags/germany-iron-cross.svg';
+    gameState.factionRuleMode = 'culture';
+    try {
+        const enemy = new Unit('infantry', P2, target);
+        const ally = new Unit('infantry', P1, reserve);
+        assert.equal(gl.executeAirCommand('stukaDiveBomb', airfield, target), true);
+        assert.equal(enemy.hp, enemy.maxHp - 65);
+        assert.equal(target.fireSea.layers, 1);
+        enemy.tile = exit;
+        exit.unit = enemy;
+        reserve.unit = null;
+        ally.tile = target;
+        target.unit = ally;
+        await sleep(1250);
+        assert.equal(enemy.hp, enemy.maxHp - 65);
+        assert.equal(ally.hp, ally.maxHp);
+    } finally {
+        delete P1.flagPreset;
+        gameState.factionRuleMode = previousMode;
+    }
 });
 
 test('机场可向无驻军的破城空降，城市和行政区在同步快照中易主', () => {

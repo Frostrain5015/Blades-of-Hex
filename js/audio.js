@@ -183,6 +183,27 @@ function _playSynthFallback(sound) {
     if (!ctx) return;
 
     switch (sound) {
+        case 'rifleShot': {
+            const duration = 0.085;
+            const noise = ctx.createBuffer(1, Math.round(ctx.sampleRate * duration), ctx.sampleRate);
+            const samples = noise.getChannelData(0);
+            for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
+            const shot = ctx.createBufferSource();
+            const filter = ctx.createBiquadFilter();
+            const gain = ctx.createGain();
+            const now = ctx.currentTime;
+            shot.buffer = noise;
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(4300, now);
+            filter.frequency.exponentialRampToValueAtTime(550, now + duration);
+            gain.gain.setValueAtTime(0.24 * (settings.soundVolume ?? 0.7), now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+            shot.connect(filter);
+            filter.connect(gain);
+            gain.connect(ctx.destination);
+            shot.start(now);
+            break;
+        }
         case 'attack':
         case 'mineExplode': {
             const osc = ctx.createOscillator();

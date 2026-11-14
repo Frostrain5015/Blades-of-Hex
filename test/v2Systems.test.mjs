@@ -39,6 +39,9 @@ test('0阶标准型、待专精与选定专精使用同一确定性军衔映射'
     assert.equal(getSpecializationAbilityValue({ type: 'infantry', specializationKey: 'garrisonInfantry', _rank: 3 }, 'cityRegen'), 0.20);
     assert.equal(resolveUnitRankProfile('archer', 2, 'antiAirArtillery').attack, 55,
         '防空炮保留普通攻击，防空火力是附加能力');
+    const invalidRocket = resolveUnitRankProfile('archer', 2, 'rocketArtillery');
+    assert.equal(invalidRocket.specializationKey, null);
+    assert.equal(invalidRocket.pendingSpecialization, true);
 });
 
 test('建筑锁定军衔，航母把2阶攻击奖励映射为航空火力', () => {

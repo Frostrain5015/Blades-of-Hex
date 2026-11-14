@@ -4,7 +4,7 @@ import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notif
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef, setIsNetworkGameRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
-import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, creditEagleSynergyDamage, BURN_MS } from './gameLogic.js';
+import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, BURN_MS } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, sendAddAi, sendRemoveAi, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
@@ -16,7 +16,7 @@ import { meta as optioMeta } from '../ai/optio.js';
 import { meta as legatusMeta } from '../ai/legatus.js';
 import { meta as imperatorMeta } from '../ai/imperator.js';
 import { ORBITAL_STRIKE_TICK_DELAYS_MS } from '../rules/cards.js';
-import { damageCityPool, getCityPoolTile } from '../rules/citySiege.js';
+import { damageCityPool } from '../rules/citySiege.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
 import {
     triggerTurnFlash,
@@ -24,18 +24,18 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
-    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnRifleShots, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike, spawnOrbitalBeam,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
     spawnGoldenBeam, spawnPaladinOrbitBeams, spawnPaladinBeamProjectiles, clearPaladinOrbitBeams,
     spawnHealingChain,
     spawnSlashMarks,
-    spawnAirstrikeEffect, spawnAirliftEffect,
+    spawnAirstrikeEffect, spawnAirliftEffect, playAirCommandImpact,
     spawnHealParticles,
     spawnReinforceEffect,
     clearTransientEffects, LASER_BEAM_IMPACT_MS,
-    HEAVY_CANNON_IMPACT_MS, spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash, spawnDodgeShimmer
+    HEAVY_CANNON_IMPACT_MS, KATYUSHA_IMPACT_MS, spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash, spawnDodgeShimmer
 } from './effects.js';
 import { isTileVisible } from './fogOfWar.js';
 import { HexTile } from './HexTile.js';
@@ -61,13 +61,12 @@ import {
     getViewingCampKey, getFlagPresetColor, ensureCultureFactionPresets, resetCulturePresetsToCustomFlags, FLAG_PRESETS, STANDARD_FLAG_EMOJIS
 } from '../rules/diplomacy.js';
 import {
-    FACTION_RULE_MODES, isCultureSystemEnabled, isFactionSynergyRuleActive, normalizeFactionRuleMode,
-    getFireSeaState
+    FACTION_RULE_MODES, isCultureSystemEnabled, isFactionSynergyRuleActive, normalizeFactionRuleMode
 } from '../rules/cultures.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { downloadCurrentMatchLog, downloadCurrentMatchReview, getCurrentMatchLog, recordCommittedAction, resolvePendingLocalAction, startMatchRecording } from './matchRecorder.js';
 import { initMatchStatsPanel } from './matchStatsView.js';
-import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
+import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, RIFLE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, usesRifleAttackEffect } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
 import { renderResultFlagPreviews } from './resultFlagPreview.js';
 import {
@@ -3358,11 +3357,85 @@ async function handleRemoteAction(msg) {
         const heavyTargets = [];
         for (const hv of heavyVolleys) {
             if (hv.dodged) continue;
-            const unit = gameState.tileMap.get(`${hv.toQ},${hv.toR}`)?.unit;
-            if (unit) heavyTargets.push({ unit, volley: hv });
+            for (const hit of [{ q: hv.toQ, r: hv.toR, killed: hv.killed }, ...(hv.splash || [])]) {
+                const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+                if (unit && (hit.unitId == null || hit.unitId === unit.id)) heavyTargets.push({ unit, hit });
+            }
+        }
+        const airImpactDelay = msg.actionType === 'airCommand' ? AIR_COMMAND_IMPACT_DELAY_MS[msg.effects?.kind] : undefined;
+        const airTargets = Number.isFinite(airImpactDelay) ? (msg.effects.results || []).flatMap(hit => {
+            if (hit.dodged || hit.isCitySiege || hit.unitId == null) return [];
+            const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+            return unit?.id === hit.unitId ? [{ unit, hit }] : [];
+        }) : [];
+        const attackEffects = msg.effects;
+        const rifleAttack = msg.actionType === 'attack' && usesRifleAttackEffect(attackEffects);
+        const attackImpactDelay = msg.actionType === 'banzaiCharge' ? attackEffects?.impactDelay
+            : msg.actionType === 'attack' && attackEffects?.attackerType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
+            : msg.actionType === 'attack' && attackEffects?.attackerType === 'ru_katyusha' ? KATYUSHA_IMPACT_MS
+            : rifleAttack ? RIFLE_IMPACT_MS : 0;
+        const delayedTargets = [];
+        const healingTarget = msg.actionType === 'tacticalCard' && attackEffects?.cardId === 'heal' && attackEffects.healAmt > 0
+            ? gameState.tileMap.get(`${attackEffects.q},${attackEffects.r}`)?.unit : null;
+        if (attackImpactDelay && !attackEffects.dodged && !attackEffects.isCitySiege) {
+            const hits = msg.actionType === 'banzaiCharge'
+                ? [{ q: attackEffects.targetQ, r: attackEffects.targetR, unitId: attackEffects.targetUnitId, killed: attackEffects.killed }]
+                : [{ q: attackEffects.q, r: attackEffects.r, killed: attackEffects.killed }, ...(attackEffects.specializationSplashResults || [])];
+            for (const hit of hits) {
+                const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+                if (unit && (hit.unitId == null || hit.unitId === unit.id)) delayedTargets.push({ unit, hit, delayMs: attackImpactDelay });
+            }
+        }
+        if (msg.actionType === 'attack' && attackEffects?.rifleCounterFired && !attackEffects.rifleCounterDodged) {
+            const { fromQ: q, fromR: r, attackerUnitId } = attackEffects;
+            const unit = gameState.tileMap.get(`${q},${r}`)?.unit;
+            if (unit?.id === attackerUnitId) {
+                delayedTargets.push({ unit, hit: { q, r, killed: true }, delayMs: (attackImpactDelay || 0) + RIFLE_IMPACT_MS });
+            }
         }
         applyRemoteState(msg.state, HexTile, Unit);
         const volleyStartedAt = performance.now();
+        if (healingTarget) {
+            const unit = gameState.tileMap.get(`${attackEffects.q},${attackEffects.r}`)?.unit;
+            if (unit?.id === healingTarget.id) {
+                unit.displayHp = healingTarget.displayHp;
+                unit._hpBarDelayUntil = volleyStartedAt + BURN_MS;
+            }
+        }
+        for (const { unit, hit, delayMs } of delayedTargets) {
+            const impactAt = volleyStartedAt + delayMs;
+            const current = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+            if (current?.id === unit.id) {
+                current.displayHp = unit.displayHp;
+                current._displayShield = unit._displayShield;
+                current._hpBarDelayUntil = impactAt;
+            } else if (hit.killed) {
+                (gameState.unitDeathGhosts ||= []).push({ unit, until: impactAt });
+            }
+        }
+        if (rifleAttack && (attackEffects.killed || attackEffects.cityCaptured || attackEffects.isCitySiege)) {
+            const unit = gameState.tileMap.get(`${attackEffects.q},${attackEffects.r}`)?.unit;
+            if (unit?.id === attackEffects.attackerUnitId) {
+                unit.startMovePath([{ x: attackEffects.fromX, y: attackEffects.fromY }, unit.tile], { delayMs: RIFLE_IMPACT_MS });
+            }
+        }
+        if (Number.isFinite(airImpactDelay)) {
+            const impactAt = volleyStartedAt + airImpactDelay;
+            for (const { unit, hit } of airTargets) {
+                const current = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+                if (current?.id === unit.id) {
+                    current.displayHp = unit.displayHp;
+                    current._displayShield = unit._displayShield;
+                    current._hpBarDelayUntil = impactAt;
+                } else if (hit.killed) {
+                    (gameState.unitDeathGhosts ||= []).push({ unit, until: impactAt });
+                }
+            }
+            for (const { q, r } of msg.effects.fireSeaCoords || []) {
+                const tile = gameState.tileMap.get(`${q},${r}`);
+                if (tile?.fireSea) tile._fireSeaVisualDelayUntil = impactAt;
+            }
+        }
         if (laserVolleys.length > 0) {
             const impactAt = volleyStartedAt + LASER_BEAM_IMPACT_MS;
             for (const { unit, hit } of laserTargets.values()) {
@@ -3380,20 +3453,22 @@ async function handleRemoteAction(msg) {
         }
         if (heavyVolleys.length > 0) {
             const heavyImpactAt = volleyStartedAt + HEAVY_CANNON_IMPACT_MS;
-            for (const { unit, volley } of heavyTargets) {
-                const current = gameState.tileMap.get(`${volley.toQ},${volley.toR}`)?.unit;
+            for (const { unit, hit } of heavyTargets) {
+                const current = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
                 if (current?.id === unit.id) {
                     current.displayHp = unit.displayHp;
                     current._displayShield = unit._displayShield;
                     current._hpBarDelayUntil = heavyImpactAt;
-                } else if (volley.killed) {
+                } else if (hit.killed && !gameState.unitDeathGhosts?.some(ghost => ghost.unit.id === unit.id)) {
                     unit._hpBarDelayUntil = heavyImpactAt;
                     (gameState.unitDeathGhosts ||= []).push({ unit, until: heavyImpactAt });
                 }
             }
             playSound('cannon');
             for (const hv of heavyVolleys) {
-                spawnHeavyCannonShell(hv.fromX, hv.fromY, hv.toX, hv.toY, hv.isCrit, null, { startedAt: volleyStartedAt });
+                spawnHeavyCannonShell(hv.fromX, hv.fromY, hv.toX, hv.toY, hv.isCrit, null, {
+                    startedAt: volleyStartedAt, dodged: hv.dodged, splash: hv.splash
+                });
                 if (hv.dodged && Number.isFinite(hv.toX) && Number.isFinite(hv.toY)) {
                     setTimeout(() => spawnDodgeShimmer(hv.toX, hv.toY), HEAVY_CANNON_IMPACT_MS);
                 }
@@ -3428,10 +3503,11 @@ async function handleRemoteAction(msg) {
 
     if (gameState.gameOver && !wasGameOver) {
         setTimeout(() => triggerVictoryEffect(), 1500);
-        return;
+        if (msg.actionType !== 'attack' || !usesRifleAttackEffect(msg.effects)) return;
     }
 
     const e = msg.effects;
+    for (const event of e?.freeResistanceFx || []) emit('fx:freeResistance', event);
     // 激光与法式重炮回合初齐射的浮字已随快照后的弹道同时入队。
     if (e?.floatTexts && laserVolleys.length === 0 && heavyVolleys.length === 0) replayFloatTexts(e.floatTexts);
     switch (msg.actionType) {
@@ -3588,9 +3664,7 @@ async function handleRemoteAction(msg) {
                             break;
                         }
                         case 'heal': {
-                            const ht = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
-                            if (ht && ht.unit && e.healAmt) {
-                                ht.unit.hp = Math.min(ht.unit.maxHp, ht.unit.hp + e.healAmt);
+                            if (e.healAmt > 0) {
                                 // 治疗数字由 e.floatTexts 统一重放
                                 spawnHealParticles(e.x, e.y);
                                 triggerHealFlash(e.x, e.y);
@@ -3852,6 +3926,10 @@ async function handleRemoteAction(msg) {
                 const _sPres = classifyAttackPresentation(e);
                 const _sCrit = !!e.isCrit;
                 const _sFromX = e.fromX ?? e.x, _sFromY = e.fromY ?? e.y;
+                if (usesRifleAttackEffect(e)) {
+                    spawnRifleShots(_sFromX, _sFromY, e.x, e.y, { isCrit: _sCrit });
+                    break;
+                }
                 if (_sPres === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
                     // 航母扫射空城：与主机端一致的俯冲扫射表现，伤害数字延迟到子弹流抵达
                     playSound('airstrike');
@@ -3877,12 +3955,15 @@ async function handleRemoteAction(msg) {
                 if (_sPres === ATTACK_PRESENTATION.FIRE_TORPEDO) {
                     spawnTorpedo(_sFromX, _sFromY, e.x, e.y, _sCrit);
                 } else if (_sPres === ATTACK_PRESENTATION.FIRE_CANNON) {
-                    spawnProjectile(_sFromX, _sFromY, e.x, e.y, _sCrit, () => {
+                    const impact = () => {
                         triggerAttackFlash(e.x, e.y, _sCrit);
                         triggerRecoil(_sFromX, _sFromY, e.x, e.y);
                         spawnDirectionalParticles(_sFromX, _sFromY, e.x, e.y, '#ff8844', _sCrit ? 8 : 4);
                         triggerScreenShake(_sCrit ? 6 : 3, _sCrit ? 200 : 120);
-                    });
+                    };
+                    if (e.attackerType === 'fr_heavy_cannon') spawnHeavyCannonShell(_sFromX, _sFromY, e.x, e.y, _sCrit);
+                    else if (e.attackerType === 'ru_katyusha') spawnKatyushaBarrage(_sFromX, _sFromY, e.x, e.y, _sCrit, impact);
+                    else spawnProjectile(_sFromX, _sFromY, e.x, e.y, _sCrit, impact);
                 } else if (_sPres === ATTACK_PRESENTATION.FIRE_TRACER) {
                     spawnDroneProjectile(_sFromX, _sFromY, e.x, e.y, _sCrit, () => {
                         triggerAttackFlash(e.x, e.y, _sCrit);
@@ -3906,18 +3987,21 @@ async function handleRemoteAction(msg) {
                 const _rmFromX = e?.fromX ?? e?.x;
                 const _rmFromY = e?.fromY ?? e?.y;
                 const _rmPresentation = classifyAttackPresentation(e);
+                const rifleAttack = usesRifleAttackEffect(e);
 
                 // 飞行类攻击（鱼雷/舰载机弹流）：伤害数字/击杀爆炸/士气特效延迟到弹体抵达
                 const _rmTorpedoMs = _rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO
                     ? getTorpedoFlightMs(e?.fromX ?? e?.x ?? 0, e?.fromY ?? e?.y ?? 0, e?.x ?? 0, e?.y ?? 0) : 0;
+                const _rmCulturalImpactMs = e?.attackerType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
+                    : e?.attackerType === 'ru_katyusha' ? KATYUSHA_IMPACT_MS : 0;
                 const _rmImpactMs = _rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
-                    ? CARRIER_STRAFE_IMPACT_MS : _rmTorpedoMs;
+                    ? CARRIER_STRAFE_IMPACT_MS : _rmTorpedoMs || _rmCulturalImpactMs || (rifleAttack ? RIFLE_IMPACT_MS : 0);
                 const _rmDeferImpact = (fn) => _rmImpactMs > 0 ? setTimeout(fn, _rmImpactMs) : fn();
 
                 const _execAttackFx = () => {
                 if (_rmSmite) {
                     setTimeout(() => playSound('lightning'), 500);
-                } else if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                } else if (!rifleAttack && _rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
                     playSound(_rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
                         ? 'airstrike'
                         : _rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER
@@ -3927,7 +4011,9 @@ async function handleRemoteAction(msg) {
                             : (e?.isCrit ? 'crit' : 'attack'));
                 }
                 if (e) {
-                    if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                    if (rifleAttack) {
+                        spawnRifleShots(_rmFromX, _rmFromY, e.x, e.y, { isCrit: e.isCrit, dodged: e.dodged });
+                    } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
                         spawnTorpedo(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
                         spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.attackDmg }], 'diveStrafe', e.q, e.r);
@@ -3948,23 +4034,32 @@ async function handleRemoteAction(msg) {
                         spawnDroneProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_CANNON) {
-                        triggerAttackFlash(e.x, e.y, e.isCrit);
                         if (e.attackerType === 'ru_katyusha') {
-                            spawnKatyushaBarrage(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                            spawnKatyushaBarrage(_rmFromX, _rmFromY, e.x, e.y, e.isCrit, e.dodged ? null : () => {
+                                triggerAttackFlash(e.x, e.y, e.isCrit);
+                                triggerRecoil(_rmFromX, _rmFromY, e.x, e.y);
+                                spawnDirectionalParticles(_rmFromX, _rmFromY, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
+                                triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
+                            }, { splash: e.specializationSplashResults, dodged: e.dodged });
                         } else if (e.attackerType === 'fr_heavy_cannon') {
-                            spawnHeavyCannonShell(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                            spawnHeavyCannonShell(_rmFromX, _rmFromY, e.x, e.y, e.isCrit, null, {
+                                dodged: e.dodged, splash: e.specializationSplashResults
+                            });
                         } else {
-                            spawnProjectile(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
+                            spawnProjectile(_rmFromX, _rmFromY, e.x, e.y, e.isCrit);
+                            if (!e.dodged) {
+                                triggerAttackFlash(e.x, e.y, e.isCrit);
+                                triggerRecoil(_rmFromX, _rmFromY, e.x, e.y);
+                                spawnDirectionalParticles(_rmFromX, _rmFromY, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
+                            }
                         }
-                        triggerRecoil(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
-                        spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 8 : 4);
-                    } else {
+                    } else if (!e.dodged) {
                         triggerAttackFlash(e.x, e.y, e.isCrit);
                         spawnDirectionalParticles(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, '#ff8844', e.isCrit ? 22 : 10);
                         spawnSlashMarks(e.x, e.y, e.fromX ?? e.x, e.fromY ?? e.y, e.isCrit);
                         if (!e.killed && e.attackerType !== 'mgNest') triggerCharge(e.attackerUnitId ?? 0, e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y);
                     }
-                    if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
+                    if (!e.dodged && !rifleAttack && !_rmCulturalImpactMs && _rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
                         && _rmPresentation !== ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
                         triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                     }
@@ -3981,10 +4076,12 @@ async function handleRemoteAction(msg) {
                             spawnProjectile(_rmFromX, _rmFromY, e.x, e.y, false);
                         }, 140);
                     }
-                    for (const splash of e.specializationSplashResults || []) {
-                        spawnDirectionalParticles(e.x, e.y, splash.x, splash.y, '#ffb35c', 8);
-                        spawnExplosionParticles(splash.x, splash.y, '#ff8a3d', 8);
-                    }
+                    if (!_rmCulturalImpactMs) _rmDeferImpact(() => {
+                        for (const splash of e.specializationSplashResults || []) {
+                            spawnDirectionalParticles(e.x, e.y, splash.x, splash.y, '#ffb35c', 8);
+                            spawnExplosionParticles(splash.x, splash.y, '#ff8a3d', 8);
+                        }
+                    });
                     if (e.killed) {
                         _rmDeferImpact(() => {
                             spawnExplosionParticles(e.x, e.y, '#ff2200', 30);
@@ -4048,28 +4145,30 @@ async function handleRemoteAction(msg) {
                     }
                     // 伤害数字（攻击/攻城连带/反击/至圣斩/治疗）统一由 e.floatTexts 重放，
                     // 时序与本地一致（飞行类攻击的条目自带弹着延迟）
-                    if (e.counterDmg > 0) {
-                        if (e.counterIsRanged) {
-                            const counterPresentation = classifyAttackPresentation({
-                                attackerType: e.counterType,
-                                attackerIsDrone: e.counterIsDrone
-                            });
-                            if (counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
-                                spawnTorpedo(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
-                            } else if (e.counterUsesDroneProjectile || e.counterIsDrone) {
-                                playSound('machinegun');
-                                triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
-                                spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
-                            } else {
-                                playSound('cannon');
-                                triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
-                                spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
-                                triggerRecoil(e.x, e.y, e.counterX, e.counterY);
-                            }
-                            if (counterPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
-                                spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);
-                                triggerScreenShake(e.counterIsCrit ? 6 : 3, e.counterIsCrit ? 200 : 120);
-                            }
+                    if (e.rifleCounterFired) {
+                        spawnRifleShots(e.x, e.y, e.counterX, e.counterY, {
+                            isCrit: e.counterIsCrit, dodged: e.rifleCounterDodged, delayMs: _rmImpactMs
+                        });
+                    } else if (e.counterDmg > 0 && e.counterIsRanged) {
+                        const counterPresentation = classifyAttackPresentation({
+                            attackerType: e.counterType,
+                            attackerIsDrone: e.counterIsDrone
+                        });
+                        if (counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                            spawnTorpedo(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                        } else if (e.counterUsesDroneProjectile || e.counterIsDrone) {
+                            playSound('machinegun');
+                            triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
+                            spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                        } else {
+                            playSound('cannon');
+                            triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
+                            spawnProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
+                            triggerRecoil(e.x, e.y, e.counterX, e.counterY);
+                        }
+                        if (counterPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+                            spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);
+                            triggerScreenShake(e.counterIsCrit ? 6 : 3, e.counterIsCrit ? 200 : 120);
                         }
                     }
                     // 至圣斩真伤数字由 e.floatTexts 重放；此处只放光束/特效/震屏
@@ -4124,7 +4223,8 @@ async function handleRemoteAction(msg) {
                 spawnAirstrikeEffect(target.x, target.y, e.results || [], 'carpetBomb', target.q, target.r);
                 playSound('airstrike');
             } else if (e.kind === 'stukaDiveBomb') {
-                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'stukaDiveBomb', target.q, target.r);
+                const launcherCamp = gameState.tileMap.get(`${e.launcherQ},${e.launcherR}`)?.camp;
+                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'stukaDiveBomb', target.q, target.r, null, null, launcherCamp);
                 playSound('airstrike');
             } else if (e.kind === 'airdrop') {
                 spawnAirstrikeEffect(target.x, target.y, [], 'airdrop', target.q, target.r);
@@ -4133,53 +4233,9 @@ async function handleRemoteAction(msg) {
                 spawnCommanderSkillEffect(target.x, target.y, '🔭', '侦察机');
             }
             const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[e.kind];
-            // 天鹰【鹰链红利】：空军指令为延迟结算路径，远端与主机端各自确定性重算；
-            // 记账阵营取机场地块（快照已落地，即发起方阵营）。
-            const airLauncherTile = gameState.tileMap.get(`${e.launcherQ},${e.launcherR}`);
-            const airCampKey = airLauncherTile?.camp ? campToKey(airLauncherTile.camp) : null;
             if (Number.isFinite(impactDelay)) {
-                const visualDelayAt = performance.now() + impactDelay;
-                for (const r of (e.results || [])) {
-                    const fs = getFireSeaState(gameState.tileMap.get(`${r.q},${r.r}`));
-                    if (fs) fs._visualDelayUntil = visualDelayAt;
-                }
-                setTimeout(() => {
-                    // 伤害数字由 e.floatTexts 重放；落弹派生跳字（护盾吸收/灵光/临终迸发）
-                    // 两端各自推导（仅显示，不进广播捕获，避免漏进下次广播变幽灵跳字）
-                    setFloatTextCaptureSuppressed(true);
-                    try {
-                    if (e.kind === 'strafe' || e.kind === 'bombing' || e.kind === 'stukaDiveBomb') {
-                        const isStrafe = e.kind === 'strafe';
-                        const isStuka = e.kind === 'stukaDiveBomb';
-                        for (const r of (e.results || [])) {
-                            const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                            if (!tile) continue;
-                            if (r.dodged) {
-                                spawnDodgeShimmer(tile.x, tile.y);
-                                continue;
-                            }
-                            if (r.isCitySiege) {
-                                const poolHpBefore = Math.max(0, (getCityPoolTile(tile, gameState.tileMap) || tile).hp || 0);
-                                damageCityPool(tile, r.damage, gameState.tileMap);
-                                creditEagleSynergyDamage(airCampKey, Math.min(r.damage, poolHpBefore), { deferred: true });
-                            } else if (tile.unit) {
-                                tile.unit.applyDamage(r.damage, { source: 'ranged', attacker: null, eagleAirForceCampKey: airCampKey, isCrit: !!r.isCrit });
-                            }
-                        }
-                        if (!isStrafe) playSound('explosion');
-                        for (const r of (e.results || [])) {
-                            if (r.dodged) continue;
-                            const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                            if (tile) {
-                                spawnExplosionParticles(tile.x, tile.y, isStuka ? '#ff5500' : '#ff8800', isStuka ? 18 : (isStrafe ? 15 : 10));
-                            }
-                        }
-                        triggerScreenShake(isStuka ? 10 : (isStrafe ? 6 : 8), isStrafe ? 300 : 400);
-                    }
-                    } finally {
-                        setFloatTextCaptureSuppressed(false);
-                    }
-                }, impactDelay);
+                playAirCommandImpact(e.kind, e.results || [], gameState.tileMap, impactDelay, { showDodges: true });
+                for (const event of e.eagleSynergyEvents || []) emit('fx:eagleSynergy', event);
             }
             break;
         }
@@ -4188,16 +4244,14 @@ async function handleRemoteAction(msg) {
                 const banzaiUnit = gameState.tiles.reduce((found, t) =>
                     found || (t.unit?.id === e.unitId ? t.unit : null), null);
                 if (banzaiUnit && Number.isFinite(e.fromX) && Number.isFinite(e.fromY) && Number.isFinite(e.destX) && Number.isFinite(e.destY)) {
-                    banzaiUnit.startMovePath([{ x: e.fromX, y: e.fromY }, { x: e.destX, y: e.destY }]);
+                    banzaiUnit.startMovePath(e.path || [{ x: e.fromX, y: e.fromY }, { x: e.destX, y: e.destY }]);
                 }
                 if (Number.isFinite(e.fromX) && Number.isFinite(e.toX)) {
-                    spawnBanzaiDash(e.fromX, e.fromY, e.destX ?? e.toX, e.destY ?? e.toY, !!e.killed, e.healAmt || 0);
+                    spawnBanzaiDash(e.fromX, e.fromY, e.toX, e.toY, {
+                        killed: e.killed, healAmt: e.healAmt, destX: e.destX, destY: e.destY,
+                        dodged: e.dodged, showDodge: true, delayMs: e.impactDelay
+                    });
                 }
-                if (e.dodged && Number.isFinite(e.toX) && Number.isFinite(e.toY)) {
-                    spawnDodgeShimmer(e.toX, e.toY);
-                }
-                playSound(e.killed ? 'crit' : 'attack');
-                triggerScreenShake(e.isCrit || e.killed ? 7 : 4, 240);
             }
             break;
         case 'buildFortification':

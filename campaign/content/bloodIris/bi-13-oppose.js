@@ -198,7 +198,7 @@ export const config = {
         { id: 'south_sappers', type: 'infantry', camp: 'crown', q: -10, r: 5, hpPct: 100, morale: 3, rank: 2, specializationKey: 'assaultInfantry', canAct: true },
         { id: 'royal_vanguard', type: 'infantry', camp: 'crown', q: -7, r: -2, hpPct: 100, morale: 3, rank: 2, specializationKey: 'assaultInfantry', canAct: true },
         { id: 'royal_cavalry', type: 'cavalry', camp: 'crown', q: -10, r: 2, hpPct: 100, morale: 2, rank: 2, specializationKey: 'heavyCavalry', canAct: true },
-        { id: 'royal_rockets', type: 'archer', camp: 'crown', q: -7, r: 2, hpPct: 100, morale: 2, rank: 2, specializationKey: 'rocketArtillery', canAct: true },
+        { id: 'royal_rockets', type: 'archer', camp: 'crown', q: -7, r: 2, hpPct: 100, morale: 2, rank: 2, specializationKey: 'fieldGun', canAct: true },
         { id: 'royal_north_support', type: 'archer', camp: 'crown', q: -7, r: -3, hpPct: 100, morale: 2, rank: 1, specializationKey: 'fieldGun', canAct: true },
         { id: 'royal_south_support', type: 'infantry', camp: 'crown', q: -9, r: 4, hpPct: 100, morale: 2, rank: 1, specializationKey: 'assaultInfantry', canAct: true },
         { id: 'royal_camp_reserve', type: 'cavalry', camp: 'crown', q: -9, r: 1, hpPct: 100, morale: 2, rank: 1, specializationKey: 'lightCavalry', canAct: true },
@@ -670,7 +670,7 @@ export const config = {
             when: [{ kind: 'turnStarted', camp: 'crown', turn: 6 }],
             do: [
                 { kind: 'spawnUnits', units: [
-                    { id: 'wave3_bow', type: 'archer', camp: 'regency', q: 11, r: -4, hpPct: 100, morale: 3, rank: 3, specializationKey: 'rocketArtillery', canAct: true },
+                    { id: 'wave3_bow', type: 'archer', camp: 'regency', q: 11, r: -4, hpPct: 100, morale: 3, rank: 3, specializationKey: 'fieldGun', canAct: true },
                     { id: 'wave3_rider', type: 'cavalry', camp: 'regency', q: 7, r: 4, hpPct: 100, morale: 3, rank: 3, specializationKey: 'heavyCavalry', canAct: true }
                 ] },
                 { kind: 'showStep', speaker: ADRIAN, text: '王都钟楼在敲集结钟。塞维鲁不是要守住这一道门，他在用瓦罗替自己争取布置最后战场的时间。' }

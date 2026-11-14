@@ -343,23 +343,28 @@ test('法国文化：巨炮4格射程无视陆对海减伤与35%溅射，Tier2 �
     assert.equal(allyInf._freeResistanceUntilRound, FREE_RESISTANCE_EFFECT.durationRounds);
 });
 
-test('苏联文化：喀秋莎保留溅射并禁用普通炮兵火箭炮专精，Tier2 炮兵-1费且全军免疫负面天气', () => {
+test('苏联文化：喀秋莎保留溅射且全阵营普通炮兵禁用火箭炮专精，Tier2 炮兵-1费且全军免疫负面天气', () => {
     const state = setupCultureState('img/flags/soviet-union.svg', 'img/flags/svg/us.svg');
     const ru = state.factions.player1;
     const us = state.factions.player2;
 
     assert.equal(UNIT_CONFIG.ru_katyusha.splashPct, 0.35);
     const ruOpts = getSpecializationOptions('archer', state, ru).map(o => o.key);
-    assert.equal(ruOpts.includes('rocketArtillery'), false);
+    assert.deepEqual(ruOpts, ['fieldGun', 'antiAirArtillery']);
     assert.equal(isValidSpecialization('archer', 'rocketArtillery', state, ru), false);
 
     const ruDef = chooseDefaultSpecialization({ type: 'archer', camp: ru }, state);
     assert.notEqual(ruDef, 'rocketArtillery');
 
-    // 其他阵营与战役模式仍保留火箭炮专精
+    // 其他阵营与非文化标准模式同样禁用普通炮兵火箭炮专精，保留喀秋莎与巨炮溅射稀缺性
     const usOpts = getSpecializationOptions('archer', state, us).map(o => o.key);
-    assert.equal(usOpts.includes('rocketArtillery'), true);
-    assert.equal(isValidSpecialization('archer', 'rocketArtillery', state, us), true);
+    assert.deepEqual(usOpts, ['fieldGun', 'antiAirArtillery']);
+    assert.equal(isValidSpecialization('archer', 'rocketArtillery', state, us), false);
+    assert.deepEqual(
+        getSpecializationOptions('archer', { factionRuleMode: 'none' }, us).map(o => o.key),
+        ['fieldGun', 'antiAirArtillery']
+    );
+    assert.equal(isValidSpecialization('archer', 'rocketArtillery'), false);
 
     // Tier 2: 炮兵造价-1、天气减益免疫（迷雾天气不缩短苏联炮兵射程）
     assert.equal(getArtilleryCostDiscount(state, ru, 'archer'), 1);
@@ -419,6 +424,11 @@ test('中共文化：游击纵队隐身与村庄/邻格/皇帝AI显形规则，T
     const guerrilla = spawnUnit('cpc_guerrilla', cpc, plainTile);
     assert.equal(isStealthGuerrilla(guerrilla), true);
     assert.equal(isUnitVisibleToCamp(guerrilla, cpc, state), true);
+    assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), false);
+
+    // 中立守军贴近时可以自行侦测，其他阵营仍按自己的视角判定。
+    spawnUnit('infantry', state.factions.neutral, adjTile);
+    assert.equal(isUnitVisibleToCamp(guerrilla, state.factions.neutral, state), true);
     assert.equal(isUnitVisibleToCamp(guerrilla, kmt, state), false);
 
     // 敌军贴近至 1 格内显形

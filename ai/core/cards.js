@@ -11,6 +11,7 @@ import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
 import { W, hpGold, residualGold } from './weights.js';
 import { enemyCapturerPremium } from './tactics.js';
 import { resolveTargetingPreview } from '../../rules/targeting.js';
+import { isHealingBlocked } from '../../rules/healing.js';
 
 const BAL = TACTICAL_CARD_DATA;
 
@@ -80,7 +81,9 @@ export function planCards(world, strategy, missionsCtx) {
         for (const unit of world.myUnits) {
             const missing = unit.maxHp - unit.hp;
             if (missing < unit.maxHp * 0.25 && !unit._poison) continue;
-            const heal = Math.min(missing, Math.round(unit.maxHp * BAL.heal.balance.healMaxHpPct));
+            const heal = isHealingBlocked(unit, world.gameState) ? 0
+                : Math.min(missing, Math.round(unit.maxHp * BAL.heal.balance.healMaxHpPct));
+            if (!heal && !unit._poison) continue;
             const poisonTick = unit._poison ? Math.round(unit.maxHp * BAL.poison.balance.damageMaxHpPct) : 0;
             const preventsDeath = poisonTick > 0 && unit.hp <= poisonTick;
             let score = heal * hpGold(unit) + (unit._poison ? 30 : 0);

@@ -363,7 +363,7 @@ export function collectBattlefieldFlags(gameState, now) {
         }
         const unit = tile.unit;
         if (!unit || tile.isCity || tile.isVillage || tile.isPort || unit._airdropWaiting) continue;
-        if (!isUnitVisibleToCamp(unit, viewerCamp, gameState)) continue;
+        if (!isUnitVisibleToCamp(unit, viewerCamp, gameState, { ignoreAiBypass: true })) continue;
         if ((unit._airliftLandAt && now < unit._airliftLandAt) || (unit._soulRecallLandAt && now < unit._soulRecallLandAt)) continue;
         const pos = getUnitVisualPos(unit);
         const appearance = factionAppearance(unit.camp, gameState);

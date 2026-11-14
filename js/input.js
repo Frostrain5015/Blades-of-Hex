@@ -8,7 +8,7 @@ import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import { drainPendingFloatTexts } from './floatTexts.js';
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
-import { canAttack, getFaction, getRelation, getRoleCamp, getViewingCampKey, isFriendly, RELATION_META } from '../rules/diplomacy.js';
+import { getFaction, getRelation, getRoleCamp, getViewingCampKey, isFriendly, RELATION_META } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { getCityDefenseBonus, getCityPoolTile, isCityDisabled } from '../rules/citySiege.js';
 import {
@@ -29,7 +29,7 @@ import { FRONTEND_TEXT } from '../rules/uiText.js';
 import { campToKey } from '../rules/camps.js';
 import { campFromKey } from '../rules/diplomacy.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
-import { resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
+import { getBanzaiChargePath, resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import { RECRUITMENT_OPTIONS, getUniqueRecruitmentOption } from './recruitmentUi.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
 import { isCoastalLandTile, canRepairShipAtPort } from '../rules/naval.js';
@@ -520,14 +520,10 @@ function _collectBoardActions(unit, tile = null) {    const actions = [];
     if (unit.type === 'jp_samurai') {
         const curRound = getRoundIndex(gameState);
         const cooldown = Math.max(0, (unit._banzaiReadyRound || 0) - curRound);
-        const hasTarget = !!unit.tile && gameState.tiles.some(t =>
-            t.unit && t.unit.hp > 0
-            && canAttack(gameState, unit.camp, t.unit.camp)
-            && hexDistance(unit.tile, t) >= 1
-            && hexDistance(unit.tile, t) <= BANZAI_CHARGE_CONFIG.range
-            && isUnitVisibleToCamp(t.unit, unit.camp, gameState)
-        );
-        const canUse = isControllable && unit.canAct && !unit.isNewRecruit && !unit._imprisoned && cooldown === 0 && hasTarget;
+        const hasTarget = gameState.tiles.some(t => t.unit && isTileVisible(t, unit.camp, gameState)
+            && getBanzaiChargePath(unit, t, gameState));
+        const canUse = isControllable && unit.canAct && !unit.isNewRecruit && !unit._imprisoned
+            && !unit._transportTransitionedThisTurn && cooldown === 0 && hasTarget;
         actions.push({
             key: `banzaiCharge:${unit.id}`,
             buttonId: 'boardActiveSkill',
@@ -540,9 +536,9 @@ function _collectBoardActions(unit, tile = null) {    const actions = [];
             reason: canUse ? ''
                 : !isControllable ? unavailableReason
                 : unit._imprisoned ? '被禁锢'
-                : !unit.canAct || unit.isNewRecruit ? '本回合无法行动'
+                : !unit.canAct || unit.isNewRecruit || unit._transportTransitionedThisTurn ? '本回合无法行动'
                 : cooldown > 0 ? `冷却${cooldown}回合`
-                : `${BANZAI_CHARGE_CONFIG.range}格内没有可见敌军`,
+                : `${BANZAI_CHARGE_CONFIG.range}格内没有可冲锋的目标`,
             theme: 'commander'
         });
     }
@@ -979,7 +975,10 @@ function _handleCardCanvasClick(e) {
                 if (!gameState._colonelDeployed || !gameState._colonelDeployed[campKey]) { notify('请先部署空军上校', 'error'); return; }
                 const goldCost = COLONEL_CARD_GOLD[cardId] || 0;
                 if ((gameState.playerGold[campKey] || 0) < goldCost) { notify('金币不足', 'error'); return; }
-                if (gameState.weather === 'fog') { notify('雾天停飞，无法使用空军卡', 'error'); return; }
+                if (gameState.weather === 'fog' && isMechanicEnabled(gameState, 'weatherEffects')
+                    && !hasNegativeWeatherImmunity(gameState, myCamp)) {
+                    notify('雾天停飞，无法使用空军卡', 'error'); return;
+                }
             }
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
             hideSelectionHud();
@@ -1030,7 +1029,6 @@ const SPECIALIZATION_PASSIVES = {
     lightCavalry: { name: '冲锋', icon: '🐎' },
     heavyCavalry: { name: '铁蹄', icon: '🛡️' },
     fieldGun: { name: '穿甲榴弹', icon: '🎯' },
-    rocketArtillery: { name: '齐射', icon: '💥' },
     antiAirArtillery: { name: '高射', icon: '🔫' },
     antiAirDestroyer: { name: '防空机枪', icon: '🛡️' },
     antiSubDestroyer: { name: '猎潜', icon: '🔎' },
@@ -3005,7 +3003,6 @@ const SPECIALIZATION_DETAILS = {
     lightCavalry: unit => `每移动1格伤害提高${Math.round((unit.getSpecializationAbility('chargePerStep') || 0) * 100)}%，最多3层；未击败目标时可用剩余行动力撤退；遭遇战视野+1。`,
     heavyCavalry: unit => `受到的反击伤害降低${Math.round((unit.getSpecializationAbility('counterDamageReduction') || 0) * 100)}%；攻击远程单位时无视敌人${Math.round((unit.getSpecializationAbility('rangedArmorPierce') || 0) * 100)}%防御力。`,
     fieldGun: unit => `无视敌人${Math.round((unit.getSpecializationAbility('armorPierce') || 0) * 100)}%防御；位于山地或风天时效果翻倍。`,
-    rocketArtillery: unit => `对主目标相邻敌军造成相当于本次伤害${Math.round((unit.getSpecializationAbility('splash') || 0) * 100)}%的溅射伤害。`,
     antiAirArtillery: unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`,
     antiAirDestroyer: unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`,
     antiSubDestroyer: unit => `侦测2格内潜艇，对潜艇伤害提高${Math.round((unit.getSpecializationAbility('submarineDamage') || 0) * 100)}%。`,
@@ -3019,7 +3016,7 @@ function _showSpecializationChoice(unit) {
     if (!modal) return;
     modal.overlay._specializationUnitId = unit.id;
     const icons = { infantry: '⚔️', cavalry: '🐎', archer: '💥', destroyer: '⚓', warship: '🚢' };
-    for (const option of getSpecializationOptions(unit, gameState)) {
+    for (const option of getSpecializationOptions(unit)) {
         const profile = resolveUnitRankProfile(unit.type, unit._rank, option.key);
         const card = document.createElement('button');
         card.type = 'button';

@@ -500,7 +500,7 @@ Faction 对象：
 |---|---|
 | `infantry` | `garrisonInfantry`、`assaultInfantry` |
 | `cavalry` | `lightCavalry`、`heavyCavalry` |
-| `archer` | `fieldGun`、`rocketArtillery`、`antiAirArtillery` |
+| `archer` | `fieldGun`、`antiAirArtillery` |
 | `destroyer` | `antiAirDestroyer`、`antiSubDestroyer` |
 | `warship` | `fleetCruiser`、`supportCruiser` |
 

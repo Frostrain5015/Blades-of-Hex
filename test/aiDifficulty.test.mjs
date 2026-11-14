@@ -244,7 +244,7 @@ test('难度标识和按阵营配置进入对局快照', () => {
     assert.deepEqual(snapshot.aiDifficultyByCamp, state.aiDifficultyByCamp);
 });
 
-test('困难 AI 在敌军集群出现时让炮兵专精为火箭炮', () => {
+test('普通炮兵不再提供火箭炮专精，困难 AI 按空袭威胁选择野战炮或防空炮', () => {
     const mine = { id: 'player1' };
     const enemy = { id: 'player2' };
     const archer = {
@@ -253,23 +253,39 @@ test('困难 AI 在敌军集群出现时让炮兵专精为火箭炮', () => {
         config: UNIT_CONFIG.archer,
         tile: { q: 0, r: 0 }
     };
-    const hostileUnits = [
+    const hostileCluster = [
         { type: 'infantry', camp: enemy, config: UNIT_CONFIG.infantry, tile: { q: 3, r: 0 } },
         { type: 'infantry', camp: enemy, config: UNIT_CONFIG.infantry, tile: { q: 4, r: 0 } },
         { type: 'cavalry', camp: enemy, config: UNIT_CONFIG.cavalry, tile: { q: 3, r: 1 } }
     ];
-    const state = {
+    const groundState = {
         tiles: [
             { unit: archer },
-            ...hostileUnits.map(unit => ({ unit }))
+            ...hostileCluster.map(unit => ({ unit }))
         ]
     };
     assert.equal(
-        chooseDefaultSpecialization(archer, state, { intelligence: 'hard' }),
-        'rocketArtillery'
+        chooseDefaultSpecialization(archer, groundState, { intelligence: 'hard' }),
+        'fieldGun'
     );
     assert.equal(
-        chooseDefaultSpecialization(archer, state, { intelligence: 'easy' }),
+        chooseDefaultSpecialization(archer, groundState, { intelligence: 'easy' }),
+        'fieldGun'
+    );
+
+    const airState = {
+        tiles: [
+            { unit: archer },
+            { unit: { type: 'carrier', camp: enemy, config: UNIT_CONFIG.carrier, tile: { q: 4, r: 0 } } },
+            { unit: { type: 'drone', camp: enemy, config: UNIT_CONFIG.drone, _isDrone: true, tile: { q: 3, r: 1 } } }
+        ]
+    };
+    assert.equal(
+        chooseDefaultSpecialization(archer, airState, { intelligence: 'hard' }),
+        'antiAirArtillery'
+    );
+    assert.equal(
+        chooseDefaultSpecialization(archer, airState, { intelligence: 'easy' }),
         'fieldGun'
     );
 });
@@ -310,8 +326,8 @@ test('真实升级链按各阵营 AI 难度选择专精，不被通用默认值�
     });
     const runRankUp = difficulty => {
         const ownTile = makeTile(0, 0);
-        const archer = new Unit('archer', mine, ownTile, false);
-        ownTile.unit = archer;
+        const cavalry = new Unit('cavalry', mine, ownTile, false);
+        ownTile.unit = cavalry;
         const hostileTiles = [
             makeTile(3, 0),
             makeTile(4, 0),
@@ -320,9 +336,9 @@ test('真实升级链按各阵营 AI 难度选择专精，不被通用默认值�
         hostileTiles.forEach((tile, index) => {
             tile.unit = {
                 id: 900 + index,
-                type: index === 2 ? 'cavalry' : 'infantry',
+                type: 'archer',
                 camp: enemy,
-                config: index === 2 ? UNIT_CONFIG.cavalry : UNIT_CONFIG.infantry,
+                config: UNIT_CONFIG.archer,
                 tile
             };
         });
@@ -333,12 +349,32 @@ test('真实升级链按各阵营 AI 难度选择专精，不被通用默认值�
         };
         setGameStateRef(state);
         setIsNetworkGameRef(() => false);
-        archer.addXP(5);
-        return archer.specializationKey;
+        cavalry.addXP(5);
+        return cavalry.specializationKey;
     };
 
-    assert.equal(runRankUp('easy'), 'fieldGun');
-    assert.equal(runRankUp('hard'), 'rocketArtillery');
+    assert.equal(runRankUp('easy'), 'lightCavalry');
+    assert.equal(runRankUp('medium'), 'lightCavalry');
+    assert.equal(runRankUp('hard'), 'heavyCavalry');
+});
+
+test('玩家普通炮兵升级及读档恢复均拒绝火箭炮专精', () => {
+    const human = { id: 'player1', controller: 'human' };
+    const tile = { q: 0, r: 0, x: 0, y: 0, surface: 'land', terrain: 'plains', unit: null };
+    const archer = new Unit('archer', human, tile, false);
+    tile.unit = archer;
+    setGameStateRef({ factions: { player1: human }, tiles: [tile] });
+    setIsNetworkGameRef(() => false);
+
+    archer.addXP(5);
+    assert.equal(archer.pendingSpecialization, true);
+    assert.equal(archer.chooseSpecialization('rocketArtillery', true), false);
+    assert.equal(archer.specializationKey, null);
+
+    archer._setRestoredSpecialization('rocketArtillery');
+    assert.equal(archer.specializationKey, null);
+    assert.equal(archer.chooseSpecialization('fieldGun', true), true);
+    assert.equal(archer.specializationKey, 'fieldGun');
 });
 
 test('增益型主动技能只在可立即攻击时规划，且不会覆盖待消费增益', () => {
@@ -573,6 +609,8 @@ test('跨域伤害修正对齐 rules/naval', () => {
     // 舰船打陆、陆军打舰各 −50%
     assert.equal(crossDomainDamageBonus({ type: 'warship' }, land, { type: 'infantry' }), -0.50);
     assert.equal(crossDomainDamageBonus({ type: 'archer' }, sea, { type: 'warship' }), -0.50);
+    assert.equal(crossDomainDamageBonus({ type: 'fr_heavy_cannon' }, sea, { type: 'gb_battleship' }), 0);
+    assert.equal(crossDomainDamageBonus({ type: 'us_marine', tile: sea }, land, { type: 'infantry' }), 0.30);
     // 同域交战无修正
     assert.equal(crossDomainDamageBonus({ type: 'warship' }, sea, { type: 'submarine' }), 0);
     assert.equal(crossDomainDamageBonus({ type: 'infantry' }, land, { type: 'cavalry' }), 0);

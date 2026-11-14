@@ -4,7 +4,9 @@ import { isMechanicEnabled } from './mechanics.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed, isLandDeploymentTile } from './movement.js';
 import { isCityDisabled } from './citySiege.js';
-import { isCampCulture } from './cultures.js';
+import { hasNegativeWeatherImmunity, isCampCulture } from './cultures.js';
+import { canAttack } from './diplomacy.js';
+import { isUnitVisibleToCamp } from './visibility.js';
 import astrologerDef from '../commander/astrologer.js';
 
 export const AIR_COMMAND_CONFIG = Object.freeze({
@@ -38,7 +40,7 @@ export function buildAirCommandDamageTexts(results, tileMap, now) {
     const texts = [];
     for (const result of results) {
         const tile = tileMap.get(`${result?.q},${result?.r}`);
-        const value = Number(result?.damage ?? result?.dmg);
+        const value = Number(result?.hpDamage ?? result?.damage ?? result?.dmg);
         if (!tile || !Number.isFinite(value) || value <= 0) continue;
         texts.push({
             x: tile.x,
@@ -89,6 +91,20 @@ export function getVisibleAirCommandKinds(cityTile, state) {
     });
 }
 
+export function isAirfieldGrounded(cityTile, state) {
+    return isMechanicEnabled(state, 'weatherEffects') && state?.weather === 'fog'
+        && !hasNegativeWeatherImmunity(state, cityTile?.camp)
+        && !astrologerDef.isInWeatherShield(cityTile, null, state.tileMap);
+}
+
+export function canTargetWithSingleAirCommand(tile, camp, state) {
+    if (!tile) return false;
+    const target = tile.unit;
+    if (target) return target._campaignTargetable !== false && canAttack(state, camp, target.camp)
+        && isUnitVisibleToCamp(target, camp, state);
+    return (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0 && canAttack(state, camp, tile.camp);
+}
+
 export function getAirCommandAvailability(kind, cityTile, state) {
     const config = AIR_COMMAND_CONFIG[kind];
     const installation = cityTile?.installation;
@@ -99,7 +115,7 @@ export function getAirCommandAvailability(kind, cityTile, state) {
     if (cityTile.camp !== state?.currentCamp) return { available: false, reason: '不是当前阵营的机场' };
     if (isCityDisabled(cityTile)) return { available: false, reason: '城市处于瘫痪' };
     // 雾天停飞以机场地块的有效天气为准：夜观覆盖下视为晴天，可正常起飞
-    if (state.weather === 'fog' && !astrologerDef.isInWeatherShield(cityTile, null, state.tileMap)) return { available: false, reason: '雾天停飞' };
+    if (isAirfieldGrounded(cityTile, state)) return { available: false, reason: '雾天停飞' };
     // 每种指令按 (机场 × 指令) 独立冷却；同回合可出动多种不同指令，不设机场级共享闸。
     const currentRound = getRoundIndex(state);
     const readyRound = installation.airCommandReadyRound?.[kind];

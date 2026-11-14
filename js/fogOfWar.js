@@ -1,13 +1,15 @@
 // 战争迷雾引擎 —— 视野计算、状态管理、过渡动画
 import { hexDistance, getRoundIndex } from './config.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
-import { SKIRMISH_VISION } from '../rules/constants.js';
+import { COMBAT_BALANCE, SKIRMISH_VISION } from '../rules/constants.js';
 import { getRelation } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { campToKey } from '../rules/camps.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { getUnitBaseType } from '../rules/units.js';
+import { hasNegativeWeatherImmunity } from '../rules/cultures.js';
+import { getEffectiveWeather } from './commanderInterface.js';
 import { measure, perfEnabled } from './perf.js';
 
 // 视野范围：各兵种能看到的格子数（规则键：GAME_RULES.skirmishVision）
@@ -29,10 +31,13 @@ function _getEffectiveVision(unit, gs) {
     const baseType = getUnitBaseType(unit);
     if (baseType === 'archer') {
         range = unit.config.range;
-        if (isMechanicEnabled(gs, 'weatherEffects') && gs.weather === 'fog') range -= 1;
+        const weather = isMechanicEnabled(gs, 'weatherEffects') ? getEffectiveWeather(unit.tile, unit.camp, gs) : 'clear';
+        if (weather === 'fog' && !hasNegativeWeatherImmunity(gs, unit.camp)) {
+            range += COMBAT_BALANCE.weather.fogArcherRangeDelta;
+        }
         let bonus = 0;
         if (unit.tile.terrain === 'mountain') bonus = 1;
-        if (gs.weather === 'wind') bonus = Math.max(bonus, 1);
+        if (weather === 'wind') bonus = Math.max(bonus, 1);
         range = Math.max(1, Math.min(4, range + bonus));
     } else {
         range = UNIT_VISION[unit.type] ?? UNIT_VISION[baseType] ?? 1;

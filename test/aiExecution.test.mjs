@@ -10,7 +10,7 @@ const { processOpponentTurn, configureAiRuntime } = await import('../js/ai.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
 const { getRound } = await import('../rules/turns.js');
 const { isTileVisible } = await import('../js/fogOfWar.js');
-const { BURN_MS } = await import('../js/gameLogic.js');
+const { BURN_MS, executeBanzaiCharge } = await import('../js/gameLogic.js');
 const { startMatchRecording, getCurrentMatchLog } = await import('../js/matchRecorder.js');
 const state = engine.gameState;
 const events = [];
@@ -72,6 +72,91 @@ function place(type, camp, tile, commander = null) {
     tile.unit = unit;
     return unit;
 }
+
+test('疗愈卡对禁疗武士只允许净化，补员仍可回血', () => {
+    const { me, home } = setupMatch();
+    const samurai = place('jp_samurai', me, home);
+    samurai.hp = 80;
+    state.playerHands.player1 = ['heal'];
+
+    engine.executeTacticalCard('heal', home);
+    assert.deepEqual(state.playerHands.player1, ['heal']);
+    assert.equal(samurai.hp, 80);
+
+    samurai._poison = { turns: 2 };
+    engine.executeTacticalCard('heal', home);
+    assert.equal(state.playerHands.player1.length, 0);
+    assert.equal(samurai._poison, null);
+    assert.equal(samurai.hp, 80);
+    engine.reinforceUnit(samurai);
+    assert.equal(samurai.hp, 180);
+});
+
+test('武士冲锋拒绝新兵和堵路，合法冲锋的生命消耗绕过护盾', () => {
+    const { me, foe, home } = setupMatch();
+    const samurai = place('jp_samurai', me, home);
+    const target = place('infantry', foe, state.tileMap.get('2,0'));
+    const mid = state.tileMap.get('1,0');
+    samurai.isNewRecruit = true;
+    assert.equal(executeBanzaiCharge(samurai, target.tile), false);
+
+    samurai.isNewRecruit = false;
+    place('infantry', me, mid);
+    assert.equal(executeBanzaiCharge(samurai, target.tile), false);
+    assert.equal(samurai.hp, 200);
+
+    mid.unit = null;
+    samurai._shield = 60;
+    assert.equal(executeBanzaiCharge(samurai, target.tile), true);
+    assert.equal(samurai.hp, 50);
+    assert.equal(samurai._shield, 60);
+    assert.equal(samurai.tile, mid);
+});
+
+test('普通攻击触发铁卫转移，法国实际承受暴击后触发自由不屈', () => {
+    const { me, foe } = setupMatch();
+    foe.flagPreset = 'img/flags/svg/fr.svg';
+    state.factionRuleMode = 'culture';
+    const attacker = place('archer', me, state.tileMap.get('3,0'));
+    const victim = place('infantry', foe, state.tileMap.get('5,0'));
+    const guard = place('infantry', foe, state.tileMap.get('5,1'), 'ironGuard');
+    guard._shield = 30;
+    state.rng.range = (_min, max) => max - 0.001;
+
+    engine.attackUnit(attacker, victim);
+    assert.equal(guard._shield, 0);
+    assert.ok(victim.hp < victim.maxHp);
+    assert.equal(guard.morale, 3);
+});
+
+test('法国巨炮回合初以地块视野选靶，空城炮击写入攻城回合', async () => {
+    const { me, foe, enemyCity } = setupMatch();
+    me.flagPreset = 'img/flags/svg/fr.svg';
+    state.factionRuleMode = 'culture';
+    state.skirmishFog = true;
+    state.weather = 'fog';
+    const cannon = place('fr_heavy_cannon', me, state.tileMap.get('3,0'));
+    // 单独验证自动选靶在射程长于视野时仍检查地块可见性。
+    cannon.getEffectiveRange = () => 4;
+    const target = place('infantry', foe, state.tileMap.get('7,0'));
+    state.visibleTiles.player1.clear();
+    state.turnOrder = ['player2', 'player1', 'neutral'];
+    state.currentCamp = foe;
+    await engine.advanceAutomatedTurn();
+    assert.equal(target.hp, target.maxHp);
+    assert.equal(cannon._heavyCannonAutoFiredThisTurn, false);
+
+    state.skirmishFog = false;
+    target.tile.unit = null;
+    cannon.tile.unit = null;
+    cannon.tile = state.tileMap.get('7,0');
+    cannon.tile.unit = cannon;
+    state.currentCamp = foe;
+    state.turnCounter = 0;
+    await engine.advanceAutomatedTurn();
+    assert.ok(enemyCity.hp < enemyCity.maxHp);
+    assert.equal(enemyCity._citySiegeDamageRound, 0);
+});
 
 test('尚书实际腾位招募，下一回合新兵出城后返城，预留格不被补招占用', async () => {
     const { me, foe, home, enemyCity } = setupMatch();

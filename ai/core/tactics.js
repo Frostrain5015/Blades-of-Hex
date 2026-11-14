@@ -18,6 +18,7 @@ import { isFieldCapturer } from './roster.js';
 import { isPortOperationalFor } from '../../rules/naval.js';
 import { getUnitBaseType } from '../../rules/units.js';
 import { BANZAI_CHARGE_CONFIG } from '../../rules/cultures.js';
+import { getBanzaiChargePath } from '../../rules/targeting.js';
 import { getRoundIndex } from '../../rules/turns.js';
 
 const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
@@ -728,8 +729,9 @@ function planBanzaiCharges(world, missionsCtx, actions, processed) {
         let best = null;
         for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
             if (!enemy.tile || enemy.hp <= 0) continue;
-            const dist = world.helpers.hexDistance(unit.tile, enemy.tile);
-            if (dist < 1 || dist > BANZAI_CHARGE_CONFIG.range) continue;
+            const path = getBanzaiChargePath(unit, enemy.tile, world.gameState);
+            if (!path) continue;
+            const dist = path.length - 1;
             if (!isNeutralEngageable(world, missionsCtx, enemy)) continue;
             const baseDmg = world.combat.estimateDamage(unit, enemy, enemy.tile);
             const banzaiDmg = baseDmg * BANZAI_CHARGE_CONFIG.damageMultiplier;

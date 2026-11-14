@@ -58,7 +58,7 @@ export const CULTURE_CONFIG = deepFreeze({
         colorId: 'usaTeal',
         uniqueUnitType: 'us_marine',
         uniqueAirCommand: null,
-        badgeCrop: { cx: 0.28, cy: 0.46, sizeRatio: 0.92 },
+        badgeCrop: { cx: 0.28, cy: 0.46, sizeRatio: 0.92, fillScale: 0.81 },
         tier1: {
             title: '海军陆战队',
             abilityName: '两栖登陆',
@@ -76,7 +76,7 @@ export const CULTURE_CONFIG = deepFreeze({
         colorId: 'yellow',
         uniqueUnitType: 'gb_battleship',
         uniqueAirCommand: null,
-        badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 0.98 },
+        badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 0.98, fillScale: 0.81 },
         tier1: {
             title: '皇家战列舰',
             abilityName: '天佑女王',
@@ -94,7 +94,7 @@ export const CULTURE_CONFIG = deepFreeze({
         colorId: 'franceSky',
         uniqueUnitType: 'fr_heavy_cannon',
         uniqueAirCommand: null,
-        badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 1.0 },
+        badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 1.0, fillScale: 0.783 },
         tier1: {
             title: '巨炮',
             abilityName: '远程重炮',
@@ -112,11 +112,11 @@ export const CULTURE_CONFIG = deepFreeze({
         colorId: 'red',
         uniqueUnitType: 'ru_katyusha',
         uniqueAirCommand: null,
-        badgeCrop: { cx: 0.187, cy: 0.253, sizeRatio: 0.483 },
+        badgeCrop: { cx: 0.187, cy: 0.253, sizeRatio: 0.535 },
         tier1: {
             title: '喀秋莎火箭炮',
             abilityName: '火力覆盖',
-            summary: '每次普通攻击均自动激发火箭弹幕并触发35%溅射伤害；全军普通炮兵取消火箭炮专精以保留溅射稀缺性。'
+            summary: '每次普通攻击均自动激发火箭弹幕并触发35%溅射伤害；全阵营普通炮兵取消火箭炮专精以保留溅射稀缺性。'
         },
         tier2: {
             title: '严冬铁卫',
@@ -130,7 +130,7 @@ export const CULTURE_CONFIG = deepFreeze({
         colorId: 'blue',
         uniqueUnitType: 'kmt_training_brigade',
         uniqueAirCommand: null,
-        badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 0.88 },
+        badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 0.905 },
         tier1: {
             title: '中央教导旅',
             abilityName: '血肉长城',
@@ -184,7 +184,7 @@ export const CULTURE_CONFIG = deepFreeze({
         colorId: 'japanOlive',
         uniqueUnitType: 'jp_samurai',
         uniqueAirCommand: null,
-        badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 0.84 },
+        badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 1.0, fillScale: 0.94 },
         tier1: {
             title: '帝国武士',
             abilityName: '武士信条 / 万岁冲锋',

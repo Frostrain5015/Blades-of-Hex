@@ -370,6 +370,7 @@ export function createClientUiState() {
         healTexts: [],
         shieldTexts: [],
         unitDeathGhosts: [],
+        _pendingFreeResistanceFx: [],
         goldTexts: [],
         // 延迟/错峰浮字队列（js/floatTexts.js）：到期由渲染帧搬入活动数组
         floatTextPending: [],
@@ -412,6 +413,7 @@ export function resetClientUiState(ui) {
     ui.healTexts = [];
     ui.shieldTexts = [];
     ui.unitDeathGhosts = [];
+    ui._pendingFreeResistanceFx = [];
     ui.goldTexts = [];
     ui.floatTextPending = [];
     ui._pendingFloatTexts = [];
