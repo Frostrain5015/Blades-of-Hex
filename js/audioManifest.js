@@ -8,6 +8,9 @@
 export const SOUND_MANIFEST = {
     // ---- 战斗 ----
     attack:        { file: 'sounds/attack.mp3',        volume: 0.8,  pool: 4,  preload: false, category: 'combat' },
+    rifleShot:     { file: 'sounds/rifle-shot.mp3',    volume: 0.98, pool: 4,  preload: true, category: 'combat' },
+    rifleFollowup: { file: 'sounds/rifle-followup.mp3', volume: 0.98, pool: 4,  preload: true, category: 'combat' },
+    rifleImpact:   { file: 'sounds/rifle-impact.mp3',  volume: 0.58, pool: 4,  preload: true, category: 'combat' },
     cannon:        { file: 'sounds/cannon.mp3',        volume: 0.85, pool: 2,  preload: false, category: 'combat' },
     crit:          { file: 'sounds/crit.mp3',          volume: 1.3,  pool: 2,  preload: false, category: 'combat' },
     unitDeath:     { file: 'sounds/unitDeath.mp3',     volume: 0.7,  pool: 3,  preload: false, category: 'combat', available: false },

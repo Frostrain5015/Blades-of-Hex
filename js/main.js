@@ -24,7 +24,7 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect, spawnRankUpEffect,
-    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnRifleShots, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike, spawnOrbitalBeam,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
@@ -66,7 +66,8 @@ import {
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { downloadCurrentMatchLog, downloadCurrentMatchReview, getCurrentMatchLog, recordCommittedAction, resolvePendingLocalAction, startMatchRecording } from './matchRecorder.js';
 import { initMatchStatsPanel } from './matchStatsView.js';
-import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, RIFLE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, usesRifleAttackEffect } from '../rules/attackPresentation.js';
+import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, RIFLE_COUNTER_PAUSE_MS, RIFLE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, usesRifleAttackEffect } from '../rules/attackPresentation.js';
+import { spawnRifleShots } from './rifleEffects.js';
 import { createFlagPreview } from './flagRenderer.js';
 import { renderResultFlagPreviews } from './resultFlagPreview.js';
 import {
@@ -3390,7 +3391,15 @@ async function handleRemoteAction(msg) {
             const { fromQ: q, fromR: r, attackerUnitId } = attackEffects;
             const unit = gameState.tileMap.get(`${q},${r}`)?.unit;
             if (unit?.id === attackerUnitId) {
-                delayedTargets.push({ unit, hit: { q, r, killed: true }, delayMs: (attackImpactDelay || 0) + RIFLE_IMPACT_MS });
+                const presentation = classifyAttackPresentation(attackEffects);
+                const incomingDelay = presentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE ? CARRIER_STRAFE_IMPACT_MS
+                    : presentation === ATTACK_PRESENTATION.FIRE_TORPEDO
+                        ? getTorpedoFlightMs(attackEffects.fromX, attackEffects.fromY, attackEffects.x, attackEffects.y)
+                        : attackImpactDelay;
+                delayedTargets.push({
+                    unit, hit: { q, r, killed: true },
+                    delayMs: incomingDelay + RIFLE_COUNTER_PAUSE_MS + RIFLE_IMPACT_MS
+                });
             }
         }
         applyRemoteState(msg.state, HexTile, Unit);
@@ -3503,7 +3512,7 @@ async function handleRemoteAction(msg) {
 
     if (gameState.gameOver && !wasGameOver) {
         setTimeout(() => triggerVictoryEffect(), 1500);
-        if (msg.actionType !== 'attack' || !usesRifleAttackEffect(msg.effects)) return;
+        if (msg.actionType !== 'attack' || !(usesRifleAttackEffect(msg.effects) || msg.effects?.rifleCounterFired)) return;
     }
 
     const e = msg.effects;
@@ -3927,7 +3936,9 @@ async function handleRemoteAction(msg) {
                 const _sCrit = !!e.isCrit;
                 const _sFromX = e.fromX ?? e.x, _sFromY = e.fromY ?? e.y;
                 if (usesRifleAttackEffect(e)) {
-                    spawnRifleShots(_sFromX, _sFromY, e.x, e.y, { isCrit: _sCrit });
+                    spawnRifleShots(_sFromX, _sFromY, e.x, e.y, {
+                        attackerId: e.attackerUnitId, isCrit: _sCrit, isCity: true
+                    });
                     break;
                 }
                 if (_sPres === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
@@ -4012,7 +4023,9 @@ async function handleRemoteAction(msg) {
                 }
                 if (e) {
                     if (rifleAttack) {
-                        spawnRifleShots(_rmFromX, _rmFromY, e.x, e.y, { isCrit: e.isCrit, dodged: e.dodged });
+                        spawnRifleShots(_rmFromX, _rmFromY, e.x, e.y, {
+                            attackerId: e.attackerUnitId, targetId: e.targetUnitId, isCrit: e.isCrit, dodged: e.dodged
+                        });
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
                         spawnTorpedo(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
@@ -4147,7 +4160,9 @@ async function handleRemoteAction(msg) {
                     // 时序与本地一致（飞行类攻击的条目自带弹着延迟）
                     if (e.rifleCounterFired) {
                         spawnRifleShots(e.x, e.y, e.counterX, e.counterY, {
-                            isCrit: e.counterIsCrit, dodged: e.rifleCounterDodged, delayMs: _rmImpactMs
+                            attackerId: e.targetUnitId, targetId: e.attackerUnitId,
+                            isCrit: e.counterIsCrit, dodged: e.rifleCounterDodged,
+                            delayMs: _rmImpactMs + RIFLE_COUNTER_PAUSE_MS
                         });
                     } else if (e.counterDmg > 0 && e.counterIsRanged) {
                         const counterPresentation = classifyAttackPresentation({
@@ -4193,7 +4208,8 @@ async function handleRemoteAction(msg) {
 
                 if (_rmSmite) {
                     spawnCommanderSkillEffect(_rmFromX, _rmFromY, '✝️', _rmSmiteLabel, true);
-                    setTimeout(_execAttackFx, 500);
+                    if (rifleAttack || e.rifleCounterFired) _execAttackFx();
+                    else setTimeout(_execAttackFx, 500);
                 } else {
                     _execAttackFx();
                 }

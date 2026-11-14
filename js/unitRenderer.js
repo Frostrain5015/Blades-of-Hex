@@ -4,6 +4,7 @@ import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { gameState as clientState, getViewingCamp } from './state.js';
 import { iconEffects, getRecoilOffset, getChargeOffset } from './effects.js';
+import { getRifleUnitOffset } from './rifleEffects.js';
 
 import { campFromKey, getRelationToViewer, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
@@ -86,6 +87,11 @@ export function getUnitVisualPos(unit) {
         if (recoil) {
             vx += recoil.x;
             vy += recoil.y;
+        }
+        const rifleOffset = getRifleUnitOffset(unit.id, frameInfo.now);
+        if (rifleOffset) {
+            vx += rifleOffset.x;
+            vy += rifleOffset.y;
         }
 
         // 近战突进偏移（撞击目标）

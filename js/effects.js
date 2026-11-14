@@ -1,6 +1,6 @@
 import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS, MORALE_CONFIG } from './config.js';
 import { playSound } from './audio.js';
-import { RIFLE_SHOT_INTERVAL_MS, RIFLE_TRACER_FLIGHT_MS } from '../rules/attackPresentation.js';
+import { clearRifleShots } from './rifleEffects.js';
 
 // ===== 粒子系统 =====================
 export const particles = [];
@@ -771,36 +771,6 @@ export function drawTorpedoes(ctx2d, now) {
 // ===== 无人机机枪弹道（比防空曳光弹更醒目，但避免激光感） =====================
 export const droneProjectiles = [];
 
-export function spawnRifleShots(fromX, fromY, toX, toY, { isCrit = false, dodged = false, delayMs = 0 } = {}) {
-    const startTime = performance.now() + delayMs;
-    const angle = Math.atan2(toY - fromY, toX - fromX);
-    const muzzleX = fromX + Math.cos(angle) * 13;
-    const muzzleY = fromY + Math.sin(angle) * 13;
-    for (const [index, delay] of [0, RIFLE_SHOT_INTERVAL_MS].entries()) {
-        const spread = index === 0 ? -3 : 3;
-        const offset = dodged ? spread * 6 : spread;
-        const hitX = toX - Math.sin(angle) * offset;
-        const hitY = toY + Math.cos(angle) * offset;
-        droneProjectiles.push({
-            fromX: muzzleX, fromY: muzzleY, toX: hitX, toY: hitY,
-            startTime: startTime + delay, duration: RIFLE_TRACER_FLIGHT_MS,
-            _isStrafeTracer: true,
-            onFire() {
-                playSound('rifleShot');
-                particles.push(new VisualParticle(muzzleX, muzzleY, 0, 0, '#fff0c7', 4.5, 0.055, 0));
-            },
-            onImpact: dodged ? null : () => {
-                for (let spark = 0; spark < (isCrit ? 5 : 3); spark++) {
-                    const spreadAngle = angle + (Math.random() - 0.5) * 2;
-                    const speed = 40 + Math.random() * 75;
-                    particles.push(new VisualParticle(hitX, hitY, Math.cos(spreadAngle) * speed,
-                        Math.sin(spreadAngle) * speed, '#ffd48c', 2, 0.12, 65));
-                }
-            }
-        });
-    }
-}
-
 export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
     const now = performance.now();
     for (let b = 0; b < 5; b++) {
@@ -871,10 +841,6 @@ export function updateDroneProjectiles(now) {
         const p = droneProjectiles[i];
         const elapsed = now - p.startTime;
         if (elapsed < 0) continue;
-        if (p.onFire) {
-            p.onFire();
-            p.onFire = null;
-        }
         if (!p.impactSpawned && elapsed >= p.duration) {
             p.impactSpawned = true;
             if (p.onImpact) p.onImpact();
@@ -2293,6 +2259,7 @@ export function clearTransientEffects() {
     windStreaks.length = 0;
     projectiles.length = 0;
     droneProjectiles.length = 0;
+    clearRifleShots();
     heavyCannonShells.length = 0;
     katyushaRockets.length = 0;
     banzaiDashes.length = 0;

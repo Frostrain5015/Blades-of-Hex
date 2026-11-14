@@ -37,7 +37,7 @@ import {
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
-    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnRifleShots, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnLightningStrike, spawnOrbitalBeam,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing,
@@ -67,7 +67,8 @@ import { emit } from './eventBus.js';
 import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
 import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, RIFLE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, usesRifleAttackEffect } from '../rules/attackPresentation.js';
+import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, RIFLE_COUNTER_PAUSE_MS, RIFLE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, usesRifleAttackEffect } from '../rules/attackPresentation.js';
+import { spawnRifleShots } from './rifleEffects.js';
 import { AURELIA_OATH_EFFECT, hasAureliaOathEffect } from '../rules/aurelia.js';
 import { resolveOraclePulse, hasCelestineSynergyActive, getOracleStatueAnchor, CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
 import {
@@ -2860,7 +2861,9 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     let atkCmdResult = null, ctrCmdResult = null;
     try {
         if (rifleAttack) {
-            spawnRifleShots(fromX, fromY, toX, toY, { isCrit, dodged: attackDodged });
+            spawnRifleShots(fromX, fromY, toX, toY, {
+                attackerId: attackerUnit.id, targetId: targetUnit.id, isCrit, dodged: attackDodged
+            });
         } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
             spawnTorpedo(fromX, fromY, toX, toY, isCrit);
         } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
@@ -3000,7 +3003,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
 
             const counterPresentation = classifyAttackPresentation(targetUnit);
             const rifleCounter = usesRifleAttackEffect(targetUnit);
-            const rifleCounterDelay = rifleCounter ? _impactVisualMs : 0;
+            const rifleCounterDelay = rifleCounter ? _impactVisualMs + RIFLE_COUNTER_PAUSE_MS : 0;
             const _counterTorpedoMs = counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO
                 ? getTorpedoFlightMs(targetUnit.tile.x, targetUnit.tile.y, attackerUnit.tile.x, attackerUnit.tile.y) : 0;
             const counterImpactMs = rifleCounter ? rifleCounterDelay + RIFLE_IMPACT_MS : _counterTorpedoMs;
@@ -3011,6 +3014,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                 rifleCounterFired = true;
                 rifleCounterDodged = !!counterResult.dodged;
                 spawnRifleShots(toX, toY, _counterX, _counterY, {
+                    attackerId: targetUnit.id, targetId: attackerUnit.id,
                     isCrit: counterResult.isCrit, dodged: rifleCounterDodged, delayMs: rifleCounterDelay
                 });
             }
@@ -3181,6 +3185,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             fromX, fromY,
             fromQ: attackerStartTile.q, fromR: attackerStartTile.r,
             attackerUnitId: attackerUnit.id,
+            targetUnitId: targetUnit.id,
             attackerType: attackerUnit.type,
             attackerIsDrone: !!attackerUnit._isDrone,
             isCrit: attackResult.isCrit,
@@ -4217,7 +4222,7 @@ function _attackCityTile(attackerUnit, targetTile, options) {
     const attackPresentation = classifyAttackPresentation(attackerUnit);
     const isCrit = result.isCrit;
     if (rifleAttack) {
-        spawnRifleShots(fromX, fromY, toX, toY, { isCrit });
+        spawnRifleShots(fromX, fromY, toX, toY, { attackerId: attackerUnit.id, isCrit, isCity: true });
     } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
         playSound('airstrike');
         spawnAirstrikeEffect(toX, toY, [{ q: targetTile.q, r: targetTile.r, dmg: result.damage }], 'diveStrafe', targetTile.q, targetTile.r);

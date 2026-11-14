@@ -15,6 +15,7 @@ import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
 import { getFireSeaState } from '../rules/cultures.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
 import { AIR_COMMAND_IMPACT_DELAY_MS } from '../rules/airCommands.js';
+import { drawRifleShots, updateRifleShots } from './rifleEffects.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
@@ -480,6 +481,7 @@ function _renderGame() {
     lastTime = now;
     frameInfo.now = now;
     updateLaserBeams(now);
+    updateRifleShots(now);
 
     // 屏幕震动
     if (screenShake.time > 0) {
@@ -875,6 +877,7 @@ function _renderGame() {
     // 无人机弹道
     updateDroneProjectiles(now);
     drawDroneProjectiles(ctx, now);
+    drawRifleShots(ctx, now);
     // 无人机自爆AA子弹流
     updateDroneSuicideFlak(now);
     drawDroneSuicideFlak(ctx, now);

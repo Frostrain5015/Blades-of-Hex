@@ -24,6 +24,8 @@ export const CARRIER_STRAFE_IMPACT_MS = 780;
 export const RIFLE_SHOT_INTERVAL_MS = 150;
 export const RIFLE_TRACER_FLIGHT_MS = 80;
 export const RIFLE_IMPACT_MS = RIFLE_SHOT_INTERVAL_MS + RIFLE_TRACER_FLIGHT_MS;
+// Leave room for the incoming hit before the return shot's report.
+export const RIFLE_COUNTER_PAUSE_MS = 55;
 
 export function getDiveStrafePlanePosition(targetX, targetY, elapsedMs) {
     const flight = DIVE_STRAFE_FLIGHT;
