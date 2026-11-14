@@ -534,8 +534,9 @@ export async function run(browser) {
         return { unit: UNIT_FLAG_LAYOUT, city: CITY_FLAG_LAYOUT };
     });
     R.assert(
-        flagLayoutContract.unit.width === 15 && flagLayoutContract.unit.height === 10
+        flagLayoutContract.unit.width === 18 && flagLayoutContract.unit.height === 12
             && flagLayoutContract.unit.poleX === -15
+            && flagLayoutContract.unit.width / flagLayoutContract.unit.height === 1.5
             && flagLayoutContract.city.width === 24 && flagLayoutContract.city.height === 16
             && flagLayoutContract.city.poleTopOffset === -18
             && flagLayoutContract.city.clothOffsetY === 1

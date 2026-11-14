@@ -4,16 +4,15 @@ export const FLAG_ASPECT_RATIO = 3 / 2;
 // leaving as much horizontal room as possible for the cloth.
 export const UNIT_FLAG_LAYOUT = Object.freeze({
     poleX: -15,
-    poleTop: -30,
+    poleTop: -32,
     poleBottom: 2,
     clothOffsetX: 1,
     clothOffsetY: 2,
-    width: 15,
-    height: 10
+    width: 18,
+    height: 12
 });
 
-// City ownership should read at a glance, so its flag is one third larger on
-// both axes than a unit flag while preserving the same 3:2 national-flag ratio.
+// City flags are one third larger than unit flags on both axes.
 export const CITY_FLAG_LAYOUT = Object.freeze({
     poleTopOffset: -18,
     poleBottomOffset: 10,
