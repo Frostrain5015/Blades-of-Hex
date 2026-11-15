@@ -270,8 +270,11 @@ function missionMoveBonus(world, missionsCtx, unit, tile, posture = 'expand') {
     const helpers = world.helpers;
     const target = world.tileMap.get(`${mission.targetQ},${mission.targetR}`);
     if (!target) return { bonus: 0, mission };
-    const currentDistance = helpers.hexDistance(unit.tile, target);
-    const newDistance = helpers.hexDistance(tile, target);
+    const distanceBetween = !world.isNaval(unit) && world.navDistance
+        ? world.navDistance
+        : helpers.hexDistance;
+    const currentDistance = distanceBetween(unit.tile, target);
+    const newDistance = distanceBetween(tile, target);
     // 死斗姿态的任务推进翻倍：宣言死斗却无人到位，等于没宣言。
     const postureBoost = posture === 'allin' ? 2 : 1;
 
@@ -433,13 +436,16 @@ function planMove(world, missionsCtx, unit, posture, actions) {
             + attackPotential(world, missionsCtx, unit, tile);
         // 散兵：有攻城任务时向占领者集结，否则向最近敌对城市缓慢施压。
         if (!mission) {
+            const pathDist = !world.isNaval(unit) && world.navDistance
+                ? world.navDistance
+                : world.helpers.hexDistance;
             if (rallyPoint) {
-                const now = world.helpers.hexDistance(unit.tile, rallyPoint);
-                const next = world.helpers.hexDistance(tile, rallyPoint);
+                const now = pathDist(unit.tile, rallyPoint);
+                const next = pathDist(tile, rallyPoint);
                 score += Math.max(-40, Math.min(40, (now - next) * 8));
             } else {
-                const nearestHostile = nearestHostileCity(world, tile);
-                const fromHere = nearestHostileCity(world, unit.tile);
+                const nearestHostile = nearestHostileCity(world, tile, unit);
+                const fromHere = nearestHostileCity(world, unit.tile, unit);
                 if (nearestHostile != null && fromHere != null) {
                     score += Math.max(-16, Math.min(16, (fromHere - nearestHostile) * 4));
                 }
@@ -491,11 +497,12 @@ function scoreOfStaying(world, missionsCtx, unit, mission) {
     return score;
 }
 
-function nearestHostileCity(world, tile) {
+function nearestHostileCity(world, tile, unit = null) {
     let best = null;
+    const dist = !world.isNaval(unit) && world.navDistance ? world.navDistance : world.helpers.hexDistance;
     for (const city of world.cities) {
         if (!city.hostile) continue;
-        const distance = world.helpers.hexDistance(tile, city.tile);
+        const distance = dist(tile, city.tile);
         if (best == null || distance < best) best = distance;
     }
     return best;

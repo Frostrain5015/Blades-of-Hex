@@ -7,6 +7,7 @@ import { getRound } from '../../rules/turns.js';
 import { campToKey } from '../../rules/camps.js';
 import { getStandardMap } from '../../rules/standardMaps.js';
 import { isWaterTile } from '../../rules/surfaces.js';
+import { resolveRiverMovement } from '../../rules/movement.js';
 import { laserTowerShotDamage } from '../../rules/laserTower.js';
 import { AI_DIFFICULTY_PROFILES, hasFullAiIntelligence } from '../difficulty.js';
 import { getUnitBaseType, UNIT_CONFIG } from '../../rules/units.js';
@@ -252,9 +253,43 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         .filter(Boolean);
     const gold = Number(gameState.playerGold?.[myCampKey]) || 0;
 
+    const hasRivers = (gameState.rivers || []).length > 0 && gameState.tileMap instanceof Map && Array.isArray(helpers?.HEX_NEIGHBORS);
+    const navCache = hasRivers ? new Map() : null;
+    const navDistance = (fromTile, toTile) => {
+        if (!fromTile || !toTile) return 0;
+        if (!hasRivers) return helpers.hexDistance(fromTile, toTile);
+        if (fromTile.q === toTile.q && fromTile.r === toTile.r) return 0;
+        const goalKey = `${toTile.q},${toTile.r}`;
+        let distMap = navCache.get(goalKey);
+        if (!distMap) {
+            distMap = new Map();
+            const goal = gameState.tileMap.get(goalKey);
+            if (goal) {
+                distMap.set(goal, 0);
+                const queue = [goal];
+                let head = 0;
+                while (head < queue.length) {
+                    const cur = queue[head++];
+                    const curDist = distMap.get(cur);
+                    for (const [dq, dr] of helpers.HEX_NEIGHBORS) {
+                        const nb = gameState.tileMap.get(`${cur.q + dq},${cur.r + dr}`);
+                        if (!nb || distMap.has(nb) || isWaterTile(nb)) continue;
+                        if (resolveRiverMovement(nb, cur, gameState).blocked) continue;
+                        distMap.set(nb, curDist + 1);
+                        queue.push(nb);
+                    }
+                }
+            }
+            navCache.set(goalKey, distMap);
+        }
+        const origin = gameState.tileMap.get(`${fromTile.q},${fromTile.r}`) || fromTile;
+        return distMap.has(origin) ? distMap.get(origin) : helpers.hexDistance(fromTile, toTile) + 20;
+    };
+
     return {
         gameState, helpers, myCamp, myCampKey, caps, combat,
-        round, roundsRemaining, turnLimit, fog, oceanMap, standardMap,
+        round, roundsRemaining, turnLimit, fog, oceanMap, hasRivers, standardMap,
+        navDistance,
         tiles, tileMap: gameState.tileMap,
         weather: gameState.weather || 'clear',
         myUnits, rivalUnits, neutralUnits, rivalFactions,

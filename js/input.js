@@ -16,7 +16,7 @@ import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
     executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
-    executeConstructionAt, executeFieldConstruction, executeBunkerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment,
+    executeConstructionAt, executeFieldConstruction, executeBunkerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, executeRiverGateSwitch,
     cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit, repairShipAtPort, recordAuxiliaryAction
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect, getKatyushaPresentedHealth } from './effects.js';
@@ -38,6 +38,7 @@ import { RECRUITMENT_OPTIONS, getUniqueRecruitmentOption } from './recruitmentUi
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
 import { isCoastalLandTile, canRepairShipAtPort } from '../rules/naval.js';
 import { canReinforceAtTile } from '../rules/healing.js';
+import { canSwitchRiverGate, getRiverGate, getRiverGateOpenLane } from '../rules/riverGate.js';
 import { getSpecialization, getSpecializationOptions, getUnitBaseType, getUnitDisplayName, getAttackRangeCap, getMinimumAttackRange, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortificationAt, canBuildLaserTowerAt, canBuildShoreBatteryAt, canFieldRepair, constructionCost, findConstructionEngineer, isFieldRepairTarget } from '../rules/construction.js';
@@ -439,6 +440,18 @@ const _engineerRepairMemo = {};
 const _fellowRobeMemo = {};
 
 function _collectBoardActions(unit, tile = null) {    const actions = [];
+    const gate = getRiverGate(gameState);
+    if (gate && tile?.q === gate.q && tile.r === gate.r && _isLocalActionCamp(tile.camp)) {
+        const northOpen = getRiverGateOpenLane(gameState) === 'north';
+        const localTurn = _isLocalActionTurn();
+        const canUse = localTurn && canSwitchRiverGate(gameState, tile);
+        actions.push({
+            key: 'river-gate', buttonId: 'boardRiverGate', kind: 'riverGate',
+            tileQ: gate.q, tileR: gate.r, icon: '🌊',
+            label: northOpen ? '开启南渡口' : '开启北桥',
+            canUse, reason: canUse ? '' : (localTurn ? '本轮已调闸' : '非己方回合'), theme: 'specialization'
+        });
+    }
     if (isMechanicEnabled(gameState, 'fortifications') && gameState.commanderPhase === 'done') {
         const hasOtherTargeting = !!gameState.cardTargeting
             && !gameState.cardTargeting.cardId?.startsWith('build_');
@@ -717,6 +730,12 @@ function _syncBoardActionBar() {
 }
 
 function _activateBoardAction(action) {
+    if (action.kind === 'riverGate') {
+        const tile = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
+        if (!_isLocalActionTurn() || !executeRiverGateSwitch(tile)) return;
+        showSelectionHudForTile(tile);
+        return;
+    }
     if (action.kind === 'openAirCommands') {
         // 再次点击已激活的空军按钮 → 取消目标选择
         if (gameState.cardTargeting?.cardId?.startsWith('air_command_')) {
@@ -1867,6 +1886,14 @@ function _buildPassiveItems(unit) {
 }
 
 function _describeBoardAction(action) {
+    if (action.kind === 'riverGate') {
+        return {
+            key: action.key, icon: action.icon, label: action.label,
+            desc: '开启一侧渡口，另一侧河段随即涨水封渡。中桥始终通行，每轮限调一次。',
+            color: BOARD_ACTION_THEMES.specialization.border, status: action.canUse ? '可用' : action.reason,
+            kicker: '中央水闸', kind: 'action', action
+        };
+    }
     if (action.kind === 'buildAirfield') {
         return {
             key: action.key, icon: action.icon, label: action.label,

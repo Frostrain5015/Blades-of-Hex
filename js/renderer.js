@@ -11,6 +11,7 @@ import {
     getBorderlessBoundaryTopology, getBorderlessVisualGrid, drawVisualFillerTile, drawVisualFillerTiles
 } from './militaryMap.js';
 import { resolveAntiAirCoverage } from '../rules/antiAir.js';
+import { getRiverGate, getRiverGateOpenLane, isRiverSegmentFlooded } from '../rules/riverGate.js';
 import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
 import { getFireSeaState } from '../rules/cultures.js';
 import { getKmtLinkedUnits, isKmtLinkMember } from '../rules/kmtStronghold.js';
@@ -477,6 +478,79 @@ export function renderTerrainSnapshot(targetCtx, now, pixelRatio = 1, options = 
     }
 }
 
+function drawRiverGateMapMarkers() {
+    const gate = getRiverGate(gameState);
+    const river = gate && gameState.riverTopology?.rivers?.get(gate.riverId);
+    if (!river) return;
+    const x = LOGICAL_W / 2;
+    const y = LOGICAL_H / 2;
+    const halfWidth = HEX_SIZE * Math.sqrt(3) / 2;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const [color, width, dash] of [
+        ['rgba(15,73,98,0.78)', 18, []],
+        ['rgba(141,222,245,0.82)', 2, [8, 5]]
+    ]) {
+        ctx.beginPath();
+        let drawing = false;
+        for (const segment of river.segments) {
+            if (!isRiverSegmentFlooded(gameState, segment)) {
+                drawing = false;
+                continue;
+            }
+            if (!drawing) ctx.moveTo(x + segment.from.x * halfWidth, y + segment.from.y * HEX_SIZE / 2);
+            ctx.lineTo(x + segment.to.x * halfWidth, y + segment.to.y * HEX_SIZE / 2);
+            drawing = true;
+        }
+        ctx.setLineDash(dash);
+        ctx.lineWidth = width;
+        ctx.strokeStyle = color;
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+}
+
+function drawRiverGateMapLabels() {
+    const gate = getRiverGate(gameState);
+    const river = gate && gameState.riverTopology?.rivers?.get(gate.riverId);
+    if (!river) return;
+    const openLane = getRiverGateOpenLane(gameState);
+    const x = LOGICAL_W / 2;
+    const y = LOGICAL_H / 2;
+    const translate = text => (globalThis.gameI18n?.t ? globalThis.gameI18n.t(text) : text);
+    const viewingCamp = gameState.skirmishFog ? getViewingCamp() : null;
+    const isRevealed = coords => {
+        if (!gameState.skirmishFog) return true;
+        return coords.some(([q, r]) => {
+            const tile = gameState.tileMap.get(`${q},${r}`);
+            return tile && getTileVisibilityState(tile, viewingCamp, gameState) !== 'unexplored';
+        });
+    };
+    const gateTile = gameState.tileMap.get(`${gate.q},${gate.r}`);
+    const labels = [
+        [x - 58, y - HEX_SIZE * 7.5, translate(openLane === 'north' ? '北桥通行' : '北侧封渡'), openLane === 'north', [[2, -5], [3, -5]]],
+        [x - 58, y - HEX_SIZE * 1.5, translate('中桥常开'), true, [[0, -1], [1, -1]]],
+        ...(gateTile ? [[gateTile.x + 74, gateTile.y - 11, translate('中央水闸'), true, [[gate.q, gate.r]]]] : []),
+        [x - 58, y + HEX_SIZE * 7.5, translate(openLane === 'south' ? '南渡口通行' : '南侧封渡'), openLane === 'south', [[-3, 5], [-2, 5]]]
+    ];
+    ctx.save();
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const [labelX, labelY, label, active, coords] of labels) {
+        if (!isRevealed(coords)) continue;
+        const width = ctx.measureText(label).width + 16;
+        ctx.fillStyle = active ? '#193f32' : '#17394e';
+        roundRectPath(ctx, labelX - width / 2, labelY - 11, width, 22, 6);
+        ctx.fill();
+        ctx.fillStyle = active ? '#ddf0c0' : '#b8e8fa';
+        ctx.fillText(label, labelX, labelY + 1);
+    }
+    ctx.restore();
+}
+
 export function renderGame() {
     return perfEnabled() ? measure('renderGame', _renderGame) : _renderGame();
 }
@@ -537,6 +611,7 @@ function _renderGame() {
     if (!battlefieldDelegation.terrain) {
         _drawTerrainMaterials(ctx, now, { tiles, visualGrid, layeredTerrain, materialOptions, tileBaseOptions });
     }
+    drawRiverGateMapMarkers();
     const linkedBrigadePositions = drawKmtLinkGround(now);
     // Faction-tinted military-map city outline stays below every object, but
     // remains visible around a unit that covers the central castle glyph.
@@ -1062,6 +1137,7 @@ function _renderGame() {
     // 任务信标是作者主动公开的导航信息：覆在战争迷雾之上，但只画光圈，
     // 不穿透显示目标格内的地形或单位。
     drawCampaignObjectiveHighlights(now);
+    drawRiverGateMapLabels();
     // 己方布雷信息属于私有战术标记：覆在迷雾之上，但只向所属阵营或显式全知视角显示。
     drawOwnedMineMarkers(now);
 

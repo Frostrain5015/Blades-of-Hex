@@ -116,6 +116,7 @@ import {
     getTransportBaseDefense,
     isEmbarkableLandUnit,
     isLandDeploymentTile,
+    resolveRiverMovement,
     resolveMovementStep
 } from '../rules/movement.js';
 import { isLandTile, isWaterTile } from '../rules/surfaces.js';
@@ -173,6 +174,7 @@ import {
     hasNegativeWeatherImmunity,
     isCampCulture
 } from '../rules/cultures.js';
+import { getRiverGateOpenLane, switchRiverGate } from '../rules/riverGate.js';
 import {
     isUnitVisibleToCamp,
     isStealthGuerrilla,
@@ -2320,7 +2322,8 @@ if (unit._specializationAttackSpent) return [];
     const surfaceLegal = isRanged || canUnitOccupyTile(unit, startTile, gameState);
     const targets = surfaceLegal ? gameState.tiles.filter(tile => {
         const distance = hexDistance(tile, startTile);
-        return distance >= minimumRange && distance <= range && (
+        return distance >= minimumRange && distance <= range
+            && (isRanged || !resolveRiverMovement(startTile, tile, gameState).blocked) && (
             (tile.unit
                 && canAttack(gameState, unit.camp, tile.unit.camp)
                 && tile.unit._campaignTargetable !== false
@@ -4757,6 +4760,33 @@ export function executeDroneSuicide(droneUnit, targetTile) {
 function endGuerrillaConcealment(unit) {
     unit._guerrillaHiddenThroughRound = null;
     unit._guerrillaReadyRound = getRoundIndex(gameState) + GUERRILLA_CONCEALMENT_CONFIG.cooldown + 1;
+}
+
+export function getRiverGateSwitchMessage(state = gameState) {
+    return getRiverGateOpenLane(state) === 'north'
+        ? '中央水闸开启北桥，南侧河段涨水封渡。'
+        : '中央水闸开启南渡口，北侧河段涨水封渡。';
+}
+
+export function executeRiverGateSwitch(tile) {
+    if (!switchRiverGate(gameState, tile)) return false;
+    const selected = gameState.selectedUnit;
+    if (selected) {
+        gameState.movableTiles = getMovableTiles(selected);
+        gameState.attackableTiles = getAttackableTiles(selected);
+        refreshChainAttackPlans(selected);
+    }
+    const openLane = getRiverGateOpenLane(gameState);
+    spawnCommanderSkillEffect(tile.x, tile.y, '🌊', openLane === 'north' ? '开启北桥' : '开启南渡口');
+    playSound('commanderSkill');
+    logMessage(`🌊 ${getRiverGateSwitchMessage()}`);
+    invalidateBoard();
+    updateUI();
+    broadcastAction('riverGateSwitch', {
+        q: tile.q, r: tile.r, x: tile.x, y: tile.y,
+        openLane
+    });
+    return true;
 }
 
 export function executeGuerrillaConcealment(unit) {

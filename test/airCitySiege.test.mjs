@@ -189,16 +189,16 @@ test('机场可向无驻军的破城空降，城市和行政区在同步快照�
     const airfield = enemyCityTile(0, 0);
     airfield.camp = P1;
     airfield.installation = { type: 'airfield', status: 'ready' };
-    const breached = enemyCityTile(6, 0, 0);
+    const breached = enemyCityTile(8, 0, 0);
     breached.districtId = 1;
     breached.installation = { type: 'airfield', status: 'ready', campKey: P2.id };
-    const districtTile = new HexTile(5, 0);
+    const districtTile = new HexTile(7, 0);
     districtTile.camp = P2;
     districtTile.districtId = breached.districtId;
     const intact = enemyCityTile(4, 0);
     intact.districtId = 2;
     const occupied = enemyCityTile(4, 1, 0);
-    const outOfRange = enemyCityTile(7, 0, 0);
+    const outOfRange = enemyCityTile(9, 0, 0);
     const water = waterTile(3, 0);
     setupMatch([airfield, breached, districtTile, intact, occupied, outOfRange, water]);
     new Unit('infantry', P2, occupied);
@@ -206,7 +206,7 @@ test('机场可向无驻军的破城空降，城市和行政区在同步快照�
     const preview = resolveTargetingPreview(gameState, {
         cardId: 'air_command_airdrop', targeting: 'emptyTile', launcherQ: 0, launcherR: 0
     });
-    assert.ok(preview.candidateTileKeys.has('6,0'));
+    assert.ok(preview.candidateTileKeys.has('8,0'));
     for (const target of [intact, occupied, outOfRange, water]) {
         assert.equal(preview.candidateTileKeys.has(`${target.q},${target.r}`), false);
         assert.equal(gl.executeAirCommand('airdrop', airfield, target), false);
@@ -236,5 +236,5 @@ test('机场可向无驻军的破城空降，城市和行政区在同步快照�
     assert.equal(buildBattlefieldSnapshot(gameState, { viewerCampKey: P1.id }).units
         .find(unit => unit.id === breached.unit.id)?.renderable, false, '降落前 Pixi 不显示新单位');
     applyRemoteState(snapshot, HexTile, Unit);
-    assert.equal(gameState.tileMap.get('6,0').unit._airdropLandAt, landAt, '后续快照同步不提前结束空降动画');
+    assert.equal(gameState.tileMap.get('8,0').unit._airdropLandAt, landAt, '后续快照同步不提前结束空降动画');
 });

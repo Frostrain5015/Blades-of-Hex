@@ -4,12 +4,13 @@ import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notif
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef, setIsNetworkGameRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
-import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, startAirdropPresentation, BURN_MS } from './gameLogic.js';
+import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, startAirdropPresentation, getRiverGateSwitchMessage, BURN_MS } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, sendAddAi, sendRemoveAi, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { COMMANDER_REROLL_COST } from './config.js';
 import { COMMANDER_DRAFT } from '../rules/constants.js';
+import { STANDARD_MAP_FAMILIES } from '../rules/standardMaps.js';
 import { COMMANDER_PREFERENCE } from '../ai/doctrine.js';
 // 等待室「添加 AI」的人格选项直接从人格脚本 meta 派生（轻量，不经过 js/ai.js 战斗执行层）。
 import { meta as optioMeta } from '../ai/optio.js';
@@ -2815,7 +2816,7 @@ function renderRoomList(list) {
         const maxP = r.maxPlayers || 2;
         const aiCount = r.aiCount || 0;
         const full = r.playerCount + aiCount >= maxP;
-        const mapName = r.standardMapId === 'uncharted-passage' ? '无主航路' : '王冠环岛';
+        const mapName = STANDARD_MAP_FAMILIES.find(map => map.id === r.standardMapId)?.name || '王冠环岛';
         const rules = [mapName, r.skirmishFog ? '遭遇战' : '标准'];
         if (r.doubleCommanderMode) rules.push('双将');
         const factionMode = normalizeFactionRuleMode(r.factionRuleMode);
@@ -4273,6 +4274,14 @@ async function handleRemoteAction(msg) {
         }
         case 'guerrillaConcealment':
             if (e) emit('fx:guerrillaConcealment', e);
+            break;
+        case 'riverGateSwitch':
+            if (e && Number.isFinite(e.x) && Number.isFinite(e.y)) {
+                spawnCommanderSkillEffect(e.x, e.y, '🌊', e.openLane === 'north' ? '开启北桥' : '开启南渡口');
+            }
+            playSound('commanderSkill');
+            logMessage(`🌊 ${getRiverGateSwitchMessage()}`);
+            invalidateBoard();
             break;
         case 'banzaiCharge':
             if (e) {

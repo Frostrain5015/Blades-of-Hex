@@ -4023,6 +4023,12 @@ body {
     transform: translateY(-50%);
 }
 
+.prep-map-tabs .prep-option[data-value="river-valley"]::before {
+    content: '🌊';
+    font-size: 13px;
+    transform: translateY(-50%);
+}
+
 .prep-map-tabs .prep-option.selected::before {
     color: var(--gold);
     text-shadow: 0 0 10px rgba(205, 150, 18, 0.55);

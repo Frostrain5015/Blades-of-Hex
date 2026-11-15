@@ -6,9 +6,10 @@ import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, attackCityTile, recruitUnit, reinforceUnit, repairShipAtPort,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeDroneDeploy, executeDroneSuicide,
-    executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment,
+    executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, executeRiverGateSwitch,
     recalcAllFlankingMorale, drawCard, recordAuxiliaryAction
 } from './gameLogic.js';
+import { getRiverGate, getRiverGateOpenLane, canSwitchRiverGate, chooseRiverGateLane } from '../rules/riverGate.js';
 import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
 import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
 import { hasSameTypeBuildingWithin } from '../rules/construction.js';
@@ -379,6 +380,17 @@ async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficul
             && canSpend(constructionCost('airfield', candidate.unit, candidate, gameState))) {
             await runObservedAction({ type: 'buildAirfield', tileQ: candidate.q, tileR: candidate.r }, aiCamp, () => {
                 executeAirfieldConstruction(candidate);
+            });
+        }
+    }
+
+    const gate = getRiverGate(gameState);
+    const gateTile = gate ? resolveTile(gate.q, gate.r) : null;
+    if (difficultyProfile.infrastructureLevel > 0 && gateTile && canSwitchRiverGate(gameState, gateTile)) {
+        const preferredLane = chooseRiverGateLane(gameState, aiCamp, { isTileKnown: knownTile });
+        if (preferredLane && preferredLane !== getRiverGateOpenLane(gameState)) {
+            await runObservedAction({ type: 'riverGateSwitch', tileQ: gate.q, tileR: gate.r }, aiCamp, () => {
+                executeRiverGateSwitch(gateTile);
             });
         }
     }

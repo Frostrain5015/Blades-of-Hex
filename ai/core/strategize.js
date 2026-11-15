@@ -24,8 +24,11 @@ export function estimateCaptureEta(world, city) {
         return speed;
     };
     let bestEta = null;
+    const navDist = world.navDistance || world.helpers.hexDistance;
     for (const unit of assault) {
-        const dist = world.helpers.hexDistance(unit.tile, city.tile);
+        const dist = world.isNaval(unit)
+            ? world.helpers.hexDistance(unit.tile, city.tile)
+            : navDist(unit.tile, city.tile);
         const eta = Math.ceil(dist / speedOf(unit));
         if (bestEta == null || eta < bestEta) bestEta = eta;
     }
@@ -44,12 +47,16 @@ export function estimateCaptureEta(world, city) {
 /** 敌方最快夺城 ETA：用于判断"我还剩几回合安全期"。 */
 function estimateEnemyCaptureEta(world) {
     let best = null;
+    const navDist = world.navDistance || world.helpers.hexDistance;
     for (const city of world.cities) {
         if (!city.mine) continue;
         for (const unit of world.rivalUnits) {
             if (!world.isCapturable(unit)) continue;
             const speed = Math.max(1, Number(unit.config?.speed) || 1);
-            const eta = Math.ceil(world.helpers.hexDistance(unit.tile, city.tile) / speed);
+            const dist = world.isNaval(unit)
+                ? world.helpers.hexDistance(unit.tile, city.tile)
+                : navDist(unit.tile, city.tile);
+            const eta = Math.ceil(dist / speed);
             if (best == null || eta < best) best = eta;
         }
     }

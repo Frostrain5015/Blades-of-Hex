@@ -1,6 +1,7 @@
 import { deepFreeze } from './freeze.js';
 import { getPlayableBoardCoordinates } from './boardLayout.js';
 import { HEX_NEIGHBORS } from './hex.js';
+import { TWO_PLAYER_RIVER_VALLEY } from './maps/river-valley.js';
 import UNCHARTED_PASSAGE_2P_LEVEL from './maps/uncharted-passage-2p.level.json' with { type: 'json' };
 import UNCHARTED_PASSAGE_3P_LEVEL from './maps/uncharted-passage-3p.level.json' with { type: 'json' };
 
@@ -390,12 +391,18 @@ export const STANDARD_MAP_FAMILIES = deepFreeze([
         name: '无主航路',
         description: '跳岛海战 夺取中央航母',
         maps: { 2: TWO_PLAYER_ARCHIPELAGO, 3: THREE_PLAYER_ARCHIPELAGO }
+    },
+    {
+        id: 'river-valley',
+        name: '河谷防线',
+        description: '争夺水闸 切换渡河路线',
+        maps: { 2: TWO_PLAYER_RIVER_VALLEY }
     }
 ]);
 
 export const STANDARD_MAP_POOL = deepFreeze({
     2: STANDARD_MAP_FAMILIES.map(family => family.maps[2]),
-    3: STANDARD_MAP_FAMILIES.map(family => family.maps[3])
+    3: STANDARD_MAP_FAMILIES.flatMap(family => family.maps[3] ? [family.maps[3]] : [])
 });
 
 export function normalizeStandardMapFamilyId(mapId) {
@@ -403,6 +410,7 @@ export function normalizeStandardMapFamilyId(mapId) {
     if (normalized === 'uncharted-passage' || /^uncharted-passage-[23]p$/.test(normalized)) {
         return 'uncharted-passage';
     }
+    if (normalized === 'river-valley' || normalized === 'river-valley-2p') return 'river-valley';
     if (normalized === 'crown-ring' || /^grand-island-[23]p$/.test(normalized)) {
         return 'crown-ring';
     }
@@ -413,5 +421,6 @@ export function getStandardMap(playerCount, familyId = DEFAULT_STANDARD_MAP_ID) 
     const normalizedFamilyId = normalizeStandardMapFamilyId(familyId);
     const family = STANDARD_MAP_FAMILIES.find(entry => entry.id === normalizedFamilyId)
         || STANDARD_MAP_FAMILIES[0];
-    return family.maps[Number(playerCount) === 3 ? 3 : 2];
+    const seats = Number(playerCount) === 3 ? 3 : 2;
+    return family.maps[seats] || STANDARD_MAP_FAMILIES[0].maps[seats];
 }

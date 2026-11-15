@@ -187,7 +187,7 @@ const MIME = {
 // 浏览器入口引用的根级背景图，以及被 ESM 状态模型导入的纯算法模块，都属于公开静态资源。
 // 其余根级文件仍默认拒绝，避免把服务器代码和本地配置暴露出去。
 const STATIC_ROOT_FILES = new Set(['/index.html', '/favicon.ico', '/bg.jpg']);
-const STATIC_DIRECTORIES = ['/assets/', '/vendor/', '/js/', '/css/', '/img/', '/sounds/', '/commander/', '/rules/', '/engine/', '/protocol/', '/core/', '/ai/', '/campaign/'];
+const STATIC_DIRECTORIES = ['/assets/', '/vendor/', '/js/', '/css/', '/img/', '/sounds/', '/locales/', '/commander/', '/rules/', '/engine/', '/protocol/', '/core/', '/ai/', '/campaign/'];
 
 function resolvePublicFile(urlPath) {
     if (urlPath === '/vendor/pixi.mjs') {
@@ -444,7 +444,8 @@ const PLAYER_FACTION_COLORS = new Set(['red', 'orange', 'yellow', 'green', 'cyan
 const DEFAULT_ROLE_COLORS = { player1: 'red', player2: 'blue', player3: 'green' };
 const STANDARD_FLAG_EMOJIS = new Set(['⚜️', '🦅', '🦁', '🐺', '🐉', '⚔️', '🛡️', '👑', '☀️', '🌙', '🔥', '🌿', '⚓', '🔆', '⚖️']);
 const DEFAULT_ROLE_FLAG_EMOJIS = { player1: '⚜️', player2: '🛡️', player3: '🦅' };
-const STANDARD_MAP_IDS = new Set(['crown-ring', 'uncharted-passage']);
+const STANDARD_MAP_IDS = new Set(['crown-ring', 'uncharted-passage', 'river-valley']);
+const TWO_PLAYER_ONLY_MAP_IDS = new Set(['river-valley']);
 
 function rollNetworkTurnOrder(roles) {
     const histories = Object.fromEntries(roles.map(role => [role, []]));
@@ -704,7 +705,10 @@ async function handleMessage(ws, rawData) {
             const doubleCommanderMode = msg.doubleCommanderMode || false;
             const { normalizeFactionRuleMode } = await cultureRulesReady;
             const factionRuleMode = normalizeFactionRuleMode(msg.factionRuleMode);
-            const standardMapId = STANDARD_MAP_IDS.has(msg.standardMapId) ? msg.standardMapId : 'crown-ring';
+            const requestedMapId = STANDARD_MAP_IDS.has(msg.standardMapId) ? msg.standardMapId : 'crown-ring';
+            const standardMapId = (maxPlayers === 3 && TWO_PLAYER_ONLY_MAP_IDS.has(requestedMapId))
+                ? 'crown-ring'
+                : requestedMapId;
             const room = {
                 id: roomId,
                 players: new Map(),

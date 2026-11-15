@@ -83,11 +83,18 @@ export function createPreparationController({
         typeSection.classList.remove('collapsed');
         difficultySection.classList.remove('collapsed');
         buildRuleOptions();
-        buildOptionRow('prepOptionsMap', STANDARD_MAP_FAMILIES.map(map => ({
-            id: map.id,
-            title: map.name,
-            desc: map.description
-        })));
+        const seats = () => ((action === 'training' || action === 'createRoom') && getSelection('prepOptions1') === '3p' ? 3 : 2);
+        const renderMaps = () => {
+            const previous = getSelection('prepOptionsMap');
+            const playerCount = seats();
+            buildOptionRow('prepOptionsMap', STANDARD_MAP_FAMILIES.filter(map => !map.prototype && Boolean(map.maps?.[playerCount]))
+                .map(map => ({ id: map.id, title: map.name, desc: map.description })));
+            const options = [...document.querySelectorAll('#prepOptionsMap .prep-option')];
+            const previousOption = options.find(option => option.dataset.value === previous);
+            if (previousOption) {
+                for (const option of options) option.classList.toggle('selected', option === previousOption);
+            }
+        };
         document.getElementById('prepLabel2').textContent = '特殊规则';
 
         if (action === 'createRoom') {
@@ -124,6 +131,10 @@ export function createPreparationController({
             updateDifficulty();
         }
 
+        renderMaps();
+        document.getElementById('prepOptions1').onclick = (action === 'training' || action === 'createRoom')
+            ? renderMaps
+            : null;
         switchLobbyView('prepContent');
         document.getElementById('prepConfirm').onclick = executeChoice;
     }

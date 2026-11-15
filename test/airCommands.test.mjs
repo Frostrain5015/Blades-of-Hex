@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    AIR_COMMAND_CONFIG,
     AIR_COMMAND_IMPACT_DELAY_MS,
     AIRFIELD_BASE_POWER,
     AIRFIELD_BASE_RANGE,
@@ -52,10 +53,11 @@ test('机场识别驻城将领，并仅把空军上校视为航空专属强化�
     assert.equal(getAirfieldCommander({ camp: CAMP, unit: other }), other);
     assert.equal(getAirfieldColonel({ camp: CAMP, unit: other }), null);
     assert.equal(getAirfieldCommander({ camp: { id: 'player2' }, unit: colonel }), null);
-    assert.equal(AIRFIELD_BASE_RANGE, 6);
+    assert.equal(AIRFIELD_BASE_RANGE, 8);
+    assert.ok(Object.values(AIR_COMMAND_CONFIG).every(command => command.range === AIRFIELD_BASE_RANGE));
     assert.equal(COLONEL_AIR_RANGE_BONUS, 2);
-    assert.equal(getAirCommandRange({ camp: CAMP, unit: null }), 6);
-    assert.equal(getAirCommandRange(colonelCity), 8);
+    assert.equal(getAirCommandRange({ camp: CAMP, unit: null }), 8);
+    assert.equal(getAirCommandRange(colonelCity), 10);
 });
 
 test('机场扫射与轰炸结果会在命中时刻生成前端伤害数字', () => {

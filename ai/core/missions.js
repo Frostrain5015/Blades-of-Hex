@@ -35,8 +35,9 @@ function pickOccupier(world, cityTile, preferredId = null, excludeIds = new Set(
         .filter(unit => !excludeIds.has(unit.id))
         .filter(unit => !['minister', 'astrologer'].includes(unit.commander))
         .sort((a, b) => {
-            const da = world.helpers.hexDistance(a.tile, cityTile);
-            const db = world.helpers.hexDistance(b.tile, cityTile);
+            const distOf = world.navDistance || world.helpers.hexDistance;
+            const da = world.isNaval(a) ? world.helpers.hexDistance(a.tile, cityTile) : distOf(a.tile, cityTile);
+            const db = world.isNaval(b) ? world.helpers.hexDistance(b.tile, cityTile) : distOf(b.tile, cityTile);
             return da - db;
         });
     if (preferredId != null) {
@@ -55,10 +56,14 @@ function pickEscorts(world, occupier, cityTile, count, excludeIds, includeCaptur
             && (includeCapturers || !world.isCapturable(unit)))
         .filter(unit => !['minister', 'astrologer'].includes(unit.commander))
         .sort((a, b) => {
+            const distOf = world.navDistance || world.helpers.hexDistance;
             // 守军还在时，优先选"打得动守军"的护航；否则选离占领者最近的。
-            const score = unit => world.helpers.hexDistance(unit.tile, occupier.tile)
-                + world.helpers.hexDistance(unit.tile, cityTile) * 0.35
-                - (garrison ? Math.max(-40, Math.min(60, duelExpectation(world, unit, garrison))) * 0.8 : 0);
+            const score = unit => {
+                const d = world.isNaval(unit) ? world.helpers.hexDistance : distOf;
+                return d(unit.tile, occupier.tile)
+                    + d(unit.tile, cityTile) * 0.35
+                    - (garrison ? Math.max(-40, Math.min(60, duelExpectation(world, unit, garrison))) * 0.8 : 0);
+            };
             return score(a) - score(b);
         })
         .slice(0, count);

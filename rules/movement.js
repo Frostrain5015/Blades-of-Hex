@@ -4,6 +4,7 @@ import { HEX_NEIGHBORS } from './hex.js';
 import { canonicalRiverSegmentKey } from './hydrography.js';
 import { getTileSurface, isLandTile, isWaterTile, SURFACE_KIND, tileCoordinateKey } from './surfaces.js';
 import { UNIT_CONFIG } from './units.js';
+import { isRiverSegmentFlooded } from './riverGate.js';
 
 export const MOVEMENT_DOMAIN = Object.freeze({
     LAND: 'land',
@@ -172,6 +173,9 @@ export function resolveRiverMovement(fromTile, toTile, state = null) {
     const segments = segmentKey ? topology?.segmentsByKey?.get?.(segmentKey) : null;
     if (!segments?.length) {
         return Object.freeze({ segmentKey, kind: null, blocked: false, extraCost: 0 });
+    }
+    if (segments.some(segment => isRiverSegmentFlooded(state, segment))) {
+        return Object.freeze({ segmentKey, kind: 'flooded', blocked: true, extraCost: 0 });
     }
 
     const crossings = topology?.crossingsBySegment?.get?.(segmentKey) || [];

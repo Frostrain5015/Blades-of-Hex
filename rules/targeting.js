@@ -13,7 +13,7 @@ import { isSubmarineTargetableBy } from './naval.js';
 import { isUnitVisibleToCamp } from './visibility.js';
 import { BANZAI_CHARGE_CONFIG, hasNegativeWeatherImmunity } from './cultures.js';
 import { COMMANDER_CONFIG } from './commanders.js';
-import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN, resolveMovementStep } from './movement.js';
+import { areCommanderMechanicsSuppressed, getUnitMovementDomain, isLandDeploymentTile, MOVEMENT_DOMAIN, resolveMovementStep, resolveRiverMovement } from './movement.js';
 import { isLandTile } from './surfaces.js';
 import { isBuildingUnit } from './units.js';
 import {
@@ -129,13 +129,14 @@ export function getBanzaiChargePath(unit, targetTile, state) {
 
     const distance = hexDistance(from, targetTile);
     if (distance < 1 || distance > BANZAI_CHARGE_CONFIG.range) return null;
-    if (distance === 1) return [from, targetTile];
+    if (distance === 1) return resolveRiverMovement(from, targetTile, state).blocked ? null : [from, targetTile];
 
     for (const [dq, dr] of HEX_NEIGHBORS) {
         const step = state.tileMap.get(`${from.q + dq},${from.r + dr}`);
         if (step && hexDistance(step, targetTile) === 1 && !step.unit && isLandTile(step)
             && !isCitySiegeBlocked(step, unit.camp, state)
-            && resolveMovementStep(unit, from, step, state).allowed) return [from, step, targetTile];
+            && resolveMovementStep(unit, from, step, state).allowed
+            && !resolveRiverMovement(step, targetTile, state).blocked) return [from, step, targetTile];
     }
     return null;
 }

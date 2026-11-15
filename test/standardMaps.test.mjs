@@ -22,6 +22,11 @@ import {
 import { normalizeLevel, validateLevel } from '../campaign/runtime/schema.js';
 import UNCHARTED_PASSAGE_2P_LEVEL from '../rules/maps/uncharted-passage-2p.level.json' with { type: 'json' };
 import UNCHARTED_PASSAGE_3P_LEVEL from '../rules/maps/uncharted-passage-3p.level.json' with { type: 'json' };
+import { buildRiverTopology } from '../rules/hydrography.js';
+import { resolveRiverMovement } from '../rules/movement.js';
+import { canSwitchRiverGate, chooseRiverGateLane, getRiverGate, switchRiverGate } from '../rules/riverGate.js';
+import { buildWorld } from '../ai/core/perceive.js';
+import { TIER_CAPABILITIES } from '../ai/core/weights.js';
 
 const key = ({ q, r }) => `${q},${r}`;
 const distance = (a, b) => Math.max(
@@ -116,7 +121,7 @@ for (const playerCount of [2, 3]) {
         const water = new Map(board.surface.map(tile => [key(tile), tile.kind]));
         const cityDistricts = new Set(board.cities.map(city => city.districtId));
 
-        assert.equal(STANDARD_MAP_POOL[playerCount].length, 2);
+        assert.equal(STANDARD_MAP_POOL[playerCount].length, playerCount === 2 ? 3 : 2);
         assert.equal(board.layout, 'borderless');
         assert.equal(board.radius, 7);
         assert.equal(getPlayableBoardCoordinates(board).length, 277);
@@ -331,8 +336,131 @@ test('the prize carrier follows the central port district on every recapture', (
     assert.equal(escort.camp, player1);
 });
 
-test('the preparation catalog exposes both named map families', () => {
-    assert.deepEqual(STANDARD_MAP_FAMILIES.map(map => map.name), ['王冠环岛', '无主航路']);
+test('the preparation catalog exposes all three named map families without prototype flags', () => {
+    assert.deepEqual(STANDARD_MAP_FAMILIES.map(map => map.name), ['王冠环岛', '无主航路', '河谷防线']);
+    assert.equal(STANDARD_MAP_FAMILIES.every(map => !map.prototype), true);
+    assert.equal(getStandardMap(3, 'river-valley').familyId, 'crown-ring');
+});
+
+test('river-valley 2P board layout is playable, balanced, and non-naval', () => {
+    const map = getStandardMap(2, 'river-valley');
+    assert.equal(map.id, 'river-valley-2p');
+    assert.equal(map.board.cities.length, 5);
+    assert.equal(map.board.villages.length, 2);
+    assert.equal(map.board.districts.length, 169);
+    const gate = map.board.cities.find(c => c.q === 1 && c.r === -1);
+    assert.equal(gate.camp, 'neutral');
+    assert.equal(gate.hpPct, 60);
+    assert.equal(distance(map.board.cities[0], gate), distance(map.board.cities[1], gate));
+    assert.equal(
+        map.initialUnits.filter(u => u.camp === 'player1').length,
+        map.initialUnits.filter(u => u.camp === 'player2').length
+    );
+});
+
+test('河谷双人原型的水闸每轮切换一次，封住相应河段并保留中桥', () => {
+    const map = getStandardMap(2, 'river-valley');
+    const player1 = { id: 'player1' };
+    const player2 = { id: 'player2' };
+    const state = {
+        standardMapId: map.familyId, turnCounter: 0, turnOrder: ['player1', 'player2', 'neutral'],
+        currentCamp: player1, riverTopology: buildRiverTopology(map.board.rivers, map.board.crossings)
+    };
+    const gate = { ...getRiverGate(state), isCity: true, camp: player2 };
+    const cross = r => {
+        const q = -Math.ceil(r / 2);
+        return resolveRiverMovement({ q, r }, { q: q + 1, r }, state);
+    };
+    assert.equal(map.board.districts.find(tile => tile.q === gate.q && tile.r === gate.r).districtId, 5);
+    assert.equal(cross(-5).kind, 'flooded');
+    assert.equal(cross(-4).blocked, true, '封渡须覆盖邻近的绕行河段');
+    assert.equal(cross(-1).kind, 'bridge');
+    assert.equal(cross(5).kind, 'ford');
+    assert.equal(canSwitchRiverGate(state, gate), false);
+    gate.camp = player1;
+    assert.equal(switchRiverGate(state, gate), true);
+    assert.equal(switchRiverGate(state, gate), false);
+    assert.equal(cross(-5).kind, 'bridge');
+    assert.equal(cross(-1).kind, 'bridge');
+    assert.equal(cross(5).blocked, true);
+    state.turnCounter = 3;
+    assert.equal(switchRiverGate(state, gate), true);
+    assert.equal(cross(5).kind, 'ford');
+});
+
+test('river-valley AI chooses river gate lane tactically and navigates around flooded banks', () => {
+    const factions = createDefaultFactions();
+    const { player1, player2, neutral } = factions;
+    const state = {
+        standardMapId: 'river-valley',
+        isThreePlayer: false,
+        turnCounter: 3,
+        turnOrder: ['player1', 'player2', 'neutral'],
+        currentCamp: player2,
+        factions,
+        tiles: [],
+        tileMap: new Map(),
+        playerGold: { player1: 20, player2: 20, neutral: 10 },
+        playerHands: { player1: [], player2: [], neutral: [] },
+        playerDrawsThisTurn: { player1: 0, player2: 0, neutral: 0 },
+        playerUsesThisTurn: { player1: 0, player2: 0, neutral: 0 },
+        riverGate: { openLane: 'south', changedRound: -1 }
+    };
+    const map = getStandardMap(2, 'river-valley');
+    state.rivers = map.board.rivers;
+    state.riverCrossings = map.board.crossings;
+    state.riverTopology = buildRiverTopology(map.board.rivers, map.board.crossings);
+    for (const coord of getPlayableBoardCoordinates({ radius: map.board.radius, layout: map.board.layout })) {
+        const tile = {
+            q: coord.q,
+            r: coord.r,
+            s: -coord.q - coord.r,
+            surface: 'land',
+            terrain: 'plains',
+            camp: neutral,
+            isCity: false,
+            hp: 0,
+            maxHp: 0,
+            districtId: null,
+            unit: null
+        };
+        state.tiles.push(tile);
+        state.tileMap.set(`${tile.q},${tile.r}`, tile);
+    }
+    for (const city of map.board.cities) {
+        const tile = state.tileMap.get(`${city.q},${city.r}`);
+        tile.isCity = true;
+        tile.districtId = city.districtId;
+        tile.hp = city.hpPct ? Math.round(100 * city.hpPct / 100) : 100;
+        tile.maxHp = 100;
+        tile.camp = city.camp === 'player1' ? player1 : city.camp === 'player2' ? player2 : neutral;
+    }
+
+    // 2) Pathing around flooded north river segment: east bank (2,-3) -> west bank (0,-3) detours via open crossings.
+    const world = buildWorld(state, {
+        HEX_NEIGHBORS,
+        hexDistance: distance,
+        isHostileFaction: (a, b) => a !== b,
+        isTileVisible: () => true
+    }, player2, TIER_CAPABILITIES.hard);
+    assert.equal(world.hasRivers, true);
+    const eastBankNorth = state.tileMap.get('2,-3');
+    const westNorthCity = state.tileMap.get('0,-3');
+    assert.equal(distance(eastBankNorth, westNorthCity), 2);
+    assert.ok(world.navDistance(eastBankNorth, westNorthCity) > 2, 'navDistance routes around flooded north bank');
+
+    // 3) Gate decision: no units at flanks -> keep current lane ('south').
+    assert.equal(chooseRiverGateLane(state, player2), 'south');
+
+    // East-bank friendly unit poised near north bridge facing west-bank target -> open north bridge.
+    state.tileMap.get('3,-5').unit = { camp: player2, hp: 100, config: UNIT_CONFIG.infantry };
+    assert.equal(chooseRiverGateLane(state, player2), 'north');
+
+    // Defensive flip: enemy threatening open south ford against our east-bank south city -> flood south by switching to 'north'.
+    state.tileMap.get('3,-5').unit = null;
+    state.tileMap.get('1,3').camp = player2;
+    state.tileMap.get('-3,5').unit = { camp: player1, hp: 100, config: UNIT_CONFIG.infantry };
+    assert.equal(chooseRiverGateLane(state, player2), 'north');
 });
 
 test('self-play legacy concrete map ids normalize to the intended map family', () => {

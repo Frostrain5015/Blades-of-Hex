@@ -232,6 +232,7 @@ export function createMatchState() {
         districtBorderEdges: [],
         // 村庄：Map("q,r" → { districtId, q, r })
         villageTiles: new Map(),
+        riverGate: null,
         // PVE 难度：对手 AI 经济倍率（不影响中立 AI）
         aiDifficulty: 1.0,
         aiDifficultyId: 'easy',
@@ -320,6 +321,7 @@ export function resetMatchState(match) {
     match.campBorderEdges = [];
     match.districtBorderEdges = [];
     match.villageTiles = new Map();
+    match.riverGate = null;
     match.aiDifficulty = 1.0;
     match.aiDifficultyId = 'easy';
     match.aiDifficultyByCamp = {};
@@ -685,7 +687,8 @@ export function serializeMatchState(match) {
         scoutReveals: Object.fromEntries(Object.entries(match.scoutReveals || {}).map(([key, reveals]) => [key, [...reveals]])),
         submarineReveals: structuredClone(match.submarineReveals || {}),
         shoreBatteryBuiltRound: { ...(match.shoreBatteryBuiltRound || {}) },
-        villageTiles: [...match.villageTiles]
+        villageTiles: [...match.villageTiles],
+        ...(match.riverGate && { riverGate: { ...match.riverGate } })
     };
 }
 
@@ -848,6 +851,7 @@ export function restoreMatchState(match, data, deps) {
     match.surrenderedCamps = (data.surrenderedCampKeys || []).map(resolveCamp).filter(Boolean);
     match.skirmishFog = data.skirmishFog || false;
     match.villageTiles = new Map(data.villageTiles || []);
+    match.riverGate = data.riverGate ? { ...data.riverGate } : null;
     match.aiDifficulty = data.aiDifficulty || 1.0;
     match.aiDifficultyId = data.aiDifficultyId || null;
     match.aiDifficultyByCamp = { ...(data.aiDifficultyByCamp || {}) };
