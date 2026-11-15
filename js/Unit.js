@@ -24,12 +24,12 @@ import { getBaseMorale, raiseBaseMorale } from '../rules/morale.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
-import { isFriendly, isHostile } from '../rules/diplomacy.js';
+import { canAttack, isFriendly, isHostile } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { isRangedCombatAttack } from '../rules/attackPresentation.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { getCityDefenseBonus, getCannonSiegeDamageBonus } from '../rules/citySiege.js';
-import { FREE_RESISTANCE_EFFECT, getFreeResistanceTurnDeadline, getCulturalWaterMovementBonus, getCulturalXpMultiplier, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
+import { FREE_RESISTANCE_EFFECT, getFreeResistanceTurnDeadline, getCulturalWaterMovementBonus, getCulturalXpMultiplier, getNeverSurrenderStatBonus, getNeverSurrenderAttackBonus, getFireSeaDefenseReduction, isHeavyCannonDeployed, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
 import { markSubmarineDamagedWhileExposed } from '../rules/visibility.js';
 import {
     COLONEL_AIR_DAMAGE_BONUS,
@@ -41,7 +41,7 @@ import {
 } from '../rules/airCommands.js';
 import { areCommanderMechanicsSuppressed, canUnitOccupyTile, getTransportBaseDefense, getUnitCombatRange, getUnitMovementDomain, isEmbarkableLandUnit, TRANSPORT_RULES, TRANSPORT_SPEED_CAP } from '../rules/movement.js';
 import { isWaterTile } from '../rules/surfaces.js';
-import { canUnitTargetUnit, getCrossDomainDamageBonus } from '../rules/naval.js';
+import { canUnitTargetUnit, getCrossDomainDamageBonus, getRoyalEscortBonus, ROYAL_ESCORT_DODGE } from '../rules/naval.js';
 import {
     AURELIA_FACTION_PASSIVE,
     AURELIA_OATH_EFFECT,
@@ -240,8 +240,10 @@ export class Unit {
     }
 
     get morale() {
-        return this._freeResistanceUntilTurn > (_gameState?.turnCounter ?? 0)
+        const suppressed = this._katyushaMoraleUntilTurn > (_gameState?.turnCounter ?? 0) ? this._katyushaMoraleDrop : 0;
+        const boosted = this._freeResistanceUntilTurn > (_gameState?.turnCounter ?? 0)
             ? Math.min(3, this._morale + 1) : this._morale;
+        return Math.max(0, boosted - suppressed);
     }
     get activeShield() {
         return (this._shield || 0) + (this._freeResistanceUntilTurn > (_gameState?.turnCounter ?? 0) ? this._freeResistanceShield : 0);
@@ -297,18 +299,24 @@ export class Unit {
                     if (b.atk) buffParts.push(`攻击力提高${b.atk}点`);
                     if (b.def) buffParts.push(`防御力提高${Math.round(b.def * 100)}%`);
                 }
-                // 占星者星移：显示当前锁定的天气
+                // 占星者星移：详情保持图鉴说明，当前锁定天气放到 status
                 let skillDesc = buffParts.length ? buffParts.join('，') : '';
-                if (this.commander === 'astrologer' && cmdCfg.activeSkill.name === '星移' && _gameState) {
-                    const w = _gameState.weather;
-                    const wName = w === 'clear' ? '晴' : w === 'rain' ? '雨' : w === 'fog' ? '雾' : w === 'wind' ? '风' : '';
-                    skillDesc = '锁定当前天气：' + wName;
+                let skillStatus;
+                if (this.commander === 'astrologer' && cmdCfg.activeSkill.name === '星移') {
+                    skillDesc = (cmdCfg.activeSkill.desc || '').replace(/（⏳\d+）$/, '');
+                    const weatherState = gameState || _gameState;
+                    if (weatherState) {
+                        const w = weatherState.weather;
+                        const wName = w === 'clear' ? '晴' : w === 'rain' ? '雨' : w === 'fog' ? '雾' : w === 'wind' ? '风' : '';
+                        if (wName) skillStatus = `锁定${wName}天 持续${this.activeSkillDur}回合`;
+                    }
                 }
                 effects.push({
                     label: cmdCfg.activeSkill.name,
                     desc: skillDesc,
                     color: '#ff8844',
-                    remaining: this.activeSkillDur
+                    remaining: this.activeSkillDur,
+                    ...(skillStatus ? { status: skillStatus } : {})
                 });
             }
         }
@@ -498,6 +506,7 @@ export class Unit {
     }
 
     getEffectiveSpeed() {
+        if (isHeavyCannonDeployed(this)) return 0;
         const commander = this.commander ? getCommander(this.commander) : null;
         const speed = Math.max(0, this.config.speed + (this._rankPanelSpeedBonus || 0) + (commander?.spdBonus || 0) + this.getCampaignEffectMods().spdFlat);
         const waterBonus = this.tile && isWaterTile(this.tile) ? getCulturalWaterMovementBonus(_gameState, this.camp) : 0;
@@ -582,7 +591,7 @@ export class Unit {
             ? AURELIA_OATH_EFFECT.attackBonusPct
             : 0;
         if (this.type === 'carrier') {
-            return Math.round((this.config.attack + (this._rankPanelAttackBonus || 0)) * (1 + aureliaOathBonus + getNeverSurrenderStatBonus(_gameState, this.camp)));
+            return Math.round((this.config.attack + (this._rankPanelAttackBonus || 0)) * (1 + aureliaOathBonus + getNeverSurrenderAttackBonus(_gameState, this.camp)));
         }
         const auraAtk = getCommanderAuraAttackBonus(this);
         let base;
@@ -602,7 +611,7 @@ export class Unit {
         const mods = this.getCampaignEffectMods();
         // 士气：①攻击乘区直接百分比加成（±20%），HUD 攻击值、攻城、反击统一生效
         const moraleMulti = isMechanicEnabled(_gameState, 'morale') ? 1 + (MORALE_CONFIG[this.morale]?.atkBonus || 0) : 1;
-        return Math.round((base * (1 + mods.atkPct / 100 + aureliaOathBonus + getNeverSurrenderStatBonus(_gameState, this.camp)) + mods.atkFlat) * moraleMulti);
+        return Math.round((base * (1 + mods.atkPct / 100 + aureliaOathBonus + getNeverSurrenderAttackBonus(_gameState, this.camp)) + mods.atkFlat) * moraleMulti);
     }
 
     getEffectiveRange() {
@@ -774,7 +783,7 @@ export class Unit {
         defSum += defender.getCampaignDefenseBonus(attacker);
         defSum += getFellowRobeDefenseBonus(defender, _gameState);
         if (hasAureliaOathEffect(defender, _gameState)) defSum += AURELIA_OATH_EFFECT.defenseBonusPct;
-        defSum += getNeverSurrenderStatBonus(_gameState, defender.camp);
+        defSum += getNeverSurrenderStatBonus(_gameState, defender.camp) - getFireSeaDefenseReduction(defender);
         // 空军上校俯冲扫射：无视目标防御力
         if (ignoreDef > 0) defSum -= ignoreDef;
         const defenseMulti = Math.max(COMBAT_BALANCE.defense.minimumMultiplier, 1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, defSum));
@@ -787,7 +796,7 @@ export class Unit {
     }
 
     rollDodge(gs = _gameState) {
-        const chance = this.config?.dodgeChance || 0;
+        const chance = getRoyalEscortBonus(this, gs) > 0 ? ROYAL_ESCORT_DODGE : 0;
         return chance > 0 && Boolean(gs?.rng) && gs.rng.next() < chance;
     }
 
@@ -842,7 +851,7 @@ export class Unit {
                 + (targetUnit.getCampaignDefenseBonus?.(this) || 0)
                 + getFellowRobeDefenseBonus(targetUnit, gs)
                 + (hasAureliaOathEffect(targetUnit, gs) ? AURELIA_OATH_EFFECT.defenseBonusPct : 0)
-                + getNeverSurrenderStatBonus(gs, targetUnit.camp);
+                + getNeverSurrenderStatBonus(gs, targetUnit.camp) - getFireSeaDefenseReduction(targetUnit);
             let antiAir = getAntiAirReduction(targetUnit.tile, this.camp, gs.tileMap, { state: gs });
             if (colonelActive) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
             defense += antiAir;
@@ -854,7 +863,7 @@ export class Unit {
                 ? AURELIA_OATH_EFFECT.attackBonusPct
                 : 0;
             const result = {
-                dmg: power * (1 + carrierRankBonus + colonelBonus + aureliaOathBonus + getNeverSurrenderStatBonus(gs, this.camp)
+                dmg: power * (1 + carrierRankBonus + colonelBonus + aureliaOathBonus + getNeverSurrenderAttackBonus(gs, this.camp)
                     + getKmtLinkDamageBonus(this, gs)) * floatMult * defenseMulti,
                 isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold,
                 antiAir,
@@ -944,7 +953,7 @@ export class Unit {
         const log = _logMessage;
         const gs = _gameState;
 
-        if (this.type === 'carrier' || attackerUnit?.type === 'carrier'
+        if (this.type === 'carrier' || attackerUnit?.type === 'carrier' || this.type === 'fr_heavy_cannon'
             || this._transportTransitionedThisTurn || this.counterAttackCount >= 1 || this._campaignNoCounter
             || (isMechanicEnabled(_gameState, 'morale') && this.morale === 0)) {
             return { dmg: 0, isCrit: false };
@@ -1377,6 +1386,12 @@ export class Unit {
         if (attackerUnit) {
             const key = campToKey(attackerUnit.camp);
             _gameState.killCount[key] = (_gameState.killCount[key] || 0) + 1;
+            if (canAttack(_gameState, attackerUnit.camp, this.camp) && isCampCulture(_gameState, attackerUnit.camp, 'jp')) {
+                attackerUnit.heal(Math.round((attackerUnit.maxHp - attackerUnit.hp) * 0.20), {
+                    bypassAntiHeal: true,
+                    delayMs: Math.max(0, this._deferImpactFxUntil - performance.now()) || 0
+                });
+            }
         }
         const _deathFxX = this.tile.x, _deathFxY = this.tile.y;
         const _emitDeathFx = () => {
@@ -1389,7 +1404,7 @@ export class Unit {
         if (_gameState && this._deferImpactFxUntil > performance.now()) {
             (_gameState.unitDeathGhosts ||= []).push({
                 unit: this, until: this._deferImpactFxUntil,
-                onImpact: attackerUnit?.type === 'laserTower' ? null : _emitDeathFx
+                onImpact: _emitDeathFx
             });
         } else {
             _emitDeathFx();

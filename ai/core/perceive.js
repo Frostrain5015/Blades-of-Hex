@@ -8,7 +8,6 @@ import { campToKey } from '../../rules/camps.js';
 import { getStandardMap } from '../../rules/standardMaps.js';
 import { isWaterTile } from '../../rules/surfaces.js';
 import { resolveRiverMovement } from '../../rules/movement.js';
-import { laserTowerShotDamage } from '../../rules/laserTower.js';
 import { AI_DIFFICULTY_PROFILES, hasFullAiIntelligence } from '../difficulty.js';
 import { getUnitBaseType, UNIT_CONFIG } from '../../rules/units.js';
 import { isUnitVisibleToCamp } from '../../rules/visibility.js';
@@ -176,12 +175,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
             const speed = enemy._isImmobile || baseSpeed === 0 ? 0 : caps.threatForecast ? baseSpeed : 2;
             const reach = range + Math.min(speed, 4);
             if (helpers.hexDistance(enemy.tile, tile) > reach) continue;
-            const clusteredTargets = enemy.type === 'laserTower'
-                ? myUnits.filter(ally => ally.tile && helpers.hexDistance(enemy.tile, ally.tile) <= range).length
-                : 0;
-            const dmg = enemy.type === 'laserTower'
-                ? laserTowerShotDamage(Math.max(1, clusteredTargets))
-                : combat.estimateDamage(enemy, unit || { type: 'infantry', config: { defense: 0 } }, tile);
+            const dmg = combat.estimateDamage(enemy, unit || { type: 'infantry', config: { defense: 0 } }, tile);
             if (dmg > 0) damages.push(dmg);
         }
         damages.sort((a, b) => b - a);

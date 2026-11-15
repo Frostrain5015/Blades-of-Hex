@@ -12,7 +12,7 @@ import { COUNTER_RELATION, getAttackRangeCap, getMinimumAttackRange, getMachineG
 import { getCrossDomainDamageBonus } from '../rules/naval.js';
 import { getCannonSiegeDamageBonus, getCityDefenseBonus } from '../rules/citySiege.js';
 import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus } from '../rules/kmtStronghold.js';
-import { GUERRILLA_CONCEALMENT_CONFIG } from '../rules/cultures.js';
+import { GUERRILLA_CONCEALMENT_CONFIG, getFireSeaDefenseReduction, getGuerrillaConcealmentReason, getNeverSurrenderAttackBonus, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
 import { isStealthGuerrilla } from '../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense, getUnitCombatRange, TRANSPORT_RULES } from '../rules/movement.js';
@@ -387,15 +387,20 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
             + getKmtLinkDamageBonus(attacker, state)
             // 火炮攻城修正已并入引擎②增伤乘区：对要塞单位（城市驻军/碉堡/岸防炮/工事格）+50%
             + (isStrongpointTarget({ ...defender, tile: tileObj }) ? getCannonSiegeDamageBonus(attacker) : 0);
-        const def = transportDefense != null ? 1 - transportDefense : 1
+        const baseDefense = transportDefense != null ? 1 - transportDefense : 1
             - positionDefense
             - cityDefense(defenderBase, tileObj)
             - (defender.config?.defense || 0)
             - strongholdDef
-            - weatherDefensePenalty(defenderBase);
+            + (hasNegativeWeatherImmunity(state, defender.camp) ? 0 : weatherDefensePenalty(defenderBase));
+        const def = baseDefense - getNeverSurrenderStatBonus(state, defender.camp) + getFireSeaDefenseReduction(defender);
         const magicianDef = (transportDefense == null && defender.commander === 'magician' && coeff > 1) ? 0.15 : 0;
-        const attack = Number(attacker.getEffectiveAttack?.() ?? (transportedAttacker ? TRANSPORT_RULES.baseAttack : attacker.config?.attack) ?? 0);
-        const ambushMultiplier = !isCounter && isStealthGuerrilla(attacker) ? 1 + GUERRILLA_CONCEALMENT_CONFIG.ambushDamagePct : 1;
+        const baseAttack = transportedAttacker ? TRANSPORT_RULES.baseAttack : (attacker.config?.attack || 0);
+        const attack = attacker.getEffectiveAttack?.() ?? baseAttack * (1 + getNeverSurrenderAttackBonus(state, attacker.camp));
+        const canAmbush = !isCounter && (isStealthGuerrilla(attacker) || (attacker.type === 'cpc_guerrilla'
+            && isCampCulture(state, attacker.camp, 'cpc') && attacker.camp === state?.currentCamp
+            && !getGuerrillaConcealmentReason(attacker, state)));
+        const ambushMultiplier = canAmbush ? 1 + GUERRILLA_CONCEALMENT_CONFIG.ambushDamagePct : 1;
         return (attack * Math.max(0, offense) + bonusDamage) * Math.max(0.3, def - magicianDef) * ambushMultiplier;
     }
 
@@ -407,7 +412,7 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
         if (!attacker?.tile || !defender?.tile) return 0;
         const attackerBase = getUnitBaseType(attacker);
         const defenderBase = getUnitBaseType(defender);
-        if (defenderBase === 'carrier') return 0;
+        if (defenderBase === 'carrier' || defender.type === 'fr_heavy_cannon' || defender.morale === 0) return 0;
         if (defender.counterAttackCount >= 1 || defender._transportTransitionedThisTurn || defender._campaignNoCounter) return 0;
         if (attackerBase === 'submarine' && defenderBase !== 'submarine') return 0;
         if (attacker._isDrone && !defender._isDrone) return 0;

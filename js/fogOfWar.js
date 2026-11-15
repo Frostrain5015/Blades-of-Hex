@@ -9,6 +9,8 @@ import { getFactionKeys } from '../rules/diplomacy.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { getAttackRangeCap, getUnitBaseType } from '../rules/units.js';
 import { hasNegativeWeatherImmunity } from '../rules/cultures.js';
+import { getUndergroundIntelligenceStatus, syncUndergroundIntelligence } from '../rules/undergroundIntelligence.js';
+import { HEX_NEIGHBORS } from '../rules/hex.js';
 import { getEffectiveWeather } from './commanderInterface.js';
 import { measure, perfEnabled } from './perf.js';
 
@@ -53,6 +55,13 @@ export function computeVisionForCamp(camp, tiles, tileMap, gameState) {
     const gs = gameState;
 
     for (const tile of tiles) {
+        if (getUndergroundIntelligenceStatus(gs, tile, camp)) {
+            visible.add(`${tile.q},${tile.r}`);
+            for (const [dq, dr] of HEX_NEIGHBORS) {
+                const coord = `${tile.q + dq},${tile.r + dr}`;
+                if (tileMap.has(coord)) visible.add(coord);
+            }
+        }
         if (tile.unit && tile.unit.camp === camp) {
             const range = _getEffectiveVision(tile.unit, gs);
             for (const t of tiles) {
@@ -118,6 +127,7 @@ function _updateFogOfWar(gameState, camp) {
     gameState._prevVisibleTiles[key] = new Set(prevVisible);
     gameState._fogTransitionStart = performance.now();
 
+    syncUndergroundIntelligence(gameState, camp);
     const newVisible = computeVisionForCamp(camp, gameState.tiles, gameState.tileMap, gameState);
 
     // 侦察揭示格也纳入 visibleTiles，参与过渡动画追踪，避免每步闪烁

@@ -32,11 +32,11 @@ import {
     spawnGoldenBeam, spawnPaladinOrbitBeams, spawnPaladinBeamProjectiles, clearPaladinOrbitBeams,
     spawnHealingChain,
     spawnSlashMarks,
-    spawnAirstrikeEffect, spawnAirliftEffect, playAirCommandImpact,
+    spawnAirstrikeEffect, spawnAirliftEffect, playAirCommandImpact, playStukaStrafe,
     spawnHealParticles,
     spawnReinforceEffect,
-    clearTransientEffects, LASER_BEAM_IMPACT_MS,
-    HEAVY_CANNON_IMPACT_MS, KATYUSHA_IMPACT_MS, stageKatyushaHealth, spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash, spawnDodgeShimmer
+    clearTransientEffects,
+    HEAVY_CANNON_IMPACT_MS, KATYUSHA_IMPACT_MS, KATYUSHA_IMPACT_TIMES, stageKatyushaHealth, spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash, spawnDodgeShimmer
 } from './effects.js';
 import { isTileVisible } from './fogOfWar.js';
 import { HexTile } from './HexTile.js';
@@ -3320,8 +3320,6 @@ async function handleRemoteAction(msg) {
     // 本地投降尚未被服务端收录时（_localSurrenderPendingKey），即使本地已因投降提前进入
     // gameOver 也要继续接收快照，否则无法完成投降重放收敛。
     let remoteStateApplied = false;
-    const laserVolleys = msg.actionType === 'endTurn' && Array.isArray(msg.effects?.laserTowerVolleys)
-        ? msg.effects.laserTowerVolleys : [];
     const heavyVolleys = msg.actionType === 'endTurn' && Array.isArray(msg.effects?.heavyCannonVolleys)
         ? msg.effects.heavyCannonVolleys : [];
     if (!gameState.aiActing && (!gameState.gameOver || gameState._localSurrenderPendingKey)) {
@@ -3347,13 +3345,6 @@ async function handleRemoteAction(msg) {
                     unit: dying,
                     until: performance.now() + CELESTINE_ORACLE_PULSE_TIMING.impactMs
                 });
-            }
-        }
-        const laserTargets = new Map();
-        for (const volley of laserVolleys) {
-            for (const hit of volley.hits || []) {
-                const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
-                if (unit?.id === hit.unitId) laserTargets.set(hit.unitId, { unit, hit });
             }
         }
         const heavyTargets = [];
@@ -3382,10 +3373,12 @@ async function handleRemoteAction(msg) {
         const delayedTargets = [];
         const healingTarget = msg.actionType === 'tacticalCard' && attackEffects?.cardId === 'heal' && attackEffects.healAmt > 0
             ? gameState.tileMap.get(`${attackEffects.q},${attackEffects.r}`)?.unit : null;
-        if (attackImpactDelay && !attackEffects.dodged && !attackEffects.isCitySiege) {
+        if (attackImpactDelay && !attackEffects.dodged) {
             const hits = msg.actionType === 'banzaiCharge'
                 ? [{ q: attackEffects.targetQ, r: attackEffects.targetR, unitId: attackEffects.targetUnitId, killed: attackEffects.killed }]
-                : [{ q: attackEffects.q, r: attackEffects.r, killed: attackEffects.killed }, ...(attackEffects.specializationSplashResults || [])];
+                : [...(attackEffects.isCitySiege ? [] : [{ q: attackEffects.q, r: attackEffects.r, killed: attackEffects.killed,
+                    hpShares: attackEffects.katyushaHpShares }]),
+                    ...(attackEffects.specializationSplashResults || [])];
             for (const hit of hits) {
                 const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
                 if (unit && (hit.unitId == null || hit.unitId === unit.id)) delayedTargets.push({ unit, hit, delayMs: attackImpactDelay });
@@ -3396,11 +3389,16 @@ async function handleRemoteAction(msg) {
             && attackEffects.counterDmg > 0) {
             const counterTarget = gameState.tileMap.get(`${attackEffects.fromQ},${attackEffects.fromR}`)?.unit;
             if (counterTarget?.id === attackEffects.attackerUnitId) {
-                delayedTargets.push({ unit: counterTarget, hit: { q: attackEffects.fromQ, r: attackEffects.fromR, killed: true },
+                delayedTargets.push({ unit: counterTarget, hit: { q: attackEffects.fromQ, r: attackEffects.fromR, killed: true,
+                    hpShares: attackEffects.katyushaCounterHpShares },
                     katyusha: isKatyushaCounter,
                     delayMs: isKatyushaCounter ? KATYUSHA_IMPACT_MS
                         : attackEffects.counterType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS : DRONE_PROJECTILE_IMPACT_MS });
             }
+        }
+        for (const hit of attackEffects?.katyushaCounterSplash || []) {
+            const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+            if (unit?.id === hit.unitId) delayedTargets.push({ unit, hit, katyusha: true, delayMs: KATYUSHA_IMPACT_MS });
         }
         applyRemoteState(msg.state, HexTile, Unit);
         const volleyStartedAt = performance.now();
@@ -3449,15 +3447,16 @@ async function handleRemoteAction(msg) {
             }
         }
         for (const { unit, hit, delayMs, katyusha } of delayedTargets) {
-            const impactAt = volleyStartedAt + delayMs;
+            const lastDamagingShot = hit.killed ? hit.hpShares?.findLastIndex(damage => damage > 0) : undefined;
+            const impactAt = volleyStartedAt + (KATYUSHA_IMPACT_TIMES[lastDamagingShot] ?? delayMs);
             const current = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
             if (current?.id === unit.id) {
                 current.displayHp = unit.displayHp;
                 current._displayShield = unit._displayShield;
                 current._hpBarDelayUntil = impactAt;
-                if (isKatyusha || katyusha) stageKatyushaHealth(current, unit.hp, current.hp, volleyStartedAt);
+                if (isKatyusha || katyusha) stageKatyushaHealth(current, unit.hp, current.hp, volleyStartedAt, hit.hpShares);
             } else if (hit.killed) {
-                if (isKatyusha || katyusha) stageKatyushaHealth(unit, unit.hp, 0, volleyStartedAt);
+                if (isKatyusha || katyusha) stageKatyushaHealth(unit, unit.hp, 0, volleyStartedAt, hit.hpShares);
                 (gameState.unitDeathGhosts ||= []).push({ unit, until: impactAt });
             }
         }
@@ -3473,25 +3472,10 @@ async function handleRemoteAction(msg) {
                     (gameState.unitDeathGhosts ||= []).push({ unit, until: impactAt });
                 }
             }
-            for (const { q, r } of msg.effects.fireSeaCoords || []) {
+            for (const { q, r, unitId } of msg.effects.fireSeaCoords || []) {
                 const tile = gameState.tileMap.get(`${q},${r}`);
-                if (tile?.fireSea) tile._fireSeaVisualDelayUntil = impactAt;
+                if (tile?.unit?.id === unitId && tile.unit.fireSea) tile.unit._fireSeaVisualDelayUntil = impactAt;
             }
-        }
-        if (laserVolleys.length > 0) {
-            const impactAt = volleyStartedAt + LASER_BEAM_IMPACT_MS;
-            for (const { unit, hit } of laserTargets.values()) {
-                const current = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
-                if (current?.id === unit.id) {
-                    current.displayHp = unit.displayHp;
-                    current._displayShield = unit._displayShield;
-                    current._hpBarDelayUntil = impactAt;
-                } else if (hit.killed) {
-                    unit._hpBarDelayUntil = impactAt;
-                    (gameState.unitDeathGhosts ||= []).push({ unit, until: impactAt });
-                }
-            }
-            emit('fx:laserTowerVolley', { volleys: laserVolleys, startedAt: volleyStartedAt });
         }
         if (heavyVolleys.length > 0) {
             const heavyImpactAt = volleyStartedAt + HEAVY_CANNON_IMPACT_MS;
@@ -3515,7 +3499,7 @@ async function handleRemoteAction(msg) {
                 }
             }
         }
-        if (laserVolleys.length > 0 || heavyVolleys.length > 0) {
+        if (heavyVolleys.length > 0) {
             replayFloatTexts(msg.effects.floatTexts, { startedAt: volleyStartedAt });
         }
         remoteStateApplied = true;
@@ -3558,8 +3542,8 @@ async function handleRemoteAction(msg) {
     }
 
     const e = msg.effects;
-    // 激光与法式重炮回合初齐射的浮字已随快照后的弹道同时入队。
-    if (e?.floatTexts && laserVolleys.length === 0 && heavyVolleys.length === 0) {
+    // 法式重炮回合初齐射的浮字已随快照后的弹道同时入队。
+    if (e?.floatTexts && heavyVolleys.length === 0) {
         replayFloatTexts(e.floatTexts, { startedAt: katyushaStartedAt });
     }
     switch (msg.actionType) {
@@ -3989,7 +3973,7 @@ async function handleRemoteAction(msg) {
                     };
                     if (e.attackerType === 'fr_heavy_cannon') spawnHeavyCannonShell(_sFromX, _sFromY, e.x, e.y, _sCrit);
                     else if (e.attackerType === 'ru_katyusha') {
-                        spawnKatyushaBarrage(_sFromX, _sFromY, e.x, e.y, _sCrit, impact, { startedAt: katyushaStartedAt });
+                        spawnKatyushaBarrage(_sFromX, _sFromY, e.x, e.y, _sCrit, impact, { startedAt: katyushaStartedAt, splash: e.specializationSplashResults });
                     }
                     else spawnProjectile(_sFromX, _sFromY, e.x, e.y, _sCrit, impact);
                 } else if (_sPres === ATTACK_PRESENTATION.FIRE_TRACER) {
@@ -4197,7 +4181,7 @@ async function handleRemoteAction(msg) {
                         } else if (e.counterType === 'fr_heavy_cannon') {
                             spawnHeavyCannonShell(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit, null, { areaImpact: false });
                         } else if (e.counterType === 'ru_katyusha') {
-                            spawnKatyushaBarrage(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit, null, { startedAt: katyushaStartedAt });
+                            spawnKatyushaBarrage(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit, null, { startedAt: katyushaStartedAt, splash: e.katyushaCounterSplash });
                         } else {
                             playSound('cannon');
                             triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
@@ -4260,7 +4244,7 @@ async function handleRemoteAction(msg) {
                 playSound('airstrike');
             } else if (e.kind === 'stukaDiveBomb') {
                 const launcherCamp = gameState.tileMap.get(`${e.launcherQ},${e.launcherR}`)?.camp;
-                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'stukaDiveBomb', target.q, target.r, null, null, launcherCamp);
+                playStukaStrafe(target, e.results || [], launcherCamp);
                 playSound('airstrike');
             } else if (e.kind === 'recon') {
                 spawnCommanderSkillEffect(target.x, target.y, '🔭', '侦察机');
@@ -4270,6 +4254,11 @@ async function handleRemoteAction(msg) {
                 playAirCommandImpact(e.kind, e.results || [], gameState.tileMap, impactDelay, { showDodges: true });
                 for (const event of e.eagleSynergyEvents || []) emit('fx:eagleSynergy', event);
             }
+            break;
+        }
+        case 'heavyCannonStance': {
+            const tile = e && gameState.tileMap.get(`${e.q},${e.r}`);
+            if (tile) spawnCommanderSkillEffect(tile.x, tile.y, '⚙️', e.label);
             break;
         }
         case 'guerrillaConcealment':

@@ -8,6 +8,7 @@ import { getKmtLinkDefenseBonus } from './kmtStronghold.js';
 import { areCommanderMechanicsSuppressed } from './movement.js';
 import { FORTIFICATION_CONFIG } from './terrain.js';
 import { getSpecialization, getSpecializationAbilityValue } from './units.js';
+import { getRoyalBattleshipAirReduction, ROYAL_ESCORT_RADIUS } from './naval.js';
 
 export const FLAK_SELF_REDUCTION = FORTIFICATION_CONFIG.flak.antiAirReduction;
 export const ANTI_AIR_TOTAL_REDUCTION_CAP = 0.85;
@@ -91,21 +92,30 @@ export function resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, optio
     }
 
     const tiles = tileMap && typeof tileMap.values === 'function' ? tileMap.values() : [];
+    let royalEscort = null;
     for (const tile of tiles) {
         const unit = tile?.unit;
-        const profile = getAntiAirUnitProfile(unit);
+        const royalReduction = getRoyalBattleshipAirReduction(unit, options.state);
+        const profile = royalReduction > 0
+            ? { radius: ROYAL_ESCORT_RADIUS, reduction: royalReduction, provider: 'royalEscort' }
+            : getAntiAirUnitProfile(unit);
         if (!profile || profile.reduction <= 0) continue;
         const unitCampKey = campToKey(unit.camp);
         if (unitCampKey === attackingCampKey) continue;
         if (defendingCampKey !== 'neutral' && !isFriendly(options.state, unitCampKey, defendingCampKey)) continue;
         if (axialDistance(tile, targetTile) > profile.radius) continue;
-        add({
+        const source = {
             kind: 'unit', tileKey: tileKey(tile), q: tile.q, r: tile.r,
             campKey: unitCampKey, unitId: unit.id ?? null, unitType: unit.type,
             specializationKey: unit.specializationKey || null, provider: profile.provider,
             radius: profile.radius, reduction: profile.reduction
-        });
+        };
+        if (royalReduction > 0) {
+            if (isFriendly(options.state, unitCampKey, defendingCampKey)
+                && (!royalEscort || royalReduction > royalEscort.reduction)) royalEscort = source;
+        } else add(source);
     }
+    if (royalEscort) add(royalEscort);
 
     const normalized = Math.max(0, reduction);
     return includeSources ? { reduction: normalized, sources } : { reduction: normalized };

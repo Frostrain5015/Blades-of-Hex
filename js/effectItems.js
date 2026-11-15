@@ -12,7 +12,8 @@ import { isKmtLinkMember, getKmtLinkedUnits, getKmtLinkDamageBonus, getKmtShared
 import { percent } from '../rules/format.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { getRoundIndex } from './config.js';
-import { FREE_RESISTANCE_EFFECT, NEVER_SURRENDER_CONFIG, getNeverSurrenderStacks, getNeverSurrenderStatBonus } from '../rules/cultures.js';
+import { FREE_RESISTANCE_EFFECT, GUERRILLA_CONCEALMENT_CONFIG, NEVER_SURRENDER_CONFIG, FIRE_SEA_CONFIG, getFireSeaState, getNeverSurrenderStacks, getNeverSurrenderStatBonus, getNeverSurrenderAttackBonus } from '../rules/cultures.js';
+import { getRoyalEscortBonus } from '../rules/naval.js';
 import { hasHostileUnitNear, isStealthGuerrilla } from '../rules/visibility.js';
 import { getCommander, getCommanderAuraDefenseBonus, getStallerSnareLayers } from './commanderInterface.js';
 
@@ -128,10 +129,10 @@ export function buildUnitEffectItems(unit, gameState) {
             key: 'engineer:constructing',
             icon: '🚧',
             label: '施工中',
-            desc: '碉堡还需' + remain + '回合建成',
+            desc: '正在施工建设碉堡，完工后在目标地块建成碉堡。',
             color: '#e8c477',
             count: '⏳' + remain,
-            status: '持续' + remain + '回合',
+            status: '剩余' + remain + '回合',
             kind: 'effect'
         });
     }
@@ -141,10 +142,10 @@ export function buildUnitEffectItems(unit, gameState) {
             key: 'engineer:scaffold',
             icon: '🏗️',
             label: '脚手架',
-            desc: '还需' + remain + '回合建成碉堡，可被攻击摧毁',
+            desc: '正在施工建设碉堡，完工前可被敌军攻击摧毁。',
             color: '#e8c477',
             count: '⏳' + remain,
-            status: '持续' + remain + '回合',
+            status: '剩余' + remain + '回合',
             kind: 'effect'
         });
     }
@@ -175,17 +176,29 @@ export function buildUnitEffectItems(unit, gameState) {
         });
     }
 
+    const fire = getFireSeaState(unit);
+    if (fire) items.push({
+        key: 'culture:fire-sea', icon: FIRE_SEA_CONFIG.icon, label: FIRE_SEA_CONFIG.name, desc: FIRE_SEA_CONFIG.desc,
+        color: FIRE_SEA_CONFIG.color, status: `当前剩余${fire.roundsRemaining}/2回合`, kind: 'effect'
+    });
+    const escort = getRoyalEscortBonus(unit, gameState);
+    if (escort > 0 && unit.type !== 'gb_battleship') items.push({
+        key: 'culture:royal-escort', icon: '👑', label: '天佑女王',
+        desc: `受皇家战列舰护航光环庇护：受到的空军伤害降低${Math.round(escort * 100)}%，且受击时有12%概率闪避全部伤害（同效果不叠加）。`,
+        status: '当前生效', color: '#ffd866', kind: 'effect'
+    });
     const nsStacks = getNeverSurrenderStacks(gameState, unit.camp);
     if (nsStacks > 0) {
-        const bonusPct = Math.round(getNeverSurrenderStatBonus(gameState, unit.camp) * 1000) / 10;
+        const atkPct = Math.round(getNeverSurrenderAttackBonus(gameState, unit.camp) * 1000) / 10;
+        const defPct = Math.round(getNeverSurrenderStatBonus(gameState, unit.camp) * 1000) / 10;
         items.push({
             key: 'culture:never-surrender',
             icon: NEVER_SURRENDER_CONFIG.icon,
             label: NEVER_SURRENDER_CONFIG.name,
-            desc: `战局累计强化：全军攻击力与防御力各提高${bonusPct}%（每2回合+2.5%，上限6层）。`,
+            desc: NEVER_SURRENDER_CONFIG.desc,
             color: '#6ea8fe',
             count: `${nsStacks}/${NEVER_SURRENDER_CONFIG.maxStacks}`,
-            status: `+${bonusPct}% 攻防`,
+            status: `当前 ${nsStacks}/${NEVER_SURRENDER_CONFIG.maxStacks}层 攻击+${atkPct}% 防御+${defPct}%`,
             kind: 'effect'
         });
     }
@@ -194,11 +207,9 @@ export function buildUnitEffectItems(unit, gameState) {
         const exposed = hasHostileUnitNear(unit, gameState);
         items.push({
             key: 'culture:stealth',
-            icon: '🌿',
-            label: exposed ? '行踪暴露' : '敌后隐匿',
-            desc: exposed
-                ? '1格内存在敌军，当前位置已被敌方侦测，但主动攻击仍可触发【奇袭】（伤害提高65%）。'
-                : '当前对敌军隐蔽行踪；首次主动攻击将触发【奇袭】，造成的伤害提高65%并显形。',
+            icon: GUERRILLA_CONCEALMENT_CONFIG.icon,
+            label: GUERRILLA_CONCEALMENT_CONFIG.name,
+            desc: `对敌军隐蔽行踪；首次主动攻击将触发【奇袭】，造成的伤害提高${Math.round(GUERRILLA_CONCEALMENT_CONFIG.ambushDamagePct * 100)}%并显形（1格内存在敌军时会被敌方侦测，但主动攻击仍可触发【奇袭】）。`,
             color: exposed ? '#ff9b72' : '#8fd18b',
             status: exposed ? '已被侦测 奇袭就绪' : '隐匿中 奇袭就绪',
             kind: 'effect'
@@ -225,8 +236,8 @@ export function buildUnitEffectItems(unit, gameState) {
         items.push({
             key: 'culture:anti-heal',
             icon: '🩸',
-            label: '武士信条',
-            desc: '无法接受常规治疗，仅可通过城市或村庄补员恢复生命值。',
+            label: FRONTEND_TEXT.unitPassives.jp_samurai.name,
+            desc: FRONTEND_TEXT.unitPassives.jp_samurai.desc,
             color: '#ef5350',
             status: '常驻生效',
             kind: 'effect'
@@ -238,7 +249,7 @@ export function buildUnitEffectItems(unit, gameState) {
             key: 'culture:heavy-cannon-fired',
             icon: '💣',
             label: '重炮已齐射',
-            desc: '本回合开始时已自动执行远程炮击；本回合仍可机动，但不可再次手动攻击。',
+            desc: '本回合开始时已自动执行远程炮击。',
             color: '#9ec5ff',
             status: '本回合已触发',
             kind: 'effect'
@@ -252,10 +263,10 @@ export function buildUnitEffectItems(unit, gameState) {
                 key: "campaign:" + eff.name + ":" + eff.id,
                 icon: eff.emoji || "✨",
                 label: eff.name,
-                desc: (eff.desc || "战役效果") + (eff.duration ? " 剩余" + eff.duration + "回合" : ""),
+                desc: eff.desc || "战役效果",
                 color: "#ffd866",
                 count: eff.duration ? "⏳" + eff.duration : "",
-                status: eff.duration ? "持续" + eff.duration + "回合" : "持续生效",
+                status: eff.duration ? "剩余" + eff.duration + "回合" : "持续生效",
                 kind: 'effect'
             });
         }

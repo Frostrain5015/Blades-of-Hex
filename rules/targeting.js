@@ -19,7 +19,6 @@ import { isBuildingUnit } from './units.js';
 import {
     canBuildBunkerAt,
     canBuildFieldFortificationAt,
-    canBuildLaserTowerAt,
     canBuildShoreBatteryAt,
     hasSameTypeBuildingWithin
 } from './construction.js';
@@ -150,7 +149,7 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
         const launcher = sources.launcherTile;
         if (!launcher || hexDistance(launcher, tile) > getAirCommandRange(launcher)) return false;
         if (cardId === 'air_command_strafe' || cardId === 'air_command_stukaDiveBomb') {
-            return canTargetWithSingleAirCommand(tile, myCamp, gameState);
+            return canTargetWithSingleAirCommand(tile, myCamp, gameState, cardId === 'air_command_stukaDiveBomb');
         }
         if (cardId === 'air_command_airdrop') {
             return canAirCommandAirdropAt(tile);
@@ -199,9 +198,6 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
     if (cardId === 'build_bunker') {
         return canBuildBunkerAt(myCamp, tile, gameState);
     }
-    if (cardId === 'build_laser_tower') {
-        return canBuildLaserTowerAt(myCamp, tile, gameState);
-    }
     if (cardId === 'build_shore_battery') {
         return canBuildShoreBatteryAt(tile, myCamp, gameState);
     }
@@ -213,6 +209,7 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
             gameState
         );
     }
+    if (cardId?.startsWith('build_')) return false;
     if (cardId === 'field_repair') {
         const source = sources.sourceUnit;
         return !!source?.tile && source.commander === 'engineer' && !!unit

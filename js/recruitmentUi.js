@@ -1,5 +1,6 @@
 import { UNIT_CONFIG, canUnitBeRecruitedAtSite, countLivingUnitsOfType, getUniqueRecruitmentLimit } from '../rules/units.js';
-import { getActiveCultureId, getCultureUniqueUnitType } from '../rules/cultures.js';
+import { getActiveFactionCulture } from '../rules/cultures.js';
+import { campToKey } from '../rules/camps.js';
 import { canUnitOccupyTile } from '../rules/movement.js';
 import { isWaterTile } from '../rules/surfaces.js';
 import { isPortOperationalFor, isRegularNavalUnit } from '../rules/naval.js';
@@ -23,14 +24,19 @@ export function getRecruitmentSiteKind(tile, state) {
 }
 
 export function getUniqueRecruitmentOption(state, currentCamp = state?.currentCamp) {
-    const cultureId = getActiveCultureId(state, currentCamp);
-    const uniqueType = getCultureUniqueUnitType(cultureId);
+    const culture = getActiveFactionCulture(state, currentCamp);
+    const uniqueType = culture?.uniqueUnitType;
     const cfg = uniqueType ? UNIT_CONFIG[uniqueType] : null;
     if (!cfg) return null;
+    const faction = state?.factions?.[campToKey(currentCamp)] || currentCamp;
     return Object.freeze({
         type: uniqueType,
         buttonId: 'recruitUnique',
-        glyph: '⭐',
+        flagBadge: {
+            url: faction?.flagUrl || culture.flagPreset,
+            crop: culture.badgeCrop,
+            color: faction?.colorId || faction?.color || culture.colorId
+        },
         label: cfg.name,
         shortcut: '7',
         isUnique: true,

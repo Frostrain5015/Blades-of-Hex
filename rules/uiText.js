@@ -5,8 +5,7 @@ import { deepFreeze } from './freeze.js';
 import { percent } from './format.js';
 import { EMOJI } from './symbols.js';
 import { COMMANDER_CONFIG } from './commanders.js';
-import { COMBAT_BALANCE } from './constants.js';
-import { GUERRILLA_PASSIVE_DESCRIPTION, SAMURAI_PASSIVE_DESCRIPTION } from './cultures.js';
+import { CULTURE_CONFIG, GUERRILLA_PASSIVE_DESCRIPTION, SAMURAI_PASSIVE_DESCRIPTION } from './cultures.js';
 
 export const FRONTEND_TEXT = deepFreeze({
     // v2 起常规兵种的 0 阶不再有兵种被动；专精被动文案由 rules/units.js 的
@@ -15,12 +14,11 @@ export const FRONTEND_TEXT = deepFreeze({
         shoreBattery: { name: '制海', desc: '对舰船伤害提高30%，对陆军伤害降低60%，可侦测2格内的潜艇' },
         mgNest: { name: '机枪', desc: '对步兵造成的伤害提高30%' },
         carrier: { name: '舰载机', desc: '目标生命每损失5%，攻击力提高1点（至多15点）' },
-        laserTower: { name: '集束激光', desc: `回合开始时自动攻击3格内所有敌方单位，单发伤害${COMBAT_BALANCE.laserTower.baseDamage}；每多命中1个目标伤害+${COMBAT_BALANCE.laserTower.perExtraTarget}（至多${COMBAT_BALANCE.laserTower.maxDamage}）` },
-        us_marine: { name: '两栖登陆', desc: '入水保持原攻防属性，从水上攻击陆地单位、或在陆地与水上攻击舰船均免除陆海交战的50%减伤；登陆后仍可行动。可在己方已启用的港口补员。' },
-        gb_battleship: { name: '天佑女王', desc: '常驻2格反潜侦测能力；受到敌方攻击时有20%概率闪避全部伤害。' },
-        fr_heavy_cannon: { name: '远程重炮', desc: '射程2–5格（雾天2–4格），攻击附带35%溅射伤害，且攻击海军不受陆军对海减伤影响。回合开始时自动炮击射程内随机敌军，触发后本回合仍可移动，但无法再次攻击。' },
-        ru_katyusha: { name: '火力覆盖', desc: '每次攻击分三轮发射火箭，平分本次伤害。攻击附带35%溅射伤害。' },
-        kmt_training_brigade: { name: '同心同德', desc: '场上存在至少2支己方陆上教导旅时彼此休戚与共，共享生命与治疗，所获城防、工事及地形防御加成提高50%，并使自身与相邻友军造成的伤害提高15%（多支教导旅的伤害加成不叠加）。' },
+        us_marine: { name: '两栖登陆', desc: CULTURE_CONFIG.us.tier1.summary },
+        gb_battleship: { name: '天佑女王', desc: CULTURE_CONFIG.gb.tier1.summary },
+        fr_heavy_cannon: { name: '远程重炮', desc: CULTURE_CONFIG.fr.tier1.summary },
+        ru_katyusha: { name: '火力覆盖', desc: CULTURE_CONFIG.ru.tier1.summary },
+        kmt_training_brigade: { name: '同心同德', desc: CULTURE_CONFIG.kmt.tier1.summary },
         cpc_guerrilla: { name: '敌后游击', desc: GUERRILLA_PASSIVE_DESCRIPTION },
         jp_samurai: { name: '武士信条', desc: SAMURAI_PASSIVE_DESCRIPTION }
     },
@@ -35,7 +33,7 @@ export const FRONTEND_TEXT = deepFreeze({
     },
     icons: {
         unitPassive: {
-            infantry: '⚔️', cavalry: '🐎', archer: '🎯', shoreBattery: '🏯', destroyer: '🛡', warship: '💥', submarine: '🌊', carrier: '🛫', drone: EMOJI.commander.drone, laserTower: '🗼',
+            infantry: '⚔️', cavalry: '🐎', archer: '🎯', shoreBattery: '🏯', destroyer: '🛡', warship: '💥', submarine: '🌊', carrier: '🛫', drone: EMOJI.commander.drone,
             us_marine: '🦅', gb_battleship: '👑', fr_heavy_cannon: '💣', ru_katyusha: '🚀', kmt_training_brigade: '🛡️', cpc_guerrilla: '🚩', jp_samurai: '⛩️'
         },
         commander: {

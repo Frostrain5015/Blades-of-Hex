@@ -23,7 +23,8 @@ const [
     synergyModule,
     turnsModule,
     surfacesModule,
-    constantsModule
+    constantsModule,
+    effectItemsModule
 ] = await Promise.all([
     import('../rules/cultures.js'),
     import('../rules/visibility.js'),
@@ -41,8 +42,11 @@ const [
     import('../rules/factionSynergies.js'),
     import('../rules/turns.js'),
     import('../rules/surfaces.js'),
-    import('../rules/constants.js')
+    import('../rules/constants.js'),
+    import('../js/effectItems.js')
 ]);
+
+const { buildUnitEffectItems } = effectItemsModule;
 
 const {
     FACTION_RULE_MODES,
@@ -59,20 +63,20 @@ const {
     getCulturalBadgeCropForUnit,
     getNeverSurrenderStacks,
     getNeverSurrenderStatBonus,
+    getNeverSurrenderAttackBonus,
     getArtilleryCostDiscount,
     hasNegativeWeatherImmunity,
     getCulturalCityMaxHpBonusPct,
     getCulturalCityMaxHp,
     getCulturalReinforceCostScale,
-    getCulturalPortRepairCostScale,
+    getHistoricalCost,
     getCulturalAirfieldCost,
     getCulturalWaterMovementBonus,
     getCulturalTerrainStepDelta,
     getCulturalXpMultiplier,
     getFireSeaState,
-    getFireSeaDamagePct,
-    applyFireSeaToTile,
-    expireFireSeaForStartingCamp
+    getFireSeaDefenseReduction,
+    applyFireSeaToUnit
 } = culturesModule;
 
 const {
@@ -98,6 +102,7 @@ const {
     NAVAL_RULES,
     isWaterborneUnit,
     getCrossDomainDamageBonus,
+    getRoyalEscortBonus,
     canCapturePort
 } = navalModule;
 
@@ -268,11 +273,12 @@ test('美国文化：海军陆战队两栖交战、城港双招募、海上行�
     assert.equal(getTransportBaseDefense(marine), null);
     assert.equal(getCrossDomainDamageBonus(marine, enemy), 0);
 
-    // Tier 2: 海上单位移动+1、港口修理费用减半
+    // Tier 2: 海上单位移动+1、港口修理费用减1
     assert.equal(getCulturalWaterMovementBonus(state, p1), 1);
     assert.equal(getCulturalWaterMovementBonus(state, p2), 0);
     assert.equal(marine.getEffectiveSpeed(), UNIT_CONFIG.us_marine.speed + 1);
-    assert.equal(getCulturalPortRepairCostScale(state, p1), 0.5);
+    assert.equal(getHistoricalCost(4, state, p1), 3);
+    assert.equal(getHistoricalCost(1, state, p1), 1);
 
     const warship = spawnUnit('warship', p2, portTile);
     const shoreMarine = spawnUnit('us_marine', p1, cityTile);
@@ -289,7 +295,7 @@ test('美国文化：海军陆战队两栖交战、城港双招募、海上行�
     assert.equal(marine.calculateDamage(enemy).dmg, shoreMarine.calculateDamage(enemy).dmg);
 });
 
-test('英国文化：皇家战列舰2格反潜与20%闪避，Tier2 永不投降每2回合+2.5%最高6层', () => {
+test('英国文化：皇家战列舰2格反潜、海上护航、3阶防空与永不言弃攻防上限', () => {
     const state = setupCultureState('img/flags/svg/gb.svg', 'img/flags/svg/us.svg');
     const gb = state.factions.player1;
     const foe = state.factions.player2;
@@ -310,8 +316,16 @@ test('英国文化：皇家战列舰2格反潜与20%闪避，Tier2 永不投降�
     assert.equal(hasSubmarineDetectorInRange(subNear, gb, state), true);
     assert.equal(isSubmarineTargetableBy(subNear, gb, state), true);
     assert.equal(hasSubmarineDetectorInRange(subFar, gb, state), false);
-    assert.equal(UNIT_CONFIG.gb_battleship.dodgeChance, 0.20);
-
+    const escort = spawnUnit('destroyer', gb, addTile(state, 2, -1, null, { surface: SURFACE_KIND.SHALLOW_WATER }));
+    assert.equal(getRoyalEscortBonus(battleship, state), 0.35);
+    assert.equal(getRoyalEscortBonus(escort, state), 0.35);
+    battleship._rank = 3;
+    assert.equal(getRoyalEscortBonus(escort, state), 0.50);
+    state.rng.next = () => 0.119;
+    assert.equal(battleship.rollDodge(state), true);
+    assert.equal(escort.rollDodge(state), true);
+    state.rng.next = () => 0.12;
+    assert.equal(escort.rollDodge(state), false);
     const dodgeRes = battleship._triggerDodge(state, 0);
     assert.equal(dodgeRes.dodged, true);
     assert.equal(dodgeRes.dmg, 0);
@@ -327,6 +341,7 @@ test('英国文化：皇家战列舰2格反潜与20%闪避，Tier2 永不投降�
     state.turnCounter = stepPerRound * 14;
     assert.equal(getNeverSurrenderStacks(state, gb), NEVER_SURRENDER_CONFIG.maxStacks);
     assert.ok(Math.abs(getNeverSurrenderStatBonus(state, gb) - 0.15) < 1e-9);
+    assert.equal(getNeverSurrenderAttackBonus(state, gb), 0.10);
 });
 
 test('法国巨炮射程5，自由不屈由暴击或阵亡触发并按阵营冷却', () => {
@@ -454,9 +469,9 @@ test('中华民国：教导旅跨地图共享生命、放大驻地防御并给�
     assert.equal(getKmtLinkDamageBonus(friendly, state), 0);
 
     // Tier 2: 城市生命上限 +25%、城市补员 2/3 费用
-    assert.equal(getCulturalCityMaxHpBonusPct(state, kmt), 0.25);
-    assert.equal(getCulturalCityMaxHp(200, state, kmt), 250);
-    assert.equal(getCityMaxHp(0, state, kmt), Math.round(250 * 1.25));
+    assert.equal(getCulturalCityMaxHpBonusPct(state, kmt), 0.30);
+    assert.equal(getCulturalCityMaxHp(200, state, kmt), 260);
+    assert.equal(getCityMaxHp(0, state, kmt), 325);
     assert.equal(getCulturalReinforceCostScale(state, cityTile, kmt), 2 / 3);
     assert.equal(getCulturalReinforceCostScale(state, villageTile, kmt), 1);
 });
@@ -511,7 +526,7 @@ test('中共苏区：游击纵队只在主动隐匿期间隐藏，邻格侦测�
     assert.equal(getCulturalReinforceCostScale(state, farTile, cpc), 1);
 });
 
-test('德国文化：斯图卡专属指令与50%防空穿透，Tier2 7金机场与火海叠层/过期/快照序列化', () => {
+test('德国文化：斯图卡无冷却、机场费用降低30%、火海附着单位并同步快照', () => {
     const state = setupCultureState('img/flags/germany-iron-cross.svg', 'img/flags/svg/us.svg');
     const de = state.factions.player1;
     const us = state.factions.player2;
@@ -523,24 +538,29 @@ test('德国文化：斯图卡专属指令与50%防空穿透，Tier2 7金机场�
 
     assert.equal(getVisibleAirCommandKinds(deCity, state).includes('stukaDiveBomb'), true);
     assert.equal(getVisibleAirCommandKinds(usCity, state).includes('stukaDiveBomb'), false);
-    assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.antiAirBypassPct, 0.50);
+    assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.antiAirBypassPct, undefined);
+    assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.cost, 2);
+    assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.multiplier, 0.45);
+    assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.cooldown, 0);
     assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.cultureId, 'de');
+    assert.equal(CULTURE_CONFIG.de.tier2.summary.includes('机场建造费用降低30%'), true);
+    assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.desc, '俯冲扫射指定单体目标并附加「火海」。');
 
-    // Tier 2: 机场 7 金（建设规则联动）
+    // Tier 2: 机场建造费用降低30%（10 -> 7金，建设规则联动）
     assert.equal(getCulturalAirfieldCost(10, state, de), 7);
+    assert.equal(getCulturalAirfieldCost(20, state, de), 14);
     assert.equal(constructionCost('airfield', null, deCity, state), 7);
-    assert.equal(constructionCost('airfield', null, usCity, state), 10);
+    assert.equal(constructionCost('airfield', null, usCity, state), 9);
 
-    // 火海叠层封顶 2 层、持续 2 回合、仅在施放方回合初递减/过期
     const targetTile = addTile(state, 2, 0, us);
-    applyFireSeaToTile(targetTile, de, state);
-    assert.deepEqual(getFireSeaState(targetTile), { layers: 1, roundsRemaining: 2, casterCampKey: 'player1' });
-    assert.ok(Math.abs(getFireSeaDamagePct(targetTile) - FIRE_SEA_CONFIG.hpLossPctPerLayer) < 1e-9);
-
-    applyFireSeaToTile(targetTile, de, state);
-    applyFireSeaToTile(targetTile, de, state);
-    assert.equal(getFireSeaState(targetTile).layers, FIRE_SEA_CONFIG.maxLayers);
-    assert.ok(Math.abs(getFireSeaDamagePct(targetTile) - 0.20) < 1e-9);
+    const target = spawnUnit('infantry', us, targetTile);
+    applyFireSeaToUnit(target, de, state);
+    target.fireSea.roundsRemaining = 1;
+    applyFireSeaToUnit(target, de, state);
+    assert.deepEqual(getFireSeaState(target), { roundsRemaining: 2 });
+    assert.equal(getFireSeaState(targetTile), null);
+    assert.equal(getFireSeaDefenseReduction(target), 0.35);
+    assert.equal(FIRE_SEA_CONFIG.hpLossPct, 0.05);
 
     // 快照序列化/反序列化完整保留 factionRuleMode 和 tile.fireSea
     const snapshot = serializeMatchState(state);
@@ -552,19 +572,7 @@ test('德国文化：斯图卡专属指令与50%防空穿透，Tier2 7金机场�
         computeDistrictBorders: () => []
     });
     assert.equal(restored.factionRuleMode, FACTION_RULE_MODES.CULTURE);
-    const restoredTarget = restored.tileMap.get('2,0');
-    assert.deepEqual(getFireSeaState(restoredTarget), { layers: 2, roundsRemaining: 2, casterCampKey: 'player1' });
-
-    // 其他阵营回合开始不会消耗德国火海回合数
-    expireFireSeaForStartingCamp(restored, restored.factions.player2);
-    assert.equal(getFireSeaState(restoredTarget).roundsRemaining, 2);
-
-    // 德国连续2次开始回合后火海熄灭并进入 expired 返回列表
-    expireFireSeaForStartingCamp(restored, restored.factions.player1);
-    assert.equal(getFireSeaState(restoredTarget).roundsRemaining, 1);
-    const expired = expireFireSeaForStartingCamp(restored, restored.factions.player1);
-    assert.equal(expired.length, 1);
-    assert.equal(getFireSeaState(restoredTarget), null);
+    assert.deepEqual(getFireSeaState(restored.tileMap.get('2,0').unit), { roundsRemaining: 2 });
 });
 
 test('日本文化：帝国武士常驻禁疗但允许补员与强制回血，万岁冲锋参数及Tier2 经验+20%', () => {
@@ -585,7 +593,7 @@ test('日本文化：帝国武士常驻禁疗但允许补员与强制回血，�
     assert.equal(BANZAI_CHARGE_CONFIG.range, 2);
     assert.equal(BANZAI_CHARGE_CONFIG.cooldown, 1);
     assert.equal(BANZAI_CHARGE_CONFIG.movementCost, 2);
-    assert.equal(BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct, 0.25);
+    assert.equal(BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct, 0.30);
     assert.equal(BANZAI_CHARGE_CONFIG.missingHpDamagePct, 0.30);
     assert.equal(BANZAI_CHARGE_CONFIG.maxBonusDamage, 60);
     assert.equal(BANZAI_CHARGE_CONFIG.killHealMaxHpPct, 0.35);
@@ -594,4 +602,63 @@ test('日本文化：帝国武士常驻禁疗但允许补员与强制回血，�
     assert.equal(getCulturalXpMultiplier(state, jp), 1.20);
     samurai.addXP(10, { silent: true });
     assert.equal(samurai._xp, 12);
+});
+
+test('效果队列遵循「详情图鉴化、状态动态化」原则，不在 desc 中重复可变状态', () => {
+    const state = setupCultureState('img/flags/svg/gb.svg', 'img/flags/chinese-communist-party-old.svg');
+    const gb = state.factions.player1;
+    const cpc = state.factions.player2;
+    const tile1 = addTile(state, 0, 0, gb, { isCity: true });
+    const tile2 = addTile(state, 1, 0, cpc);
+    const tile3 = addTile(state, 3, 0, gb);
+
+    const inf = spawnUnit('infantry', gb, tile1);
+    inf.commander = 'astrologer';
+    inf.activeSkillDur = 2;
+    inf._engineerConstruction = { turnsRemaining: 1 };
+    inf._campaignEffects = [{ id: 'camp1', name: '援军鼓舞', desc: '攻击力提升10%', duration: 2 }];
+
+    const stepPerRound = getFactionCount(state);
+    state.turnCounter = stepPerRound * 2;
+    state.weather = 'wind';
+    let gbItems = buildUnitEffectItems(inf, state);
+    const ns2 = gbItems.find(i => i.key === 'culture:never-surrender');
+    assert.equal(ns2.desc, NEVER_SURRENDER_CONFIG.desc);
+    assert.equal(ns2.status.includes('1/6层'), true);
+    assert.equal(ns2.status.includes('+2.5%'), true);
+
+    state.turnCounter = stepPerRound * 4;
+    state.weather = 'rain';
+    gbItems = buildUnitEffectItems(inf, state);
+    const ns4 = gbItems.find(i => i.key === 'culture:never-surrender');
+    assert.equal(ns4.desc, ns2.desc);
+    assert.equal(ns4.status.includes('2/6层'), true);
+    assert.equal(ns4.status.includes('+5%'), true);
+
+    const eng = gbItems.find(i => i.key === 'engineer:constructing');
+    assert.equal(eng.desc.includes('1回合'), false);
+    assert.equal(eng.status, '剩余1回合');
+
+    const campFx = gbItems.find(i => i.key.startsWith('campaign:'));
+    assert.equal(campFx.desc, '攻击力提升10%');
+    assert.equal(campFx.status, '剩余2回合');
+
+    const starShift = gbItems.find(i => i.label === '星移');
+    assert.equal(starShift.desc.includes('雨天'), false);
+    assert.equal(starShift.status, '锁定雨天 持续2回合');
+
+    const guerrilla = spawnUnit('cpc_guerrilla', cpc, tile2);
+    guerrilla._guerrillaHiddenThroughRound = 99;
+    const exposedItems = buildUnitEffectItems(guerrilla, state);
+    const exposedStealth = exposedItems.find(i => i.key === 'culture:stealth');
+    assert.equal(exposedStealth.label, '敌后隐匿');
+    assert.equal(exposedStealth.status.includes('已被侦测'), true);
+
+    tile1.unit = null;
+    tile3.unit = spawnUnit('infantry', gb, tile3);
+    const hiddenItems = buildUnitEffectItems(guerrilla, state);
+    const hiddenStealth = hiddenItems.find(i => i.key === 'culture:stealth');
+    assert.equal(hiddenStealth.label, '敌后隐匿');
+    assert.equal(hiddenStealth.desc, exposedStealth.desc);
+    assert.equal(hiddenStealth.status.includes('隐匿中'), true);
 });

@@ -6,14 +6,13 @@ import { getRoundIndex } from './turns.js';
 import { isMechanicEnabled } from './mechanics.js';
 import { canBuildShoreBattery, isCoastalLandTile } from './naval.js';
 import { isCityDisabled } from './citySiege.js';
-import { getCulturalAirfieldCost } from './cultures.js';
+import { getCulturalAirfieldCost, getHistoricalCost } from './cultures.js';
 
 export const CONSTRUCTION_CONFIG = Object.freeze({
     trench: Object.freeze({ name: '战壕', cost: 2, engineerCost: 1, range: 0, buildTurns: 0 }),
     flak: Object.freeze({ name: '高射机枪', cost: 2, engineerCost: 1, range: 0, buildTurns: 0 }),
     bunker: Object.freeze({ name: '碉堡', cost: 10, engineerCost: 7, range: 1, buildTurns: 1 }),
     shoreBattery: Object.freeze({ name: '岸防炮', cost: 10, range: 0, buildTurns: 0 }),
-    laserTower: Object.freeze({ name: '激光塔', cost: 15, range: 1, buildTurns: 0 }),
     airfield: Object.freeze({ name: '机场', cost: 10, engineerCost: 7, range: 0, buildTurns: 1 }),
     fieldRepair: Object.freeze({ name: '战地抢修', cost: 3, range: 1, healPct: 0.50, cooldown: 2 })
 });
@@ -42,15 +41,15 @@ export function hasSameTypeBuildingWithin(state, siteTile, unitType, minDist = D
 export function constructionCost(kind, builder = null, cityTile = null, state = null) {
     const config = CONSTRUCTION_CONFIG[kind];
     if (!config) return Infinity;
-    const camp = cityTile?.camp || builder?.camp;
+    const camp = builder?.camp || (kind === 'airfield' ? cityTile?.camp : state?.currentCamp);
     const baseCost = kind === 'airfield'
         ? getCulturalAirfieldCost(config.cost, state, camp)
         : config.cost;
     const engineerPresent = builder?.commander === 'engineer'
         || (kind === 'airfield' && cityTile?.unit?.commander === 'engineer');
-    return engineerPresent && Number.isFinite(config.engineerCost)
-        ? Math.min(baseCost, config.engineerCost)
-        : baseCost;
+    const cost = engineerPresent && Number.isFinite(config.engineerCost)
+        ? Math.min(baseCost, config.engineerCost) : baseCost;
+    return getHistoricalCost(cost, state, camp, ['trench', 'flak', 'bunker', 'shoreBattery'].includes(kind) ? 'fortification' : kind);
 }
 
 export function findConstructionEngineer(state, camp) {
@@ -113,12 +112,6 @@ export function canBuildShoreBatteryAt(targetTile, camp, state) {
         && isCoastalLandTile(targetTile, state)
         && canBuildShoreBattery(state, camp)
         && !hasSameTypeBuildingWithin(state, targetTile, 'shoreBattery');
-}
-
-export function canBuildLaserTowerAt(builderOrCamp, targetTile, state) {
-    const camp = builderOrCamp?.camp || builderOrCamp;
-    return canBuildDefenseBuildingAt(targetTile, camp, state)
-        && !hasSameTypeBuildingWithin(state, targetTile, 'laserTower');
 }
 
 export function getAirfieldCap(state, camp) {

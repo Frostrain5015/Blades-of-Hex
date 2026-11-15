@@ -4,6 +4,7 @@ import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
 import { emit } from './eventBus.js';
 import { isTileVisible } from './fogOfWar.js';
+import { isUnitVisibleToCamp } from '../rules/visibility.js';
 import {
     createMatchState, resetMatchState, createClientUiState, resetClientUiState,
     serializeMatchState, restoreMatchState, configureStandardMatch
@@ -13,10 +14,11 @@ import { CAMP_FLAG_COLORS, getFlagColors } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { RECRUITMENT_OPTIONS, canRecruitTypeAtSelectedCity, getRecruitmentSiteKind, getUniqueRecruitmentOption, shouldShowRecruitmentOption } from './recruitmentUi.js';
-import { getArtilleryCostDiscount } from '../rules/cultures.js';
+import { getHistoricalRecruitCost } from '../rules/cultures.js';
 import { hasFactionSurrendered } from '../rules/matchOutcome.js';
 import { isCityDisabled } from '../rules/citySiege.js';
 import { setFloatTextsStateRef } from './floatTexts.js';
+import { paintFlagBadgeCanvas } from './flagBadgeCanvas.js';
 
 // ===== 计数器滚动动画工具 =====================
 const _counterStore = {};
@@ -87,27 +89,40 @@ export function setInspectionTarget(tile) {
         gameState.inspectionTarget = null;
         return;
     }
-    gameState.inspectionTarget = tile.unit
+    gameState.inspectionTarget = tile.unit && isUnitVisibleToCamp(tile.unit, getViewingCamp(), gameState)
         ? { kind: 'unit', unitId: tile.unit.id }
         : { kind: 'tile', q: tile.q, r: tile.r };
 }
 
-function _resolveInspectionTarget(target) {
+function _resolveInspectionTarget(target, currentTile) {
     if (!target) return null;
     if (target.kind === 'unit') {
-        for (const tile of gameState.tiles) {
-            if (tile.unit?.id === target.unitId && tile.unit.hp > 0) return tile;
-        }
-        return null;
+        if (currentTile?.unit?.id === target.unitId && currentTile.unit.hp > 0
+            && gameState.tileMap.get(`${currentTile.q},${currentTile.r}`) === currentTile) return currentTile;
+        return resolveUnitById(target.unitId)?.tile || null;
     }
     if (target.kind === 'tile') return gameState.tileMap.get(`${target.q},${target.r}`) || null;
+    return null;
+}
+
+export function refreshInspectionSelection() {
+    const target = gameState.inspectionTarget;
+    if (!target) return gameState.selectedTile || gameState.selectedUnit?.tile || null;
+    const tile = _resolveInspectionTarget(target, gameState.selectedTile);
+    const viewer = getViewingCamp();
+    if (tile && isTileVisible(tile, viewer, gameState)
+        && (target.kind === 'tile' || (tile.unit?.hp > 0 && isUnitVisibleToCamp(tile.unit, viewer, gameState)))) {
+        gameState.selectedTile = tile;
+        return tile;
+    }
+    clearselection();
     return null;
 }
 
 function _getLegacyInspectionTarget() {
     const tile = gameState.selectedTile || gameState.selectedUnit?.tile || null;
     if (!tile) return null;
-    return tile.unit
+    return tile.unit && isUnitVisibleToCamp(tile.unit, getViewingCamp(), gameState)
         ? { kind: 'unit', unitId: tile.unit.id }
         : { kind: 'tile', q: tile.q, r: tile.r };
 }
@@ -174,7 +189,7 @@ function _getHumanCamp() {
 
 function _getRecruitCost(type) {
     const myCamp = _getMyCamp();
-    const baseCost = Math.max(1, UNIT_CONFIG[type].cost - getArtilleryCostDiscount(gameState, myCamp, type));
+    const baseCost = getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, myCamp, type);
     // 通过将领接口获取实际招募费用（尚书需驻扎城市才打折）
     return getCommanderRecruitCost(baseCost, gameState, myCamp);
 }
@@ -206,6 +221,8 @@ export function updateRecruitCostDisplay() {
         const typeEl = btn.querySelector('.unit-type');
         const costSpan = btn.querySelector('.unit-cost');
         if (glyphEl) glyphEl.textContent = option.glyph;
+        const badge = option.flagBadge && btn.querySelector('.recruit-flag-badge');
+        if (badge) paintFlagBadgeCanvas(badge, option.flagBadge, { size: 28, fallbackGlyph: ' ' });
         if (typeEl) typeEl.textContent = option.label;
         if (option.isUnique) btn.title = `${option.label}（特色兵种，快捷键 ${option.shortcut}）`;
         if (!costSpan) continue;
@@ -579,10 +596,9 @@ export function finalizeDeployment() {
 }
 
 // ===== 选中清除 =====================
-export function clearselection() {
+export function clearselection({ preserveInspection = false } = {}) {
     gameState.selectedUnit = null;
     gameState.selectedCityTile = null;
-    gameState.selectedTile = null;
     gameState.selectedInstallation = null;
     gameState.movableTiles = [];
     gameState._fogSafeMovablePreview = null;
@@ -591,7 +607,12 @@ export function clearselection() {
     gameState.chainAttackPlans = new Map();
     gameState.selectionTime = 0;
     gameState.deselecting = false;
-    setInspectionTarget(null);
+    if (preserveInspection && gameState.inspectionTarget) {
+        refreshInspectionSelection();
+    } else {
+        gameState.selectedTile = null;
+        setInspectionTarget(null);
+    }
     updateRecruitButtonStates();
 }
 
@@ -706,17 +727,18 @@ export function resolveUnitById(id) {
 export function applyRemoteState(data, HexTileClass, UnitClass) {
     // 对局快照会重建 Tile / Unit 实例；观察目标属于纯本地 UI 状态，必须先以稳定 ID/坐标保存。
     const inspectionTarget = gameState.inspectionTarget || _getLegacyInspectionTarget();
-    const previousTiles = gameState.tileMap;
+    const fireVisuals = new Map();
     const airdropLandings = new Map();
     for (const { unit } of gameState.tiles) {
+        if (unit && (unit._fireSeaVisual || unit._fireSeaVisualDelayUntil)) fireVisuals.set(unit.id, unit);
         if (unit?._airdropLandAt) airdropLandings.set(unit.id, unit._airdropLandAt);
     }
     deserializeState(data, HexTileClass, UnitClass, { preserveClientUi: true });
     for (const tile of gameState.tiles) {
         const { unit } = tile;
-        const previous = previousTiles.get(`${tile.q},${tile.r}`);
-        if (previous?._fireSeaVisual) tile._fireSeaVisual = previous._fireSeaVisual;
-        if (previous?._fireSeaVisualDelayUntil) tile._fireSeaVisualDelayUntil = previous._fireSeaVisualDelayUntil;
+        const previous = fireVisuals.get(unit?.id);
+        if (previous?._fireSeaVisual) unit._fireSeaVisual = previous._fireSeaVisual;
+        if (previous?._fireSeaVisualDelayUntil) unit._fireSeaVisualDelayUntil = previous._fireSeaVisualDelayUntil;
         if (!unit || !airdropLandings.has(unit.id)) continue;
         unit._airdropLandAt = airdropLandings.get(unit.id);
         unit._airdropWaiting = false;
@@ -733,16 +755,11 @@ export function applyRemoteState(data, HexTileClass, UnitClass) {
     gameState.chainAttackPlans = new Map();
     gameState.pendingChainAttack = null;
     gameState.moveParents = new Map();
+    gameState._fogSafeMovablePreview = null;
+    gameState.selectedInstallation = null;
     gameState.cardTargeting = null;
 
-    const tile = _resolveInspectionTarget(inspectionTarget);
-    const isVisible = tile && isTileVisible(tile, getViewingCamp(), gameState);
-    if (isVisible) {
-        gameState.selectedTile = tile;
-        gameState.selectedUnit = tile.unit || null;
-        gameState.inspectionTarget = inspectionTarget;
-    } else {
-        gameState.inspectionTarget = null;
-    }
-    emit('client:inspectionRestored', isVisible ? tile : null);
+    gameState.inspectionTarget = inspectionTarget;
+    const tile = refreshInspectionSelection();
+    emit('client:inspectionRestored', tile);
 }

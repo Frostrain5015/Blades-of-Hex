@@ -19,8 +19,6 @@ export const UNIT_CONFIG = deepFreeze({
     warship: { name: '巡洋舰', hp: 180, attack: 55, defense: 0, speed: 4, range: 2, cost: 15, color: '#315f78', movementDomain: 'naval' },
     submarine: { name: '潜艇', hp: 100, attack: 50, defense: 0, speed: 8, range: 1, cost: 8, color: '#233f50', movementDomain: 'naval' },
     carrier: { name: '航空母舰', hp: 250, attack: 45, defense: 0.08, speed: 3, range: 5, cost: 20, color: '#244d69', movementDomain: 'naval', attackRole: 'carrierStrafe' },
-    // 激光塔：不手动攻击（attack 0），火力来自回合开始的集束齐射（rules/laserTower.js）
-    laserTower: { name: '激光塔', hp: 130, attack: 0, defense: 0, speed: 0, range: 3, cost: 15, color: '#4fd8e8', movementDomain: 'land', rankLocked: true, building: true },
     // ==== 历史文化特色兵种 ====
     us_marine: {
         name: '海军陆战队', hp: 180, attack: 54, defense: 0.05, speed: 8, range: 1, cost: 11,
@@ -30,7 +28,7 @@ export const UNIT_CONFIG = deepFreeze({
     gb_battleship: {
         name: '皇家战列舰', hp: 230, attack: 64, defense: 0.10, speed: 4, range: 2, cost: 17,
         color: '#3b4f6e', movementDomain: 'naval', baseType: 'warship',
-        cultureId: 'gb', isUniqueUnit: true, recruitmentSites: ['port'], dodgeChance: 0.20
+        cultureId: 'gb', isUniqueUnit: true, recruitmentSites: ['port']
     },
     fr_heavy_cannon: {
         name: '巨炮', hp: 115, attack: 85, defense: 0, speed: 2, range: 5, cost: 15,
@@ -102,11 +100,11 @@ export function canUnitBeRecruitedAtSite(unitType, siteType) {
     return Array.isArray(sites) ? sites.includes(siteType) : false;
 }
 
-/** 同类防御建筑（碉堡/岸防炮/激光塔）最小间距：hexDistance 小于该值的同类建筑不得再建。 */
+/** 同类防御建筑最小间距：hexDistance 小于该值的同类建筑不得再建。 */
 export const DEFENSE_BUILDING_MIN_DISTANCE = 7;
 
 /** 防御建筑类型（同类间距规则适用）；战术卡/工程师建造同样受约束。 */
-export const DEFENSE_BUILDING_TYPES = Object.freeze(['mgNest', 'shoreBattery', 'laserTower']);
+export const DEFENSE_BUILDING_TYPES = Object.freeze(['mgNest', 'shoreBattery']);
 
 /** v2 四阶奖励合同。所有待校准数值集中在此处。 */
 export const UNIT_RANK_CONFIG = deepFreeze({
@@ -341,8 +339,7 @@ const baseCounterOverrides = {
     destroyer: { warship: 0.75, submarine: 1.25 },
     warship: { destroyer: 1.25, submarine: 0.75, carrier: 1.25 },
     submarine: { destroyer: 0.75, warship: 1.25, carrier: 1.25 },
-    carrier: {},
-    laserTower: {}
+    carrier: {}
 };
 const relationRow = baseType => {
     const overrides = baseCounterOverrides[baseType] || {};

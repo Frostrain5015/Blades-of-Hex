@@ -156,3 +156,25 @@ test('restore validates incoming ports before reconstructing naval units', () =>
     assert.deepEqual(match.ports, []);
     assert.equal(match.portTiles.size, 0);
 });
+
+test('legacy snapshots remove retired towers while retaining their tiles', () => {
+    const match = createMatchState();
+    const land = new EngineHexTile(0, 0, 1);
+    land.camp = match.factions.player1;
+    land.districtId = 1;
+    match.tiles = [land];
+    const snapshot = serializeMatchState(match);
+    snapshot.tiles[0].unit = { id: 10, type: 'laserTower', campKey: 'player1', hp: 130 };
+    restoreMatchState(match, snapshot, {
+        HexTileClass: EngineHexTile,
+        UnitClass: class UnitStub {
+            constructor() { assert.fail('retired towers must be skipped before unit construction'); }
+        },
+        computeCampBorders: () => [],
+        computeDistrictBorders: () => []
+    });
+    const tile = match.tileMap.get('0,0');
+    assert.equal(tile.unit, null);
+    assert.equal(tile.districtId, 1);
+    assert.equal(tile.camp.id, 'player1');
+});

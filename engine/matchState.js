@@ -94,6 +94,7 @@ export function configureMatchFactions(match, {
     match.visibleTiles = keyedRecord(factions, () => new Set());
     match.exploredTiles = keyedRecord(factions, () => new Set());
     match.scoutReveals = keyedRecord(factions, () => new Map());
+    match.undergroundIntelligence = {};
     match.submarineReveals = keyedRecord(factions, () => ({}));
     return factions;
 }
@@ -227,6 +228,7 @@ export function createMatchState() {
         exploredTiles: standard.exploredTiles,
         // 侦察揭示：{ player1: Map("q,r" → expiresAt), ... }
         scoutReveals: standard.scoutReveals,
+        undergroundIntelligence: {},
         // 国界线（阵营交界边集）/ 行政区界线 —— 由 tiles 派生的缓存
         campBorderEdges: [],
         districtBorderEdges: [],
@@ -318,6 +320,7 @@ export function resetMatchState(match) {
     match.visibleTiles = standard.visibleTiles;
     match.exploredTiles = standard.exploredTiles;
     match.scoutReveals = standard.scoutReveals;
+    match.undergroundIntelligence = {};
     match.campBorderEdges = [];
     match.districtBorderEdges = [];
     match.villageTiles = new Map();
@@ -475,7 +478,6 @@ export function serializeMatchState(match) {
         terrain: waterTile ? 'plains' : t.terrain,
         fortification: waterTile ? null : (t.fortification || null),
         fieldFortification: waterTile ? null : (t.fieldFortification ? { ...t.fieldFortification } : null),
-        fireSea: t.fireSea ? { ...t.fireSea } : null,
         installation: waterTile ? null : (t.installation ? structuredClone(t.installation) : null),
         isPort: !!t.isPort,
         portCapturedIndependent: !!t._portCapturedIndependent,
@@ -520,6 +522,11 @@ export function serializeMatchState(match) {
             banzaiFollowupTurn: t.unit._banzaiFollowupTurn ?? null,
             guerrillaHiddenThroughRound: t.unit._guerrillaHiddenThroughRound ?? null,
             guerrillaReadyRound: t.unit._guerrillaReadyRound || 0,
+            fireSea: t.unit.fireSea ? { ...t.unit.fireSea } : null,
+            heavyCannonDeployed: t.unit._heavyCannonDeployed === true,
+            heavyCannonStanceReadyRound: t.unit._heavyCannonStanceReadyRound || 0,
+            katyushaMoraleDrop: t.unit._katyushaMoraleDrop || 0,
+            katyushaMoraleUntilTurn: t.unit._katyushaMoraleUntilTurn || 0,
             heavyCannonAutoFiredThisTurn: t.unit._heavyCannonAutoFiredThisTurn === true,
             freeResistanceUntilTurn: t.unit._freeResistanceUntilTurn || 0,
             freeResistanceShield: t.unit._freeResistanceShield || 0,
@@ -684,6 +691,7 @@ export function serializeMatchState(match) {
         visibleTiles: Object.fromEntries(Object.entries(match.visibleTiles || {}).map(([key, tiles]) => [key, [...tiles]])),
         exploredTiles: Object.fromEntries(Object.entries(match.exploredTiles || {}).map(([key, tiles]) => [key, [...tiles]])),
         scoutReveals: Object.fromEntries(Object.entries(match.scoutReveals || {}).map(([key, reveals]) => [key, [...reveals]])),
+        undergroundIntelligence: structuredClone(match.undergroundIntelligence || {}),
         submarineReveals: structuredClone(match.submarineReveals || {}),
         shoreBatteryBuiltRound: { ...(match.shoreBatteryBuiltRound || {}) },
         villageTiles: [...match.villageTiles],
@@ -858,6 +866,7 @@ export function restoreMatchState(match, data, deps) {
     match.visibleTiles = record(data.visibleTiles, () => []);
     match.exploredTiles = record(data.exploredTiles, () => []);
     match.scoutReveals = record(data.scoutReveals, () => []);
+    match.undergroundIntelligence = structuredClone(data.undergroundIntelligence || {});
     for (const key of factionKeys) {
         match.visibleTiles[key] = new Set(match.visibleTiles[key] || []);
         match.exploredTiles[key] = new Set(match.exploredTiles[key] || []);
@@ -939,7 +948,6 @@ export function restoreMatchState(match, data, deps) {
         tile.fieldFortification = waterTile || !tile.fortification ? null : (td.fieldFortification
             ? { ...td.fieldFortification }
             : { type: tile.fortification, campKey: null, ownerKnown: false });
-        tile.fireSea = td.fireSea && typeof td.fireSea === 'object' ? { ...td.fireSea } : null;
         tile.installation = waterTile || !td.installation ? null : structuredClone(td.installation);
         tile.isPort = restoredPort;
         tile._portCapturedIndependent = restoredPort && td.portCapturedIndependent === true;
@@ -973,8 +981,9 @@ export function restoreMatchState(match, data, deps) {
         tile.hp = waterTile ? 0 : (Number.isFinite(td.hp) ? td.hp : tile.maxHp);
         tile._citySiegeDamageRound = waterTile ? -1 : (Number.isFinite(td.citySiegeDamageRound) ? td.citySiegeDamageRound : -1);
         tile._reinforcedThisTurn = (waterTile && !restoredPort) ? false : (td.reinforcedThisTurn || false);
-        const unitType = td.unit ? (td.unit.isDrone ? 'drone' : td.unit.type) : null;
-        if (td.unit && canUnitOccupyTile({ type: unitType, isEmbarked: td.unit.isEmbarked === true }, tile, match)) {
+        // Drop retired towers from legacy snapshots without changing the tile.
+        const unitType = td.unit && td.unit.type !== 'laserTower' ? (td.unit.isDrone ? 'drone' : td.unit.type) : null;
+        if (unitType && canUnitOccupyTile({ type: unitType, isEmbarked: td.unit.isEmbarked === true }, tile, match)) {
             const unit = new UnitClass(
                 unitType,
                 campMap[td.unit.campKey],
@@ -1040,6 +1049,11 @@ export function restoreMatchState(match, data, deps) {
             unit._banzaiFollowupTurn = Number.isFinite(td.unit.banzaiFollowupTurn) ? td.unit.banzaiFollowupTurn : null;
             unit._guerrillaHiddenThroughRound = Number.isFinite(td.unit.guerrillaHiddenThroughRound) ? td.unit.guerrillaHiddenThroughRound : null;
             unit._guerrillaReadyRound = Number.isFinite(td.unit.guerrillaReadyRound) ? td.unit.guerrillaReadyRound : 0;
+            unit.fireSea = td.unit.fireSea?.roundsRemaining > 0 ? { ...td.unit.fireSea } : null;
+            unit._heavyCannonDeployed = td.unit.heavyCannonDeployed === true;
+            unit._heavyCannonStanceReadyRound = td.unit.heavyCannonStanceReadyRound || 0;
+            unit._katyushaMoraleDrop = td.unit.katyushaMoraleDrop || 0;
+            unit._katyushaMoraleUntilTurn = td.unit.katyushaMoraleUntilTurn || 0;
             unit._heavyCannonAutoFiredThisTurn = td.unit.heavyCannonAutoFiredThisTurn === true;
             unit._freeResistanceUntilTurn = td.unit.freeResistanceUntilTurn || 0;
             unit._freeResistanceShield = td.unit.freeResistanceShield || 0;

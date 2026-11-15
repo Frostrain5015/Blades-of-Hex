@@ -7,10 +7,12 @@ globalThis.setTimeout = (callback, ms = 0, ...args) =>
     nativeSetTimeout(callback, Math.max(0, Math.round(ms * 0.02)), ...args);
 const { engine } = await import('../core/headless.js');
 const { processOpponentTurn, configureAiRuntime } = await import('../js/ai.js');
+const { applyRemoteState, refreshInspectionSelection, serializeState, setInspectionTarget } = await import('../js/state.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
 const { getRound } = await import('../rules/turns.js');
-const { isTileVisible } = await import('../js/fogOfWar.js');
+const { isTileVisible, updateFogOfWar } = await import('../js/fogOfWar.js');
 const { isUnitVisibleToCamp } = await import('../rules/visibility.js');
+const { getUndergroundIntelligenceStatus } = await import('../rules/undergroundIntelligence.js');
 const { BURN_MS, attackCityTile, executeBanzaiCharge, executeGuerrillaConcealment, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
 const { droneProjectiles, HEAVY_CANNON_IMPACT_MS, heavyCannonShells, ringWaves, spawnHeavyCannonShell, updateHeavyCannonShells } = await import('../js/effects.js');
 const { KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, getKatyushaPresentedHealth, katyushaRockets } = await import('../js/effects.js');
@@ -76,6 +78,132 @@ function place(type, camp, tile, commander = null) {
     return unit;
 }
 
+test('对手 AI 移动后，观察目标跟随单位并保持只读，切回己方时仍保留', async () => {
+    const { me, foe, home } = setupMatch();
+    state.gameMode = 'pve';
+    state.aiOpponentCamp = me;
+    foe.controller = 'human';
+    const watched = place('cavalry', me, state.tileMap.get('4,0'));
+    const previousTile = watched.tile;
+    place('infantry', me, home);
+    state.selectedTile = previousTile;
+    setInspectionTarget(previousTile);
+    await processOpponentTurn(me);
+    assert.notEqual(watched.tile, previousTile);
+    assert.equal(refreshInspectionSelection(), watched.tile);
+    assert.equal(state.inspectionTarget.unitId, watched.id);
+    assert.equal(state.selectedUnit, null);
+    assert.deepEqual(state.attackableTiles, []);
+    await engine.advanceAutomatedTurn();
+    assert.equal(state.currentCamp, foe);
+    assert.equal(refreshInspectionSelection(), watched.tile);
+});
+
+test('联机快照让观察目标跟随移动后的同一单位，并在其阵亡后清除选中', () => {
+    const { me, foe } = setupMatch();
+    const origin = state.tileMap.get('5,0');
+    const destination = state.tileMap.get('6,0');
+    const watched = place('infantry', foe, origin);
+    state.selectedTile = origin;
+    setInspectionTarget(origin);
+    origin.unit = null;
+    destination.unit = watched;
+    watched.tile = destination;
+    applyRemoteState(serializeState(), engine.HexTile, engine.Unit);
+    assert.equal(state.selectedTile, state.tileMap.get('6,0'));
+    assert.equal(state.selectedTile.unit.id, watched.id);
+    assert.notEqual(state.selectedTile.unit, watched);
+    state.selectedTile.unit = null;
+    applyRemoteState(serializeState(), engine.HexTile, engine.Unit);
+    assert.equal(state.inspectionTarget, null);
+    assert.equal(state.selectedTile, null);
+});
+
+test('特殊天气五个等概率结果分别映射为两雨、一雾、两风，可重复上轮天气', async () => {
+    for (const [ticket, expected] of ['rain', 'rain', 'fog', 'wind', 'wind'].entries()) {
+        const { foe } = setupMatch();
+        state.turnOrder = ['player1', 'player2'];
+        state.currentCamp = foe;
+        state.turnCounter = 3;
+        state.lastWeather = expected;
+        const rngInt = state.rng.int;
+        state.rng.int = count => count === 5 ? ticket : rngInt(count);
+        await engine.advanceAutomatedTurn();
+        assert.equal(state.weather, expected);
+    }
+});
+
+test('历史模式 AI 为法国巨炮选射界并架设，下个己方回合自动炮击', async () => {
+    const { me, foe, home } = setupMatch();
+    me.flagPreset = 'img/flags/svg/fr.svg';
+    state.factionRuleMode = 'culture';
+    const cannon = place('fr_heavy_cannon', me, home);
+    const target = place('infantry', foe, state.tileMap.get('4,0'));
+    await processOpponentTurn(me);
+    assert.equal(cannon._heavyCannonDeployed, true);
+    assert.equal(cannon.remainingMP, 0);
+    assert.ok(events.some(({ action, status }) => action.type === 'heavyCannonStance' && status === 'executed'));
+    state.currentCamp = foe;
+    state.turnOrder = ['player2', 'player1', 'neutral'];
+    await engine.advanceAutomatedTurn();
+    assert.ok(target.hp < target.maxHp);
+});
+
+test('历史模式德国 AI 用同一机场连续俯冲并分别标记两支部队', async () => {
+    const { me, foe, home } = setupMatch();
+    me.flagPreset = 'img/flags/germany-iron-cross.svg';
+    state.factionRuleMode = 'culture';
+    home.installation = { type: 'airfield', status: 'ready' };
+    place('infantry', me, home);
+    const targets = ['4,0', '4,1'].map(key => place('infantry', foe, state.tileMap.get(key)));
+    await processOpponentTurn(me);
+    assert.equal(events.filter(({ action, status }) => action.airKind === 'stukaDiveBomb' && status === 'executed').length, 2);
+    assert.ok(targets.every(unit => unit.fireSea?.roundsRemaining === 2));
+});
+
+test('火海在受影响单位的两个回合开始各扣5%最大生命', async () => {
+    const { me, foe } = setupMatch();
+    me.flagPreset = 'img/flags/germany-iron-cross.svg';
+    state.factionRuleMode = 'culture';
+    state.turnOrder = ['player1', 'player2'];
+    const target = place('infantry', foe, state.tileMap.get('6,0'));
+    target.fireSea = { roundsRemaining: 2 };
+    target._shield = 40;
+    const tick = Math.round(target.maxHp * 0.05);
+    await engine.advanceAutomatedTurn();
+    assert.equal(target.hp, target.maxHp - tick);
+    assert.equal(target.fireSea.roundsRemaining, 1);
+    assert.equal(target._shield, 40);
+    await engine.advanceAutomatedTurn();
+    assert.equal(target.hp, target.maxHp - tick);
+    await engine.advanceAutomatedTurn();
+    assert.equal(target.hp, target.maxHp - tick * 2);
+    assert.equal(target.fireSea, null);
+});
+
+test('地下情报网覆盖村庄相邻格，离开非己方村庄两回合后消失', () => {
+    const { me, foe } = setupMatch();
+    me.flagPreset = 'img/flags/chinese-communist-party-old.svg';
+    state.factionRuleMode = 'culture';
+    state.skirmishFog = true;
+    const village = state.tileMap.get('8,1');
+    Object.assign(village, { isVillage: true, villageDistrictId: 2, camp: foe });
+    const scout = place('infantry', me, village);
+    const neighbor = state.tileMap.get('7,1');
+    updateFogOfWar(state, me);
+    assert.equal(getUndergroundIntelligenceStatus(state, village, me).active, true);
+    village.unit = null;
+    scout.tile = state.tileMap.get('2,1');
+    scout.tile.unit = scout;
+    updateFogOfWar(state, me);
+    assert.equal(getUndergroundIntelligenceStatus(state, village, me).roundsRemaining, 2);
+    assert.equal(isTileVisible(neighbor, me, state), true);
+    state.turnCounter += state.turnOrder.length * 2;
+    updateFogOfWar(state, me);
+    assert.equal(getUndergroundIntelligenceStatus(state, village, me), null);
+    assert.equal(isTileVisible(neighbor, me, state), false);
+});
+
 test('疗愈卡对禁疗武士只允许净化，补员仍可回血', () => {
     const { me, home } = setupMatch();
     const samurai = place('jp_samurai', me, home);
@@ -114,13 +242,15 @@ test('武士冲锋拒绝新兵和堵路，合法冲锋的生命消耗绕过护�
     samurai.remainingMP = 5;
     samurai._shield = 60;
     assert.equal(executeBanzaiCharge(samurai, target.tile), true);
-    assert.equal(samurai.hp, 150);
+    assert.equal(samurai.hp, 140);
     assert.equal(samurai._shield, 60);
     assert.equal(samurai.tile, mid);
 });
 
-test('武士首次斩杀返还行动并可再次冲锋，第二次斩杀只回血', () => {
+test('武士首次斩杀返还行动，两次斩杀均可叠加武运长久回血', () => {
     const { me, foe, home } = setupMatch();
+    me.flagPreset = 'img/flags/svg/jp.svg';
+    state.factionRuleMode = 'culture';
     const samurai = place('jp_samurai', me, home);
     const targets = ['1,0', '2,0', '3,0'].map(key => {
         const unit = place('infantry', foe, state.tileMap.get(key));
@@ -132,12 +262,12 @@ test('武士首次斩杀返还行动并可再次冲锋，第二次斩杀只回�
     samurai.remainingMP = 2;
     assert.equal(executeBanzaiCharge(samurai, targets[0].tile), true);
     assert.equal(targets[0].hp, 0);
-    assert.equal(samurai.hp, 145);
+    assert.equal(samurai.hp, 166);
     assert.equal(samurai.remainingMP, 2);
     assert.equal(samurai.canAct, true);
     assert.equal(executeBanzaiCharge(samurai, targets[1].tile), true);
     assert.equal(targets[1].hp, 0);
-    assert.equal(samurai.hp, 179);
+    assert.equal(samurai.hp, 200);
     assert.equal(samurai.canAct, false);
     assert.equal(executeBanzaiCharge(samurai, targets[2].tile), false);
 });
@@ -194,7 +324,7 @@ test('普通攻击触发铁卫转移，法国实际承受暴击后触发自由�
     assert.equal(guard.morale, 3);
 });
 
-test('法国友军毒发阵亡后，自由不屈为邻格友军加24点临时护盾', () => {
+test('法国友军毒发阵亡后，自由不屈为邻格友军加30点临时护盾', () => {
     const { me, home } = setupMatch();
     me.flagPreset = 'img/flags/svg/fr.svg';
     state.factionRuleMode = 'culture';
@@ -205,11 +335,12 @@ test('法国友军毒发阵亡后，自由不屈为邻格友军加24点临时护
     resolvePoisonAtTurnStart(me);
     assert.equal(home.unit, null);
     assert.equal(ally.morale, 3);
-    assert.equal(ally.activeShield, 24);
+    assert.equal(ally.activeShield, 30);
 });
 
 test('巨炮先蓄力再开火，只有命中时触发范围冲击波', () => {
     setupMatch();
+    heavyCannonShells.length = 0;
     const startedAt = performance.now();
     let impacts = 0;
     let waves = ringWaves.length;
@@ -252,18 +383,54 @@ test('喀秋莎的主目标和溅射目标分三轮扣血，整数尾差守恒',
     }
 });
 
+test('喀秋莎每轮分别判定主目标和溅射目标的震慑，并可压至混乱', () => {
+    const { me, foe, home } = setupMatch();
+    me.flagPreset = 'img/flags/soviet-union.svg';
+    state.factionRuleMode = 'culture';
+    const katyusha = place('ru_katyusha', me, home);
+    const target = place('infantry', foe, state.tileMap.get('2,0'));
+    const splash = place('infantry', foe, state.tileMap.get('2,1'));
+    target.morale = 3;
+    splash.morale = 3;
+    katyusha._calcFloat = () => 1;
+    const rolls = [];
+    state.rng.chance = chance => { rolls.push(chance); return true; };
+    engine.attackUnit(katyusha, target);
+    assert.equal(rolls.filter(chance => chance === 0.20).length, 3);
+    assert.equal(rolls.filter(chance => chance === 0.10).length, 3);
+    assert.equal(target.morale, 0);
+    assert.equal(splash.morale, 0);
+    state.turnCounter = target._katyushaMoraleUntilTurn;
+    assert.equal(target.morale, 3);
+});
+
+test('喀秋莎前轮先消耗护盾，血条和伤害数字按实际命中轮次呈现', () => {
+    const { me, foe, home } = setupMatch();
+    const katyusha = place('ru_katyusha', me, home);
+    const target = place('infantry', foe, state.tileMap.get('2,0'));
+    katyusha._calcFloat = () => 1;
+    target._shield = 20;
+    engine.attackUnit(katyusha, target);
+    const { shares, before } = target._katyushaHealth;
+    assert.equal(shares[0], 0);
+    assert.ok(shares[1] > 0 && shares[2] > shares[1]);
+    assert.equal(shares.reduce((total, damage) => total + damage, 0), before - target.hp);
+    assert.equal(target._shield, 0);
+});
+
 test('法国巨炮无法直接炮击或反击邻格，只有邻格敌人时不自动开火', async () => {
     const { me, foe, home } = setupMatch();
     state.turnOrder = ['player2', 'player1', 'neutral'];
     state.currentCamp = foe;
     const cannon = place('fr_heavy_cannon', me, home);
+    cannon._heavyCannonDeployed = true;
     const neighbor = place('infantry', foe, state.tileMap.get('1,0'));
     await engine.advanceAutomatedTurn();
     assert.equal(neighbor.hp, neighbor.maxHp);
     assert.equal(cannon._heavyCannonAutoFiredThisTurn, false);
     assert.equal(cannon.calculateCounterDamage(neighbor).dmg, 0);
     const distant = place('infantry', foe, state.tileMap.get('2,0'));
-    assert.ok(cannon.calculateCounterDamage(distant).dmg > 0);
+    assert.equal(cannon.calculateCounterDamage(distant).dmg, 0);
     engine.attackUnit(cannon, neighbor);
     assert.equal(neighbor.hp, neighbor.maxHp);
     assert.ok(cannon.canAct);
@@ -276,6 +443,7 @@ test('法国巨炮回合初以地块视野选靶，空城炮击写入攻城回�
     state.skirmishFog = true;
     state.weather = 'fog';
     const cannon = place('fr_heavy_cannon', me, state.tileMap.get('3,0'));
+    cannon._heavyCannonDeployed = true;
     // 单独验证自动选靶在射程长于视野时仍检查地块可见性。
     const effectiveRange = cannon.getEffectiveRange.bind(cannon);
     cannon.getEffectiveRange = () => 5;
@@ -321,7 +489,7 @@ test('尚书实际腾位招募，下一回合新兵出城后返城，预留格�
     assert.equal(state._aiCoreMemory.player1.ministerReturn, undefined);
 });
 
-test('陆战队在己方已启用港口按普通补员费回血，每回合限一次', () => {
+test('陆战队在己方已启用港口按工业海权优惠价补员，每回合限一次', () => {
     const { me, foe } = setupMatch();
     me.flagPreset = 'img/flags/svg/us.svg';
     state.factionRuleMode = 'culture';
@@ -338,11 +506,11 @@ test('陆战队在己方已启用港口按普通补员费回血，每回合限�
     state.turnCounter = state.turnOrder.length;
     engine.reinforceUnit(marine);
     assert.equal(marine.hp, 135);
-    assert.equal(state.playerGold.player1, 9);
+    assert.equal(state.playerGold.player1, 10);
     assert.equal(port._reinforcedThisTurn, true);
     engine.reinforceUnit(marine);
     assert.equal(marine.hp, 135);
-    assert.equal(state.playerGold.player1, 9);
+    assert.equal(state.playerGold.player1, 10);
 });
 
 test('陆战队普攻、反击、攻城均发射机枪弹流，击破城防后仍可进驻', () => {

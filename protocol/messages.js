@@ -25,6 +25,7 @@ export const ACTION_TYPES = new Set([
     'banzaiCharge',
     'guerrillaConcealment',
     'riverGateSwitch',
+    'heavyCannonStance',
     'airCommand',
     'tacticalCard'
 ]);

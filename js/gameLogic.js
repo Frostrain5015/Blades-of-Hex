@@ -42,10 +42,10 @@ import {
     spawnLightningStrike, spawnOrbitalBeam,
     spawnGoldenFlame, spawnVictoryRipple,
     spawnCoinRain, spawnMinisterDominionRing,
-    spawnCardUseEffect, spawnAirstrikeEffect, spawnAirliftEffect, playAirCommandImpact,
+    spawnCardUseEffect, spawnAirstrikeEffect, spawnAirliftEffect, playAirCommandImpact, playStukaStrafe,
     spawnGoldenBeam, spawnPaladinBeamProjectiles, spawnPaladinOrbitBeams,
     spawnHealingChain,
-    spawnReinforceEffect, spawnCardCopyEffect, LASER_BEAM_IMPACT_MS,
+    spawnReinforceEffect, spawnCardCopyEffect,
     HEAVY_CANNON_IMPACT_MS, KATYUSHA_IMPACT_MS, KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, stageKatyushaHealth,
     spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash
 } from './effects.js';
@@ -128,13 +128,11 @@ import {
     canBuildBunkerAt,
     canBuildFieldFortification,
     canBuildFieldFortificationAt,
-    canBuildLaserTowerAt,
     canBuildShoreBatteryAt,
     canFieldRepair,
     constructionCost,
     findConstructionEngineer
 } from '../rules/construction.js';
-import { resolveLaserTowerVolley } from '../rules/laserTower.js';
 import {
     AIR_COMMAND_CONFIG,
     AIRFIELD_BASE_POWER,
@@ -147,6 +145,7 @@ import {
     canTargetWithSingleAirCommand,
     getAirCommandAvailability,
     getAirCommandRange,
+    getAirCommandCost,
     getAirfieldColonel,
     getMountedCommanderAirAttackBonus,
     buildAirCommandDamageTexts,
@@ -158,16 +157,21 @@ import {
     getBanzaiBonusDamage,
     getBanzaiCooldown,
     getGuerrillaConcealmentReason,
-    applyFireSeaToTile,
-    expireFireSeaForStartingCamp,
+    applyFireSeaToUnit,
+    FIRE_SEA_CONFIG,
+    getFireSeaDefenseReduction,
+    getHistoricalCost,
+    getHistoricalRecruitCost,
+    isHeavyCannonDeployed,
+    getHeavyCannonStanceCooldown,
+    getFreeResistanceTurnDeadline,
+    getNeverSurrenderAttackBonus,
     getActiveCultureId,
     getArtilleryCostDiscount,
     getCultureUniqueUnitType,
     getCulturalAirfieldCost,
-    getCulturalPortRepairCostScale,
     getCulturalReinforceCostScale,
     getCulturalTerrainStepDelta,
-    getFireSeaDamagePct,
     getFireSeaState,
     getNeverSurrenderStacks,
     getNeverSurrenderStatBonus,
@@ -709,7 +713,7 @@ export function drawCard(camp) {
     if (gameState.playerHands[campKey].length >= maxHand) {
         notify(`当前手牌队列已满`, 'error'); return null;
     }
-    const drawCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
+    const drawCost = getHistoricalCost(gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2, gameState, camp);
     if (gameState.playerGold[campKey] < drawCost) {
         notify(`资金不足`, 'error'); return null;
     }
@@ -955,6 +959,10 @@ export function _resolveRainLightning() {
     _rainLightningFx = (strikes.length || ambient.length) ? { strikes, ambient } : null;
 }
 
+function _rollSpecialWeather() {
+    return ['rain', 'rain', 'fog', 'wind', 'wind'][gameState.rng.int(5)];
+}
+
 function _updateWeather() {
     const previousWeather = gameState.weather;
     const refreshVision = () => {
@@ -969,8 +977,7 @@ function _updateWeather() {
     // E1 占星者星移锁定结束后首次更新：强制重新随机，避免 stale lastWeather
     if (gameState._starlightResume) {
         gameState._starlightResume = false;
-        const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
-        gameState.lastWeather = pool[gameState.rng.int(pool.length)];
+        gameState.lastWeather = _rollSpecialWeather();
         gameState.weather = gameState.lastWeather;
         refreshVision();
         return;
@@ -1012,8 +1019,7 @@ function _updateWeather() {
     const cycleLen = WEATHER_CYCLE.weatherDuration + WEATHER_CYCLE.clearDuration;  // 3
     const position = cycleRound % cycleLen;  // 0,1,2
     if (position === 0) {
-        const pool = ['rain', 'fog', 'wind'].filter(w => w !== gameState.lastWeather);
-        gameState.lastWeather = pool[gameState.rng.int(pool.length)];
+        gameState.lastWeather = _rollSpecialWeather();
     }
     gameState.weather = position < WEATHER_CYCLE.weatherDuration ? gameState.lastWeather : 'clear';
     refreshVision();
@@ -1250,27 +1256,21 @@ export function resolvePoisonAtTurnStart(camp) {
 }
 
 function _resolveFireSeaAtTurnStart(startingCamp) {
-    expireFireSeaForStartingCamp(gameState, startingCamp);
-    const startingKey = _campKey(startingCamp);
-    if (!startingKey || startingKey === 'neutral') return [];
     const ticks = [];
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         if (!unit || unit.hp <= 0 || unit.camp !== startingCamp) continue;
-        const fs = getFireSeaState(tile);
-        if (!fs || fs.casterCampKey === startingKey) continue;
-        const casterCamp = campFromKey(fs.casterCampKey, gameState);
-        if (casterCamp && isFriendly(gameState, casterCamp, unit.camp)) continue;
-        const pct = getFireSeaDamagePct(tile);
-        if (pct <= 0) continue;
-        const rawDmg = Math.max(1, Math.round(unit.maxHp * pct));
+        const fire = getFireSeaState(unit);
+        if (!fire) continue;
+        const rawDmg = Math.max(1, Math.round(unit.maxHp * FIRE_SEA_CONFIG.hpLossPct));
         const hpBefore = unit.hp;
-        const killed = unit.applyDamage(rawDmg, { source: 'effect', attacker: null, skipAura: true });
+        const killed = unit.applyDamage(rawDmg, { source: 'effect', ignoreShield: true, skipAura: true });
+        if (--fire.roundsRemaining <= 0) unit.fireSea = null;
         const dmg = Math.max(0, hpBefore - unit.hp);
         if (dmg > 0) {
-            enqueueFloatText({ x: tile.x, y: tile.y, q: tile.q, r: tile.r, value: dmg, isCrit: true, timeLeft: 900 });
+            enqueueFloatText({ x: tile.x, y: tile.y, q: tile.q, r: tile.r, value: dmg, timeLeft: 900 });
             spawnExplosionParticles(tile.x, tile.y, '#ff6a00', 10);
-            logMessage(`🔥 ${unit.camp.name}${unit.config.name}受到【焦土空袭】火海灼烧 ${dmg} 伤害`);
+            logMessage(`🔥 ${unit.camp.name}${unit.config.name}受到【火海】灼烧 ${dmg} 伤害`);
             ticks.push({ q: tile.q, r: tile.r, x: tile.x, y: tile.y, dmg, killed });
         }
     }
@@ -1281,11 +1281,11 @@ function _resolveFrenchHeavyCannonTurnStartVolley(startingCamp, impactAt) {
     const volleys = [];
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
-        if (!unit || unit.type !== 'fr_heavy_cannon' || unit.camp !== startingCamp || unit.hp <= 0) continue;
+        if (!isHeavyCannonDeployed(unit) || unit.camp !== startingCamp || unit.hp <= 0) continue;
         if (unit._imprisoned || unit._constructionScaffold || unit._engineerScaffold) continue;
         if (unit._campaignCanAct === false || unit._campaignCanAttack === false) continue;
 
-        const candidates = getAttackableTiles(unit);
+        const candidates = getAttackableTiles(unit, { automaticHeavyCannon: true });
         if (candidates.length === 0) continue;
 
         const targetTile = candidates[Math.floor(gameState.rng.range(0, candidates.length))];
@@ -1323,27 +1323,6 @@ function _resolveFrenchHeavyCannonTurnStartVolley(startingCamp, impactAt) {
                         });
                     }
                 }
-                const splashPct = unit.config?.splashPct || 0;
-                let remSplash = splashPct > 0 ? Math.max(0, Math.round(attackResult.dmg)) : 0;
-                for (const [dq, dr] of HEX_NEIGHBORS) {
-                    if (remSplash <= 0) break;
-                    const st = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
-                    const su = st?.unit;
-                    if (!su || !canAttack(gameState, unit.camp, su.camp) || su.hp <= 0) continue;
-                    const sRes = unit._resolveDamage(unit, su, splashPct, 0, false, false, false, 0, 0, true);
-                    const sDmg = Math.max(1, Math.min(remSplash, Math.round(sRes.dmg)));
-                    su._hpBarDelayUntil = impactAt;
-                    su._deferImpactFxUntil = impactAt;
-                    const before = su.hp;
-                    const splashKilled = su.applyDamage(sDmg, {
-                        source: 'ranged', attacker: unit,
-                        impactDelayMs: Math.max(0, impactAt - performance.now())
-                    });
-                    splash.push({ q: st.q, r: st.r, x: st.x, y: st.y, unitId: su.id, killed: splashKilled });
-                    remSplash -= sDmg;
-                    const dealt = before - su.hp;
-                    if (dealt > 0) enqueueFloatText({ x: st.x, y: st.y, q: st.q, r: st.r, value: dealt, timeLeft: 900 });
-                }
             }
         } else {
             const cityRes = _resolveGroundNavalSiegeDamage(unit, targetTile);
@@ -1355,6 +1334,27 @@ function _resolveFrenchHeavyCannonTurnStartVolley(startingCamp, impactAt) {
                 poolTile._citySiegeDamageRound = getRoundIndex(gameState);
                 enqueueFloatText({ x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r, value: dmg, isCityDamage: true, isCrit, timeLeft: 900 });
             }
+        }
+
+        if (!dodged) for (const [dq, dr] of HEX_NEIGHBORS) {
+            const neighbor = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
+            const defender = neighbor?.unit;
+            if (!defender || defender.hp <= 0 || !canAttack(gameState, unit.camp, defender.camp)) continue;
+            const delayMs = Math.max(0, impactAt - performance.now());
+            if (defender.rollDodge(gameState)) {
+                defender._triggerDodge(gameState, delayMs);
+                continue;
+            }
+            const result = unit._resolveDamage(unit, defender, unit.config.splashPct, 0, false, false, false, 0, 0, true);
+            const damage = Math.round(result.dmg);
+            if (damage <= 0) continue;
+            defender._hpBarDelayUntil = impactAt;
+            defender._deferImpactFxUntil = impactAt;
+            const before = defender.hp;
+            const splashKilled = defender.applyDamage(damage, { source: 'ranged', attacker: unit, impactDelayMs: delayMs });
+            const { q, r, x, y } = neighbor;
+            splash.push({ q, r, x, y, unitId: defender.id, killed: splashKilled });
+            if (defender.hp < before) enqueueFloatText({ q, r, x, y, value: before - defender.hp, timeLeft: 900 });
         }
 
         unit._heavyCannonAutoFiredThisTurn = true;
@@ -1379,7 +1379,6 @@ async function _doEndTurnPhase() {
     let oraclePulses = []; // 塞莱斯廷圣国神谕脉冲（isRoundAnchor 内填充，广播时附带）
     let bloodMoonBleeds = null; // 诺克提斯血月·月蚀放血打点（isRoundAnchor 内填充，广播时附带）
     let sunMoonTrigger = null; // 天衡【日月天衡】充能触发数据（下方填充，广播时附带）
-    let laserVolleys = null; // 激光塔【集束激光】回合开始齐射载荷（下方填充，广播时附带）
     let eagleSupplyEvent = null; // 天鹰【轨道补给】仅在回合初实际获得金币时播放
     let fireSeaTicks = []; // 德国【焦土空袭】火海回合开始灼烧结果
     let heavyCannonVolleys = []; // 法国重炮回合开始自动炮击载荷
@@ -1456,6 +1455,15 @@ async function _doEndTurnPhase() {
     _advanceTurnPointer(camp);
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
+        if (unit?._katyushaMoraleUntilTurn && unit._katyushaMoraleUntilTurn <= gameState.turnCounter) {
+            unit._katyushaMoraleUntilTurn = 0;
+            unit._katyushaMoraleDrop = 0;
+            if (unit.camp === gameState.currentCamp && unit.morale > 0 && unit._campaignCanAct !== false
+                && !unit._imprisoned && !unit._engineerScaffold && !unit._constructionScaffold && !unit._martyrPrimed
+                && (!(unit._isImmobile || isStaticBattleStructure(unit)) || getAttackableTiles(unit).length > 0)) {
+                unit.canAct = true;
+            }
+        }
         if (unit?._freeResistanceUntilTurn && unit._freeResistanceUntilTurn <= gameState.turnCounter) {
             unit._freeResistanceUntilTurn = 0;
             unit._freeResistanceShield = 0;
@@ -1491,26 +1499,6 @@ async function _doEndTurnPhase() {
             cities: buildControlledCityAnchors(gameState, supplyCampKey)
         };
         emit('fx:eagleSynergy', eagleSupplyEvent);
-    }
-    // 激光塔【集束激光】：回合开始自动齐射射程内全部合法目标（命中越多单发越高）
-    const laserStartedAt = performance.now();
-    laserVolleys = withFloatTextImpactTiming(laserStartedAt, LASER_BEAM_IMPACT_MS, () => {
-        const result = resolveLaserTowerVolley(gameState, _campKey(gameState.currentCamp), {
-            isTileVisible, impactAt: laserStartedAt + LASER_BEAM_IMPACT_MS
-        });
-        for (const volley of result.volleys) {
-            for (const hit of volley.hits) {
-                if (hit.dmg <= 0) continue;
-                enqueueFloatText({ x: hit.x, y: hit.y, q: hit.q, r: hit.r, value: hit.dmg });
-            }
-        }
-        return result;
-    });
-    if (laserVolleys.volleys.length > 0) {
-        for (const volley of laserVolleys.volleys) {
-            logMessage(`🗼 ${gameState.currentCamp.name}【集束激光】命中 ${volley.hits.length} 个目标`);
-        }
-        emit('fx:laserTowerVolley', { volleys: laserVolleys.volleys, startedAt: laserStartedAt });
     }
     // 港口维修改为玩家主动付费按钮（见 repairShipAtPort），不再回合开始自动结算。
     for (const tile of gameState.tiles) {
@@ -1561,7 +1549,6 @@ async function _doEndTurnPhase() {
                 cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
                 healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null,
                 rainLightning: _rainLightningFx,
-                laserTowerVolleys: laserVolleys.volleys.length > 0 ? laserVolleys.volleys : null,
                 heavyCannonVolleys: heavyCannonVolleys.length > 0 ? heavyCannonVolleys : null,
                 fireSeaTicks: fireSeaTicks.length > 0 ? fireSeaTicks : null
             });
@@ -1693,7 +1680,8 @@ async function _doEndTurnPhase() {
     emit('turn:started', { camp: gameState.currentCamp, campKey: _campKey(gameState.currentCamp), turnCounter: gameState.turnCounter });
     updateButtonColors();
     if (gameState.cardTargeting) { gameState.cardTargeting = null; hideTargetingBanner(); }
-    clearselection();
+    clearselection({ preserveInspection: true });
+    if (gameState.inspectionTarget) emit('client:inspectionRestored', gameState.selectedTile);
     broadcastAction('endTurn', {
         cmdFxList: _endTurnCmdFxList.length > 0 ? _endTurnCmdFxList : null,
         healingChains: _healingChainDatas.length > 0 ? _healingChainDatas : null,
@@ -1703,7 +1691,6 @@ async function _doEndTurnPhase() {
         bloodMoonRising: !!gameState._bloodMoonRising || undefined,
         bloodMoonAnchor: gameState._bloodMoonAnchor || undefined,
         sunMoonTrigger: sunMoonTrigger || undefined,
-        laserTowerVolleys: laserVolleys?.volleys?.length > 0 ? laserVolleys.volleys : null,
         heavyCannonVolleys: heavyCannonVolleys.length > 0 ? heavyCannonVolleys : null,
         fireSeaTicks: fireSeaTicks.length > 0 ? fireSeaTicks : null,
         eagleSupplyEvent
@@ -2036,7 +2023,7 @@ export function recruitUnit(type) {
         notify('该地块已有单位驻守', 'error');
         return;
     }
-    const discountedBaseCost = Math.max(1, config.cost - getArtilleryCostDiscount(gameState, gameState.currentCamp, type));
+    const discountedBaseCost = getHistoricalRecruitCost(config.cost, gameState, gameState.currentCamp, type);
     let effectiveCost = getCommanderRecruitCost(discountedBaseCost, gameState, gameState.currentCamp);
     if (gameState.playerGold[currentPlayerKey] < effectiveCost) {
         notify('资金不足', 'error');
@@ -2082,7 +2069,7 @@ export function reinforceUnit(unit) {
     const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), getKmtReinforceDeficit(unit, gameState));
     if (healAmt <= 0) return;
     const costScale = getCulturalReinforceCostScale(gameState, tile, gameState.currentCamp);
-    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp) * costScale));
+    const cost = getHistoricalCost(Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp) * costScale)), gameState, unit.camp);
     const currentPlayerKey = _campKey(gameState.currentCamp);
     if (gameState.playerGold[currentPlayerKey] < cost) { notify('资金不足', 'error'); return; }
 
@@ -2110,14 +2097,14 @@ export function repairShipAtPort(unit) {
 
     const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
     if (healAmt <= 0) return;
-    const repairScale = getCulturalPortRepairCostScale(gameState, gameState.currentCamp);
-    const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp) * repairScale));
+    const baseCost = Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp)));
+    const cost = getHistoricalCost(baseCost, gameState, unit.camp);
     const currentPlayerKey = _campKey(gameState.currentCamp);
     if (gameState.playerGold[currentPlayerKey] < cost) { notify('资金不足', 'error'); return; }
 
     const actualHeal = unit.heal(healAmt, { allowReinforce: true });
     if (actualHeal <= 0) return;
-    if (repairScale < 1) presentHistoricalPassive('usa', tile);
+    if (cost < baseCost) presentHistoricalPassive('usa', tile);
     gameState.playerGold[currentPlayerKey] -= cost;
     tile._reinforcedThisTurn = true;
     spawnReinforceEffect(tile.x, tile.y, actualHeal);
@@ -2155,7 +2142,7 @@ function _computeMovableTiles(unit, fogSafePreview = false) {
         if (!fogSafePreview) unit.morale = inSignal ? 2 : 0;
         if (!inSignal) return { tiles: [], parents: new Map() };
     }
-    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile || isPortGuarded(unit, gameState)) {
+    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile || isHeavyCannonDeployed(unit) || isPortGuarded(unit, gameState)) {
         return { tiles: [], parents: new Map() };
     }
 
@@ -2278,9 +2265,8 @@ function _getMovableTiles(unit) {
     return exact.tiles;
 }
 
-export function getAttackableTiles(unit, { forAiAction = false } = {}) {
-    // 激光塔只在己方回合开始时自动齐射；不提供会造成 0 伤害的手动攻击入口。
-    if (unit.type === 'laserTower') return [];
+export function getAttackableTiles(unit, { forAiAction = false, automaticHeavyCannon = false } = {}) {
+    if (unit.type === 'fr_heavy_cannon' && (!automaticHeavyCannon || !isHeavyCannonDeployed(unit))) return [];
     // 无人机：实时检查信号范围，同步士气状态（不刷新其他无人机）
     if (unit._isDrone) {
         unit.morale = isDroneInSignal(gameState, unit) ? 2 : 0;
@@ -2539,12 +2525,12 @@ function _moveUnit(unit, targetTile) {
         gameState.selectionTime = performance.now();
     } else if (gameState.attackableTiles.length === 0) {
         unit.canAct = false;
-        clearselection();
+        clearselection({ preserveInspection: gameState.aiActing });
     }
     if (unit._isDrone && unit.morale === 0) {
         gameState.movableTiles = [];
         gameState.attackableTiles = [];
-        clearselection();
+        clearselection({ preserveInspection: gameState.aiActing });
         notify('天眼哨机超出信号范围', 'warn');
     }
 
@@ -2633,11 +2619,61 @@ function _moveUnit(unit, targetTile) {
 export function attackUnit(attackerUnit, targetUnit, options) {
     return perfEnabled() ? measure('attackUnit', () => _attackUnit(attackerUnit, targetUnit, options)) : _attackUnit(attackerUnit, targetUnit, options);
 }
-function enqueueAttackDamageText(entry, katyusha) {
+function enqueueAttackDamageText(entry, katyusha, shares) {
     if (!katyusha) return enqueueFloatText(entry);
-    getKatyushaDamageShares(entry.value).forEach((value, i) => {
+    (shares || getKatyushaDamageShares(entry.value)).forEach((value, i) => {
         if (value > 0) enqueueFloatText({ ...entry, value, delayMs: KATYUSHA_IMPACT_TIMES[i] }, { stagger: false });
     });
+}
+
+function applyKatyushaBarrageDamage(attacker, target, damage, startedAt, isCrit = false, splash = false) {
+    const before = target.hp;
+    const initialMorale = target.morale;
+    const checkMorale = isMechanicEnabled(gameState, 'morale');
+    let killed = false;
+    const hpShares = getKatyushaDamageShares(damage).map((share, index) => {
+        if (!share || killed) return 0;
+        const hpBeforeHit = target.hp;
+        const impactDelayMs = KATYUSHA_IMPACT_TIMES[index];
+        target._deferImpactFxUntil = startedAt + impactDelayMs;
+        killed = splash
+            ? target.applyDamage(share, { source: 'ranged', attacker, impactDelayMs })
+            : target.takeDamage(share, attacker, false, { isCrit, impactDelayMs });
+        if (!killed && checkMorale && target.morale > 0 && gameState.rng.chance(splash ? 0.10 : 0.20)) {
+            const active = target._katyushaMoraleUntilTurn > gameState.turnCounter;
+            target._katyushaMoraleDrop = (active ? target._katyushaMoraleDrop : 0) + 1;
+            target._katyushaMoraleUntilTurn = getFreeResistanceTurnDeadline(gameState, target.camp);
+            logMessage(target.morale === 0
+                ? `💥 ${target.camp.name}${target.config.name}遭到【火力覆盖】震慑，陷入混乱`
+                : `💥 ${target.camp.name}${target.config.name}遭到【火力覆盖】震慑，士气下降`);
+        }
+        return hpBeforeHit - target.hp;
+    });
+    stageKatyushaHealth(target, before, target.hp, startedAt, hpShares);
+    if (!killed && target.morale !== initialMorale) spawnMoraleEffect(target);
+    return { killed, hpShares };
+}
+
+function resolveKatyushaSplash(attacker, center, startedAt, isCounter = false) {
+    const hits = [];
+    for (const [dq, dr] of HEX_NEIGHBORS) {
+        const tile = gameState.tileMap.get(`${center.q + dq},${center.r + dr}`);
+        const target = tile?.unit;
+        if (!target || target.hp <= 0 || !canAttack(gameState, attacker.camp, target.camp)) continue;
+        if (target.rollDodge(gameState)) {
+            target._triggerDodge(gameState, KATYUSHA_IMPACT_MS);
+            continue;
+        }
+        const result = attacker._resolveDamage(attacker, target, attacker.config.splashPct, 0,
+            false, isCounter, false, 0, 0, true);
+        const damage = Math.round(result.dmg);
+        if (damage <= 0) continue;
+        const { killed, hpShares } = applyKatyushaBarrageDamage(attacker, target, damage, startedAt, false, true);
+        const { q, r, x, y } = tile;
+        enqueueAttackDamageText({ q, r, x, y, timeLeft: 900 }, true, hpShares);
+        hits.push({ q, r, x, y, damage, killed, unitId: target.id, hpShares });
+    }
+    return hits;
 }
 
 function _attackUnit(attackerUnit, targetUnit, options) {
@@ -2679,7 +2715,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
         if (relationBeforeAttack === 'neutral') {
             const change = setRelation(gameState, attackerUnit.camp, targetUnit.camp, 'enemy');
             if (change) {
-                clearselection();
+                clearselection({ preserveInspection: gameState.aiActing });
                 emit('match:diplomacyChanged', { ...change, reason: 'provokedByAttack' });
             }
         }
@@ -2784,6 +2820,9 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     let cityDamage = 0;
     let cityDamageIsCrit = false;
     const specializationSplashResults = [];
+    let katyushaHpShares = null;
+    let katyushaCounterHpShares = null;
+    let katyushaCounterSplash = [];
     let extraSalvoResult = null;
     const qixueSplashResults = [];
     let supportSplashEligible = false;
@@ -2796,19 +2835,24 @@ function _attackUnit(attackerUnit, targetUnit, options) {
         const strongholdImpactMs = _impactVisualMs || (attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON
             ? getProjectileFlightMs(fromX, fromY, toX, toY)
             : attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER ? DRONE_PROJECTILE_IMPACT_MS : 0);
-        isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit, false, {
-            isCrit: attackResult.isCrit, impactDelayMs: strongholdImpactMs
-        });
+        if (isKatyusha) {
+            const barrage = applyKatyushaBarrageDamage(attackerUnit, targetUnit, attackResult.dmg, barrageStartedAt, isCrit);
+            isTargetDead = barrage.killed;
+            katyushaHpShares = barrage.hpShares;
+        } else {
+            isTargetDead = targetUnit.takeDamage(attackResult.dmg, attackerUnit, false, {
+                isCrit: attackResult.isCrit, impactDelayMs: strongholdImpactMs
+            });
+        }
         // takeDamage → applyDamage 内部已入列蓝色护盾数字；在此补入白色血量伤害数字
         hpDamageDealt = Math.max(0, hpBeforeDmg - targetUnit.hp);
-        if (isKatyusha) stageKatyushaHealth(targetUnit, hpBeforeDmg, targetUnit.hp, barrageStartedAt);
         if (hpDamageDealt > 0 && targetUnit.tile) {
             enqueueAttackDamageText({
                 x: targetUnit.tile.x, y: targetUnit.tile.y,
                 q: targetUnit.tile.q, r: targetUnit.tile.r,
                 value: hpDamageDealt, isCrit: attackResult.isCrit, timeLeft: 900,
                 delayMs: _impactVisualMs
-            }, isKatyusha);
+            }, isKatyusha, katyushaHpShares);
         }
         if (shouldDamageCityAlongsideGarrison(attackerUnit.tile, primaryTargetTile, gameState.tileMap)) {
             // 同一次攻击分别结算驻军与城市：城市重新掷浮动/暴击，只走攻击方火力与
@@ -2858,13 +2902,19 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             && supportSplashChance > 0
             && gameState.rng.chance(supportSplashChance);
         const splashMultiplier = culturalSplash > 0 ? culturalSplash : supportSplashEligible ? 0.30 : 0;
-        if (splashMultiplier > 0) {
+        if (isKatyusha) {
+            specializationSplashResults.push(...resolveKatyushaSplash(attackerUnit, primaryTargetTile, barrageStartedAt));
+        } else if (splashMultiplier > 0) {
             let remainingSplashDamage = Math.max(0, Math.round(attackResult.dmg));
             for (const [dq, dr] of HEX_NEIGHBORS) {
                 if (remainingSplashDamage <= 0) break;
                 const splashTile = gameState.tileMap.get(`${primaryTargetTile.q + dq},${primaryTargetTile.r + dr}`);
                 const splashUnit = splashTile?.unit;
                 if (!splashUnit || !canAttack(gameState, attackerUnit.camp, splashUnit.camp) || splashUnit.hp <= 0) continue;
+                if (splashUnit.rollDodge(gameState)) {
+                    splashUnit._triggerDodge(gameState, culturalImpactMs);
+                    continue;
+                }
                 const resolved = attackerUnit._resolveDamage(
                     attackerUnit, splashUnit, splashMultiplier, 0,
                     false, false, false, 0, 0, true
@@ -2885,11 +2935,10 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                     damage, killed, unitId: splashUnit.id
                 });
                 const dealt = before - splashUnit.hp;
-                if (isKatyusha) stageKatyushaHealth(splashUnit, before, splashUnit.hp, barrageStartedAt);
                 if (dealt > 0) enqueueAttackDamageText({
                     x: splashTile.x, y: splashTile.y, q: splashTile.q, r: splashTile.r,
                     value: dealt, timeLeft: 900, delayMs: culturalImpactMs
-                }, isKatyusha);
+                }, false);
             }
         }
         if (qixueActive) {
@@ -3103,15 +3152,18 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                     ? getProjectileFlightMs(toX, toY, _counterX, _counterY)
                     : counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER ? DRONE_PROJECTILE_IMPACT_MS : 0);
                 const hpBeforeCounter = attackerUnit.hp;
-                attackerUnit.takeDamage(counterResult.dmg, targetUnit, false, {
-                    isCrit: counterResult.isCrit, impactDelayMs: strongholdImpactMs
-                });
                 if (isKatyushaCounter) {
-                    stageKatyushaHealth(attackerUnit, hpBeforeCounter, attackerUnit.hp, counterStartedAt);
+                    const barrage = applyKatyushaBarrageDamage(targetUnit, attackerUnit, counterResult.dmg, counterStartedAt, counterResult.isCrit);
+                    katyushaCounterHpShares = barrage.hpShares;
+                    katyushaCounterSplash = resolveKatyushaSplash(targetUnit, attackerStartTile, counterStartedAt, true);
                     enqueueAttackDamageText({
                         x: _counterX, y: _counterY, q: attackerStartTile.q, r: attackerStartTile.r,
                         value: hpBeforeCounter - attackerUnit.hp, isCrit: counterResult.isCrit, timeLeft: 900
-                    }, true);
+                    }, true, katyushaCounterHpShares);
+                } else {
+                    attackerUnit.takeDamage(counterResult.dmg, targetUnit, false, {
+                        isCrit: counterResult.isCrit, impactDelayMs: strongholdImpactMs
+                    });
                 }
                 // 远程反击复用原有炮弹与曳光弹表现。
                 _counterIsCrit = counterResult.isCrit;
@@ -3130,7 +3182,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                     } else if (targetUnit.type === 'fr_heavy_cannon') {
                         spawnHeavyCannonShell(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, null, { areaImpact: false });
                     } else if (isKatyushaCounter) {
-                        spawnKatyushaBarrage(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, null, { startedAt: counterStartedAt });
+                        spawnKatyushaBarrage(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, null, { startedAt: counterStartedAt, splash: katyushaCounterSplash });
                     } else {
                         playSound('cannon');
                         const counterImpact = () => {
@@ -3313,6 +3365,9 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             ctrBloodDrain: (ctrCmdResult && targetUnit.commander === 'vampire') ? { toX: attackerUnit.tile.x, toY: attackerUnit.tile.y, fromX: targetUnit.tile.x, fromY: targetUnit.tile.y } : null,
             ctrMoraleFxUnitId: _ctrMoraleFxUnitId || null,
             specializationSplashResults: specializationSplashResults.length ? specializationSplashResults : null,
+            katyushaHpShares,
+            katyushaCounterHpShares,
+            katyushaCounterSplash: katyushaCounterSplash.length ? katyushaCounterSplash : null,
             extraSalvoResult,
             berserkerQixue: qixueActive,
             berserkerSplash: qixueSplashResults.length ? qixueSplashResults : null,
@@ -3990,9 +4045,7 @@ export function executeConstructionAt(kind, targetTile, { builder = null, consum
         ? canBuildFieldFortificationAt(targetTile, kind, camp, gameState)
         : kind === 'bunker'
             ? canBuildBunkerAt(camp, targetTile, gameState)
-            : kind === 'shoreBattery'
-                ? canBuildShoreBatteryAt(targetTile, camp, gameState)
-                : kind === 'laserTower' && canBuildLaserTowerAt(camp, targetTile, gameState);
+            : kind === 'shoreBattery' && canBuildShoreBatteryAt(targetTile, camp, gameState);
     if (!legal) {
         notify('无法在该位置建造所选工事', 'error');
         return false;
@@ -4002,7 +4055,7 @@ export function executeConstructionAt(kind, targetTile, { builder = null, consum
         ? builder
         : findConstructionEngineer(gameState, camp);
     const campKey = _campKey(camp);
-    const cost = constructionCost(kind, supportingEngineer);
+    const cost = constructionCost(kind, supportingEngineer, targetTile, gameState);
     if ((gameState.playerGold[campKey] || 0) < cost) {
         notify('金币不足', 'error');
         return false;
@@ -4065,10 +4118,6 @@ export function executeBunkerConstruction(unit, targetTile) {
     return executeConstructionAt('bunker', targetTile, { builder: unit, consumeBuilderAction: true });
 }
 
-export function executeLaserTowerConstruction(unit, targetTile) {
-    return executeConstructionAt('laserTower', targetTile, { builder: unit, consumeBuilderAction: true });
-}
-
 export function executeShoreBatteryConstruction(targetTile) {
     return executeConstructionAt('shoreBattery', targetTile);
 }
@@ -4105,7 +4154,7 @@ export function executeFieldRepair(engineer, target) {
         return false;
     }
     const campKey = _campKey(engineer.camp);
-    const cost = CONSTRUCTION_CONFIG.fieldRepair.cost;
+    const cost = constructionCost('fieldRepair', engineer, null, gameState);
     if ((gameState.playerGold[campKey] || 0) < cost) {
         notify('金币不足', 'error');
         return false;
@@ -4125,7 +4174,7 @@ export function executeFieldRepair(engineer, target) {
     return true;
 }
 
-function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, { missingHpBonus = false, antiAirBypassPct = 0 } = {}) {
+function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, { missingHpBonus = false, allowAntiAirPierce = true } = {}) {
     if (target?.rollDodge?.(gameState)) {
         return { damage: 0, isCrit: false, antiAir: 0, dodged: true };
     }
@@ -4134,7 +4183,7 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
     const campKey = _campKey(launcherTile.camp);
     const stacks = Math.min(COLONEL_AIR_MAX_STACKS, gameState._colonelAirStacks?.[campKey] || 0);
     const airBonus = colonel ? COLONEL_AIR_DAMAGE_BONUS + stacks * COLONEL_AIR_STACK_BONUS : 0;
-    const neverSurrenderAtk = getNeverSurrenderStatBonus(gameState, launcherTile.camp);
+    const neverSurrenderAtk = getNeverSurrenderAttackBonus(gameState, launcherTile.camp);
     const missingBonus = missingHpBonus
         ? Math.min(15, Math.floor(((target.maxHp - target.hp) / target.maxHp) * 20))
         : 0;
@@ -4158,11 +4207,9 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         + getNeverSurrenderStatBonus(gameState, target.camp);
     // 轰炸破甲：只对要塞单位（城市驻军/碉堡/岸防炮）生效。
     if (isStrongpointTarget(target)) ordinaryDefense = Math.max(0, ordinaryDefense - 0.25);
-    let antiAir = getAntiAirReduction(target.tile, launcherTile.camp, gameState.tileMap, {
-        state: gameState,
-        bypassPct: antiAirBypassPct
-    });
-    if (colonel) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
+    ordinaryDefense -= getFireSeaDefenseReduction(target);
+    let antiAir = getAntiAirReduction(target.tile, launcherTile.camp, gameState.tileMap, { state: gameState });
+    if (colonel && allowAntiAirPierce) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
     const reduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, ordinaryDefense + antiAir);
     return {
         damage: Math.max(1, Math.round(power * multiplier
@@ -4206,7 +4253,7 @@ function _resolveCityBombingSiegeDamage(basePower, multiplier, targetTile, launc
     const campKey = _campKey(launcherTile.camp);
     const stacks = Math.min(COLONEL_AIR_MAX_STACKS, gameState._colonelAirStacks?.[campKey] || 0);
     const airBonus = colonel ? COLONEL_AIR_DAMAGE_BONUS + stacks * COLONEL_AIR_STACK_BONUS : 0;
-    const neverSurrenderAtk = getNeverSurrenderStatBonus(gameState, launcherTile.camp);
+    const neverSurrenderAtk = getNeverSurrenderAttackBonus(gameState, launcherTile.camp);
     const power = basePower + commanderAttackBonus;
     const floatMultiplier = launcherTile.unit
         ? gameState.rng.range(COMBAT_BALANCE.float.attack.min, COMBAT_BALANCE.float.attack.max)
@@ -4290,7 +4337,12 @@ function _attackCityTile(attackerUnit, targetTile, options) {
     const poolHpBeforeSiege = Math.max(0, poolTile.hp || 0);
     const barrageStartedAt = performance.now();
     damageCityPool(targetTile, result.damage, gameState.tileMap);
-    if (attackerUnit.type === 'ru_katyusha') stageKatyushaHealth(poolTile, poolHpBeforeSiege, poolTile.hp, barrageStartedAt);
+    const isKatyusha = attackerUnit.type === 'ru_katyusha';
+    let katyushaSplash = null;
+    if (isKatyusha) {
+        stageKatyushaHealth(poolTile, poolHpBeforeSiege, poolTile.hp, barrageStartedAt);
+        katyushaSplash = resolveKatyushaSplash(attackerUnit, targetTile, barrageStartedAt);
+    }
     poolTile._citySiegeDamageRound = getRoundIndex(gameState);
     // 鹰链：航母舰载机（空军）与要塞单位的攻城结构伤害按血池剩余截断计入
     if (isEagleAirAttacker(attackerUnit) || isEagleFortressAttacker(attackerUnit)) {
@@ -4343,7 +4395,7 @@ function _attackCityTile(attackerUnit, targetTile, options) {
             triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
         };
         if (attackerUnit.type === 'fr_heavy_cannon') spawnHeavyCannonShell(fromX, fromY, toX, toY, isCrit);
-        else if (attackerUnit.type === 'ru_katyusha') spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit, impact, { startedAt: barrageStartedAt });
+        else if (isKatyusha) spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit, impact, { startedAt: barrageStartedAt, splash: katyushaSplash });
         else spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
     } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
         spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {
@@ -4393,6 +4445,7 @@ function _attackCityTile(attackerUnit, targetTile, options) {
         x: targetTile.x, y: targetTile.y,
         damage: result.damage, isCrit: result.isCrit,
         cityHpAfter: targetTile.hp, cityCaptured,
+        specializationSplashResults: katyushaSplash?.length ? katyushaSplash : null,
         eagleSynergyEvents: siegeEagleSynergyEvents.length ? siegeEagleSynergyEvents : null
     });
     return true;
@@ -4437,10 +4490,10 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
     }
 
     const results = [];
-    let fireSeaTiles = [];
+    const commandCost = getAirCommandCost(kind, launcherTile, gameState);
     let destroyedFortification = null;
     if ((kind === 'strafe' || kind === 'stukaDiveBomb')
-        && !canTargetWithSingleAirCommand(targetTile, launcherTile.camp, gameState)) return false;
+        && !canTargetWithSingleAirCommand(targetTile, launcherTile.camp, gameState, kind === 'stukaDiveBomb')) return false;
     if (kind === 'strafe') {
         const target = targetTile.unit;
         if (target) {
@@ -4453,7 +4506,6 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
         } else {
             return false;
         }
-        fireSeaTiles = [targetTile];
         // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
         playSound('airstrike');
         spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'diveStrafe', targetTile.q, targetTile.r);
@@ -4481,7 +4533,6 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
                 results.push({ q: tile.q, r: tile.r, damage: result.damage, isCrit: result.isCrit, isCitySiege: true });
             }
         }
-        fireSeaTiles = affected;
         const engineerProtectedAirfield = targetTile.isCity
             && targetTile.installation?.type === 'airfield'
             && targetTile.installation.status === 'ready'
@@ -4497,24 +4548,10 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
         playSound('airstrike');
     } else if (kind === 'stukaDiveBomb') {
         const target = targetTile.unit;
-        if (target) {
-            const result = _resolveAirCommandDamage(
-                AIRFIELD_BASE_POWER, config.multiplier, target, launcherTile,
-                { antiAirBypassPct: config.antiAirBypassPct || 0 }
-            );
-            results.push({ q: targetTile.q, r: targetTile.r, unitId: target.id, damage: result.damage, killed: false, isCrit: result.isCrit, dodged: !!result.dodged });
-        } else if ((targetTile.isCity || targetTile.isUrban) && targetTile.hp > 0 && canAttack(gameState, launcherTile.camp, targetTile.camp)) {
-            const result = _resolveCityBombingSiegeDamage(
-                AIRFIELD_BASE_POWER, config.multiplier, targetTile, launcherTile,
-                { antiAirBypassPct: config.antiAirBypassPct || 0 }
-            );
-            results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed: false, isCrit: result.isCrit, isCitySiege: true });
-        } else {
-            return false;
-        }
-        fireSeaTiles = [targetTile];
+        const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, config.multiplier, target, launcherTile, { allowAntiAirPierce: false });
+        results.push({ q: targetTile.q, r: targetTile.r, unitId: target.id, damage: result.damage, killed: false, isCrit: result.isCrit, dodged: !!result.dodged });
         playSound('airstrike');
-        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'stukaDiveBomb', targetTile.q, targetTile.r, null, null, launcherTile.camp);
+        playStukaStrafe(targetTile, results, launcherTile.camp);
     } else if (kind === 'airdrop') {
         if (!canAirCommandAirdropAt(targetTile) || !isVisibleForAction(targetTile, launcherTile.camp, gameState)) return false;
         const unit = new Unit('infantry', launcherTile.camp, targetTile, true);
@@ -4546,13 +4583,6 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
     const fireSeaCoords = [];
     const startedAt = performance.now();
     const impactAt = startedAt + (impactDelay || 0);
-    if (isCampCulture(gameState, launcherTile.camp, 'de')) {
-        for (const fireTile of new Set(fireSeaTiles)) {
-            if (!applyFireSeaToTile(fireTile, launcherTile.camp, gameState)) continue;
-            fireTile._fireSeaVisualDelayUntil = impactAt;
-            fireSeaCoords.push({ q: fireTile.q, r: fireTile.r });
-        }
-    }
     if (Number.isFinite(impactDelay)) {
         const airCampKey = _campKey(launcherTile.camp);
         gameState._pendingEagleSynergyEvents = [];
@@ -4579,6 +4609,11 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
                         eagleDeferred: false
                     });
                     hit.hpDamage = Math.max(0, before - unit.hp);
+                    if (!hit.killed && tile === targetTile && (kind === 'bombing' || kind === 'stukaDiveBomb')
+                        && applyFireSeaToUnit(unit, launcherTile.camp, gameState)) {
+                        unit._fireSeaVisualDelayUntil = impactAt;
+                        fireSeaCoords.push({ q: tile.q, r: tile.r, unitId: unit.id });
+                    }
                 } else {
                     hit.hpDamage = 0;
                 }
@@ -4612,7 +4647,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
         launcherR: launcherTile.r,
         targetQ: targetTile.q,
         targetR: targetTile.r,
-        cost: config.cost,
+        cost: commandCost,
         readyRound: launcherTile.installation?.airCommandReadyRound?.[kind] ?? 0,
         destroyedFortification,
         fireSeaCoords,
@@ -4707,7 +4742,7 @@ export function executeDroneSuicide(droneUnit, targetTile) {
     droneUnit.canAct = false;
     droneUnit.hp = 0;
     droneUnit.destroy(null);
-    clearselection();
+    clearselection({ preserveInspection: gameState.aiActing });
     recalcAllFlankingMorale();
     if (gameState.skirmishFog) _updateSkirmishFogAll();
     updateRecruitCostDisplay();
@@ -4758,6 +4793,26 @@ export function executeRiverGateSwitch(tile) {
         q: tile.q, r: tile.r, x: tile.x, y: tile.y,
         openLane
     });
+    return true;
+}
+
+export function executeHeavyCannonStance(unit) {
+    if (unit?.type !== 'fr_heavy_cannon' || unit.camp !== gameState.currentCamp
+        || unit.tile?.unit !== unit || unit.hp <= 0 || unit._imprisoned || unit.isEmbarked
+        || unit.isNewRecruit || !unit.canAct || getHeavyCannonStanceCooldown(unit, gameState) > 0
+        || gameState.gameOver || (isNetworkGame() && !gameState.aiActing && !isMyTurn(unit.camp))) return false;
+    unit._heavyCannonDeployed = !isHeavyCannonDeployed(unit);
+    unit._heavyCannonStanceReadyRound = getRoundIndex(gameState) + 2;
+    unit.remainingMP = unit._heavyCannonDeployed || unit.movedThisTurn ? 0 : unit.getEffectiveSpeed();
+    const label = unit._heavyCannonDeployed ? '架设部署' : '机动收起';
+    spawnCommanderSkillEffect(unit.tile.x, unit.tile.y, '⚙️', label);
+    if (gameState.selectedUnit === unit) {
+        gameState.movableTiles = getMovableTiles(unit);
+        gameState.attackableTiles = getAttackableTiles(unit);
+        refreshChainAttackPlans(unit);
+    }
+    updateUI();
+    broadcastAction('heavyCannonStance', { q: unit.tile.q, r: unit.tile.r, label });
     return true;
 }
 
@@ -4906,7 +4961,7 @@ export function executeBanzaiCharge(unit, targetTile) {
 
     recalcAllFlankingMorale();
     if (gameState.skirmishFog) _updateSkirmishFogAll();
-    clearselection();
+    clearselection({ preserveInspection: gameState.aiActing });
     updateUI();
     broadcastAction('banzaiCharge', {
         unitId: unit.id,

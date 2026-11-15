@@ -12,6 +12,7 @@ import { W, hpGold, residualGold } from './weights.js';
 import { enemyCapturerPremium } from './tactics.js';
 import { resolveTargetingPreview } from '../../rules/targeting.js';
 import { isHealingBlocked } from '../../rules/healing.js';
+import { getHistoricalCost } from '../../rules/cultures.js';
 
 const BAL = TACTICAL_CARD_DATA;
 
@@ -68,7 +69,7 @@ export function planCards(world, strategy, missionsCtx) {
         memory.cardHandSinceRound = world.round;
     }
     const needsPurification = world.myUnits.some(unit => unit._poison) && !has('heal');
-    const circulate = world.handFull && world.gold - strategy.reserve >= (world.cardConfig.drawCost || 4)
+    const circulate = world.handFull && world.gold - strategy.reserve >= getHistoricalCost(world.cardConfig.drawCost || 4, world.gameState, world.myCamp)
         && (needsPurification || world.round - memory.cardHandSinceRound >= 3);
     const legalTiles = cardId => resolveTargetingPreview(world.gameState,
         { cardId, targeting: BAL[cardId].targeting }, {
@@ -365,7 +366,7 @@ export function planCards(world, strategy, missionsCtx) {
 export function shouldDrawCard(world, strategy, plannedRecruitSpend = 0, plannedCardUses = 0) {
     if (world.cardDrawsLeft <= 0 || (world.handFull && plannedCardUses === 0)) return false;
     const drawsDone = (world.cardConfig.maxDrawsPerTurn || 2) - world.cardDrawsLeft;
-    const cost = (world.cardConfig.drawCost || 4) * (1 + drawsDone);
+    const cost = getHistoricalCost((world.cardConfig.drawCost || 4) * (1 + drawsDone), world.gameState, world.myCamp);
     const affordable = world.gold - cost - plannedRecruitSpend - strategy.reserve >= 0;
     if (!affordable) return false;
     const needsAnswer = (world.myUnits.some(u => u._poison) && !world.hand.includes('heal'))

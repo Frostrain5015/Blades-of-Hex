@@ -52,17 +52,17 @@ export async function run(browser) {
         construction?.click();
         const constructionCardCount = document.querySelectorAll('#choiceModalGrid .specialization-card').length;
         const constructionOverlayOpen = document.getElementById('weatherChoiceOverlay')?.classList.contains('show');
-        assert(constructionOverlayOpen && constructionCardCount === 5,
-        `单击常驻建设按钮打开包含五种工事的二级弹窗（open=${constructionOverlayOpen}, cards=${constructionCardCount}）`);
+        assert(constructionOverlayOpen && constructionCardCount === 4,
+        `单击常驻建设按钮打开包含四种工事的二级弹窗（open=${constructionOverlayOpen}, cards=${constructionCardCount}）`);
         const constructionCards = [...document.querySelectorAll('#choiceModalGrid .specialization-card')];
         assert(constructionCards[0]?.disabled === false && constructionCards[1]?.disabled === false,
         `可行动地面单位的战壕与高射机枪选项正常启用（disabled=${constructionCards.slice(0, 2).map(card => card.disabled).join(',')}）`);
         const constructionCosts = [...document.querySelectorAll('#choiceModalGrid .specialization-stat')].map(node => node.textContent).join('|');
-        assert(constructionCosts === '费用 $1|费用 $1|费用 $7|费用 $10|费用 $15', `工程师折扣在二级弹窗中统一展示（${constructionCosts}）`);
-        constructionCards[4]?.click();
-        const laserPreview = targeting.resolveTargetingPreview(gameState, gameState.cardTargeting, { myCamp: CAMP.player1 });
-        assert(gameState.cardTargeting?.cardId === 'build_laser_tower'
-            && laserPreview.candidateTileKeys.has('1,0'), `激光塔按钮进入选址且显示6格内非己方空地为合法目标（card=${gameState.cardTargeting?.cardId || 'none'}, candidates=${[...laserPreview.candidateTileKeys].join('|')}）`);
+        assert(constructionCosts === '费用 $1|费用 $1|费用 $7|费用 $10', `工程师折扣在二级弹窗中统一展示（${constructionCosts}）`);
+        constructionCards[2]?.click();
+        const bunkerPreview = targeting.resolveTargetingPreview(gameState, gameState.cardTargeting, { myCamp: CAMP.player1 });
+        assert(gameState.cardTargeting?.cardId === 'build_bunker'
+            && bunkerPreview.candidateTileKeys.has('1,0'), '碉堡按钮仍可进入选址并标出支援范围内的空地');
         gameState.cardTargeting = null;
 
         city.fortification = 'trench';

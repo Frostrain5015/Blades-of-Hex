@@ -958,6 +958,29 @@ body {
     pointer-events: none;
 }
 
+.recruit-btn-unique {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 3px 9px;
+    text-align: left;
+}
+.recruit-flag-badge {
+    display: block;
+    width: 28px;
+    height: 28px;
+}
+.recruit-btn-unique .unit-type {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+}
+.recruit-btn-unique .unit-cost {
+    margin-top: 0;
+    white-space: nowrap;
+}
+
 .unit-glyph {
     font-size: 21px;
     font-weight: bold;
@@ -6243,6 +6266,9 @@ body.campaign-game-active .camp-card .camp-label {
     .turn-name  { font-size: 15px; }
     .tool-btn { font-size: 14px; padding: 3px 5px; }
     .recruit-btn { padding: 5px 3px 4px; gap: 1px; }
+    .recruit-btn-unique { padding: 3px 7px; gap: 6px; }
+    .recruit-flag-badge { width: 23px; height: 23px; }
+    .recruit-btn-unique .unit-type { font-size: 10px; }
     .unit-glyph { font-size: 17px; }
     .unit-type  { font-size: 8px; }
     .unit-cost  { font-size: 11px; }

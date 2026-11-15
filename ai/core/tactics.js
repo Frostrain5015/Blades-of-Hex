@@ -15,13 +15,81 @@ import {
 import { assessSiegeMission } from '../strategy.js';
 import { W, hpGold, noiseJitter, residualGold, tradeNetValue } from './weights.js';
 import { isFieldCapturer } from './roster.js';
-import { isPortOperationalFor } from '../../rules/naval.js';
+import { isCoastalLandTile, isPortOperationalFor, isWaterborneUnit, ROYAL_ESCORT_RADIUS } from '../../rules/naval.js';
+import { isWaterTile } from '../../rules/surfaces.js';
+import { getKmtLinkedUnits } from '../../rules/kmtStronghold.js';
 import { getUnitBaseType } from '../../rules/units.js';
-import { BANZAI_CHARGE_CONFIG, getBanzaiBonusDamage, getBanzaiCooldown } from '../../rules/cultures.js';
+import { BANZAI_CHARGE_CONFIG, getActiveCultureId, getBanzaiBonusDamage, getBanzaiCooldown, getFireSeaState, getNeverSurrenderStacks } from '../../rules/cultures.js';
 import { getBanzaiChargePath } from '../../rules/targeting.js';
 
 const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
+
+function historicalAttackValue(world, attacker, target, damage, kills) {
+    const distance = world.helpers.hexDistance;
+    switch (getActiveCultureId(world.gameState, attacker.camp || world.myCamp)) {
+        case 'de':
+            return getFireSeaState(target) ? 8 : 0;
+        case 'gb':
+            return getNeverSurrenderStacks(world.gameState, attacker.camp) < 4 && !kills && !attacker.tile.isCity ? -5 : 0;
+        case 'ru': {
+            if (attacker.type !== 'ru_katyusha') return world.weather !== 'clear' && kills ? 4 : 0;
+            const splash = [...world.rivalUnits, ...world.neutralUnits].filter(unit => unit !== target
+                && distance(unit.tile, target.tile) === 1);
+            return splash.reduce((value, unit) => value + Math.min(unit.hp, damage * 0.35) * hpGold(unit) + 3, 0)
+                + (!kills && (target.morale === 1 || target.morale === 2) ? 7 : 0);
+        }
+        case 'jp':
+            return kills ? Math.min(attacker.maxHp * 0.2, (attacker.maxHp - attacker.hp) * 0.2) * hpGold(attacker) : 0;
+        case 'us':
+            return attacker.type === 'us_marine' && (isWaterborneUnit(target) || isWaterborneUnit(attacker)) ? 8 : 0;
+        case 'cpc':
+            return attacker.type === 'cpc_guerrilla' && !world.rivalUnits.some(unit => unit !== target
+                && distance(unit.tile, target.tile) === 1) ? 8 : 0;
+        default:
+            return 0;
+    }
+}
+
+function historicalPositionValue(world, unit, tile) {
+    const distance = world.helpers.hexDistance;
+    const hasCover = tile.terrain === 'forest' || tile.terrain === 'mountain';
+    switch (getActiveCultureId(world.gameState, unit.camp || world.myCamp)) {
+        case 'gb': {
+            if (!isWaterTile(tile)) return 0;
+            if (unit.type === 'gb_battleship') return world.myUnits.filter(ally => ally !== unit
+                && isWaterborneUnit(ally) && distance(tile, ally.tile) <= ROYAL_ESCORT_RADIUS).length * 10;
+            const flagshipDistance = Math.min(Infinity, ...world.myUnits.filter(ally => ally.type === 'gb_battleship')
+                .map(ally => distance(tile, ally.tile)));
+            return flagshipDistance <= ROYAL_ESCORT_RADIUS ? 18 : flagshipDistance === 3 ? 5 : 0;
+        }
+        case 'fr': {
+            if (unit.type !== 'fr_heavy_cannon') return 0;
+            const range = unit.getEffectiveRange?.() ?? unit.config.range;
+            const distances = [...world.rivalUnits, ...world.neutralUnits].map(enemy => distance(tile, enemy.tile));
+            const cityArc = world.cities.some(city => city.ownerKey !== world.myCampKey && !city.garrison && city.hp > 0
+                && distance(tile, city.tile) >= 2 && distance(tile, city.tile) <= range);
+            const targets = distances.filter(steps => steps >= 2 && steps <= range).length;
+            return Math.min(3, targets) * 18 + (cityArc ? 15 : 0) + (hasCover && targets ? 6 : 0) - (distances.includes(1) ? 25 : 0);
+        }
+        case 'us':
+            return unit.type === 'us_marine' && (tile.isPort || isCoastalLandTile(tile, world.gameState)) ? 15 : 0;
+        case 'kmt': {
+            if (unit.type !== 'kmt_training_brigade' || !getKmtLinkedUnits(unit, world.gameState).length) return 0;
+            if (isWaterTile(tile)) return -35;
+            const allies = world.myUnits.filter(ally => ally !== unit && !ally.isEmbarked && distance(tile, ally.tile) === 1);
+            return (tile.isCity || tile.isUrban || tile.fortification || hasCover ? 22 : 0) + Math.min(4, allies.length) * 7;
+        }
+        case 'cpc': {
+            const scoutSite = world.gameState.skirmishFog && tile.isVillage && tile !== unit.tile
+                && !tile.unit && world.cities.some(city => city.tile.districtId === (tile.villageDistrictId ?? tile.districtId)
+                    && city.ownerKey !== world.myCampKey);
+            return (scoutSite ? 20 : 0) + (unit.type === 'cpc_guerrilla' && hasCover ? 12 : 0);
+        }
+        default:
+            return 0;
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // 攻击评估
@@ -159,11 +227,11 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
             counterDamage: counter, attacker
         });
     const strategic = missionTargetBonus(world, missionsCtx, target, kills)
+        + historicalAttackValue(world, attacker, target, damage, kills)
         + enemyCapturerPremium(world, target)
         + conversionBonus(world, attacker, target)
         + escortProtectionBonus(world, missionsCtx, attacker, target)
         + scoreTacticalRoleMatchup(attacker, target) * 0.3
-        + (target.type === 'laserTower' ? W.laserTowerPriority : 0)
         + (target.commander ? 30 : 0)
         + ((target._rank || 0) >= 3 ? 40 : 0); // 高 rank 王牌：放任不管会被它一个个点名
     // 攻击位置暴露成本：攻击完单位留在原地，敌方回合按当前位置的威胁预扣。
@@ -419,7 +487,8 @@ function planMove(world, missionsCtx, unit, posture, actions) {
     const rallyPoint = !mission ? primaryRallyPoint(world, missionsCtx) : null;
 
     let bestTile = null;
-    let bestScore = retreating ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission);
+    let bestScore = retreating ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission)
+        + historicalPositionValue(world, unit, unit.tile);
     for (const tile of movable) {
         if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
         if (protectCommander && !retreating) {
@@ -433,6 +502,7 @@ function planMove(world, missionsCtx, unit, posture, actions) {
         const missionScore = missionMoveBonus(world, missionsCtx, unit, tile, posture);
         let score = missionScore.bonus
             + captureTileBonus(world, unit, tile)
+            + historicalPositionValue(world, unit, tile)
             + attackPotential(world, missionsCtx, unit, tile);
         // 散兵：有攻城任务时向占领者集结，否则向最近敌对城市缓慢施压。
         if (!mission) {
@@ -633,7 +703,6 @@ function planLethalFocus(world, missionsCtx, actions, processed) {
         }
         const priority = residualGold(target)
             + (target.commander ? W.commanderKillBonus : 0)
-            + (target.type === 'laserTower' ? W.laserTowerPriority : 0)
             + enemyCapturerPremium(world, target);
         candidates.push({ target, selected, priority });
     }

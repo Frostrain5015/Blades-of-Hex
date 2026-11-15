@@ -141,7 +141,6 @@ export const W = Object.freeze({
     siegeSupportPerAssault: 3,
     // 决胜城市的驻军即使本回合杀不完，也值得持续压低生命值。
     decisiveGarrisonProgressRatio: 0.16,
-    laserTowerPriority: 32,
     rearCommanderRiskMultiplier: 2.1,
     rearCommanderCityValue: 180
 });

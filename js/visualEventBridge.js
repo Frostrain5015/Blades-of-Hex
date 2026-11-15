@@ -13,7 +13,6 @@ import {
     spawnSoulRecallEffect,
     spawnCoinRain,
     spawnCelestineOracleBeam,
-    spawnLaserBeam,
     spawnDodgeShimmer,
     spawnFreeResistanceWave,
     spawnRingWave,
@@ -244,18 +243,6 @@ on('fx:celestineOraclePulse', event => {
             } else {
                 shieldImpact();
             }
-        }
-    }
-});
-// 同一轮齐射共用起始时刻，每座塔只绘制一个充能环。
-on('fx:laserTowerVolley', ({ volleys, startedAt }) => {
-    for (const volley of volleys) {
-        if (!Number.isFinite(volley?.x) || !Number.isFinite(volley?.y)) continue;
-        let drawCharge = true;
-        for (const hit of volley.hits || []) {
-            if (!Number.isFinite(hit?.x) || !Number.isFinite(hit?.y)) continue;
-            spawnLaserBeam(volley.x, volley.y, hit.x, hit.y, { startedAt, drawCharge, killed: hit.killed });
-            drawCharge = false;
         }
     }
 });

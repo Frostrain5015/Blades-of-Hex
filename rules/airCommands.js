@@ -4,7 +4,7 @@ import { isMechanicEnabled } from './mechanics.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { areCommanderMechanicsSuppressed, isLandDeploymentTile } from './movement.js';
 import { isCityDisabled } from './citySiege.js';
-import { hasNegativeWeatherImmunity, isCampCulture } from './cultures.js';
+import { getHistoricalCost, hasNegativeWeatherImmunity, isCampCulture } from './cultures.js';
 import { canAttack } from './diplomacy.js';
 import { isUnitVisibleToCamp } from './visibility.js';
 import astrologerDef from '../commander/astrologer.js';
@@ -16,7 +16,7 @@ export const AIR_COMMAND_CONFIG = Object.freeze({
     bombing: Object.freeze({ name: '轰炸', icon: '💣', cost: 5, range: AIRFIELD_BASE_RANGE, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 1, desc: '对目标及其相邻地块造成范围空军伤害（溅射伤害为原本的一半），命中要塞单位时无视敌人25%的防御力。' }),
     airdrop: Object.freeze({ name: '空降', icon: '🪂', cost: 10, range: AIRFIELD_BASE_RANGE, cooldown: 3, targeting: 'emptyTile', multiplier: 0, desc: '在空地或无驻军的破城投放一名步兵，可直接占城。' }),
     recon: Object.freeze({ name: '侦察机', icon: '🔭', cost: 4, range: AIRFIELD_BASE_RANGE, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 0, desc: '侦察目标区域并驱散迷雾（半径1~2格，持续1~2回合）。' }),
-    stukaDiveBomb: Object.freeze({ name: '斯图卡俯冲轰炸', icon: '🦅', cost: 6, range: AIRFIELD_BASE_RANGE, cooldown: 2, targeting: 'enemyGlobal', multiplier: 1.30, antiAirBypassPct: 0.50, cultureId: 'de', desc: '德国专属俯冲轰炸：重创单体目标并无视敌方50%防空火力减伤（命中后在目标地块附加2回合火海）。' })
+    stukaDiveBomb: Object.freeze({ name: '斯图卡俯冲射击', icon: '🦅', cost: 2, range: AIRFIELD_BASE_RANGE, cooldown: 0, targeting: 'enemyGlobal', multiplier: 0.45, cultureId: 'de', desc: '俯冲扫射指定单体目标并附加「火海」。' })
 });
 
 export const AIRFIELD_BASE_POWER = 50;
@@ -28,7 +28,7 @@ export const COLONEL_ANTI_AIR_PIERCE = 0.15;
 export const AIR_COMMAND_IMPACT_DELAY_MS = Object.freeze({
     strafe: 1200,
     bombing: 1200,
-    stukaDiveBomb: 1200
+    stukaDiveBomb: 1000
 });
 
 /**
@@ -98,12 +98,16 @@ export function isAirfieldGrounded(cityTile, state) {
         && !astrologerDef.isInWeatherShield(cityTile, null, state.tileMap);
 }
 
-export function canTargetWithSingleAirCommand(tile, camp, state) {
+export function canTargetWithSingleAirCommand(tile, camp, state, unitOnly = false) {
     if (!tile) return false;
     const target = tile.unit;
     if (target) return target._campaignTargetable !== false && canAttack(state, camp, target.camp)
         && isUnitVisibleToCamp(target, camp, state);
-    return (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0 && canAttack(state, camp, tile.camp);
+    return !unitOnly && (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0 && canAttack(state, camp, tile.camp);
+}
+
+export function getAirCommandCost(kind, cityTile, state) {
+    return getHistoricalCost(AIR_COMMAND_CONFIG[kind]?.cost ?? Infinity, state, cityTile?.camp);
 }
 
 export function getAirCommandAvailability(kind, cityTile, state) {
@@ -121,13 +125,13 @@ export function getAirCommandAvailability(kind, cityTile, state) {
     const currentRound = getRoundIndex(state);
     const readyRound = installation.airCommandReadyRound?.[kind];
     const legacyCooldown = installation.cooldowns?.[kind] || 0;
-    const cooldown = Number.isFinite(readyRound)
+    const cooldown = config.cooldown === 0 ? 0 : Number.isFinite(readyRound)
         ? Math.max(0, readyRound - currentRound)
         : Math.max(0, legacyCooldown);
     if (cooldown > 0) return { available: false, reason: `冷却${cooldown}回合`, cooldown };
     if (kind === 'recon' && (!state.skirmishFog || state.campaignMode)) return { available: false, reason: '仅遭遇战迷雾可用' };
     const campKey = campToKey(cityTile.camp);
-    if ((state.playerGold?.[campKey] || 0) < config.cost) return { available: false, reason: '金币不足' };
+    if ((state.playerGold?.[campKey] || 0) < getAirCommandCost(kind, cityTile, state)) return { available: false, reason: '金币不足' };
     return { available: true, reason: '', range: getAirCommandRange(cityTile), cooldown: 0 };
 }
 
@@ -136,7 +140,7 @@ export function markAirCommandUsed(kind, cityTile, state) {
     if (!config || !cityTile?.installation) return;
     cityTile.installation.airCommandReadyRound ||= {};
     // R 回合使用后，冷却 N 回合意味着 R+N+1 回合恢复。
-    cityTile.installation.airCommandReadyRound[kind] = getRoundIndex(state) + config.cooldown + 1;
+    cityTile.installation.airCommandReadyRound[kind] = config.cooldown ? getRoundIndex(state) + config.cooldown + 1 : 0;
     if (cityTile.installation.cooldowns) cityTile.installation.cooldowns[kind] = 0;
-    state.playerGold[campToKey(cityTile.camp)] -= config.cost;
+    state.playerGold[campToKey(cityTile.camp)] -= getAirCommandCost(kind, cityTile, state);
 }

@@ -11,13 +11,13 @@ import {
     getBorderlessBoundaryTopology, getBorderlessVisualGrid, drawVisualFillerTile, drawVisualFillerTiles
 } from './militaryMap.js';
 import { resolveAntiAirCoverage } from '../rules/antiAir.js';
+import { getHistoricalCost } from '../rules/cultures.js';
 import { getRiverGate, getRiverGateOpenLane, isRiverSegmentFlooded } from '../rules/riverGate.js';
 import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
 import { drawFireSeaTile, resolveFireSeaVisual } from './fireSeaPresentation.js';
 import { getKmtLinkedUnits, isKmtLinkMember } from '../rules/kmtStronghold.js';
 import { drawKmtLinkParticles, drawKmtStrongholdLink, drawKmtStrongholdImpacts } from './kmtStrongholdEffects.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
-import { AIR_COMMAND_IMPACT_DELAY_MS } from '../rules/airCommands.js';
 import {
     particles, attackFlashes, confettiPieces, screenShake, turnFlash,
     drawAttackFlashes, drawSlashMarks, drawSoftFlashes, drawConfetti, updateConfetti,
@@ -34,7 +34,6 @@ import {
     spawnCardCopyEffect,
     coinParticles, updateCoinParticles, drawCoinParticles,
     airstrikeEffects, airliftEffects, celestineOracleBeams,
-    drawLaserBeams, updateLaserBeams,
     bloodMoonSlashes, updateBloodMoonSlashes, drawBloodMoonSlashes,
     updateHeavyCannonShells, drawHeavyCannonShells,
     updateKatyushaRockets, drawKatyushaRockets, getKatyushaPresentedHealth,
@@ -63,7 +62,7 @@ import {
     drawOperationPreview,
     OPERATION_PREVIEW_ACTIONS
 } from './operationPreviewRenderer.js';
-import { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, getDiveStrafePlanePosition, getStukaFlightPosition, operationArrowStyleForAttacker, STUKA_BOMB_RELEASE_PROGRESS } from '../rules/attackPresentation.js';
+import { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, getDiveStrafePlanePosition, getStukaFlightPosition, operationArrowStyleForAttacker } from '../rules/attackPresentation.js';
 import {
     getTargetingAreaTiles,
     resolveTargetingPreview,
@@ -559,7 +558,6 @@ function _renderGame() {
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
     frameInfo.now = now;
-    updateLaserBeams(now);
 
     // 屏幕震动
     if (screenShake.time > 0) {
@@ -1145,8 +1143,6 @@ function _renderGame() {
     drawCelestineOracleStatues(now);
     // 神谕指引光束（神像→神罚/赐福目标）：与神像同层，覆于战争迷雾之上
     drawCelestineOracleBeams(now);
-    // 激光塔【集束激光】齐射光束（塔位→命中目标）：与神谕光束同层，覆于战争迷雾之上
-    drawLaserBeams(ctx, now);
 
     ctx.restore();
 
@@ -1247,8 +1243,8 @@ function drawAirstrikeEffects(now) {
         const t = elapsed / fx.duration;
         const cx = fx.x, cy = fx.y;
 
-        // 德国专属空军指令：斯图卡俯冲轰炸（大角度俯冲 + 重型航弹 + 炽烈冲击波）
-        if (fx.type === 'stukaDiveBomb') {
+        // 德国专属空军指令：斯图卡俯冲射击
+        if (fx.type === 'stukaStrafe') {
             const { x: px, y: py, angle: ang } = getStukaFlightPosition(cx, cy, LOGICAL_W, t);
             if (!settings.reducedMotion) {
                 ctx.save();
@@ -1306,42 +1302,6 @@ function drawAirstrikeEffects(now) {
                 _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 11 + (fx.y | 0) * 17, _ac);
             }
 
-            const impact = AIR_COMMAND_IMPACT_DELAY_MS.stukaDiveBomb / fx.duration;
-            if (t >= STUKA_BOMB_RELEASE_PROGRESS && t < impact) {
-                const bp = ((t - STUKA_BOMB_RELEASE_PROGRESS) / (impact - STUKA_BOMB_RELEASE_PROGRESS)) ** 1.4;
-                const release = getStukaFlightPosition(cx, cy, LOGICAL_W, STUKA_BOMB_RELEASE_PROGRESS);
-                const bx = release.x + (cx - release.x) * bp;
-                const by = release.y + (cy - release.y) * bp;
-                ctx.save();
-                ctx.fillStyle = '#ff6a00';
-                ctx.shadowColor = '#ff3d00';
-                ctx.shadowBlur = 12;
-                ctx.beginPath();
-                ctx.arc(bx, by, 5.2, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            }
-
-            if (t >= impact && !fx.results?.[0]?.dodged) {
-                const exT = Math.min(1, (t - impact) / (1 - impact));
-                ctx.save();
-                ctx.strokeStyle = `rgba(255,110,30,${(1 - exT) * 0.88})`;
-                ctx.lineWidth = 4 - exT * 2.2;
-                ctx.shadowColor = '#ff4500';
-                ctx.shadowBlur = 14;
-                ctx.beginPath();
-                ctx.arc(cx, cy, 12 + exT * 48, 0, Math.PI * 2);
-                ctx.stroke();
-                for (let k = 0; k < 10; k++) {
-                    const a = (k / 10) * Math.PI * 2 + exT * 1.4;
-                    const d = 10 + exT * 38;
-                    ctx.fillStyle = `rgba(255,${120 + (k % 3) * 45},20,${(1 - exT) * 0.9})`;
-                    ctx.beginPath();
-                    ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 3.2 * (1 - exT * 0.6), 0, Math.PI * 2);
-                    ctx.fill();
-                }
-                ctx.restore();
-            }
             continue;
         }
 
@@ -1959,9 +1919,11 @@ function _drawRankUpIconEffect(fx, elapsed) {
 
 function _drawFireSeaTiles(tiles, now) {
     for (const tile of tiles) {
-        if (!tile.fireSea && !tile._fireSeaVisual) continue;
-        const visual = resolveFireSeaVisual(tile, now);
-        if (visual) drawFireSeaTile(ctx, tile, visual, HEX_SIZE, now, settings.reducedMotion);
+        const unit = tile.unit;
+        if (!unit || (!unit.fireSea && !unit._fireSeaVisual)) continue;
+        const visual = resolveFireSeaVisual(unit, now);
+        if (visual) drawFireSeaTile(ctx, { q: tile.q, r: tile.r, ...getUnitVisualPos(unit) },
+            visual, HEX_SIZE, now, settings.reducedMotion);
     }
 }
 
@@ -3026,7 +2988,7 @@ export function drawCardCanvas(now) {
             : (gameState.gameMode === 'pve'
                 ? (campToKey(gameState.currentCamp) === campKey && !isNeutralTurn)
                 : (gameState.currentCamp === myCamp && !isNeutralTurn));
-    const currentDrawCost = gameState.playerDrawsThisTurn[campKey] === 0 ? CARD_SYSTEM_CONFIG.drawCost : CARD_SYSTEM_CONFIG.drawCost * 2;
+    const currentDrawCost = getHistoricalCost(CARD_SYSTEM_CONFIG.drawCost * (1 + (gameState.playerDrawsThisTurn[campKey] || 0)), gameState, myCamp);
     const canDraw = isMyTurn && !gameState.cardTargeting
         && hand.length < CARD_SYSTEM_CONFIG.maxHandSize
         && gameState.playerDrawsThisTurn[campKey] < CARD_SYSTEM_CONFIG.maxDrawsPerTurn

@@ -14,7 +14,6 @@ import {
     canBuildBunkerAt,
     canBuildFieldFortification,
     canBuildFieldFortificationAt,
-    canBuildLaserTowerAt,
     canBuildShoreBatteryAt,
     canBuildAirfieldAt,
     constructionCost,
@@ -151,11 +150,18 @@ test('常驻建设规则：防御建筑覆盖己方行政区，非己方行政�
     const ownedFar = { q: 12, r: 0, s: -12, surface: 'land', playable: true, camp, unit: null };
     const enemyAtSix = { q: DEFENSE_CONSTRUCTION_SUPPORT_RANGE, r: 0, s: -DEFENSE_CONSTRUCTION_SUPPORT_RANGE, surface: 'land', playable: true, camp: enemy, unit: null };
     const enemyAtSeven = { q: DEFENSE_CONSTRUCTION_SUPPORT_RANGE + 1, r: 0, s: -(DEFENSE_CONSTRUCTION_SUPPORT_RANGE + 1), surface: 'land', playable: true, camp: enemy, unit: null };
-    const state = { currentCamp: camp, mechanics: { fortifications: true }, tiles: [support, ownedFar, enemyAtSix, enemyAtSeven] };
+    const tiles = [support, ownedFar, enemyAtSix, enemyAtSeven];
+    const state = {
+        currentCamp: camp,
+        mechanics: { fortifications: true },
+        tiles,
+        tileMap: new Map(tiles.map(tile => [`${tile.q},${tile.r}`, tile]))
+    };
 
     assert.equal(canBuildBunkerAt(camp, ownedFar, state), true, '己方行政区不受部队距离限制');
-    assert.equal(canBuildLaserTowerAt(camp, enemyAtSix, state), true);
-    assert.equal(canBuildLaserTowerAt(camp, enemyAtSeven, state), false);
+    assert.equal(canBuildBunkerAt(camp, enemyAtSix, state), true);
+    assert.equal(canBuildBunkerAt(camp, enemyAtSeven, state), false);
+    assert.equal(resolveTargetingPreview(state, { cardId: 'build_laser_tower', targeting: 'emptyTile' }).candidateTiles.length, 0);
     enemyAtSix.unit = { hp: 100, camp };
     assert.equal(canBuildBunkerAt(camp, enemyAtSix, state), false, '防御建筑只能建在空地');
     enemyAtSix.unit = null;

@@ -2,6 +2,8 @@ import { campToKey } from './camps.js';
 import { hexDistance, HEX_NEIGHBORS } from './hex.js';
 import { getRoundIndex } from './turns.js';
 import { isLandTile, isWaterTile } from './surfaces.js';
+import { isFriendly } from './diplomacy.js';
+import { isCampCulture } from './cultures.js';
 import {
     isSubmarineDetector,
     hasSubmarineDetectorInRange,
@@ -35,6 +37,26 @@ export function isWaterborneUnit(unit) {
         || unit.isEmbarked === true
         || unit.type === 'us_marine'
     );
+}
+
+export const ROYAL_ESCORT_RADIUS = 2;
+export const ROYAL_ESCORT_DODGE = 0.12;
+
+export function getRoyalBattleshipAirReduction(unit, state) {
+    if (unit?.type !== 'gb_battleship' || unit.hp <= 0 || !isCampCulture(state, unit.camp, 'gb')) return 0;
+    return (unit._rank ?? unit.rank ?? 0) >= 3 ? 0.50 : 0.35;
+}
+
+export function getRoyalEscortBonus(unit, state) {
+    if (!isWaterborneUnit(unit)) return 0;
+    let reduction = 0;
+    for (const tile of state?.tiles || []) {
+        const escort = tile.unit;
+        if (!escort || !isFriendly(state, unit.camp, escort.camp)
+            || hexDistance(unit.tile, tile) > ROYAL_ESCORT_RADIUS) continue;
+        reduction = Math.max(reduction, getRoyalBattleshipAirReduction(escort, state));
+    }
+    return reduction;
 }
 
 export function isCoastalLandTile(tile, state) {

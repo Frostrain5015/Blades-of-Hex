@@ -16,24 +16,22 @@ function opacityAt(visual, now) {
 
 // Reapplications keep an existing fire burning through the new strike's flight.
 // The rule can expire immediately while its last visible flame fades out.
-export function resolveFireSeaVisual(tile, now) {
-    const fire = getFireSeaState(tile);
-    const startsAt = tile._fireSeaVisualDelayUntil || 0;
+export function resolveFireSeaVisual(unit, now) {
+    const fire = getFireSeaState(unit);
+    const startsAt = unit._fireSeaVisualDelayUntil || 0;
     const ready = fire && now >= startsAt;
-    let visual = tile._fireSeaVisual;
+    let visual = unit._fireSeaVisual;
     if (!visual && !ready) return null;
     if (!visual) {
-        visual = { from: 0, target: 1, changedAt: startsAt || now, layers: fire.layers };
+        visual = { from: 0, target: 1, changedAt: startsAt || now, layers: 1 };
     } else if (ready && visual.target === 0) {
-        visual = { from: opacityAt(visual, now), target: 1, changedAt: now, layers: fire.layers };
+        visual = { from: opacityAt(visual, now), target: 1, changedAt: now, layers: 1 };
     } else if (!fire && visual.target === 1) {
         visual = { ...visual, from: opacityAt(visual, now), target: 0, changedAt: now };
-    } else if (ready) {
-        visual.layers = fire.layers;
     }
-    if (now >= startsAt) tile._fireSeaVisualDelayUntil = 0;
+    if (now >= startsAt) unit._fireSeaVisualDelayUntil = 0;
     const alpha = opacityAt(visual, now);
-    tile._fireSeaVisual = !visual.target && alpha <= 0 ? null : visual;
+    unit._fireSeaVisual = !visual.target && alpha <= 0 ? null : visual;
     return alpha > 0 ? { alpha, layers: visual.layers } : null;
 }
 

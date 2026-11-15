@@ -4,6 +4,7 @@ import { campToKey } from './camps.js';
 import { isFriendly } from './diplomacy.js';
 import { hexDistance } from './hex.js';
 import { getRoundIndex } from './turns.js';
+import { isCampCulture } from './cultures.js';
 
 export const STEALTH_VISIBILITY_RULES = Object.freeze({
     guerrillaRevealRadius: 1,
@@ -87,7 +88,10 @@ export function isUnitVisibleToCamp(unit, viewerCamp, state) {
     if (isFriendly(state, unit.camp, viewerCamp)) return true;
 
     if (isStealthGuerrilla(unit)) {
-        return hasHostileUnitNear(unit, state, STEALTH_VISIBILITY_RULES.guerrillaRevealRadius, viewerCamp);
+        return hasHostileUnitNear(unit, state, STEALTH_VISIBILITY_RULES.guerrillaRevealRadius, viewerCamp)
+            || (state?.tiles || []).some(tile => tile.unit?.type === 'gb_battleship' && tile.unit.hp > 0
+                && isCampCulture(state, tile.unit.camp, 'gb') && isFriendly(state, tile.unit.camp, viewerCamp)
+                && hexDistance(tile, unit.tile) <= STEALTH_VISIBILITY_RULES.submarineDetectorRadius);
     }
 
     if (unit.type === 'submarine') {

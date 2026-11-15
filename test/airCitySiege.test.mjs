@@ -169,15 +169,18 @@ test('斯图卡立即结算原目标，动画期间换位不会重复扣血或�
         const enemy = new Unit('infantry', P2, target);
         const ally = new Unit('infantry', P1, reserve);
         assert.equal(gl.executeAirCommand('stukaDiveBomb', airfield, target), true);
-        assert.equal(enemy.hp, enemy.maxHp - 65);
-        assert.equal(target.fireSea.layers, 1);
+        assert.equal(enemy.hp, enemy.maxHp - 23);
+        assert.equal(enemy.fireSea.roundsRemaining, 2);
+        assert.equal(gameState.playerGold.player1, 98);
         enemy.tile = exit;
         exit.unit = enemy;
         reserve.unit = null;
         ally.tile = target;
         target.unit = ally;
         await sleep(1250);
-        assert.equal(enemy.hp, enemy.maxHp - 65);
+        assert.equal(enemy.hp, enemy.maxHp - 23);
+        assert.equal(enemy.fireSea.roundsRemaining, 2);
+        assert.equal(ally.fireSea, undefined);
         assert.equal(ally.hp, ally.maxHp);
     } finally {
         delete P1.flagPreset;

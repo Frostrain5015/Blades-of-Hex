@@ -14,7 +14,9 @@ export const NEVER_SURRENDER_CONFIG = Object.freeze({
     icon: '🇬🇧',
     roundsPerStack: 2,
     bonusPerStackPct: 0.025,
-    maxStacks: 6
+    maxStacks: 6,
+    attackCap: 0.10,
+    desc: '战局每进行2回合叠加1层，每层使己方全阵营单位攻击力与防御力各提高2.5%；攻击力最高提高10%，防御力最高提高15%。'
 });
 
 export const FREE_RESISTANCE_EFFECT = Object.freeze({
@@ -24,9 +26,9 @@ export const FREE_RESISTANCE_EFFECT = Object.freeze({
     radius: 1,
     durationRounds: 1,
     cooldownRounds: 2,
-    shield: 24,
+    shield: 30,
     color: '#4ea8ff',
-    desc: '己方部队受到暴击伤害或阵亡时，周围1格友军士气上升并获得24点临时护盾，持续至各自下一次行动回合结束。每2回合最多触发1次。'
+    desc: '己方部队受到暴击伤害或阵亡时，周围1格友军士气上升并获得30点临时护盾，持续至各自下一次行动回合结束。每2回合最多触发1次。'
 });
 
 export function getFreeResistanceTurnDeadline(state, camp) {
@@ -45,10 +47,10 @@ export const FIRE_SEA_CONFIG = Object.freeze({
     name: '火海',
     icon: '🔥',
     durationRounds: 2,
-    maxLayers: 2,
-    hpLossPctPerLayer: 0.10,
+    defenseReduction: 0.35,
+    hpLossPct: 0.05,
     color: '#ff6422',
-    desc: '焦土火海持续2回合（最多叠加2层），每层每回合使格上非己方单位流失10%最大生命值。'
+    desc: '防御力降低35%，每回合开始时流失5%最大生命值。'
 });
 
 export const BANZAI_CHARGE_CONFIG = Object.freeze({
@@ -58,12 +60,12 @@ export const BANZAI_CHARGE_CONFIG = Object.freeze({
     range: 2,
     cooldown: 1,
     movementCost: 2,
-    selfDamageCurrentHpPct: 0.25,
+    selfDamageCurrentHpPct: 0.30,
     missingHpDamagePct: 0.30,
     maxBonusDamage: 60,
     killHealMaxHpPct: 0.35,
     killMovementRefund: 2,
-    desc: '消耗2点行动力与25%当前生命值（至少保留1点生命），向2格内敌军发起突击并贴近目标，在常规攻击基础上追加目标已损失生命值30%的伤害（上限60点）。若击杀目标，立即恢复35%最大生命值；本回合首次冲锋击杀还将返还1次行动机会与2点行动力。施放后下一己方回合进入冷却。'
+    desc: '消耗2点行动力与30%当前生命值向2格内指定目标突进攻击，附加目标已损失生命值30%的伤害（上限60点）。若击杀目标，立即额外恢复35%最大生命值；本回合首次冲锋击杀还将返还1次行动机会与2点行动力。施放后下一己方回合进入冷却。'
 });
 
 export const GUERRILLA_CONCEALMENT_CONFIG = Object.freeze({
@@ -99,6 +101,24 @@ export function getGuerrillaConcealmentReason(unit, state) {
 export const SAMURAI_PASSIVE_DESCRIPTION = '无法接受常规治疗，仅可通过城市或村庄补员恢复生命值。';
 export const GUERRILLA_PASSIVE_DESCRIPTION = '移动不受地形与天气的额外行动力消耗影响。';
 
+export const HEAVY_CANNON_STANCE = Object.freeze({
+    desc: '在机动形态与架设形态之间切换，施放后下一己方回合进入1回合冷却。'
+});
+
+export function isHeavyCannonDeployed(unit) {
+    return unit?.type === 'fr_heavy_cannon' && unit._heavyCannonDeployed === true;
+}
+
+export function getHeavyCannonStanceCooldown(unit, state) {
+    return Math.max(0, (unit?._heavyCannonStanceReadyRound || 0) - getRoundIndex(state));
+}
+
+export const UNDERGROUND_INTELLIGENCE = Object.freeze({
+    name: '地下情报网',
+    desc: '揭示该据点及其周围6格相邻地块的视野',
+    duration: 2
+});
+
 export const CULTURE_CONFIG = deepFreeze({
     us: {
         id: 'us',
@@ -111,11 +131,11 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '海军陆战队',
             abilityName: '两栖登陆',
-            summary: '可在城市或港口招募，也可在己方已启用的港口补员。入水保持原攻防属性，从水上攻击陆地单位、或在陆地与水上攻击舰船均免除陆海交战的50%减伤；登陆后仍可行动。'
+            summary: '在海上保持原有攻击力/防御力属性，从水上攻击陆地单位、或在陆地与水上攻击舰船单位均不受陆海交战50%减伤影响。可在己方港口补员。'
         },
         tier2: {
-            title: '海洋霸权',
-            summary: '己方所有位于海上的单位行动力+1；舰船在港口维修费用降低50%。'
+            title: '工业海权',
+            summary: '己方海上单位行动力上限提高1点；招募部队、建造防御工事与机场、补员与维修（含港口修船）、发动空军指令及抽牌费用均降低$1（最低降至$1）。'
         }
     },
     gb: {
@@ -129,11 +149,11 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '皇家战列舰',
             abilityName: '天佑女王',
-            summary: '常驻2格反潜侦测能力；受到敌方攻击时有20%概率闪避全部伤害。'
+            summary: '能够侦测到2格范围内的隐匿单位；使2格内友军受到的空军伤害降低35%（3阶提高至50%），并使2格内友军海上单位（含运输船）受击时有12%概率闪避全部伤害（同效果不叠加）。'
         },
         tier2: {
             title: '永不言弃',
-            summary: '战局每进行2回合，己方全阵营单位攻击力+2.5%、防御力+2.5%，最高叠加6层（+15%）。'
+            summary: NEVER_SURRENDER_CONFIG.desc
         }
     },
     fr: {
@@ -147,7 +167,7 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '法国巨炮',
             abilityName: '远程重炮',
-            summary: '射程2–5格（雾天2–4格），攻击附带35%溅射伤害，且攻击海军不受陆军对海减伤影响。回合开始时自动炮击射程内随机敌军，触发后本回合仍可移动，但无法再次攻击。'
+            summary: '攻击附带35%溅射伤害，且攻击海军不受减伤影响；机动形态下无法攻击，架设形态无法移动且每回合开始时自动炮击射程内随机敌军。'
         },
         tier2: {
             title: '自由不屈',
@@ -165,11 +185,11 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '喀秋莎火箭炮',
             abilityName: '火力覆盖',
-            summary: '每次攻击分三轮发射火箭，平分本次伤害。攻击附带35%溅射伤害。'
+            summary: '每次攻击分三轮发射火箭，平分本次伤害并附带相当于原来35%的溅射伤害；每轮火箭有20%/10%概率使主目标/溅射目标士气下降1级，持续1回合。'
         },
         tier2: {
             title: '严冬铁卫',
-            summary: '炮兵造价-1；己方全阵营单位免疫任何天气带来的负面效果。'
+            summary: '炮兵单位招募价格降低$1；己方全阵营单位免疫任何天气带来的负面效果。'
         }
     },
     kmt: {
@@ -183,11 +203,11 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '中央教导旅',
             abilityName: '同心同德',
-            summary: '场上存在至少2支己方陆上教导旅时彼此休戚与共，共享生命与治疗，所获城防、工事及地形防御加成提高50%，并使自身与相邻友军造成的伤害提高15%（多支教导旅的伤害加成不叠加）。'
+            summary: '场上存在至少2支己方陆上教导旅时彼此共享生命与治疗，处于城市、防御工事及特殊地形时获得的防御力加成提高50%，并使自身与相邻友军造成的伤害提高15%（多支教导旅的伤害加成不叠加）。'
         },
         tier2: {
             title: '一寸山河一寸血',
-            summary: '己方城市生命上限+25%；部队在城市内补员时费用降低1/3。'
+            summary: '己方城市生命上限提高30%；建造防御工事费用降低$1（最低降至$1）；部队在城市内补员时费用降低33%。'
         }
     },
     cpc: {
@@ -205,7 +225,7 @@ export const CULTURE_CONFIG = deepFreeze({
         },
         tier2: {
             title: '军民鱼水',
-            summary: '部队不受地形额外行动力消耗影响，在村庄补员时费用减半。'
+            summary: '部队不受地形额外行动力消耗影响，在村庄补员时费用降低50%；遭遇战模式下激活【地下情报网】，己方控制的城市与村庄常驻揭示自身及周围6格视野，非己方据点被己方占领后在单位离开时保留2回合视野。'
         }
     },
     de: {
@@ -217,13 +237,13 @@ export const CULTURE_CONFIG = deepFreeze({
         uniqueAirCommand: 'stukaDiveBomb',
         badgeCrop: { cx: 0.461, cy: 0.5, sizeRatio: 0.88 },
         tier1: {
-            title: '斯图卡俯冲轰炸',
-            abilityName: '俯冲精准打击',
-            summary: '德国专属机场空军指令：精准俯冲轰炸目标区域并无视50%敌方防空火力减伤（可附加火海）。'
+            title: '斯图卡俯冲射击',
+            abilityName: '斯图卡俯冲射击',
+            summary: '俯冲扫射指定单体目标并附加「火海」。'
         },
         tier2: {
             title: '焦土空袭',
-            summary: '机场建造费用降至7金；己方空军攻击会在命中地块（含轰炸波及的相邻地块）燃起持续2回合的「火海」，每层每回合使格上敌军流失10%最大生命值，最多叠加2层。'
+            summary: '机场建造费用降低30%；使用「斯图卡俯冲射击」或「轰炸」中心命中单位时，为其附加「火海」。'
         }
     },
     jp: {
@@ -241,7 +261,7 @@ export const CULTURE_CONFIG = deepFreeze({
         },
         tier2: {
             title: '武运长久',
-            summary: '己方所有单位获取经验值速度+20%，更快晋升授勋。'
+            summary: '己方所有单位晋升速度提高20%；击杀敌军时恢复自身20%已损失生命值。'
         }
     }
 });
@@ -328,6 +348,22 @@ export function getNeverSurrenderStatBonus(state, camp) {
     return getNeverSurrenderStacks(state, camp) * NEVER_SURRENDER_CONFIG.bonusPerStackPct;
 }
 
+export function getNeverSurrenderAttackBonus(state, camp) {
+    return Math.min(NEVER_SURRENDER_CONFIG.attackCap, getNeverSurrenderStatBonus(state, camp));
+}
+
+export function getHistoricalCost(baseCost, state, camp, kind = '') {
+    if (isCampCulture(state, camp, 'us')
+        || (kind === 'fortification' && isCampCulture(state, camp, 'kmt'))) {
+        return Math.max(1, baseCost - 1);
+    }
+    return baseCost;
+}
+
+export function getHistoricalRecruitCost(baseCost, state, camp, unitType) {
+    return getHistoricalCost(Math.max(1, baseCost - getArtilleryCostDiscount(state, camp, unitType)), state, camp);
+}
+
 export function getArtilleryCostDiscount(state, camp, unitType) {
     if (!isCampCulture(state, camp, 'ru')) return 0;
     return unitType === 'archer' || unitType === 'ru_katyusha' ? 1 : 0;
@@ -338,7 +374,7 @@ export function hasNegativeWeatherImmunity(state, camp) {
 }
 
 export function getCulturalCityMaxHpBonusPct(state, camp) {
-    return isCampCulture(state, camp, 'kmt') ? 0.25 : 0;
+    return isCampCulture(state, camp, 'kmt') ? 0.30 : 0;
 }
 
 export function getCulturalCityMaxHp(baseMaxHp, state, camp) {
@@ -358,12 +394,8 @@ export function getCulturalReinforceCostScale(state, tile, camp) {
     return 1;
 }
 
-export function getCulturalPortRepairCostScale(state, camp) {
-    return isCampCulture(state, camp, 'us') ? 0.5 : 1;
-}
-
 export function getCulturalAirfieldCost(baseCost, state, camp) {
-    return isCampCulture(state, camp, 'de') ? 7 : baseCost;
+    return isCampCulture(state, camp, 'de') ? Math.round(baseCost * 0.7) : baseCost;
 }
 
 export function getCulturalWaterMovementBonus(state, camp) {
@@ -381,61 +413,17 @@ export function getCulturalXpMultiplier(state, camp) {
     return isCampCulture(state, camp, 'jp') ? 1.20 : 1;
 }
 
-export function getFireSeaState(tile) {
-    const fs = tile?.fireSea;
-    if (!fs || typeof fs !== 'object') return null;
-    const layers = Math.max(0, Math.min(FIRE_SEA_CONFIG.maxLayers, Math.round(Number(fs.layers) || 0)));
-    const roundsRemaining = Math.max(0, Math.round(Number(fs.roundsRemaining) || 0));
-    if (layers <= 0 || roundsRemaining <= 0) return null;
-    return {
-        layers,
-        roundsRemaining,
-        casterCampKey: fs.casterCampKey || null
-    };
+export function getFireSeaState(unit) {
+    const fire = unit?.fireSea;
+    return fire?.roundsRemaining > 0 ? fire : null;
 }
 
-export function getFireSeaDamagePct(tile) {
-    const fs = getFireSeaState(tile);
-    return fs ? fs.layers * FIRE_SEA_CONFIG.hpLossPctPerLayer : 0;
+export function applyFireSeaToUnit(unit, casterCamp, state) {
+    if (!unit || unit.hp <= 0 || !isCampCulture(state, casterCamp, 'de')) return null;
+    unit.fireSea = { roundsRemaining: FIRE_SEA_CONFIG.durationRounds };
+    return unit.fireSea;
 }
 
-export function applyFireSeaToTile(tile, casterCamp, state, rounds = FIRE_SEA_CONFIG.durationRounds) {
-    if (!tile || !isCampCulture(state, casterCamp, 'de')) return null;
-    const prev = getFireSeaState(tile);
-    const nextLayers = Math.min(FIRE_SEA_CONFIG.maxLayers, (prev?.layers || 0) + 1);
-    const nextRounds = Math.max(prev?.roundsRemaining || 0, rounds);
-    tile.fireSea = {
-        layers: nextLayers,
-        roundsRemaining: nextRounds,
-        casterCampKey: campToKey(casterCamp)
-    };
-    return tile.fireSea;
-}
-
-export function clearFireSeaOnTile(tile) {
-    if (tile) tile.fireSea = null;
-}
-
-export function expireFireSeaForStartingCamp(state, startingCamp) {
-    const campKey = campToKey(startingCamp);
-    const expired = [];
-    for (const tile of state?.tiles || []) {
-        const fs = getFireSeaState(tile);
-        if (!fs) {
-            if (tile?.fireSea) tile.fireSea = null;
-            continue;
-        }
-        if (fs.casterCampKey !== campKey) continue;
-        const nextRounds = fs.roundsRemaining - 1;
-        if (nextRounds <= 0) {
-            tile.fireSea = null;
-            expired.push(tile);
-        } else {
-            tile.fireSea = {
-                ...fs,
-                roundsRemaining: nextRounds
-            };
-        }
-    }
-    return expired;
+export function getFireSeaDefenseReduction(unit) {
+    return getFireSeaState(unit) ? FIRE_SEA_CONFIG.defenseReduction : 0;
 }

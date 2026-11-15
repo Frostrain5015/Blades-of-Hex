@@ -10,7 +10,7 @@ import { isFieldCapturer } from './roster.js';
 import { canRepairShipAtPort } from '../../rules/naval.js';
 import { canReinforceAtTile } from '../../rules/healing.js';
 import { getUnitBaseType } from '../../rules/units.js';
-import { getActiveCultureId, getArtilleryCostDiscount, getCulturalPortRepairCostScale, getCulturalReinforceCostScale, getCultureUniqueUnitType } from '../../rules/cultures.js';
+import { getActiveCultureId, getHistoricalCost, getHistoricalRecruitCost, getCulturalReinforceCostScale, getCultureUniqueUnitType } from '../../rules/cultures.js';
 
 const NAVAL_ORDER = ['warship', 'destroyer', 'submarine'];
 const LAND_ORDER = ['infantry', 'cavalry', 'archer'];
@@ -21,7 +21,7 @@ function canAfford(gold, cost, strategy) {
 
 function unitCost(world, type) {
     const base = world.helpers.UNIT_CONFIG[type]?.cost ?? 99;
-    return Math.max(1, base - getArtilleryCostDiscount(world.gameState, world.myCamp, type));
+    return getHistoricalRecruitCost(base, world.gameState, world.myCamp, type);
 }
 
 function getLandUniqueType(world) {
@@ -44,7 +44,7 @@ function withLandUniquePreference(order, world, preferUnique) {
 function landRecruitOrder(world, strategy, missionsCtx) {
     if (!world.myUnits.some(unit => isFieldCapturer(world, unit))) return LAND_ORDER;
     const hostileFortifications = world.rivalUnits.filter(unit =>
-        unit.type === 'laserTower' || getUnitBaseType(unit) === 'mgNest' || getUnitBaseType(unit) === 'shoreBattery').length;
+        getUnitBaseType(unit) === 'mgNest' || getUnitBaseType(unit) === 'shoreBattery').length;
     const myArchers = world.myUnits.filter(unit => getUnitBaseType(unit) === 'archer').length;
     const uniqueType = getLandUniqueType(world);
     const uniqueIsArtillery = uniqueType ? getUnitBaseType(uniqueType) === 'archer' : false;
@@ -235,7 +235,8 @@ export function planProduction(world, strategy, missionsCtx) {
     for (const tile of candidates) {
         if (reinforced >= (strategy.posture === 'hold' ? 3 : 2)) break;
         const heal = Math.min(Math.floor(tile.unit.maxHp * 0.50), tile.unit.maxHp - tile.unit.hp);
-        const cost = Math.max(1, Math.ceil(tile.unit.config.cost * (heal / tile.unit.maxHp) * getCulturalReinforceCostScale(world.gameState, tile, world.myCamp)));
+        const base = Math.ceil(tile.unit.config.cost * (heal / tile.unit.maxHp) * getCulturalReinforceCostScale(world.gameState, tile, world.myCamp));
+        const cost = getHistoricalCost(Math.max(1, base), world.gameState, world.myCamp);
         if (heal <= 0 || gold - cost < emergencyRecruitFund) break;
         actions.push({ type: 'reinforce', unitId: tile.unit.id });
         reinforceLedger[tile.unit.id] = (reinforceLedger[tile.unit.id] || 0) + 1;
@@ -248,7 +249,7 @@ export function planProduction(world, strategy, missionsCtx) {
         if (!canRepairShipAtPort(unit, world.gameState) || unit.tile._reinforcedThisTurn) continue;
         const heal = Math.min(Math.floor(unit.maxHp * 0.5), unit.maxHp - unit.hp);
         if (heal < unit.maxHp * 0.2) continue;
-        const cost = Math.max(1, Math.ceil(unit.config.cost * heal / unit.maxHp * getCulturalPortRepairCostScale(world.gameState, world.myCamp)));
+        const cost = getHistoricalCost(Math.max(1, Math.ceil(unit.config.cost * heal / unit.maxHp)), world.gameState, world.myCamp);
         if (gold - cost < emergencyRecruitFund) continue;
         setup.unshift({ type: 'repairShip', unitId: unit.id });
         gold -= cost;

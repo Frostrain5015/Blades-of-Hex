@@ -1,6 +1,6 @@
-import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS, MORALE_CONFIG } from './config.js';
+import { HEX_SIZE, LOGICAL_W, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS, MORALE_CONFIG } from './config.js';
 import { playSound } from './audio.js';
-import { AIRSTRIKE_FLIGHT } from '../rules/attackPresentation.js';
+import { AIRSTRIKE_FLIGHT, getStukaFlightPosition } from '../rules/attackPresentation.js';
 
 // ===== 粒子系统 =====================
 export const particles = [];
@@ -1801,15 +1801,28 @@ export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = nu
     airstrikeEffects.push({
         x: cx, y: cy, fromX, fromY, q, r, results, type,
         startTime,
-        duration: type === 'diveStrafe' ? 1500 : type === 'stukaDiveBomb' ? 1650 : AIRSTRIKE_FLIGHT.durationMs,
+        duration: type === 'diveStrafe' ? 1500 : type === 'stukaStrafe' ? 1650 : AIRSTRIKE_FLIGHT.durationMs,
         camp
     });
 }
 
+export function playStukaStrafe(tile, results, camp) {
+    spawnAirstrikeEffect(tile.x, tile.y, results, 'stukaStrafe', tile.q, tile.r, null, null, camp);
+    setTimeout(() => {
+        playSound('machinegun');
+        for (let index = 0; index < 20; index++) {
+            const delay = index * 17;
+            setTimeout(() => {
+                const muzzle = getStukaFlightPosition(tile.x, tile.y, LOGICAL_W, (660 + delay) / 1650);
+                spawnStrafeTracer(muzzle.x, muzzle.y, tile.x, tile.y);
+            }, delay);
+        }
+    }, 660);
+}
+
 export function playAirCommandImpact(kind, results, tileMap, delayMs, { showDodges = false } = {}) {
     const strikes = results.map(hit => ({ ...hit, tile: tileMap.get(`${hit.q},${hit.r}`) })).filter(hit => hit.tile);
-    const isStrafe = kind === 'strafe';
-    const isStuka = kind === 'stukaDiveBomb';
+    const isStrafe = kind === 'strafe' || kind === 'stukaDiveBomb';
     setTimeout(() => {
         let impact = false;
         for (const { tile, dodged } of strikes) {
@@ -1818,11 +1831,11 @@ export function playAirCommandImpact(kind, results, tileMap, delayMs, { showDodg
                 continue;
             }
             impact = true;
-            spawnExplosionParticles(tile.x, tile.y, isStuka ? '#ff5500' : '#ff8800', isStuka ? 18 : (isStrafe ? 15 : 10));
+            spawnExplosionParticles(tile.x, tile.y, '#ff8800', kind === 'stukaDiveBomb' ? 8 : isStrafe ? 15 : 10);
         }
         if (!impact) return;
         if (!isStrafe) playSound('explosion');
-        triggerScreenShake(isStuka ? 10 : (isStrafe ? 6 : 8), isStrafe ? 300 : 400);
+        triggerScreenShake(kind === 'stukaDiveBomb' ? 5 : isStrafe ? 6 : 8, isStrafe ? 300 : 400);
     }, delayMs);
 }
 
@@ -1842,133 +1855,6 @@ export function spawnCelestineOracleBeam(fromX, fromY, toX, toY, kind = 'smite',
         travelMs: timing.travelMs ?? 550,
         lingerMs: timing.lingerMs ?? 700
     });
-}
-
-// ===== 激光塔【集束激光】齐射光束（塔位→命中目标，绘制于战争迷雾之上） =====
-export const laserBeams = [];
-
-const LASER_CHARGE_MS = 170;
-const LASER_TRAVEL_MS = 170;
-const LASER_LINGER_MS = 320;
-export const LASER_BEAM_IMPACT_MS = LASER_CHARGE_MS + LASER_TRAVEL_MS;
-
-export function spawnLaserBeam(fromX, fromY, toX, toY, { startedAt, drawCharge, killed }) {
-    laserBeams.push({
-        fromX, fromY, toX, toY, startedAt, drawCharge, killed,
-        impactAt: startedAt + LASER_BEAM_IMPACT_MS,
-        impacted: false
-    });
-}
-
-export function updateLaserBeams(now) {
-    let hasImpact = false;
-    for (let i = laserBeams.length - 1; i >= 0; i--) {
-        const beam = laserBeams[i];
-        if (now >= beam.impactAt + LASER_LINGER_MS) {
-            laserBeams.splice(i, 1);
-        } else if (!beam.impacted && now >= beam.impactAt) {
-            beam.impacted = true;
-            hasImpact = true;
-            spawnExplosionParticles(beam.toX, beam.toY, '#4fd8e8', beam.killed ? 18 : 8);
-            spawnExplosionParticles(beam.toX, beam.toY, '#ffffff', 4);
-            if (beam.killed) triggerScreenShake(4, 150);
-        }
-    }
-    if (hasImpact) playSound('lightning');
-}
-
-/**
- * 激光束绘制（战争迷雾之上）。三段式：塔位充能环胀缩 → 彗核沿直线推进
- * （光晕粗描边 + 青色主束 + 白芯三层描边）→ 目标处双击环爆发 + 整束余辉淡出。
- * 青色配色与激光塔 UNIT_CONFIG color '#4fd8e8' 一致。
- */
-export function drawLaserBeams(ctx2d, now) {
-    for (const fx of laserBeams) {
-        const elapsed = now - fx.startedAt;
-        if (elapsed < 0) continue;
-        const hasImpacted = now >= fx.impactAt;
-
-        const coreColor = '#ffffff';
-        const mainColor = '#4fd8e8';
-        const glowColor = 'rgba(79, 216, 232, 0.85)';
-
-        const fromX = fx.fromX, fromY = fx.fromY;
-        const toX = fx.toX, toY = fx.toY;
-
-        ctx2d.save();
-
-        // ── 充能：塔位光环胀缩 ──
-        if (fx.drawCharge && elapsed < LASER_CHARGE_MS) {
-            const chargeT = elapsed / LASER_CHARGE_MS;
-            const ringR = 8 + chargeT * 20;
-            ctx2d.globalAlpha = 0.7 * Math.sin(chargeT * Math.PI * 0.5 + 0.2);
-            ctx2d.strokeStyle = mainColor;
-            ctx2d.lineWidth = 2;
-            ctx2d.shadowColor = mainColor;
-            ctx2d.shadowBlur = 14;
-            ctx2d.beginPath();
-            ctx2d.arc(fromX, fromY, ringR, 0, Math.PI * 2);
-            ctx2d.stroke();
-        }
-
-        // ── 飞行：彗核沿直线推进，尾迹为整段渐亮光路 ──
-        const travelT = hasImpacted ? 1 : Math.max(0, (elapsed - LASER_CHARGE_MS) / LASER_TRAVEL_MS);
-        const fadeT = Math.max(0, now - fx.impactAt) / LASER_LINGER_MS;
-        const beamAlpha = hasImpacted ? 1 - fadeT : 0.55 + travelT * 0.45;
-        if (travelT > 0 && beamAlpha > 0) {
-            const headX = fromX + (toX - fromX) * travelT;
-            const headY = fromY + (toY - fromY) * travelT;
-            // 光晕层 + 主束 + 白芯三层描边
-            for (const [width, color, alphaScale, blur] of [
-                [7, glowColor, 0.4, 18],
-                [3.2, mainColor, 0.85, 10],
-                [1.4, coreColor, 1, 4]
-            ]) {
-                ctx2d.globalAlpha = Math.min(1, beamAlpha * alphaScale);
-                ctx2d.strokeStyle = color;
-                ctx2d.lineWidth = width;
-                ctx2d.lineCap = 'round';
-                ctx2d.shadowColor = color;
-                ctx2d.shadowBlur = blur;
-                ctx2d.beginPath();
-                ctx2d.moveTo(fromX, fromY);
-                ctx2d.lineTo(headX, headY);
-                ctx2d.stroke();
-            }
-            // 光束头彗核
-            if (!hasImpacted) {
-                const headGrad = ctx2d.createRadialGradient(headX, headY, 0, headX, headY, 12);
-                headGrad.addColorStop(0, coreColor);
-                headGrad.addColorStop(0.45, mainColor);
-                headGrad.addColorStop(1, 'rgba(79, 216, 232, 0)');
-                ctx2d.globalAlpha = 0.95;
-                ctx2d.shadowBlur = 0;
-                ctx2d.fillStyle = headGrad;
-                ctx2d.beginPath();
-                ctx2d.arc(headX, headY, 12, 0, Math.PI * 2);
-                ctx2d.fill();
-            }
-        }
-
-        // ── 弹着：目标处双击环爆发 ──
-        if (hasImpacted) {
-            ctx2d.shadowBlur = 0;
-            for (const [delayFrac, color, width] of [[0, coreColor, 2.6], [0.22, mainColor, 1.6]]) {
-                const ringT = (fadeT - delayFrac) / (1 - delayFrac);
-                if (ringT < 0 || ringT >= 1) continue;
-                ctx2d.globalAlpha = (1 - ringT) * 0.85;
-                ctx2d.strokeStyle = color;
-                ctx2d.lineWidth = width;
-                ctx2d.shadowColor = color;
-                ctx2d.shadowBlur = 10;
-                ctx2d.beginPath();
-                ctx2d.arc(toX, toY, 6 + ringT * 44, 0, Math.PI * 2);
-                ctx2d.stroke();
-            }
-        }
-
-        ctx2d.restore();
-    }
 }
 
 // ===== E4 空运特效 =====
@@ -1999,9 +1885,11 @@ export function getKatyushaDamageShares(damage) {
     return KATYUSHA_IMPACT_TIMES.map((_, i) => Math.round(total * (i + 1) / count) - Math.round(total * i / count));
 }
 
-export function stageKatyushaHealth(unit, before, after, startedAt) {
+export function stageKatyushaHealth(unit, before, after, startedAt, shares) {
     if (before <= after) return;
-    unit._katyushaHealth = { startedAt, before, shares: getKatyushaDamageShares(before - after) };
+    const delta = before - after;
+    const damage = shares?.reduce((total, share) => total + share, 0) === delta ? shares : getKatyushaDamageShares(delta);
+    unit._katyushaHealth = { startedAt, before, shares: damage };
 }
 
 export function getKatyushaPresentedHealth(target, now) {
@@ -2388,7 +2276,6 @@ export function clearTransientEffects() {
     airstrikeEffects.length = 0;
     airliftEffects.length = 0;
     celestineOracleBeams.length = 0;
-    laserBeams.length = 0;
     screenShake.x = 0;
     screenShake.y = 0;
     turnFlash.alpha = 0;
