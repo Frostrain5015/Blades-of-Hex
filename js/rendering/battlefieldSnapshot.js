@@ -19,7 +19,7 @@ import { hexDistance, HEX_NEIGHBORS } from '../../rules/hex.js';
 import { isMechanicEnabled } from '../../rules/mechanics.js';
 import { getSurfaceBaseColor, getTileSurface, isWaterSurface } from '../../rules/surfaces.js';
 import { resolveTargetingPreview, targetingTileKey } from '../../rules/targeting.js';
-import { operationArrowStyleForAttacker } from '../../rules/attackPresentation.js';
+import { isUnitWaitingForAirdrop, operationArrowStyleForAttacker } from '../../rules/attackPresentation.js';
 import { isCityDisabled, isSiegeableCityTile } from '../../rules/citySiege.js';
 import { isStealthUnit, isUnitVisibleToCamp } from '../../rules/visibility.js';
 
@@ -330,7 +330,7 @@ function cloneMotion(unit, tileDto) {
     };
 }
 
-function buildUnitDto(unit, tileDto, relationToViewer) {
+function buildUnitDto(unit, tileDto, relationToViewer, now) {
     const healthCurrent = finite(unit.hp, 0);
     const healthMax = Math.max(1, finite(unit.maxHp, healthCurrent || 1));
     const shieldCurrent = Math.max(0, finite(unit._shield ?? unit.shield, 0));
@@ -346,6 +346,7 @@ function buildUnitDto(unit, tileDto, relationToViewer) {
         portraitId: commanderPortrait || commanderId || null
     } : null;
     const movement = cloneMotion(unit, tileDto);
+    const airdropWaiting = Boolean(isUnitWaitingForAirdrop(unit, now));
 
     return {
         id: primitiveId(unit.id),
@@ -356,7 +357,7 @@ function buildUnitDto(unit, tileDto, relationToViewer) {
         visualCenter: movement.visualCenter,
         motion: movement.motion,
         visibility: tileDto.visibility,
-        renderable: tileDto.visibility === 'visible' && healthCurrent > 0,
+        renderable: tileDto.visibility === 'visible' && healthCurrent > 0 && !airdropWaiting,
         health: {
             current: healthCurrent,
             max: healthMax,
@@ -380,7 +381,7 @@ function buildUnitDto(unit, tileDto, relationToViewer) {
             fallen: Boolean(unit._fallen),
             poisoned: Boolean(unit._poison),
             poisonTicks: Math.max(0, finite(unit._poison?.remainingTicks, 0)),
-            airdropWaiting: Boolean(unit._airdropWaiting),
+            airdropWaiting,
             airliftLandAtMs: optionalFinite(unit._airliftLandAt),
             soulRecallLandAtMs: optionalFinite(unit._soulRecallLandAt),
             embarked: Boolean(unit.isEmbarked)
@@ -391,13 +392,15 @@ function buildUnitDto(unit, tileDto, relationToViewer) {
 function buildUnits(playableEntries, realTileDtos, gameState, viewerCampKey) {
     const dtoByKey = new Map(realTileDtos.map(tile => [tile.key, tile]));
     const units = [];
+    const now = performance.now();
     for (const entry of playableEntries) {
         const unit = unitForViewer(entry.tile, viewerCampKey, gameState);
         if (!unit) continue;
         units.push(buildUnitDto(
             unit,
             dtoByKey.get(entry.key),
-            getRelation(gameState, viewerCampKey, unit.camp)
+            getRelation(gameState, viewerCampKey, unit.camp),
+            now
         ));
     }
     return units.sort((left, right) => compareTileKeys(left.tileKey, right.tileKey)

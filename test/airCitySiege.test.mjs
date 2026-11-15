@@ -5,11 +5,14 @@ import assert from 'node:assert/strict';
 const { wireHeadlessEngine } = await import('../core/headless.js');
 wireHeadlessEngine();
 
-const { gameState, serializeState } = await import('../js/state.js');
+const { applyRemoteState, gameState, serializeState } = await import('../js/state.js');
 const { HexTile } = await import('../js/HexTile.js');
 const { Unit } = await import('../js/Unit.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
 const { AIR_COMMAND_CONFIG, AIRFIELD_BASE_POWER } = await import('../rules/airCommands.js');
+const { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, isUnitWaitingForAirdrop } = await import('../rules/attackPresentation.js');
+const { airstrikeEffects } = await import('../js/effects.js');
+const { buildBattlefieldSnapshot } = await import('../js/rendering/battlefieldSnapshot.js');
 const { resolveTargetingPreview } = await import('../rules/targeting.js');
 const gl = await import('../js/gameLogic.js');
 
@@ -34,7 +37,7 @@ function setupMatch(tiles) {
     gameState.surrenderedCamps = [];
     gameState.mechanics = {};
     gameState.weather = 'clear';
-    gameState.rng = { range: (min, max) => (min + max) / 2, chance: () => false, pick: arr => arr[0], getState: () => 1 };
+    gameState.rng = { range: (min, max) => (min + max) / 2, chance: () => false, pick: arr => arr[0], getState: () => 1, setState() {} };
     gameState.damageTexts = [];
     gameState.goldTexts = [];
     gameState.killCount = {};
@@ -222,4 +225,16 @@ test('机场可向无驻军的破城空降，城市和行政区在同步快照�
     assert.equal(intact.camp, P2);
     assert.equal(snapshot.playerGold.player1, 100 - AIR_COMMAND_CONFIG.airdrop.cost);
     assert.equal(airfield.installation.airCommandReadyRound.airdrop, AIR_COMMAND_CONFIG.airdrop.cooldown + 1);
+
+    const flight = airstrikeEffects.at(-1);
+    const landAt = breached.unit._airdropLandAt;
+    assert.equal(flight.type, 'airdrop');
+    assert.equal(isUnitWaitingForAirdrop(breached.unit, flight.startTime + AIRSTRIKE_TARGET_PROGRESS * flight.duration), true);
+    assert.equal(landAt, flight.startTime + (AIRSTRIKE_TARGET_PROGRESS + AIRSTRIKE_FLIGHT.dropDuration) * flight.duration);
+    assert.equal(isUnitWaitingForAirdrop(breached.unit, landAt), false);
+    assert.equal(city.unit.airdropWaiting, false, '动画等待只存在于客户端');
+    assert.equal(buildBattlefieldSnapshot(gameState, { viewerCampKey: P1.id }).units
+        .find(unit => unit.id === breached.unit.id)?.renderable, false, '降落前 Pixi 不显示新单位');
+    applyRemoteState(snapshot, HexTile, Unit);
+    assert.equal(gameState.tileMap.get('6,0').unit._airdropLandAt, landAt, '后续快照同步不提前结束空降动画');
 });

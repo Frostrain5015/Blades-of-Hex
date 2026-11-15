@@ -1,5 +1,6 @@
 import { HEX_SIZE, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS, MORALE_CONFIG } from './config.js';
 import { playSound } from './audio.js';
+import { AIRSTRIKE_FLIGHT } from '../rules/attackPresentation.js';
 
 // ===== 粒子系统 =====================
 export const particles = [];
@@ -1794,11 +1795,11 @@ export function spawnSoulRecallEffect(fromX, fromY, toX, toY) {
 // ===== 空袭特效 =====
 export const airstrikeEffects = [];
 
-export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null, fromX = null, fromY = null, camp = null) {
+export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null, fromX = null, fromY = null, camp = null, startTime = performance.now()) {
     airstrikeEffects.push({
         x: cx, y: cy, fromX, fromY, q, r, results, type,
-        startTime: performance.now(),
-        duration: type === 'diveStrafe' ? 1500 : type === 'stukaDiveBomb' ? 1650 : 2000,
+        startTime,
+        duration: type === 'diveStrafe' ? 1500 : type === 'stukaDiveBomb' ? 1650 : AIRSTRIKE_FLIGHT.durationMs,
         camp
     });
 }

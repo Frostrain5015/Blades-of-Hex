@@ -706,7 +706,16 @@ export function resolveUnitById(id) {
 export function applyRemoteState(data, HexTileClass, UnitClass) {
     // 对局快照会重建 Tile / Unit 实例；观察目标属于纯本地 UI 状态，必须先以稳定 ID/坐标保存。
     const inspectionTarget = gameState.inspectionTarget || _getLegacyInspectionTarget();
+    const airdropLandings = new Map();
+    for (const { unit } of gameState.tiles) {
+        if (unit?._airdropLandAt) airdropLandings.set(unit.id, unit._airdropLandAt);
+    }
     deserializeState(data, HexTileClass, UnitClass, { preserveClientUi: true });
+    for (const { unit } of gameState.tiles) {
+        if (!unit || !airdropLandings.has(unit.id)) continue;
+        unit._airdropLandAt = airdropLandings.get(unit.id);
+        unit._airdropWaiting = false;
+    }
 
     // 旧实例计算出的行动范围和卡牌目标均不可复用；输入层会在恢复观察目标后，
     // 按当前回合与新 Unit/Tile 实例判断是否需要重新计算本地行动范围。

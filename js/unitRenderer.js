@@ -9,6 +9,7 @@ import { campFromKey, getRelationToViewer, getViewingCampKey, RELATION_META } fr
 import { getRoleCamp } from '../rules/diplomacy.js';
 import { campToKey, getFlagColors } from '../rules/camps.js';
 import { getSurfaceBaseColor, getTileSurface, isWaterTile } from '../rules/surfaces.js';
+import { isUnitWaitingForAirdrop } from '../rules/attackPresentation.js';
 import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { getUnitStatusIcons } from './unitStatusIcons.js';
@@ -131,7 +132,7 @@ function _resolveUniqueBadgeOptions(unit, gameState) {
 // Draw after the WebGL cloth composite so the finial always caps the fabric
 // instead of being partially covered by it.
 export function drawUnitFlagFinial(unit, gameState = null) {
-    if (!unit || unit._airdropWaiting || unit.tile.isCity || unit.tile.isVillage || unit.tile.isPort) return;
+    if (!unit || isUnitWaitingForAirdrop(unit, frameInfo.now) || unit.tile.isCity || unit.tile.isVillage || unit.tile.isPort) return;
     if (gameState && !isUnitVisibleToCamp(unit, resolveViewerCamp(gameState), gameState, { ignoreAiBypass: true })) return;
     const now = frameInfo.now;
     if ((unit._airliftLandAt && now < unit._airliftLandAt)
@@ -158,7 +159,7 @@ function resolveUnitHudColor(gameState, unit, hpRatio) {
 
 /** Draw only the friendly moving counter above a held fog mask. */
 export function drawUnitBadgeAboveFog(unit, gameState) {
-    if (!unit || unit._airdropWaiting || !unit.tile) return;
+    if (!unit || isUnitWaitingForAirdrop(unit, frameInfo.now) || !unit.tile) return;
     if (gameState && !isUnitVisibleToCamp(unit, resolveViewerCamp(gameState), gameState, { ignoreAiBypass: true })) return;
     const pos = getUnitVisualPos(unit);
     const hpRatio = unit.displayHp / unit.maxHp;
@@ -185,7 +186,7 @@ export function drawUnitBadgeAboveFog(unit, gameState) {
 }
 
 export function drawUnit(unit, gameState, { deathGhost = false } = {}) {
-        if (unit._airdropWaiting) return; // invisible until parachute lands
+        if (isUnitWaitingForAirdrop(unit, frameInfo.now)) return;
         if (unit._airliftLandAt) {         // E4 空运途中：落地前隐藏，落地时现身
             if (frameInfo.now < unit._airliftLandAt) return;
             unit._airliftLandAt = 0;

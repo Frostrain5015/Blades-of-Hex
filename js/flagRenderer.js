@@ -5,6 +5,7 @@ import { getFlagColors } from '../rules/camps.js';
 import { campToKey } from '../rules/camps.js';
 import { getUnitVisualPos, resolveViewerCamp } from './unitRenderer.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
+import { isUnitWaitingForAirdrop } from '../rules/attackPresentation.js';
 import { UNIT_FLAG_LAYOUT } from './flagLayout.js';
 
 const MESH_COLUMNS = 18;
@@ -362,7 +363,7 @@ export function collectBattlefieldFlags(gameState, now) {
             flags.push({ ...cityFlag, ...appearance, phase: phaseFrom(`tile:${tile.id}`) });
         }
         const unit = tile.unit;
-        if (!unit || tile.isCity || tile.isVillage || tile.isPort || unit._airdropWaiting) continue;
+        if (!unit || tile.isCity || tile.isVillage || tile.isPort || isUnitWaitingForAirdrop(unit, now)) continue;
         if (!isUnitVisibleToCamp(unit, viewerCamp, gameState, { ignoreAiBypass: true })) continue;
         if ((unit._airliftLandAt && now < unit._airliftLandAt) || (unit._soulRecallLandAt && now < unit._soulRecallLandAt)) continue;
         const pos = getUnitVisualPos(unit);

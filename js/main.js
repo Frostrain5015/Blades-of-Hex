@@ -4,7 +4,7 @@ import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notif
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef, setIsNetworkGameRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
-import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, BURN_MS } from './gameLogic.js';
+import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, startAirdropPresentation, BURN_MS } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, sendAddAi, sendRemoveAi, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
@@ -3403,6 +3403,28 @@ async function handleRemoteAction(msg) {
         }
         applyRemoteState(msg.state, HexTile, Unit);
         const volleyStartedAt = performance.now();
+        if (msg.actionType === 'airCommand' && msg.effects?.kind === 'airdrop') {
+            const { targetQ, targetR, results } = msg.effects;
+            const tile = gameState.tileMap.get(`${targetQ},${targetR}`);
+            if (tile?.unit && tile.unit.id === results?.[0]?.unitId) startAirdropPresentation(tile);
+        }
+        if (msg.actionType === 'tacticalCard' && msg.effects?.cardId === 'airdrop') {
+            const { x, y, q, r, burnDisplayName } = msg.effects;
+            const tile = q != null ? gameState.tileMap.get(`${q},${r}`) : gameState.tiles.find(t => t.x === x && t.y === y);
+            spawnCardUseEffect('airdrop', LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, burnDisplayName || null);
+            if (tile?.unit) startAirdropPresentation(tile, {
+                delayMs: BURN_MS,
+                onLand: (landingTile, unit) => {
+                    if (!landingTile.isCity) return;
+                    if (unit.camp !== landingTile.camp) updateDistrictColor(landingTile, unit.camp, unit);
+                    else for (const t of gameState.tiles) {
+                        if (t.districtId === landingTile.districtId) t.setCampWithFade(unit.camp);
+                    }
+                    spawnExplosionParticles(landingTile.x, landingTile.y, '#ffd700', 12);
+                    spawnGoldParticles(landingTile.x, landingTile.y);
+                }
+            });
+        }
         if (isKatyusha || isKatyushaCounter) {
             katyushaStartedAt = volleyStartedAt;
             if (katyushaCityBefore) {
@@ -3659,12 +3681,12 @@ async function handleRemoteAction(msg) {
             }
             break;
         case 'tacticalCard':
-            if (e) {
+            if (e && e.cardId !== 'airdrop') {
                 // 烧牌动画（观战者：中央淡入+燃烧）
                 spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, e.burnDisplayName || null);
                 // 飞机动画提前启动，与烧牌重叠播放
-                if (e.cardId === 'airdrop' || e.cardId === 'airstrike') {
-                    spawnAirstrikeEffect(e.x, e.y, e.airstrikeResults || [], e.cardId === 'airdrop' ? 'airdrop' : 'airstrike');
+                if (e.cardId === 'airstrike') {
+                    spawnAirstrikeEffect(e.x, e.y, e.airstrikeResults || [], 'airstrike');
                 }
                 // 具体特效延迟 1.6s 后播放（与烧牌结束对齐）
                 const cardType = e.cardId;
@@ -3723,30 +3745,6 @@ async function handleRemoteAction(msg) {
                             triggerRecruitFlash(e.x, e.y);
                             break;
                         }
-                        case 'airdrop':
-                            playSound('airstrike');
-                            setTimeout(() => {
-                                const adTile = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
-                                if (adTile && adTile.unit) {
-                                    adTile.unit._airdropWaiting = false;
-                                    if (adTile.isCity && adTile.unit.camp !== adTile.camp) {
-                                        updateDistrictColor(adTile, adTile.unit.camp, adTile.unit);
-                                    } else if (adTile.isCity && adTile.unit.camp === adTile.camp) {
-                                        // 状态同步已更新camp，手动触发行政区渐变色以匹配本地视觉效果
-                                        const did = adTile.districtId;
-                                        for (const t of gameState.tiles) {
-                                            if (t.districtId === did) t.setCampWithFade(adTile.unit.camp);
-                                        }
-                                    }
-                                    if (adTile.isCity) {
-                                        spawnExplosionParticles(e.x, e.y, '#ffd700', 12);
-                                        spawnGoldParticles(e.x, e.y);
-                                    }
-                                }
-                                spawnRecruitEffect(e.x, e.y);
-                                triggerRecruitFlash(e.x, e.y);
-                            }, 1500);
-                            break;
                         case 'imprison':
                             spawnCommanderSkillEffect(e.x, e.y, '🔗', '禁锢');
                             break;
@@ -4262,9 +4260,6 @@ async function handleRemoteAction(msg) {
             } else if (e.kind === 'stukaDiveBomb') {
                 const launcherCamp = gameState.tileMap.get(`${e.launcherQ},${e.launcherR}`)?.camp;
                 spawnAirstrikeEffect(target.x, target.y, e.results || [], 'stukaDiveBomb', target.q, target.r, null, null, launcherCamp);
-                playSound('airstrike');
-            } else if (e.kind === 'airdrop') {
-                spawnAirstrikeEffect(target.x, target.y, [], 'airdrop', target.q, target.r);
                 playSound('airstrike');
             } else if (e.kind === 'recon') {
                 spawnCommanderSkillEffect(target.x, target.y, '🔭', '侦察机');

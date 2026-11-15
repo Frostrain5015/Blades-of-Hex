@@ -62,7 +62,7 @@ import {
     drawOperationPreview,
     OPERATION_PREVIEW_ACTIONS
 } from './operationPreviewRenderer.js';
-import { getDiveStrafePlanePosition, getStukaFlightPosition, operationArrowStyleForAttacker, STUKA_BOMB_RELEASE_PROGRESS } from '../rules/attackPresentation.js';
+import { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, getDiveStrafePlanePosition, getStukaFlightPosition, operationArrowStyleForAttacker, STUKA_BOMB_RELEASE_PROGRESS } from '../rules/attackPresentation.js';
 import {
     getTargetingAreaTiles,
     resolveTargetingPreview,
@@ -1165,6 +1165,7 @@ function drawAirstrikeEffects(now) {
         const fx = airstrikeEffects[i];
         const _ac = fx.camp || gameState.currentCamp;
         const elapsed = now - fx.startTime;
+        if (elapsed < 0) continue;
         if (elapsed > fx.duration) { airstrikeEffects.splice(i, 1); continue; }
 
         const t = elapsed / fx.duration;
@@ -1302,8 +1303,8 @@ function drawAirstrikeEffects(now) {
 
         // 目标相对航线：投弹/爆炸时刻不再随目标屏幕横坐标漂移，
         // 与 AIR_COMMAND_IMPACT_DELAY_MS 的延迟扣血时刻保持对齐
-        const flyStartX = cx - 560;
-        const flyEndX = cx + 640;
+        const flyStartX = cx + AIRSTRIKE_FLIGHT.startOffsetX;
+        const flyEndX = cx + AIRSTRIKE_FLIGHT.endOffsetX;
         const totalFlyDist = flyEndX - flyStartX;
         const planeX = flyStartX + t * totalFlyDist;
         const planeY = cy - 80;
@@ -1343,7 +1344,7 @@ function drawAirstrikeEffects(now) {
         }
 
         // sequential drops: release times relative to when plane passes over target
-        const tTarget = (cx - flyStartX) / totalFlyDist;
+        const tTarget = AIRSTRIKE_TARGET_PROGRESS;
         const dropOffsets = isAirdrop ? [0] : [-0.06, 0, 0.06];
         const dropEmoji = isAirdrop ? '🪂' : '💥';
         const dropCount = isAirdrop ? 1 : 3;
@@ -1355,8 +1356,8 @@ function drawAirstrikeEffects(now) {
         for (let d = 0; d < dropCount; d++) {
             const dt = dropOffsets[d] != null ? tTarget + dropOffsets[d] : -1;
             if (dt < 0 || t < dt) continue;
-            const dropT = (t - dt) / 0.3;
-            if (dropT > 1) continue;
+            const dropT = (t - dt) / AIRSTRIKE_FLIGHT.dropDuration;
+            if (dropT >= 1) continue;
             const dropReleaseX = flyStartX + dt * totalFlyDist;
             // 空降降落伞直落到地块中心，与单位出生点完全重合
             const fallDist = isAirdrop ? 80 : 70;

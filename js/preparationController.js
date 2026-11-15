@@ -63,9 +63,9 @@ export function createPreparationController({
             </label>
         `;
         const modes = [
-            { id: FACTION_RULE_MODES.NONE, desc: '无额外阵营加成，采用标准对战规则' },
-            { id: FACTION_RULE_MODES.CULTURE, desc: '使用历史阵营旗帜，解锁特色兵种与国家特性' },
-            { id: FACTION_RULE_MODES.SYNERGY, desc: '自定义旗帜，部署同阵营双将可激活阵营协同' }
+            { id: FACTION_RULE_MODES.NONE, desc: '无阵营加成' },
+            { id: FACTION_RULE_MODES.CULTURE, desc: '特色兵种与国家特性' },
+            { id: FACTION_RULE_MODES.SYNERGY, desc: '双将激活阵营协同' }
         ];
         document.getElementById('prepFactionModes').innerHTML = modes.map(mode => `
             <label class="prep-check-option">

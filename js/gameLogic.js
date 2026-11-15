@@ -71,7 +71,7 @@ import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus, getKmtReinforceDeficit }
 import { canReinforceAtTile } from '../rules/healing.js';
 import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, isRangedCombatAttack } from '../rules/attackPresentation.js';
+import { AIRDROP_LANDING_MS, ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, isRangedCombatAttack } from '../rules/attackPresentation.js';
 import { AURELIA_OATH_EFFECT, hasAureliaOathEffect } from '../rules/aurelia.js';
 import { resolveOraclePulse, hasCelestineSynergyActive, getOracleStatueAnchor, CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
 import {
@@ -4423,6 +4423,29 @@ function _attackCityTile(attackerUnit, targetTile, options) {
     return true;
 }
 
+export function startAirdropPresentation(tile, { delayMs = 0, onLand } = {}) {
+    const { x, y, q, r, unit } = tile;
+    const key = `${q},${r}`;
+    const startTime = performance.now() + delayMs;
+    const landAt = startTime + AIRDROP_LANDING_MS;
+    // The timestamp is local to this client. Occupation and action validation
+    // continue to use the unit already present in match state.
+    unit._airdropLandAt = landAt;
+    unit._airdropWaiting = false;
+    spawnAirstrikeEffect(x, y, [], 'airdrop', q, r, null, null, unit.camp, startTime);
+    if (delayMs) setTimeout(() => playSound('airstrike'), delayMs);
+    else playSound('airstrike');
+    setTimeout(() => {
+        const currentTile = gameState.tileMap.get(key);
+        const currentUnit = currentTile?.unit;
+        if (currentUnit?.id !== unit.id || currentUnit._airdropLandAt !== landAt) return;
+        delete currentUnit._airdropLandAt;
+        onLand?.(currentTile, currentUnit);
+        spawnRecruitEffect(x, y);
+        triggerRecruitFlash(x, y);
+    }, Math.ceil(landAt - performance.now()));
+}
+
 export function executeAirCommand(kind, launcherTile, targetTile) {
     return perfEnabled() ? measure('executeAirCommand', () => _executeAirCommand(kind, launcherTile, targetTile)) : _executeAirCommand(kind, launcherTile, targetTile);
 }
@@ -4530,7 +4553,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
         unit.canAct = false;
         unit.remainingMP = 0;
         results.push({ q: targetTile.q, r: targetTile.r, unitId: unit.id, hp: unit.hp });
-        spawnAirstrikeEffect(targetTile.x, targetTile.y, [], 'airdrop', targetTile.q, targetTile.r);
+        startAirdropPresentation(targetTile);
     } else if (kind === 'recon') {
         if (!gameState.skirmishFog || gameState.campaignMode) return false;
         const antiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
@@ -5514,24 +5537,16 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
         // 注：'airlift' 为两段式，第一段已在上方 early-return，不会进入本 switch
         case 'airdrop': {
             logMessage(`🪂【空降】${myCamp.name}在(${targetTile.q},${targetTile.r})空降了步兵`);
-            // hide unit until parachute lands
-            targetTile.unit._airdropWaiting = true;
-            setTimeout(() => {
-                // airdrop visual AFTER card burn animation
-                spawnAirstrikeEffect(x, y, [], 'airdrop', targetTile.q, targetTile.r);
-                playSound('airstrike');
-                // reveal unit & recruit effect delayed to match parachute landing (~1500ms into flight)
-                setTimeout(() => withCardCause(() => {
-                    targetTile.unit._airdropWaiting = false;
-                    if (targetTile.isCity && targetTile.camp !== myCamp) {
-                        updateDistrictColor(targetTile, myCamp, targetTile.unit);
+            startAirdropPresentation(targetTile, {
+                delayMs: BURN_MS,
+                onLand: (tile, unit) => withCardCause(() => {
+                    if (tile.isCity && tile.camp !== myCamp) {
+                        updateDistrictColor(tile, myCamp, unit);
                         spawnExplosionParticles(x, y, '#ffd700', 12);
                         spawnGoldParticles(x, y);
                     }
-                    spawnRecruitEffect(x, y);
-                    triggerRecruitFlash(x, y);
-                }), 1500);
-            }, BURN_MS);
+                })
+            });
             break;
         }
         case 'shield': {

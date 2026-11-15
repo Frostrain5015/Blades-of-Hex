@@ -382,13 +382,13 @@ export const STANDARD_MAP_FAMILIES = deepFreeze([
     {
         id: 'crown-ring',
         name: '王冠环岛',
-        description: '中央大陆 · 陆海并进',
+        description: '中央大陆 陆海并进',
         maps: { 2: TWO_PLAYER_ISLAND, 3: THREE_PLAYER_ISLAND }
     },
     {
         id: 'uncharted-passage',
         name: '无主航路',
-        description: '跳岛争夺 · 控制中央城获得航母',
+        description: '跳岛海战 夺取中央航母',
         maps: { 2: TWO_PLAYER_ARCHIPELAGO, 3: THREE_PLAYER_ARCHIPELAGO }
     }
 ]);

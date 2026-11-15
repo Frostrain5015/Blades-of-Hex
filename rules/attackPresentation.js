@@ -23,6 +23,21 @@ export const CARRIER_STRAFE_IMPACT_MS = 780;
 
 export const STUKA_BOMB_RELEASE_PROGRESS = 0.51;
 
+export const AIRSTRIKE_FLIGHT = Object.freeze({
+    startOffsetX: -560,
+    endOffsetX: 640,
+    durationMs: 2000,
+    dropDuration: 0.3
+});
+export const AIRSTRIKE_TARGET_PROGRESS = -AIRSTRIKE_FLIGHT.startOffsetX
+    / (AIRSTRIKE_FLIGHT.endOffsetX - AIRSTRIKE_FLIGHT.startOffsetX);
+export const AIRDROP_LANDING_MS = (AIRSTRIKE_TARGET_PROGRESS + AIRSTRIKE_FLIGHT.dropDuration)
+    * AIRSTRIKE_FLIGHT.durationMs;
+
+export function isUnitWaitingForAirdrop(unit, now) {
+    return unit._airdropWaiting || unit._airdropLandAt > now;
+}
+
 export function getStukaFlightPosition(targetX, targetY, boardWidth, progress) {
     const diveEnd = 0.65;
     const entryX = -48;
