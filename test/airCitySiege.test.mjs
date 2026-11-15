@@ -15,6 +15,7 @@ const { airstrikeEffects } = await import('../js/effects.js');
 const { buildBattlefieldSnapshot } = await import('../js/rendering/battlefieldSnapshot.js');
 const { resolveTargetingPreview } = await import('../rules/targeting.js');
 const gl = await import('../js/gameLogic.js');
+const { startMatchRecording, getCurrentMatchLog, buildMatchReview } = await import('../js/matchRecorder.js');
 
 const P1 = { id: 'player1', name: '甲', color: '#e04848' };
 const P2 = { id: 'player2', name: '乙', color: '#487be0' };
@@ -152,6 +153,40 @@ test('机场扫射指令拒绝以空地/己方城市为目标', () => {
     assert.equal(gl.executeAirCommand('strafe', airfield, emptyPlain), false, '空地不是合法扫射目标');
     assert.equal(gl.executeAirCommand('strafe', airfield, ownCity), false, '己方城市不是合法扫射目标');
     assert.equal(gameState.playerGold.player1, 100, '被拒绝的指令不应扣费');
+});
+
+test('机场击杀保留阵营归因和动作 ID，随后进城保留轴坐标路线', () => {
+    const airfield = new HexTile(0, 0);
+    Object.assign(airfield, {
+        isCity: true, isUrban: true, camp: P1, hp: 300, maxHp: 300,
+        installation: { type: 'airfield', status: 'ready' }
+    });
+    const approach = new HexTile(1, 0);
+    const city = enemyCityTile(2, 0, 0);
+    setupMatch([airfield, approach, city]);
+    const occupier = new Unit('infantry', P1, approach);
+    const garrison = new Unit('infantry', P2, city);
+    garrison.hp = 1;
+    startMatchRecording(gameState);
+
+    assert.equal(gl.executeAirCommand('strafe', airfield, city), true);
+    gl.moveUnit(occupier, city);
+
+    const log = getCurrentMatchLog();
+    const sortie = log.timeline.find(entry => entry.actionType === 'airCommand');
+    const movement = log.timeline.find(entry => entry.actionType === 'move');
+    const damage = log.timeline.find(entry => entry.eventType === 'unitHpChanged' && entry.payload.delta < 0);
+    const death = log.timeline.find(entry => entry.eventType === 'unitKilled');
+    const capture = log.timeline.find(entry => entry.eventType === 'cityCaptured');
+    assert.equal(damage.causedByActionId, sortie.actionId);
+    assert.equal(damage.payload.sourceCampKey, 'player1');
+    assert.equal(damage.payload.sourceUnitId, null);
+    assert.equal(death.causedByActionId, sortie.actionId);
+    assert.equal(death.payload.killerCampKey, 'player1');
+    assert.equal(capture.causedByActionId, movement.actionId);
+    assert.deepEqual(movement.payload.path, [{ q: 1, r: 0 }, { q: 2, r: 0 }]);
+    const stats = buildMatchReview(log);
+    assert.equal(stats.overview.camps.find(camp => camp.campKey === 'player1').damageDealt, 1);
 });
 
 test('斯图卡立即结算原目标，动画期间换位不会重复扣血或打到入格友军', async () => {

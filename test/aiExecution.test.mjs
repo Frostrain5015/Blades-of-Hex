@@ -80,6 +80,92 @@ function place(type, camp, tile, commander = null) {
     return unit;
 }
 
+test('中等 AI 让炮兵破墙，再用可达的步兵当回合进城', async () => {
+    const { me, foe, enemyCity } = setupMatch();
+    state.aiDifficultyByCamp.player1 = 'medium';
+    state.playerGold.player1 = 0;
+    enemyCity.hp = 1;
+    const artillery = place('archer', me, state.tileMap.get('8,0'));
+    const infantry = place('infantry', me, state.tileMap.get('8,1'));
+    assert.equal(enemyCity.camp, foe);
+    startMatchRecording(state);
+
+    await processOpponentTurn(me);
+
+    const timeline = getCurrentMatchLog().timeline;
+    const breach = timeline.find(entry => entry.actionType === 'attack'
+        && entry.payload.attackerUnitId === artillery.id && entry.payload.cityHpAfter === 0);
+    const capture = timeline.find(entry => entry.eventType === 'cityCaptured');
+    assert.equal(enemyCity.camp, me);
+    assert.ok(breach && breach.sequence < capture.sequence);
+    assert.equal(capture.payload.attackerUnitId, infantry.id);
+    assert.equal(timeline.find(entry => entry.actionId === capture.causedByActionId)?.actionType, 'move');
+});
+
+test('中等 AI 让占领步兵向空城推进，先保留其行动而非与侧翼炮兵交战', async () => {
+    const { me, foe, enemyCity } = setupMatch();
+    state.aiDifficultyByCamp.player1 = 'medium';
+    state.playerGold.player1 = 0;
+    enemyCity.hp = 0;
+    const occupier = place('infantry', me, state.tileMap.get('7,0'));
+    occupier.remainingMP = 1;
+    place('archer', foe, state.tileMap.get('7,-1')).hp = 10;
+    startMatchRecording(state);
+
+    await processOpponentTurn(me);
+
+    const actions = getCurrentMatchLog().timeline.filter(entry => entry.kind === 'action'
+        && (entry.payload.unitId === occupier.id || entry.payload.attackerUnitId === occupier.id));
+    assert.equal(actions[0]?.actionType, 'move');
+    assert.ok(occupier.tile.q > 7);
+    assert.equal(enemyCity.camp, foe);
+});
+
+test('中等 AI 的炮兵可直接占领空城', async () => {
+    const { me, enemyCity } = setupMatch();
+    state.aiDifficultyByCamp.player1 = 'medium';
+    state.playerGold.player1 = 0;
+    enemyCity.hp = 0;
+    const artillery = place('archer', me, state.tileMap.get('9,0'));
+
+    await processOpponentTurn(me);
+
+    assert.equal(enemyCity.unit, artillery);
+    assert.equal(enemyCity.camp, me);
+});
+
+test('中等 AI 保留机场扫射，地面攻击打残目标后同回合补刀', async () => {
+    const { me, foe, home } = setupMatch();
+    state.aiDifficultyByCamp.player1 = 'medium';
+    state.playerGold.player1 = 4;
+    state.playerDrawsThisTurn.player1 = 2;
+    state.rng.range = (min, max) => (min + max) / 2;
+    state.rng.chance = () => false;
+    home.installation = { type: 'airfield', status: 'ready' };
+    place('infantry', me, home).canAct = false;
+    const artillery = place('archer', me, state.tileMap.get('3,0'));
+    artillery.getEffectiveAttack = () => 110;
+    const target = place('infantry', foe, state.tileMap.get('5,0'));
+    assert.equal(target.hp, target.maxHp);
+    startMatchRecording(state);
+
+    await processOpponentTurn(me);
+
+    const timeline = getCurrentMatchLog().timeline;
+    const groundAttack = timeline.find(entry => entry.actionType === 'attack'
+        && entry.payload.attackerUnitId === artillery.id && entry.payload.targetUnitId === target.id);
+    const airAttack = timeline.find(entry => entry.actionType === 'airCommand');
+    assert.ok(groundAttack && airAttack && groundAttack.sequence < airAttack.sequence,
+        JSON.stringify({ hp: target.hp, gold: state.playerGold.player1, actions: timeline.filter(entry => entry.kind === 'action')
+            .map(entry => [entry.actionType, entry.payload.attackDmg, entry.payload.targetUnitId, entry.payload.kind]) }));
+    assert.equal(groundAttack.payload.killed, false);
+    assert.equal(events.find(event => event.action.airKind === 'strafe')?.action.airPhase, 'followup');
+    assert.equal(airAttack.payload.kind, 'strafe');
+    assert.equal(airAttack.payload.aiPhase, 'followup');
+    assert.ok(airAttack.payload.results.some(result => result.unitId === target.id && result.killed));
+    assert.equal(state.playerGold.player1, 0);
+});
+
 test('历史模式二人和三人开局按主城换特色兵种，英国改换本土巡洋舰', () => {
     const cases = [['us',9], ['gb',4], ['fr',4], ['ru',7], ['kmt',10], ['cpc',11], ['de',12], ['jp',10]];
     for (const family of ['crown-ring', 'uncharted-passage']) {

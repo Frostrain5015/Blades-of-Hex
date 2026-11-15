@@ -126,14 +126,14 @@ function _triggerFrenchFreeResistance(victim, state) {
     return affected.length > 0;
 }
 
-function _applyKmtPoolHp(entries, source, attacker = null) {
+function _applyKmtPoolHp(entries, source, { attacker = null, sourceCampKey = null, effect } = {}) {
     const changes = entries.map(({ unit, hp }) => ({ unit, oldHp: unit.hp, hp }));
     for (const { unit, hp } of changes) unit.hp = hp;
     for (const { unit, hp, oldHp } of changes) {
         if (hp === oldHp) continue;
         emit('match:unitHpChanged', {
             unit, unitId: unit.id, oldHp, newHp: hp, delta: hp - oldHp,
-            source, sourceUnit: attacker, sourceUnitId: attacker?.id || null
+            source, sourceUnit: attacker, sourceUnitId: attacker?.id || null, sourceCampKey, effect
         });
     }
     return changes;
@@ -1021,6 +1021,8 @@ export class Unit {
         const {
             source = 'true',
             attacker = null,
+            sourceCampKey = null,
+            effect,
             skipAura = false,
             ignoreShield = source === 'true',
             minHp = 0,
@@ -1222,20 +1224,20 @@ export class Unit {
                     unit._deferImpactFxUntil = delayUntil;
                 }
             }
-            const changes = _applyKmtPoolHp(next, source, attacker);
+            const changes = _applyKmtPoolHp(next, source, { attacker, sourceCampKey, effect });
             for (const { unit, hp, oldHp: previous } of changes) {
                 if (unit !== this && previous > hp) enqueueFloatText({
                     x: unit.tile.x, y: unit.tile.y, q: unit.tile.q, r: unit.tile.r,
                     value: previous - hp, timeLeft: 900, delayMs: Math.max(0, delayUntil - performance.now())
                 }, { gs: _gameState });
             }
-            for (const { unit, hp } of changes) if (hp <= 0) unit.destroy(attacker);
+            for (const { unit, hp } of changes) if (hp <= 0) unit.destroy(attacker, sourceCampKey);
             return this.hp <= 0;
         }
         this.hp = Math.round(Math.max(effectiveMinHp, this.hp - actualDmg));
         if (this.hp !== oldHp) emit('match:unitHpChanged', {
             unit: this, unitId: this.id, oldHp, newHp: this.hp, delta: this.hp - oldHp,
-            source, sourceUnit: attacker, sourceUnitId: attacker?.id || null
+            source, sourceUnit: attacker, sourceUnitId: attacker?.id || null, sourceCampKey, effect
         });
         if (actualDmg > 0 && _gameState) {
             if (this.type === 'submarine') markSubmarineDamagedWhileExposed(this);
@@ -1257,7 +1259,7 @@ export class Unit {
             return false;
         }
         if (this.hp <= 0) {
-            this.destroy(attacker);
+            this.destroy(attacker, sourceCampKey);
             return true;
         }
         return false;
@@ -1265,7 +1267,7 @@ export class Unit {
 
     // 单位死亡统一出口：将领效果清除、离场、击杀计数、阵亡特效
     // （殉道者自爆的自毁也走这里，保证 commanderP1/P2/P3 引用被清除）
-    destroy(attackerUnit = null) {
+    destroy(attackerUnit = null, sourceCampKey = null) {
         const log = _logMessage;
         if (this._campaignDeathEmitted) return;
         this._campaignDeathEmitted = true;
@@ -1280,6 +1282,7 @@ export class Unit {
             killerType: attackerUnit?.type || null,
             killerCommanderId: attackerUnit?.commander || null,
             killerCamp: attackerUnit?.camp || null,
+            killerCampKey: sourceCampKey,
             reason: attackerUnit ? 'combat' : 'effect',
             campaignMinHp: this._campaignMinHp || 0,
             campaignMaxHp: this._campaignMaxHp || 0

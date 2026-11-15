@@ -205,7 +205,7 @@ import {
     bindMatchRecorderState,
     recordCommittedAction,
     startMatchRecording,
-    withMatchActionCause
+    withMatchAction, withMatchActionCause
 } from './matchRecorder.js';
 import { canUseFullAiTargeting, resolveAiIncomeMultiplier } from '../ai/difficulty.js';
 
@@ -1259,7 +1259,7 @@ export function resolvePoisonAtTurnStart(camp) {
         poison.lastResolvedTurnCounter = gameState.turnCounter;
         const originTile = unit.tile;
         const damage = Math.max(1, Math.round(unit.maxHp * poisonBalance.damageMaxHpPct));
-        const killed = unit.applyDamage(damage, { source: 'true', attacker: null });
+        const killed = unit.applyDamage(damage, { source: 'true', effect: 'poison', sourceCampKey: poison.sourceCampKey });
         enqueueFloatText({
             x: originTile.x, y: originTile.y, q: originTile.q, r: originTile.r,
             value: damage, isPoison: true, timeLeft: 1000
@@ -1300,7 +1300,9 @@ function _resolveFireSeaAtTurnStart(startingCamp) {
         if (!fire) continue;
         const rawDmg = Math.max(1, Math.round(unit.maxHp * FIRE_SEA_CONFIG.hpLossPct));
         const hpBefore = unit.hp;
-        const killed = unit.applyDamage(rawDmg, { source: 'effect', ignoreShield: true, skipAura: true });
+        const killed = unit.applyDamage(rawDmg, {
+            source: 'effect', effect: 'fireSea', sourceCampKey: fire.sourceCampKey, ignoreShield: true, skipAura: true
+        });
         if (--fire.roundsRemaining <= 0) unit.fireSea = null;
         const dmg = Math.max(0, hpBefore - unit.hp);
         if (dmg > 0) {
@@ -1405,6 +1407,10 @@ function _resolveFrenchHeavyCannonTurnStartVolley(startingCamp, impactAt) {
 }
 
 async function _doEndTurnPhase() {
+    return withMatchAction('endTurn', () => resolveEndTurnPhase());
+}
+
+function resolveEndTurnPhase() {
     const camp = gameState.currentCamp;
     const endingCampKey = _campKey(camp);
     // 必须在下方全场行动力重置前截取；日月天衡只回收刚结束回合阵营的真实闲置行动力。
@@ -2090,6 +2096,10 @@ export function recruitUnit(type) {
 // ===== E5 补员系统 =====================
 
 export function reinforceUnit(unit) {
+    return withMatchAction('reinforce', () => _reinforceUnit(unit));
+}
+
+function _reinforceUnit(unit) {
     if (gameState.campaignMode && !isMechanicEnabled(gameState, 'reinforcement')) { notify('本关尚未开放补员', 'info'); return; }
     if (!unit || !unit.tile) return;
     const tile = unit.tile;
@@ -2123,6 +2133,10 @@ export function reinforceUnit(unit) {
 
 // 港口维修：与「补充兵员」同构的主动付费治疗，面向停靠己方港口的常规舰船。
 export function repairShipAtPort(unit) {
+    return withMatchAction('repairShip', () => _repairShipAtPort(unit));
+}
+
+function _repairShipAtPort(unit) {
     if (!unit || !unit.tile || unit.hp >= unit.maxHp) return;
     const tile = unit.tile;
     if (!canRepairShipAtPort(unit, gameState)) { notify('需在己方港口维修舰船', 'error'); return; }
@@ -2171,7 +2185,7 @@ function _isInEnemyZoC(tile, friendlyCamp, movingUnit = null, ignoreHiddenEnemie
 
 // BFS pathfinding. The fog-safe presentation pass ignores information supplied
 // only by unseen units so the range silhouette cannot disclose an ambush.
-function _computeMovableTiles(unit, fogSafePreview = false) {
+function _computeMovableTiles(unit, fogSafePreview = false, breachedCity = null) {
     // 无人机：实时检查信号范围，同步士气状态（不刷新其他无人机）
     if (unit._isDrone) {
         const inSignal = isDroneInSignal(gameState, unit);
@@ -2225,7 +2239,8 @@ function _computeMovableTiles(unit, fogSafePreview = false) {
                     continue;
                 }
             }
-            if (isCitySiegeBlocked(neighbor, friendlyCamp, gameState)) continue;
+            if (isCitySiegeBlocked(neighbor, friendlyCamp, gameState)
+                && (!breachedCity || getCityPoolTile(neighbor, map) !== breachedCity)) continue;
             if (unit._isDrone && (!droneSignalTile || hexDistance(droneSignalTile, neighbor) > DRONE_SIGNAL_RANGE)) continue;
 
             let stepCost = unit._isDrone ? 2 : (TERRAIN_CONFIG[neighbor.terrain]?.stepCost ?? 1);
@@ -2286,6 +2301,12 @@ export function getFogSafeMovableTiles(unit) {
 
 export function getMovableTiles(unit) {
     return perfEnabled() ? measure('getMovableTiles', () => _getMovableTiles(unit)) : _getMovableTiles(unit);
+}
+
+export function canReachCityAfterBreach(unit, city) {
+    return !!unit.canAct && !unit.isNewRecruit && !unit._isDrone
+        && unit._campaignCanMove !== false && city.isCity && !city.unit
+        && _computeMovableTiles(unit, false, city).tiles.includes(city);
 }
 function _getMovableTiles(unit) {
     const exact = _computeMovableTiles(unit, false);
@@ -2436,7 +2457,7 @@ function _reconstructPath(parents, startTile, targetTile) {
     const path = [];
     let cur = targetTile;
     while (cur) {
-        path.unshift({ x: cur.x, y: cur.y });
+        path.unshift(cur);
         if (cur === startTile) break;
         const entry = parents.get(cur);
         cur = entry ? entry.parent : null;
@@ -2445,7 +2466,8 @@ function _reconstructPath(parents, startTile, targetTile) {
 }
 
 export function moveUnit(unit, targetTile) {
-    return perfEnabled() ? measure('moveUnit', () => _moveUnit(unit, targetTile)) : _moveUnit(unit, targetTile);
+    return withMatchAction('move', () => perfEnabled()
+        ? measure('moveUnit', () => _moveUnit(unit, targetTile)) : _moveUnit(unit, targetTile));
 }
 function _moveUnit(unit, targetTile) {
     if (gameState.gameOver) return;
@@ -2466,14 +2488,15 @@ function _moveUnit(unit, targetTile) {
 
     // Reconstruct path for step-by-step animation; check hidden stealth ambushes along path
     const startTile = unit.tile;
-    const path = _reconstructPath(gameState.moveParents, startTile, targetTile);
+    const pathTiles = _reconstructPath(gameState.moveParents, startTile, targetTile);
+    const requestedDestination = { q: targetTile.q, r: targetTile.r };
     let ambushedBy = null;
-    for (let i = 1; i < path.length; i++) {
-        const stepTile = path[i];
+    for (let i = 1; i < pathTiles.length; i++) {
+        const stepTile = pathTiles[i];
         if (stepTile.unit && !isUnitVisibleToCamp(stepTile.unit, unit.camp, gameState)) {
             ambushedBy = stepTile.unit;
-            targetTile = path[i - 1];
-            path.length = i;
+            targetTile = pathTiles[i - 1];
+            pathTiles.length = i;
             break;
         }
     }
@@ -2485,6 +2508,10 @@ function _moveUnit(unit, targetTile) {
         logMessage(`⚠️ ${unit.camp.name}${unit.config.name}遭遇潜伏敌军，停止前进`);
         if (gameState.skirmishFog) _updateSkirmishFogAll();
         updateUI();
+        broadcastAction('move', {
+            unitId: unit.id, fromQ, fromR, q: fromQ, r: fromR, path: [{ q: fromQ, r: fromR, x: fromX, y: fromY }],
+            requestedDestination, ambushed: true
+        });
         return;
     }
     let embarkedDuringMove = false;
@@ -2498,6 +2525,7 @@ function _moveUnit(unit, targetTile) {
         }
         cursor = parent;
     }
+    const path = pathTiles.map(({ q, r, x, y }) => ({ q, r, x, y }));
     const departureTile = unit.tile;
     unit.tile.unit = null;
     unit.tile = targetTile;
@@ -2598,7 +2626,7 @@ function _moveUnit(unit, targetTile) {
             );
             const rawMineDmg = Math.round(100 * multiplier);
             const oldHp = unit.hp;
-            unit.applyDamage(rawMineDmg, { source: 'effect', attacker: null, skipAura: true });
+            unit.applyDamage(rawMineDmg, { source: 'effect', effect: 'mine', sourceCampKey: mineCampKey, skipAura: true });
             const mineDmg = Math.max(0, oldHp - unit.hp);
             enqueueFloatText({
                 x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r,
@@ -2642,7 +2670,12 @@ function _moveUnit(unit, targetTile) {
     recalcAllFlankingMorale();
     updateRecruitCostDisplay(); // 尚书驻扎城市时及时刷新折扣
     const rankUpsMove = _pendingRankUps.splice(0);
-    broadcastAction('move', { unitId: unit.id, fromX, fromY, q: targetTile.q, r: targetTile.r, path, marineLanding, cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null, mineTrigger: _mineTrigger, capturedCity: _capturedCityOnMove });
+    broadcastAction('move', {
+        unitId: unit.id, fromX, fromY, fromQ, fromR, q: targetTile.q, r: targetTile.r, path, marineLanding,
+        ...(ambushedBy ? { requestedDestination, ambushed: true } : {}),
+        cmdFx: _cmdFxForMove, rankUps: rankUpsMove.length ? rankUpsMove : null,
+        mineTrigger: _mineTrigger, capturedCity: _capturedCityOnMove
+    });
     _capturedCityOnMove = null;
     emit('match:unitMoved', { unit, targetTile, fromX, fromY, fromQ, fromR });
 }
@@ -2763,7 +2796,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     gameState._pendingAureliaOathEvents = [];
     gameState._pendingEagleSynergyEvents = [];
 
-    const _executeAttack = () => {
+    const _executeAttack = () => withMatchAction('attack', () => {
     const isCarrierStrafe = attackerUnit.type === 'carrier';
 
     // 包装 spawnFx 引用以捕获将领特效的 glyph/label
@@ -3428,7 +3461,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
         _attackDmg = 0; _attackIsCrit = false;
         _counterDmg = 0; _counterIsRanged = false; _counterIsCrit = false; _healAmtRemote = 0; _smiteDmgRemote = 0;
     }
-    };
+    });
 
     if (_hasSmite) {
         spawnCommanderSkillEffect(fromX, fromY, '✝️', _smiteLabel);
@@ -4185,6 +4218,10 @@ export function executeAirfieldConstruction(cityTile) {
 }
 
 export function executeFieldRepair(engineer, target) {
+    return withMatchAction('fieldRepair', () => _executeFieldRepair(engineer, target));
+}
+
+function _executeFieldRepair(engineer, target) {
     if (!canFieldRepair(engineer, target, gameState)) {
         notify('没有可抢修的建筑目标', 'error');
         return false;
@@ -4210,8 +4247,10 @@ export function executeFieldRepair(engineer, target) {
     return true;
 }
 
-function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, { missingHpBonus = false, allowAntiAirPierce = true } = {}) {
-    if (target?.rollDodge?.(gameState)) {
+function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
+    missingHpBonus = false, allowAntiAirPierce = true, estimate = false, airDefenseTiles = gameState.tileMap
+} = {}) {
+    if (!estimate && target?.rollDodge?.(gameState)) {
         return { damage: 0, isCrit: false, antiAir: 0, dodged: true };
     }
     const colonel = getAirfieldColonel(launcherTile);
@@ -4225,7 +4264,7 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         : 0;
     const power = basePower + commanderAttackBonus + missingBonus;
     // 有驻军/将领时按普通攻击浮动区间结算（阈值以上即暴击）；空城机场只有窄浮动、无暴击。
-    const floatMultiplier = launcherTile.unit
+    const floatMultiplier = estimate ? 1 : launcherTile.unit
         ? gameState.rng.range(COMBAT_BALANCE.float.attack.min, COMBAT_BALANCE.float.attack.max)
         : gameState.rng.range(0.95, 1.05);
 
@@ -4244,7 +4283,7 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
     // 轰炸破甲：只对要塞单位（城市驻军/碉堡/岸防炮）生效。
     if (isStrongpointTarget(target)) ordinaryDefense = Math.max(0, ordinaryDefense - 0.25);
     ordinaryDefense -= getFireSeaDefenseReduction(target);
-    let antiAir = getAntiAirReduction(target.tile, launcherTile.camp, gameState.tileMap, { state: gameState });
+    let antiAir = getAntiAirReduction(target.tile, launcherTile.camp, airDefenseTiles, { state: gameState });
     if (colonel && allowAntiAirPierce) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
     const reduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, ordinaryDefense + antiAir);
     return {
@@ -4254,6 +4293,13 @@ function _resolveAirCommandDamage(basePower, multiplier, target, launcherTile, {
         antiAir,
         dodged: false
     };
+}
+
+/** 对可见单位估算空军伤害，沿用实战防御计算且不消耗本局随机数。 */
+export function estimateAirCommandDamage(kind, launcher, target, multiplier, airDefenseTiles) {
+    return _resolveAirCommandDamage(AIRFIELD_BASE_POWER, multiplier ?? AIR_COMMAND_CONFIG[kind].multiplier, target, launcher, {
+        missingHpBonus: kind === 'strafe', allowAntiAirPierce: kind !== 'stukaDiveBomb', estimate: true, airDefenseTiles
+    }).damage;
 }
 
 /**
@@ -4341,7 +4387,9 @@ function _resolveCarrierCityStrafeDamage(carrierUnit, targetTile) {
 
 /** 攻城：对无驻军的敌方/中立城市地块扣HP；近战单位在磨到0后就地跟进占领。 */
 export function attackCityTile(attackerUnit, targetTile, options) {
-    return perfEnabled() ? measure('attackCityTile', () => _attackCityTile(attackerUnit, targetTile, options)) : _attackCityTile(attackerUnit, targetTile, options);
+    return withMatchAction('attack', () => perfEnabled()
+        ? measure('attackCityTile', () => _attackCityTile(attackerUnit, targetTile, options))
+        : _attackCityTile(attackerUnit, targetTile, options));
 }
 function _attackCityTile(attackerUnit, targetTile, options) {
     if (gameState.gameOver || attackerUnit.camp !== gameState.currentCamp) return false;
@@ -4510,10 +4558,12 @@ export function startAirdropPresentation(tile, { delayMs = 0, onLand } = {}) {
     }, Math.ceil(landAt - performance.now()));
 }
 
-export function executeAirCommand(kind, launcherTile, targetTile) {
-    return perfEnabled() ? measure('executeAirCommand', () => _executeAirCommand(kind, launcherTile, targetTile)) : _executeAirCommand(kind, launcherTile, targetTile);
+export function executeAirCommand(kind, launcherTile, targetTile, { aiPhase = null } = {}) {
+    return withMatchAction('airCommand', () => perfEnabled()
+        ? measure('executeAirCommand', () => _executeAirCommand(kind, launcherTile, targetTile, aiPhase))
+        : _executeAirCommand(kind, launcherTile, targetTile, aiPhase));
 }
-function _executeAirCommand(kind, launcherTile, targetTile) {
+function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
     const config = AIR_COMMAND_CONFIG[kind];
     const availability = getAirCommandAvailability(kind, launcherTile, gameState);
     if (gameState.gameOver || !config || !availability.available || !isPlayableBoardTile(launcherTile) || !isPlayableBoardTile(targetTile)
@@ -4640,7 +4690,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
                     unit._deferImpactFxUntil = impactAt;
                     const before = unit.hp;
                     hit.killed = unit.applyDamage(hit.damage, {
-                        source: 'ranged', eagleAirForceCampKey: airCampKey, isCrit: hit.isCrit,
+                        source: 'ranged', sourceCampKey: airCampKey, eagleAirForceCampKey: airCampKey, isCrit: hit.isCrit,
                         impactDelayMs: Math.max(0, impactAt - performance.now()),
                         eagleDeferred: false
                     });
@@ -4679,6 +4729,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
     updateUI();
     broadcastAction('airCommand', {
         kind,
+        ...(aiPhase ? { aiPhase } : {}),
         launcherQ: launcherTile.q,
         launcherR: launcherTile.r,
         targetQ: targetTile.q,
@@ -4695,6 +4746,10 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
 
 // 无人机自杀式袭击
 export function executeDroneSuicide(droneUnit, targetTile) {
+    return withMatchAction('droneSuicide', () => _executeDroneSuicide(droneUnit, targetTile));
+}
+
+function _executeDroneSuicide(droneUnit, targetTile) {
     if (!droneUnit || !droneUnit._isDrone) return false;
     refreshDroneSignal(gameState, droneUnit.camp);
     if (droneUnit.morale === 0) {
@@ -4794,6 +4849,7 @@ export function executeDroneSuicide(droneUnit, targetTile) {
         q: targetTile.q,
         r: targetTile.r,
         campKey: dCampKey,
+        unitId: droneUnit.id,
         results,
         eagleSynergyEvents: suicideEagleSynergyEvents.length ? suicideEagleSynergyEvents : null
     });
@@ -4878,6 +4934,10 @@ export function executeGuerrillaConcealment(unit) {
 }
 
 export function executeBanzaiCharge(unit, targetTile) {
+    return withMatchAction('banzaiCharge', () => _executeBanzaiCharge(unit, targetTile));
+}
+
+function _executeBanzaiCharge(unit, targetTile) {
     if (gameState.gameOver || !unit || !unit.tile || !targetTile?.unit) return false;
     if (unit.type !== 'jp_samurai' || unit.camp !== gameState.currentCamp) return false;
     if (unit._campaignCanAct === false || unit._campaignCanAttack === false) {
@@ -5009,7 +5069,7 @@ export function executeBanzaiCharge(unit, targetTile) {
         fromX: fromTile.x, fromY: fromTile.y,
         toX: targetTile.x, toY: targetTile.y,
         destX: unit.tile.x, destY: unit.tile.y,
-        path: movePath.map(({ x, y }) => ({ x, y })),
+        path: movePath.map(({ q, r, x, y }) => ({ q, r, x, y })),
         selfDmg, dmg: hpDealt,
         isCrit: !!attackResult.isCrit,
         dodged, killed, healAmt, followup,
@@ -5032,6 +5092,10 @@ function _accrueSunMoonForCamp(campKey, totalRemaining) {
 export const BURN_MS = 1600;
 
 export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
+    return withMatchAction('tacticalCard', () => _executeTacticalCard(cardId, targetTile, _fromX, _fromY));
+}
+
+function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
     if (gameState.campaignMode && !isMechanicEnabled(gameState, 'tacticalCards')) { notify('本关尚未开放对策卡', 'info'); return; }
     // E4 空运第二段：直接执行空运（跳过正常卡牌验证）
     if (cardId === 'airlift_dest') {
@@ -5358,7 +5422,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     if (_savedHPs && _savedHPs[0] && targetTile.unit) {
                         const victim = targetTile.unit;
                         const dc = victim.camp;
-                        const killed = victim.applyDamage(dmg, { source: 'true' });
+                        const killed = victim.applyDamage(dmg, { source: 'true', sourceCampKey: campKey });
                         if (killed) {
                             const dck = _campKey(dc);
                             gameState.killCount[dck]++;
@@ -5426,7 +5490,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                             const tile = gameState.tileMap.get(`${r.q},${r.r}`);
                             if (!tile) continue;
                             if (tile.unit) {
-                                tile.unit.applyDamage(r.dmg, { source: 'ranged' });
+                                tile.unit.applyDamage(r.dmg, { source: 'ranged', sourceCampKey: campKey });
                             }
                             spawnExplosionParticles(tile.x, tile.y, '#ff4400', 20);
                             spawnExplosionParticles(tile.x, tile.y, '#ffaa00', 12);
@@ -5478,7 +5542,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                     if (tile.unit) {
                         // 统一伤害入口：天基打击按远程攻击结算（护盾正常吸收）
                         const dc = tile.unit.camp;
-                        const killed = tile.unit.applyDamage(tickDmg, { source: 'ranged' });
+                        const killed = tile.unit.applyDamage(tickDmg, { source: 'ranged', sourceCampKey: campKey });
                         if (killed) {
                             const dck = _campKey(dc);
                             gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
@@ -5543,7 +5607,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         // result.dmg 已在 execute() 走完标准管线（含防御），此处直接结算；source 'air' 不触发铁卫转移
                         const colonel = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.commander === 'colonel' && t.unit.camp === myCamp && t.unit.hp > 0 ? t.unit : null), null);
                         const targetUnit = targetTile.unit;
-                        const killed = targetUnit.applyDamage(result.dmg, { source: 'air', attacker: colonel, eagleAirForceCampKey: campKey });
+                        const killed = targetUnit.applyDamage(result.dmg, { source: 'air', attacker: colonel, sourceCampKey: campKey, eagleAirForceCampKey: campKey });
                         if (colonel) {
                             // 命中经验（与普攻一致）：基础 1 XP + 暴击额外 2 XP
                             if (result.dmg > 0) {
@@ -5607,7 +5671,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
                         // 仅对有单位的地块结算伤害并显示伤害数字（空地不显示）；dmg 已走完管线
                         if (tile.unit) {
                             const _target = tile.unit;
-                            const _killed = _target.applyDamage(r.dmg, { source: 'air', attacker: colonel, eagleAirForceCampKey: campKey });
+                            const _killed = _target.applyDamage(r.dmg, { source: 'air', attacker: colonel, sourceCampKey: campKey, eagleAirForceCampKey: campKey });
                             if (colonel) {
                                 // AOE 命中经验：每击中一个存活单位 1 XP（AOE 效率已由范围体现，不另加暴击加成）
                                 if (r.dmg > 0) colonel.addXP(1);

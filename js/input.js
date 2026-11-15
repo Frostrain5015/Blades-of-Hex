@@ -5,6 +5,7 @@ import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, g
 import { buildUnitEffectItems } from './effectItems.js';
 import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, updateButtonColors, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget, refreshInspectionSelection } from './state.js';
 import { on, emit } from './eventBus.js';
+import { withMatchAction } from './matchRecorder.js';
 import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
 import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } from './network.js';
 import { drainPendingFloatTexts } from './floatTexts.js';
@@ -898,39 +899,42 @@ function _activateBoardAction(action) {
 
     const cmdCfg = getCommander(unit.commander);
     if (!cmdCfg?.activeSkill) return;
-    const skill = cmdCfg.activeSkill;
-    const activated = skill.onActivate(unit, {
-        gameState, logMessage,
-        spawnFx: spawnCommanderSkillEffect,
-        spawnOrbitBeams: spawnPaladinOrbitBeams
+    withMatchAction('activateSkill', () => {
+        const skill = cmdCfg.activeSkill;
+        const activated = skill.onActivate(unit, {
+            gameState, logMessage,
+            spawnFx: spawnCommanderSkillEffect,
+            spawnOrbitBeams: spawnPaladinOrbitBeams
+        });
+        if (unit._pendingWeatherChoice) {
+            unit._pendingWeatherChoice = false;
+            _showWeatherChoice(unit);
+            return;
+        }
+        if (unit._pendingDroneDeploy) {
+            unit._pendingDroneDeploy = false;
+            clearselection();
+            showTargetingBanner('请选择目标');
+            gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1, startedAt: performance.now() };
+            updateUI();
+            return;
+        }
+        unit.activeSkillDur = skill.duration;
+        unit.activeSkillCD = skill.cooldown;
+        recalcAllFlankingMorale();
+        showSelectionHudForTile(unit.tile);
+        if (activated !== false) {
+            emit('input:commanderSkillUsed', { unit, skillId: action.skillId || '', skillName: skill.name });
+            recordAuxiliaryAction('activateSkill', {
+                unitId: unit.id,
+                commanderId: unit.commander,
+                skillId: action.skillId || '',
+                skillName: skill.name
+            }, unit.camp);
+        }
+        if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id, floatTexts: drainPendingFloatTexts() });
     });
-    if (unit._pendingWeatherChoice) {
-        unit._pendingWeatherChoice = false;
-        _showWeatherChoice(unit);
-        return;
-    }
-    if (unit._pendingDroneDeploy) {
-        unit._pendingDroneDeploy = false;
-        clearselection();
-        showTargetingBanner('请选择目标');
-        gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1, startedAt: performance.now() };
-        updateUI();
-        return;
-    }
-    unit.activeSkillDur = skill.duration;
-    unit.activeSkillCD = skill.cooldown;
-    recalcAllFlankingMorale();
-    showSelectionHudForTile(unit.tile);
-    if (activated !== false) {
-        emit('input:commanderSkillUsed', { unit, skillId: action.skillId || '', skillName: skill.name });
-        recordAuxiliaryAction('activateSkill', {
-            unitId: unit.id,
-            commanderId: unit.commander,
-            skillId: action.skillId || '',
-            skillName: skill.name
-        }, unit.camp);
-    }
-    if (isNetworkGame()) sendAction('activateSkill', serializeState(), { unitId: unit.id, floatTexts: drainPendingFloatTexts() });
+
 }
 
 function _beginEngineerBunkerTargeting(unit) {

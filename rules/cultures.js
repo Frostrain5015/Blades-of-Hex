@@ -420,7 +420,7 @@ export function getFireSeaState(unit) {
 
 export function applyFireSeaToUnit(unit, casterCamp, state) {
     if (!unit || unit.hp <= 0 || !isCampCulture(state, casterCamp, 'de')) return null;
-    unit.fireSea = { roundsRemaining: FIRE_SEA_CONFIG.durationRounds };
+    unit.fireSea = { roundsRemaining: FIRE_SEA_CONFIG.durationRounds, sourceCampKey: campToKey(casterCamp) };
     return unit.fireSea;
 }
 

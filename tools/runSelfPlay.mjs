@@ -5,6 +5,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { getAiDifficultyProfile } from '../ai/difficulty.js';
+import { CULTURE_CONFIG } from '../rules/cultures.js';
 import { normalizeStandardMapFamilyId } from '../rules/standardMaps.js';
 
 function readArgs(argv) {
@@ -34,6 +35,10 @@ const requestedStandardMapId = typeof args.map === 'string' ? args.map : 'crown-
 const standardMapId = normalizeStandardMapFamilyId(requestedStandardMapId);
 const fogOfWar = args.fog === true || args.fog === 'true' || args.fog === '1';
 const playerCount = Math.round(numberArg(args.players, /-3p$/i.test(requestedStandardMapId) ? 3 : 2, { min: 2, max: 3 }));
+const cultures = typeof args.cultures === 'string' ? args.cultures.split(',').map(id => id.trim()) : [];
+if (args.cultures && (cultures.length !== playerCount || cultures.some(id => !Object.hasOwn(CULTURE_CONFIG, id)))) {
+    throw new Error('--cultures 需要按席位填写有效阵营 ID，例如 --players=3 --cultures=de,kmt,fr');
+}
 const doubleCommander = args['double-commander'] === true
     || args['double-commander'] === 'true'
     || args['double-commander'] === '1';
@@ -65,11 +70,13 @@ const difficultyProfiles = Object.fromEntries(playerKeys.map((key, index) => [
 ]));
 engine.configureSkirmishState({
     playerCount,
-    controllers: Object.fromEntries(playerKeys.map(key => [key, 'ai']))
+    controllers: Object.fromEntries(playerKeys.map(key => [key, 'ai'])),
+    flagPresets: Object.fromEntries(cultures.map((id, index) => [playerKeys[index], CULTURE_CONFIG[id].flagPreset]))
 });
 
 const state = engine.gameState;
 state.gameMode = 'selfplay';
+if (cultures.length) state.factionRuleMode = 'culture';
 state.standardMapId = standardMapId;
 state.skirmishFog = fogOfWar;
 state.aiDifficulty = defaultDifficulty.numericValue;
@@ -132,6 +139,7 @@ recorder.startMatchRecording(state, {
         timeScale,
         maxRounds,
         playerCount,
+        cultures,
         doubleCommander
     }
 });

@@ -558,7 +558,7 @@ test('德国文化：斯图卡无冷却、机场费用降低30%、火海附着�
     applyFireSeaToUnit(target, de, state);
     target.fireSea.roundsRemaining = 1;
     applyFireSeaToUnit(target, de, state);
-    assert.deepEqual(getFireSeaState(target), { roundsRemaining: 2 });
+    assert.deepEqual(getFireSeaState(target), { roundsRemaining: 2, sourceCampKey: 'player1' });
     assert.equal(getFireSeaState(targetTile), null);
     assert.equal(getFireSeaDefenseReduction(target), 0.35);
     assert.equal(FIRE_SEA_CONFIG.hpLossPct, 0.05);
@@ -573,7 +573,7 @@ test('德国文化：斯图卡无冷却、机场费用降低30%、火海附着�
         computeDistrictBorders: () => []
     });
     assert.equal(restored.factionRuleMode, FACTION_RULE_MODES.CULTURE);
-    assert.deepEqual(getFireSeaState(restored.tileMap.get('2,0').unit), { roundsRemaining: 2 });
+    assert.deepEqual(getFireSeaState(restored.tileMap.get('2,0').unit), { roundsRemaining: 2, sourceCampKey: 'player1' });
 });
 
 test('日本文化：帝国武士常驻禁疗但允许补员与强制回血，万岁冲锋参数及Tier2 经验+20%', () => {

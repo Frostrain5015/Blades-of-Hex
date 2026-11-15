@@ -230,6 +230,7 @@ export function estimateAiTurnWatchdogMs({
 /** 重规划可补射击、占领和招募，但不能让同一单位在没有强行军时反复横移。 */
 export function shouldSkipReplannedMovement(action, passIndex, movedUnitIds, forceMarchedUnitIds) {
     if (!action || action.type !== 'move' || Number(passIndex) <= 0) return false;
+    if (action.captureCity) return false; // 已破城时，允许使用合法的剩余行动力进驻。
     if (!movedUnitIds?.has?.(action.unitId)) return false;
     return !forceMarchedUnitIds?.has?.(action.unitId);
 }

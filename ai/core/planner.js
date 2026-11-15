@@ -8,7 +8,7 @@
 import { buildWorld } from './perceive.js';
 import { decideStrategy } from './strategize.js';
 import { assignMissions } from './missions.js';
-import { planTactics, bestAttackFor, evaluateAttack } from './tactics.js';
+import { planTactics, bestAttackFor, evaluateAttack, planCaptureFinishers } from './tactics.js';
 import { planCards, shouldDrawCard } from './cards.js';
 import { planProduction } from './production.js';
 
@@ -35,6 +35,13 @@ export function planFollowupAttack(gameState, helpers, myCamp, caps, unitId, pla
     }
     const best = bestAttackFor(world, context, unit);
     return best ? { type: 'attack', unitId, targetId: best.target.id } : null;
+}
+
+export function planOpenCityCaptures(gameState, helpers, myCamp, caps) {
+    const world = buildWorld(gameState, helpers, myCamp, caps);
+    const actions = [];
+    planCaptureFinishers(world, null, actions, new Set(), true);
+    return actions;
 }
 
 /**

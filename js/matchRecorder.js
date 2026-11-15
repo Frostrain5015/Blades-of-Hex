@@ -20,6 +20,7 @@ export const MATCH_REVIEW_SCHEMA_VERSION = 1;
 let active = null;
 let boundState = null;
 let currentCauseActionId = null;
+let currentAction = null;
 
 function nowIso() {
     return new Date().toISOString();
@@ -170,6 +171,7 @@ function initialParticipants(state) {
         controller: faction?.controller || 'unknown',
         colorId: faction?.colorId || null,
         flagEmoji: faction?.flagEmoji || null,
+        flagPreset: faction?.flagPreset || null,
         commanderIds: commanderSlots(state, campKey),
         participatesInTurns: faction?.participatesInTurns !== false,
         active: faction?.active !== false
@@ -290,6 +292,17 @@ export function withMatchActionCause(state, actionId, callback) {
     } finally {
         if (actionId) appendDeferredOutcome(state, actionId);
         currentCauseActionId = previous;
+    }
+}
+
+// Simulation emits events both before and after committing the action.
+export function withMatchAction(actionType, callback) {
+    const previous = currentAction;
+    currentAction = { actionType, session: active, events: [], actionId: null };
+    try {
+        return callback();
+    } finally {
+        currentAction = previous;
     }
 }
 
@@ -438,6 +451,7 @@ export function startMatchRecording(state, metadata = {}) {
                 standardMapId: state.standardMapId || null,
                 playerCount: state.isThreePlayer ? 3 : 2,
                 fogOfWar: !!state.skirmishFog,
+                factionRuleMode: state.factionRuleMode || null,
                 doubleCommander: !!state.doubleCommanderMode,
                 aiDifficulty: state.aiDifficulty ?? null,
                 aiDifficultyId: resolvedDifficultyId,
@@ -507,6 +521,11 @@ export function recordCommittedAction(state, {
         }
     };
     session.log.timeline.push(item);
+    if (currentAction?.actionType === actionType && currentAction.session === session) {
+        currentAction.actionId = item.actionId;
+        for (const event of currentAction.events) event.causedByActionId = item.actionId;
+        currentAction.events.length = 0;
+    }
     session.lastSnapshot = after;
     session.lastLogs = [...(state.logHistory || [])];
     if (state.gameOver) finalizeMatchRecording(state);
@@ -538,11 +557,14 @@ export function recordMatchEvent(state, eventType, payload = {}) {
         elapsedMs: elapsedMs(),
         turnCounter: Number(state.turnCounter || 0),
         round: getRound(state),
+        turnCampKey: keyOfCamp(state.currentCamp),
         eventType,
-        causedByActionId: payload?.causedByActionId || currentCauseActionId || null,
+        causedByActionId: payload?.causedByActionId || currentCauseActionId
+            || (currentAction?.session === active ? currentAction.actionId : null),
         payload: sanitize(payload)
     };
     active.log.timeline.push(item);
+    if (!item.causedByActionId && currentAction?.session === active) currentAction.events.push(item);
     if (active.log.complete) active.log.summary = buildSummary(active.log);
     return item;
 }
@@ -779,8 +801,9 @@ on('match:unitHpChanged', payload => recordMatchEvent(boundState, 'unitHpChanged
     newHp: payload?.newHp,
     delta: payload?.delta,
     source: payload?.source,
+    effect: payload?.effect,
     sourceUnitId: payload?.sourceUnitId,
-    sourceCampKey: keyOfCamp(payload?.sourceUnit?.camp)
+    sourceCampKey: keyOfCamp(payload?.sourceUnit?.camp ?? payload?.sourceCampKey)
 }));
 
 on('match:unitKilled', payload => recordMatchEvent(boundState, 'unitKilled', {
@@ -792,7 +815,7 @@ on('match:unitKilled', payload => recordMatchEvent(boundState, 'unitKilled', {
     killerId: payload?.killerId,
     killerType: payload?.killerType,
     killerCommanderId: payload?.killerCommanderId || null,
-    killerCampKey: keyOfCamp(payload?.killerCamp),
+    killerCampKey: keyOfCamp(payload?.killerCamp ?? payload?.killerCampKey),
     reason: payload?.reason
 }));
 

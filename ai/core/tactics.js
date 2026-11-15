@@ -458,7 +458,7 @@ function shouldRetreat(world, unit) {
     return incoming > 0 && (incoming >= unit.hp * 0.5 || hpRatio < threshold * 0.7);
 }
 
-function planMove(world, missionsCtx, unit, posture, actions) {
+function planMove(world, missionsCtx, unit, posture, actions, openCity = null) {
     if (!unit.canAct || !unit.tile || world.isImmobile(unit)) return false;
     if (unit._transportTransitionedThisTurn) return false;
     const movable = world.helpers.getMovableTiles(unit);
@@ -466,6 +466,9 @@ function planMove(world, missionsCtx, unit, posture, actions) {
 
     const mission = missionsCtx.assignment.get(unit.id) || null;
     const retreating = shouldRetreat(world, unit);
+    if (openCity && retreating) return false;
+    const distance = world.navDistance || world.helpers.hexDistance;
+    const distanceToOpenCity = openCity ? distance(unit.tile, openCity) : 0;
     const protectCommander = world.caps.rearCommanderSafety && FRAGILE_COMMANDERS.has(unit.commander);
     const currentThreat = protectCommander ? world.threatAt(unit.tile, unit) : 0;
     const neutralObjective = world.caps.duelModel && mission?.kind === 'siege'
@@ -491,6 +494,8 @@ function planMove(world, missionsCtx, unit, posture, actions) {
         + historicalPositionValue(world, unit, unit.tile);
     for (const tile of movable) {
         if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
+        if (openCity && (distance(tile, openCity) >= distanceToOpenCity
+            || world.threatAt(tile, unit) >= unit.hp + (unit._shield || 0))) continue;
         if (protectCommander && !retreating) {
             const incoming = world.threatAt(tile, unit);
             if (incoming > currentThreat
@@ -545,7 +550,10 @@ function planMove(world, missionsCtx, unit, posture, actions) {
         if (score > bestScore) { bestScore = score; bestTile = tile; }
     }
     if (!bestTile || bestTile === unit.tile) return false;
-    actions.push({ type: 'move', unitId: unit.id, tileQ: bestTile.q, tileR: bestTile.r });
+    actions.push({
+        type: 'move', unitId: unit.id, tileQ: bestTile.q, tileR: bestTile.r,
+        ...(openCity ? { autoAttack: false } : {})
+    });
     return true;
 }
 
@@ -653,29 +661,55 @@ function planBreachSequence(world, missionsCtx, actions, processed) {
 // 攻城与夺城结算
 // ═══════════════════════════════════════════════════════════════
 
-/** 夺城结算：近战击杀守军进驻 / 走进空城。先于普通攻击。 */
-function planCaptureFinishers(world, missionsCtx, actions, processed) {
-    for (const unit of world.myUnits) {
-        if (processed.has(unit.id) || !unit.canAct || !world.isCapturable(unit)) continue;
+function canMoveToCapture(unit) {
+    return unit.canAct && !unit.isNewRecruit && !unit._isDrone && unit._campaignCanMove !== false;
+}
+
+function captureMove(unit, tile) {
+    return { type: 'move', unitId: unit.id, tileQ: tile.q, tileR: tile.r, captureCity: true, autoAttack: false };
+}
+
+/** 夺城结算：走进空城或近战击杀守军进驻。先于普通攻击。 */
+export function planCaptureFinishers(world, missionsCtx, actions, processed, onlyOpenCities = false) {
+    const claimed = new Set();
+    const capturers = [...world.myUnits].sort((a, b) =>
+        Number(isFieldCapturer(world, b)) - Number(isFieldCapturer(world, a)));
+    for (const unit of capturers) {
+        if (processed.has(unit.id) || !canMoveToCapture(unit) || world.isImmobile(unit)) continue;
+        const hasOpenCity = world.cities.some(city => city.hostile && !claimed.has(city.tile)
+            && !city.garrison && city.hp <= 0);
+        const reachable = hasOpenCity ? world.helpers.getMovableTiles(unit) : [];
         for (const city of world.cities) {
-            if (!city.hostile) continue;
-            // 空城（城防归零且无守军）→ 直接进驻。
-            if (!city.garrison && city.hp <= 0
-                && world.helpers.getMovableTiles(unit).includes(city.tile)) {
-                actions.push({ type: 'move', unitId: unit.id, tileQ: city.tile.q, tileR: city.tile.r });
+            if (!city.hostile || claimed.has(city.tile)) continue;
+            if (!city.garrison && city.hp <= 0 && reachable.includes(city.tile)) {
+                actions.push(captureMove(unit, city.tile));
+                claimed.add(city.tile);
                 processed.add(unit.id);
                 break;
             }
-            // 有守军但一击可杀且不死于反击 → 击杀进驻。
-            if (city.garrison && world.helpers.hexDistance(unit.tile, city.tile) <= 1) {
+            if (!onlyOpenCities && city.garrison && world.isCapturable(unit)
+                && world.helpers.hexDistance(unit.tile, city.tile) === 1
+                && world.helpers.getAttackableTiles(unit).includes(city.tile)) {
                 const entry = evaluateAttack(world, missionsCtx, unit, city.garrison);
-                if (entry.kills && !world.combat.wouldDieToCounter(unit, city.garrison)) {
+                if (entry.kills && !entry.veto) {
                     actions.push({ type: 'attack', unitId: unit.id, targetId: city.garrison.id });
+                    claimed.add(city.tile);
                     processed.add(unit.id);
                     break;
                 }
             }
         }
+    }
+}
+
+function planCaptureApproaches(world, strategy, missionsCtx, actions, processed) {
+    for (const mission of missionsCtx.missions) {
+        if (mission.kind !== 'siege' || processed.has(mission.occupierId)) continue;
+        const city = world.cities.find(({ tile }) => tile.q === mission.targetQ && tile.r === mission.targetR);
+        if (!city?.hostile || city.garrison || city.hp > 0) continue;
+        const unit = world.myUnits.find(candidate => candidate.id === mission.occupierId);
+        if (unit && canMoveToCapture(unit)
+            && planMove(world, missionsCtx, unit, strategy.posture, actions, city.tile)) processed.add(unit.id);
     }
 }
 
@@ -717,37 +751,40 @@ function planLethalFocus(world, missionsCtx, actions, processed) {
 }
 
 /** 攻城：只磨"占领者两回合内能跟进"的任务目标城；最后一击预留给能进驻的近战。 */
-function planSiegeAttacks(world, missionsCtx, actions, processed, onlyUnitIds = null) {
+function planSiegeAttacks(world, missionsCtx, actions, processed, breachOnly = false) {
     const siegeCities = new Set(missionsCtx.missions
         .filter(m => m.kind === 'siege')
         .map(m => `${m.targetQ},${m.targetR}`));
+    const plannedBreaches = new Set();
     for (const unit of world.myUnits) {
-        if (onlyUnitIds && !onlyUnitIds.has(unit.id)) continue;
         if (processed.has(unit.id) || !unit.canAct) continue;
         const siegeTile = world.helpers.getAttackableTiles(unit)
-            .find(tile => !tile.unit && tile.isCity && tile.hp > 0 && tile.camp !== world.myCamp);
+            .find(tile => !tile.unit && tile.isCity && tile.hp > 0 && tile.camp !== world.myCamp
+                && !plannedBreaches.has(tile) && siegeCities.has(`${tile.q},${tile.r}`));
         if (!siegeTile) continue;
-        const city = world.cities.find(c => c.tile === siegeTile);
-        const onMission = siegeCities.has(`${siegeTile.q},${siegeTile.r}`);
-        if (!onMission) continue; // 不替对手拆门：没有攻城任务就不磨城防
         const damage = world.estimateSiegeDamage(unit, siegeTile);
         const wouldBreach = damage >= siegeTile.hp;
+        if (breachOnly && !wouldBreach) continue;
+        let occupier = null;
         if (wouldBreach && !world.isCapturable(unit)) {
-            // 远程不抢最后一击，除非占领者当回合必能进驻。
-            const occupier = world.myUnits.find(u =>
-                world.isCapturable(u) && world.helpers.getMovableTiles(u).includes(siegeTile));
+            // 现在的墙会挡住路径查询。只在这座城破墙后的合法路径存在时安排接力。
+            occupier = world.myUnits.find(candidate => candidate !== unit && !processed.has(candidate.id)
+                && canMoveToCapture(candidate) && world.helpers.canReachCityAfterBreach?.(candidate, siegeTile));
             if (!occupier) continue;
         }
-        if (world.isCapturable(unit)) {
-            // 近战能打守军时不浪费在城防上（守军死了城就是进）。
-            if (city?.garrison) continue;
-        }
         const reserve = shouldReserveFinalSiegeBlow(siegeTile.hp,
-            world.myUnits.filter(u => world.isCapturable(u) && u.canAct)
+            world.myUnits.filter(u => !processed.has(u.id) && world.isCapturable(u) && u.canAct
+                && world.helpers.hexDistance(u.tile, siegeTile) === 1
+                && world.helpers.getAttackableTiles(u).includes(siegeTile))
                 .map(u => world.estimateSiegeDamage(u, siegeTile)));
         if (!world.isCapturable(unit) && reserve) continue;
         actions.push({ type: 'siegeCityAttack', unitId: unit.id, tileQ: siegeTile.q, tileR: siegeTile.r });
         processed.add(unit.id);
+        if (wouldBreach) plannedBreaches.add(siegeTile);
+        if (occupier) {
+            actions.push(captureMove(occupier, siegeTile));
+            processed.add(occupier.id);
+        }
     }
 }
 
@@ -845,9 +882,12 @@ export function planTactics(world, strategy, missionsCtx) {
     const actions = [];
     const processed = new Set();
 
-    // 0. 主动技能（泣血/至圣斩/天气等，必须在攻击前）。
+    // 已可占领的城先兑现，避免占领者先做技能或普通交战。
+    planCaptureFinishers(world, missionsCtx, actions, processed);
+
+    // 0. 主动技能（泣血/至圣斩/天气等，必须在普通攻击前）。
     for (const unit of world.myUnits) {
-        if (unit.canAct && unit.commander && !world.gameState._aiSkillPlanned?.has?.(unit.id)) {
+        if (!processed.has(unit.id) && unit.canAct && unit.commander && !world.gameState._aiSkillPlanned?.has?.(unit.id)) {
             if (planActiveSkill(world, missionsCtx, unit, actions)) processed.add(unit.id);
         }
     }
@@ -856,11 +896,10 @@ export function planTactics(world, strategy, missionsCtx) {
     planDroneOps(world, missionsCtx, actions, processed);
     planBanzaiCharges(world, missionsCtx, actions, processed);
 
-    // 1. 夺城结算（优先进驻/击杀进驻）。
-    planCaptureFinishers(world, missionsCtx, actions, processed);
-
     // 1.5 破门序列：攻城任务守军的协同斩杀（终结者收尾进城）。
     planBreachSequence(world, missionsCtx, actions, processed);
+    planSiegeAttacks(world, missionsCtx, actions, processed, true);
+    planCaptureApproaches(world, strategy, missionsCtx, actions, processed);
 
     // 1.75 困难档集火终结：在分配常规攻击前，先锁定能够确保减员的攻击包。
     planLethalFocus(world, missionsCtx, actions, processed);
