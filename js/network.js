@@ -87,6 +87,7 @@ export function setNetworkCallbacks(callbacks) {
 export function getMyRole() { return _myRole; }
 export function getMyRoomId() { return _myRoomId; }
 export function getMatchRevision() { return _revision; }
+export function hasPendingActions() { return !!_outboundActionInFlight || _outboundActionQueue.length > 0; }
 export function getMatchSeed() { return _matchSeed; }
 export function isNetworkGame() { return _myRole !== null; }
 

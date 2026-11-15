@@ -27,7 +27,7 @@ import { stopCampaignRuntime } from './campaignController.js';
 import { triggerCommanderTurnStart, triggerCommanderTurnEnd, getCommanderRecruitCost, triggerCommanderOnAttackEx, triggerCommanderOnAttack, triggerCommanderOnCounterAttack, triggerCommanderOnKill, triggerCommanderOnMoraleChange, getCommanderRangeReduction, getCommanderWeatherDebuff, getEffectiveWeather, getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderDamageBonusPct, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setCityCaptureRef } from './commanderInterface.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
-import { getStandardMap } from '../rules/standardMaps.js';
+import { getStandardMap, normalizeStandardMapFamilyId } from '../rules/standardMaps.js';
 import { syncStandardMapCarrierControl, syncCityLinkedGarrisons } from '../rules/standardMapEvents.js';
 import { Unit, _pendingRankUps } from './Unit.js';
 import {
@@ -163,6 +163,7 @@ import {
     getHistoricalCost,
     getHistoricalRecruitCost,
     isHeavyCannonDeployed,
+    isCultureSystemEnabled,
     getHeavyCannonStanceCooldown,
     getFreeResistanceTurnDeadline,
     getNeverSurrenderAttackBonus,
@@ -595,7 +596,7 @@ export function initMap() {
     buildBoardFromConfig(standardMap || { board: JSON.parse(boardJSON) }, gameState);
     updateButtonColors();
     if (standardMap?.randomTerrain !== false) generateTerrain(gameState.tiles);
-    initInitialUnits();
+    initInitialUnits(standardMap);
 
     // 遭遇战迷雾：初始化（支持联机遭遇战与 PVE 遭遇战）
     if (gameState.skirmishFog) {
@@ -745,16 +746,51 @@ export function drawCard(camp) {
 
 let _initMapEventsBound = false;
 
-function initInitialUnits() {
+function applyHistoricalOpening(standardMap) {
+    const replacements = new Map();
+    if (!isCultureSystemEnabled(gameState) || normalizeStandardMapFamilyId(standardMap.id) === 'river-valley') return replacements;
+    const activeCamps = new Set(gameState.turnOrder.filter(key => key !== 'neutral'));
+    for (const airfield of standardMap.board.installations || []) {
+        const { camp, q, r } = airfield;
+        if (airfield.type !== 'airfield' || !activeCamps.has(camp)) continue;
+        const runtimeCamp = campFromKey(camp, gameState);
+        const culture = getActiveCultureId(gameState, runtimeCamp);
+        if (!culture) continue;
+        const type = getCultureUniqueUnitType(culture);
+        const cost = type ? getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, runtimeCamp, type) : 0;
+        const gold = type ? Math.min(12, 4 + Math.max(0, UNIT_CONFIG.fr_heavy_cannon.cost - cost)) : 12;
+        gameState.playerGold[camp] = gold;
+        gameState.previousGold[camp] = gold;
+        if (!type) continue;
+
+        const city = gameState.tileMap.get(`${q},${r}`);
+        if (!city?.isCity) continue;
+        let original = standardMap.initialUnits.find(unit => unit.type === 'infantry' && unit.camp === camp
+            && unit.q === q && unit.r === r);
+        if (isRegularNavalUnit(type)) {
+            const port = standardMap.board.ports?.find(site => site.districtId === city.districtId);
+            const anchor = port ? gameState.tileMap.get(`${port.q},${port.r}`) || city : city;
+            const portDistance = unit => hexDistance(anchor, gameState.tileMap.get(`${unit.q},${unit.r}`));
+            original = standardMap.initialUnits.filter(unit => unit.camp === camp && unit.type === 'warship')
+                .sort((a, b) => portDistance(a) - portDistance(b))[0];
+        }
+        if (original) replacements.set(original, type);
+    }
+    return replacements;
+}
+
+function initInitialUnits(standardMap) {
     const map = gameState.tileMap;
     function spawn(type, camp, q, r) {
         const tile = map.get(`${q},${r}`);
         const runtimeCamp = campFromKey(campToKey(camp), gameState);
         if (tile && !tile.unit) new Unit(type, runtimeCamp, tile, false);
     }
-    const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
     if (Array.isArray(standardMap?.initialUnits)) {
-        for (const unit of standardMap.initialUnits) spawn(unit.type, unit.camp, unit.q, unit.r);
+        const replacements = applyHistoricalOpening(standardMap);
+        for (const original of standardMap.initialUnits) {
+            spawn(replacements.get(original) || original.type, original.camp, original.q, original.r);
+        }
         // 城防联动标记：这些单位只随所属城市易主
         for (const link of standardMap.cityLinkedUnits || []) {
             const unit = map.get(`${link.q},${link.r}`)?.unit;

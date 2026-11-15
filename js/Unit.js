@@ -41,7 +41,7 @@ import {
 } from '../rules/airCommands.js';
 import { areCommanderMechanicsSuppressed, canUnitOccupyTile, getTransportBaseDefense, getUnitCombatRange, getUnitMovementDomain, isEmbarkableLandUnit, TRANSPORT_RULES, TRANSPORT_SPEED_CAP } from '../rules/movement.js';
 import { isWaterTile } from '../rules/surfaces.js';
-import { canUnitTargetUnit, getCrossDomainDamageBonus, getRoyalEscortBonus, ROYAL_ESCORT_DODGE } from '../rules/naval.js';
+import { canUnitTargetUnit, getCrossDomainDamageBonus, getMarineAssaultDamageBonus, getRoyalEscortBonus, ROYAL_ESCORT_DODGE } from '../rules/naval.js';
 import {
     AURELIA_FACTION_PASSIVE,
     AURELIA_OATH_EFFECT,
@@ -690,6 +690,7 @@ export class Unit {
 
         // ② 增伤乘区
         let dmgUp = extraBonus + getCrossDomainDamageBonus(attacker, defender) + getMachineGunDamageBonus(attacker.type, defender.type);
+        if (!isCounter) dmgUp += getMarineAssaultDamageBonus(attacker, defender, _gameState);
         // 固守：只削减“受到的第一次攻击”，反击伤害不吃也不消耗该标记
         const firstHitReduction = isCounter ? 0 : (defender.getSpecializationAbility?.('holdFirstHitReduction') || 0);
         if (firstHitReduction > 0 && !defender.movedThisTurn && (defender._timesAttackedThisTurn || 0) === 0) {

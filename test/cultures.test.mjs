@@ -290,9 +290,10 @@ test('美国文化：海军陆战队两栖交战、城港双招募、海上行�
     shoreMarine._calcFloat = marine._calcFloat = cavalry._calcFloat = () => 1;
     const marineDamage = shoreMarine.calculateDamage(warship).dmg / shoreMarine.getEffectiveAttack();
     const cavalryDamage = cavalry.calculateDamage(warship).dmg / cavalry.getEffectiveAttack();
-    assert.ok(Math.abs(marineDamage - 2 * cavalryDamage) < 1e-9);
+    assert.ok(Math.abs(marineDamage - 2.4 * cavalryDamage) < 1e-9);
     assert.equal(marine.calculateDamage(warship).dmg, shoreMarine.calculateDamage(warship).dmg);
     assert.equal(marine.calculateDamage(enemy).dmg, shoreMarine.calculateDamage(enemy).dmg);
+    assert.equal(marine.calculateDamage(warship).dmg, marine._resolveDamage(marine, warship, 1, 0.20, true).dmg);
 });
 
 test('英国文化：皇家战列舰2格反潜、海上护航、3阶防空与永不言弃攻防上限', () => {

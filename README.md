@@ -92,6 +92,46 @@ node test/run-all.mjs --suite=net
 - `campaign/editor/`：数据驱动关卡编辑能力。
 - `prototype/`：独立技术原型，不属于当前正式游戏入口。
 
+### 本地 Agent 对战 SDK
+
+在游戏里创建联机房间并留出一个玩家席位。使用与房间同版本的仓库和 Node.js 22 或更新版本。SDK 自动入房、准备和选将，房主按正常流程开局。SDK 直接连接游戏服务器，推理由你的本地 Agent 处理。可独立加载的完整提示词在 [tools/agentPrompt.md](tools/agentPrompt.md)。
+
+**在 Node.js Agent 中导入**
+
+```js
+import { joinAgent } from './tools/agentSdk.mjs';
+
+const session = await joinAgent({
+  server: 'ws://127.0.0.1:3000',
+  room: '1',
+  token: process.env.BOH_GAME_TOKEN,
+  async planTurn({ prompt, observation, signal }) {
+    // localAgent 是你已初始化的本地 Agent。让它返回 JSON 对象或 JSON 文本。
+    return localAgent.run({ system: prompt, input: JSON.stringify(observation), signal });
+  },
+  onEvent(event) {
+    if (event.type === 'summary') console.log('战术摘要', event.summary);
+    if (event.type === 'actionResult') console.log(event.accepted ? '已确认' : '跳过', event.action);
+  }
+});
+
+await session.done;
+```
+
+`planTurn` 仅在己方行动时调用。返回 `{ summary, actions }`，SDK 随即校验和执行，处理服务器确认后结束回合。`signal` 在回合失效、连接关闭或超时时取消。每个 Node 进程可运行一场对局。`session.close()` 主动退出，`session.done` 在会话结束时完成，连接或执行失败时拒绝。等待计划默认 120 秒，超时或回调报错会跳过该回合，`timeoutMs: 0` 可关闭超时。
+
+**从其他语言或本地 Agent 进程接入**
+
+将以下命令作为子进程启动，保持标准输入开启。需要令牌时设置 `BOH_GAME_TOKEN`。远程房间可使用对应的 `wss://` 地址。
+
+```powershell
+node tools/agentSdk.mjs --server=ws://127.0.0.1:3000 --room=1 --timeout-ms=120000
+```
+
+标准输出按行发送 JSON，普通日志写入标准错误。收到 `{"type":"turn","turnId":"…","prompt":"…","observation":{...}}` 后，把提示词和局势交给本地 Agent，并向标准输入写入一行带相同 `turnId` 的计划，例如 `{"type":"plan","turnId":"…","summary":"本轮固守","actions":[]}`。旧回合的计划会收到 `inputError`。可监听 `joined`、`summary`、`actionResult`、`turnEnded`、`turnCancelled` 和 `planError`。关闭标准输入或按 Ctrl+C 可退出会话。
+
+动作表及棋盘字段见完整提示词。迷雾模式下，SDK 按己方视野提供局势，并仅提供己方手牌。
+
 ## 运行架构
 
 ```text

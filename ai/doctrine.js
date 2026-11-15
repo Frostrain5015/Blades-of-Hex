@@ -9,7 +9,7 @@
 // 都不属于条令层，必须留在各自的档位脚本里，否则档次差异会退化成开关。
 
 import { COUNTER_RELATION, getAttackRangeCap, getMinimumAttackRange, getMachineGunDamageBonus, getUnitBaseType, isStrongpointTarget } from '../rules/units.js';
-import { getCrossDomainDamageBonus } from '../rules/naval.js';
+import { getCrossDomainDamageBonus, getMarineAssaultDamageBonus } from '../rules/naval.js';
 import { getCannonSiegeDamageBonus, getCityDefenseBonus } from '../rules/citySiege.js';
 import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus } from '../rules/kmtStronghold.js';
 import { GUERRILLA_CONCEALMENT_CONFIG, getFireSeaDefenseReduction, getGuerrillaConcealmentReason, getNeverSurrenderAttackBonus, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
@@ -383,6 +383,7 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
             + counterDamageBonus(attacker.type, defender.type)
             + (transportedAttacker ? 0 : weatherAttackBonus(attackerBase))
             + crossDomainDamageBonus(attacker, tileObj, defender)
+            + (isCounter ? 0 : getMarineAssaultDamageBonus(attacker, { type: defender.type, tile: tileObj }, state))
             + getMachineGunDamageBonus(attacker.type, defender?.type)
             + getKmtLinkDamageBonus(attacker, state)
             // 火炮攻城修正已并入引擎②增伤乘区：对要塞单位（城市驻军/碉堡/岸防炮/工事格）+50%

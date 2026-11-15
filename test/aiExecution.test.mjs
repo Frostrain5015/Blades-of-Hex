@@ -9,6 +9,8 @@ const { engine } = await import('../core/headless.js');
 const { processOpponentTurn, configureAiRuntime } = await import('../js/ai.js');
 const { applyRemoteState, refreshInspectionSelection, serializeState, setInspectionTarget } = await import('../js/state.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
+const { CULTURE_CONFIG } = await import('../rules/cultures.js');
+const { getStandardMap } = await import('../rules/standardMaps.js');
 const { getRound } = await import('../rules/turns.js');
 const { isTileVisible, updateFogOfWar } = await import('../js/fogOfWar.js');
 const { isUnitVisibleToCamp } = await import('../rules/visibility.js');
@@ -77,6 +79,78 @@ function place(type, camp, tile, commander = null) {
     tile.unit = unit;
     return unit;
 }
+
+test('历史模式二人和三人开局按主城换特色兵种，英国改换本土巡洋舰', () => {
+    const cases = [['us',9], ['gb',4], ['fr',4], ['ru',7], ['kmt',10], ['cpc',11], ['de',12], ['jp',10]];
+    for (const family of ['crown-ring', 'uncharted-passage']) {
+        for (const seats of [2, 3]) {
+            const map = getStandardMap(seats, family);
+            for (const [cultureId, gold] of cases) {
+                engine.resetGameState();
+                const campKey = 'player' + seats;
+                const culture = CULTURE_CONFIG[cultureId];
+                engine.configureSkirmishState({ playerCount: seats, flagPresets: { [campKey]: culture.flagPreset } });
+                state.standardMapId = family;
+                state.factionRuleMode = 'culture';
+                engine.initMap();
+                const home = map.board.installations.find(site => site.type === 'airfield' && site.camp === campKey);
+                const own = state.tiles.flatMap(tile => tile.unit?.camp === state.factions[campKey] ? [tile.unit] : []);
+                assert.equal(own.length, map.initialUnits.filter(unit => unit.camp === campKey).length);
+                assert.equal(state.playerGold[campKey], gold);
+                assert.equal(state.tileMap.get(`${home.q},${home.r}`).unit.type,
+                    cultureId === 'gb' || cultureId === 'de' ? 'infantry' : culture.uniqueUnitType);
+                if (cultureId === 'gb') {
+                    const battleship = own.find(unit => unit.type === 'gb_battleship');
+                    assert.ok(battleship?.tile.isPort);
+                    assert.ok(map.initialUnits.some(unit => unit.type === 'warship' && unit.camp === campKey
+                        && unit.q === battleship.tile.q && unit.r === battleship.tile.r));
+                }
+            }
+        }
+    }
+});
+
+test('非历史模式和半成品河谷图维持原先初始兵力与资金', () => {
+    for (const [family, mode] of [['river-valley','culture'], ['crown-ring','synergy']]) {
+        engine.resetGameState();
+        engine.configureSkirmishState({ playerCount: 2, flagPresets: { player1: CULTURE_CONFIG.us.flagPreset, player2: CULTURE_CONFIG.de.flagPreset } });
+        state.standardMapId = family;
+        state.factionRuleMode = mode;
+        engine.initMap();
+        assert.ok(!state.tiles.some(tile => tile.unit?.type === 'us_marine'));
+        assert.equal(state.playerGold.player1, 4);
+        assert.equal(state.playerGold.player2, 4);
+    }
+});
+
+test('法国 AI 保留资金补上巨炮，已有可夺城兵力时优先招特色炮兵', async () => {
+    const { me } = setupMatch();
+    me.flagPreset = CULTURE_CONFIG.fr.flagPreset;
+    state.factionRuleMode = 'culture';
+    place('archer', me, state.tileMap.get('1,0'));
+    place('infantry', me, state.tileMap.get('2,0'));
+    place('cavalry', me, state.tileMap.get('3,0'));
+    state.playerGold.player1 = 14;
+    await processOpponentTurn(me);
+    assert.equal(state.playerGold.player1, 14);
+    state.playerGold.player1 = 15;
+    await processOpponentTurn(me);
+    assert.ok(state.tiles.some(tile => tile.unit?.type === 'fr_heavy_cannon' && tile.unit.camp === me));
+});
+
+test('英国 AI 允许在安全港口补战列舰，并遵守两艘上限', async () => {
+    const { me, home } = setupMatch();
+    me.flagPreset = CULTURE_CONFIG.gb.flagPreset;
+    state.factionRuleMode = 'culture';
+    place('infantry', me, home);
+    const ports = ['0,1', '1,1', '2,1'].map(key => state.tileMap.get(key));
+    for (const port of ports) Object.assign(port, { isPort: true, surface: SURFACE_KIND.SHALLOW_WATER });
+    const battleship = place('gb_battleship', me, ports[0]);
+    battleship.canAct = false;
+    await processOpponentTurn(me);
+    assert.equal(state.tiles.filter(tile => tile.unit?.type === 'gb_battleship' && tile.unit.camp === me).length, 2);
+    assert.ok(ports.some(port => !port.unit));
+});
 
 test('对手 AI 移动后，观察目标跟随单位并保持只读，切回己方时仍保留', async () => {
     const { me, foe, home } = setupMatch();

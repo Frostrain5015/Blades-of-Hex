@@ -64,6 +64,16 @@ export function isCoastalLandTile(tile, state) {
     return HEX_NEIGHBORS.some(([dq, dr]) => isWaterTile(state?.tileMap?.get(`${tile.q + dq},${tile.r + dr}`)));
 }
 
+export const MARINE_ASSAULT_DAMAGE_BONUS = 0.20;
+
+export function getMarineAssaultDamageBonus(attacker, defender, state) {
+    if (attacker?.type !== 'us_marine' || !defender?.tile) return 0;
+    const tile = defender.tile;
+    const isCoastalGarrison = (tile.isCity || tile.isUrban) && isCoastalLandTile(tile, state);
+    return tile.isPort || isCoastalGarrison || defender.type === 'shoreBattery' || isRegularNavalUnit(defender)
+        ? MARINE_ASSAULT_DAMAGE_BONUS : 0;
+}
+
 export function getCrossDomainDamageBonus(attacker, defender) {
     if (!attacker || !defender) return 0;
     if (attacker.type === 'shoreBattery') {

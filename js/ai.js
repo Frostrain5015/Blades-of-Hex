@@ -46,12 +46,13 @@ export function resolveAiPersonality(difficultyProfile) {
 }
 import { canAttack, isHostile } from '../rules/diplomacy.js';
 import { campToKey } from '../rules/camps.js';
-import { prioritizeNavalRecruitment } from '../rules/aiRecruitment.js';
+import { getCulturalRecruitmentCandidate, prioritizeNavalRecruitment } from '../rules/aiRecruitment.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { canRecruitTypeAtSelectedSite } from './recruitmentUi.js';
-import { chooseDefaultSpecialization, getUnitBaseType } from '../rules/units.js';
+import { chooseDefaultSpecialization, countLivingUnitsOfType, getUnitBaseType } from '../rules/units.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
-import { getActiveCultureId, getBanzaiBonusDamage, getCulturalReinforceCostScale, getCultureUniqueUnitType, getFireSeaState, getGuerrillaConcealmentReason, getHistoricalCost, getHistoricalRecruitCost, isHeavyCannonDeployed } from '../rules/cultures.js';
+import { getActiveCultureId, getBanzaiBonusDamage, getCulturalReinforceCostScale, getFireSeaState, getGuerrillaConcealmentReason, getHistoricalCost, getHistoricalRecruitCost, isHeavyCannonDeployed } from '../rules/cultures.js';
+import { isCityDisabled } from '../rules/citySiege.js';
 import { getBanzaiChargePath } from '../rules/targeting.js';
 import {
     canBuildFieldFortification,
@@ -219,6 +220,16 @@ function resolveEmergencyRecruitReserve(aiCamp, difficultyProfile) {
     });
 }
 
+function reserveForMissingCulturalUnit(camp) {
+    const type = getCulturalRecruitmentCandidate(gameState, camp);
+    if (!type || countLivingUnitsOfType(gameState, camp, type) > 0) return 0;
+    const fields = gameState.tiles.filter(tile => tile.camp === camp && !tile.unit && (tile.isCity || tile.isPort));
+    if (!fields.some(tile => !isCityDisabled(tile) && canRecruitTypeAtSelectedSite(type, tile, gameState, camp))) return 0;
+    if (getUnitBaseType(type) === 'archer' && !gameState.tiles.some(({ unit }) => unit?.camp === camp
+        && unit.hp > 0 && unit.commander !== 'minister' && canCaptureCityByCombat(unit))) return 0;
+    return getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, camp, type);
+}
+
 function aiPlanningSignature(aiCamp) {
     const units = gameState.tiles
         .filter(tile => tile.unit)
@@ -260,7 +271,7 @@ function pickAirReconTarget(airfield, aiCamp, knownTile) {
 
 async function runV2Infrastructure(aiCamp, difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp)) {
     const campKey = campToKey(aiCamp);
-    const emergencyReserve = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
+    const emergencyReserve = Math.max(resolveEmergencyRecruitReserve(aiCamp, difficultyProfile), reserveForMissingCulturalUnit(aiCamp));
     const canSpend = cost => (gameState.playerGold[campKey] || 0) - cost >= emergencyReserve;
     const culture = getActiveCultureId(gameState, aiCamp);
     const airPriority = culture === 'de' || difficultyProfile.infrastructureLevel > 0;
@@ -431,7 +442,7 @@ async function positionFrenchCannons(camp, deploy) {
 async function runAiFieldFortifications(aiCamp, difficultyProfile) {
     const campKey = campToKey(aiCamp);
     const gold = gameState.playerGold[campKey] || 0;
-    const reserve = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
+    const reserve = Math.max(resolveEmergencyRecruitReserve(aiCamp, difficultyProfile), reserveForMissingCulturalUnit(aiCamp));
     const fogSafeTile = tile => isKnownToAi(tile, aiCamp);
     // 敌方存在可见空袭平台（航母/无人机/已建成机场）时优先高射机枪，否则战壕。
     const hostileAir = gameState.tiles.some(tile => fogSafeTile(tile)
@@ -530,7 +541,7 @@ function makeHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(game
             )
             : baseTypes,
         canRecruitTypeAtSite: (type, site) =>
-            canRecruitTypeAtSelectedSite(type, site, gameState, aiCamp),
+            !isCityDisabled(site) && canRecruitTypeAtSelectedSite(type, site, gameState, aiCamp),
         difficultyProfile,
         isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState),
         isUnitVisibleToCamp: (unit, camp) => isUnitVisibleToCamp(unit, camp, gameState),
@@ -1016,8 +1027,18 @@ export async function processOpponentTurn(aiCamp) {
         const campKey = campToKey(aiCamp);
         for (const city of emptyCities.slice(0, difficultyProfile.fallbackRecruitLimit)) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-            const unitType = helpers.recruitTypesForCity(city, ['infantry'])
-                .find(type => gameState.playerGold[campKey] >= getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, aiCamp, type));
+            if (isCityDisabled(city)) continue;
+            const unique = getCulturalRecruitmentCandidate(gameState, aiCamp);
+            const canSpareAssault = gameState.tiles.some(({ unit }) => unit?.camp === aiCamp && unit.hp > 0
+                && unit.commander !== 'minister' && canCaptureCityByCombat(unit));
+            const prioritizeUnique = unique && (getUnitBaseType(unique) !== 'archer' || canSpareAssault)
+                && canRecruitTypeAtSelectedSite(unique, city, gameState, aiCamp);
+            const budget = gameState.playerGold[campKey];
+            const uniqueCost = prioritizeUnique ? getHistoricalRecruitCost(UNIT_CONFIG[unique].cost, gameState, aiCamp, unique) : Infinity;
+            if (prioritizeUnique && budget < uniqueCost && canSpareAssault && countLivingUnitsOfType(gameState, aiCamp, unique) === 0
+                && estimateVisibleThreatAt(city, aiCamp, difficultyProfile.threatForecast) < 0.45) continue;
+            const unitType = budget >= uniqueCost ? unique : helpers.recruitTypesForCity(city, ['infantry'])
+                .find(type => budget >= getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, aiCamp, type));
             if (unitType) {
                 await executeAction({ type: 'recruit', unitType, tileQ: city.q, tileR: city.r }, aiCamp);
             }
@@ -1043,9 +1064,8 @@ export async function processOpponentTurn(aiCamp) {
             && tile.unit.config?.movementDomain === 'naval'
             && isKnownToAi(tile, aiCamp)
             && isUnitVisibleToCamp(tile.unit, aiCamp, gameState));
-        const uniqueType = getCultureUniqueUnitType(getActiveCultureId(gameState, aiCamp));
-        const portFallbackBlocked = fleetSaturated || (landMap && !hostileNavy && uniqueType !== 'us_marine');
-        for (const port of portFallbackBlocked ? [] : emptyPorts) {
+        const portFallbackBlocked = fleetSaturated || (landMap && !hostileNavy && getActiveCultureId(gameState, aiCamp) !== 'us');
+        for (const port of emptyPorts) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
             const hostileTypes = new Set(gameState.tiles
                 .filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
@@ -1058,8 +1078,13 @@ export async function processOpponentTurn(aiCamp) {
                     : hostileTypes.has('destroyer')
                         ? ['warship', 'destroyer', 'submarine']
                         : ['destroyer', 'submarine', 'warship'];
-            if (uniqueType === 'gb_battleship' || uniqueType === 'us_marine') {
-                navalOrder = [uniqueType, ...navalOrder.filter(t => t !== uniqueType)];
+            if (portFallbackBlocked) navalOrder = [];
+            const unique = getCulturalRecruitmentCandidate(gameState, aiCamp);
+            if (unique && canRecruitTypeAtSelectedSite(unique, port, gameState, aiCamp)) {
+                const uniqueCost = getHistoricalRecruitCost(UNIT_CONFIG[unique].cost, gameState, aiCamp, unique);
+                if (gameState.playerGold[campKey] < uniqueCost && countLivingUnitsOfType(gameState, aiCamp, unique) === 0
+                    && estimateVisibleThreatAt(port, aiCamp, difficultyProfile.threatForecast) < 0.40) continue;
+                navalOrder.unshift(unique);
             }
             const unitType = navalOrder.find(type => {
                 const c = getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, aiCamp, type);
