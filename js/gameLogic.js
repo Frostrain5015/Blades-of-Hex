@@ -46,7 +46,8 @@ import {
     spawnGoldenBeam, spawnPaladinBeamProjectiles, spawnPaladinOrbitBeams,
     spawnHealingChain,
     spawnReinforceEffect, spawnCardCopyEffect, LASER_BEAM_IMPACT_MS,
-    HEAVY_CANNON_IMPACT_MS, KATYUSHA_IMPACT_MS, spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash
+    HEAVY_CANNON_IMPACT_MS, KATYUSHA_IMPACT_MS, KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, stageKatyushaHealth,
+    spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash
 } from './effects.js';
 import { playSound } from './audio.js';
 import {
@@ -1685,7 +1686,6 @@ async function _doEndTurnPhase() {
         _resolveFrenchHeavyCannonTurnStartVolley(gameState.currentCamp, heavyStartedAt + HEAVY_CANNON_IMPACT_MS)
     );
     if (heavyCannonVolleys.length > 0) {
-        playSound('cannon');
         for (const v of heavyCannonVolleys) {
             spawnHeavyCannonShell(v.fromX, v.fromY, v.toX, v.toY, v.isCrit, null, {
                 startedAt: heavyStartedAt, dodged: v.dodged, splash: v.splash
@@ -2645,6 +2645,13 @@ function _moveUnit(unit, targetTile) {
 export function attackUnit(attackerUnit, targetUnit, options) {
     return perfEnabled() ? measure('attackUnit', () => _attackUnit(attackerUnit, targetUnit, options)) : _attackUnit(attackerUnit, targetUnit, options);
 }
+function enqueueAttackDamageText(entry, katyusha) {
+    if (!katyusha) return enqueueFloatText(entry);
+    getKatyushaDamageShares(entry.value).forEach((value, i) => {
+        if (value > 0) enqueueFloatText({ ...entry, value, delayMs: KATYUSHA_IMPACT_TIMES[i] }, { stagger: false });
+    });
+}
+
 function _attackUnit(attackerUnit, targetUnit, options) {
     if (gameState.gameOver) return;
     if (attackerUnit.camp !== gameState.currentCamp) return;
@@ -2722,6 +2729,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     _killerMoraleChanged = false;
     // 鱼雷飞行需要时间：伤害数字/血条/爆炸统一延迟到弹体抵达时刻
     const attackPresentation = classifyAttackPresentation(attackerUnit);
+    const isKatyusha = attackerUnit.type === 'ru_katyusha';
+    const barrageStartedAt = performance.now();
     const _torpedoMs = attackPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO
         ? getTorpedoFlightMs(fromX, fromY, toX, toY) : 0;
     // 航母扫射与鱼雷同理：把血条/伤害数字/击杀特效延迟到子弹流抵达。
@@ -2766,7 +2775,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     } else {
         const soundPresentation = classifyAttackPresentation(attackerUnit);
         // 鱼雷发射阶段保持安静，explosion 只在弹体抵达目标时播放。
-        if (soundPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+        if (soundPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO && attackerUnit.type !== 'fr_heavy_cannon' && !isKatyusha) {
             playSound(soundPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
                 ? 'airstrike'
                 : soundPresentation === ATTACK_PRESENTATION.FIRE_TRACER
@@ -2791,6 +2800,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     const qixueSplashResults = [];
     let supportSplashEligible = false;
     let marineCounterDodged = false;
+    let katyushaCounterDodged = false;
     let ambushFx = null;
 
     if (!attackDodged) {
@@ -2803,13 +2813,14 @@ function _attackUnit(attackerUnit, targetUnit, options) {
         });
         // takeDamage → applyDamage 内部已入列蓝色护盾数字；在此补入白色血量伤害数字
         hpDamageDealt = Math.max(0, hpBeforeDmg - targetUnit.hp);
+        if (isKatyusha) stageKatyushaHealth(targetUnit, hpBeforeDmg, targetUnit.hp, barrageStartedAt);
         if (hpDamageDealt > 0 && targetUnit.tile) {
-            enqueueFloatText({
+            enqueueAttackDamageText({
                 x: targetUnit.tile.x, y: targetUnit.tile.y,
                 q: targetUnit.tile.q, r: targetUnit.tile.r,
                 value: hpDamageDealt, isCrit: attackResult.isCrit, timeLeft: 900,
                 delayMs: _impactVisualMs
-            });
+            }, isKatyusha);
         }
         if (shouldDamageCityAlongsideGarrison(attackerUnit.tile, primaryTargetTile, gameState.tileMap)) {
             // 同一次攻击分别结算驻军与城市：城市重新掷浮动/暴击，只走攻击方火力与
@@ -2823,16 +2834,18 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                 damageCityPool(primaryTargetTile, cityDamage, gameState.tileMap);
                 const cityPoolTile = getCityPoolTile(primaryTargetTile, gameState.tileMap);
                 if (cityPoolTile) cityPoolTile._citySiegeDamageRound = getRoundIndex(gameState);
+                if (isKatyusha && cityPoolTile) stageKatyushaHealth(cityPoolTile, cityPoolHpBefore, cityPoolTile.hp, barrageStartedAt);
                 // 鹰链：要塞单位（驻军/岸防炮等）顺带造成的城市结构伤害按血池剩余截断计入
                 if (isEagleAirAttacker(attackerUnit) || isEagleFortressAttacker(attackerUnit)) {
                     creditEagleSynergyDamage(_campKey(attackerUnit.camp), Math.min(cityDamage, cityPoolHpBefore));
                 }
                 // 同步登记（含弹着延迟），同地块错峰由浮字队列接管，广播快照可完整捕获
-                enqueueFloatText({
+                enqueueAttackDamageText({
                     x: toX + 20, y: toY + 8, q: primaryTargetTile.q, r: primaryTargetTile.r,
-                    value: cityDamage, isCityDamage: true, isCrit: cityDamageIsCrit,
+                    value: isKatyusha ? cityPoolHpBefore - (cityPoolTile?.hp ?? 0) : cityDamage,
+                    isCityDamage: true, isCrit: cityDamageIsCrit,
                     timeLeft: 900, delayMs: _impactVisualMs
-                });
+                }, isKatyusha);
             }
         }
         if (!isTargetDead && attackerUnit.specializationKey === 'fleetCruiser'
@@ -2884,10 +2897,11 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                     damage, killed, unitId: splashUnit.id
                 });
                 const dealt = before - splashUnit.hp;
-                if (dealt > 0) enqueueFloatText({
+                if (isKatyusha) stageKatyushaHealth(splashUnit, before, splashUnit.hp, barrageStartedAt);
+                if (dealt > 0) enqueueAttackDamageText({
                     x: splashTile.x, y: splashTile.y, q: splashTile.q, r: splashTile.r,
                     value: dealt, timeLeft: 900, delayMs: culturalImpactMs
-                });
+                }, isKatyusha);
             }
         }
         if (qixueActive) {
@@ -2955,7 +2969,9 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                 triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
             };
             if (attackerUnit.type === 'ru_katyusha') {
-                spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit, impact, { splash: specializationSplashResults, dodged: attackDodged });
+                spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit, impact, {
+                    startedAt: barrageStartedAt, splash: specializationSplashResults, dodged: attackDodged
+                });
             } else if (attackerUnit.type === 'fr_heavy_cannon') {
                 spawnHeavyCannonShell(fromX, fromY, toX, toY, isCrit, null, {
                     dodged: attackDodged, splash: specializationSplashResults
@@ -2989,9 +3005,11 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                 spawnProjectile(fromX, fromY, toX, toY, false);
             }, 140);
         }
-        for (const splash of specializationSplashResults) {
-            spawnDirectionalParticles(toX, toY, splash.x, splash.y, '#ffb35c', 8);
-            spawnExplosionParticles(splash.x, splash.y, '#ff8a3d', 8);
+        if (attackerUnit.type !== 'fr_heavy_cannon' && !isKatyusha) {
+            for (const splash of specializationSplashResults) {
+                spawnDirectionalParticles(toX, toY, splash.x, splash.y, '#ffb35c', 8);
+                spawnExplosionParticles(splash.x, splash.y, '#ff8a3d', 8);
+            }
         }
         if (!attackDodged && qixueActive) {
             spawnCommanderSkillEffect(fromX, fromY, '🩸', '泣血');
@@ -3067,16 +3085,24 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             if (enduranceXp > 0) targetUnit.addXP(enduranceXp);
 
             const counterPresentation = classifyAttackPresentation(targetUnit);
+            const isKatyushaCounter = targetUnit.type === 'ru_katyusha';
+            const counterStartedAt = performance.now();
             const counterImpactMs = counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO
                 ? getTorpedoFlightMs(targetUnit.tile.x, targetUnit.tile.y, attackerUnit.tile.x, attackerUnit.tile.y)
+                : targetUnit.type === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
+                : isKatyushaCounter ? KATYUSHA_IMPACT_MS
                 : targetUnit.type === 'us_marine' ? DRONE_PROJECTILE_IMPACT_MS : 0;
-            const counterResult = targetUnit.calculateCounterDamage(attackerUnit, counterImpactMs);
+            const counterResult = targetUnit.calculateCounterDamage(attackerUnit, counterImpactMs, { showDamageText: !isKatyushaCounter });
             _counterDmg = counterResult.dmg;
             _counterX = attackerUnit.tile.x; _counterY = attackerUnit.tile.y;
             marineCounterDodged = targetUnit.type === 'us_marine' && counterResult.dodged === true;
             if (marineCounterDodged) {
                 playSound('machinegun');
                 spawnDroneProjectile(toX, toY, _counterX, _counterY, false);
+            }
+            katyushaCounterDodged = isKatyushaCounter && counterResult.dodged === true;
+            if (katyushaCounterDodged) {
+                spawnKatyushaBarrage(toX, toY, _counterX, _counterY, false, null, { startedAt: counterStartedAt, dodged: true });
             }
             if (!counterResult.dodged && counterResult.dmg > 0) {
                 targetUnit.addXP(1);
@@ -3088,9 +3114,17 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                 const strongholdImpactMs = counterImpactMs || (counterPresentation === ATTACK_PRESENTATION.FIRE_CANNON
                     ? getProjectileFlightMs(toX, toY, _counterX, _counterY)
                     : counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER ? DRONE_PROJECTILE_IMPACT_MS : 0);
+                const hpBeforeCounter = attackerUnit.hp;
                 attackerUnit.takeDamage(counterResult.dmg, targetUnit, false, {
                     isCrit: counterResult.isCrit, impactDelayMs: strongholdImpactMs
                 });
+                if (isKatyushaCounter) {
+                    stageKatyushaHealth(attackerUnit, hpBeforeCounter, attackerUnit.hp, counterStartedAt);
+                    enqueueAttackDamageText({
+                        x: _counterX, y: _counterY, q: attackerStartTile.q, r: attackerStartTile.r,
+                        value: hpBeforeCounter - attackerUnit.hp, isCrit: counterResult.isCrit, timeLeft: 900
+                    }, true);
+                }
                 // 远程反击复用原有炮弹与曳光弹表现。
                 _counterIsCrit = counterResult.isCrit;
                 _counterIsRanged = counterPresentation !== ATTACK_PRESENTATION.ASSAULT;
@@ -3105,6 +3139,10 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                             spawnDirectionalParticles(_cfx, _cfy, _counterX, _counterY, '#ff8844', counterResult.isCrit ? 8 : 4);
                             triggerScreenShake(counterResult.isCrit ? 6 : 3, counterResult.isCrit ? 200 : 120);
                         });
+                    } else if (targetUnit.type === 'fr_heavy_cannon') {
+                        spawnHeavyCannonShell(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, null, { areaImpact: false });
+                    } else if (isKatyushaCounter) {
+                        spawnKatyushaBarrage(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, null, { startedAt: counterStartedAt });
                     } else {
                         playSound('cannon');
                         const counterImpact = () => {
@@ -3271,6 +3309,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             counterDmg: _counterDmg, counterX: _counterX, counterY: _counterY,
             counterIsRanged: _counterIsRanged, counterIsCrit: _counterIsCrit,
             marineCounterDodged,
+            katyushaCounterDodged,
             counterType: targetUnit.type,
             counterIsDrone: !!targetUnit._isDrone,
             counterUsesDroneProjectile: !!(targetUnit._isDrone || targetUnit.type === 'mgNest'),
@@ -4265,7 +4304,9 @@ function _attackCityTile(attackerUnit, targetTile, options) {
     // 共享血池：攻击城内任意地块都扣同一池HP，并把脱战计时记在血池宿主（中心格）上。
     const poolTile = getCityPoolTile(targetTile, gameState.tileMap) || targetTile;
     const poolHpBeforeSiege = Math.max(0, poolTile.hp || 0);
+    const barrageStartedAt = performance.now();
     damageCityPool(targetTile, result.damage, gameState.tileMap);
+    if (attackerUnit.type === 'ru_katyusha') stageKatyushaHealth(poolTile, poolHpBeforeSiege, poolTile.hp, barrageStartedAt);
     poolTile._citySiegeDamageRound = getRoundIndex(gameState);
     // 鹰链：航母舰载机（空军）与要塞单位的攻城结构伤害按血池剩余截断计入
     if (isEagleAirAttacker(attackerUnit) || isEagleFortressAttacker(attackerUnit)) {
@@ -4277,11 +4318,11 @@ function _attackCityTile(attackerUnit, targetTile, options) {
         : attackerUnit.type === 'ru_katyusha' ? KATYUSHA_IMPACT_MS
         : attackerUnit.type === 'us_marine' ? DRONE_PROJECTILE_IMPACT_MS
         : 0;
-    enqueueFloatText({
+    enqueueAttackDamageText({
         x: toX, y: toY, q: targetTile.q, r: targetTile.r,
         value: poolHpBeforeSiege - poolTile.hp, isCrit: result.isCrit, isCityDamage: true,
         timeLeft: 900, delayMs: impactDelay
-    });
+    }, attackerUnit.type === 'ru_katyusha');
 
     // 攻城攻击表现——复用标准兵种开火动画（鱼雷/炮击/曳光/近战），航母为俯冲扫射
     const attackPresentation = classifyAttackPresentation(attackerUnit);
@@ -4300,7 +4341,8 @@ function _attackCityTile(attackerUnit, targetTile, options) {
         }, 500);
         setTimeout(() => triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120), CARRIER_STRAFE_IMPACT_MS);
     } else {
-    if (attackPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO) {
+    if (attackPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
+        && attackerUnit.type !== 'fr_heavy_cannon' && attackerUnit.type !== 'ru_katyusha') {
         playSound(attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER
             ? 'machinegun'
             : attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON
@@ -4317,7 +4359,7 @@ function _attackCityTile(attackerUnit, targetTile, options) {
             triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120);
         };
         if (attackerUnit.type === 'fr_heavy_cannon') spawnHeavyCannonShell(fromX, fromY, toX, toY, isCrit);
-        else if (attackerUnit.type === 'ru_katyusha') spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit, impact);
+        else if (attackerUnit.type === 'ru_katyusha') spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit, impact, { startedAt: barrageStartedAt });
         else spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
     } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
         spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {

@@ -270,7 +270,8 @@ export class Unit {
                 desc: getTransportBaseDefense(this) === TRANSPORT_RULES.deepWaterBaseDefense
                     ? TRANSPORT_RULES.deepWaterEffectDescription
                     : TRANSPORT_RULES.effectDescription,
-                color: '#4f91bd'
+                color: '#4f91bd',
+                status: '当前生效'
             });
         }
 
@@ -353,15 +354,15 @@ export class Unit {
             });
         }
         if (this._imprisoned) {
-            effects.push({ label: '禁锢', desc: '本回合无法移动', color: '#ff8844' });
+            effects.push({ label: '禁锢', desc: '本回合无法移动', color: '#ff8844', status: '本回合生效' });
         }
         if (this._isImmobile) {
-            effects.push({ label: '不可移动', desc: '该单位无法移动', color: '#888' });
+            effects.push({ label: '不可移动', desc: '该单位无法移动', color: '#888', status: '常驻生效' });
         }
 
         // 勇气灵光（自身）
         if (this.commander === 'paladin' && !areCommanderMechanicsSuppressed(this)) {
-            effects.push({ label: '勇气灵光', desc: FRONTEND_TEXT.effectDescriptions.courageAura, color: '#ffd700' });
+            effects.push({ label: '勇气灵光', desc: FRONTEND_TEXT.effectDescriptions.courageAura, color: '#ffd700', status: '当前生效' });
         }
 
         // 勇气灵光 — 受相邻圣骑士影响
@@ -375,7 +376,7 @@ export class Unit {
                 }
             }
             if (hasPaladinAura) {
-                effects.push({ label: '勇气灵光', desc: FRONTEND_TEXT.effectDescriptions.courageAura, color: '#ffd700' });
+                effects.push({ label: '勇气灵光', desc: FRONTEND_TEXT.effectDescriptions.courageAura, color: '#ffd700', status: '当前生效' });
             }
         }
 
@@ -938,7 +939,7 @@ export class Unit {
         return result;
     }
 
-    calculateCounterDamage(attackerUnit, textDelayMs = 0) {
+    calculateCounterDamage(attackerUnit, textDelayMs = 0, { showDamageText = true } = {}) {
         const log = _logMessage;
         const gs = _gameState;
 
@@ -978,7 +979,7 @@ export class Unit {
             this.counterAttackCount++;
             log(`${this.camp.name} ${this.config.name}反击造成${Math.round(result.dmg)}伤害${result.isCrit ? '，反击强击！' : ''}`);
 
-            this._pushDamageTextDelayed(gs, {
+            if (showDamageText) this._pushDamageTextDelayed(gs, {
                 x: attackerUnit.tile.x,
                 y: attackerUnit.tile.y,
                 value: result.dmg,
@@ -1199,7 +1200,7 @@ export class Unit {
         if (linked.length && actualDmg > 0) {
             const total = linked.reduce((sum, unit) => sum + unit.hp, 0);
             const delayUntil = this._deferImpactFxUntil || 0;
-            const damage = effectiveMinHp > 0 ? Math.max(0, Math.min(actualDmg, total - linked.length)) : actualDmg;
+            const damage = effectiveMinHp > 0 ? Math.max(0, Math.min(actualDmg, total - effectiveMinHp)) : actualDmg;
             const next = distributeKmtPoolChange(linked, damage);
             for (const { unit } of next) {
                 if (delayUntil > performance.now()) {

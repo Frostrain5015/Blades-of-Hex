@@ -44,8 +44,8 @@ on('fx:commanderSkill', ({ x, y, glyph, label }) => spawnCommanderSkillEffect(x,
 on('fx:guerrillaConcealment', ({ q, r, x, y, campKey }) => {
     if (!isFriendly(gameState, campKey, getViewingCamp()) || !isHistoricalEffectVisible({ q, r })) return;
     spawnCommanderSkillEffect(x, y, '🌿', '隐匿');
-    spawnRingWave(x, y, { color: '#8dbd79', maxRadius: 27, duration: 420, lineWidth: 2 });
-    spawnDirectionalParticles(x, y + 11, x, y, '#a4c48a', 9);
+    spawnRingWave(x, y, { color: '#a9ed67', maxRadius: 46, duration: 630, lineWidth: 3.8, count: 2, glow: '#72e34e' });
+    spawnDirectionalParticles(x, y + 11, x, y - 3, '#bbef85', 12);
 });
 on('fx:guerrillaAmbush', ({ fromX, fromY, fromQ, fromR, x, y, q, r, dodged }) => {
     if (!isHistoricalEffectVisible({ q, r })) return;

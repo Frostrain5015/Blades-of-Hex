@@ -123,7 +123,7 @@ const { getActiveFactionSynergies } = synergyModule;
 const { getFactionCount } = turnsModule;
 const { SURFACE_KIND } = surfacesModule;
 const { COMBAT_BALANCE } = constantsModule;
-const { getKmtLinkedUnits, getKmtLinkDamageBonus, getKmtLinkDefenseBonus } = await import('../rules/kmtStronghold.js');
+const { getKmtLinkedUnits, getKmtLinkDamageBonus, getKmtLinkDefenseBonus, getKmtSharedHealth } = await import('../rules/kmtStronghold.js');
 
 let _nextId = 4000;
 
@@ -427,6 +427,7 @@ test('中华民国：教导旅跨地图共享生命、放大驻地防御并给�
     assert.equal(getKmtLinkDamageBonus(friendly, state), 0);
     const other = spawnUnit('kmt_training_brigade', kmt, farTile);
     assert.deepEqual(getKmtLinkedUnits(brigade, state), [brigade, other]);
+    assert.deepEqual(getKmtSharedHealth(getKmtLinkedUnits(other, state)), { hp: 420, maxHp: 420 });
     assert.equal(getKmtLinkDamageBonus(brigade, state), 0.15);
     assert.equal(getKmtLinkDamageBonus(friendly, state), 0.15);
     assert.equal(getKmtLinkDamageBonus(outOfAura, state), 0);
@@ -442,7 +443,13 @@ test('中华民国：教导旅跨地图共享生命、放大驻地防御并给�
     assert.deepEqual([brigade.hp, other.hp], [165, 165]);
     assert.equal(other.heal(30), 30);
     assert.deepEqual([brigade.hp, other.hp], [180, 180]);
-    brigade.applyDamage(360, { source: 'true', attacker });
+    brigade._shield = 15;
+    other.takeDamage(359, attacker);
+    assert.equal(brigade._shield, 15, '护盾只保护持有者');
+    assert.deepEqual(getKmtSharedHealth(getKmtLinkedUnits(brigade, state)), { hp: 1, maxHp: 420 });
+    assert.equal(brigade.heal(419), 419);
+    assert.deepEqual([brigade.hp, other.hp], [210, 210], '从最后1点回满仍按各自容量分摊');
+    other.applyDamage(420, { source: 'true', attacker });
     assert.deepEqual([cityTile.unit, farTile.unit], [null, null]);
     assert.equal(getKmtLinkDamageBonus(friendly, state), 0);
 

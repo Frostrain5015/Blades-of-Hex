@@ -96,8 +96,8 @@ export function getGuerrillaConcealmentReason(unit, state) {
     return '';
 }
 
-export const SAMURAI_PASSIVE_DESCRIPTION = '无法接受常规治疗，仅可在城市或村庄补员。主动技【万岁冲锋】可消耗2点行动力与25%当前生命值突击2格内敌军，追加目标已损失生命值30%的伤害（至多60点）；击杀目标时恢复35%最大生命值，且每回合首次冲锋击杀后额外获得1次行动机会与2点行动力。';
-export const GUERRILLA_PASSIVE_DESCRIPTION = '移动不受地形与天气的额外行动力消耗影响。可消耗2点行动力进入【隐匿】状态（持续至下一次己方回合结束，显形后冷却1回合）；隐匿期间首次主动攻击触发【奇袭】，造成的伤害提高65%并显形。1格内有敌军时会被侦测，但仍保留当次奇袭加成。';
+export const SAMURAI_PASSIVE_DESCRIPTION = '无法接受常规治疗，仅可通过城市或村庄补员恢复生命值。';
+export const GUERRILLA_PASSIVE_DESCRIPTION = '移动不受地形与天气的额外行动力消耗影响。';
 
 export const CULTURE_CONFIG = deepFreeze({
     us: {
@@ -165,7 +165,7 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '喀秋莎火箭炮',
             abilityName: '火力覆盖',
-            summary: '每次攻击均发射火箭弹幕，对目标相邻敌军造成35%溅射伤害。'
+            summary: '每次攻击分三轮发射火箭，平分本次伤害。攻击附带35%溅射伤害。'
         },
         tier2: {
             title: '严冬铁卫',

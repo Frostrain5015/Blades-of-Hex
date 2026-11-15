@@ -110,7 +110,7 @@ function buildEngineer() {
             id: 'engineer', name: '工程师', hpBonusPct: 0.30, atkBonusPct: 0.25, spdBonus: 0,
             skills: [
                 { name: '工兵指挥', desc: '建造工事时获得专属折扣；建造碉堡立即完成，驻城时该城市建设机场也享受折扣。', type: 'passive' },
-                { name: '战地抢修', desc: `消耗${balance.fieldRepairGoldCost}金币，修复相邻己方建筑（含施工中的碉堡）${percent(balance.fieldRepairHealPct)}最大生命值，冷却${balance.fieldRepairCooldown}回合。`, type: 'passive' }
+                { name: '战地抢修', desc: `消耗${balance.fieldRepairGoldCost}金币，修复相邻己方建筑（含施工中的碉堡）${percent(balance.fieldRepairHealPct)}最大生命值，冷却${balance.fieldRepairCooldown}回合。`, type: 'active' }
             ]
         },
         balance

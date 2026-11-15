@@ -9,7 +9,7 @@ import { isMyTurn, isNetworkGame, getMyRole, syncCommanderState, sendAction } fr
 import { drainPendingFloatTexts } from './floatTexts.js';
 import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidateAction } from './campaignController.js';
 import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
-import { getKmtLinkDefenseBonus, getKmtReinforceDeficit } from '../rules/kmtStronghold.js';
+import { getKmtLinkedUnits, getKmtLinkDefenseBonus, getKmtReinforceDeficit, getKmtSharedHealth } from '../rules/kmtStronghold.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { getCityDefenseBonus, getCityPoolTile, isCityDisabled } from '../rules/citySiege.js';
 import {
@@ -19,7 +19,7 @@ import {
     executeConstructionAt, executeFieldConstruction, executeBunkerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment,
     cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit, repairShipAtPort, recordAuxiliaryAction
 } from './gameLogic.js';
-import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect } from './effects.js';
+import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect, getKatyushaPresentedHealth } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
 import { setMasterVolume, setMuted } from './audio.js';
 import { canDeployDrone, DRONE_DEPLOY_COST } from '../commander/tianyan.js';
@@ -1271,13 +1271,17 @@ function _getPassiveRuntimeState(unit, skill) {
         }
     }
 
-    if (unit.commander === 'martyr' && skill.name === '殉道' && unit._martyrPrimed) {
-        const balance = COMMANDER_BALANCE_CONFIG.martyr.balance;
-        presentation.desc = '生命锁定为' + balance.triggerHp + '，下回合开始时对' + balance.explosionRange + '格范围内所有非己方单位造成基于攻击力的真实伤害。';
-        presentation.color = '#ff5533';
-        presentation.status = '已进入倒计时';
-        presentation.active = true;
-        presentation.intensity = 1;
+    if (unit.commander === 'martyr' && skill.name === '殉道') {
+        if (unit._martyrPrimed) {
+            const balance = COMMANDER_BALANCE_CONFIG.martyr.balance;
+            presentation.desc = '生命锁定为' + balance.triggerHp + '，下回合开始时对' + balance.explosionRange + '格范围内所有非己方单位造成基于攻击力的真实伤害。';
+            presentation.color = '#ff5533';
+            presentation.status = '已进入倒计时';
+            presentation.active = true;
+            presentation.intensity = 1;
+        } else {
+            presentation.status = '常驻生效';
+        }
     }
 
     if (unit.commander === 'magician' && skill.name === '幻形') {
@@ -1314,7 +1318,11 @@ function _getPassiveRuntimeState(unit, skill) {
         if (unit._centurionTriggered) presentation.color = '#f5ca67';
     }
 
-    if (unit.commander === 'colonel' && skill.name === '制空') {
+    if (
+        (unit.commander === 'colonel' && skill.name === '制空')
+        || (unit.commander === 'astrologer' && skill.name === '夜观')
+        || (unit.commander === 'priest' && skill.name === '神恩')
+    ) {
         presentation.status = '常驻生效';
     }
     if (unit.commander === 'colonel' && skill.name === '老练') {
@@ -1397,6 +1405,7 @@ function _getTerrainEffect(tile) {
             label: tile.isCity ? '城市' : '城区',
             desc,
             color: tile.camp?.color || '#ffffff',
+            status: '当前生效',
             kind: 'effect'
         };
     }
@@ -1414,6 +1423,7 @@ function _getTerrainEffect(tile) {
         label: terrain.name,
         desc,
         color: '#e6dfc8',
+        status: '当前生效',
         kind: 'effect'
     };
 }
@@ -1451,6 +1461,7 @@ function _getWeatherEffect(unit) {
         label: weather.name + '天',
         desc,
         color: weather.color,
+        status: '当前生效',
         kind: 'effect'
     };
 }
@@ -1467,6 +1478,7 @@ function _buildEffectItems(tile, unit) {
             label: ready ? '机场' : '施工中',
             desc: ready ? '已建成机场设施，可调度空军执行作战指令。' : `正在建设机场，还需${tile.installation.turnsRemaining || 1}回合完工。`,
             color: ready ? '#9fd7ff' : '#e8c477',
+            status: ready ? '当前生效' : `剩余${tile.installation.turnsRemaining || 1}回合`,
             kind: 'effect'
         });
     }
@@ -1478,6 +1490,7 @@ function _buildEffectItems(tile, unit) {
             label: fortification.name,
             desc: fortification.desc,
             color: '#e8c477',
+            status: '当前生效',
             kind: 'effect'
         });
     }
@@ -1516,7 +1529,7 @@ function _buildPassiveItems(unit) {
             desc: 'HP ' + unit.maxHp + ' / ATK ' + unit.config.attack + ' / MP ' + unit.config.speed
                 + ' / 射程 ' + unit.config.range + '。行动力消耗2，无视地形。',
             color: '#88ccff',
-            status: '单位特性',
+            status: '常驻生效',
             kicker: '兵种被动',
             active: true,
             intensity: 1,
@@ -1643,7 +1656,7 @@ function _buildPassiveItems(unit) {
                 label: culture.tier1.abilityName || culture.tier1.title,
                 desc: culture.tier1.summary,
                 color: '#ffd866',
-                status: '特色兵种能力',
+                status: '常驻生效',
                 kicker: '特色兵种',
                 active: true,
                 intensity: 1,
@@ -2069,6 +2082,11 @@ function _syncSelectionHud(tile) {
     const unit = tile.unit && isUnitVisibleToCamp(tile.unit, getViewingCamp(), gameState) ? tile.unit : null;
     const effects = _buildEffectItems(tile, unit);
     const selectionKey = unit ? 'unit:' + unit.id : 'tile:' + tile.q + ':' + tile.r;
+    const sharedHealth = getKmtSharedHealth(getKmtLinkedUnits(unit, gameState));
+    const now = performance.now();
+    const presentedHp = unit ? getKatyushaPresentedHealth(unit, now) ?? unit.hp : 0;
+    const cityPool = getCityPoolTile(tile, gameState.tileMap);
+    const cityHp = Math.max(0, Math.round((cityPool ? getKatyushaPresentedHealth(cityPool, now) : null) ?? tile.hp ?? 0));
 
     // 攻防按当前值直接参与签名：任何修正来源（幻形/挽歌/制空/灵光等）变化都会触发刷新
     let attack = 0;
@@ -2102,9 +2120,9 @@ function _syncSelectionHud(tile) {
     }
 
     const signature = selectionKey + '|' + effects.map(effect => [effect.key, effect.count, effect.desc, effect.status].join(':')).join('|')
-        + '|' + ((tile.isCity || tile.isUrban) ? Math.round(tile.hp || 0) + '/' + (tile.maxHp || 0) : '')
+        + '|' + ((tile.isCity || tile.isUrban) ? cityHp + '/' + (tile.maxHp || 0) : '')
         + '|' + (unit ? [
-            unit.hp, unit.maxHp, unit.activeShield, unit.remainingMP, unit.canAct,
+            presentedHp, unit.maxHp, sharedHealth?.hp, sharedHealth?.maxHp, unit.activeShield, unit.remainingMP, unit.canAct,
             unit._faith || 0, unit.moralePenaltyUntil || 0, unit._rank || 0, unit.specializationKey || 'pending',
             attack, defense, hoverMoveCost, getRelation(gameState, getViewingCampKey(gameState), unit.camp)
         ].join(':') : '');
@@ -2129,19 +2147,21 @@ function _syncSelectionHud(tile) {
         selectionHudEl.style.setProperty('--selection-camp-color', getFlagColors(faction?.color || unit.camp?.color).main);
         selectionHudEl.style.setProperty('--selection-relation-color', relationMeta.color);
         selectionHudHp.hidden = false;
-        // 血条宽度固定由 CSS 控制（min(220px, 64vw)），填充百分比包含护盾
+        const hp = sharedHealth?.hp ?? presentedHp;
+        const maxHp = sharedHealth?.maxHp ?? unit.maxHp;
         const shield = unit.activeShield;
-        const total = unit.maxHp + shield;
-        const hpRatio = total ? unit.hp / total : 0;
-        const shieldRatio = total ? shield / total : 0;
-        const hpColor = unit.hp / unit.maxHp > 0.5 ? '#4caf50' : unit.hp / unit.maxHp > 0.25 ? '#ff9800' : '#f44336';
+        const total = maxHp + (sharedHealth ? 0 : shield);
+        const hpRatio = total ? hp / total : 0;
+        const shieldRatio = !sharedHealth && total ? shield / total : 0;
+        const hpColor = hp / maxHp > 0.5 ? '#4caf50' : hp / maxHp > 0.25 ? '#ff9800' : '#f44336';
         selectionHudHpFill.style.width = Math.min(100, Math.max(0, (hpRatio + shieldRatio) * 100)) + '%';
         selectionHudHpFill.style.background = shieldRatio > 0
             ? 'linear-gradient(to right, ' + hpColor + ' ' + (hpRatio / (hpRatio + shieldRatio) * 100) + '%, #66bbff ' + (hpRatio / (hpRatio + shieldRatio) * 100) + '%)'
             : hpColor;
         const hpBonus = commander ? Math.round(unit.config.hp * (commander.hpBonusPct || 0)) : 0;
-        selectionHudHpText.textContent = '❤ ' + Math.round(unit.hp) + '/' + unit.maxHp
-            + (hpBonus > 0 ? ' (+' + hpBonus + ')' : '') + (shield > 0 ? '  +🛡' + Math.round(shield) : '');
+        selectionHudHpText.textContent = '❤ ' + (sharedHealth ? '共享 ' : '') + Math.round(hp) + '/' + maxHp
+            + (!sharedHealth && hpBonus > 0 ? ' (+' + hpBonus + ')' : '')
+            + (shield > 0 ? (sharedHealth ? '  本旅🛡' : '  +🛡') + Math.round(shield) : '');
 
         const attackDelta = attack - unit.config.attack;
         const mpText = '⚡ ' + unit.remainingMP
@@ -2163,7 +2183,6 @@ function _syncSelectionHud(tile) {
     const showCityHp = (tile.isCity || tile.isUrban) && tile.maxHp > 0;
     selectionHudCityHp.hidden = !showCityHp;
     if (showCityHp) {
-        const cityHp = Math.max(0, Math.round(tile.hp || 0));
         const cityHpRatio = Math.max(0, Math.min(1, cityHp / tile.maxHp));
         const burn = 1 - cityHpRatio;
         selectionHudCityHpFill.style.width = (cityHpRatio * 100) + '%';

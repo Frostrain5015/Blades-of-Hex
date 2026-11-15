@@ -8,7 +8,7 @@
 import { MORALE_CONFIG } from '../rules/terrain.js';
 import { EMOJI_FONT_STACK } from '../rules/symbols.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
-import { isKmtLinkMember, getKmtLinkedUnits, getKmtLinkDamageBonus, getKmtPoolCapacity } from '../rules/kmtStronghold.js';
+import { isKmtLinkMember, getKmtLinkedUnits, getKmtLinkDamageBonus, getKmtSharedHealth } from '../rules/kmtStronghold.js';
 import { percent } from '../rules/format.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { getRoundIndex } from './config.js';
@@ -37,6 +37,7 @@ export function buildUnitEffectItems(unit, gameState) {
             label: morale.name,
             desc: morale.desc,
             color: morale.color,
+            status: '当前生效',
             kind: 'effect'
         });
     }
@@ -62,6 +63,7 @@ export function buildUnitEffectItems(unit, gameState) {
             label: '信号失联',
             desc: '超出天眼信号范围，当前无法行动',
             color: '#ff9b72',
+            status: '当前生效',
             kind: 'effect'
         });
     }
@@ -76,6 +78,7 @@ export function buildUnitEffectItems(unit, gameState) {
                 ? FRONTEND_TEXT.effectDescriptions.guardianSelf
                 : FRONTEND_TEXT.effectDescriptions.guardianAlly,
             color: '#7eb8ff',
+            status: '当前生效',
             kind: 'effect'
         });
     }
@@ -202,7 +205,7 @@ export function buildUnitEffectItems(unit, gameState) {
         });
     }
 
-    const linkedBrigades = getKmtLinkedUnits(unit, gameState);
+    const sharedHealth = getKmtSharedHealth(getKmtLinkedUnits(unit, gameState));
     const linkDamage = getKmtLinkDamageBonus(unit, gameState);
     if (isKmtLinkMember(unit) || linkDamage) {
         const passive = FRONTEND_TEXT.unitPassives.kmt_training_brigade;
@@ -212,8 +215,8 @@ export function buildUnitEffectItems(unit, gameState) {
             label: passive.name,
             desc: passive.desc,
             color: '#a9d7ed',
-            status: linkedBrigades.length
-                ? `共享生命 ${linkedBrigades.reduce((sum, ally) => sum + ally.hp, 0)}/${linkedBrigades.reduce((sum, ally) => sum + getKmtPoolCapacity(ally), 0)} 伤害 +${percent(linkDamage)}`
+            status: sharedHealth
+                ? `共享生命 ${Math.round(sharedHealth.hp)}/${sharedHealth.maxHp} 伤害 +${percent(linkDamage)}`
                 : linkDamage ? `相邻教导旅支援 伤害 +${percent(linkDamage)}` : '等待另一支教导旅入场',
             kind: 'effect'
         });
@@ -223,9 +226,9 @@ export function buildUnitEffectItems(unit, gameState) {
             key: 'culture:anti-heal',
             icon: '🩸',
             label: '武士信条',
-            desc: '无法接受常规治疗，仅可通过城市、村庄补员或【万岁冲锋】击杀敌军恢复生命值。',
+            desc: '无法接受常规治疗，仅可通过城市或村庄补员恢复生命值。',
             color: '#ef5350',
-            status: '无法接受常规治疗',
+            status: '常驻生效',
             kind: 'effect'
         });
     }
@@ -237,7 +240,7 @@ export function buildUnitEffectItems(unit, gameState) {
             label: '重炮已齐射',
             desc: '本回合开始时已自动执行远程炮击；本回合仍可机动，但不可再次手动攻击。',
             color: '#9ec5ff',
-            status: '不可再手动攻击',
+            status: '本回合已触发',
             kind: 'effect'
         });
     }

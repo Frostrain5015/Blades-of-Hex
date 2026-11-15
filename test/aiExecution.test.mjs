@@ -12,7 +12,8 @@ const { getRound } = await import('../rules/turns.js');
 const { isTileVisible } = await import('../js/fogOfWar.js');
 const { isUnitVisibleToCamp } = await import('../rules/visibility.js');
 const { BURN_MS, attackCityTile, executeBanzaiCharge, executeGuerrillaConcealment, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
-const { droneProjectiles } = await import('../js/effects.js');
+const { droneProjectiles, HEAVY_CANNON_IMPACT_MS, heavyCannonShells, ringWaves, spawnHeavyCannonShell, updateHeavyCannonShells } = await import('../js/effects.js');
+const { KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, getKatyushaPresentedHealth, katyushaRockets } = await import('../js/effects.js');
 const { startMatchRecording, getCurrentMatchLog } = await import('../js/matchRecorder.js');
 const state = engine.gameState;
 const events = [];
@@ -205,6 +206,50 @@ test('法国友军毒发阵亡后，自由不屈为邻格友军加24点临时护
     assert.equal(home.unit, null);
     assert.equal(ally.morale, 3);
     assert.equal(ally.activeShield, 24);
+});
+
+test('巨炮先蓄力再开火，只有命中时触发范围冲击波', () => {
+    setupMatch();
+    const startedAt = performance.now();
+    let impacts = 0;
+    let waves = ringWaves.length;
+    spawnHeavyCannonShell(0, 0, 60, 0, false, () => impacts++, { startedAt });
+    updateHeavyCannonShells(startedAt + 100);
+    assert.equal(heavyCannonShells.at(-1).fired, false);
+    updateHeavyCannonShells(startedAt + HEAVY_CANNON_IMPACT_MS - 1);
+    assert.equal(heavyCannonShells.at(-1).fired, true);
+    assert.equal(impacts, 0);
+    assert.equal(ringWaves.length, waves);
+    updateHeavyCannonShells(startedAt + HEAVY_CANNON_IMPACT_MS + 1);
+    assert.equal(impacts, 1);
+    assert.equal(ringWaves.length - waves, 2);
+    waves = ringWaves.length;
+    spawnHeavyCannonShell(0, 0, 60, 0, false, null, { startedAt, dodged: true });
+    updateHeavyCannonShells(startedAt + HEAVY_CANNON_IMPACT_MS + 1);
+    assert.equal(ringWaves.length, waves);
+});
+
+test('喀秋莎的主目标和溅射目标分三轮扣血，整数尾差守恒', () => {
+    const { me, foe, home } = setupMatch();
+    const katyusha = place('ru_katyusha', me, home);
+    const target = place('infantry', foe, state.tileMap.get('2,0'));
+    const splash = place('infantry', foe, state.tileMap.get('2,1'));
+    katyusha._calcFloat = () => 1;
+    const rocketCount = katyushaRockets.length;
+    engine.attackUnit(katyusha, target);
+    const newRockets = katyushaRockets.slice(rocketCount);
+    assert.equal(new Set(newRockets.map(rocket => rocket.startTime + rocket.duration)).size, 3);
+    assert.deepEqual(getKatyushaDamageShares(50), [17, 16, 17]);
+    for (const unit of [target, splash]) {
+        const { startedAt, before, shares } = unit._katyushaHealth;
+        assert.equal(before - unit.hp, shares.reduce((a, b) => a + b, 0));
+        assert.ok(Math.max(...shares) - Math.min(...shares) <= 1);
+        const [first, second, last] = KATYUSHA_IMPACT_TIMES;
+        assert.equal(getKatyushaPresentedHealth(unit, startedAt + first - 1), before);
+        assert.equal(getKatyushaPresentedHealth(unit, startedAt + first + 1), before - shares[0]);
+        assert.equal(getKatyushaPresentedHealth(unit, startedAt + second + 1), before - shares[0] - shares[1]);
+        assert.equal(getKatyushaPresentedHealth(unit, startedAt + last + 1), null);
+    }
 });
 
 test('法国巨炮回合初以地块视野选靶，空城炮击写入攻城回合', async () => {

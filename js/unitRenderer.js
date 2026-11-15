@@ -3,7 +3,7 @@ import { HEX_SIZE, ctx, drawHexagonOutline, settings, frameInfo, MORALE_CONFIG, 
 import { getCommander } from './commanderInterface.js';
 import { isNetworkGame, getMyRole } from './network.js';
 import { gameState as clientState, getViewingCamp } from './state.js';
-import { iconEffects, getRecoilOffset, getChargeOffset } from './effects.js';
+import { iconEffects, getRecoilOffset, getChargeOffset, getKatyushaPresentedHealth } from './effects.js';
 
 import { campFromKey, getRelationToViewer, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
@@ -241,7 +241,10 @@ export function drawUnit(unit, gameState, { deathGhost = false } = {}) {
         const badgeR = UNIT_BADGE_RADIUS;
         const lerpFactor = 0.18;
         // 鱼雷等飞行中攻击：血条/护盾条等弹体抵达再开始缩减
-        if (!unit._hpBarDelayUntil || now >= unit._hpBarDelayUntil) {
+        const shownHp = getKatyushaPresentedHealth(unit, now);
+        if (shownHp != null) {
+            unit.displayHp += (shownHp - unit.displayHp) * lerpFactor;
+        } else if (!unit._hpBarDelayUntil || now >= unit._hpBarDelayUntil) {
             unit.displayHp += (unit.hp - unit.displayHp) * lerpFactor;
             if (Math.abs(unit.hp - unit.displayHp) < 0.3) unit.displayHp = unit.hp;
             const shield = unit.activeShield;

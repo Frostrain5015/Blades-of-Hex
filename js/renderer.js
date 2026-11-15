@@ -36,7 +36,7 @@ import {
     drawLaserBeams, updateLaserBeams,
     bloodMoonSlashes, updateBloodMoonSlashes, drawBloodMoonSlashes,
     updateHeavyCannonShells, drawHeavyCannonShells,
-    updateKatyushaRockets, drawKatyushaRockets,
+    updateKatyushaRockets, drawKatyushaRockets, getKatyushaPresentedHealth,
     updateBanzaiDashes, drawBanzaiDashes,
     updateRingWaves, drawRingWaves
 } from './effects.js';
@@ -1525,7 +1525,8 @@ function _drawCityWallFrames(ctx, now) {
         const pool = tileMap.get(centreKey);
         const maxHp = Number(pool?.maxHp) || 0;
         if (maxHp <= 0) continue;
-        const hpRatio = Math.max(0, Math.min(1, (Number(pool?.hp) || 0) / maxHp));
+        const displayedHp = getKatyushaPresentedHealth(pool, now) ?? (Number(pool.hp) || 0);
+        const hpRatio = Math.max(0, Math.min(1, displayedHp / maxHp));
         // 质心：绕城排序的参照点
         let centroidX = 0, centroidY = 0;
         for (const tile of groupTiles) { centroidX += tile.x; centroidY += tile.y; }

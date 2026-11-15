@@ -40,6 +40,14 @@ export function getKmtPoolCapacity(unit) {
     return Math.max(1, Math.min(unit.maxHp, unit._campaignMaxHp || unit.maxHp));
 }
 
+export function getKmtSharedHealth(members) {
+    if (members.length < 2) return null;
+    return {
+        hp: members.reduce((sum, member) => sum + member.hp, 0),
+        maxHp: members.reduce((sum, member) => sum + getKmtPoolCapacity(member), 0)
+    };
+}
+
 export function getKmtReinforceDeficit(unit, state) {
     const linked = getKmtLinkedUnits(unit, state);
     if (!linked.length) return Math.max(0, unit.maxHp - unit.hp);
@@ -49,11 +57,13 @@ export function getKmtReinforceDeficit(unit, state) {
 export function distributeKmtPoolChange(units, amount, healing = false) {
     if (healing) {
         const rooms = units.map(unit => Math.max(0, getKmtPoolCapacity(unit) - unit.hp));
-        let remaining = Math.min(Math.round(amount), rooms.reduce((sum, room) => sum + room, 0));
         let roomLeft = rooms.reduce((sum, room) => sum + room, 0);
+        let remaining = Math.min(Math.round(amount), roomLeft);
         return units.map((unit, index) => {
             const room = rooms[index];
-            const share = roomLeft > 0 ? Math.round(remaining * room / roomLeft) : 0;
+            const proportionalShare = roomLeft > 0 ? Math.round(remaining * room / roomLeft) : 0;
+            const minShare = Math.max(0, remaining - (roomLeft - room));
+            const share = Math.max(minShare, Math.min(remaining, room, proportionalShare));
             remaining -= share;
             roomLeft -= room;
             return { unit, hp: unit.hp + share };
@@ -62,7 +72,9 @@ export function distributeKmtPoolChange(units, amount, healing = false) {
 
     const total = units.reduce((sum, unit) => sum + unit.hp, 0);
     const remaining = Math.round(total - amount);
-    if (remaining < units.length) return units.map(unit => ({ unit, hp: 0 }));
+    if (remaining <= 0) return units.map(unit => ({ unit, hp: 0 }));
+    // 血池最后一点生命仍维持链接，在各成员间等分。
+    if (remaining < units.length) return units.map(unit => ({ unit, hp: remaining / units.length }));
     let aboveFloor = remaining - units.length;
     let hpAboveFloor = total - units.length;
     return units.map(unit => {

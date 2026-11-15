@@ -1985,8 +1985,33 @@ export function spawnAirliftEffect(fromX, fromY, toX, toY, opts = {}) {
 }
 
 // ===== 国家文化与特色兵种特效（法式重炮 / 喀秋莎齐射 / 万岁冲锋 / 闪避 / 自由抵抗） =====
-export const HEAVY_CANNON_IMPACT_MS = 280;
-export const KATYUSHA_IMPACT_MS = 265;
+const HEAVY_CANNON_CHARGE_MS = 300;
+export const HEAVY_CANNON_IMPACT_MS = HEAVY_CANNON_CHARGE_MS + 155;
+export const KATYUSHA_IMPACT_TIMES = Object.freeze([235, 475, 715]);
+export const KATYUSHA_IMPACT_MS = KATYUSHA_IMPACT_TIMES.at(-1);
+
+export function getKatyushaDamageShares(damage) {
+    const total = Math.max(0, Math.round(damage));
+    const count = KATYUSHA_IMPACT_TIMES.length;
+    return KATYUSHA_IMPACT_TIMES.map((_, i) => Math.round(total * (i + 1) / count) - Math.round(total * i / count));
+}
+
+export function stageKatyushaHealth(unit, before, after, startedAt) {
+    if (before <= after) return;
+    unit._katyushaHealth = { startedAt, before, shares: getKatyushaDamageShares(before - after) };
+}
+
+export function getKatyushaPresentedHealth(target, now) {
+    const barrage = target._katyushaHealth;
+    if (!barrage) return null;
+    const elapsed = now - barrage.startedAt;
+    if (elapsed >= KATYUSHA_IMPACT_MS) {
+        target._katyushaHealth = null;
+        return null;
+    }
+    return KATYUSHA_IMPACT_TIMES.reduce((hp, time, i) =>
+        elapsed >= time ? hp - barrage.shares[i] : hp, barrage.before);
+}
 export const heavyCannonShells = [];
 export const katyushaRockets = [];
 export const banzaiDashes = [];
@@ -2046,49 +2071,104 @@ export function spawnHeavyCannonShell(fromX, fromY, toX, toY, isCrit = false, on
     const dy = toY - fromY;
     const dist = Math.hypot(dx, dy);
     const startTime = Number.isFinite(opts.startedAt) ? opts.startedAt : performance.now();
-    const duration = Number.isFinite(opts.duration) ? opts.duration : HEAVY_CANNON_IMPACT_MS;
+    const muzzleOffset = Math.min(22, dist * 0.42);
     heavyCannonShells.push({
-        fromX, fromY, toX, toY, dist,
-        startTime, duration, isCrit,
+        fromX, fromY, toX, toY,
+        muzzleX: fromX + dx / (dist || 1) * muzzleOffset,
+        muzzleY: fromY + dy / (dist || 1) * muzzleOffset,
+        startTime, isCrit,
         dodged: opts.dodged === true,
+        areaImpact: opts.areaImpact !== false,
         splash: opts.splash || [],
-        impactSpawned: false,
+        fired: false,
         onImpact: onImpact || null
     });
-    spawnMuzzleFlash(fromX, fromY, toX, toY, true);
-    triggerRecoil(fromX, fromY, toX, toY);
 }
 
 export function updateHeavyCannonShells(now) {
+    let fireSound = false;
     for (let i = heavyCannonShells.length - 1; i >= 0; i--) {
         const s = heavyCannonShells[i];
-        if (!s.impactSpawned && now - s.startTime >= s.duration) {
-            s.impactSpawned = true;
+        const elapsed = now - s.startTime;
+        if (!s.fired && elapsed >= HEAVY_CANNON_CHARGE_MS) {
+            s.fired = true;
+            fireSound = true;
+            const angle = Math.atan2(s.toY - s.fromY, s.toX - s.fromX);
+            spawnMuzzleFlash(s.muzzleX - Math.cos(angle) * 9, s.muzzleY - Math.sin(angle) * 9, s.toX, s.toY, true);
+            triggerRecoil(s.fromX, s.fromY, s.toX, s.toY);
+        }
+        if (elapsed >= HEAVY_CANNON_IMPACT_MS) {
+            heavyCannonShells.splice(i, 1);
             if (!s.dodged) {
                 spawnCannonImpact(s.toX, s.toY, true);
                 triggerAttackFlash(s.toX, s.toY, s.isCrit);
-                spawnRingWave(s.toX, s.toY, { color: '#fb923c', maxRadius: 62, duration: 500, lineWidth: 3.4, count: 2, glow: '#fde68a' });
+                spawnRingWave(s.toX, s.toY, {
+                    color: '#ffac54', maxRadius: HEX_SIZE * (s.areaImpact ? 2.22 : 1.05),
+                    duration: 450, lineWidth: 4, count: s.areaImpact ? 2 : 1, glow: '#fff0b7'
+                });
                 triggerScreenShake(s.isCrit ? 7 : 5, 180);
-                for (const hit of s.splash) spawnExplosionParticles(hit.x, hit.y, '#ff8a3d', 10);
+                if (s.areaImpact && !settings.reducedMotion) {
+                    const sparks = particleCount(18);
+                    for (let j = 0; j < sparks; j++) {
+                        const angle = (j % 6) * Math.PI / 3 + (Math.random() - 0.5) * 0.3;
+                        const speed = 195 + Math.random() * 90;
+                        particles.push(new VisualParticle(s.toX, s.toY, Math.cos(angle) * speed, Math.sin(angle) * speed,
+                            j % 3 === 0 ? '#fff2bb' : '#ffae51', 2 + Math.random() * 2, 0.22 + Math.random() * 0.18, 28));
+                    }
+                }
+                for (const hit of s.splash) {
+                    spawnDirectionalParticles(s.toX, s.toY, hit.x, hit.y, '#ffd07a', 11);
+                    spawnExplosionParticles(hit.x, hit.y, '#ff8a3d', 9);
+                }
             }
             if (s.onImpact) s.onImpact();
-            heavyCannonShells.splice(i, 1);
         }
     }
+    if (fireSound) playSound('cannon');
+}
+
+function drawHeavyCannonCharge(ctx, s, t) {
+    const strength = t ** 1.5;
+    const radius = 5 + strength * 20;
+    const glow = ctx.createRadialGradient(s.muzzleX, s.muzzleY, 0, s.muzzleX, s.muzzleY, radius);
+    glow.addColorStop(0, `rgba(255,248,218,${0.18 + strength * 0.8})`);
+    glow.addColorStop(0.25, `rgba(255,180,67,${0.16 + strength * 0.65})`);
+    glow.addColorStop(1, 'rgba(255,98,25,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(s.muzzleX - radius, s.muzzleY - radius, radius * 2, radius * 2);
+    const count = settings.reducedMotion ? 0 : particleCount(13);
+    ctx.beginPath();
+    for (let i = 0; i < count; i++) {
+        const progress = Math.max(0, (t - (i % 4) * 0.09) / (1 - (i % 4) * 0.09));
+        const angle = i * 2.39996 + progress * 0.55;
+        const distance = 4 + (24 + (i % 5) * 4) * (1 - progress ** 1.45);
+        const x = Math.cos(angle), y = Math.sin(angle);
+        ctx.moveTo(s.muzzleX + x * distance, s.muzzleY + y * distance);
+        ctx.lineTo(s.muzzleX + x * (distance + 2 + progress * 4), s.muzzleY + y * (distance + 2 + progress * 4));
+    }
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = `rgba(255,211,127,${0.28 + strength * 0.65})`;
+    ctx.stroke();
 }
 
 export function drawHeavyCannonShells(ctx2d, now) {
     for (const s of heavyCannonShells) {
         const elapsed = now - s.startTime;
-        const t = Math.min(1, Math.max(0, elapsed / s.duration));
-        if (t >= 1) continue;
-        const arc = -Math.sin(t * Math.PI) * Math.max(48, s.dist * 0.16);
-        const hx = s.fromX + (s.toX - s.fromX) * t;
-        const hy = s.fromY + (s.toY - s.fromY) * t + arc;
-        const tailT = Math.max(0, t - 0.24);
-        const tArc = -Math.sin(tailT * Math.PI) * Math.max(48, s.dist * 0.16);
-        const tx = s.fromX + (s.toX - s.fromX) * tailT;
-        const ty = s.fromY + (s.toY - s.fromY) * tailT + tArc;
+        if (elapsed < 0 || elapsed >= HEAVY_CANNON_IMPACT_MS) continue;
+        if (elapsed < HEAVY_CANNON_CHARGE_MS) {
+            ctx2d.save();
+            drawHeavyCannonCharge(ctx2d, s, elapsed / HEAVY_CANNON_CHARGE_MS);
+            ctx2d.restore();
+            continue;
+        }
+        const t = (elapsed - HEAVY_CANNON_CHARGE_MS) / (HEAVY_CANNON_IMPACT_MS - HEAVY_CANNON_CHARGE_MS);
+        const dx = s.toX - s.muzzleX;
+        const dy = s.toY - s.muzzleY;
+        const hx = s.muzzleX + dx * t;
+        const hy = s.muzzleY + dy * t;
+        const tailT = Math.max(0, t - Math.min(0.55, 52 / (Math.hypot(dx, dy) || 1)));
+        const tx = s.muzzleX + dx * tailT;
+        const ty = s.muzzleY + dy * tailT;
 
         ctx2d.save();
         ctx2d.lineCap = 'round';
@@ -2099,6 +2179,9 @@ export function drawHeavyCannonShells(ctx2d, now) {
         ctx2d.beginPath();
         ctx2d.moveTo(tx, ty);
         ctx2d.lineTo(hx, hy);
+        ctx2d.stroke();
+        ctx2d.strokeStyle = '#ffdc9a';
+        ctx2d.lineWidth = 2.6;
         ctx2d.stroke();
 
         ctx2d.shadowBlur = 0;
@@ -2111,32 +2194,33 @@ export function drawHeavyCannonShells(ctx2d, now) {
 }
 
 export function spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit = false, onImpact = null, opts = {}) {
-    const baseTime = performance.now();
+    const baseTime = opts.startedAt ?? performance.now();
     const impacts = opts.splash || [];
-    const count = Math.max(6, 3 + impacts.length);
-    for (let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
-        const spread = 12 * (0.4 + Math.random() * 0.6);
-        const splash = i > 2 && impacts.length ? impacts[(i - 3) % impacts.length] : null;
-        const rx = (splash?.x ?? toX) + Math.cos(angle) * spread;
-        const ry = (splash?.y ?? toY) + Math.sin(angle) * spread;
-        const dx = rx - fromX;
-        const dy = ry - fromY;
-        const dist = Math.hypot(dx, dy);
-        katyushaRockets.push({
-            fromX: fromX + (Math.random() - 0.5) * 10,
-            fromY: fromY + (Math.random() - 0.5) * 10,
-            toX: rx, toY: ry, dist,
-            arcScale: 0.10 + (i % 3) * 0.03,
-            startTime: baseTime + i * 38,
-            duration: KATYUSHA_IMPACT_MS - 76,
-            isCrit,
-            dodged: opts.dodged === true,
-            impactSpawned: false,
-            onImpact: i === 2 ? onImpact : null
-        });
+    const count = Math.max(3, 2 + impacts.length);
+    for (const impactAt of KATYUSHA_IMPACT_TIMES) {
+        for (let i = 0; i < count; i++) {
+            const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+            const spread = 12 * (0.4 + Math.random() * 0.6);
+            const splash = i >= 2 && impacts.length ? impacts[(i - 2) % impacts.length] : null;
+            const rx = (splash?.x ?? toX) + Math.cos(angle) * spread;
+            const ry = (splash?.y ?? toY) + Math.sin(angle) * spread;
+            const dx = rx - fromX;
+            const dy = ry - fromY;
+            const dist = Math.hypot(dx, dy);
+            katyushaRockets.push({
+                fromX: fromX + (Math.random() - 0.5) * 10,
+                fromY: fromY + (Math.random() - 0.5) * 10,
+                toX: rx, toY: ry, dist,
+                arcScale: 0.10 + (i % 3) * 0.03,
+                startTime: baseTime + impactAt - KATYUSHA_IMPACT_TIMES[0] + Math.min(i, 3) * 11,
+                duration: KATYUSHA_IMPACT_TIMES[0] - Math.min(i, 3) * 11,
+                isCrit,
+                dodged: opts.dodged === true,
+                muzzle: i === 0 ? { fromX, fromY, toX, toY } : null,
+                onImpact: i === 0 && impactAt === KATYUSHA_IMPACT_MS ? onImpact : null
+            });
+        }
     }
-    spawnMuzzleFlash(fromX, fromY, toX, toY, isCrit);
 }
 
 export function updateKatyushaRockets(now) {
@@ -2144,8 +2228,14 @@ export function updateKatyushaRockets(now) {
         const r = katyushaRockets[i];
         const elapsed = now - r.startTime;
         if (elapsed < 0) continue;
-        if (!r.impactSpawned && elapsed >= r.duration) {
-            r.impactSpawned = true;
+        if (r.muzzle) {
+            const { fromX, fromY, toX, toY } = r.muzzle;
+            spawnMuzzleFlash(fromX, fromY, toX, toY, r.isCrit);
+            playSound('cannon');
+            triggerRecoil(fromX, fromY, toX, toY);
+            r.muzzle = null;
+        }
+        if (elapsed >= r.duration) {
             if (!r.dodged) spawnExplosionParticles(r.toX, r.toY, '#ff7b29', r.isCrit ? 12 : 8);
             if (r.onImpact) r.onImpact();
             katyushaRockets.splice(i, 1);
