@@ -80,6 +80,49 @@ function place(type, camp, tile, commander = null) {
     return unit;
 }
 
+test('困难 AI 的守军留在受威胁的前线城，不出城迎战战列舰', async () => {
+    const { me, foe, home } = setupMatch();
+    state.playerGold.player1 = 0;
+    place('infantry', me, home).canAct = false;
+    const front = state.tileMap.get('6,0');
+    Object.assign(front, { camp: me, isCity: true, isUrban: true, hp: 25, maxHp: 250, districtId: 3 });
+    const garrison = place('infantry', me, front);
+    const sea = state.tileMap.get('5,-2');
+    sea.surface = SURFACE_KIND.SHALLOW_WATER;
+    place('gb_battleship', foe, sea, 'centurion');
+    place('infantry', foe, state.tileMap.get('9,0'));
+    startMatchRecording(state);
+
+    await processOpponentTurn(me);
+
+    assert.equal(garrison.tile, front, '守城任务不能为离城候选提供加分');
+    assert.ok(getCurrentMatchLog().timeline.every(entry => entry.actionType !== 'move'
+        || entry.payload.unitId !== garrison.id));
+});
+
+test('困难 AI 有舰炮压城时提前调动占领步兵，避开旁支交战', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    state.playerGold.player1 = 0;
+    place('infantry', me, home).canAct = false;
+    place('infantry', foe, enemyCity);
+    const approach = state.tileMap.get('6,0');
+    const occupier = place('infantry', me, approach);
+    occupier.remainingMP = 2;
+    const diversion = place('infantry', foe, state.tileMap.get('6,-1'), 'priest');
+    const sea = state.tileMap.get('9,1');
+    sea.surface = SURFACE_KIND.SHALLOW_WATER;
+    place('warship', me, sea);
+    startMatchRecording(state);
+
+    await processOpponentTurn(me);
+
+    const actions = getCurrentMatchLog().timeline.filter(entry => entry.kind === 'action'
+        && (entry.payload.unitId === occupier.id || entry.payload.attackerUnitId === occupier.id));
+    assert.equal(actions[0]?.actionType, 'move');
+    assert.ok(occupier.tile.q > approach.q);
+    assert.ok(actions.every(entry => entry.payload.targetUnitId !== diversion.id));
+});
+
 test('中等 AI 让炮兵破墙，再用可达的步兵当回合进城', async () => {
     const { me, foe, enemyCity } = setupMatch();
     state.aiDifficultyByCamp.player1 = 'medium';

@@ -217,15 +217,13 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
     const damage = combat.estimateDamage(attacker, target, target.tile);
     const kills = damage >= target.hp + (target._shield || 0);
     const counter = kills ? 0 : combat.estimateCounterDamage(attacker, target);
+    const trade = tradeNetValue({ damageDealt: damage, target, kills, counterDamage: counter, attacker });
     // 近战贴脸 = 缠斗承诺：困难档按整段决斗定价；低中档只按单回合账面算，
     // 看不到缠斗结局——这是档差最锋利的地方（决定每一次近战交换的质量）。
     const meleeCommit = Math.max(1, Number(attacker.config?.range) || 1) <= 1;
     const net = meleeCommit && world.caps.duelModel
         ? duelExpectation(world, attacker, target)
-        : tradeNetValue({
-            damageDealt: damage, target, kills,
-            counterDamage: counter, attacker
-        });
+        : trade;
     const strategic = missionTargetBonus(world, missionsCtx, target, kills)
         + historicalAttackValue(world, attacker, target, damage, kills)
         + enemyCapturerPremium(world, target)
@@ -246,14 +244,21 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
         && REAR_COMMANDERS.has(attacker.commander)
         && !kills
         && incoming >= attacker.hp * 0.35;
-    const fatalCounter = !kills && counter >= attacker.hp + (attacker._shield || 0);
+    const hpPool = attacker.hp + (attacker.activeShield ?? attacker._shield ?? 0);
+    const fatalCounter = !kills && counter >= hpPool;
+    const assignment = missionsCtx.assignment.get(attacker.id);
+    const hardToReplace = attacker.commander
+        || (assignment?.occupierId === attacker.id
+            && (assignment.kind === 'siege' || assignment.kind === 'garrison'));
+    const losingCriticalUnit = world.caps.duelModel && hardToReplace && !kills
+        && counter > 0 && trade < 0 && (counter + incoming) * W.lethalThreatMargin >= hpPool;
     const capturerDistance = units => units.reduce((best, unit) =>
         isFieldCapturer(world, unit) ? Math.min(best, world.helpers.hexDistance(unit.tile, target.tile)) : best, Infinity);
     const giftsNeutralCity = kills && target.tile.isCity
         && target.camp === world.gameState.factions.neutral && !world.isCapturable(attacker)
         && capturerDistance(world.rivalUnits) <= 3
         && capturerDistance(world.rivalUnits) < capturerDistance(world.myUnits);
-    const veto = fatalCounter || giftsNeutralCity || rearCommanderExposed
+    const veto = fatalCounter || losingCriticalUnit || giftsNeutralCity || rearCommanderExposed
         || (!kills && isRiskyNeutralAssault(world, attacker, target, counter, incoming))
         || (!kills && canDisengage && net < -residualGold(attacker) * W.tradeVetoRatio);
     const jitter = noiseJitter(world.caps, `atk:${world.round}:${attacker.id}:${target.id}`);
@@ -347,8 +352,8 @@ function missionMoveBonus(world, missionsCtx, unit, tile, posture = 'expand') {
     const postureBoost = posture === 'allin' ? 2 : 1;
 
     if (mission.kind === 'garrison') {
-        // 守备：在城里就别动；没在城里就回家。
-        if (unit.tile === target) return { bonus: 400, mission };
+        // 驻城收益由原地评分计入，离城的候选不继承这笔收益。
+        if (unit.tile === target) return { bonus: 0, mission };
         return { bonus: (currentDistance - newDistance) * 50 + (tile === target ? 300 : 0), mission };
     }
     if (mission.kind === 'siege') {
@@ -458,7 +463,7 @@ function shouldRetreat(world, unit) {
     return incoming > 0 && (incoming >= unit.hp * 0.5 || hpRatio < threshold * 0.7);
 }
 
-function planMove(world, missionsCtx, unit, posture, actions, openCity = null) {
+function planMove(world, missionsCtx, unit, posture, actions, { captureObjective = null, stageOnLand = false } = {}) {
     if (!unit.canAct || !unit.tile || world.isImmobile(unit)) return false;
     if (unit._transportTransitionedThisTurn) return false;
     const movable = world.helpers.getMovableTiles(unit);
@@ -466,10 +471,11 @@ function planMove(world, missionsCtx, unit, posture, actions, openCity = null) {
 
     const mission = missionsCtx.assignment.get(unit.id) || null;
     const retreating = shouldRetreat(world, unit);
-    if (openCity && retreating) return false;
+    if (captureObjective && retreating) return false;
     const distance = world.navDistance || world.helpers.hexDistance;
-    const distanceToOpenCity = openCity ? distance(unit.tile, openCity) : 0;
-    const protectCommander = world.caps.rearCommanderSafety && FRAGILE_COMMANDERS.has(unit.commander);
+    const distanceToObjective = captureObjective ? distance(unit.tile, captureObjective) : 0;
+    const protectCommander = world.caps.rearCommanderSafety
+        && (FRAGILE_COMMANDERS.has(unit.commander) || (unit.commander && world.isNaval(unit)));
     const currentThreat = protectCommander ? world.threatAt(unit.tile, unit) : 0;
     const neutralObjective = world.caps.duelModel && mission?.kind === 'siege'
         && mission.occupierId === unit.id
@@ -494,7 +500,8 @@ function planMove(world, missionsCtx, unit, posture, actions, openCity = null) {
         + historicalPositionValue(world, unit, unit.tile);
     for (const tile of movable) {
         if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
-        if (openCity && (distance(tile, openCity) >= distanceToOpenCity
+        if (stageOnLand && world.onWater(tile)) continue;
+        if (captureObjective && (distance(tile, captureObjective) >= distanceToObjective
             || world.threatAt(tile, unit) >= unit.hp + (unit._shield || 0))) continue;
         if (protectCommander && !retreating) {
             const incoming = world.threatAt(tile, unit);
@@ -552,7 +559,7 @@ function planMove(world, missionsCtx, unit, posture, actions, openCity = null) {
     if (!bestTile || bestTile === unit.tile) return false;
     actions.push({
         type: 'move', unitId: unit.id, tileQ: bestTile.q, tileR: bestTile.r,
-        ...(openCity ? { autoAttack: false } : {})
+        ...(captureObjective ? { autoAttack: false } : {})
     });
     return true;
 }
@@ -567,7 +574,8 @@ function primaryRallyPoint(world, missionsCtx) {
 
 function scoreOfStaying(world, missionsCtx, unit, mission) {
     let score = 0;
-    if (mission?.kind === 'garrison' && unit.tile.isCity) score += 300;
+    if (mission?.kind === 'garrison' && unit.tile.isCity
+        && unit.tile.q === mission.targetQ && unit.tile.r === mission.targetR) score += 300;
     if (unit.tile.isCity && unit.tile.camp === world.myCamp && unit.commander === 'minister') score += 500;
     if (world.caps.rearCommanderSafety && unit.tile.isCity && unit.tile.camp === world.myCamp
         && unit.commander === 'astrologer') score += W.rearCommanderCityValue;
@@ -706,10 +714,20 @@ function planCaptureApproaches(world, strategy, missionsCtx, actions, processed)
     for (const mission of missionsCtx.missions) {
         if (mission.kind !== 'siege' || processed.has(mission.occupierId)) continue;
         const city = world.cities.find(({ tile }) => tile.q === mission.targetQ && tile.r === mission.targetR);
-        if (!city?.hostile || city.garrison || city.hp > 0) continue;
+        if (!city?.hostile) continue;
         const unit = world.myUnits.find(candidate => candidate.id === mission.occupierId);
-        if (unit && canMoveToCapture(unit)
-            && planMove(world, missionsCtx, unit, strategy.posture, actions, city.tile)) processed.add(unit.id);
+        if (!unit || !canMoveToCapture(unit) || missionsCtx.assignment.get(unit.id) !== mission) continue;
+        const open = !city.garrison && city.hp <= 0;
+        if (!open) {
+            // 战前集结限于陆上。海上离城更近的落点可能堵住另一支部队的登陆线。
+            if (world.onWater(unit.tile)) continue;
+            const hasSupport = world.caps.missionPersistence && world.myUnits.some(ally =>
+                ally !== unit && ally.canAct && world.helpers.getAttackableTiles(ally).includes(city.tile));
+            if (!hasSupport || bestAttackFor(world, missionsCtx, unit)?.kills) continue;
+        }
+        if (planMove(world, missionsCtx, unit, strategy.posture, actions, {
+            captureObjective: city.tile, stageOnLand: !open
+        })) processed.add(unit.id);
     }
 }
 

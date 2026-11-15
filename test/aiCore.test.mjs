@@ -543,6 +543,29 @@ test('移动后追击拒绝骑兵与岸防炮的亏损交换，也拒绝致死�
         '仍应收掉能安全击杀的目标');
 });
 
+test('困难 AI 保留海军将领，拒绝反击后会被下一轮舰炮收掉的亏损交换', () => {
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const sea = { surface: 'shallowWater', terrain: 'water' };
+    const from = makeTile(2, 1, sea), target = makeTile(1, 2, sea);
+    const cruiser = makeUnit(1, 'warship', me, from, {
+        commander: 'vampire', hp: 165, maxHp: 216, getEffectiveAttack: () => 70
+    });
+    const battleship = makeUnit(2, 'gb_battleship', foe, target, {
+        commander: 'centurion', hp: 245, maxHp: 245, getEffectiveAttack: () => 105
+    });
+    const tiles = [from, target];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral });
+    const helpers = { ...makeHelpers(tiles), getAttackableTiles: () => [target] };
+    const attack = () => planFollowupAttack(state, helpers, me, TIER_CAPABILITIES.hard, cruiser.id, battleship.id);
+
+    assert.equal(attack(), null);
+    battleship.counterAttackCount = 1;
+    assert.equal(attack()?.targetId, battleship.id, '对手已经反击时，仍可安全开火');
+    battleship.counterAttackCount = 0;
+    battleship.hp = 30;
+    assert.equal(attack()?.targetId, battleship.id, '仍可直接斩杀');
+});
+
 test('南城回归：困难骑兵放弃反击后会被步炮收掉的冲城，保留斩杀占城', () => {
     const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
     const from = makeTile(-1, 4), city = makeTile(-2, 5, { isCity: true, camp: neutral, hp: 250 });
