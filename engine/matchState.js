@@ -507,7 +507,6 @@ export function serializeMatchState(match) {
             flankingMoraleBase: Number.isFinite(t.unit._flankingMoraleBase) ? t.unit._flankingMoraleBase : null,
             flankingMoralePenalty: Number(t.unit._flankingMoralePenalty) || 0,
             flankingMoraleActivePenalty: Number(t.unit._flankingMoraleActivePenalty) || 0,
-            flankingMoraleRecoveryUntil: Number(t.unit._flankingMoraleRecoveryUntil) || 0,
             flankForcedIdle: t.unit._flankForcedIdle === true,
             remainingMP: t.unit.remainingMP,
               isEmbarked: t.unit.isEmbarked === true,
@@ -1015,8 +1014,20 @@ export function restoreMatchState(match, data, deps) {
                 Number.isFinite(td.unit.flankingMoraleActivePenalty)
                     ? td.unit.flankingMoraleActivePenalty
                     : unit._flankingMoralePenalty));
-            unit._flankingMoraleRecoveryUntil = Math.max(0, Number(td.unit.flankingMoraleRecoveryUntil) || 0);
             unit._flankForcedIdle = td.unit.flankForcedIdle === true;
+            if (td.unit.flankingMoraleRecoveryUntil > 0 && unit._flankingMoraleActivePenalty === 0
+                && Number.isFinite(unit._flankingMoraleBase)) {
+                // Older snapshots may still have a removed formation's penalty.
+                const baseMorale = unit._flankingMoraleBase;
+                unit._flankingMoraleBase = null;
+                unit._flankingMoralePenalty = 0;
+                unit.morale = baseMorale;
+                if (unit._flankForcedIdle && unit.morale > 0) {
+                    unit.canAct = !td.unit.imprisoned && !td.unit.engineerScaffold && !td.unit.constructionScaffold
+                        && !td.unit.engineerConstruction && !td.unit.isNewRecruit;
+                    unit._flankForcedIdle = false;
+                }
+            }
             unit.remainingMP = td.unit.remainingMP ?? unit.getEffectiveSpeed();
               unit.isEmbarked = td.unit.isEmbarked === true;
               unit._transportTransitionedThisTurn = td.unit.transportTransitionedThisTurn === true;

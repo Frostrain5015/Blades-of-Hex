@@ -401,6 +401,8 @@ export function spawnCommanderSkillEffect(x, y, glyph = '🎖️', label = '', s
 
 // 士气变化：大图标弹出 + 文字标签（士气上升/下降/混乱）→ 缩小飞回右上士气角
 export function spawnMoraleEffect(unit) {
+    const existing = iconEffects.findIndex(effect => effect.kind === 'morale' && effect.unitId === unit.id);
+    if (existing !== -1) iconEffects.splice(existing, 1);
     if (unit.morale === 2) return;
     const mc = MORALE_CONFIG[unit.morale];
     spawnIconEffect(unit.tile.x, unit.tile.y, {

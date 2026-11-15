@@ -13,7 +13,7 @@ import {
 import { resolveAntiAirCoverage } from '../rules/antiAir.js';
 import { getRiverGate, getRiverGateOpenLane, isRiverSegmentFlooded } from '../rules/riverGate.js';
 import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
-import { getFireSeaState } from '../rules/cultures.js';
+import { drawFireSeaTile, resolveFireSeaVisual } from './fireSeaPresentation.js';
 import { getKmtLinkedUnits, isKmtLinkMember } from '../rules/kmtStronghold.js';
 import { drawKmtLinkParticles, drawKmtStrongholdLink, drawKmtStrongholdImpacts } from './kmtStrongholdEffects.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
@@ -1957,41 +1957,11 @@ function _drawRankUpIconEffect(fx, elapsed) {
     }
 }
 
-// ===== 单位六边形辉光（禁锢光环 + 铁卫护盾）—— 立绘之前 =====================
 function _drawFireSeaTiles(tiles, now) {
-    const tSec = now / 1000;
-    for (let i = 0, len = tiles.length; i < len; i++) {
-        const tile = tiles[i];
-        const fs = getFireSeaState(tile);
-        if (!fs || now < (tile._fireSeaVisualDelayUntil || 0)) continue;
-        const layers = Math.max(1, fs.layers || 1);
-        const pulse = 0.5 + 0.5 * Math.sin(tSec * 4.4 + tile.q * 1.1 + tile.r * 0.7);
-
-        ctx.save();
-        hexPath(ctx, tile.x, tile.y, HEX_SIZE * 0.94);
-        ctx.fillStyle = `rgba(255,92,24,${0.13 + layers * 0.08 + pulse * 0.06})`;
-        ctx.fill();
-        ctx.strokeStyle = `rgba(255,130,45,${0.42 + layers * 0.14 + pulse * 0.14})`;
-        ctx.lineWidth = 1.6 + layers * 0.6;
-        ctx.stroke();
-
-        const flameCount = 3 + layers * 2;
-        for (let k = 0; k < flameCount; k++) {
-            const angle = (k / flameCount) * Math.PI * 2 + tile.q * 0.6;
-            const ring = HEX_SIZE * (0.28 + (k % 2) * 0.28);
-            const fx = tile.x + Math.cos(angle) * ring;
-            const fyBase = tile.y + Math.sin(angle) * ring * 0.75;
-            const wave = Math.sin(tSec * 6.5 + k * 1.9 + tile.r);
-            const h = 7 + layers * 2.5 + wave * 2.5;
-            ctx.fillStyle = k % 2 === 0 ? `rgba(255,140,35,${0.62 + pulse * 0.25})` : `rgba(255,215,90,${0.56 + pulse * 0.25})`;
-            ctx.beginPath();
-            ctx.moveTo(fx - 3, fyBase + 2);
-            ctx.quadraticCurveTo(fx - 2 + wave * 1.5, fyBase - h * 0.6, fx + wave * 1.2, fyBase - h);
-            ctx.quadraticCurveTo(fx + 2 + wave * 1.5, fyBase - h * 0.6, fx + 3, fyBase + 2);
-            ctx.closePath();
-            ctx.fill();
-        }
-        ctx.restore();
+    for (const tile of tiles) {
+        if (!tile.fireSea && !tile._fireSeaVisual) continue;
+        const visual = resolveFireSeaVisual(tile, now);
+        if (visual) drawFireSeaTile(ctx, tile, visual, HEX_SIZE, now, settings.reducedMotion);
     }
 }
 

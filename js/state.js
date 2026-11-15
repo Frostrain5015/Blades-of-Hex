@@ -706,12 +706,17 @@ export function resolveUnitById(id) {
 export function applyRemoteState(data, HexTileClass, UnitClass) {
     // 对局快照会重建 Tile / Unit 实例；观察目标属于纯本地 UI 状态，必须先以稳定 ID/坐标保存。
     const inspectionTarget = gameState.inspectionTarget || _getLegacyInspectionTarget();
+    const previousTiles = gameState.tileMap;
     const airdropLandings = new Map();
     for (const { unit } of gameState.tiles) {
         if (unit?._airdropLandAt) airdropLandings.set(unit.id, unit._airdropLandAt);
     }
     deserializeState(data, HexTileClass, UnitClass, { preserveClientUi: true });
-    for (const { unit } of gameState.tiles) {
+    for (const tile of gameState.tiles) {
+        const { unit } = tile;
+        const previous = previousTiles.get(`${tile.q},${tile.r}`);
+        if (previous?._fireSeaVisual) tile._fireSeaVisual = previous._fireSeaVisual;
+        if (previous?._fireSeaVisualDelayUntil) tile._fireSeaVisualDelayUntil = previous._fireSeaVisualDelayUntil;
         if (!unit || !airdropLandings.has(unit.id)) continue;
         unit._airdropLandAt = airdropLandings.get(unit.id);
         unit._airdropWaiting = false;

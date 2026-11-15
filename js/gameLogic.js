@@ -62,11 +62,11 @@ import {
 import { COLONEL_CARD_DATA, ORBITAL_STRIKE_TICK_DELAYS_MS, getCardMeta } from '../rules/cards.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { MORALE_CONFIG } from '../rules/terrain.js';
-import { applyPositionalMoralePenalty, clearPositionalMoralePenalty } from '../rules/morale.js';
+import { applyPositionalMoralePenalty, clearPositionalMoralePenalty, expireMoraleModifiers, getBaseMorale, raiseBaseMorale } from '../rules/morale.js';
 import { getFellowRobeDefenseBonus } from '../rules/factionSynergies.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
-import { emit } from './eventBus.js';
-import { canAttack, getRelation, isFriendly, isHostile, setRelation } from '../rules/diplomacy.js';
+import { emit, on } from './eventBus.js';
+import { canAttack, getRelation, isFriendly, setRelation } from '../rules/diplomacy.js';
 import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus, getKmtReinforceDeficit } from '../rules/kmtStronghold.js';
 import { canReinforceAtTile } from '../rules/healing.js';
 import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js';
@@ -496,32 +496,31 @@ function generateTerrain(tiles) {
 
 }
 
-function countAdjacentNonFriendlies(unit, tileMap) {
-    let count = 0;
-    for (const [dq, dr] of HEX_NEIGHBORS) {
-        const nb = tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`);
-        if (nb && nb.unit && isHostile(gameState, unit.camp, nb.unit.camp)) count++;
+function getFlankingPenalty(unit) {
+    function hasEnemy([dq, dr]) {
+        const other = gameState.tileMap.get(`${unit.tile.q + dq},${unit.tile.r + dr}`)?.unit;
+        return !!other && other.hp > 0 && canAttack(gameState, unit.camp, other.camp);
     }
-    return count;
+    if (HEX_NEIGHBORS.every(hasEnemy)) return 2;
+    return HEX_AXES.some(axis => axis.every(hasEnemy)) ? 1 : 0;
 }
 
-function isFlanked(unit, tileMap) {
-    for (const [[dq1, dr1], [dq2, dr2]] of HEX_AXES) {
-        const nb1 = tileMap.get(`${unit.tile.q + dq1},${unit.tile.r + dr1}`);
-        const nb2 = tileMap.get(`${unit.tile.q + dq2},${unit.tile.r + dr2}`);
-        if (nb1 && nb1.unit && isHostile(gameState, unit.camp, nb1.unit.camp) &&
-            nb2 && nb2.unit && isHostile(gameState, unit.camp, nb2.unit.camp)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function isSurrounded(unit, tileMap) {
-    return countAdjacentNonFriendlies(unit, tileMap) >= 6;
-}
+let pendingFlankingMap = null;
+on('match:unitKilled', () => {
+    const board = gameState.tileMap;
+    if (pendingFlankingMap === board) return;
+    pendingFlankingMap = board;
+    // Let the whole strike finish, including any advance into the vacated hex.
+    // This also covers delayed tactical-card impacts on both clients.
+    queueMicrotask(() => {
+        if (pendingFlankingMap !== board) return;
+        pendingFlankingMap = null;
+        if (gameState.tileMap === board) recalcAllFlankingMorale();
+    });
+});
 
 export function recalcAllFlankingMorale() {
+    if (pendingFlankingMap === gameState.tileMap) pendingFlankingMap = null;
     // 圣骑士勇气灵光：范围内友军免疫夹击/包围士气下降
     function hasCourageAura(u) {
         for (const [dq, dr] of HEX_NEIGHBORS) {
@@ -541,11 +540,7 @@ export function recalcAllFlankingMorale() {
         const courageProtected = hasCourageAura(u);
         // 勇气灵光保护下免疫夹击/包围士气压制
         if (!courageProtected) {
-            const surrounded = isSurrounded(u, gameState.tileMap);
-            const flanked = !surrounded && isFlanked(u, gameState.tileMap);
-            // 夹击/包围是点数事件，而非实时士气上限：夹击-1、包围-2；
-            // 阵型解除后惩罚继续保留三回合，再恢复进入态势前的基础士气。
-            applyPositionalMoralePenalty(u, surrounded ? 2 : flanked ? 1 : 0, getRoundIndex(gameState));
+            applyPositionalMoralePenalty(u, getFlankingPenalty(u));
 
         } else {
             clearPositionalMoralePenalty(u);
@@ -556,7 +551,8 @@ export function recalcAllFlankingMorale() {
             if (u.canAct) u._flankForcedIdle = true;
             u.canAct = false;
         } else if (u._flankForcedIdle) {
-            u.canAct = true;
+            u.canAct = u._campaignCanAct !== false && !u._imprisoned && !u._engineerScaffold
+                && !u._constructionScaffold && !u._engineerConstruction && !u.isNewRecruit;
             u._flankForcedIdle = false;
         }
 
@@ -1035,20 +1031,7 @@ function _expireTimedEffects() {
         if (!tile.unit) return;
         const u = tile.unit;
 
-        // 击杀士气上升到期 → 恢复正常（全局处理）；moraleBoostUntil 为回合数(0-indexed)
-        if (u._morale === 3 && u.moraleBoostUntil <= getRoundIndex(gameState)) {
-            u.morale = 2; // setter 自动 triggerCommanderOnMoraleChange
-            spawnMoraleEffect(u);
-        }
-
-        // 谋士攻心的士气下降/混乱到期 → 恢复正常（全局处理）
-        if (u.moralePenaltyUntil > 0 && u.moralePenaltyUntil <= getRoundIndex(gameState)) {
-            if (u._morale < 2) {
-                u.morale = 2;
-                spawnMoraleEffect(u);
-            }
-            u.moralePenaltyUntil = 0;
-        }
+        if (expireMoraleModifiers(u, getRoundIndex(gameState))) spawnMoraleEffect(u);
 
         // 牧师治愈灵光 — 全局，不区分阵营
         if (u._healingAura > 0) {
@@ -1586,7 +1569,7 @@ async function _doEndTurnPhase() {
         }
         _updateWeather();
         _expireTimedEffects();
-        // 即使本轮没有发生移动，也要推进已经脱离夹击/包围的士气恢复计时。
+        // 重算到期的士气与光环效果，再处理回合初自动行动。
         recalcAllFlankingMorale();
         // 城市脱战自动回复：上一整轮没有挨攻城伤害才回复，HP=0的城市也会慢慢回满。
         for (const tile of gameState.tiles) {
@@ -1694,9 +1677,9 @@ async function _doEndTurnPhase() {
                 startedAt: heavyStartedAt, dodged: v.dodged, splash: v.splash
             });
         }
-        recalcAllFlankingMorale();
         if (gameState.skirmishFog) _updateSkirmishFogAll();
     }
+    recalcAllFlankingMorale();
 
     // 恢复 commanderInterface 引用
     setSpawnFxRef(origSpawn);
@@ -3209,12 +3192,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                     const _boostedUnits = [];
                     for (const tile of gameState.tiles) {
                         const u = tile.unit;
-                        if (u && u.camp === attackerUnit.camp && u.morale !== 0 && u.morale < 3) {
-                            const oldM = u.morale;
-                            u.morale = Math.min(3, u.morale + 1);
-                            if (u.morale === 3) u.moraleBoostUntil = getRoundIndex(gameState) + 2;
-                            if (u.morale !== oldM) _boostedUnits.push(u);
-                        }
+                        if (u?.camp === attackerUnit.camp && raiseBaseMorale(u, getRoundIndex(gameState) + 2)) _boostedUnits.push(u);
                     }
                     _deferImpactFx(() => {
                         for (const u of _boostedUnits) spawnMoraleEffect(u);
@@ -3223,15 +3201,12 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                     logMessage(`⚔ ${attackerUnit.camp.name}斩杀敌方将领，全军士气+1！`);
                 }
             }
-            if (attackerUnit.morale !== 0) {
+            if (getBaseMorale(attackerUnit) !== 0) {
                 // 普通击杀 50%概率触发士气上升（底层机制微调）
                 if (gameState.rng.range(0, 1) < 0.5) {
-                    const oldKillerM = attackerUnit.morale;
-                    attackerUnit.morale = Math.min(3, attackerUnit.morale + 1);
-                    if (attackerUnit.morale === 3) attackerUnit.moraleBoostUntil = getRoundIndex(gameState) + 2;
                     // morale setter 自动 triggerCommanderOnMoraleChange
                     _killedThisAttack = attackerUnit;
-                    _killerMoraleChanged = attackerUnit.morale !== oldKillerM;
+                    _killerMoraleChanged = raiseBaseMorale(attackerUnit, getRoundIndex(gameState) + 2);
                 }
             }
             _atkCmdFxCapture = null;
@@ -3856,10 +3831,7 @@ export function cancelCardTargeting() {
 // 上校空军卡击杀效果：攻击者士气+1（含视觉特效）、经验（含目标等级加成）、击杀将领时全军士气+1
 export function reapColonelKill(colonel, targetUnit) {
     if (!colonel || !targetUnit) return;
-    if (colonel.morale !== 0) {
-        const oldM = colonel.morale;
-        colonel.morale = Math.min(3, colonel.morale + 1);
-        if (colonel.morale === 3) colonel.moraleBoostUntil = getRoundIndex(gameState) + 2;
+    if (raiseBaseMorale(colonel, getRoundIndex(gameState) + 2)) {
         spawnMoraleEffect(colonel); // 士气上升视觉特效
     }
     // 击杀经验：基础3 + 目标等级加成（与普攻击杀一致）+ 将领额外10

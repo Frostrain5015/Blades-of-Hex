@@ -6,6 +6,7 @@ import { enqueueFloatText } from '../js/floatTexts.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { canUnitOccupyTile } from '../rules/movement.js';
 import { campToKey } from '../rules/camps.js';
+import { raiseBaseMorale } from '../rules/morale.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.necromancer;
 // 被动【留魂】：己方单位阵亡后原地留下亡魂标记，存在3回合后消失
@@ -23,18 +24,9 @@ function _getCurseDamage(victim) {
 function _grantCurseKillCredit(killer, victim, gameState, helpers) {
     if (!killer || !victim) return;
 
-    if (typeof killer.morale === 'number' && killer.morale !== 0) {
-        const oldMorale = killer.morale;
-        killer.morale = Math.min(3, killer.morale + 1);
-        if (killer.morale === 3) {
-            const roundIndex = gameState && Number.isFinite(gameState.turnCounter)
-                ? getRoundIndex(gameState)
-                : 0;
-            killer.moraleBoostUntil = roundIndex + BALANCE.moraleBoostRounds;
-        }
-        if (killer.morale !== oldMorale && helpers && typeof helpers.spawnMoraleEffect === 'function') {
-            helpers.spawnMoraleEffect(killer);
-        }
+    const roundIndex = Number.isFinite(gameState?.turnCounter) ? getRoundIndex(gameState) : 0;
+    if (raiseBaseMorale(killer, roundIndex + BALANCE.moraleBoostRounds)) {
+        helpers?.spawnMoraleEffect?.(killer);
     }
 
     const rankExtra = BALANCE.rankXp;

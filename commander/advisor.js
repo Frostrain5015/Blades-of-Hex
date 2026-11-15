@@ -3,6 +3,7 @@ import { COMMANDER_CONFIG } from '../rules/commanders.js';
 
 import { HEX_NEIGHBORS } from '../rules/hex.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
+import { getBaseMorale } from '../rules/morale.js';
 const CONFIG = COMMANDER_CONFIG.advisor;
 const { definition: DEFINITION, balance: BALANCE } = CONFIG;
 
@@ -31,7 +32,7 @@ export default {
     const expiresAt = gs ? Math.floor(gs.turnCounter / (gs.isThreePlayer ? 4 : 3)) + BALANCE.durationRounds : 0;
     if (roll === BALANCE.moraleDownOutcome) {
       // 已混乱的单位不会被较轻的结果解除混乱，但会刷新剩余时长。
-      enemy.morale = Math.min(enemy.morale, BALANCE.moraleDownLevel);
+      enemy.morale = Math.min(getBaseMorale(enemy), BALANCE.moraleDownLevel);
       enemy.moralePenaltyUntil = Math.max(enemy.moralePenaltyUntil || 0, expiresAt);
       helpers.spawnFx(enemy.tile.x, enemy.tile.y);
       helpers.spawnGongxinRipple(enemy.tile.x, enemy.tile.y, false);

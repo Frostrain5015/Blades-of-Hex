@@ -1,6 +1,8 @@
 // 殉道者 —— 殉道 + 挽歌
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { enqueueFloatText } from '../js/floatTexts.js';
+import { getRoundIndex } from '../rules/turns.js';
+import { raiseBaseMorale } from '../rules/morale.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.martyr;
 
@@ -65,17 +67,10 @@ export default {
 
       // 自爆击杀敌方将领 → 殉道者阵营全军士气+1
       if (killedCommander) {
+        const boostUntil = getRoundIndex(gameState) + BALANCE.moraleBoostRounds;
         for (const tile of gameState.tiles) {
           const u = tile.unit;
-          if (u && u.camp === unit.camp && u.morale !== 0 && u.morale < 3) {
-            const oldM = u.morale;
-            u.morale = Math.min(3, u.morale + 1);
-            // 士气上升持续2回合（moraleBoostUntil 为回合数, 0-indexed）
-            if (u.morale === 3) u.moraleBoostUntil = Math.floor(gameState.turnCounter / (gameState.isThreePlayer ? 4 : 3)) + BALANCE.moraleBoostRounds;
-            if (u.morale !== oldM) {
-              helpers.spawnMoraleEffect(u);
-            }
-          }
+          if (u?.camp === unit.camp && raiseBaseMorale(u, boostUntil)) helpers.spawnMoraleEffect(u);
         }
         helpers.logMessage(`⚔ ${unit.camp.name}殉道者自爆斩杀敌方将领，全军士气+1！`);
       }

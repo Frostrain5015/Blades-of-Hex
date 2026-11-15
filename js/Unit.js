@@ -20,6 +20,7 @@ import { getRoundIndex } from '../rules/turns.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getCommanderAllyAuraDamage, getCommanderAttackBonus, getCommanderAuraAttackBonus, getCommanderDamageBonusPct, getCommanderWeatherDebuff, getEffectiveWeather, isCommanderGuaranteedCrit, getCommanderCritRateBonus, triggerCommanderOnMoraleChange, triggerCommanderAllyDamage } from './commanderInterface.js';
 import { nextId } from './uid.js';
 import { emit } from './eventBus.js';
+import { getBaseMorale, raiseBaseMorale } from '../rules/morale.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { FRONTEND_TEXT } from '../rules/uiText.js';
@@ -180,7 +181,6 @@ export class Unit {
         this._flankingMoraleBase = null;
         this._flankingMoralePenalty = 0;
         this._flankingMoraleActivePenalty = 0;
-        this._flankingMoraleRecoveryUntil = 0;
         this._applyingFlankingMorale = false;
         this.godMode = false;
         this._xp = 0;
@@ -250,8 +250,7 @@ export class Unit {
         const old = this._morale;
         const normalized = Math.max(0, Math.min(3, Math.round(Number(v) || 0)));
         this._morale = normalized;
-        // 夹击/包围作为独立士气事件覆盖在基础值上。态势或恢复期内的攻心等外部
-        // 士气写入先更新基础值，再继续施加尚未结束的阵型惩罚。
+        // 攻心等效果更新基础士气，阵型惩罚继续作用于显示和战斗使用的数值。
         if (!this._applyingFlankingMorale && Number.isFinite(this._flankingMoraleBase)) {
             this._flankingMoraleBase = normalized;
             const penalty = Math.max(0, Math.min(2, Number(this._flankingMoralePenalty) || 0));
@@ -278,7 +277,7 @@ export class Unit {
         }
 
         // 击杀士气上升（moraleBoostUntil 为回合数, 0-indexed）
-        if (this.morale === 3 && this.moraleBoostUntil > curRound) {
+        if (getBaseMorale(this) === 3 && this.moraleBoostUntil > curRound) {
             const remainingRounds = this.moraleBoostUntil - curRound;
             effects.push({
                 label: MORALE_CONFIG[3].name,
@@ -315,7 +314,7 @@ export class Unit {
         }
 
         // 谋士攻心的士气下降/混乱（moralePenaltyUntil 为回合数, 0-indexed）
-        if (this.morale < 2 && this.moralePenaltyUntil > curRound) {
+        if (getBaseMorale(this) < 2 && this.moralePenaltyUntil > curRound) {
             const morale = MORALE_CONFIG[this.morale];
             effects.push({
                 label: morale.name,
@@ -1330,11 +1329,8 @@ export class Unit {
                     _gameState.factionMoraleBoost[kKey] = getRoundIndex(_gameState) + COMMANDER_CONFIG.martyr.balance.moraleBoostRounds;
                     for (const tile of _gameState.tiles) {
                         const u = tile.unit;
-                        if (u && u.camp === killerCamp && u.morale !== 0 && u.morale < 3) {
-                            const oldM = u.morale;
-                            u.morale = Math.min(3, u.morale + 1);
-                            if (u.morale === 3) u.moraleBoostUntil = getRoundIndex(_gameState) + COMMANDER_CONFIG.martyr.balance.moraleBoostRounds;
-                            if (u.morale !== oldM) emit('fx:morale', { unit: u });
+                        if (u?.camp === killerCamp && raiseBaseMorale(u, _gameState.factionMoraleBoost[kKey])) {
+                            emit('fx:morale', { unit: u });
                         }
                     }
                     emit('fx:factionMorale', { color: '#ffd700' });

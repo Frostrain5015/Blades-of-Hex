@@ -62,7 +62,7 @@ export async function run(browser) {
             id: 'u_fallen', type: 'infantry', hp: 100, maxHp: 270, canAct: false, movedThisTurn: false,
             counterAttackCount: 0, isNewRecruit: false, morale: 1, moraleBoostUntil: 5,
             _flankingMoraleBase: 3, _flankingMoralePenalty: 2,
-            _flankingMoraleActivePenalty: 0, _flankingMoraleRecoveryUntil: 8,
+            _flankingMoraleActivePenalty: 2,
             _flankForcedIdle: true,
             remainingMP: 3, commander: 'fallenAngel', _centurionTriggered: false,
             _atkBonus: 30, _rankDefBonus: 0, _rankCritBonus: 0, _rankRegenPct: 0,
@@ -149,8 +149,7 @@ export async function run(browser) {
             assert(u.morale === 1, 'morale=1');
             assert(u.flankingMoraleBase === 3
                 && u.flankingMoralePenalty === 2
-                && u.flankingMoraleActivePenalty === 0
-                && u.flankingMoraleRecoveryUntil === 8
+                && u.flankingMoraleActivePenalty === 2
                 && u.flankForcedIdle === true,
             '阵型士气事件与行动锁定状态');
         }
@@ -211,8 +210,7 @@ export async function run(browser) {
             if (restoredFallen?.unit) {
                 assert(restoredFallen.unit._flankingMoraleBase === 3
                     && restoredFallen.unit._flankingMoralePenalty === 2
-                    && restoredFallen.unit._flankingMoraleActivePenalty === 0
-                    && restoredFallen.unit._flankingMoraleRecoveryUntil === 8
+                    && restoredFallen.unit._flankingMoraleActivePenalty === 2
                     && restoredFallen.unit._flankForcedIdle === true,
                 '反序列化阵型士气事件与行动锁定状态');
             }
