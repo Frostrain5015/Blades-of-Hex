@@ -5,6 +5,8 @@ import {
     buildRangedOperationRoute
 } from '../operationPreviewRenderer.js';
 import { UNIT_BADGE_RADIUS } from '../unitBadgeRenderer.js';
+import { isPlayableBoardTile } from '../../rules/boardLayout.js';
+import { buildHexRegionContours } from './hexRegionContours.js';
 
 const RELATION_COLORS = Object.freeze({
     self: '#72e18b',
@@ -284,11 +286,16 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
     const rangeRegions = [];
     const airRangeKeys = interactionVisible ? (selection.airRangeTileKeys || []) : [];
     if (airRangeKeys.length) {
-        const geometry = outerRegionGeometry(airRangeKeys, tilesByKey, hexSize);
+        const cells = airRangeKeys.flatMap(key => {
+            const tile = tilesByKey.get(key);
+            const coordinate = coordinatesFromKey(key);
+            return isPlayableBoardTile(tile) && coordinate ? [{ ...coordinate, center: tile.center }] : [];
+        });
         rangeRegions.push({
             id: 'air-range',
             cells: [],
-            edges: geometry.edges,
+            edges: buildHexRegionContours(cells, hexSize),
+            solidBorder: true,
             fillPolygons: [],
             color: '#78c8ff',
             borderColor: '#78c8ff',

@@ -803,8 +803,7 @@ export class PixiBattlefieldRenderer {
             }
 
             if (!region.edges.length) continue;
-            // Exterior border: marching-ants dashes ([14,9] period, -now/22
-            // offset), soft glow halo, then inner pale line on the same dashes.
+            // Movement uses marching ants; air range uses closed solid paths.
             const pulse = exiting || !frame.motionEnabled ? 0 : (Math.sin(nowMs / region.pulsePeriodMs) + 1) / 2;
             const entryAlpha = exiting || !frame.motionEnabled
                 ? 1
@@ -813,14 +812,18 @@ export class PixiBattlefieldRenderer {
             const dashOffset = frame.motionEnabled ? nowMs / 22 : 0;
             const blur = region.glowBlur + pulse * region.glowPulseBlur;
 
-            const buildDashes = () => {
+            const buildBorder = () => {
                 for (const edge of region.edges) {
+                    if (region.solidBorder) {
+                        drawPath(ground, edge, true);
+                        continue;
+                    }
                     for (let i = 1; i < edge.length; i += 1) {
                         drawDashedSegment(ground, edge[i - 1].x, edge[i - 1].y, edge[i].x, edge[i].y, 14, 9, dashOffset);
                     }
                 }
             };
-            buildDashes();
+            buildBorder();
             ground.stroke({
                 color: region.glowColor,
                 alpha: region.glowAlpha * 0.38 * borderAlpha,
@@ -828,7 +831,7 @@ export class PixiBattlefieldRenderer {
                 cap: 'round',
                 join: 'round'
             });
-            buildDashes();
+            buildBorder();
             ground.stroke({
                 color: region.borderColor,
                 alpha: (exiting ? region.lineAlpha : region.lineAlpha + pulse * region.linePulseAlpha) * borderAlpha,
@@ -836,7 +839,7 @@ export class PixiBattlefieldRenderer {
                 cap: 'round',
                 join: 'round'
             });
-            buildDashes();
+            buildBorder();
             ground.stroke({
                 color: region.innerLineColor,
                 alpha: (region.innerLineAlpha + pulse * region.innerLinePulseAlpha) * borderAlpha,

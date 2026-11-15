@@ -69,6 +69,10 @@ export function isUniqueCultureUnit(unitOrType) {
     return UNIT_CONFIG[type]?.isUniqueUnit === true;
 }
 
+export function getMinimumAttackRange(type) {
+    return type === 'fr_heavy_cannon' ? 2 : 1;
+}
+
 export function getAttackRangeCap(type) {
     if (type === 'carrier') return 7;
     return type === 'fr_heavy_cannon' ? 5 : 4;

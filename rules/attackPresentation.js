@@ -21,6 +21,23 @@ export const DIVE_STRAFE_FLIGHT = Object.freeze({
 // 本地攻击（gameLogic）与联机重放（main）共用，避免两处各自维护字面量。
 export const CARRIER_STRAFE_IMPACT_MS = 780;
 
+export const STUKA_BOMB_RELEASE_PROGRESS = 0.51;
+
+export function getStukaFlightPosition(targetX, targetY, boardWidth, progress) {
+    const diveEnd = 0.65;
+    const entryX = -48;
+    const exitX = boardWidth + 48;
+    const lowX = targetX - 18;
+    const lowY = targetY - 20;
+    const diving = progress <= diveEnd;
+    const p = Math.max(0, Math.min(1, diving ? progress / diveEnd : (progress - diveEnd) / (1 - diveEnd)));
+    const startX = diving ? entryX : lowX;
+    const endX = diving ? lowX : exitX;
+    const y = lowY - (lowY + 52) * (diving ? (1 - p) ** 2 : p ** 2);
+    const slopeY = 2 * (lowY + 52) * (diving ? 1 - p : -p);
+    return { x: startX + (endX - startX) * p, y, angle: Math.atan2(slopeY, endX - startX) };
+}
+
 export function getDiveStrafePlanePosition(targetX, targetY, elapsedMs) {
     const flight = DIVE_STRAFE_FLIGHT;
     const progress = Math.min(1, Math.max(0, Number(elapsedMs) / flight.firingPathMs));

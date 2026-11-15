@@ -45,7 +45,11 @@ const TWO_PLAYER_ISLAND = {
             { q: -4, r: 5, districtId: 4 }, { q: 1, r: 4, districtId: 4 },
             { q: 0, r: 2, districtId: 5 }, { q: 0, r: -2, districtId: 5 }
         ],
-        fortifications: [],
+        fortifications: [
+            { q: 0, r: 0, type: 'flak', camp: 'neutral' },
+            { q: -5, r: 0, type: 'trench', camp: 'player1' },
+            { q: 5, r: 0, type: 'trench', camp: 'player2' }
+        ],
         installations: [
             { q: -5, r: 0, type: 'airfield', camp: 'player1' },
             { q: 5, r: 0, type: 'airfield', camp: 'player2' }
@@ -100,7 +104,7 @@ const THREE_PLAYER_ISLAND = {
             { q: -3, r: 3, districtId: 3 }, { q: 0, r: 3, districtId: 4 },
             { q: 3, r: 0, districtId: 6 }, { q: 3, r: -3, districtId: 7 }
         ],
-        fortifications: [],
+        fortifications: [{ q: 0, r: 0, type: 'flak', camp: 'neutral' }],
         installations: [
             { q: -5, r: 0, type: 'airfield', camp: 'player1' },
             { q: -5, r: 5, type: 'airfield', camp: 'player2' },

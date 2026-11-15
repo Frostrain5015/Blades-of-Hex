@@ -35,7 +35,7 @@ import { getUnitDisplayName } from '../rules/units.js';
 import { enqueueFloatText } from './floatTexts.js';
 import { queueKmtStrongholdImpact } from './kmtStrongholdEffects.js';
 import { getPresentedTileVisibilityState } from './fogOfWar.js';
-import { isCampCulture } from '../rules/cultures.js';
+import { FREE_RESISTANCE_EFFECT, isCampCulture } from '../rules/cultures.js';
 import { isFriendly } from '../rules/diplomacy.js';
 
 on('fx:healFlash', ({ x, y }) => triggerHealFlash(x, y));
@@ -82,10 +82,17 @@ on('fx:freeResistance', ({ q, r, x, y, delayMs = 0, affected = [] }) => {
         const viewer = getViewingCamp();
         if (getPresentedTileVisibilityState({ q, r }, viewer, gameState) === 'visible') {
             spawnFreeResistanceWave(x, y);
+            spawnCommanderSkillEffect(x, y, '⚜️', FREE_RESISTANCE_EFFECT.name, true, '#c2dfff');
         }
         for (const ally of affected) {
             if (getPresentedTileVisibilityState(ally, viewer, gameState) === 'visible') {
-                spawnRingWave(ally.x, ally.y, { color: '#c5e8ff', maxRadius: 23, duration: 540, lineWidth: 2 });
+                spawnRingWave(ally.x, ally.y, {
+                    color: '#c1efff', maxRadius: 32, duration: 620, lineWidth: 3.6, count: 2, glow: '#69baff'
+                });
+                spawnDirectionalParticles(ally.x, ally.y + 10, ally.x, ally.y, '#a4d7ff', 8);
+                enqueueFloatText({ kind: 'shield', x: ally.x, y: ally.y, q: ally.q, r: ally.r,
+                    text: `🛡 +${FREE_RESISTANCE_EFFECT.shield}`, sign: '+', value: FREE_RESISTANCE_EFFECT.shield, timeLeft: 1050
+                }, { gs: gameState, broadcast: false, stagger: false });
             }
         }
     };

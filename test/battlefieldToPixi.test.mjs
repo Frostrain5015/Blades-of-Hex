@@ -52,5 +52,7 @@ assert.equal(carrierRange.rangeRegions[0].fillAlpha, 0);
 assert.equal(carrierRange.rangeRegions[0].borderColor, 0x78c8ff);
 assert.equal(carrierRange.rangeRegions[0].glowColor, 0x5ab4ff);
 assert.equal(carrierRange.rangeRegions[0].innerLineWidth, 1);
+assert.equal(carrierRange.rangeRegions[0].solidBorder, true);
+assert.deepEqual(carrierRange.rangeRegions[0].edges.map(path => path.length), [10]);
 
 console.log('battlefieldToPixi tests passed');

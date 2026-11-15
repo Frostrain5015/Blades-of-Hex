@@ -107,7 +107,7 @@ export const CULTURE_CONFIG = deepFreeze({
         colorId: 'usaTeal',
         uniqueUnitType: 'us_marine',
         uniqueAirCommand: null,
-        badgeCrop: { cx: 0.28, cy: 0.46, sizeRatio: 0.92, fillScale: 0.81 },
+        badgeCrop: { cx: 0.354667, cy: 0.46, sizeRatio: 0.92, fillScale: 0.81 },
         tier1: {
             title: '海军陆战队',
             abilityName: '两栖登陆',
@@ -147,7 +147,7 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '法国巨炮',
             abilityName: '远程重炮',
-            summary: '射程5格，攻击附带35%溅射伤害，且攻击海军不受陆军对海减伤影响。回合开始时自动炮击射程内随机敌军，触发后本回合仍可移动，但无法再次攻击。'
+            summary: '射程2–5格（雾天2–4格），攻击附带35%溅射伤害，且攻击海军不受陆军对海减伤影响。回合开始时自动炮击射程内随机敌军，触发后本回合仍可移动，但无法再次攻击。'
         },
         tier2: {
             title: '自由不屈',

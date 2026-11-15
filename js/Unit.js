@@ -5,6 +5,8 @@ import {
     chooseDefaultSpecialization,
     getSpecializationAbilityValue,
     getMachineGunDamageBonus,
+    getAttackRangeCap,
+    getMinimumAttackRange,
     isRankLockedUnit,
     isStrongpointTarget,
     isValidSpecialization,
@@ -960,7 +962,10 @@ export class Unit {
         //   远程单位(炮/碉堡) 射程2 → 2格内的攻击者（含远程炮击/近战贴脸）均可被反击
         const counterIsRanged = isRangedCombatAttack(this);
         const counterRange = this._isDrone ? 2 : (counterIsRanged ? this.getEffectiveRange() : 1);
-        if (hexDistance(attackerUnit.tile, this.tile) > counterRange) {
+        const distance = hexDistance(attackerUnit.tile, this.tile);
+        const minRange = getMinimumAttackRange(this.type);
+        const maxRange = minRange > 1 ? Math.min(getAttackRangeCap(this.type), counterRange) : counterRange;
+        if (distance < minRange || distance > maxRange) {
             return { dmg: 0, isCrit: false };
         }
         // Melee retaliation follows the same surface-domain rule as a normal

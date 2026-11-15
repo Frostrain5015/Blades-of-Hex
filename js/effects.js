@@ -2030,8 +2030,9 @@ export function spawnRingWave(x, y, { color = '#ffd166', maxRadius = 56, duratio
 }
 
 export function spawnFreeResistanceWave(x, y) {
-    spawnRingWave(x, y, { color: '#60a5fa', maxRadius: 72, duration: 720, lineWidth: 3.5, count: 2, glow: '#bfdbfe' });
-    spawnRingWave(x, y, { color: '#f87171', maxRadius: 54, duration: 540, lineWidth: 2.5, count: 1, glow: '#fecaca' });
+    spawnRingWave(x, y, { color: '#4598ff', maxRadius: 78, duration: 780, lineWidth: 5, glow: '#8bc5ff' });
+    spawnRingWave(x, y, { color: '#f5f8ff', maxRadius: 64, duration: 700, lineWidth: 4, glow: '#cbdfff' });
+    spawnRingWave(x, y, { color: '#ff5068', maxRadius: 50, duration: 620, lineWidth: 3.5, glow: '#ff8293' });
 }
 
 export function spawnDodgeShimmer(x, y) {
@@ -2086,13 +2087,12 @@ export function spawnHeavyCannonShell(fromX, fromY, toX, toY, isCrit = false, on
 }
 
 export function updateHeavyCannonShells(now) {
-    let fireSound = false;
+    let impactSound = false;
     for (let i = heavyCannonShells.length - 1; i >= 0; i--) {
         const s = heavyCannonShells[i];
         const elapsed = now - s.startTime;
         if (!s.fired && elapsed >= HEAVY_CANNON_CHARGE_MS) {
             s.fired = true;
-            fireSound = true;
             const angle = Math.atan2(s.toY - s.fromY, s.toX - s.fromX);
             spawnMuzzleFlash(s.muzzleX - Math.cos(angle) * 9, s.muzzleY - Math.sin(angle) * 9, s.toX, s.toY, true);
             triggerRecoil(s.fromX, s.fromY, s.toX, s.toY);
@@ -2100,6 +2100,7 @@ export function updateHeavyCannonShells(now) {
         if (elapsed >= HEAVY_CANNON_IMPACT_MS) {
             heavyCannonShells.splice(i, 1);
             if (!s.dodged) {
+                impactSound = true;
                 spawnCannonImpact(s.toX, s.toY, true);
                 triggerAttackFlash(s.toX, s.toY, s.isCrit);
                 spawnRingWave(s.toX, s.toY, {
@@ -2124,7 +2125,7 @@ export function updateHeavyCannonShells(now) {
             if (s.onImpact) s.onImpact();
         }
     }
-    if (fireSound) playSound('cannon');
+    if (impactSound) playSound('explosion');
 }
 
 function drawHeavyCannonCharge(ctx, s, t) {

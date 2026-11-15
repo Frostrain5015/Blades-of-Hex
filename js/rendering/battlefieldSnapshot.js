@@ -9,6 +9,7 @@ import {
     axialToBoardPixel,
     getViewportHexCoordinates,
     isBoardHexFullyVisible,
+    isPlayableBoardTile,
     normalizeBoardLayout
 } from '../../rules/boardLayout.js';
 import { campToKey } from '../../rules/camps.js';
@@ -19,7 +20,7 @@ import { isMechanicEnabled } from '../../rules/mechanics.js';
 import { getSurfaceBaseColor, getTileSurface, isWaterSurface } from '../../rules/surfaces.js';
 import { resolveTargetingPreview, targetingTileKey } from '../../rules/targeting.js';
 import { operationArrowStyleForAttacker } from '../../rules/attackPresentation.js';
-import { isCityDisabled } from '../../rules/citySiege.js';
+import { isCityDisabled, isSiegeableCityTile } from '../../rules/citySiege.js';
 import { isStealthUnit, isUnitVisibleToCamp } from '../../rules/visibility.js';
 
 export const BATTLEFIELD_SNAPSHOT_VERSION = 1;
@@ -168,6 +169,7 @@ function buildPlayableTiles(gameState) {
     const sourceMap = gameState.tileMap instanceof Map ? gameState.tileMap : null;
     const byKey = new Map();
     for (const tile of sourceTiles) {
+        if (!isPlayableBoardTile(tile)) continue;
         const key = keyFromTile(tile);
         if (!key || byKey.has(key)) continue;
         if (sourceMap && sourceMap.get(key) !== tile) continue;
@@ -585,20 +587,23 @@ function buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTile
     // 连招执行中（与 hover 无关）：攻击段锚定落点 B，等待单位抵达开火。
     const pending = gameState.pendingChainAttack;
     if (pending && pending.unit === selectedUnit
-        && pending.targetUnit?.tile?.unit === pending.targetUnit) {
+        && (pending.targetUnit ? pending.targetUnit.tile?.unit === pending.targetUnit
+            : isSiegeableCityTile(selectedUnit, pending.targetTile, gameState))) {
         const viaKey = keyFromTile(pending.viaTile);
-        const targetKey = keyFromTile(pending.targetUnit.tile);
+        const targetKey = keyFromTile(pending.targetUnit?.tile || pending.targetTile);
         if (viaKey && targetKey && playableKeySet.has(viaKey) && playableKeySet.has(targetKey)) {
             return { action: attackAction, sourceKey: viaKey, targetKey, anchor: 'tile' };
         }
     }
 
     if (!hoveredTileKey) return null;
-    const hoveredUnit = sourceByKey.get(hoveredTileKey)?.unit || null;
+    const hoveredTile = sourceByKey.get(hoveredTileKey);
+    const hoveredUnit = hoveredTile?.unit || null;
+    const hasTarget = Boolean(hoveredUnit) || isSiegeableCityTile(selectedUnit, hoveredTile, gameState);
     const isMove = !hoveredUnit && moveTileKeys.includes(hoveredTileKey)
         && Math.max(0, finite(selectedUnit.remainingMP, 0)) > 0;
-    const isAttack = Boolean(hoveredUnit) && attackTileKeys.includes(hoveredTileKey);
-    const isChain = Boolean(hoveredUnit) && !isAttack && chainTileKeys.includes(hoveredTileKey);
+    const isAttack = hasTarget && attackTileKeys.includes(hoveredTileKey);
+    const isChain = hasTarget && !isAttack && chainTileKeys.includes(hoveredTileKey);
     if (!isMove && !isAttack && !isChain) return null;
 
     if (isMove) {

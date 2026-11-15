@@ -8,7 +8,7 @@
 // 反过来说，任何「怎么打」的决策（目标怎么选、走位怎么评分、要不要冒险）
 // 都不属于条令层，必须留在各自的档位脚本里，否则档次差异会退化成开关。
 
-import { COUNTER_RELATION, getAttackRangeCap, getMachineGunDamageBonus, getUnitBaseType, isStrongpointTarget } from '../rules/units.js';
+import { COUNTER_RELATION, getAttackRangeCap, getMinimumAttackRange, getMachineGunDamageBonus, getUnitBaseType, isStrongpointTarget } from '../rules/units.js';
 import { getCrossDomainDamageBonus } from '../rules/naval.js';
 import { getCannonSiegeDamageBonus, getCityDefenseBonus } from '../rules/citySiege.js';
 import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus } from '../rules/kmtStronghold.js';
@@ -412,7 +412,8 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
         if (attackerBase === 'submarine' && defenderBase !== 'submarine') return 0;
         if (attacker._isDrone && !defender._isDrone) return 0;
         const distance = hexDistance ? hexDistance(attacker.tile, defender.tile) : 1;
-        if ((defender.getEffectiveRange?.() ?? getUnitCombatRange(defender)) < distance) return 0;
+        const range = Math.min(getAttackRangeCap(defender.type), defender.getEffectiveRange?.() ?? getUnitCombatRange(defender));
+        if (distance < getMinimumAttackRange(defender.type) || distance > range) return 0;
         // 承受反击的是进攻方，防御地形按进攻方自己站的格子算。
         return estimateDamage(defender, attacker, attacker.tile, 0, true) * 0.98;
     }

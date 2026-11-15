@@ -1,3 +1,5 @@
+import { buildHexRegionContours } from './rendering/hexRegionContours.js';
+
 // Canvas2D-only target preview primitives.
 //
 // This module deliberately knows nothing about game state, rules, input, or board
@@ -517,69 +519,26 @@ function drawHatchLines(ctx, bounds, spacing, reverse = false) {
     }
 }
 
-const HEX_EDGE_NEIGHBORS = Object.freeze([
-    Object.freeze({ dq: 1, dr: 0, edge: 1 }),
-    Object.freeze({ dq: 0, dr: 1, edge: 2 }),
-    Object.freeze({ dq: -1, dr: 1, edge: 3 }),
-    Object.freeze({ dq: -1, dr: 0, edge: 4 }),
-    Object.freeze({ dq: 0, dr: -1, edge: 5 }),
-    Object.freeze({ dq: 1, dr: -1, edge: 0 })
-]);
-
-function drawAntiAirPerimeter(ctx, cells, descriptor, fallbackSize, groupAlpha) {
-    const keyedCells = cells.filter(cell => Number.isFinite(cell.q) && Number.isFinite(cell.r));
-    if (keyedCells.length === 0) return false;
-    const covered = new Set(keyedCells.map(cell => `${cell.q},${cell.r}`));
-    const board = descriptor.boardKeys;
-    let hasEdges = false;
-
+export function strokeHexRegionContours(ctx, contours, style) {
+    if (!contours.length) return;
     ctx.save();
+    ctx.globalAlpha *= style.alpha ?? 1;
     ctx.beginPath();
-    for (const cell of keyedCells) {
-        const points = pointsFor(cell, fallbackSize);
-        if (points.length !== 6) continue;
-        for (const { dq, dr, edge } of HEX_EDGE_NEIGHBORS) {
-            const neighborKey = `${cell.q + dq},${cell.r + dr}`;
-            // Match the legacy presentation: the board edge itself is not mistaken for an AA contour.
-            if (board?.has && !board.has(neighborKey)) continue;
-            if (covered.has(neighborKey)) continue;
-            const start = points[edge];
-            const end = points[(edge + 1) % points.length];
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(end.x, end.y);
-            hasEdges = true;
-        }
-    }
-
-    if (hasEdges) {
-        const size = positive(descriptor.size, fallbackSize);
-        const pulse = waveAt(descriptor.time, 3.6, descriptor.phase);
-        const color = colorFor('antiAir', descriptor.perimeterColor || descriptor.color);
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.setLineDash([Math.max(10, size * 0.46), Math.max(6, size * 0.3)]);
-        ctx.lineDashOffset = -(finite(descriptor.time) * 42) % Math.max(16, size * 0.76);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = positive(descriptor.perimeterWidth, Math.max(3, size * 0.075));
-        ctx.shadowColor = descriptor.perimeterGlow || '#ff3c2f';
-        ctx.shadowBlur = size * (0.34 + pulse * 0.16);
-        ctx.globalAlpha = groupAlpha * (0.86 + pulse * 0.14);
-        ctx.stroke();
-        ctx.strokeStyle = descriptor.perimeterInnerColor || '#ffe1dc';
-        ctx.lineWidth = Math.max(1, size * 0.03);
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = groupAlpha * (0.48 + pulse * 0.28);
-        ctx.stroke();
-        ctx.setLineDash([]);
-    }
+    for (const contour of contours) appendPolygonPath(ctx, contour);
+    ctx.lineJoin = 'round';
+    ctx.setLineDash([]);
+    ctx.strokeStyle = style.stroke;
+    ctx.lineWidth = style.lineWidth;
+    ctx.shadowColor = style.glow;
+    ctx.shadowBlur = style.glowBlur;
+    ctx.stroke();
+    ctx.strokeStyle = style.inner;
+    ctx.lineWidth = style.innerWidth;
+    ctx.shadowBlur = 0;
+    ctx.stroke();
     ctx.restore();
-    return hasEdges;
 }
 
-/**
- * Draw anti-air coverage as bold red single hatching for level 1 and obvious
- * cross-hatching for level 2+, plus the legacy animated red union perimeter.
- */
 export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
     const cells = Array.isArray(descriptor.cells) ? descriptor.cells : [];
     const fallbackSize = positive(descriptor.size, 30);
@@ -587,20 +546,31 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
     const groupAlpha = opacity(descriptor.alpha, 1);
     if (!cells.length) return 0;
 
-    // 简单填充 + 外框，无斜纹批处理（斜纹渲染在防空圈较多时性能开销过大）
-    ctx.save();
-    ctx.beginPath();
-    for (const cell of cells) {
-        const points = pointsFor(cell, fallbackSize);
-        if (points.length < 3) continue;
-        appendPolygonPath(ctx, scaledPoints(points, 0.89));
+    for (const level of [1, 2]) {
+        ctx.save();
+        ctx.beginPath();
+        for (const cell of cells) {
+            if ((cell.level >= 2 ? 2 : 1) !== level) continue;
+            appendPolygonPath(ctx, scaledPoints(pointsFor(cell, fallbackSize), 0.998));
+        }
+        ctx.fillStyle = descriptor.fillColor || color;
+        ctx.globalAlpha *= groupAlpha * (level === 1 ? 0.11 : 0.20);
+        ctx.fill();
+        ctx.restore();
     }
-    ctx.fillStyle = descriptor.fillColor || color;
-    ctx.globalAlpha = groupAlpha * 0.12;
-    ctx.fill();
-    ctx.restore();
 
-    drawAntiAirPerimeter(ctx, cells, descriptor, fallbackSize, groupAlpha);
+    const keyedCells = cells.filter(cell => Number.isFinite(cell.q) && Number.isFinite(cell.r) && validPoint(cell.center));
+    const contours = buildHexRegionContours(keyedCells, fallbackSize);
+    const pulse = waveAt(descriptor.time, 3.6, descriptor.phase);
+    strokeHexRegionContours(ctx, contours, {
+        stroke: color,
+        lineWidth: Math.max(5.4, fallbackSize * 0.13),
+        inner: 'rgba(255,215,197,0.64)',
+        innerWidth: 1.4,
+        glow: '#ff3c2f',
+        glowBlur: 7 + pulse * 4,
+        alpha: groupAlpha * (0.86 + pulse * 0.14)
+    });
     return cells.length;
 }
 
@@ -673,10 +643,12 @@ function list(value) {
  */
 export function renderTargetingPreview(ctx, scene = {}) {
     let drawn = 0;
+    // The coverage polygons are already real board cells. Draw their strokes
+    // before clipping motifs so a perimeter on the board edge keeps its width.
+    for (const descriptor of list(scene.antiAir)) drawn += drawAntiAirCoveragePreview(ctx, descriptor);
     ctx.save();
     try {
-        if (scene.boardClip && !clipToBoard(ctx, scene.boardClip)) return 0;
-        for (const descriptor of list(scene.antiAir)) drawn += drawAntiAirCoveragePreview(ctx, descriptor);
+        if (scene.boardClip && !clipToBoard(ctx, scene.boardClip)) return drawn;
         for (const descriptor of list(scene.origins)) drawn += Number(drawHatchedOriginPreview(ctx, descriptor));
         for (const descriptor of list(scene.tileDeployments)) drawn += Number(drawTileDeploymentPreview(ctx, descriptor));
         for (const descriptor of list(scene.areaCenters)) drawn += Number(drawAreaCenterPreview(ctx, descriptor));

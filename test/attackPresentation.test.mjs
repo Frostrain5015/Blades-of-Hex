@@ -4,6 +4,7 @@ import {
     classifyAttackPresentation,
     getDiveStrafeMuzzlePosition,
     getDiveStrafePlanePosition,
+    getStukaFlightPosition,
     isRangedAttackPresentation,
     isRangedCombatAttack,
     operationArrowStyleForAttacker
@@ -36,5 +37,16 @@ const muzzle = getDiveStrafeMuzzlePosition(target.x, target.y, 600);
 assert.ok(plane.x < target.x && plane.y < target.y, 'strafe aircraft must still be inbound while firing');
 assert.ok(muzzle.x > plane.x && muzzle.y > plane.y, 'tracers must start at the aircraft nose');
 assert.notDeepEqual(muzzle, target, 'tracers must never originate at the target or carrier tile');
+
+const stukaEntry = getStukaFlightPosition(500, 360, 1000, 0);
+const stukaDive = getStukaFlightPosition(500, 360, 1000, 0.5);
+const stukaLow = getStukaFlightPosition(500, 360, 1000, 0.65);
+const stukaClimb = getStukaFlightPosition(500, 360, 1000, 0.8);
+const stukaExit = getStukaFlightPosition(500, 360, 1000, 1);
+assert.ok(stukaEntry.x < 0 && stukaEntry.y < 0);
+assert.ok(stukaExit.x > 1000 && stukaExit.y < 0);
+assert.ok(stukaDive.angle > 0 && stukaClimb.angle < 0);
+assert.ok(stukaDive.y < stukaLow.y && stukaClimb.y < stukaLow.y);
+assert.equal(stukaLow.angle, 0);
 
 console.log('attackPresentation tests passed');

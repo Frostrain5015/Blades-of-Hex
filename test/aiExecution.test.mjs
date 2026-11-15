@@ -252,6 +252,23 @@ test('喀秋莎的主目标和溅射目标分三轮扣血，整数尾差守恒',
     }
 });
 
+test('法国巨炮无法直接炮击或反击邻格，只有邻格敌人时不自动开火', async () => {
+    const { me, foe, home } = setupMatch();
+    state.turnOrder = ['player2', 'player1', 'neutral'];
+    state.currentCamp = foe;
+    const cannon = place('fr_heavy_cannon', me, home);
+    const neighbor = place('infantry', foe, state.tileMap.get('1,0'));
+    await engine.advanceAutomatedTurn();
+    assert.equal(neighbor.hp, neighbor.maxHp);
+    assert.equal(cannon._heavyCannonAutoFiredThisTurn, false);
+    assert.equal(cannon.calculateCounterDamage(neighbor).dmg, 0);
+    const distant = place('infantry', foe, state.tileMap.get('2,0'));
+    assert.ok(cannon.calculateCounterDamage(distant).dmg > 0);
+    engine.attackUnit(cannon, neighbor);
+    assert.equal(neighbor.hp, neighbor.maxHp);
+    assert.ok(cannon.canAct);
+});
+
 test('法国巨炮回合初以地块视野选靶，空城炮击写入攻城回合', async () => {
     const { me, foe, enemyCity } = setupMatch();
     me.flagPreset = 'img/flags/svg/fr.svg';

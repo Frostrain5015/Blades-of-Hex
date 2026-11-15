@@ -4,6 +4,7 @@
 // 渲染、指针命中和执行层终检应消费同一个 candidateTileKeys 结果。
 
 import { campToKey } from './camps.js';
+import { isPlayableBoardTile } from './boardLayout.js';
 import { COLONEL_CARD_DATA } from './cards.js';
 import { hexDistance, HEX_NEIGHBORS } from './hex.js';
 import { isMechanicEnabled } from './mechanics.js';
@@ -289,9 +290,10 @@ function canUnitOccupyTileForTransport(unit, tile, gameState) {
 function resolveSources(gameState, cardTargeting, myCamp) {
     const cardId = cardTargeting.cardId;
     let sourceUnit = null;
-    const launcherTile = cardId.startsWith('air_command_')
+    const launcher = cardId.startsWith('air_command_')
         ? gameState?.tileMap?.get?.(`${cardTargeting.launcherQ},${cardTargeting.launcherR}`) || null
         : null;
+    const launcherTile = isPlayableBoardTile(launcher) ? launcher : null;
     if (cardId === 'drone_deploy') {
         sourceUnit = findUnit(gameState, unit => unit.commander === 'tianyan'
             && !areCommanderMechanicsSuppressed(unit)
@@ -321,21 +323,22 @@ function colonelTargetingAvailable(gameState, cardId, myCamp, colonel) {
     return !deployed || deployed[campToKey(myCamp)] !== false;
 }
 
-function addAreaTiles(gameState, center, destination) {
+export function getTargetingAreaTiles(gameState, center) {
     const centerKey = targetingTileKey(center);
-    if (!centerKey || !gameState.tileMap?.has(centerKey)) return;
-    destination.add(centerKey);
+    if (!centerKey || gameState.tileMap?.get(centerKey) !== center || !isPlayableBoardTile(center)) return [];
+    const tiles = [center];
     for (const [dq, dr] of HEX_NEIGHBORS) {
-        const key = `${center.q + dq},${center.r + dr}`;
-        if (gameState.tileMap.has(key)) destination.add(key);
+        const tile = gameState.tileMap.get(`${center.q + dq},${center.r + dr}`);
+        if (isPlayableBoardTile(tile)) tiles.push(tile);
     }
+    return tiles;
 }
 
-function resolveAirOverlay(gameState, cardId, myCamp, sources, isTileVisible) {
+function resolveAirOverlay(gameState, cardId, myCamp, sources, isTileVisible, playableTiles) {
     if (!AIR_TARGETING_CARD_IDS.has(cardId)) return undefined;
     const aaLayersByTileKey = new Map();
     const aaSourcesByTileKey = new Map();
-    for (const tile of gameState.tiles || []) {
+    for (const tile of playableTiles) {
         if (gameState.skirmishFog && !isTileVisible(tile, myCamp, gameState)) continue;
         const key = targetingTileKey(tile);
         const coverage = resolveAntiAirCoverage(tile, myCamp, gameState.tileMap, {
@@ -343,27 +346,17 @@ function resolveAirOverlay(gameState, cardId, myCamp, sources, isTileVisible) {
             includeSources: true
         });
         if (coverage.reduction > 0) {
-            // 渲染器仍使用两档纹理强度；规则值本身保留在 source.reduction 中。
+            // 覆盖底色分为两档。来源仍保留各自的实际减伤比例。
             aaLayersByTileKey.set(key, coverage.reduction >= 0.50 ? 2 : 1);
             aaSourcesByTileKey.set(key, coverage.sources);
         }
     }
 
-    const rangeTileKeys = new Set();
-    if (COLONEL_TARGETING_CARD_IDS.has(cardId) && sources.colonel?.tile) {
-        for (const tile of gameState.tiles || []) {
-            if (hexDistance(sources.colonel.tile, tile) <= COLONEL_CARD_DATA.range) {
-                rangeTileKeys.add(targetingTileKey(tile));
-            }
-        }
-    } else if (cardId.startsWith('air_command_') && sources.launcherTile) {
-        const range = getAirCommandRange(sources.launcherTile);
-        for (const tile of gameState.tiles || []) {
-            if (hexDistance(sources.launcherTile, tile) <= range) {
-                rangeTileKeys.add(targetingTileKey(tile));
-            }
-        }
-    }
+    const origin = sources.colonel?.tile || sources.launcherTile;
+    const range = sources.launcherTile ? getAirCommandRange(sources.launcherTile) : COLONEL_CARD_DATA.range;
+    const rangeTileKeys = new Set(origin
+        ? playableTiles.filter(tile => hexDistance(origin, tile) <= range).map(targetingTileKey)
+        : []);
     return {
         grounded: cardId.startsWith('air_command_') && sources.launcherTile
             ? isAirfieldGrounded(sources.launcherTile, gameState)
@@ -394,7 +387,11 @@ export function resolveTargetingPreview(gameState, cardTargeting, options = {}) 
     }
 
     const sources = resolveSources(gameState, cardTargeting, myCamp);
-    const air = resolveAirOverlay(gameState, cardTargeting.cardId, myCamp, sources, isTileVisible);
+    const playableTiles = (gameState.tiles || []).filter(tile => {
+        const key = targetingTileKey(tile);
+        return key && isPlayableBoardTile(tile) && gameState.tileMap?.get(key) === tile;
+    });
+    const air = resolveAirOverlay(gameState, cardTargeting.cardId, myCamp, sources, isTileVisible, playableTiles);
     const airGrounded = air?.grounded === true;
     const colonelAvailable = colonelTargetingAvailable(
         gameState,
@@ -404,9 +401,8 @@ export function resolveTargetingPreview(gameState, cardTargeting, options = {}) 
     );
 
     if (!airGrounded && colonelAvailable) {
-        for (const tile of gameState.tiles || []) {
+        for (const tile of playableTiles) {
             const key = targetingTileKey(tile);
-            if (!key || gameState.tileMap?.get(key) !== tile) continue;
             if (!isVisibleCandidate(gameState, cardTargeting, tile, myCamp, isTileVisible)) continue;
             if (!isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, sources)) continue;
             if (intent === TARGET_INTENTS.HOSTILE
@@ -424,7 +420,7 @@ export function resolveTargetingPreview(gameState, cardTargeting, options = {}) 
 
     const hoveredKey = targetingTileKey(hoveredTile);
     if (hoveredKey && candidateTileKeys.has(hoveredKey) && AREA_TARGETING_CARD_IDS.has(cardTargeting.cardId)) {
-        addAreaTiles(gameState, hoveredTile, affectedTileKeys);
+        for (const tile of getTargetingAreaTiles(gameState, hoveredTile)) affectedTileKeys.add(targetingTileKey(tile));
     }
 
     return {
@@ -443,5 +439,5 @@ export function resolveTargetingPreview(gameState, cardTargeting, options = {}) 
 
 export function isResolvedTargetingCandidate(preview, tile) {
     const key = targetingTileKey(tile);
-    return !!key && preview?.candidateTileKeys?.has(key) === true;
+    return !!key && isPlayableBoardTile(tile) && preview?.candidateTileKeys?.has(key) === true;
 }

@@ -62,8 +62,9 @@ import {
     drawOperationPreview,
     OPERATION_PREVIEW_ACTIONS
 } from './operationPreviewRenderer.js';
-import { getDiveStrafePlanePosition, operationArrowStyleForAttacker } from '../rules/attackPresentation.js';
+import { getDiveStrafePlanePosition, getStukaFlightPosition, operationArrowStyleForAttacker, STUKA_BOMB_RELEASE_PROGRESS } from '../rules/attackPresentation.js';
 import {
+    getTargetingAreaTiles,
     resolveTargetingPreview,
     TARGET_INTENTS,
     TARGET_SHAPES,
@@ -71,8 +72,11 @@ import {
 } from '../rules/targeting.js';
 import {
     drawHologramMotif,
-    renderTargetingPreview
+    renderTargetingPreview,
+    strokeHexRegionContours
 } from './targetingPreviewRenderer.js';
+import { buildHexRegionContours } from './rendering/hexRegionContours.js';
+import { isPlayableBoardTile } from '../rules/boardLayout.js';
 import { resolveMovementTileReveal } from './movementRegionAnimation.js';
 import { CanvasBattlefieldLayers } from './canvasBattlefieldLayers.js';
 import { battlefieldDelegation } from './rendering/delegation.js';
@@ -1168,26 +1172,25 @@ function drawAirstrikeEffects(now) {
 
         // 德国专属空军指令：斯图卡俯冲轰炸（大角度俯冲 + 重型航弹 + 炽烈冲击波）
         if (fx.type === 'stukaDiveBomb') {
-            const p0x = cx - 320, p0y = cy - 260;
-            const apexX = cx, apexY = cy - 16;
-            const p1x = cx + 360, p1y = cy - 230;
-            let px, py, ang;
-            if (t < 0.62) {
-                const p = t / 0.62;
-                const ease = 1 - Math.pow(1 - p, 1.35);
-                px = p0x + (apexX - p0x) * ease;
-                py = p0y + (apexY - p0y) * ease;
-                ang = Math.atan2(apexY - p0y, apexX - p0x);
-            } else {
-                const p = (t - 0.62) / 0.38;
-                const pull = Math.pow(p, 1.25);
-                px = apexX + (p1x - apexX) * pull;
-                py = apexY + (p1y - apexY) * pull;
-                ang = Math.atan2(p1y - apexY, p1x - apexX);
+            const { x: px, y: py, angle: ang } = getStukaFlightPosition(cx, cy, LOGICAL_W, t);
+            if (!settings.reducedMotion) {
+                ctx.save();
+                ctx.lineCap = 'round';
+                const trailStart = Math.max(0, t - 0.24);
+                for (let segment = 0; segment < 14; segment++) {
+                    const a = getStukaFlightPosition(cx, cy, LOGICAL_W, trailStart + (t - trailStart) * segment / 14);
+                    const b = getStukaFlightPosition(cx, cy, LOGICAL_W, trailStart + (t - trailStart) * (segment + 1) / 14);
+                    ctx.beginPath();
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.lineWidth = 5.5 - segment * 0.24;
+                    ctx.strokeStyle = `rgba(223,227,211,${0.42 * (segment + 1) / 14})`;
+                    ctx.stroke();
+                }
+                ctx.restore();
             }
 
             ctx.save();
-            ctx.globalAlpha = t < 0.88 ? 1 : Math.max(0, 1 - (t - 0.88) / 0.12);
             ctx.fillStyle = '#36423a';
             ctx.translate(px, py);
             ctx.rotate(ang);
@@ -1227,12 +1230,11 @@ function drawAirstrikeEffects(now) {
             }
 
             const impact = AIR_COMMAND_IMPACT_DELAY_MS.stukaDiveBomb / fx.duration;
-            if (t >= 0.42 && t < impact) {
-                const bp = Math.pow((t - 0.42) / (impact - 0.42), 1.4);
-                const relX = p0x + (apexX - p0x) * (1 - Math.pow(1 - (0.42 / 0.62), 1.35));
-                const relY = p0y + (apexY - p0y) * (1 - Math.pow(1 - (0.42 / 0.62), 1.35));
-                const bx = relX + (cx - relX) * bp;
-                const by = relY + (cy - relY) * bp;
+            if (t >= STUKA_BOMB_RELEASE_PROGRESS && t < impact) {
+                const bp = ((t - STUKA_BOMB_RELEASE_PROGRESS) / (impact - STUKA_BOMB_RELEASE_PROGRESS)) ** 1.4;
+                const release = getStukaFlightPosition(cx, cy, LOGICAL_W, STUKA_BOMB_RELEASE_PROGRESS);
+                const bx = release.x + (cx - release.x) * bp;
+                const by = release.y + (cy - release.y) * bp;
                 ctx.save();
                 ctx.fillStyle = '#ff6a00';
                 ctx.shadowColor = '#ff3d00';
@@ -1674,8 +1676,9 @@ function drawOperationInteractionRoute(now) {
 
     // 连招执行中：攻击线固定锚在落点 B，单位滑向 B 时线不跟着抖
     const pending = gameState.pendingChainAttack;
-    if (pending?.unit === unit && pending.targetUnit?.tile?.unit === pending.targetUnit) {
-        _drawAttackRouteSegment(now, unit, { x: pending.viaTile.x, y: pending.viaTile.y }, pending.targetUnit);
+    if (pending?.unit === unit && (pending.targetUnit ? pending.targetUnit.tile?.unit === pending.targetUnit
+        : isSiegeableCityTile(unit, pending.targetTile, gameState))) {
+        _drawAttackRouteSegment(now, unit, { x: pending.viaTile.x, y: pending.viaTile.y }, pending.targetUnit || pending.targetTile);
         return;
     }
 
@@ -1696,7 +1699,8 @@ function drawOperationInteractionRoute(now) {
     }
 
     // 预演连招目标：拼接 A→B 行进线 + B→C 红色攻击线
-    if (!moveAnimating && hovered?.unit && gameState.chainAttackTiles?.includes(hovered)) {
+    if (!moveAnimating && hovered && gameState.chainAttackTiles?.includes(hovered)
+        && (hovered.unit || isSiegeableCityTile(unit, hovered, gameState))) {
         const viaTile = gameState.chainAttackPlans?.get(hovered);
         if (viaTile) {
             const bfsPath = _reconstructPreviewPath(unit.tile, viaTile);
@@ -1711,7 +1715,7 @@ function drawOperationInteractionRoute(now) {
                     color: '#58c9b3'
                 });
             }
-            _drawAttackRouteSegment(now, unit, { x: viaTile.x, y: viaTile.y }, hovered.unit);
+            _drawAttackRouteSegment(now, unit, { x: viaTile.x, y: viaTile.y }, hovered.unit || hovered);
             return;
         }
     }
@@ -2100,11 +2104,13 @@ function _hexScreenShape(tile, size = HEX_SIZE) {
     return { center: { x: tile.x, y: tile.y }, size, points };
 }
 
-function _getTargetingBoardClipShapes() {
-    const renderTiles = gameState.boardLayout === 'borderless'
+function _getTargetingBoardClipShapes(playableOnly = false) {
+    const renderTiles = !playableOnly && gameState.boardLayout === 'borderless'
         ? getBorderlessVisualGrid(gameState.tiles, gameState.tileMap).tiles
         : gameState.tiles;
-    return renderTiles.map(tile => _hexScreenShape(tile, HEX_SIZE * 1.01));
+    return renderTiles
+        .filter(tile => !playableOnly || isPlayableBoardTile(tile))
+        .map(tile => _hexScreenShape(tile, playableOnly ? HEX_SIZE : HEX_SIZE * 1.01));
 }
 
 function _getResolvedTargetingPreview(myCamp) {
@@ -2150,14 +2156,21 @@ function _targetEntry(originTile, tile, now, startedAt) {
 function _signalRangeRegionOptions(now, alpha = 1) {
     const pulse = (Math.sin(now / 300) + 1) / 2;
     return {
-        fill: 'rgba(0,0,0,0)',
         stroke: `rgba(120,200,255,${0.62 + pulse * 0.13})`,
+        lineWidth: 2.6,
         glow: 'rgba(90,180,255,0.55)',
         glowBlur: 7 + pulse * 4,
         inner: `rgba(230,245,255,${0.4 + pulse * 0.2})`,
         innerWidth: 1,
         alpha
     };
+}
+
+function _drawAirRange(keys, now, alpha = 1) {
+    const cells = [...keys].map(key => gameState.tileMap.get(key))
+        .filter(isPlayableBoardTile)
+        .map(tile => ({ q: tile.q, r: tile.r, center: tile }));
+    strokeHexRegionContours(ctx, buildHexRegionContours(cells, HEX_SIZE), _signalRangeRegionOptions(now, alpha));
 }
 
 function _drawTargetingRegion(keys, now, options = {}) {
@@ -2250,9 +2263,10 @@ function drawCardTargetingPreview(now) {
     const preview = _getResolvedTargetingPreview(myCamp);
     const hovered = gameState.hoveredTile;
     const hoveredKey = targetingTileKey(hovered);
-    const activeKey = hoveredKey && preview.candidateTileKeys.has(hoveredKey) ? hoveredKey : null;
+    const activeKey = hoveredKey && isPlayableBoardTile(hovered)
+        && preview.candidateTileKeys.has(hoveredKey) ? hoveredKey : null;
     const time = now / 1000;
-    const boardClip = { shapes: _getTargetingBoardClipShapes() };
+    const boardClip = { shapes: _getTargetingBoardClipShapes(!!preview.air) };
     const colonelUnit = preview.air?.colonelOriginUnitId
         ? gameState.tiles.find(tile => tile.unit?.id === preview.air.colonelOriginUnitId)?.unit
         : null;
@@ -2273,8 +2287,7 @@ function drawCardTargetingPreview(now) {
             }).filter(Boolean),
             size: HEX_SIZE,
             alpha: 0.96 * groupEntry.alpha,
-            time,
-            boardKeys: gameState.tileMap
+            time
         } : null,
         origins: [],
         tileDeployments: [],
@@ -2380,27 +2393,27 @@ function drawCardTargetingPreview(now) {
         }
     }
 
-    if (preview.air?.rangeTileKeys?.size) {
-        _drawTargetingRegion(
-            preview.air.rangeTileKeys,
-            now,
-            _signalRangeRegionOptions(now, groupEntry.alpha)
-        );
-    }
-
-    if (activeKey && (preview.cardId === 'airstrike' || preview.cardId === 'carpetBomb' || preview.cardId === 'scout')) {
-        const affectedKeys = new Set([activeKey]);
-        for (const [dq, dr] of HEX_NEIGHBORS) {
-            const key = `${hovered.q + dq},${hovered.r + dr}`;
-            if (gameState.tileMap.has(key)) affectedKeys.add(key);
-        }
-        _drawTargetingRegion(affectedKeys, now, preview.cardId === 'scout' ? {
+    if (activeKey && (preview.cardId === 'airstrike' || preview.cardId === 'carpetBomb'
+        || preview.cardId === 'air_command_bombing' || preview.cardId === 'scout')) {
+        const affected = getTargetingAreaTiles(gameState, hovered);
+        if (preview.air) {
+            const cells = affected.map(tile => ({ q: tile.q, r: tile.r, center: tile }));
+            const contours = buildHexRegionContours(cells, HEX_SIZE);
+            strokeHexRegionContours(ctx, contours, {
+                stroke: '#ffc36d', lineWidth: 2.1, inner: '#fff0c7', innerWidth: 0.8,
+                glow: '#f58c49', glowBlur: 6, alpha: groupEntry.alpha
+            });
+        } else _drawTargetingRegion(new Set(affected.map(targetingTileKey)), now, {
             fill: 'rgba(120,190,255,0.07)',
             stroke: 'rgba(155,220,255,0.86)',
             glow: 'rgba(100,190,255,0.55)',
             inner: 'rgba(235,250,255,0.55)',
             alpha: groupEntry.alpha
-        } : { alpha: groupEntry.alpha });
+        });
+    }
+
+    if (preview.air?.rangeTileKeys.size) {
+        _drawAirRange(preview.air.rangeTileKeys, now, groupEntry.alpha);
     }
 
     _drawAirliftDestinationLink(preview, hovered);
@@ -2477,7 +2490,7 @@ function drawUnitActionTargetingPreview(now, deselecting) {
                 .map(targetingTileKey)
                 .filter(Boolean)
         );
-        _drawTargetingRegion(airRangeKeys, now, _signalRangeRegionOptions(now));
+        _drawAirRange(airRangeKeys, now);
     }
 
     const moveTiles = unit.remainingMP > 0 ? gameState.movableTiles : [];
@@ -2526,7 +2539,8 @@ function drawUnitActionTargetingPreview(now, deselecting) {
 
     const viewerCamp = getViewingCamp();
     const attackTiles = gameState.attackableTiles.filter(tile => (tile.unit && isUnitVisibleToCamp(tile.unit, viewerCamp, gameState)) || isSiegeableCityTile(unit, tile, gameState));
-    const chainTiles = (gameState.chainAttackTiles || []).filter(tile => tile.unit && isUnitVisibleToCamp(tile.unit, viewerCamp, gameState));
+    const chainTiles = (gameState.chainAttackTiles || []).filter(tile =>
+        tile.unit ? isUnitVisibleToCamp(tile.unit, viewerCamp, gameState) : isSiegeableCityTile(unit, tile, gameState));
     if (!attackTiles.length && !chainTiles.length) return;
     const hovered = gameState.hoveredTile;
     renderTargetingPreview(ctx, {

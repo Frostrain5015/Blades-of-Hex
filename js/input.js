@@ -11,7 +11,7 @@ import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidat
 import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { getKmtLinkedUnits, getKmtLinkDefenseBonus, getKmtReinforceDeficit, getKmtSharedHealth } from '../rules/kmtStronghold.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { getCityDefenseBonus, getCityPoolTile, isCityDisabled } from '../rules/citySiege.js';
+import { getCityDefenseBonus, getCityPoolTile, isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
 import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
@@ -32,12 +32,13 @@ import { drawUnitBadge, loadBadgeFlagImage } from './unitBadgeRenderer.js';
 import { campToKey } from '../rules/camps.js';
 import { campFromKey } from '../rules/diplomacy.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
-import { getBanzaiChargePath, resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
+import { AIR_TARGETING_CARD_IDS, getBanzaiChargePath, resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
+import { isPlayableBoardTile, isPointInBoardHex } from '../rules/boardLayout.js';
 import { RECRUITMENT_OPTIONS, getUniqueRecruitmentOption } from './recruitmentUi.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
 import { isCoastalLandTile, canRepairShipAtPort } from '../rules/naval.js';
 import { canReinforceAtTile } from '../rules/healing.js';
-import { getSpecialization, getSpecializationOptions, getUnitBaseType, getUnitDisplayName, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
+import { getSpecialization, getSpecializationOptions, getUnitBaseType, getUnitDisplayName, getAttackRangeCap, getMinimumAttackRange, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
 import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortificationAt, canBuildLaserTowerAt, canBuildShoreBatteryAt, canFieldRepair, constructionCost, findConstructionEngineer, isFieldRepairTarget } from '../rules/construction.js';
 import { measure, perfEnabled } from './perf.js';
@@ -2083,6 +2084,9 @@ function _syncSelectionHud(tile) {
     const effects = _buildEffectItems(tile, unit);
     const selectionKey = unit ? 'unit:' + unit.id : 'tile:' + tile.q + ':' + tile.r;
     const sharedHealth = getKmtSharedHealth(getKmtLinkedUnits(unit, gameState));
+    const minRange = getMinimumAttackRange(unit?.type);
+    const maxRange = unit ? unit.getEffectiveRange?.() ?? unit.config.range : 0;
+    const rangeLabel = minRange > 1 ? `${minRange}-${Math.min(getAttackRangeCap(unit.type), maxRange)}` : maxRange;
     const now = performance.now();
     const presentedHp = unit ? getKatyushaPresentedHealth(unit, now) ?? unit.hp : 0;
     const cityPool = getCityPoolTile(tile, gameState.tileMap);
@@ -2124,7 +2128,7 @@ function _syncSelectionHud(tile) {
         + '|' + (unit ? [
             presentedHp, unit.maxHp, sharedHealth?.hp, sharedHealth?.maxHp, unit.activeShield, unit.remainingMP, unit.canAct,
             unit._faith || 0, unit.moralePenaltyUntil || 0, unit._rank || 0, unit.specializationKey || 'pending',
-            attack, defense, hoverMoveCost, getRelation(gameState, getViewingCampKey(gameState), unit.camp)
+            attack, defense, rangeLabel, hoverMoveCost, getRelation(gameState, getViewingCampKey(gameState), unit.camp)
         ].join(':') : '');
     if (signature === _lastHudSignature) return;
     const selectionChanged = _lastHudSelectionKey && _lastHudSelectionKey !== selectionKey;
@@ -2170,7 +2174,7 @@ function _syncSelectionHud(tile) {
             _textSpan('⚔ ' + attack + (attackDelta ? ' (' + (attackDelta > 0 ? '+' : '') + attackDelta + ')' : ''), attackDelta > 0 ? '#ffe875' : '#ffdf70'),
             _textSpan('🛡 ' + defense + '%（防空 ' + Math.round(_calcAADefense(tile, unit) * 100) + '%）', defense > 0 ? '#9be5df' : defense < 0 ? '#ff8f96' : '#b3b3b3'),
             _textSpan(mpText, '#87d5ff'),
-            _textSpan('📡 ' + (unit.getEffectiveRange?.() ?? unit.config.range), '#f4a8d4')
+            _textSpan('📡 ' + rangeLabel, '#f4a8d4')
         );
     } else {
         _setHudTitle('');
@@ -2322,8 +2326,10 @@ on('client:inspectionRestored', (tile) => {
 // ==== 像素 → 地块 =====================
 function getTileAtPixel(px, py) {
     let result = null;
-    let minDistSq = HEX_SIZE * HEX_SIZE;
+    const airTargeting = AIR_TARGETING_CARD_IDS.has(gameState.cardTargeting?.cardId);
+    let minDistSq = airTargeting ? Infinity : HEX_SIZE * HEX_SIZE;
     for (const tile of gameState.tiles) {
+        if (airTargeting && (!isPlayableBoardTile(tile) || !isPointInBoardHex(px, py, tile, HEX_SIZE))) continue;
         const dx = px - tile.x;
         const dy = py - tile.y;
         const distSq = dx * dx + dy * dy;
@@ -2429,14 +2435,16 @@ export function cancelPendingChainAttack() {
 }
 
 function _firePendingChainAttack(pending) {
-    const { unit, viaTile, targetUnit } = pending;
+    const { unit, viaTile, targetUnit, targetTile: plannedTile } = pending;
     // 下半场重验证：回合/存活/站位/攻击合法性任一失效则静默放弃
     if (gameState.gameOver || unit.camp !== gameState.currentCamp) return;
     if (unit.hp <= 0 || !unit.canAct || unit.tile !== viaTile) return;
-    if (!targetUnit.tile || targetUnit.hp <= 0 || targetUnit.tile.unit !== targetUnit) return;
-    if (!getAttackableTiles(unit).includes(targetUnit.tile)) return;
-    const targetTile = targetUnit.tile;
-    attackUnit(unit, targetUnit);
+    const targetTile = targetUnit?.tile || plannedTile;
+    if (targetUnit ? (targetUnit.hp <= 0 || targetTile.unit !== targetUnit)
+        : !isSiegeableCityTile(unit, targetTile, gameState)) return;
+    if (!getAttackableTiles(unit).includes(targetTile)) return;
+    if (targetUnit) attackUnit(unit, targetUnit);
+    else attackCityTile(unit, targetTile);
     // 与手动攻击分支一致的选中善后；玩家若已改选其他对象则不打扰
     if (gameState.selectedUnit !== unit) return;
     if (unit.canAct) {
@@ -2449,17 +2457,17 @@ function _firePendingChainAttack(pending) {
     }
 }
 
-function _beginChainAttack(attacker, viaTile, targetUnit) {
+function _beginChainAttack(attacker, viaTile, targetTile) {
     cancelPendingChainAttack();
     const fromTile = attacker.tile;
+    const targetUnit = targetTile.unit;
     moveUnit(attacker, viaTile);
     if (attacker.tile === fromTile) return false;         // 移动被拒绝（非法/状态变化）
     if (attacker.tile !== viaTile) return true;           // 移动到了别处（不应发生），放弃攻击段
     if (attacker.hp <= 0 || !attacker.canAct) return true; // 地雷阵亡/状态剥夺 → 只移动
-    if (!targetUnit?.tile || targetUnit.hp <= 0) return true;
     const arriveAt = (attacker.movePathStart || 0) + (attacker.movePathDuration || 0);
     const delayMs = Math.max(0, arriveAt - performance.now()) + 30;
-    const pending = { unit: attacker, viaTile, targetUnit };
+    const pending = { unit: attacker, viaTile, targetTile, targetUnit };
     gameState.pendingChainAttack = pending;
     _pendingChainTimer = setTimeout(() => {
         _pendingChainTimer = null;
@@ -2740,11 +2748,12 @@ export function initInput() {
 
         // Action: friendly unit selected, clicking a chained move+attack target
         // → 一口气执行：先移动到预演落点 B，动画走完自动对 C 开火
-        if (gameState.selectedUnit && clickedTile.unit && isUnitVisibleToCamp(clickedTile.unit, gameState.selectedUnit.camp, gameState)
-            && gameState.chainAttackTiles?.includes(clickedTile)) {
+        if (gameState.selectedUnit && gameState.chainAttackTiles?.includes(clickedTile)
+            && (clickedTile.unit ? isUnitVisibleToCamp(clickedTile.unit, gameState.selectedUnit.camp, gameState)
+                : isSiegeableCityTile(gameState.selectedUnit, clickedTile, gameState))) {
             const attacker = gameState.selectedUnit;
             const viaTile = gameState.chainAttackPlans?.get(clickedTile);
-            if (viaTile && _beginChainAttack(attacker, viaTile, clickedTile.unit)) {
+            if (viaTile && _beginChainAttack(attacker, viaTile, clickedTile)) {
                 gameState.selectedTile = gameState.selectedUnit ? gameState.selectedUnit.tile : clickedTile;
                 showSelectionHudForTile(gameState.selectedTile);
                 return;

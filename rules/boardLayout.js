@@ -13,6 +13,16 @@ const SQRT3 = Math.sqrt(3);
 const EPSILON = 1e-7;
 const viewportCoordinateCache = new Map();
 
+export function isPlayableBoardTile(tile) {
+    return !!tile && tile.playable !== false && !tile.renderOnly && !tile.isVisualFiller;
+}
+
+export function isPointInBoardHex(x, y, tile, size = BOARD_RULES.hexSize) {
+    const dx = Math.abs(x - tile.x);
+    const dy = Math.abs(y - tile.y);
+    return dx <= SQRT3 * size / 2 + EPSILON && dy + dx / SQRT3 <= size + EPSILON;
+}
+
 export function normalizeBoardLayout(layout) {
     return BOARD_LAYOUT_KEYS.includes(layout) ? layout : BOARD_LAYOUT.HEX;
 }

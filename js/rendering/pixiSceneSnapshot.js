@@ -216,6 +216,7 @@ function normalizeRangeRegion(source, index) {
             points(cell?.points || cell, `rangeRegions[${index}].fillPolygons[${cellIndex}]`, 3)),
         edges: (source?.edges || []).map((edge, edgeIndex) =>
             points(edge?.points || edge, `rangeRegions[${index}].edges[${edgeIndex}]`, 2)),
+        solidBorder: Boolean(source?.solidBorder),
         color: color(source?.color, 0x41cdb9),
         borderColor: color(source?.borderColor, 0x50e1cd),
         innerLineColor: color(source?.innerLineColor, 0xd7fff8),

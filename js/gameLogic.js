@@ -1,6 +1,6 @@
 import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, applyNeutralEconomyRate, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
-import { isStrongpointTarget, isBuildingUnit, isStaticBattleStructure, canUnitBeRecruitedAtSite, isUniqueCultureUnit, getAttackRangeCap, getUniqueRecruitmentLimit, countLivingUnitsOfType } from '../rules/units.js';
+import { isStrongpointTarget, isBuildingUnit, isStaticBattleStructure, canUnitBeRecruitedAtSite, isUniqueCultureUnit, getAttackRangeCap, getMinimumAttackRange, getUniqueRecruitmentLimit, countLivingUnitsOfType } from '../rules/units.js';
 import {
     calculateCityStructureDamage,
     damageCityPool,
@@ -102,7 +102,8 @@ import {
     hasTianhengSynergyActive
 } from '../rules/tianheng.js';
 import { measure, perfEnabled } from './perf.js';
-import { getBanzaiChargePath, resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
+import { getBanzaiChargePath, getTargetingAreaTiles, resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
+import { isPlayableBoardTile } from '../rules/boardLayout.js';
 import {
     ANTI_AIR_RADIUS,
     getAntiAirReduction,
@@ -2314,19 +2315,20 @@ if (unit._specializationAttackSpent) return [];
     // 天气射程修正统一由 Unit.getEffectiveRange 结算，避免不同兵种与反击链重复/漏算。
     range = Math.max(1, Math.min(getAttackRangeCap(unit.type), range));
     const startTile = unit.tile;
+    const minimumRange = getMinimumAttackRange(unit.type);
     const isRanged = isRangedCombatAttack(unit);
     const surfaceLegal = isRanged || canUnitOccupyTile(unit, startTile, gameState);
-    const targets = surfaceLegal ? gameState.tiles.filter(tile =>
-        hexDistance(tile, startTile) <= range
-        && (
+    const targets = surfaceLegal ? gameState.tiles.filter(tile => {
+        const distance = hexDistance(tile, startTile);
+        return distance >= minimumRange && distance <= range && (
             (tile.unit
                 && canAttack(gameState, unit.camp, tile.unit.camp)
                 && tile.unit._campaignTargetable !== false
                 && canUnitTargetUnit(unit, tile.unit, gameState)
                 && (isRanged || canUnitAssaultOccupiedTile(unit, tile)))
             || isSiegeableCityTile(unit, tile, gameState)
-        )
-    ) : [];
+        );
+    }) : [];
     // 遭遇战迷雾：只能攻击视野内的敌方单位
     if (gameState.skirmishFog && targets.length) {
         const isVisible = forAiAction ? isVisibleForAction : isTileVisible;
@@ -3415,6 +3417,13 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
     gameState.districtBorderEdges = computeDistrictBorders(landTiles, landTileMap);
     logMessage(`${camp.name}占领的(${cityTile.q},${cityTile.r})城市所属行政区已归属${camp.name}`);
     const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
+    const fortification = cityTile.fieldFortification;
+    if (!gameState.campaignMode && standardMap?.familyId === 'crown-ring'
+        && fortification?.campKey === _campKey(oldCamp)
+        && standardMap.board.fortifications.some(({ q, r, type }) =>
+            q === cityTile.q && r === cityTile.r && type === fortification.type)) {
+        fortification.campKey = _campKey(camp);
+    }
     const transferredCarriers = syncStandardMapCarrierControl(gameState, standardMap, districtId, camp);
     if (transferredCarriers.length > 0) {
         logMessage(`【中央航母】随中央港口行政区向${camp.name}易帜`);
@@ -4420,7 +4429,7 @@ export function executeAirCommand(kind, launcherTile, targetTile) {
 function _executeAirCommand(kind, launcherTile, targetTile) {
     const config = AIR_COMMAND_CONFIG[kind];
     const availability = getAirCommandAvailability(kind, launcherTile, gameState);
-    if (gameState.gameOver || !config || !availability.available || !targetTile
+    if (gameState.gameOver || !config || !availability.available || !isPlayableBoardTile(launcherTile) || !isPlayableBoardTile(targetTile)
         || gameState.tileMap.get(`${launcherTile.q},${launcherTile.r}`) !== launcherTile
         || gameState.tileMap.get(`${targetTile.q},${targetTile.r}`) !== targetTile
         || hexDistance(launcherTile, targetTile) > getAirCommandRange(launcherTile)
@@ -4461,7 +4470,7 @@ function _executeAirCommand(kind, launcherTile, targetTile) {
             }
         }, 600);
     } else if (kind === 'bombing') {
-        const affected = [targetTile, ...HEX_NEIGHBORS.map(([dq, dr]) => gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`)).filter(Boolean)];
+        const affected = getTargetingAreaTiles(gameState, targetTile);
         for (let index = 0; index < affected.length; index++) {
             const tile = affected[index];
             const target = tile.unit;

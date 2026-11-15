@@ -18,7 +18,7 @@ export const FRONTEND_TEXT = deepFreeze({
         laserTower: { name: '集束激光', desc: `回合开始时自动攻击3格内所有敌方单位，单发伤害${COMBAT_BALANCE.laserTower.baseDamage}；每多命中1个目标伤害+${COMBAT_BALANCE.laserTower.perExtraTarget}（至多${COMBAT_BALANCE.laserTower.maxDamage}）` },
         us_marine: { name: '两栖登陆', desc: '入水保持原攻防属性，从水上攻击陆地单位、或在陆地与水上攻击舰船均免除陆海交战的50%减伤；登陆后仍可行动。可在己方已启用的港口补员。' },
         gb_battleship: { name: '天佑女王', desc: '常驻2格反潜侦测能力；受到敌方攻击时有20%概率闪避全部伤害。' },
-        fr_heavy_cannon: { name: '远程重炮', desc: '射程5格，攻击附带35%溅射伤害，且攻击海军不受陆军对海减伤影响。回合开始时自动炮击射程内随机敌军，触发后本回合仍可移动，但无法再次攻击。' },
+        fr_heavy_cannon: { name: '远程重炮', desc: '射程2–5格（雾天2–4格），攻击附带35%溅射伤害，且攻击海军不受陆军对海减伤影响。回合开始时自动炮击射程内随机敌军，触发后本回合仍可移动，但无法再次攻击。' },
         ru_katyusha: { name: '火力覆盖', desc: '每次攻击分三轮发射火箭，平分本次伤害。攻击附带35%溅射伤害。' },
         kmt_training_brigade: { name: '同心同德', desc: '场上存在至少2支己方陆上教导旅时彼此休戚与共，共享生命与治疗，所获城防、工事及地形防御加成提高50%，并使自身与相邻友军造成的伤害提高15%（多支教导旅的伤害加成不叠加）。' },
         cpc_guerrilla: { name: '敌后游击', desc: GUERRILLA_PASSIVE_DESCRIPTION },

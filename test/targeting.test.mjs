@@ -110,6 +110,20 @@ assert.equal(preview.air.rangeTileKeys.has('0,0'), true, '机场航程圈应包�
 assert.equal(preview.air.rangeTileKeys.has('6,0'), true, '机场基础航程圈应覆盖 6 格');
 assert.equal(preview.air.rangeTileKeys.has('7,0'), false, '机场基础航程圈不应越过 6 格');
 
+{
+    const sea = tile(1, 0, { surface: 'deepWater', fortification: 'flak' });
+    const filler = tile(1, -1, { isVisualFiller: true, renderOnly: true, playable: false, fortification: 'flak' });
+    const map = state([airfield, sea, filler]);
+    const bombing = { cardId: 'air_command_bombing', launcherQ: 0, launcherR: 0 };
+    const bombingPreview = resolveTargetingPreview(map, bombing, { hoveredTile: sea });
+    assert.equal(isResolvedTargetingCandidate(bombingPreview, sea), true, '可玩深海仍可选作轰炸中心');
+    assert.equal(isResolvedTargetingCandidate(bombingPreview, filler), false);
+    assert.equal(bombingPreview.air.rangeTileKeys.has('1,-1'), false);
+    assert.equal(bombingPreview.air.aaLayersByTileKey.has('1,-1'), false);
+    assert.equal(bombingPreview.air.aaLayersByTileKey.has('1,0'), true);
+    assert.deepEqual([...bombingPreview.affectedTileKeys].sort(), ['0,0', '1,0']);
+}
+
 // 机场扫射可指定无驻军但HP>0的敌方/中立空城市（削减城市HP）
 const strafeCity = tile(4, 0, { isCity: true, camp: camps.player2, hp: 300, maxHp: 300 });
 const strafeUrban = tile(4, -1, { isUrban: true, urbanCenterKey: '4,0', camp: camps.player2, hp: 300, maxHp: 300 });
