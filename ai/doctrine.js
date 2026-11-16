@@ -396,6 +396,7 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
             + (isCounter ? 0 : getMarineAssaultDamageBonus(attacker, { type: defender.type, tile: tileObj }, state))
             + getMachineGunDamageBonus(attacker.type, defender?.type)
             + getKmtLinkDamageBonus(attacker, state)
+            + (!isCounter && !transportedAttacker && attacker._berserkerQixue ? BERSERKER_BALANCE.qixueDamageBonus : 0)
             // 火炮攻城修正已并入引擎②增伤乘区：对要塞单位（城市驻军/碉堡/岸防炮/工事格）+50%
             + (isStrongpointTarget({ ...defender, tile: tileObj }) ? getCannonSiegeDamageBonus(attacker) : 0);
         const baseDefense = transportDefense != null ? 1 - transportDefense : 1
@@ -412,7 +413,13 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
             && isCampCulture(state, attacker.camp, 'cpc') && attacker.camp === state?.currentCamp
             && !getGuerrillaConcealmentReason(attacker, state)));
         const ambushMultiplier = canAmbush ? 1 + GUERRILLA_CONCEALMENT_CONFIG.ambushDamagePct : 1;
-        return (attack * Math.max(0, offense) + bonusDamage) * Math.max(0.3, def - magicianDef) * ambushMultiplier;
+        const paladinBalance = COMMANDER_CONFIG.paladin.balance;
+        const smiteBonus = (!isCounter && !transportedAttacker && attacker._smiteReady)
+            ? (attacker._smiteCharged
+                ? (paladinBalance.chargedSmiteMin + paladinBalance.chargedSmiteMax) / 2
+                : (paladinBalance.normalSmiteMin + paladinBalance.normalSmiteMax) / 2)
+            : 0;
+        return (attack * Math.max(0, offense) + bonusDamage) * Math.max(0.3, def - magicianDef) * ambushMultiplier + smiteBonus;
     }
 
     /**

@@ -92,6 +92,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     const factions = Object.values(gameState.factions || {});
     const rivalFactions = factions.filter(faction =>
         faction !== myCamp && faction.id !== NEUTRAL_KEY
+        && faction.active !== false && faction.participatesInTurns !== false
         && helpers.isHostileFaction(myCamp, faction));
     const neutralFaction = gameState.factions?.[NEUTRAL_KEY] || null;
 
@@ -220,7 +221,8 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     });
     const collapseTarget = !fog && caps.collapseConversion && round >= 6 && myUnits.length >= 6
         ? rivalProfiles
-            .filter(profile => profile.cityCount <= 2 && profile.unitCount <= 4
+            .filter(profile => (profile.cityCount > 0 || profile.unitCount > 0)
+                && profile.cityCount <= 2 && profile.unitCount <= 4
                 && ownForceValue >= Math.max(1, profile.forceValue) * 2.2)
             .sort((a, b) => a.cityCount - b.cityCount
                 || a.forceValue - b.forceValue

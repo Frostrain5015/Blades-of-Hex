@@ -59,11 +59,15 @@ function historicalPositionValue(world, unit, tile) {
     switch (getActiveCultureId(world.gameState, unit.camp || world.myCamp)) {
         case 'gb': {
             if (!isWaterTile(tile)) return 0;
+            const inCombat = world.threatAt(tile, unit) > 0
+                || [...world.rivalUnits, ...world.neutralUnits].some(enemy =>
+                    enemy.tile && distance(tile, enemy.tile) <= 4);
+            const combatScale = inCombat ? 1 : 0.2;
             if (unit.type === 'gb_battleship') return world.myUnits.filter(ally => ally !== unit
-                && isWaterborneUnit(ally) && distance(tile, ally.tile) <= ROYAL_ESCORT_RADIUS).length * 10;
+                && isWaterborneUnit(ally) && distance(tile, ally.tile) <= ROYAL_ESCORT_RADIUS).length * 10 * combatScale;
             const flagshipDistance = Math.min(Infinity, ...world.myUnits.filter(ally => ally.type === 'gb_battleship')
                 .map(ally => distance(tile, ally.tile)));
-            return flagshipDistance <= ROYAL_ESCORT_RADIUS ? 18 : flagshipDistance === 3 ? 5 : 0;
+            return (flagshipDistance <= ROYAL_ESCORT_RADIUS ? 18 : flagshipDistance === 3 ? 5 : 0) * combatScale;
         }
         case 'fr': {
             if (unit.type !== 'fr_heavy_cannon') return 0;
@@ -286,6 +290,17 @@ export function bestAttackFor(world, missionsCtx, unit) {
 // 主动技能（先于攻击结算）
 // ═══════════════════════════════════════════════════════════════
 
+function withVirtualSkill(unit, patch, fn) {
+    const saved = {};
+    for (const key of Object.keys(patch)) saved[key] = unit[key];
+    Object.assign(unit, patch);
+    try {
+        return fn();
+    } finally {
+        for (const key of Object.keys(patch)) unit[key] = saved[key];
+    }
+}
+
 function planActiveSkill(world, missionsCtx, unit, actions) {
     if (!unit.commander || !unit.canAct) return false;
     const attack = bestAttackFor(world, missionsCtx, unit);
@@ -293,16 +308,20 @@ function planActiveSkill(world, missionsCtx, unit, actions) {
         ally.id !== unit.id && ally.hp < ally.maxHp * 0.6
         && world.helpers.hexDistance(ally.tile, unit.tile) <= 2);
     if (unit.commander === 'berserker') {
+        const buffedAttack = !unit._berserkerQixue
+            ? withVirtualSkill(unit, { _berserkerQixue: true }, () => bestAttackFor(world, missionsCtx, unit))
+            : attack;
+        const effectiveAttack = buffedAttack || attack;
         // 泣血 + 治疗预算：手上有疗愈或身旁有牧师时，卖血是节奏不是赌博。
         const healBacked = world.hand.includes('heal')
             || world.myUnits.some(ally => ally.commander === 'priest' && ally.canAct
                 && world.helpers.hexDistance(ally.tile, unit.tile) <= 3);
-        const worthIt = attack && (attack.kills
-            || attack.target.commander
-            || attack.strategic > 20);
-        if (attack && shouldSpendBerserkerBlood({
+        const worthIt = effectiveAttack && (effectiveAttack.kills
+            || effectiveAttack.target.commander
+            || effectiveAttack.strategic > 20);
+        if (effectiveAttack && shouldSpendBerserkerBlood({
             hpRatio: unit.hp / unit.maxHp,
-            convertsToKill: attack.kills,
+            convertsToKill: effectiveAttack.kills,
             highValueTarget: worthIt && healBacked,
             outnumbered: strategyForceRatio(world) < 0.7
         }) && shouldPlanActiveSkill(unit, { hasAttackTarget: true })) {
@@ -324,7 +343,13 @@ function planActiveSkill(world, missionsCtx, unit, actions) {
         }
         return false;
     }
-    if (shouldPlanActiveSkill(unit, { hasAttackTarget: !!attack, hasWoundedAlly })) {
+    const paladinBuffedAttack = unit.commander === 'paladin'
+        ? withVirtualSkill(unit, {
+            _smiteReady: true,
+            _smiteCharged: unit._smiteCharged || (Number(unit._smiteCharges || 0) >= 1 && Number(unit._faith || 0) >= 1)
+        }, () => bestAttackFor(world, missionsCtx, unit))
+        : null;
+    if (shouldPlanActiveSkill(unit, { hasAttackTarget: !!(attack || paladinBuffedAttack), hasWoundedAlly })) {
         actions.push({ type: 'activateSkill', unitId: unit.id });
         return true;
     }
@@ -369,26 +394,32 @@ function missionMoveBonus(world, missionsCtx, unit, tile, posture = 'expand') {
         const stallBoost = 1 + Math.min(2.4, stalled * 0.18);
         // 守军未清时：占领者不贴脸（站城下每回合白挨守军打），推进奖励减半、
         // 贴身加成取消——等护航清出破口再进。守军已死或城防归零时全速进城。
-        const progressScale = isOccupier && garrisonAlive ? 0.45 : 1;
-        let bonus = (currentDistance - newDistance) * value * W.siegeEtaTickRatio * (isOccupier ? 1.6 : 0.6) * progressScale * stallBoost * postureBoost;
+        const progressScale = isOccupier && garrisonAlive && currentDistance <= 2 && newDistance <= 1 ? 0.45 : 1;
+        let bonus = (currentDistance - newDistance) * value * W.siegeEtaTickRatio * (isOccupier ? 1.6 : 1.15) * progressScale * stallBoost * postureBoost;
         // 占领者到位：空城可进、破门可驻。
         if (isOccupier && tile === target && city && !garrisonAlive && city.hp <= 0) bonus += value * stallBoost;
         if (isOccupier && newDistance <= 1 && city && !garrisonAlive) bonus += value * 0.15;
-        // 护航：贴近占领者两格内 + 顺带压向目标。
-        if (!isOccupier && mission.occupierId != null) {
-            const occupier = world.myUnits.find(u => u.id === mission.occupierId);
-            if (occupier) {
-                const escortDistance = helpers.hexDistance(tile, occupier.tile);
-                bonus += Math.max(0, 2 - escortDistance) * 30;
+        // 护航：优先进入目标射程火力压制；落后于占领者较远时才追加跟进分。
+        if (!isOccupier) {
+            const fireRange = Math.max(1, Number(unit.getEffectiveRange?.() ?? unit.config?.range) || 1);
+            if (newDistance <= fireRange && currentDistance > fireRange) bonus += 24;
+            if (mission.occupierId != null) {
+                const occupier = world.myUnits.find(u => u.id === mission.occupierId);
+                if (occupier && distanceBetween(occupier.tile, target) <= currentDistance) {
+                    const prevEscortDist = helpers.hexDistance(unit.tile, occupier.tile);
+                    const nextEscortDist = helpers.hexDistance(tile, occupier.tile);
+                    if (prevEscortDist > 2) bonus += (prevEscortDist - nextEscortDist) * 12;
+                }
             }
         }
         // 运输中的占领者：风险按威胁比例计价，停滞 6 回合后折价放行——
         // "等登陆窗口"不能等成终身禁航。
         if (isOccupier && world.onWater(tile) && !world.isNaval(unit)) {
             const seaThreat = world.threatAt(tile, unit);
+            const needsSeaCrossing = !!world.captureRoute?.(unit, target)?.landing;
             const seaPenalty = seaThreat > 0
                 ? Math.min(90, seaThreat * hpGold(unit) * 2.5)
-                : value * W.transportRiskRatio;
+                : needsSeaCrossing ? 0 : value * W.transportRiskRatio;
             bonus -= stalled >= 6 ? seaPenalty * 0.4 : seaPenalty;
         }
         return { bonus, mission };
@@ -427,11 +458,22 @@ function captureTileBonus(world, unit, tile) {
     if (tile.isVillage && tile.camp !== world.myCamp) {
         bonus += W.villageValue;
     }
-    // 回到己方城市驻守（步兵守城有防御加成，比漂在外面强）。
-    if (tile.isCity && tile.camp === world.myCamp && !tile.unit && world.isCapturable(unit)) {
+    // 回到受威胁的己方城市驻守（无威胁的后方空城不吸走前线兵力，也不抢尚书返城位）。
+    if (tile.isCity && tile.camp === world.myCamp && !tile.unit && world.isCapturable(unit)
+        && isOwnCityThreatened(world, tile) && !isReservedForMinisterReturn(world, tile)) {
         bonus += 26;
     }
     return bonus;
+}
+
+function isReservedForMinisterReturn(world, tile) {
+    const plan = world.gameState._aiCoreMemory?.[world.myCampKey]?.ministerReturn;
+    return !!(plan && plan.cityQ === tile.q && plan.cityR === tile.r);
+}
+
+function isOwnCityThreatened(world, cityTile) {
+    return world.threatAt(cityTile, cityTile.unit) > 0
+        || world.rivalUnits.some(enemy => enemy.tile && world.helpers.hexDistance(enemy.tile, cityTile) <= 3);
 }
 
 /** 攻击位潜力：站到这格后能否打出有价值的攻击（近似：按射程圈算）。 */
@@ -554,6 +596,7 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
         // 威胁暴露（按残余价值比例计价）+ 落点自动攻击的预扣。
         score -= threatCost(world, unit, tile, riskWeight);
         score += autoAttackRisk(world, missionsCtx, unit, tile);
+        if (blocksOccupierSeaLane(world, missionsCtx, unit, tile)) score -= 45;
         // 中毒疏散：别贴着中毒友军挤成一团（守城者例外）。
         for (const ally of poisonedAllies) {
             if (ally.id === unit.id) continue;
@@ -582,12 +625,26 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
     return true;
 }
 
-/** 主攻方向上的集结点：当前第一攻城任务的占领者位置。 */
+/** 主攻方向上的集结点：当前第一攻城任务的目标城市。 */
 function primaryRallyPoint(world, missionsCtx) {
     const siege = missionsCtx.missions.find(m => m.kind === 'siege');
     if (!siege) return null;
     const occupier = world.myUnits.find(u => u.id === siege.occupierId);
-    return occupier?.tile || world.tileMap.get(`${siege.targetQ},${siege.targetR}`);
+    return world.tileMap.get(`${siege.targetQ},${siege.targetR}`) || occupier?.tile;
+}
+
+function blocksOccupierSeaLane(world, missionsCtx, unit, tile) {
+    if (!world.captureRoute || !world.onWater(tile)) return false;
+    for (const siege of missionsCtx.missions) {
+        if (siege.kind !== 'siege' || siege.occupierId === unit.id) continue;
+        const occupier = world.myUnits.find(u => u.id === siege.occupierId);
+        const goal = world.tileMap.get(`${siege.targetQ},${siege.targetR}`);
+        if (!occupier?.tile || !goal || world.helpers.hexDistance(occupier.tile, tile) !== 1) continue;
+        const currentRoute = world.captureRoute(occupier, goal, occupier.tile);
+        const stepRoute = world.captureRoute(occupier, goal, tile);
+        if (currentRoute && stepRoute && stepRoute.turns < currentRoute.turns) return true;
+    }
+    return false;
 }
 
 function scoreOfStaying(world, missionsCtx, unit, mission) {
@@ -597,7 +654,12 @@ function scoreOfStaying(world, missionsCtx, unit, mission) {
     if (unit.tile.isCity && unit.tile.camp === world.myCamp && unit.commander === 'minister') score += 500;
     if (world.caps.rearCommanderSafety && unit.tile.isCity && unit.tile.camp === world.myCamp
         && unit.commander === 'astrologer') score += W.rearCommanderCityValue;
+    if (unit.tile.isCity && unit.tile.camp === world.myCamp && world.isCapturable(unit)) {
+        if (isReservedForMinisterReturn(world, unit.tile) && unit.commander !== 'minister') score -= 40;
+        else if (!mission && isOwnCityThreatened(world, unit.tile)) score += 26;
+    }
     if (unit.tile.isCity && unit.tile.camp !== world.myCamp && world.isCapturable(unit)) score += 150;
+    if (blocksOccupierSeaLane(world, missionsCtx, unit, unit.tile)) score -= 45;
     return score;
 }
 
@@ -1014,74 +1076,100 @@ function planBanzaiCharges(world, missionsCtx, actions, processed) {
 export function planTactics(world, strategy, missionsCtx, availableGold = world.gold - strategy.reserve) {
     const actions = [];
     const processed = new Set();
+    const virtualReverts = [];
 
-    // 已可占领的城先兑现，避免占领者先做技能或普通交战。
-    planCaptureFinishers(world, missionsCtx, actions, processed);
+    try {
+        // 已可占领的空城先兑现，避免占领者先做技能或普通交战。
+        planCaptureFinishers(world, missionsCtx, actions, processed, true);
 
-    // 0. 主动技能（泣血/至圣斩/天气等，必须在普通攻击前）。
-    for (const unit of world.myUnits) {
-        if (!processed.has(unit.id) && unit.canAct && unit.commander && !world.gameState._aiSkillPlanned?.has?.(unit.id)) {
-            if (planActiveSkill(world, missionsCtx, unit, actions)) processed.add(unit.id);
+        // 0. 主动技能（泣血/至圣斩/天气等，必须在普通攻击与击杀夺城前，且不锁死本轮攻击/移动）。
+        for (const unit of world.myUnits) {
+            if (!processed.has(unit.id) && unit.canAct && unit.commander && !world.gameState._aiSkillPlanned?.has?.(unit.id)) {
+                if (planActiveSkill(world, missionsCtx, unit, actions)) {
+                    (world.gameState._aiSkillPlanned ||= new Set()).add(unit.id);
+                    if (unit.commander === 'paladin') {
+                        const prevReady = unit._smiteReady;
+                        const prevCharged = unit._smiteCharged;
+                        unit._smiteReady = true;
+                        unit._smiteCharged = prevCharged || (Number(unit._smiteCharges || 0) >= 1 && Number(unit._faith || 0) >= 1);
+                        virtualReverts.push(() => {
+                            unit._smiteReady = prevReady;
+                            unit._smiteCharged = prevCharged;
+                        });
+                    } else if (unit.commander === 'berserker' && !unit._berserkerQixue) {
+                        const prevQixue = unit._berserkerQixue;
+                        unit._berserkerQixue = true;
+                        virtualReverts.push(() => {
+                            unit._berserkerQixue = prevQixue;
+                        });
+                    }
+                }
+            }
         }
-    }
 
-    // 0.5 天眼无人机：自爆兑现 + 向前线部署新哨机；帝国武士：万岁冲锋。
-    planDroneOps(world, missionsCtx, actions, processed, availableGold);
-    planBanzaiCharges(world, missionsCtx, actions, processed);
+        // 含主动技能加成的近战击杀夺城结算。
+        planCaptureFinishers(world, missionsCtx, actions, processed, false);
 
-    // 1.5 破门序列：攻城任务守军的协同斩杀（终结者收尾进城）。
-    planBreachSequence(world, missionsCtx, actions, processed);
-    if (world.captureRoute) planCoordinatedCityBreaches(world, missionsCtx, actions, processed);
-    planSiegeAttacks(world, missionsCtx, actions, processed, true);
-    planCaptureApproaches(world, strategy, missionsCtx, actions, processed);
+        // 0.5 天眼无人机：自爆兑现 + 向前线部署新哨机；帝国武士：万岁冲锋。
+        planDroneOps(world, missionsCtx, actions, processed, availableGold);
+        planBanzaiCharges(world, missionsCtx, actions, processed);
 
-    // 1.75 困难档集火终结：在分配常规攻击前，先锁定能够确保减员的攻击包。
-    planLethalFocus(world, missionsCtx, actions, processed);
+        // 1.5 破门序列：攻城任务守军的协同斩杀（终结者收尾进城）。
+        planBreachSequence(world, missionsCtx, actions, processed);
+        if (world.captureRoute) planCoordinatedCityBreaches(world, missionsCtx, actions, processed);
+        planSiegeAttacks(world, missionsCtx, actions, processed, true);
+        planCaptureApproaches(world, strategy, missionsCtx, actions, processed);
 
-    // 2. 普通攻击：全阵营候选按价值排序，保证集火与高价值交换先行。
-    const attackPlans = [];
-    for (const unit of world.myUnits) {
-        if (processed.has(unit.id) || !unit.canAct) continue;
-        const best = bestAttackFor(world, missionsCtx, unit);
-        if (best) attackPlans.push({ unit, best });
-    }
-    // 集火协调：同一目标被多个攻击手覆盖且合击必杀时，全员加协同价值——
-    // 真人玩家从不把伤害摊在三个打不死的目标上。
-    const plansByTarget = new Map();
-    for (const plan of attackPlans) {
-        const list = plansByTarget.get(plan.best.target.id) || [];
-        list.push(plan);
-        plansByTarget.set(plan.best.target.id, list);
-    }
-    for (const plans of plansByTarget.values()) {
-        if (plans.length < 2) continue;
-        const target = plans[0].best.target;
-        const totalDamage = plans.reduce((sum, plan) => sum + plan.best.damage, 0);
-        if (totalDamage >= target.hp + (target._shield || 0)) {
-            const focusBonus = 25 + residualGold(target) * 0.2;
-            for (const plan of plans) plan.best.value += focusBonus;
+        // 1.75 困难档集火终结：在分配常规攻击前，先锁定能够确保减员的攻击包。
+        planLethalFocus(world, missionsCtx, actions, processed);
+
+        // 2. 普通攻击：全阵营候选按价值排序，保证集火与高价值交换先行。
+        const attackPlans = [];
+        for (const unit of world.myUnits) {
+            if (processed.has(unit.id) || !unit.canAct) continue;
+            const best = bestAttackFor(world, missionsCtx, unit);
+            if (best) attackPlans.push({ unit, best });
         }
-    }
-    attackPlans.sort((a, b) => b.best.value - a.best.value);
-    for (const { unit, best } of attackPlans) {
-        actions.push({ type: 'attack', unitId: unit.id, targetId: best.target.id });
-        processed.add(unit.id);
-    }
+        // 集火协调：同一目标被多个攻击手覆盖且合击必杀时，全员加协同价值——
+        // 真人玩家从不把伤害摊在三个打不死的目标上。
+        const plansByTarget = new Map();
+        for (const plan of attackPlans) {
+            const list = plansByTarget.get(plan.best.target.id) || [];
+            list.push(plan);
+            plansByTarget.set(plan.best.target.id, list);
+        }
+        for (const plans of plansByTarget.values()) {
+            if (plans.length < 2) continue;
+            const target = plans[0].best.target;
+            const totalDamage = plans.reduce((sum, plan) => sum + plan.best.damage, 0);
+            if (totalDamage >= target.hp + (target._shield || 0)) {
+                const focusBonus = 25 + residualGold(target) * 0.2;
+                for (const plan of plans) plan.best.value += focusBonus;
+            }
+        }
+        attackPlans.sort((a, b) => b.best.value - a.best.value);
+        for (const { unit, best } of attackPlans) {
+            actions.push({ type: 'attack', unitId: unit.id, targetId: best.target.id });
+            processed.add(unit.id);
+        }
 
-    // 3. 攻城（近战此时若被 processed 跳过，不影响——打守军优先于磨城防）。
-    planSiegeAttacks(world, missionsCtx, actions, processed);
+        // 3. 攻城（近战此时若被 processed 跳过，不影响——打守军优先于磨城防）。
+        planSiegeAttacks(world, missionsCtx, actions, processed);
 
-    // 4. 移动（任务优先，其次散兵）。
-    const movers = [...world.myUnits].sort((a, b) => {
-        const ma = missionsCtx.assignment.get(a.id);
-        const mb = missionsCtx.assignment.get(b.id);
-        const rank = mission => mission?.kind === 'siege' ? 0 : mission ? 1 : 2;
-        return rank(ma) - rank(mb);
-    });
-    for (const unit of movers) {
-        if (processed.has(unit.id)) continue;
-        planMove(world, missionsCtx, unit, strategy.posture, actions);
+        // 4. 移动（任务优先，其次散兵）。
+        const movers = [...world.myUnits].sort((a, b) => {
+            const ma = missionsCtx.assignment.get(a.id);
+            const mb = missionsCtx.assignment.get(b.id);
+            const rank = mission => mission?.kind === 'siege' ? 0 : mission ? 1 : 2;
+            return rank(ma) - rank(mb);
+        });
+        for (const unit of movers) {
+            if (processed.has(unit.id)) continue;
+            planMove(world, missionsCtx, unit, strategy.posture, actions);
+        }
+
+        return actions;
+    } finally {
+        for (const revert of virtualReverts) revert();
     }
-
-    return actions;
 }

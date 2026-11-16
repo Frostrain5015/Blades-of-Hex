@@ -31,7 +31,7 @@ function byId(world, id) {
 /** 占领者挑选：最近的能进城者；有记忆时优先原班人马，避免每回合换人。 */
 function pickOccupier(world, cityTile, preferredId = null, excludeIds = new Set(), captureRoute = null) {
     const distance = world.navDistance || world.helpers.hexDistance;
-    const candidates = world.myUnits
+    const allCandidates = world.myUnits
         .filter(unit => isFieldCapturer(world, unit))
         .filter(unit => !excludeIds.has(unit.id))
         .map(unit => ({ unit, distance: captureRoute
@@ -39,33 +39,53 @@ function pickOccupier(world, cityTile, preferredId = null, excludeIds = new Set(
             : distance(unit.tile, cityTile) }))
         .filter(candidate => Number.isFinite(candidate.distance))
         .sort((a, b) => a.distance - b.distance);
+    const healthyCandidates = allCandidates.filter(({ unit }) =>
+        !(unit.hp < unit.maxHp * W.retreatHpRatio && world.threatAt(unit.tile, unit) > 0));
+    const candidates = healthyCandidates.length > 0 ? healthyCandidates : allCandidates;
     if (preferredId != null) {
         const remembered = candidates.find(candidate => candidate.unit.id === preferredId);
-        if (remembered && (!captureRoute || remembered.distance <= candidates[0].distance + 1)) return remembered.unit;
+        if (remembered && remembered.distance <= candidates[0].distance + 1) return remembered.unit;
     }
     return candidates[0]?.unit || null;
+}
+
+function canNavalEscortReachCity(world, unit, occupier, cityTile) {
+    if (!world.isNaval(unit)) return true;
+    const isSubmarine = (unit.config?.id || unit.type) === 'submarine';
+    if (isSubmarine) {
+        if (world.onWater(occupier.tile)) return true;
+        return world.rivalUnits.some(enemy => world.isNaval(enemy) && enemy.tile
+            && (world.helpers.hexDistance(enemy.tile, cityTile) <= 4
+                || world.helpers.hexDistance(enemy.tile, occupier.tile) <= 4));
+    }
+    if (world.onWater(occupier.tile)) return true;
+    const fireRange = Math.max(2, Number(unit.getEffectiveRange?.() ?? unit.config?.range) || 2);
+    return world.tiles.some(tile => world.onWater(tile)
+        && world.helpers.hexDistance(tile, cityTile) <= fireRange);
 }
 
 function pickEscorts(world, occupier, cityTile, count, excludeIds, includeCapturers = false) {
     if (!occupier || count <= 0) return [];
     const garrison = cityTile.unit && cityTile.unit.camp !== world.myCamp ? cityTile.unit : null;
-    return world.myUnits
+    const distOf = world.navDistance || world.helpers.hexDistance;
+    const score = unit => {
+        const d = world.isNaval(unit) ? world.helpers.hexDistance : distOf;
+        return d(unit.tile, occupier.tile) * 0.45
+            + d(unit.tile, cityTile) * 0.75
+            - (garrison ? Math.max(-40, Math.min(60, duelExpectation(world, unit, garrison))) * 0.8 : 0);
+    };
+    const eligible = allowCapturers => world.myUnits
         .filter(unit => unit.id !== occupier.id && !excludeIds.has(unit.id))
         .filter(unit => !world.isImmobile(unit)
-            && (includeCapturers || !world.isCapturable(unit)))
+            && (allowCapturers || !world.isCapturable(unit)))
         .filter(unit => !['minister', 'astrologer'].includes(unit.commander))
-        .sort((a, b) => {
-            const distOf = world.navDistance || world.helpers.hexDistance;
-            // 守军还在时，优先选"打得动守军"的护航；否则选离占领者最近的。
-            const score = unit => {
-                const d = world.isNaval(unit) ? world.helpers.hexDistance : distOf;
-                return d(unit.tile, occupier.tile)
-                    + d(unit.tile, cityTile) * 0.35
-                    - (garrison ? Math.max(-40, Math.min(60, duelExpectation(world, unit, garrison))) * 0.8 : 0);
-            };
-            return score(a) - score(b);
-        })
-        .slice(0, count);
+        .filter(unit => canNavalEscortReachCity(world, unit, occupier, cityTile))
+        .sort((a, b) => score(a) - score(b));
+    const primary = eligible(includeCapturers);
+    if (primary.length >= count || includeCapturers) return primary.slice(0, count);
+    const chosenIds = new Set(primary.map(u => u.id));
+    const extra = eligible(true).filter(u => !chosenIds.has(u.id));
+    return [...primary, ...extra].slice(0, count);
 }
 
 /**
@@ -215,7 +235,9 @@ export function assignMissions(world, strategy) {
                 const readiness = Math.max(0.25, Math.min(1, unit.hp / unit.maxHp));
                 return sum + (unit.config?.cost || 8) * readiness * (distance <= 2 ? 1 : 0.5);
             }, 0);
-            if (defense > Math.max(20, strike * 1.5)) {
+            const noProgress = (city.hp > 0 && city.hp >= (mission.cityHp ?? city.hp))
+                && (!city.garrison || city.garrison.hp >= (mission.garrisonHp ?? city.garrison.hp) - 10);
+            if (strike === 0 || defense > strike * 1.35 || noProgress) {
                 siegeBlacklist[`${mission.targetQ},${mission.targetR}`] = world.round + 5;
                 continue;
             }

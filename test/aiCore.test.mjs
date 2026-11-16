@@ -833,3 +833,91 @@ test('投毒评分扣除相邻关键友军的传染成本', async () => {
     });
     assert.ok(!cards.setup.some(action => action.cardId === 'poison'));
 });
+
+test('二人对局中未激活的第三阵营席位不会触发崩塌收官死斗', async () => {
+    const { buildWorld, decideStrategy } = await loadCore();
+    const me = { id: 'player1', active: true, participatesInTurns: true };
+    const foe = { id: 'player2', active: true, participatesInTurns: true };
+    const ghost = { id: 'player3', active: false, participatesInTurns: false };
+    const neutral = { id: 'neutral', active: true, participatesInTurns: true };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const enemyCity1 = makeTile(6, 0, { isCity: true, camp: foe, districtId: 2 });
+    const enemyCity2 = makeTile(8, 0, { isCity: true, camp: foe, districtId: 3 });
+    const tiles = [home, enemyCity1, enemyCity2];
+    for (let i = 0; i < 6; i++) {
+        const t1 = i === 0 ? home : makeTile(i, 1);
+        const t2 = i === 0 ? enemyCity1 : makeTile(6 + i, 1);
+        if (i > 0) tiles.push(t1, t2);
+        makeUnit(i + 1, 'infantry', me, t1);
+        makeUnit(i + 20, 'infantry', foe, t2);
+    }
+    const state = makeState(tiles, { player1: me, player2: foe, player3: ghost, neutral }, {
+        turnCounter: 6 * 3,
+        isThreePlayer: false
+    });
+    const world = buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    assert.equal(world.rivalFactions.includes(ghost), false);
+    assert.equal(world.collapseTarget, null);
+    assert.notEqual(strategy.posture, 'allin');
+});
+
+test('圣骑士激活至圣斩后同轮计入真伤并一击夺取零城防中立城', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(5, 0, { isCity: true, camp: me, districtId: 1 });
+    const centerCity = makeTile(0, 0, { isCity: true, camp: neutral, districtId: 3, hp: 0 });
+    const paladinTile = makeTile(1, -1);
+    const flankerTile = makeTile(-1, 0);
+    const paladin = makeUnit(1, 'cavalry', me, paladinTile, {
+        commander: 'paladin', _faith: 1, hp: 100, maxHp: 187
+    });
+    const garrison = makeUnit(2, 'infantry', neutral, centerCity, { hp: 55 });
+    makeUnit(3, 'infantry', neutral, flankerTile, { hp: 180 });
+    const tiles = [home, centerCity, paladinTile, flankerTile];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getAttackableTiles: unit => unit === paladin ? [centerCity] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, { turnCounter: 6 });
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    const actions = planTactics(world, strategy, missions);
+    assert.deepEqual(actions.slice(0, 2), [
+        { type: 'activateSkill', unitId: paladin.id },
+        { type: 'attack', unitId: paladin.id, targetId: garrison.id }
+    ]);
+    assert.equal(paladin._smiteReady, undefined, '规划阶段虚拟状态不会残留到单位实例');
+});
+
+test('陆图占领者撤退远离后及时换人，且内陆城攻城不编入潜艇护航', async () => {
+    const { buildWorld, decideStrategy, assignMissions } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(5, 0, { isCity: true, camp: me, districtId: 1 });
+    const target = makeTile(0, 0, { isCity: true, camp: foe, districtId: 2, hp: 0 });
+    const farTile = makeTile(-1, -7);
+    const nearTile = makeTile(2, 0);
+    const seaTile = makeTile(6, 0, { surface: 'shallowWater', terrain: 'water' });
+    const retreated = makeUnit(1, 'infantry', me, farTile, { hp: 40 });
+    const fresh = makeUnit(2, 'infantry', me, nearTile);
+    const sub = makeUnit(3, 'submarine', me, seaTile);
+    makeUnit(10, 'infantry', foe, target, { hp: 120 });
+    const tiles = [home, target, farTile, nearTile, seaTile];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        turnCounter: 15,
+        _aiCoreMemory: {
+            player1: {
+                missions: [{
+                    id: 'm-old', kind: 'siege', targetQ: 0, targetR: 0,
+                    occupierId: retreated.id, escortIds: [sub.id], createdRound: 4
+                }]
+            }
+        }
+    });
+    const world = buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard);
+    const { missions } = assignMissions(world, decideStrategy(world));
+    const siege = missions.find(m => m.kind === 'siege');
+    assert.equal(siege.occupierId, fresh.id);
+    assert.equal(siege.escortIds.includes(sub.id), false);
+});

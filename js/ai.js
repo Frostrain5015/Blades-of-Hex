@@ -60,7 +60,7 @@ import {
     constructionCost,
     isOrdinaryGroundBuilder
 } from '../rules/construction.js';
-import { canTargetWithSingleAirCommand, getAirCommandAvailability, getAirCommandCost, getAirCommandRange } from '../rules/airCommands.js';
+import { canAirCommandAirdropAt, canTargetWithSingleAirCommand, getAirCommandAvailability, getAirCommandCost, getAirCommandRange } from '../rules/airCommands.js';
 import { isSubmarineTargetableBy } from '../rules/naval.js';
 import { canReinforceAtTile } from '../rules/healing.js';
 import { isLandTile } from '../rules/surfaces.js';
@@ -350,7 +350,9 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
     const campKey = campToKey(aiCamp);
     const germanAir = getActiveCultureId(gameState, aiCamp) === 'de';
     if (!germanAir && difficultyProfile.infrastructureLevel === 0) return false;
-    const reserve = Math.max(resolveEmergencyRecruitReserve(aiCamp, difficultyProfile), reserveForMissingCulturalUnit(aiCamp));
+    const emergencyReserve = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
+    const culturalReserve = reserveForMissingCulturalUnit(aiCamp);
+    const reserve = Math.max(emergencyReserve, culturalReserve);
     const knownTile = tile => isKnownToAi(tile, aiCamp);
     const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
     const threatensCity = tile => canCaptureCityByCombat(tile.unit)
@@ -360,8 +362,12 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
     let fired = false;
     for (const city of ownedCities.filter(tile => tile.installation?.status === 'ready')) {
         if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-        const available = kind => getAirCommandAvailability(kind, city, gameState).available
-            && (gameState.playerGold[campKey] || 0) - getAirCommandCost(kind, city, gameState) >= reserve;
+        const available = (kind, urgentDefense = false) => {
+            const gold = gameState.playerGold[campKey] || 0;
+            const cost = getAirCommandCost(kind, city, gameState);
+            const effectiveReserve = urgentDefense && gold < emergencyReserve && culturalReserve === 0 ? 0 : reserve;
+            return getAirCommandAvailability(kind, city, gameState).available && gold - cost >= effectiveReserve;
+        };
         const launch = async (kind, target) => {
             const launched = await runObservedAction({
                 type: 'airCommand', airKind: kind, airPhase, tileQ: city.q, tileR: city.r,
@@ -372,6 +378,12 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
             return launched;
         };
         const range = getAirCommandRange(city);
+        const airdropCity = available('airdrop')
+            ? gameState.tiles.find(tile => tile.isCity && canAttack(gameState, aiCamp, tile.camp)
+                && hexDistance(city, tile) <= range && knownTile(tile) && canAirCommandAirdropAt(tile))
+            : null;
+        if (airdropCity && await launch('airdrop', airdropCity)) continue;
+
         const knownEnemies = gameState.tiles.filter(tile => tile.unit?.hp > 0 && knownTile(tile)
             && (campKey === 'neutral' ? canAttack(gameState, aiCamp, tile.unit.camp)
                 : isHostile(gameState, aiCamp, tile.unit.camp))
@@ -387,12 +399,13 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
 
         if (germanAir) {
             const allies = gameState.tiles.filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0);
-            while ((stukaSorties.get(city) || 0) < 2 && available('stukaDiveBomb')) {
+            while ((stukaSorties.get(city) || 0) < 2 && (available('stukaDiveBomb') || available('stukaDiveBomb', true))) {
                 const targets = enemies.filter(canHit).map(tile => {
                     const kill = lethal('stukaDiveBomb', tile);
                     const closeSupport = allies.filter(ally => hexDistance(ally, tile) <= Math.max(2, ally.unit.config.range)).length;
                     const urgent = threatensCity(tile);
-                    const worthwhile = kill || (!getFireSeaState(tile.unit) && (afterGround || urgent || closeSupport > 0));
+                    const worthwhile = available('stukaDiveBomb', urgent)
+                        && (kill || (!getFireSeaState(tile.unit) && (afterGround || urgent || closeSupport > 0)));
                     return { tile, worthwhile, score: Number(kill) * 10 + Number(urgent) * 3
                         + closeSupport * 2 + Number(!!tile.unit.commander) * 2 + Number(tile.isCity) };
                 }).filter(target => target.worthwhile).sort((a, b) => b.score - a.score);
@@ -401,20 +414,25 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
             }
         }
 
-        const strafing = available('strafe') ? enemies.filter(canHit).map(tile => ({
-            tile, kill: lethal('strafe', tile), urgent: threatensCity(tile)
-        })).filter(target => target.kill || target.urgent).sort((a, b) => Number(b.kill) - Number(a.kill)
-            || Number(b.urgent) - Number(a.urgent) || Number(!!b.tile.unit.commander) - Number(!!a.tile.unit.commander)
-            || a.tile.unit.hp - b.tile.unit.hp)[0] : null;
+        const strafing = (available('strafe') || available('strafe', true))
+            ? enemies.filter(canHit).map(tile => ({
+                tile, kill: lethal('strafe', tile), urgent: threatensCity(tile)
+            })).filter(target => (target.kill && available('strafe', target.urgent))
+                || (target.urgent && available('strafe', true))).sort((a, b) => Number(b.kill) - Number(a.kill)
+                || Number(b.urgent) - Number(a.urgent) || Number(!!b.tile.unit.commander) - Number(!!a.tile.unit.commander)
+                || a.tile.unit.hp - b.tile.unit.hp)[0]
+            : null;
         let bombing = null;
-        if (available('bombing')) {
+        if (available('bombing') || available('bombing', true)) {
             for (const tile of gameState.tiles) {
                 if (hexDistance(city, tile) > range || !knownTile(tile)) continue;
                 const targets = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr))]
                     .filter(candidate => enemySet.has(candidate) && canHit(candidate));
+                const urgentTargets = targets.filter(threatensCity).length;
+                if (!available('bombing', urgentTargets > 0)) continue;
                 const kills = targets.filter(target => lethal('bombing', target, target === tile ? 1 : 0.5)).length;
                 const areaScore = targets.length
-                    + (targets.length >= 2 ? targets.filter(threatensCity).length * 0.75 : 0)
+                    + (targets.length >= 2 ? urgentTargets * 0.75 : 0)
                     + Number(tile.isCity && tile.camp !== aiCamp);
                 if (kills === 0 && (targets.length < 2 || areaScore < 3)) continue;
                 const score = kills * 3 + areaScore;
@@ -803,6 +821,7 @@ async function _executeActionInner(action, aiCamp) {
                 }
                 unit.activeSkillDur = skill.duration;
                 unit.activeSkillCD = skill.cooldown;
+                (gameState._aiSkillPlanned ||= new Set()).add(unit.id);
                 recalcAllFlankingMorale();
                 logMessage(`${aiCamp.name} AI【${cmdCfg.name}】激活主动技能【${skill.name}】`);
                 spawnCommanderSkillEffect(unit.tile.x, unit.tile.y);
@@ -968,6 +987,7 @@ export async function processOpponentTurn(aiCamp) {
         const replanPasses = Math.max(1, Number(difficultyProfile.replanPasses) || 1);
         const movedUnitIds = new Set();
         const forceMarchedUnitIds = new Set();
+        gameState._aiSkillPlanned = new Set();
         for (let pass = 0; pass < replanPasses; pass++) {
             const before = aiPlanningSignature(aiCamp);
             const actions = personality.planActions(gameState, helpers, aiCamp);
@@ -1049,9 +1069,12 @@ export async function processOpponentTurn(aiCamp) {
             && tile.unit.config?.movementDomain === 'naval'
             && isKnownToAi(tile, aiCamp)
             && isUnitVisibleToCamp(tile.unit, aiCamp, gameState));
-        const portFallbackBlocked = fleetSaturated || (landMap && !hostileNavy && getActiveCultureId(gameState, aiCamp) !== 'us');
+        const portFallbackBlocked = fleetSaturated
+            || (landMap && getActiveCultureId(gameState, aiCamp) !== 'us' && (!hostileNavy || navalCount >= 1));
         for (const port of emptyPorts) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
+            if (landMap && gameState.tiles.some(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
+                && tile.unit.config?.movementDomain === 'naval' && hexDistance(tile, port) <= 2)) continue;
             const hostileTypes = new Set(gameState.tiles
                 .filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
                     && isKnownToAi(tile, aiCamp) && isUnitVisibleToCamp(tile.unit, aiCamp, gameState))

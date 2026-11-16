@@ -227,15 +227,21 @@ export function planProduction(world, strategy, missionsCtx) {
     const fleetSaturated = navalCount >= Math.max(4, assaultCount * 2)
         || assaultCount < 3
         || navalCoolingDown;
+    const hostileNavyPresent = world.rivalUnits.some(u => world.isNaval(u));
+    const allowLandMapNavy = !world.oceanMap && hostileNavyPresent && navalCount < 1;
     const uniquePort = !earlyUniquePort && uniqueSlots > 0 && canUnitBeRecruitedAtSite(uniqueType, 'port')
         && gold - unitCost(world, uniqueType) >= emergencyRecruitFund
         && emptyPorts.find(port => canRecruit(uniqueType, port));
     if (uniquePort) {
         actions.push({ type: 'recruit', unitType: uniqueType, tileQ: uniquePort.q, tileR: uniquePort.r });
         gold -= unitCost(world, uniqueType);
-    } else if (!earlyUniquePort && !savingForUnique && !fleetSaturated && (world.oceanMap || emptyPorts.length > 0) && strategy.assaultCapacity.deficit === 0) {
+    } else if (!earlyUniquePort && !savingForUnique && !fleetSaturated
+        && (world.oceanMap || allowLandMapNavy)
+        && emptyPorts.length > 0 && strategy.assaultCapacity.deficit === 0) {
         const order = navalRecruitOrder(world);
         for (const port of emptyPorts.slice(0, 1)) {
+            if (!world.oceanMap && world.rivalUnits.some(u => world.isNaval(u) && u.tile
+                && world.helpers.hexDistance(u.tile, port) <= 2)) continue;
             for (const type of order) {
                 const cost = unitCost(world, type);
                 if (gold - cost < emergencyRecruitFund) continue;

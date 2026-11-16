@@ -2580,10 +2580,11 @@ async function _triggerInitialAITurn() {
 
         gameState.aiActing = true;
         try {
-            const { processOpponentTurn } = await import('./ai.js');
+            const { processOpponentTurn, getOpponentTurnWatchdogMs } = await import('./ai.js');
+            const watchdogMs = getOpponentTurnWatchdogMs(gameState.aiOpponentCamp);
             await Promise.race([
                 processOpponentTurn(gameState.aiOpponentCamp),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 15000))
+                new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), watchdogMs))
             ]);
         } catch (e) {
             if (e && e.message === 'AI_TIMEOUT') {

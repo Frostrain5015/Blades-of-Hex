@@ -286,7 +286,10 @@ export function planCards(world, strategy, missionsCtx) {
     }
 
     // ── 地雷/碉堡：守钟与防御姿态的航道封锁 ────────────────────
-    if (has('landmine') && (circulate || strategy.posture === 'hold' || strategy.posture === 'defend')) {
+    const frontThreatened = strategy.capitalThreat >= 0.35
+        || world.myCities.some(city => world.rivalUnits.some(unit =>
+            unit.tile && world.helpers.hexDistance(unit.tile, city) <= 3));
+    if (has('landmine') && (circulate || frontThreatened || strategy.posture === 'hold' || strategy.posture === 'defend')) {
         let best = null;
         for (const tile of legalTiles('landmine')) {
             const protectsFront = world.myUnits.some(unit => world.helpers.hexDistance(unit.tile, tile) <= 2)
@@ -299,7 +302,7 @@ export function planCards(world, strategy, missionsCtx) {
             spend(sustain, { type: 'tacticalCard', cardId: 'landmine', targetId: best.tile.id });
         }
     }
-    if (has('mgNest') && (circulate || strategy.posture === 'hold' || strategy.posture === 'defend')) {
+    if (has('mgNest') && (circulate || frontThreatened || strategy.posture === 'hold' || strategy.posture === 'defend')) {
         const spot = legalTiles('mgNest')
             .filter(tile => !tile.isCity && !tile.isVillage && !tile.isPort
                 && world.threatAt(tile, null) > 20
