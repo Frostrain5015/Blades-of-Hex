@@ -14,26 +14,20 @@ import { isFieldCapturer } from './roster.js';
 import { W } from './weights.js';
 
 /** 攻城 ETA（回合）：占领者赶路 + 破城 + 清守军。 */
+function estimateApproachTurns(world, unit, tile) {
+    if (world.captureRoute) return world.captureRoute(unit, tile)?.turns ?? Infinity;
+    const navDist = world.navDistance || world.helpers.hexDistance;
+    const dist = navDist(unit.tile, tile);
+    return dist / Math.max(1, Number(unit.config?.speed) || 1);
+}
+
 export function estimateCaptureEta(world, city) {
     const assault = world.myUnits.filter(unit => isFieldCapturer(world, unit));
-    const speedOf = unit => {
-        const speed = Math.max(1, Number(unit.config?.speed) || 1);
-        // 运输规划档位：陆地单位跨海按运输上限折算，不再按步行。
-        if (world.caps.transportPlanning && !world.isNaval(unit) && world.oceanMap) {
-            return Math.max(speed, 4);
-        }
-        return speed;
-    };
-    let bestEta = null;
-    const navDist = world.navDistance || world.helpers.hexDistance;
+    let bestEta = Infinity;
     for (const unit of assault) {
-        const dist = world.isNaval(unit)
-            ? world.helpers.hexDistance(unit.tile, city.tile)
-            : navDist(unit.tile, city.tile);
-        const eta = Math.ceil(dist / speedOf(unit));
-        if (bestEta == null || eta < bestEta) bestEta = eta;
+        bestEta = Math.min(bestEta, Math.ceil(estimateApproachTurns(world, unit, city.tile)));
     }
-    if (bestEta == null) return null;
+    if (!Number.isFinite(bestEta)) return null;
     const siegePower = world.myUnits
         .filter(u => !world.isImmobile(u))
         .map(u => world.estimateSiegeDamage(u, city.tile))
@@ -47,21 +41,15 @@ export function estimateCaptureEta(world, city) {
 
 /** 敌方最快夺城 ETA：用于判断"我还剩几回合安全期"。 */
 function estimateEnemyCaptureEta(world) {
-    let best = null;
-    const navDist = world.navDistance || world.helpers.hexDistance;
+    let best = Infinity;
     for (const city of world.cities) {
         if (!city.mine) continue;
         for (const unit of world.rivalUnits) {
-            if (!world.isCapturable(unit)) continue;
-            const speed = Math.max(1, Number(unit.config?.speed) || 1);
-            const dist = world.isNaval(unit)
-                ? world.helpers.hexDistance(unit.tile, city.tile)
-                : navDist(unit.tile, city.tile);
-            const eta = Math.ceil(dist / speed);
-            if (best == null || eta < best) best = eta;
+            if (!world.isCapturable(unit) || !unit.tile) continue;
+            best = Math.min(best, Math.ceil(estimateApproachTurns(world, unit, city.tile)));
         }
     }
-    return best;
+    return Number.isFinite(best) ? best : null;
 }
 
 export function decideStrategy(world) {

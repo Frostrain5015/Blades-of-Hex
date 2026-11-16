@@ -438,6 +438,7 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
 
 async function positionFrenchCannons(camp, { afterGround = false } = {}) {
     if (getActiveCultureId(gameState, camp) !== 'fr') return;
+    const ministerReturn = gameState._aiCoreMemory?.[campToKey(camp)]?.ministerReturn;
     const visibleEnemy = unit => unit?.hp > 0 && canAttack(gameState, camp, unit.camp)
         && isUnitVisibleToCamp(unit, camp, gameState) && isSubmarineTargetableBy(unit, camp, gameState);
     for (const tile of gameState.tiles) {
@@ -445,6 +446,11 @@ async function positionFrenchCannons(camp, { afterGround = false } = {}) {
         if (unit?.camp !== camp || getHeavyCannonStanceBlock(unit, gameState)) continue;
         const deployed = isHeavyCannonDeployed(unit);
         if (afterGround && deployed) continue;
+        if (ministerReturn?.unitId === unit.id) {
+            if (deployed) await runObservedAction({ type: 'heavyCannonStance', unitId: unit.id }, camp, () => executeHeavyCannonStance(unit));
+            continue;
+        }
+        if (!deployed && tile.isCity && unit.commander === 'minister' && !afterGround) continue;
         const hasFiringArc = getAttackableTiles(unit, { forAiAction: true, previewHeavyCannon: true }).some(
             target => isKnownToAi(target, camp) && (!target.unit || visibleEnemy(target.unit)));
         const adjacent = HEX_NEIGHBORS.map(([dq, dr]) => gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`))
@@ -683,6 +689,10 @@ async function _executeActionInner(action, aiCamp) {
                 attackCityTile(unit, targetTile, AI_TARGETING);
             }
             break;
+        }
+        case 'heavyCannonStance': {
+            const unit = resolveUnit(action.unitId);
+            return isHeavyCannonDeployed(unit) && executeHeavyCannonStance(unit);
         }
         case 'move': {
             const unit = resolveUnit(action.unitId);

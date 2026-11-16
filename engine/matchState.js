@@ -259,6 +259,7 @@ export function resetMatchState(match) {
     match.riverTopology = buildRiverTopology();
     match.ports = [];
     match.portTiles = new Map();
+    match.shoreBatteryBuiltRound = {};
     match.currentCamp = standard.factions[standard.turnOrder[0]];
     match.playerGold = standard.playerGold;
     match.turnCounter = 0;

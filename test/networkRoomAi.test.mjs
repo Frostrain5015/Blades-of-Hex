@@ -6,6 +6,7 @@ import { once } from 'node:events';
 import WebSocket from 'ws';
 import { waitFor } from './lib/helpers.mjs';
 import roomAi from '../server/roomAi.js';
+import { FLAG_PRESETS, getFlagPresetColor } from '../rules/diplomacy.js';
 
 const { AI_DRIVER_ROLE, isValidAiDifficulty, aiSlotCount, humanCapacity, isRoomFull, firstFreeRole, takenRoles } = roomAi;
 
@@ -84,7 +85,7 @@ test('isValidAiDifficulty: easy/medium/hard 通过,其他拒绝', () => {
     }
 });
 
-test('历史文化房间的玩家可以选取 AI 的暂定国旗，服务器只改派冲突席位', { timeout: 15000 }, async t => {
+test('历史文化房间在真人确认后一次性抽取剩余国旗', { timeout: 15000 }, async t => {
     const probe = createServer();
     probe.listen(0, '127.0.0.1');
     await once(probe, 'listening');
@@ -96,28 +97,66 @@ test('历史文化房间的玩家可以选取 AI 的暂定国旗，服务器只�
     t.after(() => server.kill());
     await waitFor(async () => (await fetch(`http://127.0.0.1:${port}/discover`)).ok, 5000, '测试服务器');
 
-    const client = new WebSocket(`ws://127.0.0.1:${port}`);
-    t.after(() => client.terminate());
-    const inbox = [];
-    client.on('message', raw => inbox.push(JSON.parse(raw.toString())));
-    await once(client, 'open');
-    const send = message => client.send(JSON.stringify(message));
+    async function connect() {
+        const client = new WebSocket(`ws://127.0.0.1:${port}`);
+        t.after(() => client.terminate());
+        const inbox = [];
+        client.on('message', raw => inbox.push(JSON.parse(raw.toString())));
+        await once(client, 'open');
+        return { inbox, send: message => client.send(JSON.stringify(message)) };
+    }
+    const { inbox, send } = await connect();
+    const guest = await connect();
     send({ type: 'createRoom', maxPlayers: 3, factionRuleMode: 'culture', doubleCommanderMode: true });
     await waitFor(() => inbox.some(message => message.type === 'roomCreated'), 5000, '创建历史文化房间');
+    const created = inbox.find(message => message.type === 'roomCreated');
+    guest.send({ type: 'joinRoom', roomId: created.roomId });
+    await waitFor(() => guest.inbox.some(message => message.type === 'roomJoined'), 5000, '真人加入同一房间');
     send({ type: 'addAi', difficultyId: 'hard' });
-    send({ type: 'addAi', difficultyId: 'medium' });
-    await waitFor(() => inbox.some(message => message.type === 'roomUpdate' && message.players.length === 3), 5000, '填满 AI 席位');
+    await waitFor(() => inbox.some(message => message.type === 'roomUpdate' && message.players.length === 3), 5000, '填满席位');
     send({ type: 'ready' });
+    guest.send({ type: 'ready' });
     await waitFor(() => inbox.some(message => message.type === 'start'), 5000, '进入选将');
     const start = inbox.find(message => message.type === 'start');
-    const aiFlag = start.factionPresets[start.roleAssignments.player2];
-    const otherAiFlag = start.factionPresets[start.roleAssignments.player3];
-    send({ type: 'factionColor', flagPreset: aiFlag });
-    await waitFor(() => inbox.some(message => message.type === 'factionColors'), 5000, '同步玩家国旗');
-    const { factionPresets, factionColors } = inbox.findLast(message => message.type === 'factionColors');
-    assert.equal(factionPresets.player1, aiFlag);
-    assert.notEqual(factionPresets.player2, aiFlag);
-    assert.equal(factionPresets.player3, otherAiFlag);
+    assert.equal(start.factionPresets[start.roleAssignments.player3], null);
+    const openFlags = Object.keys(FLAG_PRESETS).filter(flag => !Object.values(start.factionPresets).includes(flag));
+    const [hostChoice, guestChoice, finalGuestChoice] = openFlags;
+    const lastFlags = clientInbox => clientInbox.findLast(message => message.type === 'factionColors');
+    const pick = (role, complete = true) => {
+        const field = start.roleAssignments[role].replace('player', 'commanderP');
+        return {
+            type: 'commanderSync', commanderPhase: 'selection',
+            [field]: 'engineer', [`${field}Confirmed`]: complete,
+            [`${field}Secondary`]: complete ? 'colonel' : null,
+            [`${field}SecondaryConfirmed`]: complete
+        };
+    };
+    send({ type: 'factionColor', flagPreset: hostChoice });
+    send(pick('player1'));
+    await waitFor(() => guest.inbox.some(message => message.type === 'commanderSync'), 5000, '房主锁定');
+    assert.equal(lastFlags(guest.inbox).factionPresets.player3, null);
+
+    guest.send({ type: 'factionColor', flagPreset: guestChoice });
+    guest.send(pick('player2', false));
+    await waitFor(() => inbox.some(message => message.type === 'commanderSync'), 5000, '客人选第一名将领');
+    assert.equal(lastFlags(inbox).factionPresets.player3, null);
+
+    guest.send({ type: 'factionColor', flagPreset: finalGuestChoice });
+    guest.send(pick('player2'));
+    await waitFor(() => !!lastFlags(inbox)?.factionPresets.player3
+        && !!lastFlags(guest.inbox)?.factionPresets.player3, 5000, '最后一位真人锁定后同步 AI 国旗');
+    const { factionPresets, factionColors } = lastFlags(inbox);
+    assert.deepEqual(lastFlags(guest.inbox).factionPresets, factionPresets);
+    assert.equal(factionPresets.player1, hostChoice);
+    assert.equal(factionPresets.player2, finalGuestChoice);
+    assert.ok(Object.hasOwn(FLAG_PRESETS, factionPresets.player3));
     assert.equal(new Set(Object.values(factionPresets)).size, 3);
-    assert.equal(new Set(Object.values(factionColors)).size, 3);
+    assert.deepEqual(factionColors, Object.fromEntries(Object.entries(factionPresets)
+        .map(([role, flag]) => [role, getFlagPresetColor(flag)])));
+
+    const updates = inbox.filter(message => message.type === 'factionColors').length;
+    guest.send({ type: 'factionColor', flagPreset: guestChoice });
+    guest.send({ ...pick('player2'), duplicate: true });
+    await waitFor(() => inbox.some(message => message.type === 'commanderSync' && message.duplicate), 5000, '重复确认');
+    assert.equal(inbox.filter(message => message.type === 'factionColors').length, updates);
 });

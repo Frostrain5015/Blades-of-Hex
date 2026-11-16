@@ -2078,9 +2078,12 @@ export function recruitUnit(type) {
     }
 
     gameState.playerGold[currentPlayerKey] -= effectiveCost;
-    new Unit(type, gameState.currentCamp, selectedCityTile, true);
+    const recruitedUnit = new Unit(type, gameState.currentCamp, selectedCityTile, true);
     if (getArtilleryCostDiscount(gameState, gameState.currentCamp, type) > 0) presentHistoricalPassive('soviet', selectedCityTile);
-    if (shoreBatteryRecruit) recordShoreBatteryBuilt(gameState, gameState.currentCamp);
+    if (shoreBatteryRecruit) {
+        recruitedUnit._isImmobile = true;
+        recordShoreBatteryBuilt(gameState, gameState.currentCamp);
+    }
     triggerRecruitFlash(selectedCityTile.x, selectedCityTile.y);
     spawnRecruitEffect(selectedCityTile.x, selectedCityTile.y);
     logMessage(`${gameState.currentCamp.name}成功招募${config.name}，-$${effectiveCost}`);

@@ -43,7 +43,7 @@ import { canReinforceAtTile } from '../rules/healing.js';
 import { canSwitchRiverGate, getRiverGate, getRiverGateOpenLane } from '../rules/riverGate.js';
 import { getSpecialization, getSpecializationOptions, getUnitBaseType, getUnitDisplayName, getAttackRangeCap, getMinimumAttackRange, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
-import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortificationAt, canBuildShoreBatteryAt, canFieldRepair, constructionCost, findConstructionEngineer, isFieldRepairTarget } from '../rules/construction.js';
+import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortificationAt, canFieldRepair, constructionCost, findConstructionEngineer, isFieldRepairTarget } from '../rules/construction.js';
 import { measure, perfEnabled } from './perf.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandCost, getAirCommandRange, getAirfieldColonel, getVisibleAirCommandKinds } from '../rules/airCommands.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
@@ -3213,12 +3213,13 @@ function _showConstructionChoice() {
         { kind: 'trench', cardId: 'build_trench', icon: '🚧', detail: '可建于任意己方行政区陆地，或己方部队所处的非己方行政区陆地；该格不得已有工事。' },
         { kind: 'flak', cardId: 'build_flak', icon: '🔫', detail: '可建于任意己方行政区陆地，或己方部队所处的非己方行政区陆地；该格不得已有工事。' },
         { kind: 'bunker', cardId: 'build_bunker', icon: '🏰', detail: engineer ? '己方行政区空地或任意己方部队6格内的非己方空地；工程师使其立即完成。' : '己方行政区空地或任意己方部队6格内的非己方空地；下次己方回合完工。' },
-        { kind: 'shoreBattery', cardId: 'build_shore_battery', icon: '🏯', detail: '可建于己方控制的临海空地。阵营共享两回合冷却，同类建筑至少相距7格。' }
+        { kind: 'shoreBattery', cardId: 'build_shore_battery', icon: '🏯', detail: '可建于己方控制的临海空地。阵营共享两回合冷却，新建炮位至少相距7格，标准地图预置炮位除外。' }
     ];
     for (const definition of definitions) {
         const cost = constructionCost(definition.kind, engineer, null, gameState);
         const structurallyAvailable = definition.kind === 'shoreBattery'
-            ? gameState.tiles.some(tile => canBuildShoreBatteryAt(tile, camp, gameState))
+            ? resolveTargetingPreview(gameState, { cardId: definition.cardId, targeting: 'emptyTile' },
+                { myCamp: camp, isTileVisible }).candidateTiles.length > 0
             : definition.kind === 'bunker'
                 ? gameState.tiles.some(tile => canBuildBunkerAt(camp, tile, gameState))
                 : gameState.tiles.some(tile => canBuildFieldFortificationAt(tile, definition.kind, camp, gameState));
@@ -3238,9 +3239,11 @@ function _showConstructionChoice() {
             _beginBuildTargeting(
                 definition.cardId,
                 definition.kind,
-                definition.kind === 'trench' || definition.kind === 'flak'
-                    ? '请选择己方行政区地块，或己方部队当前所处地块'
-                    : '请选择己方行政区空地，或己方部队6格内的非己方空地'
+                definition.kind === 'shoreBattery'
+                    ? '请选择己方控制的临海空地'
+                    : definition.kind === 'trench' || definition.kind === 'flak'
+                        ? '请选择己方行政区地块，或己方部队当前所处地块'
+                        : '请选择己方行政区空地，或己方部队6格内的非己方空地'
             );
         });
         modal.grid.appendChild(card);

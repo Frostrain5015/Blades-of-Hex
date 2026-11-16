@@ -1868,6 +1868,7 @@ function _forPlayerPool(forPlayer) {
 function beginNetworkCommanderFlow(role) {
     document.getElementById('lobbyOverlay').style.display = 'none';
     _deploymentStarted = false;
+    _networkRevealQueued = false;
     const wasThreePlayer = gameState.isThreePlayer;
     const wasSkirmish = gameState.skirmishFog;
     const wasDoubleCommanderMode = gameState.doubleCommanderMode;
@@ -2626,13 +2627,15 @@ function _checkBothConfirmed() {
     const allConfirmed = gameState.isThreePlayer
         ? playerConfirmed('player1') && playerConfirmed('player2') && playerConfirmed('player3')
         : playerConfirmed('player1') && playerConfirmed('player2');
-    if (allConfirmed && !_deploymentStarted) {
-        setTimeout(() => {
-            document.getElementById('commanderOverlay').classList.remove('show');
-            gameState.commanderPhase = 'done';
-            _revealTurnOrder(startGame);
-        }, 800);
-    }
+    if (!allConfirmed || _deploymentStarted || _networkRevealQueued) return;
+    if (isCultureSystemEnabled(gameState)
+        && Object.keys(_networkAiSeats).some(key => !getFlagPresetColor(gameState.factions?.[key]?.flagPreset))) return;
+    _networkRevealQueued = true;
+    setTimeout(() => {
+        document.getElementById('commanderOverlay').classList.remove('show');
+        gameState.commanderPhase = 'done';
+        _revealTurnOrder(startGame);
+    }, 800);
 }
 
 function _roleToCampInfo(role) {
@@ -2642,6 +2645,7 @@ function _roleToCampInfo(role) {
 }
 
 let _deploymentStarted = false;
+let _networkRevealQueued = false;
 let _opponentCount = 0;
 
 // 联机 AI 占位席位：role → difficultyId，由 start 消息下发（房主在等待室为空位添加）
@@ -3037,6 +3041,7 @@ function registerNetworkCallbacks() {
                 _configureCommanderFactionHeader(_commanderHeaderFactionKey, { keepPickerOpen: pickerOpen });
                 if (editing) field.value = draft;
             }
+            if (gameState.commanderPhase === 'selection' && isNetworkGame()) _checkBothConfirmed();
         },
 
         onRemoteAction: handleRemoteAction,
@@ -3114,6 +3119,19 @@ function registerNetworkCallbacks() {
         },
 
         onCommanderSync: (msg) => {
+            // 同时确认时，对方发来的快照可能还没包含本端已经确认的将领。
+            if (msg.commanderPhase === 'selection') {
+                for (const slots of Object.values(_commanderSlots)) {
+                    for (const [pick, confirmed] of [
+                        [slots.primary, slots.primaryConfirmed], [slots.secondary, slots.secondaryConfirmed]
+                    ]) {
+                        if (gameState[confirmed] && !msg[confirmed]) {
+                            msg[pick] = gameState[pick];
+                            msg[confirmed] = true;
+                        }
+                    }
+                }
+            }
             const hadPool = gameState.commanderPoolP1.length > 0;
             gameState.commanderPoolP1 = msg.commanderPoolP1 || [];
             gameState.commanderPoolP2 = msg.commanderPoolP2 || [];

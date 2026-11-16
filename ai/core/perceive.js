@@ -7,6 +7,7 @@ import { getRound } from '../../rules/turns.js';
 import { campToKey } from '../../rules/camps.js';
 import { getStandardMap } from '../../rules/standardMaps.js';
 import { isWaterTile } from '../../rules/surfaces.js';
+import { canNeutralAttackTile, isNeutralAi } from '../../rules/neutralDefense.js';
 import { resolveRiverMovement } from '../../rules/movement.js';
 import { AI_DIFFICULTY_PROFILES, hasFullAiIntelligence } from '../difficulty.js';
 import { getUnitBaseType, UNIT_CONFIG } from '../../rules/units.js';
@@ -24,6 +25,7 @@ import {
     estimateForceValue
 } from '../strategy.js';
 import { W } from './weights.js';
+import { createCaptureRouteFinder } from './amphibious.js';
 
 const NEUTRAL_KEY = 'neutral';
 
@@ -175,6 +177,8 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
             const speed = enemy._isImmobile || baseSpeed === 0 ? 0 : caps.threatForecast ? baseSpeed : 2;
             const reach = range + Math.min(speed, 4);
             if (helpers.hexDistance(enemy.tile, tile) > reach) continue;
+            if (isNeutralAi(enemy.camp) && !canNeutralAttackTile(gameState, enemy,
+                unit && tile.unit !== unit ? { ...tile, unit } : tile)) continue;
             const dmg = combat.estimateDamage(enemy, unit || { type: 'infantry', config: { defense: 0 } }, tile);
             if (dmg > 0) damages.push(dmg);
         }
@@ -284,6 +288,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         gameState, helpers, myCamp, myCampKey, caps, combat,
         round, roundsRemaining, turnLimit, fog, oceanMap, hasRivers, standardMap,
         navDistance,
+        captureRoute: caps.transportPlanning && oceanMap ? createCaptureRouteFinder(gameState) : null,
         tiles, tileMap: gameState.tileMap,
         weather: gameState.weather || 'clear',
         myUnits, rivalUnits, neutralUnits, rivalFactions,
@@ -358,7 +363,10 @@ export function rankCityObjectives(world, etaFor) {
                     .filter(unit => world.isCapturable(unit) && !world.isImmobile(unit) && unit.tile)
                     .reduce((best, unit) => {
                         const speed = Math.max(1, Number(unit.config?.speed) || 1);
-                        const rivalEta = Math.ceil(world.helpers.hexDistance(unit.tile, city.tile) / speed);
+                        const distance = world.captureRoute
+                            ? world.captureRoute(unit, city.tile)?.turns ?? Infinity
+                            : world.helpers.hexDistance(unit.tile, city.tile) / speed;
+                        const rivalEta = Math.ceil(distance);
                         return Math.min(best, rivalEta);
                     }, 99)
                 : 99;

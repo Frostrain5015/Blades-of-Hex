@@ -77,6 +77,21 @@ export function isFlagPreset(value) {
     return typeof value === 'string' && Object.hasOwn(FLAG_PRESETS, value);
 }
 
+function randomFlagIndex(count) {
+    const sample = new Uint32Array(1);
+    // 丢弃不能均分的尾段，避免对候选数取模产生偏差。
+    const limit = 0x100000000 - (0x100000000 % count);
+    do {
+        globalThis.crypto.getRandomValues(sample);
+    } while (sample[0] >= limit);
+    return sample[0] % count;
+}
+
+export function drawAvailableFlagPreset(used, drawIndex = randomFlagIndex) {
+    const candidates = Object.keys(FLAG_PRESETS).filter(preset => !used.has(preset));
+    return candidates.length ? candidates[drawIndex(candidates.length)] : null;
+}
+
 const FLAG_PRESET_COLORS = Object.freeze({
     'img/flags/svg/us.svg': 'usaTeal',
     'img/flags/svg/gb.svg': 'yellow',
@@ -331,13 +346,12 @@ export function setPlayerFactionName(state, factionKey, value) {
 /** 启用历史文化强效时：为各参战席位收敛并分配互不重复的预设历史阵营与对应颜色。 */
 export function ensureCultureFactionPresets(state, options = {}) {
     if (!state || state.campaignMode || !isCultureSystemEnabled(state)) return false;
-    const rng = options.rng || state.rng;
     const keys = PLAYER_SEAT_KEYS.filter(key => {
         const faction = state.factions?.[key];
         return faction && faction.active !== false && (options.includeAi !== false || faction.controller !== 'ai');
-    });
-    const allPresets = Object.keys(FLAG_PRESETS);
+    }).sort((a, b) => Number(state.factions[a].controller === 'ai') - Number(state.factions[b].controller === 'ai'));
     const used = new Set();
+    const drawIndex = options.randomizeAi ? options.drawIndex : () => 0;
     let changed = false;
 
     for (const key of keys) {
@@ -355,12 +369,8 @@ export function ensureCultureFactionPresets(state, options = {}) {
     for (const key of keys) {
         const faction = state.factions[key];
         if (!faction || (isFlagPreset(faction.flagPreset) && used.has(faction.flagPreset))) continue;
-        const candidates = allPresets.filter(preset => !used.has(preset));
-        if (!candidates.length) continue;
-        const pickIndex = options.randomizeAi && rng?.between
-            ? rng.between(0, candidates.length - 1)
-            : 0;
-        const chosen = candidates[pickIndex];
+        const chosen = drawAvailableFlagPreset(used, drawIndex);
+        if (!chosen) continue;
         used.add(chosen);
         setPlayerFactionFlagPreset(state, key, chosen);
         changed = true;

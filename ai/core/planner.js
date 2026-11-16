@@ -12,6 +12,7 @@ import { planTactics, bestAttackFor, evaluateAttack, planCaptureFinishers } from
 import { planCards, shouldDrawCard } from './cards.js';
 import { planProduction } from './production.js';
 import { isFieldCapturer, shouldHoldCityPosition } from './roster.js';
+import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 
 // 移动后的追击复用战术评分，只刷新可见局面，不重新分配整支军队的任务。
 export function planFollowupAttack(gameState, helpers, myCamp, caps, unitId, plannedTargetId = null) {
@@ -72,7 +73,8 @@ export function planTurn(gameState, helpers, myCamp, caps) {
     const cards = planCards(world, strategy, missionsCtx);
     const production = planProduction(world, strategy, missionsCtx);
     const reserved = new Set(production.setup.filter(action => action.type === 'move').map(action => action.unitId));
-    const tactics = planTactics(world, strategy, missionsCtx).filter(action => !reserved.has(action.unitId));
+    const availableGold = world.gold - strategy.reserve - production.recruitSpend;
+    const tactics = planTactics(world, strategy, missionsCtx, availableGold).filter(action => !reserved.has(action.unitId));
 
     const actions = [
         ...production.emergencyRecruits,
@@ -83,7 +85,8 @@ export function planTurn(gameState, helpers, myCamp, caps) {
         ...production.actions
     ];
 
-    if (shouldDrawCard(world, strategy, production.recruitSpend, cards.setup.length + cards.sustain.length)) {
+    const droneSpend = tactics.some(action => action.type === 'droneDeploy') ? COMMANDER_CONFIG.tianyan.balance.deployGoldCost : 0;
+    if (shouldDrawCard(world, strategy, production.recruitSpend + droneSpend, cards.setup.length + cards.sustain.length)) {
         actions.push({ type: 'drawCard' });
     }
 

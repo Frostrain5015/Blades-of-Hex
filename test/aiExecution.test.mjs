@@ -865,6 +865,30 @@ test('尚书实际腾位招募，下一回合新兵出城后返城，预留格�
     assert.equal(state._aiCoreMemory.player1.ministerReturn, undefined);
 });
 
+test('架设中的尚书巨炮冷却结束后腾出唯一招募城，步兵优先于无人机', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    me.flagPreset = 'img/flags/svg/fr.svg';
+    state.factionRuleMode = 'culture';
+    state.playerGold.player1 = 12;
+    const cannon = place('fr_heavy_cannon', me, home, 'minister');
+    cannon._heavyCannonDeployed = true;
+    cannon.remainingMP = 0;
+    place('infantry', foe, enemyCity);
+    // 有合法开火弧，常规巨炮逻辑不会收起，由招募计划接管。
+    const target = state.tileMap.get('3,0');
+    Object.assign(target, { camp: state.factions.neutral, isCity: true, isUrban: true, hp: 80, maxHp: 80, districtId: 3 });
+    place('archer', me, state.tileMap.get('0,-2'), 'tianyan');
+
+    await processOpponentTurn(me);
+
+    assert.notEqual(cannon.tile, home);
+    assert.equal(isHeavyCannonDeployed(cannon), false);
+    assert.equal(home.unit?.type, 'infantry');
+    assert.equal(state._aiCoreMemory.player1.ministerReturn?.unitId, cannon.id);
+    assert.ok(events.some(event => event.action.type === 'heavyCannonStance' && event.action.unitId === cannon.id));
+    assert.ok(!events.some(event => event.action.type === 'droneDeploy'));
+});
+
 test('陆战队在己方已启用港口按工业海权优惠价补员，每回合限一次', () => {
     const { me, foe } = setupMatch();
     me.flagPreset = 'img/flags/svg/us.svg';

@@ -400,7 +400,7 @@ test('Imperator races for an uncharted prize that a rival can take', async () =>
     makeUnit(1, 'infantry', me, home);
     makeUnit(10, 'infantry', foe, rivalTile);
     makeUnit(20, 'carrier', neutral, fleetTile);
-    const tiles = [home, decoy, prize, fleetTile, rivalTile];
+    const tiles = [home, decoy, prize, fleetTile, rivalTile, makeTile(0, -1), makeTile(2, -2)];
     const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
         standardMapId: 'uncharted-passage'
     });
@@ -416,6 +416,67 @@ test('Imperator races for an uncharted prize that a rival can take', async () =>
         .missions.find(mission => mission.kind === 'siege');
     assert.deepEqual([nextSiege.targetQ, nextSiege.targetR], [decoy.q, decoy.r],
         '失去航母收益后应允许选择更近的外围城');
+});
+
+test('Imperator stages a safe landing, then uses ranged fire to hand the city to its occupier', async () => {
+    const { buildWorld, planTactics } = await loadCore();
+    const me = { id: 'player1' };
+    const foe = { id: 'player2' };
+    const neutral = { id: 'neutral', controller: 'ai' };
+    const water = Array.from({ length: 5 }, (_, q) => makeTile(q, 0, { surface: 'shallowWater', terrain: 'water' }));
+    const shore = makeTile(4, 1);
+    const closeShore = makeTile(5, 0);
+    const goal = makeTile(6, 0, { isCity: true, camp: neutral, hp: 68 });
+    const rivalTile = makeTile(6, -1);
+    const supportTile = makeTile(5, -1, { surface: 'shallowWater', terrain: 'water' });
+    const carrierTile = makeTile(4, -1, { surface: 'shallowWater', terrain: 'water' });
+    const cavalry = makeUnit(1, 'cavalry', me, water[0], { isEmbarked: true });
+    const ship = makeUnit(2, 'warship', me, supportTile);
+    const rival = makeUnit(3, 'infantry', foe, rivalTile);
+    makeUnit(4, 'carrier', neutral, carrierTile);
+    const tiles = [...water, shore, closeShore, goal, rivalTile, supportTile, carrierTile];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, { standardMapId: 'uncharted-passage' });
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === cavalry && unit.tile === water[3] ? [water[4], shore, closeShore] : [],
+        getAttackableTiles: unit => unit === ship || (unit === cavalry && unit.tile === closeShore) ? [goal] : []
+    };
+    const mission = { kind: 'siege', targetQ: goal.q, targetR: goal.r, occupierId: cavalry.id, escortIds: [ship.id] };
+    const context = { missions: [mission], assignment: new Map([[cavalry.id, mission], [ship.id, mission]]) };
+    const turn = () => {
+        const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+        world.estimateSiegeDamage = unit => unit === ship ? 27 : 44;
+        world.threatAt = (tile, defender) => {
+            if (tile === water[4] || tile === closeShore) {
+                assert.equal(defender.isEmbarked, tile === water[4]);
+                return cavalry.hp;
+            }
+            return 0;
+        };
+        return world;
+    };
+    const relocate = (tile, isEmbarked) => {
+        cavalry.tile.unit = null;
+        cavalry.tile = tile;
+        cavalry.isEmbarked = isEmbarked;
+        tile.unit = cavalry;
+    };
+    const strategy = { posture: 'expand', reserve: 0 };
+    assert.equal(buildWorld(state, helpers, me, TIER_CAPABILITIES.hard).threatAt(water[4], cavalry, rival),
+        0, '停飞的中立航母不威胁登陆通道');
+    assert.ok(turn().captureRoute(cavalry, goal).turns > 1.5, '跨海期间骑兵采用运输速度');
+    const early = planTactics(turn(), strategy, context);
+    assert.ok(!early.some(action => action.type === 'siegeCityAttack'), '友军过海时保留敌军脚下的城防');
+
+    relocate(water[3], true);
+    const approaching = planTactics(turn(), strategy, context);
+    assert.ok(!approaching.some(action => action.type === 'siegeCityAttack'), '登陆当回合仍无法接城');
+    const landing = approaching.find(action => action.type === 'move' && action.unitId === cavalry.id);
+    assert.deepEqual(landing, { type: 'move', unitId: cavalry.id, tileQ: shore.q, tileR: shore.r, autoAttack: false });
+
+    relocate(closeShore, false);
+    const breach = planTactics(turn(), strategy, context).filter(action => action.type === 'siegeCityAttack');
+    assert.deepEqual(breach.map(action => action.unitId), [ship.id, cavalry.id], '27 点火力先削墙，44 点近战接力进城');
 });
 
 test('Imperator targets the three-player leader for the late two-point city swing', async () => {

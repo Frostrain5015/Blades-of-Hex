@@ -22,6 +22,7 @@ import { getUnitBaseType } from '../../rules/units.js';
 import { BANZAI_CHARGE_CONFIG, getActiveCultureId, getBanzaiBonusDamage, getBanzaiCooldown, getFireSeaState, getNeverSurrenderStacks } from '../../rules/cultures.js';
 import { getBanzaiChargePath } from '../../rules/targeting.js';
 import { isEmbarkableLandUnit } from '../../rules/movement.js';
+import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 
 const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
@@ -481,6 +482,9 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
     const canStayAshore = advisor && (safeLand(unit.tile) || movable.some(tile =>
         !tile.unit && safeLand(tile)));
     const shouldLand = canStayAshore && world.onWater(unit.tile);
+    const seaTarget = world.captureRoute && mission?.kind === 'siege' && mission.occupierId === unit.id
+        ? world.tileMap.get(`${mission.targetQ},${mission.targetR}`) : null;
+    const seaRoute = seaTarget && world.captureRoute(unit, seaTarget);
     const protectCommander = world.caps.rearCommanderSafety
         && (FRAGILE_COMMANDERS.has(unit.commander) || (unit.commander && world.isNaval(unit)));
     const currentThreat = protectCommander ? world.threatAt(unit.tile, unit) : 0;
@@ -507,6 +511,11 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
         + historicalPositionValue(world, unit, unit.tile);
     for (const tile of movable) {
         if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
+        if (seaTarget && (world.onWater(unit.tile) || world.onWater(tile)) && !safeApproachTile(world, unit, tile)) continue;
+        if (seaTarget && world.onWater(tile)) {
+            const next = world.captureRoute(unit, seaTarget, tile);
+            if (!retreating && (!seaRoute?.landing || !next || next.turns >= seaRoute.turns)) continue;
+        }
         if (stageOnLand && world.onWater(tile)) continue;
         if (canStayAshore && world.onWater(tile)) continue;
         if (shouldLand && !safeLand(tile)) continue;
@@ -687,6 +696,38 @@ function captureMove(unit, tile) {
     return { type: 'move', unitId: unit.id, tileQ: tile.q, tileR: tile.r, captureCity: true, autoAttack: false };
 }
 
+function approachThreat(world, unit, tile) {
+    const isEmbarked = isEmbarkableLandUnit(unit) && world.onWater(tile);
+    const defender = isEmbarked === !!unit.isEmbarked ? unit
+        : Object.assign(Object.create(Object.getPrototypeOf(unit)), unit, { isEmbarked });
+    return world.threatAt(tile, defender);
+}
+
+function safeApproachTile(world, unit, tile) {
+    return approachThreat(world, unit, tile) * W.lethalThreatMargin < unit.hp + (unit._shield || 0);
+}
+
+function planLandingApproach(world, unit, goal, route, actions) {
+    const atSea = world.onWater(unit.tile);
+    let best = null;
+    for (const tile of world.helpers.getMovableTiles(unit)) {
+        if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
+        const next = world.captureRoute(unit, goal, tile);
+        const landing = atSea && !world.onWater(tile);
+        const nearLandApproach = landing && next && !next.landing && next.turns <= 1;
+        if (!next || (next.turns >= route.turns && !nearLandApproach)) continue;
+        const threat = approachThreat(world, unit, tile);
+        const hp = unit.hp + (unit._shield || 0);
+        if (threat * W.lethalThreatMargin >= hp) continue;
+        const score = route.turns - next.turns - threat / hp * W.landingThreatWeight
+            + (landing ? W.landingReadyBonus : 0);
+        if (!best || score > best.score) best = { tile, landing, score };
+    }
+    if (!best) return false;
+    actions.push({ type: 'move', unitId: unit.id, tileQ: best.tile.q, tileR: best.tile.r, autoAttack: !best.landing });
+    return true;
+}
+
 /** 夺城结算：走进空城或近战击杀守军进驻。先于普通攻击。 */
 export function planCaptureFinishers(world, missionsCtx, actions, processed, onlyOpenCities = false) {
     const claimed = new Set();
@@ -728,6 +769,12 @@ function planCaptureApproaches(world, strategy, missionsCtx, actions, processed)
         if (!city?.hostile) continue;
         const unit = world.myUnits.find(candidate => candidate.id === mission.occupierId);
         if (!unit || !canMoveToCapture(unit) || missionsCtx.assignment.get(unit.id) !== mission) continue;
+        const route = world.captureRoute?.(unit, city.tile);
+        if (route?.landing) {
+            if (!shouldRetreat(world, unit) && !bestAttackFor(world, missionsCtx, unit)?.kills
+                && planLandingApproach(world, unit, city.tile, route, actions)) processed.add(unit.id);
+            continue;
+        }
         const open = !city.garrison && city.hp <= 0;
         if (!open) {
             // 战前集结限于陆上。海上离城更近的落点可能堵住另一支部队的登陆线。
@@ -740,6 +787,53 @@ function planCaptureApproaches(world, strategy, missionsCtx, actions, processed)
             captureObjective: city.tile, stageOnLand: !open
         })) processed.add(unit.id);
     }
+}
+
+// If the occupier is in melee range, concentrate just enough fire to let it finish and enter.
+function planCoordinatedCityBreaches(world, missionsCtx, actions, processed) {
+    for (const mission of missionsCtx.missions) {
+        if (mission.kind !== 'siege') continue;
+        const tile = world.tileMap.get(`${mission.targetQ},${mission.targetR}`);
+        if (!tile?.isCity || tile.unit || tile.hp <= 0) continue;
+        const ready = world.myUnits.filter(unit => unit.canAct && !processed.has(unit.id)
+            && world.helpers.getAttackableTiles(unit).includes(tile));
+        const finisher = ready.find(unit => unit.id === mission.occupierId
+            && !shouldHoldCityPosition(world, unit, mission) && world.helpers.hexDistance(unit.tile, tile) === 1);
+        if (!finisher) continue;
+        const finishingDamage = world.estimateSiegeDamage(finisher, tile);
+        if (finishingDamage >= tile.hp || finishingDamage <= 0) continue;
+        const canEnter = world.helpers.canReachCityAfterBreach?.(finisher, tile);
+        let hp = tile.hp;
+        const support = [];
+        for (const unit of ready.filter(candidate => !world.isCapturable(candidate))
+            .sort((a, b) => world.estimateSiegeDamage(b, tile) - world.estimateSiegeDamage(a, tile))) {
+            const damage = world.estimateSiegeDamage(unit, tile);
+            if (damage <= 0 || (damage >= hp && !canEnter)) continue;
+            support.push(unit);
+            hp -= damage;
+            if (hp <= finishingDamage) break;
+        }
+        if (hp > finishingDamage) continue;
+        for (const unit of [...support, finisher]) {
+            if (unit === finisher && hp <= 0) actions.push(captureMove(unit, tile));
+            else actions.push({ type: 'siegeCityAttack', unitId: unit.id, tileQ: tile.q, tileR: tile.r });
+            processed.add(unit.id);
+        }
+    }
+}
+
+function rivalCanClaimFirst(world, tile, processed, missionsCtx) {
+    if (!world.captureRoute) return false;
+    const arrival = unit => world.captureRoute(unit, tile)?.turns ?? Infinity;
+    const rivalEta = world.rivalUnits
+        .filter(unit => unit.camp !== tile.camp && world.isCapturable(unit) && !world.isImmobile(unit))
+        .reduce((best, unit) => Math.min(best, arrival(unit)), Infinity);
+    if (rivalEta > 1) return false;
+    return !world.myUnits.some(unit => isFieldCapturer(world, unit)
+        && !shouldHoldCityPosition(world, unit, missionsCtx.assignment.get(unit.id))
+        && ((!world.onWater(unit.tile) && arrival(unit) <= rivalEta)
+            || (!processed.has(unit.id) && canMoveToCapture(unit)
+            && world.helpers.canReachCityAfterBreach?.(unit, tile))));
 }
 
 /** 困难档先寻找本回合能稳定击杀的共同目标，避免每个单位各自打出“最高单次收益”却无人阵亡。 */
@@ -779,7 +873,7 @@ function planLethalFocus(world, missionsCtx, actions, processed) {
     }
 }
 
-/** 攻城：只磨"占领者两回合内能跟进"的任务目标城；最后一击预留给能进驻的近战。 */
+/** 攻城：攻击任务目标，避免把对手先到的空城打成易守难夺的据点。 */
 function planSiegeAttacks(world, missionsCtx, actions, processed, breachOnly = false) {
     const siegeCities = new Set(missionsCtx.missions
         .filter(m => m.kind === 'siege')
@@ -811,6 +905,8 @@ function planSiegeAttacks(world, missionsCtx, actions, processed, breachOnly = f
                 && world.helpers.getAttackableTiles(u).includes(siegeTile))
                 .map(u => world.estimateSiegeDamage(u, siegeTile)));
         if (!world.isCapturable(unit) && reserve) continue;
+        if (!occupier && !(wouldBreach && world.isCapturable(unit))
+            && rivalCanClaimFirst(world, siegeTile, processed, missionsCtx)) continue;
         actions.push({ type: 'siegeCityAttack', unitId: unit.id, tileQ: siegeTile.q, tileR: siegeTile.r });
         processed.add(unit.id);
         if (wouldBreach) plannedBreaches.add(siegeTile);
@@ -826,7 +922,7 @@ function planSiegeAttacks(world, missionsCtx, actions, processed, breachOnly = f
 // 自爆只打高价值目标（将领/炮兵/高 rank/攻城守军）——无人机是消耗品，但只许值回票价。
 // ═══════════════════════════════════════════════════════════════
 
-function planDroneOps(world, missionsCtx, actions, processed) {
+function planDroneOps(world, missionsCtx, actions, processed, availableGold) {
     const drones = world.myUnits.filter(unit => unit._isDrone);
     for (const drone of drones) {
         if (processed.has(drone.id) || !drone.canAct || !drone.tile) continue;
@@ -852,7 +948,10 @@ function planDroneOps(world, missionsCtx, actions, processed) {
         unit.commander === 'tianyan' && unit.tile && !unit._isDrone && unit.canAct);
     if (!tianyan) return;
     if (world.myUnits.filter(unit => unit._isDrone && !processed.has(unit.id)).length >= 2) return;
-    if (world.gold < 5) return;
+    const { deployGoldCost, deployLimitPerTurn } = COMMANDER_CONFIG.tianyan.balance;
+    const { _droneDeployTurn, _droneDeployCount, turnCounter } = world.gameState;
+    if (availableGold < deployGoldCost || (_droneDeployTurn?.[world.myCampKey] === turnCounter
+        && _droneDeployCount?.[world.myCampKey] >= deployLimitPerTurn)) return;
     const objective = missionsCtx.missions.find(m => m.kind === 'siege');
     const anchor = objective ? world.tileMap.get(`${objective.targetQ},${objective.targetR}`) : null;
     const candidates = world.helpers.HEX_NEIGHBORS
@@ -912,7 +1011,7 @@ function planBanzaiCharges(world, missionsCtx, actions, processed) {
  * 产出一个完整回合的单位动作序列。
  * 顺序：主动技能 → 夺城结算 → 普通攻击（价值序）→ 攻城 → 移动。
  */
-export function planTactics(world, strategy, missionsCtx) {
+export function planTactics(world, strategy, missionsCtx, availableGold = world.gold - strategy.reserve) {
     const actions = [];
     const processed = new Set();
 
@@ -927,11 +1026,12 @@ export function planTactics(world, strategy, missionsCtx) {
     }
 
     // 0.5 天眼无人机：自爆兑现 + 向前线部署新哨机；帝国武士：万岁冲锋。
-    planDroneOps(world, missionsCtx, actions, processed);
+    planDroneOps(world, missionsCtx, actions, processed, availableGold);
     planBanzaiCharges(world, missionsCtx, actions, processed);
 
     // 1.5 破门序列：攻城任务守军的协同斩杀（终结者收尾进城）。
     planBreachSequence(world, missionsCtx, actions, processed);
+    if (world.captureRoute) planCoordinatedCityBreaches(world, missionsCtx, actions, processed);
     planSiegeAttacks(world, missionsCtx, actions, processed, true);
     planCaptureApproaches(world, strategy, missionsCtx, actions, processed);
 

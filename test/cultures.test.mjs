@@ -65,6 +65,37 @@ test('单人选将时留出全部国旗，确认后为 AI 分配其余阵营', (
     assert.notEqual(state.factions.player2.colorId, state.factions.player1.colorId);
 });
 
+test('AI 按抽中的索引选旗，真人锁定后每面剩余旗都可抽中，多席不放回', () => {
+    const { ensureCultureFactionPresets, setPlayerFactionFlagPreset, FLAG_PRESETS } = diplomacyModule;
+    const flags = Object.keys(FLAG_PRESETS);
+    for (const humanFlag of flags) {
+        const available = flags.filter(flag => flag !== humanFlag);
+        for (const [index, expected] of available.entries()) {
+            const state = stateModule.createMatchState();
+            state.factionRuleMode = 'culture';
+            stateModule.configureStandardMatch(state, {
+                playerCount: 3,
+                controllers: { player1: 'ai', player2: 'human', player3: 'ai' }
+            });
+            setPlayerFactionFlagPreset(state, 'player2', humanFlag);
+            // 模拟旧预设，确认时重新抽两席。
+            setPlayerFactionFlagPreset(state, 'player1', expected);
+            const drawSizes = [];
+            ensureCultureFactionPresets(state, {
+                randomizeAi: true,
+                drawIndex: count => {
+                    drawSizes.push(count);
+                    return drawSizes.length === 1 ? index : count - 1;
+                }
+            });
+            assert.deepEqual(drawSizes, [7, 6]);
+            assert.equal(state.factions.player1.flagPreset, expected);
+            assert.equal(state.factions.player2.flagPreset, humanFlag);
+            assert.equal(state.factions.player3.flagPreset, available.filter(flag => flag !== expected).at(-1));
+        }
+    }
+});
+
 const {
     FACTION_RULE_MODES,
     NEVER_SURRENDER_CONFIG,

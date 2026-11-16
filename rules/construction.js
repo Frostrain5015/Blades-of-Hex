@@ -7,6 +7,7 @@ import { isMechanicEnabled } from './mechanics.js';
 import { canBuildShoreBattery, isCoastalLandTile } from './naval.js';
 import { isCityDisabled } from './citySiege.js';
 import { getCulturalAirfieldCost, getHistoricalCost } from './cultures.js';
+import { getStandardMap } from './standardMaps.js';
 
 export const CONSTRUCTION_CONFIG = Object.freeze({
     trench: Object.freeze({ name: '战壕', cost: 2, engineerCost: 1, range: 0, buildTurns: 0 }),
@@ -26,13 +27,19 @@ export function isOrdinaryGroundBuilder(unit) {
 
 /**
  * 同类防御建筑间距：siteTile 的 minDist 半径内已存在同类建筑（含建造中脚手架，
- * 其单位类型与完工建筑相同）时返回 true。跨类型不限，地图预放置不受约束（只拦建造行为）。
+ * 其单位类型与完工建筑相同）时返回 true。标准地图的预置岸防炮不占新建间距。
  */
 export function hasSameTypeBuildingWithin(state, siteTile, unitType, minDist = DEFENSE_BUILDING_MIN_DISTANCE) {
     if (!siteTile) return false;
+    const presetUnits = unitType === 'shoreBattery' && !state?.campaignMode
+        ? getStandardMap(state?.isThreePlayer ? 3 : 2, state?.standardMapId).initialUnits
+        : [];
     for (const tile of state?.tiles || []) {
         if (tile === siteTile) continue;
         if (tile.unit?.type !== unitType || tile.unit.hp <= 0) continue;
+        // 兼容既有快照：地图初始炮位不带建造时写入的 _isImmobile 标记。
+        if (!tile.unit._isImmobile && presetUnits.some(unit => unit.type === unitType
+            && unit.q === tile.q && unit.r === tile.r)) continue;
         if (hexDistance(tile, siteTile) < minDist) return true;
     }
     return false;

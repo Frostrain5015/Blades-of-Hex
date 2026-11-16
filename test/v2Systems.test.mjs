@@ -21,6 +21,8 @@ import {
 } from '../rules/construction.js';
 import { createDefaultLevel, validateLevel } from '../campaign/runtime/schema.js';
 import { resolveTargetingPreview } from '../rules/targeting.js';
+import { hexDistance } from '../rules/hex.js';
+import { getFactionCount } from '../rules/turns.js';
 
 test('0阶标准型、待专精与选定专精使用同一确定性军衔映射', () => {
     const base = resolveUnitRankProfile('infantry', 0, null);
@@ -105,6 +107,40 @@ test('岸防炮只可选中己方控制的临海空地，附近部队无法替�
     coast.camp = camp;
     state.shoreBatteryBuiltRound = { player1: 0 };
     assert.equal(canBuildShoreBatteryAt(coast, camp, state), false, '阵营共享冷却继续生效');
+});
+
+test('无主航路的预置岸防炮不挡沿海建造，玩家新建炮位仍需保持间距', async () => {
+    const { engine } = await import('../core/headless.js');
+    const { executeShoreBatteryConstruction } = await import('../js/gameLogic.js');
+    for (const playerCount of [2, 3]) {
+        engine.resetGameState();
+        engine.configureSkirmishState({ playerCount });
+        const state = engine.gameState;
+        assert.deepEqual(state.shoreBatteryBuiltRound, {});
+        state.standardMapId = 'uncharted-passage';
+        engine.initMap();
+        const targeting = { cardId: 'build_shore_battery', targeting: 'emptyTile' };
+        for (const campKey of state.turnOrder.filter(key => key !== 'neutral')) {
+            const camp = state.factions[campKey];
+            state.currentCamp = camp;
+            const { candidateTiles } = resolveTargetingPreview(state, targeting);
+            assert.ok(candidateTiles.length > 0, `${playerCount}P ${campKey} 应有沿海炮位`);
+        }
+        state.currentCamp = state.factions.player1;
+        state.playerGold.player1 = 30;
+        const { candidateTiles } = resolveTargetingPreview(state, targeting);
+        const site = candidateTiles.find(tile => candidateTiles.some(other => other !== tile && hexDistance(tile, other) < 7));
+        assert.ok(site);
+        const nearby = candidateTiles.find(tile => tile !== site && hexDistance(site, tile) < 7);
+        assert.equal(executeShoreBatteryConstruction(site), true);
+        assert.equal(site.unit.type, 'shoreBattery');
+        assert.equal(state.playerGold.player1, 20);
+        assert.equal(canBuildShoreBatteryAt(nearby, state.currentCamp, state), false);
+        state.turnCounter += getFactionCount(state) * 2;
+        assert.equal(canBuildShoreBatteryAt(nearby, state.currentCamp, state), false);
+        assert.equal(executeShoreBatteryConstruction(nearby), false);
+        assert.equal(state.playerGold.player1, 20);
+    }
 });
 
 test('地面部队可在中立或敌控陆地就地修建战壕与高射机枪', () => {

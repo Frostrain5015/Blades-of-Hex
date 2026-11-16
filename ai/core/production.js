@@ -10,8 +10,9 @@ import { isFieldCapturer, shouldReserveCityGarrison } from './roster.js';
 import { canRepairShipAtPort } from '../../rules/naval.js';
 import { canReinforceAtTile } from '../../rules/healing.js';
 import { canUnitBeRecruitedAtSite, countLivingUnitsOfType, getUniqueRecruitmentLimit, getUnitBaseType } from '../../rules/units.js';
-import { getHistoricalCost, getHistoricalRecruitCost, getCulturalReinforceCostScale } from '../../rules/cultures.js';
+import { getHistoricalCost, getHistoricalRecruitCost, getCulturalReinforceCostScale, getHeavyCannonStanceBlock, isHeavyCannonDeployed } from '../../rules/cultures.js';
 import { getCulturalRecruitmentCandidate } from '../../rules/aiRecruitment.js';
+import { isLandTile } from '../../rules/surfaces.js';
 
 const NAVAL_ORDER = ['warship', 'destroyer', 'submarine'];
 const LAND_ORDER = ['infantry', 'cavalry', 'archer'];
@@ -72,9 +73,21 @@ function shouldTemporarilyVacateMinister(world, strategy, memory) {
     const lastVacatedRound = Number(memory.ministerLastVacatedRound);
     const cooldownReady = !Number.isFinite(lastVacatedRound)
         || world.round - lastVacatedRound >= W.ministerVacateCooldownRounds;
-    return spendableGold >= W.ministerVacateRecruitBank
+    const soleCityNeedsTroops = world.myCities.length === 1 && strategy.assaultCapacity.deficit > 0
+        && world.myCities[0].unit?.type === 'fr_heavy_cannon';
+    const recruitBank = soleCityNeedsTroops ? unitCost(world, 'infantry') : W.ministerVacateRecruitBank;
+    return spendableGold >= recruitBank
         && recruitmentIsUrgent
         && cooldownReady;
+}
+
+function productionExitUnit(world, unit) {
+    if (!isHeavyCannonDeployed(unit)) return unit;
+    if (unit.movedThisTurn || unit._heavyCannonAutoFiredThisTurn || getHeavyCannonStanceBlock(unit, world.gameState)) return null;
+    // Query the same movement rules the executor will use after packing up.
+    const mobile = Object.assign(Object.create(Object.getPrototypeOf(unit)), unit, { _heavyCannonDeployed: false });
+    mobile.remainingMP = mobile.getEffectiveSpeed();
+    return mobile;
 }
 
 export function planProduction(world, strategy, missionsCtx) {
@@ -102,7 +115,7 @@ export function planProduction(world, strategy, missionsCtx) {
         && returnPlan.cityQ === city.q && returnPlan.cityR === city.r;
 
     // ── 0. 产能腾位：突击缺口 + 无空城 → 安全后方城市的普通守军出城 ──
-    //    尚书仅在兵力/产能告急且金币足够连续招募时离城一回合，随后由任务层强制返城。
+    //    唯一的城缺突击兵时，筹够第一支步兵即可安排尚书离城，之后由任务层安排返城。
     let vacatedCity = null;
     const landOrder = landRecruitOrder(world, missionsCtx, assaultCount > 0);
     const cityOrder = (site, order, urgent) => uniqueSlots > 0 && cityUnique
@@ -118,9 +131,8 @@ export function planProduction(world, strategy, missionsCtx) {
         const candidates = world.myCities
             .filter(city => !reservedForMinister(city))
             .filter(city => city.unit && city.unit.camp === world.myCamp && city.unit.canAct)
-            .filter(city => city.unit.type !== 'fr_heavy_cannon')
             .filter(city => !shouldReserveCityGarrison(world, city.unit))
-            .filter(city => (!city.unit.commander
+            .filter(city => ((!city.unit.commander && city.unit.type !== 'fr_heavy_cannon')
                 || (ministerMayVacate && city.unit.commander === 'minister'))
                 && !world.isImmobile(city.unit))
             // 有守备任务的城市不腾位（受威胁时守城优先于产能）。
@@ -131,12 +143,18 @@ export function planProduction(world, strategy, missionsCtx) {
         for (const city of candidates) {
             // 校验的是离城后的格子；执行层仍对真实格子再次终检。
             const emptySite = { ...city, unit: null };
-            const type = cityOrder(emptySite, landOrder, false).find(candidate =>
+            const minister = city.unit.commander === 'minister';
+            const urgent = minister && city.unit.type === 'fr_heavy_cannon'
+                && world.myCities.length === 1 && strategy.assaultCapacity.deficit > 0;
+            const type = cityOrder(emptySite, urgent ? LAND_ORDER : landOrder, urgent).find(candidate =>
                 canAfford(gold, unitCost(world, candidate), strategy)
                 && canRecruit(candidate, emptySite));
             if (!type) continue;
-            const exits = helpers.getMovableTiles(city.unit)
-                .filter(tile => (!tile.unit || (world.isUnitVisible && !world.isUnitVisible(tile.unit))) && !tile.isCity && world.threatAt(tile, city.unit) <= 20);
+            const mobile = productionExitUnit(world, city.unit);
+            if (!mobile) continue;
+            const exits = helpers.getMovableTiles(mobile)
+                .filter(tile => (!tile.unit || (world.isUnitVisible && !world.isUnitVisible(tile.unit)))
+                    && !tile.isCity && (!minister || isLandTile(tile)) && world.threatAt(tile, city.unit) <= 20);
             if (exits.length === 0) continue;
             exits.sort((a, b) => world.threatAt(a, city.unit) - world.threatAt(b, city.unit));
             const move = {
@@ -144,9 +162,10 @@ export function planProduction(world, strategy, missionsCtx) {
                 autoAttack: false
             };
             vacatedCity = city;
-            if (city.unit.commander === 'minister') {
+            if (minister) {
                 move.returnToCity = { q: city.q, r: city.r, round: world.round };
             }
+            if (mobile !== city.unit) setup.push({ type: 'heavyCannonStance', unitId: city.unit.id });
             setup.push(move, { type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
             gold -= unitCost(world, type);
             if (type === uniqueType) uniqueSlots--;

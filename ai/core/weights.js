@@ -65,7 +65,7 @@ export const TIER_CAPABILITIES = Object.freeze({
         missionPersistence: true,  // 任务与单位编组跨回合锁定
         cardScripts: true,
         conversionCapture: true,
-        transportPlanning: false, // 实测目前是负资产：陆军运去海上喂潜艇
+        transportPlanning: true,  // 海图占领路线与安全登陆
         interceptPricing: true,
         scoutMissions: true,
         multiEscort: true,
@@ -87,6 +87,8 @@ export const W = Object.freeze({
     tradeVetoRatio: 0.45,
     // 高风险行动按略高于均值的承伤估算，给伤害浮动留出余量。
     lethalThreatMargin: 1.15,
+    landingThreatWeight: 0.75,    // 等效回合：风险占己方血量的比例
+    landingReadyBonus: 0.45,      // 等效回合：本回合落陆，下一回合可攻城
     // 攻城任务中"占领者"每提前一回合到位的价值（占城市资产值的比率）。
     siegeEtaTickRatio: 0.06,
     // 守城价值：每座己方城市的守备预算（按城市资产值比率）。

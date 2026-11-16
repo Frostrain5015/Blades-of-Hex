@@ -29,22 +29,21 @@ function byId(world, id) {
 }
 
 /** 占领者挑选：最近的能进城者；有记忆时优先原班人马，避免每回合换人。 */
-function pickOccupier(world, cityTile, preferredId = null, excludeIds = new Set()) {
+function pickOccupier(world, cityTile, preferredId = null, excludeIds = new Set(), captureRoute = null) {
+    const distance = world.navDistance || world.helpers.hexDistance;
     const candidates = world.myUnits
         .filter(unit => isFieldCapturer(world, unit))
         .filter(unit => !excludeIds.has(unit.id))
-        .filter(unit => !['minister', 'astrologer'].includes(unit.commander))
-        .sort((a, b) => {
-            const distOf = world.navDistance || world.helpers.hexDistance;
-            const da = world.isNaval(a) ? world.helpers.hexDistance(a.tile, cityTile) : distOf(a.tile, cityTile);
-            const db = world.isNaval(b) ? world.helpers.hexDistance(b.tile, cityTile) : distOf(b.tile, cityTile);
-            return da - db;
-        });
+        .map(unit => ({ unit, distance: captureRoute
+            ? captureRoute(unit, cityTile)?.turns ?? Infinity
+            : distance(unit.tile, cityTile) }))
+        .filter(candidate => Number.isFinite(candidate.distance))
+        .sort((a, b) => a.distance - b.distance);
     if (preferredId != null) {
-        const remembered = candidates.find(unit => unit.id === preferredId);
-        if (remembered) return remembered;
+        const remembered = candidates.find(candidate => candidate.unit.id === preferredId);
+        if (remembered && (!captureRoute || remembered.distance <= candidates[0].distance + 1)) return remembered.unit;
     }
-    return candidates[0] || null;
+    return candidates[0]?.unit || null;
 }
 
 function pickEscorts(world, occupier, cityTile, count, excludeIds, includeCapturers = false) {
@@ -235,12 +234,14 @@ export function assignMissions(world, strategy) {
     const siegeBudget = strategy.posture === 'allin' ? 1
         : strategy.posture === 'hold' || strategy.posture === 'defend' ? 0
         : Math.min(2, committedRanked.length ? 1 + (world.myUnits.length >= 8 ? 1 : 0) : 0);
-    for (const entry of committedRanked.slice(0, siegeBudget)) {
+    for (const entry of committedRanked) {
+        if (missions.length >= siegeBudget) break;
         const city = entry.city;
         const prior = previous.find(m => m.kind === 'siege'
             && m.targetQ === city.tile.q && m.targetR === city.tile.r);
-        const occupier = pickOccupier(world, city.tile, prior?.occupierId ?? null, assigned);
-        if (!occupier) break;
+        const occupier = pickOccupier(world, city.tile, prior?.occupierId ?? null, assigned, world.captureRoute);
+        if (!occupier) continue;
+        const route = world.captureRoute?.(occupier, city.tile);
         assigned.add(occupier.id);
         const decisive = strategy.posture === 'allin';
         const escortCount = !world.caps.multiEscort ? 1
@@ -252,8 +253,8 @@ export function assignMissions(world, strategy) {
             cityOwned: false,
             cityOccupied: !!city.garrison,
             cityHp: city.hp,
-            occupierDistance: world.helpers.hexDistance(occupier.tile, city.tile),
-            occupierMoveRange: Number(occupier.config?.speed) || 1,
+            occupierDistance: route?.turns ?? world.helpers.hexDistance(occupier.tile, city.tile),
+            occupierMoveRange: route ? 1 : Number(occupier.config?.speed) || 1,
             escortCount: escorts.length
         });
         missions.push({
@@ -262,6 +263,8 @@ export function assignMissions(world, strategy) {
             targetQ: city.tile.q, targetR: city.tile.r,
             cityValue: city.asset.total,
             occupierId: occupier.id,
+            ...(route && { occupierEta: Math.ceil(route.turns) }),
+            ...(route?.landing && { landingQ: route.landing.q, landingR: route.landing.r }),
             escortIds: escorts.map(u => u.id),
             phase: missionState.phase,
             createdRound: prior?.createdRound ?? world.round,
