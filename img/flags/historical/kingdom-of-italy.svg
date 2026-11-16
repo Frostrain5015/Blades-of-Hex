@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
+  <title>Kingdom of Italy tricolour with the Savoy shield</title>
+  <!-- Savoy shield on the tricolour, as used by the Kingdom of Italy.
+       Reference: https://www.quirinale.it/page/tricolore_en -->
+  <path fill="#fff" d="M0 0h900v600H0z"/>
+  <path fill="#009246" d="M0 0h300v600H0z"/>
+  <path fill="#ce2b37" d="M600 0h300v600H600z"/>
+  <path fill="#2373aa" d="M363 195h174v127c0 40-34 70-87 92-53-22-87-52-87-92z"/>
+  <path fill="#ce2b37" d="M376 208h148v114c0 33-28 58-74 78-46-20-74-45-74-78z"/>
+  <path fill="#fff" d="M431 208h38v183l-19 9-19-9zM376 274h148v38H376z"/>
+</svg>

@@ -17,6 +17,24 @@ export const CAMP_FLAG_COLORS = deepFreeze({
     neu: { main: '#888', dark: '#444', light: '#aaa' }
 });
 
+const HISTORICAL_NEUTRAL_COLORS = [
+    { id: 'belgiumSage', label: '灰绿', tile: '#A9BE9A', flag: { main: '#698554', dark: '#374A2E', light: '#BACDAD' } },
+    { id: 'polandSand', label: '暖灰米', tile: '#D5C5A7', flag: { main: '#9C8058', dark: '#5A4630', light: '#E6D6B8' } },
+    { id: 'norwayRose', label: '灰玫瑰', tile: '#CCAAB9', flag: { main: '#A35F79', dark: '#613548', light: '#DFB6CA' } },
+    { id: 'italyMauve', label: '灰紫', tile: '#99839D', flag: { main: '#896B91', dark: '#4B3653', light: '#C1AAC6' } },
+    { id: 'iranJade', label: '灰青', tile: '#A1C4BF', flag: { main: '#47847D', dark: '#294C48', light: '#B8D9D2' } },
+    { id: 'mongoliaClay', label: '黏土红', tile: '#CDA795', flag: { main: '#975E4C', dark: '#5F392E', light: '#E3BCAA' } },
+    { id: 'malayaSlate', label: '灰蓝', tile: '#9AB7C9', flag: { main: '#547F98', dark: '#2C4A5D', light: '#B8D0DC' } },
+    { id: 'indiaOchre', label: '赭金', tile: '#DFC4A0', flag: { main: '#A3723B', dark: '#674422', light: '#EAD0AB' } },
+    { id: 'moroccoTerracotta', label: '陶红', tile: '#D7A99E', flag: { main: '#A45647', dark: '#62342C', light: '#E5BFB6' } },
+    { id: 'saigonLilac', label: '浅灰紫', tile: '#C1B2C9', flag: { main: '#80698F', dark: '#4D3E5B', light: '#D8CBE0' } },
+    { id: 'vietnamRose', label: '灰红', tile: '#D7A3AE', flag: { main: '#A14F63', dark: '#603141', light: '#E8BAC4' } },
+    { id: 'philippinesCoral', label: '浅珊瑚', tile: '#D8ADAC', flag: { main: '#AA6563', dark: '#633B3A', light: '#EAC1BE' } },
+    { id: 'burmaStone', label: '砂灰', tile: '#CDBFA6', flag: { main: '#897655', dark: '#534632', light: '#E2D4BA' } },
+    { id: 'koreaLavender', label: '淡薰衣草', tile: '#C0B7D4', flag: { main: '#79669F', dark: '#47395F', light: '#DCD1EA' } },
+    { id: 'manchukuoSand', label: '浅沙金', tile: '#D8BA8C', flag: { main: '#A47A42', dark: '#604721', light: '#E8CDA4' } }
+];
+
 /**
  * 全局调色板 —— 所有模式共用的阵营外观唯一数据源。
  * 每色包含：地块底色（浅） + 旗帜三阶色（主/暗/亮）。
@@ -37,11 +55,13 @@ export const FACTION_PALETTE = deepFreeze([
     { id: 'usaTeal',     label: '青绿', tile: '#9eead2', flag: { main: '#2db58a', dark: '#136b4f', light: '#64ddb6' } },
     { id: 'franceSky',   label: '浅蓝', tile: '#bfe6fd', flag: { main: '#47a8eb', dark: '#1b659e', light: '#82ccf8' } },
     { id: 'japanOlive',  label: '黄绿', tile: '#e1f0a6', flag: { main: '#92bc29', dark: '#557211', light: '#bbde5e' } },
-    { id: 'germanyGray', label: '深灰', tile: '#99a1aa', flag: { main: '#4b535b', dark: '#22272c', light: '#78828d' } }
+    { id: 'germanyGray', label: '深灰', tile: '#99a1aa', flag: { main: '#4b535b', dark: '#22272c', light: '#78828d' } },
+    ...HISTORICAL_NEUTRAL_COLORS
 ]);
 
 const RESERVED_PRESET_COLOR_IDS = new Set([
-    'gray', 'white', 'snow', 'usaTeal', 'franceSky', 'japanOlive', 'germanyGray'
+    'gray', 'white', 'snow', 'usaTeal', 'franceSky', 'japanOlive', 'germanyGray',
+    ...HISTORICAL_NEUTRAL_COLORS.map(entry => entry.id)
 ]);
 
 export const FACTION_COLOR_KEYS = deepFreeze(FACTION_PALETTE.map(entry => entry.id));

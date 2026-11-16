@@ -474,9 +474,33 @@ function rollNetworkTurnOrder(roles) {
     return { turnOrder: [...groups.flat(), 'neutral'], turnOrderRolls: histories };
 }
 
+function assignNetworkCulturePresets(room, roles, { FLAG_PRESETS, isFlagPreset, getFlagPresetColor }, { rerollAi = false } = {}) {
+    const allPresets = Object.keys(FLAG_PRESETS);
+    const usedPresets = new Set();
+    const assignedPresets = {};
+    const humanFirst = [...roles].sort((a, b) => Number(!!room.aiSlots?.has(a)) - Number(!!room.aiSlots?.has(b)));
+    for (const role of humanFirst) {
+        if (rerollAi && room.aiSlots?.has(role)) continue;
+        const picked = room.factionPresets?.[role];
+        if (isFlagPreset(picked) && !usedPresets.has(picked)) {
+            assignedPresets[role] = picked;
+            usedPresets.add(picked);
+        }
+    }
+    for (const role of humanFirst) {
+        if (assignedPresets[role]) continue;
+        const candidates = allPresets.filter(preset => !usedPresets.has(preset));
+        const chosen = candidates[crypto.randomInt(0, candidates.length)];
+        assignedPresets[role] = chosen;
+        usedPresets.add(chosen);
+    }
+    room.factionPresets = Object.fromEntries(roles.map(role => [role, assignedPresets[role]]));
+    room.factionColors = Object.fromEntries(roles.map(role => [role, getFlagPresetColor(assignedPresets[role]) || DEFAULT_ROLE_COLORS[role]]));
+}
+
 async function createNetworkMatchSetup(room, assignAiFactionColors) {
     const roles = takenRoles(room).sort();
-    const { FLAG_PRESETS, isFlagPreset, getFlagPresetColor } = await flagRulesReady;
+    const flagRules = await flagRulesReady;
     const { FACTION_RULE_MODES, normalizeFactionRuleMode } = await cultureRulesReady;
     const ruleMode = normalizeFactionRuleMode(room.factionRuleMode);
     room.factionRuleMode = ruleMode;
@@ -500,26 +524,7 @@ async function createNetworkMatchSetup(room, assignAiFactionColors) {
         STANDARD_FLAG_EMOJIS.has(room.factionEmojis?.[role]) ? room.factionEmojis[role] : DEFAULT_ROLE_FLAG_EMOJIS[role]
     ]));
     if (ruleMode === FACTION_RULE_MODES.CULTURE) {
-        const allPresets = Object.keys(FLAG_PRESETS);
-        const usedPresets = new Set();
-        const assignedPresets = {};
-        const humanFirst = [...roles].sort((a, b) => (room.aiSlots?.has(a) ? 1 : 0) - (room.aiSlots?.has(b) ? 1 : 0));
-        for (const role of humanFirst) {
-            const picked = room.factionPresets?.[role];
-            if (!room.aiSlots?.has(role) && isFlagPreset(picked) && !usedPresets.has(picked)) {
-                assignedPresets[role] = picked;
-                usedPresets.add(picked);
-            }
-        }
-        for (const role of humanFirst) {
-            if (assignedPresets[role]) continue;
-            const candidates = allPresets.filter(preset => !usedPresets.has(preset));
-            const chosen = candidates[crypto.randomInt(0, candidates.length)] || allPresets[0];
-            assignedPresets[role] = chosen;
-            usedPresets.add(chosen);
-        }
-        room.factionPresets = Object.fromEntries(roles.map(role => [role, assignedPresets[role]]));
-        room.factionColors = Object.fromEntries(roles.map(role => [role, getFlagPresetColor(assignedPresets[role]) || DEFAULT_ROLE_COLORS[role]]));
+        assignNetworkCulturePresets(room, roles, flagRules, { rerollAi: true });
         room.factionNames = Object.fromEntries(roles.map(role => [role, '']));
     } else if (ruleMode === FACTION_RULE_MODES.SYNERGY) {
         const usedColors = new Set();
@@ -542,7 +547,9 @@ async function createNetworkMatchSetup(room, assignAiFactionColors) {
     } else {
         room.factionColors = Object.fromEntries(roles.map(role => [role, room.factionColors?.[role] || DEFAULT_ROLE_COLORS[role]]));
         room.factionColors = assignAiFactionColors(room.factionColors, [...(room.aiSlots?.keys() || [])].sort());
-        room.factionPresets = Object.fromEntries(roles.map(role => [role, room.factionPresets?.[role] || null]));
+        room.factionPresets = Object.fromEntries(roles.map(role => [
+            role, room.aiSlots?.has(role) ? null : room.factionPresets?.[role] || null
+        ]));
         room.factionNames = Object.fromEntries(roles.map(role => [
             role,
             room.aiSlots?.has(role) ? '' : room.factionNames?.[role] || ''
@@ -978,7 +985,8 @@ async function handleMessage(ws, rawData) {
             const role = room?.players.get(ws)?.role;
             if (!room || !role || room.authority?.state) break;
             const hasColor = PLAYER_FACTION_COLORS.has(msg.colorId);
-            const { getFlagPresetColor, normalizeFactionName } = await flagRulesReady;
+            const flagRules = await flagRulesReady;
+            const { getFlagPresetColor, normalizeFactionName } = flagRules;
             const { FACTION_RULE_MODES, normalizeFactionRuleMode } = await cultureRulesReady;
             const ruleMode = normalizeFactionRuleMode(room.factionRuleMode);
             const hasEmoji = STANDARD_FLAG_EMOJIS.has(msg.flagEmoji);
@@ -1032,6 +1040,9 @@ async function handleMessage(ws, rawData) {
             }
             if (ruleMode === FACTION_RULE_MODES.CULTURE) {
                 room.factionNames = { ...(room.factionNames || {}), [role]: '' };
+                if (room.gameStarted && room.aiSlots?.size) {
+                    assignNetworkCulturePresets(room, takenRoles(room).sort(), flagRules);
+                }
             } else if (hasName) {
                 room.factionNames = { ...(room.factionNames || {}), [role]: factionName };
             }

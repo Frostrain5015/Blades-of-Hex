@@ -14,7 +14,7 @@ import {
 } from './perceive.js';
 import { W } from './weights.js';
 import { duelExpectation } from './tactics.js';
-import { isFieldCapturer } from './roster.js';
+import { isFieldCapturer, shouldReserveCityGarrison } from './roster.js';
 
 let missionSerial = 0;
 
@@ -190,7 +190,9 @@ export function assignMissions(world, strategy) {
     const store = missionStore(world);
     const previous = world.caps.missionPersistence ? store : [];
     const missions = [];
-    const assigned = new Set();
+    // 一城领先进入残局时，先从攻城编组里划出在位驻军。
+    const reservedGarrisons = new Set(world.myUnits.filter(unit => shouldReserveCityGarrison(world, unit)).map(unit => unit.id));
+    const assigned = new Set(reservedGarrisons);
 
     // ── 1. 攻城任务（最多 2 条，按资产/ETA 排序）────────────────
     // 任务放弃权：一条攻城任务 6 回合无进展且守备力量明显占优时放弃——
@@ -317,7 +319,7 @@ export function assignMissions(world, strategy) {
             && world.round - capturedRound <= 2;
         const threatened = capturerNear || strategy.posture === 'defend' || freshCapture;
         if (garrison && (world.isCapturable(garrison) || garrison.commander === 'minister')) {
-            if (threatened || world.isImmobile(garrison) || garrison.commander === 'minister'
+            if (threatened || reservedGarrisons.has(garrison.id) || world.isImmobile(garrison) || garrison.commander === 'minister'
                 || strategy.posture === 'hold') {
                 assigned.add(garrison.id);
                 missions.push({

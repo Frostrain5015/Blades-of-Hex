@@ -43,7 +43,7 @@ function svgElement(tag, attributes = {}) {
 }
 
 function colorForCamp(camp, index) {
-    if (camp.campKey === 'neutral') return '#8b8f96';
+    if (camp.campKey === 'neutral' && !camp.neutralThemeId) return '#8b8f96';
     if (camp.colorId) {
         const color = getFlagColors(camp.colorId)?.main;
         if (color) return color;
@@ -322,11 +322,18 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         svg.appendChild(hotspot);
     });
 
-    stats.camps.forEach((camp, index) => {
+    stats.camps.forEach(camp => {
         const item = document.createElement('span');
         item.innerHTML = metric === 'unitShare'
             ? `<i style="--camp-color:${mixHexColor(colors[camp.campKey], '#ffffff', 0.27)}"></i><i style="--camp-color:${mixHexColor(colors[camp.campKey], '#000000', 0.30)}"></i>${escapeHtml(camp.name)}（陆/海）`
             : `<i style="--camp-color:${colors[camp.campKey]}"></i>${escapeHtml(camp.name)}`;
+        if (camp.neutralThemeId && /^img\/flags\/(?:[a-z]+\/)?[a-z0-9-]+\.svg$/.test(camp.flagUrl || '')) {
+            const flag = document.createElement('img');
+            flag.className = 'match-control-legend-flag';
+            flag.src = camp.flagUrl;
+            flag.alt = '';
+            item.prepend(flag);
+        }
         legend.appendChild(item);
     });
     if (stats.battleEvents.length) {

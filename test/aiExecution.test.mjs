@@ -6,7 +6,7 @@ const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
 globalThis.setTimeout = (callback, ms = 0, ...args) =>
     nativeSetTimeout(callback, Math.max(0, Math.round(ms * 0.02)), ...args);
 const { engine } = await import('../core/headless.js');
-const { processOpponentTurn, configureAiRuntime } = await import('../js/ai.js');
+const { processOpponentTurn, processNeutralTurn, configureAiRuntime } = await import('../js/ai.js');
 const { applyRemoteState, refreshInspectionSelection, serializeState, setInspectionTarget } = await import('../js/state.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
 const { CULTURE_CONFIG } = await import('../rules/cultures.js');
@@ -15,7 +15,8 @@ const { getRound } = await import('../rules/turns.js');
 const { isTileVisible, updateFogOfWar } = await import('../js/fogOfWar.js');
 const { isUnitVisibleToCamp } = await import('../rules/visibility.js');
 const { getUndergroundIntelligenceStatus } = await import('../rules/undergroundIntelligence.js');
-const { BURN_MS, attackCityTile, executeBanzaiCharge, executeGuerrillaConcealment, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
+const { BURN_MS, attackCityTile, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
+const { getAirCommandAvailability } = await import('../rules/airCommands.js');
 const { droneProjectiles, HEAVY_CANNON_IMPACT_MS, heavyCannonShells, ringWaves, spawnHeavyCannonShell, updateHeavyCannonShells } = await import('../js/effects.js');
 const { KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, getKatyushaPresentedHealth, katyushaRockets } = await import('../js/effects.js');
 const { startMatchRecording, getCurrentMatchLog } = await import('../js/matchRecorder.js');
@@ -80,6 +81,75 @@ function place(type, camp, tile, commander = null) {
     return unit;
 }
 
+test('中立 AI 停飞，航母不主动攻击，步兵只攻击入境单位且原地防守', async () => {
+    const { me, foe } = setupMatch();
+    const neutral = state.factions.neutral;
+    state.currentCamp = neutral;
+    state.playerGold.neutral = 20;
+    const city = state.tileMap.get('6,0');
+    Object.assign(city, {
+        camp: neutral, isCity: true, isUrban: true, hp: 250, maxHp: 250, districtId: 3,
+        installation: { type: 'airfield', status: 'ready' }
+    });
+    const guard = place('infantry', neutral, city);
+    const inside = state.tileMap.get('5,0');
+    Object.assign(inside, { camp: neutral, districtId: city.districtId });
+    const intruder = place('infantry', foe, inside);
+    intruder.hp = 1;
+    const outside = place('infantry', foe, state.tileMap.get('7,0'));
+    const harbor = state.tileMap.get('7,-1');
+    Object.assign(harbor, { camp: neutral, isPort: true, surface: SURFACE_KIND.SHALLOW_WATER, districtId: 3 });
+    const carrier = place('carrier', neutral, harbor);
+    startMatchRecording(state);
+
+    assert.equal(getAirCommandAvailability('bombing', city, state).available, false);
+    assert.equal(executeAirCommand('bombing', city, outside.tile), false);
+    assert.deepEqual(engine.getAttackableTiles(carrier), []);
+    engine.attackUnit(carrier, intruder);
+    engine.attackUnit(guard, outside);
+    assert.equal(intruder.hp, 1);
+    assert.equal(outside.hp, outside.maxHp);
+
+    await processNeutralTurn();
+
+    assert.equal(inside.unit, null);
+    assert.equal(guard.tile, city);
+    assert.equal(outside.hp, outside.maxHp);
+    assert.ok(getCurrentMatchLog().timeline.every(entry => entry.actionType !== 'airCommand'));
+    state.currentCamp = foe;
+    engine.attackUnit(outside, guard);
+    assert.ok(outside.hp < outside.maxHp, '境外主动来犯时，守军仍可反击');
+    carrier.camp = me;
+    assert.ok(engine.getAttackableTiles(carrier).includes(outside.tile), '航母易帜给玩家后恢复主动攻击');
+});
+
+test('中立岸防炮只对贴近本方海岸且已经威胁守军或港口的舰船开火', () => {
+    const { foe } = setupMatch();
+    const neutral = state.factions.neutral;
+    state.currentCamp = neutral;
+    const city = state.tileMap.get('6,0');
+    Object.assign(city, { camp: neutral, isCity: true, isUrban: true, hp: 250, maxHp: 250, districtId: 3 });
+    place('infantry', neutral, city);
+    const coast = state.tileMap.get('5,0');
+    Object.assign(coast, { camp: neutral, districtId: city.districtId });
+    const battery = place('shoreBattery', neutral, state.tileMap.get('4,0'));
+    const shipAt = (type, q, r) => {
+        const tile = state.tileMap.get(`${q},${r}`);
+        tile.surface = SURFACE_KIND.SHALLOW_WATER;
+        return place(type, foe, tile);
+    };
+    const offshore = shipAt('warship', 4, -2);
+    const passing = shipAt('destroyer', 5, -1);
+    const threatening = shipAt('warship', 6, -1);
+
+    const targets = engine.getAttackableTiles(battery);
+    assert.ok(!targets.includes(offshore.tile), '远离中立海岸的船仍可通过');
+    assert.ok(!targets.includes(passing.tile), '贴岸但射程内没有中立城、港或守军的船仍可通过');
+    assert.ok(targets.includes(threatening.tile), '贴岸且能打到中立城内守军的舰船可被拦截');
+    Object.assign(coast, { isPort: true, surface: SURFACE_KIND.SHALLOW_WATER });
+    assert.ok(engine.getAttackableTiles(battery).includes(passing.tile), '能直接进入中立港口时允许拦截');
+});
+
 test('困难 AI 的守军留在受威胁的前线城，不出城迎战战列舰', async () => {
     const { me, foe, home } = setupMatch();
     state.playerGold.player1 = 0;
@@ -98,6 +168,47 @@ test('困难 AI 的守军留在受威胁的前线城，不出城迎战战列舰'
     assert.equal(garrison.tile, front, '守城任务不能为离城候选提供加分');
     assert.ok(getCurrentMatchLog().timeline.every(entry => entry.actionType !== 'move'
         || entry.payload.unitId !== garrison.id));
+});
+
+test('帝国统帅的陆战队击杀贴城炮兵后留在零城防的中城', async () => {
+    const { me, foe, home } = setupMatch();
+    state.playerGold.player1 = 0;
+    place('infantry', me, home).canAct = false;
+    const front = state.tileMap.get('6,0');
+    Object.assign(front, { camp: me, isCity: true, isUrban: true, hp: 0, maxHp: 250, districtId: 3 });
+    const marine = place('us_marine', me, front);
+    const artillery = place('archer', foe, state.tileMap.get('6,-1'));
+    artillery.hp = 1;
+    place('infantry', foe, state.tileMap.get('7,0'));
+    startMatchRecording(state);
+
+    await processOpponentTurn(me);
+
+    const attack = getCurrentMatchLog().timeline.find(entry => entry.actionType === 'attack'
+        && entry.payload.attackerUnitId === marine.id && entry.payload.targetUnitId === artillery.id);
+    assert.ok(attack?.payload.killed, '驻军仍应击杀炮兵');
+    assert.equal(front.unit?.id, marine.id, '击杀后应继续堵住零城防的城市');
+});
+
+test('残局领先一城时留住驻军，让其他部队去占邻近的空城', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    state.turnCounter = 11 * state.turnOrder.length;
+    state.playerGold.player1 = 0;
+    place('infantry', me, home).canAct = false;
+    place('infantry', foe, enemyCity).canAct = false;
+    const front = state.tileMap.get('6,0');
+    Object.assign(front, { camp: me, isCity: true, isUrban: true, hp: 25, maxHp: 250, districtId: 3 });
+    const guard = place('infantry', me, front);
+    const opening = state.tileMap.get('7,0');
+    Object.assign(opening, { camp: state.factions.neutral, isCity: true, isUrban: true, hp: 0, maxHp: 250, districtId: 4 });
+    const free = place('infantry', me, state.tileMap.get('8,0'));
+    startMatchRecording(state);
+
+    await processOpponentTurn(me);
+
+    assert.equal(front.unit?.id, guard.id, '领先时不从在位驻军抽调占领者');
+    const capture = getCurrentMatchLog().timeline.find(entry => entry.eventType === 'cityCaptured');
+    assert.equal(capture?.payload.attackerUnitId, free.id);
 });
 
 test('困难 AI 有舰炮压城时提前调动占领步兵，避开旁支交战', async () => {

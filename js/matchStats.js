@@ -372,6 +372,11 @@ export function buildMatchStats(log) {
             controller: participant.controller || 'unknown',
             colorId: participant.colorId || null,
             flagEmoji: participant.flagEmoji || null,
+            ...(participant.neutralThemeId ? {
+                neutralThemeId: participant.neutralThemeId,
+                neutralThemePeriod: participant.neutralThemePeriod || null,
+                flagUrl: participant.flagUrl || null
+            } : {}),
             ...emptyCombatStats(),
             initialForce: forceSnapshot(initialUnits, campKey),
             finalForce: forceSnapshot(finalUnits, campKey),

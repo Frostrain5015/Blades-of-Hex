@@ -26,6 +26,7 @@ import { canAttack } from './diplomacy.js';
 import { canAirCommandAirdropAt, canTargetWithSingleAirCommand, getAirCommandRange, isAirfieldGrounded } from './airCommands.js';
 import { isCitySiegeBlocked } from './citySiege.js';
 import { isHealingBlocked } from './healing.js';
+import { canNeutralAttackTile } from './neutralDefense.js';
 
 export const TARGET_INTENTS = Object.freeze({
     HOSTILE: 'hostile',
@@ -123,6 +124,7 @@ export function getBanzaiChargePath(unit, targetTile, state) {
     const target = targetTile?.unit;
     if (!from || unit.type !== 'jp_samurai' || unit.isEmbarked || !target
         || target._campaignTargetable === false || !canAttack(state, unit.camp, target.camp)
+        || !canNeutralAttackTile(state, unit, targetTile)
         || !isUnitVisibleToCamp(target, unit.camp, state) || !isLandTile(targetTile)
         || state?.tileMap?.get(targetingTileKey(targetTile)) !== targetTile) return null;
 

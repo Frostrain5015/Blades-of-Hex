@@ -10,7 +10,7 @@ import {
     recalcAllFlankingMorale, drawCard, recordAuxiliaryAction, canReachCityAfterBreach, estimateAirCommandDamage
 } from './gameLogic.js';
 import { getRiverGate, getRiverGateOpenLane, canSwitchRiverGate, chooseRiverGateLane } from '../rules/riverGate.js';
-import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD, FORTIFICATION_CONFIG } from './config.js';
+import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD } from './config.js';
 import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
 import { hasSameTypeBuildingWithin } from '../rules/construction.js';
 import { isNetworkGame } from './network.js';
@@ -620,68 +620,20 @@ async function _executeActionInner(action, aiCamp) {
 
     const campKey = campToKey(aiCamp);
 
-    // 自动攻击辅助：从可攻击目标中选最优，返回是否执行了攻击。
-    // 中立方曾在这里额外要求目标落在行政区 {3,4,5} 内，那既写死了地图又把
-    // 水面目标全部排除（水格没有 districtId），是岸防炮对敌舰不开火的成因之一。
-    // 交战资格由外交表和引擎射程决定，与目标脚下那一格属于谁无关。
-    //
-    // 判据用 canAttack 而不是 isHostile：getAttackableTiles 本身就是按 canAttack
-    // 过滤出来的，再用更严的 isHostile 筛一遍，等于主动放弃一次已经到嘴边的合法攻击
-    // ——中立与玩家的 relation 是 'neutral'，isHostile 恒假，双方擦肩而过谁也不开枪。
+    // 中立守军只执行事先规划的防御攻击，调防或击杀后不自动追击。
     async function _autoAttack(unit) {
-        if (!unit.canAct || !unit.tile || unit.hp <= 0) return false;
-        if (campKey !== 'neutral') {
-            const profile = resolveAiDifficultyProfile(gameState, aiCamp);
-            const followup = planFollowupAttack(gameState, makeHelpers(aiCamp, profile), aiCamp,
-                TIER_CAPABILITIES[profile.id], unit.id);
-            if (!followup) return false;
-            const target = resolveUnit(followup.targetId);
-            if (!target?.tile || !getAttackableTiles(unit, AI_TARGETING).includes(target.tile)) return false;
-            await delay(AI_DELAY);
-            if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, gameState)) {
-                executeGuerrillaConcealment(unit);
-            }
-            attackUnit(unit, target, AI_TARGETING);
-            return true;
-        }
-        const atkTiles = getAttackableTiles(unit);
-        const targets = atkTiles.filter(t => t.unit && canAttack(gameState, aiCamp, t.unit.camp));
-        if (targets.length === 0) return false;
-
-        const COUNTER = {
-            infantry: { archer: 0.75, cavalry: 1.25, mgNest: 0.75, drone: 1 },
-            archer: { cavalry: 0.75, infantry: 1.25, mgNest: 1.25, drone: 1 },
-            cavalry: { infantry: 0.75, archer: 1.25, mgNest: 0.75, drone: 1 },
-            mgNest: { infantry: 1.25, archer: 0.75, cavalry: 1.25, drone: 1 },
-            drone: { infantry: 1.25, archer: 1, cavalry: 1, mgNest: 1, drone: 1 }
-        };
-        // 数值对齐 rules/：地形防御 forest/mountain 均 0.05，步兵守城 +0.10（雨天再 +0.10），克制 ±0.20，士气浮动 ±7.5%
-        const TERRAIN_DEF = { plains: 0, forest: 0.05, mountain: 0.05 };
-        let best = targets[0];
-        let bestScore = -Infinity;
-        for (const t of targets) {
-            const target = t.unit;
-            const aBase = getUnitBaseType(unit);
-            const tBase = getUnitBaseType(target);
-            const c = (COUNTER[aBase] && COUNTER[aBase][tBase]) || 1;
-            const tDef = (TERRAIN_DEF[target.tile.terrain] || 0)
-                + (FORTIFICATION_CONFIG[target.tile.fortification]?.defenseBonus || 0);
-            const cityDef = (tBase === 'infantry' && (target.tile.isCity || target.tile.isUrban))
-                ? (gameState.weather === 'rain' ? 0.20 : 0.10) : 0;
-            const unitDef = target.config.defense || 0;
-            // 士气攻击加成已含在 getEffectiveAttack 内，不再单独估算
-            const counterFloat = c > 1 ? 1.20 : c < 1 ? 0.80 : 1.0;
-            const estDmg = unit.getEffectiveAttack() * counterFloat * Math.max(0.3, 1 - tDef - cityDef - unitDef);
-            let score = 0;
-            if (estDmg >= target.hp + (target._shield || 0)) score += 200;
-            score += (1 - target.hp / target.maxHp) * 60;
-            if (c > 1) score += 30;
-            if (target.hp <= 25) score += 40;
-            if (score > bestScore) { bestScore = score; best = t; }
-        }
+        if (campKey === 'neutral' || !unit.canAct || !unit.tile || unit.hp <= 0) return false;
+        const profile = resolveAiDifficultyProfile(gameState, aiCamp);
+        const followup = planFollowupAttack(gameState, makeHelpers(aiCamp, profile), aiCamp,
+            TIER_CAPABILITIES[profile.id], unit.id);
+        if (!followup) return false;
+        const target = resolveUnit(followup.targetId);
+        if (!target?.tile || !getAttackableTiles(unit, AI_TARGETING).includes(target.tile)) return false;
         await delay(AI_DELAY);
-        gameState.attackableTiles = atkTiles;
-        attackUnit(unit, best.unit);
+        if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, gameState)) {
+            executeGuerrillaConcealment(unit);
+        }
+        attackUnit(unit, target, followup.holdPosition ? { ...AI_TARGETING, holdPosition: true } : AI_TARGETING);
         return true;
     }
 
@@ -692,16 +644,19 @@ async function _executeActionInner(action, aiCamp) {
             if (!unit || !target || !unit.canAct || !unit.tile || !target.tile) return;
             const aiAtkTiles = getAttackableTiles(unit, AI_TARGETING);
             if (aiAtkTiles.includes(target.tile)) {
+                let attackOptions = AI_TARGETING;
                 if (campKey !== 'neutral') {
                     const profile = resolveAiDifficultyProfile(gameState, aiCamp);
-                    if (!planFollowupAttack(gameState, makeHelpers(aiCamp, profile), aiCamp,
-                        TIER_CAPABILITIES[profile.id], unit.id, target.id)) return false;
+                    const planned = planFollowupAttack(gameState, makeHelpers(aiCamp, profile), aiCamp,
+                        TIER_CAPABILITIES[profile.id], unit.id, target.id);
+                    if (!planned) return false;
+                    if (planned.holdPosition) attackOptions = { ...AI_TARGETING, holdPosition: true };
                 }
                 await delay(AI_DELAY);
                 if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, gameState)) {
                     executeGuerrillaConcealment(unit);
                 }
-                attackUnit(unit, target, AI_TARGETING);
+                attackUnit(unit, target, attackOptions);
                 // 百夫长乘胜 / 击杀后再行动：循环追击直到无法行动（最多3次防死循环）
                 for (let chain = 0; chain < 3 && unit.canAct && unit.tile && unit.hp > 0; chain++) {
                     if (!(await _autoAttack(unit))) break;
@@ -944,11 +899,6 @@ export async function processNeutralTurn() {
     if (gameState.skirmishFog) updateFogOfWar(gameState, aiCamp);
     try {
 
-        const difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp);
-        const stukaSorties = new Map();
-        await runV2Infrastructure(aiCamp, difficultyProfile, stukaSorties);
-        await runAiFieldFortifications(aiCamp, difficultyProfile);
-
         const helpers = makeHelpers(aiCamp);
         const actions = corporalPersonality.planActions(gameState, helpers, aiCamp);
 
@@ -960,21 +910,6 @@ export async function processNeutralTurn() {
             await executeAction(actions[i], aiCamp);
         }
 
-        await runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, true);
-
-        // 兜底：只补一座空城，且必须是中立自己的城。
-        // 这里过去写死了行政区 {3,4,5}，在无主航路上从未命中（中立城在 5~10 区）；
-        // 现在按实际归属判定。同时刻意保持每回合一座的节流——中立能无限回填守军，
-        // 会把「拿下中立城」变成让所有玩家一起难受的消耗战。
-        const [emptyCity] = gameState.tiles.filter(t => t.isCity && !t.unit && t.camp === aiCamp);
-        if (emptyCity && !gameState.gameOver && gameState.currentCamp === aiCamp && gameState.aiActing) {
-            const unitType = helpers.recruitTypesForCity(emptyCity, ['infantry'])
-                .find(type => gameState.playerGold.neutral >= UNIT_CONFIG[type].cost);
-            if (unitType) {
-                await executeAction(
-                    { type: 'recruit', unitType, tileQ: emptyCity.q, tileR: emptyCity.r }, aiCamp);
-            }
-        }
     } finally {
         gameState.aiActing = false;
     }

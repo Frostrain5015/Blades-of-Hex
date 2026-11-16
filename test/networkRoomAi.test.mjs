@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import WebSocket from 'ws';
+import { waitFor } from './lib/helpers.mjs';
 import roomAi from '../server/roomAi.js';
 
 const { AI_DRIVER_ROLE, isValidAiDifficulty, aiSlotCount, humanCapacity, isRoomFull, firstFreeRole, takenRoles } = roomAi;
@@ -77,4 +82,42 @@ test('isValidAiDifficulty: easy/medium/hard 通过,其他拒绝', () => {
     for (const id of ['', 'EASY', 'Easy', 'nightmare', null, undefined, 0, 'easy ']) {
         assert.equal(isValidAiDifficulty(id), false, `应拒绝: ${String(id)}`);
     }
+});
+
+test('历史文化房间的玩家可以选取 AI 的暂定国旗，服务器只改派冲突席位', { timeout: 15000 }, async t => {
+    const probe = createServer();
+    probe.listen(0, '127.0.0.1');
+    await once(probe, 'listening');
+    const { port } = probe.address();
+    await new Promise(resolve => probe.close(resolve));
+    const server = spawn(process.execPath, ['server.js'], {
+        env: { ...process.env, PORT: String(port), HTTPS_PORT: '0' }, stdio: 'ignore'
+    });
+    t.after(() => server.kill());
+    await waitFor(async () => (await fetch(`http://127.0.0.1:${port}/discover`)).ok, 5000, '测试服务器');
+
+    const client = new WebSocket(`ws://127.0.0.1:${port}`);
+    t.after(() => client.terminate());
+    const inbox = [];
+    client.on('message', raw => inbox.push(JSON.parse(raw.toString())));
+    await once(client, 'open');
+    const send = message => client.send(JSON.stringify(message));
+    send({ type: 'createRoom', maxPlayers: 3, factionRuleMode: 'culture', doubleCommanderMode: true });
+    await waitFor(() => inbox.some(message => message.type === 'roomCreated'), 5000, '创建历史文化房间');
+    send({ type: 'addAi', difficultyId: 'hard' });
+    send({ type: 'addAi', difficultyId: 'medium' });
+    await waitFor(() => inbox.some(message => message.type === 'roomUpdate' && message.players.length === 3), 5000, '填满 AI 席位');
+    send({ type: 'ready' });
+    await waitFor(() => inbox.some(message => message.type === 'start'), 5000, '进入选将');
+    const start = inbox.find(message => message.type === 'start');
+    const aiFlag = start.factionPresets[start.roleAssignments.player2];
+    const otherAiFlag = start.factionPresets[start.roleAssignments.player3];
+    send({ type: 'factionColor', flagPreset: aiFlag });
+    await waitFor(() => inbox.some(message => message.type === 'factionColors'), 5000, '同步玩家国旗');
+    const { factionPresets, factionColors } = inbox.findLast(message => message.type === 'factionColors');
+    assert.equal(factionPresets.player1, aiFlag);
+    assert.notEqual(factionPresets.player2, aiFlag);
+    assert.equal(factionPresets.player3, otherAiFlag);
+    assert.equal(new Set(Object.values(factionPresets)).size, 3);
+    assert.equal(new Set(Object.values(factionColors)).size, 3);
 });

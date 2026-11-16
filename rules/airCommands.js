@@ -7,6 +7,7 @@ import { isCityDisabled } from './citySiege.js';
 import { getHistoricalCost, hasNegativeWeatherImmunity, isCampCulture } from './cultures.js';
 import { canAttack } from './diplomacy.js';
 import { isUnitVisibleToCamp } from './visibility.js';
+import { isNeutralAi } from './neutralDefense.js';
 import astrologerDef from '../commander/astrologer.js';
 
 export const AIRFIELD_BASE_RANGE = 8;
@@ -111,6 +112,7 @@ export function getAirCommandCost(kind, cityTile, state) {
 }
 
 export function getAirCommandAvailability(kind, cityTile, state) {
+    if (isNeutralAi(cityTile?.camp)) return { available: false, reason: '中立守军不执行空军指令' };
     const config = AIR_COMMAND_CONFIG[kind];
     const installation = cityTile?.installation;
     if (!config || !cityTile?.isCity || installation?.type !== 'airfield') return { available: false, reason: '没有机场' };

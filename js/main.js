@@ -7,11 +7,12 @@ import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSp
 import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, startAirdropPresentation, getRiverGateSwitchMessage, BURN_MS } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
-import { connectToServer, setNetworkCallbacks, getMyRole, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, sendAddAi, sendRemoveAi, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
+import { connectToServer, setNetworkCallbacks, getMyRole, getMatchSeed, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, sendAddAi, sendRemoveAi, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
 import { COMMANDER_REROLL_COST } from './config.js';
 import { COMMANDER_DRAFT } from '../rules/constants.js';
+import { applyHistoricalNeutralAppearance } from '../rules/historicalNeutral.js';
 import { STANDARD_MAP_FAMILIES } from '../rules/standardMaps.js';
-import { COMMANDER_PREFERENCE } from '../ai/doctrine.js';
+import { selectCommander, selectCommanderPair } from '../ai/doctrine.js';
 // 等待室「添加 AI」的人格选项直接从人格脚本 meta 派生（轻量，不经过 js/ai.js 战斗执行层）。
 import { meta as optioMeta } from '../ai/optio.js';
 import { meta as legatusMeta } from '../ai/legatus.js';
@@ -146,7 +147,8 @@ function _applySavedFlagCustomizations(factionKeys, preferenceKey = null) {
         if (!synergyMode) {
             const presetColor = getFlagPresetColor(entry.preset);
             const alreadyLocked = Object.entries(gameState.factions || {}).some(([key, faction]) =>
-                key !== factionKey && faction.active !== false && getFlagPresetColor(faction.flagPreset) === presetColor);
+                key !== factionKey && faction.active !== false && faction.controller !== 'ai'
+                && getFlagPresetColor(faction.flagPreset) === presetColor);
             if (presetColor && !alreadyLocked && setPlayerFactionFlagPreset(gameState, factionKey, entry.preset)) changed = true;
         }
         if (gameState.factions?.[factionKey]?.colorId) {
@@ -156,9 +158,9 @@ function _applySavedFlagCustomizations(factionKeys, preferenceKey = null) {
     return changed;
 }
 
-function _applyFactionRuleDefaults({ randomizeAi = false } = {}) {
+function _applyFactionRuleDefaults({ randomizeAi = false, includeAi = true } = {}) {
     if (isCultureSystemEnabled(gameState)) {
-        ensureCultureFactionPresets(gameState, { randomizeAi });
+        ensureCultureFactionPresets(gameState, { randomizeAi, includeAi });
     } else if (isFactionSynergyRuleActive(gameState)) {
         resetCulturePresetsToCustomFlags(gameState);
     }
@@ -846,10 +848,19 @@ function showFactionReveal(role) {
 }
 
 function _revealTurnOrder(onComplete) {
+    if (gameState.gameMode === 'pve' && !isNetworkGame() && isCultureSystemEnabled(gameState)) {
+        _applyFactionRuleDefaults({ randomizeAi: true });
+    }
     _assignAutomaticFactionColors();
     if (!isNetworkGame()) rollFactionTurnOrder(gameState, gameState.rng);
+    const neutral = applyHistoricalNeutralAppearance(gameState);
     const overlay = document.getElementById('factionReveal');
     const flags = document.getElementById('factionRevealFlags');
+    const neutralNote = document.getElementById('factionRevealNeutralNote');
+    if (neutralNote) {
+        neutralNote.hidden = !neutral;
+        neutralNote.textContent = neutral ? `${neutral.neutralThemePeriod} 年 · ${neutral.note}` : '';
+    }
     const players = (gameState.turnOrder || []).filter(key => key !== 'neutral');
     if (!overlay || !flags || players.length === 0) {
         onComplete();
@@ -862,7 +873,8 @@ function _revealTurnOrder(onComplete) {
     _factionRevealAnimationFrame = null;
     flags.replaceChildren();
     const previews = [];
-    players.forEach((key, index) => {
+    const revealKeys = neutral ? [...players, 'neutral'] : players;
+    revealKeys.forEach((key, index) => {
         const faction = gameState.factions?.[key] || {};
         const card = document.createElement('div');
         card.className = 'faction-reveal-flag';
@@ -1503,8 +1515,7 @@ function beginPVECommanderPhase(humanRole) {
     gameState.standardMapId = savedStandardMapId;
     configureSkirmishState({ playerCount: 2, controllers: { player1: 'human', player2: 'ai' } });
     _applySavedFlagCustomizations(['player1']);
-    _applyFactionRuleDefaults({ randomizeAi: true });
-    _assignAutomaticFactionColors();
+    _applyFactionRuleDefaults({ randomizeAi: true, includeAi: false });
     gameState.aiOpponentCamp = campFromKey('player2', gameState);
     _commanderTransitioning = false;
     const pool = shuffleAndSplitPool(false, savedDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
@@ -1519,37 +1530,15 @@ function beginPVECommanderPhase(humanRole) {
 
 let _pveHumanRole = null;
 
-// AI 快速选将：从池中按进攻偏好选择。偏好表取自条令层，三档 AI 共用同一份，
-// 末尾几位是条令表未覆盖的将领，按可用性兜底排在最后。
-const _COMMANDER_PREF = [...COMMANDER_PREFERENCE, 'engineer', 'tianyan', 'martyr'];
-function _pveAIQuickPick(forPlayer) {
+function _pickAiCommanders(forPlayer) {
     const pool = _forPlayerPool(forPlayer);
-    const picks = [];
-    if (gameState.doubleCommanderMode) {
-        const rank = new Map(_COMMANDER_PREF.map((id, index) => [id, index]));
-        const synergyPairs = [];
-        for (let left = 0; left < pool.length; left++) {
-            for (let right = left + 1; right < pool.length; right++) {
-                const leftSynergy = getCommanderFactionSynergy(pool[left]);
-                const rightSynergy = getCommanderFactionSynergy(pool[right]);
-                if (!leftSynergy || leftSynergy.id !== rightSynergy?.id) continue;
-                synergyPairs.push([pool[left], pool[right]]);
-            }
-        }
-        synergyPairs.sort((left, right) =>
-            left.reduce((sum, id) => sum + (rank.get(id) ?? 999), 0)
-            - right.reduce((sum, id) => sum + (rank.get(id) ?? 999), 0));
-        if (synergyPairs[0]) picks.push(...synergyPairs[0]);
+    const options = { rng: gameState.rng, preferSynergy: isFactionSynergyRuleActive(gameState) };
+    const picks = gameState.doubleCommanderMode
+        ? selectCommanderPair(pool, options)
+        : [selectCommander(pool, options)];
+    for (const commanderId of picks) {
+        if (commanderId) _selectCommander(forPlayer, commanderId);
     }
-    for (const pref of _COMMANDER_PREF) {
-        if (pool.includes(pref) && !picks.includes(pref)) picks.push(pref);
-        if (picks.length === (gameState.doubleCommanderMode ? 2 : 1)) break;
-    }
-    for (const commanderId of pool) {
-        if (!picks.includes(commanderId)) picks.push(commanderId);
-        if (picks.length === (gameState.doubleCommanderMode ? 2 : 1)) break;
-    }
-    for (const commanderId of picks) _selectCommander(forPlayer, commanderId);
 }
 
 function _forPlayerCampName(forPlayer) {
@@ -1688,10 +1677,11 @@ function _renderFactionColorPicker(forPlayer, locked = false) {
     const synergyMode = isFactionSynergyRuleActive(gameState);
     const occupied = new Set(Object.entries(gameState.factionColorSelections || {})
         .filter(([key]) => {
-            if (key === forPlayer || gameState.factions?.[key]?.active === false) return false;
-            if (isNetworkGame()) return cultureMode || !Object.hasOwn(_networkAiSeats, key);
+            const other = gameState.factions?.[key];
+            if (key === forPlayer || !other || other.active === false || other.controller === 'ai') return false;
+            if (isNetworkGame()) return true;
             const slots = _commanderSlots[key];
-            return !!gameState.factions?.[key]?.flagPreset || (slots ? gameState[slots.primaryConfirmed] === true : false);
+            return !!other.flagPreset || (slots ? gameState[slots.primaryConfirmed] === true : false);
         })
         .map(([, colorId]) => colorId));
     picker.innerHTML = '';
@@ -1926,12 +1916,14 @@ function beginNetworkCommanderFlow(role) {
     const myCampKey = gameState.roleAssignments?.[myRole] || myRole;
     if (myRole === 'player1') {
         const is3P = gameState.isThreePlayer;
+        const matchSeed = getMatchSeed();
+        if (matchSeed !== null) gameState.rng.setState(matchSeed);
         const pool = shuffleAndSplitPool(is3P, wasDoubleCommanderMode ? COMMANDER_DRAFT.dualCandidatesPerPlayer : COMMANDER_DRAFT.candidatesPerPlayer, gameState.rng);
         gameState.commanderPoolP1 = pool.p1;
         gameState.commanderPoolP2 = pool.p2;
         if (is3P) gameState.commanderPoolP3 = pool.p3 || [];
         // AI 占位席位（阵营键）：房主代为选将并确认（双将模式自动选两名），随 commanderSync 扩散到各端
-        for (const aiCampKey of Object.keys(_networkAiSeats)) _pveAIQuickPick(aiCampKey);
+        for (const aiCampKey of Object.keys(_networkAiSeats)) _pickAiCommanders(aiCampKey);
         // 三个席位的选将都必须如实广播（含 P1）：AI 恰好分到 P1 阵营时，
         // 写死 null/false 会让其他端永远等不到该席确认，开局卡死
         syncCommanderState(
@@ -2542,7 +2534,7 @@ function _onCommanderSelected(forPlayer) {
         };
         if (_pveHumanRole === 'player1' && forPlayer === 'player1') {
             // 人类 P1 选完，AI 选 P2
-            _pveAIQuickPick('player2');
+            _pickAiCommanders('player2');
             setTimeout(() => {
                 beginSelectedMatch();
             }, 800);

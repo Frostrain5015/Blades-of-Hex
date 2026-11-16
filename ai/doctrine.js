@@ -15,6 +15,7 @@ import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus } from '../rules/kmtStron
 import { GUERRILLA_CONCEALMENT_CONFIG, getFireSeaDefenseReduction, getGuerrillaConcealmentReason, getNeverSurrenderAttackBonus, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
 import { isStealthGuerrilla } from '../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense, getUnitCombatRange, TRANSPORT_RULES } from '../rules/movement.js';
 
 export const BERSERKER_BALANCE = COMMANDER_CONFIG.berserker.balance;
@@ -286,43 +287,52 @@ export function shouldPlanActiveSkill(unit, {
     return false;
 }
 
-export function selectCommander(pool) {
-    for (const pref of COMMANDER_PREFERENCE) {
-        if (pool.includes(pref)) return pref;
+const preferenceRank = new Map(COMMANDER_PREFERENCE.map((id, index) => [id, index]));
+const commanderRank = id => preferenceRank.get(id) ?? COMMANDER_PREFERENCE.length;
+const commanderWeight = id => 1 / (1 + commanderRank(id) * 0.12);
+
+function pickWeighted(candidates, rng, weightOf) {
+    if (!candidates.length) return undefined;
+    const weights = candidates.map(weightOf);
+    let roll = rng.next() * weights.reduce((total, weight) => total + weight, 0);
+    for (let index = 0; index < candidates.length - 1; index++) {
+        roll -= weights[index];
+        if (roll < 0) return candidates[index];
     }
-    return pool[0];
+    return candidates.at(-1);
 }
 
-export function selectCommanderPair(pool) {
+export function selectCommander(pool, { rng } = {}) {
     const candidates = [...new Set(pool || [])];
-    const preferenceRank = new Map(COMMANDER_PREFERENCE.map((id, index) => [id, index]));
-    const synergyGroups = [
-        new Set(['ironGuard', 'minister', 'advisor', 'centurion', 'berserker']),
-        new Set(['colonel', 'engineer', 'tianyan']),
-        new Set(['priest', 'martyr', 'paladin', 'fallenAngel']),
-        new Set(['vampire', 'necromancer', 'magician']),
-        new Set(['astrologer', 'staller', 'diplomat'])
-    ];
+    if (rng) return pickWeighted(candidates, rng, commanderWeight);
+    return candidates.sort((a, b) => commanderRank(a) - commanderRank(b))[0];
+}
+
+export function selectCommanderPair(pool, { rng, preferSynergy = true } = {}) {
+    const candidates = [...new Set(pool || [])];
     const pairs = [];
     for (let left = 0; left < candidates.length; left++) {
         for (let right = left + 1; right < candidates.length; right++) {
-            const pair = [candidates[left], candidates[right]];
-            if (!synergyGroups.some(group => pair.every(id => group.has(id)))) continue;
-            pairs.push(pair);
+            const first = candidates[left];
+            const second = candidates[right];
+            if ((first === 'colonel' && second === 'diplomat') || (first === 'diplomat' && second === 'colonel')) continue;
+            const faction = preferSynergy && getCommanderFactionSynergy(first);
+            const synergy = !!faction && faction.id === getCommanderFactionSynergy(second)?.id;
+            pairs.push({ commanders: [first, second], synergy });
         }
     }
-    if (pairs.length > 0) {
-        pairs.sort((left, right) => {
-            const score = pair => pair.reduce((sum, id) => sum + (preferenceRank.get(id) ?? 999), 0);
-            return score(left) - score(right);
-        });
-        return pairs[0].sort((left, right) =>
-            (preferenceRank.get(left) ?? 999) - (preferenceRank.get(right) ?? 999));
+    if (pairs.length === 0) {
+        const commander = selectCommander(candidates, { rng });
+        return commander ? [commander] : [];
     }
-    const first = selectCommander(candidates);
-    const incompatible = first === 'colonel' ? 'diplomat' : first === 'diplomat' ? 'colonel' : null;
-    const second = selectCommander(candidates.filter(id => id !== first && id !== incompatible));
-    return [first, second].filter(Boolean);
+    const rankSum = pair => pair.commanders.reduce((sum, id) => sum + commanderRank(id), 0);
+    const chosen = rng
+        ? pickWeighted(pairs, rng, pair => {
+            const [first, second] = pair.commanders;
+            return commanderWeight(first) * commanderWeight(second) * (pair.synergy ? 2.5 : 1);
+        })
+        : pairs.sort((a, b) => Number(b.synergy) - Number(a.synergy) || rankSum(a) - rankSum(b))[0];
+    return chosen.commanders.sort((a, b) => commanderRank(a) - commanderRank(b));
 }
 
 // ═══════════════════════════════════════════

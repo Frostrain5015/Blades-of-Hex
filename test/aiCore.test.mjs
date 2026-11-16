@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 
 import { HEX_NEIGHBORS, hexDistance } from '../rules/hex.js';
 import { UNIT_CONFIG } from '../rules/units.js';
+import { createRng } from '../core/rng.js';
+import { selectCommander, selectCommanderPair } from '../ai/doctrine.js';
 import {
     TIER_CAPABILITIES,
     W,
@@ -21,6 +23,24 @@ import { estimateCaptureEta } from '../ai/core/strategize.js';
 import { rankCityObjectives } from '../ai/core/perceive.js';
 
 // ── 权重与估值 ────────────────────────────────────────────────
+
+test('同一候选池可选出多组 AI 将领，同一种子复现，禁配将领不会同时入选', () => {
+    const pool = ['vampire', 'berserker', 'ironGuard', 'colonel', 'diplomat'];
+    const singles = new Set();
+    const pairs = new Set();
+    for (let seed = 1; seed <= 48; seed++) {
+        const opts = () => ({ rng: createRng(seed), preferSynergy: true });
+        singles.add(selectCommander(pool, opts()));
+        const pair = selectCommanderPair(pool, opts());
+        assert.deepEqual(pair, selectCommanderPair(pool, opts()));
+        assert.equal(new Set(pair).size, 2);
+        assert.ok(pair.every(id => pool.includes(id)));
+        assert.ok(!(pair.includes('colonel') && pair.includes('diplomat')));
+        pairs.add([...pair].sort().join(','));
+    }
+    assert.ok(singles.size >= 4);
+    assert.ok(pairs.size >= 5);
+});
 
 test('金币量纲：伤害/击杀/反击按每 HP 金价折算', () => {
     const infantry = { type: 'infantry', hp: 180, maxHp: 180, config: UNIT_CONFIG.infantry };

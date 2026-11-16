@@ -172,6 +172,11 @@ function initialParticipants(state) {
         colorId: faction?.colorId || null,
         flagEmoji: faction?.flagEmoji || null,
         flagPreset: faction?.flagPreset || null,
+        ...(faction?.neutralThemeId ? {
+            neutralThemeId: faction.neutralThemeId,
+            neutralThemePeriod: faction.neutralThemePeriod,
+            flagUrl: faction.flagUrl
+        } : {}),
         commanderIds: commanderSlots(state, campKey),
         participatesInTurns: faction?.participatesInTurns !== false,
         active: faction?.active !== false

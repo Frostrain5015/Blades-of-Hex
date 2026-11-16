@@ -48,6 +48,23 @@ const [
 
 const { buildUnitEffectItems } = effectItemsModule;
 
+test('单人选将时留出全部国旗，确认后为 AI 分配其余阵营', () => {
+    const state = stateModule.createMatchState();
+    state.factionRuleMode = 'culture';
+    stateModule.configureStandardMatch(state, { controllers: { player1: 'human', player2: 'ai' } });
+    const { ensureCultureFactionPresets, setPlayerFactionFlagPreset, FLAG_PRESETS } = diplomacyModule;
+    ensureCultureFactionPresets(state, { includeAi: false });
+    assert.ok(Object.hasOwn(FLAG_PRESETS, state.factions.player1.flagPreset));
+    assert.equal(state.factions.player2.flagPreset, null);
+
+    const selected = 'img/flags/svg/gb.svg';
+    assert.ok(setPlayerFactionFlagPreset(state, 'player1', selected));
+    ensureCultureFactionPresets(state, { randomizeAi: true });
+    assert.equal(state.factions.player1.flagPreset, selected);
+    assert.ok(Object.hasOwn(FLAG_PRESETS, state.factions.player2.flagPreset));
+    assert.notEqual(state.factions.player2.colorId, state.factions.player1.colorId);
+});
+
 const {
     FACTION_RULE_MODES,
     NEVER_SURRENDER_CONFIG,

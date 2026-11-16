@@ -1,37 +1,11 @@
-// Corporal —— 中立阵营指挥官。
-//
-// 定位：**守土的班长**。它不是一个弱化的玩家 AI，而是一支没有战争目标的守备队。
-//   最高目标：守住脚下的阵地，并击退走进来的人。除此之外它对这场战争没有诉求。
-//
-//   会做的：射程内出现敌人就开火、把城市和村庄站满、被打退了就退回锚点、
-//           挑地形站位、城里的兵优先用步兵、守军快打空了才补员招兵。
-//   不做的：不跨防区支援（隔壁城丢了也不去救）、不主动出击追击、不攻城拔寨、
-//           不用对策卡（中立没有卡牌经济）、不集火补刀、不预测威胁、
-//           不给敌人建模、不做任何战役规划、**陆军绝不下海**。
-//
-// 智能水平对标 Optio：它会用同一套战斗估算判断「这一刀能不能砍死」，
-// 但不会为一次击杀在同伴之间分配输出，也不会推算对手下一回合能覆盖到哪里。
-//
-// ── 为什么重写而不是升级旧的 Claude 人格 ──
-// 旧脚本把「我的领土」写死成 `MY_DISTRICTS = {3,4,5}`，这在王冠环岛之外全盘失效，
-// 并且直接制造了两个已确认的行为缺陷：
-//   ① 岸防炮对射程内的敌舰无动于衷。舰船站在水格上，而水格既没有 districtId
-//      也没有归属阵营，`isMyTurf(目标格)` 恒为假，于是引擎明明给出了合法目标，
-//      脚本却把它全部过滤掉。讽刺的是只有**行政区编号不在硬编码表里**的那几门炮
-//      会掉进「孤军后备」分支从而开火——离家越近的炮越不设防。
-//   ② 陆军成建制横渡大洋。防区判定失败后，同一个「孤军后备」分支放开了落点限制，
-//      而引擎允许陆军上船漂海，于是跳岛图上守军第一回合就集体下水，
-//      在没有护航的情况下被对手在海上逐个点名。
-//
-// 所以 Corporal 不再用行政区编号理解领土，改用两条随局面推导的事实：
-//   · **阵地**：我实际拥有的城/村/港，以及以它们为中心的防区（就近划归，见 anchorFor）。
-//   · **射程**：对固定火力点而言，射程内就是领土内。碉堡和岸防炮走不了也退不掉，
-//     它们的防区就是自己的火力圈——引擎判定可打的目标，一律打。
+// Corporal —— 中立守备队的回合规划。
+// 只攻击引擎允许的来犯目标。陆军在本方行政区调防，舰船只在近岸避险。
 
 import { createCombatModel } from './doctrine.js';
 import { isWaterTile } from '../rules/surfaces.js';
 import { getUnitBaseType } from '../rules/units.js';
 import { canReinforceAtTile } from '../rules/healing.js';
+import { isNeutralDistrict, isNextToNeutralCoast } from '../rules/neutralDefense.js';
 
 export const meta = {
     name: 'Corporal',
@@ -92,7 +66,6 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
     const { estimateDamage, wouldDieToCounter } = createCombatModel({ state: gameState, weather, hexDistance });
 
     const isFixedEmplacement = unit => Number(unit.config?.speed) === 0;
-    const isLandUnit = unit => unit.config?.movementDomain === 'land';
     const isNavalUnit = unit => unit.config?.movementDomain === 'naval';
 
     const allUnits = gameState.tiles
@@ -109,12 +82,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
     // ═══════════════════════════════════════════
 
     const myCities = gameState.tiles.filter(t => t.isCity && t.camp === myCamp);
-    const myCityDistricts = new Set(myCities.map(city => city.districtId).filter(id => id != null));
-    // 村庄归属看谁站在上面（与收入结算一致），所以「我的村庄」= 我占着的
-    // ＋ 我拥有的城市所在行政区里的村庄。后者是我该去站的，不是我已经站住的。
-    const myVillages = gameState.tiles.filter(t => t.isVillage
-        && (t.unit?.camp === myCamp
-            || (t.districtId != null && myCityDistricts.has(t.districtId))));
+    const myVillages = gameState.tiles.filter(t => t.isVillage && isNeutralDistrict(gameState, t));
     const myPorts = gameState.tiles.filter(t => t.isPort && t.camp === myCamp);
 
     // 驻防点：值得站上去、也值得为之开火的地块。
@@ -167,9 +135,10 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
      */
     function canStandOn(unit, tile) {
         if (!tile || (tile.unit && unitVisible(tile.unit))) return false;
-        if (isLandUnit(unit)) return !isWaterTile(tile);
-        if (isNavalUnit(unit)) return isWaterTile(tile) || tile.isPort;
-        return true;
+        if (isNavalUnit(unit)) {
+            return tile.isPort ? tile.camp === myCamp : isWaterTile(tile) && isNextToNeutralCoast(gameState, tile);
+        }
+        return !isWaterTile(tile) && isNeutralDistrict(gameState, tile);
     }
 
     function countAdjacentFoes(tile) {
@@ -207,11 +176,8 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
     // ═══════════════════════════════════════════
 
     // ═══════════════════════════════════════════
-    // 第一轮：开火 —— 引擎说打得着，就打
+    // 第一轮：用引擎判定的防御目标开火
     // ═══════════════════════════════════════════
-    // 这里刻意不对**目标所在的格子**做任何领土过滤。守备队的职责是让走进射程的人
-    // 付出代价，至于对方脚下那一格属于谁、算不算行政区，与该不该开火无关。
-    // 旧脚本正是在这一步把岸防炮的目标筛没了。
 
     for (const unit of allUnits) {
         if (processed.has(unit.id)) continue;
@@ -297,7 +263,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
                 if (score > bestCarrierScore) { bestCarrierScore = score; bestCarrierTile = tile; }
             }
             if (bestCarrierTile) {
-                actions.push({ type: 'move', unitId: unit.id, tileQ: bestCarrierTile.q, tileR: bestCarrierTile.r });
+                actions.push({ type: 'move', unitId: unit.id, tileQ: bestCarrierTile.q, tileR: bestCarrierTile.r, autoAttack: false });
                 reserved.add(`${bestCarrierTile.q},${bestCarrierTile.r}`);
                 if (isPostTile(bestCarrierTile)) heldPosts.add(`${bestCarrierTile.q},${bestCarrierTile.r}`);
                 processed.add(unit.id);
@@ -352,14 +318,6 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
                 }
             }
 
-            // ② 被敌人占着的自家空城可以走回去（占领），这仍属于守土而非出击。
-            //    远程单位进不了城，不给它这个分，免得反复提交必定被拒的指令。
-            if (tile.isCity && tile.camp !== myCamp && (!tile.unit || !unitVisible(tile.unit))
-                && isLandUnit(unit) && getUnitBaseType(unit) !== 'archer'
-                && myCityDistricts.has(tile.districtId)) {
-                score += 180;
-            }
-
             // ③ 向空岗行进：这一步拉近了多少距离就记多少分，够不着也要往那边走。
             if (vacantObjective && !isVacantPost) {
                 score += (distanceToObjective - hexDistance(tile, vacantObjective)) * 28;
@@ -393,7 +351,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
         }
 
         if (bestTile && !(bestTile.q === unit.tile.q && bestTile.r === unit.tile.r)) {
-            actions.push({ type: 'move', unitId: unit.id, tileQ: bestTile.q, tileR: bestTile.r });
+            actions.push({ type: 'move', unitId: unit.id, tileQ: bestTile.q, tileR: bestTile.r, autoAttack: false });
             reserved.add(`${bestTile.q},${bestTile.r}`);
             if (isPostTile(bestTile)) heldPosts.add(`${bestTile.q},${bestTile.r}`);
             processed.add(unit.id);
@@ -413,6 +371,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
     const woundedGarrison = gameState.tiles
         .filter(tile => tile.unit?.camp === myCamp
             && tile.unit.hp < tile.unit.maxHp * 0.40
+            && isPostTile(tile)
             && !tile._reinforcedThisTurn
             && canReinforceAtTile(tile.unit, gameState))
         .sort((left, right) =>

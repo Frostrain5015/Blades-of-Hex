@@ -11,6 +11,7 @@ import {
 } from '../strategy.js';
 import { rankCityObjectives } from './perceive.js';
 import { isFieldCapturer } from './roster.js';
+import { W } from './weights.js';
 
 /** 攻城 ETA（回合）：占领者赶路 + 破城 + 清守军。 */
 export function estimateCaptureEta(world, city) {
@@ -150,7 +151,7 @@ export function decideStrategy(world) {
             posture = 'allin';
             urgency = 0.9;
         } else if (posture !== 'recover' && posture !== 'defend') {
-            if (leadSafe && world.roundsRemaining <= 8) {
+            if (leadSafe && world.roundsRemaining <= W.leadDefenseRounds) {
                 posture = 'hold';
                 urgency = Math.max(urgency, 0.55);
             } else if (trailing && clockRunningOut) {

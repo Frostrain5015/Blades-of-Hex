@@ -11,6 +11,7 @@ import { assignMissions } from './missions.js';
 import { planTactics, bestAttackFor, evaluateAttack, planCaptureFinishers } from './tactics.js';
 import { planCards, shouldDrawCard } from './cards.js';
 import { planProduction } from './production.js';
+import { shouldHoldCityPosition } from './roster.js';
 
 // 移动后的追击复用战术评分，只刷新可见局面，不重新分配整支军队的任务。
 export function planFollowupAttack(gameState, helpers, myCamp, caps, unitId, plannedTargetId = null) {
@@ -28,13 +29,15 @@ export function planFollowupAttack(gameState, helpers, myCamp, caps, unitId, pla
     const context = {
         missions, assignment, suppressNeutralEngagements: !!memory?.suppressNeutralEngagements
     };
+    const holdPosition = shouldHoldCityPosition(world, unit, assignment.get(unit.id));
+    const attack = targetId => ({ type: 'attack', unitId, targetId, ...(holdPosition ? { holdPosition } : {}) });
     if (plannedTargetId != null) {
         const target = [...world.rivalUnits, ...world.neutralUnits].find(candidate => candidate.id === plannedTargetId);
         if (!target || evaluateAttack(world, context, unit, target).veto) return null;
-        return { type: 'attack', unitId, targetId: target.id };
+        return attack(target.id);
     }
     const best = bestAttackFor(world, context, unit);
-    return best ? { type: 'attack', unitId, targetId: best.target.id } : null;
+    return best ? attack(best.target.id) : null;
 }
 
 export function planOpenCityCaptures(gameState, helpers, myCamp, caps) {

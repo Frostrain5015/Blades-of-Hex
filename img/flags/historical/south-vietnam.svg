@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
+  <title>Yellow flag with three red stripes</title>
+  <path fill="#ffdf00" d="M0 0h900v600H0z"/>
+  <path fill="#da251d" d="M0 200h900v40H0zm0 80h900v40H0zm0 80h900v40H0z"/>
+</svg>

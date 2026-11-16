@@ -14,7 +14,7 @@ import {
 } from '../doctrine.js';
 import { assessSiegeMission } from '../strategy.js';
 import { W, hpGold, noiseJitter, residualGold, tradeNetValue } from './weights.js';
-import { isFieldCapturer } from './roster.js';
+import { isFieldCapturer, shouldHoldCityPosition, shouldReserveCityGarrison } from './roster.js';
 import { isCoastalLandTile, isPortOperationalFor, isWaterborneUnit, ROYAL_ESCORT_RADIUS } from '../../rules/naval.js';
 import { isWaterTile } from '../../rules/surfaces.js';
 import { getKmtLinkedUnits } from '../../rules/kmtStronghold.js';
@@ -465,7 +465,7 @@ function shouldRetreat(world, unit) {
 
 function planMove(world, missionsCtx, unit, posture, actions, { captureObjective = null, stageOnLand = false } = {}) {
     if (!unit.canAct || !unit.tile || world.isImmobile(unit)) return false;
-    if (unit._transportTransitionedThisTurn) return false;
+    if (unit._transportTransitionedThisTurn || shouldReserveCityGarrison(world, unit)) return false;
     const movable = world.helpers.getMovableTiles(unit);
     if (movable.length === 0) return false;
 
@@ -620,6 +620,7 @@ function planBreachSequence(world, missionsCtx, actions, processed) {
             && world.helpers.getAttackableTiles(unit).includes(city.tile));
         if (attackers.length === 0) continue;
         const assaults = attackers.filter(unit => world.isCapturable(unit)
+            && !shouldHoldCityPosition(world, unit, missionsCtx.assignment.get(unit.id))
             && !world.combat.wouldDieToCounter(unit, garrison));
         const finisher = assaults.find(unit => unit.id === mission.occupierId) || assaults[0];
         if (!finisher && !mission.clockCritical) continue; // 非残局继续等近战终结者到位
@@ -684,6 +685,7 @@ export function planCaptureFinishers(world, missionsCtx, actions, processed, onl
         Number(isFieldCapturer(world, b)) - Number(isFieldCapturer(world, a)));
     for (const unit of capturers) {
         if (processed.has(unit.id) || !canMoveToCapture(unit) || world.isImmobile(unit)) continue;
+        if (shouldHoldCityPosition(world, unit, missionsCtx?.assignment.get(unit.id))) continue;
         const hasOpenCity = world.cities.some(city => city.hostile && !claimed.has(city.tile)
             && !city.garrison && city.hp <= 0);
         const reachable = hasOpenCity ? world.helpers.getMovableTiles(unit) : [];
@@ -776,6 +778,7 @@ function planSiegeAttacks(world, missionsCtx, actions, processed, breachOnly = f
     const plannedBreaches = new Set();
     for (const unit of world.myUnits) {
         if (processed.has(unit.id) || !unit.canAct) continue;
+        if (world.isCapturable(unit) && shouldHoldCityPosition(world, unit, missionsCtx.assignment.get(unit.id))) continue;
         const siegeTile = world.helpers.getAttackableTiles(unit)
             .find(tile => !tile.unit && tile.isCity && tile.hp > 0 && tile.camp !== world.myCamp
                 && !plannedBreaches.has(tile) && siegeCities.has(`${tile.q},${tile.r}`));
@@ -787,11 +790,14 @@ function planSiegeAttacks(world, missionsCtx, actions, processed, breachOnly = f
         if (wouldBreach && !world.isCapturable(unit)) {
             // 现在的墙会挡住路径查询。只在这座城破墙后的合法路径存在时安排接力。
             occupier = world.myUnits.find(candidate => candidate !== unit && !processed.has(candidate.id)
-                && canMoveToCapture(candidate) && world.helpers.canReachCityAfterBreach?.(candidate, siegeTile));
+                && canMoveToCapture(candidate)
+                && !shouldHoldCityPosition(world, candidate, missionsCtx.assignment.get(candidate.id))
+                && world.helpers.canReachCityAfterBreach?.(candidate, siegeTile));
             if (!occupier) continue;
         }
         const reserve = shouldReserveFinalSiegeBlow(siegeTile.hp,
             world.myUnits.filter(u => !processed.has(u.id) && world.isCapturable(u) && u.canAct
+                && !shouldHoldCityPosition(world, u, missionsCtx.assignment.get(u.id))
                 && world.helpers.hexDistance(u.tile, siegeTile) === 1
                 && world.helpers.getAttackableTiles(u).includes(siegeTile))
                 .map(u => world.estimateSiegeDamage(u, siegeTile)));
@@ -854,6 +860,7 @@ function planDroneOps(world, missionsCtx, actions, processed) {
 function planBanzaiCharges(world, missionsCtx, actions, processed) {
     for (const unit of world.myUnits) {
         if (processed.has(unit.id) || unit.type !== 'jp_samurai' || !unit.canAct || unit.isNewRecruit || unit._imprisoned || !unit.tile) continue;
+        if (shouldHoldCityPosition(world, unit, missionsCtx.assignment.get(unit.id))) continue;
         if (getBanzaiCooldown(unit, world.gameState) > 0 || unit.remainingMP < BANZAI_CHARGE_CONFIG.movementCost) continue;
         let best = null;
         for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {

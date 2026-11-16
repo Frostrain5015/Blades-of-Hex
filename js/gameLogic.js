@@ -120,6 +120,8 @@ import {
     resolveMovementStep
 } from '../rules/movement.js';
 import { isLandTile, isWaterTile } from '../rules/surfaces.js';
+import { canNeutralAttackTile, isNeutralAi } from '../rules/neutralDefense.js';
+import { applyHistoricalNeutralAppearance } from '../rules/historicalNeutral.js';
 import { getActivePlayerKeys, getSurvivingPlayerKeys, hasFactionSurrendered } from '../rules/matchOutcome.js';
 import { setResultFlagPreview } from './resultFlagPreview.js';
 import {
@@ -584,6 +586,7 @@ export function initMap() {
     if (isNetworkGame()) seedMatchRng(getMatchSeed() ?? `room:${getMyRoomId() || '0'}`);
     gameState.tiles = [];
     gameState.unitDeathGhosts = [];
+    applyHistoricalNeutralAppearance(gameState);
 
     const is3P = gameState.isThreePlayer;
     const standardMap = getStandardMap(is3P ? 3 : 2, gameState.standardMapId);
@@ -1377,7 +1380,8 @@ function _resolveFrenchHeavyCannonTurnStartVolley(startingCamp, impactAt) {
         if (!dodged) for (const [dq, dr] of HEX_NEIGHBORS) {
             const neighbor = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
             const defender = neighbor?.unit;
-            if (!defender || defender.hp <= 0 || !canAttack(gameState, unit.camp, defender.camp)) continue;
+            if (!defender || defender.hp <= 0 || !canAttack(gameState, unit.camp, defender.camp)
+                || !canNeutralAttackTile(gameState, unit, neighbor)) continue;
             const delayMs = Math.max(0, impactAt - performance.now());
             if (defender.rollDodge(gameState)) {
                 defender._triggerDodge(gameState, delayMs);
@@ -2323,6 +2327,7 @@ function _getMovableTiles(unit) {
 }
 
 export function getAttackableTiles(unit, { forAiAction = false, automaticHeavyCannon = false } = {}) {
+    if (unit.type === 'carrier' && isNeutralAi(unit.camp)) return [];
     if (unit.type === 'fr_heavy_cannon' && (!automaticHeavyCannon || !isHeavyCannonDeployed(unit))) return [];
     // 无人机：实时检查信号范围，同步士气状态（不刷新其他无人机）
     if (unit._isDrone) {
@@ -2356,7 +2361,7 @@ if (unit._specializationAttackSpent) return [];
                 && canUnitTargetUnit(unit, tile.unit, gameState)
                 && (isRanged || canUnitAssaultOccupiedTile(unit, tile)))
             || isSiegeableCityTile(unit, tile, gameState)
-        );
+        ) && canNeutralAttackTile(gameState, unit, tile);
     }) : [];
     // 遭遇战迷雾：只能攻击视野内的敌方单位
     if (gameState.skirmishFog && targets.length) {
@@ -2728,7 +2733,8 @@ function resolveKatyushaSplash(attacker, center, startedAt, isCounter = false) {
     for (const [dq, dr] of HEX_NEIGHBORS) {
         const tile = gameState.tileMap.get(`${center.q + dq},${center.r + dr}`);
         const target = tile?.unit;
-        if (!target || target.hp <= 0 || !canAttack(gameState, attacker.camp, target.camp)) continue;
+        if (!target || target.hp <= 0 || !canAttack(gameState, attacker.camp, target.camp)
+            || (!isCounter && !canNeutralAttackTile(gameState, attacker, tile))) continue;
         if (target.rollDodge(gameState)) {
             target._triggerDodge(gameState, KATYUSHA_IMPACT_MS);
             continue;
@@ -2769,6 +2775,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     }
 
     const attackerStartTile = attackerUnit.tile;
+    const holdPosition = options?.holdPosition || isNeutralAi(attackerUnit.camp);
     const fromX = attackerStartTile.x, fromY = attackerStartTile.y;
     const toX = targetUnit.tile.x, toY = targetUnit.tile.y;
     const primaryTargetTile = targetUnit.tile;
@@ -2979,7 +2986,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                 if (remainingSplashDamage <= 0) break;
                 const splashTile = gameState.tileMap.get(`${primaryTargetTile.q + dq},${primaryTargetTile.r + dr}`);
                 const splashUnit = splashTile?.unit;
-                if (!splashUnit || !canAttack(gameState, attackerUnit.camp, splashUnit.camp) || splashUnit.hp <= 0) continue;
+                if (!splashUnit || !canAttack(gameState, attackerUnit.camp, splashUnit.camp) || splashUnit.hp <= 0
+                    || !canNeutralAttackTile(gameState, attackerUnit, splashTile)) continue;
                 if (splashUnit.rollDodge(gameState)) {
                     splashUnit._triggerDodge(gameState, culturalImpactMs);
                     continue;
@@ -3014,7 +3022,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             for (const [dq, dr] of HEX_NEIGHBORS) {
                 const splashTile = gameState.tileMap.get(`${primaryTargetTile.q + dq},${primaryTargetTile.r + dr}`);
                 const splashUnit = splashTile?.unit;
-                if (!splashUnit || splashUnit.camp === qixueAttackCamp || splashUnit.hp <= 0) continue;
+                if (!splashUnit || splashUnit.camp === qixueAttackCamp || splashUnit.hp <= 0
+                    || !canNeutralAttackTile(gameState, attackerUnit, splashTile)) continue;
                 const splashResult = attackerUnit._resolveDamage(attackerUnit, splashUnit, 0.40);
                 const splashDmg = Math.round(splashResult.dmg);
                 if (splashDmg <= 0) continue;
@@ -3281,7 +3290,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             attackerUnit.canAct = false;
         } else {
             const targetTile = targetUnit.tile;
-            if (!isRangedCombatAttack(attackerUnit)
+            if (!holdPosition && !isRangedCombatAttack(attackerUnit)
                 && !attackerUnit._imprisoned && !attackerUnit._isImmobile
                 && canUnitAssaultOccupiedTile(attackerUnit, targetTile)
                 && canUnitOccupyTile(attackerUnit, targetTile, gameState)
@@ -3422,8 +3431,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             rankUps: rankUps.length ? rankUps : null,
             bloodDrain: attackerUnit.type !== 'carrier' && attackerUnit.commander === 'vampire' ? {
                 toX, toY,
-                fromX: (isTargetDead && attackerUnit.type !== 'archer') ? toX : fromX,
-                fromY: (isTargetDead && attackerUnit.type !== 'archer') ? toY : fromY
+                fromX: (isTargetDead && !holdPosition && attackerUnit.type !== 'archer') ? toX : fromX,
+                fromY: (isTargetDead && !holdPosition && attackerUnit.type !== 'archer') ? toY : fromY
             } : null,
             purpleLightning: (atkCmdResult?.moraleDropped || atkCmdResult?.converted || ctrCmdResult?.moraleDropped || ctrCmdResult?.converted) ? {
                 x: atkCmdResult?.moraleDropped || atkCmdResult?.converted ? toX : attackerUnit.tile.x,
@@ -4750,7 +4759,7 @@ export function executeDroneSuicide(droneUnit, targetTile) {
 }
 
 function _executeDroneSuicide(droneUnit, targetTile) {
-    if (!droneUnit || !droneUnit._isDrone) return false;
+    if (!droneUnit || !droneUnit._isDrone || !canNeutralAttackTile(gameState, droneUnit, targetTile)) return false;
     refreshDroneSignal(gameState, droneUnit.camp);
     if (droneUnit.morale === 0) {
         notify('哨机当前无法行动', 'error');
@@ -4771,6 +4780,7 @@ function _executeDroneSuicide(droneUnit, targetTile) {
     const results = [];
     const dCampKey = _campKey(droneUnit.camp);
     const applySuicideDamage = (tile, multiplier) => {
+        if (!canNeutralAttackTile(gameState, droneUnit, tile)) return null;
         if (tile.unit && tile.unit.camp !== droneUnit.camp) {
             const baseResult = droneUnit._resolveDamage(droneUnit, tile.unit, 1, 0, false, false, true);
             const dmg = Math.round(baseResult.dmg * multiplier);

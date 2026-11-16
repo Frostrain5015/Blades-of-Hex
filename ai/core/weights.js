@@ -124,6 +124,7 @@ export const W = Object.freeze({
     allInDamagedTargetSwitchEtaGain: 3,
     // 死斗攻城编组 = 1 名占领者 + 至多 3 名护航/攻坚单位。
     allInEscortCount: 3,
+    leadDefenseRounds: 8,
     objectiveCommitmentRounds: 3,
     objectiveSwitchEtaGain: 1,
     objectiveSwitchScoreMargin: 35,

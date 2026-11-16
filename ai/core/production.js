@@ -6,7 +6,7 @@
 //   2. 守军是固定资产：残血守军花几金补员，比阵亡后重招便宜得多。
 
 import { W } from './weights.js';
-import { isFieldCapturer } from './roster.js';
+import { isFieldCapturer, shouldReserveCityGarrison } from './roster.js';
 import { canRepairShipAtPort } from '../../rules/naval.js';
 import { canReinforceAtTile } from '../../rules/healing.js';
 import { canUnitBeRecruitedAtSite, countLivingUnitsOfType, getUniqueRecruitmentLimit, getUnitBaseType } from '../../rules/units.js';
@@ -118,6 +118,7 @@ export function planProduction(world, strategy, missionsCtx) {
         const candidates = world.myCities
             .filter(city => !reservedForMinister(city))
             .filter(city => city.unit && city.unit.camp === world.myCamp && city.unit.canAct)
+            .filter(city => !shouldReserveCityGarrison(world, city.unit))
             .filter(city => (!city.unit.commander
                 || (ministerMayVacate && city.unit.commander === 'minister'))
                 && !world.isImmobile(city.unit))

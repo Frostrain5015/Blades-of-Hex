@@ -332,7 +332,10 @@ export function setPlayerFactionName(state, factionKey, value) {
 export function ensureCultureFactionPresets(state, options = {}) {
     if (!state || state.campaignMode || !isCultureSystemEnabled(state)) return false;
     const rng = options.rng || state.rng;
-    const keys = PLAYER_SEAT_KEYS.filter(key => state.factions?.[key] && state.factions[key].active !== false);
+    const keys = PLAYER_SEAT_KEYS.filter(key => {
+        const faction = state.factions?.[key];
+        return faction && faction.active !== false && (options.includeAi !== false || faction.controller !== 'ai');
+    });
     const allPresets = Object.keys(FLAG_PRESETS);
     const used = new Set();
     let changed = false;
