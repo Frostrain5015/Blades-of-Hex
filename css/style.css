@@ -2068,6 +2068,12 @@ body {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
 }
+.match-mvp-grid[data-count="2"] {
+    grid-template-columns: repeat(2, minmax(0, 340px));
+}
+.match-mvp-grid[data-count="1"] {
+    grid-template-columns: minmax(0, 340px);
+}
 
 .match-mvp-card {
     display: flex;
@@ -2152,18 +2158,15 @@ body {
 .match-mvp-rank {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
-    color: #f3dfb0;
-    border: 1px solid rgba(255,255,255,0.16);
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(255,255,255,0.18);
     border-radius: 999px;
-    background: rgba(8, 10, 14, 0.76);
+    background: rgba(8, 10, 14, 0.78);
     backdrop-filter: blur(4px);
-    font: 700 10px/1 Consolas, monospace;
-}
-.match-mvp-rank b {
     font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
-    font-size: 13px;
+    font-size: 15px;
     line-height: 1;
 }
 .match-mvp-tags {
@@ -2308,23 +2311,165 @@ body {
 
 .match-battle-event {
     display: grid;
-    grid-template-columns: 48px 1fr auto;
+    grid-template-columns: 78px minmax(0, 1fr) auto;
     gap: 12px;
     align-items: center;
-    padding: 10px 12px;
-    border: 1px solid rgba(229, 177, 71, 0.13);
-    border-left: 2px solid #d9a642;
-    border-radius: 5px;
-    background: linear-gradient(90deg, rgba(202, 145, 40, 0.07), transparent);
+    padding: 10px 13px;
+    border: 1px solid rgba(229, 177, 71, 0.14);
+    border-left: 3px solid #d9a642;
+    border-radius: 6px;
+    background: linear-gradient(90deg, rgba(202, 145, 40, 0.07), rgba(255, 255, 255, 0.01));
+}
+.match-battle-event.is-commander-fall {
+    border-color: rgba(228, 92, 82, 0.22);
+    border-left-color: #e2584d;
+    background: linear-gradient(90deg, rgba(210, 65, 58, 0.09), rgba(255, 255, 255, 0.01));
+}
+.match-battle-event.is-elimination {
+    border-color: rgba(196, 86, 152, 0.24);
+    border-left-color: #d6559a;
+    background: linear-gradient(90deg, rgba(185, 58, 128, 0.10), rgba(255, 255, 255, 0.01));
+}
+.match-battle-event.is-turning-point {
+    border-color: rgba(94, 178, 240, 0.22);
+    border-left-color: #62b6f6;
+    background: linear-gradient(90deg, rgba(64, 146, 218, 0.09), rgba(255, 255, 255, 0.01));
+}
+.match-battle-event.is-pitched {
+    border-color: rgba(236, 162, 66, 0.22);
+    border-left-color: #ef9c3c;
+    background: linear-gradient(90deg, rgba(228, 134, 42, 0.09), rgba(255, 255, 255, 0.01));
 }
 
-.match-battle-event > span {
-    color: #e3b254;
-    font: 700 16px Consolas, monospace;
+.match-battle-round {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
 }
-.match-battle-event strong { color: #e8dfd0; font-size: 11px; }
-.match-battle-event p { margin: 3px 0 0; color: rgba(235, 226, 211, 0.4); font-size: 9px; }
-.match-battle-event > em { display: inline-flex; align-items: center; gap: 6px; color: rgba(225, 199, 149, 0.56); font-size: 9px; font-style: normal; }
+.match-battle-round > span {
+    color: #e7be6a;
+    font: 700 15px/1 Consolas, monospace;
+}
+.match-battle-event.is-commander-fall .match-battle-round > span { color: #f08a82; }
+.match-battle-event.is-elimination .match-battle-round > span { color: #ee8cc2; }
+.match-battle-event.is-turning-point .match-battle-round > span { color: #84cafc; }
+
+.match-battle-pill {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid rgba(229, 177, 71, 0.34);
+    background: rgba(180, 128, 32, 0.22);
+    color: #f0cf88;
+    font: 600 9px/1.25 inherit;
+    font-style: normal;
+    white-space: nowrap;
+}
+.match-battle-pill.is-commander-fall {
+    border-color: rgba(232, 96, 86, 0.42);
+    background: rgba(168, 42, 36, 0.30);
+    color: #f7ada7;
+}
+.match-battle-pill.is-elimination {
+    border-color: rgba(220, 96, 168, 0.44);
+    background: rgba(146, 36, 102, 0.32);
+    color: #f6b6db;
+}
+.match-battle-pill.is-turning-point {
+    border-color: rgba(98, 182, 246, 0.40);
+    background: rgba(34, 96, 152, 0.30);
+    color: #aad9fc;
+}
+.match-battle-pill.is-pitched {
+    border-color: rgba(242, 160, 64, 0.42);
+    background: rgba(178, 92, 22, 0.30);
+    color: #f6ca8c;
+}
+
+.match-battle-main {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+.match-battle-headline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    color: #eee5d6;
+    font: 600 12px/1.35 inherit;
+}
+.match-battle-headline b { color: #f6dfb2; font-weight: 700; }
+
+.match-battle-camp {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    vertical-align: middle;
+}
+.match-battle-camp em {
+    color: #ddd2be;
+    font-style: normal;
+    font-size: 11px;
+}
+
+.match-battle-sub {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    color: rgba(235, 226, 211, 0.68);
+    font-size: 10px;
+}
+.match-battle-sub > span {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.match-battle-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    color: rgba(235, 226, 211, 0.44);
+    font-size: 9px;
+}
+
+.match-battle-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+.match-battle-side > small {
+    color: rgba(225, 199, 149, 0.62);
+    font-size: 9px;
+    white-space: nowrap;
+}
+.match-battle-matchup {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 7px;
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 5px;
+    background: rgba(0,0,0,0.28);
+}
+.match-battle-op {
+    color: #e4bd74;
+    font-size: 11px;
+    font-style: normal;
+    line-height: 1;
+}
+.match-battle-vs {
+    color: #f1bc66;
+    font: 800 9px/1 Consolas, monospace;
+    letter-spacing: 0.4px;
+}
 
 .match-stats-empty {
     margin: 6px 0;
@@ -2348,8 +2493,9 @@ body {
     .match-mvp-grid { grid-template-columns: 1fr; }
     .match-unit-row { grid-template-columns: 24px minmax(120px, 1.15fr) 1.35fr 56px; }
     .match-unit-row > em { display: none; }
-    .match-battle-event { grid-template-columns: 38px 1fr; }
-    .match-battle-event > em { display: none; }
+    .match-battle-grid,
+    .match-battle-event { grid-template-columns: 64px 1fr; }
+    .match-battle-side { display: none; }
 }
 
 /* =============================================================

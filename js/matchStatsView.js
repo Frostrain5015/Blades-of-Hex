@@ -21,6 +21,13 @@ const UNIT_METRICS = Object.freeze({
     actions: '参与行动'
 });
 
+function sanitizeUiText(value) {
+    return String(value ?? '')
+        .replace(/\s*·\s*/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 function escapeHtml(value) {
     return String(value ?? '')
         .replaceAll('&', '&amp;')
@@ -28,6 +35,10 @@ function escapeHtml(value) {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+}
+
+function escapePlainHtml(value) {
+    return escapeHtml(sanitizeUiText(value));
 }
 
 function formatNumber(value, digits = 0) {
@@ -71,6 +82,9 @@ function resolveCampFlagVisual(camp, index = 0) {
     }
     if (!url && camp?.flagEmoji && isStandardFlagEmoji(camp.flagEmoji)) {
         url = createStandardFlagUrl(camp.colorId || color, camp.flagEmoji);
+    }
+    if (!url && camp?.campKey === 'neutral' && !camp?.flagConfig && !camp?.flagEmoji) {
+        url = 'img/flags/training-targets.svg';
     }
     return {
         url,
@@ -143,15 +157,15 @@ function renderSummary(stats, container) {
     }).sort((a, b) => b.dmg - a.dmg || b.losses - a.losses || b.engagements - a.engagements)[0] || null;
 
     const cards = [
-        ['对局时长', formatDuration(stats.durationMs), `${roundCount} 回合 · ${camps.length} 方参战`],
-        ['总交战', formatNumber(totalAttacks), `${formatNumber(stats.totalActions)} 次行动 · 机动 ${formatNumber(totalMoves)}`],
-        ['实际伤害', formatNumber(stats.totalDamage), `场均 ${formatNumber(avgDamagePerAttack, 1)} / 击 · 无源 ${formatNumber(unattributedDamage)}`],
-        ['累计恢复', formatNumber(totalHealing), `补修 ${formatNumber(totalReinforcements)} 次 · 伤愈比 ${healRatio}%`],
-        ['单位阵亡', formatNumber(stats.totalLosses), `占城 ${formatNumber(totalCaptures)} 次 · 将领陨落 ${formatNumber(commanderDeaths)} 名`],
+        ['对局时长', formatDuration(stats.durationMs), `${roundCount} 回合 ${camps.length} 方参战`],
+        ['总交战', formatNumber(totalAttacks), `${formatNumber(stats.totalActions)} 次行动 机动 ${formatNumber(totalMoves)}`],
+        ['实际伤害', formatNumber(stats.totalDamage), `场均 ${formatNumber(avgDamagePerAttack, 1)} / 击 无源 ${formatNumber(unattributedDamage)}`],
+        ['累计恢复', formatNumber(totalHealing), `补修 ${formatNumber(totalReinforcements)} 次 伤愈比 ${healRatio}%`],
+        ['单位阵亡', formatNumber(stats.totalLosses), `占城 ${formatNumber(totalCaptures)} 次 将领陨落 ${formatNumber(commanderDeaths)} 名`],
         ['兵力演变', `${formatNumber(initialUnits)} → ${formatNumber(finalUnits)}`, `总生命 ${formatNumber(initialHp)} → ${formatNumber(finalHp)}`],
-        ['征召与基建', formatNumber(totalRecruits + totalConstructions), `招募 ${formatNumber(totalRecruits)} 单位 · 工事/机场 ${formatNumber(totalConstructions)}`],
+        ['征召与基建', formatNumber(totalRecruits + totalConstructions), `招募 ${formatNumber(totalRecruits)} 单位 工事/机场 ${formatNumber(totalConstructions)}`],
         ['战术与峰值', formatNumber(totalCards + totalAirCommands + skillCount),
-            `卡 ${formatNumber(totalCards)} · 空袭 ${formatNumber(totalAirCommands)}${peakRound && peakRound.dmg > 0 ? ` · 峰值 R${peakRound.round} (${formatNumber(peakRound.dmg)})` : ''}`]
+            `战术卡 ${formatNumber(totalCards)} 空袭 ${formatNumber(totalAirCommands)}${peakRound && peakRound.dmg > 0 ? ` 峰值 R${peakRound.round}(${formatNumber(peakRound.dmg)})` : ''}`]
     ];
     container.innerHTML = cards.map(([label, value, note]) => `
         <article class="match-stat-summary-card">
@@ -264,7 +278,7 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
             ...(domain ? { 'data-unit-domain': domain } : {})
         });
         const title = svgElement('title');
-        title.textContent = `${camp.name}${domain === 'land' ? ' · 陆军' : domain === 'naval' ? ' · 海军' : ''}`;
+        title.textContent = `${sanitizeUiText(camp.name)}${domain === 'land' ? ' 陆军' : domain === 'naval' ? ' 海军' : ''}`;
         area.appendChild(title);
         svg.appendChild(area);
     };
@@ -297,18 +311,9 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         const alpha = anchorIndex === 0 && nextIndex > anchorIndex
             ? Math.max(0, Math.min(1, (xCenter - xAt(anchorIndex)) / spanX))
             : 0;
-        const landBounds = metric === 'unitShare' ? domainBounds[camp.campKey] : null;
-        const pickBounds = (lArr, uArr) => {
-            const yTop = uArr[anchorIndex][1] + (uArr[nextIndex][1] - uArr[anchorIndex][1]) * alpha;
-            const yBottom = lArr[anchorIndex][1] + (lArr[nextIndex][1] - lArr[anchorIndex][1]) * alpha;
-            return [yTop, yBottom, yBottom - yTop];
-        };
-        let [yTop, yBottom, bandH] = landBounds
-            ? pickBounds(landBounds.landLower, landBounds.landUpper)
-            : pickBounds(lowerArr, upperArr);
-        if (bandH < 20) {
-            [yTop, yBottom, bandH] = pickBounds(lowerArr, upperArr);
-        }
+        const yTop = upperArr[anchorIndex][1] + (upperArr[nextIndex][1] - upperArr[anchorIndex][1]) * alpha;
+        const yBottom = lowerArr[anchorIndex][1] + (lowerArr[nextIndex][1] - lowerArr[anchorIndex][1]) * alpha;
+        const bandH = yBottom - yTop;
         if (bandH < 11) return;
 
         const flagH = Math.max(11, Math.min(18, bandH * 0.56));
@@ -341,7 +346,7 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
                 x: fx + flagW / 2, y: fy + flagH / 2,
                 'text-anchor': 'middle', class: 'match-control-band-flag-glyph'
             });
-            tag.textContent = visual.emoji || (camp.campKey === 'neutral' ? (flagW >= 22 ? '中立' : '中') : '');
+            tag.textContent = visual.emoji || '';
             if (tag.textContent) flagGroup.appendChild(tag);
         }
         flagGroup.appendChild(svgElement('rect', {
@@ -349,7 +354,7 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
             fill: 'none', stroke: 'rgba(255,255,255,0.56)', 'stroke-width': 1
         }));
         const title = svgElement('title');
-        title.textContent = camp.name;
+        title.textContent = sanitizeUiText(camp.name);
         flagGroup.appendChild(title);
         svg.appendChild(flagGroup);
     });
@@ -374,7 +379,7 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         });
         marker.textContent = event.logoEmoji || camp.flagEmoji || '⚑';
         const title = svgElement('title');
-        title.textContent = `第 ${event.round} 回合：${camp.name}发动【${event.skillName}】`;
+        title.textContent = sanitizeUiText(`第 ${event.round} 回合：${camp.name}发动【${event.skillName}】`);
         marker.appendChild(title);
         svg.appendChild(marker);
     }
@@ -400,7 +405,7 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         glyph.textContent = '☠';
         group.appendChild(glyph);
         const title = svgElement('title');
-        title.textContent = `第 ${event.round} 回合：${camp.name}【${event.commanderName}】阵亡（${event.displayName}）`;
+        title.textContent = sanitizeUiText(`第 ${event.round} 回合：${camp.name}【${event.commanderName}】阵亡（${event.displayName}）`);
         group.appendChild(title);
         svg.appendChild(group);
     }
@@ -456,9 +461,9 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
             tooltip.innerHTML = `
                 <strong>${point.round === 0 ? '开局' : `第 ${point.round} 回合`}</strong>
                 ${values}
-                ${battle ? `<em>⚔ ${battle.label} · ${battle.engagements} 次交战</em>` : ''}
+                ${battle ? `<em>⚔ ${escapePlainHtml(battle.label)} ${battle.engagements} 次交战</em>` : ''}
                 ${skills.map(skill => `<em>${campFlagRef(skill.campKey)} ${escapeHtml(skill.skillName)}</em>`).join('')}
-                ${commanderDeaths.map(death => `<em>${campFlagRef(death.campKey)} ☠ ${escapeHtml(death.commanderName)}阵亡</em>`).join('')}
+                ${commanderDeaths.map(death => `<em>${campFlagRef(death.campKey)} ☠ ${escapePlainHtml(death.commanderName)}阵亡</em>`).join('')}
             `;
             tooltip.hidden = false;
             if (event?.clientX != null) {
@@ -481,7 +486,7 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         const sampleColor = colors[stats.camps[0]?.campKey] || '#6b8ab8';
         const domainLegend = document.createElement('span');
         domainLegend.className = 'domain-legend';
-        domainLegend.innerHTML = `<i style="--camp-color:${sampleColor}"></i>深色（原色）陆军 · <i style="--camp-color:${mixHexColor(sampleColor, '#ffffff', 0.42)}"></i>浅色 海军`;
+        domainLegend.innerHTML = `<i style="--camp-color:${sampleColor}"></i>深色（原色）陆军 <i style="--camp-color:${mixHexColor(sampleColor, '#ffffff', 0.42)}"></i>浅色 海军`;
         legend.appendChild(domainLegend);
     }
     if (stats.battleEvents.length) {
@@ -525,7 +530,7 @@ function renderCampCards(stats, container) {
         const grade = rating?.grade || 'B';
         const b = rating?.breakdown;
         const ratingTitle = b
-            ? `阵营综合评分 ${rating.score} 分（${grade}） · 战果 ${b.outcome}/25 · 交战 ${b.combat}/28 · 火力 ${b.firepower}/21 · 存续后勤 ${b.sustain}/14 · 主动性 ${b.initiative}/12`
+            ? `阵营综合评分 ${rating.score} 分（${grade}） 战果 ${b.outcome}/25 交战 ${b.combat}/28 火力 ${b.firepower}/21 存续后勤 ${b.sustain}/14 主动性 ${b.initiative}/12`
             : `阵营表现评级：${grade}`;
         return `
             <article class="match-camp-card" style="--camp-color:${color}">
@@ -627,7 +632,7 @@ function renderUnitMvp(stats, container) {
                     ${backdropFlagHtml(camp, Math.max(0, campIndex))}
                     ${foregroundHtml}
                     <header class="match-mvp-card-head">
-                        <span class="match-mvp-rank"><b>${rankMedal}</b> MVP #${index + 1}</span>
+                        <span class="match-mvp-rank" aria-label="第${index + 1}名">${rankMedal}</span>
                         <span class="match-mvp-tags">
                             ${captures > 0 ? `<em class="match-mvp-capture-tag">占城 ${formatNumber(captures)}</em>` : ''}
                             <em class="match-mvp-life ${statusClass}">${statusText}</em>
@@ -636,9 +641,8 @@ function renderUnitMvp(stats, container) {
                 </div>
                 <div class="match-mvp-body">
                     <div class="match-mvp-identity">
-                        ${flagBadgeHtml(camp, Math.max(0, campIndex), { size: 'sm' })}
-                        <strong title="${escapeHtml(unit.displayName)}">${escapeHtml(unit.displayName)}</strong>
-                        <small>#${escapeHtml(unit.id)}</small>
+                        <strong title="${escapePlainHtml(unit.displayName)}">${escapePlainHtml(unit.displayName)}</strong>
+                        <small>#${escapePlainHtml(unit.id)}</small>
                     </div>
                     <div class="match-mvp-metrics">
                         <span><b>${formatNumber(unit.kills)}</b>击杀</span>
@@ -652,10 +656,10 @@ function renderUnitMvp(stats, container) {
     }).join('');
     container.innerHTML = `
         <div class="match-mvp-header">
-            <span>MVP TOP 3</span>
+            <span>${mvps.length === 1 ? '全场 MVP' : `MVP TOP ${mvps.length}`}</span>
             <small>综合多维战场贡献隐式评选</small>
         </div>
-        <div class="match-mvp-grid">${cardsHtml}</div>
+        <div class="match-mvp-grid" data-count="${mvps.length}">${cardsHtml}</div>
     `;
 }
 
@@ -673,9 +677,9 @@ function renderLeaders(stats, container) {
         return `
             <article class="match-unit-leader">
                 <span>${label}</span>
-                <strong class="match-unit-leader-name">${flagHtml}<span>${unit ? escapeHtml(unit.displayName) : '—'}</span></strong>
+                <strong class="match-unit-leader-name">${flagHtml}<span>${unit ? escapePlainHtml(unit.displayName) : '—'}</span></strong>
                 <b>${unit ? formatNumber(unit[metric]) : '0'}</b>
-                <small>${unit ? `#${escapeHtml(unit.id)} · ${unit.survived === true ? '存活' : unit.survived === false ? '阵亡' : '参战'}` : '暂无数据'}</small>
+                <small>${unit ? `#${escapePlainHtml(unit.id)} ${unit.survived === true ? '存活' : unit.survived === false ? '阵亡' : '参战'}` : '暂无数据'}</small>
             </article>
         `;
     }).join('');
@@ -700,8 +704,8 @@ function renderUnitTable(stats, container, metric, campFilter) {
                 <span class="match-unit-rank${isMedal ? ' is-medal' : ''}">${rankDisplay}</span>
                 <span class="match-unit-name">
                     ${flagBadgeHtml(camp || { campKey: unit.campKey }, Math.max(0, campIndex), { size: 'sm' })}
-                    <b title="${escapeHtml(unit.displayName)}">${escapeHtml(unit.displayName)}</b>
-                    <small class="match-unit-id">#${escapeHtml(unit.id)}</small>
+                    <b title="${escapePlainHtml(unit.displayName)}">${escapePlainHtml(unit.displayName)}</b>
+                    <small class="match-unit-id">#${escapePlainHtml(unit.id)}</small>
                 </span>
                 <span class="match-unit-bar"><i style="width:${width}%"></i></span>
                 <strong>${formatNumber(unit[metric])}</strong>
@@ -711,22 +715,228 @@ function renderUnitTable(stats, container, metric, campFilter) {
     }).join('') : '<p class="match-stats-empty">这个筛选条件下没有可统计数据。</p>';
 }
 
+function findCampEntry(stats, campKey) {
+    if (!campKey) return { camp: null, index: 0 };
+    const index = stats.camps.findIndex(camp => camp.campKey === campKey);
+    return { camp: index >= 0 ? stats.camps[index] : { campKey }, index: Math.max(0, index) };
+}
+
+function campInlineHtml(stats, campKey) {
+    if (!campKey) return '<span>未知势力</span>';
+    const { camp, index } = findCampEntry(stats, campKey);
+    const visual = resolveCampFlagVisual(camp, index);
+    const flag = flagBadgeHtml(camp, index, { size: 'xs' });
+    return visual.hasDistinctFlag
+        ? `<span class="match-battle-camp">${flag}</span>`
+        : `<span class="match-battle-camp">${flag}<em>${escapePlainHtml(visual.name)}</em></span>`;
+}
+
+function eventTypeBadgeClass(eventType) {
+    switch (eventType) {
+        case 'factionEliminated': return 'is-elimination';
+        case 'commanderFall': return 'is-commander-fall';
+        case 'breakthrough': return 'is-breakthrough';
+        case 'turningPoint': return 'is-turning-point';
+        default: return 'is-pitched';
+    }
+}
+
+function formatDistrictLabel(districtId) {
+    return districtId != null ? `行政区${escapePlainHtml(districtId)}` : '城市据点';
+}
+
+function renderCaptureGroupsHtml(stats, capturesList) {
+    if (!capturesList?.length) return '';
+    // 若同一城市在同回合内被多方易手，合并为“反复争夺”避免重复堆砌
+    const districtOwners = new Map();
+    for (const cap of capturesList) {
+        if (cap.districtId == null) continue;
+        if (!districtOwners.has(cap.districtId)) districtOwners.set(cap.districtId, new Set());
+        if (cap.campKey) districtOwners.get(cap.districtId).add(cap.campKey);
+    }
+    const contested = [...districtOwners.entries()].filter(([, camps]) => camps.size >= 2);
+    if (contested.length && contested.length === districtOwners.size) {
+        const camps = [...new Set(capturesList.map(cap => cap.campKey).filter(Boolean))];
+        const districts = contested.map(([id]) => `行政区${id}`).join(' ');
+        return `${camps.map(key => campInlineHtml(stats, key)).join(' ')} 反复争夺 ${escapePlainHtml(districts)}`;
+    }
+
+    const byPair = new Map();
+    for (const cap of capturesList) {
+        const prev = cap.previousCampKey && cap.previousCampKey !== 'neutral' && cap.previousCampKey !== cap.campKey
+            ? cap.previousCampKey
+            : '';
+        const groupKey = `${cap.campKey || ''}->${prev}`;
+        if (!byPair.has(groupKey)) byPair.set(groupKey, { campKey: cap.campKey, prevCampKey: prev || null, districts: [] });
+        byPair.get(groupKey).districts.push(formatDistrictLabel(cap.districtId));
+    }
+    return [...byPair.values()].map(group => {
+        const uniqueDistricts = [...new Set(group.districts)].join(' ');
+        if (group.prevCampKey) {
+            return `${campInlineHtml(stats, group.campKey)} 从 ${campInlineHtml(stats, group.prevCampKey)} 夺取 ${uniqueDistricts}`;
+        }
+        return `${campInlineHtml(stats, group.campKey)} 攻占 ${uniqueDistricts}`;
+    }).join(' ');
+}
+
+function renderDeathLineHtml(stats, death) {
+    if (!death) return '';
+    const victimHtml = campInlineHtml(stats, death.campKey);
+    const unitHtml = `<b>${escapePlainHtml(death.displayName || death.commanderName || '将领')}</b>`;
+    if (death.killerCampKey) {
+        return `${campInlineHtml(stats, death.killerCampKey)} 击杀 ${victimHtml} ${unitHtml}`;
+    }
+    return `${victimHtml} ${unitHtml} 阵亡`;
+}
+
+function renderTurningLineHtml(stats, tp, compact = false) {
+    if (!tp) return '';
+    const deltaPct = Math.round((tp.delta || 0) * 100);
+    const prevPct = Math.round((tp.prevShare || 0) * 100);
+    const curPct = Math.round((tp.curShare || 0) * 100);
+    if (compact) {
+        return `${campInlineHtml(stats, tp.campKey)} 控制力 +${deltaPct}%${tp.leaderChanged ? ' 反超领跑' : ''}`;
+    }
+    return `${campInlineHtml(stats, tp.campKey)} 控制力大涨 +${deltaPct}%（${prevPct}% → ${curPct}%）${tp.leaderChanged ? ' 反超领跑' : ''}`;
+}
+
+function renderBelligerentsLineHtml(stats, belligerents) {
+    if (!belligerents?.length) return '多方主力大规模交火';
+    const vsHtml = belligerents
+        .map(entry => campInlineHtml(stats, entry.campKey))
+        .join('<b class="match-battle-vs">VS</b>');
+    return belligerents.length >= 2
+        ? `${vsHtml} 主力会战`
+        : `${vsHtml} 主导战局`;
+}
+
+function renderEventSideBadge(stats, event) {
+    const type = event.eventType || 'pitchedBattle';
+    const flagOnly = campKey => {
+        if (!campKey) return '';
+        const { camp, index } = findCampEntry(stats, campKey);
+        return flagBadgeHtml(camp, index, { size: 'xs' });
+    };
+
+    if (type === 'factionEliminated' && event.eliminations?.length) {
+        const first = event.eliminations[0];
+        if (first.finisherCampKey) {
+            return `<div class="match-battle-matchup">${flagOnly(first.finisherCampKey)}<b class="match-battle-op">⚔</b>${flagOnly(first.victimCampKey)}</div><small>势力覆灭</small>`;
+        }
+        return `<div class="match-battle-matchup">${flagOnly(first.victimCampKey)}</div><small>全军覆没</small>`;
+    }
+
+    if (type === 'commanderFall' && event.commanderDeaths?.length) {
+        const first = event.commanderDeaths[0];
+        const tag = event.commanderDeaths.length > 1 ? `斩将 ${event.commanderDeaths.length} 名` : '斩将';
+        if (first.killerCampKey) {
+            return `<div class="match-battle-matchup">${flagOnly(first.killerCampKey)}<b class="match-battle-op">⚔</b>${flagOnly(first.campKey)}</div><small>${tag}</small>`;
+        }
+        return `<div class="match-battle-matchup">☠${flagOnly(first.campKey)}</div><small>${tag}</small>`;
+    }
+
+    if (type === 'breakthrough') {
+        const capturers = [...new Set((event.capturesList || []).map(cap => cap.campKey).filter(Boolean))];
+        const prevEnemies = [...new Set((event.capturesList || [])
+            .map(cap => cap.previousCampKey)
+            .filter(key => key && key !== 'neutral' && !capturers.includes(key)))];
+        if (capturers.length === 1 && prevEnemies.length === 1) {
+            return `<div class="match-battle-matchup">${flagOnly(capturers[0])}<b class="match-battle-op">➔</b>${flagOnly(prevEnemies[0])}</div><small>攻占 ${formatNumber(event.captures)} 城</small>`;
+        }
+        if (capturers.length) {
+            return `<div class="match-battle-matchup">${capturers.slice(0, 2).map(flagOnly).join('')}</div><small>攻占 ${formatNumber(event.captures)} 城</small>`;
+        }
+    }
+
+    if (type === 'turningPoint' && event.turningPoint) {
+        const tp = event.turningPoint;
+        if (tp.leaderChanged && tp.previousLeaderCampKey) {
+            return `<div class="match-battle-matchup">${flagOnly(tp.campKey)}<b class="match-battle-op">↗</b>${flagOnly(tp.previousLeaderCampKey)}</div><small>反超领跑</small>`;
+        }
+        return `<div class="match-battle-matchup">${flagOnly(tp.campKey)}</div><small>控制 +${Math.round((tp.delta || 0) * 100)}%</small>`;
+    }
+
+    const bellig = Array.isArray(event.belligerents) ? event.belligerents : [];
+    if (bellig.length >= 2) {
+        const shareSummary = bellig
+            .map(entry => `${sanitizeUiText(findCampEntry(stats, entry.campKey).camp?.name || entry.campKey)} ${Math.round((entry.share || 0) * 100)}%`)
+            .join(' ');
+        const vsFlags = bellig.map(entry => flagOnly(entry.campKey)).join('<b class="match-battle-vs">VS</b>');
+        return `<div class="match-battle-matchup" title="${escapeHtml(shareSummary)}">${vsFlags}</div><small>主力会战</small>`;
+    }
+
+    if (event.leadingCampKey) {
+        return `<div class="match-battle-matchup">${flagOnly(event.leadingCampKey)}</div><small>输出领先</small>`;
+    }
+    return '<small>多方混战</small>';
+}
+
 function renderBattleEvents(stats, container) {
     if (!stats.battleEvents.length) {
         container.innerHTML = '<p class="match-stats-empty">本局各回合交战强度较均匀，没有达到相对高强度阈值的战役事件。</p>';
         return;
     }
     container.innerHTML = stats.battleEvents.map(event => {
-        const leaderIndex = stats.camps.findIndex(camp => camp.campKey === event.leadingCampKey);
-        const leader = leaderIndex >= 0 ? stats.camps[leaderIndex] : null;
+        const type = event.eventType || 'pitchedBattle';
+        const badgeCls = eventTypeBadgeClass(type);
+        const deaths = Array.isArray(event.commanderDeaths) ? event.commanderDeaths : [];
+        const captures = Array.isArray(event.capturesList) ? event.capturesList : [];
+        const elims = Array.isArray(event.eliminations) ? event.eliminations : [];
+        const bellig = Array.isArray(event.belligerents) ? event.belligerents : [];
+
+        let headlineHtml = escapePlainHtml(event.label);
+        const subNotes = [];
+
+        if (type === 'factionEliminated' && elims.length) {
+            headlineHtml = elims.map(elim => elim.finisherCampKey
+                ? `${campInlineHtml(stats, elim.finisherCampKey)} 消灭 ${campInlineHtml(stats, elim.victimCampKey)}（兵力与据点归零）`
+                : `${campInlineHtml(stats, elim.victimCampKey)} 兵力与据点归零 退出战局`
+            ).join(' ');
+            if (deaths.length) subNotes.push(...deaths.map(death => renderDeathLineHtml(stats, death)));
+            if (captures.length) subNotes.push(renderCaptureGroupsHtml(stats, captures));
+            if (event.turningPoint) subNotes.push(renderTurningLineHtml(stats, event.turningPoint, true));
+        } else if (type === 'commanderFall' && deaths.length) {
+            headlineHtml = deaths.length === 1
+                ? renderDeathLineHtml(stats, deaths[0])
+                : `${renderDeathLineHtml(stats, deaths[0])} 等 ${deaths.length} 名将领陨落`;
+            if (deaths.length > 1) subNotes.push(...deaths.slice(1).map(death => renderDeathLineHtml(stats, death)));
+            if (captures.length) subNotes.push(renderCaptureGroupsHtml(stats, captures));
+            if (event.turningPoint) subNotes.push(renderTurningLineHtml(stats, event.turningPoint, true));
+        } else if (type === 'breakthrough') {
+            headlineHtml = captures.length
+                ? renderCaptureGroupsHtml(stats, captures)
+                : `${campInlineHtml(stats, event.leadingCampKey)} 突破敌军防线`;
+            if (event.turningPoint) subNotes.push(renderTurningLineHtml(stats, event.turningPoint, true));
+        } else if (type === 'turningPoint' && event.turningPoint) {
+            headlineHtml = renderTurningLineHtml(stats, event.turningPoint, false);
+            if (captures.length) subNotes.push(renderCaptureGroupsHtml(stats, captures));
+        } else {
+            headlineHtml = renderBelligerentsLineHtml(stats, bellig);
+            if (captures.length) subNotes.push(renderCaptureGroupsHtml(stats, captures));
+        }
+
+        const metricChips = [
+            `<span>${formatNumber(event.engagements)} 次交战</span>`,
+            `<span>${formatNumber(event.totalDamage)} 伤害</span>`,
+            `<span>${formatNumber(event.totalLosses)} 单位阵亡</span>`
+        ];
+        if (event.captures) metricChips.push(`<span>${formatNumber(event.captures)} 次占城</span>`);
+        if (event.commanderLosses) metricChips.push(`<span>${formatNumber(event.commanderLosses)} 名将领陨落</span>`);
+
         return `
-            <article class="match-battle-event">
-                <span>R${event.round}</span>
-                <div>
-                    <strong>${event.label}</strong>
-                    <p>${event.engagements} 次交战 · ${formatNumber(event.totalDamage)} 伤害 · ${event.totalLosses} 个单位阵亡${event.captures ? ` · ${event.captures} 次占城` : ''}${event.commanderLosses ? ` · ${event.commanderLosses} 名将领陨落` : ''}</p>
+            <article class="match-battle-event ${badgeCls}">
+                <div class="match-battle-round">
+                    <span>R${event.round}</span>
+                    <em class="match-battle-pill ${badgeCls}">${escapePlainHtml(event.label)}</em>
                 </div>
-                <em>${leader ? `${flagBadgeHtml(leader, leaderIndex, { size: 'xs' })}<span>输出领先</span>` : '多方混战'}</em>
+                <div class="match-battle-main">
+                    <div class="match-battle-headline">${headlineHtml}</div>
+                    ${subNotes.length ? `<div class="match-battle-sub">${subNotes.map(note => `<span>${note}</span>`).join('')}</div>` : ''}
+                    <div class="match-battle-metrics">${metricChips.join('')}</div>
+                </div>
+                <div class="match-battle-side">
+                    ${renderEventSideBadge(stats, event)}
+                </div>
             </article>
         `;
     }).join('');
@@ -768,7 +978,7 @@ export function initMatchStatsPanel({ getLog, onMissing } = {}) {
             }
             renderControlChart(activeStats, controlMetric, svg, legend, tooltip);
             const methodKey = controlMetric === 'controlShare' ? 'control' : controlMetric;
-            document.getElementById('matchControlMethod').textContent = activeStats.methodology[methodKey];
+            document.getElementById('matchControlMethod').textContent = sanitizeUiText(activeStats.methodology[methodKey]);
         });
     }
 
@@ -785,7 +995,7 @@ export function initMatchStatsPanel({ getLog, onMissing } = {}) {
             activeStats.rounds.at(-1)?.round || 0,
             activeStats.controlTimeline.at(-1)?.round || 0
         );
-        subtitle.textContent = `${sourceLabel ? `${sourceLabel} · ` : ''}${winner ? `${winner.name}获胜 · ` : ''}${roundCount} 回合 · ${activeStats.mode?.type || '对局'}`;
+        subtitle.textContent = [sourceLabel, winner ? `${winner.name}获胜` : '', `${roundCount} 回合`, activeStats.mode?.type || '对局'].filter(Boolean).map(sanitizeUiText).join(' ');
         renderSummary(activeStats, summary);
         renderControlChart(activeStats, controlMetric, svg, legend, tooltip);
         renderCampCards(activeStats, campCards);
@@ -797,8 +1007,8 @@ export function initMatchStatsPanel({ getLog, onMissing } = {}) {
         unitMetric.value = 'damageDealt';
         renderUnits();
         renderBattleEvents(activeStats, battleEvents);
-        document.getElementById('matchControlMethod').textContent = activeStats.methodology.control;
-        document.getElementById('matchBattleMethod').textContent = activeStats.methodology.battleEvents;
+        document.getElementById('matchControlMethod').textContent = sanitizeUiText(activeStats.methodology.control);
+        document.getElementById('matchBattleMethod').textContent = sanitizeUiText(activeStats.methodology.battleEvents);
         overlay.classList.add('show');
         overlay.setAttribute('aria-hidden', 'false');
         document.body.classList.add('match-stats-open');

@@ -163,6 +163,8 @@ test('战线突破按阵亡与占城识别，不会因攻击次数较少漏掉�
         payload: { districtId: 2, campKey: 'player1' }
     });
     log.finalState.round = 11;
+    log.finalState.units.push({ id: 'u2', type: 'cavalry', campKey: 'player2', hp: 50, maxHp: 90 });
+    log.finalState.sites[1].campKey = 'player2';
 
     const stats = buildMatchStats(log);
     const breakthrough = stats.battleEvents.find(event => event.round === 11);
@@ -459,8 +461,9 @@ test('matchStatsView renders 8 summary cards, medal ranks, HUD flags, chart flag
             { id: 'u4', type: 'gb_battleship', campKey: 'player2', hp: 190, maxHp: 230 }
         );
         log.timeline.push(
-            { kind: 'event', sequence: 9, round: 2, eventType: 'unitHpChanged', payload: { unitId: 'u4', unitType: 'gb_battleship', campKey: 'player2', sourceUnitId: 'u3', sourceCampKey: 'player1', oldHp: 230, newHp: 190, delta: -40 } },
-            { kind: 'event', sequence: 10, round: 2, eventType: 'unitHpChanged', payload: { unitId: 'u3', unitType: 'kmt_training_brigade', campKey: 'player1', sourceUnitId: 'u4', sourceCampKey: 'player2', oldHp: 210, newHp: 180, delta: -30 } }
+            { kind: 'event', sequence: 9, round: 2, eventType: 'unitHpChanged', payload: { unitId: 'u4', unitType: 'gb_battleship', campKey: 'player2', sourceUnitId: 'u3', sourceCampKey: 'player1', oldHp: 230, newHp: 20, delta: -210 } },
+            { kind: 'event', sequence: 10, round: 2, eventType: 'unitHpChanged', payload: { unitId: 'u3', unitType: 'kmt_training_brigade', campKey: 'player1', sourceUnitId: 'u4', sourceCampKey: 'player2', oldHp: 210, newHp: 10, delta: -200 } },
+            { kind: 'event', sequence: 11, round: 2, eventType: 'unitKilled', payload: { unitId: 'u5', unitType: 'destroyer', campKey: 'player1', killerId: 'u4', killerType: 'gb_battleship', killerCampKey: 'player2' } }
         );
         const panel = initMatchStatsPanel({ getLog: () => log });
         assert.equal(panel.open(), true);
@@ -484,6 +487,11 @@ test('matchStatsView renders 8 summary cards, medal ranks, HUD flags, chart flag
 
         const mvpCards = dom.window.document.querySelectorAll('#matchUnitMvp .match-mvp-card');
         assert.equal(mvpCards.length, 3);
+        assert.equal(mvpCards[0].querySelector('.match-mvp-rank').textContent.trim(), '🥇');
+        assert.ok(!dom.window.document.querySelector('#matchStatsOverlay').textContent.includes('·'), 'DOM should never contain middle dot ·');
+        const titledNodes = [...dom.window.document.querySelectorAll('#matchStatsOverlay [title]')];
+        assert.ok(titledNodes.every(node => !node.getAttribute('title').includes('·')), 'title attributes should not contain middle dot ·');
+        assert.equal(mvpCards[0].querySelectorAll('.match-mvp-identity .match-hud-flag').length, 0);
         const commanderPortrait = dom.window.document.querySelector('#matchUnitMvp .match-mvp-commander-portrait');
         assert.ok(commanderPortrait && commanderPortrait.getAttribute('src').includes('img/commander_tr/空军上校.webp'));
         assert.ok(dom.window.document.querySelector('#matchUnitMvp .match-mvp-backdrop-flag'));
@@ -501,6 +509,127 @@ test('matchStatsView renders 8 summary cards, medal ranks, HUD flags, chart flag
         assert.notEqual(landPoly.getAttribute('fill'), navalPoly.getAttribute('fill'));
         const sumRgb = hex => [1, 3, 5].reduce((acc, idx) => acc + Number.parseInt(hex.slice(idx, idx + 2), 16), 0);
         assert.ok(sumRgb(landPoly.getAttribute('fill')) < sumRgb(navalPoly.getAttribute('fill')), 'land should stay darker than lightened naval shade');
+    } finally {
+        globalThis.document = prevDoc;
+    }
+});
+
+test('MVP podium omits rank 2/3 when lagging far behind leader or direct predecessor', async () => {
+    const { selectMvpUnits } = await import('../js/matchStats.js');
+    const soloCarry = selectMvpUnits([
+        { id: 'a', damageDealt: 1200, kills: 4, survived: true },
+        { id: 'b', damageDealt: 450, kills: 1, survived: false },
+        { id: 'c', damageDealt: 300, kills: 0, survived: false }
+    ]);
+    assert.deepEqual(soloCarry.map(u => u.id), ['a']);
+
+    const duoCliff = selectMvpUnits([
+        { id: 'a', damageDealt: 1000, kills: 3, survived: true },
+        { id: 'b', damageDealt: 900, kills: 2, survived: true },
+        { id: 'c', damageDealt: 350, kills: 0, survived: false }
+    ]);
+    assert.deepEqual(duoCliff.map(u => u.id), ['a', 'b']);
+});
+
+test('selectMainBelligerents isolates dominant pair in 5:5:2 fights and keeps balanced 3-way clashes', async () => {
+    const { selectMainBelligerents } = await import('../js/matchStats.js');
+    const twoVsBystander = selectMainBelligerents({
+        player1: { damageDealt: 300, damageTaken: 200 },
+        player2: { damageDealt: 200, damageTaken: 300 },
+        player3: { damageDealt: 100, damageTaken: 100 }
+    });
+    assert.deepEqual(twoVsBystander.map(entry => entry.campKey), ['player1', 'player2']);
+
+    const threeWay = selectMainBelligerents({
+        player1: { damageDealt: 220, damageTaken: 180 },
+        player2: { damageDealt: 190, damageTaken: 200 },
+        player3: { damageDealt: 160, damageTaken: 150 }
+    });
+    assert.deepEqual(threeWay.map(entry => entry.campKey), ['player1', 'player2', 'player3']);
+});
+
+test('5 battle event categories, commander kill attribution and zero middle-dot UI render end-to-end', async () => {
+    const { JSDOM } = await import('jsdom');
+    const reviewDoc = {
+        schema: 'blades-of-hex.match-review',
+        matchId: 'events-5cat',
+        complete: true,
+        durationMs: 180000,
+        mode: { type: 'pve' },
+        result: { winnerCampKey: 'player1' },
+        participants: [
+            { campKey: 'player1', name: '中华民国', flagPreset: 'img/flags/kuomintang.svg', colorId: 'blue' },
+            { campKey: 'player2', name: '苏联', flagPreset: 'img/flags/soviet-union.svg', colorId: 'red' },
+            { campKey: 'player3', name: '日本', flagPreset: 'img/flags/japan.svg', colorId: 'yellow' }
+        ],
+        overview: {
+            totalActions: 80,
+            totalDamage: 3200,
+            totalLosses: 14,
+            camps: [
+                { campKey: 'player1', name: '中华民国', kills: 9, losses: 3, attacks: 30, actions: 40, captures: 3, damageDealt: 1800, damageTaken: 700, healingReceived: 200, initialCities: 1, finalCities: 3, initialForce: { units: 6 }, finalForce: { units: 5 } },
+                { campKey: 'player2', name: '苏联', kills: 4, losses: 5, attacks: 22, actions: 25, captures: 1, damageDealt: 950, damageTaken: 1300, healingReceived: 120, initialCities: 1, finalCities: 1, initialForce: { units: 6 }, finalForce: { units: 3 } },
+                { campKey: 'player3', name: '日本', kills: 1, losses: 6, attacks: 12, actions: 15, captures: 0, damageDealt: 450, damageTaken: 1200, healingReceived: 0, initialCities: 1, finalCities: 0, initialForce: { units: 5 }, finalForce: { units: 0 } }
+            ],
+            leaders: {}
+        },
+        unitHighlights: [
+            { id: 'u1', type: 'warship', campKey: 'player1', commanderId: 'fallenAngel', isCommanderUnit: true, displayName: '巡洋舰 · 堕天使', kills: 5, damageDealt: 1100, damageTaken: 240, healingReceived: 80, actions: 12, survived: true },
+            { id: 'u2', type: 'warship', campKey: 'player2', kills: 1, damageDealt: 180, damageTaken: 350, healingReceived: 0, actions: 4, survived: false }
+        ],
+        commanderDeathEvents: [
+            { sequence: 40, round: 3, campKey: 'player3', killerCampKey: 'player1', unitId: 'u3', unitType: 'warship', commanderId: 'ironGuard', commanderName: '铁卫', displayName: '巡洋舰 · 铁卫' }
+        ],
+        keyEvents: [
+            { sequence: 60, round: 6, type: 'cityCaptured', campKey: 'player1', previousCampKey: 'player2', districtId: 4, label: '中华民国攻占行政区4' },
+            { sequence: 90, round: 8, type: 'cityCaptured', campKey: 'player1', previousCampKey: 'player3', districtId: 9, label: '中华民国攻占行政区9' }
+        ],
+        controlTimeline: [
+            { round: 0, byCamp: { player1: { units: 6, cities: 1, controlShare: 0.35 }, player2: { units: 6, cities: 1, controlShare: 0.35 }, player3: { units: 5, cities: 1, controlShare: 0.30 } } },
+            { round: 1, byCamp: { player1: { units: 6, cities: 1, controlShare: 0.35 }, player2: { units: 6, cities: 1, controlShare: 0.35 }, player3: { units: 5, cities: 1, controlShare: 0.30 } } },
+            { round: 2, byCamp: { player1: { units: 6, cities: 1, controlShare: 0.34 }, player2: { units: 5, cities: 1, controlShare: 0.34 }, player3: { units: 5, cities: 1, controlShare: 0.32 } } },
+            { round: 3, byCamp: { player1: { units: 6, cities: 1, controlShare: 0.38 }, player2: { units: 5, cities: 1, controlShare: 0.34 }, player3: { units: 4, cities: 1, controlShare: 0.28 } } },
+            { round: 4, byCamp: { player1: { units: 6, cities: 1, controlShare: 0.38 }, player2: { units: 5, cities: 1, controlShare: 0.35 }, player3: { units: 4, cities: 1, controlShare: 0.27 } } },
+            { round: 5, byCamp: { player1: { units: 5, cities: 1, controlShare: 0.35 }, player2: { units: 6, cities: 1, controlShare: 0.48 }, player3: { units: 3, cities: 1, controlShare: 0.17 } } },
+            { round: 6, byCamp: { player1: { units: 5, cities: 2, controlShare: 0.45 }, player2: { units: 5, cities: 1, controlShare: 0.36 }, player3: { units: 3, cities: 1, controlShare: 0.19 } } },
+            { round: 7, byCamp: { player1: { units: 5, cities: 2, controlShare: 0.47 }, player2: { units: 4, cities: 1, controlShare: 0.35 }, player3: { units: 2, cities: 1, controlShare: 0.18 } } },
+            { round: 8, byCamp: { player1: { units: 5, cities: 3, controlShare: 0.68 }, player2: { units: 3, cities: 1, controlShare: 0.32 }, player3: { units: 0, cities: 0, controlShare: 0 } } }
+        ],
+        roundIndex: [
+            { round: 1, engagements: 2, byCamp: { player1: { damageDealt: 100, damageTaken: 80, kills: 0, losses: 0, captures: 0 }, player2: { damageDealt: 80, damageTaken: 100, kills: 0, losses: 0, captures: 0 }, player3: { damageDealt: 20, damageTaken: 20, kills: 0, losses: 0, captures: 0 } } },
+            { round: 2, engagements: 14, byCamp: { player1: { damageDealt: 450, damageTaken: 350, kills: 2, losses: 1, captures: 0 }, player2: { damageDealt: 350, damageTaken: 450, kills: 1, losses: 2, captures: 0 }, player3: { damageDealt: 80, damageTaken: 80, kills: 0, losses: 0, captures: 0 } } },
+            { round: 3, engagements: 5, commanderLosses: 1, byCamp: { player1: { damageDealt: 260, damageTaken: 120, kills: 1, losses: 0, captures: 0 }, player3: { damageDealt: 120, damageTaken: 260, kills: 0, losses: 1, captures: 0 } } },
+            { round: 4, engagements: 2, byCamp: { player1: { damageDealt: 90, damageTaken: 60, kills: 0, losses: 0, captures: 0 }, player2: { damageDealt: 60, damageTaken: 90, kills: 0, losses: 0, captures: 0 } } },
+            { round: 5, engagements: 5, byCamp: { player2: { damageDealt: 240, damageTaken: 100, kills: 2, losses: 0, captures: 0 }, player3: { damageDealt: 60, damageTaken: 190, kills: 0, losses: 2, captures: 0 }, player1: { damageDealt: 50, damageTaken: 60, kills: 0, losses: 1, captures: 0 } } },
+            { round: 6, engagements: 9, byCamp: { player1: { damageDealt: 480, damageTaken: 200, kills: 4, losses: 1, captures: 1 }, player2: { damageDealt: 200, damageTaken: 480, kills: 1, losses: 4, captures: 0 } } },
+            { round: 7, engagements: 2, byCamp: { player1: { damageDealt: 80, damageTaken: 70, kills: 0, losses: 0, captures: 0 }, player2: { damageDealt: 70, damageTaken: 80, kills: 0, losses: 0, captures: 0 } } },
+            { round: 8, engagements: 5, byCamp: { player1: { damageDealt: 500, damageTaken: 110, kills: 2, losses: 0, captures: 1 }, player3: { damageDealt: 110, damageTaken: 500, kills: 0, losses: 2, captures: 0 } } }
+        ]
+    };
+    const stats = buildMatchStatsDocument(reviewDoc);
+    assert.deepEqual(stats.battleEvents.map(e => e.eventType), [
+        'pitchedBattle',
+        'commanderFall',
+        'turningPoint',
+        'breakthrough',
+        'factionEliminated'
+    ]);
+    assert.deepEqual(stats.battleEvents[0].belligerents.map(b => b.campKey), ['player1', 'player2']);
+    assert.equal(stats.mvpUnits.length, 1);
+
+    const dom = new JSDOM('<!doctype html><body><div id="matchStatsOverlay"><button id="matchStatsCloseBtn"></button><p id="matchStatsSubtitle"></p><div id="matchStatsSummary"></div><button type="button" data-control-metric="controlShare" class="active"></button><button type="button" data-control-metric="unitShare"></button><button type="button" data-control-metric="cityShare"></button><svg id="matchControlChart"></svg><div id="matchControlTooltip" hidden></div><div id="matchControlLegend"></div><p id="matchControlMethod"></p><div id="matchCampCards"></div><div id="matchUnitLeaders"></div><div id="matchUnitMvp"></div><select id="matchUnitMetric"><option value="damageDealt">造成伤害</option></select><select id="matchUnitCamp"></select><div id="matchUnitTable"></div><div id="matchBattleEvents"></div><p id="matchBattleMethod"></p></div></body>');
+    const prevDoc = globalThis.document;
+    globalThis.document = dom.window.document;
+    try {
+        const { initMatchStatsPanel } = await import('../js/matchStatsView.js');
+        const panel = initMatchStatsPanel({ getLog: () => reviewDoc });
+        assert.equal(panel.open(), true);
+        const overlayText = dom.window.document.querySelector('#matchStatsOverlay').textContent;
+        assert.ok(!overlayText.includes('·'), 'rendered overlay text must not include middle dot ·');
+        assert.equal(dom.window.document.querySelector('#matchUnitMvp .match-mvp-grid').getAttribute('data-count'), '1');
+        assert.equal(dom.window.document.querySelector('#matchUnitMvp .match-mvp-rank').textContent.trim(), '🥇');
+        assert.ok(dom.window.document.querySelector('#matchBattleEvents .match-battle-event.is-commander-fall .match-battle-headline').textContent.includes('击杀'));
+        assert.ok(dom.window.document.querySelector('#matchBattleEvents .match-battle-event.is-breakthrough .match-battle-headline').textContent.includes('行政区4'));
     } finally {
         globalThis.document = prevDoc;
     }

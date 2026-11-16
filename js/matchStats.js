@@ -227,19 +227,34 @@ export function computeUnitMvpScore(unit) {
 }
 
 export function selectMvpUnits(units, limit = 3) {
-    return [...(units || [])]
+    const scored = [...(units || [])]
         .filter(unit => finiteNumber(unit?.damageDealt)
             + finiteNumber(unit?.kills)
             + finiteNumber(unit?.captures)
             + finiteNumber(unit?.healingDone)
             + finiteNumber(unit?.healingReceived) > 0)
+        .map(unit => ({ unit, score: computeUnitMvpScore(unit) }))
+        .filter(entry => entry.score > 0)
         .sort((left, right) =>
-            computeUnitMvpScore(right) - computeUnitMvpScore(left)
-            || finiteNumber(right?.kills) - finiteNumber(left?.kills)
-            || finiteNumber(right?.damageDealt) - finiteNumber(left?.damageDealt)
-            || String(left?.id ?? '').localeCompare(String(right?.id ?? ''))
-        )
-        .slice(0, limit);
+            right.score - left.score
+            || finiteNumber(right.unit?.kills) - finiteNumber(left.unit?.kills)
+            || finiteNumber(right.unit?.damageDealt) - finiteNumber(left.unit?.damageDealt)
+            || String(left.unit?.id ?? '').localeCompare(String(right.unit?.id ?? ''))
+        );
+    if (!scored.length || limit <= 0) return [];
+    const topScore = scored[0].score;
+    const picked = [scored[0]];
+    for (let index = 1; index < scored.length && picked.length < limit; index++) {
+        const candidate = scored[index];
+        const prevScore = picked[picked.length - 1].score;
+        // 仅当第二、三名与第一名（>=60%）及紧邻上一名（>=65%）差距不过大时共同上榜
+        if (candidate.score >= topScore * 0.60 && candidate.score >= prevScore * 0.65) {
+            picked.push(candidate);
+        } else {
+            break;
+        }
+    }
+    return picked.map(entry => entry.unit);
 }
 
 function normalizedRound(item) {
@@ -388,27 +403,225 @@ function percentile(sortedValues, ratio) {
     return sortedValues[lower] + (sortedValues[upper] - sortedValues[lower]) * (index - lower);
 }
 
-function identifyBattleEvents(rounds) {
-    const profiles = rounds.map(round => {
+function parseDistrictIdFromEvent(event) {
+    if (event?.districtId != null) return event.districtId;
+    const match = typeof event?.label === 'string' ? event.label.match(/行政区(\d+)/) : null;
+    return match ? Number(match[1]) : null;
+}
+
+export function selectMainBelligerents(byCamp) {
+    const entries = Object.entries(byCamp || {})
+        .map(([campKey, stats]) => {
+            const damageDealt = finiteNumber(stats?.damageDealt);
+            const damageTaken = finiteNumber(stats?.damageTaken);
+            const kills = finiteNumber(stats?.kills);
+            const losses = finiteNumber(stats?.losses);
+            const captures = finiteNumber(stats?.captures);
+            const involvement = damageDealt + damageTaken;
+            const score = involvement > 0 ? involvement : (kills + losses) * 100 + captures * 80;
+            return { campKey, damageDealt, damageTaken, kills, losses, captures, involvement, score };
+        })
+        .filter(entry => entry.score > 0)
+        .sort((left, right) =>
+            right.score - left.score
+            || right.damageDealt - left.damageDealt
+            || right.kills - left.kills
+        );
+    const total = entries.reduce((sum, entry) => sum + entry.score, 0);
+    if (!entries.length || total <= 0) return [];
+    const top = entries[0];
+    return entries.filter((entry, index) => {
+        if (index >= 3) return false;
+        if (index === 0) return true;
+        const share = entry.score / total;
+        const ratioToTop = entry.score / top.score;
+        // 抓住主要矛盾：次要阵营须达到实质交战比重（第二名>=20%，第三名>=24%且>=榜首55%）才参与对战展示
+        if (index === 1) return share >= 0.20;
+        return share >= 0.24 && ratioToTop >= 0.55;
+    }).map(entry => ({
+        ...entry,
+        share: Number((entry.score / total).toFixed(3))
+    }));
+}
+
+function resolveEliminationFinisher(victimCampKey, roundData, capturesList, commanderDeaths, unitKillsInRound) {
+    const killCounts = new Map();
+    for (const kill of unitKillsInRound || []) {
+        if (kill.victimCampKey === victimCampKey && kill.killerCampKey && kill.killerCampKey !== victimCampKey) {
+            killCounts.set(kill.killerCampKey, (killCounts.get(kill.killerCampKey) || 0) + 1);
+        }
+    }
+    if (killCounts.size > 0) {
+        return [...killCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    }
+    const commanderKill = commanderDeaths.find(death => death.campKey === victimCampKey && death.killerCampKey);
+    if (commanderKill) return commanderKill.killerCampKey;
+    const lostCityCapture = capturesList.find(cap => cap.previousCampKey === victimCampKey && cap.campKey && cap.campKey !== victimCampKey);
+    if (lostCityCapture) return lostCityCapture.campKey;
+    const enemyCapture = [...capturesList].reverse().find(cap => cap.campKey && cap.campKey !== victimCampKey && cap.campKey !== 'neutral');
+    if (enemyCapture) return enemyCapture.campKey;
+    const byCampEntries = Object.entries(roundData?.byCamp || {})
+        .filter(([campKey]) => campKey !== victimCampKey && campKey !== 'neutral')
+        .map(([campKey, s]) => [campKey, finiteNumber(s?.kills) * 200 + finiteNumber(s?.captures) * 250 + finiteNumber(s?.damageDealt)])
+        .filter(([, score]) => score > 0)
+        .sort((a, b) => b[1] - a[1]);
+    return byCampEntries[0]?.[0] || null;
+}
+
+function identifyBattleEvents(rounds, context = {}) {
+    const controlTimeline = Array.isArray(context.controlTimeline) ? context.controlTimeline : [];
+    const commanderDeathEvents = Array.isArray(context.commanderDeathEvents) ? context.commanderDeathEvents : [];
+    const keyEvents = Array.isArray(context.keyEvents) ? context.keyEvents : [];
+    const unitKillsByRound = context.unitKillsByRound instanceof Map ? context.unitKillsByRound : new Map();
+
+    const deathsByRound = new Map();
+    for (const death of commanderDeathEvents) {
+        const r = Math.max(1, Math.floor(finiteNumber(death?.round) || 1));
+        if (!deathsByRound.has(r)) deathsByRound.set(r, []);
+        deathsByRound.get(r).push({
+            campKey: death.campKey || null,
+            killerCampKey: death.killerCampKey || null,
+            commanderId: death.commanderId || null,
+            commanderName: death.commanderName || death.commanderId || '将领',
+            unitType: death.unitType || null,
+            displayName: death.displayName || death.commanderName || '将领单位'
+        });
+    }
+
+    const capturesByRound = new Map();
+    for (const ev of keyEvents) {
+        if (ev?.type !== 'cityCaptured') continue;
+        const r = Math.max(1, Math.floor(finiteNumber(ev.round) || 1));
+        if (!capturesByRound.has(r)) capturesByRound.set(r, []);
+        capturesByRound.get(r).push({
+            campKey: ev.campKey || null,
+            districtId: parseDistrictIdFromEvent(ev),
+            previousCampKey: ev.previousCampKey || null,
+            label: ev.label || ''
+        });
+    }
+
+    const roundMap = new Map((rounds || []).map(round => [round.round, round]));
+    const elimByRound = new Map();
+    const turningByRound = new Map();
+    const eliminatedAlready = new Set();
+
+    for (let index = 1; index < controlTimeline.length; index++) {
+        const prev = controlTimeline[index - 1];
+        const cur = controlTimeline[index];
+        const r = Math.floor(finiteNumber(cur?.round));
+        if (r <= 0) continue;
+        const roundStats = roundMap.get(r);
+        const roundEntries = Object.values(roundStats?.byCamp || {});
+        const roundCaptures = roundEntries.reduce((sum, s) => sum + finiteNumber(s?.captures), 0);
+        const roundLosses = roundEntries.reduce((sum, s) => sum + finiteNumber(s?.losses), 0);
+        const roundEngagements = finiteNumber(roundStats?.engagements);
+
+        for (const [campKey, curCamp] of Object.entries(cur?.byCamp || {})) {
+            if (campKey === 'neutral' || eliminatedAlready.has(campKey)) continue;
+            const prevCamp = prev?.byCamp?.[campKey];
+            if (!prevCamp) continue;
+            const hadPresence = finiteNumber(prevCamp.units) > 0 || finiteNumber(prevCamp.cities) > 0;
+            const cleared = finiteNumber(curCamp.units) === 0 && finiteNumber(curCamp.cities) === 0;
+            // 需由当回合真实的占城/灭队战果佐证，避免无时间线对应的残缺终局快照误判为回合灭国战果
+            const corroborated = finiteNumber(prevCamp.cities) > 0
+                ? roundCaptures > 0
+                : (roundLosses > 0 || roundEngagements > 0);
+            if (hadPresence && cleared && corroborated) {
+                eliminatedAlready.add(campKey);
+                if (!elimByRound.has(r)) elimByRound.set(r, []);
+                elimByRound.get(r).push(campKey);
+            }
+        }
+
+        const prevPlayers = Object.entries(prev?.byCamp || {}).filter(([campKey]) => campKey !== 'neutral');
+        const curPlayers = Object.entries(cur?.byCamp || {}).filter(([campKey]) => campKey !== 'neutral');
+        const unrecordedCityShift = roundCaptures === 0 && Object.entries(cur?.byCamp || {}).some(([campKey, curCamp]) => {
+            const prevCamp = prev?.byCamp?.[campKey];
+            return prevCamp && finiteNumber(curCamp?.cities) !== finiteNumber(prevCamp?.cities);
+        });
+        if (prevPlayers.length >= 2 && curPlayers.length >= 2 && !unrecordedCityShift && (roundCaptures > 0 || roundLosses >= 2)) {
+            const prevTop = [...prevPlayers].sort((a, b) => finiteNumber(b[1]?.controlShare) - finiteNumber(a[1]?.controlShare))[0];
+            const curTop = [...curPlayers].sort((a, b) => finiteNumber(b[1]?.controlShare) - finiteNumber(a[1]?.controlShare))[0];
+            const gainers = curPlayers.map(([campKey, s]) => {
+                const curShare = finiteNumber(s?.controlShare);
+                const prevShare = finiteNumber(prev?.byCamp?.[campKey]?.controlShare);
+                return { campKey, curShare, prevShare, delta: curShare - prevShare };
+            }).sort((a, b) => b.delta - a.delta);
+            const topGainer = gainers[0];
+            const leaderChanged = Boolean(prevTop && curTop && prevTop[0] !== curTop[0] && finiteNumber(prevTop[1]?.controlShare) > 0);
+            const curLeaderDelta = leaderChanged
+                ? finiteNumber(curTop[1]?.controlShare) - finiteNumber(prev?.byCamp?.[curTop[0]]?.controlShare)
+                : 0;
+            if (topGainer && (topGainer.delta >= 0.12 || (leaderChanged && curLeaderDelta >= 0.08 && r >= 3))) {
+                const target = topGainer.delta >= 0.12 ? topGainer : {
+                    campKey: curTop[0],
+                    curShare: finiteNumber(curTop[1]?.controlShare),
+                    prevShare: finiteNumber(prev?.byCamp?.[curTop[0]]?.controlShare),
+                    delta: curLeaderDelta
+                };
+                turningByRound.set(r, {
+                    campKey: target.campKey,
+                    previousLeaderCampKey: leaderChanged ? prevTop[0] : null,
+                    prevShare: Number(target.prevShare.toFixed(3)),
+                    curShare: Number(target.curShare.toFixed(3)),
+                    delta: Number(target.delta.toFixed(3)),
+                    leaderChanged
+                });
+            }
+        }
+    }
+
+    const roundNumbers = [...new Set([
+        ...(rounds || []).map(round => round.round),
+        ...deathsByRound.keys(),
+        ...elimByRound.keys()
+    ])].filter(r => r > 0).sort((a, b) => a - b);
+
+    const profiles = roundNumbers.map(roundNumber => {
+        const round = roundMap.get(roundNumber) || {
+            round: roundNumber, sequenceStart: null, sequenceEnd: null,
+            engagements: 0, commanderLosses: 0, byCamp: {}
+        };
         const campEntries = Object.entries(round.byCamp || {});
-        const totalDamage = campEntries.reduce((sum, [, camp]) => sum + camp.damageTaken, 0);
-        const totalLosses = campEntries.reduce((sum, [, camp]) => sum + camp.losses, 0);
-        const captures = campEntries.reduce((sum, [, camp]) => sum + camp.captures, 0);
-        const commanderLosses = Number(round.commanderLosses || 0);
+        const totalDamage = campEntries.reduce((sum, [, camp]) => sum + finiteNumber(camp.damageTaken), 0);
+        const totalLosses = campEntries.reduce((sum, [, camp]) => sum + finiteNumber(camp.losses), 0);
+        const captures = campEntries.reduce((sum, [, camp]) => sum + finiteNumber(camp.captures), 0);
+        const commanderDeaths = deathsByRound.get(roundNumber) || [];
+        const commanderLosses = Math.max(finiteNumber(round.commanderLosses), commanderDeaths.length);
+        const capturesList = capturesByRound.get(roundNumber) || [];
+        const elimVictims = elimByRound.get(roundNumber) || [];
+        const eliminations = elimVictims.map(victimCampKey => ({
+            victimCampKey,
+            finisherCampKey: resolveEliminationFinisher(
+                victimCampKey,
+                round,
+                capturesList,
+                commanderDeaths,
+                unitKillsByRound.get(roundNumber)
+            )
+        }));
+        const turningPoint = turningByRound.get(roundNumber) || null;
         // 交战次数只能描述“打得多不多”，不能识别战线崩溃。阵亡、占城与将领
         // 陨落都是不可逆成果，必须比普通对射获得更高权重。
-        const battleScore = round.engagements
+        const battleScore = finiteNumber(round.engagements)
             + totalDamage / 100
             + totalLosses * 2.5
             + captures * 4.5
             + commanderLosses * 3.5;
-        return { round, campEntries, totalDamage, totalLosses, captures, commanderLosses, battleScore };
+        return {
+            round, campEntries, totalDamage, totalLosses, captures, commanderLosses,
+            commanderDeaths, capturesList, eliminations, turningPoint, battleScore
+        };
     });
+
     const activeRounds = profiles.filter(profile => profile.battleScore > 0);
-    if (activeRounds.length === 0) return [];
+    if (activeRounds.length === 0 && profiles.every(p => p.eliminations.length === 0 && p.commanderDeaths.length === 0)) {
+        return [];
+    }
     const values = activeRounds.map(profile => profile.battleScore);
-    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-    const variance = values.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / values.length;
+    const mean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+    const variance = values.length ? values.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / values.length : 0;
     const deviation = Math.sqrt(variance);
     const sorted = [...values].sort((left, right) => left - right);
     const p75 = percentile(sorted, 0.75);
@@ -417,10 +630,18 @@ function identifyBattleEvents(rounds) {
     const zScale = Math.min(1.15, Math.sqrt(Math.max(1, activeRounds.length - 1)) * 0.72);
     const strictThreshold = Math.max(p85, mean + deviation * zScale);
     const breakthroughThreshold = Math.max(p75, mean + deviation * Math.min(0.7, zScale));
-    const peak = Math.max(...values);
-    const maxEvents = Math.max(1, Math.min(5, Math.round(activeRounds.length * 0.2)));
+    const peak = values.length ? Math.max(...values) : 1;
 
-    const candidates = activeRounds.filter(profile => {
+    const milestoneRounds = profiles.filter(profile =>
+        profile.eliminations.length > 0
+        || profile.commanderDeaths.length > 0
+        || profile.turningPoint != null
+    );
+    const milestoneSet = new Set(milestoneRounds.map(profile => profile.round.round));
+
+    const maxCombatEvents = Math.max(1, Math.min(5, Math.round(activeRounds.length * 0.2)));
+    const combatCandidates = activeRounds.filter(profile => {
+        if (milestoneSet.has(profile.round.round)) return false;
         const majorBreakthrough = (profile.captures >= 2 && profile.totalLosses >= 3)
             || (profile.captures >= 1 && profile.totalLosses >= 5);
         const majorCollapse = profile.totalLosses >= 6 && profile.commanderLosses >= 1;
@@ -429,33 +650,75 @@ function identifyBattleEvents(rounds) {
             || ((majorBreakthrough || majorCollapse) && profile.battleScore >= breakthroughThreshold);
     });
 
-    const selected = [...candidates]
+    // 短中盘若硬里程碑（如1次将领陨落）已占去唯一高分位，仍补充1场最高烈度的非里程碑巅峰决战（仅6回合以上对局）
+    let pickedCombat = [...combatCandidates]
         .sort((left, right) => right.battleScore - left.battleScore || left.round.round - right.round.round)
-        .slice(0, maxEvents)
+        .slice(0, Math.max(1, maxCombatEvents - Math.floor(milestoneRounds.length * 0.4)));
+    if (!pickedCombat.length && milestoneRounds.length > 0 && activeRounds.length >= 6) {
+        const bestNonMilestone = activeRounds
+            .filter(profile => !milestoneSet.has(profile.round.round) && profile.battleScore > mean * 1.15)
+            .sort((left, right) => right.battleScore - left.battleScore || left.round.round - right.round.round)[0];
+        if (bestNonMilestone) pickedCombat = [bestNonMilestone];
+    }
+
+    const combined = [...milestoneRounds, ...pickedCombat];
+    const maxTotal = Math.max(maxCombatEvents, Math.min(9, Math.max(milestoneRounds.length + 2, Math.round(activeRounds.length * 0.35))));
+    const selected = combined
+        .sort((left, right) => {
+            const leftPriority = left.eliminations.length * 3 + left.commanderDeaths.length * 2 + (left.turningPoint ? 1.5 : 0);
+            const rightPriority = right.eliminations.length * 3 + right.commanderDeaths.length * 2 + (right.turningPoint ? 1.5 : 0);
+            if (leftPriority !== rightPriority) return rightPriority - leftPriority;
+            return right.battleScore - left.battleScore || left.round.round - right.round.round;
+        })
+        .slice(0, maxTotal)
         .sort((left, right) => left.round.round - right.round.round);
 
     return selected.map(profile => {
-        const { round, campEntries, totalDamage, totalLosses, captures, commanderLosses, battleScore } = profile;
+        const {
+            round, campEntries, totalDamage, totalLosses, captures,
+            commanderLosses, commanderDeaths, capturesList, eliminations, turningPoint, battleScore
+        } = profile;
         const leading = [...campEntries].sort(([, left], [, right]) =>
-            right.damageDealt - left.damageDealt || right.kills - left.kills
+            finiteNumber(right.damageDealt) - finiteNumber(left.damageDealt)
+            || finiteNumber(right.kills) - finiteNumber(left.kills)
         )[0];
+        const belligerents = selectMainBelligerents(round.byCamp);
         const intensity = peak > mean ? (battleScore - mean) / (peak - mean) : 1;
-        const label = captures > 0 && totalLosses >= 2
-            ? '战线突破'
-            : commanderLosses > 0
-                ? '将领陨落'
-                : intensity >= 0.75 ? '决定性会战' : '高强度交锋';
+
+        let eventType = 'pitchedBattle';
+        let label = '巅峰决战';
+        if (eliminations.length > 0) {
+            eventType = 'factionEliminated';
+            label = '势力覆灭';
+        } else if (commanderDeaths.length > 0 || commanderLosses > 0) {
+            eventType = 'commanderFall';
+            label = '将领陨落';
+        } else if (captures > 0 && (totalLosses >= 2 || captures >= 2)) {
+            eventType = 'breakthrough';
+            label = '战线突破';
+        } else if (turningPoint) {
+            eventType = 'turningPoint';
+            label = '局势转折';
+        }
+
         return {
             round: round.round,
             sequenceStart: round.sequenceStart,
             sequenceEnd: round.sequenceEnd,
-            engagements: round.engagements,
+            eventType,
+            engagements: finiteNumber(round.engagements),
             totalDamage,
             totalLosses,
             captures,
             commanderLosses,
             battleScore,
             leadingCampKey: leading?.[0] || null,
+            leadingDamage: finiteNumber(leading?.[1]?.damageDealt),
+            belligerents,
+            commanderDeaths,
+            capturesList,
+            eliminations,
+            turningPoint,
             intensity: Math.max(0, Math.min(1, intensity)),
             label
         };
@@ -669,6 +932,15 @@ export function buildMatchStats(log) {
         if (round.byCamp[campKey]) round.byCamp[campKey][metric] += amount;
     };
 
+    const liveSites = initialSites.map(site => ({ ...site }));
+    const liveSiteByKey = new Map(liveSites.map(site => [site.key, site]));
+    const findLiveSite = (payload = {}) => {
+        if (payload.site && liveSiteByKey.has(payload.site)) return liveSiteByKey.get(payload.site);
+        return liveSites.find(candidate => candidate.kind === 'city'
+            && ((payload.q != null && payload.r != null && candidate.q === payload.q && candidate.r === payload.r)
+                || (payload.districtId != null && candidate.districtId === payload.districtId))) || null;
+    };
+    const unitKillsByRound = new Map();
     const keyEvents = [];
     const factionSkillEvents = [];
     const commanderDeathEvents = [];
@@ -689,6 +961,11 @@ export function buildMatchStats(log) {
                 unit.actions++;
                 if (bucket) unit[bucket]++;
                 touchUnit(unit, item);
+            }
+            for (const changed of item.outcome?.changes?.sitesChanged || []) {
+                const site = liveSiteByKey.get(changed.site);
+                const campKey = changed.changes?.campKey?.after;
+                if (site && campKey) site.campKey = campKey;
             }
             continue;
         }
@@ -731,6 +1008,11 @@ export function buildMatchStats(log) {
             }
             addCampMetric(payload.campKey, round, 'losses');
             if (payload.killerCampKey) addCampMetric(payload.killerCampKey, round, 'kills');
+            if (!unitKillsByRound.has(round.round)) unitKillsByRound.set(round.round, []);
+            unitKillsByRound.get(round.round).push({
+                victimCampKey: payload.campKey || defeated?.campKey || null,
+                killerCampKey: payload.killerCampKey || killer?.campKey || null
+            });
             if (defeated?.commanderId || payload.commanderId) {
                 round.commanderLosses++;
                 const commanderId = defeated?.commanderId || payload.commanderId;
@@ -764,11 +1046,19 @@ export function buildMatchStats(log) {
                 attacker.captures++;
                 touchUnit(attacker, item);
             }
+            const capturedSite = findLiveSite(payload);
+            const previousCampKey = capturedSite?.campKey && capturedSite.campKey !== payload.campKey
+                ? capturedSite.campKey
+                : null;
+            if (capturedSite && payload.campKey) capturedSite.campKey = payload.campKey;
+            const districtId = payload.districtId ?? capturedSite?.districtId ?? null;
             keyEvents.push({
                 sequence: item.sequence,
                 round: round.round,
                 type: item.eventType,
                 campKey: payload.campKey || null,
+                ...(districtId != null ? { districtId } : {}),
+                ...(previousCampKey ? { previousCampKey } : {}),
                 label: keyEventLabel(item, participantsByKey)
             });
         } else if (item.eventType === 'factionSkillActivated') {
@@ -811,7 +1101,12 @@ export function buildMatchStats(log) {
     const mvpUnits = selectMvpUnits(units, 3);
     const rounds = [...roundsByNumber.values()].sort((left, right) => left.round - right.round);
     const controlTimeline = buildControlTimeline(log, participants);
-    const battleEvents = identifyBattleEvents(rounds);
+    const battleEvents = identifyBattleEvents(rounds, {
+        controlTimeline,
+        commanderDeathEvents,
+        keyEvents,
+        unitKillsByRound
+    });
 
     return {
         matchId: log.matchId || null,
@@ -847,7 +1142,7 @@ export function buildMatchStats(log) {
             control: '综合控制为单位占比与城市占比的等权平均；图表可切换查看两个原始口径。',
             unitShare: '单位占比为该回合结束时阵营存活单位数占全场存活单位数的比例；同一阵营以深色（原色）表示陆军、浅色表示海军。',
             cityShare: '城市占比为该回合结束时阵营控制城市数占全场城市数的比例。',
-            battleEvents: '战役事件按交战、实际伤害、阵亡、占城与将领陨落的综合强度自适应筛选高分位峰值回合，仅保留少数决定战局走向的焦点战役。'
+            battleEvents: '战役事件融合势力覆灭、将领陨落、战线突破、局势转折与自适应阈值巅峰决战，聚焦核心交战阵营。'
         }
     };
 }
@@ -908,12 +1203,18 @@ export function buildMatchStatsDocument(document) {
         const units = (document.unitHighlights || []).map(unitFromReview);
         const mvpUnits = selectMvpUnits(units, 3);
         const hasRoundMetrics = document.roundIndex.some(round => round?.byCamp && Object.keys(round.byCamp).length > 0);
-        const battleEvents = hasRoundMetrics ? identifyBattleEvents(document.roundIndex) : (document.battleEvents || []);
+        const battleEvents = hasRoundMetrics
+            ? identifyBattleEvents(document.roundIndex, {
+                controlTimeline: document.controlTimeline,
+                commanderDeathEvents: document.commanderDeathEvents || [],
+                keyEvents: document.keyEvents || []
+            })
+            : (document.battleEvents || []);
         const rawMethodology = document.methodology || {};
         const methodology = {
             ...rawMethodology,
             unitShare: '单位占比为该回合结束时阵营存活单位数占全场存活单位数的比例；同一阵营以深色（原色）表示陆军、浅色表示海军。',
-            battleEvents: '战役事件按交战、实际伤害、阵亡、占城与将领陨落的综合强度自适应筛选高分位峰值回合，仅保留少数决定战局走向的焦点战役。'
+            battleEvents: '战役事件融合势力覆灭、将领陨落、战线突破、局势转折与自适应阈值巅峰决战，聚焦核心交战阵营。'
         };
         return {
             matchId: document.matchId || null,
