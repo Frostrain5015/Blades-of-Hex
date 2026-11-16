@@ -12,7 +12,9 @@ import { canReinforceAtTile } from '../../rules/healing.js';
 import { canUnitBeRecruitedAtSite, countLivingUnitsOfType, getUniqueRecruitmentLimit, getUnitBaseType } from '../../rules/units.js';
 import { getHistoricalCost, getHistoricalRecruitCost, getCulturalReinforceCostScale, getHeavyCannonStanceBlock, isHeavyCannonDeployed } from '../../rules/cultures.js';
 import { getCulturalRecruitmentCandidate } from '../../rules/aiRecruitment.js';
+import { getKmtLinkedUnits, getKmtReinforceDeficit, getKmtSharedHealth } from '../../rules/kmtStronghold.js';
 import { isLandTile } from '../../rules/surfaces.js';
+import { resolveTianyanDroneReserve } from '../doctrine.js';
 
 const NAVAL_ORDER = ['warship', 'destroyer', 'submarine'];
 const LAND_ORDER = ['infantry', 'cavalry', 'archer'];
@@ -58,8 +60,15 @@ function navalRecruitOrder(world) {
     if (enemySubs > myDestroyers) order = ['destroyer', 'warship', 'submarine'];
     else {
         const enemyWarships = world.rivalUnits.filter(u => getUnitBaseType(u) === 'warship').length;
+        const enemyAntiSub = world.rivalUnits.filter(u => getUnitBaseType(u) === 'destroyer' || u.config?.submarineDetectorRadius).length;
         const mySubs = world.myUnits.filter(u => getUnitBaseType(u) === 'submarine').length;
-        if (enemyWarships > mySubs) order = ['submarine', 'warship', 'destroyer'];
+        const myWarships = world.myUnits.filter(u => getUnitBaseType(u) === 'warship').length;
+        // 避免无护卫纯潜艇海被敌方驱逐逐一清盘：至多维持反巡洋所需比例。
+        if (enemyWarships > mySubs
+            && mySubs < Math.max(2, myWarships + myDestroyers)
+            && enemyAntiSub <= myDestroyers + 1) {
+            order = ['submarine', 'warship', 'destroyer'];
+        }
     }
     return order;
 }
@@ -97,6 +106,16 @@ export function planProduction(world, strategy, missionsCtx) {
     const helpers = world.helpers;
     let gold = world.gold;
     const assaultCount = world.myUnits.filter(unit => isFieldCapturer(world, unit)).length;
+    let currentAssaultCount = assaultCount;
+    const tianyanProtectedFund = (reserveBase, urgent = false) => reserveBase + (urgent
+        ? 0
+        : resolveTianyanDroneReserve(world.gameState, world.myCamp, {
+            assaultCount: currentAssaultCount,
+            urgentDefense: !!strategy.emergencyDefenseCity,
+            gold
+        }));
+    const isCapturerType = type => !['archer', 'warship', 'shoreBattery', 'submarine', 'carrier', 'destroyer', 'drone', 'mgNest']
+        .includes(getUnitBaseType(type));
     const uniqueType = getCulturalRecruitmentCandidate(world.gameState, world.myCamp);
     const uniqueCount = uniqueType ? countLivingUnitsOfType(world.gameState, world.myCamp, uniqueType) : 0;
     let uniqueSlots = uniqueType ? getUniqueRecruitmentLimit(uniqueType) - uniqueCount : 0;
@@ -168,6 +187,7 @@ export function planProduction(world, strategy, missionsCtx) {
             if (mobile !== city.unit) setup.push({ type: 'heavyCannonStance', unitId: city.unit.id });
             setup.push(move, { type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
             gold -= unitCost(world, type);
+            if (isCapturerType(type)) currentAssaultCount++;
             if (type === uniqueType) uniqueSlots--;
             break;
         }
@@ -180,11 +200,13 @@ export function planProduction(world, strategy, missionsCtx) {
     const emptyPorts = world.tiles.filter(t => t.isPort && t.camp === world.myCamp && !t.unit);
     let emergencyRecruitFund = strategy.reserve;
     const earlyUniquePort = uniqueSlots > 0 && !cityUnique && assaultCount > 0 && !savingForUnique
-        && canUnitBeRecruitedAtSite(uniqueType, 'port') && canAfford(gold, unitCost(world, uniqueType), strategy)
+        && canUnitBeRecruitedAtSite(uniqueType, 'port')
+        && gold - unitCost(world, uniqueType) >= tianyanProtectedFund(strategy.reserve)
         && emptyPorts.find(port => canRecruit(uniqueType, port));
     if (earlyUniquePort) {
         actions.push({ type: 'recruit', unitType: uniqueType, tileQ: earlyUniquePort.q, tileR: earlyUniquePort.r });
         gold -= unitCost(world, uniqueType);
+        if (isCapturerType(uniqueType)) currentAssaultCount++;
         uniqueSlots--;
     }
     let recruits = vacatedCity ? 1 : 0;
@@ -201,12 +223,16 @@ export function planProduction(world, strategy, missionsCtx) {
         for (const type of types) {
             const cost = unitCost(world, type);
             const emergencyRecruit = urgentLandRecruit && cost <= gold;
-            if (!emergencyRecruit && !canAfford(gold, cost, strategy)) continue;
+            const minFundAfterRecruit = urgentLandRecruit
+                ? 0
+                : tianyanProtectedFund(emergencyRecruitFund, false);
+            if (!emergencyRecruit && gold - cost < minFundAfterRecruit) continue;
             if (!canRecruit(type, city)) continue;
             const recruit = { type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r };
             (emergencyRecruit ? emergencyRecruits : actions).push(recruit);
             if (emergencyRecruit) emergencyRecruitFund = Math.max(0, emergencyRecruitFund - cost);
             gold -= cost;
+            if (isCapturerType(type)) currentAssaultCount++;
             if (type === uniqueType) uniqueSlots--;
             recruits++;
             break;
@@ -230,11 +256,12 @@ export function planProduction(world, strategy, missionsCtx) {
     const hostileNavyPresent = world.rivalUnits.some(u => world.isNaval(u));
     const allowLandMapNavy = !world.oceanMap && hostileNavyPresent && navalCount < 1;
     const uniquePort = !earlyUniquePort && uniqueSlots > 0 && canUnitBeRecruitedAtSite(uniqueType, 'port')
-        && gold - unitCost(world, uniqueType) >= emergencyRecruitFund
+        && gold - unitCost(world, uniqueType) >= tianyanProtectedFund(emergencyRecruitFund)
         && emptyPorts.find(port => canRecruit(uniqueType, port));
     if (uniquePort) {
         actions.push({ type: 'recruit', unitType: uniqueType, tileQ: uniquePort.q, tileR: uniquePort.r });
         gold -= unitCost(world, uniqueType);
+        if (isCapturerType(uniqueType)) currentAssaultCount++;
     } else if (!earlyUniquePort && !savingForUnique && !fleetSaturated
         && (world.oceanMap || allowLandMapNavy)
         && emptyPorts.length > 0 && strategy.assaultCapacity.deficit === 0) {
@@ -244,7 +271,7 @@ export function planProduction(world, strategy, missionsCtx) {
                 && world.helpers.hexDistance(u.tile, port) <= 2)) continue;
             for (const type of order) {
                 const cost = unitCost(world, type);
-                if (gold - cost < emergencyRecruitFund) continue;
+                if (gold - cost < tianyanProtectedFund(emergencyRecruitFund)) continue;
                 if (helpers.canRecruitTypeAtSite && !helpers.canRecruitTypeAtSite(type, port)) continue;
                 actions.push({ type: 'recruit', unitType: type, tileQ: port.q, tileR: port.r });
                 gold -= cost;
@@ -254,21 +281,33 @@ export function planProduction(world, strategy, missionsCtx) {
     }
 
     // ── 3. 补员：守军是固定资产，残血补员远便宜于重招；
-    //    同一单位最多补 2 次（补到第 3 次还死，说明站位本身就是错的）。
+    //    国军【同心同德】可通过安全后方主城补员远程输血前线教导旅；
+    //    常规单位最多补 2 次，安全后方同心同德站可作为前线补血枢纽复用。
     const reinforceLedger = (memory.reinforceLedger ||= {});
     const reinforceRatio = strategy.posture === 'hold' ? 0.85 : W.reinforceHpRatio;
     const candidates = world.tiles
-        .filter(t => t.unit && t.unit.camp === world.myCamp && !t._reinforcedThisTurn)
-        .filter(t => canReinforceAtTile(t.unit, world.gameState) && t.unit.hp < t.unit.maxHp * reinforceRatio)
-        .filter(t => (reinforceLedger[t.unit.id] || 0) < 2)
-        .sort((a, b) => (a.unit.hp / a.unit.maxHp) - (b.unit.hp / b.unit.maxHp));
+        .filter(t => t.unit && t.unit.camp === world.myCamp && !t._reinforcedThisTurn && canReinforceAtTile(t.unit, world.gameState))
+        .map(tile => {
+            const linked = getKmtLinkedUnits(tile.unit, world.gameState);
+            const shared = linked.length > 0 ? getKmtSharedHealth(linked) : null;
+            const effectiveRatio = shared ? shared.hp / Math.max(1, shared.maxHp) : tile.unit.hp / tile.unit.maxHp;
+            const deficit = linked.length > 0
+                ? getKmtReinforceDeficit(tile.unit, world.gameState)
+                : Math.max(0, tile.unit.maxHp - tile.unit.hp);
+            const isSafeRearStation = linked.length > 0 && tile.isCity && world.threatAt(tile, tile.unit) === 0;
+            return { tile, effectiveRatio, deficit, isSafeRearStation };
+        })
+        .filter(entry => entry.deficit > 0 && entry.effectiveRatio < reinforceRatio)
+        .filter(entry => (reinforceLedger[entry.tile.unit.id] || 0) < (entry.isSafeRearStation ? 4 : 2))
+        .sort((a, b) => Number(b.isSafeRearStation) - Number(a.isSafeRearStation)
+            || a.effectiveRatio - b.effectiveRatio);
     let reinforced = 0;
-    for (const tile of candidates) {
+    for (const { tile, deficit } of candidates) {
         if (savingForUnique || reinforced >= (strategy.posture === 'hold' ? 3 : 2)) break;
-        const heal = Math.min(Math.floor(tile.unit.maxHp * 0.50), tile.unit.maxHp - tile.unit.hp);
+        const heal = Math.min(Math.floor(tile.unit.maxHp * 0.50), deficit);
         const base = Math.ceil(tile.unit.config.cost * (heal / tile.unit.maxHp) * getCulturalReinforceCostScale(world.gameState, tile, world.myCamp));
         const cost = getHistoricalCost(Math.max(1, base), world.gameState, world.myCamp);
-        if (heal <= 0 || gold - cost < emergencyRecruitFund) break;
+        if (heal <= 0 || gold - cost < tianyanProtectedFund(emergencyRecruitFund)) break;
         actions.push({ type: 'reinforce', unitId: tile.unit.id });
         reinforceLedger[tile.unit.id] = (reinforceLedger[tile.unit.id] || 0) + 1;
         gold -= cost;
@@ -286,5 +325,11 @@ export function planProduction(world, strategy, missionsCtx) {
         setup.unshift({ type: 'repairShip', unitId: unit.id });
         gold -= cost;
     }
-    return { emergencyRecruits, setup, actions, recruitSpend: savingForUnique ? world.gold : world.gold - gold };
+    return {
+        emergencyRecruits,
+        setup,
+        actions,
+        recruitSpend: savingForUnique ? world.gold : world.gold - gold,
+        remainingReserve: emergencyRecruitFund
+    };
 }

@@ -10,6 +10,8 @@
 import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
 import { W, hpGold, residualGold } from './weights.js';
 import { enemyCapturerPremium } from './tactics.js';
+import { poisonPressure, resolveTianyanDroneReserve } from '../doctrine.js';
+import { isFieldCapturer } from './roster.js';
 import { resolveTargetingPreview } from '../../rules/targeting.js';
 import { isHealingBlocked } from '../../rules/healing.js';
 import { getHistoricalCost } from '../../rules/cultures.js';
@@ -126,13 +128,18 @@ export function planCards(world, strategy, missionsCtx) {
         }
     }
 
-    // ── 投毒：打集群，期望含传播 ───────────────────────────────
+    // ── 投毒：打集群与高血量核心旗舰，期望含传播 ──────────────
     if (has('poison')) {
         let best = null;
         for (const target of enemies) {
             if (target._poison || giftedDoor(target)) continue;
             const perTick = Math.round(target.maxHp * BAL.poison.balance.damageMaxHpPct);
             let total = perTick * BAL.poison.balance.ticks * hpGold(target);
+            if (target.commander) total += 24;
+            if (['priest', 'fallenAngel', 'ironGuard', 'tianyan', 'staller', 'necromancer'].includes(target.commander)) {
+                total += 14;
+            }
+            if ((target._rank || 0) >= 2) total += 12;
             let spread = 0;
             for (const other of enemies) {
                 if (other.id === target.id) continue;
@@ -151,13 +158,20 @@ export function planCards(world, strategy, missionsCtx) {
         }
     }
 
-    // ── 禁锢：守钟锁占城者；进攻锁"下回合要集火的王牌" ─────────
+    // ── 禁锢：守钟锁占城者；配合投毒锁死回港/治疗并留住高威胁光环旗舰 ──
     if (has('imprison')) {
         let best = null;
         for (const target of enemies) {
             if (target._imprisoned || !allowedByPolicy(world, strategy, target)) continue;
             let score = enemyCapturerPremium(world, target) * 1.2;
             if (target.commander) score += 30;
+            if (target._poison) {
+                score += 32 + (poisonPressure(target) >= target.hp * 0.65 ? 55 : 0);
+            }
+            if (['staller', 'priest', 'berserker', 'tianyan', 'centurion'].includes(target.commander)) {
+                score += 24;
+            }
+            if (world.isNaval(target) && target.hp < target.maxHp * 0.65) score += 18;
             score += residualGold(target) * 0.3;
             if (!best || score > best.score) best = { target, score };
         }
@@ -216,11 +230,27 @@ export function planCards(world, strategy, missionsCtx) {
             }
         }
         if (!best) {
+            const reach = unit => Math.max(1, Number(unit.config?.speed) || 4) + Math.max(1, Number(unit.config?.range) || 1) + 2;
             const exhausted = world.myUnits
-                .filter(u => !u.canAct && (missionCriticalIds.has(u.id) || u.commander || u.type === 'cavalry'))
-                .sort((a, b) => (missionCriticalIds.has(b.id) ? 200 : 0) + residualGold(b)
-                    - ((missionCriticalIds.has(a.id) ? 200 : 0) + residualGold(a)));
-            if (exhausted[0]) best = { unit: exhausted[0], score: 30 };
+                .filter(u => !u.canAct && !world.isImmobile(u)
+                    && (missionCriticalIds.has(u.id) || u.commander || u.type === 'carrier' || u.type === 'cavalry'))
+                .map(u => {
+                    const hasFollowupTarget = enemies.some(e => e.tile && world.helpers.hexDistance(u.tile, e.tile) <= reach(u));
+                    const hasOpenCityInReach = world.isCapturable(u) && world.cities.some(c =>
+                        c.hostile && !c.garrison && c.hp <= 0 && world.helpers.hexDistance(u.tile, c.tile) <= reach(u));
+                    if (!hasFollowupTarget && !hasOpenCityInReach && !missionCriticalIds.has(u.id)) return null;
+                    let score = residualGold(u);
+                    if (missionCriticalIds.has(u.id)) score += 120;
+                    if (u.type === 'carrier') score += 65;
+                    if (u.commander === 'berserker' || u.commander === 'centurion') score += 45;
+                    if ((u._rank || 0) >= 2) score += 25;
+                    if (hasFollowupTarget) score += 40;
+                    if (hasOpenCityInReach) score += 80;
+                    return { unit: u, score };
+                })
+                .filter(Boolean)
+                .sort((a, b) => b.score - a.score);
+            if (exhausted[0]) best = exhausted[0];
         }
         if (best) {
             spend(setup, { type: 'tacticalCard', cardId: 'forceMarch', targetId: best.unit.id });
@@ -314,15 +344,19 @@ export function planCards(world, strategy, missionsCtx) {
         }
     }
 
-    // ── 护盾：任务关键单位与旗舰优先 ─────────────────────────
+    // ── 护盾：危急保命 > 任务关键单位与旗舰 ────────────────────
     if (has('shield')) {
         let best = null;
         for (const unit of world.myUnits) {
             const incoming = world.threatAt(unit.tile, unit);
+            const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
             if (incoming < 15 && !missionCriticalIds.has(unit.id)) continue;
+            const savesLife = incoming >= pool && incoming < pool + BAL.shield.balance.shield;
             let score = Math.min(BAL.shield.balance.shield, incoming * 2) * hpGold(unit);
             if (missionCriticalIds.has(unit.id)) score += 30;
             if (unit.commander) score += 18;
+            if (savesLife) score += 100 + residualGold(unit) + (unit.commander ? W.commanderKillBonus : 0);
+            else if (incoming >= pool * 0.55) score += Math.round((incoming / Math.max(1, pool)) * 30);
             if (!best || score > best.score) best = { unit, score };
         }
         if (best && best.score > 18) {
@@ -365,16 +399,21 @@ export function planCards(world, strategy, missionsCtx) {
     return { setup, sustain };
 }
 
-/** 抽牌决策：金币先保证招募与紧急预留，答案缺口（中毒无疗愈等）降低门槛。 */
+/** 抽牌决策：金币先保证招募、天眼部署与紧急预留，答案缺口（中毒无疗愈等）降低门槛。 */
 export function shouldDrawCard(world, strategy, plannedRecruitSpend = 0, plannedCardUses = 0) {
     if (world.cardDrawsLeft <= 0 || (world.handFull && plannedCardUses === 0)) return false;
     const drawsDone = (world.cardConfig.maxDrawsPerTurn || 2) - world.cardDrawsLeft;
     const cost = getHistoricalCost((world.cardConfig.drawCost || 4) * (1 + drawsDone), world.gameState, world.myCamp);
-    const affordable = world.gold - cost - plannedRecruitSpend - strategy.reserve >= 0;
-    if (!affordable) return false;
     const needsAnswer = (world.myUnits.some(u => u._poison) && !world.hand.includes('heal'))
         || (strategy.posture === 'hold' && !world.hand.some(c => c === 'lightning' || c === 'imprison'))
         || (strategy.posture === 'allin' && world.hand.length === 0);
+    const tianyanReserve = needsAnswer ? 0 : resolveTianyanDroneReserve(world.gameState, world.myCamp, {
+        assaultCount: world.myUnits.filter(u => isFieldCapturer(world, u)).length,
+        urgentDefense: !!strategy.emergencyDefenseCity,
+        gold: world.gold - plannedRecruitSpend
+    });
+    const affordable = world.gold - cost - plannedRecruitSpend - strategy.reserve - tianyanReserve >= 0;
+    if (!affordable) return false;
     if (needsAnswer) return true;
-    return world.gold - cost - plannedRecruitSpend - strategy.reserve >= 6;
+    return world.gold - cost - plannedRecruitSpend - strategy.reserve - tianyanReserve >= 6;
 }

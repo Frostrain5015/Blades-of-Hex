@@ -17,6 +17,9 @@ import { isStealthGuerrilla } from '../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense, getUnitCombatRange, TRANSPORT_RULES } from '../rules/movement.js';
+import { campToKey } from '../rules/camps.js';
+import { HEX_NEIGHBORS, hexDistance } from '../rules/hex.js';
+import { getTianyanDroneReserve } from './strategy.js';
 
 export const BERSERKER_BALANCE = COMMANDER_CONFIG.berserker.balance;
 
@@ -285,6 +288,52 @@ export function shouldPlanActiveSkill(unit, {
     }
     if (unit.commander === 'priest') return hasWoundedAlly;
     return false;
+}
+
+/**
+ * 判断该阵营当前是否存在"本回合可用天眼哨机"的真实部署需求，并计算需预留的微额金币。
+ * 供 js/ai.js（空军/基础设施）、production.js（招募/补员）与 cards.js（抽牌）共用。
+ */
+export function resolveTianyanDroneReserve(gameState, camp, {
+    assaultCount = 1,
+    urgentDefense = false,
+    gold = 0,
+    urgentLandCost = 8
+} = {}) {
+    if (!gameState || !camp) return 0;
+    const { deployGoldCost, deployLimitPerTurn, maxCount } = COMMANDER_CONFIG.tianyan.balance;
+    const campKey = campToKey(camp);
+    const tiles = gameState.tiles || [];
+    const tianyanTile = tiles.find(tile => tile?.unit?.camp === camp
+        && tile.unit.commander === 'tianyan'
+        && !tile.unit._isDrone
+        && !areCommanderMechanicsSuppressed(tile.unit)
+        && tile.unit.hp > 0
+        && tile.unit.canAct);
+    if (!tianyanTile) return 0;
+
+    const livingDroneCount = tiles.filter(tile => tile?.unit?._isDrone && tile.unit.hp > 0
+        && (tile.unit._droneCampKey === campKey || tile.unit.camp === camp)).length;
+    const canDeployThisTurn = !(gameState._droneDeployTurn?.[campKey] === gameState.turnCounter
+        && (gameState._droneDeployCount?.[campKey] || 0) >= deployLimitPerTurn);
+    const isValidDroneSite = tile => !!tile && !tile.unit && !tile.isCity && tile.terrain !== 'mountain';
+    const hasLegalDeployTile = gameState.tileMap instanceof Map
+        ? HEX_NEIGHBORS.some(([dq, dr]) => isValidDroneSite(
+            gameState.tileMap.get(`${tianyanTile.q + dq},${tianyanTile.r + dr}`)))
+        : tiles.some(tile => hexDistance(tianyanTile, tile) === 1 && isValidDroneSite(tile));
+
+    return getTianyanDroneReserve({
+        hasActiveTianyan: true,
+        livingDroneCount,
+        canDeployThisTurn,
+        hasLegalDeployTile,
+        urgentDefense,
+        assaultCount,
+        gold,
+        urgentLandCost,
+        deployGoldCost,
+        maxDrones: maxCount
+    });
 }
 
 const preferenceRank = new Map(COMMANDER_PREFERENCE.map((id, index) => [id, index]));

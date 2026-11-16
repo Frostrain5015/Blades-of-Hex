@@ -721,8 +721,10 @@ test('巨炮先蓄力再开火，只有命中时触发范围冲击波', () => {
     let impacts = 0;
     let waves = ringWaves.length;
     spawnHeavyCannonShell(0, 0, 60, 0, false, () => impacts++, { startedAt });
-    updateHeavyCannonShells(startedAt + 100);
+    updateHeavyCannonShells(startedAt + 799);
     assert.equal(heavyCannonShells.at(-1).fired, false);
+    updateHeavyCannonShells(startedAt + 801);
+    assert.equal(heavyCannonShells.at(-1).fired, true);
     updateHeavyCannonShells(startedAt + HEAVY_CANNON_IMPACT_MS - 1);
     assert.equal(heavyCannonShells.at(-1).fired, true);
     assert.equal(impacts, 0);
@@ -1036,4 +1038,138 @@ test('新对局清空 AI 的跨回合记忆和战略遥测', () => {
     engine.resetGameState();
     assert.deepEqual(state._aiCoreMemory, {});
     assert.deepEqual(state._imperatorStrategicTelemetry, {});
+});
+
+test('困难日本 AI 操纵帝国武士垫步冲锋斩首中低血量敌军并触发二段连斩', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    me.flagPreset = CULTURE_CONFIG.jp.flagPreset;
+    state.factionRuleMode = 'culture';
+    state.playerGold.player1 = 0;
+    place('infantry', foe, enemyCity);
+    const samurai = place('jp_samurai', me, home);
+    samurai.hp = 150;
+    // 第一目标在 3 格处（需先移动 1 格再发动 2 格万岁冲锋），第二目标在 5 格处（首杀返还行动+2MP后可二段冲锋收割）
+    const target1 = place('infantry', foe, state.tileMap.get('3,0'));
+    target1.hp = 60;
+    const target2 = place('infantry', foe, state.tileMap.get('5,0'));
+    target2.hp = 60;
+
+    await processOpponentTurn(me);
+
+    const banzaiActions = events.filter(e => e.action.type === 'banzaiCharge' && e.status === 'executed');
+    assert.equal(banzaiActions.length, 2, '应连续发动两次万岁冲锋收割两名残血敌军');
+    assert.equal(state.tileMap.get('3,0').unit, null);
+    assert.equal(samurai.tile, state.tileMap.get('5,0'));
+});
+
+test('困难中共 AI 操纵游击纵队开启敌后隐匿向盲区渗透，对敌军保持隐形', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    me.flagPreset = CULTURE_CONFIG.cpc.flagPreset;
+    state.factionRuleMode = 'culture';
+    state.playerGold.player1 = 0;
+    place('infantry', me, home).canAct = false;
+    place('infantry', foe, enemyCity);
+    place('infantry', foe, state.tileMap.get('9,-1'));
+    // 侧翼 (4,2) 有孤立敌方残血炮兵（防守盲区）
+    const isolatedArcher = place('archer', foe, state.tileMap.get('4,2'));
+    isolatedArcher.hp = 60;
+    const guerrilla = place('cpc_guerrilla', me, state.tileMap.get('1,1'));
+
+    await processOpponentTurn(me);
+
+    assert.ok(events.some(e => e.action.type === 'guerrillaConcealment' && e.status === 'executed'), '游击纵队应实际执行敌后隐匿');
+    assert.ok(guerrilla._guerrillaHiddenThroughRound != null, '游击纵队回合结束保持隐匿状态');
+    assert.equal(isUnitVisibleToCamp(guerrilla, foe, state), false, '处于盲区的隐匿游击纵队对敌方不可见');
+});
+
+test('困难天眼 AI 在开局空军与募兵竞争下仍保住 5 金部署无人机且避开城市山地格', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    state.playerGold.player1 = 10;
+    home.installation = { type: 'airfield', status: 'ready' };
+    place('infantry', me, home);
+    const tianyanSite = state.tileMap.get('2,0');
+    const mountainTile = state.tileMap.get('2,1');
+    mountainTile.terrain = 'mountain';
+    const blockingCity = state.tileMap.get('1,0');
+    Object.assign(blockingCity, { isCity: true, isUrban: true, camp: me, hp: 200, maxHp: 200, districtId: 3 });
+    place('infantry', me, blockingCity);
+    place('archer', me, tianyanSite, 'tianyan');
+    // 射程内有半血敌方突击兵但金币仅 10：不得先花 4 金扫射把天眼预算耗光，也不得把无人机放到城市或山地格
+    const invader = place('infantry', foe, state.tileMap.get('5,0'));
+    invader.hp = 60;
+    place('infantry', foe, enemyCity);
+
+    await processOpponentTurn(me);
+
+    const deployEvent = events.find(e => e.action.type === 'droneDeploy' && e.status === 'executed');
+    assert.ok(deployEvent, '应成功执行天眼无人机部署');
+    const deployedTile = state.tileMap.get(`${deployEvent.action.tileQ},${deployEvent.action.tileR}`);
+    assert.equal(deployedTile.isCity, false);
+    assert.notEqual(deployedTile.terrain, 'mountain');
+    assert.ok(deployedTile.unit?._isDrone || state.tiles.some(t => t.unit?._isDrone)
+        || events.some(e => e.action.type === 'droneSuicide' && e.status === 'executed'),
+        '部署后的天眼哨机应处于在场或已完成自爆追击状态');
+});
+
+test('困难海战旗舰遭双岸防炮交叉火力覆盖时优先撤离火网而非原地死战', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    const neutral = state.factions.neutral;
+    state.playerGold.player1 = 0;
+    place('infantry', me, home).canAct = false;
+    place('infantry', foe, enemyCity);
+    for (const q of [3, 4, 5, 6, 7]) {
+        const sea = state.tileMap.get(`${q},0`);
+        Object.assign(sea, { surface: SURFACE_KIND.SHALLOW_WATER, camp: neutral });
+    }
+    const portTile = state.tileMap.get('3,0');
+    Object.assign(portTile, { surface: SURFACE_KIND.SHALLOW_WATER, isPort: true, camp: neutral, districtId: 4 });
+    const neutralCity = state.tileMap.get('2,0');
+    Object.assign(neutralCity, { surface: SURFACE_KIND.LAND, isCity: true, isUrban: true, camp: neutral, districtId: 4, hp: 100, maxHp: 100 });
+    const b1Tile = state.tileMap.get('3,-1');
+    const b2Tile = state.tileMap.get('3,1');
+    b1Tile.camp = neutral; b1Tile.districtId = 4;
+    b2Tile.camp = neutral; b2Tile.districtId = 4;
+    place('shoreBattery', neutral, b1Tile);
+    place('shoreBattery', neutral, b2Tile);
+
+    const trapTile = state.tileMap.get('4,0');
+    const flagship = place('warship', me, trapTile, 'ironGuard');
+    flagship.hp = 155;
+    flagship._shield = 10;
+
+    await processOpponentTurn(me);
+
+    assert.notEqual(flagship.tile, trapTile, '受损铁卫旗舰应撤出双岸防炮交叉火网而非继续站桩至死');
+    assert.ok(flagship.tile.q >= 6, '应后撤到岸防射程外的安全海域');
+});
+
+test('困难 AI 在原机场射程不足时增建前进机场，并支持侧翼安全空降偷城', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    home.installation = { type: 'airfield', status: 'ready' };
+    place('infantry', me, home).canAct = false;
+    // 前线已占城 (5,0) 暂时没有机场，用于测试补建前进机场；敌方残墙空城 (10,0) 在 (0,0) 8格射程外、在 (5,0) 射程内
+    const forwardCity = state.tileMap.get('5,0');
+    Object.assign(forwardCity, {
+        isCity: true, isUrban: true, camp: me, hp: 250, maxHp: 250, districtId: 3,
+        installation: { type: 'airfield', status: 'ready' }
+    });
+    place('infantry', me, forwardCity).canAct = false;
+    enemyCity.hp = 90;
+    state.playerGold.player1 = 22;
+
+    await processOpponentTurn(me);
+
+    const airdropEvent = events.find(e => e.action.type === 'airCommand' && e.action.airKind === 'airdrop' && e.status === 'executed');
+    assert.ok(airdropEvent, '当残墙敌城无友军接近且侧翼安全时，应从前线机场空降至敌城邻格准备偷城');
+    assert.equal(Math.abs(airdropEvent.action.targetQ - enemyCity.q) + Math.abs(airdropEvent.action.targetR - enemyCity.r), 1);
+
+    // 验证当 (5,0) 尚未建机场且距离敌城 (10,0) 超过 home (0,0) 8格射程时，会补建第二座前进机场
+    delete forwardCity.installation;
+    state.tileMap.get(`${airdropEvent.action.targetQ},${airdropEvent.action.targetR}`).unit = null;
+    state.playerGold.player1 = 36;
+    events.length = 0;
+    await processOpponentTurn(me);
+    assert.ok(events.some(e => e.action.type === 'buildAirfield'
+        && e.action.tileQ === forwardCity.q && e.action.tileR === forwardCity.r && e.status === 'executed'),
+        '主城机场够不着远处敌城且资金充裕时，应在前线已占城补建前进机场');
 });

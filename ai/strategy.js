@@ -280,3 +280,28 @@ export function assessSiegeMission({
         escortCount: Math.max(0, Number(escortCount) || 0)
     });
 }
+
+
+/**
+ * 天眼无人机微额预算保护：只要天眼在场、哨机未达上限且本回合可合法部署，
+ * 非紧急缺口下保留部署所需金币，防止开局空军扫射与零碎招募将其饿死。
+ */
+export function getTianyanDroneReserve({
+    hasActiveTianyan = false,
+    livingDroneCount = 0,
+    canDeployThisTurn = true,
+    hasLegalDeployTile = true,
+    urgentDefense = false,
+    assaultCount = 1,
+    gold = 0,
+    urgentLandCost = 8,
+    deployGoldCost = 5,
+    maxDrones = 2
+} = {}) {
+    if (!hasActiveTianyan || livingDroneCount >= maxDrones || !canDeployThisTurn || !hasLegalDeployTile) {
+        return 0;
+    }
+    if (urgentDefense && gold < urgentLandCost + deployGoldCost) return 0;
+    if (assaultCount <= 0 && gold < urgentLandCost + deployGoldCost) return 0;
+    return deployGoldCost;
+}

@@ -91,7 +91,7 @@ export function decideStrategy(world) {
         ? world.myCities.find(city => {
             const hostileCapturers = world.rivalUnits.filter(unit => world.isCapturable(unit)
                 && unit.tile
-                && world.helpers.hexDistance(unit.tile, city) <= Math.min(3, Math.max(2, Number(unit.config?.speed) || 2))).length;
+                && world.helpers.hexDistance(unit.tile, city) <= Math.min(3, Math.max(2, Math.floor((Number(unit.config?.speed) || 4) / 2)))).length;
             if (hostileCapturers === 0) return false;
             const localDefenders = world.myUnits.filter(unit => world.isCapturable(unit)
                 && unit.tile && world.helpers.hexDistance(unit.tile, city) <= 2).length;

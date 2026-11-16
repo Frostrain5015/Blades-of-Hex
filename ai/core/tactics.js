@@ -19,9 +19,19 @@ import { isCoastalLandTile, isPortOperationalFor, isWaterborneUnit, ROYAL_ESCORT
 import { isWaterTile } from '../../rules/surfaces.js';
 import { getKmtLinkedUnits } from '../../rules/kmtStronghold.js';
 import { getUnitBaseType } from '../../rules/units.js';
-import { BANZAI_CHARGE_CONFIG, getActiveCultureId, getBanzaiBonusDamage, getBanzaiCooldown, getFireSeaState, getNeverSurrenderStacks } from '../../rules/cultures.js';
+import {
+    BANZAI_CHARGE_CONFIG,
+    GUERRILLA_CONCEALMENT_CONFIG,
+    getActiveCultureId,
+    getBanzaiBonusDamage,
+    getBanzaiCooldown,
+    getFireSeaState,
+    getGuerrillaConcealmentReason,
+    getNeverSurrenderStacks
+} from '../../rules/cultures.js';
 import { getBanzaiChargePath } from '../../rules/targeting.js';
 import { isEmbarkableLandUnit } from '../../rules/movement.js';
+import { isStealthGuerrilla, STEALTH_VISIBILITY_RULES } from '../../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 
 const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
@@ -31,7 +41,7 @@ function historicalAttackValue(world, attacker, target, damage, kills) {
     const distance = world.helpers.hexDistance;
     switch (getActiveCultureId(world.gameState, attacker.camp || world.myCamp)) {
         case 'de':
-            return getFireSeaState(target) ? 8 : 0;
+            return getFireSeaState(target) ? 14 + residualGold(target) * 0.12 : 0;
         case 'gb':
             return getNeverSurrenderStacks(world.gameState, attacker.camp) < 4 && !kills && !attacker.tile.isCity ? -5 : 0;
         case 'ru': {
@@ -45,9 +55,17 @@ function historicalAttackValue(world, attacker, target, damage, kills) {
             return kills ? Math.min(attacker.maxHp * 0.2, (attacker.maxHp - attacker.hp) * 0.2) * hpGold(attacker) : 0;
         case 'us':
             return attacker.type === 'us_marine' && (isWaterborneUnit(target) || isWaterborneUnit(attacker)) ? 8 : 0;
-        case 'cpc':
-            return attacker.type === 'cpc_guerrilla' && !world.rivalUnits.some(unit => unit !== target
-                && distance(unit.tile, target.tile) === 1) ? 8 : 0;
+        case 'cpc': {
+            if (attacker.type !== 'cpc_guerrilla') return 0;
+            const isolated = !world.rivalUnits.some(unit => unit !== target
+                && unit.tile && distance(unit.tile, target.tile) === 1);
+            const ambushActive = isStealthGuerrilla(attacker)
+                || !getGuerrillaConcealmentReason(attacker, world.gameState);
+            const backlineTarget = getUnitBaseType(target) === 'archer' || !!target.commander;
+            return (isolated ? 16 : 0)
+                + (ambushActive && kills ? 18 : 0)
+                + (ambushActive && backlineTarget ? 14 : 0);
+        }
         default:
             return 0;
     }
@@ -90,7 +108,9 @@ function historicalPositionValue(world, unit, tile) {
             const scoutSite = world.gameState.skirmishFog && tile.isVillage && tile !== unit.tile
                 && !tile.unit && world.cities.some(city => city.tile.districtId === (tile.villageDistrictId ?? tile.districtId)
                     && city.ownerKey !== world.myCampKey);
-            return (scoutSite ? 20 : 0) + (unit.type === 'cpc_guerrilla' && hasCover ? 12 : 0);
+            return (scoutSite ? 20 : 0)
+                + (unit.type === 'cpc_guerrilla' && hasCover ? 12 : 0)
+                + (unit.type === 'cpc_guerrilla' ? scoreGuerrillaBlindSpotPosition(world, unit, tile) : 0);
         }
         default:
             return 0;
@@ -156,8 +176,18 @@ function escortProtectionBonus(world, missionsCtx, attacker, target) {
     return world.helpers.hexDistance(target.tile, occupier.tile) <= 3 ? 45 : 0;
 }
 
-/** 中立单位一律可打，但由净交换纪律把关：划算的才打，啃不动的不打。 */
+function isTransferableNeutralCarrier(world, target) {
+    const districtId = world.standardMap?.carrierControl?.districtId;
+    if (districtId == null || target?.type !== 'carrier'
+        || target.camp !== world.gameState.factions?.neutral) return false;
+    const prizeCity = world.cities.find(city => city.tile.districtId === districtId);
+    return !!(prizeCity && prizeCity.hostile
+        && world.myUnits.some(unit => isFieldCapturer(world, unit)));
+}
+
+/** 中立单位一律可打，但由净交换纪律把关：划算的才打，啃不动的不打；即将靠夺城收编的中立航母禁止白打削血。 */
 function isNeutralEngageable(world, missionsCtx, target) {
+    if (isTransferableNeutralCarrier(world, target)) return false;
     if (target.camp !== world.gameState.factions?.neutral
         || !missionsCtx.suppressNeutralEngagements) return true;
     return missionsCtx.missions.some(mission => mission.kind === 'siege'
@@ -301,6 +331,44 @@ function withVirtualSkill(unit, patch, fn) {
     }
 }
 
+function withVirtualTile(unit, nextTile, fn) {
+    const prevTile = unit.tile;
+    if (!nextTile || nextTile === prevTile) return fn();
+    const prevUnit = nextTile.unit;
+    prevTile.unit = null;
+    nextTile.unit = unit;
+    unit.tile = nextTile;
+    try {
+        return fn();
+    } finally {
+        unit.tile = prevTile;
+        prevTile.unit = unit;
+        nextTile.unit = prevUnit;
+    }
+}
+
+function qixueSplashSummary(world, unit, entry) {
+    if (!entry?.target?.tile) return { hitCount: 0, value: 0, kills: 0 };
+    const { qixueSplashMultiplier, qixueRange } = COMMANDER_CONFIG.berserker.balance;
+    const splashDmg = entry.damage * qixueSplashMultiplier;
+    let hitCount = 0;
+    let value = 0;
+    let kills = 0;
+    for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
+        if (enemy === entry.target || !enemy.tile || enemy.hp <= 0) continue;
+        if (!isNeutralEngageable(world, { missions: [], suppressNeutralEngagements: false }, enemy)) continue;
+        if (world.helpers.hexDistance(entry.target.tile, enemy.tile) > qixueRange) continue;
+        hitCount++;
+        const pool = enemy.hp + (enemy.activeShield ?? enemy._shield ?? 0);
+        value += Math.min(pool, splashDmg) * hpGold(enemy);
+        if (splashDmg >= pool) {
+            kills++;
+            value += residualGold(enemy) * W.killPremiumRatio + (enemy.commander ? W.commanderKillBonus : 0);
+        }
+    }
+    return { hitCount, value, kills };
+}
+
 function planActiveSkill(world, missionsCtx, unit, actions) {
     if (!unit.commander || !unit.canAct) return false;
     const attack = bestAttackFor(world, missionsCtx, unit);
@@ -308,21 +376,51 @@ function planActiveSkill(world, missionsCtx, unit, actions) {
         ally.id !== unit.id && ally.hp < ally.maxHp * 0.6
         && world.helpers.hexDistance(ally.tile, unit.tile) <= 2);
     if (unit.commander === 'berserker') {
-        const buffedAttack = !unit._berserkerQixue
-            ? withVirtualSkill(unit, { _berserkerQixue: true }, () => bestAttackFor(world, missionsCtx, unit))
-            : attack;
+        const { qixueHpCostPct } = COMMANDER_CONFIG.berserker.balance;
+        const postQixueHp = Math.max(1, unit.hp - Math.round(unit.hp * qixueHpCostPct));
+        const evaluateQixueFromCurrent = () => {
+            const entry = bestAttackFor(world, missionsCtx, unit);
+            if (!entry) return null;
+            const splash = qixueSplashSummary(world, unit, entry);
+            return { ...entry, splashHitCount: splash.hitCount, splashKills: splash.kills, splashValue: splash.value };
+        };
+        let buffedAttack = !unit._berserkerQixue
+            ? withVirtualSkill(unit, { _berserkerQixue: true, hp: postQixueHp }, evaluateQixueFromCurrent)
+            : (attack ? { ...attack, ...qixueSplashSummary(world, unit, attack), splashHitCount: qixueSplashSummary(world, unit, attack).hitCount } : null);
+        // 支持“先开泣血、再机动贴近收割”：若原地够不着敌军，预查本回合安全机动后能斩杀/砸将领+溅射的目标。
+        if (!buffedAttack && !unit._berserkerQixue && !unit.isNewRecruit && !world.isImmobile(unit)) {
+            let bestMoved = null;
+            for (const tile of world.helpers.getMovableTiles(unit)) {
+                if (!tile || tile === unit.tile || tile.unit || (tile.isCity && tile.camp !== world.myCamp)) continue;
+                const entry = withVirtualSkill(unit, { _berserkerQixue: true, hp: postQixueHp }, () =>
+                    withVirtualTile(unit, tile, () => evaluateQixueFromCurrent()));
+                if (!entry) continue;
+                const safeAfterMove = world.threatAt(tile, unit, entry.kills ? entry.target : null)
+                    < postQixueHp + (unit.activeShield ?? unit._shield ?? 0);
+                if (!safeAfterMove) continue;
+                const totalValue = entry.value + entry.splashValue;
+                if (totalValue > 20 && (!bestMoved || totalValue > bestMoved.totalValue)) {
+                    bestMoved = { ...entry, totalValue };
+                }
+            }
+            buffedAttack = bestMoved;
+        }
         const effectiveAttack = buffedAttack || attack;
-        // 泣血 + 治疗预算：手上有疗愈或身旁有牧师时，卖血是节奏不是赌博。
+        // 泣血 + 治疗预算：有疗愈/牧师托底，或能砍到将领/多目标溅射收益时，果断卖血爆发。
         const healBacked = world.hand.includes('heal')
             || world.myUnits.some(ally => ally.commander === 'priest' && ally.canAct
                 && world.helpers.hexDistance(ally.tile, unit.tile) <= 3);
-        const worthIt = effectiveAttack && (effectiveAttack.kills
+        const convertsToKill = !!(effectiveAttack && (effectiveAttack.kills || effectiveAttack.splashKills > 0));
+        const hasClusterSplash = !!(effectiveAttack && (effectiveAttack.splashHitCount || 0) >= 1 && (effectiveAttack.splashValue || 0) >= 10);
+        const worthIt = effectiveAttack && (convertsToKill
             || effectiveAttack.target.commander
+            || hasClusterSplash
             || effectiveAttack.strategic > 20);
-        if (effectiveAttack && shouldSpendBerserkerBlood({
+        const abortWhileRetreating = shouldRetreat(world, unit, missionsCtx) && !convertsToKill;
+        if (!abortWhileRetreating && effectiveAttack && shouldSpendBerserkerBlood({
             hpRatio: unit.hp / unit.maxHp,
-            convertsToKill: effectiveAttack.kills,
-            highValueTarget: worthIt && healBacked,
+            convertsToKill,
+            highValueTarget: !!(worthIt && (healBacked || effectiveAttack.target.commander || hasClusterSplash)),
             outnumbered: strategyForceRatio(world) < 0.7
         }) && shouldPlanActiveSkill(unit, { hasAttackTarget: true })) {
             actions.push({ type: 'activateSkill', unitId: unit.id });
@@ -463,6 +561,11 @@ function captureTileBonus(world, unit, tile) {
         && isOwnCityThreatened(world, tile) && !isReservedForMinisterReturn(world, tile)) {
         bonus += 26;
     }
+    // 平时无守城任务且未受威胁时，避免非尚书部队走回自家空城占住产能格。
+    if (tile.isCity && tile.camp === world.myCamp && !tile.unit
+        && unit.commander !== 'minister' && !isOwnCityThreatened(world, tile)) {
+        bonus -= 35;
+    }
     return bonus;
 }
 
@@ -476,29 +579,213 @@ function isOwnCityThreatened(world, cityTile) {
         || world.rivalUnits.some(enemy => enemy.tile && world.helpers.hexDistance(enemy.tile, cityTile) <= 3);
 }
 
+function guerrillaMaxLandSteps(unit, mp = Number(unit?.remainingMP ?? unit?.config?.speed ?? 5)) {
+    if (unit?.type !== 'cpc_guerrilla') return Math.max(2, Math.floor(mp / 2));
+    return Math.max(0, Math.floor(mp));
+}
+
+function effectiveSiteOwner(world, tile) {
+    if (!tile) return null;
+    if (tile.isVillage && !tile.unit) {
+        const districtId = tile.villageDistrictId ?? tile.districtId;
+        const city = world.cities.find(c => c.tile.districtId === districtId);
+        if (city) return city.tile.camp;
+    }
+    return tile.camp;
+}
+
+function moveMpCost(world, unit, tile) {
+    if (!unit?.tile || !tile || tile === unit.tile) return 0;
+    const entry = world.gameState?.moveParents?.get?.(tile);
+    const startMp = Number(unit.remainingMP ?? unit.config?.speed ?? 0);
+    if (entry && Number.isFinite(entry.remaining)) {
+        return Math.max(0, startMp - entry.remaining);
+    }
+    return world.helpers.hexDistance(unit.tile, tile) * (unit.type === 'cpc_guerrilla' ? 1 : 2);
+}
+
+function remainingMpAfterMove(world, unit, tile) {
+    if (!unit?.tile || !tile) return 0;
+    if (tile === unit.tile) return Number(unit.remainingMP ?? unit.config?.speed ?? 0);
+    if (tile.isCity && !unit._isDrone) return 0;
+    const entry = world.gameState?.moveParents?.get?.(tile);
+    if (entry && Number.isFinite(entry.remaining)) return Math.max(0, entry.remaining);
+    const startMp = Number(unit.remainingMP ?? unit.config?.speed ?? 0);
+    return Math.max(0, startMp - moveMpCost(world, unit, tile));
+}
+
+function canGuerrillaConcealForMove(world, unit, tile) {
+    if (unit?.type !== 'cpc_guerrilla' || !tile || world.onWater(tile)) return false;
+    if (isStealthGuerrilla(unit)) return true;
+    if (getGuerrillaConcealmentReason(unit, world.gameState)) return false;
+    const startMp = Number(unit.remainingMP ?? unit.config?.speed ?? 5);
+    return startMp - moveMpCost(world, unit, tile) >= GUERRILLA_CONCEALMENT_CONFIG.movementCost;
+}
+
+function isGuerrillaUndetectedAt(world, unit, tile) {
+    if (!canGuerrillaConcealForMove(world, unit, tile)) return false;
+    const distance = world.helpers.hexDistance;
+    for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
+        if (!enemy.tile || enemy.hp <= 0) continue;
+        const revealRadius = enemy.type === 'gb_battleship'
+            && getActiveCultureId(world.gameState, enemy.camp) === 'gb'
+            ? STEALTH_VISIBILITY_RULES.submarineDetectorRadius
+            : STEALTH_VISIBILITY_RULES.guerrillaRevealRadius;
+        if (distance(enemy.tile, tile) <= revealRadius) return false;
+    }
+    return true;
+}
+
+/**
+ * 推断敌方可能忽略的地图盲区目标：
+ * 优先选择敌方防守空虚（周围 2 格内敌军 ≤ 1）且偏离敌军主力重心的敌方/中立据点或落单后排；
+ * 不被己方行政区村庄或后方遥远中立点拉回自家后院。
+ */
+function inferGuerrillaBlindSpotTarget(world, unit) {
+    if (unit?.type !== 'cpc_guerrilla' || !unit.tile) return null;
+    const distance = !world.isNaval(unit) && world.navDistance ? world.navDistance : world.helpers.hexDistance;
+    const hexDist = world.helpers.hexDistance;
+    const rivals = world.rivalUnits.filter(e => e.tile && e.hp > 0);
+    const centroid = rivals.length > 0
+        ? {
+            q: rivals.reduce((sum, e) => sum + e.tile.q, 0) / rivals.length,
+            r: rivals.reduce((sum, e) => sum + e.tile.r, 0) / rivals.length
+        }
+        : null;
+    const enemyGuardsNear = (targetTile, excludedUnit = null) => rivals.filter(enemy =>
+        enemy !== excludedUnit && hexDist(enemy.tile, targetTile) <= 2).length;
+    const flankBonus = (targetTile, isEnemyAsset) => {
+        if (!centroid) return 0;
+        const dq = targetTile.q - centroid.q;
+        const dr = targetTile.r - centroid.r;
+        const distFromCentroid = (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+        if (!isEnemyAsset && distFromCentroid > 5) return 0;
+        return Math.min(20, distFromCentroid * 3);
+    };
+
+    let best = null;
+    for (const tile of world.tiles) {
+        if (world.onWater(tile)) continue;
+        let baseValue = 0;
+        let guards = 0;
+        let isEnemyAsset = false;
+        const owner = effectiveSiteOwner(world, tile);
+        if ((tile.isCity || tile.isVillage || tile.isPort) && owner !== world.myCamp) {
+            const rivalOwned = world.rivalFactions.includes(owner);
+            const travelDistCheck = distance(unit.tile, tile);
+            if (tile.isPort && !rivalOwned) continue;
+            if (tile.isVillage && !rivalOwned && travelDistCheck > 7) continue;
+            guards = enemyGuardsNear(tile);
+            if (guards >= 2) continue;
+            isEnemyAsset = rivalOwned;
+            if (tile.isCity) {
+                baseValue = !tile.unit && tile.hp <= 0 ? 125 : !tile.unit ? 88 : 65;
+            } else if (tile.isVillage) {
+                baseValue = (rivalOwned ? 74 : 56) + (world.gameState.skirmishFog ? 12 : 0);
+            } else {
+                baseValue = 54;
+            }
+        } else if (tile.unit && rivals.includes(tile.unit)) {
+            const enemy = tile.unit;
+            guards = enemyGuardsNear(tile, enemy);
+            if (guards >= 2) continue;
+            const isBackline = getUnitBaseType(enemy) === 'archer' || !!enemy.commander || enemy.hp < enemy.maxHp * 0.78;
+            if (!isBackline && guards > 0) continue;
+            isEnemyAsset = true;
+            baseValue = 82 + (1 - enemy.hp / Math.max(1, enemy.maxHp)) * 45 + (enemy.commander ? 26 : 0);
+        } else {
+            continue;
+        }
+        const travelDist = distance(unit.tile, tile);
+        const score = baseValue + flankBonus(tile, isEnemyAsset) - guards * 32 - travelDist * 6.0;
+        if (!best || score > best.score) {
+            best = { tile, score, guards };
+        }
+    }
+    return best && best.score > 24 ? best : null;
+}
+
+function scoreGuerrillaBlindSpotPosition(world, unit, tile) {
+    if (unit?.type !== 'cpc_guerrilla' || !tile || world.onWater(tile)) return 0;
+    const hexDist = world.helpers.hexDistance;
+    // 游击纵队全陆地地形步耗恒为 1 MP（js/gameLogic.js），满移动力下回合可推进 5 步直接近战奇袭。
+    const maxPounceDist = Math.max(2, guerrillaMaxLandSteps(unit, Number(unit.config?.speed) || 5));
+    const undetected = isGuerrillaUndetectedAt(world, unit, tile);
+    let score = 0;
+    if (undetected) {
+        // 隐匿潜伏窗口：距离孤立敌军、敌方后排或空虚据点 2~maxPounceDist 格时提前入隐匿；
+        // 更远的格位应省下 2 MP 先行全速接近，避免过早隐匿白白消耗回合。
+        let bestAmbushWindow = 0;
+        for (const enemy of world.rivalUnits) {
+            if (!enemy.tile || enemy.hp <= 0) continue;
+            const d = hexDist(tile, enemy.tile);
+            if (d < 2 || d > maxPounceDist) continue;
+            const isolated = !world.rivalUnits.some(other => other !== enemy && other.tile && hexDist(other.tile, enemy.tile) === 1);
+            const highValue = getUnitBaseType(enemy) === 'archer' || !!enemy.commander || enemy.hp < enemy.maxHp * 0.8;
+            const rangeBonus = d <= 3 ? 6 : 0;
+            const windowScore = 14 + (isolated ? 8 : 0) + (highValue ? 6 : 0) + rangeBonus;
+            if (windowScore > bestAmbushWindow) bestAmbushWindow = windowScore;
+        }
+        for (const city of world.cities) {
+            if (!city.hostile) continue;
+            const d = hexDist(tile, city.tile);
+            if (d >= 2 && d <= maxPounceDist && !world.rivalUnits.some(e => e.tile && hexDist(e.tile, city.tile) <= 1)) {
+                bestAmbushWindow = Math.max(bestAmbushWindow, d <= 3 ? 20 : 14);
+            }
+        }
+        score += bestAmbushWindow;
+    } else if (!tile.unit && world.rivalUnits.some(e => e.tile && hexDist(e.tile, tile) === 1)) {
+        // 无本轮奇袭收益时避免主动贴到敌军 1 格显形圈内暴露行踪。
+        score -= 14;
+    }
+    return score;
+}
+
 /** 攻击位潜力：站到这格后能否打出有价值的攻击（近似：按射程圈算）。 */
 function attackPotential(world, missionsCtx, unit, tile) {
     const range = Math.max(1, Number(unit.config?.range) || 1);
     if (range <= 1 && !world.isCapturable(unit)) return 0;
-    let best = 0;
-    for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
-        if (!enemy.tile) continue;
-        if (world.helpers.hexDistance(tile, enemy.tile) > range) continue;
-        if (!isNeutralEngageable(world, missionsCtx, enemy)) continue;
-        const entry = evaluateAttack(world, missionsCtx, unit, enemy);
-        if (!entry.veto) best = Math.max(best, entry.value);
+    const evaluateAtTile = () => {
+        let best = 0;
+        for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
+            if (!enemy.tile) continue;
+            if (world.helpers.hexDistance(tile, enemy.tile) > range) continue;
+            if (!isNeutralEngageable(world, missionsCtx, enemy)) continue;
+            const entry = evaluateAttack(world, missionsCtx, unit, enemy);
+            if (!entry.veto) best = Math.max(best, entry.value);
+        }
+        return best * 0.55; // 落点潜在收益打折；执行时按实际站位重新评分。
+    };
+    if (unit.type === 'cpc_guerrilla') {
+        const ambushReady = canGuerrillaConcealForMove(world, unit, tile);
+        return withVirtualSkill(unit, ambushReady
+            ? { _guerrillaHiddenThroughRound: world.round + 1 }
+            : { _guerrillaHiddenThroughRound: null, remainingMP: 0 }, evaluateAtTile);
     }
-    return best * 0.55; // 落点潜在收益打折；执行时按实际站位重新评分。
+    return evaluateAtTile();
 }
 
-function shouldRetreat(world, unit) {
+function shouldRetreat(world, unit, missionsCtx = null) {
     if (!unit.tile) return false;
+    if (missionsCtx && shouldHoldCityPosition(world, unit, missionsCtx.assignment?.get(unit.id))) {
+        return false;
+    }
+    const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
+    const incoming = world.threatAt(unit.tile, unit);
+    const criticalAsset = !!unit.commander || (unit._rank || 0) >= 2;
+    // 多重岸防/集火死亡陷阱规避：海军或核心王牌即使仍高于 70% 血，只要下回合承伤逼近总血池就必须撤离，
+    // 防止高血量旗舰停在双岸防交叉火力里两回合内活活轰沉。
+    if ((world.isNaval(unit) || criticalAsset) && incoming >= pool * W.lethalCrossfireRetreatRatio) {
+        return true;
+    }
     // 必死规避：当前位置下回合预期承伤 ≥ 当前生命（+护盾），无论血量先撤。
     // 等血量掉到 30% 再跑往往已经来不及了——这是阵亡偏高的主要来源。
-    const pool = unit.hp + (unit._shield || 0);
-    const incoming = world.threatAt(unit.tile, unit);
     if (incoming >= pool && pool < unit.maxHp * 0.7) return true;
     const hpRatio = unit.hp / unit.maxHp;
+    // 受伤的主力将领/老兵舰船在重压下及时脱离战场回港维修。
+    if (world.isNaval(unit) && criticalAsset && hpRatio < 0.58 && incoming >= pool * 0.40) {
+        return true;
+    }
     // 高 rank 老兵按将领级保护：一个 rank2+ 单位是两倍身家的资产。
     const veteran = (unit._rank || 0) >= 2;
     const threshold = FRAGILE_COMMANDERS.has(unit.commander) ? 0.48
@@ -514,7 +801,7 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
     if (movable.length === 0) return false;
 
     const mission = missionsCtx.assignment.get(unit.id) || null;
-    const retreating = shouldRetreat(world, unit);
+    const retreating = shouldRetreat(world, unit, missionsCtx);
     if (captureObjective && retreating) return false;
     const distance = world.navDistance || world.helpers.hexDistance;
     const distanceToObjective = captureObjective ? distance(unit.tile, captureObjective) : 0;
@@ -547,6 +834,17 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
         * (posture === 'hold' && (!mission || mission.kind !== 'garrison') ? 1.25 : 1);
     const poisonedAllies = world.myUnits.filter(ally => ally._poison);
     const rallyPoint = !mission ? primaryRallyPoint(world, missionsCtx) : null;
+    const guerrillaBlindSpot = unit.type === 'cpc_guerrilla'
+        ? inferGuerrillaBlindSpotTarget(world, unit)
+        : null;
+    const missionTargetTile = mission?.kind === 'siege'
+        ? world.tileMap.get(`${mission.targetQ},${mission.targetR}`)
+        : null;
+    const applyBlindSpotPull = !!guerrillaBlindSpot && (
+        !mission
+        || (mission.kind === 'siege' && mission.occupierId !== unit.id && missionTargetTile
+            && world.helpers.hexDistance(missionTargetTile, guerrillaBlindSpot.tile) <= 4)
+    );
 
     let bestTile = null;
     let bestScore = retreating || shouldLand ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission)
@@ -572,10 +870,20 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
             && !retreating && world.helpers.hexDistance(tile, neutralObjective.tile) <= 1
             && world.threatAt(tile, unit) >= unit.hp + (unit._shield || 0)) continue;
         const missionScore = missionMoveBonus(world, missionsCtx, unit, tile, posture);
+        const potentialAtTile = attackPotential(world, missionsCtx, unit, tile);
         let score = missionScore.bonus
             + captureTileBonus(world, unit, tile)
             + historicalPositionValue(world, unit, tile)
-            + attackPotential(world, missionsCtx, unit, tile);
+            + potentialAtTile;
+        // 游击纵队：散兵或战区附近护航时，向推断出的敌方防守盲区/侧翼迂回渗透。
+        if (applyBlindSpotPull) {
+            const pathDist = !world.isNaval(unit) && world.navDistance
+                ? world.navDistance
+                : world.helpers.hexDistance;
+            const nowDist = pathDist(unit.tile, guerrillaBlindSpot.tile);
+            const nextDist = pathDist(tile, guerrillaBlindSpot.tile);
+            score += Math.max(-20, Math.min(30, (nowDist - nextDist) * 12));
+        }
         // 散兵：有攻城任务时向占领者集结，否则向最近敌对城市缓慢施压。
         if (!mission) {
             const pathDist = !world.isNaval(unit) && world.navDistance
@@ -594,7 +902,11 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
             }
         }
         // 威胁暴露（按残余价值比例计价）+ 落点自动攻击的预扣。
-        score -= threatCost(world, unit, tile, riskWeight);
+        // 游击纵队若能在落点保持隐匿且不被敌方侦测，敌方回合无法锁定它，暴露风险大幅折减。
+        const stealthProtected = unit.type === 'cpc_guerrilla'
+            && isGuerrillaUndetectedAt(world, unit, tile)
+            && potentialAtTile <= 0;
+        score -= threatCost(world, unit, tile, stealthProtected ? riskWeight * 0.2 : riskWeight);
         score += autoAttackRisk(world, missionsCtx, unit, tile);
         if (blocksOccupierSeaLane(world, missionsCtx, unit, tile)) score -= 45;
         // 中毒疏散：别贴着中毒友军挤成一团（守城者例外）。
@@ -606,21 +918,37 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
         }
         if (retreating) {
             const threat = world.threatAt(tile, unit);
+            const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
             const safety = -threat * 3 - world.helpers.hexDistance(tile, unit.tile) * 0.5;
             const ports = world.isNaval(unit) ? world.tiles.filter(port =>
                 isPortOperationalFor(port, world.myCamp, world.gameState) && (!port.unit || port.unit === unit)) : [];
             const homePull = ports.length ? Math.min(...ports.map(port => world.helpers.hexDistance(tile, port)))
                 : nearestOwnCityDistance(world, tile);
             const canRecover = ports.length ? ports.includes(tile) : tile.isCity && tile.camp === world.myCamp;
-            score = safety - homePull * 4 + (canRecover ? 80 : 0);
+            const safeDockBonus = canRecover && threat * W.lethalThreatMargin < pool ? 80 : 0;
+            score = safety - homePull * 4 + safeDockBonus;
         }
         if (score > 0) score *= noiseJitter(world.caps, `mv:${world.round}:${unit.id}:${tile.q},${tile.r}`);
         if (score > bestScore) { bestScore = score; bestTile = tile; }
     }
     if (!bestTile || bestTile === unit.tile) return false;
+    const maxPounceDist = Math.max(2, guerrillaMaxLandSteps(unit, Number(unit.config?.speed) || 5));
+    const inAmbushPounceRange = [...world.rivalUnits, ...world.neutralUnits].some(enemy =>
+        enemy.tile && enemy.hp > 0 && world.helpers.hexDistance(bestTile, enemy.tile) <= maxPounceDist);
+    const shouldConcealOnMove = unit.type === 'cpc_guerrilla' && !isStealthGuerrilla(unit)
+        && canGuerrillaConcealForMove(world, unit, bestTile)
+        && ((isGuerrillaUndetectedAt(world, unit, bestTile) && inAmbushPounceRange)
+            || attackPotential(world, missionsCtx, unit, bestTile) > 0);
+    if (shouldConcealOnMove) {
+        actions.push({ type: 'guerrillaConcealment', unitId: unit.id });
+    }
+    const preserveStealth = unit.type === 'cpc_guerrilla'
+        && (isStealthGuerrilla(unit) || shouldConcealOnMove)
+        && isGuerrillaUndetectedAt(world, unit, bestTile)
+        && attackPotential(world, missionsCtx, unit, bestTile) <= 0;
     actions.push({
         type: 'move', unitId: unit.id, tileQ: bestTile.q, tileR: bestTile.r,
-        ...(captureObjective ? { autoAttack: false } : {})
+        ...(captureObjective || preserveStealth ? { autoAttack: false } : {})
     });
     return true;
 }
@@ -991,14 +1319,17 @@ function planDroneOps(world, missionsCtx, actions, processed, availableGold) {
         let best = null;
         for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
             if (!enemy.tile || world.helpers.hexDistance(drone.tile, enemy.tile) > 3) continue;
+            const enemyPool = enemy.hp + (enemy.activeShield ?? enemy._shield ?? 0);
+            const killsBySuicide = 100 >= enemyPool;
             let score = 100 * hpGold(enemy) + enemyCapturerPremium(world, enemy);
-            if (100 >= enemy.hp + (enemy._shield || 0)) {
-                score += residualGold(enemy) * W.killPremiumRatio;
+            if (killsBySuicide) {
+                score += residualGold(enemy) * W.killPremiumRatio + (residualGold(enemy) >= 7 ? 32 : 0);
             }
             if (enemy.commander) score += W.commanderKillBonus + 30;
+            if (['staller', 'priest', 'necromancer', 'ironGuard'].includes(enemy.commander)) score += 15;
             if ((enemy._rank || 0) >= 2) score += 25;
             if (['archer', 'mgNest', 'shoreBattery'].includes(getUnitBaseType(enemy))) score += 20;
-            score += missionTargetBonus(world, missionsCtx, enemy, 100 >= enemy.hp);
+            score += missionTargetBonus(world, missionsCtx, enemy, killsBySuicide);
             if (!best || score > best.score) best = { target: enemy, score };
         }
         if (best && best.score >= 60) {
@@ -1010,50 +1341,173 @@ function planDroneOps(world, missionsCtx, actions, processed, availableGold) {
         unit.commander === 'tianyan' && unit.tile && !unit._isDrone && unit.canAct);
     if (!tianyan) return;
     if (world.myUnits.filter(unit => unit._isDrone && !processed.has(unit.id)).length >= 2) return;
-    const { deployGoldCost, deployLimitPerTurn } = COMMANDER_CONFIG.tianyan.balance;
+    const { deployGoldCost, deployLimitPerTurn, signalRange } = COMMANDER_CONFIG.tianyan.balance;
     const { _droneDeployTurn, _droneDeployCount, turnCounter } = world.gameState;
     if (availableGold < deployGoldCost || (_droneDeployTurn?.[world.myCampKey] === turnCounter
         && _droneDeployCount?.[world.myCampKey] >= deployLimitPerTurn)) return;
     const objective = missionsCtx.missions.find(m => m.kind === 'siege');
-    const anchor = objective ? world.tileMap.get(`${objective.targetQ},${objective.targetR}`) : null;
+    const nearestRival = [...world.rivalUnits].filter(enemy => enemy.tile && enemy.hp > 0)
+        .sort((a, b) => world.helpers.hexDistance(tianyan.tile, a.tile) - world.helpers.hexDistance(tianyan.tile, b.tile))[0];
+    const anchor = (objective ? world.tileMap.get(`${objective.targetQ},${objective.targetR}`) : null)
+        || nearestRival?.tile
+        || null;
     const candidates = world.helpers.HEX_NEIGHBORS
         .map(([dq, dr]) => world.tileMap.get(`${tianyan.tile.q + dq},${tianyan.tile.r + dr}`))
-        .filter(tile => tile && !tile.unit);
+        .filter(tile => tile && !tile.unit && !tile.isCity && tile.terrain !== 'mountain'
+            && world.helpers.hexDistance(tianyan.tile, tile) <= signalRange);
     if (candidates.length === 0) return;
     candidates.sort((a, b) => {
-        const distance = tile => (anchor ? world.helpers.hexDistance(tile, anchor) : 0);
-        return distance(a) - distance(b);
+        const distA = anchor ? world.helpers.hexDistance(a, anchor) : 0;
+        const distB = anchor ? world.helpers.hexDistance(b, anchor) : 0;
+        return distA - distB || world.threatAt(a, null) - world.threatAt(b, null);
     });
     actions.push({ type: 'droneDeploy', unitId: tianyan.id, tileQ: candidates[0].q, tileR: candidates[0].r });
 }
 
-function planBanzaiCharges(world, missionsCtx, actions, processed) {
+function getBanzaiChargePathFrom(unit, fromTile, targetTile, state) {
+    if (!fromTile || !targetTile) return null;
+    if (fromTile === unit.tile) return getBanzaiChargePath(unit, targetTile, state);
+    const origTile = unit.tile;
+    const origFromUnit = fromTile.unit;
+    origTile.unit = null;
+    fromTile.unit = unit;
+    unit.tile = fromTile;
+    try {
+        return getBanzaiChargePath(unit, targetTile, state);
+    } finally {
+        unit.tile = origTile;
+        origTile.unit = unit;
+        fromTile.unit = origFromUnit;
+    }
+}
+
+function planBanzaiCharges(world, missionsCtx, actions, processed, {
+    onlyImmediateKills = false,
+    plannedDamageByTarget = null
+} = {}) {
+    const hexDist = world.helpers.hexDistance;
+    const allEnemies = [...world.rivalUnits, ...world.neutralUnits].filter(e => e.tile && e.hp > 0);
     for (const unit of world.myUnits) {
         if (processed.has(unit.id) || unit.type !== 'jp_samurai' || !unit.canAct || unit.isNewRecruit || unit._imprisoned || !unit.tile) continue;
-        if (shouldHoldCityPosition(world, unit, missionsCtx.assignment.get(unit.id))) continue;
+        if (shouldReserveCityGarrison(world, unit)) continue;
+        const holdingCity = shouldHoldCityPosition(world, unit, missionsCtx.assignment.get(unit.id));
         if (getBanzaiCooldown(unit, world.gameState) > 0 || unit.remainingMP < BANZAI_CHARGE_CONFIG.movementCost) continue;
-        let best = null;
-        for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
-            if (!enemy.tile || enemy.hp <= 0) continue;
-            const path = getBanzaiChargePath(unit, enemy.tile, world.gameState);
-            if (!path) continue;
-            const dist = path.length - 1;
-            if (!isNeutralEngageable(world, missionsCtx, enemy)) continue;
-            const baseDmg = world.combat.estimateDamage(unit, enemy, enemy.tile);
-            const banzaiDmg = world.combat.estimateDamage(unit, enemy, enemy.tile, getBanzaiBonusDamage(enemy));
-            const lethalHp = enemy.hp + (enemy.activeShield ?? enemy._shield ?? 0);
-            const kills = banzaiDmg >= lethalHp;
-            if (!kills && (baseDmg >= lethalHp || unit.hp < 35 || dist === 1)) continue;
-            let score = Math.min(enemy.hp, banzaiDmg) * hpGold(enemy) + enemyCapturerPremium(world, enemy);
-            if (kills) score += residualGold(enemy) * W.killPremiumRatio
-                + Math.min(unit.maxHp * BANZAI_CHARGE_CONFIG.killHealMaxHpPct, unit.maxHp - unit.hp + unit.hp * BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct);
-            if (enemy.commander) score += W.commanderKillBonus;
-            if ((enemy._rank || 0) >= 2) score += 25;
-            if (dist === 2 && kills) score += 40;
-            score += missionTargetBonus(world, missionsCtx, enemy, kills);
-            if (!best || score > best.score) best = { enemy, kills, score };
+
+        const launchTiles = [{ tile: unit.tile, moveCost: 0 }];
+        if (unit.remainingMP > BANZAI_CHARGE_CONFIG.movementCost) {
+            for (const tile of world.helpers.getMovableTiles(unit)) {
+                if (!tile || tile === unit.tile || world.onWater(tile) || tile.isCity) continue;
+                if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
+                if (tile._minePlanted && tile._mineCampKey !== world.myCampKey) continue;
+                const mpLeft = remainingMpAfterMove(world, unit, tile);
+                if (mpLeft >= BANZAI_CHARGE_CONFIG.movementCost) {
+                    launchTiles.push({
+                        tile,
+                        moveCost: Math.max(1, (Number(unit.remainingMP) || 4) - mpLeft)
+                    });
+                }
+            }
         }
-        if (best && (best.kills || best.score >= 85)) {
+
+        let best = null;
+        for (const enemy of allEnemies) {
+            if (!isNeutralEngageable(world, missionsCtx, enemy)) continue;
+            const priorDmg = plannedDamageByTarget?.get(enemy.id) || 0;
+            const effectiveHp = enemy.hp - priorDmg;
+            if (effectiveHp <= 0) continue;
+            const effectiveShield = Math.max(0, (enemy.activeShield ?? enemy._shield ?? 0) - Math.max(0, priorDmg));
+            const lethalHp = effectiveHp + effectiveShield;
+            const missingHp = Math.max(0, enemy.maxHp - effectiveHp);
+            const hpRatio = effectiveHp / Math.max(1, enemy.maxHp);
+            const isMidOrLowHp = hpRatio <= 0.72 || missingHp >= 35;
+            const bonusDmg = Math.min(
+                BANZAI_CHARGE_CONFIG.maxBonusDamage,
+                missingHp * BANZAI_CHARGE_CONFIG.missingHpDamagePct
+            );
+            const baseDmg = world.combat.estimateDamage(unit, enemy, enemy.tile);
+            const banzaiDmg = world.combat.estimateDamage(unit, enemy, enemy.tile, bonusDmg);
+            const kills = banzaiDmg >= lethalHp;
+            if (onlyImmediateKills && !kills) continue;
+            const isFollowupCharge = unit._banzaiFollowupTurn === world.gameState.turnCounter;
+            if (!kills) {
+                // 万岁冲锋不击杀会白扣 30% 当前生命且无回血/无返还行动：
+                // 仅在非二段追击、目标已处半血以下且友军本轮可补刀收割时才允许非斩杀冲锋。
+                if (isFollowupCharge || hpRatio > 0.55 || unit.hp < 85 || holdingCity) continue;
+                const remainingAfterBanzai = lethalHp - banzaiDmg;
+                const allyCanFinish = world.myUnits.some(ally => ally !== unit && !processed.has(ally.id)
+                    && ally.canAct && ally.tile
+                    && world.helpers.getAttackableTiles(ally).includes(enemy.tile)
+                    && world.combat.estimateDamage(ally, enemy, enemy.tile) >= remainingAfterBanzai);
+                if (!allyCanFinish) continue;
+            }
+            if (holdingCity && world.rivalUnits.some(other =>
+                other !== enemy && other.hp > 0 && world.isCapturable(other)
+                && other.tile && hexDist(other.tile, unit.tile) <= 3)) {
+                continue;
+            }
+
+            for (const { tile: fromTile, moveCost } of launchTiles) {
+                if (hexDist(fromTile, enemy.tile) > BANZAI_CHARGE_CONFIG.range) continue;
+                const path = getBanzaiChargePathFrom(unit, fromTile, enemy.tile, world.gameState);
+                if (!path) continue;
+                const dashDist = path.length - 1;
+                if (!kills && moveCost === 0 && dashDist === 1 && bonusDmg < 12) continue;
+
+                const canResetAction = unit._banzaiFollowupTurn !== world.gameState.turnCounter;
+                const destTile = kills ? enemy.tile : path.at(-2);
+                const hasChainTarget = kills && canResetAction && allEnemies.some(other =>
+                    other !== enemy && hexDist(destTile, other.tile) <= 3);
+                if (kills && moveCost === 0 && dashDist === 1 && baseDmg >= lethalHp
+                    && unit.hp >= unit.maxHp * 0.88 && !hasChainTarget) {
+                    // 满血贴身且无后续连斩目标时留给普通攻击收割，省下冲锋冷却。
+                    continue;
+                }
+
+                const hpAfterSelf = Math.max(1, unit.hp - Math.round(unit.hp * BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct));
+                const incoming = world.threatAt(destTile, unit, kills ? enemy : null);
+                if (!kills && incoming >= hpAfterSelf * 0.95) continue;
+
+                let score = Math.min(lethalHp, banzaiDmg) * hpGold(enemy) + enemyCapturerPremium(world, enemy);
+                if (isMidOrLowHp) {
+                    score += (1 - hpRatio) * 45 + bonusDmg * 0.6;
+                }
+                if (kills) {
+                    const healOnKill = Math.round(unit.maxHp * BANZAI_CHARGE_CONFIG.killHealMaxHpPct)
+                        + Math.round((unit.maxHp - hpAfterSelf) * 0.20);
+                    const netHpDelta = Math.min(unit.maxHp, hpAfterSelf + healOnKill) - unit.hp;
+                    score += residualGold(enemy) * (W.killPremiumRatio + 0.35)
+                        + netHpDelta * hpGold(unit) * 1.2;
+                    if (hasChainTarget) {
+                        const lethalChain = allEnemies.some(other => other !== enemy
+                            && hexDist(destTile, other.tile) <= 2
+                            && world.combat.estimateDamage(unit, other, other.tile, getBanzaiBonusDamage(other))
+                                >= other.hp + (other.activeShield ?? other._shield ?? 0));
+                        score += lethalChain ? 65 : 28;
+                    }
+                    if (enemy.tile.isCity && enemy.tile.camp !== world.myCamp) score += 90;
+                }
+                if (enemy.commander) score += W.commanderKillBonus + 20;
+                if ((enemy._rank || 0) >= 2) score += 25;
+                if (getUnitBaseType(enemy) === 'archer') score += 22;
+                if ((dashDist === 2 || moveCost > 0) && kills) score += 35;
+                score += missionTargetBonus(world, missionsCtx, enemy, kills);
+                score -= incoming * hpGold(unit) * (kills ? 0.22 : 0.55) + moveCost * 2;
+
+                if (!best || score > best.score) {
+                    best = { enemy, fromTile, moveCost, kills, score };
+                }
+            }
+        }
+        if (best && (best.kills || best.score >= 22)) {
+            if (best.fromTile !== unit.tile) {
+                actions.push({
+                    type: 'move',
+                    unitId: unit.id,
+                    tileQ: best.fromTile.q,
+                    tileR: best.fromTile.r,
+                    autoAttack: false
+                });
+            }
             actions.push({
                 type: 'banzaiCharge',
                 unitId: unit.id,
@@ -1110,15 +1564,31 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
         // 含主动技能加成的近战击杀夺城结算。
         planCaptureFinishers(world, missionsCtx, actions, processed, false);
 
-        // 0.5 天眼无人机：自爆兑现 + 向前线部署新哨机；帝国武士：万岁冲锋。
+        // 0.5 天眼无人机：自爆兑现 + 向前线部署新哨机；帝国武士：优先收割已处于斩杀线的目标。
         planDroneOps(world, missionsCtx, actions, processed, availableGold);
-        planBanzaiCharges(world, missionsCtx, actions, processed);
+        planBanzaiCharges(world, missionsCtx, actions, processed, { onlyImmediateKills: true });
 
         // 1.5 破门序列：攻城任务守军的协同斩杀（终结者收尾进城）。
         planBreachSequence(world, missionsCtx, actions, processed);
         if (world.captureRoute) planCoordinatedCityBreaches(world, missionsCtx, actions, processed);
         planSiegeAttacks(world, missionsCtx, actions, processed, true);
         planCaptureApproaches(world, strategy, missionsCtx, actions, processed);
+
+        // 1.65 濒死撤离优先：处于重火力陷阱或急需入港修船的非守城单位先撤出致命火网再择机开火，
+        // 避免在步骤 2 原地开炮耗尽行动并留在交叉火力中被直接收掉。
+        for (const unit of world.myUnits) {
+            if (processed.has(unit.id) || !unit.canAct || unit.isNewRecruit || world.isImmobile(unit)) continue;
+            if (!shouldRetreat(world, unit, missionsCtx)) continue;
+            const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
+            const bestHere = bestAttackFor(world, missionsCtx, unit);
+            const clearsLethalThreat = bestHere?.kills
+                && world.threatAt(unit.tile, unit, bestHere.target) < pool * W.lethalCrossfireRetreatRatio
+                && !(world.isNaval(unit) && (unit.commander || (unit._rank || 0) >= 2) && unit.hp < unit.maxHp * 0.45);
+            if (clearsLethalThreat) continue;
+            if (planMove(world, missionsCtx, unit, strategy.posture, actions)) {
+                processed.add(unit.id);
+            }
+        }
 
         // 1.75 困难档集火终结：在分配常规攻击前，先锁定能够确保减员的攻击包。
         planLethalFocus(world, missionsCtx, actions, processed);
@@ -1128,7 +1598,18 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
         for (const unit of world.myUnits) {
             if (processed.has(unit.id) || !unit.canAct) continue;
             const best = bestAttackFor(world, missionsCtx, unit);
-            if (best) attackPlans.push({ unit, best });
+            if (!best) continue;
+            // 若帝国武士万岁冲锋可用且普攻不能击杀，保留行动供 2.5 步执行移动+冲锋斩首。
+            if (unit.type === 'jp_samurai' && !best.kills
+                && getBanzaiCooldown(unit, world.gameState) <= 0
+                && unit.remainingMP >= BANZAI_CHARGE_CONFIG.movementCost
+                && [...world.rivalUnits, ...world.neutralUnits].some(enemy =>
+                    enemy.tile && enemy.hp > 0 && world.helpers.hexDistance(unit.tile, enemy.tile) <= 4
+                    && (enemy.hp < enemy.maxHp * 0.85 || world.myUnits.some(ally =>
+                        ally !== unit && ally.canAct && world.helpers.getAttackableTiles(ally).includes(enemy.tile))))) {
+                continue;
+            }
+            attackPlans.push({ unit, best });
         }
         // 集火协调：同一目标被多个攻击手覆盖且合击必杀时，全员加协同价值——
         // 真人玩家从不把伤害摊在三个打不死的目标上。
@@ -1153,6 +1634,22 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
             processed.add(unit.id);
         }
 
+        // 2.5 帝国武士斩首收割：计入友军本轮已规划的火力软化，对可达范围内中低血量敌人发动（移动+）万岁冲锋。
+        const plannedDamageByTarget = new Map();
+        for (const action of actions) {
+            if (action.type !== 'attack' || !action.unitId || !action.targetId) continue;
+            const attacker = world.myUnits.find(u => u.id === action.unitId);
+            const target = [...world.rivalUnits, ...world.neutralUnits].find(e => e.id === action.targetId);
+            if (attacker && target?.tile) {
+                const dmg = world.combat.estimateDamage(attacker, target, target.tile);
+                plannedDamageByTarget.set(target.id, (plannedDamageByTarget.get(target.id) || 0) + dmg);
+            }
+        }
+        planBanzaiCharges(world, missionsCtx, actions, processed, {
+            onlyImmediateKills: false,
+            plannedDamageByTarget
+        });
+
         // 3. 攻城（近战此时若被 processed 跳过，不影响——打守军优先于磨城防）。
         planSiegeAttacks(world, missionsCtx, actions, processed);
 
@@ -1166,6 +1663,20 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
         for (const unit of movers) {
             if (processed.has(unit.id)) continue;
             planMove(world, missionsCtx, unit, strategy.posture, actions);
+        }
+
+        // 4.5 游击纵队原地隐匿：尚未移动/攻击且处于敌军下回合潜伏扑杀圈内（未被侦测）时，开启隐匿待机。
+        for (const unit of world.myUnits) {
+            if (processed.has(unit.id) || unit.type !== 'cpc_guerrilla' || !unit.canAct || !unit.tile || isStealthGuerrilla(unit)) continue;
+            if (actions.some(a => a.unitId === unit.id
+                && (a.type === 'guerrillaConcealment' || a.type === 'move' || a.type === 'attack' || a.type === 'siegeCityAttack'))) continue;
+            if (getGuerrillaConcealmentReason(unit, world.gameState)) continue;
+            const maxPounceDist = Math.max(2, guerrillaMaxLandSteps(unit, Number(unit.config?.speed) || 5));
+            const inPounceWindow = [...world.rivalUnits, ...world.neutralUnits].some(e =>
+                e.tile && e.hp > 0 && world.helpers.hexDistance(unit.tile, e.tile) <= maxPounceDist);
+            if (inPounceWindow && isGuerrillaUndetectedAt(world, unit, unit.tile)) {
+                actions.push({ type: 'guerrillaConcealment', unitId: unit.id });
+            }
         }
 
         return actions;

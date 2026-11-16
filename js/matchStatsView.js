@@ -1,8 +1,13 @@
 import { getFlagColors } from '../rules/camps.js';
-import { buildMatchStatsDocument } from './matchStats.js';
+import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { NPC_DIALOGUE_PORTRAITS } from '../campaign/portraits.js';
+import { createFlagSvgUrl, createStandardFlagUrl, isStandardFlagEmoji } from '../rules/diplomacy.js';
+import { buildMatchStatsDocument, selectMvpUnits } from './matchStats.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const FALLBACK_COLORS = ['#db574f', '#5688e8', '#55b875', '#c5994b', '#a56bd4', '#58b8b1'];
+const MEDAL_RANKS = Object.freeze(['🥇', '🥈', '🥉']);
+const SAFE_FLAG_URL_PATTERN = /^(?:img\/(?:flags|ui)\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.(?:svg|png|webp)|data:image\/svg\+xml;charset=utf-8,)/i;
 const CONTROL_METRICS = Object.freeze({
     controlShare: { label: '综合控制', countKey: null },
     unitShare: { label: '单位占比', countKey: 'units' },
@@ -43,12 +48,49 @@ function svgElement(tag, attributes = {}) {
 }
 
 function colorForCamp(camp, index) {
-    if (camp.campKey === 'neutral' && !camp.neutralThemeId) return '#8b8f96';
-    if (camp.colorId) {
+    if (camp?.campKey === 'neutral' && !camp?.neutralThemeId && !camp?.color) return '#8b8f96';
+    if (camp?.colorId) {
         const color = getFlagColors(camp.colorId)?.main;
         if (color) return color;
     }
-    return FALLBACK_COLORS[index % FALLBACK_COLORS.length];
+    if (typeof camp?.color === 'string' && /^#[0-9a-f]{3,6}$/i.test(camp.color.trim())) {
+        return camp.color.trim();
+    }
+    return FALLBACK_COLORS[Math.max(0, index) % FALLBACK_COLORS.length];
+}
+
+function resolveCampFlagVisual(camp, index = 0) {
+    const color = colorForCamp(camp, index);
+    const palette = camp?.campKey === 'neutral' && !camp?.neutralThemeId
+        ? getFlagColors('gray')
+        : (getFlagColors(camp?.colorId) || getFlagColors(color) || { main: color, light: color, dark: color });
+    const rawUrl = camp?.flagUrl || camp?.flagPreset || null;
+    let url = typeof rawUrl === 'string' && SAFE_FLAG_URL_PATTERN.test(rawUrl) ? rawUrl : null;
+    if (!url && camp?.flagConfig && typeof camp.flagConfig === 'object') {
+        url = createFlagSvgUrl(camp.flagConfig, camp.colorId || color);
+    }
+    if (!url && camp?.flagEmoji && isStandardFlagEmoji(camp.flagEmoji)) {
+        url = createStandardFlagUrl(camp.colorId || color, camp.flagEmoji);
+    }
+    return {
+        url,
+        color,
+        palette,
+        emoji: camp?.flagEmoji || '',
+        name: camp?.name || camp?.campKey || '未知阵营',
+        hasDistinctFlag: Boolean(url || camp?.flagEmoji)
+    };
+}
+
+function flagBadgeHtml(camp, index = 0, { size = 'sm', extraClass = '' } = {}) {
+    const visual = resolveCampFlagVisual(camp, index);
+    const title = escapeHtml(visual.name);
+    const cls = ['match-hud-flag', `match-hud-flag--${size}`, extraClass].filter(Boolean).join(' ');
+    if (visual.url) {
+        return `<img class="${cls}" src="${escapeHtml(visual.url)}" alt="${title}旗帜" title="${title}">`;
+    }
+    const bg = `linear-gradient(135deg, ${visual.palette.light}, ${visual.palette.main} 55%, ${visual.palette.dark})`;
+    return `<span class="${cls} match-hud-flag--color" style="background:${bg}" aria-label="${title}旗帜" title="${title}">${visual.emoji ? escapeHtml(visual.emoji) : ''}</span>`;
 }
 
 function mixHexColor(color, target, ratio) {
@@ -68,15 +110,48 @@ function mixHexColor(color, target, ratio) {
 }
 
 function renderSummary(stats, container) {
+    const camps = stats.camps || [];
     const roundCount = Math.max(
         stats.rounds.at(-1)?.round || 0,
         stats.controlTimeline.at(-1)?.round || 0
     );
+    const totalAttacks = camps.reduce((sum, camp) => sum + Number(camp.attacks || 0), 0);
+    const totalMoves = camps.reduce((sum, camp) => sum + Number(camp.moves || 0), 0);
+    const totalHealing = Number(
+        stats.totalHealing ?? camps.reduce((sum, camp) => sum + Number(camp.healingReceived || 0), 0)
+    );
+    const totalReinforcements = camps.reduce((sum, camp) => sum + Number(camp.reinforcements || 0), 0);
+    const totalRecruits = camps.reduce((sum, camp) => sum + Number(camp.recruits || 0), 0);
+    const totalConstructions = camps.reduce((sum, camp) => sum + Number(camp.constructions || 0), 0);
+    const totalCards = camps.reduce((sum, camp) => sum + Number(camp.cards || 0), 0);
+    const totalAirCommands = camps.reduce((sum, camp) => sum + Number(camp.airCommands || 0), 0);
+    const totalCaptures = stats.keyEvents.filter(event => event.type === 'cityCaptured').length
+        || camps.reduce((sum, camp) => sum + Number(camp.captures || 0), 0);
+    const commanderDeaths = (stats.commanderDeathEvents || []).length;
+    const unattributedDamage = camps.reduce((sum, camp) => sum + Number(camp.unattributedDamage || 0), 0);
+    const initialUnits = camps.reduce((sum, camp) => sum + Number(camp.initialForce?.units || 0), 0);
+    const finalUnits = camps.reduce((sum, camp) => sum + Number(camp.finalForce?.units || 0), 0);
+    const initialHp = camps.reduce((sum, camp) => sum + Number(camp.initialForce?.totalHp || 0), 0);
+    const finalHp = camps.reduce((sum, camp) => sum + Number(camp.finalForce?.totalHp || 0), 0);
+    const avgDamagePerAttack = totalAttacks > 0 ? stats.totalDamage / totalAttacks : 0;
+    const healRatio = stats.totalDamage > 0 ? Math.round((totalHealing / stats.totalDamage) * 100) : 0;
+    const skillCount = (stats.factionSkillEvents || []).length;
+    const peakRound = [...(stats.rounds || [])].map(round => {
+        const dmg = Object.values(round.byCamp || {}).reduce((s, c) => s + Number(c.damageTaken || 0), 0);
+        const losses = Object.values(round.byCamp || {}).reduce((s, c) => s + Number(c.losses || 0), 0);
+        return { round: round.round, dmg, losses, engagements: Number(round.engagements || 0) };
+    }).sort((a, b) => b.dmg - a.dmg || b.losses - a.losses || b.engagements - a.engagements)[0] || null;
+
     const cards = [
-        ['对局时长', formatDuration(stats.durationMs), `${roundCount} 回合`],
-        ['总交战', formatNumber(stats.camps.reduce((sum, camp) => sum + camp.attacks, 0)), `${formatNumber(stats.totalActions)} 次行动`],
-        ['实际伤害', formatNumber(stats.totalDamage), '按生命变化统计'],
-        ['单位阵亡', formatNumber(stats.totalLosses), `${formatNumber(stats.keyEvents.filter(event => event.type === 'cityCaptured').length)} 次占城`]
+        ['对局时长', formatDuration(stats.durationMs), `${roundCount} 回合 · ${camps.length} 方参战`],
+        ['总交战', formatNumber(totalAttacks), `${formatNumber(stats.totalActions)} 次行动 · 机动 ${formatNumber(totalMoves)}`],
+        ['实际伤害', formatNumber(stats.totalDamage), `场均 ${formatNumber(avgDamagePerAttack, 1)} / 击 · 无源 ${formatNumber(unattributedDamage)}`],
+        ['累计恢复', formatNumber(totalHealing), `补修 ${formatNumber(totalReinforcements)} 次 · 伤愈比 ${healRatio}%`],
+        ['单位阵亡', formatNumber(stats.totalLosses), `占城 ${formatNumber(totalCaptures)} 次 · 将领陨落 ${formatNumber(commanderDeaths)} 名`],
+        ['兵力演变', `${formatNumber(initialUnits)} → ${formatNumber(finalUnits)}`, `总生命 ${formatNumber(initialHp)} → ${formatNumber(finalHp)}`],
+        ['征召与基建', formatNumber(totalRecruits + totalConstructions), `招募 ${formatNumber(totalRecruits)} 单位 · 工事/机场 ${formatNumber(totalConstructions)}`],
+        ['战术与峰值', formatNumber(totalCards + totalAirCommands + skillCount),
+            `卡 ${formatNumber(totalCards)} · 空袭 ${formatNumber(totalAirCommands)}${peakRound && peakRound.dmg > 0 ? ` · 峰值 R${peakRound.round} (${formatNumber(peakRound.dmg)})` : ''}`]
     ];
     container.innerHTML = cards.map(([label, value, note]) => `
         <article class="match-stat-summary-card">
@@ -196,14 +271,87 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
     stats.camps.forEach(camp => {
         if (metric === 'unitShare') {
             const bounds = domainBounds[camp.campKey];
+            // 深色（原色）表示占比更大的陆军主体，浅色表示海军
             appendArea(camp, bounds.landUpper, [...bounds.landLower].reverse(),
-                mixHexColor(colors[camp.campKey], '#ffffff', 0.27), 'land');
+                colors[camp.campKey], 'land');
             appendArea(camp, bounds.navalUpper, [...bounds.navalLower].reverse(),
-                mixHexColor(colors[camp.campKey], '#000000', 0.30), 'naval');
+                mixHexColor(colors[camp.campKey], '#ffffff', 0.42), 'naval');
         } else {
             appendArea(camp, upperByCamp[camp.campKey], [...lowerByCamp[camp.campKey]].reverse(),
                 colors[camp.campKey]);
         }
+    });
+
+    // 在开局初始占比处（第 1 段色带左缘）直接嵌入方形阵营旗帜，取代图表下方冗长的阵营文字图例
+    stats.camps.forEach((camp, campIndex) => {
+        const lowerArr = lowerByCamp[camp.campKey] || [];
+        const upperArr = upperByCamp[camp.campKey] || [];
+        if (!lowerArr.length || !upperArr.length) return;
+        let anchorIndex = lowerArr.findIndex((pt, idx) => Math.abs(pt[1] - upperArr[idx][1]) >= 10);
+        if (anchorIndex < 0) return;
+        const xCenter = anchorIndex === 0 && data.length > 1
+            ? Math.min(plot.left + 21, xAt(0) + Math.max(12, (xAt(1) - xAt(0)) * 0.45))
+            : xAt(anchorIndex);
+        const nextIndex = Math.min(data.length - 1, anchorIndex + 1);
+        const spanX = Math.max(1, xAt(nextIndex) - xAt(anchorIndex));
+        const alpha = anchorIndex === 0 && nextIndex > anchorIndex
+            ? Math.max(0, Math.min(1, (xCenter - xAt(anchorIndex)) / spanX))
+            : 0;
+        const landBounds = metric === 'unitShare' ? domainBounds[camp.campKey] : null;
+        const pickBounds = (lArr, uArr) => {
+            const yTop = uArr[anchorIndex][1] + (uArr[nextIndex][1] - uArr[anchorIndex][1]) * alpha;
+            const yBottom = lArr[anchorIndex][1] + (lArr[nextIndex][1] - lArr[anchorIndex][1]) * alpha;
+            return [yTop, yBottom, yBottom - yTop];
+        };
+        let [yTop, yBottom, bandH] = landBounds
+            ? pickBounds(landBounds.landLower, landBounds.landUpper)
+            : pickBounds(lowerArr, upperArr);
+        if (bandH < 20) {
+            [yTop, yBottom, bandH] = pickBounds(lowerArr, upperArr);
+        }
+        if (bandH < 11) return;
+
+        const flagH = Math.max(11, Math.min(18, bandH * 0.56));
+        const flagW = flagH * 1.5;
+        const fx = Math.max(plot.left + 5, xCenter - flagW / 2);
+        const fy = (yTop + yBottom) / 2 - flagH / 2;
+        const visual = resolveCampFlagVisual(camp, campIndex);
+
+        const flagGroup = svgElement('g', {
+            class: 'match-control-band-flag',
+            'data-camp-key': camp.campKey
+        });
+        flagGroup.appendChild(svgElement('rect', {
+            x: fx - 1, y: fy - 1, width: flagW + 2, height: flagH + 2,
+            rx: 1.5, fill: 'rgba(6, 8, 12, 0.72)'
+        }));
+        if (visual.url) {
+            flagGroup.appendChild(svgElement('rect', {
+                x: fx, y: fy, width: flagW, height: flagH, fill: colors[camp.campKey]
+            }));
+            flagGroup.appendChild(svgElement('image', {
+                href: visual.url, x: fx, y: fy, width: flagW, height: flagH,
+                preserveAspectRatio: 'xMidYMid meet'
+            }));
+        } else {
+            flagGroup.appendChild(svgElement('rect', {
+                x: fx, y: fy, width: flagW, height: flagH, fill: visual.palette.main
+            }));
+            const tag = svgElement('text', {
+                x: fx + flagW / 2, y: fy + flagH / 2,
+                'text-anchor': 'middle', class: 'match-control-band-flag-glyph'
+            });
+            tag.textContent = visual.emoji || (camp.campKey === 'neutral' ? (flagW >= 22 ? '中立' : '中') : '');
+            if (tag.textContent) flagGroup.appendChild(tag);
+        }
+        flagGroup.appendChild(svgElement('rect', {
+            x: fx, y: fy, width: flagW, height: flagH,
+            fill: 'none', stroke: 'rgba(255,255,255,0.56)', 'stroke-width': 1
+        }));
+        const title = svgElement('title');
+        title.textContent = camp.name;
+        flagGroup.appendChild(title);
+        svg.appendChild(flagGroup);
     });
 
     const skillStackByBand = new Map();
@@ -285,25 +433,32 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         });
         const showTooltip = event => {
             const countKey = CONTROL_METRICS[metric].countKey;
-            const values = stats.camps.map(camp => {
+            const values = stats.camps.map((camp, campIndex) => {
                 const campPoint = point.byCamp[camp.campKey] || {};
                 const percent = Number(campPoint[metric] || 0) * 100;
                 const domainCount = metric === 'unitShare'
-                    ? ` · 陆${formatNumber(campPoint.landUnits)} / 海${formatNumber(campPoint.navalUnits)}`
+                    ? `陆${formatNumber(campPoint.landUnits)} / 海${formatNumber(campPoint.navalUnits)}`
                     : '';
-                const count = countKey ? `${domainCount || ` · ${formatNumber(campPoint[countKey])}`}` : '';
-                return `<span><i style="--camp-color:${colors[camp.campKey]}"></i>${escapeHtml(camp.name)} <b>${percent.toFixed(1)}%</b>${count}</span>`;
+                const count = countKey ? (domainCount || formatNumber(campPoint[countKey])) : '';
+                const visual = resolveCampFlagVisual(camp, campIndex);
+                const fallbackName = visual.hasDistinctFlag ? '' : `<small class="match-tooltip-camp-label">${escapeHtml(camp.name)}</small>`;
+                return `<span>${flagBadgeHtml(camp, campIndex, { size: 'xs' })}${fallbackName}<b>${percent.toFixed(1)}%</b>${count ? `<small>${count}</small>` : ''}</span>`;
             }).join('');
             const battle = eventByRound.get(point.round);
             const skills = skillsByRound.get(point.round) || [];
             const commanderDeaths = (stats.commanderDeathEvents || [])
                 .filter(death => death.round === point.round);
+            const campFlagRef = campKey => {
+                const campIndex = stats.camps.findIndex(camp => camp.campKey === campKey);
+                const camp = campIndex >= 0 ? stats.camps[campIndex] : { campKey };
+                return flagBadgeHtml(camp, Math.max(0, campIndex), { size: 'xs' });
+            };
             tooltip.innerHTML = `
                 <strong>${point.round === 0 ? '开局' : `第 ${point.round} 回合`}</strong>
                 ${values}
                 ${battle ? `<em>⚔ ${battle.label} · ${battle.engagements} 次交战</em>` : ''}
-                ${skills.map(skill => `<em>${escapeHtml(skill.logoEmoji || '⚑')} ${escapeHtml(skill.skillName)} · ${escapeHtml(stats.camps.find(camp => camp.campKey === skill.campKey)?.name || skill.campKey)}</em>`).join('')}
-                ${commanderDeaths.map(death => `<em>☠ ${escapeHtml(death.commanderName)}阵亡 · ${escapeHtml(stats.camps.find(camp => camp.campKey === death.campKey)?.name || death.campKey)}</em>`).join('')}
+                ${skills.map(skill => `<em>${campFlagRef(skill.campKey)} ${escapeHtml(skill.skillName)}</em>`).join('')}
+                ${commanderDeaths.map(death => `<em>${campFlagRef(death.campKey)} ☠ ${escapeHtml(death.commanderName)}阵亡</em>`).join('')}
             `;
             tooltip.hidden = false;
             if (event?.clientX != null) {
@@ -322,20 +477,13 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
         svg.appendChild(hotspot);
     });
 
-    stats.camps.forEach(camp => {
-        const item = document.createElement('span');
-        item.innerHTML = metric === 'unitShare'
-            ? `<i style="--camp-color:${mixHexColor(colors[camp.campKey], '#ffffff', 0.27)}"></i><i style="--camp-color:${mixHexColor(colors[camp.campKey], '#000000', 0.30)}"></i>${escapeHtml(camp.name)}（陆/海）`
-            : `<i style="--camp-color:${colors[camp.campKey]}"></i>${escapeHtml(camp.name)}`;
-        if (camp.neutralThemeId && /^img\/flags\/(?:[a-z]+\/)?[a-z0-9-]+\.svg$/.test(camp.flagUrl || '')) {
-            const flag = document.createElement('img');
-            flag.className = 'match-control-legend-flag';
-            flag.src = camp.flagUrl;
-            flag.alt = '';
-            item.prepend(flag);
-        }
-        legend.appendChild(item);
-    });
+    if (metric === 'unitShare') {
+        const sampleColor = colors[stats.camps[0]?.campKey] || '#6b8ab8';
+        const domainLegend = document.createElement('span');
+        domainLegend.className = 'domain-legend';
+        domainLegend.innerHTML = `<i style="--camp-color:${sampleColor}"></i>深色（原色）陆军 · <i style="--camp-color:${mixHexColor(sampleColor, '#ffffff', 0.42)}"></i>浅色 海军`;
+        legend.appendChild(domainLegend);
+    }
     if (stats.battleEvents.length) {
         const marker = document.createElement('span');
         marker.className = 'battle-legend';
@@ -356,16 +504,38 @@ function renderControlChart(stats, metric, svg, legend, tooltip) {
     }
 }
 
+function gradeTierClass(grade) {
+    switch (grade) {
+        case 'A+': return 'ap';
+        case 'A': return 'a';
+        case 'A-': return 'am';
+        case 'B+': return 'bp';
+        case 'B': return 'b';
+        case 'B-': return 'bm';
+        default: return 'c';
+    }
+}
+
 function renderCampCards(stats, container) {
     container.innerHTML = stats.camps.map((camp, index) => {
         const color = colorForCamp(camp, index);
+        const visual = resolveCampFlagVisual(camp, index);
         const winner = stats.result?.winnerCampKey === camp.campKey;
+        const rating = camp.rating;
+        const grade = rating?.grade || 'B';
+        const b = rating?.breakdown;
+        const ratingTitle = b
+            ? `阵营综合评分 ${rating.score} 分（${grade}） · 战果 ${b.outcome}/25 · 交战 ${b.combat}/28 · 火力 ${b.firepower}/21 · 存续后勤 ${b.sustain}/14 · 主动性 ${b.initiative}/12`
+            : `阵营表现评级：${grade}`;
         return `
             <article class="match-camp-card" style="--camp-color:${color}">
                 <header>
-                    <span class="match-camp-swatch"></span>
-                    <strong>${escapeHtml(camp.name)}</strong>
-                    ${winner ? '<em>胜方</em>' : ''}
+                    ${flagBadgeHtml(camp, index, { size: 'md' })}
+                    ${visual.hasDistinctFlag ? '' : `<strong>${escapeHtml(camp.name)}</strong>`}
+                    <span class="match-camp-badges">
+                        ${winner ? '<em>胜方</em>' : ''}
+                        <span class="match-camp-grade is-tier-${gradeTierClass(grade)}" title="${escapeHtml(ratingTitle)}" aria-label="${escapeHtml(ratingTitle)}">${escapeHtml(grade)}</span>
+                    </span>
                 </header>
                 <div class="match-camp-metrics">
                     <span><b>${formatNumber(camp.kills)}</b>击杀</span>
@@ -385,6 +555,110 @@ function renderCampCards(stats, container) {
     }).join('');
 }
 
+function resolveCommanderPennantPortrait(commanderId) {
+    if (!commanderId) return null;
+    const npc = NPC_DIALOGUE_PORTRAITS[commanderId];
+    if (npc?.transparentSource) {
+        return { src: npc.transparentSource, name: npc.label || commanderId, isIronGuard: false };
+    }
+    const commanderName = COMMANDER_CONFIG[commanderId]?.definition?.name;
+    if (!commanderName) return null;
+    return {
+        src: `img/commander_tr/${commanderName}.webp`,
+        name: commanderName,
+        isIronGuard: commanderId === 'ironGuard'
+    };
+}
+
+function unitMvpEmblemLabel(type) {
+    switch (type) {
+        case 'carrier': return '航母';
+        case 'gb_battleship': return '战列';
+        case 'warship': return '巡洋';
+        case 'destroyer': return '驱逐';
+        case 'submarine': return '潜艇';
+        case 'fr_heavy_cannon': return '巨炮';
+        case 'ru_katyusha': return '火箭';
+        case 'archer': return '炮兵';
+        case 'us_marine': return '陆战';
+        case 'cavalry': return '骑兵';
+        case 'kmt_training_brigade': return '教导';
+        case 'cpc_guerrilla': return '游击';
+        case 'jp_samurai': return '武士';
+        case 'mgNest': return '碉堡';
+        case 'shoreBattery': return '岸防';
+        case 'drone': return '天眼';
+        default: return '精锐';
+    }
+}
+
+function backdropFlagHtml(camp, index) {
+    const visual = resolveCampFlagVisual(camp, index);
+    if (visual.url) {
+        return `<img class="match-mvp-backdrop-flag" src="${escapeHtml(visual.url)}" alt="${escapeHtml(visual.name)}阵营旗帜">`;
+    }
+    const bg = `linear-gradient(135deg, ${visual.palette.light}, ${visual.palette.main} 55%, ${visual.palette.dark})`;
+    return `<div class="match-mvp-backdrop-flag match-mvp-backdrop-flag--color" style="background:${bg}" aria-label="${escapeHtml(visual.name)}阵营旗帜">${visual.emoji ? `<span>${escapeHtml(visual.emoji)}</span>` : ''}</div>`;
+}
+
+function renderUnitMvp(stats, container) {
+    const mvps = Array.isArray(stats.mvpUnits) && stats.mvpUnits.length
+        ? stats.mvpUnits
+        : selectMvpUnits(stats.units, 3);
+    if (!mvps.length) {
+        container.innerHTML = '';
+        return;
+    }
+    const cardsHtml = mvps.map((unit, index) => {
+        const campIndex = stats.camps.findIndex(entry => entry.campKey === unit.campKey);
+        const camp = campIndex >= 0 ? stats.camps[campIndex] : { campKey: unit.campKey };
+        const color = colorForCamp(camp, Math.max(0, campIndex));
+        const portrait = resolveCommanderPennantPortrait(unit.commanderId);
+        const rankMedal = MEDAL_RANKS[index] || String(index + 1);
+        const captures = Number(unit.captures || 0);
+        const statusText = unit.survived === true ? '存活' : unit.survived === false ? '阵亡' : '参战';
+        const statusClass = unit.survived === true ? 'is-alive' : 'is-dead';
+        const foregroundHtml = portrait
+            ? `<img class="match-mvp-commander-portrait${portrait.isIronGuard ? ' is-iron-guard' : ''}" src="${escapeHtml(portrait.src)}" alt="${escapeHtml(portrait.name)}立绘">`
+            : `<span class="match-mvp-unit-watermark">${escapeHtml(unitMvpEmblemLabel(unit.type))}</span>`;
+        return `
+            <article class="match-mvp-card is-rank-${index + 1}" style="--camp-color:${color}">
+                <div class="match-mvp-stage${portrait ? ' has-commander' : ''}">
+                    ${backdropFlagHtml(camp, Math.max(0, campIndex))}
+                    ${foregroundHtml}
+                    <header class="match-mvp-card-head">
+                        <span class="match-mvp-rank"><b>${rankMedal}</b> MVP #${index + 1}</span>
+                        <span class="match-mvp-tags">
+                            ${captures > 0 ? `<em class="match-mvp-capture-tag">占城 ${formatNumber(captures)}</em>` : ''}
+                            <em class="match-mvp-life ${statusClass}">${statusText}</em>
+                        </span>
+                    </header>
+                </div>
+                <div class="match-mvp-body">
+                    <div class="match-mvp-identity">
+                        ${flagBadgeHtml(camp, Math.max(0, campIndex), { size: 'sm' })}
+                        <strong title="${escapeHtml(unit.displayName)}">${escapeHtml(unit.displayName)}</strong>
+                        <small>#${escapeHtml(unit.id)}</small>
+                    </div>
+                    <div class="match-mvp-metrics">
+                        <span><b>${formatNumber(unit.kills)}</b>击杀</span>
+                        <span><b>${formatNumber(unit.damageDealt)}</b>输出</span>
+                        <span><b>${formatNumber(unit.damageTaken)}</b>承伤</span>
+                        <span><b>${formatNumber(unit.healingReceived)}</b>恢复</span>
+                    </div>
+                </div>
+            </article>
+        `;
+    }).join('');
+    container.innerHTML = `
+        <div class="match-mvp-header">
+            <span>MVP TOP 3</span>
+            <small>综合多维战场贡献隐式评选</small>
+        </div>
+        <div class="match-mvp-grid">${cardsHtml}</div>
+    `;
+}
+
 function renderLeaders(stats, container) {
     const entries = [
         ['击杀最多', stats.leaders.kills, 'kills'],
@@ -392,14 +666,19 @@ function renderLeaders(stats, container) {
         ['承伤最多', stats.leaders.damageTaken, 'damageTaken'],
         ['恢复最多', stats.leaders.healingReceived, 'healingReceived']
     ];
-    container.innerHTML = entries.map(([label, unit, metric]) => `
-        <article class="match-unit-leader">
-            <span>${label}</span>
-            <strong>${unit ? escapeHtml(unit.displayName) : '—'}</strong>
-            <b>${unit ? formatNumber(unit[metric]) : '0'}</b>
-            <small>${unit ? escapeHtml(stats.camps.find(camp => camp.campKey === unit.campKey)?.name || unit.campKey || '未知阵营') : '暂无数据'}</small>
-        </article>
-    `).join('');
+    container.innerHTML = entries.map(([label, unit, metric]) => {
+        const campIndex = unit ? stats.camps.findIndex(camp => camp.campKey === unit.campKey) : -1;
+        const camp = campIndex >= 0 ? stats.camps[campIndex] : (unit ? { campKey: unit.campKey } : null);
+        const flagHtml = camp ? flagBadgeHtml(camp, Math.max(0, campIndex), { size: 'sm' }) : '';
+        return `
+            <article class="match-unit-leader">
+                <span>${label}</span>
+                <strong class="match-unit-leader-name">${flagHtml}<span>${unit ? escapeHtml(unit.displayName) : '—'}</span></strong>
+                <b>${unit ? formatNumber(unit[metric]) : '0'}</b>
+                <small>${unit ? `#${escapeHtml(unit.id)} · ${unit.survived === true ? '存活' : unit.survived === false ? '阵亡' : '参战'}` : '暂无数据'}</small>
+            </article>
+        `;
+    }).join('');
 }
 
 function renderUnitTable(stats, container, metric, campFilter) {
@@ -410,16 +689,23 @@ function renderUnitTable(stats, container, metric, campFilter) {
         .slice(0, 12);
     const max = Math.max(1, ...filtered.map(unit => Number(unit[metric] || 0)));
     container.innerHTML = filtered.length ? filtered.map((unit, index) => {
-        const camp = stats.camps.find(entry => entry.campKey === unit.campKey);
-        const color = colorForCamp(camp || { campKey: unit.campKey }, Math.max(0, stats.camps.indexOf(camp)));
+        const campIndex = stats.camps.findIndex(entry => entry.campKey === unit.campKey);
+        const camp = campIndex >= 0 ? stats.camps[campIndex] : null;
+        const color = colorForCamp(camp || { campKey: unit.campKey }, Math.max(0, campIndex));
         const width = Math.max(3, (Number(unit[metric] || 0) / max) * 100);
+        const isMedal = index < MEDAL_RANKS.length;
+        const rankDisplay = isMedal ? MEDAL_RANKS[index] : index + 1;
         return `
             <div class="match-unit-row" style="--camp-color:${color}">
-                <span class="match-unit-rank">${index + 1}</span>
-                <span class="match-unit-name"><b>${escapeHtml(unit.displayName)}</b><small>${escapeHtml(camp?.name || unit.campKey || '未知阵营')} · ${escapeHtml(unit.id)}</small></span>
+                <span class="match-unit-rank${isMedal ? ' is-medal' : ''}">${rankDisplay}</span>
+                <span class="match-unit-name">
+                    ${flagBadgeHtml(camp || { campKey: unit.campKey }, Math.max(0, campIndex), { size: 'sm' })}
+                    <b title="${escapeHtml(unit.displayName)}">${escapeHtml(unit.displayName)}</b>
+                    <small class="match-unit-id">#${escapeHtml(unit.id)}</small>
+                </span>
                 <span class="match-unit-bar"><i style="width:${width}%"></i></span>
                 <strong>${formatNumber(unit[metric])}</strong>
-                <em>${unit.survived ? '存活' : '阵亡'}</em>
+                <em>${unit.survived === true ? '存活' : unit.survived === false ? '阵亡' : '参战'}</em>
             </div>
         `;
     }).join('') : '<p class="match-stats-empty">这个筛选条件下没有可统计数据。</p>';
@@ -431,7 +717,8 @@ function renderBattleEvents(stats, container) {
         return;
     }
     container.innerHTML = stats.battleEvents.map(event => {
-        const leader = stats.camps.find(camp => camp.campKey === event.leadingCampKey);
+        const leaderIndex = stats.camps.findIndex(camp => camp.campKey === event.leadingCampKey);
+        const leader = leaderIndex >= 0 ? stats.camps[leaderIndex] : null;
         return `
             <article class="match-battle-event">
                 <span>R${event.round}</span>
@@ -439,7 +726,7 @@ function renderBattleEvents(stats, container) {
                     <strong>${event.label}</strong>
                     <p>${event.engagements} 次交战 · ${formatNumber(event.totalDamage)} 伤害 · ${event.totalLosses} 个单位阵亡${event.captures ? ` · ${event.captures} 次占城` : ''}${event.commanderLosses ? ` · ${event.commanderLosses} 名将领陨落` : ''}</p>
                 </div>
-                <em>${leader ? `${escapeHtml(leader.name)}输出领先` : '多方混战'}</em>
+                <em>${leader ? `${flagBadgeHtml(leader, leaderIndex, { size: 'xs' })}<span>输出领先</span>` : '多方混战'}</em>
             </article>
         `;
     }).join('');
@@ -456,6 +743,7 @@ export function initMatchStatsPanel({ getLog, onMissing } = {}) {
     const tooltip = document.getElementById('matchControlTooltip');
     const campCards = document.getElementById('matchCampCards');
     const leaders = document.getElementById('matchUnitLeaders');
+    const unitMvp = document.getElementById('matchUnitMvp');
     const unitTable = document.getElementById('matchUnitTable');
     const unitMetric = document.getElementById('matchUnitMetric');
     const unitCamp = document.getElementById('matchUnitCamp');
@@ -502,6 +790,7 @@ export function initMatchStatsPanel({ getLog, onMissing } = {}) {
         renderControlChart(activeStats, controlMetric, svg, legend, tooltip);
         renderCampCards(activeStats, campCards);
         renderLeaders(activeStats, leaders);
+        if (unitMvp) renderUnitMvp(activeStats, unitMvp);
         unitCamp.innerHTML = '<option value="all">全部阵营</option>' + activeStats.camps
             .map(camp => `<option value="${escapeHtml(camp.campKey)}">${escapeHtml(camp.name)}</option>`)
             .join('');

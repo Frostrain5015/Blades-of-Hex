@@ -29,7 +29,7 @@ const appearances = {
     burma: ['缅甸', 'historical/burma-1944.svg', 'burmaStone'],
     southKorea: ['韩国', 'svg/kr.svg', 'koreaLavender'],
     manchukuo: ['满洲国', 'historical/manchukuo.svg', 'manchukuoSand'],
-    sovietsInManchuria: ['苏军驻东北部队', sovietFlag, 'red']
+    sovietsInManchuria: ['苏联', sovietFlag, 'red']
 };
 
 // 双人对阵以 docs/历史模式中立守备对阵表.md 为准。

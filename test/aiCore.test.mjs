@@ -17,10 +17,11 @@ import {
     tradeNetValue
 } from '../ai/core/weights.js';
 import { estimateForceValue } from '../ai/strategy.js';
-import { planFollowupAttack } from '../ai/core/planner.js';
+import { planFollowupAttack, planTurn } from '../ai/core/planner.js';
 import { planCards, shouldDrawCard } from '../ai/core/cards.js';
 import { estimateCaptureEta } from '../ai/core/strategize.js';
 import { rankCityObjectives } from '../ai/core/perceive.js';
+import { CULTURE_CONFIG } from '../rules/cultures.js';
 
 // ── 权重与估值 ────────────────────────────────────────────────
 
@@ -920,4 +921,303 @@ test('陆图占领者撤退远离后及时换人，且内陆城攻城不编入�
     const siege = missions.find(m => m.kind === 'siege');
     assert.equal(siege.occupierId, fresh.id);
     assert.equal(siege.escortIds.includes(sub.id), false);
+});
+
+test('中共游击纵队推断敌军防守盲区并先开启敌后隐匿再渗透侧翼', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1', flagPreset: 'img/flags/chinese-communist-party-old.svg' };
+    const foe = { id: 'player2' };
+    const neutral = { id: 'neutral' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const startTile = makeTile(0, 1);
+    // 主战场 (5,0) 敌军重兵抱团
+    const mainFront1 = makeTile(5, 0, { isCity: true, camp: foe, districtId: 2, hp: 250 });
+    const mainFront2 = makeTile(5, -1, { camp: foe });
+    const mainFront3 = makeTile(4, 0, { camp: foe });
+    // 侧翼盲区 (1,3) 有敌方疏于防守的村庄与孤立后排炮兵 (2,3)（距 (0,2) 恰为 3 格，处于下回合 2 步移动 + 1 格奇袭半径内）
+    const flankStep = makeTile(0, 2, { terrain: 'forest' });
+    const frontStep = makeTile(1, 1, { terrain: 'plains' });
+    const neglectedVillage = makeTile(1, 3, { isVillage: true, camp: foe, districtId: 2 });
+    const isolatedArcher = makeTile(2, 3, { camp: foe });
+
+    const guerrilla = makeUnit(1, 'cpc_guerrilla', me, startTile, { remainingMP: 5 });
+    makeUnit(2, 'infantry', me, home);
+    makeUnit(10, 'infantry', foe, mainFront1);
+    makeUnit(11, 'infantry', foe, mainFront2);
+    makeUnit(12, 'cavalry', foe, mainFront3);
+    makeUnit(13, 'archer', foe, isolatedArcher, { hp: 70 });
+
+    const tiles = [home, startTile, mainFront1, mainFront2, mainFront3, flankStep, frontStep, neglectedVillage, isolatedArcher];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === guerrilla ? [flankStep, frontStep] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        factionRuleMode: 'culture',
+        currentCamp: me
+    });
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    const actions = planTactics(world, strategy, missions);
+
+    const concealIdx = actions.findIndex(a => a.type === 'guerrillaConcealment' && a.unitId === guerrilla.id);
+    const moveAct = actions.find(a => a.type === 'move' && a.unitId === guerrilla.id);
+    assert.ok(concealIdx >= 0, '游击纵队应主动开启敌后隐匿');
+    assert.ok(moveAct, '游击纵队应向盲区机动');
+    assert.deepEqual([moveAct.tileQ, moveAct.tileR], [flankStep.q, flankStep.r], '应绕开重兵正面，走向敌方忽视的侧翼盲区');
+    assert.equal(moveAct.autoAttack, false, '隐匿渗透盲区时不主动普攻暴露');
+});
+
+test('游击纵队按 1 点全地形步耗计算剩余行动力，不被己方后方村庄吸走或堵住无威胁主城', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1', flagPreset: 'img/flags/chinese-communist-party-old.svg' };
+    const foe = { id: 'player2' };
+    const neutral = { id: 'neutral' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    // 同行政区内尚未变更 camp 字段的己方后方村庄（应视作归己方城市控制，不能吸走前线游击队）
+    const ownBackVillage = makeTile(-2, 0, { isVillage: true, camp: neutral, districtId: 1 });
+    const startTile = makeTile(2, 0, { terrain: 'mountain' });
+    const stepForward = makeTile(3, 0, { terrain: 'mountain' }); // 共 1~3 格，1 MP/格
+    const isolatedArcher = makeTile(5, 0, { camp: foe });
+    const enemyCity = makeTile(8, 0, { isCity: true, camp: foe, districtId: 2, hp: 200 });
+
+    const guerrilla = makeUnit(1, 'cpc_guerrilla', me, startTile, { remainingMP: 5 });
+    const foeArcher = makeUnit(10, 'archer', foe, isolatedArcher, { hp: 75 });
+    makeUnit(11, 'infantry', foe, enemyCity);
+    const tiles = [home, ownBackVillage, startTile, stepForward, isolatedArcher, enemyCity];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === guerrilla ? [home, ownBackVillage, stepForward] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        factionRuleMode: 'culture',
+        currentCamp: me
+    });
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    const actions = planTactics(world, strategy, missions);
+
+    const concealAct = actions.find(a => a.type === 'guerrillaConcealment' && a.unitId === guerrilla.id);
+    const moveAct = actions.find(a => a.type === 'move' && a.unitId === guerrilla.id);
+    assert.ok(concealAct, '1 MP/格步耗下，山地机动 1~3 格后仍足够支付 2 MP 开启敌后隐匿');
+    assert.deepEqual([moveAct.tileQ, moveAct.tileR], [stepForward.q, stepForward.r], '应前出切入 2 格内准备下回合奇袭，而不是退回自家村庄或主城');
+    assert.notEqual(foeArcher.hp, 0);
+});
+
+test('日本帝国武士检测可达范围内中低血量敌人，配合友军软化执行移动+万岁冲锋斩首', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1', flagPreset: 'img/flags/svg/jp.svg' };
+    const foe = { id: 'player2' };
+    const neutral = { id: 'neutral' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const stageTile = makeTile(1, 0);
+    const midTile = makeTile(2, 0);
+    const targetTile = makeTile(3, 0);
+    const archerTile = makeTile(1, -1);
+    const enemyCity = makeTile(8, 0, { isCity: true, camp: foe, districtId: 2, hp: 250 });
+
+    const samurai = makeUnit(1, 'jp_samurai', me, home, { remainingMP: 5, hp: 160 });
+    const archer = makeUnit(2, 'archer', me, archerTile);
+    // 敌军在 3 格处（超出原地 2 格冲锋，但在移动 1 格 + 冲锋 2 格的可达范围内），经炮兵软化后进入万岁冲锋斩杀线
+    const enemy = makeUnit(10, 'infantry', foe, targetTile, { hp: 100, maxHp: 180 });
+    makeUnit(11, 'infantry', foe, enemyCity);
+    const tiles = [home, stageTile, midTile, targetTile, archerTile, enemyCity];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === samurai ? [stageTile, midTile] : [],
+        getAttackableTiles: unit => unit === archer ? [targetTile] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        factionRuleMode: 'culture',
+        currentCamp: me
+    });
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    const actions = planTactics(world, strategy, missions);
+
+    const archerAtkIdx = actions.findIndex(a => a.type === 'attack' && a.unitId === archer.id && a.targetId === enemy.id);
+    const samMoveIdx = actions.findIndex(a => a.type === 'move' && a.unitId === samurai.id);
+    const banzaiIdx = actions.findIndex(a => a.type === 'banzaiCharge' && a.unitId === samurai.id);
+    assert.ok(archerAtkIdx >= 0, '友军远程先软化目标');
+    assert.ok(samMoveIdx > archerAtkIdx, '武士先机动切入冲锋射程');
+    assert.ok(banzaiIdx > samMoveIdx, '武士随后发动万岁冲锋斩首');
+    assert.equal(actions[samMoveIdx].autoAttack, false, '垫步移动不触发普攻以保留冲锋窗口');
+    assert.deepEqual([actions[banzaiIdx].targetQ, actions[banzaiIdx].targetR], [targetTile.q, targetTile.r]);
+});
+
+test('天眼保留 5 金部署预算，且过滤非法城市与山地邻格', async () => {
+    const { buildWorld } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(-2, 0, { isCity: true, camp: me, districtId: 1 });
+    const tianyanTile = makeTile(0, 0);
+    const cityAdj = makeTile(1, 0, { isCity: true, camp: me, districtId: 2 });
+    const mountainAdj = makeTile(0, 1, { terrain: 'mountain' });
+    const validAdj = makeTile(1, -1, { terrain: 'plains' });
+    const capturerTile = makeTile(2, 0);
+    const foeCity = makeTile(6, 0, { isCity: true, camp: foe, districtId: 3, hp: 200 });
+
+    const tianyan = makeUnit(1, 'infantry', me, tianyanTile, { commander: 'tianyan' });
+    makeUnit(2, 'infantry', me, capturerTile);
+    makeUnit(3, 'infantry', me, home);
+    makeUnit(10, 'infantry', foe, foeCity);
+    const tiles = [home, tianyanTile, cityAdj, mountainAdj, validAdj, capturerTile, foeCity];
+    const helpers = {
+        ...makeHelpers(tiles),
+        canRecruitTypeAtSite: (type, tile) => !tile.unit && tile.isCity && tile.camp === me
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        playerGold: { player1: 11, player2: 10, neutral: 0 }
+    });
+    const actions = planTurn(state, helpers, me, TIER_CAPABILITIES.hard);
+    const deploy = actions.find(a => a.type === 'droneDeploy' && a.unitId === tianyan.id);
+    assert.ok(deploy, '有现成占城突击力量时，应保住 5 金部署天眼无人机而非被备用城招兵耗尽');
+    assert.deepEqual([deploy.tileQ, deploy.tileR], [validAdj.q, validAdj.r], '跳过城市与山地邻格，选合法平地部署');
+    assert.equal(actions.some(a => a.type === 'recruit'), false);
+
+    // 验证当全队零突击单位且仅 12 金时，仍优先 8 金补步兵而不抢 5 金无人机
+    capturerTile.unit = null;
+    home.unit = null;
+    tianyanTile.unit = null;
+    const archerTile = makeTile(-1, 0);
+    makeUnit(1, 'archer', me, archerTile, { commander: 'tianyan' });
+    state.playerGold.player1 = 12;
+    const tightActions = planTurn(state, helpers, me, TIER_CAPABILITIES.hard);
+    assert.ok(tightActions.some(a => a.type === 'recruit' && a.unitType === 'infantry'));
+    assert.equal(tightActions.some(a => a.type === 'droneDeploy'), false);
+    buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+});
+
+test('海军旗舰在重交叉火力下先撤离再求战，护盾卡优先保濒死单位', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral', controller: 'ai' };
+    const shipTile = makeTile(4, 0, { surface: 'shallowWater', terrain: 'water' });
+    const safeSea = makeTile(6, 0, { surface: 'shallowWater', terrain: 'water' });
+    const safeAllyTile = makeTile(9, 0, { surface: 'shallowWater', terrain: 'water' });
+    const neutralPort = makeTile(3, 0, { surface: 'shallowWater', terrain: 'water', isPort: true, camp: neutral, districtId: 3 });
+    const b1Tile = makeTile(3, -1, { camp: neutral, districtId: 3 });
+    const b2Tile = makeTile(2, 2, { camp: neutral, districtId: 3 });
+    const neutralCity = makeTile(3, -2, { isCity: true, camp: neutral, districtId: 3, hp: 100 });
+    const foeCity = makeTile(11, 0, { isCity: true, camp: foe, districtId: 2, hp: 200 });
+
+    const flagship = makeUnit(1, 'warship', me, shipTile, { hp: 200, maxHp: 286, _shield: 15, commander: 'ironGuard' });
+    const healthyEscort = makeUnit(2, 'destroyer', me, safeAllyTile);
+    makeUnit(3, 'shoreBattery', neutral, b1Tile);
+    makeUnit(4, 'shoreBattery', neutral, b2Tile);
+    makeUnit(10, 'infantry', foe, foeCity);
+
+    const tiles = [shipTile, safeSea, safeAllyTile, neutralPort, b1Tile, b2Tile, neutralCity, foeCity];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === flagship ? [safeSea] : [],
+        getAttackableTiles: unit => unit === flagship && unit.tile === shipTile ? [b1Tile, b2Tile] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        playerHands: { player1: ['shield'], player2: [] }
+    });
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    world.threatAt = (tile, unit) => tile === shipTile ? 200 : 0;
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    const cards = planCards(world, strategy, missions);
+    assert.deepEqual(cards.sustain[0], { type: 'tacticalCard', cardId: 'shield', targetId: flagship.id }, '护盾卡应优先保命给受致命火力威胁的旗舰');
+    assert.notEqual(healthyEscort.id, flagship.id);
+
+    const actions = planTactics(world, strategy, missions);
+    assert.equal(actions[0]?.type, 'move', '濒死旗舰先撤出交叉火力网，而非原地开炮耗尽行动');
+    assert.deepEqual([actions[0].tileQ, actions[0].tileR], [safeSea.q, safeSea.r]);
+});
+
+test('航母绑定城优先争抢且不白打即将转交的中立航母', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral', controller: 'ai' };
+    const home = makeTile(-5, 0, { isCity: true, camp: me, districtId: 1 });
+    const prizeCity = makeTile(1, -2, { isCity: true, camp: neutral, districtId: 5, hp: 100 });
+    const nearCity = makeTile(0, 0, { isCity: true, camp: neutral, districtId: 6, hp: 100 });
+    const carrierTile = makeTile(1, -1, { surface: 'shallowWater', terrain: 'water', districtId: 5 });
+    const destroyerTile = makeTile(0, -1, { surface: 'shallowWater', terrain: 'water' });
+    const foeCity = makeTile(8, 0, { isCity: true, camp: foe, districtId: 2, hp: 200 });
+
+    makeUnit(1, 'infantry', me, home);
+    const ship = makeUnit(2, 'destroyer', me, destroyerTile);
+    const neutralCarrier = makeUnit(20, 'carrier', neutral, carrierTile);
+    makeUnit(30, 'infantry', foe, foeCity);
+
+    const tiles = [home, prizeCity, nearCity, carrierTile, destroyerTile, foeCity];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getAttackableTiles: unit => unit === ship ? [carrierTile] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, { standardMapId: 'uncharted-passage' });
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const ranked = rankCityObjectives(world, () => 2);
+    assert.equal(ranked[0].city.tile, prizeCity, '航母绑定城即使距同程也不劣于普通中立城');
+
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    const actions = planTactics(world, strategy, missions);
+    assert.equal(actions.some(a => a.type === 'attack' && a.targetId === neutralCarrier.id), false,
+        '在己方仍有机会拿下航母控制城前，不白打削减即将归顺的中立航母');
+});
+
+test('国军【同心同德】双教导旅通过安全后方主城补员远程救治前线姐妹', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planProduction } = await loadCore();
+    const me = { id: 'player1', flagPreset: CULTURE_CONFIG.kmt.flagPreset };
+    const foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(-5, 0, { isCity: true, camp: me, districtId: 1 });
+    const front = makeTile(3, 0, { camp: neutral });
+    const enemyCity = makeTile(9, 0, { isCity: true, camp: foe, districtId: 2, hp: 200 });
+
+    const rearBrigade = makeUnit(1, 'kmt_training_brigade', me, home, { hp: 155, maxHp: 170, commander: 'minister' });
+    makeUnit(2, 'kmt_training_brigade', me, front, { hp: 25, maxHp: 170, commander: 'colonel' });
+    makeUnit(10, 'infantry', foe, enemyCity);
+    const tiles = [home, front, enemyCity];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        factionRuleMode: 'culture',
+        playerGold: { player1: 12, player2: 10, neutral: 0 }
+    });
+    const world = buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const production = planProduction(world, strategy, assignMissions(world, strategy));
+    assert.ok(production.actions.some(a => a.type === 'reinforce' && a.unitId === rearBrigade.id),
+        '后方主城教导旅自身仅微伤但共享血池亏空时，应通过安全主城补员远程奶血前线姐妹');
+});
+
+test('狂战士识别先开【泣血】再机动斩首将领，【禁锢】优先配合【投毒】锁死目标', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const startTile = makeTile(0, 0, { surface: 'shallowWater', terrain: 'water' });
+    const moveTile = makeTile(2, 0, { surface: 'shallowWater', terrain: 'water' });
+    const enemyTile = makeTile(3, 0, { surface: 'shallowWater', terrain: 'water' });
+    const unpoisonedTile = makeTile(5, 0, { surface: 'shallowWater', terrain: 'water' });
+    const foeCity = makeTile(9, 0, { isCity: true, camp: foe, districtId: 2, hp: 200 });
+
+    const berserker = makeUnit(1, 'warship', me, startTile, { commander: 'berserker', remainingMP: 6 });
+    const poisonedCommander = makeUnit(10, 'warship', foe, enemyTile, {
+        hp: 100, commander: 'tianyan', _poison: { remainingTicks: 2 }
+    });
+    makeUnit(11, 'warship', foe, unpoisonedTile, { hp: 100 });
+    makeUnit(12, 'infantry', foe, foeCity);
+
+    const tiles = [startTile, moveTile, enemyTile, unpoisonedTile, foeCity];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === berserker ? [moveTile] : [],
+        getAttackableTiles: unit => unit === berserker && unit.tile === moveTile ? [enemyTile] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        playerHands: { player1: ['imprison'], player2: [] }
+    });
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const missions = assignMissions(world, strategy);
+    const cards = planCards(world, strategy, missions);
+    assert.deepEqual(cards.setup[0], { type: 'tacticalCard', cardId: 'imprison', targetId: poisonedCommander.id },
+        '投毒+禁锢组合优先锁死处于中毒状态的敌军核心将领');
+
+    const actions = planTactics(world, strategy, missions);
+    assert.ok(actions.some(a => a.type === 'activateSkill' && a.unitId === berserker.id),
+        '机动后可切入射程重创/斩杀将领时，应在移动前先激活【泣血】');
 });

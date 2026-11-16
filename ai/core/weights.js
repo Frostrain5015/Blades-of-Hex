@@ -132,6 +132,9 @@ export const W = Object.freeze({
     objectiveSwitchScoreMargin: 35,
     strategicPrizeRaceRatio: 0.65,
     strategicPrizeRaceWindow: 2,
+    strategicPrizeFocusRatio: 1.75,
+    // 处于敌方重火网（尤其双岸防炮重叠）下，下回合预期承伤逼近总血池时优先撤离
+    lethalCrossfireRetreatRatio: 0.85,
     // 空城的对手下回合可招募一支守军时，按潜在守军折减攻城目标价值。
     rivalRecruitmentPressure: 15,
     leaderCityBonus: 26,

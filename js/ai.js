@@ -27,7 +27,7 @@ import * as legatusPersonality from '../ai/legatus.js';
 import * as imperatorPersonality from '../ai/imperator.js';
 import { planFollowupAttack, planOpenCityCaptures } from '../ai/core/planner.js';
 import { TIER_CAPABILITIES } from '../ai/core/weights.js';
-import { canCaptureCityByCombat, scoreCommanderCarrierCandidate } from '../ai/doctrine.js';
+import { canCaptureCityByCombat, resolveTianyanDroneReserve, scoreCommanderCarrierCandidate } from '../ai/doctrine.js';
 import {
     estimateAiTurnWatchdogMs,
     getEmergencyRecruitReserve,
@@ -55,12 +55,14 @@ import { getActiveCultureId, getBanzaiBonusDamage, getCulturalReinforceCostScale
 import { isCityDisabled } from '../rules/citySiege.js';
 import { getBanzaiChargePath } from '../rules/targeting.js';
 import {
+    canBuildAirfieldAt,
     canBuildFieldFortification,
     canFieldRepair,
     constructionCost,
     isOrdinaryGroundBuilder
 } from '../rules/construction.js';
-import { canAirCommandAirdropAt, canTargetWithSingleAirCommand, getAirCommandAvailability, getAirCommandCost, getAirCommandRange } from '../rules/airCommands.js';
+import { getAntiAirReduction } from '../rules/antiAir.js';
+import { AIRFIELD_BASE_RANGE, canAirCommandAirdropAt, canTargetWithSingleAirCommand, getAirCommandAvailability, getAirCommandCost, getAirCommandRange } from '../rules/airCommands.js';
 import { isSubmarineTargetableBy } from '../rules/naval.js';
 import { canReinforceAtTile } from '../rules/healing.js';
 import { isLandTile } from '../rules/surfaces.js';
@@ -232,10 +234,21 @@ function reserveForMissingCulturalUnit(camp) {
     return getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, camp, type);
 }
 
+function resolveAiTianyanReserve(aiCamp, emergencyReserve = 0) {
+    const campKey = campToKey(aiCamp);
+    const assaultCount = gameState.tiles.filter(({ unit }) =>
+        unit?.camp === aiCamp && unit.hp > 0 && canCaptureCityByCombat(unit)).length;
+    return resolveTianyanDroneReserve(gameState, aiCamp, {
+        assaultCount,
+        urgentDefense: emergencyReserve > 0,
+        gold: gameState.playerGold[campKey] || 0
+    });
+}
+
 function aiPlanningSignature(aiCamp) {
     const units = gameState.tiles
         .filter(tile => tile.unit)
-        .map(tile => `${tile.unit.id}:${tile.q},${tile.r}:${Math.round(tile.unit.hp)}:${tile.unit.canAct ? 1 : 0}`)
+        .map(tile => `${tile.unit.id}:${tile.q},${tile.r}:${Math.round(tile.unit.hp)}:${tile.unit.canAct ? 1 : 0}:${Math.round(tile.unit.remainingMP || 0)}:${tile.unit._guerrillaHiddenThroughRound ?? ''}`)
         .sort();
     const cities = gameState.tiles
         .filter(tile => tile.isCity)
@@ -273,7 +286,9 @@ function pickAirReconTarget(airfield, aiCamp, knownTile) {
 
 async function runV2Infrastructure(aiCamp, difficultyProfile, stukaSorties) {
     const campKey = campToKey(aiCamp);
-    const emergencyReserve = Math.max(resolveEmergencyRecruitReserve(aiCamp, difficultyProfile), reserveForMissingCulturalUnit(aiCamp));
+    const emergencyBase = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
+    const tianyanReserve = resolveAiTianyanReserve(aiCamp, emergencyBase);
+    const emergencyReserve = Math.max(emergencyBase + tianyanReserve, reserveForMissingCulturalUnit(aiCamp));
     const canSpend = cost => (gameState.playerGold[campKey] || 0) - cost >= emergencyReserve;
     const culture = getActiveCultureId(gameState, aiCamp);
     const airPriority = culture === 'de' || difficultyProfile.infrastructureLevel > 0;
@@ -317,15 +332,25 @@ async function runV2Infrastructure(aiCamp, difficultyProfile, stukaSorties) {
     await runAiAirCommands(aiCamp, difficultyProfile, stukaSorties);
     const knownTile = tile => isKnownToAi(tile, aiCamp);
     const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
-    if (ownedCities.length && !ownedCities.some(tile => tile.installation)) {
+    const existingAirfields = ownedCities.filter(tile => tile.installation?.type === 'airfield');
+    const buildCandidates = ownedCities.filter(city => canBuildAirfieldAt(city, aiCamp, gameState));
+    if (airPriority && buildCandidates.length) {
         const front = gameState.tiles.filter(tile => tile.isCity && isHostile(gameState, aiCamp, tile.camp) && knownTile(tile));
         const frontDistance = city => Math.min(Infinity, ...front.map(tile => hexDistance(city, tile)));
-        const candidate = culture === 'de'
-            ? [...ownedCities].sort((a, b) => frontDistance(a) - frontDistance(b))[0]
-            : ownedCities[0];
-        const airfieldReserve = culture === 'de' ? 12 : difficultyProfile.infrastructureLevel >= 2 ? 18 : 24;
-        if (airPriority
-            && candidate && (gameState.playerGold[campKey] || 0) >= airfieldReserve
+        const sorted = [...buildCandidates].sort((a, b) => frontDistance(a) - frontDistance(b));
+        const uncoveredHostile = city => front.some(hostileCity =>
+            hexDistance(city, hostileCity) <= AIRFIELD_BASE_RANGE + 2
+            && !existingAirfields.some(af => hexDistance(af, hostileCity) <= getAirCommandRange(af)));
+        const canExpandForward = existingAirfields.length === 1
+            && ownedCities.length >= 2
+            && (culture === 'de' || difficultyProfile.infrastructureLevel >= 2);
+        const candidate = existingAirfields.length === 0
+            ? sorted[0]
+            : (canExpandForward ? sorted.find(uncoveredHostile) : null);
+        const airfieldReserve = existingAirfields.length === 0
+            ? (culture === 'de' ? 12 : difficultyProfile.infrastructureLevel >= 2 ? 18 : 24)
+            : 24;
+        if (candidate && (gameState.playerGold[campKey] || 0) >= airfieldReserve
             && canSpend(constructionCost('airfield', candidate.unit, candidate, gameState))) {
             await runObservedAction({ type: 'buildAirfield', tileQ: candidate.q, tileR: candidate.r }, aiCamp, () => {
                 executeAirfieldConstruction(candidate);
@@ -352,9 +377,12 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
     if (!germanAir && difficultyProfile.infrastructureLevel === 0) return false;
     const emergencyReserve = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
     const culturalReserve = reserveForMissingCulturalUnit(aiCamp);
-    const reserve = Math.max(emergencyReserve, culturalReserve);
+    const tianyanReserve = resolveAiTianyanReserve(aiCamp, emergencyReserve);
+    const reserve = Math.max(emergencyReserve + tianyanReserve, culturalReserve);
     const knownTile = tile => isKnownToAi(tile, aiCamp);
     const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
+    const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
+    const prizeDistrictId = standardMap?.carrierControl?.districtId ?? null;
     const threatensCity = tile => canCaptureCityByCombat(tile.unit)
         && ownedCities.some(city => hexDistance(city, tile) <= 2
             && (!city.unit || city.hp < city.maxHp / 2 || city.unit.hp < city.unit.maxHp / 2));
@@ -365,7 +393,9 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
         const available = (kind, urgentDefense = false) => {
             const gold = gameState.playerGold[campKey] || 0;
             const cost = getAirCommandCost(kind, city, gameState);
-            const effectiveReserve = urgentDefense && gold < emergencyReserve && culturalReserve === 0 ? 0 : reserve;
+            const nonUrgentReserve = reserve;
+            const urgentFloor = gold < emergencyReserve && culturalReserve === 0 ? 0 : emergencyReserve;
+            const effectiveReserve = urgentDefense ? urgentFloor : nonUrgentReserve;
             return getAirCommandAvailability(kind, city, gameState).available && gold - cost >= effectiveReserve;
         };
         const launch = async (kind, target) => {
@@ -378,11 +408,44 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
             return launched;
         };
         const range = getAirCommandRange(city);
-        const airdropCity = available('airdrop')
-            ? gameState.tiles.find(tile => tile.isCity && canAttack(gameState, aiCamp, tile.camp)
-                && hexDistance(city, tile) <= range && knownTile(tile) && canAirCommandAirdropAt(tile))
+        const directAirdropCity = available('airdrop')
+            ? gameState.tiles
+                .filter(tile => tile.isCity && canAttack(gameState, aiCamp, tile.camp)
+                    && hexDistance(city, tile) <= range && knownTile(tile) && canAirCommandAirdropAt(tile))
+                .sort((a, b) => Number(b.districtId === prizeDistrictId) - Number(a.districtId === prizeDistrictId)
+                    || hexDistance(city, a) - hexDistance(city, b))[0]
             : null;
-        if (airdropCity && await launch('airdrop', airdropCity)) continue;
+        let airdropTarget = directAirdropCity;
+        if (!airdropTarget && available('airdrop')
+            && difficultyProfile.infrastructureLevel >= 2
+            && (gameState.playerGold[campKey] || 0) - getAirCommandCost('airdrop', city, gameState) >= Math.max(reserve, 12)) {
+            const hostileCities = gameState.tiles
+                .filter(tile => tile.isCity && isHostile(gameState, aiCamp, tile.camp) && knownTile(tile)
+                    && tile.hp <= 120 && (!tile.unit || tile.unit.hp <= 45)
+                    && !gameState.tiles.some(ally => ally.unit?.camp === aiCamp && ally.unit.hp > 0
+                        && canCaptureCityByCombat(ally.unit) && hexDistance(ally, tile) <= 2))
+                .sort((a, b) => Number(b.districtId === prizeDistrictId) - Number(a.districtId === prizeDistrictId)
+                    || Number(!b.unit) - Number(!a.unit)
+                    || a.hp - b.hp);
+            for (const targetCity of hostileCities) {
+                const dropTile = HEX_NEIGHBORS
+                    .map(([dq, dr]) => resolveTile(targetCity.q + dq, targetCity.r + dr))
+                    .filter(tile => tile && hexDistance(city, tile) <= range && knownTile(tile)
+                        && canAirCommandAirdropAt(tile) && !tile.isCity
+                        && getAntiAirReduction(tile, aiCamp, gameState.tileMap, { state: gameState }) <= 0.25
+                        && gameState.tiles.filter(other => other.unit?.hp > 0
+                            && canAttack(gameState, other.unit.camp, aiCamp)
+                            && knownTile(other) && isUnitVisibleToCamp(other.unit, aiCamp, gameState)
+                            && hexDistance(other, tile) <= 2).length <= 1)
+                    .sort((a, b) => getAntiAirReduction(a, aiCamp, gameState.tileMap, { state: gameState })
+                        - getAntiAirReduction(b, aiCamp, gameState.tileMap, { state: gameState }))[0];
+                if (dropTile) {
+                    airdropTarget = dropTile;
+                    break;
+                }
+            }
+        }
+        if (airdropTarget && await launch('airdrop', airdropTarget)) continue;
 
         const knownEnemies = gameState.tiles.filter(tile => tile.unit?.hp > 0 && knownTile(tile)
             && (campKey === 'neutral' ? canAttack(gameState, aiCamp, tile.unit.camp)
@@ -393,16 +456,17 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
             && (!tile.unit || isUnitVisibleToCamp(tile.unit, aiCamp, gameState))));
         const enemySet = new Set(knownEnemies);
         const enemies = knownEnemies.filter(tile => hexDistance(city, tile) <= range);
+        const allies = gameState.tiles.filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0);
         const canHit = tile => tile.unit?.hp > 0 && canTargetWithSingleAirCommand(tile, aiCamp, gameState, true);
         const lethal = (kind, tile, multiplier) => estimateAirCommandDamage(kind, city, tile.unit, multiplier, knownAirDefenses)
             >= tile.unit.hp + tile.unit.activeShield;
 
         if (germanAir) {
-            const allies = gameState.tiles.filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0);
             while ((stukaSorties.get(city) || 0) < 2 && (available('stukaDiveBomb') || available('stukaDiveBomb', true))) {
                 const targets = enemies.filter(canHit).map(tile => {
                     const kill = lethal('stukaDiveBomb', tile);
-                    const closeSupport = allies.filter(ally => hexDistance(ally, tile) <= Math.max(2, ally.unit.config.range)).length;
+                    const closeSupport = allies.filter(ally =>
+                        hexDistance(ally, tile) <= Math.max(2, ally.unit.config.range) + 2).length;
                     const urgent = threatensCity(tile);
                     const worthwhile = available('stukaDiveBomb', urgent)
                         && (kill || (!getFireSeaState(tile.unit) && (afterGround || urgent || closeSupport > 0)));
@@ -426,15 +490,20 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
         if (available('bombing') || available('bombing', true)) {
             for (const tile of gameState.tiles) {
                 if (hexDistance(city, tile) > range || !knownTile(tile)) continue;
-                const targets = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr))]
-                    .filter(candidate => enemySet.has(candidate) && canHit(candidate));
+                const area = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr))]
+                    .filter(Boolean);
+                const targets = area.filter(candidate => enemySet.has(candidate) && canHit(candidate));
                 const urgentTargets = targets.filter(threatensCity).length;
                 if (!available('bombing', urgentTargets > 0)) continue;
                 const kills = targets.filter(target => lethal('bombing', target, target === tile ? 1 : 0.5)).length;
+                const siegeCities = area.filter(candidate => (candidate.isCity || candidate.isUrban)
+                    && candidate.hp > 0 && canAttack(gameState, aiCamp, candidate.camp)
+                    && allies.some(ally => canCaptureCityByCombat(ally.unit) && hexDistance(ally, candidate) <= 2)).length;
                 const areaScore = targets.length
+                    + siegeCities * 1.5
                     + (targets.length >= 2 ? urgentTargets * 0.75 : 0)
                     + Number(tile.isCity && tile.camp !== aiCamp);
-                if (kills === 0 && (targets.length < 2 || areaScore < 3)) continue;
+                if (kills === 0 && targets.length + siegeCities < 2 && areaScore < 3) continue;
                 const score = kills * 3 + areaScore;
                 if (!bombing || score > bombing.score) bombing = { tile, score, kills };
             }
@@ -484,7 +553,8 @@ async function positionFrenchCannons(camp, { afterGround = false } = {}) {
 async function runAiFieldFortifications(aiCamp, difficultyProfile) {
     const campKey = campToKey(aiCamp);
     const gold = gameState.playerGold[campKey] || 0;
-    const reserve = Math.max(resolveEmergencyRecruitReserve(aiCamp, difficultyProfile), reserveForMissingCulturalUnit(aiCamp));
+    const emergencyBase = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
+    const reserve = Math.max(emergencyBase + resolveAiTianyanReserve(aiCamp, emergencyBase), reserveForMissingCulturalUnit(aiCamp));
     const fogSafeTile = tile => isKnownToAi(tile, aiCamp);
     // 敌方存在可见空袭平台（航母/无人机/已建成机场）时优先高射机枪，否则战壕。
     const hostileAir = gameState.tiles.some(tile => fogSafeTile(tile)
@@ -781,17 +851,20 @@ async function _executeActionInner(action, aiCamp) {
             // 与玩家一致：走【部署将领】对策卡完整流程（校验/消耗/用卡计数/烧牌动画），
             // 不再绕过流程直接赋值。手牌中无对应部署卡（异常状态）时放弃而不是强挂。
             const hand = gameState.playerHands[campKey] || [];
-            const hasDeployCard = hand.some(c => c === 'commanderDeploy'
+            const matchIdx = hand.findIndex(c => c === 'commanderDeploy'
                 || (typeof c === 'object' && c.id === 'commanderDeploy' && (!c.commanderId || c.commanderId === cmdKey)));
-            if (!hasDeployCard) {
+            if (matchIdx < 0) {
                 console.warn(`AI 部署将领失败：${campKey} 手牌中没有【部署将领】（${cmdKey}）`);
                 return;
             }
             await delay(AI_DELAY * 0.5);
             gameState.currentCamp = aiCamp;
+            const prevTargeting = gameState.cardTargeting;
+            gameState.cardTargeting = { cardId: 'commanderDeploy', targeting: 'friendlyAny', handIndex: matchIdx };
             try {
                 executeTacticalCard('commanderDeploy', unit.tile);
             } finally {
+                if (gameState.cardTargeting?.handIndex === matchIdx) gameState.cardTargeting = prevTargeting;
                 gameState.currentCamp = aiCamp;
             }
             await delay(AI_DELAY);
@@ -872,13 +945,22 @@ async function _executeActionInner(action, aiCamp) {
             executeDroneSuicide(unit, targetUnit.tile);
             break;
         }
+        case 'guerrillaConcealment': {
+            const unit = resolveUnit(action.unitId);
+            if (!unit || unit.type !== 'cpc_guerrilla' || !unit.canAct || !unit.tile) return false;
+            if (getGuerrillaConcealmentReason(unit, gameState)) return false;
+            await delay(AI_DELAY * 0.4);
+            return executeGuerrillaConcealment(unit);
+        }
         case 'banzaiCharge': {
             const unit = resolveUnit(action.unitId);
             const targetTile = resolveTile(action.targetQ, action.targetR);
             if (!unit || !targetTile || unit.type !== 'jp_samurai' || !unit.canAct || !targetTile.unit) return;
             await delay(AI_DELAY);
             if (!executeBanzaiCharge(unit, targetTile)) return false;
-            if (unit._banzaiFollowupTurn === gameState.turnCounter && unit.canAct && unit.hp > 0) {
+            const profile = resolveAiDifficultyProfile(gameState, aiCamp);
+            if (unit._banzaiFollowupTurn === gameState.turnCounter && unit.canAct && unit.hp > 0
+                && (Number(profile?.replanPasses) || 1) <= 1) {
                 const followup = gameState.tiles.filter(tile => {
                     const enemy = tile.unit;
                     return enemy && enemy.hp + (enemy.activeShield || 0)
@@ -1004,6 +1086,12 @@ export async function processOpponentTurn(aiCamp) {
                 if (!executed) continue;
                 if (action.type === 'tacticalCard' && action.cardId === 'forceMarch' && action.targetId) {
                     forceMarchedUnitIds.add(action.targetId);
+                } else if (action.type === 'banzaiCharge' && action.unitId) {
+                    const samurai = resolveUnit(action.unitId);
+                    if (samurai?.canAct && samurai._banzaiFollowupTurn === gameState.turnCounter) {
+                        movedUnitIds.delete(action.unitId);
+                        forceMarchedUnitIds.add(action.unitId);
+                    }
                 } else if (action.type === 'move' && action.unitId) {
                     movedUnitIds.add(action.unitId);
                     forceMarchedUnitIds.delete(action.unitId);
@@ -1069,19 +1157,28 @@ export async function processOpponentTurn(aiCamp) {
             && tile.unit.config?.movementDomain === 'naval'
             && isKnownToAi(tile, aiCamp)
             && isUnitVisibleToCamp(tile.unit, aiCamp, gameState));
+        const navalCooldownUntil = gameState._aiCoreMemory?.[campKey]?.navalCooldownUntil;
+        const navalCoolingDown = Number.isFinite(navalCooldownUntil)
+            && (getRoundIndex(gameState) + 1) < navalCooldownUntil;
         const portFallbackBlocked = fleetSaturated
+            || navalCoolingDown
             || (landMap && getActiveCultureId(gameState, aiCamp) !== 'us' && (!hostileNavy || navalCount >= 1));
         for (const port of emptyPorts) {
             if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
             if (landMap && gameState.tiles.some(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
                 && tile.unit.config?.movementDomain === 'naval' && hexDistance(tile, port) <= 2)) continue;
-            const hostileTypes = new Set(gameState.tiles
+            const visibleHostiles = gameState.tiles
                 .filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp)
                     && isKnownToAi(tile, aiCamp) && isUnitVisibleToCamp(tile.unit, aiCamp, gameState))
-                .map(tile => getUnitBaseType(tile.unit)));
+                .map(tile => tile.unit);
+            const hostileTypes = new Set(visibleHostiles.map(unit => getUnitBaseType(unit)));
+            const mySubs = livingOwnUnits.filter(u => getUnitBaseType(u) === 'submarine').length;
+            const myWarships = livingOwnUnits.filter(u => getUnitBaseType(u) === 'warship').length;
+            const myDestroyers = livingOwnUnits.filter(u => getUnitBaseType(u) === 'destroyer' || u.config?.submarineDetectorRadius).length;
+            const enemyAntiSub = visibleHostiles.filter(u => getUnitBaseType(u) === 'destroyer' || u.config?.submarineDetectorRadius).length;
             let navalOrder = hostileTypes.has('submarine')
                 ? ['destroyer', 'submarine', 'warship']
-                : hostileTypes.has('warship')
+                : hostileTypes.has('warship') && mySubs < Math.max(2, myWarships + myDestroyers) && enemyAntiSub <= myDestroyers + 1
                     ? ['submarine', 'destroyer', 'warship']
                     : hostileTypes.has('destroyer')
                         ? ['warship', 'destroyer', 'submarine']

@@ -376,6 +376,9 @@ export function rankCityObjectives(world, etaFor) {
                 && rivalCaptureEta <= (eta ?? 99) + W.strategicPrizeRaceWindow
                 ? city.asset.reward * W.strategicPrizeRaceRatio
                 : 0;
+            const prizeFocusBonus = city.asset.reward > 0 && world.caps.strategicPrizeRacing
+                ? city.asset.reward * W.strategicPrizeFocusRatio
+                : 0;
             const rivalEconomy = world.rivalEconomyByKey?.get(city.ownerKey);
             const recruitmentPressure = eta > 1 && city.hp > 0 && !garrison
                 && rivalEconomy?.gold != null && rivalEconomy.gold + rivalEconomy.projectedIncome >= UNIT_CONFIG.infantry.cost
@@ -393,6 +396,7 @@ export function rankCityObjectives(world, etaFor) {
                     + (city.ownerKey === 'neutral' ? 18 : 0)
                     + leaderBonus
                     + prizeRaceBonus
+                    + prizeFocusBonus
                     - recruitmentPressure
                     - Math.min(60, city.hp * 0.12)
             };

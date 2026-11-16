@@ -5845,7 +5845,7 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
                 // 连横不可复制的卡（部署将领/空军专属/阵营协同奖励与王牌；标记见 rules/cards.js CARD_FLAGS）
                 if (getCardMeta(cardId).noCopy) continue;
                 hand.push({ id: cardId, _copy: true });
-                logMessage(`纵横家【连横】：${gameState.factions?.[ck]?.name || ck}获得【${TACTICAL_CARD_DATA[cardId]?.name || cardId}】的复制`);
+                logMessage(`纵横家【连横】：${gameState.factions?.[ck]?.name || ck}获得【${TACTICAL_CARD_CONFIG[cardId]?.name || cardId}】的复制`);
                 spawnCardCopyEffect(targetTile.x, targetTile.y, 500, 375, cardId);
                 spawnCommanderSkillEffect(t.x, t.y, '✨', '连横');
                 break;

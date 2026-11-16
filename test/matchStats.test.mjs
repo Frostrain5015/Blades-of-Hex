@@ -294,3 +294,214 @@ test('lightweight review documents rebuild the statistics view without a full ti
     assert.deepEqual(rebuilt.commanderDeathEvents, source.commanderDeathEvents);
     assert.equal(buildMatchStatsDocument({ schema: 'unknown' }), null);
 });
+
+test('cultural and special units display Chinese names and gb_battleship counts as naval', () => {
+    const log = makeLog();
+    log.initialState.units = [
+        { id: 'c1', type: 'kmt_training_brigade', campKey: 'player1', hp: 210, maxHp: 210, commanderId: 'colonel', isCommanderUnit: true },
+        { id: 'c2', type: 'cpc_guerrilla', campKey: 'player2', hp: 165, maxHp: 165 },
+        { id: 'c3', type: 'fr_heavy_cannon', campKey: 'player1', hp: 115, maxHp: 115 },
+        { id: 'c4', type: 'gb_battleship', campKey: 'player2', hp: 230, maxHp: 230 },
+        { id: 'c5', type: 'orbitalPlatform', campKey: 'player1', hp: 100, maxHp: 100 }
+    ];
+    log.finalState.units = [...log.initialState.units];
+    const stats = buildMatchStats(log);
+    const byId = Object.fromEntries(stats.units.map(u => [u.id, u]));
+    assert.equal(byId.c1.displayName, '中央教导旅 · 空军上校');
+    assert.equal(byId.c2.displayName, '游击纵队');
+    assert.equal(byId.c3.displayName, '法国巨炮');
+    assert.equal(byId.c4.displayName, '皇家战列舰');
+    assert.equal(byId.c5.displayName, '天基轨道炮');
+    assert.equal(stats.controlTimeline[0].byCamp.player2.navalUnits, 1);
+    assert.equal(stats.controlTimeline[0].byCamp.player2.landUnits, 1);
+    assert.ok(stats.methodology.unitShare.includes('深色（原色）表示陆军、浅色表示海军'));
+});
+
+test('high-threshold battleEvents keeps long matches focused on a few climax rounds', () => {
+    const log = makeLog();
+    log.timeline = [];
+    let sequence = 0;
+    for (let round = 1; round <= 22; round++) {
+        const isClimax = round === 6 || round === 14 || round === 19;
+        const attacks = isClimax ? 14 : (round % 3 === 0 ? 7 : 5);
+        for (let i = 0; i < attacks; i++) {
+            log.timeline.push({
+                kind: 'action', sequence: ++sequence, round,
+                actorCampKey: i % 2 ? 'player2' : 'player1',
+                actionType: 'attack', accepted: true, payload: {}
+            });
+        }
+        const losses = isClimax ? 5 : (round % 2 === 0 ? 2 : 1);
+        for (let l = 0; l < losses; l++) {
+            log.timeline.push({
+                kind: 'event', sequence: ++sequence, round, eventType: 'unitKilled',
+                payload: { unitId: `loss-${round}-${l}`, unitType: 'infantry', campKey: 'player2', killerCampKey: 'player1' }
+            });
+        }
+        if (isClimax || round % 4 === 0) {
+            log.timeline.push({
+                kind: 'event', sequence: ++sequence, round, eventType: 'cityCaptured',
+                payload: { districtId: round % 5, campKey: 'player1' }
+            });
+        }
+    }
+    log.finalState.round = 22;
+    const stats = buildMatchStats(log);
+    assert.ok(stats.battleEvents.length >= 2 && stats.battleEvents.length <= 5, `got ${stats.battleEvents.length}`);
+    assert.deepEqual(stats.battleEvents.map(event => event.round), [6, 14, 19]);
+});
+
+test('imported review refreshes legacy raw unit names, unitShare wording and participant flags', () => {
+    const rebuilt = buildMatchStatsDocument({
+        schema: 'blades-of-hex.match-review',
+        participants: [
+            { campKey: 'player1', name: '中华民国', colorId: 'blue', flagPreset: 'img/flags/kuomintang.svg' }
+        ],
+        overview: {
+            totalActions: 10,
+            totalDamage: 500,
+            totalLosses: 2,
+            camps: [{ campKey: 'player1', name: '中华民国', colorId: 'blue', healingReceived: 120 }],
+            leaders: {
+                healingReceived: { unitId: 'u9', unitType: 'kmt_training_brigade', displayName: 'kmt_training_brigade · 空军上校', commanderId: 'colonel', healingReceived: 120 }
+            }
+        },
+        controlTimeline: [{ round: 0, byCamp: { player1: { unitShare: 1, cityShare: 1, controlShare: 1 } } }],
+        roundIndex: [{ round: 1, engagements: 2, byCamp: { player1: { damageTaken: 100, losses: 1, captures: 0 } } }],
+        unitHighlights: [
+            { unitId: 'u9', unitType: 'kmt_training_brigade', displayName: 'kmt_training_brigade · 空军上校', campKey: 'player1', healingReceived: 120 }
+        ],
+        methodology: {
+            unitShare: '旧文案：浅色表示陆军、深色表示海军。'
+        }
+    });
+    assert.equal(rebuilt.camps[0].flagPreset, 'img/flags/kuomintang.svg');
+    assert.equal(rebuilt.units[0].displayName, '中央教导旅 · 空军上校');
+    assert.equal(rebuilt.units[0].commanderId, 'colonel');
+    assert.equal(rebuilt.leaders.healingReceived.displayName, '中央教导旅 · 空军上校');
+    assert.equal(rebuilt.totalHealing, 120);
+    assert.ok(rebuilt.methodology.unitShare.includes('深色（原色）表示陆军、浅色表示海军'));
+});
+
+test('camp rating grades span A+ through C across dominant, contested and collapsed camps', async () => {
+    const { computeCampRating } = await import('../js/matchStats.js');
+    const log = makeLog();
+    const stats = buildMatchStats(log);
+    const p1 = stats.camps.find(c => c.campKey === 'player1');
+    const p2 = stats.camps.find(c => c.campKey === 'player2');
+    assert.ok(['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C'].includes(p1.rating.grade));
+    assert.ok(['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C'].includes(p2.rating.grade));
+    assert.ok(p1.rating.score > p2.rating.score);
+
+    const dominant = computeCampRating({
+        campKey: 'player1', kills: 40, losses: 5, attacks: 80, actions: 240, captures: 8,
+        damageDealt: 8000, damageTaken: 2000, healingReceived: 900, reinforcements: 4,
+        initialCities: 1, finalCities: 6, initialForce: { units: 12 }, finalForce: { units: 14 },
+        cards: 20, airCommands: 4, constructions: 2, recruits: 6
+    }, { winnerCampKey: 'player1', maxDamage: 8000, maxActions: 240 });
+    assert.equal(dominant.grade, 'A+');
+
+    const collapsed = computeCampRating({
+        campKey: 'neutral', kills: 0, losses: 10, attacks: 3, actions: 15, captures: 0,
+        damageDealt: 400, damageTaken: 2200, healingReceived: 100, reinforcements: 0,
+        initialCities: 4, finalCities: 0, initialForce: { units: 14 }, finalForce: { units: 0 },
+        cards: 0, airCommands: 0, constructions: 0, recruits: 0
+    }, { winnerCampKey: 'player1', maxDamage: 8000, maxActions: 240 });
+    assert.equal(collapsed.grade, 'C');
+});
+
+test('matchStatsView renders 8 summary cards, medal ranks, HUD flags, chart flags and dark-land/light-naval unitShare', async () => {
+    const { JSDOM } = await import('jsdom');
+    const dom = new JSDOM(`<!doctype html><body>
+        <div id="matchStatsOverlay">
+            <button id="matchStatsCloseBtn"></button>
+            <p id="matchStatsSubtitle"></p>
+            <div id="matchStatsSummary"></div>
+            <button type="button" data-control-metric="controlShare" class="active"></button>
+            <button type="button" data-control-metric="unitShare"></button>
+            <button type="button" data-control-metric="cityShare"></button>
+            <svg id="matchControlChart"></svg>
+            <div id="matchControlTooltip" hidden></div>
+            <div id="matchControlLegend"></div>
+            <p id="matchControlMethod"></p>
+            <div id="matchCampCards"></div>
+            <div id="matchUnitLeaders"></div>
+            <div id="matchUnitMvp"></div>
+            <select id="matchUnitMetric">
+                <option value="damageDealt">造成伤害</option>
+                <option value="kills">击杀</option>
+                <option value="damageTaken">承受伤害</option>
+                <option value="healingReceived">恢复量</option>
+                <option value="actions">参与行动</option>
+            </select>
+            <select id="matchUnitCamp"></select>
+            <div id="matchUnitTable"></div>
+            <div id="matchBattleEvents"></div>
+            <p id="matchBattleMethod"></p>
+        </div>
+    </body>`);
+    const prevDoc = globalThis.document;
+    globalThis.document = dom.window.document;
+    try {
+        const { initMatchStatsPanel } = await import('../js/matchStatsView.js');
+        const log = makeLog();
+        log.schema = 'blades-of-hex.match-log';
+        log.participants[0].flagPreset = 'img/flags/kuomintang.svg';
+        log.participants[1].flagPreset = 'img/flags/chinese-communist-party-old.svg';
+        log.initialState.units.push(
+            { id: 'u3', type: 'kmt_training_brigade', campKey: 'player1', hp: 210, maxHp: 210, commanderId: 'colonel' },
+            { id: 'u5', type: 'destroyer', campKey: 'player1', hp: 140, maxHp: 140 },
+            { id: 'u4', type: 'gb_battleship', campKey: 'player2', hp: 230, maxHp: 230 }
+        );
+        log.finalState.units.push(
+            { id: 'u3', type: 'kmt_training_brigade', campKey: 'player1', hp: 180, maxHp: 210, commanderId: 'colonel' },
+            { id: 'u5', type: 'destroyer', campKey: 'player1', hp: 140, maxHp: 140 },
+            { id: 'u4', type: 'gb_battleship', campKey: 'player2', hp: 190, maxHp: 230 }
+        );
+        log.timeline.push(
+            { kind: 'event', sequence: 9, round: 2, eventType: 'unitHpChanged', payload: { unitId: 'u4', unitType: 'gb_battleship', campKey: 'player2', sourceUnitId: 'u3', sourceCampKey: 'player1', oldHp: 230, newHp: 190, delta: -40 } },
+            { kind: 'event', sequence: 10, round: 2, eventType: 'unitHpChanged', payload: { unitId: 'u3', unitType: 'kmt_training_brigade', campKey: 'player1', sourceUnitId: 'u4', sourceCampKey: 'player2', oldHp: 210, newHp: 180, delta: -30 } }
+        );
+        const panel = initMatchStatsPanel({ getLog: () => log });
+        assert.equal(panel.open(), true);
+
+        const summaryCards = dom.window.document.querySelectorAll('#matchStatsSummary .match-stat-summary-card');
+        assert.equal(summaryCards.length, 8);
+
+        const unitRows = dom.window.document.querySelectorAll('#matchUnitTable .match-unit-row');
+        assert.equal(unitRows[0].querySelector('.match-unit-rank').textContent, '🥇');
+        assert.equal(unitRows[1].querySelector('.match-unit-rank').textContent, '🥈');
+        assert.equal(unitRows[2].querySelector('.match-unit-rank').textContent, '🥉');
+        assert.ok(unitRows[0].querySelector('.match-unit-name .match-hud-flag'));
+        assert.ok(unitRows[0].querySelector('.match-unit-id').textContent.startsWith('#'));
+
+        const campFlags = dom.window.document.querySelectorAll('#matchCampCards .match-camp-card header .match-hud-flag');
+        assert.equal(campFlags.length, 2);
+        assert.equal(dom.window.document.querySelectorAll('#matchCampCards .match-camp-card header strong').length, 0);
+        const campGrades = dom.window.document.querySelectorAll('#matchCampCards .match-camp-grade');
+        assert.equal(campGrades.length, 2);
+        assert.ok(['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C'].includes(campGrades[0].textContent));
+
+        const mvpCards = dom.window.document.querySelectorAll('#matchUnitMvp .match-mvp-card');
+        assert.equal(mvpCards.length, 3);
+        const commanderPortrait = dom.window.document.querySelector('#matchUnitMvp .match-mvp-commander-portrait');
+        assert.ok(commanderPortrait && commanderPortrait.getAttribute('src').includes('img/commander_tr/空军上校.webp'));
+        assert.ok(dom.window.document.querySelector('#matchUnitMvp .match-mvp-backdrop-flag'));
+
+        const bandFlags = dom.window.document.querySelectorAll('#matchControlChart .match-control-band-flag');
+        assert.equal(bandFlags.length, 2);
+        const leaderFlags = dom.window.document.querySelectorAll('#matchUnitLeaders .match-unit-leader-name .match-hud-flag');
+        assert.ok(leaderFlags.length >= 2);
+        assert.ok(!dom.window.document.querySelector('#matchControlLegend').textContent.includes('红军'));
+
+        dom.window.document.querySelector('[data-control-metric="unitShare"]').click();
+        const landPoly = dom.window.document.querySelector('#matchControlChart polygon[data-camp-key="player1"][data-unit-domain="land"]');
+        const navalPoly = dom.window.document.querySelector('#matchControlChart polygon[data-camp-key="player1"][data-unit-domain="naval"]');
+        assert.ok(landPoly && navalPoly);
+        assert.notEqual(landPoly.getAttribute('fill'), navalPoly.getAttribute('fill'));
+        const sumRgb = hex => [1, 3, 5].reduce((acc, idx) => acc + Number.parseInt(hex.slice(idx, idx + 2), 16), 0);
+        assert.ok(sumRgb(landPoly.getAttribute('fill')) < sumRgb(navalPoly.getAttribute('fill')), 'land should stay darker than lightened naval shade');
+    } finally {
+        globalThis.document = prevDoc;
+    }
+});

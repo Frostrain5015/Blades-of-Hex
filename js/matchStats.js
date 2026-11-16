@@ -2,6 +2,41 @@
 // 不依赖 DOM，也不读取实时 gameState，确保结算页、自动测试和未来的复盘工具使用同一套口径。
 
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { UNIT_CONFIG, getSpecialization } from '../rules/units.js';
+
+const COMMANDER_NAME_TO_ID = Object.freeze(
+    Object.fromEntries(
+        Object.entries(COMMANDER_CONFIG)
+            .map(([id, entry]) => [entry?.definition?.name, id])
+            .filter(([name]) => Boolean(name))
+    )
+);
+
+const HISTORICAL_FLAG_BY_NAME = Object.freeze({
+    美国: 'img/flags/svg/us.svg',
+    英国: 'img/flags/svg/gb.svg',
+    法国: 'img/flags/svg/fr.svg',
+    苏联: 'img/flags/soviet-union.svg',
+    苏军驻东北部队: 'img/flags/soviet-union.svg',
+    中华民国: 'img/flags/kuomintang.svg',
+    中共苏区: 'img/flags/chinese-communist-party-old.svg',
+    德国: 'img/flags/germany-iron-cross.svg',
+    日本: 'img/flags/svg/jp.svg'
+});
+
+function inferHistoricalFlagPreset(camp, mode = null) {
+    if (!camp || camp.flagPreset || camp.flagUrl || camp.flagConfig) return camp?.flagPreset || null;
+    if (mode?.factionRuleMode === 'none') return null;
+    return HISTORICAL_FLAG_BY_NAME[camp.name] || null;
+}
+
+function resolveDurationMs(source) {
+    const raw = finiteNumber(source?.durationMs);
+    if (raw > 0) return raw;
+    const started = Date.parse(source?.startedAt);
+    const ended = Date.parse(source?.endedAt);
+    return Number.isFinite(started) && Number.isFinite(ended) && ended >= started ? ended - started : 0;
+}
 
 const ACTION_BUCKETS = Object.freeze({
     move: 'moves',
@@ -9,6 +44,8 @@ const ACTION_BUCKETS = Object.freeze({
     recruit: 'recruits',
     reinforce: 'reinforcements',
     repairShip: 'reinforcements',
+    fieldRepair: 'reinforcements',
+    airCommand: 'airCommands',
     tacticalCard: 'cards',
     drawCard: 'cards',
     buildFortification: 'constructions',
@@ -20,19 +57,29 @@ const ACTION_BUCKETS = Object.freeze({
 });
 
 const UNIT_TYPE_NAMES = Object.freeze({
-    infantry: '步兵',
-    cavalry: '骑兵',
-    archer: '炮兵',
-    mgNest: '碉堡',
+    ...Object.fromEntries(Object.entries(UNIT_CONFIG).map(([type, config]) => [type, config.name])),
     drone: '天眼哨机',
-    shoreBattery: '岸防炮',
-    destroyer: '驱逐舰',
-    warship: '巡洋舰',
-    submarine: '潜艇',
-    carrier: '航空母舰'
+    fr_heavy_cannon: '法国巨炮',
+    bunker: '碉堡',
+    airfield: '机场',
+    fortification: '野战工事',
+    trench: '战壕',
+    flak: '防空阵地',
+    landmine: '地雷',
+    orbitalPlatform: '天基轨道炮',
+    scaffold: '施工脚手架',
+    unknown: '未知单位'
 });
 
-const NAVAL_UNIT_TYPES = new Set(['destroyer', 'warship', 'submarine', 'carrier']);
+const NAVAL_UNIT_TYPES = new Set([
+    'destroyer',
+    'warship',
+    'submarine',
+    'carrier',
+    ...Object.entries(UNIT_CONFIG)
+        .filter(([, config]) => config.movementDomain === 'naval')
+        .map(([type]) => type)
+]);
 
 const emptyCombatStats = () => ({
     actions: 0,
@@ -40,6 +87,7 @@ const emptyCombatStats = () => ({
     attacks: 0,
     recruits: 0,
     reinforcements: 0,
+    airCommands: 0,
     cards: 0,
     constructions: 0,
     damageDealt: 0,
@@ -56,15 +104,157 @@ function finiteNumber(value) {
     return Number.isFinite(number) ? number : 0;
 }
 
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+export function computeCampRating(camp, { winnerCampKey = null, maxDamage = 0, maxActions = 0 } = {}) {
+    const kills = finiteNumber(camp?.kills);
+    const losses = finiteNumber(camp?.losses);
+    const attacks = finiteNumber(camp?.attacks);
+    const actions = finiteNumber(camp?.actions);
+    const captures = finiteNumber(camp?.captures);
+    const damageDealt = finiteNumber(camp?.damageDealt);
+    const damageTaken = finiteNumber(camp?.damageTaken);
+    const healingReceived = finiteNumber(camp?.healingReceived);
+    const reinforcements = finiteNumber(camp?.reinforcements);
+    const initialCities = finiteNumber(camp?.initialCities);
+    const finalCities = finiteNumber(camp?.finalCities);
+    const cityDelta = camp?.cityDelta != null ? finiteNumber(camp.cityDelta) : (finalCities - initialCities);
+    const initialUnits = finiteNumber(camp?.initialForce?.units);
+    const finalUnits = finiteNumber(camp?.finalForce?.units);
+    const forceDelta = camp?.forceDelta != null ? finiteNumber(camp.forceDelta) : (finalUnits - initialUnits);
+    const damagePerAttack = camp?.damagePerAttack != null
+        ? finiteNumber(camp.damagePerAttack)
+        : (attacks > 0 ? damageDealt / attacks : 0);
+
+    const isWinner = winnerCampKey != null && winnerCampKey === camp?.campKey;
+    const isNeutral = camp?.campKey === 'neutral';
+    const combatInvolvement = clamp((kills + losses + attacks * 0.5) / 8, 0, 1);
+    const dmgVolumeFactor = maxDamage > 0 ? clamp(damageDealt / (maxDamage * 0.25), 0.15, 1) : 0.2;
+
+    // 1. 胜势与战线成果（25）
+    const cityHold = initialCities > 0 ? clamp(finalCities / initialCities, 0, 1.5) : 0;
+    const outcome = (isWinner ? 11 : 0)
+        + clamp(4.2 * cityHold + cityDelta * 1.8 + Math.min(6, captures * 1.15), 0, 14);
+
+    // 2. 交战交换比与伤害交换效率（28）；对未实质参战的旁观方做参与度加权
+    const smoothKdr = (kills + 1.5) / (losses + 1.5);
+    const rawKdr = clamp(5.4 * Math.log2(smoothKdr + 0.35) + 5.2, 0, 14);
+    const kdrScore = rawKdr * (0.20 + 0.80 * combatInvolvement);
+
+    const dmgRatio = (damageDealt + 300) / (damageTaken + 300);
+    const rawDmgEx = clamp(5.4 * Math.log2(dmgRatio + 0.35) + 4.7, 0, 14);
+    const dmgExScore = rawDmgEx * (0.20 + 0.80 * combatInvolvement);
+    const combat = kdrScore + dmgExScore;
+
+    // 3. 火力总量贡献与单次打击质量（21）
+    const relDmg = maxDamage > 0 ? damageDealt / maxDamage : 0;
+    const dmgShareScore = Math.min(13, Math.sqrt(Math.max(0, relDmg)) * 13);
+    const strikeScore = (attacks > 0 ? Math.min(8, (damagePerAttack / 82) * 7.4) : 1.0) * dmgVolumeFactor;
+    const firepower = dmgShareScore + strikeScore;
+
+    // 4. 部队存续与后勤恢复韧性（14）
+    const retentionRatio = initialUnits > 0 ? finalUnits / initialUnits : (finalUnits > 0 ? 1 : 0);
+    const forceScore = clamp(retentionRatio * 5.5 + (forceDelta > 0 ? 1.5 : 0), 0, 7)
+        * (isNeutral && combatInvolvement < 0.3 ? 0.25 : 1);
+    const healScore = (damageTaken > 0
+        ? Math.min(7, Math.sqrt(healingReceived / Math.max(1, damageTaken)) * 6.8 + Math.min(2, reinforcements * 0.45))
+        : 0.5) * (0.20 + 0.80 * combatInvolvement);
+    const sustain = forceScore + healScore;
+
+    // 5. 战场行动与战术主动性（12）
+    const relAct = maxActions > 0 ? actions / maxActions : 0;
+    const tacticalCount = finiteNumber(camp?.cards)
+        + finiteNumber(camp?.airCommands)
+        + finiteNumber(camp?.constructions)
+        + finiteNumber(camp?.recruits);
+    const initiative = Math.min(12, relAct * 7.5 + Math.min(4.5, tacticalCount * 0.28));
+
+    const score = Math.round(clamp(outcome + combat + firepower + sustain + initiative, 0, 100));
+    const grade = score >= 84 ? 'A+'
+        : score >= 74 ? 'A'
+        : score >= 63 ? 'A-'
+        : score >= 52 ? 'B+'
+        : score >= 41 ? 'B'
+        : score >= 32 ? 'B-'
+        : 'C';
+
+    return {
+        score,
+        grade,
+        breakdown: {
+            outcome: Math.round(outcome),
+            combat: Math.round(combat),
+            firepower: Math.round(firepower),
+            sustain: Math.round(sustain),
+            initiative: Math.round(initiative)
+        }
+    };
+}
+
+function attachCampRatings(camps, winnerCampKey) {
+    const maxDamage = Math.max(0, ...(camps || []).map(camp => finiteNumber(camp?.damageDealt)));
+    const maxActions = Math.max(0, ...(camps || []).map(camp => finiteNumber(camp?.actions)));
+    return (camps || []).map(camp => ({
+        ...camp,
+        rating: computeCampRating(camp, { winnerCampKey, maxDamage, maxActions })
+    }));
+}
+
+export function computeUnitMvpScore(unit) {
+    if (!unit) return 0;
+    const damageDealt = finiteNumber(unit.damageDealt);
+    const damageTaken = finiteNumber(unit.damageTaken);
+    const healingDone = finiteNumber(unit.healingDone);
+    const healingReceived = finiteNumber(unit.healingReceived);
+    const kills = finiteNumber(unit.kills);
+    const captures = finiteNumber(unit.captures);
+    const actions = finiteNumber(unit.actions);
+    const survived = unit.survived === true;
+    // 抗线承伤需伴随实际输出、治疗或占城才计入正向评分，防止无作为掉血刷榜
+    const tankEffectiveness = damageDealt > 0 || healingReceived > 0 || captures > 0
+        ? Math.min(damageTaken, 700) * (survived ? 0.28 : 0.16)
+        : 0;
+    return damageDealt
+        + kills * 135
+        + captures * 165
+        + healingDone * 0.75
+        + healingReceived * 0.40
+        + tankEffectiveness
+        + Math.min(40, actions) * 6
+        + (survived ? 70 : 0);
+}
+
+export function selectMvpUnits(units, limit = 3) {
+    return [...(units || [])]
+        .filter(unit => finiteNumber(unit?.damageDealt)
+            + finiteNumber(unit?.kills)
+            + finiteNumber(unit?.captures)
+            + finiteNumber(unit?.healingDone)
+            + finiteNumber(unit?.healingReceived) > 0)
+        .sort((left, right) =>
+            computeUnitMvpScore(right) - computeUnitMvpScore(left)
+            || finiteNumber(right?.kills) - finiteNumber(left?.kills)
+            || finiteNumber(right?.damageDealt) - finiteNumber(left?.damageDealt)
+            || String(left?.id ?? '').localeCompare(String(right?.id ?? ''))
+        )
+        .slice(0, limit);
+}
+
 function normalizedRound(item) {
     return Math.max(1, Math.floor(finiteNumber(item?.round) || 1));
 }
 
 function unitDisplayName(unit) {
-    const typeName = UNIT_TYPE_NAMES[unit.type] || unit.type || '未知单位';
-    const commanderName = COMMANDER_CONFIG[unit.commanderId]?.definition?.name
-        || unit.commanderId
-        || (unit.isCommanderUnit ? '未知将领' : null);
+    const type = unit?.type;
+    const specName = type && unit?.specializationKey
+        ? getSpecialization(type, unit.specializationKey)?.name
+        : null;
+    const typeName = specName || UNIT_TYPE_NAMES[type] || UNIT_CONFIG[type]?.name || type || '未知单位';
+    const commanderName = COMMANDER_CONFIG[unit?.commanderId]?.definition?.name
+        || unit?.commanderId
+        || (unit?.isCommanderUnit ? '未知将领' : null);
     const suffix = commanderName ? ` · ${commanderName}` : '';
     return `${typeName}${suffix}`;
 }
@@ -83,6 +273,7 @@ function collectUnitCatalog(log) {
             id: previous.id ?? raw.id,
             type: raw.type || previous.type || 'unknown',
             campKey: raw.campKey || previous.campKey || null,
+            specializationKey: raw.specializationKey ?? previous.specializationKey ?? null,
             commanderId: raw.commanderId ?? previous.commanderId ?? null,
             isCommanderUnit: raw.isCommanderUnit ?? previous.isCommanderUnit ?? false,
             maxHp: finiteNumber(raw.maxHp || previous.maxHp),
@@ -100,8 +291,9 @@ function collectUnitCatalog(log) {
         for (const changed of item.outcome?.changes?.unitState || []) {
             const commanderId = changed.changes?.commanderId?.after;
             const isCommanderUnit = changed.changes?.isCommanderUnit?.after;
-            if (commanderId != null || isCommanderUnit != null) {
-                remember({ id: changed.unitId, commanderId, isCommanderUnit });
+            const specializationKey = changed.changes?.specializationKey?.after;
+            if (commanderId != null || isCommanderUnit != null || specializationKey != null) {
+                remember({ id: changed.unitId, commanderId, isCommanderUnit, specializationKey });
             }
         }
         if (item.kind !== 'event') continue;
@@ -161,11 +353,17 @@ function keyEventLabel(item, participantsByKey) {
             commanderId: payload.commanderId,
             isCommanderUnit: payload.isCommanderUnit
         });
-        const killer = unitDisplayName({
-            type: payload.killerType || '未知来源',
-            commanderId: payload.killerCommanderId
-        });
-        return `${participantsByKey[payload.killerCampKey]?.name || '未知阵营'}的${killer}击毁${participantsByKey[payload.campKey]?.name || '未知阵营'}的${defeated}`;
+        const killerCampName = participantsByKey[payload.killerCampKey]?.name;
+        const killer = payload.killerType
+            ? unitDisplayName({
+                type: payload.killerType,
+                commanderId: payload.killerCommanderId
+            })
+            : null;
+        const sourceLabel = killerCampName
+            ? `${killerCampName}${killer ? `的${killer}` : '的火力/技能'}`
+            : (killer || '战场环境/规则效果');
+        return `${sourceLabel}击毁${participantsByKey[payload.campKey]?.name || '未知阵营'}的${defeated}`;
     }
     if (item.eventType === 'cityCaptured') {
         return `${participantsByKey[payload.campKey]?.name || '未知阵营'}攻占行政区${payload.districtId ?? ''}`;
@@ -192,7 +390,7 @@ function percentile(sortedValues, ratio) {
 
 function identifyBattleEvents(rounds) {
     const profiles = rounds.map(round => {
-        const campEntries = Object.entries(round.byCamp);
+        const campEntries = Object.entries(round.byCamp || {});
         const totalDamage = campEntries.reduce((sum, [, camp]) => sum + camp.damageTaken, 0);
         const totalLosses = campEntries.reduce((sum, [, camp]) => sum + camp.losses, 0);
         const captures = campEntries.reduce((sum, [, camp]) => sum + camp.captures, 0);
@@ -202,8 +400,8 @@ function identifyBattleEvents(rounds) {
         const battleScore = round.engagements
             + totalDamage / 100
             + totalLosses * 2.5
-            + captures * 3.5
-            + commanderLosses * 3;
+            + captures * 4.5
+            + commanderLosses * 3.5;
         return { round, campEntries, totalDamage, totalLosses, captures, commanderLosses, battleScore };
     });
     const activeRounds = profiles.filter(profile => profile.battleScore > 0);
@@ -213,43 +411,55 @@ function identifyBattleEvents(rounds) {
     const variance = values.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / values.length;
     const deviation = Math.sqrt(variance);
     const sorted = [...values].sort((left, right) => left - right);
-    const upperQuartile = percentile(sorted, 0.75);
-    const threshold = Math.max(upperQuartile, mean + deviation * 0.5);
+    const p75 = percentile(sorted, 0.75);
+    const p85 = percentile(sorted, 0.85);
+    // 兼顾小样本数学上界 (z <= sqrt(n - 1)) 与长局高门槛筛选，只保留少数真正的转折性战役回合。
+    const zScale = Math.min(1.15, Math.sqrt(Math.max(1, activeRounds.length - 1)) * 0.72);
+    const strictThreshold = Math.max(p85, mean + deviation * zScale);
+    const breakthroughThreshold = Math.max(p75, mean + deviation * Math.min(0.7, zScale));
     const peak = Math.max(...values);
-    return activeRounds
-        .filter(profile => {
-            const decisiveBreakthrough = profile.captures > 0 && profile.totalLosses >= 2;
-            const forceCollapse = profile.totalLosses >= 4;
-            const commanderCrisis = profile.commanderLosses > 0 && profile.totalLosses >= 2;
-            return decisiveBreakthrough || forceCollapse || commanderCrisis
-                || (profile.battleScore >= threshold && profile.battleScore > mean);
-        })
-        .map(profile => {
-            const { round, campEntries, totalDamage, totalLosses, captures, commanderLosses, battleScore } = profile;
-            const leading = campEntries.sort(([, left], [, right]) =>
-                right.damageDealt - left.damageDealt || right.kills - left.kills
-            )[0];
-            const intensity = peak > mean ? (battleScore - mean) / (peak - mean) : 1;
-            const label = captures > 0 && totalLosses >= 2
-                ? '战线突破'
-                : commanderLosses > 0
-                    ? '将领陨落'
-                    : intensity >= 0.8 ? '主战役' : '激烈交战';
-            return {
-                round: round.round,
-                sequenceStart: round.sequenceStart,
-                sequenceEnd: round.sequenceEnd,
-                engagements: round.engagements,
-                totalDamage,
-                totalLosses,
-                captures,
-                commanderLosses,
-                battleScore,
-                leadingCampKey: leading?.[0] || null,
-                intensity: Math.max(0, Math.min(1, intensity)),
-                label
-            };
-        });
+    const maxEvents = Math.max(1, Math.min(5, Math.round(activeRounds.length * 0.2)));
+
+    const candidates = activeRounds.filter(profile => {
+        const majorBreakthrough = (profile.captures >= 2 && profile.totalLosses >= 3)
+            || (profile.captures >= 1 && profile.totalLosses >= 5);
+        const majorCollapse = profile.totalLosses >= 6 && profile.commanderLosses >= 1;
+        if (profile.battleScore <= mean) return false;
+        return profile.battleScore >= strictThreshold
+            || ((majorBreakthrough || majorCollapse) && profile.battleScore >= breakthroughThreshold);
+    });
+
+    const selected = [...candidates]
+        .sort((left, right) => right.battleScore - left.battleScore || left.round.round - right.round.round)
+        .slice(0, maxEvents)
+        .sort((left, right) => left.round.round - right.round.round);
+
+    return selected.map(profile => {
+        const { round, campEntries, totalDamage, totalLosses, captures, commanderLosses, battleScore } = profile;
+        const leading = [...campEntries].sort(([, left], [, right]) =>
+            right.damageDealt - left.damageDealt || right.kills - left.kills
+        )[0];
+        const intensity = peak > mean ? (battleScore - mean) / (peak - mean) : 1;
+        const label = captures > 0 && totalLosses >= 2
+            ? '战线突破'
+            : commanderLosses > 0
+                ? '将领陨落'
+                : intensity >= 0.75 ? '决定性会战' : '高强度交锋';
+        return {
+            round: round.round,
+            sequenceStart: round.sequenceStart,
+            sequenceEnd: round.sequenceEnd,
+            engagements: round.engagements,
+            totalDamage,
+            totalLosses,
+            captures,
+            commanderLosses,
+            battleScore,
+            leadingCampKey: leading?.[0] || null,
+            intensity: Math.max(0, Math.min(1, intensity)),
+            label
+        };
+    });
 }
 
 function controlSnapshot(round, sequence, units, sites, participants) {
@@ -355,7 +565,10 @@ function buildControlTimeline(log, participants) {
 export function buildMatchStats(log) {
     if (!log || !Array.isArray(log.timeline)) return null;
 
-    const participants = (log.participants || []).map(participant => ({ ...participant }));
+    const participants = (log.participants || []).map(participant => ({
+        ...participant,
+        campKey: participant.campKey ?? participant.id
+    }));
     const participantsByKey = Object.fromEntries(participants.map(participant => [participant.campKey, participant]));
     const initialUnits = log.initialState?.units || [];
     const finalUnits = log.finalState?.units || [];
@@ -371,7 +584,11 @@ export function buildMatchStats(log) {
             name: participant.name || campKey,
             controller: participant.controller || 'unknown',
             colorId: participant.colorId || null,
+            color: participant.color || null,
             flagEmoji: participant.flagEmoji || null,
+            flagPreset: participant.flagPreset || inferHistoricalFlagPreset(participant, log.mode),
+            flagUrl: participant.flagUrl || null,
+            flagConfig: participant.flagConfig || null,
             ...(participant.neutralThemeId ? {
                 neutralThemeId: participant.neutralThemeId,
                 neutralThemePeriod: participant.neutralThemePeriod || null,
@@ -382,8 +599,8 @@ export function buildMatchStats(log) {
             finalForce: forceSnapshot(finalUnits, campKey),
             initialCities: campSiteCount(initialSites, campKey, 'city'),
             finalCities: campSiteCount(finalSites, campKey, 'city'),
-            initialGold: finiteNumber(log.initialState?.resources?.[campKey]?.gold),
-            finalGold: finiteNumber(log.finalState?.resources?.[campKey]?.gold),
+            initialGold: finiteNumber((log.initialState?.resources?.[campKey] ?? log.initialState?.camps?.[campKey])?.gold),
+            finalGold: finiteNumber((log.finalState?.resources?.[campKey] ?? log.finalState?.camps?.[campKey])?.gold),
             unattributedDamage: 0
         };
     }
@@ -584,13 +801,14 @@ export function buildMatchStats(log) {
         survived: finalIds.has(unitCatalogKey(unit.id)),
         finalHp: catalog.get(unitCatalogKey(unit.id))?.finalHp ?? null
     }));
-    const camps = Object.values(campsByKey).map(camp => ({
+    const camps = attachCampRatings(Object.values(campsByKey).map(camp => ({
         ...camp,
         killDeathRatio: camp.losses > 0 ? camp.kills / camp.losses : camp.kills,
         damagePerAttack: camp.attacks > 0 ? camp.damageDealt / camp.attacks : 0,
         forceDelta: camp.finalForce.units - camp.initialForce.units,
         cityDelta: camp.finalCities - camp.initialCities
-    }));
+    })), log.result?.winnerCampKey || null);
+    const mvpUnits = selectMvpUnits(units, 3);
     const rounds = [...roundsByNumber.values()].sort((left, right) => left.round - right.round);
     const controlTimeline = buildControlTimeline(log, participants);
     const battleEvents = identifyBattleEvents(rounds);
@@ -598,15 +816,17 @@ export function buildMatchStats(log) {
     return {
         matchId: log.matchId || null,
         complete: !!log.complete,
-        durationMs: finiteNumber(log.durationMs),
+        durationMs: resolveDurationMs(log),
         result: log.result || null,
         mode: log.mode || null,
         totalActions: camps.reduce((sum, camp) => sum + camp.actions, 0),
         totalDamage: camps.reduce((sum, camp) => sum + camp.damageTaken, 0),
+        totalHealing: camps.reduce((sum, camp) => sum + camp.healingReceived, 0),
         totalKills: camps.reduce((sum, camp) => sum + camp.kills, 0),
         totalLosses: camps.reduce((sum, camp) => sum + camp.losses, 0),
         camps,
         units,
+        mvpUnits,
         rounds,
         controlTimeline,
         battleEvents,
@@ -625,19 +845,36 @@ export function buildMatchStats(log) {
             attribution: '仅当日志含 sourceUnitId/sourceCampKey 时计入造成伤害；环境与无来源规则伤害只计入承受伤害。',
             healing: '“恢复量”指单位实际获得的生命值，不包含溢出治疗。',
             control: '综合控制为单位占比与城市占比的等权平均；图表可切换查看两个原始口径。',
-            unitShare: '单位占比为该回合结束时阵营存活单位数占全场存活单位数的比例；同一阵营以浅色表示陆军、深色表示海军。',
+            unitShare: '单位占比为该回合结束时阵营存活单位数占全场存活单位数的比例；同一阵营以深色（原色）表示陆军、浅色表示海军。',
             cityShare: '城市占比为该回合结束时阵营控制城市数占全场城市数的比例。',
-            battleEvents: '战役事件按交战、实际伤害、阵亡、占城与将领陨落的综合强度自适应识别；战线突破与大规模减员不会因攻击次数较少而漏标。'
+            battleEvents: '战役事件按交战、实际伤害、阵亡、占城与将领陨落的综合强度自适应筛选高分位峰值回合，仅保留少数决定战局走向的焦点战役。'
         }
     };
 }
 
 function unitFromReview(unit) {
     if (!unit) return null;
+    const type = unit.type ?? unit.unitType;
+    let commanderId = unit.commanderId || null;
+    if (!commanderId && typeof unit.displayName === 'string' && unit.displayName.includes(' · ')) {
+        const suffixName = unit.displayName.split(' · ').at(-1)?.trim();
+        if (suffixName && COMMANDER_NAME_TO_ID[suffixName]) commanderId = COMMANDER_NAME_TO_ID[suffixName];
+    }
+    const needsRelocalize = !unit.displayName
+        || (type && (UNIT_TYPE_NAMES[type] || UNIT_CONFIG[type]?.name) && String(unit.displayName).startsWith(String(type)));
     return {
         ...unit,
         id: unit.id ?? unit.unitId,
-        type: unit.type ?? unit.unitType
+        type,
+        commanderId,
+        displayName: needsRelocalize
+            ? unitDisplayName({
+                type,
+                commanderId,
+                isCommanderUnit: unit.isCommanderUnit ?? Boolean(commanderId),
+                specializationKey: unit.specializationKey
+            })
+            : unit.displayName
     };
 }
 
@@ -647,29 +884,60 @@ export function buildMatchStatsDocument(document) {
         if (!document.overview || !Array.isArray(document.controlTimeline) || !Array.isArray(document.roundIndex)) {
             return null;
         }
-        const camps = Array.isArray(document.overview.camps) ? document.overview.camps : [];
+        const participantsByKey = Object.fromEntries(
+            (Array.isArray(document.participants) ? document.participants : []).map(participant => [participant.campKey, participant])
+        );
+        const camps = attachCampRatings((Array.isArray(document.overview.camps) ? document.overview.camps : []).map(camp => {
+            const campKey = camp.campKey ?? camp.id;
+            const participant = participantsByKey[campKey];
+            const merged = {
+                ...camp,
+                campKey,
+                colorId: camp.colorId || participant?.colorId || null,
+                color: camp.color || participant?.color || null,
+                flagEmoji: camp.flagEmoji || participant?.flagEmoji || null,
+                flagPreset: camp.flagPreset || participant?.flagPreset || null,
+                flagUrl: camp.flagUrl || participant?.flagUrl || null,
+                flagConfig: camp.flagConfig || participant?.flagConfig || null,
+                neutralThemeId: camp.neutralThemeId || participant?.neutralThemeId || null,
+                neutralThemePeriod: camp.neutralThemePeriod || participant?.neutralThemePeriod || null
+            };
+            merged.flagPreset = merged.flagPreset || inferHistoricalFlagPreset(merged, document.mode);
+            return merged;
+        }), document.result?.winnerCampKey || null);
         const units = (document.unitHighlights || []).map(unitFromReview);
+        const mvpUnits = selectMvpUnits(units, 3);
+        const hasRoundMetrics = document.roundIndex.some(round => round?.byCamp && Object.keys(round.byCamp).length > 0);
+        const battleEvents = hasRoundMetrics ? identifyBattleEvents(document.roundIndex) : (document.battleEvents || []);
+        const rawMethodology = document.methodology || {};
+        const methodology = {
+            ...rawMethodology,
+            unitShare: '单位占比为该回合结束时阵营存活单位数占全场存活单位数的比例；同一阵营以深色（原色）表示陆军、浅色表示海军。',
+            battleEvents: '战役事件按交战、实际伤害、阵亡、占城与将领陨落的综合强度自适应筛选高分位峰值回合，仅保留少数决定战局走向的焦点战役。'
+        };
         return {
             matchId: document.matchId || null,
             complete: !!document.complete,
-            durationMs: finiteNumber(document.durationMs),
+            durationMs: resolveDurationMs(document),
             result: document.result || null,
             mode: document.mode || null,
             totalActions: finiteNumber(document.overview.totalActions),
             totalDamage: finiteNumber(document.overview.totalDamage),
+            totalHealing: finiteNumber(document.overview.totalHealing ?? camps.reduce((sum, camp) => sum + finiteNumber(camp.healingReceived), 0)),
             totalKills: camps.reduce((sum, camp) => sum + finiteNumber(camp.kills), 0),
             totalLosses: finiteNumber(document.overview.totalLosses),
             camps,
             units,
+            mvpUnits,
             rounds: document.roundIndex,
             controlTimeline: document.controlTimeline,
-            battleEvents: document.battleEvents || [],
+            battleEvents,
             factionSkillEvents: document.factionSkillEvents || [],
             commanderDeathEvents: document.commanderDeathEvents || [],
             keyEvents: document.keyEvents || [],
             leaders: Object.fromEntries(Object.entries(document.overview.leaders || {})
                 .map(([metric, unit]) => [metric, unitFromReview(unit)])),
-            methodology: document.methodology || {},
+            methodology,
             importedFromReview: true
         };
     }

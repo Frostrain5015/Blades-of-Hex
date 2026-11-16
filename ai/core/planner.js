@@ -73,7 +73,10 @@ export function planTurn(gameState, helpers, myCamp, caps) {
     const cards = planCards(world, strategy, missionsCtx);
     const production = planProduction(world, strategy, missionsCtx);
     const reserved = new Set(production.setup.filter(action => action.type === 'move').map(action => action.unitId));
-    const availableGold = world.gold - strategy.reserve - production.recruitSpend;
+    const unspentReserve = production.remainingReserve ?? strategy.reserve;
+    const availableGold = production.recruitSpend >= world.gold
+        ? 0
+        : Math.max(0, world.gold - unspentReserve - production.recruitSpend);
     const tactics = planTactics(world, strategy, missionsCtx, availableGold).filter(action => !reserved.has(action.unitId));
 
     const actions = [

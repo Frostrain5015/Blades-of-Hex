@@ -9,7 +9,7 @@
 import { on } from './eventBus.js';
 import { campToKey } from '../rules/camps.js';
 import { getRound } from '../rules/turns.js';
-import { buildMatchStats } from './matchStats.js';
+import { buildMatchStats, computeUnitMvpScore } from './matchStats.js';
 import { resolveAiDifficultyProfile } from '../ai/difficulty.js';
 
 export const MATCH_LOG_SCHEMA = 'blades-of-hex.match-log';
@@ -172,6 +172,8 @@ function initialParticipants(state) {
         colorId: faction?.colorId || null,
         flagEmoji: faction?.flagEmoji || null,
         flagPreset: faction?.flagPreset || null,
+        flagUrl: faction?.flagUrl || null,
+        flagConfig: faction?.flagConfig || null,
         ...(faction?.neutralThemeId ? {
             neutralThemeId: faction.neutralThemeId,
             neutralThemePeriod: faction.neutralThemePeriod,
@@ -576,7 +578,7 @@ export function recordMatchEvent(state, eventType, payload = {}) {
 
 function buildSummary(log) {
     const byCamp = Object.fromEntries(log.participants.map(participant => [participant.campKey, {
-        actions: 0, moves: 0, attacks: 0, recruits: 0, reinforcements: 0,
+        actions: 0, moves: 0, attacks: 0, recruits: 0, reinforcements: 0, airCommands: 0,
         cards: 0, constructions: 0, noStateChangeActions: 0, rejectedActions: 0,
         damageDealt: 0, healing: 0, unitsLost: 0, kills: 0, attributedKills: 0, citiesCaptured: 0
     }]));
@@ -592,7 +594,8 @@ function buildSummary(log) {
             if (!item.outcome.changed) stats.noStateChangeActions = (stats.noStateChangeActions || 0) + 1;
             const buckets = {
                 move: 'moves', attack: 'attacks', recruit: 'recruits', reinforce: 'reinforcements',
-                repairShip: 'reinforcements', tacticalCard: 'cards', drawCard: 'cards',
+                repairShip: 'reinforcements', fieldRepair: 'reinforcements',
+                tacticalCard: 'cards', drawCard: 'cards', airCommand: 'airCommands',
                 buildFortification: 'constructions', buildBunker: 'constructions', buildAirfield: 'constructions',
                 engineerTrench: 'constructions', engineerFlak: 'constructions', engineerBunkerStart: 'constructions'
             };
@@ -696,14 +699,8 @@ export function buildMatchReview(log = active?.log || null) {
     const stats = buildMatchStats(log);
     if (!log || !stats) return null;
     const unitHighlights = [...stats.units]
-        .sort((left, right) => {
-            const score = unit => unit.damageDealt
-                + unit.damageTaken * 0.35
-                + unit.healingReceived * 0.5
-                + unit.kills * 100
-                + unit.captures * 80;
-            return score(right) - score(left) || String(left.id).localeCompare(String(right.id));
-        })
+        .sort((left, right) => computeUnitMvpScore(right) - computeUnitMvpScore(left)
+            || String(left.id).localeCompare(String(right.id)))
         .slice(0, 16)
         .map(compactUnitHighlight);
     return {
@@ -732,6 +729,8 @@ export function buildMatchReview(log = active?.log || null) {
         overview: {
             totalActions: stats.totalActions,
             totalDamage: stats.totalDamage,
+            totalHealing: stats.totalHealing,
+            totalKills: stats.totalKills,
             totalLosses: stats.totalLosses,
             rounds: Math.max(
                 stats.rounds.at(-1)?.round || 0,
