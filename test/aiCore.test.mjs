@@ -586,6 +586,44 @@ test('困难 AI 保留海军将领，拒绝反击后会被下一轮舰炮收掉�
     assert.equal(attack()?.targetId, battleship.id, '仍可直接斩杀');
 });
 
+test('陆军移动到任务目标旁时，优先一击拿下低血城防', () => {
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const from = makeTile(0, 0);
+    const city = makeTile(1, 0, { isCity: true, camp: neutral, hp: 30 });
+    const ship = makeTile(0, 1, { surface: 'shallowWater' });
+    const infantry = makeUnit(1, 'infantry', me, from);
+    const destroyer = makeUnit(2, 'destroyer', neutral, ship, { hp: 1 });
+    const tiles = [from, city, ship];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        _aiCoreMemory: { player1: { missions: [{ kind: 'siege', targetQ: city.q, targetR: city.r }] } }
+    });
+    const helpers = { ...makeHelpers(tiles), getAttackableTiles: () => [ship, city] };
+    const followup = () => planFollowupAttack(state, helpers, me, TIER_CAPABILITIES.hard, infantry.id);
+    assert.deepEqual(followup(), { type: 'siegeCityAttack', unitId: infantry.id, tileQ: city.q, tileR: city.r });
+    city.hp = 200;
+    assert.equal(followup()?.targetId, destroyer.id);
+});
+
+test('陆军谋士有安全陆地时不登船，已经登船则优先返回安全陆地', async () => {
+    const { buildWorld, planTactics } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const land = makeTile(0, 0, { camp: me });
+    const port = makeTile(1, 0, { isPort: true, surface: 'shallowWater', camp: neutral });
+    const advisor = makeUnit(1, 'archer', me, land, { commander: 'advisor' });
+    const tiles = [land, port];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral });
+    const helpers = { ...makeHelpers(tiles), getMovableTiles: () => advisor.isEmbarked ? [land] : [port] };
+    const context = { missions: [], assignment: new Map() };
+    const actions = () => planTactics(buildWorld(state, helpers, me, TIER_CAPABILITIES.hard), { posture: 'contest' }, context);
+    assert.deepEqual(actions(), []);
+
+    land.unit = null;
+    port.unit = advisor;
+    advisor.tile = port;
+    advisor.isEmbarked = true;
+    assert.deepEqual(actions(), [{ type: 'move', unitId: advisor.id, tileQ: land.q, tileR: land.r }]);
+});
+
 test('南城回归：困难骑兵放弃反击后会被步炮收掉的冲城，保留斩杀占城', () => {
     const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
     const from = makeTile(-1, 4), city = makeTile(-2, 5, { isCity: true, camp: neutral, hp: 250 });

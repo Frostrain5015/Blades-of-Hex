@@ -166,7 +166,8 @@ import {
     getHistoricalRecruitCost,
     isHeavyCannonDeployed,
     isCultureSystemEnabled,
-    getHeavyCannonStanceCooldown,
+    HEAVY_CANNON_STANCE,
+    getHeavyCannonStanceBlock,
     getFreeResistanceTurnDeadline,
     getNeverSurrenderAttackBonus,
     getActiveCultureId,
@@ -2196,7 +2197,8 @@ function _computeMovableTiles(unit, fogSafePreview = false, breachedCity = null)
         if (!fogSafePreview) unit.morale = inSignal ? 2 : 0;
         if (!inSignal) return { tiles: [], parents: new Map() };
     }
-    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile || isHeavyCannonDeployed(unit) || isPortGuarded(unit, gameState)) {
+    if (unit.morale === 0 || unit._imprisoned || unit._isImmobile || isHeavyCannonDeployed(unit)
+        || unit._heavyCannonAutoFiredThisTurn || isPortGuarded(unit, gameState)) {
         return { tiles: [], parents: new Map() };
     }
 
@@ -2326,9 +2328,10 @@ function _getMovableTiles(unit) {
     return exact.tiles;
 }
 
-export function getAttackableTiles(unit, { forAiAction = false, automaticHeavyCannon = false } = {}) {
+export function getAttackableTiles(unit, { forAiAction = false, automaticHeavyCannon = false, previewHeavyCannon = false } = {}) {
     if (unit.type === 'carrier' && isNeutralAi(unit.camp)) return [];
-    if (unit.type === 'fr_heavy_cannon' && (!automaticHeavyCannon || !isHeavyCannonDeployed(unit))) return [];
+    if (unit.type === 'fr_heavy_cannon' && !previewHeavyCannon
+        && (!automaticHeavyCannon || !isHeavyCannonDeployed(unit))) return [];
     // 无人机：实时检查信号范围，同步士气状态（不刷新其他无人机）
     if (unit._isDrone) {
         unit.morale = isDroneInSignal(gameState, unit) ? 2 : 0;
@@ -2340,7 +2343,7 @@ export function getAttackableTiles(unit, { forAiAction = false, automaticHeavyCa
     if (unit.type === 'carrier' && (!isMechanicEnabled(gameState, 'airCommands')
         || (isMechanicEnabled(gameState, 'weatherEffects') && !hasNegativeWeatherImmunity(gameState, unit.camp)
             && getEffectiveWeather(unit.tile, unit.camp, gameState) === 'fog'))) return [];
-    if (unit._heavyCannonAutoFiredThisTurn) return [];
+    if (unit._heavyCannonAutoFiredThisTurn && !previewHeavyCannon) return [];
 if (unit._specializationAttackSpent) return [];
     let range = unit.getEffectiveRange?.() ?? unit.config.range;
     // 无人机固定射程2
@@ -4899,13 +4902,13 @@ export function executeRiverGateSwitch(tile) {
 }
 
 export function executeHeavyCannonStance(unit) {
-    if (unit?.type !== 'fr_heavy_cannon' || unit.camp !== gameState.currentCamp
-        || unit.tile?.unit !== unit || unit.hp <= 0 || unit._imprisoned || unit.isEmbarked
-        || unit.isNewRecruit || !unit.canAct || getHeavyCannonStanceCooldown(unit, gameState) > 0
-        || gameState.gameOver || (isNetworkGame() && !gameState.aiActing && !isMyTurn(unit.camp))) return false;
+    if (getHeavyCannonStanceBlock(unit, gameState)
+        || (isNetworkGame() && !gameState.aiActing && !isMyTurn(unit.camp))) return false;
     unit._heavyCannonDeployed = !isHeavyCannonDeployed(unit);
-    unit._heavyCannonStanceReadyRound = getRoundIndex(gameState) + 2;
-    unit.remainingMP = unit._heavyCannonDeployed || unit.movedThisTurn ? 0 : unit.getEffectiveSpeed();
+    unit._heavyCannonStanceReadyRound = getRoundIndex(gameState) + HEAVY_CANNON_STANCE.cooldownRounds + 1;
+    unit.displaySpeed = unit.getEffectiveSpeed();
+    unit.remainingMP = unit.movedThisTurn || unit._heavyCannonAutoFiredThisTurn ? 0 : unit.displaySpeed;
+    if (unit.remainingMP > 0) unit.canAct = true;
     const label = unit._heavyCannonDeployed ? '架设部署' : '机动收起';
     spawnCommanderSkillEffect(unit.tile.x, unit.tile.y, '⚙️', label);
     if (gameState.selectedUnit === unit) {

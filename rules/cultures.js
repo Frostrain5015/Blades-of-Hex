@@ -102,7 +102,8 @@ export const SAMURAI_PASSIVE_DESCRIPTION = '无法接受常规治疗，仅可通
 export const GUERRILLA_PASSIVE_DESCRIPTION = '移动不受地形与天气的额外行动力消耗影响。';
 
 export const HEAVY_CANNON_STANCE = Object.freeze({
-    desc: '在机动形态与架设形态之间切换，施放后下一己方回合进入1回合冷却。'
+    cooldownRounds: 1,
+    desc: '移动后仍可架设。自动炮击后可以收起，下个己方回合恢复移动。每次切换后冷却1个己方回合。'
 });
 
 export function isHeavyCannonDeployed(unit) {
@@ -111,6 +112,18 @@ export function isHeavyCannonDeployed(unit) {
 
 export function getHeavyCannonStanceCooldown(unit, state) {
     return Math.max(0, (unit?._heavyCannonStanceReadyRound || 0) - getRoundIndex(state));
+}
+
+export function getHeavyCannonStanceBlock(unit, state) {
+    if (state.gameOver || unit?.type !== 'fr_heavy_cannon' || unit.camp !== state.currentCamp
+        || unit.hp <= 0 || unit.tile?.unit !== unit) return '本回合无法切换';
+    if (unit._imprisoned) return '被禁锢';
+    if (unit.isEmbarked) return '运输状态下无法切换';
+    if (unit.isNewRecruit || unit.morale === 0 || unit._campaignCanAct === false
+        || unit._engineerScaffold || unit._constructionScaffold) return '本回合无法切换';
+    const cooldown = getHeavyCannonStanceCooldown(unit, state);
+    if (cooldown > HEAVY_CANNON_STANCE.cooldownRounds) return '本回合已切换形态';
+    return cooldown ? `冷却${cooldown}回合` : '';
 }
 
 export const UNDERGROUND_INTELLIGENCE = Object.freeze({

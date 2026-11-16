@@ -525,6 +525,7 @@ export function serializeMatchState(match) {
             fireSea: t.unit.fireSea ? { ...t.unit.fireSea } : null,
             heavyCannonDeployed: t.unit._heavyCannonDeployed === true,
             heavyCannonStanceReadyRound: t.unit._heavyCannonStanceReadyRound || 0,
+            heavyCannonAutoFiredThisTurn: t.unit._heavyCannonAutoFiredThisTurn === true,
             katyushaMoraleDrop: t.unit._katyushaMoraleDrop || 0,
             katyushaMoraleUntilTurn: t.unit._katyushaMoraleUntilTurn || 0,
             heavyCannonAutoFiredThisTurn: t.unit._heavyCannonAutoFiredThisTurn === true,
@@ -1052,6 +1053,7 @@ export function restoreMatchState(match, data, deps) {
             unit.fireSea = td.unit.fireSea?.roundsRemaining > 0 ? { ...td.unit.fireSea } : null;
             unit._heavyCannonDeployed = td.unit.heavyCannonDeployed === true;
             unit._heavyCannonStanceReadyRound = td.unit.heavyCannonStanceReadyRound || 0;
+            unit._heavyCannonAutoFiredThisTurn = td.unit.heavyCannonAutoFiredThisTurn === true;
             unit._katyushaMoraleDrop = td.unit.katyushaMoraleDrop || 0;
             unit._katyushaMoraleUntilTurn = td.unit.katyushaMoraleUntilTurn || 0;
             unit._heavyCannonAutoFiredThisTurn = td.unit.heavyCannonAutoFiredThisTurn === true;

@@ -32,36 +32,36 @@ const appearances = {
     sovietsInManchuria: ['苏军驻东北部队', sovietFlag, 'red']
 };
 
-// 双人对阵与开局说明以 docs/历史模式中立守备对阵表.md 为准。
+// 双人对阵以 docs/历史模式中立守备对阵表.md 为准。
 const matchups = new Map([
-    ['de:fr', ['belgium', '1940', '德军经阿登地区绕过马奇诺防线。']],
-    ['de:ru', ['poland', '1939', '波兰面临德苏两线入侵。']],
-    ['de:gb', ['norway', '1940', '德国入侵挪威，英国派兵介入。']],
-    ['de:us', ['france', '1944', '美军参加诺曼底登陆。']],
-    ['de:jp', ['italy', '1940', '德、意、日签署《三国同盟条约》。']],
-    ['de:kmt', ['japan', '1937', '日本向仍在协助国民政府的德国施压，要求撤走顾问。']],
-    ['cpc:de', ['soviet', '1941', '德国入侵苏联，中共中央表态支持苏联抵抗。']],
-    ['gb:ru', ['iran', '1941', '英国与苏联共同出兵伊朗。']],
-    ['fr:ru', ['germany', '1945', '法国和苏联分别管理德国的占领区。']],
-    ['ru:us', ['germany', '1948–1949', '苏联封锁西柏林的陆路与水路，美国和英国展开空运。']],
-    ['jp:ru', ['republicOfChina', '1945', '苏联对日宣战，中国东北迎来抗战结束。']],
-    ['kmt:ru', ['mongolia', '1945–1946', '蒙古地位是中苏谈判议题，国民政府随后承认其独立。']],
-    ['cpc:ru', ['mongolia', '1945', '蒙古出现在抗战结束时东北亚的局势中。']],
-    ['fr:gb', ['norway', '1940', '英国和法国共同出兵挪威。']],
-    ['gb:us', ['germany', '1944', '英国和美国共同参加对德作战。']],
-    ['gb:jp', ['malaya', '1941–1942', '日军进攻英属马来亚。']],
-    ['gb:kmt', ['india', '1942', '中国驻印军在兰姆伽整训。']],
-    ['cpc:gb', ['nationalistGovernment', '1949', '国民政府是这一时期中国局势中的第三方。']],
-    ['fr:us', ['morocco', '1942', '美军在摩洛哥登陆，与维希法军交战。']],
-    ['fr:jp', ['vietnam', '1940', '日军进入法属印度支那。']],
-    ['fr:kmt', ['northVietnam', '1945–1946', '国军进驻越北受降，中法随后交涉驻军交接。']],
-    ['cpc:fr', ['saigon', '1950', '越南西贡政权是印度支那局势中的一方。']],
-    ['jp:us', ['philippines', '1941', '日军入侵菲律宾，美菲部队共同防守。']],
-    ['kmt:us', ['burma', '1944', '中美部队共同参与缅北反攻。']],
-    ['cpc:us', ['southKorea', '1950', '中国人民志愿军入朝后与美军交战。']],
-    ['jp:kmt', ['manchukuo', '1932', '日本扶植满洲国，国民政府提出抗议。']],
-    ['cpc:jp', ['republicOfChina', '1942', '抗战期间，国共关系日趋紧张。']],
-    ['cpc:kmt', ['sovietsInManchuria', '1945–1946', '苏军占领并陆续撤离东北，国共部队先后进入。']]
+    ['de:fr', ['belgium', '1940']],
+    ['de:ru', ['poland', '1939']],
+    ['de:gb', ['norway', '1940']],
+    ['de:us', ['france', '1944']],
+    ['de:jp', ['italy', '1940']],
+    ['de:kmt', ['japan', '1937']],
+    ['cpc:de', ['soviet', '1941']],
+    ['gb:ru', ['iran', '1941']],
+    ['fr:ru', ['germany', '1945']],
+    ['ru:us', ['germany', '1948–1949']],
+    ['jp:ru', ['republicOfChina', '1945']],
+    ['kmt:ru', ['mongolia', '1945–1946']],
+    ['cpc:ru', ['mongolia', '1945']],
+    ['fr:gb', ['norway', '1940']],
+    ['gb:us', ['germany', '1944']],
+    ['gb:jp', ['malaya', '1941–1942']],
+    ['gb:kmt', ['india', '1942']],
+    ['cpc:gb', ['nationalistGovernment', '1949']],
+    ['fr:us', ['morocco', '1942']],
+    ['fr:jp', ['vietnam', '1940']],
+    ['fr:kmt', ['northVietnam', '1945–1946']],
+    ['cpc:fr', ['saigon', '1950']],
+    ['jp:us', ['philippines', '1941']],
+    ['kmt:us', ['burma', '1944']],
+    ['cpc:us', ['southKorea', '1950']],
+    ['jp:kmt', ['manchukuo', '1932']],
+    ['cpc:jp', ['republicOfChina', '1942']],
+    ['cpc:kmt', ['sovietsInManchuria', '1945–1946']]
 ]);
 
 export function getHistoricalNeutralAppearance(state) {
@@ -73,10 +73,10 @@ export function getHistoricalNeutralAppearance(state) {
     const matchup = matchups.get(cultures.sort().join(':'));
     if (!matchup) return null;
 
-    const [neutralThemeId, neutralThemePeriod, note] = matchup;
+    const [neutralThemeId, neutralThemePeriod] = matchup;
     const [name, flag, colorId] = appearances[neutralThemeId];
     return {
-        neutralThemeId, neutralThemePeriod, note, name,
+        neutralThemeId, neutralThemePeriod, name,
         colorId, color: getPaletteEntry(colorId).tile,
         flagUrl: `img/flags/${flag}`, flagAlt: `${name}旗帜`
     };

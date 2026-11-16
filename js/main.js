@@ -856,11 +856,6 @@ function _revealTurnOrder(onComplete) {
     const neutral = applyHistoricalNeutralAppearance(gameState);
     const overlay = document.getElementById('factionReveal');
     const flags = document.getElementById('factionRevealFlags');
-    const neutralNote = document.getElementById('factionRevealNeutralNote');
-    if (neutralNote) {
-        neutralNote.hidden = !neutral;
-        neutralNote.textContent = neutral ? `${neutral.neutralThemePeriod} 年 · ${neutral.note}` : '';
-    }
     const players = (gameState.turnOrder || []).filter(key => key !== 'neutral');
     if (!overlay || !flags || players.length === 0) {
         onComplete();

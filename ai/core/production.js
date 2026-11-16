@@ -118,6 +118,7 @@ export function planProduction(world, strategy, missionsCtx) {
         const candidates = world.myCities
             .filter(city => !reservedForMinister(city))
             .filter(city => city.unit && city.unit.camp === world.myCamp && city.unit.canAct)
+            .filter(city => city.unit.type !== 'fr_heavy_cannon')
             .filter(city => !shouldReserveCityGarrison(world, city.unit))
             .filter(city => (!city.unit.commander
                 || (ministerMayVacate && city.unit.commander === 'minister'))

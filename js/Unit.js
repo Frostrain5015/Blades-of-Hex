@@ -8,6 +8,7 @@ import {
     getAttackRangeCap,
     getMinimumAttackRange,
     isRankLockedUnit,
+    isStaticBattleStructure,
     isStrongpointTarget,
     isValidSpecialization,
     getUnitBaseType,
@@ -365,7 +366,7 @@ export class Unit {
         if (this._imprisoned) {
             effects.push({ label: '禁锢', desc: '本回合无法移动', color: '#ff8844', status: '本回合生效' });
         }
-        if (this._isImmobile) {
+        if (this._isImmobile && !isStaticBattleStructure(this)) {
             effects.push({ label: '不可移动', desc: '该单位无法移动', color: '#888', status: '常驻生效' });
         }
 

@@ -11,7 +11,7 @@ import { assignMissions } from './missions.js';
 import { planTactics, bestAttackFor, evaluateAttack, planCaptureFinishers } from './tactics.js';
 import { planCards, shouldDrawCard } from './cards.js';
 import { planProduction } from './production.js';
-import { shouldHoldCityPosition } from './roster.js';
+import { isFieldCapturer, shouldHoldCityPosition } from './roster.js';
 
 // 移动后的追击复用战术评分，只刷新可见局面，不重新分配整支军队的任务。
 export function planFollowupAttack(gameState, helpers, myCamp, caps, unitId, plannedTargetId = null) {
@@ -35,6 +35,15 @@ export function planFollowupAttack(gameState, helpers, myCamp, caps, unitId, pla
         const target = [...world.rivalUnits, ...world.neutralUnits].find(candidate => candidate.id === plannedTargetId);
         if (!target || evaluateAttack(world, context, unit, target).veto) return null;
         return attack(target.id);
+    }
+    if (unit.canAct && !holdPosition && isFieldCapturer(world, unit)) {
+        // 移动可能刚好进入攻城射程，先兑现可一击拿下的任务目标。
+        const city = helpers.getAttackableTiles(unit).find(tile => tile.isCity && !tile.unit
+            && helpers.hexDistance(unit.tile, tile) === 1 && tile.hp > 0
+            && missions.some(mission => mission.kind === 'siege'
+                && mission.targetQ === tile.q && mission.targetR === tile.r)
+            && world.estimateSiegeDamage(unit, tile) >= tile.hp);
+        if (city) return { type: 'siegeCityAttack', unitId, tileQ: city.q, tileR: city.r };
     }
     const best = bestAttackFor(world, context, unit);
     return best ? attack(best.target.id) : null;

@@ -21,6 +21,7 @@ import { getKmtLinkedUnits } from '../../rules/kmtStronghold.js';
 import { getUnitBaseType } from '../../rules/units.js';
 import { BANZAI_CHARGE_CONFIG, getActiveCultureId, getBanzaiBonusDamage, getBanzaiCooldown, getFireSeaState, getNeverSurrenderStacks } from '../../rules/cultures.js';
 import { getBanzaiChargePath } from '../../rules/targeting.js';
+import { isEmbarkableLandUnit } from '../../rules/movement.js';
 
 const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
@@ -474,6 +475,12 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
     if (captureObjective && retreating) return false;
     const distance = world.navDistance || world.helpers.hexDistance;
     const distanceToObjective = captureObjective ? distance(unit.tile, captureObjective) : 0;
+    const advisor = unit.commander === 'advisor' && isEmbarkableLandUnit(unit);
+    const safeLand = tile => !world.onWater(tile)
+        && world.threatAt(tile, unit) * W.lethalThreatMargin < unit.hp + (unit._shield || 0);
+    const canStayAshore = advisor && (safeLand(unit.tile) || movable.some(tile =>
+        !tile.unit && safeLand(tile)));
+    const shouldLand = canStayAshore && world.onWater(unit.tile);
     const protectCommander = world.caps.rearCommanderSafety
         && (FRAGILE_COMMANDERS.has(unit.commander) || (unit.commander && world.isNaval(unit)));
     const currentThreat = protectCommander ? world.threatAt(unit.tile, unit) : 0;
@@ -496,11 +503,13 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
     const rallyPoint = !mission ? primaryRallyPoint(world, missionsCtx) : null;
 
     let bestTile = null;
-    let bestScore = retreating ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission)
+    let bestScore = retreating || shouldLand ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission)
         + historicalPositionValue(world, unit, unit.tile);
     for (const tile of movable) {
         if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
         if (stageOnLand && world.onWater(tile)) continue;
+        if (canStayAshore && world.onWater(tile)) continue;
+        if (shouldLand && !safeLand(tile)) continue;
         if (captureObjective && (distance(tile, captureObjective) >= distanceToObjective
             || world.threatAt(tile, unit) >= unit.hp + (unit._shield || 0))) continue;
         if (protectCommander && !retreating) {

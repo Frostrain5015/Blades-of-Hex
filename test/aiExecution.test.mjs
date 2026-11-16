@@ -9,13 +9,13 @@ const { engine } = await import('../core/headless.js');
 const { processOpponentTurn, processNeutralTurn, configureAiRuntime } = await import('../js/ai.js');
 const { applyRemoteState, refreshInspectionSelection, serializeState, setInspectionTarget } = await import('../js/state.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
-const { CULTURE_CONFIG } = await import('../rules/cultures.js');
+const { CULTURE_CONFIG, getHeavyCannonStanceBlock, isHeavyCannonDeployed } = await import('../rules/cultures.js');
 const { getStandardMap } = await import('../rules/standardMaps.js');
 const { getRound } = await import('../rules/turns.js');
 const { isTileVisible, updateFogOfWar } = await import('../js/fogOfWar.js');
 const { isUnitVisibleToCamp } = await import('../rules/visibility.js');
 const { getUndergroundIntelligenceStatus } = await import('../rules/undergroundIntelligence.js');
-const { BURN_MS, attackCityTile, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
+const { BURN_MS, attackCityTile, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, executeHeavyCannonStance, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
 const { getAirCommandAvailability } = await import('../rules/airCommands.js');
 const { droneProjectiles, HEAVY_CANNON_IMPACT_MS, heavyCannonShells, ringWaves, spawnHeavyCannonShell, updateHeavyCannonShells } = await import('../js/effects.js');
 const { KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, getKatyushaPresentedHealth, katyushaRockets } = await import('../js/effects.js');
@@ -455,12 +455,74 @@ test('历史模式 AI 为法国巨炮选射界并架设，下个己方回合自�
     const target = place('infantry', foe, state.tileMap.get('4,0'));
     await processOpponentTurn(me);
     assert.equal(cannon._heavyCannonDeployed, true);
+    assert.equal(cannon.tile, home);
     assert.equal(cannon.remainingMP, 0);
     assert.ok(events.some(({ action, status }) => action.type === 'heavyCannonStance' && status === 'executed'));
     state.currentCamp = foe;
     state.turnOrder = ['player2', 'player1', 'neutral'];
     await engine.advanceAutomatedTurn();
     assert.ok(target.hp < target.maxHp);
+});
+
+test('AI 巨炮先移动到够得着敌军的位置，耗尽行动力后仍能架设', async () => {
+    const { me, foe, home } = setupMatch();
+    me.flagPreset = 'img/flags/svg/fr.svg';
+    state.factionRuleMode = 'culture';
+    const cannon = place('fr_heavy_cannon', me, home);
+    place('infantry', me, state.tileMap.get('0,1'));
+    place('infantry', foe, state.tileMap.get('6,0'));
+    await processOpponentTurn(me);
+    const actions = events.filter(({ action }) => action.unitId === cannon.id);
+    assert.notEqual(cannon.tile, home);
+    assert.ok(isHeavyCannonDeployed(cannon), JSON.stringify({
+        position: [cannon.tile.q, cannon.tile.r], actions, morale: cannon.morale,
+        stance: getHeavyCannonStanceBlock(cannon, state)
+    }));
+    assert.deepEqual(actions.map(({ action }) => action.type), ['move', 'heavyCannonStance']);
+});
+
+test('巨炮进城后可架设，冷却结束后可在自动开火的同回合收起，下一回合恢复移动', async () => {
+    const { me, foe, home } = setupMatch();
+    state.turnOrder = ['player1', 'player2'];
+    const cannon = place('fr_heavy_cannon', me, state.tileMap.get('1,0'));
+    const target = place('infantry', foe, state.tileMap.get('4,0'));
+    target.hp = target.maxHp = 500;
+    home.terrain = 'forest';
+    state.movableTiles = engine.getMovableTiles(cannon);
+    engine.moveUnit(cannon, home);
+    assert.equal(cannon.tile, home);
+    assert.equal(cannon.remainingMP, 0);
+    assert.equal(cannon.canAct, false);
+    assert.equal(executeHeavyCannonStance(cannon), true);
+    assert.equal(executeHeavyCannonStance(cannon), false);
+
+    await engine.advanceAutomatedTurn();
+    await engine.advanceAutomatedTurn();
+    assert.ok(cannon._heavyCannonAutoFiredThisTurn);
+    assert.equal(getHeavyCannonStanceBlock(cannon, state), '冷却1回合');
+    assert.equal(executeHeavyCannonStance(cannon), false);
+
+    await engine.advanceAutomatedTurn();
+    await engine.advanceAutomatedTurn();
+    applyRemoteState(serializeState(), engine.HexTile, engine.Unit);
+    const restored = state.tileMap.get('0,0').unit;
+    assert.ok(restored._heavyCannonAutoFiredThisTurn);
+    assert.equal(executeHeavyCannonStance(restored), true);
+    assert.equal(isHeavyCannonDeployed(restored), false);
+    assert.equal(restored.remainingMP, 0);
+    restored.remainingMP = 4;
+    assert.deepEqual(engine.getMovableTiles(restored), [], '炮击后的移动锁在额外行动力下也生效');
+    await engine.advanceAutomatedTurn();
+    await engine.advanceAutomatedTurn();
+    assert.ok(engine.getMovableTiles(restored).length > 0);
+});
+
+test('机枪堡移除不可移动的头顶标记与效果项，仍无移动范围', () => {
+    const { me, home } = setupMatch();
+    const nest = place('mgNest', me, home);
+    nest._isImmobile = true;
+    assert.ok(nest.getTimedEffects(state).every(effect => effect.label !== '不可移动'));
+    assert.deepEqual(engine.getMovableTiles(nest), []);
 });
 
 test('历史模式德国 AI 用同一机场连续俯冲并分别标记两支部队', async () => {

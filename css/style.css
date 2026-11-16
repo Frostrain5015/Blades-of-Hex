@@ -3022,12 +3022,6 @@ body {
     letter-spacing: 1px;
     text-shadow: 0 2px 6px #000;
 }
-.faction-reveal-neutral-note {
-    max-width: 42em;
-    margin: 8px auto 0;
-    color: #d6c9aa;
-    font-size: clamp(12px, 1.6vw, 15px);
-}
 .faction-reveal-countdown {
     min-height: 116px;
     margin-top: clamp(14px, 3vh, 30px);

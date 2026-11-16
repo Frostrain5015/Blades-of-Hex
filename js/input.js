@@ -47,7 +47,7 @@ import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFiel
 import { measure, perfEnabled } from './perf.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandCost, getAirCommandRange, getAirfieldColonel, getVisibleAirCommandKinds } from '../rules/airCommands.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
-import { BANZAI_CHARGE_CONFIG, GUERRILLA_CONCEALMENT_CONFIG, HEAVY_CANNON_STANCE, UNDERGROUND_INTELLIGENCE, getHistoricalCost, getHeavyCannonStanceCooldown, isHeavyCannonDeployed, getActiveFactionCulture, getBanzaiCooldown, getCultureForFaction, getCulturalReinforceCostScale, getFireSeaDefenseReduction, getGuerrillaConcealmentReason, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity } from '../rules/cultures.js';
+import { BANZAI_CHARGE_CONFIG, GUERRILLA_CONCEALMENT_CONFIG, HEAVY_CANNON_STANCE, UNDERGROUND_INTELLIGENCE, getHistoricalCost, getHeavyCannonStanceBlock, isHeavyCannonDeployed, getActiveFactionCulture, getBanzaiCooldown, getCultureForFaction, getCulturalReinforceCostScale, getFireSeaDefenseReduction, getGuerrillaConcealmentReason, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity } from '../rules/cultures.js';
 import {
     AURELIA_FACTION_PASSIVE,
     hasAureliaOathPassive,
@@ -633,12 +633,11 @@ function _collectBoardActions(unit, tile = null) {    const actions = [];
     }
 
     if (unit.type === 'fr_heavy_cannon' && _isLocalActionCamp(unit.camp)) {
-        const cooldown = getHeavyCannonStanceCooldown(unit, gameState);
-        const canUse = cooldown === 0 && unit.canAct && !unit.isNewRecruit && !unit._imprisoned && !unit.isEmbarked;
+        const reason = getHeavyCannonStanceBlock(unit, gameState);
         actions.push({
-            key: 'heavy-cannon-stance', buttonId: 'boardHeavyCannonStance', kind: 'heavyCannonStance',
+            key: `heavy-cannon-stance:${unit.id}`, buttonId: 'boardHeavyCannonStance', kind: 'heavyCannonStance',
             unitId: unit.id, icon: '⚙️', label: isHeavyCannonDeployed(unit) ? '机动收起' : '架设部署',
-            canUse, reason: cooldown ? '冷却1回合' : canUse ? '' : '本回合无法行动', theme: 'specialization'
+            canUse: !reason, reason, theme: 'specialization'
         });
     }
     const reinforcement = _getReinforcementAction(unit);
@@ -833,7 +832,14 @@ function _activateBoardAction(action) {
     }
 
     if (action.kind === 'heavyCannonStance') {
-        if (executeHeavyCannonStance(unit)) showSelectionHudForTile(unit.tile);
+        if (executeHeavyCannonStance(unit)) {
+            if (gameState.selectedUnit !== unit && unit.remainingMP > 0) {
+                gameState.selectedUnit = unit;
+                gameState.movableTiles = getMovableTiles(unit);
+                gameState.selectionTime = performance.now();
+            }
+            showSelectionHudForTile(unit.tile);
+        }
         return;
     }
     if (action.kind === 'reinforce') {
@@ -2812,7 +2818,8 @@ export function initInput() {
                 gameState.attackableTiles = getAttackableTiles(clickedTile.unit);
                 refreshChainAttackPlans(clickedTile.unit);
                 // 碉堡等不可移动单位：若无攻击目标则直接标记为不可行动
-                if (gameState.movableTiles.length === 0 && gameState.attackableTiles.length === 0) {
+                if (clickedTile.unit.type !== 'fr_heavy_cannon'
+                    && gameState.movableTiles.length === 0 && gameState.attackableTiles.length === 0) {
                     clickedTile.unit.canAct = false;
                     gameState.selectedUnit = null;
                     return;
@@ -2987,7 +2994,7 @@ export function initSettingsPanel() {
             const copy = document.createElement('div');
             const name = document.createElement('div'); name.className = 'faction-list-name'; name.textContent = faction.name;
             copy.appendChild(name);
-            if (faction.note) {
+            if (faction.note && !faction.neutralThemeId) {
                 const detail = document.createElement('div');
                 detail.className = 'faction-list-meta';
                 detail.textContent = faction.note;

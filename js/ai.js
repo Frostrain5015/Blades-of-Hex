@@ -51,7 +51,7 @@ import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { canRecruitTypeAtSelectedSite } from './recruitmentUi.js';
 import { chooseDefaultSpecialization, countLivingUnitsOfType, getUnitBaseType } from '../rules/units.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
-import { getActiveCultureId, getBanzaiBonusDamage, getCulturalReinforceCostScale, getFireSeaState, getGuerrillaConcealmentReason, getHistoricalCost, getHistoricalRecruitCost, isHeavyCannonDeployed } from '../rules/cultures.js';
+import { getActiveCultureId, getBanzaiBonusDamage, getCulturalReinforceCostScale, getFireSeaState, getGuerrillaConcealmentReason, getHeavyCannonStanceBlock, getHistoricalCost, getHistoricalRecruitCost, isHeavyCannonDeployed } from '../rules/cultures.js';
 import { isCityDisabled } from '../rules/citySiege.js';
 import { getBanzaiChargePath } from '../rules/targeting.js';
 import {
@@ -436,20 +436,23 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
     return fired;
 }
 
-async function positionFrenchCannons(camp, deploy) {
+async function positionFrenchCannons(camp, { afterGround = false } = {}) {
     if (getActiveCultureId(gameState, camp) !== 'fr') return;
-    const enemies = gameState.tiles.filter(tile => isKnownToAi(tile, camp)
-        && (tile.unit?.hp > 0 ? canAttack(gameState, camp, tile.unit.camp)
-            && isUnitVisibleToCamp(tile.unit, camp, gameState) && isSubmarineTargetableBy(tile.unit, camp, gameState)
-            : (tile.isCity || tile.isUrban) && tile.hp > 0 && canAttack(gameState, camp, tile.camp)));
+    const visibleEnemy = unit => unit?.hp > 0 && canAttack(gameState, camp, unit.camp)
+        && isUnitVisibleToCamp(unit, camp, gameState) && isSubmarineTargetableBy(unit, camp, gameState);
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
-        if (unit?.type !== 'fr_heavy_cannon' || unit.camp !== camp || isHeavyCannonDeployed(unit) === deploy) continue;
-        const distances = enemies.map(target => hexDistance(tile, target));
-        const hasFiringArc = distances.some(distance => distance >= 2 && distance <= unit.getEffectiveRange());
-        const screened = !distances.includes(1) || gameState.tiles.some(candidate => candidate.unit?.camp === camp
-            && candidate.unit !== unit && hexDistance(tile, candidate) === 1);
-        if (deploy ? !hasFiringArc || !screened : hasFiringArc) continue;
+        if (unit?.camp !== camp || getHeavyCannonStanceBlock(unit, gameState)) continue;
+        const deployed = isHeavyCannonDeployed(unit);
+        if (afterGround && deployed) continue;
+        const hasFiringArc = getAttackableTiles(unit, { forAiAction: true, previewHeavyCannon: true }).some(
+            target => isKnownToAi(target, camp) && (!target.unit || visibleEnemy(target.unit)));
+        const adjacent = HEX_NEIGHBORS.map(([dq, dr]) => gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`))
+            .filter(Boolean);
+        const exposed = adjacent.some(candidate => isKnownToAi(candidate, camp) && visibleEnemy(candidate.unit))
+            && !adjacent.some(candidate => candidate.unit?.camp === camp && candidate.unit.hp > 0
+                && canCaptureCityByCombat(candidate.unit));
+        if (deployed === (hasFiringArc && !exposed)) continue;
         await runObservedAction({ type: 'heavyCannonStance', unitId: unit.id }, camp, () => executeHeavyCannonStance(unit));
     }
 }
@@ -627,6 +630,12 @@ async function _executeActionInner(action, aiCamp) {
         const followup = planFollowupAttack(gameState, makeHelpers(aiCamp, profile), aiCamp,
             TIER_CAPABILITIES[profile.id], unit.id);
         if (!followup) return false;
+        if (followup.type === 'siegeCityAttack') {
+            const city = resolveTile(followup.tileQ, followup.tileR);
+            if (!city || city.unit || !getAttackableTiles(unit, AI_TARGETING).includes(city)) return false;
+            await delay(AI_DELAY);
+            return attackCityTile(unit, city, AI_TARGETING);
+        }
         const target = resolveUnit(followup.targetId);
         if (!target?.tile || !getAttackableTiles(unit, AI_TARGETING).includes(target.tile)) return false;
         await delay(AI_DELAY);
@@ -938,11 +947,11 @@ export async function processOpponentTurn(aiCamp) {
 
         const stukaSorties = new Map();
         await runV2Infrastructure(aiCamp, difficultyProfile, stukaSorties);
-        await positionFrenchCannons(aiCamp, false);
 
         // 单将领与双将领模式都应在 AI 规划行动前优先挂将；此前这一入口被误限在
         // doubleCommanderMode，导致普通 PVE 虽已给 AI 选将，却整局不部署。
         await deployAvailableCommanders(aiCamp);
+        await positionFrenchCannons(aiCamp);
 
         const helpers = makeHelpers(aiCamp, difficultyProfile);
         const personality = resolveAiPersonality(difficultyProfile);
@@ -980,7 +989,7 @@ export async function processOpponentTurn(aiCamp) {
                 await executeAction(action, aiCamp);
             }
         }
-        await positionFrenchCannons(aiCamp, true);
+        await positionFrenchCannons(aiCamp, { afterGround: true });
 
         // 最终兜底：补满己方所有空城
         const returnPlan = gameState._aiCoreMemory?.[campToKey(aiCamp)]?.ministerReturn;
