@@ -14,14 +14,14 @@
 export const TIER_CAPABILITIES = Object.freeze({
     easy: Object.freeze({
         id: 'easy',
-        noise: 0.45,               // 选项评分的随机扰动幅度（相对值）
+        noise: 0.22,               // 由原 Legatus 下调至入门档：保留适量扰动与协助判断
         topK: 2,                   // 从前 k 个候选里按扰动后分数选
         duelModel: false,          // 交换只按单回合账面算（看不到缠斗结局）
         threatForecast: false,     // 威胁图只按当前射程，不预判位移
-        intelTracking: false,      // 不维护敌方最后已知位置
+        intelTracking: true,       // 保留基础情报记录
         victoryClock: false,       // 不切换守钟/死斗姿态
         missionPersistence: false, // 任务只存活一回合
-        cardScripts: false,        // 卡牌逐张独立评估
+        cardScripts: true,         // 保留常规卡牌剧本
         conversionCapture: false,  // 不规划攻心夺城
         transportPlanning: false,  // 不把运输登陆当独立阶段
         interceptPricing: false,   // 不给“敌方占城者”额外定价
@@ -35,37 +35,37 @@ export const TIER_CAPABILITIES = Object.freeze({
     }),
     medium: Object.freeze({
         id: 'medium',
-        noise: 0.22,
-        topK: 2,
-        duelModel: false,          // 交换只按单回合账面算（看不到缠斗结局）
-        threatForecast: false,
-        intelTracking: true,
-        victoryClock: false,       // 没有残局时钟：中档不会在终局切换守钟/死斗
-        missionPersistence: false, // 任务只存活一回合
-        cardScripts: true,
-        conversionCapture: false,  // 不规划攻心夺城
-        transportPlanning: false,
-        interceptPricing: false,   // 不给“敌方占城者”额外定价
-        scoutMissions: false,
-        multiEscort: false,
-        collapseConversion: false,
-        emergencyDefense: false,
-        lethalFocus: false,
-        rearCommanderSafety: false,
-        strategicPrizeRacing: false
-    }),
-    hard: Object.freeze({
-        id: 'hard',
         noise: 0,
         topK: 1,
-        duelModel: true,           // 近战贴脸按整段缠斗定价（决斗期望）
+        duelModel: true,           // Imperator（现中档）：继承原困难档完整规则推理能力
         threatForecast: true,      // 威胁图按 射程+机动力 外推一回合
         intelTracking: true,
         victoryClock: true,
         missionPersistence: true,  // 任务与单位编组跨回合锁定
         cardScripts: true,
         conversionCapture: true,
-        transportPlanning: true,  // 海图占领路线与安全登陆
+        transportPlanning: true,   // 海图占领路线与安全登陆
+        interceptPricing: true,
+        scoutMissions: true,
+        multiEscort: true,
+        collapseConversion: true,
+        emergencyDefense: true,
+        lethalFocus: true,
+        rearCommanderSafety: true,
+        strategicPrizeRacing: true
+    }),
+    hard: Object.freeze({
+        id: 'hard',
+        noise: 0,
+        topK: 1,
+        duelModel: true,           // Hybrid（新困难档）：继承完整规则推理并融合人类策略模型
+        threatForecast: true,      // 威胁图按 射程+机动力 外推一回合
+        intelTracking: true,
+        victoryClock: true,
+        missionPersistence: true,
+        cardScripts: true,
+        conversionCapture: true,
+        transportPlanning: true,
         interceptPricing: true,
         scoutMissions: true,
         multiEscort: true,
@@ -76,6 +76,10 @@ export const TIER_CAPABILITIES = Object.freeze({
         strategicPrizeRacing: true
     })
 });
+
+export function isImperatorTier(caps) {
+    return caps?.id === 'medium' || caps?.id === 'hard';
+}
 
 // ─── 通用估值权重（三档共享）──────────────────────────────────────
 export const W = Object.freeze({
@@ -393,7 +397,7 @@ export function resolveImperatorDoctrine(gameState, myCampKey, context = {}) {
 }
 
 export function resolveEffectiveWeights(caps, doctrine = null) {
-    if (caps?.id !== 'hard' || !doctrine) return W;
+    if (!isImperatorTier(caps) || !doctrine) return W;
     return Object.freeze({
         ...W,
         riskWeightScale: doctrine.riskWeightScale ?? 1.0,

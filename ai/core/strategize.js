@@ -11,7 +11,7 @@ import {
 } from '../strategy.js';
 import { rankCityObjectives } from './perceive.js';
 import { isFieldCapturer } from './roster.js';
-import { W, resolveEffectiveWeights, resolveImperatorDoctrine } from './weights.js';
+import { W, isImperatorTier, resolveEffectiveWeights, resolveImperatorDoctrine } from './weights.js';
 import { getActiveCultureId } from '../../rules/cultures.js';
 
 /** 攻城 ETA（回合）：占领者赶路 + 破城 + 清守军。 */
@@ -112,7 +112,7 @@ export function decideStrategy(world) {
         urgency = Math.max(urgency, 0.88);
     }
     let activeDoctrine = world.doctrine || null;
-    if (world.caps?.id === 'hard') {
+    if (isImperatorTier(world.caps)) {
         const incomeRatio = world.economy.projectedIncome / Math.max(1, world.strongestRivalEconomy.projectedIncome);
         activeDoctrine = resolveImperatorDoctrine(world.gameState, world.myCampKey, {
             round: world.round,

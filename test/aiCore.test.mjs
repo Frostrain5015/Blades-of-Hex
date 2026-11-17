@@ -380,6 +380,8 @@ test('无主航路按活航母估价，困难档可读迷雾中的航母', async
     assert.equal(buildWorld(state, fogHelpers, me, TIER_CAPABILITIES.hard)
         .cities.find(city => city.tile === prize).asset.reward, expectedTransfer);
     assert.equal(buildWorld(state, fogHelpers, me, TIER_CAPABILITIES.medium)
+        .cities.find(city => city.tile === prize).asset.reward, expectedTransfer);
+    assert.equal(buildWorld(state, fogHelpers, me, TIER_CAPABILITIES.easy)
         .cities.find(city => city.tile === prize).asset.reward, 0);
     assert.equal(buildWorld({ ...state, campaignMode: true }, fogHelpers, me, TIER_CAPABILITIES.hard)
         .cities.find(city => city.tile === prize).asset.reward, 0);
@@ -725,7 +727,9 @@ test('困难档按敌方实有金币及被占村庄收入判断空城补兵风�
     assert.equal(rankCityObjectives(poor, () => 2)[0].score
         - rankCityObjectives(funded, () => 2)[0].score, W.rivalRecruitmentPressure);
     const medium = buildWorld(state, helpers, me, TIER_CAPABILITIES.medium);
-    assert.equal(medium.rivalEconomyByKey.get('player2').gold, undefined);
+    assert.equal(medium.rivalEconomyByKey.get('player2').gold, 4);
+    const easy = buildWorld(state, helpers, me, TIER_CAPABILITIES.easy);
+    assert.equal(easy.rivalEconomyByKey.get('player2').gold, undefined);
 });
 
 test('移动后追击不能给更近的敌军占领者清空中立城', () => {

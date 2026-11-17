@@ -1,5 +1,5 @@
 // AI 调度器 — 加载人格文件，管理执行与延迟
-// 玩家侧人格按难度分档：Optio(Basic) / Legatus(Pro) / Imperator(Max)；中立方为 Corporal。
+// 玩家侧人格按难度分档：Optio(Basic) / Legatus(Pro) / Hybrid(Max)；中立方为 Corporal。
 
 import { gameState, clearselection, notify, logMessage } from './state.js';
 import {
@@ -14,7 +14,7 @@ import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYS
 import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
 import { hasSameTypeBuildingWithin } from '../rules/construction.js';
 import { isNetworkGame } from './network.js';
-import { getCommander } from './commanderInterface.js';
+import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
 import { updateFogOfWar, updateAllFogOfWar, isTileVisible } from './fogOfWar.js';
 // 人格脚本位于可见目录 ai/（勿用隐藏目录：静态白名单、资源清单与部署工具都会跳过点开头路径）
@@ -24,9 +24,9 @@ import * as corporalPersonality from '../ai/corporal.js';
 // 共享的只有 ai/doctrine.js 里的规则事实（克制表、跨域伤害、占城资格……）。
 import * as optioPersonality from '../ai/optio.js';
 import * as legatusPersonality from '../ai/legatus.js';
-import * as imperatorPersonality from '../ai/imperator.js';
+import * as hybridPersonality from '../ai/hybrid.js';
 import { planFollowupAttack, planOpenCityCaptures } from '../ai/core/planner.js';
-import { TIER_CAPABILITIES, resolveImperatorDoctrine } from '../ai/core/weights.js';
+import { TIER_CAPABILITIES, isImperatorTier, resolveImperatorDoctrine } from '../ai/core/weights.js';
 import { canCaptureCityByCombat, resolveTianyanDroneReserve, scoreCommanderCarrierCandidate } from '../ai/doctrine.js';
 import {
     estimateAiTurnWatchdogMs,
@@ -37,7 +37,7 @@ import {
 const PERSONALITY_BY_DIFFICULTY = Object.freeze({
     easy: optioPersonality,
     medium: legatusPersonality,
-    hard: imperatorPersonality
+    hard: hybridPersonality
 });
 
 /** 按难度档解析玩家侧人格脚本；未知档位退回入门档。 */
@@ -48,7 +48,7 @@ import { canAttack, isHostile } from '../rules/diplomacy.js';
 import { campToKey } from '../rules/camps.js';
 import { getCulturalRecruitmentCandidate, prioritizeNavalRecruitment } from '../rules/aiRecruitment.js';
 import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
-import { canRecruitTypeAtSelectedSite } from './recruitmentUi.js';
+import { canRecruitTypeAtSelectedSite, getRecruitmentOptionsForTile } from './recruitmentUi.js';
 import { chooseDefaultSpecialization, countLivingUnitsOfType, getUnitBaseType } from '../rules/units.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
 import { getActiveCultureId, getBanzaiBonusDamage, getCulturalReinforceCostScale, getFireSeaState, getGuerrillaConcealmentReason, getHeavyCannonStanceBlock, getHistoricalCost, getHistoricalRecruitCost, isHeavyCannonDeployed } from '../rules/cultures.js';
@@ -334,7 +334,7 @@ async function runV2Infrastructure(aiCamp, difficultyProfile, stukaSorties) {
     const commanderIds = gameState.tiles
         .filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0 && tile.unit.commander)
         .map(tile => tile.unit.commander);
-    const imperatorDoctrine = difficultyProfile.id === 'hard'
+    const imperatorDoctrine = isImperatorTier(difficultyProfile)
         ? resolveImperatorDoctrine(gameState, campKey, {
             round: getRound(gameState),
             oceanMap: isOceanMap,
@@ -396,7 +396,7 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
     if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) return false;
     const campKey = campToKey(aiCamp);
     const germanAir = getActiveCultureId(gameState, aiCamp) === 'de';
-    const imperatorDoctrine = difficultyProfile.id === 'hard'
+    const imperatorDoctrine = isImperatorTier(difficultyProfile)
         ? resolveImperatorDoctrine(gameState, campKey)
         : null;
     if (!germanAir && difficultyProfile.infrastructureLevel === 0) return false;
@@ -723,6 +723,8 @@ function makeHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(game
             : baseTypes,
         canRecruitTypeAtSite: (type, site) =>
             !isCityDisabled(site) && canRecruitTypeAtSelectedSite(type, site, gameState, aiCamp),
+        getRecruitmentOptionsForTile: tile => getRecruitmentOptionsForTile(tile, gameState, aiCamp),
+        getCommanderRecruitCost: (cost, camp = aiCamp) => getCommanderRecruitCost(cost, gameState, camp),
         difficultyProfile,
         isTileVisible: (tile, camp) => isTileVisible(tile, camp, gameState),
         isUnitVisibleToCamp: (unit, camp) => isUnitVisibleToCamp(unit, camp, gameState),
@@ -747,7 +749,7 @@ async function deployAvailableCommanders(aiCamp) {
 
     const deployCampKey = campToKey(aiCamp);
     const deployDiff = resolveAiDifficultyProfile(gameState, aiCamp);
-    const deployDoctrine = deployDiff.id === 'hard'
+    const deployDoctrine = isImperatorTier(deployDiff)
         ? resolveImperatorDoctrine(gameState, deployCampKey, {
             round: getRound(gameState),
             oceanMap: !!standardMap?.isOceanMap,
@@ -1054,27 +1056,76 @@ async function _executeActionInner(action, aiCamp) {
         }
         case 'drawCard': {
             const base = CARD_SYSTEM_CONFIG.drawCost * (1 + (gameState.playerDrawsThisTurn[campKey] || 0));
-            if (gameState.playerGold[campKey] < getHistoricalCost(base, gameState, aiCamp)) return;
-            if (gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) return;
-            if (gameState.playerHands[campKey].length >= CARD_SYSTEM_CONFIG.maxHandSize) return;
+            if (gameState.playerGold[campKey] < getHistoricalCost(base, gameState, aiCamp)) return false;
+            if (gameState.playerDrawsThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxDrawsPerTurn) return false;
+            if (gameState.playerHands[campKey].length >= CARD_SYSTEM_CONFIG.maxHandSize) return false;
             gameState.currentCamp = aiCamp;
-            try { drawCard(aiCamp); } finally { gameState.currentCamp = aiCamp; }
+            let drawn = null;
+            try { drawn = drawCard(aiCamp); } finally { gameState.currentCamp = aiCamp; }
+            if (!drawn) return false;
             await delay(AI_DELAY * 0.5);
+            break;
+        }
+        case 'chooseSpecialization': {
+            const unit = resolveUnit(action.unitId);
+            if (!unit || !unit.pendingSpecialization || !action.specializationKey) return false;
+            if (!unit.chooseSpecialization(action.specializationKey)) return false;
+            logMessage(`${aiCamp.name}${unit.config.name}选择了专精`);
+            recordAuxiliaryAction('chooseSpecialization', {
+                unitId: unit.id,
+                type: unit.type,
+                rank: unit._rank,
+                specializationKey: action.specializationKey
+            }, aiCamp);
+            await delay(AI_DELAY * 0.5);
+            break;
+        }
+        case 'buildAirfield': {
+            const targetTile = resolveTile(action.tileQ, action.tileR);
+            if (!targetTile) return false;
+            if (!executeAirfieldConstruction(targetTile)) return false;
+            await delay(AI_DELAY * 0.5);
+            break;
+        }
+        case 'buildFortification': {
+            const unit = resolveUnit(action.unitId);
+            if (!unit || !unit.tile || !action.fortKind) return false;
+            if (!executeFieldConstruction(unit, action.fortKind)) return false;
+            await delay(AI_DELAY * 0.5);
+            break;
+        }
+        case 'airCommand': {
+            const launcherTile = resolveTile(action.launcherQ, action.launcherR);
+            const targetTile = resolveTile(action.tileQ, action.tileR);
+            if (!launcherTile || !targetTile || !action.commandKind) return false;
+            if (!executeAirCommand(action.commandKind, launcherTile, targetTile, { aiPhase: 'hybrid' })) return false;
+            await delay(AI_DELAY);
             break;
         }
         case 'tacticalCard': {
             const targetUnit = resolveUnit(action.targetId);
-            const targetTile = targetUnit?.tile || gameState.tiles.find(tile => tile.id === action.targetId);
-            if (!targetTile) return;
+            const targetTile = targetUnit?.tile
+                || gameState.tiles.find(tile => tile.id === action.targetId)
+                || resolveTile(action.tileQ, action.tileR);
+            if (!targetTile) return false;
             const cardId = action.cardId;
-            if (!cardId) return;
+            if (!cardId) return false;
             const hand = gameState.playerHands[campKey] || [];
-            if (!hand.some(c => c === cardId || (typeof c === 'object' && c.id === cardId))) return;
-            if (gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn) return;
+            const matchIdx = hand.findIndex(c => c === cardId
+                || (typeof c === 'object' && c.id === cardId && (!action.commanderId || !c.commanderId || c.commanderId === action.commanderId)));
+            if (matchIdx < 0) return false;
+            if (cardId !== 'commanderDeploy' && gameState.playerUsesThisTurn[campKey] >= CARD_SYSTEM_CONFIG.maxUsesPerTurn) return false;
             gameState.currentCamp = aiCamp;
+            const prevTargeting = gameState.cardTargeting;
+            if (cardId === 'commanderDeploy') {
+                gameState.cardTargeting = { cardId: 'commanderDeploy', targeting: 'friendlyAny', handIndex: matchIdx };
+            }
             try {
                 executeTacticalCard(cardId, targetTile);
             } finally {
+                if (cardId === 'commanderDeploy' && gameState.cardTargeting?.handIndex === matchIdx) {
+                    gameState.cardTargeting = prevTargeting;
+                }
                 gameState.currentCamp = aiCamp;
             }
             await delay(AI_DELAY);
@@ -1144,38 +1195,54 @@ export async function processOpponentTurn(aiCamp) {
 
         const helpers = makeHelpers(aiCamp, difficultyProfile);
         const personality = resolveAiPersonality(difficultyProfile);
-        const replanPasses = Math.max(1, Number(difficultyProfile.replanPasses) || 1);
-        const movedUnitIds = new Set();
-        const forceMarchedUnitIds = new Set();
-        gameState._aiSkillPlanned = new Set();
-        for (let pass = 0; pass < replanPasses; pass++) {
-            const before = aiPlanningSignature(aiCamp);
-            const actions = personality.planActions(gameState, helpers, aiCamp);
-            if (actions.length === 0) break;
-
-            // 只在回合第一次行动前保留思考停顿；后续重规划表现为连续指挥。
-            if (pass === 0) await delay(AI_DELAY);
-            for (const action of actions) {
+        if (typeof personality.selectNextAction === 'function') {
+            gameState._aiSkillPlanned = new Set();
+            const blockedKeys = new Set();
+            await delay(AI_DELAY);
+            for (let step = 0; step < 48; step++) {
                 if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-                if (shouldSkipReplannedMovement(
-                    action, pass, movedUnitIds, forceMarchedUnitIds
-                )) continue;
+                const pick = personality.selectNextAction(gameState, helpers, aiCamp, { blockedKeys });
+                const action = pick?.action;
+                if (!action || action.type === 'endTurn') break;
                 const executed = await executeAction(action, aiCamp);
-                if (!executed) continue;
-                if (action.type === 'tacticalCard' && action.cardId === 'forceMarch' && action.targetId) {
-                    forceMarchedUnitIds.add(action.targetId);
-                } else if (action.type === 'banzaiCharge' && action.unitId) {
-                    const samurai = resolveUnit(action.unitId);
-                    if (samurai?.canAct && samurai._banzaiFollowupTurn === gameState.turnCounter) {
-                        movedUnitIds.delete(action.unitId);
-                        forceMarchedUnitIds.add(action.unitId);
-                    }
-                } else if (action.type === 'move' && action.unitId) {
-                    movedUnitIds.add(action.unitId);
-                    forceMarchedUnitIds.delete(action.unitId);
+                if (!executed && pick?.candidate?.key) {
+                    blockedKeys.add(pick.candidate.key);
                 }
             }
-            if (aiPlanningSignature(aiCamp) === before) break;
+        } else {
+            const replanPasses = Math.max(1, Number(difficultyProfile.replanPasses) || 1);
+            const movedUnitIds = new Set();
+            const forceMarchedUnitIds = new Set();
+            gameState._aiSkillPlanned = new Set();
+            for (let pass = 0; pass < replanPasses; pass++) {
+                const before = aiPlanningSignature(aiCamp);
+                const actions = personality.planActions(gameState, helpers, aiCamp);
+                if (actions.length === 0) break;
+
+                // 只在回合第一次行动前保留思考停顿；后续重规划表现为连续指挥。
+                if (pass === 0) await delay(AI_DELAY);
+                for (const action of actions) {
+                    if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
+                    if (shouldSkipReplannedMovement(
+                        action, pass, movedUnitIds, forceMarchedUnitIds
+                    )) continue;
+                    const executed = await executeAction(action, aiCamp);
+                    if (!executed) continue;
+                    if (action.type === 'tacticalCard' && action.cardId === 'forceMarch' && action.targetId) {
+                        forceMarchedUnitIds.add(action.targetId);
+                    } else if (action.type === 'banzaiCharge' && action.unitId) {
+                        const samurai = resolveUnit(action.unitId);
+                        if (samurai?.canAct && samurai._banzaiFollowupTurn === gameState.turnCounter) {
+                            movedUnitIds.delete(action.unitId);
+                            forceMarchedUnitIds.add(action.unitId);
+                        }
+                    } else if (action.type === 'move' && action.unitId) {
+                        movedUnitIds.add(action.unitId);
+                        forceMarchedUnitIds.delete(action.unitId);
+                    }
+                }
+                if (aiPlanningSignature(aiCamp) === before) break;
+            }
         }
 
         if (await runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, true) && !gameState.gameOver) {
@@ -1312,10 +1379,14 @@ export async function processOpponentTurn(aiCamp) {
 // AI 将领自动选择（PVE 模式用）
 // ═══════════════════════════════════════════
 
+export function buildAiHelpers(aiCamp, difficultyProfile = resolveAiDifficultyProfile(gameState, aiCamp)) {
+    return makeHelpers(aiCamp, difficultyProfile);
+}
+
 export function aiSelectCommander(pool) {
-    return imperatorPersonality.selectCommander(pool);
+    return hybridPersonality.selectCommander(pool);
 }
 
 export function aiSelectCommanderPair(pool) {
-    return imperatorPersonality.selectCommanderPair(pool);
+    return hybridPersonality.selectCommanderPair(pool);
 }

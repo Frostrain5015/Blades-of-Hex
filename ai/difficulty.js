@@ -3,28 +3,6 @@ export const AI_DIFFICULTY_PROFILES = Object.freeze({
         id: 'easy',
         title: '简单',
         numericValue: 1.0,
-        decisionNoise: 0.42,
-        objectiveChoiceWindow: 3,
-        coordinatedFocus: false,
-        counterRecruitment: false,
-        threatForecast: false,
-        strategicOpponentModel: false,
-        terminalPlanning: false,
-        advancedCards: false,
-        activeSkillPlanning: false,
-        campaignPlanningDepth: 0,
-        assetValuation: false,
-        emergencyBudget: false,
-        jointTaskForces: false,
-        synergyForecast: false,
-        replanPasses: 1,
-        infrastructureLevel: 0,
-        fallbackRecruitLimit: 1
-    }),
-    medium: Object.freeze({
-        id: 'medium',
-        title: '中等',
-        numericValue: 1.5,
         decisionNoise: 0.24,
         objectiveChoiceWindow: 3,
         coordinatedFocus: true,
@@ -43,6 +21,29 @@ export const AI_DIFFICULTY_PROFILES = Object.freeze({
         infrastructureLevel: 1,
         fallbackRecruitLimit: 2
     }),
+    medium: Object.freeze({
+        id: 'medium',
+        title: '中等',
+        numericValue: 1.5,
+        decisionNoise: 0,
+        objectiveChoiceWindow: 1,
+        coordinatedFocus: true,
+        counterRecruitment: true,
+        threatForecast: true,
+        strategicOpponentModel: true,
+        fullIntelligence: true,
+        terminalPlanning: true,
+        advancedCards: true,
+        activeSkillPlanning: true,
+        campaignPlanningDepth: 2,
+        assetValuation: true,
+        emergencyBudget: true,
+        jointTaskForces: true,
+        synergyForecast: true,
+        replanPasses: 3,
+        infrastructureLevel: 2,
+        fallbackRecruitLimit: Infinity
+    }),
     hard: Object.freeze({
         id: 'hard',
         title: '困难',
@@ -57,7 +58,7 @@ export const AI_DIFFICULTY_PROFILES = Object.freeze({
         terminalPlanning: true,
         advancedCards: true,
         activeSkillPlanning: true,
-        // Imperator 的能力上限只由我们当前能实现的水平决定，不设置人为保留。
+        // Hybrid（新困难档）继承完整规则情报并在决策层融合人类行为模仿策略模型。
         campaignPlanningDepth: 2,
         assetValuation: true,
         emergencyBudget: true,
@@ -72,9 +73,9 @@ export const AI_DIFFICULTY_PROFILES = Object.freeze({
 export function normalizeAiDifficulty(value) {
     if (typeof value === 'string') {
         const normalized = value.trim().toLowerCase();
-        if (normalized === '简单') return 'easy';
-        if (normalized === '中等') return 'medium';
-        if (normalized === '困难') return 'hard';
+        if (normalized === '简单' || normalized === 'optio') return 'easy';
+        if (normalized === '中等' || normalized === 'legatus' || normalized === 'imperator') return 'medium';
+        if (normalized === '困难' || normalized === 'hybrid') return 'hard';
         if (AI_DIFFICULTY_PROFILES[normalized]) return normalized;
         const numeric = Number(normalized);
         if (Number.isFinite(numeric)) value = numeric;

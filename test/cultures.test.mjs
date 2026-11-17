@@ -24,7 +24,8 @@ const [
     turnsModule,
     surfacesModule,
     constantsModule,
-    effectItemsModule
+    effectItemsModule,
+    unitStatusIconsModule
 ] = await Promise.all([
     import('../rules/cultures.js'),
     import('../rules/visibility.js'),
@@ -43,10 +44,12 @@ const [
     import('../rules/turns.js'),
     import('../rules/surfaces.js'),
     import('../rules/constants.js'),
-    import('../js/effectItems.js')
+    import('../js/effectItems.js'),
+    import('../js/unitStatusIcons.js')
 ]);
 
 const { buildUnitEffectItems } = effectItemsModule;
+const { getUnitStatusIcons } = unitStatusIconsModule;
 
 test('单人选将时留出全部国旗，确认后为 AI 分配其余阵营', () => {
     const state = stateModule.createMatchState();
@@ -428,6 +431,8 @@ test('法国巨炮射程5，自由不屈由暴击或阵亡触发并按阵营冷�
     state.turnCounter = getFactionCount(state) * FREE_RESISTANCE_EFFECT.cooldownRounds;
     cannon.applyDamage(cannon.hp);
     assert.equal(allyInf.activeShield, 11 + FREE_RESISTANCE_EFFECT.shield);
+    assert.equal(buildUnitEffectItems(allyInf, state).some(item => item.key === 'culture:free-resistance'), true);
+    assert.equal(getUnitStatusIcons(allyInf, state).some(item => item.key === 'culture:free-resistance'), false);
 });
 
 test('苏联文化：喀秋莎保留溅射且全阵营普通炮兵禁用火箭炮专精，Tier2 炮兵-1费且全军免疫负面天气', () => {

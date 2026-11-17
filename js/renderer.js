@@ -618,7 +618,6 @@ function _renderGame() {
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawCityMapMarker();
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
-    _drawFireSeaTiles(tiles, now);
 
     // ── 将领特效图层：ground（地块覆盖层之后、先锋旗立绘之前）──
     drawFxLayer('ground', ctx, now);
@@ -676,7 +675,8 @@ function _renderGame() {
         if (tile.unit) drawUnitFlagFinial(tile.unit, gameState);
     }
 
-    // ── 将领特效图层：aboveUnits（单位与旗帜之后）──
+    // ── 火海视觉特效 & 将领特效图层：aboveUnits（单位徽章与旗帜之后绘制，保证可读性）──
+    _drawFireSeaTiles(tiles, now);
     drawFxLayer('aboveUnits', ctx, now);
     drawAureliaGuardPetals(now);
 

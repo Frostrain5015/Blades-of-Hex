@@ -36,7 +36,7 @@ import {
     estimateFogRivalForce,
     estimateForceValue
 } from '../strategy.js';
-import { W, resolveEffectiveWeights, resolveImperatorDoctrine } from './weights.js';
+import { W, isImperatorTier, resolveEffectiveWeights, resolveImperatorDoctrine } from './weights.js';
 import { createCaptureRouteFinder } from './amphibious.js';
 
 const NEUTRAL_KEY = 'neutral';
@@ -364,7 +364,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     }
     intelMemory.lastCityCount = myCities.length;
     const commanderIds = myUnits.map(unit => unit.commander).filter(Boolean);
-    const doctrine = caps?.id === 'hard'
+    const doctrine = isImperatorTier(caps)
         ? resolveImperatorDoctrine(gameState, myCampKey, {
             round,
             oceanMap,

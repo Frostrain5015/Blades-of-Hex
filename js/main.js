@@ -16,7 +16,7 @@ import { selectCommander, selectCommanderPair } from '../ai/doctrine.js';
 // 等待室「添加 AI」的人格选项直接从人格脚本 meta 派生（轻量，不经过 js/ai.js 战斗执行层）。
 import { meta as optioMeta } from '../ai/optio.js';
 import { meta as legatusMeta } from '../ai/legatus.js';
-import { meta as imperatorMeta } from '../ai/imperator.js';
+import { meta as hybridMeta } from '../ai/hybrid.js';
 import { ORBITAL_STRIKE_TICK_DELAYS_MS } from '../rules/cards.js';
 import { damageCityPool, getCityPoolTile } from '../rules/citySiege.js';
 import { preloadPortraits, reloadPortraits } from './portraitLoader.js';
@@ -716,7 +716,7 @@ let _roomSlots = [];
 let _roomMaxPlayers = 2;
 
 // 等待室「添加 AI」的人格阶梯（id 与 PVE 难度档一致：easy/medium/hard）
-const _AI_SEAT_CHOICES = [optioMeta, legatusMeta, imperatorMeta].map(meta => ({
+const _AI_SEAT_CHOICES = [optioMeta, legatusMeta, hybridMeta].map(meta => ({
     id: meta.difficultyId,
     title: meta.name
 }));

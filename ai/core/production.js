@@ -5,7 +5,7 @@
 //      安全后方的城市必须腾位招兵，而不是让一个普通守军占住唯一产能格。
 //   2. 守军是固定资产：残血守军花几金补员，比阵亡后重招便宜得多。
 
-import { W } from './weights.js';
+import { W, isImperatorTier } from './weights.js';
 import { isFieldCapturer, shouldReserveCityGarrison } from './roster.js';
 import { canRepairShipAtPort } from '../../rules/naval.js';
 import { canReinforceAtTile } from '../../rules/healing.js';
@@ -56,7 +56,7 @@ function landRecruitOrder(world, missionsCtx, hasCapturer) {
     if (w.recruitOrderBias === 'blitz' && myCavalry < Math.max(2, Math.floor(myInfantry * 0.45))) {
         return ['cavalry', 'infantry', 'archer'];
     }
-    if (world.caps.id === 'hard' && myInfantry >= 1) {
+    if (isImperatorTier(world.caps) && myInfantry >= 1) {
         if (myCavalry < Math.max(1, Math.floor(myInfantry * 0.35))) {
             return ['cavalry', 'archer', 'infantry'];
         }
@@ -136,14 +136,14 @@ export function planProduction(world, strategy, missionsCtx) {
     // 战略级拨款优先队列（海图巡洋舰 / 空城空降 / 前进机场），防止每回合被 $8 步兵吸干预算。
     const readyAirfields = world.myCities.filter(city => city.installation?.type === 'airfield'
         && city.installation?.status === 'ready');
-    const pendingDirectAirdrop = world.caps.id === 'hard' && readyAirfields.some(af => {
+    const pendingDirectAirdrop = isImperatorTier(world.caps) && readyAirfields.some(af => {
         const range = 8;
         const readyRound = Number(af.installation?.airCommandReadyRound?.airdrop || 0);
         if (readyRound > world.round) return false;
         return world.cities.some(c => c.hostile && !c.garrison && c.hp <= 0
             && helpers.hexDistance(af, c.tile) <= range);
     });
-    const pendingForwardAirfield = world.caps.id === 'hard' && !strategy.emergencyDefenseCity
+    const pendingForwardAirfield = isImperatorTier(world.caps) && !strategy.emergencyDefenseCity
         && currentAssaultCount >= 2 && gold >= 10
         && world.myCities.length >= 2 && existingAirfieldCount(world) < (world.oceanMap ? 3 : 2)
         && world.cities.some(c => c.mine && !c.tile.installation);
@@ -242,7 +242,7 @@ export function planProduction(world, strategy, missionsCtx) {
         .sort((a, b) => Number(b === strategy.emergencyDefenseCity) - Number(a === strategy.emergencyDefenseCity));
     const urgentCities = new Set();
     let recruits = 0;
-    const maxRecruits = world.caps.id === 'easy' ? 1 : world.caps.id === 'hard' ? 3 : 2;
+    const maxRecruits = isImperatorTier(world.caps) ? 3 : 2;
     const landOrder = landRecruitOrder(world, missionsCtx, assaultCount > 0);
     const cityOrder = (site, order, urgent) => uniqueSlots > 0 && cityUnique
         && (uniqueCanCapture || (!urgent && assaultCount > 0)) && canRecruit(uniqueType, site)
@@ -379,7 +379,7 @@ export function planProduction(world, strategy, missionsCtx) {
         for (const type of types) {
             const cost = unitCost(world, type);
             const cityUnderThreat = world.threatAt(city, null) >= 35;
-            const diversifyCap = world.caps.id === 'hard' && !cityUnderThreat && !strategy.emergencyDefenseCity
+            const diversifyCap = isImperatorTier(world.caps) && !cityUnderThreat && !strategy.emergencyDefenseCity
                 && !needCruiserLead && (type === 'cavalry' || type === 'archer')
                 && currentAssaultCount >= 2;
             const reserveFloorHere = cityUnderThreat

@@ -8,7 +8,7 @@
 // 输出分两组：setup（净化/伤害/控制，先于攻击结算）与 sustain（防御，攻击后结算）。
 
 import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
-import { W, hpGold, residualGold } from './weights.js';
+import { W, hpGold, isImperatorTier, residualGold } from './weights.js';
 import { enemyCapturerPremium } from './tactics.js';
 import { poisonPressure, resolveTianyanDroneReserve } from '../doctrine.js';
 import { isFieldCapturer } from './roster.js';
@@ -472,6 +472,6 @@ export function shouldDrawCard(world, strategy, plannedRecruitSpend = 0, planned
     if (leftover < 0) return false;
     if (needsAnswer) return true;
     if (effectiveHandCount >= 2 && drawsDone > 0) return false;
-    const surplusMin = world.caps?.id === 'hard' ? (w.cardDrawSurplusMin ?? 3) : 6;
+    const surplusMin = isImperatorTier(world.caps) ? (w.cardDrawSurplusMin ?? 3) : 6;
     return leftover >= surplusMin;
 }

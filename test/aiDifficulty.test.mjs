@@ -42,6 +42,10 @@ import {
     shouldBreakObjectiveCommitment,
     shouldSkipReplannedMovement
 } from '../ai/strategy.js';
+import { meta as optioMeta } from '../ai/optio.js';
+import { meta as legatusMeta } from '../ai/legatus.js';
+import { meta as hybridMeta } from '../ai/hybrid.js';
+import { POLICY_MODEL_META, selectHybridAction, shouldAllowLandMapNavalRecruit } from '../ai/core/hybridScorer.js';
 
 test('大军团 AI 回合预算覆盖演出时间，并保留有限硬上限', () => {
     const small = estimateAiTurnWatchdogMs({ actionableUnits: 3, replanPasses: 1 });
@@ -98,16 +102,25 @@ test('AI 三档难度只按决策能力递增，不包含经济倍率', () => {
     assert.equal(normalizeAiDifficulty(1), 'easy');
     assert.equal(normalizeAiDifficulty(1.5), 'medium');
     assert.equal(normalizeAiDifficulty(2), 'hard');
+    assert.equal(normalizeAiDifficulty('optio'), 'easy');
+    assert.equal(normalizeAiDifficulty('legatus'), 'medium');
+    assert.equal(normalizeAiDifficulty('hybrid'), 'hard');
     assert.equal(getAiDifficultyProfile('困难').id, 'hard');
 
     const { easy, medium, hard } = AI_DIFFICULTY_PROFILES;
     assert.ok(easy.decisionNoise > medium.decisionNoise);
-    assert.ok(medium.decisionNoise > hard.decisionNoise);
-    assert.equal(easy.coordinatedFocus, false);
-    assert.equal(medium.coordinatedFocus, true);
+    assert.equal(medium.decisionNoise, 0);
+    assert.equal(hard.decisionNoise, 0);
+    assert.equal(easy.coordinatedFocus, true);
+    assert.equal(easy.threatForecast, false);
+    assert.equal(medium.threatForecast, true);
+    assert.equal(medium.fullIntelligence, true);
     assert.equal(hard.threatForecast, true);
-    assert.deepEqual([easy.campaignPlanningDepth, medium.campaignPlanningDepth, hard.campaignPlanningDepth], [0, 1, 2]);
-    assert.deepEqual([easy.replanPasses, medium.replanPasses, hard.replanPasses], [1, 2, 3]);
+    assert.equal(hard.fullIntelligence, true);
+    assert.deepEqual([easy.campaignPlanningDepth, medium.campaignPlanningDepth, hard.campaignPlanningDepth], [1, 2, 2]);
+    assert.deepEqual([easy.replanPasses, medium.replanPasses, hard.replanPasses], [2, 3, 3]);
+    assert.equal(medium.assetValuation, true);
+    assert.equal(medium.jointTaskForces, true);
     assert.equal(hard.assetValuation, true);
     assert.equal(hard.emergencyBudget, true);
     assert.equal(hard.jointTaskForces, true);
@@ -675,4 +688,76 @@ test('狂战士泣血只在能兑现时发动', () => {
     assert.equal(shouldSpendBerserkerBlood({ hpRatio: 0.90, highValueTarget: true }), true);
     // 高价值但兵力劣势 → 保命优先
     assert.equal(shouldSpendBerserkerBlood({ hpRatio: 0.90, highValueTarget: true, outnumbered: true }), false);
+});
+
+test('AI 三档对外显示名称依次为 Optio / Legatus / Hybrid，且 Hybrid 加载 91 维策略模型', () => {
+    assert.deepEqual(
+        [optioMeta, legatusMeta, hybridMeta].map(m => [m.difficultyId, m.name]),
+        [['easy', 'Optio'], ['medium', 'Legatus'], ['hard', 'Hybrid']]
+    );
+    assert.equal(POLICY_MODEL_META.featureDim, 91);
+});
+
+test('Hybrid 陆图海军招募限制：仅在敌舰逼近己方城市或港口 4 格内时允许造船', () => {
+    const me = { id: 'player1', colorId: 'red' };
+    const foe = { id: 'player2', colorId: 'blue' };
+    const ownCity = { q: 0, r: 0, camp: me, isCity: true, isPort: false, unit: null };
+    const ownPort = { q: 0, r: 1, camp: me, isCity: false, isPort: true, unit: null };
+    const farShipTile = { q: 6, r: 0, camp: foe, isCity: false, isPort: false, unit: { type: 'warship', camp: foe, hp: 100, tile: null } };
+    farShipTile.unit.tile = farShipTile;
+    const state = {
+        tiles: [ownCity, ownPort, farShipTile],
+        factions: { player1: me, player2: foe }
+    };
+    assert.equal(shouldAllowLandMapNavalRecruit(state, me, true), true);
+    assert.equal(shouldAllowLandMapNavalRecruit(state, me, false), false);
+    farShipTile.q = 3;
+    assert.equal(shouldAllowLandMapNavalRecruit(state, me, false), true);
+});
+
+test('Hybrid Z-score 抽牌修复：第2回合起手牌稀疏且金币充裕时触发 drawCard，前3回合预算紧时不穿透 $8 招募底线', () => {
+    const state = createMatchState();
+    const me = state.factions.player1;
+    const foe = state.factions.player2;
+    const home = { q: 0, r: 0, isCity: true, isPort: false, camp: me, hp: 250, maxHp: 250, unit: null };
+    const enemyCity = { q: 8, r: 0, isCity: true, isPort: false, camp: foe, hp: 250, maxHp: 250, unit: null };
+    const guard = {
+        id: 1, type: 'infantry', camp: me, hp: 180, maxHp: 180, canAct: false, remainingMP: 0,
+        commander: null, tile: home, config: UNIT_CONFIG.infantry, activeShield: 0,
+        getEffectiveAttack: () => 50, getEffectiveRange: () => 1
+    };
+    home.unit = guard;
+    const foeUnit = {
+        id: 2, type: 'infantry', camp: foe, hp: 180, maxHp: 180, canAct: true,
+        commander: null, tile: enemyCity, config: UNIT_CONFIG.infantry, activeShield: 0,
+        getEffectiveAttack: () => 50, getEffectiveRange: () => 1
+    };
+    enemyCity.unit = foeUnit;
+    state.tiles = [home, enemyCity];
+    state.tileMap = new Map(state.tiles.map(t => [`${t.q},${t.r}`, t]));
+    state.currentCamp = me;
+    state.turnOrder = ['player1', 'player2'];
+    state.turnCounter = 2; // round 2
+    state.standardMapId = 'crown-ring';
+    state.playerHands.player1 = [];
+    state.cardDrawPile = ['heal', 'lightning'];
+    state.playerGold.player1 = 15;
+    const helpers = {
+        getMovableTiles: () => [],
+        getAttackableTiles: () => [],
+        hexDistance: (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) >> 1,
+        HEX_NEIGHBORS: [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]],
+        CAMP: state.factions,
+        UNIT_CONFIG,
+        isHostileFaction: (l, r) => l !== r && r?.id !== 'neutral',
+        canAttackFaction: (l, r) => l !== r,
+        isTileVisible: () => true,
+        isUnitVisibleToCamp: () => true
+    };
+    const pick = selectHybridAction(state, helpers, me);
+    assert.equal(pick.action.type, 'drawCard');
+
+    state.playerGold.player1 = 10; // 第 2 回合预留至少 8 金步兵底线时禁止 10 - 4 < 8 透支抽卡
+    const guardedPick = selectHybridAction(state, helpers, me);
+    assert.notEqual(guardedPick.action.type, 'drawCard');
 });

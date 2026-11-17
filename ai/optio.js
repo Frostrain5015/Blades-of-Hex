@@ -1,8 +1,6 @@
-// Optio（入门档）—— 新架构下的薄 profile。
+// Optio（入门档）—— 承接原 Legatus 脚本与能力深度，整体下调一档作为简单 AI。
 //
-// 三档共用 ai/core/ 的同一条规划管线；入门档只是"看得少、想得浅、
-// 决策带噪声"的同一个引擎：不预判威胁位移、不记情报、不做多回合任务、
-// 卡牌逐张独立打分、没有胜利时钟。规则认知与困难档完全一致。
+// 启用协同集火、反制招募与常规卡牌剧本，但不启用全图视野透视、威胁外推与终局时钟。
 
 import { planTurn } from './core/planner.js';
 import { TIER_CAPABILITIES } from './core/weights.js';
@@ -12,7 +10,7 @@ export const meta = {
     name: 'Optio',
     tier: 'Basic',
     difficultyId: 'easy',
-    description: '共享引擎的入门档：单回合贪心 + 决策噪声，不熟悉纵深与剧本。'
+    description: '共享引擎的入门档（原 Legatus）：保留协同集火与卡牌剧本，不启用全图透视与深度推演。'
 };
 
 export function planActions(gameState, helpers, myCamp) {

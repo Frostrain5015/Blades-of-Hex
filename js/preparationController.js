@@ -9,10 +9,10 @@ import { FACTION_RULE_MODE_LABELS } from '../rules/factionLabels.js';
 // 这里只取三份轻量 meta，不经过 js/ai.js，那条链会把整个战斗执行层拖进大厅。
 import { meta as optioMeta } from '../ai/optio.js';
 import { meta as legatusMeta } from '../ai/legatus.js';
-import { meta as imperatorMeta } from '../ai/imperator.js';
+import { meta as hybridMeta } from '../ai/hybrid.js';
 
 // 顺序即强度阶梯；id 仍是 easy/medium/hard，用于存档与 aiDifficulty 数值兼容。
-const AI_DIFFICULTY_CHOICES = [optioMeta, legatusMeta, imperatorMeta].map(meta => ({
+const AI_DIFFICULTY_CHOICES = [optioMeta, legatusMeta, hybridMeta].map(meta => ({
     id: meta.difficultyId,
     title: meta.name
 }));

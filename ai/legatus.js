@@ -1,7 +1,6 @@
-// Legatus（中档）—— 新架构下的薄 profile。
+// Legatus（中档）—— 承接原 Imperator 完整规则脚本，整体下调一档作为中等 AI。
 //
-// 与困难档同一引擎，差别在信息深度：记录情报但不预判威胁位移，
-// 任务只记目标不锁定编组，有卡牌剧本与胜利时钟但不做运输阶段规划。
+// 保留原 Imperator 的全图遭遇战情报、威胁外推、跨回合任务编组、四学说推演、卡牌剧本与胜利时钟。
 
 import { planTurn } from './core/planner.js';
 import { TIER_CAPABILITIES } from './core/weights.js';
@@ -11,7 +10,7 @@ export const meta = {
     name: 'Legatus',
     tier: 'Pro',
     difficultyId: 'medium',
-    description: '共享引擎的中档：有任务与卡牌剧本，缺威胁外推、残局时钟与运输规划。'
+    description: '完整规则引擎的中档（原 Imperator）：全图推演 + 四学说动态切换 + 胜利时钟。'
 };
 
 export function planActions(gameState, helpers, myCamp) {
