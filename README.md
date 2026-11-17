@@ -1,102 +1,105 @@
-# 海克斯之剑 · Blades of Hex
+# Blades of Hex
 
-一款运行在浏览器中的六角格回合制策略游戏。当前版本同时维护标准对战、单人战役、教学关与联机房间，并以同一套规则、状态协议和战场表现层支撑陆军、海军、空军行动及防御建筑。
+A browser-based hex-grid turn-based strategy game written in JavaScript ES modules, featuring combined-arms land, naval, and air warfare across single-player skirmishes, scripted campaigns, local hotseat, and real-time WebSocket multiplayer.
 
-在线版本：[https://boh.frostrain.tech/](https://boh.frostrain.tech/)
+Live server: [https://boh.frostrain.tech/](https://boh.frostrain.tech/)
 
-> 本 README 描述仓库当前代码提供的能力。兵种数值、将领技能和关卡规则仍在频繁调整，准确值请以 `rules/` 与具体战役模块为准。
+Full English Manual: **[Complete Game Rules & Mechanics Manual](docs/GAME_RULES.md)**
 
-## 当前内容
+> This README documents the architecture, workflows, and tooling of the current repository baseline (`v5.1.0`). Unit stats, commander abilities, map layouts, and campaign missions change frequently; treat `rules/` and `campaign/` as the authoritative sources of truth.
 
-### 游戏模式
+## Features
 
-- **单人对战**：玩家对抗分层决策 AI，可选择难度、地图和遭遇战规则。
-- **双 AI 推演**：用于观察 AI 对局和回放、统计、平衡验证。
-- **本地热座**：两名玩家在同一设备轮流行动。
-- **联机对战**：WebSocket 房间支持 2 人或 3 人对局、断线恢复、再战和房间聊天；三人房可由房主添加或移除 AI 席位。
-- **将星列传**：数据驱动的单人战役，支持剧情对话、动态目标、教学步骤、关卡评分、收藏物与进度保存。
-- **新兵训练**：独立教学入口，覆盖基础操作与核心战斗流程。
+### Game Modes
 
-最新提交已将《染血的鸢尾花》第一章关卡正式接入，并继续开放后续章节内容。战役目录由 `campaign/catalog.js` 注册，关卡按需加载；当前可玩列表以大厅实际显示为准。
+- **Single-Player Skirmish (PvE)**: Play against tiered AI opponents across multiple map families, optional Fog of War, and selectable faction rule modes (Standard, Historical Cultures, and Faction Synergies).
+- **Dual AI Simulation**: Run AI-vs-AI matches directly in the browser or headless via CLI scripts for balance and regression testing.
+- **Local Hotseat**: Two players take turns on the same device.
+- **Online Multiplayer**: WebSocket rooms supporting 2-player and 3-player matches with reconnect recovery, rematches, room chat, and host-managed AI seats (`server/roomAi.js`).
+- **Star Chronicles (Campaigns) & Recruit Training**: Data-driven single-player scenarios (`campaign/catalog.js`) featuring dialogue, staged triggers, dynamic objectives, star ratings, collectibles, and optional server-backed profile sync. Currently registered content includes the *Bloodstained Iris* (`blood-iris`) chronicle (10 scenarios across Chapter 1, Chapter 2, and the BI-13 boss stage) plus standalone recruit training.
 
-### 战场系统
+### Combat, Economy, and Battlefield Systems
 
-- 六角格移动、射程、反击、兵种克制、士气、天气、地形与行政区控制。
-- 城市、村庄、港口、机场，以及经济、招募、补给和工事建设。
-- 陆军基础兵种及晋升/专精；驱逐舰、巡洋舰、潜艇、航空母舰等海军单位。
-- 碉堡、岸防炮等防御建筑，以及空袭、空降、舰载机等空军行动。
-- 将领部署、被动/主动技能、对策卡和状态效果。
-- 遭遇战战争迷雾、视野与侦察；标准地图同时包含纯陆战与海陆联合地图。
-- 结构化对局统计、AI 复盘索引与完整日志导出。
+- **Unified Domain Engine**: Shared deterministic rules (`rules/`, `engine/`, `core/`) validate and resolve movement, ranged/melee combat, counterattacks, flanking morale penalties, weather, terrain, fortifications, and district control.
+- **Land, Naval, and Air Operations**: Infantry, cavalry, artillery, cruisers, destroyers, submarines, carriers, shore batteries, airfields, airstrikes, and airborne drops, including amphibious embarkation/disembarkation and river crossings (bridges, fords, and floodgates).
+- **Commanders, Cultures, and Synergies**: Playable commanders (`rules/commanders.js`, `commander/`), tactical counter cards (`rules/cards.js`), 8 Historical Cultures with signature units (`rules/cultures.js`), and multi-commander Faction Synergies (`rules/factionSynergies.js`).
+- **Post-Match Review & Telemetry**: Built-in After-Action Report statistics view (`js/matchStats.js`, `js/matchStatsView.js`) and dual-layer JSON match recorder (`js/matchRecorder.js`) producing compact `.match-review.json` summaries and full `.match-full.json` timelines named by map acronym and second-precision timestamp (for example, `cr-20261117084515.match-review.json`).
 
-## 快速开始
+## Quick Start
 
-需要 Node.js 20 或更新版本。
+Requires **Node.js 20+** (Node.js 22+ recommended).
 
 ```powershell
 npm install
 npm start
 ```
 
-浏览器打开 [http://localhost:3000](http://localhost:3000)。同一局域网内的其他设备可访问启动日志中列出的局域网地址。
+Open [http://localhost:3000](http://localhost:3000). Other devices on the same LAN can connect via the LAN addresses printed on startup.
 
-`npm start` 会启动 Node HTTP/WebSocket 服务，并直接提供源码版客户端，适合本地游玩和联调。默认 HTTP 端口为 `3000`，可通过 `PORT` 或 `HTTP_PORT` 修改。
+`npm start` launches the combined Node HTTP and WebSocket server (`server.js`), serving source files directly by default for rapid local iteration. Configure the listening port with `PORT` or `HTTP_PORT`.
 
-### 前端开发与构建
+### Frontend Development and Production Build
 
 ```powershell
-# Vite 开发服务器（默认 5173，API 代理到 3000）
+# Start Vite dev server (defaults to 127.0.0.1:5173, proxying /api and /auth to :3000)
 npm run dev
 
-# 类型检查与生产构建
+# Typecheck rendering boundaries and build production bundles into dist/
 npm run typecheck
 npm run build
 ```
 
-生产构建输出到被 Git 忽略的 `dist/`。让 Node 服务优先提供构建产物时，需要先构建并设置：
+To make `server.js` serve the built `dist/` bundle instead of raw source files:
 
 ```powershell
 $env:BOH_SERVE_DIST = '1'
 npm start
 ```
 
-若未设置 `BOH_SERVE_DIST=1`，服务端会继续提供仓库源码，避免误把旧的 `dist/` 当成最新客户端。PM2 配置 `ecosystem.config.js` 已默认启用构建产物。
+PM2 deployment via `ecosystem.config.js` enables `BOH_SERVE_DIST=1` automatically.
 
-### itch.io HTML5 构建
+### itch.io HTML5 Build
 
 ```powershell
 npm run build:itch
 ```
 
-itch.io 构建输出到被 Git 忽略的 `dist-itch/`。上传时将该目录中的全部内容打入同一个 ZIP，确保 `index.html` 位于 ZIP 根目录。该构建使用相对资源路径，通过 `wss://boh.frostrain.tech` 连接现有联机服务器，并关闭 Frost ID；玩家档案以访客模式保存在浏览器本地。公开服务器地址和构建开关位于 `.env.itch`。
+Generates a standalone build in `dist-itch/` using relative asset paths (`base: './'`), connecting WebSocket multiplayer to the remote server configured in `.env.itch`, and disabling Frost ID OAuth so player profiles stay local to browser storage. Zip the contents of `dist-itch/` (with `index.html` at the archive root) for upload.
 
-## 测试与开发工具
+## Testing and Developer Tools
 
 ```powershell
-npm test                         # 全量：静态、规则、PVE、战役、联机、将领与特效
-npm run test:quick               # 缩短完整对局循环的快速回归
-npm run typecheck                # 渲染边界 TypeScript 检查
-npm run selfplay                 # AI 自对弈
+npm test                         # Full suite: static, unit, pve, campaign, net, cmdr, fx
+npm run test:quick               # Full suite with shortened PvE turn loops
+npm run typecheck                # TypeScript check against tsconfig.rendering.json
+npm run selfplay                 # Headless AI-vs-AI self-play CLI (tools/runSelfPlay.mjs)
+
+# Run individual test suites
+node test/run-all.mjs --suite=static
 node test/run-all.mjs --suite=unit
+node test/run-all.mjs --suite=pve
 node test/run-all.mjs --suite=campaign
 node test/run-all.mjs --suite=net
+node test/run-all.mjs --suite=cmdr
+node test/run-all.mjs --suite=fx
 ```
 
-可用测试套件为 `static`、`unit`、`campaign`、`pve`、`net`、`cmdr` 和 `fx`。浏览器测试由测试入口自动启动隔离服务器。
+Additional developer scripts and utilities:
 
-仓库还提供：
+- `tools/runSelfPlay.mjs`: Headless AI self-play runner sharing browser `gameLogic` and difficulty profiles (`imperator`, `legatus`, `optio`, `corporal`).
+- `tools/runBenchmark.mjs`: Multi-game difficulty benchmark matrix outputting to `artifacts/benchmark/`.
+- `tools/generateBalanceDoc.mjs`: Exports balance reference data derived from `rules/`.
+- `tools/trimSounds.js`: Processes raw source audio into compressed runtime assets in `sounds/` using `ffmpeg-static`.
+- `scripts/exportUnchartedPassageV2.mjs`: Map export utility for `uncharted-passage`.
+- `campaign/terrain-preview-*.html` & `campaign/terrain-texture-preview.html`: Standalone Vite-built preview harnesses for terrain, water, actions, targeting, and air presentation.
+- `campaign/editor/`: Built-in data-driven campaign board and trigger editor.
+- `prototype/`: Standalone experimental prototypes (`3d-battlefield`, `akros-rpg`), excluded from production game builds.
 
-- `tools/runBenchmark.mjs`、`tools/aiBenchmark.mjs`：AI 与性能基准。
-- `tools/generateBalanceDoc.mjs`：从当前规则生成平衡资料。
-- `campaign/terrain-preview-*.html`：地形、水域、行动、目标选择和空军表现预览。
-- `campaign/editor/`：数据驱动关卡编辑能力。
-- `prototype/`：独立技术原型，不属于当前正式游戏入口。
+### Local Agent Battle SDK (`tools/agentSdk.mjs`)
 
-### 本地 Agent 对战 SDK
+External LLM or programmatic agents can join an open multiplayer room slot over WebSocket. Create a multiplayer room in the UI with a free player seat, ensure both server and SDK share the same repository version, and use **Node.js 22+**. Full agent instructions and action schemas live in [tools/agentPrompt.md](tools/agentPrompt.md).
 
-在游戏里创建联机房间并留出一个玩家席位。使用与房间同版本的仓库和 Node.js 22 或更新版本。SDK 自动入房、准备和选将，房主按正常流程开局。SDK 直接连接游戏服务器，推理由你的本地 Agent 处理。可独立加载的完整提示词在 [tools/agentPrompt.md](tools/agentPrompt.md)。
-
-**在 Node.js Agent 中导入**
+#### Node.js Module Integration
 
 ```js
 import { joinAgent } from './tools/agentSdk.mjs';
@@ -106,107 +109,113 @@ const session = await joinAgent({
   room: '1',
   token: process.env.BOH_GAME_TOKEN,
   async planTurn({ prompt, observation, signal }) {
-    // localAgent 是你已初始化的本地 Agent。让它返回 JSON 对象或 JSON 文本。
+    // Return a { summary, actions } object or JSON string from your local agent.
     return localAgent.run({ system: prompt, input: JSON.stringify(observation), signal });
   },
   onEvent(event) {
-    if (event.type === 'summary') console.log('战术摘要', event.summary);
-    if (event.type === 'actionResult') console.log(event.accepted ? '已确认' : '跳过', event.action);
+    if (event.type === 'summary') console.log('Turn summary:', event.summary);
+    if (event.type === 'actionResult') console.log(event.accepted ? 'Accepted' : 'Skipped', event.action);
   }
 });
 
 await session.done;
 ```
 
-`planTurn` 仅在己方行动时调用。返回 `{ summary, actions }`，SDK 随即校验和执行，处理服务器确认后结束回合。`signal` 在回合失效、连接关闭或超时时取消。每个 Node 进程可运行一场对局。`session.close()` 主动退出，`session.done` 在会话结束时完成，连接或执行失败时拒绝。等待计划默认 120 秒，超时或回调报错会跳过该回合，`timeoutMs: 0` 可关闭超时。
+- `planTurn` is called only when it is the agent's active turn, and `signal` aborts if the turn expires, times out (`120000` ms default, `0` disables), or disconnects.
+- Under Fog of War, `observation` contains only friendly-visible tiles/units and the agent's own hand.
 
-**从其他语言或本地 Agent 进程接入**
-
-将以下命令作为子进程启动，保持标准输入开启。需要令牌时设置 `BOH_GAME_TOKEN`。远程房间可使用对应的 `wss://` 地址。
+#### Language-Agnostic JSONL Subprocess Mode
 
 ```powershell
 node tools/agentSdk.mjs --server=ws://127.0.0.1:3000 --room=1 --timeout-ms=120000
 ```
 
-标准输出按行发送 JSON，普通日志写入标准错误。收到 `{"type":"turn","turnId":"…","prompt":"…","observation":{...}}` 后，把提示词和局势交给本地 Agent，并向标准输入写入一行带相同 `turnId` 的计划，例如 `{"type":"plan","turnId":"…","summary":"本轮固守","actions":[]}`。旧回合的计划会收到 `inputError`。可监听 `joined`、`summary`、`actionResult`、`turnEnded`、`turnCancelled` 和 `planError`。关闭标准输入或按 Ctrl+C 可退出会话。
+- Reads `plan` objects line-by-line from `stdin` and emits turn prompts and status events (`joined`, `turn`, `summary`, `actionResult`, `turnEnded`, `turnCancelled`, `planError`, `inputError`) on `stdout` (diagnostics on `stderr`).
+- Respond to `{"type":"turn","turnId":"...","prompt":"...","observation":{...}}` by writing a matching `{"type":"plan","turnId":"...","summary":"Hold line","actions":[]}` line.
 
-动作表及棋盘字段见完整提示词。迷雾模式下，SDK 按己方视野提供局势，并仅提供己方手牌。
-
-## 运行架构
+## Architecture
 
 ```text
-浏览器客户端
-  ├─ 大厅 / 标准对战 / 教学 / 战役
-  ├─ 规则与状态模型（rules、engine、core）
-  ├─ Canvas/Pixi 战场渲染与表现事件
-  └─ WebSocket 联机协议
+Browser Client (Vite + PixiJS / Canvas2D + Audio/GSAP)
+  ├── Lobby, Skirmish, Tutorial, Campaign UI, and AAR Stats
+  ├── Shared Rules and State Simulation (rules/, engine/, core/)
+  ├── Client Runtime, AI Drivers, and Match Recorder (js/, ai/)
+  └── WebSocket Sync Client (protocol/messages.js)
            │
-Node 服务（server.js）
-  ├─ 静态资源或 dist 构建产物
-  ├─ 房间、席位、聊天与断线恢复
-  ├─ 服务端权威状态修订
-  ├─ Frost ID OAuth 回调与玩家档案 API
-  └─ 管理连接与封禁接口
+Node Server (server.js)
+  ├── Static Source or dist/ Bundle Serving (BOH_SERVE_DIST)
+  ├── Authoritative Rooms, AI Seats, Reconnect, and Chat
+  ├── Snapshot and Action Revision Validation
+  ├── Frost ID OAuth Callbacks and /api/player-profile Sync
+  └── Remote Admin Bridge and Ban Controls
 ```
 
-### 主要目录
+### Repository Layout
 
-| 路径 | 职责 |
+| Path | Purpose |
 | --- | --- |
-| `js/` | 浏览器入口、交互、表现、网络和客户端运行时 |
-| `rules/` | 兵种、将领、地图、移动、地形、海战等共享规则 |
-| `engine/` | 战斗、行动、效果与回合执行引擎 |
-| `core/` | 对局状态和共享领域模型 |
-| `ai/` | 分层 AI：感知、任务、战术、生产、卡牌和难度策略 |
-| `campaign/` | 战役目录、内容、运行时、编辑器和进度管理 |
-| `protocol/` | 联机消息、动作与快照校验 |
-| `server/` | 房间 AI 席位与玩家档案存储 |
-| `admin/` | 独立管理后台服务和页面 |
-| `test/` | Node、浏览器、PVE、战役和联机回归测试 |
-| `tools/` | 自对弈、基准、资产清单和平衡文档工具 |
+| `js/` | Browser entry points, input/UI controllers, renderers, network client, AAR stats, and match recorder |
+| `rules/` | Shared domain rules: units, commanders, cultures, faction synergies, standard maps, naval, ports, hydrography, and combat math |
+| `engine/` | Core `matchState` and `HexTile` runtime primitives |
+| `core/` | Headless simulation helpers, deterministic RNG, and DOM shims |
+| `commander/` | Commander definitions and avatar/skill FX modules |
+| `ai/` | Tiered AI architecture (`imperator`, `legatus`, `optio`, `corporal`) and shared `ai/core/` planners |
+| `campaign/` | Campaign catalog, *Bloodstained Iris* and visual QA missions, runtime triggers, schema validation, and level editor |
+| `protocol/` | Shared WebSocket message schemas, action validation, and state snapshots |
+| `server/` | Room AI controller (`roomAi.js`) and MySQL/file player profile storage (`playerProfileStore.js`) |
+| `admin/` | Standalone admin HTTP server and web console |
+| `locales/` | English UI and campaign localization dictionaries |
+| `test/` | Node unit/rule suites, static audit, Playwright end-to-end PvE/campaign/network tests, commander and FX suites |
+| `tools/` | Self-play runner, benchmark matrix, balance doc generator, sound trimmer, and Local Agent SDK |
+| `scripts/` | One-off map/data authoring scripts |
 
-## 可选服务配置
+## Optional Server Configuration
 
-### Frost ID 与玩家档案
+### Frost ID OAuth and Player Profiles
 
-复制 `auth-config.example.json` 为未纳入版本控制的 `auth-config.json`，或用 `BOH_AUTH_CONFIG` 指向配置文件。配置可启用 OAuth 登录；提供数据库连接后，`/api/player-profile` 会保存战役进度、收藏和其他玩家档案。未配置时游戏仍可匿名运行，进度保存在浏览器本地。
+Copy `auth-config.example.json` to `auth-config.json` (gitignored) or set `BOH_AUTH_CONFIG`. When MySQL access is configured (via `auth-config.json`, `BOH_FROST_ID_DATABASE_URL`, or a sibling `../frost-id/.env`), `/api/player-profile` persists campaign progress, collectibles, and settings across sessions. Without auth config, the server runs anonymously with browser-local storage.
 
-可用相关环境变量：
+Key environment variables:
 
-- `BOH_AUTH_CONFIG`：认证配置文件路径。
-- `BOH_JWT_SECRET`：服务签发和验证登录令牌所用密钥。
-- `BOH_ADMIN_CONFIG`：管理配置文件路径。
-- `BOH_ADMIN_TOKEN`：远程管理令牌。
-- `HTTP_PORT` / `PORT`：HTTP 与 WebSocket 端口。
-- `HTTPS_PORT`：可选 HTTPS 端口，默认 `3443`。
-- `BOH_SERVE_DIST=1`：优先提供 `dist/` 构建产物。
+- `PORT` / `HTTP_PORT`: HTTP and WebSocket port (default `3000`).
+- `HTTPS_PORT`: Optional localhost HTTPS port when TLS certs exist (default `3443`).
+- `BOH_SERVE_DIST`: Set to `1` to serve `dist/` instead of source files.
+- `BOH_AUTH_CONFIG`: Path to auth configuration JSON.
+- `BOH_JWT_SECRET`: Secret used to sign and verify session tokens.
+- `BOH_FROST_ID_DATABASE_URL`: MySQL connection string for Frost ID player profiles.
+- `BOH_ADMIN_CONFIG`: Path to admin configuration JSON.
+- `BOH_ADMIN_TOKEN`: Token for admin console authentication.
 
-### HTTPS
+### Local HTTPS
 
-当 `certs/key.pem` 与 `certs/cert.pem` 存在时，主服务会额外在仅本机监听的 HTTPS 端口启动。仓库当前没有 `generate-cert.js`，因此证书需由部署环境自行提供。
+To serve HTTPS on localhost alongside HTTP, generate self-signed certificates in `certs/` (`certs/key.pem`, `certs/cert.pem`) and start the server:
 
-### 管理后台
+```powershell
+npm run generate-cert
+npm run setup-https
+```
+
+### Admin Console
 
 ```powershell
 npm run admin
 ```
 
-管理后台是独立进程，默认配置示例见 `admin-config.example.json`。它用于查看和关闭房间、查看连接、维护 IP 黑名单以及观察服务器状态；不要将真实令牌或密码提交到仓库。
+Runs `admin/admin-server.js` as a separate process (see `admin-config.example.json`) to inspect active rooms and connections, close rooms, and manage IP bans. Never commit real tokens or credentials.
 
-## 内容与规则的权威来源
+## Authoritative Sources
 
-README 只保留稳定的产品和工程边界，以下文件才是当前行为的权威来源：
-
-- 兵种、专精与克制：`rules/units.js`
-- 将领配置：`rules/commanders.js` 与 `commander/`
-- 标准地图：`rules/standardMaps.js`
-- 海军、港口与水域：`rules/naval.js`、`rules/ports.js`、`rules/surfaces.js`
-- 联机动作与快照：`protocol/messages.js`、`server.js`
-- 战役列表：`campaign/catalog.js` 与 `campaign/content/*/chronicle.js`
-- 战役关卡格式：`campaign/Blades of Hex战役JSON创作Agent完整规范.md`
-
-新增或调整玩法时，应同步修改规则模块和对应测试；仅修改 README 中的数值不会改变游戏行为。
+- Complete Game Rules Manual: [docs/GAME_RULES.md](docs/GAME_RULES.md)
+- Units, specializations, and counters: [rules/units.js](rules/units.js)
+- Commanders and skills: [rules/commanders.js](rules/commanders.js) and `commander/`
+- Historical Cultures and unique units: [rules/cultures.js](rules/cultures.js)
+- Faction Synergies: [rules/factionSynergies.js](rules/factionSynergies.js)
+- Standard maps: [rules/standardMaps.js](rules/standardMaps.js)
+- Naval, ports, surfaces, and hydrography: [rules/naval.js](rules/naval.js), [rules/ports.js](rules/ports.js), [rules/surfaces.js](rules/surfaces.js), [rules/hydrography.js](rules/hydrography.js)
+- Multiplayer actions and snapshots: [protocol/messages.js](protocol/messages.js) and [server.js](server.js)
+- Campaign catalog and chronicles: [campaign/catalog.js](campaign/catalog.js) and [campaign/content/bloodIris/chronicle.js](campaign/content/bloodIris/chronicle.js)
+- Campaign level schema specification: [Campaign Level JSON Authoring Spec](campaign/Blades%20of%20Hex%E6%88%98%E5%BD%B9JSON%E5%88%9B%E4%BD%9CAgent%E5%AE%8C%E6%95%B4%E8%A7%84%E8%8C%83.md)
 
 ## License
 
-[MIT](LICENSE) © 2026 Frostrain5015
+[MIT](LICENSE) (c) 2026 Frostrain5015
