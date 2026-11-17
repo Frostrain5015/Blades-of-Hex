@@ -158,7 +158,7 @@ function createHydratedUnit(state, u) {
     return unit;
 }
 
-function hydrateMatchInitialState(log) {
+export function hydrateMatchInitialState(log) {
     const mode = log.mode || {};
     const participants = log.participants || [];
     const playerParticipants = participants.filter(p => p.campKey !== 'neutral');
@@ -294,7 +294,7 @@ function findUnitById(state, unitId) {
     return null;
 }
 
-function applyChanges(state, changes, actionEntry = null) {
+export function applyChanges(state, changes, actionEntry = null) {
     if (!changes) return;
     let sitesCampChanged = false;
     let fogRefreshNeeded = false;
@@ -744,7 +744,7 @@ export function enumerateLegalCandidates(state, camp, helpers) {
     return candidates;
 }
 
-function matchHumanActionToCandidate(entry, candidates, state) {
+export function matchHumanActionToCandidate(entry, candidates, state) {
     const type = entry.actionType;
     const p = entry.payload || {};
     if (type === 'move') {

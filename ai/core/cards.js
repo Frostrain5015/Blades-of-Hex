@@ -453,7 +453,8 @@ export function shouldDrawCard(world, strategy, plannedRecruitSpend = 0, planned
         || (strategy.posture === 'hold' && !world.hand.some(c => c === 'lightning' || c === 'imprison'))
         || (strategy.posture === 'allin' && effectiveHandCount === 0)
         || woundedCommanderNeedsCard
-        || (w.cardFocus && effectiveHandCount === 0);
+        || (w.cardFocus && effectiveHandCount === 0)
+        || (world.round >= 4 && effectiveHandCount === 0);
     const tianyanReserve = needsAnswer ? 0 : resolveTianyanDroneReserve(world.gameState, world.myCamp, {
         assaultCount: world.myUnits.filter(u => isFieldCapturer(world, u)).length,
         urgentDefense: !!strategy.emergencyDefenseCity,

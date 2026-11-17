@@ -94,7 +94,8 @@ function shouldTemporarilyVacateMinister(world, strategy, memory) {
     const forceRatio = world.myUnits.length / Math.max(1, world.rivalUnits.length);
     const recruitmentIsUrgent = strategy.assaultCapacity.deficit > 0
         || ['recover', 'allin'].includes(strategy.posture)
-        || forceRatio < W.ministerVacateForceRatio;
+        || forceRatio < W.ministerVacateForceRatio
+        || (spendableGold >= 22 && world.myUnits.length < Math.max(10, world.myCities.length * 4 + 3));
     const lastVacatedRound = Number(memory.ministerLastVacatedRound);
     const cooldownReady = !Number.isFinite(lastVacatedRound)
         || world.round - lastVacatedRound >= W.ministerVacateCooldownRounds;
@@ -239,7 +240,9 @@ export function planProduction(world, strategy, missionsCtx) {
     let earlySpend = 0;
     let emergencyRecruitFund = strategy.reserve;
     const emptyCitiesAll = world.myCities.filter(city => !city.unit && !reservedForMinister(city))
-        .sort((a, b) => Number(b === strategy.emergencyDefenseCity) - Number(a === strategy.emergencyDefenseCity));
+        .sort((a, b) => Number(b === strategy.emergencyDefenseCity) - Number(a === strategy.emergencyDefenseCity)
+            || Number(Boolean(world.exposedAirdropCityKeys?.has(`${b.q},${b.r}`)))
+                - Number(Boolean(world.exposedAirdropCityKeys?.has(`${a.q},${a.r}`))));
     const urgentCities = new Set();
     let recruits = 0;
     const maxRecruits = isImperatorTier(world.caps) ? 3 : 2;
@@ -250,8 +253,10 @@ export function planProduction(world, strategy, missionsCtx) {
     // 最紧急的空城保卫战先行拨款，避免前线补员花光保命买步兵的钱。
     for (const city of emptyCitiesAll) {
         if (recruits >= maxRecruits) break;
-        const urgentLandRecruit = emergencyRecruitFund > 0
-            && (world.myUnits.length <= 2 || city === strategy.emergencyDefenseCity);
+        const exposedAirdrop = Boolean(world.exposedAirdropCityKeys?.has(`${city.q},${city.r}`));
+        const urgentLandRecruit = (emergencyRecruitFund > 0
+            && (world.myUnits.length <= 2 || city === strategy.emergencyDefenseCity))
+            || exposedAirdrop;
         if (!urgentLandRecruit) continue;
         const types = cityOrder(city, LAND_ORDER, true);
         for (const type of types) {
@@ -281,16 +286,31 @@ export function planProduction(world, strategy, missionsCtx) {
         && canAfford(gold, unitCost(world, uniqueType), strategy);
     const surplusRecruitSlot = world.caps.duelModel
         && gold - unitCost(world, 'infantry') - strategy.reserve >= 2;
-    if (!hasEmptyCity && (strategy.assaultCapacity.needsProductionSlot || ministerMayVacate || needsUniqueSlot || surplusRecruitSlot)) {
+    const hasVacateNeed = strategy.assaultCapacity.needsProductionSlot || ministerMayVacate || needsUniqueSlot || surplusRecruitSlot;
+    if (!hasEmptyCity && hasVacateNeed) {
         const candidates = world.myCities
             .filter(city => !reservedForMinister(city))
             .filter(city => city.unit && city.unit.camp === world.myCamp && city.unit.canAct)
             .filter(city => !shouldReserveCityGarrison(world, city.unit))
-            .filter(city => ((!city.unit.commander && city.unit.type !== 'fr_heavy_cannon')
-                || (ministerMayVacate && city.unit.commander === 'minister'))
-                && !world.isImmobile(city.unit))
-            // 有守备任务的城市不腾位（受威胁时守城优先于产能）。
-            .filter(city => city.unit.commander === 'minister'
+            .filter(city => {
+                if (world.isImmobile(city.unit)) return false;
+                if (city.unit.commander === 'minister') return ministerMayVacate;
+                if (city.unit.commander === 'astrologer') {
+                    const allowSoleRelease = !hasEmptyCity && world.myCities.length === 1
+                        && gold >= unitCost(world, 'infantry') && world.myUnits.length < 9;
+                    return strategy.assaultCapacity.deficit > 0
+                        || allowSoleRelease
+                        || (gold >= 16 && world.myUnits.length < Math.max(9, world.myCities.length * 4 + 2));
+                }
+                if (city.unit.type === 'fr_heavy_cannon') {
+                    // 未架设的巨炮若不缺夺城兵力，留给战术层优先推进到有射界的阵位并自然腾空城池；已架设冷却结束后（非单单位战斗中）再由生产层收起腾位
+                    if (!isHeavyCannonDeployed(city.unit) && strategy.assaultCapacity.deficit === 0) return false;
+                    if (isHeavyCannonDeployed(city.unit) && !city.unit.commander && world.myUnits.length <= 1) return false;
+                }
+                return true;
+            })
+            // 有守备任务的城市不腾位（受威胁时守城优先于产能）；后方经济/星象将领在安全城内允许临时让出产能格。
+            .filter(city => ['minister', 'astrologer'].includes(city.unit.commander)
                 || missionsCtx.assignment.get(city.unit.id)?.kind !== 'garrison')
             .filter(city => world.threatAt(city, city.unit) <= 30)
             .sort((a, b) => Number(!!a.unit.commander) - Number(!!b.unit.commander));
@@ -306,11 +326,35 @@ export function planProduction(world, strategy, missionsCtx) {
             if (!type) continue;
             const mobile = productionExitUnit(world, city.unit);
             if (!mobile) continue;
+            const isHeavyCannon = city.unit.type === 'fr_heavy_cannon';
+            const cannonSafeFloor = isHeavyCannon && !minister
+                ? Math.max(20, Math.round(city.unit.hp * 0.60))
+                : 20;
             const exits = helpers.getMovableTiles(mobile)
                 .filter(tile => (!tile.unit || (world.isUnitVisible && !world.isUnitVisible(tile.unit)))
-                    && !tile.isCity && isCanVacateOffCityExit(tile, city.unit) && world.threatAt(tile, city.unit) <= 20);
+                    && !tile.isCity && isCanVacateOffCityExit(tile, city.unit)
+                    && world.threatAt(tile, city.unit) <= cannonSafeFloor);
             if (exits.length === 0) continue;
-            exits.sort((a, b) => world.threatAt(a, city.unit) - world.threatAt(b, city.unit));
+            const minHostileDist = tile => {
+                let best = 99;
+                for (const enemy of world.rivalUnits) {
+                    if (enemy.tile) best = Math.min(best, helpers.hexDistance(tile, enemy.tile));
+                }
+                if (best < 99) return best;
+                for (const c of world.cities) {
+                    if (c.hostile) best = Math.min(best, helpers.hexDistance(tile, c.tile));
+                }
+                return best;
+            };
+            const hasCannonArc = tile => isHeavyCannon && [...world.rivalUnits, ...world.cities.filter(c => c.hostile)]
+                .some(target => {
+                    const coord = target.tile || target;
+                    const d = helpers.hexDistance(tile, coord);
+                    return d >= 2 && d <= 5;
+                });
+            exits.sort((a, b) => Number(hasCannonArc(b)) - Number(hasCannonArc(a))
+                || world.threatAt(a, city.unit) - world.threatAt(b, city.unit)
+                || (minister ? minHostileDist(b) - minHostileDist(a) : minHostileDist(a) - minHostileDist(b)));
             const move = {
                 type: 'move', unitId: city.unit.id, tileQ: exits[0].q, tileR: exits[0].r,
                 autoAttack: false

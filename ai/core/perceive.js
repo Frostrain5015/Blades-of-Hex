@@ -19,6 +19,7 @@ import { getActiveCultureId, isCampCulture } from '../../rules/cultures.js';
 import {
     AIRFIELD_BASE_RANGE,
     COLONEL_AIR_RANGE_BONUS,
+    canAirCommandAirdropAt,
     getAirCommandCost,
     getAirCommandRange,
     getAirfieldColonel,
@@ -321,6 +322,28 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     const rivalEconomyByKey = new Map(rivalEconomies.map(profile => [profile.campKey, profile]));
     const strongestRivalEconomy = rivalEconomies.sort((a, b) => b.projectedIncome - a.projectedIncome)[0]
         || { projectedIncome: 0 };
+
+    // 后方空城伞降突袭警戒：敌方就绪机场处于伞降射程内且有足够下一手预算时，标记易受空降偷家的己方空城。
+    const exposedAirdropCityKeys = new Set();
+    if (caps.threatForecast && airMechanicsEnabled && hostileAirfields.length > 0) {
+        for (const city of myCities) {
+            if (city.unit || !canAirCommandAirdropAt(city)) continue;
+            for (const airfield of hostileAirfields) {
+                const afRange = getAirCommandRange(airfield);
+                if (helpers.hexDistance(airfield, city) > afRange) continue;
+                const readyAtRound = Number(airfield.installation?.airCommandReadyRound?.airdrop || 0);
+                if (readyAtRound > roundIndex + 1) continue;
+                const campKey = campToKey(airfield.camp);
+                const knownGold = fullIntelligence ? (Number(gameState.playerGold?.[campKey]) || 0) : 6;
+                const nextGold = knownGold + (rivalEconomyByKey?.get(campKey)?.projectedIncome || 0);
+                const dropCost = getAirCommandCost('airdrop', airfield, gameState);
+                if (nextGold >= dropCost) {
+                    exposedAirdropCityKeys.add(`${city.q},${city.r}`);
+                    break;
+                }
+            }
+        }
+    }
     const ownForceValue = estimateForceValue(myUnits);
     const observedRivalForce = estimateForceValue(rivalUnits);
     const rivalProfiles = rivalFactions.map(faction => {
@@ -429,6 +452,8 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         intel, stalestRivalAge,
         threatAt,
         airThreatAt,
+        exposedAirdropCityKeys,
+        hostileAirfields,
         visible, isUnitVisible, explored,
         hand, gold, cardConfig,
         cardUsesLeft: Math.max(0, (cardConfig.maxUsesPerTurn || 2) - (gameState.playerUsesThisTurn?.[myCampKey] || 0)),

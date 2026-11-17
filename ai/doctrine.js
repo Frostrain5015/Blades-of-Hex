@@ -143,15 +143,13 @@ export function scoreCommanderCarrierCandidate(unit, commanderId, mapDefinition,
             + (unit.config?.movementDomain === 'land' ? 100 : 0);
     }
     if (commanderId === 'astrologer') {
-        return score + (unit.tile.isCity ? 520 : 0)
+        return score + (unit.tile.isCity ? 140 : 0)
             + (unit.config?.movementDomain === 'land' ? 80 : 0);
     }
     if (commanderId === 'colonel' && unit.tile?.isCity && unit.tile.installation?.type === 'airfield') {
         score += 240;
     }
 
-    // 无主航路的胜负先由制海权决定：高属性主力舰是将领的首选载体；
-    // 激进突击派（blitz/trickster）敢把近战/驱逐将领顶到一线突破，避免三家缩在后排互望。
     if (mapDefinition?.familyId === 'uncharted-passage') {
         const aggressiveSpear = !!doctrine?.commanderRiskPush && commanderId !== 'colonel';
         const navalFlagshipBonus = aggressiveSpear
@@ -159,11 +157,20 @@ export function scoreCommanderCarrierCandidate(unit, commanderId, mapDefinition,
             : { carrier: 230, warship: 210, destroyer: 125, submarine: 65 };
         const base = getUnitBaseType(unit);
         score += navalFlagshipBonus[unit.type] ?? navalFlagshipBonus[base] ?? 0;
-        // 空军上校与航母或己方机场城体系拥有额外协同。
         if (commanderId === 'colonel' && base === 'carrier') score += 90;
     } else if (unit.config?.movementDomain === 'naval') {
         // 陆战为主的地图：将领挂军舰 = 脱离主战场（打不到城、护不了陆军）。
         score -= 140;
+    }
+
+    // 非经济/后方将领（尤其工程师）禁止优先挂在占着己方唯一城市的法国巨炮上，否则开局即架设锁死产能并浪费前线工事能力。
+    if (unit.type === 'fr_heavy_cannon') {
+        if (unit.tile?.isCity) score -= 260;
+        if (commanderId === 'engineer') score -= 180;
+    }
+    if (commanderId === 'engineer') {
+        if (unit.config?.movementDomain === 'land' && unit.type !== 'fr_heavy_cannon') score += 95;
+        if (unit.tile && !unit.tile.isCity) score += 45;
     }
 
     // 各将领的载体偏好（COMMANDER_STRATEGY.carrierPref）：输出型将领要进战斗序列。

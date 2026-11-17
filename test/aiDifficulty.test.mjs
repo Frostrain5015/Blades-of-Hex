@@ -690,12 +690,13 @@ test('狂战士泣血只在能兑现时发动', () => {
     assert.equal(shouldSpendBerserkerBlood({ hpRatio: 0.90, highValueTarget: true, outnumbered: true }), false);
 });
 
-test('AI 三档对外显示名称依次为 Optio / Legatus / Hybrid，且 Hybrid 加载 91 维策略模型', () => {
+test('AI 三档对外显示名称依次为 Optio / Legatus / Hybrid，且 Hybrid 加载 112 维双头策略+价值模型', () => {
     assert.deepEqual(
         [optioMeta, legatusMeta, hybridMeta].map(m => [m.difficultyId, m.name]),
         [['easy', 'Optio'], ['medium', 'Legatus'], ['hard', 'Hybrid']]
     );
-    assert.equal(POLICY_MODEL_META.featureDim, 91);
+    assert.equal(POLICY_MODEL_META.schema, 'blades-of-hex.policy-value.v2');
+    assert.equal(POLICY_MODEL_META.featureDim, 112);
 });
 
 test('Hybrid 陆图海军招募限制：仅在敌舰逼近己方城市或港口 4 格内时允许造船', () => {

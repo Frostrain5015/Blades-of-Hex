@@ -699,6 +699,7 @@ function isReservedForMinisterReturn(world, tile) {
 
 function isOwnCityThreatened(world, cityTile) {
     return world.threatAt(cityTile, cityTile.unit) > 0
+        || Boolean(world.exposedAirdropCityKeys?.has(`${cityTile.q},${cityTile.r}`))
         || world.rivalUnits.some(enemy => enemy.tile && world.helpers.hexDistance(enemy.tile, cityTile) <= 3);
 }
 
@@ -1507,6 +1508,12 @@ function planDroneOps(world, missionsCtx, actions, processed, availableGold) {
     const { _droneDeployTurn, _droneDeployCount, turnCounter } = world.gameState;
     if (availableGold < deployGoldCost || (_droneDeployTurn?.[world.myCampKey] === turnCounter
         && _droneDeployCount?.[world.myCampKey] >= deployLimitPerTurn)) return;
+    // 海图开局若港口空置且我方尚无主力舰，优先攒钱造巡洋舰以免陷入每回合-5金却零造船的贫困循环
+    const hasEmptyOwnPort = world.tiles.some(t => t.isPort && t.camp === world.myCamp && !t.unit);
+    const hasWarship = world.myUnits.some(u => getUnitBaseType(u) === 'warship');
+    const localEnemyUrgency = [...world.rivalUnits, ...world.neutralUnits].some(e =>
+        e.tile && e.hp > 0 && world.helpers.hexDistance(tianyan.tile, e.tile) <= 4);
+    if (world.oceanMap && world.round >= 2 && hasEmptyOwnPort && !hasWarship && world.gold < 15 && !localEnemyUrgency) return;
     const objective = missionsCtx.missions.find(m => m.kind === 'siege');
     const nearestRival = [...world.rivalUnits].filter(enemy => enemy.tile && enemy.hp > 0)
         .sort((a, b) => world.helpers.hexDistance(tianyan.tile, a.tile) - world.helpers.hexDistance(tianyan.tile, b.tile))[0];

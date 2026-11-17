@@ -11,8 +11,6 @@ import {
 } from './gameLogic.js';
 import { getRiverGate, getRiverGateOpenLane, canSwitchRiverGate, chooseRiverGateLane } from '../rules/riverGate.js';
 import { HEX_NEIGHBORS, hexDistance, UNIT_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, COLONEL_CARD_GOLD } from './config.js';
-import { ENGINEER_BUNKER_GOLD_COST } from '../commander/engineer.js';
-import { hasSameTypeBuildingWithin } from '../rules/construction.js';
 import { isNetworkGame } from './network.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { spawnCommanderSkillEffect } from './effects.js';
@@ -26,6 +24,7 @@ import * as optioPersonality from '../ai/optio.js';
 import * as legatusPersonality from '../ai/legatus.js';
 import * as hybridPersonality from '../ai/hybrid.js';
 import { planFollowupAttack, planOpenCityCaptures } from '../ai/core/planner.js';
+import { selectEngineerFortificationAction } from '../ai/core/behaviorTree.js';
 import { TIER_CAPABILITIES, isImperatorTier, resolveImperatorDoctrine } from '../ai/core/weights.js';
 import { canCaptureCityByCombat, resolveTianyanDroneReserve, scoreCommanderCarrierCandidate } from '../ai/doctrine.js';
 import {
@@ -345,7 +344,11 @@ async function runV2Infrastructure(aiCamp, difficultyProfile, stukaSorties) {
     const knownTile = tile => isKnownToAi(tile, aiCamp);
     const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
     const existingAirfields = ownedCities.filter(tile => tile.installation?.type === 'airfield');
-    const buildCandidates = ownedCities.filter(city => canBuildAirfieldAt(city, aiCamp, gameState));
+    const buildCandidates = ownedCities.filter(city => canBuildAirfieldAt(city, aiCamp, gameState)
+        && Number(city.hp || 0) >= 120
+        && (city.unit || !gameState.tiles.some(t => t?.unit && t.unit.hp > 0
+            && isHostile(gameState, aiCamp, t.unit.camp) && knownTile(t)
+            && hexDistance(city, t) <= 3)));
     const maxAirfields = isOceanMap || imperatorDoctrine?.id === 'armada' ? 3 : 2;
     if (airPriority && buildCandidates.length) {
         const front = gameState.tiles.filter(tile => tile.isCity && isHostile(gameState, aiCamp, tile.camp) && knownTile(tile));
@@ -596,6 +599,8 @@ async function positionFrenchCannons(camp, { afterGround = false } = {}) {
     const ministerReturn = gameState._aiCoreMemory?.[campToKey(camp)]?.ministerReturn;
     const visibleEnemy = unit => unit?.hp > 0 && canAttack(gameState, camp, unit.camp)
         && isUnitVisibleToCamp(unit, camp, gameState) && isSubmarineTargetableBy(unit, camp, gameState);
+    const hasOtherEmptyCity = currentCity => gameState.tiles.some(other =>
+        other !== currentCity && other.isCity && other.camp === camp && !other.unit && !isCityDisabled(other));
     for (const tile of gameState.tiles) {
         const unit = tile.unit;
         if (unit?.camp !== camp || getHeavyCannonStanceBlock(unit, gameState)) continue;
@@ -606,10 +611,17 @@ async function positionFrenchCannons(camp, { afterGround = false } = {}) {
             continue;
         }
         if (!deployed && tile.isCity && unit.commander === 'minister' && !afterGround) continue;
-        const hasFiringArc = getAttackableTiles(unit, { forAiAction: true, previewHeavyCannon: true }).some(
+        const firingTargets = getAttackableTiles(unit, { forAiAction: true, previewHeavyCannon: true }).filter(
             target => isKnownToAi(target, camp) && (!target.unit || visibleEnemy(target.unit)));
+        const hasFiringArc = firingTargets.length > 0;
         const adjacent = HEX_NEIGHBORS.map(([dq, dr]) => gameState.tileMap.get(`${tile.q + dq},${tile.r + dr}`))
             .filter(Boolean);
+        // 唯一招募城中的未架设巨炮：地面展开前若尚无实打实敌对阵营处于射界（例如开局仅有远距离中立单位），先留机动以便腾位招兵，等地面移动后再架设。
+        if (!deployed && tile.isCity && !afterGround && !hasOtherEmptyCity(tile)) {
+            const hasRivalInArc = firingTargets.some(t => t.unit && isHostile(gameState, camp, t.unit.camp));
+            const hasSafeExit = adjacent.some(n => !n.unit && !n.isCity && isLandTile(n));
+            if (!hasRivalInArc && hasSafeExit) continue;
+        }
         const exposed = adjacent.some(candidate => isKnownToAi(candidate, camp) && visibleEnemy(candidate.unit))
             && !adjacent.some(candidate => candidate.unit?.camp === camp && candidate.unit.hp > 0
                 && canCaptureCityByCombat(candidate.unit));
@@ -654,45 +666,19 @@ async function runAiFieldFortifications(aiCamp, difficultyProfile) {
     }
 }
 
-function planEngineerAction(aiCamp) {
-    const campKey = campToKey(aiCamp);
-    const engineer = gameState.tiles.reduce((found, tile) => found || (
-        tile.unit && tile.unit.commander === 'engineer' && !areCommanderMechanicsSuppressed(tile.unit) && tile.unit.camp === aiCamp && tile.unit.canAct && !tile.unit._engineerConstruction
-            ? tile.unit : null
-    ), null);
-    if (!engineer || !engineer.tile) return null;
-
-    const hostileTiles = gameState.tiles.filter(tile => tile.unit && isHostile(gameState, aiCamp, tile.unit.camp) && isKnownToAi(tile, aiCamp) && isUnitVisibleToCamp(tile.unit, aiCamp, gameState));
-    const isThreatened = hostileTiles.some(tile => hexDistance(engineer.tile, tile) <= 2);
-    if (!engineer.tile.fortification && (engineer.tile.isCity || engineer.tile.isVillage || isThreatened)) {
-        // 附近以远程/空军威胁为主 → 架高射机枪；否则挖战壕（定向选择）
-        const rangedThreatNearby = hostileTiles.some(tile =>
-            hexDistance(engineer.tile, tile) <= 2
-            && (getUnitBaseType(tile.unit) === 'archer' || getUnitBaseType(tile.unit) === 'mgNest' || tile.unit._isDrone));
-        const airThreatOnBoard = hostileTiles.some(tile => tile.unit.commander === 'colonel' || tile.unit._isDrone);
-        if (rangedThreatNearby || airThreatOnBoard) {
-            return { type: 'engineerFlak', unitId: engineer.id };
-        }
-        return { type: 'engineerTrench', unitId: engineer.id };
-    }
-
-    if ((engineer._engineerBunkerCD || 0) > 0) return null;
-    if ((gameState.playerGold[campKey] || 0) < ENGINEER_BUNKER_GOLD_COST || hostileTiles.length === 0) return null;
-    const candidates = gameState.tiles.filter(tile =>
-        !tile.unit && !tile.isCity && !tile.isVillage
-        && hexDistance(engineer.tile, tile) <= 1
-        && (!gameState.skirmishFog || isTileVisible(tile, aiCamp, gameState))
-        && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest')
-    );
-    if (candidates.length === 0) return null;
-
-    candidates.sort((left, right) => {
-        const leftDistance = Math.min(...hostileTiles.map(hostile => hexDistance(left, hostile)));
-        const rightDistance = Math.min(...hostileTiles.map(hostile => hexDistance(right, hostile)));
-        return leftDistance - rightDistance;
+async function runAiEngineerOps(aiCamp, difficultyProfile) {
+    if (difficultyProfile.infrastructureLevel < 1) return;
+    const emergencyBase = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
+    const reserveGold = Math.max(emergencyBase + resolveAiTianyanReserve(aiCamp, emergencyBase), reserveForMissingCulturalUnit(aiCamp));
+    const action = selectEngineerFortificationAction(gameState, aiCamp, {
+        reserveGold,
+        isKnownTile: tile => isKnownToAi(tile, aiCamp),
+        isVisibleUnit: unit => isUnitVisibleToCamp(unit, aiCamp, gameState),
+        hexDistance
     });
-    const target = candidates[0];
-    return { type: 'engineerBunker', unitId: engineer.id, tileQ: target.q, tileR: target.r };
+    if (action) {
+        await executeAction(action, aiCamp);
+    }
 }
 
 // 创建 helpers（每次执行时刷新 weather 等动态值）
@@ -952,15 +938,18 @@ async function _executeActionInner(action, aiCamp) {
         }
         case 'activateSkill': {
             const unit = resolveUnit(action.unitId);
-            if (!unit || !unit.tile || !unit.commander || areCommanderMechanicsSuppressed(unit) || !unit.canAct) return;
+            if (!unit || !unit.tile || !unit.commander || areCommanderMechanicsSuppressed(unit) || !unit.canAct) return false;
             const cmdCfg = getCommander(unit.commander);
-            if (!cmdCfg || !cmdCfg.activeSkill) return;
-            if (unit.activeSkillCD > 0 || unit.activeSkillDur > 0) return;
+            if (!cmdCfg || !cmdCfg.activeSkill) return false;
+            if (unit.activeSkillCD > 0 || unit.activeSkillDur > 0) return false;
+            let activated = false;
             withMatchAction('activateSkill', () => {
                 const skill = cmdCfg.activeSkill;
-                skill.onActivate(unit, {
+                const ok = skill.onActivate(unit, {
                     gameState, logMessage, spawnFx: spawnCommanderSkillEffect
                 });
+                if (ok === false) return;
+                activated = true;
                 if (unit.commander === 'astrologer') {
                     const targetWeather = ['clear', 'rain', 'fog', 'wind'].includes(action.targetWeather)
                         ? action.targetWeather
@@ -984,28 +973,29 @@ async function _executeActionInner(action, aiCamp) {
                     skillName: skill.name
                 }, aiCamp);
             });
+            if (!activated) return false;
             await delay(AI_DELAY);
             break;
         }
         case 'engineerTrench': {
             const unit = resolveUnit(action.unitId);
-            if (!unit || unit.commander !== 'engineer' || !unit.canAct) return;
-            executeEngineerTrench(unit);
+            if (!unit || unit.commander !== 'engineer' || !unit.canAct) return false;
+            if (!executeEngineerTrench(unit)) return false;
             await delay(AI_DELAY);
             break;
         }
         case 'engineerFlak': {
             const unit = resolveUnit(action.unitId);
-            if (!unit || unit.commander !== 'engineer' || !unit.canAct) return;
-            executeEngineerFlak(unit);
+            if (!unit || unit.commander !== 'engineer' || !unit.canAct) return false;
+            if (!executeEngineerFlak(unit)) return false;
             await delay(AI_DELAY);
             break;
         }
         case 'engineerBunker': {
             const unit = resolveUnit(action.unitId);
             const targetTile = resolveTile(action.tileQ, action.tileR);
-            if (!unit || !targetTile || unit.commander !== 'engineer' || !unit.canAct) return;
-            executeEngineerBunkerConstruction(unit, targetTile);
+            if (!unit || !targetTile || unit.commander !== 'engineer' || !unit.canAct) return false;
+            if (!executeEngineerBunkerConstruction(unit, targetTile)) return false;
             await delay(AI_DELAY);
             break;
         }
@@ -1198,15 +1188,34 @@ export async function processOpponentTurn(aiCamp) {
         if (typeof personality.selectNextAction === 'function') {
             gameState._aiSkillPlanned = new Set();
             const blockedKeys = new Set();
+            const movedUnitIds = new Set();
+            const forceMarchedUnitIds = new Set();
             await delay(AI_DELAY);
             for (let step = 0; step < 48; step++) {
                 if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-                const pick = personality.selectNextAction(gameState, helpers, aiCamp, { blockedKeys });
+                const pick = personality.selectNextAction(gameState, helpers, aiCamp, {
+                    blockedKeys,
+                    movedUnitIds,
+                    forceMarchedUnitIds
+                });
                 const action = pick?.action;
                 if (!action || action.type === 'endTurn') break;
                 const executed = await executeAction(action, aiCamp);
                 if (!executed && pick?.candidate?.key) {
                     blockedKeys.add(pick.candidate.key);
+                } else if (executed) {
+                    if (action.type === 'tacticalCard' && action.cardId === 'forceMarch' && action.targetId) {
+                        forceMarchedUnitIds.add(action.targetId);
+                    } else if (action.type === 'banzaiCharge' && action.unitId) {
+                        const samurai = resolveUnit(action.unitId);
+                        if (samurai?.canAct && samurai._banzaiFollowupTurn === gameState.turnCounter) {
+                            movedUnitIds.delete(action.unitId);
+                            forceMarchedUnitIds.add(action.unitId);
+                        }
+                    } else if (action.type === 'move' && action.unitId) {
+                        movedUnitIds.add(action.unitId);
+                        forceMarchedUnitIds.delete(action.unitId);
+                    }
                 }
             }
         } else {
@@ -1355,6 +1364,7 @@ export async function processOpponentTurn(aiCamp) {
             }
         }
         if (!gameState.gameOver && gameState.currentCamp === aiCamp && gameState.aiActing) {
+            await runAiEngineerOps(aiCamp, difficultyProfile);
             await runAiFieldFortifications(aiCamp, difficultyProfile);
             if (getActiveCultureId(gameState, aiCamp) === 'cpc') {
                 for (const tile of gameState.tiles) {

@@ -7,15 +7,21 @@ import assert from 'node:assert/strict';
 import { HEX_NEIGHBORS, hexDistance } from '../rules/hex.js';
 import { UNIT_CONFIG } from '../rules/units.js';
 import { createRng } from '../core/rng.js';
-import { selectCommander, selectCommanderPair } from '../ai/doctrine.js';
+import { selectCommander, selectCommanderPair, scoreCommanderCarrierCandidate } from '../ai/doctrine.js';
 import {
     TIER_CAPABILITIES,
     W,
     hpGold,
     noiseJitter,
     residualGold,
+    resolveHybridFusionProfile,
+    resolveImperatorDoctrine,
     tradeNetValue
 } from '../ai/core/weights.js';
+import { evaluateMicroBehaviorTree, selectEngineerFortificationAction } from '../ai/core/behaviorTree.js';
+import { computeBeamTacticalBonuses } from '../ai/core/beamSearch.js';
+import { computeMinimaxAlphaBetaBonuses } from '../ai/core/minimaxSearch.js';
+import { POLICY_MODEL_META, scorePolicyAndValueCandidates } from '../ai/core/hybridScorer.js';
 import { estimateForceValue } from '../ai/strategy.js';
 import { planFollowupAttack, planTurn } from '../ai/core/planner.js';
 import { planCards, shouldDrawCard } from '../ai/core/cards.js';
@@ -1561,4 +1567,193 @@ test('反帮对手拆中立缓冲带：对手西侧压残中立兵时，Imperato
         && [westNeutralGuard.id, westNeutralScreen.id].includes(a.targetId));
     assert.equal(cardHitsOnWestNeutrals.length, 0,
         `Imperator 不应对替对手拖节奏的西侧中立缓冲兵放雷击或禁锢：${JSON.stringify(cardHitsOnWestNeutrals)}`);
+});
+
+test('非海洋图学说禁用 armada，且风格调节层按学说/文化区分融合参数', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+        const doc = resolveImperatorDoctrine(
+            { rng: createRng(seed), _aiCoreMemory: {} },
+            'player1',
+            { oceanMap: false, round: 1, cultureId: 'gb', commanderIds: ['engineer', 'colonel'] }
+        );
+        assert.notEqual(doc.id, 'armada', '非海洋图不应开局选出 armada 学说');
+    }
+
+    const blitzDe = resolveHybridFusionProfile({ id: 'blitz' }, 'de', 'allin');
+    const trickUs = resolveHybridFusionProfile({ id: 'trickster' }, 'us', 'hold');
+    assert.equal(blitzDe.styleTag, 'blitz');
+    assert.equal(trickUs.styleTag, 'trickster');
+    assert.ok(blitzDe.attackBias > trickUs.attackBias, 'Blitz All-in 进攻偏置应高于 Trickster Hold');
+    assert.ok(blitzDe.mlpTemp < trickUs.mlpTemp, 'Blitz 低温更果断，Trickster 高温更具出牌变招倾向');
+    assert.ok(trickUs.cardBias > blitzDe.cardBias, 'Trickster 战术牌偏置应高于 Blitz');
+});
+
+test('工程师载体评分与微观行为树：禁用独城重炮锁城，并按序触发空城兑现、腾位与前沿防空工事', async () => {
+    const { buildWorld } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const ownCity = makeTile(0, 0, { isCity: true, camp: me, districtId: 1, hp: 200 });
+    const fieldHex = makeTile(1, 0);
+    const openFoeCity = makeTile(2, 0, { isCity: true, camp: foe, districtId: 2, hp: 0 });
+    const foeBackTile = makeTile(3, 0);
+
+    const cityCannon = makeUnit(1, 'fr_heavy_cannon', me, ownCity, { attack: 45 });
+    const fieldInf = makeUnit(2, 'infantry', me, fieldHex, { attack: 26 });
+    const openInf = makeUnit(3, 'infantry', me, makeTile(1, -1), { attack: 26 });
+    const foeArcher = makeUnit(10, 'archer', foe, foeBackTile);
+
+    assert.ok(
+        scoreCommanderCarrierCandidate(fieldInf, 'engineer', { familyId: 'crown-ring' })
+        > scoreCommanderCarrierCandidate(cityCannon, 'engineer', { familyId: 'crown-ring' }),
+        '工程师应优先挂载野战步兵，避免挂在城内重炮上开局锁死产能'
+    );
+
+    const openTile = openInf.tile;
+    const tiles = [ownCity, fieldHex, openTile, openFoeCity, foeBackTile];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        currentCamp: me,
+        round: 3,
+        turnCount: 6,
+        playerGold: { player1: 12, player2: 12, neutral: 0 }
+    });
+    const helpers = makeHelpers(tiles);
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+
+    const btCapture = evaluateMicroBehaviorTree({
+        state,
+        camp: me,
+        world,
+        imperatorPlan: [{ type: 'attack', unitId: fieldInf.id, targetId: foeArcher.id }],
+        candidates: [
+            { id: 0, key: `attack:${fieldInf.id}:${foeArcher.id}`, actionType: 'attack', unitId: fieldInf.id, targetId: foeArcher.id, q: 3, r: 0 },
+            { id: 1, key: `move:${openInf.id}:2,0`, actionType: 'move', unitId: openInf.id, q: 2, r: 0 }
+        ]
+    });
+    assert.equal(btCapture?.node, 'OpenCityCapture');
+    assert.equal(btCapture?.candidate.key, `move:${openInf.id}:2,0`);
+
+    const btUnpack = evaluateMicroBehaviorTree({
+        state,
+        camp: me,
+        world,
+        imperatorPlan: [{ type: 'heavyCannonStance', unitId: cityCannon.id }],
+        candidates: [
+            { id: 0, key: `heavyCannonStance:${cityCannon.id}`, actionType: 'heavyCannonStance', unitId: cityCannon.id },
+            { id: 1, key: 'endTurn', actionType: 'endTurn' }
+        ]
+    });
+    assert.equal(btUnpack?.node, 'CityVacateRecruitChain');
+    assert.equal(btUnpack?.candidate.actionType, 'heavyCannonStance');
+
+    fieldInf.commander = 'engineer';
+    fieldInf.tile = ownCity;
+    ownCity.unit = fieldInf;
+    cityCannon.tile = fieldHex;
+    fieldHex.unit = cityCannon;
+    const fortAct = selectEngineerFortificationAction(state, me, {
+        reserveGold: 6,
+        hexDistance
+    });
+    assert.equal(fortAct?.type, 'engineerFlak', '邻近敌方弓手压城且城市未设防时，工程师行为树应优先抢筑防空阵地');
+});
+
+test('局部束搜索（Beam Search）识别先攻城破墙再跟进占城的 2 步高收益连招', async () => {
+    const { buildWorld, decideStrategy } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const ownCity = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const infHex = makeTile(1, 0);
+    const foeCity = makeTile(2, 0, { isCity: true, camp: foe, districtId: 2, hp: 20 });
+
+    const archer = makeUnit(1, 'archer', me, ownCity, { attack: 25 });
+    const inf = makeUnit(2, 'infantry', me, infHex, { attack: 26 });
+    makeUnit(10, 'infantry', foe, makeTile(6, 0));
+
+    const tiles = [ownCity, infHex, foeCity, makeTile(6, 0)];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        currentCamp: me,
+        round: 4,
+        turnCount: 8,
+        playerGold: { player1: 12, player2: 12, neutral: 0 }
+    });
+    const helpers = makeHelpers(tiles);
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+
+    const siegeKey = `attackCity:${archer.id}:2,0`;
+    const candidates = [
+        { id: 0, key: siegeKey, actionType: 'attack', isCitySiege: true, unitId: archer.id, targetId: null, q: 2, r: 0 },
+        { id: 1, key: `move:${inf.id}:2,0`, actionType: 'move', unitId: inf.id, q: 2, r: 0 }
+    ];
+    const bonuses = computeBeamTacticalBonuses(state, world, strategy, candidates);
+    assert.ok((bonuses.get(siegeKey) || 0) >= 15, `束搜索应识别弓手破墙后步兵可立刻占城的连招收益：bonus=${bonuses.get(siegeKey)}`);
+});
+
+test('双头策略+价值网络推理返回有限 logit 与有界长期价值评估', () => {
+    const me = { id: 'player1' }, foe = { id: 'player2' };
+    const myCity = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const foeCity = makeTile(4, 0, { isCity: true, camp: foe, districtId: 2, hp: 150 });
+    const u1 = makeUnit(1, 'infantry', me, myCity);
+    makeUnit(2, 'infantry', foe, foeCity);
+
+    const tiles = [myCity, makeTile(1, 0), makeTile(2, 0), makeTile(3, 0), foeCity];
+    const state = makeState(tiles, { player1: me, player2: foe }, {
+        currentCamp: me,
+        round: 3,
+        turnCount: 6,
+        playerGold: { player1: 10, player2: 10, neutral: 0 },
+        playerHands: { player1: ['heal'], player2: [] }
+    });
+    const helpers = makeHelpers(tiles);
+    const candidates = [
+        { id: 0, key: `move:${u1.id}:1,0`, actionType: 'move', unitId: u1.id, q: 1, r: 0 },
+        { id: 1, key: 'endTurn', actionType: 'endTurn' }
+    ];
+    const out = scorePolicyAndValueCandidates(state, me, candidates, helpers, 'blitz');
+    assert.equal(out.logits.length, candidates.length);
+    assert.equal(out.values.length, candidates.length);
+    for (let i = 0; i < candidates.length; i++) {
+        assert.ok(Number.isFinite(out.logits[i]), `logit[${i}] 应有限`);
+        assert.ok(Number.isFinite(out.values[i]) && Math.abs(out.values[i]) <= 1.0, `Q-value[${i}] 应在 [-1, 1] 内`);
+    }
+});
+
+test('2-Ply 对抗式 MiniMax + Alpha-Beta 剪枝识别弃城走位风险并优先保城/杀威胁', async () => {
+    const { buildWorld, decideStrategy } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const ownCity = makeTile(0, 0, { isCity: true, camp: me, districtId: 1, hp: 0 });
+    const guardHex = makeTile(1, 0);
+    const stepOffHex = makeTile(-1, 0);
+    const foeThreatHex = makeTile(2, 0);
+    const foeHome = makeTile(6, 0, { isCity: true, camp: foe, districtId: 2, hp: 200 });
+
+    const myInf = makeUnit(1, 'infantry', me, guardHex, { attack: 26 });
+    makeUnit(10, 'cavalry', foe, foeThreatHex, { attack: 35 });
+    makeUnit(11, 'infantry', foe, foeHome);
+
+    const tiles = [stepOffHex, ownCity, guardHex, foeThreatHex, foeHome];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        currentCamp: me,
+        round: 14,
+        turnCount: 28,
+        playerGold: { player1: 12, player2: 12, neutral: 0 }
+    });
+    const helpers = makeHelpers(tiles);
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+
+    const defendKey = `move:${myInf.id}:0,0`;
+    const wanderKey = `move:${myInf.id}:-1,0`;
+    const candidates = [
+        { id: 0, key: wanderKey, actionType: 'move', unitId: myInf.id, q: -1, r: 0 },
+        { id: 1, key: defendKey, actionType: 'move', unitId: myInf.id, q: 0, r: 0 },
+        { id: 2, key: 'recruit:infantry:0,0', actionType: 'recruit', unitType: 'infantry', cost: 8, q: 0, r: 0 },
+        { id: 3, key: 'endTurn', actionType: 'endTurn' }
+    ];
+    // 先把防守/乱逛分数排成乱序，验证回城救火（阻断 MIN 下回合偷 0HP 空城）拿到大额正奖励并触发 Alpha-Beta 剪枝
+    const preScores = [30, 25, 20, 0];
+    const { bonuses, stats } = computeMinimaxAlphaBetaBonuses(state, world, strategy, candidates, { preScores });
+    assert.ok((bonuses.get(defendKey) || 0) >= 50,
+        `MiniMax 应强烈奖励回防 0HP 受威胁空城：defend=${bonuses.get(defendKey)}`);
+    assert.ok((bonuses.get(defendKey) || 0) > (bonuses.get(wanderKey) || 0) + 40,
+        `回城保城分应远高于原地/旁逛弃城分：defend=${bonuses.get(defendKey)}, wander=${bonuses.get(wanderKey)}`);
+    assert.ok(stats.cutoffs >= 1, `应在明显劣于已发现防线后触发 Alpha-Beta 剪枝：cutoffs=${stats.cutoffs}`);
 });

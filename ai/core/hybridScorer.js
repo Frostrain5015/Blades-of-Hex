@@ -9,7 +9,11 @@ import { decideStrategy } from './strategize.js';
 import { planTurn, planFollowupAttack } from './planner.js';
 import { isFieldCapturer } from './roster.js';
 import { shouldDrawCard } from './cards.js';
-import { TIER_CAPABILITIES } from './weights.js';
+import { resolveHybridFusionProfile, TIER_CAPABILITIES } from './weights.js';
+import { evaluateMicroBehaviorTree } from './behaviorTree.js';
+import { computeBeamTacticalBonuses } from './beamSearch.js';
+import { computeMinimaxAlphaBetaBonuses } from './minimaxSearch.js';
+import { shouldPlanActiveSkill } from '../doctrine.js';
 import { hasFullAiIntelligence } from '../difficulty.js';
 import { campToKey } from '../../rules/camps.js';
 import { canAttack } from '../../rules/diplomacy.js';
@@ -18,8 +22,10 @@ import { UNIT_CONFIG, canUnitBeRecruitedAtSite, getSpecializationOptions } from 
 import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
 import { CARD_SYSTEM_CONFIG } from '../../rules/constants.js';
 import { getBanzaiChargePath, resolveTargetingPreview } from '../../rules/targeting.js';
-import { canReinforceAtTile } from '../../rules/healing.js';
+import { canReinforceAtTile, isHealingBlocked } from '../../rules/healing.js';
+import { getKmtReinforceDeficit } from '../../rules/kmtStronghold.js';
 import { canRepairShipAtPort, isRegularNavalUnit } from '../../rules/naval.js';
+import { areCommanderMechanicsSuppressed } from '../../rules/movement.js';
 import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildFieldFortification, constructionCost } from '../../rules/construction.js';
 import {
     getAirCommandAvailability,
@@ -32,7 +38,9 @@ import {
 import { isCityDisabled } from '../../rules/citySiege.js';
 import { getCulturalRecruitmentCandidate } from '../../rules/aiRecruitment.js';
 import {
+    getActiveCultureId,
     getBanzaiCooldown,
+    getCulturalReinforceCostScale,
     getGuerrillaConcealmentReason,
     getHeavyCannonStanceCooldown,
     getHistoricalCost,
@@ -77,12 +85,26 @@ const UNIQUE_TYPES = new Set([
     'de_tiger', 'de_panzer', 'ru_katyusha', 'us_marine',
     'gb_battleship', 'fr_heavy_cannon', 'jp_samurai', 'kmt_training_brigade', 'cpc_guerrilla'
 ]);
+const RARE_SPECIAL_TYPES = new Set([
+    'droneDeploy', 'droneSuicide', 'heavyCannonStance', 'buildFortification',
+    'buildAirfield', 'repairShip', 'banzaiCharge', 'guerrillaConcealment'
+]);
+const SPECIAL_COMMANDER_TYPES = new Set(['engineer', 'tianyan', 'minister', 'priest', 'astrologer']);
+const DOCTRINE_STYLE_VECTORS = Object.freeze({
+    grandmaster: [1.0, 0.0, 0.0, 0.0],
+    blitz: [0.0, 1.0, 0.0, 0.0],
+    armada: [0.0, 0.0, 1.0, 0.0],
+    trickster: [0.0, 0.0, 0.0, 1.0],
+    default: [0.4, 0.25, 0.15, 0.2]
+});
 const OFFENSIVE_CARDS = new Set(['lightning', 'poison', 'imprison', 'airstrike', 'orbitalStrike']);
 
 const LAND_RECRUIT_FALLBACK = Object.freeze(['infantry', 'cavalry', 'archer']);
 const NAVAL_RECRUIT_FALLBACK = Object.freeze(['warship', 'destroyer', 'submarine']);
-const HYBRID_MLP_WEIGHT = 0.48;
-const HYBRID_IMP_WEIGHT = 0.52;
+
+function resolveStyleVector(styleTag) {
+    return DOCTRINE_STYLE_VECTORS[styleTag] || DOCTRINE_STYLE_VECTORS.default;
+}
 
 function resolveCardId(card) {
     if (!card) return null;
@@ -103,7 +125,7 @@ function hexDistCoords(q1, r1, q2, r2) {
 
 function unitClassFlags(utype) {
     const base = utype || '';
-    const isInf = (base.includes('infantry') || base === 'us_marine' || base === 'cpc_guerrilla' || base === 'kmt_training_brigade') ? 1 : 0;
+    const isInf = (base.includes('infantry') || base === 'us_marine' || base === 'cpc_guerrilla' || base === 'kmt_training_brigade' || base === 'ru_guard') ? 1 : 0;
     const isCav = (base.includes('cavalry') || base === 'jp_samurai') ? 1 : 0;
     const isArc = (base.includes('archer') || base === 'ru_katyusha' || base === 'fr_heavy_cannon') ? 1 : 0;
     const isNav = NAVAL_TYPES.has(base) ? 1 : 0;
@@ -113,16 +135,15 @@ function unitClassFlags(utype) {
 }
 
 function getAllActiveCommandSkillKeys(unit, state) {
-    if (!unit?.commander) return [];
-    if (unit.commander === 'engineer') {
-        const out = [];
-        if (canBuildFieldFortification(unit, 'trench', state)) out.push('trench');
-        if (canBuildFieldFortification(unit, 'flak', state)) out.push('flak');
-        return out;
-    }
+    if (!unit?.commander || !unit.canAct) return [];
+    if (areCommanderMechanicsSuppressed(unit)) return [];
+    if (state?._aiSkillPlanned?.has?.(unit.id)) return [];
+    if (unit.commander === 'engineer') return [];
     const cfg = getCommander(unit.commander);
     if (!cfg?.activeSkill) return [];
     if (Number(unit.activeSkillCD || 0) > 0 || Number(unit.activeSkillDur || 0) > 0) return [];
+    if (unit.commander === 'paladin' && (!shouldPlanActiveSkill(unit, { hasAttackTarget: true }))) return [];
+    if (unit.commander === 'berserker' && (!shouldPlanActiveSkill(unit, { hasAttackTarget: true }))) return [];
     return [cfg.activeSkill.id || ''];
 }
 
@@ -208,21 +229,43 @@ export function enumerateHybridCandidates(state, camp, helpers, world = null) {
                     });
                 }
             }
-            if (canReinforceAtTile(unit, state) && !unit.tile?._reinforcedThisTurn && unit.hp < unit.maxHp) {
-                candidates.push({
-                    id: candidates.length,
-                    key: `reinforce:${unit.id}`,
-                    actionType: 'reinforce',
-                    unitId: unit.id
-                });
+            if (canReinforceAtTile(unit, state) && !unit.tile?._reinforcedThisTurn
+                && !isHealingBlocked(unit, state, { allowReinforce: true })) {
+                const deficit = getKmtReinforceDeficit(unit, state);
+                const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), deficit);
+                if (healAmt > 0) {
+                    const scale = getCulturalReinforceCostScale(state, unit.tile, camp);
+                    const reinforceCost = getHistoricalCost(
+                        Math.max(1, Math.ceil((unit.config?.cost || 8) * (healAmt / unit.maxHp) * scale)),
+                        state, camp
+                    );
+                    if (gold >= reinforceCost) {
+                        candidates.push({
+                            id: candidates.length,
+                            key: `reinforce:${unit.id}`,
+                            actionType: 'reinforce',
+                            unitId: unit.id
+                        });
+                    }
+                }
             }
-            if (canRepairShipAtPort(unit, state) && !unit.tile?._reinforcedThisTurn && unit.hp < unit.maxHp) {
-                candidates.push({
-                    id: candidates.length,
-                    key: `repairShip:${unit.id}`,
-                    actionType: 'repairShip',
-                    unitId: unit.id
-                });
+            if (canRepairShipAtPort(unit, state) && !unit.tile?._reinforcedThisTurn && unit.hp < unit.maxHp
+                && !isHealingBlocked(unit, state, { allowReinforce: true })) {
+                const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
+                if (healAmt > 0) {
+                    const repairCost = getHistoricalCost(
+                        Math.max(1, Math.ceil((unit.config?.cost || 10) * (healAmt / unit.maxHp))),
+                        state, camp
+                    );
+                    if (gold >= repairCost) {
+                        candidates.push({
+                            id: candidates.length,
+                            key: `repairShip:${unit.id}`,
+                            actionType: 'repairShip',
+                            unitId: unit.id
+                        });
+                    }
+                }
             }
             if (unit.type === 'fr_heavy_cannon' && getHeavyCannonStanceCooldown(unit, state) === 0) {
                 candidates.push({
@@ -474,17 +517,18 @@ function gelu(x) {
     return 0.5 * x * (1.0 + Math.tanh(0.7978845608 * (x + 0.044715 * x * x * x)));
 }
 
-function forwardPolicyRow(rawFeatures) {
+function forwardPolicyAndValueRow(rawFeatures) {
     const mean = policyModel.normMean;
     const std = policyModel.normStd;
-    const { W1, b1, W2, b2, W3, b3 } = policyModel.weights;
+    const { W1, b1, W2, b2, W3, b3, Wv, bv } = policyModel.weights;
     const dim = policyModel.featureDim;
     const h1 = b1.length;
     const h2 = b2.length;
 
     const norm = new Float64Array(dim);
     for (let i = 0; i < dim; i++) {
-        norm[i] = (rawFeatures[i] - mean[i]) / std[i];
+        const z = (rawFeatures[i] - mean[i]) / std[i];
+        norm[i] = z > 8.0 ? 8.0 : (z < -8.0 ? -8.0 : z);
     }
 
     const a1 = new Float64Array(h1);
@@ -509,13 +553,23 @@ function forwardPolicyRow(rawFeatures) {
     for (let k = 0; k < h2; k++) {
         logit += a2[k] * W3[k];
     }
-    return logit;
+
+    let value = 0;
+    if (Array.isArray(Wv)) {
+        let vRaw = Number(bv || 0);
+        for (let k = 0; k < h2; k++) {
+            vRaw += a2[k] * Wv[k];
+        }
+        value = Math.tanh(vRaw);
+    }
+    return { logit, value };
 }
 
 /**
- * 与 tools/trainPolicyPrototype.py 完全对齐的 91 维候选向量特征化，返回每条候选的 MLP logit。
+ * 与 tools/trainPolicyPrototype.py 完全对齐的 112 维多单位协同 + 风格条件候选特征化，
+ * 返回 { logits, values } 双头推理结果（logits: 动作优先级, values: 长期终局评估 [-1, 1]）。
  */
-export function scorePolicyCandidates(state, camp, candidates, helpers) {
+export function scorePolicyAndValueCandidates(state, camp, candidates, helpers, styleTag = null) {
     const campKey = campToKey(camp);
     const roundNum = Number(getRound(state) || 1);
     const gold = Number(state.playerGold?.[campKey] || 0);
@@ -533,6 +587,7 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
     const ownCities = [];
     const rivalCities = [];
     const neutralCities = [];
+    const hostileReadyAirfields = [];
     for (const tile of state.tiles || []) {
         if (!tileVisibleFn(tile)) continue;
         tileMap.set(`${tile.q},${tile.r}`, tile);
@@ -540,7 +595,10 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
             const owner = campToKey(tile.camp);
             if (owner === campKey) ownCities.push(tile);
             else if (owner === 'neutral') neutralCities.push(tile);
-            else rivalCities.push(tile);
+            else {
+                rivalCities.push(tile);
+                if (tile.installation?.status === 'ready') hostileReadyAirfields.push(tile);
+            }
         }
     }
     const hostileCities = [...rivalCities, ...neutralCities];
@@ -641,8 +699,15 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
 
     const gLen = globalFeats.length;
     const fBase = gLen + ACTION_TYPES.length;
+    const extBase = fBase + 52;
+    const styleVec = resolveStyleVector(styleTag);
+    const ownCityShare = ownCities.length / Math.max(1.0, ownCities.length + rivalCities.length);
+    const clockUrgency = Math.min(1.2, Math.max(0.0, roundNum - 11.0) / 8.0);
+    const spendHeadroom = Math.min(1.5, Math.max(0.0, gold - 8.0) / 20.0);
+
     const logits = new Float64Array(candidates.length);
-    const row = new Float64Array(policyModel.featureDim);
+    const values = new Float64Array(candidates.length);
+    const row = new Float64Array(Math.max(112, policyModel.featureDim));
 
     for (let idx = 0; idx < candidates.length; idx++) {
         row.fill(0);
@@ -661,6 +726,7 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
         let uIsCmd = 0;
         let uatk = 0;
         let urng = 0;
+        let isCap = 0;
         let dURival = 10;
         let dUHcity = 10;
 
@@ -675,7 +741,12 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
             urng = Number(u.getEffectiveRange ? u.getEffectiveRange() : (u.range || 1));
             const ump = Number(u.remainingMP || 0);
             const uemb = u.isEmbarked ? 1 : 0;
-            const [isInf, isCav, isArc, isNav, isCap, isUniq] = unitClassFlags(u.type);
+            let isInf = 0;
+            let isCav = 0;
+            let isArc = 0;
+            let isNav = 0;
+            let isUniq = 0;
+            [isInf, isCav, isArc, isNav, isCap, isUniq] = unitClassFlags(u.type);
             const uCanAtkNow = (legalAttacksByUnit.get(u.id) || []).length > 0 ? 1 : 0;
             dURival = minDistUnits(uq, ur, rivalUnits);
             const dUHostile = minDistUnits(uq, ur, hostileUnits);
@@ -699,6 +770,7 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
             row[fBase + 15] = dUHostile / 15.0;
             row[fBase + 16] = dUHcity / 15.0;
             row[fBase + 17] = Math.min(enemiesNearU / 4.0, 1.5);
+            if (SPECIAL_COMMANDER_TYPES.has(u.commander)) row[extBase + 13] = 1.0;
         }
 
         if (c.q !== undefined && c.r !== undefined) {
@@ -706,6 +778,7 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
             let isCity = 0;
             let ownRiv = 0;
             let ownNeu = 0;
+            let fortVal = null;
             if (dt) {
                 const owner = campToKey(dt.camp);
                 isCity = dt.isCity ? 1 : 0;
@@ -718,6 +791,7 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
                 ownNeu = owner === 'neutral' ? 1 : 0;
                 const cHpRatio = isCity ? Math.min(1.0, Number(dt.hp || 0) / 250.0) : 0.0;
                 const hasAirf = dt.installation?.status === 'ready' ? 1 : 0;
+                fortVal = dt.fortification || null;
                 row[fBase + 18] = isCity;
                 row[fBase + 19] = isPort;
                 row[fBase + 20] = isVil;
@@ -739,6 +813,27 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
             row[fBase + 30] = Math.min(enemiesDest2 / 4.0, 1.5);
             row[fBase + 31] = Math.min(alliesDest2 / 4.0, 1.5);
 
+            // Area 3B 多单位协同/掩护/交叉火力/敌机场空降警戒特征（93..102）
+            const flankAllies1 = ownUnits.filter(a => a.id !== c.unitId && hexDistCoords(c.q, c.r, a.tile.q, a.tile.r) === 1).length;
+            const assaultNear2 = ownUnits.filter(a => a.id !== c.unitId && CAPTURER_TYPES.has(a.type) && hexDistCoords(c.q, c.r, a.tile.q, a.tile.r) <= 2).length;
+            const rangedNear2 = ownUnits.filter(a => a.id !== c.unitId
+                && (String(a.type || '').includes('archer') || a.type === 'ru_katyusha' || a.type === 'fr_heavy_cannon' || NAVAL_TYPES.has(a.type))
+                && hexDistCoords(c.q, c.r, a.tile.q, a.tile.r) <= 2).length;
+            const fortScore = fortVal === 'trench' ? 1.0 : (fortVal === 'flak' ? 0.8 : 0.0);
+            const crossfirePressure = Math.min(2.0, Math.max(-1.0, (enemiesDest2 - flankAllies1) / 2.0));
+            const localSup = Math.min(1.0, ((alliesDest2 + 1.0) / (enemiesDest2 + 1.0)) / 3.0);
+            const adjOwnCity = ownCities.some(oc => hexDistCoords(c.q, c.r, oc.q, oc.r) <= 1) ? 1.0 : 0.0;
+            const inEnemyAirZone = hostileReadyAirfields.some(af => hexDistCoords(c.q, c.r, af.q, af.r) <= 8) ? 1.0 : 0.0;
+
+            row[extBase + 2] = Math.min(flankAllies1 / 3.0, 1.5);
+            row[extBase + 3] = Math.min(assaultNear2 / 4.0, 1.5);
+            row[extBase + 4] = Math.min(rangedNear2 / 4.0, 1.5);
+            row[extBase + 5] = fortScore;
+            row[extBase + 6] = crossfirePressure;
+            row[extBase + 7] = localSup;
+            row[extBase + 10] = adjOwnCity;
+            row[extBase + 11] = inEnemyAirZone;
+
             if (atype === 'move' && u) {
                 const stepD = hexDistCoords(uq, ur, c.q, c.r);
                 const effRange = Math.max(1.0, urng);
@@ -750,10 +845,14 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
                 row[fBase + 35] = canAtkFromDest;
                 row[fBase + 36] = stepsOpenCity;
                 row[fBase + 37] = uIsCmd * Math.min(enemiesDest2 / 3.0, 1.0) * (1.5 - uhpRatio);
+                row[extBase + 8] = hostileCities.some(hc => hexDistCoords(c.q, c.r, hc.q, hc.r) === 1) ? 1.0 : 0.0;
+                row[extBase + 9] = hostileUnits.some(e => hexDistCoords(c.q, c.r, e.tile.q, e.tile.r) <= effRange
+                    && Number(e.hp || 0) < Number(e.maxHp || 100) * 0.70) ? 1.0 : 0.0;
             }
 
-            if (atype === 'attack' && u) {
+            if ((atype === 'attack' || atype === 'banzaiCharge') && u) {
                 const tu = unitAt.get(`${c.q},${c.r}`);
+                row[extBase + 8] = Math.min(1.5, alliesDest2 / 3.0);
                 if (tu) {
                     const thp = Math.max(1.0, Number(tu.hp || 0) + Number(tu.activeShield || 0));
                     const tmax = Math.max(1.0, Number(tu.maxHp || 100));
@@ -764,6 +863,7 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
                     row[fBase + 35] = (tuOwner && tuOwner !== campKey && tuOwner !== 'neutral') ? 1 : 0;
                     row[fBase + 36] = Math.min(2.0, uatk / thp);
                     row[fBase + 37] = uatk >= thp * 0.95 ? 1 : 0;
+                    row[extBase + 9] = (isCap > 0.5 && uatk >= thp) ? 1.0 : 0.0;
                 } else {
                     row[fBase + 38] = 1.0;
                 }
@@ -820,9 +920,29 @@ export function scorePolicyCandidates(state, camp, candidates, helpers) {
             row[fBase + 51] = Math.min(nLegalMoves / 30.0, 1.5);
         }
 
-        logits[idx] = forwardPolicyRow(row);
+        if (atype === 'droneDeploy') row[extBase + 0] = 1.0;
+        if (atype === 'banzaiCharge') row[extBase + 1] = 1.0;
+        if (RARE_SPECIAL_TYPES.has(atype)) row[extBase + 12] = 1.0;
+        row[extBase + 14] = styleVec[0];
+        row[extBase + 15] = styleVec[1];
+        row[extBase + 16] = styleVec[2];
+        row[extBase + 17] = styleVec[3];
+        row[extBase + 18] = ownCityShare;
+        row[extBase + 19] = clockUrgency;
+        row[extBase + 20] = spendHeadroom;
+
+        const out = forwardPolicyAndValueRow(row);
+        logits[idx] = out.logit;
+        values[idx] = out.value;
     }
-    return logits;
+    return { logits, values };
+}
+
+/**
+ * 兼容旧单头调用签名：仅返回每条候选的 MLP 策略 logit 向量。
+ */
+export function scorePolicyCandidates(state, camp, candidates, helpers, styleTag = null) {
+    return scorePolicyAndValueCandidates(state, camp, candidates, helpers, styleTag).logits;
 }
 
 function plannedActionKey(action, state) {
@@ -897,7 +1017,11 @@ function computeDrawCardUtility(world, strategy, planDrawPlanned, plannedSpend =
     const gold = world.gold || 0;
     const drawsDone = Number(world.gameState?.playerDrawsThisTurn?.[world.myCampKey] || 0);
     const drawCost = getHistoricalCost(CARD_SYSTEM_CONFIG.drawCost * (1 + drawsDone), world.gameState, world.myCamp);
-    const earlyRecruitReserve = world.round <= 3 && world.myUnits.length < 16 && world.myCities.some(c => !c.disabled) ? 8 : 0;
+    const hasEmptyRecruitCity = world.myCities.some(c => !c.disabled && !c.unit);
+    const hasVacatableCity = world.myCities.some(c => !c.disabled && c.unit?.canAct && !world.isImmobile(c.unit));
+    const earlyRecruitReserve = (world.round <= 3 || ((hasEmptyRecruitCity || hasVacatableCity) && world.myUnits.length < 11))
+        && world.myUnits.length < 16 && world.myCities.some(c => !c.disabled)
+        ? 8 : 0;
     const reserveFloor = Math.max(strategy.reserve || 0, earlyRecruitReserve);
     const injuredCmd = world.myUnits.some(u => u.commander && u.hp < u.maxHp * 0.65);
     const hasSupportCard = hand.includes('heal') || hand.includes('shield');
@@ -907,8 +1031,9 @@ function computeDrawCardUtility(world, strategy, planDrawPlanned, plannedSpend =
         return { utility: -70, boosted: false };
     }
     // 修复原版 drawCard 在 Z-score 归一化下被淹没：在不挤占计划招募与无人机预算的前提下，
-    // 手牌稀疏且预算充裕时给予确定性抽牌效用。
-    if ((hand.length <= 1 && gold - plannedSpend >= (strategy.reserve || 0) + 9 && (world.round >= 2 || gold - plannedSpend >= 14))
+    // 手牌稀疏（尤其第 4 回合起空手）且预算充裕时给予确定性抽牌效用。
+    if ((hand.length === 0 && world.round >= 4)
+        || (hand.length <= 1 && gold - plannedSpend >= (strategy.reserve || 0) + 9 && (world.round >= 2 || gold - plannedSpend >= 14))
         || planDrawPlanned
         || shouldDrawCard(world, strategy, plannedSpend)) {
         return { utility: urgentCmdRescue ? 108 : 82, boosted: true };
@@ -916,15 +1041,22 @@ function computeDrawCardUtility(world, strategy, planDrawPlanned, plannedSpend =
     return { utility: 10, boosted: false };
 }
 
-function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperatorPlan, candidates) {
+function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperatorPlan, candidates, fusion = null) {
     const planRankMap = new Map();
     const plannedCardCoords = new Set();
     const plannedMoveUnitIds = new Set();
+    const plannedMoveDestMap = new Map();
     let planDrawPlanned = false;
     imperatorPlan.forEach((act, idx) => {
         const k = plannedActionKey(act, state);
         if (k && !planRankMap.has(k)) planRankMap.set(k, idx);
-        if (act.type === 'move' && act.unitId != null) plannedMoveUnitIds.add(act.unitId);
+        if (act.type === 'move' && act.unitId != null) {
+            plannedMoveUnitIds.add(act.unitId);
+            if (!plannedMoveDestMap.has(act.unitId)) {
+                const dest = state.tileMap.get(`${act.tileQ},${act.tileR}`);
+                if (dest) plannedMoveDestMap.set(act.unitId, dest);
+            }
+        }
         if (act.type === 'drawCard') planDrawPlanned = true;
         if (act.type === 'tacticalCard') {
             const tile = state.tiles.find(t => t.unit?.id === act.targetId || t.id === act.targetId);
@@ -941,15 +1073,31 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
     const hostileCityTiles = world.cities.filter(c => c.hostile);
     const rivalUnitMap = new Map(world.rivalUnits.map(u => [u.id, u]));
     const plannedSpend = computePlannedSpend(state, camp, imperatorPlan);
+    const beamBonuses = computeBeamTacticalBonuses(state, world, strategy, candidates);
+    const attackBias = fusion?.attackBias || 0;
+    const moveBias = fusion?.moveBias || 0;
+    const cardBias = fusion?.cardBias || 0;
+    const beamScale = fusion?.beamWeight ?? 1.0;
 
     const hasPlannedMatch = candidates.some(c => planRankMap.has(c.key));
+    const hasOpenCapture = candidates.some(c => {
+        if (c.actionType !== 'move') return false;
+        const tile = state.tileMap.get(`${c.q},${c.r}`);
+        const u = world.myUnits.find(x => x.id === c.unitId);
+        return tile?.isCity && !tile.unit && Number(tile.hp || 0) <= 0 && canAttack(state, camp, tile.camp) && u && isFieldCapturer(world, u);
+    });
+    const prodMemoryReserve = Number(state._aiCoreMemory?.[campKey]?.strategicSaveReserve || 0);
+    const hasDrawOption = candidates.some(c => c.actionType === 'drawCard');
+    const hasHighValueDraw = hasDrawOption
+        && prodMemoryReserve <= 0
+        && computeDrawCardUtility(world, strategy, planDrawPlanned, plannedSpend).boosted;
     const utilities = new Float64Array(candidates.length);
     const vetoFlags = new Uint8Array(candidates.length);
 
     for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i];
         if (c.actionType === 'endTurn') {
-            if (hasPlannedMatch) {
+            if (hasPlannedMatch || hasOpenCapture || hasHighValueDraw) {
                 utilities[i] = -95;
                 vetoFlags[i] = 1;
             } else {
@@ -958,9 +1106,9 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
             continue;
         }
         if (c.actionType === 'drawCard') {
-            const { utility } = computeDrawCardUtility(world, strategy, planDrawPlanned, plannedSpend);
-            utilities[i] = utility;
-            if (utility < 0) vetoFlags[i] = 1;
+            const { utility, boosted } = computeDrawCardUtility(world, strategy, planDrawPlanned, plannedSpend);
+            utilities[i] = boosted ? utility + cardBias * 0.5 : utility;
+            if (utility < 0 || (prodMemoryReserve > 0 && world.gold - c.drawCost < prodMemoryReserve)) vetoFlags[i] = 1;
             continue;
         }
 
@@ -971,6 +1119,9 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
             if (rank !== undefined) utility = Math.max(utility, 122);
         } else if (c.actionType === 'chooseSpecialization') {
             utility = Math.max(utility, 96);
+        } else if (c.actionType === 'activateSkill') {
+            utility = rank !== undefined ? Math.max(utility, 102) : -70;
+            if (rank === undefined) vetoFlags[i] = 1;
         } else if (c.actionType === 'tacticalCard') {
             const matchesPlannedCard = plannedCardCoords.has(`${c.cardId}:${c.q},${c.r}`);
             if (!matchesPlannedCard && ['lightning', 'imprison', 'poison'].includes(c.cardId)) {
@@ -978,14 +1129,17 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                 utility = -95;
                 vetoFlags[i] = 1;
             } else if (matchesPlannedCard) {
-                utility = Math.max(utility, 92);
+                utility = Math.max(utility, 92 + cardBias);
             } else if (c.cardId === 'commanderDeploy') {
                 utility = Math.max(utility, 60);
+            } else {
+                utility += cardBias * 0.4;
             }
         } else if (c.actionType === 'attack') {
             if (rank === undefined && plannedMoveUnitIds.has(c.unitId)) {
-                // 该单位已承担 Imperator 机动/撤退/占城/腾位任务且原计划未安排顺手普攻，避免破坏路线纪律
-                utility = -25;
+                // 该单位已承担 Imperator 机动/撤退/占城/腾位任务且原计划未安排顺手普攻或攻城，严禁违抗撤退/推进纪律就地死战
+                utility = -85;
+                vetoFlags[i] = 1;
             } else if (!c.isCitySiege && c.targetId) {
                 const trade = planFollowupAttack(state, helpers, camp, TIER_CAPABILITIES.hard, c.unitId, c.targetId);
                 if (!trade) {
@@ -994,10 +1148,10 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                 } else {
                     const tu = rivalUnitMap.get(c.targetId);
                     const isKill = tu && Number(tu.hp || 0) <= 45;
-                    utility = Math.max(utility, 65 + (isKill ? 30 : 0) + (tu?.commander ? 18 : 0));
+                    utility = Math.max(utility, 65 + (isKill ? 30 : 0) + (tu?.commander ? 18 : 0)) + attackBias;
                 }
             } else {
-                utility = Math.max(utility, 68);
+                utility = Math.max(utility, 68) + attackBias * 0.6;
             }
         } else if (c.actionType === 'move') {
             const tile = state.tileMap.get(`${c.q},${c.r}`);
@@ -1011,11 +1165,25 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                 // 尚书驻守己方城市提供经济加成：除非 Imperator 明确规划腾位，否则不擅自离城
                 utility = -95;
                 vetoFlags[i] = 1;
-            } else if (tile && tile.isCity && !tile.unit && canAttack(state, camp, tile.camp) && unit && isFieldCapturer(world, unit)) {
-                utility = Math.max(utility, 114);
+            } else if (tile && tile.isCity && !tile.unit && Number(tile.hp || 0) <= 0 && canAttack(state, camp, tile.camp) && unit && isFieldCapturer(world, unit)) {
+                utility = Math.max(utility, 128);
+            } else if (rank === undefined && plannedMoveUnitIds.has(c.unitId)) {
+                // Imperator 已为该单位规划撤退或卡位机动路线：若备选格比规划目的地更危险或直面致命火网则硬否决，否则轻罚以尊重路线规划
+                const plannedDest = plannedMoveDestMap.get(c.unitId);
+                const candThreat = tile && unit ? world.threatAt(tile, unit) : 0;
+                const plannedThreat = plannedDest && unit ? world.threatAt(plannedDest, unit) : 0;
+                const myPool = unit ? (unit.hp + (unit.activeShield ?? unit._shield ?? 0)) : 100;
+                if (candThreat > plannedThreat + 5 || candThreat >= myPool) {
+                    utility = -95;
+                    vetoFlags[i] = 1;
+                } else {
+                    utility = -35;
+                }
             } else if (rank === undefined) {
                 const minHostileD = hostileCityTiles.reduce((best, hc) => Math.min(best, hexDistCoords(c.q, c.r, hc.q, hc.r)), 20);
-                utility = minHostileD <= 3 ? 12 : -10;
+                utility = (minHostileD <= 3 ? 12 : -10) + moveBias * 0.5;
+            } else {
+                utility += moveBias * 0.5;
             }
         } else if (c.actionType === 'recruit') {
             const siteKey = `${c.q},${c.r}`;
@@ -1028,22 +1196,54 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                 utility = 18;
             }
         } else if (c.actionType === 'reinforce') {
-            if (rank === undefined) utility = 22;
+            if (rank === undefined) utility = 26;
         } else if (c.actionType === 'buildFortification') {
             if (rank === undefined) {
                 utility = -65;
                 vetoFlags[i] = 1;
             }
         } else if (c.actionType === 'buildAirfield') {
-            if (rank === undefined && world.gold - CONSTRUCTION_CONFIG.airfield.cost < Math.max(16, plannedSpend + 8)) {
+            const cityTile = state.tileMap.get(`${c.q},${c.r}`);
+            const fragileFront = !cityTile || Number(cityTile.hp || 0) < 120
+                || (!cityTile.unit && world.threatAt(cityTile) > 35);
+            if (fragileFront || (rank === undefined && world.gold - CONSTRUCTION_CONFIG.airfield.cost < Math.max(16, plannedSpend + 8))) {
                 utility = -85;
                 vetoFlags[i] = 1;
             }
         } else if (c.actionType === 'airCommand') {
-            utility = Math.max(utility, c.commandKind === 'airdrop' ? 86 : c.commandKind === 'stukaDiveBomb' ? 78 : 40);
+            if (rank !== undefined) {
+                utility = Math.max(utility, 92);
+            } else if (c.commandKind === 'airdrop') {
+                const tile = state.tileMap.get(`${c.q},${c.r}`);
+                const isHostileEmptyCity = tile?.isCity && !tile.unit && canAttack(state, camp, tile.camp) && Number(tile.hp || 0) <= 60;
+                utility = isHostileEmptyCity ? 105 : -55;
+                if (!isHostileEmptyCity) vetoFlags[i] = 1;
+            } else {
+                // 常规轰炸/扫射统一交由 js/ai.js runAiAirCommands 按完整防空与预算纪律结算，避免回合中乱烧招募与抽牌金币
+                utility = -75;
+                vetoFlags[i] = 1;
+            }
+        }
+
+        if (!vetoFlags[i] && beamBonuses.has(c.key)) {
+            utility += beamBonuses.get(c.key) * beamScale;
         }
 
         utilities[i] = utility;
+    }
+
+    // 2-Ply 对抗式 MiniMax + Alpha-Beta 剪枝：对 Top 关键候选复检对手反扑与空城偷袭风险
+    const { bonuses: minimaxBonuses } = computeMinimaxAlphaBetaBonuses(state, world, strategy, candidates, {
+        preScores: utilities,
+        vetoFlags,
+        maxRootBranches: 16,
+        timeBudgetMs: 16
+    });
+    const minimaxScale = Math.min(1.25, beamScale);
+    for (let i = 0; i < candidates.length; i++) {
+        if (vetoFlags[i]) continue;
+        const mmBonus = minimaxBonuses.get(candidates[i].key);
+        if (mmBonus) utilities[i] += mmBonus * minimaxScale;
     }
 
     return { utilities, vetoFlags };
@@ -1120,59 +1320,29 @@ export function candidateToExecutorAction(cand, state, plannedAct = null) {
     }
 }
 
-const PREREQ_TYPES = new Set(['repairShip', 'heavyCannonStance', 'chooseSpecialization', 'droneDeploy']);
-
-function findPriorityPrerequisiteCandidate(imperatorPlan, candidates, state, camp) {
-    const candidateByKey = new Map(candidates.map(c => [c.key, c]));
-    const campKey = campToKey(camp);
-    const ministerReturn = state._aiCoreMemory?.[campKey]?.ministerReturn;
-    const currentRound = getRound(state);
-    for (const act of imperatorPlan || []) {
-        const isVacatedRecruitStep = ministerReturn && act.type === 'recruit'
-            && ministerReturn.vacatedRound === currentRound
-            && act.tileQ === ministerReturn.cityQ && act.tileR === ministerReturn.cityR;
-        const isMinisterReturnStep = ministerReturn && ministerReturn.vacatedRound < currentRound
-            && act.type === 'move' && (
-                (act.unitId === ministerReturn.unitId
-                    && act.tileQ === ministerReturn.cityQ && act.tileR === ministerReturn.cityR)
-                || state.tileMap.get(`${ministerReturn.cityQ},${ministerReturn.cityR}`)?.unit?.id === act.unitId
-            );
-        const isPrereq = PREREQ_TYPES.has(act.type)
-            || (act.type === 'move' && act.returnToCity)
-            || isVacatedRecruitStep
-            || isMinisterReturnStep;
-        if (!isPrereq) continue;
-        const k = plannedActionKey(act, state);
-        if (k && candidateByKey.has(k)) {
-            return { candidate: candidateByKey.get(k), plannedAct: act };
-        }
-    }
-    // 若首动作明确为「放弃旁支普攻直接赶路」的攻城推进（如战舰破城前步兵先到位），维持先后依赖顺序
-    const first = imperatorPlan?.[0];
-    if (first?.type === 'move') {
-        const k0 = plannedActionKey(first, state);
-        const match0 = k0 ? candidateByKey.get(k0) : null;
-        if (match0 && imperatorPlan.some(a => a.type === 'attack')
-            && candidates.some(c => c.actionType === 'attack' && c.unitId === first.unitId)) {
-            return { candidate: match0, plannedAct: first };
-        }
-    }
-    return null;
-}
-
 /**
- * 为当前局面从所有合法候选中选出 Hybrid（Imperator Z-score + MLP Z-score）最优选并转换为执行动作。
+ * 为当前局面从所有合法候选中选出 Hybrid（Micro BT + Beam 前瞻 + Imperator 规则 × MLP 策略网络，按学说融合）最优选并转换为执行动作。
  */
 export function selectHybridAction(gameState, helpers, myCamp, options = {}) {
     const world = buildWorld(gameState, helpers, myCamp, TIER_CAPABILITIES.hard);
     const strategy = decideStrategy(world);
     const imperatorPlan = planTurn(gameState, helpers, myCamp, TIER_CAPABILITIES.hard);
     const blockedKeys = options.blockedKeys || null;
+    const movedUnitIds = options.movedUnitIds || null;
+    const forceMarchedUnitIds = options.forceMarchedUnitIds || null;
 
     let candidates = enumerateHybridCandidates(gameState, myCamp, helpers, world);
-    if (blockedKeys && blockedKeys.size > 0) {
-        candidates = candidates.filter(c => c.actionType === 'endTurn' || !blockedKeys.has(c.key));
-    }
+    candidates = candidates.filter(c => {
+        if (c.actionType === 'endTurn') return true;
+        if (blockedKeys && blockedKeys.has(c.key)) return false;
+        if (c.actionType === 'move' && movedUnitIds?.has(c.unitId) && !forceMarchedUnitIds?.has(c.unitId)) {
+            const tile = gameState.tileMap?.get(`${c.q},${c.r}`);
+            const isOpenCityCap = tile?.isCity && !tile.unit && Number(tile.hp || 0) <= 0
+                && canAttack(gameState, myCamp, tile.camp);
+            if (!isOpenCityCap) return false;
+        }
+        return true;
+    });
     if (candidates.length <= 1) {
         return { action: { type: 'endTurn' }, candidate: candidates[0] || { actionType: 'endTurn' } };
     }
@@ -1183,33 +1353,57 @@ export function selectHybridAction(gameState, helpers, myCamp, options = {}) {
         if (k && !plannedByKey.has(k)) plannedByKey.set(k, act);
     }
 
-    const prereq = findPriorityPrerequisiteCandidate(imperatorPlan, candidates, gameState, myCamp);
+    // 1. 微观行为树优先接管专精/修船/空城即时兑现/腾位募兵与返城/天眼/先走后打等强时序链
+    const prereq = evaluateMicroBehaviorTree({
+        state: gameState,
+        camp: myCamp,
+        world,
+        imperatorPlan,
+        candidates
+    });
     if (prereq) {
         return {
             action: candidateToExecutorAction(prereq.candidate, gameState, prereq.plannedAct),
             candidate: prereq.candidate,
-            score: 10.0
+            score: 10.0,
+            btNode: prereq.node
         };
     }
 
-    const mlpLogits = scorePolicyCandidates(gameState, myCamp, candidates, helpers);
+    const cultureId = getActiveCultureId(gameState, myCamp);
+    const fusion = resolveHybridFusionProfile(world.doctrine, cultureId, strategy.posture);
+
+    const { logits: mlpLogits, values: qValues } = scorePolicyAndValueCandidates(
+        gameState, myCamp, candidates, helpers, fusion.styleTag
+    );
     const { utilities: impUtils, vetoFlags } = scoreCandidatesImperator(
-        gameState, helpers, myCamp, world, strategy, imperatorPlan, candidates
+        gameState, helpers, myCamp, world, strategy, imperatorPlan, candidates, fusion
     );
 
     const mlpStats = computeStats(mlpLogits, vetoFlags);
+    const valStats = computeStats(qValues, vetoFlags);
     const impStats = computeStats(impUtils, vetoFlags);
     const mlpStd = Math.max(0.25, mlpStats.std);
+    const valStd = Math.max(0.08, valStats.std);
     const impStd = Math.max(10.0, impStats.std);
+
+    const polWeight = fusion.mlpWeight * 0.78;
+    const valWeight = fusion.mlpWeight * 0.22 + 0.04;
+    const impWeight = Math.max(0.10, 1.0 - polWeight - valWeight);
 
     let bestIdx = candidates.length - 1;
     let bestScore = -Infinity;
 
     for (let i = 0; i < candidates.length; i++) {
-        const mlpZ = (mlpLogits[i] - mlpStats.mean) / mlpStd;
-        const impZ = (impUtils[i] - impStats.mean) / impStd;
-        let score = HYBRID_MLP_WEIGHT * mlpZ + HYBRID_IMP_WEIGHT * impZ;
-        if (vetoFlags[i]) score -= 6.0;
+        const rawMlpZ = ((mlpLogits[i] - mlpStats.mean) / mlpStd) / fusion.mlpTemp;
+        const rawValZ = (qValues[i] - valStats.mean) / valStd;
+        const rawImpZ = (impUtils[i] - impStats.mean) / impStd;
+        // 截断单边极值 Z-score（当非否决候选很少时 std 会坍缩），保证规则否决壁垒不可被极端 logit 冲垮
+        const mlpZ = Math.max(-3.5, Math.min(3.5, rawMlpZ));
+        const valZ = Math.max(-3.5, Math.min(3.5, rawValZ));
+        const impZ = Math.max(-3.5, Math.min(3.5, rawImpZ));
+        let score = polWeight * mlpZ + valWeight * valZ + impWeight * impZ;
+        if (vetoFlags[i]) score -= 50.0;
         if (score > bestScore) {
             bestScore = score;
             bestIdx = i;

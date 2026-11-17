@@ -291,8 +291,11 @@ function sampleRngUnit(rng) {
     return null;
 }
 
-function weightedDoctrinePick(weightsById, rng) {
-    const entries = IMPERATOR_DOCTRINE_IDS.map(id => [id, Math.max(0.05, Number(weightsById[id]) || 0.05)]);
+function weightedDoctrinePick(weightsById, rng, allowedIds = IMPERATOR_DOCTRINE_IDS) {
+    const poolIds = (allowedIds && allowedIds.length > 0 ? allowedIds : IMPERATOR_DOCTRINE_IDS)
+        .filter(id => Number(weightsById[id]) > 0);
+    const entries = (poolIds.length > 0 ? poolIds : ['grandmaster'])
+        .map(id => [id, Math.max(0.05, Number(weightsById[id]) || 0.05)]);
     const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
     const sample = sampleRngUnit(rng);
     if (sample == null) return 'grandmaster';
@@ -316,19 +319,39 @@ export function resolveImperatorDoctrine(gameState, myCampKey, context = {}) {
     const aiMemory = (gameState._aiCoreMemory ||= {});
     const campMemory = (aiMemory[myCampKey] ||= {});
     const round = Number(context.round ?? 0);
+    const isOceanMap = !!context.oceanMap;
+    const allowedIds = isOceanMap
+        ? IMPERATOR_DOCTRINE_IDS
+        : IMPERATOR_DOCTRINE_IDS.filter(id => id !== 'armada');
 
-    if (!campMemory.doctrine || !Object.hasOwn(IMPERATOR_DOCTRINES, campMemory.doctrine)) {
+    if (!campMemory.doctrine || !Object.hasOwn(IMPERATOR_DOCTRINES, campMemory.doctrine)
+        || (!isOceanMap && campMemory.doctrine === 'armada')) {
         const commanderIds = new Set(context.commanderIds || []);
         const cultureId = context.cultureId || null;
-        const weights = { grandmaster: 1.0, blitz: 1.0, armada: 1.0, trickster: 1.0 };
-        if (context.oceanMap) weights.armada += 0.65;
+        const weights = {
+            grandmaster: 1.0,
+            blitz: 1.0,
+            armada: isOceanMap ? 1.0 : 0,
+            trickster: 1.0
+        };
+        if (isOceanMap) {
+            weights.armada += 0.65;
+            if (['colonel', 'engineer', 'tianyan'].some(id => commanderIds.has(id))
+                || cultureId === 'de' || cultureId === 'us') {
+                weights.armada += 0.55;
+            }
+        } else {
+            if (commanderIds.has('engineer') || cultureId === 'fr' || cultureId === 'kmt') {
+                weights.grandmaster += 0.45;
+            }
+            if (commanderIds.has('colonel') || commanderIds.has('tianyan') || cultureId === 'de' || cultureId === 'us') {
+                weights.blitz += 0.35;
+                weights.trickster += 0.30;
+            }
+        }
         if (['centurion', 'berserker', 'vampire', 'paladin'].some(id => commanderIds.has(id))
             || cultureId === 'jp' || cultureId === 'fr') {
             weights.blitz += 0.55;
-        }
-        if (['colonel', 'engineer', 'tianyan'].some(id => commanderIds.has(id))
-            || cultureId === 'de' || cultureId === 'us') {
-            weights.armada += 0.55;
         }
         if (['diplomat', 'advisor', 'magician'].some(id => commanderIds.has(id))) {
             weights.trickster += 0.60;
@@ -336,7 +359,7 @@ export function resolveImperatorDoctrine(gameState, myCampKey, context = {}) {
         if (['minister', 'ironGuard', 'staller', 'priest'].some(id => commanderIds.has(id))) {
             weights.grandmaster += 0.45;
         }
-        const chosen = weightedDoctrinePick(weights, gameState.rng);
+        const chosen = weightedDoctrinePick(weights, gameState.rng, allowedIds);
         campMemory.openingDoctrine = chosen;
         campMemory.doctrine = chosen;
         campMemory.doctrineSinceRound = round;
@@ -421,6 +444,46 @@ export function resolveEffectiveWeights(caps, doctrine = null) {
         airdropReserveFloor: doctrine.airdropReserveFloor ?? 10,
         recruitOrderBias: doctrine.recruitOrderBias ?? 'balanced'
     });
+}
+
+/**
+ * 难度与风格调节层（Area 4）：学说 × 文化驱动的混合温度、MLP/规则融合权重与战术倾向偏置。
+ * 不同学说与国家文化呈现鲜明的攻防节奏差异，而不改变规则底线与合法性。
+ */
+export function resolveHybridFusionProfile(doctrine = null, cultureId = null, posture = 'contest') {
+    const id = doctrine?.id || 'grandmaster';
+    const baseByDoctrine = {
+        grandmaster: { mlpWeight: 0.42, impWeight: 0.58, mlpTemp: 0.92, beamWeight: 1.0, cardBias: 0, attackBias: 0, moveBias: 0, styleTag: 'grandmaster' },
+        blitz:       { mlpWeight: 0.48, impWeight: 0.52, mlpTemp: 0.84, beamWeight: 1.2, cardBias: -2, attackBias: 6, moveBias: 4, styleTag: 'blitz' },
+        armada:      { mlpWeight: 0.45, impWeight: 0.55, mlpTemp: 0.95, beamWeight: 1.05, cardBias: 2, attackBias: 2, moveBias: 0, styleTag: 'armada' },
+        trickster:   { mlpWeight: 0.52, impWeight: 0.48, mlpTemp: 1.12, beamWeight: 1.15, cardBias: 8, attackBias: 3, moveBias: 2, styleTag: 'trickster' }
+    };
+    const cfg = { ...(baseByDoctrine[id] || baseByDoctrine.grandmaster) };
+
+    if (posture === 'allin') {
+        cfg.attackBias += 5;
+        cfg.moveBias += 4;
+        cfg.beamWeight += 0.15;
+    } else if (posture === 'hold' || posture === 'defend') {
+        cfg.impWeight = Math.min(0.64, cfg.impWeight + 0.05);
+        cfg.mlpWeight = 1.0 - cfg.impWeight;
+        cfg.mlpTemp = Math.max(0.78, cfg.mlpTemp - 0.08);
+    }
+
+    if (cultureId === 'de' || cultureId === 'jp') {
+        cfg.attackBias += 3;
+        cfg.mlpTemp = Math.max(0.80, cfg.mlpTemp - 0.04);
+    } else if (cultureId === 'us' || cultureId === 'gb') {
+        cfg.cardBias += 3;
+    } else if (cultureId === 'fr' || cultureId === 'kmt') {
+        cfg.impWeight = Math.min(0.62, cfg.impWeight + 0.02);
+        cfg.mlpWeight = 1.0 - cfg.impWeight;
+    } else if (cultureId === 'cpc') {
+        cfg.moveBias += 3;
+        cfg.cardBias += 2;
+    }
+
+    return Object.freeze(cfg);
 }
 
 /** 攻击的账面金币净值：打出伤害 + 击杀溢价 − 预期反击成本。 */

@@ -12,8 +12,15 @@ import { meta as legatusMeta } from '../ai/legatus.js';
 import { meta as hybridMeta } from '../ai/hybrid.js';
 
 // 顺序即强度阶梯；id 仍是 easy/medium/hard，用于存档与 aiDifficulty 数值兼容。
+const AI_OPPONENT_EMOJI = Object.freeze({
+    easy: '🛡️',
+    medium: '⚔️',
+    hard: '🧠'
+});
+
 const AI_DIFFICULTY_CHOICES = [optioMeta, legatusMeta, hybridMeta].map(meta => ({
     id: meta.difficultyId,
+    emoji: AI_OPPONENT_EMOJI[meta.difficultyId] || '⚔️',
     title: meta.name
 }));
 
@@ -35,7 +42,7 @@ export function createPreparationController({
             const element = document.createElement('div');
             element.className = 'prep-option' + (choice.id === selected ? ' selected' : '');
             element.dataset.value = choice.id;
-            element.innerHTML = `<div class="prep-option-title">${choice.title}</div>${choice.desc ? `<div class="prep-option-desc">${choice.desc}</div>` : ''}`;
+            element.innerHTML = `${choice.emoji ? `<div class="prep-option-emoji" aria-hidden="true">${choice.emoji}</div>` : ''}<div class="prep-option-title">${choice.title}</div>${choice.desc ? `<div class="prep-option-desc">${choice.desc}</div>` : ''}`;
             element.addEventListener('click', () => {
                 container.querySelectorAll('.prep-option').forEach((option) => option.classList.remove('selected'));
                 element.classList.add('selected');
@@ -63,14 +70,14 @@ export function createPreparationController({
             </label>
         `;
         const modes = [
-            { id: FACTION_RULE_MODES.NONE, desc: '无阵营加成' },
-            { id: FACTION_RULE_MODES.CULTURE, desc: '特色兵种与国家特性' },
-            { id: FACTION_RULE_MODES.SYNERGY, desc: '双将激活阵营协同' }
+            FACTION_RULE_MODES.NONE,
+            FACTION_RULE_MODES.CULTURE,
+            FACTION_RULE_MODES.SYNERGY
         ];
-        document.getElementById('prepFactionModes').innerHTML = modes.map(mode => `
+        document.getElementById('prepFactionModes').innerHTML = modes.map(modeId => `
             <label class="prep-check-option">
-                <input type="radio" name="prepFactionMode" value="${mode.id}" ${mode.id === FACTION_RULE_MODES.NONE ? 'checked' : ''} />
-                <span class="prep-check-copy"><strong>${FACTION_RULE_MODE_LABELS[mode.id]}</strong><small>${mode.desc}</small></span>
+                <input type="radio" name="prepFactionMode" value="${modeId}" ${modeId === FACTION_RULE_MODES.NONE ? 'checked' : ''} />
+                <span class="prep-check-copy"><strong>${FACTION_RULE_MODE_LABELS[modeId]}</strong></span>
             </label>
         `).join('');
     }
@@ -88,7 +95,7 @@ export function createPreparationController({
             const previous = getSelection('prepOptionsMap');
             const playerCount = seats();
             buildOptionRow('prepOptionsMap', STANDARD_MAP_FAMILIES.filter(map => !map.prototype && Boolean(map.maps?.[playerCount]))
-                .map(map => ({ id: map.id, title: map.name, desc: map.description })));
+                .map(map => ({ id: map.id, title: map.name })));
             const options = [...document.querySelectorAll('#prepOptionsMap .prep-option')];
             const previousOption = options.find(option => option.dataset.value === previous);
             if (previousOption) {
@@ -117,18 +124,12 @@ export function createPreparationController({
             ]);
         } else {
             title.textContent = '标准对局';
-            document.getElementById('prepLabel1').textContent = '对战类型';
-            buildOptionRow('prepOptions1', [
-                { id: 'pve', title: 'PVE' },
-                { id: 'local', title: '本地热座', desc: '玩家轮流操作' }
-            ]);
+            // 标准对局默认即 PVE（本地演习统一由训练场入口进入），移除首行对战类型切换。
+            typeSection.classList.add('collapsed');
+            document.getElementById('prepOptions1').innerHTML = '';
+            document.getElementById('prepLabelDiff').textContent = '选择对手';
             buildOptionRow('prepOptionsDiff', AI_DIFFICULTY_CHOICES);
             difficultySection.classList.remove('hidden', 'collapsed');
-            const updateDifficulty = () => {
-                difficultySection.classList.toggle('hidden', getSelection('prepOptions1') !== 'pve');
-            };
-            document.getElementById('prepOptions1').addEventListener('click', () => setTimeout(updateDifficulty, 50));
-            updateDifficulty();
         }
 
         renderMaps();
@@ -170,23 +171,14 @@ export function createPreparationController({
             return;
         }
 
-        if (selectedType === 'pve') {
-            gameState.gameMode = 'pve';
-            gameState.skirmishFog = skirmishFog;
-            gameState.doubleCommanderMode = doubleCommanderMode;
-            gameState.aiOpponentCamp = null;
-            const difficulty = getSelection('prepOptionsDiff');
-            gameState.aiDifficulty = difficulty === 'medium' ? 1.5 : difficulty === 'hard' ? 2.0 : 1.0;
-            gameState.aiDifficultyId = difficulty === 'medium' || difficulty === 'hard' ? difficulty : 'easy';
-            beginPVECommanderPhase('player1');
-            return;
-        }
-
-        gameState.gameMode = skirmishFog ? 'skirmish' : 'local';
+        gameState.gameMode = 'pve';
         gameState.skirmishFog = skirmishFog;
         gameState.doubleCommanderMode = doubleCommanderMode;
         gameState.aiOpponentCamp = null;
-        beginCommanderPhase();
+        const difficulty = getSelection('prepOptionsDiff');
+        gameState.aiDifficulty = difficulty === 'medium' ? 1.5 : difficulty === 'hard' ? 2.0 : 1.0;
+        gameState.aiDifficultyId = difficulty === 'medium' || difficulty === 'hard' ? difficulty : 'easy';
+        beginPVECommanderPhase('player1');
     }
 
     function init() {
