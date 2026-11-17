@@ -506,6 +506,9 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
         if (defender.counterAttackCount >= 1 || defender._transportTransitionedThisTurn || defender._campaignNoCounter) return 0;
         if (attackerBase === 'submarine' && defenderBase !== 'submarine') return 0;
         if (attacker._isDrone && !defender._isDrone) return 0;
+        if (GUERRILLA_CONCEALMENT_CONFIG.ambushNoCounter && attacker.type === 'cpc_guerrilla'
+            && (isStealthGuerrilla(attacker) || (isCampCulture(state, attacker.camp, 'cpc')
+                && attacker.camp === state?.currentCamp && !getGuerrillaConcealmentReason(attacker, state)))) return 0;
         const distance = hexDistance ? hexDistance(attacker.tile, defender.tile) : 1;
         const range = Math.min(getAttackRangeCap(defender.type), defender.getEffectiveRange?.() ?? getUnitCombatRange(defender));
         if (distance < getMinimumAttackRange(defender.type) || distance > range) return 0;

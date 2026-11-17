@@ -17,8 +17,8 @@ import {
     spawnFreeResistanceWave,
     spawnRingWave,
     spawnDirectionalParticles,
-    spawnSlashMarks,
-    triggerAttackFlash
+    spawnGuerrillaConcealmentFx,
+    spawnGuerrillaAmbushFx
 } from './effects.js';
 import { playSound } from './audio.js';
 import { CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
@@ -42,21 +42,13 @@ on('fx:healParticles', ({ x, y }) => spawnHealParticles(x, y));
 on('fx:commanderSkill', ({ x, y, glyph, label }) => spawnCommanderSkillEffect(x, y, glyph, label));
 on('fx:guerrillaConcealment', ({ q, r, x, y, campKey }) => {
     if (!isFriendly(gameState, campKey, getViewingCamp()) || !isHistoricalEffectVisible({ q, r })) return;
-    spawnCommanderSkillEffect(x, y, '🌿', '隐匿');
-    spawnRingWave(x, y, { color: '#a9ed67', maxRadius: 46, duration: 630, lineWidth: 3.8, count: 2, glow: '#72e34e' });
-    spawnDirectionalParticles(x, y + 11, x, y - 3, '#bbef85', 12);
+    spawnGuerrillaConcealmentFx(x, y);
 });
-on('fx:guerrillaAmbush', ({ fromX, fromY, fromQ, fromR, x, y, q, r, dodged }) => {
+on('fx:guerrillaAmbush', ({ fromX, fromY, fromQ, fromR, x, y, q, r, dodged, killed, retreatMp }) => {
     if (!isHistoricalEffectVisible({ q, r })) return;
-    spawnCommanderSkillEffect(x, y, '⚡', '奇袭');
-    if (dodged) return;
-    if (isHistoricalEffectVisible({ q: fromQ, r: fromR })) {
-        spawnSlashMarks(x, y, fromX, fromY, true);
-        spawnDirectionalParticles(fromX, fromY, x, y, '#e7b361', 14);
-    }
-    triggerAttackFlash(x, y, true);
-    spawnRingWave(x, y, { color: '#f4ce76', maxRadius: 34, duration: 350, lineWidth: 2.8, glow: '#b96738' });
-    triggerScreenShake(4, 165);
+    const fxOriginX = isHistoricalEffectVisible({ q: fromQ, r: fromR }) ? fromX : x;
+    const fxOriginY = isHistoricalEffectVisible({ q: fromQ, r: fromR }) ? fromY : y;
+    spawnGuerrillaAmbushFx(fxOriginX, fxOriginY, x, y, { dodged, killed, retreatMp });
 });
 on('fx:morale', ({ unit }) => spawnMoraleEffect(unit));
 on('fx:factionMorale', ({ color }) => triggerFactionMoraleFlash(color));

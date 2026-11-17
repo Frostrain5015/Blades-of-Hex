@@ -18,7 +18,7 @@ import { hasFullAiIntelligence } from '../difficulty.js';
 import { campToKey } from '../../rules/camps.js';
 import { canAttack } from '../../rules/diplomacy.js';
 import { getRound, getRoundIndex } from '../../rules/turns.js';
-import { UNIT_CONFIG, canUnitBeRecruitedAtSite, getSpecializationOptions } from '../../rules/units.js';
+import { UNIT_CONFIG, canRecruitUniqueUnit, canUnitBeRecruitedAtSite, getSpecializationOptions } from '../../rules/units.js';
 import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
 import { CARD_SYSTEM_CONFIG } from '../../rules/constants.js';
 import { getBanzaiChargePath, resolveTargetingPreview } from '../../rules/targeting.js';
@@ -408,6 +408,7 @@ export function enumerateHybridCandidates(state, camp, helpers, world = null) {
                 ? helpers.getRecruitmentOptionsForTile(tile)
                 : fallbackRecruitOptions(tile, state, camp);
             for (const opt of opts) {
+                if (!canRecruitUniqueUnit(state, camp, opt.type)) continue;
                 const canAtSite = helpers.canRecruitTypeAtSite
                     ? helpers.canRecruitTypeAtSite(opt.type, tile)
                     : canUnitBeRecruitedAtSite(opt.type, tile.isPort ? 'port' : 'city');

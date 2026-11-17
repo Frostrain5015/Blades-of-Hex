@@ -71,11 +71,13 @@ export const BANZAI_CHARGE_CONFIG = Object.freeze({
 export const GUERRILLA_CONCEALMENT_CONFIG = Object.freeze({
     name: '敌后隐匿',
     icon: '🌿',
-    movementCost: 2,
+    movementCost: 1,
     durationRounds: 1,
     cooldown: 1,
-    ambushDamagePct: 0.65,
-    desc: '消耗2点行动力隐蔽行踪，施放后本回合仍可继续移动与攻击，效果最长持续至下一次己方回合结束。隐匿期间首次主动攻击敌军将触发【奇袭】，造成的伤害提高65%并立即显形（攻击被闪避同样消耗并显形）。1格内有敌军时会被敌方看见，但不会失去当次【奇袭】效果。显形后下一己方回合进入冷却。'
+    ambushDamagePct: 0.85,
+    ambushNoCounter: true,
+    ambushKillMovementRefund: 2,
+    desc: '消耗1点行动力隐蔽行踪，施放后本回合仍可继续移动与攻击，效果最长持续至下一次己方回合结束。隐匿期间首次主动攻击敌军将触发【奇袭】：造成伤害提高85%且目标本次无法反击（攻击被闪避同样消耗隐匿）；若【奇袭】击杀目标，立即返还2点行动力以便撤离战线。1格内有敌军时会被敌方看见，但不会失去当次【奇袭】效果。显形后下一己方回合进入冷却。'
 });
 
 export function getBanzaiBonusDamage(target) {
@@ -94,7 +96,7 @@ export function getGuerrillaConcealmentReason(unit, state) {
     if (unit._imprisoned) return '被禁锢';
     if (!unit.canAct || unit.isNewRecruit || unit.isEmbarked || unit._transportTransitionedThisTurn
         || unit._campaignCanAct === false || unit.hp <= 0 || unit.morale === 0) return '本回合无法行动';
-    if (!(unit.remainingMP >= GUERRILLA_CONCEALMENT_CONFIG.movementCost)) return '行动力不足（需2点）';
+    if (!(unit.remainingMP >= GUERRILLA_CONCEALMENT_CONFIG.movementCost)) return `行动力不足（需${GUERRILLA_CONCEALMENT_CONFIG.movementCost}点）`;
     return '';
 }
 

@@ -46,9 +46,9 @@ export const UNIT_CONFIG = deepFreeze({
         cultureId: 'kmt', isUniqueUnit: true, recruitmentSites: ['city']
     },
     cpc_guerrilla: {
-        name: '游击纵队', hp: 165, attack: 42, defense: 0.05, speed: 5, range: 1, cost: 8,
+        name: '游击纵队', hp: 175, attack: 50, defense: 0.05, speed: 6, range: 1, cost: 8,
         color: '#9e3b14', movementDomain: 'land', baseType: 'infantry',
-        cultureId: 'cpc', isUniqueUnit: true, recruitmentSites: ['city']
+        cultureId: 'cpc', isUniqueUnit: true, recruitmentSites: ['city'], recruitmentLimit: 2
     },
     jp_samurai: {
         name: '帝国武士', hp: 200, attack: 46, defense: 0.05, speed: 5, range: 1, cost: 9,
@@ -76,14 +76,39 @@ export function getAttackRangeCap(type) {
     return type === 'fr_heavy_cannon' ? 5 : 4;
 }
 
+export const DEFAULT_UNIQUE_RECRUITMENT_LIMIT = 2;
+
 export function getUniqueRecruitmentLimit(type) {
-    return isUniqueCultureUnit(type) ? (UNIT_CONFIG[type].recruitmentLimit ?? 2) : Infinity;
+    return isUniqueCultureUnit(type) ? (UNIT_CONFIG[type].recruitmentLimit ?? DEFAULT_UNIQUE_RECRUITMENT_LIMIT) : Infinity;
 }
 
 export function countLivingUnitsOfType(state, camp, type) {
     const campKey = campToKey(camp);
     return (state?.tiles || []).filter(({ unit }) =>
         unit?.type === type && unit.hp > 0 && campToKey(unit.camp) === campKey).length;
+}
+
+/** 特色兵种在场上限统一门控：返回当前存活数、上限、剩余可招名额及是否允许继续招募。 */
+export function getUniqueRecruitmentStatus(state, camp, type) {
+    const isUnique = isUniqueCultureUnit(type);
+    const limit = getUniqueRecruitmentLimit(type);
+    const count = isUnique && state && camp ? countLivingUnitsOfType(state, camp, type) : 0;
+    const remaining = isUnique ? Math.max(0, limit - count) : Infinity;
+    return {
+        isUnique,
+        limit,
+        count,
+        remaining,
+        allowed: !isUnique || remaining > 0
+    };
+}
+
+export function getRemainingUniqueRecruitmentSlots(state, camp, type) {
+    return getUniqueRecruitmentStatus(state, camp, type).remaining;
+}
+
+export function canRecruitUniqueUnit(state, camp, type) {
+    return getUniqueRecruitmentStatus(state, camp, type).allowed;
 }
 
 const DEFAULT_RECRUITMENT_SITES = Object.freeze({

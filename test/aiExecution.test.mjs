@@ -650,27 +650,63 @@ test('武士首次斩杀返还行动，两次斩杀均可叠加武运长久回�
     assert.equal(executeBanzaiCharge(samurai, targets[2].tile), false);
 });
 
-test('游击纵队消耗2行动力隐匿，贴身仍可奇袭，闪避也消耗隐匿', () => {
-    const { me, foe, home } = setupMatch();
+test('游击纵队消耗1行动力隐匿，奇袭+85%伤害且目标无法反击，击杀返还2点撤离行动力，闪避也消耗隐匿', () => {
+    const { me, foe, home, enemyCity } = setupMatch();
     const guerrilla = place('cpc_guerrilla', me, home);
     const target = place('infantry', foe, state.tileMap.get('1,0'));
     guerrilla._calcFloat = () => 1;
     assert.equal(executeGuerrillaConcealment(guerrilla), true);
-    assert.equal(guerrilla.remainingMP, 3);
+    assert.equal(guerrilla.remainingMP, 5);
     assert.equal(guerrilla.canAct, true);
     assert.equal(isUnitVisibleToCamp(guerrilla, foe, state), true);
     engine.attackUnit(guerrilla, target);
-    assert.equal(target.hp, 180 - Math.round(42 * 1.65));
+    const dmgBefore = 180 - target.hp;
+    assert.ok(dmgBefore >= 92 && dmgBefore <= 93, `奇袭伤害应约为 92~93，实测 ${dmgBefore}`);
+    assert.equal(guerrilla.hp, 175, '奇袭首击应压制目标反击');
     assert.equal(guerrilla._guerrillaHiddenThroughRound, null);
     assert.equal(guerrilla._guerrillaReadyRound, 2);
     assert.equal(executeGuerrillaConcealment(guerrilla), false);
+
+    // 奇袭斩杀脆皮后返还2点撤离行动力（不可二次攻击）
     guerrilla.canAct = true;
+    guerrilla.remainingMP = 6;
     state.turnCounter = 2 * state.turnOrder.length;
+    const squishy = place('archer', foe, state.tileMap.get('0,1'));
+    squishy._calcFloat = () => 1;
+    assert.equal(executeGuerrillaConcealment(guerrilla), true);
+    assert.equal(guerrilla.remainingMP, 5);
+    engine.attackUnit(guerrilla, squishy);
+    assert.equal(squishy.hp, 0);
+    assert.equal(guerrilla.canAct, true);
+    assert.equal(guerrilla._specializationAttackSpent, true);
+    assert.equal(guerrilla.remainingMP, 7);
+
+    // 闪避同样消耗隐匿
+    guerrilla._specializationAttackSpent = false;
+    guerrilla.canAct = true;
+    guerrilla.remainingMP = 6;
+    state.turnCounter = 4 * state.turnOrder.length;
     target.rollDodge = () => true;
     assert.equal(executeGuerrillaConcealment(guerrilla), true);
+    const hpPreDodge = target.hp;
     engine.attackUnit(guerrilla, target);
-    assert.equal(target.hp, 180 - Math.round(42 * 1.65));
+    assert.equal(target.hp, hpPreDodge);
     assert.equal(guerrilla._guerrillaHiddenThroughRound, null);
+
+    // 上限统一门控：cpc_guerrilla 最多在场2支，第3支不可招募
+    const g2 = place('cpc_guerrilla', me, state.tileMap.get('2,0'));
+    assert.ok(g2.hp > 0);
+    state.factionRuleMode = 'culture';
+    me.flagPreset = CULTURE_CONFIG.cpc.flagPreset;
+    const recruitCity = state.tileMap.get('0,-1');
+    recruitCity.isCity = true;
+    recruitCity.camp = me;
+    recruitCity.unit = null;
+    state.selectedCityTile = recruitCity;
+    state.playerGold.player1 = 50;
+    engine.recruitUnit('cpc_guerrilla');
+    assert.equal(recruitCity.unit, null, '达到2支上限后不得再招募第3支游击纵队');
+    void enemyCity;
 });
 
 test('游击纵队自然隐匿在下一次己方回合结束时失效，并冷却一回合', async () => {

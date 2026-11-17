@@ -38,6 +38,7 @@ import {
     updateHeavyCannonShells, drawHeavyCannonShells,
     updateKatyushaRockets, drawKatyushaRockets, getKatyushaPresentedHealth,
     updateBanzaiDashes, drawBanzaiDashes,
+    updateGuerrillaAmbushes, drawGuerrillaAmbushes,
     updateRingWaves, drawRingWaves
 } from './effects.js';
 import {
@@ -990,6 +991,8 @@ function _renderGame() {
     // 日本武士万岁冲锋残影 + 英国闪避/法国自由抵抗波纹
     updateBanzaiDashes(now);
     drawBanzaiDashes(ctx, now);
+    updateGuerrillaAmbushes(now);
+    drawGuerrillaAmbushes(ctx, now);
     updateRingWaves(now);
     drawRingWaves(ctx, now);
     if (gameState.kmtStrongholdImpacts.length) {

@@ -264,6 +264,20 @@ export function drawUnit(unit, gameState, { deathGhost = false } = {}) {
         const shieldRatio = unit._displayShield > 0.5 ? unit._displayShield / unit.maxHp : 0;
         const hpColor = resolveUnitHudColor(gameState, unit, hpRatio);
 
+        if (isStealthGuerrilla(unit)) {
+            const revealedByAdj = hasHostileUnitNear(unit, gs);
+            const pulse = 0.55 + Math.sin(time * 4.5) * 0.25;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(0, UNIT_BADGE_CENTER_Y, badgeR + 6, 0, Math.PI * 2);
+            ctx.strokeStyle = revealedByAdj ? `rgba(251, 146, 60, ${pulse})` : `rgba(74, 222, 128, ${pulse})`;
+            ctx.lineWidth = 2.2;
+            ctx.setLineDash([5, 4]);
+            ctx.lineDashOffset = -time * 18;
+            ctx.stroke();
+            ctx.restore();
+        }
+
         drawUnitBadge(ctx, {
             radius: badgeR,
             centerY: UNIT_BADGE_CENTER_Y,

@@ -3,12 +3,12 @@
  * advantage. This keeps ordinary coastal garrisons on their land strategy and
  * gives every AI personality the same movement-domain-aware response.
  */
-import { countLivingUnitsOfType, getUniqueRecruitmentLimit, getUnitBaseType } from './units.js';
+import { canRecruitUniqueUnit, getUnitBaseType } from './units.js';
 import { getActiveFactionCulture } from './cultures.js';
 
 export function getCulturalRecruitmentCandidate(state, camp) {
     const type = getActiveFactionCulture(state, camp)?.uniqueUnitType;
-    return type && countLivingUnitsOfType(state, camp, type) < getUniqueRecruitmentLimit(type) ? type : null;
+    return type && canRecruitUniqueUnit(state, camp, type) ? type : null;
 }
 
 export function prioritizeNavalRecruitment(city, baseTypes, tiles, aiCamp, isHostileFaction) {

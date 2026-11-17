@@ -2348,6 +2348,170 @@ export function drawBanzaiDashes(ctx2d, now) {
     }
 }
 
+export const guerrillaAmbushes = [];
+export const guerrillaVeils = [];
+
+/** 游击纵队进入隐匿：暗影绿雾旋涡收敛 + 潜行封印波纹 */
+export function spawnGuerrillaConcealmentFx(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const now = performance.now();
+    spawnCommanderSkillEffect(x, y, '🌿', '敌后隐匿', false, '#86efac');
+    spawnRingWave(x, y, { color: '#4ade80', maxRadius: 48, duration: 540, lineWidth: 3.4, count: 2, glow: '#16a34a' });
+    guerrillaVeils.push({ x, y, startTime: now, duration: 760 });
+    for (let i = 0; i < 16; i++) {
+        const angle = (Math.PI * 2 * i) / 16;
+        const dist = 28 + Math.random() * 14;
+        const sx = x + Math.cos(angle) * dist;
+        const sy = y + Math.sin(angle) * dist;
+        spawnDirectionalParticles(sx, sy, x, y, i % 3 === 0 ? '#bbf7d0' : '#22c55e', 1);
+    }
+}
+
+/** 游击纵队破隐奇袭：瞬影残像突进 + X形双刃斩光 + 得手烟遁撤离表现 */
+export function spawnGuerrillaAmbushFx(fromX, fromY, toX, toY, { killed = false, dodged = false, retreatMp = 0 } = {}) {
+    if (!Number.isFinite(fromX) || !Number.isFinite(fromY) || !Number.isFinite(toX) || !Number.isFinite(toY)) return;
+    const now = performance.now();
+    guerrillaAmbushes.push({
+        fromX, fromY, toX, toY,
+        killed: Boolean(killed),
+        dodged: Boolean(dodged),
+        startTime: now,
+        duration: killed ? 680 : 540
+    });
+    spawnCommanderSkillEffect(toX, toY, '🗡️', killed ? '奇袭斩杀' : '奇袭', true, killed ? '#fde047' : '#86efac');
+    if (dodged) {
+        spawnDodgeShimmer(toX, toY);
+        return;
+    }
+    triggerAttackFlash(toX, toY, true);
+    spawnDirectionalParticles(fromX, fromY, toX, toY, '#fde047', 12);
+    spawnDirectionalParticles(fromX, fromY, toX, toY, '#4ade80', 10);
+    spawnRingWave(toX, toY, {
+        color: killed ? '#fde047' : '#86efac',
+        maxRadius: killed ? 52 : 38,
+        duration: killed ? 520 : 380,
+        lineWidth: killed ? 3.5 : 2.6,
+        count: killed ? 2 : 1,
+        glow: killed ? '#ef4444' : '#22c55e'
+    });
+    triggerScreenShake(killed ? 7 : 4.5, killed ? 240 : 170);
+    if (killed && retreatMp > 0) {
+        setTimeout(() => {
+            guerrillaVeils.push({ x: fromX, y: fromY, startTime: performance.now(), duration: 640 });
+            spawnCommanderSkillEffect(fromX, fromY, '💨', `脱身 +${retreatMp}⚡`, true, '#a7f3d0');
+            spawnRingWave(fromX, fromY, { color: '#6ee7b7', maxRadius: 42, duration: 500, lineWidth: 2.8, glow: '#10b981' });
+        }, 160);
+    }
+}
+
+export function updateGuerrillaAmbushes(now) {
+    for (let i = guerrillaAmbushes.length - 1; i >= 0; i--) {
+        if (now - guerrillaAmbushes[i].startTime >= guerrillaAmbushes[i].duration) {
+            guerrillaAmbushes.splice(i, 1);
+        }
+    }
+    for (let i = guerrillaVeils.length - 1; i >= 0; i--) {
+        if (now - guerrillaVeils[i].startTime >= guerrillaVeils[i].duration) {
+            guerrillaVeils.splice(i, 1);
+        }
+    }
+}
+
+export function drawGuerrillaAmbushes(ctx2d, now) {
+    for (const v of guerrillaVeils) {
+        const t = Math.min(1, Math.max(0, (now - v.startTime) / v.duration));
+        const inv = 1 - t;
+        ctx2d.save();
+        // 内收暗影斗篷圆环 + 旋转叶影叶片
+        const shrinkR = 34 * (1 - t * 0.72);
+        ctx2d.globalAlpha = inv * 0.72;
+        ctx2d.strokeStyle = '#4ade80';
+        ctx2d.shadowColor = '#16a34a';
+        ctx2d.shadowBlur = 12;
+        ctx2d.lineWidth = 2.6 * inv + 0.8;
+        ctx2d.setLineDash([7, 5]);
+        ctx2d.lineDashOffset = -t * 36;
+        ctx2d.beginPath();
+        ctx2d.arc(v.x, v.y, Math.max(4, shrinkR), 0, Math.PI * 2);
+        ctx2d.stroke();
+        ctx2d.setLineDash([]);
+        for (let k = 0; k < 5; k++) {
+            const ang = t * 4.2 + (k * Math.PI * 2) / 5;
+            const px = v.x + Math.cos(ang) * (shrinkR * 0.85);
+            const py = v.y + Math.sin(ang) * (shrinkR * 0.85);
+            ctx2d.fillStyle = k % 2 === 0 ? 'rgba(20, 83, 45, 0.75)' : 'rgba(134, 239, 172, 0.85)';
+            ctx2d.beginPath();
+            ctx2d.ellipse(px, py, 6.5 * inv + 2, 3.2 * inv + 1, ang + 0.6, 0, Math.PI * 2);
+            ctx2d.fill();
+        }
+        ctx2d.restore();
+    }
+
+    for (const a of guerrillaAmbushes) {
+        const elapsed = Math.max(0, now - a.startTime);
+        const t = Math.min(1, elapsed / a.duration);
+        const alpha = 1 - t;
+        const dx = a.toX - a.fromX;
+        const dy = a.toY - a.fromY;
+        const baseAngle = Math.atan2(dy, dx);
+        ctx2d.save();
+
+        // 1. 瞬影残像突袭轨迹（3重暗影残影 + 幽翠绯金刃气拖尾）
+        const dashT = Math.min(1, elapsed / 170);
+        for (let ghost = 0; ghost < 3; ghost++) {
+            const gt = Math.max(0, Math.min(1, dashT - ghost * 0.16));
+            const gx = a.fromX + dx * gt;
+            const gy = a.fromY + dy * gt;
+            const gAlpha = alpha * (0.48 - ghost * 0.12);
+            if (gAlpha <= 0.01) continue;
+            ctx2d.globalAlpha = gAlpha;
+            ctx2d.fillStyle = ghost === 0 ? '#166534' : '#14532d';
+            ctx2d.strokeStyle = '#86efac';
+            ctx2d.lineWidth = 1.6;
+            ctx2d.beginPath();
+            ctx2d.arc(gx, gy, 13 - ghost * 2, 0, Math.PI * 2);
+            ctx2d.fill();
+            ctx2d.stroke();
+        }
+
+        // 双色突进流光线
+        ctx2d.globalAlpha = alpha * 0.88;
+        ctx2d.lineCap = 'round';
+        ctx2d.strokeStyle = a.killed ? '#ef4444' : '#22c55e';
+        ctx2d.shadowColor = a.killed ? '#fca5a5' : '#86efac';
+        ctx2d.shadowBlur = 12;
+        ctx2d.lineWidth = 4.5 * alpha + 1;
+        ctx2d.beginPath();
+        ctx2d.moveTo(a.fromX, a.fromY);
+        ctx2d.lineTo(a.fromX + dx * dashT, a.fromY + dy * dashT);
+        ctx2d.stroke();
+
+        // 2. 目标处 X 形交叉利刃破隐斩击（仅未闪避时爆裂）
+        if (!a.dodged && elapsed >= 60) {
+            const slashT = Math.min(1, (elapsed - 60) / (a.duration - 60));
+            const slashAlpha = Math.max(0, 1 - slashT);
+            const bladeLen = 28 + slashT * 14;
+            for (const dir of [-0.72, 0.72]) {
+                const ang = baseAngle + dir;
+                const ux = Math.cos(ang);
+                const uy = Math.sin(ang);
+                const nx = -uy;
+                const ny = ux;
+                ctx2d.globalAlpha = slashAlpha * 0.95;
+                ctx2d.fillStyle = a.killed ? '#fef08a' : '#dcfce7';
+                ctx2d.shadowColor = a.killed ? '#ef4444' : '#4ade80';
+                ctx2d.shadowBlur = 14;
+                ctx2d.beginPath();
+                ctx2d.moveTo(a.toX - ux * bladeLen, a.toY - uy * bladeLen);
+                ctx2d.quadraticCurveTo(a.toX + nx * 6 * slashAlpha, a.toY + ny * 6 * slashAlpha, a.toX + ux * bladeLen, a.toY + uy * bladeLen);
+                ctx2d.quadraticCurveTo(a.toX - nx * 4 * slashAlpha, a.toY - ny * 4 * slashAlpha, a.toX - ux * bladeLen, a.toY - uy * bladeLen);
+                ctx2d.fill();
+            }
+        }
+        ctx2d.restore();
+    }
+}
+
 // ===== 清除所有瞬时效果（用于联机重连状态恢复） =====================
 export function clearTransientEffects() {
     particles.length = 0;
@@ -2366,6 +2530,8 @@ export function clearTransientEffects() {
     heavyCannonShells.length = 0;
     katyushaRockets.length = 0;
     banzaiDashes.length = 0;
+    guerrillaAmbushes.length = 0;
+    guerrillaVeils.length = 0;
     ringWaves.length = 0;
     torpedoes.length = 0;
     torpedoSplashes.length = 0;

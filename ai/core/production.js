@@ -9,7 +9,7 @@ import { W, isImperatorTier } from './weights.js';
 import { isFieldCapturer, shouldReserveCityGarrison } from './roster.js';
 import { canRepairShipAtPort } from '../../rules/naval.js';
 import { canReinforceAtTile } from '../../rules/healing.js';
-import { canUnitBeRecruitedAtSite, countLivingUnitsOfType, getUniqueRecruitmentLimit, getUnitBaseType } from '../../rules/units.js';
+import { canUnitBeRecruitedAtSite, getUniqueRecruitmentStatus, getUnitBaseType } from '../../rules/units.js';
 import { getHistoricalCost, getHistoricalRecruitCost, getCulturalReinforceCostScale, getHeavyCannonStanceBlock, isHeavyCannonDeployed } from '../../rules/cultures.js';
 import { getCulturalRecruitmentCandidate } from '../../rules/aiRecruitment.js';
 import { getKmtLinkedUnits, getKmtReinforceDeficit, getKmtSharedHealth } from '../../rules/kmtStronghold.js';
@@ -155,8 +155,9 @@ export function planProduction(world, strategy, missionsCtx) {
     const isCapturerType = type => !['archer', 'warship', 'shoreBattery', 'submarine', 'carrier', 'destroyer', 'drone', 'mgNest']
         .includes(getUnitBaseType(type));
     const uniqueType = getCulturalRecruitmentCandidate(world.gameState, world.myCamp);
-    const uniqueCount = uniqueType ? countLivingUnitsOfType(world.gameState, world.myCamp, uniqueType) : 0;
-    let uniqueSlots = uniqueType ? getUniqueRecruitmentLimit(uniqueType) - uniqueCount : 0;
+    const uniqueStatus = uniqueType ? getUniqueRecruitmentStatus(world.gameState, world.myCamp, uniqueType) : null;
+    const uniqueCount = uniqueStatus ? uniqueStatus.count : 0;
+    let uniqueSlots = uniqueStatus ? uniqueStatus.remaining : 0;
     const cityUnique = uniqueType && canUnitBeRecruitedAtSite(uniqueType, 'city');
     const uniqueCanCapture = cityUnique && getUnitBaseType(uniqueType) !== 'archer';
     const canRecruit = (type, site) => !helpers.canRecruitTypeAtSite || helpers.canRecruitTypeAtSite(type, site);

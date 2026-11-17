@@ -1,4 +1,5 @@
 import { LOG_LIMIT, UNIT_CONFIG, invalidateBoard, WEATHER_CONFIG, HEX_NEIGHBORS, hexEdge, HEX_SIZE, getRound } from './config.js';
+import { getUniqueRecruitmentStatus } from '../rules/units.js';
 import { computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { getCommander, getCommanderRecruitCost } from './commanderInterface.js';
 import { isNetworkGame, isMyTurn, getMyRole, sendAction } from './network.js';
@@ -224,7 +225,10 @@ export function updateRecruitCostDisplay() {
         const badge = option.flagBadge && btn.querySelector('.recruit-flag-badge');
         if (badge) paintFlagBadgeCanvas(badge, option.flagBadge, { size: 28, fallbackGlyph: ' ' });
         if (typeEl) typeEl.textContent = option.label;
-        if (option.isUnique) btn.title = `${option.label}（特色兵种，快捷键 ${option.shortcut}）`;
+        if (option.isUnique) {
+            const capStatus = getUniqueRecruitmentStatus(gameState, gameState.currentCamp, option.type);
+            btn.title = `${option.label}（特色兵种 ${capStatus.count}/${capStatus.limit}，快捷键 ${option.shortcut}）`;
+        }
         if (!costSpan) continue;
         const baseCost = UNIT_CONFIG[option.type].cost;
         const cost = _getRecruitCost(option.type);

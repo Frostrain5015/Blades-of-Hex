@@ -1,6 +1,6 @@
 import { UNIT_CONFIG, hexDistance, invalidateBoard, HEX_NEIGHBORS, TERRAIN_CONFIG, calcIncome, WEATHER_CYCLE, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, DECK_COMPOSITION, SKIRMISH_EXTRAS, VILLAGE_GOLD, applyNeutralEconomyRate, VILLAGE_MIN_DIST, HEX_SIZE, COLONEL_CARDS, COLONEL_CARD_GOLD, COMMANDER_REROLL_COST, getRound, getRoundIndex, getFactionCount } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
-import { isStrongpointTarget, isBuildingUnit, isStaticBattleStructure, canUnitBeRecruitedAtSite, isUniqueCultureUnit, getAttackRangeCap, getMinimumAttackRange, getUniqueRecruitmentLimit, countLivingUnitsOfType } from '../rules/units.js';
+import { isStrongpointTarget, isBuildingUnit, isStaticBattleStructure, canUnitBeRecruitedAtSite, isUniqueCultureUnit, getAttackRangeCap, getMinimumAttackRange, getUniqueRecruitmentLimit, getUniqueRecruitmentStatus, countLivingUnitsOfType } from '../rules/units.js';
 import {
     calculateCityStructureDamage,
     damageCityPool,
@@ -754,6 +754,13 @@ function applyHistoricalOpening(standardMap) {
     const replacements = new Map();
     if (!isCultureSystemEnabled(gameState) || normalizeStandardMapFamilyId(standardMap.id) === 'river-valley') return replacements;
     const activeCamps = new Set(gameState.turnOrder.filter(key => key !== 'neutral'));
+    const plannedUniqueCounts = new Map();
+    for (const unit of standardMap.initialUnits || []) {
+        if (isUniqueCultureUnit(unit.type)) {
+            const key = `${unit.camp}:${unit.type}`;
+            plannedUniqueCounts.set(key, (plannedUniqueCounts.get(key) || 0) + 1);
+        }
+    }
     for (const airfield of standardMap.board.installations || []) {
         const { camp, q, r } = airfield;
         if (airfield.type !== 'airfield' || !activeCamps.has(camp)) continue;
@@ -766,6 +773,8 @@ function applyHistoricalOpening(standardMap) {
         gameState.playerGold[camp] = gold;
         gameState.previousGold[camp] = gold;
         if (!type) continue;
+        const uniqueKey = `${camp}:${type}`;
+        if ((plannedUniqueCounts.get(uniqueKey) || 0) >= getUniqueRecruitmentLimit(type)) continue;
 
         const city = gameState.tileMap.get(`${q},${r}`);
         if (!city?.isCity) continue;
@@ -778,7 +787,10 @@ function applyHistoricalOpening(standardMap) {
             original = standardMap.initialUnits.filter(unit => unit.camp === camp && unit.type === 'warship')
                 .sort((a, b) => portDistance(a) - portDistance(b))[0];
         }
-        if (original) replacements.set(original, type);
+        if (original && !replacements.has(original)) {
+            replacements.set(original, type);
+            plannedUniqueCounts.set(uniqueKey, (plannedUniqueCounts.get(uniqueKey) || 0) + 1);
+        }
     }
     return replacements;
 }
@@ -2027,9 +2039,9 @@ export function recruitUnit(type) {
             notify('当前阵营无法招募该特色兵种', 'error');
             return;
         }
-        const limit = getUniqueRecruitmentLimit(type);
-        if (countLivingUnitsOfType(gameState, gameState.currentCamp, type) >= limit) {
-            notify(`已达到${config.name}的在场上限（${limit}支）`, 'info');
+        const capStatus = getUniqueRecruitmentStatus(gameState, gameState.currentCamp, type);
+        if (!capStatus.allowed) {
+            notify(`已达到${config.name}的在场上限（${capStatus.limit}支）`, 'info');
             return;
         }
     }
@@ -3055,9 +3067,6 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     }
 
     if (ambush) {
-        ambushFx = { fromX, fromY, fromQ: attackerStartTile.q, fromR: attackerStartTile.r,
-            x: toX, y: toY, q: primaryTargetTile.q, r: primaryTargetTile.r, dodged: attackDodged };
-        emit('fx:guerrillaAmbush', ambushFx);
         const target = targetUnit.config.name;
         logMessage(attackDodged
             ? `⚡ ${attackerUnit.camp.name}游击纵队发动【奇袭】，但被${target}闪避，行踪暴露`
@@ -3201,7 +3210,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
         _cmdFxData = _atkCmdFxCapture;
 
         const targetConverted = !!atkCmdResult?.converted;
-        if (!isTargetDead && !targetConverted) {
+        const ambushBlockedCounter = ambush && GUERRILLA_CONCEALMENT_CONFIG.ambushNoCounter === true;
+        if (!isTargetDead && !targetConverted && !ambushBlockedCounter) {
             // 连续承受攻击经验：第x次受击奖励(x-1)点经验
             targetUnit._timesAttackedThisTurn = (targetUnit._timesAttackedThisTurn || 0) + 1;
             const enduranceXp = targetUnit._timesAttackedThisTurn - 1;
@@ -3352,8 +3362,16 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             const specializationKillHeal = attackerUnit.getSpecializationAbility?.('killHeal') || 0;
             if (specializationKillHeal > 0) attackerUnit.heal(Math.round(attackerUnit.maxHp * specializationKillHeal));
             const canActAgain = (killResult && killResult.canActAgain) || (atkCmdResult && atkCmdResult.canActAgain);
+            const ambushKillRefund = ambush && !attackDodged ? (GUERRILLA_CONCEALMENT_CONFIG.ambushKillMovementRefund || 0) : 0;
             if (!canActAgain) {
-                attackerUnit.canAct = false;
+                if (ambushKillRefund > 0) {
+                    attackerUnit.remainingMP = Math.max(0, attackerUnit.remainingMP || 0) + ambushKillRefund;
+                    attackerUnit.canAct = true;
+                    attackerUnit._specializationAttackSpent = true;
+                    logMessage(`💨 ${attackerUnit.camp.name}游击纵队【奇袭】得手，获得${ambushKillRefund}点撤离行动力`);
+                } else {
+                    attackerUnit.canAct = false;
+                }
             } else {
                 _deferImpactFx(() => {
                     spawnGoldenFlame(fromX, fromY);
@@ -3380,6 +3398,17 @@ function _attackUnit(attackerUnit, targetUnit, options) {
         } else {
             gameState.attackableTiles = [];
             refreshChainAttackPlans(null);
+        }
+        if (ambush) {
+            const retreatMp = (isTargetDead && !attackDodged)
+                ? (GUERRILLA_CONCEALMENT_CONFIG.ambushKillMovementRefund || 0)
+                : 0;
+            ambushFx = {
+                fromX, fromY, fromQ: attackerStartTile.q, fromR: attackerStartTile.r,
+                x: toX, y: toY, q: primaryTargetTile.q, r: primaryTargetTile.r,
+                dodged: attackDodged, killed: isTargetDead && !attackDodged, retreatMp
+            };
+            emit('fx:guerrillaAmbush', ambushFx);
         }
         recalcAllFlankingMorale();
         if (gameState.skirmishFog) _updateSkirmishFogAll();

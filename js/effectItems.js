@@ -209,7 +209,7 @@ export function buildUnitEffectItems(unit, gameState) {
             key: 'culture:stealth',
             icon: GUERRILLA_CONCEALMENT_CONFIG.icon,
             label: GUERRILLA_CONCEALMENT_CONFIG.name,
-            desc: `对敌军隐蔽行踪；首次主动攻击将触发【奇袭】，造成的伤害提高${Math.round(GUERRILLA_CONCEALMENT_CONFIG.ambushDamagePct * 100)}%并显形（1格内存在敌军时会被敌方侦测，但主动攻击仍可触发【奇袭】）。`,
+            desc: `对敌军隐蔽行踪；首次主动攻击将触发【奇袭】，造成伤害提高${Math.round(GUERRILLA_CONCEALMENT_CONFIG.ambushDamagePct * 100)}%且目标无法反击，命中击杀还将返还${GUERRILLA_CONCEALMENT_CONFIG.ambushKillMovementRefund || 0}点撤离行动力（1格内存在敌军时会被侦测，但主动攻击仍可触发【奇袭】）。`,
             color: exposed ? '#ff9b72' : '#8fd18b',
             status: exposed ? '已被侦测 奇袭就绪' : '隐匿中 奇袭就绪',
             kind: 'effect'
