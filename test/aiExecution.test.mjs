@@ -6,6 +6,8 @@ const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
 globalThis.setTimeout = (callback, ms = 0, ...args) =>
     nativeSetTimeout(callback, Math.max(0, Math.round(ms * 0.02)), ...args);
 const { engine } = await import('../core/headless.js');
+const { frameInfo } = await import('../js/config.js');
+const { startUnitMovePath } = await import('../js/unitRenderer.js');
 const { processOpponentTurn, processNeutralTurn, configureAiRuntime } = await import('../js/ai.js');
 const { applyRemoteState, refreshInspectionSelection, serializeState, setInspectionTarget } = await import('../js/state.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
@@ -1241,4 +1243,43 @@ test('非网络对局（或联机断线回落本地后），controller=ai 的对
     assert.ok(events.length > 0, '断线/本地模式下 controller=ai 席位应自动触发 AI 动作');
     assert.equal(state.currentCamp, me, '断线/本地模式下 controller=ai 席位应自动执行完回合而非停在敌方回合等待手点');
     assert.ok(state.playerGold.player2 !== 12 || aiUnit.tile !== enemyCity, 'player2 AI 必须实际执行过生产或机动动作');
+});
+
+test('Hybrid 位移动画保护：startUnitMovePath 不受陈旧 frameInfo.now 侵蚀，且 move 执行后先让出动画时长再算下一步', async () => {
+    const prevFrameNow = frameInfo.now;
+    frameInfo.now = 1;
+    const dummyUnit = {};
+    startUnitMovePath(dummyUnit, [{ x: 0, y: 0 }, { x: 10, y: 0 }]);
+    assert.ok(dummyUnit.movePathStart > 1, 'movePathStart 应跟随最新 performance.now()，不能被陈旧上一帧时间戳吃掉动画预算');
+    assert.equal(dummyUnit.movePathDuration, 120);
+    frameInfo.now = prevFrameNow;
+
+    const { me, foe, home, enemyCity } = setupMatch();
+    const mover = place('cavalry', me, state.tileMap.get('2,0'));
+    mover.startMovePath = path => startUnitMovePath(mover, path);
+    place('infantry', foe, enemyCity);
+    state.playerGold.player1 = 0;
+
+    const recordedWaits = [];
+    const wrappedSetTimeout = globalThis.setTimeout;
+    let sawMove = false;
+    globalThis.setTimeout = (cb, ms = 0, ...args) => {
+        if (sawMove && ms > 0) recordedWaits.push(ms);
+        return wrappedSetTimeout(cb, ms, ...args);
+    };
+    const restore = configureAiRuntime({
+        delayScale: 1,
+        actionTimeoutMs: 30000,
+        onAction: event => {
+            if (event.phase === 'before') sawMove = event.action?.type === 'move';
+        }
+    });
+    try {
+        await processOpponentTurn(me);
+    } finally {
+        restore();
+        globalThis.setTimeout = wrappedSetTimeout;
+    }
+    assert.ok(mover.tile !== state.tileMap.get('2,0'), 'AI 骑兵应执行机动位移');
+    assert.ok(recordedWaits.some(ms => ms >= 150 && ms < 1000), `AI 移动后必须先等待完整 movePathDuration（实测等待列表: ${recordedWaits.join(',')}）`);
 });

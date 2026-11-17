@@ -102,7 +102,11 @@ export function getUnitVisualPos(unit) {
 export function startUnitMovePath(unit, path, { delayMs = 0 } = {}) {
         if (!path || path.length < 2) return;
         unit.movePath = path;
-        unit.movePathStart = frameInfo.now + delayMs;
+        const now = Math.max(
+            Number(frameInfo.now) || 0,
+            typeof performance !== 'undefined' ? performance.now() : 0
+        );
+        unit.movePathStart = now + delayMs;
         unit.movePathDuration = (path.length - 1) * 120 / (settings.animationSpeed || 1);
     }
 

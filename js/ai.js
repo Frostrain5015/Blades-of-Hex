@@ -109,6 +109,19 @@ async function delay(ms) {
     await waitForFactionSynergyPresentations();
 }
 
+// 位移动画启动后必须先向浏览器交还主线程直到 movePathDuration 结束，
+// 否则 Hybrid 下一步同步 selectNextAction（约 30~250ms）会直接卡掉整段短距移动动画导致单位闪现。
+async function waitForUnitMovePresentation(unit) {
+    if (_runtimeOptions.delayScale <= 0) return;
+    const duration = Number(unit?.movePathDuration || 0);
+    if (!unit?.movePath || duration <= 0) return;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const endsAt = Number(unit.movePathStart || now) + duration;
+    const waitMs = Math.max(16, Math.ceil(Math.max(0, endsAt - now) * _runtimeOptions.delayScale) + 32);
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+    await waitForFactionSynergyPresentations();
+}
+
 /**
  * 浏览器回合看门狗：按军团规模预留演出时间，不再用固定 18 秒截断大军团的后半套动作。
  * 纯计算公式放在 ai/strategy.js，方便无浏览器环境做回归测试。
@@ -803,6 +816,7 @@ async function _executeActionInner(action, aiCamp) {
             executeGuerrillaConcealment(unit);
         }
         attackUnit(unit, target, followup.holdPosition ? { ...AI_TARGETING, holdPosition: true } : AI_TARGETING);
+        await waitForUnitMovePresentation(unit);
         return true;
     }
 
@@ -826,6 +840,7 @@ async function _executeActionInner(action, aiCamp) {
                     executeGuerrillaConcealment(unit);
                 }
                 attackUnit(unit, target, attackOptions);
+                await waitForUnitMovePresentation(unit);
                 // 百夫长乘胜 / 击杀后再行动：循环追击直到无法行动（最多3次防死循环）
                 for (let chain = 0; chain < 3 && unit.canAct && unit.tile && unit.hp > 0; chain++) {
                     if (!(await _autoAttack(unit))) break;
@@ -862,6 +877,7 @@ async function _executeActionInner(action, aiCamp) {
                 gameState.movableTiles = aiMoveTiles;
                 moveUnit(unit, targetTile);
                 if (unit.tile !== targetTile) return false;
+                await waitForUnitMovePresentation(unit);
                 if (action.returnToCity && unit.commander === 'minister') {
                     const memory = ((gameState._aiCoreMemory ||= {})[campKey] ||= {});
                     memory.ministerReturn = {
@@ -1028,6 +1044,7 @@ async function _executeActionInner(action, aiCamp) {
             if (!unit || !targetTile || unit.type !== 'jp_samurai' || !unit.canAct || !targetTile.unit) return;
             await delay(AI_DELAY);
             if (!executeBanzaiCharge(unit, targetTile)) return false;
+            await waitForUnitMovePresentation(unit);
             const profile = resolveAiDifficultyProfile(gameState, aiCamp);
             if (unit._banzaiFollowupTurn === gameState.turnCounter && unit.canAct && unit.hp > 0
                 && (Number(profile?.replanPasses) || 1) <= 1) {
@@ -1040,6 +1057,7 @@ async function _executeActionInner(action, aiCamp) {
                 if (followup) {
                     await delay(AI_DELAY);
                     executeBanzaiCharge(unit, followup);
+                    await waitForUnitMovePresentation(unit);
                 }
             }
             return true;
@@ -1203,6 +1221,9 @@ export async function processOpponentTurn(aiCamp) {
                 const executed = await executeAction(action, aiCamp);
                 if (!executed && pick?.candidate?.key) {
                     blockedKeys.add(pick.candidate.key);
+                    if (_runtimeOptions.delayScale > 0) {
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
                 } else if (executed) {
                     if (action.type === 'tacticalCard' && action.cardId === 'forceMarch' && action.targetId) {
                         forceMarchedUnitIds.add(action.targetId);
